@@ -1115,7 +1115,7 @@
     if (!su || su.busy || !md || !state.fs || !state.me) return;
     var pid = M.parse(md).meta.process, sfs = state.fs, g = gen, by = state.me;
     su.busy = true; render();
-    var open = function () { setView('process'); state.processId = pid; state.ptab = 'edit'; state.mapVer = null; resetRunUi(); dropEditor(pid); var p = currentProcess(); if (p) openEditor(p); state.focus = 'draft-editor'; say('This is your first checklist. Change what you like, choose Save draft, then Done to publish it.', 'good'); render(); window.scrollTo(0, 0); };
+    var open = function () { setView('process'); state.processId = pid; state.ptab = 'edit'; state.mapVer = null; resetRunUi(); dropEditor(pid); var p = currentProcess(); if (p) openEditor(p); state.focus = 'draft-editor'; say('This is your first checklist. Change what you like, choose Save draft, then Review & publish.', 'good'); render(); window.scrollTo(0, 0); };
     queued(function () { return repo.saveDraft(sfs, pid + '.md', md, null, { lock: LOCKS ? lock : null, expectText: null }); }).then(function (res) {
       if (g !== gen) return null;
       if (res.conflict && res.theirs !== md) { su.busy = false; say('A draft called ' + pid + '.md is already in the folder, so nothing was replaced. Open it from Processes.', 'warn'); render(); return null; }
@@ -1208,8 +1208,11 @@
      nothing it hasn't written yet, and announces nothing. */
   var startEpoch = 0, startMe = state.me;
   function planStill(g, fs, key, who) { var ep = startEpoch; return function () { return g === gen && ep === startEpoch && state.fs === fs && fsKey() === key && state.me === who; }; }
-  /* Why a planned action was dropped, said in the window it was asked in. */
-  function droppedWhy(g, fs, key) { return g === gen && state.fs === fs && fsKey() === key ? 'the person using this window changed' : 'another folder was opened'; }
+  /* Messages about an action whose folder or person changed before it finished (2.3.1) say which it was about. */
+  function folderWord(fs) { return fs && fs.name ? fs.name : 'the folder it was in'; }
+  function sameFolder(g, fs, key) { return g === gen && state.fs === fs && fsKey() === key; }
+  function nothingWritten(g, fs, key, who) { return sameFolder(g, fs, key) ? 'Nothing was written for ' + personName(who) + ': the person was changed.' : 'Nothing was written to ' + folderWord(fs) + ': another folder was opened.'; }
+  function aboutWhat(still, g, fs, key, who) { return still() ? '' : sameFolder(g, fs, key) ? 'For ' + personName(who) + ': ' : 'In ' + folderWord(fs) + ': '; }
   function forgetStartIfNotMine() {
     if (state.me !== startMe) { startEpoch++; startMe = state.me; }
     var gone = false;
@@ -2512,7 +2515,7 @@
       if (x) { R.evidenceFor(r, x.step, null, d.map).list.forEach(function (ev) { names['rec-' + ev.name] = true; }); var tt = T.get(x.step.type || 'confirm', types.types || {}); if (tt) T.editable(tt).forEach(function (f) { names['fld-' + f] = true; }); }
       var vals = [];
       ['record', 'fields'].forEach(function (part) { Object.keys(dr[part] || {}).forEach(function (b) { if (!names[b] && String(dr[part][b]).trim()) vals.push({ name: b.replace(/^(rec|fld)-/, ''), value: dr[part][b] }); }); });
-      if (vals.length) kept[id] = { id: id, text: x ? x.step.text : dr.text || id, values: vals, gone: !x };
+      if (vals.length) kept[id] = { id: id, text: x ? M.shownText(x.step, function (n) { return e.st.sample[n] || ''; }) : dr.text || id, values: vals, gone: !x };
     });
     if (model) {
       var goneIds = model.gone.filter(function (id) { return !PR.isTemp(id); });
@@ -2522,7 +2525,7 @@
     var details = map ? (map.meta.context || []).map(function (n) {
       var dd = PF.run.detailValueDef(map, n), hint = dd && dd.options && dd.options.length ? 'one of ' + dd.options.join(', ') : dd && dd.kind && dd.kind !== 'text' ? dd.kind : '';
       var by = model && model.setBy[n] ? M.findStep(map, model.setBy[n]) : null;
-      return { name: n, value: e.st.sample[n] || '', hint: hint, setBy: by ? by.step.text : '' };
+      return { name: n, value: e.st.sample[n] || '', hint: hint, setBy: by ? M.shownText(by.step, function (n) { return e.st.sample[n] || ''; }) : '' };
     }) : [];
     var saving = (state.draftSaving || {})[edKey(p.id)];
     var P = { key: key, pid: p.id, title: p.title, model: model, steps: steps, gates: gates, kept: kept, gone: gone, from: model ? model.from : null, details: details,
@@ -2895,7 +2898,7 @@
     var ok = prDo(p.id, how === 'reopen' ? 'Reopen the phase' : how === 'waive' ? 'Waive the gate' : 'Pass the gate', function (st, map) { var r = PR.gateAct(st, map, pi, how, why, prEnv(), new Date().toISOString()); if (r.error && how === 'waive') { e.gateErr = { pi: pi, msg: r.error }; return { state: st }; } return r; }, null, 'gate:' + pi);
     var c = prMap(e, prText(p)), g = c.map && c.map.phases[pi] ? c.map.phases[pi].gate : null;
     if (!ok && e.gateErr) { state.focus = 'pick-input'; render(); return; }
-    if (ok) { if (g && how !== 'reopen') { dropDraft(prKey(p.id), 'gate:' + g.id, ['record']); prKeepTyped(p.id); } state.pick = null; var nxt = c.map && c.map.phases[pi + 1]; state.focus = how === 'pass' && nxt ? 'ph-' + nxt.id : g ? '#gate-' + cssEsc(g.id) + ' button:not([disabled])' : 'run-h'; render(); }
+    if (ok) { if (g && how !== 'reopen') { dropDraft(prKey(p.id), 'gate:' + g.id, ['record']); prKeepTyped(p.id); } if (!(state.pick && state.pick.kind === 'fields')) state.pick = null; var pm2 = how === 'pass' ? prModel() : null; if (pm2 && pm2.r && pm2.map) { afterPass(R.nextUp(pm2.r, pm2.map, state.me), pm2.map, true); render(); return; } state.focus = g ? '#gate-' + cssEsc(g.id) + ' button:not([disabled])' : 'run-h'; render(); }
   }
   /* Run-screen actions the practice page allows, with any condition on their payload; pr-* are practice's own. */
   var PRACTICE_OK = { toggle: 1, record: 1, na: 1, clear: 1, select: 1, goto: 1, 'to-ins': 1, 'to-row': 1, 'close-ref': 1, unfold: 1, fold: 1, pick: function (b) { return !!b && /^(fields|pass|waive)$/.test(b.dataset.kind || ''); }, unpick: 1, 'save-fields': 1, pass: 1, waive: 1, reopen: 1, dismiss: 1, help: 1, copy: 1, zoom: 1, 'zoom-phase': 1, 'zoom-gate': 1, nav: function (b) { return !!b && b.dataset.id === 'processes'; } };
@@ -4510,7 +4513,7 @@
       }).then(function (res) {
         if (sg !== gen) return;
         if (res && res.dropped) { say('Nothing was signed off: the person using this window changed before it could be saved.', 'warn'); render(); return; }
-        state.pick = null; say('Signed off v' + pub.info.version + ' as ready for a skill.', 'good'); return load(true);
+        state.pick = null; say('Signed off v' + pub.info.version + ' as ready to automate.', 'good'); return load(true);
       }, function (e) { if (sg !== gen) return; say('Couldn\'t save the sign-off: ' + e.message, 'bad'); render(); });
     },
     /* The brief an AI assistant needs to create a skill from a signed-off version, or to update one after the process changed. */
@@ -4962,12 +4965,12 @@
         return repo.decidePlan(rfs, plan, { action: 'retargeted', sha: plan._sha, lock: LOCKS ? lock : null, still: still, write: function () { return repo.recordPlanStatus(rfs, plan, WRITER, 'retargeted', null, who, { folder: pub.info.folder, version: pub.info.version }, APP_VERSION); } });
       }).then(function (res) {
         state.planRetargeting = false;
-        if (res && res.dropped) { say('The plan wasn\'t switched: ' + droppedWhy(g, rfs, rkey) + ' before it could be saved. Nothing was written. Open the plan again to switch it.', 'warn'); render(); return; }
+        if (res && res.dropped) { say('The plan wasn\'t switched. ' + nothingWritten(g, rfs, rkey, who) + ' Open the plan again to switch it.', 'warn'); render(); return; }
         if (g !== gen) return;
         if (!still()) return load(true);
         state.planDiff = false; state.focus = 'start-submit';
         return load(true).then(function () { if (!still()) return; say('This plan now starts on v' + pub.info.version + '.', 'good'); render(); });
-      }, function (e) { state.planRetargeting = false; if (g === gen) { say('Couldn\'t switch it: ' + e.message, 'bad'); render(); } });
+      }, function (e) { state.planRetargeting = false; say(aboutWhat(still, g, rfs, rkey, who) + 'Couldn\'t switch it: ' + e.message, 'bad'); render(); });
     },
     /* Try again (2.1.1): the run a planned start reserved, saved from the exact bytes kept, in this window, for the same person.
        Each plan keeps its own (state.pendingStarts, by plan ID), so another plan's failed start never takes it away. */
@@ -4982,10 +4985,10 @@
       var still = function () { return g === gen && state.pendingStarts[k.plan] === k && state.fs === k.fs && fsKey() === k.key && state.me === k.me; };
       queued(function () {
         if (!still()) return { dropped: true };
-        return repo.resumeStart(k.fs, k.plan, k, { me: k.me, lock: LOCKS ? lock : null, still: still });
+        return repo.resumeStart(k.fs, k.plan, k, { me: k.me, lock: LOCKS ? lock : null, still: still, writing: function () { k.certain = false; if (state.msg && state.msg.pendingStart) state.msg = null; render(); } });
       }).then(function (res) {
         state.resuming = false;
-        if (res && res.dropped) { releaseNav(held); say('The run wasn\'t saved: ' + (g === gen && state.fs === k.fs && fsKey() === k.key ? 'the person using this window changed' : 'another folder was opened') + '. Nothing was written.', 'warn'); render(); return null; }
+        if (res && res.dropped) { releaseNav(held); say('The run wasn\'t saved. ' + nothingWritten(g, k.fs, k.key, k.me), 'warn'); render(); return null; }
         if (g !== gen) { releaseNav(held); return null; }
         if (state.pendingStarts[k.plan] === k) delete state.pendingStarts[k.plan];
         /* Saved for the person who asked, who has since changed (even changed back): nobody is taken to it or told it started. */
@@ -4993,9 +4996,15 @@
         heldOwn(held, function () { if (state.planId === k.plan) state.planId = null; }); state.planPick = null; state.planDiff = false;
         return load(true).then(function () { return true; });
       }).then(function (ok) { if (!ok) return; releaseNav(held); if (!same()) { if (g === gen) render(); return; } openRun(k.process + '/' + k.id); say('Run started.', 'good'); render(); },
-        function (e) { state.resuming = false; releaseNav(held); if (g === gen) { say('Couldn\'t save the run: ' + e.message, 'bad'); render(); } });
+        function (e) {
+          state.resuming = false; releaseNav(held);
+          /* Certainty belongs to every attempt together: once a save may have landed, it stays unknown until one is confirmed. */
+          if (e && e.maybeWritten) k.certain = false;
+          if (e && /was saved and has changed since/.test(e.message || '')) k.saved = true;
+          say(aboutWhat(same, g, k.fs, k.key, k.me) + (k.saved ? 'Couldn\'t save the run: ' : k.certain === false ? 'Flightdeck couldn\'t confirm whether the run saved: ' : 'Couldn\'t save the run: ') + e.message, 'bad'); render();
+        });
     },
-    'decline-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0], g = gen; if (!p) return; if (planHeld(p)) { say(planHeld(p), 'warn'); render(); return; } var dfs = state.fs, dkey = fsKey(), who = state.me, still = planStill(g, dfs, dkey, who); queued(function () { if (!still()) return { dropped: true }; return repo.decidePlan(dfs, p, { action: 'declined', sha: p._sha, lock: LOCKS ? lock : null, still: still, write: function () { return repo.recordPlanStatus(dfs, p, WRITER, 'declined', null, who, null, APP_VERSION); } }); }).then(function (res) { if (res && res.dropped) { say('The plan wasn\'t declined: ' + droppedWhy(g, dfs, dkey) + ' before it could be saved. Nothing was written.', 'warn'); render(); return; } if (g !== gen) return; if (!still()) return load(true); home(); say('Plan declined. It stays in the folder for reference.'); return load(true); }, function (e) { if (g === gen) { say('Couldn\'t decline it: ' + e.message, 'bad'); render(); } }); },
+    'decline-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0], g = gen; if (!p) return; if (planHeld(p)) { say(planHeld(p), 'warn'); render(); return; } var dfs = state.fs, dkey = fsKey(), who = state.me, still = planStill(g, dfs, dkey, who); queued(function () { if (!still()) return { dropped: true }; return repo.decidePlan(dfs, p, { action: 'declined', sha: p._sha, lock: LOCKS ? lock : null, still: still, write: function () { return repo.recordPlanStatus(dfs, p, WRITER, 'declined', null, who, null, APP_VERSION); } }); }).then(function (res) { if (res && res.dropped) { say('The plan wasn\'t declined. ' + nothingWritten(g, dfs, dkey, who), 'warn'); render(); return; } if (g !== gen) return; if (!still()) return load(true); home(); say('Plan declined. It stays in the folder for reference.'); return load(true); }, function (e) { say(aboutWhat(still, g, dfs, dkey, who) + 'Couldn\'t decline it: ' + e.message, 'bad'); render(); }); },
     diff: function (id) { state.diffOf = state.diffOf === id ? null : id; render(); },
     publish: function (id) {
       var p = processes().filter(function (x) { return x.id === id; })[0], note = (document.getElementById('change-note') || {}).value || '';
@@ -5132,7 +5141,8 @@
       if (new Date(iso) < Date.now() - 12 * 3600000) iso = new Date(new Date(iso).getTime() + 86400000).toISOString();
       mutate(function (r, map, me, now) { R.setDeadline(r, map, id, iso, me, now); });
     },
-    pass: function (pi) { mutate(function (r, map, me, now) { R.pass(r, map, +pi, me, now); state.justPassed = map.phases[+pi].gate.id; var nxt = map.phases[+pi + 1]; if (nxt) state.focus = 'ph-' + nxt.id; }); },
+    /* Passing closes only the gate's own forms: the step it moves to keeps its Fill in, as selecting it does (2.3.1). */
+    pass: function (pi) { var o = { only: null }; mutate(function (r, map, me, now) { R.pass(r, map, +pi, me, now); o.only = state.justPassed = map.phases[+pi].gate.id; state.edit = null; afterPass(R.nextUp(r, map, me), map, false); }, o); },
     waive: function (pi) { var why = val('pick-input'); mutate(function (r, map, me, now) { R.waive(r, map, +pi, why, me, now); }); },
     fail: function (pi) { var why = val('pick-input') || 'Failed'; mutate(function (r, map, me, now) { R.fail(r, map, +pi, why, me, now); }); },
     reopen: function (pi) { mutate(function (r, map, me, now) { R.reopen(r, map, +pi, me, now); }); },
@@ -6044,7 +6054,7 @@
         if (!here() || !processes().some(function (x) { return x.id === f.id; })) { say('Created the draft for "' + f.title + '". Open it from Processes.', 'good'); render(); return; }
         if (!publish) {
           setView('process'); state.processId = f.id; state.ptab = 'edit'; dropEditor(f.id); var np = currentProcess(); if (np) openEditor(np); state.newProc = null;
-          var msg = 'Draft created. Fill in the steps, choose Save draft, then Done to publish it.'; state.focus = 'draft-editor';
+          var msg = 'Draft created. Fill in the steps, choose Save draft, then Review & publish.'; state.focus = 'draft-editor';
           /* A blank one opens ready to type its steps; Practice in the header runs it on the run screen. */
           if (np && (f.tpl === 'blank' || !f.tpl)) {
             var ph0 = PF.outline.parse(edText(np)).phases[0];
@@ -6097,7 +6107,7 @@
     /* A decision on the plan that can't be read could say it was started already: nothing starts until it reads. */
     if (plan && planHeld(plan)) { say(planHeld(plan), 'warn'); render(); return; }
     /* A plan whose run is waiting on Try again here is decided: it's never started again. */
-    if (plan && Object.prototype.hasOwnProperty.call(state.pendingStarts, plan.id)) { say('This plan is marked started, but its run didn\'t save. Use Try again to save that run; nothing else starts it.', 'warn'); render(); return; }
+    if (plan && Object.prototype.hasOwnProperty.call(state.pendingStarts, plan.id)) { say('This plan is marked started, but ' + PF.vk.unsavedWords(state.pendingStarts[plan.id]) + '. Use Try again to save that run; nothing else starts it.', 'warn'); state.msg.pendingStart = true; render(); return; }
     /* Two different copies of the plan (OneDrive kept both): nothing starts until a person deletes one. */
     if (plan && plan._copiesDiffer) { say('Two different copies of this plan are in the folder. Delete the wrong one, then start it.', 'warn'); render(); return; }
     /* Decisions on the plan started to disagree after this form was drawn: show the warning before anything starts. */
@@ -6130,19 +6140,19 @@
       } });
     }).then(function (res) {
       endBusy();
-      if (res && res.dropped) { releaseNav(held); say('The plan wasn\'t started: ' + droppedWhy(sg, sfs, skey) + ' before it could be saved. Nothing was written.', 'warn'); render(); return null; }
+      if (res && res.dropped) { releaseNav(held); say('The plan wasn\'t started. ' + nothingWritten(sg, sfs, skey, who), 'warn'); render(); return null; }
       if (sg !== gen) { releaseNav(held); return null; }
       if (!still()) { releaseNav(held); return load(true).then(function () { return null; }); }
       heldOwn(held, function () { state.planId = null; }); state.planPick = null; state.planDiff = false; return load(true).then(function () { return true; });
     }).then(function (ok) { if (!ok) return; releaseNav(held); if (!still()) { render(); return; } openRun(r.process + '/' + r.id); say(R.solo(r) ? 'Run started.' : 'Run started. You\'re recording.', 'good'); state.msg.quiet = true; render(); },
       function (err) {
-        endBusy(); releaseNav(held); if (sg !== gen) return;
+        endBusy(); releaseNav(held);
         if (dec && err && err.pending && still()) {
           state.pendingStarts[plan.id] = { plan: plan.id, title: plan.title || plan.id, fs: sfs, key: skey, me: who, process: r.process, id: r.id, path: err.pending.path, text: err.pending.text, certain: err.pending.certain, cand: err.pending.cand, dec: dec };
-          say('The plan is marked started, but its run didn\'t save (' + err.message + '). Try again.', 'bad'); state.msg.pendingStart = true; render(); return;
+          say('The plan is marked started, but ' + PF.vk.unsavedWords(err.pending) + ' (' + err.message + '). Try again.', 'bad'); state.msg.pendingStart = true; render(); return;
         }
-        if (dec && err && err.pending) { say('The plan is marked started, but its run didn\'t save (' + err.message + '). The person using this window changed while it was saving, so Try again isn\'t offered here.', 'warn'); render(); return; }
-        say('Couldn\'t start the run: ' + err.message, 'bad'); render();
+        if (dec && err && err.pending) { say(aboutWhat(still, sg, sfs, skey, who) + 'The plan is marked started, but ' + PF.vk.unsavedWords(err.pending) + ' (' + err.message + '). The person using this window changed while it was saving, so Try again isn\'t offered here.', 'warn'); render(); return; }
+        say(aboutWhat(still, sg, sfs, skey, who) + 'Couldn\'t start the run: ' + err.message, 'bad'); render();
       });
   });
 
@@ -6157,7 +6167,7 @@
     form.querySelectorAll('[data-detail]').forEach(function (el) { details[el.dataset.detail] = inputValue(el); });
     form.querySelectorAll('[data-role]').forEach(function (el) { roles[el.dataset.role] = el.value; });
     var title = val('run-title') || p.title, tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (err) { tz = ''; }
-    var sfs = state.fs, sg = gen, who = state.me, made = null;
+    var sfs = state.fs, skey = fsKey(), sg = gen, who = state.me, made = null, still = planStill(sg, sfs, skey, who);
     var mk = function (stage) { return R.create(stage, { test: true, title: title, details: details, roles: roles, by: who, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, app: APP_VERSION, pins: pinsAtStart(stage) }); };
     /* The form's values are checked now, so a typed detail that doesn't read is said before anything is read again. */
     try { mk(ts.stage); } catch (err) { if (err.field) state.focus = 'detail-' + err.field; say(err.message, 'warn'); render(); return; }
@@ -6165,13 +6175,14 @@
     var endBusy = busyStart(), held = holdNav(false), done = function () { testBusy = false; endBusy(); };
     queued(function () {
       return repo.startTestRun(sfs, p.id, folder, { session: SESSION, writer: WRITER, lock: LOCKS ? lock : null,
-        still: function () { return sg === gen && state.fs === sfs && state.me === who; }, make: function (stage) { made = mk(stage); return made; } });
+        still: still, make: function (stage) { made = mk(stage); return made; } });
     }).then(function (res) {
-      done(); if (sg !== gen || (res && res.dropped)) { releaseNav(held); if (sg === gen) { say('Nothing was started: another folder was opened, or the person using this window changed.', 'warn'); render(); } return null; }
+      done(); if (res && res.dropped) { releaseNav(held); say('The test run wasn\'t started. ' + nothingWritten(sg, sfs, skey, who), 'warn'); render(); return null; }
+      if (!still()) { releaseNav(held); return load(true).then(function () { return null; }); }
       state.testStage = null;
       return load(true).then(function () { return true; });
-    }).then(function (ok) { if (!ok) return; releaseNav(held); if (sg !== gen) return; openRun(made.process + '/' + made.id); say('Test run started. It isn\'t counted with the real runs.', 'good'); state.msg.quiet = true; render(); },
-      function (err) { done(); releaseNav(held); if (sg !== gen) return; say('Couldn\'t start the test run: ' + err.message, 'bad'); render(); });
+    }).then(function (ok) { if (!ok) return; releaseNav(held); if (!still()) { render(); return; } openRun(made.process + '/' + made.id); say('Test run started. It isn\'t counted with the real runs.', 'good'); state.msg.quiet = true; render(); },
+      function (err) { done(); releaseNav(held); say(aboutWhat(still, sg, sfs, skey, who) + (err && err.maybeWritten ? 'Flightdeck couldn\'t confirm whether the test run started (' + err.message + '). Check Runs before starting another.' : 'Couldn\'t start the test run: ' + err.message), 'bad'); if (err && err.maybeWritten) load(true).then(render); else render(); });
   }
 
   /* Getting started's people, and Settings' Add a person. */
@@ -6406,7 +6417,7 @@
     else { var r = ctx.run(); it = r && (r._notes || []).filter(function (x) { return x.id === id; })[0]; }
     return it && (it.files || []).indexOf(path) >= 0 ? it : null;
   }
-  function noteStepText(id) { var r = ctx.run(), x = r && M.findStep(R.mapOf(r), id); return x ? x.step.text : id; }
+  function noteStepText(id) { var r = ctx.run(), x = r && M.findStep(R.mapOf(r), id); return x ? M.shownText(x.step, M.valuesOf(r)) : id; }
   /* Typed evidence, Fill in values and a note's text belong to their run and step. They're kept here while the person moves
      around the run (J/K, clicks, auto-advance), drawn back into the boxes on return, and dropped only when used or canceled.
      An open Fill in is remembered too, so it reopens. */
@@ -6571,6 +6582,24 @@
     if (el && el.focus) el.focus();
   }
   /* One way to select a step, for the mouse and the keyboard alike. An open Fill in is remembered with its step. */
+  /* After a gate passes (2.3.1): go where Next up now points. A step: select it (kept typing and forms go with the step
+     being left) and focus its check; a phase whose steps are all held: its heading, selecting nothing; another gate: its
+     button; the end: Finish (practice: its completion line). Typing on the selected step keeps the selection where it is. */
+  function afterPass(nx, map, practice) {
+    var pp = practice ? prNow() : null, dk = practice ? (pp ? prKey(pp.id) : null) : state.runKey;
+    var keep = !!state.sel && ((dk && hasDraft(draftOf(dk, state.sel, false))) || (state.pick && state.pick.kind === 'fields' && state.pick.id === state.sel) || (!practice && state.corrForm && state.corrForm.key === state.runKey && state.corrForm.step === state.sel));
+    if (nx.kind === 'step' && nx.step) {
+      var id = nx.step.id || nx.step;
+      if (keep) { state.focus = 'ph-' + map.phases[nx.phaseIndex].id; return; }
+      if (practice) prPickStep(id); else selectStep(id);
+      /* A step that starts a child run has no check to focus; its title in the inspector takes it, as after an answer. */
+      var child = nx.step.type === 'run.process';
+      state.focus = (narrow() && state.refOpen) || child ? 'ins-h' : '[data-act="toggle"][data-id="' + cssEsc(id) + '"]';
+      if (child) state.refOpen = true;
+    } else if (nx.kind === 'step' && map.phases[nx.phaseIndex]) state.focus = 'ph-' + map.phases[nx.phaseIndex].id;
+    else if (nx.kind === 'gate' && nx.gate) state.focus = '#gate-' + cssEsc(nx.gate.id || nx.gate) + ' .btn.go';
+    else if (nx.kind === 'complete') state.focus = practice ? '.pr-done' : '[data-act="finish"]';
+  }
   function selectStep(id) {
     if (state.sel !== id) {
       state.attErr = null;
@@ -6672,7 +6701,7 @@
   function afterAnswer(id, was) {
     var r = ctx.run(), map = r && R.mapOf(r), x = map && M.findStep(map, id), a = r && r.steps[id];
     if (!x || !a || a.s !== 'done') return;
-    var title = '"' + x.step.text + '" checked.';
+    var rv = M.valuesOf(r), title = '"' + M.shownText(x.step, rv) + '" checked.';
     /* Typed text lives in its box, so a note or suggestion being written keeps the selection where it is. Waiting files are
        kept with their own step either way. */
     harvest();
@@ -6684,7 +6713,7 @@
       /* A step that starts a child run has no check to focus; its title in the inspector takes focus instead. */
       selectStep(nxt.id); state.focus = (narrow() && state.refOpen) || nxt.type === 'run.process' ? 'ins-h' : '[data-act="toggle"][data-id="' + cssEsc(nxt.id) + '"]';
       if (nxt.type === 'run.process') state.refOpen = true;
-      say(title + ' Next: "' + nxt.text + '".', ''); state.msg.quiet = true; render(); reveal('#step-' + cssEsc(nxt.id));
+      say(title + ' Next: "' + M.shownText(nxt, rv) + '".', ''); state.msg.quiet = true; render(); reveal('#step-' + cssEsc(nxt.id));
       return;
     }
     /* On a phone the step sheet closes first, so the gate can take focus. */
@@ -6851,7 +6880,7 @@
     }
     if ((e.key === ' ' || e.key === 'x') && state.sel) { e.preventDefault(); if (!e.repeat) dispatch('toggle', state.sel); return; }
     if (e.key === 'e' && state.sel && m.P.canEdit(state.sel)) { e.preventDefault(); dispatch('pr-edit', state.sel); return; }
-    if (e.key === 'f' && state.sel) { var fs = m.P.steps[state.sel]; if (fs && fs.fill) { e.preventDefault(); dispatch('pick', state.sel, { dataset: { kind: 'fields' } }); } }
+    if (e.key === 'f' && state.sel) { var fs = m.P.steps[state.sel]; if (fs && fs.fill) { e.preventDefault(); dispatch('pick', state.sel, { dataset: { kind: 'fields' } }); } else if (fs) { e.preventDefault(); say('Nothing to fill in for this step.', ''); state.msg.quiet = true; render(); } }
   }
   Object.keys(prActs).forEach(function (k) { ACTIONS[k] = prActs[k]; });
   navBoot();

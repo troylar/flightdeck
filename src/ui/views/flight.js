@@ -56,7 +56,7 @@
     var t = T.get(s.type, types), by = auto.filter(function (x) { return x.skill.steps.indexOf(s.id) >= 0; }).map(function (x) { return x.skill.name; });
     var meta = (s.must ? '<span class="badge b-must">Must do</span>' : '') + by.map(function (n) { return '<span class="badge b-skill">' + I('spark') + esc(n) + '</span>'; }).join('') +
       (s.roles.length ? '<span class="pv-role">@' + esc(s.roles.join(' @')) + '</span>' : ''), cond = K.whenWords(s);
-    return '<li>' + (t ? I(t.icon, t.label) : '<span class="ic"></span>') + '<div class="pv-body"><button type="button" class="fp-step" data-act="go" ' + go + ' data-step="' + esc(s.id) + '">' + esc(s.text) +
+    return '<li>' + (t ? I(t.icon, t.label) : '<span class="ic"></span>') + '<div class="pv-body"><button type="button" class="fp-step" data-act="go" ' + go + ' data-step="' + esc(s.id) + '">' + K.stepHtml(s, null, false) +
       '<span class="sr">. Show it in the checklist</span></button>' + (cond ? '<span class="pv-when">' + cond + '</span>' : '') + (meta ? '<span class="pv-meta">' + meta + '</span>' : '') + '</div></li>';
   }
   function stepList(steps, name, line) { return '<ol class="fp-sl" aria-label="Steps in ' + esc(name) + '">' + steps.map(line).join('') + '</ol>'; }
@@ -104,7 +104,7 @@
     if (marks.length) lines += '<div class="fp-line fp-note">' + I('note') + '<span><b>Phase note</b> ' + esc(marks.join(' and ')) + ' at the start of this phase</span></div>';
     if (p.gate.note || (p.gate.shots || []).length) lines += '<div class="fp-line fp-note">' + I('note') + '<span><b>Gate note</b> ' + esc([p.gate.note ? 'a note' : '', (p.gate.shots || []).length ? plural(p.gate.shots.length, 'screenshot') : ''].filter(Boolean).join(' and ')) + ' at the gate</span></div>';
     var rough = an && an.deviated.filter(function (c) { return ids.indexOf(c.id) >= 0; })[0];
-    if (rough) lines += '<div class="fp-line fp-turb">' + I('flag') + '<span><b>Turbulence</b> "' + esc(rough.text) + '" went off-script in ' + esc(PF.insights.count(rough.offScript, rough.n)) + V.insightsQual(rough.q, ['unreached'], 'span') + '</span></div>';
+    if (rough) lines += '<div class="fp-line fp-turb">' + I('flag') + '<span><b>Turbulence</b> "' + esc(K.stepPlain(p.steps.filter(function (s) { return s.id === rough.id; })[0] || rough, null)) + '" went off-script in ' + esc(PF.insights.count(rough.offScript, rough.n)) + V.insightsQual(rough.q, ['unreached'], 'span') + '</span></div>';
     p.steps.filter(function (s) { return s.type === 'run.process' && s.fields.process; }).forEach(function (s) {
       lines += '<div class="fp-line fp-conn">' + I('fork') + '<span><b>Connecting</b> ' + esc(titleOf(ctx, s.fields.process)) + '</span></div>';
     });

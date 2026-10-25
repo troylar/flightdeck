@@ -73,7 +73,7 @@ context: commit
   command: npm run docs:publish
 ```
 
-Two phases, three steps, one gate (plus the final confirmation every checklist gets). `[!]` is a must-do. `{run.command}` is the step's type, so the run shows the command with a Copy button. `^commit` ties a step to a run detail. The gate approves exactly one thing: publishing that commit.
+Two phases, three steps, one gate (plus the final confirmation every checklist gets). `[!]` is a must-do. `{run.command}` is the step's type, so the run shows the command with a Copy button. `^commit` ties a step to a run detail, and the run shows its value in the step's text (`‹commit›` until it's set). The gate approves exactly one thing: publishing that commit.
 
 **2. Publish it.** Flightdeck freezes it as **v1**. Runs always keep the version they started on.
 
@@ -405,12 +405,12 @@ A run fills the window, like the editor.
 | **Recording strip** | Who's recording, with **Pause** and **Hand off** (or **Pick up**, **Record here**, **Take over**), the run's details, and what this window saved and when it last checked the folder. |
 | **Phases** | Each phase and its gate's state, plus the day timeline and follow-ups. A phase shows its note and screenshots under its heading. |
 | **Checklist** | Every step, with **Next up** pinned at the top. A gate shows its note above **Pass the gate**. A phase still behind its gate offers **Preview steps**, and a finished one folds to a tally with **Show steps**. Steps this run doesn't need fold into one line at the end of their phase, **1 step not needed**, each with its reason; a phase it doesn't need is one **Not needed** line, gate included. The receipt lists them under **Not needed in this run**. |
-| **Selected step** | How to do it, the values to copy, the evidence to record, then **Done**, **Done differently**, **Blocked** and **N/A**, and the step's corrections and notes. |
+| **Selected step** | How to do it (only when there's something to say), the values to copy, the evidence to record (**Fill in** only when the step has something to fill in), then **Done**, **Done differently**, **Blocked** and **N/A**, and the step's corrections and notes. |
 
 <details>
 <summary><b>Keyboard, drafts, files and tools</b></summary>
 
-- **Keyboard.** Check the step Next up points at, and the next one is selected, ready for **Space**. The row's check, **Done**, **Space** and **Done differently** all answer that one step with the evidence typed on it.
+- **Keyboard.** Check the step Next up points at, and the next one is selected, ready for **Space**. Passing a gate moves to what Next up names: the next phase's open step, the next gate or **Finish**. The row's check, **Done**, **Space** and **Done differently** all answer that one step with the evidence typed on it.
 - **Nothing typed is lost.** Typed evidence, Fill in values and unsent notes stay with their step (and their team folder) when you move around, and the row says **Draft**. While a step's Fill in is open or unsaved, Done says "Save or cancel Fill in first."
 - **Done differently** asks what happened, and can fix the checklist too.
 - **Files.** Notes and corrections take files: drop them on the note box, paste, or **Attach**. Images, PDF, text and logs, CSV, JSON, YAML and .zip, up to 10 MB each.
@@ -582,7 +582,7 @@ A process is one page, with its checklist in the middle.
 - **The side form** edits a step's text, type, roles, run details, fields, notes and screenshots, or a lane's name and role. The builder also edits the checklist's own details.
 - **Only when…** In a step's or a phase's form, once the checklist has run details. Write one condition a line, like `^risk is high`; one that can't be read is refused beside the box. Lines written another way are shown, and left to the Markdown view.
 - **Same Markdown.** Both views edit the same file. The builder changes only the lines you touch, never a step ID, and keeps comments and lines it doesn't understand.
-- **Saving and publishing.** **Save draft**, then **Done**. **Publish** appears when the draft has saved changes, and stays off while there are unsaved edits.
+- **Saving and publishing.** **Save draft**, then **Review & publish**. **Publish** appears when the draft has saved changes, and stays off while there are unsaved edits.
 
 </details>
 

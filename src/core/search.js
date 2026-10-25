@@ -196,7 +196,7 @@ PF.search = (function () {
         var sf = []; field(sf, s.text, 6); field(sf, s.note, 2); field(sf, s.id, 3);
         /* Its conditions and its phase's (2.1), as written after "only when". */
         field(sf, (ph.when || []).concat(s.when || []).map(function (w) { return w.text; }).join(' and '), 2);
-        out.push({ id: 'step:' + proc + '/' + x.folder + '/' + s.id, kind: 'step', title: s.text, sub: (ph.title || '') + ' · ' + title, fields: sf, people: [], types: uniq([s.type]),
+        out.push({ id: 'step:' + proc + '/' + x.folder + '/' + s.id, kind: 'step', title: s.text, shown: PF.map.shownText(s, null), sub: (ph.title || '') + ' · ' + title, fields: sf, people: [], types: uniq([s.type]),
           at: x.info.publishedAt || '', process: proc, run: '', target: target({ view: 'process', process: proc, mapVer: x.folder, step: s.id }) });
       });
     });
@@ -527,7 +527,7 @@ PF.search = (function () {
       if (g.items.length >= per) return;
       var f = x.field, t = d.target;
       if (f && f.step && t.view === 'run' && !t.step) t = Object.assign({}, t, { step: f.step });
-      g.items.push({ id: d.id, kind: d.kind, title: d.title, sub: d.sub, text: f && f.t !== d.title ? f.t : '', target: t, status: (d.run && own(status, d.run)) || '', at: d.at });
+      g.items.push({ id: d.id, kind: d.kind, title: d.title, shown: d.shown, sub: d.sub, text: f && f.t !== d.title ? f.t : '', target: t, status: (d.run && own(status, d.run)) || '', at: d.at });
     });
     return res;
   }

@@ -35,7 +35,7 @@ PF.vk = (function () {
     /* A planned start whose run didn't save (2.1.1): only this window, for the same person, can save that exact run. */
     Object.keys(ctx.state.pendingStarts || {}).sort().forEach(function (pid) {
       var ps = ctx.state.pendingStarts[pid];
-      if (ps.fs === ctx.state.fs && ps.key === ctx.fsKey && ps.me === ctx.state.me) h += '<div class="notice bad" role="alert"><span><b>The plan "' + esc(ps.title) + '" is marked started, but its run didn\'t save.</b> Try again to save that run (' + esc(ps.id) + '); nothing else starts it.</span><span class="row"><button class="btn" data-act="plan-resume" data-id="' + esc(ps.plan) + '"' + (ctx.state.resuming ? ' disabled' : '') + '>Try again</button></span></div>';
+      if (ps.fs === ctx.state.fs && ps.key === ctx.fsKey && ps.me === ctx.state.me) h += '<div class="notice bad" role="alert"><span><b>The plan "' + esc(ps.title) + '" is marked started, but ' + esc(PF.vk.unsavedWords(ps)) + '.</b> Try again to save that run (' + esc(ps.id) + '); nothing else starts it.</span><span class="row"><button class="btn" data-act="plan-resume" data-id="' + esc(ps.plan) + '"' + (ctx.state.resuming ? ' disabled' : '') + '>Try again</button></span></div>';
     });
     if (ctx.state.folderErr) h += '<div class="notice bad" role="alert"><span><b>Can\'t read the team folder.</b> ' + esc(ctx.state.folderErr) + ' You\'re seeing what was last read at ' + U.hm(ctx.data.readAt) + '. Check that OneDrive is running and the folder is available offline.</span><span class="row"><button class="btn" data-act="refresh">Try again</button><button class="mini" data-act="recovery" data-id="onedrive-isnt-syncing">What to do</button></span></div>';
     /* Part of the folder couldn't be read: what was read before for it stays on screen, and this says so. */
@@ -123,6 +123,9 @@ PF.vk = (function () {
   /* A phase's or step's conditions (2.1) in words: "Only when risk is high and ...", or '' without any. */
   function whenWords(x) { return x && x.when && x.when.length ? detailWords(esc('Only when ' + x.when.map(function (w) { return w.text; }).join(' and '))) : ''; }
   /* An outcome as it reads on screen: US spelling for Cancelled, which run files keep as written. */
+  /* A gate's state in words (2.3.1): the receipt and the run read the same. */
+  var GATE_WORD = { passed: 'Passed', waived: 'Waived', failed: 'Failed', review: 'Needs review', ready: 'Ready', open: 'Waiting on steps', locked: 'Locked', skipped: 'Not needed' };
+  function gateWord(st) { return GATE_WORD[st] || st; }
   function outcomeWord(o) { return o === 'Cancelled' ? 'Canceled' : o; }
   function hlText(r, hl) { return r && r.ended ? 'Ended: ' + outcomeWord(r.ended.outcome) : hl.text; }
   /* A test run (2.1) says so wherever it's listed or opened, and its version is the stage's proposed number, never a version's. */
@@ -153,8 +156,38 @@ PF.vk = (function () {
     return lab + '<input id="' + esc(id) + '" maxlength="120" value="' + esc(v) + '"' + a + '></label>';
   }
   /* A typed value as people read it, with the stored text in brackets where they differ; text as it is. */
+  /* A run's details as step text shows them (2.3.1): the value as its kind reads, '' when not set; no run, no values. */
+  function refValue(r, map) {
+    if (!r || !r.details) return function () { return ''; };
+    return function (k) {
+      var v = Object.prototype.hasOwnProperty.call(r.details, k) ? r.details[k] : '';
+      if (v == null || String(v).trim() === '') return '';
+      var d = r.format === PF.run.FORMAT3 && map ? PF.run.typedDef(r, map, 'details.' + k) : null;
+      return d ? valueText(d, v) : String(v);
+    };
+  }
+  /* Step text as HTML with its run details in place (2.3.1): the step's escaped Markdown, then, in text only (never in a
+     tag or an attribute), each reference as its escaped value or a quiet ‹name›. links: false drops links, for buttons. */
+  function stepHtml(step, valueOf, links) {
+    var m = PF.map.marked(step), h = U.mdInline(m.src);
+    if (links === false) h = h.replace(/<a\b[^>]*>|<\/a>/g, '');
+    if (!m.names.length) return h;
+    return h.split(/(<[^>]*>)/).map(function (part, i) {
+      return i % 2 ? part.replace(PF.map.MARK, '') : part.replace(PF.map.MARK, function (c) {
+        var k = m.names[c.charCodeAt(0) - 0xE000], v = valueOf ? valueOf(k) : '';
+        return v ? esc(v) : '<span class="ref-empty">\u2039' + esc(k) + '\u203a</span>';
+      });
+    }).join('');
+  }
+  /* The same, as plain text: accessible names, announcements and copied text. */
+  function stepPlain(step, valueOf) { return PF.map.shownText(step, valueOf); }
+  /* The run's headline and Next up as screens show them: a blocked step's text with its details in place. */
+  function shownOpt(r, map) { var rv = refValue(r, map); return { shown: function (st) { return stepPlain(st, rv); } }; }
+  function headline(r, map) { return PF.run.headline(r, map, shownOpt(r, map)); }
+  /* What became of a planned start's run (2.3.1): said only as surely as it's known. */
+  function unsavedWords(ps) { return ps && ps.saved ? 'its run was saved and has changed since' : ps && ps.certain === false ? 'Flightdeck couldn\'t confirm whether its run saved' : 'its run didn\'t save'; }
   function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
-  return { typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, PAGE: PAGE, testTag: testTag, verWord: verWord };
+  return { unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, PAGE: PAGE, testTag: testTag, verWord: verWord };
 })();
 (function () {
   'use strict';
@@ -193,7 +226,7 @@ PF.vk = (function () {
     /* On a run, which run it is stays in view while scrolling: its name, process and version, where it is and how far. */
     var r = (st.view === 'run' || st.view === 'mission') && ctx.run && ctx.run();
     if (r) {
-      var map = PF.run.mapOf(r), hl = PF.run.headline(r, map), tot = PF.run.totals(r, map);
+      var map = PF.run.mapOf(r), hl = K.headline(r, map), tot = PF.run.totals(r, map);
       h += '<div class="runstrip" role="region" aria-label="This run"><span class="rs-dot ' + esc(hl.s) + '" aria-hidden="true"></span><b class="rs-title">' + esc(r.title) + '</b>' +
         '<span class="rs-sub">' + esc(map.meta.title) + ' · v' + esc(r.version) + '</span><span class="rs-now">' + esc(K.hlText(r, hl)) + '</span><span class="rs-count">' + tot.done + '/' + tot.total + '</span></div>';
     }

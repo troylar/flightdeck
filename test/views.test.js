@@ -327,7 +327,7 @@ rule('Draft builder: phases as cards, steps as draggable rows, gates as striped 
   state.editor = { pid: 'release', base: latest.md, baseHash: 'x', text: null };
   let html = V.process(ctx);
   assert.ok(/data-act="ed-mode" data-id="builder" aria-pressed="true"/.test(html) && /data-act="ed-mode" data-id="markdown" aria-pressed="false"/.test(html), 'a Builder | Markdown switch');
-  assert.ok(/Phase 1<\/div>/.test(html) && /data-ob-phase="prep"/.test(html) && /<span class="cat">Do, then confirm<\/span>/.test(html), 'phase cards');
+  assert.ok(/Phase 1<\/div>/.test(html) && /data-ob-phase="prep"/.test(html) && /<span class="cat mode">Do, then confirm<\/span>/.test(html), 'phase cards');
   assert.ok(/<li class="ob-step" draggable="true" data-ob-step="approved">/.test(html) && /b-must/.test(html) && /<span class="ob-chip">\^commit<\/span>/.test(html), 'rows with must-do and run detail chips');
   assert.ok(/class="fp-gate ob-gate"[^>]*><div class="ob-gate-copy"><span class="fp-gate-t">.*Gate: Ready to deploy/.test(html), 'a named gate is a striped bar');
   assert.ok(/class="fp-gate implicit ob-gate"/.test(html) && /aria-label="Add a gate to Verify in production"/.test(html), 'a phase without one offers to add it');
@@ -925,7 +925,7 @@ rule('Flight plan: each phase lists its steps in order under a disclosure that s
   const jenkins = fpStep(html, 'jenkins');
   assert.ok(/role="img" aria-label="Jenkins job"/.test(jenkins), 'its type icon, named');
   assert.ok(/<button type="button" class="fp-step" data-act="go" data-view="process" data-process="release" data-map-ver="/.test(jenkins) && jenkins.indexOf('data-map-ver="' + latest.info.folder + '"') > 0, 'a button that opens it in this exact version');
-  assert.ok(/>Start the production deploy job<span class="sr">/.test(jenkins), 'its text');
+  assert.ok(/>Start the production deploy job <span class="ref-empty">‹tag›<\/span><span class="sr">/.test(jenkins), 'its text');
   assert.ok(/<span class="badge b-must">Must do<\/span>/.test(jenkins) && /<span class="pv-role">@backend<\/span>/.test(jenkins), 'must-do and role');
   const notes = fpStep(html, 'notes');
   assert.ok(!/b-must/.test(notes) && /@release-lead/.test(notes), 'a step that isn\'t a must-do has no mark');
@@ -1165,7 +1165,7 @@ rule('Run record: the finish page and receipt list Corrections · N with Checkli
   ctx.data.corrDecisions = [Object.assign(C.decision(g, 'person-avery', 'declined', 'We set them in the job', NOW), { _file: 'x.w.1.json' })];
   let html = V.finish(ctx);
   assert.ok(/<h2>Corrections · 4<\/h2>/.test(html) && /<span class="pill locked">Declined<\/span><span class="small corr-why-no">We set them in the job<\/span>/.test(html));
-  assert.ok(/<span class="pill waived">One-off<\/span>/.test(html) && /<div class="corr-step">Full test gate green on the release commit<\/div>/.test(html) && /<dt>What happened<\/dt><dd>Ran it twice<\/dd>/.test(html));
+  assert.ok(/<span class="pill waived">One-off<\/span>/.test(html) && /<div class="corr-step">Full test gate green on the release commit aaa111<\/div>/.test(html) && /<dt>What happened<\/dt><dd>Ran it twice<\/dd>/.test(html));
   assert.ok(/data-act="add-followup" data-text="Update the checklist: Change request approved/.test(html), 'Make it a follow-up stays');
   assert.ok(/Phase: Verify in production/.test(html) && /A step is missing: Add an error budget check/.test(html), 'a suggested fix from before 1.13 shows as a problem');
   html = V.receipt(ctx);
@@ -1452,7 +1452,7 @@ rule('Draft builder: lanes sit side by side under "Do all lanes", and a lane ope
   state.obSel = { pid: 'release', kind: 'track', key: 'verify', track: 1 };
   html = V.process(ctx);
   assert.ok(/<section class="ob-lane sel"/.test(html) && /<input id="ob-tr-title"[^>]*value="Wrap-up">/.test(html) && /<select id="ob-tr-role" data-bound>/.test(html) && /data-act="ob-ask" data-id="track">Delete this lane/.test(html));
-  assert.ok(/data-act="ob-done">Done<\/button>/.test(html), 'Done, for the phone\'s sheet');
+  assert.ok(/data-act="ob-done">Close<\/button>/.test(html), 'Close, for the phone\'s sheet');
   state.obSel = { pid: 'release', kind: 'phase', key: 'prep' }; state.obAsk = { kind: 'phase', key: 'prep' };
   html = V.process(ctx);
   assert.ok(/Delete Before production changes and its 6 steps, with its gate\? Undo brings it back\./.test(html) && /data-act="ob-gate-remove" data-id="prep">Remove this gate/.test(html));
@@ -1629,7 +1629,7 @@ rule('Run workspace: rows are compact, with the check and the row as separate na
   const { r, ctx, state } = setup();
   playPhase(r, 0);
   let html = V.run(ctx), row = rowOf(html, 'merge');
-  assert.ok(/^<li class="step next" data-a="open" id="step-merge"><button class="check" role="checkbox" aria-checked="false" aria-label="Merge the release branch to master, not checked, must do" data-act="toggle" data-id="merge">/.test(row), row);
+  assert.ok(/^<li class="step next" data-a="open" id="step-merge"><button class="check" role="checkbox" aria-checked="false" aria-label="Merge the release branch to master aaa111, not checked, must do" data-act="toggle" data-id="merge">/.test(row), row);
   assert.ok(/<button class="s-pick" data-act="select" data-id="merge" aria-pressed="false" aria-controls="rw-ins"><span class="s-next">Next<\/span>/.test(row), 'selecting is its own control');
   assert.ok(/<span class="s-who">Casey Nguyen<\/span>/.test(row) && /<span class="mustmark" role="img" aria-label="Must do" title="Must do">!<\/span>/.test(row), 'who does it; must-do stays quiet');
   state.sel = 'pods'; html = V.run(ctx);
@@ -1644,11 +1644,11 @@ rule('Run workspace: Next up only navigates, stays put while you browse, and fol
   const map = R.mapOf(r);
   playPhase(r, 0);
   let n = nextOf(V.run(ctx));
-  assert.ok(/Next up · Deploy · 4 to go, then the "Deployed" gate/.test(n) && /<b>Merge the release branch to master<\/b>/.test(n) && /data-act="goto" data-id="step-merge">Go to step/.test(n), n);
+  assert.ok(/Next up · Deploy · 4 to go, then the "Deployed" gate/.test(n) && /<b>Merge the release branch to master aaa111<\/b>/.test(n) && /data-act="goto" data-id="step-merge">Go to step/.test(n), n);
   assert.ok(!/data-act="(toggle|record|na|pick)"/.test(n), 'never a completion control');
   state.sel = 'merge'; assert.ok(/Selected<span class="rw-kbd"> · Space checks it<\/span>/.test(nextOf(V.run(ctx))));
   state.sel = 'approved'; n = nextOf(V.run(ctx));
-  assert.ok(/<b>Merge the release branch to master<\/b>/.test(n) && /data-act="goto" data-id="step-merge">Back to it/.test(n), 'browsing an earlier step: the same next step, one click back');
+  assert.ok(/<b>Merge the release branch to master aaa111<\/b>/.test(n) && /data-act="goto" data-id="step-merge">Back to it/.test(n), 'browsing an earlier step: the same next step, one click back');
   R.block(r, map, 'jenkins', 'Waiting on someone', 'person-casey', NOW);
   assert.ok(/data-act="goto" data-id="step-jenkins">Show blocked step/.test(nextOf(V.run(ctx))));
   R.clear(r, map, 'jenkins', 'person-casey', NOW);
@@ -1666,7 +1666,7 @@ rule('Run workspace: choosing a step changes the whole inspector, and the select
   playPhase(r, 0);
   r._notes = [{ id: 'n1', at: NOW, by: 'person-avery', step: 'jenkins', text: 'Queue is busy', files: [] }];
   state.sel = 'jenkins'; let ins = insOf(V.run(ctx));
-  assert.ok(/data-scope="ref:jenkins"/.test(ins) && /<li>Deploy<\/li><li>Step 2 of 4<\/li>/.test(ins) && /<h2 id="ins-h" class="rw-ins-h" tabindex="-1">Start the production deploy job<\/h2>/.test(ins));
+  assert.ok(/data-scope="ref:jenkins"/.test(ins) && /<li>Deploy<\/li><li>Step 2 of 4<\/li>/.test(ins) && /<h2 id="ins-h" class="rw-ins-h" tabindex="-1">Start the production deploy job <span class="ref-empty">‹tag›<\/span><\/h2>/.test(ins));
   assert.ok(/<b>Job:<\/b> web-app-deploy-prod/.test(ins) && /<code>TICKET=ABC-1 TAG=\(tag not set\)<\/code><button class="mini" data-act="copy"/.test(ins) && /Usually 25m/.test(ins), 'instructions, values with Copy, timing');
   assert.ok(/<h3 class="rw-h3" id="ins-rec">Record the result<\/h3>/.test(ins) && /id="rec-build"/.test(ins) && /data-act="pick" data-kind="fields" data-id="jenkins">/.test(ins), 'evidence and Fill in');
   assert.ok(/data-act="record" data-id="jenkins">.*Done<\/button>/.test(ins) && !/data-act="toggle" data-id="jenkins">/.test(ins), 'Done collects the evidence boxes showing');

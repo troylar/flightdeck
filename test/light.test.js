@@ -111,13 +111,15 @@ rule('The visible-content counter skips closed details bodies, screen-reader tex
 
 /* Today's numbers are the budgets; a slice that lightens a screen lowers its budget (SHOW=1 prints what each screen has now).
    target is where the lightness plan aims. */
+/* Raised in 2.3.1 on purpose: a step tied to a run detail shows it in its text, ‹name› until it's set (six on the release
+   checklist's process page and run), and the builder's Done became Review & publish (2 more words). */
 const BUDGETS = {
   home: { words: 139, buttons: 13, chips: 1, target: { words: 120 } },
   processes: { words: 95, buttons: 13, chips: 3, target: { chips: 8 } },
   /* The harness also counts the CSS-hidden phone picker and skip links, so its run and process numbers sit above the browser's. */
-  'process page as a non-owner': { words: 268, buttons: 13, chips: 3, target: { words: 260, buttons: 16, chips: 12 } },
-  'process page as its owner': { words: 415, buttons: 24, chips: 9, target: { words: 430 } },
-  'run, just started': { words: 355, buttons: 39, chips: 5, target: { words: 300, buttons: 36, chips: 6 } },
+  'process page as a non-owner': { words: 274, buttons: 13, chips: 3, target: { words: 260, buttons: 16, chips: 12 } },
+  'process page as its owner': { words: 421, buttons: 24, chips: 9, target: { words: 430 } },
+  'run, just started': { words: 361, buttons: 39, chips: 5, target: { words: 300, buttons: 36, chips: 6 } },
   finish: { words: 48, buttons: 4, inputs: 0, target: { words: 70, inputs: 0 } },
   'new process': { words: 33, buttons: 6, inputs: 1, target: { inputs: 1 } },
   /* Raised by 3 on purpose: the builder banner now says the whole path (Save draft, then Done to publish). */
@@ -127,27 +129,27 @@ const BUDGETS = {
   /* The same screens for a checklist with conditions (2.1), Release with one on a step and one on a phase: each condition is
      one muted line, and the builder's is one closed "Only when…" until it's used. The release builder without them is the
      baseline: a step with a condition adds its open box and hint, and the outline's two condition lines. */
-  'builder, release, a step selected': { words: 468, buttons: 63, inputs: 10 },
-  'process page with conditions, its owner': { words: 404, buttons: 24, chips: 9 },
-  'process page with conditions, a non-owner': { words: 257, buttons: 13, chips: 3 },
-  'run with conditions, just started': { words: 349, buttons: 37, chips: 5 },
-  'builder with conditions, a step selected': { words: 488, buttons: 63, inputs: 11 },
-  'builder, a step without conditions selected': { words: 478, buttons: 63, inputs: 10 },
+  'builder, release, a step selected': { words: 470, buttons: 63, inputs: 10 },
+  'process page with conditions, its owner': { words: 410, buttons: 24, chips: 9 },
+  'process page with conditions, a non-owner': { words: 263, buttons: 13, chips: 3 },
+  'run with conditions, just started': { words: 355, buttons: 37, chips: 5 },
+  'builder with conditions, a step selected': { words: 490, buttons: 63, inputs: 11 },
+  'builder, a step without conditions selected': { words: 480, buttons: 63, inputs: 10 },
   /* A process with a staged version (2.1): staging lives in the closed All versions disclosure, so the page fits the process
      page budgets above for the owner and for everyone else. */
-  'process page with a stage, its owner': { words: 415, buttons: 24, chips: 9 },
-  'process page with a stage, a non-owner': { words: 268, buttons: 13, chips: 3 },
+  'process page with a stage, its owner': { words: 421, buttons: 24, chips: 9 },
+  'process page with a stage, a non-owner': { words: 274, buttons: 13, chips: 3 },
   /* A process with a test run on its stage (2.1 slice 5): the test run is one more labeled line in Recent runs and one more
      "you're recording" on Home, as any run being recorded is; its run page is the stage's checklist with its label. The
      budgets above are unchanged. */
   'run, a test run just started': { words: 326, buttons: 41, chips: 5 },
   'home with a test run': { words: 159, buttons: 14, chips: 1 },
-  'process page with a test run, its owner': { words: 422, buttons: 24, chips: 9 },
-  'process page with a test run, a non-owner': { words: 275, buttons: 13, chips: 3 },
+  'process page with a test run, its owner': { words: 428, buttons: 24, chips: 9 },
+  'process page with a test run, a non-owner': { words: 281, buttons: 13, chips: 3 },
   /* A version made the default from a stage whose test runs and sign-off count for it (2.1 slice 6): Ready for a skill says
      they were from while it was staged, in one clause. The budgets above are unchanged. */
-  'process page made from a signed-off stage, its owner': { words: 462, buttons: 26, chips: 9 },
-  'process page made from a signed-off stage, a non-owner': { words: 302, buttons: 14, chips: 3 }
+  'process page made from a signed-off stage, its owner': { words: 465, buttons: 26, chips: 9 },
+  'process page made from a signed-off stage, a non-owner': { words: 305, buttons: 14, chips: 3 }
 };
 async function screens() {
   const app = boot(), out = {}; await app.tick(60);

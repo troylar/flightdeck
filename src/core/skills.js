@@ -394,7 +394,7 @@ PF.skills = (function () {
     var unseen = [];
     M.steps(pub.map).forEach(function (x) {
       if ((ids && ids.indexOf(x.step.id) < 0) || !(x.step.when || pub.map.phases[x.phaseIndex].when)) return;
-      if (!clean.some(function (r) { return PF.run.applies(r, pub.map, x.phaseIndex, x.step).applies === true; })) unseen.push({ id: x.step.id, text: x.step.text });
+      if (!clean.some(function (r) { return PF.run.applies(r, pub.map, x.phaseIndex, x.step).applies === true; })) unseen.push({ id: x.step.id, text: x.step.text, textParts: x.step.textParts });
     });
     return { completed: mine.length, clean: clean.length, cleanRuns: clean.map(runName), cleanIds: clean.map(function (r) { return r.id; }), tests: clean.filter(PF.run.isTest).length, needed: READY_RUNS, enough: clean.length >= READY_RUNS, deviations: deviations, unseen: unseen };
   }

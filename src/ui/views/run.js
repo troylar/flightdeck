@@ -68,7 +68,7 @@
     var s = x.step, a = r.steps[s.id] || null, t = T.get(s.type, r.types) || { label: s.type, icon: 'check', fields: {} }, st = ctx.state, now = ctx.now();
     var aState = stateOf(r, s), sel = selOf(ctx) === s.id, isNext = !!(nx && nx.step && nx.step.id === s.id), P = prOf(ctx), pm = P ? P.steps[s.id] || {} : null;
     var who = s.roles.map(function (ro) { return r.roles[ro] ? nameOf(ctx, r.roles[ro]) : '@' + ro; }).join(', ');
-    var meta = '<span class="type">' + I(t.icon) + esc(t.label) + '</span>' + (who ? '<span class="s-who">' + esc(who) + '</span>' : '');
+    var meta = (t.id === 'confirm' ? '' : '<span class="type">' + I(t.icon) + esc(t.label) + '</span>') + (who ? '<span class="s-who">' + esc(who) + '</span>' : '');
     /* Target details that tell two similar steps apart (an environment, a job) stay on the row. */
     var eff = R.fieldsOf(r, s), shown = 0;
     Object.keys(eff).forEach(function (f) {
@@ -93,13 +93,13 @@
     if (dr && (dr.open || String(dr.note || '').trim() || Object.keys(dr.record).length || Object.keys(dr.fields).length)) badges += '<span class="s-draft">Draft</span><span class="sr"> (typed, not saved yet)</span>';
     if (V.reportBadge && !P) badges += V.reportBadge(ctx, r, map, s.id);
     if (notes) badges += '<span class="s-notes">' + I('note') + notes + '<span class="sr"> note' + (notes === 1 ? '' : 's') + '</span></span>';
-    var stamp = P ? (pm.status === 'assumed' || !P.canEdit(s.id) ? '' : '<button class="mini s-edit" data-act="pr-edit" data-id="' + esc(s.id) + '" aria-label="Edit: ' + esc(s.text) + '">' + I('edit') + 'Edit</button>')
+    var stamp = P ? (pm.status === 'assumed' || !P.canEdit(s.id) ? '' : '<button class="mini s-edit" data-act="pr-edit" data-id="' + esc(s.id) + '" aria-label="Edit: ' + esc(K.stepPlain(s, K.refValue(r, map))) + '">' + I('edit') + 'Edit</button>')
       : a && (a.s === 'done' || a.s === 'na') ? '<span class="stamp">' + avatar(ctx, a.by) + ' ' + U.hm(a.at) + '</span>' : '';
     var flash = st.flash && st.flash.ids && st.flash.ids.indexOf(s.id) >= 0;
     var canCheck = rec && open && (t.id !== 'run.process' || !!P) && !heldWhy && !(P && (P.paused || pm.status === 'assumed'));
     return '<li class="step' + (sel ? ' sel' : '') + (isNext ? ' next' : '') + (flash ? ' flash' : '') + '" data-a="' + esc(aState) + '" id="step-' + esc(s.id) + '">' +
-      '<button class="check" role="checkbox" aria-checked="' + (aState === 'done') + '" aria-label="' + esc(s.text) + ', ' + esc(P && aState === 'recheck' ? 'try it again' : P && pm.status === 'assumed' ? 'assumed for practice' : STATE_WORD[aState] || aState) + (s.must ? ', must do' : '') + '" data-act="toggle" data-id="' + esc(s.id) + '"' + (canCheck ? '' : ' disabled') + (t.id === 'run.process' && !P ? ' title="Checked when its linked run completes"' : '') + '>' + I('check') + '</button>' +
-      '<button class="s-pick" data-act="select" data-id="' + esc(s.id) + '" aria-pressed="' + sel + '" aria-controls="rw-ins">' + (isNext ? '<span class="s-next">Next</span>' : '') + '<span class="s-text">' + inlineText(s.text) + '</span><span class="s-meta">' + meta + '</span>' + (badges ? '<span class="badges">' + badges + '</span>' : '') + '</button>' +
+      '<button class="check" role="checkbox" aria-checked="' + (aState === 'done') + '" aria-label="' + esc(K.stepPlain(s, K.refValue(r, map))) + ', ' + esc(P && aState === 'recheck' ? 'try it again' : P && pm.status === 'assumed' ? 'assumed for practice' : STATE_WORD[aState] || aState) + (s.must ? ', must do' : '') + '" data-act="toggle" data-id="' + esc(s.id) + '"' + (canCheck ? '' : ' disabled') + (t.id === 'run.process' && !P ? ' title="Checked when its linked run completes"' : '') + '>' + I('check') + '</button>' +
+      '<button class="s-pick" data-act="select" data-id="' + esc(s.id) + '" aria-pressed="' + sel + '" aria-controls="rw-ins">' + (isNext ? '<span class="s-next">Next</span>' : '') + '<span class="s-text">' + K.stepHtml(s, K.refValue(r, map), false) + '</span><span class="s-meta">' + meta + '</span>' + (badges ? '<span class="badges">' + badges + '</span>' : '') + '</button>' +
       stamp + '</li>';
   }
 
@@ -139,7 +139,7 @@
     if (child) {
       /* The same verdict that refuses settlement (R.childHeld): a child it names can't stand for the step, current or not. */
       var off = cr ? R.childHeld(r, s.id, cr, procOf) : '';
-      var state = cr ? (cr.ended ? K.outcomeWord(cr.ended.outcome) : R.headline(cr, R.mapOf(cr)).text) : 'not visible in this folder yet', fresh = R.childCurrent(r, s, a) && !child.failed && !off;
+      var state = cr ? (cr.ended ? K.outcomeWord(cr.ended.outcome) : K.headline(cr, R.mapOf(cr)).text) : 'not visible in this folder yet', fresh = R.childCurrent(r, s, a) && !child.failed && !off;
       if (!two && off) return offer(PF.pins.legacyWhy(target.pub || { map: { meta: { title: cr.title } }, info: { process: cr.process, version: cr.version } }, r));
       var again = !fresh && canStart && target.pub && !target.legacy ? '<button class="btn" data-act="start-child" data-id="' + esc(s.id) + '">Start a new ' + esc(target.pub.map.meta.title) + ' run</button>' : !fresh && canStart && target.legacy ? '<span class="small">' + esc(target.why) + '</span><button class="btn" data-act="continue-two" data-id="' + esc(s.id) + '">Start it as a Flightdeck 2.0 run</button>' : '';
       return '<div class="childbox">' + I('nest') + '<span>Child run: <b>' + esc(cr ? cr.title : child.process) + '</b> · ' + esc(state) + (fresh ? '' : off ? '. ' + esc(off) : child.failed ? '. It didn\'t complete as started, so it doesn\'t count for this step.' : '. The details it was started for have changed, so it no longer counts for this step.') + '</span>' + (cr ? '<button class="mini" data-act="open-run" data-id="' + esc(key) + '">Open run</button>' : '') + again + '</div>';
@@ -190,7 +190,7 @@
   function gateBlock(ctx, r, map, pi, rec, sched, brief) {
     var g = map.phases[pi].gate, st = R.gateStatus(r, map, pi), rec2 = r.gates[g.id], s = ctx.state, P = prOf(ctx), owner = !P && g.owner && r.roles[g.owner], info = R.phaseInfo(r, map, pi);
     var approves = g.approves ? R.fill(g.approves, r.details) : '';
-    var h = '<div class="gate" data-scope="gate:' + esc(g.id) + '" data-s="' + st + '" id="gate-' + esc(g.id) + '"><div class="stack" style="gap:4px"><div class="gate-title">' + I('gate') + '<span>' + (g.implicit ? (R.solo(r) ? 'Confirm' : 'Confirm together') : 'Gate: ' + esc(g.title)) + '</span><span class="pill ' + st + '">' + GATE_WORD[st] + '</span>' +
+    var h = '<div class="gate" data-scope="gate:' + esc(g.id) + '" data-s="' + st + '" id="gate-' + esc(g.id) + '"><div class="stack" style="gap:4px"><div class="gate-title">' + I('gate') + '<span>' + (g.implicit ? esc(g.title) + (R.solo(r) ? '' : ' together') : 'Gate: ' + esc(g.title)) + '</span>' + (st === 'passed' && s.justPassed === g.id ? '' : '<span class="pill ' + st + '">' + GATE_WORD[st] + '</span>') +
       (st === 'passed' && s.justPassed === g.id ? '<span class="called-stamp">Passed</span>' : '') + '</div>';
     if (brief) return h + (sched ? '<div class="badges">' + schedBadge(sched) + '</div>' : '') + '</div><div class="row"></div></div>';
     if (approves) h += '<div class="q">Approves ' + U.mdInline(approves) + '</div>';
@@ -317,9 +317,9 @@
       var def = detailDef(r, map, f), bad = r._invalid && Object.prototype.hasOwnProperty.call(r._invalid, 'details.' + f) ? r._invalid['details.' + f].why : '';
       var wait = waiting.filter(function (m) { return m.path === 'details.' + f; })[0], note = bad || (wait ? PF.values.ask(def, wait.from) : '');
       if (s.edit === 'detail:' + f && rec && def) return '<span class="inline-edit" data-scope="edit:detail:' + esc(f) + '">' + K.typedField('edit-input', f, def, r.details[f], def.kind === 'yes-no' || V0(def) ? '' : 'data-enter="save-edit"', 'small') + '<button class="mini" data-act="save-edit">Save</button><button class="mini" data-act="unedit">Cancel</button>' + (note ? '<span class="small">' + esc(note) + '</span>' : '') + '</span>';
-      if (def) return '<button class="chip' + (r.details[f] ? '' : ' empty') + (note ? ' warn' : '') + '" data-act="edit" data-id="detail:' + esc(f) + '"' + (rec ? '' : ' disabled') + '><span class="k">' + esc(f) + '</span>' + (r.details[f] ? '<span class="v">' + esc(K.valueText(def, r.details[f])) + '</span>' : 'set') + (note ? '<span class="small">' + esc(note) + '</span>' : '') + '</button>';
+      if (def) return '<button class="chip' + (r.details[f] ? '' : ' empty') + (note ? ' warn' : '') + '" data-act="edit" data-id="detail:' + esc(f) + '"' + (rec ? '' : ' disabled') + '><span class="k">' + (r.details[f] ? '' : 'Set ') + esc(f) + '</span>' + (r.details[f] ? '<span class="v">' + esc(K.valueText(def, r.details[f])) + '</span>' : '') + (note ? '<span class="small">' + esc(note) + '</span>' : '') + '</button>';
       if (s.edit === 'detail:' + f && rec) return '<span class="inline-edit" data-scope="edit:detail:' + esc(f) + '"><label class="small" for="edit-input">' + esc(f) + '</label><input id="edit-input" maxlength="120" value="' + esc(r.details[f]) + '" data-enter="save-edit"><button class="mini" data-act="save-edit">Save</button><button class="mini" data-act="unedit">Cancel</button></span>';
-      return '<button class="chip' + (r.details[f] ? '' : ' empty') + '" data-act="edit" data-id="detail:' + esc(f) + '"' + (rec ? '' : ' disabled') + '><span class="k">' + esc(f) + '</span>' + (r.details[f] ? '<span class="v">' + esc(r.details[f]) + '</span>' : 'set') + '</button>';
+      return '<button class="chip' + (r.details[f] ? '' : ' empty') + '" data-act="edit" data-id="detail:' + esc(f) + '"' + (rec ? '' : ' disabled') + '><span class="k">' + (r.details[f] ? '' : 'Set ') + esc(f) + '</span>' + (r.details[f] ? '<span class="v">' + esc(r.details[f]) + '</span>' : '') + '</button>';
     }).join('');
     var roles = map.meta.roles.map(function (ro) {
       if (s.edit === 'role:' + ro && rec) return '<span class="inline-edit" data-scope="edit:role:' + esc(ro) + '"><label class="small" for="edit-input">' + esc(ro) + '</label><select id="edit-input"><option value="">Nobody</option>' + ctx.data.people.filter(function (p) { return !p.inactive; }).map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === r.roles[ro] ? ' selected' : '') + '>' + esc(PF.people.label(p, ctx.data.people)) + '</option>'; }).join('') + '</select><button class="mini" data-act="save-edit">Save</button><button class="mini" data-act="unedit">Cancel</button></span>';
@@ -344,11 +344,13 @@
   V.planAgain = planAgain;
 
   /* ---------- Next up: where the run stands, never where this window is looking ---------- */
+  /* Next up's line: a step (its text with run details in place) or words. */
+  function mainHtml(r, map, main) { return main && typeof main === 'object' ? K.stepHtml(main, K.refValue(r, map), false) : inlineText(main || ''); }
   function nextBar(ctx, r, map, nx, rec) {
     var s = ctx.state, hl = nx.hl, hint = '', main = '', btn = '';
     if (nx.kind === 'ended') { hint = 'This run has ended'; main = K.hlText(r, hl); }
     else if (nx.kind === 'paused') { hint = 'Paused'; main = r.paused.reason; btn = rec ? '<button class="btn go" data-act="resume">Resume</button>' : ''; }
-    else if (nx.kind === 'blocked') { hint = 'Stopped · blocked (' + (r.steps[nx.step.id] || {}).reason + ')'; main = nx.step.text; btn = '<button class="btn" data-act="goto" data-id="step-' + esc(nx.step.id) + '">Show blocked step</button>'; }
+    else if (nx.kind === 'blocked') { hint = 'Stopped · blocked (' + (r.steps[nx.step.id] || {}).reason + ')'; main = nx.step; btn = '<button class="btn" data-act="goto" data-id="step-' + esc(nx.step.id) + '">Show blocked step</button>'; }
     else if (nx.kind === 'gate') {
       var g = nx.gate, name = g.implicit ? 'Confirm ' + map.phases[nx.phaseIndex].title : g.title;
       hint = nx.status === 'failed' ? 'Gate failed' : nx.status === 'review' ? 'Gate needs review · something it approved changed' : 'Every step in ' + map.phases[nx.phaseIndex].title + ' is answered';
@@ -362,14 +364,14 @@
         var who = nx.track.roles.map(function (ro) { return r.roles[ro] ? nameOf(ctx, r.roles[ro]) : ''; }).filter(Boolean).join(', ');
         hint += ' · ' + esc(nx.track.title) + (who ? ' (' + esc(who) + ')' : '');
       }
-      main = nx.step.text;
+      main = nx.step;
       btn = here ? '<span class="small rw-here">Selected' + (rec && s.keys ? '<span class="rw-kbd"> · Space checks it</span>' : '') + '</span>' : '<button class="btn" data-act="goto" data-id="step-' + esc(nx.step.id) + '">' + (selOf(ctx) ? 'Back to it' : 'Go to step') + '</button>';
       if (ctx.practice && ctx.practice.canEdit(nx.step.id)) btn += '<button class="mini" data-act="pr-edit" data-id="' + esc(nx.step.id) + '">' + I('edit') + 'Edit</button>';
       var others = (nx.tracks || []).filter(function (t) { return t.step && (!nx.track || t.track.id !== nx.track.id); });
       var tail = others.map(function (t) { return esc(t.track.title) + ': ' + t.left + ' left'; }).join(' · ');
-      return '<div class="rw-next" data-k="step" role="region" aria-label="Next up"><div class="rw-next-t"><div class="small">Next up · ' + hint + '</div><b>' + inlineText(main) + '</b>' + (tail ? '<div class="small">Also open: ' + tail + '</div>' : '') + '</div>' + btn + '</div>';
+      return '<div class="rw-next" data-k="step" role="region" aria-label="Next up"><div class="rw-next-t"><div class="small">Next up · ' + hint + '</div><b>' + mainHtml(r, map, main) + '</b>' + (tail ? '<div class="small">Also open: ' + tail + '</div>' : '') + '</div>' + btn + '</div>';
     }
-    return '<div class="rw-next" data-k="' + esc(nx.kind) + (nx.status ? ' ' + esc(nx.status) : '') + '" role="region" aria-label="Next up"><div class="rw-next-t"><div class="small">' + esc(hint) + '</div><b>' + inlineText(main || '') + '</b></div>' + btn + '</div>';
+    return '<div class="rw-next" data-k="' + esc(nx.kind) + (nx.status ? ' ' + esc(nx.status) : '') + '" role="region" aria-label="Next up"><div class="rw-next-t"><div class="small">' + esc(hint) + '</div><b>' + mainHtml(r, map, main) + '</b></div>' + btn + '</div>';
   }
 
   /* ---------- the inspector: everything about the selected step ---------- */
@@ -453,7 +455,7 @@
     var shown = { 'corr-happened': answer, 'corr-to': fix && f.op === 'wording', 'corr-text': fix && f.op === 'add', 'corr-move': fix && f.op === 'move', 'corr-roles': fix && f.op === 'roles', 'corr-why': fix };
     var h = '<div class="compose corrform" data-scope="corr:' + esc(s.id) + '" data-drop="corr" role="group" aria-labelledby="corr-h"><h4 class="corr-h" id="corr-h">' + (answer ? 'Done differently' : 'Correct this step') + '</h4>' +
       (err && !shown[err.field] ? '<p class="ferr" id="ferr-corr" role="alert">' + esc(err.msg) + '</p>' : '') +
-      '<p class="small corr-says"><b>Checklist says</b> (v' + esc(r.version) + '): ' + esc(s.text) + '</p>';
+      '<p class="small corr-says"><b>Checklist says</b> (v' + esc(r.version) + '): ' + K.stepHtml(s, K.refValue(r, map)) + '</p>';
     if (answer) {
       h += '<label class="small" for="corr-happened"><b>What happened</b> (required)</label><textarea id="corr-happened" rows="2" maxlength="500" data-bound' + bad('corr-happened') + '>' + esc(f.happened) + '</textarea>' + fe('corr-happened');
       h += '<span class="small" id="corr-scope-l">Should the checklist change?</span><div class="seg" role="group" aria-labelledby="corr-scope-l">' + [['just', 'Just this run'], ['fix', 'Fix the checklist too']].map(function (o) { return '<button type="button" data-act="corr-scope" data-id="' + o[0] + '" aria-pressed="' + (f.scope === o[0]) + '">' + o[1] + '</button>'; }).join('') + '</div>';
@@ -474,7 +476,7 @@
           '<fieldset class="corr-where"><legend class="small">Where it goes</legend>' + [['after', 'After this step'], ['end', 'At the end of ' + x.phase.title]].map(function (w) { return '<label class="check-label small"><input type="radio" name="corr-where" id="corr-where-' + w[0] + '" data-bound' + (f.where === w[0] ? ' checked' : '') + '> ' + esc(w[1]) + '</label>'; }).join('') + '</fieldset>';
       } else if (f.op === 'move') {
         var opts = '<option value="">Choose…</option>' + map.phases.map(function (p) {
-          return '<optgroup label="' + esc(p.title) + '"><option value="start:' + esc(p.id) + '"' + (f.moveTo === 'start:' + p.id ? ' selected' : '') + '>At the start of ' + esc(p.title) + '</option>' + p.steps.filter(function (y) { return y.id !== s.id; }).map(function (y) { return '<option value="after:' + esc(y.id) + '"' + (f.moveTo === 'after:' + y.id ? ' selected' : '') + '>After "' + esc(y.text.slice(0, 80)) + '"</option>'; }).join('') + '</optgroup>';
+          return '<optgroup label="' + esc(p.title) + '"><option value="start:' + esc(p.id) + '"' + (f.moveTo === 'start:' + p.id ? ' selected' : '') + '>At the start of ' + esc(p.title) + '</option>' + p.steps.filter(function (y) { return y.id !== s.id; }).map(function (y) { return '<option value="after:' + esc(y.id) + '"' + (f.moveTo === 'after:' + y.id ? ' selected' : '') + '>After "' + esc(K.stepPlain(y, K.refValue(r, map)).slice(0, 80)) + '"</option>'; }).join('') + '</optgroup>';
         }).join('');
         h += '<label class="small" for="corr-move">Move it to</label><select id="corr-move" data-bound' + bad('corr-move') + '>' + opts + '</select>' + fe('corr-move');
       } else if (f.op === 'roles') {
@@ -537,8 +539,8 @@
       '<button class="linkish rw-skip" data-act="to-row" data-id="' + esc(st.id) + '">Back to the checklist</button></div>';
     h += '<div class="rw-ins-body">';
     h += '<nav aria-label="Where it is"><ol class="ob-crumbs"><li>' + esc(ph.title) + '</li>' + (track ? '<li>' + esc(track.title) + '</li>' : '') + '<li>Step ' + inPhase + ' of ' + ph.steps.length + '</li></ol></nav>';
-    h += '<h2 id="ins-h" class="rw-ins-h" tabindex="-1">' + U.mdInline(st.text) + '</h2>';
-    h += '<div class="rw-ins-meta"><span class="type">' + I(t.icon) + esc(t.label) + '</span>' + (who ? '<span class="small">' + who + '</span>' : '') + (st.must ? '<span class="badge b-must">Must do</span>' : '') +
+    h += '<h2 id="ins-h" class="rw-ins-h" tabindex="-1">' + K.stepHtml(st, K.refValue(r, map)) + '</h2>';
+    h += '<div class="rw-ins-meta">' + (t.id === 'confirm' ? '' : '<span class="type">' + I(t.icon) + esc(t.label) + '</span>') + (who ? '<span class="small">' + who + '</span>' : '') + (st.must ? '<span class="badge b-must">Must do</span>' : '') +
       '<span class="badge rw-st s-' + esc(aState) + '">' + esc(P && pm.status === 'assumed' ? 'Assumed for practice' : aState === 'open' ? 'Not checked' : aState === 'done' ? 'Done' : aState === 'na' ? (P ? 'Not needed' : 'N/A') : aState === 'blocked' ? 'Blocked' : P ? 'Try it again' : 'Re-check') + '</span>' +
       (a && (a.s === 'done' || a.s === 'na') && !P ? '<span class="small">' + esc(nameOf(ctx, a.by)) + ' · ' + U.hm(a.at) + '</span>' : '') + '</div>';
     var chg = changedHere(ctx, r)[st.id];
@@ -547,7 +549,8 @@
     else if (aState === 'blocked' || aState === 'recheck') h += '<div class="notice ' + (aState === 'blocked' ? 'bad' : 'warn') + ' rw-why"><span><b>' + (aState === 'blocked' ? 'Blocked' : 'Needs a re-check') + ':</b> ' + esc(a.reason) + (a.by ? ' · ' + esc(nameOf(ctx, a.by)) + ' ' + U.hm(a.at) : '') + '</span></div>';
 
     /* What to do */
-    var how = (t.hint ? '<p class="small">' + esc(t.hint) + '</p>' : '') + (st.note ? '<div class="note">' + U.mdBlock(st.note) + '</div>' : '');
+    /* The plain type's generic hint says nothing the step doesn't; What to do shows only when it has something (2.3.1). */
+    var how = (t.hint && t.id !== 'confirm' ? '<p class="small">' + esc(t.hint) + '</p>' : '') + (st.note ? '<div class="note">' + U.mdBlock(st.note) + '</div>' : '');
     var shots = st.shots.map(function (sh, k) { return '<figure class="shot"><button class="thumb" data-act="zoom" data-id="' + esc(st.id) + '" data-i="' + k + '" aria-label="Expand: ' + esc(sh.caption) + '" title="' + esc(sh.caption) + '">' + ctx.img(sh.src, sh.caption) + '</button><figcaption class="small">' + esc(sh.caption) + '</figcaption>' +
       (s.me && !corrOpen && !P ? '<button class="linkish" data-act="corr-open" data-mode="correct" data-op="screenshot" data-id="' + esc(st.id) + '" data-shot="' + esc(sh.src) + '">' + (st.shots.length === 1 ? 'Replace this screenshot' : 'Replace screenshot ' + (k + 1)) + '</button>' : '') + '</figure>'; }).join('');
     how += fieldsBlock(ctx, r, st, t, sched) + (shots ? '<div class="thumbs shots">' + shots + '</div>' : '');
@@ -567,7 +570,7 @@
     /* Timing is on show when the checklist times the step, or it's started; otherwise Start waits under More for this step. */
     var timed = !P && !!(timing || st.fields.expect || st.fields.deadline || (s.pick && s.pick.id === st.id && s.pick.kind === 'deadline'));
     if (timed && (timing || timeActs)) how += '<div class="rw-timing"><h4 class="rw-h4">Timing</h4><div class="badges">' + timing + '</div>' + (timeActs ? '<div class="row">' + timeActs + '</div>' : '') + '</div>';
-    h += '<section class="rw-box" aria-labelledby="ins-do"><h3 class="rw-h3" id="ins-do">What to do</h3>' + (how || '<p class="small">Nothing more to it than the step says.</p>') + '</section>';
+    if (how) h += '<section class="rw-box" aria-labelledby="ins-do"><h3 class="rw-h3" id="ins-do">What to do</h3>' + how + '</section>';
     if (!timed && timeActs) h += '<details class="rw-more" data-disc="rw-more"' + ((s.disc || {})['rw-more'] ? ' open' : '') + '><summary class="small">More for this step</summary><div class="row">' + timeActs + '</div></details>';
 
     /* Record the result: evidence to type before Done, what was recorded, and Fill in for values known later. */
@@ -599,7 +602,7 @@
       if (vals) recBody = '<div class="fields">' + vals + '</div>';
     }
     var finishing = !P && s.answering && s.answering.key === runKey(r) && s.answering.step === st.id;
-    var fillIn = rec && r.state === 'running' && !r.paused && !(P && (P.paused || pm.status === 'assumed')) && (P ? editable.length : editable.length || recFields.length) && !(s.pick && s.pick.id === st.id && s.pick.kind === 'fields') ? (finishing
+    var fillIn = rec && r.state === 'running' && !r.paused && !(P && (P.paused || pm.status === 'assumed')) && R.fillOffered(r, map, st, t, !!P) && !(s.pick && s.pick.id === st.id && s.pick.kind === 'fields') ? (finishing
       ? '<span class="row"><button class="mini" data-act="pick" data-kind="fields" data-id="' + esc(st.id) + '" disabled aria-describedby="fillwhy-' + esc(st.id) + '">' + I('edit') + 'Fill in</button><span class="small" id="fillwhy-' + esc(st.id) + '">Finishing the answer…</span></span>'
       : '<button class="mini" data-act="pick" data-kind="fields" data-id="' + esc(st.id) + '">' + I('edit') + 'Fill in</button>') : '';
     if (recBody || fillIn) h += '<section class="rw-box" aria-labelledby="ins-rec"><div class="row between"><h3 class="rw-h3" id="ins-rec">Record the result</h3>' + fillIn + '</div>' + recBody + '</section>';
@@ -689,7 +692,7 @@
     h += '<ol class="rw-phases">' + map.phases.map(function (p, pi) {
       var gst = R.gateStatus(r, map, pi), info = R.phaseInfo(r, map, pi), done = R.gateOk(gst), ps = done ? 'done' : gst === 'locked' ? 'locked' : pi === cur ? 'current' : 'open';
       return '<li><button class="rw-ph" data-act="goto" data-id="phase-' + esc(p.id) + '" data-s="' + ps + '"' + (pi === cur ? ' aria-current="step"' : '') + '><span class="num" aria-hidden="true">' + (done ? '✓' : pi + 1) + '</span><span class="name">' + esc(p.title) + '</span><span class="count" aria-label="' + info.done + ' of ' + info.total + ' answered">' + info.done + '/' + info.total + '</span></button>' +
-        '<span class="rw-gate g-' + gst + '">' + I('gate') + '<span>' + esc(p.gate.implicit ? 'Confirm' : p.gate.title) + ' · ' + GATE_WORD[gst] + '</span></span></li>';
+        '<span class="rw-gate g-' + gst + '">' + I('gate') + '<span>' + esc(p.gate.title) + ' · ' + GATE_WORD[gst] + '</span></span></li>';
     }).join('') + '</ol>';
     return h + (ctx.practice ? '' : utilities(ctx, r, schedN, lateN, 'rail'));
   }
@@ -786,7 +789,7 @@
     /* Conditions (2.1): steps that aren't needed in this run fold to one quiet line at the end of the phase. */
     var nn = map ? (R.phaseInfo(r, map, pi).notNeeded || []) : [], needed = function (st) { return nn.indexOf(st) < 0; };
     var loose = p.steps.filter(function (st) { return !st.track && needed(st); }), h = loose.length ? '<ul class="steps">' + loose.map(row).join('') + '</ul>' : '';
-    var folded = nn.length ? '<details class="folded not-needed"><summary class="small">' + nn.length + ' step' + (nn.length === 1 ? '' : 's') + ' not needed</summary><ul class="small">' + nn.map(function (st) { return '<li>' + inlineText(st.text) + ' · ' + esc(R.applies(r, map, pi, st).why.replace(/\^/g, '')) + '</li>'; }).join('') + '</ul></details>' : '';
+    var folded = nn.length ? '<details class="folded not-needed"><summary class="small">' + nn.length + ' step' + (nn.length === 1 ? '' : 's') + ' not needed</summary><ul class="small">' + nn.map(function (st) { return '<li>' + K.stepHtml(st, K.refValue(r, map), false) + ' · ' + esc(R.applies(r, map, pi, st).why.replace(/\^/g, '')) + '</li>'; }).join('') + '</ul></details>' : '';
     if (!p.tracks || !p.tracks.length) return h + folded;
     return h + '<div class="tracks">' + p.tracks.map(function (t) {
       var steps = p.steps.filter(function (st) { return st.track === t.id && needed(st); }), done = steps.filter(function (st) { return R.answered(r, st); }).length;
@@ -844,7 +847,7 @@
   function run(ctx) {
     var r = ctx.run(), s = ctx.state;
     if (!r) return K.notices(ctx) + '<div class="panel">That run wasn\'t found. <button class="mini" data-act="home">Back to Home</button></div>';
-    var map = mapOf(ctx, r), rec = ctx.recording(r), t = R.totals(r, map), P = prOf(ctx), nx = R.nextUp(r, map, s.me), hl = nx.hl, now = Date.now();
+    var map = mapOf(ctx, r), rec = ctx.recording(r), t = R.totals(r, map), P = prOf(ctx), nx = R.nextUp(r, map, s.me, K.shownOpt(r, map)), hl = nx.hl, now = Date.now();
     var items = P ? [] : R.schedule(r, map, now), schedBy = {}, late = items.filter(function (it) { return it.status === 'late' || it.status === 'started?'; }).length;
     items.forEach(function (it) { schedBy[it.what + ':' + it.id] = it; });
     var pct = t.total ? Math.round(t.done / t.total * 100) : 0, alone = R.solo(r);
@@ -878,7 +881,7 @@
     if (s.folderErr) al += '<div class="notice bad" role="alert"><span><b>Can\'t read the team folder.</b> ' + esc(s.folderErr) + ' You\'re seeing what was last read at ' + U.hm(ctx.data.readAt) + '. Check that OneDrive is running and the folder is available offline.</span><button class="btn" data-act="refresh">Try again</button></div>';
     /* A Done differently whose correction was saved but whose answer couldn't be: said here until someone acts. */
     var part = (s.partial || {})[runKey(r)], pa = part && r.steps[part.step];
-    if (part && !(pa && pa.s === 'done' && pa.differently)) { var px = M.findStep(map, part.step); al += '<div class="notice warn" role="status"><span><b>Correction saved; the step wasn\'t marked done.</b> ' + esc(px ? px.step.text : part.step) + '</span><span class="row">' + (rec && px ? '<button class="btn" data-act="corr-open" data-mode="differently" data-id="' + esc(part.step) + '">Mark it now</button>' : '') + '<button class="mini" data-act="partial-dismiss" data-id="' + esc(runKey(r)) + '">Dismiss</button></span></div>'; }
+    if (part && !(pa && pa.s === 'done' && pa.differently)) { var px = M.findStep(map, part.step); al += '<div class="notice warn" role="status"><span><b>Correction saved; the step wasn\'t marked done.</b> ' + (px ? K.stepHtml(px.step, K.refValue(r, map)) : esc(part.step)) + '</span><span class="row">' + (rec && px ? '<button class="btn" data-act="corr-open" data-mode="differently" data-id="' + esc(part.step) + '">Mark it now</button>' : '') + '<button class="mini" data-act="partial-dismiss" data-id="' + esc(runKey(r)) + '">Dismiss</button></span></div>'; }
     /* A note line that isn't complete JSON (2.1.1): named, never guessed at; the rest of the notes show. */
     (r._noteLines || []).forEach(function (x) { al += '<div class="notice warn" role="status"><span>' + esc(PF.health.noteLineText(x)) + '</span></div>'; });
     al += recovery(ctx, r, ctx.canRecover(r));

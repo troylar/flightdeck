@@ -463,11 +463,12 @@ PF.run = (function () {
   function allGatesOk(r, map) { for (var i = 0; i < map.phases.length; i++) if (!gateOk(gateStatus(r, map, i))) return false; return true; }
 
   /* The one sentence that says where the run is. */
-  function headline(r, map) {
+  /* opts.shown(step), for screens (2.3.1): a step's text as shown there; without it, the text as the file and other apps read it. */
+  function headline(r, map, opts) {
     if (r.paused && !r.ended) return { s: 'paused', text: 'Paused: ' + r.paused.reason, sub: 'Paused since ' + U.hm(r.paused.at) + '. Resume to continue.' };
     if (r.ended) return { s: r.ended.outcome === 'Completed' ? 'complete' : 'stopped', text: 'Ended: ' + r.ended.outcome, sub: 'by ' + r.ended.byName };
     var blocked = blockedSteps(r, map);
-    if (blocked.length) { var b = blocked[0], a = r.steps[b.step.id]; return { s: 'stopped', text: 'Stopped: ' + b.step.text, sub: 'Blocked (' + a.reason + '). Resolve it before anyone moves on.', step: b.step.id }; }
+    if (blocked.length) { var b = blocked[0], a = r.steps[b.step.id]; return { s: 'stopped', text: 'Stopped: ' + (opts && opts.shown ? opts.shown(b.step) : b.step.text), sub: 'Blocked (' + a.reason + '). Resolve it before anyone moves on.', step: b.step.id }; }
     for (var pi = 0; pi < map.phases.length; pi++) {
       var st = gateStatus(r, map, pi), g = map.phases[pi].gate, info = phaseInfo(r, map, pi);
       if (gateOk(st)) continue;
@@ -526,6 +527,15 @@ PF.run = (function () {
     r.steps[id] = rec;
   }
   /* A step's map fields, with any values filled in for this run. */
+  /* Fill in is offered only where it can hold something (2.3.1): evidence to record (unless evidence is left out, as in
+     practice), a value already in one of the step's fields, or a field its type adds beyond the ones every type gets. An
+     empty plain step has nothing to fill in. Which fields Fill in offers, once shown, is unchanged (PF.types.editable). */
+  var BASE_FIELDS = { where: true, looks: true, link: true };
+  function fillOffered(r, map, step, type, noEvidence) {
+    if (!noEvidence && evidenceFor(r, step, fieldsOf(r, step), map).list.length) return true;
+    var ed = type ? PF.types.editable(type) : [], f = fieldsOf(r, step);
+    return ed.some(function (k) { return !BASE_FIELDS[k] || (f[k] != null && String(f[k]).trim() !== ''); });
+  }
   function fieldsOf(r, step) { return Object.assign({}, step.fields, (r.fields || {})[step.id] || {}); }
   /* Evidence the map requires (require: build) is checked here, so a step can't be done without it. Values noted earlier count,
      except with o.exact (an accepted report): then the step records exactly these values and nothing earlier. */
@@ -968,7 +978,7 @@ PF.run = (function () {
         if (cond && applies(r, map, pi, st).applies === false) return;
         var w = when(fieldsOf(r, st)); if (!w || isNaN(w.ms)) return;
         var a = r.steps[st.id], doneAt = a && (a.s === 'done' || a.s === 'na') ? new Date(a.at).getTime() : null;
-        items.push({ what: 'step', id: st.id, title: st.text, phase: p.title, kind: w.kind, ms: w.ms, doneAt: doneAt, status: status(w, doneAt) });
+        items.push({ what: 'step', id: st.id, title: M.shownText(st, M.valuesOf(r)), phase: p.title, kind: w.kind, ms: w.ms, doneAt: doneAt, status: status(w, doneAt) });
       });
       var g = p.gate, gw = g.fields && when(g.fields);
       if (gw && !isNaN(gw.ms)) { var gr = r.gates[g.id], gs = gateStatus(r, map, pi), gDone = (gs === 'passed' || gs === 'waived') && gr ? new Date(gr.at).getTime() : null;
@@ -1214,8 +1224,8 @@ PF.run = (function () {
   /* What the run screen points at next, from the same rules as the headline: a blocked step, a gate to review, failed or
      ready, else the next unanswered step of the open phase (one assigned to this person first; a step everyone can do counts
      for the recorder). Parallel tracks each say what's next in them. It depends on the run, never on what someone is looking at. */
-  function nextUp(r, map, personId) {
-    var hl = headline(r, map);
+  function nextUp(r, map, personId, opts) {
+    var hl = headline(r, map, opts);
     if (r.ended) return { kind: 'ended', hl: hl };
     if (r.paused) return { kind: 'paused', hl: hl };
     if (hl.step) { var bx = M.findStep(map, hl.step); return { kind: 'blocked', hl: hl, step: bx ? bx.step : null, phaseIndex: bx ? bx.phaseIndex : 0 }; }
@@ -1268,10 +1278,10 @@ PF.run = (function () {
       lines.push(p.title);
       p.steps.forEach(function (s) {
         var ap = applies(r, map, pi, s);
-        if (ap.applies === false) { notNeeded.push(s.text + ': ' + ap.why); return; }
+        if (ap.applies === false) { notNeeded.push(M.shownText(s, M.valuesOf(r)) + ': ' + ap.why); return; }
         var a = r.steps[s.id], word = ap.applies === null ? 'WAITING - ' + ap.why : !a ? 'NOT CHECKED' : a.s === 'done' ? 'DONE' : a.s === 'na' ? 'N/A' : a.s === 'blocked' ? 'BLOCKED - ' + a.reason : a.s === 'recheck' ? 'RE-CHECK - ' + a.reason : 'NOT CHECKED';
         var from = reportOf && a && a.s === 'done' ? reportOf(s.id) : '';
-        lines.push('  [' + word + '] ' + s.text + (from ? ' (' + from + ')' : '') + (a && a.differently ? ' (done differently: ' + a.differently.note + ')' : ''));
+        lines.push('  [' + word + '] ' + M.shownText(s, M.valuesOf(r)) + (from ? ' (' + from + ')' : '') + (a && a.differently ? ' (done differently: ' + a.differently.note + ')' : ''));
         if (a && a.s === 'done' && a.values) { evidenceFor(r, s).list.forEach(function (d) { if (a.values[d.name]) lines.push('      ' + d.label + ': ' + shown(r, map, 'steps.' + s.id + '.values.' + d.name, a.values[d.name])); }); }
       });
       var gw = st === 'passed' ? 'PASSED' : st === 'waived' ? 'WAIVED - ' + gr.reason : st === 'failed' ? 'FAILED - ' + gr.reason : st === 'review' ? 'NEEDS REVIEW' : 'NOT PASSED';
@@ -1750,7 +1760,7 @@ PF.run = (function () {
   return { answerable: answerable, reopenIds: reopenIds, gateInputs: gateInputs, detailValueDef: detailValueDef,
     RUN_ID: RUN_ID, isTest: isTest, pubDir: pubDir, testProblem: testProblem, testLast: testLast,
     FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
-    phaseOpen: phaseOpen, applies: applies, held: held, stepNeeded: stepNeeded, canStartChild: canStartChild, phaseSkipped: phaseSkipped, condFields: condFields, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence, checkFill: checkFill,
+    phaseOpen: phaseOpen, applies: applies, held: held, stepNeeded: stepNeeded, canStartChild: canStartChild, phaseSkipped: phaseSkipped, condFields: condFields, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, fillOffered: fillOffered, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence, checkFill: checkFill,
     pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, jiraFor: jiraFor, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,
     pass: pass, waive: waive, fail: fail, reopen: reopen, setDetail: setDetail, setRole: setRole,

@@ -530,7 +530,7 @@ PF.reports = (function () {
       var x = map ? M.findStep(map, g.step) : null, step = x ? x.step : null, rep = g.report;
       var says = rep ? 'says ' + rep.verdict + (rep.blockers.length ? ' (' + rep.blockers.join('; ') + ')' : '') : 'can\'t be read';
       var dec = decided(g, cur, r, step, nameOf).text, ap = rep && step ? appliesText(applies(rep, r, map, step)) : '';
-      return g.producer + '/' + g.id + ' on ' + (step ? step.text : g.step) + ': ' + says + ' · ' + dec + (ap ? ' · ' + ap : '');
+      return g.producer + '/' + g.id + ' on ' + (step ? M.shownText(step, M.valuesOf(r)) : g.step) + ': ' + says + ' · ' + dec + (ap ? ' · ' + ap : '');
     });
   }
 

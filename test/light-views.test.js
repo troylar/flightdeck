@@ -465,7 +465,7 @@ rule('Builder: the new-draft banner names Save draft, the header says what unsav
   app.set('np-title', 'Onboard'); app.submit('new-process-form'); await app.tick(150);
   firstStep(app, 'Say hello'); await app.tick();
   let html = app.html();
-  assert.ok(/choose Save draft, then Done to publish it/.test(html + app.live()), 'the banner');
+  assert.ok(/choose Save draft, then Review &(amp;)? publish/.test(html + app.live()), 'the banner');
   const head = between(html, 'class="fpe-head"', '</header>');
   assert.ok(!/class="cnt/.test(head) && /aria-label="Checks: \d+ tips?"/.test(head), 'tips only: no number');
   assert.ok(/<span class="lvl tip">Tip<\/span>/.test(html), 'the tips are still listed');

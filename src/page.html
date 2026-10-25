@@ -103,6 +103,7 @@ h3 { font-family: var(--display); font-size: 18px; margin: 0 0 8px; }
 .chipbtn { border: 1px solid var(--line); background: var(--chip); border-radius: 99px; padding: 3px 10px; font-size: 13px; }
 .panel { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px; min-width: 0; }
 .cat { font-family: var(--label); font-weight: 600; font-size: 11px; line-height: 1.3; letter-spacing: .03em; text-transform: uppercase; padding: 2px 7px; border-radius: 4px; background: var(--chip); color: var(--muted); white-space: nowrap; }
+.cat.mode { text-transform: none; letter-spacing: 0; }
 /* On a card the label can be long (process and who planned it): it wraps inside the card instead of running past it. */
 .card .cat { white-space: normal; max-width: 100%; overflow-wrap: anywhere; align-self: flex-start; }
 .big { font-family: var(--display); font-weight: 700; font-size: 34px; line-height: 1; font-variant-numeric: tabular-nums; }
@@ -118,6 +119,7 @@ h3 { font-family: var(--display); font-size: 18px; margin: 0 0 8px; }
 .avatar { width: 22px; height: 22px; border-radius: 50%; display: inline-grid; place-items: center; font-size: 10px; font-weight: 700; background: var(--ink); color: var(--paper); flex: none; }
 .avatar.lg { width: 28px; height: 28px; font-size: 11px; }
 .pill { font-family: var(--label); font-weight: 600; font-size: 11px; letter-spacing: .05em; text-transform: uppercase; padding: 2px 8px; border-radius: 99px; white-space: nowrap; }
+.pill.plain { text-transform: none; letter-spacing: 0; }
 .pill.passed, .pill.complete { background: var(--go-soft); color: var(--go); }
 .pill.waived { background: var(--plan-soft); color: var(--plan); }
 .pill.failed, .pill.stopped { background: var(--stop-soft); color: var(--stop); }
@@ -228,6 +230,7 @@ button.tag.on { background: var(--plan-soft); color: var(--plan); border-color: 
 .pv-skill { display: inline-flex; align-items: center; gap: 3px; font-size: 12px; color: var(--muted); }
 .pv-skill .ic { width: 12px; height: 12px; }
 b.dname { font-weight: 600; }
+.ref-empty { color: var(--muted); }
 .tagfold { margin: 0 0 8px; }
 .tagfold > summary, .np-more > summary, .rw-more > summary { cursor: pointer; }
 .np-more > summary { font-weight: 600; margin: 4px 0; }
@@ -1296,7 +1299,6 @@ p.pv-when { margin: 0 0 4px; }
   .fpe-savestate:not(:has(.dirty)):not(:has(.just)) { display: none; }
   .fpe-head .btn, .fpe-head .mini, .fpe-head .seg button, .fpe-head .chipbtn { min-height: 44px; }
   .fpe-state { width: auto; }
-  .fpe-checks-t { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .fpe-head .seg button { padding: 7px 10px; }
   .fpe-tools { gap: 6px; }
   .fpe input, .fpe select, .fpe textarea { font-size: 16px; }

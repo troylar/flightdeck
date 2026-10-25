@@ -1326,7 +1326,7 @@ rule('A run\'s record lists its corrections in checklist order: Checklist said, 
   delete r.steps.tests.differently;
   same(R.corrections(r, map).filter(x => x.step === 'tests').map(x => [x.happened, !!x.answer]), [['Ran the gate twice', false]]);
   const text = R.receipt(r, map, id => id.replace('person-', ''), NOW, r._notes, c => c.oneOff ? 'One-off' : c.id === 'p1' ? 'Declined: No' : 'Open');
-  assert.ok(/Corrections · 3\n  - Change request approved for tonight's window \[One-off\] casey [^\n]*\n      What happened: The board approved by phone\n  - Full test gate green on the release commit \[Open\] casey [^\n]*\n      Checklist said: Full test gate green on the release commit\n      Suggested: Full test gate green twice on the release commit\n      What happened: Ran the gate twice\n  - New pods stay up with no restarts \[Declined: No\] avery/.test(text), text);
+  assert.ok(/Corrections · 3\n  - Change request approved for tonight's window \[One-off\] casey [^\n]*\n      What happened: The board approved by phone\n  - Full test gate green on the release commit aaa111 \[Open\] casey [^\n]*\n      Checklist said: Full test gate green on the release commit\n      Suggested: Full test gate green twice on the release commit\n      What happened: Ran the gate twice\n  - New pods stay up with no restarts \[Declined: No\] avery/.test(text), text);
 });
 
 rule('The Before/After redline compares word by word', () => {

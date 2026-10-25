@@ -1,5 +1,60 @@
 [
   {
+    "version": "2.3.1",
+    "date": "2026-10-25",
+    "headline": "Run screen polish",
+    "changes": [
+      {
+        "kind": "improved",
+        "area": "Runs",
+        "title": "Step text shows the run's details",
+        "now": "A step tied to a run detail shows its value in its text, on the run screen, Next up, the receipt, reports and announcements: \"Start the production deploy job v2026.10.16\". Until it's set, it reads ‹tag›.",
+        "before": "The reference was taken out of the text, so \"Start the production deploy job\" didn't say which tag.",
+        "where": "The run screen, receipt, reports"
+      },
+      {
+        "kind": "improved",
+        "area": "Runs",
+        "title": "Gates say their own names",
+        "now": "A gate shows its title on the run screen, the phase rail and the receipt, such as \"Confirm deploy · Passed\".",
+        "before": "A gate without a name showed as CONFIRM.",
+        "where": "The run screen, receipt"
+      },
+      {
+        "kind": "improved",
+        "area": "Runs",
+        "title": "Less noise on a plain step",
+        "now": "A plain step has no Confirm tag, no empty What to do section and no Fill in when there's nothing to fill in; F says \"Nothing to fill in for this step.\" A passed gate shows Passed once. An unset run detail's chip says Set tag.",
+        "before": "Every step showed a type tag, a What to do section and Fill in, even with nothing in them.",
+        "where": "The run screen, practice"
+      },
+      {
+        "kind": "improved",
+        "area": "Runs",
+        "title": "Passing a gate goes where Next up points",
+        "now": "After a gate passes, the next phase's open step is selected and ready for Space; the next gate or Finish gets focus when that's what's next. Typing on the selected step keeps it selected.",
+        "before": "Selection stayed on the gate's phase.",
+        "where": "The run screen, practice"
+      },
+      {
+        "kind": "improved",
+        "area": "Editing",
+        "title": "Review & publish",
+        "now": "The editor's button says Review & publish, and its instructions say Save draft, then Review & publish. Mode chips keep their case, a draft says it's ready to automate, and the phone's Checks button shows its label.",
+        "before": "The button said Done, and the editor mentioned that a feature needs Flightdeck 2.0.",
+        "where": "The draft editor"
+      },
+      {
+        "kind": "fixed",
+        "area": "Runs",
+        "title": "Messages say what they're about, and only as surely as it's known",
+        "now": "A message about a folder or person you've since left starts \"In <folder>:\" or \"For <name>:\". A planned start whose run may have saved says Flightdeck couldn't confirm whether it saved, in the message, the banner, a second attempt and Try again. A test run started as one person never starts after a switch to someone else and back.",
+        "before": "Such a run was said not to have saved, and messages didn't say which folder or person they meant.",
+        "where": "Plans, test runs"
+      }
+    ]
+  },
+  {
     "version": "2.3.0",
     "date": "2026-10-24",
     "headline": "Practice on the run screen",

@@ -84,7 +84,7 @@
       g.items.forEach(function (x) {
         var i = n++, on = i === st.pos, flag = x.status === 'unread' ? '<span class="pill warn">Couldn\'t be read; last copy</span>' : x.status === 'missing' ? '<span class="pill warn">File gone; last copy</span>' : '';
         list += '<li role="option" id="sx-o-' + i + '" class="sx-opt" aria-selected="' + on + '" data-act="sx-open" data-id="' + esc(x.id) + '">' +
-          '<span class="sx-ic" aria-hidden="true">' + I(SX_ICON[x.kind] || 'doc') + '</span><span class="sx-tx"><span class="sx-t">' + marked(S.mark(x.title, res.terms)) + '</span>' +
+          '<span class="sx-ic" aria-hidden="true">' + I(SX_ICON[x.kind] || 'doc') + '</span><span class="sx-tx"><span class="sx-t">' + marked(S.mark(x.shown || x.title, res.terms)) + '</span>' +
           (x.text ? '<span class="sx-x">' + marked(S.snippet(x.text, res.terms, 140)) + '</span>' : '') +
           '<span class="sx-s">' + esc(x.sub) + flag + '</span></span></li>';
       });

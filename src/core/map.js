@@ -17,6 +17,32 @@ PF.map = (function () {
     return { list: out, rest: rest.trim() };
   }
 
+  /* Step text with its run details kept in place (2.3.1): the words and ^name references, in order, for display only.
+     step.text (without references) stays what signatures, corrections, search and saved files key on. */
+  function refParts(s) {
+    var out = [], re = /\^([\w-]+)/g, last = 0, m;
+    while ((m = re.exec(s))) { if (m.index > last) out.push({ t: 'text', v: s.slice(last, m.index) }); out.push({ t: 'ref', k: m[1] }); last = re.lastIndex; }
+    if (last < s.length) out.push({ t: 'text', v: s.slice(last) });
+    return out;
+  }
+  /* A step's text with each reference as a private-use mark (U+E000 + n), marks removed from link addresses (a detail is
+     never put into a link), and the names in order: what both the plain and the HTML readers start from. */
+  var MARK = /[\uE000-\uF8FF]/g;
+  function marked(step) {
+    var parts = step && step.textParts, names = [];
+    if (!parts) return { src: String((step && step.text) || '').replace(MARK, ''), names: names };
+    var src = parts.map(function (p) { return p.t === 'ref' ? (names.push(p.k), String.fromCharCode(0xE000 + names.length - 1)) : String(p.v).replace(MARK, ''); }).join('');
+    src = src.replace(/\]\(([^)]*)\)/g, function (_, a) { return '](' + a.replace(MARK, '') + ')'; }).replace(/\s+\]\(/g, '](');
+    return { src: src, names: names };
+  }
+  /* A run's details as references read them: the stored value, '' when not set or no run. */
+  function valuesOf(r) { return function (k) { var v = r && r.details && Object.prototype.hasOwnProperty.call(r.details, k) ? r.details[k] : ''; return v == null ? '' : String(v); }; }
+  /* Plain text: a reference becomes its value (valueOf(name), '' when not set) or ‹name›. */
+  function shownText(step, valueOf) {
+    var m = marked(step);
+    return m.src.replace(MARK, function (c) { var k = m.names[c.charCodeAt(0) - 0xE000], v = valueOf ? valueOf(k) : ''; return v != null && String(v).trim() !== '' ? String(v) : '\u2039' + k + '\u203a'; }).replace(/\s{2,}/g, ' ').trim();
+  }
+
   function parse(md) {
     var lines = String(md || '').replace(/\r\n?/g, '\n').split('\n');
     var meta = {}, phases = [], errors = [], i = 0, phase = null, step = null, gate = null, track = null, questions = false, ctxLine = -1;
@@ -79,7 +105,7 @@ PF.map = (function () {
         var tm = /^\{([a-z][\w.-]*)\}\s+(.*)$/i.exec(t2);
         if (tm) { typ = tm[1]; t2 = tm[2]; }
         var roles = tokens(t2, '@'), binds = tokens(roles.rest, '^');
-        step = { id: body.id, type: typ, text: binds.rest, must: m[1] === '!', planned: m[1] === '~', roles: roles.list, binds: binds.list, fields: {}, note: '', shots: [], line: i + 1, track: track ? track.id : '' };
+        step = { id: body.id, type: typ, text: binds.rest, textParts: refParts(roles.rest.trim()), must: m[1] === '!', planned: m[1] === '~', roles: roles.list, binds: binds.list, fields: {}, note: '', shots: [], line: i + 1, track: track ? track.id : '' };
         /* A step in a track with no @role of its own belongs to the track's people. */
         if (track && !step.roles.length) step.roles = track.roles.slice();
         phase.steps.push(step);
@@ -339,5 +365,5 @@ PF.map = (function () {
     return text.slice(0, at) + head + text.slice(at + m[2].length);
   }
 
-  return { PROCESS_ID: PROCESS_ID, parse: parse, check: check, features: features, shotSources: shotSources, steps: steps, setBy: setBy, findStep: findStep, usedTypes: usedTypes, withMeta: withMeta };
+  return { PROCESS_ID: PROCESS_ID, MARK: MARK, marked: marked, shownText: shownText, valuesOf: valuesOf, parse: parse, check: check, features: features, shotSources: shotSources, steps: steps, setBy: setBy, findStep: findStep, usedTypes: usedTypes, withMeta: withMeta };
 })();

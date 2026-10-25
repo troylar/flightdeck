@@ -443,7 +443,7 @@ PF.insights = (function () {
     phases.forEach(function (p) {
       p.steps.forEach(function (s) {
         var acc = stepAcc[s.id], c = corr[s.id];
-        var out = { id: s.id, text: s.text, phase: p.id, skipped: { hits: acc.skipped.keys.length, n: acc.skipped.counted.length, keys: acc.skipped.keys, q: qual('run', acc.skipped.counted, acc.skipped.ex) } };
+        var out = { id: s.id, text: s.text, textParts: s.textParts, phase: p.id, skipped: { hits: acc.skipped.keys.length, n: acc.skipped.counted.length, keys: acc.skipped.keys, q: qual('run', acc.skipped.counted, acc.skipped.ex) } };
         EVER_KEYS.forEach(function (metric) {
           var x = acc[metric];
           out[metric] = { hits: x.keys.length, n: x.counted.length, keys: x.keys, incomplete: x.incompleteKeys.length, incompleteKeys: x.incompleteKeys, q: qual('run', x.counted, x.ex, x.incompleteKeys) };

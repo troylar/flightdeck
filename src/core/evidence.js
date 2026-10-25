@@ -250,7 +250,7 @@ PF.evidence = (function () {
         if (a && a.s !== 'open' && ap && ap.applies === false) st = 'Not needed: ' + ap.why + '. Earlier answer: ' + a.s;
         if (a && a.values) R.evidenceFor(run, s).list.forEach(function (d) { if (a.values[d.name]) ev.push(d.label + ': ' + R.shown(run, map, 'steps.' + s.id + '.values.' + d.name, a.values[d.name])); });
         var marks = run.marks && run.marks[s.id] ? run.marks[s.id] : [];
-        h += '<tr><td>' + esc(s.text) + ' <span class="soft mono">' + esc(s.id) + '</span></td><td>' + esc(st) + (a && a.reason ? ': ' + esc(a.reason) : '') + (a && a.differently ? '<br>Done differently: ' + esc(a.differently.note) : '') +
+        h += '<tr><td>' + esc(M.shownText(s, M.valuesOf(run))) + ' <span class="soft mono">' + esc(s.id) + '</span></td><td>' + esc(st) + (a && a.reason ? ': ' + esc(a.reason) : '') + (a && a.differently ? '<br>Done differently: ' + esc(a.differently.note) : '') +
           (ev.length ? '<br>' + ev.map(esc).join('<br>') : '') + (a && a.history && a.history.length ? '<br><span class="soft">' + a.history.length + ' earlier answer' + (a.history.length === 1 ? '' : 's') + ' kept</span>' : '') + (marks.length ? '<br><span class="soft">Ever: ' + esc(marks.join(', ')) + '</span>' : '') +
           '</td><td>' + (a && a.by ? esc(nameOf(col, a.by)) + '<br><span class="soft">' + esc(when(a.at)) + '</span>' : '') + '</td></tr>';
       });

@@ -2627,7 +2627,7 @@ rule('Plans (2.1.1): a start whose run doesn\'t save leaves one decision naming 
   assert.strictEqual(dec.length, 1, 'one decision'); assert.strictEqual(dec[0].status, 'accepted');
   assert.ok(typeof id === 'string' && /^[a-z0-9-]{1,40}$/i.test(id), 'it names the run: ' + id);
   assert.deepStrictEqual(releaseRuns(app), before, 'no run');
-  assert.ok(/marked started, but its run didn(&#39;|')t save/.test(app.html()), shown(app));
+  assert.ok(/marked started, but Flightdeck couldn(&#39;|')t confirm whether its run saved/.test(app.html()) && !/didn(&#39;|')t save/.test(app.html()), shown(app));
   assert.ok(/data-act="plan-resume"/.test(app.html()), 'Try again is offered');
   app.submitForm('start-form'); await app.tick(120);
   app.click('refresh'); await app.tick(80);
@@ -3948,7 +3948,7 @@ rule('App: checking the step Next up points at selects the next one in its phase
   assert.ok(j.steps.jenkins.s === 'done' && j.steps.jenkins.values.build === 'https://ci.example.com/job/web-app-deploy-prod/88/', 'the row\'s check collected the evidence typed in the inspector');
   assert.strictEqual(app.selected(), 'approve', 'the next step in the phase is selected');
   assert.strictEqual(app.focused(), '[data-act="toggle"][data-id="approve"]', 'focus is on its check, ready for Space');
-  assert.strictEqual(app.live(), '"Start the production deploy job" checked. Next: "Approve the deploy in Jenkins before it rolls back".');
+  assert.strictEqual(app.live(), '"Start the production deploy job v2026.10.16" checked. Next: "Approve the deploy in Jenkins before it rolls back".');
   assert.ok(!/<div class="notice[^"]*" role="status"><span>"Start the production deploy job" checked/.test(app.html()), 'announced, not shown as a notice');
 });
 

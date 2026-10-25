@@ -107,7 +107,7 @@
     if (pick && pick.mode === 'accept' && el.ok) {
       var labels = el.step ? R.evidenceFor(r, el.step).list : [], vals = labels.filter(function (d) { return el.values[d.name]; }).map(function (d) { return d.label + ' ' + el.values[d.name]; });
       h += '<div class="rep-confirm" role="group" aria-labelledby="' + id + '-cf"><h4 id="' + id + '-cf" tabindex="-1">Accept this report?</h4>' +
-        '<p>Checks "' + esc(el.step.text) + '"' + (vals.length ? ' with: ' + esc(vals.join(', ')) : ' with no evidence') + '.</p>' +
+        '<p>Checks "' + esc(K.stepPlain(el.step, K.refValue(r, R.mapOf(r)))) + '"' + (vals.length ? ' with: ' + esc(vals.join(', ')) : ' with no evidence') + '.</p>' +
         el.replaces.map(function (x) { return '<p class="small">Replaces ' + esc(x.label) + ' ' + esc(x.was) + '.</p>'; }).join('') +
         (el.applies.result === 'unknown' ? '<p class="small">Flightdeck can\'t compare these inputs.</p>' : '') +
         (el.applies.untied.length ? '<p class="small">' + esc(X.appliesText(el.applies)) + '</p>' : '') +
@@ -146,7 +146,7 @@
     var items = b.list.slice().sort(function (a, c) { var i = order.indexOf(a.g.step), j = order.indexOf(c.g.step); return (i < 0 ? 1e9 : i) - (j < 0 ? 1e9 : j); });
     var rows = items.map(function (it) {
       var g = it.g, x = M.findStep(map, g.step), dec = decidedOf(ctx, r, map, g);
-      return '<li><button class="link" data-act="goto" data-id="step-' + esc(g.step) + '">' + esc(x ? x.step.text : g.step) + '</button><span class="small">' + esc(saysText(g.report)) + ' · ' + esc(g.producer) + ' · ' + esc(dec.text) + '</span></li>';
+      return '<li><button class="link" data-act="goto" data-id="step-' + esc(g.step) + '">' + (x ? K.stepHtml(x.step, K.refValue(r, map), false) : esc(g.step)) + '</button><span class="small">' + esc(saysText(g.report)) + ' · ' + esc(g.producer) + ' · ' + esc(dec.text) + '</span></li>';
     }).join('');
     var bad = (b.badNames || []).map(function (e) { return '<li class="small">' + esc(e.path || e.name) + ': isn\'t named as a report.</li>'; }).join('');
     return '<section class="rw-panel" id="rw-reps" aria-label="Reports"><h2 class="rw-h2">Reports</h2>' +
