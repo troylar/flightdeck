@@ -153,6 +153,7 @@
       return h + '<p class="small">Paste this to your AI assistant, opened in the team folder, with your notes or runbook. Its draft shows up in Processes, where you publish it.</p><pre class="source" id="np-prompt" tabindex="0">' + esc(text) + '</pre>' +
         '<div class="row"><button class="btn" type="button" data-act="np-copy">' + I('copy') + 'Copy the prompt</button><span class="small" id="copy-msg" role="status"></span><button class="mini" type="button" data-act="np-cancel">Cancel</button></div></form>';
     }
+    var nmOwn = PF.people.labeler(people);
     var more = (st.disc || {})['np-more'];
     h += field('title', 'Title', '', f.title, ' required aria-describedby="np-file"') +
       '<span class="small np-file" id="np-file">' + (file ? 'Saved as <code>' + esc(file) + '.md</code>' : 'The file name is made from the title.') + '</span>' +
@@ -160,7 +161,7 @@
       field('id', 'File name', 'lowercase letters, numbers and dashes; it can\'t change later', f.id, ' pattern="[a-z0-9][a-z0-9\\-]*" placeholder="made from the title"') +
       '<div class="grid2">' + field('group', 'Group', 'its place in the hierarchy, like Engineering / Releases', f.group) + field('tags', 'Tags', 'comma-separated', f.tags) + '</div>' +
       '<div class="grid2">' + field('context', 'Run details', 'filled in when a run starts, like ticket, commit', f.context) + field('roles', 'Roles', 'who does what, like lead, reviewer', f.roles) + '</div>' +
-      '<label class="field" for="np-owner">Owner <span class="small">keeps this checklist up to date</span><select id="np-owner">' + people.map(function (p) { return '<option value="' + esc(p.id) + '"' + ((f.owner || st.me) === p.id ? ' selected' : '') + '>' + esc(PF.people.label(p, people)) + '</option>'; }).join('') + '</select></label>' +
+      '<label class="field" for="np-owner">Owner <span class="small">keeps this checklist up to date</span><select id="np-owner">' + people.map(function (p) { return '<option value="' + esc(p.id) + '"' + ((f.owner || st.me) === p.id ? ' selected' : '') + '>' + esc(nmOwn(p)) + '</option>'; }).join('') + '</select></label>' +
       '<label class="row"><input type="checkbox" id="np-solo"' + (f.solo ? ' checked' : '') + '> Usually run by one person</label></details>';
     return h + '<div class="row"><button class="btn go" type="submit">' + I('edit') + 'Create the draft</button>' + (tpl !== 'blank' ? '<button class="btn" type="button" data-act="np-publish">' + I('play') + 'Publish v1 as it is</button>' : '') + '<button class="mini" type="button" data-act="np-cancel">Cancel</button></div></form>';
   }

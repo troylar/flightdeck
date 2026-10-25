@@ -67,7 +67,7 @@
     else if (!pub) line += 'none yet';
     else if (PF.skills.signoffs(ctx.data.validations, pub).length) line += 'none yet (v' + pub.info.version + ' signed off)';
     else if (PF.skills.signHold(ctx.data, pub)) line += PF.skills.signHold(ctx.data, pub).kind === 'newer' ? 'none yet (v' + pub.info.version + ' signed off with a newer Flightdeck)' : 'none yet (can\'t tell whether v' + pub.info.version + ' is signed off)';
-    else { var ready = PF.skills.readiness(ctx.countedRuns ? ctx.countedRuns() : ctx.data.runs, pub, null); line += 'none yet (' + ready.clean + ' of ' + ready.needed + ' clean runs)'; }
+    else { var ready = PF.skills.readiness(ctx.countedRuns ? ctx.countedRuns(pub.map.meta.process) : ctx.data.runs, pub, null); line += 'none yet (' + ready.clean + ' of ' + ready.needed + ' clean runs)'; }
     /* Open whenever it holds a warning: a sign-off file of this process that can't be read. */
     var warn = signUnread(ctx, p).length > 0;
     return '<details class="panel fold" data-disc="sk:' + esc(p.id) + '"' + ((st.disc || {})['sk:' + p.id] || warn ? ' open' : '') + '><summary><h2 id="sk-h">' + I('spark') + esc(line) + '</h2></summary>' +
@@ -94,7 +94,7 @@
   /* Is the current version ready to become a skill? One line of status and the one thing to do next. */
   function readyPanel(ctx, p, pub, bare) {
     if (!pub) return '';
-    var st = ctx.state, ready = PF.skills.readiness(ctx.countedRuns ? ctx.countedRuns() : ctx.data.runs, pub, null), signs = PF.skills.signoffs(ctx.data.validations, pub), owner = pub.map.meta.owner;
+    var st = ctx.state, ready = PF.skills.readiness(ctx.countedRuns ? ctx.countedRuns(pub.map.meta.process) : ctx.data.runs, pub, null), signs = PF.skills.signoffs(ctx.data.validations, pub), owner = pub.map.meta.owner;
     var h = bare ? '<h3>Ready for a skill?</h3>' : '<section class="panel" aria-labelledby="rd-h"><h2 id="rd-h">' + I('check') + 'Ready for a skill?</h2>';
     var hold = PF.skills.signHold(ctx.data, pub), unknown = PF.skills.signUnknown(ctx.data, pub);
     h += signUnreadNotice(ctx, p);
@@ -516,7 +516,7 @@
     var procs = (ctx.data.stages || {}).procs || {}, sp = Object.prototype.hasOwnProperty.call(procs, p.id) ? procs[p.id] : null;
     var s = sp ? sp.stages.filter(function (x) { return x.folder === folder; })[0] : null;
     if (!s || !s.ok) return { why: 'This staged version isn\'t in the folder, or can\'t be read now.' };
-    var ready = PF.skills.readiness(ctx.countedRuns ? ctx.countedRuns() : ctx.data.runs, s, null), signs = PF.skills.signoffs(ctx.data.validations, s);
+    var ready = PF.skills.readiness(ctx.countedRuns ? ctx.countedRuns(s.map.meta.process) : ctx.data.runs, s, null), signs = PF.skills.signoffs(ctx.data.validations, s);
     var held = !!(ctx.data.failed || {}).stages || !!sp.unlisted || sp.unread.length > 0 || sp.refused.some(function (r) { return /\/decisions\//.test(r.path); });
     var x = PF.staging.status(s, sp.decisions, p.all);
     /* A sign-off of it that can't be read could be there already: it's never offered again until that reads. */
@@ -583,10 +583,11 @@
     if (soloMap) h += '<p class="small">Every role is yours. If someone joins later, add them from the run.</p>';
     if (meta.roles.length && !soloMap) {
       h += '<div class="row" style="margin-top:6px"><h3 style="margin:0">Who\'s doing what</h3>' + (st.me ? '<button class="mini" type="button" data-act="just-me">Just me</button>' : '') + '</div><div class="grid2">';
+      var nmStage = PF.people.labeler(people);
       meta.roles.forEach(function (role) {
         var chosen = pre.roles && typeof pre.roles === 'object' && typeof pre.roles[role] === 'string' ? pre.roles[role] : '', sug = ctx.suggestRole(p.id, role);
         h += '<label class="field" for="role-' + esc(role) + '">' + esc(role) + (sug ? ' <span class="small">· suggestion: ' + esc(nameOf(ctx, sug.person)) + ' (' + esc(sug.why) + ')</span>' : '') + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '"><option value="">Nobody yet</option>' +
-          people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === (chosen || (sug && sug.person)) ? ' selected' : '') + '>' + esc(PF.people.label(x, people)) + '</option>'; }).join('') + '</select></label>';
+          people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === (chosen || (sug && sug.person)) ? ' selected' : '') + '>' + esc(nmStage(x)) + '</option>'; }).join('') + '</select></label>';
       });
       h += '</div><p class="small">Suggestions rotate roles to whoever did them least recently, so everyone gets the experience. Change anything.</p>';
     }
@@ -610,9 +611,10 @@
     h += '</div>';
     if (meta.roles.length) {
       h += '<div class="grid2">';
+      var nmRun = PF.people.labeler(people);
       meta.roles.forEach(function (role) {
         h += '<label class="field" for="role-' + esc(role) + '">' + esc(role) + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '"><option value="">Nobody yet</option>' +
-          people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === st.me ? ' selected' : '') + '>' + esc(PF.people.label(x, people)) + '</option>'; }).join('') + '</select></label>';
+          people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === st.me ? ' selected' : '') + '>' + esc(nmRun(x)) + '</option>'; }).join('') + '</select></label>';
       });
       h += '</div>';
     }

@@ -4980,6 +4980,44 @@ rule('App: in any order of edits, held and refused saves, deletions, restores, d
   }
 });
 
+rule('App: through any order of saves, holds, deletions, restores, discards, rereads and broken files, every screen drawn with the 2.5.0 indexes is the screen drawn by scanning (never stale)', async () => {
+  for (let seed = 1; seed <= (+process.env.SEEDS || 8); seed++) {
+    let x = seed * 104729; const rnd = n => { x = (x * 48271) % 2147483647; return x % n; };
+    const t = await heldRelease(), app = t.app, key = t.run.key, holds = [], log = [];
+    let n = 0, lastGood = null;
+    /* The same state drawn twice: with the indexes, then with PF.perf.plain (every lookup a scan from the start). */
+    const same = where => {
+      app.click('unpick'); const fast = app.html() + app.top();
+      app.PF.perf.plain = true; app.click('unpick'); const plain = app.html() + app.top(); app.PF.perf.plain = false;
+      if (fast !== plain) { let i = 0; while (fast[i] === plain[i]) i++; assert.fail('drawn differently with the indexes · ' + where + ' · at: ' + fast.slice(Math.max(0, i - 80), i + 80) + ' | scanning: ' + plain.slice(Math.max(0, i - 80), i + 80)); }
+    };
+    for (let step = 0; step < 30; step++) {
+      const a = ['edit', 'edit', 'hold', 'release', 'delete', 'restore', 'discard', 'reread', 'refresh', 'corrupt', 'fix', 'screens'][rnd(12)];
+      log.push(a);
+      if (a === 'edit') t.commit('W' + seed + '-' + (++n));
+      else if (a === 'hold') holds.push(t.hold(rnd(2) === 1));
+      else if (a === 'release') { const h = holds.shift(); if (h) h.open(); }
+      else if (a === 'delete') t.wipe();
+      else if (a === 'restore') app.click('restore-missing');
+      else if (a === 'discard') app.click('discard-unsaved');
+      else if (a === 'reread') { t.c.ahead(6000); app.every(); }
+      else if (a === 'refresh') app.click('refresh');
+      else if (a === 'corrupt') { const f = app.fs.files[t.path]; if (f && t.disk() !== 'broken') { lastGood = f.t; app.fs.files[t.path] = { t: '{"format":"preflight-run/2","id":', m: Date.now() }; } }
+      else if (a === 'fix') { if (lastGood && t.disk() === 'broken') app.fs.files[t.path] = { t: lastGood, m: Date.now() }; }
+      await app.tick(30);
+      const where = 'seed ' + seed + ' after ' + log.join(',');
+      same('the run · ' + where);
+      if (a === 'screens') {
+        ['home', 'runs', 'processes'].forEach(v => { app.click('nav', v); same(v + ' · ' + where); });
+        app.click('open-run', key); await app.tick(5);
+      }
+    }
+    holds.forEach(h => h.open()); await app.tick(80);
+    app.click('refresh'); await app.tick(80);
+    ['home', 'runs'].forEach(v => { app.click('nav', v); same(v + ' · final, seed ' + seed); });
+  }
+});
+
 rule('App: a run file that reads again clears "couldn\'t be read" even while a change of this window waits, and that change can still be saved', async () => {
   const t = await heldRelease(), app = t.app;
   const g = t.hold(true);

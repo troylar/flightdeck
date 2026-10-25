@@ -199,7 +199,8 @@ PF.util = (function () {
     hm: hm, when: when, day: day, dueWords: dueWords, localDateTime: localDateTime, clock: clock, duration: duration, timeToday: timeToday };
 })();
 /* Counts of the work done (2.5.0): tests read them, so what a refresh or a screen costs is a number, the same on every computer. */
-PF.perf = { n: {}, add: function (k, x) { this.n[k] = (this.n[k] || 0) + (x == null ? 1 : x); }, reset: function () { this.n = {}; } };
+/* plain: every index answers by a scan from the start, as before 2.5.0, so a test can compare a screen drawn both ways. */
+PF.perf = { n: {}, plain: false, add: function (k, x) { this.n[k] = (this.n[k] || 0) + (x == null ? 1 : x); }, reset: function () { this.n = {}; } };
 /* Items by key in an array that other code also changes (2.5.0: runs). Positions are kept for the array they were taken from; a
    hit is checked against the item at its position now, and a key the index doesn't have, for the same array and length, isn't
    there, so a miss costs one look. Appends through push() keep it; anything else (a new array, a push it didn't see, a
@@ -212,6 +213,7 @@ PF.util.keyIndex = function (keyOf, name) {
     arr = a; len = a.length;
   }
   function pos(a, key) {
+    if (PF.perf.plain) { arr = null; for (var j = 0; j < a.length; j++) if (keyOf(a[j]) === key) return j; return -1; }
     if (a !== arr || a.length !== len) build(a);
     PF.perf.add(n + '.inspected');
     var i = at[key];

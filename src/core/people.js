@@ -120,6 +120,7 @@ PF.people = (function () {
   }
   /* How a person is named where someone is chosen: a name two people share gets their email, else their ID. */
   function label(p, all) {
+    PF.perf.add('people.names', (all || []).length);
     var n = String(p.name || '').trim().toLowerCase(), twin = (all || []).some(function (x) { return x !== p && x.id !== p.id && String(x.name || '').trim().toLowerCase() === n; });
     return twin ? p.name + ' (' + (p.email || p.id) + ')' : p.name;
   }

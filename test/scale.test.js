@@ -195,4 +195,24 @@ rule('The run-count limits come from measurements: stop first, warning strictly 
   }
 });
 
+rule('Guards: runs are added only through the run index, and every per-draw memo is cleared by renderNow', () => {
+  const fs = require('fs'), path = require('path'), src = path.join(__dirname, '..', 'src');
+  const files = ['ui', 'ui/views', 'storage', 'core'].flatMap(d => fs.readdirSync(path.join(src, d)).filter(f => f.endsWith('.js')).map(f => path.join(src, d, f)));
+  files.forEach(f => {
+    const text = fs.readFileSync(f, 'utf8');
+    assert.ok(!/\bdata\.runs\.(push|unshift|splice)\(/.test(text), path.relative(src, f) + ': data.runs changes only through runIdx.push');
+  });
+  const app = fs.readFileSync(path.join(src, 'ui', 'app.js'), 'utf8');
+  const memos = new Set();
+  for (const m of app.matchAll(/^  var ([^;]+);/gm)) m[1].split(/,\s*(?![^()\[\]{}]*[)\]}])/).forEach(d => { const n = d.trim().split(/\s*=/)[0]; if (/(Memo|Cache)$/.test(n)) memos.add(n); });
+  /* Kept across draws on purpose, each keyed by what it reads, so none is a per-draw memo: the runs a read found older than
+     what's shown (retried by the next read), Folder health (keyed by its inputs), a draft's SHA-256 (by its text) and report
+     contents (reread after each read of the folder). Any other memo has to be cleared by renderNow. */
+  ['staleCache', 'healthMemo', 'shaMemo', 'repCache'].forEach(n => memos.delete(n));
+  assert.ok(memos.size >= 6, 'set-up: the memos are found: ' + [...memos].join(', '));
+  const body = /function renderNow\(\) \{([\s\S]*?)\n  \}/.exec(app)[1];
+  memos.forEach(n => assert.ok(new RegExp('\\b' + n + ' = ').test(body), n + ' is cleared by renderNow'));
+  assert.ok(/\bpplBy = /.test(body), 'the people map is built afresh for each draw');
+});
+
 run();

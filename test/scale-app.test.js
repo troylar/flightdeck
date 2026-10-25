@@ -194,4 +194,48 @@ rule('Typing survives a batch draw that lands while you type: the box keeps its 
   f.restore();
 });
 
+/* What one draw of a screen costs, counted from a clean slate after the folder is in. */
+async function drawCost(app, go) { app.PF.perf.reset(); await go(); await app.tick(10); return { counted: count(app, 'runs.counted'), procs: count(app, 'procs.inspected'), renders: count(app, 'render') }; }
+
+rule('Home for the owner of 200 processes checks each run\'s standing a few times per draw, not once per process', async () => {
+  const { app, runs } = await bigApp();
+  app.choose('person-avery'); await app.tick(10);
+  const c = await drawCost(app, async () => { app.click('nav', 'home'); });
+  assert.ok(c.renders >= 1, 'set-up: Home drew');
+  assert.ok(c.counted <= 3 * runs * c.renders, 'runs checked ' + c.counted + ' ≤ 3 × runs per draw (' + 3 * runs + ' × ' + c.renders + '); once per process is about ' + 200 * runs);
+});
+
+rule('The runs list finds each run\'s process directly: processes inspected grow with the processes, not runs × processes', async () => {
+  const { app } = await bigApp();
+  const procs = new Set(Object.keys(app.fs.files).map(p => (/^(?:publications|drafts)\/([^/.]+)/.exec(p) || [])[1]).filter(Boolean)).size;
+  assert.ok(procs >= 200, 'set-up: the processes are there: ' + procs);
+  const c = await drawCost(app, async () => { app.click('nav', 'home'); await app.tick(5); app.click('nav', 'runs'); });
+  assert.ok(c.renders >= 1, 'set-up: the runs list drew');
+  assert.ok(c.procs <= 3 * procs * c.renders, 'process entries inspected ' + c.procs + ' ≤ 3 × processes per draw (' + 3 * procs + ' × ' + c.renders + ')');
+});
+
+rule('A process page counts its own runs for its stages and sign-off, not every run once per stage', async () => {
+  const { app, runs } = await bigApp();
+  app.choose('person-avery'); await app.tick(10);
+  const pid = 'proc-001';
+  const c = await drawCost(app, async () => { app.click('open-process', pid); });
+  assert.ok(c.renders >= 1, 'set-up: the process page drew');
+  assert.ok(c.counted <= runs, 'runs checked ' + c.counted + ' ≤ runs (' + runs + '): only this process\'s runs are checked');
+});
+
+rule('Five hundred people: each draw names everyone once per list, and Settings, People checks each change in one pass', async () => {
+  const { app } = await bigApp();
+  const many = [{ id: 'person-casey', name: 'Casey Example', email: 'casey@example.com', folderRole: 'owner' }];
+  for (let i = 1; i < 500; i++) many.push({ id: 'person-' + i, name: i % 50 === 0 ? 'Sam Twin' : 'Person ' + i, email: 'p' + i + '@example.com' });
+  app.fs.files['people.json'] = { t: JSON.stringify(many, null, 2) + '\n', m: Date.now() };
+  app.click('refresh'); await settle(app, loads(app));
+  const c = await drawCost(app, async () => { app.click('nav', 'settings'); });
+  const html = app.html();
+  assert.ok(/People · 500/.test(html), 'set-up: Settings, People lists all 500: ' + (html.match(/People · \d+/) || [''])[0]);
+  assert.ok(/Sam Twin \(p50@example\.com\)/.test(app.top()), 'twins are still told apart by email in the You are picker');
+  const names = count(app, 'people.names'), rows = count(app, 'people.rows');
+  assert.ok(names <= 5 * 500 * c.renders, 'names compared ' + names + ' ≤ 5 × people per draw (' + 2500 + ' × ' + c.renders + '); comparing each with everyone is about 250,000');
+  assert.ok(rows <= 2 * 500 * c.renders, 'people rows read for permissions ' + rows + ' ≤ 2 × people per draw');
+});
+
 run();
