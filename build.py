@@ -12,7 +12,7 @@ CORE = ["core/util.js", "core/nav.js", "core/envelope.js", "core/values.js", "co
 # The whole of storage/repo.js, once, in its own block between core and app: `flightdeck export` runs core and storage from
 # this file, in node:vm, without the screens. fs.js (the browser's folder access) stays with the app.
 STORAGE = ["storage/repo.js"]
-APP = ["storage/fs.js", "ui/icons.js", "ui/views/common.js", "ui/views/home.js", "ui/views/process.js",
+APP = ["storage/fs.js", "ui/icons.js", "ui/guide.js", "ui/views/common.js", "ui/views/home.js", "ui/views/process.js",
        "ui/views/run.js", "ui/views/reports.js", "ui/views/pages.js", "ui/views/overlays.js", "ui/views/builder.js", "ui/views/manage.js", "ui/views/practice.js", "ui/views/flight.js", "ui/views/insights.js", "ui/views/health.js", "ui/views/setup.js", "ui/views/evidence.js", "ui/exporter.js", "ui/examples.js", "ui/app.js"]
 
 # ---- release notes: validate, then embed. A bad entry fails the build rather than shipping a broken page. ----

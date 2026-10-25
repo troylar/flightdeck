@@ -257,6 +257,14 @@ PF.types = (function () {
   function relevant(type, fields) {
     return editable(type).filter(function (f) { var d = fieldDef(type, f); return fields[f] || !d.requiredWhen || matches(d.requiredWhen, fields); });
   }
+  /* Whether a field applies to a step as it stands (the editor's list): a field asked for only for one action applies only
+     then, one asked for unless an action applies otherwise. The run's Fill in uses relevant(), which is unchanged. */
+  function applies(type, name, fields) {
+    var d = fieldDef(type, name); if (!d) return false;
+    if (d.requiredWhen) return matches(d.requiredWhen, fields || {});
+    if (d.requiredUnless) return !matches(d.requiredUnless, fields || {});
+    return true;
+  }
   /* The record fields that apply to this step. */
   function recordFields(type, fields, extra) {
     var req = list(fields.require), all = req.indexOf('all') >= 0;
@@ -307,5 +315,5 @@ PF.types = (function () {
   function groupOf(t) { return t && t.custom ? (t.group && t.group.length ? t.group : ['Team']) : [GROUPS[t && t.id] || 'General']; }
   function tagsOf(t) { return (t && t.tags) || []; }
 
-  return { ID: ID, ID_MAX: ID_MAX, VERSION: VERSION, uses2: uses2, LIST: LIST, COMMON: COMMON, ICONS: ICONS_OK, get: get, fieldDef: fieldDef, options: options, hasOption: hasOption, canonical: canonical, checkFields: checkFields, understood: understood, editable: editable, relevant: relevant, checkCustom: checkCustom, customType: customType, recordFields: recordFields, needsRecord: needsRecord, checkRecord: checkRecord, freeze: freeze, groupOf: groupOf, tagsOf: tagsOf, groupText: groupText, tagText: tagText };
+  return { ID: ID, ID_MAX: ID_MAX, VERSION: VERSION, uses2: uses2, LIST: LIST, COMMON: COMMON, applies: applies, EVIDENCE_KINDS: Object.freeze(Object.keys(EVIDENCE)), PINS: PINS, ICONS: ICONS_OK, get: get, fieldDef: fieldDef, options: options, hasOption: hasOption, canonical: canonical, checkFields: checkFields, understood: understood, editable: editable, relevant: relevant, checkCustom: checkCustom, customType: customType, recordFields: recordFields, needsRecord: needsRecord, checkRecord: checkRecord, freeze: freeze, groupOf: groupOf, tagsOf: tagsOf, groupText: groupText, tagText: tagText };
 })();

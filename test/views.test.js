@@ -1028,7 +1028,8 @@ rule('Errors are tied to their field for screen readers', () => {
   r.snapshot = mapText;
   const html = V.run(ctx);
   assert.ok(/id="ferr-tests" role="alert"/.test(html));
-  assert.ok(/aria-invalid="true" aria-describedby="ferr-tests"/.test(html));
+  /* 2.6.0: the box's why line (hint-rec-run) follows the error in aria-describedby. */
+  assert.ok(/aria-invalid="true" aria-describedby="ferr-tests hint-rec-run"/.test(html));
 });
 
 rule('R2: an error from core points at the one field it\'s about', () => {
@@ -1680,7 +1681,7 @@ rule('Run workspace: choosing a step changes the whole inspector, and the select
   assert.ok(!/data-act="(toggle|record|na|clear)" data-id="announce"/.test(ins) && !/data-mode="differently"/.test(ins), 'a step in a passed phase can\'t be changed');
   const two = setup(); two.state.sel = 'announce';
   ins = insOf(V.run(two.ctx));
-  assert.ok(/class="btn go" data-act="record" data-id="announce">.*Done/.test(ins) && /id="rec-sent"/.test(ins) && /Link to the message \(optional\)/.test(ins), 'optional evidence showing is collected by Done');
+  assert.ok(/class="btn go" data-act="record" data-id="announce">.*Done/.test(ins) && /id="rec-sent"/.test(ins) && /Link to the message you posted \(optional\)/.test(ins), 'optional evidence showing is collected by Done (2.6.0: labeled by its question)');
   assert.ok(/data-act="pick" data-kind="block" data-id="announce">Blocked/.test(ins) && /data-act="na" data-id="announce">N\/A/.test(ins), 'then Blocked, then N/A on a step that isn\'t a must-do');
   two.state.sel = 'flags';
   assert.ok(/class="btn go" data-act="toggle" data-id="flags">.*Done/.test(insOf(V.run(two.ctx))), 'a plain confirm is one click');
