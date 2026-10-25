@@ -2728,7 +2728,7 @@ rule('The parse memo keeps only checklists the loaded runs still use, with no fi
 });
 
 rule('Folder health says when refreshing is slow on this computer, only after 3 slow refreshes in a row, and keeps its run thresholds', () => {
-  assert.strictEqual(H.LIMITS.runsWarn, 500); assert.strictEqual(H.LIMITS.runsStop, 2000, 'thresholds unchanged until there are measurements');
+  assert.strictEqual(H.LIMITS.runsWarn, 500); assert.strictEqual(H.LIMITS.runsStop, 2000, 'thresholds kept by the 2.5.0 measurements (docs/design.md section 25)');
   const slow = H.check(healthy(s => { s.refreshMs = [16000, 19000, 18500]; }), HNOW);
   const i = slow.issues.find(x => x.id === 'slow-refresh');
   assert.ok(i, 'reported');

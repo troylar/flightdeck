@@ -614,6 +614,23 @@ Each kind takes its share of the time since the last refresh (keys × elapsed ÷
 - **Per-draw lookups.** `procFind` builds one map for each list `processes()` makes (first entry per ID). `countedRuns(pid)` reads that process's runs by position, rechecked against the array, then applies `counted()`, so unreadable, missing and unsaved runs are left out as before. `peopleById` is built once per draw (last row per ID wins, as before). Each person picker names everyone with one `PF.people.labeler(list)`; Settings › People checks each change with `PF.people.permits(people, me)`, the first row per ID, as `allowed()` reads it.
 - **Memos.** Per-draw memos are cleared by `renderNow`. The caches kept across draws are each keyed by what they read: stale copies to retry, Folder health, a draft's SHA-256 and report contents. `test/scale.test.js` checks both rules.
 - **Counted, not timed.** `PF.perf` counts the work (`runs.inspected`, `runs.counted`, `procs.inspected`, `people.names`, `people.rows`, `batch.renders` and more); `test/scale.test.js` and `test/scale-app.test.js` bound them. `PF.perf.plain` makes every lookup a scan from the start, so a seeded walk in `test/app.test.js` checks that every screen drawn with the lookups is the one drawn by scanning.
+- **Measured (browser gate, `projects/flightdeck-scale-audit/tools/gate.js`, Chromium, in-memory folder).** Longest task in ms at 4× CPU throttling, per workload (skewed: one 150-step process; combined: 1,000 processes, 500 people), for the routine refresh / maximum-age refresh / fault-heavy refresh (2,000 run files refused, then read again):
+
+  | Runs | Skewed | Combined | First-open work (worst) |
+  |---|---|---|---|
+  | 500 | 0 / 0 / 72 | 0 / 0 / 441 | 2.0 s |
+  | 1,000 | 93 / 65 / 52 | 73 / 58 / 417 | 2.5 s |
+  | 2,000 | 208 / 177 / 83 | 129 / 134 / 448 | 3.0 s |
+  | 3,000 | 232 / 201 / 101 | 149 / 199 / 444 | 3.0 s |
+  | 4,000 | 350 / 368 / 546 | 253 / 259 / 395 | 4.3 s |
+  | 5,000 | 377 / 476 / 444 | 387 / 263 / 389 | 4.6 s |
+  | 6,000 | 491 / 638 / 663 | 303 / 273 / 401 | 5.3 s |
+  | 8,000 | 547 / 1,114 / 976 | 421 / 522 / 465 | 6.6 s |
+  | 10,000 | 566 / 1,101 / 1,774 | 517 / 713 / 845 | 7.2 s |
+
+  Against 2.4.0 at 4×: 2,000 runs, longest task in the fault-heavy refresh 1,363 → 87 ms, maximum-age 1,234 → 117 ms; 6,000 runs, fault-heavy 15,403 → 455 ms, routine 10,948 → 329 ms. Unthrottled at 10,000 runs against the budgets: routine refresh 174 ms skewed / 118 ms combined (budget 150), first-open longest 165 / 312 ms (budget 300), every run read 21.8 s / 11.5 s (budget 12 s). Folder health's report still takes one long task: 3.4–3.5 s at 10,000 runs unthrottled, about 6 s at 4,000 skewed at 4×.
+- **The limits stay at 500 and 2,000.** `tools/scale-limits.js` applies the rule to the worst workload at each size, the fault-heavy refresh included. Stop would rise, but the warning needs a size below it with every refresh at 150 ms or less at 4×, and none has one: the combined folder's fault-heavy refresh takes about 420–450 ms at every size, even 500 runs. That cost isn't runs: a Refresh (deep) checks and parses every published version (3,000 in the combined folder; SHA-256 and `parse` are most of it) in one go. Spreading that work out is for a later release, by process count; until then the run limits don't move.
+
 
 ## 26. Other apps: read (1.18), request (1.20) and report (2.0)
 
