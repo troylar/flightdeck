@@ -7,9 +7,9 @@
 <title>Flightdeck</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 16 16%27%3E%3Crect width=%2716%27 height=%2716%27 rx=%273%27 fill=%27%23E7A300%27/%3E%3Cpath d=%27M4 8.5l2.5 2.5L12 5%27 stroke=%27%2316202A%27 stroke-width=%272%27 fill=%27none%27/%3E%3C/svg%3E">
 <style>
-/* Barlow Condensed, embedded so every computer sees the same headings (SIL Open Font License, src/fonts/OFL.txt). */
+/* Barlow Condensed (headings) and Instrument Sans (body), embedded so every computer sees the same type (SIL Open Font License, src/fonts/OFL.txt and src/fonts/OFL-instrument-sans.txt). */
 /*@FONTS@*/
-/* Layout: a calm flight deck. Home answers "what needs me?"; a run shows phases on a rail, the current phase in the middle, references and team notes on the right. System fonts only; no external resources. */
+/* Layout: a calm flight deck. Home answers "what needs me?"; a run shows phases on a rail, the current phase in the middle, references and team notes on the right. Embedded fonts only; no external resources. */
 :root {
   --paper: #F3F5F1; --card: #FFFFFF; --ink: #16202A; --muted: #59646E; --line: #D6DCD4; --field: #7D877F; --chip: #E8ECE6;
   --amber: #E7A300; --on-amber: #241A00; --stripe: #16202A; --amber-soft: #FBF0D2;
@@ -19,9 +19,14 @@
   --mark: #FCE38A; --on-mark: #16202A;
   --incoming: #2E6BD3; --on-incoming: #1B4A99;
   --display: 'Barlow Condensed', 'Bahnschrift SemiCondensed', 'Arial Narrow', sans-serif;
-  --body: 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+  --body: 'Instrument Sans', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
   --mono: 'Cascadia Mono', Consolas, ui-monospace, Menlo, monospace;
   --label: var(--body);
+  --hov: rgba(22,32,42,.06); --prs: rgba(22,32,42,.12); --hov-fill: rgba(255,255,255,.14); --prs-fill: rgba(0,0,0,.14); --deep-hov: rgba(0,0,0,.10); --deep-prs: rgba(0,0,0,.18);
+  --track: #E8ECE6; --edge: #C9D0C8; --edge-strong: #8E978F; --ring: 0 0 0 3px rgba(46,107,211,.28);
+  --lift: 0 1px 2px rgba(22,32,42,.06), 0 6px 18px rgba(22,32,42,.08); --lift-hi: 0 2px 4px rgba(22,32,42,.08), 0 14px 32px rgba(22,32,42,.12);
+  --thumb: #FFFFFF; --thumb-on: #FFFFFF; --track-off: #6B756E; --track-on: #1D7650; --hero-eyebrow: #E7A300;
+  --t-fast: 120ms; --t: 180ms; --ease: cubic-bezier(.2, .7, .2, 1); --spring: cubic-bezier(.34, 1.56, .64, 1);
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
@@ -30,14 +35,22 @@
   --go: #3CC08A; --go-soft: #163327; --stop: #F2776C; --stop-soft: #3A1F1D; --plan: #A9A5F2; --plan-soft: #25243F;
   --chart-mark: #A9A5F2; --chart-track: #26303D; --chart-axis: #6E7D88; --chart-mid: #E6ECEF;
   --focus: #86B4FF; --shadow: 0 1px 0 rgba(0,0,0,.3); color-scheme: dark;
-  --mark: #6B5410; --on-mark: #FFF4CF; --incoming: #86B4FF; --on-incoming: #B9D3FF; } }
+  --mark: #6B5410; --on-mark: #FFF4CF; --incoming: #86B4FF; --on-incoming: #B9D3FF;
+  --hov: rgba(230,236,239,.07); --prs: rgba(230,236,239,.13); --hov-fill: rgba(0,0,0,.12); --prs-fill: rgba(0,0,0,.22); --deep-hov: rgba(255,255,255,.10); --deep-prs: rgba(255,255,255,.17);
+  --track: #0B1014; --edge: #33414C; --edge-strong: #5B6A75; --ring: 0 0 0 3px rgba(134,180,255,.32);
+  --lift: inset 0 1px 0 rgba(255,255,255,.04), 0 1px 2px rgba(0,0,0,.4), 0 8px 22px rgba(0,0,0,.35); --lift-hi: inset 0 1px 0 rgba(255,255,255,.06), 0 2px 4px rgba(0,0,0,.45), 0 16px 36px rgba(0,0,0,.5);
+  --thumb: #E6ECEF; --thumb-on: #0E1418; --track-off: #46545F; --track-on: #3CC08A; --hero-eyebrow: #7A5200; } }
 :root[data-theme="dark"] {
   --paper: #0E1418; --card: #162027; --ink: #E6ECEF; --muted: #98A6B0; --line: #29353F; --field: #6E7D88; --chip: #1E2A33;
   --amber: #F2B705; --on-amber: #1A1300; --stripe: #0E1418; --amber-soft: #3A3010;
   --go: #3CC08A; --go-soft: #163327; --stop: #F2776C; --stop-soft: #3A1F1D; --plan: #A9A5F2; --plan-soft: #25243F;
   --chart-mark: #A9A5F2; --chart-track: #26303D; --chart-axis: #6E7D88; --chart-mid: #E6ECEF;
   --focus: #86B4FF; --shadow: 0 1px 0 rgba(0,0,0,.3); color-scheme: dark;
-  --mark: #6B5410; --on-mark: #FFF4CF; --incoming: #86B4FF; --on-incoming: #B9D3FF; }
+  --mark: #6B5410; --on-mark: #FFF4CF; --incoming: #86B4FF; --on-incoming: #B9D3FF;
+  --hov: rgba(230,236,239,.07); --prs: rgba(230,236,239,.13); --hov-fill: rgba(0,0,0,.12); --prs-fill: rgba(0,0,0,.22); --deep-hov: rgba(255,255,255,.10); --deep-prs: rgba(255,255,255,.17);
+  --track: #0B1014; --edge: #33414C; --edge-strong: #5B6A75; --ring: 0 0 0 3px rgba(134,180,255,.32);
+  --lift: inset 0 1px 0 rgba(255,255,255,.04), 0 1px 2px rgba(0,0,0,.4), 0 8px 22px rgba(0,0,0,.35); --lift-hi: inset 0 1px 0 rgba(255,255,255,.06), 0 2px 4px rgba(0,0,0,.45), 0 16px 36px rgba(0,0,0,.5);
+  --thumb: #E6ECEF; --thumb-on: #0E1418; --track-off: #46545F; --track-on: #3CC08A; --hero-eyebrow: #7A5200; }
 
 * { box-sizing: border-box; }
 html, body { margin: 0; background: var(--paper); color: var(--ink); }
@@ -461,7 +474,7 @@ table.grid td.cold { color: var(--muted); }
 .called-stamp { display: inline-block; font-family: var(--display); font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--go); border: 2px solid var(--go); border-radius: 6px; padding: 1px 8px; transform: rotate(-8deg); animation: stamp .35s ease-out both; }
 
 /* Form fields need a 3:1 boundary to be findable (WCAG 1.4.11); decorative lines stay soft. */
-input:not([type="checkbox"]):not([type="file"]):not([type="hidden"]), select, textarea { border-color: var(--field) !important; }
+input:not([type="checkbox"]):not([type="file"]):not([type="hidden"]), select, textarea { --field-edge: var(--field); border-color: var(--field-edge) !important; }
 input[type="checkbox"] { accent-color: var(--go); width: 16px; height: 16px; }
 .ferr { margin: 0; color: var(--stop); font-weight: 600; font-size: 13px; }
 .linkish { border: 0; background: none; padding: 0; color: var(--focus); text-decoration: underline; font-size: 13px; }
@@ -664,7 +677,6 @@ html.pane-drag, html.pane-drag * { cursor: col-resize !important; -webkit-user-s
 .ob-pgroup > p { margin: 0; }
 .ob-pgroup ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .ob-part { display: flex; gap: 8px; align-items: center; width: 100%; text-align: left; border: 1px solid var(--line); background: var(--card); border-radius: 8px; padding: 6px 8px; color: var(--ink); cursor: grab; transition: border-color .12s, box-shadow .12s, transform .12s; }
-.ob-part:hover { border-color: var(--ink); transform: translateX(2px); }
 .ob-part[aria-pressed="true"] { border-color: var(--focus); box-shadow: 0 0 0 2px var(--focus); }
 .ob-all > summary { display: flex; gap: 8px; align-items: center; padding: 6px 8px; border: 1px dashed var(--line); border-radius: 8px; cursor: pointer; font-weight: 600; list-style: none; }
 .ob-all > summary::-webkit-details-marker { display: none; }
@@ -866,7 +878,7 @@ html.tfe-on #app { padding: 0; max-width: none; }
 .tf-addlist button:hover { background: var(--chip); }
 .tf-switch { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--ink); cursor: pointer; }
 .tf-switch input[type="checkbox"] { appearance: none; -webkit-appearance: none; width: 36px; height: 20px; border-radius: 99px; background: var(--line); position: relative; margin: 0; flex: none; cursor: pointer; border: 1px solid var(--field); }
-.tf-switch input[type="checkbox"]::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--card); transition: left .15s; }
+.tf-switch input[type="checkbox"]::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--card); }
 .tf-switch input[type="checkbox"]:checked { background: var(--go); border-color: var(--go); }
 .tf-switch input[type="checkbox"]:checked::after { left: 18px; }
 .tf-switch + .tf-help { margin-top: -8px; padding-left: 46px; }
@@ -1202,7 +1214,6 @@ p.pv-when { margin: 0 0 4px; }
 #ob-note, #ob-q-text { width: 100%; font: inherit; resize: vertical; }
 .ob-grip { height: 21px; align-self: flex-start; margin: 10px 0 0 6px; }
 .ob-step:hover:not(.sel) { border-color: var(--field); }
-.ob-step:hover .ob-pick { background: var(--paper); border-radius: 0 8px 8px 0; }
 /* Lanes: one quiet border, purple only when selected. Gates: the copy, then Edit at the right. */
 .ob-lanes { gap: 8px; }
 .ob-lane { border: 1px solid var(--line); }
@@ -1277,7 +1288,6 @@ p.pv-when { margin: 0 0 4px; }
 .ob-q { width: 100%; min-height: 36px; padding: 7px 10px; border: 1px solid var(--field); border-radius: 7px; background: var(--card); }
 .ob-plist { gap: 12px; }
 .ob-part { position: relative; }
-.ob-part:hover { transform: none; border-color: var(--field); background: var(--paper); }
 .ob-part b { font-weight: 600; }
 .ob-part.type { padding: 8px; }
 .ob-part.type small { font-size: 12px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -1321,7 +1331,7 @@ html.rw-on #app { padding: 0; max-width: none; }
 .rw-sub .linkish { font-size: inherit; }
 .rw-prog { grid-area: prog; display: flex; align-items: center; gap: 8px; }
 .rw-bar { width: 150px; height: 8px; border-radius: 99px; background: var(--chip); overflow: hidden; box-shadow: inset 0 0 0 1px var(--line); }
-.rw-bar i { display: block; height: 100%; background: var(--go); border-radius: 99px; transition: width .3s; }
+.rw-bar i { display: block; height: 100%; background: var(--go); border-radius: 99px; transform-origin: left; }
 .rw-prog b { font-family: var(--display); font-size: 19px; font-variant-numeric: tabular-nums; }
 .rw-tools { grid-area: tools; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .rw-head .btn, .rw-head .mini, .rw-menu summary { min-height: 36px; }
@@ -1768,7 +1778,115 @@ button.att:hover { border-color: var(--ink); }
 .pr-done { animation: pr-in .25s ease; }
 @media (max-width: 800px) { .pr-fields input { font-size: 16px; } }
 @keyframes pr-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
+/* Emphasis never asks for a weight the body face doesn't have (it's embedded at 400–700): bolder than 600 is 700. */
+b, strong { font-weight: 700; }
+/* ---------- Fresh coat (2.4): how every control answers the pointer and the keyboard ----------
+   Hover and press lay a tint over whatever a control already shows (background-image), so selected, Next up, warning and
+   filled colors stay theirs; filled buttons use the fill tints. Press and lift skip disabled controls, native or aria. Only
+   color, shadow, opacity and transform move. Screen only: printing is unchanged. */
+@media screen {
+  .btn, .mini, .chipbtn, .seg button, .mainnav button, [role="tab"], .check, .card, .tile, .ob-chip, .su-choice, .su-tpl, summary, .rw .step, .ob-part, .ob-step,
+  input:not([type="checkbox"]):not([type="file"]):not([type="hidden"]), select, textarea {
+    transition: background-color var(--t) var(--ease), border-color var(--t) var(--ease), color var(--t) var(--ease), box-shadow var(--t) var(--ease), opacity var(--t) var(--ease), transform var(--t-fast) var(--ease);
+  }
+  .btn { border-radius: 9px; box-shadow: 0 1px 2px rgba(22,32,42,.06); }
+  .btn.primary, .btn.go, .btn.stop, .hero .btn { box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 1px 2px rgba(0,0,0,.18), 0 4px 12px -4px rgba(0,0,0,.25); }
+  .btn:hover:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--hov), var(--hov)); box-shadow: var(--lift); }
+  .btn.primary:hover:not(:disabled):not([aria-disabled="true"]), .btn.go:hover:not(:disabled):not([aria-disabled="true"]), .btn.stop:hover:not(:disabled):not([aria-disabled="true"]), .hero .btn:hover:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--hov-fill), var(--hov-fill)); }
+  /* Green and red move away from their text: darker under white text, lighter under dark text, so hover never costs contrast. */
+  .btn.go:hover:not(:disabled):not([aria-disabled="true"]), .btn.stop:hover:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--deep-hov), var(--deep-hov)); }
+  .btn:active:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--prs), var(--prs)); transform: translateY(1px) scale(.98); box-shadow: none; }
+  .btn.primary:active:not(:disabled):not([aria-disabled="true"]), .btn.go:active:not(:disabled):not([aria-disabled="true"]), .btn.stop:active:not(:disabled):not([aria-disabled="true"]), .hero .btn:active:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--prs-fill), var(--prs-fill)); }
+  .btn.go:active:not(:disabled):not([aria-disabled="true"]), .btn.stop:active:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--deep-prs), var(--deep-prs)); }
+
+  .mini { border-radius: 7px; }
+  .mini:hover:not(:disabled):not([aria-disabled="true"]), .fpe .mini:hover:not(:disabled):not([aria-disabled="true"]), .plist .tcard button.mini:hover:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--hov), var(--hov)); color: var(--ink); border-color: var(--edge-strong); }
+  .mini:active:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--prs), var(--prs)); transform: translateY(1px) scale(.97); }
+
+  .chipbtn:hover:not(:disabled):not([aria-disabled="true"]), button.ob-chip:hover:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--hov), var(--hov)); }
+  .chipbtn[aria-pressed="true"]:hover:not(:disabled):not([aria-disabled="true"]), button.ob-chip[aria-pressed="true"]:hover:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--hov-fill), var(--hov-fill)); }
+  .chipbtn:active:not(:disabled):not([aria-disabled="true"]), button.ob-chip:active:not(:disabled):not([aria-disabled="true"]) { transform: scale(.96); }
+
+  .mainnav button { border-radius: 99px; }
+  .mainnav button:hover:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--hov), var(--hov)); }
+  .mainnav button[aria-current="page"]:hover:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--hov-fill), var(--hov-fill)); }
+  .mainnav button:active:not(:disabled):not([aria-disabled="true"]) { transform: scale(.96); }
+
+  .seg button:hover:not([aria-checked="true"]):not([aria-pressed="true"]):not(:disabled) { background-color: var(--hov); color: var(--ink); }
+  .seg button:active:not(:disabled):not([aria-disabled="true"]) { transform: scale(.97); }
+  .seg button:focus-visible { outline-offset: 1px; }
+
+  .fpe-tabs [role="tab"]:hover:not([aria-selected="true"]) { color: var(--ink); border-bottom-color: color-mix(in srgb, var(--amber) 40%, transparent); }
+  [role="tab"]:active:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--prs), var(--prs)); }
+
+  summary { border-radius: 6px; }
+  summary:hover { color: var(--ink); background-image: linear-gradient(var(--hov), var(--hov)); }
+  summary:active { background-image: linear-gradient(var(--prs), var(--prs)); }
+
+  button.card:hover:not(:disabled):not([aria-disabled="true"]), .tile:hover:not(:disabled):not([aria-disabled="true"]), .su-choice:hover:not(:disabled):not([aria-disabled="true"]), .su-tpl:hover:not(:disabled):not([aria-disabled="true"]) { transform: translateY(-2px); box-shadow: var(--lift-hi); }
+  .tile.warn:hover:not(:disabled):not([aria-disabled="true"]) { box-shadow: var(--lift-hi); }
+  button.card.plan:hover { border-color: var(--plan); }
+  button.card:active:not(:disabled):not([aria-disabled="true"]), .tile:active:not(:disabled):not([aria-disabled="true"]), .su-choice:active:not(:disabled):not([aria-disabled="true"]), .su-tpl:active:not(:disabled):not([aria-disabled="true"]) { transform: translateY(0); box-shadow: var(--lift); }
+
+  /* Run rows: a tint over the row's own color; the Next up bar, the selection outline and red or amber stay. */
+  .rw .step:hover { background-image: linear-gradient(var(--hov), var(--hov)); }
+  .check:hover:not(:disabled):not([aria-disabled="true"]) { box-shadow: 0 0 0 4px color-mix(in srgb, var(--go) 18%, transparent); }
+  .step:not([data-a="blocked"]):not([data-a="done"]) .check:hover:not(:disabled):not([aria-disabled="true"]) { border-color: var(--go); }
+  .check:active:not(:disabled):not([aria-disabled="true"]) { transform: scale(.9); }
+  .step[data-a="done"] .check { box-shadow: 0 2px 8px -2px color-mix(in srgb, var(--go) 60%, transparent); }
+  .check:disabled { border-color: var(--edge-strong); }
+  .step[data-a="done"] .check:disabled { border-color: var(--go); }
+  .step[data-a="blocked"] .check:disabled { border-color: var(--stop); }
+  .check svg { transition: opacity var(--t) var(--ease), transform 320ms var(--spring); }
+
+  /* Builder rows: the whole row strengthens and lifts; selected and incoming insets stay. */
+  .ob-step:hover:not(.sel) { border-color: var(--edge-strong); box-shadow: var(--lift); }
+  .ob-step.sel:hover { box-shadow: inset 3px 0 0 var(--amber), var(--lift); }
+  .ob-step.ob-inc:hover:not(.sel) { box-shadow: inset 4px 0 0 var(--incoming), var(--lift); }
+  .ob-step.ob-inc.sel:hover { box-shadow: inset 4px 0 0 var(--incoming), inset 7px 0 0 var(--amber), var(--lift); }
+  .ob-step.lifted, .ob-step.lifted:hover { box-shadow: 0 10px 22px rgba(0, 0, 0, .22); }
+  .ob-part:hover { border-color: var(--edge-strong); background-color: var(--paper); box-shadow: var(--lift); }
+  .ob-part[aria-pressed="true"]:hover { border-color: var(--focus); box-shadow: 0 0 0 2px var(--focus), var(--lift); }
+
+  /* Switches: a halo on hover; disabled reads as disabled. */
+  .tf-switch input[type="checkbox"]:hover:not(:disabled) { background-image: linear-gradient(var(--prs-fill), var(--prs-fill)); box-shadow: 0 0 0 4px var(--hov); }
+  .tf-switch input[type="checkbox"]:disabled { opacity: .5; cursor: not-allowed; }
+  .ev-switch:hover:not(:disabled):not([aria-disabled="true"]) .ev-knob { background-image: linear-gradient(var(--prs-fill), var(--prs-fill)); box-shadow: 0 0 0 4px var(--hov); }
+  .ev-switch:active:not(:disabled):not([aria-disabled="true"]) .ev-knob { transform: scale(.94); }
+  .ev-switch:disabled { opacity: .5; cursor: not-allowed; }
+  .ev-knob { transition: background-color var(--t) var(--ease), border-color var(--t) var(--ease), box-shadow var(--t) var(--ease), transform var(--t-fast) var(--ease); }
+
+  /* Fields: the edge darkens on hover and turns the focus color with a soft ring while typing; invalid stays red. */
+  input:not([type="checkbox"]):not([type="file"]):not([type="hidden"]):not([aria-invalid="true"]):not([readonly]):not(:disabled):hover, select:not([aria-invalid="true"]):not([readonly]):not(:disabled):hover, textarea:not([aria-invalid="true"]):not([readonly]):not(:disabled):hover { --field-edge: var(--muted); }
+  input:not([type="checkbox"]):not([type="file"]):not([type="hidden"]):not([aria-invalid="true"]):not([readonly]):not(:disabled):focus-visible, select:not([aria-invalid="true"]):not([readonly]):not(:disabled):focus-visible, textarea:not([aria-invalid="true"]):not([readonly]):not(:disabled):focus, input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]):not([aria-invalid="true"]):not([readonly]):not(:disabled):focus { --field-edge: var(--focus); }
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]):not([readonly]):not(:disabled):focus, select:not([readonly]):not(:disabled):focus-visible, textarea:not([readonly]):not(:disabled):focus { outline-color: transparent; box-shadow: var(--ring); }
+  input[readonly]:not([type="checkbox"]):not([type="file"]):not([type="hidden"]), textarea[readonly], input:disabled:not([type="checkbox"]):not([type="file"]):not([type="hidden"]), select:disabled, textarea:disabled { background-color: var(--paper); color: var(--muted); }
+
+  .fp-gate:not(.implicit)::before { border-bottom-left-radius: 6px; }
+  input[aria-invalid="true"]:not([type="checkbox"]):not([type="file"]):not([type="hidden"]), select[aria-invalid="true"], textarea[aria-invalid="true"] { --field-edge: var(--stop); }
+  /* Toggles: a track with a raised pill on the choice. */
+  .seg { gap: 2px; padding: 3px; border: 0; border-radius: 11px; overflow: visible; background: var(--track); box-shadow: inset 0 0 0 1px var(--edge); }
+  .seg button { background: transparent; padding: 6px 13px; border-radius: 8px; color: var(--muted); }
+  .seg button[aria-checked="true"], .seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(22,32,42,.14), 0 2px 8px rgba(22,32,42,.08); }
+  /* Switches: tokens that read in both themes, a thumb that slides, a track that eases and deepens on hover. */
+  .tf-switch input[type="checkbox"] { background-color: var(--track-off); transition: background-color var(--t) var(--ease), border-color var(--t) var(--ease), box-shadow var(--t) var(--ease); }
+  .tf-switch input[type="checkbox"]::after { left: 2px; background: var(--thumb); box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform 220ms var(--spring), background-color var(--t); }
+  .tf-switch input[type="checkbox"]:checked { background-color: var(--track-on); border-color: var(--track-on); }
+  .tf-switch input[type="checkbox"]:checked::after { left: 2px; transform: translateX(16px); background: var(--thumb-on); }
+  .ev-knob { background-color: var(--track-off); }
+  .ev-knob::after { left: 2px; background: var(--thumb); box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform 220ms var(--spring), background-color var(--t); }
+  .ev-switch[aria-checked="true"] .ev-knob { background-color: var(--track-on); border-color: var(--track-on); }
+  .ev-switch[aria-checked="true"] .ev-knob::after { left: 2px; transform: translateX(14px); background: var(--thumb-on); }
+  .su-hero .eyebrow { color: var(--hero-eyebrow); }
+}
+@media (forced-colors: active) {
+  .mainnav button[aria-current="page"], .seg button[aria-checked="true"], .seg button[aria-pressed="true"], .rw .step.sel, .ob-part[aria-pressed="true"], .ob-step.sel, .step[data-a="done"] .check { outline: 2px solid Highlight; outline-offset: -2px; }
+  /* Focus on a selected control is its own ring, outside the selection's inset edge; the selection also underlines. */
+  .mainnav button[aria-current="page"]:focus-visible, .seg button[aria-checked="true"]:focus-visible, .seg button[aria-pressed="true"]:focus-visible, .ob-part[aria-pressed="true"]:focus-visible, .step[data-a="done"] .check:focus-visible { outline: 3px solid CanvasText; outline-offset: 2px; text-decoration: underline 2px; }
+}
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
+/* Less motion: nothing lifts, sinks or shrinks under the pointer either; colors and shadows still answer. */
+@media screen and (prefers-reduced-motion: reduce) { .btn, .mini, .chipbtn, button.ob-chip, .mainnav button, .seg button, [role="tab"], summary, button.card, .tile, .su-choice, .su-tpl, .check, .ev-knob { transform: none !important; } }
 /* ---------- Examples kept in this tab only (blocked site storage) ----------
    The badge is fixed above every layer: screens, sheets, menus and dialogs (its z-index is the page's highest; a test checks).
    Everything that pins itself to the top of the window starts below it, so it covers nothing. --keep-h is 0 otherwise. */

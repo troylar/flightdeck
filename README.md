@@ -973,7 +973,7 @@ The top bar shows the version and **What's new**, the full searchable history. I
 
 ## License
 
-[MIT](https://unpkg.com/@troylar/flightdeck/LICENSE). The embedded Barlow Condensed fonts are licensed under the SIL Open Font License 1.1; see [`dist/FONT-LICENSE.txt`](https://unpkg.com/@troylar/flightdeck/dist/FONT-LICENSE.txt).
+[MIT](https://unpkg.com/@troylar/flightdeck/LICENSE). The embedded Barlow Condensed and Instrument Sans fonts are licensed under the SIL Open Font License 1.1; see [`dist/FONT-LICENSE.txt`](https://unpkg.com/@troylar/flightdeck/dist/FONT-LICENSE.txt).
 
 <div align="center">
 <br>

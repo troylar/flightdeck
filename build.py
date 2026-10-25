@@ -157,17 +157,26 @@ def main():
     # docs/recovery.md, shown in the app as "When something goes wrong", so the two never differ.
     recovery = (root / "docs" / "recovery.md").read_text(encoding="utf-8")
     app = app.replace("/*@EXAMPLES@*/{}", blob).replace("/*@RELEASES@*/[]", releases_js(releases)).replace("/*@RECOVERY@*/''", releases_js(recovery))
+    # Each embedded face: its family, weight (a range for a variable face), file and license (SIL OFL 1.1 requires the notice
+    # and license with every copy, so each travels in the page and in dist/FONT-LICENSE.txt).
+    FACES = [("Barlow Condensed", "600", "barlow-condensed-600.woff2", "OFL.txt"), ("Barlow Condensed", "700", "barlow-condensed-700.woff2", "OFL.txt"),
+             ("Instrument Sans", "400 700", "instrument-sans-latin-wght.woff2", "OFL-instrument-sans.txt")]
     fonts = "".join(
-        "@font-face{font-family:'Barlow Condensed';font-style:normal;font-weight:%s;font-display:swap;"
-        "src:url(data:font/woff2;base64,%s) format('woff2');}" % (w, base64.b64encode((root / "src" / "fonts" / ("barlow-condensed-%s.woff2" % w)).read_bytes()).decode("ascii"))
-        for w in (600, 700))
+        "@font-face{font-family:'%s';font-style:normal;font-weight:%s;font-display:swap;"
+        "src:url(data:font/woff2;base64,%s) format('woff2');}" % (fam, w, base64.b64encode((root / "src" / "fonts" / f).read_bytes()).decode("ascii"))
+        for fam, w, f, _ in FACES)
     if "/*@FONTS@*/" not in page:
         sys.exit("page.html is missing the /*@FONTS@*/ placeholder")
-    # The embedded fonts travel with their license (SIL OFL 1.1 requires the notice and license with every copy).
-    ofl = (root / "src" / "fonts" / "OFL.txt").read_text(encoding="utf-8")
-    if "*/" in ofl:
-        sys.exit("src/fonts/OFL.txt can't be embedded in a CSS comment")
-    fonts = "/* Barlow Condensed, embedded below.\n" + ofl + "\n*/" + fonts
+    licenses = []
+    for fam, _, _, lic in FACES:
+        text = (root / "src" / "fonts" / lic).read_text(encoding="utf-8")
+        if "*/" in text:
+            sys.exit(f"src/fonts/{lic} can't be embedded in a CSS comment")
+        entry = fam + ":\n" + text
+        if entry not in licenses:
+            licenses.append(entry)
+    ofl = "\n\n".join(licenses)
+    fonts = "/* Barlow Condensed and Instrument Sans, embedded below.\n" + ofl + "\n*/" + fonts
     (root / "dist").mkdir(exist_ok=True)
     (root / "dist" / "FONT-LICENSE.txt").write_text(ofl, encoding="utf-8")
     page = page.replace("/*@FONTS@*/", fonts)
