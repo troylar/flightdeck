@@ -11,7 +11,7 @@ Big folders.
 - **A team folder with thousands of runs opens and refreshes without stalling** (Everywhere). Refreshing a folder of thousands of runs no longer freezes the page, even when many runs can't be read for a while (as OneDrive placeholders can't) and then come back. *Where:* Opening and refreshing the team folder
 - **The first open stays responsive while runs arrive** (Everywhere). While runs are still arriving, the page updates at most every quarter second, with the count read so far. Anything you click answers at once, and the page is complete as soon as the last run is read. What you're typing keeps its place. *Where:* Opening the team folder
 - **Screens with hundreds of processes and people draw quickly** (Everywhere). Home, the runs list, process pages, every person picker and Settings, People open quickly with hundreds of processes and people. *Where:* Home, Runs, process pages, person pickers, Settings
-- **Folder health's receipt check is quick on big folders** (Folder health). Checking that each finished run has its receipt takes moments, not seconds. *Where:* Settings, Folder health
+- **Folder health finds leftover save receipts quickly** (Folder health). Folder health finds leftover save receipts quickly, even in a large team folder. *Where:* Settings, Folder health
 
 ## 2.4.0 · Oct 25, 2026
 

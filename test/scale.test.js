@@ -210,6 +210,7 @@ rule('The run-count limits come from measurements: stop first, warning strictly 
   same(pick({ 2000: slow, 3000: stuck, 4000: stuck, 1000: slow, 500: slow }), { keep: true, warn: 500, stop: 2000 }, 'nothing qualifies: the limits stay');
   same(pick({ 2000: stuck, 4000: stuck }), { keep: true, warn: 500, stop: 2000 }, 'stop fails at 2,000: the limits stay');
   same(pick({ 2000: stuck, 4000: ok, 6000: ok, 8000: ok, 10000: ok }), { keep: true, warn: 500, stop: 2000 }, 'stop fails at 2,000 though larger sizes pass: the limits stay');
+  same(pick({ 500: ok, 1000: ok, 2000: stuck, 4000: ok, 6000: ok, 8000: ok, 10000: ok }), { keep: true, warn: 500, stop: 2000 }, 'stop fails at 2,000 with smaller sizes passing: the limits stay, never lowered');
   same(pick({ 2000: ok, 4000: ok, 6000: stuck, 8000: ok, 10000: ok }), { need: [5000] }, 'a failure in the middle caps stop below it, larger passes aside');
   same(pick({ 2000: slow, 3000: stuck, 4000: stuck }), { need: [1000] }, 'asks for 1,000 when nothing below stop qualifies');
   same(pick({ 2000: ok, 4000: ok, 5000: ok, 6000: stuck }), { warn: 4000, stop: 5000 }, 'a halfway size measured is used as it is');

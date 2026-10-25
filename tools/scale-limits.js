@@ -2,7 +2,7 @@
 // Input: { [runs]: { open, freeze } } for the worst workload at each size, at 4× CPU throttling. open is the summed duration of
 // long tasks during a first open, freeze the longest task during a refresh, both in ms.
 // Output: { warn, stop }, or { need: [sizes] } when another size has to be measured first, or { keep: true, warn, stop } when
-// nothing qualifies and the limits stay as they are.
+// nothing qualifies, or 2,000 itself fails, and the limits stay as they are.
 // Run: node tools/scale-limits.js results.json
 'use strict';
 
@@ -30,6 +30,8 @@ function largest(m, ok, below) {
 }
 
 function pick(m) {
+  /* 2,000 is today's stop: if it fails, the limits stay, whatever any other size measured. */
+  if (2000 in m && !stopOk(m[2000])) return Object.assign({}, KEEP);
   const need = [];
   const s = largest(m, stopOk, Infinity);
   if (s.best == null) return Object.assign({}, KEEP);
