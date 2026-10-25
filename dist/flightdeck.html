@@ -597,7 +597,7 @@ table.grid td.cold { color: var(--muted); }
 .mapview .fp-lanes { list-style: none; margin: 4px 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(120px, 100%), 1fr)); gap: 6px; }
 .mapview .fp-lane { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 6px 8px; border-radius: 6px; background: var(--paper); border-top: 2px solid var(--field); font-size: 13px; min-width: 0; overflow-wrap: anywhere; }
 .fp-gate { position: relative; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 14px; padding: 8px 14px 8px 26px; background: var(--amber-soft); border-left: 4px solid var(--amber); border-radius: 0 0 10px 10px; min-width: 0; overflow-wrap: anywhere; }
-.fp-gate:not(.implicit)::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 14px; border-bottom-left-radius: 6px; background: repeating-linear-gradient(-45deg, var(--amber) 0 5px, var(--stripe) 5px 10px); }
+.fp-gate:not(.implicit)::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 14px; background: repeating-linear-gradient(-45deg, var(--amber) 0 5px, var(--stripe) 5px 10px); }
 .fp-gate > span { min-width: 0; }
 .fp-gate-t { display: flex; gap: 6px; align-items: center; font-weight: 600; font-size: 14px; }
 .fp-gate.implicit { background: var(--card); border: 1px dashed var(--field); border-left: 4px solid var(--amber); padding-left: 14px; }
@@ -667,7 +667,6 @@ table.grid td.cold { color: var(--muted); }
 
 /* Form fields need a 3:1 boundary to be findable (WCAG 1.4.11); decorative lines stay soft. */
 input:not([type="checkbox"]):not([type="file"]):not([type="hidden"]), select, textarea { --field-edge: var(--field); border-color: var(--field-edge) !important; }
-input[aria-invalid="true"]:not([type="checkbox"]):not([type="file"]):not([type="hidden"]), select[aria-invalid="true"], textarea[aria-invalid="true"] { --field-edge: var(--stop); }
 input[type="checkbox"] { accent-color: var(--go); width: 16px; height: 16px; }
 .ferr { margin: 0; color: var(--stop); font-weight: 600; font-size: 13px; }
 .linkish { border: 0; background: none; padding: 0; color: var(--focus); text-decoration: underline; font-size: 13px; }
@@ -676,9 +675,10 @@ input[type="checkbox"] { accent-color: var(--go); width: 16px; height: 16px; }
 .setup h2 { margin-bottom: 12px; }
 .setup-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(240px, 100%), 1fr)); gap: 16px; }
 .setup-grid > div { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
-.seg { display: inline-flex; gap: 2px; padding: 3px; border-radius: 11px; background: var(--track); box-shadow: inset 0 0 0 1px var(--edge); align-self: flex-start; }
-.seg button { border: 0; background: transparent; padding: 6px 13px; border-radius: 8px; font-weight: 600; color: var(--muted); }
-.seg button[aria-checked="true"], .seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(22,32,42,.14), 0 2px 8px rgba(22,32,42,.08); }
+.seg { display: inline-flex; border: 1px solid var(--field); border-radius: 8px; overflow: hidden; align-self: flex-start; }
+.seg button { border: 0; background: var(--card); padding: 7px 14px; font-weight: 600; }
+.seg button[aria-checked="true"] { background: var(--ink); color: var(--card); }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--card); }
 .seg.tabs { margin: 0 0 14px; }
 .ver-pick { max-width: 260px; min-width: 0; text-overflow: ellipsis; }
 .seg button .ic { margin-right: 6px; vertical-align: -3px; }
@@ -1069,10 +1069,10 @@ html.tfe-on #app { padding: 0; max-width: none; }
 .tf-addlist button { width: 100%; text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: 7px; display: flex; flex-direction: column; gap: 2px; font: inherit; color: var(--ink); }
 .tf-addlist button:hover { background: var(--chip); }
 .tf-switch { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--ink); cursor: pointer; }
-.tf-switch input[type="checkbox"] { appearance: none; -webkit-appearance: none; width: 36px; height: 20px; border-radius: 99px; background: var(--track-off); position: relative; margin: 0; flex: none; cursor: pointer; border: 1px solid var(--field); }
-.tf-switch input[type="checkbox"]::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--thumb); box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform 220ms var(--spring), background-color var(--t); }
-.tf-switch input[type="checkbox"]:checked { background: var(--track-on); border-color: var(--track-on); }
-.tf-switch input[type="checkbox"]:checked::after { transform: translateX(16px); background: var(--thumb-on); }
+.tf-switch input[type="checkbox"] { appearance: none; -webkit-appearance: none; width: 36px; height: 20px; border-radius: 99px; background: var(--line); position: relative; margin: 0; flex: none; cursor: pointer; border: 1px solid var(--field); }
+.tf-switch input[type="checkbox"]::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--card); }
+.tf-switch input[type="checkbox"]:checked { background: var(--go); border-color: var(--go); }
+.tf-switch input[type="checkbox"]:checked::after { left: 18px; }
 .tf-switch + .tf-help { margin-top: -8px; padding-left: 46px; }
 .tf-where > summary { cursor: pointer; font-weight: 600; }
 .tf-where[open] > summary { margin-bottom: 8px; }
@@ -1095,7 +1095,7 @@ html.tfe-on #app { padding: 0; max-width: none; }
 .su { max-width: 980px; margin: 0 auto; }
 .su-hero { position: relative; overflow: hidden; padding: 34px 40px 32px 32px; border-radius: 16px; background: var(--ink); color: var(--paper); margin-bottom: 18px; }
 .su-hero::after { content: ""; position: absolute; right: 0; top: 0; bottom: 0; width: 16px; background: repeating-linear-gradient(-45deg, var(--amber) 0 6px, var(--stripe) 6px 12px); }
-.su-hero .eyebrow { color: var(--hero-eyebrow); }
+.su-hero .eyebrow { color: var(--amber); }
 .su-hero h1 { font-size: clamp(32px, 5vw, 52px); max-width: 18ch; }
 .su-hero p { max-width: 58ch; margin: 12px 0 0; color: color-mix(in srgb, var(--paper) 78%, transparent); font-size: 16px; }
 .su-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr)); gap: 14px; }
@@ -1779,10 +1779,10 @@ button.att:hover { border-color: var(--ink); }
 .ev-days span { display: flex; flex-direction: column; gap: 4px; }
 .ev-opts { display: flex; flex-direction: column; gap: 8px; }
 .ev-switch { display: inline-flex; align-items: center; gap: 10px; background: none; border: 0; padding: 4px 0; color: var(--ink); font: inherit; text-align: left; }
-.ev-knob { width: 34px; height: 20px; border-radius: 10px; border: 1px solid var(--field); background: var(--track-off); position: relative; flex: none; }
-.ev-knob::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--thumb); box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform 220ms var(--spring), background-color var(--t); }
-.ev-switch[aria-checked="true"] .ev-knob { background: var(--track-on); border-color: var(--track-on); }
-.ev-switch[aria-checked="true"] .ev-knob::after { transform: translateX(14px); background: var(--thumb-on); }
+.ev-knob { width: 34px; height: 20px; border-radius: 10px; border: 1px solid var(--field); background: var(--chip); position: relative; flex: none; }
+.ev-knob::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--muted); }
+.ev-switch[aria-checked="true"] .ev-knob { background: var(--ink); border-color: var(--ink); }
+.ev-switch[aria-checked="true"] .ev-knob::after { left: 16px; background: var(--paper); }
 .ev-left ul { margin: 6px 0 0; padding-left: 18px; }
 .ev-left code, .ev-digest code { overflow-wrap: anywhere; word-break: break-all; }
 .ev-bar-p { width: 100%; height: 10px; }
@@ -2004,12 +2004,16 @@ button.att:hover { border-color: var(--ink); }
   .seg button:focus-visible { outline-offset: 1px; }
 
   .fpe-tabs [role="tab"]:hover:not([aria-selected="true"]) { color: var(--ink); border-bottom-color: color-mix(in srgb, var(--amber) 40%, transparent); }
+  [role="tab"]:active:not([aria-selected="true"]):not(:disabled) { background-image: linear-gradient(var(--prs), var(--prs)); }
 
-  summary:hover { color: var(--ink); }
+  summary { border-radius: 6px; }
+  summary:hover { color: var(--ink); background-image: linear-gradient(var(--hov), var(--hov)); }
+  summary:active { background-image: linear-gradient(var(--prs), var(--prs)); }
 
   button.card:hover:not(:disabled):not([aria-disabled="true"]), .tile:hover:not(:disabled):not([aria-disabled="true"]), .su-choice:hover:not(:disabled):not([aria-disabled="true"]), .su-tpl:hover:not(:disabled):not([aria-disabled="true"]) { transform: translateY(-2px); box-shadow: var(--lift-hi); }
   .tile.warn:hover:not(:disabled):not([aria-disabled="true"]) { box-shadow: var(--lift-hi); }
-  button.card:active:not(:disabled):not([aria-disabled="true"]), .tile:active:not(:disabled):not([aria-disabled="true"]), .su-choice:active:not(:disabled):not([aria-disabled="true"]) { transform: translateY(0); box-shadow: var(--lift); }
+  button.card.plan:hover { border-color: var(--plan); }
+  button.card:active:not(:disabled):not([aria-disabled="true"]), .tile:active:not(:disabled):not([aria-disabled="true"]), .su-choice:active:not(:disabled):not([aria-disabled="true"]), .su-tpl:active:not(:disabled):not([aria-disabled="true"]) { transform: translateY(0); box-shadow: var(--lift); }
 
   /* Run rows: a tint over the row's own color; the Next up bar, the selection outline and red or amber stay. */
   .rw .step:hover { background-image: linear-gradient(var(--hov), var(--hov)); }
@@ -2032,22 +2036,44 @@ button.att:hover { border-color: var(--ink); }
   .ob-part[aria-pressed="true"]:hover { border-color: var(--focus); box-shadow: 0 0 0 2px var(--focus), var(--lift); }
 
   /* Switches: a halo on hover; disabled reads as disabled. */
-  .tf-switch input[type="checkbox"]:hover:not(:disabled) { box-shadow: 0 0 0 4px var(--hov); }
+  .tf-switch input[type="checkbox"]:hover:not(:disabled) { background-image: linear-gradient(var(--prs-fill), var(--prs-fill)); box-shadow: 0 0 0 4px var(--hov); }
   .tf-switch input[type="checkbox"]:disabled { opacity: .5; cursor: not-allowed; }
-  .ev-switch:hover:not(:disabled):not([aria-disabled="true"]) .ev-knob { box-shadow: 0 0 0 4px var(--hov); }
+  .ev-switch:hover:not(:disabled):not([aria-disabled="true"]) .ev-knob { background-image: linear-gradient(var(--prs-fill), var(--prs-fill)); box-shadow: 0 0 0 4px var(--hov); }
   .ev-switch:active:not(:disabled):not([aria-disabled="true"]) .ev-knob { transform: scale(.94); }
   .ev-switch:disabled { opacity: .5; cursor: not-allowed; }
   .ev-knob { transition: background-color var(--t) var(--ease), border-color var(--t) var(--ease), box-shadow var(--t) var(--ease), transform var(--t-fast) var(--ease); }
 
   /* Fields: the edge darkens on hover and turns the focus color with a soft ring while typing; invalid stays red. */
-  input:not([type="checkbox"]):not([type="file"]):not([type="hidden"]):not([aria-invalid="true"]):hover, select:not([aria-invalid="true"]):hover, textarea:not([aria-invalid="true"]):hover { --field-edge: var(--muted); }
-  input:not([type="checkbox"]):not([type="file"]):not([type="hidden"]):not([aria-invalid="true"]):focus-visible, select:not([aria-invalid="true"]):focus-visible, textarea:not([aria-invalid="true"]):focus, input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]):not([aria-invalid="true"]):focus { --field-edge: var(--focus); }
-  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]):focus, select:focus-visible, textarea:focus { outline-color: transparent; box-shadow: var(--ring); }
+  input:not([type="checkbox"]):not([type="file"]):not([type="hidden"]):not([aria-invalid="true"]):not([readonly]):not(:disabled):hover, select:not([aria-invalid="true"]):not([readonly]):not(:disabled):hover, textarea:not([aria-invalid="true"]):not([readonly]):not(:disabled):hover { --field-edge: var(--muted); }
+  input:not([type="checkbox"]):not([type="file"]):not([type="hidden"]):not([aria-invalid="true"]):not([readonly]):not(:disabled):focus-visible, select:not([aria-invalid="true"]):not([readonly]):not(:disabled):focus-visible, textarea:not([aria-invalid="true"]):not([readonly]):not(:disabled):focus, input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]):not([aria-invalid="true"]):not([readonly]):not(:disabled):focus { --field-edge: var(--focus); }
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]):not([readonly]):not(:disabled):focus, select:not([readonly]):not(:disabled):focus-visible, textarea:not([readonly]):not(:disabled):focus { outline-color: transparent; box-shadow: var(--ring); }
+  input[readonly]:not([type="checkbox"]):not([type="file"]):not([type="hidden"]), textarea[readonly], input:disabled:not([type="checkbox"]):not([type="file"]):not([type="hidden"]), select:disabled, textarea:disabled { background-color: var(--paper); color: var(--muted); }
+
+  .fp-gate:not(.implicit)::before { border-bottom-left-radius: 6px; }
+  input[aria-invalid="true"]:not([type="checkbox"]):not([type="file"]):not([type="hidden"]), select[aria-invalid="true"], textarea[aria-invalid="true"] { --field-edge: var(--stop); }
+  /* Toggles: a track with a raised pill on the choice. */
+  .seg { gap: 2px; padding: 3px; border: 0; border-radius: 11px; overflow: visible; background: var(--track); box-shadow: inset 0 0 0 1px var(--edge); }
+  .seg button { background: transparent; padding: 6px 13px; border-radius: 8px; color: var(--muted); }
+  .seg button[aria-checked="true"], .seg button[aria-pressed="true"] { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(22,32,42,.14), 0 2px 8px rgba(22,32,42,.08); }
+  /* Switches: tokens that read in both themes, a thumb that slides, a track that eases and deepens on hover. */
+  .tf-switch input[type="checkbox"] { background-color: var(--track-off); transition: background-color var(--t) var(--ease), border-color var(--t) var(--ease), box-shadow var(--t) var(--ease); }
+  .tf-switch input[type="checkbox"]::after { left: 2px; background: var(--thumb); box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform 220ms var(--spring), background-color var(--t); }
+  .tf-switch input[type="checkbox"]:checked { background-color: var(--track-on); border-color: var(--track-on); }
+  .tf-switch input[type="checkbox"]:checked::after { left: 2px; transform: translateX(16px); background: var(--thumb-on); }
+  .ev-knob { background-color: var(--track-off); }
+  .ev-knob::after { left: 2px; background: var(--thumb); box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: transform 220ms var(--spring), background-color var(--t); }
+  .ev-switch[aria-checked="true"] .ev-knob { background-color: var(--track-on); border-color: var(--track-on); }
+  .ev-switch[aria-checked="true"] .ev-knob::after { left: 2px; transform: translateX(14px); background: var(--thumb-on); }
+  .su-hero .eyebrow { color: var(--hero-eyebrow); }
 }
 @media (forced-colors: active) {
   .mainnav button[aria-current="page"], .seg button[aria-checked="true"], .seg button[aria-pressed="true"], .rw .step.sel, .ob-part[aria-pressed="true"], .ob-step.sel, .step[data-a="done"] .check { outline: 2px solid Highlight; outline-offset: -2px; }
+  /* Focus on a selected control is its own ring, outside the selection's inset edge; the selection also underlines. */
+  .mainnav button[aria-current="page"]:focus-visible, .seg button[aria-checked="true"]:focus-visible, .seg button[aria-pressed="true"]:focus-visible, .ob-part[aria-pressed="true"]:focus-visible, .step[data-a="done"] .check:focus-visible { outline: 3px solid CanvasText; outline-offset: 2px; text-decoration: underline 2px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; } }
+/* Less motion: nothing lifts, sinks or shrinks under the pointer either; colors and shadows still answer. */
+@media screen and (prefers-reduced-motion: reduce) { .btn, .mini, .chipbtn, button.ob-chip, .mainnav button, .seg button, [role="tab"], summary, button.card, .tile, .su-choice, .su-tpl, .check, .ev-knob { transform: none !important; } }
 /* ---------- Examples kept in this tab only (blocked site storage) ----------
    The badge is fixed above every layer: screens, sheets, menus and dialogs (its z-index is the page's highest; a test checks).
    Everything that pins itself to the top of the window starts below it, so it covers nothing. --keep-h is 0 otherwise. */
@@ -23692,11 +23718,14 @@ PF.examples = (function () {
   function fillShown() {
     var bar = app.querySelector('.rw-bar'), fill = bar && bar.querySelector('i');
     if (!fill || !bar.clientWidth || !fill.getBoundingClientRect) return null;
-    return { key: fillKey(), at: fill.getBoundingClientRect().width / bar.clientWidth };
+    return { key: fillDrawn, at: fill.getBoundingClientRect().width / bar.clientWidth };
   }
-  var fillAnim = null, fillEl = null, fillNext = null;
+  /* fillDrawn names the run or practice the bar on screen was drawn for; state may already point somewhere else. */
+  var fillAnim = null, fillEl = null, fillNext = null, fillDrawn = null;
   function fillAfter(was) {
-    if (!was || was.key !== fillKey()) return;
+    var key = fillKey(), same = !!was && was.key === key;
+    fillDrawn = key;
+    if (!same) { if (fillAnim) { fillAnim.cancel(); fillAnim = null; } return; }
     var bar = app.querySelector('.rw-bar'), fill = bar && bar.querySelector('i');
     if (!fill || typeof fill.animate !== 'function') return;
     var next = Number(bar.getAttribute('aria-valuenow')) / Math.max(1, Number(bar.getAttribute('aria-valuemax')));

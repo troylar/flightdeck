@@ -65,7 +65,7 @@ rule('Fresh coat: every state token is defined on :root and again in both dark b
 /* ---------- 2. every family hovers and presses, inside @media screen ---------- */
 
 const HOVER = ['.btn', '.btn.primary', '.btn.go', '.btn.stop', '.hero .btn', '.mini', '.fpe .mini', '.plist .tcard button.mini', '.chipbtn', 'button.ob-chip', '.seg button', '.mainnav button', '.mainnav button[aria-current="page"]', '.fpe-tabs [role="tab"]', 'button.card', '.tile', '.tile.warn', '.su-choice', '.su-tpl', '.rw .step', '.check', '.ob-step', '.ob-step.sel', '.ob-part', '.tf-switch input[type="checkbox"]', '.ev-switch', 'summary'];
-const PRESS = ['.btn', '.mini', '.chipbtn', 'button.ob-chip', '.seg button', '.mainnav button', 'button.card', '.tile', '.su-choice', '.check', '.ev-switch'];
+const PRESS = ['.btn', '.mini', '.chipbtn', 'button.ob-chip', '.seg button', '.mainnav button', '[role="tab"]', 'summary', 'button.card', '.tile', '.su-choice', '.su-tpl', '.check', '.ev-switch'];
 rule('Fresh coat: every control family has a hover rule in @media screen that changes how it looks', () => {
   const missing = HOVER.filter(b => !stateRules(b, ':hover').length);
   assert.deepStrictEqual(missing, [], 'no hover: ' + missing.join(' | '));
@@ -75,12 +75,13 @@ rule('Fresh coat: every button family has a press (:active) rule in @media scree
   assert.deepStrictEqual(missing, [], 'no press: ' + missing.join(' | '));
 });
 rule('Fresh coat: press and lift never apply to a disabled control, native or aria-disabled', () => {
-  const bad = [];
+  const bad = []; let seen = 0;
   RULES.filter(screenOnly).forEach(r => r.sel.forEach(x => {
     if (!/:active/.test(x) && !(/:hover/.test(x) && decl(r.body, 'transform'))) return;
     if (!/^(\.btn|\.mini|\.fpe \.mini|\.chipbtn|button\.|\.seg button|\.mainnav button|\.su-choice|\.check|\.ev-switch)/.test(x)) return;
-    if (!/:not\(:disabled\)/.test(x) || !/:not\(\[aria-disabled="true"\]\)/.test(x)) bad.push(x);
+    seen++; if (!/:not\(:disabled\)/.test(x) || !/:not\(\[aria-disabled="true"\]\)/.test(x)) bad.push(x);
   }));
+  assert.ok(seen >= 15, 'press and lift rules to check: ' + seen);
   assert.deepStrictEqual(bad, [], 'press or lift without the disabled guard: ' + bad.join(' | '));
 });
 rule('Fresh coat: filled buttons keep their own color and border on hover and press (a tint over the fill, no gray ring)', () => {
@@ -91,11 +92,13 @@ rule('Fresh coat: filled buttons keep their own color and border on hover and pr
   });
 });
 rule('Fresh coat: hover and press tint over a control instead of replacing its color, so selected and warning colors survive', () => {
-  const bad = [];
+  const bad = []; let seen = 0, tinted = 0;
   RULES.filter(screenOnly).forEach(r => r.sel.forEach(x => {
     if (!/:hover|:active/.test(x) || !/^(\.btn(?!\.)|\.btn:|\.mini|\.fpe \.mini|\.plist \.tcard button\.mini|\.chipbtn|button\.ob-chip|\.mainnav button|\.rw \.step|\.rw-ph)/.test(x)) return;
+    seen++; if (/:hover/.test(x) && /var\(--(hov|prs)(-fill)?\)/.test(decl(r.body, 'background-image') || '')) tinted++;
     ['background', 'background-color'].forEach(p => { if (decl(r.body, p) !== null) bad.push(x + ' sets ' + p); });
   }));
+  assert.ok(seen >= 12 && tinted >= 6, 'hover and press rules to check: ' + seen + ', tinting: ' + tinted);
   assert.deepStrictEqual(bad, [], bad.join('\n'));
 });
 
@@ -130,10 +133,12 @@ rule('Fresh coat: the mini-button contexts that set a resting border still let h
 /* ---------- 4. corners and focus ---------- */
 
 rule('Fresh coat: a segmented toggle clips nothing, so a focus ring shows whole', () => {
-  RULES.filter(r => r.sel.indexOf('.seg') >= 0).forEach(r => { const o = decl(r.body, 'overflow'); assert.ok(!o || !/hidden|clip/.test(o), '.seg overflow: ' + o); });
+  const scr = RULES.filter(r => screenOnly(r) && r.sel.indexOf('.seg') >= 0);
+  assert.ok(scr.some(r => /^visible$/.test(decl(r.body, 'overflow') || '')), 'on screen the toggle clips nothing');
+  scr.forEach(r => { const o = decl(r.body, 'overflow'); assert.ok(!o || !/hidden|clip/.test(o), '.seg overflow: ' + o); });
 });
 rule('Fresh coat: the gate stripe follows its rounded corner', () => {
-  const r = RULES.find(x => x.sel.some(s => s === '.fp-gate:not(.implicit)::before'));
+  const r = RULES.find(x => screenOnly(x) && x.sel.some(s => s === '.fp-gate:not(.implicit)::before'));
   assert.ok(r && /border-radius|border-bottom-left-radius/.test(r.body), 'stripe has a bottom-left radius');
 });
 
@@ -217,9 +222,10 @@ rule('Fresh coat: the progress fill starts from what is shown, never from a stal
 });
 
 const SMALL = ['---', 'process: release', 'title: Production release', 'owner: person-casey', '---', '',
-  '## One {#one}', '- [ ] {confirm} Write it down {#w}', '- [ ] {confirm} Read it back {#rb}', '', '## Gate: First check {#g1}'].join('\n');
-async function recorded() {
-  const app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(60);
+  '## One {#one}', '- [ ] {confirm} Write it down {#w}', '- [ ] {confirm} Read it back {#rb}', '- [ ] {communicate} Post it {#post}', '  channel: #team-releases', '  message: Starting.', '', '## Gate: First check {#g1}', '', '## Two {#two}', '- [ ] {confirm} Ship it {#ship}'].join('\n');
+const LAYOUT = o => Object.assign({ localStore: { 'preflight:builder': 'false' }, domFocus: true, layout: true }, o || {});
+async function recorded(o) {
+  const app = boot(LAYOUT(o)); await app.tick(60);
   app.choose('person-casey'); await app.tick();
   await app.fs.write('maps/drafts/release.md', SMALL);
   app.click('refresh'); await app.tick(80);
@@ -230,8 +236,8 @@ async function recorded() {
   assert.ok(/data-act="toggle" data-id="w"/.test(app.html()), 'set-up: recording the small run');
   return app;
 }
-async function practicing() {
-  const app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(60);
+async function practicing(o) {
+  const app = boot(LAYOUT(o)); await app.tick(60);
   app.choose('person-casey'); await app.tick();
   await app.fs.write('maps/drafts/release.md', SMALL);
   app.click('refresh'); await app.tick(80);
@@ -241,26 +247,142 @@ async function practicing() {
   assert.ok(/Practice · not recorded/.test(app.html()), 'set-up: practicing');
   return app;
 }
-/* The landing looks its row up once, after the redraws; the harness records what the app asked the page for. */
-const lands = (app, id) => app.asked().filter(x => x === '.rw #step-' + id).length;
-rule('Fresh coat: checking a step lands it once; unchecking and later redraws never replay it', async () => {
+/* What the app animated (the harness records animate() instead of playing it): the row glow, the check's spring, the fill. */
+const anims = app => app.animations();
+const rowLands = (app, id) => anims(app).filter(a => a.id === 'step-' + id && a.keyframes.some(k => 'backgroundColor' in k)).length;
+const springs = app => anims(app).filter(a => /\bcheck\b/.test(a.cls) && a.keyframes.some(k => /scale\(1\.18\)/.test(k.transform || ''))).length;
+const fills = app => anims(app).filter(a => a.tag === 'i' && a.keyframes.some(k => /scaleX/.test(k.transform || '')));
+const fromOf = a => +/scaleX\(([\d.]+)\)/.exec(a.keyframes[0].transform)[1];
+const runId = app => app.html().match(/data-act="open-run" data-id="([^"]+)"/g).map(x => x.split('"')[3]);
+
+rule('Fresh coat: checking a step lands it once (row glow and check spring); unchecking, Refresh and opening it again replay nothing', async () => {
   const app = await recorded();
   app.click('toggle', 'w'); await app.tick(60);
-  assert.strictEqual(lands(app, 'w'), 1, 'one landing after a check');
+  assert.strictEqual(rowLands(app, 'w'), 1, 'the row glows once');
+  assert.strictEqual(springs(app), 1, 'the check springs once');
   app.click('toggle', 'w'); await app.tick(60);
-  assert.strictEqual(lands(app, 'w'), 1, 'none after unchecking');
+  assert.strictEqual(rowLands(app, 'w'), 1, 'none after unchecking');
   app.click('toggle', 'w'); await app.tick(60);
-  assert.strictEqual(lands(app, 'w'), 2, 'checking it again lands again');
-  app.click('nav', 'runs'); await app.tick(); app.click('open-run', app.html().match(/data-act="open-run" data-id="([^"]+)"/)[1]); await app.tick(60);
-  assert.strictEqual(lands(app, 'w'), 2, 'opening the run again replays nothing');
-  assert.strictEqual(lands(app, 'rb'), 0, 'a step nobody checked never lands');
+  assert.strictEqual(rowLands(app, 'w'), 2, 'checking it again lands again');
+  app.click('refresh'); await app.tick(120);
+  assert.strictEqual(rowLands(app, 'w'), 2, 'a Refresh redraw lands nothing');
+  app.click('nav', 'runs'); await app.tick(); app.click('open-run', runId(app)[0]); await app.tick(60);
+  assert.strictEqual(rowLands(app, 'w'), 2, 'opening the run again replays nothing');
+  assert.strictEqual(rowLands(app, 'rb'), 0, 'a step nobody checked never lands');
+});
+rule('Fresh coat: a refused check (a locked step) lands nothing, and Fill in on a done step corrects values without landing again', async () => {
+  const app = await recorded();
+  app.click('toggle', 'ship'); await app.tick(60);
+  assert.notStrictEqual(app.html().match(/id="step-ship"[^>]*data-a="([^"]*)"/) && app.html().match(/id="step-ship"[^>]*data-a="([^"]*)"/)[1], 'done', 'set-up: the locked step stays open');
+  assert.strictEqual(rowLands(app, 'ship'), 0, 'refused: no landing');
+  app.click('toggle', 'post'); await app.tick(60);
+  assert.strictEqual(rowLands(app, 'post'), 1, 'checking Post it lands');
+  app.click('pick', 'post', { kind: 'fields' }); await app.tick();
+  app.set('fld-channel', '#release-room'); app.click('save-fields', 'post'); await app.tick(120);
+  assert.strictEqual(rowLands(app, 'post'), 1, 'correcting its values lands nothing more');
+});
+rule('Fresh coat: an answer made quietly or in another window (a background redraw) never lands', async () => {
+  const app = await recorded();
+  const p = Object.keys(app.fs.files).find(k => /^runs\/release\/[^/]+\/run\.json$/.test(k) && /\{#post\}/.test(JSON.parse(app.fs.files[k].t).snapshot || ''));
+  const PF = require('./harness').load(), R = PF.run, json = R.sanitize(JSON.parse(app.fs.files[p].t));
+  R.done(json, R.mapOf(json), 'w', 'person-blake', new Date().toISOString(), {});
+  await app.fs.write(p, JSON.stringify(json, null, 2) + '\n');
+  app.click('refresh'); await app.tick(200);
+  assert.ok(/id="step-w"[^>]*data-a="done"/.test(app.html()) || /data-a="done"[^>]*id="step-w"/.test(app.html()), 'set-up: the answer from elsewhere is shown');
+  assert.strictEqual(rowLands(app, 'w'), 0, 'another window\'s answer arrives without a landing');
+  assert.strictEqual(springs(app), 0, 'and without a spring');
 });
 rule('Fresh coat: a check in practice lands; nothing is written for it', async () => {
   const app = await practicing();
   const files = Object.keys(app.fs.files).length;
   app.click('toggle', 'w'); await app.tick(60);
-  assert.strictEqual(lands(app, 'w'), 1, 'practice lands too');
+  assert.strictEqual(rowLands(app, 'w'), 1, 'practice lands too');
   assert.strictEqual(Object.keys(app.fs.files).length, files, 'no file for it');
+});
+rule('Fresh coat: with less motion asked for, nothing lands and the fill snaps', async () => {
+  const app = await recorded({ reducedMotion: true });
+  app.click('toggle', 'w'); await app.tick(60);
+  app.click('toggle', 'rb'); await app.tick(60);
+  assert.deepStrictEqual(anims(app), [], 'no animation at all');
+});
+rule('Fresh coat: the fill grows from what was drawn, shrinks on uncheck, snaps to empty, and a quick second check cancels the first', async () => {
+  const app = await recorded();
+  app.click('toggle', 'w'); await app.tick(60);
+  let f = fills(app);
+  assert.strictEqual(f.length, 1, 'one fill animation for a check');
+  assert.strictEqual(fromOf(f[0]), 0, 'from empty: scaleX(0)');
+  app.click('toggle', 'rb'); await app.tick(60);
+  f = fills(app);
+  assert.strictEqual(f.length, 2, 'a second check animates again');
+  assert.ok(f[0].canceled, 'the first fill is canceled when the second starts');
+  assert.ok(Math.abs(fromOf(f[1]) - 0.5) < 0.02, 'one of four answered to two of four: from half, ' + fromOf(f[1]));
+  app.click('toggle', 'rb'); await app.tick(60);
+  f = fills(app);
+  assert.ok(fromOf(f[f.length - 1]) > 1.9, 'unchecking shrinks it from twice the new width, ' + fromOf(f[f.length - 1]));
+  const n = f.length;
+  app.click('toggle', 'w'); await app.tick(60);
+  assert.strictEqual(fills(app).length, n, 'back to empty snaps: no animation');
+  assert.ok(fills(app).every(a => a.canceled || a === fills(app)[n - 1]) && fills(app)[n - 1].canceled, 'and the running one is canceled');
+});
+rule('Fresh coat: opening another run never animates its bar from the last run\'s progress', async () => {
+  const app = await recorded();
+  app.click('toggle', 'w'); await app.tick(60); app.click('toggle', 'rb'); await app.tick(60); app.click('toggle', 'post'); await app.tick(60);
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick();
+  app.click('start', 'release'); await app.tick(); app.submitForm('start-form', {}); await app.tick(200);
+  const n = fills(app).length;
+  app.click('nav', 'runs'); await app.tick();
+  const ids = runId(app);
+  ids.forEach(id => { app.click('open-run', id); });
+  await app.tick(60);
+  assert.strictEqual(fills(app).length, n, 'no fill animation when the run changes');
+  assert.ok(fills(app).every(a => a.canceled), 'and whatever was running is canceled');
+});
+
+/* ---------- 10. what the review found missing ---------- */
+
+rule('Fresh coat: printing keeps 2.3.1\'s look: no rule outside @media screen uses a fresh-coat token, and the base toggles, switches, gate stripe and eyebrow are 2.3.1\'s', () => {
+  const NEW = ['--hov', '--prs', '--hov-fill', '--prs-fill', '--track', '--edge', '--edge-strong', '--lift', '--lift-hi', '--ring', '--thumb', '--thumb-on', '--track-off', '--track-on', '--hero-eyebrow', '--spring'];
+  const leaks = RULES.filter(r => !screenOnly(r) && !r.atRule && !r.sel.some(x => /^:root/.test(x)) && !r.at.some(a => /prefers-reduced-motion|forced-colors/.test(a)))
+    .filter(r => NEW.some(t => new RegExp('var\\(' + t.replace(/-/g, '\\-') + '\\)').test(r.body))).map(r => r.sel.join(', '));
+  assert.deepStrictEqual(leaks, [], 'fresh-coat tokens outside @media screen: ' + leaks.join(' | '));
+  const base = s => RULES.filter(r => !r.at.length && r.sel.indexOf(s) >= 0).map(r => r.body).join(';');
+  assert.ok(/overflow:\s*hidden/.test(base('.seg')) && /border:\s*1px solid var\(--field\)/.test(base('.seg')), 'the printed toggle is 2.3.1\'s');
+  assert.ok(/background:\s*var\(--ink\)/.test(base('.seg button[aria-checked="true"]')), 'the printed choice is 2.3.1\'s dark block');
+  assert.ok(!/radius/.test(base('.fp-gate:not(.implicit)::before')), 'the printed gate stripe is 2.3.1\'s');
+  assert.ok(/var\(--amber\)/.test(base('.su-hero .eyebrow')), 'the printed eyebrow is 2.3.1\'s');
+  assert.ok(/var\(--go\)/.test(base('.tf-switch input[type="checkbox"]:checked')) && /var\(--ink\)/.test(base('.ev-switch[aria-checked="true"] .ev-knob')), 'the printed switches are 2.3.1\'s');
+  assert.ok(!RULES.some(r => !screenOnly(r) && r.sel.some(x => /\[aria-invalid="true"\]/.test(x)) && /--field-edge/.test(r.body)), 'the red invalid edge is screen only');
+});
+rule('Fresh coat: with less motion, nothing lifts, sinks or shrinks under the pointer', () => {
+  const rm = RULES.filter(r => r.at.some(a => /prefers-reduced-motion: reduce/.test(a)) && /transform:\s*none !important/.test(r.body));
+  const covered = new Set(rm.flatMap(r => r.sel));
+  const moving = [];
+  RULES.filter(screenOnly).forEach(r => { const t = decl(r.body, 'transform'); if (!t || /none/.test(t)) return; r.sel.forEach(x => { if (/:hover|:active/.test(x)) moving.push(x); }); });
+  const fam = x => ['.btn', '.mini', '.chipbtn', 'button.ob-chip', '.mainnav button', '.seg button', '[role="tab"]', 'summary', 'button.card', '.tile', '.su-choice', '.su-tpl', '.check', '.ev-knob'].find(f => x.indexOf(f) === 0 || x.indexOf(' ' + f) >= 0);
+  const bad = moving.filter(x => !fam(x) || !covered.has(fam(x)));
+  assert.ok(moving.length >= 8, 'hover and press move things: ' + moving.length);
+  assert.deepStrictEqual(bad, [], 'moves with less motion: ' + bad.join(' | '));
+});
+rule('Fresh coat: in forced colors a focused selected control gets its own ring, outside the selection edge', () => {
+  const fc = RULES.filter(r => r.at.some(a => /forced-colors: active/.test(a)));
+  ['.mainnav button[aria-current="page"]', '.seg button[aria-checked="true"]', '.seg button[aria-pressed="true"]', '.ob-part[aria-pressed="true"]', '.step[data-a="done"] .check'].forEach(s => {
+    const r = fc.find(x => x.sel.indexOf(s + ':focus-visible') >= 0);
+    assert.ok(r && /outline:\s*3px solid CanvasText/.test(r.body) && /outline-offset:\s*2px/.test(r.body), 'focus ring for ' + s);
+  });
+});
+rule('Fresh coat: read-only and disabled fields keep still on hover and focus, and read as not editable', () => {
+  RULES.filter(r => screenOnly(r) && r.sel.some(x => /^(input|select|textarea)/.test(x) && /:hover|:focus/.test(x)) && (decl(r.body, '--field-edge') || decl(r.body, 'box-shadow')))
+    .forEach(r => r.sel.forEach(x => assert.ok(/:not\(\[readonly\]\):not\(:disabled\)/.test(x), 'unguarded: ' + x)));
+  assert.ok(RULES.some(r => screenOnly(r) && r.sel.indexOf('textarea[readonly]') >= 0 && /var\(--muted\)/.test(r.body)), 'a read-only box reads muted');
+});
+rule('Fresh coat: a planned run\'s card keeps its purple edge while hovered', () => {
+  assert.ok(RULES.some(r => screenOnly(r) && r.sel.indexOf('button.card.plan:hover') >= 0 && /border-color:\s*var\(--plan\)/.test(r.body)));
+});
+rule('Fresh coat: switch tracks ease between off and on and deepen on hover', () => {
+  const tr = RULES.filter(r => screenOnly(r) && r.sel.indexOf('.tf-switch input[type="checkbox"]') >= 0).map(r => decl(r.body, 'transition') || '').join(' ');
+  assert.ok(/background-color/.test(tr), 'the type editor\'s track eases: ' + tr);
+  ['.tf-switch input[type="checkbox"]:hover:not(:disabled)', '.ev-switch:hover:not(:disabled):not([aria-disabled="true"]) .ev-knob'].forEach(s =>
+    assert.ok(RULES.some(r => screenOnly(r) && r.sel.indexOf(s) >= 0 && /var\(--prs-fill\)/.test(decl(r.body, 'background-image') || '')), s + ' deepens'));
 });
 
 run();

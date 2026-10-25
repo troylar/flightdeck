@@ -86,6 +86,8 @@ function boot(opts) {
   appEl.contains = el => !!el && (el.dataset && el.dataset.thumb != null && !el.id ? drawnThumbs().indexOf(el.dataset.thumb) >= 0 && thumbs.get(el.dataset.thumb) === el : inputs.has(el.id) && onScreen(el.id));
   /* Where the app asked focus to go: renders look up their focus target with querySelector. */
   const asked = [];
+  /* Animations the app started (opts.layout): which node, its keyframes, and whether it was canceled. */
+  const animations = [];
   /* The builder's properties form, as far as the phone sheet needs it: a node under the screen that can be marked. */
   appEl.children = [];
   const formAttrs = {};
@@ -109,7 +111,7 @@ function boot(opts) {
   const bodyClasses = new Set();
   document.body.classList = { add: (...c) => c.forEach(x => bodyClasses.add(x)), remove: (...c) => c.forEach(x => bodyClasses.delete(x)), contains: c => bodyClasses.has(c) };
   const window = {
-    innerWidth: opts.narrow ? 375 : 1400, scrollY: 0, scrollTo() {}, matchMedia: q => ({ matches: !!opts.narrow && /max-width/.test(q) }), getSelection: () => ({ removeAllRanges() {}, addRange() {} }),
+    innerWidth: opts.narrow ? 375 : 1400, scrollY: 0, scrollTo() {}, matchMedia: q => ({ matches: (!!opts.narrow && /max-width/.test(q)) || (!!opts.reducedMotion && /prefers-reduced-motion: reduce/.test(q)) }), getSelection: () => ({ removeAllRanges() {}, addRange() {} }),
     addEventListener: (t, fn) => { (winListeners[t] = winListeners[t] || []).push(fn); }
   };
   /* The address bar and session history of a file:// page: a list of entries and an index. back(), forward() and go(n)
@@ -212,6 +214,12 @@ function boot(opts) {
       contains: o => { if (o && o._src === undefined && o.id) o = nodesOf(region).filter(x => x.id === o.id)[0]; return !!o && o._src === n._src && o._region === n._region && o._at >= n._at && o._at < n._end; },
       closest: sel => { for (let x = n; x; x = x._parent) if (matches(x, sel)) return x; return null; },
       querySelectorAll: sel => nodesOf(region).filter(x => x !== n && n.contains(x) && matches(x, sel)),
+      // opts.layout: a 1,000-pixel-wide page where a drawn width:N% is N% of its box, and animate() is recorded, not played.
+      ...(opts.layout ? {
+        clientWidth: 1000,
+        getBoundingClientRect: () => { const m = /width:\s*([\d.]+)%/.exec(attrs.style || ''); return { width: m ? +m[1] * 10 : 1000, height: 20, top: 0, left: 0, right: 1000, bottom: 20 }; },
+        animate(keyframes, o) { const a = { id: n.id, cls: attrs.class || '', tag, keyframes, opts: o, canceled: false, cancel() { a.canceled = true; } }; animations.push(a); return a; }
+      } : {}),
       querySelector: sel => n.querySelectorAll(sel)[0] || null
     };
     if (/^(input|textarea|select)$/.test(tag) && attrs.id) { const d = drawnValue(html, attrs.id); n.value = d == null ? '' : d; n.defaultValue = n.value; n.type = attrs.type || (tag === 'input' ? 'text' : tag); }
@@ -230,7 +238,8 @@ function boot(opts) {
     setTimeout, clearTimeout, setInterval: fn => { intervals.push(fn); return 0; }, requestAnimationFrame: fn => setTimeout(fn, 0), URL: { createObjectURL: () => 'blob:x', revokeObjectURL() {} },
     crypto: globalThis.crypto, TextEncoder, indexedDB: opts.indexedDB, IntersectionObserver: opts.IntersectionObserver,
     // An elapsed-time clock the test moves (performance.now()); left out, the app falls back on Date.now().
-    performance: opts.performance
+    performance: opts.performance,
+    getComputedStyle: opts.layout ? () => ({ getPropertyValue: () => '#1D7650', backgroundColor: 'rgba(0, 0, 0, 0)', position: 'static', visibility: 'visible', lineHeight: '20px' }) : undefined
   });
   vm.runInContext(script('pf-core'), ctx);
   /* Builds before 1.17 kept storage inside pf-app (the cross-version tests run those). */
@@ -305,6 +314,7 @@ function boot(opts) {
     // Every typed box not drawn now is gone, as after a new folder's screen replaced the page.
     goneUndrawn() { Object.keys(els).forEach(id => { if (['app', 'top', 'overlay', 'live', 'body'].indexOf(id) < 0 && !onScreen(id) && (els.overlay._html || '').indexOf('id="' + id + '"') < 0) { delete els[id]; inputs.delete(id); } }); },
     asked: () => asked.slice(),
+    animations: () => animations.slice(),
     set(id, value) { const el = get(id); el.value = value; el.type = 'text'; inputs.add(id); return this; },
     // Like set(), for an input inside one data-scope element with no other scope opened before it closes (the builder's
     // side form): the app then sees which form it belongs to, as closest() does in a browser.

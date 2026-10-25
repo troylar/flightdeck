@@ -1328,11 +1328,14 @@
   function fillShown() {
     var bar = app.querySelector('.rw-bar'), fill = bar && bar.querySelector('i');
     if (!fill || !bar.clientWidth || !fill.getBoundingClientRect) return null;
-    return { key: fillKey(), at: fill.getBoundingClientRect().width / bar.clientWidth };
+    return { key: fillDrawn, at: fill.getBoundingClientRect().width / bar.clientWidth };
   }
-  var fillAnim = null, fillEl = null, fillNext = null;
+  /* fillDrawn names the run or practice the bar on screen was drawn for; state may already point somewhere else. */
+  var fillAnim = null, fillEl = null, fillNext = null, fillDrawn = null;
   function fillAfter(was) {
-    if (!was || was.key !== fillKey()) return;
+    var key = fillKey(), same = !!was && was.key === key;
+    fillDrawn = key;
+    if (!same) { if (fillAnim) { fillAnim.cancel(); fillAnim = null; } return; }
     var bar = app.querySelector('.rw-bar'), fill = bar && bar.querySelector('i');
     if (!fill || typeof fill.animate !== 'function') return;
     var next = Number(bar.getAttribute('aria-valuenow')) / Math.max(1, Number(bar.getAttribute('aria-valuemax')));
