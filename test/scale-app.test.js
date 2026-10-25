@@ -60,6 +60,14 @@ rule('A refresh of a 2,000-run folder finds each run directly: lookups grow with
   }
 });
 
+rule('A refresh that reads every run again keeps how to rebuild each one, without copying any run to text', async () => {
+  const { app, runs } = await bigApp();
+  app.PF.perf.reset();
+  app.click('refresh'); await settle(app, 0);
+  assert.ok(count(app, 'batch.applied') > 0 || count(app, 'load.done') > 0, 'set-up: the refresh finished');
+  assert.strictEqual(count(app, 'baseline.copied'), 0, 'runs copied to text for Discard: ' + count(app, 'baseline.copied') + ' of ' + runs);
+});
+
 rule('Two thousand runs that can\'t be read, then read again, change their status without copying every status each time', async () => {
   const { app, k } = await bigApp();
   const files = Object.keys(app.fs.files).filter(p => /^runs\/[^/]+\/[^/]+\/run\.json$/.test(p));

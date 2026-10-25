@@ -806,8 +806,9 @@
     if (res.kind !== 'fresh') return shownNow();
     var mine = shownNow();
     if (!mine || mine._fileHash !== res.run._fileHash) bump(id);
-    var text = JSON.stringify(res.run);
-    keepBaseline(id, res.build || function () { return JSON.parse(text); });
+    /* A read hands over how to build the run again; only without that is a copy taken now (2.5.0: not for every read). */
+    if (res.build) keepBaseline(id, res.build);
+    else { PF.perf.add('baseline.copied'); var text = JSON.stringify(res.run); keepBaseline(id, function () { return JSON.parse(text); }); }
     return res.run;
   }
   /* What this window's own save found (gone, unreadable) is current: it outranks any read still in flight. */
