@@ -123,6 +123,9 @@ PF.vk = (function () {
   /* A phase's or step's conditions (2.1) in words: "Only when risk is high and ...", or '' without any. */
   function whenWords(x) { return x && x.when && x.when.length ? detailWords(esc('Only when ' + x.when.map(function (w) { return w.text; }).join(' and '))) : ''; }
   /* An outcome as it reads on screen: US spelling for Cancelled, which run files keep as written. */
+  /* A gate's state in words (2.3.1): the receipt and the run read the same. */
+  var GATE_WORD = { passed: 'Passed', waived: 'Waived', failed: 'Failed', review: 'Needs review', ready: 'Ready', open: 'Waiting on steps', locked: 'Locked', skipped: 'Not needed' };
+  function gateWord(st) { return GATE_WORD[st] || st; }
   function outcomeWord(o) { return o === 'Cancelled' ? 'Canceled' : o; }
   function hlText(r, hl) { return r && r.ended ? 'Ended: ' + outcomeWord(r.ended.outcome) : hl.text; }
   /* A test run (2.1) says so wherever it's listed or opened, and its version is the stage's proposed number, never a version's. */
@@ -182,7 +185,7 @@ PF.vk = (function () {
   function shownOpt(r, map) { var rv = refValue(r, map); return { shown: function (st) { return stepPlain(st, rv); } }; }
   function headline(r, map) { return PF.run.headline(r, map, shownOpt(r, map)); }
   function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
-  return { refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, PAGE: PAGE, testTag: testTag, verWord: verWord };
+  return { refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, PAGE: PAGE, testTag: testTag, verWord: verWord };
 })();
 (function () {
   'use strict';

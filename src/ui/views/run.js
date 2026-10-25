@@ -68,7 +68,7 @@
     var s = x.step, a = r.steps[s.id] || null, t = T.get(s.type, r.types) || { label: s.type, icon: 'check', fields: {} }, st = ctx.state, now = ctx.now();
     var aState = stateOf(r, s), sel = selOf(ctx) === s.id, isNext = !!(nx && nx.step && nx.step.id === s.id), P = prOf(ctx), pm = P ? P.steps[s.id] || {} : null;
     var who = s.roles.map(function (ro) { return r.roles[ro] ? nameOf(ctx, r.roles[ro]) : '@' + ro; }).join(', ');
-    var meta = '<span class="type">' + I(t.icon) + esc(t.label) + '</span>' + (who ? '<span class="s-who">' + esc(who) + '</span>' : '');
+    var meta = (t.id === 'confirm' ? '' : '<span class="type">' + I(t.icon) + esc(t.label) + '</span>') + (who ? '<span class="s-who">' + esc(who) + '</span>' : '');
     /* Target details that tell two similar steps apart (an environment, a job) stay on the row. */
     var eff = R.fieldsOf(r, s), shown = 0;
     Object.keys(eff).forEach(function (f) {
@@ -190,7 +190,7 @@
   function gateBlock(ctx, r, map, pi, rec, sched, brief) {
     var g = map.phases[pi].gate, st = R.gateStatus(r, map, pi), rec2 = r.gates[g.id], s = ctx.state, P = prOf(ctx), owner = !P && g.owner && r.roles[g.owner], info = R.phaseInfo(r, map, pi);
     var approves = g.approves ? R.fill(g.approves, r.details) : '';
-    var h = '<div class="gate" data-scope="gate:' + esc(g.id) + '" data-s="' + st + '" id="gate-' + esc(g.id) + '"><div class="stack" style="gap:4px"><div class="gate-title">' + I('gate') + '<span>' + (g.implicit ? (R.solo(r) ? 'Confirm' : 'Confirm together') : 'Gate: ' + esc(g.title)) + '</span><span class="pill ' + st + '">' + GATE_WORD[st] + '</span>' +
+    var h = '<div class="gate" data-scope="gate:' + esc(g.id) + '" data-s="' + st + '" id="gate-' + esc(g.id) + '"><div class="stack" style="gap:4px"><div class="gate-title">' + I('gate') + '<span>' + (g.implicit ? esc(g.title) + (R.solo(r) ? '' : ' together') : 'Gate: ' + esc(g.title)) + '</span>' + (st === 'passed' && s.justPassed === g.id ? '' : '<span class="pill ' + st + '">' + GATE_WORD[st] + '</span>') +
       (st === 'passed' && s.justPassed === g.id ? '<span class="called-stamp">Passed</span>' : '') + '</div>';
     if (brief) return h + (sched ? '<div class="badges">' + schedBadge(sched) + '</div>' : '') + '</div><div class="row"></div></div>';
     if (approves) h += '<div class="q">Approves ' + U.mdInline(approves) + '</div>';
@@ -317,9 +317,9 @@
       var def = detailDef(r, map, f), bad = r._invalid && Object.prototype.hasOwnProperty.call(r._invalid, 'details.' + f) ? r._invalid['details.' + f].why : '';
       var wait = waiting.filter(function (m) { return m.path === 'details.' + f; })[0], note = bad || (wait ? PF.values.ask(def, wait.from) : '');
       if (s.edit === 'detail:' + f && rec && def) return '<span class="inline-edit" data-scope="edit:detail:' + esc(f) + '">' + K.typedField('edit-input', f, def, r.details[f], def.kind === 'yes-no' || V0(def) ? '' : 'data-enter="save-edit"', 'small') + '<button class="mini" data-act="save-edit">Save</button><button class="mini" data-act="unedit">Cancel</button>' + (note ? '<span class="small">' + esc(note) + '</span>' : '') + '</span>';
-      if (def) return '<button class="chip' + (r.details[f] ? '' : ' empty') + (note ? ' warn' : '') + '" data-act="edit" data-id="detail:' + esc(f) + '"' + (rec ? '' : ' disabled') + '><span class="k">' + esc(f) + '</span>' + (r.details[f] ? '<span class="v">' + esc(K.valueText(def, r.details[f])) + '</span>' : 'set') + (note ? '<span class="small">' + esc(note) + '</span>' : '') + '</button>';
+      if (def) return '<button class="chip' + (r.details[f] ? '' : ' empty') + (note ? ' warn' : '') + '" data-act="edit" data-id="detail:' + esc(f) + '"' + (rec ? '' : ' disabled') + '><span class="k">' + (r.details[f] ? '' : 'Set ') + esc(f) + '</span>' + (r.details[f] ? '<span class="v">' + esc(K.valueText(def, r.details[f])) + '</span>' : '') + (note ? '<span class="small">' + esc(note) + '</span>' : '') + '</button>';
       if (s.edit === 'detail:' + f && rec) return '<span class="inline-edit" data-scope="edit:detail:' + esc(f) + '"><label class="small" for="edit-input">' + esc(f) + '</label><input id="edit-input" maxlength="120" value="' + esc(r.details[f]) + '" data-enter="save-edit"><button class="mini" data-act="save-edit">Save</button><button class="mini" data-act="unedit">Cancel</button></span>';
-      return '<button class="chip' + (r.details[f] ? '' : ' empty') + '" data-act="edit" data-id="detail:' + esc(f) + '"' + (rec ? '' : ' disabled') + '><span class="k">' + esc(f) + '</span>' + (r.details[f] ? '<span class="v">' + esc(r.details[f]) + '</span>' : 'set') + '</button>';
+      return '<button class="chip' + (r.details[f] ? '' : ' empty') + '" data-act="edit" data-id="detail:' + esc(f) + '"' + (rec ? '' : ' disabled') + '><span class="k">' + (r.details[f] ? '' : 'Set ') + esc(f) + '</span>' + (r.details[f] ? '<span class="v">' + esc(r.details[f]) + '</span>' : '') + '</button>';
     }).join('');
     var roles = map.meta.roles.map(function (ro) {
       if (s.edit === 'role:' + ro && rec) return '<span class="inline-edit" data-scope="edit:role:' + esc(ro) + '"><label class="small" for="edit-input">' + esc(ro) + '</label><select id="edit-input"><option value="">Nobody</option>' + ctx.data.people.filter(function (p) { return !p.inactive; }).map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === r.roles[ro] ? ' selected' : '') + '>' + esc(PF.people.label(p, ctx.data.people)) + '</option>'; }).join('') + '</select><button class="mini" data-act="save-edit">Save</button><button class="mini" data-act="unedit">Cancel</button></span>';
@@ -540,7 +540,7 @@
     h += '<div class="rw-ins-body">';
     h += '<nav aria-label="Where it is"><ol class="ob-crumbs"><li>' + esc(ph.title) + '</li>' + (track ? '<li>' + esc(track.title) + '</li>' : '') + '<li>Step ' + inPhase + ' of ' + ph.steps.length + '</li></ol></nav>';
     h += '<h2 id="ins-h" class="rw-ins-h" tabindex="-1">' + K.stepHtml(st, K.refValue(r, map)) + '</h2>';
-    h += '<div class="rw-ins-meta"><span class="type">' + I(t.icon) + esc(t.label) + '</span>' + (who ? '<span class="small">' + who + '</span>' : '') + (st.must ? '<span class="badge b-must">Must do</span>' : '') +
+    h += '<div class="rw-ins-meta">' + (t.id === 'confirm' ? '' : '<span class="type">' + I(t.icon) + esc(t.label) + '</span>') + (who ? '<span class="small">' + who + '</span>' : '') + (st.must ? '<span class="badge b-must">Must do</span>' : '') +
       '<span class="badge rw-st s-' + esc(aState) + '">' + esc(P && pm.status === 'assumed' ? 'Assumed for practice' : aState === 'open' ? 'Not checked' : aState === 'done' ? 'Done' : aState === 'na' ? (P ? 'Not needed' : 'N/A') : aState === 'blocked' ? 'Blocked' : P ? 'Try it again' : 'Re-check') + '</span>' +
       (a && (a.s === 'done' || a.s === 'na') && !P ? '<span class="small">' + esc(nameOf(ctx, a.by)) + ' · ' + U.hm(a.at) + '</span>' : '') + '</div>';
     var chg = changedHere(ctx, r)[st.id];
@@ -549,7 +549,8 @@
     else if (aState === 'blocked' || aState === 'recheck') h += '<div class="notice ' + (aState === 'blocked' ? 'bad' : 'warn') + ' rw-why"><span><b>' + (aState === 'blocked' ? 'Blocked' : 'Needs a re-check') + ':</b> ' + esc(a.reason) + (a.by ? ' · ' + esc(nameOf(ctx, a.by)) + ' ' + U.hm(a.at) : '') + '</span></div>';
 
     /* What to do */
-    var how = (t.hint ? '<p class="small">' + esc(t.hint) + '</p>' : '') + (st.note ? '<div class="note">' + U.mdBlock(st.note) + '</div>' : '');
+    /* The plain type's generic hint says nothing the step doesn't; What to do shows only when it has something (2.3.1). */
+    var how = (t.hint && t.id !== 'confirm' ? '<p class="small">' + esc(t.hint) + '</p>' : '') + (st.note ? '<div class="note">' + U.mdBlock(st.note) + '</div>' : '');
     var shots = st.shots.map(function (sh, k) { return '<figure class="shot"><button class="thumb" data-act="zoom" data-id="' + esc(st.id) + '" data-i="' + k + '" aria-label="Expand: ' + esc(sh.caption) + '" title="' + esc(sh.caption) + '">' + ctx.img(sh.src, sh.caption) + '</button><figcaption class="small">' + esc(sh.caption) + '</figcaption>' +
       (s.me && !corrOpen && !P ? '<button class="linkish" data-act="corr-open" data-mode="correct" data-op="screenshot" data-id="' + esc(st.id) + '" data-shot="' + esc(sh.src) + '">' + (st.shots.length === 1 ? 'Replace this screenshot' : 'Replace screenshot ' + (k + 1)) + '</button>' : '') + '</figure>'; }).join('');
     how += fieldsBlock(ctx, r, st, t, sched) + (shots ? '<div class="thumbs shots">' + shots + '</div>' : '');
@@ -569,7 +570,7 @@
     /* Timing is on show when the checklist times the step, or it's started; otherwise Start waits under More for this step. */
     var timed = !P && !!(timing || st.fields.expect || st.fields.deadline || (s.pick && s.pick.id === st.id && s.pick.kind === 'deadline'));
     if (timed && (timing || timeActs)) how += '<div class="rw-timing"><h4 class="rw-h4">Timing</h4><div class="badges">' + timing + '</div>' + (timeActs ? '<div class="row">' + timeActs + '</div>' : '') + '</div>';
-    h += '<section class="rw-box" aria-labelledby="ins-do"><h3 class="rw-h3" id="ins-do">What to do</h3>' + (how || '<p class="small">Nothing more to it than the step says.</p>') + '</section>';
+    if (how) h += '<section class="rw-box" aria-labelledby="ins-do"><h3 class="rw-h3" id="ins-do">What to do</h3>' + how + '</section>';
     if (!timed && timeActs) h += '<details class="rw-more" data-disc="rw-more"' + ((s.disc || {})['rw-more'] ? ' open' : '') + '><summary class="small">More for this step</summary><div class="row">' + timeActs + '</div></details>';
 
     /* Record the result: evidence to type before Done, what was recorded, and Fill in for values known later. */
@@ -601,7 +602,7 @@
       if (vals) recBody = '<div class="fields">' + vals + '</div>';
     }
     var finishing = !P && s.answering && s.answering.key === runKey(r) && s.answering.step === st.id;
-    var fillIn = rec && r.state === 'running' && !r.paused && !(P && (P.paused || pm.status === 'assumed')) && (P ? editable.length : editable.length || recFields.length) && !(s.pick && s.pick.id === st.id && s.pick.kind === 'fields') ? (finishing
+    var fillIn = rec && r.state === 'running' && !r.paused && !(P && (P.paused || pm.status === 'assumed')) && R.fillOffered(r, map, st, t, !!P) && !(s.pick && s.pick.id === st.id && s.pick.kind === 'fields') ? (finishing
       ? '<span class="row"><button class="mini" data-act="pick" data-kind="fields" data-id="' + esc(st.id) + '" disabled aria-describedby="fillwhy-' + esc(st.id) + '">' + I('edit') + 'Fill in</button><span class="small" id="fillwhy-' + esc(st.id) + '">Finishing the answer…</span></span>'
       : '<button class="mini" data-act="pick" data-kind="fields" data-id="' + esc(st.id) + '">' + I('edit') + 'Fill in</button>') : '';
     if (recBody || fillIn) h += '<section class="rw-box" aria-labelledby="ins-rec"><div class="row between"><h3 class="rw-h3" id="ins-rec">Record the result</h3>' + fillIn + '</div>' + recBody + '</section>';
@@ -691,7 +692,7 @@
     h += '<ol class="rw-phases">' + map.phases.map(function (p, pi) {
       var gst = R.gateStatus(r, map, pi), info = R.phaseInfo(r, map, pi), done = R.gateOk(gst), ps = done ? 'done' : gst === 'locked' ? 'locked' : pi === cur ? 'current' : 'open';
       return '<li><button class="rw-ph" data-act="goto" data-id="phase-' + esc(p.id) + '" data-s="' + ps + '"' + (pi === cur ? ' aria-current="step"' : '') + '><span class="num" aria-hidden="true">' + (done ? '✓' : pi + 1) + '</span><span class="name">' + esc(p.title) + '</span><span class="count" aria-label="' + info.done + ' of ' + info.total + ' answered">' + info.done + '/' + info.total + '</span></button>' +
-        '<span class="rw-gate g-' + gst + '">' + I('gate') + '<span>' + esc(p.gate.implicit ? 'Confirm' : p.gate.title) + ' · ' + GATE_WORD[gst] + '</span></span></li>';
+        '<span class="rw-gate g-' + gst + '">' + I('gate') + '<span>' + esc(p.gate.title) + ' · ' + GATE_WORD[gst] + '</span></span></li>';
     }).join('') + '</ol>';
     return h + (ctx.practice ? '' : utilities(ctx, r, schedN, lateN, 'rail'));
   }

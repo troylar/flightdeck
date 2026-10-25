@@ -67,7 +67,7 @@
     var body = map.phases.map(function (p, pi) {
       var gst = R.gateStatus(r, map, pi);
       if (gst === 'skipped') { notNeeded.push(p.title + ' (phase): ' + R.applies(r, map, pi).why); return ''; }
-      return '<div><h4><span>' + esc(p.title) + '</span><span class="pill ' + gst + '">' + esc(p.gate.implicit ? 'confirm' : p.gate.title) + ': ' + gst + '</span></h4>' + p.steps.map(function (s) {
+      return '<div><h4><span>' + esc(p.title) + '</span><span class="pill plain ' + gst + '">' + esc(p.gate.title) + ' · ' + esc(K.gateWord(gst)) + '</span></h4>' + p.steps.map(function (s) {
         var ap = R.applies(r, map, pi, s);
         if (ap.applies === false) { notNeeded.push(K.stepPlain(s, rv) + ': ' + ap.why); return ''; }
         var a = r.steps[s.id], st = a && a.s !== 'open' ? a.s : 'open';

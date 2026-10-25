@@ -274,7 +274,7 @@ PF.practice = (function () {
           var ap = R.applies(r, pm, pi, s), a = d.view.steps[s.id], rec = own(state.answers, s.id) ? state.answers[s.id] : null;
           var status = ap.applies === false ? 'hidden' : a && a.by === 'assumed' ? 'assumed' : ap.applies === null ? 'waiting' : !a ? 'open' : a.s === 'recheck' ? 'again' : a.s === 'na' ? 'skipped' : 'done';
           return { id: s.id, text: s.text, shown: M.shownText(s, M.valuesOf(r)), type: s.type, must: s.must, temp: isTemp(s.id), status: status, why: ap.why || '', old: d.again[s.id] ? d.again[s.id].s : null, simulated: simulated(s, envOf(types).types),
-            ask: !!(d.now[s.id] && d.now[s.id].ask), fill: s.type && T.get(s.type, envOf(types).types || {}) ? T.editable(T.get(s.type, envOf(types).types || {})).length > 0 : false,
+            ask: !!(d.now[s.id] && d.now[s.id].ask), fill: R.fillOffered(r, pm, s, T.get(s.type || 'confirm', envOf(types).types || {}), true),
             again: a && a.s === 'recheck' ? { reason: a.reason, detail: a.detail || '' } : null, skipped: !!(rec && rec.skipped && status === 'done'), values: rec && rec.values && status !== 'assumed' ? rec.values : null };
         }) };
     });

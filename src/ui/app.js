@@ -2895,7 +2895,7 @@
     var ok = prDo(p.id, how === 'reopen' ? 'Reopen the phase' : how === 'waive' ? 'Waive the gate' : 'Pass the gate', function (st, map) { var r = PR.gateAct(st, map, pi, how, why, prEnv(), new Date().toISOString()); if (r.error && how === 'waive') { e.gateErr = { pi: pi, msg: r.error }; return { state: st }; } return r; }, null, 'gate:' + pi);
     var c = prMap(e, prText(p)), g = c.map && c.map.phases[pi] ? c.map.phases[pi].gate : null;
     if (!ok && e.gateErr) { state.focus = 'pick-input'; render(); return; }
-    if (ok) { if (g && how !== 'reopen') { dropDraft(prKey(p.id), 'gate:' + g.id, ['record']); prKeepTyped(p.id); } state.pick = null; var nxt = c.map && c.map.phases[pi + 1]; state.focus = how === 'pass' && nxt ? 'ph-' + nxt.id : g ? '#gate-' + cssEsc(g.id) + ' button:not([disabled])' : 'run-h'; render(); }
+    if (ok) { if (g && how !== 'reopen') { dropDraft(prKey(p.id), 'gate:' + g.id, ['record']); prKeepTyped(p.id); } state.pick = null; var pm2 = how === 'pass' ? prModel() : null; if (pm2 && pm2.r && pm2.map) { afterPass(R.nextUp(pm2.r, pm2.map, state.me), pm2.map, true); render(); return; } state.focus = g ? '#gate-' + cssEsc(g.id) + ' button:not([disabled])' : 'run-h'; render(); }
   }
   /* Run-screen actions the practice page allows, with any condition on their payload; pr-* are practice's own. */
   var PRACTICE_OK = { toggle: 1, record: 1, na: 1, clear: 1, select: 1, goto: 1, 'to-ins': 1, 'to-row': 1, 'close-ref': 1, unfold: 1, fold: 1, pick: function (b) { return !!b && /^(fields|pass|waive)$/.test(b.dataset.kind || ''); }, unpick: 1, 'save-fields': 1, pass: 1, waive: 1, reopen: 1, dismiss: 1, help: 1, copy: 1, zoom: 1, 'zoom-phase': 1, 'zoom-gate': 1, nav: function (b) { return !!b && b.dataset.id === 'processes'; } };
@@ -5132,7 +5132,7 @@
       if (new Date(iso) < Date.now() - 12 * 3600000) iso = new Date(new Date(iso).getTime() + 86400000).toISOString();
       mutate(function (r, map, me, now) { R.setDeadline(r, map, id, iso, me, now); });
     },
-    pass: function (pi) { mutate(function (r, map, me, now) { R.pass(r, map, +pi, me, now); state.justPassed = map.phases[+pi].gate.id; var nxt = map.phases[+pi + 1]; if (nxt) state.focus = 'ph-' + nxt.id; }); },
+    pass: function (pi) { mutate(function (r, map, me, now) { R.pass(r, map, +pi, me, now); state.justPassed = map.phases[+pi].gate.id; afterPass(R.nextUp(r, map, me), map, false); }); },
     waive: function (pi) { var why = val('pick-input'); mutate(function (r, map, me, now) { R.waive(r, map, +pi, why, me, now); }); },
     fail: function (pi) { var why = val('pick-input') || 'Failed'; mutate(function (r, map, me, now) { R.fail(r, map, +pi, why, me, now); }); },
     reopen: function (pi) { mutate(function (r, map, me, now) { R.reopen(r, map, +pi, me, now); }); },
@@ -6571,6 +6571,20 @@
     if (el && el.focus) el.focus();
   }
   /* One way to select a step, for the mouse and the keyboard alike. An open Fill in is remembered with its step. */
+  /* After a gate passes (2.3.1): go where Next up now points. A step: select it (kept typing and forms go with the step
+     being left) and focus its check; a phase whose steps are all held: its heading, selecting nothing; another gate: its
+     button; the end: Finish (practice: its completion line). Typing on the selected step keeps the selection where it is. */
+  function afterPass(nx, map, practice) {
+    var keep = !practice && (hasDraft(draftOf(state.runKey, state.sel, false)) || (state.corrForm && state.corrForm.key === state.runKey && state.corrForm.step === state.sel));
+    if (nx.kind === 'step' && nx.step) {
+      var id = nx.step.id || nx.step;
+      if (keep) { state.focus = 'ph-' + map.phases[nx.phaseIndex].id; return; }
+      if (practice) prPickStep(id); else selectStep(id);
+      state.focus = (narrow() && state.refOpen) ? 'ins-h' : '[data-act="toggle"][data-id="' + cssEsc(id) + '"]';
+    } else if (nx.kind === 'step' && map.phases[nx.phaseIndex]) state.focus = 'ph-' + map.phases[nx.phaseIndex].id;
+    else if (nx.kind === 'gate' && nx.gate) state.focus = '#gate-' + cssEsc(nx.gate.id || nx.gate) + ' .btn.go';
+    else if (nx.kind === 'complete') state.focus = practice ? '.pr-done' : '[data-act="finish"]';
+  }
   function selectStep(id) {
     if (state.sel !== id) {
       state.attErr = null;
@@ -6851,7 +6865,7 @@
     }
     if ((e.key === ' ' || e.key === 'x') && state.sel) { e.preventDefault(); if (!e.repeat) dispatch('toggle', state.sel); return; }
     if (e.key === 'e' && state.sel && m.P.canEdit(state.sel)) { e.preventDefault(); dispatch('pr-edit', state.sel); return; }
-    if (e.key === 'f' && state.sel) { var fs = m.P.steps[state.sel]; if (fs && fs.fill) { e.preventDefault(); dispatch('pick', state.sel, { dataset: { kind: 'fields' } }); } }
+    if (e.key === 'f' && state.sel) { var fs = m.P.steps[state.sel]; if (fs && fs.fill) { e.preventDefault(); dispatch('pick', state.sel, { dataset: { kind: 'fields' } }); } else if (fs) { e.preventDefault(); say('Nothing to fill in for this step.', ''); state.msg.quiet = true; render(); } }
   }
   Object.keys(prActs).forEach(function (k) { ACTIONS[k] = prActs[k]; });
   navBoot();

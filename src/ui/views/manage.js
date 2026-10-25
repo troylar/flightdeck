@@ -429,7 +429,7 @@
     (ctx.orphanSkills ? ctx.orphanSkills() : []).forEach(function (x) { if ((x.skill.file || x.skill.name) === st.skillFile) hit = x; });
     if (!hit) return notices(ctx) + '<div class="panel" role="alert">That skill isn\'t registered in this folder any more. <button class="mini" id="page-back" data-act="nav" data-id="skills">Back to Skills</button></div>';
     var s = hit.skill, sw = STATUS_WORDS[hit.status.s] || STATUS_WORDS.missing, href = PF.skills.link(s.location), base = hit.status.base, latest = hit.status.latest;
-    var stepText = function (id) { var f = (base || latest) && M.findStep((base || latest).map, id); return f ? f.step.text : id; };
+    var stepText = function (id) { var f = (base || latest) && M.findStep((base || latest).map, id); return f ? K.stepPlain(f.step, null) : id; };
     var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">Skill' + (s.version ? ' · version ' + esc(s.version) : '') + '</div><h1 id="page-h" tabindex="-1">' + I('spark') + ' ' + esc(s.name) + '</h1>' + (s.description ? '<div class="small">' + esc(s.description) + '</div>' : '') + K.tagChips(s.tags) + '</div>' +
       '<div class="row">' + (proc ? '<button class="btn" data-act="open-process" data-id="' + esc(proc.id) + '">Open ' + esc(proc.title) + '</button>' : '') + '</div></div>';
     h += '<section class="panel status-card" data-s="' + esc(hit.status.s) + '" aria-labelledby="ss-h"><h2 id="ss-h"><span class="pill ' + sw[0] + '">' + sw[1] + '</span></h2><p>' + esc(hit.status.text) + (sw[2] ? ' ' + esc(sw[2]) : '') + '</p>';
@@ -437,7 +437,7 @@
       if (c.change === 'order') return '<li><b>Order:</b> its steps now run in a different order.</li>';
       if (c.change === 'inputs') return '<li><b>What it takes:</b> ' + esc(c.what.join('; ')) + '.</li>';
       if (c.change === 'context') return '<li><b>Run details:</b> now ' + esc(c.to.join(', ') || 'none') + ' (was ' + esc(c.from.join(', ') || 'none') + ').</li>';
-      return '<li><b>' + esc((c.to || c.from).text) + '</b>: ' + ({ changed: 'changed', removed: 'removed', added: 'new' })[c.change] + '</li>';
+      return '<li><b>' + esc(K.stepPlain(c.to || c.from, null)) + '</b>: ' + ({ changed: 'changed', removed: 'removed', added: 'new' })[c.change] + '</li>';
     }).join('') + '</ul>';
     if (hit.status.s === 'update' || hit.status.s === 'unaffected') h += '<div class="row"><button class="btn go" data-act="copy-brief" data-id="update:' + esc(s.file) + '">' + I('copy') + 'Copy the update brief</button></div>' + briefBoxOf(st, 'update:' + s.file);
     h += '</section>';

@@ -97,7 +97,7 @@
     }
     var md = ctx.setupTemplate ? ctx.setupTemplate(t.id) : '', map = M.parse(md), steps = M.steps(map).length;
     return h + '<div class="su-pick"><div class="row between"><div><b>' + esc(map.meta.title || t.title) + '</b><div class="small">' + map.phases.length + ' phase' + (map.phases.length === 1 ? '' : 's') + ', ' + steps + ' step' + (steps === 1 ? '' : 's') + (map.meta.runs === 'solo' ? ' · run on your own' : map.meta.roles.length ? ' · roles: ' + esc(map.meta.roles.join(', ')) : '') + '</div></div></div>' +
-      '<ol class="su-phases">' + map.phases.map(function (p) { return '<li><b>' + esc(p.title) + '</b> <span class="small">' + p.steps.map(function (s) { return esc(s.text); }).join(' · ') + '</span></li>'; }).join('') + '</ol>' +
+      '<ol class="su-phases">' + map.phases.map(function (p) { return '<li><b>' + esc(p.title) + '</b> <span class="small">' + p.steps.map(function (s) { return esc(K.stepPlain(s, null)); }).join(' · ') + '</span></li>'; }).join('') + '</ol>' +
       '<div class="row su-actions"><button class="btn go" data-act="setup-publish" data-id="' + t.id + '"' + (su.busy ? ' disabled' : '') + '>' + I('play') + 'Publish v1 as it is</button><button class="btn" data-act="setup-edit" data-id="' + t.id + '"' + (su.busy ? ' disabled' : '') + '>' + I('edit') + 'Open it in the editor</button></div>' +
       '<p class="small">Publishing makes a numbered version people can run. You can edit and publish v2 any time; runs already started keep their version.</p></div>';
   }
