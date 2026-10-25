@@ -1316,8 +1316,46 @@
     /* Nor while someone is composing text (an input method): the redraw waits until the composition ends. */
     if (rendering || composing) { scheduleRender(); return; }
     rendering = true;
+    var fill = fillShown();
     try { renderNow(); } finally { rendering = false; }
+    fillAfter(fill);
     scheduleSync();
+  }
+  /* Motion that answers an action; presentation only: nothing here is saved, and a redraw that replaces a node just ends it. */
+  function calm() { return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches); }
+  function fillKey() { return [state.view, state.view === 'practice' ? state.processId : state.runKey, gen].join('|'); }
+  /* The progress fill as the screen shows it now, mid-motion included, read before a redraw replaces it. */
+  function fillShown() {
+    var bar = app.querySelector('.rw-bar'), fill = bar && bar.querySelector('i');
+    if (!fill || !bar.clientWidth || !fill.getBoundingClientRect) return null;
+    return { key: fillKey(), at: fill.getBoundingClientRect().width / bar.clientWidth };
+  }
+  var fillAnim = null, fillEl = null, fillNext = null;
+  function fillAfter(was) {
+    if (!was || was.key !== fillKey()) return;
+    var bar = app.querySelector('.rw-bar'), fill = bar && bar.querySelector('i');
+    if (!fill || typeof fill.animate !== 'function') return;
+    var next = Number(bar.getAttribute('aria-valuenow')) / Math.max(1, Number(bar.getAttribute('aria-valuemax')));
+    if (fillAnim && fillEl === fill && fillNext === next) return;
+    var from = PF.vk.fillFrom(was.at, next);
+    if (from === null && next > 0) return;
+    if (fillAnim) { fillAnim.cancel(); fillAnim = null; }
+    if (from === null || calm()) return;
+    fillEl = fill; fillNext = next;
+    fillAnim = fill.animate([{ transform: 'scaleX(' + from + ')' }, { transform: 'scaleX(1)' }], { duration: 450, easing: 'cubic-bezier(.2, .7, .2, 1)' });
+  }
+  /* A step just checked off lands: its check springs and its row glows green once. Looked up after this action's redraws. */
+  function land(key, id) {
+    var g = gen, v = state.view;
+    requestAnimationFrame(function () {
+      if (g !== gen || state.view !== v || (v === 'practice' ? state.processId : state.runKey) !== key) return;
+      var row = app.querySelector('.rw #step-' + cssEsc(id));
+      if (!row || typeof row.animate !== 'function' || calm()) return;
+      var go = getComputedStyle(document.documentElement).getPropertyValue('--go').trim(), m = /^#([0-9a-f]{6})$/i.exec(go), n = m ? parseInt(m[1], 16) : 0x1D7650;
+      row.animate([{ backgroundColor: 'rgba(' + (n >> 16) + ',' + (n >> 8 & 255) + ',' + (n & 255) + ',.24)' }, { backgroundColor: getComputedStyle(row).backgroundColor }], { duration: 900, easing: 'ease-out' });
+      var chk = row.querySelector('.check');
+      if (chk) chk.animate([{ transform: 'scale(.7)' }, { transform: 'scale(1.18)', offset: 0.55 }, { transform: 'scale(1)' }], { duration: 420, easing: 'cubic-bezier(.34, 1.56, .64, 1)' });
+    });
   }
   /* Re-render without losing what someone is typing or where their focus is. */
   function renderNow() {
@@ -2796,6 +2834,7 @@
     var ok = prDo(p.id, label, function (st, map) { var r = PR.answer(st, map, id, to, prEnv(), new Date().toISOString(), opts); if (r.error && r.field) { err = r; return { state: st }; } return r; }, prFocusRow(id), id);
     if (err) { prPickStep(id); state.refOpen = true; state.fieldErr = { id: id, msg: err.error, field: 'rec-' + err.field }; state.focus = '#rec-' + cssEsc(err.field); render(); return; }
     if (ok && (to === 'done' || to === 'na')) dropDraft(prKey(p.id), id, ['record']);
+    if (ok && to === 'done') land(state.processId, id);
     if (ok) prKeepTyped(p.id);
   }
   var PRACTICE = {
@@ -6692,7 +6731,7 @@
     /* An accepted report leaves the step's own drafts (evidence typed, a note) as they are. */
     if (intent) { hintsOf(o.report.fk)[intent.gkey] = intent; state.repPick = null; }
     if (applied && o.how !== 'report') dropDraft(key, id, ['record']);
-    if (applied && !quiet && state.view === 'run' && state.runKey === key) afterAnswer(id, was);
+    if (applied && !quiet && state.view === 'run' && state.runKey === key) { afterAnswer(id, was); var now = ctx.run(), st = now && now.steps[id]; if (st && st.s === 'done') land(key, id); }
     return saving.then(function (saved) { return applied && saved === true; });
   }
   /* After checking the step Next up pointed at, the next one in its phase is selected and its check gets focus, with one

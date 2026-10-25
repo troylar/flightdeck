@@ -33,7 +33,7 @@ function parse(src) {
 const RULES = parse(css);
 const decl = (body, prop) => { const m = new RegExp('(?:^|;)\\s*' + prop + '\\s*:\\s*([^;]+)', 'i').exec(body); return m ? m[1].trim() : null; };
 const screenOnly = r => r.at.some(a => /@media screen/.test(a));
-const STATE_PROPS = ['background', 'background-color', 'border-color', 'color', 'box-shadow', 'transform', 'outline', 'outline-color', 'text-decoration-color', 'border-bottom-color', 'opacity', 'filter'];
+const STATE_PROPS = ['background', 'background-color', 'background-image', 'border-color', 'color', 'box-shadow', 'transform', 'outline', 'outline-color', 'text-decoration-color', 'border-bottom-color', 'opacity', 'filter'];
 const setsState = body => STATE_PROPS.some(p => decl(body, p) !== null);
 /* Rules in @media screen whose selector list has one starting with base and carrying state (":hover"…). */
 const stateRules = (base, state) => RULES.filter(r => screenOnly(r) && r.sel.some(x => x.indexOf(base) === 0 && x.indexOf(state) > base.length - 1 && x.slice(base.length).indexOf(state) >= 0) && setsState(r.body));

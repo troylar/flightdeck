@@ -1,5 +1,52 @@
 [
   {
+    "version": "2.4.0",
+    "date": "2026-10-25",
+    "headline": "Fresh coat",
+    "changes": [
+      {
+        "kind": "improved",
+        "area": "Everywhere",
+        "title": "Every control answers when you point at it, press it or tab to it",
+        "now": "Buttons, toggles, tabs, cards, rows and fields change when you hover, visibly press when you click, and show a whole focus ring. Selected, Next up and warning colors stay theirs while hovered, and disabled controls stay still.",
+        "before": "Most buttons looked the same at rest, hovered and pressed, and some focus rings were cut off.",
+        "where": "Every screen"
+      },
+      {
+        "kind": "improved",
+        "area": "Everywhere",
+        "title": "Toggles, tabs and fields look modern",
+        "now": "Toggles are a track with a raised pill on the choice. A tab you hover previews its underline. Fields darken their edge on hover and glow softly while you type; a field with a problem keeps its red edge.",
+        "before": "A chosen option was a dark block inside a lighter border, and fields only showed the browser's outline.",
+        "where": "Settings, the editors, every form"
+      },
+      {
+        "kind": "improved",
+        "area": "Runs",
+        "title": "Checking off a step lands",
+        "now": "The check springs and the row glows green once; the progress bar fills smoothly from where it is. It stops for anyone who asked their computer for less motion.",
+        "before": "The check appeared at once and the bar jumped.",
+        "where": "The run screen, practice"
+      },
+      {
+        "kind": "improved",
+        "area": "Everywhere",
+        "title": "A new body typeface: Instrument Sans",
+        "now": "Text is set in Instrument Sans, embedded in the file so every computer shows the same type; headings stay Barlow Condensed.",
+        "before": "Text used whatever font the computer had.",
+        "where": "Every screen and the printed receipt"
+      },
+      {
+        "kind": "fixed",
+        "area": "Everywhere",
+        "title": "Dark mode has depth again, and switches read in both themes",
+        "now": "Cards and lifted controls have real shadows in dark mode; switch thumbs, the welcome banner's label and forced-colors selections are readable.",
+        "before": "Dark mode cards were flat, an off switch's thumb nearly disappeared, and the welcome label was hard to read on its banner.",
+        "where": "Dark mode, Windows high contrast"
+      }
+    ]
+  },
+  {
     "version": "2.3.1",
     "date": "2026-10-25",
     "headline": "Run screen polish",
