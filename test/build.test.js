@@ -175,10 +175,18 @@ rule('2.1.0 has its own release entry above 2.0.1 and 2.0.0: only when, and that
 });
 
 rule('2.3.0 has its own release entry above 2.2.1: Practice on the run screen, Edit and Back to practice', () => {
-  const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), r = rel[0];
-  assert.strictEqual(r.version, '2.3.0'); assert.strictEqual(rel[1].version, '2.2.1');
+  const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), i = rel.findIndex(x => x.version === '2.3.0'), r = rel[i];
+  assert.ok(r, '2.3.0 is listed'); assert.strictEqual(rel[i + 1].version, '2.2.1');
   const text = JSON.stringify(r);
   assert.ok(/run screen/.test(text) && /Back to practice/.test(text) && /Try it again/.test(text), text);
+  assert.ok(!/colour|cancelled|behaviour|LLM/i.test(text), 'US English, and your AI assistant, never LLM');
+});
+
+rule('2.3.1 has its own release entry above 2.3.0: Run screen polish', () => {
+  const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), r = rel[0];
+  assert.strictEqual(r.version, '2.3.1'); assert.strictEqual(rel[1].version, '2.3.0');
+  const text = JSON.stringify(r);
+  assert.ok(/Run screen polish/.test(text) && /Review & publish/.test(text) && /couldn't confirm/.test(text), text);
   assert.ok(!/colour|cancelled|behaviour|LLM/i.test(text), 'US English, and your AI assistant, never LLM');
 });
 

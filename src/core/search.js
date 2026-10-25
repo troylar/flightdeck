@@ -527,7 +527,7 @@ PF.search = (function () {
       if (g.items.length >= per) return;
       var f = x.field, t = d.target;
       if (f && f.step && t.view === 'run' && !t.step) t = Object.assign({}, t, { step: f.step });
-      g.items.push({ id: d.id, kind: d.kind, title: d.title, sub: d.sub, text: f && f.t !== d.title ? f.t : '', target: t, status: (d.run && own(status, d.run)) || '', at: d.at });
+      g.items.push({ id: d.id, kind: d.kind, title: d.title, shown: d.shown, sub: d.sub, text: f && f.t !== d.title ? f.t : '', target: t, status: (d.run && own(status, d.run)) || '', at: d.at });
     });
     return res;
   }

@@ -198,7 +198,7 @@
     var inc = incoming(ctx, 'phase', ph.key);
     return '<li class="ob-phase' + (on ? ' sel' : '') + (isNew(ctx, 'phase', ph.key) ? ' ob-new' : '') + (inc ? ' ob-inc' : '') + '"><div class="ob-ph-head"><div class="fp-eye">Phase ' + (ph.index + 1) + '</div>' +
       '<h3 class="ob-ph-h"><button type="button" class="ob-ph-name" data-act="ob-sel-phase" data-id="' + esc(ph.key) + '" data-ob-phase="' + esc(ph.key) + '" aria-pressed="' + on + '" aria-describedby="ob-kbd">' + esc(title) + '</button></h3>' + incWords(inc) +
-      (ph.mode ? '<span class="cat">' + esc(K.modeWord(ph.mode)) + '</span>' : '<span class="cat">No mode</span>') + fixBadge(B, ph.id && 'phase:' + ph.id) + '</div><div class="ob-body">' + body + '</div>' + gate + '</li>';
+      (ph.mode ? '<span class="cat mode">' + esc(K.modeWord(ph.mode)) + '</span>' : '<span class="cat mode">No mode</span>') + fixBadge(B, ph.id && 'phase:' + ph.id) + '</div><div class="ob-body">' + body + '</div>' + gate + '</li>';
   }
 
   /* The checklist's own details (front matter): who owns it, its roles and its run details, at a glance; selecting it opens
@@ -250,7 +250,7 @@
   /* While a practice is open for this draft, the form (a sheet on a phone) also goes straight back to it. */
   var backToPractice = false;
   function formHead(title, crumbs, prev, next) {
-    return '<div class="ob-form-top"><div class="row between"><h2 id="ob-form-h">' + I('edit') + esc(title) + '</h2><span class="row">' + (backToPractice ? '<button type="button" class="mini ob-practice" data-act="pr-open">Back to practice</button>' : '') + '<button type="button" class="mini ob-done" data-act="ob-done">Done</button></span></div>' +
+    return '<div class="ob-form-top"><div class="row between"><h2 id="ob-form-h">' + I('edit') + esc(title) + '</h2><span class="row">' + (backToPractice ? '<button type="button" class="mini ob-practice" data-act="pr-open">Back to practice</button>' : '') + '<button type="button" class="mini ob-done" data-act="ob-done">Close</button></span></div>' +
       (crumbs && crumbs.length ? '<nav aria-label="Where it is"><ol class="ob-crumbs">' + crumbs.map(function (c) { return '<li>' + esc(plain(c)) + '</li>'; }).join('') + '</ol></nav>' : '') +
       (prev !== undefined ? '<div class="row ob-prevnext"><button type="button" class="mini" data-act="ob-sel" data-id="' + esc(prev || '') + '"' + (prev ? '' : ' disabled') + '>Previous step</button><button type="button" class="mini" data-act="ob-sel" data-id="' + esc(next || '') + '"' + (next ? '' : ' disabled') + '>Next step</button></div>' : '') + '</div>';
   }
@@ -332,7 +332,7 @@
     var f = '<section class="panel stack ob-form" aria-labelledby="ob-form-h" data-scope="ob-phase|' + esc(ph.key) + '|' + sig + '">' + formHead('Phase', ['Phase ' + (ph.index + 1) + ' of ' + o.phases.length]) +
       '<label class="field" for="ob-ph-title">Name<input id="ob-ph-title" maxlength="120" data-enter="ob-commit" value="' + esc(ph.title) + '"' + errAt(ctx, 'ob-ph-title') + '></label>' + errMsg(ctx, 'ob-ph-title') +
       '<label class="field" for="ob-ph-mode">How it\'s worked<select id="ob-ph-mode" data-bound><option value=""' + (ph.mode ? '' : ' selected') + '>Not set</option><option value="READ-DO"' + (ph.mode === 'READ-DO' ? ' selected' : '') + '>Read, then do: read each step, then do it</option><option value="DO-CONFIRM"' + (ph.mode === 'DO-CONFIRM' ? ' selected' : '') + '>Do, then confirm: do the work, then confirm together</option></select></label>' +
-      '<label class="field" for="ob-ph-note">Note for the phase <span class="small">shown at the top of the phase in runs. Needs Flightdeck 2.0 to run.</span><textarea id="ob-ph-note" rows="3" maxlength="2000"' + errAt(ctx, 'ob-ph-note') + '>' + esc(ph.note || '') + '</textarea></label>' + errMsg(ctx, 'ob-ph-note') +
+      '<label class="field" for="ob-ph-note">Note for the phase <span class="small">shown at the top of the phase in runs.</span><textarea id="ob-ph-note" rows="3" maxlength="2000"' + errAt(ctx, 'ob-ph-note') + '>' + esc(ph.note || '') + '</textarea></label>' + errMsg(ctx, 'ob-ph-note') +
       whenSection(ctx, p, ph, 'ob-ph-when', meta) +
       (ph.odd ? '<p class="small">This phase has lines under its heading the builder can\'t change safely. Edit its note and screenshots in Markdown.</p>' : shotsSection(ctx, p, ph, 'phase')) +
       source(ctx, ph.id, 'phase', U.slug(ph.title, 24)) +
@@ -374,7 +374,7 @@
   function detailsForm(ctx, o, meta) {
     var sig = o.front ? sigOf(o, o.front.start, o.front.end) : 'none';
     return '<section class="panel stack ob-form" aria-labelledby="ob-form-h" data-scope="ob-details|' + sig + '">' + formHead('Checklist details', ['The whole checklist']) +
-      personSelect(ctx, 'ob-owner', 'Owner', 'signs versions off as ready for a skill', meta.owner, 'Nobody yet') +
+      personSelect(ctx, 'ob-owner', 'Owner', 'signs versions off as ready to automate', meta.owner, 'Nobody yet') +
       personSelect(ctx, 'ob-backup', 'Backup owner', 'signs off only while the owner is away', meta.backup, 'No backup') +
       listField(ctx, 'roles', 'Roles', 'Who does what, like lead or reviewer. Steps, lanes and gates choose from these.', meta.roles, '@', 'ob-add-role', 'New role') +
       listField(ctx, 'context', 'Run details', 'Filled in when a run starts, like ticket or commit. Steps can be tied to them.', meta.context, '^', 'ob-add-ctx', 'New run detail') +

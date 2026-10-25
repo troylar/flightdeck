@@ -1975,7 +1975,9 @@ PF.repo = (function () {
           return own.then(function (ok) {
             if (others.length || !ok) throw new Error('The run\'s folder has files but no run.json. Restore run.json from a backup.' + said);
             stillOk(o);
-            return fs.write(path, k.text).then(function () { forgetRun(fs, run); return { written: true }; });
+            /* From here the run may land whatever the write answers: the caller is told first (2.3.1). */
+            if (typeof o.writing === 'function') o.writing();
+            return fs.write(path, k.text).then(function () { forgetRun(fs, run); return { written: true }; }, function (e) { if (e && typeof e === 'object') e.maybeWritten = true; throw e; });
           });
         }, function (e) { throw new Error('The run\'s folder ' + why(e) + '.' + said); });
       });

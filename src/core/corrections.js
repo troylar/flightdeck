@@ -340,7 +340,7 @@ PF.corrections = (function () {
     var out = [], notes = (r._notes || []).filter(function (n) { return n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map'; });
     notes.forEach(function (n) {
       var x = n.step && M.findStep(map, n.step), ch = n.kind === 'correction' ? n.change : { op: 'describe' };
-      out.push({ id: n.id, step: n.step || '', stepText: x ? x.step.text : n.target && n.target.gate ? 'Gate: ' + gateTitle(map, n.target.gate) : n.target && n.target.phase ? 'Phase: ' + phaseTitle(map, n.target.phase) : '', from: n.kind === 'correction' ? n.from : x ? x.step.text : '',
+      out.push({ id: n.id, step: n.step || '', stepText: x ? M.shownText(x.step, M.valuesOf(r)) : n.target && n.target.gate ? 'Gate: ' + gateTitle(map, n.target.gate) : n.target && n.target.phase ? 'Phase: ' + phaseTitle(map, n.target.phase) : '', from: n.kind === 'correction' ? n.from : x ? x.step.text : '',
         change: ch, proposed: proposal(n.kind === 'correction' ? n : { change: ch }, map), why: n.kind === 'correction' ? (n.newer ? n.text || n.why || '' : n.why || '') : (n.kind === 'fix' && LEGACY_KIND[n.fixKind] ? LEGACY_KIND[n.fixKind] + ': ' : '') + n.text,
         happened: n.kind === 'correction' ? n.happened || '' : '', by: n.by, at: n.at, files: n.files || [], fileInfo: n.fileInfo || {}, legacy: n.kind !== 'correction' ? n.kind : '', oneOff: false });
     });
@@ -351,7 +351,7 @@ PF.corrections = (function () {
          the answer takes it. Any other answer, earlier or later, is its own row. */
       var mine = out.filter(function (o) { return o.step === x.step.id && o.happened && !o.answer && d.at && o.at === d.at; })[0];
       if (mine) { mine.answer = { by: d.by, at: d.at }; return; }
-      out.push({ id: 'diff-' + x.step.id, step: x.step.id, stepText: x.step.text, from: x.step.text, change: null, proposed: '', why: '', happened: d.note, by: d.by, at: d.at, files: [], fileInfo: {}, oneOff: true, answer: { by: d.by, at: d.at } });
+      out.push({ id: 'diff-' + x.step.id, step: x.step.id, stepText: M.shownText(x.step, M.valuesOf(r)), from: x.step.text, change: null, proposed: '', why: '', happened: d.note, by: d.by, at: d.at, files: [], fileInfo: {}, oneOff: true, answer: { by: d.by, at: d.at } });
     });
     var order = M.steps(map).map(function (x) { return x.step.id; });
     return out.sort(function (a, b) { var i = order.indexOf(a.step), j = order.indexOf(b.step); return i !== j ? i - j : a.at < b.at ? -1 : 1; });

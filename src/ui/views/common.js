@@ -35,7 +35,7 @@ PF.vk = (function () {
     /* A planned start whose run didn't save (2.1.1): only this window, for the same person, can save that exact run. */
     Object.keys(ctx.state.pendingStarts || {}).sort().forEach(function (pid) {
       var ps = ctx.state.pendingStarts[pid];
-      if (ps.fs === ctx.state.fs && ps.key === ctx.fsKey && ps.me === ctx.state.me) h += '<div class="notice bad" role="alert"><span><b>The plan "' + esc(ps.title) + '" is marked started, but its run didn\'t save.</b> Try again to save that run (' + esc(ps.id) + '); nothing else starts it.</span><span class="row"><button class="btn" data-act="plan-resume" data-id="' + esc(ps.plan) + '"' + (ctx.state.resuming ? ' disabled' : '') + '>Try again</button></span></div>';
+      if (ps.fs === ctx.state.fs && ps.key === ctx.fsKey && ps.me === ctx.state.me) h += '<div class="notice bad" role="alert"><span><b>The plan "' + esc(ps.title) + '" is marked started, but ' + esc(PF.vk.unsavedWords(ps)) + '.</b> Try again to save that run (' + esc(ps.id) + '); nothing else starts it.</span><span class="row"><button class="btn" data-act="plan-resume" data-id="' + esc(ps.plan) + '"' + (ctx.state.resuming ? ' disabled' : '') + '>Try again</button></span></div>';
     });
     if (ctx.state.folderErr) h += '<div class="notice bad" role="alert"><span><b>Can\'t read the team folder.</b> ' + esc(ctx.state.folderErr) + ' You\'re seeing what was last read at ' + U.hm(ctx.data.readAt) + '. Check that OneDrive is running and the folder is available offline.</span><span class="row"><button class="btn" data-act="refresh">Try again</button><button class="mini" data-act="recovery" data-id="onedrive-isnt-syncing">What to do</button></span></div>';
     /* Part of the folder couldn't be read: what was read before for it stays on screen, and this says so. */
@@ -184,8 +184,10 @@ PF.vk = (function () {
   /* The run's headline and Next up as screens show them: a blocked step's text with its details in place. */
   function shownOpt(r, map) { var rv = refValue(r, map); return { shown: function (st) { return stepPlain(st, rv); } }; }
   function headline(r, map) { return PF.run.headline(r, map, shownOpt(r, map)); }
+  /* What became of a planned start's run (2.3.1): said only as surely as it's known. */
+  function unsavedWords(ps) { return ps && ps.saved ? 'its run was saved and has changed since' : ps && ps.certain === false ? 'Flightdeck couldn\'t confirm whether its run saved' : 'its run didn\'t save'; }
   function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
-  return { refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, PAGE: PAGE, testTag: testTag, verWord: verWord };
+  return { unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, PAGE: PAGE, testTag: testTag, verWord: verWord };
 })();
 (function () {
   'use strict';

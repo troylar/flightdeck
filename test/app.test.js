@@ -2627,7 +2627,7 @@ rule('Plans (2.1.1): a start whose run doesn\'t save leaves one decision naming 
   assert.strictEqual(dec.length, 1, 'one decision'); assert.strictEqual(dec[0].status, 'accepted');
   assert.ok(typeof id === 'string' && /^[a-z0-9-]{1,40}$/i.test(id), 'it names the run: ' + id);
   assert.deepStrictEqual(releaseRuns(app), before, 'no run');
-  assert.ok(/marked started, but its run didn(&#39;|')t save/.test(app.html()), shown(app));
+  assert.ok(/marked started, but Flightdeck couldn(&#39;|')t confirm whether its run saved/.test(app.html()) && !/didn(&#39;|')t save/.test(app.html()), shown(app));
   assert.ok(/data-act="plan-resume"/.test(app.html()), 'Try again is offered');
   app.submitForm('start-form'); await app.tick(120);
   app.click('refresh'); await app.tick(80);
