@@ -396,4 +396,13 @@ rule('In a run, passing a gate through its confirmation closes that confirmation
   assert.ok(app.asked().slice(n).includes('[data-act="finish"]'), 'Finish is next');
 });
 
+rule('Practice: Run from here names its step with the detail in place, and the completion line can take focus', () => {
+  const md = ['---', 'process: p', 'title: P', 'context: server', '---', '', '## A {#a}', '- [ ] {confirm} Check the logs {#l}', '- [ ] {confirm} Restart ^server {#r}'].join('\n');
+  const a = PF.practice.admit(md, {}); assert.ok(a.ok, a.why);
+  const st = PF.practice.setFrom(PF.practice.fresh('p'), a.map, 'r').state, v = PF.practice.follow(st, a.map, {});
+  assert.ok(v.from && /^Restart \S/.test(v.from.shown) && v.from.shown !== 'Restart', 'the detail, or ‹server›: ' + (v.from && v.from.shown));
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'views', 'practice.js'), 'utf8');
+  assert.strictEqual((src.match(/<div class="notice good pr-done" tabindex="-1">/g) || []).length, 2, 'both completion lines are focusable');
+});
+
 run();

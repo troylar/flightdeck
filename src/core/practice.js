@@ -285,7 +285,7 @@ PF.practice = (function () {
     var through = nu.kind === 'complete' && steps > 0;
     return { phases: phases, nextUp: { kind: nu.kind, step: nu.step ? nu.step.id : null, gate: nu.gate ? nu.gate.id : null, phaseIndex: nu.phaseIndex, text: nu.hl ? nu.hl.text : '' },
       gone: gone, complete: through && !fr, setBy: Object.assign({}, state.setBy || {}),
-      from: fr ? { id: fr.id, text: fr.text, shown: M.shownText(fr, M.valuesOf(r)), moved: fr.id !== state.from, assumed: fr.count, needed: needed(state, map, pm, r, fr), through: through } : null };
+      from: fr ? { id: fr.id, text: fr.text, shown: M.shownText((M.findStep(pm, fr.id) || M.findStep(map, fr.id) || { step: fr }).step, M.valuesOf(r)), moved: fr.id !== state.from, assumed: fr.count, needed: needed(state, map, pm, r, fr), through: through } : null };
   }
   function phaseOpenOf(r, map, pi) { return R.phaseOpen(r, map, pi); }
   /* A step that does something practice can't: a linked run or a skill (only "Mark done for practice"), or evidence it
