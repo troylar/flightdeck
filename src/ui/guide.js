@@ -14,7 +14,7 @@ PF.guide = (function () {
      marks a why that already says what empty means, so nothing is added). */
   function e(q, eg, why, own) { return { q: q, eg: eg || '', why: why || '', own: !!own }; }
   var PR = {
-    action: e('What do you do?', '', 'Decides which other questions apply and what\'s recorded.'),
+    action: e('What do you do with the pull request?', '', 'Decides which other questions apply and what\'s recorded.'),
     repo: e('Which repository?', 'payments-api', S),
     pull: e('Link to the pull request', 'https://github.com/acme/payments-api/pull/88', OPENS + ' Not needed to open one.'),
     from: e('From which branch?', 'release/^tag', S),
@@ -40,7 +40,7 @@ PF.guide = (function () {
       parameters: e('Which parameters?', 'BRANCH=release/^tag', COPY), stage: e('Which stage do you watch?', 'Integration tests', S) },
     'bitbucket.pr': { action: PR.action, repo: PR.repo, from: PR.from, to: PR.to },
     'github.pr': PR,
-    'jira.issue': { action: e('What do you do?', '', 'Decides which other questions apply.'), issue: e('Which issue?', 'PAY-1234', S), project: e('In which project?', 'PAY', S + ' Asked only to create.'),
+    'jira.issue': { action: e('What do you do in Jira?', '', 'Decides which other questions apply.'), issue: e('Which issue?', 'PAY-1234', S), project: e('In which project?', 'PAY', S + ' Asked only to create.'),
       issueType: e('What kind of issue?', 'Task', S), status: e('Move it to?', 'In Review', S + ' Checked against the team\'s Jira workflow.'),
       assignee: e('Assign it to?', 'dana@acme.com', S), linkTo: e('Link it to which issue?', 'PAY-1200', S), set: e('Which fields do you set?', 'Fix Version=^tag', S + ' ^details are filled in.') },
     'run.process': { process: e('Which process? (its file name)', 'database-migration', 'The process\'s file name, not its title: it\'s looked up by that exact ID. Whoever reaches this step starts its run from here (Start), and it links back.'),
@@ -54,7 +54,7 @@ PF.guide = (function () {
       skillVersion: e('Which version of the skill?', '2', 'Left empty, any registered version matches.', true),
       inputs: e('What does it need?', 'the tag and the merged pull requests', S), expected: e('What should it produce?', 'a draft on the release page', S) },
     'ci.gate': { pipeline: e('Which pipeline?', 'payments-api main', S), page: e('Link to the pipeline', 'https://ci.acme.com/payments-api', OPENS) },
-    'jira.sprint': { action: e('What do you do?', '', 'Decides which other questions apply.'), board: e('Which board?', 'Payments', S), sprint: e('Which sprint?', 'Sprint 42', S),
+    'jira.sprint': { action: e('What do you do with the sprint?', '', 'Decides which other questions apply.'), board: e('Which board?', 'Payments', S), sprint: e('Which sprint?', 'Sprint 42', S),
       goal: e('What\'s the goal?', 'Ship refunds v2', S + ' Asked only to set a goal.') },
     deploy: { environment: e('To which environment?', 'production', S), artifact: e('What do you deploy?', 'payments-api', S), version: e('Which version?', '^tag', S + ' ^details are filled in.'),
       tool: e('Link to the deploy tool', 'https://deploy.acme.com', OPENS), rollback: e('What do you roll back to if it goes wrong?', 'the previous release', S) },

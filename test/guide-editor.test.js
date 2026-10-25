@@ -365,10 +365,10 @@ rule('Editor: Space and Enter on a choice button are left to the browser, whose 
     return !prevented;
   };
   for (const [key, val] of [[' ', 'link'], ['Enter', 'date']]) {
-    const before = app.fs.files['maps/drafts/release.md'].t;
+    const checked = () => choiceRow(formOf(app), 'ob-fld-evidence').filter(r => r[1]).map(r => r[0]), before = checked();
     assert.strictEqual(press(key, val), true, JSON.stringify(key) + ': not canceled');
     await app.tick();
-    assert.strictEqual(app.fs.files['maps/drafts/release.md'].t, before, JSON.stringify(key) + ': the key itself changes nothing');
+    assert.deepStrictEqual(checked(), before, JSON.stringify(key) + ': the key itself chooses nothing, in the editor or the file');
     app.click('ob-choice', 'ob-fld-evidence', { val }); await app.tick();
     assert.strictEqual(app.activeId(), 'ob-fld-evidence', JSON.stringify(key) + ': focus on the chosen button');
     assert.ok(new RegExp('evidence: ' + val).test(await textOf(app)), JSON.stringify(key) + ': chosen');
@@ -440,6 +440,8 @@ rule('Editor round trips: for every built-in type and each of its actions, revea
         await fill(n, String(G.field(t, n, want).eg || (d.kind === 'pin' ? '1' : 'x')));
       }
       for (const n of ['link', 'expect', 'deadline', 'at', 'due', 'after']) await fill(n, String(G.COMMON[n].eg));
+      if (!boxes(formOf(app)).includes('evidence')) { app.click('ob-show', 'evidence'); await app.tick(); }
+      assert.ok(choiceRow(formOf(app), 'ob-fld-evidence').length, label + ': Ask for proof drawn');
       choose(app, 'ob-fld-evidence', 'note'); await app.tick(); want.evidence = 'note';
       if (!boxes(formOf(app)).includes('require')) { app.click('ob-show', 'require'); await app.tick(); }
       app.click('ob-req', 'all'); await app.tick(); want.require = 'all';

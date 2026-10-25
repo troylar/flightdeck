@@ -67,6 +67,15 @@ rule('Guide: every input, textarea and select the editor draws has its guide ent
   same(left, [], 'boxes without a guide entry');
 });
 
+rule('Guide: no two boxes on a step\'s form ask the same question: the step\'s own boxes, its type\'s fields and pins, and the fields every type accepts', () => {
+  const own = Object.keys(G.STEP).map(k => G.STEP[k].q);
+  T.LIST.forEach(t => {
+    const qs = own.concat(Object.keys(t.fields || {}).map(f => G.FIELDS[t.id][f].q), Object.keys(T.PINS[t.id] || {}).map(f => G.FIELDS[t.id][f].q), Object.keys(T.COMMON).map(f => G.COMMON[f].q));
+    const twice = qs.filter((q, i) => qs.indexOf(q) !== i);
+    assert.deepStrictEqual(twice, [], t.id + ' asks twice: ' + twice.join(' | '));
+  });
+});
+
 /* ---------- the examples are values their own controls accept ---------- */
 function oneStep(type, lines) {
   return '---\nprocess: guide-check\ntitle: Guide check\ncontext: tag, environment, hotfix\nroles: release-manager\n---\n\n## Do it · READ-DO {#do}\n- [ ] {' + type + '} The step {#s1}\n' + lines.map(l => '  ' + l).join('\n') + '\n';
