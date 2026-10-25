@@ -102,6 +102,8 @@
   var HIST = (function () { try { return typeof history !== 'undefined' && history && typeof history.replaceState === 'function' && typeof location !== 'undefined' ? history : null; } catch (e) { return null; } })();
   var H = { on: !!HIST, pos: 0, cur: { n: 0, hash: '#/', f: null }, seen: 0, queued: false, restoring: null, pending: null, hold: null, mode: null, loadedGen: -1, bootLink: false, retry: null, retryLoc: null };
   applyTheme();
+  /* Runs by key (2.5.0): one look, not a scan of every run (PF.util.keyIndex). */
+  var runIdx = U.keyIndex(function (r) { return r.process + '/' + r.id; }, 'runs');
   var data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, proposed: { procs: {} }, presence: [], readAt: new Date().toISOString() };
   /* Writes to the folder happen one at a time, in order, so a later change never lands before an earlier one. */
   var writes = sessionReady;
@@ -115,7 +117,7 @@
     get data() { return data; },
     now: function () { return Date.now(); },
     get peopleById() { var o = {}; data.people.forEach(function (p) { o[p.id] = p; }); return o; },
-    run: function () { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === state.runKey) return data.runs[i]; return null; },
+    run: function () { return findRun(state.runKey); },
     /* The runs a sign-off counts: every run shown, less those whose latest read failed or whose file is gone (their last copy
        stays on screen, but isn't what the folder holds), and none while the runs folder can't be read. */
     countedRuns: countedRuns,
@@ -132,7 +134,7 @@
     orphanSkills: function () { processes(); return orphanSkills; },
     /* Unsaved edits to a draft that was removed from this folder, so they stay findable. */
     lostDrafts: function () { var k = fsKey() + '\n', ids = processes().map(function (x) { return x.id; }); return Object.keys(state.editors || {}).filter(function (e) { var ed = state.editors[e]; return e.indexOf(k) === 0 && ed.text != null && ids.indexOf(ed.pid) < 0; }).map(function (e) { return state.editors[e].pid; }); },
-    findRun: function (key) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) return data.runs[i]; return null; },
+    findRun: function (key) { return findRun(key); },
     procOf: function (id) { return processes().filter(function (x) { return x.id === id; })[0] || null; },
     latestPub: function (id) { var p = processes().filter(function (x) { return x.id === id; })[0]; return p ? p.latest : null; },
     suggestRole: suggestRole,
@@ -568,18 +570,33 @@
      changes, and nothing is ever marked gone here; only the complete result can do that (applyRunsRead). */
   function applyBatch(b, at) {
     var shown = false;
+    PF.perf.add('batch.applied');
     Object.keys(b.reads).forEach(function (k) {
-      var res = b.reads[k], prev = findRun(k), got = applyRunRead(k, at, res);
+      var res = b.reads[k], i = runIdx.pos(data.runs, k), prev = i >= 0 ? data.runs[i] : null, got = applyRunRead(k, at, res, prev);
       if (!got && !prev && res.kind === 'fresh') got = res.run;
       if (!got || got === prev) { if (res.kind === 'unreadable') shown = true; return; }
-      var i = prev ? data.runs.indexOf(prev) : -1;
-      if (i >= 0) data.runs[i] = got; else data.runs.push(got);
+      if (i >= 0) data.runs[i] = got; else runIdx.push(data.runs, got);
       shown = true;
     });
-    (b.unreadable || []).forEach(function (u) { data.unreadable = (data.unreadable || []).filter(function (x) { return x.path !== u.path; }).concat([u]); });
+    /* Each path once, the batch's last word on it at the end, in the batch's order (as replacing them one by one did). */
+    var un = b.unreadable || [];
+    if (un.length) {
+      var last = Object.create(null); un.forEach(function (u, j) { last[u.path] = j; });
+      data.unreadable = (data.unreadable || []).filter(function (x) { return !(x.path in last); }).concat(un.filter(function (u, j) { return last[u.path] === j; }));
+    }
     if (state.reading) state.reading = { done: b.done, total: b.total };
-    if (shown || state.reading) { procCache = null; render(); }
+    if (shown || state.reading) { procCache = null; batchRender(); }
   }
+  /* A load's batches draw the first time at once, then at most once per 250 ms: a burst of batches draws once. Any full redraw
+     (a click, the complete result) draws what they brought and drops the one waiting; so does a switch of folders. */
+  var batchTimer = null, batchDrawn = false;
+  function batchRender() {
+    if (!batchDrawn) { batchDrawn = true; PF.perf.add('batch.renders'); render(); return; }
+    if (batchTimer) return;
+    var g = gen;
+    batchTimer = setTimeout(function () { batchTimer = null; if (g !== gen) return; PF.perf.add('batch.renders'); render(); }, 250);
+  }
+  function dropBatchRender() { if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; } }
   /* A read started after a write: a refresh already under way may have read the folder before it, so it's awaited first. */
   function loadAfterWrite() {
     var g = gen, wait = loading && loading.gen === gen ? loading.p.then(function () {}, function () {}) : Promise.resolve();
@@ -590,6 +607,7 @@
     if (deep) checkNewerCopy(state.fs, gen);
     if (loading && loading.gen === gen) return loading.p;
     var g = gen, before = revsNow(), seq = ++readsStarted, t0 = elapsed();
+    batchDrawn = false;
     /* Runs whose last check failed are read in full: only a real read clears that, never what the cache remembers. So are
        runs whose cached copy turned out older than the one shown. */
     var retry = Object.keys((state.unread || {}).runs || {}).concat(Object.keys(state.missing || {}), Object.keys(staleCache), Object.keys(notCounted));
@@ -598,6 +616,8 @@
     var p = repo.loadAll(state.fs, { deep: !!deep, fresh: retry, clock: elapsed, priority: readPriority(),
       onBatch: function (b) { if (g === gen) applyBatch(b, at); } }).then(function (d) {
       if (g !== gen) return;
+      PF.perf.add('load.done');
+      var wasReading = !!state.reading || !!batchTimer;
       state.reading = null;
       /* How long routine refreshes take here, for Folder health (the last 3). */
       if (!deep) state.refreshMs = (state.refreshMs || []).concat([elapsed() - t0]).slice(-3);
@@ -636,13 +656,13 @@
       /* A process's stages that couldn't be listed this time keep what was read before, said as such. */
       Object.keys((d.stages || {}).procs || {}).forEach(function (k) { var x = d.stages.procs[k], op = (data.stages || {}).procs || {}, old = Object.prototype.hasOwnProperty.call(op, k) ? op[k] : null; if (x.unlisted && old) { x.stages = old.stages; x.decisions = old.decisions; } });
       data = d; sig = s; procCache = null; state.folderErr = null; state.runReadAt = d.readAt; folderUnread = false;
-      if (changed || force || wasErr) render(); else renderTop();
+      if (changed || force || wasErr || wasReading) render(); else renderTop();
       navLoaded();
       syncChildren();
       loadConn();
       loadSetupAnswers();
       finishAccepts();
-    }, function (e) { if (g !== gen) return; loading = null; state.reading = null; state.folderErr = e.message || String(e); folderUnread = true; render(); navLoadFailed(); });
+    }, function (e) { if (g !== gen) return; PF.perf.add('load.done'); loading = null; state.reading = null; state.folderErr = e.message || String(e); folderUnread = true; render(); navLoadFailed(); });
     loading = { gen: g, p: p };
     return p;
   }
@@ -698,24 +718,28 @@
   /* Why a plan can't be started, declined or switched now: a decision on it can't be read ('' when none). */
   function planHeld(plan) { return V.planHeldWhy(plan, data); }
   function rereadOutcome(key, at, res) { if (res && (res.kind === 'missing' || res.kind === 'unreadable')) applyRunRead(key, at, res); }
-  function findRun(key) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) return data.runs[i]; return null; }
+  function findRun(key) { return runIdx.find(data.runs, key); }
+  /* Changed in place: nothing keeps an old copy of either map to compare with (search compares their text, insights builds its
+     own, health reads them at once), so a folder of thousands of unreadable runs doesn't copy every status for each one. */
   function setRunStatus(key, kind, why) {
-    var u = state.unread = state.unread || { runs: {}, drafts: {} }, runs = Object.assign({}, u.runs), m = Object.assign({}, state.missing || {});
-    delete runs[key]; delete m[key];
-    if (kind === 'unread') runs[key] = why;
-    if (kind === 'missing') m[key] = true;
-    u.runs = runs; state.missing = m;
+    var u = state.unread = state.unread || { runs: {}, drafts: {} };
+    if (!u.runs) u.runs = {};
+    if (!state.missing) state.missing = {};
+    delete u.runs[key]; delete state.missing[key];
+    if (kind === 'unread') u.runs[key] = why;
+    if (kind === 'missing') state.missing[key] = true;
   }
   /* Discard goes back to a version built new from what was read or saved, never to an object anyone can change. */
   function keepBaseline(id, make) { baselines[id] = { make: make }; }
-  function applyRunRead(key, at, res) {
-    var id = key.slice(key.indexOf('/') + 1);
+  /* cur: the run shown now under this key (null for none), when the caller has looked it up already; left out, it's looked up. */
+  function applyRunRead(key, at, res, cur) {
+    var id = key.slice(key.indexOf('/') + 1), shownNow = function () { return cur === undefined ? findRun(key) : cur; };
     if (!res || res.kind === 'pending') return null;
     if ((applied[key] || 0) > at.seq) return null;
     /* Only a real read clears it, never what the cache remembers. */
     if (res.kind === 'unreadable' || res.kind === 'missing') notCounted[key] = true; else if (res.kind === 'fresh') delete notCounted[key];
     if (res.kind === 'cached') {
-      var shown = findRun(key);
+      var shown = shownNow();
       if (shown && repo.runSig(shown) === res.sig) return null;
       if (!canReplace(id, at.revs)) return null;
       var built = res.build();
@@ -736,8 +760,8 @@
     }
     applied[key] = at.seq;
     setRunStatus(key, res.kind === 'fresh' ? 'run' : res.kind === 'unreadable' ? 'unread' : res.kind, res.why);
-    if (res.kind !== 'fresh') return findRun(key);
-    var mine = findRun(key);
+    if (res.kind !== 'fresh') return shownNow();
+    var mine = shownNow();
     if (!mine || mine._fileHash !== res.run._fileHash) bump(id);
     var text = JSON.stringify(res.run);
     keepBaseline(id, res.build || function () { return JSON.parse(text); });
@@ -748,13 +772,13 @@
   /* A refresh of every run: each run's result goes through applyRunRead. A run the read didn't list that has been on disk is
      gone only when the listing was complete; one never saved yet, or one the read may not replace, stays as it is. */
   function applyRunsRead(d, at) {
-    var reads = d.reads || {}, complete = d.runsComplete === true && !(d.failed || {}).runs, keys = [], out = [];
-    function note(k) { if (keys.indexOf(k) < 0) keys.push(k); }
+    var reads = d.reads || {}, complete = d.runsComplete === true && !(d.failed || {}).runs, keys = [], out = [], seen = Object.create(null);
+    function note(k) { PF.perf.add('runs.dedupe'); if (!(k in seen)) { seen[k] = true; keys.push(k); } }
     data.runs.forEach(function (x) { note(x.process + '/' + x.id); });
     Object.keys(reads).forEach(note);
     keys.forEach(function (k) {
       var prev = findRun(k), res = reads[k] || (complete && prev && prev._fileHash ? { kind: 'missing' } : null);
-      var got = res ? applyRunRead(k, at, res) : null;
+      var got = res ? applyRunRead(k, at, res, prev) : null;
       var show = got || (prev ? state.unsaved[prev.id] || prev : res && res.kind === 'fresh' ? res.run : res && res.kind === 'cached' ? res.build() : null);
       if (show) out.push(show);
     });
@@ -907,7 +931,7 @@
     /* Typing is kept as drafts of the folder it was typed in (keys carry the folder); nothing open goes to the next one. */
     if (state.fs) leaveContext();
     state.pick = null; state.fieldsDraft = null; state.edit = null; state.fieldErr = null;
-    gen++; loading = null; folderUnread = false; state.pendingStarts = Object.create(null); startEpoch++; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null; state.repPick = null; state.repSaving = null; repCache = Object.create(null);
+    gen++; loading = null; folderUnread = false; dropBatchRender(); state.pendingStarts = Object.create(null); startEpoch++; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null; state.repPick = null; state.repSaving = null; repCache = Object.create(null);
     state.setupAnswers = []; state.setupSeen = {}; answersBusy = false; state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; notCounted = {}; baselines = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
     state.more = {}; state.refreshMs = []; stopThumbs(); R.mapMemo.clear(); staleCache = {}; sxReset();
@@ -1362,6 +1386,8 @@
   }
   /* Re-render without losing what someone is typing or where their focus is. */
   function renderNow() {
+    PF.perf.add('render');
+    dropBatchRender();
     repHarvest();
     procCache = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null;
     var keep = {}, ae = document.activeElement, focusKey = null;

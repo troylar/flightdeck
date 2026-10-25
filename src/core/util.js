@@ -200,3 +200,33 @@ PF.util = (function () {
 })();
 /* Counts of the work done (2.5.0): tests read them, so what a refresh or a screen costs is a number, the same on every computer. */
 PF.perf = { n: {}, add: function (k, x) { this.n[k] = (this.n[k] || 0) + (x == null ? 1 : x); }, reset: function () { this.n = {}; } };
+/* Items by key in an array that other code also changes (2.5.0: runs). Positions are kept for the array they were taken from; a
+   hit is checked against the item at its position now, and a key the index doesn't have, for the same array and length, isn't
+   there, so a miss costs one look. Appends through push() keep it; anything else (a new array, a push it didn't see, a
+   position whose item changed key) rebuilds it once. The first item with a key wins, as a scan from the start finds it. */
+PF.util.keyIndex = function (keyOf, name) {
+  var n = name || 'runs', arr = null, len = -1, at = Object.create(null);
+  function build(a) {
+    PF.perf.add(n + '.rebuilds'); at = Object.create(null);
+    for (var i = 0; i < a.length; i++) { PF.perf.add(n + '.inspected'); var k = keyOf(a[i]); if (!(k in at)) at[k] = i; }
+    arr = a; len = a.length;
+  }
+  function pos(a, key) {
+    if (a !== arr || a.length !== len) build(a);
+    PF.perf.add(n + '.inspected');
+    var i = at[key];
+    if (i == null) return -1;
+    if (keyOf(a[i]) === key) return i;
+    build(a); i = at[key];
+    return i == null ? -1 : i;
+  }
+  return {
+    pos: pos,
+    find: function (a, key) { var i = pos(a, key); return i < 0 ? null : a[i]; },
+    push: function (a, item) {
+      if (a !== arr || a.length !== len) build(a);
+      a.push(item);
+      if (a === arr && len === a.length - 1) { var k = keyOf(item); if (!(k in at)) at[k] = a.length - 1; len = a.length; }
+    }
+  };
+};
