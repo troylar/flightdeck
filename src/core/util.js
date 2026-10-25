@@ -213,7 +213,8 @@ PF.util.keyIndex = function (keyOf, name) {
     arr = a; len = a.length;
   }
   function pos(a, key) {
-    if (PF.perf.plain) { arr = null; for (var j = 0; j < a.length; j++) if (keyOf(a[j]) === key) return j; return -1; }
+    /* plain: a scan, leaving the index exactly as it was, so what it holds is still tested by the next look. */
+    if (PF.perf.plain) { for (var j = 0; j < a.length; j++) if (keyOf(a[j]) === key) return j; return -1; }
     if (a !== arr || a.length !== len) build(a);
     PF.perf.add(n + '.inspected');
     var i = at[key];

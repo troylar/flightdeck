@@ -76,10 +76,13 @@ rule('Two thousand runs that can\'t be read, then read again, change their statu
   /* Like OneDrive placeholders: every run file refuses to be read, for one Refresh. */
   const read = app.fs.read.bind(app.fs);
   app.fs.read = (p, o) => (files.indexOf(p) >= 0 ? Promise.reject(Object.assign(new Error('The cloud file provider is not running.'), { name: 'NotReadableError' })) : read(p, o));
-  /* The status maps as they stand: a copy anywhere would be a new object. */
+  /* The status maps as they stand before any read fails: a copy anywhere would be a new object. */
+  const maps = app.PF.perf.maps();
+  assert.ok(maps.unread && maps.missing, 'set-up: both status maps are there before the refresh');
   app.PF.perf.reset();
   app.click('refresh'); await settle(app, 0);
-  const maps = app.PF.perf.maps();
+  const during = app.PF.perf.maps();
+  assert.ok(during.unread === maps.unread && during.missing === maps.missing, 'the same two maps while every read fails: changed in place, never copied');
   assert.ok(maps.unread && Object.keys(maps.unread).length >= files.length, 'set-up: every run is noted as unreadable: ' + Object.keys(maps.unread || {}).length);
   const html = app.html();
   assert.ok(/couldn(&#39;|')t be read/.test(html) || /can(&#39;|')t be read/.test(html), 'they show as unreadable');
@@ -99,13 +102,14 @@ async function pickerApp(n, opts) {
   const k = clocks(), files = {};
   const g = generate(load(), Object.assign({ runs: n, running: Math.round(n / 40), recent: Math.round(n / 20) }, (opts || {}).gen));
   Object.keys(g.files).forEach(p => { files[p] = g.files[p]; });
-  const app = boot(Object.assign({ localStore: { 'preflight:builder': 'false' }, Date: k.D, performance: k.perf, timers: true, picker: withBytes(folderHandle('Big', files)), indexedDB: memoryIDB() }, opts || {})); await app.tick(60);
+  let folder = withBytes(folderHandle('Big', files));
+  const app = boot(Object.assign({ localStore: { 'preflight:builder': 'false' }, Date: k.D, performance: k.perf, timers: true, replace: true, picker: () => folder, indexedDB: memoryIDB() }, opts || {})); await app.tick(60);
   app.choose('person-casey'); await app.tick();
   const proto = app.PF.fs.FolderFS.prototype, read = proto.read, held = [];
   let hold = null;
   proto.read = function (p) { if (hold && hold.test(p)) return new Promise(res => held.push(() => res(read.call(this, p)))); return read.call(this, p); };
   app.PF.repo.config.batch = 20;
-  return { app, k, files, held, holdRuns(re) { hold = re; }, release(m) { held.splice(0, m == null ? held.length : m).forEach(f => f()); }, restore() { proto.read = read; } };
+  return { app, k, files, held, holdRuns(re) { hold = re; }, nextFolder(name, more) { folder = withBytes(folderHandle(name, more)); }, release(m) { held.splice(0, m == null ? held.length : m).forEach(f => f()); }, restore() { proto.read = read; } };
 }
 /* folderHandle's files, with arrayBuffer() as a real File has it (a save hashes the bytes it reads back). */
 function withBytes(dir) {
@@ -171,6 +175,12 @@ rule('A click during a waiting batch draw draws at once and drops the waiting on
   assert.strictEqual(count(app, 'batch.renders'), 0, 'and the waiting batch draw never lands');
   await nextBatch(f);
   assert.ok(waiting(app), 'set-up: another batch draw waits');
+  /* Another team folder, its runs different from the first's: the first folder's reads that land late carry other data. */
+  const other = generate(load(), { runs: 120, running: 4, recent: 8, seed: 99 }).files;
+  const keysOf = fl => new Set(Object.keys(fl).filter(p => RUNS.test(p)).map(p => p.split('/').slice(1, 3).join('/')));
+  const firstOnly = [...keysOf(f.files)].filter(x => !keysOf(other).has(x));
+  assert.ok(firstOnly.length > 300, 'set-up: the two folders hold different runs: ' + firstOnly.length);
+  f.nextFolder('Other', other);
   app.click('connect'); await app.tick(40);
   app.PF.perf.reset();
   app.advanceTimers(1000); await app.tick(5);
@@ -178,6 +188,10 @@ rule('A click during a waiting batch draw draws at once and drops the waiting on
   f.holdRuns(null); f.release(); await app.tick(200);
   /* After the switch, with the old folder's reads let go: every lookup is the new folder's, as a scan finds it. */
   assert.strictEqual(Array.from(app.PF.perf.check()).join('; '), '', 'a lookup disagrees with a scan after switching folders');
+  app.click('nav', 'runs'); await app.tick(5);
+  const shownKeys = [...app.html().matchAll(/data-act="open-run" data-id="([^"]+)"/g)].map(m => m[1].replace(/&#39;/g, "'"));
+  assert.ok(shownKeys.length > 0, 'set-up: the other folder\'s runs are listed');
+  assert.deepStrictEqual(shownKeys.filter(x => firstOnly.indexOf(x) >= 0), [], 'none of the first folder\'s runs shows in the other');
   for (const v of ['home', 'runs']) {
     app.click('nav', v); await app.tick(5);
     app.PF.perf.draw(); const fast = app.html();
@@ -204,16 +218,16 @@ rule('Typing survives a batch draw that lands while you type: a step note, a Fil
   /* A box typed in, focused, caret mid-text; then a batch draw lands. Its text, focus and caret are all still there. */
   const survives = async (id, text, what) => {
     assert.ok(app.html().indexOf('id="' + id + '"') >= 0, 'set-up: ' + what + ' is drawn: ' + app.html().replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 300));
-    const box = app.el(id); box.value = text; box.selectionStart = box.selectionEnd = 7;
+    app.set(id, text); const box = app.el(id); box.selectionStart = box.selectionEnd = 7;
     box.closest = () => null; app.doc.activeElement = box; app.input(id, text);
-    let focused = false, range = null; box.focus = () => { focused = true; app.doc.activeElement = box; }; box.setSelectionRange = (a, b) => { range = [a, b]; };
     await nextBatch(f);
     assert.ok(waiting(app), 'set-up: a batch draw waits (' + what + ')');
     app.advanceTimers(1000); await app.tick(10);
     assert.ok(count(app, 'batch.renders') > 0, 'set-up: the batch draw landed (' + what + ')');
+    /* The harness made the box anew (replace): what's there now, the app put back. */
     assert.strictEqual(app.el(id).value, text, what + ' is still there');
-    assert.ok(focused || app.doc.activeElement === box, what + ' has focus');
-    if (range) assert.deepStrictEqual(range, [7, 7], what + ': the caret is where it was');
+    assert.ok(app.doc.activeElement === app.el(id), what + ' has focus');
+    assert.deepStrictEqual([app.el(id).selectionStart, app.el(id).selectionEnd], [7, 7], what + ': the caret is where it was');
   };
   app.el('note-text').tagName = 'TEXTAREA';
   await survives('note-text', 'Waiting on the vendor', 'the step note');

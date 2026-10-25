@@ -13,12 +13,13 @@ const WARN_OPEN = 30000, WARN_FREEZE = 150, STOP_FREEZE = 500;
 const stopOk = r => r.freeze <= STOP_FREEZE;
 const warnOk = r => r.open <= WARN_OPEN && r.freeze <= WARN_FREEZE;
 
-/* The largest measured size passing ok, under a ceiling. Between two grid sizes where one passes and the next fails, the size
+/* The largest measured size passing ok, under a ceiling, with every smaller measured size passing too. Between two grid sizes where one passes and the next fails, the size
    halfway is measured once; nothing is interpolated, and nothing above what was measured is ever chosen. */
 function largest(m, ok, below) {
   const sizes = Object.keys(m).map(Number).filter(s => s < below).sort((a, b) => a - b);
+  /* Only sizes up to the first that fails count: a larger size that happens to pass never outranks a smaller one that didn't. */
   let best = null;
-  sizes.forEach(s => { if (ok(m[s])) best = s; });
+  for (const s of sizes) { if (!ok(m[s])) break; best = s; }
   if (best == null) return { best: null };
   const g = GRID.indexOf(best);
   if (g >= 0 && g + 1 < GRID.length) {

@@ -31,9 +31,9 @@
       {
         "kind": "improved",
         "area": "Folder health",
-        "title": "Folder health's receipt check is quick on big folders",
-        "now": "Checking that each finished run has its receipt takes moments, not seconds.",
-        "before": "On a folder of thousands of runs, that check alone took seconds.",
+        "title": "Folder health finds leftover save receipts quickly",
+        "now": "Folder health finds leftover save receipts quickly, even in a large team folder.",
+        "before": "On a folder of thousands of runs, looking for them alone took seconds.",
         "where": "Settings, Folder health"
       }
     ]

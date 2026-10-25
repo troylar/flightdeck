@@ -4999,7 +4999,7 @@ rule('App: through any order of saves, holds, deletions, restores, discards, loc
       if (typed && /id="note-text"/.test(app.html())) assert.strictEqual(app.draft('note-text'), typed, 'typing lost · ' + where);
     };
     for (let step = 0; step < 30; step++) {
-      const a = ['edit', 'edit', 'hold', 'release', 'delete', 'restore', 'discard', 'reread', 'refresh', 'corrupt', 'fix', 'screens', 'type', 'fill', 'restore-local', 'discard-local'][rnd(16)];
+      const a = ['edit', 'edit', 'hold', 'release', 'delete', 'restore', 'discard', 'reread', 'refresh', 'corrupt', 'fix', 'screens', 'type', 'fill', 'restore-local', 'discard-local', 'other', 'keep-copy', 'keep-copy', 'switch'][rnd(step < 20 ? 19 : 20)];
       log.push(a);
       if (a === 'edit') t.commit('W' + seed + '-' + (++n));
       else if (a === 'hold') holds.push(t.hold(rnd(2) === 1));
@@ -5011,12 +5011,22 @@ rule('App: through any order of saves, holds, deletions, restores, discards, loc
       else if (a === 'reread') { t.c.ahead(6000); app.every(); }
       else if (a === 'refresh') app.click('refresh');
       else if (a === 'corrupt') { const f = app.fs.files[t.path]; if (f && t.disk() !== 'broken') { lastGood = f.t; app.fs.files[t.path] = { t: '{"format":"preflight-run/2","id":', m: Date.now() }; } }
+      /* Another computer's save, kept beside the run as a conflict copy; then this one keeping it. */
+      else if (a === 'other') { const d = t.disk(); if (d && d !== 'broken') { const o = JSON.parse(JSON.stringify(d)); o.title = 'Other ' + seed + '-' + step; app.fs.files[t.dir + '/run-OTHER' + step + '.json'] = { t: JSON.stringify(o), m: Date.now() }; app.click('refresh'); } }
+      else if (a === 'keep-copy') { const m = /data-act="use-copy" data-id="([^"]+)"/.exec(app.html()); if (m) app.click('use-copy', m[1]); }
       else if (a === 'fix') { if (lastGood && t.disk() === 'broken') app.fs.files[t.path] = { t: lastGood, m: Date.now() }; }
       else if (a === 'type') { if (/id="note-text"/.test(app.html())) { typed = 'typed ' + seed + '-' + step; app.set('note-text', typed); } }
       /* An open Fill in stays open through the comparison draws. */
       else if (a === 'fill') { const m = /data-act="pick" data-kind="fields" data-id="([^"]+)"/.exec(app.html()); if (m) app.click('pick', m[1], { kind: 'fields' }); }
+      /* Another folder (the examples), with the first folder's held saves and reads let go only after it's in. */
+      else if (a === 'switch') { const was = app.fs; app.click('reset-examples'); await app.tick(60); app.choose('person-casey'); await app.tick(); assert.ok(app.fs !== was, 'set-up: another folder'); }
       await app.tick(30);
       const where = 'seed ' + seed + ' after ' + log.join(',');
+      if (a === 'switch') {
+        holds.splice(0).forEach(h => h.open()); await app.tick(80);
+        for (const v of ['home', 'runs', 'processes']) { app.click('nav', v); await app.tick(5); same(v + ' · in the other folder · ' + where); }
+        break;
+      }
       same('the run · ' + where);
       if (a === 'screens') {
         for (const v of ['home', 'runs', 'processes']) { app.click('nav', v); await app.tick(5); same(v + ' · ' + where); }
