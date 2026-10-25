@@ -93,13 +93,13 @@
     if (dr && (dr.open || String(dr.note || '').trim() || Object.keys(dr.record).length || Object.keys(dr.fields).length)) badges += '<span class="s-draft">Draft</span><span class="sr"> (typed, not saved yet)</span>';
     if (V.reportBadge && !P) badges += V.reportBadge(ctx, r, map, s.id);
     if (notes) badges += '<span class="s-notes">' + I('note') + notes + '<span class="sr"> note' + (notes === 1 ? '' : 's') + '</span></span>';
-    var stamp = P ? (pm.status === 'assumed' || !P.canEdit(s.id) ? '' : '<button class="mini s-edit" data-act="pr-edit" data-id="' + esc(s.id) + '" aria-label="Edit: ' + esc(s.text) + '">' + I('edit') + 'Edit</button>')
+    var stamp = P ? (pm.status === 'assumed' || !P.canEdit(s.id) ? '' : '<button class="mini s-edit" data-act="pr-edit" data-id="' + esc(s.id) + '" aria-label="Edit: ' + esc(K.stepPlain(s, K.refValue(r, map))) + '">' + I('edit') + 'Edit</button>')
       : a && (a.s === 'done' || a.s === 'na') ? '<span class="stamp">' + avatar(ctx, a.by) + ' ' + U.hm(a.at) + '</span>' : '';
     var flash = st.flash && st.flash.ids && st.flash.ids.indexOf(s.id) >= 0;
     var canCheck = rec && open && (t.id !== 'run.process' || !!P) && !heldWhy && !(P && (P.paused || pm.status === 'assumed'));
     return '<li class="step' + (sel ? ' sel' : '') + (isNext ? ' next' : '') + (flash ? ' flash' : '') + '" data-a="' + esc(aState) + '" id="step-' + esc(s.id) + '">' +
-      '<button class="check" role="checkbox" aria-checked="' + (aState === 'done') + '" aria-label="' + esc(s.text) + ', ' + esc(P && aState === 'recheck' ? 'try it again' : P && pm.status === 'assumed' ? 'assumed for practice' : STATE_WORD[aState] || aState) + (s.must ? ', must do' : '') + '" data-act="toggle" data-id="' + esc(s.id) + '"' + (canCheck ? '' : ' disabled') + (t.id === 'run.process' && !P ? ' title="Checked when its linked run completes"' : '') + '>' + I('check') + '</button>' +
-      '<button class="s-pick" data-act="select" data-id="' + esc(s.id) + '" aria-pressed="' + sel + '" aria-controls="rw-ins">' + (isNext ? '<span class="s-next">Next</span>' : '') + '<span class="s-text">' + inlineText(s.text) + '</span><span class="s-meta">' + meta + '</span>' + (badges ? '<span class="badges">' + badges + '</span>' : '') + '</button>' +
+      '<button class="check" role="checkbox" aria-checked="' + (aState === 'done') + '" aria-label="' + esc(K.stepPlain(s, K.refValue(r, map))) + ', ' + esc(P && aState === 'recheck' ? 'try it again' : P && pm.status === 'assumed' ? 'assumed for practice' : STATE_WORD[aState] || aState) + (s.must ? ', must do' : '') + '" data-act="toggle" data-id="' + esc(s.id) + '"' + (canCheck ? '' : ' disabled') + (t.id === 'run.process' && !P ? ' title="Checked when its linked run completes"' : '') + '>' + I('check') + '</button>' +
+      '<button class="s-pick" data-act="select" data-id="' + esc(s.id) + '" aria-pressed="' + sel + '" aria-controls="rw-ins">' + (isNext ? '<span class="s-next">Next</span>' : '') + '<span class="s-text">' + K.stepHtml(s, K.refValue(r, map), false) + '</span><span class="s-meta">' + meta + '</span>' + (badges ? '<span class="badges">' + badges + '</span>' : '') + '</button>' +
       stamp + '</li>';
   }
 
@@ -139,7 +139,7 @@
     if (child) {
       /* The same verdict that refuses settlement (R.childHeld): a child it names can't stand for the step, current or not. */
       var off = cr ? R.childHeld(r, s.id, cr, procOf) : '';
-      var state = cr ? (cr.ended ? K.outcomeWord(cr.ended.outcome) : R.headline(cr, R.mapOf(cr)).text) : 'not visible in this folder yet', fresh = R.childCurrent(r, s, a) && !child.failed && !off;
+      var state = cr ? (cr.ended ? K.outcomeWord(cr.ended.outcome) : K.headline(cr, R.mapOf(cr)).text) : 'not visible in this folder yet', fresh = R.childCurrent(r, s, a) && !child.failed && !off;
       if (!two && off) return offer(PF.pins.legacyWhy(target.pub || { map: { meta: { title: cr.title } }, info: { process: cr.process, version: cr.version } }, r));
       var again = !fresh && canStart && target.pub && !target.legacy ? '<button class="btn" data-act="start-child" data-id="' + esc(s.id) + '">Start a new ' + esc(target.pub.map.meta.title) + ' run</button>' : !fresh && canStart && target.legacy ? '<span class="small">' + esc(target.why) + '</span><button class="btn" data-act="continue-two" data-id="' + esc(s.id) + '">Start it as a Flightdeck 2.0 run</button>' : '';
       return '<div class="childbox">' + I('nest') + '<span>Child run: <b>' + esc(cr ? cr.title : child.process) + '</b> · ' + esc(state) + (fresh ? '' : off ? '. ' + esc(off) : child.failed ? '. It didn\'t complete as started, so it doesn\'t count for this step.' : '. The details it was started for have changed, so it no longer counts for this step.') + '</span>' + (cr ? '<button class="mini" data-act="open-run" data-id="' + esc(key) + '">Open run</button>' : '') + again + '</div>';
@@ -344,11 +344,13 @@
   V.planAgain = planAgain;
 
   /* ---------- Next up: where the run stands, never where this window is looking ---------- */
+  /* Next up's line: a step (its text with run details in place) or words. */
+  function mainHtml(r, map, main) { return main && typeof main === 'object' ? K.stepHtml(main, K.refValue(r, map), false) : inlineText(main || ''); }
   function nextBar(ctx, r, map, nx, rec) {
     var s = ctx.state, hl = nx.hl, hint = '', main = '', btn = '';
     if (nx.kind === 'ended') { hint = 'This run has ended'; main = K.hlText(r, hl); }
     else if (nx.kind === 'paused') { hint = 'Paused'; main = r.paused.reason; btn = rec ? '<button class="btn go" data-act="resume">Resume</button>' : ''; }
-    else if (nx.kind === 'blocked') { hint = 'Stopped · blocked (' + (r.steps[nx.step.id] || {}).reason + ')'; main = nx.step.text; btn = '<button class="btn" data-act="goto" data-id="step-' + esc(nx.step.id) + '">Show blocked step</button>'; }
+    else if (nx.kind === 'blocked') { hint = 'Stopped · blocked (' + (r.steps[nx.step.id] || {}).reason + ')'; main = nx.step; btn = '<button class="btn" data-act="goto" data-id="step-' + esc(nx.step.id) + '">Show blocked step</button>'; }
     else if (nx.kind === 'gate') {
       var g = nx.gate, name = g.implicit ? 'Confirm ' + map.phases[nx.phaseIndex].title : g.title;
       hint = nx.status === 'failed' ? 'Gate failed' : nx.status === 'review' ? 'Gate needs review · something it approved changed' : 'Every step in ' + map.phases[nx.phaseIndex].title + ' is answered';
@@ -362,14 +364,14 @@
         var who = nx.track.roles.map(function (ro) { return r.roles[ro] ? nameOf(ctx, r.roles[ro]) : ''; }).filter(Boolean).join(', ');
         hint += ' · ' + esc(nx.track.title) + (who ? ' (' + esc(who) + ')' : '');
       }
-      main = nx.step.text;
+      main = nx.step;
       btn = here ? '<span class="small rw-here">Selected' + (rec && s.keys ? '<span class="rw-kbd"> · Space checks it</span>' : '') + '</span>' : '<button class="btn" data-act="goto" data-id="step-' + esc(nx.step.id) + '">' + (selOf(ctx) ? 'Back to it' : 'Go to step') + '</button>';
       if (ctx.practice && ctx.practice.canEdit(nx.step.id)) btn += '<button class="mini" data-act="pr-edit" data-id="' + esc(nx.step.id) + '">' + I('edit') + 'Edit</button>';
       var others = (nx.tracks || []).filter(function (t) { return t.step && (!nx.track || t.track.id !== nx.track.id); });
       var tail = others.map(function (t) { return esc(t.track.title) + ': ' + t.left + ' left'; }).join(' · ');
-      return '<div class="rw-next" data-k="step" role="region" aria-label="Next up"><div class="rw-next-t"><div class="small">Next up · ' + hint + '</div><b>' + inlineText(main) + '</b>' + (tail ? '<div class="small">Also open: ' + tail + '</div>' : '') + '</div>' + btn + '</div>';
+      return '<div class="rw-next" data-k="step" role="region" aria-label="Next up"><div class="rw-next-t"><div class="small">Next up · ' + hint + '</div><b>' + mainHtml(r, map, main) + '</b>' + (tail ? '<div class="small">Also open: ' + tail + '</div>' : '') + '</div>' + btn + '</div>';
     }
-    return '<div class="rw-next" data-k="' + esc(nx.kind) + (nx.status ? ' ' + esc(nx.status) : '') + '" role="region" aria-label="Next up"><div class="rw-next-t"><div class="small">' + esc(hint) + '</div><b>' + inlineText(main || '') + '</b></div>' + btn + '</div>';
+    return '<div class="rw-next" data-k="' + esc(nx.kind) + (nx.status ? ' ' + esc(nx.status) : '') + '" role="region" aria-label="Next up"><div class="rw-next-t"><div class="small">' + esc(hint) + '</div><b>' + mainHtml(r, map, main) + '</b></div>' + btn + '</div>';
   }
 
   /* ---------- the inspector: everything about the selected step ---------- */
@@ -453,7 +455,7 @@
     var shown = { 'corr-happened': answer, 'corr-to': fix && f.op === 'wording', 'corr-text': fix && f.op === 'add', 'corr-move': fix && f.op === 'move', 'corr-roles': fix && f.op === 'roles', 'corr-why': fix };
     var h = '<div class="compose corrform" data-scope="corr:' + esc(s.id) + '" data-drop="corr" role="group" aria-labelledby="corr-h"><h4 class="corr-h" id="corr-h">' + (answer ? 'Done differently' : 'Correct this step') + '</h4>' +
       (err && !shown[err.field] ? '<p class="ferr" id="ferr-corr" role="alert">' + esc(err.msg) + '</p>' : '') +
-      '<p class="small corr-says"><b>Checklist says</b> (v' + esc(r.version) + '): ' + esc(s.text) + '</p>';
+      '<p class="small corr-says"><b>Checklist says</b> (v' + esc(r.version) + '): ' + K.stepHtml(s, K.refValue(r, map)) + '</p>';
     if (answer) {
       h += '<label class="small" for="corr-happened"><b>What happened</b> (required)</label><textarea id="corr-happened" rows="2" maxlength="500" data-bound' + bad('corr-happened') + '>' + esc(f.happened) + '</textarea>' + fe('corr-happened');
       h += '<span class="small" id="corr-scope-l">Should the checklist change?</span><div class="seg" role="group" aria-labelledby="corr-scope-l">' + [['just', 'Just this run'], ['fix', 'Fix the checklist too']].map(function (o) { return '<button type="button" data-act="corr-scope" data-id="' + o[0] + '" aria-pressed="' + (f.scope === o[0]) + '">' + o[1] + '</button>'; }).join('') + '</div>';
@@ -474,7 +476,7 @@
           '<fieldset class="corr-where"><legend class="small">Where it goes</legend>' + [['after', 'After this step'], ['end', 'At the end of ' + x.phase.title]].map(function (w) { return '<label class="check-label small"><input type="radio" name="corr-where" id="corr-where-' + w[0] + '" data-bound' + (f.where === w[0] ? ' checked' : '') + '> ' + esc(w[1]) + '</label>'; }).join('') + '</fieldset>';
       } else if (f.op === 'move') {
         var opts = '<option value="">Choose…</option>' + map.phases.map(function (p) {
-          return '<optgroup label="' + esc(p.title) + '"><option value="start:' + esc(p.id) + '"' + (f.moveTo === 'start:' + p.id ? ' selected' : '') + '>At the start of ' + esc(p.title) + '</option>' + p.steps.filter(function (y) { return y.id !== s.id; }).map(function (y) { return '<option value="after:' + esc(y.id) + '"' + (f.moveTo === 'after:' + y.id ? ' selected' : '') + '>After "' + esc(y.text.slice(0, 80)) + '"</option>'; }).join('') + '</optgroup>';
+          return '<optgroup label="' + esc(p.title) + '"><option value="start:' + esc(p.id) + '"' + (f.moveTo === 'start:' + p.id ? ' selected' : '') + '>At the start of ' + esc(p.title) + '</option>' + p.steps.filter(function (y) { return y.id !== s.id; }).map(function (y) { return '<option value="after:' + esc(y.id) + '"' + (f.moveTo === 'after:' + y.id ? ' selected' : '') + '>After "' + esc(K.stepPlain(y, K.refValue(r, map)).slice(0, 80)) + '"</option>'; }).join('') + '</optgroup>';
         }).join('');
         h += '<label class="small" for="corr-move">Move it to</label><select id="corr-move" data-bound' + bad('corr-move') + '>' + opts + '</select>' + fe('corr-move');
       } else if (f.op === 'roles') {
@@ -537,7 +539,7 @@
       '<button class="linkish rw-skip" data-act="to-row" data-id="' + esc(st.id) + '">Back to the checklist</button></div>';
     h += '<div class="rw-ins-body">';
     h += '<nav aria-label="Where it is"><ol class="ob-crumbs"><li>' + esc(ph.title) + '</li>' + (track ? '<li>' + esc(track.title) + '</li>' : '') + '<li>Step ' + inPhase + ' of ' + ph.steps.length + '</li></ol></nav>';
-    h += '<h2 id="ins-h" class="rw-ins-h" tabindex="-1">' + U.mdInline(st.text) + '</h2>';
+    h += '<h2 id="ins-h" class="rw-ins-h" tabindex="-1">' + K.stepHtml(st, K.refValue(r, map)) + '</h2>';
     h += '<div class="rw-ins-meta"><span class="type">' + I(t.icon) + esc(t.label) + '</span>' + (who ? '<span class="small">' + who + '</span>' : '') + (st.must ? '<span class="badge b-must">Must do</span>' : '') +
       '<span class="badge rw-st s-' + esc(aState) + '">' + esc(P && pm.status === 'assumed' ? 'Assumed for practice' : aState === 'open' ? 'Not checked' : aState === 'done' ? 'Done' : aState === 'na' ? (P ? 'Not needed' : 'N/A') : aState === 'blocked' ? 'Blocked' : P ? 'Try it again' : 'Re-check') + '</span>' +
       (a && (a.s === 'done' || a.s === 'na') && !P ? '<span class="small">' + esc(nameOf(ctx, a.by)) + ' · ' + U.hm(a.at) + '</span>' : '') + '</div>';
@@ -786,7 +788,7 @@
     /* Conditions (2.1): steps that aren't needed in this run fold to one quiet line at the end of the phase. */
     var nn = map ? (R.phaseInfo(r, map, pi).notNeeded || []) : [], needed = function (st) { return nn.indexOf(st) < 0; };
     var loose = p.steps.filter(function (st) { return !st.track && needed(st); }), h = loose.length ? '<ul class="steps">' + loose.map(row).join('') + '</ul>' : '';
-    var folded = nn.length ? '<details class="folded not-needed"><summary class="small">' + nn.length + ' step' + (nn.length === 1 ? '' : 's') + ' not needed</summary><ul class="small">' + nn.map(function (st) { return '<li>' + inlineText(st.text) + ' · ' + esc(R.applies(r, map, pi, st).why.replace(/\^/g, '')) + '</li>'; }).join('') + '</ul></details>' : '';
+    var folded = nn.length ? '<details class="folded not-needed"><summary class="small">' + nn.length + ' step' + (nn.length === 1 ? '' : 's') + ' not needed</summary><ul class="small">' + nn.map(function (st) { return '<li>' + K.stepHtml(st, K.refValue(r, map), false) + ' · ' + esc(R.applies(r, map, pi, st).why.replace(/\^/g, '')) + '</li>'; }).join('') + '</ul></details>' : '';
     if (!p.tracks || !p.tracks.length) return h + folded;
     return h + '<div class="tracks">' + p.tracks.map(function (t) {
       var steps = p.steps.filter(function (st) { return st.track === t.id && needed(st); }), done = steps.filter(function (st) { return R.answered(r, st); }).length;
@@ -844,7 +846,7 @@
   function run(ctx) {
     var r = ctx.run(), s = ctx.state;
     if (!r) return K.notices(ctx) + '<div class="panel">That run wasn\'t found. <button class="mini" data-act="home">Back to Home</button></div>';
-    var map = mapOf(ctx, r), rec = ctx.recording(r), t = R.totals(r, map), P = prOf(ctx), nx = R.nextUp(r, map, s.me), hl = nx.hl, now = Date.now();
+    var map = mapOf(ctx, r), rec = ctx.recording(r), t = R.totals(r, map), P = prOf(ctx), nx = R.nextUp(r, map, s.me, K.shownOpt(r, map)), hl = nx.hl, now = Date.now();
     var items = P ? [] : R.schedule(r, map, now), schedBy = {}, late = items.filter(function (it) { return it.status === 'late' || it.status === 'started?'; }).length;
     items.forEach(function (it) { schedBy[it.what + ':' + it.id] = it; });
     var pct = t.total ? Math.round(t.done / t.total * 100) : 0, alone = R.solo(r);
@@ -878,7 +880,7 @@
     if (s.folderErr) al += '<div class="notice bad" role="alert"><span><b>Can\'t read the team folder.</b> ' + esc(s.folderErr) + ' You\'re seeing what was last read at ' + U.hm(ctx.data.readAt) + '. Check that OneDrive is running and the folder is available offline.</span><button class="btn" data-act="refresh">Try again</button></div>';
     /* A Done differently whose correction was saved but whose answer couldn't be: said here until someone acts. */
     var part = (s.partial || {})[runKey(r)], pa = part && r.steps[part.step];
-    if (part && !(pa && pa.s === 'done' && pa.differently)) { var px = M.findStep(map, part.step); al += '<div class="notice warn" role="status"><span><b>Correction saved; the step wasn\'t marked done.</b> ' + esc(px ? px.step.text : part.step) + '</span><span class="row">' + (rec && px ? '<button class="btn" data-act="corr-open" data-mode="differently" data-id="' + esc(part.step) + '">Mark it now</button>' : '') + '<button class="mini" data-act="partial-dismiss" data-id="' + esc(runKey(r)) + '">Dismiss</button></span></div>'; }
+    if (part && !(pa && pa.s === 'done' && pa.differently)) { var px = M.findStep(map, part.step); al += '<div class="notice warn" role="status"><span><b>Correction saved; the step wasn\'t marked done.</b> ' + (px ? K.stepHtml(px.step, K.refValue(r, map)) : esc(part.step)) + '</span><span class="row">' + (rec && px ? '<button class="btn" data-act="corr-open" data-mode="differently" data-id="' + esc(part.step) + '">Mark it now</button>' : '') + '<button class="mini" data-act="partial-dismiss" data-id="' + esc(runKey(r)) + '">Dismiss</button></span></div>'; }
     /* A note line that isn't complete JSON (2.1.1): named, never guessed at; the rest of the notes show. */
     (r._noteLines || []).forEach(function (x) { al += '<div class="notice warn" role="status"><span>' + esc(PF.health.noteLineText(x)) + '</span></div>'; });
     al += recovery(ctx, r, ctx.canRecover(r));

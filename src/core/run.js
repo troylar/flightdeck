@@ -463,11 +463,12 @@ PF.run = (function () {
   function allGatesOk(r, map) { for (var i = 0; i < map.phases.length; i++) if (!gateOk(gateStatus(r, map, i))) return false; return true; }
 
   /* The one sentence that says where the run is. */
-  function headline(r, map) {
+  /* opts.shown(step), for screens (2.3.1): a step's text as shown there; without it, the text as the file and other apps read it. */
+  function headline(r, map, opts) {
     if (r.paused && !r.ended) return { s: 'paused', text: 'Paused: ' + r.paused.reason, sub: 'Paused since ' + U.hm(r.paused.at) + '. Resume to continue.' };
     if (r.ended) return { s: r.ended.outcome === 'Completed' ? 'complete' : 'stopped', text: 'Ended: ' + r.ended.outcome, sub: 'by ' + r.ended.byName };
     var blocked = blockedSteps(r, map);
-    if (blocked.length) { var b = blocked[0], a = r.steps[b.step.id]; return { s: 'stopped', text: 'Stopped: ' + b.step.text, sub: 'Blocked (' + a.reason + '). Resolve it before anyone moves on.', step: b.step.id }; }
+    if (blocked.length) { var b = blocked[0], a = r.steps[b.step.id]; return { s: 'stopped', text: 'Stopped: ' + (opts && opts.shown ? opts.shown(b.step) : b.step.text), sub: 'Blocked (' + a.reason + '). Resolve it before anyone moves on.', step: b.step.id }; }
     for (var pi = 0; pi < map.phases.length; pi++) {
       var st = gateStatus(r, map, pi), g = map.phases[pi].gate, info = phaseInfo(r, map, pi);
       if (gateOk(st)) continue;
@@ -968,7 +969,7 @@ PF.run = (function () {
         if (cond && applies(r, map, pi, st).applies === false) return;
         var w = when(fieldsOf(r, st)); if (!w || isNaN(w.ms)) return;
         var a = r.steps[st.id], doneAt = a && (a.s === 'done' || a.s === 'na') ? new Date(a.at).getTime() : null;
-        items.push({ what: 'step', id: st.id, title: st.text, phase: p.title, kind: w.kind, ms: w.ms, doneAt: doneAt, status: status(w, doneAt) });
+        items.push({ what: 'step', id: st.id, title: M.shownText(st, M.valuesOf(r)), phase: p.title, kind: w.kind, ms: w.ms, doneAt: doneAt, status: status(w, doneAt) });
       });
       var g = p.gate, gw = g.fields && when(g.fields);
       if (gw && !isNaN(gw.ms)) { var gr = r.gates[g.id], gs = gateStatus(r, map, pi), gDone = (gs === 'passed' || gs === 'waived') && gr ? new Date(gr.at).getTime() : null;
@@ -1214,8 +1215,8 @@ PF.run = (function () {
   /* What the run screen points at next, from the same rules as the headline: a blocked step, a gate to review, failed or
      ready, else the next unanswered step of the open phase (one assigned to this person first; a step everyone can do counts
      for the recorder). Parallel tracks each say what's next in them. It depends on the run, never on what someone is looking at. */
-  function nextUp(r, map, personId) {
-    var hl = headline(r, map);
+  function nextUp(r, map, personId, opts) {
+    var hl = headline(r, map, opts);
     if (r.ended) return { kind: 'ended', hl: hl };
     if (r.paused) return { kind: 'paused', hl: hl };
     if (hl.step) { var bx = M.findStep(map, hl.step); return { kind: 'blocked', hl: hl, step: bx ? bx.step : null, phaseIndex: bx ? bx.phaseIndex : 0 }; }
@@ -1268,10 +1269,10 @@ PF.run = (function () {
       lines.push(p.title);
       p.steps.forEach(function (s) {
         var ap = applies(r, map, pi, s);
-        if (ap.applies === false) { notNeeded.push(s.text + ': ' + ap.why); return; }
+        if (ap.applies === false) { notNeeded.push(M.shownText(s, M.valuesOf(r)) + ': ' + ap.why); return; }
         var a = r.steps[s.id], word = ap.applies === null ? 'WAITING - ' + ap.why : !a ? 'NOT CHECKED' : a.s === 'done' ? 'DONE' : a.s === 'na' ? 'N/A' : a.s === 'blocked' ? 'BLOCKED - ' + a.reason : a.s === 'recheck' ? 'RE-CHECK - ' + a.reason : 'NOT CHECKED';
         var from = reportOf && a && a.s === 'done' ? reportOf(s.id) : '';
-        lines.push('  [' + word + '] ' + s.text + (from ? ' (' + from + ')' : '') + (a && a.differently ? ' (done differently: ' + a.differently.note + ')' : ''));
+        lines.push('  [' + word + '] ' + M.shownText(s, M.valuesOf(r)) + (from ? ' (' + from + ')' : '') + (a && a.differently ? ' (done differently: ' + a.differently.note + ')' : ''));
         if (a && a.s === 'done' && a.values) { evidenceFor(r, s).list.forEach(function (d) { if (a.values[d.name]) lines.push('      ' + d.label + ': ' + shown(r, map, 'steps.' + s.id + '.values.' + d.name, a.values[d.name])); }); }
       });
       var gw = st === 'passed' ? 'PASSED' : st === 'waived' ? 'WAIVED - ' + gr.reason : st === 'failed' ? 'FAILED - ' + gr.reason : st === 'review' ? 'NEEDS REVIEW' : 'NOT PASSED';

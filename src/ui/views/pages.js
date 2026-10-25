@@ -7,7 +7,7 @@
   /* ---------- mission control ---------- */
   function mission(ctx) {
     var r = ctx.run(); if (!r) return V.run(ctx);
-    var map = R.mapOf(r), hl = R.headline(r, map), now = ctx.now(), cur = null;
+    var map = R.mapOf(r), hl = K.headline(r, map), now = ctx.now(), rv = K.refValue(r, map), cur = null;
     map.phases.some(function (p, pi) { var st = R.gateStatus(r, map, pi); if (st !== 'passed' && st !== 'waived') { cur = pi; return true; } return false; });
     /* Who records and whether it's paused stay visible during a call, with save and folder problems (notices) above. */
     var who = r.ended ? 'Ended' : r.paused ? 'Paused by ' + nameOf(ctx, r.paused.by) + ': ' + r.paused.reason : !r.recorder.session ? 'Waiting for ' + nameOf(ctx, r.recorder.person) + ' to pick up recording' : nameOf(ctx, r.recorder.person) + ' is recording' + (ctx.recording(r) ? ' (you, in this window)' : '');
@@ -19,7 +19,7 @@
         var a = r.steps[s.id], st = a && a.s !== 'open' ? a.s : 'open', who = s.roles.map(function (ro) { return r.roles[ro] ? avatar(ctx, r.roles[ro], true) : ''; }).join('');
         var right = a && a.deadline && st !== 'done' ? '<span class="timer due" data-until="' + esc(a.deadline.at) + '">' + U.clock(new Date(a.deadline.at) - now) + '</span>' : a && a.started && st !== 'done' && st !== 'na' ? (r.paused ? '<span class="timer">' + U.clock(R.activeMs(r, a.started.at, now)) + ' · paused</span>' : '<span class="timer" data-since="' + esc(a.started.at) + '" data-offset="' + ((now - new Date(a.started.at).getTime()) - R.activeMs(r, a.started.at, now)) + '">' + U.clock(R.activeMs(r, a.started.at, now)) + '</span>') : '';
         var why = a && (st === 'blocked' || st === 'recheck') && a.reason ? '<span class="m-why">' + (st === 'blocked' ? 'Blocked: ' : 'Re-check: ') + esc(a.reason) + '</span>' : '';
-        return '<li data-a="' + st + '"><span class="ric ' + st + '">' + ({ done: '✓', na: 'N/A', blocked: '■', recheck: '↻', open: '○' }[st]) + '<span class="sr"> ' + st + '</span></span><span>' + U.mdInline(s.text) + ' ' + who + why + '</span>' + right + '</li>';
+        return '<li data-a="' + st + '"><span class="ric ' + st + '">' + ({ done: '✓', na: 'N/A', blocked: '■', recheck: '↻', open: '○' }[st]) + '<span class="sr"> ' + st + '</span></span><span>' + K.stepHtml(s, rv) + ' ' + who + why + '</span>' + right + '</li>';
       }).join('') + '</ul>';
     }
     h += '</div><div class="stack"><h2>Gates</h2><ul class="gates">' + map.phases.map(function (p, pi) {
@@ -56,7 +56,7 @@
   /* ---------- receipt ---------- */
   function receipt(ctx) {
     var r = ctx.run(); if (!r) return V.run(ctx);
-    var map = R.mapOf(r), hl = R.headline(r, map), ICON = { done: '✓', na: 'N/A', blocked: '■', recheck: '↻', open: '○' };
+    var map = R.mapOf(r), hl = K.headline(r, map), rv = K.refValue(r, map), ICON = { done: '✓', na: 'N/A', blocked: '■', recheck: '↻', open: '○' };
     var det = map.meta.context.filter(function (f) { return r.details[f]; }).map(function (f) { return f + ': ' + R.shown(r, map, 'details.' + f, r.details[f]); }).join(' · ');
     /* Where an answer came from, when it was an accepted report: from the run's own log line, which names the report's bytes. */
     var who = function (id) { return nameOf(ctx, id); }, rb = ctx.reports ? ctx.reports(r) : null, reps = rb ? rb.list.map(function (it) { return it.g; }) : [];
@@ -69,11 +69,11 @@
       if (gst === 'skipped') { notNeeded.push(p.title + ' (phase): ' + R.applies(r, map, pi).why); return ''; }
       return '<div><h4><span>' + esc(p.title) + '</span><span class="pill ' + gst + '">' + esc(p.gate.implicit ? 'confirm' : p.gate.title) + ': ' + gst + '</span></h4>' + p.steps.map(function (s) {
         var ap = R.applies(r, map, pi, s);
-        if (ap.applies === false) { notNeeded.push(s.text + ': ' + ap.why); return ''; }
+        if (ap.applies === false) { notNeeded.push(K.stepPlain(s, rv) + ': ' + ap.why); return ''; }
         var a = r.steps[s.id], st = a && a.s !== 'open' ? a.s : 'open';
         var ev = a && a.s === 'done' && a.values ? R.evidenceFor(r, s).list.filter(function (d) { return a.values[d.name]; }).map(function (d) { return esc(d.label) + ': ' + esc(R.shown(r, map, 'steps.' + s.id + '.values.' + d.name, a.values[d.name])); }).join(' · ') : '';
         var from = a && a.s === 'done' ? reportOf(s.id) : '';
-        return '<div class="rrow"><span class="ric ' + st + '">' + ICON[st] + '<span class="sr"> ' + st + '</span></span><span>' + esc(s.text) + (a && a.differently ? ' <span class="badge b-diff">differently</span>' : '') + (ev ? '<span class="small" style="display:block">' + ev + '</span>' : '') + (from ? '<span class="small" style="display:block">' + esc(from[0].toUpperCase() + from.slice(1)) + '</span>' : '') + '</span><span class="small">' + esc(ap.applies === null ? ap.why : a && (a.s === 'blocked' || a.s === 'recheck') ? a.reason : '') + '</span></div>';
+        return '<div class="rrow"><span class="ric ' + st + '">' + ICON[st] + '<span class="sr"> ' + st + '</span></span><span>' + K.stepHtml(s, rv) + (a && a.differently ? ' <span class="badge b-diff">differently</span>' : '') + (ev ? '<span class="small" style="display:block">' + ev + '</span>' : '') + (from ? '<span class="small" style="display:block">' + esc(from[0].toUpperCase() + from.slice(1)) + '</span>' : '') + '</span><span class="small">' + esc(ap.applies === null ? ap.why : a && (a.s === 'blocked' || a.s === 'recheck') ? a.reason : '') + '</span></div>';
       }).join('') + '</div>';
     }).join('');
     if (notNeeded.length) body += '<div class="r-nn"><h4><span>Not needed in this run</span></h4>' + notNeeded.map(function (x) { return '<div class="rrow"><span class="ric open">–</span><span class="small">' + esc(x.replace(/\^/g, '')) + '</span></div>'; }).join('') + '</div>';

@@ -273,7 +273,7 @@ PF.practice = (function () {
           present[s.id] = true;
           var ap = R.applies(r, pm, pi, s), a = d.view.steps[s.id], rec = own(state.answers, s.id) ? state.answers[s.id] : null;
           var status = ap.applies === false ? 'hidden' : a && a.by === 'assumed' ? 'assumed' : ap.applies === null ? 'waiting' : !a ? 'open' : a.s === 'recheck' ? 'again' : a.s === 'na' ? 'skipped' : 'done';
-          return { id: s.id, text: s.text, type: s.type, must: s.must, temp: isTemp(s.id), status: status, why: ap.why || '', old: d.again[s.id] ? d.again[s.id].s : null, simulated: simulated(s, envOf(types).types),
+          return { id: s.id, text: s.text, shown: M.shownText(s, M.valuesOf(r)), type: s.type, must: s.must, temp: isTemp(s.id), status: status, why: ap.why || '', old: d.again[s.id] ? d.again[s.id].s : null, simulated: simulated(s, envOf(types).types),
             ask: !!(d.now[s.id] && d.now[s.id].ask), fill: s.type && T.get(s.type, envOf(types).types || {}) ? T.editable(T.get(s.type, envOf(types).types || {})).length > 0 : false,
             again: a && a.s === 'recheck' ? { reason: a.reason, detail: a.detail || '' } : null, skipped: !!(rec && rec.skipped && status === 'done'), values: rec && rec.values && status !== 'assumed' ? rec.values : null };
         }) };
@@ -285,7 +285,7 @@ PF.practice = (function () {
     var through = nu.kind === 'complete' && steps > 0;
     return { phases: phases, nextUp: { kind: nu.kind, step: nu.step ? nu.step.id : null, gate: nu.gate ? nu.gate.id : null, phaseIndex: nu.phaseIndex, text: nu.hl ? nu.hl.text : '' },
       gone: gone, complete: through && !fr, setBy: Object.assign({}, state.setBy || {}),
-      from: fr ? { id: fr.id, text: fr.text, moved: fr.id !== state.from, assumed: fr.count, needed: needed(state, map, pm, r, fr), through: through } : null };
+      from: fr ? { id: fr.id, text: fr.text, shown: M.shownText(fr, M.valuesOf(r)), moved: fr.id !== state.from, assumed: fr.count, needed: needed(state, map, pm, r, fr), through: through } : null };
   }
   function phaseOpenOf(r, map, pi) { return R.phaseOpen(r, map, pi); }
   /* A step that does something practice can't: a linked run or a skill (only "Mark done for practice"), or evidence it

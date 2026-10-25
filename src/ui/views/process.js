@@ -18,7 +18,7 @@
       var meta = (s.must ? K.mustMark() : '') + (by[s.id] ? '<span class="pv-skill">' + I('spark') + esc(by[s.id].join(', ')) + '</span>' : '') + (s.planned ? '<span class="badge b-plan">Automation planned</span>' : '') +
         (s.roles.length ? '<span class="pv-role">@' + esc(s.roles.join(' @')) + '</span>' : '') + fixBadge(s.id), cond = K.whenWords(s);
       /* The checklist panel gives each step an anchor, so the flight plan (go() with a step) can open it there. */
-      return '<li' + (hs ? ' class="pv-sel" id="pv-sel" aria-current="true"' : anchor ? ' id="cl-st-' + esc(s.id) + '" tabindex="-1"' : '') + '>' + (t ? I(t.icon, t.label) : '<span class="ic"></span>') + '<div class="pv-body"><span class="pv-copy">' + K.detailWords(U.mdInline(s.text)) + '</span>' + (cond ? '<span class="pv-when">' + cond + '</span>' : '') + (meta ? '<span class="pv-meta">' + meta + '</span>' : '') + '</div></li>';
+      return '<li' + (hs ? ' class="pv-sel" id="pv-sel" aria-current="true"' : anchor ? ' id="cl-st-' + esc(s.id) + '" tabindex="-1"' : '') + '>' + (t ? I(t.icon, t.label) : '<span class="ic"></span>') + '<div class="pv-body"><span class="pv-copy">' + K.stepHtml(s, null) + '</span>' + (cond ? '<span class="pv-when">' + cond + '</span>' : '') + (meta ? '<span class="pv-meta">' + meta + '</span>' : '') + '</div></li>';
     };
     /* Lanes stay lanes: the steps before any lane, then each lane as a labeled group under "Do all lanes". */
     return (whole.length ? '<p class="small">' + I('spark') + ' The whole process: ' + esc(whole.join(', ')) + '</p>' : '') + map.phases.map(function (p, pi) {
@@ -115,7 +115,7 @@
     } else h += '<p class="small"><b>Almost.</b> ' + ready.clean + ' clean runs' + testWords(ready) + '. ' + esc(nameOf(ctx, owner)) + ', the owner, signs it off' + (pub.map.meta.backup && pub.map.meta.backup !== owner ? ' (or ' + esc(nameOf(ctx, pub.map.meta.backup)) + ', the backup owner, while the owner is away)' : '') + '.</p>';
     /* Conditions (2.1), information only: steps that apply only sometimes and that no clean run has needed yet. */
     var un = ready.clean ? ready.unseen || [] : [];
-    if (un.length) h += '<p class="small">Not yet seen in a clean run: ' + esc(un.slice(0, 5).map(function (x) { return x.text; }).join(', ')) + (un.length > 5 ? ' and ' + (un.length - 5) + ' more' : '') + '.</p>';
+    if (un.length) h += '<p class="small">Not yet seen in a clean run: ' + esc(un.slice(0, 5).map(function (x) { return K.stepPlain(x, null); }).join(', ')) + (un.length > 5 ? ' and ' + (un.length - 5) + ' more' : '') + '.</p>';
     var devOpen = st.disc && st.disc['dev:' + p.id] === true;
     if (ready.deviations.length) h += '<details' + (devOpen ? ' open' : '') + ' data-disc="dev:' + esc(p.id) + '"><summary class="small" id="sum-dev">Why some runs don\'t count (' + ready.deviations.length + ')</summary><ul class="small">' + ready.deviations.slice(0, 20).map(function (d) { return '<li>' + esc(d.run) + ': ' + (d.text ? '"' + esc(d.text) + '" ' : '') + esc(d.kind) + (d.note ? ': ' + esc(d.note) : '') + '</li>'; }).join('') + '</ul></details>';
     return h + (bare ? '' : '</section>');
@@ -144,7 +144,7 @@
     order.filter(function (k) { return groups[k]; }).forEach(function (k) {
       var x = map && !/^(phase|gate):/.test(k) && M.findStep(map, k), ph = map && k.indexOf('phase:') === 0 && map.phases.filter(function (q) { return 'phase:' + q.id === k; })[0], gt = map && k.indexOf('gate:') === 0 && map.phases.filter(function (q) { return q.gate && 'gate:' + q.gate.id === k; })[0];
       var gs = groups[k], alts = gs.filter(function (g) { return g.status === 'open' && g.change.op !== 'describe'; }).length;
-      h += '<h3 class="fixgroup">' + (x ? U.mdInline(x.step.text) : ph ? 'Phase: ' + esc(ph.title) : gt ? 'Gate: ' + esc(gt.gate.title) : esc(C.targetName(gs[0])) + ' <span class="small">(not in the current version)</span>') + '</h3>' +
+      h += '<h3 class="fixgroup">' + (x ? K.stepHtml(x.step, null) : ph ? 'Phase: ' + esc(ph.title) : gt ? 'Gate: ' + esc(gt.gate.title) : esc(C.targetName(gs[0])) + ' <span class="small">(not in the current version)</span>') + '</h3>' +
         (alts > 1 ? '<p class="small corr-alts"><b>' + (alts === 2 ? 'Two' : alts) + ' proposed changes.</b> Each can be decided on its own.</p>' : '') +
         '<ul class="fixlist">' + gs.map(function (g) { return groupItem(ctx, p, g); }).join('') + '</ul>';
     });
@@ -347,7 +347,7 @@
       (earlier.length || stg ? '<details data-disc="vers:' + esc(p.id) + '"' + (verOpen ? ' open' : '') + '><summary class="small">All versions' + (earlier.length ? ' (' + p.all.length + ')' : '') + '</summary>' + (earlier.length ? '<ul class="vlist compact">' + earlier.map(function (v, i) { return verLi(v, i + 1); }).join('') + '</ul>' : '') + stg + '</details>' : '') + '</section>';
     var runs = ctx.data.runs.filter(function (r) { return r.process === p.id; }).sort(function (a, b) { return a.created < b.created ? 1 : -1; });
     h += '<section class="panel" aria-labelledby="pr-h"><h2 id="pr-h">Recent runs</h2>' + (runs.length ? '<ul class="plist">' + runs.slice(0, 3).map(function (r) {
-      var hl = R.headline(r, R.mapOf(r));
+      var hl = K.headline(r, R.mapOf(r));
       return '<li><button data-act="open-run" data-id="' + esc(runKey(r)) + '"><span class="t">' + esc(r.title) + '</span><span class="pill ' + hl.s + '">' + esc(r.ended ? K.outcomeWord(r.ended.outcome) : 'running') + '</span><span class="small">' + esc(U.day(r.created)) + ' · ' + esc(K.verWord(r)) + '</span></button></li>';
     }).join('') + '</ul>' + (runs.length > 3 ? '<button class="link" data-act="runs-of" data-id="' + esc(p.id) + '">All ' + runs.length + ' runs of this process</button>' : '') : '<p class="small">No runs yet. Start one with <b>Start a run</b>.</p>') + '</section>';
     return h + (mine ? '' : skillsFold(ctx, p, pub)) + '</aside></div>';

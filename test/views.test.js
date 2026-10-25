@@ -925,7 +925,7 @@ rule('Flight plan: each phase lists its steps in order under a disclosure that s
   const jenkins = fpStep(html, 'jenkins');
   assert.ok(/role="img" aria-label="Jenkins job"/.test(jenkins), 'its type icon, named');
   assert.ok(/<button type="button" class="fp-step" data-act="go" data-view="process" data-process="release" data-map-ver="/.test(jenkins) && jenkins.indexOf('data-map-ver="' + latest.info.folder + '"') > 0, 'a button that opens it in this exact version');
-  assert.ok(/>Start the production deploy job<span class="sr">/.test(jenkins), 'its text');
+  assert.ok(/>Start the production deploy job <span class="ref-empty">‹tag›<\/span><span class="sr">/.test(jenkins), 'its text');
   assert.ok(/<span class="badge b-must">Must do<\/span>/.test(jenkins) && /<span class="pv-role">@backend<\/span>/.test(jenkins), 'must-do and role');
   const notes = fpStep(html, 'notes');
   assert.ok(!/b-must/.test(notes) && /@release-lead/.test(notes), 'a step that isn\'t a must-do has no mark');
@@ -1629,7 +1629,7 @@ rule('Run workspace: rows are compact, with the check and the row as separate na
   const { r, ctx, state } = setup();
   playPhase(r, 0);
   let html = V.run(ctx), row = rowOf(html, 'merge');
-  assert.ok(/^<li class="step next" data-a="open" id="step-merge"><button class="check" role="checkbox" aria-checked="false" aria-label="Merge the release branch to master, not checked, must do" data-act="toggle" data-id="merge">/.test(row), row);
+  assert.ok(/^<li class="step next" data-a="open" id="step-merge"><button class="check" role="checkbox" aria-checked="false" aria-label="Merge the release branch to master aaa111, not checked, must do" data-act="toggle" data-id="merge">/.test(row), row);
   assert.ok(/<button class="s-pick" data-act="select" data-id="merge" aria-pressed="false" aria-controls="rw-ins"><span class="s-next">Next<\/span>/.test(row), 'selecting is its own control');
   assert.ok(/<span class="s-who">Casey Nguyen<\/span>/.test(row) && /<span class="mustmark" role="img" aria-label="Must do" title="Must do">!<\/span>/.test(row), 'who does it; must-do stays quiet');
   state.sel = 'pods'; html = V.run(ctx);
@@ -1644,11 +1644,11 @@ rule('Run workspace: Next up only navigates, stays put while you browse, and fol
   const map = R.mapOf(r);
   playPhase(r, 0);
   let n = nextOf(V.run(ctx));
-  assert.ok(/Next up · Deploy · 4 to go, then the "Deployed" gate/.test(n) && /<b>Merge the release branch to master<\/b>/.test(n) && /data-act="goto" data-id="step-merge">Go to step/.test(n), n);
+  assert.ok(/Next up · Deploy · 4 to go, then the "Deployed" gate/.test(n) && /<b>Merge the release branch to master aaa111<\/b>/.test(n) && /data-act="goto" data-id="step-merge">Go to step/.test(n), n);
   assert.ok(!/data-act="(toggle|record|na|pick)"/.test(n), 'never a completion control');
   state.sel = 'merge'; assert.ok(/Selected<span class="rw-kbd"> · Space checks it<\/span>/.test(nextOf(V.run(ctx))));
   state.sel = 'approved'; n = nextOf(V.run(ctx));
-  assert.ok(/<b>Merge the release branch to master<\/b>/.test(n) && /data-act="goto" data-id="step-merge">Back to it/.test(n), 'browsing an earlier step: the same next step, one click back');
+  assert.ok(/<b>Merge the release branch to master aaa111<\/b>/.test(n) && /data-act="goto" data-id="step-merge">Back to it/.test(n), 'browsing an earlier step: the same next step, one click back');
   R.block(r, map, 'jenkins', 'Waiting on someone', 'person-casey', NOW);
   assert.ok(/data-act="goto" data-id="step-jenkins">Show blocked step/.test(nextOf(V.run(ctx))));
   R.clear(r, map, 'jenkins', 'person-casey', NOW);
@@ -1666,7 +1666,7 @@ rule('Run workspace: choosing a step changes the whole inspector, and the select
   playPhase(r, 0);
   r._notes = [{ id: 'n1', at: NOW, by: 'person-avery', step: 'jenkins', text: 'Queue is busy', files: [] }];
   state.sel = 'jenkins'; let ins = insOf(V.run(ctx));
-  assert.ok(/data-scope="ref:jenkins"/.test(ins) && /<li>Deploy<\/li><li>Step 2 of 4<\/li>/.test(ins) && /<h2 id="ins-h" class="rw-ins-h" tabindex="-1">Start the production deploy job<\/h2>/.test(ins));
+  assert.ok(/data-scope="ref:jenkins"/.test(ins) && /<li>Deploy<\/li><li>Step 2 of 4<\/li>/.test(ins) && /<h2 id="ins-h" class="rw-ins-h" tabindex="-1">Start the production deploy job <span class="ref-empty">‹tag›<\/span><\/h2>/.test(ins));
   assert.ok(/<b>Job:<\/b> web-app-deploy-prod/.test(ins) && /<code>TICKET=ABC-1 TAG=\(tag not set\)<\/code><button class="mini" data-act="copy"/.test(ins) && /Usually 25m/.test(ins), 'instructions, values with Copy, timing');
   assert.ok(/<h3 class="rw-h3" id="ins-rec">Record the result<\/h3>/.test(ins) && /id="rec-build"/.test(ins) && /data-act="pick" data-kind="fields" data-id="jenkins">/.test(ins), 'evidence and Fill in');
   assert.ok(/data-act="record" data-id="jenkins">.*Done<\/button>/.test(ins) && !/data-act="toggle" data-id="jenkins">/.test(ins), 'Done collects the evidence boxes showing');

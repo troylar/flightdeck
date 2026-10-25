@@ -153,8 +153,36 @@ PF.vk = (function () {
     return lab + '<input id="' + esc(id) + '" maxlength="120" value="' + esc(v) + '"' + a + '></label>';
   }
   /* A typed value as people read it, with the stored text in brackets where they differ; text as it is. */
+  /* A run's details as step text shows them (2.3.1): the value as its kind reads, '' when not set; no run, no values. */
+  function refValue(r, map) {
+    if (!r || !r.details) return function () { return ''; };
+    return function (k) {
+      var v = Object.prototype.hasOwnProperty.call(r.details, k) ? r.details[k] : '';
+      if (v == null || String(v).trim() === '') return '';
+      var d = r.format === PF.run.FORMAT3 && map ? PF.run.typedDef(r, map, 'details.' + k) : null;
+      return d ? valueText(d, v) : String(v);
+    };
+  }
+  /* Step text as HTML with its run details in place (2.3.1): the step's escaped Markdown, then, in text only (never in a
+     tag or an attribute), each reference as its escaped value or a quiet ‹name›. links: false drops links, for buttons. */
+  function stepHtml(step, valueOf, links) {
+    var m = PF.map.marked(step), h = U.mdInline(m.src);
+    if (links === false) h = h.replace(/<a\b[^>]*>|<\/a>/g, '');
+    if (!m.names.length) return h;
+    return h.split(/(<[^>]*>)/).map(function (part, i) {
+      return i % 2 ? part.replace(PF.map.MARK, '') : part.replace(PF.map.MARK, function (c) {
+        var k = m.names[c.charCodeAt(0) - 0xE000], v = valueOf ? valueOf(k) : '';
+        return v ? esc(v) : '<span class="ref-empty">\u2039' + esc(k) + '\u203a</span>';
+      });
+    }).join('');
+  }
+  /* The same, as plain text: accessible names, announcements and copied text. */
+  function stepPlain(step, valueOf) { return PF.map.shownText(step, valueOf); }
+  /* The run's headline and Next up as screens show them: a blocked step's text with its details in place. */
+  function shownOpt(r, map) { var rv = refValue(r, map); return { shown: function (st) { return stepPlain(st, rv); } }; }
+  function headline(r, map) { return PF.run.headline(r, map, shownOpt(r, map)); }
   function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
-  return { typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, PAGE: PAGE, testTag: testTag, verWord: verWord };
+  return { refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, PAGE: PAGE, testTag: testTag, verWord: verWord };
 })();
 (function () {
   'use strict';
@@ -193,7 +221,7 @@ PF.vk = (function () {
     /* On a run, which run it is stays in view while scrolling: its name, process and version, where it is and how far. */
     var r = (st.view === 'run' || st.view === 'mission') && ctx.run && ctx.run();
     if (r) {
-      var map = PF.run.mapOf(r), hl = PF.run.headline(r, map), tot = PF.run.totals(r, map);
+      var map = PF.run.mapOf(r), hl = K.headline(r, map), tot = PF.run.totals(r, map);
       h += '<div class="runstrip" role="region" aria-label="This run"><span class="rs-dot ' + esc(hl.s) + '" aria-hidden="true"></span><b class="rs-title">' + esc(r.title) + '</b>' +
         '<span class="rs-sub">' + esc(map.meta.title) + ' · v' + esc(r.version) + '</span><span class="rs-now">' + esc(K.hlText(r, hl)) + '</span><span class="rs-count">' + tot.done + '/' + tot.total + '</span></div>';
     }

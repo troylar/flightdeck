@@ -5,7 +5,7 @@
   var person = K.person, nameOf = K.nameOf, avatar = K.avatar, notices = K.notices, ago = K.ago, runKey = K.runKey, freshness = K.freshness;
   /* ---------- home ---------- */
   function runCard(ctx, r) {
-    var map = R.mapOf(r), hl = R.headline(r, map), t = R.totals(r, map);
+    var map = R.mapOf(r), hl = K.headline(r, map), t = R.totals(r, map);
     return '<button class="card" data-act="open-run" data-id="' + esc(runKey(r)) + '"><div class="row between"><span class="cat">' + esc(ctx.processTitle(r.process)) + K.testTag(r) + '</span>' + avatar(ctx, r.recorder.person) + '</div>' +
       '<span class="card-title">' + esc(r.title) + '</span><span class="state ' + hl.s + '">' + esc(K.hlText(r, hl)) + '</span>' +
       (r.ended ? '' : '<div class="bar" aria-hidden="true"><i style="width:' + (t.total ? Math.round(100 * t.done / t.total) : 0) + '%"></i></div>') +
@@ -70,10 +70,10 @@
     if (stops.length) add('health', 'The team folder needs attention', esc(stops[0].title) + (stops.length > 1 ? ', and ' + (stops.length - 1) + ' more' : '') + '.', 'health', '', 'Open Folder health');
     var repWait = me && ctx.reportsWaiting ? ctx.reportsWaiting() : {};
     if (me) d.runs.filter(function (r) { return r.state === 'running'; }).forEach(function (r) {
-      var map = R.mapOf(r), hl = R.headline(r, map), nx = R.myNext(r, map, me), nr = Object.prototype.hasOwnProperty.call(repWait, runKey(r)) ? repWait[runKey(r)] : 0;
+      var map = R.mapOf(r), hl = K.headline(r, map), nx = R.myNext(r, map, me), nr = Object.prototype.hasOwnProperty.call(repWait, runKey(r)) ? repWait[runKey(r)] : 0;
       var tt = R.isTest(r) ? 'Test run · ' : '';
       if (r.recorder.person === me) add('run', tt + esc(r.title) + ': you\'re recording', esc(hl.text), 'open-run', runKey(r), 'Open the run');
-      else if (nx) add('run', tt + esc(r.title) + ': you\'re up', esc(nx.step.text) + ' · ' + esc(nameOf(ctx, r.recorder.person)) + ' is recording', 'open-run', runKey(r), 'Open the run');
+      else if (nx) add('run', tt + esc(r.title) + ': you\'re up', K.stepHtml(nx.step, K.refValue(r, map), false) + ' · ' + esc(nameOf(ctx, r.recorder.person)) + ' is recording', 'open-run', runKey(r), 'Open the run');
       if (r.recorder.person === me && nr) add('run', nr + ' report' + (nr === 1 ? '' : 's') + ' to review on ' + esc(r.title), 'A tool says it did ' + (nr === 1 ? 'a step' : 'steps') + '. Accept or decline ' + (nr === 1 ? 'it' : 'each') + ' on the step.', 'open-run', runKey(r), 'Review');
     });
     /* A plan with a time shows here from 24 hours before it; one without a time shows until someone decides on it. */

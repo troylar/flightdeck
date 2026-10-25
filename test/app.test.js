@@ -3948,7 +3948,7 @@ rule('App: checking the step Next up points at selects the next one in its phase
   assert.ok(j.steps.jenkins.s === 'done' && j.steps.jenkins.values.build === 'https://ci.example.com/job/web-app-deploy-prod/88/', 'the row\'s check collected the evidence typed in the inspector');
   assert.strictEqual(app.selected(), 'approve', 'the next step in the phase is selected');
   assert.strictEqual(app.focused(), '[data-act="toggle"][data-id="approve"]', 'focus is on its check, ready for Space');
-  assert.strictEqual(app.live(), '"Start the production deploy job" checked. Next: "Approve the deploy in Jenkins before it rolls back".');
+  assert.strictEqual(app.live(), '"Start the production deploy job v2026.10.16" checked. Next: "Approve the deploy in Jenkins before it rolls back".');
   assert.ok(!/<div class="notice[^"]*" role="status"><span>"Start the production deploy job" checked/.test(app.html()), 'announced, not shown as a notice');
 });
 

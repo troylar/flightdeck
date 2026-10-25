@@ -56,7 +56,7 @@
     var t = T.get(s.type, types), by = auto.filter(function (x) { return x.skill.steps.indexOf(s.id) >= 0; }).map(function (x) { return x.skill.name; });
     var meta = (s.must ? '<span class="badge b-must">Must do</span>' : '') + by.map(function (n) { return '<span class="badge b-skill">' + I('spark') + esc(n) + '</span>'; }).join('') +
       (s.roles.length ? '<span class="pv-role">@' + esc(s.roles.join(' @')) + '</span>' : ''), cond = K.whenWords(s);
-    return '<li>' + (t ? I(t.icon, t.label) : '<span class="ic"></span>') + '<div class="pv-body"><button type="button" class="fp-step" data-act="go" ' + go + ' data-step="' + esc(s.id) + '">' + esc(s.text) +
+    return '<li>' + (t ? I(t.icon, t.label) : '<span class="ic"></span>') + '<div class="pv-body"><button type="button" class="fp-step" data-act="go" ' + go + ' data-step="' + esc(s.id) + '">' + K.stepHtml(s, null, false) +
       '<span class="sr">. Show it in the checklist</span></button>' + (cond ? '<span class="pv-when">' + cond + '</span>' : '') + (meta ? '<span class="pv-meta">' + meta + '</span>' : '') + '</div></li>';
   }
   function stepList(steps, name, line) { return '<ol class="fp-sl" aria-label="Steps in ' + esc(name) + '">' + steps.map(line).join('') + '</ol>'; }

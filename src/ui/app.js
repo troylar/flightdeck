@@ -2512,7 +2512,7 @@
       if (x) { R.evidenceFor(r, x.step, null, d.map).list.forEach(function (ev) { names['rec-' + ev.name] = true; }); var tt = T.get(x.step.type || 'confirm', types.types || {}); if (tt) T.editable(tt).forEach(function (f) { names['fld-' + f] = true; }); }
       var vals = [];
       ['record', 'fields'].forEach(function (part) { Object.keys(dr[part] || {}).forEach(function (b) { if (!names[b] && String(dr[part][b]).trim()) vals.push({ name: b.replace(/^(rec|fld)-/, ''), value: dr[part][b] }); }); });
-      if (vals.length) kept[id] = { id: id, text: x ? x.step.text : dr.text || id, values: vals, gone: !x };
+      if (vals.length) kept[id] = { id: id, text: x ? M.shownText(x.step, function (n) { return e.st.sample[n] || ''; }) : dr.text || id, values: vals, gone: !x };
     });
     if (model) {
       var goneIds = model.gone.filter(function (id) { return !PR.isTemp(id); });
@@ -2522,7 +2522,7 @@
     var details = map ? (map.meta.context || []).map(function (n) {
       var dd = PF.run.detailValueDef(map, n), hint = dd && dd.options && dd.options.length ? 'one of ' + dd.options.join(', ') : dd && dd.kind && dd.kind !== 'text' ? dd.kind : '';
       var by = model && model.setBy[n] ? M.findStep(map, model.setBy[n]) : null;
-      return { name: n, value: e.st.sample[n] || '', hint: hint, setBy: by ? by.step.text : '' };
+      return { name: n, value: e.st.sample[n] || '', hint: hint, setBy: by ? M.shownText(by.step, function (n) { return e.st.sample[n] || ''; }) : '' };
     }) : [];
     var saving = (state.draftSaving || {})[edKey(p.id)];
     var P = { key: key, pid: p.id, title: p.title, model: model, steps: steps, gates: gates, kept: kept, gone: gone, from: model ? model.from : null, details: details,
@@ -6406,7 +6406,7 @@
     else { var r = ctx.run(); it = r && (r._notes || []).filter(function (x) { return x.id === id; })[0]; }
     return it && (it.files || []).indexOf(path) >= 0 ? it : null;
   }
-  function noteStepText(id) { var r = ctx.run(), x = r && M.findStep(R.mapOf(r), id); return x ? x.step.text : id; }
+  function noteStepText(id) { var r = ctx.run(), x = r && M.findStep(R.mapOf(r), id); return x ? M.shownText(x.step, M.valuesOf(r)) : id; }
   /* Typed evidence, Fill in values and a note's text belong to their run and step. They're kept here while the person moves
      around the run (J/K, clicks, auto-advance), drawn back into the boxes on return, and dropped only when used or canceled.
      An open Fill in is remembered too, so it reopens. */
@@ -6672,7 +6672,7 @@
   function afterAnswer(id, was) {
     var r = ctx.run(), map = r && R.mapOf(r), x = map && M.findStep(map, id), a = r && r.steps[id];
     if (!x || !a || a.s !== 'done') return;
-    var title = '"' + x.step.text + '" checked.';
+    var rv = M.valuesOf(r), title = '"' + M.shownText(x.step, rv) + '" checked.';
     /* Typed text lives in its box, so a note or suggestion being written keeps the selection where it is. Waiting files are
        kept with their own step either way. */
     harvest();
@@ -6684,7 +6684,7 @@
       /* A step that starts a child run has no check to focus; its title in the inspector takes focus instead. */
       selectStep(nxt.id); state.focus = (narrow() && state.refOpen) || nxt.type === 'run.process' ? 'ins-h' : '[data-act="toggle"][data-id="' + cssEsc(nxt.id) + '"]';
       if (nxt.type === 'run.process') state.refOpen = true;
-      say(title + ' Next: "' + nxt.text + '".', ''); state.msg.quiet = true; render(); reveal('#step-' + cssEsc(nxt.id));
+      say(title + ' Next: "' + M.shownText(nxt, rv) + '".', ''); state.msg.quiet = true; render(); reveal('#step-' + cssEsc(nxt.id));
       return;
     }
     /* On a phone the step sheet closes first, so the gate can take focus. */
