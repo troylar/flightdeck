@@ -129,12 +129,14 @@ const BUDGETS = {
   /* The same screens for a checklist with conditions (2.1), Release with one on a step and one on a phase: each condition is
      one muted line, and the builder's is one closed "Only when…" until it's used. The release builder without them is the
      baseline: a step with a condition adds its open box and hint, and the outline's two condition lines. */
-  'builder, release, a step selected': { words: 470, buttons: 63, inputs: 10 },
+  /* Raised in 2.6.0 on purpose (entry boxes): each shown box says why under it, and the fields that wait sit behind
+     "+ add" chips (9 for the fields every type accepts), so there are fewer open boxes and more words and buttons. */
+  'builder, release, a step selected': { words: 598, buttons: 72, inputs: 10 },
   'process page with conditions, its owner': { words: 410, buttons: 24, chips: 9 },
   'process page with conditions, a non-owner': { words: 263, buttons: 13, chips: 3 },
   'run with conditions, just started': { words: 355, buttons: 37, chips: 5 },
-  'builder with conditions, a step selected': { words: 490, buttons: 63, inputs: 11 },
-  'builder, a step without conditions selected': { words: 480, buttons: 63, inputs: 10 },
+  'builder with conditions, a step selected': { words: 642, buttons: 72, inputs: 11 },
+  'builder, a step without conditions selected': { words: 608, buttons: 72, inputs: 10 },
   /* A process with a staged version (2.1): staging lives in the closed All versions disclosure, so the page fits the process
      page budgets above for the owner and for everyone else. */
   'process page with a stage, its owner': { words: 421, buttons: 24, chips: 9 },

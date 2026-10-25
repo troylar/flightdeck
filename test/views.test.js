@@ -337,17 +337,19 @@ rule('Draft builder: phases as cards, steps as draggable rows, gates as striped 
   assert.ok(!/class="panel stack ob-form"/.test(html), 'no side form until something is selected');
   state.obSel = { pid: 'release', kind: 'step', key: 'flags' }; html = V.process(ctx);
   assert.ok(/<li class="ob-step sel"[^>]*data-ob-step="flags">/.test(html) && /aria-pressed="true" aria-describedby="ob-kbd"/.test(html), 'the selected row');
-  assert.ok(/<textarea id="ob-text" rows="2" maxlength="200" data-enter="ob-commit">Feature flags set in the deploy values<\/textarea>/.test(html), 'its text, without @role or ^detail');
+  /* 2.6.0: the box asks its question, with an example and a why (PF.guide). */
+  assert.ok(/<textarea id="ob-text" rows="2" maxlength="200" data-enter="ob-commit" placeholder="Tag the release" aria-describedby="why-ob-text">Feature flags set in the deploy values<\/textarea>/.test(html), 'its text, without @role or ^detail');
   assert.ok(/<input type="radio" name="ob-mark" id="ob-mark-must" value="must" data-bound checked><span><b>Must do<\/b>/.test(html) && /id="ob-mark-planned" value="planned" data-bound><span>/.test(html) && /<option value="confirm" selected>Confirm</.test(html), 'the kind as one choice of three, and the type');
   assert.ok(/data-act="ob-role" data-id="backend" aria-pressed="true"/.test(html) && /data-act="ob-role" data-id="qa" aria-pressed="false"/.test(html), 'roles from the checklist');
   assert.ok(/class="ob-chip" data-act="ob-bind" data-id="environment" aria-pressed="true"/.test(html) && /data-id="commit" aria-pressed="false"/.test(html), 'run details as amber chips');
-  assert.ok(/for="ob-fld-where">Where to check/.test(html) && /for="ob-fld-looks">True when/.test(html), 'the fields its type asks for');
+  assert.ok(/for="ob-fld-where">Where do you look\?/.test(html) && /for="ob-fld-looks">What does right look like\?/.test(html), 'the fields its type asks for (2.6.0: as questions)');
   assert.ok(/ID <code>flags<\/code>/.test(html) && /data-act="ob-move" data-id="flags" data-dir="up"/.test(html) && /data-act="ob-del"/.test(html), 'its ID, and buttons to move and delete');
   state.obSel = { pid: 'release', kind: 'phase', key: 'prep' }; html = V.process(ctx);
-  assert.ok(/<input id="ob-ph-title"[^>]*value="Before production changes">/.test(html) && /<option value="DO-CONFIRM" selected>/.test(html), 'a phase\'s name and mode');
-  assert.ok(/<input id="ob-g-title"[^>]*value="Ready to deploy">/.test(html) && /<option value="release-lead" selected>@release-lead/.test(html) && /id="ob-g-approves"[^>]*value="deploy of `\^commit` to \^environment"/.test(html), 'its gate');
+  /* 2.6.0: the mode is two choice buttons. */
+  assert.ok(/<input id="ob-ph-title"[^>]*value="Before production changes"[^>]*>/.test(html) && /data-act="ob-choice" data-id="ob-ph-mode" data-val="DO-CONFIRM"[^>]*aria-checked="true"/.test(html), 'a phase\'s name and mode');
+  assert.ok(/<input id="ob-g-title"[^>]*value="Ready to deploy"[^>]*>/.test(html) && /<option value="release-lead" selected>@release-lead/.test(html) && /id="ob-g-approves"[^>]*value="deploy of `\^commit` to \^environment"/.test(html), 'its gate');
   state.obAdd = { pid: 'release', kind: 'step', phase: 'deploy', track: -1 }; html = V.process(ctx);
-  assert.ok(/<label class="sr" for="ob-new-text">New step: what to do<\/label><input id="ob-new-text"[^>]*data-enter="ob-add-go">/.test(html), 'an add-a-step box in place');
+  assert.ok(/<label class="sr" for="ob-new-text">New step: What do you do\?<\/label><input id="ob-new-text"[^>]*data-enter="ob-add-go"[^>]*>/.test(html), 'an add-a-step box in place');
   state.builder = false; html = V.process(ctx);
   assert.ok(/id="draft-editor"/.test(html) && !/id="ob"/.test(html) && !/ob-form/.test(html) && !/Changed lines/.test(html), 'Markdown mode is the textarea, with no changes to list');
 });
@@ -1028,7 +1030,8 @@ rule('Errors are tied to their field for screen readers', () => {
   r.snapshot = mapText;
   const html = V.run(ctx);
   assert.ok(/id="ferr-tests" role="alert"/.test(html));
-  assert.ok(/aria-invalid="true" aria-describedby="ferr-tests"/.test(html));
+  /* 2.6.0: the box's why line (hint-rec-run) follows the error in aria-describedby. */
+  assert.ok(/aria-invalid="true" aria-describedby="ferr-tests hint-rec-run"/.test(html));
 });
 
 rule('R2: an error from core points at the one field it\'s about', () => {
@@ -1391,7 +1394,7 @@ rule('Parts box: structure, steps and every step type by group, with a gate clea
   assert.ok(/data-id="gate" draggable="true" data-ob-part="gate"[^>]*>.*<b>Gate<\/b><small>Someone signs off to go on<\/small>/.test(box), 'the structural gate');
   assert.ok(/<b>Pipeline result<\/b><small>Records a CI build or test result for a commit\. Not a sign-off\.<\/small>/.test(box), 'the CI type says what it records, and that it isn\'t a sign-off');
   assert.ok(/<b>Must-do<\/b>/.test(box) && /<b>Run another process<\/b>/.test(box) && /data-id="type:change\.request"/.test(box), 'presets and the team\'s type');
-  assert.strictEqual((box.match(/data-ob-part=/g) || []).length, 6 + 1 + PF.types.LIST.length - 2, 'every type once (Confirm and Run another process are the presets)');
+  assert.strictEqual((box.match(/data-ob-part=/g) || []).length, 6 + 1 + PF.types.LIST.length - 3, 'every type once (Confirm and Run another process are the presets; 2.6.0: GitHub\'s and Bitbucket\'s pull requests are one)');
   assert.ok(/<p id="ob-kbd"/.test(html) && /data-act="ob-parts-open"/.test(html), 'a keyboard hint, and Add part for phones');
 });
 
@@ -1428,9 +1431,11 @@ rule('The 1.14 step types are in the parts box under their group, and in the ste
   let html = V.process(ctx);
   const box = html.slice(html.indexOf('<aside class="fpe-pane fpe-parts"'), html.indexOf('</aside>', html.indexOf('<aside class="fpe-pane fpe-parts"')));
   const group = h => box.slice(box.indexOf('>' + h + '</h4>'), box.indexOf('</h4>', box.indexOf('>' + h + '</h4>') + h.length + 6));
-  [['jira.sprint', 'Jira sprint', 'Tools'], ['deploy', 'Deploy', 'Tools'], ['verify.health', 'Health check', 'Tools'], ['github.pr', 'GitHub pull request', 'Tools'], ['measure', 'Measure', 'General']].forEach(([id, label, g]) => {
+  [['jira.sprint', 'Jira sprint', 'Tools'], ['deploy', 'Deploy', 'Tools'], ['verify.health', 'Health check', 'Tools'], ['pr', 'Pull request', 'Tools'], ['measure', 'Measure', 'General']].forEach(([id, label, g]) => {
+    /* 2.6.0: one Pull request for GitHub's and Bitbucket's types. */
+    const hint = id === 'pr' ? 'Open, review or merge a pull request on GitHub or Bitbucket.' : PF.types.get(id).hint;
     assert.ok(new RegExp('data-id="type:' + id.replace('.', '\\.') + '"').test(group(g)), id + ' under ' + g);
-    assert.ok(new RegExp('<b>' + label + '</b><small>' + PF.util.esc(PF.types.get(id).hint).replace(/[.()]/g, '\\$&') + '</small>').test(box), id + ': its label and hint');
+    assert.ok(new RegExp('<b>' + label + '</b><small>' + PF.util.esc(hint).replace(/[.()]/g, '\\$&') + '</small>').test(box), id + ': its label and hint');
   });
   state.obQ = 'sprint'; html = V.process(ctx);
   assert.ok(/<b>Jira sprint<\/b>/.test(html) && !/<b>Deploy<\/b>/.test(html), 'found by search');
@@ -1439,7 +1444,8 @@ rule('The 1.14 step types are in the parts box under their group, and in the ste
   html = V.process(ctx);
   const picker = html.slice(html.indexOf('<select id="ob-type"'), html.indexOf('</select>', html.indexOf('<select id="ob-type"')));
   assert.ok(/<option value="verify\.health" selected>Health check<\/option>/.test(picker), 'the step\'s own type is chosen');
-  ['jira.sprint', 'deploy', 'github.pr', 'measure'].forEach(id => assert.ok(new RegExp('<option value="' + id.replace('.', '\\.') + '">').test(picker), id + ' can be picked'));
+  ['jira.sprint', 'deploy', 'measure'].forEach(id => assert.ok(new RegExp('<option value="' + id.replace('.', '\\.') + '">').test(picker), id + ' can be picked'));
+  assert.ok(/<option value="(github|bitbucket)\.pr">Pull request<\/option>/.test(picker), '2.6.0: one Pull request, on the checklist\'s usual host');
 });
 
 rule('Draft builder: lanes sit side by side under "Do all lanes", and a lane opens its own form', () => {
@@ -1451,7 +1457,7 @@ rule('Draft builder: lanes sit side by side under "Do all lanes", and a lane ope
   assert.ok(!/data-ob-place="gate:prep"/.test(html), 'no gate line where a phase has one');
   state.obSel = { pid: 'release', kind: 'track', key: 'verify', track: 1 };
   html = V.process(ctx);
-  assert.ok(/<section class="ob-lane sel"/.test(html) && /<input id="ob-tr-title"[^>]*value="Wrap-up">/.test(html) && /<select id="ob-tr-role" data-bound>/.test(html) && /data-act="ob-ask" data-id="track">Delete this lane/.test(html));
+  assert.ok(/<section class="ob-lane sel"/.test(html) && /<input id="ob-tr-title"[^>]*value="Wrap-up"[^>]*>/.test(html) && /<select id="ob-tr-role" data-bound[^>]*>/.test(html) && /data-act="ob-ask" data-id="track">Delete this lane/.test(html));
   assert.ok(/data-act="ob-done">Close<\/button>/.test(html), 'Close, for the phone\'s sheet');
   state.obSel = { pid: 'release', kind: 'phase', key: 'prep' }; state.obAsk = { kind: 'phase', key: 'prep' };
   html = V.process(ctx);
@@ -1533,8 +1539,8 @@ rule('Draft editor: Checklist details, a step\'s note and the Questions panel es
     assert.strictEqual((html.match(/<\/textarea>/g) || []).length, (html.match(/<textarea/g) || []).length, 'view ' + i + ': every textarea closes once');
   });
   assert.ok(/<option value="person-a">&lt;b&gt;A&lt;\/b&gt;<\/option>/.test(views[0]) && !/<option value="constructor"/.test(views[0]), 'people: escaped, reserved IDs not offered');
-  assert.ok(/<textarea id="ob-note" rows="3" maxlength="2000">\n&lt;\/textarea&gt;&lt;script&gt;/.test(views[1]));
-  assert.ok(/<textarea id="ob-q-text" rows="8" maxlength="20000">\n&lt;\/textarea&gt;&lt;script&gt;q\(\)/.test(views[2]) && /data-act="ob-q-remove" id="ob-ask-go">Remove section<\/button>/.test(views[2]));
+  assert.ok(/<textarea id="ob-note" rows="3" maxlength="2000"[^>]*>\n&lt;\/textarea&gt;&lt;script&gt;/.test(views[1]), '2.6.0: with its example and why');
+  assert.ok(/<textarea id="ob-q-text" rows="8" maxlength="20000"[^>]*>\n&lt;\/textarea&gt;&lt;script&gt;q\(\)/.test(views[2]) && /data-act="ob-q-remove" id="ob-ask-go">Remove section<\/button>/.test(views[2]));
 });
 
 rule('Draft editor: empty and nothing-selected states say what to do next', () => {
@@ -1680,7 +1686,7 @@ rule('Run workspace: choosing a step changes the whole inspector, and the select
   assert.ok(!/data-act="(toggle|record|na|clear)" data-id="announce"/.test(ins) && !/data-mode="differently"/.test(ins), 'a step in a passed phase can\'t be changed');
   const two = setup(); two.state.sel = 'announce';
   ins = insOf(V.run(two.ctx));
-  assert.ok(/class="btn go" data-act="record" data-id="announce">.*Done/.test(ins) && /id="rec-sent"/.test(ins) && /Link to the message \(optional\)/.test(ins), 'optional evidence showing is collected by Done');
+  assert.ok(/class="btn go" data-act="record" data-id="announce">.*Done/.test(ins) && /id="rec-sent"/.test(ins) && /Link to the message you posted \(optional\)/.test(ins), 'optional evidence showing is collected by Done (2.6.0: labeled by its question)');
   assert.ok(/data-act="pick" data-kind="block" data-id="announce">Blocked/.test(ins) && /data-act="na" data-id="announce">N\/A/.test(ins), 'then Blocked, then N/A on a step that isn\'t a must-do');
   two.state.sel = 'flags';
   assert.ok(/class="btn go" data-act="toggle" data-id="flags">.*Done/.test(insOf(V.run(two.ctx))), 'a plain confirm is one click');
@@ -2333,12 +2339,13 @@ rule('Draft builder: a step\'s Screenshots section shows thumbnails with their c
   assert.ok(/<img alt="The &lt;b&gt;flags&lt;\/b&gt; &quot;page&quot;"/.test(html), 'alt text is the caption, escaped');
   assert.ok(!/<script>alert|<b>flags/.test(html), 'nothing raw');
   assert.deepStrictEqual(asked.map(a => a[1]), [true, true], 'thumbnails come from the folder\'s images/, never a run\'s publication');
-  assert.ok(/<label class="field" for="ob-shot-cap-0">Caption<span class="sr"> for screenshot 1 of 2<\/span><input id="ob-shot-cap-0" maxlength="200" data-enter="ob-commit" value="The &lt;b&gt;flags&lt;\/b&gt; &quot;page&quot;">/.test(html), 'each caption is a labeled box');
+  /* 2.6.0: the caption box asks its question (PF.guide), with an example and a why. */
+  assert.ok(/<label class="field" for="ob-shot-cap-0">What does it show\?<span class="sr"> \(screenshot 1 of 2\)<\/span><input id="ob-shot-cap-0" maxlength="200" data-enter="ob-commit" value="The &lt;b&gt;flags&lt;\/b&gt; &quot;page&quot;"[^>]*aria-describedby="why-ob-shot-cap-0">/.test(html), 'each caption is a labeled box');
   assert.ok(/data-act="ob-shot-move" data-id="0" data-dir="up" aria-label="Move screenshot 1 up">Move up</.test(html) && /data-act="ob-shot-move" data-id="1" data-dir="down" aria-label="Move screenshot 2 down">Move down</.test(html), 'reorder buttons name which one');
   assert.ok(/data-act="ob-shot-remove" data-id="1" aria-label="Remove screenshot 2: Second &lt;script&gt;alert\(1\)&lt;\/script&gt;">Remove</.test(html), 'Remove names it');
   assert.ok(/Removing takes it out of this draft only\. The image file stays in the folder/.test(html), 'and says the file stays');
   assert.ok(/<div class="ob-shot-add" data-drop="shots" data-id="alpha" role="group" aria-labelledby="ob-shot-add-h">/.test(html), 'a drop zone for this step');
-  assert.ok(/<label class="field" for="ob-shot-new">Caption for the next screenshot<input id="ob-shot-new" maxlength="200" data-nav-safe/.test(html), 'the caption for new images is labeled');
+  assert.ok(/<label class="field" for="ob-shot-new">What does it show\?<span class="sr"> \(the next screenshot\)<\/span><input id="ob-shot-new" maxlength="200" data-nav-safe/.test(html), 'the caption for new images is labeled (2.6.0: as a question)');
   assert.ok(/<label class="btn" for="ob-shot-file">[\s\S]*?Choose files<\/label><input type="file" id="ob-shot-file" class="sr" accept="\.png,\.jpg,\.jpeg,\.webp,\.gif,image\/png,image\/jpeg,image\/webp,image\/gif" multiple aria-describedby="ob-shot-hint">/.test(html), 'Choose files: images only');
   assert.ok(/id="ob-shot-hint">Or drop or paste images here\. PNG, JPEG, WebP or GIF, up to 5 MB each\./.test(html), 'how else to add');
   assert.ok(/<p class="small" id="ob-shot-status" role="status"><\/p>/.test(html), 'a status line, quiet until something is added');

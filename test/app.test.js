@@ -271,7 +271,7 @@ rule('App: the draft builder moves, edits, adds and deletes steps and adds a pha
   assert.ok(/<li class="ob-step sel"[^>]*data-ob-step="check-the-dashboards">/.test(app.html()), 'the new step is selected');
   app.click('ob-del', 'announce'); await app.tick();
   app.click('ob-add-phase'); await app.tick();
-  app.set('ob-new-title', 'Watch the metrics'); app.select('ob-new-mode', 'DO-CONFIRM'); app.click('ob-add-go'); await app.tick();
+  app.set('ob-new-title', 'Watch the metrics'); app.click('ob-choice', 'ob-new-mode', { val: 'DO-CONFIRM' }); app.click('ob-add-go'); await app.tick();
   assert.ok(/id="ob-new-text"/.test(app.html()), 'a new phase opens with its add-a-step box');
   app.set('ob-new-text', 'Error rate is flat'); app.click('ob-add-go'); await app.tick();
   assert.ok(/Unsaved: Save draft before you publish/.test(app.html()), 'builder edits are unsaved, like typing');
@@ -341,7 +341,7 @@ rule('App: the builder\'s side form shows the step as the folder has it now, and
   /* A change to this step replaces the box's old value with the new text. */
   await app.fs.write(path, original.replace('title: Production release', 'title: Theirs').replace('Feature flags set in the deploy values', 'Flags set by them'));
   app.focus(); await app.tick(80);
-  assert.ok(/<textarea id="ob-text" rows="2" maxlength="200" data-enter="ob-commit">Flags set by them<\/textarea>/.test(app.html()), 'drawn from the new text');
+  assert.ok(/<textarea id="ob-text" rows="2" maxlength="200" data-enter="ob-commit"[^>]*>Flags set by them<\/textarea>/.test(app.html()), 'drawn from the new text (2.6.0: with its example and why)');
   assert.notStrictEqual(app.draft('ob-text'), 'Half typed', 'the old value isn\'t carried over');
 });
 
@@ -1345,7 +1345,7 @@ rule('App: a value the builder refuses shows why next to its box, marked invalid
   const app = await builderOn();
   app.click('ob-sel', 'flags'); await app.tick();
   app.set('ob-text', 'Ask @qa'); app.keyOn('Enter', {}, { tagName: 'INPUT', id: 'ob-text', value: 'Ask @qa', dataset: { enter: 'ob-commit' }, closest: () => null }); await app.tick();
-  assert.ok(/<textarea id="ob-text"[^>]* aria-invalid="true" aria-describedby="ferr-ob-text">/.test(app.html()), 'the box is marked');
+  assert.ok(/<textarea id="ob-text"[^>]* aria-invalid="true" aria-describedby="ferr-ob-text why-ob-text">/.test(app.html()), 'the box is marked (2.6.0: its why follows the error)');
   assert.ok(/<p class="ferr" id="ferr-ob-text" role="alert">Choose roles and run details with their buttons/.test(app.html()), 'the reason is next to it');
   /* Selecting another step waits for the refused text, so it isn't dropped (1.22.0); cleared, the mark goes with it. */
   app.click('ob-sel', 'rollback'); await app.tick();
@@ -3593,7 +3593,7 @@ rule('App: every new kind of builder change can be undone, back to the saved tex
 rule('App: deleting a lane asks whether its steps stay; the answer is said back', async () => {
   const app = await builderOn();
   app.click('ob-sel-track', 'verify', { track: '1' }); await app.tick();
-  assert.ok(/<input id="ob-tr-title"[^>]*value="Wrap-up">/.test(app.html()) && /<option value="release-lead" selected>@release-lead/.test(app.html()), 'the lane\'s form');
+  assert.ok(/<input id="ob-tr-title"[^>]*value="Wrap-up"[^>]*>/.test(app.html()) && /<option value="release-lead" selected>@release-lead/.test(app.html()), 'the lane\'s form');
   app.click('ob-ask', 'track'); await app.tick();
   assert.ok(/Delete the Wrap-up lane\? Its 3 steps can move up into the phase, or go with it\./.test(app.html()));
   assert.strictEqual(app.focused(), 'ob-ask-go');
@@ -8225,8 +8225,8 @@ rule('Builder: Checklist details adds and removes roles and run details, and set
   app.click('ob-sel-details'); await app.tick();
   const html = app.html();
   assert.ok(/<h2 id="ob-form-h">[\s\S]*?Checklist details<\/h2>/.test(html), 'its form');
-  assert.ok(/<select id="ob-owner" data-bound><option value="">Nobody yet<\/option>[\s\S]*?<option value="person-casey" selected>/.test(html), 'owner');
-  assert.ok(/<select id="ob-backup" data-bound><option value="">No backup<\/option>[\s\S]*?<option value="person-avery" selected>/.test(html), 'backup');
+  assert.ok(/<select id="ob-owner" data-bound[^>]*><option value="">Nobody yet<\/option>[\s\S]*?<option value="person-casey" selected>/.test(html), 'owner');
+  assert.ok(/<select id="ob-backup" data-bound[^>]*><option value="">No backup<\/option>[\s\S]*?<option value="person-avery" selected>/.test(html), 'backup');
   assert.ok(/data-act="ob-meta-del" data-key="roles" data-id="qa" aria-label="Remove @qa"/.test(html) && /data-act="ob-meta-del" data-key="context" data-id="tag"/.test(html), 'each with Remove');
   addBox(app, 'ob-add-role', 'roles', 'ops'); await app.tick();
   assert.ok(/Added @ops\./.test(app.live()) && app.draft('ob-add-role') === '', 'added, the box emptied: ' + app.live());
@@ -8253,7 +8253,8 @@ rule('Builder conditions: one closed "Only when…" line until it is used; a ste
   app.click('ob-sel', 'flags'); await app.tick();
   assert.ok(/<details class="ob-when" data-disc="ob-when:release:flags"><summary>Only when…<\/summary>/.test(app.html()), 'closed, one quiet line');
   assert.ok(!/id="ob-when"[^>]*maxlength/.test(app.html()), 'no length limit below what four conditions can need');
-  assert.strictEqual((app.html().match(/Only when/g) || []).length, 1, 'said once');
+  // 2.6.0: the box inside asks "Only when…?", so the closed line is the one summary.
+  assert.strictEqual((app.html().match(/<summary>Only when/g) || []).length, 1, 'said once');
   leave(app, 'ob-when', '^ticket is set'); await app.tick();
   assert.ok(/Changed when "Feature flags set in the deploy values" applies\. Undo available\./.test(app.live()), app.live());
   assert.ok(/<details class="ob-when" data-disc="ob-when:release:flags" open>/.test(app.html()), 'open while it has one');
@@ -8305,7 +8306,7 @@ rule('Builder conditions: a condition written another way is shown, read-only, a
 rule('Builder: the step form edits its note; no "in Markdown" is left for roles, run details or notes', async () => {
   const app = await builderOn(), original = releaseText(app);
   app.click('ob-sel', 'flags'); await app.tick();
-  assert.ok(/<textarea id="ob-note" rows="3" maxlength="2000">\nNew features ship off\. Turn them on in the environment&#39;s values file, never in code\.<\/textarea>/.test(app.html()), 'the note, in a box');
+  assert.ok(/<textarea id="ob-note" rows="3" maxlength="2000"[^>]*>\nNew features ship off\. Turn them on in the environment&#39;s values file, never in code\.<\/textarea>/.test(app.html()), 'the note, in a box');
   assert.ok(!/edit notes in Markdown|Add them to "roles:" in Markdown|lists no run details \("context:"\)/.test(app.html()));
   leave(app, 'ob-note', 'New features ship off.\n\nTurn them on in the values file.'); await app.tick();
   assert.ok(/Changed the note of "Feature flags set in the deploy values"\. Undo available\./.test(app.live()), app.live());
@@ -8343,7 +8344,7 @@ rule('Builder: the Questions section opens in a panel, its text is edited there,
   assert.ok(/It still has a Questions section, so it can.t be published yet\./.test(app.html()) && /data-act="ob-sel-questions">Open the Questions<\/button>/.test(app.html()));
   assert.ok(!/Answer the questions in Markdown/.test(app.html()));
   app.click('ob-sel-questions'); await app.tick();
-  assert.ok(/<textarea id="ob-q-text" rows="8" maxlength="20000">\n\n- Who signs off\?\n- Which window\?<\/textarea>/.test(app.html()), 'its text, the blank line under the heading kept');
+  assert.ok(/<textarea id="ob-q-text" rows="8" maxlength="20000"[^>]*>\n\n- Who signs off\?\n- Which window\?<\/textarea>/.test(app.html()), 'its text, the blank line under the heading kept');
   assert.strictEqual(app.focused(), 'ob-q-text');
   leave(app, 'ob-q-text', '\n- Who signs off? Casey.\n- Which window?'); await app.tick();
   assert.ok(/Changed the Questions section\. Undo available\./.test(app.live()), app.live());
