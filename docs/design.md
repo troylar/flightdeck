@@ -607,6 +607,14 @@ Each kind takes its share of the time since the last refresh (keys × elapsed ÷
 
 **Still needed:** the two-computer rehearsal of the final 1.17 build (`docs/onedrive.md`, Release gate), including a late note on a weeks-old run arriving within 10 minutes and right away after Refresh, and a big copy's first open showing "Still reading runs" with nothing shown as gone.
 
+**2.5.0: big folders.** What a refresh or a screen costs grows with what's in the folder, not with its square.
+- **Runs by key.** `PF.util.keyIndex` keeps each run's position for the runs array as it stands. A hit is checked against the run at its position now; a miss, for the same array and length, isn't there, so it costs one look. Runs are added only through `runIdx.push` and otherwise replaced where they are, with the same key; anything else rebuilds the index once. A refresh hands the run it already found to `applyRunRead`.
+- **Statuses in place.** `setRunStatus` changes `state.unread.runs` and `state.missing` in place. Nothing keeps an old copy of either to compare with.
+- **Batch draws.** The first batch of a read draws at once; later ones wait on one 250 ms timer. A user action (`renderNow`), the finished read and a folder switch drop the waiting draw. Draws still go through `render()`, so typing is harvested and kept.
+- **Per-draw lookups.** `procFind` builds one map for each list `processes()` makes (first entry per ID). `countedRuns(pid)` reads that process's runs by position, rechecked against the array, then applies `counted()`, so unreadable, missing and unsaved runs are left out as before. `peopleById` is built once per draw (last row per ID wins, as before). Each person picker names everyone with one `PF.people.labeler(list)`; Settings › People checks each change with `PF.people.permits(people, me)`, the first row per ID, as `allowed()` reads it.
+- **Memos.** Per-draw memos are cleared by `renderNow`. The caches kept across draws are each keyed by what they read: stale copies to retry, Folder health, a draft's SHA-256 and report contents. `test/scale.test.js` checks both rules.
+- **Counted, not timed.** `PF.perf` counts the work (`runs.inspected`, `runs.counted`, `procs.inspected`, `people.names`, `people.rows`, `batch.renders` and more); `test/scale.test.js` and `test/scale-app.test.js` bound them. `PF.perf.plain` makes every lookup a scan from the start, so a seeded walk in `test/app.test.js` checks that every screen drawn with the lookups is the one drawn by scanning.
+
 ## 26. Other apps: read (1.18), request (1.20) and report (2.0)
 
 Flightdeck stays a checklist tool for people. Other apps work beside a run the way a teammate would; the first slice (1.18) lets them **read**, and 1.20 lets them **ask for a run** (below). 2.0 lets a tool **report** work it did on a step (below). The contract, the commands, every field and the problem kinds are in `docs/apps.md`; this section is the design.
