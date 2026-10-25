@@ -4980,6 +4980,65 @@ rule('App: in any order of edits, held and refused saves, deletions, restores, d
   }
 });
 
+rule('App: through any order of saves, holds, deletions, restores, discards, local copies, rereads, broken files and typing, every lookup agrees with a scan and every screen drawn with the 2.5.0 lookups is the screen drawn by scanning (never stale)', async () => {
+  for (let seed = 1; seed <= (+process.env.SEEDS || 8); seed++) {
+    let x = seed * 104729; const rnd = n => { x = (x * 48271) % 2147483647; return x % n; };
+    const t = await heldRelease(), app = t.app, key = t.run.key, holds = [], log = [];
+    let n = 0, lastGood = null, typed = null;
+    /* Every lookup against a scan (PF.perf.check), then the same state drawn twice: with the lookups, then with PF.perf.plain
+       (every lookup a scan from the start). PF.perf.draw redraws what's on screen without changing it, so an open form stays. */
+    const same = where => {
+      const bad = app.PF.perf.check();
+      assert.strictEqual(Array.from(bad).join('; '), '', 'a lookup disagrees with a scan · ' + where);
+      /* The two draws can fall either side of a minute: clock times and "N min" are left out of the comparison. */
+      const shown = () => (app.html() + app.top()).replace(/\b\d{1,2}:\d{2}\b/g, 'hh:mm').replace(/\b\d+ ?(min|minutes?|m|h|hours?)\b/g, 'N $1');
+      app.PF.perf.draw(); const fast = shown();
+      app.PF.perf.plain = true; app.PF.perf.draw(); const plain = shown(); app.PF.perf.plain = false;
+      if (fast !== plain) { let i = 0; while (fast[i] === plain[i]) i++; assert.fail('drawn differently with the lookups · ' + where + ' · at: ' + fast.slice(Math.max(0, i - 80), i + 80) + ' | scanning: ' + plain.slice(Math.max(0, i - 80), i + 80)); }
+      /* What the walk typed in the note box is still there whenever the box is. */
+      if (typed && /id="note-text"/.test(app.html())) assert.strictEqual(app.draft('note-text'), typed, 'typing lost · ' + where);
+    };
+    for (let step = 0; step < 30; step++) {
+      const a = ['edit', 'edit', 'hold', 'release', 'delete', 'restore', 'discard', 'reread', 'refresh', 'corrupt', 'fix', 'screens', 'type', 'fill', 'restore-local', 'discard-local', 'other', 'keep-copy', 'keep-copy', 'switch'][rnd(step < 20 ? 19 : 20)];
+      log.push(a);
+      if (a === 'edit') t.commit('W' + seed + '-' + (++n));
+      else if (a === 'hold') holds.push(t.hold(rnd(2) === 1));
+      else if (a === 'release') { const h = holds.shift(); if (h) h.open(); }
+      else if (a === 'delete') t.wipe();
+      else if (a === 'restore') app.click('restore-missing');
+      else if (a === 'discard') app.click('discard-unsaved');
+      else if (a === 'restore-local' || a === 'discard-local') app.click(a);
+      else if (a === 'reread') { t.c.ahead(6000); app.every(); }
+      else if (a === 'refresh') app.click('refresh');
+      else if (a === 'corrupt') { const f = app.fs.files[t.path]; if (f && t.disk() !== 'broken') { lastGood = f.t; app.fs.files[t.path] = { t: '{"format":"preflight-run/2","id":', m: Date.now() }; } }
+      /* Another computer's save, kept beside the run as a conflict copy; then this one keeping it. */
+      else if (a === 'other') { const d = t.disk(); if (d && d !== 'broken') { const o = JSON.parse(JSON.stringify(d)); o.title = 'Other ' + seed + '-' + step; app.fs.files[t.dir + '/run-OTHER' + step + '.json'] = { t: JSON.stringify(o), m: Date.now() }; app.click('refresh'); } }
+      else if (a === 'keep-copy') { const m = /data-act="use-copy" data-id="([^"]+)"/.exec(app.html()); if (m) app.click('use-copy', m[1]); }
+      else if (a === 'fix') { if (lastGood && t.disk() === 'broken') app.fs.files[t.path] = { t: lastGood, m: Date.now() }; }
+      else if (a === 'type') { if (/id="note-text"/.test(app.html())) { typed = 'typed ' + seed + '-' + step; app.set('note-text', typed); } }
+      /* An open Fill in stays open through the comparison draws. */
+      else if (a === 'fill') { const m = /data-act="pick" data-kind="fields" data-id="([^"]+)"/.exec(app.html()); if (m) app.click('pick', m[1], { kind: 'fields' }); }
+      /* Another folder (the examples), with the first folder's held saves and reads let go only after it's in. */
+      else if (a === 'switch') { const was = app.fs; app.click('reset-examples'); await app.tick(60); app.choose('person-casey'); await app.tick(); assert.ok(app.fs !== was, 'set-up: another folder'); }
+      await app.tick(30);
+      const where = 'seed ' + seed + ' after ' + log.join(',');
+      if (a === 'switch') {
+        holds.splice(0).forEach(h => h.open()); await app.tick(80);
+        for (const v of ['home', 'runs', 'processes']) { app.click('nav', v); await app.tick(5); same(v + ' · in the other folder · ' + where); }
+        break;
+      }
+      same('the run · ' + where);
+      if (a === 'screens') {
+        for (const v of ['home', 'runs', 'processes']) { app.click('nav', v); await app.tick(5); same(v + ' · ' + where); }
+        app.click('open-run', key); await app.tick(5); typed = null;
+      }
+    }
+    holds.forEach(h => h.open()); await app.tick(80);
+    app.click('refresh'); await app.tick(80);
+    for (const v of ['home', 'runs']) { app.click('nav', v); await app.tick(5); same(v + ' · final, seed ' + seed); }
+  }
+});
+
 rule('App: a run file that reads again clears "couldn\'t be read" even while a change of this window waits, and that change can still be saved', async () => {
   const t = await heldRelease(), app = t.app;
   const g = t.hold(true);

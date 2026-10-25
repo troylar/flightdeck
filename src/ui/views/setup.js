@@ -72,8 +72,9 @@
         '<button type="button" class="mini" data-act="setup-del-row" data-id="' + x.k + '" aria-label="Remove teammate ' + (i + 1) + (x.name ? ', ' + esc(x.name) : '') + '">Remove</button></div></li>';
     }).join('') + '</ul><button type="button" class="btn" data-act="setup-add-row">' + I('plus') + 'Add a teammate</button></fieldset>';
     var b = ferr(st, 'su-backup'), cands = [{ id: ids.me, name: su.me.name }].concat(named.map(function (x) { return { id: ids[x.k], name: x.name, email: String(x.email || '').trim() }; }));
+    var nmBk = PP.labeler(cands);
     h += '<fieldset class="su-backup"><legend>Backup owner</legend><label class="field" for="su-backup">If you\'re away or leave, your backup owner keeps the people list and can hand the folder to someone else.<select id="su-backup" data-bound' + b.attrs + '><option value="">Nobody yet</option>' +
-      named.map(function (x) { return '<option value="' + esc(x.k) + '"' + (su.backup === x.k ? ' selected' : '') + '>' + esc(PP.label({ id: ids[x.k], name: x.name, email: String(x.email || '').trim() }, cands)) + '</option>'; }).join('') + '</select></label>' + b.html + '</fieldset>';
+      named.map(function (x) { return '<option value="' + esc(x.k) + '"' + (su.backup === x.k ? ' selected' : '') + '>' + esc(nmBk({ id: ids[x.k], name: x.name, email: String(x.email || '').trim() })) + '</option>'; }).join('') + '</select></label>' + b.html + '</fieldset>';
     h += promise();
     h += '<div class="row su-actions"><button class="btn go" type="submit"' + (su.busy ? ' disabled' : '') + '>' + (su.busy ? 'Creating…' : 'Create the team folder') + '</button><button type="button" class="mini" data-act="setup-step" data-id="folder">Back</button></div>' +
       '<p class="small">Flightdeck writes <code>people.json</code>, <code>AGENTS.md</code> (instructions for AI assistants) and their skills into <b>' + esc(su.dirName || '') + '</b>.</p></form>';
@@ -122,7 +123,8 @@
     h += '<li><h3>Send a teammate the way in</h3>';
     if (!to) h += '<p>Add a teammate in Settings, People first.</p><button class="btn" data-act="nav" data-id="settings">Settings</button>';
     else {
-      h += (others.length > 1 ? '<label class="field su-to" for="su-to">Who\'s opening it<select id="su-to">' + others.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p === to ? ' selected' : '') + '>' + esc(PP.label(p, ctx.data.people)) + '</option>'; }).join('') + '</select></label>' : '') +
+      var nmTo = PP.labeler(ctx.data.people);
+      h += (others.length > 1 ? '<label class="field su-to" for="su-to">Who\'s opening it<select id="su-to">' + others.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p === to ? ' selected' : '') + '>' + esc(nmTo(p)) + '</option>'; }).join('') + '</select></label>' : '') +
         '<pre class="source su-msg" id="su-invite" tabindex="0">' + esc(S.invite({ folder: fs ? fs.name : '', to: to.name, from: nameOf(ctx, me) })) + '</pre><div class="row"><button class="btn" data-act="setup-copy" data-id="invite">' + I('copy') + 'Copy the message</button><span class="small" id="copy-msg" role="status"></span></div>';
     }
     h += '</li><li><h3>Check the connection</h3>';
@@ -190,7 +192,7 @@
 
   /* ---------- Settings, People ---------- */
   function peoplePanel(ctx) {
-    var st = ctx.state, people = ctx.data.people, me = st.me, can = PP.canManage(people, me), r = PP.roles(people), pick = st.pick && st.pick.kind === 'people-owner' ? st.pick.id : null;
+    var st = ctx.state, people = ctx.data.people, me = st.me, can = PP.canManage(people, me), allowed = PP.permits(people, me), r = PP.roles(people), pick = st.pick && st.pick.kind === 'people-owner' ? st.pick.id : null;
     var role = function (p) { return p.folderRole === 'owner' ? '<span class="pill passed">Folder owner</span>' : p.folderRole === 'backup' ? '<span class="pill waived">Backup owner</span>' : ''; };
     var h = '<section class="panel" aria-labelledby="set-people"><h2 id="set-people">' + I('people') + 'People · ' + people.length + '</h2>';
     if (st.peopleErr) h += '<div class="notice warn" role="alert"><span>' + esc(st.peopleErr) + '</span><button class="mini" data-act="people-err-dismiss">Dismiss</button></div>';
@@ -199,9 +201,9 @@
       if (can) {
         if (pick === p.id) acts = '<span class="row" data-scope="people-owner"><span class="small">Make ' + esc(p.name) + ' the folder owner?' + (r.owner && r.owner.id === me ? ' You become ' + (p.folderRole === 'backup' ? 'backup owner' : 'an ordinary member') + '.' : '') + '</span><button class="btn go" data-act="people-owner" data-id="' + esc(p.id) + '">Make folder owner</button><button class="mini" data-act="unpick">Cancel</button></span>';
         else {
-          if (!PP.allowed(people, me, 'owner', p.id)) acts += '<button class="mini" data-act="pick" data-kind="people-owner" data-id="' + esc(p.id) + '">Make folder owner</button>';
-          if (!PP.allowed(people, me, 'backup', p.id) && p.folderRole !== 'backup') acts += '<button class="mini" data-act="people-backup" data-id="' + esc(p.id) + '">Make backup owner</button>';
-          if (!PP.allowed(people, me, p.inactive ? 'active' : 'inactive', p.id)) acts += '<button class="mini" data-act="people-active" data-id="' + esc(p.id) + '" data-on="' + (p.inactive ? '1' : '') + '">' + (p.inactive ? 'Mark active' : 'Mark inactive') + '</button>';
+          if (!allowed('owner', p.id)) acts += '<button class="mini" data-act="pick" data-kind="people-owner" data-id="' + esc(p.id) + '">Make folder owner</button>';
+          if (!allowed('backup', p.id) && p.folderRole !== 'backup') acts += '<button class="mini" data-act="people-backup" data-id="' + esc(p.id) + '">Make backup owner</button>';
+          if (!allowed(p.inactive ? 'active' : 'inactive', p.id)) acts += '<button class="mini" data-act="people-active" data-id="' + esc(p.id) + '" data-on="' + (p.inactive ? '1' : '') + '">' + (p.inactive ? 'Mark active' : 'Mark inactive') + '</button>';
         }
       }
       return '<li class="' + (p.inactive ? 'inactive' : '') + '">' + K.avatar(ctx, p.id) + '<span class="pp-who"><b>' + esc(p.name) + '</b> ' + role(p) + (p.inactive ? ' <span class="pill locked">Inactive</span>' : '') + (p.id === me ? ' <span class="small">(you)</span>' : '') + '<br><span class="small">' + esc(p.id) + (p.email ? ' · ' + esc(p.email) : '') + '</span></span>' + (acts ? '<span class="row pp-acts">' + acts + '</span>' : '') + '</li>';

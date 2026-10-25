@@ -357,10 +357,11 @@
   function personSelect(ctx, id, label, hint, cur, none) {
     var all = ctx.data.people || [], ok = all.filter(function (x) { return !x.inactive && O.personOk(x.id); }), have = ok.some(function (x) { return x.id === cur; });
     var gone = cur && !have ? all.filter(function (x) { return x.id === cur; })[0] : null;
+    var nm = PF.people.labeler(all);
     var opt = function (v, t, on) { return '<option value="' + esc(v) + '"' + (on ? ' selected' : '') + '>' + esc(t) + '</option>'; };
     return '<label class="field" for="' + id + '">' + label + ' <span class="small">' + hint + '</span><select id="' + id + '" data-bound' + errAt(ctx, id) + '>' + opt('', none, !cur) +
       (cur && !have ? opt(cur, (gone ? gone.name : cur) + (gone ? (gone.inactive ? ' (inactive)' : '') : ' (not in people.json)'), true) : '') +
-      ok.map(function (x) { return opt(x.id, PF.people.label(x, all), x.id === cur); }).join('') + '</select></label>' + errMsg(ctx, id);
+      ok.map(function (x) { return opt(x.id, nm(x), x.id === cur); }).join('') + '</select></label>' + errMsg(ctx, id);
   }
   function listField(ctx, key, label, hint, list, mark, addId, ph) {
     var lid = 'ob-' + key + '-l', cls = key === 'roles' ? 'ob-role' : 'ob-chip';

@@ -102,6 +102,8 @@
   var HIST = (function () { try { return typeof history !== 'undefined' && history && typeof history.replaceState === 'function' && typeof location !== 'undefined' ? history : null; } catch (e) { return null; } })();
   var H = { on: !!HIST, pos: 0, cur: { n: 0, hash: '#/', f: null }, seen: 0, queued: false, restoring: null, pending: null, hold: null, mode: null, loadedGen: -1, bootLink: false, retry: null, retryLoc: null };
   applyTheme();
+  /* Runs by key (2.5.0): one look, not a scan of every run (PF.util.keyIndex). */
+  var runIdx = U.keyIndex(function (r) { return r.process + '/' + r.id; }, 'runs');
   var data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, proposed: { procs: {} }, presence: [], readAt: new Date().toISOString() };
   /* Writes to the folder happen one at a time, in order, so a later change never lands before an earlier one. */
   var writes = sessionReady;
@@ -114,15 +116,21 @@
     state: state, canFolder: canFolder,
     get data() { return data; },
     now: function () { return Date.now(); },
-    get peopleById() { var o = {}; data.people.forEach(function (p) { o[p.id] = p; }); return o; },
-    run: function () { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === state.runKey) return data.runs[i]; return null; },
+    /* Built once per draw (2.5.0), not once per name shown; the last row for an ID wins, as it always has here. */
+    get peopleById() {
+      var ps = data.people;
+      if (PF.perf.plain) { var all = {}; ps.forEach(function (p) { all[p.id] = p; }); return all; }
+      if (!pplBy || pplBy.list !== ps || pplBy.len !== ps.length) { var o = {}; ps.forEach(function (p) { o[p.id] = p; }); pplBy = { list: ps, len: ps.length, by: o }; }
+      return pplBy.by;
+    },
+    run: function () { return findRun(state.runKey); },
     /* The runs a sign-off counts: every run shown, less those whose latest read failed or whose file is gone (their last copy
        stays on screen, but isn't what the folder holds), and none while the runs folder can't be read. */
     countedRuns: countedRuns,
     recording: function (r) { return !!r && !!state.me && !r.ended && !r._unrunnable && r.recorder.person === state.me && r.recorder.session === SESSION; },
     /* Who may resolve conflict copies: the recorder's window while it runs; once it has ended, whoever recorded or ended it. */
     canRecover: function (r) { return !!r && !!state.me && !r._unrunnable && (ctx.recording(r) || (!!r.ended && (r.recorder.person === state.me || r.ended.by === state.me))); },
-    processTitle: function (id) { var p = processes().filter(function (x) { return x.id === id; })[0]; return p ? p.title : id; },
+    processTitle: function (id) { var p = procFind(id); return p ? p.title : id; },
     processes: function () { return processes(); },
     /* The first time, with only the examples to show, Home is the welcome: Start your team, Join, or Look around. */
     welcome: function () { return state.view === 'home' && !!state.fs && state.fs.kind === 'memory' && !state.needsReconnect && !state.lookAround; },
@@ -132,9 +140,9 @@
     orphanSkills: function () { processes(); return orphanSkills; },
     /* Unsaved edits to a draft that was removed from this folder, so they stay findable. */
     lostDrafts: function () { var k = fsKey() + '\n', ids = processes().map(function (x) { return x.id; }); return Object.keys(state.editors || {}).filter(function (e) { var ed = state.editors[e]; return e.indexOf(k) === 0 && ed.text != null && ids.indexOf(ed.pid) < 0; }).map(function (e) { return state.editors[e].pid; }); },
-    findRun: function (key) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) return data.runs[i]; return null; },
-    procOf: function (id) { return processes().filter(function (x) { return x.id === id; })[0] || null; },
-    latestPub: function (id) { var p = processes().filter(function (x) { return x.id === id; })[0]; return p ? p.latest : null; },
+    findRun: function (key) { return findRun(key); },
+    procOf: function (id) { return procFind(id); },
+    latestPub: function (id) { var p = procFind(id); return p ? p.latest : null; },
     suggestRole: suggestRole,
     attachments: function (key, step) { return attachmentsFor(key, step); },
     /* What was typed on a step of the open run and not used yet: evidence, Fill in values, a note. */
@@ -157,7 +165,7 @@
     /* Runs this person records, with how many reports on each nobody has decided yet (Home). */
     reportsWaiting: function () { return reportsWaiting(); },
     corrections: function (pid) {
-      if (!fixMemo[pid]) { var proc = processes().filter(function (x) { return x.id === pid; })[0]; fixMemo[pid] = PF.corrections.forProcess(data.runs, pid, data.corrDecisions, proc); }
+      if (!fixMemo[pid]) { var proc = procFind(pid); fixMemo[pid] = PF.corrections.forProcess(procRuns(pid), pid, data.corrDecisions, proc); }
       return fixMemo[pid];
     },
     /* The release history and what this person has seen of it (for "New for you" and the dot on What's new). */
@@ -386,7 +394,7 @@
   function sxGone(t) {
     if (t.view === 'run' && !ctx.findRun(t.run)) return 'That run isn\'t in this folder anymore.';
     if (t.view === 'process') {
-      var p = processes().filter(function (x) { return x.id === t.process; })[0];
+      var p = procFind(t.process);
       if (!p) return 'That process isn\'t in this folder anymore.';
       /* A version or step result names its exact publication; another version is never shown in its place. */
       var v = t.mapVer ? (p.all || []).filter(function (x) { return x.folder === t.mapVer && x.ok && x.map; })[0] : null;
@@ -445,7 +453,22 @@
       if (newer !== state.newer) { state.newer = newer; renderTop(); }
     }, function () {});
   }
+  var pplBy = { list: null, len: -1, by: null };
   var procCache = null, orphanSkills = [], fixMemo = Object.create(null), fuMemo = null, insMemo = Object.create(null), repMemo = Object.create(null), repCurMemo = null;
+  /* A process by ID (2.5.0): one look in a map built once for each list processes() makes, keeping the first entry for an ID
+     as the old filter()[0] did. */
+  var procBy = { list: null, by: null };
+  function procFind(id) {
+    var ps = processes();
+    if (PF.perf.plain) return ps.filter(function (x) { return x.id === id; })[0] || null;
+    if (!procBy || procBy.list !== ps) {
+      var by = Object.create(null);
+      PF.perf.add('procs.inspected', ps.length);
+      ps.forEach(function (x) { if (!(x.id in by)) by[x.id] = x; });
+      procBy = { list: ps, by: by };
+    }
+    return id != null && id in procBy.by ? procBy.by[id] : null;
+  }
   function processes() {
     if (procCache) return procCache;
     var by = Object.create(null);
@@ -568,18 +591,33 @@
      changes, and nothing is ever marked gone here; only the complete result can do that (applyRunsRead). */
   function applyBatch(b, at) {
     var shown = false;
+    PF.perf.add('batch.applied');
     Object.keys(b.reads).forEach(function (k) {
-      var res = b.reads[k], prev = findRun(k), got = applyRunRead(k, at, res);
+      var res = b.reads[k], i = runIdx.pos(data.runs, k), prev = i >= 0 ? data.runs[i] : null, got = applyRunRead(k, at, res, prev);
       if (!got && !prev && res.kind === 'fresh') got = res.run;
       if (!got || got === prev) { if (res.kind === 'unreadable') shown = true; return; }
-      var i = prev ? data.runs.indexOf(prev) : -1;
-      if (i >= 0) data.runs[i] = got; else data.runs.push(got);
+      if (i >= 0) data.runs[i] = got; else runIdx.push(data.runs, got);
       shown = true;
     });
-    (b.unreadable || []).forEach(function (u) { data.unreadable = (data.unreadable || []).filter(function (x) { return x.path !== u.path; }).concat([u]); });
+    /* Each path once, the batch's last word on it at the end, in the batch's order (as replacing them one by one did). */
+    var un = b.unreadable || [];
+    if (un.length) {
+      var last = Object.create(null); un.forEach(function (u, j) { last[u.path] = j; });
+      data.unreadable = (data.unreadable || []).filter(function (x) { return !(x.path in last); }).concat(un.filter(function (u, j) { return last[u.path] === j; }));
+    }
     if (state.reading) state.reading = { done: b.done, total: b.total };
-    if (shown || state.reading) { procCache = null; render(); }
+    if (shown || state.reading) { procCache = null; batchRender(); }
   }
+  /* A load's batches draw the first time at once, then at most once per 250 ms: a burst of batches draws once. Any full redraw
+     (a click, the complete result) draws what they brought and drops the one waiting; so does a switch of folders. */
+  var batchTimer = null, batchDrawn = false;
+  function batchRender() {
+    if (!batchDrawn) { batchDrawn = true; PF.perf.add('batch.renders'); render(); return; }
+    if (batchTimer) return;
+    var g = gen;
+    batchTimer = setTimeout(function () { batchTimer = null; if (g !== gen) return; PF.perf.add('batch.renders'); render(); }, 250);
+  }
+  function dropBatchRender() { if (batchTimer) { clearTimeout(batchTimer); batchTimer = null; } }
   /* A read started after a write: a refresh already under way may have read the folder before it, so it's awaited first. */
   function loadAfterWrite() {
     var g = gen, wait = loading && loading.gen === gen ? loading.p.then(function () {}, function () {}) : Promise.resolve();
@@ -590,6 +628,7 @@
     if (deep) checkNewerCopy(state.fs, gen);
     if (loading && loading.gen === gen) return loading.p;
     var g = gen, before = revsNow(), seq = ++readsStarted, t0 = elapsed();
+    batchDrawn = false;
     /* Runs whose last check failed are read in full: only a real read clears that, never what the cache remembers. So are
        runs whose cached copy turned out older than the one shown. */
     var retry = Object.keys((state.unread || {}).runs || {}).concat(Object.keys(state.missing || {}), Object.keys(staleCache), Object.keys(notCounted));
@@ -598,6 +637,8 @@
     var p = repo.loadAll(state.fs, { deep: !!deep, fresh: retry, clock: elapsed, priority: readPriority(),
       onBatch: function (b) { if (g === gen) applyBatch(b, at); } }).then(function (d) {
       if (g !== gen) return;
+      PF.perf.add('load.done');
+      var wasReading = !!state.reading || !!batchTimer;
       state.reading = null;
       /* How long routine refreshes take here, for Folder health (the last 3). */
       if (!deep) state.refreshMs = (state.refreshMs || []).concat([elapsed() - t0]).slice(-3);
@@ -636,13 +677,13 @@
       /* A process's stages that couldn't be listed this time keep what was read before, said as such. */
       Object.keys((d.stages || {}).procs || {}).forEach(function (k) { var x = d.stages.procs[k], op = (data.stages || {}).procs || {}, old = Object.prototype.hasOwnProperty.call(op, k) ? op[k] : null; if (x.unlisted && old) { x.stages = old.stages; x.decisions = old.decisions; } });
       data = d; sig = s; procCache = null; state.folderErr = null; state.runReadAt = d.readAt; folderUnread = false;
-      if (changed || force || wasErr) render(); else renderTop();
+      if (changed || force || wasErr || wasReading) render(); else renderTop();
       navLoaded();
       syncChildren();
       loadConn();
       loadSetupAnswers();
       finishAccepts();
-    }, function (e) { if (g !== gen) return; loading = null; state.reading = null; state.folderErr = e.message || String(e); folderUnread = true; render(); navLoadFailed(); });
+    }, function (e) { if (g !== gen) return; PF.perf.add('load.done'); loading = null; state.reading = null; state.folderErr = e.message || String(e); folderUnread = true; render(); navLoadFailed(); });
     loading = { gen: g, p: p };
     return p;
   }
@@ -684,9 +725,52 @@
   /* The last read of the whole folder failed: what's shown is from before it. */
   var folderUnread = false;
   function startRead() { return { seq: ++readsStarted, revs: revsNow() }; }
-  function countedRuns() { return data.runs.filter(counted); }
+  /* The runs a sign-off counts, of one process or of all (2.5.0). Positions of each process's runs are kept for the runs array
+     as it stands: runs are only ever added at the end or replaced where they are with the same key (runIdx), so a position
+     keeps its process until the array is replaced or grows, and then they're worked out again. */
+  var runsAt = { arr: null, len: -1, by: null };
+  function procRuns(pid) {
+    var a = data.runs;
+    if (PF.perf.plain) return a.filter(function (x) { return x.process === pid; });
+    if (!runsAt || runsAt.arr !== a || runsAt.len !== a.length) {
+      var by = Object.create(null);
+      a.forEach(function (r, i) { (by[r.process] = by[r.process] || []).push(i); });
+      runsAt = { arr: a, len: a.length, by: by };
+    }
+    var at = pid in runsAt.by ? runsAt.by[pid] : [], out = [];
+    for (var i = 0; i < at.length; i++) {
+      var r = a[at[i]];
+      /* Never expected; if a run did move, the positions are worked out again rather than trusted. */
+      if (!r || r.process !== pid) { runsAt.arr = null; return a.filter(function (x) { return x.process === pid; }); }
+      out.push(r);
+    }
+    return out;
+  }
+  function countedRuns(pid) { return (pid == null ? data.runs : procRuns(pid)).filter(counted); }
+  /* For tests (2.5.0): what the lookups answer, against scans from the start ([] when they all agree); and one draw of what's
+     on screen now, changing nothing. */
+  PF.perf.check = function () {
+    var a = data.runs, bad = [], all = countedRuns(), pids = Object.create(null), ps = processes();
+    a.forEach(function (r) {
+      var k = r.process + '/' + r.id, scan = null;
+      for (var i = 0; i < a.length; i++) if (a[i].process + '/' + a[i].id === k) { scan = a[i]; break; }
+      if (findRun(k) !== scan) bad.push('findRun ' + k);
+      pids[r.process] = true;
+    });
+    if (findRun('no-such/run') !== null) bad.push('findRun of a missing key');
+    ps.forEach(function (p) { pids[p.id] = true; });
+    Object.keys(pids).forEach(function (pid) {
+      var mine = countedRuns(pid), want = all.filter(function (r) { return r.process === pid; });
+      if (mine.length !== want.length || mine.some(function (r, i) { return r !== want[i]; })) bad.push('countedRuns ' + pid);
+      if (procFind(pid) !== (ps.filter(function (x) { return x.id === pid; })[0] || null)) bad.push('procFind ' + pid);
+    });
+    return bad;
+  };
+  PF.perf.draw = function () { renderNow(); };
+  PF.perf.maps = function () { return { unread: (state.unread || {}).runs || null, missing: state.missing || null }; };
   /* Whether a run (on screen, or just read again) counts toward a sign-off now. */
   function counted(r) {
+    PF.perf.add('runs.counted');
     /* While the runs folder (or the whole folder) can't be read, none of what's shown is what it holds now. */
     if (folderUnread || (data.failed || {}).runs) return false;
     /* Nor is a run with a change that couldn't be saved. */
@@ -698,24 +782,28 @@
   /* Why a plan can't be started, declined or switched now: a decision on it can't be read ('' when none). */
   function planHeld(plan) { return V.planHeldWhy(plan, data); }
   function rereadOutcome(key, at, res) { if (res && (res.kind === 'missing' || res.kind === 'unreadable')) applyRunRead(key, at, res); }
-  function findRun(key) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].process + '/' + data.runs[i].id === key) return data.runs[i]; return null; }
+  function findRun(key) { return runIdx.find(data.runs, key); }
+  /* Changed in place: nothing keeps an old copy of either map to compare with (search compares their text, insights builds its
+     own, health reads them at once), so a folder of thousands of unreadable runs doesn't copy every status for each one. */
   function setRunStatus(key, kind, why) {
-    var u = state.unread = state.unread || { runs: {}, drafts: {} }, runs = Object.assign({}, u.runs), m = Object.assign({}, state.missing || {});
-    delete runs[key]; delete m[key];
-    if (kind === 'unread') runs[key] = why;
-    if (kind === 'missing') m[key] = true;
-    u.runs = runs; state.missing = m;
+    var u = state.unread = state.unread || { runs: {}, drafts: {} };
+    if (!u.runs) u.runs = {};
+    if (!state.missing) state.missing = {};
+    delete u.runs[key]; delete state.missing[key];
+    if (kind === 'unread') u.runs[key] = why;
+    if (kind === 'missing') state.missing[key] = true;
   }
   /* Discard goes back to a version built new from what was read or saved, never to an object anyone can change. */
   function keepBaseline(id, make) { baselines[id] = { make: make }; }
-  function applyRunRead(key, at, res) {
-    var id = key.slice(key.indexOf('/') + 1);
+  /* cur: the run shown now under this key (null for none), when the caller has looked it up already; left out, it's looked up. */
+  function applyRunRead(key, at, res, cur) {
+    var id = key.slice(key.indexOf('/') + 1), shownNow = function () { return cur === undefined ? findRun(key) : cur; };
     if (!res || res.kind === 'pending') return null;
     if ((applied[key] || 0) > at.seq) return null;
     /* Only a real read clears it, never what the cache remembers. */
     if (res.kind === 'unreadable' || res.kind === 'missing') notCounted[key] = true; else if (res.kind === 'fresh') delete notCounted[key];
     if (res.kind === 'cached') {
-      var shown = findRun(key);
+      var shown = shownNow();
       if (shown && repo.runSig(shown) === res.sig) return null;
       if (!canReplace(id, at.revs)) return null;
       var built = res.build();
@@ -736,11 +824,12 @@
     }
     applied[key] = at.seq;
     setRunStatus(key, res.kind === 'fresh' ? 'run' : res.kind === 'unreadable' ? 'unread' : res.kind, res.why);
-    if (res.kind !== 'fresh') return findRun(key);
-    var mine = findRun(key);
+    if (res.kind !== 'fresh') return shownNow();
+    var mine = shownNow();
     if (!mine || mine._fileHash !== res.run._fileHash) bump(id);
-    var text = JSON.stringify(res.run);
-    keepBaseline(id, res.build || function () { return JSON.parse(text); });
+    /* A read hands over how to build the run again; only without that is a copy taken now (2.5.0: not for every read). */
+    if (res.build) keepBaseline(id, res.build);
+    else { PF.perf.add('baseline.copied'); var text = JSON.stringify(res.run); keepBaseline(id, function () { return JSON.parse(text); }); }
     return res.run;
   }
   /* What this window's own save found (gone, unreadable) is current: it outranks any read still in flight. */
@@ -748,13 +837,13 @@
   /* A refresh of every run: each run's result goes through applyRunRead. A run the read didn't list that has been on disk is
      gone only when the listing was complete; one never saved yet, or one the read may not replace, stays as it is. */
   function applyRunsRead(d, at) {
-    var reads = d.reads || {}, complete = d.runsComplete === true && !(d.failed || {}).runs, keys = [], out = [];
-    function note(k) { if (keys.indexOf(k) < 0) keys.push(k); }
+    var reads = d.reads || {}, complete = d.runsComplete === true && !(d.failed || {}).runs, keys = [], out = [], seen = Object.create(null);
+    function note(k) { PF.perf.add('runs.dedupe'); if (!(k in seen)) { seen[k] = true; keys.push(k); } }
     data.runs.forEach(function (x) { note(x.process + '/' + x.id); });
     Object.keys(reads).forEach(note);
     keys.forEach(function (k) {
       var prev = findRun(k), res = reads[k] || (complete && prev && prev._fileHash ? { kind: 'missing' } : null);
-      var got = res ? applyRunRead(k, at, res) : null;
+      var got = res ? applyRunRead(k, at, res, prev) : null;
       var show = got || (prev ? state.unsaved[prev.id] || prev : res && res.kind === 'fresh' ? res.run : res && res.kind === 'cached' ? res.build() : null);
       if (show) out.push(show);
     });
@@ -907,7 +996,7 @@
     /* Typing is kept as drafts of the folder it was typed in (keys carry the folder); nothing open goes to the next one. */
     if (state.fs) leaveContext();
     state.pick = null; state.fieldsDraft = null; state.edit = null; state.fieldErr = null;
-    gen++; loading = null; folderUnread = false; state.pendingStarts = Object.create(null); startEpoch++; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null; state.repPick = null; state.repSaving = null; repCache = Object.create(null);
+    gen++; loading = null; folderUnread = false; dropBatchRender(); state.pendingStarts = Object.create(null); startEpoch++; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null; state.repPick = null; state.repSaving = null; repCache = Object.create(null);
     state.setupAnswers = []; state.setupSeen = {}; answersBusy = false; state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; notCounted = {}; baselines = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
     state.more = {}; state.refreshMs = []; stopThumbs(); R.mapMemo.clear(); staleCache = {}; sxReset();
@@ -1122,7 +1211,7 @@
       if (res.ok) logSave(sfs, fsKey(), { kind: 'draft-edit', id: pid, from: null, to: res.hash, before: '', after: md, source: 'new', units: ['Created the draft'], items: [] });
       return load(true).then(function () {
         if (g !== gen) return null;
-        var p = processes().filter(function (x) { return x.id === pid; })[0];
+        var p = procFind(pid);
         if (edit) { su.busy = false; open(); return null; }
         if (p && p.latest && !p.draftChanged) { su.busy = false; say(p.title + ' is published already.', 'good'); render(); return null; }
         var people = data.people, wfs = data.jira.workflows, pids = processes().filter(function (x) { return x.latest; }).map(function (x) { return x.id; });
@@ -1362,8 +1451,10 @@
   }
   /* Re-render without losing what someone is typing or where their focus is. */
   function renderNow() {
+    PF.perf.add('render');
+    dropBatchRender();
     repHarvest();
-    procCache = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null;
+    procCache = null; pplBy = { list: null, len: -1, by: null }; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null;
     var keep = {}, ae = document.activeElement, focusKey = null;
     /* What a person typed or ticked survives a redraw of the same thing: the same screen, run, step and open form. Moving to
        another step or form starts clean, so a note or a value never jumps to the wrong place. Hidden inputs are never carried. */
@@ -1909,7 +2000,7 @@
   /* While a save of this draft is in flight, nothing else may change it: say so and stop. */
   function stillSaving(p) { if (!state.draftSaving[edKey(p.id)]) return false; say('Still saving this draft. Try again in a moment.', 'warn'); render(); return true; }
   /* The fingerprint of the draft as this window last read it from the folder. */
-  function cachedHash(pid) { var p = processes().filter(function (x) { return x.id === pid; })[0]; return p && p.draft ? U.hash(p.draft.md) : null; }
+  function cachedHash(pid) { var p = procFind(pid); return p && p.draft ? U.hash(p.draft.md) : null; }
   /* An editor with nothing unsaved follows the draft in the folder; one with unsaved changes keeps what it started from,
      so saving it over a newer draft is a conflict, never an overwrite. */
   function followDrafts() {
@@ -2123,7 +2214,7 @@
 
   /* ---------- proposals: Review, Apply, Decline, Reopen (docs/design.md section 27) ---------- */
   function propOf(pid, id) {
-    var p = processes().filter(function (x) { return x.id === pid; })[0] || null, x = p && p.proposed && p.proposed.list.filter(function (y) { return y.id === id; })[0];
+    var p = procFind(pid), x = p && p.proposed && p.proposed.list.filter(function (y) { return y.id === id; })[0];
     return { p: p, x: x || null };
   }
   /* Why nothing may be applied to this draft from this window right now (caBlocked's rules, and an input method composing). */
@@ -2373,7 +2464,7 @@
       render();
     }, function (e) { if (state.overlay === ov) { ov.loadErr = 'This proposal couldn\'t be read: ' + e.message; render(); } });
   }
-  function currentProcess() { var id = state.processId; return processes().filter(function (x) { return x.id === id; })[0] || null; }
+  function currentProcess() { return procFind(state.processId); }
   var renderTimer = null;
   function scheduleRender() { if (renderTimer) return; renderTimer = setTimeout(function () { renderTimer = null; render(); }, 250); }
   /* Save a draft only over the version the editor started from; anything else is shown as a conflict, never overwritten. */
@@ -2653,7 +2744,7 @@
      with it in this tab (sessionStorage), so a reload or a trip to the editor keeps them. */
   function prKeepTyped(pid) {
     var pre = draftKey(prKey(pid), ''), out = {};
-    var e = prs[edKey(pid)], p = e && processes().filter(function (x) { return x.id === pid; })[0], c = p ? prMap(e, prText(p)) : null;
+    var e = prs[edKey(pid)], p = e && procFind(pid), c = p ? prMap(e, prText(p)) : null;
     Object.keys(state.stepDrafts).forEach(function (k) {
       if (k.indexOf(pre) !== 0) return;
       var d = state.stepDrafts[k], id = k.slice(pre.length), x = c && c.map && !/^gate:/.test(id) ? M.findStep(c.map, id) : null;
@@ -2989,7 +3080,7 @@
   var uiActs = 0;
   /* Stage the saved draft for test runs (the overview's Stage button, or Practice's: origin). Same checks and write either way. */
   function stageDraft(id, note, origin) {
-      var p = processes().filter(function (x) { return x.id === id; })[0];
+      var p = procFind(id);
       if (!p || !p.draft || stillSaving(p) || state.stageBusy) return;
       var ed = editorOf(p.id);
       if (dirty(ed) || (ed && ed.conflict) || state.obPending === p.id || shotBusy(p.id)) { say('Your edits to this draft aren\'t saved yet, so nothing was staged. Save them first.', 'warn'); render(); return; }
@@ -3030,7 +3121,7 @@
         if (origin.e.stageNote === origin.note) { origin.e.stageNote = ''; origin.e.noteErr = null; var nb = document.getElementById('pr-note'), np = currentProcess(); if (nb && np && np.id === id && prs[edKey(id)] === origin.e) nb.value = ''; }
         /* The stage must be in what the folder read says, ready to start a test run from, before practice ends for it. */
         var shown1 = function () {
-          var procs = (data.stages || {}).procs || {}, sp = Object.prototype.hasOwnProperty.call(procs, id) ? procs[id] : null, cp = processes().filter(function (x) { return x.id === id; })[0];
+          var procs = (data.stages || {}).procs || {}, sp = Object.prototype.hasOwnProperty.call(procs, id) ? procs[id] : null, cp = procFind(id);
           var s = sp && cp ? sp.stages.filter(function (x) { return x.folder === res.folder; })[0] : null;
           if (state.folderErr || (data.failed || {}).stages || !s || !s.ok || s.newer || sp.unlisted || sp.unread.length || sp.refused.some(function (r) { return /\/decisions\//.test(r.path); })) return false;
           return PF.staging.status(s, sp.decisions, cp.all).status === 'staged';
@@ -3049,7 +3140,7 @@
   /* ---------- applying a correction to the draft (docs/design.md section 19, slice 2) ---------- */
   function caOv() { return state.overlay && state.overlay.corrApply ? state.overlay : null; }
   function caFind(pid, gid) {
-    var p = processes().filter(function (x) { return x.id === pid; })[0], all = p ? ctx.corrections(p.id) : [];
+    var p = procFind(pid), all = p ? ctx.corrections(p.id) : [];
     return { p: p, all: all, g: all.filter(function (x) { return x.id === gid; })[0] || null };
   }
   function caErr(ov, msg, field) { ov.err = { msg: msg, field: field || 'ca-acts' }; state.overlayFocus = field ? '#' + field : '#ca-t'; render(); }
@@ -4280,7 +4371,7 @@
   }
   function navFound(loc) {
     if (loc.view === 'run') return !!ctx.findRun(loc.process + '/' + loc.run);
-    var p = loc.view === 'process' && processes().filter(function (x) { return x.id === loc.process; })[0];
+    var p = loc.view === 'process' && procFind(loc.process);
     if (p) return !loc.version || (loc.version === 'current' ? !!p.latest : (p.all || []).some(function (x) { return x.folder === loc.version && x.map; }));
     return false;
   }
@@ -4330,7 +4421,7 @@
     home(); return 'moved';
   }
   function moveToProcess(loc) {
-    var pid = loc.process, p = processes().filter(function (x) { return x.id === pid; })[0];
+    var pid = loc.process, p = procFind(pid);
     if (!p && ctx.lostDrafts().indexOf(pid) < 0) { ACTIONS.nav('processes'); navGone('process', loc); return 'moved'; }
     var rf = state.runFilter;
     if (state.view === 'runs' && rf && rf.back && rf.back.process === pid && loc.tab === 'insights') { ACTIONS['ins-back'](); return 'focus'; }
@@ -4519,11 +4610,11 @@
     },
     /* Sign off the current version of a process as ready for a skill, with the run evidence it was signed on. */
     signoff: function (id) {
-      var p = processes().filter(function (x) { return x.id === id; })[0], pub = p && p.latest;
+      var p = procFind(id), pub = p && p.latest;
       if (!pub || !state.me) return;
       var as = PF.skills.signer(pub, data.people, state.me, !!(data.failed || {}).people);
       if (!as) { say('Only the process owner, ' + V.nameOf(ctx, pub.map.meta.owner) + ', can sign off a version' + (pub.map.meta.backup ? ', or its backup owner while the owner is inactive or gone' : '') + '.', 'warn'); render(); return; }
-      var ready = PF.skills.readiness(countedRuns(), pub, null), note = val('pick-input'), sfs = state.fs, sg = gen, unk = PF.skills.signUnknown(data, pub);
+      var ready = PF.skills.readiness(countedRuns(pub.map.meta.process), pub, null), note = val('pick-input'), sfs = state.fs, sg = gen, unk = PF.skills.signUnknown(data, pub);
       if (unk) { say('Nothing was signed off: ' + unk + (PF.skills.signHold(data, pub).kind === 'newer' ? '. Update Flightdeck to see it.' : ', so it isn\'t known whether v' + pub.info.version + ' is already signed off. If that file stays this way, restore it from a backup or delete it.'), 'warn'); render(); return; }
       if (!ready.enough) { say('Sign-off needs ' + ready.needed + ' clean completed runs of v' + pub.info.version + '.', 'warn'); render(); return; }
       var by = state.me, still = function () { return sg === gen && state.fs === sfs && state.me === by; };
@@ -4532,7 +4623,7 @@
         /* It leans on test runs (2.1): the version's bytes are checked against its stage again and those test runs read again
            now, and the count worked out again from them, before anything is written. */
         /* Only test runs counted now (2.0.1) are read again, and only runs counted now join them. */
-        var st = pub.fromStage && pub.fromStage.stage, tests = st ? countedRuns().filter(function (r) { return r.process === id && PF.run.isTest(r) && r.folder === st.folder; }) : [];
+        var st = pub.fromStage && pub.fromStage.stage, tests = st ? countedRuns(id).filter(function (r) { return r.process === id && PF.run.isTest(r) && r.folder === st.folder; }) : [];
         var ids = tests.map(function (r) { return r.id; }), at = startRead();
         var reread = function (rid) {
           var bad = [];
@@ -4547,7 +4638,7 @@
           /* Read again now, and still counted now (2.0.1): a refresh that landed meanwhile may have found the folder unreadable. */
           var fresh = f[1].filter(function (r) { return r && counted(r); });
           var onSt = function (r) { return r.process === id && PF.run.isTest(r) && r.folder === st.folder; };
-          var again = PF.skills.readiness(countedRuns().filter(function (r) { return !onSt(r); }).concat(fresh), pub, null);
+          var again = PF.skills.readiness(countedRuns(pub.map.meta.process).filter(function (r) { return !onSt(r); }).concat(fresh), pub, null);
           if (!again.enough) throw new Error('It needs ' + again.needed + ' clean completed runs; it has ' + again.clean + ' now.');
           if (!still()) return { dropped: true };
           return repo.recordValidation(sfs, pub, WRITER, by, note, { completed: again.completed, clean: again.clean, runs: again.cleanRuns }, as === 'backup' ? 'backup' : null);
@@ -4563,15 +4654,15 @@
       var kind = id.split(':')[0], name = id.slice(kind.length + 1), text = '';
       var withNames = function (signs) { return signs.map(function (v) { return Object.assign({}, v, { byName: V.nameOf(ctx, v.by) }); }); };
       if (kind === 'create') {
-        var p = processes().filter(function (x) { return x.id === name; })[0], pub = p && p.latest;
+        var p = procFind(name), pub = p && p.latest;
         if (!pub) return;
-        text = PF.skills.createBrief(pub, null, PF.skills.readiness(countedRuns(), pub, null), withNames(PF.skills.signoffs(data.validations, pub)));
+        text = PF.skills.createBrief(pub, null, PF.skills.readiness(countedRuns(pub.map.meta.process), pub, null), withNames(PF.skills.signoffs(data.validations, pub)));
       } else {
         /* Registrations are identified by their file, so two skills with the same name never get each other's brief. */
         var hit = null; processes().forEach(function (q) { q.skills.forEach(function (x) { if (x.skill.file === name) hit = x; }); });
         if (!hit || !hit.status.latest) return;
         var lp = hit.status.latest;
-        text = PF.skills.updateBrief(hit.skill, hit.status, PF.skills.readiness(countedRuns(), lp, hit.skill.steps), withNames(PF.skills.signoffs(data.validations, lp)));
+        text = PF.skills.updateBrief(hit.skill, hit.status, PF.skills.readiness(countedRuns(lp.map.meta.process), lp, hit.skill.steps), withNames(PF.skills.signoffs(data.validations, lp)));
       }
       state.brief = { key: id, text: text }; render();
       copyText(text, document.getElementById('brief-pre'), 'Copied. Paste it to your AI assistant.');
@@ -4964,7 +5055,7 @@
     /* Duplicate a run into a plan: its details and roles, never its answers, notes or gates. Details a step sets during the run
        (sets:) are left out, since the new run produces them again. */
     'plan-from-run': function (key) {
-      var r = data.runs.filter(function (x) { return x.process + '/' + x.id === key; })[0], p = r && processes().filter(function (x) { return x.id === r.process; })[0];
+      var r = data.runs.filter(function (x) { return x.process + '/' + x.id === key; })[0], p = r && procFind(r.process);
       if (!r || !p || !p.latest || !state.me) return;
       if (r._unrunnable) { say(r._unrunnable + ' This run is read-only here.', 'warn'); render(); return; }
       var made = Object.assign({}, M.setBy(R.mapOf(r)), M.setBy(p.latest.map)), details = {}, roles = {};
@@ -4983,7 +5074,7 @@
     'plan-diff': function () { state.planDiff = !state.planDiff; state.focus = '[data-act="plan-diff"]'; render(); },
     /* The one way a plan moves off the version it was planned on: the person chooses the latest. */
     'plan-latest': function (id) {
-      var plan = data.plans.filter(function (x) { return x.id === id; })[0], p = plan && processes().filter(function (x) { return x.id === plan.process; })[0];
+      var plan = data.plans.filter(function (x) { return x.id === id; })[0], p = plan && procFind(plan.process);
       if (!p || !p.latest) return;
       if (planHeld(plan)) { say(planHeld(plan), 'warn'); render(); return; }
       /* The exact version shown, never "whatever is latest": a newer one published later asks again. */
@@ -4993,7 +5084,7 @@
     /* A plan/2 switched to another exact version by a person, in so many words: written down (plan-status/2, retargeted) so
        every window starts it on that version, never on whatever is latest. */
     'plan-retarget': function (id, b) {
-      var plan = data.plans.filter(function (x) { return x.id === id; })[0], p = plan && processes().filter(function (x) { return x.id === plan.process; })[0], g = gen;
+      var plan = data.plans.filter(function (x) { return x.id === id; })[0], p = plan && procFind(plan.process), g = gen;
       var pub = p && (p.all || []).filter(function (x) { return x.info.folder === b.dataset.folder; })[0];
       if (!plan || !pub || !state.me) return;
       if (planHeld(plan)) { say(planHeld(plan), 'warn'); render(); return; }
@@ -5049,7 +5140,7 @@
     'decline-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0], g = gen; if (!p) return; if (planHeld(p)) { say(planHeld(p), 'warn'); render(); return; } var dfs = state.fs, dkey = fsKey(), who = state.me, still = planStill(g, dfs, dkey, who); queued(function () { if (!still()) return { dropped: true }; return repo.decidePlan(dfs, p, { action: 'declined', sha: p._sha, lock: LOCKS ? lock : null, still: still, write: function () { return repo.recordPlanStatus(dfs, p, WRITER, 'declined', null, who, null, APP_VERSION); } }); }).then(function (res) { if (res && res.dropped) { say('The plan wasn\'t declined. ' + nothingWritten(g, dfs, dkey, who), 'warn'); render(); return; } if (g !== gen) return; if (!still()) return load(true); home(); say('Plan declined. It stays in the folder for reference.'); return load(true); }, function (e) { say(aboutWhat(still, g, dfs, dkey, who) + 'Couldn\'t decline it: ' + e.message, 'bad'); render(); }); },
     diff: function (id) { state.diffOf = state.diffOf === id ? null : id; render(); },
     publish: function (id) {
-      var p = processes().filter(function (x) { return x.id === id; })[0], note = (document.getElementById('change-note') || {}).value || '';
+      var p = procFind(id), note = (document.getElementById('change-note') || {}).value || '';
       if (!p || !p.draft || stillSaving(p)) return;
       /* Publishing takes the draft in the folder, so edits waiting unsaved in the editor would be left out: never publish then. */
       var ed = editorOf(p.id);
@@ -5089,7 +5180,7 @@
     /* Sign off a staged version (2.1 slice 6): its owner, once enough of its test runs are clean; the person is checked again
        right before the write. */
     'signoff-stage': function (folder) {
-      var p = processes().filter(function (x) { return x.id === state.processId; })[0];
+      var p = procFind(state.processId);
       if (!p || !state.me || state.stageBusy) return;
       var sg = V.stageSign(ctx, p, folder);
       if (!sg.stage || !sg.as) { say(sg.why || (sg.signs && sg.signs.length ? 'It\'s already signed off.' : 'Only the process owner signs off a staged version, once ' + PF.skills.READY_RUNS + ' of its test runs are clean.'), 'warn'); render(); return; }
@@ -5100,7 +5191,7 @@
         if (!still()) return { dropped: true };
         /* The stage, its decisions, the versions, its test runs, people.json and its sign-offs are read again inside the stage
            lock; eligibility is worked out again from what was read, with the person who clicked. */
-        var ids = countedRuns().filter(function (r) { return r.process === pid && r.folder === folder && PF.run.isTest(r); }).map(function (r) { return r.id; });
+        var ids = countedRuns(pid).filter(function (r) { return r.process === pid && r.folder === folder && PF.run.isTest(r); }).map(function (r) { return r.id; });
         /* The read sequence starts when the test runs are read again (reading), after the lock and the stage's reads: a refresh
            that began while this waited is older than what the reread finds. */
         var at = null;
@@ -5311,7 +5402,7 @@
     'setup-tpl': function (id) { var su = state.setup; if (!su) return; su.tpl = id; state.focus = '[data-act="setup-tpl"][data-id="' + id + '"]'; render(); },
     'setup-publish': function (id) { setupChecklist(id, false); },
     'setup-edit': function (id) { setupChecklist(id, true); },
-    'setup-run': function (id) { var p = processes().filter(function (x) { return x.id === id; })[0]; if (!p || !p.latest) return; state.startMode[id] = 'solo'; ACTIONS.start(id); },
+    'setup-run': function (id) { var p = procFind(id); if (!p || !p.latest) return; state.startMode[id] = 'solo'; ACTIONS.start(id); },
     'setup-app-check': function () { setupAppCheck(); },
     'setup-copy': function (id) {
       var pre = document.getElementById({ prompt: 'su-prompt', invite: 'su-invite', request: 'su-request' }[id] || '');
@@ -5515,7 +5606,7 @@
     },
     'corr-filter': function (id) { state.fixFilter = id === 'all' ? 'all' : 'open'; state.focus = '[data-act="corr-filter"][data-id="' + state.fixFilter + '"]'; render(); },
     'copy-corr-brief': function (id) {
-      var p = processes().filter(function (x) { return x.id === id; })[0]; if (!p) return;
+      var p = procFind(id); if (!p) return;
       /* The brief quotes the steps as the draft has them now, since that's the file the assistant edits. */
       var map = p.draft ? M.parse(p.draft.md) : p.latest ? p.latest.map : null;
       var text = PF.corrections.brief({ id: p.id, title: p.title }, ctx.corrections(p.id), { map: map, draftFile: p.draft ? p.draft.file : null, version: p.latest && p.latest.info.version, nameOf: function (x) { return V.nameOf(ctx, x); } });
@@ -5690,7 +5781,7 @@
   /* Anyone on the team decides on a group of corrections; the decision is a new file written once, following the decision
      this window shows. */
   function decideCorr(id, status, reason, done, pid, more) {
-    var p = pid ? processes().filter(function (x) { return x.id === pid; })[0] : currentProcess(), g = p && ctx.corrections(p.id).filter(function (x) { return x.id === id; })[0];
+    var p = pid ? procFind(pid) : currentProcess(), g = p && ctx.corrections(p.id).filter(function (x) { return x.id === id; })[0];
     if (!g || !state.me) return;
     var rec;
     try { rec = PF.corrections.decision(g, state.me, status, reason, new Date().toISOString(), Object.assign({ current: g.decision, act: U.randomId(10) }, more || {})); }
@@ -6107,7 +6198,7 @@
           say(msg + (renamed ? ' ' + renamed : ''), 'good'); render(); window.scrollTo(0, 0); return;
         }
         /* Publish v1 as it is: the same publish setup uses, of exactly the draft just saved. */
-        var p = processes().filter(function (x) { return x.id === f.id; })[0], people = data.people, wfs = data.jira.workflows, pids = processes().filter(function (x) { return x.latest; }).map(function (x) { return x.id; });
+        var p = procFind(f.id), people = data.people, wfs = data.jira.workflows, pids = processes().filter(function (x) { return x.latest; }).map(function (x) { return x.id; });
         return queued(function () {
           return repo.loadStepTypes(sfs).then(function (types) { return repo.publish(sfs, md, { people: people, customTypes: types.types, workflows: wfs, processes: pids, by: by, changes: 'First version', existing: p ? p.taken : [], now: new Date().toISOString(), app: APP_VERSION }); });
         }).then(function (pub) {
@@ -6131,7 +6222,7 @@
   document.addEventListener('submit', function (e) {
     if (e.target.id !== 'start-form') return;
     e.preventDefault();
-    var p = processes().filter(function (x) { return x.id === e.target.dataset.process; })[0];
+    var p = procFind(e.target.dataset.process);
     if (p && state.me && e.target.dataset.test === '1') { startTestRun(e.target, p); return; }
     if (!p || !p.latest || !state.me) return;
     var details = {}, roles = {};
@@ -6242,7 +6333,7 @@
   document.addEventListener('submit', function (e) {
     if (e.target.id !== 'plan-form') return;
     e.preventDefault();
-    var p = processes().filter(function (x) { return x.id === e.target.dataset.process; })[0], planning = state.planning;
+    var p = procFind(e.target.dataset.process), planning = state.planning;
     if (!p || !p.latest || !state.me || !planning || planning.process !== p.id) return;
     var pub = p.latest, details = {}, roles = {};
     if (e.target.dataset.folder !== pub.info.folder) { say('A new version was published while you were filling this in. Check the form, then save again.', 'warn'); render(); return; }
@@ -6933,7 +7024,7 @@
     var id = resumeEdit; resumeEdit = null;
     /* A link decides where a reload lands; the editor comes back only without one. */
     if (H.bootLink) return;
-    var p = id && processes().filter(function (x) { return x.id === id; })[0]; if (!p) return;
+    var p = id && procFind(id); if (!p) return;
     setView('process'); state.processId = id; state.ptab = 'edit'; state.mapVer = null; openEditor(p); state.focus = 'ed-h'; H.mode = 'replace'; render();
   }
   window.addEventListener('beforeunload', function (e) {

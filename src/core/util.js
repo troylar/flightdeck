@@ -198,3 +198,38 @@ PF.util = (function () {
   return { DRAFT_BYTES: DRAFT_BYTES, utf8Bytes: utf8Bytes, draftTooBig: draftTooBig, draftSize: draftSize, drift: drift, esc: esc, timeOnDayIn: timeOnDayIn, safeUrl: safeUrl, mdInline: mdInline, mdBlock: mdBlock, slug: slug, randomId: randomId, hash: hash,
     hm: hm, when: when, day: day, dueWords: dueWords, localDateTime: localDateTime, clock: clock, duration: duration, timeToday: timeToday };
 })();
+/* Counts of the work done (2.5.0): tests read them, so what a refresh or a screen costs is a number, the same on every computer. */
+/* plain: every index answers by a scan from the start, as before 2.5.0, so a test can compare a screen drawn both ways. */
+PF.perf = { n: {}, plain: false, add: function (k, x) { this.n[k] = (this.n[k] || 0) + (x == null ? 1 : x); }, reset: function () { this.n = {}; } };
+/* Items by key in an array that other code also changes (2.5.0: runs). Positions are kept for the array they were taken from; a
+   hit is checked against the item at its position now, and a key the index doesn't have, for the same array and length, isn't
+   there, so a miss costs one look. Appends through push() keep it; anything else (a new array, a push it didn't see, a
+   position whose item changed key) rebuilds it once. The first item with a key wins, as a scan from the start finds it. */
+PF.util.keyIndex = function (keyOf, name) {
+  var n = name || 'runs', arr = null, len = -1, at = Object.create(null);
+  function build(a) {
+    PF.perf.add(n + '.rebuilds'); at = Object.create(null);
+    for (var i = 0; i < a.length; i++) { PF.perf.add(n + '.inspected'); var k = keyOf(a[i]); if (!(k in at)) at[k] = i; }
+    arr = a; len = a.length;
+  }
+  function pos(a, key) {
+    /* plain: a scan, leaving the index exactly as it was, so what it holds is still tested by the next look. */
+    if (PF.perf.plain) { for (var j = 0; j < a.length; j++) if (keyOf(a[j]) === key) return j; return -1; }
+    if (a !== arr || a.length !== len) build(a);
+    PF.perf.add(n + '.inspected');
+    var i = at[key];
+    if (i == null) return -1;
+    if (keyOf(a[i]) === key) return i;
+    build(a); i = at[key];
+    return i == null ? -1 : i;
+  }
+  return {
+    pos: pos,
+    find: function (a, key) { var i = pos(a, key); return i < 0 ? null : a[i]; },
+    push: function (a, item) {
+      if (a !== arr || a.length !== len) build(a);
+      a.push(item);
+      if (a === arr && len === a.length - 1) { var k = keyOf(item); if (!(k in at)) at[k] = a.length - 1; len = a.length; }
+    }
+  };
+};

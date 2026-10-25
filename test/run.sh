@@ -16,6 +16,8 @@ t test/conditions.test.js
 t test/practice.test.js
 t test/practice-app.test.js
 t test/run-polish.test.js
+t test/scale.test.js
+t test/scale-app.test.js
 t test/ui-states.test.js
 t test/reports.test.js
 t test/insights.test.js

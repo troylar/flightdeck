@@ -35,7 +35,16 @@ function boot(opts) {
   const intervals = [];
   // Tests start past the first-run welcome unless they ask for it (firstRun).
   const els = {}, listeners = {}, winListeners = {}, store = Object.assign(opts.firstRun ? {} : { 'preflight:look-around': 'true' }, opts.localStore || {}), inputs = new Set();
-  const get = id => { if (!els[id]) { els[id] = element(id); els[id].focus = () => { if (opts.domFocus) document.activeElement = els[id]; }; } return els[id]; };
+  /* opts.replace: a redraw makes typed boxes anew, as setting innerHTML does: focus leaves them and the caret goes to the start,
+     so only the app's own code puts them back. focus() and setSelectionRange() then work on the boxes, as on a page. */
+  const get = id => {
+    if (!els[id]) {
+      const el = els[id] = element(id);
+      el.focus = () => { if (opts.domFocus || opts.replace) document.activeElement = el; };
+      if (opts.replace) el.setSelectionRange = (a, b) => { el.selectionStart = a; el.selectionEnd = b; };
+    }
+    return els[id];
+  };
   ['app', 'top', 'overlay', 'live', 'tab-badge'].forEach(get);
   /* Like a real page: a redraw recreates the screen's inputs as their markup draws them, and the app's own code puts back what
      was typed. Only the boxes drawn now are on the page; one that isn't keeps its last value, so a test can still read it. */
@@ -49,7 +58,7 @@ function boot(opts) {
     if (/^select/.test(name)) { const m = /<option[^>]*value="([^"]*)"[^>]*\sselected/.exec(html.slice(at, html.indexOf('</select>', at))); return m ? un(m[1]) : ''; }
     const m = /\svalue="([^"]*)"/.exec(html.slice(at, html.indexOf('>', at))); return m ? un(m[1]) : '';
   };
-  Object.defineProperty(appEl, 'innerHTML', { get() { return this._html; }, set(v) { this._html = String(v); inputs.forEach(id => { const d = drawnValue(this._html, id); if (d !== null) els[id].value = d; }); } });
+  Object.defineProperty(appEl, 'innerHTML', { get() { return this._html; }, set(v) { this._html = String(v); inputs.forEach(id => { const d = drawnValue(this._html, id); if (d === null) return; els[id].value = d; if (opts.replace) { els[id].selectionStart = els[id].selectionEnd = 0; if (document.activeElement === els[id]) document.activeElement = document.body; } }); } });
   const onScreen = id => appEl._html.indexOf('id="' + id + '"') >= 0;
   /* Thumbnail placeholders as nodes: the same node while it stays drawn, a new one once it's drawn again (as morph does). */
   const thumbs = new Map(), unq = v => v.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
@@ -94,7 +103,7 @@ function boot(opts) {
   appEl.children = [];
   const formAttrs = {};
   const form = { closest: () => null, contains: () => false, querySelector: () => null, parentNode: appEl, setAttribute(k, v) { formAttrs[k] = v; }, removeAttribute(k) { delete formAttrs[k]; }, hasAttribute: k => k in formAttrs };
-  appEl.querySelector = sel => { asked.push(sel); if (sel === '.ob-form') return /class="panel stack ob-form"/.test(appEl._html) ? form : null; return opts.domFocus ? drawn(appEl, sel) : null; };
+  appEl.querySelector = sel => { asked.push(sel); if (sel === '.ob-form') return /class="panel stack ob-form"/.test(appEl._html) ? form : null; if (opts.replace && /^#[\w-]+$/.test(sel) && inputs.has(sel.slice(1)) && onScreen(sel.slice(1))) return els[sel.slice(1)]; return opts.domFocus ? drawn(appEl, sel) : null; };
   if (opts.domFocus) { const was = appEl.contains; appEl.contains = el => !!el && ((el._region === appEl && el._src === appEl._html) || was(el)); }
   const session = opts.sessionStore || {};
   const sessionStorage = { getItem: k => (k in session ? session[k] : null), setItem: (k, v) => { session[k] = String(v); }, removeItem: k => { delete session[k]; } };
@@ -240,10 +249,16 @@ function boot(opts) {
     ['top', 'overlay'].forEach(k => { const r = els[k]; r.querySelector = sel => drawn(r, sel); r.contains = own(r); });
   }
   // A folder the picker hands over (see folderHandle), for the screens that choose a real folder.
-  if (opts.picker) window.showDirectoryPicker = () => Promise.resolve(opts.picker);
+  // A function picks the folder at each choice, so a test can hand over another folder the next time.
+  if (opts.picker) window.showDirectoryPicker = () => Promise.resolve(typeof opts.picker === 'function' ? opts.picker() : opts.picker);
+  /* opts.timers: the app's delayed timers (any delay over 0) wait in a queue the test moves with advanceTimers(ms); none
+     fires on its own. Zero-delay timers still run as usual, so promise chains and redraws on the next turn aren't held. */
+  const timerQ = [], clock = { now: 0, id: 1 };
+  const appSetTimeout = !opts.timers ? setTimeout : (fn, ms) => { if (!(ms > 0)) return setTimeout(fn, 0); const t = { id: 'm' + clock.id++, at: clock.now + ms, fn }; timerQ.push(t); return t.id; };
+  const appClearTimeout = !opts.timers ? clearTimeout : id => { const i = timerQ.findIndex(t => t.id === id); if (i >= 0) timerQ.splice(i, 1); else clearTimeout(id); };
   const ctx = vm.createContext({
     window, document, history, location, localStorage: storage(), sessionStorage, navigator: Object.assign(opts.locks ? { locks: opts.locks } : {}, opts.navigator || {}), BroadcastChannel: opts.Channel, console, Date: opts.Date || Date, Math, JSON, Promise, Blob, fetch, btoa, Uint8Array,
-    setTimeout, clearTimeout, setInterval: fn => { intervals.push(fn); return 0; }, requestAnimationFrame: fn => setTimeout(fn, 0), URL: { createObjectURL: () => 'blob:x', revokeObjectURL() {} },
+    setTimeout: appSetTimeout, clearTimeout: appClearTimeout, setInterval: fn => { intervals.push(fn); return 0; }, requestAnimationFrame: fn => setTimeout(fn, 0), URL: { createObjectURL: () => 'blob:x', revokeObjectURL() {} },
     crypto: globalThis.crypto, TextEncoder, indexedDB: opts.indexedDB, IntersectionObserver: opts.IntersectionObserver,
     // An elapsed-time clock the test moves (performance.now()); left out, the app falls back on Date.now().
     performance: opts.performance,
@@ -271,6 +286,9 @@ function boot(opts) {
   const tick = (n = 20) => new Promise(res => { let i = 0; (function loop() { if (i++ >= n) return res(); setTimeout(loop, 0); })(); });
   app = {
     PF, store, session, fs: null, tick,
+    // With opts.timers: move the app's clock by ms, firing every delayed timer that comes due, in order; and the ones waiting.
+    advanceTimers(ms) { const until = clock.now + ms; for (;;) { timerQ.sort((x, y) => x.at - y.at); const t = timerQ[0]; if (!t || t.at > until) break; timerQ.shift(); clock.now = t.at; t.fn(); } clock.now = until; },
+    pendingTimers: () => timerQ.map(t => ({ in: t.at - clock.now })),
     html: () => els.app.innerHTML,
     // The last place a render tried to put focus (a selector or an element id), ignoring the app's own lookups by class.
     focused: () => asked.filter(x => x && x[0] !== '.').pop() || null,

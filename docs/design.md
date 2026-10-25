@@ -607,6 +607,31 @@ Each kind takes its share of the time since the last refresh (keys × elapsed ÷
 
 **Still needed:** the two-computer rehearsal of the final 1.17 build (`docs/onedrive.md`, Release gate), including a late note on a weeks-old run arriving within 10 minutes and right away after Refresh, and a big copy's first open showing "Still reading runs" with nothing shown as gone.
 
+**2.5.0: big folders.** What a refresh or a screen costs grows with what's in the folder, not with its square.
+- **Runs by key.** `PF.util.keyIndex` keeps each run's position for the runs array as it stands. A hit is checked against the run at its position now; a miss, for the same array and length, isn't there, so it costs one look. Runs are added only through `runIdx.push` and otherwise replaced where they are, with the same key; anything else rebuilds the index once. A refresh hands the run it already found to `applyRunRead`.
+- **Statuses in place.** `setRunStatus` changes `state.unread.runs` and `state.missing` in place. Nothing keeps an old copy of either to compare with.
+- **Batch draws.** The first batch of a read draws at once; later ones wait on one 250 ms timer. A user action (`renderNow`), the finished read and a folder switch drop the waiting draw. Draws still go through `render()`, so typing is harvested and kept.
+- **Per-draw lookups.** `procFind` builds one map for each list `processes()` makes (first entry per ID). `countedRuns(pid)` reads that process's runs by position, rechecked against the array, then applies `counted()`, so unreadable, missing and unsaved runs are left out as before. `peopleById` is built once per draw (last row per ID wins, as before). Each person picker names everyone with one `PF.people.labeler(list)`; Settings › People checks each change with `PF.people.permits(people, me)`, the first row per ID, as `allowed()` reads it.
+- **Memos.** Per-draw memos are cleared by `renderNow`. The caches kept across draws are each keyed by what they read: stale copies to retry, Folder health, a draft's SHA-256 and report contents. `test/scale.test.js` checks both rules.
+- **Counted, not timed.** `PF.perf` counts the work (`runs.inspected`, `runs.counted`, `procs.inspected`, `people.names`, `people.rows`, `batch.renders` and more); `test/scale.test.js` and `test/scale-app.test.js` bound them. `PF.perf.plain` makes every lookup a scan from the start, so a seeded walk in `test/app.test.js` checks that every screen drawn with the lookups is the one drawn by scanning.
+- **Measured (browser gate, `projects/flightdeck-scale-audit/tools/gate.js`, Chromium, in-memory folder).** Longest task in ms at 4× CPU throttling, per workload (skewed: one 150-step process; combined: 1,000 processes, 500 people), for the routine refresh / maximum-age refresh / fault-heavy refresh (up to 2,000 run files refused, then read again; as many as the folder has below that):
+
+  | Runs | Skewed | Combined | First-open work (worst) |
+  |---|---|---|---|
+  | 500 | 0 / 0 / 72 | 0 / 0 / 441 | 2.0 s |
+  | 1,000 | 93 / 65 / 52 | 73 / 58 / 417 | 2.5 s |
+  | 2,000 | 208 / 177 / 83 | 129 / 134 / 448 | 3.0 s |
+  | 3,000 | 232 / 201 / 101 | 149 / 199 / 444 | 3.0 s |
+  | 4,000 | 350 / 368 / 546 | 253 / 259 / 395 | 4.3 s |
+  | 5,000 | 377 / 476 / 444 | 387 / 263 / 389 | 4.6 s |
+  | 6,000 | 491 / 638 / 663 | 303 / 273 / 401 | 5.3 s |
+  | 8,000 | 547 / 1,114 / 976 | 421 / 522 / 465 | 6.6 s |
+  | 10,000 | 566 / 1,101 / 1,774 | 517 / 713 / 845 | 7.2 s |
+
+  Against 2.4.0 at 4×: 2,000 runs, longest task in the fault-heavy refresh 1,363 → 87 ms, maximum-age 1,234 → 117 ms; 6,000 runs, fault-heavy 15,403 → 455 ms, routine 10,948 → 329 ms. Unthrottled at 10,000 runs against the budgets: routine refresh 174 ms skewed / 118 ms combined (budget 150), first-open longest 165 / 312 ms (budget 300), every run read 21.8 s / 11.5 s (budget 12 s). Folder health's report still takes one long task: 3.4–3.5 s at 10,000 runs unthrottled, about 6 s at 4,000 skewed at 4×.
+- **The limits stay at 500 and 2,000.** The rule is applied to the worst workload at each size, the fault-heavy refresh included. Stop could rise: `tools/scale-limits.js` stops at the first size that fails (4,000, at 546 ms), and the plan's own wording allows the largest passing size (5,000, at 476 ms). Either way the warning needs a size below stop with every refresh at 150 ms or less at 4×, and none has one: the combined folder's fault-heavy refresh is over 150 ms at every size measured, 441 ms even at 500 runs, so both limits stay. Why it's slow there is an inference, not isolated: a profile of the whole Refresh (deep) scenario on the combined 500-run folder has as its largest sampled costs the gate's in-memory `File` objects (3.7 s), parsing checklists (`parse`, 1.7 s inclusive) and hashing (`fileHash`, 0.6 s), which fits a deep refresh checking and parsing every published version (3,000 there) in one go. Finding and spreading that cost is for a later release.
+
+
 ## 26. Other apps: read (1.18), request (1.20) and report (2.0)
 
 Flightdeck stays a checklist tool for people. Other apps work beside a run the way a teammate would; the first slice (1.18) lets them **read**, and 1.20 lets them **ask for a run** (below). 2.0 lets a tool **report** work it did on a step (below). The contract, the commands, every field and the problem kinds are in `docs/apps.md`; this section is the design.

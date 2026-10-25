@@ -41,7 +41,8 @@
         "2.2.1",
         "2.3.0",
         "2.3.1",
-        "2.4.0"
+        "2.4.0",
+        "2.5.0"
       ]
     },
     ".flightdeck/skills/_flightdeck/good-checklists.md": {
@@ -71,7 +72,8 @@
         "2.2.1",
         "2.3.0",
         "2.3.1",
-        "2.4.0"
+        "2.4.0",
+        "2.5.0"
       ]
     },
     ".flightdeck/skills/_flightdeck/map-format.md": {
@@ -115,7 +117,8 @@
         "2.2.1",
         "2.3.0",
         "2.3.1",
-        "2.4.0"
+        "2.4.0",
+        "2.5.0"
       ]
     },
     ".flightdeck/skills/flightdeck-edit-checklist/SKILL.md": {
@@ -145,7 +148,8 @@
         "2.2.1",
         "2.3.0",
         "2.3.1",
-        "2.4.0"
+        "2.4.0",
+        "2.5.0"
       ]
     },
     ".flightdeck/skills/flightdeck-learn-from-runs/SKILL.md": {
@@ -183,7 +187,8 @@
         "2.2.1",
         "2.3.0",
         "2.3.1",
-        "2.4.0"
+        "2.4.0",
+        "2.5.0"
       ]
     },
     ".flightdeck/skills/flightdeck-new-checklist/SKILL.md": {
@@ -213,7 +218,8 @@
         "2.2.1",
         "2.3.0",
         "2.3.1",
-        "2.4.0"
+        "2.4.0",
+        "2.5.0"
       ]
     },
     ".flightdeck/skills/flightdeck-new-step-type/SKILL.md": {
@@ -243,7 +249,8 @@
         "2.2.1",
         "2.3.0",
         "2.3.1",
-        "2.4.0"
+        "2.4.0",
+        "2.5.0"
       ]
     },
     ".flightdeck/skills/flightdeck-plan-run/SKILL.md": {
@@ -273,7 +280,8 @@
         "2.2.1",
         "2.3.0",
         "2.3.1",
-        "2.4.0"
+        "2.4.0",
+        "2.5.0"
       ]
     },
     ".flightdeck/skills/flightdeck-review-checklist/SKILL.md": {
@@ -305,7 +313,8 @@
         "2.2.1",
         "2.3.0",
         "2.3.1",
-        "2.4.0"
+        "2.4.0",
+        "2.5.0"
       ]
     },
     ".flightdeck/skills/flightdeck-skill-brief/SKILL.md": {
@@ -337,7 +346,8 @@
         "2.2.1",
         "2.3.0",
         "2.3.1",
-        "2.4.0"
+        "2.4.0",
+        "2.5.0"
       ]
     },
     ".flightdeck/skills/flightdeck-status/SKILL.md": {
@@ -371,7 +381,8 @@
         "2.2.1",
         "2.3.0",
         "2.3.1",
-        "2.4.0"
+        "2.4.0",
+        "2.5.0"
       ]
     },
     "AGENTS.md#flightdeck": {
@@ -421,7 +432,8 @@
         "2.2.1",
         "2.3.0",
         "2.3.1",
-        "2.4.0"
+        "2.4.0",
+        "2.5.0"
       ]
     }
   }
