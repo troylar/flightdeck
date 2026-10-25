@@ -62,7 +62,7 @@ rule('Shots: a caption is required; without one nothing is written and the reaso
   const app = await shotsOn();
   await choose(app, '   ', [png()]);
   assert.strictEqual(images(app).length, 0, 'no file written');
-  assert.ok(/id="ob-shot-new"[^>]*aria-invalid="true" aria-describedby="ferr-ob-shot-new"/.test(app.html()), 'the box is marked');
+  assert.ok(/id="ob-shot-new"[^>]*aria-invalid="true" aria-describedby="ferr-ob-shot-new why-ob-shot-new"/.test(app.html()), 'the box is marked');
   assert.ok(/id="ferr-ob-shot-new" role="alert">Write a caption first/.test(app.html()), app.html().slice(app.html().indexOf('ob-shot-new') - 200, app.html().indexOf('ob-shot-new') + 600));
   assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()));
   /* An existing caption can't be emptied either. */

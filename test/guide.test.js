@@ -128,11 +128,10 @@ rule('Guide: each other-forms example applies through the operation its box call
   ok(O.apply(DRAFT + '\n## Questions\n\n- Who signs off?\n', { op: 'questions', text: G.form('questions').eg }), 'questions');
 });
 rule('Guide: the process example is a file name the run finds by that exact ID, and the process\'s title isn\'t', () => {
-  const procs = { 'database-migration': { process: 'database-migration', title: 'Database migration', latest: { ok: true } } };
-  const eg = G.FIELDS['run.process'].process.eg, procOf = n => (Object.prototype.hasOwnProperty.call(procs, n) ? procs[n] : null);
+  const eg = G.FIELDS['run.process'].process.eg, unpublished = name => PF.map.check(PF.map.parse(oneStep('run.process', ['process: ' + name])), { processes: [eg] }).suggestions.some(m => /isn't published yet/.test(m));
   assert.strictEqual(eg, 'database-migration');
-  assert.ok(procOf(eg), 'found by its ID');
-  assert.strictEqual(procOf(procs[eg].title), null, 'not by its title');
+  assert.strictEqual(unpublished(eg), false, 'the publish check finds it by its ID');
+  assert.strictEqual(unpublished('Database migration'), true, 'not by its title');
   assert.ok(PF.map.PROCESS_ID.test(eg), 'and it is a process ID');
 });
 
@@ -267,13 +266,20 @@ rule('Run screen: the record form asks the guide\'s question, shows its example 
   assert.ok(why && why[1] === 'Saved in the run and on its receipt. Needed to check the step.', 'why under the box: ' + (why && why[1]));
   assert.ok(/id="rec-build"[^>]*aria-describedby="hint-rec-build"/.test(html), 'tied to its box');
 });
+rule('Run screen: a typed record box shows its example too: a number as its placeholder, a date (which shows none) in its why', () => {
+  const box = k => { const html = screen(runOf('---\nprocess: ev\ntitle: Ev\n---\n\n## One · READ-DO {#one}\n- [ ] {confirm} Look {#l}\n  evidence: ' + k + '\n'), { sel: 'l' }); const m = /<input[^>]*id="(rec-[^"]+)"[^>]*>/.exec(html); assert.ok(m, k + ': its box'); return { tag: m[0], hint: (new RegExp('id="hint-' + m[1] + '">([^<]*)<').exec(html) || [])[1] || '' }; };
+  const n = box('number'), d = box('date');
+  assert.ok(/inputmode="decimal"/.test(n.tag) && new RegExp('placeholder="' + G.EVIDENCE.number.eg + '"').test(n.tag), n.tag);
+  assert.ok(/type="date"/.test(d.tag) && !/placeholder=/.test(d.tag), d.tag);
+  assert.ok(d.hint.indexOf('For example, ' + G.EVIDENCE.date.eg + '.') === 0, d.hint);
+});
 rule('Run screen: Fill in asks each field\'s question with its example and why, and keeps "(checklist says: X)"', () => {
   const r = runOf(BUILD), map = R.mapOf(r);
   R.setFields(r, map, 'b', { job: 'release/other' }, null, 'person-casey', NOW);
   const html = screen(r, { sel: 'b', pick: { kind: 'fields', id: 'b' } });
   assert.strictEqual(labelOf(html, 'fld-job'), 'Which job? (checklist says: release/build-and-test)');
   assert.strictEqual(labelOf(html, 'fld-stage'), 'Which stage do you watch?');
-  assert.ok(/id="fld-parameters"[^>]*placeholder="BRANCH=release\/\^tag"/.test(html) || /id="fld-parameters"[^>]*>/.test(html), 'set-up: parameters drawn');
+  assert.ok(new RegExp('id="fld-parameters"[^>]*placeholder="' + G.FIELDS['jenkins.job'].parameters.eg.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&') + '"').test(html), 'parameters, with its example');
   assert.ok(/<span class="small hint" id="hint-fld-stage">Shown with the step to whoever does it, and to an assistant doing it\. Optional\. Left empty, it isn(?:'|&#39;)t shown\.<\/span>/.test(html), 'why line');
   assert.ok(/id="fld-stage"[^>]*placeholder="Integration tests"/.test(html), 'example');
 });

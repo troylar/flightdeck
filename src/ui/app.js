@@ -3831,6 +3831,17 @@
     if (!state.obShown || state.obShown.key !== k) state.obShown = { key: k, names: {} };
     if (on) state.obShown.names[name] = true; else delete state.obShown.names[name];
   }
+  /* A chip in require: or sets: adds or removes its name, in the order written. A marked chip goes when pressed, so focus
+     moves to the group's first chip (the marked ones come last), or the group when none is left. */
+  function chipToggle(name, act, id, b) {
+    var p = currentProcess(), s = state.obSel; if (!p || !s || s.kind !== 'step' || !id) return;
+    var box = 'ob-fld-' + name, cur = String(fieldApplied(box) || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean), at = cur.indexOf(id);
+    var gone = at >= 0 && !!(b && b.dataset && b.dataset.bad);
+    if (at >= 0) cur.splice(at, 1); else cur.push(id);
+    /* require: always keeps All; sets: keeps the run details, and whatever names are left. */
+    var left = name === 'require' || cur.length || ((PF.map.parse(edText(p)).meta || {}).context || []).length;
+    builderField(box, cur.join(', '), gone ? '#' + box + (left ? ' [data-act]' : '') : '[data-act="' + act + '"][data-id="' + cssEsc(id) + '"]');
+  }
   /* focus: where focus goes after the change, when it isn't the box itself (a requirement chip). */
   function builderField(id, value, focus) {
     var s = state.obSel, cp = currentProcess(); if (!s || !cp || s.pid !== cp.id) return;
@@ -4894,23 +4905,26 @@
     },
     'ob-role': function (id) { builderToggle('role', id); },
     /* "+ add": shows a waiting box, focused. Typing held in another box is applied or refused first, as any change waits. */
-    'ob-show': function (id) { var p = currentProcess(); if (!p || !id || obHeld(p)) return; obShow(id, true); state.focus = '#ob-fld-' + cssEsc(id); render(); },
+    'ob-show': function (id) {
+      var p = currentProcess(); if (!p || !id || obHeld(p)) return; obShow(id, true);
+      /* A group of chips is focused on its first chip; run details with none listed, on the group. */
+      var chips = id === 'require' || (id === 'sets' && ((PF.map.parse(edText(p)).meta || {}).context || []).length);
+      state.focus = '#ob-fld-' + cssEsc(id) + (chips ? ' [data-act]' : ''); render();
+    },
     /* A choice button applies its value through the control's own path; the checked one does nothing. */
     'ob-choice': function (id, b) {
       var val = b && b.dataset ? String(b.dataset.val == null ? '' : b.dataset.val) : '';
-      if (!/^ob-(fld-[\w-]+|ph-mode|host)$/.test(id || '')) return;
+      if (!/^ob-(fld-[\w-]+|ph-mode|host|new-mode)$/.test(id || '')) return;
+      /* The new phase's mode is the add form's own, applied with it. */
+      if (id === 'ob-new-mode') { if (state.obAdd && state.obAdd.kind === 'phase' && /^(READ-DO|DO-CONFIRM)$/.test(val)) state.obAdd.mode = val; state.focus = '#ob-new-mode'; render(); return; }
       /* The pull request host buttons change the step's type. */
       var to = id === 'ob-host' ? 'ob-type' : id;
       if (String(fieldApplied(to) || '').toLowerCase() === val.toLowerCase()) { state.focus = '#' + id; render(); return; }
       builderField(to, val, '#' + id);
     },
     /* A requirement chip: adds or removes its name in require:, in the order written. */
-    'ob-req': function (id) {
-      var p = currentProcess(), s = state.obSel; if (!p || !s || s.kind !== 'step' || !id) return;
-      var cur = String(fieldApplied('ob-fld-require') || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean), at = cur.indexOf(id);
-      if (at >= 0) cur.splice(at, 1); else cur.push(id);
-      builderField('ob-fld-require', cur.join(', '), '[data-act="ob-req"][data-id="' + cssEsc(id) + '"]');
-    },
+    'ob-req': function (id, b) { chipToggle('require', 'ob-req', id, b); },
+    'ob-sets': function (id, b) { chipToggle('sets', 'ob-sets', id, b); },
     'ob-bind': function (id) { builderToggle('bind', id); },
     'ob-shot-move': function (id, b) {
       var s = state.obSel, up = !!(b && b.dataset.dir === 'up'); if (!s || (s.kind !== 'step' && s.kind !== 'phase')) return;
@@ -4938,7 +4952,7 @@
       var a = state.obAdd, p = currentProcess(); if (!a || !p || a.pid !== p.id) return;
       var quick = a.kind === 'step' && b && b.id === 'ob-new-text';
       if (a.kind === 'phase') {
-        var pr = builderEdit({ op: 'addPhase', after: a.after, title: val('ob-new-title'), mode: val('ob-new-mode') || 'READ-DO' }, 'ob-new-title'); if (!pr) return;
+        var pr = builderEdit({ op: 'addPhase', after: a.after, title: val('ob-new-title'), mode: a.mode || 'READ-DO' }, 'ob-new-title'); if (!pr) return;
         /* A phase needs a step: the new phase opens with its "add a step" box ready. */
         state.obSel = { pid: p.id, kind: 'phase', key: pr.id }; state.obAdd = { pid: p.id, kind: 'step', phase: pr.id, track: -1 }; state.focus = 'ob-new-text'; render(); return;
       }
@@ -6462,13 +6476,15 @@
     e.preventDefault(); tlMove(scope, e.inputType === 'historyRedo', 'key');
   });
   /* A step's field box with focus stays shown; left empty with nothing pending, it waits behind its chip again (next draw). */
-  document.addEventListener('focusin', function (e) { var id = (e.target && e.target.id) || ''; if (/^ob-fld-[\w-]+$/.test(id) && state.view === 'process' && state.ptab === 'edit') obShow(id.slice(7), true); }, true);
+  /* A group of chips (require:, sets:) counts as one box: focus anywhere in it is focus in the box. */
+  function fieldBoxOf(t) { var g = t && t.closest && t.closest('.ob-grp'); return (g && g.id) || (t && t.id) || ''; }
+  document.addEventListener('focusin', function (e) { var id = fieldBoxOf(e.target); if (/^ob-fld-[\w-]+$/.test(id) && state.view === 'process' && state.ptab === 'edit') obShow(id.slice(7), true); }, true);
   document.addEventListener('focusout', function (e) {
-    var id = (e.target && e.target.id) || '';
+    var id = fieldBoxOf(e.target);
     if (!/^ob-fld-[\w-]+$/.test(id) || state.view !== 'process' || state.ptab !== 'edit') return;
     setTimeout(function () {
       var a = document.activeElement, el = document.getElementById(id);
-      if ((a && a.id === id) || state.obPendingField === id || (el && el.tagName !== 'BUTTON' && String(el.value || '').trim()) || String(fieldApplied(id) || '')) return;
+      if ((a && (a.id === id || fieldBoxOf(a) === id)) || state.obPendingField === id || (el && el.tagName !== 'BUTTON' && String(el.value || '').trim()) || String(fieldApplied(id) || '')) return;
       obShow(id.slice(7), false);
     }, 0);
   }, true);

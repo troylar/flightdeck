@@ -17,13 +17,15 @@
      why follows any hint the box already has. Ids, names and labels in what's saved don't change. */
   function fieldInput(id, d, value, enter, stepId, note, errId, g) {
     /* A hint (from a Jira workflow, for example) says what the value should be or where it comes from. */
-    var hint = [d.hint, g && g.why].filter(Boolean).join(' '), hintId = hint ? 'hint-' + id : '', described = [errId, hintId].filter(Boolean).join(' ');
+    var typed = PF.values.isNew(d.kind) || (d.detailKind && d.detailKind !== 'text'), kind = typed ? PF.values.kindOf(d) : d.kind;
+    /* A date box shows no placeholder in most browsers, so its example goes in the why. */
+    var hint = [d.hint, g && g.eg && kind === 'date' ? 'For example, ' + g.eg + '.' : '', g && g.why].filter(Boolean).join(' '), hintId = hint ? 'hint-' + id : '', described = [errId, hintId].filter(Boolean).join(' ');
     var q = g ? g.q : d.label, ph = g && g.eg ? ' placeholder="' + esc(g.eg) + '"' : d.kind === 'url' ? ' placeholder="https://"' : '';
     /* The hint follows the box, so it reads as this box's, not the next one's. */
     var lab = '<label class="small" for="' + esc(id) + '">' + esc(q) + esc(note || '') + '</label>', after = hint ? '<span class="small hint" id="' + esc(hintId) + '">' + esc(hint) + '</span>' : '',
       bad = (errId ? ' aria-invalid="true"' : '') + (described ? ' aria-describedby="' + esc(described) + '"' : '');
     /* A typed value (2.0) gets its kind's box; everything else keeps the boxes it always had. */
-    if (PF.values.isNew(d.kind) || (d.detailKind && d.detailKind !== 'text')) return '<span class="rf" data-draft-kept>' + K.typedField(id, q + (note || ''), d, value, bad.trim() + (d.kind === 'yes-no' || d.kind === 'choice' ? '' : ' data-enter="' + esc(enter) + '" data-id="' + esc(stepId) + '"'), 'small') + after + '</span>';
+    if (typed) return '<span class="rf" data-draft-kept>' + K.typedField(id, q + (note || ''), d, value, bad.trim() + (kind === 'number' || kind === 'text' ? ph : '') + (d.kind === 'yes-no' || d.kind === 'choice' ? '' : ' data-enter="' + esc(enter) + '" data-id="' + esc(stepId) + '"'), 'small') + after + '</span>';
     if (d.kind === 'choice') return '<span class="rf" data-draft-kept>' + lab + '<select id="' + esc(id) + '"' + bad + '><option value="">Choose…</option>' + (d.options || []).map(function (o) { return '<option' + (String(o).toLowerCase() === String(value || '').trim().toLowerCase() ? ' selected' : '') + '>' + esc(o) + '</option>'; }).join('') + '</select>' + after + '</span>';
     if (d.kind === 'message' || d.kind === 'code' || d.long) return '<span class="rf" data-draft-kept>' + lab + '<textarea id="' + esc(id) + '"' + bad + ph + ' maxlength="300" rows="' + (d.long ? 3 : 2) + '">' + esc(value) + '</textarea>' + after + '</span>';
     return '<span class="rf" data-draft-kept>' + lab + '<input id="' + esc(id) + '"' + bad + ' maxlength="' + (d.cap || 300) + '" value="' + esc(value) + '" data-enter="' + esc(enter) + '" data-id="' + esc(stepId) + '"' + (d.kind === 'url' ? ' type="url"' : '') + ph + '>' + after + '</span>';

@@ -275,7 +275,7 @@ rule('Pull request: Where? switches the host both ways, keeping and flagging wha
   assert.strictEqual(text, before.replace('{github.pr}', '{bitbucket.pr}'), 'only the type changed: as if written by hand');
   assert.strictEqual(flagOf(h, 'ob-fld-action'), '{bitbucket.pr} doesn\'t have approve. Pick one of: open, review, merge.');
   assert.strictEqual(flagOf(h, 'ob-fld-pull'), '{bitbucket.pr} doesn\'t use this; publishing will refuse it.');
-  assert.ok(/class="chipbtn ob-req bad" data-act="ob-req" data-id="checks" aria-pressed="true"/.test(h), 'checks: a removable invalid chip');
+  assert.ok(/class="chipbtn ob-req bad" data-bad="1" data-act="ob-req" data-id="checks" aria-pressed="true"/.test(h), 'checks: a removable invalid chip');
   const S = PF.signature, sig = t => { const m = PF.map.parse(t); return S.steps(m, null, null, null).g.sig; };
   assert.notStrictEqual(sig(text), sig(before), 'switching hosts is a change to the step');
   app.click('tl-undo', 'draft'); await app.tick();
@@ -284,21 +284,125 @@ rule('Pull request: Where? switches the host both ways, keeping and flagging wha
   assert.strictEqual(await textOf(app), before, 'and switching back');
 });
 
-rule('Editor round trips: revealing and filling every field of each built-in type through the editor writes what writing it by hand does', async () => {
-  const types = PF.types.LIST.filter(t => t.id !== 'run.process');
-  for (const t of types) {
-    const app = await editorOn(md(step(t.id, 's')), 's'), want = {};
-    const names = Object.keys(t.fields || {}).filter(n => (t.fields[n].kind !== 'choice'));
-    const choice = Object.keys(t.fields || {}).find(n => t.fields[n].kind === 'choice');
-    if (choice) { const v = t.fields[choice].options[t.fields[choice].options.length - 1]; choose(app, 'ob-fld-' + choice, v); await app.tick(); want[choice] = v; }
-    for (const n of names) {
-      if (!PF.types.applies(t, n, want)) continue;
-      const g = G.field(t, n, want), v = g.eg || 'x';
-      if (!/id="ob-fld-/.test(tagOf(formOf(app), 'ob-fld-' + n))) { app.click('ob-show', n); await app.tick(); }
-      enter(app, 'ob-fld-' + n, v); await app.tick(); want[n] = v;
+rule('Editor: What must be recorded and Sets a run detail are one box each: "+ add" focuses the first chip, focus inside keeps them shown, leaving them empty puts them back; a marked chip goes and focus moves to the group', async () => {
+  const app = await editorOn(md(step('jenkins.job', 'b', 'job: release/build-and-test'), step('confirm', 'c', 'sets: tag, nope')), 'b', { replace: true, domFocus: true });
+  app.click('ob-show', 'require'); await app.tick();
+  assert.ok(boxes(formOf(app)).includes('require'), 'shown');
+  assert.strictEqual(app.activeId(), '[data-act="ob-req"][data-id="build"]', 'focus on its first chip, not a box that isn\'t there');
+  /* Moving from chip to chip stays in the box; leaving it empty sends it back behind its chip. */
+  const chip = app.doc.activeElement;
+  app.fire('focusout', { target: chip }); await app.tick(20);
+  assert.ok(boxes(formOf(app)).includes('require'), 'focus still inside: kept');
+  app.doc.activeElement = app.doc.body; app.fire('focusout', { target: chip }); await app.tick(20);
+  enter(app, 'ob-fld-job', 'release/other'); await app.tick();
+  assert.ok(!boxes(formOf(app)).includes('require') && chips(formOf(app)).includes('require=+ What must be recorded'), 'left empty: behind its chip');
+  app.click('ob-sel', 'c'); await app.tick();
+  const sets = h => [...h.matchAll(/data-act="ob-sets" data-id="([\w-]+)" aria-pressed="(true|false)"[^>]*>([\s\S]*?)<\/button>/g)].map(m => [m[1], m[2] === 'true', /Not one of this checklist/.test(m[3])]);
+  assert.deepStrictEqual(sets(formOf(app)), [['tag', true, false], ['environment', false, false], ['nope', true, true]], 'the run details as toggles; an unknown name marked');
+  assert.ok(/data-bad="1" data-act="ob-sets" data-id="nope"/.test(formOf(app)));
+  app.click('ob-sets', 'environment'); await app.tick();
+  assert.strictEqual(app.activeId(), '[data-act="ob-sets"][data-id="environment"]', 'focus stays on a toggled chip');
+  app.click('ob-sets', 'nope', { bad: '1' }); await app.tick();
+  assert.strictEqual(app.activeId(), '[data-act="ob-sets"][data-id="tag"]', 'focus to the group\'s first chip');
+  assert.ok(/sets: tag, environment\n/.test(await textOf(app)), 'written in order, the marked name gone');
+  app.click('ob-sets', 'tag'); await app.tick(); app.click('ob-sets', 'environment'); await app.tick();
+  assert.ok(!/sets:/.test(await textOf(app)), 'all off: the line is gone');
+});
+
+rule('Editor: Sets a run detail with no run details listed says so, and "+ add" focuses the group', async () => {
+  const app = await editorOn(HEAD.replace('context: tag, environment\n', '') + '## Build · READ-DO {#build}\n' + step('confirm', 'c') + '\n', 'c', { replace: true, domFocus: true });
+  app.click('ob-show', 'sets'); await app.tick();
+  assert.ok(/The checklist lists no run details yet\./.test(formOf(app)));
+  assert.strictEqual(app.activeId(), 'ob-fld-sets');
+});
+
+rule('Editor: Where? counts the checklist\'s pull request steps, not their notes', async () => {
+  const text = md(step('github.pr', 'g', 'action: open', 'repo: api'), step('confirm', 'c', 'note: Not {bitbucket.pr}, not {bitbucket.pr}, never {bitbucket.pr}.'));
+  assert.strictEqual(PF.views.obPrHost(text), 'github.pr');
+  const app = await editorOn(text, 'g');
+  app.click('ob-part', 'type:pr'); await app.tick(); app.click('ob-place-at', 'end:build:-1'); await app.tick();
+  assert.ok(/- \[ \] \{github\.pr\} Pull request/.test(await textOf(app)), 'GitHub: the only pull request step');
+});
+
+rule('Editor: the add forms ask too: a new step\'s and a new phase\'s question, example and why; a new phase\'s mode is buttons, applied with it', async () => {
+  const app = await editorOn(md(step('confirm', 'c')), null, { replace: true, domFocus: true });
+  app.click('ob-add', 'build', { track: '-1' }); await app.tick();
+  let h = app.html();
+  assert.strictEqual(labelOf(h, 'ob-new-text'), 'New step: ' + G.step('text').q);
+  assert.ok(new RegExp('placeholder="' + G.step('text').eg + '"').test(tagOf(h, 'ob-new-text')) && /aria-describedby="why-ob-new-text"/.test(tagOf(h, 'ob-new-text')), tagOf(h, 'ob-new-text'));
+  assert.strictEqual(whyOf(h, 'ob-new-text'), G.step('text').why);
+  app.click('ob-add-cancel'); await app.tick();
+  app.click('ob-add-phase', 'build'); await app.tick();
+  h = app.html();
+  assert.strictEqual(labelOf(h, 'ob-new-title'), 'New phase: ' + G.form('ph-title').q);
+  assert.strictEqual(whyOf(h, 'ob-new-title'), G.form('ph-title').why);
+  assert.ok(!/<select id="ob-new-mode"/.test(h), 'no select');
+  assert.deepStrictEqual(choiceRow(h, 'ob-new-mode').map(r => [r[0], r[1], r[3]]), [['READ-DO', true, 'Read, then do'], ['DO-CONFIRM', false, 'Do, then confirm']]);
+  app.set('ob-new-title', 'Watch'); app.input('ob-new-title', 'Watch');
+  choose(app, 'ob-new-mode', 'DO-CONFIRM'); await app.tick();
+  assert.strictEqual(app.activeId(), 'ob-new-mode', 'focus on the checked button');
+  assert.strictEqual(app.draft('ob-new-title'), 'Watch', 'the name typed is kept');
+  assert.ok(!/## Watch/.test(app.fs.files['maps/drafts/release.md'].t), 'nothing written yet');
+  app.click('ob-add-go'); await app.tick();
+  assert.ok(/## Watch · DO-CONFIRM/.test(await textOf(app)), 'applied with the phase');
+});
+
+rule('Editor: Space and Enter on a choice button choose it; Not set clears an optional value and keeps its buttons, focused, until focus leaves', async () => {
+  const app = await editorOn(md(step('confirm', 'c', 'evidence: note')), 'c', { replace: true, domFocus: true });
+  const press = (key, val) => app.keyOn(key, {}, { tagName: 'BUTTON', id: '', dataset: { act: 'ob-choice', id: 'ob-fld-evidence', val }, closest: sel => (/data-act/.test(sel) ? { dataset: { act: 'ob-choice', id: 'ob-fld-evidence', val } } : null) });
+  /* A button's Space or Enter is the browser's click; the app handles it as one. */
+  app.click('ob-choice', 'ob-fld-evidence', { val: 'link' }); await app.tick();
+  assert.ok(/evidence: link/.test(await textOf(app)));
+  press(' ', 'date'); press('Enter', 'date'); await app.tick();
+  assert.ok(/evidence: link/.test(await textOf(app)), 'no key handler chooses twice: Space and Enter are clicks');
+  choose(app, 'ob-fld-evidence', ''); await app.tick();
+  assert.strictEqual(app.activeId(), 'ob-fld-evidence', 'focus on Not set, which carries the control');
+  assert.ok(!/evidence:/.test(await textOf(app)), 'cleared');
+  assert.ok(boxes(formOf(app)).includes('evidence') && choiceRow(formOf(app), 'ob-fld-evidence')[0][1], 'still shown, Not set checked');
+  app.doc.activeElement = app.doc.body; app.fire('focusout', { target: { id: 'ob-fld-evidence', tagName: 'BUTTON' } }); await app.tick(20);
+  app.click('ob-sel', 'c'); await app.tick();
+  assert.ok(!boxes(formOf(app)).includes('evidence'), 'gone once focus left');
+});
+
+rule('Editor: phase mode waits while a box holds typing: the checked mode stays, and focus goes to that box', async () => {
+  const app = await editorOn(md(step('confirm', 'c')), null, { replace: true, domFocus: true });
+  app.click('ob-sel-phase', 'build'); await app.tick();
+  app.set('ob-ph-title', 'Typed'); app.input('ob-ph-title', 'Typed');
+  choose(app, 'ob-ph-mode', 'DO-CONFIRM'); await app.tick();
+  assert.ok(/Apply or clear what you typed in the box first/.test(app.html()), 'waits');
+  assert.ok(/## Build · READ-DO/.test(app.fs.files['maps/drafts/release.md'].t), 'unchanged');
+  assert.deepStrictEqual(choiceRow(formOf(app), 'ob-ph-mode').filter(r => r[1]).map(r => r[0]), ['READ-DO'], 'the checked one stays');
+  assert.strictEqual(app.activeId(), 'ob-ph-title', 'focus goes to the typing it waits on, as every waiting change does');
+  assert.strictEqual(app.draft('ob-ph-title'), 'Typed', 'the typing is kept');
+});
+
+rule('Editor round trips: for every built-in type and each of its actions, revealing and filling every field, pin and common field through the editor writes what writing it by hand does; the definitions in the app stay 2.4.0\'s', async () => {
+  const was = JSON.parse(require('fs').readFileSync(require('path').join(__dirname, 'fixtures', 'entry-boxes', 'types-2.4.0.json'), 'utf8'));
+  const plain = x => JSON.parse(JSON.stringify(x));
+  for (const t of PF.types.LIST) {
+    const pins = Object.keys(T.PINS[t.id] || {}), choice = Object.keys(t.fields || {}).find(n => t.fields[n].kind === 'choice');
+    for (const v of choice ? t.fields[choice].options : [null]) {
+      const app = await editorOn(md(step(t.id, 's')), 's', { replace: true, domFocus: true }), want = {}, label = t.id + (v ? ' · ' + v : '');
+      const fill = async (n, val) => { if (!boxes(formOf(app)).includes(n)) { app.click('ob-show', n); await app.tick(); } enter(app, 'ob-fld-' + n, val); await app.tick(); want[n] = val; };
+      if (v) { choose(app, 'ob-fld-' + choice, v); await app.tick(); want[choice] = v; }
+      for (const n of Object.keys(t.fields || {}).filter(n => n !== choice).concat(pins)) {
+        if (!T.applies(t, n, want)) continue;
+        const d = T.fieldDef(t, n) || {};
+        if (d.kind === 'choice') { const o = d.options[0]; choose(app, 'ob-fld-' + n, o); await app.tick(); want[n] = o; continue; }
+        await fill(n, String(G.field(t, n, want).eg || (d.kind === 'pin' ? '1' : 'x')));
+      }
+      for (const n of ['link', 'expect', 'deadline', 'at']) await fill(n, String(G.COMMON[n].eg));
+      choose(app, 'ob-fld-evidence', 'note'); await app.tick(); want.evidence = 'note';
+      if (!boxes(formOf(app)).includes('require')) { app.click('ob-show', 'require'); await app.tick(); }
+      app.click('ob-req', 'all'); await app.tick(); want.require = 'all';
+      if (!boxes(formOf(app)).includes('sets')) { app.click('ob-show', 'sets'); await app.tick(); }
+      app.click('ob-sets', 'environment'); await app.tick(); want.sets = 'environment';
+      const got = await textOf(app), hand = md(step(t.id, 's', ...Object.keys(want).map(k => k + ': ' + want[k])));
+      assert.strictEqual(got, hand, label);
+      assert.deepStrictEqual(plain(app.PF.types.LIST), was.LIST, label + ': T.LIST unchanged in the app');
+      assert.deepStrictEqual(plain(app.PF.types.COMMON), was.COMMON, label + ': T.COMMON');
+      assert.deepStrictEqual(plain(app.PF.types.PINS), was.PINS, label + ': pins');
     }
-    const got = await textOf(app), hand = md(step(t.id, 's', ...Object.keys(want).map(k => k + ': ' + want[k])));
-    assert.strictEqual(got, hand, t.id);
   }
 });
 

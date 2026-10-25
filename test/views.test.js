@@ -349,7 +349,7 @@ rule('Draft builder: phases as cards, steps as draggable rows, gates as striped 
   assert.ok(/<input id="ob-ph-title"[^>]*value="Before production changes"[^>]*>/.test(html) && /data-act="ob-choice" data-id="ob-ph-mode" data-val="DO-CONFIRM"[^>]*aria-checked="true"/.test(html), 'a phase\'s name and mode');
   assert.ok(/<input id="ob-g-title"[^>]*value="Ready to deploy"[^>]*>/.test(html) && /<option value="release-lead" selected>@release-lead/.test(html) && /id="ob-g-approves"[^>]*value="deploy of `\^commit` to \^environment"/.test(html), 'its gate');
   state.obAdd = { pid: 'release', kind: 'step', phase: 'deploy', track: -1 }; html = V.process(ctx);
-  assert.ok(/<label class="sr" for="ob-new-text">New step: what to do<\/label><input id="ob-new-text"[^>]*data-enter="ob-add-go">/.test(html), 'an add-a-step box in place');
+  assert.ok(/<label class="sr" for="ob-new-text">New step: What do you do\?<\/label><input id="ob-new-text"[^>]*data-enter="ob-add-go"[^>]*>/.test(html), 'an add-a-step box in place');
   state.builder = false; html = V.process(ctx);
   assert.ok(/id="draft-editor"/.test(html) && !/id="ob"/.test(html) && !/ob-form/.test(html) && !/Changed lines/.test(html), 'Markdown mode is the textarea, with no changes to list');
 });
