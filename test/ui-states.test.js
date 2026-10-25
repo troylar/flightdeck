@@ -87,7 +87,7 @@ rule('Fresh coat: press and lift never apply to a disabled control, native or ar
 rule('Fresh coat: filled buttons keep their own color and border on hover and press (a tint over the fill, no gray ring)', () => {
   ['.btn.primary', '.btn.go', '.btn.stop', '.hero .btn'].forEach(b => {
     const rs = stateRules(b, ':hover').concat(stateRules(b, ':active'));
-    assert.ok(rs.length && rs.every(r => /var\(--(hov|prs)-fill\)/.test(decl(r.body, 'background-image') || '')), b + ' tints with --hov-fill / --prs-fill');
+    assert.ok(rs.length && rs.every(r => /var\(--((hov|prs)-fill|deep-(hov|prs))\)/.test(decl(r.body, 'background-image') || '')), b + ' tints with the fill or deep tints');
     rs.forEach(r => ['background', 'background-color', 'border-color'].forEach(p => assert.strictEqual(decl(r.body, p), null, b + ' sets ' + p)));
   });
 });
@@ -383,6 +383,70 @@ rule('Fresh coat: switch tracks ease between off and on and deepen on hover', ()
   assert.ok(/background-color/.test(tr), 'the type editor\'s track eases: ' + tr);
   ['.tf-switch input[type="checkbox"]:hover:not(:disabled)', '.ev-switch:hover:not(:disabled):not([aria-disabled="true"]) .ev-knob'].forEach(s =>
     assert.ok(RULES.some(r => screenOnly(r) && r.sel.indexOf(s) >= 0 && /var\(--prs-fill\)/.test(decl(r.body, 'background-image') || '')), s + ' deepens'));
+});
+
+rule('Fresh coat: a quick second check starts the fill from where it visibly is mid-motion, not from the last target', async () => {
+  const app = await recorded();
+  app.paintAt(0.1);
+  app.click('toggle', 'w'); await app.tick(60);
+  const live = fills(app).filter(x => !x.canceled).pop(), n = fills(app).length;
+  /* Held a tenth of the way, the bar shows a quarter (one of four) times where its animation is; two of four is a half. */
+  const shown = 0.25 * (fromOf(live) + (1 - fromOf(live)) * 0.1), want = shown / 0.5;
+  app.click('toggle', 'rb'); await app.tick(60);
+  const next = fills(app)[n];
+  assert.ok(next && Math.abs(fromOf(next) - want) < 0.02, 'from ' + want.toFixed(3) + ' (shown), not 0.5 (the last target): ' + (next && fromOf(next)));
+  assert.ok(Math.abs(want - 0.5) > 0.1, 'set-up: shown and target differ');
+});
+rule('Fresh coat: Not needed lands nothing; Fill in in practice corrects values without landing again', async () => {
+  const app = await recorded();
+  app.click('na', 'rb'); await app.tick(60);
+  assert.strictEqual(rowLands(app, 'rb'), 0, 'Not needed is not a landing');
+  const pr = await practicing();
+  pr.click('toggle', 'post'); await pr.tick(60);
+  assert.strictEqual(rowLands(pr, 'post'), 1, 'practice: checking Post it lands');
+  pr.click('pick', 'post', { kind: 'fields' }); await pr.tick();
+  pr.set('fld-channel', '#release-room'); pr.click('save-fields', 'post'); await pr.tick(120);
+  assert.strictEqual(rowLands(pr, 'post'), 1, 'practice: Fill in lands nothing more');
+});
+rule('Fresh coat: reopening the app on a run with answers replays no landing and no fill motion', async () => {
+  const files = {};
+  const a = await recorded({ sharedFiles: files });
+  a.click('toggle', 'w'); await a.tick(60); a.click('toggle', 'rb'); await a.tick(200);
+  const b = boot(LAYOUT({ sharedFiles: files })); await b.tick(60);
+  b.choose('person-casey'); await b.tick();
+  b.click('nav', 'runs'); await b.tick();
+  const id = runId(b).find(x => { b.click('open-run', x); return /data-act="toggle" data-id="post"/.test(b.html()); });
+  await b.tick(60);
+  assert.ok(id, 'set-up: the small run opens in the new window');
+  assert.strictEqual(rowLands(b, 'w') + rowLands(b, 'rb'), 0, 'no landing replays');
+  assert.strictEqual(fills(b).length, 0, 'the bar draws where it is');
+});
+/* Composite a translucent tint over an opaque hex, as the browser paints background-image over background-color. */
+const over = (rgba, hexBase) => { const m = /rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)/.exec(rgba), b = hex(hexBase), a = +m[4]; return '#' + [1, 2, 3].map((k, i) => Math.round(+m[k] * a + b[i] * (1 - a)).toString(16).padStart(2, '0')).join(''); };
+rule('Fresh coat: hovering or pressing a filled button never takes its text below 4.5:1, in either theme', () => {
+  const b = rootBlocks();
+  const fam = [['.btn.primary', '--ink', '--paper'], ['.btn.go', '--go', '--card'], ['.btn.stop', '--stop', '--card'], ['.hero .btn', '--amber', '--on-amber']];
+  const tintOf = (sel, st) => { const rs = stateRules(sel, st).filter(r => r.sel.some(x => x.indexOf(sel + ':' + st.slice(1)) === 0)); const v = rs.map(r => decl(r.body, 'background-image')).filter(Boolean).pop(); return /var\((--[\w-]+)\)/.exec(v || '')[1]; };
+  [['light', b.bare], ['dark', b.sys], ['dark (chosen)', b.pick]].forEach(([name, body]) => {
+    const t = n => token(body, n) || token(b.bare, n);
+    fam.forEach(([sel, bg, fg]) => [':hover', ':active'].forEach(st => {
+      const tint = t(tintOf(sel, st)), shown = over(tint, t(bg)), c = contrast(shown, t(fg));
+      assert.ok(c >= 4.5, name + ' ' + sel + st + ' (' + tintOf(sel, st) + '): ' + c.toFixed(2));
+    }));
+  });
+});
+rule('Fresh coat: every tab presses, the current one too, and a disabled tab never does', () => {
+  const rs = RULES.filter(r => screenOnly(r) && r.sel.some(x => /^\[role="tab"\]:active/.test(x)));
+  assert.ok(rs.length, 'a tab press rule');
+  rs.forEach(r => r.sel.forEach(x => {
+    assert.ok(!/aria-selected/.test(x), 'the current tab presses too: ' + x);
+    assert.ok(/:not\(:disabled\)/.test(x) && /:not\(\[aria-disabled="true"\]\)/.test(x), 'guarded: ' + x);
+  }));
+});
+rule('Fresh coat: emphasis never asks the body face for a weight it doesn\'t have (embedded 400–700)', () => {
+  const bad = RULES.filter(r => /font-weight:\s*(800|900|bolder)/.test(r.body)).map(r => r.sel.join(', '));
+  assert.deepStrictEqual(bad, [], bad.join(' | '));
+  assert.ok(RULES.some(r => !r.at.length && r.sel.indexOf('b') >= 0 && r.sel.indexOf('strong') >= 0 && /font-weight:\s*700/.test(r.body)), 'b and strong are 700, never the browser\'s bolder');
 });
 
 run();

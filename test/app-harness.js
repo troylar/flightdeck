@@ -88,6 +88,8 @@ function boot(opts) {
   const asked = [];
   /* Animations the app started (opts.layout): which node, its keyframes, and whether it was canceled. */
   const animations = [];
+  /* How far a moving fill has got (0 to 1); 1, finished, unless a test holds it partway. */
+  const paint = { t: 1 };
   /* The builder's properties form, as far as the phone sheet needs it: a node under the screen that can be marked. */
   appEl.children = [];
   const formAttrs = {};
@@ -217,7 +219,13 @@ function boot(opts) {
       // opts.layout: a 1,000-pixel-wide page where a drawn width:N% is N% of its box, and animate() is recorded, not played.
       ...(opts.layout ? {
         clientWidth: 1000,
-        getBoundingClientRect: () => { const m = /width:\s*([\d.]+)%/.exec(attrs.style || ''); return { width: m ? +m[1] * 10 : 1000, height: 20, top: 0, left: 0, right: 1000, bottom: 20 }; },
+        getBoundingClientRect: () => {
+          const m = /width:\s*([\d.]+)%/.exec(attrs.style || ''); let w = m ? +m[1] * 10 : 1000;
+          // A progress fill that's still moving shows where its animation is (app.paintAt), not its target.
+          const live = tag === 'i' && parent && /\brw-bar\b/.test(parent._attrs.class || '') && animations.filter(a => a.tag === 'i' && !a.canceled).pop();
+          if (live) { const from = +(/scaleX\(([\d.]+)\)/.exec(live.keyframes[0].transform) || [0, 1])[1]; w *= from + (1 - from) * paint.t; }
+          return { width: w, height: 20, top: 0, left: 0, right: 1000, bottom: 20 };
+        },
         animate(keyframes, o) { const a = { id: n.id, cls: attrs.class || '', tag, keyframes, opts: o, canceled: false, cancel() { a.canceled = true; } }; animations.push(a); return a; }
       } : {}),
       querySelector: sel => n.querySelectorAll(sel)[0] || null
@@ -315,6 +323,7 @@ function boot(opts) {
     goneUndrawn() { Object.keys(els).forEach(id => { if (['app', 'top', 'overlay', 'live', 'body'].indexOf(id) < 0 && !onScreen(id) && (els.overlay._html || '').indexOf('id="' + id + '"') < 0) { delete els[id]; inputs.delete(id); } }); },
     asked: () => asked.slice(),
     animations: () => animations.slice(),
+    paintAt(t) { paint.t = t; },
     set(id, value) { const el = get(id); el.value = value; el.type = 'text'; inputs.add(id); return this; },
     // Like set(), for an input inside one data-scope element with no other scope opened before it closes (the builder's
     // side form): the app then sees which form it belongs to, as closest() does in a browser.

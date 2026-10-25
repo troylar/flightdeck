@@ -22,7 +22,7 @@
   --body: 'Instrument Sans', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
   --mono: 'Cascadia Mono', Consolas, ui-monospace, Menlo, monospace;
   --label: var(--body);
-  --hov: rgba(22,32,42,.06); --prs: rgba(22,32,42,.12); --hov-fill: rgba(255,255,255,.14); --prs-fill: rgba(0,0,0,.14);
+  --hov: rgba(22,32,42,.06); --prs: rgba(22,32,42,.12); --hov-fill: rgba(255,255,255,.14); --prs-fill: rgba(0,0,0,.14); --deep-hov: rgba(0,0,0,.10); --deep-prs: rgba(0,0,0,.18);
   --track: #E8ECE6; --edge: #C9D0C8; --edge-strong: #8E978F; --ring: 0 0 0 3px rgba(46,107,211,.28);
   --lift: 0 1px 2px rgba(22,32,42,.06), 0 6px 18px rgba(22,32,42,.08); --lift-hi: 0 2px 4px rgba(22,32,42,.08), 0 14px 32px rgba(22,32,42,.12);
   --thumb: #FFFFFF; --thumb-on: #FFFFFF; --track-off: #6B756E; --track-on: #1D7650; --hero-eyebrow: #E7A300;
@@ -36,7 +36,7 @@
   --chart-mark: #A9A5F2; --chart-track: #26303D; --chart-axis: #6E7D88; --chart-mid: #E6ECEF;
   --focus: #86B4FF; --shadow: 0 1px 0 rgba(0,0,0,.3); color-scheme: dark;
   --mark: #6B5410; --on-mark: #FFF4CF; --incoming: #86B4FF; --on-incoming: #B9D3FF;
-  --hov: rgba(230,236,239,.07); --prs: rgba(230,236,239,.13); --hov-fill: rgba(0,0,0,.12); --prs-fill: rgba(0,0,0,.22);
+  --hov: rgba(230,236,239,.07); --prs: rgba(230,236,239,.13); --hov-fill: rgba(0,0,0,.12); --prs-fill: rgba(0,0,0,.22); --deep-hov: rgba(255,255,255,.10); --deep-prs: rgba(255,255,255,.17);
   --track: #0B1014; --edge: #33414C; --edge-strong: #5B6A75; --ring: 0 0 0 3px rgba(134,180,255,.32);
   --lift: inset 0 1px 0 rgba(255,255,255,.04), 0 1px 2px rgba(0,0,0,.4), 0 8px 22px rgba(0,0,0,.35); --lift-hi: inset 0 1px 0 rgba(255,255,255,.06), 0 2px 4px rgba(0,0,0,.45), 0 16px 36px rgba(0,0,0,.5);
   --thumb: #E6ECEF; --thumb-on: #0E1418; --track-off: #46545F; --track-on: #3CC08A; --hero-eyebrow: #7A5200; } }
@@ -47,7 +47,7 @@
   --chart-mark: #A9A5F2; --chart-track: #26303D; --chart-axis: #6E7D88; --chart-mid: #E6ECEF;
   --focus: #86B4FF; --shadow: 0 1px 0 rgba(0,0,0,.3); color-scheme: dark;
   --mark: #6B5410; --on-mark: #FFF4CF; --incoming: #86B4FF; --on-incoming: #B9D3FF;
-  --hov: rgba(230,236,239,.07); --prs: rgba(230,236,239,.13); --hov-fill: rgba(0,0,0,.12); --prs-fill: rgba(0,0,0,.22);
+  --hov: rgba(230,236,239,.07); --prs: rgba(230,236,239,.13); --hov-fill: rgba(0,0,0,.12); --prs-fill: rgba(0,0,0,.22); --deep-hov: rgba(255,255,255,.10); --deep-prs: rgba(255,255,255,.17);
   --track: #0B1014; --edge: #33414C; --edge-strong: #5B6A75; --ring: 0 0 0 3px rgba(134,180,255,.32);
   --lift: inset 0 1px 0 rgba(255,255,255,.04), 0 1px 2px rgba(0,0,0,.4), 0 8px 22px rgba(0,0,0,.35); --lift-hi: inset 0 1px 0 rgba(255,255,255,.06), 0 2px 4px rgba(0,0,0,.45), 0 16px 36px rgba(0,0,0,.5);
   --thumb: #E6ECEF; --thumb-on: #0E1418; --track-off: #46545F; --track-on: #3CC08A; --hero-eyebrow: #7A5200; }
@@ -1778,6 +1778,8 @@ button.att:hover { border-color: var(--ink); }
 .pr-done { animation: pr-in .25s ease; }
 @media (max-width: 800px) { .pr-fields input { font-size: 16px; } }
 @keyframes pr-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+/* Emphasis never asks for a weight the body face doesn't have (it's embedded at 400–700): bolder than 600 is 700. */
+b, strong { font-weight: 700; }
 /* ---------- Fresh coat (2.4): how every control answers the pointer and the keyboard ----------
    Hover and press lay a tint over whatever a control already shows (background-image), so selected, Next up, warning and
    filled colors stay theirs; filled buttons use the fill tints. Press and lift skip disabled controls, native or aria. Only
@@ -1791,8 +1793,11 @@ button.att:hover { border-color: var(--ink); }
   .btn.primary, .btn.go, .btn.stop, .hero .btn { box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 1px 2px rgba(0,0,0,.18), 0 4px 12px -4px rgba(0,0,0,.25); }
   .btn:hover:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--hov), var(--hov)); box-shadow: var(--lift); }
   .btn.primary:hover:not(:disabled):not([aria-disabled="true"]), .btn.go:hover:not(:disabled):not([aria-disabled="true"]), .btn.stop:hover:not(:disabled):not([aria-disabled="true"]), .hero .btn:hover:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--hov-fill), var(--hov-fill)); }
+  /* Green and red move away from their text: darker under white text, lighter under dark text, so hover never costs contrast. */
+  .btn.go:hover:not(:disabled):not([aria-disabled="true"]), .btn.stop:hover:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--deep-hov), var(--deep-hov)); }
   .btn:active:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--prs), var(--prs)); transform: translateY(1px) scale(.98); box-shadow: none; }
   .btn.primary:active:not(:disabled):not([aria-disabled="true"]), .btn.go:active:not(:disabled):not([aria-disabled="true"]), .btn.stop:active:not(:disabled):not([aria-disabled="true"]), .hero .btn:active:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--prs-fill), var(--prs-fill)); }
+  .btn.go:active:not(:disabled):not([aria-disabled="true"]), .btn.stop:active:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--deep-prs), var(--deep-prs)); }
 
   .mini { border-radius: 7px; }
   .mini:hover:not(:disabled):not([aria-disabled="true"]), .fpe .mini:hover:not(:disabled):not([aria-disabled="true"]), .plist .tcard button.mini:hover:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--hov), var(--hov)); color: var(--ink); border-color: var(--edge-strong); }
@@ -1812,7 +1817,7 @@ button.att:hover { border-color: var(--ink); }
   .seg button:focus-visible { outline-offset: 1px; }
 
   .fpe-tabs [role="tab"]:hover:not([aria-selected="true"]) { color: var(--ink); border-bottom-color: color-mix(in srgb, var(--amber) 40%, transparent); }
-  [role="tab"]:active:not([aria-selected="true"]):not(:disabled) { background-image: linear-gradient(var(--prs), var(--prs)); }
+  [role="tab"]:active:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--prs), var(--prs)); }
 
   summary { border-radius: 6px; }
   summary:hover { color: var(--ink); background-image: linear-gradient(var(--hov), var(--hov)); }
