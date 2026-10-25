@@ -23,7 +23,7 @@ function largest(m, ok, below) {
   const g = GRID.indexOf(best);
   if (g >= 0 && g + 1 < GRID.length) {
     const next = GRID[g + 1], mid = (best + next) / 2;
-    if (next < below && next in m && !ok(m[next]) && !(mid in m)) return { best, need: mid };
+    if (mid < below && next in m && !ok(m[next]) && !(mid in m)) return { best, need: mid };
   }
   return { best };
 }

@@ -747,6 +747,27 @@
     return out;
   }
   function countedRuns(pid) { return (pid == null ? data.runs : procRuns(pid)).filter(counted); }
+  /* For tests (2.5.0): what the lookups answer, against scans from the start ([] when they all agree); and one draw of what's
+     on screen now, changing nothing. */
+  PF.perf.check = function () {
+    var a = data.runs, bad = [], all = countedRuns(), pids = Object.create(null), ps = processes();
+    a.forEach(function (r) {
+      var k = r.process + '/' + r.id, scan = null;
+      for (var i = 0; i < a.length; i++) if (a[i].process + '/' + a[i].id === k) { scan = a[i]; break; }
+      if (findRun(k) !== scan) bad.push('findRun ' + k);
+      pids[r.process] = true;
+    });
+    if (findRun('no-such/run') !== null) bad.push('findRun of a missing key');
+    ps.forEach(function (p) { pids[p.id] = true; });
+    Object.keys(pids).forEach(function (pid) {
+      var mine = countedRuns(pid), want = all.filter(function (r) { return r.process === pid; });
+      if (mine.length !== want.length || mine.some(function (r, i) { return r !== want[i]; })) bad.push('countedRuns ' + pid);
+      if (procFind(pid) !== (ps.filter(function (x) { return x.id === pid; })[0] || null)) bad.push('procFind ' + pid);
+    });
+    return bad;
+  };
+  PF.perf.draw = function () { renderNow(); };
+  PF.perf.maps = function () { return { unread: (state.unread || {}).runs || null, missing: state.missing || null }; };
   /* Whether a run (on screen, or just read again) counts toward a sign-off now. */
   function counted(r) {
     PF.perf.add('runs.counted');

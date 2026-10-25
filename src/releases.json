@@ -8,23 +8,23 @@
         "kind": "improved",
         "area": "Everywhere",
         "title": "A team folder with thousands of runs opens and refreshes without stalling",
-        "now": "Each run is found directly when the folder is read again, so a refresh's work grows with the number of runs, not with its square. Runs that can't be read, or read again, are noted without copying every other status.",
-        "before": "Every run read was compared with every run already shown, so a folder of a few thousand runs froze the page for seconds on each refresh.",
+        "now": "Refreshing a folder of thousands of runs no longer freezes the page, even when many runs can't be read for a while (as OneDrive placeholders can't) and then come back.",
+        "before": "A folder of a few thousand runs froze the page for seconds on each refresh.",
         "where": "Opening and refreshing the team folder"
       },
       {
         "kind": "improved",
         "area": "Everywhere",
-        "title": "The first open draws a few times, not once per batch",
-        "now": "While runs are still arriving, the page draws once at the start and then at most every quarter second, with the count so far. Anything you click, or the finished read, draws at once. What you're typing keeps its place.",
-        "before": "The page drew again after every batch of runs, so a big folder spent most of its first open redrawing.",
+        "title": "The first open stays responsive while runs arrive",
+        "now": "While runs are still arriving, the page updates at most every quarter second, with the count read so far. Anything you click answers at once, and the page is complete as soon as the last run is read. What you're typing keeps its place.",
+        "before": "The page redrew after every hundred runs, so a big folder spent most of its first open redrawing.",
         "where": "Opening the team folder"
       },
       {
         "kind": "improved",
         "area": "Everywhere",
         "title": "Screens with hundreds of processes and people draw quickly",
-        "now": "Home, the runs list, process pages, every person picker and Settings, People each look things up once per draw, so their cost grows with what they show.",
+        "now": "Home, the runs list, process pages, every person picker and Settings, People open quickly with hundreds of processes and people.",
         "before": "Home checked every run once for each process you own, the runs list searched every process for each run, and each person picker compared every name with every other.",
         "where": "Home, Runs, process pages, person pickers, Settings"
       },
@@ -32,8 +32,8 @@
         "kind": "improved",
         "area": "Folder health",
         "title": "Folder health's receipt check is quick on big folders",
-        "now": "Receipts are matched to their runs by folder, in one pass.",
-        "before": "Each run's receipts were looked for in a list of every file in the folder.",
+        "now": "Checking that each finished run has its receipt takes moments, not seconds.",
+        "before": "On a folder of thousands of runs, that check alone took seconds.",
         "where": "Settings, Folder health"
       }
     ]

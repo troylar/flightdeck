@@ -20,7 +20,8 @@ const THINGS = ['the build', 'the release notes', 'the staging site', 'the dashb
 /* mulberry32: small, fast and the same on every computer. */
 function prng(seed) { let a = seed >>> 0; return () => { a = (a + 0x6D2B79F5) >>> 0; let t = a; t = Math.imul(t ^ (t >>> 15), t | 1); t ^= t + Math.imul(t ^ (t >>> 7), t | 61); return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
 
-/* opts: { profile, runs, running, recent, seed }. Returns { files: { path: text }, virtual: { path: size }, mtimes: { path: ms }, stats }. */
+/* opts: { profile, runs, running, recent, seed, typed }. typed: every step is a Run a command step, with a field, so any
+   open step has a Fill in to open. Returns { files: { path: text }, virtual: { path: size }, mtimes: { path: ms }, stats }. */
 function generate(PF, opts) {
   opts = opts || {};
   const prof = Object.assign({}, PROFILES[opts.profile || 'default'] || PROFILES.default, opts);
@@ -54,7 +55,8 @@ function generate(PF, opts) {
         md += '## Phase ' + (ph + 1) + ' · READ-DO {#ph' + (ph + 1) + '}\n';
         const per = Math.ceil(steps / phases);
         for (let s = 0; s < per && n < steps; s++, n++) {
-          md += '- [' + (n % 7 === 0 ? '!' : ' ') + '] {confirm} ' + pick(WORDS)[0].toUpperCase() + pick(WORDS).slice(1) + ' ' + pick(THINGS) + ' (v' + v + ') @lead {#s' + n + '}\n';
+          md += '- [' + (n % 7 === 0 ? '!' : ' ') + '] ' + (prof.typed ? '{run.command} ' : '{confirm} ') + pick(WORDS)[0].toUpperCase() + pick(WORDS).slice(1) + ' ' + pick(THINGS) + ' (v' + v + ') @lead {#s' + n + '}\n';
+          if (prof.typed) md += '  command: make test\n';
           md += '  > ' + 'Look at ' + pick(THINGS) + ' and ' + pick(WORDS) + ' ' + pick(THINGS) + ' before going on. Write down anything that looks different from last time, and say so in a note on this step. If it took much longer than usual, note how long.\n';
           if (shots && n < shots) { const src = 'images/' + proc + '-' + v + '-' + n + '.png', bytes = 'synthetic-png-' + (++shotN); images[src] = U.hash(bytes); bytesOf[src] = bytes; md += '  ![Screen ' + n + '](' + src + ')\n'; }
         }

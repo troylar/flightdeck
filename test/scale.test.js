@@ -110,7 +110,28 @@ rule('People: a 500-person picker compares names about once per person, not once
   same(out, list.map(p => P.label(p, list)), 'the same labels');
 });
 
-rule('People: permits() answers every change exactly as allowed() does, with the first row for an ID, in one pass over people', () => {
+/* 2.4.0's allowed(), copied here as it was, so permits() is checked against the rules as they stood and not against itself
+   (allowed() now asks permits()). */
+function allowed240(people, me, act, id) {
+  const roles = ps => ({ owner: ps.filter(p => p.folderRole === 'owner')[0] || null });
+  const canManage = (ps, m) => { if (!m) return false; const p = ps.filter(x => x.id === m)[0]; return !!p && !p.inactive && (p.folderRole === 'owner' || p.folderRole === 'backup'); };
+  if (!canManage(people, me)) return 'Only the folder owner and backup owner change the people list.';
+  if (act === 'add') return '';
+  const p = people.filter(x => x.id === id)[0], r = roles(people), ownerHere = r.owner && !r.owner.inactive;
+  if (!p) return 'That person isn\'t in people.json any more.';
+  if (act === 'active') return p.inactive ? '' : p.name + ' is active already.';
+  if (act === 'inactive') return p.inactive ? p.name + ' is inactive already.' : id === me ? 'You can\'t mark yourself inactive. Make someone else folder owner or backup first.' : '';
+  if (p.inactive) return p.name + ' is marked inactive. Mark them active first.';
+  if (act === 'backup') return p.folderRole === 'owner' ? p.name + ' is the folder owner.' : '';
+  if (act === 'owner') {
+    if (p.folderRole === 'owner') return p.name + ' is the folder owner already.';
+    if (r.owner && r.owner.id === me) return '';
+    return id === me && !ownerHere ? '' : 'Only the folder owner hands the folder to someone else, or the backup owner once the owner is inactive.';
+  }
+  return 'Unknown change.';
+}
+
+rule('People: permits() answers every change exactly as 2.4.0\'s allowed() did, with the first row for an ID, in one pass over people', () => {
   const PF = load(), P = PF.people;
   assert.strictEqual(typeof P.permits, 'function', 'PF.people.permits(people, me)');
   const folders = [folk(), folk().map(p => p.id === 'p-ann' ? Object.assign({}, p, { inactive: true }) : p), folk().filter(p => p.folderRole !== 'owner'), []];
@@ -119,7 +140,9 @@ rule('People: permits() answers every change exactly as allowed() does, with the
     ['p-ann', 'p-bo', 'p-ed', 'p-nobody'].forEach(me => {
       const can = P.permits(people, me);
       people.map(p => p.id).concat(['p-gone']).forEach(id => acts.forEach(act => {
-        assert.strictEqual(can(act, id), P.allowed(people, me, act, id), 'folder ' + n + ', me ' + me + ', ' + act + ' ' + id);
+        const want = allowed240(people, me, act, id), where = 'folder ' + n + ', me ' + me + ', ' + act + ' ' + id;
+        assert.strictEqual(can(act, id), want, where);
+        assert.strictEqual(P.allowed(people, me, act, id), want, 'allowed() too · ' + where);
       }));
     });
   });
@@ -137,10 +160,14 @@ rule('Runs by key: a hit is the run at its position now, a miss costs one look a
   const PF = load(), key = r => r.process + '/' + r.id, scan = (a, k) => a.find(r => key(r) === k) || null;
   assert.strictEqual(typeof (PF.util && PF.util.keyIndex), 'function', 'PF.util.keyIndex(keyOf)');
   const idx = PF.util.keyIndex(key), runs = [];
+  PF.perf.reset();
   for (let i = 0; i < 8000; i++) idx.push(runs, { process: 'p' + (i % 40), id: 'run-' + i });
+  /* Counted across the appends: the first push builds the (empty) index once, and no append rebuilds it. */
+  assert.ok((PF.perf.n['runs.rebuilds'] || 0) <= 1, 'appends through push never rebuild: ' + PF.perf.n['runs.rebuilds']);
+  assert.ok((PF.perf.n['runs.inspected'] || 0) <= 1, 'and inspect nothing they add: ' + PF.perf.n['runs.inspected']);
   PF.perf.reset();
   for (let i = 0; i < 8000; i++) assert.strictEqual(idx.find(runs, 'p' + (i % 40) + '/run-' + i), runs[i]);
-  assert.strictEqual(PF.perf.n['runs.rebuilds'] || 0, 0, 'appends through push never rebuild');
+  assert.strictEqual(PF.perf.n['runs.rebuilds'] || 0, 0, 'finding what was appended never rebuilds');
   assert.ok((PF.perf.n['runs.inspected'] || 0) <= 8000, 'one look per hit: ' + PF.perf.n['runs.inspected']);
   PF.perf.reset();
   for (let i = 0; i < 1000; i++) assert.strictEqual(idx.find(runs, 'nowhere/run-' + i), null);
@@ -184,6 +211,10 @@ rule('The run-count limits come from measurements: stop first, warning strictly 
   same(pick({ 2000: stuck, 4000: stuck }), { keep: true, warn: 500, stop: 2000 }, 'stop fails at 2,000: the limits stay');
   same(pick({ 2000: slow, 3000: stuck, 4000: stuck }), { need: [1000] }, 'asks for 1,000 when nothing below stop qualifies');
   same(pick({ 2000: ok, 4000: ok, 5000: ok, 6000: stuck }), { warn: 4000, stop: 5000 }, 'a halfway size measured is used as it is');
+  /* Warning crosses where stop is: the halfway size below stop is still asked for. */
+  const warnOnly = { open: 40000, freeze: 300 };
+  same(pick({ 2000: ok, 4000: ok, 6000: warnOnly, 8000: stuck, 10000: stuck }), { need: [5000, 7000] }, 'warning crossing at the stop size asks for the halfway size');
+  same(pick({ 2000: ok, 4000: ok, 5000: ok, 6000: warnOnly, 7000: stuck, 8000: stuck, 10000: stuck }), { warn: 5000, stop: 6000 }, 'then uses it');
   /* Never beyond what was measured, and warning is always below stop. */
   for (let i = 0; i < 200; i++) {
     let x = (i + 1) * 2654435761 >>> 0; const rnd = n => { x = (Math.imul(x, 1103515245) + 12345) & 0x7fffffff; return (x >>> 16) % n; };

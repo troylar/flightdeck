@@ -68,31 +68,36 @@ rule('A refresh that reads every run again keeps how to rebuild each one, withou
   assert.strictEqual(count(app, 'baseline.copied'), 0, 'runs copied to text for Discard: ' + count(app, 'baseline.copied') + ' of ' + runs);
 });
 
-rule('Two thousand runs that can\'t be read, then read again, change their status without copying every status each time', async () => {
+rule('Two thousand runs that can\'t be read, then read again, change their status in place, without copying the status maps', async () => {
   const { app, k } = await bigApp();
   const files = Object.keys(app.fs.files).filter(p => /^runs\/[^/]+\/[^/]+\/run\.json$/.test(p));
+  /* The big folder has a few runs broken on purpose; they stay unreadable throughout. */
+  const broken = Object.keys(app.PF.perf.maps().unread || {}).sort();
   /* Like OneDrive placeholders: every run file refuses to be read, for one Refresh. */
   const read = app.fs.read.bind(app.fs);
   app.fs.read = (p, o) => (files.indexOf(p) >= 0 ? Promise.reject(Object.assign(new Error('The cloud file provider is not running.'), { name: 'NotReadableError' })) : read(p, o));
+  /* The status maps as they stand: a copy anywhere would be a new object. */
   app.PF.perf.reset();
   app.click('refresh'); await settle(app, 0);
+  const maps = app.PF.perf.maps();
+  assert.ok(maps.unread && Object.keys(maps.unread).length >= files.length, 'set-up: every run is noted as unreadable: ' + Object.keys(maps.unread || {}).length);
   const html = app.html();
   assert.ok(/couldn(&#39;|')t be read/.test(html) || /can(&#39;|')t be read/.test(html), 'they show as unreadable');
   assert.ok(!/is gone from the team folder/.test(html), 'and none as gone');
-  const copied = count(app, 'status.copied');
-  assert.ok(copied <= 4 * files.length, 'statuses copied ' + copied + ' ≤ 4 × runs; copying the maps per result is about ' + files.length * files.length);
   app.fs.read = read;
   app.PF.perf.reset();
   app.click('refresh'); await settle(app, 0);
   assert.ok(!/couldn(&#39;|')t be read on the last check/.test(app.html()), 'they read again');
-  assert.ok(count(app, 'status.copied') <= 4 * files.length, 'recovering copies as little: ' + count(app, 'status.copied'));
+  const after = app.PF.perf.maps();
+  assert.ok(after.unread === maps.unread && after.missing === maps.missing, 'the same two maps throughout: changed in place, never copied');
+  assert.deepStrictEqual(Object.keys(after.unread).sort(), broken, 'and every run is off the unreadable list but the ones broken on purpose');
 });
 
 /* A real team folder (the picker's), filled with the synthetic folder, whose run files the test can hold back so a first
    open arrives in batches it lets go of. Booted with stepped timers, so a waiting redraw only lands when the test says. */
 async function pickerApp(n, opts) {
   const k = clocks(), files = {};
-  const g = generate(load(), { runs: n, running: Math.round(n / 40), recent: Math.round(n / 20) });
+  const g = generate(load(), Object.assign({ runs: n, running: Math.round(n / 40), recent: Math.round(n / 20) }, (opts || {}).gen));
   Object.keys(g.files).forEach(p => { files[p] = g.files[p]; });
   const app = boot(Object.assign({ localStore: { 'preflight:builder': 'false' }, Date: k.D, performance: k.perf, timers: true, picker: withBytes(folderHandle('Big', files)), indexedDB: memoryIDB() }, opts || {})); await app.tick(60);
   app.choose('person-casey'); await app.tick();
@@ -171,33 +176,62 @@ rule('A click during a waiting batch draw draws at once and drops the waiting on
   app.advanceTimers(1000); await app.tick(5);
   assert.strictEqual(count(app, 'batch.renders'), 0, 'after switching folders, the old folder\'s batch draw never lands');
   f.holdRuns(null); f.release(); await app.tick(200);
+  /* After the switch, with the old folder's reads let go: every lookup is the new folder's, as a scan finds it. */
+  assert.strictEqual(Array.from(app.PF.perf.check()).join('; '), '', 'a lookup disagrees with a scan after switching folders');
+  for (const v of ['home', 'runs']) {
+    app.click('nav', v); await app.tick(5);
+    app.PF.perf.draw(); const fast = app.html();
+    app.PF.perf.plain = true; app.PF.perf.draw(); const plain = app.html(); app.PF.perf.plain = false;
+    assert.ok(fast === plain, v + ' is drawn the same with the lookups as by scanning, after switching folders');
+  }
   f.restore();
 });
 
-rule('Typing survives a batch draw that lands while you type: the box keeps its text, focus and caret', async () => {
-  const f = await pickerApp(200), app = f.app;
+rule('Typing survives a batch draw that lands while you type: a step note, a Fill in value and a follow-up reason keep their text, focus and caret', async () => {
+  const f = await pickerApp(400, { gen: { typed: true } }), app = f.app;
   f.holdRuns(RUNS);
   app.click('connect'); await app.tick(80);
   await nextBatch(f);
   /* A running run (read first, so it's in the first batch), picked up by someone on the team, with its step's note box. */
   const people = JSON.parse(f.files['people.json']), me = people.filter(p => !p.inactive)[0].id;
   app.choose(me); await app.tick(10);
-  const path = Object.keys(f.files).filter(p => RUNS.test(p)).find(p => !JSON.parse(f.files[p]).ended);
+  const parse = p => { try { return JSON.parse(f.files[p]); } catch (e) { return null; } };
+  const path = Object.keys(f.files).filter(p => RUNS.test(p)).find(p => { const r = parse(p); return r && !r.ended; });
   const key = path.split('/').slice(1, 3).join('/');
   app.click('open-run', key); await app.tick(20);
   app.click('pickup'); await app.tick(40);
   if (app.html().indexOf('id="note-text"') < 0) { const st = (/data-act="sel" data-id="([^"]+)"/.exec(app.html()) || [])[1]; if (st) { app.click('sel', st); await app.tick(10); } }
-  const id = 'note-text';
-  assert.ok(app.html().indexOf('id="note-text"') >= 0, 'set-up: a note box on the run: ' + key + ' ' + app.html().replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 300));
-  const box = app.el(id); box.value = 'Waiting on the vendor'; box.tagName = 'TEXTAREA'; box.selectionStart = box.selectionEnd = 7;
-  box.closest = () => null; app.doc.activeElement = box; app.input(id, 'Waiting on the vendor');
-  let focused = false, range = null; box.focus = () => { focused = true; app.doc.activeElement = box; }; box.setSelectionRange = (a, b) => { range = [a, b]; };
-  await nextBatch(f);
-  assert.ok(waiting(app), 'set-up: a batch draw waits');
-  app.advanceTimers(1000); await app.tick(10);
-  assert.strictEqual(app.el(id).value, 'Waiting on the vendor', 'the note is still there');
-  assert.ok(focused || app.doc.activeElement === box, 'and the box has focus');
-  if (range) assert.deepStrictEqual(range, [7, 7], 'with the caret where it was');
+  /* A box typed in, focused, caret mid-text; then a batch draw lands. Its text, focus and caret are all still there. */
+  const survives = async (id, text, what) => {
+    assert.ok(app.html().indexOf('id="' + id + '"') >= 0, 'set-up: ' + what + ' is drawn: ' + app.html().replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 300));
+    const box = app.el(id); box.value = text; box.selectionStart = box.selectionEnd = 7;
+    box.closest = () => null; app.doc.activeElement = box; app.input(id, text);
+    let focused = false, range = null; box.focus = () => { focused = true; app.doc.activeElement = box; }; box.setSelectionRange = (a, b) => { range = [a, b]; };
+    await nextBatch(f);
+    assert.ok(waiting(app), 'set-up: a batch draw waits (' + what + ')');
+    app.advanceTimers(1000); await app.tick(10);
+    assert.ok(count(app, 'batch.renders') > 0, 'set-up: the batch draw landed (' + what + ')');
+    assert.strictEqual(app.el(id).value, text, what + ' is still there');
+    assert.ok(focused || app.doc.activeElement === box, what + ' has focus');
+    if (range) assert.deepStrictEqual(range, [7, 7], what + ': the caret is where it was');
+  };
+  app.el('note-text').tagName = 'TEXTAREA';
+  await survives('note-text', 'Waiting on the vendor', 'the step note');
+  /* An open Fill in with a value typed in it. */
+  const fill = /data-act="pick" data-kind="fields" data-id="([^"]+)"(?! disabled)/.exec(app.html());
+  assert.ok(fill, 'set-up: the step offers Fill in');
+  app.click('pick', fill[1], { kind: 'fields' }); await app.tick(10);
+  const fld = (/<input id="(fld-[\w-]+)"/.exec(app.html()) || [])[1];
+  assert.ok(fld, 'set-up: Fill in has a box');
+  await survives(fld, 'the release dashboard', 'a value typed in Fill in');
+  app.click('unpick'); await app.tick(5);
+  /* A follow-up's Won't do reason, on Runs › Follow-ups. */
+  app.click('nav', 'followups'); await app.tick(10);
+  const fu = /data-act="fu-pick" data-id="([^"]+)" data-status="wont"/.exec(app.html());
+  assert.ok(fu, 'set-up: an open follow-up offers Won\'t do');
+  app.click('fu-pick', fu[1], { status: 'wont' }); await app.tick(10);
+  const why = (/<input id="([^"]+-reason)"/.exec(app.html()) || [])[1];
+  await survives(why, 'Covered by the new runbook', 'a follow-up\'s reason');
   f.holdRuns(null); f.release(); await app.tick(200);
   f.restore();
 });
