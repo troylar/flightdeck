@@ -7,6 +7,8 @@ const PF = load(), R = PF.run, repo = PF.repo;
 const EX = exampleSetup(PF);
 const done = sampleDone(PF);
 const NOW = '2026-10-17T21:00:00.000Z';
+/* Refresh checks a run ended in the last 7 days by the real clock, so a test about a recent end ends it now. */
+const justNow = () => new Date().toISOString();
 const same = (a, b, msg) => assert.deepStrictEqual(JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b)), msg);
 const people = JSON.parse(example('people.json'));
 
@@ -234,7 +236,7 @@ rule('P1: keeping a conflict copy restores everything in it, keeps the displaced
 rule('P2: an ended run is reread when a late note or a conflict copy arrives, without rereading quiet ones', async () => {
   const { a, b } = await twoComputers();
   const r = await get(a);
-  R.end(r, R.mapOf(r), 'Cancelled', 'person-casey', 'Casey', NOW);
+  R.end(r, R.mapOf(r), 'Cancelled', 'person-casey', 'Casey', justNow());
   await repo.saveRun(a, r, 'casey'); a.sync(); b.sync();
   await repo.loadAll(b);
   await repo.addNote(a, r, 'blake', { id: 'late', at: NOW, by: 'person-blake', step: 'approved', text: 'Arrived late' });
@@ -324,7 +326,7 @@ rule('R2: caches never hide a change: a bad publication stays bad, and late note
   const { a, b } = await twoComputers();
   const r = await get(a);
   await repo.addNote(a, r, 'blake', { id: 'n1', at: NOW, by: 'person-blake', step: 'approved', text: 'first' });
-  R.end(r, R.mapOf(r), 'Cancelled', 'person-casey', 'Casey', NOW); await repo.saveRun(a, r, 'casey');
+  R.end(r, R.mapOf(r), 'Cancelled', 'person-casey', 'Casey', justNow()); await repo.saveRun(a, r, 'casey');
   a.sync(); b.sync();
   await repo.loadAll(b);
   await repo.addNote(a, r, 'blake', { id: 'n2', at: NOW, by: 'person-blake', step: 'approved', text: 'second, same file' });

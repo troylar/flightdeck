@@ -40,6 +40,7 @@ const RAW = [
   { file: 'src/storage/fs.js', has: "saved = JSON.parse(raw || 'null')", why: 'the in-browser example folder this browser keeps for itself, not the team folder' },
   { file: 'src/ui/examples.js', has: "JSON.parse(files['people.json'] || '[]')", why: 'the example folder built into the app, not the team folder' },
   { file: 'src/ui/app.js', has: 'function lsGet', why: 'this browser\'s own storage, not the team folder' },
+  { file: 'src/ui/app.js', has: 'var o; try { o = JSON.parse(raw); } catch (err) { return; }', why: 'practice typing this tab kept in its own session storage; each record is checked field by field before it is used' },
   { file: 'src/ui/app.js', has: 'return JSON.parse(text); });', why: 'a baseline of the text this window just saved' },
   { file: 'src/ui/app.js', has: 'return JSON.parse(landedText)', why: 'a baseline of the run this window just saved (R.sanitize read it first)' },
   { file: 'src/ui/app.js', has: 'return JSON.parse(baseText)', why: 'a baseline of a run already in memory' },
