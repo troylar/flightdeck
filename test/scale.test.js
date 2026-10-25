@@ -131,6 +131,42 @@ rule('People: permits() answers every change exactly as allowed() does, with the
   assert.ok(scans <= 2 * many.length, 'rows looked at ' + scans + ' ≤ 2 × people; allowed() per person and change is ' + 3 * many.length * many.length);
 });
 
+/* ---------- Runs by key ---------- */
+
+rule('Runs by key: a hit is the run at its position now, a miss costs one look and no rebuild, and appends keep the index', () => {
+  const PF = load(), key = r => r.process + '/' + r.id, scan = (a, k) => a.find(r => key(r) === k) || null;
+  assert.strictEqual(typeof (PF.util && PF.util.keyIndex), 'function', 'PF.util.keyIndex(keyOf)');
+  const idx = PF.util.keyIndex(key), runs = [];
+  for (let i = 0; i < 8000; i++) idx.push(runs, { process: 'p' + (i % 40), id: 'run-' + i });
+  PF.perf.reset();
+  for (let i = 0; i < 8000; i++) assert.strictEqual(idx.find(runs, 'p' + (i % 40) + '/run-' + i), runs[i]);
+  assert.strictEqual(PF.perf.n['runs.rebuilds'] || 0, 0, 'appends through push never rebuild');
+  assert.ok((PF.perf.n['runs.inspected'] || 0) <= 8000, 'one look per hit: ' + PF.perf.n['runs.inspected']);
+  PF.perf.reset();
+  for (let i = 0; i < 1000; i++) assert.strictEqual(idx.find(runs, 'nowhere/run-' + i), null);
+  assert.strictEqual(PF.perf.n['runs.rebuilds'] || 0, 0, 'misses never rebuild');
+  assert.ok((PF.perf.n['runs.inspected'] || 0) <= 1000, 'one look per miss: ' + PF.perf.n['runs.inspected'] + ' (a scan is 8,000,000)');
+  /* Replaced in place with the same key: the new object. */
+  const fresh = { process: 'p3', id: 'run-3', rev: 2 }; runs[3] = fresh;
+  assert.strictEqual(idx.find(runs, 'p3/run-3'), fresh, 'the run now at that position');
+  /* A new array (a complete read) or a change of length behind its back: rebuilt once, then right. */
+  const next = runs.slice().reverse();
+  PF.perf.reset();
+  next.forEach(r => assert.strictEqual(idx.find(next, key(r)), r));
+  assert.strictEqual(PF.perf.n['runs.rebuilds'], 1, 'one rebuild for a new array');
+  next.push({ process: 'late', id: 'run-x' });
+  assert.strictEqual(idx.find(next, 'late/run-x'), next[next.length - 1], 'a push it didn\'t see is found after a rebuild');
+  /* A position whose run changed key (nothing does that today; replacements keep the key): looking up the run that was there
+     finds the mismatch, rebuilds, and answers right from then on. Never a wrong run. */
+  const was = key(next[0]);
+  next[0] = { process: 'moved', id: 'run-y' };
+  assert.strictEqual(idx.find(next, was), null, 'the run that was there is gone');
+  assert.strictEqual(idx.find(next, 'moved/run-y'), next[0], 'and the one there now is found');
+  /* Duplicates: the first, as a scan finds. */
+  const dup = [{ process: 'a', id: '1', n: 1 }, { process: 'a', id: '1', n: 2 }], di = PF.util.keyIndex(key);
+  assert.strictEqual(di.find(dup, 'a/1'), scan(dup, 'a/1'));
+});
+
 /* ---------- Folder health's limits, from the browser gate's measurements ---------- */
 
 rule('The run-count limits come from measurements: stop first, warning strictly below it and qualified, never beyond what was measured', () => {
