@@ -241,9 +241,14 @@ function boot(opts) {
   }
   // A folder the picker hands over (see folderHandle), for the screens that choose a real folder.
   if (opts.picker) window.showDirectoryPicker = () => Promise.resolve(opts.picker);
+  /* opts.timers: the app's delayed timers (any delay over 0) wait in a queue the test moves with advanceTimers(ms); none
+     fires on its own. Zero-delay timers still run as usual, so promise chains and redraws on the next turn aren't held. */
+  const timerQ = [], clock = { now: 0, id: 1 };
+  const appSetTimeout = !opts.timers ? setTimeout : (fn, ms) => { if (!(ms > 0)) return setTimeout(fn, 0); const t = { id: 'm' + clock.id++, at: clock.now + ms, fn }; timerQ.push(t); return t.id; };
+  const appClearTimeout = !opts.timers ? clearTimeout : id => { const i = timerQ.findIndex(t => t.id === id); if (i >= 0) timerQ.splice(i, 1); else clearTimeout(id); };
   const ctx = vm.createContext({
     window, document, history, location, localStorage: storage(), sessionStorage, navigator: Object.assign(opts.locks ? { locks: opts.locks } : {}, opts.navigator || {}), BroadcastChannel: opts.Channel, console, Date: opts.Date || Date, Math, JSON, Promise, Blob, fetch, btoa, Uint8Array,
-    setTimeout, clearTimeout, setInterval: fn => { intervals.push(fn); return 0; }, requestAnimationFrame: fn => setTimeout(fn, 0), URL: { createObjectURL: () => 'blob:x', revokeObjectURL() {} },
+    setTimeout: appSetTimeout, clearTimeout: appClearTimeout, setInterval: fn => { intervals.push(fn); return 0; }, requestAnimationFrame: fn => setTimeout(fn, 0), URL: { createObjectURL: () => 'blob:x', revokeObjectURL() {} },
     crypto: globalThis.crypto, TextEncoder, indexedDB: opts.indexedDB, IntersectionObserver: opts.IntersectionObserver,
     // An elapsed-time clock the test moves (performance.now()); left out, the app falls back on Date.now().
     performance: opts.performance,
@@ -271,6 +276,9 @@ function boot(opts) {
   const tick = (n = 20) => new Promise(res => { let i = 0; (function loop() { if (i++ >= n) return res(); setTimeout(loop, 0); })(); });
   app = {
     PF, store, session, fs: null, tick,
+    // With opts.timers: move the app's clock by ms, firing every delayed timer that comes due, in order; and the ones waiting.
+    advanceTimers(ms) { const until = clock.now + ms; for (;;) { timerQ.sort((x, y) => x.at - y.at); const t = timerQ[0]; if (!t || t.at > until) break; timerQ.shift(); clock.now = t.at; t.fn(); } clock.now = until; },
+    pendingTimers: () => timerQ.map(t => ({ in: t.at - clock.now })),
     html: () => els.app.innerHTML,
     // The last place a render tried to put focus (a selector or an element id), ignoring the app's own lookups by class.
     focused: () => asked.filter(x => x && x[0] !== '.').pop() || null,
