@@ -83,7 +83,7 @@
     /* Target details that tell two similar steps apart (an environment, a job) stay on the row. */
     var eff = R.fieldsOf(r, s), shown = 0;
     Object.keys(eff).forEach(function (f) {
-      var def = T.fieldDef(t, f), v = def && eff[f] ? R.fill(eff[f], r.details) : ''; if (!v || shown >= 2 || v.length > 32 || (def.kind !== 'text' && def.kind !== 'choice') || /^(expect|deadline|require|at|due|after|evidence|sets|carry)$/.test(f)) return;
+      var def = T.fieldDef(t, f), v = def && eff[f] ? R.fill(eff[f], r.details, map.meta.context) : ''; if (!v || shown >= 2 || v.length > 32 || (def.kind !== 'text' && def.kind !== 'choice') || /^(expect|deadline|require|at|due|after|evidence|sets|carry)$/.test(f)) return;
       shown++; meta += '<span class="s-field">' + esc(def.label) + ' ' + esc(v) + '</span>';
     });
     var badges = (s.must ? K.mustMark() : '') + (s.planned ? '<span class="badge b-plan">Automation planned</span>' : '') +
@@ -200,7 +200,7 @@
      (never while a suggestion to its note is being written). */
   function gateBlock(ctx, r, map, pi, rec, sched, brief) {
     var g = map.phases[pi].gate, st = R.gateStatus(r, map, pi), rec2 = r.gates[g.id], s = ctx.state, P = prOf(ctx), owner = !P && g.owner && r.roles[g.owner], info = R.phaseInfo(r, map, pi);
-    var approves = g.approves ? R.fill(g.approves, r.details) : '';
+    var approves = g.approves ? R.fill(g.approves, r.details, map.meta.context) : '';
     var h = '<div class="gate" data-scope="gate:' + esc(g.id) + '" data-s="' + st + '" id="gate-' + esc(g.id) + '"><div class="stack" style="gap:4px"><div class="gate-title">' + I('gate') + '<span>' + (g.implicit ? esc(g.title) + (R.solo(r) ? '' : ' together') : 'Gate: ' + esc(g.title)) + '</span>' + (st === 'passed' && s.justPassed === g.id ? '' : '<span class="pill ' + st + '">' + GATE_WORD[st] + '</span>') +
       (st === 'passed' && s.justPassed === g.id ? '<span class="called-stamp">Passed</span>' : '') + '</div>';
     if (brief) return h + (sched ? '<div class="badges">' + schedBadge(sched) + '</div>' : '') + '</div><div class="row"></div></div>';
@@ -510,11 +510,11 @@
     return h + '<p class="small corr-conseq" id="corr-conseq">' + conseq + '</p><div class="row"><button class="btn ' + (answer ? 'go' : 'primary') + '" data-act="' + (answer ? 'corr-done' : 'corr-save') + '" data-id="' + esc(s.id) + '"' + (off ? ' aria-disabled="true"' : '') + ' aria-describedby="corr-conseq' + (fix && same ? ' corr-same' : '') + '">' + (f.sending ? 'Saving…' : answer ? 'Mark done differently' : 'Save correction') + '</button><button class="mini" data-act="corr-cancel">Cancel</button></div></div>';
   }
   /* A step's checklist fields as the run sees them: commands and messages with Copy, links with Open, the rest as labels. */
-  function fieldsBlock(ctx, r, s, t, sched) {
+  function fieldsBlock(ctx, r, map, s, t, sched) {
     var st = ctx.state, eff = R.fieldsOf(r, s), own = (r.fields || {})[s.id] || {}, chips = '', code = '';
     Object.keys(eff).forEach(function (f) {
       if (f === 'expect' || f === 'deadline' || f === 'require' || !eff[f] || (sched && (f === 'at' || f === 'due' || f === 'after'))) return;
-      var def = T.fieldDef(t, f) || { label: f, kind: 'text' }, val = R.fill(eff[f], r.details), mark = own[f] != null ? ' filled" title="Filled in during this run' : '';
+      var def = T.fieldDef(t, f) || { label: f, kind: 'text' }, val = R.fill(eff[f], r.details, map.meta.context), mark = own[f] != null ? ' filled" title="Filled in during this run' : '';
       var copy = function () { var on = st.copied === val; return '<button class="mini" data-act="copy" data-text="' + esc(val) + '" aria-label="Copy ' + esc(def.label) + '">' + I(on ? 'check' : 'copy') + (on ? 'Copied' : 'Copy') + '</button>'; };
       if (f === 'evidence') { chips += '<span class="fchip"><b>Evidence:</b> ' + esc(PROOF[String(val).toLowerCase()] || 'a note') + '</span>'; return; }
       if (def.kind === 'message') { code += '<div class="cmd msg' + mark + '"><span>' + esc(val) + '</span>' + copy() + '</div>'; return; }
@@ -567,7 +567,7 @@
     var how = (t.hint && t.id !== 'confirm' ? '<p class="small">' + esc(t.hint) + '</p>' : '') + (st.note ? '<div class="note">' + U.mdBlock(st.note) + '</div>' : '');
     var shots = st.shots.map(function (sh, k) { return '<figure class="shot"><button class="thumb" data-act="zoom" data-id="' + esc(st.id) + '" data-i="' + k + '" aria-label="Expand: ' + esc(sh.caption) + '" title="' + esc(sh.caption) + '">' + ctx.img(sh.src, sh.caption) + '</button><figcaption class="small">' + esc(sh.caption) + '</figcaption>' +
       (s.me && !corrOpen && !P ? '<button class="linkish" data-act="corr-open" data-mode="correct" data-op="screenshot" data-id="' + esc(st.id) + '" data-shot="' + esc(sh.src) + '">' + (st.shots.length === 1 ? 'Replace this screenshot' : 'Replace screenshot ' + (k + 1)) + '</button>' : '') + '</figure>'; }).join('');
-    how += fieldsBlock(ctx, r, st, t, sched) + (shots ? '<div class="thumbs shots">' + shots + '</div>' : '');
+    how += fieldsBlock(ctx, r, map, st, t, sched) + (shots ? '<div class="thumbs shots">' + shots + '</div>' : '');
     if (P && (t.id === 'run.process' || t.id === 'run.skill')) how += '<p class="small">Simulated: practice doesn\'t ' + (t.id === 'run.process' ? 'start other runs' : 'run skills') + '. Mark it done for practice.</p>';
     else if (t.id === 'run.process') how += childBox(ctx, r, st, a, rec && work && !(a && (a.s === 'done' || a.s === 'na')));
     else if (t.id === 'run.skill') how += skillBox(ctx, r, st, a);

@@ -761,4 +761,32 @@ rule('1.22.0: a draft edited in the builder publishes as preflight-publication/1
   assert.ok(!/^(format|features):/m.test(BUILT), 'the draft names no format');
 });
 
+/* ---------- 2.7.0: a detail renamed and step text edited in the builder ---------- */
+const RENAMED = (() => {
+  const O = H.loadMain().outline, step = (t, op) => { const r = O.apply(t, op); assert.ok(r && !r.error, r && r.error); return r.text; };
+  let t = ['---', 'process: renamed', 'title: Renamed in the builder', 'owner: person-casey', 'context: ticket, tag, environment', '---', '',
+    '## Prepare · READ-DO {#prep}', '- [ ] {confirm} Note the tag ^tag for ^ticket {#note}', '- [!] {run.command} Push ^tag {#push}', '  command: git push origin ^tag && grep ^ERROR push.log', '',
+    '## Gate: Ready {#ready}', '  approves: release of ^tag to ^environment', '',
+    '## Ship · READ-DO {#ship}', '  only when ^tag is set', '- [!] {run.command} Deploy ^tag {#deploy}', '  command: deploy --tag ^tag --env ^environment', ''].join('\n');
+  t = step(t, { op: 'renameDetail', from: 'tag', to: 'build_tag' });
+  t = step(t, { op: 'editText', step: 'note', text: 'Write down ^build_tag  for ^ticket' });
+  return t;
+})();
+eachTag('parses, checks and runs a checklist with a detail renamed and step text edited in 2.7.0, and still shows a literal ^ERROR as not set', (PF, tg) => {
+  const mine = H.loadMain().map.parse(RENAMED), theirs = PF.map.parse(RENAMED);
+  same(theirs.errors, []); same(theirs.meta.context, ['ticket', 'build_tag', 'environment']);
+  const shape = (P, m) => P.map.steps(m).map(x => [x.step.id, x.step.text, x.step.binds, x.step.fields]);
+  same(shape(PF, theirs), shape(H.loadMain(), mine));
+  assert.ok(RENAMED.includes('- [ ] {confirm} Write down ^build_tag  for ^ticket {#note}'), 'the edit keeps the typed spacing');
+  same(PF.map.check(theirs, {}).blockers, []);
+  const pub = { info: { format: PF.publish.FORMAT, version: 1, folder: 'v1-aaaa', mapHash: PF.util.hash(RENAMED), typesHash: PF.util.hash('{}') }, map: theirs, md: RENAMED, types: {} };
+  const r = PF.run.create(pub, { by: 'person-avery', session: 's1', now: AT, id: 'r1' });
+  assert.ok(r && PF.run.sanitize(JSON.parse(JSON.stringify(r))), 'a run starts and reads back');
+  const cmd = PF.map.findStep(theirs, 'push').step.fields.command;
+  assert.strictEqual(PF.run.fill(cmd, { build_tag: 'v9' }), 'git push origin v9 && grep (ERROR not set) push.log', 'the literal ^ERROR shows as not set there (2.7.0 leaves it as written)');
+}, t => t.tag === 'v2.6.1' || t.tag === 'v2.1.1');
+rule('2.7.0 needs v2.6.1 recorded as an older version', () => {
+  assert.ok(TAGS.some(t => t.tag === 'v2.6.1'), 'v2.6.1 is missing from test/fixtures/old-bundles/record.json: node tools/old-bundles.js --write');
+});
+
 run();

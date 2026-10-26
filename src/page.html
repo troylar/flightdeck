@@ -244,6 +244,30 @@ button.tag.on { background: var(--plan-soft); color: var(--plan); border-color: 
 .pv-skill .ic { width: 12px; height: 12px; }
 b.dname { font-weight: 600; }
 .ref-empty { color: var(--muted); }
+.dbx-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.dbx { position: relative; display: grid; min-width: 0; }
+.dbx > .dbx-mirror, .dbx > .dbx-in { grid-area: 1 / 1; }
+.dbx-mirror { margin: 0; overflow: hidden; color: transparent; background: var(--card); border: 1px solid transparent; border-radius: 7px; pointer-events: none; overflow-wrap: break-word; word-break: normal; }
+.dbx .dbx-in { position: relative; background: transparent; width: 100%; box-sizing: border-box; min-width: 0; }
+.dbx-t { color: transparent; border-radius: 3px; padding: 0; }
+.dbx-t.v-ok { background: var(--plan-soft); }
+.dbx-t.v-unknown { background: var(--stop-soft); text-decoration: underline wavy var(--stop); text-decoration-skip-ink: none; text-underline-offset: 3px; }
+.dbx-t.v-maybe-unset { background: var(--amber-soft); }
+.dbx-t.v-typing { background: transparent; }
+.dbx-at { display: inline-block; }
+.dbx-ac { position: absolute; z-index: 30; margin: 4px 0 0; padding: 4px; list-style: none; min-width: 220px; max-width: min(420px, 100%); max-height: 240px; overflow-y: auto; background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 18px rgba(0,0,0,.18); }
+.dbx-o { padding: 6px 8px; border-radius: 6px; cursor: pointer; display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; }
+.dbx-o b { font-family: var(--mono, ui-monospace, Menlo, monospace); font-weight: 600; }
+.dbx-o.on, .dbx-o:hover { background: var(--plan-soft); }
+.dbx-o.add { color: var(--plan); }
+.dbx-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.dbx-iss { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.dbx-i { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; font-size: 13px; padding: 4px 8px; border-radius: 6px; }
+.dbx-i.bad { background: var(--stop-soft); color: var(--ink); border-left: 3px solid var(--stop); }
+.dbx-i.late { background: var(--amber-soft); color: var(--ink); border-left: 3px solid var(--amber); }
+.dbx-pv { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
+.dbx-pv:empty { display: none; }
+.dbx-pv-v { color: var(--ink); }
 .tagfold { margin: 0 0 8px; }
 .tagfold > summary, .np-more > summary, .rw-more > summary { cursor: pointer; }
 .np-more > summary { font-weight: 600; margin: 4px 0; }
@@ -1211,6 +1235,13 @@ p.pv-when { margin: 0 0 4px; }
 .ob-metalist { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 10px; }
 .ob-metalist li { display: inline-flex; align-items: center; gap: 4px; min-width: 0; max-width: 100%; }
 .ob-metalist .ob-role, .ob-metalist .ob-chip { overflow-wrap: anywhere; }
+.ob-metalist li { flex-wrap: wrap; }
+.ob-metalist li > .ob-chip, .ob-metalist li > .ob-role { flex: 0 0 auto; max-width: 100%; }
+.ob-metalist li.ob-ren { display: flex; flex-direction: column; align-items: stretch; flex-basis: 100%; gap: 6px; text-align: left; }
+.ob-ren .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ob-ren .row input { flex: 1 1 10em; min-width: 0; }
+.ob-ren-deps { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.ob-ren-deps .bad { color: var(--stop); }
 #ob-note, #ob-q-text { width: 100%; font: inherit; resize: vertical; }
 .ob-grip { height: 21px; align-self: flex-start; margin: 10px 0 0 6px; }
 .ob-step:hover:not(.sel) { border-color: var(--field); }

@@ -183,8 +183,8 @@ rule('2.3.0 has its own release entry above 2.2.1: Practice on the run screen, E
 });
 
 rule('2.6.1 has its own release entry above 2.6.0: documentation that matches the app, and how it reaches a folder', () => {
-  const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), r = rel[0];
-  assert.strictEqual(r.version, '2.6.1'); assert.strictEqual(rel[1].version, '2.6.0');
+  const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), at = rel.findIndex(x => x.version === '2.6.1'), r = rel[at];
+  assert.ok(at >= 0, 'listed'); assert.strictEqual(rel[at + 1].version, '2.6.0');
   const text = JSON.stringify(r);
   assert.ok(/AI assistants/.test(text) && /install <folder>/.test(text) && /When something goes wrong/.test(text) && /quick start/.test(text), text);
   assert.ok(!/colour|cancelled|behaviour|LLM|baselines|PF\./i.test(text), 'US English, plain words: no code names');

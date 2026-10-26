@@ -371,6 +371,113 @@ PF.outline = (function () {
     return res;
   }
 
+  /* A step's text with its run-detail references in place (2.7): value is what the person typed, ^names and all. Roles keep
+     their buttons and their place at the end; the type, ID and mark don't change. Besides the safety net, the step's
+     references must read back in exactly the places typed, so none can move or vanish. */
+  function list_(v) { return String(v || '').split(/[,\s]+/).filter(Boolean); }
+  function inPlace(rest) { return rest.replace(/\s*@[\w-]+/g, '').trim(); }
+  function editStepText(text, key, value, opts) {
+    var g = guard(text); if (g.error) return { error: g.error };
+    var o = g.o, s = stepBy(o, key); if (!s) return { error: ERR.gone };
+    if (s.odd) return { error: ERR.odd };
+    var p = s.parts, lines = o.lines.slice(), t = lineValue(value), plain = tokens(t, '^');
+    if (/@[\w-]/.test(t)) return { error: 'Choose roles with their buttons, not with @ in the text.' };
+    if (/\{#/.test(t) || TYPE_RE.test(t + ' x')) return { error: 'Leave out { and } at the start, and IDs; the builder keeps them for you.' };
+    if (!plain.rest) return { error: 'A step needs some text.' };
+    if (t.length > 200) return { error: 'Keep a step to 200 characters.' };
+    if (t === inPlace(p.rest)) return { text: text, at: s.line, same: true };
+    var roles = []; p.rest.replace(/@([\w-]+)/g, function (all) { roles.push(all); return ''; });
+    var idSuffix = p.idSuffix, reid = '';
+    if (opts && opts.reid) { var nid = newId(o, plain.rest, 'step', false, s.id); if (nid !== s.id) { idSuffix = swapId(p.idSuffix, nid); reid = nid; } }
+    lines[s.line] = p.pre + p.typePart + t + (roles.length ? ' ' + roles.join(' ') : '') + idSuffix + crOf(o, s.line);
+    var line = s.line + 1;
+    var res = done(o, text, lines, function (A) {
+      var x = null;
+      A.phases.forEach(function (ph) { ph.steps.forEach(function (st) { if (st._line === line) x = st; }); });
+      if (!x) return false;
+      x.text = plain.rest; x.binds = plain.list; if (reid) x.id = reid;
+    }, s.line);
+    if (res.error || res.same) return res;
+    var after = M.steps(M.parse(res.text)).filter(function (y) { return y.step.line === line; })[0];
+    if (!after || after.step.textParts.map(function (q) { return q.t === 'ref' ? '^' + q.k : q.v; }).join('') !== t) return { error: ERR.meaning };
+    res.id = reid || s.id;
+    return res;
+  }
+
+  /* Rename a run detail everywhere this checklist uses it (2.7): its context: entry (kind kept), ^name in step text, gate
+     approves and field values, the detail an "only when" line tests (never a value it compares with, like ^tag in
+     "only when ^mode is ^tag") and bare names in sets:. Nothing else changes: choice options, notes, titles. A step that
+     passes the detail on with carry: refuses it (its child takes it by this name). opts.depends: what other files say,
+     from PF.refs.dependents ({ refuse, text }); any refusal stops the rename, the rest come back as notes. */
+  function renameDetail(text, from, to, opts) {
+    var g = guard(text); if (g.error) return { error: g.error };
+    var o = g.o, lines = o.lines.slice(), meta = M.parse(text).meta;
+    from = String(from == null ? '' : from); to = String(to == null ? '' : to).trim().replace(/^\^/, '');
+    if (meta.context.indexOf(from) < 0) return { error: '^' + from + ' isn\'t listed anymore. It may have just changed.' };
+    if (to === from) return { text: text, at: 0, same: true };
+    var bad = checkName(to, 'context'); if (bad) return { error: bad };
+    if (meta.context.indexOf(to) >= 0) return { error: '^' + to + ' is already a run detail.' };
+    var stop = (opts && opts.depends || []).filter(function (d) { return d.refuse; });
+    o.steps.forEach(function (st) {
+      if (st.fields.carry == null || list_(st.fields.carry).indexOf(from) < 0) return;
+      /* The folder already said this step passes it to that child: once is enough. */
+      if (st.fields.process && stop.some(function (d) { return d.text.indexOf(' passes ^' + from + ' to ' + st.fields.process + ' ') >= 0; })) return;
+      stop.unshift({ refuse: true, text: 'The step “' + short(st.text) + '” passes ^' + from + ' to ' + (st.fields.process || 'its process') + ' under this name. Renaming it would stop that.' });
+    });
+    if (stop.length) return { error: stop.map(function (d) { return d.text; }).join(' ') };
+    var tok = new RegExp('\\^' + reEsc(from) + '(?![\\w-])', 'g'), swap = function (v) { return v.replace(tok, '^' + to); }, n = 0;
+    var put = function (i, nv) { if (nv !== lines[i]) { lines[i] = nv; n++; } };
+    /* The context: line map.js reads (the last one); each entry keeps whatever follows its name (:kind). */
+    var ctx = -1;
+    if (o.front) for (var i = o.front.start + 1; i < o.front.end - 1; i++) if (/^context:/.test(bare(lines[i]))) ctx = i;
+    if (ctx < 0) return { error: ERR.gone };
+    var cm = /^(context:\s*)(.*?)(\s*)$/.exec(bare(lines[ctx]));
+    lines[ctx] = cm[1] + cm[2].split(',').map(function (e) { var lead = /^\s*/.exec(e)[0], body = e.slice(lead.length), at = body.search(/[:\s]|$/); return body.slice(0, at) === from ? lead + to + body.slice(at) : e; }).join(',') + cm[3] + crOf(o, ctx);
+    /* "only when" in any capitals; the name exactly (^tag and ^TAG are two details). */
+    var whenLine = function (i) { var wm = /^(\s{2,}only when\s+\^)([\w-]+)/i.exec(lines[i]); if (wm && wm[2] === from) put(i, wm[1] + to + lines[i].slice(wm[0].length)); };
+    o.phases.forEach(function (ph) {
+      ph.whenLines.forEach(whenLine);
+      if (ph.gate && ph.gate.approvesLine >= 0) put(ph.gate.approvesLine, swap(lines[ph.gate.approvesLine]));
+    });
+    o.steps.forEach(function (st) {
+      var q = st.parts;
+      put(st.line, q.pre + q.typePart + swap(q.rest) + q.idSuffix + crOf(o, st.line));
+      st.whenLines.forEach(whenLine);
+      Object.keys(st.fieldLines).forEach(function (f) {
+        var i = st.fieldLines[f], fm = /^(\s{2,}[\w-]+:\s*)(.*?)(\r?)$/.exec(lines[i]);
+        if (f === 'sets') put(i, fm[1] + fm[2].split(',').map(function (e) { return e.trim() === from ? e.replace(from, to) : e; }).join(',') + fm[3]);
+        else if (f !== 'carry') put(i, fm[1] + swap(fm[2]) + fm[3]);
+      });
+    });
+    var named = function (x) { return x === from ? to : x; };
+    var res = done(o, text, lines, function (A) {
+      var m = A.meta;
+      m.context = m.context.map(named);
+      if (m.detailTypes && own_(m.detailTypes, from)) { var dt = Object.create(null); Object.keys(m.detailTypes).forEach(function (k) { dt[named(k)] = m.detailTypes[k]; }); m.detailTypes = dt; }
+      A.phases.forEach(function (ph) {
+        var cond = function (w) { return w.replace(new RegExp('^\\^' + reEsc(from) + '(?![\\w-])'), '^' + to); };
+        ph.when = ph.when.map(cond);
+        ph.gate.approves = swap(ph.gate.approves || ''); ph.gate.binds = (ph.gate.binds || []).map(named);
+        ph.steps.forEach(function (st) {
+          st.binds = st.binds.map(named); st.when = st.when.map(cond);
+          Object.keys(st.fields).forEach(function (f) {
+            if (f === 'sets') st.fields.sets = st.fields.sets.split(',').map(function (e) { return e.trim() === from ? e.replace(from, to) : e; }).join(',');
+            else if (f !== 'carry') st.fields[f] = swap(st.fields[f]);
+          });
+        });
+      });
+    }, ctx);
+    if (res.error || res.same) return res;
+    /* Every step's text reads back with its references where they were, only renamed. */
+    var spell = function (parts, ren) { return parts.map(function (q) { return q.t === 'ref' ? '^' + (ren ? named(q.k) : q.k) : q.v; }).join(''); };
+    /* Compared in checklist order: a rename never adds, removes or moves a step, and steps without IDs can't be told apart by ID. */
+    var was = M.steps(M.parse(text)).map(function (x) { return spell(x.step.textParts || [], true); }), now = M.steps(M.parse(res.text));
+    if (now.length !== was.length || now.some(function (x, k) { return was[k] !== spell(x.step.textParts || [], false); })) return { error: ERR.meaning };
+    res.places = n + 1;
+    res.notes = (opts && opts.depends || []).filter(function (d) { return !d.refuse; }).map(function (d) { return d.text; });
+    return res;
+  }
+
   /* ---------- a step's screenshots: its ![caption](images/…) lines ---------- */
   var SHOT_SRC = /^images\/[\w./-]+$/;
   /* A caption is plain text on one line, said by screen readers as the picture's alt text. */
@@ -1019,6 +1126,8 @@ PF.outline = (function () {
       case 'move': return moveStep(text, op.step, op.dir === 'up' || op.dir < 0 ? -1 : 1);
       case 'moveTo': return moveStepTo(text, op.step, op.to || {});
       case 'edit': return editStep(text, op.step, op.set || {});
+      case 'editText': return editStepText(text, op.step, op.text, { reid: op.reid });
+      case 'renameDetail': return renameDetail(text, op.from, op.to, { depends: op.depends });
       case 'add': return addStep(text, op.to || {}, op);
       case 'delete': return deleteStep(text, op.step);
       case 'addPhase':
@@ -1053,7 +1162,7 @@ PF.outline = (function () {
   function shotKind(op) { return op.step != null ? 'step' : op.gate != null ? 'gate' : 'phase'; }
   function shotKey(op) { return op.step != null ? op.step : op.gate != null ? op.gate : op.phase; }
 
-  return { MODES: MODES, phaseNote: phaseNote, gateNote: gateNote, parse: parse, apply: apply, moveStep: moveStep, moveStepTo: moveStepTo, editStep: editStep, addStep: addStep, deleteStep: deleteStep,
+  return { MODES: MODES, phaseNote: phaseNote, gateNote: gateNote, parse: parse, apply: apply, moveStep: moveStep, moveStepTo: moveStepTo, editStep: editStep, editStepText: editStepText, inPlace: inPlace, renameDetail: renameDetail, usesOf: usesOf, addStep: addStep, deleteStep: deleteStep,
     addPhase: addPhase, editPhase: editPhase, movePhase: movePhase, setGate: setGate, removeGate: removeGate, deletePhase: deletePhase,
     addTrack: addTrack, editTrack: editTrack, deleteTrack: deleteTrack, caption: caption, editShots: editShots, places: places, nearest: nearest, diff: diff, keyAt: keyAt, follow: follow, nextPlace: nextPlace,
     checkName: checkName, personOk: function (id) { return typeof id === 'string' && PERSON_RE.test(id) && !reserved(id); } };

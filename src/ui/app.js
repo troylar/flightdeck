@@ -142,6 +142,9 @@
     lostDrafts: function () { var k = fsKey() + '\n', ids = processes().map(function (x) { return x.id; }); return Object.keys(state.editors || {}).filter(function (e) { var ed = state.editors[e]; return e.indexOf(k) === 0 && ed.text != null && ids.indexOf(ed.pid) < 0; }).map(function (e) { return state.editors[e].pid; }); },
     findRun: function (key) { return findRun(key); },
     procOf: function (id) { return procFind(id); },
+    /* What other files say about renaming a run detail of this checklist (PF.refs.dependents): the folder's other checklists
+       (latest published version and saved draft), the children this one runs, and the Jira workflows. */
+    renameDeps: function (map, name) { return renameDeps(map, name); },
     latestPub: function (id) { var p = procFind(id); return p ? p.latest : null; },
     suggestRole: suggestRole,
     attachments: function (key, step) { return attachmentsFor(key, step); },
@@ -458,6 +461,24 @@
   /* A process by ID (2.5.0): one look in a map built once for each list processes() makes, keeping the first entry for an ID
      as the old filter()[0] did. */
   var procBy = { list: null, by: null };
+  function renameDeps(map, name) {
+    var me = map.meta.process, others = [];
+    processes().forEach(function (e) {
+      if (e.id === me) return;
+      var title = e.title || e.id;
+      if (e.latest && e.latest.map) others.push({ label: title + ' (published)', map: e.latest.map });
+      if (e.draft && e.draft.md != null) { try { others.push({ label: title + ' (draft)', map: M.parse(e.draft.md) }); } catch (x) { /* an unreadable draft passes nothing */ } }
+    });
+    var child = function (process, pin) {
+      var e = procFind(process); if (!e) return null;
+      if (pin) { var at = PF.pins.atVersion(e, process, +pin); return at.pub ? at.pub.map : null; }
+      /* Latest: what's published now, and the saved draft that will be published next. */
+      var out = e.latest ? [e.latest.map] : [];
+      if (e.draft && e.draft.md != null) { try { out.push(M.parse(e.draft.md)); } catch (x) { /* an unreadable draft takes nothing */ } }
+      return out;
+    };
+    return PF.refs.dependents(map, name, { others: others, child: child, workflows: data.jira && data.jira.workflows });
+  }
   function procFind(id) {
     var ps = processes();
     if (PF.perf.plain) return ps.filter(function (x) { return x.id === id; })[0] || null;
@@ -1357,19 +1378,42 @@
   function morph(el, next, depth) {
     var as = Array.prototype.slice.call(el.childNodes), bs = Array.prototype.slice.call(next.childNodes);
     /* Match from both ends, so a region that appears or disappears (a notice, the timeline) leaves the rest in place. */
-    var fits = function (x, y) { return x.isEqualNode(y) || (x.nodeType === 1 && x.nodeName === y.nodeName && sameAttrs(x, y)); };
+    var fits = function (x, y) { return x.isEqualNode(y) || (x.nodeType === 1 && x.nodeName === y.nodeName && (sameAttrs(x, y) || typingIn(x, y))); };
     var i = 0, ja = as.length - 1, jb = bs.length - 1;
     while (i <= ja && i <= jb && fits(as[i], bs[i])) i++;
     while (ja >= i && jb >= i && fits(as[ja], bs[jb])) { ja--; jb--; }
-    as.slice(i, ja + 1).forEach(function (x) { el.removeChild(x); });
-    var before = as[ja + 1] || null;
-    bs.slice(i, jb + 1).forEach(function (y) { el.insertBefore(y, before); });
+    /* A changed region next to the one being typed in (a notice appearing) mustn't take it along: the new markup's match for
+       it (same tag, id, class and scope) is morphed into it instead. */
+    var ae = document.activeElement, keepX = null, keepY = null;
+    if (dbxBox(ae)) as.slice(i, ja + 1).forEach(function (x) {
+      if (keepX || x.nodeType !== 1 || !x.contains(ae)) return;
+      var key = function (n) { return n.nodeType === 1 ? [n.nodeName, n.id, n.className, n.getAttribute('data-scope')].join('|') : null; };
+      var y = bs.slice(i, jb + 1).filter(function (c) { return key(c) === key(x); })[0];
+      if (y) { keepX = x; keepY = y; }
+    });
+    as.slice(i, ja + 1).forEach(function (x) { if (x !== keepX) el.removeChild(x); });
+    /* The kept node never moves (moving a focused box blurs it too): the new nodes go in around it. */
+    var before = as[ja + 1] || null, past = !keepX;
+    bs.slice(i, jb + 1).forEach(function (y) {
+      if (y === keepY) { past = true; takeAttrs(keepX, y); morph(keepX, y, depth - 1); return; }
+      el.insertBefore(y, past ? before : keepX);
+    });
     as.slice(0, i).concat(as.slice(ja + 1)).forEach(function (x, k) {
       var y = k < i ? bs[k] : bs[jb + 1 + (k - i)];
       if (x.isEqualNode(y)) return;
-      if (depth > 0 && x.nodeType === 1) morph(x, y, depth - 1);
+      if (typingIn(x, y)) { takeAttrs(x, y); return; }
+      if (x.nodeType === 1 && (depth > 0 || (dbxBox(document.activeElement) && x.contains(document.activeElement)))) morph(x, y, depth - 1);
       else el.replaceChild(y, x);
     });
+  }
+  /* The detail box being typed in is never swapped for a copy (the swap fires change, which applies half-typed text, and loses the
+     caret): it keeps its value and takes the new markup's attributes. Its ancestors are followed however deep it is. */
+  function typingIn(x, y) { return x.nodeType === 1 && x === document.activeElement && dbxBox(x) && x.nodeName === y.nodeName && !!x.id && x.id === y.id; }
+  /* Only the detail boxes change their own attributes and surroundings as you type; every other box is drawn as before. */
+  function dbxBox(n) { return !!n && !!n.classList && n.classList.contains('dbx-in') && !n.hasAttribute('data-bound'); }
+  function takeAttrs(x, y) {
+    Array.prototype.slice.call(x.attributes).forEach(function (a) { if (!y.hasAttribute(a.name)) x.removeAttribute(a.name); });
+    Array.prototype.forEach.call(y.attributes, function (a) { if (x.getAttribute(a.name) !== a.value && a.name !== 'value') x.setAttribute(a.name, a.value); });
   }
   /* A redraw can keep a control's node while its markup changed; a bound control then shows what the markup says, which is the
      state, never a stale value the browser held on to (a textarea's value stops following its text once typed in). */
@@ -1410,6 +1454,7 @@
     var fill = fillShown();
     try { renderNow(); } finally { rendering = false; }
     fillAfter(fill);
+    dbxAfter();
     scheduleSync();
   }
   /* Motion that answers an action; presentation only: nothing here is saved, and a redraw that replaces a node just ends it. */
@@ -2869,7 +2914,7 @@
     if (state.runKey) { state.runKey = null; resetRunUi(); }
     openEditor(p);
     setView('practice'); state.processId = p.id; state.ptab = 'edit'; state.mapVer = null;
-    state.obPlace = null; state.obAsk = null; state.sel = null; state.pick = null; state.edit = null; state.fieldErr = null;
+    state.obPlace = null; state.obAsk = null; state.obRename = null; state.sel = null; state.pick = null; state.edit = null; state.fieldErr = null;
     prFollow(p);
     var c = prMap(e, prText(p)), model = c.map ? PR.follow(e.st, c.map, prEnv(), state.me) : null, dest = model ? prResolve(e, model) : null, t = e.trip;
     /* The restore order (docs/design.md section 34): reconciled, the target resolved, its phase unfolded, drawn, the inspector
@@ -3197,7 +3242,7 @@
     var before = obSnap(ed);
     learnIds(ed, ed.base); dropPending();
     TL.record(tlOf(ed), base, rv.text, { kind: 'op', lines: true, label: lb.label, subject: subj, items: ['step:' + (rv.added || g.target.step)], selBefore: before });
-    ed.text = rv.text; state.planFormReset = true; state.obFlash = null; state.obAsk = null;
+    ed.text = rv.text; state.planFormReset = true; state.obFlash = null; state.obAsk = null; state.obRename = null;
     var dfs = state.fs, gg = gen, text = rv.text, added = rv.added, me = state.me, left = others.filter(function (y) { return ids.indexOf(y.id) < 0; }).length;
     closeOverlay(); state.focus = 'fx-h';
     saveDraftText(p, text, ed.baseHash, TL.past(lb.past, subj) + '. Saved to the draft.' + (left ? ' The other proposal' + (left === 1 ? ' is' : 's are') + ' still open.' : ''), {
@@ -3709,7 +3754,8 @@
   function fieldApplied(id) {
     var p = currentProcess(), s = state.obSel; if (!p || !s || /^ob-new-/.test(id)) return '';
     var o = PF.outline.parse(edText(p)), st = s.kind === 'step' && o.steps.filter(function (x) { return x.key === s.key; })[0], ph = s.kind !== 'step' && o.phases.filter(function (x) { return x.key === s.key; })[0];
-    if (id === 'ob-text') return st ? st.text : '';
+    if (id === 'ob-ren-ctx') return state.obRename && state.obRename.pid === p.id ? state.obRename.name : '';
+    if (id === 'ob-text') return st ? PF.outline.inPlace(st.parts.rest) : '';
     if (id === 'ob-note') return st ? st.note : '';
     if (id === 'ob-q-text') return s.kind === 'questions' && o.questions >= 0 ? o.qText : '';
     if (/^ob-fld-/.test(id)) return st ? st.fields[id.slice(7)] || '' : '';
@@ -3873,10 +3919,12 @@
     if (s.kind === 'step' && id === 'ob-when') return obApplied(builderEdit({ op: 'when', step: s.key, text: value }, id), id, null);
     if (s.kind === 'step') {
       var st = o.steps.filter(function (x) { return x.key === s.key; })[0], mk = id === 'ob-mark' ? (value === 'must' ? '!' : value === 'planned' ? '~' : ' ') : null;
-      var set = id === 'ob-text' ? { text: value, reid: !!(st && fresh(st.id)) } : mk ? { mark: mk } : id === 'ob-type' ? { type: value } : /^ob-fld-[\w-]+$/.test(id) ? { field: id.slice(7), value: value } : null;
+      var set = id === 'ob-text' ? null : mk ? { mark: mk } : id === 'ob-type' ? { type: value } : /^ob-fld-[\w-]+$/.test(id) ? { field: id.slice(7), value: value } : null;
       if (/^ob-shot-cap-\d+$/.test(id)) { if (builderEdit({ op: 'editShot', step: s.key, shot: +id.slice(12), caption: value }, id)) { state.focus = refocus; render(); } return; }
-      if (!set) return;
-      res = reid(st && st.id, builderEdit({ op: 'edit', step: s.key, set: set }, id));
+      /* Step text keeps its ^details where they're typed (2.7). */
+      if (id === 'ob-text') res = reid(st && st.id, builderEdit({ op: 'editText', step: s.key, text: value, reid: !!(st && fresh(st.id)) }, id));
+      else if (!set) return;
+      else res = reid(st && st.id, builderEdit({ op: 'edit', step: s.key, set: set }, id));
       /* The three kinds exclude each other: say what the new one means, and what leaving must-do allows. */
       if (res && !res.same && mk) { say((st && st.must && mk !== '!' ? 'No longer a must-do step: it can now be marked N/A or waived. ' : '') + (mk === '!' ? 'Now a must-do step: it can\'t be marked N/A or waived.' : mk === '~' ? 'Automation planned. It\'s still done by hand for now.' : 'Now a plain step.'), 'good'); refocus = '#ob-mark-' + value; }
     } else if (s.kind === 'track') {
@@ -3914,7 +3962,7 @@
   /* Selecting the checklist's details or its Questions section. focus: a box in the form to start in (an Add box). */
   /* Text typed in a builder box and not applied (refused, or not left yet) would be dropped by choosing something else or
      opening an Add box: that waits until it's applied or cleared, as Back does. */
-  var OB_TYPED = /^ob-(text|ph-title|ph-note|tr-title|g-title|g-approves|fld-[\w-]+|new-text|new-title|shot-cap-\d+|note|q-text|add-role|add-ctx|when|ph-when)$/;
+  var OB_TYPED = /^ob-(ren-ctx|text|ph-title|ph-note|tr-title|g-title|g-approves|fld-[\w-]+|new-text|new-title|shot-cap-\d+|note|q-text|add-role|add-ctx|when|ph-when)$/;
   /* A builder box on the page, other than except, whose text differs from what the draft says (an Add box: holds anything).
      Several can hold typing at once (one refused, another being typed in), so every box is looked at, not just the last. */
   function obTyped(except, skipNew) {
@@ -3940,7 +3988,7 @@
   }
   function obSelWhole(kind, focus) {
     var p = currentProcess(); if (!p || obHeld(p)) return;
-    obClearErr(); state.insTab = null; state.obShown = null; state.obSel = { pid: p.id, kind: kind, key: ':' + kind }; state.obAdd = null; state.obAsk = null; state.obPlace = null; state.planFormReset = true;
+    obClearErr(); state.insTab = null; state.obShown = null; state.obSel = { pid: p.id, kind: kind, key: ':' + kind }; state.obAdd = null; state.obAsk = null; state.obRename = null; state.obPlace = null; state.planFormReset = true;
     state.focus = focus === 'ob-add-role' || focus === 'ob-add-ctx' ? '#' + focus : kind === 'details' ? '[data-act="ob-sel-details"]' : 'ob-q-text';
     render();
   }
@@ -4330,6 +4378,152 @@
     if (state.view === 'run' && narrow() && !state.refOpen) state.refOpen = true;
     state.focus = dirty.id ? '#' + cssEsc(dirty.id) : null; render();
   }
+  /* ---------- boxes that know the run details (2.7, views/detailbox.js) ----------
+     As you type, the mirror, the list of what's wrong and the run preview are redrawn beside the box, never the box itself.
+     Typing ^ (or + Insert a detail) opens the run details at the caret: Up and Down choose, Enter or Tab picks, Escape closes. */
+  var dbxAc = null, dbxMemo = { t: null, map: null };
+  var DBX_STYLE = ['fontFamily', 'fontSize', 'fontWeight', 'fontStyle', 'lineHeight', 'letterSpacing', 'wordSpacing', 'textIndent', 'tabSize', 'paddingTop', 'paddingRight', 'paddingBottom', 'paddingLeft', 'borderTopWidth', 'borderRightWidth', 'borderBottomWidth', 'borderLeftWidth', 'boxSizing', 'textTransform'];
+  function dbxMap() {
+    var p = currentProcess(); if (!p) return null;
+    var t = edText(p); if (dbxMemo.t !== t) dbxMemo = { t: t, map: PF.map.parse(t) };
+    return dbxMemo.map;
+  }
+  function dbxFit(el) {
+    var w = el.closest('.dbx'), mi = w && w.querySelector('.dbx-mirror'); if (!mi || !window.getComputedStyle) return;
+    var cs = window.getComputedStyle(el);
+    DBX_STYLE.forEach(function (k) { mi.style[k] = cs[k]; });
+    mi.style.whiteSpace = el.tagName === 'INPUT' ? 'pre' : 'pre-wrap';
+    mi.scrollTop = el.scrollTop; mi.scrollLeft = el.scrollLeft;
+  }
+  function dbxSync(el) {
+    var w = el.closest && el.closest('.dbx'), map = dbxMap(), p = currentProcess(); if (!w || !map || !p) return;
+    var caret = document.activeElement === el ? el.selectionStart : null, toks = V.dbx.judge(map, el.value, w.dataset.at, caret);
+    w.querySelector('.dbx-mirror').innerHTML = V.dbx.mirror(el.value, toks);
+    var iss = document.getElementById('dbx-iss-' + el.id), pv = document.getElementById('dbx-pv-' + el.id);
+    if (iss) iss.innerHTML = V.dbx.issues(el.id, w.dataset.kind, el.value, toks);
+    if (pv) pv.innerHTML = V.dbx.previewLine(w.dataset.kind, el.value, map, V.dbx.values(ctx, map, p.id));
+    dbxFit(el);
+  }
+  function dbxAfter() {
+    /* A redraw puts typed text back into its box: mark and preview what the box holds, not what the draft says. */
+    Array.prototype.forEach.call(document.querySelectorAll('.dbx-in'), dbxSync);
+    if (dbxAc && !document.getElementById(dbxAc.id)) dbxAc = null;
+    else if (dbxAc) dbxDraw();
+  }
+  /* The name being typed: a ^ right before the caret, and the letters after it. */
+  function dbxQuery(el) {
+    if (el.selectionStart !== el.selectionEnd) return null;
+    var before = el.value.slice(0, el.selectionStart), m = /\^([\w-]*)$/.exec(before);
+    return m ? { q: m[1], start: before.length - m[0].length } : null;
+  }
+  function dbxTyped(el, e) {
+    dbxSync(el);
+    if (composing || (e && e.isComposing)) return;
+    var cq = dbxQuery(el);
+    if (!cq) { dbxClose(); return; }
+    var map = dbxMap(), opts = map ? V.dbx.options(map, el.closest('.dbx').dataset.at, cq.q) : [];
+    if (!opts.length) { dbxClose(); return; }
+    var keep = dbxAc && dbxAc.id === el.id && dbxAc.start === cq.start && dbxAc.opts[dbxAc.i] ? dbxAc.opts[dbxAc.i].name : null, at = 0;
+    opts.forEach(function (o, i) { if (o.name === keep && !o.add) at = i; });
+    dbxAc = { id: el.id, start: cq.start, q: cq.q, opts: opts, i: at };
+    dbxDraw();
+  }
+  /* The list sits under the caret: where a marker at the caret lands in the mirror, less the box's scroll. */
+  function dbxDraw() {
+    var a = dbxAc, el = document.getElementById(a.id), list = document.getElementById('dbx-ac-' + a.id); if (!el || !list) return;
+    list.innerHTML = V.dbx.optionsHtml(a.id, a.opts, a.i); list.hidden = false;
+    el.setAttribute('aria-activedescendant', 'dbx-o-' + a.id + '-' + a.i);
+    if (el.tagName === 'INPUT') el.setAttribute('aria-expanded', 'true');
+    var mi = el.closest('.dbx').querySelector('.dbx-mirror'), keep = mi.innerHTML;
+    mi.innerHTML = U.esc(el.value.slice(0, a.start)) + '<span class="dbx-at">^</span>';
+    var mk = mi.querySelector('.dbx-at'), top = mk.offsetTop + mk.offsetHeight - el.scrollTop, left = Math.max(0, Math.min(mk.offsetLeft - el.scrollLeft, el.clientWidth - 240));
+    mi.innerHTML = keep;
+    list.style.top = top + 'px'; list.style.left = left + 'px';
+    var on = document.getElementById('dbx-o-' + a.id + '-' + a.i); if (on && on.scrollIntoView) on.scrollIntoView({ block: 'nearest' });
+  }
+  function dbxClose() {
+    var a = dbxAc; dbxAc = null; if (!a) return;
+    var el = document.getElementById(a.id), list = document.getElementById('dbx-ac-' + a.id);
+    if (list) { list.hidden = true; list.innerHTML = ''; }
+    if (el) { el.removeAttribute('aria-activedescendant'); if (el.tagName === 'INPUT') el.setAttribute('aria-expanded', 'false'); }
+  }
+  function dbxKey(e) {
+    if (e.altKey || e.ctrlKey || e.metaKey) return false;
+    var n = dbxAc.opts.length;
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); dbxAc.i = (dbxAc.i + (e.key === 'ArrowDown' ? 1 : n - 1)) % n; dbxDraw(); return true; }
+    if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); dbxPick(dbxAc.i); return true; }
+    if (e.key === 'Escape') { e.preventDefault(); dbxClose(); return true; }
+    return false;
+  }
+  /* Picking puts ^name in place of the whole name being typed, letters after the caret too; nothing around it changes. Add
+     also lists it as a run detail. */
+  function dbxPick(i) {
+    var a = dbxAc, el = a && document.getElementById(a.id), o = a && a.opts[i]; if (!el || !o) return;
+    var after = el.value.slice(el.selectionStart), rest = /^[\w-]*/.exec(after)[0], ins = '^' + o.name;
+    after = after.slice(rest.length);
+    dbxClose();
+    el.value = el.value.slice(0, a.start) + ins + after;
+    var pos = a.start + ins.length; el.focus(); el.setSelectionRange(pos, pos);
+    if (typeof Event === 'function') el.dispatchEvent(new Event('input', { bubbles: true }));
+    dbxClose();
+    if (o.add) dbxAdd(o.name, el);
+  }
+  /* A new run detail, added without losing what's typed in the boxes (as shotApply keeps it): one undo step. */
+  function dbxAdd(name, el) {
+    var typed = [], pend = { p: state.obPending, f: state.obPendingField }, caret = el ? el.selectionStart : null;
+    Array.prototype.forEach.call(app.querySelectorAll('input[id], textarea[id]'), function (x) {
+      if (!/^ob-/.test(x.id || '') || x.type === 'file' || /^ob-part-q/.test(x.id)) return;
+      var drawn = /^ob-new-|^ob-shot-new$/.test(x.id) ? '' : fieldApplied(x.id);
+      if (x.value !== drawn) typed.push({ id: x.id, v: x.value });
+    });
+    var res = builderEdit({ op: 'meta', key: 'context', set: { add: name } }, el && el.id, null, true);
+    if (!res) return;
+    if (pend.p) { state.obPending = pend.p; state.obPendingField = pend.f; }
+    state.planFormReset = false;
+    if (!res.same) say('Added ^' + name + ' as a run detail. Undo available.', 'good', { act: 'tl-undo', id: 'draft', label: 'Undo' });
+    render();
+    typed.forEach(function (t) { var x = document.getElementById(t.id); if (x && x.value !== t.v) x.value = t.v; });
+    var back = el && document.getElementById(el.id);
+    if (back) { back.focus(); if (caret != null) back.setSelectionRange(caret, caret); dbxSync(back); }
+  }
+  /* A typo fixed in place: every ^from in the box becomes ^to, then the box is applied as Enter would: one undo step. */
+  function dbxFix(t) {
+    var el = document.getElementById(t.dataset.for); if (!el) return;
+    var from = t.dataset.from, to = t.dataset.to;
+    el.value = el.value.replace(new RegExp('\\^' + from.replace(/[-]/g, '\\-') + '(?![\\w-])', 'g'), '^' + to);
+    dbxClose();
+    builderField(el.id, el.value);
+  }
+  function dbxInsert(t) {
+    var el = document.getElementById(t.dataset.for); if (!el) return;
+    /* Where the caret was when the box was left (the button took focus), or the end for a box never typed in. */
+    var at = document.activeElement === el ? { s: el.selectionStart, e: el.selectionEnd } : dbxCaret[el.id] && dbxCaret[el.id].v === el.value ? dbxCaret[el.id] : { s: el.value.length, e: el.value.length };
+    var s0 = at.s == null ? el.value.length : at.s, e0 = at.e == null ? s0 : at.e;
+    /* A space only to keep the name off a word just before it; quotes, = and the like stay as typed. */
+    var pre = el.value.slice(0, s0), ins = (/[A-Za-z0-9]$/.test(pre) ? ' ' : '') + '^';
+    el.value = pre + ins + el.value.slice(e0);
+    el.focus(); el.setSelectionRange(s0 + ins.length, s0 + ins.length);
+    if (typeof Event === 'function') el.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  var dbxCaret = Object.create(null);
+  document.addEventListener('focusout', function (e) { var t = e.target; if (dbxBox(t)) dbxCaret[t.id] = { s: t.selectionStart, e: t.selectionEnd, v: t.value }; }, true);
+  document.addEventListener('scroll', function (e) { var t = e.target; if (t && t.classList && t.classList.contains('dbx-in')) dbxFit(t); }, true);
+  /* The caret moving (arrows, a click) changes which name is being typed. */
+  ['keyup', 'click'].forEach(function (ev) {
+    document.addEventListener(ev, function (e) {
+      var t = e.target; if (!t || !t.classList || !t.classList.contains('dbx-in') || (ev === 'keyup' && /^(Arrow(Up|Down)|Enter|Tab|Escape)$/.test(e.key) && dbxAc)) return;
+      if (ev === 'keyup' && !/^(Arrow(Left|Right)|Home|End)$/.test(e.key)) return;
+      dbxTyped(t, e);
+    });
+  });
+  /* Choosing an option, or Insert a detail, with the pointer keeps focus (and the caret) in the box. */
+  document.addEventListener('mousedown', function (e) { if (e.target && e.target.closest && e.target.closest('.dbx-o, [data-act="dbx-insert"]')) e.preventDefault(); });
+  /* Leaving the box closes the list; a redraw that puts the same box back (focus follows it) doesn't. */
+  document.addEventListener('focusout', function (e) {
+    if (!dbxAc || !e.target || e.target.id !== dbxAc.id) return;
+    setTimeout(function () { var f = document.activeElement; if (dbxAc && (!f || f.id !== dbxAc.id)) dbxClose(); }, 0);
+  });
+
   function pendingBox() { var pf = state.obPending && state.obPendingField; return pf ? document.getElementById(pf) || { id: pf } : dirtyControl(); }
   /* A decline reason with text in it is unsaved work even after a redraw draws it as the box's own text, or while another
      step is selected: leaving refuses, and its step is brought back so the box is on screen. */
@@ -4868,6 +5062,31 @@
       var res = builderEdit({ op: 'meta', key: key, set: { remove: String(id) } }, bid); if (!res || res.same) return;
       sayUndo('Removed ' + mark + id + '.'); state.focus = '#' + bid; render();
     },
+    'ob-ren': function (id) {
+      var s = state.obSel, cp = currentProcess(); if (!s || s.kind !== 'details' || !cp || obHeld(cp, 'then rename')) return;
+      /* The box redraws holding what it held; it starts from this detail's name instead. */
+      var was = document.getElementById('ob-ren-ctx'); if (was) was.value = String(id);
+      state.obRename = { pid: cp.id, name: String(id) }; state.fieldErr = null; state.focus = '#ob-ren-ctx'; render();
+      var bx = document.getElementById('ob-ren-ctx'); if (bx && bx.select) bx.select();
+    },
+    'ob-ren-cancel': function (id) {
+      /* Cancel is the one way to drop what's typed for a new name. */
+      var bx = document.getElementById('ob-ren-ctx'); if (bx) bx.value = ''; if (state.obPendingField === 'ob-ren-ctx') dropPending();
+      state.obRename = null; state.fieldErr = null; state.focus = '[data-act="ob-ren"][data-id="' + cssEsc(String(id)) + '"]'; render();
+    },
+    'ob-ren-go': function (id) {
+      var s = state.obSel, cp = currentProcess(), from = String(id); if (!s || s.kind !== 'details' || !cp || !state.obRename || state.obRename.pid !== cp.id || state.obRename.name !== from) return;
+      var to = String(val('ob-ren-ctx') || '').trim().replace(/^\^/, '');
+      if (!to) { state.fieldErr = { id: 'ob', field: 'ob-ren-ctx', msg: 'Type the new name first.' }; state.focus = '#ob-ren-ctx'; render(); return; }
+      if (to === from) { state.obRename = null; if (state.obPendingField === 'ob-ren-ctx') dropPending(); state.focus = '[data-act="ob-ren"][data-id="' + cssEsc(from) + '"]'; render(); return; }
+      var map; try { map = M.parse(edText(cp)); } catch (e) { map = null; }
+      var res = builderEdit({ op: 'renameDetail', from: from, to: to, depends: map ? renameDeps(map, from) : [] }, 'ob-ren-ctx', 'renamed ^' + from);
+      if (!res || res.same) return;
+      state.obRename = null; state.fieldErr = null; if (state.obPendingField === 'ob-ren-ctx') dropPending();
+      var done = document.getElementById('ob-ren-ctx'); if (done) done.value = '';
+      sayUndo('Renamed ^' + from + ' to ^' + to + (res.places ? ' in ' + res.places + ' place' + (res.places === 1 ? '' : 's') : '') + '.' + (res.notes && res.notes.length ? ' ' + res.notes.join(' ') : ''));
+      state.focus = '[data-act="ob-ren"][data-id="' + cssEsc(to) + '"]'; render();
+    },
     'ob-ask-cancel': function () { state.obAsk = null; state.focus = '[data-act="ob-ask"]'; render(); },
     'ob-del-track': function (how) {
       var s = state.obSel, p = currentProcess(); if (!s || s.kind !== 'track' || !p) return;
@@ -4965,6 +5184,11 @@
       if (quick) { state.obAdd = { pid: p.id, kind: 'step', after: res.id, added: true, type: type }; state.obSel = { pid: p.id, kind: 'step', key: res.id }; state.focus = 'ob-new-text'; render(); reveal('#ob-new-text'); return; }
       state.obAdd = null; state.obSel = { pid: p.id, kind: 'step', key: res.id }; state.focus = 'ob-text'; render();
     },
+    'dbx-insert': function (id, t) { dbxInsert(t); },
+    'dbx-pick': function (id, t) { if (dbxAc && dbxAc.id === t.dataset.for) dbxPick(+t.dataset.i); },
+    'dbx-fix': function (id, t) { dbxFix(t); },
+    'dbx-add': function (id, t) { dbxAdd(t.dataset.name, document.getElementById(t.dataset.for)); },
+    'dbx-show': function (id) { ACTIONS['ob-sel'](id); },
     'ob-commit': function (id, t) { if (t && t.id) builderField(t.id, t.value); },
     /* ---------- Undo, Redo and History, the same on every editor (id: 'draft' or 'type') ---------- */
     'tl-undo': function (id) { if (id === 'draft' || id === 'type') tlMove(id, false, 'button'); },
@@ -6443,6 +6667,7 @@
     if (/^tf-/.test(e.target.id || '') && state.typeForm) { typeFormInput(e, true); scheduleRender(); }
     /* Text typed into the builder's form counts as unsaved at once, before it's applied on leaving the box or Enter. */
     if (state.obJustAdded && state.obJustAdded.id === e.target.id) state.obJustAdded = null;
+    if (e.target.classList && e.target.classList.contains('dbx-in')) dbxTyped(e.target, e);
     if (OB_TYPED.test(e.target.id || '') && state.processId) {
       /* Pending only while the box differs from what the draft says (or, for a new item, holds anything). */
       var differs = boxNorm(e.target.id, e.target.value) !== boxNorm(e.target.id, fieldApplied(e.target.id)), was = !!state.obPending;
@@ -6955,6 +7180,7 @@
     /* While an input method is composing, every key is its own (Escape cancels the composition, letters build it). */
     if (e.isComposing || e.keyCode === 229) return;
     var t = e.target, typing = t && /INPUT|TEXTAREA|SELECT/.test(t.tagName);
+    if (dbxAc && t && t.id === dbxAc.id && dbxKey(e)) return;
     /* Ctrl+K (Cmd+K on a Mac) opens search from anywhere on the page, also while typing. */
     /* On a Mac it's Cmd+K, and Ctrl+K stays the text box's own (it deletes to the end of the line there). */
     if ((ctx.mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey) && !e.altKey && !e.shiftKey && String(e.key || '').toLowerCase() === 'k') { e.preventDefault(); openSearch(); return; }

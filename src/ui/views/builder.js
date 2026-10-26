@@ -279,6 +279,12 @@
     var g = G.form(name), open = '<' + tag + ' id="' + id + '"' + attrs + egOf(g) + describe(ctx, id, g) + '>';
     return '<label class="field" for="' + id + '">' + esc(g.q) + open + (tag === 'textarea' ? body + '</textarea>' : '') + '</label>' + whyOf(id, g) + errMsg(ctx, id);
   }
+  /* A box that knows the run details (2.7, views/detailbox.js), with the guide's example, why line and error as other boxes. */
+  var DBX = { text: 1, code: 1, message: 1, url: 1, list: 1 }, here = null;
+  function detailBox(ctx, id, kind, g, attrs, value, at, more) {
+    return V.dbx.box({ id: id, kind: kind, tag: kind === 'step' ? 'textarea' : 'input', attrs: attrs + egOf(g) + (errOf(ctx, id) ? ' aria-invalid="true"' : ''), value: value, label: g.q, at: at, map: here.map, vals: here.vals,
+      describedBy: described(ctx, id, g, more), after: whyOf(id, g) + (more && more.after || '') + errMsg(ctx, id) });
+  }
   function formSelect(ctx, id, name, options) { var g = G.form(name); return '<label class="field" for="' + id + '">' + esc(g.q) + '<select id="' + id + '" data-bound' + describe(ctx, id, g) + '>' + options + '</select></label>' + whyOf(id, g) + errMsg(ctx, id); }
   var PROOF = { link: 'Link', note: 'Note', number: 'Number', 'yes-no': 'Yes/no', date: 'Date' };
   /* flag: why a value is kept that the step doesn't use (another action's field, one the type doesn't have, a second time). */
@@ -292,6 +298,7 @@
       var list = opts.indexOf(v) < 0 && v ? opts.concat([v]) : opts;
       return '<label class="field" for="' + esc(id) + '">' + esc(g.q) + '<select id="' + esc(id) + '" data-bound' + describe(ctx, id, g, fl) + '><option value=""' + (v ? '' : ' selected') + '>Not set</option>' + list.map(function (x) { return '<option value="' + esc(x) + '"' + (x === v ? ' selected' : '') + '>' + esc(x) + '</option>'; }).join('') + '</select></label>' + whyOf(id, g) + flagOf(id, flag) + errMsg(ctx, id);
     }
+    if (here && DBX[d.kind] && PF.refs.fillable(s.type, name, teamTypes(ctx))) { var more = fl.slice(); more.after = flagOf(id, flag); return detailBox(ctx, id, 'field', g, ' maxlength="300" data-enter="ob-commit"', v, here.at, more); }
     return '<label class="field" for="' + esc(id) + '">' + esc(g.q) + '<input id="' + esc(id) + '" maxlength="300" data-enter="ob-commit" value="' + esc(v) + '"' + egOf(g) + describe(ctx, id, g, fl) + '></label>' + whyOf(id, g) + flagOf(id, flag) + errMsg(ctx, id);
   }
   function ownKey(o, k) { return !!o && Object.prototype.hasOwnProperty.call(o, k); }
@@ -403,11 +410,11 @@
   /* The side form for what's selected: a step's text, kind, type, roles, run details and fields; a lane; or a phase and its
      gate. Text boxes apply when you leave them (or press Enter); choices apply at once. */
   function builderForm(ctx, p, text) {
-    var sel = selOf(ctx, p); if (!sel) return '';
+    var sel = selOf(ctx, p); here = null; if (!sel) return '';
     backToPractice = !!(ctx.state.practicing || {})[ctx.fsKey + '\n' + p.id];
     var o = O.parse(text); if (o.unsupported) return '';
     var meta = M.parse(text).meta;
-    if (sel.kind === 'details') return detailsForm(ctx, o, meta);
+    if (sel.kind === 'details') return detailsForm(ctx, o, meta, text);
     if (sel.kind === 'questions') return questionsForm(ctx, o);
     if (sel.kind === 'step') {
       var s = o.steps.filter(function (x) { return x.key === sel.key; })[0]; if (!s) return '';
@@ -417,7 +424,8 @@
       var def = T.get(s.type, teamTypes(ctx)), reveal = ctx.state.obReveal === s.key;
       /* Two wrapping rows, so the whole instruction shows; it's still one line in the checklist, and Enter applies it. */
       var gt0 = G.step('text');
-      h += '<label class="field" for="ob-text">' + esc(gt0.q) + '<textarea id="ob-text" rows="2" maxlength="200" data-enter="ob-commit"' + egOf(gt0) + describe(ctx, 'ob-text', gt0) + '>' + esc(s.text) + '</textarea></label>' + whyOf('ob-text', gt0) + errMsg(ctx, 'ob-text') +
+      here = { map: M.parse(text), vals: null, at: 's:' + at }; here.vals = V.dbx.values(ctx, here.map, p.id);
+      h += detailBox(ctx, 'ob-text', 'step', gt0, ' rows="2" maxlength="200" data-enter="ob-commit"', O.inPlace(s.parts.rest), here.at) +
         '<fieldset class="field ob-kind"><legend>Kind</legend>' + [['step', 'Step', 'Done and checked off; can be marked N/A.', !s.must && !s.planned], ['must', 'Must do', 'Can\'t be marked N/A or waived.', s.must], ['planned', 'Automation planned', 'Still done by hand for now; can be marked N/A.', s.planned]].map(function (k) {
           return '<label class="ob-switch' + (reveal && k[0] === 'must' ? ' reveal' : '') + '" for="ob-mark-' + k[0] + '"><input type="radio" name="ob-mark" id="ob-mark-' + k[0] + '" value="' + k[0] + '" data-bound' + (k[3] ? ' checked' : '') + '><span><b>' + k[1] + '</b> <span class="small">' + k[2] + '</span></span></label>';
         }).join('') + '</fieldset>' +
@@ -475,9 +483,14 @@
     var roles = meta.roles.concat(gt.owner && meta.roles.indexOf(gt.owner) < 0 ? [gt.owner] : []);
     return f + formBox(ctx, 'ob-g-title', 'g-title', 'input', ' maxlength="120" data-enter="ob-commit" value="' + esc(gt.title) + '"') +
       formSelect(ctx, 'ob-g-owner', 'g-owner', '<option value=""' + (gt.owner ? '' : ' selected') + '>Nobody in particular</option>' + roles.map(function (r) { return '<option value="' + esc(r) + '"' + (r === gt.owner ? ' selected' : '') + '>@' + esc(r) + '</option>'; }).join('')) +
-      formBox(ctx, 'ob-g-approves', 'g-approves', 'input', ' maxlength="200" data-enter="ob-commit" value="' + esc(gt.approves) + '"') +
+      gateApproves(ctx, p, text, ph, gt) +
       source(ctx, gt.id, 'gate', U.slug(gt.title, 24)) +
       '<div class="row"><button type="button" class="mini" data-act="ob-gate-remove" data-id="' + esc(ph.key) + '">Remove this gate</button><span class="small">The phase then ends with a check that it\'s done.</span></div></section>';
+  }
+
+  function gateApproves(ctx, p, text, ph, gt) {
+    here = { map: M.parse(text), vals: null, at: 'g:' + ph.index }; here.vals = V.dbx.values(ctx, here.map, p.id);
+    return detailBox(ctx, 'ob-g-approves', 'approves', G.form('g-approves'), ' maxlength="200" data-enter="ob-commit"', gt.approves, here.at);
   }
 
   /* ---------- the checklist's details and its Questions section ---------- */
@@ -491,22 +504,40 @@
     return formSelect(ctx, id, name, opt('', none, !cur) + (cur && !have ? opt(cur, (gone ? gone.name : cur) + (gone ? (gone.inactive ? ' (inactive)' : '') : ' (not in people.json)'), true) : '') +
       ok.map(function (x) { return opt(x.id, nm(x), x.id === cur); }).join(''));
   }
-  function listField(ctx, key, label, hint, list, mark, addId) {
+  function listField(ctx, key, label, hint, list, mark, addId, ren) {
     var lid = 'ob-' + key + '-l', cls = key === 'roles' ? 'ob-role' : 'ob-chip', g = G.form(key === 'roles' ? 'role' : 'context');
     return '<div class="field"><span id="' + lid + '">' + label + '</span><span class="small">' + hint + '</span>' +
       (list.length ? '<ul class="ob-metalist" aria-labelledby="' + lid + '">' + list.map(function (n) {
-        return '<li><span class="' + cls + '">' + mark + esc(n) + '</span><button type="button" class="mini" data-act="ob-meta-del" data-key="' + key + '" data-id="' + esc(n) + '" aria-label="Remove ' + mark + esc(n) + '">Remove</button></li>';
+        var rn = ctx.state.obRename;
+        if (key === 'context' && ren && ren.o && rn && rn.name === n && rn.pid === ren.map.meta.process) return renameRow(ctx, ren, n);
+        var used = key === 'context' && ren && ren.o ? O.usesOf(ren.o, 'context', n).length : -1;
+        return '<li><span class="' + cls + '">' + mark + esc(n) + '</span>' + (used >= 0 ? '<span class="small">' + (used ? 'used in ' + used + ' place' + (used === 1 ? '' : 's') : 'not used yet') + '</span>' : '') +
+          (used >= 0 ? '<button type="button" class="mini" data-act="ob-ren" data-id="' + esc(n) + '" aria-label="Rename ' + mark + esc(n) + '">Rename</button>' : '') +
+          '<button type="button" class="mini" data-act="ob-meta-del" data-key="' + key + '" data-id="' + esc(n) + '" aria-label="Remove ' + mark + esc(n) + '">Remove</button></li>';
       }).join('') + '</ul>' : '<span class="small">None yet.</span>') +
       '<div class="row"><label class="sr" for="' + addId + '">' + esc(g.q) + '</label><input id="' + addId + '" maxlength="60" autocomplete="off"' + egOf(g) + ' data-enter="ob-meta-add" data-id="' + key + '"' + describe(ctx, addId, g) + '>' +
       '<button type="button" class="mini" data-act="ob-meta-add" data-id="' + key + '">' + I('plus') + 'Add</button></div>' + whyOf(addId, g) + errMsg(ctx, addId) + '</div>';
   }
-  function detailsForm(ctx, o, meta) {
+  /* Renaming a run detail (2.7): the new name, what else changes with it, and what other files say. A dependent that would
+     stop working refuses the rename when it's applied; the rest are notes. */
+  function renameRow(ctx, ren, n) {
+    var used = O.usesOf(ren.o, 'context', n), deps = ctx.renameDeps ? ctx.renameDeps(ren.map, n) : [];
+    var id = 'ob-ren-ctx', note = 'Every ^' + n + ' in this checklist follows: step text, gate approvals, fields, only when and sets. Runs already started keep the old name.';
+    return '<li class="ob-ren stack"><label for="' + id + '">New name for ^' + esc(n) + '</label>' +
+      '<div class="row"><input id="' + id + '" maxlength="60" autocomplete="off" spellcheck="false" value="' + esc(n) + '" data-enter="ob-ren-go" data-id="' + esc(n) + '" aria-describedby="ob-ren-note' + (ctx.state.fieldErr && ctx.state.fieldErr.field === id ? ' ferr-' + id : '') + '">' +
+      '<button type="button" class="mini primary" data-act="ob-ren-go" data-id="' + esc(n) + '">Rename</button><button type="button" class="mini" data-act="ob-ren-cancel" data-id="' + esc(n) + '">Cancel</button></div>' +
+      errMsg(ctx, id) +
+      '<p class="small" id="ob-ren-note">' + esc(note) + (used.length ? ' Used in ' + esc(used.join(', ')) + '.' : '') + '</p>' +
+      (deps.length ? '<ul class="ob-ren-deps small">' + deps.map(function (d) { return '<li class="' + (d.refuse ? 'bad' : 'info') + '">' + esc(d.text) + '</li>'; }).join('') + '</ul>' : '') + '</li>';
+  }
+  function detailsForm(ctx, o, meta, text) {
+    var ren = { o: o, map: null }; try { ren.map = M.parse(text); } catch (e) { ren = null; }
     var sig = o.front ? sigOf(o, o.front.start, o.front.end) : 'none';
     return '<section class="panel stack ob-form" aria-labelledby="ob-form-h" data-scope="ob-details|' + sig + '">' + formHead('Checklist details', ['The whole checklist']) +
       personSelect(ctx, 'ob-owner', 'owner', meta.owner, 'Nobody yet') +
       personSelect(ctx, 'ob-backup', 'backup', meta.backup, 'No backup') +
       listField(ctx, 'roles', 'Roles', 'Who does what, like lead or reviewer. Steps, lanes and gates choose from these.', meta.roles, '@', 'ob-add-role') +
-      listField(ctx, 'context', 'Run details', 'Filled in when a run starts, like ticket or commit. Steps can be tied to them.', meta.context, '^', 'ob-add-ctx') +
+      listField(ctx, 'context', 'Run details', 'Filled in when a run starts, like ticket or commit. Steps can be tied to them.', meta.context, '^', 'ob-add-ctx', ren) +
       '<p class="small">A role or run detail still in use can\'t be removed: take it out of its steps first.</p>' +
       '<details class="ob-src"><summary>Source details</summary><p class="small">The front matter\'s <code>owner:</code>, <code>backup:</code>, <code>roles:</code> and <code>context:</code> lines. Other lines stay as written.</p></details></section>';
   }

@@ -46,12 +46,12 @@ rule('Editor: each field asks its question, shows its example and says why, link
   assert.strictEqual(labelOf(h, 'ob-fld-job'), 'Which job?');
   assert.ok(/placeholder="release\/build-and-test"/.test(tagOf(h, 'ob-fld-job')), 'the example: ' + tagOf(h, 'ob-fld-job'));
   assert.strictEqual(whyOf(h, 'ob-fld-job'), G.field(t, 'job', { job: 'release/build-and-test', parameters: 'BRANCH=main' }).why);
-  assert.ok(/aria-describedby="why-ob-fld-job"/.test(tagOf(h, 'ob-fld-job')), 'linked');
+  assert.ok(/aria-describedby="why-ob-fld-job[ "]/.test(tagOf(h, 'ob-fld-job')), 'linked');
   assert.ok(!/usually filled in/.test(h), 'gone');
   for (const [id, name] of [['ob-text', 'text'], ['ob-note', 'note']]) {
     assert.strictEqual(labelOf(h, id), G.step(name).q, id);
     assert.strictEqual(whyOf(h, id), G.step(name).why, id + ' why');
-    assert.ok(new RegExp('aria-describedby="why-' + id + '"').test(tagOf(h, id)), id + ' linked');
+    assert.ok(new RegExp('aria-describedby="why-' + id + '[ "]').test(tagOf(h, id)), id + ' linked');
   }
   assert.ok(/placeholder="Tag the release"/.test(tagOf(h, 'ob-text')));
   assert.ok(/<span id="ob-roles-l">Who does it\?<\/span>/.test(h) && /<span id="ob-binds-l">Which run details does it depend on\?<\/span>/.test(h), 'roles and run details ask too');

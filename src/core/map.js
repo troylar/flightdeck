@@ -235,7 +235,8 @@ PF.map = (function () {
       ids[id] = true;
     }
     function checkRoles(roles, what) { roles.forEach(function (r) { if (meta.roles.indexOf(r) < 0) blockers.push(what + ' uses @' + r + ', which isn\'t listed in roles.'); }); }
-    function checkBinds(binds, what) { binds.forEach(function (f) { if (meta.context.indexOf(f) < 0) blockers.push(what + ' is tied to ^' + f + ', which isn\'t listed in context.'); }); }
+    var meant = function (f) { var g = PF.refs ? PF.refs.suggest(f, meta.context) : ''; return g ? ' Did you mean ^' + g + '?' : ''; };
+    function checkBinds(binds, what) { binds.forEach(function (f) { if (meta.context.indexOf(f) < 0) blockers.push(what + ' is tied to ^' + f + ', which isn\'t listed in context.' + meant(f)); }); }
     var musts = 0;
     /* With the team's Jira workflows (jira/workflows.json), a transition must name a status that exists and that some transition reaches. */
     function jiraCheck(s, label) {
@@ -300,6 +301,20 @@ PF.map = (function () {
         checkBinds(p.gate.binds, 'Gate "' + p.gate.title + '"');
       }
     });
+    /* References (2.7): a ^word in a field that isn't a run detail stays as written in a run; a detail used where it may not have
+       a value yet shows "(name not set)". Advice only; step text and approves are already checked above. */
+    if (PF.refs) {
+      var said = Object.create(null);
+      PF.refs.scan(map, { types: opts.types }).forEach(function (u) {
+        var w = u.where, v = u.verdict, label = w.kind === 'gate' ? 'Gate "' + w.gate.title + '"' : 'Step "' + w.step.text.slice(0, 40) + '"';
+        var inBox = w.box.indexOf('field:') === 0 ? ' in "' + w.box.slice(6) + '"' : '', key = label + '|' + w.box + '|' + u.name;
+        if (said[key] || (v.v === 'unknown' && !inBox) || v.v === 'ok') return;
+        said[key] = true;
+        if (v.v === 'unknown') { suggestions.push(label + ': ^' + u.name + inBox + ' isn\'t a run detail, so a run shows it as written.' + meant(u.name)); return; }
+        var s0 = v.setters[0], cond = s0.when.length ? ' (only when ' + s0.when.join(' and ') + ')' : '';
+        suggestions.push(label + ': ^' + u.name + inBox + ' may not be set yet here: “' + s0.text.slice(0, 40) + '” sets it ' + (s0.phase === w.phaseIndex ? 'in this phase' : 'in a later phase') + cond + '.');
+      });
+    }
     if (map.phases.length && !musts) suggestions.push('No must-do steps. Mark the steps whose omission causes real harm with [!].');
     if (opts.people && meta.owner && !opts.people.some(function (p) { return p.id === meta.owner; })) suggestions.push('Owner "' + meta.owner + '" isn\'t in people.json.');
     /* The backup owner signs off only while the owner is away, so it must be someone else on the team. */
