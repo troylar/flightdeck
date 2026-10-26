@@ -196,10 +196,11 @@ PF.types = (function () {
   /* Whether evidence definitions use a kind or key only 2.0 knows. */
   function uses2(record) { return Array.isArray(record) && record.some(function (d) { return !!d && typeof d === 'object' && (PF.values.isNew(d.kind) || numberKeys(d).length > 0); }); }
   var ICONS_OK = ['check', 'chat', 'people', 'fork', 'doc', 'hourglass', 'cursor', 'gear', 'merge', 'ticket', 'terminal', 'script', 'spark', 'pipeline', 'nest'];
-  /* Pins (2.0): version: on a {run.process} step and skillVersion: on a {run.skill} step. Map lines only, never a field of the
+  /* Pins (2.0): version: on a {run.process} step and skillVersion: on a {run.skill} step, and (2.8) pass: on a {run.process}
+     step, which uses the passed-details feature. Map lines only, never a field of the
      built-in type (its frozen definition, and so every version that uses it, stays as 1.x copies know it), never changed
      during a run; a 1.x copy refuses them as fields its type doesn't have, so a checklist with them can't publish there. */
-  var PINS = { 'run.process': { version: { label: 'Version', kind: 'pin' } }, 'run.skill': { skillVersion: { label: 'Skill version', kind: 'pin' } } };
+  var PINS = { 'run.process': { version: { label: 'Version', kind: 'pin' }, pass: { label: 'Passes', kind: 'pass' } }, 'run.skill': { skillVersion: { label: 'Skill version', kind: 'pin' } } };
   function pinDef(type, name) { return type && typeof type.id === 'string' && !type.custom && Object.prototype.hasOwnProperty.call(PINS, type.id) ? own(PINS[type.id], name) : undefined; }
   function fieldDef(type, name) { return own(type && type.fields, name) || own(COMMON, name) || pinDef(type, name); }
   function matches(cond, fields) { return Object.keys(cond).every(function (k) { return String(fields[k] || '').toLowerCase() === cond[k]; }); }
@@ -227,6 +228,8 @@ PF.types = (function () {
       if (d.kind === 'duration' && f === 'after' && PF.util.duration(fields[f]) == null) errors.push('"after" should be a duration like 2h or 30m.');
       if (d.kind === 'pin' && f === 'version' && !/^[1-9]\d{0,5}$/.test(String(fields[f]).trim())) errors.push('"version" should be a version number, like 4.');
       if (d.kind === 'pin' && f === 'skillVersion' && !/^[\w.+-]{1,40}$/.test(String(fields[f]).trim())) errors.push('"skillVersion" should be the skill\'s version, like 1.2.0.');
+      /* pass: (2.8), a map line like the pins: what the step passes to its child (PF.links). */
+      if (d.kind === 'pass') PF.links.parse(fields[f]).errors.forEach(function (m) { errors.push(m); });
       if (d.kind === 'list' && list(fields[f]).length < 2) errors.push('"' + f + '" needs at least two choices, separated by commas.');
       if (d.kind === 'require') {
         var names = ((type.record) || []).map(function (r) { return r.name; });

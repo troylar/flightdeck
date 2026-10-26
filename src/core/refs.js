@@ -8,7 +8,7 @@ PF.refs = (function () {
   var TOKEN = /\^([\w-]+)/g;
   /* Fields a run never fills in: they shape the step or name other things (sets: and carry: list bare names). Pins have
      their own kind, so they're never filled either. */
-  var SKIP = { sets: 1, carry: 1, process: 1, expect: 1, deadline: 1, evidence: 1, require: 1, at: 1, due: 1, after: 1 };
+  var SKIP = { sets: 1, carry: 1, pass: 1, process: 1, expect: 1, deadline: 1, evidence: 1, require: 1, at: 1, due: 1, after: 1 };
   /* Field kinds whose text a run shows with its details filled in. */
   var KINDS = { text: 1, code: 1, message: 1, url: 1, list: 1 };
 
@@ -78,6 +78,8 @@ PF.refs = (function () {
       var at = { phase: x.phaseIndex, order: order, track: x.step.track || '', step: x.step };
       fn({ kind: 'step', step: x.step, phaseIndex: x.phaseIndex, box: 'text', value: (x.step.textParts || []).map(function (p) { return p.t === 'ref' ? '^' + p.k : p.v; }).join('') }, at);
       Object.keys(x.step.fields).forEach(function (f) { if (fillable(x.step.type, f, types)) fn({ kind: 'step', step: x.step, phaseIndex: x.phaseIndex, box: 'field:' + f, value: x.step.fields[f] }, at); });
+      /* What a linked step passes (2.8): its ^ sources are read when the child starts, so they're references at this step. */
+      if (PF.links && PF.links.has(x.step)) { var src = PF.links.parse(x.step.fields.pass).entries.filter(function (e) { return e.source === 'detail'; }).map(function (e) { return '^' + e.from; }).join(' '); if (src) fn({ kind: 'step', step: x.step, phaseIndex: x.phaseIndex, box: 'pass', value: src }, at); }
     });
     map.phases.forEach(function (p, pi) { if (p.gate && p.gate.approves) fn({ kind: 'gate', phase: p, phaseIndex: pi, gate: p.gate, box: 'approves', value: p.gate.approves }, atGate(map, pi)); });
   }

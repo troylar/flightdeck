@@ -249,6 +249,36 @@ PF.map = (function () {
       if (wf.workflow.statuses.indexOf(s.fields.status) < 0) blockers.push(label + ': "' + s.fields.status + '" isn\'t a status in the ' + wf.type + ' workflow (' + wf.workflow.statuses.join(', ') + ').');
       else if (!PF.jira.into(wf.workflow, s.fields.status).length) blockers.push(label + ': no transition in the ' + wf.type + ' workflow leads to "' + s.fields.status + '".');
     }
+    /* What a linked step passes to its child (2.8, docs/design.md 40). Its own sources always; against the child's details when
+       opts.children(process, version) says what the child is: { map, title, version, latest } (latest: no version: line, so
+       the child's latest), { unpublished: true }, or { unreadable: why }. While editing these come from memory (advice);
+       publishing and staging pass the children just read from the folder. */
+    function linkChecks(s, label) {
+      var L = PF.links, pe = L.parse(s.fields.pass).entries, carry = L.carryList(s), own = list(s.fields.sets);
+      pe.forEach(function (e) {
+        if (carry.indexOf(e.name) >= 0) blockers.push(label + ' gives ^' + e.name + ' in both carry: and pass:. Keep one.');
+        if (e.source !== 'detail') return;
+        if (meta.context.indexOf(e.from) < 0) blockers.push(label + ' passes ^' + e.from + ', which isn\'t listed in context.' + meant(e.from));
+        else if (own.indexOf(e.from) >= 0) blockers.push(label + ' passes ^' + e.from + ' and sets it; a step can\'t start its child with a value it produces.');
+      });
+      var got = typeof opts.children === 'function' ? opts.children(s.fields.process, s.fields.version || '') : null;
+      if (!got) return;
+      if (got.unreadable) { blockers.push(label + ': ' + got.unreadable + ' So what it passes to "' + s.fields.process + '" can\'t be checked.'); return; }
+      if (got.unpublished || !got.map) { if (L.has(s)) suggestions.push(label + ': "' + s.fields.process + '" isn\'t published yet, so what it needs can\'t be checked.'); return; }
+      var who = got.latest ? (got.title || s.fields.process) + '\'s latest version (v' + got.version + ')' : (got.title || s.fields.process) + ' v' + got.version;
+      var A = { text: 'text', number: 'a number', 'yes-no': 'yes or no', choice: 'a choice', date: 'a date', url: 'a link' }, kw = function (d) { return A[PF.values.kindOf(d)] || 'text'; };
+      var r = L.rows(s, meta.context, got.map), kinds = got.map.meta.detailTypes || {}, mine = meta.detailTypes || {};
+      r.stale.forEach(function (x) { blockers.push(who + ' has no run detail ' + x.name + ', so ' + label.charAt(0).toLowerCase() + label.slice(1) + ' can\'t pass it. Choose one it has, or remove it from ' + x.where + ':.'); });
+      r.rows.forEach(function (x) {
+        var def = Object.prototype.hasOwnProperty.call(kinds, x.name) ? kinds[x.name] : null;
+        if (x.source === 'value' && def) { var v = PF.values.parse(def, x.value, { max: 120 }); if (!v.ok) blockers.push(label + ': ' + who + '\'s ^' + x.name + ' is ' + kw(def) + '; "' + x.value + '" isn\'t one. ' + v.why); }
+        if (x.source === 'detail' && def && PF.values.kindOf(def) !== 'text') {
+          var from = Object.prototype.hasOwnProperty.call(mine, x.from) ? mine[x.from] : null;
+          if (!from || PF.values.kindOf(from) !== PF.values.kindOf(def)) suggestions.push(label + ': ^' + x.from + ' goes into ' + who + '\'s ^' + x.name + ', which is ' + kw(def) + '. Converted when it starts; a value that doesn\'t fit is asked there.');
+        }
+        if (x.childSets && x.source !== 'ask' && L.has(s)) suggestions.push(label + ' passes ^' + x.name + ', which ' + (got.title || s.fields.process) + ' also sets itself later.');
+      });
+    }
     map.phases.forEach(function (p) {
       useId(p.id, 'Phase "' + p.title + '"');
       if (!p.mode) suggestions.push('Give "' + p.title + '" a type: READ-DO (read each step, then do it) or DO-CONFIRM (do the work, then confirm together).');
@@ -285,6 +315,7 @@ PF.map = (function () {
           if (s.fields.process === meta.process) blockers.push(label + ' can\'t start a run of its own process.');
           else if (opts.processes && opts.processes.indexOf(s.fields.process) < 0) suggestions.push(label + ' starts "' + s.fields.process + '", which isn\'t published yet.');
           list(s.fields.carry).forEach(function (f) { if (meta.context.indexOf(f) < 0) blockers.push(label + ' passes on ^' + f + ', which isn\'t listed in context.'); });
+          if (PF.links) linkChecks(s, label);
         }
         if (s.type === 'jira.issue' && opts.workflows) jiraCheck(s, label);
         var words = s.text.split(/\s+/).length;
@@ -333,7 +364,7 @@ PF.map = (function () {
      note isn't one (every copy since 1.10 publishes it). A version: or skillVersion: line on another step type is an error,
      not a feature. */
   function features(map) {
-    var has = { conditions: false, 'typed-details': false, 'typed-evidence': false, 'phase-notes': false, 'phase-shots': false, 'gate-shots': false, 'pinned-children': false, 'pinned-skills': false };
+    var has = { 'passed-details': false, conditions: false, 'typed-details': false, 'typed-evidence': false, 'phase-notes': false, 'phase-shots': false, 'gate-shots': false, 'pinned-children': false, 'pinned-skills': false };
     /* Typed data (2.0): a run detail with a kind, or a plain step asking for a number, yes/no or date as its evidence. */
     if (map.meta && map.meta.detailTypes && Object.keys(map.meta.detailTypes).length) has['typed-details'] = true;
     (map.phases || []).forEach(function (p) {
@@ -341,6 +372,8 @@ PF.map = (function () {
       /* Pins (2.0): version: on a linked step, skillVersion: on a skill step. Older copies refuse both lines. */
       p.steps.forEach(function (s) {
         if (s.type === 'run.process' && Object.prototype.hasOwnProperty.call(s.fields, 'version')) has['pinned-children'] = true;
+        /* What a linked step passes (2.8): a pass: line. Older copies refuse it as a field their type doesn't have. */
+        if (s.type === 'run.process' && Object.prototype.hasOwnProperty.call(s.fields, 'pass')) has['passed-details'] = true;
         if (s.type === 'run.skill' && Object.prototype.hasOwnProperty.call(s.fields, 'skillVersion')) has['pinned-skills'] = true;
       });
       if (p.note || p.noted) has['phase-notes'] = true;
