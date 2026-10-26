@@ -45,7 +45,8 @@ PF.guide = (function () {
       assignee: e('Assign it to?', 'dana@acme.com', S), linkTo: e('Link it to which issue?', 'PAY-1200', S), set: e('Which fields do you set?', 'Fix Version=^tag', S + ' ^details are filled in.') },
     'run.process': { process: e('Which process? (its file name)', 'database-migration', 'The process\'s file name, not its title: it\'s looked up by that exact ID. Whoever reaches this step starts its run from here (Start), and it links back.'),
       carry: e('Which run details does it pass on?', 'tag, environment', 'Left empty, it passes on every run detail the other process also has.', true),
-      version: e('Which version of it?', '3', 'Left empty, the run uses its latest published version.', true) },
+      version: e('Which version of it?', '3', 'Left empty, the run uses its latest published version.', true),
+      pass: e('What does each of its details get?', 'environment=^env, region=us-east-1, notify=?', 'name=^detail passes this run\'s detail under another name, name=? asks it when it starts, and anything else is a fixed value. Left empty, it passes what carry: says. Needs Flightdeck 2.8.', true) },
     'run.command': { command: e('What do you run?', 'git fetch origin && git rebase origin/main', COPY), where: e('Where do you run it?', 'a terminal in the payments-api repo', S),
       expected: e('What should you see?', 'Successfully rebased', S + ' It\'s what they compare against.') },
     'run.script': { script: e('Which script?', 'scripts/smoke-test.sh', 'Shown with a Copy button.'), args: e('With which arguments?', '--env staging', 'Shown with a Copy button.'),
@@ -124,6 +125,11 @@ PF.guide = (function () {
     backup: e('Who stands in for them?', '', 'Signs off only while the owner is away. Left empty, no one stands in.', true),
     role: e('Add a role', 'release-manager', 'Steps and gates can be given to a role. One at a time; an empty name adds nothing.', true),
     context: e('Add a run detail each run needs', 'tag', 'Asked when a run starts; steps can use it as ^name. One at a time; an empty name adds nothing.', true),
+    'link-proc': e('Which process does it run?', '', 'Its run starts from this step and links back; this step is checked when it completes.', true),
+    'link-proc-other': e('Which process ID?', 'database-migration', 'For a process that isn\'t in this folder yet: its file name, not its title.', true),
+    'link-vn': e('Which version, always?', '', 'Every run of this checklist starts that exact version, even after a newer one is published.', true),
+    'link-src': e('Where does this detail come from?', '', 'This run\'s detail (even under another name), a fixed value, or asked when the other process starts.', true),
+    'link-val': e('Which fixed value?', 'us-east-1', 'Every run passes exactly this. At most 120 characters, no commas.', true),
     'pr-host': e('Where is the pull request?', '', 'Changes the step between a GitHub and a Bitbucket pull request. Every value is kept; what the other one doesn\'t use is flagged.', true),
     questions: e('What\'s still to be answered?', 'Who approves a hotfix?', 'Questions for the owner, written while drafting. Left in, the checklist can\'t be published; answer them in the steps, then remove the section.', true)
   };

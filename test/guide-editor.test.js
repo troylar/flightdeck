@@ -433,8 +433,10 @@ rule('Editor round trips: for every built-in type and each of its actions, revea
       const app = await editorOn(md(step(t.id, 's')), 's', { replace: true, domFocus: true }), want = {}, label = t.id + (v ? ' · ' + v : '');
       const fill = async (n, val) => { if (!boxes(formOf(app)).includes(n)) { app.click('ob-show', n); await app.tick(); } enter(app, 'ob-fld-' + n, val); await app.tick(); want[n] = val; };
       if (v) { choose(app, 'ob-fld-' + choice, v); await app.tick(); want[choice] = v; }
+      /* A linked step's process, version, carry: and pass: have their own section (2.8), tested on its own. */
+      const linkOwn = t.id === 'run.process' ? ['process', 'version', 'carry', 'pass'] : [];
       for (const n of Object.keys(t.fields || {}).filter(n => n !== choice).concat(pins)) {
-        if (!T.applies(t, n, want)) continue;
+        if (!T.applies(t, n, want) || linkOwn.includes(n)) continue;
         const d = T.fieldDef(t, n) || {};
         if (d.kind === 'choice') { const o = d.options[0]; choose(app, 'ob-fld-' + n, o); await app.tick(); want[n] = o; continue; }
         await fill(n, String(G.field(t, n, want).eg || (d.kind === 'pin' ? '1' : 'x')));
@@ -451,9 +453,40 @@ rule('Editor round trips: for every built-in type and each of its actions, revea
       assert.strictEqual(got, hand, label);
       assert.deepStrictEqual(plain(app.PF.types.LIST), was.LIST, label + ': T.LIST unchanged in the app');
       assert.deepStrictEqual(plain(app.PF.types.COMMON), was.COMMON, label + ': T.COMMON');
-      assert.deepStrictEqual(plain(app.PF.types.PINS), was.PINS, label + ': pins');
+      const pinsNow = plain(app.PF.types.PINS); delete pinsNow['run.process'].pass;
+      assert.deepStrictEqual(pinsNow, was.PINS, label + ': pins, less 2.8\'s pass:');
     }
   }
+});
+
+rule('Editor (2.8): a linked step picks its process from a list, and each of the child\'s details gets a source; every change is one edit', async () => {
+  const app = await editorOn(md(step('run.process', 's', 'process: check-in')), 's');
+  let h = formOf(app);
+  assert.ok(/<select id="ob-link-proc"/.test(h) && /<option value="check-in" selected>/.test(h), 'the process list, check-in chosen');
+  assert.ok(!/<option value="release"/.test(h.slice(h.indexOf('ob-link-proc'), h.indexOf('</select>', h.indexOf('ob-link-proc')))), 'never the checklist itself');
+  assert.ok(/What [^<]+ needs<\/h3>/.test(h) && /id="ob-link-src-commit"/.test(h) && /id="ob-link-src-branch"/.test(h), 'one row per child detail');
+  assert.ok(/Latest when the child starts/.test(h), 'a carry-only checklist takes the latest when the child starts');
+  app.select('ob-link-src-commit', '^tag'); await app.tick();
+  let t = await textOf(app);
+  assert.ok(/  process: check-in\n  pass: commit=\^tag\n/.test(t), t);
+  h = formOf(app);
+  assert.ok(/Latest when this run starts/.test(h), 'pass: makes it publish as /2, so the child is pinned when the run starts');
+  app.select('ob-link-src-commit', '='); await app.tick();
+  assert.ok(/id="ob-link-val-commit"/.test(formOf(app)), 'a fixed value gets a box');
+  app.select('ob-link-val-commit', 'abc123'); await app.tick();
+  t = await textOf(app);
+  assert.ok(/  pass: commit=abc123\n/.test(t), t);
+  app.select('ob-link-src-commit', '?'); await app.tick();
+  t = await textOf(app);
+  assert.ok(!/pass:/.test(t), 'asked, and nothing is shared, so no line is needed: ' + t);
+});
+
+rule('Editor (2.8): a name the child doesn\'t have is shown with a Remove fix', async () => {
+  const app = await editorOn(md(step('run.process', 's', 'process: check-in', 'carry: tag')), 's');
+  assert.ok(/has no run detail tag, so this step can't pass it/.test(un(formOf(app))));
+  app.click('ob-link-rm', 's', { name: 'tag' }); await app.tick();
+  const t = await textOf(app);
+  assert.ok(!/carry:/.test(t), t);
 });
 
 run();

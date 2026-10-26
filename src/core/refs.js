@@ -119,6 +119,8 @@ PF.refs = (function () {
     var passes = function (st, parentNames, childNames) {
       if (childNames.indexOf(name) < 0) return false;
       if (st.binds.indexOf(name) >= 0) return true;
+      /* 2.8: a pass: entry that targets the name passes it, whatever its source; a name=? asks it instead. */
+      if (PF.links && PF.links.has(st)) { var e = PF.links.parse(st.fields.pass).entries.filter(function (y) { return y.name === name; })[0]; if (e) return e.source !== 'ask'; }
       return st.fields.carry != null && carried(st).length ? carried(st).indexOf(name) >= 0 : parentNames.indexOf(name) >= 0;
     };
     ((folder && folder.others) || []).forEach(function (o) {
@@ -126,15 +128,13 @@ PF.refs = (function () {
         var st = x.step;
         if (st.type !== 'run.process' || st.fields.process !== me || !passes(st, o.map.meta.context, map.meta.context)) return;
         if (st.fields.version) add(false, o.label + ': the step “' + st.text + '” is pinned to version ' + st.fields.version + ', which keeps using ^' + name + '. It isn\'t affected.');
-        else add(true, o.label + ': the step “' + st.text + '” passes ^' + name + ' to this checklist by name. Renaming it would stop that.');
+        /* 2.8 (Q3): a warning with the fix, never a refusal; Folder health flags it once this is published. */
+        else add(false, o.label + ': the step “' + st.text + '” passes ^' + name + ' to this checklist. After you publish the rename, change that step to pass it under the new name (in its pass: line), or new runs there can\'t start this checklist.');
       });
     });
     M.steps(map).forEach(function (x) {
       var st = x.step;
-      if (st.type === 'run.process' && st.fields.process && folder && folder.child) {
-        var kids = [].concat(folder.child(st.fields.process, st.fields.version || '') || []);
-        if (kids.some(function (child) { return child && passes(st, map.meta.context, child.meta.context); })) add(true, 'The step “' + st.text + '” passes ^' + name + ' to ' + st.fields.process + ' by name. Renaming it would stop that.');
-      }
+      /* 2.8: this checklist's own linked steps are rewritten by the rename so each child keeps what it got (O.renameDetail). */
       if (st.type === 'jira.issue' && String(st.fields.action || '').toLowerCase() === 'transition' && folder && folder.workflows) {
         var wf = PF.jira.forType(folder.workflows, st.fields.issueType);
         if (wf && !wf.workflow.invalid) PF.jira.requiredFields(wf.workflow, st.fields.status).forEach(function (f) {

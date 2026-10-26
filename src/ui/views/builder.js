@@ -353,10 +353,64 @@
   /* A step's fields: the type's that apply, shown when usual for it as it stands, holding a value or revealed (or else its
      first two), the rest behind "+ add" chips; then any value it doesn't use, flagged; then the fields every type accepts,
      under More about this step. */
+  /* The child a linked step names, for the builder (2.8): the pinned version, or the latest published, or (not published
+     yet) its saved draft, which can't be checked until it's published. { map, title, version, latest, draft, nextAdds } */
+  function linkChildOf(ctx, process, version) {
+    var e = process && ctx.procOf ? ctx.procOf(process) : null; if (!e) return null;
+    var dm = null; if (e.draft && e.draft.md != null) { try { dm = M.parse(e.draft.md); } catch (x) { dm = null; } }
+    if (version) { var at = PF.pins.atVersion(e, process, +version); return at.pub ? { map: at.pub.map, title: at.pub.map.meta.title || process, version: at.pub.info.version } : null; }
+    if (e.latest) {
+      var adds = dm ? dm.meta.context.filter(function (n) { return e.latest.map.meta.context.indexOf(n) < 0; }) : [];
+      return { map: e.latest.map, title: e.latest.map.meta.title || process, version: e.latest.info.version, latest: true, nextAdds: adds };
+    }
+    return dm ? { map: dm, title: dm.meta.title || process, version: null, latest: true, draft: true } : null;
+  }
+  /* A {run.process} step's own section (2.8): which process, which version, and what each of its details gets. Every change
+     is one O.editLink. */
+  function linkSection(ctx, p, text, s, meta) {
+    var f = s.fields, map = M.parse(text), x = M.findStep(map, s.id) || { step: null }, st = x.step; if (!st) return '';
+    var procs = ctx.processes().filter(function (e) { return e.id !== meta.process; }), other = ctx.state.obLinkOther === s.key || (f.process && !procs.some(function (e) { return e.id === f.process; }));
+    var h = '<h3 class="ob-sec">Which process</h3><label class="field" for="ob-link-proc">' + esc(G.form('link-proc').q) + '<select id="ob-link-proc" data-bound><option value=""' + (!f.process ? ' selected' : '') + '>Choose one</option>' +
+      procs.map(function (e) { return '<option value="' + esc(e.id) + '"' + (e.id === f.process && !other ? ' selected' : '') + '>' + esc((e.title || e.id) + ' (' + e.id + ') · ' + (e.latest ? 'v' + e.latest.info.version : 'not published yet')) + '</option>'; }).join('') +
+      '<option value="__other"' + (other ? ' selected' : '') + '>Other ID…</option></select></label>';
+    if (other) h += '<label class="field" for="ob-link-proc-other">' + esc(G.form('link-proc-other').q) + '<input id="ob-link-proc-other" maxlength="60" value="' + esc(f.process || '') + '" data-enter="ob-commit"></label>';
+    var e = f.process && ctx.procOf ? ctx.procOf(f.process) : null;
+    if (f.process && e) {
+      var types = T.freeze(M.usedTypes(map), (ctx.data.stepTypes || {}).types || {}), two = PF.publish.features(map, types).length > 0;
+      var nums = []; (e.all || []).forEach(function (v) { if (nums.indexOf(v.info.version) < 0) nums.push(v.info.version); });
+      nums.sort(function (a, b) { return b - a; });
+      var pinned = !!f.version;
+      h += '<fieldset class="field"><legend>Which version</legend><label class="ob-switch" for="ob-link-ver-latest"><input type="radio" name="ob-link-ver" id="ob-link-ver-latest" value="latest" data-bound' + (pinned ? '' : ' checked') + '><span><b>' + (two ? 'Latest when this run starts' : 'Latest when the child starts') + '</b></span></label>';
+      if (nums.length) h += '<label class="ob-switch" for="ob-link-ver-pin"><input type="radio" name="ob-link-ver" id="ob-link-ver-pin" value="pin" data-bound' + (pinned ? ' checked' : '') + '><span><b>Always one version</b></span></label><label class="field" for="ob-link-vn">' + esc(G.form('link-vn').q) + '<select id="ob-link-vn" data-bound>' +
+        nums.map(function (n) { var at = PF.pins.atVersion(e, f.process, n); return '<option value="' + n + '"' + (String(n) === String(f.version) ? ' selected' : '') + (at.why ? ' disabled' : '') + '>v' + n + (at.why ? ' (' + esc(at.why) + ')' : '') + '</option>'; }).join('') + '</select></label>';
+      h += '</fieldset>';
+    }
+    var kid = f.process ? linkChildOf(ctx, f.process, f.version) : null;
+    if (!kid) return h + (f.process ? '<p class="small">' + esc(f.process) + ' isn\'t in this folder, so what it needs can\'t be shown.</p>' : '');
+    var rr = PF.links.rows(st, meta.context, kid.map), setBy = M.setBy(kid.map), fixed = ctx.state.obLinkFixed || {}, t = kid.title;
+    h += '<h3 class="ob-sec">What ' + esc(t) + ' needs</h3>' + (kid.draft ? '<p class="small">' + esc(t) + ' isn\'t published yet, so this can\'t be checked until it is.</p>' : '') +
+      (kid.nextAdds && kid.nextAdds.length ? '<p class="small">' + esc(t) + '\'s draft adds ^' + kid.nextAdds.map(esc).join(', ^') + '.</p>' : '');
+    var kinds = meta.detailTypes || {}, kindOf = function (n) { return ownKey(kinds, n) && kinds[n] ? ' (' + esc(kinds[n].kind || 'text') + ')' : ''; };
+    rr.rows.forEach(function (r) {
+      var sid = 'ob-link-src-' + r.name, cur = r.source === 'value' || fixed[s.key + ':' + r.name] ? '=' : r.source === 'detail' ? '^' + r.from : '?';
+      h += '<div class="field ob-link-row"><label for="' + esc(sid) + '"><b>' + esc(r.name) + '</b> <span class="small">' + esc(r.kind) + (ownKey(setBy, r.name) ? ' · ' + esc(t) + ' also sets this itself, later' : '') + '</span></label><select id="' + esc(sid) + '" data-bound>' +
+        meta.context.map(function (n) { return '<option value="^' + esc(n) + '"' + (cur === '^' + n ? ' selected' : '') + '>This run\'s ^' + esc(n) + kindOf(n) + '</option>'; }).join('') +
+        '<option value="="' + (cur === '=' ? ' selected' : '') + '>A fixed value</option><option value="?"' + (cur === '?' ? ' selected' : '') + '>' + (ownKey(setBy, r.name) ? esc(t) + ' fills this in itself' : 'Asked when ' + esc(t) + ' starts') + '</option></select>';
+      if (cur === '=') h += '<label class="field" for="ob-link-val-' + esc(r.name) + '">' + esc(G.form('link-val').q) + '<input id="ob-link-val-' + esc(r.name) + '" maxlength="120" value="' + esc(r.value || '') + '" data-enter="ob-commit"></label>';
+      h += '</div>';
+    });
+    rr.stale.forEach(function (x) {
+      h += '<div class="notice warn" role="status"><span>' + esc(t) + (kid.version ? ' v' + esc(kid.version) : '') + ' has no run detail ' + esc(x.name) + ', so this step can\'t pass it.</span><button type="button" class="mini" data-act="ob-link-rm" data-id="' + esc(s.key) + '" data-name="' + esc(x.name) + '">Remove ^' + esc(x.name) + ' from what\'s passed</button></div>';
+    });
+    return h;
+  }
   function fieldsSection(ctx, p, text, o, s, def, meta) {
     var f = s.fields, shown = shownOf(ctx, p, s), names = def ? Object.keys(def.fields || {}) : [];
     var pins = def && !def.custom && ownKey(T.PINS, def.id) ? Object.keys(T.PINS[def.id]) : [];
     var apply = names.filter(function (n) { return T.applies(def, n, f); }).concat(pins);
+    /* A linked step's process, version, carry: and pass: are its own section (2.8). */
+    var linked = s.type === 'run.process' && def && !def.custom;
+    if (linked) apply = apply.filter(function (n) { return ['process', 'version', 'carry', 'pass'].indexOf(n) < 0; });
     var show = function (n) { return !!f[n] || !!shown[n] || (ownKey(def.fields, n) && G.usual(def.fields[n], f)); };
     var rows = apply.filter(show); if (!rows.length) rows = apply.slice(0, 2);
     var common = Object.keys(T.COMMON), times = ['at', 'due', 'after'].filter(function (n) { return f[n]; });
@@ -370,7 +424,7 @@
       return times.length > 1 && times.indexOf(n) >= 0 ? 'Give one time, "at:", "due:" or "after:", not more than one.' : '';
     };
     var waiting = apply.filter(function (n) { return rows.indexOf(n) < 0; });
-    var h = '<h3 class="ob-sec">Fields</h3>' + (isPr(s.type) ? choices(ctx, 'ob-host', G.form('pr-host'), PRS, s.type, null, HOSTS) : '') + (!names.length && !pins.length && !unused.length ? '<p class="small">This type asks for nothing more.</p>' : '') +
+    var h = (linked ? linkSection(ctx, p, text, s, meta) : '') + '<h3 class="ob-sec">Fields</h3>' + (isPr(s.type) ? choices(ctx, 'ob-host', G.form('pr-host'), PRS, s.type, null, HOSTS) : '') + (!names.length && !pins.length && !unused.length ? '<p class="small">This type asks for nothing more.</p>' : '') +
       rows.map(function (n) { return fieldRow(ctx, def, s, n); }).join('') + unused.map(function (n) { return fieldRow(ctx, def, s, n, flag(n)); }).join('') +
       (waiting.length ? '<div class="row ob-adds" role="group" aria-label="More boxes for this step">' + waiting.map(function (n) { return addChip(def, n, G.field(def, n, f)); }).join('') + '</div>' : '');
     var ev = evidenceOf(ctx, text, o, s), cRows = common.filter(function (n) { return !!f[n] || !!shown[n]; }), cWait = common.filter(function (n) { return cRows.indexOf(n) < 0; });
@@ -405,6 +459,19 @@
     var h = '<details class="ob-when" data-disc="' + esc(dk) + '"' + (open ? ' open' : '') + '><summary>Only when…</summary>';
     if (t.whenOdd || t.odd) return h + '<ul class="small">' + t.when.map(function (w) { return '<li>' + esc(w) + '</li>'; }).join('') + '</ul><p class="small">Written in a way the builder can\'t keep exactly. Edit them in Markdown.</p></details>';
     return h + formBox(ctx, id, id === 'ob-ph-when' ? 'ph-when' : 'when', 'textarea', ' rows="2"', '\n' + esc(t.when.join('\n'))) + '</details>';
+  }
+  /* Part G (2.8): what the step uses, sets and, for a linked step, passes to its child, said once below its fields. */
+  function ioLines(ctx, map, id) {
+    var x = M.findStep(map, id); if (!x) return '';
+    var st = x.step, f = st.fields || {}, got = st.type === 'run.process' && f.process && ctx.procOf ? PF.links.childrenFrom(ctx.procOf)(f.process, f.version || '') : null;
+    var io = PF.links.io(map, st, got && got.map ? got.map : null, { types: teamTypes(ctx) }), out = [];
+    if (io.uses.length) out.push('<b>Uses:</b> ' + io.uses.map(function (u) { return '<code>^' + esc(u.name) + '</code> (' + esc(u.where) + ')'; }).join(', '));
+    if (io.sets.length) out.push('<b>Sets:</b> ' + io.sets.map(function (n) { return '<code>^' + esc(n) + '</code>'; }).join(', '));
+    if (io.passes) {
+      var given = io.passes.filter(function (r) { return r.source !== 'ask'; });
+      out.push('<b>Passes to ' + esc(got.title) + ':</b> ' + (given.length ? given.map(function (r) { return esc(r.name) + (r.source === 'value' ? ' = ' + esc(r.value) : ' ← ^' + esc(r.from)); }).join(', ') : 'nothing') + (given.length < io.passes.length ? '; asks ' + io.passes.filter(function (r) { return r.source === 'ask'; }).map(function (r) { return esc(r.name); }).join(', ') : ''));
+    } else if (io.shared) out.push('May also pass details ' + esc(f.process || 'the other process') + ' shares with this checklist.');
+    return out.length ? '<div class="small ob-io">' + out.map(function (l) { return '<p>' + l + '</p>'; }).join('') + '</div>' : '';
   }
   function askOf(ctx, kind, key, track) { var a = ctx.state.obAsk; return a && a.kind === kind && a.key === key && (track == null || +a.track === +track) ? a : null; }
   /* The side form for what's selected: a step's text, kind, type, roles, run details and fields; a lane; or a phase and its
@@ -442,6 +509,7 @@
       var gn = G.step('note');
       h += '<label class="field" for="ob-note">' + esc(gn.q) + '<textarea id="ob-note" rows="3" maxlength="2000"' + egOf(gn) + describe(ctx, 'ob-note', gn) + '>\n' + esc(s.note) + '</textarea></label>' + whyOf('ob-note', gn) + errMsg(ctx, 'ob-note');
       h += whenSection(ctx, p, s, 'ob-when', meta);
+      h += ioLines(ctx, here.map, s.id);
       h += shotsSection(ctx, p, s);
       h += source(ctx, s.id, 'step', U.slug(s.text, 24), '<p class="small">Type <code>{' + esc(s.type || '?') + '}</code>' + (names.length ? ' · fields ' + names.map(function (f) { return '<code>' + esc(f) + '</code>'; }).join(' ') : '') + '</p>');
       h += '<div class="row"><button type="button" class="mini" data-act="ob-move" data-id="' + esc(s.key) + '" data-dir="up">Move up</button><button type="button" class="mini" data-act="ob-move" data-id="' + esc(s.key) + '" data-dir="down">Move down</button>' +
@@ -587,6 +655,6 @@
       (d.added.length > 40 ? '<li class="small">and ' + (d.added.length - 40) + ' more</li>' : '') + '</ol></details>';
   }
 
-  V.builder = builder; V.builderForm = builderForm; V.obPartsPane = partsPane; V.changedLines = changedLines;
+  V.builder = builder; V.builderForm = builderForm; V.linkChildOf = linkChildOf; V.obPartsPane = partsPane; V.changedLines = changedLines;
   V.obPrHost = prHost; V.obParts = parts; V.obPart = partOf; V.obPartsSheet = partsSheet; V.obSentence = sentence; V.obNowhere = nowhere;
 })();

@@ -3758,6 +3758,11 @@ PF.map = (function () {
         if (x.childSets && x.source !== 'ask' && L.has(s)) suggestions.push(label + ' passes ^' + x.name + ', which ' + (got.title || s.fields.process) + ' also sets itself later.');
       });
     }
+    /* C3: published checklists that start this one at its latest and pass it a detail this draft no longer has (opts.parents:
+       [{ id, latest }], the processes as the app lists them). Advice: they keep working until this is published. */
+    if (opts.parents && meta.process) PF.links.parentsBroken(map, opts.parents).forEach(function (b) {
+      suggestions.push(b.title + ' (published) step "' + b.step.text.slice(0, 40) + '" passes ^' + b.names.join(', ^') + ' to this checklist. After this version, new ' + b.title + ' runs can\'t start that child until ' + b.title + ' changes.');
+    });
     map.phases.forEach(function (p) {
       useId(p.id, 'Phase "' + p.title + '"');
       if (!p.mode) suggestions.push('Give "' + p.title + '" a type: READ-DO (read each step, then do it) or DO-CONFIRM (do the work, then confirm together).');
@@ -4023,7 +4028,78 @@ PF.links = (function () {
     return out;
   }
 
-  return { MAX: MAX, VALUE_MAX: VALUE_MAX, has: has, parse: parse, rows: rows, write: write, values: values, sources: sources, inputs: inputs, carryList: carryList };
+  /* M.check's opts.children from the processes as the app lists them ({ latest, all, clashes, broken }, or { unlisted }):
+     an object by name (just read from the folder, when publishing) or a lookup function (the app's, while editing). A
+     version: pin that can't be resolved is left to the pin's own blocker. */
+  function childrenFrom(procs) {
+    var get = typeof procs === 'function' ? procs : function (n) { return own(procs, n) ? procs[n] : null; };
+    return function (process, version) {
+      var proc = process ? get(process) : null;
+      if (!proc) return { unpublished: true };
+      if (proc.unlisted) return { unreadable: String(proc.unlisted).replace(/\.?$/, '.') };
+      var pub, latest = version === '' || version == null;
+      if (latest) pub = proc.latest;
+      else { var got = PF.pins.atVersion(proc, process, +version); if (got.why) return null; pub = got.pub; }
+      if (!pub || !pub.map) return { unpublished: true };
+      return { map: pub.map, title: pub.map.meta.title || process, version: pub.info.version, latest: latest };
+    };
+  }
+
+  /* The linked steps whose child, as it is now, can't be started from this checklist (C3): every {run.process} step of the
+     map that follows the child's latest (no version: line; a pinned version never changes) and names, in carry: or pass:,
+     a detail that latest lacks. A detail passed only because both share it just drops out, so it never counts. children:
+     M.check's opts.children (childrenFrom). Returns [{ step, child, title, version, names }]. */
+  function broken(map, children) {
+    var out = [];
+    if (!map || typeof children !== 'function') return out;
+    PF.map.steps(map).forEach(function (x) {
+      var s = x.step, f = s.fields || {};
+      if (s.type !== 'run.process' || !f.process || own(f, 'version')) return;
+      var got = children(f.process, '');
+      if (!got || !got.map) return;
+      var st = rows(s, map.meta.context, got.map).stale;
+      if (st.length) out.push({ step: s, child: f.process, title: got.title, version: got.version, names: st.map(function (y) { return y.name; }) });
+    });
+    return out;
+  }
+  /* The same, from the child's side: published checklists (procs: [{ id, latest }]) whose latest has a step following
+     childMap's process at its latest that childMap couldn't start. Returns [{ process, title, step, names }]. */
+  function parentsBroken(childMap, procs) {
+    var me = childMap && childMap.meta && childMap.meta.process, out = [];
+    if (!me) return out;
+    var mine = function (n) { return n === me ? { map: childMap, title: childMap.meta.title || me, version: null } : null; };
+    (procs || []).forEach(function (p) {
+      if (!p || !p.latest || !p.latest.map || p.id === me) return;
+      broken(p.latest.map, mine).forEach(function (b) { out.push({ process: p.id, title: p.latest.map.meta.title || p.id, step: b.step, names: b.names }); });
+    });
+    return out;
+  }
+
+  /* What a step uses and sets, for the builder (Part G): uses: [{ name, where }] (where: "set by …" or "asked when a run
+     starts"), from its boxes' ^refs, its ties, its conditions and what it passes its child; sets: its sets: names; passes:
+     its rows when the child is known; shared: true when there's no child map and no carry:, so the details it shares by
+     name can't be listed yet. */
+  function io(map, step, childMap, opts) {
+    var src = PF.refs.sources(map), uses = [], seen = Object.create(null);
+    var use = function (n) { if (!n || seen[n]) return; seen[n] = true; uses.push({ name: n, where: PF.refs.where(src, n) }); };
+    PF.refs.scan(map, opts).forEach(function (t) { if (t.where.step === step && t.where.box !== 'pass') use(t.name); });
+    (step.binds || []).forEach(use);
+    var x = PF.map.steps(map).filter(function (y) { return y.step === step; })[0];
+    PF.conditions.names(x ? map.phases[x.phaseIndex] : null, step).forEach(use);
+    var passes = null, shared = false;
+    if (step.type === 'run.process') {
+      if (childMap) { passes = rows(step, map.meta.context, childMap).rows; passes.forEach(function (r) { if (r.source === 'detail') use(r.from); }); }
+      else {
+        carryList(step).forEach(use);
+        parse((step.fields || {}).pass).entries.forEach(function (e) { if (e.source === 'detail') use(e.from); });
+        shared = !carryList(step).length;
+      }
+    }
+    var sets = String((step.fields || {}).sets || '').split(',').map(function (k) { return k.trim(); }).filter(Boolean);
+    return { uses: uses, sets: sets, passes: passes, shared: shared };
+  }
+
+  return { io: io, childrenFrom: childrenFrom, broken: broken, parentsBroken: parentsBroken, MAX: MAX, VALUE_MAX: VALUE_MAX, has: has, parse: parse, rows: rows, write: write, values: values, sources: sources, inputs: inputs, carryList: carryList };
 })();
 
 /* Run-detail references (2.7): every ^name a checklist's boxes use, and whether a run has a value for it there. Pure, ES5.
@@ -4147,6 +4223,8 @@ PF.refs = (function () {
     var passes = function (st, parentNames, childNames) {
       if (childNames.indexOf(name) < 0) return false;
       if (st.binds.indexOf(name) >= 0) return true;
+      /* 2.8: a pass: entry that targets the name passes it, whatever its source; a name=? asks it instead. */
+      if (PF.links && PF.links.has(st)) { var e = PF.links.parse(st.fields.pass).entries.filter(function (y) { return y.name === name; })[0]; if (e) return e.source !== 'ask'; }
       return st.fields.carry != null && carried(st).length ? carried(st).indexOf(name) >= 0 : parentNames.indexOf(name) >= 0;
     };
     ((folder && folder.others) || []).forEach(function (o) {
@@ -4154,15 +4232,13 @@ PF.refs = (function () {
         var st = x.step;
         if (st.type !== 'run.process' || st.fields.process !== me || !passes(st, o.map.meta.context, map.meta.context)) return;
         if (st.fields.version) add(false, o.label + ': the step “' + st.text + '” is pinned to version ' + st.fields.version + ', which keeps using ^' + name + '. It isn\'t affected.');
-        else add(true, o.label + ': the step “' + st.text + '” passes ^' + name + ' to this checklist by name. Renaming it would stop that.');
+        /* 2.8 (Q3): a warning with the fix, never a refusal; Folder health flags it once this is published. */
+        else add(false, o.label + ': the step “' + st.text + '” passes ^' + name + ' to this checklist. After you publish the rename, change that step to pass it under the new name (in its pass: line), or new runs there can\'t start this checklist.');
       });
     });
     M.steps(map).forEach(function (x) {
       var st = x.step;
-      if (st.type === 'run.process' && st.fields.process && folder && folder.child) {
-        var kids = [].concat(folder.child(st.fields.process, st.fields.version || '') || []);
-        if (kids.some(function (child) { return child && passes(st, map.meta.context, child.meta.context); })) add(true, 'The step “' + st.text + '” passes ^' + name + ' to ' + st.fields.process + ' by name. Renaming it would stop that.');
-      }
+      /* 2.8: this checklist's own linked steps are rewritten by the rename so each child keeps what it got (O.renameDetail). */
       if (st.type === 'jira.issue' && String(st.fields.action || '').toLowerCase() === 'transition' && folder && folder.workflows) {
         var wf = PF.jira.forType(folder.workflows, st.fields.issueType);
         if (wf && !wf.workflow.invalid) PF.jira.requiredFields(wf.workflow, st.fields.status).forEach(function (f) {
@@ -4478,6 +4554,21 @@ PF.outline = (function () {
   }
 
   /* Change one thing about a step: set = { text } | { mark: ' ' | '!' | '~' } | { type } | { field, value } | { role, on } | { bind, on }. */
+  /* A linked step's process:, version:, carry: and pass: lines (2.8), as one edit (one undo step): each one given is set (''
+     or null removes its line), in that order, each checked like any field edit. */
+  function editLink(text, key, set) {
+    var cur = { text: text }, changed = false, at = 0;
+    var order = ['process', 'version', 'carry', 'pass'];
+    for (var i = 0; i < order.length; i++) {
+      var f = order[i];
+      if (!set || !Object.prototype.hasOwnProperty.call(set, f)) continue;
+      var r = editStep(cur.text, key, { field: f, value: set[f] == null ? '' : String(set[f]) });
+      if (r.error) return r;
+      if (!r.same) { changed = true; at = r.at; }
+      cur = r;
+    }
+    return changed ? { text: cur.text, at: at } : { text: text, at: at, same: true };
+  }
   function editStep(text, key, set) {
     var g = guard(text); if (g.error) return { error: g.error };
     var o = g.o, s = stepBy(o, key); if (!s) return { error: ERR.gone };
@@ -4595,8 +4686,34 @@ PF.outline = (function () {
     var bad = checkName(to, 'context'); if (bad) return { error: bad };
     if (meta.context.indexOf(to) >= 0) return { error: '^' + to + ' is already a run detail.' };
     var stop = (opts && opts.depends || []).filter(function (d) { return d.refuse; });
+    /* 2.8: a linked step whose child is known keeps what each child detail gets (docs/design.md 40): its rows are read before,
+       ^from becomes ^to in them, and PF.links.write gives the carry: and pass: lines that mean exactly that afterwards.
+       opts.child(process, version): the child's map, or its latest and next maps (their details together). */
+    var L = PF.links, newNames = meta.context.map(function (x) { return x === from ? to : x; }), relink = [];
+    var childOf = function (st) {
+      if (st.type !== 'run.process' || !st.fields.process || !opts || typeof opts.child !== 'function') return null;
+      var got = [].concat(opts.child(st.fields.process, st.fields.version || '') || []).filter(Boolean);
+      if (!got.length) return null;
+      var names = [], kinds = Object.create(null);
+      got.forEach(function (m) { (m.meta.context || []).forEach(function (n) { if (names.indexOf(n) < 0) { names.push(n); if (m.meta.detailTypes && own_(m.meta.detailTypes, n)) kinds[n] = m.meta.detailTypes[n]; } }); });
+      return { meta: { context: names, detailTypes: kinds } };
+    };
+    var key = function (r) { return r.name + '<' + r.source + ':' + (r.from || '') + '=' + (r.value == null ? '' : r.value); };
+    o.steps.forEach(function (st, k) {
+      var cm = childOf(st); if (!cm) return;
+      var shaped = { type: st.type, fields: st.fields, binds: [] }, before = L.rows(shaped, meta.context, cm).rows;
+      var want = before.map(function (r) { var c = Object.assign({}, r); if (c.source === 'detail' && c.from === from) c.from = to; return c; });
+      var w = L.write(want, shaped, newNames, cm), after = L.rows({ type: st.type, fields: { carry: w.carry == null ? undefined : w.carry, pass: w.pass == null ? undefined : w.pass }, binds: [] }, newNames, cm).rows;
+      var oldPass = st.fields.pass != null ? L.parse(st.fields.pass).entries.map(function (e) { return e.source === 'detail' && e.from === from ? Object.assign({}, e, { from: to }) : e; }) : null;
+      if (after.map(key).join('|') !== want.map(key).join('|')) { stop.unshift({ refuse: true, text: 'The step “' + short(st.text) + '” passes details to ' + st.fields.process + ' in a way the builder can\'t keep exactly after this rename. Edit its carry: and pass: lines in Markdown.' }); return; }
+      var curCarry = st.fields.carry != null && list_(st.fields.carry).length ? list_(st.fields.carry).join(', ') : null;
+      var sameCarry = (w.carry || null) === curCarry, samePass = w.pass == null ? oldPass == null || !oldPass.length : oldPass && w.pass === oldPass.map(function (e) { return e.name + '=' + (e.source === 'ask' ? '?' : e.source === 'value' ? e.value : '^' + e.from); }).join(', ');
+      if (sameCarry && samePass) return;
+      relink.push({ k: k, st: st, carry: w.carry, pass: w.pass });
+    });
     o.steps.forEach(function (st) {
       if (st.fields.carry == null || list_(st.fields.carry).indexOf(from) < 0) return;
+      if (childOf(st)) return;
       /* The folder already said this step passes it to that child: once is enough. */
       if (st.fields.process && stop.some(function (d) { return d.text.indexOf(' passes ^' + from + ' to ' + st.fields.process + ' ') >= 0; })) return;
       stop.unshift({ refuse: true, text: 'The step “' + short(st.text) + '” passes ^' + from + ' to ' + (st.fields.process || 'its process') + ' under this name. Renaming it would stop that.' });
@@ -4616,18 +4733,28 @@ PF.outline = (function () {
       ph.whenLines.forEach(whenLine);
       if (ph.gate && ph.gate.approvesLine >= 0) put(ph.gate.approvesLine, swap(lines[ph.gate.approvesLine]));
     });
+    var relinked = function (st) { return relink.filter(function (r) { return r.st === st; })[0] || null; };
     o.steps.forEach(function (st) {
-      var q = st.parts;
+      var q = st.parts, rl = relinked(st);
       put(st.line, q.pre + q.typePart + swap(q.rest) + q.idSuffix + crOf(o, st.line));
       st.whenLines.forEach(whenLine);
       Object.keys(st.fieldLines).forEach(function (f) {
         var i = st.fieldLines[f], fm = /^(\s{2,}[\w-]+:\s*)(.*?)(\r?)$/.exec(lines[i]);
+        if (rl && (f === 'carry' || f === 'pass')) { var nv = f === 'carry' ? rl.carry : rl.pass; if (nv == null) { lines[i] = null; n++; } else put(i, fm[1] + nv + fm[3]); return; }
         if (f === 'sets') put(i, fm[1] + fm[2].split(',').map(function (e) { return e.trim() === from ? e.replace(from, to) : e; }).join(',') + fm[3]);
         else if (f !== 'carry') put(i, fm[1] + swap(fm[2]) + fm[3]);
       });
+      /* A new pass: line goes after the step's last field line. */
+      if (rl && rl.pass != null && !own_(st.fieldLines, 'pass')) {
+        var last = Object.keys(st.fieldLines).map(function (f) { return st.fieldLines[f]; }).filter(function (i) { return lines[i] !== null; }).reduce(function (m, i) { return Math.max(m, i); }, st.line);
+        var ind = (/^(\s+)/.exec(lines[st.fieldLines.process != null ? st.fieldLines.process : last] || '') || [, '  '])[1];
+        lines[last] = lines[last].replace(/\r$/, '') + crOf(o, last) + '\n' + ind + 'pass: ' + rl.pass + crOf(o, last);
+        n++;
+      }
     });
+    lines = lines.filter(function (l) { return l !== null; });
     var named = function (x) { return x === from ? to : x; };
-    var res = done(o, text, lines, function (A) {
+    var res = done(o, text, lines, function (A, B) {
       var m = A.meta;
       m.context = m.context.map(named);
       if (m.detailTypes && own_(m.detailTypes, from)) { var dt = Object.create(null); Object.keys(m.detailTypes).forEach(function (k) { dt[named(k)] = m.detailTypes[k]; }); m.detailTypes = dt; }
@@ -4643,6 +4770,20 @@ PF.outline = (function () {
           });
         });
       });
+      /* Relinked steps: exactly the carry: and pass: written, every other field as before, in the new text's field order. */
+      var as = [], bs = [];
+      A.phases.forEach(function (ph) { ph.steps.forEach(function (x) { as.push(x); }); });
+      B.phases.forEach(function (ph) { ph.steps.forEach(function (x) { bs.push(x); }); });
+      var ok = true;
+      relink.forEach(function (rl) {
+        var x = as[rl.k], y = bs[rl.k]; if (!x || !y) { ok = false; return; }
+        if ((own_(y.fields, 'carry') ? y.fields.carry : null) !== rl.carry || (own_(y.fields, 'pass') ? y.fields.pass : null) !== rl.pass) { ok = false; return; }
+        var nf = {};
+        Object.keys(y.fields).forEach(function (f) { if (f === 'carry' || f === 'pass') nf[f] = y.fields[f]; else if (own_(x.fields, f)) nf[f] = x.fields[f]; else ok = false; });
+        Object.keys(x.fields).forEach(function (f) { if (f !== 'carry' && f !== 'pass' && !own_(nf, f)) ok = false; });
+        x.fields = nf;
+      });
+      if (!ok) return false;
     }, ctx);
     if (res.error || res.same) return res;
     /* Every step's text reads back with its references where they were, only renamed. */
@@ -5304,7 +5445,8 @@ PF.outline = (function () {
       case 'moveTo': return moveStepTo(text, op.step, op.to || {});
       case 'edit': return editStep(text, op.step, op.set || {});
       case 'editText': return editStepText(text, op.step, op.text, { reid: op.reid });
-      case 'renameDetail': return renameDetail(text, op.from, op.to, { depends: op.depends });
+      case 'editLink': return editLink(text, op.key, op.set);
+      case 'renameDetail': return renameDetail(text, op.from, op.to, { depends: op.depends, child: op.child });
       case 'add': return addStep(text, op.to || {}, op);
       case 'delete': return deleteStep(text, op.step);
       case 'addPhase':
@@ -5339,7 +5481,7 @@ PF.outline = (function () {
   function shotKind(op) { return op.step != null ? 'step' : op.gate != null ? 'gate' : 'phase'; }
   function shotKey(op) { return op.step != null ? op.step : op.gate != null ? op.gate : op.phase; }
 
-  return { MODES: MODES, phaseNote: phaseNote, gateNote: gateNote, parse: parse, apply: apply, moveStep: moveStep, moveStepTo: moveStepTo, editStep: editStep, editStepText: editStepText, inPlace: inPlace, renameDetail: renameDetail, usesOf: usesOf, addStep: addStep, deleteStep: deleteStep,
+  return { MODES: MODES, phaseNote: phaseNote, gateNote: gateNote, parse: parse, apply: apply, moveStep: moveStep, moveStepTo: moveStepTo, editStep: editStep, editLink: editLink, editStepText: editStepText, inPlace: inPlace, renameDetail: renameDetail, usesOf: usesOf, addStep: addStep, deleteStep: deleteStep,
     addPhase: addPhase, editPhase: editPhase, movePhase: movePhase, setGate: setGate, removeGate: removeGate, deletePhase: deletePhase,
     addTrack: addTrack, editTrack: editTrack, deleteTrack: deleteTrack, caption: caption, editShots: editShots, places: places, nearest: nearest, diff: diff, keyAt: keyAt, follow: follow, nextPlace: nextPlace,
     checkName: checkName, personOk: function (id) { return typeof id === 'string' && PERSON_RE.test(id) && !reserved(id); } };
@@ -5368,6 +5510,7 @@ PF.timeline = (function () {
     moveShot: ['screenshot move', 'Moved a screenshot of {s}'], removeShot: ['screenshot removal', 'Removed a screenshot from {s}'],
     meta: ['checklist details change', 'Changed the checklist details'], note: ['note change', 'Changed the note of {s}'], when: ['condition change', 'Changed when {s} applies'],
     renameDetail: ['run detail rename', 'Renamed a run detail'],
+    editLink: ['linked step edit', 'Changed what a linked step runs or passes'],
     questions: ['Questions change', 'Changed the Questions section'], removeQuestions: ['Questions removal', 'Removed the Questions section']
   };
   var PREP = { typing: ' in ', paste: ' in ', cut: ' in ', drop: ' in ', correction: ' in ', indent: ' in ', 'new step': ' ', 'new phase': ' ', 'new lane': ' ', 'new field': ' ', 'new evidence': ' ', 'applied correction': ' to ', 'new screenshot': ' to ', 'screenshot removal': ' from ' };
@@ -5793,7 +5936,7 @@ PF.publish = (function () {
 
   /* Returns { folder, files } or { blockers }. */
   function build(draftMd, opts) {
-    var map = M.parse(draftMd), c = M.check(map, { people: opts.people, types: opts.customTypes, workflows: opts.workflows, processes: opts.processes });
+    var map = M.parse(draftMd), c = M.check(map, { people: opts.people, types: opts.customTypes, workflows: opts.workflows, processes: opts.processes, children: opts.childProcs ? PF.links.childrenFrom(opts.childProcs) : opts.children });
     if (c.blockers.length) return { blockers: c.blockers };
     if (!opts.by) return { blockers: ['Choose who you are before publishing.'] };
     var changes = String(opts.changes || '').trim();
@@ -10842,6 +10985,16 @@ PF.health = (function () {
       paths: plansN.map(function (u) { return u.path; }), action: help(HELP.planUnnamed), help: HELP.planUnnamed });
     if (ignored.length) add({ id: 'ignored-files', severity: 'info', area: 'Files', title: plural(ignored.length, 'file') + ' in validations/ or proposals/ ' + (ignored.length === 1 ? 'isn\'t' : 'aren\'t') + ' Flightdeck\'s',
       detail: ignored[0].path + ' is JSON, but not a sign-off or plan, so Flightdeck ignores it. Move it out of that folder.', paths: ignored.map(function (u) { return u.path; }), action: help(HELP.unreadable), help: HELP.unreadable });
+    /* C3 (2.8): a published checklist whose linked step can't start its child as that child is now. */
+    var byId = Object.create(null); procs.forEach(function (p) { if (p && p.id) byId[p.id] = p; });
+    procs.forEach(function (p) {
+      if (!p || !p.latest || !p.latest.map) return;
+      PF.links.broken(p.latest.map, PF.links.childrenFrom(function (n) { return byId[n] || null; })).forEach(function (b) {
+        add({ id: 'link-broken:' + p.id + ':' + b.step.id, severity: 'warn', area: 'Checklists', title: 'A linked step can\'t start its child',
+          detail: (p.latest.map.meta.title || p.id) + ' step "' + b.step.text.slice(0, 40) + '" passes ' + b.names.join(', ') + ' to ' + b.title + ', whose latest version (v' + b.version + ') doesn\'t have ' + (b.names.length > 1 ? 'them' : 'it') + '. New runs can\'t start that child until ' + (p.latest.map.meta.title || p.id) + ' changes. Publish a version that passes what ' + b.title + ' has.',
+          paths: ['maps/drafts/' + p.id + '.md'], action: { act: 'open-process', id: p.id, label: 'Open the process' } });
+      });
+    });
     if (!failed.length && !otherUnread.length && !runUnread.length && !vals.length && !plansU.length && !plansN.length) ok('readable', scan ? 'Every file Flightdeck uses can be read (' + plural(scan.files, 'file') + ').' : 'Every run file can be read.');
 
     /* ---- plans started whose run isn't in the folder (2.1.1) ---- */
@@ -16261,11 +16414,12 @@ PF.repo = (function () {
   }
 
   /* Write the map and types first and the publication record last, so a half-synced publication is never mistaken for a complete one. */
-  /* The processes a draft pins with version: (2.0), read from the folder as the app lists them ({ latest, all, clashes,
-     broken }), so publish.build resolves each pin to exactly one usable folder. */
+  /* Every process a draft's linked steps run, read from the folder as the app lists them ({ latest, all, clashes, broken }),
+     so publish.build resolves each version: pin to exactly one usable folder and checks what each step passes (2.8) against
+     the child as it is now. What was just read wins over what the caller had in memory. */
   function childProcsFor(fs, parsed) {
     var names = [];
-    PF.map.steps(parsed).forEach(function (x) { var f = x.step.fields || {}; if (x.step.type === 'run.process' && f.version != null && f.process && names.indexOf(f.process) < 0) names.push(f.process); });
+    PF.map.steps(parsed).forEach(function (x) { var f = x.step.fields || {}; if (x.step.type === 'run.process' && f.process && names.indexOf(f.process) < 0) names.push(f.process); });
     var out = Object.create(null);
     return Promise.all(names.map(function (name) { return readProcess(fs, name).then(function (p) { if (p) out[name] = p; }); })).then(function () { return out; });
   }
@@ -16285,7 +16439,7 @@ PF.repo = (function () {
   }
   function publish(fs, draftMd, opts) {
     return childProcsFor(fs, PF.map.parse(draftMd)).then(function (kids) {
-      if (Object.keys(kids).length) opts = Object.assign({}, opts, { childProcs: Object.assign({}, kids, opts.childProcs || {}) });
+      opts = Object.assign({}, opts, { childProcs: Object.assign({}, opts.childProcs || {}, kids) });
       return publishWith(fs, draftMd, opts);
     });
   }
@@ -16331,7 +16485,7 @@ PF.repo = (function () {
   function stage(fs, draftMd, opts) {
     return childProcsFor(fs, PF.map.parse(draftMd)).then(function (kids) {
       var o = Object.assign({}, opts, { stage: true });
-      if (Object.keys(kids).length) o.childProcs = Object.assign({}, kids, opts.childProcs || {});
+      o.childProcs = Object.assign({}, opts.childProcs || {}, kids);
       var built = P.build(draftMd, o);
       if (built.blockers) return built;
       var parsed = PF.map.parse(draftMd), proc = parsed.meta.process, base = 'staged/' + proc + '/' + built.folder + '/';
@@ -18213,7 +18367,8 @@ PF.guide = (function () {
       assignee: e('Assign it to?', 'dana@acme.com', S), linkTo: e('Link it to which issue?', 'PAY-1200', S), set: e('Which fields do you set?', 'Fix Version=^tag', S + ' ^details are filled in.') },
     'run.process': { process: e('Which process? (its file name)', 'database-migration', 'The process\'s file name, not its title: it\'s looked up by that exact ID. Whoever reaches this step starts its run from here (Start), and it links back.'),
       carry: e('Which run details does it pass on?', 'tag, environment', 'Left empty, it passes on every run detail the other process also has.', true),
-      version: e('Which version of it?', '3', 'Left empty, the run uses its latest published version.', true) },
+      version: e('Which version of it?', '3', 'Left empty, the run uses its latest published version.', true),
+      pass: e('What does each of its details get?', 'environment=^env, region=us-east-1, notify=?', 'name=^detail passes this run\'s detail under another name, name=? asks it when it starts, and anything else is a fixed value. Left empty, it passes what carry: says. Needs Flightdeck 2.8.', true) },
     'run.command': { command: e('What do you run?', 'git fetch origin && git rebase origin/main', COPY), where: e('Where do you run it?', 'a terminal in the payments-api repo', S),
       expected: e('What should you see?', 'Successfully rebased', S + ' It\'s what they compare against.') },
     'run.script': { script: e('Which script?', 'scripts/smoke-test.sh', 'Shown with a Copy button.'), args: e('With which arguments?', '--env staging', 'Shown with a Copy button.'),
@@ -18292,6 +18447,11 @@ PF.guide = (function () {
     backup: e('Who stands in for them?', '', 'Signs off only while the owner is away. Left empty, no one stands in.', true),
     role: e('Add a role', 'release-manager', 'Steps and gates can be given to a role. One at a time; an empty name adds nothing.', true),
     context: e('Add a run detail each run needs', 'tag', 'Asked when a run starts; steps can use it as ^name. One at a time; an empty name adds nothing.', true),
+    'link-proc': e('Which process does it run?', '', 'Its run starts from this step and links back; this step is checked when it completes.', true),
+    'link-proc-other': e('Which process ID?', 'database-migration', 'For a process that isn\'t in this folder yet: its file name, not its title.', true),
+    'link-vn': e('Which version, always?', '', 'Every run of this checklist starts that exact version, even after a newer one is published.', true),
+    'link-src': e('Where does this detail come from?', '', 'This run\'s detail (even under another name), a fixed value, or asked when the other process starts.', true),
+    'link-val': e('Which fixed value?', 'us-east-1', 'Every run passes exactly this. At most 120 characters, no commas.', true),
     'pr-host': e('Where is the pull request?', '', 'Changes the step between a GitHub and a Bitbucket pull request. Every value is kept; what the other one doesn\'t use is flagged.', true),
     questions: e('What\'s still to be answered?', 'Who approves a hotfix?', 'Questions for the owner, written while drafting. Left in, the checklist can\'t be published; answer them in the steps, then remove the section.', true)
   };
@@ -19216,11 +19376,15 @@ PF.vk = (function () {
     h += editingNote(ctx, p);
     if (p.clashes.length) h += '<div class="notice bad"><span>Two people published version ' + p.clashes.join(', ') + ' at the same time. Neither is used until one is removed from <code>publications/' + esc(p.id) + '</code>. Publish again to make a clean next version.</span></div>';
     p.broken.forEach(function (b) { h += '<div class="notice warn"><span>' + esc(b.folder) + ': ' + esc(b.why) + '</span></div>'; });
+    /* C3 (2.8): the latest version's linked steps that can't start their child as it is now. */
+    if (pub && ctx.procOf) PF.links.broken(pub.map, PF.links.childrenFrom(ctx.procOf)).forEach(function (b) {
+      h += '<div class="notice warn" role="status"><span>Step "' + esc(b.step.text.slice(0, 40)) + '" passes ' + esc(b.names.join(', ')) + ' to ' + esc(b.title) + ', whose latest version (v' + esc(b.version) + ') doesn\'t have ' + (b.names.length > 1 ? 'them' : 'it') + '. New runs can\'t start that child until this checklist changes.</span></div>';
+    });
     /* One page: the checklist in the middle, edited in place; how runs go opens on its own with a way back. */
     if (V.tabOf(ctx) === 'insights') return h + '<div class="row"><button class="mini" data-act="ptab" data-id="overview">' + I('back') + 'Back to the checklist</button></div>' + (insights(ctx, p) || '<section class="panel"><p class="small">No runs yet. This fills in after the first run.</p></section>');
     h += '<div class="pgrid"><div class="stack">';
     if (p.draft && p.draftChanged) {
-      var c = M.check(M.parse(p.draft.md), { people: ctx.data.people, types: (ctx.data.stepTypes || {}).types, workflows: (ctx.data.jira || {}).workflows, processes: ctx.processes().filter(function (x) { return x.latest; }).map(function (x) { return x.id; }) });
+      var c = M.check(M.parse(p.draft.md), { people: ctx.data.people, types: (ctx.data.stepTypes || {}).types, workflows: (ctx.data.jira || {}).workflows, processes: ctx.processes().filter(function (x) { return x.latest; }).map(function (x) { return x.id; }), children: ctx.procOf ? PF.links.childrenFrom(ctx.procOf) : null, parents: ctx.processes() });
       h += '<section class="panel"><div class="row between"><h2 style="margin:0">Draft · ' + esc(p.draft.file) + '</h2><span class="small">' + (p.typesChanged && p.typesChanged.length ? 'Step type ' + p.typesChanged.join(', ') + ' changed since v' + pub.info.version + '; publish to use it' : p.draftChanged ? 'Has changes not yet published' : 'Same as the published version') + '</span></div>' + checkList(c);
       if (p.draftChanged) {
         /* Publishing takes the draft in the folder: while newer edits wait unsaved in the editor, it would publish the older text. */
@@ -19361,7 +19525,7 @@ PF.vk = (function () {
     h += d.tooMany ? '<p class="small">Too many changes to show line by line.</p>' : capDiff(d.rows);
     var ids = PF.proposals.ids(draftText, ov.proposal.text);
     if (ids.removed.length || ids.renamed.length) h += '<div class="notice warn"><span>' + (ids.removed.length ? 'Step or phase IDs this removes: ' + esc(ids.removed.slice(0, 20).join(', ')) + '. ' : '') + (ids.renamed.length ? 'IDs it changes: ' + esc(ids.renamed.slice(0, 20).map(function (r) { return r.from + ' → ' + r.to; }).join(', ')) + '. ' : '') + 'Runs and skills that name them will need a look.</span></div>';
-    var c = M.check(M.parse(ov.proposal.text), { people: ctx.data.people, types: (ctx.data.stepTypes || {}).types, workflows: (ctx.data.jira || {}).workflows, processes: ctx.processes().filter(function (q) { return q.latest; }).map(function (q) { return q.id; }) });
+    var c = M.check(M.parse(ov.proposal.text), { people: ctx.data.people, types: (ctx.data.stepTypes || {}).types, workflows: (ctx.data.jira || {}).workflows, processes: ctx.processes().filter(function (q) { return q.latest; }).map(function (q) { return q.id; }), children: ctx.procOf ? PF.links.childrenFrom(ctx.procOf) : null, parents: ctx.processes() });
     h += '<h3 class="small">Checks on the proposed text</h3>' + checkList(c);
     var blocked = recs.some(function (r) { return !r.rec; }), acts = '';
     if (x.fit === 'ready' && !blocked && x.rec.state !== 'applied' && x.rec.state !== 'applied-twice') acts += '<button type="button" class="btn go" data-act="prop-apply" data-id="' + esc(x.id) + '"' + (ov.busy ? ' disabled' : '') + '>' + (recs.length ? 'Apply again' : 'Apply') + '</button>';
@@ -21474,10 +21638,64 @@ PF.vk = (function () {
   /* A step's fields: the type's that apply, shown when usual for it as it stands, holding a value or revealed (or else its
      first two), the rest behind "+ add" chips; then any value it doesn't use, flagged; then the fields every type accepts,
      under More about this step. */
+  /* The child a linked step names, for the builder (2.8): the pinned version, or the latest published, or (not published
+     yet) its saved draft, which can't be checked until it's published. { map, title, version, latest, draft, nextAdds } */
+  function linkChildOf(ctx, process, version) {
+    var e = process && ctx.procOf ? ctx.procOf(process) : null; if (!e) return null;
+    var dm = null; if (e.draft && e.draft.md != null) { try { dm = M.parse(e.draft.md); } catch (x) { dm = null; } }
+    if (version) { var at = PF.pins.atVersion(e, process, +version); return at.pub ? { map: at.pub.map, title: at.pub.map.meta.title || process, version: at.pub.info.version } : null; }
+    if (e.latest) {
+      var adds = dm ? dm.meta.context.filter(function (n) { return e.latest.map.meta.context.indexOf(n) < 0; }) : [];
+      return { map: e.latest.map, title: e.latest.map.meta.title || process, version: e.latest.info.version, latest: true, nextAdds: adds };
+    }
+    return dm ? { map: dm, title: dm.meta.title || process, version: null, latest: true, draft: true } : null;
+  }
+  /* A {run.process} step's own section (2.8): which process, which version, and what each of its details gets. Every change
+     is one O.editLink. */
+  function linkSection(ctx, p, text, s, meta) {
+    var f = s.fields, map = M.parse(text), x = M.findStep(map, s.id) || { step: null }, st = x.step; if (!st) return '';
+    var procs = ctx.processes().filter(function (e) { return e.id !== meta.process; }), other = ctx.state.obLinkOther === s.key || (f.process && !procs.some(function (e) { return e.id === f.process; }));
+    var h = '<h3 class="ob-sec">Which process</h3><label class="field" for="ob-link-proc">' + esc(G.form('link-proc').q) + '<select id="ob-link-proc" data-bound><option value=""' + (!f.process ? ' selected' : '') + '>Choose one</option>' +
+      procs.map(function (e) { return '<option value="' + esc(e.id) + '"' + (e.id === f.process && !other ? ' selected' : '') + '>' + esc((e.title || e.id) + ' (' + e.id + ') · ' + (e.latest ? 'v' + e.latest.info.version : 'not published yet')) + '</option>'; }).join('') +
+      '<option value="__other"' + (other ? ' selected' : '') + '>Other ID…</option></select></label>';
+    if (other) h += '<label class="field" for="ob-link-proc-other">' + esc(G.form('link-proc-other').q) + '<input id="ob-link-proc-other" maxlength="60" value="' + esc(f.process || '') + '" data-enter="ob-commit"></label>';
+    var e = f.process && ctx.procOf ? ctx.procOf(f.process) : null;
+    if (f.process && e) {
+      var types = T.freeze(M.usedTypes(map), (ctx.data.stepTypes || {}).types || {}), two = PF.publish.features(map, types).length > 0;
+      var nums = []; (e.all || []).forEach(function (v) { if (nums.indexOf(v.info.version) < 0) nums.push(v.info.version); });
+      nums.sort(function (a, b) { return b - a; });
+      var pinned = !!f.version;
+      h += '<fieldset class="field"><legend>Which version</legend><label class="ob-switch" for="ob-link-ver-latest"><input type="radio" name="ob-link-ver" id="ob-link-ver-latest" value="latest" data-bound' + (pinned ? '' : ' checked') + '><span><b>' + (two ? 'Latest when this run starts' : 'Latest when the child starts') + '</b></span></label>';
+      if (nums.length) h += '<label class="ob-switch" for="ob-link-ver-pin"><input type="radio" name="ob-link-ver" id="ob-link-ver-pin" value="pin" data-bound' + (pinned ? ' checked' : '') + '><span><b>Always one version</b></span></label><label class="field" for="ob-link-vn">' + esc(G.form('link-vn').q) + '<select id="ob-link-vn" data-bound>' +
+        nums.map(function (n) { var at = PF.pins.atVersion(e, f.process, n); return '<option value="' + n + '"' + (String(n) === String(f.version) ? ' selected' : '') + (at.why ? ' disabled' : '') + '>v' + n + (at.why ? ' (' + esc(at.why) + ')' : '') + '</option>'; }).join('') + '</select></label>';
+      h += '</fieldset>';
+    }
+    var kid = f.process ? linkChildOf(ctx, f.process, f.version) : null;
+    if (!kid) return h + (f.process ? '<p class="small">' + esc(f.process) + ' isn\'t in this folder, so what it needs can\'t be shown.</p>' : '');
+    var rr = PF.links.rows(st, meta.context, kid.map), setBy = M.setBy(kid.map), fixed = ctx.state.obLinkFixed || {}, t = kid.title;
+    h += '<h3 class="ob-sec">What ' + esc(t) + ' needs</h3>' + (kid.draft ? '<p class="small">' + esc(t) + ' isn\'t published yet, so this can\'t be checked until it is.</p>' : '') +
+      (kid.nextAdds && kid.nextAdds.length ? '<p class="small">' + esc(t) + '\'s draft adds ^' + kid.nextAdds.map(esc).join(', ^') + '.</p>' : '');
+    var kinds = meta.detailTypes || {}, kindOf = function (n) { return ownKey(kinds, n) && kinds[n] ? ' (' + esc(kinds[n].kind || 'text') + ')' : ''; };
+    rr.rows.forEach(function (r) {
+      var sid = 'ob-link-src-' + r.name, cur = r.source === 'value' || fixed[s.key + ':' + r.name] ? '=' : r.source === 'detail' ? '^' + r.from : '?';
+      h += '<div class="field ob-link-row"><label for="' + esc(sid) + '"><b>' + esc(r.name) + '</b> <span class="small">' + esc(r.kind) + (ownKey(setBy, r.name) ? ' · ' + esc(t) + ' also sets this itself, later' : '') + '</span></label><select id="' + esc(sid) + '" data-bound>' +
+        meta.context.map(function (n) { return '<option value="^' + esc(n) + '"' + (cur === '^' + n ? ' selected' : '') + '>This run\'s ^' + esc(n) + kindOf(n) + '</option>'; }).join('') +
+        '<option value="="' + (cur === '=' ? ' selected' : '') + '>A fixed value</option><option value="?"' + (cur === '?' ? ' selected' : '') + '>' + (ownKey(setBy, r.name) ? esc(t) + ' fills this in itself' : 'Asked when ' + esc(t) + ' starts') + '</option></select>';
+      if (cur === '=') h += '<label class="field" for="ob-link-val-' + esc(r.name) + '">' + esc(G.form('link-val').q) + '<input id="ob-link-val-' + esc(r.name) + '" maxlength="120" value="' + esc(r.value || '') + '" data-enter="ob-commit"></label>';
+      h += '</div>';
+    });
+    rr.stale.forEach(function (x) {
+      h += '<div class="notice warn" role="status"><span>' + esc(t) + (kid.version ? ' v' + esc(kid.version) : '') + ' has no run detail ' + esc(x.name) + ', so this step can\'t pass it.</span><button type="button" class="mini" data-act="ob-link-rm" data-id="' + esc(s.key) + '" data-name="' + esc(x.name) + '">Remove ^' + esc(x.name) + ' from what\'s passed</button></div>';
+    });
+    return h;
+  }
   function fieldsSection(ctx, p, text, o, s, def, meta) {
     var f = s.fields, shown = shownOf(ctx, p, s), names = def ? Object.keys(def.fields || {}) : [];
     var pins = def && !def.custom && ownKey(T.PINS, def.id) ? Object.keys(T.PINS[def.id]) : [];
     var apply = names.filter(function (n) { return T.applies(def, n, f); }).concat(pins);
+    /* A linked step's process, version, carry: and pass: are its own section (2.8). */
+    var linked = s.type === 'run.process' && def && !def.custom;
+    if (linked) apply = apply.filter(function (n) { return ['process', 'version', 'carry', 'pass'].indexOf(n) < 0; });
     var show = function (n) { return !!f[n] || !!shown[n] || (ownKey(def.fields, n) && G.usual(def.fields[n], f)); };
     var rows = apply.filter(show); if (!rows.length) rows = apply.slice(0, 2);
     var common = Object.keys(T.COMMON), times = ['at', 'due', 'after'].filter(function (n) { return f[n]; });
@@ -21491,7 +21709,7 @@ PF.vk = (function () {
       return times.length > 1 && times.indexOf(n) >= 0 ? 'Give one time, "at:", "due:" or "after:", not more than one.' : '';
     };
     var waiting = apply.filter(function (n) { return rows.indexOf(n) < 0; });
-    var h = '<h3 class="ob-sec">Fields</h3>' + (isPr(s.type) ? choices(ctx, 'ob-host', G.form('pr-host'), PRS, s.type, null, HOSTS) : '') + (!names.length && !pins.length && !unused.length ? '<p class="small">This type asks for nothing more.</p>' : '') +
+    var h = (linked ? linkSection(ctx, p, text, s, meta) : '') + '<h3 class="ob-sec">Fields</h3>' + (isPr(s.type) ? choices(ctx, 'ob-host', G.form('pr-host'), PRS, s.type, null, HOSTS) : '') + (!names.length && !pins.length && !unused.length ? '<p class="small">This type asks for nothing more.</p>' : '') +
       rows.map(function (n) { return fieldRow(ctx, def, s, n); }).join('') + unused.map(function (n) { return fieldRow(ctx, def, s, n, flag(n)); }).join('') +
       (waiting.length ? '<div class="row ob-adds" role="group" aria-label="More boxes for this step">' + waiting.map(function (n) { return addChip(def, n, G.field(def, n, f)); }).join('') + '</div>' : '');
     var ev = evidenceOf(ctx, text, o, s), cRows = common.filter(function (n) { return !!f[n] || !!shown[n]; }), cWait = common.filter(function (n) { return cRows.indexOf(n) < 0; });
@@ -21526,6 +21744,19 @@ PF.vk = (function () {
     var h = '<details class="ob-when" data-disc="' + esc(dk) + '"' + (open ? ' open' : '') + '><summary>Only when…</summary>';
     if (t.whenOdd || t.odd) return h + '<ul class="small">' + t.when.map(function (w) { return '<li>' + esc(w) + '</li>'; }).join('') + '</ul><p class="small">Written in a way the builder can\'t keep exactly. Edit them in Markdown.</p></details>';
     return h + formBox(ctx, id, id === 'ob-ph-when' ? 'ph-when' : 'when', 'textarea', ' rows="2"', '\n' + esc(t.when.join('\n'))) + '</details>';
+  }
+  /* Part G (2.8): what the step uses, sets and, for a linked step, passes to its child, said once below its fields. */
+  function ioLines(ctx, map, id) {
+    var x = M.findStep(map, id); if (!x) return '';
+    var st = x.step, f = st.fields || {}, got = st.type === 'run.process' && f.process && ctx.procOf ? PF.links.childrenFrom(ctx.procOf)(f.process, f.version || '') : null;
+    var io = PF.links.io(map, st, got && got.map ? got.map : null, { types: teamTypes(ctx) }), out = [];
+    if (io.uses.length) out.push('<b>Uses:</b> ' + io.uses.map(function (u) { return '<code>^' + esc(u.name) + '</code> (' + esc(u.where) + ')'; }).join(', '));
+    if (io.sets.length) out.push('<b>Sets:</b> ' + io.sets.map(function (n) { return '<code>^' + esc(n) + '</code>'; }).join(', '));
+    if (io.passes) {
+      var given = io.passes.filter(function (r) { return r.source !== 'ask'; });
+      out.push('<b>Passes to ' + esc(got.title) + ':</b> ' + (given.length ? given.map(function (r) { return esc(r.name) + (r.source === 'value' ? ' = ' + esc(r.value) : ' ← ^' + esc(r.from)); }).join(', ') : 'nothing') + (given.length < io.passes.length ? '; asks ' + io.passes.filter(function (r) { return r.source === 'ask'; }).map(function (r) { return esc(r.name); }).join(', ') : ''));
+    } else if (io.shared) out.push('May also pass details ' + esc(f.process || 'the other process') + ' shares with this checklist.');
+    return out.length ? '<div class="small ob-io">' + out.map(function (l) { return '<p>' + l + '</p>'; }).join('') + '</div>' : '';
   }
   function askOf(ctx, kind, key, track) { var a = ctx.state.obAsk; return a && a.kind === kind && a.key === key && (track == null || +a.track === +track) ? a : null; }
   /* The side form for what's selected: a step's text, kind, type, roles, run details and fields; a lane; or a phase and its
@@ -21563,6 +21794,7 @@ PF.vk = (function () {
       var gn = G.step('note');
       h += '<label class="field" for="ob-note">' + esc(gn.q) + '<textarea id="ob-note" rows="3" maxlength="2000"' + egOf(gn) + describe(ctx, 'ob-note', gn) + '>\n' + esc(s.note) + '</textarea></label>' + whyOf('ob-note', gn) + errMsg(ctx, 'ob-note');
       h += whenSection(ctx, p, s, 'ob-when', meta);
+      h += ioLines(ctx, here.map, s.id);
       h += shotsSection(ctx, p, s);
       h += source(ctx, s.id, 'step', U.slug(s.text, 24), '<p class="small">Type <code>{' + esc(s.type || '?') + '}</code>' + (names.length ? ' · fields ' + names.map(function (f) { return '<code>' + esc(f) + '</code>'; }).join(' ') : '') + '</p>');
       h += '<div class="row"><button type="button" class="mini" data-act="ob-move" data-id="' + esc(s.key) + '" data-dir="up">Move up</button><button type="button" class="mini" data-act="ob-move" data-id="' + esc(s.key) + '" data-dir="down">Move down</button>' +
@@ -21708,7 +21940,7 @@ PF.vk = (function () {
       (d.added.length > 40 ? '<li class="small">and ' + (d.added.length - 40) + ' more</li>' : '') + '</ol></details>';
   }
 
-  V.builder = builder; V.builderForm = builderForm; V.obPartsPane = partsPane; V.changedLines = changedLines;
+  V.builder = builder; V.builderForm = builderForm; V.linkChildOf = linkChildOf; V.obPartsPane = partsPane; V.changedLines = changedLines;
   V.obPrHost = prHost; V.obParts = parts; V.obPart = partOf; V.obPartsSheet = partsSheet; V.obSentence = sentence; V.obNowhere = nowhere;
 })();
 
@@ -21772,7 +22004,7 @@ PF.vk = (function () {
   function editTab(ctx, p) {
     var st = ctx.state, ed = st.editor && st.editor.pid === p.id && st.editor.fsKey === ctx.fsKey ? st.editor : null;
     var text = ed && ed.text != null ? ed.text : ed ? ed.base : p.draft ? p.draft.md : p.latest ? p.latest.md : '';
-    var map = M.parse(text), c = M.check(map, { people: ctx.data.people, types: (ctx.data.stepTypes || {}).types, workflows: (ctx.data.jira || {}).workflows, processes: ctx.processes().filter(function (x) { return x.latest; }).map(function (x) { return x.id; }) });
+    var map = M.parse(text), c = M.check(map, { people: ctx.data.people, types: (ctx.data.stepTypes || {}).types, workflows: (ctx.data.jira || {}).workflows, processes: ctx.processes().filter(function (x) { return x.latest; }).map(function (x) { return x.id; }), children: ctx.procOf ? PF.links.childrenFrom(ctx.procOf) : null, parents: ctx.processes() });
     var dirty = ed && ed.text != null && ed.text !== ed.base || st.obPending === p.id, file = p.draft ? p.draft.file : p.id + '.md', saving = (st.draftSaving || {})[ctx.fsKey + '\n' + p.id];
     var builder = st.builder !== false, o = PF.outline.parse(text), sel = builder && !o.unsupported && st.obSel && st.obSel.pid === p.id ? st.obSel : null;
     var practicing = !!(st.practicing || {})[ctx.fsKey + '\n' + p.id];
@@ -23975,6 +24207,14 @@ PF.examples = (function () {
   /* A process by ID (2.5.0): one look in a map built once for each list processes() makes, keeping the first entry for an ID
      as the old filter()[0] did. */
   var procBy = { list: null, by: null };
+  /* A linked step's child for a rename (2.8): a pinned version's map, or the latest published and the saved draft. */
+  function renameChild(process, pin) {
+    var e = procFind(process); if (!e) return null;
+    if (pin) { var at = PF.pins.atVersion(e, process, +pin); return at.pub ? at.pub.map : null; }
+    var out = e.latest ? [e.latest.map] : [];
+    if (e.draft && e.draft.md != null) { try { out.push(M.parse(e.draft.md)); } catch (x) { /* an unreadable draft takes nothing */ } }
+    return out;
+  }
   function renameDeps(map, name) {
     var me = map.meta.process, others = [];
     processes().forEach(function (e) {
@@ -27466,6 +27706,38 @@ PF.examples = (function () {
     builderField(box, cur.join(', '), gone ? '#' + box + (left ? ' [data-act]' : '') : '[data-act="' + act + '"][data-id="' + cssEsc(id) + '"]');
   }
   /* focus: where focus goes after the change, when it isn't the box itself (a requirement chip). */
+  /* What a change in a linked step's section (2.8) sets with O.editLink, or null (redraw only). Sources keep what still
+     applies: PF.links.write gives the shortest carry: and pass: lines meaning exactly the rows wanted. */
+  function linkSet(o, key, id, value) {
+    var st0 = o.steps.filter(function (x) { return x.key === key; })[0]; if (!st0) return null;
+    var text = edText(currentProcess()), map = M.parse(text), x = M.findStep(map, st0.id); if (!x) return null;
+    var st = x.step, f = st.fields, fixed = state.obLinkFixed = state.obLinkFixed || {};
+    if (id === 'ob-link-proc') {
+      if (value === '__other') { state.obLinkOther = key; return null; }
+      state.obLinkOther = null; return { process: value, version: null };
+    }
+    if (id === 'ob-link-proc-other') return value.trim() ? { process: value.trim(), version: null } : null;
+    if (id === 'ob-link-ver') {
+      if (value === 'latest') return { version: null };
+      var e = procFind(f.process), nums = e ? (e.all || []).map(function (v) { return v.info.version; }).filter(function (n) { return !PF.pins.atVersion(e, f.process, n).why; }) : [];
+      return nums.length ? { version: String(Math.max.apply(null, nums)) } : null;
+    }
+    if (id === 'ob-link-vn') return { version: value };
+    var kid = V.linkChildOf(ctx, f.process, f.version); if (!kid) return null;
+    var rows = PF.links.rows(st, map.meta.context, kid.map).rows, name = id.replace(/^ob-link-(src|val)-/, ''), r = rows.filter(function (y) { return y.name === name; })[0];
+    if (!r) return null;
+    if (/^ob-link-src-/.test(id)) {
+      delete fixed[key + ':' + name];
+      if (value === '=') { if (r.source === 'value') return null; fixed[key + ':' + name] = true; return null; }
+      if (value === '?') { r.source = 'ask'; delete r.from; delete r.value; }
+      else { r.source = 'detail'; r.from = value.replace(/^\^/, ''); delete r.value; }
+    } else {
+      var v = String(value || '').trim(); if (!v) return null;
+      r.source = 'value'; r.value = v; delete r.from; delete fixed[key + ':' + name];
+    }
+    var w = PF.links.write(rows, st, map.meta.context, kid.map);
+    return { carry: w.carry, pass: w.pass };
+  }
   function builderField(id, value, focus) {
     var s = state.obSel, cp = currentProcess(); if (!s || !cp || s.pid !== cp.id) return;
     if (s.kind === 'step' && /^ob-fld-[\w-]+$/.test(id)) obShow(id.slice(7), true);
@@ -27489,6 +27761,11 @@ PF.examples = (function () {
     if (s.kind === 'questions') {
       if (id !== 'ob-q-text') return;
       return obApplied(builderEdit({ op: 'questions', text: value }, id), id, null);
+    }
+    if (s.kind === 'step' && /^ob-link-/.test(id)) {
+      var lset = linkSet(o, s.key, id, value);
+      if (!lset) { render(); return; }
+      return obApplied(builderEdit({ op: 'editLink', key: s.key, set: lset }, id), id);
     }
     if (s.kind === 'step' && id === 'ob-note') return obApplied(builderEdit({ op: 'note', step: s.key, text: value }, id), id, null);
     if (s.kind === 'step' && id === 'ob-when') return obApplied(builderEdit({ op: 'when', step: s.key, text: value }, id), id, null);
@@ -28655,7 +28932,7 @@ PF.examples = (function () {
       if (!to) { state.fieldErr = { id: 'ob', field: 'ob-ren-ctx', msg: 'Type the new name first.' }; state.focus = '#ob-ren-ctx'; render(); return; }
       if (to === from) { state.obRename = null; if (state.obPendingField === 'ob-ren-ctx') dropPending(); state.focus = '[data-act="ob-ren"][data-id="' + cssEsc(from) + '"]'; render(); return; }
       var map; try { map = M.parse(edText(cp)); } catch (e) { map = null; }
-      var res = builderEdit({ op: 'renameDetail', from: from, to: to, depends: map ? renameDeps(map, from) : [] }, 'ob-ren-ctx', 'renamed ^' + from);
+      var res = builderEdit({ op: 'renameDetail', from: from, to: to, depends: map ? renameDeps(map, from) : [], child: renameChild }, 'ob-ren-ctx', 'renamed ^' + from);
       if (!res || res.same) return;
       state.obRename = null; state.fieldErr = null; if (state.obPendingField === 'ob-ren-ctx') dropPending();
       var done = document.getElementById('ob-ren-ctx'); if (done) done.value = '';
@@ -28733,6 +29010,17 @@ PF.examples = (function () {
       var rm = { op: 'removeShot', shot: +id }; rm[s.kind] = s.key;
       var res = builderEdit(rm); if (!res || res.same) return;
       sayUndo('Removed the screenshot from this draft. The image file stays in the folder.'); state.focus = '#ob-shot-new'; render();
+    },
+    /* A name this step passes that its child doesn't have: taken out of carry: and pass: (2.8). */
+    'ob-link-rm': function (id, el) {
+      var o = PF.outline.parse(edText(currentProcess())), st = o.steps.filter(function (x) { return x.key === id; })[0], name = el && el.dataset ? el.dataset.name : '';
+      if (!st || !name) return;
+      var carry = PF.links.carryList({ fields: st.fields }).filter(function (n) { return n !== name; }), pe = PF.links.parse(st.fields.pass).entries.filter(function (e) { return e.name !== name; });
+      var pass = pe.map(function (e) { return e.name + '=' + (e.source === 'ask' ? '?' : e.source === 'value' ? e.value : '^' + e.from); }).join(', ');
+      var set = {}; if (st.fields.carry != null) set.carry = carry.join(', '); if (st.fields.pass != null) set.pass = pass;
+      var res = builderEdit({ op: 'editLink', key: id, set: set }, null, 'removed ^' + name);
+      if (res && !res.same) say('Removed ^' + name + ' from what this step passes. Undo available.', 'good');
+      render();
     },
     'ob-del': function (id) {
       var p = currentProcess(), st = p && PF.outline.parse(edText(p)).steps.filter(function (x) { return x.key === id; })[0];
@@ -30351,6 +30639,8 @@ PF.examples = (function () {
     if (/^ob-(text|type|fld-[\w-]+|ph-title|ph-note|ph-mode|g-title|g-owner|g-approves|tr-title|tr-role|shot-cap-\d+|note|q-text|owner|backup|add-role|add-ctx|when|ph-when)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
     if (e.target.id === 'ob-shot-file' && state.view === 'process' && state.ptab === 'edit') { shotAdd(e.target.files); e.target.value = ''; }
     if (/^ob-mark-(step|must|planned)$/.test(e.target.id || '') && e.target.checked && state.view === 'process' && state.ptab === 'edit') builderField('ob-mark', e.target.id.slice(8));
+    if (/^ob-link-(proc|proc-other|vn|src-[\w-]+|val-[\w-]+)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
+    if (/^ob-link-ver-(latest|pin)$/.test(e.target.id || '') && e.target.checked && state.view === 'process' && state.ptab === 'edit') builderField('ob-link-ver', e.target.value);
     if (/^np-/.test(e.target.id || '') && state.newProc) state.newProc.token = ++npToken;
     if (e.target.id === 'me') { state.me = e.target.value.trim().slice(0, 60); lsSet('me', state.me); forgetStartIfNotMine(); render(); }
     if (e.target.id === 'su-backup' && state.setup) { state.setup.backup = e.target.value; render(); }

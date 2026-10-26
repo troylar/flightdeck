@@ -461,6 +461,14 @@
   /* A process by ID (2.5.0): one look in a map built once for each list processes() makes, keeping the first entry for an ID
      as the old filter()[0] did. */
   var procBy = { list: null, by: null };
+  /* A linked step's child for a rename (2.8): a pinned version's map, or the latest published and the saved draft. */
+  function renameChild(process, pin) {
+    var e = procFind(process); if (!e) return null;
+    if (pin) { var at = PF.pins.atVersion(e, process, +pin); return at.pub ? at.pub.map : null; }
+    var out = e.latest ? [e.latest.map] : [];
+    if (e.draft && e.draft.md != null) { try { out.push(M.parse(e.draft.md)); } catch (x) { /* an unreadable draft takes nothing */ } }
+    return out;
+  }
   function renameDeps(map, name) {
     var me = map.meta.process, others = [];
     processes().forEach(function (e) {
@@ -3952,6 +3960,38 @@
     builderField(box, cur.join(', '), gone ? '#' + box + (left ? ' [data-act]' : '') : '[data-act="' + act + '"][data-id="' + cssEsc(id) + '"]');
   }
   /* focus: where focus goes after the change, when it isn't the box itself (a requirement chip). */
+  /* What a change in a linked step's section (2.8) sets with O.editLink, or null (redraw only). Sources keep what still
+     applies: PF.links.write gives the shortest carry: and pass: lines meaning exactly the rows wanted. */
+  function linkSet(o, key, id, value) {
+    var st0 = o.steps.filter(function (x) { return x.key === key; })[0]; if (!st0) return null;
+    var text = edText(currentProcess()), map = M.parse(text), x = M.findStep(map, st0.id); if (!x) return null;
+    var st = x.step, f = st.fields, fixed = state.obLinkFixed = state.obLinkFixed || {};
+    if (id === 'ob-link-proc') {
+      if (value === '__other') { state.obLinkOther = key; return null; }
+      state.obLinkOther = null; return { process: value, version: null };
+    }
+    if (id === 'ob-link-proc-other') return value.trim() ? { process: value.trim(), version: null } : null;
+    if (id === 'ob-link-ver') {
+      if (value === 'latest') return { version: null };
+      var e = procFind(f.process), nums = e ? (e.all || []).map(function (v) { return v.info.version; }).filter(function (n) { return !PF.pins.atVersion(e, f.process, n).why; }) : [];
+      return nums.length ? { version: String(Math.max.apply(null, nums)) } : null;
+    }
+    if (id === 'ob-link-vn') return { version: value };
+    var kid = V.linkChildOf(ctx, f.process, f.version); if (!kid) return null;
+    var rows = PF.links.rows(st, map.meta.context, kid.map).rows, name = id.replace(/^ob-link-(src|val)-/, ''), r = rows.filter(function (y) { return y.name === name; })[0];
+    if (!r) return null;
+    if (/^ob-link-src-/.test(id)) {
+      delete fixed[key + ':' + name];
+      if (value === '=') { if (r.source === 'value') return null; fixed[key + ':' + name] = true; return null; }
+      if (value === '?') { r.source = 'ask'; delete r.from; delete r.value; }
+      else { r.source = 'detail'; r.from = value.replace(/^\^/, ''); delete r.value; }
+    } else {
+      var v = String(value || '').trim(); if (!v) return null;
+      r.source = 'value'; r.value = v; delete r.from; delete fixed[key + ':' + name];
+    }
+    var w = PF.links.write(rows, st, map.meta.context, kid.map);
+    return { carry: w.carry, pass: w.pass };
+  }
   function builderField(id, value, focus) {
     var s = state.obSel, cp = currentProcess(); if (!s || !cp || s.pid !== cp.id) return;
     if (s.kind === 'step' && /^ob-fld-[\w-]+$/.test(id)) obShow(id.slice(7), true);
@@ -3975,6 +4015,11 @@
     if (s.kind === 'questions') {
       if (id !== 'ob-q-text') return;
       return obApplied(builderEdit({ op: 'questions', text: value }, id), id, null);
+    }
+    if (s.kind === 'step' && /^ob-link-/.test(id)) {
+      var lset = linkSet(o, s.key, id, value);
+      if (!lset) { render(); return; }
+      return obApplied(builderEdit({ op: 'editLink', key: s.key, set: lset }, id), id);
     }
     if (s.kind === 'step' && id === 'ob-note') return obApplied(builderEdit({ op: 'note', step: s.key, text: value }, id), id, null);
     if (s.kind === 'step' && id === 'ob-when') return obApplied(builderEdit({ op: 'when', step: s.key, text: value }, id), id, null);
@@ -5141,7 +5186,7 @@
       if (!to) { state.fieldErr = { id: 'ob', field: 'ob-ren-ctx', msg: 'Type the new name first.' }; state.focus = '#ob-ren-ctx'; render(); return; }
       if (to === from) { state.obRename = null; if (state.obPendingField === 'ob-ren-ctx') dropPending(); state.focus = '[data-act="ob-ren"][data-id="' + cssEsc(from) + '"]'; render(); return; }
       var map; try { map = M.parse(edText(cp)); } catch (e) { map = null; }
-      var res = builderEdit({ op: 'renameDetail', from: from, to: to, depends: map ? renameDeps(map, from) : [] }, 'ob-ren-ctx', 'renamed ^' + from);
+      var res = builderEdit({ op: 'renameDetail', from: from, to: to, depends: map ? renameDeps(map, from) : [], child: renameChild }, 'ob-ren-ctx', 'renamed ^' + from);
       if (!res || res.same) return;
       state.obRename = null; state.fieldErr = null; if (state.obPendingField === 'ob-ren-ctx') dropPending();
       var done = document.getElementById('ob-ren-ctx'); if (done) done.value = '';
@@ -5219,6 +5264,17 @@
       var rm = { op: 'removeShot', shot: +id }; rm[s.kind] = s.key;
       var res = builderEdit(rm); if (!res || res.same) return;
       sayUndo('Removed the screenshot from this draft. The image file stays in the folder.'); state.focus = '#ob-shot-new'; render();
+    },
+    /* A name this step passes that its child doesn't have: taken out of carry: and pass: (2.8). */
+    'ob-link-rm': function (id, el) {
+      var o = PF.outline.parse(edText(currentProcess())), st = o.steps.filter(function (x) { return x.key === id; })[0], name = el && el.dataset ? el.dataset.name : '';
+      if (!st || !name) return;
+      var carry = PF.links.carryList({ fields: st.fields }).filter(function (n) { return n !== name; }), pe = PF.links.parse(st.fields.pass).entries.filter(function (e) { return e.name !== name; });
+      var pass = pe.map(function (e) { return e.name + '=' + (e.source === 'ask' ? '?' : e.source === 'value' ? e.value : '^' + e.from); }).join(', ');
+      var set = {}; if (st.fields.carry != null) set.carry = carry.join(', '); if (st.fields.pass != null) set.pass = pass;
+      var res = builderEdit({ op: 'editLink', key: id, set: set }, null, 'removed ^' + name);
+      if (res && !res.same) say('Removed ^' + name + ' from what this step passes. Undo available.', 'good');
+      render();
     },
     'ob-del': function (id) {
       var p = currentProcess(), st = p && PF.outline.parse(edText(p)).steps.filter(function (x) { return x.key === id; })[0];
@@ -6837,6 +6893,8 @@
     if (/^ob-(text|type|fld-[\w-]+|ph-title|ph-note|ph-mode|g-title|g-owner|g-approves|tr-title|tr-role|shot-cap-\d+|note|q-text|owner|backup|add-role|add-ctx|when|ph-when)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
     if (e.target.id === 'ob-shot-file' && state.view === 'process' && state.ptab === 'edit') { shotAdd(e.target.files); e.target.value = ''; }
     if (/^ob-mark-(step|must|planned)$/.test(e.target.id || '') && e.target.checked && state.view === 'process' && state.ptab === 'edit') builderField('ob-mark', e.target.id.slice(8));
+    if (/^ob-link-(proc|proc-other|vn|src-[\w-]+|val-[\w-]+)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
+    if (/^ob-link-ver-(latest|pin)$/.test(e.target.id || '') && e.target.checked && state.view === 'process' && state.ptab === 'edit') builderField('ob-link-ver', e.target.value);
     if (/^np-/.test(e.target.id || '') && state.newProc) state.newProc.token = ++npToken;
     if (e.target.id === 'me') { state.me = e.target.value.trim().slice(0, 60); lsSet('me', state.me); forgetStartIfNotMine(); render(); }
     if (e.target.id === 'su-backup' && state.setup) { state.setup.backup = e.target.value; render(); }

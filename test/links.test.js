@@ -269,4 +269,62 @@ rule('Run time: a migration waiting in the child on a renamed source holds the s
   same(R.childVerdict(x.parent, x.st, x.parent.steps.dep, kid, () => null), { s: 'done' });
 });
 
+/* ---------- Publishing: every child read fresh from the folder, winning over what the caller had ---------- */
+
+rule('Publishing reads each child from the folder: a pass: name the child lacks blocks it, even when the caller\'s copy had it', async () => {
+  const fsm = new PF.fs.MemoryFS('links:' + Math.random(), null), repo = PF.repo, people = [];
+  const base = { people, customTypes: {}, by: 'person-avery', changes: 'First', existing: [], now: NOW, app: '2.8.0' };
+  const put = (md, id, rand) => { const b = P.build(md, Object.assign({}, base, { rand })); assert.ok(!b.blockers, JSON.stringify(b.blockers)); Object.keys(b.files).forEach(k => fsm.files['publications/' + id + '/' + b.folder + '/' + k] = { t: b.files[k], m: Date.now() }); };
+  put(DEPLOY.replace('environment, region, ticket, notify', 'region, ticket, notify'), 'deploy', 'dp000001');
+  const stale = { deploy: { latest: { map: M.parse(DEPLOY), info: { version: 1 } }, all: [], clashes: [], broken: [] } };
+  const res = await repo.publish(fsm, RELEASE(['  pass: environment=^env']), Object.assign({}, base, { rand: 'rl000001', childProcs: stale }));
+  assert.ok(res.blockers && res.blockers.some(b => /Deploy's latest version \(v1\) has no run detail environment/.test(b)), JSON.stringify(res.blockers));
+  const ok = await repo.publish(fsm, RELEASE(['  pass: region=^env']), Object.assign({}, base, { rand: 'rl000002' }));
+  assert.ok(!ok.blockers, JSON.stringify(ok.blockers));
+});
+
+/* ---------- C3: a child changed later is flagged from the shared verdict, explicit targets only ---------- */
+
+rule('A child that drops a detail breaks only an explicit target: carry: or pass: names it, never an implicit share', () => {
+  const lacking = M.parse(DEPLOY.replace('environment, region, ticket, notify', 'region, notify'));
+  const kids = L.childrenFrom({ deploy: { latest: { map: lacking, info: { version: 3 } }, all: [], clashes: [], broken: [] } });
+  same(L.broken(M.parse(RELEASE([])), kids), [], 'ticket was only shared: it drops out');
+  same(L.broken(M.parse(RELEASE(['  pass: region=^region'])), kids), [], 'what is still there is fine');
+  same(L.broken(M.parse(RELEASE(['  pass: environment=^env'])), kids).map(b => [b.child, b.version, b.names]), [['deploy', 3, ['environment']]]);
+  same(L.broken(M.parse(RELEASE(['  carry: ticket'])), kids).map(b => b.names), [['ticket']]);
+  same(L.broken(M.parse(RELEASE(['  version: 1', '  carry: ticket'])), kids), [], 'a pinned version doesn\'t follow later ones');
+  const parents = [{ id: 'rel', latest: { map: M.parse(RELEASE(['  pass: environment=^env'])) } }, { id: 'other', latest: { map: M.parse(RELEASE([]).replace('process: rel', 'process: other')) } }];
+  same(L.parentsBroken(lacking, parents).map(b => [b.process, b.names]), [['rel', ['environment']]]);
+  const c = M.check(lacking, { parents });
+  assert.ok(c.suggestions.some(x => /Release \(published\) step "Deploy it" passes \^environment to this checklist/.test(x)), JSON.stringify(c.suggestions));
+});
+
+rule('Folder health names a linked step that can\'t start its child, with a way to open the parent', () => {
+  const lacking = M.parse(DEPLOY.replace('environment, region, ticket, notify', 'region, notify'));
+  const procs = [{ id: 'rel', latest: { map: M.parse(RELEASE(['  pass: environment=^env'])), info: { version: 1 } } }, { id: 'deploy', latest: { map: lacking, info: { version: 3 } } }];
+  const rep = PF.health.check({ data: { processes: procs, runs: [], people: [] } }, Date.parse(NOW));
+  const i = rep.issues.filter(x => /^link-broken:/.test(x.id));
+  assert.strictEqual(i.length, 1, JSON.stringify(rep.issues.map(x => x.id)));
+  assert.ok(/passes environment to Deploy, whose latest version \(v3\)/.test(i[0].detail) && i[0].action.act === 'open-process' && i[0].action.id === 'rel');
+});
+
+/* ---------- Part G: each step's inputs and outputs ---------- */
+
+rule('io: a step uses its refs, ties, conditions and what it passes; a linked step without a child map says it may share more', () => {
+  const md = ['---', 'process: rel', 'title: Release', 'context: env, ticket, region, pr', 'roles: lead', '---', '', '## Ship · READ-DO {#ship}',
+    '- [ ] {confirm} Open the PR for ^ticket {#open}', '  sets: pr',
+    '- [ ] {run.process} Deploy it {#dep}', '  process: deploy', '  pass: environment=^env, notify=?', '  only when ^region is set', ''].join('\n');
+  const map = M.parse(md), open = M.findStep(map, 'open').step, dep = M.findStep(map, 'dep').step;
+  const a = L.io(map, open, null);
+  same(a.uses.map(u => u.name), ['ticket']); same(a.sets, ['pr']);
+  assert.strictEqual(a.uses[0].where, 'asked when a run starts');
+  const b = L.io(map, dep, null);
+  same(b.uses.map(u => u.name), ['region', 'env']); assert.ok(b.shared, 'implicit sharing can\'t be listed without the child');
+  const c = L.io(map, dep, M.parse(DEPLOY));
+  same(c.uses.map(u => u.name).sort(), ['env', 'region', 'ticket']); assert.ok(!c.shared);
+  same(c.passes.map(r => r.name + ':' + r.source), ['environment:detail', 'region:detail', 'ticket:detail', 'notify:ask']);
+  const d = L.io(M.parse(md.replace('  pass: environment=^env, notify=?', '  carry: ticket\n  pass: environment=^env')), M.findStep(M.parse(md.replace('  pass: environment=^env, notify=?', '  carry: ticket\n  pass: environment=^env')), 'dep').step, null);
+  same(d.uses.map(u => u.name), ['region', 'ticket', 'env']); assert.ok(!d.shared, 'explicit carry: lists everything');
+});
+
 run();

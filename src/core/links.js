@@ -126,5 +126,76 @@ PF.links = (function () {
     return out;
   }
 
-  return { MAX: MAX, VALUE_MAX: VALUE_MAX, has: has, parse: parse, rows: rows, write: write, values: values, sources: sources, inputs: inputs, carryList: carryList };
+  /* M.check's opts.children from the processes as the app lists them ({ latest, all, clashes, broken }, or { unlisted }):
+     an object by name (just read from the folder, when publishing) or a lookup function (the app's, while editing). A
+     version: pin that can't be resolved is left to the pin's own blocker. */
+  function childrenFrom(procs) {
+    var get = typeof procs === 'function' ? procs : function (n) { return own(procs, n) ? procs[n] : null; };
+    return function (process, version) {
+      var proc = process ? get(process) : null;
+      if (!proc) return { unpublished: true };
+      if (proc.unlisted) return { unreadable: String(proc.unlisted).replace(/\.?$/, '.') };
+      var pub, latest = version === '' || version == null;
+      if (latest) pub = proc.latest;
+      else { var got = PF.pins.atVersion(proc, process, +version); if (got.why) return null; pub = got.pub; }
+      if (!pub || !pub.map) return { unpublished: true };
+      return { map: pub.map, title: pub.map.meta.title || process, version: pub.info.version, latest: latest };
+    };
+  }
+
+  /* The linked steps whose child, as it is now, can't be started from this checklist (C3): every {run.process} step of the
+     map that follows the child's latest (no version: line; a pinned version never changes) and names, in carry: or pass:,
+     a detail that latest lacks. A detail passed only because both share it just drops out, so it never counts. children:
+     M.check's opts.children (childrenFrom). Returns [{ step, child, title, version, names }]. */
+  function broken(map, children) {
+    var out = [];
+    if (!map || typeof children !== 'function') return out;
+    PF.map.steps(map).forEach(function (x) {
+      var s = x.step, f = s.fields || {};
+      if (s.type !== 'run.process' || !f.process || own(f, 'version')) return;
+      var got = children(f.process, '');
+      if (!got || !got.map) return;
+      var st = rows(s, map.meta.context, got.map).stale;
+      if (st.length) out.push({ step: s, child: f.process, title: got.title, version: got.version, names: st.map(function (y) { return y.name; }) });
+    });
+    return out;
+  }
+  /* The same, from the child's side: published checklists (procs: [{ id, latest }]) whose latest has a step following
+     childMap's process at its latest that childMap couldn't start. Returns [{ process, title, step, names }]. */
+  function parentsBroken(childMap, procs) {
+    var me = childMap && childMap.meta && childMap.meta.process, out = [];
+    if (!me) return out;
+    var mine = function (n) { return n === me ? { map: childMap, title: childMap.meta.title || me, version: null } : null; };
+    (procs || []).forEach(function (p) {
+      if (!p || !p.latest || !p.latest.map || p.id === me) return;
+      broken(p.latest.map, mine).forEach(function (b) { out.push({ process: p.id, title: p.latest.map.meta.title || p.id, step: b.step, names: b.names }); });
+    });
+    return out;
+  }
+
+  /* What a step uses and sets, for the builder (Part G): uses: [{ name, where }] (where: "set by …" or "asked when a run
+     starts"), from its boxes' ^refs, its ties, its conditions and what it passes its child; sets: its sets: names; passes:
+     its rows when the child is known; shared: true when there's no child map and no carry:, so the details it shares by
+     name can't be listed yet. */
+  function io(map, step, childMap, opts) {
+    var src = PF.refs.sources(map), uses = [], seen = Object.create(null);
+    var use = function (n) { if (!n || seen[n]) return; seen[n] = true; uses.push({ name: n, where: PF.refs.where(src, n) }); };
+    PF.refs.scan(map, opts).forEach(function (t) { if (t.where.step === step && t.where.box !== 'pass') use(t.name); });
+    (step.binds || []).forEach(use);
+    var x = PF.map.steps(map).filter(function (y) { return y.step === step; })[0];
+    PF.conditions.names(x ? map.phases[x.phaseIndex] : null, step).forEach(use);
+    var passes = null, shared = false;
+    if (step.type === 'run.process') {
+      if (childMap) { passes = rows(step, map.meta.context, childMap).rows; passes.forEach(function (r) { if (r.source === 'detail') use(r.from); }); }
+      else {
+        carryList(step).forEach(use);
+        parse((step.fields || {}).pass).entries.forEach(function (e) { if (e.source === 'detail') use(e.from); });
+        shared = !carryList(step).length;
+      }
+    }
+    var sets = String((step.fields || {}).sets || '').split(',').map(function (k) { return k.trim(); }).filter(Boolean);
+    return { uses: uses, sets: sets, passes: passes, shared: shared };
+  }
+
+  return { io: io, childrenFrom: childrenFrom, broken: broken, parentsBroken: parentsBroken, MAX: MAX, VALUE_MAX: VALUE_MAX, has: has, parse: parse, rows: rows, write: write, values: values, sources: sources, inputs: inputs, carryList: carryList };
 })();

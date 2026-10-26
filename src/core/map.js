@@ -279,6 +279,11 @@ PF.map = (function () {
         if (x.childSets && x.source !== 'ask' && L.has(s)) suggestions.push(label + ' passes ^' + x.name + ', which ' + (got.title || s.fields.process) + ' also sets itself later.');
       });
     }
+    /* C3: published checklists that start this one at its latest and pass it a detail this draft no longer has (opts.parents:
+       [{ id, latest }], the processes as the app lists them). Advice: they keep working until this is published. */
+    if (opts.parents && meta.process) PF.links.parentsBroken(map, opts.parents).forEach(function (b) {
+      suggestions.push(b.title + ' (published) step "' + b.step.text.slice(0, 40) + '" passes ^' + b.names.join(', ^') + ' to this checklist. After this version, new ' + b.title + ' runs can\'t start that child until ' + b.title + ' changes.');
+    });
     map.phases.forEach(function (p) {
       useId(p.id, 'Phase "' + p.title + '"');
       if (!p.mode) suggestions.push('Give "' + p.title + '" a type: READ-DO (read each step, then do it) or DO-CONFIRM (do the work, then confirm together).');

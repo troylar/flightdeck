@@ -107,6 +107,16 @@ PF.health = (function () {
       paths: plansN.map(function (u) { return u.path; }), action: help(HELP.planUnnamed), help: HELP.planUnnamed });
     if (ignored.length) add({ id: 'ignored-files', severity: 'info', area: 'Files', title: plural(ignored.length, 'file') + ' in validations/ or proposals/ ' + (ignored.length === 1 ? 'isn\'t' : 'aren\'t') + ' Flightdeck\'s',
       detail: ignored[0].path + ' is JSON, but not a sign-off or plan, so Flightdeck ignores it. Move it out of that folder.', paths: ignored.map(function (u) { return u.path; }), action: help(HELP.unreadable), help: HELP.unreadable });
+    /* C3 (2.8): a published checklist whose linked step can't start its child as that child is now. */
+    var byId = Object.create(null); procs.forEach(function (p) { if (p && p.id) byId[p.id] = p; });
+    procs.forEach(function (p) {
+      if (!p || !p.latest || !p.latest.map) return;
+      PF.links.broken(p.latest.map, PF.links.childrenFrom(function (n) { return byId[n] || null; })).forEach(function (b) {
+        add({ id: 'link-broken:' + p.id + ':' + b.step.id, severity: 'warn', area: 'Checklists', title: 'A linked step can\'t start its child',
+          detail: (p.latest.map.meta.title || p.id) + ' step "' + b.step.text.slice(0, 40) + '" passes ' + b.names.join(', ') + ' to ' + b.title + ', whose latest version (v' + b.version + ') doesn\'t have ' + (b.names.length > 1 ? 'them' : 'it') + '. New runs can\'t start that child until ' + (p.latest.map.meta.title || p.id) + ' changes. Publish a version that passes what ' + b.title + ' has.',
+          paths: ['maps/drafts/' + p.id + '.md'], action: { act: 'open-process', id: p.id, label: 'Open the process' } });
+      });
+    });
     if (!failed.length && !otherUnread.length && !runUnread.length && !vals.length && !plansU.length && !plansN.length) ok('readable', scan ? 'Every file Flightdeck uses can be read (' + plural(scan.files, 'file') + ').' : 'Every run file can be read.');
 
     /* ---- plans started whose run isn't in the folder (2.1.1) ---- */

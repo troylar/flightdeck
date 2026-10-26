@@ -301,6 +301,21 @@ PF.outline = (function () {
   }
 
   /* Change one thing about a step: set = { text } | { mark: ' ' | '!' | '~' } | { type } | { field, value } | { role, on } | { bind, on }. */
+  /* A linked step's process:, version:, carry: and pass: lines (2.8), as one edit (one undo step): each one given is set (''
+     or null removes its line), in that order, each checked like any field edit. */
+  function editLink(text, key, set) {
+    var cur = { text: text }, changed = false, at = 0;
+    var order = ['process', 'version', 'carry', 'pass'];
+    for (var i = 0; i < order.length; i++) {
+      var f = order[i];
+      if (!set || !Object.prototype.hasOwnProperty.call(set, f)) continue;
+      var r = editStep(cur.text, key, { field: f, value: set[f] == null ? '' : String(set[f]) });
+      if (r.error) return r;
+      if (!r.same) { changed = true; at = r.at; }
+      cur = r;
+    }
+    return changed ? { text: cur.text, at: at } : { text: text, at: at, same: true };
+  }
   function editStep(text, key, set) {
     var g = guard(text); if (g.error) return { error: g.error };
     var o = g.o, s = stepBy(o, key); if (!s) return { error: ERR.gone };
@@ -418,8 +433,34 @@ PF.outline = (function () {
     var bad = checkName(to, 'context'); if (bad) return { error: bad };
     if (meta.context.indexOf(to) >= 0) return { error: '^' + to + ' is already a run detail.' };
     var stop = (opts && opts.depends || []).filter(function (d) { return d.refuse; });
+    /* 2.8: a linked step whose child is known keeps what each child detail gets (docs/design.md 40): its rows are read before,
+       ^from becomes ^to in them, and PF.links.write gives the carry: and pass: lines that mean exactly that afterwards.
+       opts.child(process, version): the child's map, or its latest and next maps (their details together). */
+    var L = PF.links, newNames = meta.context.map(function (x) { return x === from ? to : x; }), relink = [];
+    var childOf = function (st) {
+      if (st.type !== 'run.process' || !st.fields.process || !opts || typeof opts.child !== 'function') return null;
+      var got = [].concat(opts.child(st.fields.process, st.fields.version || '') || []).filter(Boolean);
+      if (!got.length) return null;
+      var names = [], kinds = Object.create(null);
+      got.forEach(function (m) { (m.meta.context || []).forEach(function (n) { if (names.indexOf(n) < 0) { names.push(n); if (m.meta.detailTypes && own_(m.meta.detailTypes, n)) kinds[n] = m.meta.detailTypes[n]; } }); });
+      return { meta: { context: names, detailTypes: kinds } };
+    };
+    var key = function (r) { return r.name + '<' + r.source + ':' + (r.from || '') + '=' + (r.value == null ? '' : r.value); };
+    o.steps.forEach(function (st, k) {
+      var cm = childOf(st); if (!cm) return;
+      var shaped = { type: st.type, fields: st.fields, binds: [] }, before = L.rows(shaped, meta.context, cm).rows;
+      var want = before.map(function (r) { var c = Object.assign({}, r); if (c.source === 'detail' && c.from === from) c.from = to; return c; });
+      var w = L.write(want, shaped, newNames, cm), after = L.rows({ type: st.type, fields: { carry: w.carry == null ? undefined : w.carry, pass: w.pass == null ? undefined : w.pass }, binds: [] }, newNames, cm).rows;
+      var oldPass = st.fields.pass != null ? L.parse(st.fields.pass).entries.map(function (e) { return e.source === 'detail' && e.from === from ? Object.assign({}, e, { from: to }) : e; }) : null;
+      if (after.map(key).join('|') !== want.map(key).join('|')) { stop.unshift({ refuse: true, text: 'The step “' + short(st.text) + '” passes details to ' + st.fields.process + ' in a way the builder can\'t keep exactly after this rename. Edit its carry: and pass: lines in Markdown.' }); return; }
+      var curCarry = st.fields.carry != null && list_(st.fields.carry).length ? list_(st.fields.carry).join(', ') : null;
+      var sameCarry = (w.carry || null) === curCarry, samePass = w.pass == null ? oldPass == null || !oldPass.length : oldPass && w.pass === oldPass.map(function (e) { return e.name + '=' + (e.source === 'ask' ? '?' : e.source === 'value' ? e.value : '^' + e.from); }).join(', ');
+      if (sameCarry && samePass) return;
+      relink.push({ k: k, st: st, carry: w.carry, pass: w.pass });
+    });
     o.steps.forEach(function (st) {
       if (st.fields.carry == null || list_(st.fields.carry).indexOf(from) < 0) return;
+      if (childOf(st)) return;
       /* The folder already said this step passes it to that child: once is enough. */
       if (st.fields.process && stop.some(function (d) { return d.text.indexOf(' passes ^' + from + ' to ' + st.fields.process + ' ') >= 0; })) return;
       stop.unshift({ refuse: true, text: 'The step “' + short(st.text) + '” passes ^' + from + ' to ' + (st.fields.process || 'its process') + ' under this name. Renaming it would stop that.' });
@@ -439,18 +480,28 @@ PF.outline = (function () {
       ph.whenLines.forEach(whenLine);
       if (ph.gate && ph.gate.approvesLine >= 0) put(ph.gate.approvesLine, swap(lines[ph.gate.approvesLine]));
     });
+    var relinked = function (st) { return relink.filter(function (r) { return r.st === st; })[0] || null; };
     o.steps.forEach(function (st) {
-      var q = st.parts;
+      var q = st.parts, rl = relinked(st);
       put(st.line, q.pre + q.typePart + swap(q.rest) + q.idSuffix + crOf(o, st.line));
       st.whenLines.forEach(whenLine);
       Object.keys(st.fieldLines).forEach(function (f) {
         var i = st.fieldLines[f], fm = /^(\s{2,}[\w-]+:\s*)(.*?)(\r?)$/.exec(lines[i]);
+        if (rl && (f === 'carry' || f === 'pass')) { var nv = f === 'carry' ? rl.carry : rl.pass; if (nv == null) { lines[i] = null; n++; } else put(i, fm[1] + nv + fm[3]); return; }
         if (f === 'sets') put(i, fm[1] + fm[2].split(',').map(function (e) { return e.trim() === from ? e.replace(from, to) : e; }).join(',') + fm[3]);
         else if (f !== 'carry') put(i, fm[1] + swap(fm[2]) + fm[3]);
       });
+      /* A new pass: line goes after the step's last field line. */
+      if (rl && rl.pass != null && !own_(st.fieldLines, 'pass')) {
+        var last = Object.keys(st.fieldLines).map(function (f) { return st.fieldLines[f]; }).filter(function (i) { return lines[i] !== null; }).reduce(function (m, i) { return Math.max(m, i); }, st.line);
+        var ind = (/^(\s+)/.exec(lines[st.fieldLines.process != null ? st.fieldLines.process : last] || '') || [, '  '])[1];
+        lines[last] = lines[last].replace(/\r$/, '') + crOf(o, last) + '\n' + ind + 'pass: ' + rl.pass + crOf(o, last);
+        n++;
+      }
     });
+    lines = lines.filter(function (l) { return l !== null; });
     var named = function (x) { return x === from ? to : x; };
-    var res = done(o, text, lines, function (A) {
+    var res = done(o, text, lines, function (A, B) {
       var m = A.meta;
       m.context = m.context.map(named);
       if (m.detailTypes && own_(m.detailTypes, from)) { var dt = Object.create(null); Object.keys(m.detailTypes).forEach(function (k) { dt[named(k)] = m.detailTypes[k]; }); m.detailTypes = dt; }
@@ -466,6 +517,20 @@ PF.outline = (function () {
           });
         });
       });
+      /* Relinked steps: exactly the carry: and pass: written, every other field as before, in the new text's field order. */
+      var as = [], bs = [];
+      A.phases.forEach(function (ph) { ph.steps.forEach(function (x) { as.push(x); }); });
+      B.phases.forEach(function (ph) { ph.steps.forEach(function (x) { bs.push(x); }); });
+      var ok = true;
+      relink.forEach(function (rl) {
+        var x = as[rl.k], y = bs[rl.k]; if (!x || !y) { ok = false; return; }
+        if ((own_(y.fields, 'carry') ? y.fields.carry : null) !== rl.carry || (own_(y.fields, 'pass') ? y.fields.pass : null) !== rl.pass) { ok = false; return; }
+        var nf = {};
+        Object.keys(y.fields).forEach(function (f) { if (f === 'carry' || f === 'pass') nf[f] = y.fields[f]; else if (own_(x.fields, f)) nf[f] = x.fields[f]; else ok = false; });
+        Object.keys(x.fields).forEach(function (f) { if (f !== 'carry' && f !== 'pass' && !own_(nf, f)) ok = false; });
+        x.fields = nf;
+      });
+      if (!ok) return false;
     }, ctx);
     if (res.error || res.same) return res;
     /* Every step's text reads back with its references where they were, only renamed. */
@@ -1127,7 +1192,8 @@ PF.outline = (function () {
       case 'moveTo': return moveStepTo(text, op.step, op.to || {});
       case 'edit': return editStep(text, op.step, op.set || {});
       case 'editText': return editStepText(text, op.step, op.text, { reid: op.reid });
-      case 'renameDetail': return renameDetail(text, op.from, op.to, { depends: op.depends });
+      case 'editLink': return editLink(text, op.key, op.set);
+      case 'renameDetail': return renameDetail(text, op.from, op.to, { depends: op.depends, child: op.child });
       case 'add': return addStep(text, op.to || {}, op);
       case 'delete': return deleteStep(text, op.step);
       case 'addPhase':
@@ -1162,7 +1228,7 @@ PF.outline = (function () {
   function shotKind(op) { return op.step != null ? 'step' : op.gate != null ? 'gate' : 'phase'; }
   function shotKey(op) { return op.step != null ? op.step : op.gate != null ? op.gate : op.phase; }
 
-  return { MODES: MODES, phaseNote: phaseNote, gateNote: gateNote, parse: parse, apply: apply, moveStep: moveStep, moveStepTo: moveStepTo, editStep: editStep, editStepText: editStepText, inPlace: inPlace, renameDetail: renameDetail, usesOf: usesOf, addStep: addStep, deleteStep: deleteStep,
+  return { MODES: MODES, phaseNote: phaseNote, gateNote: gateNote, parse: parse, apply: apply, moveStep: moveStep, moveStepTo: moveStepTo, editStep: editStep, editLink: editLink, editStepText: editStepText, inPlace: inPlace, renameDetail: renameDetail, usesOf: usesOf, addStep: addStep, deleteStep: deleteStep,
     addPhase: addPhase, editPhase: editPhase, movePhase: movePhase, setGate: setGate, removeGate: removeGate, deletePhase: deletePhase,
     addTrack: addTrack, editTrack: editTrack, deleteTrack: deleteTrack, caption: caption, editShots: editShots, places: places, nearest: nearest, diff: diff, keyAt: keyAt, follow: follow, nextPlace: nextPlace,
     checkName: checkName, personOk: function (id) { return typeof id === 'string' && PERSON_RE.test(id) && !reserved(id); } };

@@ -215,9 +215,46 @@ rule('renameDetail: keeps a typed kind; refuses a taken name, a bad name and a v
   assert.ok(O.renameDetail(MAP, 'tag', '^tag').same);
 });
 
-rule('renameDetail: a step that passes the detail on with carry: refuses it, naming the step', () => {
+rule('renameDetail: a step that carries the detail to a child it can\'t see still refuses, naming the step', () => {
   const r = O.renameDetail(example('maps/drafts/release.md'), 'commit', 'sha');
   assert.strictEqual(r.error, 'The step “Check in the release notes for this commit” passes ^commit to check-in under this name. Renaming it would stop that.');
+});
+
+/* 2.8: with the child known, the rename rewrites carry: and pass: so each child detail gets what it got before. */
+const KID = (ctx) => M.parse(['---', 'process: kid', 'title: Kid', 'context: ' + ctx, '---', '', '## Go · READ-DO {#go}', '- [ ] {confirm} Go {#g}', ''].join('\n'));
+const LINKED = (ctx, lines) => ['---', 'process: par', 'title: Par', 'context: ' + ctx, '---', '', '## Go · READ-DO {#go}', '- [ ] {run.process} Run the kid {#k}', '  process: kid'].concat(lines || []).concat(['']).join('\n');
+const fieldsAfter = (text) => { const f = M.findStep(M.parse(text), 'k').step.fields; return { carry: f.carry, pass: f.pass }; };
+const rowsOf = (text, kid) => { const m = M.parse(text); return PF.links.rows(M.findStep(m, 'k').step, m.meta.context, kid).rows.map(r => r.name + '<' + r.source + (r.from ? ':' + r.from : '') + (r.value != null ? '=' + r.value : '')); };
+function renamed(ctx, lines, kidCtx, from, to) {
+  const t = LINKED(ctx, lines), kid = KID(kidCtx), r = O.renameDetail(t, from, to, { child: () => kid });
+  assert.ok(!r.error, r.error);
+  const before = rowsOf(t, kid).map(x => x.replace(':' + from, ':' + to));
+  same(rowsOf(r.text, kid), before, 'every child detail gets what it got before');
+  return fieldsAfter(r.text);
+}
+rule('renameDetail (2.8): carry: with several names drops the renamed one and passes it under its old name', () => {
+  same(renamed('env, tag', ['  carry: env, tag'], 'env, tag', 'env', 'stage'), { carry: 'tag', pass: 'env=^stage' });
+});
+rule('renameDetail (2.8): carry: with only the renamed name drops carry: and asks every other shared detail', () => {
+  same(renamed('env, tag', ['  carry: env'], 'env, tag', 'env', 'stage'), { carry: undefined, pass: 'env=^stage, tag=?' });
+});
+rule('renameDetail (2.8): implicit sharing gains a bridge; a child that has the new name asks it rather than take it', () => {
+  same(renamed('env, tag', [], 'env, tag', 'env', 'stage'), { carry: undefined, pass: 'env=^stage' });
+  same(renamed('env, tag', [], 'env, tag, stage', 'env', 'stage'), { carry: undefined, pass: 'env=^stage, stage=?' });
+  same(renamed('env', [], 'region', 'env', 'region'), { carry: undefined, pass: 'region=?' }, 'a child with only the new name');
+});
+rule('renameDetail (2.8): a new pass: line keeps Windows line endings and lands after the step\'s last field', () => {
+  const t = LINKED('env, tag', ['  carry: env, tag', '  sets: tag']).replace(/\n/g, '\r\n'), kid = KID('env, tag');
+  const r = O.renameDetail(t, 'env', 'stage', { child: () => kid });
+  assert.ok(!r.error, r.error);
+  assert.ok(/  process: kid\r\n  carry: tag\r\n  sets: tag\r\n  pass: env=\^stage\r\n/.test(r.text), JSON.stringify(r.text));
+  assert.ok(!/[^\r]\n/.test(r.text), 'every line ends in CRLF');
+});
+rule('renameDetail (2.8): existing overrides are kept; a pass: source is renamed in place; an untouched step gets no edit', () => {
+  same(renamed('env, tag', ['  pass: env=?, tag=fixed'], 'env, tag', 'env', 'stage'), { carry: undefined, pass: 'tag=fixed' }, 'env stays asked: no bridge; its ? is no longer needed once env isn\'t shared');
+  same(renamed('env, tag', ['  pass: region=^env'], 'region, tag', 'env', 'stage'), { carry: undefined, pass: 'region=^stage' });
+  const t = LINKED('env, tag', ['  carry: tag']), r = O.renameDetail(t, 'env', 'stage', { child: () => KID('tag') });
+  assert.ok(!r.error); same(fieldsAfter(r.text), { carry: 'tag', pass: undefined });
 });
 
 const PARENT = (carry, pin) => `---
@@ -230,25 +267,26 @@ context: tag, other
 - [ ] {run.process} Run the demo {#kid}
   process: refs-demo${carry == null ? '' : '\n  carry: ' + carry}${pin ? '\n  version: ' + pin : ''}
 `;
-rule('dependents: a Latest parent passing by name (implicit or carry) refuses; a pinned parent is only mentioned', () => {
+rule('dependents: a Latest parent passing by name (implicit, carry or pass:) is warned with the fix (2.8, Q3); a pinned parent is only mentioned', () => {
   const me = M.parse(MAP), dep = p => X.dependents(me, 'tag', { others: [{ label: 'Parent', map: M.parse(p) }] });
-  same(dep(PARENT(null)).map(d => d.refuse), [true]);
-  same(dep(PARENT('tag')).map(d => d.refuse), [true]);
+  same(dep(PARENT(null)).map(d => d.refuse), [false]);
+  same(dep(PARENT('tag')).map(d => d.refuse), [false]);
+  assert.ok(/After you publish the rename, change that step to pass it under the new name/.test(dep(PARENT('tag'))[0].text));
   same(dep(PARENT('other')), []);
+  same(dep(PARENT('other').replace('  carry: other', '  carry: other\n  pass: tag=^other')).map(d => d.refuse), [false], 'a pass: target counts');
+  same(dep(PARENT(null).replace('  process: refs-demo', '  process: refs-demo\n  pass: tag=?')), [], 'name=? asks it instead');
   const pinned = dep(PARENT(null, '4'));
   same(pinned.map(d => d.refuse), [false]);
   assert.ok(/pinned to version 4/.test(pinned[0].text));
-  // Refusals stop the rename; notes come back with it.
-  assert.ok(/Parent: the step “Run the demo” passes \^tag/.test(O.renameDetail(MAP, 'tag', 'b', { depends: dep(PARENT(null)) }).error));
-  same(O.renameDetail(MAP, 'tag', 'b', { depends: pinned }).notes, [pinned[0].text]);
+  // Warnings come back as notes; the rename goes ahead.
+  same(O.renameDetail(MAP, 'tag', 'b', { depends: dep(PARENT(null)) }).notes, [dep(PARENT(null))[0].text]);
 });
 
-rule('dependents: this checklist passing a name to a child that takes it refuses; ties count', () => {
+rule('dependents: this checklist\'s own linked steps aren\'t refused (the rename rewrites them, 2.8)', () => {
   const parent = M.parse(PARENT(null)), kid = M.parse(MAP);
-  same(X.dependents(parent, 'tag', { child: p => p === 'refs-demo' ? kid : null }).map(d => d.refuse), [true]);
-  same(X.dependents(M.parse(PARENT('other')), 'tag', { child: () => kid }), []);
+  same(X.dependents(parent, 'tag', { child: p => p === 'refs-demo' ? kid : null }), []);
   const tied = M.parse(PARENT('other').replace('Run the demo {#kid}', 'Run the demo ^tag {#kid}'));
-  same(X.dependents(tied, 'tag', { child: () => kid }).map(d => d.refuse), [true]);
+  same(X.dependents(tied, 'tag', { child: () => kid }), []);
 });
 
 rule('dependents: a Jira workflow filling a field from the detail is mentioned, not refused', () => {
@@ -316,8 +354,10 @@ context: tag, other
   const kid = d => M.parse(`---\nprocess: kid\ntitle: Kid\ncontext: ${d}\n---\n\n## K · READ-DO {#k}\n- [ ] {confirm} K {#k1}\n`);
   const pub = kid('other'), draft = kid('other, tag');
   assert.ok(!X.dependents(M.parse(t0), 'tag', { child: () => [pub] }).some(d => d.refuse), 'set-up: the published child doesn\'t take ^tag');
-  const deps = X.dependents(M.parse(t0), 'tag', { child: () => [pub, draft] });
-  assert.ok(deps.some(d => d.refuse && /passes \^tag to kid by name/.test(d.text)), 'its saved draft does, so the rename is refused: ' + JSON.stringify(deps));
+  // 2.8: its saved draft takes ^tag, so the rename keeps passing it there: the published and drafted details together count.
+  const re = ok(O.renameDetail(t0, 'tag', 'build_tag', { child: () => [pub, draft] }));
+  same(M.findStep(M.parse(re), 's2').step.fields.pass, 'tag=^build_tag');
+  assert.strictEqual(M.findStep(M.parse(ok(O.renameDetail(t0, 'tag', 'build_tag', { child: () => [pub] }))), 's2').step.fields.pass, undefined, 'the published child alone takes nothing named tag');
 });
 
 rule('review fixes: rename matches the name exactly, so ^tag and ^TAG stay two details', () => {
