@@ -1,14 +1,23 @@
 #!/usr/bin/env python3
 """Check a Flightdeck team folder the way the Flightdeck app does, without changing anything.
 
-    python <skills folder>/_flightdeck/check_folder.py [team-folder]   (default: the current folder)
+    python3 <skills folder>/_flightdeck/check_folder.py [team-folder]   (default: the current folder; python or py on Windows)
 
 Prints JSON:
-  publications: every version folder per process, with status "complete", "syncing", "damaged" or "unusable" and why,
-                which complete version is current, and any version-number clashes. "unusable" means the app can't
-                run it: written by a newer Flightdeck, or edited by hand with syntax or step types it doesn't know.
-  plans:        each planned run with status "pending", "decided" (accepted/declined) or "ambiguous", and why.
-  conflicts:    runs that have competing copies next to run.json.
+  folder:          the team folder it read.
+  publications:    every version folder per process, with status "complete", "syncing", "damaged" or "unusable" and why,
+                   which complete version is current, and any version-number clashes. "unusable" means the app can't
+                   run it: written by a newer Flightdeck, or edited by hand with syntax or step types it doesn't know.
+  plans:           each planned run with status "pending", "decided" (accepted/declined) or "ambiguous", and why.
+  conflicts:       runs that have competing copies next to run.json.
+  refused:         files in proposals/ the app refuses (a newer format, or not in its format), each with why.
+  unreadablePlans: files in proposals/ that aren't complete JSON; "unnamed" when the name doesn't say which plan.
+  receipts:        runs with many leftover save receipts (only when there are any).
+  teamFiles:       problems in step-types/ and jira/workflows.json.
+  skills:          every skill name in skills/ and skill-registrations/, as the app matches it: status "current",
+                   "unmatched" or "absent", source "registration" or "legacy", and why.
+
+It never reads staged/ (versions only test runs use) and never changes a file.
 
 It uses the same fingerprints as the app (FNV-1a over the text's UTF-16 code units, and over the raw bytes for
 screenshots), so "complete" here means the app will accept the version too.

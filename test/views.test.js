@@ -1888,6 +1888,32 @@ rule('When something goes wrong shows every section of docs/recovery.md with its
   assert.ok(!/<a href="updating/.test(html));
 });
 
+rule('When something goes wrong: the folder size limits are a list, and the index at the top links to sections in the app', () => {
+  const { ctx, state } = healthCtx((c, st) => { st.view = 'recovery'; st.recoveryAt = 'the-folder-is-getting-big'; });
+  const html = V.recoveryPage(ctx), doc = H.sections(RECOVERY);
+  const big = doc.list.find(s => s.id === H.HELP.big);
+  assert.ok(big, 'Folder health\'s size issues link to a section that exists');
+  const sec = V.recoveryBlock(big.body);
+  const m = /<p><strong>The sizes Folder health watches:<\/strong><\/p><ul>([\s\S]*?)<\/ul>/.exec(sec);
+  assert.ok(m, 'the limits follow their label as a list, not a paragraph or a table');
+  const items = m[1].match(/<li>[\s\S]*?<\/li>/g) || [];
+  assert.deepStrictEqual(items.map(li => (/<li><strong>([^<]+):<\/strong>/.exec(li) || [])[1]),
+    ['Runs', 'Slow refreshing', 'One attachment', 'All attachments', 'Files in a run folder', 'Path length', 'What&#39;s read'], 'each limit is a labeled item');
+  const words = items.join(' ').replace(/<[^>]+>/g, '');
+  const L = H.LIMITS, n = x => x.toLocaleString('en-US');
+  [n(L.runsWarn) + ' runs', n(L.runsStop), L.slowRefreshMs / 1000 + ' seconds', '10 MB', '1 GB', L.runFiles + ' files', L.pathChars + ' characters', 'first ' + L.types + ' files', 'first ' + L.skills + ' revision files']
+    .forEach(s => assert.ok(words.indexOf(s) >= 0, 'the guide says ' + s));
+  assert.strictEqual(PF.attach.MAX, 10 * 1024 * 1024, 'the attachment size the guide gives');
+  assert.strictEqual(L.attachBytes, 1024 * 1024 * 1024);
+  assert.ok(!/\|---|<table/.test(RECOVERY + html), 'no tables: the in-app renderer has none');
+  assert.ok(html.indexOf(sec) >= 0, 'the section shows it in the app');
+  const intro = V.recoveryBlock(doc.intro), ids = new Set(doc.list.map(s => s.id));
+  const links = [...intro.matchAll(/data-act="recovery" data-id="([^"]+)"/g)].map(x => x[1]);
+  assert.ok(/<ul><li><strong>Runs:<\/strong> <button type="button" class="linkish" data-act="recovery" data-id="a-run-has-conflict-copies">/.test(intro), 'the index is a list of in-app links');
+  assert.deepStrictEqual(links.filter(id => !ids.has(id)), [], 'every index link opens a section');
+  assert.deepStrictEqual([...ids].filter(id => links.indexOf(id) < 0), [], 'every section is in the index');
+});
+
 rule('The run\'s conflict copies and its More menu lead to the guide and to Folder health', () => {
   const { r, ctx } = setup(); r._conflicts = ['run-PC.json'];
   const html = V.run(ctx);

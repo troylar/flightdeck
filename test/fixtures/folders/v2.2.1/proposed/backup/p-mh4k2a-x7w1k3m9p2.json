@@ -1,0 +1,22 @@
+{
+  "kind": "draft-proposal",
+  "pv": 1,
+  "id": "p-mh4k2a-x7w1k3m9p2",
+  "process": "backup",
+  "session": "s-k3m9p2q8x7w1",
+  "label": "assistant",
+  "by": "person-avery",
+  "at": "2026-03-02T09:20:00.000Z",
+  "app": "2.2.1",
+  "base": {
+    "kind": "draft",
+    "rev": "e32efb72bf9d1f1586668aa34232f469a643cbce960a172ad078f1cacaa1aec0",
+    "ref": "maps/drafts/backup.md",
+    "text": "---\nprocess: backup\ntitle: Backup check\ncategory: Operations\nowner: person-avery\ncontext: ticket\nroles: lead, checker\n---\n\n## Prepare {#prep}\n- [!] {confirm} Read the restore runbook @lead {#read}\n  ![The runbook's first page](images/restore.png)\n- [ ] {team.restore} Restore last night's backup ^ticket @checker {#restore}\n  system: billing\n- [ ] {confirm} Record where the copy is @checker {#where}\n  evidence: link\n\n## Gate: Restored {#restored}\n  > The restored copy opens and its row counts match.\n\n## Close {#close}\n- [ ] {confirm} File the report @lead {#report}\n"
+  },
+  "rev": "ee558ac07d3b0750572e9a5baf2812f0fabbb43e7e0d11845494c9b2a4a4fc72",
+  "text": "---\nprocess: backup\ntitle: Backup check (proposed)\ncategory: Operations\nowner: person-avery\ncontext: ticket\nroles: lead, checker\n---\n\n## Prepare {#prep}\n- [!] {confirm} Read the restore runbook @lead {#read}\n  ![The runbook's first page](images/restore.png)\n- [ ] {team.restore} Restore last night's backup ^ticket @checker {#restore}\n  system: billing\n- [ ] {confirm} Record where the copy is @checker {#where}\n  evidence: link\n\n## Gate: Restored {#restored}\n  > The restored copy opens and its row counts match.\n\n## Close {#close}\n- [ ] {confirm} File the report @lead {#report}\n",
+  "replaces": null,
+  "after": null,
+  "note": ""
+}

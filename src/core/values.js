@@ -1,5 +1,5 @@
 /* Typed values (2.0): numbers, yes/no, dates, choices and links, checked as people type them and stored as canonical text
-   (docs/design.md section 5). Pure, ES5. A number is an exact decimal string, never a JavaScript number, so nothing is ever
+   (docs/design.md section 38). Pure, ES5. A number is an exact decimal string, never a JavaScript number, so nothing is ever
    rounded; a date is a calendar date, never read through Date, so no time zone can move it. Stored values are never coerced:
    one that isn't exactly canonical is invalid, shown as written and flagged. */
 PF.values = (function () {

@@ -4515,7 +4515,7 @@
     if (sub === 'finish') state.pick = null;
     return 'moved';
   }
-  /* Step types (section 3.5): a kept form is never discarded by Back, and the URL always matches what is drawn. */
+  /* Step types (docs/design.md section 29, Kept work): a kept form is never discarded by Back, and the URL always matches what is drawn. */
   function navTypes() { typeOpens++; releaseUrls(state.urls); setView('types'); state.processId = null; state.runKey = null; resetRunUi(); state.fuPick = null; state.more = {}; }
   function moveToTypes(loc, F, onForm) {
     var wantNew = loc.sub === 'new', wantId = loc.type != null ? loc.type : null;
