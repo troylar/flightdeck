@@ -68,6 +68,14 @@ PF.fs = (function () {
     var parts = split(path), file = parts.pop();
     return this.walk(parts).then(function (d) { return d.removeEntry(file); });
   };
+  /* A new folder, refused when one is already there (a name another run used is never reused). Two windows checking at
+     the same instant could both pass; the random part of every name it's given makes that a non-event. */
+  FolderFS.prototype.mkdirExclusive = function (path) {
+    var parts = split(path), name = parts.pop();
+    return this.walk(parts, true).then(function (d) {
+      return d.getDirectoryHandle(name).then(function () { throw new Error(path + ' is already there'); }, function (e) { if (!missing(e)) throw e; return d.getDirectoryHandle(name, { create: true }); });
+    }).then(function () {});
+  };
   FolderFS.prototype.url = function (path) {
     var parts = split(path), file = parts.pop();
     return this.walk(parts).then(function (d) { return d.getFileHandle(file); }).then(function (h) { return h.getFile(); })
@@ -127,6 +135,12 @@ PF.fs = (function () {
     return Promise.resolve(new Blob([f.t]));
   };
   MemoryFS.prototype.remove = function (path) { delete this.files[path]; this.persist(); return Promise.resolve(); };
+  MemoryFS.prototype.mkdirExclusive = function (path) {
+    split(path);
+    var prefix = path + '/', dirs = this.dirs = this.dirs || {};
+    if (dirs[path] || Object.keys(this.files).some(function (p) { return p.indexOf(prefix) === 0; })) return Promise.reject(new Error(path + ' is already there'));
+    dirs[path] = true; return Promise.resolve();
+  };
   MemoryFS.prototype.url = function (path) { var f = this.files[path]; return Promise.resolve(f && /^data:image\/(png|jpeg|webp|gif);base64,/.test(f.t) ? f.t : null); };
   MemoryFS.prototype.reset = function (seed) { this.files = {}; var self = this; Object.keys(seed || {}).forEach(function (p) { self.files[p] = { t: seed[p], m: Date.now() }; }); this.persist(); };
 

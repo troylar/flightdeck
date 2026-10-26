@@ -469,6 +469,7 @@
     h += '</section>';
     h += '<section class="panel stack" aria-labelledby="set-health"><h2 id="set-health">' + I('pulse') + 'Folder health</h2><p class="small">Conflict copies, files that can\'t be read, versions still arriving, and more, each with what to do. Then check that files travel between two computers.</p>' +
       '<div class="row"><button class="btn" data-act="health">Check folder health</button><button class="btn" data-act="connection">' + I('swap') + 'Connection check</button><button class="mini" data-act="recovery" data-id="">When something goes wrong</button></div></section>';
+    h += assistantFiles(ctx);
     h += '<section class="panel stack" aria-labelledby="set-lib"><h2 id="set-lib">Library</h2><p class="small">Skills built from your processes, and the kinds of steps a checklist can use.</p><div class="row"><button class="btn" data-act="nav" data-id="skills">' + I('spark') + 'Skills</button><button class="btn" data-act="nav" data-id="types">Step types</button></div></section>';
     h += V.peoplePanel(ctx);
     /* Jira workflows and Keyboard are rarely changed: under More settings, except that a workflow problem stays on show. */
@@ -480,6 +481,49 @@
       '<section aria-labelledby="set-keys"><h2 id="set-keys">Keyboard</h2><div class="row"><button class="btn" data-act="toggle-keys" aria-pressed="' + (st.keys !== false) + '">' + (st.keys !== false ? 'Single-key shortcuts are on' : 'Single-key shortcuts are off') + '</button><span class="small">Press ? anywhere to see them.</span></div></section></details>';
     h += '<section class="panel" aria-labelledby="set-about"><h2 id="set-about">About</h2><p>Flightdeck <b>' + esc(rel.version) + '</b>' + (rel.newer ? ' · <b>' + esc(rel.newer) + '</b> is in the team folder' : '') + '</p><div class="row">' + (rel.version === 'dev' ? '' : '<button class="btn" data-act="whats-new">What\'s new</button>') + '</div>' +
       '<p class="small">Install or update from a terminal: <code>npm install -g @troylar/flightdeck</code>, then <code>flightdeck install &lt;team folder&gt;</code>.</p></section>';
+    return h;
+  }
+
+  /* ---------- Settings, AI assistant files: AGENTS.md and the skills, installed and updated from the app ---------- */
+  var AF_WORD = { current: 'Up to date', update: 'Update ready', new: 'Not there yet', missing: 'Deleted, can be added again', kept: 'You changed it', merge: 'Waiting to merge' };
+  function assistantFiles(ctx) {
+    if (!ctx.assistantFiles) return '';
+    var m = ctx.assistantFiles(), tg = m.target, af = m.af, l = af.load, ro = m.readOnly, other = af.where === 'other';
+    var byKey = {}; (l ? l.items : []).forEach(function (i) { byKey[i.key] = i; });
+    var n = function (st) { return l ? l.items.filter(function (i) { return st.indexOf(i.status) >= 0; }).length : 0; };
+    var todo = n(['update', 'new', 'missing']), merge = n(['merge']), stage = l ? l.items.filter(function (i) { return i.status === 'merge' && (!i.waiting || i.stage); }).length : 0;
+    var h = '<section class="panel stack" aria-labelledby="set-ai"><h2 id="set-ai" tabindex="-1">' + I('spark') + 'AI assistant files</h2>' +
+      '<p class="small">The instructions and skills your AI assistant reads, as Flightdeck ' + esc(m.version) + ' ships them. Files your team changed are never replaced; a copy of each replaced file is kept first. The command <code>flightdeck install</code> follows the same rules and the same record.</p>' +
+      '<div class="seg" role="group" aria-label="Where the files go">' + [['team', 'In the team folder'], ['other', 'In another folder']].map(function (w) { return '<button type="button" data-act="af-where" data-id="' + w[0] + '" aria-pressed="' + ((af.where || 'team') === w[0]) + '">' + w[1] + '</button>'; }).join('') + '</div>';
+    if (other) h += '<p class="small">For an AI assistant that reads skills from its own folder: the skills only, with their own record (<code>.flightdeck-installed.json</code>) and updates folder (<code>.flightdeck-updates</code>), so updates stay safe there too.</p><div class="row"><button type="button" class="btn" data-act="af-pick">' + (tg.fs ? 'Choose another folder' : 'Choose a folder') + '</button>' + (tg.fs ? '<span class="small">Using <b>' + esc(tg.fs.name) + '</b></span>' : '') + '</div>';
+    var status = af.loading ? 'Checking the files…' : af.busy ? 'Working…' : !l ? '' : todo ? todo + ' to update' + (merge ? ', ' + merge + ' to merge' : '') : merge ? merge + ' to merge' : 'All up to date';
+    h += '<p class="af-status" role="status">' + esc(status) + '</p>';
+    if (ro) h += '<p class="small af-ro">' + esc(ro) + '</p>';
+    if (af.err) h += '<p class="small af-err" role="alert">' + esc(af.err) + '</p>';
+    if (!l && !af.loading && tg.fs && !ro) h += '<div class="row"><button type="button" class="btn" data-act="af-load">Check the files</button></div>';
+    if (l && !ro && (todo || stage)) h += '<div class="row"><button type="button" class="btn go" data-act="af-update"' + (af.busy ? ' disabled' : '') + '>' + (todo ? 'Update ' + todo + ' file' + (todo === 1 ? '' : 's') : 'Stage ' + stage + ' new default' + (stage === 1 ? '' : 's')) + '</button></div>';
+    var r = af.result;
+    if (r) {
+      if (r.note) h += '<p class="small" role="status">' + esc(r.note) + '</p>';
+      else {
+        var parts = [];
+        parts.push('Updated ' + r.wrote + ' file' + (r.wrote === 1 ? '' : 's') + '.');
+        if (r.kept) parts.push('Kept ' + r.kept + ' you changed.');
+        if (r.staged) parts.push('Put ' + r.staged + ' new default' + (r.staged === 1 ? '' : 's') + ' to merge in ' + tg.updates.join('/') + '/' + m.version + '/.');
+        if (r.replaced) parts.push('Copies of what was replaced are in ' + r.replaced + '.');
+        if (r.ignored) parts.push('The old record wasn\'t one Flightdeck wrote, so it wasn\'t trusted; a new one was written.');
+        h += '<p class="small" role="status">' + esc(parts.join(' ')) + '</p>';
+        if (r.changed.length) h += '<p class="small af-err" role="alert">' + esc('Left as they are, because they changed while updating: ' + r.changed.join(', ') + '. Nothing was replaced; check them again.') + '</p>';
+      }
+    }
+    if (merge && m.brief) h += '<div class="row"><button type="button" class="btn" data-act="af-brief">Copy a merge request for your AI assistant</button></div><pre id="af-brief-pre" class="source" hidden>' + esc(m.brief) + '</pre>';
+    h += '<ul class="af-list">' + tg.files.map(function (f, i) {
+      var it = byKey[f.key], st = it ? it.status : '', word = st ? AF_WORD[st] + (st === 'merge' && it.waiting ? ' (in ' + it.waiting + ')' : '') : '', peek = af.peek === String(i);
+      return '<li class="af-row"' + (st ? ' data-af-row="' + esc(f.rel) + '" data-af-status="' + esc(st) + '"' : '') + '><div class="row between"><span><code>' + esc(f.rel) + '</code>' + (word ? ' <span class="cat af-' + esc(st) + '">' + esc(word) + '</span>' : '') + '</span>' +
+        '<span class="row"><button type="button" class="mini" data-act="af-peek" data-id="' + i + '" aria-expanded="' + peek + '" aria-controls="af-pre-' + i + '">' + (peek ? 'Hide' : 'Show') + '</button><button type="button" class="mini" data-act="af-copy" data-id="' + i + '">Copy</button>' +
+        (st === 'merge' && it.staged.length && !ro ? '<button type="button" class="mini" data-act="af-merged" data-id="' + esc(f.key) + '"' + (af.busy ? ' disabled' : '') + '>I merged it</button>' : '') + '</span></div>' +
+        '<pre id="af-pre-' + i + '" class="source"' + (peek ? '' : ' hidden') + '>' + esc(f.text) + '</pre></li>';
+    }).join('') + '</ul><p class="small"><span id="copy-msg" role="status"></span></p></section>';
     return h;
   }
 

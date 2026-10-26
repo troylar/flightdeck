@@ -52,6 +52,7 @@ t test/skills-parity.test.js
 t test/build.test.js
 t test/readers.test.js
 t test/cli.test.js
+t test/assistant-files.test.js
 t test/old-bundles.test.js
 t test/evidence.test.js
 t test/perf.test.js

@@ -2158,22 +2158,31 @@ rule('Folder health without a scan (Home) checks only what is already loaded', (
   assert.ok(!rep.scanned && ids(rep).indexOf('conflicts:release/run1') >= 0 && ids(rep).indexOf('tmp') < 0);
 });
 
-rule('Folder health compares the files for AI assistants with every default shipped', () => {
-  const PB = load(false, (f, src) => f === 'core/contract.js' ? src.replace('/*@BASELINES@*/{}', JSON.stringify({ files: { 'AGENTS.md#flightdeck': { aaa: ['1.14.0'], bbb: ['1.15.0'] }, '.flightdeck/skills/s/SKILL.md': { ccc: ['1.15.0'] } } })) : src);
-  const check = (hashes, more) => { const s = Object.assign(healthy(), { contract: { hashes } }, more || {}); s.scan.installed = { format: 'flightdeck-installed/1', version: '1.15.0' }; return PB.health.check(s, HNOW); };
-  const cur = check({ 'AGENTS.md': 'bbb', '.flightdeck/skills/s/SKILL.md': 'ccc' });
+rule('Folder health sorts the files for AI assistants by the installer\'s own rules (PF.contract.classify)', () => {
+  const AAA = 'a'.repeat(64), BBB = 'b'.repeat(64), CCC = 'c'.repeat(64), ZZZ = 'f'.repeat(64);
+  const PB = load(false, (f, src) => f === 'core/contract.js' ? src.replace('/*@BASELINES@*/{}', JSON.stringify({ files: { 'AGENTS.md#flightdeck': { [AAA]: ['1.14.0'], [BBB]: ['1.15.0'] }, '.flightdeck/skills/s/SKILL.md': { [CCC]: ['1.15.0'] } } })) : src);
+  const H64 = (c) => c.repeat(64), want = { 'AGENTS.md': BBB, '.flightdeck/skills/s/SKILL.md': CCC };
+  const rec = (files) => JSON.stringify({ format: 'flightdeck-installed/1', version: '1.15.0', at: 'x', by: 'cli', files: files || {} });
+  const check = (hashes, o) => { o = o || {}; const s = Object.assign(healthy(), { contract: { hashes, want, staged: o.staged || {} } }); s.scan.installed = o.installed === undefined ? {} : o.installed; s.scan.recordText = o.recordText === undefined ? rec(o.files) : o.recordText; return PB.health.check(s, HNOW); };
+  const cur = check({ 'AGENTS.md': BBB, '.flightdeck/skills/s/SKILL.md': CCC });
   assert.ok(cur.issues.every(i => !/^contract/.test(i.id)) && cur.clear.some(c => /match this version/.test(c.text)), 'current defaults are all clear');
-  const old = check({ 'AGENTS.md': 'aaa', '.flightdeck/skills/s/SKILL.md': 'ccc' }).issues.filter(i => i.id === 'contract-old')[0];
-  assert.ok(old && old.severity === 'warn' && old.action.act === 'health-cmd', 'an old default: copy the install command');
-  const mine = check({ 'AGENTS.md': 'zzz', '.flightdeck/skills/s/SKILL.md': 'ccc' });
-  assert.ok(mine.issues.every(i => !/^contract-old/.test(i.id)) && mine.clear.some(c => /your team's own changes/.test(c.text)), 'a team\'s change is fine');
-  const gone = check({ '.flightdeck/skills/s/SKILL.md': 'ccc' });
+  const old = check({ 'AGENTS.md': AAA, '.flightdeck/skills/s/SKILL.md': CCC }).issues.filter(i => i.id === 'contract-old')[0];
+  assert.ok(old && old.severity === 'warn' && old.action.act === 'ai-files', 'an old default: open AI assistant files');
+  const kept = check({ 'AGENTS.md': ZZZ, '.flightdeck/skills/s/SKILL.md': CCC }, { files: { 'AGENTS.md': BBB } });
+  assert.ok(kept.issues.every(i => !/^contract-(old|merge)/.test(i.id)) && kept.clear.some(c => /your team's own changes/.test(c.text)), 'a team\'s change based on this default is fine');
+  const merge = check({ 'AGENTS.md': ZZZ, '.flightdeck/skills/s/SKILL.md': CCC }, { files: { 'AGENTS.md': AAA } }).issues.filter(i => i.id === 'contract-merge')[0];
+  assert.ok(merge && merge.paths[0] === 'AGENTS.md' && merge.action.act === 'ai-files', 'a team change on an older default: merge, as the command says');
+  const waiting = check({ 'AGENTS.md': BBB, '.flightdeck/skills/s/SKILL.md': CCC }, { staged: { 'AGENTS.md': [{ version: '1.14.0', hash: AAA }] } });
+  assert.ok(waiting.issues.some(i => i.id === 'contract-merge'), 'a staged copy keeps it at merge');
+  const gone = check({ '.flightdeck/skills/s/SKILL.md': CCC });
   assert.ok(gone.issues.some(i => i.id === 'contract-missing' && i.severity === 'warn'));
-  const none = healthy(); none.contract = { hashes: { 'AGENTS.md': 'bbb', '.flightdeck/skills/s/SKILL.md': 'ccc' } };
-  assert.ok(PB.health.check(none, HNOW).issues.some(i => i.id === 'contract-record' && i.severity === 'info'), 'no installed.json: worth knowing');
-  const s = healthy(); s.scan.updates = ['.flightdeck/updates/1.15.0/AGENTS.md']; s.contract = { hashes: { 'AGENTS.md': 'bbb', '.flightdeck/skills/s/SKILL.md': 'ccc' } };
-  const merge = PB.health.check(s, HNOW).issues.filter(i => i.id === 'contract-merge')[0];
-  assert.ok(merge && merge.action.id === 'merge' && /\.flightdeck\/updates\//.test(PB.health.command('merge')));
+  const none = check({ 'AGENTS.md': BBB, '.flightdeck/skills/s/SKILL.md': CCC }, { installed: null, recordText: null });
+  assert.ok(none.issues.some(i => i.id === 'contract-record' && i.severity === 'info'), 'no installed.json: worth knowing');
+  const bad = check({ 'AGENTS.md': BBB, '.flightdeck/skills/s/SKILL.md': CCC }, { installed: 'bad', recordText: '{"format":"flightdeck-installed/1"}' });
+  assert.ok(bad.issues.some(i => i.id === 'contract-record' && i.severity === 'warn'), 'an ignored record');
+  const noHash = Object.assign(healthy(), { contract: null });
+  assert.ok(PB.health.check(noHash, HNOW).clear.some(c => /weren't compared/.test(c.text)));
+  void H64;
 });
 
 rule('Folder health\'s report copies as plain text, grouped, with each problem\'s files and section', () => {
