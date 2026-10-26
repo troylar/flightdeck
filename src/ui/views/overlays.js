@@ -224,6 +224,52 @@
     return '<ol class="hist-list">' + list + '</ol>' + bad + other;
   }
 
+  /* ---------- Starting a linked step's child (2.8): what it passes, read-only, and the boxes it asks ---------- */
+  /* Why this version, from where the target came from (design.md 40): a version: pin, a pin this run keeps, the first pin, or
+     a run/2's latest. A pin doesn't say whether it was taken at the start or later, so the wording doesn't claim either. */
+  function childVersionWords(ctx, prep) {
+    var t = prep.target, pub = prep.pub, v = pub.info.version, r = ctx.run(), id = prep.stepId;
+    var own = function (o, k) { return !!o && typeof o === 'object' && Object.prototype.hasOwnProperty.call(o, k); };
+    var why = r && r.payload && r.payload.pins && own(r.payload.pins.children, id) ? 'this step always uses v' + v
+      : t.first ? 'the latest now; this run uses it from here on' : r && r.format === R.FORMAT3 ? 'this run keeps v' + v : 'the latest now';
+    var proc = ctx.procOf && ctx.procOf(prep.f.process), latest = proc && proc.latest;
+    var newer = latest && latest.info.version > v ? 'v' + latest.info.version + ' is published; this run keeps v' + v + '.' : '';
+    return { head: pub.map.meta.title + ' v' + v + ' · ' + why, newer: newer };
+  }
+  function childStart(ctx, prep) {
+    var pub = prep.pub, meta = pub.map.meta, r = ctx.run(), setBy = M.setBy(pub.map), w = childVersionWords(ctx, prep);
+    var people = ctx.data.people.filter(function (x) { return !x.inactive; }), nm = PF.people.labeler(people);
+    var h = '<div class="overlay" data-act="close-overlay"><div class="help cs-box" role="dialog" aria-modal="true" aria-labelledby="cs-t"><div class="eyebrow">' + esc(w.head) + '</div><h2 id="cs-t" tabindex="-1">Start the ' + esc(meta.title) + ' run</h2>' +
+      (w.newer ? '<p class="small">' + esc(w.newer) + '</p>' : '') +
+      '<form class="stack" id="child-start-form" data-token="' + esc(String(prep.token)) + '">';
+    var passed = prep.rows.filter(function (x) { return x.source !== 'ask' && prep.open.indexOf(x.name) < 0; });
+    if (passed.length) h += '<h3>Passed from this run</h3><dl>' + passed.map(function (x) {
+      var v = Object.prototype.hasOwnProperty.call(prep.details, x.name) ? prep.details[x.name] : '';
+      return '<dt>' + esc(x.name) + '</dt><dd>' + (v === '' ? '<span class="small">(empty)</span>' : esc(v)) + ' <span class="small">· ' + (x.source === 'value' ? 'fixed in the checklist' : 'from ^' + esc(x.from) + ' of this run') + '</span></dd>';
+    }).join('') + '</dl>';
+    var boxes = prep.open.concat(prep.ask);
+    if (boxes.length) {
+      h += '<h3>' + (prep.ask.length ? 'What ' + esc(meta.title) + ' needs from you' : 'Check these') + '</h3><div class="grid2">';
+      boxes.forEach(function (f) {
+        var def = R.typedDef({ snapshot: '' }, pub.map, 'details.' + f), opened = prep.open.indexOf(f) >= 0, g = opened ? prep.details[f] || '' : '';
+        if (!def) { h += '<label class="field" for="cs-' + esc(f) + '">' + esc(f) + '<input id="cs-' + esc(f) + '" data-detail="' + esc(f) + '" maxlength="120" value=""></label>'; return; }
+        h += '<div>' + K.typedField('cs-' + f, f, def, '', 'data-detail="' + esc(f) + '"') + (opened ? '<p class="small">' + esc(PF.values.ask(def, g)) + '</p>' : '') + '</div>';
+      });
+      h += '</div>';
+    }
+    var later = prep.rows.filter(function (x) { return x.source === 'ask' && Object.prototype.hasOwnProperty.call(setBy, x.name); });
+    if (later.length) h += '<p class="small">' + later.map(function (x) { return '<b>' + esc(x.name) + '</b> is filled in by "' + esc(setBy[x.name][0].text) + '"'; }).join('; ') + '.</p>';
+    if (meta.roles.length) {
+      h += '<h3>Who\'s doing what</h3><div class="grid2">';
+      meta.roles.forEach(function (role) {
+        var chosen = r && r.roles && typeof r.roles[role] === 'string' ? r.roles[role] : '';
+        h += '<label class="field" for="cs-role-' + esc(role) + '">' + esc(role) + '<select id="cs-role-' + esc(role) + '" data-role="' + esc(role) + '"><option value="">Nobody yet</option>' +
+          people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === chosen ? ' selected' : '') + '>' + esc(nm(x)) + '</option>'; }).join('') + '</select></label>';
+      });
+      h += '</div>';
+    }
+    return h + '<div class="row"><button class="btn go" type="submit" id="cs-submit">' + I('play') + 'Start the run</button><button class="mini" type="button" data-act="close-overlay">Cancel</button><span class="small">This step is checked when it completes.</span></div></form></div></div>';
+  }
   V.historyDrawer = historyDrawer;
-  V.search = search; V.releases = releases; V.textPreview = textPreview; V.semverCmp = semverCmp; V.help = help; V.tabOnlyHelp = tabOnlyHelp; V.lightbox = lightbox;
+  V.search = search; V.releases = releases; V.textPreview = textPreview; V.semverCmp = semverCmp; V.help = help; V.tabOnlyHelp = tabOnlyHelp; V.lightbox = lightbox; V.childStart = childStart; V.childVersionWords = childVersionWords;
 })();

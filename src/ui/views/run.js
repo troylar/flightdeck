@@ -119,6 +119,13 @@
   function passesOn(r, s, pub) {
     var problem = R.childProblem(r, s, pub.map.meta.context);
     if (problem) return problem;
+    /* 2.8: a pass: step says where each value comes from and what the child asks when it starts. */
+    if (PF.links.has(s)) {
+      var rows = PF.links.rows(s, Object.keys(r.details), pub.map).rows, dv = R.childDetails(r, s, pub.map), setBy = M.setBy(pub.map);
+      var gave = rows.filter(function (x) { return x.source !== 'ask'; }).map(function (x) { var v = Object.prototype.hasOwnProperty.call(dv, x.name) ? dv[x.name] : ''; return x.name + (v ? ' ' + v : ' (empty)') + (x.source === 'value' ? ' (fixed)' : x.from !== x.name ? ' (from ' + x.from + ')' : ''); });
+      var asks = rows.filter(function (x) { return x.source === 'ask' && !Object.prototype.hasOwnProperty.call(setBy, x.name); }).map(function (x) { return x.name; });
+      return (gave.length ? 'Passes on ' + gave.join(', ') : 'Passes on no details') + (asks.length ? '; asks for ' + asks.join(', ') + ' when it starts' : '');
+    }
     var d = R.childDetails(r, s, pub.map.meta.context), keys = Object.keys(d);
     return keys.length ? 'Passes on ' + keys.map(function (k) { return k + (d[k] ? ' ' + d[k] : ' (empty)'); }).join(', ') : 'Passes on no details';
   }
