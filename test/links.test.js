@@ -57,6 +57,17 @@ rule('write: a pass: step keeps an asked entry when nothing else would keep its 
   same(L.write(want, step({}), PARENT, c), { carry: null, pass: null });
 });
 
+rule('write: with nothing asked, a pass: step keeps its first passed detail written out, so a conversion still gets its form', () => {
+  const c = child('replicas:number'), want = [{ name: 'replicas', source: 'detail', from: 'replicas' }];
+  same(L.write(want, step({ pass: 'replicas=^other' }), ['replicas', 'other'], c), { carry: null, pass: 'replicas=^replicas' });
+  same(shape(L.rows(step({ pass: 'replicas=^replicas' }), ['replicas', 'other'], c)), ['replicas<detail:replicas'], 'means the same');
+});
+
+rule('childrenFrom: two publications with the same number can\'t be checked either', () => {
+  const f = L.childrenFrom({ deploy: { latest: null, all: [], clashes: [1], broken: [] } });
+  assert.ok(/Two different publications of deploy are numbered v1/.test(f('deploy', '').unreadable), JSON.stringify(f('deploy', '')));
+});
+
 rule('childrenFrom: a child whose versions are all damaged can\'t be checked; one never published is unpublished', () => {
   const f = L.childrenFrom({ deploy: { latest: null, all: [], clashes: [], broken: [{ ok: false, why: 'Its publication record isn\'t valid JSON' }] } });
   assert.ok(/No version of deploy can be used: Its publication record isn't valid JSON\./.test(f('deploy', '').unreadable), JSON.stringify(f('deploy', '')));
@@ -250,6 +261,15 @@ rule('Run time: a pass: step follows carry: as Fill in changed it, for its value
   same(L.inputs(x.parent, R.effStep(x.parent, x.st), Object.keys(x.parent.details), x.cmap), { env: 'prod', ticket: 'T-1', region: 'eu' });
   x.parent.fields = { dep: { carry: 'gone' } };
   assert.ok(/no run detail gone/.test(R.childProblem(x.parent, x.st, x.cmap)), 'a carry: name the child lacks is refused');
+});
+
+rule('Run time: Fill in can\'t change carry: on a pass: step; on a step without pass: it still can', () => {
+  const x = linked(['  carry: ticket', '  pass: environment=^env']), map = R.mapOf(x.parent);
+  assert.throws(() => R.setFields(x.parent, map, 'dep', { carry: '' }, null, 'person-avery', NOW), /can't change during a run/);
+  assert.strictEqual(R.fieldsOf(x.parent, x.st).carry, 'ticket', 'unchanged');
+  const y = linked(['  carry: ticket']);
+  R.setFields(y.parent, R.mapOf(y.parent), 'dep', { carry: 'region' }, null, 'person-avery', NOW);
+  assert.strictEqual(R.fieldsOf(y.parent, y.st).carry, 'region', 'as in 2.7');
 });
 
 rule('Run time: a pass: name the child lacks is refused before anything starts', () => {

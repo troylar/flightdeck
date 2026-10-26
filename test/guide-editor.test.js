@@ -466,6 +466,8 @@ rule('Editor (2.8): a linked step picks its process from a list, and each of the
   assert.ok(!/<option value="release"/.test(h.slice(h.indexOf('ob-link-proc'), h.indexOf('</select>', h.indexOf('ob-link-proc')))), 'never the checklist itself');
   assert.ok(/What [^<]+ needs<\/h3>/.test(h) && /id="ob-link-src-commit"/.test(h) && /id="ob-link-src-branch"/.test(h), 'one row per child detail');
   assert.ok(/Latest when the child starts/.test(h), 'a carry-only checklist takes the latest when the child starts');
+  assert.ok(/starts without /.test(h) && !/; asks /.test(h), 'before pass:, the summary says what starts empty, not what\'s asked');
+  assert.ok(!/id="ob-link-vn"/.test(h), 'which version is asked only once one is pinned');
   app.select('ob-link-src-commit', '^tag'); await app.tick();
   let t = await textOf(app);
   assert.ok(/  process: check-in\n  pass: commit=\^tag\n/.test(t), t);

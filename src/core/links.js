@@ -104,6 +104,9 @@ PF.links = (function () {
     if (has(step) && !pass.length && !stalePass.length) {
       var asked = names.filter(function (n) { return byName[n] && byName[n].source === 'ask'; }), was = asked.filter(function (n) { return order.indexOf(n) >= 0; });
       (was.length ? was : asked).forEach(function (n) { pass.push(byName[n]); });
+      /* Nothing asked: the first passed detail is written out (even under its own name), so a value the child may need
+         to convert still opens the start form. */
+      if (!pass.length) { var keep = names.filter(function (n) { return byName[n] && byName[n].source !== 'ask'; })[0]; if (keep) pass.push(byName[keep]); }
     }
     var text = pass.map(entryText).concat(stalePass.map(entryText));
     return { carry: carry && carry.length ? carry.join(', ') : null, pass: text.length ? text.join(', ') : null };
@@ -146,8 +149,9 @@ PF.links = (function () {
       else { var got = PF.pins.atVersion(proc, process, +version); if (got.why) return null; pub = got.pub; }
       if (!pub || !pub.map) {
         /* Versions are there but none can be used (a damaged publication record): not "unpublished", it can't be checked. */
-        var bad = latest && (proc.broken || []).length ? proc.broken[0] : null;
+        var bad = latest && (proc.broken || []).length ? proc.broken[0] : null, clash = latest && !bad && (proc.clashes || []).length ? proc.clashes[0] : null;
         if (bad) return { unreadable: 'No version of ' + process + ' can be used: ' + String(bad.why || 'its publication can\'t be read').replace(/\.?$/, '.') };
+        if (clash != null) return { unreadable: 'Two different publications of ' + process + ' are numbered v' + clash + ', so its latest version isn\'t known.' };
         return { unpublished: true };
       }
       return { map: pub.map, title: pub.map.meta.title || process, version: pub.info.version, latest: latest };

@@ -381,7 +381,9 @@
       nums.sort(function (a, b) { return b - a; });
       var pinned = !!f.version;
       h += '<fieldset class="field"><legend>Which version</legend><label class="ob-switch" for="ob-link-ver-latest"><input type="radio" name="ob-link-ver" id="ob-link-ver-latest" value="latest" data-bound' + (pinned ? '' : ' checked') + '><span><b>' + (two ? 'Latest when this run starts' : 'Latest when the child starts') + '</b></span></label>';
-      if (nums.length) h += '<label class="ob-switch" for="ob-link-ver-pin"><input type="radio" name="ob-link-ver" id="ob-link-ver-pin" value="pin" data-bound' + (pinned ? ' checked' : '') + '><span><b>Always one version</b></span></label><label class="field" for="ob-link-vn">' + esc(G.form('link-vn').q) + '<select id="ob-link-vn" data-bound>' +
+      if (nums.length) h += '<label class="ob-switch" for="ob-link-ver-pin"><input type="radio" name="ob-link-ver" id="ob-link-ver-pin" value="pin" data-bound' + (pinned ? ' checked' : '') + '><span><b>Always one version</b></span></label>';
+      /* Which version is asked only once one is pinned. */
+      if (nums.length && pinned) h += '<label class="field" for="ob-link-vn">' + esc(G.form('link-vn').q) + '<select id="ob-link-vn" data-bound>' +
         nums.map(function (n) { var at = PF.pins.atVersion(e, f.process, n); return '<option value="' + n + '"' + (String(n) === String(f.version) ? ' selected' : '') + (at.why ? ' disabled' : '') + '>v' + n + (at.why ? ' (' + esc(at.why) + ')' : '') + '</option>'; }).join('') + '</select></label>';
       h += '</fieldset>';
     }
@@ -471,9 +473,16 @@
     if (io.sets.length) out.push('<b>Sets:</b> ' + io.sets.map(function (n) { return '<code>^' + esc(n) + '</code>'; }).join(', '));
     if (io.passes) {
       var given = io.passes.filter(function (r) { return r.source !== 'ask'; });
-      out.push('<b>Passes to ' + esc(got.title) + ':</b> ' + (given.length ? given.map(function (r) { return esc(r.name) + (r.source === 'value' ? ' = ' + esc(r.value) : ' ← ^' + esc(r.from)); }).join(', ') : 'nothing') + (given.length < io.passes.length ? '; asks ' + io.passes.filter(function (r) { return r.source === 'ask'; }).map(function (r) { return esc(r.name); }).join(', ') : ''));
+      out.push('<b>Passes to ' + esc(got.title) + ':</b> ' + (given.length ? given.map(function (r) { return esc(r.name) + (r.source === 'value' ? ' = ' + esc(r.value) : ' ← ^' + esc(r.from)); }).join(', ') : 'nothing') + ioRest(io.passes, st, got.map));
     } else if (io.shared) out.push('May also pass details ' + esc(f.process || 'the other process') + ' shares with this checklist.');
     return out.length ? '<div class="small ob-io">' + out.map(function (l) { return '<p>' + l + '</p>'; }).join('') + '</div>' : '';
+  }
+  /* The rest of a linked step's summary: what the child fills in itself, and what's asked when it starts (a pass: step) or
+     starts empty (before 2.8, nothing is asked). */
+  function ioRest(rows, st, cmap) {
+    var setBy = M.setBy(cmap), left = rows.filter(function (r) { return r.source === 'ask'; }), self = left.filter(function (r) { return ownKey(setBy, r.name); }), rest = left.filter(function (r) { return !ownKey(setBy, r.name); });
+    var names = function (a) { return a.map(function (r) { return esc(r.name); }).join(', '); };
+    return (rest.length ? (PF.links.has(st) ? '; asks ' : '; starts without ') + names(rest) : '') + (self.length ? '; fills in ' + names(self) + ' itself' : '');
   }
   function askOf(ctx, kind, key, track) { var a = ctx.state.obAsk; return a && a.kind === kind && a.key === key && (track == null || +a.track === +track) ? a : null; }
   /* The side form for what's selected: a step's text, kind, type, roles, run details and fields; a lane; or a phase and its

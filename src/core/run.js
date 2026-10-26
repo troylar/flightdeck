@@ -666,6 +666,8 @@ PF.run = (function () {
       if (allowed.indexOf(f) < 0) return { error: '"' + f + '" can\'t be changed during a run.', field: 'fld-' + f };
       var v = String(fields[f] == null ? '' : fields[f]).trim().slice(0, 300), before = fieldsOf(r, step)[f] || '';
       if (v === before) continue;
+      /* 2.8: a step with a pass: line passes exactly what its published version says; carry: is fixed like pass:. */
+      if (f === 'carry' && PF.links.has(step)) return { error: 'This step passes details with a pass: line, so what it passes can\'t change during a run. Change the checklist instead.', field: 'fld-' + f };
       var def = PF.types.fieldDef(t, f);
       if (v && def.kind === 'choice' && PF.types.hasOption(def, fieldsOf(r, step), v)) v = PF.types.canonical(def, fieldsOf(r, step), v);
       if (v && def.kind === 'choice' && !PF.types.hasOption(def, fieldsOf(r, step), v)) return { error: def.label + ' should be one of: ' + PF.types.options(def, fieldsOf(r, step)).join(', ') + '.', field: 'fld-' + f };
