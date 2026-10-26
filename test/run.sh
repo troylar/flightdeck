@@ -22,6 +22,7 @@ t test/ui-states.test.js
 t test/reports.test.js
 t test/insights.test.js
 t test/outline.test.js
+t test/refs.test.js
 t test/timeline.test.js
 t test/search.test.js
 t test/folder.test.js

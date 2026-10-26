@@ -20,7 +20,7 @@ Status: **current to Flightdeck 2.6.1**, which changed documentation and the ins
 |---|---|
 | The model: processes, checklists, versions, typed steps and values | [1](#1-what-flightdeck-is), [3](#3-concepts), [5](#5-checklists), [6](#6-publishing-and-versioning), [10](#10-step-types-v1), [30](#30-conditions-only-when-21-slice-2), [38](#38-typed-values-20) |
 | Runs and gates | [7](#7-runs-v1), [8](#8-gates), [9](#9-time), [11](#11-screens-and-the-delight-bar), [35](#35-run-screen-polish-231) |
-| Editing checklists | [18](#18-navigation-and-managing-templates-1100), [20](#20-visual-builder-flight-plan-and-outline-builder-built-both-shipped-early-in-111-parts-box-in-112), [27](#27-editing-a-draft-with-your-ai-assistant-proposals-the-soft-lock-and-live-apply-119-slices-1-and-2), [34](#34-practice-the-draft-22-on-the-run-screen-since-23), [37](#37-entry-boxes-that-explain-themselves-26) |
+| Editing checklists | [18](#18-navigation-and-managing-templates-1100), [20](#20-visual-builder-flight-plan-and-outline-builder-built-both-shipped-early-in-111-parts-box-in-112), [27](#27-editing-a-draft-with-your-ai-assistant-proposals-the-soft-lock-and-live-apply-119-slices-1-and-2), [34](#34-practice-the-draft-22-on-the-run-screen-since-23), [37](#37-entry-boxes-that-explain-themselves-26), [39](#39-boxes-that-know-your-run-details-27) |
 | Versions, staging, test runs and skills | [13](#13-process-to-skill-traceability-190), [19](#19-versions-and-staging-staging-built-in-21), [31](#31-staging-stage-promote-retire-21-slice-4), [32](#32-test-runs-21-slice-5), [33](#33-readiness-and-sign-offs-from-test-runs-21-slice-6) |
 | The shared folder, its writers and scale | [4](#4-team-folder-and-writers), [21](#21-team-confidence-115), [25](#25-large-folders-117) |
 | Search, insights and evidence | [22](#22-search-117), [23](#23-insights-how-runs-go-117), [24](#24-evidence-export-117) |
@@ -82,6 +82,7 @@ Status: **current to Flightdeck 2.6.1**, which changed documentation and the ins
 | 36 | [Fresh coat (2.4)](#36-fresh-coat-24) | Current |
 | 37 | [Entry boxes that explain themselves (2.6)](#37-entry-boxes-that-explain-themselves-26) | Current |
 | 38 | [Typed values (2.0)](#38-typed-values-20) | Current |
+| 39 | [Boxes that know your run details (2.7)](#39-boxes-that-know-your-run-details-27) | Current |
 
 ### Releases and sections
 
@@ -111,6 +112,7 @@ Status: **current to Flightdeck 2.6.1**, which changed documentation and the ins
 | 2.5 | [25](#25-large-folders-117) (*2.5.0: big folders*) |
 | 2.6 | [37](#37-entry-boxes-that-explain-themselves-26) |
 | 2.6.1 | [38](#38-typed-values-20), this navigation and the status lines |
+| 2.7 | [39](#39-boxes-that-know-your-run-details-27) |
 
 ### Planned, built differently and not built
 
@@ -1144,3 +1146,18 @@ Until 2.0, every run detail and every evidence value was text. A checklist can n
 - **Formats and older copies.** Typed values exist only in 2.0's formats: a checklist with a typed detail or typed evidence publishes as `preflight-publication/2`, and its runs are `preflight-run/3`; a run/2 on a 1.x version stays text, as every copy wrote it. Every copy from 1.11.1 to 1.22 names such a version unusable, lists its runs by name only and writes nothing (`test/compat-typed.test.js`). By the lowest-sufficient-format rule (section 28), typed values alone never push a checklist past what its other features need: one that uses no feature of a newer format (typed values, phase notes, screenshots, pins, conditions) publishes as `/1`, and every copy runs it.
 - **Signed by name, compared by kind.** The meaning signature (`PF.signature`, section 28) signs `context:` by names only, but a skill's update check compares the run details separately with their kinds and choices (`contextOf` in `src/core/skills.js`): a detail gaining or changing a kind, or a choice gaining an option, is a change to what the skill receives (`test/typed.test.js`).
 - **Tests.** `test/typed.test.js` (the rules: parsing, canonical forms, display, conversion, migrations and their holds), `test/compat-typed.test.js` (real older releases) and the typed cases in `test/app.test.js`.
+
+## 39. Boxes that know your run details (2.7)
+
+**Status:** Current.
+
+- **One token rule.** `PF.refs` (`src/core/refs.js`, pure) finds every `^name` the way `R.fill` does (`/\^([\w-]+)/`), so the editor marks exactly what a run fills in. It reads step text, gate `approves:` and the fields a run fills in (`fillable`: text, code, message, url and list kinds; never `sets`, `carry`, `process`, `expect`, `deadline`, `evidence`, `require`, `at`, `due` or `after`).
+- **Verdicts.** `sources(map)` lists each detail's setters (`sets:`, in checklist order). At a place, a name is **ok** when it's asked at the start, set in an earlier phase, or (for a gate) set in the gate's own phase; **ok, quietly** when an earlier step in the same phase and lane sets it; **maybe-unset** otherwise (a run answers an open phase's steps in any order and lanes side by side); **unknown** when it isn't in `context:`. `suggest` offers the one close name (one edit for names of three letters or fewer, two otherwise, else a unique prefix) and says nothing on a tie.
+- **Checks.** An unknown name in step text or `approves:` still blocks publishing, now with "Did you mean ^x?". In a field it's a suggestion ("^ERROR in \"command\" isn't a run detail, so a run shows it as written."), and maybe-unset is a suggestion naming the setter and its condition. The example folder gets no new advice.
+- **`R.fill(text, details, names)`** leaves a `^word` that isn't in `names` as written; a listed detail with no value still reads "(name not set)". Every caller passes the shown checklist's `map.meta.context`. Older copies (2.6.1 and earlier) still show `^ERROR` as "(ERROR not set)".
+- **`O.editStepText(text, key, value)`** edits a step's text with references in place: `value` is the text as typed, roles keep their place at the end, ties follow the text. It refuses `@`, `{#`, a type prefix, text that's only references and more than 200 characters, and its safety net compares `textParts` and `binds`. `editStep({text})` is unchanged for the command line and assistants. Tie buttons still append `^name`; turning one off removes every use of the name.
+- **The box.** `V.dbx` (`src/ui/views/detailbox.js`) draws step text, gate approves and fillable fields as a box over a mirror that colors each name by its verdict; the name being typed is never marked. Under it: one line per problem with its fix (Use ^x, Add ^x as a run detail, Show that step), Insert a detail, and **In a run:**, the box filled the way the run screen will show it, from the latest non-test run of this checklist (by name, only where the kind still matches). Typing `^` opens a list: prefix matches first, then containing, maybe-unset last with a note, and Add when nothing matches. `app.js` (`dbx*`) redraws the mirror, the lines and the list as you type, never the box; its parse is kept per draft text (`dbxMemo`).
+- **Rename.** Checklist details lists each run detail with how often it's used and **Rename**. `O.renameDetail(text, from, to, {depends})` rewrites the `context:` entry (keeping its kind), whole `^from` tokens in step text, `approves:` and field values, the left side of `only when` (a value like `^tag` in `only when ^mode is ^tag` stays), and bare names in `sets:`. Nothing else changes: choice options, notes, titles. It refuses a taken, bad or vanished name, a `carry:` in this checklist that lists it, and any refusing dependent; it's one Undo step and returns `places` and `notes`. Runs already started keep their own names.
+- **Other files.** `PF.refs.dependents(map, name, folder)` reads the folder's other checklists (latest published and saved draft), the children this one runs and the Jira workflows. A child gets its parent's details by name (`carry:`, or with no carry every shared name, plus the step's ties). Refused: a parent at Latest that passes the name, and a child this checklist passes it to. Mentioned only: a parent pinned to a version (it keeps that version) and a Jira field whose source is `detail:name` (the shared file is never changed). 2.8.0 lifts the refusals.
+- **Signatures.** Rename follows the signature rules: steps whose ties or fields change, every step in a phase and the next when a condition or a gate's `approves:` there names the detail, and every implicit-carry `run.process` step. `test/refs.test.js` lists the re-signed steps by hand.
+- **Tests.** `test/refs.test.js` (the rules, checks, `editStepText`, rename and dependents) and the app tests for the box and Rename in `test/app.test.js`.

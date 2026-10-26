@@ -1,5 +1,48 @@
 [
   {
+    "version": "2.7.0",
+    "date": "2026-10-26",
+    "headline": "Boxes that know your details",
+    "changes": [
+      {
+        "kind": "new",
+        "area": "Editor",
+        "title": "Type ^ to put a run detail in a step, a gate or a field",
+        "now": "Typing ^ in a step's text, a gate's approval or a text field lists the checklist's run details, with where each comes from; Enter or a click puts it in. Insert a detail does the same, and Add ^name as a run detail adds one you haven't listed yet. The detail stays where you typed it in the step's text.",
+        "where": "Editing a draft, the step and gate forms"
+      },
+      {
+        "kind": "new",
+        "area": "Editor",
+        "title": "A misspelled detail is marked, with a one-click fix",
+        "now": "Each ^detail in a box is marked: fine, not a run detail, or maybe not set yet at that step. A misspelled one offers Use ^environment, and one the run may reach before it's set names the step that sets it, with Show that step.",
+        "where": "Editing a draft, under each box"
+      },
+      {
+        "kind": "new",
+        "area": "Editor",
+        "title": "See a box filled in, the way a run will show it",
+        "now": "In a run: under a box shows it with the values from this checklist's latest run, exactly as the run screen will.",
+        "where": "Editing a draft, under each box that holds a ^detail"
+      },
+      {
+        "kind": "new",
+        "area": "Editor",
+        "title": "Rename a run detail everywhere at once",
+        "now": "Rename in Checklist details changes the detail in its list, step text, gate approvals, fields, only when and sets, as one Undo step. It says how often each detail is used, and refuses when another checklist receives the detail by that name.",
+        "where": "Editing a draft, Checklist details"
+      },
+      {
+        "kind": "fixed",
+        "area": "Runs",
+        "title": "A caret that isn't a run detail stays as written",
+        "now": "A field like grep ^ERROR shows ^ERROR in a run, and Checks name it as a tip, with the detail it likely meant.",
+        "before": "A run showed it as (ERROR not set).",
+        "where": "The run screen and Checks"
+      }
+    ]
+  },
+  {
     "version": "2.6.1",
     "date": "2026-10-25",
     "headline": "Documentation that matches the app",

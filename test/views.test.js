@@ -338,7 +338,7 @@ rule('Draft builder: phases as cards, steps as draggable rows, gates as striped 
   state.obSel = { pid: 'release', kind: 'step', key: 'flags' }; html = V.process(ctx);
   assert.ok(/<li class="ob-step sel"[^>]*data-ob-step="flags">/.test(html) && /aria-pressed="true" aria-describedby="ob-kbd"/.test(html), 'the selected row');
   /* 2.6.0: the box asks its question, with an example and a why (PF.guide). */
-  assert.ok(/<textarea id="ob-text" rows="2" maxlength="200" data-enter="ob-commit" placeholder="Tag the release" aria-describedby="why-ob-text">Feature flags set in the deploy values<\/textarea>/.test(html), 'its text, without @role or ^detail');
+  assert.ok(/<textarea id="ob-text" class="dbx-in"[^>]* rows="2" maxlength="200" data-enter="ob-commit" placeholder="Tag the release" aria-describedby="why-ob-text dbx-iss-ob-text dbx-pv-ob-text">Feature flags set in the deploy values \^environment<\/textarea>/.test(html), 'its text with its ^detail in place (2.7), without @role');
   assert.ok(/<input type="radio" name="ob-mark" id="ob-mark-must" value="must" data-bound checked><span><b>Must do<\/b>/.test(html) && /id="ob-mark-planned" value="planned" data-bound><span>/.test(html) && /<option value="confirm" selected>Confirm</.test(html), 'the kind as one choice of three, and the type');
   assert.ok(/data-act="ob-role" data-id="backend" aria-pressed="true"/.test(html) && /data-act="ob-role" data-id="qa" aria-pressed="false"/.test(html), 'roles from the checklist');
   assert.ok(/class="ob-chip" data-act="ob-bind" data-id="environment" aria-pressed="true"/.test(html) && /data-id="commit" aria-pressed="false"/.test(html), 'run details as amber chips');

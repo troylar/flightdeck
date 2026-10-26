@@ -341,7 +341,7 @@ rule('App: the builder\'s side form shows the step as the folder has it now, and
   /* A change to this step replaces the box's old value with the new text. */
   await app.fs.write(path, original.replace('title: Production release', 'title: Theirs').replace('Feature flags set in the deploy values', 'Flags set by them'));
   app.focus(); await app.tick(80);
-  assert.ok(/<textarea id="ob-text" rows="2" maxlength="200" data-enter="ob-commit"[^>]*>Flags set by them<\/textarea>/.test(app.html()), 'drawn from the new text (2.6.0: with its example and why)');
+  assert.ok(/<textarea id="ob-text"[^>]*rows="2" maxlength="200" data-enter="ob-commit"[^>]*>Flags set by them \^environment<\/textarea>/.test(app.html()), 'drawn from the new text (2.6.0: with its example and why; 2.7: with its run details in place) ' + (app.html().match(/<textarea id="ob-text"[^>]*>[^<]*/) || [''])[0]);
   assert.notStrictEqual(app.draft('ob-text'), 'Half typed', 'the old value isn\'t carried over');
 });
 
@@ -1345,12 +1345,12 @@ rule('App: a value the builder refuses shows why next to its box, marked invalid
   const app = await builderOn();
   app.click('ob-sel', 'flags'); await app.tick();
   app.set('ob-text', 'Ask @qa'); app.keyOn('Enter', {}, { tagName: 'INPUT', id: 'ob-text', value: 'Ask @qa', dataset: { enter: 'ob-commit' }, closest: () => null }); await app.tick();
-  assert.ok(/<textarea id="ob-text"[^>]* aria-invalid="true" aria-describedby="ferr-ob-text why-ob-text">/.test(app.html()), 'the box is marked (2.6.0: its why follows the error)');
-  assert.ok(/<p class="ferr" id="ferr-ob-text" role="alert">Choose roles and run details with their buttons/.test(app.html()), 'the reason is next to it');
+  assert.ok(/<textarea id="ob-text"[^>]* aria-invalid="true" aria-describedby="ferr-ob-text why-ob-text dbx-iss-ob-text dbx-pv-ob-text">/.test(app.html()), 'the box is marked (2.6.0: its why follows the error)');
+  assert.ok(/<p class="ferr" id="ferr-ob-text" role="alert">Choose roles with their buttons, not with @ in the text/.test(app.html()), 'the reason is next to it');
   /* Selecting another step waits for the refused text, so it isn't dropped (1.22.0); cleared, the mark goes with it. */
   app.click('ob-sel', 'rollback'); await app.tick();
   assert.ok(/then choose another/.test(app.live()) && /aria-invalid="true"/.test(app.html()), 'the refused text holds the selection');
-  app.input('ob-text', 'Feature flags set in the deploy values'); await app.tick();
+  app.input('ob-text', 'Feature flags set in the deploy values ^environment'); await app.tick();
   app.click('ob-sel', 'rollback'); await app.tick();
   assert.ok(!/aria-invalid="true"/.test(app.html()), 'gone once another step is selected');
 });
@@ -3630,7 +3630,7 @@ rule('App: Undo puts back which parts are new, so a restored saved step never ta
   assert.ok(/data-ob-step="flags"/.test(app.html()), 'set-up: the new step took the free ID flags');
   app.click('tl-undo', 'draft'); await app.tick(); app.click('tl-undo', 'draft'); await app.tick(); app.click('tl-undo', 'draft'); await app.tick();
   app.click('ob-sel', 'flags'); await app.tick();
-  app.set('ob-text', 'Original flags reworded'); enter(app, 'ob-text', 'Original flags reworded'); await app.tick();
+  app.set('ob-text', 'Original flags reworded ^environment'); enter(app, 'ob-text', 'Original flags reworded ^environment'); await app.tick();
   app.click('save-draft'); await app.tick(80);
   assert.ok(/Original flags reworded \^environment @backend \{#flags\}/.test(releaseText(app)), releaseText(app).split('\n').find(l => /reworded/.test(l)));
 });
@@ -3825,7 +3825,7 @@ rule('App: on a phone, Escape or Done on the sheet applies typed text, or keeps 
   app.setScoped('ob-text', 'Ask @qa'); app.input('ob-text', 'Ask @qa'); await app.tick();
   app.key('Escape'); await app.tick();
   assert.ok(/class="panel stack ob-form"/.test(app.html()) && /id="ferr-ob-text"/.test(app.html()) && app.leaveWarns(), 'refused: the sheet stays, with why');
-  app.setScoped('ob-text', 'Phone words'); app.input('ob-text', 'Phone words'); await app.tick();
+  app.setScoped('ob-text', 'Phone words ^environment'); app.input('ob-text', 'Phone words ^environment'); await app.tick();
   app.key('Escape'); await app.tick();
   assert.ok(!/class="panel stack ob-form"/.test(app.html()), 'closed');
   app.click('save-draft'); await app.tick(80);
@@ -3838,8 +3838,8 @@ rule('App: typing put back to what the step says is no longer unsaved, and the e
   app.click('ob-sel', 'flags'); await app.tick();
   app.setScoped('ob-text', 'Something else'); app.input('ob-text', 'Something else'); await app.tick();
   assert.ok(app.leaveWarns(), 'set-up: pending');
-  app.setScoped('ob-text', 'Feature flags set in the deploy values'); app.input('ob-text', 'Feature flags set in the deploy values'); await app.tick();
-  assert.ok(!app.leaveWarns(), 'back to what it says: nothing unsaved');
+  app.setScoped('ob-text', 'Feature flags set in the deploy values ^environment'); app.input('ob-text', 'Feature flags set in the deploy values ^environment'); await app.tick();
+  assert.ok(!app.leaveWarns(), 'back to what it says (2.7: run details in place): nothing unsaved');
   await app.fs.write(path, original.replace('Rollback commit written in the release ticket', 'Rollback written by them'));
   app.focus(); await app.tick(80);
   assert.ok(/Rollback written by them/.test(app.html()), 'follows the newer draft');
@@ -4112,7 +4112,7 @@ rule('App: Undo and Redo never lose text typed in a builder box and not applied;
   app.click('ob-move', 'flags', { dir: 'up' }); await app.tick();
   app.input('ob-text', 'Ask @qa before continuing'); await app.tick();
   enter(app, 'ob-text', 'Ask @qa before continuing'); await app.tick();
-  assert.ok(/role="alert">Choose roles and run details with their buttons/.test(app.html()), 'set-up: refused, still typed');
+  assert.ok(/role="alert">Choose roles with their buttons/.test(app.html()), 'set-up: refused, still typed');
   app.click('tl-undo', 'draft'); await app.tick();
   assert.strictEqual(app.draft('ob-text'), 'Ask @qa before continuing', 'the typing is kept');
   assert.ok(/Apply or clear what you typed/.test(app.html()), 'and Undo says why it waits');
@@ -5354,7 +5354,7 @@ rule('App: Reverse this change waits, like Undo, while a builder box holds wordi
   app.click('ob-sel', 'flags'); await app.tick();
   app.input('ob-text', 'Ask @qa before continuing'); await app.tick();
   enter(app, 'ob-text', 'Ask @qa before continuing'); await app.tick();
-  assert.ok(/role="alert">Choose roles and run details with their buttons/.test(app.html()), 'set-up: refused, still typed');
+  assert.ok(/role="alert">Choose roles with their buttons/.test(app.html()), 'set-up: refused, still typed');
   app.click('hist-open', 'draft'); await app.tick();
   app.click('hist-mode', 'saved'); await app.tick(40);
   const id = /data-act="hist-reverse" data-id="([\w-]+)"/.exec(app.overlay())[1];
@@ -8214,6 +8214,67 @@ rule('Checklist details: the change that follows an add (a redrawn box) never ad
   addBox(app, 'ob-add-ctx', 'context', 'region'); await app.tick();
   assert.ok(/already a run detail/.test(app.html()), 'typing the same name again on purpose is still refused');
   assert.strictEqual(app.draft('ob-add-ctx'), 'region', 'with the typing kept');
+});
+rule('Checklist details: Rename a run detail follows it everywhere as one Undo step; a carried name and a taken name are refused next to the box (2.7)', async () => {
+  const app = await builderOn();
+  app.click('ob-sel-details'); await app.tick();
+  let html = app.html();
+  assert.ok(/<span class="ob-chip">\^tag<\/span><span class="small">used in \d+ places<\/span><button type="button" class="mini" data-act="ob-ren" data-id="tag" aria-label="Rename \^tag">Rename<\/button>/.test(html), 'each run detail: how often it\'s used, and Rename');
+  app.click('ob-ren', 'tag'); await app.tick();
+  html = app.html();
+  assert.ok(/<label for="ob-ren-ctx">New name for \^tag<\/label>/.test(html) && /id="ob-ren-ctx"[^>]*value="tag"/.test(html), 'the new-name box, holding the name');
+  assert.ok(/Runs already started keep the old name\. Used in [^<]*the step “Start the production deploy job/.test(html), 'what changes with it');
+  assert.strictEqual(app.focused(), '#ob-ren-ctx');
+  app.set('ob-ren-ctx', 'build_tag'); app.click('ob-ren-go', 'tag'); await app.tick();
+  assert.ok(/Renamed \^tag to \^build_tag in \d+ places\./.test(app.live()), app.live());
+  html = app.html();
+  assert.ok(/data-act="ob-ren" data-id="build_tag"/.test(html) && !/data-act="ob-ren" data-id="tag"/.test(html) && !/id="ob-ren-ctx"/.test(html), 'renamed; the box closes');
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(/data-act="ob-ren" data-id="tag"/.test(app.html()) && !/data-id="build_tag"/.test(app.html()), 'one Undo takes it all back');
+
+  app.click('ob-ren', 'commit'); await app.tick();
+  app.set('ob-ren-ctx', 'sha'); app.click('ob-ren-go', 'commit'); await app.tick();
+  assert.ok(/<p class="ferr" id="ferr-ob-ren-ctx" role="alert">The step “Check in the release notes for this commit” passes \^commit to check-in by name\. Renaming it would stop that\.<\/p>/.test(app.html()), 'carry: names it, so it\'s refused, once: ' + (app.html().match(/id="ferr-ob-ren-ctx"[^>]*>[^<]*/) || [''])[0]);
+  assert.strictEqual(app.draft('ob-ren-ctx'), 'sha', 'the typing stays');
+  app.click('ob-ren-cancel', 'commit'); await app.tick();
+  assert.ok(!/id="ob-ren-ctx"/.test(app.html()) && app.focused() === '[data-act="ob-ren"][data-id="commit"]', 'Cancel closes it and goes back to its Rename');
+
+  /* Typing for a new name is held like any builder box: it never moves to another detail's Rename, nor is it dropped. */
+  app.click('ob-ren', 'tag'); await app.tick();
+  app.set('ob-ren-ctx', 'build_tag'); app.input('ob-ren-ctx', 'build_tag'); await app.tick();
+  app.click('ob-ren', 'ticket'); await app.tick();
+  assert.ok(/Apply or clear what you typed in the box first/.test(app.live()) && /<label for="ob-ren-ctx">New name for \^tag<\/label>/.test(app.html()), 'held on ^tag: ' + app.live());
+  assert.strictEqual(app.draft('ob-ren-ctx'), 'build_tag', 'still typed');
+  app.click('ob-sel', 'flags'); await app.tick();
+  assert.ok(/Apply or clear what you typed in the box first/.test(app.live()) && /id="ob-ren-ctx"/.test(app.html()), 'choosing a step waits too');
+  app.click('ob-ren-cancel', 'tag'); await app.tick();
+  app.click('ob-ren', 'ticket'); await app.tick();
+  assert.ok(/<label for="ob-ren-ctx">New name for \^ticket<\/label>/.test(app.html()) && app.draft('ob-ren-ctx') === 'ticket', 'after Cancel, the next Rename starts from its own name: ' + app.draft('ob-ren-ctx'));
+  app.click('ob-ren-cancel', 'ticket'); await app.tick();
+
+  app.click('ob-ren', 'ticket'); await app.tick();
+  app.set('ob-ren-ctx', 'environment'); app.click('ob-ren-go', 'ticket'); await app.tick();
+  assert.ok(/id="ferr-ob-ren-ctx" role="alert">\^environment is already a run detail\./.test(app.html()), 'a taken name');
+});
+rule('Detail boxes: a misspelled ^detail in step text is marked with Use ^environment and Add; Use fixes it, Add lists it; In a run shows the latest run\'s values (2.7)', async () => {
+  const app = await builderOn();
+  app.click('ob-sel', 'flags'); await app.tick();
+  let html = app.html();
+  assert.ok(/<div class="dbx" data-dbx="ob-text" data-kind="step" data-at="s:\d+">/.test(html), 'the step text is a detail box');
+  assert.ok(/<mark class="dbx-t v-ok">\^environment<\/mark>/.test(html), 'its ^environment is marked as set');
+  assert.ok(/<p class="dbx-pv small" id="dbx-pv-ob-text"><span class="dbx-pv-k">In a run <span class="small">\(values from [^)]+\)<\/span>:<\/span>/.test(html), 'In a run, with where the values come from');
+  assert.ok(/data-act="dbx-insert" data-for="ob-text"/.test(html), 'Insert a detail');
+  app.set('ob-text', 'Feature flags set in ^enviroment'); enter(app, 'ob-text', 'Feature flags set in ^enviroment'); await app.tick();
+  html = app.html();
+  assert.ok(/<mark class="dbx-t v-unknown">\^enviroment<\/mark>/.test(html), 'the typo is marked');
+  assert.ok(/\^enviroment isn't a run detail\. Publishing waits until it is, or it's gone\. Did you mean \^environment\?/.test(html), 'says why, and what it likely meant');
+  assert.ok(/data-act="dbx-fix" data-for="ob-text" data-from="enviroment" data-to="environment">Use \^environment<\/button>/.test(html) && /data-act="dbx-add" data-for="ob-text" data-name="enviroment">/.test(html), 'with both fixes');
+  app.click('dbx-fix', '', { for: 'ob-text', from: 'enviroment', to: 'environment' }); await app.tick();
+  html = app.html();
+  assert.ok(!/v-unknown/.test(html) && /<mark class="dbx-t v-ok">\^environment<\/mark>/.test(html), 'Use fixes it in place');
+  app.set('ob-text', 'Feature flags set in ^region'); enter(app, 'ob-text', 'Feature flags set in ^region'); await app.tick();
+  app.click('dbx-add', '', { for: 'ob-text', name: 'region' }); await app.tick();
+  assert.ok(/Added \^region as a run detail\./.test(app.live()) && /<mark class="dbx-t v-ok">\^region<\/mark>/.test(app.html()), 'Add lists it, and the mark clears: ' + app.live());
 });
 const QDRAFT = ['---', 'process: release', 'title: Production release', 'owner: person-casey', 'roles: lead', 'context: ticket', '---', '',
   '## First · READ-DO {#first}', '- [!] {confirm} One @lead ^ticket {#one}', '',

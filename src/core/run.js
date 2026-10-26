@@ -474,7 +474,7 @@ PF.run = (function () {
       if (gateOk(st)) continue;
       if (st === 'failed') return { s: 'stopped', text: 'Gate failed: ' + g.title, sub: 'Reopen it once the problem is fixed, or end the run.', gate: g.id };
       if (st === 'review') return { s: 'working', text: 'Needs review: ' + g.title, sub: 'Something it approved has changed. Check again, then pass it.', gate: g.id };
-      if (st === 'ready') return { s: 'ready', text: 'Ready: ' + g.title, sub: g.implicit ? 'Every step is answered. Confirm ' + (solo(r) ? 'it' : 'together') + ', then move on.' : 'Every step is answered. ' + (g.approves ? 'It approves ' + fill(g.approves, r.details) + '.' : 'Confirm it to move on.'), gate: g.id };
+      if (st === 'ready') return { s: 'ready', text: 'Ready: ' + g.title, sub: g.implicit ? 'Every step is answered. Confirm ' + (solo(r) ? 'it' : 'together') + ', then move on.' : 'Every step is answered. ' + (g.approves ? 'It approves ' + fill(g.approves, r.details, map.meta.context) + '.' : 'Confirm it to move on.'), gate: g.id };
       return { s: 'working', text: map.phases[pi].title + ': ' + info.left + ' step' + (info.left === 1 ? '' : 's') + ' to go', sub: (info.mustLeft ? info.mustLeft + ' must-do. ' : '') + 'Then ' + (g.implicit ? (solo(r) ? 'confirm the phase.' : 'confirm together.') : 'the "' + g.title + '" gate.'), phase: pi };
     }
     return { s: 'complete', text: 'Every gate passed', sub: 'End the run as Completed when you\'re done.' };
@@ -486,7 +486,9 @@ PF.run = (function () {
     Object.keys(r.roles).forEach(function (k) { if (r.roles[k]) who[r.roles[k]] = 1; });
     return Object.keys(who).length <= 1;
   }
-  function fill(text, details) { return String(text || '').replace(/\^([\w-]+)/g, function (_, f) { return details[f] || ('(' + f + ' not set)'); }); }
+  /* A box's text with the run's details in place. names (2.7): the run details of the checklist being shown; a ^word that isn't
+     one of them (grep ^ERROR) stays as written. Without names, every ^word is a detail, as before 2.7. */
+  function fill(text, details, names) { return String(text || '').replace(/\^([\w-]+)/g, function (all, f) { return names && names.indexOf(f) < 0 ? all : details[f] || ('(' + f + ' not set)'); }); }
 
   /* ---------- Changing state (the recorder's window only) ---------- */
   /* Why a step can't be answered now (how: 'done', 'na' or 'open'), or ''. The general refusals only: child runs, evidence

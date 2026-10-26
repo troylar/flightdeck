@@ -233,7 +233,7 @@ Every type also accepts these nine fields:
 - `at`, `due` and `after`: when it should start or be done (see the table above). A step takes one of the three, not more.
 - `sets`: the run details it produces.
 
-Durations are written like `20m`, `1h30m` or `90s` (`h`, `m` and `s`). Field values can use `^details`, like `parameters: TICKET=^ticket`; those aren't checked against `context`, so spell them exactly. Choices are matched without regard to capitals and stored as the type spells them (`action: Merge` is `merge`).
+Durations are written like `20m`, `1h30m` or `90s` (`h`, `m` and `s`). Field values can use `^details`, like `parameters: TICKET=^ticket`. Checks name a field's `^word` that isn't in `context`, with the name it likely meant, but don't block publishing for it: a caret that isn't a run detail, like `grep ^ERROR`, stays as written in a run. In step text and a gate's `approves:`, an unknown `^name` does block publishing. A detail a step uses before an earlier phase sets it is flagged as possibly not set yet. Choices are matched without regard to capitals and stored as the type spells them (`action: Merge` is `merge`).
 
 **Pull requests.** The editor shows one Pull request step, whose first question, "Where is the pull request?", is GitHub or Bitbucket. Files, reports and JSON keep the two types, `{github.pr}` and `{bitbucket.pr}`. Only GitHub has `action: approve`, the `pull` field and the `checks` evidence. Switching a step from GitHub to Bitbucket keeps every value and flags the ones Bitbucket doesn't use; those stop publishing until they're removed.
 

@@ -196,10 +196,12 @@ rule('install keeps a file the team changed, adds a missing one, and puts a new 
   assert.strictEqual(cli('install', fresh, '--check').code, 3, 'without a record, a changed file needs a person');
 });
 
-/* The release before this one, as it shipped (tools/old-bundles.js): its own command, installing beside its own app. */
-function previous() {
-  const bundles = require('../tools/old-bundles'), tag = bundles.tags().map(t => t.tag).filter(t => t !== 'v' + VER).pop();
-  const b = tag && bundles.get(tag);
+/* The release before this one, as it shipped (tools/old-bundles.js): its own command, installing beside its own app. With
+   want, the newest earlier release whose bundle passes want(bundle) (a release can change too little for some rules). */
+function previous(want) {
+  const bundles = require('../tools/old-bundles'), tags = bundles.tags().map(t => t.tag).filter(t => t !== 'v' + VER);
+  let tag = tags.pop(), b = tag && bundles.get(tag);
+  while (b && want && !want(b)) { tag = tags.pop(); b = tag && bundles.get(tag); }
   if (!b) { if (process.env.CI) throw new Error('no previous release to upgrade from: git fetch --tags'); return null; }
   const root = tmp();
   write(root, 'bin/flightdeck.js', b.files['flightdeck.js']); write(root, 'dist/flightdeck.html', b.files['flightdeck.html']);
@@ -208,9 +210,9 @@ function previous() {
 }
 
 rule('Upgrading from the release before: unchanged files update, a customized one waits beside it, Team notes stay, and --check clears once merged (team folder and skills --to)', () => {
-  const old = previous();
+  const SKILLS = '.flightdeck/skills/', changedSince = (ex) => Object.keys(EX).filter(f => f.startsWith(SKILLS) && ex[f] != null && ex[f] !== EX[f]);
+  const old = previous(b => changedSince(C.examples(b.files['flightdeck.html'])).length >= 2);
   if (!old) { console.log('  (skipped: the previous release isn\'t in this clone; git fetch --tags)'); return; }
-  const SKILLS = '.flightdeck/skills/';
   const changed = Object.keys(EX).filter(f => f.startsWith(SKILLS) && old.ex[f] != null && old.ex[f] !== EX[f]);
   // One changed skill is customized (it must wait); the others were left as shipped (they must update).
   assert.ok(changed.length >= 2, 'at least two skills changed since ' + old.tag + ', else half this rule proves nothing: ' + changed.join(', '));
@@ -2601,6 +2603,20 @@ rule('REPORT: READ/1 is unchanged by reports in the folder: no report data, no n
   fs.writeFileSync(path.join(dir, 'report-decisions', 'release', 'run1.00000000.w.1.json'), '{');
   const after = ['runs', 'run'].map(c => readCli(c, dir, ...(c === 'run' ? ['release/run1'] : []), '--json').json);
   after.forEach((j, i) => { assert.strictEqual(j.contract, 'flightdeck-read/1'); delete j.readAt; delete before[i].readAt; assert.deepStrictEqual(j, before[i]); });
+});
+
+rule('2.7.0: an installed.json written by the app is one the release before trusts (read as valid, not ignored)', () => {
+  const old = previous();
+  if (!old) { console.log('  (skipped: the previous release isn\'t in this clone; git fetch --tags)'); return; }
+  const PF = require('./harness').load(), dir = tmp();
+  assert.strictEqual(cli('install', dir).code, 0);
+  write(dir, '.flightdeck/installed.json', PF.contract.installed(VER, new Date().toISOString(), 'app', record(dir).files));
+  assert.strictEqual(record(dir).by, 'app');
+  const r = old.run('skills', dir);
+  assert.strictEqual(r.code, 0, r.out);
+  assert.ok(!/Ignored \.flightdeck\/installed\.json/.test(r.out), old.tag + ' ignored it: ' + r.out);
+  write(dir, '.flightdeck/installed.json', '{"kind":1}');
+  assert.ok(/Ignored \.flightdeck\/installed\.json/.test(old.run('skills', dir).out), 'control: a record it can\'t read is ignored');
 });
 
 run();

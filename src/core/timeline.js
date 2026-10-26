@@ -20,6 +20,7 @@ PF.timeline = (function () {
     addShot: ['new screenshot', 'Added a screenshot to {s}'], editShot: ['caption change', 'Changed a screenshot caption of {s}'],
     moveShot: ['screenshot move', 'Moved a screenshot of {s}'], removeShot: ['screenshot removal', 'Removed a screenshot from {s}'],
     meta: ['checklist details change', 'Changed the checklist details'], note: ['note change', 'Changed the note of {s}'], when: ['condition change', 'Changed when {s} applies'],
+    renameDetail: ['run detail rename', 'Renamed a run detail'],
     questions: ['Questions change', 'Changed the Questions section'], removeQuestions: ['Questions removal', 'Removed the Questions section']
   };
   var PREP = { typing: ' in ', paste: ' in ', cut: ' in ', drop: ' in ', correction: ' in ', indent: ' in ', 'new step': ' ', 'new phase': ' ', 'new lane': ' ', 'new field': ' ', 'new evidence': ' ', 'applied correction': ' to ', 'new screenshot': ' to ', 'screenshot removal': ' from ' };
@@ -138,6 +139,7 @@ PF.timeline = (function () {
     if (o === 'move' || o === 'moveTo') k = 'move';
     else if (o === 'movePhase') k = 'phaseMove';
     else if (o === 'edit') k = 'text' in s ? 'text' : 'mark' in s ? 'mark' : 'type' in s ? 'type' : 'role' in s ? 'role' : 'bind' in s ? 'bind' : 'field';
+    else if (o === 'editText') k = 'text';
     else if (o === 'editPhase') k = 'title' in s ? 'phaseTitle' : 'phaseMode';
     else if (o === 'gate') k = 'owner' in s && !('title' in s) && !('approves' in s) ? 'gateOwner' : 'gate';
     else if (o === 'editTrack') k = 'title' in s ? 'trackTitle' : 'trackRole';
