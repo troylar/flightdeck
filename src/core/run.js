@@ -539,6 +539,8 @@ PF.run = (function () {
     return ed.some(function (k) { return !BASE_FIELDS[k] || (f[k] != null && String(f[k]).trim() !== ''); });
   }
   function fieldsOf(r, step) { return Object.assign({}, step.fields, (r.fields || {})[step.id] || {}); }
+  /* The step as this run has it: its fields with what Fill in changed (carry: can change; pass: can't). */
+  function effStep(r, step) { return Object.assign({}, step, { fields: fieldsOf(r, step) }); }
   /* Evidence the map requires (require: build) is checked here, so a step can't be done without it. Values noted earlier count,
      except with o.exact (an accepted report): then the step records exactly these values and nothing earlier. */
   function done(r, map, id, who, now, values, o) {
@@ -1048,6 +1050,7 @@ PF.run = (function () {
     /* 2.8: a step with a pass: line (PF.links). Its sources are checked by the parent's names, so a renamed source still
        waits for its own unresolved migration; carry: and pass: names the child lacks are refused before anything starts. */
     if (PF.links.has(step)) {
+      step = effStep(r, step);
       var lw = consumption(r, PF.links.sources(step, Object.keys(r.details), childContext));
       if (lw) return lw;
       var st = PF.links.rows(step, Object.keys(r.details), childContext).stale.map(function (x) { return x.name; });
@@ -1059,7 +1062,7 @@ PF.run = (function () {
     return miss.length ? 'The ' + fieldsOf(r, step).process + ' checklist has no run detail ' + miss.join(', ') + ', so this step can\'t pass ' + (miss.length > 1 ? 'them' : 'it') + ' on. Change carry: or that checklist.' : null;
   }
   function childDetails(r, step, childContext) {
-    if (PF.links.has(step)) return PF.links.values(r, step, childContext);
+    if (PF.links.has(step)) return PF.links.values(r, effStep(r, step), childContext);
     var want = String(fieldsOf(r, step).carry || '').split(/[,\s]+/).filter(Boolean), out = {};
     if (!want.length) want = (childContext || []).filter(function (k) { return Object.prototype.hasOwnProperty.call(r.details, k); });
     want.forEach(function (k) { if (Object.prototype.hasOwnProperty.call(r.details, k)) out[k] = r.details[k] || ''; });
@@ -1132,7 +1135,7 @@ PF.run = (function () {
     var cmap; try { cmap = mapOf(child); } catch (e) { return null; }
     var pmap; try { pmap = mapOf(r); } catch (e) { return null; }
     var inputs = a.child.inputs || {}, cm = Array.isArray(child.migrations) ? child.migrations : [], held = false, changed = [];
-    PF.links.rows(step, pmap.meta.context, cmap).rows.forEach(function (x) {
+    PF.links.rows(effStep(r, step), pmap.meta.context, cmap).rows.forEach(function (x) {
       var was = x.source === 'detail' ? (Object.prototype.hasOwnProperty.call(inputs, x.from) ? inputs[x.from] || '' : null) : x.source === 'value' ? x.value : null;
       if (was == null) return;
       if (!Object.prototype.hasOwnProperty.call(child.details || {}, x.name)) return;
@@ -1798,7 +1801,7 @@ PF.run = (function () {
     RUN_ID: RUN_ID, isTest: isTest, pubDir: pubDir, testProblem: testProblem, testLast: testLast,
     FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, applies: applies, held: held, stepNeeded: stepNeeded, canStartChild: canStartChild, phaseSkipped: phaseSkipped, condFields: condFields, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, fillOffered: fillOffered, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence, checkFill: checkFill,
-    pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, jiraFor: jiraFor, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, setFields: setFields,
+    pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, jiraFor: jiraFor, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, effStep: effStep, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,
     pass: pass, waive: waive, fail: fail, reopen: reopen, setDetail: setDetail, setRole: setRole,
     handOff: handOff, pickUp: pickUp, takeOver: takeOver, legacyLinks: legacyLinks, continuation: continuation, continued: continued, skillWarning: skillWarning, cleanSkill: cleanSkill, LEGACY_CHILD: LEGACY_CHILD, waitingForHandoff: waitingForHandoff, compare: compare, adopt: adopt, addFollowUp: addFollowUp, removeFollowUp: removeFollowUp, corrections: corrections, end: end, myNext: myNext, nextUp: nextUp, nextInPhase: nextInPhase, totals: totals, receipt: receipt, blockedSteps: blockedSteps

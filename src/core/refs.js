@@ -106,9 +106,9 @@ PF.refs = (function () {
     return 'set by “' + s.setters[0].text + '”' + (s.setters.length > 1 ? ' and ' + (s.setters.length - 1) + ' more' : '');
   }
   /* What other files say about renaming a run detail (2.7). A child gets its parent's details by name: the ones carry: lists,
-     or with no carry: every detail both have, plus the ones the step itself is tied to (run.js childInputs). So a rename
-     is refused when a parent that runs this checklist at Latest passes the name, or when this checklist passes it to a
-     child that takes it. A parent pinned to a published version keeps that version, so it's only mentioned. A Jira
+     or with no carry: every detail both have, plus the ones the step itself is tied to (run.js childInputs). Since 2.8 a
+     parent that runs this checklist at Latest and passes the name is a warning with the fix, and this checklist's own
+     linked steps are rewritten by the rename (outline.renameDetail). A parent pinned to a published version keeps that version, so it's only mentioned. A Jira
      workflow that fills a field from the detail is mentioned too (the shared file is never changed here).
      folder: { others: [{ label, map }] (other checklists: latest versions and drafts), child(process, pin): its map, or for Latest its published map and its saved draft's (a list), or null,
      workflows }. Each entry: { refuse, text }. */

@@ -188,6 +188,14 @@ rule('2.3.0 has its own release entry above 2.2.1: Practice on the run screen, E
   assert.ok(!/colour|cancelled|behaviour|LLM/i.test(text), 'US English, and your AI assistant, never LLM');
 });
 
+rule('2.8.0 has its own release entry above 2.7.0: nested processes that know what the child needs, in plain words', () => {
+  const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), at = rel.findIndex(x => x.version === '2.8.0'), r = rel[at];
+  assert.ok(at >= 0, 'listed'); assert.strictEqual(rel[at + 1].version, '2.7.0');
+  const text = JSON.stringify(r);
+  assert.ok(/pass:/.test(text) && /start form/.test(text) && /Flightdeck 2\.8/.test(text) && /Folder health/.test(text) && /Rename/.test(text), text);
+  assert.ok(!/colour|cancelled|behaviour|LLM|baselines|PF\.|team values/i.test(text), 'US English, plain words, nothing not shipped');
+});
+
 rule('2.6.1 has its own release entry above 2.6.0: documentation that matches the app, and how it reaches a folder', () => {
   const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), at = rel.findIndex(x => x.version === '2.6.1'), r = rel[at];
   assert.ok(at >= 0, 'listed'); assert.strictEqual(rel[at + 1].version, '2.6.0');

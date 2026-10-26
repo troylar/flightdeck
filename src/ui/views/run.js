@@ -121,7 +121,7 @@
     if (problem) return problem;
     /* 2.8: a pass: step says where each value comes from and what the child asks when it starts. */
     if (PF.links.has(s)) {
-      var rows = PF.links.rows(s, Object.keys(r.details), pub.map).rows, dv = R.childDetails(r, s, pub.map), setBy = M.setBy(pub.map);
+      var rows = PF.links.rows(R.effStep(r, s), Object.keys(r.details), pub.map).rows, dv = R.childDetails(r, s, pub.map), setBy = M.setBy(pub.map);
       var gave = rows.filter(function (x) { return x.source !== 'ask'; }).map(function (x) { var v = Object.prototype.hasOwnProperty.call(dv, x.name) ? dv[x.name] : ''; return x.name + (v ? ' ' + v : ' (empty)') + (x.source === 'value' ? ' (fixed)' : x.from !== x.name ? ' (from ' + x.from + ')' : ''); });
       var asks = rows.filter(function (x) { return x.source === 'ask' && !Object.prototype.hasOwnProperty.call(setBy, x.name); }).map(function (x) { return x.name; });
       return (gave.length ? 'Passes on ' + gave.join(', ') : 'Passes on no details') + (asks.length ? '; asks for ' + asks.join(', ') + ' when it starts' : '');

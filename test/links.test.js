@@ -51,6 +51,21 @@ rule('rows: with carry: exactly what carry: and pass: list; the rest is asked', 
   same(shape(L.rows(step({ carry: 'tag', pass: 'env=^region' }), PARENT, c)), ['env<detail:region', 'region<ask', 'notify<ask', 'tag<detail:tag']);
 });
 
+rule('write: a pass: step keeps an asked entry when nothing else would keep its pass: line; a step without one doesn\'t gain it', () => {
+  const c = child('env, notify'), want = [{ name: 'env', source: 'detail', from: 'env' }, { name: 'notify', source: 'ask' }];
+  same(L.write(want, step({ pass: 'notify=ops' }), PARENT, c), { carry: null, pass: 'notify=?' });
+  same(L.write(want, step({}), PARENT, c), { carry: null, pass: null });
+});
+
+rule('childrenFrom: a child whose versions are all damaged can\'t be checked; one never published is unpublished', () => {
+  const f = L.childrenFrom({ deploy: { latest: null, all: [], clashes: [], broken: [{ ok: false, why: 'Its publication record isn\'t valid JSON' }] } });
+  assert.ok(/No version of deploy can be used: Its publication record isn't valid JSON\./.test(f('deploy', '').unreadable), JSON.stringify(f('deploy', '')));
+  same(f('other', ''), { unpublished: true });
+  const c = chk(['  pass: environment=^env'], f('deploy', ''));
+  assert.ok(has(c.blockers, /No version of deploy can be used/), c.blockers.join('\n'));
+  assert.ok(!chk(['  carry: env'], f('deploy', '')).blockers.length, 'carry-only publishes as in 2.7');
+});
+
 rule('rows: names the child doesn\'t have come back as stale, and a detail the child also sets keeps its source', () => {
   const c = child('env, pr', '  sets: pr');
   const r = L.rows(step({ carry: 'env, gone', pass: 'old=^tag, pr=^commit' }), PARENT, c);
@@ -225,6 +240,16 @@ rule('Run time: a pass: step starts its child with the renamed source and the fi
   same(R.childDetails(x.parent, x.st, x.cmap.meta.context), { environment: 'prod', region: 'us-east-1', ticket: 'T-1' }, 'a context list works too');
   same(L.inputs(x.parent, x.st, Object.keys(x.parent.details), x.cmap), { env: 'prod', ticket: 'T-1' }, 'the snapshot is by the parent\'s names');
   assert.strictEqual(R.childProblem(x.parent, x.st, x.cmap.meta.context), null);
+});
+
+rule('Run time: a pass: step follows carry: as Fill in changed it, for its values and its snapshot', () => {
+  const x = linked(['  carry: ticket', '  pass: environment=^env']);
+  same(R.childDetails(x.parent, x.st, x.cmap), { ticket: 'T-1', environment: 'prod' });
+  x.parent.fields = { dep: { carry: 'ticket, region' } };
+  same(R.childDetails(x.parent, x.st, x.cmap), { region: 'eu', ticket: 'T-1', environment: 'prod' });
+  same(L.inputs(x.parent, R.effStep(x.parent, x.st), Object.keys(x.parent.details), x.cmap), { env: 'prod', ticket: 'T-1', region: 'eu' });
+  x.parent.fields = { dep: { carry: 'gone' } };
+  assert.ok(/no run detail gone/.test(R.childProblem(x.parent, x.st, x.cmap)), 'a carry: name the child lacks is refused');
 });
 
 rule('Run time: a pass: name the child lacks is refused before anything starts', () => {

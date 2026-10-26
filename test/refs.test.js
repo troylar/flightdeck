@@ -257,6 +257,13 @@ rule('renameDetail (2.8): existing overrides are kept; a pass: source is renamed
   assert.ok(!r.error); same(fieldsAfter(r.text), { carry: 'tag', pass: undefined });
 });
 
+rule('renameDetail (2.8): an entry for a name the child doesn\'t have keeps its place with its source renamed; a lone asked entry stays', () => {
+  same(renamed('env, tag', ['  pass: removed=^env'], 'tag', 'env', 'stage'), { carry: undefined, pass: 'removed=^stage' });
+  same(renamed('env, tag', ['  pass: env=?'], 'env, tag', 'env', 'stage'), { carry: undefined, pass: 'env=?' }, 'still asked, so the start form still opens');
+  const t = LINKED('env, tag', ['  carry: env, tag']), r = O.renameDetail(t, 'env', 'stage', { child: () => KID('tag') });
+  assert.ok(/lists \^env in carry:, which kid doesn't have/.test(r.error), r.error);
+});
+
 const PARENT = (carry, pin) => `---
 process: parent
 title: Parent

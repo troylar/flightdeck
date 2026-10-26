@@ -99,6 +99,12 @@ PF.links = (function () {
       });
     }
     pass.sort(function (a, b) { var i = order.indexOf(a.name), j = order.indexOf(b.name); return (i < 0 ? 1e6 + names.indexOf(a.name) : i) - (j < 0 ? 1e6 + names.indexOf(b.name) : j); });
+    /* A step with a pass: line keeps one while anything is asked: without it the child starts with no form (as before 2.8).
+       The names it already listed are kept; with none of them left, every asked one. */
+    if (has(step) && !pass.length && !stalePass.length) {
+      var asked = names.filter(function (n) { return byName[n] && byName[n].source === 'ask'; }), was = asked.filter(function (n) { return order.indexOf(n) >= 0; });
+      (was.length ? was : asked).forEach(function (n) { pass.push(byName[n]); });
+    }
     var text = pass.map(entryText).concat(stalePass.map(entryText));
     return { carry: carry && carry.length ? carry.join(', ') : null, pass: text.length ? text.join(', ') : null };
   }
@@ -138,7 +144,12 @@ PF.links = (function () {
       var pub, latest = version === '' || version == null;
       if (latest) pub = proc.latest;
       else { var got = PF.pins.atVersion(proc, process, +version); if (got.why) return null; pub = got.pub; }
-      if (!pub || !pub.map) return { unpublished: true };
+      if (!pub || !pub.map) {
+        /* Versions are there but none can be used (a damaged publication record): not "unpublished", it can't be checked. */
+        var bad = latest && (proc.broken || []).length ? proc.broken[0] : null;
+        if (bad) return { unreadable: 'No version of ' + process + ' can be used: ' + String(bad.why || 'its publication can\'t be read').replace(/\.?$/, '.') };
+        return { unpublished: true };
+      }
       return { map: pub.map, title: pub.map.meta.title || process, version: pub.info.version, latest: latest };
     };
   }

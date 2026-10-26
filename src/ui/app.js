@@ -1956,14 +1956,14 @@
     var cp = R.childProblem(parent, x.step, pub.map.meta.context);
     if (cp) { say(cp, 'warn'); render(); return null; }
     var link2 = PF.links.has(x.step), details = R.childDetails(parent, x.step, link2 ? pub.map : pub.map.meta.context), inputs = {};
-    if (link2) inputs = PF.links.inputs(parent, x.step, Object.keys(parent.details), pub.map);
+    if (link2) inputs = PF.links.inputs(parent, R.effStep(parent, x.step), Object.keys(parent.details), pub.map);
     else {
       /* The child counts for exactly the details it was started with: snapshot them now, before any save can let them change. */
       var own = String(f.sets || '').split(',').map(function (k) { return k.trim(); });
       Object.keys(details).forEach(function (k) { inputs[k] = details[k]; }); (x.step.binds || []).forEach(function (k) { inputs[k] = parent.details[k] || ''; });
       own.forEach(function (k) { delete inputs[k]; });
     }
-    var rows = link2 ? PF.links.rows(x.step, Object.keys(parent.details), pub.map).rows : [], setBy = M.setBy(pub.map), ask = [], open = [];
+    var rows = link2 ? PF.links.rows(R.effStep(parent, x.step), Object.keys(parent.details), pub.map).rows : [], setBy = M.setBy(pub.map), ask = [], open = [];
     rows.forEach(function (r) {
       if (r.source === 'ask') { if (!Object.prototype.hasOwnProperty.call(setBy, r.name)) ask.push(r.name); return; }
       var def = R.typedDef({ snapshot: '' }, pub.map, 'details.' + r.name), v = Object.prototype.hasOwnProperty.call(details, r.name) ? details[r.name] : '';
@@ -1990,7 +1990,7 @@
     if ((a && a.child ? a.child.process + '/' + a.child.id + (a.child.failed ? ' failed' : '') : '') !== prep.linked) return 'Another ' + title + ' run was linked to this step while you were filling this in. Check the step, then start again if it still needs one.';
     var cp = R.childProblem(cur, x.step, t.pub.map.meta.context);
     if (cp) return cp;
-    var now = PF.links.inputs(cur, x.step, Object.keys(cur.details), t.pub.map), was = prep.inputs;
+    var now = PF.links.inputs(cur, R.effStep(cur, x.step), Object.keys(cur.details), t.pub.map), was = prep.inputs;
     if (Object.keys(now).length !== Object.keys(was).length || Object.keys(was).some(function (k) { return !Object.prototype.hasOwnProperty.call(now, k) || now[k] !== was[k]; }) || JSON.stringify(R.childDetails(cur, x.step, t.pub.map)) !== JSON.stringify(prep.details))
       return 'A detail this run passes changed while you were filling this in. Check the form, then start again.';
     return '';
@@ -2008,8 +2008,9 @@
     launchChild(prep, {}, null);
   }
   var childToken = 0;
-  /* Start prep's child with asked (the dialog's values, by the child's names) and roles (null: the parent's same-name roles). */
-  function launchChild(prep, asked, roles) {
+  /* Start prep's child with asked (the dialog's values, by the child's names) and roles (null: the parent's same-name roles).
+     invalid(err): from the dialog, told when a value can't start the run (the dialog stays open); it closes once one can. */
+  function launchChild(prep, asked, roles, invalid) {
     var parent = findRun(prep.key), map = parent && R.mapOf(parent), stepId = prep.stepId, pub = prep.pub, target = prep.target, rkey = prep.rkey;
     if (!parent) return;
     var details = Object.assign({}, prep.details, asked || {});
@@ -2017,7 +2018,8 @@
     var tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (err) { tz = ''; }
     var inputs = prep.inputs;
     var child; try { child = R.create(pub, { title: pub.map.meta.title + ' for ' + parent.title, details: details, from: { source: 'carry', details: prep.details }, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, parent: { process: parent.process, id: parent.id, step: stepId, inputs: inputs, folder: parent.folder }, app: APP_VERSION, pins: pinsAtStart(pub) }); }
-    catch (err) { say(err.message, 'warn'); render(); return; }
+    catch (err) { if (invalid) { invalid(err); return; } say(err.message, 'warn'); render(); return; }
+    if (invalid) closeOverlay();
     /* Try the link on a copy first, so a step that can't take a child never leaves an orphan run in the folder. */
     var link = { process: child.process, id: child.id, inputs: inputs, folder: pub.info.folder, mapHash: pub.info.mapHash, typesHash: pub.info.typesHash, format: child.format, pin: target.first ? target.pin : null };
     var lopts = { run: child, procOf: ctx.procOf, findRun: ctx.findRun };
@@ -5267,12 +5269,18 @@
     },
     /* A name this step passes that its child doesn't have: taken out of carry: and pass: (2.8). */
     'ob-link-rm': function (id, el) {
-      var o = PF.outline.parse(edText(currentProcess())), st = o.steps.filter(function (x) { return x.key === id; })[0], name = el && el.dataset ? el.dataset.name : '';
-      if (!st || !name) return;
-      var carry = PF.links.carryList({ fields: st.fields }).filter(function (n) { return n !== name; }), pe = PF.links.parse(st.fields.pass).entries.filter(function (e) { return e.name !== name; });
-      var pass = pe.map(function (e) { return e.name + '=' + (e.source === 'ask' ? '?' : e.source === 'value' ? e.value : '^' + e.from); }).join(', ');
-      var set = {}; if (st.fields.carry != null) set.carry = carry.join(', '); if (st.fields.pass != null) set.pass = pass;
-      var res = builderEdit({ op: 'editLink', key: id, set: set }, null, 'removed ^' + name);
+      var o = PF.outline.parse(edText(currentProcess())), st0 = o.steps.filter(function (x) { return x.key === id; })[0], name = el && el.dataset ? el.dataset.name : '';
+      if (!st0 || !name) return;
+      var map = M.parse(edText(currentProcess())), x = M.findStep(map, st0.id); if (!x) return;
+      var st = x.step, kid = V.linkChildOf(ctx, st.fields.process, st.fields.version); if (!kid) return;
+      /* What every other child detail gets stays exactly as it is: emptying carry: must not start passing shared names. */
+      var want = PF.links.rows(st, map.meta.context, kid.map).rows, carry = PF.links.carryList(st).filter(function (n) { return n !== name; });
+      var pe = PF.links.parse(st.fields.pass).entries.filter(function (e) { return e.name !== name; });
+      var fields = Object.assign({}, st.fields); delete fields.carry; delete fields.pass;
+      if (carry.length) fields.carry = carry.join(', ');
+      if (pe.length || PF.links.has(st)) fields.pass = pe.map(function (e) { return e.name + '=' + (e.source === 'ask' ? '?' : e.source === 'value' ? e.value : '^' + e.from); }).join(', ');
+      var w = PF.links.write(want, Object.assign({}, st, { fields: fields }), map.meta.context, kid.map);
+      var res = builderEdit({ op: 'editLink', key: id, set: { carry: w.carry, pass: w.pass } }, null, 'removed ^' + name);
       if (res && !res.same) say('Removed ^' + name + ' from what this step passes. Undo available.', 'good');
       render();
     },
@@ -6616,9 +6624,12 @@
     e.target.querySelectorAll('[data-detail]').forEach(function (el) { if (prep.ask.indexOf(el.dataset.detail) >= 0 || prep.open.indexOf(el.dataset.detail) >= 0) asked[el.dataset.detail] = inputValue(el); });
     e.target.querySelectorAll('[data-role]').forEach(function (el) { roles[el.dataset.role] = el.value; });
     var why = childStale(prep);
-    closeOverlay();
-    if (why) { say(why, 'warn'); render(); return; }
-    launchChild(prep, asked, roles);
+    if (why) { closeOverlay(); say(why, 'warn'); render(); return; }
+    /* A value that doesn't fit keeps the dialog open with everything typed, and says which box. */
+    launchChild(prep, asked, roles, function (err) {
+      prep.values = asked; prep.roleVals = roles; prep.error = err.message;
+      state.overlayFocus = err.field && prep.ask.concat(prep.open).indexOf(err.field) >= 0 ? '#cs-' + cssEsc(err.field) : '#cs-err'; render();
+    });
   });
   document.addEventListener('submit', function (e) {
     if (e.target.id !== 'start-form') return;

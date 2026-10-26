@@ -241,7 +241,9 @@
     var people = ctx.data.people.filter(function (x) { return !x.inactive; }), nm = PF.people.labeler(people);
     var h = '<div class="overlay" data-act="close-overlay"><div class="help cs-box" role="dialog" aria-modal="true" aria-labelledby="cs-t"><div class="eyebrow">' + esc(w.head) + '</div><h2 id="cs-t" tabindex="-1">Start the ' + esc(meta.title) + ' run</h2>' +
       (w.newer ? '<p class="small">' + esc(w.newer) + '</p>' : '') +
-      '<form class="stack" id="child-start-form" data-token="' + esc(String(prep.token)) + '">';
+      '<form class="stack" id="child-start-form" data-token="' + esc(String(prep.token)) + '">' +
+      (prep.error ? '<p class="notice bad" id="cs-err" role="alert" tabindex="-1">' + esc(prep.error) + '</p>' : '');
+    var typed = prep.values || {}, kept = function (f) { return Object.prototype.hasOwnProperty.call(typed, f) ? String(typed[f]) : ''; };
     var passed = prep.rows.filter(function (x) { return x.source !== 'ask' && prep.open.indexOf(x.name) < 0; });
     if (passed.length) h += '<h3>Passed from this run</h3><dl>' + passed.map(function (x) {
       var v = Object.prototype.hasOwnProperty.call(prep.details, x.name) ? prep.details[x.name] : '';
@@ -252,8 +254,8 @@
       h += '<h3>' + (prep.ask.length ? 'What ' + esc(meta.title) + ' needs from you' : 'Check these') + '</h3><div class="grid2">';
       boxes.forEach(function (f) {
         var def = R.typedDef({ snapshot: '' }, pub.map, 'details.' + f), opened = prep.open.indexOf(f) >= 0, g = opened ? prep.details[f] || '' : '';
-        if (!def) { h += '<label class="field" for="cs-' + esc(f) + '">' + esc(f) + '<input id="cs-' + esc(f) + '" data-detail="' + esc(f) + '" maxlength="120" value=""></label>'; return; }
-        h += '<div>' + K.typedField('cs-' + f, f, def, '', 'data-detail="' + esc(f) + '"') + (opened ? '<p class="small">' + esc(PF.values.ask(def, g)) + '</p>' : '') + '</div>';
+        if (!def) { h += '<label class="field" for="cs-' + esc(f) + '">' + esc(f) + '<input id="cs-' + esc(f) + '" data-detail="' + esc(f) + '" maxlength="120" value="' + esc(kept(f)) + '"></label>'; return; }
+        h += '<div>' + K.typedField('cs-' + f, f, def, kept(f), 'data-detail="' + esc(f) + '"') + (opened ? '<p class="small">' + esc(PF.values.ask(def, g)) + '</p>' : '') + '</div>';
       });
       h += '</div>';
     }
@@ -262,7 +264,7 @@
     if (meta.roles.length) {
       h += '<h3>Who\'s doing what</h3><div class="grid2">';
       meta.roles.forEach(function (role) {
-        var chosen = r && r.roles && typeof r.roles[role] === 'string' ? r.roles[role] : '';
+        var chosen = prep.roleVals && typeof prep.roleVals[role] === 'string' ? prep.roleVals[role] : r && r.roles && typeof r.roles[role] === 'string' ? r.roles[role] : '';
         h += '<label class="field" for="cs-role-' + esc(role) + '">' + esc(role) + '<select id="cs-role-' + esc(role) + '" data-role="' + esc(role) + '"><option value="">Nobody yet</option>' +
           people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === chosen ? ' selected' : '') + '>' + esc(nm(x)) + '</option>'; }).join('') + '</select></label>';
       });

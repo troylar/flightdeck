@@ -8629,7 +8629,7 @@ rule('Conditions (2.1): a child-run step whose condition tests a carried detail 
 });
 
 /* ---------- 2.8: a linked step's start dialog, from pass: ---------- */
-async function passStart(passLine) {
+async function passStart(passLine, kidCtx) {
   const app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(80); app.choose('person-casey'); await app.tick();
   const PF = app.PF, people = JSON.parse(app.fs.files['people.json'].t), now = new Date().toISOString();
   const put = (md, id, rand) => {
@@ -8637,7 +8637,7 @@ async function passStart(passLine) {
     assert.ok(!b.blockers, JSON.stringify(b.blockers));
     Object.keys(b.files).forEach(k => { app.fs.files['publications/' + id + '/' + b.folder + '/' + k] = { t: b.files[k], m: Date.now() }; });
   };
-  put(['---', 'process: deploy', 'title: Deploy', 'owner: person-avery', 'context: environment, region, ticket, notify', '---', '', '## Go · READ-DO {#go}', '- [ ] {confirm} Go {#go1}'].join('\n'), 'deploy', 'dp000001');
+  put(['---', 'process: deploy', 'title: Deploy', 'owner: person-avery', 'context: ' + (kidCtx || 'environment, region, ticket, notify'), '---', '', '## Go · READ-DO {#go}', '- [ ] {confirm} Go {#go1}'].join('\n'), 'deploy', 'dp000001');
   put(['---', 'process: ship', 'title: Ship', 'owner: person-avery', 'context: env, ticket', '---', '', '## Ship · READ-DO {#s}', '- [ ] {run.process} Deploy it {#dep}', '  process: deploy', '  pass: ' + passLine].join('\n'), 'ship', 'sh000001');
   app.click('refresh'); await app.tick(80);
   app.click('start', 'ship'); await app.settle();
@@ -8668,6 +8668,20 @@ rule('2.8: a pass: step with a detail to ask opens the child\'s start dialog; th
   await app.fs.write(path, JSON.stringify(kid));
   app.click('refresh'); await app.tick(100);
   assert.strictEqual(shipRun(app).steps.dep.s, 'done', 'the parent step is checked: the renamed value counts');
+});
+
+rule('2.8: a value that doesn\'t fit keeps the child\'s start dialog open with what was typed, and says why; a good one starts it', async () => {
+  const app = await passStart('environment=^env, region=us-east-1, notify=?', 'environment, region, ticket, notify:number');
+  app.click('start-child', 'dep'); await app.tick(40);
+  app.set('cs-notify', 'oops'); app.submitForm('child-start-form'); await app.tick(80);
+  const ov = app.overlay();
+  assert.ok(/id="child-start-form"/.test(ov), 'still open');
+  assert.ok(/id="cs-err"/.test(ov), 'says why: ' + ov.slice(0, 400));
+  assert.ok(/id="cs-notify"[^>]*value="oops"/.test(ov), 'what was typed is kept');
+  assert.strictEqual(deployRuns(app).length, 0, 'nothing started');
+  app.set('cs-notify', '3'); app.submitForm('child-start-form'); await app.tick(150);
+  assert.ok(!/child-start-form/.test(app.overlay()), 'closed once it starts');
+  assert.deepStrictEqual(deployRuns(app).map(k => k.details.notify), ['3']);
 });
 
 rule('2.8: a pass: step with nothing to ask starts at once, as before', async () => {

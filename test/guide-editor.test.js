@@ -478,15 +478,20 @@ rule('Editor (2.8): a linked step picks its process from a list, and each of the
   assert.ok(/  pass: commit=abc123\n/.test(t), t);
   app.select('ob-link-src-commit', '?'); await app.tick();
   t = await textOf(app);
-  assert.ok(!/pass:/.test(t), 'asked, and nothing is shared, so no line is needed: ' + t);
+  assert.ok(/  pass: commit=\?\n/.test(t), 'asked: the step keeps its pass: line, so the start form still asks: ' + t);
+  h = formOf(app);
+  assert.ok(!/id="ob-fld-process"/.test(h) && !/id="ob-fld-pass"/.test(h), 'no raw process: or pass: box under the section');
 });
 
+const CHECKIN = (app) => app.PF.map.parse(app.fs.files[Object.keys(app.fs.files).find(p => /^publications\/check-in\/.*\/map\.md$/.test(p))].t);
 rule('Editor (2.8): a name the child doesn\'t have is shown with a Remove fix', async () => {
   const app = await editorOn(md(step('run.process', 's', 'process: check-in', 'carry: tag')), 's');
   assert.ok(/has no run detail tag, so this step can't pass it/.test(un(formOf(app))));
+  const before = app.PF.links.rows(app.PF.map.findStep(app.PF.map.parse(await textOf(app)), 's').step, app.PF.map.parse(await textOf(app)).meta.context, CHECKIN(app)).rows;
   app.click('ob-link-rm', 's', { name: 'tag' }); await app.tick();
-  const t = await textOf(app);
+  const t = await textOf(app), m = app.PF.map.parse(t);
   assert.ok(!/carry:/.test(t), t);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(app.PF.links.rows(app.PF.map.findStep(m, 's').step, m.meta.context, CHECKIN(app)).rows)), JSON.parse(JSON.stringify(before)), 'every other detail gets what it got before, nothing starts being passed: ' + t);
 });
 
 run();
