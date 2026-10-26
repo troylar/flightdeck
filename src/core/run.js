@@ -1045,12 +1045,21 @@ PF.run = (function () {
      also has (childContext). They and the step's own ^details are the child's inputs; `keys` limits them to a snapshot's. */
   /* Why a child of this process can't be started for the step: carry: names a detail the child's map doesn't have. */
   function childProblem(r, step, childContext) {
+    /* 2.8: a step with a pass: line (PF.links). Its sources are checked by the parent's names, so a renamed source still
+       waits for its own unresolved migration; carry: and pass: names the child lacks are refused before anything starts. */
+    if (PF.links.has(step)) {
+      var lw = consumption(r, PF.links.sources(step, Object.keys(r.details), childContext));
+      if (lw) return lw;
+      var st = PF.links.rows(step, Object.keys(r.details), childContext).stale.map(function (x) { return x.name; });
+      return st.length ? 'The ' + fieldsOf(r, step).process + ' checklist has no run detail ' + st.join(', ') + ', so this step can\'t pass ' + (st.length > 1 ? 'them' : 'it') + ' on. Change this checklist or that one.' : null;
+    }
     var waiting = consumption(r, Object.keys(childDetails(r, step, childContext)));
     if (waiting) return waiting;
     var miss = String(fieldsOf(r, step).carry || '').split(/[,\s]+/).filter(Boolean).filter(function (k) { return (childContext || []).indexOf(k) < 0; });
     return miss.length ? 'The ' + fieldsOf(r, step).process + ' checklist has no run detail ' + miss.join(', ') + ', so this step can\'t pass ' + (miss.length > 1 ? 'them' : 'it') + ' on. Change carry: or that checklist.' : null;
   }
   function childDetails(r, step, childContext) {
+    if (PF.links.has(step)) return PF.links.values(r, step, childContext);
     var want = String(fieldsOf(r, step).carry || '').split(/[,\s]+/).filter(Boolean), out = {};
     if (!want.length) want = (childContext || []).filter(function (k) { return Object.prototype.hasOwnProperty.call(r.details, k); });
     want.forEach(function (k) { if (Object.prototype.hasOwnProperty.call(r.details, k)) out[k] = r.details[k] || ''; });
@@ -1081,6 +1090,8 @@ PF.run = (function () {
     /* A different process, or carry: naming a detail the child wasn't started with, means it's not the run this step asks for. */
     if ((f.process || '') !== a.child.process) return false;
     if (String(f.carry || '').split(/[,\s]+/).filter(Boolean).some(function (k) { return !Object.prototype.hasOwnProperty.call(was, k); })) return false;
+    /* 2.8: every detail pass: names as a source must be one the child was started from. */
+    if (PF.links.has(step) && PF.links.parse(f.pass).entries.some(function (e) { return e.source === 'detail' && own.indexOf(e.from) < 0 && !Object.prototype.hasOwnProperty.call(was, e.from); })) return false;
     return Object.keys(now).concat(Object.keys(was)).every(function (k) { return (was[k] || '') === (now[k] || ''); });
   }
   /* The only way a step with a linked child is checked or blocked: by that exact child, current, once it has ended. */
@@ -1099,6 +1110,7 @@ PF.run = (function () {
     if (childHeld(r, step.id, child, procOf)) return null;
     var carried = String(fieldsOf(r, step).carry || '').split(/[,\s]+/).filter(Boolean), missing = carried.filter(function (k) { return !Object.prototype.hasOwnProperty.call(child.details || {}, k); });
     if (missing.length) return { s: 'blocked', reason: 'The ' + child.process + ' run has no ' + missing.join(', ') + ' to carry, so it can\'t stand for this step' };
+    if (PF.links.has(step)) return passVerdict(r, step, a, child);
     /* A carried value the child migrated (its own record, from the carried text) is the same value; one still waiting there
        keeps this step open. */
     var cm = Array.isArray(child.migrations) ? child.migrations : [], held = false;
@@ -1110,6 +1122,29 @@ PF.run = (function () {
     });
     if (held) return null;
     if (changed.length) return { s: 'blocked', reason: 'The ' + child.process + ' run ended with ' + changed.map(function (k) { return k + ' "' + child.details[k] + '"'; }).join(', ') + ', not the ' + changed.join(', ') + ' it was started for' };
+    if (child.ended.outcome !== 'Completed') return { s: 'blocked', reason: 'The ' + child.process + ' run ended: ' + child.ended.outcome };
+    return { s: 'done' };
+  }
+  /* childVerdict for a step with a pass: line (2.8): each child detail is compared with what it was started from, through the
+     step's rows (the child's own map says which names it has): a detail source with the parent's snapshot under the source's
+     name, a fixed value with the value. Asked ones are the child's own. A value the child migrated from that text is the same. */
+  function passVerdict(r, step, a, child) {
+    var cmap; try { cmap = mapOf(child); } catch (e) { return null; }
+    var pmap; try { pmap = mapOf(r); } catch (e) { return null; }
+    var inputs = a.child.inputs || {}, cm = Array.isArray(child.migrations) ? child.migrations : [], held = false, changed = [];
+    PF.links.rows(step, pmap.meta.context, cmap).rows.forEach(function (x) {
+      var was = x.source === 'detail' ? (Object.prototype.hasOwnProperty.call(inputs, x.from) ? inputs[x.from] || '' : null) : x.source === 'value' ? x.value : null;
+      if (was == null) return;
+      if (!Object.prototype.hasOwnProperty.call(child.details || {}, x.name)) return;
+      var now = child.details[x.name] || '';
+      if (now === was) return;
+      var m = cm.filter(function (y) { return y && y.path === 'details.' + x.name && y.from === was; })[0];
+      if (m && isOpen(m)) { held = true; return; }
+      if (m && now === (m.resolved ? m.resolved.value : m.result)) return;
+      changed.push(x.name);
+    });
+    if (held) return null;
+    if (changed.length) return { s: 'blocked', reason: 'The ' + child.process + ' run ended with ' + changed.map(function (k) { return k + ' "' + ((child.details || {})[k] || '') + '"'; }).join(', ') + ', not the ' + changed.join(', ') + ' it was started for' };
     if (child.ended.outcome !== 'Completed') return { s: 'blocked', reason: 'The ' + child.process + ' run ended: ' + child.ended.outcome };
     return { s: 'done' };
   }

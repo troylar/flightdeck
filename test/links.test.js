@@ -188,4 +188,85 @@ rule('the example folder gets no new blockers or suggestions from the link check
   });
 });
 
+/* ---------- Run time: starting, keeping current, and judging a child through its pass: line ---------- */
+
+const P = PF.publish, R = PF.run;
+const NOW = '2026-10-26T09:00:00.000Z';
+const { exactOf } = require('./harness');
+function published(md) {
+  const b = P.build(md, { people: [], customTypes: {}, by: 'person-avery', changes: 'First', existing: [], now: NOW, rand: 'abcd1234', app: '2.8.0' });
+  assert.ok(!b.blockers, (b.blockers || []).join(' | '));
+  const v = P.verify(b.folder, b.files, exactOf(PF, b.files));
+  assert.ok(v.ok, v.why);
+  return v;
+}
+const DEPLOY = ['---', 'process: deploy', 'title: Deploy', 'context: environment, region, ticket, notify', 'roles: lead', '---', '', '## Go · READ-DO {#go}', '- [ ] {confirm} Go {#go1}', ''].join('\n');
+const RELEASE = (fields) => ['---', 'process: rel', 'title: Release', 'context: env, ticket, region', 'roles: lead', '---', '', '## Ship · READ-DO {#ship}',
+  '- [ ] {run.process} Deploy it {#dep}', '  process: deploy'].concat(fields || []).concat(['']).join('\n');
+const startRun = (v, details, id) => R.create(v, { title: 'R', details, roles: { lead: 'person-avery' }, by: 'person-avery', session: 'w-a', now: NOW, id, app: '2.8.0' });
+function linked(fields, details) {
+  const parent = startRun(published(RELEASE(fields)), details || { env: 'prod', ticket: 'T-1', region: 'eu' }, 'run-p');
+  const st = M.findStep(R.mapOf(parent), 'dep').step, cmap = M.parse(DEPLOY);
+  return { parent, st, cmap, dv: published(DEPLOY) };
+}
+
+rule('Run time: a step without pass: keeps the 2.7 answers for what its child starts with', () => {
+  const x = linked(['  carry: ticket']);
+  assert.ok(!L.has(x.st));
+  same(R.childDetails(x.parent, x.st, x.cmap.meta.context), { ticket: 'T-1' });
+});
+
+rule('Run time: a pass: step starts its child with the renamed source and the fixed value, by the child\'s names', () => {
+  const x = linked(['  pass: environment=^env, region=us-east-1, notify=?']);
+  assert.ok(L.has(x.st));
+  same(R.childDetails(x.parent, x.st, x.cmap), { environment: 'prod', region: 'us-east-1', ticket: 'T-1' });
+  same(R.childDetails(x.parent, x.st, x.cmap.meta.context), { environment: 'prod', region: 'us-east-1', ticket: 'T-1' }, 'a context list works too');
+  same(L.inputs(x.parent, x.st, Object.keys(x.parent.details), x.cmap), { env: 'prod', ticket: 'T-1' }, 'the snapshot is by the parent\'s names');
+  assert.strictEqual(R.childProblem(x.parent, x.st, x.cmap.meta.context), null);
+});
+
+rule('Run time: a pass: name the child lacks is refused before anything starts', () => {
+  const x = linked(['  pass: stage=^env']);
+  assert.ok(/no run detail stage/.test(R.childProblem(x.parent, x.st, x.cmap.meta.context)));
+});
+
+function judged(fields, inputs, childDetails, outcome) {
+  const x = linked(fields), kid = startRun(x.dv, childDetails, 'run-k');
+  kid.ended = { outcome: outcome || 'Completed' };
+  x.parent.steps.dep = { s: 'open', child: { process: 'deploy', id: 'run-k', inputs } };
+  return R.childVerdict(x.parent, x.st, x.parent.steps.dep, kid, () => null);
+}
+rule('Run time: the child is judged on each passed value under its own name', () => {
+  const F = ['  pass: environment=^env, region=us-east-1, notify=?'], IN = { env: 'prod', ticket: 'T-1' };
+  same(judged(F, IN, { environment: 'prod', region: 'us-east-1', ticket: 'T-1', notify: 'ops' }), { s: 'done' });
+  assert.ok(/environment "dev"/.test(judged(F, IN, { environment: 'dev', region: 'us-east-1', ticket: 'T-1', notify: '' }).reason), 'a renamed source changed');
+  assert.ok(/region "eu"/.test(judged(F, IN, { environment: 'prod', region: 'eu', ticket: 'T-1', notify: '' }).reason), 'a fixed value changed in the child');
+  same(judged(F, IN, { environment: 'prod', region: 'us-east-1', ticket: 'T-1', notify: 'anything' }), { s: 'done' }, 'what it asked is the child\'s own');
+  assert.ok(/ended: Canceled/.test(judged(F, IN, { environment: 'prod', region: 'us-east-1', ticket: 'T-1', notify: '' }, 'Canceled').reason));
+});
+
+rule('Run time: one source passed to two names counts for both', () => {
+  const F = ['  pass: environment=^env, notify=^env'], IN = { env: 'prod', ticket: 'T-1', region: 'eu' };
+  same(judged(F, IN, { environment: 'prod', region: 'eu', ticket: 'T-1', notify: 'prod' }), { s: 'done' });
+  assert.ok(/notify "x"/.test(judged(F, IN, { environment: 'prod', region: 'eu', ticket: 'T-1', notify: 'x' }).reason));
+});
+
+rule('Run time: a child stops being current when a pass: source isn\'t in what it was started from', () => {
+  const x = linked(['  pass: environment=^env']);
+  assert.ok(R.childCurrent(x.parent, x.st, { child: { process: 'deploy', id: 'k', inputs: { env: 'prod', ticket: 'T-1', region: 'eu' } } }));
+  assert.ok(!R.childCurrent(x.parent, x.st, { child: { process: 'deploy', id: 'k', inputs: { ticket: 'T-1', region: 'eu' } } }), 'started before env was its source');
+  x.parent.details.env = 'dev';
+  assert.ok(!R.childCurrent(x.parent, x.st, { child: { process: 'deploy', id: 'k', inputs: { env: 'prod', ticket: 'T-1', region: 'eu' } } }), 'the source changed since');
+});
+
+rule('Run time: a migration waiting in the child on a renamed source holds the step; resolved to the same value it counts', () => {
+  const x = linked(['  pass: environment=^env']), kid = startRun(x.dv, { environment: 'Prod', region: 'eu', ticket: 'T-1', notify: '' }, 'run-k');
+  kid.ended = { outcome: 'Completed' };
+  kid.migrations = [{ path: 'details.environment', from: 'prod', verdict: 'ambiguous', resolved: null }];
+  x.parent.steps.dep = { s: 'open', child: { process: 'deploy', id: 'run-k', inputs: { env: 'prod', ticket: 'T-1', region: 'eu' } } };
+  assert.strictEqual(R.childVerdict(x.parent, x.st, x.parent.steps.dep, kid, () => null), null, 'held');
+  kid.migrations[0].resolved = { value: 'Prod' };
+  same(R.childVerdict(x.parent, x.st, x.parent.steps.dep, kid, () => null), { s: 'done' });
+});
+
 run();

@@ -43,13 +43,16 @@ PF.links = (function () {
     return { entries: entries, errors: errors };
   }
 
+  /* A child as callers have it: its parsed map, or (as PF.run's older callers pass) just its list of run details. */
+  function childOf(x) { return Array.isArray(x) ? { meta: { context: x, detailTypes: {} } } : x; }
   function childNames(childMap) { return (childMap && childMap.meta && childMap.meta.context) || []; }
   function childKinds(childMap) { return (childMap && childMap.meta && childMap.meta.detailTypes) || {}; }
 
   /* One row per child detail, in the child's order: { name, kind, source: detail | value | ask, from, value, childSets }, and
      stale: names carry: or pass: give that the child doesn't have ({ name, where }). parentNames: this checklist's context. */
   function rows(step, parentNames, childMap) {
-    var names = childNames(childMap), kinds = childKinds(childMap), sets = childMap ? PF.map.setBy(childMap) : {};
+    childMap = childOf(childMap);
+    var names = childNames(childMap), kinds = childKinds(childMap), sets = childMap && childMap.phases ? PF.map.setBy(childMap) : {};
     var carry = carryList(step), byName = Object.create(null), pe = parse((step.fields || {}).pass).entries, out = [], stale = [];
     pe.forEach(function (e) { byName[e.name] = e; });
     names.forEach(function (n) {
@@ -72,6 +75,7 @@ PF.links = (function () {
      implicit. An explicit list that would be emptied is dropped, and every other shared name is asked with name=?, since an
      empty carry: passes everything shared. Stale names stay where they are (only Remove takes them out). */
   function write(want, step, parentNames, childMap) {
+    childMap = childOf(childMap);
     var cur = carryList(step), names = childNames(childMap), old = rows(step, parentNames, childMap);
     var staleCarry = old.stale.filter(function (s) { return s.where === 'carry'; }).map(function (s) { return s.name; });
     var stalePass = parse((step.fields || {}).pass).entries.filter(function (e) { return names.indexOf(e.name) < 0; });
