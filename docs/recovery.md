@@ -6,11 +6,20 @@ Before you change anything by hand, back up the folder: `flightdeck backup <team
 
 Flightdeck has this guide too: **Settings → When something goes wrong**. **Settings → Folder health** checks the whole team folder and links each problem it finds to its section here, and the **What to do** links on a run's conflict copies and on the top bar's "can't read it" open the right section.
 
+**On this page:**
+
+- **Runs:** [A run has conflict copies](#a-run-has-conflict-copies) · [A run's file is gone](#a-runs-file-is-gone) · [A replaced file with no steps](#a-replaced-file-with-no-steps) · [A step says "Continued in run"](#a-step-says-continued-in-run)
+- **Plans and requests:** [A planned run arrived twice](#a-planned-run-arrived-twice) · [A started plan's run isn't in the folder](#a-started-plans-run-isnt-in-the-folder) · [A plan file with another name can't be read](#a-plan-file-with-another-name-cant-be-read) · [A request file is incomplete](#a-request-file-is-incomplete) · [A plan or a linked run won't start on its version](#a-plan-or-a-linked-run-wont-start-on-its-version)
+- **The folder and OneDrive:** [Flightdeck lost access to the folder](#flightdeck-lost-access-to-the-folder) · [OneDrive isn't syncing](#onedrive-isnt-syncing) · [OneDrive made a copy of a draft, people.json or a step type](#onedrive-made-a-copy-of-a-draft-peoplejson-or-a-step-type) · [A file can't be read](#a-file-cant-be-read) · [Leftover files](#leftover-files) · [The folder is getting big](#the-folder-is-getting-big) · [Two windows used the same name](#two-windows-used-the-same-name) · [Restoring from a backup](#restoring-from-a-backup)
+- **Drafts and proposals:** [A draft says it's being edited, but nobody is](#a-draft-says-its-being-edited-but-nobody-is) · [A proposal was decided twice](#a-proposal-was-decided-twice) · [A proposal can't be read](#a-proposal-cant-be-read)
+- **Different versions of Flightdeck:** [A newer Flightdeck wrote files](#a-newer-flightdeck-wrote-files) · [A teammate can't run a version](#a-teammate-cant-run-a-version) · [An older Flightdeck said it couldn't save](#an-older-flightdeck-said-it-couldnt-save) · [Teammates on an older Flightdeck](#teammates-on-an-older-flightdeck)
+- **People, skills and reports:** [Someone left the team](#someone-left-the-team) · [A skill can't be matched](#a-skill-cant-be-matched) · [A report can't be accepted](#a-report-cant-be-accepted)
+
 ## A run has conflict copies
 
 **What you see:** a run shows a panel listing other versions, with **Compare copies**. In the folder, the run has files like `run.conflict-<window>-<time>.json`, `run-<COMPUTER>.json` or `candidate-*.json` next to `run.json`.
 
-**What it means:** two windows saved the run without seeing each other's change, usually because OneDrive was paused, offline or slow on one computer, or someone used **Take over**. Flightdeck refused to overwrite and kept the other version beside it. Right after a team moves to Flightdeck 2.1, a run that was already open in a browser tab makes one conflict copy on its first save (see [Updating Flightdeck](updating.md#two-things-to-know-when-moving-to-21)); compare it as below.
+**What it means:** two windows saved the run without seeing each other's change, usually because OneDrive was paused, offline or slow on one computer, or someone used **Take over recording**. Flightdeck refused to overwrite and kept the other version beside it. Right after a team moves to Flightdeck 2.1, a run that was already open in a browser tab makes one conflict copy on its first save (see [Updating Flightdeck](updating.md#what-to-know-when-moving-to-21)); compare it as below.
 
 **What to do:**
 
@@ -185,7 +194,17 @@ Other JSON in `validations/` or `proposals/` that isn't a sign-off or a plan is 
 
 **What you see:** **Folder health** says the folder has many runs, a run folder holds many files, attachments take a lot of space, some file paths are very long, or refreshing takes a long time on this computer.
 
-**What it means:** Flightdeck still works, but every computer keeps every file, and opening the folder reads more each time. Past about 2,000 runs, or 1 GB of attachments, it gets slow. Windows refuses paths that get too long once the team folder's own location is added.
+**What it means:** Flightdeck still works, but every computer keeps every file, and opening the folder reads more each time. Windows refuses paths that get too long once the team folder's own location is added.
+
+**The sizes Folder health watches:**
+
+- **Runs:** above 500 runs in the folder, a warning. Above 2,000, a stop: it asks you to start a new team folder for new runs. Nothing is locked; you can still open, record and publish.
+- **Slow refreshing:** a warning when the last three refreshes on this computer each took more than 15 seconds. It's measured on this computer, so another computer may not see it.
+- **One attachment:** at most 10 MB. This one is enforced when you attach the file: a bigger file isn't added.
+- **All attachments:** a warning when the files under the runs' `files/` folders add up to more than 1 GB.
+- **Files in a run folder:** a warning when one run's folder holds more than 500 files.
+- **Path length:** a warning for each file path longer than 200 characters, counted from the team folder (`runs/<process>/<run>/files/…`).
+- **What's read:** Flightdeck reads the first 100 files in `step-types/`, the first 500 in `skills/` and the first 500 revision files in `skill-registrations/`, by name, and warns when it leaves some out. Every registration of a skill is a revision file of its own, so that's 500 files, not necessarily 500 skills.
 
 **What to do:**
 
@@ -193,7 +212,7 @@ Other JSON in `validations/` or `proposals/` that isn't a sign-off or a plan is 
 - **Big attachments:** keep large logs and recordings elsewhere and attach a link or a short excerpt. A `.zip` of many small files is one file instead of many.
 - **Long paths:** use shorter process IDs and file names in new checklists.
 - **Slow refreshing on one computer:** check that OneDrive has the folder's files on this computer (**Always keep on this device**), and close other Flightdeck windows on the same folder. If every computer is slow, the folder is too big: start a new one.
-- **Step types or skills not read:** Flightdeck reads the first 100 step types and the first 500 skill registrations, by name. Remove ones nobody uses.
+- **Step types or skills not read:** remove step types and skill registrations nobody uses, so every one you need is read.
 
 **What not to do:** don't delete or move old runs to save space. Runs are the record; move the whole folder or start a new one.
 
@@ -218,7 +237,7 @@ Other JSON in `validations/` or `proposals/` that isn't a sign-off or a plan is 
 
 1. The folder owner or backup owner opens **Settings → People** and chooses **Mark inactive** for them: their entry stays (runs and sign-offs refer to it), and they're no longer offered for roles. Never delete or reuse their ID. If they were the folder owner, the backup owner marks them inactive, then chooses **Make folder owner** on themselves and picks a new backup.
 2. Give their checklists a new owner: change `owner:` in each draft and publish a new version. Until then, a checklist's `backup:` owner can sign off its versions. Sign-offs from before stay with the versions they were for.
-3. If they were recording a run, someone uses **Take over** on it, and checks the run for conflict copies afterward.
+3. If they were recording a run, someone uses **Take over recording** on it, and checks the run for conflict copies afterward.
 4. If they updated Flightdeck for the team, choose who does now, and give them [Updating Flightdeck](updating.md).
 
 **What not to do:** don't edit their old runs or sign-offs to show the new owner. History stays as it happened.
@@ -349,4 +368,4 @@ Other JSON in `validations/` or `proposals/` that isn't a sign-off or a plan is 
 
 **What it means:** the other process's newest version needs Flightdeck 2.0, which a run made with Flightdeck 1.x can't follow. Someone chose **Start it as a Flightdeck 2.0 run**: a new run of the same version, with the same details and roles and no answers, which starts the other process on its exact version. The old run stays as it was, readable by every copy.
 
-**What to do:** carry on in the new run. End the old one when you're ready (Cancelled, with a note pointing to the new run, is usual).
+**What to do:** carry on in the new run. End the old one when you're ready (Canceled, with a note pointing to the new run, is usual).

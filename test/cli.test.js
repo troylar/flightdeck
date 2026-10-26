@@ -68,7 +68,8 @@ rule('skills ships the checklist skills with their names and generic frontmatter
     assert.deepStrictEqual(fm[1].split('\n').map((l) => l.split(':')[0]), ['name', 'description'], v + ': only name and description');
     assert.ok(/^Reference: .*`\.\.\/_flightdeck\/map-format\.md`/m.test(t), v + ': names its reference files');
   });
-  assert.ok(/^Read-only: don't create, edit or delete files, and don't run commands\.$/m.test(fs.readFileSync(path.join(root, 'flightdeck-review-checklist', 'SKILL.md'), 'utf8')), 'the review skill says it is read-only');
+  // Read-only, and the one command it may run (draft read) only reads (2.6.1).
+  assert.ok(/^Read-only: don't create, edit or delete files\. The only command you may run is `flightdeck draft read`, below, which only reads\.$/m.test(fs.readFileSync(path.join(root, 'flightdeck-review-checklist', 'SKILL.md'), 'utf8')), 'the review skill says it is read-only');
   ['new', 'edit', 'review'].forEach((v) => assert.ok(!fs.existsSync(path.join(root, 'flightdeck-' + v + '-map')), 'no old ' + v + '-map alias'));
 });
 
@@ -193,6 +194,79 @@ rule('install keeps a file the team changed, adds a missing one, and puts a new 
   const fresh = tmp();
   write(fresh, STATUS, 'Ours, with no record of what it was based on');
   assert.strictEqual(cli('install', fresh, '--check').code, 3, 'without a record, a changed file needs a person');
+});
+
+/* The release before this one, as it shipped (tools/old-bundles.js): its own command, installing beside its own app. */
+function previous() {
+  const bundles = require('../tools/old-bundles'), tag = bundles.tags().map(t => t.tag).filter(t => t !== 'v' + VER).pop();
+  const b = tag && bundles.get(tag);
+  if (!b) { if (process.env.CI) throw new Error('no previous release to upgrade from: git fetch --tags'); return null; }
+  const root = tmp();
+  write(root, 'bin/flightdeck.js', b.files['flightdeck.js']); write(root, 'dist/flightdeck.html', b.files['flightdeck.html']);
+  const run = (...a) => { try { return { out: execFileSync(process.execPath, [path.join(root, 'bin', 'flightdeck.js'), ...a], { encoding: 'utf8', stdio: 'pipe' }), code: 0 }; } catch (e) { return { out: String(e.stdout) + String(e.stderr), code: e.status }; } };
+  return { tag, version: C.versionOf(b.files['flightdeck.html']), ex: C.examples(b.files['flightdeck.html']), run };
+}
+
+rule('Upgrading from the release before: unchanged files update, a customized one waits beside it, Team notes stay, and --check clears once merged (team folder and skills --to)', () => {
+  const old = previous();
+  if (!old) { console.log('  (skipped: the previous release isn\'t in this clone; git fetch --tags)'); return; }
+  const SKILLS = '.flightdeck/skills/';
+  const changed = Object.keys(EX).filter(f => f.startsWith(SKILLS) && old.ex[f] != null && old.ex[f] !== EX[f]);
+  // One changed skill is customized (it must wait); the others were left as shipped (they must update).
+  assert.ok(changed.length >= 2, 'at least two skills changed since ' + old.tag + ', else half this rule proves nothing: ' + changed.join(', '));
+  const mine = changed[0], rest = changed.slice(1), up = '.flightdeck/updates/' + VER + '/';
+  // A team folder.
+  const dir = tmp();
+  assert.strictEqual(old.run('install', dir).code, 0);
+  assert.strictEqual(record(dir).version, old.version);
+  write(dir, mine, old.ex[mine] + '\nOur own step.\n');
+  write(dir, 'AGENTS.md', read(dir, 'AGENTS.md') + '\n## Team notes\n\nDeploy only on Tuesdays.\n');
+  const was = { app: read(dir, 'flightdeck.html'), agents: read(dir, 'AGENTS.md') };
+  let r = cli('install', dir);
+  assert.strictEqual(r.code, 0, r.out);
+  // Everything it replaced is copied first, byte for byte, under updates/<version>/replaced/<time>/.
+  const rep = at(dir, up + 'replaced'), stamp = fs.readdirSync(rep);
+  assert.strictEqual(stamp.length, 1, 'one copy folder');
+  const kept = (rel) => fs.readFileSync(path.join(rep, stamp[0], ...rel.split('/')), 'utf8');
+  rest.forEach(f => assert.strictEqual(kept(f), old.ex[f], f + ': the old default is kept'));
+  assert.strictEqual(kept('AGENTS.md'), was.agents, 'the old AGENTS.md is kept');
+  assert.strictEqual(read(dir, 'flightdeck.html'), HTML, 'the app updates');
+  assert.strictEqual(kept('flightdeck.html'), was.app, 'the old app is kept');
+  assert.ok(!fs.existsSync(path.join(rep, stamp[0], ...mine.split('/'))), 'the customized file wasn\'t replaced, so no copy');
+  rest.forEach(f => assert.strictEqual(read(dir, f), EX[f], f + ' was unchanged, so it updates'));
+  assert.strictEqual(read(dir, mine), old.ex[mine] + '\nOur own step.\n', 'the customized file stays');
+  assert.strictEqual(read(dir, up + mine), EX[mine], 'the new default waits beside it');
+  assert.strictEqual(C.region(read(dir, 'AGENTS.md')).text, C.region(EX['AGENTS.md']).text, 'the Flightdeck part of AGENTS.md updates');
+  assert.ok(read(dir, 'AGENTS.md').includes('Deploy only on Tuesdays.'), 'Team notes stay');
+  assert.strictEqual(record(dir).version, VER);
+  const files = () => { const s = snapshot(dir); delete s[path.join('.flightdeck', 'installed.json')]; return s; }, before = files();
+  r = cli('install', dir);
+  assert.strictEqual(r.code, 0, r.out);
+  assert.deepStrictEqual(files(), before, 'installing again with the merge waiting changes nothing');
+  assert.strictEqual(cli('install', dir, '--check').code, 3, 'the merge is still reported');
+  write(dir, mine, EX[mine] + '\nOur own step.\n'); fs.unlinkSync(at(dir, up + mine));
+  r = cli('install', dir, '--check');
+  assert.strictEqual(r.code, 0, 'merged and its copy deleted: ' + r.out);
+  // A standalone skills folder.
+  const to = path.join(tmp(), 'skills'), rel = mine.slice(SKILLS.length);
+  assert.strictEqual(old.run('skills', '--to', to).code, 0);
+  const skill = (f) => path.join(to, ...f.slice(SKILLS.length).split('/'));
+  fs.writeFileSync(skill(mine), old.ex[mine] + '\nOur own step.\n');
+  r = cli('skills', '--to', to);
+  assert.strictEqual(r.code, 0, r.out);
+  rest.forEach(f => assert.strictEqual(fs.readFileSync(skill(f), 'utf8'), EX[f], f + ' was unchanged, so it updates'));
+  const srep = path.join(to, '.flightdeck-updates', VER, 'replaced'), sstamp = fs.readdirSync(srep);
+  assert.strictEqual(sstamp.length, 1, 'one copy folder');
+  rest.forEach(f => assert.strictEqual(fs.readFileSync(path.join(srep, sstamp[0], ...f.slice(SKILLS.length).split('/')), 'utf8'), old.ex[f], f + ': the old default is kept'));
+  assert.strictEqual(fs.readFileSync(skill(mine), 'utf8'), old.ex[mine] + '\nOur own step.\n', 'the customized skill stays');
+  assert.strictEqual(fs.readFileSync(path.join(to, '.flightdeck-updates', VER, ...rel.split('/')), 'utf8'), EX[mine], 'the new default waits beside it');
+  const skillsBefore = snapshot(to); delete skillsBefore['.flightdeck-installed.json'];
+  assert.strictEqual(cli('skills', '--to', to).code, 0);
+  const skillsAfter = snapshot(to); delete skillsAfter['.flightdeck-installed.json'];
+  assert.deepStrictEqual(skillsAfter, skillsBefore, 'installing again with the merge waiting changes nothing');
+  assert.strictEqual(cli('skills', '--to', to, '--check').code, 3);
+  fs.writeFileSync(skill(mine), EX[mine] + '\nOur own step.\n'); fs.unlinkSync(path.join(to, '.flightdeck-updates', VER, ...rel.split('/')));
+  assert.strictEqual(cli('skills', '--to', to, '--check').code, 0);
 });
 
 rule('install updates only the Flightdeck part of AGENTS.md, keeps Team notes, and replaces a whole AGENTS.md from before the markers when it was a default', () => {

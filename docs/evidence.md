@@ -6,7 +6,7 @@
 
 **On this page:** [What's in a pack](#whats-in-a-pack) · [Checking a pack](#checking-a-pack) · [A pack is a snapshot](#a-pack-is-a-snapshot-of-the-folder-and-says-when-it-isnt) · [Privacy](#privacy) · [Limits and sizes](#limits-and-sizes) · [The readable report](#the-readable-report) · [Command line](#command-line) · [For AI assistants](#for-ai-assistants)
 
-An evidence pack is a zip of what the team folder holds about one run, or about the runs of a process started between two days: the original files, byte for byte, a page to read, and SHA-256 hashes to check them by. Make one from a run's **Receipt** or its **More** menu, from **Runs › Export evidence…**, or with `flightdeck export`. Making one never changes the team folder, and a pack is never written into it.
+An evidence pack is a zip of what the team folder holds about one run, or about the runs of a process started between two days: the original files, byte for byte, a page to read, and SHA-256 hashes to check them by. Make one from a run's **Receipt** or its **More** menu, from **Runs › More › Export evidence…**, or with `flightdeck export`. Making one never changes the team folder, and a pack is never written into it.
 
 ## What's in a pack
 

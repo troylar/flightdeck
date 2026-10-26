@@ -5,7 +5,7 @@ Flightdeck checklists follow *The Checklist Manifesto* (Atul Gawande). A checkli
 ## What makes a good checklist
 
 - **Pause points, not procedures.** Each phase ends where people naturally stop: before a merge, before production, after the deploy. That's where the gate goes.
-- **Short phases.** 5 to 9 steps. Past 9, split at a natural stopping point.
+- **Short phases.** At most 9 steps; fewer is fine, and never pad one. Past 9, split at a natural stopping point.
 - **One line per step,** about 12 words or fewer, naming an action or a state to confirm: "Rollback commit written in the release ticket". Explanations go in a `>` note under the step.
 - **No filler.** Never start a step with "Make sure", "Ensure", "Don't forget" or "Remember to".
 - **Must-dos are rare.** Mark `[!]` only where skipping the step causes real harm (a broken release, lost data, a missed approval). If everything is a must-do, nothing is.

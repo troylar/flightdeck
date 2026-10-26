@@ -493,8 +493,8 @@ eachTag('reads a start or decline 2.1.1 wrote to <plan>.status-<window>-d.json a
     assert.ok(p && p._status && p._status.status === status && (status === 'declined' || p._status.run === 'run-x'), status + ': ' + JSON.stringify(p && p._status));
     if (status === 'accepted') assert.ok(!d.runs.some(r => r.id === 'run-x'), 'set-up: the run it names isn\'t saved yet');
     if (fnOf(OLD, 'repo.decidePlan')) assert.ok(/already (started|declined)/.test(await planGate(OLD, m, 'start')), status + ': a second start is refused');
-    // Only this version names a started plan whose run isn't there (2.1.1); older Folder health says nothing about it.
-    if (status === 'accepted' && OLD.health && fnOf(OLD, 'health.check')) assert.ok(!OLD.health.check({ data: d, scan: null, me: 'person-avery', app: t.version }, Date.parse(AT)).issues.some(i => /^plan-run-missing/.test(i.id)));
+    // Folder health names a started plan whose run isn't there from 2.1.1 on; before that it says nothing about it.
+    if (status === 'accepted' && OLD.health && fnOf(OLD, 'health.check')) assert.strictEqual(OLD.health.check({ data: d, scan: null, me: 'person-avery', app: t.version }, Date.parse(AT)).issues.some(i => /^plan-run-missing/.test(i.id)), H.bundles.cmp(t.version, '2.1.1') >= 0, 'names the missing run from 2.1.1 on');
     assert.strictEqual(snap(m), before, 'nothing written while reading');
   }
   const NEW = H.loadMain(), nd = await NEW.repo.loadAll(H.memFolder(NEW, await decidedByMain(t.tag, 'accepted')));

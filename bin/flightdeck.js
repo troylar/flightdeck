@@ -1579,7 +1579,9 @@ async function draftMain(argv) {
 
 const HELP = `flightdeck: team process checklists, in one HTML file
 
-  flightdeck open                     open the app (it starts on built-in examples)
+  flightdeck open                     open the app in this package: the first time, the welcome (start your team, join
+                                      one, or look around the examples); after that, the team folder you chose, when
+                                      the browser kept it and its permission (otherwise it offers Reconnect)
   flightdeck install <team folder>    copy the app into the team folder as ${NAME}, and add or update the
                                       AI assistant contract there: AGENTS.md and .flightdeck/skills
   flightdeck skills <team folder>     add or update only the skills, in <team folder>/.flightdeck/skills

@@ -56,7 +56,7 @@ A run's key is `<process>/<run id>`, for example `backup-check/k3m9p2q8`. In the
 Every successful command prints one object:
 
 ```json
-{ "contract": "flightdeck-read/1", "app": "1.18.0", "readAt": "2026-10-24T13:42:05.000Z",
+{ "contract": "flightdeck-read/1", "app": "2.6.1", "readAt": "2026-10-24T13:42:05.000Z",
   "complete": false,
   "problems": [ { "path": "runs/backup-check/k3m9p2q8/run.json", "kind": "nofile", "why": "The run folder has no run.json." } ],
   "note": "Read from the team folder just now; another computer may be a minute ahead. A passed gate means passed for those details, by that person, at that time. People-directory email fields are omitted.",
@@ -76,7 +76,7 @@ Every successful command prints one object:
 An error object (exit 1 or 5) has `contract`, `app`, `error` and `problems`, and no data. `problems` lists everything the command met before it stopped, in the same form as above (a run that's "not found" because its folder is a link names the link there); it's empty when nothing was read, as for a usage error:
 
 ```json
-{ "contract": "flightdeck-read/1", "app": "1.18.0", "error": { "kind": "not-found", "why": "There's no run backup-check/zzz in the team folder." }, "problems": [] }
+{ "contract": "flightdeck-read/1", "app": "2.6.1", "error": { "kind": "not-found", "why": "There's no run backup-check/zzz in the team folder." }, "problems": [] }
 ```
 
 `error.kind` is `failed` (the folder couldn't be read), `usage` (the command was used wrongly, including a flag without its value), `contract` (a contract this copy doesn't have) or `not-found`.
@@ -87,14 +87,28 @@ An error object (exit 1 or 5) has `contract`, `app`, `error` and `problems`, and
 |---|---|
 | `unreadable` | A file or a part of the folder failed to read (a cloud placeholder that isn't downloaded yet, a permissions error). One version that can't be read is named on its own; the other versions are still listed. |
 | `nofile` | A run folder without `run.json` (it may still be arriving, or it was deleted) |
-| `malformed` | A run, plan, plan decision, follow-up decision or `people.json` that won't parse or isn't in the format (a plan decision other than accepted or declined, a plan detail that isn't text). It's left out of the data. A `people.json` like that leaves names `null`. A run file with anything the app would drop, cut short or replace when it reads it (a time it can't read, a gate without a state, a follow-up without text, a value that isn't text, a name it doesn't read) is named too, with where each one is (`gates.ready`, `followUps[0]`, `steps.tests.values.url`), and is still shown as the app shows it, without them. Beyond the cases it can name in words, the file is compared with what the app reads from it, field by field, and any other place they differ is named too; the only exceptions are documented defaults for values the file leaves out and two deliberate drops (who and when of an earlier "done differently", which only its note keeps, and a pause left on a run that has ended). A follow-up decision whose file isn't read as written (a note cut short, a link the app won't open) is named with its fields the same way. A `run.json` whose own process and ID don't match the folder it's in (copied into another run's folder), or whose process name is over the 60 characters Flightdeck reads, is named as belonging elsewhere and isn't read as that folder's run; the app does the same from 2.0.1, so each run counts once. |
-| `newer` | A run, version or file from a newer Flightdeck, including a run whose own copy of its checklist or step types uses features this copy can't read. A run like that is named here and left out of the data. From 1.21 on, `why` names the Flightdeck it needs when the file or the format says ("Needs Flightdeck 2.0"); a plan or plan decision in a newer format (1.18 to 1.20 named these `malformed`) and a follow-up decision from a newer Flightdeck (1.18 to 1.20 read it as an ordinary one) are `newer` too. `flightdeck-read/1` reads exactly the folders it read in 1.18: files in `staged/`, `skill-registrations/` and `extensions/` are never read. |
+| `malformed` | A run, plan, plan decision, follow-up decision or `people.json` that won't parse or isn't in the format. What's left out and what's still shown: [`malformed` in detail](#malformed-in-detail), below. |
+| `newer` | A run, version or file from a newer Flightdeck, including a run whose own copy of its checklist or step types uses features this copy can't read. A run like that is named here and left out of the data. More in [`newer` in detail](#newer-in-detail), below. |
 | `unusable` | A version this copy can't use, with why. At a run's `run.json`: the run doesn't match its version (its checklist or version number differs from the version's record), so the app opens it read-only; the version itself is fine. |
 | `conflict` | Conflict copies or lost saves beside a run, for a person to resolve in the app |
 | `still-syncing` | A version whose files haven't all arrived |
 | `link` | A link the command didn't follow |
 | `skipped` | A file too large to read (over 16 MB). The bytes are counted as they're read, so a file that grows while it's read is refused too. |
 | `vanished` | A file or folder that was listed and then gone before it could be read or listed itself (OneDrive replacing it, or someone deleting it). A folder gone like that is never read as empty, so a decided follow-up never looks open because its folder went missing mid-read. |
+
+#### `malformed` in detail
+
+- **What it covers:** a run, plan, plan decision, follow-up decision or `people.json` that won't parse or isn't in the format (a plan decision other than accepted or declined, a plan detail that isn't text). It's left out of the data. A `people.json` like that leaves names `null`.
+- **A run file the app would change when it reads it:** anything the app would drop, cut short or replace (a time it can't read, a gate without a state, a follow-up without text, a value that isn't text, a name it doesn't read) is named too, with where each one is (`gates.ready`, `followUps[0]`, `steps.tests.values.url`). The run is still shown as the app shows it, without them.
+- **Everything else that differs:** beyond the cases it can name in words, the file is compared with what the app reads from it, field by field, and any other place they differ is named too. The only exceptions are documented defaults for values the file leaves out, and two deliberate drops: who and when of an earlier "done differently" (only its note keeps them), and a pause left on a run that has ended.
+- **A follow-up decision** whose file isn't read as written (a note cut short, a link the app won't open) is named with its fields the same way.
+- **A run in the wrong folder:** a `run.json` whose own process and ID don't match the folder it's in (copied into another run's folder), or whose process name is over the 60 characters Flightdeck reads, is named as belonging elsewhere and isn't read as that folder's run. The app does the same from 2.0.1, so each run counts once.
+
+#### `newer` in detail
+
+- **Which Flightdeck it needs:** from 1.21 on, `why` names the Flightdeck it needs when the file or the format says ("Needs Flightdeck 2.0").
+- **Plans and decisions:** a plan or plan decision in a newer format (1.18 to 1.20 named these `malformed`) and a follow-up decision from a newer Flightdeck (1.18 to 1.20 read it as an ordinary one) are `newer` too.
+- **Folders contract 1 never reads:** `flightdeck-read/1` reads exactly the folders it read in 1.18, so files in `staged/`, `skill-registrations/` and `extensions/` are never read.
 
 Each command reads only what its output depends on, and every problem it meets there is reported (nothing it read is left out of `problems`). A problem anywhere else, such as a link beside the process folder it reads, is not its problem and never makes it partial:
 
@@ -128,10 +142,12 @@ Shared shapes: a **person** has `id` and `name` (`name` is `null` when `people.j
 | `usable` | Whether this copy can use it. When it can't, the lists below are empty and `problems` says why. |
 | `evidenceFrom` | `publication`: the evidence here is what the version's step types record. What a particular run asks for (values filled in during the run, fields an issue tracker's transition requires) comes from `run`. |
 | `context`, `roles` | The run details and roles the checklist names |
-| `types` | The step types it uses: `id` and `label` |
+| `types` | The step types it uses: `id` and `label`. A pull request is `github.pr` or `bitbucket.pr`, as the checklist says (see below) |
 | `phases` | Each phase: `id`, `title`, `mode` (`READ-DO`, `DO-CONFIRM` or empty), `tracks` (`id`, `title`, `roles`), `steps` and `gate` |
 
 Each step: `id` (stable across versions; keep these in your app's settings), `text`, `type`, `must`, `planned`, `roles`, `binds` (run details it's tied to), `sets` (run details it sets), `fields` (the checklist's fields, as text), `track` (or `null`), `timing` and `evidence`. Each gate: `id`, `title`, `implicit` (a plain "confirm together"), `owner` (a role or `null`), `approves`, `binds`, `note` (the gate's note from the checklist, as written; `""` when it has none; added in 2.0, which shows gate notes for every version) and `timing`.
+
+**Pull requests.** Since 2.6 the editor shows GitHub's and Bitbucket's pull requests as one **Pull request** step, whose first question is **Where is the pull request?** The checklist, the reading commands and reports keep the two types: a step's `type` is `github.pr` or `bitbucket.pr`, and `types` lists whichever the version uses. The `approve` action, the `pull` field and the `checks` record exist only on `github.pr`.
 
 ### runs
 
@@ -290,7 +306,7 @@ Without `--json` it says the same in words.
 
 ### What it reads and writes
 
-It reads only `proposals/` (this request's own files and their decisions), the process's versions and `people.json`, and a problem anywhere else never holds it back. It writes one new file in `proposals/` and nothing else: never through a link, never outside the folder. The file is written to a temporary name first, flushed, then put in place in one step that fails if the name is already taken, so it never replaces a file and the final name never holds half a request. It's read back byte for byte. On a disk without hard links the final name is created exclusively and filled from the finished temporary file; if that's cut short (a full disk), the command removes the file it created. A retry never removes a file: a file under the request's name that isn't complete JSON (still arriving, or another request still writing it, or one cut short by a crash) is named (`malformed`, exit 4, `held`), and nothing is written until a person deals with it (docs/recovery.md, *A request file is incomplete*). Plans and plan decisions under the request's name are read with the same code `runs` uses, so they get the same problems: one not in the format is named (`malformed`, exit 4) and never counted, and while one is there and the request isn't, nothing is written (`held`). `--dry-run` only reads: it doesn't even make `proposals/` when it's missing.
+It reads only `proposals/` (this request's own files and their decisions), the process's versions and `people.json`, and a problem anywhere else never holds it back. It writes one new file in `proposals/` and nothing else: never through a link, never outside the folder. The file is written to a temporary name first, flushed, then put in place in one step that fails if the name is already taken, so it never replaces a file and the final name never holds half a request. It's read back byte for byte. On a disk without hard links the final name is created exclusively and filled from the finished temporary file; if that's cut short (a full disk), the command removes the file it created. A retry never removes a file: a file under the request's name that isn't complete JSON (still arriving, or another request still writing it, or one cut short by a crash) is named (`malformed`, exit 4, `held`), and nothing is written until a person deals with it (see [A request file is incomplete](recovery.md#a-request-file-is-incomplete)). Plans and plan decisions under the request's name are read with the same code `runs` uses, so they get the same problems: one not in the format is named (`malformed`, exit 4) and never counted, and while one is there and the request isn't, nothing is written (`held`). `--dry-run` only reads: it doesn't even make `proposals/` when it's missing.
 
 ### What it can't promise
 
@@ -386,7 +402,7 @@ Running runs and their steps: `data` is `{ "runs": [...] }`, each with `key`, `t
 ### What it can't promise
 
 - **Who wrote it.** The tool's name is what the file says. The app shows "by its own account".
-- **Two computers that aren't syncing.** OneDrive keeps both copies of a report written twice. Copies with the same bytes are one report; copies that differ can't be accepted until a person deletes the wrong one (docs/recovery.md, *A report can't be accepted*).
+- **Two computers that aren't syncing.** OneDrive keeps both copies of a report written twice. Copies with the same bytes are one report; copies that differ can't be accepted until a person deletes the wrong one (see [A report can't be accepted](recovery.md#a-report-cant-be-accepted)).
 - **Older copies.** Flightdeck 1.x never lists `reports/`. A step checked from an accepted report is an ordinary answer with a log line naming the report and its SHA-256, which every copy reads.
 
 ## Writing drafts (for AI assistants)

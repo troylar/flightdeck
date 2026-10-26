@@ -2,11 +2,11 @@
 
 > **For:** the person who keeps a team's Flightdeck up to date, usually the team lead.
 >
-> **You'll get:** seven steps from "is there a new release?" to "the team is on it," plus what to do when computers run different versions and how to roll back.
+> **You'll get:** seven steps from "is there a new release?" to "the team is on it," what to know for each release from 2.0 to 2.6.1, what to do when computers run different versions, and how to roll back.
 
 One person does this for each team folder, so two updates never cross.
 
-**On this page:** [1. Learn about new releases](updating.md#1-learn-about-new-releases) · [2. Read What's new](updating.md#2-read-whats-new) · [3. Pick a time](updating.md#3-pick-a-time) · [4. Back up](updating.md#4-back-up) · [5. Install](updating.md#5-install) · [6. Verify](updating.md#6-verify) · [7. Tell the team](updating.md#7-tell-the-team) · [When computers run different versions](updating.md#when-computers-run-different-versions) · [Rolling back](updating.md#rolling-back)
+**On this page:** [1. Learn about new releases](updating.md#1-learn-about-new-releases) · [2. Read What's new](updating.md#2-read-whats-new) · [3. Pick a time](updating.md#3-pick-a-time) · [4. Back up](updating.md#4-back-up) · [5. Install](updating.md#5-install) · [6. Verify](updating.md#6-verify) · [7. Tell the team](updating.md#7-tell-the-team) · [When computers run different versions](updating.md#when-computers-run-different-versions) · [Moving to 2.0](updating.md#moving-a-team-to-flightdeck-20) · [2.1](updating.md#what-to-know-when-moving-to-21) · [2.2](updating.md#what-to-know-when-moving-to-22) · [2.3](updating.md#what-to-know-when-moving-to-23) · [2.4](updating.md#what-to-know-when-moving-to-24) · [2.5](updating.md#what-to-know-when-moving-to-25) · [2.6](updating.md#what-to-know-when-moving-to-26) · [2.6.1](updating.md#what-to-know-when-moving-to-261) · [Rolling back](updating.md#rolling-back)
 
 An update has two parts. `flightdeck.html` is the app everyone opens. `AGENTS.md` and the skills in `.flightdeck/skills/` are the contract your team's AI assistants follow. `flightdeck install` updates both, and never replaces a file your team changed without asking.
 
@@ -14,22 +14,27 @@ An update has two parts. `flightdeck.html` is the app everyone opens. `AGENTS.md
 
 Flightdeck never checks for updates itself; the app stays offline. Pick one of these:
 
-- On GitHub, open [troylar/flightdeck](https://github.com/troylar/flightdeck), choose **Watch → Custom → Releases**. You get one notice per release and nothing else.
-- Or now and then, run `npm outdated -g @troylar/flightdeck`. It lists a newer version if there is one.
+- Watch [`CHANGELOG.md`](https://github.com/troylar/flightdeck/blob/main/CHANGELOG.md) in the repository. Every release adds its notes there.
+- Or now and then, run `npm view @troylar/flightdeck version`. It prints the newest published version. `npm outdated -g @troylar/flightdeck` lists it only when it's newer than the one installed on this computer.
 
 ## 2. Read What's new
 
-Read the release's notes (the GitHub release, `CHANGELOG.md`, or What's new in the app once installed). The version number tells you how big the change is:
+Read the release's notes (`CHANGELOG.md`, or What's new in the app once installed). The version number gives a rough size: a patch (2.6.0 → 2.6.1) fixes things, a minor (2.5 → 2.6) adds or improves features, a major (1.x → 2.0) adds file formats. It doesn't answer the two questions that matter for a shared folder, so the notes and the sections below do:
 
-| Version change | Means |
-|---|---|
-| Patch (1.15.0 → 1.15.1) | Fixes. Safe to install any time. |
-| Minor (1.15 → 1.16) | New or improved features. Files stay compatible: older copies still read what newer ones write, with the limits below. |
-| Major (1.x → 2.0) | A file format older copies can't read. Everyone has to move to the new version together. |
+**What can an older copy read?** Each published version records the features it uses, in the `features` list Flightdeck writes when it publishes. A copy that doesn't know one of them shows the version and won't run it, and says which Flightdeck it needs ("v5 needs Flightdeck 2.1"). It never changes or damages it. So a new feature matters only once someone publishes a checklist that uses it; the publish panel names those under **Needs Flightdeck 2.x**.
+
+**Must every computer update?** Some fixes protect the shared folder only once every computer that uses it has them, even though no checklist feature changed. 2.1.1's planned-start protection is one: a 2.1.0 copy can still start a plan that 2.1.1 holds (see [What to know when moving to 2.1](updating.md#what-to-know-when-moving-to-21)).
+
+| Release | What older copies can read | Must every computer update? |
+|---|---|---|
+| 2.0 (major) | Copies from 1.21 on share the folder with 2.0: they show 2.0's files by name and never change them. Copies older than 1.11.1 can't tell (see [Two limits to know](updating.md#two-limits-to-know)). | Yes, in order: every computer on 1.21 first, then 2.0 ([Moving a team to Flightdeck 2.0](updating.md#moving-a-team-to-flightdeck-20)). |
+| 2.1 (minor) | A version that uses `only when` runs only on 2.1 and later. Staged versions and test runs are for 2.1 copies; 2.0 shows a test run by name only and counts it as a run. | Before anyone publishes a checklist with `only when` or stages a version. |
+| 2.1.1 (patch) | Nothing new to read. | Yes: a planned run starts once only when every computer has 2.1.1. |
+| 2.2 to 2.6.1 | Nothing new to read: no checklist feature and no file format changed. | No. Computers can update one at a time. |
 
 ## 3. Pick a time
 
-People can keep working during a patch or minor update, but it's calmer if nobody is recording a run. Ask anyone recording to finish or hand off first, or update together at the start of the day. For a major update, everyone stops, you update, and everyone reopens.
+People can keep working during an update, but it's calmer if nobody is recording a run. Ask anyone recording to finish or hand off first, or update together at the start of the day. When the notes say every computer must update (a major release, or a fix like 2.1.1's), everyone stops, you update, and everyone reopens.
 
 ## 4. Back up
 
@@ -79,7 +84,9 @@ A copy left in any version's updates folder (`.flightdeck/updates/<version>/<the
 
 **Install always keeps a copy of every file it replaces** (`AGENTS.md`, skill files and `flightdeck.html`, an earlier default too) in a new folder of its own under `.flightdeck/updates/<version>/replaced/`, and says where. Each copy is written in full and read back before the file is replaced; if that fails, the file isn't replaced.
 
-`--force` replaces files your team changed with the new defaults instead. It also moves any copies still waiting to be merged into that run's copy folder (under `staged/`), including copies for files that already match the default. `--app-only` installs only `flightdeck.html`.
+`--force` replaces files your team changed with the new defaults instead. It also moves any copies still waiting to be merged into that install's own copy folder, `.flightdeck/updates/<version>/replaced/<time>/staged/<the version they were waiting from>/…` (this `staged/` is only a name inside the copy folder, not the team folder's `staged/` versions), including copies for files that already match the default. `--app-only` installs only `flightdeck.html`.
+
+**A skills folder of its own.** Someone whose AI assistant loads skills from a folder outside the team folder keeps it current with `flightdeck skills --to <folder>`. It works the same way, with its record in `.flightdeck-installed.json` and new defaults to merge (and copies of replaced files) in `.flightdeck-updates/<version>/`, both beside the skills. `--check` and `--force` work there too.
 
 **What install trusts.** `.flightdeck/installed.json` only ever makes install more careful. Install replaces a file without `--force` only when it's exactly a default Flightdeck shipped; a record that's damaged or wasn't written by Flightdeck is ignored, and install says so.
 
@@ -146,12 +153,68 @@ A staged version and its test runs are only for copies on 2.1. Older copies neve
 - **Staging from Practice is the same stage.** **Stage it for a test run** in Practice writes exactly what **Stage the draft for testing** writes, so copies on 2.1 see it and can test it.
 - **A blank new process starts with no steps (2.2.1).** It can't be published or staged until it has one; earlier versions started with a placeholder step to delete.
 
-## Rolling back
+### What to know when moving to 2.3
 
-If an update goes wrong, install the older version over it:
+- **Nothing in the team folder changes.** Practice now opens the real run screen, marked **Practice · not recorded**, but it still lives in your browser tab only: a `#/practice` link or a reload brings it back in that tab, and it's never written to the folder. Computers on 2.2 and 2.3 can share a folder.
+- **Save draft from practice.** While there are unsaved edits, **Save draft** is in the practice header. It saves the draft to the folder as the editor does; a conflict offers Compare in the editor.
+- **The editor's button is Review & publish (2.3.1).** It said Done before.
+- **Step text shows the run's details (2.3.1).** A step tied to a run detail shows its value on the run screen, Next up, the receipt and reports ("Start the production deploy job v2026.10.16"), and `‹tag›` until it's set. Only what's shown changed: the run file and the checklist stay as they were.
+
+### What to know when moving to 2.4
+
+- **Nothing in the team folder changes.** 2.4 is a new look: controls that answer hover, press and focus, new toggles and fields, the Instrument Sans typeface (inside `flightdeck.html`, so every computer shows the same type), and dark mode with depth. Animations stop when your computer asks for less motion, and switches and selections read in Windows high contrast.
+
+### What to know when moving to 2.5
+
+- **Nothing in the team folder changes.** 2.5 is speed: a folder of thousands of runs opens and refreshes without stalling, and the page stays usable while runs arrive. The sizes Folder health warns about are the same as before (see [The folder is getting big](recovery.md#the-folder-is-getting-big)).
+
+### What to know when moving to 2.6
+
+- **Nothing in the team folder changes.** The step form asks a question for each box, shows only the boxes a step usually needs (the rest behind **+ add** and **More about this step**), and offers short choices as buttons.
+- **One Pull request step, the same files.** The editor shows one **Pull request**, whose first question is **Where is the pull request?** (GitHub or Bitbucket). The checklist still says `github.pr` or `bitbucket.pr`, exactly as if you'd written it by hand, so copies before 2.6 read it as before. Switching keeps every value; what Bitbucket doesn't have (the `approve` action, the `pull:` link, recording `checks`) is flagged, and publishing refuses it until it's removed.
+
+### What to know when moving to 2.6.1
+
+- **Nothing in the team folder's runs, versions or other records changes.** 2.6.1 corrects documentation: the AI-assistant instructions (`AGENTS.md` and the skills), and the app's **When something goes wrong** guide.
+- **The corrected `AGENTS.md` and skills reach a folder only through install.** The app doesn't update them. One install updates them for every assistant that works in that folder.
+
+**A team folder:**
 
 ```bash
-npx @troylar/flightdeck@1.14.0 install "~/OneDrive/Team/Flightdeck" --force
+npx @troylar/flightdeck@2.6.1 install "~/OneDrive/Team/Flightdeck"
 ```
 
-Files the newer version already wrote (runs, publications) stay read-only to the older copy, as in the table above. They aren't lost; they work again once you update. Versions before 1.15 install only `flightdeck.html`; from 1.15 on, `--force` also puts back that version's `AGENTS.md` and skills, after saving a copy of each file it replaces. If you need the folder exactly as it was, restore your backup instead (see [When something goes wrong](recovery.md#restoring-from-a-backup)).
+- In `AGENTS.md`, only the part between `<!-- flightdeck:begin -->` and `<!-- flightdeck:end -->` is updated. **Team notes**, outside the markers, stay as they are.
+- A skill file that's still exactly a default some Flightdeck shipped (one your team never changed) is updated to 2.6.1's.
+- A file your team changed stays as it is. 2.6.1's default goes to `.flightdeck/updates/2.6.1/`, at the same path, with a `README.md` holding a prompt for your AI assistant to merge them ([When files need merging](updating.md#5-install)).
+- `--app-only` updates only `flightdeck.html`, and leaves `AGENTS.md` and the skills as they are.
+
+**A skills folder of its own** (outside the team folder):
+
+```bash
+npx @troylar/flightdeck@2.6.1 skills --to "~/skills"
+```
+
+It keeps its record in `.flightdeck-installed.json` and puts new defaults to merge in `.flightdeck-updates/2.6.1/`, beside the skills.
+
+**Until a merge is done,** every install and every `--check` lists that file as needing a merge ("still waiting in updates/2.6.1"), even after a later update. Once your assistant has merged it and deleted its copy, `--check` exits with 0.
+
+## Rolling back
+
+If an update goes wrong, install the older version over it. For example, from 2.6.1 back to 2.6.0:
+
+```bash
+npx @troylar/flightdeck@2.6.0 install "~/OneDrive/Team/Flightdeck" --force
+```
+
+`--force` is needed because the folder's `flightdeck.html` is newer than the one you're installing. It also puts back 2.6.0's `AGENTS.md` (between its markers; Team notes stay) and skills, including ones your team changed, after saving a copy of each file it replaces. To roll back only the app, add `--app-only`.
+
+Files the newer version already wrote with features the older one doesn't know (runs, publications) stay read-only to the older copy, as in the table above; 2.6.1 writes nothing 2.6.0 can't read. They aren't lost; they work again once you update. Versions before 1.15 install only `flightdeck.html`; from 1.15 on, `--force` also puts back that version's `AGENTS.md` and skills.
+
+Don't roll back past what the folder already uses:
+
+- never below 1.21 once the folder has files from Flightdeck 2.0 (see [Moving a team to Flightdeck 2.0](updating.md#moving-a-team-to-flightdeck-20) and [Two limits to know](updating.md#two-limits-to-know));
+- never below 2.1 once anyone published `only when` or staged a version;
+- never below 2.1.1 while plans are being started, since its planned-start protection works only when every computer has it.
+
+If you need the folder exactly as it was, restore your backup instead (see [When something goes wrong](recovery.md#restoring-from-a-backup)).

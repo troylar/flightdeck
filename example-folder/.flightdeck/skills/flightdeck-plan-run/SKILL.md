@@ -1,21 +1,21 @@
 ---
 name: flightdeck-plan-run
-description: Plan a Flightdeck run (who does what, run details) for a person to start
+description: "Use when asked to plan, schedule or set up a Flightdeck run (who does what, its run details): writes a planned run for a person to review and start"
 ---
 
 Write a planned run for a published Flightdeck process. A person reviews it in Flightdeck and starts it; you never start runs.
 
-What to plan: the user's request
+The person's request says what to plan: the process, and any details, people or time they gave.
 
 Read `AGENTS.md` in this team folder first.
 
 ## Steps
 
-1. **Find the current version** of the process: the **current** version, found by running `python .flightdeck/skills/_flightdeck/check_folder.py` from the team folder (if the skills were installed somewhere other than `.flightdeck/skills`, run the `_flightdeck/check_folder.py` next to this skill's folder instead, with the team folder as its argument): it checks every version's files and fingerprints exactly as Flightdeck does and prints `current` per process. If it reports a `clash`, or no complete version, stop and report it; a person resolves that in Flightdeck. Read its `map.md` for `context` (run details) and `roles`, and note the version `N`.
-2. **Fill the details** you were given (ticket, commit, environment, sprint…). Leave unknown ones as empty strings; never invent a ticket number or a commit.
+1. **Find the current version** of the process by running `python3 .flightdeck/skills/_flightdeck/check_folder.py` from the team folder (`python` or `py` on Windows; if the skills were installed somewhere other than `.flightdeck/skills`, run the `_flightdeck/check_folder.py` next to this skill's folder instead, with the team folder as its argument): it checks every version's files and fingerprints exactly as Flightdeck does and prints `current` per process. If it reports a `clash`, or no complete version, stop and report it; a person resolves that in Flightdeck. Read its `map.md` for `context` (run details) and `roles`, and note the version `N`.
+2. **Fill the details** you were given (ticket, commit, environment, sprint…). Leave unknown ones as empty strings; never invent a ticket number or a commit. Every value is text. For a typed detail (`rows:number`, `due:date`, `approved:yes-no`, `env:choice(dev|test|prod)` in `context`), write it the way its kind stores it: a plain decimal like `1234.5`, `YYYY-MM-DD`, `yes` or `no`, or a choice option exactly as the checklist spells it. Other text is converted only when its meaning is certain; anything else starts empty and waits for a person.
 3. **Suggest roles by rotation,** unless the person named people:
    - Read `people.json` (skip anyone with `"inactive": true`).
-   - For each role, look at recent runs of this process in `runs/<process>/*/run.json` and suggest whoever has gone longest without that role. Ignore cancelled runs and runs that have conflict copies (another `run*.json` beside `run.json`). Prefer giving someone a role they've never had, paired with an experienced person in the lead role.
+   - For each role, look at recent runs of this process in `runs/<process>/*/run.json` and suggest whoever has gone longest without that role. Ignore canceled runs (`ended.outcome` is stored as `"Cancelled"`), test runs (`"test": true`: they tried a staged version and never count toward rotation, as Flightdeck's own suggestions don't count them) and runs that have conflict copies (another `run*.json` beside `run.json`). With `flightdeck` installed, `flightdeck runs <team folder> --process <process> --contract 2 --json` lists the runs (it leaves test runs out), and `flightdeck run <team folder> <process>/<run id> --contract 2 --json` gives each one's roles. Prefer giving someone a role they've never had, paired with an experienced person in the lead role.
    - If the checklist has `runs: solo`, or the person asks for a solo run, assign every role to the one person running it.
 4. **Write** `proposals/plan-<process>-<yyyy-mm-dd>-<6 random lowercase letters or digits>.json` (the random part keeps two plans written on two computers from colliding), with the same value as its `id`:
 

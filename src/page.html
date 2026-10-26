@@ -1287,7 +1287,9 @@ p.pv-when { margin: 0 0 4px; }
 #ob-text { min-height: 64px; line-height: 1.45; resize: vertical; font: inherit; }
 .fpe .mini:not(:disabled) { color: var(--ink); border-color: var(--field); }
 .fpe-checks .ic { width: 16px; height: 16px; }
-@media (max-width: 1240px) { .fpe-head { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "id save" "tools tools"; } }
+/* The draft editor's tools (with Practice) need about 1,600px beside its name and Save draft; narrower, they take their own row. */
+@media (max-width: 1600px) { .fpe-head { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "id save" "tools tools"; } }
+.fpe-done { white-space: nowrap; }
 /* Panes: room for the outline at 1280; a narrower inspector. */
 .fpe-panes { grid-template-columns: var(--pane-parts, 208px) 0 minmax(0, 1fr) 0 var(--pane-ins, clamp(320px, 27vw, 400px)); }
 .fpe-panes.rail { grid-template-columns: 72px 0 minmax(0, 1fr) 0 var(--pane-ins, clamp(320px, 27vw, 400px)); }
