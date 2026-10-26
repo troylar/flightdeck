@@ -23,6 +23,7 @@ t test/reports.test.js
 t test/insights.test.js
 t test/outline.test.js
 t test/refs.test.js
+t test/links.test.js
 t test/timeline.test.js
 t test/search.test.js
 t test/folder.test.js
@@ -49,6 +50,7 @@ t test/compat-pins.test.js
 t test/compat-typed.test.js
 t test/compat-conditions.test.js
 t test/compat-staging.test.js
+t test/compat-pass.test.js
 t test/skills-parity.test.js
 t test/build.test.js
 t test/readers.test.js

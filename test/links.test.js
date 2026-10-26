@@ -167,6 +167,8 @@ rule('checks: suggestions for an unpublished child, a conversion, a detail the c
   assert.ok(has(M.check(late, {}).suggestions, /\^tag may not be set yet here/), M.check(late, {}).suggestions.join('\n'));
   c = chk(['  pass: environment=^env'], { unreadable: 'publications/deploy/v4-ab12/publication.json can\'t be read.' });
   assert.ok(has(c.blockers, /can't be read\. So what it passes to "deploy" can't be checked\./), c.blockers.join('\n'));
+  c = chk(['  carry: env'], { unreadable: 'publications/deploy/ can\'t be listed.' });
+  assert.ok(!c.blockers.length, 'a carry-only step whose child can\'t be read publishes as in 2.7: ' + c.blockers.join('\n'));
 });
 
 rule('format: passed-details only with a pass: line; a carry-only checklist uses no new feature', () => {

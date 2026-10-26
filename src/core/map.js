@@ -252,7 +252,8 @@ PF.map = (function () {
     /* What a linked step passes to its child (2.8, docs/design.md 40). Its own sources always; against the child's details when
        opts.children(process, version) says what the child is: { map, title, version, latest } (latest: no version: line, so
        the child's latest), { unpublished: true }, or { unreadable: why }. While editing these come from memory (advice);
-       publishing and staging pass the children just read from the folder. */
+       publishing and staging pass the children just read from the folder. A step with neither pass: nor carry: names nothing,
+       so it isn't checked; a carry-only step whose child can't be read publishes as in 2.7 (run time still refuses it). */
     function linkChecks(s, label) {
       var L = PF.links, pe = L.parse(s.fields.pass).entries, carry = L.carryList(s), own = list(s.fields.sets);
       pe.forEach(function (e) {
@@ -262,8 +263,8 @@ PF.map = (function () {
         else if (own.indexOf(e.from) >= 0) blockers.push(label + ' passes ^' + e.from + ' and sets it; a step can\'t start its child with a value it produces.');
       });
       var got = typeof opts.children === 'function' ? opts.children(s.fields.process, s.fields.version || '') : null;
-      if (!got) return;
-      if (got.unreadable) { blockers.push(label + ': ' + got.unreadable + ' So what it passes to "' + s.fields.process + '" can\'t be checked.'); return; }
+      if (!got || (!L.has(s) && !carry.length)) return;
+      if (got.unreadable) { if (L.has(s)) blockers.push(label + ': ' + got.unreadable + ' So what it passes to "' + s.fields.process + '" can\'t be checked.'); return; }
       if (got.unpublished || !got.map) { if (L.has(s)) suggestions.push(label + ': "' + s.fields.process + '" isn\'t published yet, so what it needs can\'t be checked.'); return; }
       var who = got.latest ? (got.title || s.fields.process) + '\'s latest version (v' + got.version + ')' : (got.title || s.fields.process) + ' v' + got.version;
       var A = { text: 'text', number: 'a number', 'yes-no': 'yes or no', choice: 'a choice', date: 'a date', url: 'a link' }, kw = function (d) { return A[PF.values.kindOf(d)] || 'text'; };

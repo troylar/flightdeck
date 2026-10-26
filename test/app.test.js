@@ -8215,7 +8215,7 @@ rule('Checklist details: the change that follows an add (a redrawn box) never ad
   assert.ok(/already a run detail/.test(app.html()), 'typing the same name again on purpose is still refused');
   assert.strictEqual(app.draft('ob-add-ctx'), 'region', 'with the typing kept');
 });
-rule('Checklist details: Rename a run detail follows it everywhere as one Undo step; a carried name and a taken name are refused next to the box (2.7)', async () => {
+rule('Checklist details: Rename a run detail follows it everywhere as one Undo step; a carried name is passed on under its old name (2.8); a taken name is refused next to the box (2.7)', async () => {
   const app = await builderOn();
   app.click('ob-sel-details'); await app.tick();
   let html = app.html();
@@ -8232,10 +8232,16 @@ rule('Checklist details: Rename a run detail follows it everywhere as one Undo s
   app.click('tl-undo', 'draft'); await app.tick();
   assert.ok(/data-act="ob-ren" data-id="tag"/.test(app.html()) && !/data-id="build_tag"/.test(app.html()), 'one Undo takes it all back');
 
+  /* 2.8: carry: names it, and check-in is known, so the rename keeps passing it: carry: gives way to pass: commit=^sha. */
   app.click('ob-ren', 'commit'); await app.tick();
   app.set('ob-ren-ctx', 'sha'); app.click('ob-ren-go', 'commit'); await app.tick();
-  assert.ok(/<p class="ferr" id="ferr-ob-ren-ctx" role="alert">The step “Check in the release notes for this commit” passes \^commit to check-in by name\. Renaming it would stop that\.<\/p>/.test(app.html()), 'carry: names it, so it\'s refused, once: ' + (app.html().match(/id="ferr-ob-ren-ctx"[^>]*>[^<]*/) || [''])[0]);
-  assert.strictEqual(app.draft('ob-ren-ctx'), 'sha', 'the typing stays');
+  assert.ok(/Renamed \^commit to \^sha/.test(app.live()), app.live());
+  app.click('save-draft'); await app.tick(80);
+  const relinked = app.fs.files['maps/drafts/release.md'].t;
+  assert.ok(/  process: check-in\n(?:  [\w-]+: .*\n)*  pass: commit=\^sha\n/.test(relinked) && !/carry: commit/.test(relinked), relinked.slice(relinked.indexOf('process: check-in') - 10, relinked.indexOf('process: check-in') + 120));
+  app.click('tl-undo', 'draft'); await app.tick();
+  app.click('ob-ren', 'commit'); await app.tick();
+  app.set('ob-ren-ctx', 'sha'); app.input('ob-ren-ctx', 'sha'); await app.tick();
   app.click('ob-ren-cancel', 'commit'); await app.tick();
   assert.ok(!/id="ob-ren-ctx"/.test(app.html()) && app.focused() === '[data-act="ob-ren"][data-id="commit"]', 'Cancel closes it and goes back to its Rename');
 

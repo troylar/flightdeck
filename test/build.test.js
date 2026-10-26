@@ -17,6 +17,12 @@ function check(releases) {
 }
 const clone = () => JSON.parse(JSON.stringify(GOOD));
 
+rule('test/run.sh runs every test file in test/', () => {
+  const listed = fs.readFileSync(path.join(__dirname, 'run.sh'), 'utf8').split('\n').filter(l => /^t test\//.test(l)).map(l => l.slice(7).trim());
+  const files = fs.readdirSync(__dirname).filter(f => /\.test\.js$/.test(f));
+  assert.deepStrictEqual(files.filter(f => listed.indexOf(f) < 0), [], 'add these to test/run.sh');
+});
+
 rule('The shipped release notes are valid, and CHANGELOG.md is exactly what they generate', () => {
   if (!py) return console.log('  (skipped: no Python)');
   const r = check(GOOD);
