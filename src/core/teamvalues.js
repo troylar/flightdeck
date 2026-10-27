@@ -24,8 +24,9 @@ PF.teamValues = (function () {
     if (v.length > VALUE_MAX) return what + ' can be at most ' + VALUE_MAX + ' characters.';
     return '';
   }
-  /* What's wrong with a document's values ({ values }), or '': the rules parse applies, for Settings before it saves. */
-  function check(doc) {
+  /* What's wrong with a document's values ({ values }), or '': the rules parse applies, for Settings before it saves.
+     opts.extra: a key in a value this copy doesn't know is left to the caller (parse makes the file read-only). */
+  function check(doc, opts) {
     var values = doc && doc.values;
     if (!obj(values)) return 'Its "values" isn\'t a list of named values.';
     var names = Object.keys(values);
@@ -36,7 +37,7 @@ PF.teamValues = (function () {
       if (!NAME.test(n)) return '"' + n + '" isn\'t a team value name (lowercase letters, digits and -, at most 40).';
       if (!obj(e)) return '"' + n + '" isn\'t a value with its text.';
       var extra = Object.keys(e).filter(function (k) { return ENTRY.indexOf(k) < 0; });
-      if (extra.length) return '"' + n + '" has "' + extra[0] + '", which this copy doesn\'t know.';
+      if (extra.length && !(opts && opts.extra)) return '"' + n + '" has "' + extra[0] + '", which this copy doesn\'t know.';
       var p = valueProblem(e.value, '"' + n + '"');
       if (p) return p;
       if (e.about != null && (typeof e.about !== 'string' || /[\u0000-\u001f\u007f]/.test(e.about))) return 'What "' + n + '" is for isn\'t plain text.';
@@ -53,13 +54,20 @@ PF.teamValues = (function () {
     try { o = JSON.parse(String(text)); } catch (e) { return { state: 'malformed', doc: null, why: FILE + ' isn\'t valid JSON.' }; }
     var j = PF.envelope.judge(FAMILY, o);
     if (!j.ok) return j.kind === 'newer' ? { state: 'newer', doc: null, why: FILE + ' ' + j.why.replace(/\.?$/, '.'), needs: j.needs || '' } : { state: 'malformed', doc: null, why: FILE + ' ' + j.why.replace(/\.?$/, '.') };
-    var why = check(o);
+    var why = check(o, { extra: true });
     if (why) return { state: 'malformed', doc: null, why: FILE + ': ' + why };
-    var values = Object.create(null);
-    Object.keys(o.values).forEach(function (n) { var e = o.values[n]; values[n] = e.about != null ? { value: e.value, about: e.about } : { value: e.value }; });
+    var values = Object.create(null), inner = '';
+    Object.keys(o.values).forEach(function (n) {
+      var e = o.values[n], x = Object.keys(e).filter(function (k) { return ENTRY.indexOf(k) < 0; });
+      if (x.length && !inner) inner = '"' + n + '" has "' + x[0] + '"';
+      values[n] = e.about != null ? { value: e.value, about: e.about } : { value: e.value };
+    });
     var extra = Object.keys(o).filter(function (k) { return TOP.indexOf(k) < 0; });
     var out = { state: 'ok', doc: { values: values }, why: '' };
+    /* Keys this copy doesn't know, at the top or in a value: its values are used and shown, but Settings can't change it
+       (saving would drop them). */
     if (extra.length) out.readOnly = FILE + ' has "' + extra[0] + '", which this copy doesn\'t know, so it can\'t be changed here.';
+    else if (inner) out.readOnly = FILE + ': ' + inner + ', which this copy doesn\'t know, so it can\'t be changed here.';
     return out;
   }
 

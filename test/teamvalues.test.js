@@ -33,12 +33,19 @@ rule('parse: bad JSON, the wrong shape, bad names, values and limits are malform
     [doc({ x: { value: '' } })]: /is empty/,
     [doc({ x: { value: 3 } })]: /isn't text/,
     [doc({ x: { value: 'v', about: 'a'.repeat(81) } })]: /at most 80 characters/,
-    [doc({ x: { value: 'v', color: 'red' } })]: /"color"/,
     [doc({ __proto__: null, constructor: { value: 'v' } })]: /keeps for itself/
   };
   Object.keys(bad).forEach(t => { const r = T.parse(t); assert.strictEqual(r.state, 'malformed', t); assert.ok(bad[t].test(r.why), t + ': ' + r.why); });
   const many = {}; for (let i = 0; i < 101; i++) many['v' + i] = { value: 'x' };
   const r = T.parse(doc(many)); assert.strictEqual(r.state, 'malformed'); assert.ok(/at most 100/.test(r.why), r.why);
+});
+
+rule('parse: an unknown key in a value is read but read-only, with the reason; its values are still used', () => {
+  const r = T.parse(doc({ base: { value: 'production', color: 'red' } }));
+  assert.strictEqual(r.state, 'ok');
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(r.doc.values)), { base: { value: 'production' } });
+  assert.ok(/"base" has "color", which this copy doesn't know, so it can't be changed here/.test(r.readOnly), r.readOnly);
+  assert.strictEqual(T.lookup(r, 'base').value, 'production');
 });
 
 rule('parse: an unknown top-level key is read but read-only, with the reason', () => {

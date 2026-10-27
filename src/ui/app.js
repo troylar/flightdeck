@@ -5011,13 +5011,13 @@
 
   /* ---------- events ---------- */
   /* Anything the person does but Refresh counts as moving on, for a refused start's reopen (childRetry): any click, on a
-     control of the app's or the browser's own (a select, a details menu), any choice changed and any menu opened or closed. */
+     control of the app's or the browser's own (a select, a menu's summary), and any choice changed. A menu the app closes
+     itself fires a toggle, so toggles don't count. */
   document.addEventListener('click', function (e) {
     var b = e.target && e.target.closest ? e.target.closest('[data-act]') : null;
     if (!b || b.dataset.act !== 'refresh') childEpoch++;
   }, true);
   document.addEventListener('change', function () { childEpoch++; }, true);
-  document.addEventListener('toggle', function () { childEpoch++; }, true);
   document.addEventListener('click', function (e) {
     var b = e.target.closest('[data-act]');
     if (!b || b.disabled) return;

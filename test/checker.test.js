@@ -904,7 +904,7 @@ rule('The checker reads team-values.json (2.9) like the app: the same state and 
       ['ok', doc({ 'bitbucket-base-url': { value: 'https://b.example.com', about: 'Base' } })], ['bad JSON', '{'], ['no format', JSON.stringify({ values: {} })],
       ['another family', JSON.stringify({ format: 'flightdeck-people/1', values: {} })], ['newer major', JSON.stringify({ format: 'flightdeck-team-values/9', values: {} })],
       ['newer feature', doc({}, { features: ['folder-values'] })], ['values a list', doc([])], ['bad name', doc({ Bad: { value: 'x' } })],
-      ['proto name', doc({ constructor: { value: 'x' } })], ['name ends in a newline', doc({ 'a\n': { value: 'x' } })], ['not an entry', doc({ a: 'x' })], ['extra key', doc({ a: { value: 'x', secret: 'y' } })],
+      ['proto name', doc({ constructor: { value: 'x' } })], ['name ends in a newline', doc({ 'a\n': { value: 'x' } })], ['not an entry', doc({ a: 'x' })], ['extra key', doc({ a: { value: 'x', secret: 'y' } })], ['extra top key', doc({ a: { value: 'x' } }, { extra: 1 })],
       ['empty value', doc({ a: { value: '' } })], ['outer spaces', doc({ a: { value: ' x' } })], ['control', doc({ a: { value: 'x\u0001' } })],
       ['long value', doc({ a: { value: 'é'.repeat(121) } })], ['long about', doc({ a: { value: 'x', about: 'é'.repeat(81) } })],
       ['too many', doc(Object.fromEntries(Array.from({ length: 101 }, (_, k) => ['v' + k, { value: 'x' }])))]
@@ -914,6 +914,7 @@ rule('The checker reads team-values.json (2.9) like the app: the same state and 
       const mine = check().teamValues, theirs = T.parse(text);
       assert.strictEqual(mine.state, theirs.state, label + ': ' + JSON.stringify(mine) + ' vs ' + JSON.stringify(theirs));
       assert.strictEqual(mine.why, theirs.why, label + ': same reason');
+      assert.strictEqual(mine.readOnly, theirs.readOnly, label + ': same read-only reason');
       if (theirs.state !== 'ok') assert.ok(check().teamFiles.problems.some(p => p.file === T.FILE && p.problem === theirs.why), label + ': named as a problem');
     }
     fs.writeFileSync(path.join(root, T.FILE), doc({ a: { value: 'x' } }) + ' '.repeat(T.MAX_BYTES));

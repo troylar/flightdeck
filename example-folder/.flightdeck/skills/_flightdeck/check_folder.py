@@ -1558,6 +1558,7 @@ def team_values(root):
         return bad(TEAM_FILE + ": Its \"values\" isn't a list of named values.")
     if len(values) > TEAM_VALUES_MAX:
         return bad(TEAM_FILE + ": It can hold at most %d team values." % TEAM_VALUES_MAX)
+    inner = ""
     for n, e in values.items():
         if n in JS_PROTO:
             return bad(TEAM_FILE + ": \"%s\" is a name Flightdeck keeps for itself." % n)
@@ -1566,8 +1567,8 @@ def team_values(root):
         if not isinstance(e, dict):
             return bad(TEAM_FILE + ": \"%s\" isn't a value with its text." % n)
         extra = [k for k in e if k not in ("value", "about")]
-        if extra:
-            return bad(TEAM_FILE + ": \"%s\" has \"%s\", which this copy doesn't know." % (n, extra[0]))
+        if extra and not inner:
+            inner = "\"%s\" has \"%s\"" % (n, extra[0])
         pr = _team_value_problem(e.get("value"), "\"%s\"" % n)
         if pr:
             return bad(TEAM_FILE + ": " + pr)
@@ -1576,7 +1577,14 @@ def team_values(root):
             return bad(TEAM_FILE + ": What \"%s\" is for isn't plain text." % n)
         if ab is not None and js_len(ab) > TEAM_ABOUT_MAX:
             return bad(TEAM_FILE + ": What \"%s\" is for can be at most %d characters." % (n, TEAM_ABOUT_MAX))
-    return {"state": "ok", "why": "", "names": sorted(values)}
+    out = {"state": "ok", "why": "", "names": sorted(values)}
+    # Keys this copy doesn't know, at the top or in a value: the values are used, but Settings can't change the file.
+    top = [k for k in o if k not in ("format", "features", "app", "values")]
+    if top:
+        out["readOnly"] = TEAM_FILE + " has \"%s\", which this copy doesn't know, so it can't be changed here." % top[0]
+    elif inner:
+        out["readOnly"] = TEAM_FILE + ": " + inner + ", which this copy doesn't know, so it can't be changed here."
+    return out
 
 
 def team_missing(root, publications, tv):

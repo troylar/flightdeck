@@ -87,6 +87,11 @@ rule('App: Settings › Team values is read-only for a member, for a damaged fil
   app.click('refresh'); await app.tick(200);
   html = app.html();
   assert.ok(/has &quot;extra&quot;|has "extra"/.test(html) && !/team-add-form/.test(html), 'an unknown key: read-only with the reason');
+  files['team-values.json'] = doc({ base: { value: 'production', color: 'red' } });
+  app.click('refresh'); await app.tick(200);
+  html = app.html();
+  assert.ok(/Team values · 1/.test(html) && /production/.test(html), 'an unknown key in a value: its values still shown');
+  assert.ok(/has &quot;color&quot;|has "color"/.test(html) && !/team-add-form|data-act="team-edit"/.test(html), 'and read-only with the reason');
 });
 
 /* ---------- A child's start that passes a team value (F4) ---------- */
@@ -333,6 +338,8 @@ rule('App: a start refused in the queue (a team value refreshed while an earlier
   app.click('start-child', 'dep'); await app.tick(40);
   app.set('cs-note', 'queued'); app.submitForm('child-start-form'); await app.tick(40);
   setTeam(app, { 'bitbucket-base-url': { value: 'https://queued.example.com' } }); app.click('refresh'); await app.tick(100);
+  // A menu the app closes itself fires a toggle; that isn't the person moving on.
+  app.fire('toggle', { target: { dataset: { disc: 'rw-menu' }, open: false } }); await app.tick();
   h.g.open(); await app.tick(200); h.restore();
   assert.strictEqual(deployRuns(app).length, 0, 'nothing written');
   const ov = app.overlay();
@@ -360,7 +367,7 @@ rule('App: a refused start doesn\'t reopen its form after the person did anythin
       assert.ok(/id="rw-phase"/.test(app.html()), 'set-up: the Phase selector is shown');
       app.select('rw-phase', 's'); await app.tick();
     }
-    else if (move === 'more-menu') { app.fire('toggle', { target: { dataset: { disc: 'rw-menu' }, open: true } }); await app.tick(); }
+    else if (move === 'more-menu') { app.fire('click', { target: { closest: () => null, tagName: 'SUMMARY' } }); await app.tick(); }
     else if (move === 'pick') { app.click('pick', 'tell', { kind: 'fields' }); await app.tick(); app.click('unpick'); await app.tick(); }
     else if (move === 'block-key') { app.click('select', 'dep'); await app.tick(); app.key('b'); await app.tick(); assert.ok(/data-scope="block:dep"/.test(app.html()), 'set-up: Blocked is open'); app.key('Escape'); await app.tick(); }
     else if (move === 'correct-key') { app.click('select', 'dep'); await app.tick(); app.key('c'); await app.tick(); app.click('corr-cancel'); await app.tick(); }
