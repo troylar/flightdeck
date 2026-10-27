@@ -2814,4 +2814,27 @@ rule('Run screen: a linked step\'s type reads Run another checklist; a plain ste
   assert.ok(!/Run another process/.test(html) && !/>Basic step</.test(html), 'neither old name, and no badge for a plain step');
 });
 
+rule('Draft editor: a draft with no steps opens on Preview with Add your first step; anything else that blocks opens on Checks (2.10)', () => {
+  const { ctx, state } = partsSetup();
+  const front = state.editor.base.slice(0, state.editor.base.indexOf('\n---\n') + 5);
+  const tabOf = html => (/id="ins-t-(\w+)" aria-selected="true"/.exec(html) || [])[1];
+  state.editor.text = front + '\n## First phase · READ-DO {#first}\n';
+  state.obAdd = { pid: 'release', kind: 'step', phase: 'first', track: -1 };
+  let html = V.process(ctx);
+  assert.strictEqual(tabOf(html), 'preview', 'a new draft opens on Preview');
+  assert.ok(/<p class="ob-first"[^>]*>Add your first step<\/p>/.test(html), 'the outline says what to do first');
+  assert.ok(/aria-label="Checks: 1 thing to fix before publishing"/.test(html), 'the chip still counts the empty phase');
+  state.obAdd = null;
+  state.editor.text = front + '\n## First phase · READ-DO {#first}\n\n## Second phase · READ-DO {#second}\n';
+  html = V.process(ctx);
+  assert.strictEqual(tabOf(html), 'preview', 'every phase empty: still a new start');
+  assert.ok(!/Add your first step/.test(html), 'the words sit only above the add box');
+  state.editor.text = front + '\n## First phase · READ-DO {#first}\n\n- [ ] Tag the release {#tag}\n\n## Second phase · READ-DO {#second}\n';
+  assert.strictEqual(tabOf(V.process(ctx)), 'checks', 'a phase of steps and an empty phase: Checks, as in 2.9.0');
+  state.editor.text = front.replace(/^title: .*\n/m, '') + '\n## First phase · READ-DO {#first}\n';
+  assert.strictEqual(tabOf(V.process(ctx)), 'checks', 'no steps but another blocker: Checks');
+  state.insTabSaved = 'checks'; state.editor.text = front + '\n## First phase · READ-DO {#first}\n';
+  assert.strictEqual(tabOf(V.process(ctx)), 'checks', 'a tab chosen before in this browser still wins');
+});
+
 run();

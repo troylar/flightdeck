@@ -768,6 +768,7 @@ button.ob-chip[aria-pressed="true"] { background: var(--amber); color: var(--on-
 .ob-addform { padding: 6px; border: 1px dashed var(--field); border-radius: 8px; }
 .ob-addform input, .ob-addform select { min-width: 0; max-width: 100%; border: 1px solid var(--field); border-radius: 7px; padding: 7px 10px; background: var(--card); color: var(--ink); font-size: 14px; }
 .ob-addform input { flex: 1 1 200px; }
+.ob-first { margin: 0 0 6px; font-weight: 600; }
 .ob-gate .mini { margin-left: 0; }
 .ob-addphase { align-self: flex-start; }
 /* Parallel lanes, side by side. */
@@ -21793,7 +21794,7 @@ PF.vk = (function () {
 
   /* ---------- the outline ---------- */
   function addStepForm(ctx, B) {
-    return '<li class="ob-addform"><div class="row"><label class="sr" for="ob-new-text">New step: ' + esc(G.step('text').q) + '</label><input id="ob-new-text" maxlength="200"' + egOf(G.step('text')) + ' data-enter="ob-add-go"' + describe(ctx, 'ob-new-text', G.step('text')) + '>' +
+    return '<li class="ob-addform">' + (B && B.none ? '<p class="ob-first" id="ob-first">Add your first step</p>' : '') + '<div class="row"><label class="sr" for="ob-new-text">New step: ' + esc(G.step('text').q) + '</label><input id="ob-new-text" maxlength="200"' + egOf(G.step('text')) + ' data-enter="ob-add-go"' + describe(ctx, 'ob-new-text', G.step('text')) + '>' +
       '<label class="sr" for="ob-new-type">Type of the new step</label><select id="ob-new-type">' + typeOptions(ctx, (ctx.state.obAdd && ctx.state.obAdd.type) || 'confirm', B && B.prHost) + '</select>' +
       '<button type="button" class="btn go" data-act="ob-add-go">Add step</button><button type="button" class="mini" data-act="ob-add-cancel">Cancel</button></div>' + errMsg(ctx, 'ob-new-text') + '' + whyOf('ob-new-text', G.step('text')) + '</li>';
   }
@@ -21867,7 +21868,7 @@ PF.vk = (function () {
   function builder(ctx, p, text) {
     var o = O.parse(text), sel = selOf(ctx, p), add = addOf(ctx, p), map = M.parse(text), h = '';
     if (o.unsupported) return '<div class="notice warn"><span>The builder can\'t edit this draft safely: ' + esc(o.unsupported) + ' Use Markdown instead.</span><button class="mini" data-act="ed-mode" data-id="markdown">Markdown</button></div>';
-    var B = placing(ctx, p, text, o); B.fix = PF.corrections.openCounts(V.fixesOf(ctx, p)); B.prHost = prHost(text);
+    var B = placing(ctx, p, text, o); B.fix = PF.corrections.openCounts(V.fixesOf(ctx, p)); B.prHost = prHost(text); B.none = !o.steps.length;
     if (map.errors.length) h += '<div class="notice warn"><span>' + map.errors.length + ' line' + (map.errors.length === 1 ? ' isn\'t' : 's aren\'t') + ' understood (see Checks). The builder keeps ' + (map.errors.length === 1 ? 'it' : 'them') + ' exactly as written; fix ' + (map.errors.length === 1 ? 'it' : 'them') + ' in Markdown.</span></div>';
     if (o.questions >= 0) h += '<div class="notice warn" id="ob-q-note"><span>It still has a Questions section, so it can\'t be published yet. Answer the questions, then remove the section.</span><button type="button" class="btn" data-act="ob-sel-questions">Open the Questions</button></div>';
     h = strip(B, o) + h + '<div class="row between ob-bar"><details class="ob-help"><summary>Editing help</summary><p id="ob-kbd" class="small">Drag a part onto the checklist, or choose one and pick a place with the arrow keys. Drag a step by its grip, or select it and press Alt+Up or Alt+Down to move it. Select a step, lane, phase or gate to change it, its note included. Checklist details sets the owner, the backup owner, the roles and the run details.</p></details>' +
@@ -22344,14 +22345,20 @@ PF.vk = (function () {
   }
 
   /* Which inspector tab shows: the one chosen (selecting something clears that choice), else Selected while something is
-     selected, else the tab last chosen in this browser, else Checks when something blocks publishing, else Preview. */
-  function insTabOf(st, sel, blockers, builder) {
+     selected, else the tab last chosen in this browser, else Checks when something blocks publishing, else Preview. A draft
+     with no steps at all, blocked only by its empty phases, is a new start: it opens on Preview too. */
+  function insTabOf(st, sel, blockers, builder, fresh) {
     var t = st.insTab;
     if (t === 'selected' && builder) return t;
     if (t === 'checks' || t === 'preview') return t;
     if (builder && sel) return 'selected';
     if (st.insTabSaved === 'checks' || st.insTabSaved === 'preview') return st.insTabSaved;
-    return blockers ? 'checks' : 'preview';
+    return blockers && !fresh ? 'checks' : 'preview';
+  }
+  function freshDraft(map, blockers) {
+    if (map.phases.some(function (ph) { return ph.steps.length; })) return false;
+    var empty = map.phases.map(function (ph) { return 'Phase "' + ph.title + '" has no steps.'; });
+    return blockers.every(function (b) { return empty.indexOf(b) >= 0; });
   }
   /* The draft editor takes the whole page: its own header (Done, the name, save state, Builder | Markdown, Undo / Redo,
      Checks and Save), the messages and conflicts right under it, then panes that each scroll on their own: Parts, the
@@ -22363,7 +22370,7 @@ PF.vk = (function () {
     var dirty = ed && ed.text != null && ed.text !== ed.base || st.obPending === p.id, file = p.draft ? p.draft.file : p.id + '.md', saving = (st.draftSaving || {})[ctx.fsKey + '\n' + p.id];
     var builder = st.builder !== false, o = PF.outline.parse(text), sel = builder && !o.unsupported && st.obSel && st.obSel.pid === p.id ? st.obSel : null;
     var practicing = !!(st.practicing || {})[ctx.fsKey + '\n' + p.id];
-    var nb = c.blockers.length, nt = c.suggestions.length, tab = insTabOf(st, !!sel, nb, builder);
+    var nb = c.blockers.length, nt = c.suggestions.length, tab = insTabOf(st, !!sel, nb, builder, freshDraft(map, c.blockers));
     var status = draftStatus(ctx, p, ed, text);
     /* Only problems make a number; tips are listed under Checks without one. */
     var count = nb, checksLabel = nb ? nb + ' thing' + (nb === 1 ? '' : 's') + ' to fix before publishing' : nt ? nt + ' tip' + (nt === 1 ? '' : 's') : 'ready to publish';

@@ -8802,4 +8802,19 @@ rule('Checklists: the page says it was called Processes until Got it, remembered
   assert.ok(!note.test(app.html()), 'and Got it still hides it for now');
 });
 
+rule('Draft editor: a new checklist opens on Preview with Add your first step, and so does one whose every step is deleted (2.10)', async () => {
+  const app = boot({ replace: true }); await app.tick(80); app.choose('person-casey'); await app.tick();
+  app.click('nav', 'processes'); await app.tick(); app.click('new-process'); await app.tick();
+  app.set('np-id', 'risk-review'); app.set('np-title', 'Risk review'); app.submit('new-process-form'); await app.tick(120);
+  const tabOf = () => (/id="ins-t-(\w+)" aria-selected="true"/.exec(app.html()) || [])[1];
+  assert.strictEqual(tabOf(), 'preview', 'Preview, not Checks');
+  assert.ok(/Add your first step/.test(app.html()) && /aria-label="Checks: 1 thing to fix before publishing"/.test(app.html()), 'the words, and the chip still counts it');
+  app.set('ob-new-text', 'Read the risk register'); app.click('ob-add-go'); await app.tick(20);
+  const key = (/data-ob-step="([^"]+)"/.exec(app.html()) || [])[1];
+  assert.ok(key, 'the step was added');
+  app.click('ob-del', key); await app.tick(20);
+  assert.ok(!/data-ob-step=/.test(app.html()), 'no steps left');
+  assert.strictEqual(tabOf(), 'preview', 'a draft with no steps is a new start again');
+});
+
 run();

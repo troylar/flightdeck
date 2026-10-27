@@ -43,14 +43,20 @@
   }
 
   /* Which inspector tab shows: the one chosen (selecting something clears that choice), else Selected while something is
-     selected, else the tab last chosen in this browser, else Checks when something blocks publishing, else Preview. */
-  function insTabOf(st, sel, blockers, builder) {
+     selected, else the tab last chosen in this browser, else Checks when something blocks publishing, else Preview. A draft
+     with no steps at all, blocked only by its empty phases, is a new start: it opens on Preview too. */
+  function insTabOf(st, sel, blockers, builder, fresh) {
     var t = st.insTab;
     if (t === 'selected' && builder) return t;
     if (t === 'checks' || t === 'preview') return t;
     if (builder && sel) return 'selected';
     if (st.insTabSaved === 'checks' || st.insTabSaved === 'preview') return st.insTabSaved;
-    return blockers ? 'checks' : 'preview';
+    return blockers && !fresh ? 'checks' : 'preview';
+  }
+  function freshDraft(map, blockers) {
+    if (map.phases.some(function (ph) { return ph.steps.length; })) return false;
+    var empty = map.phases.map(function (ph) { return 'Phase "' + ph.title + '" has no steps.'; });
+    return blockers.every(function (b) { return empty.indexOf(b) >= 0; });
   }
   /* The draft editor takes the whole page: its own header (Done, the name, save state, Builder | Markdown, Undo / Redo,
      Checks and Save), the messages and conflicts right under it, then panes that each scroll on their own: Parts, the
@@ -62,7 +68,7 @@
     var dirty = ed && ed.text != null && ed.text !== ed.base || st.obPending === p.id, file = p.draft ? p.draft.file : p.id + '.md', saving = (st.draftSaving || {})[ctx.fsKey + '\n' + p.id];
     var builder = st.builder !== false, o = PF.outline.parse(text), sel = builder && !o.unsupported && st.obSel && st.obSel.pid === p.id ? st.obSel : null;
     var practicing = !!(st.practicing || {})[ctx.fsKey + '\n' + p.id];
-    var nb = c.blockers.length, nt = c.suggestions.length, tab = insTabOf(st, !!sel, nb, builder);
+    var nb = c.blockers.length, nt = c.suggestions.length, tab = insTabOf(st, !!sel, nb, builder, freshDraft(map, c.blockers));
     var status = draftStatus(ctx, p, ed, text);
     /* Only problems make a number; tips are listed under Checks without one. */
     var count = nb, checksLabel = nb ? nb + ' thing' + (nb === 1 ? '' : 's') + ' to fix before publishing' : nt ? nt + ' tip' + (nt === 1 ? '' : 's') : 'ready to publish';
