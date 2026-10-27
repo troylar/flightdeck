@@ -577,6 +577,28 @@ PF.run = (function () {
     if (!text || text.length > 2048) return null;
     return { id: s.id, rev: s.rev, sha: s.sha, snapshot: JSON.parse(text) };
   }
+  /* A link's record of the team values its child was passed (2.9), by the child's names: { text } (read when it started),
+     { typed: true } (missing, so the person typed it) or { text, confirmed: { by, at } } (Link it). teamEntry is one entry
+     cleaned, or null; teamRecord is the whole record, or null when any part isn't one this copy writes. */
+  function teamEntry(e) {
+    if (!e || typeof e !== 'object' || Array.isArray(e)) return null;
+    var k = Object.keys(e).sort().join(' ');
+    if (k === 'typed') return e.typed === true ? { typed: true } : null;
+    if (typeof e.text !== 'string' || PF.teamValues.valueProblem(e.text)) return null;
+    if (k === 'text') return { text: e.text };
+    var c = e.confirmed;
+    if (k !== 'confirmed text' || !c || typeof c !== 'object' || Object.keys(c).sort().join(' ') !== 'at by' || typeof c.by !== 'string' || !c.by || c.by.length > 80 || !isoOrNull(c.at)) return null;
+    return { text: e.text, confirmed: { by: c.by, at: c.at } };
+  }
+  function teamKey(k) { return /^[\w-]{1,120}$/.test(k) && k !== '__proto__'; }
+  function teamRecord(tp) {
+    if (!tp || typeof tp !== 'object' || Array.isArray(tp)) return null;
+    var keys = Object.keys(tp), out = {};
+    if (keys.length > 60) return null;
+    for (var i = 0; i < keys.length; i++) { var e = teamKey(keys[i]) ? teamEntry(tp[keys[i]]) : null; if (!e) return null; out[keys[i]] = e; }
+    return out;
+  }
+  function usesTeam(r) { return r.format === FORMAT3 && Array.isArray(r.features) && r.features.indexOf('team-values') >= 0; }
   /* A registration's snapshot exactly as PF.skills.observed writes it: name and version text, and only text where it has more
      (the exact pin, step IDs, location, description). Anything else isn't one this copy wrote, so the run is read-only. */
   function snapOk(n) {
@@ -1036,6 +1058,10 @@ PF.run = (function () {
        when this run started). */
     if (r.format === FORMAT3) {
       if (typeof child.folder === 'string' && child.folder) a.child.folder = child.folder;
+      if (usesTeam(r) && child.teamPassed && typeof child.teamPassed === 'object') {
+        var tp = {}; Object.keys(child.teamPassed).slice(0, 60).forEach(function (k) { var e = teamKey(k) ? teamEntry(child.teamPassed[k]) : null; if (e) tp[k] = e; });
+        a.child.teamPassed = tp;
+      }
       if (child.pin && PF.pins.childOk(child.pin) && !(r.pins && r.pins.children && Object.prototype.hasOwnProperty.call(r.pins.children, stepId))) {
         r.pins = r.pins || { children: {} }; r.pins.children = r.pins.children || {};
         r.pins.children[stepId] = JSON.parse(JSON.stringify(child.pin)); addFeature(r, 'pinned-children');
@@ -1111,12 +1137,13 @@ PF.run = (function () {
     if (r.format !== FORMAT3) return isTwo(child) ? LEGACY_CHILD : '';
     return PF.pins.childMatch(childPin(r, stepId), child, procOf);
   }
-  function childVerdict(r, step, a, child, procOf) {
+  /* opts.noTeam: leave team rows out (orphan discovery: a link rebuilt by Link it has no record of them yet). */
+  function childVerdict(r, step, a, child, procOf, opts) {
     if (!a || !a.child || !child || child.process !== a.child.process || child.id !== a.child.id || !child.ended) return null;
     if (childHeld(r, step.id, child, procOf)) return null;
     var carried = String(fieldsOf(r, step).carry || '').split(/[,\s]+/).filter(Boolean), missing = carried.filter(function (k) { return !Object.prototype.hasOwnProperty.call(child.details || {}, k); });
     if (missing.length) return { s: 'blocked', reason: 'The ' + child.process + ' run has no ' + missing.join(', ') + ' to carry, so it can\'t stand for this step' };
-    if (PF.links.has(step)) return passVerdict(r, step, a, child);
+    if (PF.links.has(step)) return passVerdict(r, step, a, child, opts);
     /* A carried value the child migrated (its own record, from the carried text) is the same value; one still waiting there
        keeps this step open. */
     var cm = Array.isArray(child.migrations) ? child.migrations : [], held = false;
@@ -1134,12 +1161,17 @@ PF.run = (function () {
   /* childVerdict for a step with a pass: line (2.8): each child detail is compared with what it was started from, through the
      step's rows (the child's own map says which names it has): a detail source with the parent's snapshot under the source's
      name, a fixed value with the value. Asked ones are the child's own. A value the child migrated from that text is the same. */
-  function passVerdict(r, step, a, child) {
+  /* A team row compares with the link's record of what the child was passed ({ text }, like a fixed value; { typed } is the
+     child's own); with no record for it the step is held, never rebuilt from today's team values or the child (2.9). */
+  function passVerdict(r, step, a, child, opts) {
     var cmap; try { cmap = mapOf(child); } catch (e) { return null; }
     var pmap; try { pmap = mapOf(r); } catch (e) { return null; }
     var inputs = a.child.inputs || {}, cm = Array.isArray(child.migrations) ? child.migrations : [], held = false, changed = [];
+    var tp = a.child.teamPassed, noTeam = !!(opts && opts.noTeam);
     PF.links.rows(effStep(r, step), pmap.meta.context, cmap).rows.forEach(function (x) {
-      var was = x.source === 'detail' ? (Object.prototype.hasOwnProperty.call(inputs, x.from) ? inputs[x.from] || '' : null) : x.source === 'value' ? x.value : null;
+      var te = x.source === 'team' && !noTeam && tp && Object.prototype.hasOwnProperty.call(tp, x.name) ? teamEntry(tp[x.name]) : null;
+      if (x.source === 'team' && !noTeam && !te) { held = true; return; }
+      var was = x.source === 'detail' ? (Object.prototype.hasOwnProperty.call(inputs, x.from) ? inputs[x.from] || '' : null) : x.source === 'value' ? x.value : te && !te.typed ? te.text : null;
       if (was == null) return;
       if (!Object.prototype.hasOwnProperty.call(child.details || {}, x.name)) return;
       var now = child.details[x.name] || '';
@@ -1169,6 +1201,12 @@ PF.run = (function () {
     else if (a.s === 'blocked') { a.child.failed = true; addLog(r, who, now, v.reason + '; a new run can replace it'); }
     else { block(r, map, id, v.reason, who, now); r.steps[id].child.failed = true; }
     return v.s;
+  }
+  /* Why a linked step is held for want of its team record, or '': a link written without one (Link it on a lost link). */
+  function teamUnrecorded(r, step, a) {
+    if (!a || !a.child || !PF.links.has(step)) return '';
+    var tp = a.child.teamPassed, gone = PF.links.parse(fieldsOf(r, step).pass).entries.filter(function (e) { return e.source === 'team' && !(tp && Object.prototype.hasOwnProperty.call(tp, e.name) && teamEntry(tp[e.name])); });
+    return gone.length ? 'Flightdeck can\'t tell whether this run kept the team value' + (gone.length > 1 ? 's ' : ' ') + gone.map(function (e) { return e.team; }).join(', ') + ' it was passed.' : '';
   }
   /* What a parent's step should become, given its child run: done when the child completed, blocked if it ended otherwise. */
   function childOutcome(child) {
@@ -1388,7 +1426,7 @@ PF.run = (function () {
     workflow: 'statuses transitions invalid', transition: 'from to fields', jiraField: 'name hint source options'
   };
   KNOWN.run3 = KNOWN.run + ' features app typesHash payload pins migrations test stage';
-  KNOWN.step3 = KNOWN.step + ' skill'; KNOWN.history3 = KNOWN.history + ' skill'; KNOWN.child3 = KNOWN.child + ' folder retired'; KNOWN.parent3 = KNOWN.parent + ' folder';
+  KNOWN.step3 = KNOWN.step + ' skill'; KNOWN.history3 = KNOWN.history + ' skill'; KNOWN.child3 = KNOWN.child + ' folder retired teamPassed'; KNOWN.parent3 = KNOWN.parent + ' folder';
   KNOWN.pins = 'children'; KNOWN.skillSeen = 'id rev sha snapshot';
   Object.keys(KNOWN).forEach(function (k) { var o = {}; KNOWN[k].split(' ').forEach(function (f) { o[f] = 1; }); KNOWN[k] = o; });
   var HEX64 = /^[0-9a-f]{64}$/;
@@ -1471,6 +1509,7 @@ PF.run = (function () {
       look(a, three ? 'step3' : 'step', w); state(STEP_STATES, a.s, w + '\'s state');
       look(a.started, 'started', w); look(a.deadline, 'deadline', w); look(a.differently, 'differently', w); look(a.child, three ? 'child3' : 'child', w);
       if (three && !why && obj(a.child) && a.child.folder !== undefined && !folderOk(a.child.folder)) why = w + '\'s linked run\'s version isn\'t a version folder.';
+      if (three && !why && obj(a.child) && a.child.teamPassed !== undefined && !(usesTeam(o) && teamRecord(a.child.teamPassed))) why = w + '\'s record of the team values its run was passed isn\'t one this copy reads.';
       if (three) { look(a.skill, 'skillSeen', w + '\'s skill'); if (!why && a.skill !== undefined && !cleanSkill(a.skill)) why = w + '\'s skill registration isn\'t one this copy reads.'; }
       text(a.values, w + '\'s evidence', 300); if (obj(a.child)) text(a.child.inputs, w + '\'s child run detail', 300);
       if (Array.isArray(a.history)) a.history.forEach(function (h) { look(h, three ? 'history3' : 'history', w + '\'s history'); if (three && obj(h)) { look(h.skill, 'skillSeen', w + '\'s earlier skill'); if (!why && h.skill !== undefined && !cleanSkill(h.skill)) why = w + '\'s earlier skill registration isn\'t one this copy reads.'; } if (obj(h) && h.s !== 'corrected') state(STEP_STATES, h.s, w + '\'s history'); if (obj(h)) { look(h.differently, 'differently', w + '\'s history'); text(h.values, w + '\'s earlier evidence'); text(h.fields, w + '\'s earlier value'); } });
@@ -1755,7 +1794,7 @@ PF.run = (function () {
       if (a.deadline && isoOrNull(a.deadline.at)) c.deadline = { at: a.deadline.at, by: str(a.deadline.by, 80), set: isoOrNull(a.deadline.set) };
       if (a.differently && typeof a.differently === 'object') c.differently = { note: str(a.differently.note, 500), by: str(a.differently.by, 80), at: isoOrNull(a.differently.at) };
       if (a.values) c.values = values(a.values);
-      if (a.child && /^[a-z0-9][a-z0-9-]*$/.test(String(a.child.process)) && /^[a-z0-9-]{1,40}$/i.test(String(a.child.id))) { c.child = { process: a.child.process, id: a.child.id }; if (a.child.inputs && typeof a.child.inputs === 'object') c.child.inputs = inputsOf(a.child.inputs); if (a.child.failed === true) c.child.failed = true; if (three && a.child.retired === true) c.child.retired = true; if (three && folderOk(a.child.folder)) c.child.folder = a.child.folder; }
+      if (a.child && /^[a-z0-9][a-z0-9-]*$/.test(String(a.child.process)) && /^[a-z0-9-]{1,40}$/i.test(String(a.child.id))) { c.child = { process: a.child.process, id: a.child.id }; if (a.child.inputs && typeof a.child.inputs === 'object') c.child.inputs = inputsOf(a.child.inputs); if (a.child.failed === true) c.child.failed = true; if (three && a.child.retired === true) c.child.retired = true; if (three && folderOk(a.child.folder)) c.child.folder = a.child.folder; if (three && usesTeam(o) && teamRecord(a.child.teamPassed)) c.child.teamPassed = teamRecord(a.child.teamPassed); }
       if (three && a.skill) { var sk = cleanSkill(a.skill); if (sk) c.skill = sk; }
       if (Array.isArray(a.history)) c.history = a.history.slice(-HISTORY_MAX).filter(function (h) { return h && (STEP_STATES[h.s] || h.s === 'corrected'); }).map(function (h) { return { s: h.s, by: str(h.by, 80), at: isoOrNull(h.at), reason: str(h.reason, 120) || undefined, differently: h.differently ? { note: str(h.differently.note, 500) } : undefined, values: h.values ? values(h.values) : undefined, fields: h.fields ? values(h.fields) : undefined, skill: three && h.skill ? cleanSkill(h.skill) || undefined : undefined }; });
       r.steps[k] = c;
@@ -1804,7 +1843,7 @@ PF.run = (function () {
     RUN_ID: RUN_ID, isTest: isTest, pubDir: pubDir, testProblem: testProblem, testLast: testLast,
     FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, applies: applies, held: held, stepNeeded: stepNeeded, canStartChild: canStartChild, phaseSkipped: phaseSkipped, condFields: condFields, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, fillOffered: fillOffered, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence, checkFill: checkFill,
-    pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, jiraFor: jiraFor, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, effStep: effStep, setFields: setFields,
+    pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, teamUnrecorded: teamUnrecorded, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, jiraFor: jiraFor, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, effStep: effStep, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,
     pass: pass, waive: waive, fail: fail, reopen: reopen, setDetail: setDetail, setRole: setRole,
     handOff: handOff, pickUp: pickUp, takeOver: takeOver, legacyLinks: legacyLinks, continuation: continuation, continued: continued, skillWarning: skillWarning, cleanSkill: cleanSkill, LEGACY_CHILD: LEGACY_CHILD, waitingForHandoff: waitingForHandoff, compare: compare, adopt: adopt, addFollowUp: addFollowUp, removeFollowUp: removeFollowUp, corrections: corrections, end: end, myNext: myNext, nextUp: nextUp, nextInPhase: nextInPhase, totals: totals, receipt: receipt, blockedSteps: blockedSteps

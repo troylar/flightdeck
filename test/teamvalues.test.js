@@ -188,4 +188,88 @@ rule('saveRun opts.prewrite: awaited after the reads and before still; false or 
   same(runsIn().length, 2);
 });
 
+/* ---------- Run core: what the parent's link keeps of the team values it passed (link.teamPassed) ---------- */
+
+const R = PF.run, P = PF.publish, M = PF.map, { exactOf } = require('./harness');
+const URL = BASE['bitbucket-base-url'].value;
+function published(md) {
+  const b = P.build(md, { people: [], customTypes: {}, by: 'person-avery', changes: 'First', existing: [], now: NOW, rand: 'abcd1234', app: '2.9.0' });
+  assert.ok(!b.blockers, (b.blockers || []).join(' | '));
+  const v = P.verify(b.folder, b.files, exactOf(PF, b.files));
+  assert.ok(v.ok, v.why);
+  return v;
+}
+const KID2 = ['---', 'process: deploy', 'title: Deploy', 'context: base, env, replicas:number, owner-team', '---', '', '## Go · READ-DO {#go}', '- [ ] {confirm} Go {#go1}', ''].join('\n');
+const SHIP2 = (pass) => ['---', 'process: ship', 'title: Ship', 'context: env', '---', '', '## Ship · READ-DO {#s}', '- [ ] {run.process} Deploy it {#dep}', '  process: deploy', '  pass: ' + pass, ''].join('\n');
+const mkRun = (v, details, id) => R.create(v, { title: 'R', details, roles: {}, by: 'person-avery', session: 'w-a', now: NOW, id, app: '2.9.0' });
+function teamLinked(pass) {
+  const parent = mkRun(published(SHIP2(pass || 'base=team:bitbucket-base-url, env=^env')), { env: 'prod' }, 'run-p');
+  const st = M.findStep(R.mapOf(parent), 'dep').step;
+  return { parent, st, dv: published(KID2) };
+}
+function verdict(x, teamPassed, kidDetails, opts) {
+  const kid = mkRun(x.dv, kidDetails, 'run-k');
+  kid.ended = { outcome: 'Completed' };
+  if (opts && opts.migrations) kid.migrations = opts.migrations;
+  x.parent.steps.dep = { s: 'open', child: Object.assign({ process: 'deploy', id: 'run-k', inputs: { env: 'prod' } }, teamPassed !== undefined ? { teamPassed } : {}) };
+  return R.childVerdict(x.parent, x.st, x.parent.steps.dep, kid, () => null, opts && opts.noTeam ? { noTeam: true } : undefined);
+}
+
+rule('Run core: a parent whose step passes a team value says the team-values feature', () => {
+  const x = teamLinked();
+  assert.ok(x.parent.features.indexOf('team-values') >= 0, JSON.stringify(x.parent.features));
+});
+
+rule('Run core: a { text } record counts like a fixed value: the same value is done, a changed one blocks', () => {
+  const x = teamLinked(), TP = { base: { text: URL } };
+  same(verdict(x, TP, { base: URL, env: 'prod' }), { s: 'done' });
+  const v = verdict(x, TP, { base: 'https://elsewhere.example.com', env: 'prod' });
+  assert.strictEqual(v.s, 'blocked'); assert.ok(/base "https:\/\/elsewhere\.example\.com"/.test(v.reason), v.reason);
+  same(verdict(x, { base: { text: URL, confirmed: { by: 'person-avery', at: NOW } } }, { base: URL, env: 'prod' }), { s: 'done' }, 'a confirmed record counts the same');
+  assert.strictEqual(verdict(x, { base: { text: URL, confirmed: { by: 'person-avery', at: NOW } } }, { base: 'x', env: 'prod' }).s, 'blocked');
+});
+
+rule('Run core: { typed: true } is the child\'s own, like an asked value; alone and beside a passed team value', () => {
+  const x = teamLinked();
+  same(verdict(x, { base: { typed: true } }, { base: 'anything', env: 'prod' }), { s: 'done' });
+  const y = teamLinked('base=team:bitbucket-base-url, owner-team=team:owner-team, env=^env');
+  same(verdict(y, { base: { text: URL }, 'owner-team': { typed: true } }, { base: URL, 'owner-team': 'payments', env: 'prod' }), { s: 'done' });
+  assert.strictEqual(verdict(y, { base: { text: URL }, 'owner-team': { typed: true } }, { base: 'x', 'owner-team': 'payments', env: 'prod' }).s, 'blocked');
+});
+
+rule('Run core: no record, or no entry for a team row, is held, never done; with the team rows left out it would be done', () => {
+  const x = teamLinked();
+  assert.strictEqual(verdict(x, undefined, { base: URL, env: 'prod' }), null);
+  assert.strictEqual(verdict(x, {}, { base: URL, env: 'prod' }), null);
+  assert.ok(/can't tell whether this run kept the team value bitbucket-base-url it was passed/.test(R.teamUnrecorded(x.parent, x.st, x.parent.steps.dep)), R.teamUnrecorded(x.parent, x.st, x.parent.steps.dep));
+  same(verdict(x, undefined, { base: 'edited', env: 'prod' }, { noTeam: true }), { s: 'done' }, 'discovery leaves the team rows out');
+  assert.strictEqual(verdict(x, undefined, { base: URL, env: 'dev' }, { noTeam: true }).s, 'blocked', 'the other rows still count');
+  assert.strictEqual(R.teamUnrecorded(x.parent, x.st, { child: { process: 'deploy', id: 'k', teamPassed: { base: { text: URL } } } }), '');
+});
+
+rule('Run core: an ambiguous team value started with an empty correction is held, then counts once resolved', () => {
+  const x = teamLinked('replicas=team:replicas, env=^env'), TP = { replicas: { text: 'about 40' } };
+  const mig = [{ path: 'details.replicas', at: NOW, from: 'about 40', source: 'start', verdict: 'ambiguous', result: null, resolved: null }];
+  assert.strictEqual(verdict(x, TP, { replicas: '', env: 'prod' }, { migrations: mig }), null, 'held');
+  mig[0].resolved = { value: '40', by: 'person-avery', at: NOW };
+  same(verdict(x, TP, { replicas: '40', env: 'prod' }, { migrations: mig }), { s: 'done' });
+  assert.strictEqual(verdict(x, TP, { replicas: '41', env: 'prod' }, { migrations: mig }).s, 'blocked');
+});
+
+rule('Run core: linkChild keeps a clean teamPassed; a reload keeps it; one on a run without team values, or a bad shape, is read-only', () => {
+  const x = teamLinked(), kid = mkRun(x.dv, { base: URL, env: 'prod' }, 'run-k');
+  R.linkChild(x.parent, R.mapOf(x.parent), 'dep', { process: 'deploy', id: 'run-k', inputs: { env: 'prod' }, folder: x.dv.info.folder, teamPassed: { base: { text: URL }, extra: { text: URL, junk: 1 } } }, 'person-avery', NOW, { run: kid, procOf: (id) => id === 'deploy' ? (({ latest, all, clashes }) => ({ latest, all, clashes, broken: [] }))(P.index([x.dv])) : null });
+  same(x.parent.steps.dep.child.teamPassed, { base: { text: URL } }, 'only clean entries');
+  const back = R.sanitize(JSON.parse(JSON.stringify(x.parent)));
+  assert.ok(!back._unrunnable, back._unrunnable);
+  same(back.steps.dep.child.teamPassed, { base: { text: URL } });
+  const c = JSON.parse(JSON.stringify(x.parent)); c.steps.dep.child.teamPassed = { base: { text: URL, confirmed: { by: 'person-avery', at: NOW } }, env2: { typed: true } };
+  same(R.sanitize(c).steps.dep.child.teamPassed, c.steps.dep.child.teamPassed, 'confirmed and typed entries round-trip');
+  const bad = [{ base: { text: '' } }, { base: { text: ' x ' } }, { base: { typed: false } }, { base: { text: URL, typed: true } }, { base: { text: URL, confirmed: { by: 'a' } } }, { base: 'x' }, []];
+  bad.forEach(tp => { const o = JSON.parse(JSON.stringify(x.parent)); o.steps.dep.child.teamPassed = tp; assert.ok(R.sanitize(o)._unrunnable, JSON.stringify(tp)); });
+  const plain = mkRun(published(SHIP2('env=^env')), { env: 'prod' }, 'run-q'), o = JSON.parse(JSON.stringify(plain));
+  o.steps.dep = { s: 'open', child: { process: 'deploy', id: 'run-k', inputs: { env: 'prod' }, teamPassed: { base: { text: URL } } } };
+  assert.ok(R.sanitize(o)._unrunnable, 'a run without the team-values feature never holds one');
+});
+
 run();

@@ -718,8 +718,8 @@ rule('A registration with any revision this copy can\'t read (newer, malformed o
   assert.ok(named(list, 'other-skill').length === 1 && !named(list, 'other-skill')[0].unmatched);
 });
 
-rule('Slice 2 part 2 registers pinned-children and pinned-skills (checklist/2, publication/2, run/3), plan/2 and its status, and skill/2; slice 3 adds typed data; 2.1 adds conditions, staged versions and test runs; 2.8 adds passed details; every later feature stays refused', () => {
-  const want = ['phase-notes', 'phase-shots', 'gate-shots', 'pinned-children', 'pinned-skills', 'typed-details', 'typed-evidence', 'conditions', 'passed-details'];
+rule('Slice 2 part 2 registers pinned-children and pinned-skills (checklist/2, publication/2, run/3), plan/2 and its status, and skill/2; slice 3 adds typed data; 2.1 adds conditions, staged versions and test runs; 2.8 adds passed details; 2.9 adds team values; every later feature stays refused', () => {
+  const want = ['phase-notes', 'phase-shots', 'gate-shots', 'pinned-children', 'pinned-skills', 'typed-details', 'typed-evidence', 'conditions', 'passed-details', 'team-values'];
   assert.deepStrictEqual(plain(E.FAMILIES['flightdeck-checklist'].majors[2]), want);
   assert.deepStrictEqual(plain(E.FAMILIES['preflight-publication'].majors[2]), want.concat(['staged']));
   assert.deepStrictEqual(plain(E.FAMILIES['preflight-run'].majors[3]), want.concat(['staged', 'test-run']));
