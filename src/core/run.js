@@ -1053,7 +1053,8 @@ PF.run = (function () {
        waits for its own unresolved migration; carry: and pass: names the child lacks are refused before anything starts. */
     if (PF.links.has(step)) {
       step = effStep(r, step);
-      var lw = consumption(r, PF.links.sources(step, Object.keys(r.details), childContext));
+      /* The step's own ^details too: an asked or fixed target never makes a tied detail's open conversion go away. */
+      var lw = consumption(r, PF.links.sources(step, Object.keys(r.details), childContext).concat(step.binds || []));
       if (lw) return lw;
       var st = PF.links.rows(step, Object.keys(r.details), childContext).stale.map(function (x) { return x.name; });
       return st.length ? 'The ' + fieldsOf(r, step).process + ' checklist has no run detail ' + st.join(', ') + ', so this step can\'t pass ' + (st.length > 1 ? 'them' : 'it') + ' on. Change this checklist or that one.' : null;

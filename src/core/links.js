@@ -106,7 +106,12 @@ PF.links = (function () {
       (was.length ? was : asked).forEach(function (n) { pass.push(byName[n]); });
       /* Nothing asked: the first passed detail is written out (even under its own name), so a value the child may need
          to convert still opens the start form. */
-      if (!pass.length) { var keep = names.filter(function (n) { return byName[n] && byName[n].source !== 'ask'; })[0]; if (keep) pass.push(byName[keep]); }
+      if (!pass.length) {
+        /* One that carry: doesn't list, so no name is in both; otherwise one moves out of carry:, and a list left empty
+           is dropped (every child name was carried, so implicit sharing passes the same). */
+        var given = names.filter(function (n) { return byName[n] && byName[n].source !== 'ask'; }), keep = given.filter(function (n) { return !carry || carry.indexOf(n) < 0; })[0] || given[0];
+        if (keep) { pass.push(byName[keep]); if (carry) carry = carry.filter(function (n) { return n !== keep; }); }
+      }
     }
     var text = pass.map(entryText).concat(stalePass.map(entryText));
     return { carry: carry && carry.length ? carry.join(', ') : null, pass: text.length ? text.join(', ') : null };

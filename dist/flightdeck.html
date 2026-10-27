@@ -4009,7 +4009,12 @@ PF.links = (function () {
       (was.length ? was : asked).forEach(function (n) { pass.push(byName[n]); });
       /* Nothing asked: the first passed detail is written out (even under its own name), so a value the child may need
          to convert still opens the start form. */
-      if (!pass.length) { var keep = names.filter(function (n) { return byName[n] && byName[n].source !== 'ask'; })[0]; if (keep) pass.push(byName[keep]); }
+      if (!pass.length) {
+        /* One that carry: doesn't list, so no name is in both; otherwise one moves out of carry:, and a list left empty
+           is dropped (every child name was carried, so implicit sharing passes the same). */
+        var given = names.filter(function (n) { return byName[n] && byName[n].source !== 'ask'; }), keep = given.filter(function (n) { return !carry || carry.indexOf(n) < 0; })[0] || given[0];
+        if (keep) { pass.push(byName[keep]); if (carry) carry = carry.filter(function (n) { return n !== keep; }); }
+      }
     }
     var text = pass.map(entryText).concat(stalePass.map(entryText));
     return { carry: carry && carry.length ? carry.join(', ') : null, pass: text.length ? text.join(', ') : null };
@@ -7554,7 +7559,8 @@ PF.run = (function () {
        waits for its own unresolved migration; carry: and pass: names the child lacks are refused before anything starts. */
     if (PF.links.has(step)) {
       step = effStep(r, step);
-      var lw = consumption(r, PF.links.sources(step, Object.keys(r.details), childContext));
+      /* The step's own ^details too: an asked or fixed target never makes a tied detail's open conversion go away. */
+      var lw = consumption(r, PF.links.sources(step, Object.keys(r.details), childContext).concat(step.binds || []));
       if (lw) return lw;
       var st = PF.links.rows(step, Object.keys(r.details), childContext).stale.map(function (x) { return x.name; });
       return st.length ? 'The ' + fieldsOf(r, step).process + ' checklist has no run detail ' + st.join(', ') + ', so this step can\'t pass ' + (st.length > 1 ? 'them' : 'it') + ' on. Change this checklist or that one.' : null;

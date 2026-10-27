@@ -63,6 +63,14 @@ rule('write: with nothing asked, a pass: step keeps its first passed detail writ
   same(shape(L.rows(step({ pass: 'replicas=^replicas' }), ['replicas', 'other'], c)), ['replicas<detail:replicas'], 'means the same');
 });
 
+rule('write: the kept entry is never also in carry:', () => {
+  const c = child('env, tag'), want = [{ name: 'env', source: 'detail', from: 'env' }, { name: 'tag', source: 'detail', from: 'tag' }];
+  const w = L.write(want, step({ carry: 'tag', pass: 'env=^other' }), PARENT, c);
+  same(w, { carry: 'tag', pass: 'env=^env' });
+  same(shape(L.rows(step({ carry: w.carry, pass: w.pass }), PARENT, c)), ['env<detail:env', 'tag<detail:tag']);
+  same(L.write([{ name: 'env', source: 'detail', from: 'env' }], step({ carry: 'env', pass: 'env=^other' }), PARENT, child('env')), { carry: null, pass: 'env=^env' }, 'an emptied carry: is dropped');
+});
+
 rule('childrenFrom: two publications with the same number can\'t be checked either', () => {
   const f = L.childrenFrom({ deploy: { latest: null, all: [], clashes: [1], broken: [] } });
   assert.ok(/Two different publications of deploy are numbered v1/.test(f('deploy', '').unreadable), JSON.stringify(f('deploy', '')));
@@ -270,6 +278,15 @@ rule('Run time: Fill in can\'t change carry: on a pass: step; on a step without 
   const y = linked(['  carry: ticket']);
   R.setFields(y.parent, R.mapOf(y.parent), 'dep', { carry: 'region' }, null, 'person-avery', NOW);
   assert.strictEqual(R.fieldsOf(y.parent, y.st).carry, 'region', 'as in 2.7');
+});
+
+rule('Run time: a detail the step is tied to and still waiting on a conversion stops its child starting, whatever pass: does with it', () => {
+  const parent = startRun(published(RELEASE(['  pass: environment=?']).replace('Deploy it {#dep}', 'Deploy for ^env {#dep}')), { env: '', ticket: 'T-1', region: 'eu' }, 'run-p');
+  const st = M.findStep(R.mapOf(parent), 'dep').step, cmap = M.parse(DEPLOY);
+  same(st.binds, ['env'], 'set-up: tied to ^env');
+  assert.strictEqual(R.childProblem(parent, st, cmap), null, 'nothing waiting');
+  parent.migrations = [{ path: 'details.env', at: NOW, from: 'about four', source: 'plan', verdict: 'ambiguous', result: null, resolved: null }];
+  assert.ok(/Env still needs/.test(R.childProblem(parent, st, cmap) || ''), String(R.childProblem(parent, st, cmap)));
 });
 
 rule('Run time: a pass: name the child lacks is refused before anything starts', () => {
