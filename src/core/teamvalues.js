@@ -52,7 +52,7 @@ PF.teamValues = (function () {
     var o;
     try { o = JSON.parse(String(text)); } catch (e) { return { state: 'malformed', doc: null, why: FILE + ' isn\'t valid JSON.' }; }
     var j = PF.envelope.judge(FAMILY, o);
-    if (!j.ok) return { state: j.kind === 'newer' ? 'newer' : 'malformed', doc: null, why: FILE + ' ' + j.why.replace(/\.?$/, '.') };
+    if (!j.ok) return j.kind === 'newer' ? { state: 'newer', doc: null, why: FILE + ' ' + j.why.replace(/\.?$/, '.'), needs: j.needs || '' } : { state: 'malformed', doc: null, why: FILE + ' ' + j.why.replace(/\.?$/, '.') };
     var why = check(o);
     if (why) return { state: 'malformed', doc: null, why: FILE + ': ' + why };
     var values = Object.create(null);

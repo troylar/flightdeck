@@ -740,6 +740,8 @@ PF.repo = (function () {
       (r[7].refused || []).forEach(function (x) { refused.push(x); });
       Object.keys(r[16].procs).forEach(function (k) { r[16].procs[k].refused.forEach(function (x) { refused.push(x); }); });
       r[15].forEach(function (u) { if (u._unread && u.kind === 'newer') refused.push(PF.envelope.refusal(u.dir + '/' + u.process + '/' + u._file, 'flightdeck-report-decision', u)); });
+      /* A team-values.json from a newer Flightdeck is named like any other newer file, never taken as damaged (2.9). */
+      if (r[17] && r[17].state === 'newer') refused.push(PF.envelope.refusal(PF.teamValues.FILE, 'flightdeck-team-values', { kind: 'newer', why: r[17].why, needs: r[17].needs }));
       /* skills/ or skill-registrations/ that couldn't be listed holds every name (PF.skills.held) and is still named as the part
          that failed, so a name neither listing showed is never read as having no registration. */
       if (r[5] && (r[5].unlisted || r[5].regsUnlisted) && !('skills' in failed)) failed.skills = r[5].unlisted || r[5].regsUnlisted;
@@ -2285,7 +2287,7 @@ PF.repo = (function () {
         return go(function () { if (!alive()) throw stop(); return f.p === PF.teamValues.FILE ? readTeamValues(fs) : fs.read(f.p); }).then(function (r) {
           if (!r) return;
           /* team-values.json (2.9): through its one bounded reader, so a damaged, newer or oversized file is named here. */
-          if (f.p === PF.teamValues.FILE) { if (r.state !== 'ok' && r.state !== 'missing') unreadable.push({ path: f.p, why: String(r.why).replace(/^team-values\.json:? ?/, '').replace(/\.$/, '') }); return; }
+          if (f.p === PF.teamValues.FILE) { if (r.state !== 'ok' && r.state !== 'missing' && r.state !== 'newer') unreadable.push({ path: f.p, why: String(r.why).replace(/^team-values\.json:? ?/, '').replace(/\.$/, '') }); return; }
           if (/^\.flightdeck\/skills\//.test(f.p) || f.p === PF.contract.AGENTS) { texts[f.p] = r.text; return; }
           var o = json(r.text);
           if (f.p === '.flightdeck/installed.json') { installed = PF.contract.cleanInstalled(o); return; }

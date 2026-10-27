@@ -85,7 +85,7 @@ async function teamStart(passLine, kidCtx, values) {
     Object.keys(b.files).forEach(k => { app.fs.files['publications/' + id + '/' + b.folder + '/' + k] = { t: b.files[k], m: Date.now() }; });
   };
   put(['---', 'process: deploy', 'title: Deploy', 'owner: person-avery', 'context: ' + (kidCtx || 'base, env'), '---', '', '## Go · READ-DO {#go}', '- [ ] {confirm} Go {#go1}'].join('\n'), 'deploy', 'dp000001');
-  put(['---', 'process: ship', 'title: Ship', 'owner: person-avery', 'context: env', '---', '', '## Ship · READ-DO {#s}', '- [ ] {run.process} Deploy it {#dep}', '  process: deploy', '  pass: ' + (passLine || 'base=team:bitbucket-base-url, env=^env')].join('\n'), 'ship', 'sh000001');
+  put(['---', 'process: ship', 'title: Ship', 'owner: person-avery', 'context: env', '---', '', '## Ship · READ-DO {#s}', '- [ ] {run.process} Deploy it {#dep}', '  process: deploy', '  pass: ' + (passLine || 'base=team:bitbucket-base-url, env=^env'), '- [ ] {confirm} Tell the team {#tell}'].join('\n'), 'ship', 'sh000001');
   if (values !== null) setTeam(app, values || { 'bitbucket-base-url': { value: URL } });
   app.click('refresh'); await app.tick(80);
   app.click('start', 'ship'); await app.settle();
@@ -278,6 +278,81 @@ rule('App: confirmed while the child runs, then the child changes the value and 
   await app.fs.write(kp, JSON.stringify(kid));
   app.click('refresh'); await app.tick(150);
   assert.strictEqual(shipRun(app).steps.dep.s, 'blocked');
+});
+
+/* ---------- The retry path and which read counts ---------- */
+/* Holds the next read of a path matching re until the gate opens; the read itself happens now (so it sees the file as it
+   is now) unless late, when it reads only once the gate opens. */
+function holdRead(app, re, late) {
+  const fsr = app.fs.read.bind(app.fs), g = gate(); let held = false;
+  app.fs.read = function (p, o) { if (!held && re.test(p)) { held = true; if (late) return g.p.then(() => fsr(p, o)); const res = fsr(p, o); return g.p.then(() => res); } return fsr(p, o); };
+  return { g, held: () => held, restore: () => { app.fs.read = fsr; } };
+}
+
+rule('App: a refused start doesn\'t reopen its form after the person changed steps or opened another dialog; the answers come back on the next start', async () => {
+  for (const move of ['step', 'dialog']) {
+    const app = await teamStart('base=team:bitbucket-base-url, env=^env, note=?', 'base, env, note');
+    app.click('start-child', 'dep'); await app.tick(40);
+    const h = holdRead(app, /^runs\/deploy\//, true);
+    app.set('cs-note', 'kept'); app.submitForm('child-start-form'); await app.tick(40);
+    assert.ok(h.held(), move + ': set-up: the save is in its read');
+    setTeam(app, { 'bitbucket-base-url': { value: 'https://moved.example.com' } });
+    if (move === 'step') { app.click('select', 'tell'); await app.tick(40); }
+    else { app.keyOn('k', { ctrlKey: true }); await app.tick(40); }
+    h.g.open(); await app.tick(150); h.restore();
+    assert.strictEqual(deployRuns(app).length, 0, move + ': nothing written');
+    assert.ok(!/child-start-form/.test(app.overlay()), move + ': not reopened');
+    assert.ok(/kept for when you start it again/.test(app.html() + app.live()), move + ': says so');
+    if (move === 'dialog') { app.key('Escape'); await app.tick(); }
+    app.click('start-child', 'dep'); await app.tick(40);
+    const ov = app.overlay();
+    assert.ok(/id="cs-note"[^>]*value="kept"/.test(ov) && /moved\.example\.com/.test(ov), move + ': the answers come back with the new value: ' + ov.slice(0, 600));
+  }
+});
+
+rule('App: an older refresh that lands after the read before the write never brings the old team value back', async () => {
+  const app = await teamStart('base=team:bitbucket-base-url, env=^env, note=?', 'base, env, note');
+  app.click('start-child', 'dep'); await app.tick(40);
+  const old = holdRead(app, /^team-values\.json$/, false);
+  app.click('refresh'); await app.tick(20);
+  assert.ok(old.held(), 'set-up: a refresh read team-values.json (A) and is held');
+  old.restore();
+  setTeam(app, { 'bitbucket-base-url': { value: 'https://b.example.com' } });
+  app.set('cs-note', 'n'); app.submitForm('child-start-form'); await app.tick(150);
+  assert.strictEqual(deployRuns(app).length, 0, 'refused: B differs from what the form showed');
+  assert.ok(/b\.example\.com/.test(app.overlay()), 'reopened with B');
+  old.g.open(); await app.tick(150);
+  app.submitForm('child-start-form'); await app.tick(150);
+  assert.deepStrictEqual(deployRuns(app).map(k => k.details.base), ['https://b.example.com'], 'the older read (A) was ignored');
+});
+
+rule('App: a typed value for a missing team value that is now set but doesn\'t convert opens as a correction; the child records the team value\'s text and the correction', async () => {
+  const app = await teamStart('replicas=team:replicas, env=^env', 'replicas:number, env', {});
+  app.click('start-child', 'dep'); await app.tick(40);
+  app.input('cs-replicas', '5'); await app.tick();
+  setTeam(app, { replicas: { value: 'about 40' } }); app.click('refresh'); await app.tick(100);
+  app.submitForm('child-start-form'); await app.tick(150);
+  const ov = app.overlay();
+  assert.ok(/The team value is now &quot;about 40&quot;, which doesn&#39;t fit here\. You typed 5 before\.|The team value is now "about 40", which doesn't fit here\. You typed 5 before\./.test(ov), ov.slice(0, 900));
+  assert.ok(/id="cs-replicas"[^>]*value=""/.test(ov), 'the box opens empty');
+  app.set('cs-replicas', '40'); app.submitForm('child-start-form'); await app.tick(150);
+  const kid = deployRuns(app)[0];
+  assert.strictEqual(kid.details.replicas, '40');
+  assert.ok(kid.migrations.some(m => m.from === 'about 40' && m.resolved && m.resolved.value === '40'), JSON.stringify(kid.migrations));
+  assert.deepStrictEqual(shipRun(app).steps.dep.child.teamPassed, { replicas: { text: 'about 40' } });
+});
+
+rule('App: a parent detail changed while the read before the write is in flight is caught by still, with 2.8\'s message', async () => {
+  const app = await teamStart('base=team:bitbucket-base-url, env=^env, note=?', 'base, env, note');
+  app.click('start-child', 'dep'); await app.tick(40);
+  const h = holdRead(app, /^team-values\.json$/, true);
+  app.set('cs-note', 'n'); app.submitForm('child-start-form'); await app.tick(40);
+  assert.ok(h.held(), 'set-up: the prewrite is reading team-values.json');
+  app.key('Escape'); await app.tick();
+  app.click('edit', 'detail:env'); app.set('edit-input', 'dev'); app.click('save-edit'); await app.tick(40);
+  h.g.open(); await app.tick(150); h.restore();
+  assert.strictEqual(deployRuns(app).length, 0, 'nothing written');
+  assert.ok(/A detail this run passes changed while you were filling this in/.test(app.html() + app.live() + app.overlay()));
 });
 
 run();

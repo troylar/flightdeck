@@ -185,6 +185,9 @@ function probes() {
   const rdName = 'report-decisions/backup/run-c.' + decisionHash('backup/run-c/count/row-counter/pr0b3a00') + '.w-probe.1.json';
   put('major', rdName, Object.assign({ format: 'flightdeck-report-decision/9', app: '9.0.0' }, rd));
   put('feature', rdName, Object.assign({ format: 'flightdeck-report-decision/1', features: X, app: '9.1.0' }, rd));
+  /* team-values.json (2.9). */
+  put('major', 'team-values.json', { format: 'flightdeck-team-values/9', app: '9.0.0', values: { base: { value: 'x' } } });
+  put('feature', 'team-values.json', { format: 'flightdeck-team-values/1', features: X, app: '9.1.0', values: { base: { value: 'x' } } });
   return out;
 }
 
