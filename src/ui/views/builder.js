@@ -516,7 +516,7 @@
      pending or refused, as a revealed field does). */
   function noteField(ctx, p, s) {
     var gn = G.step('note'), st = ctx.state, shown = shownOf(ctx, p, s);
-    var open = !!s.note || !!shown.note || st.obPendingField === 'ob-note' || !!errOf(ctx, 'ob-note');
+    var open = !!s.note || !!shown['ob:note'] || st.obPendingField === 'ob-note' || !!errOf(ctx, 'ob-note');
     if (!open) return '<div class="row"><button type="button" class="mini ob-add-note" data-act="ob-note-open">' + I('plus') + 'Add instructions</button></div>';
     /* A newline right after the tag, so a note's own first line break survives (HTML drops the first one). */
     return '<label class="field" for="ob-note">' + esc(gn.q) + '<textarea id="ob-note" rows="3" maxlength="2000"' + egOf(gn) + describe(ctx, 'ob-note', gn) + '>\n' + esc(s.note) + '</textarea></label>' + whyOf('ob-note', gn) + errMsg(ctx, 'ob-note');
@@ -552,7 +552,7 @@
     if (linked) apply = apply.filter(function (n) { return ['process', 'version', 'carry', 'pass'].indexOf(n) < 0; });
     var show = function (n) { return !!f[n] || !!shown[n] || (ownKey(def.fields, n) && G.usual(def.fields[n], f)); };
     var common = Object.keys(T.COMMON), times = ['at', 'due', 'after'].filter(function (n) { return f[n]; });
-    var unused = Object.keys(f).concat(Object.keys(shown).filter(function (n) { return !ownKey(f, n); })).filter(function (n) { return (n !== 'note' || ownKey(f, n)) && apply.indexOf(n) < 0 && common.indexOf(n) < 0 && !(linked && ['process', 'version', 'carry', 'pass'].indexOf(n) >= 0); });
+    var unused = Object.keys(f).concat(Object.keys(shown).filter(function (n) { return !ownKey(f, n); })).filter(function (n) { return n !== 'ob:note' && apply.indexOf(n) < 0 && common.indexOf(n) < 0 && !(linked && ['process', 'version', 'carry', 'pass'].indexOf(n) >= 0); });
     var flag = function (n) {
       var d = def && ownKey(def.fields, n) ? def.fields[n] : null;
       if (!T.fieldDef(def, n)) return '{' + (s.type || '') + '} doesn\'t use this; publishing will refuse it.';

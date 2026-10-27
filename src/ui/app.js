@@ -5508,11 +5508,11 @@
       if (state.fieldErr && state.fieldErr.id === 'ob' && state.fieldErr.field === h.field) state.fieldErr = null;
       dropPending(); obRepend();
       say('Put back what the draft says in that box.', 'good'); state.msg.quiet = true;
-      var gone = h.field === 'ob-note' && !String(fieldApplied('ob-note')).trim(); if (gone) obShow('note', false);
+      var gone = h.field === 'ob-note' && !String(fieldApplied('ob-note')).trim(); if (gone) obShow('ob:note', false);
       state.focus = gone ? '[data-act="ob-note-open"]' : el ? '#' + cssEsc(h.field) : null; render();
     },
     /* "+ add": shows a waiting box, focused. Typing held in another box is applied or refused first, as any change waits. */
-    'ob-note-open': function () { var p = currentProcess(); if (!p || obHeld(p)) return; obShow('note', true); state.focus = 'ob-note'; render(); },
+    'ob-note-open': function () { var p = currentProcess(); if (!p || obHeld(p)) return; obShow('ob:note', true); state.focus = 'ob-note'; render(); },
     'ob-show': function (id) {
       var p = currentProcess(); if (!p || !id || obHeld(p)) return; obShow(id, true);
       /* A group of chips is focused on its first chip; run details with none listed, on the group. */
@@ -7253,7 +7253,7 @@
     setTimeout(function () {
       var a = document.activeElement, el = document.getElementById('ob-note');
       if ((a && a.id === 'ob-note') || state.obPendingField === 'ob-note' || (el && String(el.value || '').trim()) || String(fieldApplied('ob-note') || '').trim()) return;
-      obShow('note', false); if (!a || a === document.body) state.focus = '[data-act="ob-note-open"]'; render();
+      obShow('ob:note', false); if (!a || a === document.body) state.focus = '[data-act="ob-note-open"]'; render();
     }, 0);
   }, true);
   document.addEventListener('focusout', function (e) {

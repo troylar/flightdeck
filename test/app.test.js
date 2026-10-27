@@ -9119,6 +9119,9 @@ rule('Builder: a leftover note: field on a step whose type doesn\'t use it keeps
   app.focus(); await app.tick(80);
   app.click('ob-sel', 'rollback'); await app.tick();
   assert.ok(/id="ob-fld-note"[^>]*value="left from a team type"/.test(app.html()), 'the box is drawn with its value');
+  enter(app, 'ob-fld-note', ''); await app.tick();
+  assert.ok(/id="ob-fld-note"/.test(app.html()) && app.focused() === '#ob-fld-note', 'cleared with Enter, the box stays and keeps focus: ' + app.focused());
+  assert.ok(!/id="ob-note"/.test(app.html()) && /data-act="ob-note-open"/.test(app.html()), 'the instructions stay folded');
 });
 
 const runsOf = (app, id) => Object.keys(app.fs.files).filter(k => new RegExp('^runs/' + id + '/[^/]+/run\\.json$').test(k));
