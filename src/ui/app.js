@@ -2180,6 +2180,8 @@
     };
     queued(function () {
       var cur = findRun(key), why = cur ? R.canStartChild(cur, R.mapOf(cur), stepId) : 'The run isn\'t in the folder anymore.';
+      /* A start from the form refused in the queue (the parent paused, say) keeps its answers with where each came from. */
+      if (why && keep && prep.link2) { stale = why; throw Object.assign(new Error(why), { dropped: true }); }
       if (why) throw new Error(why);
       /* A guard refused in the queue comes back the way a refusal at the write does: through childRetry. */
       if (prep.link2) { stale = childStale(prep) || teamStale(prep, data.teamValues); if (stale) throw Object.assign(new Error(stale), { dropped: true }); }
@@ -6976,7 +6978,9 @@
     e.preventDefault();
     var T = PF.teamValues, adding = e.target.id === 'team-add-form', f = adding ? (state.teamAdd || { name: val('tv-name'), value: val('tv-value'), about: val('tv-about') }) : state.teamEdit;
     if (!f) return;
-    var pre = adding ? 'tv-' : 'tv-e-', name = String(f.name || '').trim(), entry;
+    var pre = adding ? 'tv-' : 'tv-e-', name = String(f.name || '').trim(), entry, sent = adding ? state.teamAdd : f, was = JSON.stringify(sent ? [sent.name, sent.value, sent.about] : null);
+    /* A save that finishes later closes its form only if it's still the one submitted, as it was then. */
+    var same = function () { var cur = adding ? state.teamAdd : state.teamEdit; return cur === sent && JSON.stringify(cur ? [cur.name, cur.value, cur.about] : null) === was; };
     state.fieldErr = null;
     if (adding) {
       var nerr = !name ? 'Give it a name.' : !T.NAME.test(name) ? 'Use lowercase letters, digits and - (at most 40), starting with a letter or digit.' : '';
@@ -6990,7 +6994,7 @@
       if (!adding && !Object.prototype.hasOwnProperty.call(doc.values, name)) throw new Error('"' + name + '" isn\'t a team value anymore.');
       doc.values[name] = entry; return name;
     }, function () {
-      if (adding) { state.teamAdd = null; state.focus = 'tv-name'; } else state.teamEdit = null;
+      if (same()) { if (adding) { state.teamAdd = null; state.focus = 'tv-name'; } else state.teamEdit = null; }
       say((adding ? 'Added the team value ' : 'Saved the team value ') + name + '.', 'good');
     }, adding ? null : f.base);
   });

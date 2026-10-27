@@ -12,6 +12,7 @@ async function settingsAs(person, files) {
   app.click('connect'); await app.tick(200);
   app.choose(person); await app.tick();
   app.click('nav', 'settings'); await app.tick();
+  app.dir = dir;
   return app;
 }
 
@@ -377,6 +378,43 @@ rule('App: answers and roles kept from a refused start come back in the form on 
   const kid = deployRuns(app)[0];
   assert.strictEqual(kid.roles.operator, 'person-morgan', 'started with the role chosen before');
   assert.strictEqual(kid.details.base, URL, 'and the team value now set');
+});
+
+rule('App: a start refused in the queue because the parent was paused keeps where each answer came from; after Resume a typed value whose team value is now set but doesn\'t convert says so', async () => {
+  const app = await teamStart('replicas=team:replicas, env=^env', 'replicas:number, env', {});
+  const h = holdRead(app, /^runs\/ship\//, true);
+  app.click('edit', 'detail:env'); app.set('edit-input', 'prod'); app.click('save-edit'); await app.tick(40);
+  assert.ok(h.held(), 'set-up: an earlier save holds the queue');
+  app.click('start-child', 'dep'); await app.tick(40);
+  app.set('cs-replicas', '5'); app.submitForm('child-start-form'); await app.tick(40);
+  app.click('pick', 'run', { kind: 'pause' }); await app.tick();
+  app.set('pick-input', 'Waiting'); app.click('pause', 'run'); await app.tick(40);
+  h.g.open(); await app.tick(200); h.restore();
+  assert.strictEqual(deployRuns(app).length, 0, 'nothing written');
+  app.key('Escape'); await app.tick();
+  app.click('resume', 'run'); await app.tick(80);
+  setTeam(app, { replicas: { value: 'about 40' } }); app.click('refresh'); await app.tick(100);
+  app.click('start-child', 'dep'); await app.tick(40);
+  const ov = app.overlay();
+  assert.ok(/You typed 5 before/.test(ov) && /id="cs-replicas"[^>]*value=""/.test(ov), 'the typed-before note, the box empty: ' + ov.slice(0, 900));
+});
+
+rule('App: Settings › Team values: a save that finishes after its form was closed never closes or empties another form', async () => {
+  const files = { 'people.json': example('people.json'), 'team-values.json': doc({ a: { value: 'one' }, b: { value: 'two' } }) }, app = await settingsAs('person-avery', files);
+  const gfh = app.dir.getFileHandle, g = gate(); let held = false;
+  app.dir.getFileHandle = function (n, o) {
+    return gfh.call(this, n, o).then(h => n !== 'team-values.json' ? h : Object.assign({}, h, { createWritable: (wo) => h.createWritable(wo).then(w => Object.assign({}, w, { close: () => { if (held) return w.close(); held = true; return g.p.then(() => w.close()); } })) }));
+  };
+  app.click('team-edit', 'a'); await app.tick(); app.input('tv-e-value', 'uno'); await app.tick();
+  app.submit('team-edit-form'); await app.tick(40);
+  assert.ok(held, 'set-up: the save is held');
+  app.click('team-cancel'); await app.tick();
+  app.click('team-edit', 'b'); await app.tick(); app.input('tv-e-value', 'dos'); await app.tick();
+  app.input('tv-name', 'c'); await app.tick();
+  g.open(); await app.tick(200); app.dir.getFileHandle = gfh;
+  const html = app.html();
+  assert.ok(/id="team-edit-form"/.test(html) && /id="tv-e-value"[^>]*value="dos"/.test(html), 'B\'s form and its typing stay');
+  assert.ok(/id="tv-name"[^>]*value="c"/.test(html), 'and what was typed in Add');
 });
 
 rule('App: an older refresh that lands after the read before the write never brings the old team value back', async () => {
