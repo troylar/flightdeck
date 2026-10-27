@@ -3830,6 +3830,8 @@
     if (id === 'ob-note') return st ? st.note : '';
     if (id === 'ob-q-text') return s.kind === 'questions' && o.questions >= 0 ? o.qText : '';
     if (/^ob-fld-/.test(id)) return st ? st.fields[id.slice(7)] || '' : '';
+    if (id === 'ob-link-proc-other') return st ? st.fields.process || '' : '';
+    if (/^ob-link-val-/.test(id)) { var lv = st ? PF.links.parse(st.fields.pass).entries.filter(function (e) { return e.name === id.slice(12) && e.source === 'value'; })[0] : null; return lv ? lv.value : ''; }
     if (/^ob-shot-cap-\d+$/.test(id)) { var sh = (st || ph) && (st || ph).shots[+id.slice(12)]; return sh ? sh.caption : ''; }
     if (id === 'ob-ph-title') return ph ? ph.title : '';
     if (id === 'ob-ph-mode') return ph ? ph.mode : '';
@@ -3966,7 +3968,7 @@
      applies: PF.links.write gives the shortest carry: and pass: lines meaning exactly the rows wanted. */
   function linkSet(o, key, id, value) {
     var st0 = o.steps.filter(function (x) { return x.key === key; })[0]; if (!st0) return null;
-    var text = edText(currentProcess()), map = M.parse(text), x = M.findStep(map, st0.id); if (!x) return null;
+    var text = edText(currentProcess()), map = M.parse(text), x = PF.outline.mapStep(map, st0); if (!x) return null;
     var st = x.step, f = st.fields, fixed = state.obLinkFixed = state.obLinkFixed || {};
     if (id === 'ob-link-proc') {
       if (value === '__other') { state.obLinkOther = key; return null; }
@@ -4070,7 +4072,7 @@
   /* Selecting the checklist's details or its Questions section. focus: a box in the form to start in (an Add box). */
   /* Text typed in a builder box and not applied (refused, or not left yet) would be dropped by choosing something else or
      opening an Add box: that waits until it's applied or cleared, as Back does. */
-  var OB_TYPED = /^ob-(ren-ctx|text|ph-title|ph-note|tr-title|g-title|g-approves|fld-[\w-]+|new-text|new-title|shot-cap-\d+|note|q-text|add-role|add-ctx|when|ph-when)$/;
+  var OB_TYPED = /^ob-(ren-ctx|text|ph-title|ph-note|tr-title|g-title|g-approves|fld-[\w-]+|new-text|new-title|shot-cap-\d+|note|q-text|add-role|add-ctx|when|ph-when|link-proc-other|link-val-[\w-]+)$/;
   /* A builder box on the page, other than except, whose text differs from what the draft says (an Add box: holds anything).
      Several can hold typing at once (one refused, another being typed in), so every box is looked at, not just the last. */
   function obTyped(except, skipNew) {
@@ -5271,7 +5273,7 @@
     'ob-link-rm': function (id, el) {
       var o = PF.outline.parse(edText(currentProcess())), st0 = o.steps.filter(function (x) { return x.key === id; })[0], name = el && el.dataset ? el.dataset.name : '';
       if (!st0 || !name) return;
-      var map = M.parse(edText(currentProcess())), x = M.findStep(map, st0.id); if (!x) return;
+      var map = M.parse(edText(currentProcess())), x = PF.outline.mapStep(map, st0); if (!x) return;
       var st = x.step, kid = V.linkChildOf(ctx, st.fields.process, st.fields.version); if (!kid) return;
       /* What every other child detail gets stays exactly as it is: emptying carry: must not start passing shared names. */
       var want = PF.links.rows(st, map.meta.context, kid.map).rows, carry = PF.links.carryList(st).filter(function (n) { return n !== name; });

@@ -485,6 +485,26 @@ rule('Editor (2.8): a linked step picks its process from a list, and each of the
   assert.ok(!/id="ob-fld-process"/.test(h) && !/id="ob-fld-pass"/.test(h), 'no raw process: or pass: box under the section');
 });
 
+rule('Editor (2.8): a linked step without an ID is told apart from the step without one before it', async () => {
+  const text = HEAD + '## Build · READ-DO {#build}\n- [ ] {confirm} First thing\n- [ ] {run.process} Run the check-in\n  process: check-in\n  pass: commit=abc123\n\n';
+  const app = await editorOn(text, '#1');
+  let h = formOf(app);
+  assert.ok(/<select id="ob-link-src-commit"[\s\S]*?<option value="=" selected>/.test(h) && /id="ob-link-val-commit"[^>]*value="abc123"/.test(h), 'its own fixed value is shown');
+  app.select('ob-link-src-commit', '^tag'); await app.tick();
+  const t = await textOf(app);
+  assert.ok(/Run the check-in\n  process: check-in\n  pass: commit=\^tag\n/.test(t) && /First thing\n- \[ \]/.test(t), t);
+});
+
+rule('Editor (2.8): a fixed value or a process ID typed and not yet applied counts as unsaved', async () => {
+  const app = await editorOn(md(step('run.process', 's', 'process: check-in', 'pass: commit=abc123')), 's');
+  await app.tick(); app.click('save-draft'); await app.tick(80);
+  assert.ok(!app.leaveWarns(), 'set-up: nothing unsaved');
+  app.input('ob-link-val-commit', 'abc1234'); await new Promise(r => setTimeout(r, 300)); await app.tick();
+  assert.ok(app.leaveWarns(), 'leaving asks first');
+  app.input('ob-link-val-commit', 'abc123'); await new Promise(r => setTimeout(r, 300)); await app.tick();
+  assert.ok(!app.leaveWarns(), 'back to what the draft says');
+});
+
 const CHECKIN = (app) => app.PF.map.parse(app.fs.files[Object.keys(app.fs.files).find(p => /^publications\/check-in\/.*\/map\.md$/.test(p))].t);
 rule('Editor (2.8): a name the child doesn\'t have is shown with a Remove fix', async () => {
   const app = await editorOn(md(step('run.process', 's', 'process: check-in', 'carry: tag')), 's');

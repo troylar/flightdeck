@@ -893,6 +893,14 @@ PF.outline = (function () {
   }
 
   /* ---------- where a new part can go ---------- */
+  /* The map's step for outline step s (from parse): the one at the same place in the draft, so steps without IDs (or with a
+     repeated one) are told apart; by ID only when the places disagree. Both parsers skip exactly the same lines. */
+  function mapStep(map, s) {
+    if (!map || !s) return null;
+    var x = M.steps(map)[s.index];
+    if (x && x.step.id === s.id && x.step.text === s.text) return x;
+    return s.id ? M.findStep(map, s.id) : null;
+  }
   function short(s) { s = String(s || '').replace(/\*\*|__|`/g, '').replace(/\s+/g, ' ').trim(); return s.length > 48 ? s.slice(0, 46).replace(/\s+\S*$/, '') + '…' : s; }
   function quote(s) { return '“' + short(s) + '”'; }
   /* Whether something new put at line L would take an indented line (a separated field or note, past a comment) that
@@ -1235,5 +1243,5 @@ PF.outline = (function () {
   return { MODES: MODES, phaseNote: phaseNote, gateNote: gateNote, parse: parse, apply: apply, moveStep: moveStep, moveStepTo: moveStepTo, editStep: editStep, editLink: editLink, editStepText: editStepText, inPlace: inPlace, renameDetail: renameDetail, usesOf: usesOf, addStep: addStep, deleteStep: deleteStep,
     addPhase: addPhase, editPhase: editPhase, movePhase: movePhase, setGate: setGate, removeGate: removeGate, deletePhase: deletePhase,
     addTrack: addTrack, editTrack: editTrack, deleteTrack: deleteTrack, caption: caption, editShots: editShots, places: places, nearest: nearest, diff: diff, keyAt: keyAt, follow: follow, nextPlace: nextPlace,
-    checkName: checkName, personOk: function (id) { return typeof id === 'string' && PERSON_RE.test(id) && !reserved(id); } };
+    checkName: checkName, mapStep: mapStep, personOk: function (id) { return typeof id === 'string' && PERSON_RE.test(id) && !reserved(id); } };
 })();

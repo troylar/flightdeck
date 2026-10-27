@@ -5167,6 +5167,14 @@ PF.outline = (function () {
   }
 
   /* ---------- where a new part can go ---------- */
+  /* The map's step for outline step s (from parse): the one at the same place in the draft, so steps without IDs (or with a
+     repeated one) are told apart; by ID only when the places disagree. Both parsers skip exactly the same lines. */
+  function mapStep(map, s) {
+    if (!map || !s) return null;
+    var x = M.steps(map)[s.index];
+    if (x && x.step.id === s.id && x.step.text === s.text) return x;
+    return s.id ? M.findStep(map, s.id) : null;
+  }
   function short(s) { s = String(s || '').replace(/\*\*|__|`/g, '').replace(/\s+/g, ' ').trim(); return s.length > 48 ? s.slice(0, 46).replace(/\s+\S*$/, '') + '…' : s; }
   function quote(s) { return '“' + short(s) + '”'; }
   /* Whether something new put at line L would take an indented line (a separated field or note, past a comment) that
@@ -5509,7 +5517,7 @@ PF.outline = (function () {
   return { MODES: MODES, phaseNote: phaseNote, gateNote: gateNote, parse: parse, apply: apply, moveStep: moveStep, moveStepTo: moveStepTo, editStep: editStep, editLink: editLink, editStepText: editStepText, inPlace: inPlace, renameDetail: renameDetail, usesOf: usesOf, addStep: addStep, deleteStep: deleteStep,
     addPhase: addPhase, editPhase: editPhase, movePhase: movePhase, setGate: setGate, removeGate: removeGate, deletePhase: deletePhase,
     addTrack: addTrack, editTrack: editTrack, deleteTrack: deleteTrack, caption: caption, editShots: editShots, places: places, nearest: nearest, diff: diff, keyAt: keyAt, follow: follow, nextPlace: nextPlace,
-    checkName: checkName, personOk: function (id) { return typeof id === 'string' && PERSON_RE.test(id) && !reserved(id); } };
+    checkName: checkName, mapStep: mapStep, personOk: function (id) { return typeof id === 'string' && PERSON_RE.test(id) && !reserved(id); } };
 })();
 
 /* One editor's change history for this session: the draft editor (builder and Markdown share it) and the step-type form.
@@ -21686,7 +21694,7 @@ PF.vk = (function () {
   /* A {run.process} step's own section (2.8): which process, which version, and what each of its details gets. Every change
      is one O.editLink. */
   function linkSection(ctx, p, text, s, meta) {
-    var f = s.fields, map = M.parse(text), x = M.findStep(map, s.id) || { step: null }, st = x.step; if (!st) return '';
+    var f = s.fields, map = M.parse(text), x = O.mapStep(map, s) || { step: null }, st = x.step; if (!st) return '';
     var procs = ctx.processes().filter(function (e) { return e.id !== meta.process; }), other = ctx.state.obLinkOther === s.key || (f.process && !procs.some(function (e) { return e.id === f.process; }));
     var h = '<h3 class="ob-sec">Which process</h3><label class="field" for="ob-link-proc">' + esc(G.form('link-proc').q) + '<select id="ob-link-proc" data-bound><option value=""' + (!f.process ? ' selected' : '') + '>Choose one</option>' +
       procs.map(function (e) { return '<option value="' + esc(e.id) + '"' + (e.id === f.process && !other ? ' selected' : '') + '>' + esc((e.title || e.id) + ' (' + e.id + ') · ' + (e.latest ? 'v' + e.latest.info.version : 'not published yet')) + '</option>'; }).join('') +
@@ -21783,8 +21791,8 @@ PF.vk = (function () {
     return h + formBox(ctx, id, id === 'ob-ph-when' ? 'ph-when' : 'when', 'textarea', ' rows="2"', '\n' + esc(t.when.join('\n'))) + '</details>';
   }
   /* Part G (2.8): what the step uses, sets and, for a linked step, passes to its child, said once below its fields. */
-  function ioLines(ctx, map, id) {
-    var x = M.findStep(map, id); if (!x) return '';
+  function ioLines(ctx, map, s) {
+    var x = O.mapStep(map, s); if (!x) return '';
     var st = x.step, f = st.fields || {}, got = st.type === 'run.process' && f.process && ctx.procOf ? PF.links.childrenFrom(ctx.procOf)(f.process, f.version || '') : null;
     var io = PF.links.io(map, st, got && got.map ? got.map : null, { types: teamTypes(ctx) }), out = [];
     if (io.uses.length) out.push('<b>Uses:</b> ' + io.uses.map(function (u) { return '<code>^' + esc(u.name) + '</code> (' + esc(u.where) + ')'; }).join(', '));
@@ -21838,7 +21846,7 @@ PF.vk = (function () {
       var gn = G.step('note');
       h += '<label class="field" for="ob-note">' + esc(gn.q) + '<textarea id="ob-note" rows="3" maxlength="2000"' + egOf(gn) + describe(ctx, 'ob-note', gn) + '>\n' + esc(s.note) + '</textarea></label>' + whyOf('ob-note', gn) + errMsg(ctx, 'ob-note');
       h += whenSection(ctx, p, s, 'ob-when', meta);
-      h += ioLines(ctx, here.map, s.id);
+      h += ioLines(ctx, here.map, s);
       h += shotsSection(ctx, p, s);
       h += source(ctx, s.id, 'step', U.slug(s.text, 24), '<p class="small">Type <code>{' + esc(s.type || '?') + '}</code>' + (names.length ? ' · fields ' + names.map(function (f) { return '<code>' + esc(f) + '</code>'; }).join(' ') : '') + '</p>');
       h += '<div class="row"><button type="button" class="mini" data-act="ob-move" data-id="' + esc(s.key) + '" data-dir="up">Move up</button><button type="button" class="mini" data-act="ob-move" data-id="' + esc(s.key) + '" data-dir="down">Move down</button>' +
@@ -27620,6 +27628,8 @@ PF.examples = (function () {
     if (id === 'ob-note') return st ? st.note : '';
     if (id === 'ob-q-text') return s.kind === 'questions' && o.questions >= 0 ? o.qText : '';
     if (/^ob-fld-/.test(id)) return st ? st.fields[id.slice(7)] || '' : '';
+    if (id === 'ob-link-proc-other') return st ? st.fields.process || '' : '';
+    if (/^ob-link-val-/.test(id)) { var lv = st ? PF.links.parse(st.fields.pass).entries.filter(function (e) { return e.name === id.slice(12) && e.source === 'value'; })[0] : null; return lv ? lv.value : ''; }
     if (/^ob-shot-cap-\d+$/.test(id)) { var sh = (st || ph) && (st || ph).shots[+id.slice(12)]; return sh ? sh.caption : ''; }
     if (id === 'ob-ph-title') return ph ? ph.title : '';
     if (id === 'ob-ph-mode') return ph ? ph.mode : '';
@@ -27756,7 +27766,7 @@ PF.examples = (function () {
      applies: PF.links.write gives the shortest carry: and pass: lines meaning exactly the rows wanted. */
   function linkSet(o, key, id, value) {
     var st0 = o.steps.filter(function (x) { return x.key === key; })[0]; if (!st0) return null;
-    var text = edText(currentProcess()), map = M.parse(text), x = M.findStep(map, st0.id); if (!x) return null;
+    var text = edText(currentProcess()), map = M.parse(text), x = PF.outline.mapStep(map, st0); if (!x) return null;
     var st = x.step, f = st.fields, fixed = state.obLinkFixed = state.obLinkFixed || {};
     if (id === 'ob-link-proc') {
       if (value === '__other') { state.obLinkOther = key; return null; }
@@ -27860,7 +27870,7 @@ PF.examples = (function () {
   /* Selecting the checklist's details or its Questions section. focus: a box in the form to start in (an Add box). */
   /* Text typed in a builder box and not applied (refused, or not left yet) would be dropped by choosing something else or
      opening an Add box: that waits until it's applied or cleared, as Back does. */
-  var OB_TYPED = /^ob-(ren-ctx|text|ph-title|ph-note|tr-title|g-title|g-approves|fld-[\w-]+|new-text|new-title|shot-cap-\d+|note|q-text|add-role|add-ctx|when|ph-when)$/;
+  var OB_TYPED = /^ob-(ren-ctx|text|ph-title|ph-note|tr-title|g-title|g-approves|fld-[\w-]+|new-text|new-title|shot-cap-\d+|note|q-text|add-role|add-ctx|when|ph-when|link-proc-other|link-val-[\w-]+)$/;
   /* A builder box on the page, other than except, whose text differs from what the draft says (an Add box: holds anything).
      Several can hold typing at once (one refused, another being typed in), so every box is looked at, not just the last. */
   function obTyped(except, skipNew) {
@@ -29061,7 +29071,7 @@ PF.examples = (function () {
     'ob-link-rm': function (id, el) {
       var o = PF.outline.parse(edText(currentProcess())), st0 = o.steps.filter(function (x) { return x.key === id; })[0], name = el && el.dataset ? el.dataset.name : '';
       if (!st0 || !name) return;
-      var map = M.parse(edText(currentProcess())), x = M.findStep(map, st0.id); if (!x) return;
+      var map = M.parse(edText(currentProcess())), x = PF.outline.mapStep(map, st0); if (!x) return;
       var st = x.step, kid = V.linkChildOf(ctx, st.fields.process, st.fields.version); if (!kid) return;
       /* What every other child detail gets stays exactly as it is: emptying carry: must not start passing shared names. */
       var want = PF.links.rows(st, map.meta.context, kid.map).rows, carry = PF.links.carryList(st).filter(function (n) { return n !== name; });

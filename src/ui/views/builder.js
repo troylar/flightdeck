@@ -368,7 +368,7 @@
   /* A {run.process} step's own section (2.8): which process, which version, and what each of its details gets. Every change
      is one O.editLink. */
   function linkSection(ctx, p, text, s, meta) {
-    var f = s.fields, map = M.parse(text), x = M.findStep(map, s.id) || { step: null }, st = x.step; if (!st) return '';
+    var f = s.fields, map = M.parse(text), x = O.mapStep(map, s) || { step: null }, st = x.step; if (!st) return '';
     var procs = ctx.processes().filter(function (e) { return e.id !== meta.process; }), other = ctx.state.obLinkOther === s.key || (f.process && !procs.some(function (e) { return e.id === f.process; }));
     var h = '<h3 class="ob-sec">Which process</h3><label class="field" for="ob-link-proc">' + esc(G.form('link-proc').q) + '<select id="ob-link-proc" data-bound><option value=""' + (!f.process ? ' selected' : '') + '>Choose one</option>' +
       procs.map(function (e) { return '<option value="' + esc(e.id) + '"' + (e.id === f.process && !other ? ' selected' : '') + '>' + esc((e.title || e.id) + ' (' + e.id + ') · ' + (e.latest ? 'v' + e.latest.info.version : 'not published yet')) + '</option>'; }).join('') +
@@ -465,8 +465,8 @@
     return h + formBox(ctx, id, id === 'ob-ph-when' ? 'ph-when' : 'when', 'textarea', ' rows="2"', '\n' + esc(t.when.join('\n'))) + '</details>';
   }
   /* Part G (2.8): what the step uses, sets and, for a linked step, passes to its child, said once below its fields. */
-  function ioLines(ctx, map, id) {
-    var x = M.findStep(map, id); if (!x) return '';
+  function ioLines(ctx, map, s) {
+    var x = O.mapStep(map, s); if (!x) return '';
     var st = x.step, f = st.fields || {}, got = st.type === 'run.process' && f.process && ctx.procOf ? PF.links.childrenFrom(ctx.procOf)(f.process, f.version || '') : null;
     var io = PF.links.io(map, st, got && got.map ? got.map : null, { types: teamTypes(ctx) }), out = [];
     if (io.uses.length) out.push('<b>Uses:</b> ' + io.uses.map(function (u) { return '<code>^' + esc(u.name) + '</code> (' + esc(u.where) + ')'; }).join(', '));
@@ -520,7 +520,7 @@
       var gn = G.step('note');
       h += '<label class="field" for="ob-note">' + esc(gn.q) + '<textarea id="ob-note" rows="3" maxlength="2000"' + egOf(gn) + describe(ctx, 'ob-note', gn) + '>\n' + esc(s.note) + '</textarea></label>' + whyOf('ob-note', gn) + errMsg(ctx, 'ob-note');
       h += whenSection(ctx, p, s, 'ob-when', meta);
-      h += ioLines(ctx, here.map, s.id);
+      h += ioLines(ctx, here.map, s);
       h += shotsSection(ctx, p, s);
       h += source(ctx, s.id, 'step', U.slug(s.text, 24), '<p class="small">Type <code>{' + esc(s.type || '?') + '}</code>' + (names.length ? ' · fields ' + names.map(function (f) { return '<code>' + esc(f) + '</code>'; }).join(' ') : '') + '</p>');
       h += '<div class="row"><button type="button" class="mini" data-act="ob-move" data-id="' + esc(s.key) + '" data-dir="up">Move up</button><button type="button" class="mini" data-act="ob-move" data-id="' + esc(s.key) + '" data-dir="down">Move down</button>' +
