@@ -262,6 +262,13 @@ PF.map = (function () {
         if (meta.context.indexOf(e.from) < 0) blockers.push(label + ' passes ^' + e.from + ', which isn\'t listed in context.' + meant(e.from));
         else if (own.indexOf(e.from) >= 0) blockers.push(label + ' passes ^' + e.from + ' and sets it; a step can\'t start its child with a value it produces.');
       });
+      /* Team values (2.9): opts.teamValues is team-values.json as PF.teamValues.parse (or repo.readTeamValues) gave it. A
+         caller that doesn't give it (older ones) gets no team check here. */
+      if (opts.teamValues) L.teams(s).forEach(function (n) {
+        var lk = PF.teamValues.lookup(opts.teamValues, n);
+        if (lk.missing) blockers.push('"' + n + '" isn\'t a team value in this folder. Add it in Settings › Team values, or pass something else.');
+        else if (!Object.prototype.hasOwnProperty.call(lk, 'value')) blockers.push(String(lk.why || 'team-values.json can\'t be read.').replace(/\.?$/, '.') + ' So the team value "' + n + '" can\'t be checked.');
+      });
       var got = typeof opts.children === 'function' ? opts.children(s.fields.process, s.fields.version || '') : null;
       if (!got || (!L.has(s) && !carry.length)) return;
       if (got.unreadable) { if (L.has(s)) blockers.push(label + ': ' + got.unreadable + ' So what it passes to "' + s.fields.process + '" can\'t be checked.'); return; }
@@ -276,6 +283,10 @@ PF.map = (function () {
         if (x.source === 'detail' && def && PF.values.kindOf(def) !== 'text') {
           var from = Object.prototype.hasOwnProperty.call(mine, x.from) ? mine[x.from] : null;
           if (!from || PF.values.kindOf(from) !== PF.values.kindOf(def)) suggestions.push(label + ': ^' + x.from + ' goes into ' + who + '\'s ^' + x.name + ', which is ' + kw(def) + '. Converted when it starts; a value that doesn\'t fit is asked there.');
+        }
+        if (x.source === 'team' && def && PF.values.kindOf(def) !== 'text' && opts.teamValues) {
+          var tl = PF.teamValues.lookup(opts.teamValues, x.team), tm = Object.prototype.hasOwnProperty.call(tl, 'value') ? PF.values.migrate(def, tl.value) : null;
+          if (tm && tm.verdict !== 'exact' && tm.verdict !== 'converted') suggestions.push(label + ': the team value "' + x.team + '" goes into ' + who + '\'s ^' + x.name + ', which is ' + kw(def) + '. "' + tl.value + '" isn\'t one, so it\'s asked when the child starts.');
         }
         if (x.childSets && x.source !== 'ask' && L.has(s)) suggestions.push(label + ' passes ^' + x.name + ', which ' + (got.title || s.fields.process) + ' also sets itself later.');
       });

@@ -435,4 +435,24 @@ rule('format (2.9): team-values with a team: source, always beside passed-detail
   assert.ok(/team value/.test(PF.publish.FEATURE_NAMES['team-values']));
 });
 
+rule('checks (2.9): a team: name the folder lacks, or a team-values.json that can\'t be trusted, stops publishing; without team values given, nothing is checked', () => {
+  const T = PF.teamValues, tv = (values) => T.parse(JSON.stringify({ format: T.FORMAT, values }));
+  const got = { map: KID, title: 'Deploy', version: 4, latest: true };
+  const team = (lines, data) => M.check(M.parse(PMAP(lines)), { children: kids(got), teamValues: data });
+  let c = team(['  pass: environment=team:prod-env'], tv({ 'prod-env': { value: 'production' } }));
+  assert.ok(!c.blockers.length, c.blockers.join('\n'));
+  c = team(['  pass: environment=team:prod-env'], tv({}));
+  assert.ok(has(c.blockers, /"prod-env" isn't a team value in this folder\. Add it in Settings › Team values, or pass something else\./), c.blockers.join('\n'));
+  c = team(['  pass: environment=team:prod-env'], T.parse(null));
+  assert.ok(has(c.blockers, /"prod-env" isn't a team value in this folder/), 'no file: no team values');
+  c = team(['  pass: environment=team:prod-env'], T.parse('{'));
+  assert.ok(has(c.blockers, /team-values\.json isn't valid JSON\. So the team value "prod-env" can't be checked\./), c.blockers.join('\n'));
+  c = team(['  pass: environment=team:prod-env'], { state: 'unreadable', why: 'team-values.json couldn\'t be read.' });
+  assert.ok(has(c.blockers, /couldn't be read\. So the team value "prod-env" can't be checked/), c.blockers.join('\n'));
+  c = team(['  pass: environment=team:prod-env'], undefined);
+  assert.ok(!has(c.blockers, /team value/), 'no team values given (an older caller): not checked here');
+  c = team(['  pass: replicas=team:size'], tv({ size: { value: 'about 40' } }));
+  assert.ok(has(c.suggestions, /team value "size" goes into Deploy's latest version \(v4\)'s \^replicas, which is a number/), c.suggestions.join('\n'));
+});
+
 run();

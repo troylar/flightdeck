@@ -1515,7 +1515,13 @@ async function draftMain(argv) {
         (p ? p.broken : []).forEach((x) => { if (!x._readFailed) { const k = PF.appjson.pubProblem(x); L.note('publications/' + n + '/' + x.folder + '/', k.kind, k.why); } });
       } catch (e) { procs[n] = { latest: null, all: [], clashes: [], broken: [], unlisted: 'publications/' + n + '/ couldn\'t be read' }; }
     }
-    const c = M.check(map, { people: [], types: {}, workflows: {}, processes: [], children: PF.links.childrenFrom(procs) });
+    /* Team values (2.9), through the same ledger: a failed read is noted by the ledger; damaged or newer content here. */
+    let tv;
+    if (M.steps(map).some((x) => x.step.type === 'run.process' && PF.links.teams(x.step).length)) {
+      tv = await PF.repo.readTeamValues(rfs);
+      if (tv.state === 'malformed' || tv.state === 'newer') L.note(PF.teamValues.FILE, tv.state, tv.why);
+    }
+    const c = M.check(map, { people: [], types: {}, workflows: {}, processes: [], children: PF.links.childrenFrom(procs), teamValues: tv });
     return { checks: { blockers: c.blockers, suggestions: c.suggestions }, problems: L.problems() };
   };
   /* Every problem once: the draft's reads, then the children's. */

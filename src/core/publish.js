@@ -21,7 +21,7 @@ PF.publish = (function () {
 
   /* Returns { folder, files } or { blockers }. */
   function build(draftMd, opts) {
-    var map = M.parse(draftMd), c = M.check(map, { people: opts.people, types: opts.customTypes, workflows: opts.workflows, processes: opts.processes, children: opts.childProcs ? PF.links.childrenFrom(opts.childProcs) : opts.children });
+    var map = M.parse(draftMd), c = M.check(map, { people: opts.people, types: opts.customTypes, workflows: opts.workflows, processes: opts.processes, children: opts.childProcs ? PF.links.childrenFrom(opts.childProcs) : opts.children, teamValues: opts.teamValues });
     if (c.blockers.length) return { blockers: c.blockers };
     if (!opts.by) return { blockers: ['Choose who you are before publishing.'] };
     var changes = String(opts.changes || '').trim();
