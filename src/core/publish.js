@@ -21,7 +21,7 @@ PF.publish = (function () {
 
   /* Returns { folder, files } or { blockers }. */
   function build(draftMd, opts) {
-    var map = M.parse(draftMd), c = M.check(map, { people: opts.people, types: opts.customTypes, workflows: opts.workflows, processes: opts.processes });
+    var map = M.parse(draftMd), c = M.check(map, { people: opts.people, types: opts.customTypes, workflows: opts.workflows, processes: opts.processes, children: opts.childProcs ? PF.links.childrenFrom(opts.childProcs) : opts.children });
     if (c.blockers.length) return { blockers: c.blockers };
     if (!opts.by) return { blockers: ['Choose who you are before publishing.'] };
     var changes = String(opts.changes || '').trim();
@@ -117,7 +117,7 @@ PF.publish = (function () {
     return f;
   }
   /* What each 2.0 feature is, in words, for the publish panel. */
-  var FEATURE_NAMES = { 'typed-details': 'typed run details', 'typed-evidence': 'typed evidence (a number, yes/no or date)', 'phase-notes': 'a note on a phase', 'phase-shots': 'screenshots on a phase', 'gate-shots': 'screenshots on a gate', 'pinned-children': 'a linked run pinned to a version (version:)', 'pinned-skills': 'a skill version a step expects (skillVersion:)', conditions: 'conditions (only when)' };
+  var FEATURE_NAMES = { 'typed-details': 'typed run details', 'typed-evidence': 'typed evidence (a number, yes/no or date)', 'phase-notes': 'a note on a phase', 'phase-shots': 'screenshots on a phase', 'gate-shots': 'screenshots on a gate', 'pinned-children': 'a linked run pinned to a version (version:)', 'pinned-skills': 'a skill version a step expects (skillVersion:)', conditions: 'conditions (only when)', 'passed-details': 'a linked step that passes details under other names, fixed values or asks (pass:)' };
   function needs(map, types) {
     var f = features(map, types); if (!f.length) return null;
     var typed = Object.keys((map.meta && map.meta.detailTypes) || {});

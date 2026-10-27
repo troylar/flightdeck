@@ -461,6 +461,14 @@
   /* A process by ID (2.5.0): one look in a map built once for each list processes() makes, keeping the first entry for an ID
      as the old filter()[0] did. */
   var procBy = { list: null, by: null };
+  /* A linked step's child for a rename (2.8): a pinned version's map, or the latest published and the saved draft. */
+  function renameChild(process, pin) {
+    var e = procFind(process); if (!e) return null;
+    if (pin) { var at = PF.pins.atVersion(e, process, +pin); return at.pub ? at.pub.map : null; }
+    var out = e.latest ? [e.latest.map] : [];
+    if (e.draft && e.draft.md != null) { try { out.push(M.parse(e.draft.md)); } catch (x) { /* an unreadable draft takes nothing */ } }
+    return out;
+  }
   function renameDeps(map, name) {
     var me = map.meta.process, others = [];
     processes().forEach(function (e) {
@@ -1931,40 +1939,114 @@
   function busyStart() { var g = gen, open = true; state.busyN = (state.busyN || 0) + 1; return function () { if (!open) return; open = false; if (g === gen) state.busyN = Math.max(0, state.busyN - 1); }; }
   function isBusy() { return (state.busyN || 0) > 0; }
   /* A "run another process" step: start the child run with the details it carries, then link it to this step. */
-  function startChild(stepId) {
+  /* What starting stepId's child needs, worked out once from the run as it is now, or null (and why, said). A step with a
+     pass: line (2.8) also gets its rows, the details its child asks, and the passed values that don't convert to the child's
+     kind; the start dialog shows those, and its guard (childStale) compares this with the run as it is later. */
+  function childPrep(stepId) {
     var parent = ctx.run(), map = parent && R.mapOf(parent), x = map && M.findStep(map, stepId);
-    if (!x || !ctx.recording(parent)) return;
+    if (!x || !ctx.recording(parent)) return null;
     var f = R.fieldsOf(parent, x.step), target = PF.pins.childTarget(parent, x.step, ctx.procOf), pub = target.pub, a0 = Object.prototype.hasOwnProperty.call(parent.steps, stepId) ? parent.steps[stepId] : null, rkey = state.runKey + ':' + stepId;
     /* One start at a time per step: a second click while the first is saving, or a step that already has a current child, does nothing. */
-    if ((state.startingChild = state.startingChild || {})[rkey] || (a0 && a0.child && R.childCurrent(parent, x.step, a0) && !a0.child.failed && !(ctx.findRun(a0.child.process + '/' + a0.child.id) && R.childHeld(parent, stepId, ctx.findRun(a0.child.process + '/' + a0.child.id), ctx.procOf))) || parent.paused) return;
+    if ((state.startingChild = state.startingChild || {})[rkey] || (a0 && a0.child && R.childCurrent(parent, x.step, a0) && !a0.child.failed && !(ctx.findRun(a0.child.process + '/' + a0.child.id) && R.childHeld(parent, stepId, ctx.findRun(a0.child.process + '/' + a0.child.id), ctx.procOf))) || parent.paused) return null;
     /* A run/3 starts the child on its pin and only its pin; a run/2 never starts one on a 2.0 version (it offers a 2.0 run). */
-    if (target.legacy || !pub) { say(target.why || '"' + f.process + '" isn\'t published in this folder yet.', 'warn'); render(); return; }
+    if (target.legacy || !pub) { say(target.why || '"' + f.process + '" isn\'t published in this folder yet.', 'warn'); render(); return null; }
     /* Conditions (2.1): the step must be needed and its phase open, now and again when the queued write runs. */
     var cw = R.canStartChild(parent, map, stepId);
-    if (cw) { say(cw, 'warn'); render(); return; }
+    if (cw) { say(cw, 'warn'); render(); return null; }
     var cp = R.childProblem(parent, x.step, pub.map.meta.context);
-    if (cp) { say(cp, 'warn'); render(); return; }
-    var details = R.childDetails(parent, x.step, pub.map.meta.context), roles = {};
-    pub.map.meta.roles.forEach(function (ro) { roles[ro] = parent.roles[ro] || ''; });
+    if (cp) { say(cp, 'warn'); render(); return null; }
+    var link2 = PF.links.has(x.step), details = R.childDetails(parent, x.step, link2 ? pub.map : pub.map.meta.context), inputs = {};
+    if (link2) inputs = PF.links.inputs(parent, R.effStep(parent, x.step), Object.keys(parent.details), pub.map);
+    else {
+      /* The child counts for exactly the details it was started with: snapshot them now, before any save can let them change. */
+      var own = String(f.sets || '').split(',').map(function (k) { return k.trim(); });
+      Object.keys(details).forEach(function (k) { inputs[k] = details[k]; }); (x.step.binds || []).forEach(function (k) { inputs[k] = parent.details[k] || ''; });
+      own.forEach(function (k) { delete inputs[k]; });
+    }
+    var rows = link2 ? PF.links.rows(R.effStep(parent, x.step), Object.keys(parent.details), pub.map).rows : [], setBy = M.setBy(pub.map), ask = [], open = [];
+    rows.forEach(function (r) {
+      if (r.source === 'ask') { if (!Object.prototype.hasOwnProperty.call(setBy, r.name)) ask.push(r.name); return; }
+      var def = R.typedDef({ snapshot: '' }, pub.map, 'details.' + r.name), v = Object.prototype.hasOwnProperty.call(details, r.name) ? details[r.name] : '';
+      var m = def && v !== '' ? R.migrateDetail(def, v) : null;
+      if (m && m.verdict !== 'exact' && m.verdict !== 'converted') open.push(r.name);
+    });
+    return { stepId: stepId, rkey: rkey, key: state.runKey, gen: gen, me: state.me, step: x.step, f: f, target: target, pub: pub, link2: link2, details: details, inputs: inputs, rows: rows, ask: ask, open: open,
+      linked: a0 && a0.child ? a0.child.process + '/' + a0.child.id + (a0.child.failed ? ' failed' : '') : '' };
+  }
+  /* The guard on a pass: step's start (2.8), asked on submit and again right before the first write: '' when the run, the
+     person, the child's version and what this step passes are what prep saw, or what changed. */
+  function childStale(prep) {
+    if (gen !== prep.gen) return 'The team folder changed while you were filling this in, so nothing was started.';
+    var cur = findRun(prep.key);
+    if (!cur) return 'The run isn\'t in the folder anymore.';
+    if (state.me !== prep.me || !ctx.recording(cur)) return 'You aren\'t recording this run anymore, so nothing was started.';
+    var map = R.mapOf(cur), x = M.findStep(map, prep.stepId);
+    if (!x) return 'This step isn\'t in the run anymore.';
+    var why = R.canStartChild(cur, map, prep.stepId);
+    if (why) return why;
+    var t = PF.pins.childTarget(cur, x.step, ctx.procOf), title = prep.pub.map.meta.title;
+    if (!t.pub || t.legacy || t.pub.info.folder !== prep.pub.info.folder) return 'Another version of ' + title + ' was published while you were filling this in. Check the form, then start again.';
+    var a = Object.prototype.hasOwnProperty.call(cur.steps, prep.stepId) ? cur.steps[prep.stepId] : null;
+    if ((a && a.child ? a.child.process + '/' + a.child.id + (a.child.failed ? ' failed' : '') : '') !== prep.linked) return 'Another ' + title + ' run was linked to this step while you were filling this in. Check the step, then start again if it still needs one.';
+    var cp = R.childProblem(cur, x.step, t.pub.map.meta.context);
+    if (cp) return cp;
+    var now = PF.links.inputs(cur, R.effStep(cur, x.step), Object.keys(cur.details), t.pub.map), was = prep.inputs;
+    if (Object.keys(now).length !== Object.keys(was).length || Object.keys(was).some(function (k) { return !Object.prototype.hasOwnProperty.call(now, k) || now[k] !== was[k]; }) || JSON.stringify(R.childDetails(cur, x.step, t.pub.map)) !== JSON.stringify(prep.details))
+      return 'A detail this run passes changed while you were filling this in. Check the form, then start again.';
+    return '';
+  }
+  function startChild(stepId) {
+    var prep = childPrep(stepId);
+    if (!prep) return;
+    /* 2.8: a pass: step opens its start dialog only when something needs asking or converting (Q2); otherwise it starts now. */
+    if (prep.link2 && (prep.ask.length || prep.open.length)) {
+      prep.token = ++childToken;
+      /* What a start that couldn't be saved was given comes back once, in the same folder. */
+      var kept = state.childKept && state.childKept[prep.rkey];
+      if (kept) { delete state.childKept[prep.rkey]; if (kept.gen === gen) { prep.values = kept.values; prep.roleVals = kept.roles; } }
+      openOverlay({ childStart: prep, html: function () { return V.childStart(ctx, this.childStart); }, held: function () { return csHeld(this.childStart); } });
+      state.overlayFocus = '#cs-t';
+      return;
+    }
+    launchChild(prep, {}, null);
+  }
+  var childToken = 0;
+  /* An answer or a changed role in the child's start dialog is kept on prep, so after a redraw the boxes hold it as their
+     own value and dirtyControl() no longer sees it: navigation asks this instead. */
+  function csHeld(prep) {
+    var vals = prep.values || {}, rv = prep.roleVals || {}, parent = findRun(prep.key), had = (parent && parent.roles) || {};
+    if (Object.keys(vals).some(function (k) { return String(vals[k] == null ? '' : vals[k]).trim() !== ''; })) return true;
+    return Object.keys(rv).some(function (k) { return String(rv[k] || '') !== String(had[k] || ''); });
+  }
+  /* Start prep's child with asked (the dialog's values, by the child's names) and roles (null: the parent's same-name roles).
+     invalid(err): from the dialog, told when a value can't start the run (the dialog stays open); it closes once one can. */
+  function launchChild(prep, asked, roles, invalid) {
+    var parent = findRun(prep.key), map = parent && R.mapOf(parent), stepId = prep.stepId, pub = prep.pub, target = prep.target, rkey = prep.rkey;
+    if (!parent) return;
+    var details = Object.assign({}, prep.details, asked || {});
+    if (!roles) { roles = {}; pub.map.meta.roles.forEach(function (ro) { roles[ro] = parent.roles[ro] || ''; }); }
     var tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (err) { tz = ''; }
-    /* The child counts for exactly the details it was started with: snapshot them now, before any save can let them change. */
-    var own = String(f.sets || '').split(',').map(function (k) { return k.trim(); });
-    var inputs = {}; Object.keys(details).forEach(function (k) { inputs[k] = details[k]; }); (x.step.binds || []).forEach(function (k) { inputs[k] = parent.details[k] || ''; });
-    own.forEach(function (k) { delete inputs[k]; });
-    var child; try { child = R.create(pub, { title: pub.map.meta.title + ' for ' + parent.title, details: details, from: { source: 'carry', details: details }, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, parent: { process: parent.process, id: parent.id, step: stepId, inputs: inputs, folder: parent.folder }, app: APP_VERSION, pins: pinsAtStart(pub) }); }
-    catch (err) { say(err.message, 'warn'); render(); return; }
+    var inputs = prep.inputs;
+    var child; try { child = R.create(pub, { title: pub.map.meta.title + ' for ' + parent.title, details: details, from: { source: 'carry', details: prep.details }, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, parent: { process: parent.process, id: parent.id, step: stepId, inputs: inputs, folder: parent.folder }, app: APP_VERSION, pins: pinsAtStart(pub) }); }
+    catch (err) { if (invalid) { invalid(err); return; } say(err.message, 'warn'); render(); return; }
+    var keep = invalid ? { gen: gen, values: asked || {}, roles: roles } : null;
+    if (invalid) closeOverlay();
     /* Try the link on a copy first, so a step that can't take a child never leaves an orphan run in the folder. */
     var link = { process: child.process, id: child.id, inputs: inputs, folder: pub.info.folder, mapHash: pub.info.mapHash, typesHash: pub.info.typesHash, format: child.format, pin: target.first ? target.pin : null };
     var lopts = { run: child, procOf: ctx.procOf, findRun: ctx.findRun };
     try { R.linkChild(JSON.parse(JSON.stringify(parent)), map, stepId, link, state.me, new Date().toISOString(), lopts); }
     catch (err) { say(err.message, 'warn'); render(); return; }
-    var sfs = state.fs, sg = gen, key = state.runKey, endBusy = busyStart();
+    var sfs = state.fs, sg = gen, key = state.runKey, endBusy = busyStart(), stale = '';
     state.startingChild[rkey] = true;
     var done = function () { endBusy(); delete state.startingChild[rkey]; };
+    /* A pass: step's guard runs in the queued check and again after saveRun's reads, right before it writes (D4). */
+    var saveOpts = { writer: WRITER, lock: LOCKS ? lock : null };
+    if (prep.link2) saveOpts.still = function () { stale = childStale(prep); return !stale; };
     queued(function () {
       var cur = findRun(key), why = cur ? R.canStartChild(cur, R.mapOf(cur), stepId) : 'The run isn\'t in the folder anymore.';
+      if (!why && prep.link2) why = childStale(prep);
       if (why) throw new Error(why);
-      child.recorder.session = SESSION; return repo.saveRun(sfs, child, SESSION, { writer: WRITER, lock: LOCKS ? lock : null });
+      child.recorder.session = SESSION; return repo.saveRun(sfs, child, SESSION, saveOpts);
     }).then(function () {
       if (sg !== gen) { done(); return; }
       return mutateRun(key, sg, function (r, m, me, now) { R.linkChild(r, m, stepId, link, me, now, lopts); }).then(function (ok) {
@@ -1973,7 +2055,13 @@
         if (ok === false) { say('"' + child.title + '" was started but isn\'t linked to this step yet. Use Link it on the step.', 'warn'); render(); return load(true); }
         say('Started "' + child.title + '". This step is checked when it completes.', 'good'); return load(true);
       });
-    }, function (err) { done(); if (sg !== gen) return; say('Couldn\'t start the run: ' + err.message, 'bad'); render(); });
+    }, function (err) {
+      done(); if (sg !== gen) return;
+      if (keep) (state.childKept = state.childKept || {})[rkey] = keep;
+      var again = keep ? ' What you filled in is kept for when you start it again.' : '';
+      if (err && err.dropped && stale) { say(stale + again, 'warn'); render(); return; }
+      say('Couldn\'t start the run: ' + err.message + again, 'bad'); render();
+    });
   }
   /* The children a run/3 on pub follows, pinned when it starts: the version's own pins, the rest at the latest usable now. */
   function pinsAtStart(pub) {
@@ -3759,6 +3847,8 @@
     if (id === 'ob-note') return st ? st.note : '';
     if (id === 'ob-q-text') return s.kind === 'questions' && o.questions >= 0 ? o.qText : '';
     if (/^ob-fld-/.test(id)) return st ? st.fields[id.slice(7)] || '' : '';
+    if (id === 'ob-link-proc-other') return st ? st.fields.process || '' : '';
+    if (/^ob-link-val-/.test(id)) { var lv = st ? PF.links.parse(st.fields.pass).entries.filter(function (e) { return e.name === id.slice(12) && e.source === 'value'; })[0] : null; return lv ? lv.value : ''; }
     if (/^ob-shot-cap-\d+$/.test(id)) { var sh = (st || ph) && (st || ph).shots[+id.slice(12)]; return sh ? sh.caption : ''; }
     if (id === 'ob-ph-title') return ph ? ph.title : '';
     if (id === 'ob-ph-mode') return ph ? ph.mode : '';
@@ -3891,6 +3981,40 @@
     builderField(box, cur.join(', '), gone ? '#' + box + (left ? ' [data-act]' : '') : '[data-act="' + act + '"][data-id="' + cssEsc(id) + '"]');
   }
   /* focus: where focus goes after the change, when it isn't the box itself (a requirement chip). */
+  /* What a change in a linked step's section (2.8) sets with O.editLink, or null (redraw only). Sources keep what still
+     applies: PF.links.write gives the shortest carry: and pass: lines meaning exactly the rows wanted. */
+  function linkSet(o, key, id, value) {
+    var st0 = o.steps.filter(function (x) { return x.key === key; })[0]; if (!st0) return null;
+    var text = edText(currentProcess()), map = M.parse(text), x = PF.outline.mapStep(map, st0); if (!x) return null;
+    var st = x.step, f = st.fields, fixed = state.obLinkFixed = state.obLinkFixed || {};
+    if (id === 'ob-link-proc') {
+      if (value === '__other') { state.obLinkOther = key; return null; }
+      state.obLinkOther = null; return { process: value, version: null };
+    }
+    if (id === 'ob-link-proc-other') return value.trim() ? { process: value.trim(), version: null } : null;
+    if (id === 'ob-link-ver') {
+      if (value === 'latest') return { version: null };
+      var e = procFind(f.process), nums = e ? (e.all || []).map(function (v) { return v.info.version; }).filter(function (n) { return !PF.pins.atVersion(e, f.process, n).why; }) : [];
+      return nums.length ? { version: String(Math.max.apply(null, nums)) } : null;
+    }
+    if (id === 'ob-link-vn') return { version: value };
+    var kid = V.linkChildOf(ctx, f.process, f.version); if (!kid) return null;
+    var rows = PF.links.rows(st, map.meta.context, kid.map).rows, name = id.replace(/^ob-link-(src|val)-/, ''), r = rows.filter(function (y) { return y.name === name; })[0];
+    if (!r) return null;
+    if (/^ob-link-src-/.test(id)) {
+      delete fixed[key + ':' + name];
+      if (value === '=') { if (r.source === 'value') return null; fixed[key + ':' + name] = true; return null; }
+      if (value === '-') return null;
+      if (value === '?') { r.source = 'ask'; r.explicit = true; delete r.from; delete r.value; }
+      else { r.source = 'detail'; r.from = value.replace(/^\^/, ''); delete r.value; }
+    } else {
+      var v = String(value || '').trim(); if (!v) return null;
+      var bad = PF.links.valueProblem(v); if (bad) return { error: bad };
+      r.source = 'value'; r.value = v; delete r.from; delete fixed[key + ':' + name];
+    }
+    var w = PF.links.write(rows, st, map.meta.context, kid.map);
+    return { carry: w.carry, pass: w.pass };
+  }
   function builderField(id, value, focus) {
     var s = state.obSel, cp = currentProcess(); if (!s || !cp || s.pid !== cp.id) return;
     if (s.kind === 'step' && /^ob-fld-[\w-]+$/.test(id)) obShow(id.slice(7), true);
@@ -3914,6 +4038,12 @@
     if (s.kind === 'questions') {
       if (id !== 'ob-q-text') return;
       return obApplied(builderEdit({ op: 'questions', text: value }, id), id, null);
+    }
+    if (s.kind === 'step' && /^ob-link-/.test(id)) {
+      var lset = linkSet(o, s.key, id, value);
+      if (!lset) { render(); return; }
+      if (lset.error) { state.fieldErr = { id: 'ob', msg: lset.error, field: id }; state.focus = '#' + id; say(null); render(); return; }
+      return obApplied(builderEdit({ op: 'editLink', key: s.key, set: lset }, id), id);
     }
     if (s.kind === 'step' && id === 'ob-note') return obApplied(builderEdit({ op: 'note', step: s.key, text: value }, id), id, null);
     if (s.kind === 'step' && id === 'ob-when') return obApplied(builderEdit({ op: 'when', step: s.key, text: value }, id), id, null);
@@ -3962,7 +4092,7 @@
   /* Selecting the checklist's details or its Questions section. focus: a box in the form to start in (an Add box). */
   /* Text typed in a builder box and not applied (refused, or not left yet) would be dropped by choosing something else or
      opening an Add box: that waits until it's applied or cleared, as Back does. */
-  var OB_TYPED = /^ob-(ren-ctx|text|ph-title|ph-note|tr-title|g-title|g-approves|fld-[\w-]+|new-text|new-title|shot-cap-\d+|note|q-text|add-role|add-ctx|when|ph-when)$/;
+  var OB_TYPED = /^ob-(ren-ctx|text|ph-title|ph-note|tr-title|g-title|g-approves|fld-[\w-]+|new-text|new-title|shot-cap-\d+|note|q-text|add-role|add-ctx|when|ph-when|link-proc-other|link-val-[\w-]+)$/;
   /* A builder box on the page, other than except, whose text differs from what the draft says (an Add box: holds anything).
      Several can hold typing at once (one refused, another being typed in), so every box is looked at, not just the last. */
   function obTyped(except, skipNew) {
@@ -5080,7 +5210,7 @@
       if (!to) { state.fieldErr = { id: 'ob', field: 'ob-ren-ctx', msg: 'Type the new name first.' }; state.focus = '#ob-ren-ctx'; render(); return; }
       if (to === from) { state.obRename = null; if (state.obPendingField === 'ob-ren-ctx') dropPending(); state.focus = '[data-act="ob-ren"][data-id="' + cssEsc(from) + '"]'; render(); return; }
       var map; try { map = M.parse(edText(cp)); } catch (e) { map = null; }
-      var res = builderEdit({ op: 'renameDetail', from: from, to: to, depends: map ? renameDeps(map, from) : [] }, 'ob-ren-ctx', 'renamed ^' + from);
+      var res = builderEdit({ op: 'renameDetail', from: from, to: to, depends: map ? renameDeps(map, from) : [], child: renameChild }, 'ob-ren-ctx', 'renamed ^' + from);
       if (!res || res.same) return;
       state.obRename = null; state.fieldErr = null; if (state.obPendingField === 'ob-ren-ctx') dropPending();
       var done = document.getElementById('ob-ren-ctx'); if (done) done.value = '';
@@ -5158,6 +5288,23 @@
       var rm = { op: 'removeShot', shot: +id }; rm[s.kind] = s.key;
       var res = builderEdit(rm); if (!res || res.same) return;
       sayUndo('Removed the screenshot from this draft. The image file stays in the folder.'); state.focus = '#ob-shot-new'; render();
+    },
+    /* A name this step passes that its child doesn't have: taken out of carry: and pass: (2.8). */
+    'ob-link-rm': function (id, el) {
+      var o = PF.outline.parse(edText(currentProcess())), st0 = o.steps.filter(function (x) { return x.key === id; })[0], name = el && el.dataset ? el.dataset.name : '';
+      if (!st0 || !name) return;
+      var map = M.parse(edText(currentProcess())), x = PF.outline.mapStep(map, st0); if (!x) return;
+      var st = x.step, kid = V.linkChildOf(ctx, st.fields.process, st.fields.version); if (!kid) return;
+      /* What every other child detail gets stays exactly as it is: emptying carry: must not start passing shared names. */
+      var want = PF.links.rows(st, map.meta.context, kid.map).rows, carry = PF.links.carryList(st).filter(function (n) { return n !== name; });
+      var pe = PF.links.parse(st.fields.pass).entries.filter(function (e) { return e.name !== name; });
+      var fields = Object.assign({}, st.fields); delete fields.carry; delete fields.pass;
+      if (carry.length) fields.carry = carry.join(', ');
+      if (pe.length || PF.links.has(st)) fields.pass = pe.map(function (e) { return e.name + '=' + (e.source === 'ask' ? '?' : e.source === 'value' ? e.value : '^' + e.from); }).join(', ');
+      var w = PF.links.write(want, Object.assign({}, st, { fields: fields }), map.meta.context, kid.map);
+      var res = builderEdit({ op: 'editLink', key: id, set: { carry: w.carry, pass: w.pass } }, null, 'removed ^' + name);
+      if (res && !res.same) say('Removed ^' + name + ' from what this step passes. Undo available.', 'good');
+      render();
     },
     'ob-del': function (id) {
       var p = currentProcess(), st = p && PF.outline.parse(edText(p)).steps.filter(function (x) { return x.key === id; })[0];
@@ -6489,6 +6636,45 @@
     e.preventDefault();
     createProcess(false);
   });
+  /* What the child's start dialog holds: the asked values and the roles. Kept on prep as they're typed, so a redraw (a
+     refresh, a new version's notice) puts them back. */
+  function csHarvest(form, prep) {
+    var asked = {}, roles = {};
+    form.querySelectorAll('[data-detail]').forEach(function (el) { if (prep.ask.indexOf(el.dataset.detail) >= 0 || prep.open.indexOf(el.dataset.detail) >= 0) asked[el.dataset.detail] = inputValue(el); });
+    form.querySelectorAll('[data-role]').forEach(function (el) { roles[el.dataset.role] = el.value; });
+    return { asked: asked, roles: roles };
+  }
+  ['input', 'change'].forEach(function (ev) {
+    document.addEventListener(ev, function (e) {
+      var id = (e.target && e.target.id) || '', ov = state.overlay, prep = ov && ov.childStart;
+      if (!/^(opt-)?cs-/.test(id) || !prep) return;
+      var form = document.getElementById('child-start-form');
+      if (form && form.dataset && String(prep.token) !== form.dataset.token) return;
+      var got = form && form.querySelectorAll ? csHarvest(form, prep) : { asked: {}, roles: {} };
+      prep.values = Object.assign({}, prep.values || {}, got.asked); prep.roleVals = Object.assign({}, prep.roleVals || {}, got.roles);
+      /* The box itself, by its ID (cs-<detail>, cs-role-<role>), whatever the form around it can be read for. */
+      var rm = /^cs-role-(.+)$/.exec(id), om = /^opt-cs-(.+)-\d+$/.exec(id), d = id.slice(3);
+      if (rm) prep.roleVals[rm[1]] = e.target.value;
+      /* A choice or yes-no box is a row of radios (opt-cs-<detail>-<n>): the checked one is the answer. */
+      else if (om) { if (e.target.checked !== false && (prep.ask.indexOf(om[1]) >= 0 || prep.open.indexOf(om[1]) >= 0)) prep.values[om[1]] = e.target.value; }
+      else if (prep.ask.indexOf(d) >= 0 || prep.open.indexOf(d) >= 0) prep.values[d] = inputValue(e.target);
+    });
+  });
+  /* The child's start dialog (2.8): the same prep, still current, with the asked values and roles. */
+  document.addEventListener('submit', function (e) {
+    if (e.target.id !== 'child-start-form') return;
+    e.preventDefault();
+    var ov = state.overlay, prep = ov && ov.childStart;
+    if (!prep || String(prep.token) !== e.target.dataset.token) return;
+    var got = csHarvest(e.target, prep), asked = got.asked, roles = got.roles;
+    var why = childStale(prep);
+    if (why) { closeOverlay(); say(why, 'warn'); render(); return; }
+    /* A value that doesn't fit keeps the dialog open with everything typed, and says which box. */
+    launchChild(prep, asked, roles, function (err) {
+      prep.values = asked; prep.roleVals = roles; prep.error = err.message;
+      state.overlayFocus = err.field && prep.ask.concat(prep.open).indexOf(err.field) >= 0 ? '#cs-' + cssEsc(err.field) : '#cs-err'; render();
+    });
+  });
   document.addEventListener('submit', function (e) {
     if (e.target.id !== 'start-form') return;
     e.preventDefault();
@@ -6762,6 +6948,8 @@
     if (/^ob-(text|type|fld-[\w-]+|ph-title|ph-note|ph-mode|g-title|g-owner|g-approves|tr-title|tr-role|shot-cap-\d+|note|q-text|owner|backup|add-role|add-ctx|when|ph-when)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
     if (e.target.id === 'ob-shot-file' && state.view === 'process' && state.ptab === 'edit') { shotAdd(e.target.files); e.target.value = ''; }
     if (/^ob-mark-(step|must|planned)$/.test(e.target.id || '') && e.target.checked && state.view === 'process' && state.ptab === 'edit') builderField('ob-mark', e.target.id.slice(8));
+    if (/^ob-link-(proc|proc-other|vn|src-[\w-]+|val-[\w-]+)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
+    if (/^ob-link-ver-(latest|pin)$/.test(e.target.id || '') && e.target.checked && state.view === 'process' && state.ptab === 'edit') builderField('ob-link-ver', e.target.value);
     if (/^np-/.test(e.target.id || '') && state.newProc) state.newProc.token = ++npToken;
     if (e.target.id === 'me') { state.me = e.target.value.trim().slice(0, 60); lsSet('me', state.me); forgetStartIfNotMine(); render(); }
     if (e.target.id === 'su-backup' && state.setup) { state.setup.backup = e.target.value; render(); }

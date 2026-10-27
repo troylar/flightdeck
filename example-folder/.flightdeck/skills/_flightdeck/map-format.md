@@ -251,6 +251,24 @@ A `{run.process}` step starts a linked run of another published process:
 
 `carry:` lists the run details passed to the child (all matching details if it's left out). The step is checked only by its child run: done when the child completes with the details it was started for, and blocked if it ends any other way (a new child can then replace it). It can't be ticked by hand; a step that isn't must-do can still be marked N/A. If a carried detail changes, the step goes back for a re-check and needs a new child run.
 
+Add `pass:` to say where each of the child's run details comes from (Needs Flightdeck 2.8):
+
+```markdown
+- [ ] {run.process} Deploy the build {#deploy}
+  process: deploy
+  pass: environment=^env, region=us-east-1, notify=?
+```
+
+Each entry is `name=source`, with commas between entries. `name` is one of the child's run details. The source is one of these:
+
+- `^detail`: this run's detail, even under another name;
+- `?`: asked when the child starts;
+- any other text: a fixed value (at most 120 characters, no `^`, no commas).
+
+Without `carry:`, every detail both checklists have is still passed by name, and a `pass:` entry for that name wins. With `carry:`, only what `carry:` and `pass:` list is passed, and every other detail is asked when the child starts. Passed values are locked in the child's start form, and the start form opens only when something needs asking or a passed value doesn't fit the child's kind. If a passed detail changes while it's open, nothing starts. A step with `pass:` can't change `pass:` or `carry:` during a run (Fill in doesn't offer them); a step with only `carry:` can, as before.
+
+Publishing reads the child from the folder and stops when a `pass:` or `carry:` name isn't one of its run details, a fixed value doesn't fit the child's kind, a `^` source isn't in this checklist's `context:`, or the step sets that source itself. If the child later drops a name this step passes explicitly, the process page and Folder health say so; a detail that was only shared by name just stops being passed. A version that uses `pass:` is refused by name in Flightdeck before 2.8; checklists that use only `carry:` read as before.
+
 Add `version:` to run one exact version of the other process (Needs Flightdeck 2.0):
 
 ```markdown

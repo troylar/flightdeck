@@ -21,6 +21,7 @@ PF.timeline = (function () {
     moveShot: ['screenshot move', 'Moved a screenshot of {s}'], removeShot: ['screenshot removal', 'Removed a screenshot from {s}'],
     meta: ['checklist details change', 'Changed the checklist details'], note: ['note change', 'Changed the note of {s}'], when: ['condition change', 'Changed when {s} applies'],
     renameDetail: ['run detail rename', 'Renamed a run detail'],
+    editLink: ['linked step edit', 'Changed what a linked step runs or passes'],
     questions: ['Questions change', 'Changed the Questions section'], removeQuestions: ['Questions removal', 'Removed the Questions section']
   };
   var PREP = { typing: ' in ', paste: ' in ', cut: ' in ', drop: ' in ', correction: ' in ', indent: ' in ', 'new step': ' ', 'new phase': ' ', 'new lane': ' ', 'new field': ' ', 'new evidence': ' ', 'applied correction': ' to ', 'new screenshot': ' to ', 'screenshot removal': ' from ' };

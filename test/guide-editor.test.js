@@ -433,8 +433,10 @@ rule('Editor round trips: for every built-in type and each of its actions, revea
       const app = await editorOn(md(step(t.id, 's')), 's', { replace: true, domFocus: true }), want = {}, label = t.id + (v ? ' · ' + v : '');
       const fill = async (n, val) => { if (!boxes(formOf(app)).includes(n)) { app.click('ob-show', n); await app.tick(); } enter(app, 'ob-fld-' + n, val); await app.tick(); want[n] = val; };
       if (v) { choose(app, 'ob-fld-' + choice, v); await app.tick(); want[choice] = v; }
+      /* A linked step's process, version, carry: and pass: have their own section (2.8), tested on its own. */
+      const linkOwn = t.id === 'run.process' ? ['process', 'version', 'carry', 'pass'] : [];
       for (const n of Object.keys(t.fields || {}).filter(n => n !== choice).concat(pins)) {
-        if (!T.applies(t, n, want)) continue;
+        if (!T.applies(t, n, want) || linkOwn.includes(n)) continue;
         const d = T.fieldDef(t, n) || {};
         if (d.kind === 'choice') { const o = d.options[0]; choose(app, 'ob-fld-' + n, o); await app.tick(); want[n] = o; continue; }
         await fill(n, String(G.field(t, n, want).eg || (d.kind === 'pin' ? '1' : 'x')));
@@ -451,9 +453,91 @@ rule('Editor round trips: for every built-in type and each of its actions, revea
       assert.strictEqual(got, hand, label);
       assert.deepStrictEqual(plain(app.PF.types.LIST), was.LIST, label + ': T.LIST unchanged in the app');
       assert.deepStrictEqual(plain(app.PF.types.COMMON), was.COMMON, label + ': T.COMMON');
-      assert.deepStrictEqual(plain(app.PF.types.PINS), was.PINS, label + ': pins');
+      const pinsNow = plain(app.PF.types.PINS); delete pinsNow['run.process'].pass;
+      assert.deepStrictEqual(pinsNow, was.PINS, label + ': pins, less 2.8\'s pass:');
     }
   }
+});
+
+rule('Editor (2.8): a linked step picks its process from a list, and each of the child\'s details gets a source; every change is one edit', async () => {
+  const app = await editorOn(md(step('run.process', 's', 'process: check-in')), 's');
+  let h = formOf(app);
+  assert.ok(/<select id="ob-link-proc"/.test(h) && /<option value="check-in" selected>/.test(h), 'the process list, check-in chosen');
+  assert.ok(!/<option value="release"/.test(h.slice(h.indexOf('ob-link-proc'), h.indexOf('</select>', h.indexOf('ob-link-proc')))), 'never the checklist itself');
+  assert.ok(/What [^<]+ needs<\/h3>/.test(h) && /id="ob-link-src-commit"/.test(h) && /id="ob-link-src-branch"/.test(h), 'one row per child detail');
+  assert.ok(/Latest when the child starts/.test(h), 'a carry-only checklist takes the latest when the child starts');
+  assert.ok(/starts without /.test(h) && !/; asks /.test(h), 'before pass:, the summary says what starts empty, not what\'s asked');
+  assert.ok(!/id="ob-link-vn"/.test(h), 'which version is asked only once one is pinned');
+  app.select('ob-link-src-commit', '^tag'); await app.tick();
+  let t = await textOf(app);
+  assert.ok(/  process: check-in\n  pass: commit=\^tag\n/.test(t), t);
+  h = formOf(app);
+  assert.ok(/Latest when this run starts/.test(h), 'pass: makes it publish as /2, so the child is pinned when the run starts');
+  app.select('ob-link-src-commit', '='); await app.tick();
+  assert.ok(/id="ob-link-val-commit"/.test(formOf(app)), 'a fixed value gets a box');
+  app.select('ob-link-val-commit', 'abc123'); await app.tick();
+  t = await textOf(app);
+  assert.ok(/  pass: commit=abc123\n/.test(t), t);
+  app.select('ob-link-src-commit', '?'); await app.tick();
+  t = await textOf(app);
+  assert.ok(/  pass: commit=\?\n/.test(t), 'asked: the step keeps its pass: line, so the start form still asks: ' + t);
+  h = formOf(app);
+  assert.ok(!/id="ob-fld-process"/.test(h) && !/id="ob-fld-pass"/.test(h), 'no raw process: or pass: box under the section');
+});
+
+rule('Editor (2.8): a linked step without an ID is told apart from the step without one before it', async () => {
+  const text = HEAD + '## Build · READ-DO {#build}\n- [ ] {confirm} First thing\n- [ ] {run.process} Run the check-in\n  process: check-in\n  pass: commit=abc123\n\n';
+  const app = await editorOn(text, '#1');
+  let h = formOf(app);
+  assert.ok(/<select id="ob-link-src-commit"[\s\S]*?<option value="=" selected>/.test(h) && /id="ob-link-val-commit"[^>]*value="abc123"/.test(h), 'its own fixed value is shown');
+  app.select('ob-link-src-commit', '^tag'); await app.tick();
+  const t = await textOf(app);
+  assert.ok(/Run the check-in\n  process: check-in\n  pass: commit=\^tag\n/.test(t) && /First thing\n- \[ \]/.test(t), t);
+});
+
+rule('Editor (2.8): a fixed value or a process ID typed and not yet applied counts as unsaved', async () => {
+  const app = await editorOn(md(step('run.process', 's', 'process: check-in', 'pass: commit=abc123')), 's');
+  await app.tick(); app.click('save-draft'); await app.tick(80);
+  assert.ok(!app.leaveWarns(), 'set-up: nothing unsaved');
+  app.input('ob-link-val-commit', 'abc1234'); await new Promise(r => setTimeout(r, 300)); await app.tick();
+  assert.ok(app.leaveWarns(), 'leaving asks first');
+  app.input('ob-link-val-commit', 'abc123'); await new Promise(r => setTimeout(r, 300)); await app.tick();
+  assert.ok(!app.leaveWarns(), 'back to what the draft says');
+});
+
+rule('Editor (2.8): a fixed value that would read back as something else is refused beside its box, and nothing changes', async () => {
+  const app = await editorOn(md(step('run.process', 's', 'process: check-in', 'pass: commit=abc123')), 's');
+  const before = await textOf(app);
+  enter(app, 'ob-link-val-commit', 'abc456, branch=production'); await app.tick();
+  const h = formOf(app);
+  assert.ok(/id="ferr-ob-link-val-commit"[^>]*>A fixed value can't hold a comma/.test(un(h)), 'says why: ' + h.slice(h.indexOf('ob-link-val-commit') - 100, h.indexOf('ob-link-val-commit') + 400));
+  assert.ok(/id="ob-link-val-commit"[^>]*aria-invalid="true"/.test(h));
+  assert.strictEqual(await textOf(app), before, 'the draft is unchanged');
+  assert.ok(app.leaveWarns(), 'what was typed still counts as unsaved');
+  enter(app, 'ob-link-val-commit', '^tag'); await app.tick();
+  assert.ok(/can't start with \^ or \?/.test(un(formOf(app))));
+  enter(app, 'ob-link-val-commit', 'abc456'); await app.tick();
+  assert.ok(/  pass: commit=abc456\n/.test(await textOf(app)) && !/ferr-ob-link-val-commit/.test(formOf(app)), 'a good one applies and clears the message');
+});
+
+rule('Editor (2.8): on a step without pass:, a detail with no source says Not passed, and Asked can be chosen', async () => {
+  const app = await editorOn(md(step('run.process', 's', 'process: check-in')), 's');
+  const h = formOf(app), sel = h.slice(h.indexOf('id="ob-link-src-branch"'), h.indexOf('</select>', h.indexOf('id="ob-link-src-branch"')));
+  assert.ok(/<option value="-" selected>Not passed: [^<]+ starts without it/.test(sel) && /<option value="\?">Asked when [^<]+ starts/.test(sel), sel);
+  app.select('ob-link-src-branch', '?'); await app.tick();
+  assert.ok(/  process: check-in\n  pass: branch=\?\n/.test(await textOf(app)), await textOf(app));
+  assert.ok(/<option value="\?" selected>Asked when/.test(formOf(app)), 'now asked');
+});
+
+const CHECKIN = (app) => app.PF.map.parse(app.fs.files[Object.keys(app.fs.files).find(p => /^publications\/check-in\/.*\/map\.md$/.test(p))].t);
+rule('Editor (2.8): a name the child doesn\'t have is shown with a Remove fix', async () => {
+  const app = await editorOn(md(step('run.process', 's', 'process: check-in', 'carry: tag')), 's');
+  assert.ok(/has no run detail tag, so this step can't pass it/.test(un(formOf(app))));
+  const before = app.PF.links.rows(app.PF.map.findStep(app.PF.map.parse(await textOf(app)), 's').step, app.PF.map.parse(await textOf(app)).meta.context, CHECKIN(app)).rows;
+  app.click('ob-link-rm', 's', { name: 'tag' }); await app.tick();
+  const t = await textOf(app), m = app.PF.map.parse(t);
+  assert.ok(!/carry:/.test(t), t);
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(app.PF.links.rows(app.PF.map.findStep(m, 's').step, m.meta.context, CHECKIN(app)).rows)), JSON.parse(JSON.stringify(before)), 'every other detail gets what it got before, nothing starts being passed: ' + t);
 });
 
 run();

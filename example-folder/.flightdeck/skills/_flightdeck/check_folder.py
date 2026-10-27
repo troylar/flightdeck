@@ -143,7 +143,7 @@ def js_json(v):
 PUBLICATION_FORMAT = "preflight-publication/1"
 TYPES_VERSION = 2
 NEWER = "This version uses checklist features this copy of Flightdeck doesn't understand. Update Flightdeck to run it."
-PINS = {"run.process": {"version": {"kind": "pin"}}, "run.skill": {"skillVersion": {"kind": "pin"}}}
+PINS = {"run.process": {"version": {"kind": "pin"}, "pass": {"kind": "pass"}}, "run.skill": {"skillVersion": {"kind": "pin"}}}
 COMMON = {"link": {"kind": "url"}, "expect": {"kind": "duration"}, "deadline": {"kind": "deadline"}, "evidence": {"kind": "choice", "options": ["link", "note", "number", "yes-no", "date"]},
           "require": {"kind": "require"}, "at": {"kind": "time"}, "due": {"kind": "time"}, "after": {"kind": "duration"}, "sets": {"kind": "sets"}}
 BUILTIN = {
@@ -601,6 +601,8 @@ def features(parsed, types):
             has.add("pinned-children")
         if s["type"] == "run.skill" and "skillVersion" in s["fields"]:
             has.add("pinned-skills")
+        if s["type"] == "run.process" and "pass" in s["fields"]:
+            has.add("passed-details")
     for p in parsed["phases"]:
         if p["note"] or p.get("noted"):
             has.add("phase-notes")
@@ -636,6 +638,69 @@ def js_concat(o, key):
     return "null" if o[key] is None else js_str(o[key])
 
 
+PASS_NAME = re.compile(r"^[A-Za-z0-9_-]{1,60}$")
+PASS_DETAIL = re.compile(r"^\^([A-Za-z0-9_-]+)$")
+JS_PROTO = {"__proto__", "constructor", "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable", "toLocaleString", "toString", "valueOf",
+            "__defineGetter__", "__defineSetter__", "__lookupGetter__", "__lookupSetter__"}
+
+
+def pass_errors(text):
+    """The errors of the app's PF.links.parse: a pass: line on a linked step (2.8)."""
+    raw = js_str(text)
+    if not js_trim(raw):
+        return []
+    parts = raw.split(",")
+    if len(parts) > 40:
+        return ["pass: can list at most 40 details."]
+    errors, seen = [], set()
+    for seg in parts:
+        t = js_trim(seg)
+        eq = t.find("=")
+        if not t:
+            errors.append("pass: has an empty entry (two commas in a row, or one at the end).")
+            continue
+        name = js_trim(t[:eq]) if eq >= 0 else ""
+        right = js_trim(t[eq + 1:]) if eq >= 0 else ""
+        if eq < 0 or not name:
+            errors.append("\"%s\" needs a name, =, and where its value comes from, like environment=^env." % t)
+            continue
+        if name in JS_PROTO:
+            errors.append("\"%s\" is a name Flightdeck keeps for itself." % name)
+            continue
+        if not PASS_NAME.match(name):
+            errors.append("\"%s\" isn't a run detail name (letters, digits, - and _)." % name)
+            continue
+        if name in seen:
+            errors.append("pass: names \"%s\" twice." % name)
+            continue
+        seen.add(name)
+        if not right:
+            errors.append("\"%s=\" says where its value comes from after the =: ^a detail, ? to ask, or a fixed value." % name)
+            continue
+        if right == "?":
+            continue
+        m = PASS_DETAIL.match(right)
+        if m:
+            if m.group(1) in JS_PROTO:
+                errors.append("\"^%s\" is a name Flightdeck keeps for itself." % m.group(1))
+            continue
+        if right == "^":
+            errors.append("\"%s=^\" names no run detail: \"^\" isn't a run detail." % name)
+            continue
+        if right[:5].lower() == "team:":
+            errors.append("\"%s=%s\": Team values aren't available yet." % (name, right))
+            continue
+        if "^" in right:
+            errors.append("\"%s=%s\": a fixed value can't hold ^. Use ^name alone to pass a run detail." % (name, right))
+            continue
+        if re.search(r"[\x00-\x1f\x7f]", right):
+            errors.append("\"%s=\u2026\" has a control character." % name)
+            continue
+        if len(right.encode("utf-16-le")) // 2 > 120:
+            errors.append("\"%s=\u2026\": a fixed value can be at most 120 characters." % name)
+    return errors
+
+
 def field_errors(type_def, fields):
     """The errors (not tips) of the app's PF.types.checkFields. Raises ValueError where that function would throw."""
     own = type_def.get("fields") if isinstance(type_def, dict) else None
@@ -668,6 +733,8 @@ def field_errors(type_def, fields):
             errors.append("\"version\" should be a version number, like 4.")
         if kind == "pin" and f == "skillVersion" and not re.match(r"^[\w.+-]{1,40}$", v.strip()):
             errors.append("\"skillVersion\" should be the skill's version, like 1.2.0.")
+        if kind == "pass":
+            errors.extend(pass_errors(v))
         if kind == "list" and len(js_list(v)) < 2:
             errors.append("\"%s\" needs at least two choices, separated by commas." % f)
         if kind == "require":
@@ -765,7 +832,7 @@ def read_text(path):
 # newer major, or with a must-understand feature this copy doesn't know, is refused and named with the version it needs.
 # test/checker.test.js fails if this disagrees with src/core/envelope.js.
 FAMILIES = {
-    "preflight-publication": {"majors": {1: [], 2: ["phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "typed-details", "typed-evidence", "conditions", "staged"]}, "future": {2: "2.0"}, "unmarked": False},
+    "preflight-publication": {"majors": {1: [], 2: ["phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "typed-details", "typed-evidence", "conditions", "passed-details", "staged"]}, "future": {2: "2.0"}, "unmarked": False},
     "flightdeck-step-type": {"majors": {1: [], 2: ["typed-evidence"]}, "future": {2: "2.0"}, "unmarked": True},
     "flightdeck-plan": {"majors": {1: [], 2: []}, "future": {}, "unmarked": False, "kinds": ["plan"]},
     "flightdeck-plan-status": {"majors": {1: [], 2: []}, "future": {}, "unmarked": False, "kinds": ["status"]},
@@ -776,9 +843,9 @@ FAMILY_NAMES = ["flightdeck-checklist", "preflight-publication", "preflight-run"
                 "flightdeck-plan-status", "flightdeck-validation", "flightdeck-followup-decision", "flightdeck-correction-decision", "flightdeck-fix-decision", "flightdeck-proposal",
                 "flightdeck-presence", "flightdeck-connection", "flightdeck-people", "flightdeck-skill", "flightdeck-editor-history", "flightdeck-installed", "flightdeck-stage-decision",
                 "flightdeck-extension", "flightdeck-report", "flightdeck-report-decision"]
-FROZEN = ["typed-details", "typed-evidence", "phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "staged", "test-run", "extensions", "conditions"]
+FROZEN = ["typed-details", "typed-evidence", "phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "staged", "test-run", "extensions", "conditions", "passed-details"]
 # The first release that reads a feature, where it isn't 2.0 (PF.envelope.SINCE).
-SINCE = {"conditions": "2.1", "staged": "2.1", "test-run": "2.1"}
+SINCE = {"conditions": "2.1", "staged": "2.1", "test-run": "2.1", "passed-details": "2.8"}
 
 
 def _minimum(features):

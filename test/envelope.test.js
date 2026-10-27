@@ -18,20 +18,21 @@ const no = (fam, o, kind, needs) => {
   return v;
 };
 
-rule('Every family in the 2.0 plan is in PF.envelope.FAMILIES, and every frozen feature has a name (2.1 appends conditions, so every 2.0 feature keeps its place)', () => {
+rule('Every family in the 2.0 plan is in PF.envelope.FAMILIES, and every frozen feature has a name (2.1 appends conditions and 2.8 passed-details, so every earlier feature keeps its place)', () => {
   ['flightdeck-checklist', 'preflight-publication', 'preflight-run', 'flightdeck-run-archive', 'flightdeck-step-type', 'flightdeck-types', 'flightdeck-plan', 'flightdeck-plan-status',
     'flightdeck-validation', 'flightdeck-followup-decision', 'flightdeck-correction-decision', 'flightdeck-fix-decision', 'flightdeck-proposal', 'flightdeck-presence', 'flightdeck-connection',
     'flightdeck-people', 'flightdeck-skill', 'flightdeck-editor-history', 'flightdeck-installed', 'flightdeck-stage-decision', 'flightdeck-extension', 'flightdeck-report', 'flightdeck-report-decision']
     .forEach(f => assert.ok(E.FAMILIES[f], f));
-  assert.deepStrictEqual(plain(E.FROZEN), ['typed-details', 'typed-evidence', 'phase-notes', 'phase-shots', 'gate-shots', 'pinned-children', 'pinned-skills', 'staged', 'test-run', 'extensions', 'conditions']);
+  assert.deepStrictEqual(plain(E.FROZEN), ['typed-details', 'typed-evidence', 'phase-notes', 'phase-shots', 'gate-shots', 'pinned-children', 'pinned-skills', 'staged', 'test-run', 'extensions', 'conditions', 'passed-details']);
+  assert.strictEqual(E.SINCE['passed-details'], '2.8'); assert.strictEqual(E.minimum(['conditions', 'passed-details']), '2.8');
   E.FROZEN.forEach(f => assert.ok(E.FEATURE.test(f)));
 });
 
 /* Slice 2, part 1: phase and gate notes and screenshots; part 2: pins; slice 3: typed data. Only these are registered; every
    other 2.0 feature stays refused (review #12). */
-const PART1 = ['phase-notes', 'phase-shots', 'gate-shots'], PART2 = PART1.concat(['pinned-children', 'pinned-skills']), PART3 = PART2.concat(['typed-details', 'typed-evidence']), PART4 = PART3.concat(['conditions']), STAGED = PART4.concat(['staged']), TESTRUN = STAGED.concat(['test-run']);
-rule('Each slice registers only the features it builds: checklist/2, publication/2 and run/3 know the notes, screenshots, pins, typed-data and conditions features, publication/2 staged too (2.1), run/3 staged and test-run (2.1), step-type/2 typed evidence, nothing else does', () => {
-  const want = { 'flightdeck-checklist': { 2: PART4 }, 'preflight-publication': { 2: STAGED }, 'preflight-run': { 3: TESTRUN }, 'flightdeck-step-type': { 2: ['typed-evidence'] } };
+const PART1 = ['phase-notes', 'phase-shots', 'gate-shots'], PART2 = PART1.concat(['pinned-children', 'pinned-skills']), PART3 = PART2.concat(['typed-details', 'typed-evidence']), PART4 = PART3.concat(['conditions']), PART5 = PART4.concat(['passed-details']), STAGED = PART5.concat(['staged']), TESTRUN = STAGED.concat(['test-run']);
+rule('Each slice registers only the features it builds: checklist/2, publication/2 and run/3 know the notes, screenshots, pins, typed-data, conditions and passed-details (2.8) features, publication/2 staged too (2.1), run/3 staged and test-run (2.1), step-type/2 typed evidence, nothing else does', () => {
+  const want = { 'flightdeck-checklist': { 2: PART5 }, 'preflight-publication': { 2: STAGED }, 'preflight-run': { 3: TESTRUN }, 'flightdeck-step-type': { 2: ['typed-evidence'] } };
   Object.keys(E.FAMILIES).forEach(f => Object.keys(E.FAMILIES[f].majors).forEach(m => assert.deepStrictEqual(plain(E.FAMILIES[f].majors[m]), (want[f] || {})[m] || [], f + '/' + m)));
   no('preflight-publication', { format: 'preflight-publication/2', features: ['test-run'] }, 'newer', '2.1');
   no('preflight-publication', { format: 'preflight-publication/2', features: ['extensions'] }, 'newer', '2.0');

@@ -17,6 +17,12 @@ function check(releases) {
 }
 const clone = () => JSON.parse(JSON.stringify(GOOD));
 
+rule('test/run.sh runs every test file in test/', () => {
+  const listed = fs.readFileSync(path.join(__dirname, 'run.sh'), 'utf8').split('\n').filter(l => /^t test\//.test(l)).map(l => l.slice(7).trim());
+  const files = fs.readdirSync(__dirname).filter(f => /\.test\.js$/.test(f));
+  assert.deepStrictEqual(files.filter(f => listed.indexOf(f) < 0), [], 'add these to test/run.sh');
+});
+
 rule('The shipped release notes are valid, and CHANGELOG.md is exactly what they generate', () => {
   if (!py) return console.log('  (skipped: no Python)');
   const r = check(GOOD);
@@ -180,6 +186,14 @@ rule('2.3.0 has its own release entry above 2.2.1: Practice on the run screen, E
   const text = JSON.stringify(r);
   assert.ok(/run screen/.test(text) && /Back to practice/.test(text) && /Try it again/.test(text), text);
   assert.ok(!/colour|cancelled|behaviour|LLM/i.test(text), 'US English, and your AI assistant, never LLM');
+});
+
+rule('2.8.0 has its own release entry above 2.7.0: nested processes that know what the child needs, in plain words', () => {
+  const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')), at = rel.findIndex(x => x.version === '2.8.0'), r = rel[at];
+  assert.ok(at >= 0, 'listed'); assert.strictEqual(rel[at + 1].version, '2.7.0');
+  const text = JSON.stringify(r);
+  assert.ok(/pass:/.test(text) && /start form/.test(text) && /Flightdeck 2\.8/.test(text) && /Folder health/.test(text) && /Rename/.test(text), text);
+  assert.ok(!/colour|cancelled|behaviour|LLM|baselines|PF\.|team values/i.test(text), 'US English, plain words, nothing not shipped');
 });
 
 rule('2.6.1 has its own release entry above 2.6.0: documentation that matches the app, and how it reaches a folder', () => {

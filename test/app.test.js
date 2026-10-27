@@ -8215,7 +8215,7 @@ rule('Checklist details: the change that follows an add (a redrawn box) never ad
   assert.ok(/already a run detail/.test(app.html()), 'typing the same name again on purpose is still refused');
   assert.strictEqual(app.draft('ob-add-ctx'), 'region', 'with the typing kept');
 });
-rule('Checklist details: Rename a run detail follows it everywhere as one Undo step; a carried name and a taken name are refused next to the box (2.7)', async () => {
+rule('Checklist details: Rename a run detail follows it everywhere as one Undo step; a carried name is passed on under its old name (2.8); a taken name is refused next to the box (2.7)', async () => {
   const app = await builderOn();
   app.click('ob-sel-details'); await app.tick();
   let html = app.html();
@@ -8232,10 +8232,16 @@ rule('Checklist details: Rename a run detail follows it everywhere as one Undo s
   app.click('tl-undo', 'draft'); await app.tick();
   assert.ok(/data-act="ob-ren" data-id="tag"/.test(app.html()) && !/data-id="build_tag"/.test(app.html()), 'one Undo takes it all back');
 
+  /* 2.8: carry: names it, and check-in is known, so the rename keeps passing it: carry: gives way to pass: commit=^sha. */
   app.click('ob-ren', 'commit'); await app.tick();
   app.set('ob-ren-ctx', 'sha'); app.click('ob-ren-go', 'commit'); await app.tick();
-  assert.ok(/<p class="ferr" id="ferr-ob-ren-ctx" role="alert">The step “Check in the release notes for this commit” passes \^commit to check-in by name\. Renaming it would stop that\.<\/p>/.test(app.html()), 'carry: names it, so it\'s refused, once: ' + (app.html().match(/id="ferr-ob-ren-ctx"[^>]*>[^<]*/) || [''])[0]);
-  assert.strictEqual(app.draft('ob-ren-ctx'), 'sha', 'the typing stays');
+  assert.ok(/Renamed \^commit to \^sha/.test(app.live()), app.live());
+  app.click('save-draft'); await app.tick(80);
+  const relinked = app.fs.files['maps/drafts/release.md'].t;
+  assert.ok(/  process: check-in\n(?:  [\w-]+: .*\n)*  pass: commit=\^sha\n/.test(relinked) && !/carry: commit/.test(relinked), relinked.slice(relinked.indexOf('process: check-in') - 10, relinked.indexOf('process: check-in') + 120));
+  app.click('tl-undo', 'draft'); await app.tick();
+  app.click('ob-ren', 'commit'); await app.tick();
+  app.set('ob-ren-ctx', 'sha'); app.input('ob-ren-ctx', 'sha'); await app.tick();
   app.click('ob-ren-cancel', 'commit'); await app.tick();
   assert.ok(!/id="ob-ren-ctx"/.test(app.html()) && app.focused() === '[data-act="ob-ren"][data-id="commit"]', 'Cancel closes it and goes back to its Rename');
 
@@ -8620,6 +8626,148 @@ rule('Conditions (2.1): a child-run step whose condition tests a carried detail 
   assert.ok(j.steps.notes.child.id !== link.id && !j.steps.notes.child.retired, 'a new child replaces it');
   const said = j.log.filter(l => /Replaced/.test(l.what)).pop();
   assert.ok(said && /retired/.test(said.what) && !/didn't complete/.test(said.what), said && said.what);
+});
+
+/* ---------- 2.8: a linked step's start dialog, from pass: ---------- */
+async function passStart(passLine, kidCtx) {
+  const app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(80); app.choose('person-casey'); await app.tick();
+  const PF = app.PF, people = JSON.parse(app.fs.files['people.json'].t), now = new Date().toISOString();
+  const put = (md, id, rand) => {
+    const b = PF.publish.build(md, { people, ...require('./harness').exampleSetup(PF), by: 'person-avery', changes: 'First', existing: [], now, rand, app: '2.8.0' });
+    assert.ok(!b.blockers, JSON.stringify(b.blockers));
+    Object.keys(b.files).forEach(k => { app.fs.files['publications/' + id + '/' + b.folder + '/' + k] = { t: b.files[k], m: Date.now() }; });
+  };
+  put(['---', 'process: deploy', 'title: Deploy', 'owner: person-avery', 'context: ' + (kidCtx || 'environment, region, ticket, notify'), '---', '', '## Go · READ-DO {#go}', '- [ ] {confirm} Go {#go1}'].join('\n'), 'deploy', 'dp000001');
+  put(['---', 'process: ship', 'title: Ship', 'owner: person-avery', 'context: env, ticket', '---', '', '## Ship · READ-DO {#s}', '- [ ] {run.process} Deploy it {#dep}', '  process: deploy', '  pass: ' + passLine].join('\n'), 'ship', 'sh000001');
+  app.click('refresh'); await app.tick(80);
+  app.click('start', 'ship'); await app.settle();
+  app.set('detail-env', 'prod'); app.set('detail-ticket', 'T-1'); app.submitForm('start-form'); await app.tick(120);
+  assert.ok(/<h1 id="run-h"[^>]*>Ship/.test(app.html()), 'set-up: the parent run is open');
+  return app;
+}
+const shipRun = (app) => JSON.parse(app.fs.files[app.files('runs/ship/').find(p => /run\.json$/.test(p))].t);
+const deployRuns = (app) => app.files('runs/deploy/').filter(p => /run\.json$/.test(p)).map(p => JSON.parse(app.fs.files[p].t));
+
+rule('2.8: a pass: step with a detail to ask opens the child\'s start dialog; the child starts with the passed, fixed and asked values, and counts for the parent\'s names', async () => {
+  const app = await passStart('environment=^env, region=us-east-1, notify=?');
+  app.click('start-child', 'dep'); await app.tick(40);
+  const ov = app.overlay();
+  assert.ok(/id="child-start-form"/.test(ov), 'the dialog opens');
+  assert.ok(/from \^env of this run/.test(ov) && /fixed in the checklist/.test(ov), 'passed values say where they come from');
+  assert.ok(/id="cs-notify"/.test(ov) && !/id="cs-environment"/.test(ov) && !/id="cs-ticket"/.test(ov), 'only the asked detail has a box');
+  assert.strictEqual(deployRuns(app).length, 0, 'nothing starts before submit');
+  app.set('cs-notify', 'ops'); app.submitForm('child-start-form'); await app.tick(150);
+  const kids = deployRuns(app);
+  assert.strictEqual(kids.length, 1, 'one child');
+  assert.deepStrictEqual(kids[0].details, { environment: 'prod', region: 'us-east-1', ticket: 'T-1', notify: 'ops' });
+  assert.deepStrictEqual(kids[0].parent.inputs, { env: 'prod', ticket: 'T-1' }, 'the snapshot is by the parent\'s names');
+  const link = shipRun(app).steps.dep.child;
+  assert.ok(link && link.id === kids[0].id && link.inputs.env === 'prod' && !('environment' in link.inputs), 'linked with the same snapshot');
+  const path = app.files('runs/deploy/').find(p => /run\.json$/.test(p)), kid = kids[0];
+  kid.ended = { outcome: 'Completed', by: 'person-avery', at: new Date().toISOString() }; kid.state = 'completed'; kid.rev = (kid.rev || 0) + 1;
+  await app.fs.write(path, JSON.stringify(kid));
+  app.click('refresh'); await app.tick(100);
+  assert.strictEqual(shipRun(app).steps.dep.s, 'done', 'the parent step is checked: the renamed value counts');
+});
+
+rule('2.8: a value that doesn\'t fit keeps the child\'s start dialog open with what was typed, and says why; a good one starts it', async () => {
+  const app = await passStart('environment=^env, region=us-east-1, notify=?', 'environment, region, ticket, notify:number');
+  app.click('start-child', 'dep'); await app.tick(40);
+  app.set('cs-notify', 'oops'); app.submitForm('child-start-form'); await app.tick(80);
+  const ov = app.overlay();
+  assert.ok(/id="child-start-form"/.test(ov), 'still open');
+  assert.ok(/id="cs-err"/.test(ov), 'says why: ' + ov.slice(0, 400));
+  assert.ok(/id="cs-notify"[^>]*value="oops"/.test(ov), 'what was typed is kept');
+  assert.strictEqual(deployRuns(app).length, 0, 'nothing started');
+  app.set('cs-notify', '3'); app.submitForm('child-start-form'); await app.tick(150);
+  assert.ok(!/child-start-form/.test(app.overlay()), 'closed once it starts');
+  assert.deepStrictEqual(deployRuns(app).map(k => k.details.notify), ['3']);
+});
+
+rule('2.8: what was typed in the child\'s start dialog survives a redraw, and starts the child', async () => {
+  const app = await passStart('environment=^env, region=us-east-1, notify=?');
+  app.click('start-child', 'dep'); await app.tick(40);
+  app.input('cs-notify', 'ops'); await app.tick();
+  app.click('refresh'); await app.tick(100);
+  const ov = app.overlay();
+  assert.ok(/id="cs-notify"[^>]*value="ops"/.test(ov), 'kept: ' + ov.slice(ov.indexOf('cs-notify') - 50, ov.indexOf('cs-notify') + 200));
+  app.submitForm('child-start-form'); await app.tick(150);
+  assert.deepStrictEqual(deployRuns(app).map(k => k.details.notify), ['ops']);
+});
+
+rule('2.8: a yes-no answer chosen in the child\'s start dialog survives a redraw too', async () => {
+  const app = await passStart('environment=^env, region=us-east-1, notify=?', 'environment, region, ticket, notify:yes-no');
+  app.click('start-child', 'dep'); await app.tick(40);
+  const ov0 = app.overlay(), radio = /<input[^>]*id="(opt-cs-notify-\d+)"[^>]*value="yes"/.exec(ov0) || /<input[^>]*value="yes"[^>]*id="(opt-cs-notify-\d+)"/.exec(ov0);
+  assert.ok(radio, 'set-up: a Yes radio: ' + ov0.slice(ov0.indexOf('notify'), ov0.indexOf('notify') + 600));
+  app.set(radio[1], 'yes'); app.check(radio[1], true); await app.tick();
+  app.click('refresh'); await app.tick(100);
+  const ov = app.overlay(), tag = (new RegExp('<input[^>]*id="' + radio[1] + '"[^>]*>').exec(ov) || [''])[0];
+  assert.ok(/\schecked/.test(tag), 'still chosen: ' + tag);
+  /* Submitting reads the checked radio from the page (inputValue), which the harness can't model inside a fieldset; the
+     text test above submits. */
+});
+
+rule('2.8: an answer in the child\'s start dialog keeps search and Back from closing it, even after a redraw; Escape still does', async () => {
+  const app = await passStart('environment=^env, region=us-east-1, notify=?');
+  app.click('start-child', 'dep'); await app.tick(40);
+  app.input('cs-notify', 'ops'); await app.tick();
+  app.click('refresh'); await app.tick(100);
+  app.keyOn('k', { ctrlKey: true }); await app.tick(40);
+  app.keyOn('k', { ctrlKey: true }); await app.tick(40);
+  app.back(); await app.settle();
+  const ov = app.overlay();
+  assert.ok(/id="child-start-form"/.test(ov) && !/role="combobox"/.test(ov), 'still the dialog: ' + ov.slice(0, 300));
+  assert.ok(/id="cs-notify"[^>]*value="ops"/.test(ov), 'the answer is kept');
+  assert.ok(/Finish or cancel this first\./.test(app.html() + app.live()), 'says why');
+  app.submitForm('child-start-form'); await app.tick(150);
+  assert.deepStrictEqual(deployRuns(app).map(k => k.details.notify), ['ops']);
+  const app2 = await passStart('environment=^env, region=us-east-1, notify=?');
+  app2.click('start-child', 'dep'); await app2.tick(40);
+  app2.input('cs-notify', 'ops'); await app2.tick();
+  app2.key('Escape'); await app2.tick();
+  assert.ok(!/child-start-form/.test(app2.overlay()), 'Escape cancels it');
+  app2.click('start-child', 'dep'); await app2.tick(40);
+  app2.keyOn('k', { ctrlKey: true }); await app2.tick(40);
+  assert.ok(/role="combobox"/.test(app2.overlay()), 'an empty dialog gives way to search');
+});
+
+rule('2.8: a child start that can\'t be saved keeps what the dialog was given; starting again brings it back and works', async () => {
+  const app = await passStart('environment=^env, region=us-east-1, notify=?');
+  const write = app.fs.write.bind(app.fs);
+  app.fs.write = (p, t) => /^runs\/deploy\//.test(p) ? Promise.reject(new Error('disk full')) : write(p, t);
+  app.click('start-child', 'dep'); await app.tick(40);
+  app.set('cs-notify', 'ops'); app.submitForm('child-start-form'); await app.tick(150);
+  assert.strictEqual(deployRuns(app).length, 0, 'set-up: the save failed');
+  assert.ok(/kept for when you start it again/.test(app.html() + app.live()), 'says it is kept: ' + app.live());
+  app.fs.write = write;
+  app.click('start-child', 'dep'); await app.tick(40);
+  assert.ok(/id="cs-notify"[^>]*value="ops"/.test(app.overlay()), 'the answer is back');
+  app.submitForm('child-start-form'); await app.tick(150);
+  assert.deepStrictEqual(deployRuns(app).map(k => k.details.notify), ['ops']);
+  app.click('start-child', 'dep'); await app.tick(40);
+  assert.ok(!/value="ops"/.test(app.overlay()), 'brought back once, not again');
+});
+
+rule('2.8: a pass: step with nothing to ask starts at once, as before', async () => {
+  const app = await passStart('environment=^env, region=us-east-1, notify=none');
+  app.click('start-child', 'dep'); await app.tick(150);
+  assert.ok(!/child-start-form/.test(app.overlay()), 'no dialog');
+  assert.deepStrictEqual(deployRuns(app).map(k => k.details), [{ environment: 'prod', region: 'us-east-1', ticket: 'T-1', notify: 'none' }]);
+});
+
+rule('2.8: a passed detail that changes while the child is saving writes nothing and says why', async () => {
+  const app = await passStart('environment=^env, region=us-east-1, notify=?');
+  app.click('start-child', 'dep'); await app.tick(40);
+  const fsr = app.fs.read.bind(app.fs), g = gate(); let held = false;
+  app.fs.read = function (p) { if (!held && /^runs\/deploy\//.test(p)) { held = true; return g.p.then(() => fsr(p)); } return fsr(p); };
+  app.set('cs-notify', 'ops'); app.submitForm('child-start-form'); await app.tick(40);
+  assert.ok(held, 'set-up: the save is in its read');
+  app.click('edit', 'detail:env'); app.set('edit-input', 'dev'); app.click('save-edit'); await app.tick(40);
+  g.open(); await app.tick(150);
+  app.fs.read = fsr;
+  assert.strictEqual(deployRuns(app).length, 0, 'nothing written');
+  assert.ok(/A detail this run passes changed while you were filling this in/.test(app.html() + app.live()));
 });
 
 run();

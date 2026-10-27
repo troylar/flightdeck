@@ -846,4 +846,48 @@ rule('The checker reads conditions (2.1) like the app: the same parse errors, th
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+rule('The checker reads pass: (2.8) like the app: the same errors, the passed-details feature listed, a version with it complete', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-pass-'));
+  try {
+    const d = new DiskFS(root), U = PF.util, sha = (t) => require('crypto').createHash('sha256').update(t, 'utf8').digest('hex');
+    await d.write('people.json', JSON.stringify(people));
+    const md = '---\nprocess: x\ntitle: X\ncontext: env, tag\n---\n## Ship {#ship}\n- [ ] {run.process} Deploy {#dep}\n  process: deploy\n  pass: environment=^env, region=us-east-1, notify=?\n\n## Gate: Ready {#ready}\n';
+    const v = await repo.publish(d, md, { people, ...EX, by: 'person-avery', changes: 'x', existing: [], now: NOW, app: '2.8.0' });
+    assert.ok(!v.blockers, String(v.blockers));
+    const base = 'publications/x/' + v.folder + '/', info = JSON.parse(fs.readFileSync(path.join(root, ...base.split('/'), 'publication.json'), 'utf8')), types0 = fs.readFileSync(path.join(root, ...base.split('/'), 'types.json'), 'utf8');
+    assert.deepStrictEqual(info.features, ['passed-details']);
+    const forge = async (n, text, editInfo) => {
+      const folder = 'v' + n + '-pass000' + n, dst = 'publications/x/' + folder + '/', i = JSON.parse(JSON.stringify(info));
+      Object.assign(i, { version: n, folder, mapHash: U.hash(text), typesHash: U.hash(types0) }); i.payload.map = sha(text); i.payload.types = sha(types0);
+      if (editInfo) editInfo(i);
+      await d.write(dst + 'map.md', text); await d.write(dst + 'types.json', types0); await d.write(dst + 'publication.json', JSON.stringify(i, null, 2));
+      return folder;
+    };
+    const swap = (b) => md.replace('environment=^env, region=us-east-1, notify=?', b);
+    const bad = [
+      await forge(2, md, (i) => { i.features = []; }),
+      await forge(3, swap('environment=^env,, x=?')), await forge(4, swap('environment')), await forge(5, swap('=^env')), await forge(6, swap('a b=^env')),
+      await forge(7, swap('constructor=^env')), await forge(8, swap('a=^env, a=?')), await forge(9, swap('a=')), await forge(10, swap('a=^')), await forge(11, swap('a=x^y')),
+      await forge(12, swap('a=team:base')), await forge(13, swap('a=x\u0001y')), await forge(14, swap('a=' + 'é'.repeat(121))),
+      await forge(15, swap(Array.from({ length: 41 }, (_, k) => 'd' + k + '=?').join(', '))), await forge(16, swap('a=^toString'))
+    ];
+    const good = [await forge(17, md), await forge(18, swap('a=' + 'é'.repeat(120))), await forge(19, swap('')), await forge(20, swap(' a = ^tag ,b=?'))];
+    const app = await repo.loadAll(d, { deep: true }), pubs = app.processes.find(p => p.process === 'x').pubs;
+    const out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
+    const ver = out.publications.x;
+    for (const folder of bad) {
+      const mine = ver.versions.find(x => x.folder === folder), theirs = pubs.find(p => p.folder === folder);
+      assert.ok(!theirs.ok && theirs.unusable, folder + ': the app refuses it as unusable: ' + theirs.why);
+      assert.strictEqual(mine.status, 'unusable', folder + ': ' + mine.status + ' ' + mine.why);
+      assert.strictEqual(mine.why, theirs.why, folder + ': same reason');
+    }
+    for (const folder of good.concat([v.folder])) {
+      assert.ok(pubs.find(p => p.folder === folder).ok, folder + ' runs in the app: ' + pubs.find(p => p.folder === folder).why);
+      assert.strictEqual(ver.versions.find(x => x.folder === folder).status, 'complete', folder);
+    }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
 run();

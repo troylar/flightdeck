@@ -119,6 +119,13 @@
   function passesOn(r, s, pub) {
     var problem = R.childProblem(r, s, pub.map.meta.context);
     if (problem) return problem;
+    /* 2.8: a pass: step says where each value comes from and what the child asks when it starts. */
+    if (PF.links.has(s)) {
+      var rows = PF.links.rows(R.effStep(r, s), Object.keys(r.details), pub.map).rows, dv = R.childDetails(r, s, pub.map), setBy = M.setBy(pub.map);
+      var gave = rows.filter(function (x) { return x.source !== 'ask'; }).map(function (x) { var v = Object.prototype.hasOwnProperty.call(dv, x.name) ? dv[x.name] : ''; return x.name + (v ? ' ' + v : ' (empty)') + (x.source === 'value' ? ' (fixed)' : x.from !== x.name ? ' (from ' + x.from + ')' : ''); });
+      var asks = rows.filter(function (x) { return x.source === 'ask' && !Object.prototype.hasOwnProperty.call(setBy, x.name); }).map(function (x) { return x.name; });
+      return (gave.length ? 'Passes on ' + gave.join(', ') : 'Passes on no details') + (asks.length ? '; asks for ' + asks.join(', ') + ' when it starts' : '');
+    }
     var d = R.childDetails(r, s, pub.map.meta.context), keys = Object.keys(d);
     return keys.length ? 'Passes on ' + keys.map(function (k) { return k + (d[k] ? ' ' + d[k] : ' (empty)'); }).join(', ') : 'Passes on no details';
   }
@@ -603,7 +610,7 @@
       /* A Jira issue type or status the team's workflows don't have says why beside its box, as soon as it's chosen. */
       var jf = V.jiraFill && !P ? V.jiraFill(r, st, eff2) : null, jid = 'jwhy-' + st.id;
       recBody = '<div class="pick record" data-scope="fields:' + esc(st.id) + '"><span class="small">Fill in or correct this step\'s values for ' + (P ? 'practice' : 'this run') + '. Leave anything you don\'t know yet.</span>' + ferr(s, st.id) +
-        T.relevant(t, eff2).concat(jf && T.relevant(t, eff2).indexOf(jf.field) < 0 && T.editable(t).indexOf(jf.field) >= 0 ? [jf.field] : []).map(function (f) { var d = T.fieldDef(t, f), mine = jf && jf.field === f; return fieldInput('fld-' + f, d, dr.fields['fld-' + f] != null ? dr.fields['fld-' + f] : eff2[f] || '', 'save-fields', st.id, st.fields[f] && own[f] != null ? ' (checklist says: ' + st.fields[f] + ')' : '', mine ? jid : errFor(s, st.id, 'fld-' + f), gField(t, f, eff2)) + (mine ? '<p class="ferr" id="' + esc(jid) + '">' + esc(jf.why) + '</p>' : ''); }).join('') +
+        T.relevant(t, eff2).concat(jf && T.relevant(t, eff2).indexOf(jf.field) < 0 && T.editable(t).indexOf(jf.field) >= 0 ? [jf.field] : []).filter(function (f) { return !(f === 'carry' && PF.links.has(st)); }).map(function (f) { var d = T.fieldDef(t, f), mine = jf && jf.field === f; return fieldInput('fld-' + f, d, dr.fields['fld-' + f] != null ? dr.fields['fld-' + f] : eff2[f] || '', 'save-fields', st.id, st.fields[f] && own[f] != null ? ' (checklist says: ' + st.fields[f] + ')' : '', mine ? jid : errFor(s, st.id, 'fld-' + f), gField(t, f, eff2)) + (mine ? '<p class="ferr" id="' + esc(jid) + '">' + esc(jf.why) + '</p>' : ''); }).join('') +
         (recFields2.length ? '<span class="small" style="margin-top:4px">Evidence</span>' + recFields2.map(function (d) { return fieldInput('rec-' + d.name, d, dr.fields['rec-' + d.name] != null ? dr.fields['rec-' + d.name] : dr.record['rec-' + d.name] != null ? dr.record['rec-' + d.name] : valueOf(d), 'save-fields', st.id, d.required ? ' (required to check it)' : '', errFor(s, st.id, 'rec-' + d.name), gRecord(t, d, eff2)); }).join('') : '') +
         '<span class="row"><button class="btn" data-act="save-fields" data-id="' + esc(st.id) + '">Save</button><button class="mini" data-act="unpick">Cancel</button></span></div>';
     } else if (showRec) {

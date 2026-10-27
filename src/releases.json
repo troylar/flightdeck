@@ -1,5 +1,62 @@
 [
   {
+    "version": "2.8.0",
+    "date": "2026-10-26",
+    "headline": "Nested processes that know what the child needs",
+    "changes": [
+      {
+        "kind": "new",
+        "area": "Editor",
+        "title": "Pick the process a step runs from a list",
+        "now": "A Run another process step chooses its process from a list of this folder's checklists, with each one's latest version, and picks Latest or one version to always run. Other ID… still takes a process that isn't here yet.",
+        "where": "Editing a draft, a Run another process step"
+      },
+      {
+        "kind": "new",
+        "area": "Editor",
+        "title": "Say where each of the child's details comes from",
+        "now": "What the child needs lists every run detail of the checklist it runs. Each one comes from one of this run's details (under another name if you like), a fixed value, or is asked when the child starts. The Markdown gets a pass: line, for example pass: environment=^env, region=us-east-1, notify=?.",
+        "where": "Editing a draft, a Run another process step"
+      },
+      {
+        "kind": "new",
+        "area": "Checks",
+        "title": "Publishing checks what a step passes against the child as it is now",
+        "now": "A name the child doesn't have, a fixed value of the wrong kind, or a detail that isn't listed stops publishing, read from the folder at that moment. A child published later without a detail a step names is flagged in Folder health, with a way to open the checklist that needs changing.",
+        "where": "Checks, publishing and Folder health"
+      },
+      {
+        "kind": "new",
+        "area": "Runs",
+        "title": "The child's start form opens already filled in",
+        "now": "Starting a child shows what this run passes and where each value comes from, and asks only what's left, with the roles. A value that doesn't fit keeps the form open with what you typed. If a passed detail changes while you fill it in, nothing starts and it says why. With nothing to ask, the child starts at once, as before.",
+        "where": "The run screen, a Run another process step"
+      },
+      {
+        "kind": "new",
+        "area": "Editor",
+        "title": "Each step says which details it uses and sets",
+        "now": "A selected step lists the run details it uses (its text, fields, conditions and what it passes) and the ones it sets.",
+        "where": "Editing a draft, the step form"
+      },
+      {
+        "kind": "improved",
+        "area": "Editor",
+        "title": "Rename keeps what linked steps pass",
+        "now": "Renaming a detail rewrites this checklist's carry: and pass: lines so each child detail gets the same value. A checklist that runs this one at its latest and passes the old name gets a warning with the fix, and Folder health flags it once this is published.",
+        "before": "Rename refused when a linked step passed the detail by name.",
+        "where": "Editing a draft, Checklist details"
+      },
+      {
+        "kind": "improved",
+        "area": "Compatibility",
+        "title": "A checklist with a pass: line needs Flightdeck 2.8",
+        "now": "A version with a pass: line, and its runs, open only in Flightdeck 2.8 or later; earlier copies name the version and won't run it. A checklist without one publishes exactly as before and runs in every 2.x copy.",
+        "where": "Publishing and older copies"
+      }
+    ]
+  },
+  {
     "version": "2.7.0",
     "date": "2026-10-26",
     "headline": "Boxes that know your details",

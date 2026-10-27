@@ -8,7 +8,7 @@ PF.refs = (function () {
   var TOKEN = /\^([\w-]+)/g;
   /* Fields a run never fills in: they shape the step or name other things (sets: and carry: list bare names). Pins have
      their own kind, so they're never filled either. */
-  var SKIP = { sets: 1, carry: 1, process: 1, expect: 1, deadline: 1, evidence: 1, require: 1, at: 1, due: 1, after: 1 };
+  var SKIP = { sets: 1, carry: 1, pass: 1, process: 1, expect: 1, deadline: 1, evidence: 1, require: 1, at: 1, due: 1, after: 1 };
   /* Field kinds whose text a run shows with its details filled in. */
   var KINDS = { text: 1, code: 1, message: 1, url: 1, list: 1 };
 
@@ -78,6 +78,8 @@ PF.refs = (function () {
       var at = { phase: x.phaseIndex, order: order, track: x.step.track || '', step: x.step };
       fn({ kind: 'step', step: x.step, phaseIndex: x.phaseIndex, box: 'text', value: (x.step.textParts || []).map(function (p) { return p.t === 'ref' ? '^' + p.k : p.v; }).join('') }, at);
       Object.keys(x.step.fields).forEach(function (f) { if (fillable(x.step.type, f, types)) fn({ kind: 'step', step: x.step, phaseIndex: x.phaseIndex, box: 'field:' + f, value: x.step.fields[f] }, at); });
+      /* What a linked step passes (2.8): its ^ sources are read when the child starts, so they're references at this step. */
+      if (PF.links && PF.links.has(x.step)) { var src = PF.links.parse(x.step.fields.pass).entries.filter(function (e) { return e.source === 'detail'; }).map(function (e) { return '^' + e.from; }).join(' '); if (src) fn({ kind: 'step', step: x.step, phaseIndex: x.phaseIndex, box: 'pass', value: src }, at); }
     });
     map.phases.forEach(function (p, pi) { if (p.gate && p.gate.approves) fn({ kind: 'gate', phase: p, phaseIndex: pi, gate: p.gate, box: 'approves', value: p.gate.approves }, atGate(map, pi)); });
   }
@@ -104,9 +106,9 @@ PF.refs = (function () {
     return 'set by “' + s.setters[0].text + '”' + (s.setters.length > 1 ? ' and ' + (s.setters.length - 1) + ' more' : '');
   }
   /* What other files say about renaming a run detail (2.7). A child gets its parent's details by name: the ones carry: lists,
-     or with no carry: every detail both have, plus the ones the step itself is tied to (run.js childInputs). So a rename
-     is refused when a parent that runs this checklist at Latest passes the name, or when this checklist passes it to a
-     child that takes it. A parent pinned to a published version keeps that version, so it's only mentioned. A Jira
+     or with no carry: every detail both have, plus the ones the step itself is tied to (run.js childInputs). Since 2.8 a
+     parent that runs this checklist at Latest and passes the name is a warning with the fix, and this checklist's own
+     linked steps are rewritten by the rename (outline.renameDetail). A parent pinned to a published version keeps that version, so it's only mentioned. A Jira
      workflow that fills a field from the detail is mentioned too (the shared file is never changed here).
      folder: { others: [{ label, map }] (other checklists: latest versions and drafts), child(process, pin): its map, or for Latest its published map and its saved draft's (a list), or null,
      workflows }. Each entry: { refuse, text }. */
@@ -117,6 +119,8 @@ PF.refs = (function () {
     var passes = function (st, parentNames, childNames) {
       if (childNames.indexOf(name) < 0) return false;
       if (st.binds.indexOf(name) >= 0) return true;
+      /* 2.8: a pass: entry that targets the name passes it, whatever its source; a name=? asks it instead. */
+      if (PF.links && PF.links.has(st)) { var e = PF.links.parse(st.fields.pass).entries.filter(function (y) { return y.name === name; })[0]; if (e) return e.source !== 'ask'; }
       return st.fields.carry != null && carried(st).length ? carried(st).indexOf(name) >= 0 : parentNames.indexOf(name) >= 0;
     };
     ((folder && folder.others) || []).forEach(function (o) {
@@ -124,15 +128,13 @@ PF.refs = (function () {
         var st = x.step;
         if (st.type !== 'run.process' || st.fields.process !== me || !passes(st, o.map.meta.context, map.meta.context)) return;
         if (st.fields.version) add(false, o.label + ': the step “' + st.text + '” is pinned to version ' + st.fields.version + ', which keeps using ^' + name + '. It isn\'t affected.');
-        else add(true, o.label + ': the step “' + st.text + '” passes ^' + name + ' to this checklist by name. Renaming it would stop that.');
+        /* 2.8 (Q3): a warning with the fix, never a refusal; Folder health flags it once this is published. */
+        else add(false, o.label + ': the step “' + st.text + '” passes ^' + name + ' to this checklist. After you publish the rename, change that step to pass it under the new name (in its pass: line), or new runs there can\'t start this checklist.');
       });
     });
     M.steps(map).forEach(function (x) {
       var st = x.step;
-      if (st.type === 'run.process' && st.fields.process && folder && folder.child) {
-        var kids = [].concat(folder.child(st.fields.process, st.fields.version || '') || []);
-        if (kids.some(function (child) { return child && passes(st, map.meta.context, child.meta.context); })) add(true, 'The step “' + st.text + '” passes ^' + name + ' to ' + st.fields.process + ' by name. Renaming it would stop that.');
-      }
+      /* 2.8: this checklist's own linked steps are rewritten by the rename so each child keeps what it got (O.renameDetail). */
       if (st.type === 'jira.issue' && String(st.fields.action || '').toLowerCase() === 'transition' && folder && folder.workflows) {
         var wf = PF.jira.forType(folder.workflows, st.fields.issueType);
         if (wf && !wf.workflow.invalid) PF.jira.requiredFields(wf.workflow, st.fields.status).forEach(function (f) {

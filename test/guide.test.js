@@ -41,10 +41,11 @@ const BOX = {
   'ob-shot-new': ['form', 'caption'], 'ob-shot-cap-': ['form', 'caption'], 'ob-ph-title': ['form', 'ph-title'], 'ob-new-title': ['form', 'ph-title'], 'ob-ph-mode': ['form', 'ph-mode'],
   'ob-new-mode': ['form', 'ph-mode'], 'ob-ph-note': ['form', 'ph-note'], 'ob-g-title': ['form', 'g-title'], 'ob-g-owner': ['form', 'g-owner'], 'ob-g-approves': ['form', 'g-approves'],
   'ob-tr-title': ['form', 'tr-title'], 'ob-tr-role': ['form', 'tr-role'], 'ob-owner': ['form', 'owner'], 'ob-backup': ['form', 'backup'], 'ob-add-role': ['form', 'role'],
-  'ob-add-ctx': ['form', 'context'], 'ob-q-text': ['form', 'questions'], 'ob-fld-': ['field', null], 'ob-host': ['form', 'pr-host']
+  'ob-add-ctx': ['form', 'context'], 'ob-q-text': ['form', 'questions'], 'ob-fld-': ['field', null], 'ob-host': ['form', 'pr-host'],
+  'ob-link-proc': ['form', 'link-proc'], 'ob-link-proc-other': ['form', 'link-proc-other'], 'ob-link-vn': ['form', 'link-vn'], 'ob-link-src-': ['form', 'link-src'], 'ob-link-val-': ['form', 'link-val']
 };
 /* Not entry boxes: finding a part, choosing a type or a kind (radios with their own descriptions), choosing files. */
-const NOT_BOXES = { 'ob-part-q': 1, 'ob-part-q2': 1, 'ob-type': 1, 'ob-new-type': 1, 'ob-shot-file': 1, 'ob-mark-': 1 };
+const NOT_BOXES = { 'ob-part-q': 1, 'ob-part-q2': 1, 'ob-type': 1, 'ob-new-type': 1, 'ob-shot-file': 1, 'ob-mark-': 1, 'ob-link-ver-': 1 };
 rule('Guide: every input, textarea and select the editor draws has its guide entry, the Questions box included', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'views', 'builder.js'), 'utf8');
   const ids = new Set();
@@ -243,7 +244,10 @@ rule('T.applies: no condition applies; requiredWhen only when it matches; requir
 });
 rule('Guide: the type definitions, the fields every type accepts and the pins are exactly 2.4.0\'s', () => {
   const was = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'entry-boxes', 'types-2.4.0.json'), 'utf8'));
-  same(T.LIST, was.LIST, 'T.LIST'); same(T.COMMON, was.COMMON, 'T.COMMON'); same(T.PINS, was.PINS, 'pins');
+  same(T.LIST, was.LIST, 'T.LIST'); same(T.COMMON, was.COMMON, 'T.COMMON');
+  /* 2.8 adds one pin, pass: on {run.process}; every other pin is 2.4.0's. */
+  const pins = JSON.parse(JSON.stringify(T.PINS)); same(pins['run.process'].pass, { label: 'Passes', kind: 'pass' }, 'the 2.8 pin'); delete pins['run.process'].pass;
+  same(pins, was.PINS, 'pins');
 });
 rule('Guide: the example folder\'s publication files, signatures, brief, read contract, receipt and run log are byte for byte 2.4.0\'s', () => {
   const was = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'entry-boxes', 'golden-2.4.0.json'), 'utf8')), now = golden(H);

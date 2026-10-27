@@ -311,7 +311,7 @@ function boot(opts) {
     // Submit a form as a browser would: its data-* attributes, and its fields' values (typed with set(), else as drawn), come
     // from the page. dataset overrides what the page drew, to simulate a form drawn earlier.
     submitForm(id, dataset) {
-      const html = els.app.innerHTML, at = html.search(new RegExp('<form[^>]*\\bid="' + id + '"'));
+      const re = new RegExp('<form[^>]*\\bid="' + id + '"'), html = els.app.innerHTML.search(re) >= 0 ? els.app.innerHTML : els.overlay.innerHTML || '', at = html.search(re);
       if (at < 0) throw new Error('No form ' + id + ' on the page');
       const form = html.slice(at, html.indexOf('</form>', at)), el = get(id), ds = {};
       const unesc = v => v.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
