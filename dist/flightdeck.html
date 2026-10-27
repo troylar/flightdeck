@@ -29129,13 +29129,19 @@ PF.examples = (function () {
   function reenterRun() { var sel = state.sel; setView('run'); state.sel = sel; arriveAtStep(sel); }
 
   /* ---------- events ---------- */
+  /* Anything the person does but Refresh counts as moving on, for a refused start's reopen (childRetry): any click, on a
+     control of the app's or the browser's own (a select, a details menu), any choice changed and any menu opened or closed. */
+  document.addEventListener('click', function (e) {
+    var b = e.target && e.target.closest ? e.target.closest('[data-act]') : null;
+    if (!b || b.dataset.act !== 'refresh') childEpoch++;
+  }, true);
+  document.addEventListener('change', function () { childEpoch++; }, true);
+  document.addEventListener('toggle', function () { childEpoch++; }, true);
   document.addEventListener('click', function (e) {
     var b = e.target.closest('[data-act]');
     if (!b || b.disabled) return;
     if (b.classList.contains('overlay') && e.target !== b) return;
     var act = b.dataset.act, id = b.dataset.id;
-    /* Anything the person does but Refresh counts as moving on, for a refused start's reopen (childRetry). */
-    if (act !== 'refresh') childEpoch++;
     /* Choosing something from the run's More menu closes the menu. */
     var menu = b.closest && b.closest('.rw-menu'); if (menu) { menu.open = false; (state.disc = state.disc || {})[(menu.dataset && menu.dataset.disc) || 'rw-menu'] = false; }
     var handler = ACTIONS[act], guarded = onPracticePage(b);

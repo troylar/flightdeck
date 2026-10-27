@@ -339,8 +339,8 @@ rule('App: a start refused in the queue (a team value refreshed while an earlier
   assert.ok(/child-start-form/.test(ov) && /queued\.example\.com/.test(ov) && /id="cs-note"[^>]*value="queued"/.test(ov), 'reopened with the new value and the answer: ' + ov.slice(0, 600));
 });
 
-rule('App: a refused start doesn\'t reopen its form after the person did anything but Refresh while it saved (a detail\'s Edit, Fill in, Blocked by its key, a correction, a phase note\'s correction, Details, Escape)', async () => {
-  for (const move of ['edit', 'pick', 'block-key', 'correct-key', 'note-correct', 'details', 'escape']) {
+rule('App: a refused start doesn\'t reopen its form after the person did anything but Refresh while it saved (a detail\'s Edit, Fill in, Blocked by its key, a correction, a phase note\'s correction, Details, Escape, the Phase selector, the More menu)', async () => {
+  for (const move of ['edit', 'pick', 'block-key', 'correct-key', 'note-correct', 'details', 'escape', 'phase-select', 'more-menu']) {
     const app = await teamStart('base=team:bitbucket-base-url, env=^env, note=?', 'base, env, note');
     app.click('start-child', 'dep'); await app.tick(40);
     const h = holdRead(app, /^runs\/deploy\//, true);
@@ -356,6 +356,11 @@ rule('App: a refused start doesn\'t reopen its form after the person did anythin
     }
     else if (move === 'details') { app.click('run-details'); await app.tick(); app.click('run-details'); await app.tick(); }
     else if (move === 'escape') { app.key('Escape'); await app.tick(); }
+    else if (move === 'phase-select') {
+      assert.ok(/id="rw-phase"/.test(app.html()), 'set-up: the Phase selector is shown');
+      app.select('rw-phase', 's'); await app.tick();
+    }
+    else if (move === 'more-menu') { app.fire('toggle', { target: { dataset: { disc: 'rw-menu' }, open: true } }); await app.tick(); }
     else if (move === 'pick') { app.click('pick', 'tell', { kind: 'fields' }); await app.tick(); app.click('unpick'); await app.tick(); }
     else if (move === 'block-key') { app.click('select', 'dep'); await app.tick(); app.key('b'); await app.tick(); assert.ok(/data-scope="block:dep"/.test(app.html()), 'set-up: Blocked is open'); app.key('Escape'); await app.tick(); }
     else if (move === 'correct-key') { app.click('select', 'dep'); await app.tick(); app.key('c'); await app.tick(); app.click('corr-cancel'); await app.tick(); }
