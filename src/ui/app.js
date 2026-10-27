@@ -2001,6 +2001,9 @@
     /* 2.8: a pass: step opens its start dialog only when something needs asking or converting (Q2); otherwise it starts now. */
     if (prep.link2 && (prep.ask.length || prep.open.length)) {
       prep.token = ++childToken;
+      /* What a start that couldn't be saved was given comes back once, in the same folder. */
+      var kept = state.childKept && state.childKept[prep.rkey];
+      if (kept) { delete state.childKept[prep.rkey]; if (kept.gen === gen) { prep.values = kept.values; prep.roleVals = kept.roles; } }
       openOverlay({ childStart: prep, html: function () { return V.childStart(ctx, this.childStart); }, held: function () { return csHeld(this.childStart); } });
       state.overlayFocus = '#cs-t';
       return;
@@ -2026,6 +2029,7 @@
     var inputs = prep.inputs;
     var child; try { child = R.create(pub, { title: pub.map.meta.title + ' for ' + parent.title, details: details, from: { source: 'carry', details: prep.details }, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, parent: { process: parent.process, id: parent.id, step: stepId, inputs: inputs, folder: parent.folder }, app: APP_VERSION, pins: pinsAtStart(pub) }); }
     catch (err) { if (invalid) { invalid(err); return; } say(err.message, 'warn'); render(); return; }
+    var keep = invalid ? { gen: gen, values: asked || {}, roles: roles } : null;
     if (invalid) closeOverlay();
     /* Try the link on a copy first, so a step that can't take a child never leaves an orphan run in the folder. */
     var link = { process: child.process, id: child.id, inputs: inputs, folder: pub.info.folder, mapHash: pub.info.mapHash, typesHash: pub.info.typesHash, format: child.format, pin: target.first ? target.pin : null };
@@ -2051,7 +2055,13 @@
         if (ok === false) { say('"' + child.title + '" was started but isn\'t linked to this step yet. Use Link it on the step.', 'warn'); render(); return load(true); }
         say('Started "' + child.title + '". This step is checked when it completes.', 'good'); return load(true);
       });
-    }, function (err) { done(); if (sg !== gen) return; if (err && err.dropped && stale) { say(stale, 'warn'); render(); return; } say('Couldn\'t start the run: ' + err.message, 'bad'); render(); });
+    }, function (err) {
+      done(); if (sg !== gen) return;
+      if (keep) (state.childKept = state.childKept || {})[rkey] = keep;
+      var again = keep ? ' What you filled in is kept for when you start it again.' : '';
+      if (err && err.dropped && stale) { say(stale + again, 'warn'); render(); return; }
+      say('Couldn\'t start the run: ' + err.message + again, 'bad'); render();
+    });
   }
   /* The children a run/3 on pub follows, pinned when it starts: the version's own pins, the rest at the latest usable now. */
   function pinsAtStart(pub) {

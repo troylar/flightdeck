@@ -8732,6 +8732,23 @@ rule('2.8: an answer in the child\'s start dialog keeps search and Back from clo
   assert.ok(/role="combobox"/.test(app2.overlay()), 'an empty dialog gives way to search');
 });
 
+rule('2.8: a child start that can\'t be saved keeps what the dialog was given; starting again brings it back and works', async () => {
+  const app = await passStart('environment=^env, region=us-east-1, notify=?');
+  const write = app.fs.write.bind(app.fs);
+  app.fs.write = (p, t) => /^runs\/deploy\//.test(p) ? Promise.reject(new Error('disk full')) : write(p, t);
+  app.click('start-child', 'dep'); await app.tick(40);
+  app.set('cs-notify', 'ops'); app.submitForm('child-start-form'); await app.tick(150);
+  assert.strictEqual(deployRuns(app).length, 0, 'set-up: the save failed');
+  assert.ok(/kept for when you start it again/.test(app.html() + app.live()), 'says it is kept: ' + app.live());
+  app.fs.write = write;
+  app.click('start-child', 'dep'); await app.tick(40);
+  assert.ok(/id="cs-notify"[^>]*value="ops"/.test(app.overlay()), 'the answer is back');
+  app.submitForm('child-start-form'); await app.tick(150);
+  assert.deepStrictEqual(deployRuns(app).map(k => k.details.notify), ['ops']);
+  app.click('start-child', 'dep'); await app.tick(40);
+  assert.ok(!/value="ops"/.test(app.overlay()), 'brought back once, not again');
+});
+
 rule('2.8: a pass: step with nothing to ask starts at once, as before', async () => {
   const app = await passStart('environment=^env, region=us-east-1, notify=none');
   app.click('start-child', 'dep'); await app.tick(150);
