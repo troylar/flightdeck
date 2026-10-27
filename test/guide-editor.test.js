@@ -505,6 +505,21 @@ rule('Editor (2.8): a fixed value or a process ID typed and not yet applied coun
   assert.ok(!app.leaveWarns(), 'back to what the draft says');
 });
 
+rule('Editor (2.8): a fixed value that would read back as something else is refused beside its box, and nothing changes', async () => {
+  const app = await editorOn(md(step('run.process', 's', 'process: check-in', 'pass: commit=abc123')), 's');
+  const before = await textOf(app);
+  enter(app, 'ob-link-val-commit', 'abc456, branch=production'); await app.tick();
+  const h = formOf(app);
+  assert.ok(/id="ferr-ob-link-val-commit"[^>]*>A fixed value can't hold a comma/.test(un(h)), 'says why: ' + h.slice(h.indexOf('ob-link-val-commit') - 100, h.indexOf('ob-link-val-commit') + 400));
+  assert.ok(/id="ob-link-val-commit"[^>]*aria-invalid="true"/.test(h));
+  assert.strictEqual(await textOf(app), before, 'the draft is unchanged');
+  assert.ok(app.leaveWarns(), 'what was typed still counts as unsaved');
+  enter(app, 'ob-link-val-commit', '^tag'); await app.tick();
+  assert.ok(/can't start with \^ or \?/.test(un(formOf(app))));
+  enter(app, 'ob-link-val-commit', 'abc456'); await app.tick();
+  assert.ok(/  pass: commit=abc456\n/.test(await textOf(app)) && !/ferr-ob-link-val-commit/.test(formOf(app)), 'a good one applies and clears the message');
+});
+
 const CHECKIN = (app) => app.PF.map.parse(app.fs.files[Object.keys(app.fs.files).find(p => /^publications\/check-in\/.*\/map\.md$/.test(p))].t);
 rule('Editor (2.8): a name the child doesn\'t have is shown with a Remove fix', async () => {
   const app = await editorOn(md(step('run.process', 's', 'process: check-in', 'carry: tag')), 's');

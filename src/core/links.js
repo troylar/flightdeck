@@ -69,6 +69,16 @@ PF.links = (function () {
     return { rows: out, stale: stale };
   }
 
+  /* Why v can't be a fixed value on a pass: line, or '': it must read back as exactly that one value, so a comma (the next
+     entry), a leading ^ or ? (a source), and anything parse refuses are turned down. */
+  function valueProblem(v) {
+    v = String(v == null ? '' : v).trim();
+    if (!v) return 'Type the value, or choose another source.';
+    var p = parse('x=' + v);
+    if (p.errors.length) return p.errors[0].replace(/^Entry "x=[^"]*"/, 'The value');
+    if (p.entries.length !== 1 || p.entries[0].source !== 'value' || p.entries[0].value !== v) return /,/.test(v) ? 'A fixed value can\'t hold a comma: a comma starts the next detail.' : 'A fixed value can\'t start with ^ or ?. Choose This run\'s detail or Asked instead.';
+    return '';
+  }
   function entryText(r) { return r.name + '=' + (r.source === 'ask' ? '?' : r.source === 'value' ? r.value : '^' + r.from); }
   /* The carry: and pass: lines (null: no line) whose meaning is exactly `want` (rows as rows() gives them), as short as it can
      be: an explicit carry: list is kept and grows or shrinks by same-name sources; without one, same-name sources stay
@@ -217,5 +227,5 @@ PF.links = (function () {
     return { uses: uses, sets: sets, passes: passes, shared: shared };
   }
 
-  return { io: io, childrenFrom: childrenFrom, broken: broken, parentsBroken: parentsBroken, MAX: MAX, VALUE_MAX: VALUE_MAX, has: has, parse: parse, rows: rows, write: write, values: values, sources: sources, inputs: inputs, carryList: carryList };
+  return { io: io, childrenFrom: childrenFrom, broken: broken, parentsBroken: parentsBroken, MAX: MAX, VALUE_MAX: VALUE_MAX, has: has, parse: parse, valueProblem: valueProblem, rows: rows, write: write, values: values, sources: sources, inputs: inputs, carryList: carryList };
 })();

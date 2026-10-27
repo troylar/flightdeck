@@ -3991,6 +3991,7 @@
       else { r.source = 'detail'; r.from = value.replace(/^\^/, ''); delete r.value; }
     } else {
       var v = String(value || '').trim(); if (!v) return null;
+      var bad = PF.links.valueProblem(v); if (bad) return { error: bad };
       r.source = 'value'; r.value = v; delete r.from; delete fixed[key + ':' + name];
     }
     var w = PF.links.write(rows, st, map.meta.context, kid.map);
@@ -4023,6 +4024,7 @@
     if (s.kind === 'step' && /^ob-link-/.test(id)) {
       var lset = linkSet(o, s.key, id, value);
       if (!lset) { render(); return; }
+      if (lset.error) { state.fieldErr = { id: 'ob', msg: lset.error, field: id }; state.focus = '#' + id; say(null); render(); return; }
       return obApplied(builderEdit({ op: 'editLink', key: s.key, set: lset }, id), id);
     }
     if (s.kind === 'step' && id === 'ob-note') return obApplied(builderEdit({ op: 'note', step: s.key, text: value }, id), id, null);

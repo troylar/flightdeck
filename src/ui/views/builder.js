@@ -400,7 +400,7 @@
       h += '<div class="field ob-link-row"><label for="' + esc(sid) + '"><b>' + esc(r.name) + '</b> <span class="small">' + esc(r.kind) + (ownKey(setBy, r.name) ? ' · ' + esc(t) + ' also sets this itself, later' : '') + '</span></label><select id="' + esc(sid) + '" data-bound>' +
         meta.context.map(function (n) { return '<option value="^' + esc(n) + '"' + (cur === '^' + n ? ' selected' : '') + '>This run\'s ^' + esc(n) + kindOf(n) + '</option>'; }).join('') +
         '<option value="="' + (cur === '=' ? ' selected' : '') + '>A fixed value</option><option value="?"' + (cur === '?' ? ' selected' : '') + '>' + (ownKey(setBy, r.name) ? esc(t) + ' fills this in itself' : asks(r.name) ? 'Asked when ' + esc(t) + ' starts' : 'Not passed: ' + esc(t) + ' starts without it') + '</option></select>';
-      if (cur === '=') h += '<label class="field" for="ob-link-val-' + esc(r.name) + '">' + esc(G.form('link-val').q) + '<input id="ob-link-val-' + esc(r.name) + '" maxlength="120" value="' + esc(r.value || '') + '" data-enter="ob-commit"></label>';
+      if (cur === '=') h += '<label class="field" for="ob-link-val-' + esc(r.name) + '">' + esc(G.form('link-val').q) + '<input id="ob-link-val-' + esc(r.name) + '" maxlength="120" value="' + esc(r.value || '') + '" data-enter="ob-commit"' + errAt(ctx, 'ob-link-val-' + r.name) + '></label>' + errMsg(ctx, 'ob-link-val-' + r.name);
       h += '</div>';
     });
     rr.stale.forEach(function (x) {

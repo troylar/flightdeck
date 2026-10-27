@@ -3972,6 +3972,16 @@ PF.links = (function () {
     return { rows: out, stale: stale };
   }
 
+  /* Why v can't be a fixed value on a pass: line, or '': it must read back as exactly that one value, so a comma (the next
+     entry), a leading ^ or ? (a source), and anything parse refuses are turned down. */
+  function valueProblem(v) {
+    v = String(v == null ? '' : v).trim();
+    if (!v) return 'Type the value, or choose another source.';
+    var p = parse('x=' + v);
+    if (p.errors.length) return p.errors[0].replace(/^Entry "x=[^"]*"/, 'The value');
+    if (p.entries.length !== 1 || p.entries[0].source !== 'value' || p.entries[0].value !== v) return /,/.test(v) ? 'A fixed value can\'t hold a comma: a comma starts the next detail.' : 'A fixed value can\'t start with ^ or ?. Choose This run\'s detail or Asked instead.';
+    return '';
+  }
   function entryText(r) { return r.name + '=' + (r.source === 'ask' ? '?' : r.source === 'value' ? r.value : '^' + r.from); }
   /* The carry: and pass: lines (null: no line) whose meaning is exactly `want` (rows as rows() gives them), as short as it can
      be: an explicit carry: list is kept and grows or shrinks by same-name sources; without one, same-name sources stay
@@ -4120,7 +4130,7 @@ PF.links = (function () {
     return { uses: uses, sets: sets, passes: passes, shared: shared };
   }
 
-  return { io: io, childrenFrom: childrenFrom, broken: broken, parentsBroken: parentsBroken, MAX: MAX, VALUE_MAX: VALUE_MAX, has: has, parse: parse, rows: rows, write: write, values: values, sources: sources, inputs: inputs, carryList: carryList };
+  return { io: io, childrenFrom: childrenFrom, broken: broken, parentsBroken: parentsBroken, MAX: MAX, VALUE_MAX: VALUE_MAX, has: has, parse: parse, valueProblem: valueProblem, rows: rows, write: write, values: values, sources: sources, inputs: inputs, carryList: carryList };
 })();
 
 /* Run-detail references (2.7): every ^name a checklist's boxes use, and whether a run has a value for it there. Pure, ES5.
@@ -21726,7 +21736,7 @@ PF.vk = (function () {
       h += '<div class="field ob-link-row"><label for="' + esc(sid) + '"><b>' + esc(r.name) + '</b> <span class="small">' + esc(r.kind) + (ownKey(setBy, r.name) ? ' · ' + esc(t) + ' also sets this itself, later' : '') + '</span></label><select id="' + esc(sid) + '" data-bound>' +
         meta.context.map(function (n) { return '<option value="^' + esc(n) + '"' + (cur === '^' + n ? ' selected' : '') + '>This run\'s ^' + esc(n) + kindOf(n) + '</option>'; }).join('') +
         '<option value="="' + (cur === '=' ? ' selected' : '') + '>A fixed value</option><option value="?"' + (cur === '?' ? ' selected' : '') + '>' + (ownKey(setBy, r.name) ? esc(t) + ' fills this in itself' : asks(r.name) ? 'Asked when ' + esc(t) + ' starts' : 'Not passed: ' + esc(t) + ' starts without it') + '</option></select>';
-      if (cur === '=') h += '<label class="field" for="ob-link-val-' + esc(r.name) + '">' + esc(G.form('link-val').q) + '<input id="ob-link-val-' + esc(r.name) + '" maxlength="120" value="' + esc(r.value || '') + '" data-enter="ob-commit"></label>';
+      if (cur === '=') h += '<label class="field" for="ob-link-val-' + esc(r.name) + '">' + esc(G.form('link-val').q) + '<input id="ob-link-val-' + esc(r.name) + '" maxlength="120" value="' + esc(r.value || '') + '" data-enter="ob-commit"' + errAt(ctx, 'ob-link-val-' + r.name) + '></label>' + errMsg(ctx, 'ob-link-val-' + r.name);
       h += '</div>';
     });
     rr.stale.forEach(function (x) {
@@ -27789,6 +27799,7 @@ PF.examples = (function () {
       else { r.source = 'detail'; r.from = value.replace(/^\^/, ''); delete r.value; }
     } else {
       var v = String(value || '').trim(); if (!v) return null;
+      var bad = PF.links.valueProblem(v); if (bad) return { error: bad };
       r.source = 'value'; r.value = v; delete r.from; delete fixed[key + ':' + name];
     }
     var w = PF.links.write(rows, st, map.meta.context, kid.map);
@@ -27821,6 +27832,7 @@ PF.examples = (function () {
     if (s.kind === 'step' && /^ob-link-/.test(id)) {
       var lset = linkSet(o, s.key, id, value);
       if (!lset) { render(); return; }
+      if (lset.error) { state.fieldErr = { id: 'ob', msg: lset.error, field: id }; state.focus = '#' + id; say(null); render(); return; }
       return obApplied(builderEdit({ op: 'editLink', key: s.key, set: lset }, id), id);
     }
     if (s.kind === 'step' && id === 'ob-note') return obApplied(builderEdit({ op: 'note', step: s.key, text: value }, id), id, null);

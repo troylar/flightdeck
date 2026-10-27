@@ -85,6 +85,15 @@ rule('childrenFrom: a child whose versions are all damaged can\'t be checked; on
   assert.ok(!chk(['  carry: env'], f('deploy', '')).blockers.length, 'carry-only publishes as in 2.7');
 });
 
+rule('valueProblem: a fixed value must read back as exactly itself', () => {
+  assert.strictEqual(L.valueProblem('us-east-1'), '');
+  assert.ok(/comma/.test(L.valueProblem('a, b=c')));
+  assert.ok(/start with \^ or \?/.test(L.valueProblem('?')));
+  assert.ok(L.valueProblem('^env'));
+  assert.ok(L.valueProblem('x'.repeat(121)));
+  assert.ok(L.valueProblem(''));
+});
+
 rule('rows: names the child doesn\'t have come back as stale, and a detail the child also sets keeps its source', () => {
   const c = child('env, pr', '  sets: pr');
   const r = L.rows(step({ carry: 'env, gone', pass: 'old=^tag, pr=^commit' }), PARENT, c);
