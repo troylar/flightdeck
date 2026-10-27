@@ -927,7 +927,7 @@ html.pane-drag, html.pane-drag * { cursor: col-resize !important; -webkit-user-s
 .ob-sheet { background: var(--card); color: var(--ink); border-radius: 12px; padding: 16px; width: min(460px, 100%); max-height: 100%; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
 .ob-sheet h2 { margin: 0; }
 .ob-sheet p { margin: 0; }
-/* The side form: switches for must-do and automation planned, and Done for the phone's sheet. */
+/* The side form: Must be done and Automation planned checkboxes, and Done for the phone's sheet. */
 .ob-form-top h2 { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .ob-done { display: none; }
 .ob-check { display: flex; gap: 10px; align-items: flex-start; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; font-weight: 400; min-height: 44px; box-sizing: border-box; }
@@ -974,6 +974,9 @@ html.pane-drag, html.pane-drag * { cursor: col-resize !important; -webkit-user-s
   .fpe-ins .ob-form { background: var(--card); padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px)); border: 1px solid var(--line); }
   .ob-form { position: fixed; left: 0; right: 0; bottom: 0; max-height: 85vh; overflow: auto; z-index: 12; border-radius: 14px 14px 0 0; box-shadow: 0 -10px 30px rgba(0, 0, 0, .25); padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
   .ob-done { display: inline-flex; }
+  /* 2.10: every control in the phone's step sheet is a full-size target. */
+  .ob-form :is(button, select, summary, .chipbtn) { min-height: 44px; }
+  .ob-form :is(.chipbtn, .mini, .ob-chip) { display: inline-flex; align-items: center; }
 }
 .ob-changed summary { cursor: pointer; font-size: 13px; }
 /* Undo, Redo and History: the same toolbar on every editor. aria-disabled keeps a control focusable so it can say why. */
@@ -29133,7 +29136,9 @@ PF.examples = (function () {
     });
   });
   /* Choosing an option, or Insert a detail, with the pointer keeps focus (and the caret) in the box. */
-  document.addEventListener('mousedown', function (e) { if (e.target && e.target.closest && e.target.closest('.dbx-o, [data-act="dbx-insert"]')) e.preventDefault(); });
+  /* The refusal's Apply and Discard (2.10) keep focus in their box too: leaving it would apply it, be refused again, and the
+     redraw would drop the click. */
+  document.addEventListener('mousedown', function (e) { if (e.target && e.target.closest && e.target.closest('.dbx-o, [data-act="dbx-insert"], [data-act="ob-hold-apply"], [data-act="ob-hold-discard"]')) e.preventDefault(); });
   /* Leaving the box closes the list; a redraw that puts the same box back (focus follows it) doesn't. */
   document.addEventListener('focusout', function (e) {
     if (!dbxAc || !e.target || e.target.id !== dbxAc.id) return;
@@ -29736,7 +29741,10 @@ PF.examples = (function () {
     'ob-done': function () {
       /* Typed text not yet applied is applied first; if it's refused, the sheet stays open with the reason. */
       var pf = state.obPending && state.obPendingField, pel = pf && document.getElementById(pf);
-      if (pel && /^ob-(text|ph-title|ph-note|tr-title|g-title|g-approves|fld-[\w-]+|shot-cap-\d+|note|q-text|add-role|add-ctx|when|ph-when)$/.test(pf)) { builderField(pf, pel.value); if (state.fieldErr && state.fieldErr.id === 'ob') return; }
+      if (pel && /^ob-(text|ph-title|ph-note|tr-title|g-title|g-approves|fld-[\w-]+|shot-cap-\d+|note|q-text|add-role|add-ctx|when|ph-when)$/.test(pf)) {
+        builderField(pf, pel.value);
+        if (state.fieldErr && state.fieldErr.id === 'ob') { var hp = currentProcess(); say('Apply or clear what you typed in the box first ' + applyHint(pf) + ', then close the form.', 'warn'); holdAt(hp && hp.id, pf); state.focus = '#' + cssEsc(pf); render(); return; }
+      }
       /* Another box that still holds typing (refused earlier, say) keeps the form open too. */
       var cp = currentProcess(); if (cp && obTyped(null, true) && obHeld(cp, 'then close the form', null, true)) return;
       var s = state.obSel; state.obSel = null; state.obAsk = null; obClearErr();

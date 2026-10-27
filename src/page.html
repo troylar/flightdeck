@@ -735,7 +735,7 @@ html.pane-drag, html.pane-drag * { cursor: col-resize !important; -webkit-user-s
 .ob-sheet { background: var(--card); color: var(--ink); border-radius: 12px; padding: 16px; width: min(460px, 100%); max-height: 100%; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
 .ob-sheet h2 { margin: 0; }
 .ob-sheet p { margin: 0; }
-/* The side form: switches for must-do and automation planned, and Done for the phone's sheet. */
+/* The side form: Must be done and Automation planned checkboxes, and Done for the phone's sheet. */
 .ob-form-top h2 { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .ob-done { display: none; }
 .ob-check { display: flex; gap: 10px; align-items: flex-start; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; font-weight: 400; min-height: 44px; box-sizing: border-box; }
@@ -782,6 +782,9 @@ html.pane-drag, html.pane-drag * { cursor: col-resize !important; -webkit-user-s
   .fpe-ins .ob-form { background: var(--card); padding: 16px 16px calc(16px + env(safe-area-inset-bottom, 0px)); border: 1px solid var(--line); }
   .ob-form { position: fixed; left: 0; right: 0; bottom: 0; max-height: 85vh; overflow: auto; z-index: 12; border-radius: 14px 14px 0 0; box-shadow: 0 -10px 30px rgba(0, 0, 0, .25); padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px)); }
   .ob-done { display: inline-flex; }
+  /* 2.10: every control in the phone's step sheet is a full-size target. */
+  .ob-form :is(button, select, summary, .chipbtn) { min-height: 44px; }
+  .ob-form :is(.chipbtn, .mini, .ob-chip) { display: inline-flex; align-items: center; }
 }
 .ob-changed summary { cursor: pointer; font-size: 13px; }
 /* Undo, Redo and History: the same toolbar on every editor. aria-disabled keeps a control focusable so it can say why. */

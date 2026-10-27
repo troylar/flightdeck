@@ -231,7 +231,9 @@ rule('Upgrading from the release before: unchanged files update, a customized on
   assert.strictEqual(stamp.length, 1, 'one copy folder');
   const kept = (rel) => fs.readFileSync(path.join(rep, stamp[0], ...rel.split('/')), 'utf8');
   rest.forEach(f => assert.strictEqual(kept(f), old.ex[f], f + ': the old default is kept'));
-  assert.strictEqual(kept('AGENTS.md'), was.agents, 'the old AGENTS.md is kept');
+  /* AGENTS.md is replaced, and so copied, only when its Flightdeck part changed since that release (2.10.0 left it alone). */
+  if (C.region(was.agents).text !== C.region(EX['AGENTS.md']).text) assert.strictEqual(kept('AGENTS.md'), was.agents, 'the old AGENTS.md is kept');
+  else assert.ok(!fs.existsSync(path.join(rep, stamp[0], 'AGENTS.md')), 'AGENTS.md unchanged since ' + old.tag + ', so no copy');
   assert.strictEqual(read(dir, 'flightdeck.html'), HTML, 'the app updates');
   assert.strictEqual(kept('flightdeck.html'), was.app, 'the old app is kept');
   assert.ok(!fs.existsSync(path.join(rep, stamp[0], ...mine.split('/'))), 'the customized file wasn\'t replaced, so no copy');

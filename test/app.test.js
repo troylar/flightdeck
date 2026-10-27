@@ -9069,6 +9069,19 @@ rule('Builder: with two boxes holding typing, Discarding the refused one leaves 
   assert.ok(/Apply or clear what you typed in the box first/.test(app.live()) && /class="notice warn ob-hold"/.test(app.html()), 'the other box still blocks Undo: ' + app.live());
   assert.ok(app.draft('ob-text') === 'Rollback commit noted' || app.draft('ob-fld-where') === 'The ticket', 'the other typing kept');
 });
+rule('Builder: closing the form over a refused box holds it there with Apply and Discard (2.10, 0b)', async () => {
+  const app = await builderOn();
+  app.click('ob-sel', 'rollback'); await app.tick();
+  app.set('ob-text', ''); app.input('ob-text', ''); enter(app, 'ob-text', ''); await app.tick();
+  assert.ok(/id="ferr-ob-text"/.test(app.html()), 'refused');
+  app.click('ob-done'); await app.tick();
+  assert.ok(/data-scope="ob-step\|rollback\|/.test(app.html()) && /class="notice warn ob-hold"/.test(app.html()), 'the form stays, the refusal beside the box');
+  assert.ok(/then close the form/.test(app.live()) && app.focused() === '#ob-text', app.live());
+  app.click('ob-hold-discard'); await app.tick();
+  assert.ok(/Rollback commit written in the release ticket/.test(app.draft('ob-text')) && !/ob-hold/.test(app.html()), 'put back');
+  app.click('ob-done'); await app.tick();
+  assert.ok(!/<section class="panel stack ob-form"/.test(app.html()), 'then it closes');
+});
 const runsOf = (app, id) => Object.keys(app.fs.files).filter(k => new RegExp('^runs/' + id + '/[^/]+/run\\.json$').test(k));
 rule('Start: a version with an approval role opens With others and asks who approves; Start waits for it and keeps what was typed (2.10)', async () => {
   const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
