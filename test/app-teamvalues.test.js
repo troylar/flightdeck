@@ -71,6 +71,22 @@ rule('App: Settings › Team values: an Edit open across a Refresh never saves t
   assert.deepStrictEqual(JSON.parse(files['team-values.json']).values.base, { value: 'one', about: 'new words' }, 'saved again on purpose: what the form showed');
 });
 
+rule('App: Settings › Team values: a save that finishes later never closes a form opened since (another value\'s Remove)', async () => {
+  const files = { 'people.json': example('people.json'), 'team-values.json': doc({ a: { value: 'one' }, b: { value: 'two' } }) }, app = await settingsAs('person-avery', files);
+  const gfh = app.dir.getFileHandle, g = gate(); let held = false;
+  app.dir.getFileHandle = function (n, o) {
+    return gfh.call(this, n, o).then(h => n !== 'team-values.json' ? h : Object.assign({}, h, { createWritable: (wo) => h.createWritable(wo).then(w => Object.assign({}, w, { close: () => { if (held) return w.close(); held = true; return g.p.then(() => w.close()); } })) }));
+  };
+  app.click('team-edit', 'a'); await app.tick(); app.input('tv-e-value', 'uno'); await app.tick();
+  app.submit('team-edit-form'); await app.tick(40);
+  assert.ok(held, 'set-up: the save is held');
+  app.click('pick', 'b', { kind: 'team-remove' }); await app.tick();
+  assert.ok(/Remove b\?/.test(app.html()), 'set-up: Remove b is asking');
+  g.open(); await app.tick(200); app.dir.getFileHandle = gfh;
+  assert.ok(/Remove b\?/.test(app.html()), 'the newer form stays open');
+  assert.strictEqual(JSON.parse(files['team-values.json']).values.a.value, 'uno', 'and the save landed');
+});
+
 rule('App: Settings › Team values is read-only for a member, for a damaged file and for a key this copy doesn\'t know; text is escaped', async () => {
   const evil = '<img src=x onerror=alert(1)>';
   const files = { 'people.json': example('people.json'), 'team-values.json': doc({ base: { value: evil, about: evil } }) };
@@ -149,7 +165,7 @@ rule('App: a child that changed a team-supplied value blocks the step, like a fi
   assert.strictEqual(a.s, 'blocked'); assert.ok(/base "https:\/\/elsewhere\.example\.com"/.test(a.reason), a.reason);
 });
 
-rule('App: a team value that isn\'t set is asked, typed for this run, recorded as typed, and the step completes after a reload', async () => {
+rule('App: a team value that isn\'t set is asked, typed for this run, recorded as typed, and the step completes after a refresh', async () => {
   const app = await teamStart(null, null, {});
   app.click('start-child', 'dep'); await app.tick(40);
   const ov = app.overlay();

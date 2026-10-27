@@ -25458,12 +25458,13 @@ PF.examples = (function () {
     var res; try { res = fn(doc); } catch (e) { state.teamErr = e.message; render(); return; }
     var why = T.check(doc);
     if (why) { state.teamErr = why; render(); return; }
-    var sfs = state.fs, g = gen, expect = tv.hash == null ? null : tv.hash, expectText = tv.text == null ? null : tv.text;
+    var sfs = state.fs, g = gen, expect = tv.hash == null ? null : tv.hash, expectText = tv.text == null ? null : tv.text, pk = state.pick;
     state.teamSaving = true; state.teamErr = null; render();
     queued(function () { return repo.saveTeamValues(sfs, T.text(doc), expect, { lock: LOCKS ? lock : null, expectText: expectText }); }).then(function (out) {
       state.teamSaving = false; if (g !== gen) return null;
       if (out.conflict) state.teamErr = out.afterWrite ? 'Something else wrote ' + T.FILE + ' at the same moment. Check the list below; make your change again if it isn\'t there.' : T.FILE + ' changed since this page was drawn, so your change wasn\'t saved. Here is the list as it is now; make your change again.';
-      else { state.pick = null; if (done) done(res); }
+      /* Only the Remove confirmation this save came from closes; a form opened since stays as it is. */
+      else { if (pk && pk.kind === 'team-remove' && state.pick === pk) state.pick = null; if (done) done(res); }
       return readTeam(sfs).then(function () { if (g === gen) render(); });
     }, function (e) { state.teamSaving = false; if (g !== gen) return; state.teamErr = 'Couldn\'t save ' + T.FILE + ': ' + e.message; render(); });
   }
