@@ -471,6 +471,7 @@
       '<div class="row"><button class="btn" data-act="health">Check folder health</button><button class="btn" data-act="connection">' + I('swap') + 'Connection check</button><button class="mini" data-act="recovery" data-id="">When something goes wrong</button></div></section>';
     h += '<section class="panel stack" aria-labelledby="set-lib"><h2 id="set-lib">Library</h2><p class="small">Skills built from your processes, and the kinds of steps a checklist can use.</p><div class="row"><button class="btn" data-act="nav" data-id="skills">' + I('spark') + 'Skills</button><button class="btn" data-act="nav" data-id="types">Step types</button></div></section>';
     h += V.peoplePanel(ctx);
+    h += V.teamValuesPanel(ctx);
     /* Jira workflows and Keyboard are rarely changed: under More settings, except that a workflow problem stays on show. */
     var jw = d.jira || { workflows: {}, errors: [] }, jbad = (jw.errors || []).length || Object.keys(jw.workflows || {}).some(function (k) { return jw.workflows[k].invalid; });
     if (jbad) h += V.teamSetup(ctx);

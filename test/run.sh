@@ -37,6 +37,7 @@ t test/docs.test.js
 t test/checker.test.js
 t test/app.test.js
 t test/app-reports.test.js
+t test/app-teamvalues.test.js
 t test/staging-app.test.js
 t test/test-runs-app.test.js
 t test/readiness-stage-app.test.js

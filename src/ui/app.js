@@ -580,13 +580,31 @@
       Object.keys((d.proposed || {}).procs || {}).map(function (k) { var x = d.proposed.procs[k]; return k + ':' + x.all.map(function (m) { return m.id; }).join() + ':' + x.bad.map(function (b) { return b.name; }).join() + ':' + x.records.map(function (r) { return r.name + r.sha; }).join(); }),
       (d.presence || []).map(function (x) { return x.name + ':' + (x.rec ? x.rec.beat + JSON.stringify(x.rec.main) + x.rec.drafts.join() : '-'); }),
       d.reports ? d.reports.files.map(function (f) { return f.path; }).concat(d.reports.bad.map(function (b) { return b.path; })) : [], (d.repDecisions || []).map(function (x) { return JSON.stringify(x); }), (d.repUnread || []).map(function (x) { return x.process + '/' + x._file; }),
-      Object.keys((d.stages || {}).procs || {}).map(function (k) { var x = d.stages.procs[k]; return k + ':' + x.unlisted + ':' + x.stages.map(function (s) { return s.folder + s.ok; }).join() + ':' + x.decisions.map(function (y) { return y._file; }).join() + ':' + x.unread.map(function (u) { return u.path; }).join() + ':' + x.refused.map(function (r) { return r.path + r.needs; }).join(); })]);
+      Object.keys((d.stages || {}).procs || {}).map(function (k) { var x = d.stages.procs[k]; return k + ':' + x.unlisted + ':' + x.stages.map(function (s) { return s.folder + s.ok; }).join() + ':' + x.decisions.map(function (y) { return y._file; }).join() + ':' + x.unread.map(function (u) { return u.path; }).join() + ':' + x.refused.map(function (r) { return r.path + r.needs; }).join(); }),
+      d.teamValues ? d.teamValues.state + ':' + d.teamValues.hash + ':' + (d.teamValues.why || '') : '']);
   }
   /* One read of the folder at a time. If the folder can't be read, keep showing what was last read and say so;
      an unreadable folder never looks empty. */
   /* Every read and write belongs to the folder it started in. Switching folders starts a new generation, and anything still
      in flight from the old folder is ignored when it finishes, so two folders' data never mix. */
   var loading = null, gen = 0;
+  /* Team values (2.9): every read of team-values.json (a refresh, Settings, a child's start just before it writes) is
+     numbered when it starts (teamReads) and reaches the app only through applyTeam, which ignores another folder's and keeps
+     the newest; switching folders starts over. */
+  var teamReads = 0, teamAt = { n: 0, res: null };
+  /* The team values the app now holds after this read: the read's own result if it's the newest, else the newer one kept;
+     null when the read was another folder's. */
+  function applyTeam(fs, g, n, result) {
+    if (fs !== state.fs || g !== gen) return null;
+    if (!teamAt.res || n > teamAt.n) teamAt = { n: n, res: result };
+    data.teamValues = teamAt.res;
+    return teamAt.res;
+  }
+  /* A read of team-values.json now, through applyTeam: the accepted result, or null (another folder by the time it read). */
+  function readTeam(fs) {
+    var g = gen, n = ++teamReads;
+    return repo.readTeamValues(fs).then(function (res) { return applyTeam(fs, g, n, res); });
+  }
   /* The one rule for replacing a run with the folder's copy, used by every read: never when the run has a change not yet
      saved, a save still in flight, or any edit made since the read began (its local revision moved). A read that started
      before an edit is older than what's on screen, whatever the folder says. */
@@ -656,7 +674,7 @@
     if (!state.fs) return Promise.resolve();
     if (deep) checkNewerCopy(state.fs, gen);
     if (loading && loading.gen === gen) return loading.p;
-    var g = gen, before = revsNow(), seq = ++readsStarted, t0 = elapsed();
+    var g = gen, before = revsNow(), seq = ++readsStarted, t0 = elapsed(), lfs = state.fs, tn = ++teamReads;
     batchDrawn = false;
     /* Runs whose last check failed are read in full: only a real read clears that, never what the cache remembers. So are
        runs whose cached copy turned out older than the one shown. */
@@ -682,6 +700,7 @@
       /* The folder's read replaced what the watcher had read of proposed/: it reads that process again on its next look. */
       watch.names = null;
       d.runs = applyRunsRead(d, at);
+      d.teamValues = applyTeam(lfs, g, tn, d.teamValues || PF.teamValues.parse(null));
       R.mapMemo.keep(d.runs);
       var s = signature(d), changed = s !== sig, wasErr = state.folderErr;
       /* A decision that couldn't be read this time keeps the last one read from the same file. */
@@ -1025,14 +1044,14 @@
     /* Typing is kept as drafts of the folder it was typed in (keys carry the folder); nothing open goes to the next one. */
     if (state.fs) leaveContext();
     state.pick = null; state.fieldsDraft = null; state.edit = null; state.fieldErr = null;
-    gen++; loading = null; folderUnread = false; dropBatchRender(); state.pendingStarts = Object.create(null); startEpoch++; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null; state.repPick = null; state.repSaving = null; repCache = Object.create(null);
+    gen++; teamAt = { n: 0, res: null }; loading = null; folderUnread = false; dropBatchRender(); state.pendingStarts = Object.create(null); startEpoch++; state.planPick = null; state.copyView = null; state.newer = null; state.archive = {}; editCount = {}; state.unsaved = {}; state.saveErr = {}; state.saveOpts = {}; state.folderErr = null; state.busyN = 0; state.pendingSaves = {}; state.recovering = null; state.fuSaving = {}; state.fuPick = null; state.repPick = null; state.repSaving = null; repCache = Object.create(null);
     state.setupAnswers = []; state.setupSeen = {}; answersBusy = false; state.healthScan = null; state.healthBusy = false; state.healthErr = null; state.conn = null; state.connSent = []; state.connSeen = {}; state.connAnswered = []; state.connAnswering = {}; state.connDismissed = {}; state.connErr = null; state.connSending = false; state.connN = 0; state.connKept = {}; state.unread = { runs: {}, drafts: {} }; state.missing = {}; applied = {}; notCounted = {}; baselines = {}; connListing = false;
     data = { people: [], drafts: [], processes: [], runs: [], legacy: [], skills: [], plans: [], stepTypes: { types: {}, errors: [] }, jira: { workflows: {}, errors: [] }, readAt: new Date().toISOString() };
     state.more = {}; state.refreshMs = []; stopThumbs(); R.mapMemo.clear(); staleCache = {}; sxReset();
     /* Nothing from this folder is read yet: Home and Runs say so, with counts, until the first complete read. */
     state.reading = { done: 0, total: null };
     /* Input kept for return belongs to its folder: a new folder starts clean. */
-    state.corrDrafts = {}; state.noteCorrs = {}; state.pendingFiles = []; state.newProc = null; state.corrForm = null; state.peopleAdd = null; state.planning = null;
+    state.corrDrafts = {}; state.noteCorrs = {}; state.pendingFiles = []; state.newProc = null; state.corrForm = null; state.peopleAdd = null; state.teamAdd = null; state.teamEdit = null; state.teamErr = null; state.planning = null;
     if (!(opts && opts.setup)) { state.setup = null; if (state.view === 'setup') home(); }
     /* Opening a folder isn't the person's move: the entry is replaced with where it lands, tagged with the new folder. */
     H.seen = navSeq; H.mode = 'replace';
@@ -1293,6 +1312,38 @@
       else { state.pick = null; if (done) done(res.person); }
       return load(true);
     }, function (e) { state.peopleSaving = false; if (g !== gen) return; state.peopleErr = 'Couldn\'t save people.json: ' + e.message; render(); });
+  }
+
+  /* Settings, Team values (2.9): one change at a time to exactly the team-values.json on screen, saved only over that; a save
+     over a newer file reloads the list and asks for the change again, as people.json does. fn changes a copy of the values. */
+  function changeTeam(fn, done) {
+    var T = PF.teamValues, tv = data.teamValues || T.parse(null);
+    if (!PF.people.canManage(data.people, state.me)) { state.teamErr = 'Only the folder owner and backup owner change team values.'; render(); return; }
+    if (tv.state !== 'ok' && tv.state !== 'missing') { state.teamErr = tv.why || T.FILE + ' can\'t be read.'; render(); return; }
+    if (tv.readOnly) { state.teamErr = tv.readOnly; render(); return; }
+    if (state.teamSaving) { state.teamErr = 'Still saving the last change.'; render(); return; }
+    var doc = { values: {} };
+    Object.keys(tv.doc.values).forEach(function (n) { var e = tv.doc.values[n]; doc.values[n] = e.about ? { value: e.value, about: e.about } : { value: e.value }; });
+    var res; try { res = fn(doc); } catch (e) { state.teamErr = e.message; render(); return; }
+    var why = T.check(doc);
+    if (why) { state.teamErr = why; render(); return; }
+    var sfs = state.fs, g = gen, expect = tv.hash == null ? null : tv.hash, expectText = tv.text == null ? null : tv.text;
+    state.teamSaving = true; state.teamErr = null; render();
+    queued(function () { return repo.saveTeamValues(sfs, T.text(doc), expect, { lock: LOCKS ? lock : null, expectText: expectText }); }).then(function (out) {
+      state.teamSaving = false; if (g !== gen) return null;
+      if (out.conflict) state.teamErr = out.afterWrite ? 'Something else wrote ' + T.FILE + ' at the same moment. Check the list below; make your change again if it isn\'t there.' : T.FILE + ' changed since this page was drawn, so your change wasn\'t saved. Here is the list as it is now; make your change again.';
+      else { state.pick = null; if (done) done(res); }
+      return readTeam(sfs).then(function () { if (g === gen) render(); });
+    }, function (e) { state.teamSaving = false; if (g !== gen) return; state.teamErr = 'Couldn\'t save ' + T.FILE + ': ' + e.message; render(); });
+  }
+  /* What Settings' boxes give: trimmed (a value never has outer spaces), checked the way the file is. */
+  function teamEntryOf(value, about) {
+    var T = PF.teamValues, v = String(value == null ? '' : value).trim(), a = String(about == null ? '' : about).trim();
+    var p = T.valueProblem(v, 'The value');
+    if (p) throw Object.assign(new Error(p), { field: 'value' });
+    if (a.length > T.ABOUT_MAX) throw Object.assign(new Error('What it\'s for can be at most ' + T.ABOUT_MAX + ' characters.'), { field: 'about' });
+    if (/[\u0000-\u001f\u007f]/.test(a)) throw Object.assign(new Error('What it\'s for has a control character.'), { field: 'about' });
+    return a ? { value: v, about: a } : { value: v };
   }
 
   /* ---------- rendering ---------- */
@@ -5842,6 +5893,14 @@
     'people-backup': function (id) { changePeople('backup', id, function (doc) { return PF.people.setRole(doc, id, 'backup'); }, function (p) { say(p.name + ' is the backup owner now.', 'good'); }); },
     'people-owner': function (id) { changePeople('owner', id, function (doc) { return PF.people.setRole(doc, id, 'owner'); }, function (p) { say(p.name + ' is the folder owner now.', 'good'); }); },
     'people-err-dismiss': function () { state.peopleErr = null; render(); },
+    'team-err-dismiss': function () { state.teamErr = null; render(); },
+    'team-edit': function (id) {
+      var tv = data.teamValues, e = tv && tv.doc && tv.doc.values && Object.prototype.hasOwnProperty.call(tv.doc.values, id) ? tv.doc.values[id] : null;
+      if (!e) return;
+      state.teamEdit = { name: id, value: e.value, about: e.about || '' }; state.pick = null; state.fieldErr = null; state.focus = 'tv-e-value'; render();
+    },
+    'team-cancel': function () { state.teamEdit = null; state.fieldErr = null; render(); },
+    'team-remove': function (id) { changeTeam(function (doc) { if (!Object.prototype.hasOwnProperty.call(doc.values, id)) throw new Error('"' + id + '" isn\'t a team value anymore.'); delete doc.values[id]; return id; }, function () { say('Removed the team value ' + id + '.', 'good'); }); },
     /* Choosing a step shows it in the inspector (on a phone, as a sheet). Previous and Next in the inspector keep focus there
        and bring the step's row into view in the checklist. */
     select: function (id, b) {
@@ -6785,6 +6844,30 @@
     try { P.checkEmail(add.email); } catch (err) { state.fieldErr = { id: 'setup', field: 'pa-email', msg: err.message }; state.focus = 'pa-email'; render(); return; }
     changePeople('add', null, function (doc) { return P.add(doc, add.name, add.email); }, function (p) { state.peopleAdd = null; state.focus = 'pa-name'; say('Added ' + p.name + ' as ' + p.id + '. They choose their name when they open the folder.', 'good'); });
   });
+  /* Settings' Add a team value and its Edit (2.9). */
+  document.addEventListener('submit', function (e) {
+    if (e.target.id !== 'team-add-form' && e.target.id !== 'team-edit-form') return;
+    e.preventDefault();
+    var T = PF.teamValues, adding = e.target.id === 'team-add-form', f = adding ? (state.teamAdd || { name: val('tv-name'), value: val('tv-value'), about: val('tv-about') }) : state.teamEdit;
+    if (!f) return;
+    var pre = adding ? 'tv-' : 'tv-e-', name = String(f.name || '').trim(), entry;
+    state.fieldErr = null;
+    if (adding) {
+      var nerr = !name ? 'Give it a name.' : !T.NAME.test(name) ? 'Use lowercase letters, digits and - (at most 40), starting with a letter or digit.' : '';
+      var tv = data.teamValues, has = tv && tv.doc && tv.doc.values && Object.prototype.hasOwnProperty.call(tv.doc.values, name);
+      if (!nerr && has) nerr = 'There\'s already a team value named ' + name + '.';
+      if (nerr) { state.fieldErr = { id: 'setup', field: 'tv-name', msg: nerr }; state.focus = 'tv-name'; render(); return; }
+    }
+    try { entry = teamEntryOf(f.value, f.about); } catch (err) { state.fieldErr = { id: 'setup', field: pre + err.field, msg: err.message }; state.focus = pre + err.field; render(); return; }
+    changeTeam(function (doc) {
+      if (adding && Object.prototype.hasOwnProperty.call(doc.values, name)) throw new Error('There\'s already a team value named ' + name + '.');
+      if (!adding && !Object.prototype.hasOwnProperty.call(doc.values, name)) throw new Error('"' + name + '" isn\'t a team value anymore.');
+      doc.values[name] = entry; return name;
+    }, function () {
+      if (adding) { state.teamAdd = null; state.focus = 'tv-name'; } else state.teamEdit = null;
+      say((adding ? 'Added the team value ' : 'Saved the team value ') + name + '.', 'good');
+    });
+  });
   /* Save a plan: a new file, never a replacement for one that's there. */
   document.addEventListener('submit', function (e) {
     if (e.target.id !== 'plan-form') return;
@@ -6877,6 +6960,12 @@
       else su.team.forEach(function (x) { if (x.k === sm[2]) x[sm[1]] = v; });
       if (state.fieldErr && state.fieldErr.id === 'setup' && state.fieldErr.field === e.target.id) state.fieldErr = null;
       render();
+    }
+    var tvm = /^tv-(e-)?(name|value|about)$/.exec(e.target.id || '');
+    if (tvm) {
+      if (tvm[1]) { if (state.teamEdit) state.teamEdit[tvm[2]] = String(e.target.value || ''); }
+      else (state.teamAdd = state.teamAdd || { name: '', value: '', about: '' })[tvm[2]] = String(e.target.value || '');
+      if (state.fieldErr && state.fieldErr.field === e.target.id) { state.fieldErr = null; render(); }
     }
     if (e.target.id === 'pa-name' || e.target.id === 'pa-email') { (state.peopleAdd = state.peopleAdd || { name: '', email: '' })[e.target.id.slice(3)] = String(e.target.value || ''); if (state.fieldErr && state.fieldErr.field === e.target.id) state.fieldErr = null; render(); }
   });
