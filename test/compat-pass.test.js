@@ -1,5 +1,5 @@
 // pass: (2.8) against real older releases. A checklist with a pass: line publishes as preflight-publication/2 with the
-// passed-details feature, and a run on it is preflight-run/3: every copy from 1.11.1 through 2.7.0 refuses both by name and
+// passed-details feature, and a run on it is preflight-run/3: every copy from 1.11.1 through 2.7.0 (each one before 2.8) refuses both by name and
 // writes nothing. The baseline folder's /1 version and its run/2 (no pass:) stay readable and recordable by every copy.
 // Below the floor (1.10.0, 1.11.0) the characterization stands: no format check (H7).
 'use strict';
@@ -9,7 +9,9 @@ const H = require('./compat-harness');
 const G = require('../tools/old-folders');
 const { cmp } = require('../tools/old-bundles');
 
-const TAGS = H.bundles.tags();
+const { expects } = require('./compat-matrix');
+/* Every copy before 2.8 (2.8 and later read pass: themselves). */
+const TAGS = H.bundles.tags().filter(t => !expects('passed-details', t.version));
 const AT = '2026-10-26T12:00:00.000Z';
 const below = (v) => cmp(v, H.bundles.FLOOR) < 0;
 const snap = (m) => JSON.stringify(Object.keys(m.files).sort().map(p => [p, m.files[p].t]));
