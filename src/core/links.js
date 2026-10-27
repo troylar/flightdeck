@@ -83,7 +83,9 @@ PF.links = (function () {
   /* The carry: and pass: lines (null: no line) whose meaning is exactly `want` (rows as rows() gives them), as short as it can
      be: an explicit carry: list is kept and grows or shrinks by same-name sources; without one, same-name sources stay
      implicit. An explicit list that would be emptied is dropped, and every other shared name is asked with name=?, since an
-     empty carry: passes everything shared. Stale names stay where they are (only Remove takes them out). */
+     empty carry: passes everything shared. Stale names stay where they are (only Remove takes them out). A row marked
+     explicit (the person chose Asked) is written as name=? even where it would be asked anyway, so the step gets a pass: line
+     and its start form asks it. */
   function write(want, step, parentNames, childMap) {
     childMap = childOf(childMap);
     var cur = carryList(step), names = childNames(childMap), old = rows(step, parentNames, childMap);
@@ -99,12 +101,12 @@ PF.links = (function () {
     if (cur.length && (listed.length || staleCarry.length)) {
       carry = cur.filter(function (n) { return listed.indexOf(n) >= 0 || staleCarry.indexOf(n) >= 0; });
       listed.forEach(function (n) { if (carry.indexOf(n) < 0) carry.push(n); });
-      names.forEach(function (n) { var r = byName[n]; if (r && !sameName(r) && r.source !== 'ask') pass.push(r); });
+      names.forEach(function (n) { var r = byName[n]; if (r && !sameName(r) && (r.source !== 'ask' || r.explicit)) pass.push(r); });
     } else {
       names.forEach(function (n) {
         var r = byName[n]; if (!r) return;
         if (sameName(r) && shared(n)) return;
-        if (r.source === 'ask' && !shared(n)) return;
+        if (r.source === 'ask' && !shared(n) && !r.explicit) return;
         pass.push(r);
       });
     }

@@ -3986,7 +3986,9 @@ PF.links = (function () {
   /* The carry: and pass: lines (null: no line) whose meaning is exactly `want` (rows as rows() gives them), as short as it can
      be: an explicit carry: list is kept and grows or shrinks by same-name sources; without one, same-name sources stay
      implicit. An explicit list that would be emptied is dropped, and every other shared name is asked with name=?, since an
-     empty carry: passes everything shared. Stale names stay where they are (only Remove takes them out). */
+     empty carry: passes everything shared. Stale names stay where they are (only Remove takes them out). A row marked
+     explicit (the person chose Asked) is written as name=? even where it would be asked anyway, so the step gets a pass: line
+     and its start form asks it. */
   function write(want, step, parentNames, childMap) {
     childMap = childOf(childMap);
     var cur = carryList(step), names = childNames(childMap), old = rows(step, parentNames, childMap);
@@ -4002,12 +4004,12 @@ PF.links = (function () {
     if (cur.length && (listed.length || staleCarry.length)) {
       carry = cur.filter(function (n) { return listed.indexOf(n) >= 0 || staleCarry.indexOf(n) >= 0; });
       listed.forEach(function (n) { if (carry.indexOf(n) < 0) carry.push(n); });
-      names.forEach(function (n) { var r = byName[n]; if (r && !sameName(r) && r.source !== 'ask') pass.push(r); });
+      names.forEach(function (n) { var r = byName[n]; if (r && !sameName(r) && (r.source !== 'ask' || r.explicit)) pass.push(r); });
     } else {
       names.forEach(function (n) {
         var r = byName[n]; if (!r) return;
         if (sameName(r) && shared(n)) return;
-        if (r.source === 'ask' && !shared(n)) return;
+        if (r.source === 'ask' && !shared(n) && !r.explicit) return;
         pass.push(r);
       });
     }
@@ -21728,14 +21730,16 @@ PF.vk = (function () {
     var rr = PF.links.rows(st, meta.context, kid.map), setBy = M.setBy(kid.map), fixed = ctx.state.obLinkFixed || {}, t = kid.title;
     h += '<h3 class="ob-sec">What ' + esc(t) + ' needs</h3>' + (kid.draft ? '<p class="small">' + esc(t) + ' isn\'t published yet, so this can\'t be checked until it is.</p>' : '') +
       (kid.nextAdds && kid.nextAdds.length ? '<p class="small">' + esc(t) + '\'s draft adds ^' + kid.nextAdds.map(esc).join(', ^') + '.</p>' : '');
-    /* Before 2.8 (no pass: line) nothing is asked: a name with no source starts empty, unless choosing it writes name=?. */
+    /* Before 2.8 (no pass: line) nothing is asked: a name with no source starts empty ("Not passed"). Choosing Asked writes
+       name=?, which gives the step a pass: line. */
     var asks = function (n) { return PF.links.has(st) || (!PF.links.carryList(st).length && meta.context.indexOf(n) >= 0); };
     var kinds = meta.detailTypes || {}, kindOf = function (n) { return ownKey(kinds, n) && kinds[n] ? ' (' + esc(kinds[n].kind || 'text') + ')' : ''; };
     rr.rows.forEach(function (r) {
-      var sid = 'ob-link-src-' + r.name, cur = r.source === 'value' || fixed[s.key + ':' + r.name] ? '=' : r.source === 'detail' ? '^' + r.from : '?';
+      var sid = 'ob-link-src-' + r.name, cur = r.source === 'value' || fixed[s.key + ':' + r.name] ? '=' : r.source === 'detail' ? '^' + r.from : ownKey(setBy, r.name) || asks(r.name) ? '?' : '-';
       h += '<div class="field ob-link-row"><label for="' + esc(sid) + '"><b>' + esc(r.name) + '</b> <span class="small">' + esc(r.kind) + (ownKey(setBy, r.name) ? ' · ' + esc(t) + ' also sets this itself, later' : '') + '</span></label><select id="' + esc(sid) + '" data-bound>' +
         meta.context.map(function (n) { return '<option value="^' + esc(n) + '"' + (cur === '^' + n ? ' selected' : '') + '>This run\'s ^' + esc(n) + kindOf(n) + '</option>'; }).join('') +
-        '<option value="="' + (cur === '=' ? ' selected' : '') + '>A fixed value</option><option value="?"' + (cur === '?' ? ' selected' : '') + '>' + (ownKey(setBy, r.name) ? esc(t) + ' fills this in itself' : asks(r.name) ? 'Asked when ' + esc(t) + ' starts' : 'Not passed: ' + esc(t) + ' starts without it') + '</option></select>';
+        '<option value="="' + (cur === '=' ? ' selected' : '') + '>A fixed value</option><option value="?"' + (cur === '?' ? ' selected' : '') + '>' + (ownKey(setBy, r.name) ? esc(t) + ' fills this in itself' : 'Asked when ' + esc(t) + ' starts') + '</option>' +
+        (cur === '-' ? '<option value="-" selected>Not passed: ' + esc(t) + ' starts without it</option>' : '') + '</select>';
       if (cur === '=') h += '<label class="field" for="ob-link-val-' + esc(r.name) + '">' + esc(G.form('link-val').q) + '<input id="ob-link-val-' + esc(r.name) + '" maxlength="120" value="' + esc(r.value || '') + '" data-enter="ob-commit"' + errAt(ctx, 'ob-link-val-' + r.name) + '></label>' + errMsg(ctx, 'ob-link-val-' + r.name);
       h += '</div>';
     });
@@ -27795,7 +27799,8 @@ PF.examples = (function () {
     if (/^ob-link-src-/.test(id)) {
       delete fixed[key + ':' + name];
       if (value === '=') { if (r.source === 'value') return null; fixed[key + ':' + name] = true; return null; }
-      if (value === '?') { r.source = 'ask'; delete r.from; delete r.value; }
+      if (value === '-') return null;
+      if (value === '?') { r.source = 'ask'; r.explicit = true; delete r.from; delete r.value; }
       else { r.source = 'detail'; r.from = value.replace(/^\^/, ''); delete r.value; }
     } else {
       var v = String(value || '').trim(); if (!v) return null;
@@ -30426,15 +30431,35 @@ PF.examples = (function () {
     e.preventDefault();
     createProcess(false);
   });
+  /* What the child's start dialog holds: the asked values and the roles. Kept on prep as they're typed, so a redraw (a
+     refresh, a new version's notice) puts them back. */
+  function csHarvest(form, prep) {
+    var asked = {}, roles = {};
+    form.querySelectorAll('[data-detail]').forEach(function (el) { if (prep.ask.indexOf(el.dataset.detail) >= 0 || prep.open.indexOf(el.dataset.detail) >= 0) asked[el.dataset.detail] = inputValue(el); });
+    form.querySelectorAll('[data-role]').forEach(function (el) { roles[el.dataset.role] = el.value; });
+    return { asked: asked, roles: roles };
+  }
+  ['input', 'change'].forEach(function (ev) {
+    document.addEventListener(ev, function (e) {
+      var id = (e.target && e.target.id) || '', ov = state.overlay, prep = ov && ov.childStart;
+      if (!/^cs-/.test(id) || !prep) return;
+      var form = document.getElementById('child-start-form');
+      if (form && form.dataset && String(prep.token) !== form.dataset.token) return;
+      var got = form && form.querySelectorAll ? csHarvest(form, prep) : { asked: {}, roles: {} };
+      prep.values = Object.assign({}, prep.values || {}, got.asked); prep.roleVals = Object.assign({}, prep.roleVals || {}, got.roles);
+      /* The box itself, by its ID (cs-<detail>, cs-role-<role>), whatever the form around it can be read for. */
+      var rm = /^cs-role-(.+)$/.exec(id), d = id.slice(3);
+      if (rm) prep.roleVals[rm[1]] = e.target.value;
+      else if (prep.ask.indexOf(d) >= 0 || prep.open.indexOf(d) >= 0) prep.values[d] = inputValue(e.target);
+    });
+  });
   /* The child's start dialog (2.8): the same prep, still current, with the asked values and roles. */
   document.addEventListener('submit', function (e) {
     if (e.target.id !== 'child-start-form') return;
     e.preventDefault();
     var ov = state.overlay, prep = ov && ov.childStart;
     if (!prep || String(prep.token) !== e.target.dataset.token) return;
-    var asked = {}, roles = {};
-    e.target.querySelectorAll('[data-detail]').forEach(function (el) { if (prep.ask.indexOf(el.dataset.detail) >= 0 || prep.open.indexOf(el.dataset.detail) >= 0) asked[el.dataset.detail] = inputValue(el); });
-    e.target.querySelectorAll('[data-role]').forEach(function (el) { roles[el.dataset.role] = el.value; });
+    var got = csHarvest(e.target, prep), asked = got.asked, roles = got.roles;
     var why = childStale(prep);
     if (why) { closeOverlay(); say(why, 'warn'); render(); return; }
     /* A value that doesn't fit keeps the dialog open with everything typed, and says which box. */

@@ -3987,7 +3987,8 @@
     if (/^ob-link-src-/.test(id)) {
       delete fixed[key + ':' + name];
       if (value === '=') { if (r.source === 'value') return null; fixed[key + ':' + name] = true; return null; }
-      if (value === '?') { r.source = 'ask'; delete r.from; delete r.value; }
+      if (value === '-') return null;
+      if (value === '?') { r.source = 'ask'; r.explicit = true; delete r.from; delete r.value; }
       else { r.source = 'detail'; r.from = value.replace(/^\^/, ''); delete r.value; }
     } else {
       var v = String(value || '').trim(); if (!v) return null;
@@ -6618,15 +6619,35 @@
     e.preventDefault();
     createProcess(false);
   });
+  /* What the child's start dialog holds: the asked values and the roles. Kept on prep as they're typed, so a redraw (a
+     refresh, a new version's notice) puts them back. */
+  function csHarvest(form, prep) {
+    var asked = {}, roles = {};
+    form.querySelectorAll('[data-detail]').forEach(function (el) { if (prep.ask.indexOf(el.dataset.detail) >= 0 || prep.open.indexOf(el.dataset.detail) >= 0) asked[el.dataset.detail] = inputValue(el); });
+    form.querySelectorAll('[data-role]').forEach(function (el) { roles[el.dataset.role] = el.value; });
+    return { asked: asked, roles: roles };
+  }
+  ['input', 'change'].forEach(function (ev) {
+    document.addEventListener(ev, function (e) {
+      var id = (e.target && e.target.id) || '', ov = state.overlay, prep = ov && ov.childStart;
+      if (!/^cs-/.test(id) || !prep) return;
+      var form = document.getElementById('child-start-form');
+      if (form && form.dataset && String(prep.token) !== form.dataset.token) return;
+      var got = form && form.querySelectorAll ? csHarvest(form, prep) : { asked: {}, roles: {} };
+      prep.values = Object.assign({}, prep.values || {}, got.asked); prep.roleVals = Object.assign({}, prep.roleVals || {}, got.roles);
+      /* The box itself, by its ID (cs-<detail>, cs-role-<role>), whatever the form around it can be read for. */
+      var rm = /^cs-role-(.+)$/.exec(id), d = id.slice(3);
+      if (rm) prep.roleVals[rm[1]] = e.target.value;
+      else if (prep.ask.indexOf(d) >= 0 || prep.open.indexOf(d) >= 0) prep.values[d] = inputValue(e.target);
+    });
+  });
   /* The child's start dialog (2.8): the same prep, still current, with the asked values and roles. */
   document.addEventListener('submit', function (e) {
     if (e.target.id !== 'child-start-form') return;
     e.preventDefault();
     var ov = state.overlay, prep = ov && ov.childStart;
     if (!prep || String(prep.token) !== e.target.dataset.token) return;
-    var asked = {}, roles = {};
-    e.target.querySelectorAll('[data-detail]').forEach(function (el) { if (prep.ask.indexOf(el.dataset.detail) >= 0 || prep.open.indexOf(el.dataset.detail) >= 0) asked[el.dataset.detail] = inputValue(el); });
-    e.target.querySelectorAll('[data-role]').forEach(function (el) { roles[el.dataset.role] = el.value; });
+    var got = csHarvest(e.target, prep), asked = got.asked, roles = got.roles;
     var why = childStale(prep);
     if (why) { closeOverlay(); say(why, 'warn'); render(); return; }
     /* A value that doesn't fit keeps the dialog open with everything typed, and says which box. */

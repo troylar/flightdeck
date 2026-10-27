@@ -520,6 +520,15 @@ rule('Editor (2.8): a fixed value that would read back as something else is refu
   assert.ok(/  pass: commit=abc456\n/.test(await textOf(app)) && !/ferr-ob-link-val-commit/.test(formOf(app)), 'a good one applies and clears the message');
 });
 
+rule('Editor (2.8): on a step without pass:, a detail with no source says Not passed, and Asked can be chosen', async () => {
+  const app = await editorOn(md(step('run.process', 's', 'process: check-in')), 's');
+  const h = formOf(app), sel = h.slice(h.indexOf('id="ob-link-src-branch"'), h.indexOf('</select>', h.indexOf('id="ob-link-src-branch"')));
+  assert.ok(/<option value="-" selected>Not passed: [^<]+ starts without it/.test(sel) && /<option value="\?">Asked when [^<]+ starts/.test(sel), sel);
+  app.select('ob-link-src-branch', '?'); await app.tick();
+  assert.ok(/  process: check-in\n  pass: branch=\?\n/.test(await textOf(app)), await textOf(app));
+  assert.ok(/<option value="\?" selected>Asked when/.test(formOf(app)), 'now asked');
+});
+
 const CHECKIN = (app) => app.PF.map.parse(app.fs.files[Object.keys(app.fs.files).find(p => /^publications\/check-in\/.*\/map\.md$/.test(p))].t);
 rule('Editor (2.8): a name the child doesn\'t have is shown with a Remove fix', async () => {
   const app = await editorOn(md(step('run.process', 's', 'process: check-in', 'carry: tag')), 's');

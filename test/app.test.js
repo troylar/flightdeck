@@ -8684,6 +8684,17 @@ rule('2.8: a value that doesn\'t fit keeps the child\'s start dialog open with w
   assert.deepStrictEqual(deployRuns(app).map(k => k.details.notify), ['3']);
 });
 
+rule('2.8: what was typed in the child\'s start dialog survives a redraw, and starts the child', async () => {
+  const app = await passStart('environment=^env, region=us-east-1, notify=?');
+  app.click('start-child', 'dep'); await app.tick(40);
+  app.input('cs-notify', 'ops'); await app.tick();
+  app.click('refresh'); await app.tick(100);
+  const ov = app.overlay();
+  assert.ok(/id="cs-notify"[^>]*value="ops"/.test(ov), 'kept: ' + ov.slice(ov.indexOf('cs-notify') - 50, ov.indexOf('cs-notify') + 200));
+  app.submitForm('child-start-form'); await app.tick(150);
+  assert.deepStrictEqual(deployRuns(app).map(k => k.details.notify), ['ops']);
+});
+
 rule('2.8: a pass: step with nothing to ask starts at once, as before', async () => {
   const app = await passStart('environment=^env, region=us-east-1, notify=none');
   app.click('start-child', 'dep'); await app.tick(150);

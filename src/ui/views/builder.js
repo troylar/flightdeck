@@ -392,14 +392,16 @@
     var rr = PF.links.rows(st, meta.context, kid.map), setBy = M.setBy(kid.map), fixed = ctx.state.obLinkFixed || {}, t = kid.title;
     h += '<h3 class="ob-sec">What ' + esc(t) + ' needs</h3>' + (kid.draft ? '<p class="small">' + esc(t) + ' isn\'t published yet, so this can\'t be checked until it is.</p>' : '') +
       (kid.nextAdds && kid.nextAdds.length ? '<p class="small">' + esc(t) + '\'s draft adds ^' + kid.nextAdds.map(esc).join(', ^') + '.</p>' : '');
-    /* Before 2.8 (no pass: line) nothing is asked: a name with no source starts empty, unless choosing it writes name=?. */
+    /* Before 2.8 (no pass: line) nothing is asked: a name with no source starts empty ("Not passed"). Choosing Asked writes
+       name=?, which gives the step a pass: line. */
     var asks = function (n) { return PF.links.has(st) || (!PF.links.carryList(st).length && meta.context.indexOf(n) >= 0); };
     var kinds = meta.detailTypes || {}, kindOf = function (n) { return ownKey(kinds, n) && kinds[n] ? ' (' + esc(kinds[n].kind || 'text') + ')' : ''; };
     rr.rows.forEach(function (r) {
-      var sid = 'ob-link-src-' + r.name, cur = r.source === 'value' || fixed[s.key + ':' + r.name] ? '=' : r.source === 'detail' ? '^' + r.from : '?';
+      var sid = 'ob-link-src-' + r.name, cur = r.source === 'value' || fixed[s.key + ':' + r.name] ? '=' : r.source === 'detail' ? '^' + r.from : ownKey(setBy, r.name) || asks(r.name) ? '?' : '-';
       h += '<div class="field ob-link-row"><label for="' + esc(sid) + '"><b>' + esc(r.name) + '</b> <span class="small">' + esc(r.kind) + (ownKey(setBy, r.name) ? ' · ' + esc(t) + ' also sets this itself, later' : '') + '</span></label><select id="' + esc(sid) + '" data-bound>' +
         meta.context.map(function (n) { return '<option value="^' + esc(n) + '"' + (cur === '^' + n ? ' selected' : '') + '>This run\'s ^' + esc(n) + kindOf(n) + '</option>'; }).join('') +
-        '<option value="="' + (cur === '=' ? ' selected' : '') + '>A fixed value</option><option value="?"' + (cur === '?' ? ' selected' : '') + '>' + (ownKey(setBy, r.name) ? esc(t) + ' fills this in itself' : asks(r.name) ? 'Asked when ' + esc(t) + ' starts' : 'Not passed: ' + esc(t) + ' starts without it') + '</option></select>';
+        '<option value="="' + (cur === '=' ? ' selected' : '') + '>A fixed value</option><option value="?"' + (cur === '?' ? ' selected' : '') + '>' + (ownKey(setBy, r.name) ? esc(t) + ' fills this in itself' : 'Asked when ' + esc(t) + ' starts') + '</option>' +
+        (cur === '-' ? '<option value="-" selected>Not passed: ' + esc(t) + ' starts without it</option>' : '') + '</select>';
       if (cur === '=') h += '<label class="field" for="ob-link-val-' + esc(r.name) + '">' + esc(G.form('link-val').q) + '<input id="ob-link-val-' + esc(r.name) + '" maxlength="120" value="' + esc(r.value || '') + '" data-enter="ob-commit"' + errAt(ctx, 'ob-link-val-' + r.name) + '></label>' + errMsg(ctx, 'ob-link-val-' + r.name);
       h += '</div>';
     });
