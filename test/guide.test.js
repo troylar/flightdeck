@@ -44,8 +44,9 @@ const BOX = {
   'ob-add-ctx': ['form', 'context'], 'ob-q-text': ['form', 'questions'], 'ob-fld-': ['field', null], 'ob-host': ['form', 'pr-host'],
   'ob-link-proc': ['form', 'link-proc'], 'ob-link-proc-other': ['form', 'link-proc-other'], 'ob-link-vn': ['form', 'link-vn'], 'ob-link-src-': ['form', 'link-src'], 'ob-link-val-': ['form', 'link-val']
 };
-/* Not entry boxes: finding a part, choosing a type or a kind (radios with their own descriptions), choosing files. */
-const NOT_BOXES = { 'ob-part-q': 1, 'ob-part-q2': 1, 'ob-type': 1, 'ob-new-type': 1, 'ob-shot-file': 1, 'ob-mark-': 1, 'ob-link-ver-': 1 };
+/* Not entry boxes: finding a part, choosing a type, Must be done and Automation planned (checkboxes with their own
+   descriptions, 2.10), choosing files. */
+const NOT_BOXES = { 'ob-part-q': 1, 'ob-part-q2': 1, 'ob-type': 1, 'ob-new-type': 1, 'ob-shot-file': 1, 'ob-must': 1, 'ob-planned': 1, 'ob-link-ver-': 1 };
 rule('Guide: every input, textarea and select the editor draws has its guide entry, the Questions box included', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'views', 'builder.js'), 'utf8');
   const ids = new Set();

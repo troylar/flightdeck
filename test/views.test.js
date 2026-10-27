@@ -339,10 +339,11 @@ rule('Draft builder: phases as cards, steps as draggable rows, gates as striped 
   assert.ok(/<li class="ob-step sel"[^>]*data-ob-step="flags">/.test(html) && /aria-pressed="true" aria-describedby="ob-kbd"/.test(html), 'the selected row');
   /* 2.6.0: the box asks its question, with an example and a why (PF.guide). */
   assert.ok(/<textarea id="ob-text" class="dbx-in"[^>]* rows="2" maxlength="200" data-enter="ob-commit" placeholder="Order equipment" aria-describedby="why-ob-text dbx-iss-ob-text dbx-pv-ob-text">Feature flags set in the deploy values \^environment<\/textarea>/.test(html), 'its text with its ^detail in place (2.7), without @role');
-  assert.ok(/<input type="radio" name="ob-mark" id="ob-mark-must" value="must" data-bound checked><span><b>Must do<\/b>/.test(html) && /id="ob-mark-planned" value="planned" data-bound><span>/.test(html) && /<option value="confirm" selected>Basic step</.test(html), 'the kind as one choice of three, and the type');
+  assert.ok(/<input type="checkbox" id="ob-must" data-bound checked><span><b>Must be done<\/b>/.test(html) && /<input type="checkbox" id="ob-planned" data-bound><span><b>Automation planned/.test(html) && /<option value="confirm" selected>Basic step</.test(html), '2.10: Must be done and Automation planned as checkboxes, and the type (under More options)');
   assert.ok(/data-act="ob-role" data-id="backend" aria-pressed="true"/.test(html) && /data-act="ob-role" data-id="qa" aria-pressed="false"/.test(html), 'roles from the checklist');
   assert.ok(/class="ob-chip" data-act="ob-bind" data-id="environment" aria-pressed="true"/.test(html) && /data-id="commit" aria-pressed="false"/.test(html), 'run details as amber chips');
-  assert.ok(/for="ob-fld-where">Where do you look\?/.test(html) && /for="ob-fld-looks">What does right look like\?/.test(html), 'the fields its type asks for (2.6.0: as questions)');
+  assert.ok(!/for="ob-fld-where"/.test(html) && /data-act="ob-show" data-id="where"[^>]*>\+ Where to check</.test(html) && /data-act="ob-show" data-id="looks"[^>]*>\+ True when</.test(html), '2.10: a plain step\'s guidance waits behind chips');
+  assert.ok(html.indexOf('data-obg="cond"') >= 0 && html.indexOf('data-obg="cond"') < html.indexOf('<details class="ob-more-opts"'), '2.10: a bound ^detail puts Conditions outside the fold');
   assert.ok(/ID <code>flags<\/code>/.test(html) && /data-act="ob-move" data-id="flags" data-dir="up"/.test(html) && /data-act="ob-del"/.test(html), 'its ID, and buttons to move and delete');
   state.obSel = { pid: 'release', kind: 'phase', key: 'prep' }; html = V.process(ctx);
   /* 2.6.0: the mode is two choice buttons. */
@@ -353,7 +354,7 @@ rule('Draft builder: phases as cards, steps as draggable rows, gates as striped 
   assert.ok(/<input id="ob-g-title"[^>]*value="Ready to deploy"[^>]*>/.test(html) && /<option value="release-lead" selected>@release-lead/.test(html) && /id="ob-g-approves"[^>]*value="deploy of `\^commit` to \^environment"/.test(html), 'its approval form');
   state.obSel = { pid: 'release', kind: 'phase', key: 'prep' };
   state.obAdd = { pid: 'release', kind: 'step', phase: 'deploy', track: -1 }; html = V.process(ctx);
-  assert.ok(/<label class="sr" for="ob-new-text">New step: What do you do\?<\/label><input id="ob-new-text"[^>]*data-enter="ob-add-go"[^>]*>/.test(html), 'an add-a-step box in place');
+  assert.ok(/<label class="sr" for="ob-new-text">New step: What needs to be done\?<\/label><input id="ob-new-text"[^>]*data-enter="ob-add-go"[^>]*>/.test(html), 'an add-a-step box in place');
   state.builder = false; html = V.process(ctx);
   assert.ok(/id="draft-editor"/.test(html) && !/id="ob"/.test(html) && !/ob-form/.test(html) && !/Changed lines/.test(html), 'Markdown mode is the textarea, with no changes to list');
 });
@@ -2870,6 +2871,99 @@ rule('Builder: the approval form, in order, with its help line; the phase form o
   state.obSel = { pid: 'release', kind: 'phase', key: 'prep', part: 'gate' }; html = V.process(ctx);
   if (/builder can.t edit this draft/.test(html)) return;
   assert.ok(/This approval has options the builder doesn.t know\. Edit it in Markdown\./.test(html), 'unknown options: edit in Markdown');
+});
+
+/* ---------- 2.10, slice 4: the trimmed step panel ---------- */
+const stepForm = (ctx, state, key, text) => {
+  if (text !== undefined) state.editor.text = text;
+  state.obSel = { pid: 'release', kind: 'step', key };
+  const html = V.process(ctx), at = html.indexOf('<section class="panel stack ob-form"');
+  return at < 0 ? '' : html.slice(at);
+};
+const foldAt = h => h.indexOf('<details class="ob-more-opts"');
+const outside = h => [...h.slice(0, foldAt(h)).matchAll(/data-obg="(\w+)"/g)].map(m => m[1]);
+const inFold = h => [...h.slice(foldAt(h)).matchAll(/data-obg="(\w+)"/g)].map(m => m[1]);
+
+rule('Step panel: a plain step shows what needs to be done, who, Must be done, + Add instructions and More options, nothing else (2.10)', () => {
+  const { ctx, state } = partsSetup();
+  const h = stepForm(ctx, state, 'rollback');
+  const order = [/for="ob-text">What needs to be done\?</, /id="ob-roles-l">Who does it\?</, /<input type="checkbox" id="ob-must" data-bound checked>/, /data-act="ob-note-open">[^]*?Add instructions</, /<details class="ob-more-opts" data-disc="ob-more"><summary>More options<\/summary>/].map(re => { const m = re.exec(h); assert.ok(m, String(re)); return m.index; });
+  assert.deepStrictEqual(order.slice().sort((a, b) => a - b), order, 'in that order');
+  assert.deepStrictEqual(outside(h), [], 'no group outside the fold');
+  assert.deepStrictEqual(inFold(h), ['type', 'guide', 'proof', 'time', 'cond', 'auto'], 'the groups, in order');
+  assert.ok(!/for="ob-fld-where"/.test(h) && !/id="ob-note"/.test(h) && !/ob-mark-/.test(h) && !/More about this step/.test(h), 'no box, no empty note, no Kind radios');
+  assert.ok(/data-obg="type"[^]*?<select id="ob-type"/.test(h.slice(foldAt(h))), 'a plain step\'s type waits under More options');
+  assert.ok(/data-obg="auto"[^]*?<input type="checkbox" id="ob-planned" data-bound><span><b>Automation planned<\/b>/.test(h), 'Automation planned is its own group');
+  state.obMore = true;
+  assert.ok(/<details class="ob-more-opts" data-disc="ob-more" open>/.test(stepForm(ctx, state, 'rollback')), 'opened once, open on every step');
+  state.obMore = false; state.obPendingField = 'ob-fld-where'; state.obShown = { pid: 'release', key: 'rollback', f: { where: 1 } };
+  const busy = stepForm(ctx, state, 'rollback');
+  assert.ok(/<details class="ob-more-opts" data-disc="ob-more" open data-busy="1"><summary>More options <span class="small">\(apply or clear what you typed first\)<\/span>/.test(busy) || /data-obg="guide"/.test(busy.slice(0, foldAt(busy))), 'typing not applied keeps the fold open and says why');
+});
+
+rule('Step panel: a typed step shows its type and the fields it\'s about at the top; a type with only optional fields shows its first (2.10)', () => {
+  const { ctx, state } = partsSetup();
+  let h = stepForm(ctx, state, 'tests');
+  const fold = foldAt(h);
+  assert.ok(h.indexOf('<select id="ob-type"') >= 0 && h.indexOf('<select id="ob-type"') < fold, 'Type at the top');
+  assert.ok(/<option value="ci\.gate" selected>/.test(h), 'its type chosen');
+  ['pipeline', 'page'].forEach(n => assert.ok(h.indexOf('id="ob-fld-' + n + '"') >= 0 && h.indexOf('id="ob-fld-' + n + '"') < fold, n + ' at the top'));
+  assert.ok(/data-obg="guide"[^]*?<\/section>/.test(h) && outside(h).includes('proof'), 'require: run puts Proof outside');
+  const base = ctx.data.processes[0].index.latest.md;
+  h = stepForm(ctx, state, 'meet', base.replace('- [!] {confirm} Rollback commit', '- [ ] {meeting} Release review {#meet}\n- [!] {confirm} Rollback commit'));
+  const first = Object.keys(PF.types.get('meeting').fields)[0];
+  assert.deepStrictEqual([...h.slice(0, foldAt(h)).matchAll(/\sid="ob-fld-([\w-]+)"/g)].map(m => m[1]), [first], 'Meeting: its first field only');
+  const SIXT = PF.types.customType({ id: 'pick.six', label: 'Pick six', icon: 'doc', hint: 'Choose a size.', fields: { size: { label: 'Size', kind: 'choice', options: ['xs', 's', 'm', 'l', 'xl', 'xxl'] }, note2: { label: 'Why', kind: 'text' } } });
+  ctx.data.stepTypes = { types: { 'pick.six': SIXT }, errors: [] };
+  h = stepForm(ctx, state, 'six', base.replace('- [!] {confirm} Rollback commit', '- [ ] {pick.six} Pick a size {#six}\n- [!] {confirm} Rollback commit'));
+  assert.ok(/id="ob-fld-size"/.test(h.slice(0, foldAt(h))) && !/id="ob-fld-note2"/.test(h), 'a team type with only optional fields: its first');
+});
+
+rule('Step panel: anything in use is shown outside the fold, read from the step as written (2.10)', () => {
+  const { ctx, state } = partsSetup();
+  const base = ctx.data.processes[0].index.latest.md, line = '- [!] {confirm} Rollback commit written in the release ticket @release-lead {#rollback}';
+  const with_ = (extra, mark) => base.replace(line, (mark ? line.replace('- [!]', mark) : line) + extra);
+  const cases = [['\n  where: The release ticket', 'guide'], ['\n  evidence: link', 'proof'], ['\n  require: all', 'proof'], ['\n  sets: tag', 'cond'], ['\n  expect: 5m', 'time'], ['', 'auto', '- [~]']];
+  cases.forEach(([extra, g, mark]) => {
+    const h = stepForm(ctx, state, 'rollback', with_(extra, mark));
+    assert.deepStrictEqual(outside(h), [g], (extra || mark) + ': ' + outside(h));
+    assert.ok(!inFold(h).includes(g), 'not also folded');
+  });
+  const bound = stepForm(ctx, state, 'rollback', base.replace(line, line.replace(' @release-lead', ' ^tag @release-lead')));
+  assert.deepStrictEqual(outside(bound), ['cond'], 'a bound ^tag');
+  assert.ok(/data-obg="auto"[^]*?id="ob-planned" data-bound checked/.test(stepForm(ctx, state, 'rollback', with_('', '- [~]'))), 'planned, checked');
+  assert.ok(/id="ob-must" data-bound>/.test(stepForm(ctx, state, 'rollback', with_('', '- [~]'))), 'and Must be done unchecked');
+});
+
+rule('Step panel: Who does it says the lane\'s people in a lane, Anyone elsewhere, and offers + Add role (2.10)', () => {
+  const { ctx, state } = partsSetup();
+  const base = ctx.data.processes[0].index.latest.md;
+  let h = stepForm(ctx, state, 'smoke', base.replace('expected answers @qa {#smoke}', 'expected answers {#smoke}'));
+  assert.ok(/<span class="chipbtn ob-anyone" aria-current="true">Uses this lane&#39;s people \(@qa\)<\/span>/.test(h), 'the lane\'s people');
+  assert.ok(/data-act="ob-role-add" data-id="step"/.test(h), '+ Add role');
+  h = stepForm(ctx, state, 'rollback', base.replace('ticket @release-lead {#rollback}', 'ticket {#rollback}'));
+  assert.ok(/<span class="chipbtn ob-anyone" aria-current="true">Anyone<\/span>/.test(h), 'Anyone');
+  h = stepForm(ctx, state, 'rollback', null);
+  assert.ok(!/ob-anyone/.test(h) && /data-act="ob-role" data-id="release-lead" aria-pressed="true"/.test(h), 'its own role, no Anyone');
+});
+
+rule('Type chooser: Everyday work, Software tools and commands, Your team\'s; the checklist\'s own types first (2.10)', () => {
+  const { ctx, state } = partsSetup({ types: { 'change.request': PF.types.customType(JSON.parse(example('step-types/change.request.json'))) }, errors: [] });
+  const h = stepForm(ctx, state, 'rollback'), sel = (/<select id="ob-type"[^]*?<\/select>/.exec(h) || [''])[0];
+  assert.deepStrictEqual([...sel.matchAll(/<optgroup label="([^"]+)">/g)].map(m => m[1]), ['Everyday work', 'Software tools and commands', 'Your team\'s'], 'three groups');
+  const groups = sel.split('<optgroup').slice(1).map(g => [...g.matchAll(/<option value="([^"]+)"/g)].map(m => m[1]));
+  assert.deepStrictEqual(groups[0].slice(0, 4), ['confirm', 'communicate', 'ui.action', 'run.process'], 'the ones it uses first: ' + groups[0]);
+  assert.deepStrictEqual(groups[1].slice(-3).sort(), ['jira.sprint', 'run.script', 'run.skill'], 'tools it doesn\'t use come last: ' + groups[1]);
+  assert.deepStrictEqual(groups[2], ['change.request'], 'the team\'s');
+  ['meeting', 'decide', 'review', 'wait', 'measure', 'ui.action'].forEach(t => assert.ok(groups[0].includes(t), t + ' is everyday'));
+  state.obAdd = { pid: 'release', kind: 'step', phase: 'deploy', track: -1 };
+  const quick = (/<select id="ob-new-type">[^]*?<\/select>/.exec(V.process(ctx)) || [''])[0];
+  assert.ok(/^<select id="ob-new-type"><optgroup label="Everyday work"><option value="confirm" selected>Basic step</.test(quick) && /<optgroup label="Software tools and commands">/.test(quick), 'quick add: the same groups, Basic step chosen');
+});
+
+rule('Folder health: a checklist\'s problem links to "Open the checklist" (2.10)', () => {
+  const { ctx } = healthCtx(c => { c.data.processes[0].index.clashes = ['3']; });
+  assert.ok(/data-act="open-process" data-id="release">Open the checklist</.test(V.health(ctx)));
 });
 
 run();

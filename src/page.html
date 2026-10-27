@@ -738,13 +738,16 @@ html.pane-drag, html.pane-drag * { cursor: col-resize !important; -webkit-user-s
 /* The side form: switches for must-do and automation planned, and Done for the phone's sheet. */
 .ob-form-top h2 { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .ob-done { display: none; }
-.ob-kind { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.ob-kind legend { padding: 0; margin-bottom: 4px; }
-.ob-switch { display: flex; gap: 10px; align-items: flex-start; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; font-weight: 400; }
-.ob-switch:has(input:checked) { border-color: var(--ink); background: var(--paper); }
-.ob-switch:has(#ob-mark-must:checked) { border-color: var(--stop); background: var(--stop-soft); }
-.ob-switch input[type="radio"] { flex: none; margin: 3px 0 0; accent-color: var(--ink); width: 16px; height: 16px; }
-.ob-switch.reveal { animation: ob-new .65s ease-out; }
+.ob-check { display: flex; gap: 10px; align-items: flex-start; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; font-weight: 400; min-height: 44px; box-sizing: border-box; }
+.ob-check:has(input:checked) { border-color: var(--ink); background: var(--paper); }
+.ob-check:has(#ob-must:checked) { border-color: var(--stop); background: var(--stop-soft); }
+.ob-check input[type="checkbox"] { flex: none; margin: 3px 0 0; accent-color: var(--ink); width: 16px; height: 16px; }
+.ob-check.reveal { animation: ob-new .65s ease-out; }
+.ob-anyone { cursor: default; }
+.ob-more-opts > summary { cursor: pointer; font-weight: 600; min-height: 44px; display: flex; align-items: center; gap: 6px; }
+.ob-more-opts[open] > summary { margin-bottom: 8px; }
+.ob-grp4 { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ob-more-opts .ob-grp4 + .ob-grp4, .ob-grp4 + .ob-grp4 { margin-top: 6px; }
 @media (max-width: 800px) {
   html.fpe-on .top { display: none; }
   .fpe { position: static; display: block; min-height: 100vh; }
@@ -1291,8 +1294,8 @@ p.pv-when { margin: 0 0 4px; }
 @media (max-width: 480px) { .ob-shot { grid-template-columns: 1fr; } .ob-shot-pic { width: 100%; max-width: 240px; height: 140px; } }
 .ob-help p { margin: 6px 0 0; max-width: 70ch; }
 .ob-bar { align-items: center; }
-.ob-switch:has(input:checked), .ob-switch:has(#ob-mark-must:checked) { border-color: var(--ink); background: var(--paper); }
-.ob-switch[for="ob-mark-must"] b { color: var(--stop); }
+.ob-check:has(input:checked), .ob-check:has(#ob-must:checked) { border-color: var(--ink); background: var(--paper); }
+.ob-check[for="ob-must"] b { color: var(--stop); }
 /* Destination labels wrap rather than cut off. */
 .ob-dragging .ob-slot.over::after, .ob-dest > span { white-space: normal; max-width: min(320px, calc(100% - 12px)); line-height: 1.35; }
 /* Empty states. */

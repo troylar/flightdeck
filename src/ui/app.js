@@ -84,7 +84,7 @@
     sel: null, refOpen: true, pick: null, edit: null, unfold: {}, diffOf: null, msg: null, justPassed: null,
     pendingFiles: [], pendingStarts: Object.create(null), urls: {}, full: {}, needsReconnect: null, overlay: null, busy: false, unsaved: {}, saveErr: {},
     rel: { q: '', kind: '', area: '', sel: 0, detail: false }, newer: null,
-    folderErr: null, deviceName: lsGet('device-name', ''), keys: lsGet('keys', true), theme: lsGet('theme', 'system'), builder: lsGet('builder', true), insTabSaved: lsGet('insTab', ''), partsRail: lsGet('partsRail', false), renamed: lsGet('renamed-checklists', false), panes: panesKept(), fpSteps: fpStepsKept(), paneFit: {}, fieldErr: null, startMode: {}, startModeAt: {}, showRoles: false, lookAround: lsGet('look-around', !!lsGet('me', '')), copyView: null, archive: {}, stepDrafts: {}, partial: {}, answering: null
+    folderErr: null, deviceName: lsGet('device-name', ''), keys: lsGet('keys', true), theme: lsGet('theme', 'system'), builder: lsGet('builder', true), insTabSaved: lsGet('insTab', ''), partsRail: lsGet('partsRail', false), renamed: lsGet('renamed-checklists', false), panes: panesKept(), fpSteps: fpStepsKept(), paneFit: {}, fieldErr: null, startMode: {}, startModeAt: {}, obMore: lsGet('obMore', false), obGroups: null, showRoles: false, lookAround: lsGet('look-around', !!lsGet('me', '')), copyView: null, archive: {}, stepDrafts: {}, partial: {}, answering: null
   };
   /* A step-type form belongs to its folder: switching folders and back finds it again, and another folder's form never
      replaces it. */
@@ -1513,6 +1513,7 @@
     /* Nor while someone is composing text (an input method): the redraw waits until the composition ends. */
     if (rendering || composing) { scheduleRender(); return; }
     rendering = true;
+    obGroupsSync();
     /* Any inline form opened or closed (Fill in, Blocked, Edit, a correction, a note's correction), however it was reached, counts as moving. */
     var fsig = [state.pick ? state.pick.kind + ':' + state.pick.id : '', state.edit || '', state.corrForm ? state.corrForm.step + ':' + state.corrForm.mode : '', Object.keys(state.noteCorrs || {}).sort().join(',')].join('|');
     if (fsig !== formSig) { formSig = fsig; childEpoch++; }
@@ -3672,6 +3673,20 @@
   function learnIds(ed, text) { if (!ed || text == null) return; var tl = tlOf(ed), ids = PF.outline.parse(text).ids, k = tl.savedIds || (tl.savedIds = Object.create(null)); Object.keys(ids).forEach(function (x) { k[x] = true; }); }
   /* What rides along with a builder change: the selection, what's being added and the parts new in this window (freshCopy),
      so Undo and Redo put them back with the text. Typing not yet applied is never replayed: Undo waits for it instead. */
+  /* Where the step form's groups sit (2.10): decided when a step is selected and again after its lines change (an apply,
+     Discard, Undo or Redo, a newer folder draft, an adopted proposal, a reset), never on typing. A group with focus in it
+     keeps its place at that moment, so a box is never moved while it's in use. */
+  function obGroupsSync() {
+    var sel = state.obSel, p = state.view === 'process' && state.ptab === 'edit' && sel && sel.kind === 'step' ? currentProcess() : null;
+    if (!p || sel.pid !== p.id) { state.obGroups = null; return; }
+    var text = edText(p), st = PF.outline.parse(text).steps.filter(function (x) { return x.key === sel.key; })[0];
+    if (!st) { state.obGroups = null; return; }
+    var sig = text.split('\n').slice(st.line, st.end).join('\n'), g = state.obGroups, same = g && g.pid === p.id && g.key === sel.key;
+    if (same && g.sig === sig) return;
+    var has = V.obGroupsHas(text, sel.key, (data.stepTypes || {}).types) || {};
+    if (same) { var a = document.activeElement, box = a && a.closest && a.closest('[data-obg]'), k = box && box.dataset && box.dataset.obg; if (k) has[k] = !!g.out[k]; }
+    state.obGroups = { pid: p.id, key: sel.key, sig: sig, out: has };
+  }
   /* An approval stays selected only while its phase has one; otherwise the selection is the phase's. */
   function gateKept(sel, text) {
     if (!sel || sel.part !== 'gate') return;
@@ -4209,8 +4224,12 @@
       if (id === 'ob-text') res = reid(st && st.id, builderEdit({ op: 'editText', step: s.key, text: value, reid: !!(st && fresh(st.id)) }, id));
       else if (!set) return;
       else res = reid(st && st.id, builderEdit({ op: 'edit', step: s.key, set: set }, id));
-      /* The three kinds exclude each other: say what the new one means, and what leaving must-do allows. */
-      if (res && !res.same && mk) { say((st && st.must && mk !== '!' ? 'No longer a must-do step: it can now be marked N/A or waived. ' : '') + (mk === '!' ? 'Now a must-do step: it can\'t be marked N/A or waived.' : mk === '~' ? 'Automation planned. It\'s still done by hand for now.' : 'Now a plain step.'), 'good'); refocus = '#ob-mark-' + value; }
+      /* Must be done and Automation planned exclude each other: say what the new mark means, what leaving must-do allows, and what checking one cleared. */
+      if (res && !res.same && mk) {
+        var cleared = st && st.planned && mk === '!' ? 'No longer marked Automation planned. ' : st && st.must && mk !== '!' ? (mk === '~' ? 'No longer marked Must be done' : 'No longer a must-do step') + ': it can now be marked N/A or waived. ' : '';
+        say(cleared + (mk === '!' ? 'Now a must-do step: it can\'t be marked N/A or waived.' : mk === '~' ? 'Automation planned. It\'s still done by hand for now.' : 'Now a plain step.'), 'good');
+        refocus = '#' + (state.obMarkFrom || (mk === '~' ? 'ob-planned' : 'ob-must'));
+      }
     } else if (s.kind === 'track') {
       var tr = ph && ph.tracks[+s.track]; if (!tr) return;
       if (id === 'ob-tr-title') res = reid(tr.id, builderEdit({ op: 'editTrack', phase: s.key, track: s.track, set: { title: value, reid: fresh(tr.id) } }, id));
@@ -5457,6 +5476,7 @@
     },
     'ob-role': function (id) { builderToggle('role', id); },
     /* "+ add": shows a waiting box, focused. Typing held in another box is applied or refused first, as any change waits. */
+    'ob-note-open': function () { var p = currentProcess(); if (!p || obHeld(p)) return; obShow('note', true); state.focus = 'ob-note'; render(); },
     'ob-show': function (id) {
       var p = currentProcess(); if (!p || !id || obHeld(p)) return; obShow(id, true);
       /* A group of chips is focused on its first chip; run details with none listed, on the group. */
@@ -7191,6 +7211,15 @@
   /* A group of chips (require:, sets:) counts as one box: focus anywhere in it is focus in the box. */
   function fieldBoxOf(t) { var g = t && t.closest && t.closest('.ob-grp'); return (g && g.id) || (t && t.id) || ''; }
   document.addEventListener('focusin', function (e) { var id = fieldBoxOf(e.target); if (/^ob-fld-[\w-]+$/.test(id) && state.view === 'process' && state.ptab === 'edit') obShow(id.slice(7), true); }, true);
+  /* The note box (2.10) goes back behind + Add instructions the same way, and focus goes to that button if it had nowhere else. */
+  document.addEventListener('focusout', function (e) {
+    if (!e.target || e.target.id !== 'ob-note' || state.view !== 'process' || state.ptab !== 'edit') return;
+    setTimeout(function () {
+      var a = document.activeElement, el = document.getElementById('ob-note');
+      if ((a && a.id === 'ob-note') || state.obPendingField === 'ob-note' || (el && String(el.value || '').trim()) || String(fieldApplied('ob-note') || '').trim()) return;
+      obShow('note', false); if (!a || a === document.body) state.focus = '[data-act="ob-note-open"]'; render();
+    }, 0);
+  }, true);
   document.addEventListener('focusout', function (e) {
     var id = fieldBoxOf(e.target);
     if (!/^ob-fld-[\w-]+$/.test(id) || state.view !== 'process' || state.ptab !== 'edit') return;
@@ -7212,6 +7241,13 @@
     var d = e.target; if (!d || !d.dataset) return;
     prActivity(d);
     if (d.dataset.group) (state.groupsOpen = state.groupsOpen || {})[d.dataset.group] = d.open;
+    /* More options (2.10): one setting for the whole editor, kept in this browser; it can't close over typing not applied. */
+    if (d.dataset.disc === 'ob-more') {
+      /* Drawn open over typing not applied: not the person's choice, so it isn't kept (a browser fires toggle for that too). */
+      if (d.dataset.busy) { if (!d.open) { d.open = true; say('Apply or clear what you typed under More options first.', 'warn'); render(); } return; }
+      if (!!state.obMore !== !!d.open) { state.obMore = !!d.open; lsSet('obMore', state.obMore); }
+      return;
+    }
     if (d.dataset.disc) (state.disc = state.disc || {})[d.dataset.disc] = d.open;
     /* A flight plan phase opened or closed by hand. Only a change from what the page drew counts: a browser also fires
        toggle for a disclosure drawn open. */
@@ -7247,7 +7283,8 @@
     if (e.target.id) delete dbxSet[e.target.id];
     if (OB_CHANGE.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
     if (e.target.id === 'ob-shot-file' && state.view === 'process' && state.ptab === 'edit') { shotAdd(e.target.files); e.target.value = ''; }
-    if (/^ob-mark-(step|must|planned)$/.test(e.target.id || '') && e.target.checked && state.view === 'process' && state.ptab === 'edit') builderField('ob-mark', e.target.id.slice(8));
+    /* 2.10: Must be done and Automation planned are two checkboxes over the step's one mark; checking one clears the other. */
+    if ((e.target.id === 'ob-must' || e.target.id === 'ob-planned') && state.view === 'process' && state.ptab === 'edit') { state.obMarkFrom = e.target.id; builderField('ob-mark', e.target.checked ? e.target.id.slice(3) : 'step'); state.obMarkFrom = null; }
     if (/^ob-link-(proc|proc-other|vn|src-[\w-]+|val-[\w-]+)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
     if (/^ob-link-ver-(latest|pin)$/.test(e.target.id || '') && e.target.checked && state.view === 'process' && state.ptab === 'edit') builderField('ob-link-ver', e.target.value);
     if (/^np-/.test(e.target.id || '') && state.newProc) state.newProc.token = ++npToken;

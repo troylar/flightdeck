@@ -104,7 +104,7 @@ PF.guide = (function () {
   };
   /* The step's own boxes and the other forms: their whys already say what empty means. */
   var STEP = {
-    text: e('What do you do?', 'Order equipment', 'Shown on the run screen, in Next up and on the receipt.', true),
+    text: e('What needs to be done?', 'Order equipment', 'Shown on the run screen, in Next up and on the receipt.', true),
     roles: e('Who does it?', '', 'Their name shows on the step, and it goes to them in Next up.', true),
     binds: e('Which run details does it depend on?', '', 'If one changes during a run, the step asks to be checked again.', true),
     note: e('Anything else they should know?', 'Ask the manager for the start date first.', 'Shown with the step; Markdown works.', true)

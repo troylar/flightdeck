@@ -41,6 +41,15 @@ function boot(opts) {
     if (!els[id]) {
       const el = els[id] = element(id);
       el.focus = () => { if (opts.domFocus || opts.replace) document.activeElement = el; };
+      /* The step form's group a box is drawn in (2.10), as closest('[data-obg]') finds it on a page. */
+      el.closest = sel => {
+        if (sel !== '[data-obg]') return null;
+        const h = appEl._html || '', at = h.indexOf(' id="' + id + '"'); if (at < 0) return null;
+        const re = /<(\/?)section\b([^>]*)>/g, stack = []; let m;
+        while ((m = re.exec(h)) && m.index < at) { if (m[1]) stack.pop(); else stack.push((/data-obg="(\w+)"/.exec(m[2]) || [])[1] || null); }
+        const g = stack.filter(Boolean).pop();
+        return g ? { dataset: { obg: g } } : null;
+      };
       if (opts.replace) el.setSelectionRange = (a, b) => { el.selectionStart = a; el.selectionEnd = b; };
     }
     return els[id];

@@ -315,8 +315,8 @@ async function builderOn() {
 rule('App: once the editor follows a newer draft from the folder, Undo takes it back only in the editor: their draft stays on disk until the person saves', async () => {
   const app = await builderOn(), path = 'maps/drafts/release.md', original = app.fs.files[path].t;
   app.click('ob-sel', 'flags'); await app.tick();
-  app.check('ob-mark-step', true); await app.tick();
-  app.check('ob-mark-must', true); await app.tick();
+  app.check('ob-must', false); await app.tick();
+  app.check('ob-must', true); await app.tick();
   assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()), 'set-up: back to the saved text, with two Undo steps');
   const theirs = original.replace('title: Production release', 'title: Theirs');
   await app.fs.write(path, theirs);
@@ -492,7 +492,7 @@ rule('App: Cmd+Z in the Markdown editor uses the draft\'s Undo, not the browser\
 rule('App: Cmd+Z in a builder box with typing not yet applied leaves that box\'s own undo alone', async () => {
   const app = await builderOn();
   app.click('ob-sel', 'flags'); await app.tick();
-  app.check('ob-mark-step', true); await app.tick();
+  app.check('ob-must', false); await app.tick();
   assert.ok(/Unsaved: Save draft before you publish/.test(app.html()), 'set-up: one change to undo');
   const box = v => ({ tagName: 'INPUT', id: 'ob-text', value: v, defaultValue: 'Feature flags set in the deploy values', dataset: { enter: 'ob-commit' }, closest: () => null });
   assert.ok(!cmdKey(app, 'z', box('Feature flags, half typed')), 'the browser undoes the typing in the box');
@@ -903,8 +903,8 @@ rule('App: with storage blocked, no message is reworded: saves, notes and Undo s
     out.push(app.live(), (/<span class="small rw-ack"[^>]*>(?:<span class="ic"[\s\S]*?<\/span>)?([^<]*)</.exec(app.html()) || [])[1]);
     app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
     app.click('ob-sel', 'flags'); await app.tick();
-    app.check('ob-mark-step', true); await app.tick(80); out.push(shown(app));
-    app.check('ob-mark-must', true); await app.tick(80); out.push(shown(app));
+    app.check('ob-must', false); await app.tick(80); out.push(shown(app));
+    app.check('ob-must', true); await app.tick(80); out.push(shown(app));
     return out;
   };
   const normal = boot(); await normal.tick(60); normal.choose('person-casey'); await normal.tick();
@@ -1360,7 +1360,7 @@ rule('App: a builder edit saved over someone else\'s change is stopped like any 
   app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
   const path = 'maps/drafts/release.md', original = app.fs.files[path].t;
   app.click('ob-sel', 'pods'); await app.tick();
-  app.check('ob-mark-step', true); await app.tick();
+  app.check('ob-must', false); await app.tick();
   await app.fs.write(path, original.replace('title: Production release', 'title: Theirs'));
   app.click('save-draft'); await app.tick(60);
   assert.ok(/Someone else changed this draft/.test(app.html()) && /title: Theirs/.test(app.fs.files[path].t), 'stopped, theirs kept');
@@ -3510,7 +3510,7 @@ rule('App: a part dragged onto a line in the outline is added there, selected, w
   assert.strictEqual(app.focused(), 'ob-text', 'its text box has focus');
   assert.ok(/Added a must-do step after “Full test gate green on the release commit”, inside Before production changes\./.test(app.live()), app.live());
   assert.ok(/<div class="notice good"><span>Added a must-do step[^<]*<\/span><span class="row"><button type="button" class="btn" data-act="tl-undo" data-id="draft">Undo<\/button>/.test(app.html()), 'with a real Undo button');
-  assert.ok(/class="ob-switch reveal" for="ob-mark-must"><input type="radio" name="ob-mark" id="ob-mark-must" value="must" data-bound checked>/.test(app.html()), 'Must do is shown, chosen and highlighted');
+  assert.ok(/<label class="ob-check reveal" for="ob-must"><input type="checkbox" id="ob-must" data-bound checked>/.test(app.html()), 'Must be done is shown, checked and highlighted (2.10)');
   assert.ok(/It follows the name until you save the draft/.test(app.html()), 'a new part\'s ID follows its name for now');
   app.set('ob-text', 'Smoke tests pass on staging'); enter(app, 'ob-text', 'Smoke tests pass on staging'); await app.tick();
   app.click('save-draft'); await app.tick(80);
@@ -3645,14 +3645,36 @@ rule('App: an ID like "constructor" is never mistaken for a new part', async () 
   assert.ok(/Build the thing \{#constructor\}/.test(app.fs.files[path].t));
 });
 
-rule('App: a step\'s kind is one choice of three, and leaving must-do says what that allows', async () => {
-  const app = await builderOn();
+rule('App: Must be done and Automation planned write the marks the Kind radios wrote, each way, with Undo, Redo, reselection and a reload; focus stays on the box operated (2.10)', async () => {
+  const app = await builderOn(), original = releaseText(app), FL = '] {confirm} Feature flags', as = m => original.replace('- [!' + FL, '- [' + m + FL);
   app.click('ob-sel', 'flags'); await app.tick();
-  assert.ok(/<fieldset class="field ob-kind"><legend>Kind<\/legend>/.test(app.html()) && /type="radio" name="ob-mark" id="ob-mark-must" value="must" data-bound checked/.test(app.html()), 'radio buttons, must-do chosen');
-  app.check('ob-mark-planned', true); await app.tick();
-  assert.ok(/No longer a must-do step: it can now be marked N\/A or waived\./.test(app.live()), app.live());
-  app.click('save-draft'); await app.tick(80);
-  assert.ok(/- \[~\] \{confirm\} Feature flags/.test(releaseText(app)));
+  const shownAs = (h, m) => new RegExp('id="ob-must" data-bound' + (m === '!' ? ' checked' : '') + '>').test(h) && new RegExp('id="ob-planned" data-bound' + (m === '~' ? ' checked' : '') + '>').test(h);
+  const rows = [
+    ['ob-must', false, ' ', /^No longer a must-do step: it can now be marked N\/A or waived\. Now a plain step\./],
+    ['ob-planned', true, '~', /^Automation planned\. It's still done by hand for now\./],
+    ['ob-planned', false, ' ', /^Now a plain step\./],
+    ['ob-must', true, '!', /^Now a must-do step: it can't be marked N\/A or waived\./],
+    ['ob-planned', true, '~', /^No longer marked Must be done: it can now be marked N\/A or waived\. Automation planned\./],
+    ['ob-must', true, '!', /^No longer marked Automation planned\. Now a must-do step/]];
+  for (const [id, on, m, said] of rows) {
+    app.check(id, on); await app.tick();
+    assert.strictEqual(app.focused(), '#' + id, id + ' keeps focus');
+    assert.ok(said.test(app.live()), app.live());
+    assert.ok(shownAs(app.html(), m), 'shown after: [' + m + ']');
+    app.click('save-draft'); await app.tick(80);
+    assert.strictEqual(releaseText(app), as(m), 'the same bytes the radio wrote: [' + m + ']');
+  }
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(shownAs(app.html(), '~'), 'Undo');
+  app.click('tl-redo', 'draft'); await app.tick();
+  assert.ok(shownAs(app.html(), '!'), 'Redo');
+  app.check('ob-planned', true); await app.tick(); app.click('save-draft'); await app.tick(80);
+  app.click('ob-sel', 'rollback'); await app.tick(); app.click('ob-sel', 'flags'); await app.tick();
+  assert.ok(shownAs(app.html(), '~'), 'reselected');
+  const again = boot({ sharedFiles: app.fs.files }); await again.tick(60); again.choose('person-casey'); await again.tick();
+  again.click('open-process', 'release'); await again.tick(); again.click('ptab', 'edit'); await again.tick();
+  again.click('ob-sel', 'flags'); await again.tick();
+  assert.ok(shownAs(again.html(), '~') && /data-obg="auto"/.test(again.html().slice(0, again.html().indexOf('<details class="ob-more-opts"'))), 'after a reload, planned shows outside the fold');
 });
 
 rule('App: on a phone, adding from the properties sheet closes the sheet first, so the new box can be used', async () => {
@@ -3746,7 +3768,7 @@ rule('App: Redo puts back what Undo took, and Undo returns focus to the item it 
   app.click('tl-redo', 'draft'); await app.tick();
   assert.ok(!/data-ob-step="rollback"/.test(app.html()) && /Redid the step deletion of/.test(app.live()));
   app.click('tl-undo', 'draft'); await app.tick();
-  app.click('ob-sel', 'flags'); await app.tick(); app.check('ob-mark-step', true); await app.tick();
+  app.click('ob-sel', 'flags'); await app.tick(); app.check('ob-must', false); await app.tick();
   assert.ok(/data-act="tl-redo" data-id="draft" aria-disabled="true"/.test(app.html()), 'a new change clears Redo');
 });
 
@@ -4133,7 +4155,7 @@ rule('App: a part saved once keeps its ID even when Undo goes back past changes 
   const app = await builderOn();
   dragPart(app, 'step', 'before:rollback', 'step'); await app.tick();
   app.set('ob-text', 'Persistent step'); enter(app, 'ob-text', 'Persistent step'); await app.tick();
-  app.check('ob-mark-must', true); await app.tick();
+  app.check('ob-must', true); await app.tick();
   app.click('save-draft'); await app.tick(80);
   assert.ok(/\{#persistent-step\}/.test(releaseText(app)), 'set-up: saved with its ID');
   app.click('tl-undo', 'draft'); await app.tick();
@@ -4157,7 +4179,7 @@ rule('App: a part that was ever saved keeps its ID, even after it was deleted, s
   const app = await builderOn();
   dragPart(app, 'step', 'before:rollback', 'step'); await app.tick();
   app.set('ob-text', 'Persistent step'); enter(app, 'ob-text', 'Persistent step'); await app.tick();
-  app.check('ob-mark-must', true); await app.tick();
+  app.check('ob-must', true); await app.tick();
   app.click('save-draft'); await app.tick(80);
   app.click('ob-del', 'persistent-step'); await app.tick();
   app.click('save-draft'); await app.tick(80);
@@ -8391,18 +8413,16 @@ rule('Builder: the step form edits its note; no "in Markdown" is left for roles,
   assert.ok(!/Apply or clear what you typed/.test(app.live()) && /Undid/.test(app.live()), 'Undo isn\'t held up: ' + app.live());
 });
 
-rule('Builder: a draft with no roles or run details offers to add them from the step form', async () => {
+rule('Builder: a draft with no roles shows Anyone and + Add role; with no run details it offers to add them (2.10)', async () => {
   const app = await builderOn();
   await app.fs.write('maps/drafts/release.md', ['---', 'process: release', 'title: Production release', '---', '', '## First · READ-DO {#first}', '- [ ] {confirm} One {#one}', ''].join('\n'));
   app.focus(); await app.tick(80);
   app.click('ob-sel', 'one'); await app.tick();
-  assert.ok(/The checklist lists no roles yet\.<\/span> <button type="button" class="linkish" data-act="ob-sel-details" data-focus="ob-add-role">Add roles<\/button>/.test(app.html()));
+  assert.ok(!/The checklist lists no roles yet/.test(app.html()) && /<span class="chipbtn ob-anyone" aria-current="true">Anyone<\/span><\/div><button type="button" class="mini ob-addrole" data-act="ob-role-add" data-id="step">/.test(app.html()), 'Anyone, then + Add role');
   assert.ok(/data-act="ob-sel-details" data-focus="ob-add-ctx">Add run details<\/button>/.test(app.html()));
-  app.click('ob-sel-details', null, { focus: 'ob-add-role' }); await app.tick();
-  assert.strictEqual(app.focused(), '#ob-add-role');
-  addBox(app, 'ob-add-role', 'roles', 'lead'); await app.tick();
-  app.click('ob-sel', 'one'); await app.tick();
-  app.click('ob-role', 'lead'); await app.tick();
+  app.click('ob-role-add', 'step'); await app.tick();
+  app.set('ob-new-role', 'lead'); app.click('ob-role-add-go'); await app.tick();
+  assert.strictEqual(app.focused(), '[data-act="ob-role"][data-id="lead"]');
   app.click('save-draft'); await app.tick(80);
   assert.strictEqual(releaseText(app), ['---', 'process: release', 'title: Production release', 'roles: lead', '---', '', '## First · READ-DO {#first}', '- [ ] {confirm} One @lead {#one}', ''].join('\n'));
 });
@@ -8446,7 +8466,7 @@ rule('Builder: typing in the note, Questions or an Add box and not applying it h
   app.click('open-process', 'release'); await app.tick();
   app.click('ptab', 'edit'); await app.tick();
   app.click('ob-sel', 'flags'); await app.tick();
-  app.click('ob-mark-step'); app.check('ob-mark-step', true); await app.tick();
+  app.check('ob-must', false); await app.tick();
   const list = JSON.stringify(app.entries());
   app.input('ob-note', 'Half a note'); await app.tick();
   await back(app);
@@ -8522,7 +8542,7 @@ rule('Builder: text a box refused, or hasn\'t applied yet, holds choosing someth
   addBox(app, 'ob-add-ctx', 'context', 'region'); await app.tick();
   assert.ok(/Added \^region\./.test(app.live()), app.live());
   app.click('ob-sel', 'one'); await app.tick();
-  assert.ok(/id="ob-note"/.test(app.html()), 'cleared, the step opens');
+  assert.ok(/<section class="panel stack ob-form"[^>]*data-scope="ob-step\|one\|/.test(app.html()), 'cleared, the step opens');
 });
 
 rule('Builder: refused text beside an open Add box holds Undo, and Cancel never lets a newer draft drop it', async () => {
@@ -8899,6 +8919,112 @@ rule('Builder: + Add role in a step\'s and a lane\'s forms gives the new role to
   assert.strictEqual(app.focused(), 'ob-tr-role');
 });
 
+rule('Builder: + Add role gives a step a third role, a lane step its own, and a lane a new role its steps follow, each one Undo (2.10)', async () => {
+  const app = await builderOn(), path = 'maps/drafts/release.md';
+  await app.fs.write(path, releaseText(app).replace('deploy values ^environment @backend {#flags}', 'deploy values ^environment @backend @qa {#flags}').replace('dashboard @qa {#logs}', 'dashboard {#logs}'));
+  app.focus(); await app.tick(80);
+  app.click('ob-sel', 'flags'); await app.tick();
+  app.click('ob-role-add', 'step'); await app.tick();
+  app.set('ob-new-role', 'ops'); app.click('ob-role-add-go'); await app.tick();
+  assert.ok(['backend', 'qa', 'ops'].every(r => new RegExp('data-act="ob-role" data-id="' + r + '" aria-pressed="true"').test(app.html())), 'a third role');
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(!/data-id="ops"/.test(app.html()) && /data-id="qa" aria-pressed="true"/.test(app.html()), 'one Undo');
+  app.click('ob-sel', 'logs'); await app.tick();
+  assert.ok(/Uses this lane&#39;s people \(@qa\)/.test(app.html()), 'the lane\'s people');
+  app.click('ob-role-add', 'step'); await app.tick();
+  app.set('ob-new-role', 'sre'); app.click('ob-role-add-go'); await app.tick();
+  assert.ok(/data-act="ob-role" data-id="sre" aria-pressed="true"/.test(app.html()) && !/ob-anyone/.test(app.html()), 'its own role now');
+  app.click('tl-undo', 'draft'); await app.tick();
+  app.click('ob-sel-track', 'verify', { track: '0' }); await app.tick();
+  app.click('ob-role-add', 'track'); await app.tick();
+  app.set('ob-new-role', 'two words!'); app.click('ob-role-add-go'); await app.tick();
+  assert.ok(/id="ferr-ob-new-role"/.test(app.html()), 'a refused name, in place');
+  app.set('ob-new-role', 'checker'); app.click('ob-role-add-go'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  const text = releaseText(app);
+  assert.ok(/### Track: Product checks @checker \{#checks\}/.test(text) && /expected answers @qa \{#smoke\}/.test(text) && /dashboard \{#logs\}/.test(text), 'the lane changes; the step with its own role keeps it');
+  app.click('ob-sel', 'logs'); await app.tick();
+  assert.ok(/Uses this lane&#39;s people \(@checker\)/.test(app.html()), 'the lane\'s step follows');
+});
+
+rule('Builder: More options, opened once, stays open on every step and after a reload; opening writes nothing (2.10)', async () => {
+  const app = await builderOn();
+  app.click('ob-sel', 'flags'); await app.tick();
+  assert.ok(/<details class="ob-more-opts" data-disc="ob-more"><summary>/.test(app.html()), 'closed at first');
+  app.fire('toggle', { target: { dataset: { disc: 'ob-more' }, open: true } }); await app.tick();
+  app.click('ob-sel', 'rollback'); await app.tick();
+  assert.ok(/<details class="ob-more-opts" data-disc="ob-more" open>/.test(app.html()), 'open on the next step');
+  assert.ok(!/Unsaved: Save draft/.test(app.html()) && /data-act="tl-undo" data-id="draft" aria-disabled="true"/.test(app.html()), 'no change, no Undo');
+  const again = boot({ localStore: { 'preflight:obMore': app.store['preflight:obMore'] } }); await again.tick(60); again.choose('person-casey'); await again.tick();
+  again.click('open-process', 'release'); await again.tick(); again.click('ptab', 'edit'); await again.tick();
+  again.click('ob-sel', 'flags'); await again.tick();
+  assert.ok(/<details class="ob-more-opts" data-disc="ob-more" open>/.test(again.html()), 'after a reload');
+  /* Drawn open over typing not applied, the fold isn't the person's choice, so it isn't kept. */
+  const three = await builderOn();
+  three.click('ob-sel', 'rollback'); await three.tick();
+  three.click('ob-show', 'where'); await three.tick();
+  three.set('ob-fld-where', 'The ticket'); three.input('ob-fld-where', 'The ticket'); await three.tick();
+  three.click('ob-sel', 'flags'); await three.tick();
+  assert.ok(/then choose another/.test(three.live()) && /<details class="ob-more-opts" data-disc="ob-more" open data-busy="1">/.test(three.html()), 'pending text holds the selection and opens the fold: ' + three.live());
+  three.fire('toggle', { target: { dataset: { disc: 'ob-more', busy: '1' }, open: true } }); await three.tick();
+  assert.ok(three.store['preflight:obMore'] !== 'true', 'not remembered as open');
+  const d = { dataset: { disc: 'ob-more', busy: '1' }, open: false };
+  three.fire('toggle', { target: d }); await three.tick();
+  assert.ok(d.open === true && /Apply or clear what you typed under More options first\./.test(three.live()), 'it can\'t close over the typing');
+});
+
+rule('Builder: + Add instructions opens the note; typed text survives a redraw; cleared and left it goes back, focus on the button; Undo brings an applied note back, shown (2.10)', async () => {
+  const app = await builderOn();
+  app.click('ob-sel', 'rollback'); await app.tick();
+  assert.ok(!/id="ob-note"/.test(app.html()) && /data-act="ob-note-open"/.test(app.html()));
+  app.click('ob-note-open'); await app.tick();
+  assert.ok(/id="ob-note"/.test(app.html()) && app.focused() === 'ob-note', 'open and focused');
+  app.set('ob-note', 'Paste the commit'); app.input('ob-note', 'Paste the commit'); await app.tick();
+  app.fire('focusout', { target: { id: 'ob-note' } }); await app.tick(20);
+  assert.ok(/id="ob-note"/.test(app.html()) && app.draft('ob-note') === 'Paste the commit', 'still shown and pending through a redraw');
+  app.set('ob-note', ''); app.input('ob-note', ''); await app.tick();
+  app.fire('focusout', { target: { id: 'ob-note' } }); await app.tick(20);
+  assert.ok(!/id="ob-note"/.test(app.html()), 'collapsed');
+  assert.strictEqual(app.focused(), '[data-act="ob-note-open"]', 'focus on + Add instructions');
+  app.click('ob-note-open'); await app.tick();
+  leave(app, 'ob-note', 'Paste the commit'); await app.tick();
+  assert.ok(/Unsaved: Save draft/.test(app.html()), 'applied');
+  app.click('ob-sel', 'flags'); await app.tick(); app.click('ob-sel', 'rollback'); await app.tick();
+  assert.ok(/<textarea id="ob-note"[^>]*>\nPaste the commit<\/textarea>/.test(app.html()), 'a note with text is shown');
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(!/id="ob-note"/.test(app.html()), 'undone: back behind the button');
+  app.click('tl-redo', 'draft'); await app.tick();
+  assert.ok(/<textarea id="ob-note"[^>]*>\nPaste the commit<\/textarea>/.test(app.html()), 'redone: shown');
+});
+
+rule('Builder: a group in use while its last value is cleared keeps its place, box shown and focused; it moves on reselection (2.10)', async () => {
+  const app = boot({ domFocus: true }); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
+  await app.fs.write('maps/drafts/release.md', releaseText(app).replace('release ticket @release-lead {#rollback}', 'release ticket @release-lead {#rollback}\n  where: The ticket\n  expect: 5m'));
+  app.focus(); await app.tick(80);
+  app.click('ob-sel', 'rollback'); await app.tick();
+  const outside = () => { const h = app.html(), f = h.indexOf('<details class="ob-more-opts"'); return [...h.slice(h.indexOf('<section class="panel stack ob-form"'), f).matchAll(/data-obg="(\w+)"/g)].map(m => m[1]); };
+  assert.deepStrictEqual(outside(), ['guide', 'time']);
+  for (const [id, g] of [['ob-fld-where', 'guide'], ['ob-fld-expect', 'time']]) {
+    app.el(id).focus(); app.fire('focusin', { target: app.el(id) });
+    app.set(id, ''); app.input(id, ''); enter(app, id, ''); await app.tick();
+    assert.ok(outside().includes(g) && new RegExp('id="' + id + '"').test(app.html()), g + ' stays outside, its box shown');
+    assert.strictEqual(app.activeId(), id, 'and focused');
+    app.doc.activeElement = app.doc.body; app.fire('focusout', { target: { id, value: '' } }); await app.tick(20);
+  }
+  app.click('ob-sel', 'flags'); await app.tick(); app.click('ob-sel', 'rollback'); await app.tick();
+  assert.deepStrictEqual(outside(), [], 'reselected: both back in the fold');
+});
+
+rule('Builder: a newer folder draft that gives the selected step an Only when moves its group out of the fold; it stays selected (2.10)', async () => {
+  const app = await builderOn(), path = 'maps/drafts/release.md';
+  app.click('ob-sel', 'rollback'); await app.tick();
+  const outsideHas = g => { const h = app.html(); return h.slice(0, h.indexOf('<details class="ob-more-opts"')).indexOf('data-obg="' + g + '"') >= 0; };
+  assert.ok(!outsideHas('cond'));
+  await app.fs.write(path, releaseText(app).replace('release ticket @release-lead {#rollback}', 'release ticket @release-lead {#rollback}\n  only when ^environment is production'));
+  app.focus(); await app.tick(80);
+  assert.ok(outsideHas('cond') && /data-scope="ob-step\|rollback\|/.test(app.html()), 'Conditions now outside, the step still selected');
+});
 const runsOf = (app, id) => Object.keys(app.fs.files).filter(k => new RegExp('^runs/' + id + '/[^/]+/run\\.json$').test(k));
 rule('Start: a version with an approval role opens With others and asks who approves; Start waits for it and keeps what was typed (2.10)', async () => {
   const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();

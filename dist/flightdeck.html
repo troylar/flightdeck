@@ -930,13 +930,16 @@ html.pane-drag, html.pane-drag * { cursor: col-resize !important; -webkit-user-s
 /* The side form: switches for must-do and automation planned, and Done for the phone's sheet. */
 .ob-form-top h2 { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .ob-done { display: none; }
-.ob-kind { border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.ob-kind legend { padding: 0; margin-bottom: 4px; }
-.ob-switch { display: flex; gap: 10px; align-items: flex-start; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; font-weight: 400; }
-.ob-switch:has(input:checked) { border-color: var(--ink); background: var(--paper); }
-.ob-switch:has(#ob-mark-must:checked) { border-color: var(--stop); background: var(--stop-soft); }
-.ob-switch input[type="radio"] { flex: none; margin: 3px 0 0; accent-color: var(--ink); width: 16px; height: 16px; }
-.ob-switch.reveal { animation: ob-new .65s ease-out; }
+.ob-check { display: flex; gap: 10px; align-items: flex-start; padding: 6px 8px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; font-weight: 400; min-height: 44px; box-sizing: border-box; }
+.ob-check:has(input:checked) { border-color: var(--ink); background: var(--paper); }
+.ob-check:has(#ob-must:checked) { border-color: var(--stop); background: var(--stop-soft); }
+.ob-check input[type="checkbox"] { flex: none; margin: 3px 0 0; accent-color: var(--ink); width: 16px; height: 16px; }
+.ob-check.reveal { animation: ob-new .65s ease-out; }
+.ob-anyone { cursor: default; }
+.ob-more-opts > summary { cursor: pointer; font-weight: 600; min-height: 44px; display: flex; align-items: center; gap: 6px; }
+.ob-more-opts[open] > summary { margin-bottom: 8px; }
+.ob-grp4 { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.ob-more-opts .ob-grp4 + .ob-grp4, .ob-grp4 + .ob-grp4 { margin-top: 6px; }
 @media (max-width: 800px) {
   html.fpe-on .top { display: none; }
   .fpe { position: static; display: block; min-height: 100vh; }
@@ -1483,8 +1486,8 @@ p.pv-when { margin: 0 0 4px; }
 @media (max-width: 480px) { .ob-shot { grid-template-columns: 1fr; } .ob-shot-pic { width: 100%; max-width: 240px; height: 140px; } }
 .ob-help p { margin: 6px 0 0; max-width: 70ch; }
 .ob-bar { align-items: center; }
-.ob-switch:has(input:checked), .ob-switch:has(#ob-mark-must:checked) { border-color: var(--ink); background: var(--paper); }
-.ob-switch[for="ob-mark-must"] b { color: var(--stop); }
+.ob-check:has(input:checked), .ob-check:has(#ob-must:checked) { border-color: var(--ink); background: var(--paper); }
+.ob-check[for="ob-must"] b { color: var(--stop); }
 /* Destination labels wrap rather than cut off. */
 .ob-dragging .ob-slot.over::after, .ob-dest > span { white-space: normal; max-width: min(320px, calc(100% - 12px)); line-height: 1.35; }
 /* Empty states. */
@@ -18740,7 +18743,7 @@ PF.guide = (function () {
   };
   /* The step's own boxes and the other forms: their whys already say what empty means. */
   var STEP = {
-    text: e('What do you do?', 'Order equipment', 'Shown on the run screen, in Next up and on the receipt.', true),
+    text: e('What needs to be done?', 'Order equipment', 'Shown on the run screen, in Next up and on the receipt.', true),
     roles: e('Who does it?', '', 'Their name shows on the step, and it goes to them in Next up.', true),
     binds: e('Which run details does it depend on?', '', 'If one changes during a run, the step asks to be checked again.', true),
     note: e('Anything else they should know?', 'Ask the manager for the start date first.', 'Shown with the step; Markdown works.', true)
@@ -21668,8 +21671,19 @@ PF.vk = (function () {
     var opt = function (t) { return '<option value="' + esc(t.id) + '"' + (t.id === cur ? ' selected' : '') + '>' + esc(T.nameOf(t)) + '</option>'; };
     /* A step that is a pull request keeps its host when Pull request is chosen again. */
     var builtIn = T.LIST.filter(function (t) { return !isPr(t.id) || t.id === (isPr(cur) ? cur : host || 'github.pr'); }).map(function (t) { return isPr(t.id) ? { id: t.id, label: 'Pull request' } : t; });
+    /* 2.10: everyday work first, then software tools; in each, the types this checklist already uses come first. */
+    var used = typesUsed(ctx), first = function (a) { return a.filter(function (t) { return used[t.id]; }).concat(a.filter(function (t) { return !used[t.id]; })); };
+    var every = builtIn.filter(function (t) { return EVERYDAY.indexOf(t.id) >= 0; }).sort(function (a, b) { return EVERYDAY.indexOf(a.id) - EVERYDAY.indexOf(b.id); });
+    var tools = builtIn.filter(function (t) { return EVERYDAY.indexOf(t.id) < 0; });
     return (cur && !known ? '<option value="' + esc(cur) + '" selected>{' + esc(cur) + '} (unknown type)</option>' : '') +
-      '<optgroup label="Built-in">' + builtIn.map(opt).join('') + '</optgroup>' + (ids.length ? '<optgroup label="Your team\'s">' + ids.map(function (id) { return opt(team[id]); }).join('') + '</optgroup>' : '');
+      '<optgroup label="Everyday work">' + first(every).map(opt).join('') + '</optgroup><optgroup label="Software tools and commands">' + first(tools).map(opt).join('') + '</optgroup>' +
+      (ids.length ? '<optgroup label="Your team\'s">' + first(ids.map(function (id) { return team[id]; })).map(opt).join('') + '</optgroup>' : '');
+  }
+  var EVERYDAY = ['confirm', 'communicate', 'meeting', 'decide', 'review', 'wait', 'measure', 'ui.action', 'run.process'];
+  function typesUsed(ctx) {
+    var ed = ctx.state.editor, text = ed ? (ed.text != null ? ed.text : ed.base) : '', u = {};
+    (O.parse(String(text || '')).steps || []).forEach(function (s) { if (s.type) u[s.type] = true; });
+    return u;
   }
   /* Rows are buttons, so the step text shows without its Markdown markers rather than as links inside a button. */
   function plain(s) { return String(s || '').replace(/\*\*|__|`/g, ''); }
@@ -22002,9 +22016,6 @@ PF.vk = (function () {
   /* The boxes revealed in this window for the step shown (state.obShown, never written): kept while it stays selected. */
   function shownOf(ctx, p, s) { var sh = ctx.state.obShown; return sh && sh.key === ctx.fsKey + '\n' + p.id + '\n' + s.key ? sh.names : {}; }
   function addChip(def, name, g) { return '<button type="button" class="chipbtn ob-add-chip" data-act="ob-show" data-id="' + esc(name) + '" aria-label="Add: ' + esc(g.q) + '">+ ' + esc(G.chip(def, name)) + '</button>'; }
-  /* A step's fields: the type's that apply, shown when usual for it as it stands, holding a value or revealed (or else its
-     first two), the rest behind "+ add" chips; then any value it doesn't use, flagged; then the fields every type accepts,
-     under More about this step. */
   /* The child a linked step names, for the builder (2.8): the pinned version, or the latest published, or (not published
      yet) its saved draft, which can't be checked until it's published. { map, title, version, latest, draft, nextAdds } */
   function linkChildOf(ctx, process, version) {
@@ -22077,34 +22088,6 @@ PF.vk = (function () {
     if (l.missing) return '<div class="notice warn" role="status"><span>' + esc(name) + ' isn\'t a team value in this folder. Add it in Settings › Team values, or pass something else.</span></div>';
     return '<div class="notice warn" role="status"><span>' + esc(l.why) + '</span></div>';
   }
-  function fieldsSection(ctx, p, text, o, s, def, meta) {
-    var f = s.fields, shown = shownOf(ctx, p, s), names = def ? Object.keys(def.fields || {}) : [];
-    var pins = def && !def.custom && ownKey(T.PINS, def.id) ? Object.keys(T.PINS[def.id]) : [];
-    var apply = names.filter(function (n) { return T.applies(def, n, f); }).concat(pins);
-    /* A linked step's process, version, carry: and pass: are its own section (2.8). */
-    var linked = s.type === 'run.process' && def && !def.custom;
-    if (linked) apply = apply.filter(function (n) { return ['process', 'version', 'carry', 'pass'].indexOf(n) < 0; });
-    var show = function (n) { return !!f[n] || !!shown[n] || (ownKey(def.fields, n) && G.usual(def.fields[n], f)); };
-    var rows = apply.filter(show); if (!rows.length) rows = apply.slice(0, 2);
-    var common = Object.keys(T.COMMON), times = ['at', 'due', 'after'].filter(function (n) { return f[n]; });
-    /* A box the step doesn't use stays while it holds a value, or was just cleared and still has focus (it's in shown). */
-    var unused = Object.keys(f).concat(Object.keys(shown).filter(function (n) { return !ownKey(f, n); })).filter(function (n) { return apply.indexOf(n) < 0 && common.indexOf(n) < 0 && !(linked && ['process', 'version', 'carry', 'pass'].indexOf(n) >= 0); });
-    var flag = function (n) {
-      var d = def && ownKey(def.fields, n) ? def.fields[n] : null;
-      if (!T.fieldDef(def, n)) return '{' + (s.type || '') + '} doesn\'t use this; publishing will refuse it.';
-      if (d && d.requiredWhen) return 'Only used when ' + condText(d.requiredWhen) + '.';
-      if (d && d.requiredUnless) return 'Not used when ' + condText(d.requiredUnless) + '.';
-      return times.length > 1 && times.indexOf(n) >= 0 ? 'Give one time, "at:", "due:" or "after:", not more than one.' : '';
-    };
-    var waiting = apply.filter(function (n) { return rows.indexOf(n) < 0; });
-    var h = (linked ? linkSection(ctx, p, text, s, meta) : '') + '<h3 class="ob-sec">Fields</h3>' + (isPr(s.type) ? choices(ctx, 'ob-host', G.form('pr-host'), PRS, s.type, null, HOSTS) : '') + (!names.length && !pins.length && !unused.length ? '<p class="small">This type asks for nothing more.</p>' : '') +
-      rows.map(function (n) { return fieldRow(ctx, def, s, n); }).join('') + unused.map(function (n) { return fieldRow(ctx, def, s, n, flag(n)); }).join('') +
-      (waiting.length ? '<div class="row ob-adds" role="group" aria-label="More boxes for this step">' + waiting.map(function (n) { return addChip(def, n, G.field(def, n, f)); }).join('') + '</div>' : '');
-    var ev = evidenceOf(ctx, text, o, s), cRows = common.filter(function (n) { return !!f[n] || !!shown[n]; }), cWait = common.filter(function (n) { return cRows.indexOf(n) < 0; });
-    h += cRows.map(function (n) { return n === 'require' ? requireRow(ctx, def, s, ev) : n === 'sets' ? setsRow(ctx, def, s, meta) : fieldRow(ctx, def, s, n, flag(n)); }).join('');
-    if (cWait.length) h += '<div class="field ob-more"><span id="ob-more-l">More about this step</span><div class="row" role="group" aria-labelledby="ob-more-l">' + cWait.map(function (n) { return addChip(def, n, G.field(def, n, f)); }).join('') + '</div></div>';
-    return h + recordsSection(def, ev);
-  }
   /* On a phone the form is a sheet over the outline; Done closes it. */
   /* The selected item's name, Previous / Next through the steps, and on a phone Done to close the sheet. */
   /* crumbs: where it is, as a trail (Verify in production / Product checks / Step 11 of 14). */
@@ -22156,6 +22139,103 @@ PF.vk = (function () {
   function askOf(ctx, kind, key, track) { var a = ctx.state.obAsk; return a && a.kind === kind && a.key === key && (track == null || +a.track === +track) ? a : null; }
   /* The side form for what's selected: a step's text, kind, type, roles, run details and fields; a lane; or a phase and its
      gate. Text boxes apply when you leave them (or press Enter); choices apply at once. */
+
+  /* ---------- the step form (2.10): what, who, Must be done, then More options ---------- */
+  /* The groups under More options, in order. A group that holds something (read from the parsed step) is drawn outside the
+     fold instead, after Must be done; where each sits is decided when the step is selected and after a change to it, never
+     while someone types (app.js obGroupsSync). */
+  var GROUPS = [['type', 'Step type'], ['guide', 'Guidance'], ['proof', 'Proof to record'], ['time', 'Timing'], ['cond', 'Conditions and saved information'], ['auto', 'Automation planning']];
+  function groupHtml(g, body) { return '<section class="ob-grp4" data-obg="' + g[0] + '" aria-label="' + esc(g[1]) + '"><h3 class="ob-sec">' + esc(g[1]) + '</h3>' + body.html + '</section>'; }
+  function markBox(k, label, help, on, reveal) {
+    var box = k === 'must' ? '<input type="checkbox" id="ob-must" data-bound' : '<input type="checkbox" id="ob-planned" data-bound';
+    return '<label class="ob-check' + (reveal && k === 'must' ? ' reveal' : '') + '" for="ob-' + k + '">' + box + (on ? ' checked' : '') + '><span><b>' + esc(label) + '</b> <span class="small">' + esc(help) + '</span></span></label>';
+  }
+  /* Who does it: Anyone (or the lane's people), the checklist's roles as chips, and + Add role. */
+  function whoField(ctx, s, meta) {
+    var own = s.parts.roles, roles = meta.roles.concat(own.filter(function (r) { return meta.roles.indexOf(r) < 0; })), lane = s.track >= 0 ? s.phase.tracks[s.track] : null;
+    var none = lane && lane.roles.length ? 'Uses this lane\'s people (@' + lane.roles.join(' @') + ')' : 'Anyone';
+    return '<div class="field"><span id="ob-roles-l">' + esc(G.step('roles').q) + '</span><div class="row" role="group" aria-labelledby="ob-roles-l" aria-describedby="why-ob-roles">' +
+      (own.length ? '' : '<span class="chipbtn ob-anyone" aria-current="true">' + esc(none) + '</span>') +
+      roles.map(function (r) { return '<button type="button" class="chipbtn" data-act="ob-role" data-id="' + esc(r) + '" aria-pressed="' + (own.indexOf(r) >= 0) + '">@' + esc(r) + '</button>'; }).join('') + '</div>' +
+      addRole(ctx, 'step') + whyOf('ob-roles', G.step('roles')) + '</div>';
+  }
+  /* The note: + Add instructions while it's empty, the box once it has text or was opened (it stays while revealed, focused,
+     pending or refused, as a revealed field does). */
+  function noteField(ctx, p, s) {
+    var gn = G.step('note'), st = ctx.state, shown = shownOf(ctx, p, s);
+    var open = !!s.note || !!shown.note || st.obPendingField === 'ob-note' || !!errOf(ctx, 'ob-note');
+    if (!open) return '<div class="row"><button type="button" class="mini ob-add-note" data-act="ob-note-open">' + I('plus') + 'Add instructions</button></div>';
+    /* A newline right after the tag, so a note's own first line break survives (HTML drops the first one). */
+    return '<label class="field" for="ob-note">' + esc(gn.q) + '<textarea id="ob-note" rows="3" maxlength="2000"' + egOf(gn) + describe(ctx, 'ob-note', gn) + '>\n' + esc(s.note) + '</textarea></label>' + whyOf('ob-note', gn) + errMsg(ctx, 'ob-note');
+  }
+  /* Whether each group holds something, read from the step as written (button controls and the planned mark included). */
+  function groupsHas(s, def) {
+    var f = s.fields, own = def ? Object.keys(def.fields || {}) : [];
+    var typed = s.type && s.type !== 'confirm';
+    return {
+      type: false,
+      guide: !!(f.link || (s.shots || []).length || (!typed && own.some(function (n) { return !!f[n]; }))),
+      proof: !!(f.evidence || f.require),
+      time: !!(f.expect || f.deadline || f.at || f.due || f.after),
+      cond: !!((s.binds || []).length || (s.when || []).length || s.whenOdd || f.sets),
+      auto: !!s.planned
+    };
+  }
+  function groupsOut(ctx, p, s, G4) {
+    var g = ctx.state.obGroups, has = G4.has;
+    var out = g && g.pid === p.id && g.key === s.key ? Object.assign({}, g.out) : Object.assign({}, has);
+    /* A box with an error is never hidden. */
+    Object.keys(G4.groups).forEach(function (k) { if (G4.groups[k] && G4.groups[k].err) out[k] = true; });
+    return out;
+  }
+  /* The fold stays open while a box inside it holds typing not applied, so the typing is never hidden. */
+  function foldBusy(ctx, G4, inside) { var pf = ctx.state.obPendingField; return !!pf && inside.some(function (g) { return G4.groups[g[0]].ids.some(function (re) { return re.test(pf); }); }); }
+  /* The parts of the step form: what sits at the top for a typed step, and each group's controls and box IDs. */
+  function stepParts(ctx, p, text, o, s, def, meta) {
+    var f = s.fields, shown = shownOf(ctx, p, s), names = def ? Object.keys(def.fields || {}) : [], typed = s.type && s.type !== 'confirm';
+    var pins = def && !def.custom && ownKey(T.PINS, def.id) ? Object.keys(T.PINS[def.id]) : [];
+    var apply = names.filter(function (n) { return T.applies(def, n, f); }).concat(pins);
+    var linked = s.type === 'run.process' && def && !def.custom;
+    if (linked) apply = apply.filter(function (n) { return ['process', 'version', 'carry', 'pass'].indexOf(n) < 0; });
+    var show = function (n) { return !!f[n] || !!shown[n] || (ownKey(def.fields, n) && G.usual(def.fields[n], f)); };
+    var common = Object.keys(T.COMMON), times = ['at', 'due', 'after'].filter(function (n) { return f[n]; });
+    var unused = Object.keys(f).concat(Object.keys(shown).filter(function (n) { return !ownKey(f, n); })).filter(function (n) { return n !== 'note' && apply.indexOf(n) < 0 && common.indexOf(n) < 0 && !(linked && ['process', 'version', 'carry', 'pass'].indexOf(n) >= 0); });
+    var flag = function (n) {
+      var d = def && ownKey(def.fields, n) ? def.fields[n] : null;
+      if (!T.fieldDef(def, n)) return '{' + (s.type || '') + '} doesn\'t use this; publishing will refuse it.';
+      if (d && d.requiredWhen) return 'Only used when ' + condText(d.requiredWhen) + '.';
+      if (d && d.requiredUnless) return 'Not used when ' + condText(d.requiredUnless) + '.';
+      return times.length > 1 && times.indexOf(n) >= 0 ? 'Give one time, "at:", "due:" or "after:", not more than one.' : '';
+    };
+    var row = function (n) { return n === 'require' ? requireRow(ctx, def, s, ev) : n === 'sets' ? setsRow(ctx, def, s, meta) : fieldRow(ctx, def, s, n, flag(n)); };
+    var chips = function (list) { return list.length ? '<div class="row ob-adds" role="group" aria-label="More boxes for this step">' + list.map(function (n) { return addChip(def, n, G.field(def, n, f)); }).join('') + '</div>' : ''; };
+    var part = function (list) { var on = list.filter(function (n) { return !!f[n] || !!shown[n]; }); return on.map(row).join('') + chips(list.filter(function (n) { return on.indexOf(n) < 0; })); };
+    var ev = evidenceOf(ctx, text, o, s);
+    var typeSel = '<label class="field" for="ob-type">Type<select id="ob-type" data-bound>' + typeOptions(ctx, s.type, prHost(text)) + '</select></label>';
+    /* A typed step: its type and the fields it's about, at the top. With none usual or set, its first field. */
+    var top = '', rows = [];
+    if (typed) {
+      rows = apply.filter(show); if (!rows.length) rows = apply.slice(0, 1);
+      top = typeSel + (linked ? linkSection(ctx, p, text, s, meta) : '') + (isPr(s.type) ? choices(ctx, 'ob-host', G.form('pr-host'), PRS, s.type, null, HOSTS) : '') + rows.map(function (n) { return fieldRow(ctx, def, s, n); }).join('');
+    }
+    top += unused.map(function (n) { return fieldRow(ctx, def, s, n, flag(n)); }).join('');
+    var waiting = apply.filter(function (n) { return rows.indexOf(n) < 0; });
+    var guideList = typed ? [] : apply;
+    var binds = s.parts.binds, ctxs = meta.context.concat(binds.filter(function (b) { return meta.context.indexOf(b) < 0; }));
+    var bindsHtml = '<div class="field"><span id="ob-binds-l">' + esc(G.step('binds').q) + '</span>' + whyOf('ob-binds', G.step('binds')) + (ctxs.length ? '<div class="row" role="group" aria-labelledby="ob-binds-l" aria-describedby="why-ob-binds">' + ctxs.map(function (b) { return '<button type="button" class="ob-chip" data-act="ob-bind" data-id="' + esc(b) + '" aria-pressed="' + (binds.indexOf(b) >= 0) + '">^' + esc(b) + '</button>'; }).join('') + '</div>' : '<span class="small">The checklist lists no run details yet.</span> <button type="button" class="linkish" data-act="ob-sel-details" data-focus="ob-add-ctx">Add run details</button>') + '</div>';
+    var err = function (res) { var fe = ctx.state.fieldErr; return !!(fe && fe.id === 'ob' && res.some(function (re) { return re.test(fe.field); })); };
+    var mk = function (html, ids) { return { html: html, ids: ids, err: err(ids) }; };
+    var groups = {
+      type: typed ? null : mk(typeSel, [/^ob-type$/]),
+      guide: mk((typed ? chips(waiting) : part(guideList)) + part(['link']) + shotsSection(ctx, p, s), [/^ob-fld-(link|where|looks)$/, /^ob-shot-/].concat(typed ? [] : [new RegExp('^ob-fld-(' + (guideList.join('|') || 'x^') + ')$')])),
+      proof: mk(part(['evidence', 'require']) + recordsSection(def, ev), [/^ob-fld-(evidence|require)$/]),
+      time: mk(part(['expect', 'deadline', 'at', 'due', 'after']), [/^ob-fld-(expect|deadline|at|due|after)$/]),
+      cond: mk(bindsHtml + whenSection(ctx, p, s, 'ob-when', meta) + part(['sets']) + ioLines(ctx, M.parse(text), s), [/^ob-when$/, /^ob-fld-sets$/]),
+      auto: mk(markBox('planned', 'Automation planned', 'Still done by hand for now; can be marked N/A.', s.planned), [/^ob-planned$/])
+    };
+    return { top: top, groups: groups, has: groupsHas(s, def) };
+  }
+  V.obGroupsHas = function (text, key, types) { var o = O.parse(text), s = o.steps.filter(function (x) { return x.key === key; })[0]; return s && !s.odd ? groupsHas(s, T.get(s.type, types)) : null; };
   function builderForm(ctx, p, text) {
     var sel = selOf(ctx, p); here = null; if (!sel) return '';
     backToPractice = !!(ctx.state.practicing || {})[ctx.fsKey + '\n' + p.id];
@@ -22172,26 +22252,15 @@ PF.vk = (function () {
       /* Two wrapping rows, so the whole instruction shows; it's still one line in the checklist, and Enter applies it. */
       var gt0 = G.step('text');
       here = { map: M.parse(text), vals: null, at: 's:' + at }; here.vals = V.dbx.values(ctx, here.map, p.id);
-      h += detailBox(ctx, 'ob-text', 'step', gt0, ' rows="2" maxlength="200" data-enter="ob-commit"', O.inPlace(s.parts.rest), here.at) +
-        '<fieldset class="field ob-kind"><legend>Kind</legend>' + [['step', 'Step', 'Done and checked off; can be marked N/A.', !s.must && !s.planned], ['must', 'Must do', 'Can\'t be marked N/A or waived.', s.must], ['planned', 'Automation planned', 'Still done by hand for now; can be marked N/A.', s.planned]].map(function (k) {
-          return '<label class="ob-switch' + (reveal && k[0] === 'must' ? ' reveal' : '') + '" for="ob-mark-' + k[0] + '"><input type="radio" name="ob-mark" id="ob-mark-' + k[0] + '" value="' + k[0] + '" data-bound' + (k[3] ? ' checked' : '') + '><span><b>' + k[1] + '</b> <span class="small">' + k[2] + '</span></span></label>';
-        }).join('') + '</fieldset>' +
-        '<label class="field" for="ob-type">Type<select id="ob-type" data-bound>' + typeOptions(ctx, s.type, prHost(text)) + '</select></label>';
-      var own = s.parts.roles, roles = meta.roles.concat(own.filter(function (r) { return meta.roles.indexOf(r) < 0; }));
-      h += '<div class="field"><span id="ob-roles-l">' + esc(G.step('roles').q) + '</span>' + (roles.length ? '<div class="row" role="group" aria-labelledby="ob-roles-l" aria-describedby="why-ob-roles">' + roles.map(function (r) { return '<button type="button" class="chipbtn" data-act="ob-role" data-id="' + esc(r) + '" aria-pressed="' + (own.indexOf(r) >= 0) + '">@' + esc(r) + '</button>'; }).join('') + '</div>' : '<span class="small">The checklist lists no roles yet.</span> <button type="button" class="linkish" data-act="ob-sel-details" data-focus="ob-add-role">Add roles</button>') +
-        addRole(ctx, 'step') + whyOf('ob-roles', G.step('roles')) + (s.track >= 0 && !own.length ? '<span class="small">With no role of its own, it goes to the lane\'s people.</span>' : '') + '</div>';
-      var binds = s.parts.binds, ctxs = meta.context.concat(binds.filter(function (b) { return meta.context.indexOf(b) < 0; }));
-      h += '<div class="field"><span id="ob-binds-l">' + esc(G.step('binds').q) + '</span>' + whyOf('ob-binds', G.step('binds')) + (ctxs.length ? '<div class="row" role="group" aria-labelledby="ob-binds-l" aria-describedby="why-ob-binds">' + ctxs.map(function (b) { return '<button type="button" class="ob-chip" data-act="ob-bind" data-id="' + esc(b) + '" aria-pressed="' + (binds.indexOf(b) >= 0) + '">^' + esc(b) + '</button>'; }).join('') + '</div>' : '<span class="small">The checklist lists no run details yet.</span> <button type="button" class="linkish" data-act="ob-sel-details" data-focus="ob-add-ctx">Add run details</button>') + '</div>';
       var names = def ? Object.keys(def.fields || {}) : [];
       Object.keys(s.fields).forEach(function (f) { if (names.indexOf(f) < 0) names.push(f); });
-      h += fieldsSection(ctx, p, text, o, s, def, meta);
-      /* A newline right after the tag, so a note's own first line break survives (HTML drops the first one). */
-      var gn = G.step('note');
-      h += '<label class="field" for="ob-note">' + esc(gn.q) + '<textarea id="ob-note" rows="3" maxlength="2000"' + egOf(gn) + describe(ctx, 'ob-note', gn) + '>\n' + esc(s.note) + '</textarea></label>' + whyOf('ob-note', gn) + errMsg(ctx, 'ob-note');
-      h += whenSection(ctx, p, s, 'ob-when', meta);
-      h += ioLines(ctx, here.map, s);
-      h += shotsSection(ctx, p, s);
-      h += source(ctx, s.id, 'step', U.slug(s.text, 24), '<p class="small">Type <code>{' + esc(s.type || '?') + '}</code>' + (names.length ? ' · fields ' + names.map(function (f) { return '<code>' + esc(f) + '</code>'; }).join(' ') : '') + '</p>');
+      var G4 = stepParts(ctx, p, text, o, s, def, meta), out = groupsOut(ctx, p, s, G4);
+      h += detailBox(ctx, 'ob-text', 'step', gt0, ' rows="2" maxlength="200" data-enter="ob-commit"', O.inPlace(s.parts.rest), here.at) + whoField(ctx, s, meta) +
+        markBox('must', 'Must be done', 'Stops it being marked N/A or skipped with an exception.', s.must, reveal) + G4.top +
+        GROUPS.filter(function (g) { return out[g[0]] && G4.groups[g[0]]; }).map(function (g) { return groupHtml(g, G4.groups[g[0]]); }).join('') + noteField(ctx, p, s);
+      var inside = GROUPS.filter(function (g) { return !out[g[0]] && G4.groups[g[0]]; }), busy = foldBusy(ctx, G4, inside), open = busy || !!ctx.state.obMore;
+      h += '<details class="ob-more-opts" data-disc="ob-more"' + (open ? ' open' : '') + (busy ? ' data-busy="1"' : '') + '><summary>More options' + (busy ? ' <span class="small">(apply or clear what you typed first)</span>' : '') + '</summary>' +
+        inside.map(function (g) { return groupHtml(g, G4.groups[g[0]]); }).join('') + source(ctx, s.id, 'step', U.slug(s.text, 24), '<p class="small">Type <code>{' + esc(s.type || '?') + '}</code>' + (names.length ? ' · fields ' + names.map(function (f) { return '<code>' + esc(f) + '</code>'; }).join(' ') : '') + '</p>') + '</details>';
       h += '<div class="row"><button type="button" class="mini" data-act="ob-move" data-id="' + esc(s.key) + '" data-dir="up">Move up</button><button type="button" class="mini" data-act="ob-move" data-id="' + esc(s.key) + '" data-dir="down">Move down</button>' +
         '<button type="button" class="mini" data-act="ob-add-after" data-id="' + esc(s.key) + '">' + I('plus') + 'Add a step after it</button><button type="button" class="mini" data-act="ob-del" data-id="' + esc(s.key) + '">Delete this step</button>' +
         '<button type="button" class="mini" data-act="hist-open" data-id="draft" data-item="step:' + esc(s.key) + '" aria-haspopup="dialog">' + I('clock') + 'History of this step</button></div>';
@@ -24285,7 +24354,7 @@ PF.examples = (function () {
     sel: null, refOpen: true, pick: null, edit: null, unfold: {}, diffOf: null, msg: null, justPassed: null,
     pendingFiles: [], pendingStarts: Object.create(null), urls: {}, full: {}, needsReconnect: null, overlay: null, busy: false, unsaved: {}, saveErr: {},
     rel: { q: '', kind: '', area: '', sel: 0, detail: false }, newer: null,
-    folderErr: null, deviceName: lsGet('device-name', ''), keys: lsGet('keys', true), theme: lsGet('theme', 'system'), builder: lsGet('builder', true), insTabSaved: lsGet('insTab', ''), partsRail: lsGet('partsRail', false), renamed: lsGet('renamed-checklists', false), panes: panesKept(), fpSteps: fpStepsKept(), paneFit: {}, fieldErr: null, startMode: {}, startModeAt: {}, showRoles: false, lookAround: lsGet('look-around', !!lsGet('me', '')), copyView: null, archive: {}, stepDrafts: {}, partial: {}, answering: null
+    folderErr: null, deviceName: lsGet('device-name', ''), keys: lsGet('keys', true), theme: lsGet('theme', 'system'), builder: lsGet('builder', true), insTabSaved: lsGet('insTab', ''), partsRail: lsGet('partsRail', false), renamed: lsGet('renamed-checklists', false), panes: panesKept(), fpSteps: fpStepsKept(), paneFit: {}, fieldErr: null, startMode: {}, startModeAt: {}, obMore: lsGet('obMore', false), obGroups: null, showRoles: false, lookAround: lsGet('look-around', !!lsGet('me', '')), copyView: null, archive: {}, stepDrafts: {}, partial: {}, answering: null
   };
   /* A step-type form belongs to its folder: switching folders and back finds it again, and another folder's form never
      replaces it. */
@@ -25714,6 +25783,7 @@ PF.examples = (function () {
     /* Nor while someone is composing text (an input method): the redraw waits until the composition ends. */
     if (rendering || composing) { scheduleRender(); return; }
     rendering = true;
+    obGroupsSync();
     /* Any inline form opened or closed (Fill in, Blocked, Edit, a correction, a note's correction), however it was reached, counts as moving. */
     var fsig = [state.pick ? state.pick.kind + ':' + state.pick.id : '', state.edit || '', state.corrForm ? state.corrForm.step + ':' + state.corrForm.mode : '', Object.keys(state.noteCorrs || {}).sort().join(',')].join('|');
     if (fsig !== formSig) { formSig = fsig; childEpoch++; }
@@ -27873,6 +27943,20 @@ PF.examples = (function () {
   function learnIds(ed, text) { if (!ed || text == null) return; var tl = tlOf(ed), ids = PF.outline.parse(text).ids, k = tl.savedIds || (tl.savedIds = Object.create(null)); Object.keys(ids).forEach(function (x) { k[x] = true; }); }
   /* What rides along with a builder change: the selection, what's being added and the parts new in this window (freshCopy),
      so Undo and Redo put them back with the text. Typing not yet applied is never replayed: Undo waits for it instead. */
+  /* Where the step form's groups sit (2.10): decided when a step is selected and again after its lines change (an apply,
+     Discard, Undo or Redo, a newer folder draft, an adopted proposal, a reset), never on typing. A group with focus in it
+     keeps its place at that moment, so a box is never moved while it's in use. */
+  function obGroupsSync() {
+    var sel = state.obSel, p = state.view === 'process' && state.ptab === 'edit' && sel && sel.kind === 'step' ? currentProcess() : null;
+    if (!p || sel.pid !== p.id) { state.obGroups = null; return; }
+    var text = edText(p), st = PF.outline.parse(text).steps.filter(function (x) { return x.key === sel.key; })[0];
+    if (!st) { state.obGroups = null; return; }
+    var sig = text.split('\n').slice(st.line, st.end).join('\n'), g = state.obGroups, same = g && g.pid === p.id && g.key === sel.key;
+    if (same && g.sig === sig) return;
+    var has = V.obGroupsHas(text, sel.key, (data.stepTypes || {}).types) || {};
+    if (same) { var a = document.activeElement, box = a && a.closest && a.closest('[data-obg]'), k = box && box.dataset && box.dataset.obg; if (k) has[k] = !!g.out[k]; }
+    state.obGroups = { pid: p.id, key: sel.key, sig: sig, out: has };
+  }
   /* An approval stays selected only while its phase has one; otherwise the selection is the phase's. */
   function gateKept(sel, text) {
     if (!sel || sel.part !== 'gate') return;
@@ -28410,8 +28494,12 @@ PF.examples = (function () {
       if (id === 'ob-text') res = reid(st && st.id, builderEdit({ op: 'editText', step: s.key, text: value, reid: !!(st && fresh(st.id)) }, id));
       else if (!set) return;
       else res = reid(st && st.id, builderEdit({ op: 'edit', step: s.key, set: set }, id));
-      /* The three kinds exclude each other: say what the new one means, and what leaving must-do allows. */
-      if (res && !res.same && mk) { say((st && st.must && mk !== '!' ? 'No longer a must-do step: it can now be marked N/A or waived. ' : '') + (mk === '!' ? 'Now a must-do step: it can\'t be marked N/A or waived.' : mk === '~' ? 'Automation planned. It\'s still done by hand for now.' : 'Now a plain step.'), 'good'); refocus = '#ob-mark-' + value; }
+      /* Must be done and Automation planned exclude each other: say what the new mark means, what leaving must-do allows, and what checking one cleared. */
+      if (res && !res.same && mk) {
+        var cleared = st && st.planned && mk === '!' ? 'No longer marked Automation planned. ' : st && st.must && mk !== '!' ? (mk === '~' ? 'No longer marked Must be done' : 'No longer a must-do step') + ': it can now be marked N/A or waived. ' : '';
+        say(cleared + (mk === '!' ? 'Now a must-do step: it can\'t be marked N/A or waived.' : mk === '~' ? 'Automation planned. It\'s still done by hand for now.' : 'Now a plain step.'), 'good');
+        refocus = '#' + (state.obMarkFrom || (mk === '~' ? 'ob-planned' : 'ob-must'));
+      }
     } else if (s.kind === 'track') {
       var tr = ph && ph.tracks[+s.track]; if (!tr) return;
       if (id === 'ob-tr-title') res = reid(tr.id, builderEdit({ op: 'editTrack', phase: s.key, track: s.track, set: { title: value, reid: fresh(tr.id) } }, id));
@@ -29658,6 +29746,7 @@ PF.examples = (function () {
     },
     'ob-role': function (id) { builderToggle('role', id); },
     /* "+ add": shows a waiting box, focused. Typing held in another box is applied or refused first, as any change waits. */
+    'ob-note-open': function () { var p = currentProcess(); if (!p || obHeld(p)) return; obShow('note', true); state.focus = 'ob-note'; render(); },
     'ob-show': function (id) {
       var p = currentProcess(); if (!p || !id || obHeld(p)) return; obShow(id, true);
       /* A group of chips is focused on its first chip; run details with none listed, on the group. */
@@ -31392,6 +31481,15 @@ PF.examples = (function () {
   /* A group of chips (require:, sets:) counts as one box: focus anywhere in it is focus in the box. */
   function fieldBoxOf(t) { var g = t && t.closest && t.closest('.ob-grp'); return (g && g.id) || (t && t.id) || ''; }
   document.addEventListener('focusin', function (e) { var id = fieldBoxOf(e.target); if (/^ob-fld-[\w-]+$/.test(id) && state.view === 'process' && state.ptab === 'edit') obShow(id.slice(7), true); }, true);
+  /* The note box (2.10) goes back behind + Add instructions the same way, and focus goes to that button if it had nowhere else. */
+  document.addEventListener('focusout', function (e) {
+    if (!e.target || e.target.id !== 'ob-note' || state.view !== 'process' || state.ptab !== 'edit') return;
+    setTimeout(function () {
+      var a = document.activeElement, el = document.getElementById('ob-note');
+      if ((a && a.id === 'ob-note') || state.obPendingField === 'ob-note' || (el && String(el.value || '').trim()) || String(fieldApplied('ob-note') || '').trim()) return;
+      obShow('note', false); if (!a || a === document.body) state.focus = '[data-act="ob-note-open"]'; render();
+    }, 0);
+  }, true);
   document.addEventListener('focusout', function (e) {
     var id = fieldBoxOf(e.target);
     if (!/^ob-fld-[\w-]+$/.test(id) || state.view !== 'process' || state.ptab !== 'edit') return;
@@ -31413,6 +31511,13 @@ PF.examples = (function () {
     var d = e.target; if (!d || !d.dataset) return;
     prActivity(d);
     if (d.dataset.group) (state.groupsOpen = state.groupsOpen || {})[d.dataset.group] = d.open;
+    /* More options (2.10): one setting for the whole editor, kept in this browser; it can't close over typing not applied. */
+    if (d.dataset.disc === 'ob-more') {
+      /* Drawn open over typing not applied: not the person's choice, so it isn't kept (a browser fires toggle for that too). */
+      if (d.dataset.busy) { if (!d.open) { d.open = true; say('Apply or clear what you typed under More options first.', 'warn'); render(); } return; }
+      if (!!state.obMore !== !!d.open) { state.obMore = !!d.open; lsSet('obMore', state.obMore); }
+      return;
+    }
     if (d.dataset.disc) (state.disc = state.disc || {})[d.dataset.disc] = d.open;
     /* A flight plan phase opened or closed by hand. Only a change from what the page drew counts: a browser also fires
        toggle for a disclosure drawn open. */
@@ -31448,7 +31553,8 @@ PF.examples = (function () {
     if (e.target.id) delete dbxSet[e.target.id];
     if (OB_CHANGE.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
     if (e.target.id === 'ob-shot-file' && state.view === 'process' && state.ptab === 'edit') { shotAdd(e.target.files); e.target.value = ''; }
-    if (/^ob-mark-(step|must|planned)$/.test(e.target.id || '') && e.target.checked && state.view === 'process' && state.ptab === 'edit') builderField('ob-mark', e.target.id.slice(8));
+    /* 2.10: Must be done and Automation planned are two checkboxes over the step's one mark; checking one clears the other. */
+    if ((e.target.id === 'ob-must' || e.target.id === 'ob-planned') && state.view === 'process' && state.ptab === 'edit') { state.obMarkFrom = e.target.id; builderField('ob-mark', e.target.checked ? e.target.id.slice(3) : 'step'); state.obMarkFrom = null; }
     if (/^ob-link-(proc|proc-other|vn|src-[\w-]+|val-[\w-]+)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
     if (/^ob-link-ver-(latest|pin)$/.test(e.target.id || '') && e.target.checked && state.view === 'process' && state.ptab === 'edit') builderField('ob-link-ver', e.target.value);
     if (/^np-/.test(e.target.id || '') && state.newProc) state.newProc.token = ++npToken;
