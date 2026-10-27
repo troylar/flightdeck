@@ -2015,13 +2015,27 @@
       own.forEach(function (k) { delete inputs[k]; });
     }
     var rows = link2 ? PF.links.rows(R.effStep(parent, x.step), Object.keys(parent.details), pub.map).rows : [], setBy = M.setBy(pub.map), ask = [], open = [];
+    /* Team values (2.9): each looked up now (prep.team), never part of details or inputs. A set one is passed like a parent
+       detail (teamSrc); one that isn't set is asked (teamAsk); one that can't be read refuses the start with the reason. */
+    var team = [], teamSrc = {}, teamAsk = [], bad = '';
+    rows.forEach(function (r) {
+      if (r.source !== 'team' || bad) return;
+      var res = PF.teamValues.lookup(data.teamValues, r.team);
+      if (res.unreadable || res.malformed || res.newer) { bad = res.why + ' So the team value ' + r.team + ' can\'t be read, and nothing was started.'; return; }
+      team.push({ name: r.name, team: r.team, result: res });
+      if (res.missing) { if (!Object.prototype.hasOwnProperty.call(setBy, r.name)) { teamAsk.push(r.name); ask.push(r.name); } }
+      else teamSrc[r.name] = res.value;
+    });
+    if (bad) { say(bad, 'warn'); render(); return null; }
     rows.forEach(function (r) {
       if (r.source === 'ask') { if (!Object.prototype.hasOwnProperty.call(setBy, r.name)) ask.push(r.name); return; }
-      var def = R.typedDef({ snapshot: '' }, pub.map, 'details.' + r.name), v = Object.prototype.hasOwnProperty.call(details, r.name) ? details[r.name] : '';
+      if (r.source === 'team' && !Object.prototype.hasOwnProperty.call(teamSrc, r.name)) return;
+      var def = R.typedDef({ snapshot: '' }, pub.map, 'details.' + r.name), v = Object.prototype.hasOwnProperty.call(teamSrc, r.name) ? teamSrc[r.name] : Object.prototype.hasOwnProperty.call(details, r.name) ? details[r.name] : '';
       var m = def && v !== '' ? R.migrateDetail(def, v) : null;
       if (m && m.verdict !== 'exact' && m.verdict !== 'converted') open.push(r.name);
     });
     return { stepId: stepId, rkey: rkey, key: state.runKey, gen: gen, me: state.me, step: x.step, f: f, target: target, pub: pub, link2: link2, details: details, inputs: inputs, rows: rows, ask: ask, open: open,
+      team: team, teamSrc: teamSrc, teamAsk: teamAsk, epoch: childEpoch,
       linked: a0 && a0.child ? a0.child.process + '/' + a0.child.id + (a0.child.failed ? ' failed' : '') : '' };
   }
   /* The guard on a pass: step's start (2.8), asked on submit and again right before the first write: '' when the run, the
@@ -2046,6 +2060,54 @@
       return 'A detail this run passes changed while you were filling this in. Check the form, then start again.';
     return '';
   }
+  /* The team values' guard (2.9), kept apart from childStale: '' when every team value prep looked up reads the same in tv (the
+     app's accepted team values), or what changed. Asked on submit, in the prewrite against a fresh read, and in still. */
+  function teamStale(prep, tv) {
+    var T = PF.teamValues, ch = (prep.team || []).filter(function (e) {
+      var now = T.lookup(tv, e.team), was = e.result;
+      return !!now.missing !== !!was.missing || (now.value != null) !== (was.value != null) || (now.value != null && now.value !== was.value) || !!(now.unreadable || now.malformed || now.newer);
+    })[0];
+    if (!ch) return '';
+    var now = T.lookup(tv, ch.team);
+    if (now.unreadable || now.malformed || now.newer) return now.why + ' So the team value ' + ch.team + ' can\'t be read, and nothing was started.';
+    return 'The team value ' + ch.team + ' changed while you were filling this in.';
+  }
+  /* What a start that was refused keeps (2.9): the answers and roles submitted, stamped with where they were given, and what
+     each team value was then, so a refill knows which boxes still mean what they did. */
+  function childKeep(prep, asked, roles) {
+    var was = {}; (prep.team || []).forEach(function (e) { was[e.name] = e.result.value != null ? e.result.value : null; });
+    return { gen: prep.gen, key: prep.key, step: prep.stepId, token: prep.token, values: asked || {}, roles: roles || null, teamAsk: (prep.teamAsk || []).slice(), teamWas: was };
+  }
+  /* A new prep filled from what was kept: answers to boxes that still ask the same thing. A team value that was missing (so
+     the person typed it) and is now set isn't submitted: it's said (replaced), or, when it doesn't convert, its box opens as
+     a correction, empty, with a note. A team value that changed otherwise starts its box over. */
+  function childRefill(np, kept) {
+    var own = function (o, k) { return !!o && Object.prototype.hasOwnProperty.call(o, k); };
+    np.values = {}; np.replaced = {}; np.notes = {};
+    if (kept.roles) np.roleVals = kept.roles;
+    Object.keys(kept.values || {}).forEach(function (k) {
+      var typedThen = (kept.teamAsk || []).indexOf(k) >= 0, isTeam = own(kept.teamWas, k), nowSet = own(np.teamSrc, k), v = kept.values[k];
+      if (typedThen && nowSet) {
+        if (np.open.indexOf(k) >= 0) { np.values[k] = ''; np.notes[k] = 'The team value is now "' + np.teamSrc[k] + '", which doesn\'t fit here. You typed ' + v + ' before.'; }
+        else if (String(v).trim()) np.replaced[k] = v;
+        return;
+      }
+      if (isTeam && (kept.teamWas[k] || null) !== (nowSet ? np.teamSrc[k] : null)) return;
+      if (np.ask.indexOf(k) >= 0 || np.open.indexOf(k) >= 0) np.values[k] = v;
+    });
+  }
+  /* The one way a refused start comes back (2.9): the form reopens, rebuilt from the app's accepted team values, with the
+     answers kept, when nothing has moved since (the same folder, the run view on the same run, no dialog open, and no
+     navigation or form opened or closed since the start). Otherwise it says why and the answers wait in childKept. */
+  function childRetry(prep, why, asked, roles) {
+    var keep = childKeep(prep, asked, roles), cur = findRun(prep.key);
+    var here = gen === prep.gen && state.view === 'run' && state.runKey === prep.key && !!cur && !state.overlay && childEpoch === prep.epoch;
+    var np = here ? childPrep(prep.stepId) : null;
+    if (!np) { (state.childKept = state.childKept || {})[prep.rkey] = keep; say(why + ' What you filled in is kept for when you start it again.', 'warn'); render(); return; }
+    np.token = ++childToken; childRefill(np, keep); np.error = why; say(why, 'warn');
+    openOverlay({ childStart: np, html: function () { return V.childStart(ctx, this.childStart); }, held: function () { return csHeld(this.childStart); } });
+    state.overlayFocus = '#cs-err';
+  }
   function startChild(stepId) {
     var prep = childPrep(stepId);
     if (!prep) return;
@@ -2054,7 +2116,7 @@
       prep.token = ++childToken;
       /* What a start that couldn't be saved was given comes back once, in the same folder. */
       var kept = state.childKept && state.childKept[prep.rkey];
-      if (kept) { delete state.childKept[prep.rkey]; if (kept.gen === gen) { prep.values = kept.values; prep.roleVals = kept.roles; } }
+      if (kept) { delete state.childKept[prep.rkey]; if (kept.gen === gen) { if (kept.teamWas) childRefill(prep, kept); else { prep.values = kept.values; prep.roleVals = kept.roles; } } }
       openOverlay({ childStart: prep, html: function () { return V.childStart(ctx, this.childStart); }, held: function () { return csHeld(this.childStart); } });
       state.overlayFocus = '#cs-t';
       return;
@@ -2062,6 +2124,9 @@
     launchChild(prep, {}, null);
   }
   var childToken = 0;
+  /* Counts navigation (any view, a different step) and every form opened or closed: a refused start reopens its form only
+     when it hasn't moved since (childRetry). */
+  var childEpoch = 0;
   /* An answer or a changed role in the child's start dialog is kept on prep, so after a redraw the boxes hold it as their
      own value and dirtyControl() no longer sees it: navigation asks this instead. */
   function csHeld(prep) {
@@ -2074,16 +2139,19 @@
   function launchChild(prep, asked, roles, invalid) {
     var parent = findRun(prep.key), map = parent && R.mapOf(parent), stepId = prep.stepId, pub = prep.pub, target = prep.target, rkey = prep.rkey;
     if (!parent) return;
-    var details = Object.assign({}, prep.details, asked || {});
+    var teamSrc = prep.teamSrc || {}, details = Object.assign({}, prep.details, teamSrc, asked || {});
     if (!roles) { roles = {}; pub.map.meta.roles.forEach(function (ro) { roles[ro] = parent.roles[ro] || ''; }); }
     var tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (err) { tz = ''; }
     var inputs = prep.inputs;
-    var child; try { child = R.create(pub, { title: pub.map.meta.title + ' for ' + parent.title, details: details, from: { source: 'carry', details: prep.details }, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, parent: { process: parent.process, id: parent.id, step: stepId, inputs: inputs, folder: parent.folder }, app: APP_VERSION, pins: pinsAtStart(pub) }); }
+    var child; try { child = R.create(pub, { title: pub.map.meta.title + ' for ' + parent.title, details: details, from: { source: 'carry', details: Object.assign({}, prep.details, teamSrc) }, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, parent: { process: parent.process, id: parent.id, step: stepId, inputs: inputs, folder: parent.folder }, app: APP_VERSION, pins: pinsAtStart(pub) }); }
     catch (err) { if (invalid) { invalid(err); return; } say(err.message, 'warn'); render(); return; }
     var keep = invalid ? { gen: gen, values: asked || {}, roles: roles } : null;
     if (invalid) closeOverlay();
+    prep.epoch = childEpoch;
     /* Try the link on a copy first, so a step that can't take a child never leaves an orphan run in the folder. */
     var link = { process: child.process, id: child.id, inputs: inputs, folder: pub.info.folder, mapHash: pub.info.mapHash, typesHash: pub.info.typesHash, format: child.format, pin: target.first ? target.pin : null };
+    /* What each team value passed was (2.9): its text as read, or typed by the person when it wasn't set. */
+    if ((prep.team || []).length) { link.teamPassed = {}; prep.team.forEach(function (e) { link.teamPassed[e.name] = e.result.value != null ? { text: e.result.value } : { typed: true }; }); }
     var lopts = { run: child, procOf: ctx.procOf, findRun: ctx.findRun };
     try { R.linkChild(JSON.parse(JSON.stringify(parent)), map, stepId, link, state.me, new Date().toISOString(), lopts); }
     catch (err) { say(err.message, 'warn'); render(); return; }
@@ -2092,10 +2160,18 @@
     var done = function () { endBusy(); delete state.startingChild[rkey]; };
     /* A pass: step's guard runs in the queued check and again after saveRun's reads, right before it writes (D4). */
     var saveOpts = { writer: WRITER, lock: LOCKS ? lock : null };
-    if (prep.link2) saveOpts.still = function () { stale = childStale(prep); return !stale; };
+    if (prep.link2) saveOpts.still = function () { stale = childStale(prep) || teamStale(prep, data.teamValues); return !stale; };
+    /* A start that passes a team value reads team-values.json again right before it writes; a read another folder's or a
+       value changed since the form was built writes nothing. */
+    if ((prep.team || []).length) saveOpts.prewrite = function (fs) {
+      return readTeam(fs).then(function (acc) {
+        if (!acc) { stale = 'The team folder changed while you were filling this in, so nothing was started.'; return false; }
+        stale = teamStale(prep, acc); return !stale;
+      });
+    };
     queued(function () {
       var cur = findRun(key), why = cur ? R.canStartChild(cur, R.mapOf(cur), stepId) : 'The run isn\'t in the folder anymore.';
-      if (!why && prep.link2) why = childStale(prep);
+      if (!why && prep.link2) why = childStale(prep) || teamStale(prep, data.teamValues);
       if (why) throw new Error(why);
       child.recorder.session = SESSION; return repo.saveRun(sfs, child, SESSION, saveOpts);
     }).then(function () {
@@ -2108,6 +2184,7 @@
       });
     }, function (err) {
       done(); if (sg !== gen) return;
+      if (err && err.dropped && stale && prep.link2) { childRetry(prep, stale, asked, roles); return; }
       if (keep) (state.childKept = state.childKept || {})[rkey] = keep;
       var again = keep ? ' What you filled in is kept for when you start it again.' : '';
       if (err && err.dropped && stale) { say(stale + again, 'warn'); render(); return; }
@@ -5718,7 +5795,24 @@
     'link-child': function (id, b) {
       var c = ctx.findRun(b.dataset.child);
       if (!c || !c.parent) return;
+      /* A step that passes team values (2.9) links a run started without that record only once a person confirms the run's
+         values, as shown: openLinkConfirm, then link-child-confirm. */
+      var lr = ctx.run(), lx = lr && M.findStep(R.mapOf(lr), id);
+      if (lx && PF.links.teams(R.effStep(lr, lx.step)).length) { openLinkConfirm(id, c); return; }
       mutate(function (r, map, me, now) { R.linkChild(r, map, id, { process: c.process, id: c.id, inputs: c.parent.inputs, folder: c.folder, format: c.format }, me, now, { run: c, procOf: ctx.procOf, findRun: ctx.findRun }); });
+    },
+    'link-child-confirm': function () {
+      var ov = state.overlay, snap = ov && ov.linkConfirm;
+      if (!snap) return;
+      var c = findRun(snap.child), cur = linkSnap(snap.stepId, c);
+      if (snap.gen !== gen || state.runKey !== snap.key || !cur) { closeOverlay(); say('This run isn\'t the one on screen anymore, so nothing was linked.', 'warn'); render(); return; }
+      if (cur.rev !== snap.rev || JSON.stringify(cur.values) !== JSON.stringify(snap.values)) { cur.changed = 'This run changed while you were looking. Check the values again.'; ov.linkConfirm = cur; render(); return; }
+      if (cur.empty) return;
+      closeOverlay();
+      mutate(function (r, map, me, now) {
+        var tp = {}; Object.keys(snap.values).forEach(function (n) { tp[n] = { text: snap.values[n], confirmed: { by: me, at: now } }; });
+        R.linkChild(r, map, snap.stepId, { process: c.process, id: c.id, inputs: c.parent.inputs, folder: c.folder, format: c.format, teamPassed: tp }, me, now, { run: c, procOf: ctx.procOf, findRun: ctx.findRun });
+      });
     },
     timeline: function (id) { state.timeline = !state.timeline; state.overlayFocus = null; state.focus = '[data-act="timeline"]' + (id ? '[data-id="' + cssEsc(id) + '"]' : ''); render(); },
     'start-step': function (id) { mutate(function (r, map, me, now) { R.start(r, map, id, me, now); }); },
@@ -6585,11 +6679,32 @@
     if (el.id) return '#' + cssEsc(el.id);
     return el.dataset && el.dataset.act ? '[data-act="' + el.dataset.act + '"]' + (el.dataset.id ? '[data-id="' + cssEsc(el.dataset.id) + '"]' : '') : null;
   }
-  function openOverlay(o) { o.back = selectorOf(document.activeElement); state.overlay = o; render(); }
+  function openOverlay(o) { childEpoch++; o.back = selectorOf(document.activeElement); state.overlay = o; render(); }
   /* Closing returns focus to whatever opened it and releases full-size images. */
   function closeOverlay() {
+    childEpoch++;
     var back = state.overlay && state.overlay.back, done = state.overlay && state.overlay.onClose; state.overlay = null; if (done) done(); releaseUrls(state.full); render();
     var el = back && document.querySelector(back); if (el) el.focus();
+  }
+  /* What Link it's confirm shows (2.9), bound to the child as the app has it now: the folder, the parent run and step, the
+     child and its revision, and each team row's value in it. null when the step or the child isn't there. */
+  function linkSnap(stepId, c) {
+    var r = ctx.run(), x = r && M.findStep(R.mapOf(r), stepId);
+    if (!x || !c || !c.parent) return null;
+    var values = {}, empty = [];
+    PF.links.parse(R.fieldsOf(r, x.step).pass).entries.forEach(function (e) {
+      if (e.source !== 'team') return;
+      var v = c.details && Object.prototype.hasOwnProperty.call(c.details, e.name) ? String(c.details[e.name] || '') : '';
+      values[e.name] = v; if (PF.teamValues.valueProblem(v)) empty.push(e.name);
+    });
+    var teams = {}; PF.links.parse(R.fieldsOf(r, x.step).pass).entries.forEach(function (e) { if (e.source === 'team') teams[e.name] = e.team; });
+    return { gen: gen, key: state.runKey, stepId: stepId, child: c.process + '/' + c.id, title: c.title, rev: c.rev || 0, values: values, teams: teams, empty: empty.length ? empty : null };
+  }
+  function openLinkConfirm(stepId, c) {
+    var snap = linkSnap(stepId, c);
+    if (!snap) return;
+    openOverlay({ linkConfirm: snap, html: function () { return V.linkConfirm(ctx, this.linkConfirm); } });
+    state.overlayFocus = '#lc-t';
   }
   function openLightbox(list, i) { openOverlay({ list: list, i: i || 0, html: function () { return V.lightbox(ctx, this.list, this.i); } }); }
   function copyText(text, pre, done) {
@@ -6727,8 +6842,8 @@
     var ov = state.overlay, prep = ov && ov.childStart;
     if (!prep || String(prep.token) !== e.target.dataset.token) return;
     var got = csHarvest(e.target, prep), asked = got.asked, roles = got.roles;
-    var why = childStale(prep);
-    if (why) { closeOverlay(); say(why, 'warn'); render(); return; }
+    var why = childStale(prep) || teamStale(prep, data.teamValues);
+    if (why) { closeOverlay(); prep.epoch = childEpoch; childRetry(prep, why, asked, roles); return; }
     /* A value that doesn't fit keeps the dialog open with everything typed, and says which box. */
     launchChild(prep, asked, roles, function (err) {
       prep.values = asked; prep.roleVals = roles; prep.error = err.message;
@@ -7178,7 +7293,7 @@
     });
   }
   /* Every change of screen goes through here: what's typed on the run's selected step is kept first. */
-  function setView(v) { if (state.view === 'practice' && v !== 'practice') prLeave(); leaveContext(); state.view = v; }
+  function setView(v) { childEpoch++; if (state.view === 'practice' && v !== 'practice') prLeave(); leaveContext(); state.view = v; }
   /* Leaving the practice page (any way: Edit, Back, a link): what's typed is kept, and where it was, for coming back. */
   function prLeave() {
     prHarvest(); var p = currentProcess(), e = p && prs[edKey(p.id)];
@@ -7297,6 +7412,7 @@
   }
   function selectStep(id) {
     if (state.sel !== id) {
+      childEpoch++;
       state.attErr = null;
       /* The step being left keeps its typing, its open Fill in and its correction; the new one gets back its own. */
       leaveContext();

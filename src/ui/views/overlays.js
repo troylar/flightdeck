@@ -244,18 +244,29 @@
       '<form class="stack" id="child-start-form" data-token="' + esc(String(prep.token)) + '">' +
       (prep.error ? '<p class="notice bad" id="cs-err" role="alert" tabindex="-1">' + esc(prep.error) + '</p>' : '');
     var typed = prep.values || {}, kept = function (f) { return Object.prototype.hasOwnProperty.call(typed, f) ? String(typed[f]) : ''; };
-    var passed = prep.rows.filter(function (x) { return x.source !== 'ask' && prep.open.indexOf(x.name) < 0; });
+    var own = function (o, k) { return !!o && Object.prototype.hasOwnProperty.call(o, k); }, teamSrc = prep.teamSrc || {}, teamOf = {};
+    (prep.team || []).forEach(function (e) { teamOf[e.name] = e.team; });
+    var passed = prep.rows.filter(function (x) { return x.source !== 'ask' && prep.open.indexOf(x.name) < 0 && (x.source !== 'team' || own(teamSrc, x.name)); });
+    /* A team value (2.9) is shown as the child gets it: converted to its kind when the child's detail has one. */
+    var shown = function (x) {
+      if (x.source !== 'team') return own(prep.details, x.name) ? prep.details[x.name] : '';
+      var def = R.typedDef({ snapshot: '' }, pub.map, 'details.' + x.name), m = def ? R.migrateDetail(def, teamSrc[x.name]) : null;
+      return m && (m.verdict === 'exact' || m.verdict === 'converted') ? m.result : teamSrc[x.name];
+    };
     if (passed.length) h += '<h3>Passed from this run</h3><dl>' + passed.map(function (x) {
-      var v = Object.prototype.hasOwnProperty.call(prep.details, x.name) ? prep.details[x.name] : '';
-      return '<dt>' + esc(x.name) + '</dt><dd>' + (v === '' ? '<span class="small">(empty)</span>' : esc(v)) + ' <span class="small">· ' + (x.source === 'value' ? 'fixed in the checklist' : 'from ^' + esc(x.from) + ' of this run') + '</span></dd>';
+      var v = shown(x);
+      return '<dt>' + esc(x.name) + '</dt><dd>' + (v === '' ? '<span class="small">(empty)</span>' : esc(v)) + ' <span class="small">· ' + (x.source === 'value' ? 'fixed in the checklist' : x.source === 'team' ? 'team value ' + esc(x.team) : 'from ^' + esc(x.from) + ' of this run') + '</span></dd>';
     }).join('') + '</dl>';
+    Object.keys(prep.replaced || {}).forEach(function (k) { h += '<p class="notice warn" role="status">You typed ' + esc(prep.replaced[k]) + '; the team value ' + esc(teamOf[k] || k) + ' is now ' + esc(teamSrc[k]) + ', and that\'s what will be used.</p>'; });
     var boxes = prep.open.concat(prep.ask);
     if (boxes.length) {
       h += '<h3>' + (prep.ask.length ? 'What ' + esc(meta.title) + ' needs from you' : 'Check these') + '</h3><div class="grid2">';
       boxes.forEach(function (f) {
-        var def = R.typedDef({ snapshot: '' }, pub.map, 'details.' + f), opened = prep.open.indexOf(f) >= 0, g = opened ? prep.details[f] || '' : '';
-        if (!def) { h += '<label class="field" for="cs-' + esc(f) + '">' + esc(f) + '<input id="cs-' + esc(f) + '" data-detail="' + esc(f) + '" maxlength="120" value="' + esc(kept(f)) + '"></label>'; return; }
-        h += '<div>' + K.typedField('cs-' + f, f, def, kept(f), 'data-detail="' + esc(f) + '"') + (opened ? '<p class="small">' + esc(PF.values.ask(def, g)) + '</p>' : '') + '</div>';
+        var def = R.typedDef({ snapshot: '' }, pub.map, 'details.' + f), opened = prep.open.indexOf(f) >= 0, g = opened ? (own(teamSrc, f) ? teamSrc[f] : prep.details[f] || '') : '';
+        /* What the box is for, under it: a team value that isn't set, a team value that doesn't convert, a refill's note. */
+        var note = own(prep.notes, f) ? prep.notes[f] : (prep.teamAsk || []).indexOf(f) >= 0 ? 'The team value ' + (teamOf[f] || f) + ' isn\'t set; type it for this run.' : opened && own(teamSrc, f) ? 'From the team value ' + teamOf[f] + '. ' + PF.values.ask(def, g) : opened ? PF.values.ask(def, g) : '';
+        if (!def) { var box = '<label class="field" for="cs-' + esc(f) + '">' + esc(f) + '<input id="cs-' + esc(f) + '" data-detail="' + esc(f) + '" maxlength="120" value="' + esc(kept(f)) + '"></label>'; h += note ? '<div>' + box + '<p class="small">' + esc(note) + '</p></div>' : box; return; }
+        h += '<div>' + K.typedField('cs-' + f, f, def, kept(f), 'data-detail="' + esc(f) + '"') + (note ? '<p class="small">' + esc(note) + '</p>' : '') + '</div>';
       });
       h += '</div>';
     }
@@ -272,6 +283,19 @@
     }
     return h + '<div class="row"><button class="btn go" type="submit" id="cs-submit">' + I('play') + 'Start the run</button><button class="mini" type="button" data-act="close-overlay">Cancel</button><span class="small">This step is checked when it completes.</span></div></form></div></div>';
   }
+  /* Link it on a step that passes team values (2.9): the run was linked after it started, so its values are confirmed, as
+     shown, by a person; a change while it's open redraws it. */
+  function linkConfirm(ctx, snap) {
+    var names = Object.keys(snap.values);
+    var h = '<div class="overlay" data-act="close-overlay"><div class="help cs-box" role="dialog" aria-modal="true" aria-labelledby="lc-t"><h2 id="lc-t" tabindex="-1">Link "' + esc(snap.title) + '"</h2>' +
+      (snap.changed ? '<p class="notice warn" role="alert">' + esc(snap.changed) + '</p>' : '') +
+      '<p>This run was linked after it started, so Flightdeck didn\'t record what it was passed. Link it if these are the values it was meant to get.</p><dl>' +
+      names.map(function (n) { var v = snap.values[n]; return '<dt>' + esc(n) + '</dt><dd>' + (v === '' ? '<span class="small">(empty)</span>' : esc(v)) + ' <span class="small">· team value ' + esc(snap.teams[n]) + '</span></dd>'; }).join('') + '</dl>' +
+      (snap.empty ? '<p class="notice warn" role="status">' + esc(snap.empty.join(', ')) + (snap.empty.length > 1 ? ' aren\'t values' : ' isn\'t a value') + ' a team value can be, so this run can\'t be linked this way. Start a new run instead.</p>' : '') +
+      '<div class="row">' + (snap.empty ? '' : '<button class="btn go" type="button" data-act="link-child-confirm">Link it with these values</button>') + '<button class="mini" type="button" data-act="close-overlay">Cancel</button></div></div></div>';
+    return h;
+  }
   V.historyDrawer = historyDrawer;
+  V.linkConfirm = linkConfirm;
   V.search = search; V.releases = releases; V.textPreview = textPreview; V.semverCmp = semverCmp; V.help = help; V.tabOnlyHelp = tabOnlyHelp; V.lightbox = lightbox; V.childStart = childStart; V.childVersionWords = childVersionWords;
 })();

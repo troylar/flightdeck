@@ -74,4 +74,210 @@ rule('App: Settings › Team values is read-only for a member, for a damaged fil
   assert.ok(/has &quot;extra&quot;|has "extra"/.test(html) && !/team-add-form/.test(html), 'an unknown key: read-only with the reason');
 });
 
+/* ---------- A child's start that passes a team value (F4) ---------- */
+const { gate } = require('./app-harness');
+async function teamStart(passLine, kidCtx, values) {
+  const app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(80); app.choose('person-casey'); await app.tick();
+  const PF = app.PF, people = JSON.parse(app.fs.files['people.json'].t), now = new Date().toISOString();
+  const put = (md, id, rand) => {
+    const b = PF.publish.build(md, { people, ...require('./harness').exampleSetup(PF), by: 'person-avery', changes: 'First', existing: [], now, rand, app: '2.9.0' });
+    assert.ok(!b.blockers, JSON.stringify(b.blockers));
+    Object.keys(b.files).forEach(k => { app.fs.files['publications/' + id + '/' + b.folder + '/' + k] = { t: b.files[k], m: Date.now() }; });
+  };
+  put(['---', 'process: deploy', 'title: Deploy', 'owner: person-avery', 'context: ' + (kidCtx || 'base, env'), '---', '', '## Go · READ-DO {#go}', '- [ ] {confirm} Go {#go1}'].join('\n'), 'deploy', 'dp000001');
+  put(['---', 'process: ship', 'title: Ship', 'owner: person-avery', 'context: env', '---', '', '## Ship · READ-DO {#s}', '- [ ] {run.process} Deploy it {#dep}', '  process: deploy', '  pass: ' + (passLine || 'base=team:bitbucket-base-url, env=^env')].join('\n'), 'ship', 'sh000001');
+  if (values !== null) setTeam(app, values || { 'bitbucket-base-url': { value: URL } });
+  app.click('refresh'); await app.tick(80);
+  app.click('start', 'ship'); await app.settle();
+  app.set('detail-env', 'prod'); app.submitForm('start-form'); await app.tick(120);
+  assert.ok(/<h1 id="run-h"[^>]*>Ship/.test(app.html()), 'set-up: the parent run is open');
+  return app;
+}
+const setTeam = (app, values) => { app.fs.files['team-values.json'] = { t: typeof values === 'string' ? values : doc(values), m: Date.now() }; };
+const shipRun = (app) => JSON.parse(app.fs.files[app.files('runs/ship/').find(p => /run\.json$/.test(p))].t);
+const deployRuns = (app) => app.files('runs/deploy/').filter(p => /run\.json$/.test(p)).map(p => JSON.parse(app.fs.files[p].t));
+async function endKid(app, edit) {
+  const path = app.files('runs/deploy/').find(p => /run\.json$/.test(p)), kid = JSON.parse(app.fs.files[path].t);
+  if (edit) Object.assign(kid.details, edit);
+  kid.ended = { outcome: 'Completed', by: 'person-avery', at: new Date().toISOString() }; kid.state = 'completed'; kid.rev = (kid.rev || 0) + 1;
+  await app.fs.write(path, JSON.stringify(kid));
+  app.click('refresh'); await app.tick(100);
+}
+
+rule('App: a set team value is passed as it reads when the child starts, recorded on the link, and the step is checked when the child completes', async () => {
+  const app = await teamStart();
+  assert.ok(/base https:\/\/bitbucket\.example\.com\/projects\/PAY \(team value bitbucket-base-url\)/.test(app.html()), 'the step names where it comes from');
+  app.click('start-child', 'dep'); await app.tick(150);
+  assert.ok(!/child-start-form/.test(app.overlay()), 'nothing to ask: it starts at once');
+  const kids = deployRuns(app);
+  assert.deepStrictEqual(kids.map(k => k.details), [{ base: URL, env: 'prod' }]);
+  assert.deepStrictEqual(kids[0].parent.inputs, { env: 'prod' }, 'team values stay out of the snapshot');
+  const link = shipRun(app).steps.dep.child;
+  assert.deepStrictEqual(link.teamPassed, { base: { text: URL } });
+  assert.ok(!('base' in link.inputs));
+  setTeam(app, { 'bitbucket-base-url': { value: 'https://changed.example.com' } }); app.click('refresh'); await app.tick(100);
+  assert.notStrictEqual(shipRun(app).steps.dep.s, 'blocked', 'a later change to the team value changes nothing for a started child');
+  await endKid(app);
+  assert.strictEqual(shipRun(app).steps.dep.s, 'done');
+});
+
+rule('App: a child that changed a team-supplied value blocks the step, like a fixed value', async () => {
+  const app = await teamStart();
+  app.click('start-child', 'dep'); await app.tick(150);
+  await endKid(app, { base: 'https://elsewhere.example.com' });
+  const a = shipRun(app).steps.dep;
+  assert.strictEqual(a.s, 'blocked'); assert.ok(/base "https:\/\/elsewhere\.example\.com"/.test(a.reason), a.reason);
+});
+
+rule('App: a team value that isn\'t set is asked, typed for this run, recorded as typed, and the step completes after a reload', async () => {
+  const app = await teamStart(null, null, {});
+  app.click('start-child', 'dep'); await app.tick(40);
+  const ov = app.overlay();
+  assert.ok(/id="cs-base"/.test(ov) && /The team value bitbucket-base-url isn&#39;t set; type it for this run|The team value bitbucket-base-url isn't set; type it for this run/.test(ov), ov.slice(0, 600));
+  app.set('cs-base', 'https://typed.example.com'); app.submitForm('child-start-form'); await app.tick(150);
+  assert.deepStrictEqual(deployRuns(app).map(k => k.details.base), ['https://typed.example.com']);
+  assert.deepStrictEqual(shipRun(app).steps.dep.child.teamPassed, { base: { typed: true } });
+  await endKid(app, { base: 'anything' });
+  assert.strictEqual(shipRun(app).steps.dep.s, 'done', 'what the person typed is the child\'s own');
+});
+
+rule('App: a team-values.json that can\'t be read refuses the start with the reason and writes nothing', async () => {
+  const app = await teamStart(null, null, '{');
+  app.click('start-child', 'dep'); await app.tick(150);
+  assert.strictEqual(deployRuns(app).length, 0);
+  assert.ok(/isn&#39;t valid JSON|isn't valid JSON/.test(app.html() + app.live()) && /can.t be read, and nothing was started/.test(app.html() + app.live()), app.live());
+});
+
+rule('App: a team value that doesn\'t fit a typed child detail opens as a correction; the correction starts it and counts', async () => {
+  const app = await teamStart('replicas=team:replicas, env=^env', 'replicas:number, env', { replicas: { value: 'about 40' } });
+  app.click('start-child', 'dep'); await app.tick(40);
+  const ov = app.overlay();
+  assert.ok(/id="cs-replicas"/.test(ov) && /From the team value replicas\. Before: &quot;about 40&quot;|From the team value replicas\. Before: "about 40"/.test(ov), ov.slice(0, 900));
+  app.set('cs-replicas', '40'); app.submitForm('child-start-form'); await app.tick(150);
+  const kid = deployRuns(app)[0];
+  assert.strictEqual(kid.details.replicas, '40');
+  assert.ok(kid.migrations.some(m => m.path === 'details.replicas' && m.from === 'about 40' && m.resolved && m.resolved.value === '40'), JSON.stringify(kid.migrations));
+  assert.deepStrictEqual(shipRun(app).steps.dep.child.teamPassed, { replicas: { text: 'about 40' } });
+  await endKid(app);
+  assert.strictEqual(shipRun(app).steps.dep.s, 'done', 'the correction counts as the same value');
+});
+
+rule('App: a team value changed while the form is open refuses the submit, and the form reopens with the new value and the answers kept', async () => {
+  const app = await teamStart('base=team:bitbucket-base-url, env=^env, note=?', 'base, env, note');
+  app.click('start-child', 'dep'); await app.tick(40);
+  app.input('cs-note', 'hello'); await app.tick();
+  setTeam(app, { 'bitbucket-base-url': { value: 'https://new.example.com' } }); app.click('refresh'); await app.tick(100);
+  app.submitForm('child-start-form'); await app.tick(150);
+  assert.strictEqual(deployRuns(app).length, 0, 'nothing written');
+  const ov = app.overlay();
+  assert.ok(/The team value bitbucket-base-url changed while you were filling this in/.test(ov) && /https:\/\/new\.example\.com/.test(ov), ov.slice(0, 900));
+  assert.ok(/id="cs-note"[^>]*value="hello"/.test(ov), 'the answer is kept');
+  app.submitForm('child-start-form'); await app.tick(150);
+  assert.deepStrictEqual(deployRuns(app).map(k => k.details), [{ base: 'https://new.example.com', env: 'prod', note: 'hello' }]);
+  assert.deepStrictEqual(shipRun(app).steps.dep.child.teamPassed, { base: { text: 'https://new.example.com' } });
+});
+
+rule('App: a team value changed while the child is saving is caught by the read right before the write; the reopened form starts with the new value', async () => {
+  const app = await teamStart('base=team:bitbucket-base-url, env=^env, note=?', 'base, env, note');
+  app.click('start-child', 'dep'); await app.tick(40);
+  const fsr = app.fs.read.bind(app.fs), g = gate(); let held = false;
+  app.fs.read = function (p) { if (!held && /^runs\/deploy\//.test(p)) { held = true; return g.p.then(() => fsr(p)); } return fsr(p); };
+  app.set('cs-note', 'n1'); app.submitForm('child-start-form'); await app.tick(40);
+  assert.ok(held, 'set-up: the save is in its read');
+  setTeam(app, { 'bitbucket-base-url': { value: 'https://during.example.com' } });
+  g.open(); await app.tick(150);
+  app.fs.read = fsr;
+  assert.strictEqual(deployRuns(app).length, 0, 'nothing written');
+  const ov = app.overlay();
+  assert.ok(/The team value bitbucket-base-url changed while you were filling this in/.test(ov) && /during\.example\.com/.test(ov), ov.slice(0, 900));
+  app.submitForm('child-start-form'); await app.tick(150);
+  assert.deepStrictEqual(deployRuns(app).map(k => k.details.base), ['https://during.example.com'], 'no refresh needed: the read before the write is the one kept');
+});
+
+rule('App: a missing team value typed, then set before the submit: the form says the team value is used instead, and starts with it', async () => {
+  const app = await teamStart(null, null, {});
+  app.click('start-child', 'dep'); await app.tick(40);
+  app.input('cs-base', 'https://typed.example.com'); await app.tick();
+  setTeam(app, { 'bitbucket-base-url': { value: URL } }); app.click('refresh'); await app.tick(100);
+  app.submitForm('child-start-form'); await app.tick(150);
+  assert.strictEqual(deployRuns(app).length, 0);
+  const ov = app.overlay();
+  assert.ok(/You typed https:\/\/typed\.example\.com; the team value bitbucket-base-url is now https:\/\/bitbucket\.example\.com\/projects\/PAY, and that&#39;s what will be used|and that's what will be used/.test(ov), ov.slice(0, 900));
+  assert.ok(!/id="cs-base"/.test(ov), 'no box for it now');
+  app.submitForm('child-start-form'); await app.tick(150);
+  assert.deepStrictEqual(deployRuns(app).map(k => k.details.base), [URL]);
+  assert.deepStrictEqual(shipRun(app).steps.dep.child.teamPassed, { base: { text: URL } });
+});
+
+rule('App: a team value is escaped wherever the run and the start form show it', async () => {
+  const evil = '<img src=x onerror=alert(1)>';
+  const app = await teamStart('base=team:bitbucket-base-url, env=^env, note=?', 'base, env, note', { 'bitbucket-base-url': { value: evil } });
+  assert.ok(!app.html().includes(evil) && app.html().includes('&lt;img src=x onerror=alert(1)&gt;'));
+  app.click('start-child', 'dep'); await app.tick(40);
+  const ov = app.overlay();
+  assert.ok(!ov.includes(evil) && ov.includes('&lt;img src=x onerror=alert(1)&gt;'), 'escaped in the form');
+});
+
+/* ---------- Link it on a step that passes team values ---------- */
+async function lostLink(kidEdit, end) {
+  const app = await teamStart();
+  app.click('start-child', 'dep'); await app.tick(150);
+  const sp = app.files('runs/ship/').find(p => /run\.json$/.test(p)), ship = JSON.parse(app.fs.files[sp].t);
+  delete ship.steps.dep; ship.rev = (ship.rev || 0) + 1;
+  await app.fs.write(sp, JSON.stringify(ship));
+  const kp = app.files('runs/deploy/').find(p => /run\.json$/.test(p)), kid = JSON.parse(app.fs.files[kp].t);
+  if (kidEdit) Object.assign(kid.details, kidEdit);
+  if (end) { kid.ended = { outcome: 'Completed', by: 'person-avery', at: new Date().toISOString() }; kid.state = 'completed'; }
+  kid.rev = (kid.rev || 0) + 1;
+  await app.fs.write(kp, JSON.stringify(kid));
+  app.click('refresh'); await app.tick(120);
+  return { app, kp, key: 'deploy/' + kid.id };
+}
+
+rule('App: a lost link to a completed child is still offered; Link it shows the child\'s team values and links them as confirmed; the step is checked', async () => {
+  const { app, key } = await lostLink(null, true);
+  assert.ok(!shipRun(app).steps.dep || !shipRun(app).steps.dep.child, 'set-up: the link is gone');
+  assert.ok(/was started for this step but isn&#39;t linked|was started for this step but isn't linked/.test(app.html()), 'offered: the team rows are left out of discovery');
+  app.click('link-child', 'dep', { child: key }); await app.tick(40);
+  const ov = app.overlay();
+  assert.ok(/didn&#39;t record what it was passed|didn't record what it was passed/.test(ov) && ov.includes(URL) && /team value bitbucket-base-url/.test(ov), ov.slice(0, 800));
+  assert.ok(!shipRun(app).steps.dep || !shipRun(app).steps.dep.child, 'nothing linked before confirming');
+  app.click('link-child-confirm'); await app.tick(150);
+  const a = shipRun(app).steps.dep;
+  assert.strictEqual(a.child.teamPassed.base.text, URL);
+  assert.strictEqual(a.child.teamPassed.base.confirmed.by, 'person-casey');
+  assert.ok(shipRun(app).log.some(l => /Confirmed base of that run as the team values it was meant to get/.test(l.what)), 'the run says who confirmed it');
+  app.click('refresh'); await app.tick(120);
+  assert.strictEqual(shipRun(app).steps.dep.s, 'done');
+});
+
+rule('App: Link it\'s confirm redraws when the child changes while it\'s open and links nothing until confirmed again; Cancel links nothing', async () => {
+  const { app, kp, key } = await lostLink(null, false);
+  app.click('link-child', 'dep', { child: key }); await app.tick(40);
+  app.key('Escape'); await app.tick();
+  assert.ok(!shipRun(app).steps.dep || !shipRun(app).steps.dep.child, 'Cancel links nothing');
+  app.click('link-child', 'dep', { child: key }); await app.tick(40);
+  const kid = JSON.parse(app.fs.files[kp].t); kid.details.base = 'https://other.example.com'; kid.rev = (kid.rev || 0) + 1;
+  await app.fs.write(kp, JSON.stringify(kid));
+  app.click('refresh'); await app.tick(120);
+  app.click('link-child-confirm'); await app.tick(80);
+  const ov = app.overlay();
+  assert.ok(/This run changed while you were looking\. Check the values again\./.test(ov) && /other\.example\.com/.test(ov), ov.slice(0, 800));
+  assert.ok(!shipRun(app).steps.dep || !shipRun(app).steps.dep.child, 'nothing linked yet');
+  app.click('link-child-confirm'); await app.tick(150);
+  assert.strictEqual(shipRun(app).steps.dep.child.teamPassed.base.text, 'https://other.example.com', 'exactly what was shown');
+});
+
+rule('App: confirmed while the child runs, then the child changes the value and completes: the step is Blocked', async () => {
+  const { app, kp, key } = await lostLink(null, false);
+  app.click('link-child', 'dep', { child: key }); await app.tick(40);
+  app.click('link-child-confirm'); await app.tick(150);
+  assert.strictEqual(shipRun(app).steps.dep.child.teamPassed.base.text, URL);
+  const kid = JSON.parse(app.fs.files[kp].t); kid.details.base = 'https://edited.example.com';
+  kid.ended = { outcome: 'Completed', by: 'person-avery', at: new Date().toISOString() }; kid.state = 'completed'; kid.rev = (kid.rev || 0) + 1;
+  await app.fs.write(kp, JSON.stringify(kid));
+  app.click('refresh'); await app.tick(150);
+  assert.strictEqual(shipRun(app).steps.dep.s, 'blocked');
+});
+
 run();

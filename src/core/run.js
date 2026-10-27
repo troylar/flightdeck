@@ -1069,6 +1069,8 @@ PF.run = (function () {
       }
     }
     addLog(r, who, now, 'Started a ' + child.process + ' run for "' + x.step.text + '"');
+    var conf = a.child.teamPassed ? Object.keys(a.child.teamPassed).filter(function (k) { return a.child.teamPassed[k].confirmed; }) : [];
+    if (conf.length) addLog(r, who, now, 'Confirmed ' + conf.join(', ') + ' of that run as the team values it was meant to get (linked after it started)');
   }
   /* The run details a child run was started for: the step's ^details and what it carries. If any change, the child no longer counts. */
   /* The details a child run is started with: those named in carry:, or, without carry:, every parent detail the child's map
