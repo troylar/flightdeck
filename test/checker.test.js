@@ -846,7 +846,7 @@ rule('The checker reads conditions (2.1) like the app: the same parse errors, th
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-rule('The checker reads pass: (2.8) like the app: the same errors, the passed-details feature listed, a version with it complete', async () => {
+rule('The checker reads pass: (2.8) and team: (2.9) like the app: the same errors, the passed-details and team-values features listed, a version with them complete', async () => {
   const py = python();
   if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-pass-'));
@@ -870,10 +870,12 @@ rule('The checker reads pass: (2.8) like the app: the same errors, the passed-de
       await forge(2, md, (i) => { i.features = []; }),
       await forge(3, swap('environment=^env,, x=?')), await forge(4, swap('environment')), await forge(5, swap('=^env')), await forge(6, swap('a b=^env')),
       await forge(7, swap('constructor=^env')), await forge(8, swap('a=^env, a=?')), await forge(9, swap('a=')), await forge(10, swap('a=^')), await forge(11, swap('a=x^y')),
-      await forge(12, swap('a=team:base')), await forge(13, swap('a=x\u0001y')), await forge(14, swap('a=' + 'é'.repeat(121))),
-      await forge(15, swap(Array.from({ length: 41 }, (_, k) => 'd' + k + '=?').join(', '))), await forge(16, swap('a=^toString'))
+      await forge(12, swap('a=team:Bad_Name')), await forge(13, swap('a=x\u0001y')), await forge(14, swap('a=' + 'é'.repeat(121))),
+      await forge(15, swap(Array.from({ length: 41 }, (_, k) => 'd' + k + '=?').join(', '))), await forge(16, swap('a=^toString')),
+      await forge(21, swap('a=TEAM:base')), await forge(22, swap('a=team:')), await forge(23, swap('base=team:bitbucket-base-url'))
     ];
-    const good = [await forge(17, md), await forge(18, swap('a=' + 'é'.repeat(120))), await forge(19, swap('')), await forge(20, swap(' a = ^tag ,b=?'))];
+    const good = [await forge(17, md), await forge(18, swap('a=' + 'é'.repeat(120))), await forge(19, swap('')), await forge(20, swap(' a = ^tag ,b=?')),
+      await forge(24, swap('base=team:bitbucket-base-url, env=^env'), (i) => { i.features = ['passed-details', 'team-values']; })];
     const app = await repo.loadAll(d, { deep: true }), pubs = app.processes.find(p => p.process === 'x').pubs;
     const out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
     const ver = out.publications.x;

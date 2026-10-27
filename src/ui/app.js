@@ -5300,7 +5300,7 @@
       var pe = PF.links.parse(st.fields.pass).entries.filter(function (e) { return e.name !== name; });
       var fields = Object.assign({}, st.fields); delete fields.carry; delete fields.pass;
       if (carry.length) fields.carry = carry.join(', ');
-      if (pe.length || PF.links.has(st)) fields.pass = pe.map(function (e) { return e.name + '=' + (e.source === 'ask' ? '?' : e.source === 'value' ? e.value : '^' + e.from); }).join(', ');
+      if (pe.length || PF.links.has(st)) fields.pass = pe.map(PF.links.entryText).join(', ');
       var w = PF.links.write(want, Object.assign({}, st, { fields: fields }), map.meta.context, kid.map);
       var res = builderEdit({ op: 'editLink', key: id, set: { carry: w.carry, pass: w.pass } }, null, 'removed ^' + name);
       if (res && !res.same) say('Removed ^' + name + ' from what this step passes. Undo available.', 'good');

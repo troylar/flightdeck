@@ -24,6 +24,7 @@ t test/insights.test.js
 t test/outline.test.js
 t test/refs.test.js
 t test/links.test.js
+t test/teamvalues.test.js
 t test/timeline.test.js
 t test/search.test.js
 t test/folder.test.js

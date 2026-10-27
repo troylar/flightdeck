@@ -451,14 +451,14 @@ PF.outline = (function () {
       var shaped = { type: st.type, fields: st.fields, binds: [] }, before = L.rows(shaped, meta.context, cm).rows;
       var want = before.map(function (r) { var c = Object.assign({}, r); if (c.source === 'detail' && c.from === from) c.from = to; return c; });
       /* Entries for names the child doesn't have stay as they are, but their ^source is renamed with the rest. */
-      var ren = function (e) { return e.source === 'detail' && e.from === from ? Object.assign({}, e, { from: to }) : e; }, txt = function (e) { return e.name + '=' + (e.source === 'ask' ? '?' : e.source === 'value' ? e.value : '^' + e.from); };
+      var ren = function (e) { return e.source === 'detail' && e.from === from ? Object.assign({}, e, { from: to }) : e; }, txt = PF.links.entryText;
       var shapedW = st.fields.pass == null ? shaped : { type: st.type, fields: Object.assign({}, st.fields, { pass: L.parse(st.fields.pass).entries.map(ren).map(txt).join(', ') }), binds: [] };
       if (L.rows(shaped, meta.context, cm).stale.some(function (x) { return x.where === 'carry' && x.name === from; })) { stop.unshift({ refuse: true, text: 'The step “' + short(st.text) + '” lists ^' + from + ' in carry:, which ' + st.fields.process + ' doesn\'t have. Remove it from carry: first.' }); return; }
       var w = L.write(want, shapedW, newNames, cm), after = L.rows({ type: st.type, fields: { carry: w.carry == null ? undefined : w.carry, pass: w.pass == null ? undefined : w.pass }, binds: [] }, newNames, cm).rows;
       var oldPass = st.fields.pass != null ? L.parse(st.fields.pass).entries.map(function (e) { return e.source === 'detail' && e.from === from ? Object.assign({}, e, { from: to }) : e; }) : null;
       if (after.map(key).join('|') !== want.map(key).join('|')) { stop.unshift({ refuse: true, text: 'The step “' + short(st.text) + '” passes details to ' + st.fields.process + ' in a way the builder can\'t keep exactly after this rename. Edit its carry: and pass: lines in Markdown.' }); return; }
       var curCarry = st.fields.carry != null && list_(st.fields.carry).length ? list_(st.fields.carry).join(', ') : null;
-      var sameCarry = (w.carry || null) === curCarry, samePass = w.pass == null ? oldPass == null || !oldPass.length : oldPass && w.pass === oldPass.map(function (e) { return e.name + '=' + (e.source === 'ask' ? '?' : e.source === 'value' ? e.value : '^' + e.from); }).join(', ');
+      var sameCarry = (w.carry || null) === curCarry, samePass = w.pass == null ? oldPass == null || !oldPass.length : oldPass && w.pass === oldPass.map(PF.links.entryText).join(', ');
       if (sameCarry && samePass) return;
       relink.push({ k: k, st: st, carry: w.carry, pass: w.pass });
     });

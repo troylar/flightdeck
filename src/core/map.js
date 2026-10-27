@@ -370,7 +370,7 @@ PF.map = (function () {
      note isn't one (every copy since 1.10 publishes it). A version: or skillVersion: line on another step type is an error,
      not a feature. */
   function features(map) {
-    var has = { 'passed-details': false, conditions: false, 'typed-details': false, 'typed-evidence': false, 'phase-notes': false, 'phase-shots': false, 'gate-shots': false, 'pinned-children': false, 'pinned-skills': false };
+    var has = { 'team-values': false, 'passed-details': false, conditions: false, 'typed-details': false, 'typed-evidence': false, 'phase-notes': false, 'phase-shots': false, 'gate-shots': false, 'pinned-children': false, 'pinned-skills': false };
     /* Typed data (2.0): a run detail with a kind, or a plain step asking for a number, yes/no or date as its evidence. */
     if (map.meta && map.meta.detailTypes && Object.keys(map.meta.detailTypes).length) has['typed-details'] = true;
     (map.phases || []).forEach(function (p) {
@@ -380,6 +380,8 @@ PF.map = (function () {
         if (s.type === 'run.process' && Object.prototype.hasOwnProperty.call(s.fields, 'version')) has['pinned-children'] = true;
         /* What a linked step passes (2.8): a pass: line. Older copies refuse it as a field their type doesn't have. */
         if (s.type === 'run.process' && Object.prototype.hasOwnProperty.call(s.fields, 'pass')) has['passed-details'] = true;
+        /* A team value passed to the child (2.9): pass: name=team:<value>. Older copies would read team: as an error. */
+        if (s.type === 'run.process' && PF.links.teams(s).length) has['team-values'] = true;
         if (s.type === 'run.skill' && Object.prototype.hasOwnProperty.call(s.fields, 'skillVersion')) has['pinned-skills'] = true;
       });
       if (p.note || p.noted) has['phase-notes'] = true;

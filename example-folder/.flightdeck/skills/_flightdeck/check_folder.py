@@ -603,6 +603,8 @@ def features(parsed, types):
             has.add("pinned-skills")
         if s["type"] == "run.process" and "pass" in s["fields"]:
             has.add("passed-details")
+            if pass_teams(s["fields"]["pass"]):
+                has.add("team-values")
     for p in parsed["phases"]:
         if p["note"] or p.get("noted"):
             has.add("phase-notes")
@@ -640,18 +642,30 @@ def js_concat(o, key):
 
 PASS_NAME = re.compile(r"^[A-Za-z0-9_-]{1,60}$")
 PASS_DETAIL = re.compile(r"^\^([A-Za-z0-9_-]+)$")
+TEAM_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
 JS_PROTO = {"__proto__", "constructor", "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable", "toLocaleString", "toString", "valueOf",
             "__defineGetter__", "__defineSetter__", "__lookupGetter__", "__lookupSetter__"}
 
 
 def pass_errors(text):
     """The errors of the app's PF.links.parse: a pass: line on a linked step (2.8)."""
+    return parse_pass(text)[0]
+
+
+def pass_teams(text):
+    """PF.links.teams: the team values (2.9) a pass: line's good entries name, once each, in order."""
+    return parse_pass(text)[1]
+
+
+def parse_pass(text):
+    """PF.links.parse as (errors, team value names)."""
     raw = js_str(text)
+    teams = []
     if not js_trim(raw):
-        return []
+        return [], teams
     parts = raw.split(",")
     if len(parts) > 40:
-        return ["pass: can list at most 40 details."]
+        return ["pass: can list at most 40 details."], teams
     errors, seen = [], set()
     for seg in parts:
         t = js_trim(seg)
@@ -688,7 +702,15 @@ def pass_errors(text):
             errors.append("\"%s=^\" names no run detail: \"^\" isn't a run detail." % name)
             continue
         if right[:5].lower() == "team:":
-            errors.append("\"%s=%s\": Team values aren't available yet." % (name, right))
+            tv = js_trim(right[5:])
+            if right[:5] != "team:":
+                errors.append("\"%s=%s\": write team: in lowercase." % (name, right))
+            elif not tv:
+                errors.append("\"%s=team:\" names no team value." % name)
+            elif not TEAM_NAME.match(tv):
+                errors.append("\"%s\" isn't a team value name (lowercase letters, digits and -, at most 40)." % tv)
+            elif tv not in teams:
+                teams.append(tv)
             continue
         if "^" in right:
             errors.append("\"%s=%s\": a fixed value can't hold ^. Use ^name alone to pass a run detail." % (name, right))
@@ -698,7 +720,7 @@ def pass_errors(text):
             continue
         if len(right.encode("utf-16-le")) // 2 > 120:
             errors.append("\"%s=\u2026\": a fixed value can be at most 120 characters." % name)
-    return errors
+    return errors, teams
 
 
 def field_errors(type_def, fields):
@@ -832,7 +854,7 @@ def read_text(path):
 # newer major, or with a must-understand feature this copy doesn't know, is refused and named with the version it needs.
 # test/checker.test.js fails if this disagrees with src/core/envelope.js.
 FAMILIES = {
-    "preflight-publication": {"majors": {1: [], 2: ["phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "typed-details", "typed-evidence", "conditions", "passed-details", "staged"]}, "future": {2: "2.0"}, "unmarked": False},
+    "preflight-publication": {"majors": {1: [], 2: ["phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "typed-details", "typed-evidence", "conditions", "passed-details", "team-values", "staged"]}, "future": {2: "2.0"}, "unmarked": False},
     "flightdeck-step-type": {"majors": {1: [], 2: ["typed-evidence"]}, "future": {2: "2.0"}, "unmarked": True},
     "flightdeck-plan": {"majors": {1: [], 2: []}, "future": {}, "unmarked": False, "kinds": ["plan"]},
     "flightdeck-plan-status": {"majors": {1: [], 2: []}, "future": {}, "unmarked": False, "kinds": ["status"]},
@@ -841,11 +863,11 @@ FAMILIES = {
 # Every family's name, so a file of another known family is malformed here, never "newer".
 FAMILY_NAMES = ["flightdeck-checklist", "preflight-publication", "preflight-run", "flightdeck-run-archive", "flightdeck-step-type", "flightdeck-types", "flightdeck-plan",
                 "flightdeck-plan-status", "flightdeck-validation", "flightdeck-followup-decision", "flightdeck-correction-decision", "flightdeck-fix-decision", "flightdeck-proposal",
-                "flightdeck-presence", "flightdeck-connection", "flightdeck-people", "flightdeck-skill", "flightdeck-editor-history", "flightdeck-installed", "flightdeck-stage-decision",
+                "flightdeck-presence", "flightdeck-connection", "flightdeck-people", "flightdeck-team-values", "flightdeck-skill", "flightdeck-editor-history", "flightdeck-installed", "flightdeck-stage-decision",
                 "flightdeck-extension", "flightdeck-report", "flightdeck-report-decision"]
-FROZEN = ["typed-details", "typed-evidence", "phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "staged", "test-run", "extensions", "conditions", "passed-details"]
+FROZEN = ["typed-details", "typed-evidence", "phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "staged", "test-run", "extensions", "conditions", "passed-details", "team-values"]
 # The first release that reads a feature, where it isn't 2.0 (PF.envelope.SINCE).
-SINCE = {"conditions": "2.1", "staged": "2.1", "test-run": "2.1", "passed-details": "2.8"}
+SINCE = {"conditions": "2.1", "staged": "2.1", "test-run": "2.1", "passed-details": "2.8", "team-values": "2.9"}
 
 
 def _minimum(features):
