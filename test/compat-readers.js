@@ -26,6 +26,7 @@ const ARCHIVE = JSON.stringify({ id: 'arch-1', kind: 'answer', step: 'read', s: 
 const INSTALLED = JSON.stringify({ format: 'flightdeck-installed/1', version: '1.18.0', files: {} }, null, 2);
 const AGENTS = '# Team instructions\n\nSpecimen for the reader inventory.\n';
 const PLAN = { kind: 'plan', id: 'plan-backup-april', process: 'backup', version: 1, title: 'Backup check April', details: { ticket: 'ABC-102' }, roles: { lead: 'person-avery', checker: 'person-casey' }, note: 'Casey checks this time.', by: 'AI assistant', created: '2026-03-02T09:13:00.000Z' };
+const TEAM = JSON.stringify({ format: 'flightdeck-team-values/1', values: { 'case-base': { value: 'https://cases.example.com', about: 'Case system base URL' } } }, null, 2) + '\n';
 const CONN_AT = Date.parse('2026-03-02T10:00:00.000Z');
 const REPORT_PATH = 'reports/backup/run-a.read.spec-tool.spec0001.json';
 async function prepare(PF, fs, version, files) {
@@ -42,6 +43,8 @@ async function prepare(PF, fs, version, files) {
     const plan = (await PF.repo.loadAll(fs)).plans.find(p => p.id === PLAN.id);
     await PF.repo.recordPlanStatus(fs, plan, 'w-avery', 'declined', null, 'person-avery');
   }
+  // From 2.9: team values (team-values.json), written by Settings › Team values; earlier copies never read it.
+  await put('team-values.json', TEAM);
   await put('.flightdeck/installed.json', INSTALLED);
   await put('AGENTS.md', AGENTS);
   await put('.flightdeck/write-test-w-avery.tmp', 'x');
@@ -72,6 +75,7 @@ async function prepare(PF, fs, version, files) {
 
 const FAMILIES = [
   { id: 'people', re: /^people\.json$/, writer: 'people', readers: [L('1.10.0', d => d.people.some(p => p.id === 'person-blake'), 'people.json')] },
+  { id: 'team-values', re: /^team-values\.json$/, writer: 'team-values', readers: [L('2.9.0', d => !!(d.teamValues && d.teamValues.state === 'ok' && d.teamValues.doc.values['case-base']), 'team-values.json')] },
   { id: 'drafts', re: /^maps\/drafts\/[^/]+\.md$/, writer: 'drafts', readers: [L('1.10.0', d => d.drafts.some(x => /process: backup/.test(x.md || x.text || '')), 'maps/drafts/backup.md')] },
   { id: 'publication', re: /^publications\/[^/]+\/[^/]+\/(publication\.json|map\.md|types\.json)$/, writer: 'publish',
     readers: [L('1.10.0', d => !!(d.processes[0] && d.processes[0].index.latest), f => 'publications/backup/' + pubFolder(f) + '/publication.json')] },

@@ -263,11 +263,14 @@ Each entry is `name=source`, with commas between entries. `name` is one of the c
 
 - `^detail`: this run's detail, even under another name;
 - `?`: asked when the child starts;
-- any other text: a fixed value (at most 120 characters, no `^`, no commas).
+- `team:<name>`: one of the team folder's [team values](#team-values), read when the child starts (Needs Flightdeck 2.9);
+- any other text: a fixed value (at most 120 characters, no `^`, no commas, and not starting with `team:`).
 
 Without `carry:`, every detail both checklists have is still passed by name, and a `pass:` entry for that name wins. With `carry:`, only what `carry:` and `pass:` list is passed, and every other detail is asked when the child starts. Passed values are locked in the child's start form, and the start form opens only when something needs asking or a passed value doesn't fit the child's kind. If a passed detail changes while it's open, nothing starts. A step with `pass:` can't change `pass:` or `carry:` during a run (Fill in doesn't offer them); a step with only `carry:` can, as before.
 
 Publishing reads the child from the folder and stops when a `pass:` or `carry:` name isn't one of its run details, a fixed value doesn't fit the child's kind, a `^` source isn't in this checklist's `context:`, or the step sets that source itself. If the child later drops a name this step passes explicitly, the process page and Folder health say so; a detail that was only shared by name just stops being passed. A version that uses `pass:` is refused by name in Flightdeck before 2.8; checklists that use only `carry:` read as before.
+
+A `team:` source passes a team value: `pass: base=team:bitbucket-base-url`. The value is read from `team-values.json` when the child starts and copied into its details; a later change in Settings never changes a child already started. The start form shows it locked, with its name. If the team value isn't set, the form asks for it for this run; if `team-values.json` can't be read, nothing starts and Flightdeck says why. If the team value changes while the form is open or while the child is being saved, nothing starts and the form opens again with the new value and what you typed. The parent run records what each team value was when the child started, so a child that changes it doesn't complete the step, as with a fixed value. Publishing stops when a `team:` name isn't in `team-values.json` or the file can't be read. A version that uses `team:` is refused by name in Flightdeck before 2.9.
 
 Add `version:` to run one exact version of the other process (Needs Flightdeck 2.0):
 
@@ -344,6 +347,27 @@ Flightdeck reads at most 100 files in `step-types/`.
 
 A `{jira.issue}` step with `action: transition` must move to a status the workflow has and some transition reaches (name `issueType:` when the file has more than one type). When the run reaches that step, Flightdeck asks for the transition's required fields, shows each field's `hint`, and fills in the value where `source` says: `detail:<run detail>`, `role:<role>` (that person's name) or `value:<fixed text>`. The step can't be checked until they're filled in. A run copies the workflow when it starts. Without the file, transitions aren't checked.
 
+## Team values
+
+`team-values.json` at the root of the team folder holds settings the team shares, like a Bitbucket base URL. The folder owner and backup owner change them in Settings › Team values; everyone else reads them. Don't store passwords or tokens here: every teammate and every run that uses it can read it.
+
+```json
+{
+  "format": "flightdeck-team-values/1",
+  "values": {
+    "bitbucket-base-url": { "value": "https://bitbucket.example.com/projects/PAY", "about": "Bitbucket base URL" }
+  }
+}
+```
+
+- Names: lowercase letters, digits and `-`, starting with a letter or digit, at most 40 characters. At most 100 values.
+- `value`: text, at most 120 characters, no control characters and no spaces at the start or end (Settings trims them).
+- `about` (optional): what it's for, at most 80 characters.
+- A key Flightdeck doesn't know makes the file read-only in Settings; its values can still be used.
+- A file that isn't valid, or is larger than 256 KB, is listed in Folder health, and nothing that uses a team value starts or publishes until it's fixed.
+
+A linked step passes one to its child with `team:` (see [Nested processes](#nested-processes)). Folder health flags a published step whose team value was removed later.
+
 ## What stops a checklist from publishing
 
 Publishing lists every problem with its line. These stop it:
@@ -354,7 +378,7 @@ Publishing lists every problem with its line. These stop it:
 - **IDs:** a phase, track, step or written gate without an ID; an ID over 60 characters; an ID used twice, the automatic `<phase id>-confirm` gate IDs included.
 - **Steps and fields:** a step with no type, or an unknown one (a team type whose file is broken is unknown); a field the type doesn't have (for example `pull:` on `{bitbucket.pr}`); a value outside a field's choices (`action:`, `evidence:`); `options:` with fewer than two choices; `require:` naming evidence the type doesn't record; a bad `expect:`, `deadline:`, `at:`, `due:` or `after:`; more than one of `at:`, `due:` and `after:` on a step or gate; a `version:` that isn't a whole number, or a `skillVersion:` that isn't a version like `1.2.0`, or one on a step without `skill:`.
 - **Roles and details in use:** an `@role` (on a step, track or gate) not listed in `roles`; a `^detail` in a step's text or a gate's `approves:` not listed in `context`; `sets:` naming a detail not in `context`; two `sets:` names too alike to tell apart.
-- **Linked runs:** a `{run.process}` step that runs its own process, carries a detail that isn't in `context`, or both carries and sets the same detail; a `version:` with no such version of that process in the folder, two versions with that number, or one that can't be used.
+- **Linked runs:** a `{run.process}` step that runs its own process, carries a detail that isn't in `context`, or both carries and sets the same detail; a `version:` with no such version of that process in the folder, two versions with that number, or one that can't be used; a `team:` source naming a team value that isn't in `team-values.json`, or a `team-values.json` that can't be read or needs a newer Flightdeck.
 - **Jira:** with `jira/workflows.json`, a transition to a status the issue type's workflow doesn't have or no transition reaches, or a workflow file that can't be read or has errors.
 - **Screenshots:** a path outside `images/`, with characters other than letters, numbers, `_`, `-`, `.` and `/`, or a file that isn't in the folder.
 - **Only when:** a line that can't be read; one that tests a detail not in `context`, or uses a test its kind doesn't allow; more than 4 on a step or phase; one on a gate or a track; one that tests a detail set (`sets:`) in the same phase or a later one.

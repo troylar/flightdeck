@@ -53,6 +53,7 @@ t test/compat-typed.test.js
 t test/compat-conditions.test.js
 t test/compat-staging.test.js
 t test/compat-pass.test.js
+t test/compat-teamvalues.test.js
 t test/skills-parity.test.js
 t test/build.test.js
 t test/readers.test.js
