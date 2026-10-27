@@ -25813,13 +25813,20 @@ PF.examples = (function () {
     /* 2.8: a pass: step opens its start dialog only when something needs asking or converting (Q2); otherwise it starts now. */
     if (prep.link2 && (prep.ask.length || prep.open.length)) {
       prep.token = ++childToken;
-      openOverlay({ childStart: prep, html: function () { return V.childStart(ctx, this.childStart); } });
+      openOverlay({ childStart: prep, html: function () { return V.childStart(ctx, this.childStart); }, held: function () { return csHeld(this.childStart); } });
       state.overlayFocus = '#cs-t';
       return;
     }
     launchChild(prep, {}, null);
   }
   var childToken = 0;
+  /* An answer or a changed role in the child's start dialog is kept on prep, so after a redraw the boxes hold it as their
+     own value and dirtyControl() no longer sees it: navigation asks this instead. */
+  function csHeld(prep) {
+    var vals = prep.values || {}, rv = prep.roleVals || {}, parent = findRun(prep.key), had = (parent && parent.roles) || {};
+    if (Object.keys(vals).some(function (k) { return String(vals[k] == null ? '' : vals[k]).trim() !== ''; })) return true;
+    return Object.keys(rv).some(function (k) { return String(rv[k] || '') !== String(had[k] || ''); });
+  }
   /* Start prep's child with asked (the dialog's values, by the child's names) and roles (null: the parent's same-name roles).
      invalid(err): from the dialog, told when a value can't start the run (the dialog stays open); it closes once one can. */
   function launchChild(prep, asked, roles, invalid) {

@@ -8708,6 +8708,30 @@ rule('2.8: a yes-no answer chosen in the child\'s start dialog survives a redraw
      text test above submits. */
 });
 
+rule('2.8: an answer in the child\'s start dialog keeps search and Back from closing it, even after a redraw; Escape still does', async () => {
+  const app = await passStart('environment=^env, region=us-east-1, notify=?');
+  app.click('start-child', 'dep'); await app.tick(40);
+  app.input('cs-notify', 'ops'); await app.tick();
+  app.click('refresh'); await app.tick(100);
+  app.keyOn('k', { ctrlKey: true }); await app.tick(40);
+  app.keyOn('k', { ctrlKey: true }); await app.tick(40);
+  app.back(); await app.settle();
+  const ov = app.overlay();
+  assert.ok(/id="child-start-form"/.test(ov) && !/role="combobox"/.test(ov), 'still the dialog: ' + ov.slice(0, 300));
+  assert.ok(/id="cs-notify"[^>]*value="ops"/.test(ov), 'the answer is kept');
+  assert.ok(/Finish or cancel this first\./.test(app.html() + app.live()), 'says why');
+  app.submitForm('child-start-form'); await app.tick(150);
+  assert.deepStrictEqual(deployRuns(app).map(k => k.details.notify), ['ops']);
+  const app2 = await passStart('environment=^env, region=us-east-1, notify=?');
+  app2.click('start-child', 'dep'); await app2.tick(40);
+  app2.input('cs-notify', 'ops'); await app2.tick();
+  app2.key('Escape'); await app2.tick();
+  assert.ok(!/child-start-form/.test(app2.overlay()), 'Escape cancels it');
+  app2.click('start-child', 'dep'); await app2.tick(40);
+  app2.keyOn('k', { ctrlKey: true }); await app2.tick(40);
+  assert.ok(/role="combobox"/.test(app2.overlay()), 'an empty dialog gives way to search');
+});
+
 rule('2.8: a pass: step with nothing to ask starts at once, as before', async () => {
   const app = await passStart('environment=^env, region=us-east-1, notify=none');
   app.click('start-child', 'dep'); await app.tick(150);

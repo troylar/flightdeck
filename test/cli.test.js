@@ -1766,6 +1766,15 @@ rule('draft read --json: a linked child whose publications can\'t be read makes 
   } finally { fs.chmodSync(kid, 0o755); }
 });
 
+rule('draft read --json: a linked child with a good v1 and a torn v2 makes the answer partial and names v2 (2.8)', async () => {
+  const ship = ['---', 'process: ship', 'title: Ship', 'owner: person-avery', 'context: commit', '---', '', '## Ship · READ-DO {#s}', '- [ ] {run.process} Release it {#rel}', '  process: release', '  carry: commit', ''].join('\n');
+  const dir = await readFolder(f => { f['maps/drafts/ship.md'] = ship; }, d => { fs.mkdirSync(path.join(d, 'publications', 'release', 'v2-dddddddd')); fs.writeFileSync(path.join(d, 'publications', 'release', 'v2-dddddddd', 'publication.json'), '{"version": 2,'); });
+  const r = draftCli('read', dir, 'ship', '--json');
+  assert.ok(r.json && r.json.complete === false, r.out);
+  assert.notStrictEqual(r.code, 0, 'not a complete answer');
+  assert.ok(r.json.problems.some(p => p.path === 'publications/release/v2-dddddddd/' && p.kind === 'malformed'), JSON.stringify(r.json.problems));
+});
+
 rule('draft read --or-latest with no draft continues from the published version; a proposal-only process is found too', async () => {
   const dir = await readFolder(f => { delete f['maps/drafts/release.md']; });
   const j = draftCli('read', dir, 'release', '--or-latest', '--json').json;

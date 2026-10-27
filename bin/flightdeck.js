@@ -1508,7 +1508,12 @@ async function draftMain(argv) {
     /* The children are read through a problem ledger of their own, so a child that couldn't be read makes the answer partial. */
     const L = PF.repo.ledger(readAdapter(dir, { maxBytes: READ_MAX })), rfs = L.fs;
     for (const n of names) {
-      try { const p = await PF.repo.readProcess(rfs, n); if (p) procs[n] = p; } catch (e) { procs[n] = { latest: null, all: [], clashes: [], broken: [], unlisted: 'publications/' + n + '/ couldn\'t be read' }; }
+      try {
+        const p = await PF.repo.readProcess(rfs, n);
+        if (p) procs[n] = p;
+        /* A version that read but can't be used is named as READ names one; a failed read the ledger already has. */
+        (p ? p.broken : []).forEach((x) => { if (!x._readFailed) { const k = PF.appjson.pubProblem(x); L.note('publications/' + n + '/' + x.folder + '/', k.kind, k.why); } });
+      } catch (e) { procs[n] = { latest: null, all: [], clashes: [], broken: [], unlisted: 'publications/' + n + '/ couldn\'t be read' }; }
     }
     const c = M.check(map, { people: [], types: {}, workflows: {}, processes: [], children: PF.links.childrenFrom(procs) });
     return { checks: { blockers: c.blockers, suggestions: c.suggestions }, problems: L.problems() };
