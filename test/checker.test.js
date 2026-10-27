@@ -919,6 +919,10 @@ rule('The checker reads team-values.json (2.9) like the app: the same state and 
     fs.writeFileSync(path.join(root, T.FILE), doc({ a: { value: 'x' } }) + ' '.repeat(T.MAX_BYTES));
     assert.strictEqual(check().teamValues.state, 'unreadable', 'too large');
     assert.strictEqual((await repo.readTeamValues(new (class extends DiskFS { read(rel, o) { return o && o.maxBytes && fs.statSync(this.p(rel)).size > o.maxBytes ? Promise.reject(new Error('too large')) : super.read(rel); } })(root))).state, 'unreadable', 'the app too');
+    // Grown between its size and its read: a valid start past the limit, then more, is never read as the shorter file.
+    fs.writeFileSync(path.join(root, T.FILE), doc({ a: { value: 'x' } }) + ' '.repeat(T.MAX_BYTES) + 'junk');
+    const grown = cp.execFileSync(py, ['-I', '-c', 'import sys, os, json; sys.path.insert(0, sys.argv[1]); import check_folder as c; os.path.getsize = lambda p: 10; print(json.dumps(c.team_values(sys.argv[2])))', path.dirname(CHECKER), root], { encoding: 'utf8' });
+    assert.strictEqual(JSON.parse(grown).state, 'unreadable', grown);
     fs.unlinkSync(path.join(root, T.FILE));
     assert.strictEqual(check().teamValues.state, 'missing');
     await d.write(T.FILE, doc({ 'bitbucket-base-url': { value: 'https://b.example.com' } }));

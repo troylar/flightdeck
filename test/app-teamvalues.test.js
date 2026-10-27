@@ -90,7 +90,7 @@ rule('App: Settings › Team values is read-only for a member, for a damaged fil
 
 /* ---------- A child's start that passes a team value (F4) ---------- */
 const { gate } = require('./app-harness');
-async function teamStart(passLine, kidCtx, values) {
+async function teamStart(passLine, kidCtx, values, kidRoles) {
   const app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(80); app.choose('person-casey'); await app.tick();
   const PF = app.PF, people = JSON.parse(app.fs.files['people.json'].t), now = new Date().toISOString();
   const put = (md, id, rand) => {
@@ -98,7 +98,7 @@ async function teamStart(passLine, kidCtx, values) {
     assert.ok(!b.blockers, JSON.stringify(b.blockers));
     Object.keys(b.files).forEach(k => { app.fs.files['publications/' + id + '/' + b.folder + '/' + k] = { t: b.files[k], m: Date.now() }; });
   };
-  put(['---', 'process: deploy', 'title: Deploy', 'owner: person-avery', 'context: ' + (kidCtx || 'base, env'), '---', '', '## Go · READ-DO {#go}', '- [ ] {confirm} Go {#go1}'].join('\n'), 'deploy', 'dp000001');
+  put(['---', 'process: deploy', 'title: Deploy', 'owner: person-avery', 'context: ' + (kidCtx || 'base, env'), ...(kidRoles ? ['roles: ' + kidRoles] : []), '---', '', '## Go · READ-DO {#go}', '- [ ] {confirm} Go {#go1}'].join('\n'), 'deploy', 'dp000001');
   put(['---', 'process: ship', 'title: Ship', 'owner: person-avery', 'context: env', '---', '', '## Ship · READ-DO {#s}', '- [ ] {run.process} Deploy it {#dep}', '  process: deploy', '  pass: ' + (passLine || 'base=team:bitbucket-base-url, env=^env'), '- [ ] {confirm} Tell the team {#tell}'].join('\n'), 'ship', 'sh000001');
   if (values !== null) setTeam(app, values || { 'bitbucket-base-url': { value: URL } });
   app.click('refresh'); await app.tick(80);
@@ -338,8 +338,8 @@ rule('App: a start refused in the queue (a team value refreshed while an earlier
   assert.ok(/child-start-form/.test(ov) && /queued\.example\.com/.test(ov) && /id="cs-note"[^>]*value="queued"/.test(ov), 'reopened with the new value and the answer: ' + ov.slice(0, 600));
 });
 
-rule('App: a refused start doesn\'t reopen its form after a run detail\'s Edit was opened and canceled, or Fill in was opened, while it saved', async () => {
-  for (const move of ['edit', 'pick']) {
+rule('App: a refused start doesn\'t reopen its form after an inline form (a run detail\'s Edit, Fill in, Blocked by its key, a correction) was opened and closed while it saved', async () => {
+  for (const move of ['edit', 'pick', 'block-key', 'correct-key']) {
     const app = await teamStart('base=team:bitbucket-base-url, env=^env, note=?', 'base, env, note');
     app.click('start-child', 'dep'); await app.tick(40);
     const h = holdRead(app, /^runs\/deploy\//, true);
@@ -347,12 +347,36 @@ rule('App: a refused start doesn\'t reopen its form after a run detail\'s Edit w
     assert.ok(h.held(), move + ': set-up: the save is in its read');
     setTeam(app, { 'bitbucket-base-url': { value: 'https://moved.example.com' } });
     if (move === 'edit') { app.click('edit', 'detail:env'); await app.tick(); app.click('unedit'); await app.tick(); }
-    else { app.click('pick', 'tell', { kind: 'fields' }); await app.tick(); app.click('unpick'); await app.tick(); }
+    else if (move === 'pick') { app.click('pick', 'tell', { kind: 'fields' }); await app.tick(); app.click('unpick'); await app.tick(); }
+    else if (move === 'block-key') { app.click('select', 'dep'); await app.tick(); app.key('b'); await app.tick(); assert.ok(/data-scope="block:dep"/.test(app.html()), 'set-up: Blocked is open'); app.key('Escape'); await app.tick(); }
+    else { app.click('select', 'dep'); await app.tick(); app.key('c'); await app.tick(); app.click('corr-cancel'); await app.tick(); }
     h.g.open(); await app.tick(150); h.restore();
     assert.strictEqual(deployRuns(app).length, 0, move + ': nothing written');
     assert.ok(!/child-start-form/.test(app.overlay()), move + ': not reopened');
     assert.ok(/kept for when you start it again/.test(app.html() + app.live()), move + ': says so');
   }
+});
+
+rule('App: answers and roles kept from a refused start come back in the form on the next start, even when nothing needs asking now', async () => {
+  const app = await teamStart('base=team:bitbucket-base-url, env=^env', 'base, env', {}, 'operator');
+  app.click('start-child', 'dep'); await app.tick(40);
+  assert.ok(/id="cs-base"/.test(app.overlay()), 'set-up: the missing team value is asked');
+  app.set('cs-base', 'https://typed.example.com'); app.set('cs-role-operator', 'person-morgan');
+  const h = holdRead(app, /^runs\/deploy\//, true);
+  app.submitForm('child-start-form'); await app.tick(40);
+  assert.ok(h.held(), 'set-up: the save is in its read');
+  setTeam(app, { 'bitbucket-base-url': { value: URL } }); app.click('refresh'); await app.tick(60);
+  app.keyOn('k', { ctrlKey: true }); await app.tick(40);
+  h.g.open(); await app.tick(150); h.restore();
+  assert.strictEqual(deployRuns(app).length, 0, 'nothing written');
+  app.key('Escape'); await app.tick();
+  app.click('start-child', 'dep'); await app.tick(40);
+  const ov = app.overlay();
+  assert.ok(/child-start-form/.test(ov) && /id="cs-role-operator"[\s\S]*value="person-morgan" selected|id="cs-role-operator"[^>]*value="person-morgan"/.test(ov), 'the form, with the role kept: ' + ov.slice(0, 900));
+  app.submitForm('child-start-form'); await app.tick(150);
+  const kid = deployRuns(app)[0];
+  assert.strictEqual(kid.roles.operator, 'person-morgan', 'started with the role chosen before');
+  assert.strictEqual(kid.details.base, URL, 'and the team value now set');
 });
 
 rule('App: an older refresh that lands after the read before the write never brings the old team value back', async () => {

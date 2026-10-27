@@ -1526,7 +1526,11 @@ def team_values(root):
         if os.path.getsize(path) > TEAM_MAX:
             return {"state": "unreadable", "why": TEAM_FILE + " is larger than %d bytes." % TEAM_MAX, "names": []}
         with open(path, "rb") as f:
-            text = f.read(TEAM_MAX + 1).decode("utf-8-sig")
+            raw = f.read(TEAM_MAX + 1)
+        # The file may have grown since its size was read: more than TEAM_MAX bytes is never read as a shorter file.
+        if len(raw) > TEAM_MAX:
+            return {"state": "unreadable", "why": TEAM_FILE + " is larger than %d bytes." % TEAM_MAX, "names": []}
+        text = raw.decode("utf-8-sig")
     except (OSError, UnicodeDecodeError):
         return {"state": "unreadable", "why": TEAM_FILE + " couldn't be read.", "names": []}
     def bad(why):

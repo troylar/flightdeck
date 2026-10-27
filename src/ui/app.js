@@ -1512,6 +1512,9 @@
     /* Nor while someone is composing text (an input method): the redraw waits until the composition ends. */
     if (rendering || composing) { scheduleRender(); return; }
     rendering = true;
+    /* Any inline form opened or closed (Fill in, Blocked, Edit, a correction), however it was reached, counts as moving. */
+    var fsig = [state.pick ? state.pick.kind + ':' + state.pick.id : '', state.edit || '', state.corrForm ? state.corrForm.step + ':' + state.corrForm.mode : ''].join('|');
+    if (fsig !== formSig) { formSig = fsig; childEpoch++; }
     /* Revealed boxes belong to one checklist's editor: leaving it (another checklist, folder or screen) forgets them. */
     if (state.obShown && (state.view !== 'process' || state.ptab !== 'edit' || state.obShown.key.indexOf(fsKey() + '\n' + state.processId + '\n') !== 0)) state.obShown = null;
     var fill = fillShown();
@@ -2116,11 +2119,13 @@
     var prep = childPrep(stepId);
     if (!prep) return;
     /* 2.8: a pass: step opens its start dialog only when something needs asking or converting (Q2); otherwise it starts now. */
-    if (prep.link2 && (prep.ask.length || prep.open.length)) {
+    /* What a start that couldn't be saved was given comes back once, in the same folder: in the form, even when nothing needs
+       asking now, so the roles chosen then are shown before it starts. */
+    var kept = prep.link2 && state.childKept && state.childKept[prep.rkey];
+    if (kept) { delete state.childKept[prep.rkey]; if (kept.gen !== gen) kept = null; }
+    if (prep.link2 && (prep.ask.length || prep.open.length || kept)) {
       prep.token = ++childToken;
-      /* What a start that couldn't be saved was given comes back once, in the same folder. */
-      var kept = state.childKept && state.childKept[prep.rkey];
-      if (kept) { delete state.childKept[prep.rkey]; if (kept.gen === gen) { if (kept.teamWas) childRefill(prep, kept); else { prep.values = kept.values; prep.roleVals = kept.roles; } } }
+      if (kept) { if (kept.teamWas) childRefill(prep, kept); else { prep.values = kept.values; prep.roleVals = kept.roles; } }
       openOverlay({ childStart: prep, html: function () { return V.childStart(ctx, this.childStart); }, held: function () { return csHeld(this.childStart); } });
       state.overlayFocus = '#cs-t';
       return;
@@ -2130,7 +2135,7 @@
   var childToken = 0;
   /* Counts navigation (any view, a different step) and every form opened or closed: a refused start reopens its form only
      when it hasn't moved since (childRetry). */
-  var childEpoch = 0;
+  var childEpoch = 0, formSig = '';
   /* An answer or a changed role in the child's start dialog is kept on prep, so after a redraw the boxes hold it as their
      own value and dirtyControl() no longer sees it: navigation asks this instead. */
   function csHeld(prep) {
