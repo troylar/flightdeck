@@ -28365,6 +28365,8 @@ PF.examples = (function () {
   /* Selecting the checklist's details or its Questions section. focus: a box in the form to start in (an Add box). */
   /* Text typed in a builder box and not applied (refused, or not left yet) would be dropped by choosing something else or
      opening an Add box: that waits until it's applied or cleared, as Back does. */
+  /* The builder boxes a change event applies. */
+  var OB_CHANGE = /^ob-(text|type|fld-[\w-]+|ph-title|ph-note|ph-mode|g-title|g-owner|g-approves|tr-title|tr-role|shot-cap-\d+|note|q-text|owner|backup|add-role|add-ctx|when|ph-when)$/;
   var OB_TYPED = /^ob-(ren-ctx|text|ph-title|ph-note|tr-title|g-title|g-approves|fld-[\w-]+|new-text|new-title|shot-cap-\d+|note|q-text|add-role|add-ctx|when|ph-when|link-proc-other|link-val-[\w-]+)$/;
   /* A builder box on the page, other than except, whose text differs from what the draft says (an Add box: holds anything).
      Several can hold typing at once (one refused, another being typed in), so every box is looked at, not just the last. */
@@ -28867,6 +28869,7 @@ PF.examples = (function () {
     dbxClose();
     el.value = el.value.slice(0, a.start) + ins + after;
     var pos = a.start + ins.length; el.focus(); el.setSelectionRange(pos, pos);
+    dbxSet[el.id] = true;
     if (typeof Event === 'function') el.dispatchEvent(new Event('input', { bubbles: true }));
     dbxClose();
     if (o.add) dbxAdd(o.name, el);
@@ -28906,8 +28909,22 @@ PF.examples = (function () {
     var pre = el.value.slice(0, s0), ins = (/[A-Za-z0-9]$/.test(pre) ? ' ' : '') + '^';
     el.value = pre + ins + el.value.slice(e0);
     el.focus(); el.setSelectionRange(s0 + ins.length, s0 + ins.length);
+    dbxSet[el.id] = true;
     if (typeof Event === 'function') el.dispatchEvent(new Event('input', { bubbles: true }));
   }
+  /* A box whose text was last set here (Insert a detail, a picked suggestion) gets no change event when it's left, as a
+     browser only sends one for typing. So leaving it applies it, once; a redraw that puts focus back in it doesn't. */
+  var dbxSet = Object.create(null);
+  document.addEventListener('focusout', function (e) {
+    var id = e.target && e.target.id; if (!id || !dbxSet[id]) return;
+    setTimeout(function () {
+      var f = document.activeElement; if (!dbxSet[id] || (f && f.id === id)) return;
+      delete dbxSet[id];
+      var el = document.getElementById(id);
+      if (!el || !OB_CHANGE.test(id) || state.view !== 'process' || state.ptab !== 'edit') return;
+      if (boxNorm(id, el.value) !== boxNorm(id, fieldApplied(id))) builderField(id, el.value);
+    }, 0);
+  }, true);
   var dbxCaret = Object.create(null);
   document.addEventListener('focusout', function (e) { var t = e.target; if (dbxBox(t)) dbxCaret[t.id] = { s: t.selectionStart, e: t.selectionEnd, v: t.value }; }, true);
   document.addEventListener('scroll', function (e) { var t = e.target; if (t && t.classList && t.classList.contains('dbx-in')) dbxFit(t); }, true);
@@ -31304,7 +31321,8 @@ PF.examples = (function () {
     }
     if (e.target.id === 'map-ver') { state.mapVer = e.target.value === 'draft' ? null : e.target.value; state.pick = null; render(); }
     if (/^tf-/.test(e.target.id || '') && state.typeForm) { typeFormInput(e, false); render(); }
-    if (/^ob-(text|type|fld-[\w-]+|ph-title|ph-note|ph-mode|g-title|g-owner|g-approves|tr-title|tr-role|shot-cap-\d+|note|q-text|owner|backup|add-role|add-ctx|when|ph-when)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
+    if (e.target.id) delete dbxSet[e.target.id];
+    if (OB_CHANGE.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
     if (e.target.id === 'ob-shot-file' && state.view === 'process' && state.ptab === 'edit') { shotAdd(e.target.files); e.target.value = ''; }
     if (/^ob-mark-(step|must|planned)$/.test(e.target.id || '') && e.target.checked && state.view === 'process' && state.ptab === 'edit') builderField('ob-mark', e.target.id.slice(8));
     if (/^ob-link-(proc|proc-other|vn|src-[\w-]+|val-[\w-]+)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);

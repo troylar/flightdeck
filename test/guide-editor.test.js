@@ -568,4 +568,33 @@ rule('Editor (2.8): a name the child doesn\'t have is shown with a Remove fix', 
   assert.deepStrictEqual(JSON.parse(JSON.stringify(app.PF.links.rows(app.PF.map.findStep(m, 's').step, m.meta.context, CHECKIN(app)).rows)), JSON.parse(JSON.stringify(before)), 'every other detail gets what it got before, nothing starts being passed: ' + t);
 });
 
+rule('Editor: a box filled by Insert a detail (or a picked suggestion) is applied when it is left, once; a redraw that keeps focus in it waits (2.10)', async () => {
+  const app = await editorOn(md(step('deploy', 'd', 'environment: prod', 'artifact: web', 'version: v1')), 'd', { replace: true, domFocus: true });
+  const leave = async id => { app.doc.activeElement = app.doc.body; app.fire('focusout', { target: app.el(id) }); await app.tick(20); };
+  /* The step's own words: a textarea that is one line. */
+  app.set('ob-text', 'Do d for');
+  app.click('dbx-insert', '', { for: 'ob-text' }); await app.tick();
+  assert.strictEqual(app.el('ob-text').value, 'Do d for ^', 'Insert a detail put ^ at the caret');
+  app.fire('focusout', { target: app.el('ob-text') }); await app.tick(20);
+  assert.ok(!/Changed the wording/.test(app.live()), 'focus still in the box (a redraw put it back): nothing yet');
+  await leave('ob-text');
+  assert.ok(/Changed the wording of "Do d"/.test(app.live()), 'applied on leaving: ' + app.live());
+  app.click('ob-sel', 'd'); await app.tick();
+  assert.ok(!/Apply or clear what you typed/.test(app.live()), 'nothing left pending');
+  /* A field box. Typing after the insert sends change on leaving; it isn't applied twice. */
+  app.set('ob-fld-version', 'v1 of');
+  app.click('dbx-insert', '', { for: 'ob-fld-version' }); await app.tick();
+  await leave('ob-fld-version');
+  let text = await textOf(app);
+  assert.ok(/\n  version: v1 of \^\n/.test(text), 'the field applied: ' + text);
+  app.click('ob-sel', 'd'); await app.tick();
+  app.set('ob-fld-version', 'v2');
+  app.click('dbx-insert', '', { for: 'ob-fld-version' }); await app.tick();
+  app.fire('change', { target: app.el('ob-fld-version') }); await app.tick();
+  await leave('ob-fld-version');
+  app.click('tl-undo', 'draft'); await app.tick();
+  text = await textOf(app);
+  assert.ok(/\n  version: v1 of \^\n/.test(text), 'one Undo takes back the one apply: ' + text);
+});
+
 run();
