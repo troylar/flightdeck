@@ -1755,6 +1755,17 @@ rule('draft read --json: the draft, its exact rev and text, who has it open, and
   failsWith(draftCli('read', dir, 'Bad Name', '--json'), 'usage');
 });
 
+rule('draft read --json: a linked child whose publications can\'t be read makes the answer partial and is named (2.8)', () => {
+  const dir = draftFolder(), kid = path.join(dir, 'publications', 'check-in');
+  fs.mkdirSync(kid, { recursive: true }); fs.chmodSync(kid, 0o000);
+  try {
+    const r = draftCli('read', dir, 'release', '--json');
+    assert.ok(r.json && r.json.complete === false, r.out);
+    assert.notStrictEqual(r.code, 0, 'not a complete answer');
+    assert.ok(r.json.problems.some(p => /^publications\/check-in/.test(p.path)), JSON.stringify(r.json.problems));
+  } finally { fs.chmodSync(kid, 0o755); }
+});
+
 rule('draft read --or-latest with no draft continues from the published version; a proposal-only process is found too', async () => {
   const dir = await readFolder(f => { delete f['maps/drafts/release.md']; });
   const j = draftCli('read', dir, 'release', '--or-latest', '--json').json;

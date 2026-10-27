@@ -1505,13 +1505,16 @@ async function draftMain(argv) {
   const checksOf = async (t) => {
     const map = M.parse(t), procs = {}, names = [];
     M.steps(map).forEach((x) => { const f = x.step.fields || {}; if (x.step.type === 'run.process' && f.process && names.indexOf(f.process) < 0) names.push(f.process); });
-    const rfs = readAdapter(dir, { maxBytes: READ_MAX });
+    /* The children are read through a problem ledger of their own, so a child that couldn't be read makes the answer partial. */
+    const L = PF.repo.ledger(readAdapter(dir, { maxBytes: READ_MAX })), rfs = L.fs;
     for (const n of names) {
       try { const p = await PF.repo.readProcess(rfs, n); if (p) procs[n] = p; } catch (e) { procs[n] = { latest: null, all: [], clashes: [], broken: [], unlisted: 'publications/' + n + '/ couldn\'t be read' }; }
     }
     const c = M.check(map, { people: [], types: {}, workflows: {}, processes: [], children: PF.links.childrenFrom(procs) });
-    return { blockers: c.blockers, suggestions: c.suggestions };
+    return { checks: { blockers: c.blockers, suggestions: c.suggestions }, problems: L.problems() };
   };
+  /* Every problem once: the draft's reads, then the children's. */
+  const merged = (a, b) => { const seen = {}, out = []; a.concat(b).forEach((p) => { const k = p.path + '\u0000' + p.kind; if (!seen[k]) { seen[k] = true; out.push(p); } }); return out; };
   try {
     if (sub === 'read') {
       const s = await draftState(eng, dir, proc, session);
@@ -1521,8 +1524,9 @@ async function draftMain(argv) {
       const cf = pending ? { rev: pending.rev, kind: 'proposal', ref: pending.id, text: pending.text }
         : s.draft.exists && s.draft.text != null ? { rev: s.draft.rev, kind: 'draft', ref: s.draft.path, text: s.draft.text }
           : latest ? { rev: latest.rev, kind: 'version', ref: latest.folder, text: latest.text } : { rev: PP.sha(''), kind: 'none', ref: null, text: '' };
+      const ck = await checksOf(cf.text), problems = merged(s.problems, ck.problems);
       const out = draftJson(eng, { process: proc, session, draft: s.draft, openIn: s.presence.openIn, mine: s.mine.map((m) => ({ id: m.id, rev: m.rev, status: m.status, text: m.text })),
-        continueFrom: cf, checks: await checksOf(cf.text), copies: s.copies, readAt: new Date(now).toISOString(), complete: s.problems.length === 0, problems: s.problems });
+        continueFrom: cf, checks: ck.checks, copies: s.copies, readAt: new Date(now).toISOString(), complete: problems.length === 0, problems });
       return { out: JSON.stringify(out, null, 2), code: out.complete ? 0 : EXIT.partial };
     }
     /* save and propose: the input and every flag are checked before anything is read or written. */
@@ -1541,7 +1545,7 @@ async function draftMain(argv) {
     const base = PP.baseFor({ expect: val['--expect'], draft: s.draft, mine: s.mine, versions: s.versions, baseText, afterEarlier: argv.includes('--after-earlier') });
     if (base.missing) return draftFail(eng, 'missing-base', 'The text you started from isn\'t the draft, one of this session\'s proposals or a published version any more. Pass the text you read with --base, or read the draft again.');
     const operation = PP.newId(now, U.randomId(10)), at = new Date(now).toISOString();
-    const result = { process: proc, session, operation, outcome: null, why: null, link: base.link, rev: PP.sha(text), file: null, ids: PP.ids(base.text, text), checks: await checksOf(text), warnings: [], history: null };
+    const result = { process: proc, session, operation, outcome: null, why: null, link: base.link, rev: PP.sha(text), file: null, ids: PP.ids(base.text, text), checks: (await checksOf(text)).checks, warnings: [], history: null };
     if (result.ids.removed.length) result.warnings.push('This removes step or phase IDs: ' + result.ids.removed.join(', ') + '. Runs and skills that name them will need a look.');
     let why = sub === 'propose' ? 'asked' : s.presence.open ? 'open' : null;
     const draftNow = s.draft.exists ? s.draft.text : null, expectText = base.kind === 'none' || base.kind === 'version' ? null : base.text;

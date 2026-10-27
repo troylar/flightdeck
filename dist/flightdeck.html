@@ -30442,14 +30442,16 @@ PF.examples = (function () {
   ['input', 'change'].forEach(function (ev) {
     document.addEventListener(ev, function (e) {
       var id = (e.target && e.target.id) || '', ov = state.overlay, prep = ov && ov.childStart;
-      if (!/^cs-/.test(id) || !prep) return;
+      if (!/^(opt-)?cs-/.test(id) || !prep) return;
       var form = document.getElementById('child-start-form');
       if (form && form.dataset && String(prep.token) !== form.dataset.token) return;
       var got = form && form.querySelectorAll ? csHarvest(form, prep) : { asked: {}, roles: {} };
       prep.values = Object.assign({}, prep.values || {}, got.asked); prep.roleVals = Object.assign({}, prep.roleVals || {}, got.roles);
       /* The box itself, by its ID (cs-<detail>, cs-role-<role>), whatever the form around it can be read for. */
-      var rm = /^cs-role-(.+)$/.exec(id), d = id.slice(3);
+      var rm = /^cs-role-(.+)$/.exec(id), om = /^opt-cs-(.+)-\d+$/.exec(id), d = id.slice(3);
       if (rm) prep.roleVals[rm[1]] = e.target.value;
+      /* A choice or yes-no box is a row of radios (opt-cs-<detail>-<n>): the checked one is the answer. */
+      else if (om) { if (e.target.checked !== false && (prep.ask.indexOf(om[1]) >= 0 || prep.open.indexOf(om[1]) >= 0)) prep.values[om[1]] = e.target.value; }
       else if (prep.ask.indexOf(d) >= 0 || prep.open.indexOf(d) >= 0) prep.values[d] = inputValue(e.target);
     });
   });

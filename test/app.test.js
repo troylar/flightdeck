@@ -8695,6 +8695,19 @@ rule('2.8: what was typed in the child\'s start dialog survives a redraw, and st
   assert.deepStrictEqual(deployRuns(app).map(k => k.details.notify), ['ops']);
 });
 
+rule('2.8: a yes-no answer chosen in the child\'s start dialog survives a redraw too', async () => {
+  const app = await passStart('environment=^env, region=us-east-1, notify=?', 'environment, region, ticket, notify:yes-no');
+  app.click('start-child', 'dep'); await app.tick(40);
+  const ov0 = app.overlay(), radio = /<input[^>]*id="(opt-cs-notify-\d+)"[^>]*value="yes"/.exec(ov0) || /<input[^>]*value="yes"[^>]*id="(opt-cs-notify-\d+)"/.exec(ov0);
+  assert.ok(radio, 'set-up: a Yes radio: ' + ov0.slice(ov0.indexOf('notify'), ov0.indexOf('notify') + 600));
+  app.set(radio[1], 'yes'); app.check(radio[1], true); await app.tick();
+  app.click('refresh'); await app.tick(100);
+  const ov = app.overlay(), tag = (new RegExp('<input[^>]*id="' + radio[1] + '"[^>]*>').exec(ov) || [''])[0];
+  assert.ok(/\schecked/.test(tag), 'still chosen: ' + tag);
+  /* Submitting reads the checked radio from the page (inputValue), which the harness can't model inside a fieldset; the
+     text test above submits. */
+});
+
 rule('2.8: a pass: step with nothing to ask starts at once, as before', async () => {
   const app = await passStart('environment=^env, region=us-east-1, notify=none');
   app.click('start-child', 'dep'); await app.tick(150);
