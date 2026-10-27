@@ -56,6 +56,20 @@ rule('App: Settings › Team values: a file changed since the page was drawn is 
   assert.deepStrictEqual(Object.keys(JSON.parse(files['team-values.json']).values), ['theirs']);
 });
 
+rule('App: Settings › Team values: an Edit open across a Refresh never saves the old value over a newer one', async () => {
+  const files = { 'people.json': example('people.json'), 'team-values.json': doc({ base: { value: 'one', about: 'old' } }) }, app = await settingsAs('person-avery', files);
+  app.click('team-edit', 'base'); await app.tick();
+  app.input('tv-e-about', 'new words'); await app.tick();
+  files['team-values.json'] = doc({ base: { value: 'two', about: 'old' } });
+  const theirs = files['team-values.json'];
+  app.click('refresh'); await app.tick(200);
+  app.submit('team-edit-form'); await app.tick(200);
+  assert.strictEqual(files['team-values.json'], theirs, 'refused: the value the backup owner set stays');
+  assert.ok(/changed since you opened Edit/.test(app.html()) && /id="team-edit-form"/.test(app.html()), 'says so and keeps the form open');
+  app.submit('team-edit-form'); await app.tick(200);
+  assert.deepStrictEqual(JSON.parse(files['team-values.json']).values.base, { value: 'one', about: 'new words' }, 'saved again on purpose: what the form showed');
+});
+
 rule('App: Settings › Team values is read-only for a member, for a damaged file and for a key this copy doesn\'t know; text is escaped', async () => {
   const evil = '<img src=x onerror=alert(1)>';
   const files = { 'people.json': example('people.json'), 'team-values.json': doc({ base: { value: evil, about: evil } }) };
@@ -307,6 +321,37 @@ rule('App: a refused start doesn\'t reopen its form after the person changed ste
     app.click('start-child', 'dep'); await app.tick(40);
     const ov = app.overlay();
     assert.ok(/id="cs-note"[^>]*value="kept"/.test(ov) && /moved\.example\.com/.test(ov), move + ': the answers come back with the new value: ' + ov.slice(0, 600));
+  }
+});
+
+rule('App: a start refused in the queue (a team value refreshed while an earlier save held it) reopens its form like any other refusal', async () => {
+  const app = await teamStart('base=team:bitbucket-base-url, env=^env, note=?', 'base, env, note');
+  const h = holdRead(app, /^runs\/ship\//, true);
+  app.click('edit', 'detail:env'); app.set('edit-input', 'prod'); app.click('save-edit'); await app.tick(40);
+  assert.ok(h.held(), 'set-up: an earlier save holds the queue');
+  app.click('start-child', 'dep'); await app.tick(40);
+  app.set('cs-note', 'queued'); app.submitForm('child-start-form'); await app.tick(40);
+  setTeam(app, { 'bitbucket-base-url': { value: 'https://queued.example.com' } }); app.click('refresh'); await app.tick(100);
+  h.g.open(); await app.tick(200); h.restore();
+  assert.strictEqual(deployRuns(app).length, 0, 'nothing written');
+  const ov = app.overlay();
+  assert.ok(/child-start-form/.test(ov) && /queued\.example\.com/.test(ov) && /id="cs-note"[^>]*value="queued"/.test(ov), 'reopened with the new value and the answer: ' + ov.slice(0, 600));
+});
+
+rule('App: a refused start doesn\'t reopen its form after a run detail\'s Edit was opened and canceled, or Fill in was opened, while it saved', async () => {
+  for (const move of ['edit', 'pick']) {
+    const app = await teamStart('base=team:bitbucket-base-url, env=^env, note=?', 'base, env, note');
+    app.click('start-child', 'dep'); await app.tick(40);
+    const h = holdRead(app, /^runs\/deploy\//, true);
+    app.set('cs-note', 'kept'); app.submitForm('child-start-form'); await app.tick(40);
+    assert.ok(h.held(), move + ': set-up: the save is in its read');
+    setTeam(app, { 'bitbucket-base-url': { value: 'https://moved.example.com' } });
+    if (move === 'edit') { app.click('edit', 'detail:env'); await app.tick(); app.click('unedit'); await app.tick(); }
+    else { app.click('pick', 'tell', { kind: 'fields' }); await app.tick(); app.click('unpick'); await app.tick(); }
+    h.g.open(); await app.tick(150); h.restore();
+    assert.strictEqual(deployRuns(app).length, 0, move + ': nothing written');
+    assert.ok(!/child-start-form/.test(app.overlay()), move + ': not reopened');
+    assert.ok(/kept for when you start it again/.test(app.html() + app.live()), move + ': says so');
   }
 });
 

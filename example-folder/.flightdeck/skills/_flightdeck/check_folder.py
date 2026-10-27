@@ -859,6 +859,7 @@ FAMILIES = {
     "flightdeck-plan": {"majors": {1: [], 2: []}, "future": {}, "unmarked": False, "kinds": ["plan"]},
     "flightdeck-plan-status": {"majors": {1: [], 2: []}, "future": {}, "unmarked": False, "kinds": ["status"]},
     "flightdeck-skill": {"majors": {1: [], 2: []}, "future": {2: "2.0"}, "unmarked": True},
+    "flightdeck-team-values": {"majors": {1: []}, "future": {1: "2.9"}, "unmarked": False},
 }
 # Every family's name, so a file of another known family is malformed here, never "newer".
 FAMILY_NAMES = ["flightdeck-checklist", "preflight-publication", "preflight-run", "flightdeck-run-archive", "flightdeck-step-type", "flightdeck-types", "flightdeck-plan",
@@ -1497,6 +1498,100 @@ def skill_registrations(root):
     return out
 
 
+TEAM_FILE, TEAM_MAX, TEAM_VALUES_MAX, TEAM_VALUE_MAX, TEAM_ABOUT_MAX = "team-values.json", 262144, 100, 120, 80
+
+
+def _team_value_problem(v, what):
+    """PF.teamValues.valueProblem."""
+    if not isinstance(v, str):
+        return what + " isn't text."
+    if not v:
+        return what + " is empty."
+    if re.search(r"[\x00-\x1f\x7f]", v):
+        return what + " has a control character."
+    if v != js_trim(v):
+        return what + " has spaces at the start or end."
+    if js_len(v) > TEAM_VALUE_MAX:
+        return what + " can be at most %d characters." % TEAM_VALUE_MAX
+    return ""
+
+
+def team_values(root):
+    """PF.teamValues.parse of team-values.json (2.9), read as repo.readTeamValues reads it: {"state": "missing" | "unreadable" |
+    "malformed" | "newer" | "ok", "why", "names"}."""
+    path = os.path.join(root, TEAM_FILE)
+    if not os.path.lexists(path):
+        return {"state": "missing", "why": "", "names": []}
+    try:
+        if os.path.getsize(path) > TEAM_MAX:
+            return {"state": "unreadable", "why": TEAM_FILE + " is larger than %d bytes." % TEAM_MAX, "names": []}
+        with open(path, "rb") as f:
+            text = f.read(TEAM_MAX + 1).decode("utf-8-sig")
+    except (OSError, UnicodeDecodeError):
+        return {"state": "unreadable", "why": TEAM_FILE + " couldn't be read.", "names": []}
+    def bad(why):
+        return {"state": "malformed", "why": why, "names": []}
+    try:
+        o = json.loads(text, parse_constant=_no_constant)
+    except ValueError:
+        return bad(TEAM_FILE + " isn't valid JSON.")
+    j = judge("flightdeck-team-values", o)
+    if not j["ok"] and j["kind"] != "newer":
+        return bad(TEAM_FILE + " " + re.sub(r"\.?$", ".", j["why"], count=1))
+    if not j["ok"]:
+        # PF.envelope.judge's words for a newer file: another family, a newer major, or features this copy doesn't know.
+        needs = j.get("needs") or ""
+        m = re.match(r"^([a-z][a-z0-9-]{1,59})/([1-9]\d{0,3})\Z", o["format"]) if isinstance(o.get("format"), str) else None
+        if m and m.group(1) != "flightdeck-team-values":
+            what = "is a " + m.group(1) + " file, which this copy doesn't know."
+        elif m and int(m.group(2)) not in FAMILIES["flightdeck-team-values"]["majors"]:
+            what = "was made with a newer Flightdeck (" + o["format"] + ")."
+        else:
+            what = "uses " + ", ".join([x for x in o.get("features") or [] if x not in FAMILIES["flightdeck-team-values"]["majors"][1]][:5]) + ", which this copy doesn't understand."
+        return {"state": "newer", "why": TEAM_FILE + " " + what + " " + ("Needs Flightdeck " + needs + "." if needs else "Needs a newer Flightdeck."), "needs": needs, "names": []}
+    values = o.get("values")
+    if not isinstance(values, dict):
+        return bad(TEAM_FILE + ": Its \"values\" isn't a list of named values.")
+    if len(values) > TEAM_VALUES_MAX:
+        return bad(TEAM_FILE + ": It can hold at most %d team values." % TEAM_VALUES_MAX)
+    for n, e in values.items():
+        if n in JS_PROTO:
+            return bad(TEAM_FILE + ": \"%s\" is a name Flightdeck keeps for itself." % n)
+        if not TEAM_NAME.match(n):
+            return bad(TEAM_FILE + ": \"%s\" isn't a team value name (lowercase letters, digits and -, at most 40)." % n)
+        if not isinstance(e, dict):
+            return bad(TEAM_FILE + ": \"%s\" isn't a value with its text." % n)
+        extra = [k for k in e if k not in ("value", "about")]
+        if extra:
+            return bad(TEAM_FILE + ": \"%s\" has \"%s\", which this copy doesn't know." % (n, extra[0]))
+        pr = _team_value_problem(e.get("value"), "\"%s\"" % n)
+        if pr:
+            return bad(TEAM_FILE + ": " + pr)
+        ab = e.get("about")
+        if ab is not None and (not isinstance(ab, str) or re.search(r"[\x00-\x1f\x7f]", ab)):
+            return bad(TEAM_FILE + ": What \"%s\" is for isn't plain text." % n)
+        if ab is not None and js_len(ab) > TEAM_ABOUT_MAX:
+            return bad(TEAM_FILE + ": What \"%s\" is for can be at most %d characters." % (n, TEAM_ABOUT_MAX))
+    return {"state": "ok", "why": "", "names": sorted(values)}
+
+
+def team_missing(root, publications, tv):
+    """PF.health's team-missing: each current version's linked step that passes a team value team-values.json doesn't have."""
+    out = []
+    if tv["state"] not in ("ok", "missing"):
+        return out
+    for proc, p in sorted(publications.items()):
+        if not p["current"]:
+            continue
+        md = read_text(os.path.join(root, "publications", proc, p["current"], "map.md"))
+        for s in parse_map(md)["steps"] if md else []:
+            if s["type"] == "run.process" and "pass" in s["fields"]:
+                gone = [n for n in pass_teams(s["fields"]["pass"]) if n not in tv["names"]]
+                if gone:
+                    out.append({"process": proc, "step": s.get("id"), "names": gone})
+    return out
+
+
 def team_files(root):
     """Basic checks of step-types/ and jira/workflows.json. Flightdeck's process page shows its full verdict."""
     problems, types = [], []
@@ -1690,6 +1785,12 @@ def main():
                     out.setdefault("receipts", []).append({"run": proc + "/" + rid, "count": len(receipts), "note": "Save receipts beyond the newest one are cleaned up by the next save; many here means unresolved conflicts or failed cleanups."})
 
     out["teamFiles"] = team_files(root)
+    # Team values (2.9): a team-values.json the app can't use is named, as are steps that pass a value it doesn't have.
+    tv = team_values(root)
+    out["teamValues"] = tv
+    if tv["state"] not in ("ok", "missing"):
+        out["teamFiles"]["problems"].append({"file": TEAM_FILE, "problem": tv["why"]})
+    out["teamMissing"] = team_missing(root, out["publications"], tv)
     out["skills"] = skill_registrations(root)
     json.dump(out, sys.stdout, indent=2, ensure_ascii=False)
     sys.stdout.write("\n")

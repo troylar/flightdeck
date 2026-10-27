@@ -1316,12 +1316,16 @@
 
   /* Settings, Team values (2.9): one change at a time to exactly the team-values.json on screen, saved only over that; a save
      over a newer file reloads the list and asks for the change again, as people.json does. fn changes a copy of the values. */
-  function changeTeam(fn, done) {
+  function changeTeam(fn, done, base) {
     var T = PF.teamValues, tv = data.teamValues || T.parse(null);
     if (!PF.people.canManage(data.people, state.me)) { state.teamErr = 'Only the folder owner and backup owner change team values.'; render(); return; }
     if (tv.state !== 'ok' && tv.state !== 'missing') { state.teamErr = tv.why || T.FILE + ' can\'t be read.'; render(); return; }
     if (tv.readOnly) { state.teamErr = tv.readOnly; render(); return; }
     if (state.teamSaving) { state.teamErr = 'Still saving the last change.'; render(); return; }
+    if (base && (base.hash !== tv.hash || base.text !== tv.text)) {
+      base.hash = tv.hash; base.text = tv.text;
+      state.teamErr = T.FILE + ' changed since you opened Edit, so your change wasn\'t saved. The list shows it as it is now; check it and Save again.'; render(); return;
+    }
     var doc = { values: {} };
     Object.keys(tv.doc.values).forEach(function (n) { var e = tv.doc.values[n]; doc.values[n] = e.about ? { value: e.value, about: e.about } : { value: e.value }; });
     var res; try { res = fn(doc); } catch (e) { state.teamErr = e.message; render(); return; }
@@ -2171,8 +2175,9 @@
     };
     queued(function () {
       var cur = findRun(key), why = cur ? R.canStartChild(cur, R.mapOf(cur), stepId) : 'The run isn\'t in the folder anymore.';
-      if (!why && prep.link2) why = childStale(prep) || teamStale(prep, data.teamValues);
       if (why) throw new Error(why);
+      /* A guard refused in the queue comes back the way a refusal at the write does: through childRetry. */
+      if (prep.link2) { stale = childStale(prep) || teamStale(prep, data.teamValues); if (stale) throw Object.assign(new Error(stale), { dropped: true }); }
       child.recorder.session = SESSION; return repo.saveRun(sfs, child, SESSION, saveOpts);
     }).then(function () {
       if (sg !== gen) { done(); return; }
@@ -5818,7 +5823,7 @@
     'start-step': function (id) { mutate(function (r, map, me, now) { R.start(r, map, id, me, now); }); },
     na: function (id) { mutate(function (r, map, me, now) { R.na(r, map, id, me, now); }); },
     clear: function (id) { mutate(function (r, map, me, now) { R.clear(r, map, id, me, now); }); },
-    pick: function (id, b) {
+    pick: function (id, b) { childEpoch++;
       /* While Done differently is finishing on a step, Fill in waits: the answer landing would close it. */
       var ans = state.answering;
       if (b.dataset.kind === 'fields' && ans && ans.key === state.runKey && ans.step === id) { say('Finishing the answer… Fill in opens once it\'s saved.', 'warn'); render(); return; }
@@ -5828,7 +5833,7 @@
       var fd = b.dataset.kind === 'fields' && state.runKey ? draftOf(state.runKey, id, false) : null;
       state.fieldsDraft = fd && fd.fd && fd.fd.key === state.runKey && fd.fd.fs === fsKey() ? fd.fd : null; if (fd) fd.open = false;
       if (b.dataset.kind === 'block' || b.dataset.kind === 'differently' || b.dataset.kind === 'deadline' || b.dataset.kind === 'fields') state.sel = id; render(); },
-    unpick: function () { var pk = state.pick; state.pick = null; state.fieldErr = null; state.fieldsDraft = null; if (pk && pk.kind === 'fields') dropDraft(state.runKey, pk.id, ['fields', 'open']); if (pk && pk.back) state.focus = pk.back; render(); },
+    unpick: function () { childEpoch++; var pk = state.pick; state.pick = null; state.fieldErr = null; state.fieldsDraft = null; if (pk && pk.kind === 'fields') dropDraft(state.runKey, pk.id, ['fields', 'open']); if (pk && pk.back) state.focus = pk.back; render(); },
     block: function (id, b) { var reason = b.dataset.reason || val('pick-input'); if (!reason.trim()) return; mutate(function (r, map, me, now) { R.block(r, map, id, reason, me, now); }); },
     differently: function (id) { var note = val('pick-input'); if (!note.trim()) return; mutate(function (r, map, me, now) { R.differently(r, map, id, note, me, now); }); },
     deadline: function (id) {
@@ -5842,8 +5847,8 @@
     waive: function (pi) { var why = val('pick-input'); mutate(function (r, map, me, now) { R.waive(r, map, +pi, why, me, now); }); },
     fail: function (pi) { var why = val('pick-input') || 'Failed'; mutate(function (r, map, me, now) { R.fail(r, map, +pi, why, me, now); }); },
     reopen: function (pi) { mutate(function (r, map, me, now) { R.reopen(r, map, +pi, me, now); }); },
-    edit: function (id) { state.edit = id; render(); },
-    unedit: function () { state.edit = null; render(); },
+    edit: function (id) { childEpoch++; state.edit = id; render(); },
+    unedit: function () { childEpoch++; state.edit = null; render(); },
     'save-edit': function () {
       var e = state.edit, v = val('edit-input');
       if (!e) return;
@@ -5992,7 +5997,7 @@
     'team-edit': function (id) {
       var tv = data.teamValues, e = tv && tv.doc && tv.doc.values && Object.prototype.hasOwnProperty.call(tv.doc.values, id) ? tv.doc.values[id] : null;
       if (!e) return;
-      state.teamEdit = { name: id, value: e.value, about: e.about || '' }; state.pick = null; state.fieldErr = null; state.focus = 'tv-e-value'; render();
+      state.teamEdit = { name: id, value: e.value, about: e.about || '', base: { hash: tv.hash, text: tv.text } }; state.pick = null; state.fieldErr = null; state.focus = 'tv-e-value'; render();
     },
     'team-cancel': function () { state.teamEdit = null; state.fieldErr = null; render(); },
     'team-remove': function (id) { changeTeam(function (doc) { if (!Object.prototype.hasOwnProperty.call(doc.values, id)) throw new Error('"' + id + '" isn\'t a team value anymore.'); delete doc.values[id]; return id; }, function () { say('Removed the team value ' + id + '.', 'good'); }); },
@@ -6982,7 +6987,7 @@
     }, function () {
       if (adding) { state.teamAdd = null; state.focus = 'tv-name'; } else state.teamEdit = null;
       say((adding ? 'Added the team value ' : 'Saved the team value ') + name + '.', 'good');
-    });
+    }, adding ? null : f.base);
   });
   /* Save a plan: a new file, never a replacement for one that's there. */
   document.addEventListener('submit', function (e) {
