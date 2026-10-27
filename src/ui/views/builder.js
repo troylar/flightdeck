@@ -397,11 +397,12 @@
     var asks = function (n) { return PF.links.has(st) || (!PF.links.carryList(st).length && meta.context.indexOf(n) >= 0); };
     var kinds = meta.detailTypes || {}, kindOf = function (n) { return ownKey(kinds, n) && kinds[n] ? ' (' + esc(kinds[n].kind || 'text') + ')' : ''; };
     rr.rows.forEach(function (r) {
-      var sid = 'ob-link-src-' + r.name, cur = r.source === 'value' || fixed[s.key + ':' + r.name] ? '=' : r.source === 'detail' ? '^' + r.from : ownKey(setBy, r.name) || asks(r.name) ? '?' : '-';
+      var sid = 'ob-link-src-' + r.name, cur = r.source === 'value' || fixed[s.key + ':' + r.name] ? '=' : r.source === 'detail' ? '^' + r.from : r.source === 'team' ? 'team:' + r.team : ownKey(setBy, r.name) || asks(r.name) ? '?' : '-';
       h += '<div class="field ob-link-row"><label for="' + esc(sid) + '"><b>' + esc(r.name) + '</b> <span class="small">' + esc(r.kind) + (ownKey(setBy, r.name) ? ' · ' + esc(t) + ' also sets this itself, later' : '') + '</span></label><select id="' + esc(sid) + '" data-bound>' +
         meta.context.map(function (n) { return '<option value="^' + esc(n) + '"' + (cur === '^' + n ? ' selected' : '') + '>This run\'s ^' + esc(n) + kindOf(n) + '</option>'; }).join('') +
-        '<option value="="' + (cur === '=' ? ' selected' : '') + '>A fixed value</option><option value="?"' + (cur === '?' ? ' selected' : '') + '>' + (ownKey(setBy, r.name) ? esc(t) + ' fills this in itself' : 'Asked when ' + esc(t) + ' starts') + '</option>' +
+        teamOpts(ctx, cur) + '<option value="="' + (cur === '=' ? ' selected' : '') + '>A fixed value</option><option value="?"' + (cur === '?' ? ' selected' : '') + '>' + (ownKey(setBy, r.name) ? esc(t) + ' fills this in itself' : 'Asked when ' + esc(t) + ' starts') + '</option>' +
         (cur === '-' ? '<option value="-" selected>Not passed: ' + esc(t) + ' starts without it</option>' : '') + '</select>';
+      if (r.source === 'team') h += teamNote(ctx, r.team, t);
       if (cur === '=') h += '<label class="field" for="ob-link-val-' + esc(r.name) + '">' + esc(G.form('link-val').q) + '<input id="ob-link-val-' + esc(r.name) + '" maxlength="120" value="' + esc(r.value || '') + '" data-enter="ob-commit"' + errAt(ctx, 'ob-link-val-' + r.name) + '></label>' + errMsg(ctx, 'ob-link-val-' + r.name);
       h += '</div>';
     });
@@ -409,6 +410,20 @@
       h += '<div class="notice warn" role="status"><span>' + esc(t) + (kid.version ? ' v' + esc(kid.version) : '') + ' has no run detail ' + esc(x.name) + ', so this step can\'t pass it.</span><button type="button" class="mini" data-act="ob-link-rm" data-id="' + esc(s.key) + '" data-name="' + esc(x.name) + '">Remove ^' + esc(x.name) + ' from what\'s passed</button></div>';
     });
     return h;
+  }
+  /* "A team value" (2.9): each name in team-values.json, with what it's for; one the step names that isn't there stays
+     shown, flagged. */
+  function teamOpts(ctx, cur) {
+    var tv = ctx.data.teamValues, vals = tv && tv.state === 'ok' && tv.doc ? tv.doc.values : {}, names = Object.keys(vals).sort(), h = '';
+    names.forEach(function (n) { h += '<option value="team:' + esc(n) + '"' + (cur === 'team:' + n ? ' selected' : '') + '>Team value ' + esc(n) + (vals[n].about ? ': ' + esc(vals[n].about) : '') + '</option>'; });
+    if (/^team:/.test(cur) && names.indexOf(cur.slice(5)) < 0) h += '<option value="' + esc(cur) + '" selected>Team value ' + esc(cur.slice(5)) + ' (not in this folder)</option>';
+    return h ? '<optgroup label="A team value">' + h + '</optgroup>' : '';
+  }
+  function teamNote(ctx, name, t) {
+    var l = PF.teamValues.lookup(ctx.data.teamValues, name);
+    if (l.value != null) return '<p class="small">Now <code>' + esc(l.value) + '</code>. It\'s read when ' + esc(t) + ' starts, so a later change in Settings › Team values is what new runs get.</p>';
+    if (l.missing) return '<div class="notice warn" role="status"><span>' + esc(name) + ' isn\'t a team value in this folder. Add it in Settings › Team values, or pass something else.</span></div>';
+    return '<div class="notice warn" role="status"><span>' + esc(l.why) + '</span></div>';
   }
   function fieldsSection(ctx, p, text, o, s, def, meta) {
     var f = s.fields, shown = shownOf(ctx, p, s), names = def ? Object.keys(def.fields || {}) : [];
@@ -475,7 +490,7 @@
     if (io.sets.length) out.push('<b>Sets:</b> ' + io.sets.map(function (n) { return '<code>^' + esc(n) + '</code>'; }).join(', '));
     if (io.passes) {
       var given = io.passes.filter(function (r) { return r.source !== 'ask'; });
-      out.push('<b>Passes to ' + esc(got.title) + ':</b> ' + (given.length ? given.map(function (r) { return esc(r.name) + (r.source === 'value' ? ' = ' + esc(r.value) : ' ← ^' + esc(r.from)); }).join(', ') : 'nothing') + ioRest(io.passes, st, got.map));
+      out.push('<b>Passes to ' + esc(got.title) + ':</b> ' + (given.length ? given.map(function (r) { return esc(r.name) + (r.source === 'value' ? ' = ' + esc(r.value) : r.source === 'team' ? ' ← team value ' + esc(r.team) : ' ← ^' + esc(r.from)); }).join(', ') : 'nothing') + ioRest(io.passes, st, got.map));
     } else if (io.shared) out.push('May also pass details ' + esc(f.process || 'the other process') + ' shares with this checklist.');
     return out.length ? '<div class="small ob-io">' + out.map(function (l) { return '<p>' + l + '</p>'; }).join('') + '</div>' : '';
   }

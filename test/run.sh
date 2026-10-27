@@ -24,6 +24,7 @@ t test/insights.test.js
 t test/outline.test.js
 t test/refs.test.js
 t test/links.test.js
+t test/teamvalues.test.js
 t test/timeline.test.js
 t test/search.test.js
 t test/folder.test.js
@@ -36,6 +37,7 @@ t test/docs.test.js
 t test/checker.test.js
 t test/app.test.js
 t test/app-reports.test.js
+t test/app-teamvalues.test.js
 t test/staging-app.test.js
 t test/test-runs-app.test.js
 t test/readiness-stage-app.test.js
@@ -51,6 +53,7 @@ t test/compat-typed.test.js
 t test/compat-conditions.test.js
 t test/compat-staging.test.js
 t test/compat-pass.test.js
+t test/compat-teamvalues.test.js
 t test/skills-parity.test.js
 t test/build.test.js
 t test/readers.test.js

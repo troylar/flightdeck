@@ -1,5 +1,54 @@
 [
   {
+    "version": "2.9.0",
+    "date": "2026-10-27",
+    "headline": "Team values",
+    "changes": [
+      {
+        "kind": "new",
+        "area": "Settings",
+        "title": "Keep the team's shared settings in one place",
+        "now": "Settings › Team values holds settings the whole team uses, like a Bitbucket base URL, each with what it's for. The folder owner and backup owner add, change and remove them; everyone else sees them. Values are trimmed, and the page reminds you not to store passwords or tokens there. If someone else changed the list first, nothing is saved over it: the list reloads and you make the change again.",
+        "where": "Settings, Team values"
+      },
+      {
+        "kind": "new",
+        "area": "Editor",
+        "title": "Pass a team value to a linked run",
+        "now": "A child detail's source can be A team value, chosen from the folder's list with what each one is for and what it is now. The Markdown gets pass: base=team:bitbucket-base-url. A name that isn't in the folder is flagged in the editor and stops publishing.",
+        "where": "Editing a draft, a Run another process step"
+      },
+      {
+        "kind": "new",
+        "area": "Runs",
+        "title": "The child gets the team value as it is when it starts",
+        "now": "The team value is read when the child starts and copied into it, so a later change never changes a started child. One that isn't set is asked for this run. If it changes while you fill in the form or while the child is saved, nothing starts and the form opens again with the new value and your answers. A child that changes it doesn't complete the step.",
+        "where": "The run screen, a Run another process step"
+      },
+      {
+        "kind": "improved",
+        "area": "Runs",
+        "title": "Link it asks you to confirm team values",
+        "now": "A run started for a step but never linked can still be linked. On a step that passes team values, Link it shows the run's values and links them only once you confirm them, as shown. If the run changes while you're looking, it shows the new values first.",
+        "where": "The run screen, a run that isn't linked"
+      },
+      {
+        "kind": "improved",
+        "area": "Folder health",
+        "title": "Folder health checks team-values.json",
+        "now": "A team-values.json that can't be read, a conflict copy of it, and a published step whose team value was removed later are each listed with what to do.",
+        "where": "Settings, Folder health"
+      },
+      {
+        "kind": "improved",
+        "area": "Compatibility",
+        "title": "A checklist that passes a team value needs Flightdeck 2.9",
+        "now": "A version that passes a team value, and its runs, open only in Flightdeck 2.9 or later; earlier copies name the version and won't run it. A checklist without one publishes exactly as before.",
+        "where": "Publishing and older copies"
+      }
+    ]
+  },
+  {
     "version": "2.8.0",
     "date": "2026-10-26",
     "headline": "Nested processes that know what the child needs",

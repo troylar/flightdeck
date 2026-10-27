@@ -6,7 +6,7 @@
    A step without a pass: line keeps every pre-2.8 path (PF.run's own carry: code), so nothing changes for it. */
 PF.links = (function () {
   'use strict';
-  var NAME = /^[\w-]{1,60}$/, DETAIL = /^\^([\w-]+)$/, MAX = 40, VALUE_MAX = 120;
+  var NAME = /^[\w-]{1,60}$/, DETAIL = /^\^([\w-]+)$/, TEAM = /^[a-z0-9][a-z0-9-]{0,39}$/, MAX = 40, VALUE_MAX = 120;
 
   function own(o, k) { return !!o && Object.prototype.hasOwnProperty.call(o, k); }
   function reserved(n) { return n === '__proto__' || n in Object.prototype; }
@@ -14,7 +14,8 @@ PF.links = (function () {
   /* Whether a step takes the 2.8 paths: a {run.process} step with a pass: line (even an empty one). */
   function has(step) { return !!step && step.type === 'run.process' && own(step.fields, 'pass'); }
 
-  /* The pass: line's entries, in order: { name, source: detail | value | ask, from, value }, and what's wrong with it. */
+  /* The pass: line's entries, in order: { name, source: detail | value | ask | team, from, value, team }, and what's wrong
+     with it. team: <name> is a team value (2.9, PF.teamValues), read when the child starts. */
   function parse(text) {
     var entries = [], errors = [], seen = Object.create(null), raw = String(text == null ? '' : text);
     if (!raw.trim()) return { entries: entries, errors: errors };
@@ -34,7 +35,14 @@ PF.links = (function () {
       var m = DETAIL.exec(right);
       if (m) { if (reserved(m[1])) errors.push('"^' + m[1] + '" is a name Flightdeck keeps for itself.'); else entries.push({ name: name, source: 'detail', from: m[1] }); return; }
       if (right === '^') { errors.push('"' + name + '=^" names no run detail: "^" isn\'t a run detail.'); return; }
-      if (/^team:/i.test(right)) { errors.push('"' + name + '=' + right + '": Team values aren\'t available yet.'); return; }
+      if (/^team:/i.test(right)) {
+        var tv = right.slice(5).trim();
+        if (right.slice(0, 5) !== 'team:') errors.push('"' + name + '=' + right + '": write team: in lowercase.');
+        else if (!tv) errors.push('"' + name + '=team:" names no team value.');
+        else if (!TEAM.test(tv)) errors.push('"' + tv + '" isn\'t a team value name (lowercase letters, digits and -, at most 40).');
+        else entries.push({ name: name, source: 'team', team: tv });
+        return;
+      }
       if (right.indexOf('^') >= 0) { errors.push('"' + name + '=' + right + '": a fixed value can\'t hold ^. Use ^name alone to pass a run detail.'); return; }
       if (/[\u0000-\u001f\u007f]/.test(right)) { errors.push('"' + name + '=…" has a control character.'); return; }
       if (right.length > VALUE_MAX) { errors.push('"' + name + '=…": a fixed value can be at most ' + VALUE_MAX + ' characters.'); return; }
@@ -57,7 +65,7 @@ PF.links = (function () {
     pe.forEach(function (e) { byName[e.name] = e; });
     names.forEach(function (n) {
       var e = byName[n], r = { name: n, kind: own(kinds, n) && kinds[n] ? kinds[n].kind || 'text' : 'text' };
-      if (e) { r.source = e.source; if (e.source === 'detail') r.from = e.from; if (e.source === 'value') r.value = e.value; }
+      if (e) { r.source = e.source; if (e.source === 'detail') r.from = e.from; if (e.source === 'value') r.value = e.value; if (e.source === 'team') r.team = e.team; }
       else if (carry.length) { if (carry.indexOf(n) >= 0) { r.source = 'detail'; r.from = n; } else r.source = 'ask'; }
       else if ((parentNames || []).indexOf(n) >= 0) { r.source = 'detail'; r.from = n; }
       else r.source = 'ask';
@@ -76,10 +84,19 @@ PF.links = (function () {
     if (!v) return 'Type the value, or choose another source.';
     var p = parse('x=' + v);
     if (p.errors.length) return p.errors[0].replace(/^Entry "x=[^"]*"/, 'The value');
+    if (p.entries.length === 1 && p.entries[0].source === 'team') return 'A fixed value can\'t start with team:. Choose A team value instead.';
     if (p.entries.length !== 1 || p.entries[0].source !== 'value' || p.entries[0].value !== v) return /,/.test(v) ? 'A fixed value can\'t hold a comma: a comma starts the next detail.' : 'A fixed value can\'t start with ^ or ?. Choose This run\'s detail or Asked instead.';
     return '';
   }
-  function entryText(r) { return r.name + '=' + (r.source === 'ask' ? '?' : r.source === 'value' ? r.value : '^' + r.from); }
+  /* One entry as pass: text. Every writer of pass: (write, rename, removing a stale name) goes through it, so a team source
+     is never written as ^name. */
+  function entryText(r) { return r.name + '=' + (r.source === 'ask' ? '?' : r.source === 'value' ? r.value : r.source === 'team' ? 'team:' + r.team : '^' + r.from); }
+  /* The team values a step's pass: line names, once each, in order. */
+  function teams(step) {
+    var out = [];
+    parse((step && step.fields || {}).pass).entries.forEach(function (e) { if (e.source === 'team' && out.indexOf(e.team) < 0) out.push(e.team); });
+    return out;
+  }
   /* The carry: and pass: lines (null: no line) whose meaning is exactly `want` (rows as rows() gives them), as short as it can
      be: an explicit carry: list is kept and grows or shrinks by same-name sources; without one, same-name sources stay
      implicit. An explicit list that would be emptied is dropped, and every other shared name is asked with name=?, since an
@@ -229,5 +246,5 @@ PF.links = (function () {
     return { uses: uses, sets: sets, passes: passes, shared: shared };
   }
 
-  return { io: io, childrenFrom: childrenFrom, broken: broken, parentsBroken: parentsBroken, MAX: MAX, VALUE_MAX: VALUE_MAX, has: has, parse: parse, valueProblem: valueProblem, rows: rows, write: write, values: values, sources: sources, inputs: inputs, carryList: carryList };
+  return { io: io, childrenFrom: childrenFrom, broken: broken, parentsBroken: parentsBroken, MAX: MAX, VALUE_MAX: VALUE_MAX, has: has, parse: parse, valueProblem: valueProblem, entryText: entryText, teams: teams, rows: rows, write: write, values: values, sources: sources, inputs: inputs, carryList: carryList };
 })();

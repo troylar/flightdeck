@@ -257,6 +257,7 @@ PROBE_SETS.forEach((kind) => rule('Probes (' + kind + '): every family\'s probe 
   d.runs.filter(r => r._needs != null || (r._unrunnable && !Object.keys(r.steps).length)).forEach(r => named.add('runs/' + r.process + '/' + r.id + '/run.json'));
   d.processes.forEach(p => (p.pubs || []).filter(x => x.newer).forEach(x => named.add('publications/' + p.process + '/' + x.folder + '/publication.json')));
   if (d.failed.people) named.add('people.json');
+  if (d.teamValues && d.teamValues.state === 'newer') { assert.ok(/newer Flightdeck|Needs Flightdeck/.test(d.teamValues.why), d.teamValues.why); named.add('team-values.json'); }
   const pres = (d.presence || []).find(x => x.name === 'w-probe.json'); if (pres && !pres.rec) named.add('presence/w-probe.json');
   const h = await NEW.repo.loadHistory(m, { process: 'backup', id: 'run-a' }); h.refused.forEach(x => named.add(x.path));
   if (d.failed.people) assert.ok(/newer Flightdeck/.test(d.failed.people), d.failed.people);

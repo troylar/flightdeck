@@ -1,0 +1,9 @@
+{
+  "format": "flightdeck-team-values/9",
+  "app": "9.0.0",
+  "values": {
+    "base": {
+      "value": "x"
+    }
+  }
+}

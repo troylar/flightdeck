@@ -58,7 +58,7 @@
   function editTab(ctx, p) {
     var st = ctx.state, ed = st.editor && st.editor.pid === p.id && st.editor.fsKey === ctx.fsKey ? st.editor : null;
     var text = ed && ed.text != null ? ed.text : ed ? ed.base : p.draft ? p.draft.md : p.latest ? p.latest.md : '';
-    var map = M.parse(text), c = M.check(map, { people: ctx.data.people, types: (ctx.data.stepTypes || {}).types, workflows: (ctx.data.jira || {}).workflows, processes: ctx.processes().filter(function (x) { return x.latest; }).map(function (x) { return x.id; }), children: ctx.procOf ? PF.links.childrenFrom(ctx.procOf) : null, parents: ctx.processes() });
+    var map = M.parse(text), c = M.check(map, { people: ctx.data.people, types: (ctx.data.stepTypes || {}).types, workflows: (ctx.data.jira || {}).workflows, processes: ctx.processes().filter(function (x) { return x.latest; }).map(function (x) { return x.id; }), children: ctx.procOf ? PF.links.childrenFrom(ctx.procOf) : null, parents: ctx.processes(), teamValues: ctx.data.teamValues });
     var dirty = ed && ed.text != null && ed.text !== ed.base || st.obPending === p.id, file = p.draft ? p.draft.file : p.id + '.md', saving = (st.draftSaving || {})[ctx.fsKey + '\n' + p.id];
     var builder = st.builder !== false, o = PF.outline.parse(text), sel = builder && !o.unsupported && st.obSel && st.obSel.pid === p.id ? st.obSel : null;
     var practicing = !!(st.practicing || {})[ctx.fsKey + '\n' + p.id];
@@ -471,6 +471,7 @@
       '<div class="row"><button class="btn" data-act="health">Check folder health</button><button class="btn" data-act="connection">' + I('swap') + 'Connection check</button><button class="mini" data-act="recovery" data-id="">When something goes wrong</button></div></section>';
     h += '<section class="panel stack" aria-labelledby="set-lib"><h2 id="set-lib">Library</h2><p class="small">Skills built from your processes, and the kinds of steps a checklist can use.</p><div class="row"><button class="btn" data-act="nav" data-id="skills">' + I('spark') + 'Skills</button><button class="btn" data-act="nav" data-id="types">Step types</button></div></section>';
     h += V.peoplePanel(ctx);
+    h += V.teamValuesPanel(ctx);
     /* Jira workflows and Keyboard are rarely changed: under More settings, except that a workflow problem stays on show. */
     var jw = d.jira || { workflows: {}, errors: [] }, jbad = (jw.errors || []).length || Object.keys(jw.workflows || {}).some(function (k) { return jw.workflows[k].invalid; });
     if (jbad) h += V.teamSetup(ctx);

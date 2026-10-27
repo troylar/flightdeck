@@ -633,9 +633,9 @@ PF.repo = (function () {
 
   /* Each part of the folder is read on its own: one that fails is named in failed (the app keeps what it read before for it).
      A folder that can't be listed, or where every part fails, is an unreadable folder. */
-  var PARTS = ['people', 'drafts', 'publications', 'runs', 'legacy', 'skills', 'proposals', 'step types', 'Jira workflows', 'sign-offs', 'corrections', 'follow-ups', 'proposed changes', 'presence', 'reports', 'report decisions', 'stages'];
+  var PARTS = ['people', 'drafts', 'publications', 'runs', 'legacy', 'skills', 'proposals', 'step types', 'Jira workflows', 'sign-offs', 'corrections', 'follow-ups', 'proposed changes', 'presence', 'reports', 'report decisions', 'stages', 'team values'];
   /* Parts a folder may not have: they don't count toward "every part failed". */
-  var OPTIONAL_PARTS = 5;
+  var OPTIONAL_PARTS = 6;
   /* The same folder, with at most 8 reads, lists and stats in flight at once however many runs and notes files it holds.
      Only those leaf calls wait for a turn, so nothing waiting holds a turn another call needs. Caches stay keyed by the
      folder itself. */
@@ -693,14 +693,14 @@ PF.repo = (function () {
     var cache = cacheOf(fs); fs = bounded(fs); var deep = !!opts.deep, failed = {}, errs = [];
     cache.clockFn = opts.clock || elapsed;
     var sched = scheduler(cache, cache.clockFn, deep, opts.now != null ? opts.now : Date.now());
-    var EMPTY = [[], [], [], { reads: {}, keys: [], complete: false, unreadable: [], nofile: [] }, [], [], { plans: [], statuses: [] }, { types: {}, errors: [], skipped: 0 }, { workflows: null, errors: [] }, [], [], [], { procs: {} }, [], { files: [], folders: [], bad: [] }, [], { procs: Object.create(null) }];
+    var EMPTY = [[], [], [], { reads: {}, keys: [], complete: false, unreadable: [], nofile: [] }, [], [], { plans: [], statuses: [] }, { types: {}, errors: [], skipped: 0 }, { workflows: null, errors: [] }, [], [], [], { procs: {} }, [], { files: [], folders: [], bad: [] }, [], { procs: Object.create(null) }, { state: 'unreadable', doc: null, why: 'team-values.json couldn\'t be read.' }];
     /* Reading for other apps (opts.explain): malformed proposals are named here, file by file. */
     var malformed = opts.explain ? [] : null;
     /* Sign-offs that won't parse or check, named (valUnread), never dropped: one still arriving could be the sign-off. */
     var valTorn = [];
     /* The folder itself must list: one that can't is unreadable, never empty. */
     var top = Object.create(null);
-    return fs.list('').then(function (items) { (items || []).forEach(function (i) { if (i && (i.kind === 'dir' || (i.kind === 'link' && i.name === 'skill-registrations'))) top[i.name] = true; }); return Promise.all([loadPeople(fs), loadDrafts(fs), loadPublications(fs, cache, deep, !!opts.explain), loadRuns(fs, cache, deep, opts.fresh, sched, opts), loadLegacy(fs),
+    return fs.list('').then(function (items) { (items || []).forEach(function (i) { if (i && (i.kind === 'dir' || (i.kind === 'link' && i.name === 'skill-registrations') || (i.kind === 'file' && i.name === PF.teamValues.FILE))) top[i.name] = true; }); return Promise.all([loadPeople(fs), loadDrafts(fs), loadPublications(fs, cache, deep, !!opts.explain), loadRuns(fs, cache, deep, opts.fresh, sched, opts), loadLegacy(fs),
       /* skill-registrations/ is listed only where it is, so an ordinary folder costs nothing more. */
       loadSkills(fs, !!opts.explain, !top['skill-registrations']),
       readPlans(fs, malformed, null, opts.contract2),
@@ -717,7 +717,10 @@ PF.repo = (function () {
       !opts.readOnly && top[PF.reports.DIR] ? loadReportNames(fs) : Promise.resolve({ files: [], folders: [], bad: [] }),
       !opts.readOnly && top[PF.reports.DDIR] ? loadReportDecisions(fs, cache, sched) : Promise.resolve([]),
       /* Stages (2.1): only where staged/ is, so a folder that never stages lists nothing more. */
-      !opts.readOnly && top.staged ? loadStaged(fs) : Promise.resolve({ procs: Object.create(null) })
+      !opts.readOnly && top.staged ? loadStaged(fs) : Promise.resolve({ procs: Object.create(null) }),
+      /* Team values (2.9): team-values.json, as readTeamValues gives it (it never fails: a failed read is "unreadable");
+         read only when the folder's listing has it, so a folder without one costs nothing more. */
+      top[PF.teamValues.FILE] ? readTeamValues(fs) : Promise.resolve(PF.teamValues.parse(null))
     ].map(function (p, i) { return p.then(null, function (e) { failed[PARTS[i]] = e && e.message || String(e); errs.push(e); return EMPTY[i]; }); })); }).then(function (r) {
       /* The folder is unreadable when every part it always has failed (proposed changes and presence are optional). */
       if (PARTS.slice(0, -OPTIONAL_PARTS).every(function (k) { return k in failed; })) throw errs[0];
@@ -737,6 +740,8 @@ PF.repo = (function () {
       (r[7].refused || []).forEach(function (x) { refused.push(x); });
       Object.keys(r[16].procs).forEach(function (k) { r[16].procs[k].refused.forEach(function (x) { refused.push(x); }); });
       r[15].forEach(function (u) { if (u._unread && u.kind === 'newer') refused.push(PF.envelope.refusal(u.dir + '/' + u.process + '/' + u._file, 'flightdeck-report-decision', u)); });
+      /* A team-values.json from a newer Flightdeck is named like any other newer file, never taken as damaged (2.9). */
+      if (r[17] && r[17].state === 'newer') refused.push(PF.envelope.refusal(PF.teamValues.FILE, 'flightdeck-team-values', { kind: 'newer', why: r[17].why, needs: r[17].needs }));
       /* skills/ or skill-registrations/ that couldn't be listed holds every name (PF.skills.held) and is still named as the part
          that failed, so a name neither listing showed is never read as having no registration. */
       if (r[5] && (r[5].unlisted || r[5].regsUnlisted) && !('skills' in failed)) failed.skills = r[5].unlisted || r[5].regsUnlisted;
@@ -763,7 +768,7 @@ PF.repo = (function () {
       var out = { people: r[0], drafts: r[1], processes: r[2], reads: reads, runsComplete: complete, legacy: r[4], skills: r[5], validations: r[9], valUnread: valUnread, corrDecisions: r[10].filter(function (d) { return !d._unread; }), corrUnread: r[10].filter(function (d) { return d._unread; }),
         fuDecisions: r[11].filter(function (d) { return !d._unread; }), fuUnread: r[11].filter(function (d) { return d._unread; }), plans: plans, stepTypes: r[7], jira: r[8],
         unreadable: unreadable, failed: failed, planUnread: planUnread, skillsSkipped: r[5].skipped || 0, readAt: new Date().toISOString(), proposed: r[12], presence: r[13],
-        reports: r[14], repDecisions: r[15].filter(function (d) { return !d._unread; }), repUnread: r[15].filter(function (d) { return d._unread; }), stages: r[16],
+        reports: r[14], repDecisions: r[15].filter(function (d) { return !d._unread; }), repUnread: r[15].filter(function (d) { return d._unread; }), stages: r[16], teamValues: r[17],
         /* Files from a newer Flightdeck this copy refused, by path, with the version each needs: shown by Folder health and
            wherever the record would have appeared, never filtered into "nothing there" (docs/design.md section 28). */
         refused: refused.sort(function (a, b) { return a.path < b.path ? -1 : a.path > b.path ? 1 : 0; }) };
@@ -1223,6 +1228,12 @@ PF.repo = (function () {
       if (why) { run._unrunnable = why; throw readOnly(why); }
       return fs.read(path);
     }).then(function (f) {
+      /* opts.prewrite(fs) (2.9): awaited after the last read and before opts.still, right before the first write. false, or
+         a rejection, writes nothing (e.dropped): a child start that passes a team value reads team-values.json here. */
+      if (typeof opts.prewrite !== 'function') return f;
+      var drop = function () { var e = new Error('dropped'); e.dropped = true; return e; };
+      return Promise.resolve().then(function () { return opts.prewrite(fs); }).then(function (ok) { if (ok === false) throw drop(); return f; }, function (err) { var e = drop(); e.cause = err; throw e; });
+    }).then(function (f) {
       var e;
       /* opts.still: asked after every read, right before the first write; false writes nothing (e.dropped). */
       if (typeof opts.still === 'function' && !opts.still()) { e = new Error('dropped'); e.dropped = true; throw e; }
@@ -1424,9 +1435,17 @@ PF.repo = (function () {
       return { latest: i.latest, all: i.all, clashes: i.clashes, broken: pubs.filter(function (x) { return !x.ok; }) };
     });
   }
+  /* team-values.json read now (2.9), for a draft that passes a team value; otherwise nothing is read. */
+  function teamValuesFor(fs, parsed) {
+    var uses = PF.map.steps(parsed).some(function (x) { return x.step.type === 'run.process' && PF.links.teams(x.step).length; });
+    return uses ? readTeamValues(fs) : Promise.resolve(null);
+  }
   function publish(fs, draftMd, opts) {
-    return childProcsFor(fs, PF.map.parse(draftMd)).then(function (kids) {
+    var parsed = PF.map.parse(draftMd);
+    return Promise.all([childProcsFor(fs, parsed), teamValuesFor(fs, parsed)]).then(function (got) {
+      var kids = got[0];
       opts = Object.assign({}, opts, { childProcs: Object.assign({}, opts.childProcs || {}, kids) });
+      if (got[1]) opts.teamValues = got[1];
       return publishWith(fs, draftMd, opts);
     });
   }
@@ -1470,9 +1489,11 @@ PF.repo = (function () {
      without a verified record is incomplete, never usable, and Folder health names it. Resolves to { folder, proposed } or
      { blockers }; rejects with the reason when a write or read-back fails. */
   function stage(fs, draftMd, opts) {
-    return childProcsFor(fs, PF.map.parse(draftMd)).then(function (kids) {
-      var o = Object.assign({}, opts, { stage: true });
+    var parsed0 = PF.map.parse(draftMd);
+    return Promise.all([childProcsFor(fs, parsed0), teamValuesFor(fs, parsed0)]).then(function (got) {
+      var kids = got[0], o = Object.assign({}, opts, { stage: true });
       o.childProcs = Object.assign({}, opts.childProcs || {}, kids);
+      if (got[1]) o.teamValues = got[1];
       var built = P.build(draftMd, o);
       if (built.blockers) return built;
       var parsed = PF.map.parse(draftMd), proc = parsed.meta.process, base = 'staged/' + proc + '/' + built.folder + '/';
@@ -1709,13 +1730,15 @@ PF.repo = (function () {
     var exact = opts && opts.expectText !== undefined;
     /* Replacing a file needs the exact text it replaces: a fingerprint alone (32-bit FNV) could match a file that changed. */
     if (expect != null && (!exact || typeof opts.expectText !== 'string')) return Promise.reject(new Error('A save needs the exact text it expects to find.'));
+    /* opts.maxBytes (team-values.json, 2.9): both reads are bounded, so a file swapped for a huge one is refused, not read. */
+    var rd = opts && opts.maxBytes ? { maxBytes: opts.maxBytes } : undefined;
     var go = function () {
-      return fs.read(path).then(function (f) {
+      return fs.read(path, rd).then(function (f) {
         var now = f ? U.hash(f.text) : null;
         if (now !== expect || (exact && (f ? f.text : null) !== opts.expectText)) return { conflict: true, theirs: f ? f.text : null, theirsHash: now };
         /* A folder can't check and write in one step, so read it back: if anything else is there now, say so rather than
            report a save that didn't stick. (Across computers, OneDrive keeps both copies of a file changed on two.) */
-        return fs.write(path, text).then(function () { return fs.read(path); }).then(function (back) {
+        return fs.write(path, text).then(function () { return fs.read(path, rd); }).then(function (back) {
           if (back && back.text === text) return { ok: true, hash: U.hash(text), text: text };
           return { conflict: true, theirs: back ? back.text : null, theirsHash: back ? U.hash(back.text) : null, afterWrite: true };
         });
@@ -1854,6 +1877,27 @@ PF.repo = (function () {
   }
   /* people.json, changed by the folder owner or backup in Settings: checked against the version they saw, like a draft. */
   function savePeople(fs, text, expect, opts) { return saveChecked(fs, PF.people.FILE, text, expect, opts); }
+  /* team-values.json (2.9): one bounded read for every caller (refresh, Settings, Folder health, publishing and staging, a
+     child's start just before it writes, and draft read), as PF.teamValues.parse gives it plus the exact text and its
+     fingerprint for a checked save. It never fails: a read that fails (or a file over TEAM_MAX) is "unreadable", never
+     taken as no file. */
+  function readTeamValues(fs) {
+    var T = PF.teamValues;
+    return Promise.resolve().then(function () { return fs.read(T.FILE, { maxBytes: T.MAX_BYTES }); }).then(function (f) {
+      var out = T.parse(f ? f.text : null);
+      out.text = f ? f.text : null; out.hash = f ? U.hash(f.text) : null;
+      return out;
+    }, function (e) { return { state: 'unreadable', doc: null, why: T.FILE + ' ' + why(e) + '.', text: null, hash: null }; });
+  }
+  /* Changed by the folder owner or backup in Settings, checked against the text they saw, like people.json; never over
+     TEAM_MAX, and both of saveChecked's reads bounded by it. */
+  function saveTeamValues(fs, text, expect, opts) {
+    var T = PF.teamValues, bytes = U.utf8Bytes(String(text));
+    if (bytes > T.MAX_BYTES) return Promise.reject(new Error('The team values are too long to save (' + bytes + ' bytes; at most ' + T.MAX_BYTES + '). Remove some, or shorten them.'));
+    var p = T.parse(text);
+    if (p.state !== 'ok') return Promise.reject(new Error(p.why));
+    return saveChecked(fs, T.FILE, text, expect, Object.assign({}, opts, { maxBytes: T.MAX_BYTES }));
+  }
   /* Setup's write test: a file only this window writes, read back, then removed. Resolves { removed } (and the path when it
      stayed; Folder health lists it later as a leftover .tmp). */
   function writeTest(fs, writer) {
@@ -2237,11 +2281,13 @@ PF.repo = (function () {
       }));
     }).then(function () {
       /* replaced-*.json beside a run (small, and only these) are read to recognize an older copy's placeholder (H10). */
-      var want = files.filter(function (f) { return f.p === 'people.json' || f.p === 'jira/workflows.json' || f.p === '.flightdeck/installed.json' || f.p === PF.contract.AGENTS || /^(proposals|validations)\/[^/]+\.json$/i.test(f.p) || /^\.flightdeck\/skills\//.test(f.p) || (/^runs\/[^/]+\/[^/]+\/replaced-[^/]+\.json$/.test(f.p) && f.s != null && f.s <= 65536); });
+      var want = files.filter(function (f) { return f.p === 'people.json' || f.p === PF.teamValues.FILE || f.p === 'jira/workflows.json' || f.p === '.flightdeck/installed.json' || f.p === PF.contract.AGENTS || /^(proposals|validations)\/[^/]+\.json$/i.test(f.p) || /^\.flightdeck\/skills\//.test(f.p) || (/^runs\/[^/]+\/[^/]+\/replaced-[^/]+\.json$/.test(f.p) && f.s != null && f.s <= 65536); });
       var texts = {}, installed = null, placeholders = [];
       return Promise.all(want.map(function (f) {
-        return go(function () { if (!alive()) throw stop(); return fs.read(f.p); }).then(function (r) {
+        return go(function () { if (!alive()) throw stop(); return f.p === PF.teamValues.FILE ? readTeamValues(fs) : fs.read(f.p); }).then(function (r) {
           if (!r) return;
+          /* team-values.json (2.9): through its one bounded reader, so a damaged, newer or oversized file is named here. */
+          if (f.p === PF.teamValues.FILE) { if (r.state !== 'ok' && r.state !== 'missing' && r.state !== 'newer') unreadable.push({ path: f.p, why: String(r.why).replace(/^team-values\.json:? ?/, '').replace(/\.$/, '') }); return; }
           if (/^\.flightdeck\/skills\//.test(f.p) || f.p === PF.contract.AGENTS) { texts[f.p] = r.text; return; }
           var o = json(r.text);
           if (f.p === '.flightdeck/installed.json') { installed = PF.contract.cleanInstalled(o); return; }
@@ -3113,5 +3159,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

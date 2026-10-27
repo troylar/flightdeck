@@ -51,6 +51,7 @@ const RAW = [
   { file: 'bin/flightdeck.js', has: 'return JSON.parse(m[1]).files', why: 'the package\'s own baselines, not a team folder' },
   { file: 'bin/flightdeck.js', has: 'try { r = JSON.parse(text); }', why: '.flightdeck/installed.json: installedNewer (the envelope) first, then every field checked' },
   { file: 'bin/flightdeck.js', has: 'value = JSON.parse(String(req.text)', why: 'a request from another app on standard input, checked by PF.requests, not a team-folder file' },
+  { file: 'src/core/teamvalues.js', has: 'try { o = JSON.parse(String(text)); }', why: 'PF.teamValues.parse itself: the envelope, then check() on every value before any field is read' },
   { file: 'src/core/publish.js', has: "info = files['publication.json'] ? JSON.parse(", why: 'P.verify itself: shape, then the envelope, before any other field' },
   { file: 'src/core/publish.js', has: "types = JSON.parse(files['types.json'])", why: 'P.verify itself: types go through T.understood' },
   { file: 'src/core/evidence.js', has: 'var n = json(l);', why: 'E.notesFile: lines kept as written for the pack page, each note then through cleanNote' },

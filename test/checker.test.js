@@ -846,7 +846,7 @@ rule('The checker reads conditions (2.1) like the app: the same parse errors, th
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-rule('The checker reads pass: (2.8) like the app: the same errors, the passed-details feature listed, a version with it complete', async () => {
+rule('The checker reads pass: (2.8) and team: (2.9) like the app: the same errors, the passed-details and team-values features listed, a version with them complete', async () => {
   const py = python();
   if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-pass-'));
@@ -870,10 +870,12 @@ rule('The checker reads pass: (2.8) like the app: the same errors, the passed-de
       await forge(2, md, (i) => { i.features = []; }),
       await forge(3, swap('environment=^env,, x=?')), await forge(4, swap('environment')), await forge(5, swap('=^env')), await forge(6, swap('a b=^env')),
       await forge(7, swap('constructor=^env')), await forge(8, swap('a=^env, a=?')), await forge(9, swap('a=')), await forge(10, swap('a=^')), await forge(11, swap('a=x^y')),
-      await forge(12, swap('a=team:base')), await forge(13, swap('a=x\u0001y')), await forge(14, swap('a=' + 'é'.repeat(121))),
-      await forge(15, swap(Array.from({ length: 41 }, (_, k) => 'd' + k + '=?').join(', '))), await forge(16, swap('a=^toString'))
+      await forge(12, swap('a=team:Bad_Name')), await forge(13, swap('a=x\u0001y')), await forge(14, swap('a=' + 'é'.repeat(121))),
+      await forge(15, swap(Array.from({ length: 41 }, (_, k) => 'd' + k + '=?').join(', '))), await forge(16, swap('a=^toString')),
+      await forge(21, swap('a=TEAM:base')), await forge(22, swap('a=team:')), await forge(23, swap('base=team:bitbucket-base-url'))
     ];
-    const good = [await forge(17, md), await forge(18, swap('a=' + 'é'.repeat(120))), await forge(19, swap('')), await forge(20, swap(' a = ^tag ,b=?'))];
+    const good = [await forge(17, md), await forge(18, swap('a=' + 'é'.repeat(120))), await forge(19, swap('')), await forge(20, swap(' a = ^tag ,b=?')),
+      await forge(24, swap('base=team:bitbucket-base-url, env=^env'), (i) => { i.features = ['passed-details', 'team-values']; })];
     const app = await repo.loadAll(d, { deep: true }), pubs = app.processes.find(p => p.process === 'x').pubs;
     const out = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
     const ver = out.publications.x;
@@ -887,6 +889,50 @@ rule('The checker reads pass: (2.8) like the app: the same errors, the passed-de
       assert.ok(pubs.find(p => p.folder === folder).ok, folder + ' runs in the app: ' + pubs.find(p => p.folder === folder).why);
       assert.strictEqual(ver.versions.find(x => x.folder === folder).status, 'complete', folder);
     }
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+rule('The checker reads team-values.json (2.9) like the app: the same state and reason for each file, too large is unreadable, and steps passing a value it lacks are named', async () => {
+  const py = python();
+  if (!py) { console.log('  (skipped: no Python on this computer)'); return; }
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-team-'));
+  try {
+    const d = new DiskFS(root), T = PF.teamValues, doc = (values, extra) => JSON.stringify(Object.assign({ format: T.FORMAT, values }, extra || {}));
+    const check = () => JSON.parse(cp.execFileSync(py, ['-I', CHECKER, root], { encoding: 'utf8' }));
+    await d.write('people.json', JSON.stringify(people));
+    const specimens = [
+      ['ok', doc({ 'bitbucket-base-url': { value: 'https://b.example.com', about: 'Base' } })], ['bad JSON', '{'], ['no format', JSON.stringify({ values: {} })],
+      ['another family', JSON.stringify({ format: 'flightdeck-people/1', values: {} })], ['newer major', JSON.stringify({ format: 'flightdeck-team-values/9', values: {} })],
+      ['newer feature', doc({}, { features: ['folder-values'] })], ['values a list', doc([])], ['bad name', doc({ Bad: { value: 'x' } })],
+      ['proto name', doc({ constructor: { value: 'x' } })], ['name ends in a newline', doc({ 'a\n': { value: 'x' } })], ['not an entry', doc({ a: 'x' })], ['extra key', doc({ a: { value: 'x', secret: 'y' } })], ['extra top key', doc({ a: { value: 'x' } }, { extra: 1 })],
+      ['empty value', doc({ a: { value: '' } })], ['outer spaces', doc({ a: { value: ' x' } })], ['control', doc({ a: { value: 'x\u0001' } })],
+      ['long value', doc({ a: { value: 'é'.repeat(121) } })], ['long about', doc({ a: { value: 'x', about: 'é'.repeat(81) } })],
+      ['too many', doc(Object.fromEntries(Array.from({ length: 101 }, (_, k) => ['v' + k, { value: 'x' }])))]
+    ];
+    for (const [label, text] of specimens) {
+      fs.writeFileSync(path.join(root, T.FILE), text);
+      const mine = check().teamValues, theirs = T.parse(text);
+      assert.strictEqual(mine.state, theirs.state, label + ': ' + JSON.stringify(mine) + ' vs ' + JSON.stringify(theirs));
+      assert.strictEqual(mine.why, theirs.why, label + ': same reason');
+      assert.strictEqual(mine.readOnly, theirs.readOnly, label + ': same read-only reason');
+      if (theirs.state !== 'ok') assert.ok(check().teamFiles.problems.some(p => p.file === T.FILE && p.problem === theirs.why), label + ': named as a problem');
+    }
+    fs.writeFileSync(path.join(root, T.FILE), doc({ a: { value: 'x' } }) + ' '.repeat(T.MAX_BYTES));
+    assert.strictEqual(check().teamValues.state, 'unreadable', 'too large');
+    assert.strictEqual((await repo.readTeamValues(new (class extends DiskFS { read(rel, o) { return o && o.maxBytes && fs.statSync(this.p(rel)).size > o.maxBytes ? Promise.reject(new Error('too large')) : super.read(rel); } })(root))).state, 'unreadable', 'the app too');
+    // Grown between its size and its read: a valid start past the limit, then more, is never read as the shorter file.
+    fs.writeFileSync(path.join(root, T.FILE), doc({ a: { value: 'x' } }) + ' '.repeat(T.MAX_BYTES) + 'junk');
+    const grown = cp.execFileSync(py, ['-I', '-c', 'import sys, os, json; sys.path.insert(0, sys.argv[1]); import check_folder as c; os.path.getsize = lambda p: 10; print(json.dumps(c.team_values(sys.argv[2])))', path.dirname(CHECKER), root], { encoding: 'utf8' });
+    assert.strictEqual(JSON.parse(grown).state, 'unreadable', grown);
+    fs.unlinkSync(path.join(root, T.FILE));
+    assert.strictEqual(check().teamValues.state, 'missing');
+    await d.write(T.FILE, doc({ 'bitbucket-base-url': { value: 'https://b.example.com' } }));
+    const md = '---\nprocess: x\ntitle: X\ncontext: env\n---\n## Ship {#ship}\n- [ ] {run.process} Deploy {#dep}\n  process: deploy\n  pass: base=team:bitbucket-base-url, env=^env\n\n## Gate: Ready {#ready}\n';
+    const v = await repo.publish(d, md, { people, ...EX, by: 'person-avery', changes: 'x', existing: [], now: NOW, app: '2.9.0' });
+    assert.ok(!v.blockers, String(v.blockers));
+    assert.deepStrictEqual(check().teamMissing, [], 'set: nothing missing');
+    await d.write(T.FILE, doc({}));
+    assert.deepStrictEqual(check().teamMissing, [{ process: 'x', step: 'dep', names: ['bitbucket-base-url'] }], 'removed: the step is named');
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 

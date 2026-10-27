@@ -220,5 +220,48 @@
     return h + '<details class="pp-promise"><summary class="small">Are roles a security control?</summary><p class="small">' + esc(PROMISE) + '</p></details></section>';
   }
 
-  V.setup = setup; V.setupHome = homeCard; V.peoplePanel = peoplePanel; V.PROMISE = PROMISE;
+  /* Settings, Team values (2.9): team-values.json, changed by the folder owner and backup, one change at a time to exactly the
+     file on screen (like people.json); read-only for everyone else, and for a file that can't be read or has a key this copy
+     doesn't know. */
+  var TEAM_WARN = 'Don\'t store passwords or tokens here: every teammate and every run that uses it can read it.';
+  function teamValuesPanel(ctx) {
+    var st = ctx.state, T = PF.teamValues, tv = ctx.data.teamValues || T.parse(null), people = ctx.data.people, r = PP.roles(people);
+    var usable = tv.state === 'ok' || tv.state === 'missing', values = usable && tv.doc ? tv.doc.values : {}, names = Object.keys(values).sort();
+    var can = PP.canManage(people, st.me) && usable && !tv.readOnly, edit = st.teamEdit, pick = st.pick && st.pick.kind === 'team-remove' ? st.pick.id : null;
+    var h = '<section class="panel" aria-labelledby="set-team"><h2 id="set-team">Team values · ' + names.length + '</h2>' +
+      '<p class="small">Shared settings of this team folder, like a Bitbucket base URL. A linked step passes one to its run with <code>pass: name=team:value-name</code>; it\'s read when that run starts.</p>' +
+      '<p class="small tv-warn"><b>' + esc(TEAM_WARN) + '</b></p>';
+    if (st.teamErr) h += '<div class="notice warn" role="alert"><span>' + esc(st.teamErr) + '</span><button class="mini" data-act="team-err-dismiss">Dismiss</button></div>';
+    if (!usable) h += '<div class="notice warn" role="status"><span>' + esc(tv.why || T.FILE + ' can\'t be read.') + ' Nothing here can be changed until it reads again.</span></div>';
+    else if (tv.readOnly) h += '<div class="notice warn" role="status"><span>' + esc(tv.readOnly) + '</span></div>';
+    h += names.length ? '<ul class="vlist tv-list">' + names.map(function (n) {
+      var e = values[n], acts = '';
+      if (can && edit && edit.name === n) {
+        var f1 = ferr(st, 'tv-e-value'), f2 = ferr(st, 'tv-e-about');
+        return '<li><form id="team-edit-form" class="tv-edit" data-scope="team-edit" novalidate><code>' + esc(n) + '</code><div class="grid2">' +
+          '<label class="field" for="tv-e-value">Value<input id="tv-e-value" data-bound maxlength="' + T.VALUE_MAX + '" value="' + esc(edit.value) + '"' + f1.attrs + '></label>' + f1.html +
+          '<label class="field" for="tv-e-about">What it\'s for (optional)<input id="tv-e-about" data-bound maxlength="' + T.ABOUT_MAX + '" value="' + esc(edit.about) + '"' + f2.attrs + '></label>' + f2.html + '</div>' +
+          '<div class="row"><button class="btn go" type="submit"' + (st.teamSaving ? ' disabled' : '') + '>Save</button><button class="mini" type="button" data-act="team-cancel">Cancel</button></div></form></li>';
+      }
+      if (can) {
+        if (pick === n) acts = '<span class="row" data-scope="team-remove"><span class="small">Remove ' + esc(n) + '? Steps that pass it ask for it when their run starts.</span><button class="btn stop" data-act="team-remove" data-id="' + esc(n) + '"' + (st.teamSaving ? ' disabled' : '') + '>Remove</button><button class="mini" data-act="unpick">Cancel</button></span>';
+        else acts = '<button class="mini" data-act="team-edit" data-id="' + esc(n) + '">Edit</button><button class="mini" data-act="pick" data-kind="team-remove" data-id="' + esc(n) + '">Remove</button>';
+      }
+      return '<li><span class="tv-who"><code>' + esc(n) + '</code>' + (e.about ? ' <span class="small">' + esc(e.about) + '</span>' : '') + '<br><span class="tv-val">' + esc(e.value) + '</span></span>' + (acts ? '<span class="row">' + acts + '</span>' : '') + '</li>';
+    }).join('') + '</ul>' : '<p class="small">None yet.</p>';
+    if (can) {
+      var add = st.teamAdd || {}, a1 = ferr(st, 'tv-name'), a2 = ferr(st, 'tv-value'), a3 = ferr(st, 'tv-about');
+      h += '<form id="team-add-form" class="tv-add" data-scope="team-add" novalidate><h3>Add a team value</h3><div class="grid2">' +
+        '<label class="field" for="tv-name">Name<input id="tv-name" data-bound maxlength="40" placeholder="bitbucket-base-url" value="' + esc(add.name || '') + '"' + a1.attrs + '></label>' + a1.html +
+        '<label class="field" for="tv-value">Value<input id="tv-value" data-bound maxlength="' + T.VALUE_MAX + '" value="' + esc(add.value || '') + '"' + a2.attrs + '></label>' + a2.html +
+        '<label class="field" for="tv-about">What it\'s for (optional)<input id="tv-about" data-bound maxlength="' + T.ABOUT_MAX + '" value="' + esc(add.about || '') + '"' + a3.attrs + '></label>' + a3.html + '</div>' +
+        '<div class="row between"><span class="small">Names use lowercase letters, digits and -. A name never changes once steps use it.</span><button class="btn" type="submit"' + (st.teamSaving ? ' disabled' : '') + '>' + I('plus') + 'Add a team value</button></div></form>';
+    } else if (usable && !tv.readOnly) {
+      if (r.owner) h += '<p class="small">' + esc(r.owner.name) + (r.backup ? ' (folder owner) and ' + esc(r.backup.name) + ' (backup owner) change' : ', the folder owner, changes') + ' these. Ask them to add one.</p>';
+      else h += '<p class="small">The folder owner changes these here. To change them now, edit <code>' + esc(T.FILE) + '</code> in the team folder.</p>';
+    }
+    return h + '</section>';
+  }
+
+  V.setup = setup; V.setupHome = homeCard; V.peoplePanel = peoplePanel; V.PROMISE = PROMISE; V.teamValuesPanel = teamValuesPanel; V.TEAM_WARN = TEAM_WARN;
 })();

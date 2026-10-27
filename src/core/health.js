@@ -117,6 +117,19 @@ PF.health = (function () {
           paths: ['maps/drafts/' + p.id + '.md'], action: { act: 'open-process', id: p.id, label: 'Open the process' } });
       });
     });
+    /* Team values (2.9): a published checklist that passes a team value the folder no longer has. New runs ask for it when
+       the child starts; the checklist or Settings fixes it. A file that can't be read is named with the unreadable files. */
+    var tvs = d.teamValues;
+    if (tvs && (tvs.state === 'ok' || tvs.state === 'missing')) procs.forEach(function (p) {
+      if (!p || !p.latest || !p.latest.map) return;
+      PF.map.steps(p.latest.map).forEach(function (x) {
+        if (x.step.type !== 'run.process') return;
+        var gone = PF.links.teams(x.step).filter(function (n) { return PF.teamValues.lookup(tvs, n).missing; });
+        if (gone.length) add({ id: 'team-missing:' + p.id + ':' + x.step.id, severity: 'warn', area: 'Checklists', title: 'A linked step passes a team value that isn\'t set',
+          detail: (p.latest.map.meta.title || p.id) + ' step "' + x.step.text.slice(0, 40) + '" passes the team value ' + gone.map(function (n) { return '"' + n + '"'; }).join(', ') + ', which isn\'t in team-values.json. New runs ask for it when the child starts. Add it in Settings › Team values, or change the checklist.',
+          paths: [PF.teamValues.FILE, 'maps/drafts/' + p.id + '.md'], action: { act: 'open-process', id: p.id, label: 'Open the process' } });
+      });
+    });
     if (!failed.length && !otherUnread.length && !runUnread.length && !vals.length && !plansU.length && !plansN.length) ok('readable', scan ? 'Every file Flightdeck uses can be read (' + plural(scan.files, 'file') + ').' : 'Every run file can be read.');
 
     /* ---- plans started whose run isn't in the folder (2.1.1) ---- */

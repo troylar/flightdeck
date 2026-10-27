@@ -116,13 +116,15 @@
 
   /* A step that starts another process: the linked child run, or the button that starts it. What starting it passes on is
      worked out the same way the start does. */
-  function passesOn(r, s, pub) {
+  function passesOn(ctx, r, s, pub) {
     var problem = R.childProblem(r, s, pub.map.meta.context);
     if (problem) return problem;
     /* 2.8: a pass: step says where each value comes from and what the child asks when it starts. */
     if (PF.links.has(s)) {
       var rows = PF.links.rows(R.effStep(r, s), Object.keys(r.details), pub.map).rows, dv = R.childDetails(r, s, pub.map), setBy = M.setBy(pub.map);
-      var gave = rows.filter(function (x) { return x.source !== 'ask'; }).map(function (x) { var v = Object.prototype.hasOwnProperty.call(dv, x.name) ? dv[x.name] : ''; return x.name + (v ? ' ' + v : ' (empty)') + (x.source === 'value' ? ' (fixed)' : x.from !== x.name ? ' (from ' + x.from + ')' : ''); });
+      /* A team value (2.9) is named with what the folder has now; it's read again when the run starts. */
+      var team = function (x) { var l = PF.teamValues.lookup(ctx.data.teamValues, x.team); return x.name + (l.value != null ? ' ' + l.value : l.missing ? ' (not set; asked when it starts)' : ' (can\'t be read)') + ' (team value ' + x.team + ')'; };
+      var gave = rows.filter(function (x) { return x.source !== 'ask'; }).map(function (x) { if (x.source === 'team') return team(x); var v = Object.prototype.hasOwnProperty.call(dv, x.name) ? dv[x.name] : ''; return x.name + (v ? ' ' + v : ' (empty)') + (x.source === 'value' ? ' (fixed)' : x.from !== x.name ? ' (from ' + x.from + ')' : ''); });
       var asks = rows.filter(function (x) { return x.source === 'ask' && !Object.prototype.hasOwnProperty.call(setBy, x.name); }).map(function (x) { return x.name; });
       return (gave.length ? 'Passes on ' + gave.join(', ') : 'Passes on no details') + (asks.length ? '; asks for ' + asks.join(', ') + ' when it starts' : '');
     }
@@ -150,24 +152,24 @@
     var offer = function (why) { return '<div class="childbox">' + I('nest') + '<span>' + esc(why) + '</span>' + (canStart || (a && a.s === 'blocked') ? '<button class="btn" data-act="continue-two" data-id="' + esc(s.id) + '">Start it as a Flightdeck 2.0 run</button>' : '') + '</div>'; };
     /* A child run that names this step as its parent but isn't the linked one (its link didn't land): offer to link it,
        unless the linked child is still current. */
-    var orphan = (ctx.data.runs || []).filter(function (x) { return x.parent && x.parent.process === r.process && x.parent.id === r.id && x.parent.step === s.id && !(child && child.process === x.process && child.id === x.id) && !(x.ended && (R.childVerdict(r, s, { child: { process: x.process, id: x.id, inputs: x.parent.inputs || {} } }, x, procOf) || {}).s !== 'done') && R.childCurrent(r, s, { child: { process: x.process, inputs: x.parent.inputs || {} } }); })
+    var orphan = (ctx.data.runs || []).filter(function (x) { return x.parent && x.parent.process === r.process && x.parent.id === r.id && x.parent.step === s.id && !(child && child.process === x.process && child.id === x.id) && !(x.ended && (R.childVerdict(r, s, { child: { process: x.process, id: x.id, inputs: x.parent.inputs || {} } }, x, procOf, { noTeam: true }) || {}).s !== 'done') && R.childCurrent(r, s, { child: { process: x.process, inputs: x.parent.inputs || {} } }); })
       .filter(function (x) { return !R.childHeld(r, s.id, x, procOf); })
       .sort(function (p1, p2) { return p1.created < p2.created ? 1 : -1; })[0];
     if (orphan && canStart && !(child && R.childCurrent(r, s, a) && !child.failed)) return '<div class="childbox">' + I('nest') + '<span>"' + esc(orphan.title) + '" was started for this step but isn\'t linked.</span><button class="btn" data-act="link-child" data-id="' + esc(s.id) + '" data-child="' + esc(orphan.process + '/' + orphan.id) + '">Link it</button></div>';
     if (child) {
       /* The same verdict that refuses settlement (R.childHeld): a child it names can't stand for the step, current or not. */
       var off = cr ? R.childHeld(r, s.id, cr, procOf) : '';
-      var state = cr ? (cr.ended ? K.outcomeWord(cr.ended.outcome) : K.headline(cr, R.mapOf(cr)).text) : 'not visible in this folder yet', fresh = R.childCurrent(r, s, a) && !child.failed && !off;
+      var state = cr ? (cr.ended ? K.outcomeWord(cr.ended.outcome) : K.headline(cr, R.mapOf(cr)).text) : 'not visible in this folder yet', fresh = R.childCurrent(r, s, a) && !child.failed && !off, tu = R.teamUnrecorded(r, s, a);
       if (!two && off) return offer(PF.pins.legacyWhy(target.pub || { map: { meta: { title: cr.title } }, info: { process: cr.process, version: cr.version } }, r));
       var again = !fresh && canStart && target.pub && !target.legacy ? '<button class="btn" data-act="start-child" data-id="' + esc(s.id) + '">Start a new ' + esc(target.pub.map.meta.title) + ' run</button>' : !fresh && canStart && target.legacy ? '<span class="small">' + esc(target.why) + '</span><button class="btn" data-act="continue-two" data-id="' + esc(s.id) + '">Start it as a Flightdeck 2.0 run</button>' : '';
-      return '<div class="childbox">' + I('nest') + '<span>Child run: <b>' + esc(cr ? cr.title : child.process) + '</b> · ' + esc(state) + (fresh ? '' : off ? '. ' + esc(off) : child.failed ? '. It didn\'t complete as started, so it doesn\'t count for this step.' : '. The details it was started for have changed, so it no longer counts for this step.') + '</span>' + (cr ? '<button class="mini" data-act="open-run" data-id="' + esc(key) + '">Open run</button>' : '') + again + '</div>';
+      return '<div class="childbox">' + I('nest') + '<span>Child run: <b>' + esc(cr ? cr.title : child.process) + '</b> · ' + esc(state) + (fresh ? (tu ? '. ' + esc(tu) : '') : off ? '. ' + esc(off) : child.failed ? '. It didn\'t complete as started, so it doesn\'t count for this step.' : '. The details it was started for have changed, so it no longer counts for this step.') + '</span>' + (cr ? '<button class="mini" data-act="open-run" data-id="' + esc(key) + '">Open run</button>' : '') + again + '</div>';
     }
     var pub = target.pub;
     if (a && (a.s === 'done' || a.s === 'na')) return '';
     if (target.legacy) return offer(target.why);
     if (!canStart) return '<div class="childbox">' + I('nest') + '<span>Starts a <b>' + esc(proc || '?') + '</b> run when this step is reached.</span>' + pinWords + '</div>';
     if (target.why) return '<div class="childbox">' + I('nest') + '<span class="small">' + esc(target.why) + '</span></div>';
-    return '<div class="childbox">' + I('nest') + '<button class="btn go" data-act="start-child" data-id="' + esc(s.id) + '">Start the ' + esc(pub.map.meta.title) + ' run</button><span class="small">' + esc(passesOn(r, s, pub)) + '. This step is checked when it completes.</span>' + pinWords + '</div>';
+    return '<div class="childbox">' + I('nest') + '<button class="btn go" data-act="start-child" data-id="' + esc(s.id) + '">Start the ' + esc(pub.map.meta.title) + ' run</button><span class="small">' + esc(passesOn(ctx, r, s, pub)) + '. This step is checked when it completes.</span>' + pinWords + '</div>';
   }
 
   /* A phase's note and screenshots (2.0) at the top of the phase, folded with its steps once it's done. Thumbnails load

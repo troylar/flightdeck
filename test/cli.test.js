@@ -1775,6 +1775,26 @@ rule('draft read --json: a linked child with a good v1 and a torn v2 makes the a
   assert.ok(r.json.problems.some(p => p.path === 'publications/release/v2-dddddddd/' && p.kind === 'malformed'), JSON.stringify(r.json.problems));
 });
 
+rule('draft read --json (2.9): a team: name team-values.json lacks is a blocker; a damaged or unreadable file makes the answer partial', async () => {
+  const ship = ['---', 'process: ship', 'title: Ship', 'owner: person-avery', 'context: commit', '---', '', '## Ship · READ-DO {#s}', '- [ ] {run.process} Release it {#rel}', '  process: release', '  pass: commit=team:main-commit', ''].join('\n');
+  const tv = (values) => JSON.stringify({ format: 'flightdeck-team-values/1', values });
+  let dir = await readFolder(f => { f['maps/drafts/ship.md'] = ship; f['team-values.json'] = tv({}); });
+  let r = draftCli('read', dir, 'ship', '--json');
+  assert.strictEqual(r.code, 0, r.out); assert.ok(r.json.checks.blockers.some(b => /"main-commit" isn't a team value in this folder/.test(b)), JSON.stringify(r.json.checks));
+  dir = await readFolder(f => { f['maps/drafts/ship.md'] = ship; f['team-values.json'] = tv({ 'main-commit': { value: 'abc123' } }); });
+  r = draftCli('read', dir, 'ship', '--json');
+  assert.ok(!r.json.checks.blockers.some(b => /team value/.test(b)) && r.json.complete === true, r.out);
+  dir = await readFolder(f => { f['maps/drafts/ship.md'] = ship; f['team-values.json'] = '{'; });
+  r = draftCli('read', dir, 'ship', '--json');
+  assert.ok(r.json.complete === false && r.code !== 0 && r.json.problems.some(p => p.path === 'team-values.json' && p.kind === 'malformed'), r.out);
+  dir = await readFolder(f => { f['maps/drafts/ship.md'] = ship; f['team-values.json'] = tv({}); });
+  fs.chmodSync(path.join(dir, 'team-values.json'), 0o000);
+  try {
+    r = draftCli('read', dir, 'ship', '--json');
+    assert.ok(r.json.complete === false && r.code !== 0 && r.json.problems.some(p => p.path === 'team-values.json'), r.out);
+  } finally { fs.chmodSync(path.join(dir, 'team-values.json'), 0o644); }
+});
+
 rule('draft read --or-latest with no draft continues from the published version; a proposal-only process is found too', async () => {
   const dir = await readFolder(f => { delete f['maps/drafts/release.md']; });
   const j = draftCli('read', dir, 'release', '--or-latest', '--json').json;

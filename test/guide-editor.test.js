@@ -485,6 +485,34 @@ rule('Editor (2.8): a linked step picks its process from a list, and each of the
   assert.ok(!/id="ob-fld-process"/.test(h) && !/id="ob-fld-pass"/.test(h), 'no raw process: or pass: box under the section');
 });
 
+rule('Editor (2.9): "A team value" lists team-values.json with what each is for; choosing one writes team:, and a name not in the folder is flagged', async () => {
+  const URL = 'https://bitbucket.example.com/projects/PAY';
+  const app = await editorOn(md(step('run.process', 's', 'process: check-in')), 's');
+  await app.fs.write('team-values.json', JSON.stringify({ format: 'flightdeck-team-values/1', values: { 'bitbucket-base-url': { value: URL, about: 'Bitbucket <base> URL' } } }));
+  app.focus(); await app.tick(80);
+  let h = formOf(app);
+  assert.ok(/<optgroup label="A team value"><option value="team:bitbucket-base-url">Team value bitbucket-base-url: Bitbucket &lt;base&gt; URL<\/option><\/optgroup>/.test(h), 'listed, escaped');
+  app.select('ob-link-src-commit', 'team:bitbucket-base-url'); await app.tick();
+  let t = await textOf(app);
+  assert.ok(/  process: check-in\n  pass: commit=team:bitbucket-base-url\n/.test(t), t);
+  h = formOf(app);
+  assert.ok(/<option value="team:bitbucket-base-url" selected>/.test(h) && h.includes('Now <code>' + URL + '</code>'), 'chosen, with what it is now');
+  assert.ok(/commit ← team value bitbucket-base-url/.test(app.html()), 'the step summary names it');
+  app.select('ob-link-src-commit', '^tag'); await app.tick();
+  t = await textOf(app);
+  assert.ok(/  pass: commit=\^tag\n/.test(t), 'and back to a detail: ' + t);
+  const gone = await editorOn(md(step('run.process', 's', 'process: check-in', 'pass: commit=team:gone')), 's');
+  h = formOf(gone);
+  assert.ok(/<option value="team:gone" selected>Team value gone \(not in this folder\)<\/option>/.test(h) && /gone isn&#39;t a team value in this folder|gone isn't a team value in this folder/.test(h), 'flagged, never dropped');
+});
+
+rule('Editor (2.9): Checks name a team value the folder doesn\'t have as a thing to fix, as publishing would', async () => {
+  const app = await editorOn(md(step('run.process', 's', 'process: check-in', 'pass: commit=team:gone')), 's');
+  const h = app.html();
+  assert.ok(/\d+ things? to fix before publishing/.test(h), 'counted as a thing to fix');
+  assert.ok(/&quot;gone&quot; isn&#39;t a team value in this folder|"gone" isn't a team value in this folder/.test(h), 'and named in Checks');
+});
+
 rule('Editor (2.8): a linked step without an ID is told apart from the step without one before it', async () => {
   const text = HEAD + '## Build · READ-DO {#build}\n- [ ] {confirm} First thing\n- [ ] {run.process} Run the check-in\n  process: check-in\n  pass: commit=abc123\n\n';
   const app = await editorOn(text, '#1');

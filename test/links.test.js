@@ -29,7 +29,10 @@ rule('parse: refusals name the entry', () => {
     'a=^': /isn't a run detail/,
     'a=^b c': /can't hold \^/,
     'a=x^y': /can't hold \^/,
-    'a=team:base': /Team values aren't available yet/,
+    'a=team:': /names no team value/,
+    'a=team:Bad_Name': /isn't a team value name/,
+    'a=TEAM:base': /team: in lowercase/,
+    'a=team:base x': /isn't a team value name/,
     'a=line\u0001break': /control character/
   };
   Object.keys(bad).forEach(t => { const p = L.parse(t); assert.ok(p.errors.some(e => bad[t].test(e)), t + ': ' + JSON.stringify(p.errors)); });
@@ -398,6 +401,58 @@ rule('io: a step uses its refs, ties, conditions and what it passes; a linked st
   same(c.passes.map(r => r.name + ':' + r.source), ['environment:detail', 'region:detail', 'ticket:detail', 'notify:ask']);
   const d = L.io(M.parse(md.replace('  pass: environment=^env, notify=?', '  carry: ticket\n  pass: environment=^env')), M.findStep(M.parse(md.replace('  pass: environment=^env, notify=?', '  carry: ticket\n  pass: environment=^env')), 'dep').step, null);
   same(d.uses.map(u => u.name), ['region', 'ticket', 'env']); assert.ok(!d.shared, 'explicit carry: lists everything');
+});
+
+rule('team: (2.9): a team value as a source; rows, entryText and write keep it, and nothing turns it into ^name', () => {
+  const p = L.parse('base=team:bitbucket-base-url, env=^env');
+  same(p.errors, []);
+  same(p.entries[0], { name: 'base', source: 'team', team: 'bitbucket-base-url' });
+  same(L.entryText(p.entries[0]), 'base=team:bitbucket-base-url');
+  ['notify=?', 'region=us-east-1', 'env=^env', 'base=team:bitbucket-base-url'].forEach(t => same(L.entryText(L.parse(t).entries[0]), t, t));
+  const c = child('base, env, notify');
+  same(shape(L.rows(step({ pass: 'base=team:bitbucket-base-url' }), PARENT, c)).slice(0, 1), ['base<team']);
+  same(L.rows(step({ pass: 'base=team:bitbucket-base-url' }), PARENT, c).rows[0].team, 'bitbucket-base-url');
+  const rows = L.rows(step({ pass: 'base=team:bitbucket-base-url' }), PARENT, c).rows;
+  same(L.write(rows, step({ pass: 'base=team:bitbucket-base-url' }), PARENT, c), { carry: null, pass: 'base=team:bitbucket-base-url' });
+  const asked = rows.map(r => r.name === 'notify' ? Object.assign({}, r, { source: 'ask', explicit: true }) : r);
+  same(L.write(asked, step({ pass: 'base=team:bitbucket-base-url' }), PARENT, c).pass, 'base=team:bitbucket-base-url, notify=?');
+  same(L.values({ details: { env: 'prod' } }, step({ pass: 'base=team:bitbucket-base-url' }), c), { env: 'prod' }, 'the start form supplies team values, not values()');
+  same(L.inputs({ details: { env: 'prod' } }, step({ pass: 'base=team:bitbucket-base-url' }), PARENT, c), { env: 'prod' }, 'never in the snapshot');
+  same(L.teams(step({ pass: 'base=team:bitbucket-base-url, x=team:other' })), ['bitbucket-base-url', 'other']);
+});
+
+rule('team: a fixed value can\'t start with team: (choose A team value instead)', () => {
+  assert.ok(/team value/.test(L.valueProblem('team:base')), L.valueProblem('team:base'));
+});
+
+rule('format (2.9): team-values with a team: source, always beside passed-details', () => {
+  same(M.features(M.parse(PMAP(['  pass: environment=team:prod-env'], 'commit, env, region, tag'))), ['passed-details', 'team-values']);
+  same(M.features(M.parse(PMAP(['  pass: environment=^env'], 'commit, env, region, tag'))), ['passed-details']);
+  assert.ok(PF.envelope.FROZEN.indexOf('team-values') > PF.envelope.FROZEN.indexOf('passed-details'));
+  same(PF.envelope.SINCE['team-values'], '2.9');
+  ['flightdeck-checklist', 'preflight-publication'].forEach(f => assert.ok(PF.envelope.FAMILIES[f].majors[2].indexOf('team-values') >= 0, f));
+  assert.ok(PF.envelope.FAMILIES['preflight-run'].majors[3].indexOf('team-values') >= 0);
+  assert.ok(/team value/.test(PF.publish.FEATURE_NAMES['team-values']));
+});
+
+rule('checks (2.9): a team: name the folder lacks, or a team-values.json that can\'t be trusted, stops publishing; without team values given, nothing is checked', () => {
+  const T = PF.teamValues, tv = (values) => T.parse(JSON.stringify({ format: T.FORMAT, values }));
+  const got = { map: KID, title: 'Deploy', version: 4, latest: true };
+  const team = (lines, data) => M.check(M.parse(PMAP(lines)), { children: kids(got), teamValues: data });
+  let c = team(['  pass: environment=team:prod-env'], tv({ 'prod-env': { value: 'production' } }));
+  assert.ok(!c.blockers.length, c.blockers.join('\n'));
+  c = team(['  pass: environment=team:prod-env'], tv({}));
+  assert.ok(has(c.blockers, /"prod-env" isn't a team value in this folder\. Add it in Settings › Team values, or pass something else\./), c.blockers.join('\n'));
+  c = team(['  pass: environment=team:prod-env'], T.parse(null));
+  assert.ok(has(c.blockers, /"prod-env" isn't a team value in this folder/), 'no file: no team values');
+  c = team(['  pass: environment=team:prod-env'], T.parse('{'));
+  assert.ok(has(c.blockers, /team-values\.json isn't valid JSON\. So the team value "prod-env" can't be checked\./), c.blockers.join('\n'));
+  c = team(['  pass: environment=team:prod-env'], { state: 'unreadable', why: 'team-values.json couldn\'t be read.' });
+  assert.ok(has(c.blockers, /couldn't be read\. So the team value "prod-env" can't be checked/), c.blockers.join('\n'));
+  c = team(['  pass: environment=team:prod-env'], undefined);
+  assert.ok(!has(c.blockers, /team value/), 'no team values given (an older caller): not checked here');
+  c = team(['  pass: replicas=team:size'], tv({ size: { value: 'about 40' } }));
+  assert.ok(has(c.suggestions, /team value "size" goes into Deploy's latest version \(v4\)'s \^replicas, which is a number/), c.suggestions.join('\n'));
 });
 
 run();
