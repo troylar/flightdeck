@@ -4056,12 +4056,13 @@
       delete fixed[key + ':' + name];
       if (value === '=') { if (r.source === 'value') return null; fixed[key + ':' + name] = true; return null; }
       if (value === '-') return null;
-      if (value === '?') { r.source = 'ask'; r.explicit = true; delete r.from; delete r.value; }
-      else { r.source = 'detail'; r.from = value.replace(/^\^/, ''); delete r.value; }
+      if (value === '?') { r.source = 'ask'; r.explicit = true; delete r.from; delete r.value; delete r.team; }
+      else if (/^team:/.test(value)) { if (!PF.teamValues.NAME.test(value.slice(5))) return null; r.source = 'team'; r.team = value.slice(5); delete r.from; delete r.value; }
+      else { r.source = 'detail'; r.from = value.replace(/^\^/, ''); delete r.value; delete r.team; }
     } else {
       var v = String(value || '').trim(); if (!v) return null;
       var bad = PF.links.valueProblem(v); if (bad) return { error: bad };
-      r.source = 'value'; r.value = v; delete r.from; delete fixed[key + ':' + name];
+      r.source = 'value'; r.value = v; delete r.from; delete r.team; delete fixed[key + ':' + name];
     }
     var w = PF.links.write(rows, st, map.meta.context, kid.map);
     return { carry: w.carry, pass: w.pass };
