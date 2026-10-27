@@ -56,7 +56,7 @@ rule('This version publishes a checklist that passes a team value as /2 with tea
 
 TAGS.forEach((t) => rule(t.tag + (t.supported ? '' : ' (below the floor)') + ': refuses the team-value version and its run by name and writes nothing; still records the run/2 on the /1 version', async () => {
   const OLD = H.loadCopy(t.tag); if (!OLD) return;
-  const { files, folder: f2 } = await folder(), m = H.memFolder(OLD, files);
+  const { files, folder: f2 } = await folder(), m = H.memFolder(OLD, files), untouched = snap(m);
   const d = await OLD.repo.loadAll(m, { deep: true }), proc = d.processes.find(p => (p.process || p.id) === 'backup') || d.processes[0];
   const runs = Object.fromEntries(d.runs.map(r => [r.id, r]));
   if (below(t.version)) {
@@ -67,6 +67,10 @@ TAGS.forEach((t) => rule(t.tag + (t.supported ? '' : ' (below the floor)') + ': 
   assert.strictEqual(proc.index.latest.info.version, 1, 'the /1 version stays the latest');
   assert.ok(v2 && !v2.ok && v2.unusable, 'the team-value version is unusable: ' + JSON.stringify(v2 && v2.why));
   assert.ok(n && n._unrunnable && !Object.keys(n.steps).length && n.title === 'Backup check with follow-up', 'its run: name only, read-only');
+  const named = /Flightdeck 2\.9|newer Flightdeck|Update Flightdeck|team-values/;
+  assert.ok(named.test(String(v2.why)), t.tag + ': the version says what it needs: ' + v2.why);
+  assert.ok(named.test(String(n._unrunnable)), t.tag + ': the run says what it needs: ' + n._unrunnable);
+  assert.strictEqual(snap(m), untouched, 'reading it wrote nothing');
   const before = snap(m);
   await assert.rejects(() => OLD.repo.saveRun(m, n, 'w-avery'));
   assert.strictEqual(snap(m), before, 'nothing written');

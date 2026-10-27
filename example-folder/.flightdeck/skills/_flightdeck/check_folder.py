@@ -642,7 +642,7 @@ def js_concat(o, key):
 
 PASS_NAME = re.compile(r"^[A-Za-z0-9_-]{1,60}$")
 PASS_DETAIL = re.compile(r"^\^([A-Za-z0-9_-]+)$")
-TEAM_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
+TEAM_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}\Z")
 JS_PROTO = {"__proto__", "constructor", "hasOwnProperty", "isPrototypeOf", "propertyIsEnumerable", "toLocaleString", "toString", "valueOf",
             "__defineGetter__", "__defineSetter__", "__lookupGetter__", "__lookupSetter__"}
 

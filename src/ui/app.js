@@ -2133,8 +2133,9 @@
     launchChild(prep, {}, null);
   }
   var childToken = 0;
-  /* Counts navigation (any view, a different step) and every form opened or closed: a refused start reopens its form only
-     when it hasn't moved since (childRetry). */
+  /* Counts what the person did since a start was submitted: every click on a control but Refresh, every key, navigation and
+     every form opened or closed. A refused start reopens its form only when nothing happened since (childRetry); otherwise
+     its answers wait for the next start. */
   var childEpoch = 0, formSig = '';
   /* An answer or a changed role in the child's start dialog is kept on prep, so after a redraw the boxes hold it as their
      own value and dirtyControl() no longer sees it: navigation asks this instead. */
@@ -2154,7 +2155,8 @@
     var inputs = prep.inputs;
     var child; try { child = R.create(pub, { title: pub.map.meta.title + ' for ' + parent.title, details: details, from: { source: 'carry', details: Object.assign({}, prep.details, teamSrc) }, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, parent: { process: parent.process, id: parent.id, step: stepId, inputs: inputs, folder: parent.folder }, app: APP_VERSION, pins: pinsAtStart(pub) }); }
     catch (err) { if (invalid) { invalid(err); return; } say(err.message, 'warn'); render(); return; }
-    var keep = invalid ? { gen: gen, values: asked || {}, roles: roles } : null;
+    /* Whatever stops this start, what it was given is kept with where each value came from (childKeep). */
+    var keep = childKeep(prep, asked, roles);
     if (invalid) closeOverlay();
     prep.epoch = childEpoch;
     /* Try the link on a copy first, so a step that can't take a child never leaves an orphan run in the folder. */
@@ -2198,8 +2200,9 @@
     }, function (err) {
       done(); if (sg !== gen) return;
       if (err && err.dropped && stale && prep.link2) { childRetry(prep, stale, asked, roles); return; }
-      if (keep) (state.childKept = state.childKept || {})[rkey] = keep;
-      var again = keep ? ' What you filled in is kept for when you start it again.' : '';
+      /* A pass: step's start comes back in its form next time, with what it was given (startChild); an older step's has no form. */
+      if (prep.link2) (state.childKept = state.childKept || {})[rkey] = keep;
+      var again = prep.link2 ? ' What you filled in is kept for when you start it again.' : '';
       if (err && err.dropped && stale) { say(stale + again, 'warn'); render(); return; }
       say('Couldn\'t start the run: ' + err.message + again, 'bad'); render();
     });
@@ -5012,6 +5015,8 @@
     if (!b || b.disabled) return;
     if (b.classList.contains('overlay') && e.target !== b) return;
     var act = b.dataset.act, id = b.dataset.id;
+    /* Anything the person does but Refresh counts as moving on, for a refused start's reopen (childRetry). */
+    if (act !== 'refresh') childEpoch++;
     /* Choosing something from the run's More menu closes the menu. */
     var menu = b.closest && b.closest('.rw-menu'); if (menu) { menu.open = false; (state.disc = state.disc || {})[(menu.dataset && menu.dataset.disc) || 'rw-menu'] = false; }
     var handler = ACTIONS[act], guarded = onPracticePage(b);
@@ -7586,6 +7591,7 @@
 
   document.addEventListener('keydown', function (e) {
     uiActs++;
+    if (!/^(Shift|Control|Alt|Meta|CapsLock)$/.test(String(e.key || ''))) childEpoch++;
     /* While an input method is composing, every key is its own (Escape cancels the composition, letters build it). */
     if (e.isComposing || e.keyCode === 229) return;
     var t = e.target, typing = t && /INPUT|TEXTAREA|SELECT/.test(t.tagName);

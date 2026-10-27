@@ -506,6 +506,13 @@ rule('Editor (2.9): "A team value" lists team-values.json with what each is for;
   assert.ok(/<option value="team:gone" selected>Team value gone \(not in this folder\)<\/option>/.test(h) && /gone isn&#39;t a team value in this folder|gone isn't a team value in this folder/.test(h), 'flagged, never dropped');
 });
 
+rule('Editor (2.9): Checks name a team value the folder doesn\'t have as a thing to fix, as publishing would', async () => {
+  const app = await editorOn(md(step('run.process', 's', 'process: check-in', 'pass: commit=team:gone')), 's');
+  const h = app.html();
+  assert.ok(/\d+ things? to fix before publishing/.test(h), 'counted as a thing to fix');
+  assert.ok(/&quot;gone&quot; isn&#39;t a team value in this folder|"gone" isn't a team value in this folder/.test(h), 'and named in Checks');
+});
+
 rule('Editor (2.8): a linked step without an ID is told apart from the step without one before it', async () => {
   const text = HEAD + '## Build · READ-DO {#build}\n- [ ] {confirm} First thing\n- [ ] {run.process} Run the check-in\n  process: check-in\n  pass: commit=abc123\n\n';
   const app = await editorOn(text, '#1');
