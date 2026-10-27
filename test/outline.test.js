@@ -1083,4 +1083,25 @@ rule('Builder conditions: a step moved keeps its conditions', () => {
   same(whenOf(down, 'alpha'), ['^risk is high']);
 });
 
+rule('Outline: a new step (and a lane\'s first step) may use run details the checklist lists; its ID comes from the words without them (2.10)', () => {
+  const add = (words, to) => O.addStep(RELEASE, to || { after: 'flags' }, { text: words, type: 'confirm' });
+  let r = add('Tag the release ^environment');
+  assert.ok(!r.error, r.error);
+  const line = lines(r.text).filter(l => /Tag the release/.test(l))[0];
+  assert.strictEqual(line, '- [ ] {confirm} Tag the release ^environment {#tag-the-release}', 'written as typed, ID from the words');
+  const st = M.steps(M.parse(r.text)).map(x => x.step).filter(x => x.id === 'tag-the-release')[0];
+  assert.strictEqual(JSON.stringify(st.binds), '["environment"]');
+  const ren = O.editStepText(ok(add('Tag the release')), 'tag-the-release', 'Tag the release ^environment');
+  assert.strictEqual(lines(ok(ren)).filter(l => /Tag the release/.test(l))[0], line, 'the same line a rename in the step form writes');
+  r = add('Check ^environment then ^environment again');
+  assert.ok(!r.error, 'a repeated reference: ' + r.error);
+  assert.strictEqual(add('^environment').error, 'Say what to do in the new step.', 'only a reference');
+  assert.strictEqual(add('Tag ^tagg').error, '^tagg isn\'t a run detail yet. Add it under Checklist details, or take it out.');
+  assert.strictEqual(add('Ping @qa').error, 'Write the step as plain text. Choose roles and run details after adding it.', '@ still refused');
+  const lane = O.addTrack(RELEASE, { phase: 'verify' }, { title: 'Docs', role: '', text: 'Post notes for ^environment' });
+  assert.ok(!lane.error, lane.error);
+  assert.ok(lines(lane.text).indexOf('- [ ] {confirm} Post notes for ^environment {#post-notes-for}') >= 0, 'a lane\'s first step too');
+  assert.strictEqual(O.addTrack(RELEASE, { phase: 'verify' }, { title: 'Docs', role: '', text: 'Post ^nope' }).error, '^nope isn\'t a run detail yet. Add it under Checklist details, or take it out.');
+});
+
 run();

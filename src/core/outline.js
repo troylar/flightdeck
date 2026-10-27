@@ -619,22 +619,32 @@ PF.outline = (function () {
   function phaseNote(text, key, note) { return noteOf(text, key, note, 'phase'); }
   function gateNote(text, key, note) { return noteOf(text, key, note, 'gate'); }
 
+  /* A new step's words (quick-add, a lane's first step): plain text, with ^details the checklist already lists. The ID comes
+     from the words without them, as a rename makes it. */
+  var PLAIN = 'Write the step as plain text. Choose roles and run details after adding it.';
+  function newWords(o, t) {
+    if (/@[\w-]/.test(t) || /\{#/.test(t) || TYPE_RE.test(t + ' x')) return { error: PLAIN };
+    var tok = tokens(t, '^'), known = frontContext(o), unknown = tok.list.filter(function (n) { return known.indexOf(n) < 0; })[0];
+    if (unknown) return { error: '^' + unknown + ' isn\'t a run detail yet. Add it under Checklist details, or take it out.' };
+    if (!tok.rest) return { error: 'Say what to do in the new step.' };
+    return { tok: tok };
+  }
   function addStep(text, to, step) {
     var g = guard(text); if (g.error) return { error: g.error };
     var o = g.o, t = lineValue(step && step.text), ty = String((step && step.type) || 'confirm'), mark = (step && step.mark) || ' ';
     if (!t) return { error: 'Say what to do in the new step.' };
-    if (/[@^][\w-]/.test(t) || /\{#/.test(t) || TYPE_RE.test(t + ' x')) return { error: 'Write the step as plain text. Choose roles and run details after adding it.' };
+    var w = newWords(o, t); if (w.error) return { error: w.error };
     if (!/^[a-z][\w.-]*$/i.test(ty) || [' ', '!', '~'].indexOf(mark) < 0) return { error: 'Choose a step type.' };
     var a = anchorOf(o, to); if (!a) return { error: ERR.gone };
-    var id = newId(o, t, 'step'), lines = o.lines.slice();
+    var id = newId(o, w.tok.rest, 'step'), lines = o.lines.slice();
     lines.splice(a.at, 0, '- [' + mark + '] {' + ty + '} ' + t + ' {#' + id + '}' + o.cr);
     var want = a.phase.index;
     var res = done(o, text, lines, function (A, B) {
       var y = pull(B, a.at + 1);
       /* It is exactly what was asked for: nothing it wasn't given (a note, a field or a picture below it) came with it. */
       var st = y && y.step;
-      return !!st && y.phase === want && st.id === id && st.text === t && st.type === ty && st.must === (mark === '!') && st.planned === (mark === '~') &&
-        !st.binds.length && !st.note && !(st.shots || []).length && !Object.keys(st.fields).length;
+      return !!st && y.phase === want && st.id === id && st.text === w.tok.rest && st.type === ty && st.must === (mark === '!') && st.planned === (mark === '~') &&
+        json(st.binds) === json(w.tok.list) && !st.note && !(st.shots || []).length && !Object.keys(st.fields).length;
     }, a.at);
     if (!res.error) res.id = id;
     return res;
@@ -795,6 +805,7 @@ PF.outline = (function () {
     return '';
   }
   function frontRoles(o) { return o.front ? M.parse(o.lines.slice(o.front.start, o.front.end).join('\n')).meta.roles : []; }
+  function frontContext(o) { return o.front ? M.parse(o.lines.slice(o.front.start, o.front.end).join('\n')).meta.context : []; }
   /* A role the checks would reject as unlisted goes into the front matter's roles: line, or a new one. Called after every
      other line change, since a new line here moves everything below it. Returns the lines it added, or -1. */
   function declareRole(o, lines, role) {
@@ -821,12 +832,13 @@ PF.outline = (function () {
     if (bad) return { error: bad };
     if (role && !/^[\w-]+$/.test(role)) return { error: 'Choose a role for the lane.' };
     if (!st) return { error: 'Say what the lane\'s first step is.' };
-    if (/[@^][\w-]/.test(st) || /\{#/.test(st) || TYPE_RE.test(st + ' x') || !/^[a-z][\w.-]*$/i.test(ty)) return { error: 'Write the step as plain text. Choose roles and run details after adding it.' };
+    var w = newWords(o, st); if (w.error) return { error: w.error === 'Say what to do in the new step.' ? 'Say what the lane\'s first step is.' : w.error };
+    if (!/^[a-z][\w.-]*$/i.test(ty)) return { error: PLAIN };
     var before = to.before == null || to.before === '' ? -1 : +to.before;
     if (!(before >= -1 && before < ph.tracks.length)) return { error: ERR.gone };
     var at = before >= 0 ? ph.tracks[before].line : anchorOf(o, { phase: ph.key, track: ph.tracks.length - 1, where: 'end' }).at;
     var tid = newId(o, t, 'lane'); o.ids[tid] = true;
-    var sid = newId(o, st, 'step'), lines = o.lines.slice(), listed = !role || frontRoles(o).indexOf(role) >= 0;
+    var sid = newId(o, w.tok.rest, 'step'), lines = o.lines.slice(), listed = !role || frontRoles(o).indexOf(role) >= 0;
     lines.splice(at, 0, '### Track: ' + t + (role ? ' @' + role : '') + ' {#' + tid + '}' + o.cr, '- [ ] {' + ty + '} ' + st + ' {#' + sid + '}' + o.cr);
     var shift = declareRole(o, lines, role); if (shift < 0) return { error: NO_FRONT };
     var k = before >= 0 ? before : ph.tracks.length, want = ph.index, stepLine = at + shift + 2, own = role ? [role] : [];
@@ -834,8 +846,8 @@ PF.outline = (function () {
       if (!listed) A.meta.roles = A.meta.roles.concat([role]);
       var y = B.phases[want], tk = y && y.tracks.splice(k, 1)[0], z = pull(B, stepLine), s1 = z && z.step;
       if (!tk || json(tk) !== json([tid, t, own])) return false;
-      return !!s1 && z.phase === want && s1.id === sid && s1.text === st && s1.type === ty && s1.track === tid && json(s1.roles) === json(own) && !s1.must && !s1.planned &&
-        !s1.binds.length && !s1.note && !(s1.shots || []).length && !Object.keys(s1.fields).length;
+      return !!s1 && z.phase === want && s1.id === sid && s1.text === w.tok.rest && s1.type === ty && s1.track === tid && json(s1.roles) === json(own) && !s1.must && !s1.planned &&
+        json(s1.binds) === json(w.tok.list) && !s1.note && !(s1.shots || []).length && !Object.keys(s1.fields).length;
     }, stepLine - 1);
     if (!res.error) { res.id = tid; res.step = sid; res.track = k; res.phase = ph.key; }
     return res;

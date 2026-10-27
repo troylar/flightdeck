@@ -8770,4 +8770,17 @@ rule('2.8: a passed detail that changes while the child is saving writes nothing
   assert.ok(/A detail this run passes changed while you were filling this in/.test(app.html() + app.live()));
 });
 
+rule('Builder: quick-add takes a run detail the checklist lists, as typed; one it doesn\'t list is refused next to the box (2.10)', async () => {
+  const app = await builderOn();
+  app.click('ob-sel', 'flags'); await app.tick();
+  app.click('ob-add-after', 'flags'); await app.tick();
+  app.set('ob-new-text', 'Tag the release ^tag'); app.click('ob-add-go'); await app.tick();
+  assert.ok(/<li class="ob-step sel"[^>]*data-ob-step="tag-the-release">/.test(app.html()), 'added and selected: ' + app.live());
+  app.click('save-draft'); await app.tick(80);
+  assert.ok(releaseText(app).split('\n').indexOf('- [ ] {confirm} Tag the release ^tag {#tag-the-release}') >= 0, 'written as typed');
+  app.click('ob-add-after', 'tag-the-release'); await app.tick();
+  app.set('ob-new-text', 'Tag the release ^tagg'); app.click('ob-add-go'); await app.tick();
+  assert.ok(/id="ferr-ob-new-text" role="alert">\^tagg isn&#39;t a run detail yet\. Add it under Checklist details, or take it out\./.test(app.html()), 'refused in place');
+});
+
 run();
