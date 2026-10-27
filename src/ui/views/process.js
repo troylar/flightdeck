@@ -18,10 +18,10 @@
       var meta = (s.must ? K.mustMark() : '') + (by[s.id] ? '<span class="pv-skill">' + I('spark') + esc(by[s.id].join(', ')) + '</span>' : '') + (s.planned ? '<span class="badge b-plan">Automation planned</span>' : '') +
         (s.roles.length ? '<span class="pv-role">@' + esc(s.roles.join(' @')) + '</span>' : '') + fixBadge(s.id), cond = K.whenWords(s);
       /* The checklist panel gives each step an anchor, so the flight plan (go() with a step) can open it there. */
-      return '<li' + (hs ? ' class="pv-sel" id="pv-sel" aria-current="true"' : anchor ? ' id="cl-st-' + esc(s.id) + '" tabindex="-1"' : '') + '>' + (t ? I(t.icon, t.label) : '<span class="ic"></span>') + '<div class="pv-body"><span class="pv-copy">' + K.stepHtml(s, null) + '</span>' + (cond ? '<span class="pv-when">' + cond + '</span>' : '') + (meta ? '<span class="pv-meta">' + meta + '</span>' : '') + '</div></li>';
+      return '<li' + (hs ? ' class="pv-sel" id="pv-sel" aria-current="true"' : anchor ? ' id="cl-st-' + esc(s.id) + '" tabindex="-1"' : '') + '>' + (t ? I(t.icon, T.nameOf(t)) : '<span class="ic"></span>') + '<div class="pv-body"><span class="pv-copy">' + K.stepHtml(s, null) + '</span>' + (cond ? '<span class="pv-when">' + cond + '</span>' : '') + (meta ? '<span class="pv-meta">' + meta + '</span>' : '') + '</div></li>';
     };
     /* Lanes stay lanes: the steps before any lane, then each lane as a labeled group under "Do all lanes". */
-    return (whole.length ? '<p class="small">' + I('spark') + ' The whole process: ' + esc(whole.join(', ')) + '</p>' : '') + map.phases.map(function (p, pi) {
+    return (whole.length ? '<p class="small">' + I('spark') + ' The whole checklist: ' + esc(whole.join(', ')) + '</p>' : '') + map.phases.map(function (p, pi) {
       var hp = hl && hl.phase === pi, lead = p.steps.filter(function (s) { return !s.track; });
       var lanes = p.tracks.map(function (t) { return { t: t, steps: p.steps.filter(function (s) { return s.track === t.id && t.id; }) }; });
       var body = lead.length || !lanes.length ? '<ul>' + lead.map(step).join('') + '</ul>' : '';
@@ -297,7 +297,7 @@
       var lost = st.editor && st.editor.text != null ? st.editor : null;
       if (lost) return notices(ctx) + '<section class="panel stack" role="alert"><h2>This draft was removed from the folder</h2><p>Your edits that weren\'t saved are below. Save them as the draft again, or copy them.</p>' +
         '<div class="row"><button class="btn go" data-act="recover-draft">Save as the draft again</button><button class="mini" data-act="copy-map">' + I('copy') + 'Copy</button><span id="copy-msg" class="small" role="status"></span></div><pre class="source" id="map-source" tabindex="0">' + esc(lost.text) + '</pre></section>';
-      return notices(ctx) + '<div class="panel">That process wasn\'t found. <button class="mini" data-act="home">Back to Home</button></div>';
+      return notices(ctx) + '<div class="panel">That checklist wasn\'t found. <button class="mini" data-act="home">Back to Home</button></div>';
     }
     /* Editing a draft takes the whole page (manage.js). */
     if (V.tabOf(ctx) === 'edit') return V.editTab(ctx, p);
@@ -353,7 +353,7 @@
     h += '<section class="panel" aria-labelledby="pr-h"><h2 id="pr-h">Recent runs</h2>' + (runs.length ? '<ul class="plist">' + runs.slice(0, 3).map(function (r) {
       var hl = K.headline(r, R.mapOf(r));
       return '<li><button data-act="open-run" data-id="' + esc(runKey(r)) + '"><span class="t">' + esc(r.title) + '</span><span class="pill ' + hl.s + '">' + esc(r.ended ? K.outcomeWord(r.ended.outcome) : 'running') + '</span><span class="small">' + esc(U.day(r.created)) + ' · ' + esc(K.verWord(r)) + '</span></button></li>';
-    }).join('') + '</ul>' + (runs.length > 3 ? '<button class="link" data-act="runs-of" data-id="' + esc(p.id) + '">All ' + runs.length + ' runs of this process</button>' : '') : '<p class="small">No runs yet. Start one with <b>Start a run</b>.</p>') + '</section>';
+    }).join('') + '</ul>' + (runs.length > 3 ? '<button class="link" data-act="runs-of" data-id="' + esc(p.id) + '">All ' + runs.length + ' runs of this checklist</button>' : '') : '<p class="small">No runs yet. Start one with <b>Start a run</b>.</p>') + '</section>';
     return h + (mine ? '' : skillsFold(ctx, p, pub)) + '</aside></div>';
   }
 
@@ -533,7 +533,7 @@
     if (p && st.testStage) return startTest(ctx, p);
     var planning = st.planning && st.planning.process === st.processId ? st.planning : null;
     var plan = !planning && st.planId ? ctx.data.plans.filter(function (x) { return x.id === st.planId; })[0] : null;
-    if (!p || !p.latest) return notices(ctx) + '<div class="panel">There\'s no published version of this process to run. <button class="mini" data-act="home">Back</button></div>';
+    if (!p || !p.latest) return notices(ctx) + '<div class="panel">There\'s no published version of this checklist to run. <button class="mini" data-act="home">Back</button></div>';
     /* A plan starts on the version it was planned on, or the exact one the person switched to; see PF.plans.pick. A plan/2
        whose pinned version can't be used asks, and never starts on another version by itself. */
     /* A plan decided on an earlier version (2.1.1) is never offered to start, decline or switch: it says what was decided. */
@@ -581,15 +581,29 @@
         (err ? '<p class="ferr" id="ferr-plan-when" role="alert" style="grid-column:1/-1">' + esc(st.fieldErr.msg) + '</p>' : '');
     }
     h += '</div>';
-    /* On my own or with others: the map suggests which (runs: solo), the person decides. */
-    var mode = st.startMode[p.id] || (meta.runs === 'solo' || !meta.roles.length ? 'solo' : 'team'), soloMap = mode === 'solo';
+    /* On my own or with others: the map suggests which (runs: solo), the person decides. A version with an approval role
+       (2.10) opens With others unless On my own was chosen on this very form, so who approves is always a choice. */
+    var aps = approvals(pub.map), apRole = {}; aps.forEach(function (a) { (apRole[a.role] = apRole[a.role] || []).push(a.title); });
+    var picked = st.startMode[p.id], pickedHere = picked && (st.startModeAt || {})[p.id] === scope + ':' + pub.info.folder;
+    var mode = aps.length ? (pickedHere ? picked : 'team') : picked || (meta.runs === 'solo' || !meta.roles.length ? 'solo' : 'team'), soloMap = mode === 'solo';
+    var apNames = aps.map(function (a) { return '"' + a.title + '"'; }).join(' and ');
     h += '<input type="hidden" id="start-mode" value="' + mode + '"><div class="seg" role="radiogroup" aria-label="Who is running it"><button type="button" role="radio" aria-checked="' + soloMap + '" data-act="start-mode" data-id="solo" data-process="' + esc(p.id) + '">On my own</button><button type="button" role="radio" aria-checked="' + !soloMap + '" data-act="start-mode" data-id="team" data-process="' + esc(p.id) + '">With others</button></div>';
-    if (soloMap) h += '<p class="small">Every role is yours. If someone joins later, add them from the run.</p>';
+    if (soloMap) h += '<p class="small">' + (aps.length ? 'Every role is yours, including who approves ' + esc(apNames) + '.' : 'Every role is yours.') + ' If someone joins later, add them from the run.</p>';
     if (meta.roles.length && !soloMap) {
-      h += '<div class="row" style="margin-top:6px"><h3 style="margin:0">Who\'s doing what</h3>' + (st.me ? '<button class="mini" type="button" data-act="just-me">Just me</button>' : '') + '</div><div class="grid2">';
+      h += '<div class="row" style="margin-top:6px"><h3 style="margin:0">Who\'s doing what</h3>' + (st.me ? '<button class="mini" type="button" data-act="just-me">' + (aps.length ? 'Just me (every role, including who approves)' : 'Just me') + '</button>' : '') + '</div><div class="grid2">';
       var nmStage = PF.people.labeler(people);
       meta.roles.forEach(function (role) {
         var chosen = pre.roles && typeof pre.roles === 'object' && typeof pre.roles[role] === 'string' ? pre.roles[role] : '', sug = ctx.suggestRole(p.id, role);
+        /* Who approves is never preselected: a saved plan's choice stays, otherwise it's Choose a person, with the rotation's
+           suggestion as a hint (what it knows: who had the role on past runs). */
+        if (apRole[role]) {
+          var bad = st.fieldErr && st.fieldErr.id === 'start-approver' && st.fieldErr.field === 'role-' + role;
+          h += '<div><label class="field" for="role-' + esc(role) + '">' + esc(role) + ' <span class="small">· approves ' + esc(apRole[role].map(function (t) { return '"' + t + '"'; }).join(' and ')) + '</span><select id="role-' + esc(role) + '" data-role="' + esc(role) + '"' + (sug ? ' data-suggested="' + esc(sug.person) + '"' : '') + (bad ? ' aria-invalid="true" aria-describedby="ferr-role-' + esc(role) + '"' : '') + '><option value="">Choose a person</option>' +
+            people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === chosen ? ' selected' : '') + '>' + esc(nmStage(x)) + '</option>'; }).join('') + '</select></label>' +
+            (sug ? '<p class="small">Suggested: ' + esc(nameOf(ctx, sug.person)) + ' · ' + (sug.last ? 'last had this role on ' + esc(U.day(sug.last)) : 'hasn\'t had this role yet') + '</p>' : '') +
+            (bad ? '<p class="ferr" id="ferr-role-' + esc(role) + '" role="alert">' + esc(st.fieldErr.msg) + '</p>' : '') + '</div>';
+          return;
+        }
         h += '<label class="field" for="role-' + esc(role) + '">' + esc(role) + (sug ? ' <span class="small">· suggestion: ' + esc(nameOf(ctx, sug.person)) + ' (' + esc(sug.why) + ')</span>' : '') + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '"><option value="">Nobody yet</option>' +
           people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === (chosen || (sug && sug.person)) ? ' selected' : '') + '>' + esc(nmStage(x)) + '</option>'; }).join('') + '</select></label>';
       });
@@ -626,5 +640,8 @@
   }
   V.testStage = testStage;
   V.stageSign = stageSign;
+  /* The approvals a version names a role for (2.10): who approves is chosen when it starts. */
+  function approvals(map) { return (map.phases || []).filter(function (ph) { return ph.gate && !ph.gate.implicit && ph.gate.owner && map.meta.roles.indexOf(ph.gate.owner) >= 0; }).map(function (ph) { return { role: ph.gate.owner, title: ph.gate.title }; }); }
+  V.approvals = approvals;
   V.process = process; V.readyPanel = readyPanel; V.start = start; V.teamSetup = teamSetup; V.checkList = checkList; V.mapPreview = mapPreview; V.fixesOf = fixesOf; V.corrBase = corrBase; V.corrApply = corrApply; V.briefBox = briefBox; V.diffHtml = diffHtml; V.planChoice = planChoice; V.planHeldWhy = planHeldWhy; V.earlierWords = earlierWords; V.proposalsPanel = proposalsPanel; V.proposalReview = proposalReview; V.editingNote = editingNote; V.mainNote = mainNote; V.propWords = propWords;
 })();

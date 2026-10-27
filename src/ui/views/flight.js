@@ -37,7 +37,7 @@
   }
   function noteLine(n, count) {
     var name = esc(n.skill.name);
-    if (n.kind === 'auto') return '<div class="fp-line fp-auto">' + I('spark') + '<span><b>Autopilot</b> ' + name + ' covers ' + (count == null ? 'the whole process' : plural(count, 'step')) + '</span></div>';
+    if (n.kind === 'auto') return '<div class="fp-line fp-auto">' + I('spark') + '<span><b>Autopilot</b> ' + name + ' covers ' + (count == null ? 'the whole checklist' : plural(count, 'step')) + '</span></div>';
     if (n.kind === 'update') return '<div class="fp-line fp-stale">' + I('spark') + '<span>' + name + ' needs an update</span></div>';
     return '<div class="fp-line fp-follows">' + I('spark') + '<span>' + name + ' follows v' + n.skill.implements + '</span></div>';
   }

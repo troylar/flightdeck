@@ -36,14 +36,14 @@ roles: author, reviewer
 |---|---|---|
 | `process` | yes | The process ID: lowercase letters, numbers and dashes, starting with a letter or number. Stays the same forever. |
 | `title` | yes | What people see. |
-| `category` | no | A one-level grouping: used on the Processes list, and for the process's skills, when there's no `group`. |
+| `category` | no | A one-level grouping: used on the Checklists list, and for the process's skills, when there's no `group`. |
 | `owner` | no | A person ID from `people.json`. The owner signs off a version as ready for a skill. |
 | `backup` | no | The backup owner: another person ID from `people.json`. Signs off only while the owner is inactive or gone from `people.json`. Flightdeck before 1.15 ignores it and counts only the owner's sign-offs. |
 | `group` | no | Where the process sits in the team's hierarchy, separated by `/` (`Engineering / Releases`). Up to 6 levels of 60 characters are kept. Without it, the category. |
 | `tags` | no | Labels to filter by (`production, deploy`). Read in lowercase; up to 20 tags of 40 characters are kept. |
 | `context` | no | Run details filled in when a run starts (`ticket, commit, environment`). At most 40, each a name of letters, numbers, dashes or underscores up to 60 characters. A detail can have a kind (Flightdeck 2.0): see [Typed run details](#typed-run-details). |
 | `roles` | no | Roles people are assigned to in each run. |
-| `runs` | no | `solo` if one person usually runs it alone (every role goes to whoever starts it), or `team` (the default). |
+| `runs` | no | `solo` if one person usually runs it alone (every role goes to whoever starts it, except a role that approves a gate, which is chosen at start), or `team` (the default). |
 | `format`, `features` | no | Don't write them: Flightdeck works out what a version needs when it publishes. If they're there, `format:` must be `flightdeck-checklist/2`, `features:` may name only features Flightdeck knows, and the checklist must use something from [Needs Flightdeck 2.0](#needs-flightdeck-20) or `only when`. Anything else stops publishing, and so does `format: flightdeck-checklist/1`. |
 
 Each line between the `---` lines is `key: value`; any other line there stops publishing. A key not in this table is kept and ignored. Run detail and role names can't be names Flightdeck keeps for itself (`constructor`, `__proto__` and the like).
@@ -180,7 +180,7 @@ During a run each condition is read again from the run's details whenever they c
 
 Changing a detail that a checked step's condition uses asks for a re-check of that step, and gates that approved it go back to review. A checklist with `only when` publishes a version that needs Flightdeck 2.1: the publish panel says so before you publish, and every copy before 2.1, 2.0 included, names it and can't run it.
 
-In the builder, a step's or a phase's form has one closed **Only when…** line (shown once the checklist has run details). Open it and write one condition a line, as after `only when`; leaving the box applies it, and a condition that can't be read is refused beside it. The builder writes each as `  only when ` and what you typed, in place, and leaves every other line as it was. `only when` lines written another way (another indent, capitals, spaces at the end) are shown but not changed there: edit them in Markdown. The process page and the flight plan show each condition as one muted line.
+In the builder, a step's or a phase's form has one closed **Only when…** line (shown once the checklist has run details). Open it and write one condition a line, as after `only when`; leaving the box applies it, and a condition that can't be read is refused beside it. The builder writes each as `  only when ` and what you typed, in place, and leaves every other line as it was. `only when` lines written another way (another indent, capitals, spaces at the end) are shown but not changed there: edit them in Markdown. The checklist's page and the flight plan show each condition as one muted line.
 
 ## Reports from tools
 
@@ -190,7 +190,7 @@ A tool that does a step's work can report it (docs/apps.md): the report names th
 
 Each type has two kinds of fields. **Checklist fields** describe the step: the Jenkins job, the repo and branches, the Jira action. **Evidence** fields can be noted when the step is checked: build number, PR link, the decision.
 
-Both are **optional by default**. A checklist can describe a step with only what's known ("open a PR", "create a Jira issue") so people and skills know what it involves; values that vary are filled in during the run, or never. **Bold** below marks the fields a step *usually* has: leaving one out is a tip on the process page, not an error. A wrong value (an `action` the type doesn't have) does block publishing.
+Both are **optional by default**. A checklist can describe a step with only what's known ("open a PR", "create a Jira issue") so people and skills know what it involves; values that vary are filled in during the run, or never. **Bold** below marks the fields a step *usually* has: leaving one out is a tip on the checklist's page, not an error. A wrong value (an `action` the type doesn't have) does block publishing.
 
 To insist on evidence, add `require:` with the names to record, or `require: all`. Then checking the step opens a short form until those are filled in. Strict processes such as a release use it; most don't.
 
@@ -268,7 +268,7 @@ Each entry is `name=source`, with commas between entries. `name` is one of the c
 
 Without `carry:`, every detail both checklists have is still passed by name, and a `pass:` entry for that name wins. With `carry:`, only what `carry:` and `pass:` list is passed, and every other detail is asked when the child starts. Passed values are locked in the child's start form, and the start form opens only when something needs asking or a passed value doesn't fit the child's kind. If a passed detail changes while it's open, nothing starts. A step with `pass:` can't change `pass:` or `carry:` during a run (Fill in doesn't offer them); a step with only `carry:` can, as before.
 
-Publishing reads the child from the folder and stops when a `pass:` or `carry:` name isn't one of its run details, a fixed value doesn't fit the child's kind, a `^` source isn't in this checklist's `context:`, or the step sets that source itself. If the child later drops a name this step passes explicitly, the process page and Folder health say so; a detail that was only shared by name just stops being passed. A version that uses `pass:` is refused by name in Flightdeck before 2.8; checklists that use only `carry:` read as before.
+Publishing reads the child from the folder and stops when a `pass:` or `carry:` name isn't one of its run details, a fixed value doesn't fit the child's kind, a `^` source isn't in this checklist's `context:`, or the step sets that source itself. If the child later drops a name this step passes explicitly, the checklist's page and Folder health say so; a detail that was only shared by name just stops being passed. A version that uses `pass:` is refused by name in Flightdeck before 2.8; checklists that use only `carry:` read as before.
 
 A `team:` source passes a team value: `pass: base=team:bitbucket-base-url`. The value is read from `team-values.json` when the child starts and copied into its details; a later change in Settings never changes a child already started. The start form shows it locked, with its name. If the team value isn't set, the form asks for it for this run; if `team-values.json` can't be read, nothing starts and Flightdeck says why. If the team value changes while the form is open or while the child is being saved, nothing starts and the form opens again with the new value and what you typed. The parent run records what each team value was when the child started, so a child that changes it doesn't complete the step, as with a fixed value. Publishing stops when a `team:` name isn't in `team-values.json` or the file can't be read. A version that uses `team:` is refused by name in Flightdeck before 2.9.
 
@@ -313,7 +313,7 @@ A team can add its own types as `step-types/<id>.json` in the team folder. The f
 }
 ```
 
-Field kinds are `text`, `url`, `code`, `message`, `list` and `choice` (with `options`); evidence kinds are `text`, `url` and `choice`, and in Flightdeck 2.0 also `number` (with optional `min` and `max`, written as plain decimals like `"0"`, and `unit`, up to 20 characters), `yes-no` and `date`. A file that records one of those three is a 2.0 step type: it starts with `"format": "flightdeck-step-type/2"` and `"features": ["typed-evidence"]`, and Flightdeck says so if they're missing. A teammate on an older Flightdeck sees it as a type they can't use until they update. In a 2.0 file, a choice's options can't differ only in capitals. `group` (optional, up to 80 characters, levels separated by `/`) and `tags` (optional, up to 10 short words) only organize the Step types page; they're never frozen into a version, so changing them doesn't change any process or skill. Publishing freezes the type into the publication, so a later edit to the file never changes an old version. A broken file is listed on the process page and its type can't be used.
+Field kinds are `text`, `url`, `code`, `message`, `list` and `choice` (with `options`); evidence kinds are `text`, `url` and `choice`, and in Flightdeck 2.0 also `number` (with optional `min` and `max`, written as plain decimals like `"0"`, and `unit`, up to 20 characters), `yes-no` and `date`. A file that records one of those three is a 2.0 step type: it starts with `"format": "flightdeck-step-type/2"` and `"features": ["typed-evidence"]`, and Flightdeck says so if they're missing. A teammate on an older Flightdeck sees it as a type they can't use until they update. In a 2.0 file, a choice's options can't differ only in capitals. `group` (optional, up to 80 characters, levels separated by `/`) and `tags` (optional, up to 10 short words) only organize the Step types page; they're never frozen into a version, so changing them doesn't change any process or skill. Publishing freezes the type into the publication, so a later edit to the file never changes an old version. A broken file is listed on the checklist's page and its type can't be used.
 
 The limits a team step type is checked against:
 

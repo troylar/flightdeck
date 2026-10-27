@@ -125,7 +125,7 @@ async function teamStart(passLine, kidCtx, values, kidRoles) {
   if (values !== null) setTeam(app, values || { 'bitbucket-base-url': { value: URL } });
   app.click('refresh'); await app.tick(80);
   app.click('start', 'ship'); await app.settle();
-  app.set('detail-env', 'prod'); app.submitForm('start-form'); await app.tick(120);
+  app.set('detail-env', 'prod'); app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   assert.ok(/<h1 id="run-h"[^>]*>Ship/.test(app.html()), 'set-up: the parent run is open');
   return app;
 }

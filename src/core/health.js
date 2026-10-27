@@ -114,7 +114,7 @@ PF.health = (function () {
       PF.links.broken(p.latest.map, PF.links.childrenFrom(function (n) { return byId[n] || null; })).forEach(function (b) {
         add({ id: 'link-broken:' + p.id + ':' + b.step.id, severity: 'warn', area: 'Checklists', title: 'A linked step can\'t start its child',
           detail: (p.latest.map.meta.title || p.id) + ' step "' + b.step.text.slice(0, 40) + '" passes ' + b.names.join(', ') + ' to ' + b.title + ', whose latest version (v' + b.version + ') doesn\'t have ' + (b.names.length > 1 ? 'them' : 'it') + '. New runs can\'t start that child until ' + (p.latest.map.meta.title || p.id) + ' changes. Publish a version that passes what ' + b.title + ' has.',
-          paths: ['maps/drafts/' + p.id + '.md'], action: { act: 'open-process', id: p.id, label: 'Open the process' } });
+          paths: ['maps/drafts/' + p.id + '.md'], action: { act: 'open-process', id: p.id, label: 'Open the checklist' } });
       });
     });
     /* Team values (2.9): a published checklist that passes a team value the folder no longer has. New runs ask for it when
@@ -127,7 +127,7 @@ PF.health = (function () {
         var gone = PF.links.teams(x.step).filter(function (n) { return PF.teamValues.lookup(tvs, n).missing; });
         if (gone.length) add({ id: 'team-missing:' + p.id + ':' + x.step.id, severity: 'warn', area: 'Checklists', title: 'A linked step passes a team value that isn\'t set',
           detail: (p.latest.map.meta.title || p.id) + ' step "' + x.step.text.slice(0, 40) + '" passes the team value ' + gone.map(function (n) { return '"' + n + '"'; }).join(', ') + ', which isn\'t in team-values.json. New runs ask for it when the child starts. Add it in Settings › Team values, or change the checklist.',
-          paths: [PF.teamValues.FILE, 'maps/drafts/' + p.id + '.md'], action: { act: 'open-process', id: p.id, label: 'Open the process' } });
+          paths: [PF.teamValues.FILE, 'maps/drafts/' + p.id + '.md'], action: { act: 'open-process', id: p.id, label: 'Open the checklist' } });
       });
     });
     if (!failed.length && !otherUnread.length && !runUnread.length && !vals.length && !plansU.length && !plansN.length) ok('readable', scan ? 'Every file Flightdeck uses can be read (' + plural(scan.files, 'file') + ').' : 'Every run file can be read.');
@@ -154,8 +154,8 @@ PF.health = (function () {
         if (b && b !== o && away(b)) gone.push({ process: p.process, backupGone: b, why: why(b) });
       });
       gone.forEach(function (g) {
-        if (g.backupGone) { add({ id: 'backup:' + g.process, severity: 'info', area: 'People', title: 'The checklist "' + g.process + '" needs a new backup owner', detail: 'Its backup owner, ' + nameOf(people, g.backupGone) + ', ' + g.why + '. Change backup: in the draft and publish a new version.', paths: ['maps/drafts/' + g.process + '.md'], action: { act: 'open-process', id: g.process, label: 'Open the process' }, help: HELP.left }); return; }
-        add({ id: 'owner:' + g.process, severity: 'warn', area: 'People', title: 'The checklist "' + g.process + '" needs a new owner', detail: 'Its owner, ' + nameOf(people, g.owner) + ', ' + g.why + '. ' + (g.backup ? 'Its backup owner, ' + nameOf(people, g.backup) + ', can sign off versions until then. ' : '') + 'Change owner: in the draft and publish a new version.', paths: ['maps/drafts/' + g.process + '.md'], action: { act: 'open-process', id: g.process, label: 'Open the process' }, help: HELP.left });
+        if (g.backupGone) { add({ id: 'backup:' + g.process, severity: 'info', area: 'People', title: 'The checklist "' + g.process + '" needs a new backup owner', detail: 'Its backup owner, ' + nameOf(people, g.backupGone) + ', ' + g.why + '. Change backup: in the draft and publish a new version.', paths: ['maps/drafts/' + g.process + '.md'], action: { act: 'open-process', id: g.process, label: 'Open the checklist' }, help: HELP.left }); return; }
+        add({ id: 'owner:' + g.process, severity: 'warn', area: 'People', title: 'The checklist "' + g.process + '" needs a new owner', detail: 'Its owner, ' + nameOf(people, g.owner) + ', ' + g.why + '. ' + (g.backup ? 'Its backup owner, ' + nameOf(people, g.backup) + ', can sign off versions until then. ' : '') + 'Change owner: in the draft and publish a new version.', paths: ['maps/drafts/' + g.process + '.md'], action: { act: 'open-process', id: g.process, label: 'Open the checklist' }, help: HELP.left });
       });
       /* The folder owner and backup owner keep people.json; without an active one, nobody can change it in Flightdeck. */
       var fr = PF.people.roles(people), fo = fr.owner, fb = fr.backup, roleIssue = false;
@@ -221,7 +221,7 @@ PF.health = (function () {
     /* ---- publications ---- */
     var clashes = 0, arriving = [], stuck = [], newerPubs = [], newerVers = [];
     procs.forEach(function (p) {
-      (p.index && p.index.clashes || []).forEach(function (v) { clashes++; add({ id: 'clash:' + p.process + ':' + v, severity: 'stop', area: 'Checklists', title: 'Two people published v' + v + ' of "' + p.process + '" at once', detail: 'Neither copy is used until one is removed. Open the process to see both.', paths: ['publications/' + p.process], action: { act: 'open-process', id: p.process, label: 'Open the process' }, help: HELP.syncing }); });
+      (p.index && p.index.clashes || []).forEach(function (v) { clashes++; add({ id: 'clash:' + p.process + ':' + v, severity: 'stop', area: 'Checklists', title: 'Two people published v' + v + ' of "' + p.process + '" at once', detail: 'Neither copy is used until one is removed. Open the checklist to see both.', paths: ['publications/' + p.process], action: { act: 'open-process', id: p.process, label: 'Open the checklist' }, help: HELP.syncing }); });
       (p.pubs || []).forEach(function (x) {
         var base = 'publications/' + p.process + '/' + x.folder;
         if (x.ok) return;

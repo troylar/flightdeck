@@ -232,7 +232,7 @@ async function recorded(o) {
   app.click('open-process', 'release'); await app.tick();
   app.set('change-note', 'Small'); app.click('publish', 'release'); await app.tick(120);
   app.click('start', 'release'); await app.tick();
-  app.submitForm('start-form', {}); await app.tick(200);
+  app.chooseApprovers().submitForm('start-form', {}); await app.tick(200);
   assert.ok(/data-act="toggle" data-id="w"/.test(app.html()), 'set-up: recording the small run');
   return app;
 }
@@ -328,7 +328,7 @@ rule('Fresh coat: opening another run never animates its bar from the last run\'
   const app = await recorded();
   app.click('toggle', 'w'); await app.tick(60); app.click('toggle', 'rb'); await app.tick(60); app.click('toggle', 'post'); await app.tick(60);
   app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick();
-  app.click('start', 'release'); await app.tick(); app.submitForm('start-form', {}); await app.tick(200);
+  app.click('start', 'release'); await app.tick(); app.chooseApprovers().submitForm('start-form', {}); await app.tick(200);
   const n = fills(app).length;
   app.click('nav', 'runs'); await app.tick();
   const ids = runId(app);

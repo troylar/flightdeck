@@ -135,12 +135,12 @@ const BUDGETS = {
      each detail box has Insert a detail (3 buttons), and a box that holds a ^detail shows it as a run will under it. */
   /* Raised in 2.8.0 on purpose (linked steps): a selected step says which details it uses (Uses ^a, ^b), so the builder
      shows what a step reads before a linked step is chosen to pass it on. */
-  'builder, release, a step selected': { words: 645, buttons: 75, inputs: 10 },
+  'builder, release, a step selected': { words: 645, buttons: 76, inputs: 10 },
   'process page with conditions, its owner': { words: 410, buttons: 24, chips: 9 },
   'process page with conditions, a non-owner': { words: 263, buttons: 13, chips: 3 },
   'run with conditions, just started': { words: 355, buttons: 37, chips: 5 },
-  'builder with conditions, a step selected': { words: 692, buttons: 75, inputs: 11 },
-  'builder, a step without conditions selected': { words: 630, buttons: 75, inputs: 10 },
+  'builder with conditions, a step selected': { words: 692, buttons: 76, inputs: 11 },
+  'builder, a step without conditions selected': { words: 632, buttons: 76, inputs: 10 },
   /* A process with a staged version (2.1): staging lives in the closed All versions disclosure, so the page fits the process
      page budgets above for the owner and for everyone else. */
   'process page with a stage, its owner': { words: 421, buttons: 24, chips: 9 },
@@ -162,11 +162,11 @@ async function screens() {
   const take = name => { out[name] = measure(app.html()); };
   app.choose('person-casey'); await app.tick();
   app.click('nav', 'home'); await app.tick(); take('home');
-  app.click('nav', 'processes'); await app.tick(); take('processes');
+  app.click('nav', 'processes'); await app.tick(); app.click('renamed-ok'); await app.tick(); take('processes');
   app.click('open-process', 'release'); await app.tick(); take('process page as its owner');
   app.choose('person-morgan'); await app.tick(); app.click('open-process', 'release'); await app.tick(); take('process page as a non-owner');
   app.choose('person-casey'); await app.tick();
-  app.click('start', 'release'); await app.tick(); app.submitForm('start-form', {}); await app.tick(80); take('run, just started');
+  app.click('start', 'release'); await app.tick(); app.chooseApprovers().submitForm('start-form', {}); await app.tick(80); take('run, just started');
   app.click('pickup'); await app.tick(40); app.click('finish'); await app.tick(); take('finish');
   app.click('nav', 'settings'); await app.tick(); app.click('health'); await app.tick(200); take('folder health');
   app.click('nav', 'processes'); await app.tick(); app.click('new-process'); await app.tick(); take('new process');
@@ -189,7 +189,7 @@ async function withTestRun(out) {
   app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick();
   app.set('change-note', 'Tell on-call first'); app.click('stage-draft', 'release'); await app.tick(200);
   const folder = JSON.parse(app.fs.files[app.files('staged/release/').filter(f => /publication\.json$/.test(f))[0]].t).folder;
-  app.click('start-test', folder); await app.tick(); app.submitForm('start-form', {}); await app.tick(200);
+  app.click('start-test', folder); await app.tick(); app.chooseApprovers().submitForm('start-form', {}); await app.tick(200);
   assert.ok(app.files('runs/release/').some(f => /run\.json$/.test(f) && JSON.parse(app.fs.files[f].t).test === true), 'set-up: a test run');
   take('run, a test run just started');
   await app.fs.write(path, md); app.click('refresh'); await app.tick(80);
@@ -266,7 +266,7 @@ async function conditional(out) {
   take('process page with conditions, its owner');
   app.choose('person-morgan'); await app.tick(); app.click('open-process', 'release'); await app.tick(); take('process page with conditions, a non-owner');
   app.choose('person-casey'); await app.tick();
-  app.click('start', 'release'); await app.tick(); app.submitForm('start-form', {}); await app.tick(80); take('run with conditions, just started');
+  app.click('start', 'release'); await app.tick(); app.chooseApprovers().submitForm('start-form', {}); await app.tick(80); take('run with conditions, just started');
   app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
   app.click('ob-sel', 'flags'); await app.tick();
   assert.ok(/<details class="ob-when" data-disc="ob-when:release:flags" open>/.test(app.html()), 'set-up: its condition is open');

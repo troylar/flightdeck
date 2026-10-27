@@ -21,11 +21,22 @@
   /* Built-in types, then the team's, as select options; a type the step names that isn't known stays choosable. */
   function typeOptions(ctx, cur, host) {
     var team = teamTypes(ctx), ids = Object.keys(team).sort(), known = T.LIST.some(function (t) { return t.id === cur; }) || ids.indexOf(cur) >= 0;
-    var opt = function (t) { return '<option value="' + esc(t.id) + '"' + (t.id === cur ? ' selected' : '') + '>' + esc(t.label) + '</option>'; };
+    var opt = function (t) { return '<option value="' + esc(t.id) + '"' + (t.id === cur ? ' selected' : '') + '>' + esc(T.nameOf(t)) + '</option>'; };
     /* A step that is a pull request keeps its host when Pull request is chosen again. */
     var builtIn = T.LIST.filter(function (t) { return !isPr(t.id) || t.id === (isPr(cur) ? cur : host || 'github.pr'); }).map(function (t) { return isPr(t.id) ? { id: t.id, label: 'Pull request' } : t; });
+    /* 2.10: everyday work first, then software tools; in each, the types this checklist already uses come first. */
+    var used = typesUsed(ctx), first = function (a) { return a.filter(function (t) { return used[t.id]; }).concat(a.filter(function (t) { return !used[t.id]; })); };
+    var every = builtIn.filter(function (t) { return EVERYDAY.indexOf(t.id) >= 0; }).sort(function (a, b) { return EVERYDAY.indexOf(a.id) - EVERYDAY.indexOf(b.id); });
+    var tools = builtIn.filter(function (t) { return EVERYDAY.indexOf(t.id) < 0; });
     return (cur && !known ? '<option value="' + esc(cur) + '" selected>{' + esc(cur) + '} (unknown type)</option>' : '') +
-      '<optgroup label="Built-in">' + builtIn.map(opt).join('') + '</optgroup>' + (ids.length ? '<optgroup label="Your team\'s">' + ids.map(function (id) { return opt(team[id]); }).join('') + '</optgroup>' : '');
+      '<optgroup label="Everyday work">' + first(every).map(opt).join('') + '</optgroup><optgroup label="Software tools and commands">' + first(tools).map(opt).join('') + '</optgroup>' +
+      (ids.length ? '<optgroup label="Your team\'s">' + first(ids.map(function (id) { return team[id]; })).map(opt).join('') + '</optgroup>' : '');
+  }
+  var EVERYDAY = ['confirm', 'communicate', 'meeting', 'decide', 'review', 'wait', 'measure', 'ui.action', 'run.process'];
+  function typesUsed(ctx) {
+    var ed = ctx.state.editor, text = ed ? (ed.text != null ? ed.text : ed.base) : '', u = {};
+    (O.parse(String(text || '')).steps || []).forEach(function (s) { if (s.type) u[s.type] = true; });
+    return u;
   }
   /* Rows are buttons, so the step text shows without its Markdown markers rather than as links inside a button. */
   function plain(s) { return String(s || '').replace(/\*\*|__|`/g, ''); }
@@ -73,10 +84,10 @@
     var out = [
       { id: 'phase', kind: 'phase', group: 'Structure', label: 'Phase', hint: 'A stage of the work, with its own way of working', glyph: ['ph', '##'], title: 'New phase', noun: 'a phase', keys: 'stage section' },
       { id: 'lanes', kind: 'lanes', group: 'Structure', label: 'Parallel lanes', hint: 'Work that happens at the same time, a lane per role', glyph: ['ln', '||'], title: 'New lane', text: 'First step in this lane', noun: 'a lane', keys: 'track parallel lane role' },
-      { id: 'gate', kind: 'gate', group: 'Structure', label: 'Gate', hint: 'Someone signs off to go on', glyph: ['gt', ''], title: 'Ready to go on', noun: 'a gate', keys: 'approve approval sign off owner' },
+      { id: 'gate', kind: 'gate', group: 'Structure', label: 'Approval', hint: 'Someone approves before the next stage', glyph: ['gt', ''], title: 'Ready to go on', noun: 'an approval', keys: 'gate approve approval sign off owner' },
       { id: 'step', kind: 'step', group: 'Steps', label: 'Step', hint: 'Someone does it and checks it off', glyph: ['st', '[ ]'], type: 'confirm', mark: ' ', text: 'New step', noun: 'a step', keys: 'confirm check' },
       { id: 'must', kind: 'step', group: 'Steps', label: 'Must-do', hint: 'A step that can\'t be marked N/A or waived', glyph: ['md', '[!]'], type: 'confirm', mark: '!', text: 'New must-do step', noun: 'a must-do step', keys: 'confirm required must do' },
-      { id: 'process', kind: 'step', group: 'Steps', label: 'Run another process', hint: 'Starts a linked run; done when that run completes', icon: 'nest', type: 'run.process', mark: ' ', text: 'Run another process', noun: 'a step that runs another process', keys: 'run.process child nested linked' }
+      { id: 'process', kind: 'step', group: 'Steps', label: 'Run another checklist', hint: 'Starts a linked run; done when that run completes', icon: 'nest', type: 'run.process', mark: ' ', text: 'Run another checklist', noun: 'a step that runs another checklist', keys: 'run.process child nested linked' }
     ];
     var team = teamTypes(ctx), typePart = function (t, team) {
       return { id: 'type:' + t.id, kind: 'step', group: T.groupOf(t).join(' / '), team: team, label: t.label, hint: t.id === 'ci.gate' ? 'Records a CI build or test result for a commit. Not a sign-off.' : t.hint || '', icon: t.icon, type: t.id, mark: ' ', text: t.label, noun: an(t.label + ' step'), keys: t.id + ' ' + T.tagsOf(t).join(' ') };
@@ -148,7 +159,7 @@
   /* Why a part has nowhere to go, so the strip never leaves someone stuck without a reason. */
   function nowhere(o, pt) {
     if (pt.kind !== 'phase' && !o.phases.length) return 'There are no phases yet. Add a phase first.';
-    if (pt.kind === 'gate') return 'Every phase already has a gate. Select one to edit it.';
+    if (pt.kind === 'gate') return 'Every phase already has an approval. Select one to edit it.';
     return 'Nothing in this draft can take it safely. Edit it in Markdown.';
   }
   function sentence(pt, place) { return cap(pt.noun) + ' will go ' + place.where + '.'; }
@@ -181,7 +192,7 @@
 
   /* ---------- the outline ---------- */
   function addStepForm(ctx, B) {
-    return '<li class="ob-addform"><div class="row"><label class="sr" for="ob-new-text">New step: ' + esc(G.step('text').q) + '</label><input id="ob-new-text" maxlength="200"' + egOf(G.step('text')) + ' data-enter="ob-add-go"' + describe(ctx, 'ob-new-text', G.step('text')) + '>' +
+    return '<li class="ob-addform">' + (B && B.none ? '<p class="ob-first" id="ob-first">Add your first step</p>' : '') + '<div class="row"><label class="sr" for="ob-new-text">New step: ' + esc(G.step('text').q) + '</label><input id="ob-new-text" maxlength="200"' + egOf(G.step('text')) + ' data-enter="ob-add-go"' + describe(ctx, 'ob-new-text', G.step('text')) + '>' +
       '<label class="sr" for="ob-new-type">Type of the new step</label><select id="ob-new-type">' + typeOptions(ctx, (ctx.state.obAdd && ctx.state.obAdd.type) || 'confirm', B && B.prHost) + '</select>' +
       '<button type="button" class="btn go" data-act="ob-add-go">Add step</button><button type="button" class="mini" data-act="ob-add-cancel">Cancel</button></div>' + errMsg(ctx, 'ob-new-text') + '' + whyOf('ob-new-text', G.step('text')) + '</li>';
   }
@@ -200,7 +211,7 @@
     if (inc) meta = incWords(inc) + meta;
     return slot(B, 'li', 'step', 'before:' + s.key, '') +
       '<li class="ob-step' + (on ? ' sel' : '') + (s.odd ? ' odd' : '') + (isNew(ctx, 'step', s.key) ? ' ob-new' : '') + (inc ? ' ob-inc' : '') + '" draggable="' + !s.odd + '" data-ob-step="' + esc(s.key) + '"><span class="ob-grip" aria-hidden="true"></span>' +
-      '<button type="button" class="ob-pick" data-act="ob-sel" data-id="' + esc(s.key) + '" aria-pressed="' + on + '" aria-describedby="ob-kbd">' + (t ? I(t.icon, t.label) : I('check', 'Unknown type')) +
+      '<button type="button" class="ob-pick" data-act="ob-sel" data-id="' + esc(s.key) + '" aria-pressed="' + on + '" aria-describedby="ob-kbd">' + (t ? I(t.icon, T.nameOf(t)) : I('check', 'Unknown type')) +
       '<span class="ob-row"><span class="ob-txt">' + esc(plain(s.text)) + '</span>' + (meta ? '<span class="ob-meta">' + meta + '</span>' : '') + '</span></button></li>';
   }
   /* One group of steps: the steps before any lane (g = -1) or one lane's. */
@@ -231,9 +242,9 @@
       });
       body += slot(B, 'div', 'lanes', 'lane:' + ph.key + ':end', 'v') + '</div></div>';
     } else body += slot(B, 'div', 'lanes', 'lane:' + ph.key + ':end', '');
-    var gt = ph.gate, gate = gt ? '<div class="fp-gate ob-gate' + (isNew(ctx, 'gate', ph.key) ? ' ob-new' : '') + '"><div class="ob-gate-copy"><span class="fp-gate-t">' + I('gate') + 'Gate: ' + esc(gt.title) + '</span>' + (gt.owner ? '<span class="small">owner @' + esc(gt.owner) + '</span>' : '') + (gt.approves ? '<span class="small">approves ' + esc(plain(gt.approves)) + '</span>' : '') + '</div>' +
-      '<button type="button" class="mini" data-act="ob-sel-phase" data-id="' + esc(ph.key) + '" data-focus="ob-g-title" aria-label="Edit gate ' + esc(gt.title) + '">Edit gate</button></div>' :
-      slot(B, 'div', 'gate', 'gate:' + ph.key, '') + '<div class="fp-gate implicit ob-gate"><div class="ob-gate-copy"><span class="small">Ends with a check that the phase is done.</span></div><button type="button" class="mini" data-act="ob-sel-phase" data-id="' + esc(ph.key) + '" data-focus="ob-g-title" aria-label="Add a gate to ' + esc(ph.title) + '">' + I('plus') + 'Add a gate</button></div>';
+    var gt = ph.gate, gate = gt ? '<div class="fp-gate ob-gate' + (isNew(ctx, 'gate', ph.key) ? ' ob-new' : '') + '"><div class="ob-gate-copy"><span class="fp-gate-t">' + I('gate') + 'Approval: ' + esc(gt.title) + '</span>' + (gt.owner ? '<span class="small">@' + esc(gt.owner) + '</span>' : '') + (gt.approves ? '<span class="small">approves ' + esc(plain(gt.approves)) + '</span>' : '') + '</div>' +
+      '<button type="button" class="mini" data-act="ob-sel-gate" data-id="' + esc(ph.key) + '" aria-label="Edit approval ' + esc(gt.title) + '">Edit approval</button></div>' :
+      slot(B, 'div', 'gate', 'gate:' + ph.key, '') + '<div class="fp-gate implicit ob-gate"><div class="ob-gate-copy"><span class="small">Ends with a check that the phase is done.</span></div><button type="button" class="mini" data-act="ob-sel-gate" data-id="' + esc(ph.key) + '" aria-label="Add approval to ' + esc(ph.title) + '">' + I('plus') + 'Add approval</button></div>';
     var inc = incoming(ctx, 'phase', ph.key);
     return '<li class="ob-phase' + (on ? ' sel' : '') + (isNew(ctx, 'phase', ph.key) ? ' ob-new' : '') + (inc ? ' ob-inc' : '') + '"><div class="ob-ph-head"><div class="fp-eye">Phase ' + (ph.index + 1) + '</div>' +
       '<h3 class="ob-ph-h"><button type="button" class="ob-ph-name" data-act="ob-sel-phase" data-id="' + esc(ph.key) + '" data-ob-phase="' + esc(ph.key) + '" aria-pressed="' + on + '" aria-describedby="ob-kbd">' + esc(title) + '</button></h3>' + incWords(inc) +
@@ -255,7 +266,7 @@
   function builder(ctx, p, text) {
     var o = O.parse(text), sel = selOf(ctx, p), add = addOf(ctx, p), map = M.parse(text), h = '';
     if (o.unsupported) return '<div class="notice warn"><span>The builder can\'t edit this draft safely: ' + esc(o.unsupported) + ' Use Markdown instead.</span><button class="mini" data-act="ed-mode" data-id="markdown">Markdown</button></div>';
-    var B = placing(ctx, p, text, o); B.fix = PF.corrections.openCounts(V.fixesOf(ctx, p)); B.prHost = prHost(text);
+    var B = placing(ctx, p, text, o); B.fix = PF.corrections.openCounts(V.fixesOf(ctx, p)); B.prHost = prHost(text); B.none = !o.steps.length;
     if (map.errors.length) h += '<div class="notice warn"><span>' + map.errors.length + ' line' + (map.errors.length === 1 ? ' isn\'t' : 's aren\'t') + ' understood (see Checks). The builder keeps ' + (map.errors.length === 1 ? 'it' : 'them') + ' exactly as written; fix ' + (map.errors.length === 1 ? 'it' : 'them') + ' in Markdown.</span></div>';
     if (o.questions >= 0) h += '<div class="notice warn" id="ob-q-note"><span>It still has a Questions section, so it can\'t be published yet. Answer the questions, then remove the section.</span><button type="button" class="btn" data-act="ob-sel-questions">Open the Questions</button></div>';
     h = strip(B, o) + h + '<div class="row between ob-bar"><details class="ob-help"><summary>Editing help</summary><p id="ob-kbd" class="small">Drag a part onto the checklist, or choose one and pick a place with the arrow keys. Drag a step by its grip, or select it and press Alt+Up or Alt+Down to move it. Select a step, lane, phase or gate to change it, its note included. Checklist details sets the owner, the backup owner, the roles and the run details.</p></details>' +
@@ -285,7 +296,15 @@
     return V.dbx.box({ id: id, kind: kind, tag: kind === 'step' ? 'textarea' : 'input', attrs: attrs + egOf(g) + (errOf(ctx, id) ? ' aria-invalid="true"' : ''), value: value, label: g.q, at: at, map: here.map, vals: here.vals,
       describedBy: described(ctx, id, g, more), after: whyOf(id, g) + (more && more.after || '') + errMsg(ctx, id) });
   }
-  function formSelect(ctx, id, name, options) { var g = G.form(name); return '<label class="field" for="' + id + '">' + esc(g.q) + '<select id="' + id + '" data-bound' + describe(ctx, id, g) + '>' + options + '</select></label>' + whyOf(id, g) + errMsg(ctx, id); }
+  function formSelect(ctx, id, name, options, why) { var g = G.form(name); if (why != null) g = { q: g.q, eg: g.eg, why: why }; return '<label class="field" for="' + id + '">' + esc(g.q) + '<select id="' + id + '" data-bound' + describe(ctx, id, g) + '>' + options + '</select></label>' + whyOf(id, g) + errMsg(ctx, id); }
+  /* + Add role (2.10): one box in place; Enter adds the role to the checklist and gives it to what's selected, as one change. */
+  function addRole(ctx, at) {
+    var nr = ctx.state.obNewRole, sel = ctx.state.obSel, open = nr && sel && nr.at === at && nr.pid === sel.pid && nr.key === sel.key && String(nr.track) === String(sel.track);
+    if (!open) return '<button type="button" class="mini ob-addrole" data-act="ob-role-add" data-id="' + at + '">' + I('plus') + 'Add role</button>';
+    var g = G.form('role');
+    return '<div class="row ob-newrole"><label class="sr" for="ob-new-role">' + esc(g.q) + '</label><input id="ob-new-role" maxlength="60"' + egOf(g) + ' data-enter="ob-role-add-go"' + describe(ctx, 'ob-new-role', g) + '>' +
+      '<button type="button" class="btn go" data-act="ob-role-add-go">Add role</button><button type="button" class="mini" data-act="ob-role-add-cancel">Cancel</button></div>' + whyOf('ob-new-role', g) + errMsg(ctx, 'ob-new-role');
+  }
   var PROOF = { link: 'Link', note: 'Note', number: 'Number', 'yes-no': 'Yes/no', date: 'Date' };
   /* flag: why a value is kept that the step doesn't use (another action's field, one the type doesn't have, a second time). */
   function fieldRow(ctx, def, s, name, flag) {
@@ -350,9 +369,6 @@
   /* The boxes revealed in this window for the step shown (state.obShown, never written): kept while it stays selected. */
   function shownOf(ctx, p, s) { var sh = ctx.state.obShown; return sh && sh.key === ctx.fsKey + '\n' + p.id + '\n' + s.key ? sh.names : {}; }
   function addChip(def, name, g) { return '<button type="button" class="chipbtn ob-add-chip" data-act="ob-show" data-id="' + esc(name) + '" aria-label="Add: ' + esc(g.q) + '">+ ' + esc(G.chip(def, name)) + '</button>'; }
-  /* A step's fields: the type's that apply, shown when usual for it as it stands, holding a value or revealed (or else its
-     first two), the rest behind "+ add" chips; then any value it doesn't use, flagged; then the fields every type accepts,
-     under More about this step. */
   /* The child a linked step names, for the builder (2.8): the pinned version, or the latest published, or (not published
      yet) its saved draft, which can't be checked until it's published. { map, title, version, latest, draft, nextAdds } */
   function linkChildOf(ctx, process, version) {
@@ -425,34 +441,6 @@
     if (l.missing) return '<div class="notice warn" role="status"><span>' + esc(name) + ' isn\'t a team value in this folder. Add it in Settings › Team values, or pass something else.</span></div>';
     return '<div class="notice warn" role="status"><span>' + esc(l.why) + '</span></div>';
   }
-  function fieldsSection(ctx, p, text, o, s, def, meta) {
-    var f = s.fields, shown = shownOf(ctx, p, s), names = def ? Object.keys(def.fields || {}) : [];
-    var pins = def && !def.custom && ownKey(T.PINS, def.id) ? Object.keys(T.PINS[def.id]) : [];
-    var apply = names.filter(function (n) { return T.applies(def, n, f); }).concat(pins);
-    /* A linked step's process, version, carry: and pass: are its own section (2.8). */
-    var linked = s.type === 'run.process' && def && !def.custom;
-    if (linked) apply = apply.filter(function (n) { return ['process', 'version', 'carry', 'pass'].indexOf(n) < 0; });
-    var show = function (n) { return !!f[n] || !!shown[n] || (ownKey(def.fields, n) && G.usual(def.fields[n], f)); };
-    var rows = apply.filter(show); if (!rows.length) rows = apply.slice(0, 2);
-    var common = Object.keys(T.COMMON), times = ['at', 'due', 'after'].filter(function (n) { return f[n]; });
-    /* A box the step doesn't use stays while it holds a value, or was just cleared and still has focus (it's in shown). */
-    var unused = Object.keys(f).concat(Object.keys(shown).filter(function (n) { return !ownKey(f, n); })).filter(function (n) { return apply.indexOf(n) < 0 && common.indexOf(n) < 0 && !(linked && ['process', 'version', 'carry', 'pass'].indexOf(n) >= 0); });
-    var flag = function (n) {
-      var d = def && ownKey(def.fields, n) ? def.fields[n] : null;
-      if (!T.fieldDef(def, n)) return '{' + (s.type || '') + '} doesn\'t use this; publishing will refuse it.';
-      if (d && d.requiredWhen) return 'Only used when ' + condText(d.requiredWhen) + '.';
-      if (d && d.requiredUnless) return 'Not used when ' + condText(d.requiredUnless) + '.';
-      return times.length > 1 && times.indexOf(n) >= 0 ? 'Give one time, "at:", "due:" or "after:", not more than one.' : '';
-    };
-    var waiting = apply.filter(function (n) { return rows.indexOf(n) < 0; });
-    var h = (linked ? linkSection(ctx, p, text, s, meta) : '') + '<h3 class="ob-sec">Fields</h3>' + (isPr(s.type) ? choices(ctx, 'ob-host', G.form('pr-host'), PRS, s.type, null, HOSTS) : '') + (!names.length && !pins.length && !unused.length ? '<p class="small">This type asks for nothing more.</p>' : '') +
-      rows.map(function (n) { return fieldRow(ctx, def, s, n); }).join('') + unused.map(function (n) { return fieldRow(ctx, def, s, n, flag(n)); }).join('') +
-      (waiting.length ? '<div class="row ob-adds" role="group" aria-label="More boxes for this step">' + waiting.map(function (n) { return addChip(def, n, G.field(def, n, f)); }).join('') + '</div>' : '');
-    var ev = evidenceOf(ctx, text, o, s), cRows = common.filter(function (n) { return !!f[n] || !!shown[n]; }), cWait = common.filter(function (n) { return cRows.indexOf(n) < 0; });
-    h += cRows.map(function (n) { return n === 'require' ? requireRow(ctx, def, s, ev) : n === 'sets' ? setsRow(ctx, def, s, meta) : fieldRow(ctx, def, s, n, flag(n)); }).join('');
-    if (cWait.length) h += '<div class="field ob-more"><span id="ob-more-l">More about this step</span><div class="row" role="group" aria-labelledby="ob-more-l">' + cWait.map(function (n) { return addChip(def, n, G.field(def, n, f)); }).join('') + '</div></div>';
-    return h + recordsSection(def, ev);
-  }
   /* On a phone the form is a sheet over the outline; Done closes it. */
   /* The selected item's name, Previous / Next through the steps, and on a phone Done to close the sheet. */
   /* crumbs: where it is, as a trail (Verify in production / Product checks / Step 11 of 14). */
@@ -491,7 +479,7 @@
     if (io.passes) {
       var given = io.passes.filter(function (r) { return r.source !== 'ask'; });
       out.push('<b>Passes to ' + esc(got.title) + ':</b> ' + (given.length ? given.map(function (r) { return esc(r.name) + (r.source === 'value' ? ' = ' + esc(r.value) : r.source === 'team' ? ' ← team value ' + esc(r.team) : ' ← ^' + esc(r.from)); }).join(', ') : 'nothing') + ioRest(io.passes, st, got.map));
-    } else if (io.shared) out.push('May also pass details ' + esc(f.process || 'the other process') + ' shares with this checklist.');
+    } else if (io.shared) out.push('May also pass details ' + esc(f.process || 'the other checklist') + ' shares with this checklist.');
     return out.length ? '<div class="small ob-io">' + out.map(function (l) { return '<p>' + l + '</p>'; }).join('') + '</div>' : '';
   }
   /* The rest of a linked step's summary: what the child fills in itself, and what's asked when it starts (a pass: step) or
@@ -504,6 +492,114 @@
   function askOf(ctx, kind, key, track) { var a = ctx.state.obAsk; return a && a.kind === kind && a.key === key && (track == null || +a.track === +track) ? a : null; }
   /* The side form for what's selected: a step's text, kind, type, roles, run details and fields; a lane; or a phase and its
      gate. Text boxes apply when you leave them (or press Enter); choices apply at once. */
+
+  /* ---------- the step form (2.10): what, who, Must be done, then More options ---------- */
+  /* The groups under More options, in order. A group that holds something (read from the parsed step) is drawn outside the
+     fold instead, after Must be done; where each sits is decided when the step is selected and after a change to it, never
+     while someone types (app.js obGroupsSync). */
+  var GROUPS = [['type', 'Step type'], ['guide', 'Guidance'], ['proof', 'Proof to record'], ['time', 'Timing'], ['cond', 'Conditions and saved information'], ['auto', 'Automation planning']];
+  function groupHtml(g, body) { return '<section class="ob-grp4" data-obg="' + g[0] + '" aria-label="' + esc(g[1]) + '"><h3 class="ob-sec">' + esc(g[1]) + '</h3>' + body.html + '</section>'; }
+  function markBox(k, label, help, on, reveal) {
+    var box = k === 'must' ? '<input type="checkbox" id="ob-must" data-bound' : '<input type="checkbox" id="ob-planned" data-bound';
+    return '<label class="ob-check' + (reveal && k === 'must' ? ' reveal' : '') + '" for="ob-' + k + '">' + box + (on ? ' checked' : '') + '><span><b>' + esc(label) + '</b> <span class="small">' + esc(help) + '</span></span></label>';
+  }
+  /* Who does it: Anyone (or the lane's people), the checklist's roles as chips, and + Add role. */
+  function whoField(ctx, s, meta) {
+    var own = s.parts.roles, roles = meta.roles.concat(own.filter(function (r) { return meta.roles.indexOf(r) < 0; })), lane = s.track >= 0 ? s.phase.tracks[s.track] : null;
+    var none = lane && lane.roles.length ? 'Uses this lane\'s people (@' + lane.roles.join(' @') + ')' : 'Anyone';
+    return '<div class="field"><span id="ob-roles-l">' + esc(G.step('roles').q) + '</span><div class="row" role="group" aria-labelledby="ob-roles-l" aria-describedby="why-ob-roles">' +
+      (own.length ? '' : '<span class="chipbtn ob-anyone" aria-current="true">' + esc(none) + '</span>') +
+      roles.map(function (r) { return '<button type="button" class="chipbtn" data-act="ob-role" data-id="' + esc(r) + '" aria-pressed="' + (own.indexOf(r) >= 0) + '">@' + esc(r) + '</button>'; }).join('') + '</div>' +
+      addRole(ctx, 'step') + whyOf('ob-roles', G.step('roles')) + '</div>';
+  }
+  /* The note: + Add instructions while it's empty, the box once it has text or was opened (it stays while revealed, focused,
+     pending or refused, as a revealed field does). */
+  function noteField(ctx, p, s) {
+    var gn = G.step('note'), st = ctx.state, shown = shownOf(ctx, p, s);
+    var open = !!s.note || !!shown['ob:note'] || st.obPendingField === 'ob-note' || !!errOf(ctx, 'ob-note');
+    if (!open) return '<div class="row"><button type="button" class="mini ob-add-note" data-act="ob-note-open">' + I('plus') + 'Add instructions</button></div>';
+    /* A newline right after the tag, so a note's own first line break survives (HTML drops the first one). */
+    return '<label class="field" for="ob-note">' + esc(gn.q) + '<textarea id="ob-note" rows="3" maxlength="2000"' + egOf(gn) + describe(ctx, 'ob-note', gn) + '>\n' + esc(s.note) + '</textarea></label>' + whyOf('ob-note', gn) + errMsg(ctx, 'ob-note');
+  }
+  /* Whether each group holds something, read from the step as written (button controls and the planned mark included). */
+  function groupsHas(s, def) {
+    var f = s.fields, own = def ? Object.keys(def.fields || {}) : [];
+    var typed = s.type && s.type !== 'confirm';
+    return {
+      type: false,
+      guide: !!(f.link || (s.shots || []).length || (!typed && own.some(function (n) { return !!f[n]; }))),
+      proof: !!(f.evidence || f.require),
+      time: !!(f.expect || f.deadline || f.at || f.due || f.after),
+      cond: !!((s.binds || []).length || (s.when || []).length || s.whenOdd || f.sets),
+      auto: !!s.planned
+    };
+  }
+  function groupsOut(ctx, p, s, G4) {
+    var g = ctx.state.obGroups, has = G4.has;
+    var out = g && g.pid === p.id && g.key === s.key ? Object.assign({}, g.out) : Object.assign({}, has);
+    /* A box with an error is never hidden. */
+    Object.keys(G4.groups).forEach(function (k) { if (G4.groups[k] && G4.groups[k].err) out[k] = true; });
+    return out;
+  }
+  /* The fold stays open while a box inside it holds typing not applied, so the typing is never hidden. */
+  function foldBusy(ctx, G4, inside) { var pf = ctx.state.obPendingField; return !!pf && inside.some(function (g) { return G4.groups[g[0]].ids.some(function (re) { return re.test(pf); }); }); }
+  /* The parts of the step form: what sits at the top for a typed step, and each group's controls and box IDs. */
+  function stepParts(ctx, p, text, o, s, def, meta) {
+    var f = s.fields, shown = shownOf(ctx, p, s), names = def ? Object.keys(def.fields || {}) : [], typed = s.type && s.type !== 'confirm';
+    var pins = def && !def.custom && ownKey(T.PINS, def.id) ? Object.keys(T.PINS[def.id]) : [];
+    var apply = names.filter(function (n) { return T.applies(def, n, f); }).concat(pins);
+    var linked = s.type === 'run.process' && def && !def.custom;
+    if (linked) apply = apply.filter(function (n) { return ['process', 'version', 'carry', 'pass'].indexOf(n) < 0; });
+    var show = function (n) { return !!f[n] || !!shown[n] || (ownKey(def.fields, n) && G.usual(def.fields[n], f)); };
+    var common = Object.keys(T.COMMON), times = ['at', 'due', 'after'].filter(function (n) { return f[n]; });
+    var unused = Object.keys(f).concat(Object.keys(shown).filter(function (n) { return !ownKey(f, n); })).filter(function (n) { return n !== 'ob:note' && apply.indexOf(n) < 0 && common.indexOf(n) < 0 && !(linked && ['process', 'version', 'carry', 'pass'].indexOf(n) >= 0); });
+    var flag = function (n) {
+      var d = def && ownKey(def.fields, n) ? def.fields[n] : null;
+      if (!T.fieldDef(def, n)) return '{' + (s.type || '') + '} doesn\'t use this; publishing will refuse it.';
+      if (d && d.requiredWhen) return 'Only used when ' + condText(d.requiredWhen) + '.';
+      if (d && d.requiredUnless) return 'Not used when ' + condText(d.requiredUnless) + '.';
+      return times.length > 1 && times.indexOf(n) >= 0 ? 'Give one time, "at:", "due:" or "after:", not more than one.' : '';
+    };
+    var row = function (n) { return n === 'require' ? requireRow(ctx, def, s, ev) : n === 'sets' ? setsRow(ctx, def, s, meta) : fieldRow(ctx, def, s, n, flag(n)); };
+    var chips = function (list) { return list.length ? '<div class="row ob-adds" role="group" aria-label="More boxes for this step">' + list.map(function (n) { return addChip(def, n, G.field(def, n, f)); }).join('') + '</div>' : ''; };
+    var part = function (list) { var on = list.filter(function (n) { return !!f[n] || !!shown[n]; }); return on.map(row).join('') + chips(list.filter(function (n) { return on.indexOf(n) < 0; })); };
+    var ev = evidenceOf(ctx, text, o, s);
+    var typeSel = '<label class="field" for="ob-type">Type<select id="ob-type" data-bound>' + typeOptions(ctx, s.type, prHost(text)) + '</select></label>';
+    /* A typed step: its type and the fields it's about, at the top. With none usual or set, its first field. */
+    var top = '', rows = [];
+    if (typed) {
+      rows = apply.filter(show); if (!rows.length) rows = apply.slice(0, 1);
+      top = typeSel + (linked ? linkSection(ctx, p, text, s, meta) : '') + (isPr(s.type) ? choices(ctx, 'ob-host', G.form('pr-host'), PRS, s.type, null, HOSTS) : '') + rows.map(function (n) { return fieldRow(ctx, def, s, n); }).join('');
+    }
+    top += unused.map(function (n) { return fieldRow(ctx, def, s, n, flag(n)); }).join('');
+    var waiting = apply.filter(function (n) { return rows.indexOf(n) < 0; });
+    var guideList = typed ? [] : apply;
+    var binds = s.parts.binds, ctxs = meta.context.concat(binds.filter(function (b) { return meta.context.indexOf(b) < 0; }));
+    var bindsHtml = '<div class="field"><span id="ob-binds-l">' + esc(G.step('binds').q) + '</span>' + whyOf('ob-binds', G.step('binds')) + (ctxs.length ? '<div class="row" role="group" aria-labelledby="ob-binds-l" aria-describedby="why-ob-binds">' + ctxs.map(function (b) { return '<button type="button" class="ob-chip" data-act="ob-bind" data-id="' + esc(b) + '" aria-pressed="' + (binds.indexOf(b) >= 0) + '">^' + esc(b) + '</button>'; }).join('') + '</div>' : '<span class="small">The checklist lists no run details yet.</span> <button type="button" class="linkish" data-act="ob-sel-details" data-focus="ob-add-ctx">Add run details</button>') + '</div>';
+    var err = function (res) { var fe = ctx.state.fieldErr; return !!(fe && fe.id === 'ob' && res.some(function (re) { return re.test(fe.field); })); };
+    var mk = function (html, ids) { return { html: html, ids: ids, err: err(ids) }; };
+    var groups = {
+      type: typed ? null : mk(typeSel, [/^ob-type$/]),
+      guide: mk((typed ? chips(waiting) : part(guideList)) + part(['link']) + shotsSection(ctx, p, s), [/^ob-fld-(link|where|looks)$/, /^ob-shot-/].concat(typed ? [] : [new RegExp('^ob-fld-(' + (guideList.join('|') || 'x^') + ')$')])),
+      proof: mk(part(['evidence', 'require']) + recordsSection(def, ev), [/^ob-fld-(evidence|require)$/]),
+      time: mk(part(['expect', 'deadline', 'at', 'due', 'after']), [/^ob-fld-(expect|deadline|at|due|after)$/]),
+      cond: mk(bindsHtml + whenSection(ctx, p, s, 'ob-when', meta) + part(['sets']) + ioLines(ctx, M.parse(text), s), [/^ob-when$/, /^ob-fld-sets$/]),
+      auto: mk(markBox('planned', 'Automation planned', 'Still done by hand for now; can be marked N/A.', s.planned), [/^ob-planned$/])
+    };
+    return { top: top, groups: groups, has: groupsHas(s, def) };
+  }
+  V.obGroupsHas = function (text, key, types) { var o = O.parse(text), s = o.steps.filter(function (x) { return x.key === key; })[0]; return s && !s.odd ? groupsHas(s, T.get(s.type, types)) : null; };
+  /* A refused box (2.10): its message, Apply and Discard drawn just above it, where it's typed in (on a phone everything
+     outside the open form is inert, so the editor's message area can't be used). Nothing is drawn when the box isn't here. */
+  function holdIn(ctx, p, html) {
+    var h = ctx.state.obHold; if (!h || h.pid !== p.id || ctx.state.obPendingField !== h.field) return html;
+    var at = html.indexOf(' id="' + h.field + '"'); if (at < 0) return html;
+    var start = Math.max(html.lastIndexOf('<label', at), html.lastIndexOf('<div class="field', at), html.lastIndexOf('<li', at));
+    var box = '<div class="notice warn ob-hold" role="group" aria-label="Typing not applied"><span>' + esc(h.text) + '</span><span class="row">' +
+      (h.apply ? '<button type="button" class="btn" data-act="ob-hold-apply">Apply</button>' : '') + '<button type="button" class="mini" data-act="ob-hold-discard">Discard</button></span></div>';
+    return start < 0 ? html : html.slice(0, start) + box + html.slice(start);
+  }
+  V.obHoldIn = holdIn;
   function builderForm(ctx, p, text) {
     var sel = selOf(ctx, p); here = null; if (!sel) return '';
     backToPractice = !!(ctx.state.practicing || {})[ctx.fsKey + '\n' + p.id];
@@ -520,32 +616,22 @@
       /* Two wrapping rows, so the whole instruction shows; it's still one line in the checklist, and Enter applies it. */
       var gt0 = G.step('text');
       here = { map: M.parse(text), vals: null, at: 's:' + at }; here.vals = V.dbx.values(ctx, here.map, p.id);
-      h += detailBox(ctx, 'ob-text', 'step', gt0, ' rows="2" maxlength="200" data-enter="ob-commit"', O.inPlace(s.parts.rest), here.at) +
-        '<fieldset class="field ob-kind"><legend>Kind</legend>' + [['step', 'Step', 'Done and checked off; can be marked N/A.', !s.must && !s.planned], ['must', 'Must do', 'Can\'t be marked N/A or waived.', s.must], ['planned', 'Automation planned', 'Still done by hand for now; can be marked N/A.', s.planned]].map(function (k) {
-          return '<label class="ob-switch' + (reveal && k[0] === 'must' ? ' reveal' : '') + '" for="ob-mark-' + k[0] + '"><input type="radio" name="ob-mark" id="ob-mark-' + k[0] + '" value="' + k[0] + '" data-bound' + (k[3] ? ' checked' : '') + '><span><b>' + k[1] + '</b> <span class="small">' + k[2] + '</span></span></label>';
-        }).join('') + '</fieldset>' +
-        '<label class="field" for="ob-type">Type<select id="ob-type" data-bound>' + typeOptions(ctx, s.type, prHost(text)) + '</select></label>';
-      var own = s.parts.roles, roles = meta.roles.concat(own.filter(function (r) { return meta.roles.indexOf(r) < 0; }));
-      h += '<div class="field"><span id="ob-roles-l">' + esc(G.step('roles').q) + '</span>' + (roles.length ? '<div class="row" role="group" aria-labelledby="ob-roles-l" aria-describedby="why-ob-roles">' + roles.map(function (r) { return '<button type="button" class="chipbtn" data-act="ob-role" data-id="' + esc(r) + '" aria-pressed="' + (own.indexOf(r) >= 0) + '">@' + esc(r) + '</button>'; }).join('') + '</div>' : '<span class="small">The checklist lists no roles yet.</span> <button type="button" class="linkish" data-act="ob-sel-details" data-focus="ob-add-role">Add roles</button>') +
-        whyOf('ob-roles', G.step('roles')) + (s.track >= 0 && !own.length ? '<span class="small">With no role of its own, it goes to the lane\'s people.</span>' : '') + '</div>';
-      var binds = s.parts.binds, ctxs = meta.context.concat(binds.filter(function (b) { return meta.context.indexOf(b) < 0; }));
-      h += '<div class="field"><span id="ob-binds-l">' + esc(G.step('binds').q) + '</span>' + whyOf('ob-binds', G.step('binds')) + (ctxs.length ? '<div class="row" role="group" aria-labelledby="ob-binds-l" aria-describedby="why-ob-binds">' + ctxs.map(function (b) { return '<button type="button" class="ob-chip" data-act="ob-bind" data-id="' + esc(b) + '" aria-pressed="' + (binds.indexOf(b) >= 0) + '">^' + esc(b) + '</button>'; }).join('') + '</div>' : '<span class="small">The checklist lists no run details yet.</span> <button type="button" class="linkish" data-act="ob-sel-details" data-focus="ob-add-ctx">Add run details</button>') + '</div>';
       var names = def ? Object.keys(def.fields || {}) : [];
       Object.keys(s.fields).forEach(function (f) { if (names.indexOf(f) < 0) names.push(f); });
-      h += fieldsSection(ctx, p, text, o, s, def, meta);
-      /* A newline right after the tag, so a note's own first line break survives (HTML drops the first one). */
-      var gn = G.step('note');
-      h += '<label class="field" for="ob-note">' + esc(gn.q) + '<textarea id="ob-note" rows="3" maxlength="2000"' + egOf(gn) + describe(ctx, 'ob-note', gn) + '>\n' + esc(s.note) + '</textarea></label>' + whyOf('ob-note', gn) + errMsg(ctx, 'ob-note');
-      h += whenSection(ctx, p, s, 'ob-when', meta);
-      h += ioLines(ctx, here.map, s);
-      h += shotsSection(ctx, p, s);
-      h += source(ctx, s.id, 'step', U.slug(s.text, 24), '<p class="small">Type <code>{' + esc(s.type || '?') + '}</code>' + (names.length ? ' · fields ' + names.map(function (f) { return '<code>' + esc(f) + '</code>'; }).join(' ') : '') + '</p>');
+      var G4 = stepParts(ctx, p, text, o, s, def, meta), out = groupsOut(ctx, p, s, G4);
+      h += detailBox(ctx, 'ob-text', 'step', gt0, ' rows="2" maxlength="200" data-enter="ob-commit"', O.inPlace(s.parts.rest), here.at) + whoField(ctx, s, meta) +
+        markBox('must', 'Must be done', 'Stops it being marked N/A or skipped with an exception.', s.must, reveal) + G4.top +
+        GROUPS.filter(function (g) { return out[g[0]] && G4.groups[g[0]]; }).map(function (g) { return groupHtml(g, G4.groups[g[0]]); }).join('') + noteField(ctx, p, s);
+      var inside = GROUPS.filter(function (g) { return !out[g[0]] && G4.groups[g[0]]; }), busy = foldBusy(ctx, G4, inside), open = busy || !!ctx.state.obMore;
+      h += '<details class="ob-more-opts" data-disc="ob-more"' + (open ? ' open' : '') + (busy ? ' data-busy="1"' : '') + '><summary>More options' + (busy ? ' <span class="small">(apply or clear what you typed first)</span>' : '') + '</summary>' +
+        inside.map(function (g) { return groupHtml(g, G4.groups[g[0]]); }).join('') + source(ctx, s.id, 'step', U.slug(s.text, 24), '<p class="small">Type <code>{' + esc(s.type || '?') + '}</code>' + (names.length ? ' · fields ' + names.map(function (f) { return '<code>' + esc(f) + '</code>'; }).join(' ') : '') + '</p>') + '</details>';
       h += '<div class="row"><button type="button" class="mini" data-act="ob-move" data-id="' + esc(s.key) + '" data-dir="up">Move up</button><button type="button" class="mini" data-act="ob-move" data-id="' + esc(s.key) + '" data-dir="down">Move down</button>' +
         '<button type="button" class="mini" data-act="ob-add-after" data-id="' + esc(s.key) + '">' + I('plus') + 'Add a step after it</button><button type="button" class="mini" data-act="ob-del" data-id="' + esc(s.key) + '">Delete this step</button>' +
         '<button type="button" class="mini" data-act="hist-open" data-id="draft" data-item="step:' + esc(s.key) + '" aria-haspopup="dialog">' + I('clock') + 'History of this step</button></div>';
       return h + '</section>';
     }
     var ph = o.phases.filter(function (x) { return x.key === sel.key; })[0]; if (!ph) return '';
+    if (sel.part === 'gate') return gateForm(ctx, p, text, o, ph, meta);
     if (sel.kind === 'track') {
       var tr = ph.tracks[+sel.track]; if (!tr) return '';
       var n = ph.steps.filter(function (x) { return x.track === tr.index; }).length, name = tr.title || 'Untitled lane', ask = askOf(ctx, 'track', ph.key, tr.index);
@@ -553,7 +639,7 @@
       var t = '<section class="panel stack ob-form" aria-labelledby="ob-form-h" data-scope="ob-track|' + esc(ph.key) + '|' + tr.index + '|' + sigOf(o, tr.line, tr.line + 1) + '">' + formHead('Lane', [ph.title || 'Untitled phase', name]) +
         '<p class="small">' + LANES_SAY + '</p>' +
         formBox(ctx, 'ob-tr-title', 'tr-title', 'input', ' maxlength="120" data-enter="ob-commit" value="' + esc(tr.title) + '"') +
-        formSelect(ctx, 'ob-tr-role', 'tr-role', '<option value=""' + (tr.roles.length ? '' : ' selected') + '>Nobody in particular</option>' + lroles.map(function (r) { return '<option value="' + esc(r) + '"' + (r === tr.roles[0] ? ' selected' : '') + '>@' + esc(r) + '</option>'; }).join('')) +
+        formSelect(ctx, 'ob-tr-role', 'tr-role', '<option value=""' + (tr.roles.length ? '' : ' selected') + '>Nobody in particular</option>' + lroles.map(function (r) { return '<option value="' + esc(r) + '"' + (r === tr.roles[0] ? ' selected' : '') + '>@' + esc(r) + '</option>'; }).join('')) + addRole(ctx, 'track') +
         source(ctx, tr.id, 'lane', U.slug(name, 24)) +
         '<div class="row"><button type="button" class="mini" data-act="ob-add" data-id="' + esc(ph.key) + '" data-track="' + tr.index + '">' + I('plus') + 'Add a step to this lane</button><button type="button" class="mini" data-act="ob-ask" data-id="track">Delete this lane</button></div>';
       if (ask) t += '<div class="notice warn" role="group" aria-labelledby="ob-ask-t"><span id="ob-ask-t">' + (n ? 'Delete the ' + esc(name) + ' lane? Its ' + n + ' step' + (n === 1 ? '' : 's') + ' can move up into the phase, or go with it.' : 'Delete the ' + esc(name) + ' lane?') + '</span>' +
@@ -571,17 +657,26 @@
       source(ctx, ph.id, 'phase', U.slug(ph.title, 24)) +
       '<div class="row"><button type="button" class="mini" data-act="ob-ph-move" data-id="' + esc(ph.key) + '" data-dir="up">Move phase up</button><button type="button" class="mini" data-act="ob-ph-move" data-id="' + esc(ph.key) + '" data-dir="down">Move phase down</button><button type="button" class="mini" data-act="ob-add-phase" data-id="' + esc(ph.key) + '">' + I('plus') + 'Add a phase after it</button><button type="button" class="mini" data-act="ob-ask" data-id="phase">Delete this phase</button>' +
       '<button type="button" class="mini" data-act="hist-open" data-id="draft" data-item="phase:' + esc(ph.key) + '" aria-haspopup="dialog">' + I('clock') + 'History of this phase</button></div>';
-    if (pask) f += '<div class="notice warn" role="group" aria-labelledby="ob-ask-t"><span id="ob-ask-t">Delete ' + esc(ph.title || 'this phase') + (ph.steps.length ? ' and its ' + ph.steps.length + ' step' + (ph.steps.length === 1 ? '' : 's') : '') + (gt ? ', with its gate' : '') + '? Undo brings it back.</span>' +
+    if (pask) f += '<div class="notice warn" role="group" aria-labelledby="ob-ask-t"><span id="ob-ask-t">Delete ' + esc(ph.title || 'this phase') + (ph.steps.length ? ' and its ' + ph.steps.length + ' step' + (ph.steps.length === 1 ? '' : 's') : '') + (gt ? ', with its approval' : '') + '? Undo brings it back.</span>' +
       '<button type="button" class="btn stop" data-act="ob-del-phase" data-id="' + esc(ph.key) + '" id="ob-ask-go">Delete phase</button><button type="button" class="mini" data-act="ob-ask-cancel">Cancel</button></div>';
-    f += '<h3 class="ob-sec">' + I('gate') + 'Closing gate</h3>';
-    if (gt && gt.odd) return f + '<p class="small">This gate has options the builder doesn\'t know. Edit it in Markdown.</p></section>';
-    if (!gt) return f + '<p class="small">Without a gate, the phase ends with a check that it\'s done. Name a gate to add one.</p>' + formBox(ctx, 'ob-g-title', 'g-title', 'input', ' maxlength="120" data-enter="ob-commit" value=""') + '</section>';
+    f += gt ? '<p class="ob-apline">Approval: ' + esc(gt.title) + ' · <button type="button" class="link" data-act="ob-sel-gate" data-id="' + esc(ph.key) + '" aria-label="Edit approval ' + esc(gt.title) + '">Edit</button></p>' :
+      '<div class="row"><button type="button" class="mini" data-act="ob-sel-gate" data-id="' + esc(ph.key) + '" aria-label="Add approval to ' + esc(ph.title || 'this phase') + '">' + I('plus') + 'Add approval</button></div>';
+    return f + '</section>';
+  }
+
+  /* An approval (a gate) has a form of its own: a phase selection with part 'gate'. Before it exists it asks only for its
+     name, since a gate needs one before anything else; naming it adds it. */
+  function gateForm(ctx, p, text, o, ph, meta) {
+    var gt = ph.gate, sig = sigOf(o, ph.line, ph.end) + (gt ? '.' + sigOf(o, gt.line, gt.end) : '');
+    var f = '<section class="panel stack ob-form" aria-labelledby="ob-form-h" data-scope="ob-gate|' + esc(ph.key) + '|' + sig + '">' + formHead('Approval', ['Phase ' + (ph.index + 1) + ' of ' + o.phases.length]) +
+      '<p class="small ob-where">Approval after these steps, after <b>' + esc(ph.title || 'Untitled phase') + '</b></p>';
+    if (gt && gt.odd) return f + '<p class="small">This approval has options the builder doesn\'t know. Edit it in Markdown.</p></section>';
+    if (!gt) return f + formBox(ctx, 'ob-g-title', 'g-title', 'input', ' maxlength="120" data-enter="ob-commit" value=""') + '<p class="small">Name it to add it. Without one, the phase ends with a check that it\'s done.</p></section>';
     var roles = meta.roles.concat(gt.owner && meta.roles.indexOf(gt.owner) < 0 ? [gt.owner] : []);
     return f + formBox(ctx, 'ob-g-title', 'g-title', 'input', ' maxlength="120" data-enter="ob-commit" value="' + esc(gt.title) + '"') +
-      formSelect(ctx, 'ob-g-owner', 'g-owner', '<option value=""' + (gt.owner ? '' : ' selected') + '>Nobody in particular</option>' + roles.map(function (r) { return '<option value="' + esc(r) + '"' + (r === gt.owner ? ' selected' : '') + '>@' + esc(r) + '</option>'; }).join('')) +
-      gateApproves(ctx, p, text, ph, gt) +
-      source(ctx, gt.id, 'gate', U.slug(gt.title, 24)) +
-      '<div class="row"><button type="button" class="mini" data-act="ob-gate-remove" data-id="' + esc(ph.key) + '">Remove this gate</button><span class="small">The phase then ends with a check that it\'s done.</span></div></section>';
+      formSelect(ctx, 'ob-g-owner', 'g-owner', '<option value=""' + (gt.owner ? '' : ' selected') + '>Nobody in particular</option>' + roles.map(function (r) { return '<option value="' + esc(r) + '"' + (r === gt.owner ? ' selected' : '') + '>@' + esc(r) + '</option>'; }).join(''), gt.owner ? null : 'No approval role is named. Whoever is recording records the approval.') + addRole(ctx, 'gate') +
+      '<details class="ob-more-ap"' + (gt.approves ? ' open' : '') + '><summary>More approval options</summary>' + gateApproves(ctx, p, text, ph, gt) + source(ctx, gt.id, 'approval', U.slug(gt.title, 24)) + '</details>' +
+      '<div class="row"><button type="button" class="mini" data-act="ob-gate-remove" data-id="' + esc(ph.key) + '">Remove this approval</button><span class="small">The phase then ends with a check that it\'s done.</span></div></section>';
   }
 
   function gateApproves(ctx, p, text, ph, gt) {

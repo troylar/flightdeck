@@ -935,4 +935,17 @@ rule('Done practicing or browser Back, then Practice, returns to the step being 
   }
 });
 
+rule('Edit on an approval opens its own form; Back to practice returns to it (2.10)', async () => {
+  const app = await editor({ localStore: { 'preflight:builder': 'true' } });
+  await practice(app);
+  app.click('pr-edit', 'ready'); await app.tick();
+  assert.ok(inEditor(app), 'in the editor');
+  assert.match(app.html(), /<input id="ob-g-title"[^>]*value="Ready to deploy"/);
+  assert.match(app.html(), /for="ob-g-owner">Who approves\?/, 'the approval form, not the phase form');
+  assert.doesNotMatch(app.html(), /id="ob-ph-title"/);
+  assert.match(app.html(), /data-act="pr-open">Back to practice</);
+  app.click('pr-open'); await app.tick(60);
+  assert.ok(onPage(app), 'back on the practice page');
+});
+
 run();

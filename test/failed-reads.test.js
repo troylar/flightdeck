@@ -462,4 +462,12 @@ rule('Evidence: a test run\'s run.json in another run\'s folder is labeled Test 
   assert.ok(/<b>Test run<\/b>/.test(head) && /staged version 3/.test(head) && !/ · version 3/.test(head), head);
 });
 
+rule('Folder health: a checklist whose owner is gone offers Open the checklist (2.10 words)', async () => {
+  const fs = folder(), pub = await publish(fs), d = await repo.loadAll(fs), owner = pub.map.meta.owner;
+  d.people = d.people.map(p => p.id === owner ? Object.assign({}, p, { inactive: true }) : p);
+  const i = health(d).issues.filter(x => x.id === 'owner:' + pub.map.meta.process)[0];
+  assert.ok(i, 'set-up: the owner item');
+  assert.strictEqual(i.action.label, 'Open the checklist');
+});
+
 run();

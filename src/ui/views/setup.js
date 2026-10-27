@@ -93,7 +93,7 @@
     if (!t) return h;
     if (t.id === 'assistant') {
       var text = S.assistantPrompt({ folder: st.fs ? st.fs.name : '', owner: st.me, backup: bk ? bk.id : '' });
-      return h + '<div class="su-pick"><p>Paste this to your AI assistant, opened in the team folder, with your notes or runbook. It writes the draft into <code>maps/drafts/</code>; it shows up in Processes, where you publish it. This step ticks itself once it\'s published.</p>' +
+      return h + '<div class="su-pick"><p>Paste this to your AI assistant, opened in the team folder, with your notes or runbook. It writes the draft into <code>maps/drafts/</code>; it shows up in Checklists, where you publish it. This step ticks itself once it\'s published.</p>' +
         '<pre class="source" id="su-prompt" tabindex="0">' + esc(text) + '</pre><div class="row"><button class="btn" data-act="setup-copy" data-id="prompt">' + I('copy') + 'Copy the prompt</button><span class="small" id="copy-msg" role="status"></span></div></div>';
     }
     var md = ctx.setupTemplate ? ctx.setupTemplate(t.id) : '', map = M.parse(md), steps = M.steps(map).length;
@@ -110,7 +110,7 @@
     else if (mine) h += '<div class="notice"><span><b>' + esc(mine.title) + '</b> is running. Finish it to tick this step.</span><button class="btn go" data-act="open-run" data-id="' + esc(mine.process + '/' + mine.id) + '">Open the run</button></div>';
     if (!pubs.length) return h + '<p class="notice warn">Publish a checklist first.</p><div class="row"><button class="btn" data-act="setup-step" data-id="checklist">Back to the first checklist</button></div>';
     return h + '<ul class="su-runs">' + pubs.slice(0, 6).map(function (p) {
-      return '<li><span><b>' + esc(p.title) + '</b> <span class="small">v' + p.latest.info.version + '</span></span><button class="btn' + (done || mine ? '' : ' go') + '" data-act="setup-run" data-id="' + esc(p.id) + '">' + I('play') + 'Start it on your own</button></li>';
+      return '<li><span><b>' + esc(p.title) + '</b> <span class="small">v' + p.latest.info.version + '</span></span><button class="btn' + (done || mine ? '' : ' go') + '" data-act="setup-run" data-id="' + esc(p.id) + '">' + I('play') + (V.approvals(p.latest.map).length ? 'Start it' : 'Start it on your own') + '</button></li>';
     }).join('') + '</ul>';
   }
   function secondStep(ctx, su, prog) {

@@ -203,7 +203,7 @@ PF.vk = (function () {
   /* ---------- top bar ---------- */
   /* The sections, always in the top bar. Every screen belongs to one, so where you are is always lit. */
   /* Skills and Step types belong to Processes: its page links to them, and so do Settings and search. */
-  var NAV = [['home', 'Home'], ['runs', 'Runs'], ['processes', 'Processes'], ['settings', 'Settings']];
+  var NAV = [['home', 'Home'], ['runs', 'Runs'], ['processes', 'Checklists'], ['settings', 'Settings']];
   var SECTION = { setup: 'home', health: 'settings', connection: 'settings', recovery: 'settings', home: 'home', runs: 'runs', followups: 'runs', run: 'runs', receipt: 'runs', mission: 'runs', finish: 'runs', processes: 'processes', process: 'processes', start: 'processes', 'new-process': 'processes', skills: 'processes', skill: 'processes', types: 'processes', settings: 'settings' };
   function sectionOf(view) { return SECTION[view] || 'home'; }
   function top(ctx) {

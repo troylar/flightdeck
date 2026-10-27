@@ -40,12 +40,13 @@ const BOX = {
   'ob-text': ['step', 'text'], 'ob-new-text': ['step', 'text'], 'ob-note': ['step', 'note'], 'ob-when': ['form', 'when'], 'ob-ph-when': ['form', 'ph-when'],
   'ob-shot-new': ['form', 'caption'], 'ob-shot-cap-': ['form', 'caption'], 'ob-ph-title': ['form', 'ph-title'], 'ob-new-title': ['form', 'ph-title'], 'ob-ph-mode': ['form', 'ph-mode'],
   'ob-new-mode': ['form', 'ph-mode'], 'ob-ph-note': ['form', 'ph-note'], 'ob-g-title': ['form', 'g-title'], 'ob-g-owner': ['form', 'g-owner'], 'ob-g-approves': ['form', 'g-approves'],
-  'ob-tr-title': ['form', 'tr-title'], 'ob-tr-role': ['form', 'tr-role'], 'ob-owner': ['form', 'owner'], 'ob-backup': ['form', 'backup'], 'ob-add-role': ['form', 'role'],
+  'ob-tr-title': ['form', 'tr-title'], 'ob-tr-role': ['form', 'tr-role'], 'ob-owner': ['form', 'owner'], 'ob-backup': ['form', 'backup'], 'ob-add-role': ['form', 'role'], 'ob-new-role': ['form', 'role'],
   'ob-add-ctx': ['form', 'context'], 'ob-q-text': ['form', 'questions'], 'ob-fld-': ['field', null], 'ob-host': ['form', 'pr-host'],
   'ob-link-proc': ['form', 'link-proc'], 'ob-link-proc-other': ['form', 'link-proc-other'], 'ob-link-vn': ['form', 'link-vn'], 'ob-link-src-': ['form', 'link-src'], 'ob-link-val-': ['form', 'link-val']
 };
-/* Not entry boxes: finding a part, choosing a type or a kind (radios with their own descriptions), choosing files. */
-const NOT_BOXES = { 'ob-part-q': 1, 'ob-part-q2': 1, 'ob-type': 1, 'ob-new-type': 1, 'ob-shot-file': 1, 'ob-mark-': 1, 'ob-link-ver-': 1 };
+/* Not entry boxes: finding a part, choosing a type, Must be done and Automation planned (checkboxes with their own
+   descriptions, 2.10), choosing files. */
+const NOT_BOXES = { 'ob-part-q': 1, 'ob-part-q2': 1, 'ob-type': 1, 'ob-new-type': 1, 'ob-shot-file': 1, 'ob-must': 1, 'ob-planned': 1, 'ob-link-ver-': 1 };
 rule('Guide: every input, textarea and select the editor draws has its guide entry, the Questions box included', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'views', 'builder.js'), 'utf8');
   const ids = new Set();
@@ -205,9 +206,9 @@ rule('Guide: whys claim only what the code does: receipts print evidence, briefs
   assert.ok(/412/.test(rc) && !/release\/build-and-test/.test(rc), 'the receipt prints evidence, not checklist fields');
   const brief = PF.skills.createBrief(pub, null, PF.skills.readiness([], pub, null), []);
   assert.ok(/release\/build-and-test/.test(brief), 'the brief prints checklist fields');
-  /* The gate owner is shown, not enforced: passing isn't limited to the owner. */
-  const gw = G.form('g-owner').why;
-  assert.ok(/shows on the gate as its owner/.test(gw) && /Whoever passes it in the run is recorded/.test(gw) && !/only the owner|can pass it/i.test(gw), gw);
+  /* The approval's owner is shown, not enforced (2.10: the builder's help line under Who approves? says so, views.test.js). */
+  assert.ok(/Whoever is recording it records the approval/.test(G.form('g-owner').why) && !/only the owner|can pass it/i.test(G.form('g-owner').why), 'shown, not enforced');
+  assert.strictEqual(G.form('g-owner').q, 'Who approves?');
 });
 
 rule('Guide: an empty caption is refused on add and on edit; a step with no Only when in a skipped stage, and a stage whose steps are all skipped, are Not needed', () => {

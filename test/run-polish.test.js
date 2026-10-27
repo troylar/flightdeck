@@ -169,7 +169,7 @@ rule('Test run: a run.json write that lands and then fails says Flightdeck could
   app.click('start-test', folder); await app.tick();
   const write = app.fs.write;
   app.fs.write = function (p) { return /^runs\/release\/[^/]+\/run\.json$/.test(p) ? write.apply(this, arguments).then(() => { throw new Error('OneDrive is offline'); }) : write.apply(this, arguments); };
-  app.submitForm('start-form', {}); await app.tick(200);
+  app.chooseApprovers().submitForm('start-form', {}); await app.tick(200);
   app.fs.write = write;
   const text = app.html() + app.live();
   assert.ok(/couldn(&#39;|')t confirm whether the test run started/.test(text), 'honest');
@@ -190,7 +190,7 @@ rule('Test run: Casey to Morgan and back to Casey while the stage is read again 
   const orig = app.fs.read.bind(app.fs);
   app.fs.read = (x, o) => new RegExp('^staged/release/' + folder + '/publication\\.json$').test(x) ? gate.then(() => orig(x, o)) : orig(x, o);
   const before = runFiles(app).length, liveBefore = app.live();
-  app.submitForm('start-form', {}); await app.tick(20);
+  app.chooseApprovers().submitForm('start-form', {}); await app.tick(20);
   app.choose('person-morgan'); await app.tick(20);
   app.choose('person-casey'); await app.tick(20);
   release(); await app.tick(200);
@@ -250,7 +250,7 @@ async function failedStart(app, how) {
     if (/^runs\/release\/[^/]+\/run\.json$/.test(p)) return how === 'landed' ? write.apply(this, arguments).then(() => { throw new Error('OneDrive is offline'); }) : Promise.reject(new Error('OneDrive is offline'));
     return write.apply(this, arguments);
   };
-  app.submitForm('start-form'); await app.tick(120);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   app.fs.write = write;
 }
 const unsure = /couldn(&#39;|')t confirm whether its run saved/, wrong = /didn(&#39;|')t save/;
@@ -260,7 +260,7 @@ async function everywhere(app, what) {
   assert.ok(unsure.test(app.html()) && !wrong.test(app.html()), what + ': the banner after the message is gone');
   const n = app.files('runs/release/').length;
   app.click('review-plan', PLAN); await app.tick();
-  app.submitForm('start-form'); await app.tick(120);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   assert.ok(unsure.test(app.html() + app.live()) && !wrong.test(app.html()), what + ': a second start');
   assert.strictEqual(app.files('runs/release/').length, n, what + ': nothing more written');
 }
@@ -288,10 +288,10 @@ rule('A known failure, then a Try again that may have written: "couldn\'t confir
   app.click('review-plan', PLAN); await app.tick();
   const read = app.fs.read.bind(app.fs);
   app.fs.read = (x, o) => /^runs\/release\/[^/]+\/run\.json$/.test(x) ? Promise.reject(new Error('OneDrive is offline')) : read(x, o);
-  app.submitForm('start-form'); await app.tick(120);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   app.fs.read = read;
   assert.ok(wrong.test(app.html()) && !unsure.test(app.html()), 'set-up: a known failure says didn\'t save');
-  app.click('review-plan', PLAN); await app.tick(); app.submitForm('start-form'); await app.tick(120);
+  app.click('review-plan', PLAN); await app.tick(); app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   assert.ok(/Use Try again to save that run/.test(app.html()), 'set-up: a second start is refused with the same words');
   const write = app.fs.write; let release, seen = null; const gate = new Promise(r => { release = r; });
   app.fs.write = function (p) {
@@ -375,7 +375,7 @@ async function recordedSmall() {
   app.click('open-process', 'release'); await app.tick();
   app.set('change-note', 'Small'); app.click('publish', 'release'); await app.tick(120);
   app.click('start', 'release'); await app.tick();
-  app.submitForm('start-form', {}); await app.tick(200);
+  app.chooseApprovers().submitForm('start-form', {}); await app.tick(200);
   assert.ok(/data-act="toggle" data-id="w"/.test(app.html()), 'set-up: recording the small run');
   return app;
 }

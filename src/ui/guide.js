@@ -44,7 +44,7 @@ PF.guide = (function () {
       issueType: e('What kind of issue?', 'Task', S), status: e('Move it to?', 'In Review', S + ' Checked against the team\'s Jira workflow.'),
       assignee: e('Assign it to?', 'dana@acme.com', S), linkTo: e('Link it to which issue?', 'PAY-1200', S), set: e('Which fields do you set?', 'Fix Version=^tag', S + ' ^details are filled in.') },
     'run.process': { process: e('Which process? (its file name)', 'database-migration', 'The process\'s file name, not its title: it\'s looked up by that exact ID. Whoever reaches this step starts its run from here (Start), and it links back.'),
-      carry: e('Which run details does it pass on?', 'tag, environment', 'Left empty, it passes on every run detail the other process also has.', true),
+      carry: e('Which run details does it pass on?', 'tag, environment', 'Left empty, it passes on every run detail the other checklist also has.', true),
       version: e('Which version of it?', '3', 'Left empty, the run uses its latest published version.', true),
       pass: e('What does each of its details get?', 'environment=^env, region=us-east-1, notify=?', 'name=^detail passes this run\'s detail under another name, name=? asks it when it starts, and anything else is a fixed value. Left empty, it passes what carry: says. Needs Flightdeck 2.8.', true) },
     'run.command': { command: e('What do you run?', 'git fetch origin && git rebase origin/main', COPY), where: e('Where do you run it?', 'a terminal in the payments-api repo', S),
@@ -104,20 +104,20 @@ PF.guide = (function () {
   };
   /* The step's own boxes and the other forms: their whys already say what empty means. */
   var STEP = {
-    text: e('What do you do?', 'Tag the release', 'Shown on the run screen, in Next up and on the receipt.', true),
+    text: e('What needs to be done?', 'Order equipment', 'Shown on the run screen, in Next up and on the receipt.', true),
     roles: e('Who does it?', '', 'Their name shows on the step, and it goes to them in Next up.', true),
     binds: e('Which run details does it depend on?', '', 'If one changes during a run, the step asks to be checked again.', true),
-    note: e('Anything else they should know?', 'Ping #payments before you start.', 'Shown with the step; Markdown works.', true)
+    note: e('Anything else they should know?', 'Ask the manager for the start date first.', 'Shown with the step; Markdown works.', true)
   };
   var FORMS = {
     when: e('Only when…?', '^environment is production', 'One condition a line. When it isn\'t true in a run, the step shows as Not needed. Left empty, this step adds no condition of its own; its stage\'s conditions still apply.', true),
     caption: e('What does it show?', 'The deploy button, top right', 'Shown under the picture during a run, and read out by screen readers. Needed: a screenshot can\'t be added or kept without one.', true),
     'ph-title': e('What\'s this stage called?', 'Deploy', 'Shown as a heading in runs. Needed: an empty name is refused.', true),
     'ph-mode': e('How is it worked?', '', 'Read, then do: one step at a time. Do, then confirm: do it all, then confirm together.', true),
-    'ph-note': e('Anything to know before this stage?', 'Freeze merges before starting', 'Shown at the top of the stage in runs. Left empty, nothing is shown.', true),
+    'ph-note': e('Anything to know before this stage?', 'Bring the signed offer letter', 'Shown at the top of the stage in runs. Left empty, nothing is shown.', true),
     'ph-when': e('Only when…?', '^hotfix is yes', 'When it isn\'t true, the whole stage is Not needed. Left empty, the stage adds no condition of its own; it\'s still Not needed when every step in it is.', true),
-    'g-title': e('What does passing it mean?', 'Ready to deploy', 'Shown on the gate in runs. Needed: an empty name is refused.', true),
-    'g-owner': e('Who signs it off?', '', 'Their name shows on the gate as its owner. Whoever passes it in the run is recorded as passing it. Left empty, no owner is shown.', true),
+    'g-title': e('Approval name', 'Manager sign-off', 'Shown on the approval in runs. Needed: an empty name is refused.', true),
+    'g-owner': e('Who approves?', '', 'You pick the person for this role when the checklist starts. Whoever is recording it records the approval.', true),
     'g-approves': e('What does passing it approve?', 'release ^tag to production', 'Asked as "Approve …?" when it\'s passed; ^details are filled in. Left empty, it asks "Pass …?" with the gate\'s name.', true),
     'tr-title': e('What\'s this lane called?', 'Database', 'Shown as the lane\'s heading. Needed: an empty name is refused.', true),
     'tr-role': e('Who works it?', '', 'Its steps without a role of their own go to them. Left empty, they go to nobody in particular.', true),
@@ -125,10 +125,10 @@ PF.guide = (function () {
     backup: e('Who stands in for them?', '', 'Signs off only while the owner is away. Left empty, no one stands in.', true),
     role: e('Add a role', 'release-manager', 'Steps and gates can be given to a role. One at a time; an empty name adds nothing.', true),
     context: e('Add a run detail each run needs', 'tag', 'Asked when a run starts; steps can use it as ^name. One at a time; an empty name adds nothing.', true),
-    'link-proc': e('Which process does it run?', '', 'Its run starts from this step and links back; this step is checked when it completes.', true),
-    'link-proc-other': e('Which process ID?', 'database-migration', 'For a process that isn\'t in this folder yet: its file name, not its title.', true),
+    'link-proc': e('Which checklist does it run?', '', 'Its run starts from this step and links back; this step is checked when it completes.', true),
+    'link-proc-other': e('Which checklist ID?', 'database-migration', 'For a checklist that isn\'t in this folder yet: its file name, not its title.', true),
     'link-vn': e('Which version, always?', '', 'Every run of this checklist starts that exact version, even after a newer one is published.', true),
-    'link-src': e('Where does this detail come from?', '', 'This run\'s detail (even under another name), a fixed value, or asked when the other process starts.', true),
+    'link-src': e('Where does this detail come from?', '', 'This run\'s detail (even under another name), a fixed value, or asked when the other checklist starts.', true),
     'link-val': e('Which fixed value?', 'us-east-1', 'Every run passes exactly this. At most 120 characters, no commas.', true),
     'pr-host': e('Where is the pull request?', '', 'Changes the step between a GitHub and a Bitbucket pull request. Every value is kept; what the other one doesn\'t use is flagged.', true),
     questions: e('What\'s still to be answered?', 'Who approves a hotfix?', 'Questions for the owner, written while drafting. Left in, the checklist can\'t be published; answer them in the steps, then remove the section.', true)

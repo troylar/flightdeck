@@ -84,7 +84,7 @@
     sel: null, refOpen: true, pick: null, edit: null, unfold: {}, diffOf: null, msg: null, justPassed: null,
     pendingFiles: [], pendingStarts: Object.create(null), urls: {}, full: {}, needsReconnect: null, overlay: null, busy: false, unsaved: {}, saveErr: {},
     rel: { q: '', kind: '', area: '', sel: 0, detail: false }, newer: null,
-    folderErr: null, deviceName: lsGet('device-name', ''), keys: lsGet('keys', true), theme: lsGet('theme', 'system'), builder: lsGet('builder', true), insTabSaved: lsGet('insTab', ''), partsRail: lsGet('partsRail', false), panes: panesKept(), fpSteps: fpStepsKept(), paneFit: {}, fieldErr: null, startMode: {}, showRoles: false, lookAround: lsGet('look-around', !!lsGet('me', '')), copyView: null, archive: {}, stepDrafts: {}, partial: {}, answering: null
+    folderErr: null, deviceName: lsGet('device-name', ''), keys: lsGet('keys', true), theme: lsGet('theme', 'system'), builder: lsGet('builder', true), insTabSaved: lsGet('insTab', ''), partsRail: lsGet('partsRail', false), renamed: lsGet('renamed-checklists', false), panes: panesKept(), fpSteps: fpStepsKept(), paneFit: {}, fieldErr: null, startMode: {}, startModeAt: {}, obMore: lsGet('obMore', false), obGroups: null, showRoles: false, lookAround: lsGet('look-around', !!lsGet('me', '')), copyView: null, archive: {}, stepDrafts: {}, partial: {}, answering: null
   };
   /* A step-type form belongs to its folder: switching folders and back finds it again, and another folder's form never
      replaces it. */
@@ -398,7 +398,7 @@
     if (t.view === 'run' && !ctx.findRun(t.run)) return 'That run isn\'t in this folder anymore.';
     if (t.view === 'process') {
       var p = procFind(t.process);
-      if (!p) return 'That process isn\'t in this folder anymore.';
+      if (!p) return 'That checklist isn\'t in this folder anymore.';
       /* A version or step result names its exact publication; another version is never shown in its place. */
       var v = t.mapVer ? (p.all || []).filter(function (x) { return x.folder === t.mapVer && x.ok && x.map; })[0] : null;
       if (t.mapVer && !v) return 'That version isn\'t in this folder anymore.';
@@ -511,7 +511,7 @@
     });
     data.drafts.forEach(function (d) {
       var m = M.parse(d.md), id = m.meta.process || d.file.replace(/\.md$/i, ''), e = entry(id);
-      /* Two drafts that say the same process (a OneDrive copy, release-LAPTOP.md): both are listed on the process page and in
+      /* Two drafts that say the same process (a OneDrive copy, release-LAPTOP.md): both are listed on the checklist\'s page and in
          Folder health. The one named for the process is shown; otherwise the first by name, the same on every computer. */
       if (e.draft) {
         e.sharedDrafts = (e.sharedDrafts || [e.draft.file]).concat([d.file]).sort();
@@ -547,7 +547,7 @@
     orphanSkills = [];
     data.skills.forEach(function (x) {
       var e = x.skill && Object.prototype.hasOwnProperty.call(by, x.skill.process) ? by[x.skill.process] : null;
-      if (!e) { orphanSkills.push({ skill: x.skill || { name: x.name || x.file || '?', process: '', implements: 0, steps: null, group: [], tags: [], version: '', location: '' }, errors: x.errors, status: { s: x.unmatched ? 'unmatched' : 'missing', text: x.errors.length ? x.errors.join('; ') : 'It names the process "' + x.skill.process + '", which isn\'t in this folder.' } }); return; }
+      if (!e) { orphanSkills.push({ skill: x.skill || { name: x.name || x.file || '?', process: '', implements: 0, steps: null, group: [], tags: [], version: '', location: '' }, errors: x.errors, status: { s: x.unmatched ? 'unmatched' : 'missing', text: x.errors.length ? x.errors.join('; ') : 'It names the checklist "' + x.skill.process + '", which isn\'t in this folder.' } }); return; }
       /* A 2.0 registration that can't be matched (Needs review, two registrations, or its exact version isn't usable here) is
          never current. */
       var st = x.unmatched ? { s: 'unmatched', text: 'Can\'t be matched: ' + x.errors.join('; ') } : x.errors.length ? { s: 'missing', text: x.errors.join('; ') } : PF.skills.status(x.skill, e.all, e.latest, e);
@@ -565,7 +565,7 @@
     var last = {};
     data.runs.forEach(function (r) { if (r.process === processId && r.state !== 'cancelled' && !R.isTest(r) && r.roles && r.roles[role]) { var p = r.roles[role]; if (!last[p] || r.created > last[p]) last[p] = r.created; } });
     var best = people.slice().sort(function (a, b) { var la = last[a.id] || '', lb = last[b.id] || ''; return la === lb ? (a.name < b.name ? -1 : 1) : la < lb ? -1 : 1; })[0];
-    return { person: best.id, why: last[best.id] ? 'last did it ' + U.day(last[best.id]) : 'hasn\'t done it yet' };
+    return { person: best.id, why: last[best.id] ? 'last did it ' + U.day(last[best.id]) : 'hasn\'t done it yet', last: last[best.id] || '' };
   }
 
   /* ---------- loading ---------- */
@@ -1255,7 +1255,7 @@
     var open = function () { setView('process'); state.processId = pid; state.ptab = 'edit'; state.mapVer = null; resetRunUi(); dropEditor(pid); var p = currentProcess(); if (p) openEditor(p); state.focus = 'draft-editor'; say('This is your first checklist. Change what you like, choose Save draft, then Review & publish.', 'good'); render(); window.scrollTo(0, 0); };
     queued(function () { return repo.saveDraft(sfs, pid + '.md', md, null, { lock: LOCKS ? lock : null, expectText: null }); }).then(function (res) {
       if (g !== gen) return null;
-      if (res.conflict && res.theirs !== md) { su.busy = false; say('A draft called ' + pid + '.md is already in the folder, so nothing was replaced. Open it from Processes.', 'warn'); render(); return null; }
+      if (res.conflict && res.theirs !== md) { su.busy = false; say('A draft called ' + pid + '.md is already in the folder, so nothing was replaced. Open it from Checklists.', 'warn'); render(); return null; }
       if (res.ok) logSave(sfs, fsKey(), { kind: 'draft-edit', id: pid, from: null, to: res.hash, before: '', after: md, source: 'new', units: ['Created the draft'], items: [] });
       return load(true).then(function () {
         if (g !== gen) return null;
@@ -1513,6 +1513,7 @@
     /* Nor while someone is composing text (an input method): the redraw waits until the composition ends. */
     if (rendering || composing) { scheduleRender(); return; }
     rendering = true;
+    obGroupsSync();
     /* Any inline form opened or closed (Fill in, Blocked, Edit, a correction, a note's correction), however it was reached, counts as moving. */
     var fsig = [state.pick ? state.pick.kind + ':' + state.pick.id : '', state.edit || '', state.corrForm ? state.corrForm.step + ':' + state.corrForm.mode : '', Object.keys(state.noteCorrs || {}).sort().join(',')].join('|');
     if (fsig !== formSig) { formSig = fsig; childEpoch++; }
@@ -2499,7 +2500,7 @@
   }
   /* Why nothing may be applied to this draft from this window right now (caBlocked's rules, and an input method composing). */
   function propBlocked(p) {
-    if (!p) return 'That process isn\'t in this folder any more.';
+    if (!p) return 'That checklist isn\'t in this folder anymore.';
     var why = caBlocked(p); if (why) return why;
     if (composing) return 'Finish typing first.';
     return '';
@@ -2511,7 +2512,7 @@
   var attemptN = 0;
   state.propTx = {};
   var PROP_SAY = {
-    older: 'This started from an older draft. Review it on the process page.', already: 'That\'s already in the draft. Review it to mark it as applied.',
+    older: 'This started from an older draft. Review it on the checklist\'s page.', already: 'That\'s already in the draft. Review it to mark it as applied.',
     waiting: 'It follows an earlier proposal that isn\'t applied yet.', review: 'The proposal it follows was declined or replaced. Review it first.',
     replaced: 'A newer proposal replaces this one.', invalid: 'This proposal can\'t be used.', applied: 'This was already applied.', 'applied-twice': 'This was already applied.',
     declined: 'This was declined. Reopen it to apply it.', unknown: 'A record about this proposal can\'t be read yet. Try again once it has arrived.'
@@ -2536,7 +2537,7 @@
      records an attempt before anything changes, checks again right before adopting that nothing changed and that the records
      are exactly the expected set (the person's reviewed set plus this attempt), adopts the text into an open editor as one
      Undo entry, checks again when the queued save starts (an Undo before then withdraws it), saves with the exact text it
-     expects, and only then records applied. Nothing is retried on its own. how: 'apply' (a person, on the process page or
+     expects, and only then records applied. Nothing is retried on its own. how: 'apply' (a person, on the checklist\'s page or
      in Review) or 'live' (the main editor, slice 2: only a proposal with no record at all, refusals unsaid). reviewed: the
      records a person saw in Review, or null. */
   function acceptProposal(pid, id, how, reviewed) {
@@ -2605,7 +2606,7 @@
               });
             }).then(function (res) {
               if (adopted) delete state.draftSaving[sk];
-              if (res.withdrawn) { if (adopted.ed.incoming) adopted.ed.incoming = null; return outcome('withdrawn', null, 'You took back your AI assistant\'s change. It\'s listed on the process page if you want it later.'); }
+              if (res.withdrawn) { if (adopted.ed.incoming) adopted.ed.incoming = null; return outcome('withdrawn', null, 'You took back your AI assistant\'s change. It\'s listed on the checklist\'s page if you want it later.'); }
               if (res.cancelled && res.kept) return outcome('cancelled', null, 'Your AI assistant\'s change is in the editor but wasn\'t saved: this window stopped applying changes live (hidden, or no longer the main editor). Save the draft to keep it, or Undo it.');
               if (res.cancelled) return outcome('cancelled');
               if (!res.ok) {
@@ -2613,8 +2614,8 @@
                 var ce = editorOf(pid, fk);
                 if (adopted && ce === adopted.ed && res.conflict) { ce.conflict = res; ce.baseHash = expectText == null ? null : U.hash(expectText); }
                 /* Written, then replaced by another change before the read-back: it was saved, so it never says it wasn't. */
-                if (res.afterWrite) return outcome('overwritten', null, 'Your save was written, then replaced by another change. Compare them ' + (adopted ? 'below' : 'in the editor') + '. Your AI assistant\'s change is listed on the process page.');
-                return outcome('not-saved', null, isLive ? 'Not saved: someone else changed this draft.' : 'Not saved: someone else changed this draft. Review the proposal again on the process page.');
+                if (res.afterWrite) return outcome('overwritten', null, 'Your save was written, then replaced by another change. Compare them ' + (adopted ? 'below' : 'in the editor') + '. Your AI assistant\'s change is listed on the checklist\'s page.');
+                return outcome('not-saved', null, isLive ? 'Not saved: someone else changed this draft.' : 'Not saved: someone else changed this draft. Review the proposal again on the checklist\'s page.');
               }
               if (live() && fsKey() === fk) {
                 savedDraft(file, text);
@@ -2627,7 +2628,7 @@
               return outcome('applied', { rev: PP.sha(text) }, isLive ? 'Your AI assistant changed this draft: ' + words + '. Undo available.' : 'Applied your AI assistant\'s change to the draft' + (here ? '. Undo available.' : '.'), here ? { act: 'tl-undo', id: 'draft', label: 'Undo' } : null);
             }, function (e) {
               if (adopted) delete state.draftSaving[sk];
-              return outcome('not-saved', null, e && e.tooBig ? e.message : 'Couldn\'t save the draft: ' + (e && e.message || e) + '. Review the proposal again on the process page.');
+              return outcome('not-saved', null, e && e.tooBig ? e.message : 'Couldn\'t save the draft: ' + (e && e.message || e) + '. Review the proposal again on the checklist\'s page.');
             });
           });
           /* The editor as captured (t): the same object, text, base, conflict and builder text, nothing blocking, the draft as it was. */
@@ -2667,8 +2668,8 @@
               var st = PP.recState(list), d = PP.decision({ proposal: id, proposalRev: r.proposal.rev, writer: WRITER, decisionRev: st.nextRev, seen: st.seen, status: status, attempt: mine, settles: settles, result: result, by: state.me || '', at: new Date().toISOString() });
               return repo.writeRecord(sfs, pid, d.name, d.rec);
             }).then(function () { return true; }, function () { return false; }).then(function (recorded) {
-              if (status === 'applied') { stop(recorded ? msg : msg.replace(/(\. Undo available)?\.$/, '') + ', but recording that didn\'t save. The process page shows it as May already be applied.', recorded ? 'good' : 'warn', recorded ? act : null); if (live()) load(true); return true; }
-              stop(msg || 'Your AI assistant\'s change wasn\'t applied because the draft changed while it was being applied. Review it on the process page.', 'warn');
+              if (status === 'applied') { stop(recorded ? msg : msg.replace(/(\. Undo available)?\.$/, '') + ', but recording that didn\'t save. The checklist\'s page shows it as May already be applied.', recorded ? 'good' : 'warn', recorded ? act : null); if (live()) load(true); return true; }
+              stop(msg || 'Your AI assistant\'s change wasn\'t applied because the draft changed while it was being applied. Review it on the checklist\'s page.', 'warn');
               if (live()) load(true);
               return false;
             });
@@ -2721,7 +2722,7 @@
       return repo.writeRecord(sfs, pid, d.name, d.rec).then(function () {
         if (g !== gen) return;
         if (state.overlay && state.overlay.propReview) closeOverlay();
-        say(status === 'declined' ? 'Declined. It stays listed on the process page.' : status === 'reopened' ? 'Reopened. Review it to apply it.' : 'Marked as applied.', 'good');
+        say(status === 'declined' ? 'Declined. It stays listed on the checklist\'s page.' : status === 'reopened' ? 'Reopened. Review it to apply it.' : 'Marked as applied.', 'good');
         return load(true);
       }, function (e) { if (g !== gen) return; say('Couldn\'t save the decision: ' + e.message, 'bad'); render(); });
     });
@@ -2968,7 +2969,7 @@
   }
   V.practicePage = function () {
     var c = prCtx();
-    if (!c) return '<div class="panel">That process isn\'t in this folder anymore. <button class="mini" data-act="nav" data-id="processes">Processes</button></div>';
+    if (!c) return '<div class="panel">That checklist isn\'t in this folder anymore. <button class="mini" data-act="nav" data-id="processes">Checklists</button></div>';
     return c.run() ? V.run(c) : '<div class="fpe rw pr-run" id="rw">' + V.practiceHead(c, c.practice, { total: 0, done: 0 }, 0) + '<div class="fpe-alerts rw-alerts">' + V.practiceAlerts(c, c.practice) + '</div></div>';
   };
   /* A change to the draft that waits while practicing (the editor adopts it, with its own checks, when you go back). */
@@ -3115,7 +3116,7 @@
     if (isStep) e.trip.target = null;
     prToEditor(p, function () {
       if (isStep) { state.obSel = { pid: p.id, kind: 'step', key: key }; prTarget(p, 'step', key); state.focus = state.builder !== false ? 'ob-text' : 'draft-editor'; }
-      else { state.obSel = { pid: p.id, kind: 'phase', key: key }; prTarget(p, 'phase', key); state.focus = state.builder !== false ? 'ob-g-title' : 'draft-editor'; }
+      else { state.obSel = { pid: p.id, kind: 'phase', key: key, part: 'gate' }; prTarget(p, 'phase', key); state.focus = state.builder !== false ? 'ob-g-title' : 'draft-editor'; }
       state.insTab = null;
       if (state.builder === false) {
         var o = PF.outline.parse(edText(p)), s = isStep ? o.steps.filter(function (x) { return x.key === key; })[0] : o.phases.filter(function (x) { return x.key === key; })[0];
@@ -3526,6 +3527,7 @@
     var F = function (kind, key) { return PF.outline.follow(cur, res.text, op, res.at, kind, key); };
     /* The checklist's details and its Questions section aren't steps or phases: they stay selected while they're there. */
     var sl = state.obSel; if (sl && sl.pid === p.id && !isWhole(sl)) { var nk = F(sl.kind === 'track' ? 'phase' : sl.kind, sl.key); if (nk) sl.key = nk; else state.obSel = null; }
+    gateKept(state.obSel, res.text);
     var ad = state.obAdd;
     if (ad && ad.pid === p.id) {
       if (ad.after != null) ad.after = F(ad.kind === 'phase' ? 'phase' : 'step', ad.after);
@@ -3637,7 +3639,7 @@
   }
   /* An image pasted while a step's or a phase's form has focus goes to it. */
   document.addEventListener('paste', function (e) {
-    if (state.view !== 'process' || state.ptab !== 'edit' || !state.obSel || (state.obSel.kind !== 'step' && state.obSel.kind !== 'phase') || !e.clipboardData) return;
+    if (state.view !== 'process' || state.ptab !== 'edit' || !state.obSel || (state.obSel.kind !== 'step' && state.obSel.kind !== 'phase') || state.obSel.part === 'gate' || !e.clipboardData) return;
     var t = e.target; if (!(t && t.closest && t.closest('.ob-form'))) return;
     var items = e.clipboardData.items || [], files = [];
     for (var i = 0; i < items.length; i++) if (items[i].kind === 'file') { var f = items[i].getAsFile(); if (f) files.push(f); }
@@ -3671,6 +3673,26 @@
   function learnIds(ed, text) { if (!ed || text == null) return; var tl = tlOf(ed), ids = PF.outline.parse(text).ids, k = tl.savedIds || (tl.savedIds = Object.create(null)); Object.keys(ids).forEach(function (x) { k[x] = true; }); }
   /* What rides along with a builder change: the selection, what's being added and the parts new in this window (freshCopy),
      so Undo and Redo put them back with the text. Typing not yet applied is never replayed: Undo waits for it instead. */
+  /* Where the step form's groups sit (2.10): decided when a step is selected and again after its lines change (an apply,
+     Discard, Undo or Redo, a newer folder draft, an adopted proposal, a reset), never on typing. A group with focus in it
+     keeps its place at that moment, so a box is never moved while it's in use. */
+  function obGroupsSync() {
+    var sel = state.obSel, p = state.view === 'process' && state.ptab === 'edit' && sel && sel.kind === 'step' ? currentProcess() : null;
+    if (!p || sel.pid !== p.id) { state.obGroups = null; return; }
+    var text = edText(p), st = PF.outline.parse(text).steps.filter(function (x) { return x.key === sel.key; })[0];
+    if (!st) { state.obGroups = null; return; }
+    var sig = text.split('\n').slice(st.line, st.end).join('\n'), g = state.obGroups, same = g && g.pid === p.id && g.key === sel.key;
+    if (same && g.sig === sig) return;
+    var has = V.obGroupsHas(text, sel.key, (data.stepTypes || {}).types) || {};
+    if (same) { var a = document.activeElement, box = a && a.closest && a.closest('[data-obg]'), k = box && box.dataset && box.dataset.obg; if (k) has[k] = !!g.out[k]; }
+    state.obGroups = { pid: p.id, key: sel.key, sig: sig, out: has };
+  }
+  /* An approval stays selected only while its phase has one; otherwise the selection is the phase's. */
+  function gateKept(sel, text) {
+    if (!sel || sel.part !== 'gate') return;
+    var ph = PF.outline.parse(text).phases.filter(function (x) { return x.key === sel.key; })[0];
+    if (!ph || !ph.gate) delete sel.part;
+  }
   function obSnap(ed) { var snap = function (x) { return x ? JSON.parse(JSON.stringify(x)) : null; }; return { obSel: snap(state.obSel), obAdd: snap(state.obAdd), fresh: ed ? freshCopy(ed) : null }; }
   /* The step or phase an outline operation is about, in words and as a History item. */
   function opSubject(text, op) {
@@ -3854,10 +3876,11 @@
   function typedFirst(p, what) {
     var pf = state.obPending === p.id && state.obPendingField;
     /* An Add box's typing is kept by Undo itself (tlMove), but another box beside it that holds typing isn't. */
-    if (pf && /^ob-new-/.test(pf)) pf = state.processId === p.id ? obTyped(null, true) : null;
+    if (pf && OB_KEPT.test(pf)) pf = state.processId === p.id ? obTyped(null, true) : null;
     if (!pf) return false;
     if (state.overlay) closeOverlay();
     say('Apply or clear what you typed in the box first ' + applyHint(pf) + ', then ' + what + '.', 'warn');
+    holdAt(p.id, pf);
     state.focus = '#' + pf; render(); return true;
   }
   /* Undo or Redo in one editor. how: 'button' keeps focus on the button pressed, so it can be pressed again; 'key' moves focus
@@ -3893,7 +3916,7 @@
       if (r.entry.kind === 'incoming') ed.incoming = redo ? { keys: keySet(r.entry.items), who: /AI assistant/.test(r.entry.label) ? 'assistant' : 'folder' } : null;
       ed.text = r.text; obClearErr(); state.planFormReset = !adding; state.obPlace = null; state.obAsk = null; state.obFlash = null;
       if (r.sel && 'obSel' in r.sel) {
-        state.obSel = r.sel.obSel; state.obAdd = adding || r.sel.obAdd;
+        state.obSel = r.sel.obSel; state.obAdd = adding || r.sel.obAdd; gateKept(state.obSel, r.text);
         /* Parts already in the saved draft are never new again, whatever an older change remembered. */
         if (r.sel.fresh) { learnIds(ed, ed.base); var saved = tl.savedIds, fr = Object.create(null); Object.keys(r.sel.fresh).forEach(function (k) { if (!saved[k]) fr[k] = true; }); ed.fresh = fr; }
       }
@@ -3982,7 +4005,7 @@
   /* A value as the outline ops apply it (lineValue): line breaks become spaces and the ends are trimmed; spaces inside
      (a command's arguments) are its content. */
   function norm(v) { return String(v == null ? '' : v).replace(/[\r\n]+/g, ' ').trim(); }
-  function dropPending() { state.obPending = null; state.obPendingField = null; }
+  function dropPending() { state.obPending = null; state.obPendingField = null; state.obHold = null; }
   /* What the draft says now for a box in the builder's form, to tell typed text from what's applied. */
   function fieldApplied(id) {
     var p = currentProcess(), s = state.obSel; if (!p || !s || /^ob-new-/.test(id)) return '';
@@ -4028,6 +4051,7 @@
   function selFocus(s) {
     if (!s) return null;
     if (isWhole(s)) return s.kind === 'details' ? '[data-act="ob-sel-details"]' : '[data-act="ob-sel-questions"]';
+    if (s.part === 'gate') return '[data-act="ob-sel-gate"][data-id="' + cssEsc(s.key) + '"]';
     return s.kind === 'step' ? '[data-act="ob-sel"][data-id="' + cssEsc(s.key) + '"]' : s.kind === 'track' ? '[data-act="ob-sel-track"][data-id="' + cssEsc(s.key) + '"][data-track="' + s.track + '"]' : '[data-act="ob-sel-phase"][data-id="' + cssEsc(s.key) + '"]';
   }
   function narrow() { return !!(window.matchMedia && window.matchMedia('(max-width: 800px)').matches); }
@@ -4085,7 +4109,7 @@
     state.obPlace = null; state.obAdd = null;
     if (pt.kind === 'step') { markFresh(ed, res.id); state.obSel = { pid: p.id, kind: 'step', key: res.id }; state.obFlash = { kind: 'step', key: res.id }; state.focus = 'ob-text'; if (pt.mark === '!') state.obReveal = res.id; }
     else if (pt.kind === 'phase') { markFresh(ed, res.id); state.obSel = { pid: p.id, kind: 'phase', key: res.id }; state.obFlash = { kind: 'phase', key: res.id }; state.focus = 'ob-ph-title'; }
-    else if (pt.kind === 'gate') { markFresh(ed, res.id); state.obSel = { pid: p.id, kind: 'phase', key: m[1] }; state.obFlash = { kind: 'gate', key: m[1] }; state.focus = 'ob-g-title'; }
+    else if (pt.kind === 'gate') { markFresh(ed, res.id); state.obSel = { pid: p.id, kind: 'phase', key: m[1], part: 'gate' }; state.obFlash = { kind: 'gate', key: m[1] }; state.focus = 'ob-g-title'; }
     else { markFresh(ed, res.id); markFresh(ed, res.step); state.obSel = { pid: p.id, kind: 'track', key: res.phase, track: res.track }; state.obFlash = { kind: 'track', key: res.phase, track: res.track }; state.focus = 'ob-tr-title'; }
     state.focusSelect = true; state.insTab = null;
     sayUndo('Added ' + pt.noun + ' ' + place.where + '.'); render();
@@ -4201,8 +4225,12 @@
       if (id === 'ob-text') res = reid(st && st.id, builderEdit({ op: 'editText', step: s.key, text: value, reid: !!(st && fresh(st.id)) }, id));
       else if (!set) return;
       else res = reid(st && st.id, builderEdit({ op: 'edit', step: s.key, set: set }, id));
-      /* The three kinds exclude each other: say what the new one means, and what leaving must-do allows. */
-      if (res && !res.same && mk) { say((st && st.must && mk !== '!' ? 'No longer a must-do step: it can now be marked N/A or waived. ' : '') + (mk === '!' ? 'Now a must-do step: it can\'t be marked N/A or waived.' : mk === '~' ? 'Automation planned. It\'s still done by hand for now.' : 'Now a plain step.'), 'good'); refocus = '#ob-mark-' + value; }
+      /* Must be done and Automation planned exclude each other: say what the new mark means, what leaving must-do allows, and what checking one cleared. */
+      if (res && !res.same && mk) {
+        var cleared = st && st.planned && mk === '!' ? 'No longer marked Automation planned. ' : st && st.must && mk !== '!' ? (mk === '~' ? 'No longer marked Must be done' : 'No longer a must-do step') + ': it can now be marked N/A or waived. ' : '';
+        say(cleared + (mk === '!' ? 'Now a must-do step: it can\'t be marked N/A or waived.' : mk === '~' ? 'Automation planned. It\'s still done by hand for now.' : 'Now a plain step.'), 'good');
+        refocus = '#' + (state.obMarkFrom || (mk === '~' ? 'ob-planned' : 'ob-must'));
+      }
     } else if (s.kind === 'track') {
       var tr = ph && ph.tracks[+s.track]; if (!tr) return;
       if (id === 'ob-tr-title') res = reid(tr.id, builderEdit({ op: 'editTrack', phase: s.key, track: s.track, set: { title: value, reid: fresh(tr.id) } }, id));
@@ -4220,6 +4248,7 @@
         var g = {}; g[id === 'ob-g-title' ? 'title' : id === 'ob-g-owner' ? 'owner' : 'approves'] = value;
         if (id === 'ob-g-title' && ph && ph.gate && fresh(ph.gate.id)) g.reid = true;
         res = reid(ph && ph.gate && ph.gate.id, builderEdit({ op: 'gate', phase: s.key, set: g }, id));
+        if (res && id === 'ob-g-title' && ph && !ph.gate) { state.focus = 'ob-g-owner'; render(); return; }
       } else return;
     }
     if (res) { state.focus = refocus; render(); }
@@ -4238,14 +4267,18 @@
   /* Selecting the checklist's details or its Questions section. focus: a box in the form to start in (an Add box). */
   /* Text typed in a builder box and not applied (refused, or not left yet) would be dropped by choosing something else or
      opening an Add box: that waits until it's applied or cleared, as Back does. */
-  var OB_TYPED = /^ob-(ren-ctx|text|ph-title|ph-note|tr-title|g-title|g-approves|fld-[\w-]+|new-text|new-title|shot-cap-\d+|note|q-text|add-role|add-ctx|when|ph-when|link-proc-other|link-val-[\w-]+)$/;
+  /* The builder boxes a change event applies. */
+  var OB_CHANGE = /^ob-(text|type|fld-[\w-]+|ph-title|ph-note|ph-mode|g-title|g-owner|g-approves|tr-title|tr-role|shot-cap-\d+|note|q-text|owner|backup|add-role|add-ctx|when|ph-when)$/;
+  /* The Add step and Add phase boxes, whose typing Undo, Redo and closing the form keep (a new role's name isn't kept). */
+  var OB_KEPT = /^ob-new-(text|title)$/;
+  var OB_TYPED = /^ob-(ren-ctx|new-role|text|ph-title|ph-note|tr-title|g-title|g-approves|fld-[\w-]+|new-text|new-title|shot-cap-\d+|note|q-text|add-role|add-ctx|when|ph-when|link-proc-other|link-val-[\w-]+)$/;
   /* A builder box on the page, other than except, whose text differs from what the draft says (an Add box: holds anything).
      Several can hold typing at once (one refused, another being typed in), so every box is looked at, not just the last. */
   function obTyped(except, skipNew) {
     var list = app.querySelectorAll ? app.querySelectorAll('input[id], textarea[id]') : [];
     for (var i = 0; i < list.length; i++) {
       var el = list[i], id = el.id || '';
-      if (id === except || !OB_TYPED.test(id) || (skipNew && /^ob-new-/.test(id))) continue;
+      if (id === except || !OB_TYPED.test(id) || (skipNew && OB_KEPT.test(id))) continue;
       if (boxNorm(id, el.value) !== boxNorm(id, /^ob-(new|add)-/.test(id) ? '' : fieldApplied(id))) return id;
     }
     return null;
@@ -4256,10 +4289,21 @@
     if (state.obPendingField || !state.processId || state.view !== 'process' || state.ptab !== 'edit') return;
     var other = obTyped(null); if (other) { state.obPending = state.processId; state.obPendingField = other; }
   }
+  /* The refusal just said, drawn beside its builder box instead of in the editor's message area (V.obHoldIn); it's still
+     announced. The box becomes the pending one, so a closed More options around it opens. */
+  function holdAt(pid, pf) {
+    if (!pid || !/^ob-/.test(pf || '') || !document.getElementById(pf) || state.view !== 'process' || state.ptab !== 'edit') return;
+    if (state.msg) state.msg.quiet = true;
+    state.obPending = pid; state.obPendingField = pf;
+    state.obHold = { pid: pid, field: pf, text: state.msg ? state.msg.text : '', apply: OB_CHANGE.test(pf) && !/^ob-add-(role|ctx)$/.test(pf) || /^ob-new-(text|title|role)$/.test(pf) };
+  }
   function obHeld(p, then, except, skipNew) {
-    var pf = state.obPending === p.id && state.obPendingField !== except && state.obPendingField && !(skipNew && /^ob-new-/.test(state.obPendingField)) && document.getElementById(state.obPendingField) ? state.obPendingField : obTyped(except, skipNew);
+    var pf = state.obPending === p.id && state.obPendingField !== except && state.obPendingField && !(skipNew && OB_KEPT.test(state.obPendingField)) && document.getElementById(state.obPendingField) ? state.obPendingField : obTyped(except, skipNew);
     if (!pf) return false;
     say('Apply or clear what you typed in the box first ' + applyHint(pf) + ', ' + (then || 'then choose another') + '.', 'warn');
+    /* 2.10: said beside the box, inside the form (on a phone everything outside it is inert), with Apply and Discard; a box in
+       a closed More options opens it, as typing not applied does. */
+    holdAt(p.id, pf);
     state.focus = '#' + cssEsc(pf); render(); return true;
   }
   function obSelWhole(kind, focus) {
@@ -4650,6 +4694,7 @@
   }
   function refuseFor(dirty) {
     say(/^ob-/.test(dirty.id || '') ? 'Apply or clear what you typed in the box first ' + applyHint(dirty.id) + ', then go there.' : 'Finish or cancel this first.', 'warn');
+    holdAt(state.processId, dirty.id);
     /* Focus never lands on a box in a closed phone sheet. */
     if (state.view === 'run' && narrow() && !state.refOpen) state.refOpen = true;
     state.focus = dirty.id ? '#' + cssEsc(dirty.id) : null; render();
@@ -4740,6 +4785,7 @@
     dbxClose();
     el.value = el.value.slice(0, a.start) + ins + after;
     var pos = a.start + ins.length; el.focus(); el.setSelectionRange(pos, pos);
+    dbxSet[el.id] = true;
     if (typeof Event === 'function') el.dispatchEvent(new Event('input', { bubbles: true }));
     dbxClose();
     if (o.add) dbxAdd(o.name, el);
@@ -4779,8 +4825,22 @@
     var pre = el.value.slice(0, s0), ins = (/[A-Za-z0-9]$/.test(pre) ? ' ' : '') + '^';
     el.value = pre + ins + el.value.slice(e0);
     el.focus(); el.setSelectionRange(s0 + ins.length, s0 + ins.length);
+    dbxSet[el.id] = true;
     if (typeof Event === 'function') el.dispatchEvent(new Event('input', { bubbles: true }));
   }
+  /* A box whose text was last set here (Insert a detail, a picked suggestion) gets no change event when it's left, as a
+     browser only sends one for typing. So leaving it applies it, once; a redraw that puts focus back in it doesn't. */
+  var dbxSet = Object.create(null);
+  document.addEventListener('focusout', function (e) {
+    var id = e.target && e.target.id; if (!id || !dbxSet[id]) return;
+    setTimeout(function () {
+      var f = document.activeElement; if (!dbxSet[id] || (f && f.id === id)) return;
+      delete dbxSet[id];
+      var el = document.getElementById(id);
+      if (!el || !OB_CHANGE.test(id) || state.view !== 'process' || state.ptab !== 'edit') return;
+      if (boxNorm(id, el.value) !== boxNorm(id, fieldApplied(id))) builderField(id, el.value);
+    }, 0);
+  }, true);
   var dbxCaret = Object.create(null);
   document.addEventListener('focusout', function (e) { var t = e.target; if (dbxBox(t)) dbxCaret[t.id] = { s: t.selectionStart, e: t.selectionEnd, v: t.value }; }, true);
   document.addEventListener('scroll', function (e) { var t = e.target; if (t && t.classList && t.classList.contains('dbx-in')) dbxFit(t); }, true);
@@ -4793,7 +4853,9 @@
     });
   });
   /* Choosing an option, or Insert a detail, with the pointer keeps focus (and the caret) in the box. */
-  document.addEventListener('mousedown', function (e) { if (e.target && e.target.closest && e.target.closest('.dbx-o, [data-act="dbx-insert"]')) e.preventDefault(); });
+  /* The refusal's Apply and Discard (2.10) keep focus in their box too: leaving it would apply it, be refused again, and the
+     redraw would drop the click. */
+  document.addEventListener('mousedown', function (e) { if (e.target && e.target.closest && e.target.closest('.dbx-o, [data-act="dbx-insert"], [data-act="ob-hold-apply"], [data-act="ob-hold-discard"]')) e.preventDefault(); });
   /* Leaving the box closes the list; a redraw that puts the same box back (focus follows it) doesn't. */
   document.addEventListener('focusout', function (e) {
     if (!dbxAc || !e.target || e.target.id !== dbxAc.id) return;
@@ -4917,7 +4979,7 @@
   }
   function moveToProcess(loc) {
     var pid = loc.process, p = procFind(pid);
-    if (!p && ctx.lostDrafts().indexOf(pid) < 0) { ACTIONS.nav('processes'); navGone('process', loc); return 'moved'; }
+    if (!p && ctx.lostDrafts().indexOf(pid) < 0) { ACTIONS.nav('processes'); navGone('checklist', loc); return 'moved'; }
     var rf = state.runFilter;
     if (state.view === 'runs' && rf && rf.back && rf.back.process === pid && loc.tab === 'insights') { ACTIONS['ins-back'](); return 'focus'; }
     /* A test run's form (2.1) comes back as a test run's form, never as an ordinary start. */
@@ -5034,7 +5096,7 @@
     if (guarded) dispatch(act, id, b); else handler(id, b);
   });
 
-  var BACK = { home: 'Home', runs: 'Runs', run: 'Back to the run', processes: 'Processes', process: 'Back to the process', skills: 'Skills', skill: 'Back to the skill', types: 'Step types', settings: 'Settings', health: 'Folder health', connection: 'Connection check' };
+  var BACK = { home: 'Home', runs: 'Runs', run: 'Back to the run', processes: 'Checklists', process: 'Back to the checklist', skills: 'Skills', skill: 'Back to the skill', types: 'Step types', settings: 'Settings', health: 'Folder health', connection: 'Connection check' };
   var ACTIONS = {
     home: function () { home(); render(); },
     /* ---------- Folder health, the connection check, When something goes wrong ---------- */
@@ -5116,7 +5178,7 @@
       var p = procFind(id), pub = p && p.latest;
       if (!pub || !state.me) return;
       var as = PF.skills.signer(pub, data.people, state.me, !!(data.failed || {}).people);
-      if (!as) { say('Only the process owner, ' + V.nameOf(ctx, pub.map.meta.owner) + ', can sign off a version' + (pub.map.meta.backup ? ', or its backup owner while the owner is inactive or gone' : '') + '.', 'warn'); render(); return; }
+      if (!as) { say('Only the checklist\'s owner, ' + V.nameOf(ctx, pub.map.meta.owner) + ', can sign off a version' + (pub.map.meta.backup ? ', or its backup owner while the owner is inactive or gone' : '') + '.', 'warn'); render(); return; }
       var ready = PF.skills.readiness(countedRuns(pub.map.meta.process), pub, null), note = val('pick-input'), sfs = state.fs, sg = gen, unk = PF.skills.signUnknown(data, pub);
       if (unk) { say('Nothing was signed off: ' + unk + (PF.skills.signHold(data, pub).kind === 'newer' ? '. Update Flightdeck to see it.' : ', so it isn\'t known whether v' + pub.info.version + ' is already signed off. If that file stays this way, restore it from a backup or delete it.'), 'warn'); render(); return; }
       if (!ready.enough) { say('Sign-off needs ' + ready.needed + ' clean completed runs of v' + pub.info.version + '.', 'warn'); render(); return; }
@@ -5302,6 +5364,7 @@
       state.insTab = id; if (id !== 'selected' && id !== 'practice') { state.insTabSaved = id; lsSet('insTab', id); }
       state.focus = '#ins-t-' + id; render();
     },
+    'renamed-ok': function () { state.renamed = true; lsSet('renamed-checklists', true); state.focus = 'page-h'; render(); },
     'ob-rail': function () { state.partsRail = !state.partsRail; lsSet('partsRail', state.partsRail); state.focus = '[data-act="ob-rail"]'; render(); },
     /* Done leaves the editor; edits not saved stay in it, and the process page says so. */
     'ed-done': function () {
@@ -5387,20 +5450,43 @@
       state.obSel = null; sayUndo('Deleted ' + name + (res.steps ? ' and its ' + res.steps + ' step' + (res.steps === 1 ? '' : 's') : '') + '.'); state.focus = '[data-act="tl-undo"][data-id="draft"]'; render();
     },
     'ob-gate-remove': function (id) {
-      var res = builderEdit({ op: 'removeGate', phase: id }, null, 'removed a gate'); if (!res) return;
-      sayUndo('Removed the gate. The phase ends with a check that it\'s done.'); state.focus = 'ob-g-title'; render();
+      var res = builderEdit({ op: 'removeGate', phase: id }, null, 'removed an approval'); if (!res) return;
+      if (state.obSel && state.obSel.key === id) delete state.obSel.part;
+      sayUndo('Removed the approval. The phase ends with a check that it\'s done.'); state.focus = '[data-act="ob-sel-gate"][data-id="' + cssEsc(id) + '"]'; render();
     },
     /* On a phone, Done closes the side form's sheet and goes back to what was selected. */
     'ob-done': function () {
       /* Typed text not yet applied is applied first; if it's refused, the sheet stays open with the reason. */
       var pf = state.obPending && state.obPendingField, pel = pf && document.getElementById(pf);
-      if (pel && /^ob-(text|ph-title|ph-note|tr-title|g-title|g-approves|fld-[\w-]+|shot-cap-\d+|note|q-text|add-role|add-ctx|when|ph-when)$/.test(pf)) { builderField(pf, pel.value); if (state.fieldErr && state.fieldErr.id === 'ob') return; }
+      if (pel && /^ob-(text|ph-title|ph-note|tr-title|g-title|g-approves|fld-[\w-]+|shot-cap-\d+|note|q-text|add-role|add-ctx|when|ph-when)$/.test(pf)) {
+        builderField(pf, pel.value);
+        if (state.fieldErr && state.fieldErr.id === 'ob') { var hp = currentProcess(); say('Apply or clear what you typed in the box first ' + applyHint(pf) + ', then close the form.', 'warn'); holdAt(hp && hp.id, pf); state.focus = '#' + cssEsc(pf); render(); return; }
+      }
       /* Another box that still holds typing (refused earlier, say) keeps the form open too. */
       var cp = currentProcess(); if (cp && obTyped(null, true) && obHeld(cp, 'then close the form', null, true)) return;
       var s = state.obSel; state.obSel = null; state.obAsk = null; obClearErr();
       state.focus = !s ? 'ed-h' : selFocus(s);
       render();
     },
+    /* + Add role (2.10) in the approval, step and lane forms: one box; Enter adds and assigns as one change. */
+    'ob-role-add': function (at) {
+      var p = currentProcess(), s = state.obSel; if (!p || !s || ['gate', 'step', 'track'].indexOf(at) < 0) return; if (obHeld(p)) return;
+      obClearErr(); state.obNewRole = { pid: s.pid, key: s.key, track: s.track, at: at }; state.focus = 'ob-new-role'; render();
+    },
+    'ob-role-add-cancel': function () {
+      var nr = state.obNewRole; state.obNewRole = null; if (state.obPendingField === 'ob-new-role') dropPending(); obClearErr();
+      state.focus = nr ? '[data-act="ob-role-add"][data-id="' + nr.at + '"]' : null; render();
+    },
+    'ob-role-add-go': function () {
+      var p = currentProcess(), s = state.obSel, nr = state.obNewRole; if (!p || !s || !nr) return;
+      var name = String(val('ob-new-role')).trim().replace(/^@/, '').replace(/\s+/g, '-');
+      var to = nr.at === 'gate' ? { gate: s.key } : nr.at === 'track' ? { phase: s.key, track: +s.track } : { step: s.key };
+      var res = builderEdit({ op: 'addRoleTo', name: name, to: to }, 'ob-new-role', 'added @' + name); if (!res) return;
+      state.obNewRole = null;
+      say('Added @' + name + ' and gave it to ' + (nr.at === 'gate' ? 'the approval' : nr.at === 'track' ? 'the lane' : 'the step') + '. Undo available.', 'good', { act: 'tl-undo', id: 'draft', label: 'Undo' });
+      state.focus = nr.at === 'gate' ? 'ob-g-owner' : nr.at === 'track' ? 'ob-tr-role' : '[data-act="ob-role"][data-id="' + cssEsc(name) + '"]'; render();
+    },
+    'ob-sel-gate': function (id) { var p = currentProcess(); if (!p) return; if (obHeld(p)) return; obClearErr(); state.obShown = null; state.insTab = null; state.obSel = { pid: p.id, kind: 'phase', key: id, part: 'gate' }; state.obAdd = null; state.planFormReset = true; state.focus = 'ob-g-title'; render(); },
     'ob-sel-phase': function (id, b) { var p = currentProcess(); if (!p) return; if (obHeld(p)) return; obClearErr(); state.obShown = null; state.insTab = null; state.obSel = { pid: p.id, kind: 'phase', key: id }; state.obAdd = null; state.planFormReset = true; state.focus = b && b.dataset && b.dataset.focus ? b.dataset.focus : '[data-act="ob-sel-phase"][data-id="' + cssEsc(id) + '"]'; render(); },
     'ob-move': function (id, b) { builderMoveStep(id, b && b.dataset.dir === 'up' ? -1 : 1, b && b.dataset.from === 'key' ? 'row' : 'button'); },
     'ob-ph-move': function (id, b) {
@@ -5409,7 +5495,24 @@
       state.focus = b && b.dataset.from === 'key' ? '[data-act="ob-sel-phase"][data-id="' + cssEsc(nk) + '"]' : '[data-act="ob-ph-move"][data-dir="' + (up ? 'up' : 'down') + '"]'; render();
     },
     'ob-role': function (id) { builderToggle('role', id); },
+    /* The refusal's own buttons (2.10): Apply does what Enter or leaving the box does; Discard puts back only that box. */
+    'ob-hold-apply': function () {
+      var h = state.obHold, el = h && document.getElementById(h.field); if (!h || !el) return;
+      if (h.field === 'ob-new-text' || h.field === 'ob-new-title') return ACTIONS['ob-add-go'](null, el);
+      if (h.field === 'ob-new-role') return ACTIONS['ob-role-add-go']();
+      builderField(h.field, el.value);
+    },
+    'ob-hold-discard': function () {
+      var h = state.obHold, el = h && document.getElementById(h.field); if (!h) return;
+      if (el) el.value = /^ob-(new|add)-/.test(h.field) ? '' : fieldApplied(h.field);
+      if (state.fieldErr && state.fieldErr.id === 'ob' && state.fieldErr.field === h.field) state.fieldErr = null;
+      dropPending(); obRepend();
+      say('Put back what the draft says in that box.', 'good'); state.msg.quiet = true;
+      var gone = h.field === 'ob-note' && !String(fieldApplied('ob-note')).trim(); if (gone) obShow('ob:note', false);
+      state.focus = gone ? '[data-act="ob-note-open"]' : el ? '#' + cssEsc(h.field) : null; render();
+    },
     /* "+ add": shows a waiting box, focused. Typing held in another box is applied or refused first, as any change waits. */
+    'ob-note-open': function () { var p = currentProcess(); if (!p || obHeld(p)) return; obShow('ob:note', true); state.focus = 'ob-note'; render(); },
     'ob-show': function (id) {
       var p = currentProcess(); if (!p || !id || obHeld(p)) return; obShow(id, true);
       /* A group of chips is focused on its first chip; run details with none listed, on the group. */
@@ -5754,7 +5857,7 @@
       var p = procFind(state.processId);
       if (!p || !state.me || state.stageBusy) return;
       var sg = V.stageSign(ctx, p, folder);
-      if (!sg.stage || !sg.as) { say(sg.why || (sg.signs && sg.signs.length ? 'It\'s already signed off.' : 'Only the process owner signs off a staged version, once ' + PF.skills.READY_RUNS + ' of its test runs are clean.'), 'warn'); render(); return; }
+      if (!sg.stage || !sg.as) { say(sg.why || (sg.signs && sg.signs.length ? 'It\'s already signed off.' : 'Only the checklist\'s owner signs off a staged version, once ' + PF.skills.READY_RUNS + ' of its test runs are clean.'), 'warn'); render(); return; }
       var sfs = state.fs, pg = gen, by = state.me, pid = p.id, proposed = sg.stage.info.stage.proposed;
       var still = function () { return pg === gen && state.fs === sfs && state.me === by; };
       state.stageBusy = pid; render();
@@ -5773,7 +5876,7 @@
             /* Read again now, and still counted now (2.0.1). */
             var r = PF.skills.readiness(now.runs.filter(counted), st, null), as = PF.skills.signer(st, now.people, by, false);
             if (!r.enough) throw new Error('It needs ' + r.needed + ' clean test runs; it has ' + r.clean + '.');
-            if (!as) throw new Error('Only the process owner signs off a staged version.');
+            if (!as) throw new Error('Only the checklist\'s owner signs off a staged version.');
             if (PF.skills.signoffs(now.validations, st).length) throw new Error('It\'s already signed off.');
             return { as: as === 'backup' ? 'backup' : null, evidence: { completed: r.completed, clean: r.clean, runs: r.cleanIds } };
           } });
@@ -5952,7 +6055,9 @@
     search: function () { openSearch(); },
     'sx-open': function (id) { sxOpenResult(id); },
     'toggle-keys': function () { state.keys = !state.keys; lsSet('keys', state.keys); render(); },
-    'start-mode': function (id, b) { state.startMode[b.dataset.process] = id; render(); },
+    'start-mode': function (id, b) {
+      state.startMode[b.dataset.process] = id; state.startModeAt[b.dataset.process] = startFormKey(); render();
+    },
     'show-roles': function () { state.showRoles = !state.showRoles; render(); },
     'new-folder': function () { ACTIONS['setup-mode']('start'); },
     /* ---------- Getting started ---------- */
@@ -5990,7 +6095,7 @@
     'setup-tpl': function (id) { var su = state.setup; if (!su) return; su.tpl = id; state.focus = '[data-act="setup-tpl"][data-id="' + id + '"]'; render(); },
     'setup-publish': function (id) { setupChecklist(id, false); },
     'setup-edit': function (id) { setupChecklist(id, true); },
-    'setup-run': function (id) { var p = procFind(id); if (!p || !p.latest) return; state.startMode[id] = 'solo'; ACTIONS.start(id); },
+    'setup-run': function (id) { var p = procFind(id); if (!p || !p.latest) return; if (V.approvals(p.latest.map).length) delete state.startMode[id]; else state.startMode[id] = 'solo'; ACTIONS.start(id); },
     'setup-app-check': function () { setupAppCheck(); },
     'setup-copy': function (id) {
       var pre = document.getElementById({ prompt: 'su-prompt', invite: 'su-invite', request: 'su-request' }[id] || '');
@@ -6001,7 +6106,7 @@
     'setup-who': function (id) {
       var p = data.people.filter(function (x) { return x.id === id && !x.inactive; })[0]; if (!p) return;
       state.me = id; lsSet('me', id); forgetStartIfNotMine(); state.setup = null; home();
-      say('Welcome, ' + p.name.split(' ')[0] + '. Home shows what needs you; Runs and Processes have the rest.', 'good'); state.focus = 'page-h'; render(); window.scrollTo(0, 0);
+      say('Welcome, ' + p.name.split(' ')[0] + '. Home shows what needs you; Runs and Checklists have the rest.', 'good'); state.focus = 'page-h'; render(); window.scrollTo(0, 0);
     },
     'setup-hide': function () { lsSet('setup-hidden:' + fsKey(), true); state.focus = 'page-h'; render(); },
     'setup-finish': function () { home(); state.setup = null; state.focus = 'page-h'; render(); window.scrollTo(0, 0); },
@@ -6067,7 +6172,7 @@
       if (base) { var back = base.make(); for (var i = 0; i < data.runs.length; i++) if (data.runs[i].id === r.id) data.runs[i] = back; bump(r.id); }
       delete state.unsaved[r.id]; delete state.saveErr[r.id]; if (state.saveOpts) delete state.saveOpts[r.id]; say('Your unsaved change was discarded.'); load(true);
     },
-    /* ---------- corrections: recorded in runs, decided on the process page (docs/design.md section 19) ---------- */
+    /* ---------- corrections: recorded in runs, decided on the checklist\'s page (docs/design.md section 19) ---------- */
     /* Correct this step (anyone who has said who they are; it doesn't answer the step) or Done differently (the recorder; it
        answers the step). Correcting starts on the wording, filled in with what the step says now. */
     'corr-open': function (id, b) {
@@ -6783,9 +6888,9 @@
     var f = newProcForm();
     /* The form keeps only a file name typed by hand; one made from the title follows the title. */
     state.newProc = Object.assign({}, f, { id: f.ownId, typed: null });
-    if (!f.title) return npRefuse(f, 'Give the process a title.', 'np-title');
+    if (!f.title) return npRefuse(f, 'Give the checklist a title.', 'np-title');
     if (!/^[a-z0-9][a-z0-9-]{0,59}$/.test(f.id)) return npRefuse(f, 'The file name is lowercase letters, numbers and dashes, like release or code-review.', f.ownId ? 'np-id' : 'np-title');
-    if (processes().some(function (x) { return x.id === f.id; })) return npRefuse(f, 'There\'s already a process called "' + f.id + '". Choose another title, or another file name under More options.', f.ownId ? 'np-id' : 'np-title', true);
+    if (processes().some(function (x) { return x.id === f.id; })) return npRefuse(f, 'There\'s already a checklist called "' + f.id + '". Choose another title, or another file name under More options.', f.ownId ? 'np-id' : 'np-title', true);
     var cx = npNames(f.context, 'context'), rl = npNames(f.roles, 'roles'), bad = cx.error ? ['np-context', cx.error] : rl.error ? ['np-roles', rl.error] : null;
     if (bad) { state.newProc.err = { box: bad[0], msg: bad[1] }; return npRefuse(f, bad[1], bad[0], true); }
     f.context = cx.text; f.roles = rl.text;
@@ -6795,13 +6900,13 @@
     var done = function () { if (npBusy.token === mine) npBusy = { gen: -1, token: -1 }; };
     queued(function () { return repo.saveDraft(sfs, f.id + '.md', md, null, { lock: LOCKS ? lock : null, expectText: null }); }).then(function (res) {
       if (g !== gen) return;
-      if (res.conflict) { say('A draft for "' + f.id + '" appeared in the folder meanwhile. Open it from Processes.', 'warn'); render(); return; }
+      if (res.conflict) { say('A draft for "' + f.id + '" appeared in the folder meanwhile. Open it from Checklists.', 'warn'); render(); return; }
       logSave(sfs, fsKey(), { kind: 'draft-edit', id: f.id, from: null, to: res.hash, before: '', after: md, source: 'new', units: ['Created the draft'], items: [] });
       var here = function () { return state.view === 'new-process' && state.newProc && state.newProc.token === mine; };
       /* Open the new draft only if the person is still on the form they submitted; otherwise say where it is. */
       return loadAfterWrite().then(function () {
         if (g !== gen) return;
-        if (!here() || !processes().some(function (x) { return x.id === f.id; })) { say('Created the draft for "' + f.title + '". Open it from Processes.', 'good'); render(); return; }
+        if (!here() || !processes().some(function (x) { return x.id === f.id; })) { say('Created the draft for "' + f.title + '". Open it from Checklists.', 'good'); render(); return; }
         if (!publish) {
           setView('process'); state.processId = f.id; state.ptab = 'edit'; dropEditor(f.id); var np = currentProcess(); if (np) openEditor(np); state.newProc = null;
           var msg = 'Draft created. Fill in the steps, choose Save draft, then Review & publish.'; state.focus = 'draft-editor';
@@ -6820,7 +6925,7 @@
           return repo.loadStepTypes(sfs).then(function (types) { return repo.publish(sfs, md, { people: people, customTypes: types.types, workflows: wfs, processes: pids, by: by, changes: 'First version', existing: p ? p.taken : [], now: new Date().toISOString(), app: APP_VERSION }); });
         }).then(function (pub) {
           if (g !== gen) return;
-          if (!here()) { say(pub.blockers ? 'Created the draft for "' + f.title + '", but it can\'t be published yet. Open it from Processes.' : 'Published ' + f.title + ' v' + pub.version + '. Open it from Processes.', pub.blockers ? 'warn' : 'good'); render(); return; }
+          if (!here()) { say(pub.blockers ? 'Created the draft for "' + f.title + '", but it can\'t be published yet. Open it from Checklists.' : 'Published ' + f.title + ' v' + pub.version + '. Open it from Checklists.', pub.blockers ? 'warn' : 'good'); render(); return; }
           state.newProc = null; setView('process'); state.processId = f.id; state.ptab = 'overview';
           if (pub.blockers) { say('The draft is saved, but it can\'t be published yet: ' + pub.blockers[0], 'warn'); render(); return; }
           say('Published ' + f.title + ' v' + pub.version + '. Start a run when you\'re ready.', 'good'); state.focus = 'page-h';
@@ -6893,6 +6998,7 @@
     if (!pub) { say('This plan\'s version can\'t be used here: ' + pick.ask + '. It won\'t start on another version by itself.', 'warn'); render(); return; }
     if (e.target.dataset.folder !== pub.info.folder) { say(plan ? 'The version this plan starts on changed while you were filling this in. Check the form, then start again.' : 'A new version was published while you were filling this in. Check the form, then start again.', 'warn'); render(); return; }
     if (val('start-mode') === 'solo') pub.map.meta.roles.forEach(function (ro) { roles[ro] = state.me; });
+    if (approverMissing(pub, roles)) return;
     /* A decision on the plan that can't be read could say it was started already: nothing starts until it reads. */
     if (plan && planHeld(plan)) { say(planHeld(plan), 'warn'); render(); return; }
     /* A plan whose run is waiting on Try again here is decided: it's never started again. */
@@ -7011,6 +7117,22 @@
       say((adding ? 'Added the team value ' : 'Saved the team value ') + name + '.', 'good');
     }, adding ? null : f.base);
   });
+  /* Which start or plan form is open, as the view names it (its scope and the version it starts): a choice of mode made on
+     it applies to it alone when the version has an approval role (2.10). */
+  function startFormKey() {
+    var p = procFind(state.processId); if (!p || !p.latest) return '';
+    var planning = state.planning && state.planning.process === p.id ? state.planning : null;
+    var plan = !planning && state.planId ? data.plans.filter(function (x) { return x.id === state.planId; })[0] : null;
+    var pub = plan ? PF.plans.pick(p, plan, V.planChoice(ctx, plan)).pub : p.latest;
+    return (planning ? 'plan:' + p.id + ':' + (planning.from || '') : 'start:' + p.id + ':' + (plan ? plan.id : '')) + ':' + (pub ? pub.info.folder : '');
+  }
+  /* Who approves has to be chosen (2.10): left empty, Start and Save the plan are refused there, and nothing typed is lost. */
+  function approverMissing(pub, roles) {
+    var gap = V.approvals(pub.map).filter(function (a) { return !roles[a.role]; })[0];
+    if (!gap) { if (state.fieldErr && state.fieldErr.id === 'start-approver') state.fieldErr = null; return false; }
+    state.fieldErr = { id: 'start-approver', field: 'role-' + gap.role, msg: 'Choose who approves "' + gap.title + '".' };
+    state.focus = '#role-' + gap.role; say(null); render(); return true;
+  }
   /* Save a plan: a new file, never a replacement for one that's there. */
   document.addEventListener('submit', function (e) {
     if (e.target.id !== 'plan-form') return;
@@ -7022,6 +7144,7 @@
     e.target.querySelectorAll('[data-detail]').forEach(function (el) { var v = String(inputValue(el) || '').trim(); if (v) details[el.dataset.detail] = v.slice(0, 120); });
     e.target.querySelectorAll('[data-role]').forEach(function (el) { if (el.value) roles[el.dataset.role] = el.value; });
     if (val('start-mode') === 'solo') pub.map.meta.roles.forEach(function (ro) { roles[ro] = state.me; });
+    if (approverMissing(pub, roles)) return;
     var whenText = val('plan-when').trim(), parsed = whenText ? U.localDateTime(whenText) : null, when = parsed && parsed.date;
     if (parsed && parsed.error) { state.fieldErr = { id: 'plan-when', msg: parsed.error === 'gap' ? 'That time doesn\'t exist on that day (clocks change); pick another.' : 'Enter a date and time, or leave it blank.' }; state.focus = 'plan-when'; render(); return; }
     state.fieldErr = null;
@@ -7124,6 +7247,15 @@
   /* A group of chips (require:, sets:) counts as one box: focus anywhere in it is focus in the box. */
   function fieldBoxOf(t) { var g = t && t.closest && t.closest('.ob-grp'); return (g && g.id) || (t && t.id) || ''; }
   document.addEventListener('focusin', function (e) { var id = fieldBoxOf(e.target); if (/^ob-fld-[\w-]+$/.test(id) && state.view === 'process' && state.ptab === 'edit') obShow(id.slice(7), true); }, true);
+  /* The note box (2.10) goes back behind + Add instructions the same way, and focus goes to that button if it had nowhere else. */
+  document.addEventListener('focusout', function (e) {
+    if (!e.target || e.target.id !== 'ob-note' || state.view !== 'process' || state.ptab !== 'edit') return;
+    setTimeout(function () {
+      var a = document.activeElement, el = document.getElementById('ob-note');
+      if ((a && a.id === 'ob-note') || state.obPendingField === 'ob-note' || (el && String(el.value || '').trim()) || String(fieldApplied('ob-note') || '').trim()) return;
+      obShow('ob:note', false); if (!a || a === document.body) state.focus = '[data-act="ob-note-open"]'; render();
+    }, 0);
+  }, true);
   document.addEventListener('focusout', function (e) {
     var id = fieldBoxOf(e.target);
     if (!/^ob-fld-[\w-]+$/.test(id) || state.view !== 'process' || state.ptab !== 'edit') return;
@@ -7145,6 +7277,13 @@
     var d = e.target; if (!d || !d.dataset) return;
     prActivity(d);
     if (d.dataset.group) (state.groupsOpen = state.groupsOpen || {})[d.dataset.group] = d.open;
+    /* More options (2.10): one setting for the whole editor, kept in this browser; it can't close over typing not applied. */
+    if (d.dataset.disc === 'ob-more') {
+      /* Drawn open over typing not applied: not the person's choice, so it isn't kept (a browser fires toggle for that too). */
+      if (d.dataset.busy) { if (!d.open) { d.open = true; say('Apply or clear what you typed under More options first.', 'warn'); render(); } return; }
+      if (!!state.obMore !== !!d.open) { state.obMore = !!d.open; lsSet('obMore', state.obMore); }
+      return;
+    }
     if (d.dataset.disc) (state.disc = state.disc || {})[d.dataset.disc] = d.open;
     /* A flight plan phase opened or closed by hand. Only a change from what the page drew counts: a browser also fires
        toggle for a disclosure drawn open. */
@@ -7177,9 +7316,11 @@
     }
     if (e.target.id === 'map-ver') { state.mapVer = e.target.value === 'draft' ? null : e.target.value; state.pick = null; render(); }
     if (/^tf-/.test(e.target.id || '') && state.typeForm) { typeFormInput(e, false); render(); }
-    if (/^ob-(text|type|fld-[\w-]+|ph-title|ph-note|ph-mode|g-title|g-owner|g-approves|tr-title|tr-role|shot-cap-\d+|note|q-text|owner|backup|add-role|add-ctx|when|ph-when)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
+    if (e.target.id) delete dbxSet[e.target.id];
+    if (OB_CHANGE.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
     if (e.target.id === 'ob-shot-file' && state.view === 'process' && state.ptab === 'edit') { shotAdd(e.target.files); e.target.value = ''; }
-    if (/^ob-mark-(step|must|planned)$/.test(e.target.id || '') && e.target.checked && state.view === 'process' && state.ptab === 'edit') builderField('ob-mark', e.target.id.slice(8));
+    /* 2.10: Must be done and Automation planned are two checkboxes over the step's one mark; checking one clears the other. */
+    if ((e.target.id === 'ob-must' || e.target.id === 'ob-planned') && state.view === 'process' && state.ptab === 'edit') { state.obMarkFrom = e.target.id; builderField('ob-mark', e.target.checked ? e.target.id.slice(3) : 'step'); state.obMarkFrom = null; }
     if (/^ob-link-(proc|proc-other|vn|src-[\w-]+|val-[\w-]+)$/.test(e.target.id || '') && state.view === 'process' && state.ptab === 'edit') builderField(e.target.id, e.target.value);
     if (/^ob-link-ver-(latest|pin)$/.test(e.target.id || '') && e.target.checked && state.view === 'process' && state.ptab === 'edit') builderField('ob-link-ver', e.target.value);
     if (/^np-/.test(e.target.id || '') && state.newProc) state.newProc.token = ++npToken;
@@ -7320,7 +7461,7 @@
     });
   }
   /* Every change of screen goes through here: what's typed on the run's selected step is kept first. */
-  function setView(v) { childEpoch++; if (state.view === 'practice' && v !== 'practice') prLeave(); leaveContext(); state.view = v; }
+  function setView(v) { childEpoch++; if (state.view === 'start' && v !== 'start') state.startModeAt = {}; if (state.view === 'practice' && v !== 'practice') prLeave(); leaveContext(); state.view = v; }
   /* Leaving the practice page (any way: Edit, Back, a link): what's typed is kept, and where it was, for coming back. */
   function prLeave() {
     prHarvest(); var p = currentProcess(), e = p && prs[edKey(p.id)];
@@ -7349,6 +7490,7 @@
     if (!dirty && state.overlay && state.overlay.held && state.overlay.held()) { say('Finish or cancel this first.', 'warn'); render(); focusOverlay(); return false; }
     if (dirty) {
       say(/^ob-/.test(dirty.id || '') ? 'Apply or clear what you typed in the box first ' + applyHint(dirty.id) + ', then go there.' : 'Finish or cancel this first.', 'warn');
+      holdAt(state.processId, dirty.id);
       state.focus = dirty.id ? '#' + cssEsc(dirty.id) : null; render(); return false;
     }
     if (state.overlay) closeOverlay();

@@ -222,7 +222,7 @@
     var opt = function (v, label, cur) { return '<option value="' + esc(v) + '"' + (v === (cur || '') ? ' selected' : '') + '>' + esc(label) + '</option>'; };
     var vers = f.process ? I.folders(runs, f.process, [], []) : [];
     var chips = [];
-    if (f.process) chips.push(['process', 'Process: ' + ctx.processTitle(f.process)]);
+    if (f.process) chips.push(['process', 'Checklist: ' + ctx.processTitle(f.process)]);
     if (f.folder) { var fv = vers.filter(function (x) { return x.folder === f.folder; })[0]; chips.push(['folder', 'Version: ' + (fv ? verLabel(fv) : f.folder)]); }
     if (f.outcome) chips.push(['outcome', 'Outcome: ' + OUTCOMES.filter(function (o) { return o[0] === f.outcome; })[0][1]]);
     if (f.from) chips.push(['from', 'Started from ' + f.from]);

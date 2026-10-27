@@ -317,6 +317,12 @@ PF.types = (function () {
     'run.process': 'Automation', 'run.command': 'Automation', 'run.script': 'Automation', 'run.skill': 'Automation' };
   function groupOf(t) { return t && t.custom ? (t.group && t.group.length ? t.group : ['Team']) : [GROUPS[t && t.id] || 'General']; }
   function tagsOf(t) { return (t && t.tags) || []; }
+  /* What the screens call a built-in type, where that differs from its label (2.10). Only for showing: a label is part of the
+     definition frozen into a version, so it stays as it was; the old name still finds the type in search. */
+  var NAMES = { confirm: 'Basic step', 'run.process': 'Run another checklist' };
+  function named(t) { return !!t && !t.custom && Object.prototype.hasOwnProperty.call(NAMES, t.id); }
+  function nameOf(t) { return named(t) ? NAMES[t.id] : (t && t.label) || ''; }
+  function aliasOf(t) { return named(t) ? t.label : ''; }
 
-  return { ID: ID, ID_MAX: ID_MAX, VERSION: VERSION, uses2: uses2, LIST: LIST, COMMON: COMMON, applies: applies, EVIDENCE_KINDS: Object.freeze(Object.keys(EVIDENCE)), PINS: PINS, ICONS: ICONS_OK, get: get, fieldDef: fieldDef, options: options, hasOption: hasOption, canonical: canonical, checkFields: checkFields, understood: understood, editable: editable, relevant: relevant, checkCustom: checkCustom, customType: customType, recordFields: recordFields, needsRecord: needsRecord, checkRecord: checkRecord, freeze: freeze, groupOf: groupOf, tagsOf: tagsOf, groupText: groupText, tagText: tagText };
+  return { ID: ID, ID_MAX: ID_MAX, VERSION: VERSION, uses2: uses2, LIST: LIST, COMMON: COMMON, applies: applies, EVIDENCE_KINDS: Object.freeze(Object.keys(EVIDENCE)), PINS: PINS, ICONS: ICONS_OK, get: get, fieldDef: fieldDef, options: options, hasOption: hasOption, canonical: canonical, checkFields: checkFields, understood: understood, editable: editable, relevant: relevant, checkCustom: checkCustom, customType: customType, recordFields: recordFields, needsRecord: needsRecord, checkRecord: checkRecord, freeze: freeze, groupOf: groupOf, tagsOf: tagsOf, nameOf: nameOf, aliasOf: aliasOf, groupText: groupText, tagText: tagText };
 })();

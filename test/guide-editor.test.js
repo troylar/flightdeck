@@ -36,6 +36,8 @@ const flagOf = (h, id) => { const m = new RegExp('<span class="small ob-flag" id
 const chips = h => [...h.matchAll(/data-act="ob-show" data-id="([\w-]+)"[^>]*>([^<]*)</g)].map(m => m[1] + '=' + un(m[2]));
 const boxes = h => [...h.matchAll(/\sid="ob-fld-([\w-]+)"/g)].map(m => m[1]).filter((v, i, a) => a.indexOf(v) === i);
 const choiceRow = (h, id) => [...h.matchAll(new RegExp('<button type="button" role="radio"[^>]*data-act="ob-choice" data-id="' + id + '" data-val="([^"]*)"[^>]*aria-checked="(true|false)"[^>]*tabindex="(-1|0)"[^>]*>([^<]*)</button>', 'g'))].map(m => [un(m[1]), m[2] === 'true', m[3] === '0', un(m[4])]);
+/* One step-panel group (2.10), inside the More options fold or out of it. */
+const groupOf = (h, key) => (new RegExp('<section class="ob-grp4" data-obg="' + key + '"[\\s\\S]*?</section>').exec(h) || [''])[0];
 const enter = (app, id, value) => { app.set(id, value); app.input(id, value); app.keyOn('Enter', {}, { tagName: 'INPUT', id, value, dataset: { enter: 'ob-commit' }, closest: () => null }); };
 const choose = (app, id, val) => app.click('ob-choice', id, { val });
 const textOf = async app => { app.click('save-draft'); await app.tick(80); return app.fs.files['maps/drafts/release.md'].t; };
@@ -48,21 +50,24 @@ rule('Editor: each field asks its question, shows its example and says why, link
   assert.strictEqual(whyOf(h, 'ob-fld-job'), G.field(t, 'job', { job: 'release/build-and-test', parameters: 'BRANCH=main' }).why);
   assert.ok(/aria-describedby="why-ob-fld-job[ "]/.test(tagOf(h, 'ob-fld-job')), 'linked');
   assert.ok(!/usually filled in/.test(h), 'gone');
+  app.click('ob-note-open'); await app.tick();
   for (const [id, name] of [['ob-text', 'text'], ['ob-note', 'note']]) {
+    const h = formOf(app);
     assert.strictEqual(labelOf(h, id), G.step(name).q, id);
     assert.strictEqual(whyOf(h, id), G.step(name).why, id + ' why');
     assert.ok(new RegExp('aria-describedby="why-' + id + '[ "]').test(tagOf(h, id)), id + ' linked');
   }
-  assert.ok(/placeholder="Tag the release"/.test(tagOf(h, 'ob-text')));
+  assert.ok(/placeholder="Order equipment"/.test(tagOf(h, 'ob-text')));
   assert.ok(/<span id="ob-roles-l">Who does it\?<\/span>/.test(h) && /<span id="ob-binds-l">Which run details does it depend on\?<\/span>/.test(h), 'roles and run details ask too');
 });
 
-rule('Editor: the usual boxes show (required, or holding a value); the rest wait behind "+ add" chips; with none of those, the first two that apply', async () => {
+rule('Editor: the usual boxes show (required, or holding a value); the rest wait behind "+ add" chips; a plain step shows no type fields by default (2.10)', async () => {
   let app = await editorOn(md(step('jenkins.job', 'b', 'job: release/build-and-test', 'parameters: BRANCH=main'), step('confirm', 'c'), step('jira.issue', 'j', 'action: create')), 'b');
   assert.deepStrictEqual(boxes(formOf(app)), ['job', 'parameters']);
   assert.deepStrictEqual(chips(formOf(app)).filter(c => /^(page|stage)=/.test(c)), ['page=+ Job page', 'stage=+ Watch for']);
   app.click('ob-sel', 'c'); await app.tick();
-  assert.deepStrictEqual(boxes(formOf(app)), ['where', 'looks'], 'nothing usual: the first two that apply');
+  assert.deepStrictEqual(boxes(formOf(app)), [], 'nothing usual: no boxes');
+  assert.deepStrictEqual(chips(groupOf(formOf(app), 'guide')).filter(c => /^(where|looks)=/.test(c)), ['where=+ Where to check', 'looks=+ True when'], 'under Guidance');
   app.click('ob-sel', 'j'); await app.tick();
   const h = formOf(app);
   assert.deepStrictEqual(boxes(h).filter(b => b !== 'action'), ['project'], 'create: the project is usual; the issue doesn\'t apply');
@@ -191,10 +196,13 @@ rule('Editor: a refused choice keeps the checked button, says why beside the gro
   assert.ok(/id="ferr-ob-fld-action" role="alert">No\./.test(h), 'announced');
 });
 
-rule('Editor: the fields every type accepts wait behind "More about this step"; At, Done by and Due after stay three boxes', async () => {
+rule('Editor: the fields every type accepts wait in the More options groups (2.10); At, Done by and Due after stay three boxes', async () => {
   const app = await editorOn(md(step('confirm', 'c'), step('confirm', 'd', 'at: 14:00', 'due: 17:30')), 'c');
-  const more = (/<div class="field ob-more"><span id="ob-more-l">More about this step<\/span><div class="row" role="group" aria-labelledby="ob-more-l">([\s\S]*?)<\/div><\/div>/.exec(formOf(app)) || [])[1] || '';
-  assert.deepStrictEqual(chips(more), ['link=+ Link', 'expect=+ How long it takes', 'deadline=+ Deadline', 'evidence=+ Ask for proof', 'require=+ What must be recorded', 'at=+ At', 'due=+ Done by', 'after=+ Due after', 'sets=+ Sets a run detail']);
+  const h0 = formOf(app), grp = k => chips(groupOf(h0, k));
+  assert.deepStrictEqual(grp('guide'), ['where=+ Where to check', 'looks=+ True when', 'link=+ Link']);
+  assert.deepStrictEqual(grp('proof'), ['evidence=+ Ask for proof', 'require=+ What must be recorded']);
+  assert.deepStrictEqual(grp('time'), ['expect=+ How long it takes', 'deadline=+ Deadline', 'at=+ At', 'due=+ Done by', 'after=+ Due after']);
+  assert.deepStrictEqual(grp('cond'), ['sets=+ Sets a run detail']);
   app.click('ob-show', 'expect'); await app.tick();
   assert.strictEqual(labelOf(formOf(app), 'ob-fld-expect'), 'How long does it usually take?');
   app.click('ob-sel', 'd'); await app.tick();
@@ -239,11 +247,15 @@ rule('Editor: the other forms ask their questions: phase, gate, lane, checklist 
   const app = await editorOn(text);
   app.click('ob-sel-phase', 'build'); await app.tick();
   let h = formOf(app);
-  for (const [id, name] of [['ob-ph-title', 'ph-title'], ['ob-ph-note', 'ph-note'], ['ob-g-title', 'g-title'], ['ob-g-owner', 'g-owner'], ['ob-g-approves', 'g-approves']]) {
+  const asks = (pairs) => { for (const [id, name, why] of pairs) {
     assert.strictEqual(labelOf(h, id), G.form(name).q, id);
-    assert.strictEqual(whyOf(h, id), G.form(name).why, id + ' why');
+    assert.strictEqual(whyOf(h, id), why || G.form(name).why, id + ' why');
     if (G.form(name).eg) assert.ok(tagOf(h, id).includes('placeholder="' + G.form(name).eg.replace(/"/g, '&quot;') + '"'), id + ' example');
-  }
+  } };
+  asks([['ob-ph-title', 'ph-title'], ['ob-ph-note', 'ph-note']]);
+  /* 2.10: the approval has its own form; with no role named, Who approves? says so. */
+  app.click('ob-sel-gate', 'build'); await app.tick(); h = formOf(app);
+  asks([['ob-g-title', 'g-title'], ['ob-g-owner', 'g-owner', 'No approval role is named. Whoever is recording records the approval.'], ['ob-g-approves', 'g-approves']]);
   app.click('ob-sel-track', 'build', { track: '0' }); await app.tick(); h = formOf(app);
   assert.strictEqual(labelOf(h, 'ob-tr-title'), G.form('tr-title').q); assert.strictEqual(labelOf(h, 'ob-tr-role'), G.form('tr-role').q);
   app.click('ob-sel-details'); await app.tick(); h = formOf(app);
@@ -566,6 +578,35 @@ rule('Editor (2.8): a name the child doesn\'t have is shown with a Remove fix', 
   const t = await textOf(app), m = app.PF.map.parse(t);
   assert.ok(!/carry:/.test(t), t);
   assert.deepStrictEqual(JSON.parse(JSON.stringify(app.PF.links.rows(app.PF.map.findStep(m, 's').step, m.meta.context, CHECKIN(app)).rows)), JSON.parse(JSON.stringify(before)), 'every other detail gets what it got before, nothing starts being passed: ' + t);
+});
+
+rule('Editor: a box filled by Insert a detail (or a picked suggestion) is applied when it is left, once; a redraw that keeps focus in it waits (2.10)', async () => {
+  const app = await editorOn(md(step('deploy', 'd', 'environment: prod', 'artifact: web', 'version: v1')), 'd', { replace: true, domFocus: true });
+  const leave = async id => { app.doc.activeElement = app.doc.body; app.fire('focusout', { target: app.el(id) }); await app.tick(20); };
+  /* The step's own words: a textarea that is one line. */
+  app.set('ob-text', 'Do d for');
+  app.click('dbx-insert', '', { for: 'ob-text' }); await app.tick();
+  assert.strictEqual(app.el('ob-text').value, 'Do d for ^', 'Insert a detail put ^ at the caret');
+  app.fire('focusout', { target: app.el('ob-text') }); await app.tick(20);
+  assert.ok(!/Changed the wording/.test(app.live()), 'focus still in the box (a redraw put it back): nothing yet');
+  await leave('ob-text');
+  assert.ok(/Changed the wording of "Do d"/.test(app.live()), 'applied on leaving: ' + app.live());
+  app.click('ob-sel', 'd'); await app.tick();
+  assert.ok(!/Apply or clear what you typed/.test(app.live()), 'nothing left pending');
+  /* A field box. Typing after the insert sends change on leaving; it isn't applied twice. */
+  app.set('ob-fld-version', 'v1 of');
+  app.click('dbx-insert', '', { for: 'ob-fld-version' }); await app.tick();
+  await leave('ob-fld-version');
+  let text = await textOf(app);
+  assert.ok(/\n  version: v1 of \^\n/.test(text), 'the field applied: ' + text);
+  app.click('ob-sel', 'd'); await app.tick();
+  app.set('ob-fld-version', 'v2');
+  app.click('dbx-insert', '', { for: 'ob-fld-version' }); await app.tick();
+  app.fire('change', { target: app.el('ob-fld-version') }); await app.tick();
+  await leave('ob-fld-version');
+  app.click('tl-undo', 'draft'); await app.tick();
+  text = await textOf(app);
+  assert.ok(/\n  version: v1 of \^\n/.test(text), 'one Undo takes back the one apply: ' + text);
 });
 
 run();

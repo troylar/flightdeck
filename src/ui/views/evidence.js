@@ -18,7 +18,7 @@
   }
   function what(ov) {
     var s = ov.scope;
-    return s.run ? esc(ov.title || s.run) : s.process ? 'Runs of ' + esc(ov.procTitle || s.process) + ' started ' + esc(s.from) + ' through ' + esc(s.through) + ' (' + esc(s.tz) + ')' : 'Runs of one process, by the days they started';
+    return s.run ? esc(ov.title || s.run) : s.process ? 'Runs of ' + esc(ov.procTitle || s.process) + ' started ' + esc(s.from) + ' through ' + esc(s.through) + ' (' + esc(s.tz) + ')' : 'Runs of one checklist, by the days they started';
   }
   function askForm(ctx, ov) {
     var procs = ctx.processes().filter(function (p) { return p.id; }), s = ov.form;

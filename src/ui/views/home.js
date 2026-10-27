@@ -88,7 +88,7 @@
       var owner = p.latest && p.latest.map.meta.owner, mine = K.keeps(ctx, p);
       /* A draft and skills that need attention go to whoever looks after the checklist (K.keepers); to everyone when nobody does. */
       if (p.draft && p.draftChanged && mine) add('draft', esc(p.title) + ': the draft has unpublished changes', p.latest ? 'Publish it as v' + (p.latest.info.version + 1) + ' when it\'s ready.' : 'Not published yet.', 'open-process', p.id, 'Review and publish');
-      if (p.staleSkills && mine) add('skill', esc(p.title) + ': ' + p.staleSkills + ' skill' + (p.staleSkills === 1 ? ' needs' : 's need') + ' attention', 'The process changed since they were built.', 'open-process', p.id, 'See the skills');
+      if (p.staleSkills && mine) add('skill', esc(p.title) + ': ' + p.staleSkills + ' skill' + (p.staleSkills === 1 ? ' needs' : 's need') + ' attention', 'The checklist changed since they were built.', 'open-process', p.id, 'See the skills');
       var signer = p.latest && owner ? PF.skills.signer(p.latest, d.people, me, !!(d.failed || {}).people) : '';
       if (signer && !PF.skills.signoffs(d.validations, p.latest).length && !PF.skills.signUnknown(d, p.latest) && PF.skills.readiness(ctx.countedRuns ? ctx.countedRuns(p.latest.map.meta.process) : d.runs, p.latest, null).enough) add('sign', esc(p.title) + ' v' + p.latest.info.version + ' is ready for a skill', signer === 'backup' ? 'Enough clean runs. Its owner is away, so as backup owner, you sign it off.' : 'Enough clean runs. As its owner, you sign it off.', 'open-process', p.id, 'Sign it off');
     });
@@ -106,7 +106,7 @@
     h += '<section class="panel" aria-labelledby="go-h"><h2 id="go-h">At a glance</h2><div class="glance">' +
       '<button class="tile" data-act="nav" data-id="runs"><span class="big">' + running.length + '</span><span>running</span></button>' +
       /* Versions arrive with the first complete read, so until then the count isn't known. */
-      '<button class="tile" data-act="nav" data-id="processes"><span class="big">' + (st.reading ? '…' : ctx.processes().length) + '</span><span>processes</span></button></div></section>';
+      '<button class="tile" data-act="nav" data-id="processes"><span class="big">' + (st.reading ? '…' : ctx.processes().length) + '</span><span>checklists</span></button></div></section>';
     return h;
   }
 
@@ -159,7 +159,7 @@
     var running = d.runs.filter(function (r) { return r.state === 'running' && (st.filter === 'all' || (!!st.me && (r.recorder.person === st.me || Object.keys(r.roles).some(function (k) { return r.roles[k] === st.me; })))); });
     var ended = d.runs.filter(function (r) { return r.state !== 'running'; }).sort(function (a, b) { return (b.ended && b.ended.at || '') < (a.ended && a.ended.at || '') ? -1 : 1; });
     var plans = byWhen(d.plans.filter(function (p) { return !p._status; })), now = ctx.now();
-    var h = notices(ctx) + pageHead('Runs', 'Runs', 'Every run of every process.', (function () { var n = V.fuList(ctx).filter(PF.followups.isOpen).length; return '<button class="btn" data-act="nav" data-id="followups">' + I('flag') + 'Follow-ups' + (n ? ' · ' + n + ' open' : '') + '</button>'; })() +
+    var h = notices(ctx) + pageHead('Runs', 'Runs', 'Every run of every checklist.', (function () { var n = V.fuList(ctx).filter(PF.followups.isOpen).length; return '<button class="btn" data-act="nav" data-id="followups">' + I('flag') + 'Follow-ups' + (n ? ' · ' + n + ' open' : '') + '</button>'; })() +
       '<details class="rw-menu" data-disc="runs-more"' + ((st.disc || {})['runs-more'] ? ' open' : '') + '><summary class="mini">More</summary><div class="rw-menu-list"><button class="mini" data-act="ev-range">' + I('doc') + 'Export evidence…</button></div></details><button class="btn go" data-act="nav" data-id="processes">' + I('play') + 'Start a run</button>');
     /* A run file that can't be read is listed, never left out: it may still be arriving, or need restoring. */
     h += stillReading(ctx, false);
@@ -190,7 +190,7 @@
   /* ---------- Processes: the templates, in the team's hierarchy ---------- */
   function processesPage(ctx) {
     var st = ctx.state, procs = ctx.processes(), has = hasTags(ctx);
-    var h = notices(ctx) + pageHead('Processes', 'Processes', 'Open one to run it or edit its checklist.', '<button class="mini" data-act="nav" data-id="skills">' + I('spark') + 'Skills</button><button class="mini" data-act="nav" data-id="types">Step types</button><button class="btn go" data-act="new-process">' + I('edit') + 'New process</button>');
+    var h = notices(ctx) + (st.renamed ? '' : '<p class="notice renamed" role="note"><span>Checklists were called Processes before 2.10.</span><button type="button" class="mini" data-act="renamed-ok">Got it</button></p>') + pageHead('Checklists', 'Checklists', 'Open one to start it or edit it.', '<button class="mini" data-act="nav" data-id="skills">' + I('spark') + 'Skills</button><button class="mini" data-act="nav" data-id="types">Step types</button><button class="btn go" data-act="new-process">' + I('edit') + 'New checklist</button>');
     (ctx.lostDrafts ? ctx.lostDrafts() : []).forEach(function (id) { h += '<div class="notice warn" role="status"><span>You have unsaved edits to <b>' + esc(id) + '</b>, whose draft was removed from the folder.</span><button class="mini" data-act="open-process" data-id="' + esc(id) + '">Open it</button></div>'; });
     h += '<section class="panel">' + K.tagBar(allTags(ctx), st.tags || [], st.disc) + (procs.length ? K.tree(procs.filter(function (p) { return has(p.tags); }), function (p) { return p.group && p.group.length ? p.group : [p.category]; }, function (p) {
       var pub = p.latest, info = pub ? 'v' + pub.info.version : p.proposedOnly ? 'Proposed, not drafted yet' : 'not published yet';
@@ -204,37 +204,37 @@
         return '<button class="skillchip" data-act="open-skill" data-id="' + esc(x.skill.file || x.skill.name) + '">' + esc(x.skill.name) + ' <span class="pill ' + pill[0] + '">' + pill[1] + '</span></button>';
       }).join('') + '</div>' : '';
       return '<li><button data-act="open-process" data-id="' + esc(p.id) + '"><span class="t">' + esc(p.title) + '</span>' + (flags.length ? '<span class="small" style="color:var(--stop)">' + esc(flags.join(' · ')) + '</span>' : '<span></span>') + '<span class="small">' + info + (p.lastRun ? ' · last run ' + esc(U.day(p.lastRun)) : '') + '</span></button>' + skills + '</li>';
-    }, st.groupsOpen) : '<p class="small">No processes yet. Choose <b>New process</b>, or ask your AI assistant: <code>/flightdeck-new-checklist</code>.</p>') + '</section>';
+    }, st.groupsOpen) : '<p class="small">No checklists yet. Choose <b>New checklist</b>, or ask your AI assistant: <code>/flightdeck-new-checklist</code>.</p>') + '</section>';
     return h;
   }
 
   /* ---------- Skills: what they are, which need attention, and which processes are ready to become one ---------- */
   function skillRow(k) {
     var s = k.x.skill, pill = SKILL_PILL[k.x.status.s] || SKILL_PILL.missing;
-    return '<li><button data-act="open-skill" data-id="' + esc(s.file || s.name) + '"><span class="t">' + I('spark') + esc(s.name) + (s.version ? ' <span class="small">' + esc(s.version) + '</span>' : '') + '</span><span class="pill ' + pill[0] + '">' + pill[1] + '</span><span class="small">' + (k.p.id ? 'Automates ' + esc(k.p.title) + ' v' + esc(s.implements) + (s.steps ? ' · ' + s.steps.length + ' step' + (s.steps.length === 1 ? '' : 's') : ' · the whole process') : esc(k.x.status.text)) + '</span>' + K.tagChips(s.tags) + '</button></li>';
+    return '<li><button data-act="open-skill" data-id="' + esc(s.file || s.name) + '"><span class="t">' + I('spark') + esc(s.name) + (s.version ? ' <span class="small">' + esc(s.version) + '</span>' : '') + '</span><span class="pill ' + pill[0] + '">' + pill[1] + '</span><span class="small">' + (k.p.id ? 'Automates ' + esc(k.p.title) + ' v' + esc(s.implements) + (s.steps ? ' · ' + s.steps.length + ' step' + (s.steps.length === 1 ? '' : 's') : ' · the whole checklist') : esc(k.x.status.text)) + '</span>' + K.tagChips(s.tags) + '</button></li>';
   }
   function skillsPage(ctx) {
     var st = ctx.state, d = ctx.data, has = hasTags(ctx), skills = [], orphans = ctx.orphanSkills ? ctx.orphanSkills() : [];
     ctx.processes().forEach(function (p) { p.skills.forEach(function (x) { skills.push({ x: x, p: p }); }); });
-    orphans.forEach(function (x) { if (!x.skill.name && x.skill.file) x.skill.name = x.skill.file; skills.push({ x: x, p: { id: '', title: 'No matching process', group: ['Not matched'], category: 'Not matched' } }); });
+    orphans.forEach(function (x) { if (!x.skill.name && x.skill.file) x.skill.name = x.skill.file; skills.push({ x: x, p: { id: '', title: 'No matching checklist', group: ['Not matched'], category: 'Not matched' } }); });
     var attention = skills.filter(function (k) { return k.x.status.s === 'update' || k.x.status.s === 'missing'; });
     var ready = ctx.processes().filter(function (p) { return p.latest && !p.skills.length && PF.skills.signoffs(d.validations, p.latest).length; });
-    var h = notices(ctx) + pageHead('Skills', 'Skills', 'AI automations built from your processes.');
+    var h = notices(ctx) + pageHead('Skills', 'Skills', 'AI automations built from your checklists.');
     if (d.skillsSkipped) h += '<div class="notice warn" role="status"><span><b>' + d.skillsSkipped + ' more skill registration' + (d.skillsSkipped === 1 ? ' wasn\'t' : 's weren\'t') + ' read.</b> Flightdeck reads the first 500 in <code>skills/</code>, by name.</span><button class="mini" data-act="health">Folder health</button></div>';
     /* The how-to is the page's job when there are no skills yet; after that it's a closed reference. */
-    h += '<details class="panel"' + (skills.length ? '' : ' open') + '><summary><h2 style="display:inline">How a process becomes a skill</h2></summary><ol class="howto">' +
+    h += '<details class="panel"' + (skills.length ? '' : ' open') + '><summary><h2 style="display:inline">How a checklist becomes a skill</h2></summary><ol class="howto">' +
       '<li><b>Prove it.</b><span>Run a published version until it has 3 clean runs.</span></li>' +
-      '<li><b>Sign it off.</b><span>The process owner confirms the version is ready.</span></li>' +
-      '<li><b>Brief your AI assistant.</b><span>Copy the brief from the process page; your AI assistant builds the skill.</span></li>' +
+      '<li><b>Sign it off.</b><span>The checklist\'s owner confirms the version is ready.</span></li>' +
+      '<li><b>Brief your AI assistant.</b><span>Copy the brief from the checklist\'s page; your AI assistant builds the skill.</span></li>' +
       '<li><b>Register it.</b><span>Your AI assistant adds <code>skills/&lt;name&gt;.json</code>: where it lives, what it implements.</span></li>' +
-      '<li><b>Stay in step.</b><span>When the process changes, the skill shows here as needing an update, with a brief.</span></li></ol></details>';
-    if (attention.length) h += '<section class="panel" aria-labelledby="att-h"><h2 id="att-h">Needs an update · ' + attention.length + '</h2><p class="small">Their process changed. Open one to copy the update brief.</p><ul class="plist">' + attention.map(skillRow).join('') + '</ul></section>';
+      '<li><b>Stay in step.</b><span>When the checklist changes, the skill shows here as needing an update, with a brief.</span></li></ol></details>';
+    if (attention.length) h += '<section class="panel" aria-labelledby="att-h"><h2 id="att-h">Needs an update · ' + attention.length + '</h2><p class="small">Their checklist changed. Open one to copy the update brief.</p><ul class="plist">' + attention.map(skillRow).join('') + '</ul></section>';
     /* A signed-off version that no skill implements yet: the one action is to brief the AI assistant. */
     if (ready.length) h += '<section class="panel" aria-labelledby="rdy-h"><h2 id="rdy-h">Ready to become a skill · ' + ready.length + '</h2><ul class="rlist">' + ready.map(function (p) {
       return '<li><div class="row"><button class="link t" data-act="open-process" data-id="' + esc(p.id) + '">' + esc(p.title) + ' v' + p.latest.info.version + '</button><button class="btn go" data-act="copy-brief" data-id="create:' + esc(p.id) + '">' + I('copy') + 'Copy brief</button></div>' + V.briefBox(st, 'create:' + p.id) + '</li>';
     }).join('') + '</ul></section>';
     h += '<section class="panel" aria-labelledby="all-h"><h2 id="all-h">All skills · ' + skills.length + '</h2>' + K.tagBar(skillTags(skills, st.tags || []), st.tags || [], st.disc) + (skills.length ? K.tree(skills.filter(function (k) { return has(k.x.skill.tags); }), function (k) { return k.x.skill.group.length ? k.x.skill.group : (k.p.group && k.p.group.length ? k.p.group : [k.p.category || 'Other']); }, skillRow, st.groupsOpen)
-      : '<p class="small">No skills yet. Follow the steps above: once a process version is signed off, its page has the brief your AI assistant needs.</p>') + '</section>';
+      : '<p class="small">No skills yet. Follow the steps above: once a checklist version is signed off, its page has the brief your AI assistant needs.</p>') + '</section>';
     return h;
   }
 

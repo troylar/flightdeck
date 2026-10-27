@@ -19,7 +19,7 @@
   function checklistPanel(ctx, p) {
     var st = ctx.state, shown = shownOf(p, st), restoring = (st.draftSaving || {})[ctx.fsKey + '\n' + p.id] === 'restore';
     if (!shown && p.proposedOnly) return '';
-    if (!shown) return '<section class="panel"><p class="small">This process has nothing written down yet.</p><button class="btn go" data-act="ptab" data-id="edit">' + I('edit') + 'Write the checklist</button></section>';
+    if (!shown) return '<section class="panel"><p class="small">This checklist has nothing written down yet.</p><button class="btn go" data-act="ptab" data-id="edit">' + I('edit') + 'Write the checklist</button></section>';
     var all = p.all || [], hasDraft = p.draft && (p.draftChanged || !p.latest), gone = (p.broken || []).filter(function (b) { return PF.publish.versionOf(b.folder); });
     var cur = shown.draft ? 'draft' : shown.pub.folder, view = st.clView === 'plan' || st.clView === 'md' ? st.clView : 'list';
     var opts = (hasDraft ? '<option value="draft"' + (cur === 'draft' ? ' selected' : '') + '>Draft (not published)</option>' : '') +
@@ -43,14 +43,20 @@
   }
 
   /* Which inspector tab shows: the one chosen (selecting something clears that choice), else Selected while something is
-     selected, else the tab last chosen in this browser, else Checks when something blocks publishing, else Preview. */
-  function insTabOf(st, sel, blockers, builder) {
+     selected, else the tab last chosen in this browser, else Checks when something blocks publishing, else Preview. A draft
+     with no steps at all, blocked only by its empty phases, is a new start: it opens on Preview too. */
+  function insTabOf(st, sel, blockers, builder, fresh) {
     var t = st.insTab;
     if (t === 'selected' && builder) return t;
     if (t === 'checks' || t === 'preview') return t;
     if (builder && sel) return 'selected';
     if (st.insTabSaved === 'checks' || st.insTabSaved === 'preview') return st.insTabSaved;
-    return blockers ? 'checks' : 'preview';
+    return blockers && !fresh ? 'checks' : 'preview';
+  }
+  function freshDraft(map, blockers) {
+    if (map.phases.some(function (ph) { return ph.steps.length; })) return false;
+    var empty = map.phases.map(function (ph) { return 'Phase "' + ph.title + '" has no steps.'; });
+    return blockers.every(function (b) { return empty.indexOf(b) >= 0; });
   }
   /* The draft editor takes the whole page: its own header (Done, the name, save state, Builder | Markdown, Undo / Redo,
      Checks and Save), the messages and conflicts right under it, then panes that each scroll on their own: Parts, the
@@ -62,7 +68,7 @@
     var dirty = ed && ed.text != null && ed.text !== ed.base || st.obPending === p.id, file = p.draft ? p.draft.file : p.id + '.md', saving = (st.draftSaving || {})[ctx.fsKey + '\n' + p.id];
     var builder = st.builder !== false, o = PF.outline.parse(text), sel = builder && !o.unsupported && st.obSel && st.obSel.pid === p.id ? st.obSel : null;
     var practicing = !!(st.practicing || {})[ctx.fsKey + '\n' + p.id];
-    var nb = c.blockers.length, nt = c.suggestions.length, tab = insTabOf(st, !!sel, nb, builder);
+    var nb = c.blockers.length, nt = c.suggestions.length, tab = insTabOf(st, !!sel, nb, builder, freshDraft(map, c.blockers));
     var status = draftStatus(ctx, p, ed, text);
     /* Only problems make a number; tips are listed under Checks without one. */
     var count = nb, checksLabel = nb ? nb + ' thing' + (nb === 1 ? '' : 's') + ' to fix before publishing' : nt ? nt + ' tip' + (nt === 1 ? '' : 's') : 'ready to publish';
@@ -96,7 +102,7 @@
     /* The inspector: a tablist of Selected (builder only), Checks and Preview. */
     var sl = sel && sel.kind === 'step' ? o.steps.filter(function (x) { return x.key === sel.key; })[0] : null, sp = sel && sel.kind !== 'step' ? o.phases.filter(function (x) { return x.key === sel.key; })[0] : null;
     var hl = sl ? { line: sl.line + 1 } : sp ? { phase: sp.index } : null;
-    var form = builder ? V.builderForm(ctx, p, text) : '';
+    var form = builder ? V.obHoldIn(ctx, p, V.builderForm(ctx, p, text)) : '';
     var panes = {
       selected: form || '<div class="ob-nosel"><p><b>Nothing selected.</b> Choose a step, lane, phase or gate in the outline, or Checklist details, to change it here.</p>' +
         '<ul class="ob-sample" aria-hidden="true"><li class="s-ph">Phase</li><li class="s-st on">' + I('check') + 'A step, selected</li><li class="s-st">' + I('check') + 'Another step</li><li class="s-gt">Gate</li></ul></div>',
@@ -109,7 +115,7 @@
       var on = t[0] === tab;
       return '<button type="button" role="tab" id="ins-t-' + t[0] + '" aria-selected="' + on + '" aria-controls="ins-p-' + t[0] + '" tabindex="' + (on ? 0 : -1) + '" data-act="ins-tab" data-id="' + t[0] + '">' + t[1] + (t[0] === 'checks' && count ? ' <span class="cnt' + (nb ? ' bad' : '') + '">' + count + '</span>' : '') + '</button>';
     }).join('') + '</div>' + tabs.map(function (t) { return '<div class="fpe-tabpanel" role="tabpanel" id="ins-p-' + t[0] + '" aria-labelledby="ins-t-' + t[0] + '" tabindex="0"' + (t[0] === tab ? '' : ' hidden') + '>' + panes[t[0]] + '</div>'; }).join('') + '</aside>';
-    if (builder) h += '<div class="fpe-panes' + (st.partsRail ? ' rail' : '') + '"' + V.paneAttr(ctx, ['parts', 'ins']) + '>' + V.obPartsPane(ctx, p) + V.splitter(ctx, 'parts') + '<section class="fpe-pane fpe-outline" id="ob-outline" aria-label="Outline">' + V.builder(ctx, p, text) + '</section>' + ins + '</div>';
+    if (builder) h += '<div class="fpe-panes' + (st.partsRail ? ' rail' : '') + '"' + V.paneAttr(ctx, ['parts', 'ins']) + '>' + V.obPartsPane(ctx, p) + V.splitter(ctx, 'parts') + '<section class="fpe-pane fpe-outline" id="ob-outline" aria-label="Outline">' + V.obHoldIn(ctx, p, V.builder(ctx, p, text)) + '</section>' + ins + '</div>';
     else h += '<div class="fpe-panes md"' + V.paneAttr(ctx, ['ins']) + '><section class="fpe-pane fpe-md" aria-label="Markdown">' + mdCorrections(ctx, p, text) + '<label class="sr" for="draft-editor">Checklist Markdown</label><textarea id="draft-editor" data-draft-kept class="code-editor" spellcheck="false" data-bound>\n' + esc(text) + '</textarea></section>' + ins + '</div>';
     return h + '</div>';
   }
@@ -145,12 +151,12 @@
     };
     var people = ctx.data.people.filter(function (p) { return !p.inactive; });
     var title = typed.title != null ? typed.title : f.title || '', ownId = typed.id != null ? typed.id : f.id || '', file = String(ownId).trim().toLowerCase() || fileIdOf(title);
-    var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">New process</div><h1 id="page-h" tabindex="-1">Write down how something is done</h1></div></div>' +
+    var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">New checklist</div><h1 id="page-h" tabindex="-1">Write down how something is done</h1></div></div>' +
       '<form class="panel stack" id="new-process-form" data-scope="new-process">' +
       '<div class="np-tpls" role="group" aria-label="Start from">' + PF.setup.TEMPLATES.slice().sort(function (a, b) { return (a.id === 'blank' ? 0 : 1) - (b.id === 'blank' ? 0 : 1); }).map(function (t) { return '<button type="button" class="chipbtn" data-act="np-tpl" data-id="' + t.id + '" aria-pressed="' + (tpl === t.id) + '">' + esc(t.id === 'assistant' ? 'Ask your AI assistant' : t.title) + '</button>'; }).join('') + '</div>';
     if (tpl === 'assistant') {
       var text = PF.setup.assistantPrompt({ folder: st.fs ? st.fs.name : '', owner: st.me || '', backup: '' });
-      return h + '<p class="small">Paste this to your AI assistant, opened in the team folder, with your notes or runbook. Its draft shows up in Processes, where you publish it.</p><pre class="source" id="np-prompt" tabindex="0">' + esc(text) + '</pre>' +
+      return h + '<p class="small">Paste this to your AI assistant, opened in the team folder, with your notes or runbook. Its draft shows up in Checklists, where you publish it.</p><pre class="source" id="np-prompt" tabindex="0">' + esc(text) + '</pre>' +
         '<div class="row"><button class="btn" type="button" data-act="np-copy">' + I('copy') + 'Copy the prompt</button><span class="small" id="copy-msg" role="status"></span><button class="mini" type="button" data-act="np-cancel">Cancel</button></div></form>';
     }
     var nmOwn = PF.people.labeler(people);
@@ -179,7 +185,7 @@
     var fields = Object.keys(t.fields || {}), rec = t.record || [], key = 'type:' + t.id;
     var open = st.disc && st.disc[key];
     var list = function (items) { return items.length ? '<ul class="small">' + items.join('') + '</ul>' : '<div class="small">Nothing.</div>'; };
-    return '<li class="tcard"><div class="row between"><span>' + I(t.icon || 'check') + ' <b>' + esc(t.label) + '</b>' + (team ? ' <span class="pill open">team</span>' : '') + K.tagChips(T.tagsOf(t)) + '</span>' +
+    return '<li class="tcard"><div class="row between"><span>' + I(t.icon || 'check') + ' <b>' + esc(T.nameOf(t)) + '</b>' + (team ? ' <span class="pill open">team</span>' : '') + K.tagChips(T.tagsOf(t)) + '</span>' +
       '<span class="row"><span class="small">' + (uses ? 'in ' + uses + ' checklist' + (uses === 1 ? '' : 's') : 'not used yet') + '</span>' + (team ? '<button class="mini" data-act="edit-type" data-id="' + esc(t.id) + '">' + I('edit') + 'Edit</button>' : '<button class="mini" data-act="copy-type" data-id="' + esc(t.id) + '">Copy to a team type</button>') + '</span></div>' +
       (t.hint ? '<div class="small">' + esc(t.hint) + '</div>' : '') +
       '<details data-disc="' + esc(key) + '"' + (open ? ' open' : '') + '><summary class="small">What it asks for</summary><p class="small">In a checklist: <code>{' + esc(t.id) + '}</code></p><div class="tcols">' +
@@ -445,7 +451,7 @@
     h += '<section class="panel" aria-labelledby="sf-h"><h2 id="sf-h">About this skill</h2><dl class="facts">' +
       '<dt>Source</dt><dd>' + (s.location ? (href ? '<a href="' + esc(href) + '" target="_blank" rel="noopener noreferrer">' + esc(s.location) + '</a>' : '<code>' + esc(s.location) + '</code>') : 'Not recorded') + '</dd>' +
       '<dt>Automates</dt><dd>' + (proc ? '<button class="link" data-act="open-process" data-id="' + esc(proc.id) + '">' + esc(proc.title) + '</button>, version ' + esc(s.implements) + (latest && latest.info.version !== s.implements ? ' (the process is now at v' + esc(latest.info.version) + ')' : '') : esc(s.process || '?') + '@' + esc(s.implements)) + '</dd>' +
-      '<dt>Covers</dt><dd>' + (s.steps ? '<ol class="small">' + s.steps.map(function (id) { return '<li>' + esc(stepText(id)) + ' <code>' + esc(id) + '</code></li>'; }).join('') + '</ol>' : 'The whole process') + '</dd>' +
+      '<dt>Covers</dt><dd>' + (s.steps ? '<ol class="small">' + s.steps.map(function (id) { return '<li>' + esc(stepText(id)) + ' <code>' + esc(id) + '</code></li>'; }).join('') + '</ol>' : 'The whole checklist') + '</dd>' +
       '<dt>Registered in</dt><dd><code>skills/' + esc(s.file || s.name + '.json') + '</code>' + (s.updated ? ' · updated ' + esc(s.updated) : '') + '</dd>' +
       (s.group.length ? '<dt>Group</dt><dd>' + esc(s.group.join(' / ')) + '</dd>' : '') + '</dl></section>';
     return h;
@@ -469,7 +475,7 @@
     h += '</section>';
     h += '<section class="panel stack" aria-labelledby="set-health"><h2 id="set-health">' + I('pulse') + 'Folder health</h2><p class="small">Conflict copies, files that can\'t be read, versions still arriving, and more, each with what to do. Then check that files travel between two computers.</p>' +
       '<div class="row"><button class="btn" data-act="health">Check folder health</button><button class="btn" data-act="connection">' + I('swap') + 'Connection check</button><button class="mini" data-act="recovery" data-id="">When something goes wrong</button></div></section>';
-    h += '<section class="panel stack" aria-labelledby="set-lib"><h2 id="set-lib">Library</h2><p class="small">Skills built from your processes, and the kinds of steps a checklist can use.</p><div class="row"><button class="btn" data-act="nav" data-id="skills">' + I('spark') + 'Skills</button><button class="btn" data-act="nav" data-id="types">Step types</button></div></section>';
+    h += '<section class="panel stack" aria-labelledby="set-lib"><h2 id="set-lib">Library</h2><p class="small">Skills built from your checklists, and the kinds of steps a checklist can use.</p><div class="row"><button class="btn" data-act="nav" data-id="skills">' + I('spark') + 'Skills</button><button class="btn" data-act="nav" data-id="types">Step types</button></div></section>';
     h += V.peoplePanel(ctx);
     h += V.teamValuesPanel(ctx);
     /* Jira workflows and Keyboard are rarely changed: under More settings, except that a workflow problem stays on show. */

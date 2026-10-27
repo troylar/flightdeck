@@ -45,4 +45,4 @@ Keep its `id`. Adding a field, or `text`, `url` or `choice` evidence, is safe. A
 
 ## Then
 
-Tell the person what you created, and that people can see and edit it in Flightdeck on the Step types page (open it from Processes, from Settings › Library, or by searching for it). Skills built from checklists that use a changed type will show as needing an update once a new version of those checklists is published.
+Tell the person what you created, and that people can see and edit it in Flightdeck on the Step types page (open it from Checklists, from Settings › Library, or by searching for it). Skills built from checklists that use a changed type will show as needing an update once a new version of those checklists is published.

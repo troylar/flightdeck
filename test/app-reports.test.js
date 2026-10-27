@@ -313,7 +313,7 @@ rule('App: accepting a report on a {run.skill} step in a run/3 records the regis
     const regText = JSON.stringify(reg, null, 2), regSha = app.PF.sha256.hex(new TextEncoder().encode(regText));
     await app.fs.write('skill-registrations/notes-writer/sk-abcd1234.1.w-test.json', regText);
     app.click('refresh'); await app.tick(120);
-    app.click('start', 'notes'); await app.tick(); app.submitForm('start-form'); await app.tick(120);
+    app.click('start', 'notes'); await app.tick(); app.chooseApprovers().submitForm('start-form'); await app.tick(120);
     const path = app.files('runs/notes/').find(p => /run\.json$/.test(p)), j = JSON.parse(app.fs.files[path].t);
     assert.strictEqual(j.format, 'preflight-run/3', 'set-up: a run/3');
     if (how === 'done') { app.click('toggle', 'write'); await app.tick(120); }
@@ -349,7 +349,7 @@ rule('App: while skills/, skill-registrations/ or a registration can\'t be read,
       implements: { process: 'notes', folder: info.folder, mapHash: info.mapHash, typesHash: info.typesHash }, description: 'Writes the release notes.', by: 'person-casey', updated: '2026-10-20T09:00:00.000Z' }, null, 2);
     await app.fs.write('skill-registrations/notes-writer/sk-abcd1234.1.w-test.json', reg(1, '1.2.0'));
     app.click('refresh'); await app.tick(120);
-    app.click('start', 'notes'); await app.tick(); app.submitForm('start-form'); await app.tick(120);
+    app.click('start', 'notes'); await app.tick(); app.chooseApprovers().submitForm('start-form'); await app.tick(120);
     const path = app.files('runs/notes/').find(p => /run\.json$/.test(p)), j = JSON.parse(app.fs.files[path].t);
     assert.strictEqual(j.format, 'preflight-run/3', 'set-up: a run/3');
     if (how === 'report') {

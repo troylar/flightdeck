@@ -1,5 +1,74 @@
 [
   {
+    "version": "2.10.0",
+    "date": "2026-10-27",
+    "headline": "First-time clarity",
+    "changes": [
+      {
+        "kind": "improved",
+        "area": "Editor",
+        "title": "A shorter step form",
+        "before": "Every step showed its kind, type, run details, fields, note and screenshots at once.",
+        "now": "A step starts with What needs to be done?, Who does it?, Must be done and + Add instructions. A step with a type shows its type and the boxes it usually needs at the top. Guidance, proof, timing, conditions and automation planning are under More options, which stays open on every step once you open it. Anything a step already uses is shown outside it, and a box never moves while you type in it.",
+        "where": "Editing a draft, a step"
+      },
+      {
+        "kind": "improved",
+        "area": "Editor",
+        "title": "Must be done and Automation planned are checkboxes",
+        "before": "A step's kind was one choice of three: Step, Must do, Automation planned.",
+        "now": "Must be done and Automation planned are two checkboxes. Checking one clears the other and says so. The checklist's Markdown is the same as before.",
+        "where": "Editing a draft, a step"
+      },
+      {
+        "kind": "new",
+        "area": "Editor",
+        "title": "Approvals have their own form, and + Add role is where you need it",
+        "now": "+ Add approval in the outline opens a form with the approval's name and who approves; what passing approves is under More approval options. + Add role in the approval, lane and step forms adds a role to the checklist and gives it to that part in one change, with one Undo.",
+        "where": "Editing a draft, an approval, lane or step"
+      },
+      {
+        "kind": "improved",
+        "area": "Runs",
+        "title": "The start screen asks who approves",
+        "before": "Starting on your own quietly made you the approver.",
+        "now": "A checklist with an approval role opens With others and asks who approves, with a suggestion from earlier runs. On my own says it includes who approves. Start waits until it's chosen and keeps what you typed.",
+        "where": "Starting a run or planning one"
+      },
+      {
+        "kind": "improved",
+        "area": "Everywhere",
+        "title": "Checklists, not Processes",
+        "before": "The app said Processes and New process, and the plain step type was Confirm.",
+        "now": "The app says Checklists and New checklist, and the plain step type is Basic step. Files, IDs, commands and the Markdown are unchanged. The type chooser groups Everyday work, Software tools and commands, and your team's types.",
+        "where": "Navigation, the Checklists page and the step type chooser"
+      },
+      {
+        "kind": "improved",
+        "area": "Editor",
+        "title": "A new draft starts on its first step",
+        "before": "A new, empty draft opened on Won't publish yet.",
+        "now": "It opens on Preview, and the outline says Add your first step above the add box. A draft with any other problem still opens on Checks.",
+        "where": "Creating a checklist"
+      },
+      {
+        "kind": "fixed",
+        "area": "Editor",
+        "title": "A detail picked from the suggestions is applied when you leave the box",
+        "before": "After Insert a detail or a picked suggestion, leaving the box didn't apply the text, and every later action said Apply or clear what you typed.",
+        "now": "Leaving the box applies it, as typing does. When a box does hold typing that isn't applied, the message is shown beside that box with Apply and Discard, including on a phone, and a closed More options around it opens.",
+        "where": "Editing a draft"
+      },
+      {
+        "kind": "fixed",
+        "area": "Editor",
+        "title": "Quick add takes ^details",
+        "now": "A step added from the outline's quick-add box keeps the ^details typed into it.",
+        "where": "Editing a draft, the outline"
+      }
+    ]
+  },
+  {
     "version": "2.9.0",
     "date": "2026-10-27",
     "headline": "Team values",
