@@ -59,6 +59,7 @@ t test/build.test.js
 t test/readers.test.js
 t test/cli.test.js
 t test/old-bundles.test.js
+t test/clarity-compat.test.js
 t test/evidence.test.js
 t test/perf.test.js
 t test/light.test.js
