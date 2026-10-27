@@ -3880,6 +3880,7 @@
     if (!pf) return false;
     if (state.overlay) closeOverlay();
     say('Apply or clear what you typed in the box first ' + applyHint(pf) + ', then ' + what + '.', 'warn');
+    holdAt(p.id, pf);
     state.focus = '#' + pf; render(); return true;
   }
   /* Undo or Redo in one editor. how: 'button' keeps focus on the button pressed, so it can be pressed again; 'key' moves focus
@@ -4004,7 +4005,7 @@
   /* A value as the outline ops apply it (lineValue): line breaks become spaces and the ends are trimmed; spaces inside
      (a command's arguments) are its content. */
   function norm(v) { return String(v == null ? '' : v).replace(/[\r\n]+/g, ' ').trim(); }
-  function dropPending() { state.obPending = null; state.obPendingField = null; }
+  function dropPending() { state.obPending = null; state.obPendingField = null; state.obHold = null; }
   /* What the draft says now for a box in the builder's form, to tell typed text from what's applied. */
   function fieldApplied(id) {
     var p = currentProcess(), s = state.obSel; if (!p || !s || /^ob-new-/.test(id)) return '';
@@ -4286,10 +4287,21 @@
     if (state.obPendingField || !state.processId || state.view !== 'process' || state.ptab !== 'edit') return;
     var other = obTyped(null); if (other) { state.obPending = state.processId; state.obPendingField = other; }
   }
+  /* The refusal just said, drawn beside its builder box instead of in the editor's message area (V.obHoldIn); it's still
+     announced. The box becomes the pending one, so a closed More options around it opens. */
+  function holdAt(pid, pf) {
+    if (!pid || !/^ob-/.test(pf || '') || !document.getElementById(pf) || state.view !== 'process' || state.ptab !== 'edit') return;
+    if (state.msg) state.msg.quiet = true;
+    state.obPending = pid; state.obPendingField = pf;
+    state.obHold = { pid: pid, field: pf, text: state.msg ? state.msg.text : '', apply: OB_CHANGE.test(pf) && !/^ob-add-(role|ctx)$/.test(pf) || /^ob-new-(text|title|role)$/.test(pf) };
+  }
   function obHeld(p, then, except, skipNew) {
     var pf = state.obPending === p.id && state.obPendingField !== except && state.obPendingField && !(skipNew && /^ob-new-/.test(state.obPendingField)) && document.getElementById(state.obPendingField) ? state.obPendingField : obTyped(except, skipNew);
     if (!pf) return false;
     say('Apply or clear what you typed in the box first ' + applyHint(pf) + ', ' + (then || 'then choose another') + '.', 'warn');
+    /* 2.10: said beside the box, inside the form (on a phone everything outside it is inert), with Apply and Discard; a box in
+       a closed More options opens it, as typing not applied does. */
+    holdAt(p.id, pf);
     state.focus = '#' + cssEsc(pf); render(); return true;
   }
   function obSelWhole(kind, focus) {
@@ -4680,6 +4692,7 @@
   }
   function refuseFor(dirty) {
     say(/^ob-/.test(dirty.id || '') ? 'Apply or clear what you typed in the box first ' + applyHint(dirty.id) + ', then go there.' : 'Finish or cancel this first.', 'warn');
+    holdAt(state.processId, dirty.id);
     /* Focus never lands on a box in a closed phone sheet. */
     if (state.view === 'run' && narrow() && !state.refOpen) state.refOpen = true;
     state.focus = dirty.id ? '#' + cssEsc(dirty.id) : null; render();
@@ -5475,6 +5488,21 @@
       state.focus = b && b.dataset.from === 'key' ? '[data-act="ob-sel-phase"][data-id="' + cssEsc(nk) + '"]' : '[data-act="ob-ph-move"][data-dir="' + (up ? 'up' : 'down') + '"]'; render();
     },
     'ob-role': function (id) { builderToggle('role', id); },
+    /* The refusal's own buttons (2.10): Apply does what Enter or leaving the box does; Discard puts back only that box. */
+    'ob-hold-apply': function () {
+      var h = state.obHold, el = h && document.getElementById(h.field); if (!h || !el) return;
+      if (h.field === 'ob-new-text' || h.field === 'ob-new-title') return ACTIONS['ob-add-go'](null, el);
+      if (h.field === 'ob-new-role') return ACTIONS['ob-role-add-go']();
+      builderField(h.field, el.value);
+    },
+    'ob-hold-discard': function () {
+      var h = state.obHold, el = h && document.getElementById(h.field); if (!h) return;
+      if (el) el.value = /^ob-(new|add)-/.test(h.field) ? '' : fieldApplied(h.field);
+      if (state.fieldErr && state.fieldErr.id === 'ob' && state.fieldErr.field === h.field) state.fieldErr = null;
+      dropPending(); obRepend();
+      say('Put back what the draft says in that box.', 'good'); state.msg.quiet = true;
+      state.focus = el ? '#' + cssEsc(h.field) : null; render();
+    },
     /* "+ add": shows a waiting box, focused. Typing held in another box is applied or refused first, as any change waits. */
     'ob-note-open': function () { var p = currentProcess(); if (!p || obHeld(p)) return; obShow('note', true); state.focus = 'ob-note'; render(); },
     'ob-show': function (id) {
@@ -7454,6 +7482,7 @@
     if (!dirty && state.overlay && state.overlay.held && state.overlay.held()) { say('Finish or cancel this first.', 'warn'); render(); focusOverlay(); return false; }
     if (dirty) {
       say(/^ob-/.test(dirty.id || '') ? 'Apply or clear what you typed in the box first ' + applyHint(dirty.id) + ', then go there.' : 'Finish or cancel this first.', 'warn');
+      holdAt(state.processId, dirty.id);
       state.focus = dirty.id ? '#' + cssEsc(dirty.id) : null; render(); return false;
     }
     if (state.overlay) closeOverlay();

@@ -79,7 +79,7 @@ rule('Live: an Undo before the save starts cancels it: withdrawn, the draft unto
   g.open(); await app.tick(200); app.PF.repo.listRecords = list;
   assert.strictEqual(app.fs.files[DRAFT].t, A, 'nothing written');
   assert.deepStrictEqual(statuses(app, p.id), ['withdrawn']);
-  assert.ok(said(app, /You took back your AI assistant.s change\. It.s listed on the process page if you want it later\./));
+  assert.ok(said(app, /You took back your AI assistant.s change\. It.s listed on the checklist.s page if you want it later\./));
   assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()) && /title: Production release/.test(app.html()), 'the editor is back as it was, nothing unsaved');
   await app.watch(); await app.watch();
   assert.strictEqual(attempts(app, p.id).length, 1, 'not applied again');

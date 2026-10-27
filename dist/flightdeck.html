@@ -936,6 +936,7 @@ html.pane-drag, html.pane-drag * { cursor: col-resize !important; -webkit-user-s
 .ob-check input[type="checkbox"] { flex: none; margin: 3px 0 0; accent-color: var(--ink); width: 16px; height: 16px; }
 .ob-check.reveal { animation: ob-new .65s ease-out; }
 .ob-anyone { cursor: default; }
+.ob-hold { margin: 0; }
 .ob-more-opts > summary { cursor: pointer; font-weight: 600; min-height: 44px; display: flex; align-items: center; gap: 6px; }
 .ob-more-opts[open] > summary { margin-bottom: 8px; }
 .ob-grp4 { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
@@ -22236,6 +22237,17 @@ PF.vk = (function () {
     return { top: top, groups: groups, has: groupsHas(s, def) };
   }
   V.obGroupsHas = function (text, key, types) { var o = O.parse(text), s = o.steps.filter(function (x) { return x.key === key; })[0]; return s && !s.odd ? groupsHas(s, T.get(s.type, types)) : null; };
+  /* A refused box (2.10): its message, Apply and Discard drawn just above it, where it's typed in (on a phone everything
+     outside the open form is inert, so the editor's message area can't be used). Nothing is drawn when the box isn't here. */
+  function holdIn(ctx, p, html) {
+    var h = ctx.state.obHold; if (!h || h.pid !== p.id || ctx.state.obPendingField !== h.field) return html;
+    var at = html.indexOf(' id="' + h.field + '"'); if (at < 0) return html;
+    var start = Math.max(html.lastIndexOf('<label', at), html.lastIndexOf('<div class="field', at), html.lastIndexOf('<li', at));
+    var box = '<div class="notice warn ob-hold" role="group" aria-label="Typing not applied"><span>' + esc(h.text) + '</span><span class="row">' +
+      (h.apply ? '<button type="button" class="btn" data-act="ob-hold-apply">Apply</button>' : '') + '<button type="button" class="mini" data-act="ob-hold-discard">Discard</button></span></div>';
+    return start < 0 ? html : html.slice(0, start) + box + html.slice(start);
+  }
+  V.obHoldIn = holdIn;
   function builderForm(ctx, p, text) {
     var sel = selOf(ctx, p); here = null; if (!sel) return '';
     backToPractice = !!(ctx.state.practicing || {})[ctx.fsKey + '\n' + p.id];
@@ -22522,7 +22534,7 @@ PF.vk = (function () {
     /* The inspector: a tablist of Selected (builder only), Checks and Preview. */
     var sl = sel && sel.kind === 'step' ? o.steps.filter(function (x) { return x.key === sel.key; })[0] : null, sp = sel && sel.kind !== 'step' ? o.phases.filter(function (x) { return x.key === sel.key; })[0] : null;
     var hl = sl ? { line: sl.line + 1 } : sp ? { phase: sp.index } : null;
-    var form = builder ? V.builderForm(ctx, p, text) : '';
+    var form = builder ? V.obHoldIn(ctx, p, V.builderForm(ctx, p, text)) : '';
     var panes = {
       selected: form || '<div class="ob-nosel"><p><b>Nothing selected.</b> Choose a step, lane, phase or gate in the outline, or Checklist details, to change it here.</p>' +
         '<ul class="ob-sample" aria-hidden="true"><li class="s-ph">Phase</li><li class="s-st on">' + I('check') + 'A step, selected</li><li class="s-st">' + I('check') + 'Another step</li><li class="s-gt">Gate</li></ul></div>',
@@ -22535,7 +22547,7 @@ PF.vk = (function () {
       var on = t[0] === tab;
       return '<button type="button" role="tab" id="ins-t-' + t[0] + '" aria-selected="' + on + '" aria-controls="ins-p-' + t[0] + '" tabindex="' + (on ? 0 : -1) + '" data-act="ins-tab" data-id="' + t[0] + '">' + t[1] + (t[0] === 'checks' && count ? ' <span class="cnt' + (nb ? ' bad' : '') + '">' + count + '</span>' : '') + '</button>';
     }).join('') + '</div>' + tabs.map(function (t) { return '<div class="fpe-tabpanel" role="tabpanel" id="ins-p-' + t[0] + '" aria-labelledby="ins-t-' + t[0] + '" tabindex="0"' + (t[0] === tab ? '' : ' hidden') + '>' + panes[t[0]] + '</div>'; }).join('') + '</aside>';
-    if (builder) h += '<div class="fpe-panes' + (st.partsRail ? ' rail' : '') + '"' + V.paneAttr(ctx, ['parts', 'ins']) + '>' + V.obPartsPane(ctx, p) + V.splitter(ctx, 'parts') + '<section class="fpe-pane fpe-outline" id="ob-outline" aria-label="Outline">' + V.builder(ctx, p, text) + '</section>' + ins + '</div>';
+    if (builder) h += '<div class="fpe-panes' + (st.partsRail ? ' rail' : '') + '"' + V.paneAttr(ctx, ['parts', 'ins']) + '>' + V.obPartsPane(ctx, p) + V.splitter(ctx, 'parts') + '<section class="fpe-pane fpe-outline" id="ob-outline" aria-label="Outline">' + V.obHoldIn(ctx, p, V.builder(ctx, p, text)) + '</section>' + ins + '</div>';
     else h += '<div class="fpe-panes md"' + V.paneAttr(ctx, ['ins']) + '><section class="fpe-pane fpe-md" aria-label="Markdown">' + mdCorrections(ctx, p, text) + '<label class="sr" for="draft-editor">Checklist Markdown</label><textarea id="draft-editor" data-draft-kept class="code-editor" spellcheck="false" data-bound>\n' + esc(text) + '</textarea></section>' + ins + '</div>';
     return h + '</div>';
   }
@@ -28150,6 +28162,7 @@ PF.examples = (function () {
     if (!pf) return false;
     if (state.overlay) closeOverlay();
     say('Apply or clear what you typed in the box first ' + applyHint(pf) + ', then ' + what + '.', 'warn');
+    holdAt(p.id, pf);
     state.focus = '#' + pf; render(); return true;
   }
   /* Undo or Redo in one editor. how: 'button' keeps focus on the button pressed, so it can be pressed again; 'key' moves focus
@@ -28274,7 +28287,7 @@ PF.examples = (function () {
   /* A value as the outline ops apply it (lineValue): line breaks become spaces and the ends are trimmed; spaces inside
      (a command's arguments) are its content. */
   function norm(v) { return String(v == null ? '' : v).replace(/[\r\n]+/g, ' ').trim(); }
-  function dropPending() { state.obPending = null; state.obPendingField = null; }
+  function dropPending() { state.obPending = null; state.obPendingField = null; state.obHold = null; }
   /* What the draft says now for a box in the builder's form, to tell typed text from what's applied. */
   function fieldApplied(id) {
     var p = currentProcess(), s = state.obSel; if (!p || !s || /^ob-new-/.test(id)) return '';
@@ -28556,10 +28569,21 @@ PF.examples = (function () {
     if (state.obPendingField || !state.processId || state.view !== 'process' || state.ptab !== 'edit') return;
     var other = obTyped(null); if (other) { state.obPending = state.processId; state.obPendingField = other; }
   }
+  /* The refusal just said, drawn beside its builder box instead of in the editor's message area (V.obHoldIn); it's still
+     announced. The box becomes the pending one, so a closed More options around it opens. */
+  function holdAt(pid, pf) {
+    if (!pid || !/^ob-/.test(pf || '') || !document.getElementById(pf) || state.view !== 'process' || state.ptab !== 'edit') return;
+    if (state.msg) state.msg.quiet = true;
+    state.obPending = pid; state.obPendingField = pf;
+    state.obHold = { pid: pid, field: pf, text: state.msg ? state.msg.text : '', apply: OB_CHANGE.test(pf) && !/^ob-add-(role|ctx)$/.test(pf) || /^ob-new-(text|title|role)$/.test(pf) };
+  }
   function obHeld(p, then, except, skipNew) {
     var pf = state.obPending === p.id && state.obPendingField !== except && state.obPendingField && !(skipNew && /^ob-new-/.test(state.obPendingField)) && document.getElementById(state.obPendingField) ? state.obPendingField : obTyped(except, skipNew);
     if (!pf) return false;
     say('Apply or clear what you typed in the box first ' + applyHint(pf) + ', ' + (then || 'then choose another') + '.', 'warn');
+    /* 2.10: said beside the box, inside the form (on a phone everything outside it is inert), with Apply and Discard; a box in
+       a closed More options opens it, as typing not applied does. */
+    holdAt(p.id, pf);
     state.focus = '#' + cssEsc(pf); render(); return true;
   }
   function obSelWhole(kind, focus) {
@@ -28950,6 +28974,7 @@ PF.examples = (function () {
   }
   function refuseFor(dirty) {
     say(/^ob-/.test(dirty.id || '') ? 'Apply or clear what you typed in the box first ' + applyHint(dirty.id) + ', then go there.' : 'Finish or cancel this first.', 'warn');
+    holdAt(state.processId, dirty.id);
     /* Focus never lands on a box in a closed phone sheet. */
     if (state.view === 'run' && narrow() && !state.refOpen) state.refOpen = true;
     state.focus = dirty.id ? '#' + cssEsc(dirty.id) : null; render();
@@ -29745,6 +29770,21 @@ PF.examples = (function () {
       state.focus = b && b.dataset.from === 'key' ? '[data-act="ob-sel-phase"][data-id="' + cssEsc(nk) + '"]' : '[data-act="ob-ph-move"][data-dir="' + (up ? 'up' : 'down') + '"]'; render();
     },
     'ob-role': function (id) { builderToggle('role', id); },
+    /* The refusal's own buttons (2.10): Apply does what Enter or leaving the box does; Discard puts back only that box. */
+    'ob-hold-apply': function () {
+      var h = state.obHold, el = h && document.getElementById(h.field); if (!h || !el) return;
+      if (h.field === 'ob-new-text' || h.field === 'ob-new-title') return ACTIONS['ob-add-go'](null, el);
+      if (h.field === 'ob-new-role') return ACTIONS['ob-role-add-go']();
+      builderField(h.field, el.value);
+    },
+    'ob-hold-discard': function () {
+      var h = state.obHold, el = h && document.getElementById(h.field); if (!h) return;
+      if (el) el.value = /^ob-(new|add)-/.test(h.field) ? '' : fieldApplied(h.field);
+      if (state.fieldErr && state.fieldErr.id === 'ob' && state.fieldErr.field === h.field) state.fieldErr = null;
+      dropPending(); obRepend();
+      say('Put back what the draft says in that box.', 'good'); state.msg.quiet = true;
+      state.focus = el ? '#' + cssEsc(h.field) : null; render();
+    },
     /* "+ add": shows a waiting box, focused. Typing held in another box is applied or refused first, as any change waits. */
     'ob-note-open': function () { var p = currentProcess(); if (!p || obHeld(p)) return; obShow('note', true); state.focus = 'ob-note'; render(); },
     'ob-show': function (id) {
@@ -31724,6 +31764,7 @@ PF.examples = (function () {
     if (!dirty && state.overlay && state.overlay.held && state.overlay.held()) { say('Finish or cancel this first.', 'warn'); render(); focusOverlay(); return false; }
     if (dirty) {
       say(/^ob-/.test(dirty.id || '') ? 'Apply or clear what you typed in the box first ' + applyHint(dirty.id) + ', then go there.' : 'Finish or cancel this first.', 'warn');
+      holdAt(state.processId, dirty.id);
       state.focus = dirty.id ? '#' + cssEsc(dirty.id) : null; render(); return false;
     }
     if (state.overlay) closeOverlay();

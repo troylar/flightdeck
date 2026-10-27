@@ -9025,6 +9025,50 @@ rule('Builder: a newer folder draft that gives the selected step an Only when mo
   app.focus(); await app.tick(80);
   assert.ok(outsideHas('cond') && /data-scope="ob-step\|rollback\|/.test(app.html()), 'Conditions now outside, the step still selected');
 });
+rule('Builder: a refusal is said beside its box with Apply and Discard, opening a closed More options; Discard puts back only that box (2.10, 0b)', async () => {
+  const app = await builderOn();
+  app.click('ob-sel', 'rollback'); await app.tick();
+  app.click('ob-show', 'where'); await app.tick();
+  app.set('ob-fld-where', 'The ticket'); app.input('ob-fld-where', 'The ticket'); await app.tick();
+  app.click('ob-sel', 'flags'); await app.tick();
+  let h = app.html();
+  const hold = h.indexOf('class="notice warn ob-hold"'), box = h.indexOf('id="ob-fld-where"');
+  assert.ok(hold > 0 && hold < box && h.slice(hold, box).indexOf('data-act="ob-hold-discard"') > 0 && h.slice(hold, box).indexOf('data-act="ob-hold-apply"') > 0, 'the refusal, Apply and Discard, just above the box');
+  assert.ok(h.indexOf('<section class="panel stack ob-form"') < hold, 'inside the form');
+  assert.ok(!/<div class="fpe-alerts"><div class="notice warn">/.test(h), 'not in the editor\'s message area');
+  assert.ok(/then choose another/.test(app.live()) && app.focused() === '#ob-fld-where', 'announced, and the box focused');
+  assert.ok(/<details class="ob-more-opts" data-disc="ob-more" open data-busy="1">/.test(h), 'the fold opened');
+  app.click('ob-hold-discard'); await app.tick();
+  assert.strictEqual(app.draft('ob-fld-where'), '', 'the box put back');
+  assert.ok(!/ob-hold/.test(app.html()), 'the refusal gone');
+  app.click('ob-sel', 'flags'); await app.tick();
+  assert.ok(/data-scope="ob-step\|flags\|/.test(app.html()), 'the next action goes through');
+  /* Apply does what Enter does. */
+  app.click('ob-sel', 'rollback'); await app.tick();
+  app.click('ob-show', 'where'); await app.tick();
+  app.set('ob-fld-where', 'The ticket'); app.input('ob-fld-where', 'The ticket'); await app.tick();
+  app.click('ob-sel', 'flags'); await app.tick();
+  app.click('ob-hold-apply'); await app.tick();
+  app.click('ob-sel', 'flags'); await app.tick();
+  app.click('save-draft'); await app.tick(80);
+  assert.ok(/ticket @release-lead \{#rollback\}\n  where: The ticket\n/.test(releaseText(app)) && /data-scope="ob-step\|flags\|/.test(app.html()), 'applied, then on');
+});
+
+rule('Builder: with two boxes holding typing, Discarding the refused one leaves the other blocking Undo (2.10, 0b)', async () => {
+  const app = await builderOn();
+  app.click('ob-sel', 'rollback'); await app.tick();
+  app.check('ob-must', false); await app.tick();
+  app.click('ob-show', 'where'); await app.tick();
+  app.set('ob-fld-where', 'The ticket'); app.input('ob-fld-where', 'The ticket'); await app.tick();
+  app.set('ob-text', 'Rollback commit noted'); app.input('ob-text', 'Rollback commit noted'); await app.tick();
+  app.click('tl-undo', 'draft'); await app.tick();
+  const first = /<div class="notice warn ob-hold"[^]*?id="(ob-[\w-]+)"/.exec(app.html());
+  assert.ok(first, 'refused with its buttons');
+  app.click('ob-hold-discard'); await app.tick();
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(/Apply or clear what you typed in the box first/.test(app.live()) && /class="notice warn ob-hold"/.test(app.html()), 'the other box still blocks Undo: ' + app.live());
+  assert.ok(app.draft('ob-text') === 'Rollback commit noted' || app.draft('ob-fld-where') === 'The ticket', 'the other typing kept');
+});
 const runsOf = (app, id) => Object.keys(app.fs.files).filter(k => new RegExp('^runs/' + id + '/[^/]+/run\\.json$').test(k));
 rule('Start: a version with an approval role opens With others and asks who approves; Start waits for it and keeps what was typed (2.10)', async () => {
   const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();

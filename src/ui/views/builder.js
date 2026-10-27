@@ -589,6 +589,17 @@
     return { top: top, groups: groups, has: groupsHas(s, def) };
   }
   V.obGroupsHas = function (text, key, types) { var o = O.parse(text), s = o.steps.filter(function (x) { return x.key === key; })[0]; return s && !s.odd ? groupsHas(s, T.get(s.type, types)) : null; };
+  /* A refused box (2.10): its message, Apply and Discard drawn just above it, where it's typed in (on a phone everything
+     outside the open form is inert, so the editor's message area can't be used). Nothing is drawn when the box isn't here. */
+  function holdIn(ctx, p, html) {
+    var h = ctx.state.obHold; if (!h || h.pid !== p.id || ctx.state.obPendingField !== h.field) return html;
+    var at = html.indexOf(' id="' + h.field + '"'); if (at < 0) return html;
+    var start = Math.max(html.lastIndexOf('<label', at), html.lastIndexOf('<div class="field', at), html.lastIndexOf('<li', at));
+    var box = '<div class="notice warn ob-hold" role="group" aria-label="Typing not applied"><span>' + esc(h.text) + '</span><span class="row">' +
+      (h.apply ? '<button type="button" class="btn" data-act="ob-hold-apply">Apply</button>' : '') + '<button type="button" class="mini" data-act="ob-hold-discard">Discard</button></span></div>';
+    return start < 0 ? html : html.slice(0, start) + box + html.slice(start);
+  }
+  V.obHoldIn = holdIn;
   function builderForm(ctx, p, text) {
     var sel = selOf(ctx, p); here = null; if (!sel) return '';
     backToPractice = !!(ctx.state.practicing || {})[ctx.fsKey + '\n' + p.id];
