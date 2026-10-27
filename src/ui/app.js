@@ -3876,7 +3876,7 @@
   function typedFirst(p, what) {
     var pf = state.obPending === p.id && state.obPendingField;
     /* An Add box's typing is kept by Undo itself (tlMove), but another box beside it that holds typing isn't. */
-    if (pf && /^ob-new-/.test(pf)) pf = state.processId === p.id ? obTyped(null, true) : null;
+    if (pf && OB_KEPT.test(pf)) pf = state.processId === p.id ? obTyped(null, true) : null;
     if (!pf) return false;
     if (state.overlay) closeOverlay();
     say('Apply or clear what you typed in the box first ' + applyHint(pf) + ', then ' + what + '.', 'warn');
@@ -4269,6 +4269,8 @@
      opening an Add box: that waits until it's applied or cleared, as Back does. */
   /* The builder boxes a change event applies. */
   var OB_CHANGE = /^ob-(text|type|fld-[\w-]+|ph-title|ph-note|ph-mode|g-title|g-owner|g-approves|tr-title|tr-role|shot-cap-\d+|note|q-text|owner|backup|add-role|add-ctx|when|ph-when)$/;
+  /* The Add step and Add phase boxes, whose typing Undo, Redo and closing the form keep (a new role's name isn't kept). */
+  var OB_KEPT = /^ob-new-(text|title)$/;
   var OB_TYPED = /^ob-(ren-ctx|new-role|text|ph-title|ph-note|tr-title|g-title|g-approves|fld-[\w-]+|new-text|new-title|shot-cap-\d+|note|q-text|add-role|add-ctx|when|ph-when|link-proc-other|link-val-[\w-]+)$/;
   /* A builder box on the page, other than except, whose text differs from what the draft says (an Add box: holds anything).
      Several can hold typing at once (one refused, another being typed in), so every box is looked at, not just the last. */
@@ -4276,7 +4278,7 @@
     var list = app.querySelectorAll ? app.querySelectorAll('input[id], textarea[id]') : [];
     for (var i = 0; i < list.length; i++) {
       var el = list[i], id = el.id || '';
-      if (id === except || !OB_TYPED.test(id) || (skipNew && /^ob-new-/.test(id))) continue;
+      if (id === except || !OB_TYPED.test(id) || (skipNew && OB_KEPT.test(id))) continue;
       if (boxNorm(id, el.value) !== boxNorm(id, /^ob-(new|add)-/.test(id) ? '' : fieldApplied(id))) return id;
     }
     return null;
@@ -4296,7 +4298,7 @@
     state.obHold = { pid: pid, field: pf, text: state.msg ? state.msg.text : '', apply: OB_CHANGE.test(pf) && !/^ob-add-(role|ctx)$/.test(pf) || /^ob-new-(text|title|role)$/.test(pf) };
   }
   function obHeld(p, then, except, skipNew) {
-    var pf = state.obPending === p.id && state.obPendingField !== except && state.obPendingField && !(skipNew && /^ob-new-/.test(state.obPendingField)) && document.getElementById(state.obPendingField) ? state.obPendingField : obTyped(except, skipNew);
+    var pf = state.obPending === p.id && state.obPendingField !== except && state.obPendingField && !(skipNew && OB_KEPT.test(state.obPendingField)) && document.getElementById(state.obPendingField) ? state.obPendingField : obTyped(except, skipNew);
     if (!pf) return false;
     say('Apply or clear what you typed in the box first ' + applyHint(pf) + ', ' + (then || 'then choose another') + '.', 'warn');
     /* 2.10: said beside the box, inside the form (on a phone everything outside it is inert), with Apply and Discard; a box in
@@ -5506,7 +5508,8 @@
       if (state.fieldErr && state.fieldErr.id === 'ob' && state.fieldErr.field === h.field) state.fieldErr = null;
       dropPending(); obRepend();
       say('Put back what the draft says in that box.', 'good'); state.msg.quiet = true;
-      state.focus = el ? '#' + cssEsc(h.field) : null; render();
+      var gone = h.field === 'ob-note' && !String(fieldApplied('ob-note')).trim(); if (gone) obShow('note', false);
+      state.focus = gone ? '[data-act="ob-note-open"]' : el ? '#' + cssEsc(h.field) : null; render();
     },
     /* "+ add": shows a waiting box, focused. Typing held in another box is applied or refused first, as any change waits. */
     'ob-note-open': function () { var p = currentProcess(); if (!p || obHeld(p)) return; obShow('note', true); state.focus = 'ob-note'; render(); },
@@ -7458,7 +7461,7 @@
     });
   }
   /* Every change of screen goes through here: what's typed on the run's selected step is kept first. */
-  function setView(v) { childEpoch++; if (state.view === 'practice' && v !== 'practice') prLeave(); leaveContext(); state.view = v; }
+  function setView(v) { childEpoch++; if (state.view === 'start' && v !== 'start') state.startModeAt = {}; if (state.view === 'practice' && v !== 'practice') prLeave(); leaveContext(); state.view = v; }
   /* Leaving the practice page (any way: Edit, Back, a link): what's typed is kept, and where it was, for coming back. */
   function prLeave() {
     prHarvest(); var p = currentProcess(), e = p && prs[edKey(p.id)];

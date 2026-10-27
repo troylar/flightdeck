@@ -552,7 +552,7 @@
     if (linked) apply = apply.filter(function (n) { return ['process', 'version', 'carry', 'pass'].indexOf(n) < 0; });
     var show = function (n) { return !!f[n] || !!shown[n] || (ownKey(def.fields, n) && G.usual(def.fields[n], f)); };
     var common = Object.keys(T.COMMON), times = ['at', 'due', 'after'].filter(function (n) { return f[n]; });
-    var unused = Object.keys(f).concat(Object.keys(shown).filter(function (n) { return !ownKey(f, n); })).filter(function (n) { return n !== 'note' && apply.indexOf(n) < 0 && common.indexOf(n) < 0 && !(linked && ['process', 'version', 'carry', 'pass'].indexOf(n) >= 0); });
+    var unused = Object.keys(f).concat(Object.keys(shown).filter(function (n) { return !ownKey(f, n); })).filter(function (n) { return (n !== 'note' || ownKey(f, n)) && apply.indexOf(n) < 0 && common.indexOf(n) < 0 && !(linked && ['process', 'version', 'carry', 'pass'].indexOf(n) >= 0); });
     var flag = function (n) {
       var d = def && ownKey(def.fields, n) ? def.fields[n] : null;
       if (!T.fieldDef(def, n)) return '{' + (s.type || '') + '} doesn\'t use this; publishing will refuse it.';

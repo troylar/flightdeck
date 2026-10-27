@@ -8811,6 +8811,7 @@ rule('Checklists: the page says it was called Processes until Got it, remembered
   app.click('nav', 'processes'); await app.tick();
   assert.ok(note.test(app.html()) && /<h1[^>]*>Checklists<\/h1>/.test(app.html()), 'the note and the new name');
   assert.ok(/data-act="nav" data-id="processes"[^>]*>Checklists<\/button>/.test(app.el('top').innerHTML), 'the nav says Checklists');
+  assert.ok(/data-act="new-process">[^]*?New checklist<\/button>/.test(app.html()) && !/>New process</.test(app.html()), 'the button says New checklist');
   app.click('renamed-ok'); await app.tick();
   assert.ok(!note.test(app.html()), 'gone after Got it');
   assert.strictEqual(app.store['preflight:renamed-checklists'], 'true', 'remembered');
@@ -9082,6 +9083,44 @@ rule('Builder: closing the form over a refused box holds it there with Apply and
   app.click('ob-done'); await app.tick();
   assert.ok(!/<section class="panel stack ob-form"/.test(app.html()), 'then it closes');
 });
+rule('Builder: a new role\'s name being typed waits for Undo and for closing the form, and is kept (2.10, review)', async () => {
+  const app = await builderOn();
+  app.click('ob-sel', 'flags'); await app.tick();
+  app.check('ob-must', false); await app.tick();
+  app.click('ob-role-add', 'step'); await app.tick();
+  app.set('ob-new-role', 'reviewer'); app.input('ob-new-role', 'reviewer'); await app.tick();
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(/Apply or clear what you typed in the box first/.test(app.live()) && /class="notice warn ob-hold"/.test(app.html()), 'Undo waits: ' + app.live());
+  assert.strictEqual(app.draft('ob-new-role'), 'reviewer', 'the name kept');
+  assert.ok(!/id="ob-must"[^>]* checked/.test(app.html()), 'nothing undone');
+  app.click('ob-done'); await app.tick();
+  assert.ok(/data-scope="ob-step\|flags\|/.test(app.html()) && /then close the form/.test(app.live()) && app.draft('ob-new-role') === 'reviewer', 'Close waits too');
+  app.click('ob-hold-apply'); await app.tick();
+  assert.ok(/data-act="ob-role" data-id="reviewer" aria-pressed="true"/.test(app.html()), 'Apply adds it');
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(!/data-id="reviewer"/.test(app.html()), 'then Undo goes through');
+});
+
+rule('Builder: Discarding typed instructions that were empty folds them back to + Add instructions (2.10, review)', async () => {
+  const app = await builderOn();
+  app.click('ob-sel', 'rollback'); await app.tick();
+  app.click('ob-note-open'); await app.tick();
+  app.set('ob-note', 'Write the hash'); app.input('ob-note', 'Write the hash'); await app.tick();
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(/class="notice warn ob-hold"/.test(app.html()), 'held');
+  app.click('ob-hold-discard'); await app.tick();
+  assert.ok(!/id="ob-note"/.test(app.html()) && /data-act="ob-note-open"/.test(app.html()), 'folded back');
+  assert.strictEqual(app.focused(), '[data-act="ob-note-open"]');
+});
+
+rule('Builder: a leftover note: field on a step whose type doesn\'t use it keeps its box (2.10, review)', async () => {
+  const app = await builderOn(), path = 'maps/drafts/release.md';
+  await app.fs.write(path, releaseText(app).replace(/(Rollback commit written in the release ticket[^\n]*\n)/, '$1  note: left from a team type\n'));
+  app.focus(); await app.tick(80);
+  app.click('ob-sel', 'rollback'); await app.tick();
+  assert.ok(/id="ob-fld-note"[^>]*value="left from a team type"/.test(app.html()), 'the box is drawn with its value');
+});
+
 const runsOf = (app, id) => Object.keys(app.fs.files).filter(k => new RegExp('^runs/' + id + '/[^/]+/run\\.json$').test(k));
 rule('Start: a version with an approval role opens With others and asks who approves; Start waits for it and keeps what was typed (2.10)', async () => {
   const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
@@ -9103,6 +9142,16 @@ rule('Start: a version with an approval role opens With others and asks who appr
   app.set('role-release-lead', 'person-casey');
   app.submitForm('start-form'); await app.tick(120);
   assert.strictEqual(runsOf(app, 'release').length, before + 1, 'started once it was chosen (choosing yourself is fine)');
+});
+
+rule('Start: On my own chosen on a start form that was left isn\'t kept: starting again asks who approves (2.10, review)', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('start', 'release'); await app.tick();
+  app.click('start-mode', 'solo', { process: 'release' }); await app.tick();
+  assert.ok(/aria-checked="true" data-act="start-mode" data-id="solo"/.test(app.html()), 'On my own on this form');
+  app.click('nav', 'processes'); await app.tick();
+  app.click('start', 'release'); await app.tick();
+  assert.ok(/aria-checked="true" data-act="start-mode" data-id="team"/.test(app.html()) && /<select id="role-release-lead"[^>]*><option value="">Choose a person/.test(app.html()), 'With others again');
 });
 
 rule('Start: On my own says the approval is yours too; a version with no approval role is as in 2.9.0 (2.10)', async () => {
