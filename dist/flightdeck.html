@@ -25631,8 +25631,8 @@ PF.examples = (function () {
     /* Nor while someone is composing text (an input method): the redraw waits until the composition ends. */
     if (rendering || composing) { scheduleRender(); return; }
     rendering = true;
-    /* Any inline form opened or closed (Fill in, Blocked, Edit, a correction), however it was reached, counts as moving. */
-    var fsig = [state.pick ? state.pick.kind + ':' + state.pick.id : '', state.edit || '', state.corrForm ? state.corrForm.step + ':' + state.corrForm.mode : ''].join('|');
+    /* Any inline form opened or closed (Fill in, Blocked, Edit, a correction, a note's correction), however it was reached, counts as moving. */
+    var fsig = [state.pick ? state.pick.kind + ':' + state.pick.id : '', state.edit || '', state.corrForm ? state.corrForm.step + ':' + state.corrForm.mode : '', Object.keys(state.noteCorrs || {}).sort().join(',')].join('|');
     if (fsig !== formSig) { formSig = fsig; childEpoch++; }
     /* Revealed boxes belong to one checklist's editor: leaving it (another checklist, folder or screen) forgets them. */
     if (state.obShown && (state.view !== 'process' || state.ptab !== 'edit' || state.obShown.key.indexOf(fsKey() + '\n' + state.processId + '\n') !== 0)) state.obShown = null;
@@ -26299,8 +26299,9 @@ PF.examples = (function () {
     };
     queued(function () {
       var cur = findRun(key), why = cur ? R.canStartChild(cur, R.mapOf(cur), stepId) : 'The run isn\'t in the folder anymore.';
-      /* A start from the form refused in the queue (the parent paused, say) keeps its answers with where each came from. */
-      if (why && keep && prep.link2) { stale = why; throw Object.assign(new Error(why), { dropped: true }); }
+      /* A start refused in the queue (the parent paused, say) comes back through childRetry, its answers kept with where each
+         came from. */
+      if (why && prep.link2) { stale = why; throw Object.assign(new Error(why), { dropped: true }); }
       if (why) throw new Error(why);
       /* A guard refused in the queue comes back the way a refusal at the write does: through childRetry. */
       if (prep.link2) { stale = childStale(prep) || teamStale(prep, data.teamValues); if (stale) throw Object.assign(new Error(stale), { dropped: true }); }

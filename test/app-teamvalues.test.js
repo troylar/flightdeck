@@ -339,8 +339,8 @@ rule('App: a start refused in the queue (a team value refreshed while an earlier
   assert.ok(/child-start-form/.test(ov) && /queued\.example\.com/.test(ov) && /id="cs-note"[^>]*value="queued"/.test(ov), 'reopened with the new value and the answer: ' + ov.slice(0, 600));
 });
 
-rule('App: a refused start doesn\'t reopen its form after an inline form (a run detail\'s Edit, Fill in, Blocked by its key, a correction) was opened and closed while it saved', async () => {
-  for (const move of ['edit', 'pick', 'block-key', 'correct-key']) {
+rule('App: a refused start doesn\'t reopen its form after an inline form (a run detail\'s Edit, Fill in, Blocked by its key, a correction, a phase note\'s correction) was opened and closed while it saved', async () => {
+  for (const move of ['edit', 'pick', 'block-key', 'correct-key', 'note-correct']) {
     const app = await teamStart('base=team:bitbucket-base-url, env=^env, note=?', 'base, env, note');
     app.click('start-child', 'dep'); await app.tick(40);
     const h = holdRead(app, /^runs\/deploy\//, true);
@@ -350,7 +350,8 @@ rule('App: a refused start doesn\'t reopen its form after an inline form (a run 
     if (move === 'edit') { app.click('edit', 'detail:env'); await app.tick(); app.click('unedit'); await app.tick(); }
     else if (move === 'pick') { app.click('pick', 'tell', { kind: 'fields' }); await app.tick(); app.click('unpick'); await app.tick(); }
     else if (move === 'block-key') { app.click('select', 'dep'); await app.tick(); app.key('b'); await app.tick(); assert.ok(/data-scope="block:dep"/.test(app.html()), 'set-up: Blocked is open'); app.key('Escape'); await app.tick(); }
-    else { app.click('select', 'dep'); await app.tick(); app.key('c'); await app.tick(); app.click('corr-cancel'); await app.tick(); }
+    else if (move === 'correct-key') { app.click('select', 'dep'); await app.tick(); app.key('c'); await app.tick(); app.click('corr-cancel'); await app.tick(); }
+    else { app.click('nc-open', 's', { kind: 'phase' }); await app.tick(); app.click('nc-cancel', 's', { kind: 'phase' }); await app.tick(); }
     h.g.open(); await app.tick(150); h.restore();
     assert.strictEqual(deployRuns(app).length, 0, move + ': nothing written');
     assert.ok(!/child-start-form/.test(app.overlay()), move + ': not reopened');
@@ -397,6 +398,27 @@ rule('App: a start refused in the queue because the parent was paused keeps wher
   app.click('start-child', 'dep'); await app.tick(40);
   const ov = app.overlay();
   assert.ok(/You typed 5 before/.test(ov) && /id="cs-replicas"[^>]*value=""/.test(ov), 'the typed-before note, the box empty: ' + ov.slice(0, 900));
+});
+
+rule('App: a start with nothing to ask, refused in the queue because the parent was paused, comes back in the form with the team value as it is now', async () => {
+  const app = await teamStart();
+  const h = holdRead(app, /^runs\/ship\//, true);
+  app.click('edit', 'detail:env'); app.set('edit-input', 'prod'); app.click('save-edit'); await app.tick(40);
+  assert.ok(h.held(), 'set-up: an earlier save holds the queue');
+  app.click('start-child', 'dep'); await app.tick(40);
+  assert.ok(!/child-start-form/.test(app.overlay()), 'set-up: nothing to ask, so no form');
+  app.click('pick', 'run', { kind: 'pause' }); await app.tick();
+  app.set('pick-input', 'Waiting'); app.click('pause', 'run'); await app.tick(40);
+  h.g.open(); await app.tick(200); h.restore();
+  assert.strictEqual(deployRuns(app).length, 0, 'nothing written');
+  app.key('Escape'); await app.tick();
+  app.click('resume', 'run'); await app.tick(80);
+  setTeam(app, { 'bitbucket-base-url': { value: 'https://after.example.com' } }); app.click('refresh'); await app.tick(100);
+  app.click('start-child', 'dep'); await app.tick(40);
+  const ov = app.overlay();
+  assert.ok(/child-start-form/.test(ov) && /after\.example\.com/.test(ov), 'the form, with the value as it is now: ' + ov.slice(0, 600));
+  app.submitForm('child-start-form'); await app.tick(150);
+  assert.deepStrictEqual(deployRuns(app).map(k => k.details.base), ['https://after.example.com']);
 });
 
 rule('App: Settings › Team values: a save that finishes after its form was closed never closes or empties another form', async () => {
