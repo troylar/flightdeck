@@ -223,7 +223,7 @@ roles: release-lead, qa, backend
 | `## Gate:` · `approves:` | The pause point, and exactly what passing it approves |
 | `### Track: Name @role` | Parallel work inside a phase |
 | `at:` · `due:` · `after:` | A clock time, a deadline, or a due time after the run starts |
-| `{run.process}` · `carry:` · `pass:` · `version:` | Start another process as a linked child run, passing these details (under another name, as a fixed value, or asked when it starts, with `pass:`, 2.8), on an exact version if you name one |
+| `{run.process}` · `carry:` · `pass:` · `version:` | Start another process as a linked child run, passing these details (under another name, as a fixed value, or asked when it starts, with `pass:`, 2.8; or a team value, `team:`, 2.9), on an exact version if you name one |
 | `group:` · `tags:` | Where the process sits in your hierarchy, and how to find it |
 | `context: rows:number, due:date` | Typed run details (number, yes-no, date, choice, link), checked as they're typed |
 | `> note` · `![caption](images/…)` | A note or screenshot, under a step, a phase or a gate |
@@ -308,6 +308,7 @@ More in [Flightdeck and OneDrive](https://github.com/troylar/flightdeck/blob/mai
 
 ```
 people.json            who's on the team, with the folder owner and backup owner
+team-values.json       shared settings like a Bitbucket base URL, changed in Settings by the folder owner and backup owner
 maps/drafts/           checklists being written (Markdown)
 publications/          published versions, frozen (Flightdeck writes these)
 staged/                staged versions only test runs use, and each retire or reopen, written once
