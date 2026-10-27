@@ -1244,8 +1244,22 @@ PF.outline = (function () {
       case 'when': return op.step != null ? editWhen(text, 'step', op.step, op.text) : editWhen(text, 'phase', op.phase, op.text);
       case 'questions': return editQuestions(text, op.text);
       case 'removeQuestions': return removeQuestions(text);
+      case 'addRoleTo': return addRoleTo(text, op.name, op.to || {});
     }
     return { error: 'Nothing to do.' };
+  }
+
+  /* + Add role (2.10): the role goes into roles: and onto a step, a lane or an approval as one change. If either half is
+     refused, nothing is written. */
+  function addRoleTo(text, name, to) {
+    name = String(name == null ? '' : name).trim();
+    if (!name) return { error: 'Type a name first.' };
+    var r = editMeta(text, 'roles', { add: name }); if (r.error) return r;
+    var t = to.gate != null ? setGate(r.text, to.gate, { owner: name }) :
+      to.track != null ? editTrack(r.text, to.phase, to.track, { role: name }) :
+      to.step != null ? editStep(r.text, to.step, { role: name, on: true }) : { error: 'Nothing to do.' };
+    if (t.error) return { error: t.error };
+    t.role = name; return t;
   }
 
   /* A screenshot op names its step, or a phase (the phase's own screenshots) or a gate (by its phase's key). */

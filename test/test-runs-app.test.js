@@ -26,7 +26,7 @@ async function started(who) {
   const { app, folder } = await staged(who);
   app.click('start-test', folder); await app.tick();
   assert.ok(/Start a test run/.test(app.html()) && /data-test="1"/.test(app.html()), 'the test-run form');
-  app.submitForm('start-form', {}); await app.tick(200);
+  app.chooseApprovers().submitForm('start-form', {}); await app.tick(200);
   const t = testRuns(app);
   assert.strictEqual(t.length, 1, 'one test run written');
   return { app, folder, r: t[0] };
@@ -39,7 +39,7 @@ rule('Start a test run from the stage\'s line: run/3 on the stage, test and stag
   app.click('start-test', folder); await app.tick();
   const form = app.html();
   assert.ok(/staged v3/.test(form) && /isn.t counted in How runs go/.test(form) && !/data-act="decline-plan"/.test(form), 'the form says what a test run is');
-  app.submitForm('start-form', {}); await app.tick(200);
+  app.chooseApprovers().submitForm('start-form', {}); await app.tick(200);
   assert.strictEqual(runFiles(app).length, before + 1);
   const r = testRuns(app)[0];
   assert.ok(r.format === 'preflight-run/3' && r.features.indexOf('staged') >= 0 && r.features.indexOf('test-run') >= 0 && r.folder === folder && r.version === 3 && r.createdBy === 'person-casey', JSON.stringify([r.format, r.features, r.folder, r.version, r.createdBy]));
@@ -90,7 +90,7 @@ rule('A retired or promoted stage takes no new test run, and says why; nothing i
   const dec = 'staged/release/decisions/' + folder + '.w-other.9.json';
   await app.fs.write(dec, JSON.stringify({ format: 'flightdeck-stage-decision/1', app: '2.1.0', process: 'release', stage: folder, status: 'retired', reason: '', by: 'person-morgan', at: '2026-10-22T10:00:00.000Z', rev: 9, seen: 2 }, null, 2));
   const runsBefore = runFiles(app).length;
-  app.submitForm('start-form', {}); await app.tick(200);
+  app.chooseApprovers().submitForm('start-form', {}); await app.tick(200);
   assert.strictEqual(runFiles(app).length, runsBefore, 'no run written');
   assert.ok(/Couldn&#39;t start the test run: It&#39;s retired/.test(app.html()), 'and it says why');
 });
@@ -102,7 +102,7 @@ rule('The person is the one who submitted: a change of person while the stage is
   const orig = app.fs.read.bind(app.fs);
   app.fs.read = (x, o) => new RegExp('^staged/release/' + folder + '/publication\\.json$').test(x) ? gate.then(() => orig(x, o)) : orig(x, o);
   const before = runFiles(app).length;
-  app.submitForm('start-form', {}); await app.tick(20);
+  app.chooseApprovers().submitForm('start-form', {}); await app.tick(20);
   app.choose('person-morgan'); await app.tick(20);
   release(); await app.tick(200);
   app.fs.read = orig;
@@ -129,7 +129,7 @@ rule('Back and Forward bring the test-run form back as a test-run form, never as
   app.forward(); await app.settle();
   assert.ok(/id="start-form"/.test(app.html()) && /data-test="1"/.test(app.html()) && new RegExp('data-folder="' + folder + '"').test(app.html()), 'Forward: the test-run form again');
   const before = runFiles(app).length;
-  app.submitForm('start-form', {}); await app.tick(200);
+  app.chooseApprovers().submitForm('start-form', {}); await app.tick(200);
   assert.strictEqual(runFiles(app).length, before + 1);
   assert.strictEqual(testRuns(app).length, 1, 'a test run, not a counted run');
 });

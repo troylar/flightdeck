@@ -310,6 +310,18 @@ function boot(opts) {
     overlay: () => els.overlay.innerHTML,
     // Submit a form as a browser would: its data-* attributes, and its fields' values (typed with set(), else as drawn), come
     // from the page. dataset overrides what the page drew, to simulate a form drawn earlier.
+    /* Who approves is chosen on the start and plan forms (2.10): a test that isn't about that choice picks the rotation's
+       suggestion, as 2.9.0 preselected it, for every approver select still on Choose a person. */
+    chooseApprovers() {
+      const html = els.app.innerHTML;
+      for (const m of html.matchAll(/<select id="(role-[^"]+)" data-role="[^"]*"(?: data-suggested="([^"]*)")?[^>]*><option value="">Choose a person<\/option>/g)) {
+        if (inputs.has(m[1]) && get(m[1]).value) continue;
+        if (/<option value="[^"]+" selected>/.test(html.slice(m.index, html.indexOf('</select>', m.index)))) continue;
+        const first = /<option value="(person-[^"]+)"/.exec(html.slice(m.index));
+        this.set(m[1], m[2] || (first && first[1]) || '');
+      }
+      return this;
+    },
     submitForm(id, dataset) {
       const re = new RegExp('<form[^>]*\\bid="' + id + '"'), html = els.app.innerHTML.search(re) >= 0 ? els.app.innerHTML : els.overlay.innerHTML || '', at = html.search(re);
       if (at < 0) throw new Error('No form ' + id + ' on the page');

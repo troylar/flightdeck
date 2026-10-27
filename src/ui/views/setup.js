@@ -110,7 +110,7 @@
     else if (mine) h += '<div class="notice"><span><b>' + esc(mine.title) + '</b> is running. Finish it to tick this step.</span><button class="btn go" data-act="open-run" data-id="' + esc(mine.process + '/' + mine.id) + '">Open the run</button></div>';
     if (!pubs.length) return h + '<p class="notice warn">Publish a checklist first.</p><div class="row"><button class="btn" data-act="setup-step" data-id="checklist">Back to the first checklist</button></div>';
     return h + '<ul class="su-runs">' + pubs.slice(0, 6).map(function (p) {
-      return '<li><span><b>' + esc(p.title) + '</b> <span class="small">v' + p.latest.info.version + '</span></span><button class="btn' + (done || mine ? '' : ' go') + '" data-act="setup-run" data-id="' + esc(p.id) + '">' + I('play') + 'Start it on your own</button></li>';
+      return '<li><span><b>' + esc(p.title) + '</b> <span class="small">v' + p.latest.info.version + '</span></span><button class="btn' + (done || mine ? '' : ' go') + '" data-act="setup-run" data-id="' + esc(p.id) + '">' + I('play') + (V.approvals(p.latest.map).length ? 'Start it' : 'Start it on your own') + '</button></li>';
     }).join('') + '</ul>';
   }
   function secondStep(ctx, su, prog) {

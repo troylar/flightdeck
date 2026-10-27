@@ -2315,8 +2315,8 @@ rule('Plans: clicking Save the plan again while it saves never writes the plan t
   const before = app.files('proposals/'), write = app.fs.write.bind(app.fs), g = gate();
   app.fs.write = (p, t) => /^proposals\/plan-/.test(p) ? g.p.then(() => write(p, t)) : write(p, t);
   app.set('run-title', 'Release 2026.11.13');
-  app.submitForm('plan-form'); await app.tick(5);
-  app.submitForm('plan-form'); await app.tick(5);
+  app.chooseApprovers().submitForm('plan-form'); await app.tick(5);
+  app.chooseApprovers().submitForm('plan-form'); await app.tick(5);
   assert.ok(/Still saving this plan/.test(app.html()), 'the second click waits');
   g.open(); await app.tick(80);
   assert.strictEqual(newPlans(app, before).length, 1, 'one plan file');
@@ -2331,7 +2331,7 @@ rule('Plans: planning a run from a process page writes one new plan file with wh
   assert.ok(/<h1[^>]*>Plan a run<\/h1>/.test(app.html()) && /type="datetime-local" id="plan-when"/.test(app.html()));
   const before = app.files('proposals/');
   app.set('run-title', 'Release 2026.11.06').set('detail-ticket', 'ABC-5000').set('plan-when', '2026-11-06T09:00').set('plan-note', 'Morgan takes QA').set('role-qa', 'person-morgan');
-  app.submitForm('plan-form'); await app.tick(80);
+  app.chooseApprovers().submitForm('plan-form'); await app.tick(80);
   const made = newPlans(app, before);
   assert.strictEqual(made.length, 1, 'one new file');
   assert.ok(/^proposals\/plan-release-[a-z0-9]{8}\.json$/.test(made[0]), made[0]);
@@ -2352,7 +2352,7 @@ rule('Plans: planning a run from a process page writes one new plan file with wh
   app.PF.util.randomId = () => 'taken000';
   try {
     app.click('plan-run', 'release'); await app.tick();
-    app.submitForm('plan-form'); await app.tick(80);
+    app.chooseApprovers().submitForm('plan-form'); await app.tick(80);
   } finally { app.PF.util.randomId = rid; }
   assert.strictEqual(app.fs.files['proposals/plan-release-taken000.json'].t, 'THEIRS', 'never overwritten');
   assert.ok(/already in the folder, so nothing was saved/.test(app.html()), 'says nothing was saved');
@@ -2363,7 +2363,7 @@ rule('Plans: a time that can\'t be read is pointed out next to its field, and no
   app.choose('person-casey'); await app.tick();
   app.click('plan-run', 'release'); await app.tick();
   const before = app.files('proposals/');
-  app.set('plan-when', 'whenever'); app.submitForm('plan-form'); await app.tick(40);
+  app.set('plan-when', 'whenever'); app.chooseApprovers().submitForm('plan-form'); await app.tick(40);
   assert.strictEqual(newPlans(app, before).length, 0);
   assert.ok(/id="ferr-plan-when" role="alert"/.test(app.html()));
 });
@@ -2380,7 +2380,7 @@ rule('Plans: duplicating a run plans its details and roles on the current versio
   app.click('plan-from-run', key); await app.tick();
   assert.ok(/<h1[^>]*>Plan a run<\/h1>/.test(app.html()) && /id="detail-ticket"[^>]*value="ABC-4722"/.test(app.html()) && !/id="detail-tag"/.test(app.html()));
   const before = app.files('proposals/');
-  app.submitForm('plan-form'); await app.tick(80);
+  app.chooseApprovers().submitForm('plan-form'); await app.tick(80);
   const plan = JSON.parse(app.fs.files[newPlans(app, before)[0]].t);
   assert.strictEqual(plan.from, key, 'from the run');
   assert.strictEqual(plan.version, 2, 'the current version, not the run\'s v1');
@@ -2398,7 +2398,7 @@ rule('Plans: a plan starts on the version it was planned on; See what changed sh
   pinned.click('plan-diff'); await pinned.tick();
   assert.ok(/class="diff"/.test(pinned.html()), 'the differences');
   let before = releaseRuns(pinned);
-  pinned.submitForm('start-form'); await pinned.tick(120);
+  pinned.chooseApprovers().submitForm('start-form'); await pinned.tick(120);
   let made = releaseRuns(pinned).filter(p => before.indexOf(p) < 0);
   assert.strictEqual(made.length, 1, 'started');
   let run = JSON.parse(pinned.fs.files[made[0]].t);
@@ -2411,7 +2411,7 @@ rule('Plans: a plan starts on the version it was planned on; See what changed sh
   switched.click('plan-latest', 'plan-release-2026-10-24'); await switched.tick();
   assert.ok(/Switched to v2/.test(switched.html()));
   before = releaseRuns(switched);
-  switched.submitForm('start-form'); await switched.tick(120);
+  switched.chooseApprovers().submitForm('start-form'); await switched.tick(120);
   made = releaseRuns(switched).filter(p => before.indexOf(p) < 0);
   run = JSON.parse(switched.fs.files[made[0]].t);
   assert.strictEqual(run.version, 2); assert.strictEqual(run.folder, pubFolder(switched, 2));
@@ -2426,7 +2426,7 @@ rule('Plans: when the version a plan pins is gone, it starts on the latest and s
   app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
   assert.ok(/made for v1, which can(&#39;|')t be used anymore\. It starts on v2/.test(app.html()));
   const before = releaseRuns(app);
-  app.submitForm('start-form'); await app.tick(120);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   const run = JSON.parse(app.fs.files[releaseRuns(app).filter(p => before.indexOf(p) < 0)[0]].t);
   assert.strictEqual(run.version, 2);
 });
@@ -2437,13 +2437,13 @@ rule('Plans: an older version can only be started through a plan that pins it, n
   const v1 = pubFolder(app, 1), before = releaseRuns(app);
   // A plain start whose form named v1.
   app.click('start', 'release'); await app.tick();
-  app.submitForm('start-form', { folder: v1 }); await app.tick(80);
+  app.chooseApprovers().submitForm('start-form', { folder: v1 }); await app.tick(80);
   assert.deepStrictEqual(releaseRuns(app), before, 'nothing started');
   assert.ok(/A new version was published while you were filling this in/.test(app.html()));
   // A plan switched to the latest, submitted from a form still showing v1.
   app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
   app.click('plan-latest', 'plan-release-2026-10-24'); await app.tick();
-  app.submitForm('start-form', { folder: v1 }); await app.tick(80);
+  app.chooseApprovers().submitForm('start-form', { folder: v1 }); await app.tick(80);
   assert.deepStrictEqual(releaseRuns(app), before, 'nothing started');
   assert.ok(/The version this plan starts on changed/.test(app.html()));
 });
@@ -2457,7 +2457,7 @@ rule('Plans: a decision on the plan that can\'t be read holds it: the form says 
   app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
   assert.ok(/isn(&#39;|')t known whether someone already started it/.test(app.html()) && app.html().indexOf(torn) >= 0, (app.html().match(/class="notice[^"]*"[^>]*>[\s\S]{0,300}/g) || []).join(' | '));
   const before = releaseRuns(app);
-  app.submitForm('start-form'); await app.tick(120);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   assert.deepStrictEqual(releaseRuns(app), before, 'nothing started');
   assert.ok(!app.files('proposals/').some(f => /\.status-/.test(f) && f !== torn), 'no decision written');
 });
@@ -2473,7 +2473,7 @@ rule('Plans: while proposals/ can\'t be read, a plan kept from before can\'t be 
   app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
   assert.ok(/isn(&#39;|')t known whether someone already started it/.test(app.html()), (app.html().match(/class="notice[^"]*"[^>]*>[\s\S]{0,300}/g) || []).join(' | '));
   const before = releaseRuns(app), decs = app.files('proposals/').length;
-  app.submitForm('start-form'); await app.tick(120);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   assert.deepStrictEqual(releaseRuns(app), before, 'nothing started');
   app.click('decline-plan', 'plan-release-2026-10-24'); await app.tick(120);
   app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
@@ -2497,7 +2497,7 @@ rule('Plans: a decision listed but gone when read holds its plan: nothing starts
   app.click('refresh'); await app.tick(80);
   app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
   const before = releaseRuns(app);
-  app.submitForm('start-form'); await app.tick(120);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   assert.deepStrictEqual(releaseRuns(app), before, 'nothing started');
 });
 
@@ -2511,7 +2511,7 @@ rule('Plans: a plan whose own file is listed but gone when read stays shown and 
   app.click('refresh'); await app.tick(80);
   assert.ok(/can(&#39;|')t be read/.test(app.html()) && app.html().indexOf(file) >= 0, (app.html().match(/class="notice[^"]*"[^>]*>[\s\S]{0,300}/g) || []).join(' | '));
   const before = releaseRuns(app);
-  app.submitForm('start-form'); await app.tick(120);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   assert.deepStrictEqual(releaseRuns(app), before, 'nothing started');
 });
 
@@ -2532,7 +2532,7 @@ rule('Plans: when one of two differing copies of a started plan reads back as go
   app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
   const before = releaseRuns(app), decs = app.files('proposals/').length;
   // 2.1.1: the copy left is decided on an earlier version, so its page has no form at all.
-  if (/id="start-form"/.test(app.html())) { app.submitForm('start-form'); await app.tick(120); }
+  if (/id="start-form"/.test(app.html())) { app.chooseApprovers().submitForm('start-form'); await app.tick(120); }
   assert.deepStrictEqual(releaseRuns(app), before, 'nothing started');
   app.click('decline-plan', 'plan-release-2026-10-24'); await app.tick(120);
   app.click('plan-latest', 'plan-release-2026-10-24'); await app.tick(120);
@@ -2555,7 +2555,7 @@ rule('Plans: two differing copies of a started plan, one gone when read, through
   app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
   const before = releaseRuns(app), decs = app.files('proposals/').length;
   const form = /id="start-form"/.test(app.html());
-  if (form) { app.submitForm('start-form'); await app.tick(120); }
+  if (form) { app.chooseApprovers().submitForm('start-form'); await app.tick(120); }
   app.click('decline-plan', 'plan-release-2026-10-24'); await app.tick(120);
   assert.deepStrictEqual(releaseRuns(app), before, 'nothing started');
   assert.strictEqual(app.files('proposals/').length, decs, 'no decision written');
@@ -2570,7 +2570,7 @@ rule('Plans: a form left open after another window started or declined the plan 
     await app.PF.repo.recordPlanStatus(app.fs, plan, 'w-other', status, status === 'accepted' ? 'run-elsewhere' : null, 'person-avery', null, '2.1.0');
     app.click('refresh'); await app.tick(80);
     const before = releaseRuns(app), decs = app.files('proposals/').length;
-    app.submitForm('start-form'); await app.tick(120);
+    app.chooseApprovers().submitForm('start-form'); await app.tick(120);
     assert.deepStrictEqual(releaseRuns(app), before, status + ': nothing started');
     app.click('decline-plan', 'plan-release-2026-10-24'); await app.tick(120);
     assert.strictEqual(app.files('proposals/').length, decs, status + ': no decision written');
@@ -2583,7 +2583,7 @@ rule('Plans: without cross-window locks, a decline clicked right after Start wai
   app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
   let writes = 0; const write = app.fs.write;
   app.fs.write = function (p) { if (/^proposals\/.*\.status-/.test(p)) writes++; return write.apply(this, arguments); };
-  app.submitForm('start-form');
+  app.chooseApprovers().submitForm('start-form');
   app.click('decline-plan', 'plan-release-2026-10-24');
   await app.tick(200);
   assert.strictEqual(writes, 1, 'one decision write');
@@ -2607,7 +2607,7 @@ async function failedStart(app, how, opts) {
     return write.apply(this, arguments);
   };
   if (opts && opts.keepReceipt) app.fs.remove = function (p) { return /\/candidate-/.test(p) ? Promise.reject(new Error('locked')) : remove.apply(this, arguments); };
-  app.submitForm('start-form'); await app.tick(120);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   app.fs.write = write; app.fs.remove = remove;
   const dec = decisionsOn(app, plan);
   return { id: dec.length === 1 ? dec[0].run : null, tried, dec };
@@ -2629,10 +2629,10 @@ rule('Plans (2.1.1): a start whose run doesn\'t save leaves one decision naming 
   assert.deepStrictEqual(releaseRuns(app), before, 'no run');
   assert.ok(/marked started, but Flightdeck couldn(&#39;|')t confirm whether its run saved/.test(app.html()) && !/didn(&#39;|')t save/.test(app.html()), shown(app));
   assert.ok(/data-act="plan-resume"/.test(app.html()), 'Try again is offered');
-  app.submitForm('start-form'); await app.tick(120);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   app.click('refresh'); await app.tick(80);
   app.click('review-plan', PLAN); await app.tick();
-  if (/id="start-form"/.test(app.html())) { app.submitForm('start-form'); await app.tick(120); }
+  if (/id="start-form"/.test(app.html())) { app.chooseApprovers().submitForm('start-form'); await app.tick(120); }
   assert.strictEqual(decisionsOn(app).length, 1, 'still one decision');
   assert.deepStrictEqual(releaseRuns(app), before, 'no second run');
   assert.deepStrictEqual([...dirs()].filter(x => !had.has(x)), [], 'no file was ever written under another run ID');
@@ -2857,7 +2857,7 @@ rule('Plans (2.1.1): a plan waiting on Try again isn\'t started again, and its T
   const app = boot(); await app.tick(60);
   const a = await failedStart(app, 'lost');
   app.click('review-plan', PLAN); await app.tick();
-  if (/id="start-form"/.test(app.html())) { app.submitForm('start-form'); await app.tick(120); }
+  if (/id="start-form"/.test(app.html())) { app.chooseApprovers().submitForm('start-form'); await app.tick(120); }
   assert.strictEqual(decisionsOn(app).length, 1, 'still one decision');
   assert.ok(/data-act="plan-resume" data-id="plan-release-2026-10-24"/.test(app.html()), 'Try again still offered: ' + shown(app));
   app.click('plan-resume', PLAN); await app.tick(160);
@@ -2876,7 +2876,7 @@ rule('Plans (2.1.1): a start still saving when the person changes, or the folder
       if (/^runs\/release\/[^/]+\/run\.json$/.test(p)) { held = p; return g.p.then(() => { throw new Error('OneDrive is offline'); }); }
       return write.apply(this, arguments);
     };
-    app.submitForm('start-form'); await app.tick(120);
+    app.chooseApprovers().submitForm('start-form'); await app.tick(120);
     assert.ok(held && !oldFs.files[held], tag + ': set-up, A\'s run write is held');
     if (change === 'person') { app.choose('person-avery'); await app.tick(); app.choose('person-casey'); await app.tick(); }
     else { app.click('reset-examples'); await app.tick(60); app.choose('person-casey'); await app.tick(); }
@@ -2905,7 +2905,7 @@ rule('Plans (2.1.1): a start waiting on the plan\'s lock writes nothing, and say
     app.click('review-plan', PLAN); await app.tick();
     const oldFs = app.fs, had = planFiles(oldFs, PLAN);
     const g = gate(); L.request('preflight:plan:' + PLAN, () => g.p);
-    app.submitForm('start-form'); await app.tick(40);
+    app.chooseApprovers().submitForm('start-form'); await app.tick(40);
     await changeWhile(app, change);
     g.open(); await app.tick(200);
     assert.deepStrictEqual(planFiles(oldFs, PLAN), had, change + ': nothing written in the first folder');
@@ -2926,7 +2926,7 @@ rule('Plans (2.1.1): a start whose run saves after the person changes, even chan
       if (/^runs\/release\/[^/]+\/run\.json$/.test(p)) { held = p; const self = this, args = arguments; return g.p.then(() => write.apply(self, args)); }
       return write.apply(this, arguments);
     };
-    app.submitForm('start-form'); await app.tick(120);
+    app.chooseApprovers().submitForm('start-form'); await app.tick(120);
     assert.ok(held && !app.fs.files[held], change + ': set-up, the run write is held');
     app.click('home'); await app.tick();
     await changeWhile(app, change);
@@ -3033,7 +3033,7 @@ rule('Plans (2.1.1): a switch and then a start in one window keep both records; 
   const v2 = pubFolder(app, 2);
   app.click('review-plan', 'plan-release-exact'); await app.tick();
   app.click('plan-retarget', 'plan-release-exact', { folder: v2 }); await app.tick(120);
-  app.submitForm('start-form'); await app.tick(120);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   const recs = decisionsOn(app, 'plan-release-exact');
   assert.deepStrictEqual(recs.map(r => r.status).sort(), ['accepted', 'retargeted']);
   assert.strictEqual(recs.find(r => r.status === 'retargeted').to.folder, v2, 'the switch is kept');
@@ -3113,7 +3113,7 @@ rule('Plans: a switch pins the exact version chosen; a version published after t
   assert.ok(/You switched this plan to v2\. v3 is now published\./.test(app.html()), 'asks again');
   assert.ok(/Switch to v3/.test(app.html()));
   const before = releaseRuns(app);
-  app.submitForm('start-form'); await app.tick(120);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   const run = JSON.parse(app.fs.files[releaseRuns(app).filter(p => before.indexOf(p) < 0)[0]].t);
   assert.strictEqual(run.folder, v2, 'the version chosen, not the newer one');
 });
@@ -3160,7 +3160,7 @@ rule('Plans: a time the clocks skip is pointed out, not saved an hour off', asyn
   app.click('plan-run', 'release'); await app.tick();
   const before = app.files('proposals/'), real = app.PF.util.localDateTime;
   app.PF.util.localDateTime = () => ({ error: 'gap' });
-  try { app.set('plan-when', '2026-03-08T02:30'); app.submitForm('plan-form'); await app.tick(40); } finally { app.PF.util.localDateTime = real; }
+  try { app.set('plan-when', '2026-03-08T02:30'); app.chooseApprovers().submitForm('plan-form'); await app.tick(40); } finally { app.PF.util.localDateTime = real; }
   assert.strictEqual(newPlans(app, before).length, 0);
   assert.ok(/That time doesn(&#39;|')t exist on that day \(clocks change\); pick another\./.test(app.html()));
 });
@@ -3525,7 +3525,7 @@ rule('App: a part dragged onto a line in the outline is added there, selected, w
 rule('App: a dragged part dropped where it can\'t go is refused and nothing changes', async () => {
   const app = await builderOn();
   dragPart(app, 'gate', 'before:flags', 'gate'); await app.tick();
-  assert.ok(/Gate can.t go there/.test(app.live()) && !/Unsaved: Save draft before you publish/.test(app.html()), 'refused');
+  assert.ok(/Approval can.t go there/.test(app.live()) && !/Unsaved: Save draft before you publish/.test(app.html()), 'refused');
   dragPart(app, 'lanes', 'lane:deploy:0', 'lanes'); await app.tick();
   assert.ok(/Parallel lanes can.t go there/.test(app.live()) && !/Unsaved: Save draft before you publish/.test(app.html()), 'a lane that isn\'t there');
   app.click('ob-part', 'step'); await app.tick();
@@ -3560,10 +3560,10 @@ rule('App: placing a part by keyboard announces it, moves among legal places wit
 
 rule('App: with nowhere to go, placing says why and offers Cancel', async () => {
   const app = await builderOn();
-  app.click('ob-sel-phase', 'verify'); await app.tick();
+  app.click('ob-sel-gate', 'verify'); await app.tick();
   app.set('ob-g-title', 'Release done'); enter(app, 'ob-g-title', 'Release done'); await app.tick();
   app.click('ob-part', 'gate'); await app.tick();
-  assert.ok(/<b>Nowhere to put a gate\.<\/b> Every phase already has a gate\. Select one to edit it\./.test(app.html()));
+  assert.ok(/<b>Nowhere to put an approval\.<\/b> Every phase already has an approval\. Select one to edit it\./.test(app.html()));
   assert.strictEqual(app.focused(), 'ob-place-cancel');
   app.click('ob-place-cancel'); await app.tick();
   assert.ok(!/ob-placing/.test(app.html()));
@@ -3586,7 +3586,7 @@ rule('App: every new kind of builder change can be undone, back to the saved tex
   await undone('a lane deleted, its steps kept', async () => { app.click('ob-sel-track', 'verify', { track: '1' }); await app.tick(); app.click('ob-ask', 'track'); await app.tick(); app.click('ob-del-track', 'keep'); });
   assert.ok(/Undid the lane deletion of "Wrap-up"\./.test(app.live()), 'Undo says what it undid: ' + app.live());
   await undone('a lane deleted with its steps', async () => { app.click('ob-sel-track', 'verify', { track: '1' }); await app.tick(); app.click('ob-ask', 'track'); await app.tick(); app.click('ob-del-track', 'all'); });
-  await undone('a gate removed', async () => { app.click('ob-sel-phase', 'prep'); await app.tick(); app.click('ob-gate-remove', 'prep'); });
+  await undone('a gate removed', async () => { app.click('ob-sel-gate', 'prep'); await app.tick(); app.click('ob-gate-remove', 'prep'); });
   await undone('a phase deleted', async () => { app.click('ob-sel-phase', 'deploy'); await app.tick(); app.click('ob-ask', 'phase'); await app.tick(); app.click('ob-del-phase', 'deploy'); });
 });
 
@@ -3906,7 +3906,7 @@ rule('App: a version this copy doesn\'t understand says why, can\'t be picked or
   h = app.html();
   assert.ok(new RegExp('This plan was made for v3, which can\'t be used here: ' + NEWER.source + '.*It starts on v2\\.').test(h), 'the plan falls back and says so');
   const before = app.files('runs/release/').length;
-  app.submitForm('start-form'); await app.tick(80);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(80);
   const started = app.files('runs/release/').filter(p => /run\.json$/.test(p)).map(p => JSON.parse(app.fs.files[p].t)).find(r => r.title === 'On v3');
   assert.ok(started && started.version === 2, 'the planned run started on v2, never on v3');
   assert.ok(app.files('runs/release/').length > before);
@@ -4548,8 +4548,10 @@ rule('App: Start your team on an empty folder: a write test, people with IDs and
   assert.ok(/is published/.test(app.html()));
   app.click('setup-next', 'run'); await app.tick();
   app.click('setup-run', 'check-in'); await app.tick();
-  assert.ok(/aria-checked="true" data-act="start-mode" data-id="solo"/.test(app.html()), 'the start form, on my own');
-  app.submitForm('start-form'); await app.tick(200);
+  /* 2.10: Code check-in's gate is owned by @author, so the start form opens With others and asks who approves. */
+  assert.ok(/aria-checked="true" data-act="start-mode" data-id="team"/.test(app.html()) && /<select id="role-author"[^>]*><option value="">Choose a person/.test(app.html()), 'the start form, asking who approves');
+  app.click('start-mode', 'solo', { process: 'check-in' }); await app.tick();
+  app.chooseApprovers().submitForm('start-form'); await app.tick(200);
   const runPath = Object.keys(files).find(k => /^runs\/check-in\/[^/]+\/run\.json$/.test(k));
   assert.ok(runPath, 'the run started');
   app.click('nav', 'home'); await app.tick(40);
@@ -6807,7 +6809,7 @@ rule('Requests: a requested run shows as a planned run naming the tool as a clai
   const html = app.html();
   assert.ok(/Requested by ci-check 1\.4\.0, by its own account\./.test(html) && /can(&#39;|')t confirm which tool or person wrote this file/.test(html), 'the claim, said as one');
   assert.ok(/id="detail-ticket"[^>]*value="ABC-777"/.test(html) && /id="start-submit"(?![^>]*disabled)/.test(html));
-  app.submitForm('start-form'); await app.tick(120);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   const made = releaseRuns(app).filter(p => runsBefore.indexOf(p) < 0);
   assert.strictEqual(made.length, 1, 'the person started it');
   const run = JSON.parse(app.fs.files[made[0]].t);
@@ -6837,12 +6839,12 @@ rule('Requests: an identical OneDrive copy shows the request once, arrived twice
   app.click('review-plan', req.id); await app.tick();
   assert.ok(/id="start-submit"[^>]*disabled/.test(app.html()) && /delete the wrong one/.test(app.html()), 'can\'t be started until a person deletes one');
   const before = releaseRuns(app);
-  app.submitForm('start-form'); await app.tick(120);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   assert.deepStrictEqual(releaseRuns(app), before, 'nothing started');
   delete app.fs.files['proposals/' + req.id + '-LAPTOP.json'];
   app.click('refresh'); await app.tick(80);
   app.click('review-plan', req.id); await app.tick();
-  app.submitForm('start-form'); await app.tick(120);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   assert.strictEqual(releaseRuns(app).length, before.length + 1, 'once one is deleted, it starts');
 });
 
@@ -6856,7 +6858,7 @@ rule('App (2.0): anyone viewing a run can suggest a change to a phase\'s note or
   app.set('change-note', 'Gate note'); app.click('publish', 'release'); await app.tick(100);
   const before = releaseRuns(app);
   app.click('start', 'release'); await app.tick();
-  app.submitForm('start-form'); await app.tick(120);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   const made = releaseRuns(app).filter(p => before.indexOf(p) < 0)[0], run = JSON.parse(app.fs.files[made].t), key = 'release/' + run.id;
   app.click('open-run', key); await app.tick(20);
   assert.ok(/<div class="note g-note">[\s\S]*?Check the change board first\.[\s\S]*?data-act="nc-open" data-kind="gate" data-id="ready"/.test(app.html()), 'the note, with a way to suggest a change');
@@ -6883,7 +6885,7 @@ rule('App (2.0): while a note correction saves, its boxes are read-only, so noth
   app.set('change-note', 'Gate note'); app.click('publish', 'release'); await app.tick(100);
   const before = releaseRuns(app);
   app.click('start', 'release'); await app.tick();
-  app.submitForm('start-form'); await app.tick(120);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   const run = JSON.parse(app.fs.files[releaseRuns(app).filter(p => before.indexOf(p) < 0)[0]].t), key = 'release/' + run.id;
   app.click('open-run', key); await app.tick(20);
   app.click('nc-open', 'ready', { kind: 'gate' }); await app.tick();
@@ -6930,7 +6932,7 @@ rule('App (2.0): what is typed in a note correction is kept per run and per phas
   app.set('change-note', 'Gate notes'); app.click('publish', 'release'); await app.tick(100);
   const before = releaseRuns(app);
   app.click('start', 'release'); await app.tick();
-  app.submitForm('start-form'); await app.tick(120);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   const run = JSON.parse(app.fs.files[releaseRuns(app).filter(p => before.indexOf(p) < 0)[0]].t), key = 'release/' + run.id;
   app.click('open-run', key); await app.tick(20);
   app.click('nc-open', 'ready', { kind: 'gate' }); await app.tick();
@@ -6958,7 +6960,7 @@ rule('App (2.0): a note correction whose note changed in the draft since the run
   app.set('change-note', 'Gate note'); app.click('publish', 'release'); await app.tick(100);
   const before = releaseRuns(app);
   app.click('start', 'release'); await app.tick();
-  app.submitForm('start-form'); await app.tick(120);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   const run = JSON.parse(app.fs.files[releaseRuns(app).filter(p => before.indexOf(p) < 0)[0]].t), key = 'release/' + run.id;
   app.click('open-run', key); await app.tick(20);
   app.click('nc-open', 'ready', { kind: 'gate' }); await app.tick();
@@ -6998,7 +7000,7 @@ rule('Pins: a plan/2 starts on its exact folder; offering the latest is an expli
   assert.ok(/This plan was made for v1\. v2 is now published\./.test(app.html()));
   assert.ok(/data-act="plan-retarget"[^>]*>Start on v2 instead</.test(app.html()) && !/data-act="plan-latest" data-id="plan-release-exact"/.test(app.html()), 'only the explicit switch');
   const before = releaseRuns(app);
-  app.submitForm('start-form'); await app.tick(120);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   const made = releaseRuns(app).filter(p => before.indexOf(p) < 0), run = JSON.parse(app.fs.files[made[0]].t);
   assert.strictEqual(run.folder, pubFolder(app, 1));
   const st = JSON.parse(app.fs.files[app.files('proposals/plan-release-exact.status-')[0]].t);
@@ -7039,7 +7041,7 @@ rule('Pins: a plan/2 whose folder is gone asks and starts nothing; "Start on v2 
   assert.strictEqual(sw.length, 1); assert.strictEqual(sw[0].status, 'retargeted'); assert.deepStrictEqual(sw[0].to, { folder: v2, version: 2 });
   assert.deepStrictEqual(releaseRuns(app), before, 'switching starts nothing');
   assert.ok(/Switched to v2/.test(app.html()));
-  app.submitForm('start-form'); await app.tick(120);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   const run = JSON.parse(app.fs.files[releaseRuns(app).filter(p => before.indexOf(p) < 0)[0]].t);
   assert.strictEqual(run.folder, v2);
 });
@@ -7893,19 +7895,19 @@ rule('Back and Forward: starting a run from a plan or the start form makes one e
   app.click('nav', 'runs'); await app.tick();
   app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
   const before = hashes(app);
-  app.submitForm('start-form'); await app.tick(200);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(200);
   assert.ok(onRun(app), 'set-up: started');
   assert.deepStrictEqual(hashes(app).slice(0, -1), before); assert.ok(/^#\/run\/release\//.test(app.hash()));
   app.click('open-process', 'release'); await app.tick(); app.click('start', 'release'); await app.tick();
   const two = hashes(app);
-  app.submitForm('start-form'); await app.tick(200);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(200);
   assert.deepStrictEqual(hashes(app).slice(0, -1), two); assert.ok(/^#\/run\/release\//.test(app.hash()));
   // Paused in the folder's read: the person visits Runs and Settings, then the run lands after them.
   app.click('start', 'release'); await app.tick();
   const list = app.fs.list.bind(app.fs), g = gate(); let armed = true;
   app.fs.list = p => { if (armed && p === 'runs') { armed = false; return list(p).then(x => g.p.then(() => x)); } return list(p); };
   const three = hashes(app);
-  app.submitForm('start-form'); await app.tick(60);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(60);
   app.click('nav', 'runs'); await app.tick(); app.click('nav', 'settings'); await app.tick();
   g.open(); await app.tick(200);
   assert.deepStrictEqual(hashes(app).slice(0, three.length), three);
@@ -7917,7 +7919,7 @@ rule('Back and Forward: a decided plan never reopens with Start the run or Decli
   const app = await navBoot();
   app.click('nav', 'runs'); await app.tick();
   app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
-  app.submitForm('start-form'); await app.tick(200);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(200);
   const key = app.run && /^#\/run\/(.*)$/.exec(app.hash())[1];
   app.click('nav', 'runs'); await app.tick();
   app.click('review-plan', 'plan-release-example-next'); await app.tick();
@@ -8082,7 +8084,7 @@ rule('Back and Forward (2.0): a plan/2 link reopens its review on its exact vers
   assert.strictEqual(app.hash(), fp);
   assert.ok(/Switched to v2/.test(app.html()) && /id="start-form"/.test(app.html()), 'the switch is kept by Back and Forward');
   const before = releaseRuns(app);
-  app.submitForm('start-form'); await app.tick(200);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(200);
   const made = releaseRuns(app).filter(p => before.indexOf(p) < 0), run = JSON.parse(app.fs.files[made[0]].t), key = 'release/' + run.id;
   assert.strictEqual(run.folder, v2); assert.strictEqual(app.hash(), '#/run/' + key);
   await back(app);
@@ -8570,7 +8572,7 @@ async function conditionalRelease(cond) {
   const before = releaseRuns(app);
   app.click('start', 'release'); await app.tick();
   app.set('run-title', 'Conditional release'); app.set('detail-ticket', 'T-1'); app.set('detail-commit', 'f00d123'); app.set('detail-environment', 'production');
-  app.submitForm('start-form'); await app.tick(120);
+  app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   const made = releaseRuns(app).filter(p => before.indexOf(p) < 0);
   assert.strictEqual(made.length, 1, 'set-up: started');
   const r = JSON.parse(app.fs.files[made[0]].t);
@@ -8641,7 +8643,7 @@ async function passStart(passLine, kidCtx) {
   put(['---', 'process: ship', 'title: Ship', 'owner: person-avery', 'context: env, ticket', '---', '', '## Ship · READ-DO {#s}', '- [ ] {run.process} Deploy it {#dep}', '  process: deploy', '  pass: ' + passLine].join('\n'), 'ship', 'sh000001');
   app.click('refresh'); await app.tick(80);
   app.click('start', 'ship'); await app.settle();
-  app.set('detail-env', 'prod'); app.set('detail-ticket', 'T-1'); app.submitForm('start-form'); await app.tick(120);
+  app.set('detail-env', 'prod'); app.set('detail-ticket', 'T-1'); app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   assert.ok(/<h1 id="run-h"[^>]*>Ship/.test(app.html()), 'set-up: the parent run is open');
   return app;
 }
@@ -8815,6 +8817,144 @@ rule('Draft editor: a new checklist opens on Preview with Add your first step, a
   app.click('ob-del', key); await app.tick(20);
   assert.ok(!/data-ob-step=/.test(app.html()), 'no steps left');
   assert.strictEqual(tabOf(), 'preview', 'a draft with no steps is a new start again');
+});
+
+rule('Approval: + Add approval opens its name alone; naming it writes the same line as 2.9.0 and shows Who approves? (2.10)', async () => {
+  const app = await builderOn(), before = releaseText(app);
+  app.click('ob-sel-gate', 'verify'); await app.tick();
+  assert.strictEqual(app.focused(), 'ob-g-title', 'focus on the name');
+  assert.ok(/for="ob-g-title">Approval name</.test(app.html()) && !/id="ob-g-owner"/.test(app.html()), 'only the name before it exists');
+  app.set('ob-g-title', 'Release done'); enter(app, 'ob-g-title', 'Release done'); await app.tick();
+  assert.ok(/id="ob-g-owner"/.test(app.html()), 'the rest of the form appears');
+  assert.strictEqual(app.focused(), 'ob-g-owner', 'focus moves to Who approves?');
+  app.click('save-draft'); await app.tick(120);
+  assert.strictEqual(releaseText(app), before + '\n## Gate: Release done {#release-done}\n', 'byte for byte what 2.9.0 wrote');
+});
+
+rule('Approval: nothing is written when it is closed, left or escaped before it has a name (2.10)', async () => {
+  const app = await builderOn(), before = releaseText(app);
+  app.click('ob-sel-gate', 'verify'); await app.tick(); app.click('ob-done'); await app.tick();
+  app.click('ob-sel-gate', 'verify'); await app.tick(); app.click('ob-sel', 'flags'); await app.tick();
+  app.click('ob-sel-gate', 'verify'); await app.tick(); app.key('Escape'); await app.tick();
+  assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()), 'nothing changed');
+  app.click('save-draft'); await app.tick(120);
+  assert.strictEqual(releaseText(app), before);
+});
+
+rule('Approval: its selection survives a rename, an owner change, Undo and Redo; removing it falls back to the phase (2.10)', async () => {
+  const app = await builderOn();
+  const onGate = () => /for="ob-g-owner">Who approves\?/.test(app.html()) && /<input id="ob-g-title"[^>]*value="([^"]*)"/.exec(app.html());
+  app.click('ob-sel-gate', 'prep'); await app.tick();
+  assert.ok(onGate() && onGate()[1] === 'Ready to deploy');
+  app.set('ob-g-title', 'Ready to ship'); enter(app, 'ob-g-title', 'Ready to ship'); await app.tick();
+  assert.ok(onGate() && onGate()[1] === 'Ready to ship', 'renamed, still the approval form');
+  app.select('ob-g-owner', ''); await app.tick();
+  assert.ok(onGate() && /id="why-ob-g-owner">No approval role is named\./.test(app.html()), 'owner cleared: the help line changes');
+  app.click('tl-undo', 'draft'); await app.tick(); assert.ok(onGate(), 'Undo keeps it');
+  app.click('tl-undo', 'draft'); await app.tick(); assert.ok(onGate() && onGate()[1] === 'Ready to deploy', 'Undo again');
+  app.click('tl-redo', 'draft'); await app.tick(); assert.ok(onGate() && onGate()[1] === 'Ready to ship', 'Redo keeps it');
+  app.click('ob-gate-remove', 'prep'); await app.tick();
+  assert.ok(/<input id="ob-ph-title"[^>]*value="Before production changes"/.test(app.html()) && !/id="ob-g-owner"/.test(app.html()), 'the phase form');
+  assert.strictEqual(app.focused(), '[data-act="ob-sel-gate"][data-id="prep"]', 'focus on + Add approval');
+  app.click('tl-undo', 'draft'); await app.tick();
+  app.click('ob-sel-gate', 'prep'); await app.tick(); app.click('ob-done'); await app.tick();
+  assert.strictEqual(app.focused(), '[data-act="ob-sel-gate"][data-id="prep"]', 'Close returns to the approval, not the phase heading');
+});
+
+rule('Approval: pasting an image while it is open adds nothing and raises nothing (2.10)', async () => {
+  const app = await builderOn();
+  app.click('ob-sel-gate', 'prep'); await app.tick();
+  const html = app.html();
+  app.fire('paste', { target: { closest: () => null }, clipboardData: { items: [{ kind: 'file', getAsFile: () => png('x.png') }] } }); await app.tick(40);
+  assert.ok(!/role="alert"/.test(app.html()) && !/Unsaved: Save draft/.test(app.html()), 'no error, no change');
+  assert.ok(/for="ob-g-owner">Who approves\?/.test(app.html()) && html.length > 0, 'still the approval form');
+});
+
+rule('Approval: + Add role adds the role and makes it the approver in one change and one Undo; a refused name adds nothing (2.10)', async () => {
+  const app = await builderOn();
+  app.click('ob-sel-gate', 'prep'); await app.tick();
+  app.click('ob-role-add', 'gate'); await app.tick();
+  assert.strictEqual(app.focused(), 'ob-new-role');
+  app.set('ob-new-role', 'two words!'); app.click('ob-role-add-go'); await app.tick();
+  assert.ok(/id="ferr-ob-new-role"/.test(app.html()) && !/Unsaved: Save draft/.test(app.html()), 'refused in place, nothing written');
+  app.set('ob-new-role', 'change approver'); app.click('ob-role-add-go'); await app.tick();
+  assert.ok(/<option value="change-approver" selected>@change-approver/.test(app.html()), 'normalized and assigned');
+  assert.strictEqual(app.focused(), 'ob-g-owner', 'focus back on the chooser');
+  app.click('save-draft'); await app.tick(120);
+  assert.ok(/^roles:.*change-approver/m.test(releaseText(app)) && /## Gate: Ready to deploy · owner @change-approver/.test(releaseText(app)));
+  app.click('tl-undo', 'draft'); await app.tick();
+  assert.ok(/<option value="release-lead" selected>@release-lead/.test(app.html()) && !/change-approver/.test(app.html()), 'one Undo takes both back');
+});
+
+rule('Builder: + Add role in a step\'s and a lane\'s forms gives the new role to them (2.10)', async () => {
+  const app = await builderOn();
+  app.click('ob-sel', 'flags'); await app.tick();
+  app.click('ob-role-add', 'step'); await app.tick();
+  app.set('ob-new-role', 'tester'); app.click('ob-role-add-go'); await app.tick();
+  assert.ok(/data-act="ob-role" data-id="tester" aria-pressed="true"/.test(app.html()), 'the step has it');
+  app.click('ob-sel-track', 'verify', { track: '0' }); await app.tick();
+  app.click('ob-role-add', 'track'); await app.tick();
+  app.set('ob-new-role', 'frontend'); app.click('ob-role-add-go'); await app.tick();
+  assert.ok(/<option value="frontend" selected>@frontend/.test(app.html()), 'the lane has it');
+  assert.strictEqual(app.focused(), 'ob-tr-role');
+});
+
+const runsOf = (app, id) => Object.keys(app.fs.files).filter(k => new RegExp('^runs/' + id + '/[^/]+/run\\.json$').test(k));
+rule('Start: a version with an approval role opens With others and asks who approves; Start waits for it and keeps what was typed (2.10)', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  const before = runsOf(app, 'release').length;
+  app.click('start-mode', 'solo', { process: 'release' }); await app.tick();
+  app.click('nav', 'processes'); await app.tick();
+  app.click('start', 'release'); await app.tick();
+  assert.ok(/aria-checked="true" data-act="start-mode" data-id="team"/.test(app.html()), 'With others, even after On my own was chosen on an earlier form');
+  assert.ok(/<select id="role-release-lead" data-role="release-lead"[^>]*><option value="">Choose a person<\/option>/.test(app.html()) && !/<select id="role-release-lead"[^]*?<option value="person-[^"]+" selected>[^]*?<\/select>/.test(app.html().slice(app.html().indexOf('id="role-release-lead"'), app.html().indexOf('</select>', app.html().indexOf('id="role-release-lead"')) + 9)), 'nobody preselected');
+  assert.ok(/Just me \(every role, including who approves\)/.test(app.html()), 'Just me says it includes who approves');
+  const hint = /Suggested: [^<]+ · (last had this role on [^<]+|hasn.t had this role yet)<\/p>/.exec(app.html());
+  assert.ok(hint && !/approved/.test(hint[0]), 'a suggestion is a hint, in what it knows: ' + (hint && hint[0]));
+  app.set('run-title', 'Kept title');
+  app.submitForm('start-form'); await app.tick(80);
+  assert.strictEqual(runsOf(app, 'release').length, before, 'nothing started');
+  assert.ok(/id="ferr-role-release-lead" role="alert">Choose who approves &quot;Ready to deploy&quot;\.|id="ferr-role-release-lead" role="alert">Choose who approves "Ready to deploy"\./.test(app.html()), 'refused next to the select');
+  assert.strictEqual(app.focused(), '#role-release-lead');
+  assert.strictEqual(app.el('run-title').value, 'Kept title', 'what was typed stays');
+  app.set('role-release-lead', 'person-casey');
+  app.submitForm('start-form'); await app.tick(120);
+  assert.strictEqual(runsOf(app, 'release').length, before + 1, 'started once it was chosen (choosing yourself is fine)');
+});
+
+rule('Start: On my own says the approval is yours too; a version with no approval role is as in 2.9.0 (2.10)', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('start', 'release'); await app.tick();
+  app.click('start-mode', 'solo', { process: 'release' }); await app.tick();
+  assert.ok(/Every role is yours, including who approves (&quot;|")Ready to deploy(&quot;|") and (&quot;|")Deployed(&quot;|")\. If someone joins later, add them from the run\./.test(app.html()), 'On my own names the approvals');
+  app.click('nav', 'processes'); await app.tick();
+  app.click('start', 'incident'); await app.tick();
+  assert.ok(!/Choose a person/.test(app.html()) && !/including who approves/.test(app.html()), 'no approval role: unchanged');
+  assert.ok(/Every role is yours\. If someone joins later|data-act="start-mode" data-id="team"/.test(app.html()));
+});
+
+rule('Getting started: a starter with an approval role reads Start it and opens With others (2.10)', async () => {
+  const app = boot({ replace: true }); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('nav', 'home'); await app.tick();
+  if (!/data-act="setup-run" data-id="check-in"/.test(app.html())) return;
+  assert.ok(/data-act="setup-run" data-id="check-in">.*?Start it<\/button>/.test(app.html()) && !/data-id="check-in">.*?Start it on your own/.test(app.html()), 'Start it');
+  app.click('setup-run', 'check-in'); await app.tick();
+  assert.ok(/aria-checked="true" data-act="start-mode" data-id="team"/.test(app.html()) && /<select id="role-author"[^>]*><option value="">Choose a person/.test(app.html()));
+});
+
+rule('Start: a saved plan keeps its approver; one written with the approver left out asks for it and keeps the rest (2.10)', async () => {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
+  assert.ok(/aria-checked="true" data-act="start-mode" data-id="team"/.test(app.html()) && /<option value="person-blake" selected>/.test(app.html().slice(app.html().indexOf('id="role-release-lead"'))), 'the plan\'s approver stays selected');
+  assert.ok(!/role="alert">Choose who approves/.test(app.html()), 'nothing refused');
+  const path = 'proposals/plan-release-2026-10-24.json', plan = JSON.parse(app.fs.files[path].t);
+  delete plan.roles['release-lead']; plan.id = 'plan-release-2026-10-25'; plan.title = 'Release 2026.10.25';
+  app.fs.files['proposals/plan-release-2026-10-25.json'] = { t: JSON.stringify(plan), m: Date.now() };
+  app.click('refresh'); await app.tick(120);
+  app.click('review-plan', 'plan-release-2026-10-25'); await app.tick();
+  const html = app.html(), at = k => html.slice(html.indexOf('id="role-' + k + '"'), html.indexOf('</select>', html.indexOf('id="role-' + k + '"')));
+  assert.ok(/<option value="">Choose a person<\/option>/.test(at('release-lead')) && !/ selected>/.test(at('release-lead')), 'the approver waits for a person');
+  assert.ok(/<option value="person-morgan" selected>/.test(at('qa')) && /<option value="person-casey" selected>/.test(at('backend')), 'the other roles are kept');
 });
 
 run();

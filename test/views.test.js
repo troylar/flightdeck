@@ -329,8 +329,8 @@ rule('Draft builder: phases as cards, steps as draggable rows, gates as striped 
   assert.ok(/data-act="ed-mode" data-id="builder" aria-pressed="true"/.test(html) && /data-act="ed-mode" data-id="markdown" aria-pressed="false"/.test(html), 'a Builder | Markdown switch');
   assert.ok(/Phase 1<\/div>/.test(html) && /data-ob-phase="prep"/.test(html) && /<span class="cat mode">Do, then confirm<\/span>/.test(html), 'phase cards');
   assert.ok(/<li class="ob-step" draggable="true" data-ob-step="approved">/.test(html) && /b-must/.test(html) && /<span class="ob-chip">\^commit<\/span>/.test(html), 'rows with must-do and run detail chips');
-  assert.ok(/class="fp-gate ob-gate"[^>]*><div class="ob-gate-copy"><span class="fp-gate-t">.*Gate: Ready to deploy/.test(html), 'a named gate is a striped bar');
-  assert.ok(/class="fp-gate implicit ob-gate"/.test(html) && /aria-label="Add a gate to Verify in production"/.test(html), 'a phase without one offers to add it');
+  assert.ok(/class="fp-gate ob-gate"[^>]*><div class="ob-gate-copy"><span class="fp-gate-t">.*Approval: Ready to deploy<\/span><span class="small">@release-lead<\/span>/.test(html) && /data-act="ob-sel-gate" data-id="prep" aria-label="Edit approval Ready to deploy">Edit approval</.test(html), 'a named approval is a striped bar (2.10 words)');
+  assert.ok(/class="fp-gate implicit ob-gate"/.test(html) && /data-act="ob-sel-gate" data-id="verify" aria-label="Add approval to Verify in production">.*Add approval</.test(html) && /Ends with a check that the phase is done\./.test(html), 'a phase without one offers to add it');
   assert.ok(/<li class="ob-slot" aria-hidden="true" data-ob-place="before:approved" data-for="step" data-say="first, inside Before production changes" data-ob-drop="before:approved"><span>Cleared to land here · or move with Alt\+Up \/ Alt\+Down<\/span><\/li>/.test(html), 'landing slots');
   assert.ok(/data-act="ob-add" data-id="verify" data-track="1">.*Add a step to Wrap-up/.test(html), 'add a step to a track');
   assert.ok(/aria-describedby="ob-kbd"/.test(html) && /id="ob-kbd"/.test(html), 'the keyboard way is described');
@@ -347,7 +347,11 @@ rule('Draft builder: phases as cards, steps as draggable rows, gates as striped 
   state.obSel = { pid: 'release', kind: 'phase', key: 'prep' }; html = V.process(ctx);
   /* 2.6.0: the mode is two choice buttons. */
   assert.ok(/<input id="ob-ph-title"[^>]*value="Before production changes"[^>]*>/.test(html) && /data-act="ob-choice" data-id="ob-ph-mode" data-val="DO-CONFIRM"[^>]*aria-checked="true"/.test(html), 'a phase\'s name and mode');
-  assert.ok(/<input id="ob-g-title"[^>]*value="Ready to deploy"[^>]*>/.test(html) && /<option value="release-lead" selected>@release-lead/.test(html) && /id="ob-g-approves"[^>]*value="deploy of `\^commit` to \^environment"/.test(html), 'its gate');
+  assert.ok(!/id="ob-g-title"|id="ob-g-owner"|id="ob-g-approves"|Closing gate/.test(html), 'no approval fields in the phase form (2.10)');
+  assert.ok(/<p class="ob-apline">Approval: Ready to deploy · <button type="button" class="link" data-act="ob-sel-gate" data-id="prep"[^>]*>Edit<\/button><\/p>/.test(html), 'one line names the approval');
+  state.obSel = { pid: 'release', kind: 'phase', key: 'prep', part: 'gate' }; html = V.process(ctx);
+  assert.ok(/<input id="ob-g-title"[^>]*value="Ready to deploy"[^>]*>/.test(html) && /<option value="release-lead" selected>@release-lead/.test(html) && /id="ob-g-approves"[^>]*value="deploy of `\^commit` to \^environment"/.test(html), 'its approval form');
+  state.obSel = { pid: 'release', kind: 'phase', key: 'prep' };
   state.obAdd = { pid: 'release', kind: 'step', phase: 'deploy', track: -1 }; html = V.process(ctx);
   assert.ok(/<label class="sr" for="ob-new-text">New step: What do you do\?<\/label><input id="ob-new-text"[^>]*data-enter="ob-add-go"[^>]*>/.test(html), 'an add-a-step box in place');
   state.builder = false; html = V.process(ctx);
@@ -1391,7 +1395,7 @@ rule('Parts box: structure, steps and every step type by group, with a gate clea
   const { ctx } = partsSetup({ types: { 'change.request': PF.types.customType(JSON.parse(example('step-types/change.request.json'))) }, errors: [] });
   const html = V.process(ctx), box = html.slice(html.indexOf('<aside class="fpe-pane fpe-parts"'), html.indexOf('</aside>', html.indexOf('<aside class="fpe-pane fpe-parts"')));
   ['Structure', 'Steps', 'Your team.s step types', 'Built-in step types', 'General', 'Tools', 'Automation'].forEach(h => assert.ok(new RegExp('<h4[^>]*>' + h + '</h4>').test(box), h));
-  assert.ok(/data-id="gate" draggable="true" data-ob-part="gate"[^>]*>.*<b>Gate<\/b><small>Someone signs off to go on<\/small>/.test(box), 'the structural gate');
+  assert.ok(/data-id="gate" draggable="true" data-ob-part="gate"[^>]*>.*<b>Approval<\/b><small>Someone approves before the next stage<\/small>/.test(box), 'the structural gate, called Approval (2.10)');
   assert.ok(/<b>Pipeline result<\/b><small>Records a CI build or test result for a commit\. Not a sign-off\.<\/small>/.test(box), 'the CI type says what it records, and that it isn\'t a sign-off');
   assert.ok(/<b>Must-do<\/b>/.test(box) && /<b>Run another checklist<\/b>/.test(box) && /data-id="type:change\.request"/.test(box), 'presets and the team\'s type');
   assert.strictEqual((box.match(/data-ob-part=/g) || []).length, 6 + 1 + PF.types.LIST.length - 3, 'every type once (Confirm and Run another process are the presets; 2.6.0: GitHub\'s and Bitbucket\'s pull requests are one)');
@@ -1405,9 +1409,10 @@ rule('Parts box: search narrows it, an empty result offers to clear, and a team 
   state.obQ = 'pull';
   html = V.process(ctx);
   assert.ok(/value="pull"/.test(html) && /<b>Pull request<\/b>/.test(html) && !/<b>Jenkins job<\/b>/.test(html) && !/Create a step type/.test(html), 'only matches');
-  assert.ok(/<b>Gate<\/b>/.test(html) && /<b>Phase<\/b>/.test(html), 'Structure is always there');
+  assert.ok(/<b>Approval<\/b>/.test(html) && /<b>Phase<\/b>/.test(html), 'Structure is always there');
   state.obQ = 'run.process'; assert.ok(/<b>Run another checklist<\/b>/.test(V.process(ctx)), 'by type ID too');
-  state.obQ = 'approval'; assert.ok(/<b>Change request<\/b>|<b>Review<\/b>|<b>Gate<\/b>/.test(V.process(ctx)), 'by what it\'s for');
+  state.obQ = 'approval'; assert.ok(/<b>Change request<\/b>|<b>Review<\/b>|<b>Approval<\/b>/.test(V.process(ctx)), 'by what it\'s for');
+  state.obQ = 'gate'; assert.ok(/<b>Approval<\/b>/.test(V.process(ctx)), 'the old word still finds it (2.10)');
   state.obQ = '<zz>';
   html = V.process(ctx);
   assert.ok(/No parts match “&lt;zz&gt;”\./.test(html) && /data-act="ob-part-clear">Clear search/.test(html) && !/<zz>/.test(html), 'escaped, with a way out');
@@ -1461,7 +1466,7 @@ rule('Draft builder: lanes sit side by side under "Do all lanes", and a lane ope
   assert.ok(/data-act="ob-done">Close<\/button>/.test(html), 'Close, for the phone\'s sheet');
   state.obSel = { pid: 'release', kind: 'phase', key: 'prep' }; state.obAsk = { kind: 'phase', key: 'prep' };
   html = V.process(ctx);
-  assert.ok(/Delete Before production changes and its 6 steps, with its gate\? Undo brings it back\./.test(html) && /data-act="ob-gate-remove" data-id="prep">Remove this gate/.test(html));
+  assert.ok(/Delete Before production changes and its 6 steps, with its approval\? Undo brings it back\./.test(html) && /data-act="ob-sel-gate" data-id="prep"/.test(html));
 });
 
 rule('Draft editor: a page of its own, with a header landmark, and an inspector of Selected, Checks and Preview tabs', () => {
@@ -1503,7 +1508,7 @@ rule('Draft editor: the parts fold to a rail of icons that keep their names for 
   assert.ok(/data-act="ob-rail" aria-expanded="true"/.test(V.process(ctx)));
   state.partsRail = true;
   const html = V.process(ctx);
-  assert.ok(/class="fpe-panes rail"/.test(html) && /data-act="ob-rail" aria-expanded="false"/.test(html) && /title="Gate: Someone signs off to go on" data-tip="Gate"><span class="ob-pic g-gt"/.test(html));
+  assert.ok(/class="fpe-panes rail"/.test(html) && /data-act="ob-rail" aria-expanded="false"/.test(html) && /title="Approval: Someone approves before the next stage" data-tip="Approval"><span class="ob-pic g-gt"/.test(html));
 });
 
 rule('Draft editor: in an empty checklist, Step offers to add its phase too', () => {
@@ -2835,6 +2840,36 @@ rule('Draft editor: a draft with no steps opens on Preview with Add your first s
   assert.strictEqual(tabOf(V.process(ctx)), 'checks', 'no steps but another blocker: Checks');
   state.insTabSaved = 'checks'; state.editor.text = front + '\n## First phase · READ-DO {#first}\n';
   assert.strictEqual(tabOf(V.process(ctx)), 'checks', 'a tab chosen before in this browser still wins');
+});
+
+rule('Builder: the approval form, in order, with its help line; the phase form only links to it (2.10)', () => {
+  const { ctx, state } = partsSetup();
+  state.obSel = { pid: 'release', kind: 'phase', key: 'prep', part: 'gate' };
+  let html = V.process(ctx);
+  const form = html.slice(html.indexOf('<section class="panel stack ob-form"'));
+  const at = re => { const m = re.exec(form); assert.ok(m, String(re)); return m.index; };
+  const order = [/<h2 id="ob-form-h">[^]*?Approval<\/h2>/, /Approval after these steps, after <b>Before production changes<\/b>/, /for="ob-g-title">Approval name</, /for="ob-g-owner">Who approves\?</, /id="why-ob-g-owner"/, /<details class="ob-more-ap"[^>]* open><summary>More approval options<\/summary>/, /data-act="ob-gate-remove" data-id="prep">Remove this approval</].map(at);
+  assert.deepStrictEqual(order.slice().sort((a, b) => a - b), order, 'name, who approves, the help line, more options, remove');
+  assert.ok(/id="why-ob-g-owner">You pick the person for this role when the checklist starts\. Whoever is recording it records the approval\.</.test(form), 'with a role');
+  assert.ok(!/only the owner|only that person|can pass it/i.test(form), 'shown, not enforced');
+  assert.ok(/<input id="ob-g-title"[^>]*placeholder="Manager sign-off"/.test(form), 'the neutral example');
+  assert.ok(!/id="ob-ph-title"/.test(form), 'no phase fields in the approval form');
+  state.editor.text = state.editor.base.replace('## Gate: Ready to deploy · owner @release-lead {#ready}', '## Gate: Ready to deploy {#ready}');
+  html = V.process(ctx);
+  assert.ok(/id="why-ob-g-owner">No approval role is named\. Whoever is recording records the approval\.</.test(html), 'Nobody in particular');
+  assert.ok(/<details class="ob-more-ap"[^>]* open>/.test(html), 'opens by itself while it says what passing approves');
+  state.editor.text = state.editor.base.replace(/\n\s*approves: .*\n/, '\n');
+  assert.notStrictEqual(state.editor.text, state.editor.base);
+  assert.ok(/<details class="ob-more-ap"[^>]*><summary>/.test(V.process(ctx)) && !/<details class="ob-more-ap"[^>]* open>/.test(V.process(ctx)), 'closed without it');
+  state.obSel = { pid: 'release', kind: 'phase', key: 'verify', part: 'gate' }; state.editor.text = null;
+  html = V.process(ctx);
+  assert.ok(/for="ob-g-title">Approval name</.test(html) && !/id="ob-g-owner"/.test(html) && !/Remove this approval/.test(html), 'before it exists: only its name');
+  state.obSel = { pid: 'release', kind: 'phase', key: 'verify' }; html = V.process(ctx);
+  assert.ok(/<button type="button" class="mini" data-act="ob-sel-gate" data-id="verify"[^>]*>.*Add approval<\/button>/.test(html.slice(html.indexOf('<section class="panel stack ob-form"'))), 'the phase form offers + Add approval');
+  state.editor.text = state.editor.base.replace('## Gate: Ready to deploy · owner @release-lead {#ready}', '## Gate: Ready to deploy · owner @release-lead · color red {#ready}');
+  state.obSel = { pid: 'release', kind: 'phase', key: 'prep', part: 'gate' }; html = V.process(ctx);
+  if (/builder can.t edit this draft/.test(html)) return;
+  assert.ok(/This approval has options the builder doesn.t know\. Edit it in Markdown\./.test(html), 'unknown options: edit in Markdown');
 });
 
 run();

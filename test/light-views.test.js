@@ -250,7 +250,7 @@ rule('Top bar: the first-run welcome draws only the name and What\'s new', async
 /* ---------- Part 3: the run says each thing once ---------- */
 async function startRelease(who) {
   const app = boot(); await app.tick(60); app.choose(who || 'person-casey'); await app.tick();
-  app.click('open-process', 'release'); await app.tick(); app.click('start', 'release'); await app.tick(); app.submitForm('start-form', {}); await app.tick(80);
+  app.click('open-process', 'release'); await app.tick(); app.click('start', 'release'); await app.tick(); app.chooseApprovers().submitForm('start-form', {}); await app.tick(80);
   return app;
 }
 const between = (html, a, b) => { const i = html.indexOf(a); return i < 0 ? '' : html.slice(i, b ? html.indexOf(b, i) : undefined); };
@@ -491,7 +491,7 @@ async function jiraRun() {
   const app = boot({ domFocus: true }); await app.tick(60); app.choose('person-casey'); await app.tick();
   await app.fs.write('maps/drafts/jira-x.md', JIRA_X); app.click('refresh'); await app.tick(120);
   app.click('open-process', 'jira-x'); await app.tick(); app.click('publish', 'jira-x'); await app.tick(200);
-  app.click('start', 'jira-x'); await app.tick(); app.submitForm('start-form', {}); await app.tick(80);
+  app.click('start', 'jira-x'); await app.tick(); app.chooseApprovers().submitForm('start-form', {}); await app.tick(80);
   app.click('select', 'stale'); await app.tick();
   return app;
 }
@@ -502,7 +502,7 @@ rule('Run: a locked gate folded to its name keeps its time badge', async () => {
   const app = boot({ domFocus: true }); await app.tick(60); app.choose('person-casey'); await app.tick();
   await app.fs.write('maps/drafts/timed-x.md', md); app.click('refresh'); await app.tick(120);
   app.click('open-process', 'timed-x'); await app.tick(); app.click('publish', 'timed-x'); await app.tick(200);
-  app.click('start', 'timed-x'); await app.tick(); app.submitForm('start-form', {}); await app.tick(80);
+  app.click('start', 'timed-x'); await app.tick(); app.chooseApprovers().submitForm('start-form', {}); await app.tick(80);
   let gate = between(app.html(), 'id="gate-late"', '</section>');
   assert.ok(gate && /class="badge b-time[^"]*">Due 11:59 PM/.test(gate), 'the time badge is on show');
   assert.ok(!/Look at the dashboards/.test(gate), 'otherwise brief');

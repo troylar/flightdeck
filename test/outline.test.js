@@ -1104,4 +1104,23 @@ rule('Outline: a new step (and a lane\'s first step) may use run details the che
   assert.strictEqual(O.addTrack(RELEASE, { phase: 'verify' }, { title: 'Docs', role: '', text: 'Post ^nope' }).error, '^nope isn\'t a run detail yet. Add it under Checklist details, or take it out.');
 });
 
+rule('Outline: + Add role adds the role and assigns it in one change; a refused half writes nothing (2.10)', () => {
+  const gate = ok(O.apply(RELEASE, { op: 'addRoleTo', name: 'approver', to: { gate: 'prep' } }));
+  assert.deepStrictEqual(changes(RELEASE, gate).added.filter(l => /roles:|## Gate: Ready to deploy/.test(l)).length, 2, 'roles: and the gate line');
+  assert.ok(/^roles:.*\bapprover\b/m.test(gate) && /## Gate: Ready to deploy · owner @approver \{#ready\}/.test(gate));
+  const step = ok(O.apply(RELEASE, { op: 'addRoleTo', name: 'tester', to: { step: 'flags' } }));
+  assert.ok(/^roles:.*\btester\b/m.test(step) && /@tester/.test(lines(step).filter(l => /\{#flags\}/.test(l))[0]), 'a step gets it');
+  const o = O.parse(RELEASE), ph = o.phases.filter(x => x.tracks.length)[0];
+  const lane = ok(O.apply(RELEASE, { op: 'addRoleTo', name: 'frontend', to: { phase: ph.key, track: 0 } }));
+  assert.ok(/^roles:.*\bfrontend\b/m.test(lane) && /### Track: .*@frontend/.test(lane), 'a lane gets it');
+  const existing = M.parse(RELEASE).meta.roles[0];
+  for (const bad of ['two words!', existing, '']) {
+    const r = O.apply(RELEASE, { op: 'addRoleTo', name: bad, to: { gate: 'prep' } });
+    assert.ok(r.error && !r.text, 'refused: ' + JSON.stringify(bad));
+  }
+  const gone = O.apply(RELEASE, { op: 'addRoleTo', name: 'approver', to: { step: 'no-such-step' } });
+  assert.ok(gone.error && !gone.text, 'the role is not added when it can\'t be assigned');
+  assert.ok(errors(gate).length === 0 && blockers(gate).length === blockers(RELEASE).length, 'still reads cleanly');
+});
+
 run();

@@ -16,7 +16,7 @@ Read `AGENTS.md` in this team folder first.
 3. **Suggest roles by rotation,** unless the person named people:
    - Read `people.json` (skip anyone with `"inactive": true`).
    - For each role, look at recent runs of this process in `runs/<process>/*/run.json` and suggest whoever has gone longest without that role. Ignore canceled runs (`ended.outcome` is stored as `"Cancelled"`), test runs (`"test": true`: they tried a staged version and never count toward rotation, as Flightdeck's own suggestions don't count them) and runs that have conflict copies (another `run*.json` beside `run.json`). With `flightdeck` installed, `flightdeck runs <team folder> --process <process> --contract 2 --json` lists the runs (it leaves test runs out), and `flightdeck run <team folder> <process>/<run id> --contract 2 --json` gives each one's roles. Prefer giving someone a role they've never had, paired with an experienced person in the lead role.
-   - If the checklist has `runs: solo`, or the person asks for a solo run, assign every role to the one person running it.
+   - If the checklist has `runs: solo`, or the person asks for a solo run, assign every role to the one person running it, **except** a role that owns a gate (`## Gate: … · owner @role`): leave that one unassigned unless the person names someone, and say so in your reply. Flightdeck's start screen asks for it.
 4. **Write** `proposals/plan-<process>-<yyyy-mm-dd>-<6 random lowercase letters or digits>.json` (the random part keeps two plans written on two computers from colliding), with the same value as its `id`:
 
    ```json

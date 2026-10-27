@@ -13,7 +13,7 @@ PF.timeline = (function () {
     role: ['role change', 'Changed the roles of {s}'], bind: ['run detail change', 'Changed the run details of {s}'], field: ['field change', 'Changed a field of {s}'],
     add: ['new step', 'Added the step {s}'], 'delete': ['step deletion', 'Step deleted: {s}'], addPhase: ['new phase', 'Added the phase {s}'],
     phaseTitle: ['phase wording', 'Renamed the phase {s}'], phaseMode: ['phase mode change', 'Changed how {s} is worked'],
-    gate: ['gate wording', 'Changed the gate of {s}'], gateOwner: ['gate owner change', 'Changed who owns the gate of {s}'],
+    gate: ['gate wording', 'Changed the gate of {s}'], gateOwner: ['gate owner change', 'Changed who owns the gate of {s}'], addRoleTo: ['new role', 'Added a role to {s}'],
     removeGate: ['gate removal', 'Removed the gate of {s}'], deletePhase: ['phase deletion', 'Deleted the phase {s}'],
     addTrack: ['new lane', 'Added the lane {s}'], trackTitle: ['lane wording', 'Renamed the lane {s}'], trackRole: ['lane role change', 'Changed who works the lane {s}'], deleteTrack: ['lane deletion', 'Deleted the lane {s}'],
     applyCorrection: ['applied correction', 'Applied correction to {s}'],

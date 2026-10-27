@@ -581,15 +581,29 @@
         (err ? '<p class="ferr" id="ferr-plan-when" role="alert" style="grid-column:1/-1">' + esc(st.fieldErr.msg) + '</p>' : '');
     }
     h += '</div>';
-    /* On my own or with others: the map suggests which (runs: solo), the person decides. */
-    var mode = st.startMode[p.id] || (meta.runs === 'solo' || !meta.roles.length ? 'solo' : 'team'), soloMap = mode === 'solo';
+    /* On my own or with others: the map suggests which (runs: solo), the person decides. A version with an approval role
+       (2.10) opens With others unless On my own was chosen on this very form, so who approves is always a choice. */
+    var aps = approvals(pub.map), apRole = {}; aps.forEach(function (a) { (apRole[a.role] = apRole[a.role] || []).push(a.title); });
+    var picked = st.startMode[p.id], pickedHere = picked && (st.startModeAt || {})[p.id] === scope + ':' + pub.info.folder;
+    var mode = aps.length ? (pickedHere ? picked : 'team') : picked || (meta.runs === 'solo' || !meta.roles.length ? 'solo' : 'team'), soloMap = mode === 'solo';
+    var apNames = aps.map(function (a) { return '"' + a.title + '"'; }).join(' and ');
     h += '<input type="hidden" id="start-mode" value="' + mode + '"><div class="seg" role="radiogroup" aria-label="Who is running it"><button type="button" role="radio" aria-checked="' + soloMap + '" data-act="start-mode" data-id="solo" data-process="' + esc(p.id) + '">On my own</button><button type="button" role="radio" aria-checked="' + !soloMap + '" data-act="start-mode" data-id="team" data-process="' + esc(p.id) + '">With others</button></div>';
-    if (soloMap) h += '<p class="small">Every role is yours. If someone joins later, add them from the run.</p>';
+    if (soloMap) h += '<p class="small">' + (aps.length ? 'Every role is yours, including who approves ' + esc(apNames) + '.' : 'Every role is yours.') + ' If someone joins later, add them from the run.</p>';
     if (meta.roles.length && !soloMap) {
-      h += '<div class="row" style="margin-top:6px"><h3 style="margin:0">Who\'s doing what</h3>' + (st.me ? '<button class="mini" type="button" data-act="just-me">Just me</button>' : '') + '</div><div class="grid2">';
+      h += '<div class="row" style="margin-top:6px"><h3 style="margin:0">Who\'s doing what</h3>' + (st.me ? '<button class="mini" type="button" data-act="just-me">' + (aps.length ? 'Just me (every role, including who approves)' : 'Just me') + '</button>' : '') + '</div><div class="grid2">';
       var nmStage = PF.people.labeler(people);
       meta.roles.forEach(function (role) {
         var chosen = pre.roles && typeof pre.roles === 'object' && typeof pre.roles[role] === 'string' ? pre.roles[role] : '', sug = ctx.suggestRole(p.id, role);
+        /* Who approves is never preselected: a saved plan's choice stays, otherwise it's Choose a person, with the rotation's
+           suggestion as a hint (what it knows: who had the role on past runs). */
+        if (apRole[role]) {
+          var bad = st.fieldErr && st.fieldErr.id === 'start-approver' && st.fieldErr.field === 'role-' + role;
+          h += '<div><label class="field" for="role-' + esc(role) + '">' + esc(role) + ' <span class="small">· approves ' + esc(apRole[role].map(function (t) { return '"' + t + '"'; }).join(' and ')) + '</span><select id="role-' + esc(role) + '" data-role="' + esc(role) + '"' + (sug ? ' data-suggested="' + esc(sug.person) + '"' : '') + (bad ? ' aria-invalid="true" aria-describedby="ferr-role-' + esc(role) + '"' : '') + '><option value="">Choose a person</option>' +
+            people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === chosen ? ' selected' : '') + '>' + esc(nmStage(x)) + '</option>'; }).join('') + '</select></label>' +
+            (sug ? '<p class="small">Suggested: ' + esc(nameOf(ctx, sug.person)) + ' · ' + (sug.last ? 'last had this role on ' + esc(U.day(sug.last)) : 'hasn\'t had this role yet') + '</p>' : '') +
+            (bad ? '<p class="ferr" id="ferr-role-' + esc(role) + '" role="alert">' + esc(st.fieldErr.msg) + '</p>' : '') + '</div>';
+          return;
+        }
         h += '<label class="field" for="role-' + esc(role) + '">' + esc(role) + (sug ? ' <span class="small">· suggestion: ' + esc(nameOf(ctx, sug.person)) + ' (' + esc(sug.why) + ')</span>' : '') + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '"><option value="">Nobody yet</option>' +
           people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === (chosen || (sug && sug.person)) ? ' selected' : '') + '>' + esc(nmStage(x)) + '</option>'; }).join('') + '</select></label>';
       });
@@ -626,5 +640,8 @@
   }
   V.testStage = testStage;
   V.stageSign = stageSign;
+  /* The approvals a version names a role for (2.10): who approves is chosen when it starts. */
+  function approvals(map) { return (map.phases || []).filter(function (ph) { return ph.gate && !ph.gate.implicit && ph.gate.owner && map.meta.roles.indexOf(ph.gate.owner) >= 0; }).map(function (ph) { return { role: ph.gate.owner, title: ph.gate.title }; }); }
+  V.approvals = approvals;
   V.process = process; V.readyPanel = readyPanel; V.start = start; V.teamSetup = teamSetup; V.checkList = checkList; V.mapPreview = mapPreview; V.fixesOf = fixesOf; V.corrBase = corrBase; V.corrApply = corrApply; V.briefBox = briefBox; V.diffHtml = diffHtml; V.planChoice = planChoice; V.planHeldWhy = planHeldWhy; V.earlierWords = earlierWords; V.proposalsPanel = proposalsPanel; V.proposalReview = proposalReview; V.editingNote = editingNote; V.mainNote = mainNote; V.propWords = propWords;
 })();

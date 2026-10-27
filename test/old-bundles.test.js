@@ -60,7 +60,7 @@ BUNDLES.forEach(([name, ref]) => {
     const before = runsOf(app);
     app.click('review-plan', req.id); await app.tick();
     assert.ok(/id="detail-ticket"[^>]*value="ABC-555"/.test(app.html()), name + ': its details on the start form');
-    app.submitForm('start-form'); await app.tick(150);
+    app.chooseApprovers().submitForm('start-form'); await app.tick(150);
     const made = runsOf(app).filter(p => before.indexOf(p) < 0);
     assert.strictEqual(made.length, 1, name + ': started by the person');
     const r = JSON.parse(app.fs.files[made[0]].t);

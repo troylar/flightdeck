@@ -239,11 +239,15 @@ rule('Editor: the other forms ask their questions: phase, gate, lane, checklist 
   const app = await editorOn(text);
   app.click('ob-sel-phase', 'build'); await app.tick();
   let h = formOf(app);
-  for (const [id, name] of [['ob-ph-title', 'ph-title'], ['ob-ph-note', 'ph-note'], ['ob-g-title', 'g-title'], ['ob-g-owner', 'g-owner'], ['ob-g-approves', 'g-approves']]) {
+  const asks = (pairs) => { for (const [id, name, why] of pairs) {
     assert.strictEqual(labelOf(h, id), G.form(name).q, id);
-    assert.strictEqual(whyOf(h, id), G.form(name).why, id + ' why');
+    assert.strictEqual(whyOf(h, id), why || G.form(name).why, id + ' why');
     if (G.form(name).eg) assert.ok(tagOf(h, id).includes('placeholder="' + G.form(name).eg.replace(/"/g, '&quot;') + '"'), id + ' example');
-  }
+  } };
+  asks([['ob-ph-title', 'ph-title'], ['ob-ph-note', 'ph-note']]);
+  /* 2.10: the approval has its own form; with no role named, Who approves? says so. */
+  app.click('ob-sel-gate', 'build'); await app.tick(); h = formOf(app);
+  asks([['ob-g-title', 'g-title'], ['ob-g-owner', 'g-owner', 'No approval role is named. Whoever is recording records the approval.'], ['ob-g-approves', 'g-approves']]);
   app.click('ob-sel-track', 'build', { track: '0' }); await app.tick(); h = formOf(app);
   assert.strictEqual(labelOf(h, 'ob-tr-title'), G.form('tr-title').q); assert.strictEqual(labelOf(h, 'ob-tr-role'), G.form('tr-role').q);
   app.click('ob-sel-details'); await app.tick(); h = formOf(app);

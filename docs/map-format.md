@@ -43,7 +43,7 @@ roles: author, reviewer
 | `tags` | no | Labels to filter by (`production, deploy`). Read in lowercase; up to 20 tags of 40 characters are kept. |
 | `context` | no | Run details filled in when a run starts (`ticket, commit, environment`). At most 40, each a name of letters, numbers, dashes or underscores up to 60 characters. A detail can have a kind (Flightdeck 2.0): see [Typed run details](#typed-run-details). |
 | `roles` | no | Roles people are assigned to in each run. |
-| `runs` | no | `solo` if one person usually runs it alone (every role goes to whoever starts it), or `team` (the default). |
+| `runs` | no | `solo` if one person usually runs it alone (every role goes to whoever starts it, except a role that approves a gate, which is chosen at start), or `team` (the default). |
 | `format`, `features` | no | Don't write them: Flightdeck works out what a version needs when it publishes. If they're there, `format:` must be `flightdeck-checklist/2`, `features:` may name only features Flightdeck knows, and the checklist must use something from [Needs Flightdeck 2.0](#needs-flightdeck-20) or `only when`. Anything else stops publishing, and so does `format: flightdeck-checklist/1`. |
 
 Each line between the `---` lines is `key: value`; any other line there stops publishing. A key not in this table is kept and ignored. Run detail and role names can't be names Flightdeck keeps for itself (`constructor`, `__proto__` and the like).
