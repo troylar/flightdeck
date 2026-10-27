@@ -19,7 +19,7 @@
   function checklistPanel(ctx, p) {
     var st = ctx.state, shown = shownOf(p, st), restoring = (st.draftSaving || {})[ctx.fsKey + '\n' + p.id] === 'restore';
     if (!shown && p.proposedOnly) return '';
-    if (!shown) return '<section class="panel"><p class="small">This process has nothing written down yet.</p><button class="btn go" data-act="ptab" data-id="edit">' + I('edit') + 'Write the checklist</button></section>';
+    if (!shown) return '<section class="panel"><p class="small">This checklist has nothing written down yet.</p><button class="btn go" data-act="ptab" data-id="edit">' + I('edit') + 'Write the checklist</button></section>';
     var all = p.all || [], hasDraft = p.draft && (p.draftChanged || !p.latest), gone = (p.broken || []).filter(function (b) { return PF.publish.versionOf(b.folder); });
     var cur = shown.draft ? 'draft' : shown.pub.folder, view = st.clView === 'plan' || st.clView === 'md' ? st.clView : 'list';
     var opts = (hasDraft ? '<option value="draft"' + (cur === 'draft' ? ' selected' : '') + '>Draft (not published)</option>' : '') +
@@ -145,12 +145,12 @@
     };
     var people = ctx.data.people.filter(function (p) { return !p.inactive; });
     var title = typed.title != null ? typed.title : f.title || '', ownId = typed.id != null ? typed.id : f.id || '', file = String(ownId).trim().toLowerCase() || fileIdOf(title);
-    var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">New process</div><h1 id="page-h" tabindex="-1">Write down how something is done</h1></div></div>' +
+    var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">New checklist</div><h1 id="page-h" tabindex="-1">Write down how something is done</h1></div></div>' +
       '<form class="panel stack" id="new-process-form" data-scope="new-process">' +
       '<div class="np-tpls" role="group" aria-label="Start from">' + PF.setup.TEMPLATES.slice().sort(function (a, b) { return (a.id === 'blank' ? 0 : 1) - (b.id === 'blank' ? 0 : 1); }).map(function (t) { return '<button type="button" class="chipbtn" data-act="np-tpl" data-id="' + t.id + '" aria-pressed="' + (tpl === t.id) + '">' + esc(t.id === 'assistant' ? 'Ask your AI assistant' : t.title) + '</button>'; }).join('') + '</div>';
     if (tpl === 'assistant') {
       var text = PF.setup.assistantPrompt({ folder: st.fs ? st.fs.name : '', owner: st.me || '', backup: '' });
-      return h + '<p class="small">Paste this to your AI assistant, opened in the team folder, with your notes or runbook. Its draft shows up in Processes, where you publish it.</p><pre class="source" id="np-prompt" tabindex="0">' + esc(text) + '</pre>' +
+      return h + '<p class="small">Paste this to your AI assistant, opened in the team folder, with your notes or runbook. Its draft shows up in Checklists, where you publish it.</p><pre class="source" id="np-prompt" tabindex="0">' + esc(text) + '</pre>' +
         '<div class="row"><button class="btn" type="button" data-act="np-copy">' + I('copy') + 'Copy the prompt</button><span class="small" id="copy-msg" role="status"></span><button class="mini" type="button" data-act="np-cancel">Cancel</button></div></form>';
     }
     var nmOwn = PF.people.labeler(people);
@@ -179,7 +179,7 @@
     var fields = Object.keys(t.fields || {}), rec = t.record || [], key = 'type:' + t.id;
     var open = st.disc && st.disc[key];
     var list = function (items) { return items.length ? '<ul class="small">' + items.join('') + '</ul>' : '<div class="small">Nothing.</div>'; };
-    return '<li class="tcard"><div class="row between"><span>' + I(t.icon || 'check') + ' <b>' + esc(t.label) + '</b>' + (team ? ' <span class="pill open">team</span>' : '') + K.tagChips(T.tagsOf(t)) + '</span>' +
+    return '<li class="tcard"><div class="row between"><span>' + I(t.icon || 'check') + ' <b>' + esc(T.nameOf(t)) + '</b>' + (team ? ' <span class="pill open">team</span>' : '') + K.tagChips(T.tagsOf(t)) + '</span>' +
       '<span class="row"><span class="small">' + (uses ? 'in ' + uses + ' checklist' + (uses === 1 ? '' : 's') : 'not used yet') + '</span>' + (team ? '<button class="mini" data-act="edit-type" data-id="' + esc(t.id) + '">' + I('edit') + 'Edit</button>' : '<button class="mini" data-act="copy-type" data-id="' + esc(t.id) + '">Copy to a team type</button>') + '</span></div>' +
       (t.hint ? '<div class="small">' + esc(t.hint) + '</div>' : '') +
       '<details data-disc="' + esc(key) + '"' + (open ? ' open' : '') + '><summary class="small">What it asks for</summary><p class="small">In a checklist: <code>{' + esc(t.id) + '}</code></p><div class="tcols">' +
@@ -445,7 +445,7 @@
     h += '<section class="panel" aria-labelledby="sf-h"><h2 id="sf-h">About this skill</h2><dl class="facts">' +
       '<dt>Source</dt><dd>' + (s.location ? (href ? '<a href="' + esc(href) + '" target="_blank" rel="noopener noreferrer">' + esc(s.location) + '</a>' : '<code>' + esc(s.location) + '</code>') : 'Not recorded') + '</dd>' +
       '<dt>Automates</dt><dd>' + (proc ? '<button class="link" data-act="open-process" data-id="' + esc(proc.id) + '">' + esc(proc.title) + '</button>, version ' + esc(s.implements) + (latest && latest.info.version !== s.implements ? ' (the process is now at v' + esc(latest.info.version) + ')' : '') : esc(s.process || '?') + '@' + esc(s.implements)) + '</dd>' +
-      '<dt>Covers</dt><dd>' + (s.steps ? '<ol class="small">' + s.steps.map(function (id) { return '<li>' + esc(stepText(id)) + ' <code>' + esc(id) + '</code></li>'; }).join('') + '</ol>' : 'The whole process') + '</dd>' +
+      '<dt>Covers</dt><dd>' + (s.steps ? '<ol class="small">' + s.steps.map(function (id) { return '<li>' + esc(stepText(id)) + ' <code>' + esc(id) + '</code></li>'; }).join('') + '</ol>' : 'The whole checklist') + '</dd>' +
       '<dt>Registered in</dt><dd><code>skills/' + esc(s.file || s.name + '.json') + '</code>' + (s.updated ? ' · updated ' + esc(s.updated) : '') + '</dd>' +
       (s.group.length ? '<dt>Group</dt><dd>' + esc(s.group.join(' / ')) + '</dd>' : '') + '</dl></section>';
     return h;
@@ -469,7 +469,7 @@
     h += '</section>';
     h += '<section class="panel stack" aria-labelledby="set-health"><h2 id="set-health">' + I('pulse') + 'Folder health</h2><p class="small">Conflict copies, files that can\'t be read, versions still arriving, and more, each with what to do. Then check that files travel between two computers.</p>' +
       '<div class="row"><button class="btn" data-act="health">Check folder health</button><button class="btn" data-act="connection">' + I('swap') + 'Connection check</button><button class="mini" data-act="recovery" data-id="">When something goes wrong</button></div></section>';
-    h += '<section class="panel stack" aria-labelledby="set-lib"><h2 id="set-lib">Library</h2><p class="small">Skills built from your processes, and the kinds of steps a checklist can use.</p><div class="row"><button class="btn" data-act="nav" data-id="skills">' + I('spark') + 'Skills</button><button class="btn" data-act="nav" data-id="types">Step types</button></div></section>';
+    h += '<section class="panel stack" aria-labelledby="set-lib"><h2 id="set-lib">Library</h2><p class="small">Skills built from your checklists, and the kinds of steps a checklist can use.</p><div class="row"><button class="btn" data-act="nav" data-id="skills">' + I('spark') + 'Skills</button><button class="btn" data-act="nav" data-id="types">Step types</button></div></section>';
     h += V.peoplePanel(ctx);
     h += V.teamValuesPanel(ctx);
     /* Jira workflows and Keyboard are rarely changed: under More settings, except that a workflow problem stays on show. */

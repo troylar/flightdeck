@@ -1739,7 +1739,7 @@ rule('App: a new process starts a draft and opens it for editing', async () => {
   assert.ok(/id="ed-h"/.test(app.html()) && /class="ob" id="ob"/.test(app.html()), 'opened in the editor, in the builder');
   app.click('nav', 'processes'); await app.tick(); app.click('new-process'); await app.tick();
   app.set('np-id', 'code-review'); app.set('np-title', 'Again'); app.submit('new-process-form'); await app.tick(60);
-  assert.ok(/already a process called/.test(app.html()), 'never over an existing one');
+  assert.ok(/already a checklist called/.test(app.html()), 'never over an existing one');
 });
 
 async function newBlank(opts) {
@@ -5755,7 +5755,7 @@ rule('New process: what was submitted and refused comes back after going elsewhe
   const app = boot(); await app.tick(80); app.choose('person-casey'); await app.tick();
   app.click('new-process'); await app.tick();
   app.set('np-id', 'release'); app.set('np-title', 'Another release'); app.submit('new-process-form'); await app.tick(20);
-  assert.ok(/There(&#39;|')s already a process called "release"/.test(app.html() + app.live()), 'set-up: refused');
+  assert.ok(/There(&#39;|')s already a checklist called "release"/.test(app.html() + app.live()), 'set-up: refused');
   app.click('go', '', { view: 'runs' }); await app.tick();
   assert.ok(!/id="np-id"/.test(app.html()), 'it went');
   app.click('new-process'); await app.tick();
@@ -5824,7 +5824,7 @@ rule('New process: a creation that finishes late never clears or leaves a newer 
   app.PF.repo.loadAll = orig;
   assert.ok(app.fs.files['maps/drafts/risk-review.md'], 'set-up: the first draft was created');
   assert.ok(/id="np-title"/.test(app.html()) && app.draft('np-title') === 'Second try', 'still on the newer form, as submitted');
-  assert.ok(/Created the draft for "Risk review"\. Open it from Processes\./.test(app.html() + app.live()), 'told where the first one is');
+  assert.ok(/Created the draft for "Risk review"\. Open it from Checklists\./.test(app.html() + app.live()), 'told where the first one is');
 });
 
 rule('Across runs, steps, corrections, notes and leaving, input never shows in another context and is never lost without Cancel', async () => {
@@ -5877,7 +5877,7 @@ rule('Across runs, steps, corrections, notes and leaving, input never shows in a
         hold = false; app.set('np-title', 'Edited ' + id); app.input('np-title', 'Edited ' + id); await app.tick();
         g.open(); await app.tick(60); app.PF.repo.loadAll = orig;
         assert.ok(/id="np-title"/.test(app.html()) && app.draft('np-title') === 'Edited ' + id, 'seed ' + seed + ': typing after a submit keeps the form');
-        assert.ok(new RegExp('Created the draft for "T ' + id + '"\\. Open it from Processes\\.').test(app.html() + app.live()), 'seed ' + seed + ': told where the draft is');
+        assert.ok(new RegExp('Created the draft for "T ' + id + '"\\. Open it from Checklists\\.').test(app.html() + app.live()), 'seed ' + seed + ': told where the draft is');
         app.click('np-cancel'); await app.tick(); run = null; step = null; continue;
       }
       else if (a === 6 && step) {
@@ -5934,7 +5934,7 @@ rule('New process: typing after Create the draft keeps the form when the creatio
   g.open(); await app.tick(80);
   app.PF.repo.loadAll = orig;
   assert.ok(/id="np-title"/.test(app.html()) && app.draft('np-title') === 'Risk review, edited', 'still on the form, with the edit');
-  assert.ok(/Created the draft for "Risk review"\. Open it from Processes\./.test(app.html() + app.live()));
+  assert.ok(/Created the draft for "Risk review"\. Open it from Checklists\./.test(app.html() + app.live()));
 });
 
 /* A real team folder holding the same runs as the examples, as a copy of them would. */
@@ -7582,13 +7582,13 @@ rule('Back and Forward: a link to a process whose draft couldn\'t be read isn\'t
   app.fs.read = p => fail && p === path ? Promise.reject(new Error('NotReadableError')) : read(p);
   app.click('refresh'); await app.tick(80);
   app.typeHash('#/process/later'); await app.settle();
-  assert.ok(/That process wasn.t found, but part of the team folder couldn.t be read just now\. Refresh tries again\./.test(app.live()), app.live());
+  assert.ok(/That checklist wasn.t found, but part of the team folder couldn.t be read just now\. Refresh tries again\./.test(app.live()), app.live());
   fail = false; app.click('refresh'); await app.tick(80); await app.settle();
   assert.ok(onProcess(app, 'Later process'), 'opened once read');
   assert.strictEqual(app.hash(), '#/process/later');
   /* A target the folder was read without any failure is gone, and says so. */
   app.typeHash('#/process/never'); await app.settle();
-  assert.ok(/That process isn.t in this folder anymore\./.test(app.live()), app.live());
+  assert.ok(/That checklist isn.t in this folder anymore\./.test(app.live()), app.live());
 });
 
 /* The examples' folder fingerprint, as entries made in them carry it. */
@@ -7599,10 +7599,10 @@ async function teamCopy() { const src = boot(); await src.tick(80); const files 
 rule('Back and Forward: an entry from another folder is refused, nothing of it opens, and the next Back reaches the one before', async () => {
   const fp = await examplesFp();
   const app = await navBoot({ entries: [{ hash: '#/', state: { fd: 1, n: 0, f: fp } }, { hash: '#/runs', state: { fd: 1, n: 1, f: 'deadbeef' } }, { hash: '#/processes', state: { fd: 1, n: 2, f: fp } }] });
-  assert.ok(/<div class="eyebrow">Processes<\/div>/.test(app.html()), 'the reload lands on its own entry');
+  assert.ok(/<div class="eyebrow">Checklists<\/div>/.test(app.html()), 'the reload lands on its own entry');
   await back(app);
   assert.ok(/That page was in another team folder, so it wasn.t opened\./.test(app.live()));
-  assert.ok(/<div class="eyebrow">Processes<\/div>/.test(app.html()), 'nothing of it opened');
+  assert.ok(/<div class="eyebrow">Checklists<\/div>/.test(app.html()), 'nothing of it opened');
   assert.deepStrictEqual(app.entries()[1], { hash: '#/processes', state: { fd: 1, n: 1, f: fp } }, 'replaced with where you are');
   await back(app);
   assert.ok(onHome(app)); assert.strictEqual(app.index(), 0); assert.strictEqual(app.reloads(), 0);
@@ -8781,6 +8781,25 @@ rule('Builder: quick-add takes a run detail the checklist lists, as typed; one i
   app.click('ob-add-after', 'tag-the-release'); await app.tick();
   app.set('ob-new-text', 'Tag the release ^tagg'); app.click('ob-add-go'); await app.tick();
   assert.ok(/id="ferr-ob-new-text" role="alert">\^tagg isn&#39;t a run detail yet\. Add it under Checklist details, or take it out\./.test(app.html()), 'refused in place');
+});
+
+rule('Checklists: the page says it was called Processes until Got it, remembered in this browser; with storage blocked it still works (2.10)', async () => {
+  const note = /<p class="notice renamed" role="note"><span>Checklists were called Processes before 2\.10\.<\/span><button type="button" class="mini" data-act="renamed-ok">Got it<\/button><\/p>/;
+  let app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('nav', 'processes'); await app.tick();
+  assert.ok(note.test(app.html()) && /<h1[^>]*>Checklists<\/h1>/.test(app.html()), 'the note and the new name');
+  assert.ok(/data-act="nav" data-id="processes"[^>]*>Checklists<\/button>/.test(app.el('top').innerHTML), 'the nav says Checklists');
+  app.click('renamed-ok'); await app.tick();
+  assert.ok(!note.test(app.html()), 'gone after Got it');
+  assert.strictEqual(app.store['preflight:renamed-checklists'], 'true', 'remembered');
+  app = boot({ localStore: { 'preflight:renamed-checklists': 'true' } }); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('nav', 'processes'); await app.tick();
+  assert.ok(!note.test(app.html()), 'not shown again in this browser');
+  app = boot({ storageThrows: /renamed/ }); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('nav', 'processes'); await app.tick();
+  assert.ok(note.test(app.html()), 'storage blocked: shown');
+  app.click('renamed-ok'); await app.tick();
+  assert.ok(!note.test(app.html()), 'and Got it still hides it for now');
 });
 
 run();

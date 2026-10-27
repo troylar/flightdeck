@@ -53,7 +53,7 @@ rule('Editor: each field asks its question, shows its example and says why, link
     assert.strictEqual(whyOf(h, id), G.step(name).why, id + ' why');
     assert.ok(new RegExp('aria-describedby="why-' + id + '[ "]').test(tagOf(h, id)), id + ' linked');
   }
-  assert.ok(/placeholder="Tag the release"/.test(tagOf(h, 'ob-text')));
+  assert.ok(/placeholder="Order equipment"/.test(tagOf(h, 'ob-text')));
   assert.ok(/<span id="ob-roles-l">Who does it\?<\/span>/.test(h) && /<span id="ob-binds-l">Which run details does it depend on\?<\/span>/.test(h), 'roles and run details ask too');
 });
 

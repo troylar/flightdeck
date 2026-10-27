@@ -82,7 +82,7 @@ PF.exporter = function (api) {
     var g = function (id) { var el = document.getElementById(id); return el ? el.value : ''; };
     ov.form = { process: g('ev-proc'), from: g('ev-from'), through: g('ev-through') };
     ov.fieldErr = null; ov.err = '';
-    if (!ov.form.process) { ov.err = 'Choose a process.'; ov.fieldErr = 'ev-proc'; return false; }
+    if (!ov.form.process) { ov.err = 'Choose a checklist.'; ov.fieldErr = 'ev-proc'; return false; }
     try { E.dayRange(ov.form.from, ov.form.through, ov.tz); } catch (e) { ov.err = e.message; ov.fieldErr = /first day/.test(e.message) && !/after/.test(e.message) ? 'ev-from' : 'ev-through'; return false; }
     ov.scope = { process: ov.form.process, from: ov.form.from, through: ov.form.through, tz: ov.tz };
     ov.procTitle = api.ctx.processTitle(ov.form.process);

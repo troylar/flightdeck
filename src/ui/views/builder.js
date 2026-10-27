@@ -21,7 +21,7 @@
   /* Built-in types, then the team's, as select options; a type the step names that isn't known stays choosable. */
   function typeOptions(ctx, cur, host) {
     var team = teamTypes(ctx), ids = Object.keys(team).sort(), known = T.LIST.some(function (t) { return t.id === cur; }) || ids.indexOf(cur) >= 0;
-    var opt = function (t) { return '<option value="' + esc(t.id) + '"' + (t.id === cur ? ' selected' : '') + '>' + esc(t.label) + '</option>'; };
+    var opt = function (t) { return '<option value="' + esc(t.id) + '"' + (t.id === cur ? ' selected' : '') + '>' + esc(T.nameOf(t)) + '</option>'; };
     /* A step that is a pull request keeps its host when Pull request is chosen again. */
     var builtIn = T.LIST.filter(function (t) { return !isPr(t.id) || t.id === (isPr(cur) ? cur : host || 'github.pr'); }).map(function (t) { return isPr(t.id) ? { id: t.id, label: 'Pull request' } : t; });
     return (cur && !known ? '<option value="' + esc(cur) + '" selected>{' + esc(cur) + '} (unknown type)</option>' : '') +
@@ -76,7 +76,7 @@
       { id: 'gate', kind: 'gate', group: 'Structure', label: 'Gate', hint: 'Someone signs off to go on', glyph: ['gt', ''], title: 'Ready to go on', noun: 'a gate', keys: 'approve approval sign off owner' },
       { id: 'step', kind: 'step', group: 'Steps', label: 'Step', hint: 'Someone does it and checks it off', glyph: ['st', '[ ]'], type: 'confirm', mark: ' ', text: 'New step', noun: 'a step', keys: 'confirm check' },
       { id: 'must', kind: 'step', group: 'Steps', label: 'Must-do', hint: 'A step that can\'t be marked N/A or waived', glyph: ['md', '[!]'], type: 'confirm', mark: '!', text: 'New must-do step', noun: 'a must-do step', keys: 'confirm required must do' },
-      { id: 'process', kind: 'step', group: 'Steps', label: 'Run another process', hint: 'Starts a linked run; done when that run completes', icon: 'nest', type: 'run.process', mark: ' ', text: 'Run another process', noun: 'a step that runs another process', keys: 'run.process child nested linked' }
+      { id: 'process', kind: 'step', group: 'Steps', label: 'Run another checklist', hint: 'Starts a linked run; done when that run completes', icon: 'nest', type: 'run.process', mark: ' ', text: 'Run another checklist', noun: 'a step that runs another checklist', keys: 'run.process child nested linked' }
     ];
     var team = teamTypes(ctx), typePart = function (t, team) {
       return { id: 'type:' + t.id, kind: 'step', group: T.groupOf(t).join(' / '), team: team, label: t.label, hint: t.id === 'ci.gate' ? 'Records a CI build or test result for a commit. Not a sign-off.' : t.hint || '', icon: t.icon, type: t.id, mark: ' ', text: t.label, noun: an(t.label + ' step'), keys: t.id + ' ' + T.tagsOf(t).join(' ') };
@@ -200,7 +200,7 @@
     if (inc) meta = incWords(inc) + meta;
     return slot(B, 'li', 'step', 'before:' + s.key, '') +
       '<li class="ob-step' + (on ? ' sel' : '') + (s.odd ? ' odd' : '') + (isNew(ctx, 'step', s.key) ? ' ob-new' : '') + (inc ? ' ob-inc' : '') + '" draggable="' + !s.odd + '" data-ob-step="' + esc(s.key) + '"><span class="ob-grip" aria-hidden="true"></span>' +
-      '<button type="button" class="ob-pick" data-act="ob-sel" data-id="' + esc(s.key) + '" aria-pressed="' + on + '" aria-describedby="ob-kbd">' + (t ? I(t.icon, t.label) : I('check', 'Unknown type')) +
+      '<button type="button" class="ob-pick" data-act="ob-sel" data-id="' + esc(s.key) + '" aria-pressed="' + on + '" aria-describedby="ob-kbd">' + (t ? I(t.icon, T.nameOf(t)) : I('check', 'Unknown type')) +
       '<span class="ob-row"><span class="ob-txt">' + esc(plain(s.text)) + '</span>' + (meta ? '<span class="ob-meta">' + meta + '</span>' : '') + '</span></button></li>';
   }
   /* One group of steps: the steps before any lane (g = -1) or one lane's. */
@@ -491,7 +491,7 @@
     if (io.passes) {
       var given = io.passes.filter(function (r) { return r.source !== 'ask'; });
       out.push('<b>Passes to ' + esc(got.title) + ':</b> ' + (given.length ? given.map(function (r) { return esc(r.name) + (r.source === 'value' ? ' = ' + esc(r.value) : r.source === 'team' ? ' ← team value ' + esc(r.team) : ' ← ^' + esc(r.from)); }).join(', ') : 'nothing') + ioRest(io.passes, st, got.map));
-    } else if (io.shared) out.push('May also pass details ' + esc(f.process || 'the other process') + ' shares with this checklist.');
+    } else if (io.shared) out.push('May also pass details ' + esc(f.process || 'the other checklist') + ' shares with this checklist.');
     return out.length ? '<div class="small ob-io">' + out.map(function (l) { return '<p>' + l + '</p>'; }).join('') + '</div>' : '';
   }
   /* The rest of a linked step's summary: what the child fills in itself, and what's asked when it starts (a pass: step) or

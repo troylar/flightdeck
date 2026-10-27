@@ -93,7 +93,7 @@
     if (!t) return h;
     if (t.id === 'assistant') {
       var text = S.assistantPrompt({ folder: st.fs ? st.fs.name : '', owner: st.me, backup: bk ? bk.id : '' });
-      return h + '<div class="su-pick"><p>Paste this to your AI assistant, opened in the team folder, with your notes or runbook. It writes the draft into <code>maps/drafts/</code>; it shows up in Processes, where you publish it. This step ticks itself once it\'s published.</p>' +
+      return h + '<div class="su-pick"><p>Paste this to your AI assistant, opened in the team folder, with your notes or runbook. It writes the draft into <code>maps/drafts/</code>; it shows up in Checklists, where you publish it. This step ticks itself once it\'s published.</p>' +
         '<pre class="source" id="su-prompt" tabindex="0">' + esc(text) + '</pre><div class="row"><button class="btn" data-act="setup-copy" data-id="prompt">' + I('copy') + 'Copy the prompt</button><span class="small" id="copy-msg" role="status"></span></div></div>';
     }
     var md = ctx.setupTemplate ? ctx.setupTemplate(t.id) : '', map = M.parse(md), steps = M.steps(map).length;

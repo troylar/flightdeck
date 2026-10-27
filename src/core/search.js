@@ -20,7 +20,7 @@ PF.search = (function () {
   var SEP = new RegExp('[' + SEPS + ']+'), WORD = new RegExp('[^' + SEPS + ']+', 'g'), ENDS_SEP = new RegExp('[' + SEPS + ']$');
   var ASCII = /^[\u0000-\u007f]*$/, SHARP_S = /ß/g, FINAL_SIGMA = /ς/g;
   var KINDS = ['run', 'step', 'note', 'correction', 'followup', 'process', 'version', 'type', 'skill', 'page'];
-  var LABEL = { run: 'Runs', step: 'Steps', note: 'Notes', correction: 'Corrections', followup: 'Follow-ups', process: 'Processes', version: 'Versions', type: 'Step types', skill: 'Skills', page: 'Pages' };
+  var LABEL = { run: 'Runs', step: 'Steps', note: 'Notes', correction: 'Corrections', followup: 'Follow-ups', process: 'Checklists', version: 'Versions', type: 'Step types', skill: 'Skills', page: 'Pages' };
   var MAX_TERMS = 12, MAX_QUERY = 200, RERANK = 400, PER_KIND = 20, PER_GROUP = 6;
 
   /* ---------- folding and words ---------- */
@@ -215,7 +215,7 @@ PF.search = (function () {
     Object.keys(custom || {}).forEach(function (id) { if (!PF.types.LIST.some(function (t) { return t.id === id; })) all.push(custom[id]); });
     return all.filter(function (t) { return t && typeof t.id === 'string'; });
   }
-  var PAGES = [['home', 'Home', 'start what needs me'], ['runs', 'Runs', 'running finished history'], ['followups', 'Follow-ups', 'after the run'], ['processes', 'Processes', 'checklists'],
+  var PAGES = [['home', 'Home', 'start what needs me'], ['runs', 'Runs', 'running finished history'], ['followups', 'Follow-ups', 'after the run'], ['processes', 'Checklists', 'processes checklists'],
     ['skills', 'Skills', 'ai assistant'], ['types', 'Step types', 'kinds of steps'], ['settings', 'Settings', 'keyboard shortcuts appearance theme people'],
     ['health', 'Folder health', 'conflicts copies problems capacity'], ['connection', 'Connection check', 'sync onedrive computers'], ['recovery', 'When something goes wrong', 'help recovery guide']];
 
@@ -290,9 +290,9 @@ PF.search = (function () {
       } });
     });
     typeList(input.stepTypes).forEach(function (t) {
-      out.push({ id: 'type:' + t.id, kind: 'type', sig: U.hash(JSON.stringify([t.label, t.hint, t.tags || [], t.group || [], !!t.custom])), make: function () {
-        var f = []; field(f, t.label, 8); field(f, t.id, 5); field(f, t.hint, 3); field(f, (t.tags || []).join(' '), 3); field(f, PF.types.groupOf(t).join(' '), 2);
-        return [{ id: 'type:' + t.id, kind: 'type', title: t.label || t.id, sub: t.hint || '', fields: f, people: [], types: [t.id], at: '', process: '', run: '', target: { view: 'types' } }];
+      out.push({ id: 'type:' + t.id, kind: 'type', sig: U.hash(JSON.stringify([PF.types.nameOf(t), t.label, t.hint, t.tags || [], t.group || [], !!t.custom])), make: function () {
+        var f = []; field(f, PF.types.nameOf(t), 8); field(f, PF.types.aliasOf(t), 6); field(f, t.id, 5); field(f, t.hint, 3); field(f, (t.tags || []).join(' '), 3); field(f, PF.types.groupOf(t).join(' '), 2);
+        return [{ id: 'type:' + t.id, kind: 'type', title: PF.types.nameOf(t) || t.id, sub: t.hint || '', fields: f, people: [], types: [t.id], at: '', process: '', run: '', target: { view: 'types' } }];
       } });
     });
     (input.skills || []).forEach(function (x) {
@@ -359,7 +359,7 @@ PF.search = (function () {
   }
   function setSides(ix, input) {
     side(ix.people, (input.people || []).filter(function (p) { return p && typeof p.id === 'string'; }), function (p) { return str(p.name); });
-    side(ix.types, typeList(input.stepTypes), function (t) { return str(t.label) + ' ' + t.id; });
+    side(ix.types, typeList(input.stepTypes), function (t) { return str(PF.types.nameOf(t)) + ' ' + str(PF.types.aliasOf(t)) + ' ' + t.id; });
   }
   function update(ix, changed, removed) {
     (changed || []).concat(removed || []).forEach(function (x) { var g = typeof x === 'string' ? null : x.g; if (g) delete ix.groups[g]; });

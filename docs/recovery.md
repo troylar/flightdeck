@@ -244,7 +244,7 @@ Other JSON in `validations/` or `proposals/` that isn't a sign-off or a plan is 
 
 ## A draft says it's being edited, but nobody is
 
-**What you see:** "Being edited by …" on a process page or in the editor, for someone who closed Flightdeck.
+**What you see:** "Being edited by …" on a checklist's page or in the editor, for someone who closed Flightdeck.
 
 **What it means:** each window that holds a draft editor says so every 10 seconds in its own file in `presence/`. A window that crashed or lost its connection stops, and its notice goes away within a minute. Another computer's notice can arrive late, or stay a little longer, while OneDrive syncs.
 
@@ -252,7 +252,7 @@ Other JSON in `validations/` or `proposals/` that isn't a sign-off or a plan is 
 
 ## A proposal was decided twice
 
-**What you see:** "Decided twice" next to a proposal on the process page.
+**What you see:** "Decided twice" next to a proposal on the checklist's page.
 
 **What it means:** two people decided on the same proposal at the same time (on two computers, or before one decision synced), for example one declined and one reopened it. Flightdeck doesn't pick one, and never applies it on its own.
 
@@ -260,7 +260,7 @@ Other JSON in `validations/` or `proposals/` that isn't a sign-off or a plan is 
 
 ## A proposal can't be read
 
-**What you see:** "1 proposal can't be read yet" on a process page, or "Can't tell what happened" on a proposal.
+**What you see:** "1 proposal can't be read yet" on a checklist's page, or "Can't tell what happened" on a proposal.
 
 **What it means:** a proposal or one of its records is still arriving (a half-synced file fails its own check), or it isn't in the format. Flightdeck tries again on every refresh and never applies a proposal whose records it can't read.
 
@@ -310,7 +310,7 @@ Other JSON in `validations/` or `proposals/` that isn't a sign-off or a plan is 
 
 ## A skill can't be matched
 
-**What you see:** on a process page or Home, a skill marked "can't be matched", with one of these:
+**What you see:** on a checklist's page or Home, a skill marked "can't be matched", with one of these:
 
 - "Two registrations for release-notes; keep one (skills/release-notes.json and skill-registrations/release-notes/…)."
 - "Needs review: two registrations of release-notes at revision 3 (…). Keep one, then register it again."

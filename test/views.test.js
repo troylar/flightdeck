@@ -199,7 +199,7 @@ rule('While a folder\'s first read is under way, Home and Runs say so with count
   const home = V.home(ctx), runs = V.runs(ctx);
   assert.ok(/<b>Still reading runs \(640 of 2,000\)\.<\/b> Runs you(&#39;|')re recording may not be listed yet\./.test(home), 'Home');
   assert.ok(!/Nothing needs you right now/.test(home) && /Still reading the team folder\./.test(home));
-  assert.ok(/<span class="big">…<\/span><span>processes<\/span>/.test(home), 'counts not known yet aren\'t shown as 0');
+  assert.ok(/<span class="big">…<\/span><span>checklists<\/span>/.test(home), 'counts not known yet aren\'t shown as 0');
   assert.ok(/Still reading runs \(640 of 2,000\)/.test(runs) && !/Nothing is running|No finished runs yet/.test(runs), 'Runs');
   state.reading = { done: 0, total: null };
   assert.ok(/<b>Still reading runs\.<\/b>/.test(V.home(ctx)), 'before the runs are listed, no counts');
@@ -338,8 +338,8 @@ rule('Draft builder: phases as cards, steps as draggable rows, gates as striped 
   state.obSel = { pid: 'release', kind: 'step', key: 'flags' }; html = V.process(ctx);
   assert.ok(/<li class="ob-step sel"[^>]*data-ob-step="flags">/.test(html) && /aria-pressed="true" aria-describedby="ob-kbd"/.test(html), 'the selected row');
   /* 2.6.0: the box asks its question, with an example and a why (PF.guide). */
-  assert.ok(/<textarea id="ob-text" class="dbx-in"[^>]* rows="2" maxlength="200" data-enter="ob-commit" placeholder="Tag the release" aria-describedby="why-ob-text dbx-iss-ob-text dbx-pv-ob-text">Feature flags set in the deploy values \^environment<\/textarea>/.test(html), 'its text with its ^detail in place (2.7), without @role');
-  assert.ok(/<input type="radio" name="ob-mark" id="ob-mark-must" value="must" data-bound checked><span><b>Must do<\/b>/.test(html) && /id="ob-mark-planned" value="planned" data-bound><span>/.test(html) && /<option value="confirm" selected>Confirm</.test(html), 'the kind as one choice of three, and the type');
+  assert.ok(/<textarea id="ob-text" class="dbx-in"[^>]* rows="2" maxlength="200" data-enter="ob-commit" placeholder="Order equipment" aria-describedby="why-ob-text dbx-iss-ob-text dbx-pv-ob-text">Feature flags set in the deploy values \^environment<\/textarea>/.test(html), 'its text with its ^detail in place (2.7), without @role');
+  assert.ok(/<input type="radio" name="ob-mark" id="ob-mark-must" value="must" data-bound checked><span><b>Must do<\/b>/.test(html) && /id="ob-mark-planned" value="planned" data-bound><span>/.test(html) && /<option value="confirm" selected>Basic step</.test(html), 'the kind as one choice of three, and the type');
   assert.ok(/data-act="ob-role" data-id="backend" aria-pressed="true"/.test(html) && /data-act="ob-role" data-id="qa" aria-pressed="false"/.test(html), 'roles from the checklist');
   assert.ok(/class="ob-chip" data-act="ob-bind" data-id="environment" aria-pressed="true"/.test(html) && /data-id="commit" aria-pressed="false"/.test(html), 'run details as amber chips');
   assert.ok(/for="ob-fld-where">Where do you look\?/.test(html) && /for="ob-fld-looks">What does right look like\?/.test(html), 'the fields its type asks for (2.6.0: as questions)');
@@ -845,7 +845,7 @@ rule('Flight plan: autopilot only for valid skills built from the version shown;
     skillOf('broken-one', ['pods'], v, 'current', ['broken-one.json: needs a "name"']), skillOf('lost-one', ['pods'], v, 'missing')];
   let html = V.checklistPanel(ctx, p);
   assert.ok(/<b>Autopilot<\/b> release-deploy covers 2 steps/.test(html), 'per-phase coverage');
-  assert.ok(/<b>Autopilot<\/b> release-notes covers the whole process/.test(html), 'a whole-process skill at the start');
+  assert.ok(/<b>Autopilot<\/b> release-notes covers the whole checklist/.test(html), 'a whole-process skill at the start');
   assert.ok(/fp-stale[^>]*>.*?old-deploy needs an update/.test(html) && /old-notes follows v0/.test(html), 'skills behind the version use the status words');
   assert.ok(!/broken-one|lost-one/.test(html), 'a broken or unmatched registration never claims coverage');
   assert.strictEqual((html.match(/Autopilot/g) || []).length, 2);
@@ -1393,7 +1393,7 @@ rule('Parts box: structure, steps and every step type by group, with a gate clea
   ['Structure', 'Steps', 'Your team.s step types', 'Built-in step types', 'General', 'Tools', 'Automation'].forEach(h => assert.ok(new RegExp('<h4[^>]*>' + h + '</h4>').test(box), h));
   assert.ok(/data-id="gate" draggable="true" data-ob-part="gate"[^>]*>.*<b>Gate<\/b><small>Someone signs off to go on<\/small>/.test(box), 'the structural gate');
   assert.ok(/<b>Pipeline result<\/b><small>Records a CI build or test result for a commit\. Not a sign-off\.<\/small>/.test(box), 'the CI type says what it records, and that it isn\'t a sign-off');
-  assert.ok(/<b>Must-do<\/b>/.test(box) && /<b>Run another process<\/b>/.test(box) && /data-id="type:change\.request"/.test(box), 'presets and the team\'s type');
+  assert.ok(/<b>Must-do<\/b>/.test(box) && /<b>Run another checklist<\/b>/.test(box) && /data-id="type:change\.request"/.test(box), 'presets and the team\'s type');
   assert.strictEqual((box.match(/data-ob-part=/g) || []).length, 6 + 1 + PF.types.LIST.length - 3, 'every type once (Confirm and Run another process are the presets; 2.6.0: GitHub\'s and Bitbucket\'s pull requests are one)');
   assert.ok(/<p id="ob-kbd"/.test(html) && /data-act="ob-parts-open"/.test(html), 'a keyboard hint, and Add part for phones');
 });
@@ -1406,7 +1406,7 @@ rule('Parts box: search narrows it, an empty result offers to clear, and a team 
   html = V.process(ctx);
   assert.ok(/value="pull"/.test(html) && /<b>Pull request<\/b>/.test(html) && !/<b>Jenkins job<\/b>/.test(html) && !/Create a step type/.test(html), 'only matches');
   assert.ok(/<b>Gate<\/b>/.test(html) && /<b>Phase<\/b>/.test(html), 'Structure is always there');
-  state.obQ = 'run.process'; assert.ok(/<b>Run another process<\/b>/.test(V.process(ctx)), 'by type ID too');
+  state.obQ = 'run.process'; assert.ok(/<b>Run another checklist<\/b>/.test(V.process(ctx)), 'by type ID too');
   state.obQ = 'approval'; assert.ok(/<b>Change request<\/b>|<b>Review<\/b>|<b>Gate<\/b>/.test(V.process(ctx)), 'by what it\'s for');
   state.obQ = '<zz>';
   html = V.process(ctx);
@@ -2805,6 +2805,13 @@ rule('Conditions (2.1): a phase not needed shows one line why, steps not needed 
   html = V.receipt(ctx);
   assert.ok(/Not needed in this run/.test(html) && /only when risk is high \(risk is low\)/.test(html), 'the receipt lists what was not needed');
   assert.ok(/class="r-nn"/.test(html) && !/Page the on-call lead/.test(html) && !/<b>change<\/b>/.test(html));
+});
+
+rule('Run screen: a linked step\'s type reads Run another checklist; a plain step shows no type (2.10 words)', () => {
+  const { ctx } = setup();
+  const html = V.run(ctx);
+  assert.ok(/<span class="type">[^<]*(<[^>]+>)*[^<]*Run another checklist<\/span>/.test(html) || /Run another checklist<\/span>/.test(html), 'the linked step');
+  assert.ok(!/Run another process/.test(html) && !/>Basic step</.test(html), 'neither old name, and no badge for a plain step');
 });
 
 run();

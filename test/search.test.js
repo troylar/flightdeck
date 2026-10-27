@@ -245,4 +245,21 @@ rule('Search: a long note title is never cut inside an emoji or between a letter
   });
 });
 
+rule('Search: built-in types are found by their screen name and by their old label: Basic step and Confirm, Run another checklist and Run another process (2.10)', () => {
+  const md = '---\nprocess: release\ntitle: Production release\n---\n\n## Deploy · READ-DO {#deploy}\n- [ ] {confirm} Smoke test the login page {#smoke}\n';
+  const v = PF.publish.verify('v1-abcd1234', PF.publish.build(md, { people: [], by: 'person-avery', changes: 'First version', existing: [], now: '2026-10-01T00:00:00.000Z', rand: 'abcd1234' }).files);
+  v.folder = 'v1-abcd1234'; v.process = 'release';
+  const ix = built(input({ pubs: [{ process: 'release', pubs: [v], index: PF.publish.index([v]) }] }));
+  ['basic step', 'confirm'].forEach(q => {
+    const res = S.query(ix, q);
+    assert.ok(ids(res).indexOf('type:confirm') >= 0, q + ': the type');
+    assert.ok(ids(res).indexOf('step:release/v1-abcd1234/smoke') >= 0, q + ': a step of that type');
+  });
+  const conf = S.query(ix, 'basic step').groups.filter(g => g.kind === 'type')[0].items.filter(x => x.id === 'type:confirm')[0];
+  assert.strictEqual(conf.title, 'Basic step', 'shown by its screen name');
+  ['run another checklist', 'run another process'].forEach(q => assert.ok(ids(S.query(ix, q)).indexOf('type:run.process') >= 0, q));
+  assert.strictEqual(S.query(ix, 'production release').groups.filter(g => g.kind === 'process')[0].label, 'Checklists', 'the group is Checklists');
+  assert.strictEqual(PF.types.get('confirm').label, 'Confirm', 'the definition keeps its label');
+});
+
 run();

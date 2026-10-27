@@ -140,7 +140,7 @@ const BUDGETS = {
   'process page with conditions, a non-owner': { words: 263, buttons: 13, chips: 3 },
   'run with conditions, just started': { words: 355, buttons: 37, chips: 5 },
   'builder with conditions, a step selected': { words: 692, buttons: 75, inputs: 11 },
-  'builder, a step without conditions selected': { words: 630, buttons: 75, inputs: 10 },
+  'builder, a step without conditions selected': { words: 632, buttons: 75, inputs: 10 },
   /* A process with a staged version (2.1): staging lives in the closed All versions disclosure, so the page fits the process
      page budgets above for the owner and for everyone else. */
   'process page with a stage, its owner': { words: 421, buttons: 24, chips: 9 },
@@ -162,7 +162,7 @@ async function screens() {
   const take = name => { out[name] = measure(app.html()); };
   app.choose('person-casey'); await app.tick();
   app.click('nav', 'home'); await app.tick(); take('home');
-  app.click('nav', 'processes'); await app.tick(); take('processes');
+  app.click('nav', 'processes'); await app.tick(); app.click('renamed-ok'); await app.tick(); take('processes');
   app.click('open-process', 'release'); await app.tick(); take('process page as its owner');
   app.choose('person-morgan'); await app.tick(); app.click('open-process', 'release'); await app.tick(); take('process page as a non-owner');
   app.choose('person-casey'); await app.tick();

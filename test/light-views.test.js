@@ -107,7 +107,7 @@ rule('Process page: one version line with the rest folded, three recent runs wit
   const runs = html.slice(html.indexOf('id="pr-h"'));
   const n = (runs.match(/data-act="open-run"/g) || []).length;
   assert.ok(n <= 3, 'three runs at most: ' + n);
-  const all = /data-act="runs-of" data-id="release">All (\d+) runs of this process<\/button>/.exec(runs);
+  const all = /data-act="runs-of" data-id="release">All (\d+) runs of this checklist<\/button>/.exec(runs);
   assert.ok(all && +all[1] > 3, 'a way to the rest');
   assert.ok(/<div class="small">v2 · published [A-Z][a-z]{2}, [A-Z][a-z]{2} \d{1,2} by [A-Z][a-z]+ [A-Z][a-z]+<\/div>/.test(html) && !/Published by/.test(html), 'v2 · published <day> by <name>');
   app.click('runs-of', 'release'); await app.tick();
@@ -335,7 +335,7 @@ rule('Home and Runs: each thing said once', async () => {
   app.click('nav', 'home'); await app.tick();
   assert.strictEqual((visible(app.html()).match(/Choose who you are at the top right/g) || []).length, 1, 'Home, before choosing who you are');
   app.choose('person-casey'); await app.tick(); app.click('nav', 'runs'); await app.tick();
-  assert.ok(/<div class="small">Every run of every process\.<\/div>/.test(app.html()), 'Runs');
+  assert.ok(/<div class="small">Every run of every checklist\.<\/div>/.test(app.html()), 'Runs');
 });
 
 /* ---------- Part 3: a flatter Processes list ---------- */
@@ -380,7 +380,7 @@ rule('New process: one box, Title; the file name is made from it and shown, and 
 rule('New process: a file name typed under More options wins, and a bad or taken one opens the fold with the reason', async () => {
   let app = await newProc({ domFocus: true });
   app.set('np-title', 'Release'); app.submit('new-process-form'); await app.tick(60);
-  assert.ok(/already a process/.test(app.html() + app.live()) && /<details class="np-more" data-disc="np-more" open>/.test(app.html()) , 'taken: More opens');
+  assert.ok(/already a checklist/.test(app.html() + app.live()) && /<details class="np-more" data-disc="np-more" open>/.test(app.html()) , 'taken: More opens');
   assert.strictEqual(app.activeId(), 'np-title', 'the title it came from has focus');
   assert.ok(/id="np-id" maxlength="120" value=""/.test(app.html()), 'the file name stays made from the title');
   app.click('nav', 'processes'); await app.tick(); app.click('new-process'); await app.tick();
@@ -430,7 +430,7 @@ rule('New process: a publish that finishes after the person left the form says w
   app.PF.repo.publish = orig;
   assert.strictEqual(app.files('publications/left-weekly/').filter(f => /map\.md$/.test(f)).length, 1, 'published');
   assert.ok(/<h1 id="page-h"[^>]*>Runs/.test(app.html()), 'still on Runs');
-  assert.ok(/Published Left weekly v1\. Open it from Processes\./.test(app.html() + app.live()), 'says where it is');
+  assert.ok(/Published Left weekly v1\. Open it from Checklists\./.test(app.html() + app.live()), 'says where it is');
 });
 
 rule('Plain words: a run detail inside a link\'s address is left alone; only the text shows the name', () => {

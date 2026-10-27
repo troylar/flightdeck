@@ -79,7 +79,7 @@
     var s = x.step, a = r.steps[s.id] || null, t = T.get(s.type, r.types) || { label: s.type, icon: 'check', fields: {} }, st = ctx.state, now = ctx.now();
     var aState = stateOf(r, s), sel = selOf(ctx) === s.id, isNext = !!(nx && nx.step && nx.step.id === s.id), P = prOf(ctx), pm = P ? P.steps[s.id] || {} : null;
     var who = s.roles.map(function (ro) { return r.roles[ro] ? nameOf(ctx, r.roles[ro]) : '@' + ro; }).join(', ');
-    var meta = (t.id === 'confirm' ? '' : '<span class="type">' + I(t.icon) + esc(t.label) + '</span>') + (who ? '<span class="s-who">' + esc(who) + '</span>' : '');
+    var meta = (t.id === 'confirm' ? '' : '<span class="type">' + I(t.icon) + esc(T.nameOf(t)) + '</span>') + (who ? '<span class="s-who">' + esc(who) + '</span>' : '');
     /* Target details that tell two similar steps apart (an environment, a job) stay on the row. */
     var eff = R.fieldsOf(r, s), shown = 0;
     Object.keys(eff).forEach(function (f) {
@@ -563,7 +563,7 @@
     h += '<div class="rw-ins-body">';
     h += '<nav aria-label="Where it is"><ol class="ob-crumbs"><li>' + esc(ph.title) + '</li>' + (track ? '<li>' + esc(track.title) + '</li>' : '') + '<li>Step ' + inPhase + ' of ' + ph.steps.length + '</li></ol></nav>';
     h += '<h2 id="ins-h" class="rw-ins-h" tabindex="-1">' + K.stepHtml(st, K.refValue(r, map)) + '</h2>';
-    h += '<div class="rw-ins-meta">' + (t.id === 'confirm' ? '' : '<span class="type">' + I(t.icon) + esc(t.label) + '</span>') + (who ? '<span class="small">' + who + '</span>' : '') + (st.must ? '<span class="badge b-must">Must do</span>' : '') +
+    h += '<div class="rw-ins-meta">' + (t.id === 'confirm' ? '' : '<span class="type">' + I(t.icon) + esc(T.nameOf(t)) + '</span>') + (who ? '<span class="small">' + who + '</span>' : '') + (st.must ? '<span class="badge b-must">Must do</span>' : '') +
       '<span class="badge rw-st s-' + esc(aState) + '">' + esc(P && pm.status === 'assumed' ? 'Assumed for practice' : aState === 'open' ? 'Not checked' : aState === 'done' ? 'Done' : aState === 'na' ? (P ? 'Not needed' : 'N/A') : aState === 'blocked' ? 'Blocked' : P ? 'Try it again' : 'Re-check') + '</span>' +
       (a && (a.s === 'done' || a.s === 'na') && !P ? '<span class="small">' + esc(nameOf(ctx, a.by)) + ' · ' + U.hm(a.at) + '</span>' : '') + '</div>';
     var chg = changedHere(ctx, r)[st.id];
@@ -686,7 +686,7 @@
     /* Notes, with attachments; anyone who has said who they are can add one. */
     /* Corrections to this step from this run, then Correct this step (anyone who has said who they are, whatever the run's state). */
     h += '<section class="rw-box rw-corr" aria-labelledby="ins-corr"><div class="row between"><h3 class="rw-h3" id="ins-corr">Corrections' + (rows.length ? ' · ' + rows.length : '') + '</h3>' +
-      (s.me && !(cf && cf.mode === 'correct') ? '<button class="mini" data-act="corr-open" data-mode="correct" data-id="' + esc(st.id) + '" title="If the checklist was wrong or unclear here, correct it. The team reviews corrections on the process page.">' + I('edit') + 'Correct this step</button>' : '') + '</div>' +
+      (s.me && !(cf && cf.mode === 'correct') ? '<button class="mini" data-act="corr-open" data-mode="correct" data-id="' + esc(st.id) + '" title="If the checklist was wrong or unclear here, correct it. The team reviews corrections on the checklist&#39;s page.">' + I('edit') + 'Correct this step</button>' : '') + '</div>' +
       (rows.length ? '<ul class="corrlist">' + rows.map(function (c) { return corrRow(ctx, c, idx[c.id], { withdraw: true }); }).join('') + '</ul>' : '') +
       (cf && cf.mode === 'correct' ? composer(ctx, r, map, x, cf) : '') + '</section>';
     var notes = (r._notes || []).filter(function (n) { return n.step === st.id && n.kind !== 'correction' && n.kind !== 'fix' && n.kind !== 'map'; });

@@ -13,7 +13,7 @@ The person's request names the checklist to review: a process ID, a path, or "al
 
 Read `AGENTS.md` in this team folder, then the draft from `maps/drafts/` (for "all", every `.md` there). The checklist format and the guide to good checklists are in the reference files above.
 
-This is a careful manual review. **Flightdeck's own checks on the process page are the authority**: if they disagree with you, they win.
+This is a careful manual review. **Flightdeck's own checks on the checklist's page are the authority**: if they disagree with you, they win.
 
 When `flightdeck` is installed, also run `flightdeck draft read <team folder> <process> --json` for each draft (add `--or-latest` to review the published version when there's no draft) and read `checks.blockers` and `checks.suggestions`: they come from Flightdeck's own checker. They're incomplete: the command doesn't load the team's people, step types, Jira workflows or other processes, so a step using one of the team's types in `step-types/` shows as an unknown type, Jira transitions aren't checked, and every linked process and owner is reported as missing. Check those yourself against `step-types/`, `jira/workflows.json`, `publications/` and `people.json`, and never call valid use of a team step type an error. Screenshots in the folder and `version:` pins are checked only when someone publishes.
 
