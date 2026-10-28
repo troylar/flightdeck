@@ -6566,7 +6566,8 @@ rule('Search: a read-only dialog gives way to it, and on a phone a jump from it 
   assert.ok(/id="rw-ins"[^>]*data-open="true"/.test(ph.html()), 'set-up: the step sheet is open');
   ph.keyOn('k', { ctrlKey: true }); await ph.tick(40);
   await sxType(ph, 'pods');
-  const hit = sxIds(ph).find(x => /^step:|^note:|^run:/.test(x));
+  /* A step or a run (a correction note opens the sheet on its Corrections row instead, 2.11). */
+  const hit = sxIds(ph).find(x => /^step:|^run:/.test(x));
   assert.ok(hit, 'set-up: a result: ' + sxIds(ph).join(', '));
   ph.click('sx-open', hit); await ph.tick(40);
   assert.strictEqual(ph.overlay(), '');

@@ -710,7 +710,7 @@ rule('How runs go: corrections on runs still going show even before any run has 
   p.all = [latest, older]; ctx.state.ptab = 'insights';
   const html = V.insightsPage(ctx, p);
   assert.ok(!/No finished runs of this version yet/.test(html) && /data-id="step:approved:corrections"/.test(html), 'the correction shows');
-  assert.ok(/<th scope="row">v0<\/th><td>0<\/td><td>0<\/td><td>—<\/td><td><span class="small ins-q">Not counted: 1 run, it&#39;s from a newer Flightdeck/.test(html), html.slice(html.indexOf('Compare versions'), html.indexOf('Compare versions') + 900));
+  assert.ok(/<th scope="row"[^>]*>v0<\/th><td>0<\/td><td>0<\/td><td>—<\/td><td><span class="small ins-q">Not counted: 1 run, it&#39;s from a newer Flightdeck/.test(html), html.slice(html.indexOf('Compare versions'), html.indexOf('Compare versions') + 900));
 });
 rule('Runs: the banner over the runs behind a number never says "vnull", and names the folder when two folders share a version number', () => {
   const { ctx, state, runs, latest } = insightsSetup(2);
@@ -743,7 +743,7 @@ rule('Compare versions and the flight plan say what each number left out, throug
   ctx.data.runs = [ahead, a, b, fut]; ctx.findRun = () => null; ctx.followUps = () => []; ctx.corrections = () => [];
   p.all = [latest, older]; state.ptab = 'insights';
   const html = V.insightsPage(ctx, p), cmp = html.slice(html.indexOf('Compare versions'));
-  assert.ok(/<th scope="row">v0<\/th><td>1<\/td><td>0<\/td><td>—<\/td><td><span class="small ins-q">Not counted: 1 run, a time is later than now, by the recorder&#39;s clock\./.test(cmp), cmp.slice(0, 1200));
+  assert.ok(/<th scope="row"[^>]*>v0<\/th><td>1<\/td><td>0<\/td><td>—<\/td><td><span class="small ins-q">Not counted: 1 run, a time is later than now, by the recorder&#39;s clock\./.test(cmp), cmp.slice(0, 1200));
   state.ptab = 'checklist';
   const fp = V.checklistPanel(ctx, p);
   assert.ok(/A completed run typically takes [^<]+<\/span><span class="small ins-q">Not counted: 1 run, a time is later than now, by the recorder&#39;s clock\./.test(fp), 'the landed time says what it left out');
@@ -1177,7 +1177,7 @@ rule('Run record: the finish page and receipt list Corrections · N with Checkli
   assert.ok(/data-act="add-followup" data-text="Update the checklist: Change request approved/.test(html), 'Make it a follow-up stays');
   assert.ok(/Phase: Verify in production/.test(html) && /A step is missing: Add an error budget check/.test(html), 'a suggested fix from before 1.13 shows as a problem');
   html = V.receipt(ctx);
-  assert.ok(/<h4><span>Corrections · 4<\/span><\/h4>/.test(html) && /\[Declined: We set them in the job\]/.test(html) && /\[One-off\]/.test(html), 'the card and the plain text');
+  assert.ok(/<h4><span>Corrections · 4<\/span><\/h4>/.test(html) && /\[Declined: We set them in the job\]/.test(V.receiptText(ctx)) && /\[One-off\]/.test(V.receiptText(ctx)), 'the card and the plain text (worked out when copied)');
 });
 
 rule('Process page: Corrections · N open grouped by step, Suggested in N runs, two proposed changes, and Mark as applied, Decline with a reason, Reopen, Withdraw', () => {
@@ -1195,7 +1195,7 @@ rule('Process page: Corrections · N open grouped by step, Suggested in N runs, 
   let html = V.process(ctx);
   assert.ok(/Corrections · 2 open<\/h2>/.test(html) && /<h3 class="fixgroup">Change request approved for tonight&#39;s window<\/h3><p class="small corr-alts"><b>Two proposed changes\.<\/b>/.test(html));
   assert.ok(/<summary class="small">Suggested in 2 runs<\/summary>/.test(html) && /Release &lt;b&gt;1&lt;\/b&gt;/.test(html) && /Avery Lee · /.test(html), 'the runs behind it, with names inside');
-  assert.ok(/<dt>Why · Blake Ortiz<\/dt><dd>Say &quot;when&quot; &lt;script&gt;<\/dd>/.test(html) && /<dt>What happened · Avery Lee<\/dt><dd>The board met at 4<\/dd>/.test(html));
+  assert.ok(/<dt[^>]*>Why · Blake Ortiz<\/dt><dd>Say &quot;when&quot; &lt;script&gt;<\/dd>/.test(html) && /<dt[^>]*>What happened · Avery Lee<\/dt><dd>The board met at 4<\/dd>/.test(html));
   const first = gs[0].id;
   assert.ok(new RegExp('data-act="corr-applied" data-id="' + first + '">Mark as applied</button><button class="mini" data-act="pick" data-kind="corr-decline" data-id="' + first + '">Decline').test(html), 'anyone, not only the owner');
   assert.ok(!/data-act="corr-withdraw" data-id="' + first + '"/.test(html), 'not Blake\'s alone, so no Withdraw');
@@ -1360,7 +1360,7 @@ rule('Home: "Your correction to … is published in vN" and "… declined your c
   assert.ok(/<h2 id="ack-h">Your corrections<\/h2>/.test(html));
   assert.ok(/<b tabindex="-1">Your correction to &quot;Change request approved for tonight&#39;s window&quot; is published in v2\.<\/b>/.test(panel), panel);
   assert.ok(/<b tabindex="-1">Casey Nguyen declined your correction: We watch &lt;u&gt;dashboards&lt;\/u&gt;<\/b>/.test(panel) && !/<u>dashboards/.test(panel));
-  assert.ok(/data-act="ack-view" data-id="l\.release\.v2-view0102" data-process="release">View change<\/button><button class="mini" data-act="ack-dismiss" data-id="l\.release\.v2-view0102"/.test(panel));
+  assert.ok(/data-act="ack-view" data-id="l\.release\.v2-view0102" data-process="release" data-group="[^"]+">View change<\/button><button class="mini" data-act="ack-dismiss" data-id="l\.release\.v2-view0102"/.test(panel));
   assert.ok(!/things? need/.test(html.slice(0, html.indexOf('aria-labelledby="ack-h"'))) || /Nothing needs you right now\./.test(html), 'acknowledgments never count as needing you');
   ctx.acks = () => [];
   assert.ok(!/ack-h/.test(V.home(ctx)), 'dismissed: gone');
@@ -2106,7 +2106,7 @@ rule('The run\'s Follow-ups, the finish page and the receipt show each follow-up
   html = V.finish(ctx);
   assert.ok(/<span class="pill open">Open<\/span>/.test(html) && /Moved to a ticket/.test(html) && !/data-act="fu-pick"/.test(html), 'statuses, no deciding while finishing');
   html = V.receipt(ctx);
-  assert.ok(/<span class="pill waived">Moved to a ticket<\/span>/.test(html) && /Ask for a window \([^)]+\) · Moved to ABC-77/.test(html), 'card and text');
+  assert.ok(/<span class="pill waived">Moved to a ticket<\/span>/.test(html) && /Ask for a window \([^)]+\) · Moved to ABC-77/.test(V.receiptText(ctx)), 'card and text (worked out when copied)');
 });
 
 rule('Saved history: a step type entry with a malformed definition still draws, and says it couldn\'t be read', () => {

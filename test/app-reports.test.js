@@ -776,7 +776,9 @@ rule('App: the receipt names the accepted report and lists every report on the r
   assert.ok(/Accepted report ci-check\/abcd1234, sha256 /.test(h) && h.indexOf(x.sha.slice(0, 12)) >= 0, 'the step names the report and its hash');
   assert.ok(/Reports · 2/.test(h), 'a Reports section');
   assert.ok(/pod-check\/efgh5678 on [^:<]+: says blocked \(No access\)/.test(h), 'every report is listed with what it says');
-  const text = (h.match(/<pre id="receipt-text" hidden>([\s\S]*?)<\/pre>/) || [])[1] || '';
+  /* The text is made when copied; with no clipboard here the fallback's selection throws after the text is in place. */
+  const pre = app.el('receipt-text'); try { app.click('copy-receipt'); } catch (e) { /* no createRange in the harness */ }
+  const text = pre.textContent || '';
   assert.ok(/\[DONE\] [^\n]*\(accepted report ci-check\/abcd1234, sha256 [0-9a-f]{12}…, by Casey[^)]*\)/.test(text), 'the copied text too');
   assert.ok(/Reports · 2/.test(text));
 });

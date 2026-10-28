@@ -75,11 +75,41 @@ const REGISTRY = [
   { name: 'Folder health, What\'s in the folder (hz-areas) and its heading row', rows: n => n.tag === 'tr' && within(n, x => cls(x, 'hz-table')), bound: 50 + 1 },
   /* Start and Plan (found while building slice 1): 20 role rows; a role given someone is drawn too (none in the fixture). */
   { name: 'Start and Plan, role rows (start-roles)', rows: n => n.tag === 'label' && cls(n, 'field') && /^role-/.test(n.attrs.for || '') && within(n, x => x.tag === 'form' && /^(start|plan)-form$/.test(x.attrs.id || '')), bound: 20 },
-  { name: 'a skill page\'s changes (sk-changes)', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'changes') && within(n, x => cls(x, 'status-card')), bound: 50 }
+  { name: 'a skill page\'s changes (sk-changes)', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'changes') && within(n, x => cls(x, 'status-card')), bound: 50 },
+  /* Slice 4. Process › Corrections (fx:<process>): 50 members at a time across groups, plus the group being declined and the
+     one a search, Home or a link opened. A group, its target's heading and a member's lines are drawn only for members drawn. */
+  { name: 'Process › Corrections, the members drawn (fxm-, each one\'s first line)', rows: n => /^fxm-/.test(n.attrs.id || ''), bound: 50 + 2 },
+  { name: 'Process › Corrections, the groups those members are in', rows: n => n.tag === 'li' && /^fxg-/.test(n.attrs.id || ''), bound: 50 + 2 },
+  { name: 'Process › Corrections, a heading and list per step', rows: n => (n.tag === 'h3' && cls(n, 'fixgroup')) || (n.tag === 'ul' && cls(n, 'fixlist')) || (n.tag === 'p' && cls(n, 'corr-alts')), bound: 3 * (50 + 2) },
+  { name: 'Process › Corrections, a group\'s lines: what it said and suggests, and a Why and What happened per member drawn', rows: n => (n.tag === 'dt' || n.tag === 'dd') && n.parent && cls(n.parent, 'corr-dl'), bound: 2 * 2 * (50 + 2) + 4, per: 'parent' },
+  { name: 'Process › Corrections, the runs behind the members drawn', rows: n => n.tag === 'li' && within(n, x => cls(x, 'corr-runs')), bound: 50 + 2, per: 'parent' },
+  { name: 'Markdown editor, Open corrections (md-corr)', rows: n => n.tag === 'li' && /^mdc-/.test(n.attrs.id || ''), bound: 50 },
+  { name: 'the run inspector, this step\'s corrections (rcorr), and the one a search or View correction opened', rows: n => n.tag === 'li' && cls(n, 'corr') && within(n, x => cls(x, 'rw-corr')), bound: 20 + 1 },
+  { name: 'Finish and Receipt, corrections (fin-corr, rcpt-corr)', rows: n => n.tag === 'li' && cls(n, 'corr') && within(n, x => cls(x, 'finish') || cls(x, 'receipt')), bound: 50 },
+  { name: 'Receipt, reports (rcpt-reps), a line each', rows: n => n.tag === 'div' && cls(n, 'rr-rep'), bound: 50 },
+  { name: 'the inspector\'s report cards (repcards), plus the open form, kept reasons and the one a panel link opened', rows: n => n.tag === 'section' && cls(n, 'rep-card'), bound: 20 + 3 },
+  { name: 'a run\'s Reports panel (reppanel)', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'replist'), bound: 20 },
+  { name: 'one report\'s copies in its fold (10, then repc 50 at a time)', rows: n => n.tag === 'p' && cls(n, 'rep-copy'), bound: 50, per: 'parent' },
+  { name: 'Join, Who are you? (su-who)', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'su-who'), bound: 50 },
+  { name: 'Versions, earlier versions (vers), and the one compared or viewed', rows: n => n.tag === 'li' && /^ver-/.test(n.attrs.id || ''), bound: 50 + 1 + 2 },
+  { name: 'Stages (stages), and the one just staged', rows: n => n.tag === 'li' && cls(n, 'stg'), bound: 50 + 1 },
+  { name: 'incomplete publications, one notice with its list (pub-broken)', rows: n => n.tag === 'li' && /^pb-/.test(n.attrs.id || ''), bound: 20 },
+  { name: 'How runs go, Compare versions (ins-cmp), and its heading row', rows: n => n.tag === 'tr' && inDisc('ins-cmp')(n), bound: 20 + 1 },
+  { name: 'How runs go, Who has done each role: people (ins-rot), and the heading row', rows: n => n.tag === 'tr' && within(n, x => x.attrs['aria-labelledby'] === 'ins-rot-h'), bound: 50 + 1 },
+  { name: 'How runs go, Who has done each role: 20 role columns at a time (ins-rolecols), the person and Show more roles', rows: n => (n.tag === 'th' || n.tag === 'td') && within(n, x => x.attrs['aria-labelledby'] === 'ins-rot-h'), bound: 20 + 2, per: 'parent' },
+  { name: 'How runs go, Each phase (ins-ph)', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'ins-phases'), bound: 50 },
+  { name: 'How runs go, the notes on what the numbers can\'t count (ins-notes)', rows: n => n.tag === 'li' && /^ins-note-/.test(n.attrs.id || ''), bound: 50 },
+  /* A version's Show changes (found while building slice 1): 50 changes at a time, each with a line around it, and a line per gap. */
+  { name: 'a version\'s Show changes, the changes (ver-diff, draft-diff, plan-diff)', rows: n => n.tag === 'span' && (cls(n, 'add') || cls(n, 'del')) && n.parent && cls(n.parent, 'diff'), bound: 50, per: 'parent' },
+  { name: 'a version\'s Show changes, its lines: the changes, a line around each and the gaps', rows: n => n.tag === 'span' && n.parent && cls(n.parent, 'diff'), bound: 50 + 2 * 50 + 51, per: 'parent' },
+  { name: 'saved history (hist), and the one being compared', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'hist-list'), bound: 50 + 1 },
+  { name: 'a correction\'s Who should do it (corr-roles), and the roles ticked', rows: n => n.tag === 'label' && within(n, x => x.tag === 'fieldset' && cls(x, 'corr-roles')), bound: 20 + 2 },
+  { name: 'Earlier answers and Archived answers (ans, arch)', rows: n => n.tag === 'li' && /^(ans|arch)-/.test(n.attrs.id || ''), bound: 20, per: 'parent' }
 ];
 /* Drawn in full on purpose, each with its reason. A capped one is also in REGISTRY at its cap. */
 const STRUCTURE = n => (n.tag === 'li' && (cls(n, 'step') || cls(n, 'gate'))) || (n.tag === 'section' && cls(n, 'phase')) ||
   (n.tag === 'li' && n.parent && n.parent.tag === 'ol' && cls(n.parent, 'rw-phases')) || (n.tag === 'div' && cls(n, 'rrow')) ||
+  (n.tag === 'li' && n.parent && cls(n.parent, 'msteps')) ||
   (n.tag === 'div' && !n.attrs.class && n.parent && cls(n.parent, 'receipt')) ||
   (within(n, x => cls(x, 'mapview')) && (n.tag === 'li' || (n.tag === 'div' && cls(n, 'ph')))) ||
   within(n, x => /^(ob-|fpe-outline|flight|fp-|share)/.test(x.attrs.class || ''));
@@ -98,26 +128,12 @@ const inDisc = d => n => within(n, x => x.attrs['data-disc'] === d);
    entries and registers the bound. An entry not drawn over 25 on a screen it names fails, so none can outstay its slice.
    slice null: a list the plan's D7 doesn't have yet; reported, not assigned. */
 const PENDING = [
-  { slice: 4, name: 'Process, Corrections (members, Why, What happened, runs)', rows: n => (within(n, x => cls(x, 'fixlist')) && (n.tag === 'li' || n.tag === 'dt' || n.tag === 'dd')) || (n.tag === 'ul' && cls(n, 'fixlist')) || (n.tag === 'h3' && cls(n, 'fixgroup')), on: ['Many versions', 'Busy run\'s checklist', 'Four hundred steps'] },
-  { slice: 4, name: 'Markdown editor, Open corrections', rows: n => n.tag === 'li' && within(n, x => cls(x, 'md-corr')), on: ['Busy run\'s checklist'] },
-  { slice: 4, name: 'the run inspector, this step\'s corrections', rows: n => n.tag === 'li' && cls(n, 'corr') && within(n, x => cls(x, 'rw-corr')), on: ['The busy run', 'The busy run, picked up'] },
-  { slice: 4, name: 'Finish and Receipt, corrections', rows: n => n.tag === 'li' && cls(n, 'corr') && within(n, x => cls(x, 'finish') || cls(x, 'receipt')), on: ['The busy run, picked up', 'The busy run\'s receipt'] },
-  { slice: 4, name: 'a run\'s Reports panel and the inspector\'s report cards', rows: n => (n.tag === 'section' && cls(n, 'rep-card')) || (n.tag === 'li' && n.parent && cls(n.parent, 'replist')), on: ['The busy run', 'The busy run, picked up'] },
-  { slice: 4, name: 'one report\'s copies, in its fold', rows: n => n.tag === 'p' && within(n, x => cls(x, 'rep-details')), on: ['The busy run, step 3'] },
-  { slice: 4, name: 'Join, Who are you?', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'su-who'), on: ['Join'] },
-  { slice: 4, name: 'Versions (All versions)', rows: n => n.tag === 'li' && !cls(n, 'stg') && n.parent && cls(n.parent, 'vlist') && within(n, x => x.tag === 'details' && x.attrs['data-disc'] !== 'ins-cmp') && !within(n, x => cls(x, 'diff')), on: ['Many versions'] },
-  { slice: 4, name: 'Stages', rows: n => n.tag === 'li' && cls(n, 'stg'), on: ['Many versions'] },
-  { slice: 4, name: 'incomplete or broken publications, one notice each', rows: n => n.tag === 'div' && cls(n, 'notice') && n.parent && n.parent.tag === '#root', on: ['Many versions'] },
-  { slice: 4, name: 'How runs go, Compare versions', rows: n => n.tag === 'tr' && inDisc('ins-cmp')(n), on: ['Many versions'] },
-  { slice: 4, name: 'How runs go, Who has done each role (people and role columns)', rows: n => /^(tr|th|td)$/.test(n.tag) && inIns(n) && !inDisc('ins-cmp')(n) && !inDisc('ins-dur-table')(n), on: ['Many versions', 'Many roles'] },
-  { slice: 4, name: 'How runs go, Each phase', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'ins-phases'), on: ['Many phases'] },
   { slice: 5, name: 'the step-note thread', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'tnotes'), on: ['The busy run', 'The busy run, picked up'] },
   { slice: 5, name: 'Folder health issues', rows: n => n.tag === 'li' && cls(n, 'hz-issue'), on: ['Folder health'] },
   { slice: 5, name: 'Settings, People', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'pp-list'), on: ['Settings'] },
   { slice: 5, name: 'a duplicate-draft warning\'s names (D10)', rows: n => n.tag === 'code' && within(n, x => cls(x, 'notice')), on: ['Duplicated draft'] },
   { slice: 5, name: 'the legacy v0.1 runs, joined into one line (D10)', count: h => (h.match(/Legacy run \d+/g) || []).length, on: ['Runs'] },
-  { slice: 5, name: 'a report\'s conflict warning, its copies joined into one line (D10)', count: h => (h.match(/diffcopy \(\d+\)/g) || []).length, on: ['The busy run, step 3'] },
-  { slice: null, name: 'a version\'s Show changes, every changed step (not in D7)', rows: n => n.tag === 'span' && within(n, x => cls(x, 'diff')), on: ['Four hundred steps'] }
+  { slice: 5, name: 'a report\'s conflict warning, its copies joined into one line (D10)', count: h => (h.match(/diffcopy \(\d+\)/g) || []).length, on: ['The busy run, step 3'] }
 ];
 
 /* ---------- checking one screen ---------- */
@@ -255,6 +271,9 @@ const SCREENS = [
   ['A run with 300 roles', openRun('roles', async a => { a.click('takeover'); await a.tick(40); a.click('select', 's0'); await a.tick(10); })],
   ['A run with 300 phases', openRun('phases', async a => { a.click('takeover'); await a.tick(40); })],
   ['A run with 400 steps', openRun('steps', async a => { a.click('takeover'); await a.tick(40); a.click('select', 's199'); await a.tick(10); })],
+  /* Receipt, screen share and the checklist preview (Four hundred steps, below) with the 400-step checklist (slice 4). */
+  ['A run with 400 steps, its receipt', openRun('steps', async a => { a.click('receipt'); await a.tick(10); })],
+  ['A run with 400 steps, shared on screen', openRun('steps', async a => { a.click('mission'); await a.tick(10); })],
   ['Many versions', openProc('versions')],
   ['Many versions › How runs go', openProc('versions', 'insights')],
   ['Many versions › Edit', openProc('versions', 'edit')],
@@ -295,17 +314,19 @@ rule('D8: Join\'s Who are you? with 500 people', async () => {
   assert.deepStrictEqual([...c.pending], PENDING.filter(p => (p.on || []).indexOf('Join') >= 0).map(p => p.name));
 });
 
-/* The check is itself checked: with paging off for one list, that list must fail it. A flat page and the tree here;
-   the tail (slice 5) and the nested list (slice 4, corrections across groups) are added by the slice that pages them. */
+/* The check is itself checked: with paging off for one list, that list must fail it. A flat page, the tree, a select and
+   the nested list (corrections, one page across groups) here; the tail (slice 5) is added by the slice that pages it. */
 const PAGE_OFF = [
   { list: 'runs-running', kind: 'flat', screen: 'Runs', go: SCREENS.filter(s => s[0] === 'Runs')[0][1], expect: /run cards .* draws \d+, over its bound/ },
   { list: 'processes', kind: 'tree', screen: 'Checklists', go: SCREENS.filter(s => s[0] === 'Checklists')[0][1], expect: /the Checklists and All skills tree, its rows .* draws \d+, over its bound of 50/ },
   { list: 'ins-dur', kind: 'flat', screen: 'Many versions › How runs go', go: SCREENS.filter(s => s[0] === 'Many versions › How runs go')[0][1], expect: /the duration table \(ins-dur\) draws \d+, over its bound of 50/ },
   /* The 400-step checklist passes as registered structure, and a bound on its screens still fails with paging off. */
   { list: 'ins-hot', kind: 'flat', screen: 'Four hundred steps › How runs go', go: SCREENS.filter(s => s[0] === 'Four hundred steps › How runs go')[0][1], expect: /steps that go off-script \(ins-hot\) draws \d+, over its bound of 50/ },
-  { list: 'corr-move', kind: 'select', screen: 'A run with 400 steps, moving step 200', go: openRun('steps', async a => { a.click('takeover'); await a.tick(40); a.click('select', 's199'); await a.tick(10); a.click('corr-open', 's199', { mode: 'correct' }); await a.tick(10); a.click('corr-op', 'move'); await a.tick(10); }), expect: /a bounded dropdown \(K\.select\), per select draws \d+, over its bound of 54/ }
+  { list: 'corr-move', kind: 'select', screen: 'A run with 400 steps, moving step 200', go: openRun('steps', async a => { a.click('takeover'); await a.tick(40); a.click('select', 's199'); await a.tick(10); a.click('corr-open', 's199', { mode: 'correct' }); await a.tick(10); a.click('corr-op', 'move'); await a.tick(10); }), expect: /a bounded dropdown \(K\.select\), per select draws \d+, over its bound of 54/ },
+  /* Nested: one page across groups, 400 members of one correction group. */
+  { list: 'fx:versions', kind: 'nested', screen: 'Many versions', go: openProc('versions'), expect: /Corrections, the members drawn .* draws \d+, over its bound of 52/ }
 ];
-const PAGE_OFF_PENDING = [{ kind: 'tail', slice: 5 }, { kind: 'nested', slice: 4 }];
+const PAGE_OFF_PENDING = [{ kind: 'tail', slice: 5 }];
 PAGE_OFF.forEach(t => {
   rule('D8 is tested: with paging off for ' + t.list + ' (' + t.kind + '), the bounds check fails for it, and passes again with paging on', async () => {
     const { app } = await bigApp();

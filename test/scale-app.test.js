@@ -323,4 +323,24 @@ rule('Home, Runs and Follow-ups for a 2,000-run folder draw a page: Needs you bu
   app.click('fu-filter', 'open'); await app.tick(5);
 });
 
+rule('A process page and its How runs go for a 2,000-run folder draw a page: versions, stages, corrections, Compare versions, the roles grid and Each phase', async () => {
+  const { app } = await bigApp();
+  app.choose('person-avery'); await app.tick(10);
+  const by = {}; Object.keys(app.fs.files).forEach(p => { const m = /^runs\/([^/]+)\/[^/]+\/run\.json$/.exec(p); if (m) by[m[1]] = (by[m[1]] || 0) + 1; });
+  const pid = Object.keys(by).sort((a, b) => by[b] - by[a])[0];
+  app.PF.perf.reset(); app.click('open-process', pid); await app.tick(10);
+  let h = app.html(), renders = count(app, 'render');
+  assert.ok(renders >= 1, 'set-up: ' + pid + ' with ' + by[pid] + ' runs drew');
+  assert.ok(count(app, 'stage.row') <= 50 * renders, 'stage rows built ' + count(app, 'stage.row') + ' ≤ 50 per draw');
+  assert.ok((h.match(/<li[^>]*id="ver-/g) || []).length <= 53, 'versions: a page');
+  assert.ok((h.match(/id="fxm-/g) || []).length <= 52, 'corrections: a page of members');
+  app.PF.perf.reset(); app.click('ptab', 'insights'); await app.tick(10);
+  h = app.html(); renders = count(app, 'render');
+  assert.ok(count(app, 'ins.rolecell') <= 50 * 20 * renders, 'role cells built ' + count(app, 'ins.rolecell') + ' ≤ 50 × 20 per draw');
+  assert.ok(count(app, 'ins.phase') <= 50 * renders, 'phase rows built ≤ 50 per draw');
+  assert.ok((h.match(/<th scope="row" id="ins-cmp-/g) || []).length <= 20, 'Compare versions: 20');
+  assert.ok((h.match(/<th scope="row" id="ins-who-/g) || []).length <= 50, 'the roles grid: 50 people');
+  app.click('ptab', 'overview'); await app.tick(5);
+});
+
 run();

@@ -326,7 +326,8 @@ rule('Finish: End as Canceled on screen, while the run file keeps Cancelled; the
   const html = app.html();
   assert.ok(shown(html, /Ended: Canceled/) && !shown(html, /Cancelled/), 'the receipt says Canceled');
   assert.ok(shown(html, /Copy it into your ticket, or take a screenshot/), 'the receipt\'s eyebrow');
-  assert.ok(/Ended: Cancelled/.test(app.el('receipt-text').textContent || between(html, 'id="receipt-text"', '</pre>')), 'the receipt\'s text keeps the stored word');
+  const pre = app.el('receipt-text'); try { app.click('copy-receipt'); } catch (e) { /* no createRange in the harness */ }
+  assert.ok(/Ended: Cancelled/.test(pre.textContent), 'the receipt\'s text keeps the stored word');
   void key;
 });
 

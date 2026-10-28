@@ -103,7 +103,8 @@ function make(opts) {
     facts.followUps = fus;
 
     /* ---------- one busy run: 300 notes, corrections and reports, 1,000 archived answers, 300 bad note lines, on step s0 ---------- */
-    const busyPub = publish(head('busy', 'Busy run', { group: 'Busy' }) + phases(2, 3, n => 'Busy step ' + n));
+    /* Phase 1 has a gate of its own, so a gate's note can be corrected. */
+    const busyPub = publish(head('busy', 'Busy run', { group: 'Busy' }) + phases(2, 3, n => 'Busy step ' + n).replace('\n\n## Phase 2', '\n## Gate: Phase one checked {#g1}\n\n## Phase 2'));
     const busy = newRun(busyPub, { id: 'busyrun1', title: 'Busy run', start: NOW - 3 * DAY, by: 'person-casey' });
     R.done(busy, R.mapOf(busy), 's1', 'person-casey', iso(NOW - 3 * DAY + MIN), {});
     const noteLines = [], sess = 'busy-s1';
@@ -123,8 +124,8 @@ function make(opts) {
       producer: { name: 'ci-check', version: '1.0.0' }, created: iso(NOW - DAY), id, summary: 'Report ' + id }, o || {}));
     for (let i = 0; i < S.many; i++) put('reports/busy/' + busy.id + '.s0.ci-check.r' + pad(i, 7) + '.json', report('r' + pad(i, 7)));
     /* One report with 300 copies that agree, and one whose 300 copies differ. */
-    for (let i = 0; i < S.many; i++) put('reports/busy/' + busy.id + '.s1.ci-check.samecopy (' + i + ').json', report('samecopy'));
-    for (let i = 0; i < S.many; i++) put('reports/busy/' + busy.id + '.s2.ci-check.diffcopy (' + i + ').json', report('diffcopy', { summary: 'Copy ' + i }));
+    for (let i = 0; i < S.many; i++) put('reports/busy/' + busy.id + '.s1.ci-check.samecopy (' + i + ').json', report('samecopy', { step: 's1' }));
+    for (let i = 0; i < S.many; i++) put('reports/busy/' + busy.id + '.s2.ci-check.diffcopy (' + i + ').json', report('diffcopy', { step: 's2', summary: 'Copy ' + i }));
     facts.busy = 'busy/' + busy.id;
 
     /* ---------- a run with 300 conflict copies; 1,000 other runs with one each (1,000 health issues) ---------- */

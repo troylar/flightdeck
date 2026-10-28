@@ -38,6 +38,8 @@ test/bounds-app.test.js 4/6
 test/bounds-app.test.js 5/6
 test/find.test.js -
 test/find-runs.test.js -
+test/find-process.test.js 0/2
+test/find-process.test.js 1/2
 test/ui-states.test.js -
 test/reports.test.js -
 test/insights.test.js -
