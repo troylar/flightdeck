@@ -309,4 +309,18 @@ rule('Checklists and Skills for 200 processes draw a page: rows are built only f
   assert.ok(count(app, 'skills.rows') <= 3 * 50 * count(app, 'render'), 'skill rows built only for the pages drawn');
 });
 
+rule('Home, Runs and Follow-ups for a 2,000-run folder draw a page: Needs you builds at most 10 rows a draw, Follow-ups and Planned draw at most 50', async () => {
+  const { app } = await bigApp();
+  app.choose('person-avery'); await app.tick(10);
+  app.PF.perf.reset(); app.click('nav', 'home'); await app.tick(10);
+  const renders = count(app, 'render');
+  assert.ok(renders >= 1 && count(app, 'home.todo') <= 10 * renders, 'Needs you rows built ' + count(app, 'home.todo') + ' ≤ 10 per draw (' + renders + ' draws)');
+  assert.ok((app.html().match(/<li class="todo (?!ack)/g) || []).length <= 10);
+  app.click('nav', 'runs'); await app.tick(10);
+  assert.ok((app.html().match(/<button class="card plan"/g) || []).length <= 51, 'Planned: a page');
+  app.click('nav', 'followups'); await app.tick(10); app.click('fu-filter', 'all'); await app.tick(10);
+  assert.ok((app.html().match(/<li class="fu[ "]/g) || []).length <= 51, 'Follow-ups: a page');
+  app.click('fu-filter', 'open'); await app.tick(5);
+});
+
 run();

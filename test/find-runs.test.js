@@ -508,18 +508,20 @@ rule('Home: Needs you shows 10 and Show more adds 10, focusing the first one add
   assert.strictEqual(todos(h).length, 10);
   const n = +(/(\d+) things need you\./.exec(h) || [])[1];
   assert.ok(n > 20, 'the count is every one: ' + n);
-  app.PF.perf.n['home.todo'] = 0;
+  app.PF.perf.n['home.todo'] = 0; let r0 = app.PF.perf.n.render || 0;
   app.click('dismiss'); await app.tick(5);
-  assert.strictEqual(app.PF.perf.n['home.todo'], 10, 'one draw builds the 10 drawn rows, not ' + n);
+  let draws = (app.PF.perf.n.render || 0) - r0;
+  assert.ok(draws >= 1 && app.PF.perf.n['home.todo'] === 10 * draws, 'each draw builds the 10 drawn rows, not ' + n + ': ' + app.PF.perf.n['home.todo'] + ' in ' + draws);
   const d = moreOf(h, 'home-todo');
   assert.ok(d && d.focus === '#todo-10 b', JSON.stringify(d));
   app.click('more', 'home-todo', d); await app.tick(5);
   h = app.html();
   assert.strictEqual(todos(h).length, 20, 'Show more adds 10');
   assert.ok(app.node(d.focus) && app.doc.activeElement === app.node(d.focus), 'focus on the first one added');
-  app.PF.perf.n['home.todo'] = 0;
+  app.PF.perf.n['home.todo'] = 0; r0 = app.PF.perf.n.render || 0;
   app.click('dismiss'); await app.tick(5);
-  assert.strictEqual(app.PF.perf.n['home.todo'], 20);
+  draws = (app.PF.perf.n.render || 0) - r0;
+  assert.ok(draws >= 1 && app.PF.perf.n['home.todo'] === 20 * draws);
 });
 
 rule('Home: Your corrections shows 10 of 30, and Show more adds 10', () => {
@@ -609,6 +611,230 @@ rule('The builder\'s linked checklist and pinned version list 50 each, keep thei
   assert.strictEqual(app.fs.files['maps/drafts/linker.md'].t, md, 'typing in Find leaves the draft text alone');
   app.click('find-clear', 'ob-link-vn'); await app.tick(5); app.click('find-clear', 'ob-link-proc'); await app.tick(5);
   app.click('ob-done'); await app.tick(5); app.click('ed-mode', 'markdown'); await app.tick(5);
+});
+
+/* ---------- Checks, Why is this here?, notices, copies, proposal review, What's in the folder, Flight plan ---------- */
+const lis = (h, re) => (h.match(re) || []).length;
+rule('Checks with 400 commands to fill in draw 50 in the overview and the editor, build only those, and publishing is still blocked on all of them', async () => {
+  const app = await bigApp();
+  app.click('nav', 'processes'); await app.tick(5);
+  app.PF.perf.n['checks.row'] = 0;
+  app.click('open-process', 'commands'); await app.tick(10);
+  let h = app.html();
+  assert.strictEqual(lis(h, /<li id="checks-ov-\d+"/g), 50, 'the overview draws 50');
+  const d = moreOf(h, 'checks-ov');
+  assert.ok(d && /Showing 50 of 40\d/.test(h), 'and says how many there are');
+  app.PF.perf.n['checks.row'] = 0; const c0 = app.PF.perf.n.render || 0; app.click('dismiss'); await app.tick(5);
+  const cd = (app.PF.perf.n.render || 0) - c0;
+  assert.ok(cd >= 1 && app.PF.perf.n['checks.row'] === 50 * cd, 'each draw builds 50 rows: ' + app.PF.perf.n['checks.row'] + ' in ' + cd);
+  app.click('more', 'checks-ov', d); await app.tick(5);
+  assert.strictEqual(lis(app.html(), /<li id="checks-ov-\d+"/g), 100);
+  assert.ok(app.node(d.focus) && app.doc.activeElement === app.node(d.focus), 'Show more focuses the first one added');
+  app.click('ptab', 'edit'); await app.tick(10); app.click('ins-tab', 'checks'); await app.tick(10);
+  h = app.html();
+  assert.strictEqual(lis(h, /<li id="checks-ed-\d+"/g), 50, 'the editor draws 50');
+  assert.ok(/aria-label="Checks: 40\d tips"/.test(h), 'and counts every one: ' + (/aria-label="Checks: [^"]*"/.exec(h) || [''])[0]);
+  /* 400 things to fix: 50 drawn, and Publish is held for all 400. */
+  const steps = Array.from({ length: 400 }, (x, i) => '- [ ] {no.such.type} Blocked step ' + i + ' {#b' + i + '}\n').join('');
+  await app.fs.write('maps/drafts/blocked.md', '---\nprocess: blocked\ntitle: Blocked\nowner: person-avery\n---\n\n## Only · READ-DO {#only}\n' + steps);
+  app.click('nav', 'processes'); await app.tick(5); app.focus(); await app.tick(200);
+  app.click('open-process', 'blocked'); await app.tick(10);
+  h = app.html();
+  assert.strictEqual(lis(h, /<li id="checks-ov-\d+"/g), 50, 'the overview draws 50 of 400 to fix');
+  assert.ok(lis(h, /<span class="lvl bad">Fix<\/span>/g) === 50 && /Showing 50 of 4\d\d/.test(h));
+  assert.ok(/data-act="publish" data-id="blocked"[^>]*disabled/.test(h), 'Publish is held');
+  app.click('ptab', 'edit'); await app.tick(10); app.click('ins-tab', 'checks'); await app.tick(10);
+  assert.ok(/aria-label="Checks: 4\d\d things to fix before publishing"/.test(app.html()), 'the editor counts every one');
+});
+
+rule('Why is this here? with 300 members draws 20, each with its whole reason and the run it came from, built only when drawn', async () => {
+  const app = await bigApp(), { facts } = fixture();
+  app.click('nav', 'home'); await app.tick(5); app.click('open-run', facts.landed); await app.tick(10);
+  app.click('select', 's0'); await app.tick(10);
+  let h = app.html();
+  const runs = lis(h, /<button class="linkish" id="pm-s0-[\d-]+-run"/g), whys = lis(h, /<dt id="pm-s0-[\d-]+" tabindex="-1">Why · /g);
+  assert.strictEqual(runs, 20, '20 source runs');
+  assert.strictEqual(whys, 20, 'and their 20 reasons');
+  assert.ok(/Suggested in 300 runs: /.test(h) && /, and 280 more<\/p>/.test(h), 'the count is all of them');
+  app.PF.perf.n['prov.member'] = 0; const p0 = app.PF.perf.n.render || 0; app.click('dismiss'); await app.tick(5);
+  const pd = (app.PF.perf.n.render || 0) - p0;
+  assert.ok(pd >= 1 && app.PF.perf.n['prov.member'] === 20 * pd, 'built only when drawn: ' + app.PF.perf.n['prov.member'] + ' in ' + pd);
+  const d = moreOf(h, 'prov-s0');
+  app.click('more', 'prov-s0', d); await app.tick(5);
+  assert.strictEqual(lis(app.html(), /<button class="linkish" id="pm-s0-[\d-]+-run"/g), 40);
+  assert.ok(app.node(d.focus) && app.doc.activeElement === app.node(d.focus), 'Show more focuses the first added member\'s reason: ' + d.focus);
+});
+
+rule('300 unreadable note lines are one notice, announced once, with the lines 50 at a time in its fold, every file and line reachable', async () => {
+  const app = await bigApp(), { facts } = fixture();
+  app.click('nav', 'home'); await app.tick(5); app.click('open-run', facts.busy); await app.tick(10);
+  let h = app.html();
+  assert.strictEqual(lis(h, /couldn't be read\. It may still be arriving|couldn&#39;t be read\. It may still be arriving/g), 0, 'no notice per line');
+  assert.strictEqual(lis(h, /note lines can(&#39;|')t be read\./g), 1, 'one summary');
+  assert.ok(/<b role="status">300 note lines can/.test(h), 'announced once, with the count');
+  app.fire('toggle', { target: { dataset: { disc: 'badnotes:' + facts.busy }, open: true } }); app.click('dismiss'); await app.tick(5);
+  h = app.html();
+  assert.strictEqual(lis(h, /<li id="badnote-\d+"/g), 50, '50 in the fold');
+  let seen = lis(h, /<li id="badnote-\d+"/g);
+  for (let i = 0; i < 10 && moreOf(app.html(), 'badnotes'); i++) { const d = moreOf(app.html(), 'badnotes'); app.click('more', 'badnotes', d); await app.tick(5); assert.ok(app.doc.activeElement === app.node(d.focus), 'focus on the first added line'); }
+  seen = lis(app.html(), /<li id="badnote-\d+"/g);
+  assert.strictEqual(seen, 300, 'every line reachable');
+  assert.ok(/<code>[^<]+\.jsonl<\/code>, line \d+/.test(app.html()), 'file and line');
+});
+
+rule('A run with 300 recovery copies draws 20; the copy being compared, and the one being confirmed for deletion, stay drawn through Show more and a refresh', async () => {
+  const app = await bigApp(), { facts } = fixture();
+  app.click('nav', 'home'); await app.tick(5); app.click('open-run', facts.copies); await app.tick(10);
+  let h = app.html();
+  const rows = h => [...h.matchAll(/<code id="copy-([^"]+)" tabindex="-1">/g)].map(m => un(m[1]));
+  assert.strictEqual(rows(h).length, 20, '20 copies');
+  assert.ok(/300 other versions of this run|30\d other versions of this run/.test(h), 'the heading counts every one');
+  let d = moreOf(h, 'copies');
+  app.click('more', 'copies', d); await app.tick(5);
+  assert.strictEqual(rows(app.html()).length, 40);
+  assert.ok(app.doc.activeElement === app.node(d.focus), 'focus on the first added copy\'s name');
+  for (let i = 0; i < 6; i++) { d = moreOf(app.html(), 'copies'); app.click('more', 'copies', d); await app.tick(5); }
+  const all = rows(app.html()), c150 = all[149];
+  assert.ok(c150, 'set-up: copy 150 drawn');
+  /* Back to a page of 20, then compare copy 150 (as its own Compare would, drawn). */
+  app.click('nav', 'home'); await app.tick(5); app.click('open-run', facts.copies); await app.tick(10);
+  assert.ok(rows(app.html()).indexOf(c150) < 0, 'set-up: copy 150 past the page');
+  app.click('compare-copy', c150); await app.tick(40);
+  h = app.html();
+  assert.ok(rows(h).length <= 21 && rows(h).indexOf(c150) >= 0, 'compared: drawn after the page, ' + rows(h).length);
+  assert.ok(/The copy you(&#39;|')re working on/.test(h));
+  await reread(app);
+  assert.ok(rows(app.html()).indexOf(c150) >= 0, 'and after a refresh');
+  d = moreOf(app.html(), 'copies'); app.click('more', 'copies', d); await app.tick(5);
+  assert.strictEqual(rows(app.html()).filter(x => x === c150).length, 1, 'and through Show more, once');
+  const c200 = all[199] || all[all.length - 1];
+  app.click('delete-copy', c200); await app.tick(5);
+  assert.ok(rows(app.html()).indexOf(c200) >= 0 && new RegExp('data-act="delete-copy" data-id="' + c200.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '">Yes, delete it').test(app.html()), 'the one being deleted, with its confirm');
+  app.click('unpick'); await app.tick(5);
+});
+
+rule('Proposal review with 300 records draws 20 in the dialog, Show more focuses inside it, and what it allows still reads every record', async () => {
+  const app = await bigApp();
+  app.click('nav', 'processes'); await app.tick(5); app.click('open-process', 'versions'); await app.tick(10);
+  const m = /data-act="prop-review" data-id="([^"]+)"/.exec(app.html());
+  assert.ok(m, 'set-up: a proposal');
+  app.click('prop-review', un(m[1])); await app.tick(80);
+  let o = app.overlay();
+  assert.ok(/What happened before \((\d+)\)/.test(o) && +/What happened before \((\d+)\)/.exec(o)[1] >= 300, 'every record counted');
+  assert.strictEqual(lis(o, /<li id="prop-rec-\d+"/g), 20);
+  const d = moreOf(o, 'prop-recs');
+  assert.ok(d && d.dialog === '1', 'Show more in a dialog');
+  app.click('more', 'prop-recs', d); await app.tick(10);
+  o = app.overlay();
+  assert.strictEqual(lis(o, /<li id="prop-rec-\d+"/g), 40);
+  assert.ok(app.doc.activeElement === app.node(d.focus), 'focus inside the dialog, on the first added record');
+  app.click('close-overlay'); await app.tick(5);
+});
+
+rule('What\'s in the folder with 300 areas draws 50, largest first, and Show more focuses the first one added', async () => {
+  const app = await bigApp();
+  app.click('nav', 'settings'); await app.tick(5); app.click('health'); await app.tick(40);
+  for (let i = 0; i < 200 && !/What's in the folder|What&#39;s in the folder/.test(app.html()); i++) await app.tick(20);
+  app.fire('toggle', { target: { dataset: { disc: 'hz-areas' }, open: true } }); app.click('dismiss'); await app.tick(5);
+  let h = app.html();
+  const areas = h => [...h.matchAll(/<code id="hz-area-([^"]+)" tabindex="-1">/g)].map(m => un(m[1]));
+  assert.strictEqual(areas(h).length, 50);
+  assert.ok(/data-disc="hz-areas" open/.test(h), 'its fold stays open');
+  const d = moreOf(h, 'hz-areas');
+  app.click('more', 'hz-areas', d); await app.tick(5);
+  assert.strictEqual(areas(app.html()).length, 100);
+  assert.ok(app.doc.activeElement === app.node(d.focus), 'focus on the first added');
+});
+
+rule('Flight plan: 300 skills on a step and 300 for the whole checklist draw 3 per line and "+N more skills", building only those', async () => {
+  const app = await bigApp();
+  app.click('nav', 'processes'); await app.tick(5); app.click('open-process', 'steps'); await app.tick(10);
+  app.PF.perf.n['fp.skill'] = 0;
+  app.click('flight', 'plan'); await app.tick(10);
+  app.click('fp-steps', 'show'); await app.tick(10);
+  const h = app.html();
+  assert.ok(/\+297 more skills/.test(h), '+N more: ' + (h.match(/\+\d+ more skills?/g) || []).join(', '));
+  assert.ok(lis(h, /class="badge b-skill"/g) <= 3, 'a step names 3 skills');
+  assert.ok(lis(h, /<b>Autopilot<\/b>/g) <= 6, 'the start line and the phase line name 3 each');
+  app.PF.perf.n['fp.skill'] = 0; const f0 = app.PF.perf.n.render || 0; app.click('dismiss'); await app.tick(5);
+  const fd = (app.PF.perf.n.render || 0) - f0;
+  assert.ok(fd >= 1 && app.PF.perf.n['fp.skill'] <= 9 * fd, 'built only those: ' + app.PF.perf.n['fp.skill'] + ' in ' + fd);
+  app.click('flight', 'list'); await app.tick(5);
+});
+
+/* ---------- Start and Plan's roles; removed drafts ---------- */
+rule('Plan a run on a 300-role checklist: 20 role rows, Find reaches role 300, Show more focuses the first new one, chosen roles stay through Show more, Find and a refresh, and the plan saves the roles 2.10 saves', async () => {
+  const app = await bigApp();
+  const open = async () => { app.click('nav', 'processes'); await app.tick(5); app.click('open-process', 'roles'); await app.tick(10); app.click('plan-run', 'roles'); await app.tick(20); };
+  const roleRows = h => [...h.matchAll(/<label class="field" for="role-(r\d+)"/g)].map(m => m[1]);
+  /* What every role would be with nothing paged (2.10's form). */
+  app.PF.vk.PAGE_OFF = 'start-roles';
+  await open();
+  const want = {};
+  for (const m of app.html().matchAll(/<select id="role-(r\d+)" data-role="[^"]*"[^>]*>([\s\S]*?)<\/select>/g)) { const sel = /<option value="([^"]+)" selected>/.exec(m[2]); if (sel) want[m[1]] = sel[1]; }
+  assert.strictEqual(roleRows(app.html()).length, 300, 'set-up: every role, paging off');
+  app.PF.vk.PAGE_OFF = null;
+  app.click('cancel-plan'); await app.tick(5);
+  await open();
+  let h = app.html();
+  assert.deepStrictEqual(roleRows(h), Array.from({ length: 20 }, (x, i) => 'r' + (i + 1)), '20, in checklist order');
+  assert.strictEqual(lis(h, /<input type="hidden" id="role-r\d+" data-role=/g), 280, 'the rest keep their values');
+  assert.ok(/id="find-start-roles"/.test(h), 'Find a role');
+  app.set('role-r5', 'person-blake'); app.select('role-r5', 'person-blake'); await app.tick(5);
+  await typeFind(app, 'start-roles', 'r250');
+  h = app.html();
+  assert.ok(roleRows(h).indexOf('r250') >= 0 && roleRows(h).indexOf('r5') >= 0, 'Find reaches role 250; the chosen r5 stays drawn');
+  app.set('role-r250', 'person-morgan'); app.select('role-r250', 'person-morgan'); await app.tick(5);
+  await typeFind(app, 'start-roles', 'r300');
+  h = app.html();
+  assert.ok(roleRows(h).indexOf('r300') >= 0 && roleRows(h).indexOf('r5') >= 0 && roleRows(h).indexOf('r250') >= 0, 'Find reaches role 300; both chosen roles stay');
+  app.click('find-clear', 'start-roles'); await app.tick(5);
+  const d = moreOf(app.html(), 'start-roles');
+  app.click('more', 'start-roles', d); await app.tick(5);
+  h = app.html();
+  assert.strictEqual(roleRows(h).filter(r => r !== 'r250').length, 40, 'Show more adds 20');
+  assert.strictEqual(app.activeId(), 'role-r21', 'focus on the first new one');
+  app.set('run-title', 'Planned with 300 roles').set('plan-when', '2099-02-01T09:00');
+  app.el('find-start-roles') && app.el('role-r21').focus();
+  await reread(app);
+  h = app.html();
+  assert.ok(roleRows(h).indexOf('r250') >= 0 && roleRows(h).indexOf('r5') >= 0, 'chosen roles survive a refresh');
+  assert.strictEqual(app.el('role-r5').value, 'person-blake');
+  assert.strictEqual(app.el('role-r250').value, 'person-morgan');
+  app.chooseApprovers().submitForm('plan-form'); await app.tick(120);
+  const made = Object.keys(app.fs.files).filter(f => /^proposals\/plan-roles-[a-z0-9]{8}\.json$/.test(f)).map(f => JSON.parse(app.fs.files[f].t)).filter(p => p.title === 'Planned with 300 roles');
+  assert.strictEqual(made.length, 1, 'the plan is saved');
+  assert.deepStrictEqual(made[0].roles, Object.assign({}, want, { r5: 'person-blake', r250: 'person-morgan' }), 'every role as 2.10 saves it, with the two chosen');
+});
+
+rule('Many removed drafts are one notice on Checklists, announced once, with a way to each 50 at a time; Show more focuses the first added, and each editor\'s text is kept', async () => {
+  const fx = fixture({ size: { running: 2, plans: 0, ended: 3, followUps: 6, procs: 2, versions: 2, stages: 1, members: 1, health: 1, many: 2, steps: 8, legacy: 1, archived: 1, hot: 1, teamValues: 1, people: 6, tags: 2 } });
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true }); await app.tick(60);
+  await into(app, fx);
+  const N = 60, id = i => 'lost-' + String(i).padStart(3, '0');
+  for (let i = 0; i < N; i++) await app.fs.write('maps/drafts/' + id(i) + '.md', '---\nprocess: ' + id(i) + '\ntitle: Lost ' + i + '\nowner: person-avery\n---\n\n## Only · READ-DO {#only}\n- [ ] Step {#s}\n');
+  app.click('nav', 'processes'); await app.tick(5); app.focus(); await app.tick(300);
+  for (let i = 0; i < N; i++) {
+    app.click('open-process', id(i)); await app.tick(5); app.click('ptab', 'edit'); await app.tick(5);
+    const text = /<textarea[^>]*id="draft-editor"[^>]*>([\s\S]*?)<\/textarea>/.exec(app.html())[1];
+    app.input('draft-editor', un(text) + '\nEDITED ' + i); await app.tick(5);
+  }
+  app.click('nav', 'processes'); await app.tick(5);
+  for (let i = 0; i < N; i++) delete app.fs.files['maps/drafts/' + id(i) + '.md'];
+  await reread(app);
+  let h = app.html();
+  assert.strictEqual(lis(h, /whose draft was removed from the folder/g), 0, 'no notice per draft');
+  assert.ok(/<b role="status">60 drafts you were editing aren(&#39;|')t in the folder anymore\.<\/b>/.test(h), 'one notice, announced once');
+  app.fire('toggle', { target: { dataset: { disc: 'lost-drafts' }, open: true } }); app.click('dismiss'); await app.tick(5);
+  h = app.html();
+  const links = h => lis(h, /<li><button class="linkish" data-act="open-process" data-id="lost-\d+">/g);
+  assert.strictEqual(links(h), 50);
+  const d = moreOf(h, 'lost-drafts');
+  app.click('more', 'lost-drafts', d); await app.tick(5);
+  assert.strictEqual(links(app.html()), 60);
+  assert.ok(app.doc.activeElement === app.node(d.focus), 'focus on the first added link');
+  app.click('open-process', id(55)); await app.tick(10);
+  assert.ok(/EDITED 55/.test(app.html()), 'its edits are kept');
 });
 
 run();

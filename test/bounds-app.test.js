@@ -65,6 +65,16 @@ const REGISTRY = [
   { name: 'Runs, Planned (runs-planned) and Just planned', rows: n => n.tag === 'button' && cls(n, 'plan') && cls(n, 'card'), bound: 50 + 1 },
   /* Every bounded dropdown (D9): 50 candidates, the kept choice, the select's own special choices and Show 50 more…. */
   { name: 'a bounded dropdown (K.select), per select', rows: n => n.tag === 'option' && !!up(n, x => x.tag === 'select' && 'data-kselect' in x.attrs), bound: 50 + 1 + 2 + 1, per: n => up(n, x => x.tag === 'select') },
+  /* Checks, 50 where each is drawn; the run inspector's Why is this here?, 20 members across a step's changes. */
+  { name: 'Checks (checks-ed, checks-ov, checks-prop)', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'checks'), bound: 50 },
+  { name: 'Why is this here? (prov-<step>), its members', rows: n => n.tag === 'button' && /^pm-.*-run$/.test(n.attrs.id || '') && within(n, x => cls(x, 'prov-why')), bound: 20 },
+  /* One notice for unreadable note lines (D10), with the lines in its fold, 50 at a time. */
+  { name: 'unreadable note lines, in the notice\'s fold (badnotes)', rows: n => n.tag === 'li' && within(n, x => cls(x, 'rw-badnotes')), bound: 50 },
+  { name: 'a run\'s recovery copies (copies), 20, the compared one, the one being deleted and the browser\'s copy', rows: n => n.tag === 'div' && cls(n, 'copyrow'), bound: 20 + 2 + 1 },
+  { name: 'proposal review, What happened before (prop-recs)', rows: n => n.tag === 'li' && /^prop-rec-/.test(n.attrs.id || ''), bound: 20 },
+  { name: 'Folder health, What\'s in the folder (hz-areas) and its heading row', rows: n => n.tag === 'tr' && within(n, x => cls(x, 'hz-table')), bound: 50 + 1 },
+  /* Start and Plan (found while building slice 1): 20 role rows; a role given someone is drawn too (none in the fixture). */
+  { name: 'Start and Plan, role rows (start-roles)', rows: n => n.tag === 'label' && cls(n, 'field') && /^role-/.test(n.attrs.for || '') && within(n, x => x.tag === 'form' && /^(start|plan)-form$/.test(x.attrs.id || '')), bound: 20 },
   { name: 'a skill page\'s changes (sk-changes)', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'changes') && within(n, x => cls(x, 'status-card')), bound: 50 }
 ];
 /* Drawn in full on purpose, each with its reason. A capped one is also in REGISTRY at its cap. */
@@ -79,6 +89,7 @@ const EXEMPT = [
   { why: 'checklist structure, drawn whole on every surface that draws a whole checklist: phases, steps and gates on the run screen, the builder, the flight plan, Receipt\'s rows, screen share and the checklist preview', rows: STRUCTURE },
   { why: 'bundled with the app, not the team folder: What\'s new and the built-in step types', rows: n => within(n, x => /\b(rel-|rn-)/.test(x.attrs.class || '') || x.attrs['data-disc'] === 'types-built') },
   { why: 'team values are capped by the format (registered at 100)', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'tv-list') },
+  { why: 'a Start or Plan form\'s roles not drawn keep their value in a hidden field each (nothing shown), so the form starts or plans what 2.10 did, and the form\'s own mode field', rows: n => n.tag === 'input' && n.attrs.type === 'hidden' && ('data-role' in n.attrs || n.attrs.id === 'start-mode') && within(n, x => x.tag === 'form' && /^(start|plan)-form$/.test(x.attrs.id || '')) },
   { why: 'the Connection check is left unchanged in 2.11', rows: n => within(n, x => /^(conn|cn-)/.test(x.attrs.class || '') || /^conn/.test(x.attrs.id || '')) }
 ];
 const inIns = n => within(n, x => x.tag === 'section' && cls(x, 'ins'));
@@ -87,12 +98,6 @@ const inDisc = d => n => within(n, x => x.attrs['data-disc'] === d);
    entries and registers the bound. An entry not drawn over 25 on a screen it names fails, so none can outstay its slice.
    slice null: a list the plan's D7 doesn't have yet; reported, not assigned. */
 const PENDING = [
-  { slice: 3, name: 'Checks', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'checks'), on: ['Commands to fill in'] },
-  { slice: 3, name: 'Why is this here? (members, reasons, source runs)', rows: n => within(n, x => cls(x, 'prov-why')) && /^(dt|dd|button)$/.test(n.tag), on: ['A run on a version with a landed correction'] },
-  { slice: 3, name: 'unreadable note lines, one notice each (D10)', rows: n => n.tag === 'div' && cls(n, 'notice') && n.parent && cls(n.parent, 'rw-alerts'), on: ['The busy run', 'The busy run, picked up'] },
-  { slice: 3, name: 'a run\'s recovery copies', rows: n => n.tag === 'div' && cls(n, 'copyrow'), on: ['A run with 300 copies'] },
-  { slice: 3, name: 'proposal review, What happened before', rows: n => n.tag === 'li' && within(n, x => cls(x, 'ca-box')), on: ['Many versions'] },
-  { slice: 3, name: 'Folder health, What\'s in the folder', rows: n => n.tag === 'tr' && within(n, x => cls(x, 'hz-table')), on: ['Folder health'] },
   { slice: 4, name: 'Process, Corrections (members, Why, What happened, runs)', rows: n => (within(n, x => cls(x, 'fixlist')) && (n.tag === 'li' || n.tag === 'dt' || n.tag === 'dd')) || (n.tag === 'ul' && cls(n, 'fixlist')) || (n.tag === 'h3' && cls(n, 'fixgroup')), on: ['Many versions', 'Busy run\'s checklist', 'Four hundred steps'] },
   { slice: 4, name: 'Markdown editor, Open corrections', rows: n => n.tag === 'li' && within(n, x => cls(x, 'md-corr')), on: ['Busy run\'s checklist'] },
   { slice: 4, name: 'the run inspector, this step\'s corrections', rows: n => n.tag === 'li' && cls(n, 'corr') && within(n, x => cls(x, 'rw-corr')), on: ['The busy run', 'The busy run, picked up'] },
@@ -112,7 +117,6 @@ const PENDING = [
   { slice: 5, name: 'a duplicate-draft warning\'s names (D10)', rows: n => n.tag === 'code' && within(n, x => cls(x, 'notice')), on: ['Duplicated draft'] },
   { slice: 5, name: 'the legacy v0.1 runs, joined into one line (D10)', count: h => (h.match(/Legacy run \d+/g) || []).length, on: ['Runs'] },
   { slice: 5, name: 'a report\'s conflict warning, its copies joined into one line (D10)', count: h => (h.match(/diffcopy \(\d+\)/g) || []).length, on: ['The busy run, step 3'] },
-  { slice: null, name: 'Start and Plan, one role row per role (not in D7)', rows: n => n.tag === 'label' && cls(n, 'field') && within(n, x => x.tag === 'form' && /^(start|plan)-form$/.test(x.attrs.id || '')), on: ['Start a run with 300 roles'] },
   { slice: null, name: 'a version\'s Show changes, every changed step (not in D7)', rows: n => n.tag === 'span' && within(n, x => cls(x, 'diff')), on: ['Four hundred steps'] }
 ];
 
@@ -296,7 +300,10 @@ rule('D8: Join\'s Who are you? with 500 people', async () => {
 const PAGE_OFF = [
   { list: 'runs-running', kind: 'flat', screen: 'Runs', go: SCREENS.filter(s => s[0] === 'Runs')[0][1], expect: /run cards .* draws \d+, over its bound/ },
   { list: 'processes', kind: 'tree', screen: 'Checklists', go: SCREENS.filter(s => s[0] === 'Checklists')[0][1], expect: /the Checklists and All skills tree, its rows .* draws \d+, over its bound of 50/ },
-  { list: 'ins-dur', kind: 'flat', screen: 'Many versions › How runs go', go: SCREENS.filter(s => s[0] === 'Many versions › How runs go')[0][1], expect: /the duration table \(ins-dur\) draws \d+, over its bound of 50/ }
+  { list: 'ins-dur', kind: 'flat', screen: 'Many versions › How runs go', go: SCREENS.filter(s => s[0] === 'Many versions › How runs go')[0][1], expect: /the duration table \(ins-dur\) draws \d+, over its bound of 50/ },
+  /* The 400-step checklist passes as registered structure, and a bound on its screens still fails with paging off. */
+  { list: 'ins-hot', kind: 'flat', screen: 'Four hundred steps › How runs go', go: SCREENS.filter(s => s[0] === 'Four hundred steps › How runs go')[0][1], expect: /steps that go off-script \(ins-hot\) draws \d+, over its bound of 50/ },
+  { list: 'corr-move', kind: 'select', screen: 'A run with 400 steps, moving step 200', go: openRun('steps', async a => { a.click('takeover'); await a.tick(40); a.click('select', 's199'); await a.tick(10); a.click('corr-open', 's199', { mode: 'correct' }); await a.tick(10); a.click('corr-op', 'move'); await a.tick(10); }), expect: /a bounded dropdown \(K\.select\), per select draws \d+, over its bound of 54/ }
 ];
 const PAGE_OFF_PENDING = [{ kind: 'tail', slice: 5 }, { kind: 'nested', slice: 4 }];
 PAGE_OFF.forEach(t => {
@@ -306,11 +313,18 @@ PAGE_OFF.forEach(t => {
     assert.deepStrictEqual((await look()).filter(f => t.expect.test(f)), [], 'set-up: bounded with paging on');
     app.PF.vk.PAGE_OFF = t.list;
     try { const f = await look(); assert.ok(f.some(x => t.expect.test(x)), 'paging off for ' + t.list + ' must fail the check: ' + f.join('; ')); }
-    finally { app.PF.vk.PAGE_OFF = null; await redraw(app); }
+    finally { app.PF.vk.PAGE_OFF = null; await redraw(app); if (t.kind === 'select') { app.click('corr-cancel'); await app.tick(5); } }
   });
 });
+rule('D8: the duration chart draws its 300 dots (400 ended runs of one version) and passes, registered at its cap', async () => {
+  const { app } = await bigApp();
+  await SCREENS.filter(s => s[0] === 'Many versions › How runs go')[0][1](app); await app.tick(10);
+  const html = app.html();
+  assert.strictEqual((html.match(/<a [^>]*class="ins-dot-a"/g) || []).length, 300);
+  assert.deepStrictEqual(check('Many versions › How runs go', html).fails, []);
+});
 rule('D8 is tested: the kinds of list not yet paged in this slice are listed with the slice that adds their PAGE_OFF check', () => {
-  assert.deepStrictEqual(PAGE_OFF_PENDING.map(k => k.kind).concat(PAGE_OFF.map(t => t.kind)).filter((k, i, a) => a.indexOf(k) === i).sort(), ['flat', 'nested', 'tail', 'tree']);
+  assert.deepStrictEqual(PAGE_OFF_PENDING.map(k => k.kind).concat(PAGE_OFF.map(t => t.kind)).filter((k, i, a) => a.indexOf(k) === i).sort(), ['flat', 'nested', 'select', 'tail', 'tree']);
 });
 rule('D8: PENDING names each list once, with a slice of 2.11 or null for one the plan doesn\'t have yet', () => {
   const names = PENDING.map(p => p.name);

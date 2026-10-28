@@ -340,7 +340,7 @@ function boot(opts) {
       form.slice(0, form.indexOf('>') + 1).replace(/\sdata-([\w-]+)="([^"]*)"/g, (m, k, v) => { ds[k.replace(/-(\w)/g, (x, c) => c.toUpperCase())] = unesc(v); });
       el.dataset = Object.assign(ds, dataset || {});
       const fields = [];
-      (form.match(/<input\b[^>]*>/g) || []).forEach(tag => { const fid = attr(tag, 'id'); if (!fid) return; if (!inputs.has(fid)) get(fid).value = attr(tag, 'value') || ''; if (attr(tag, 'data-detail') != null) fields.push({ id: fid, dataset: { detail: attr(tag, 'data-detail') } }); });
+      (form.match(/<input\b[^>]*>/g) || []).forEach(tag => { const fid = attr(tag, 'id'); if (!fid) return; if (!inputs.has(fid)) get(fid).value = attr(tag, 'value') || ''; if (attr(tag, 'data-detail') != null) fields.push({ id: fid, dataset: { detail: attr(tag, 'data-detail') } }); if (attr(tag, 'data-role') != null) fields.push({ id: fid, dataset: { role: attr(tag, 'data-role') } }); });
       (form.match(/<select\b[^>]*>[\s\S]*?<\/select>/g) || []).forEach(sel => { const tag = sel.slice(0, sel.indexOf('>') + 1), fid = attr(tag, 'id'), m = /<option value="([^"]*)" selected>/.exec(sel); if (!inputs.has(fid)) get(fid).value = m ? unesc(m[1]) : ''; if (attr(tag, 'data-role') != null) fields.push({ id: fid, dataset: { role: attr(tag, 'data-role') } }); });
       el.querySelectorAll = sel => fields.filter(f => sel === '[data-detail]' ? f.dataset.detail != null : sel === '[data-role]' ? f.dataset.role != null : false).map(f => ({ dataset: f.dataset, get value() { return els[f.id].value; } }));
       (listeners.submit || []).forEach(fn => fn({ target: el, preventDefault() {} }));

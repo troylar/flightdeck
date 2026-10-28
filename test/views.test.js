@@ -1342,8 +1342,8 @@ rule('Published in vN: the pill on the process page and the run\'s record, and "
   const ins = insOf(html);
   assert.ok(new RegExp('<details class="prov-why" data-disc="prov:' + g.id + '"><summary class="small">Why is this here\\?</summary>').test(ins));
   assert.ok(/<dt>Before → after<\/dt><dd><span class="redline">/.test(ins) && /<ins>by<\/ins>|<ins>/.test(ins), 'before and after, as a redline');
-  assert.ok(/<dt>Why · Blake Ortiz<\/dt><dd>The board &lt;img src=x onerror=alert\(1\)&gt; meets at 4<\/dd>/.test(ins) && !/<img src=x/.test(ins), 'the reason, escaped');
-  assert.ok(/Suggested in 1 run: <button class="linkish" data-act="open-run" data-id="release\/r1">Release &lt;i&gt;A&lt;\/i&gt;<\/button>/.test(ins) && /Applied by Avery Lee /.test(ins));
+  assert.ok(/<dt id="pm-approved-0-0" tabindex="-1">Why · Blake Ortiz<\/dt><dd>The board &lt;img src=x onerror=alert\(1\)&gt; meets at 4<\/dd>/.test(ins) && !/<img src=x/.test(ins), 'the reason, escaped');
+  assert.ok(/Suggested in 1 run: <button class="linkish" id="pm-approved-0-0-run" data-act="open-run" data-id="release\/r1">Release &lt;i&gt;A&lt;\/i&gt;<\/button>/.test(ins) && /Applied by Avery Lee /.test(ins));
   state.disc = { ['prov:' + g.id]: true };
   assert.ok(/data-disc="prov:[^"]+" open>/.test(insOf(V.run(ctx))), 'stays open across redraws');
   // A v3 that lists it again isn't where it changed.
@@ -1802,7 +1802,7 @@ rule('Folder health: Needs action first, one button per problem, all clear after
   assert.ok(/data-act="open-run" data-id="release\/run1">Compare copies</.test(html));
   assert.ok(!/<script>alert|<img src=x/.test(html) && /Night &lt;script&gt;/.test(html) && /run-&lt;img src=x/.test(html), 'run titles and file names are escaped');
   assert.ok(/Team &lt;b&gt;ops&lt;\/b&gt;/.test(html), 'the folder name is escaped');
-  assert.ok(/What's in the folder/.test(html) && /<code>top level<\/code>/.test(html), 'per-area counts');
+  assert.ok(/What's in the folder/.test(html) && /<code id="hz-area-\(top\)" tabindex="-1">top level<\/code>/.test(html), 'per-area counts');
   assert.ok(/data-act="connection"/.test(html) && /data-act="recovery" data-id=""/.test(html), 'links to the connection check and the guide');
 });
 
@@ -2136,7 +2136,7 @@ rule('Runs: the first view shows at most 50 running and 50 finished runs, says h
   let html = V.runs(ctx);
   assert.strictEqual(cards(html), 108, 'at most 50 running, the 8 newest finished and 50 earlier ones on the first view');
   assert.ok(/Showing 50 of 1,942/.test(html) && /Showing 50 of 70/.test(html));
-  assert.ok(/<button class="btn" data-act="more" data-id="runs-ended"[^>]*>Show 50 more<\/button>/.test(html));
+  assert.ok(/<button type="button" class="btn" data-act="more" data-id="runs-ended"[^>]*>Show 50 more<\/button>/.test(html));
   assert.ok(/data-act="more" data-id="runs-running"[^>]*>Show 20 more</.test(html), 'says how many more when it\'s fewer than 50');
   state.more = { 'runs-ended': 100 };
   html = V.runs(ctx);

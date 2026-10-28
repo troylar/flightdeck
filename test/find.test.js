@@ -75,7 +75,7 @@ rule('K.list: the first 50, how many there are (announced), and Show more naming
   const h = K.list({}, 'demo', items(120), lo({ focusOf: k => K.byId(k) + ' h3' }));
   assert.strictEqual(ids(h).length, 50);
   assert.ok(/<span class="small" role="status">Showing 50 of 120<\/span>/.test(h));
-  assert.ok(/<button class="btn" data-act="more" data-id="demo" data-next="row-50" data-focus="\[id=&quot;row-50&quot;\] h3">Show 50 more<\/button>/.test(h), h.slice(-300));
+  assert.ok(/<button type="button" class="btn" data-act="more" data-id="demo" data-next="row-50" data-focus="\[id=&quot;row-50&quot;\] h3">Show 50 more<\/button>/.test(h), h.slice(-300));
   assert.strictEqual(ids(K.list({ more: { demo: 100 } }, 'demo', items(120), lo())).length, 100);
   const all = K.list({ more: { demo: 150 } }, 'demo', items(120), lo());
   assert.ok(ids(all).length === 120 && !/data-act="more"/.test(all) && !/Showing/.test(all), 'all shown: no line, no button');
