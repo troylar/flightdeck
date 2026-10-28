@@ -1582,6 +1582,7 @@
     PF.perf.add('render');
     /* What was just shown is this folder's: after a folder switch it's gone (gen), without the switch itself changing. */
     if (state.justShown && state.justShown.gen !== gen) state.justShown = null;
+    if (state.noteShown && state.noteShown.gen !== gen) state.noteShown = null;
     if (state.find && state.find.gen !== gen) state.find = null;
     if (state.justPlanned && state.justPlanned.gen !== gen) state.justPlanned = null;
     dropBatchRender();
@@ -1611,7 +1612,11 @@
     var page = (welcome ? V.setup : PAGES[v] || V.home)(ctx), was = drawn;
     /* In the editor, a practice open for this draft follows each change as it's applied, and where you are in it. */
     if (v === 'process' && state.ptab === 'edit') { var epx = currentProcess(); if (epx && prs[edKey(epx.id)]) { prFollow(epx); prTargetNow(epx); } }
+    /* A run's panes keep their scroll when a redraw replaces one showing the same step (on a phone the inspector is a sheet
+       that scrolls on its own, and a note brought into view in it must stay in view; 2.11). */
+    var panes = ['rw-list', 'rw-ins'].map(function (id) { var el = document.getElementById(id); return el ? { id: id, el: el, scope: el.getAttribute('data-scope'), top: el.scrollTop } : null; }).filter(Boolean);
     patch(app, page);
+    panes.forEach(function (w) { var el = document.getElementById(w.id); if (el && el !== w.el && w.top && el.getAttribute('data-scope') === w.scope && el.scrollTop !== w.top) el.scrollTop = w.top; });
     noteDrawn(page);
     repNoteDrawn(page);
     /* Boxes drafts own (evidence, Fill in, the note) are carried by their step's draft, never from another step or form. */
@@ -1832,7 +1837,8 @@
   function savePanes() { var k = { key: state.runKey }; ['rw-list', 'rw-ins'].forEach(function (id) { var el = document.getElementById(id); if (el) k[id] = el.scrollTop; }); state.paneScroll = k; }
   /* On a phone the step panel covers the screen, so it behaves like a dialog: the rest is inert, focus moves into it, and
      closing returns focus to the step it came from. */
-  var sheetWasOpen = false, obSheetOpen = false, obInert = [];
+  /* sheetFor: the sheet opens on something inside it (a note from search, 2.11), which keeps focus instead of Close. */
+  var sheetWasOpen = false, obSheetOpen = false, obInert = [], sheetFor = null;
   /* The builder's side form too: on a phone it covers the outline, everything else is inert, and Done closes it. */
   function obSheet(narrow) {
     obInert.forEach(function (el) { el.removeAttribute('inert'); }); obInert = [];
@@ -1851,8 +1857,11 @@
     if (obSheet(narrow)) return;
     var open = !!(narrow && ref && (state.view === 'run' || state.view === 'practice'));
     app.querySelectorAll('.rw-head, .rw-strip, .rw-alerts, .rw-rail, .rw-list').forEach(function (el) { if (open) el.setAttribute('inert', ''); else el.removeAttribute('inert'); });
-    if (open) { topEl.setAttribute('inert', ''); ref.setAttribute('role', 'dialog'); ref.setAttribute('aria-modal', 'true'); if ((!sheetWasOpen || !ref.contains(document.activeElement)) && !(state.view === 'practice' && ref.contains(document.activeElement))) { var c = ref.querySelector('.close'); if (c) c.focus(); } }
+    if (open) { topEl.setAttribute('inert', ''); ref.setAttribute('role', 'dialog'); ref.setAttribute('aria-modal', 'true'); if ((!sheetWasOpen || !ref.contains(document.activeElement)) && !(state.view === 'practice' && ref.contains(document.activeElement)) && !(sheetFor && ref.contains(document.activeElement))) { var c = ref.querySelector('.close'); if (c) c.focus(); }
+      /* The sheet's layout comes after the draw's reveal, so what it opened on is brought into view again inside it. */
+      var on = null; try { on = sheetFor ? ref.querySelector(sheetFor) : null; } catch (e) { on = null; } if (on && on.scrollIntoView) on.scrollIntoView({ block: 'nearest' }); }
     else if (!state.overlay) topEl.removeAttribute('inert');
+    sheetFor = null;
     if (sheetWasOpen && !open && state.sel) { var back = document.querySelector('[data-act="select"][data-id="' + cssEsc(state.sel) + '"]'); if (back) back.focus({ preventScroll: true }); }
     sheetWasOpen = open;
   }
@@ -5345,7 +5354,7 @@
       render();
     },
     nav: function (id) {
-      typeOpens++; state.more = {}; state.justShown = null; state.revealTarget = null; state.justPlanned = null;
+      typeOpens++; state.more = {}; state.justShown = null; state.noteShown = null; state.revealTarget = null; state.justPlanned = null;
       if (id === 'home') { home(); state.focus = '[data-act="nav"][data-id="home"]'; render(); window.scrollTo(0, 0); return; }
       if (['runs', 'followups', 'processes', 'skills', 'types', 'settings'].indexOf(id) < 0) return;
       releaseUrls(state.urls); setView(id); state.processId = null; state.runKey = null; resetRunUi(); state.fuPick = null;
@@ -6323,7 +6332,8 @@
        brought into view. */
     'goto-corr': function (id) {
       var r = ctx.run(), cid = String(id || '').replace(/^corr-/, ''); if (!r || !state.sel || !cid) return;
-      ensureListItemVisible('rcorr:' + state.runKey + ':' + state.sel, cid, { focus: PF.vk.byId('corr-' + cid), word: 'opened' }); render();
+      var m = /^(.*)#(\d+)$/.exec(cid);
+      ensureListItemVisible('rcorr:' + state.runKey + ':' + state.sel, cid, { focus: PF.vk.byId(m ? V.corrDomId(m[1], +m[2]) : 'corr-' + cid), word: 'opened' }); render();
     },
     'corr-menu': function () { var f = state.corrForm; if (!f) return; f.menu = !f.menu; state.focus = f.menu ? '.corr-menu-list button' : '[data-act="corr-menu"]'; render(); },
     'corr-op': function (id) {
@@ -6453,10 +6463,10 @@
       /* A note that's too long is refused, not cut short; the draft stays so it can be shortened or split. */
       if (text.length > NOTE_MAX) { state.fieldErr = { id: 'note:' + id, msg: 'Notes can be up to 2,000 characters; this one is ' + text.length.toLocaleString('en-US') + '. Shorten it, or split it into two notes.', field: 'note-text' }; state.focus = '#note-text'; render(); return; }
       state.fieldErr = null;
-      var endBusy = busyStart();
+      var endBusy = busyStart(), nid = U.randomId(10);
       queued(function () {
         return saveFiles(nfs, r, files).then(function (saved) {
-          var note = { id: U.randomId(10), at: new Date().toISOString(), by: who, session: WRITER, step: id, text: text, files: saved.paths, fileInfo: saved.info };
+          var note = { id: nid, at: new Date().toISOString(), by: who, session: WRITER, step: id, text: text, files: saved.paths, fileInfo: saved.info };
           return repo.addNote(nfs, r, WRITER, note);
         });
       }).then(function () {
@@ -6470,7 +6480,12 @@
         if (state.attErr && state.attErr.key === 'note:' + id) state.attErr = null;
         var ack = state.noteAck = { key: nkey, step: id }; setTimeout(function () { if (state.noteAck === ack) { state.noteAck = null; scheduleRender(); } }, 4000);
         if (state.runKey === nkey) { say('Note added to "' + noteStepText(id) + '".', 'good'); state.msg.quiet = true; }
-        return refreshRun();
+        /* The new note is drawn wherever its time sorts it, even outside the newest 20 (a clock behind), and brought into view (2.11). */
+        return refreshRun().then(function () {
+          if (ng !== gen || state.runKey !== nkey) return;
+          state.noteShown = { gen: gen, run: nkey, step: id, note: nid };
+          if (state.sel === id) { revealAt(PF.vk.byId('tn-' + id + '-' + nid)); render(); }
+        });
       }, function (e) { endBusy(); if (ng !== gen) return; say('Couldn\'t add the note: ' + e.message, 'bad'); render(); });
     },
     'just-me': function () { app.querySelectorAll('#start-form [data-role], #plan-form [data-role]').forEach(function (el) { el.value = state.me; }); },
@@ -7242,7 +7257,7 @@
     state.fieldErr = null;
     try { P.checkName(add.name); } catch (err) { state.fieldErr = { id: 'setup', field: 'pa-name', msg: err.message }; state.focus = 'pa-name'; render(); return; }
     try { P.checkEmail(add.email); } catch (err) { state.fieldErr = { id: 'setup', field: 'pa-email', msg: err.message }; state.focus = 'pa-email'; render(); return; }
-    changePeople('add', null, function (doc) { return P.add(doc, add.name, add.email); }, function (p) { state.peopleAdd = null; state.focus = 'pa-name'; say('Added ' + p.name + ' as ' + p.id + '. They choose their name when they open the folder.', 'good'); });
+    changePeople('add', null, function (doc) { return P.add(doc, add.name, add.email); }, function (p) { state.peopleAdd = null; state.focus = 'pa-name'; ensureListItemVisible('people', p.id, { word: 'added' }); say('Added ' + p.name + ' as ' + p.id + '. They choose their name when they open the folder.', 'good'); });
   });
   /* Settings' Add a team value and its Edit (2.9). */
   document.addEventListener('submit', function (e) {
@@ -7266,7 +7281,8 @@
       if (!adding && !Object.prototype.hasOwnProperty.call(doc.values, name)) throw new Error('"' + name + '" isn\'t a team value anymore.');
       doc.values[name] = entry; return name;
     }, function () {
-      if (same()) { if (adding) { state.teamAdd = null; state.focus = 'tv-name'; } else state.teamEdit = null; }
+      /* The value just saved is focused and brought into view (2.11); team values aren't paged (100 at most), so it's drawn. */
+      if (same()) { if (adding) state.teamAdd = null; else state.teamEdit = null; state.focus = PF.vk.byId('tvv-' + name); state.focusWins = true; revealAt(state.focus); }
       say((adding ? 'Added the team value ' : 'Saved the team value ') + name + '.', 'good');
     }, adding ? null : f.base);
   });
@@ -7671,17 +7687,27 @@
       if (!t.run || !ctx.findRun(t.run)) return false;
       /* A correction, fix or map note (2.11): on a step, its row in the inspector's Corrections, kept past the page; on a phase
          or a gate, its group on the checklist's page. */
-      var tr = ctx.findRun(t.run), cn = t.note ? (tr._notes || []).filter(function (n) { return n.id === t.note && (n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map'); })[0] : null;
-      if (cn && !t.step) { var cg = corrGroupOf(tr, cn.id); if (cg) return go({ view: 'process', process: tr.process, group: cg }); }
+      /* A note is found by its id and its whole content (2.11): of notes sharing an id, only the one the target names is
+         chosen, never another in its place (PF.search.noteFind). */
+      var tr = ctx.findRun(t.run), hit = t.note ? PF.search.noteFind(tr._notes || [], t) : null;
+      var cn = hit && (hit.n.kind === 'correction' || hit.n.kind === 'fix' || hit.n.kind === 'map') ? hit.n : null;
+      if (cn && !t.step) { var cg = corrGroupOf(tr, cn); if (cg) return go({ view: 'process', process: tr.process, group: cg }); }
       if (t.run !== state.runKey || !inRun()) openRun(t.run); else setView('run');
       var r = ctx.run(), x = t.step ? M.findStep(R.mapOf(r), t.step) : null;
       if (x && cn) {
         state.unfold[x.phase.id] = true; selectStep(x.step.id); state.refOpen = true;
-        ensureListItemVisible('rcorr:' + t.run + ':' + x.step.id, cn.id, { focus: PF.vk.byId('corr-' + cn.id), word: 'opened' });
+        /* Kept in the step's Corrections by its identity (state.noteShown), so a newer read can't put another in its place. */
+        state.noteShown = { gen: gen, run: t.run, step: x.step.id, note: t.note, anchor: t.anchor, same: t.same, rank: t.rank };
+        var csel = PF.vk.byId(V.corrDomId(cn.id, hit.k)); state.focus = csel; state.focusWins = true; revealAt(csel, true); sheetFor = csel;
       } else if (x) {
-        state.unfold[x.phase.id] = true; selectStep(x.step.id); state.refOpen = !narrow();
-        state.focus = '[data-act="select"][data-id="' + cssEsc(x.step.id) + '"]'; revealAt('#step-' + cssEsc(x.step.id));
-        var mark = state.flash = { ids: [x.step.id], notes: t.note ? [t.note] : [] };
+        state.unfold[x.phase.id] = true; selectStep(x.step.id); state.refOpen = !narrow() || !!t.note;
+        /* A note: drawn in its step's thread whatever the page, focused and brought into view; on a phone the inspector
+           sheet opens on it. A note that's gone leaves the step selected and the thread says so. */
+        var nsel = hit ? PF.vk.byId('tn-' + x.step.id + '-' + hit.key) : null;
+        if (t.note) state.noteShown = { gen: gen, run: t.run, step: x.step.id, note: t.note, anchor: t.anchor, same: t.same, rank: t.rank };
+        if (nsel) { state.focus = nsel; state.focusWins = true; revealAt(nsel, true); sheetFor = nsel; }
+        else { state.focus = '[data-act="select"][data-id="' + cssEsc(x.step.id) + '"]'; revealAt('#step-' + cssEsc(x.step.id)); }
+        var mark = state.flash = { ids: [x.step.id], noteKey: hit ? hit.key : null };
         setTimeout(function () { if (state.flash === mark) { state.flash = null; scheduleRender(); } }, 1800);
       }
       render(); return true;
@@ -7718,8 +7744,11 @@
     return true;
   }
   /* The group on a run's checklist a correction note is in. */
-  function corrGroupOf(r, noteId) {
-    var g = ctx.corrections(r.process).filter(function (x) { return x.members.some(function (m) { return m.id === noteId && m.run === r.id; }); })[0];
+  function corrGroupOf(r, n) {
+    var gs = ctx.corrections(r.process), of = function (test) { return gs.filter(function (x) { return x.members.some(function (m) { return m.id === n.id && m.run === r.id && test(m); }); }); };
+    /* Notes that share an id are told apart by what they say (2.11): a legacy fix by its kind, a correction by its reason. */
+    var exact = of(function (m) { return m.at === n.at && m.by === n.by && (n.kind === 'fix' ? m.fixKind === (n.fixKind || '') : n.kind === 'correction' ? m.why === (n.newer ? n.text || n.why || '' : n.why || '') && JSON.stringify(m.change) === JSON.stringify(n.change) : true); });
+    var g = exact[0] || of(function () { return true; })[0];
     return g ? g.id : null;
   }
   /* What go() would lose: the first control on the page or in the open dialog whose value isn't what the page drew

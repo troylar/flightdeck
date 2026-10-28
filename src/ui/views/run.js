@@ -435,7 +435,7 @@
   function corrRow(ctx, c, g, opts) {
     opts = opts || {};
     var ch = c.change, lab = c.oneOff ? 'Just this run' : C.OP_LABEL[ch ? ch.op : 'describe'];
-    var h = '<li class="corr" id="corr-' + esc(c.id) + '" tabindex="-1"><div class="row corr-top"><span class="badge b-plan">' + esc(lab) + '</span>' + corrPill(g, c) + '<span class="small">' + esc(nameOf(ctx, c.by)) + ' · ' + esc(opts.day ? U.when(c.at) : U.hm(c.at)) + '</span></div>';
+    var h = '<li class="corr" id="' + esc(opts.domId || 'corr-' + c.id) + '" tabindex="-1"><div class="row corr-top"><span class="badge b-plan">' + esc(lab) + '</span>' + corrPill(g, c) + '<span class="small">' + esc(nameOf(ctx, c.by)) + ' · ' + esc(opts.day ? U.when(c.at) : U.hm(c.at)) + '</span></div>';
     if (opts.step && c.stepText) h += '<div class="corr-step">' + inlineText(c.stepText) + '</div>';
     var dl = '';
     if (ch && ch.op !== 'describe' && c.from) dl += '<dt>Checklist said</dt><dd>' + esc(c.from) + '</dd>';
@@ -453,10 +453,14 @@
   /* Corrections first published in exactly this run's version, by the step they're about there. Only that version's runs
      show "Changed in vN": a later version has the step as it is, with nothing new to explain. */
   /* A step's corrections as a list's items (2.11): keyed by ID, and by its occurrence when two share one ("id#2"). */
+  /* A step's corrections as list items, each keyed by its note's identity (its id, and where it stands among the run's notes
+     sharing that id: noteAt), so two corrections sharing an id are two rows with their own ids on the page. */
   function corrItems(rows) {
     var seen = Object.create(null);
-    return rows.map(function (c) { var n = seen[c.id] = (seen[c.id] || 0) + 1; return { c: c, k: n > 1 ? c.id + '#' + n : c.id }; });
+    return rows.map(function (c) { var n = c.noteAt || (seen[c.id] = (seen[c.id] || 0) + 1); return { c: c, k: PF.search.noteKey(c.id, n), dom: corrDomId(c.id, n) }; });
   }
+  /* A correction row's id: corr-<id>, and corr-<id>-<n> for a later note sharing that id. */
+  function corrDomId(id, n) { return 'corr-' + (n > 1 ? id + '-' + n : id); }
   function changedHere(ctx, r) { return r && r.process && r.folder ? C.changedIn(corrGroups(ctx, r.process), r.folder) : {}; }
   /* "Changed in vN" with "Why is this here?": what it said before and after, why, the runs that suggested it, who applied it. */
   /* The members of every change on this step, 20 at a time counted across them (2.11): a change is drawn once one of its
@@ -492,7 +496,7 @@
       (dl ? '<dl class="corr-dl">' + dl + '</dl>' : '') + runs + who + '</details></div>';
   }
   V.fuList = fuList; V.fuRow = fuRow; V.fuPill = fuPill; V.fuPaged = fuPaged;
-  V.redline = redline; V.corrRow = corrRow; V.corrPill = corrPill; V.corrIndex = corrIndex; V.corrGroups = corrGroups;
+  V.redline = redline; V.corrRow = corrRow; V.corrDomId = corrDomId; V.corrPill = corrPill; V.corrIndex = corrIndex; V.corrGroups = corrGroups;
   /* The composer: Correct this step (a proposal; it doesn't answer the step) or Done differently (answers it; what happened
      first, then whether the checklist should change). The published step stays shown above it, never replaced. */
   function composer(ctx, r, map, x, f) {
@@ -706,11 +710,11 @@
     /* Done differently: what happened, said with the answer (or after it), and the correction that went with it if any. */
     if (cf && cf.mode === 'differently') h += composer(ctx, r, map, x, cf);
     else if (rec && !r.paused && R.phaseOpen(r, map, x.phaseIndex) && a && a.s === 'done' && !a.differently && t.id !== 'run.process') h += '<button class="mini" style="align-self:flex-start" data-act="corr-open" data-mode="differently" data-id="' + esc(st.id) + '">Did it differently? Say how</button>';
-    var rows = C.forRun(r, map).filter(function (c) { return c.step === st.id; }), idx = rows.length ? corrIndex(ctx, r.process) : {};
+    var rows = C.forRun(r, map, { at: true }).filter(function (c) { return c.step === st.id; }), idx = rows.length ? corrIndex(ctx, r.process) : {};
     if (a && a.differently) {
       var linked = rows.filter(function (c) { return c.answer && !c.oneOff; })[0];
       h += '<div class="notice rw-diff" style="margin:0"><span><span class="badge b-diff">Done differently</span> · ' + esc(nameOf(ctx, a.differently.by)) + (a.differently.at ? ' · ' + U.hm(a.differently.at) : '') + '<span class="rw-diff-t">' + esc(a.differently.note) + '</span></span><span class="row">' +
-        (linked ? '<button class="mini" data-act="goto-corr" data-id="corr-' + esc(linked.id) + '">View correction</button>' : '') + (rec && !r.paused && a.s === 'done' && R.phaseOpen(r, map, x.phaseIndex) ? '<button class="mini" data-act="toggle" data-id="' + esc(st.id) + '">Change answer</button>' : '') + '</span></div>';
+        (linked ? '<button class="mini" data-act="goto-corr" data-id="corr-' + esc(PF.search.noteKey(linked.id, linked.noteAt || 1)) + '">View correction</button>' : '') + (rec && !r.paused && a.s === 'done' && R.phaseOpen(r, map, x.phaseIndex) ? '<button class="mini" data-act="toggle" data-id="' + esc(st.id) + '">Change answer</button>' : '') + '</span></div>';
     }
     /* Earlier answers: who, when, values and reasons; older ones from the run's history files on request. */
     /* Each 20 at a time (2.11), in its own order: Earlier answers newest first, Archived answers oldest first. */
@@ -726,20 +730,36 @@
       var nr = (arch.refused || []).length; if (nr) h += '<p class="small">' + nr + ' archived record' + (nr === 1 ? ' needs' : 's need') + ' a newer Flightdeck. This copy leaves ' + (nr === 1 ? 'it' : 'them') + ' alone.</p>'; }
     else if (a && a.history && a.history.length >= 10) h += '<button class="mini" style="align-self:flex-start" data-act="load-history">Show older answers</button>';
 
+    /* The note a search or a save showed you (2.11), found again by its whole content after a newer read: an ordinary note
+       is kept in the thread below, a correction, fix or map note in Corrections. */
+    var ns = s.noteShown && s.noteShown.run === runKey(r) && s.noteShown.step === st.id ? s.noteShown : null, nsAny = ns ? PF.search.noteFind(r._notes || [], ns) : null;
+    var nsCorrKind = !!nsAny && (nsAny.n.kind === 'correction' || nsAny.n.kind === 'fix' || nsAny.n.kind === 'map');
+    var nsHit = nsAny && !nsCorrKind && nsAny.n.step === st.id ? nsAny : null, nsCorr = nsAny && nsCorrKind ? nsAny : null;
     /* Notes, with attachments; anyone who has said who they are can add one. */
     /* Corrections to this step from this run, then Correct this step (anyone who has said who they are, whatever the run's state). */
     h += '<section class="rw-box rw-corr" aria-labelledby="ins-corr"><div class="row between"><h3 class="rw-h3" id="ins-corr">Corrections' + (rows.length ? ' · ' + rows.length : '') + '</h3>' +
       (s.me && !(cf && cf.mode === 'correct') ? '<button class="mini" data-act="corr-open" data-mode="correct" data-id="' + esc(st.id) + '" title="If the checklist was wrong or unclear here, correct it. The team reviews corrections on the checklist&#39;s page.">' + I('edit') + 'Correct this step</button>' : '') + '</div>' +
-      (rows.length ? K.list(s, 'rcorr:' + rk, corrItems(rows), { page: 20, keyOf: function (x) { return x.k; }, focusOf: function (k) { return K.byId('corr-' + String(k).split('#')[0]); },
-        draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) { return corrRow(ctx, x.c, idx[x.c.id], { withdraw: true }); }).join('') + '</ul>'; } }) : '') +
+      (rows.length ? K.list(s, 'rcorr:' + rk, corrItems(rows), { page: 20, keep: nsCorr ? [nsCorr.key] : [], keptLabel: 'Shown because you opened it', keyOf: function (x) { return x.k; }, focusOf: function (k) { var m = /^(.*)#(\d+)$/.exec(k); return K.byId(m ? corrDomId(m[1], +m[2]) : corrDomId(k, 1)); },
+        draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) { return corrRow(ctx, x.c, idx[x.c.id], { withdraw: true, domId: x.dom }); }).join('') + '</ul>'; } }) : '') +
       (cf && cf.mode === 'correct' ? composer(ctx, r, map, x, cf) : '') + '</section>';
-    var notes = (r._notes || []).filter(function (n) { return n.step === st.id && n.kind !== 'correction' && n.kind !== 'fix' && n.kind !== 'map'; });
-    h += '<section class="rw-box rw-notes" aria-labelledby="ins-notes"><h3 class="rw-h3" id="ins-notes">' + (R.solo(r) ? 'Notes' : 'Team notes') + (notes.length ? ' · ' + notes.length : '') + '</h3>' + (notes.length ? '<ul class="tnotes">' + notes.map(function (n) {
-      var made = (r.followUps || []).some(function (f) { return f.from === n.id; });
-      return '<li' + (s.flash && s.flash.notes && s.flash.notes.indexOf(n.id) >= 0 ? ' class="flash"' : '') + '>' + avatar(ctx, n.by) + '<div><div class="meta">' + esc(nameOf(ctx, n.by)) + ' · ' + U.hm(n.at) + '</div><div>' + U.mdInline(n.text) + '</div>' +
+    /* The newest 20 notes, with Show earlier above them (2.11). A note is its id and where it stands among the notes sharing
+       that id (PF.search.noteAt), so notes that share an id are told apart. The note a search or a save showed you is drawn
+       wherever it sorts, under From earlier, found again by its whole content after a newer read; gone, the line says so. */
+    var ats = PF.search.noteAts(r._notes || []), notes = [];
+    (r._notes || []).forEach(function (n, i) { if (n.step === st.id && n.kind !== 'correction' && n.kind !== 'fix' && n.kind !== 'map') notes.push({ n: n, key: PF.search.noteKey(n.id, ats[i]) }); });
+    var flashKey = s.flash && s.flash.noteKey, tn = function (key) { return 'tn-' + st.id + '-' + key; };
+    var noteLi = function (x) {
+      var n = x.n, made = (r.followUps || []).some(function (f) { return f.from === n.id; });
+      PF.perf.add('note.row');
+      return '<li id="' + esc(tn(x.key)) + '" tabindex="-1"' + (flashKey === x.key ? ' class="flash"' : '') + '>' + avatar(ctx, n.by) + '<div><div class="meta">' + esc(nameOf(ctx, n.by)) + ' · ' + U.hm(n.at) + '</div><div>' + U.mdInline(n.text) + '</div>' +
         attachments(ctx, n.id, n.files, n.fileInfo, 'note') +
         (rec && r.state === 'running' && n.text ? (made ? '<span class="small">Follow-up added</span>' : '<button class="linkish" data-act="add-followup" data-text="' + esc(n.text.slice(0, 300)) + '" data-step="' + esc(st.id) + '" data-from="' + esc(n.id) + '">Make it a follow-up</button>') : '') + '</div></li>';
-    }).join('') + '</ul>' : '');
+    };
+    h += '<section class="rw-box rw-notes" aria-labelledby="ins-notes"><h3 class="rw-h3" id="ins-notes">' + (R.solo(r) ? 'Notes' : 'Team notes') + (notes.length ? ' · ' + notes.length : '') + '</h3>' +
+      (ns && !nsAny && ns.anchor != null ? '<p class="small tn-gone" role="status">That note isn\'t in this run anymore.</p>' : '') +
+      (notes.length ? K.list(s, 'notes:' + rk, notes, { page: 20, tail: true, keyOf: function (x) { return x.key; }, focusOf: function (k) { return K.byId(tn(k)); }, keep: nsHit ? [nsHit.key] : [], keptLabel: 'From earlier',
+        gap: function (n) { return n.toLocaleString('en-US') + (n === 1 ? ' note' : ' notes') + ' between'; },
+        draw: function (shown) { return '<ul class="tnotes">' + shown.map(noteLi).join('') + '</ul>'; } }) : '');
     if (s.me) {
       var pend = ctx.attachments(runKey(r), st.id), ack = s.noteAck && s.noteAck.key === runKey(r) && s.noteAck.step === st.id;
       h += '<div class="compose" data-drop="note" data-id="' + esc(st.id) + '">' + ferr(s, 'note:' + st.id) + '<label class="small" for="note-text">Add a note</label><textarea id="note-text" data-draft-kept maxlength="2000" rows="3"' + (s.fieldErr && s.fieldErr.id === 'note:' + st.id ? ' aria-invalid="true" aria-describedby="ferr-note:' + esc(st.id) + '"' : '') + ' placeholder="' + (R.solo(r) ? 'What you noticed' : 'What the team should know') + '. Drop, paste or attach files.">' + esc(dr.note || '') + '</textarea>' +

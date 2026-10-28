@@ -160,7 +160,7 @@ The run screen fills the window:
 | **Recording strip** | Who's recording, with **Pause** and **Hand off** (which names the exact revision passed on), the run's details, and what this window saved and when it last checked the folder. Another window sees **Pick up recording** (when it was handed to you), **Record here** (when you're recording elsewhere) or **Take over recording** (for emergencies, when the recorder's computer is gone). |
 | **Phases** | Each phase and its gate's state by name ("Confirm deploy · Passed"), the day timeline and follow-ups. |
 | **Checklist** | Every step, with **Next up** pinned at the top. Step text shows the run's details: `Start the production deploy job v2026.10.16`, or `‹tag›` until the tag is set. A phase behind its gate offers **Preview steps**; a finished one folds to a tally with **Show steps**. Steps this run doesn't need fold into one line at the end of their phase ("1 step not needed"), each with its reason. |
-| **Selected step** | What to do (only when there's something to say), the values to copy, the evidence to record (**Fill in** only when there's something to fill in), then **Done**, **Done differently**, **Blocked** and **N/A**, and its corrections and notes. |
+| **Selected step** | What to do (only when there's something to say), the values to copy, the evidence to record (**Fill in** only when there's something to fill in), then **Done**, **Done differently**, **Blocked** and **N/A**, and its corrections and notes (the newest 20, with **Show 20 earlier**; a note you open from search is shown wherever it sorts). |
 
 Check the step Next up points at and the next one is selected, ready for **Space**. Typed evidence and unsent notes stay with their step while you move around. Notes and corrections take files (drop, paste or **Attach**): images, PDF, text and logs, CSV, JSON, YAML and .zip, up to 10 MB each. On a phone the checklist scrolls and a step opens as a full-screen sheet.
 
@@ -337,7 +337,7 @@ AGENTS.md              the rules any AI assistant follows in this folder (your o
 
 ### How big a folder can get
 
-Thousands of runs open and refresh without stalling. **Settings → Folder health** watches these sizes. None of them locks anything; each says what to do, and [The folder is getting big](https://github.com/troylar/flightdeck/blob/main/docs/recovery.md#the-folder-is-getting-big) has the steps.
+Thousands of runs open and refresh without stalling. Long lists show a page at a time with **Show more**, and the ones you look things up in have a **Find** box: Checklists, Skills, Follow-ups and **Settings → People** (in name order). **Settings → Folder health** watches these sizes, 50 problems a section at a time. None of them locks anything; each says what to do, and [The folder is getting big](https://github.com/troylar/flightdeck/blob/main/docs/recovery.md#the-folder-is-getting-big) has the steps.
 
 | Size | What happens |
 |---|---|

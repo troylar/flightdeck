@@ -198,8 +198,14 @@
     var role = function (p) { return p.folderRole === 'owner' ? '<span class="pill passed">Folder owner</span>' : p.folderRole === 'backup' ? '<span class="pill waived">Backup owner</span>' : ''; };
     var h = '<section class="panel" aria-labelledby="set-people"><h2 id="set-people">' + I('people') + 'People · ' + people.length + '</h2>';
     if (st.peopleErr) h += '<div class="notice warn" role="alert"><span>' + esc(st.peopleErr) + '</span><button class="mini" data-act="people-err-dismiss">Dismiss</button></div>';
-    h += people.length ? '<ul class="vlist pp-list">' + people.map(function (p) {
+    /* By name, 50 at a time, with Find a person (2.11): people.json keeps its own order. The person whose owner change is
+       being confirmed, and the one just added, are drawn whatever the page or the Find text. */
+    var q = K.findQ(st, 'people'), hit = K.finds(q), sorted = PP.sorted(ctx), found = q ? sorted.filter(function (p) { return hit([p.name, p.email, p.id]); }) : sorted;
+    var js = st.justShown && st.justShown.lists ? st.justShown.lists.people : null, inFound = Object.create(null);
+    found.forEach(function (p) { inFound[p.id] = true; });
+    var row = function (p) {
       var acts = '';
+      PF.perf.add('people.row');
       if (can) {
         if (pick === p.id) acts = '<span class="row" data-scope="people-owner"><span class="small">Make ' + esc(p.name) + ' the folder owner?' + (r.owner && r.owner.id === me ? ' You become ' + (p.folderRole === 'backup' ? 'backup owner' : 'an ordinary member') + '.' : '') + '</span><button class="btn go" data-act="people-owner" data-id="' + esc(p.id) + '">Make folder owner</button><button class="mini" data-act="unpick">Cancel</button></span>';
         else {
@@ -208,8 +214,19 @@
           if (!allowed(p.inactive ? 'active' : 'inactive', p.id)) acts += '<button class="mini" data-act="people-active" data-id="' + esc(p.id) + '" data-on="' + (p.inactive ? '1' : '') + '">' + (p.inactive ? 'Mark active' : 'Mark inactive') + '</button>';
         }
       }
-      return '<li class="' + (p.inactive ? 'inactive' : '') + '">' + K.avatar(ctx, p.id) + '<span class="pp-who"><b>' + esc(p.name) + '</b> ' + role(p) + (p.inactive ? ' <span class="pill locked">Inactive</span>' : '') + (p.id === me ? ' <span class="small">(you)</span>' : '') + '<br><span class="small">' + esc(p.id) + (p.email ? ' · ' + esc(p.email) : '') + '</span></span>' + (acts ? '<span class="row pp-acts">' + acts + '</span>' : '') + '</li>';
-    }).join('') + '</ul>' : '<p class="small">Nobody yet.</p>';
+      return '<li class="' + (p.inactive ? 'inactive' : '') + '">' + K.avatar(ctx, p.id) + '<span class="pp-who"><b id="' + esc('pp-' + p.id) + '" tabindex="-1">' + esc(p.name) + '</b> ' + role(p) + (p.inactive ? ' <span class="pill locked">Inactive</span>' : '') + (p.id === me ? ' <span class="small">(you)</span>' : '') + '<br><span class="small">' + esc(p.id) + (p.email ? ' · ' + esc(p.email) : '') + '</span></span>' + (acts ? '<span class="row pp-acts">' + acts + '</span>' : '') + '</li>';
+    };
+    var list = function (ps) { return '<ul class="vlist pp-list">' + ps.map(row).join('') + '</ul>'; };
+    if (people.length) {
+      h += K.findBox(st, 'people', 'Find a person', found.length, people.length, 'person');
+      if (found.length) h += K.list(st, 'people', found, { keyOf: function (p) { return p.id; }, focusOf: function (k) { return K.byId('pp-' + k); }, keep: pick ? [pick] : [], keptLabel: 'You\'re changing this one', draw: list });
+      /* Kept rows the Find text leaves out: drawn after the list, said why, without changing the Find text. */
+      [[pick, 'You\'re changing this one'], [js !== pick ? js : null, 'Just added']].forEach(function (k) {
+        if (!k[0] || inFound[k[0]]) return;
+        var p = people.filter(function (x) { return x.id === k[0]; })[0];
+        if (p) h += '<p class="small kept-h">' + esc(k[1]) + '</p>' + list([p]);
+      });
+    } else h += '<p class="small">Nobody yet.</p>';
     if (can) {
       var add = st.peopleAdd || {}, e1 = ferr(st, 'pa-name'), e2 = ferr(st, 'pa-email'), id = String(add.name || '').trim() ? PP.idFor(add.name, people.map(function (p) { return p.id; })) : '';
       h += '<form id="people-add-form" class="pp-add" data-scope="people-add" novalidate><h3>Add a person</h3><div class="grid2"><label class="field" for="pa-name">Name<input id="pa-name" data-bound maxlength="60" value="' + esc(add.name || '') + '"' + e1.attrs + '></label>' + e1.html +
@@ -228,7 +245,7 @@
   var TEAM_WARN = 'Don\'t store passwords or tokens here: every teammate and every run that uses it can read it.';
   function teamValuesPanel(ctx) {
     var st = ctx.state, T = PF.teamValues, tv = ctx.data.teamValues || T.parse(null), people = ctx.data.people, r = PP.roles(people);
-    var usable = tv.state === 'ok' || tv.state === 'missing', values = usable && tv.doc ? tv.doc.values : {}, names = Object.keys(values).sort();
+    var usable = tv.state === 'ok' || tv.state === 'missing', values = usable && tv.doc ? tv.doc.values : {}, names = Object.keys(values).sort(PF.text.natural);
     var can = PP.canManage(people, st.me) && usable && !tv.readOnly, edit = st.teamEdit, pick = st.pick && st.pick.kind === 'team-remove' ? st.pick.id : null;
     var h = '<section class="panel" aria-labelledby="set-team"><h2 id="set-team">Team values · ' + names.length + '</h2>' +
       '<p class="small">Shared settings of this team folder, like a Bitbucket base URL. A linked step passes one to its run with <code>pass: name=team:value-name</code>; it\'s read when that run starts.</p>' +
@@ -249,7 +266,7 @@
         if (pick === n) acts = '<span class="row" data-scope="team-remove"><span class="small">Remove ' + esc(n) + '? Steps that pass it ask for it when their run starts.</span><button class="btn stop" data-act="team-remove" data-id="' + esc(n) + '"' + (st.teamSaving ? ' disabled' : '') + '>Remove</button><button class="mini" data-act="unpick">Cancel</button></span>';
         else acts = '<button class="mini" data-act="team-edit" data-id="' + esc(n) + '">Edit</button><button class="mini" data-act="pick" data-kind="team-remove" data-id="' + esc(n) + '">Remove</button>';
       }
-      return '<li><span class="tv-who"><code>' + esc(n) + '</code>' + (e.about ? ' <span class="small">' + esc(e.about) + '</span>' : '') + '<br><span class="tv-val">' + esc(e.value) + '</span></span>' + (acts ? '<span class="row">' + acts + '</span>' : '') + '</li>';
+      return '<li><span class="tv-who"><code id="' + esc('tvv-' + n) + '" tabindex="-1">' + esc(n) + '</code>' + (e.about ? ' <span class="small">' + esc(e.about) + '</span>' : '') + '<br><span class="tv-val">' + esc(e.value) + '</span></span>' + (acts ? '<span class="row">' + acts + '</span>' : '') + '</li>';
     }).join('') + '</ul>' : '<p class="small">None yet.</p>';
     if (can) {
       var add = st.teamAdd || {}, a1 = ferr(st, 'tv-name'), a2 = ferr(st, 'tv-value'), a3 = ferr(st, 'tv-about');

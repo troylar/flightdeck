@@ -204,7 +204,7 @@
     var warned = function (r) { return (r._conflicts && r._conflicts.length) || (st.missing || {})[runKey(r)]; };
     var flagged = ended.filter(function (r, i) { return i >= 8 && warned(r); }), older = ended.filter(function (r, i) { return i >= 8 && !warned(r); }), allOpen = (st.disc || {})['runs-older'];
     h += '<section class="panel"><h2>Finished · ' + ended.length + '</h2>' + (ended.length ? cards(ended.slice(0, 8)) + (flagged.length ? K.paged(st, 'runs-flagged', flagged, cards, runKey) : '') + (older.length ? '<details data-disc="runs-older"' + (allOpen ? ' open' : '') + '><summary class="small">Earlier finished runs (' + older.length + ')</summary>' + K.paged(st, 'runs-ended', older, cards, runKey) + '</details>' : '') : '<p class="small">' + (st.reading ? 'None read yet.' : 'No finished runs yet.') + '</p>') +
-      (d.legacy.length ? '<p class="small">From Flightdeck v0.1 (read-only files in <code>runs/</code>): ' + d.legacy.map(function (l) { return esc(l.name || l.file) + (l.ended ? ' (' + esc(l.ended.outcome || 'ended') + ')' : ''); }).join(', ') + '</p>' : '') + '</section>';
+      (d.legacy.length ? K.joined(st, 'legacy', d.legacy, function (l) { return esc(l.name || l.file) + (l.ended ? ' (' + esc(l.ended.outcome || 'ended') + ')' : ''); }, { lead: 'From Flightdeck v0.1 (read-only files in <code>runs/</code>): ', noun: 'run' }) : '') + '</section>';
     return h;
   }
 

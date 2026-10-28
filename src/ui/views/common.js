@@ -158,7 +158,8 @@ PF.vk = (function () {
        focusOf(key): the selector Show more focuses for the first item it adds, something always there and focusable (a row's
          heading or title with tabindex="-1", or a row that is one button). Without it, the run card with that key, as before;
        page: the page size (50); keep: keys drawn whatever the page (a row being edited);
-       tail: the last n items, with Show earlier above them (a thread read newest last);
+       tail: the last n items, with Show earlier above them (a thread read newest last); gap(n): the line between a tail's kept
+         rows and the tail ("270 notes between");
        inDialog: the list is in a dialog, so focus moves through the dialog's own focus.
      The item Flightdeck just showed you (state.justShown, ensureListItemVisible in app.js) is drawn whatever the page too.
      Rows kept past the page are drawn after it (before it, for a tail), so nobody loses the row they're working on. */
@@ -183,8 +184,22 @@ PF.vk = (function () {
         (o.tail ? 'Show ' + add + ' earlier' : 'Show ' + add + ' more') + '</button></div>';
     }
     var rest = extra.length ? (kept ? '<p class="small kept-h">' + esc(o.keptLabel || 'You\'re editing this one') + '</p>' : '') + o.draw(extra) : '';
+    /* A tail's kept rows sit above it: o.gap(n) says how many rows lie between the last of them and the tail. */
+    if (o.tail && extra.length && o.gap) { var last = items.indexOf(extra[extra.length - 1]), gap = from - last - 1; if (gap > 0) rest += '<p class="small tgap">' + esc(o.gap(gap)) + '</p>'; }
     if (o.tail) h = more + rest + o.draw(shown);
     else h = o.draw(shown) + more + rest;
+    return h;
+  }
+  /* A list joined into one line (2.11, D10): the first 50 names, then "and 250 more" with Show more, which adds 50 and keeps
+     focus on the line. name(item) is the item's escaped HTML; only the names shown are built. o: lead (the line's escaped
+     start), noun ("run"), cls (the line's class, small by default). */
+  function joined(st, id, items, name, o) {
+    o = o || {};
+    var n = Math.max(PAGE, Math.floor(((st.more || {})[id]) || PAGE));
+    if (PF.vk.PAGE_OFF === id) n = items.length;
+    var shown = items.slice(0, n), left = items.length - shown.length, lid = 'joined-' + id;
+    var h = '<p class="' + esc(o.cls || 'small') + ' joined" id="' + esc(lid) + '" tabindex="-1">' + (o.lead || '') + shown.map(name).join(', ') + (left ? ', and ' + left.toLocaleString('en-US') + ' more' : '') + '</p>';
+    if (left) h += '<div class="row paged"><button type="button" class="mini" data-act="more" data-id="' + esc(id) + '" data-focus="' + esc(byId(lid)) + '">Show ' + Math.min(PAGE, left) + ' more ' + esc(o.noun ? o.noun + 's' : '') + '</button></div>';
     return h;
   }
   /* ---------- a dropdown over a growing list (2.11, K.select) ---------- */
@@ -322,7 +337,7 @@ PF.vk = (function () {
   }
   function unsavedWords(ps) { return ps && ps.saved ? 'its run was saved and has changed since' : ps && ps.certain === false ? 'Flightdeck couldn\'t confirm whether its run saved' : 'its run didn\'t save'; }
   function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
-  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, finds: finds, findBox: findBox, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, select: select, SEL_MORE: SEL_MORE, byId: byId, PAGE: PAGE, PAGE_OFF: null, testTag: testTag, verWord: verWord };
+  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, finds: finds, findBox: findBox, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, joined: joined, select: select, SEL_MORE: SEL_MORE, byId: byId, PAGE: PAGE, PAGE_OFF: null, testTag: testTag, verWord: verWord };
 })();
 (function () {
   'use strict';

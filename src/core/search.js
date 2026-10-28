@@ -161,16 +161,85 @@ PF.search = (function () {
     if (noteMemo) noteMemo.set(n, sig);
     return sig;
   }
-  function noteSource(r, key, n, k, th) {
-    var x = { n: n, k: k };
-    return { id: 'note:' + key + ':' + n.id + '#' + k, kind: 'note', get sig() { return noteSig(n) + '|' + th; }, make: function () { return [noteDoc(r, x)]; } };
+  /* A note's identity (2.11). Notes can share an id, so a note is its id plus its anchor: every field of the cleaned note,
+     correction fields included, as JSON with its keys sorted (noteAnchor). Its occurrence among the run's notes with that id
+     (noteAt, from 1, as search's own document ids count it) is only a hint, for notes identical in every field. */
+  var anchorMemo = typeof WeakMap === 'function' ? new WeakMap() : null;
+  function stable(v) {
+    if (v === undefined || typeof v === 'function') return undefined;
+    if (v === null || typeof v !== 'object') return JSON.stringify(v);
+    if (Array.isArray(v)) return '[' + v.map(function (x) { var s = stable(x); return s === undefined ? 'null' : s; }).join(',') + ']';
+    var out = [];
+    Object.keys(v).sort().forEach(function (k) { var s = stable(v[k]); if (s !== undefined) out.push(JSON.stringify(k) + ':' + s); });
+    return '{' + out.join(',') + '}';
+  }
+  function noteAnchor(n) {
+    var hit = anchorMemo && n && typeof n === 'object' ? anchorMemo.get(n) : null;
+    if (hit) return hit;
+    var a = stable(n) || '';
+    if (anchorMemo && n && typeof n === 'object') anchorMemo.set(n, a);
+    return a;
+  }
+  /* Where a note stands among the notes sharing its id: k (its noteAt), same (how many of them have its anchor) and rank (its
+     place among those). */
+  function noteStand(twins, n) {
+    if (twins.length === 1) return { k: 1, same: 1, rank: 0 };
+    var a = noteAnchor(n), k = 0, same = 0, rank = 0;
+    for (var i = 0; i < twins.length; i++) { if (twins[i] === n) { k = i + 1; rank = same; } if (noteAnchor(twins[i]) === a) same++; }
+    return { k: k, same: same, rank: rank };
+  }
+  /* The note a target names, among a run's notes, or null: { n, k (its noteAt), key (id, or id#k past the first) }.
+     t: { note, anchor, same, rank, noteAt }. With an anchor, exactly one note with that id and anchor is it; several
+     (identical in every field) are told apart by rank only while there are as many as when the target was made; when their
+     number changed (one more, or one fewer), none is chosen, and nothing is chosen in a missing note's place. Without an anchor (a note just saved, whose id is
+     new), the newest note with that id. */
+  function noteFind(notes, t) {
+    if (!t || !t.note) return null;
+    var k = 0, hits = [];
+    (notes || []).forEach(function (n) { if (n.id !== t.note) return; k++; if (t.anchor == null || noteAnchor(n) === t.anchor) hits.push({ n: n, k: k }); });
+    var want = t.same > 1 ? t.same : 1;
+    var x = !hits.length ? null : t.anchor == null ? hits[hits.length - 1] : hits.length !== want ? null : want === 1 ? hits[0] : t.rank >= 0 && t.rank < hits.length ? hits[t.rank] : null;
+    return x ? { n: x.n, k: x.k, key: noteKey(x.n.id, x.k) } : null;
+  }
+  function noteKey(id, k) { return k > 1 ? id + '#' + k : id; }
+  /* Each note's noteAt, in the notes' order (worked out once per notes array). */
+  var atMemo = typeof WeakMap === 'function' ? new WeakMap() : null;
+  function noteAts(notes) {
+    var hit = atMemo && notes ? atMemo.get(notes) : null;
+    if (hit) return hit;
+    var count = Object.create(null), out = (notes || []).map(function (n) { return (count[n.id] = (count[n.id] || 0) + 1); });
+    if (atMemo && notes) atMemo.set(notes, out);
+    return out;
+  }
+  /* Every field of a note, hashed once per note object: a cleaned note's fields come in the reader's own order, so this
+     changes exactly when its anchor does. */
+  var wholeMemo = typeof WeakMap === 'function' ? new WeakMap() : null;
+  function wholeSig(n) {
+    var hit = wholeMemo && wholeMemo.get(n);
+    if (hit) return hit;
+    var sig = U.hash(JSON.stringify(n));
+    if (wholeMemo) wholeMemo.set(n, sig);
+    return sig;
+  }
+  /* A note source's signature holds its anchor and its standing among its twins (2.11), so when a newer read removes or
+     reorders notes sharing an id, every document whose note changed is rebuilt with its new target. */
+  function noteSource(r, key, n, k, th, twins) {
+    var x = { n: n, k: k, twins: twins };
+    return { id: 'note:' + key + ':' + n.id + '#' + k, kind: 'note', get sig() { return wholeSig(n) + (twins.length > 1 ? '|' + noteStand(twins, n).same + '.' + noteStand(twins, n).rank : '') + '|' + th; }, make: function () { return [noteDoc(r, x)]; } };
   }
   function noteDoc(r, x) {
     var n = x.n, key = r.process + '/' + r.id, f = [], corr = n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map';
     field(f, n.text, 6); field(f, n.why, 4); field(f, n.happened, 4); field(f, n.change && typeof n.change.to === 'string' ? n.change.to : '', 4);
     fileNames(n).forEach(function (name) { field(f, name, 3); });
     return { id: 'note:' + key + ':' + n.id + '#' + x.k, kind: corr ? 'correction' : 'note', title: clip(str(n.text).split('\n')[0], 120) || 'Note', sub: (PF.run.isTest(r) ? 'Test run · ' : '') + r.title, fields: f, people: uniq([n.by]), types: [],
-      at: n.at || '', process: r.process, run: key, target: target({ view: 'run', run: key, step: n.step, note: n.id }) };
+      at: n.at || '', process: r.process, run: key, target: noteTarget(key, n, x.twins || [n]) };
+  }
+  function noteTarget(key, n, twins) {
+    var s = noteStand(twins, n), t = target({ view: 'run', run: key, step: n.step, note: n.id, noteAt: s.k });
+    t.same = s.same; t.rank = s.rank;
+    /* The anchor is worked out only when it's read (a result opened), so building the index doesn't serialize every note. */
+    Object.defineProperty(t, 'anchor', { enumerable: true, configurable: true, get: function () { return noteAnchor(n); } });
+    return t;
   }
   function fuDoc(x) {
     var f = [], d = x.decision || {}, fu = x.f || {};
@@ -251,8 +320,9 @@ PF.search = (function () {
     if (hit && hit.gs === gs) return hit.list;
     var list = [{ id: g, kind: 'run', g: g, gs: gs, sig: sig, make: function () { return [runDoc(r)]; } }];
     if (r._notes && r._notes.length) {
-      var count = Object.create(null), th = U.hash(r.title || '');
-      r._notes.forEach(function (n) { var x = noteSource(r, key, n, count[n.id] = (count[n.id] || 0) + 1, th); x.g = g; x.gs = gs; list.push(x); });
+      var count = Object.create(null), twins = Object.create(null), th = U.hash(r.title || '');
+      r._notes.forEach(function (n) { (twins[n.id] = twins[n.id] || []).push(n); });
+      r._notes.forEach(function (n) { var x = noteSource(r, key, n, count[n.id] = (count[n.id] || 0) + 1, th, twins[n.id]); x.g = g; x.gs = gs; list.push(x); });
     }
     if (memo) memo[g] = { gs: gs, list: list };
     return list;
@@ -534,5 +604,5 @@ PF.search = (function () {
   function size(ix) { return { docs: ix.live, words: Object.keys(ix.post).length, sources: Object.keys(ix.src).length }; }
 
   return { KINDS: KINDS, LABEL: LABEL, fold: fold, foldText: foldText, words: words, parse: parse, mark: mark, snippet: snippet, docs: docs, create: create, sync: sync,
-    update: update, start: start, query: query, size: size };
+    update: update, start: start, query: query, size: size, noteAnchor: noteAnchor, noteFind: noteFind, noteAts: noteAts, noteKey: noteKey, noteTarget: noteTarget };
 })();

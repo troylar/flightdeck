@@ -351,7 +351,15 @@
       '<div class="row">' + (V.tabOf(ctx) === 'overview' && p.all.length ? '<button class="mini" data-act="ptab" data-id="insights">' + I('chart') + 'How runs go</button>' : '') + (pub ? '<button class="btn primary" data-act="start" data-id="' + esc(p.id) + '"' + (st.me ? '' : ' disabled') + '>' + I('play') + 'Start a run</button><button class="btn" data-act="plan-run" data-id="' + esc(p.id) + '"' + (st.me ? '' : ' disabled') + '>Plan a run</button>' : '') + '</div></div>';
     var dWhy = p.draft && ((st.unread || {}).drafts || {})[p.draft.file];
     if (dWhy) h += '<div class="notice bad" role="alert"><span><b>' + esc(p.draft.file) + ' couldn\'t be read on the last check</b> (' + esc(dWhy) + '). This is the version read before. It isn\'t edited or saved over until it reads again.</span><span class="row"><button class="btn" data-act="refresh">Try again</button><button class="mini" data-act="recovery" data-id="a-file-cant-be-read">What to do</button></span></div>';
-    if (p.sharedDrafts) h += '<div class="notice bad" role="alert"><span><b>' + p.sharedDrafts.length + ' drafts say process: ' + esc(p.id) + '</b> (' + p.sharedDrafts.map(function (f) { return '<code>' + esc(f) + '</code>'; }).join(', ') + '). This page shows ' + esc(p.draft.file) + '. Settle which one is right before you publish.</span><button class="mini" data-act="recovery" data-id="onedrive-made-a-copy-of-a-draft-peoplejson-or-a-step-type">What to do</button></div>';
+    /* Drafts sharing this process: named in the line when there are a few; past 3, one summary line and a fold naming them
+       50 at a time (2.11, D10), built only for the names shown. */
+    if (p.sharedDrafts) {
+      var sd = p.sharedDrafts, sdk = 'dupes:' + p.id, code = function (f) { return '<code>' + esc(f) + '</code>'; };
+      h += '<div class="notice bad shared-drafts" role="alert"><div><b>' + sd.length.toLocaleString('en-US') + ' drafts say process: ' + esc(p.id) + '</b>' + (sd.length <= 3 ? ' (' + sd.map(code).join(', ') + ')' : '') + '. This page shows ' + esc(p.draft.file) + '. Settle which one is right before you publish.' +
+        (sd.length > 3 ? '<details data-disc="' + esc(sdk) + '"' + ((st.disc || {})[sdk] ? ' open' : '') + '><summary class="small">Which files</summary>' + K.list(st, sdk, sd, { keyOf: function (f) { return f; }, focusOf: function (f) { return K.byId('sd-' + p.id + '-' + f); },
+          draw: function (shown) { return '<ul class="small sd-names">' + shown.map(function (f) { PF.perf.add('dupes.name'); return '<li id="' + esc('sd-' + p.id + '-' + f) + '" tabindex="-1">' + code(f) + '</li>'; }).join('') + '</ul>'; } }) + '</details>' : '') +
+        '</div><button class="mini" data-act="recovery" data-id="onedrive-made-a-copy-of-a-draft-peoplejson-or-a-step-type">What to do</button></div>';
+    }
     if (p.proposedOnly) h += '<div class="notice"><span><b>Proposed, not drafted yet.</b> Your AI assistant proposed this checklist. Review it below; applying it creates the draft.</span></div>';
     h += editingNote(ctx, p);
     if (p.clashes.length) h += '<div class="notice bad"><span>Two people published version ' + p.clashes.join(', ') + ' at the same time. Neither is used until one is removed from <code>publications/' + esc(p.id) + '</code>. Publish again to make a clean next version.</span></div>';
@@ -362,9 +370,15 @@
       K.list(st, 'pub-broken:' + p.id, p.broken, { page: 20, keyOf: function (b) { return b.folder; }, focusOf: function (k) { return K.byId('pb-' + k); },
         draw: function (shown) { return '<ul class="small">' + shown.map(function (b) { PF.perf.add('pub.broken'); return '<li id="' + esc('pb-' + b.folder) + '" tabindex="-1">' + esc(b.folder) + ': ' + esc(b.why) + '</li>'; }).join('') + '</ul>'; } }) + '</details></div></div>';
     /* C3 (2.8): the latest version's linked steps that can't start their child as it is now. */
-    if (pub && ctx.procOf) PF.links.broken(pub.map, PF.links.childrenFrom(ctx.procOf)).forEach(function (b) {
-      h += '<div class="notice warn" role="status"><span>Step "' + esc(b.step.text.slice(0, 40)) + '" passes ' + esc(b.names.join(', ')) + ' to ' + esc(b.title) + ', whose latest version (v' + esc(b.version) + ') doesn\'t have ' + (b.names.length > 1 ? 'them' : 'it') + '. New runs can\'t start that child until this checklist changes.</span></div>';
-    });
+    /* One is one notice, as before; more are one notice, announced once, with each step 20 at a time in its fold (2.11, D10). */
+    if (pub && ctx.procOf) {
+      var lb = PF.links.broken(pub.map, PF.links.childrenFrom(ctx.procOf)), lbk = 'links-broken:' + p.id;
+      var lbText = function (b) { PF.perf.add('links.broken'); return 'Step "' + esc(b.step.text.slice(0, 40)) + '" passes ' + esc(b.names.slice(0, 50).join(', ') + (b.names.length > 50 ? ', and ' + (b.names.length - 50) + ' more' : '')) + ' to ' + esc(b.title) + ', whose latest version (v' + esc(b.version) + ') doesn\'t have ' + (b.names.length > 1 ? 'them' : 'it') + '.'; };
+      if (lb.length === 1) h += '<div class="notice warn" role="status"><span>' + lbText(lb[0]) + ' New runs can\'t start that child until this checklist changes.</span></div>';
+      else if (lb.length) h += '<div class="notice warn links-broken" role="status"><div><b>' + lb.length.toLocaleString('en-US') + ' linked steps can\'t start their child as it is now.</b> New runs can\'t start those children until this checklist changes.' +
+        '<details data-disc="' + esc(lbk) + '"' + ((st.disc || {})[lbk] ? ' open' : '') + '><summary class="small">Which steps, and why</summary>' + K.list(st, lbk, lb, { page: 20, keyOf: function (b) { return b.step.id; }, focusOf: function (k) { return K.byId('lb-' + p.id + '-' + k); },
+          draw: function (shown) { return '<ul class="small">' + shown.map(function (b) { return '<li id="' + esc('lb-' + p.id + '-' + b.step.id) + '" tabindex="-1">' + lbText(b) + '</li>'; }).join('') + '</ul>'; } }) + '</details></div></div>';
+    }
     /* One page: the checklist in the middle, edited in place; how runs go opens on its own with a way back. */
     if (V.tabOf(ctx) === 'insights') return h + '<div class="row"><button class="mini" data-act="ptab" data-id="overview">' + I('back') + 'Back to the checklist</button></div>' + (insights(ctx, p) || '<section class="panel"><p class="small">No runs yet. This fills in after the first run.</p></section>');
     h += '<div class="pgrid"><div class="stack">';

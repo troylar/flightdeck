@@ -336,13 +336,17 @@ PF.corrections = (function () {
 
   /* A run's corrections, for its record: each correction from its notes with what happened, and each "done differently"
      answer. One recorded with a correction is shown with it; one without is a one-off (just this run). */
-  function forRun(r, map) {
-    var out = [], notes = (r._notes || []).filter(function (n) { return n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map'; });
-    notes.forEach(function (n) {
-      var x = n.step && M.findStep(map, n.step), ch = n.kind === 'correction' ? n.change : { op: 'describe' };
+  /* o.at (the app's views, 2.11): each row also says where its note stands among the run's notes sharing its id (noteAt, from
+     1), so notes that share an id are told apart on screen. Without it the rows are exactly as before. */
+  function forRun(r, map, o) {
+    var out = [], count = Object.create(null), at = !!(o && o.at), notes = [];
+    (r._notes || []).forEach(function (n) { var k = count[n.id] = (count[n.id] || 0) + 1; if (n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map') notes.push({ n: n, k: k }); });
+    notes.forEach(function (y) {
+      var n = y.n, x = n.step && M.findStep(map, n.step), ch = n.kind === 'correction' ? n.change : { op: 'describe' };
       out.push({ id: n.id, step: n.step || '', stepText: x ? M.shownText(x.step, M.valuesOf(r)) : n.target && n.target.gate ? 'Gate: ' + gateTitle(map, n.target.gate) : n.target && n.target.phase ? 'Phase: ' + phaseTitle(map, n.target.phase) : '', from: n.kind === 'correction' ? n.from : x ? x.step.text : '',
         change: ch, proposed: proposal(n.kind === 'correction' ? n : { change: ch }, map), why: n.kind === 'correction' ? (n.newer ? n.text || n.why || '' : n.why || '') : (n.kind === 'fix' && LEGACY_KIND[n.fixKind] ? LEGACY_KIND[n.fixKind] + ': ' : '') + n.text,
         happened: n.kind === 'correction' ? n.happened || '' : '', by: n.by, at: n.at, files: n.files || [], fileInfo: n.fileInfo || {}, legacy: n.kind !== 'correction' ? n.kind : '', oneOff: false });
+      if (at) out[out.length - 1].noteAt = y.k;
     });
     M.steps(map).forEach(function (x) {
       var a = r.steps[x.step.id], d = a && a.differently;

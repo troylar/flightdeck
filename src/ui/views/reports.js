@@ -62,8 +62,8 @@
       var vu = step ? X.valuesFor(rep, r, step) : { unused: [] };
       h += '<div class="rep-fact"><h4 class="small">What it says</h4>' + saysBody(r, step, rep, vu.unused) + '</div>';
       h += '<p class="small rep-producer">From ' + esc(rep.producer.name) + (rep.producer.version ? ' ' + esc(rep.producer.version) : '') + ', by its own account.</p>';
-    } else h += '<div class="notice warn"><span>' + esc(g.reason) + '</span></div>';
-    if (rep && g.reason) h += '<div class="notice warn"><span>' + esc(g.reason) + '</span></div>';
+    } else h += reasonHtml(st, g);
+    if (rep && g.reason) h += reasonHtml(st, g);
     h += '<div class="rep-fact"><h4 class="small">What a person decided</h4><p>' + esc(dec.text) + '</p></div>';
     if (ap) h += '<div class="rep-fact"><h4 class="small">Whether its inputs match the run</h4><p>' + esc(X.appliesText(ap)) + '</p></div>';
     /* An acceptance the run logs whose decision isn't in the folder (from saved state); this window's own while its step
@@ -80,6 +80,17 @@
     return '<section class="rep-card" aria-labelledby="' + id + '-h">' + (folded
       ? '<details><summary><h4 class="rep-h" id="' + id + '-h" tabindex="-1">' + head + '</h4></summary>' + h + '</details>'
       : '<h4 class="rep-h" id="' + id + '-h" tabindex="-1">' + head + '</h4>' + h) + '</section>';
+  }
+  /* Why a report can't be accepted. Copies that differ are named in the line when there are a few; past 3, one summary line
+     and a fold naming them 50 at a time (2.11, D10), built only for the names shown. The reason core gives (for the CLI and
+     outside apps) is unchanged. */
+  function reasonText(g) { return g.differ && g.copies.length > 3 ? g.copies.length.toLocaleString('en-US') + ' copies of this report differ, so none of them can be accepted. Delete the wrong ones.' : g.reason; }
+  function reasonHtml(st, g) {
+    if (!(g.differ && g.copies.length > 3)) return '<div class="notice warn"><span>' + esc(g.reason) + '</span></div>';
+    var k = 'repdiff:' + g.key;
+    return '<div class="notice warn rep-differ"><div>' + esc(reasonText(g)) + '<details data-disc="' + esc(k) + '"' + ((st.disc || {})[k] ? ' open' : '') + '><summary class="small">Which copies</summary>' +
+      K.list(st, k, g.copies.map(function (c, i) { return { c: c, i: i }; }), { keyOf: function (x) { return String(x.i); }, focusOf: function (i) { return K.byId('repd-' + g.key + '-' + i); },
+        draw: function (shown) { return '<ul class="small rep-names">' + shown.map(function (x) { PF.perf.add('rep.differ'); return '<li id="' + esc('repd-' + g.key + '-' + x.i) + '" tabindex="-1"><code>' + esc(x.c.name) + '</code></li>'; }).join('') + '</ul>'; } }) + '</details></div></div>';
   }
   /* Every physical copy of a report, each line built only when drawn (2.11): the first 10, then Show all, which lists them
      50 at a time inside the fold. */
@@ -133,7 +144,7 @@
     }
     var acts = '';
     if (dec.state !== 'accepted') acts += el.ok ? '<button class="btn go" data-act="rep-accept" data-id="' + esc(g.key) + '"' + (busy ? ' disabled' : '') + '>Accept</button>'
-      : '<button class="btn" disabled aria-describedby="' + id + '-why">Accept</button><span class="small rw-why-off" id="' + id + '-why">' + esc(el.why) + '</span>';
+      : '<button class="btn" disabled aria-describedby="' + id + '-why">Accept</button><span class="small rw-why-off" id="' + id + '-why">' + esc(el.why === g.reason ? reasonText(g) : el.why) + '</span>';
     if (dec.state !== 'declined' && g.sha256) acts += '<button class="btn" data-act="rep-decline" data-id="' + esc(g.key) + '"' + (busy ? ' disabled' : '') + '>Decline</button>';
     if (dec.state !== 'none' && dec.state !== 'open' && g.sha256) acts += '<button class="mini" data-act="rep-reopen" data-id="' + esc(g.key) + '"' + (busy ? ' disabled' : '') + '>Reopen</button>';
     return acts ? '<div class="row rep-acts" role="group" aria-label="Decide on this report">' + acts + '</div>' : '';
