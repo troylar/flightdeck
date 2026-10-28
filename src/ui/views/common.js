@@ -251,12 +251,24 @@ PF.vk = (function () {
     var text = function (it) { return seen[it.t] > 1 && it.place ? it.t + ' · ' + it.place : it.t; };
     var hit = finds(q), match = [];
     items.forEach(function (it, i) { if (!q || hit([text(it), it.place || '', it.words || ''])) match.push(i); });
-    var from = !q && o.around != null && o.around >= 0 ? Math.max(0, Math.min(o.around - Math.floor(n / 2), match.length - n)) : 0;
+    var fromAt = function (n) { return !q && o.around != null && o.around >= 0 ? Math.max(0, Math.min(o.around - Math.floor(n / 2), match.length - n)) : 0; }, from = fromAt(n);
     var on = Object.create(null), keep = Object.create(null), cur = o.cur != null ? o.cur : sel;
     match.slice(from, from + n).forEach(function (i) { on[i] = true; });
     (o.keep || [sel]).forEach(function (v) { if (v != null && v !== '') keep[v] = true; });
     items.forEach(function (it, i) { if (keep[it.v]) on[i] = true; });
-    var more = match.length > n, drawn = 0, grp = null, opts = '';
+    /* Show more counts only the choices still hidden (kept ones are drawn already): it says how many it adds, and the page
+       grows by however many it steps over (data-step) to add them. */
+    var hidden = 0; match.forEach(function (i) { if (!on[i]) hidden++; });
+    var want = Math.min(P, hidden), step = 0;
+    if (want && !(o.around != null && o.around >= 0 && !q)) { for (var j = from + n, add = 0; add < want && j < match.length; j++) { step++; if (!on[match[j]]) add++; } }
+    else if (want) {
+      for (var n2 = n + 1, add2 = 0; add2 < want && n2 <= match.length; n2++) {
+        var f2 = fromAt(n2); add2 = 0;
+        for (var k = f2; k < f2 + n2 && k < match.length; k++) if (!on[match[k]]) add2++;
+        step = n2 - n;
+      }
+    }
+    var more = hidden > 0, drawn = 0, grp = null, opts = '';
     items.forEach(function (it, i) {
       if (!on[i]) return;
       drawn++;
@@ -269,14 +281,17 @@ PF.vk = (function () {
     var fid = 'find-' + id, showBox = items.length > P || !!q || st.selFocus === id;
     var box = !showBox ? '' : '<div class="row findbox selfind"><label for="' + esc(fid) + '">Find a ' + esc(o.noun || 'choice') + '</label><input type="search" id="' + esc(fid) + '" data-find="' + esc(id) + '" data-sel-find="' + esc(id) + '" data-nav-safe data-bound value="' + esc(q) + '" autocomplete="off" maxlength="200" aria-controls="' + esc(id) + '" aria-describedby="' + esc(fid) + '-n">' +
       '<span class="small" id="' + esc(fid) + '-n" role="status">' + (!q ? '' : match.length ? Nn(match.length) + ' of ' + Nn(items.length) + ' match' : 'No ' + esc(o.noun || 'choice') + ' matches "' + esc(q) + '"') + '</span>' + (q ? '<button type="button" class="mini" data-act="find-clear" data-id="' + esc(id) + '">Clear</button>' : '') + '</div>';
-    var selHtml = '<select id="' + esc(id) + '"' + (o.attrs || '') + ' data-kselect data-cur="' + esc(cur == null ? '' : cur) + '">' + (o.lead || '') + opts + (o.trail || '') + (more ? '<option value="' + SEL_MORE + '">Show ' + Math.min(P, match.length - n) + ' more…</option>' : '') + '</select>';
-    var moreBtn = more ? '<button type="button" class="mini selmore" data-act="sel-more" data-id="' + esc(id) + '" aria-controls="' + esc(id) + '">Show more choices</button>' : '';
+    var selHtml = '<select id="' + esc(id) + '"' + (o.attrs || '') + ' data-kselect data-cur="' + esc(cur == null ? '' : cur) + '"' + (more ? ' data-step="' + step + '"' : '') + '>' + (o.lead || '') + opts + (o.trail || '') + (more ? '<option value="' + SEL_MORE + '">Show ' + want + ' more…</option>' : '') + '</select>';
+    var moreBtn = more ? '<button type="button" class="mini selmore" data-act="sel-more" data-id="' + esc(id) + '" data-step="' + step + '" aria-controls="' + esc(id) + '">Show more choices</button>' : '';
     return { box: box, select: selHtml, more: moreBtn, html: box + selHtml + moreBtn, drawn: drawn, total: items.length };
   }
   /* A selector for the element with this id, whatever the id holds (it comes from files). */
-  function byId(id) { return '[id="' + String(id).replace(/["\\]/g, '\\$&') + '"]'; }
+  /* A CSS string's contents: quotes and backslashes escaped, and control characters (a newline in an id from a file) as hex
+     escapes, so the selector stays valid. */
+  function cssStr(v) { return String(v).replace(/[\0-\x1f\x7f"\\]/g, function (c) { return c === '"' || c === '\\' ? '\\' + c : c === '\0' ? '\ufffd' : '\\' + c.charCodeAt(0).toString(16) + ' '; }); }
+  function byId(id) { return '[id="' + cssStr(id) + '"]'; }
   /* A selector for the control that does act on this id (a row that is one button). */
-  function byAct(act, id) { return '[data-act="' + act + '"][data-id="' + String(id).replace(/["\\]/g, '\\$&') + '"]'; }
+  function byAct(act, id) { return '[data-act="' + cssStr(act) + '"][data-id="' + cssStr(id) + '"]'; }
   /* A must-do step on a row: a small red mark, named for screen readers and on hover; the step's own pane says it in words. */
   function mustMark() { return '<span class="mustmark" role="img" aria-label="Must do" title="Must do">!</span>'; }
   /* How a phase is worked, in words (the file keeps READ-DO and DO-CONFIRM). */
@@ -361,7 +376,7 @@ PF.vk = (function () {
   }
   function unsavedWords(ps) { return ps && ps.saved ? 'its run was saved and has changed since' : ps && ps.certain === false ? 'Flightdeck couldn\'t confirm whether its run saved' : 'its run didn\'t save'; }
   function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
-  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, finds: finds, findBox: findBox, roleRows: roleRows, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, joined: joined, select: select, SEL_MORE: SEL_MORE, byId: byId, PAGE: PAGE, PAGE_OFF: null, testTag: testTag, verWord: verWord };
+  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, finds: finds, findBox: findBox, roleRows: roleRows, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, joined: joined, select: select, SEL_MORE: SEL_MORE, byId: byId, cssStr: cssStr, PAGE: PAGE, PAGE_OFF: null, testTag: testTag, verWord: verWord };
 })();
 (function () {
   'use strict';

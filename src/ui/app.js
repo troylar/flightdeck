@@ -1598,6 +1598,9 @@
     state.planFormReset = false;
     if (ae && (app.contains(ae) || topEl.contains(ae))) focusKey = ae.id ? (/^[A-Za-z][\w-]*$/.test(ae.id) ? '#' + ae.id : PF.vk.byId(ae.id)) : ae.dataset && ae.dataset.act ? '[data-act="' + ae.dataset.act + '"]' + (ae.dataset.id ? '[data-id="' + cssEsc(ae.dataset.id) + '"]' : '') : null;
     if (focusKey && ae.id) focusKey = noteFocus(ae.id, focusKey);
+    /* The thread note that has focus stays drawn by its exact anchor (one note, 2.11), even when newer notes push it out of
+       the page Show earlier reached. */
+    state.noteHeld = focusKey && ae.id ? noteHold(ae.id) : null;
     var y = window.scrollY;
     renderTop();
     followDrafts();
@@ -1719,6 +1722,19 @@
     if (state.flash && state.flash.noteKey === oldKey) state.flash.noteKey = hit.key;
     var hc = hit.n.kind === 'correction' || hit.n.kind === 'fix' || hit.n.kind === 'map';
     return PF.vk.byId(hc ? V.corrDomId(hit.n.id, hit.k) : 'tn-' + hit.n.step + '-' + hit.key);
+  }
+  function noteHold(id) {
+    var was = notesSeen, S = PF.search;
+    if (!was || was.run !== state.runKey || !/^tn-/.test(id)) return null;
+    var ats = S.noteAts(was.notes);
+    for (var i = 0; i < was.notes.length; i++) {
+      var n = was.notes[i];
+      if (n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map' || id !== 'tn-' + n.step + '-' + S.noteKey(n.id, ats[i])) continue;
+      var t = S.noteTarget(state.runKey, n, was.notes.filter(function (x) { return x.id === n.id; }));
+      t.gen = gen; t.run = state.runKey; t.step = n.step;
+      return t;
+    }
+    return null;
   }
   var lastOverlay = '', lastPick = '';
   /* The draft editor is a page of its own: the app's top bar hides and the page stops scrolling (each pane scrolls). The
@@ -1895,7 +1911,8 @@
     if (el && t && (t !== said || state.msg !== saidMsg)) el.textContent = t === said && el.textContent === t ? t + '\u00a0' : t;
     said = t; saidMsg = state.msg;
   }
-  function cssEsc(s) { return window.CSS && CSS.escape ? CSS.escape(s) : String(s).replace(/"/g, '\\"'); }
+  /* Inside a quoted selector, CSS.escape's output is valid too; without it, PF.vk.cssStr (quotes, backslashes, control characters). */
+  function cssEsc(s) { return window.CSS && CSS.escape ? CSS.escape(s) : PF.vk.cssStr(s); }
 
   /* Timers and countdowns update every second without a full re-render. */
   /* While a run is open in the recorder's window, say once when a timed step is about to start or is late. */
@@ -4137,7 +4154,7 @@
      go (the focusout below). It's noted for whichever Find box is in use; only a dropdown's box reads it. */
   function selBoxKept(list) { if (list) state.selFocus = list; }
   /* 50 more of a long dropdown's options (K.select); its own choice is untouched. */
-  function selMore(id) { if (!id) return; var P = PF.vk.PAGE, m = state.more = Object.assign({}, state.more); m[id] = Math.max(P, m[id] || P) + P; render(); }
+  function selMore(id, step) { if (!id) return; var P = PF.vk.PAGE, m = state.more = Object.assign({}, state.more); m[id] = Math.max(P, m[id] || P) + (+step > 0 ? Math.min(+step, 100000) : P); render(); }
   /* Focusing the box is enough, before anything is typed: a refresh that leaves 50 or fewer choices doesn't take it away. */
   document.addEventListener('focusin', function (e) { var t = e.target; if (t && t.dataset && t.dataset.selFind) selBoxKept(findList(t)); });
   document.addEventListener('focusout', function (e) {
@@ -5361,7 +5378,7 @@
     /* A Find box's Clear: the box empties and takes focus. */
     'find-clear': function (id) { if (!id) return; setFind(id, ''); selBoxKept(id); state.focus = 'find-' + id; state.focusWins = true; render(); },
     /* A long dropdown's Show more choices (K.select): 50 more options, and focus goes to the dropdown to choose among them. */
-    'sel-more': function (id) { if (!id) return; selMore(id); state.focus = id; state.focusWins = true; render(); },
+    'sel-more': function (id, b) { if (!id) return; selMore(id, b && b.dataset && b.dataset.step); state.focus = id; state.focusWins = true; render(); },
     tag: function (id) { var t = state.tags || []; state.tags = !id ? [] : t.indexOf(id) >= 0 ? t.filter(function (x) { return x !== id; }) : t.concat(id); (state.tagsBy = state.tagsBy || {})[state.view] = state.tags; state.focus = id ? '[data-act="tag"][data-id="' + cssEsc(id) + '"]' : null; render(); },
     'open-process': function (id) { setView('process'); state.processId = id; state.diffOf = null; state.ptab = 'overview'; state.mapVer = null; resetRunUi(); render(); window.scrollTo(0, 0); },
     /* ---------- the sections ---------- */
@@ -6515,7 +6532,12 @@
         });
       }, function (e) { endBusy(); if (ng !== gen) return; say('Couldn\'t add the note: ' + e.message, 'bad'); render(); });
     },
-    'just-me': function () { app.querySelectorAll('#start-form [data-role], #plan-form [data-role]').forEach(function (el) { el.value = state.me; }); },
+    /* Every role, drawn or in a hidden field, kept in the form's state so a redraw (Show more, Find, a refresh) draws it so. */
+    'just-me': function () {
+      var rb = rolesBox(), pub = startFormPub();
+      ((pub && pub.map.meta.roles) || []).forEach(function (role) { rb.vals[role] = state.me; var el = document.getElementById('role-' + role); if (el) el.value = state.me; });
+      render();
+    },
     /* The Copy button itself says Copied for a moment, and it's announced once. */
     copy: function (id, b) {
       var text = b.dataset.text, g = gen;
@@ -7313,13 +7335,27 @@
       say((adding ? 'Added the team value ' : 'Saved the team value ') + name + '.', 'good');
     }, adding ? null : f.base);
   });
+  /* The Start, Plan or test-run form's own role state (2.11): the roles changed on it (kept drawn) and what each is set to. */
+  function rolesBox() {
+    var fk = state.testStage ? 'test:' + state.processId + ':' + state.testStage : startFormKey();
+    if (!state.rolesPicked || state.rolesPicked.at !== fk) state.rolesPicked = { at: fk, roles: {}, vals: {} };
+    if (!state.rolesPicked.vals) state.rolesPicked.vals = {};
+    return state.rolesPicked;
+  }
+  /* The version the Start or Plan form starts: the latest, or the one its plan names. */
+  function startFormPub() {
+    var p = procFind(state.processId); if (!p || !p.latest) return null;
+    var planning = state.planning && state.planning.process === p.id ? state.planning : null;
+    var plan = !planning && state.planId ? data.plans.filter(function (x) { return x.id === state.planId; })[0] : null;
+    return plan ? PF.plans.pick(p, plan, V.planChoice(ctx, plan)).pub : p.latest;
+  }
   /* Which start or plan form is open, as the view names it (its scope and the version it starts): a choice of mode made on
      it applies to it alone when the version has an approval role (2.10). */
   function startFormKey() {
     var p = procFind(state.processId); if (!p || !p.latest) return '';
     var planning = state.planning && state.planning.process === p.id ? state.planning : null;
     var plan = !planning && state.planId ? data.plans.filter(function (x) { return x.id === state.planId; })[0] : null;
-    var pub = plan ? PF.plans.pick(p, plan, V.planChoice(ctx, plan)).pub : p.latest;
+    var pub = startFormPub();
     return (planning ? 'plan:' + p.id + ':' + (planning.from || '') : 'start:' + p.id + ':' + (plan ? plan.id : '')) + ':' + (pub ? pub.info.folder : '');
   }
   /* Who approves has to be chosen (2.10): left empty, Start and Save the plan are refused there, and nothing typed is lost. */
@@ -7499,11 +7535,11 @@
   }, true);
   document.addEventListener('change', function (e) {
     /* A long dropdown's "Show 50 more…" (K.select): the list widens and the choice stays what it was; nothing else hears it. */
-    if (e.target && e.target.tagName === 'SELECT' && e.target.value === PF.vk.SEL_MORE) { e.target.value = (e.target.dataset && e.target.dataset.cur) || ''; selMore(e.target.id); return; }
+    if (e.target && e.target.tagName === 'SELECT' && e.target.value === PF.vk.SEL_MORE) { e.target.value = (e.target.dataset && e.target.dataset.cur) || ''; selMore(e.target.id, e.target.dataset && e.target.dataset.step); return; }
     /* A role given someone on Start or Plan (2.11) stays drawn through Show more, Find and a refresh, for this form only. */
     var rm = state.view === 'start' && e.target && /^role-(.+)$/.exec(e.target.id || '');
     /* A test run's form is its own form: its key is its scope (test:<process>:<stage>). */
-    if (rm) { var fk = state.testStage ? 'test:' + state.processId + ':' + state.testStage : startFormKey(); if (!state.rolesPicked || state.rolesPicked.at !== fk) state.rolesPicked = { at: fk, roles: {} }; state.rolesPicked.roles[rm[1]] = true; }
+    if (rm) { var rb = rolesBox(); rb.roles[rm[1]] = true; rb.vals[rm[1]] = e.target.value; }
     /* A practice sample is one practice action when it's committed (Enter or leaving the box). */
     var smp = e.target && e.target.dataset && e.target.dataset.prSample;
     if (smp) {

@@ -381,6 +381,7 @@ button.tag.on { background: var(--plan-soft); color: var(--plan); border-color: 
 /* Run */
 .runhead { display: flex; flex-wrap: wrap; gap: 14px 28px; align-items: flex-end; justify-content: space-between; margin-bottom: 14px; }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; align-items: center; }
+.chip-at { display: inline-flex; border-radius: 6px; }
 .chip { border: 1px solid var(--line); background: var(--card); border-radius: 6px; padding: 3px 9px; font-size: 13px; display: inline-flex; gap: 6px; align-items: center; }
 .chip .v { font-family: var(--mono); font-size: 12.5px; }
 .chip span.k { color: var(--muted); }
@@ -19176,12 +19177,24 @@ PF.vk = (function () {
     var text = function (it) { return seen[it.t] > 1 && it.place ? it.t + ' · ' + it.place : it.t; };
     var hit = finds(q), match = [];
     items.forEach(function (it, i) { if (!q || hit([text(it), it.place || '', it.words || ''])) match.push(i); });
-    var from = !q && o.around != null && o.around >= 0 ? Math.max(0, Math.min(o.around - Math.floor(n / 2), match.length - n)) : 0;
+    var fromAt = function (n) { return !q && o.around != null && o.around >= 0 ? Math.max(0, Math.min(o.around - Math.floor(n / 2), match.length - n)) : 0; }, from = fromAt(n);
     var on = Object.create(null), keep = Object.create(null), cur = o.cur != null ? o.cur : sel;
     match.slice(from, from + n).forEach(function (i) { on[i] = true; });
     (o.keep || [sel]).forEach(function (v) { if (v != null && v !== '') keep[v] = true; });
     items.forEach(function (it, i) { if (keep[it.v]) on[i] = true; });
-    var more = match.length > n, drawn = 0, grp = null, opts = '';
+    /* Show more counts only the choices still hidden (kept ones are drawn already): it says how many it adds, and the page
+       grows by however many it steps over (data-step) to add them. */
+    var hidden = 0; match.forEach(function (i) { if (!on[i]) hidden++; });
+    var want = Math.min(P, hidden), step = 0;
+    if (want && !(o.around != null && o.around >= 0 && !q)) { for (var j = from + n, add = 0; add < want && j < match.length; j++) { step++; if (!on[match[j]]) add++; } }
+    else if (want) {
+      for (var n2 = n + 1, add2 = 0; add2 < want && n2 <= match.length; n2++) {
+        var f2 = fromAt(n2); add2 = 0;
+        for (var k = f2; k < f2 + n2 && k < match.length; k++) if (!on[match[k]]) add2++;
+        step = n2 - n;
+      }
+    }
+    var more = hidden > 0, drawn = 0, grp = null, opts = '';
     items.forEach(function (it, i) {
       if (!on[i]) return;
       drawn++;
@@ -19194,14 +19207,17 @@ PF.vk = (function () {
     var fid = 'find-' + id, showBox = items.length > P || !!q || st.selFocus === id;
     var box = !showBox ? '' : '<div class="row findbox selfind"><label for="' + esc(fid) + '">Find a ' + esc(o.noun || 'choice') + '</label><input type="search" id="' + esc(fid) + '" data-find="' + esc(id) + '" data-sel-find="' + esc(id) + '" data-nav-safe data-bound value="' + esc(q) + '" autocomplete="off" maxlength="200" aria-controls="' + esc(id) + '" aria-describedby="' + esc(fid) + '-n">' +
       '<span class="small" id="' + esc(fid) + '-n" role="status">' + (!q ? '' : match.length ? Nn(match.length) + ' of ' + Nn(items.length) + ' match' : 'No ' + esc(o.noun || 'choice') + ' matches "' + esc(q) + '"') + '</span>' + (q ? '<button type="button" class="mini" data-act="find-clear" data-id="' + esc(id) + '">Clear</button>' : '') + '</div>';
-    var selHtml = '<select id="' + esc(id) + '"' + (o.attrs || '') + ' data-kselect data-cur="' + esc(cur == null ? '' : cur) + '">' + (o.lead || '') + opts + (o.trail || '') + (more ? '<option value="' + SEL_MORE + '">Show ' + Math.min(P, match.length - n) + ' more…</option>' : '') + '</select>';
-    var moreBtn = more ? '<button type="button" class="mini selmore" data-act="sel-more" data-id="' + esc(id) + '" aria-controls="' + esc(id) + '">Show more choices</button>' : '';
+    var selHtml = '<select id="' + esc(id) + '"' + (o.attrs || '') + ' data-kselect data-cur="' + esc(cur == null ? '' : cur) + '"' + (more ? ' data-step="' + step + '"' : '') + '>' + (o.lead || '') + opts + (o.trail || '') + (more ? '<option value="' + SEL_MORE + '">Show ' + want + ' more…</option>' : '') + '</select>';
+    var moreBtn = more ? '<button type="button" class="mini selmore" data-act="sel-more" data-id="' + esc(id) + '" data-step="' + step + '" aria-controls="' + esc(id) + '">Show more choices</button>' : '';
     return { box: box, select: selHtml, more: moreBtn, html: box + selHtml + moreBtn, drawn: drawn, total: items.length };
   }
   /* A selector for the element with this id, whatever the id holds (it comes from files). */
-  function byId(id) { return '[id="' + String(id).replace(/["\\]/g, '\\$&') + '"]'; }
+  /* A CSS string's contents: quotes and backslashes escaped, and control characters (a newline in an id from a file) as hex
+     escapes, so the selector stays valid. */
+  function cssStr(v) { return String(v).replace(/[\0-\x1f\x7f"\\]/g, function (c) { return c === '"' || c === '\\' ? '\\' + c : c === '\0' ? '\ufffd' : '\\' + c.charCodeAt(0).toString(16) + ' '; }); }
+  function byId(id) { return '[id="' + cssStr(id) + '"]'; }
   /* A selector for the control that does act on this id (a row that is one button). */
-  function byAct(act, id) { return '[data-act="' + act + '"][data-id="' + String(id).replace(/["\\]/g, '\\$&') + '"]'; }
+  function byAct(act, id) { return '[data-act="' + cssStr(act) + '"][data-id="' + cssStr(id) + '"]'; }
   /* A must-do step on a row: a small red mark, named for screen readers and on hover; the step's own pane says it in words. */
   function mustMark() { return '<span class="mustmark" role="img" aria-label="Must do" title="Must do">!</span>'; }
   /* How a phase is worked, in words (the file keeps READ-DO and DO-CONFIRM). */
@@ -19286,7 +19302,7 @@ PF.vk = (function () {
   }
   function unsavedWords(ps) { return ps && ps.saved ? 'its run was saved and has changed since' : ps && ps.certain === false ? 'Flightdeck couldn\'t confirm whether its run saved' : 'its run didn\'t save'; }
   function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
-  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, finds: finds, findBox: findBox, roleRows: roleRows, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, joined: joined, select: select, SEL_MORE: SEL_MORE, byId: byId, PAGE: PAGE, PAGE_OFF: null, testTag: testTag, verWord: verWord };
+  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, finds: finds, findBox: findBox, roleRows: roleRows, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, joined: joined, select: select, SEL_MORE: SEL_MORE, byId: byId, cssStr: cssStr, PAGE: PAGE, PAGE_OFF: null, testTag: testTag, verWord: verWord };
 })();
 (function () {
   'use strict';
@@ -20393,6 +20409,9 @@ PF.vk = (function () {
          always drawn; a role not drawn keeps its value in a hidden field, so the form starts or plans exactly what it would. */
       var chosenOf = function (role) { return pre.roles && typeof pre.roles === 'object' && typeof pre.roles[role] === 'string' ? pre.roles[role] : ''; };
       var picked = st.rolesPicked && st.rolesPicked.at === scope + ':' + pub.info.folder ? st.rolesPicked.roles : {};
+      /* What this form has set a role to (a change, or Just me for every role), drawn or not, over the plan and the suggestion. */
+      var setTo = st.rolesPicked && st.rolesPicked.at === scope + ':' + pub.info.folder ? st.rolesPicked.vals || {} : {};
+      var setOf = function (role, dflt) { return Object.prototype.hasOwnProperty.call(setTo, role) ? setTo[role] : dflt; };
       var keepRole = function (role) { return !!chosenOf(role) || !!picked[role] || !!(st.fieldErr && st.fieldErr.id === 'start-approver' && st.fieldErr.field === 'role-' + role); };
       var rq = K.findQ(st, 'start-roles'), rhit = K.finds(rq), rfound = rq ? meta.roles.filter(function (role) { return rhit([role]); }) : meta.roles;
       var rlist = rq ? meta.roles.filter(function (role) { return rfound.indexOf(role) >= 0 || keepRole(role); }) : meta.roles, drawnRole = Object.create(null), roleRows = '';
@@ -20406,13 +20425,13 @@ PF.vk = (function () {
         if (apRole[role]) {
           var bad = st.fieldErr && st.fieldErr.id === 'start-approver' && st.fieldErr.field === 'role-' + role;
           h += '<div><label class="field" for="role-' + esc(role) + '">' + esc(role) + ' <span class="small">· approves ' + esc(apRole[role].map(function (t) { return '"' + t + '"'; }).join(' and ')) + '</span><select id="role-' + esc(role) + '" data-role="' + esc(role) + '"' + (sug ? ' data-suggested="' + esc(sug.person) + '"' : '') + (bad ? ' aria-invalid="true" aria-describedby="ferr-role-' + esc(role) + '"' : '') + '><option value="">Choose a person</option>' +
-            people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === chosen ? ' selected' : '') + '>' + esc(nmStage(x)) + '</option>'; }).join('') + '</select></label>' +
+            people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === setOf(role, chosen) ? ' selected' : '') + '>' + esc(nmStage(x)) + '</option>'; }).join('') + '</select></label>' +
             (sug ? '<p class="small">Suggested: ' + esc(nameOf(ctx, sug.person)) + ' · ' + (sug.last ? 'last had this role on ' + esc(U.day(sug.last)) : 'hasn\'t had this role yet') + '</p>' : '') +
             (bad ? '<p class="ferr" id="ferr-role-' + esc(role) + '" role="alert">' + esc(st.fieldErr.msg) + '</p>' : '') + '</div>';
           return h;
         }
         h += '<label class="field" for="role-' + esc(role) + '">' + esc(role) + (sug ? ' <span class="small">· suggestion: ' + esc(nameOf(ctx, sug.person)) + ' (' + esc(sug.why) + ')</span>' : '') + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '"><option value="">Nobody yet</option>' +
-          people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === (chosen || (sug && sug.person)) ? ' selected' : '') + '>' + esc(nmStage(x)) + '</option>'; }).join('') + '</select></label>';
+          people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === setOf(role, chosen || (sug && sug.person)) ? ' selected' : '') + '>' + esc(nmStage(x)) + '</option>'; }).join('') + '</select></label>';
         return h;
       };
       h += K.list(st, 'start-roles', rlist, { page: ROLE_PAGE, keep: meta.roles.filter(keepRole), keptLabel: 'Roles you\'ve chosen someone for', keyOf: function (role) { return role; }, focusOf: function (k) { return K.byId('role-' + k); },
@@ -20420,7 +20439,7 @@ PF.vk = (function () {
       meta.roles.forEach(function (role) {
         if (drawnRole[role]) return;
         var chosen = chosenOf(role), sug = apRole[role] ? null : ctx.suggestRole(p.id, role);
-        roleRows += '<input type="hidden" id="role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(chosen || (sug && sug.person) || '') + '">';
+        roleRows += '<input type="hidden" id="role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(setOf(role, chosen || (sug && sug.person) || '')) + '">';
       });
       h += '</div>' + roleRows + '<p class="small">Suggestions rotate roles to whoever did them least recently, so everyone gets the experience. Change anything.</p>';
     }
@@ -20447,10 +20466,12 @@ PF.vk = (function () {
       /* 20 roles at a time with Find past 20 (2.11), as Start: a role changed on this form stays drawn, and one not drawn is
          you, as its box would have been, in a hidden field. */
       var tpicked = st.rolesPicked && st.rolesPicked.at === 'test:' + p.id + ':' + pub.folder ? st.rolesPicked.roles : {};
+      var tset = st.rolesPicked && st.rolesPicked.at === 'test:' + p.id + ':' + pub.folder ? st.rolesPicked.vals || {} : {};
+      var tsetOf = function (role, dflt) { return Object.prototype.hasOwnProperty.call(tset, role) ? tset[role] : dflt; };
       var tr = K.roleRows(st, 'test-roles', meta.roles, { keep: meta.roles.filter(function (role) { return !!tpicked[role]; }), focusOf: function (k) { return K.byId('role-' + k); },
         row: function (role) { return '<label class="field" for="role-' + esc(role) + '">' + esc(role) + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '"><option value="">Nobody yet</option>' +
-          people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === st.me ? ' selected' : '') + '>' + esc(nmRun(x)) + '</option>'; }).join('') + '</select></label>'; },
-        hidden: function (role) { return '<input type="hidden" id="role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(meOn) + '">'; } });
+          people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === tsetOf(role, st.me) ? ' selected' : '') + '>' + esc(nmRun(x)) + '</option>'; }).join('') + '</select></label>'; },
+        hidden: function (role) { return '<input type="hidden" id="role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(tsetOf(role, meOn)) + '">'; } });
       h += tr.box + '<div class="grid2">' + tr.rows + '</div>' + tr.hidden;
     }
     return h + '<div class="row"><button class="btn go" type="submit" id="start-submit"' + (st.me ? '' : ' disabled') + '>' + I('play') + 'Start the test run</button><span class="small">A test run tries this staged version. It isn\'t counted in How runs go or toward a skill.</span>' + back + '</div></form>';
@@ -20814,9 +20835,11 @@ PF.vk = (function () {
     }).join('');
     var nmRole = PF.people.labeler(ctx.data.people);
     /* 20 roles at a time with Find past 20 (2.11); the one being edited is always drawn. */
-    var rolePaged = K.roleRows(s, 'det-roles', map.meta.roles, { keep: map.meta.roles.filter(function (ro) { return s.edit === 'role:' + ro; }), keptLabel: 'You\'re editing this one', focusOf: function (k) { return K.byAct('edit', 'role:' + k); }, row: function (ro) {
+    var rolePaged = K.roleRows(s, 'det-roles', map.meta.roles, { keep: map.meta.roles.filter(function (ro) { return s.edit === 'role:' + ro; }), keptLabel: 'You\'re editing this one', focusOf: function (k) { return rec ? K.byAct('edit', 'role:' + k) : K.byId('det-role-' + k); }, row: function (ro) {
       if (s.edit === 'role:' + ro && rec) return '<span class="inline-edit" data-scope="edit:role:' + esc(ro) + '"><label class="small" for="edit-input">' + esc(ro) + '</label><select id="edit-input"><option value="">Nobody</option>' + PF.people.sorted(ctx).filter(function (p) { return !p.inactive; }).map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === r.roles[ro] ? ' selected' : '') + '>' + esc(nmRole(p)) + '</option>'; }).join('') + '</select><button class="mini" data-act="save-edit">Save</button><button class="mini" data-act="unedit">Cancel</button></span>';
-      return '<button class="chip' + (r.roles[ro] ? '' : ' empty') + '" data-act="edit" data-id="role:' + esc(ro) + '"' + (rec ? '' : ' disabled') + '><span class="k">' + esc(ro) + '</span>' + (r.roles[ro] ? avatar(ctx, r.roles[ro]) + esc(nameOf(ctx, r.roles[ro])) : 'assign') + '</button>';
+      var chip = '<button class="chip' + (r.roles[ro] ? '' : ' empty') + '" data-act="edit" data-id="role:' + esc(ro) + '"' + (rec ? '' : ' disabled') + '><span class="k">' + esc(ro) + '</span>' + (r.roles[ro] ? avatar(ctx, r.roles[ro]) + esc(nameOf(ctx, r.roles[ro])) : 'assign') + '</button>';
+      /* A viewer's chip is disabled, so Show more's focus goes to a wrapper that can take it. */
+      return rec ? chip : '<span class="chip-at" id="det-role-' + esc(ro) + '" tabindex="-1">' + chip + '</span>';
     } }), roles = rolePaged.rows;
     /* Solo runs keep collaboration out of the way: roles appear only if someone asks for them. */
     var alone = R.solo(r), roleRow = map.meta.roles.length ? (alone && !s.showRoles ? (rec ? '<button class="mini" data-act="show-roles">' + I('people') + 'Add people</button>' : '') : roles) : '';
@@ -21201,6 +21224,7 @@ PF.vk = (function () {
     var ns = s.noteShown && s.noteShown.run === runKey(r) && s.noteShown.step === st.id ? s.noteShown : null, nsAny = ns ? PF.search.noteFind(r._notes || [], ns) : null;
     var nsCorrKind = !!nsAny && (nsAny.n.kind === 'correction' || nsAny.n.kind === 'fix' || nsAny.n.kind === 'map');
     var nsHit = nsAny && !nsCorrKind && nsAny.n.step === st.id ? nsAny : null, nsCorr = nsAny && nsCorrKind ? nsAny : null;
+    var nh = s.noteHeld && s.noteHeld.run === runKey(r) && s.noteHeld.step === st.id ? PF.search.noteFind(r._notes || [], s.noteHeld) : null;
     /* Notes, with attachments; anyone who has said who they are can add one. */
     /* Corrections to this step from this run, then Correct this step (anyone who has said who they are, whatever the run's state). */
     h += '<section class="rw-box rw-corr" aria-labelledby="ins-corr"><div class="row between"><h3 class="rw-h3" id="ins-corr">Corrections' + (rows.length ? ' · ' + rows.length : '') + '</h3>' +
@@ -21223,7 +21247,7 @@ PF.vk = (function () {
     };
     h += '<section class="rw-box rw-notes" aria-labelledby="ins-notes"><h3 class="rw-h3" id="ins-notes">' + (R.solo(r) ? 'Notes' : 'Team notes') + (notes.length ? ' · ' + notes.length : '') + '</h3>' +
       (ns && !nsAny && ns.anchor != null ? '<p class="small tn-gone" role="status">That note isn\'t in this run anymore.</p>' : '') +
-      (notes.length ? K.list(s, 'notes:' + rk, notes, { page: 20, tail: true, keyOf: function (x) { return x.key; }, focusOf: function (k) { return K.byId(tn(k)); }, keep: nsHit ? [nsHit.key] : [], keptLabel: 'From earlier',
+      (notes.length ? K.list(s, 'notes:' + rk, notes, { page: 20, tail: true, keyOf: function (x) { return x.key; }, focusOf: function (k) { return K.byId(tn(k)); }, keep: [nsHit && nsHit.key, nh && nh.n.step === st.id ? nh.key : null].filter(Boolean), keptLabel: 'From earlier',
         gap: function (n) { return n.toLocaleString('en-US') + (n === 1 ? ' note' : ' notes') + ' between'; },
         draw: function (shown) { return '<ul class="tnotes">' + shown.map(noteLi).join('') + '</ul>'; } }) : '');
     if (s.me) {
@@ -26582,6 +26606,9 @@ PF.examples = (function () {
     state.planFormReset = false;
     if (ae && (app.contains(ae) || topEl.contains(ae))) focusKey = ae.id ? (/^[A-Za-z][\w-]*$/.test(ae.id) ? '#' + ae.id : PF.vk.byId(ae.id)) : ae.dataset && ae.dataset.act ? '[data-act="' + ae.dataset.act + '"]' + (ae.dataset.id ? '[data-id="' + cssEsc(ae.dataset.id) + '"]' : '') : null;
     if (focusKey && ae.id) focusKey = noteFocus(ae.id, focusKey);
+    /* The thread note that has focus stays drawn by its exact anchor (one note, 2.11), even when newer notes push it out of
+       the page Show earlier reached. */
+    state.noteHeld = focusKey && ae.id ? noteHold(ae.id) : null;
     var y = window.scrollY;
     renderTop();
     followDrafts();
@@ -26703,6 +26730,19 @@ PF.examples = (function () {
     if (state.flash && state.flash.noteKey === oldKey) state.flash.noteKey = hit.key;
     var hc = hit.n.kind === 'correction' || hit.n.kind === 'fix' || hit.n.kind === 'map';
     return PF.vk.byId(hc ? V.corrDomId(hit.n.id, hit.k) : 'tn-' + hit.n.step + '-' + hit.key);
+  }
+  function noteHold(id) {
+    var was = notesSeen, S = PF.search;
+    if (!was || was.run !== state.runKey || !/^tn-/.test(id)) return null;
+    var ats = S.noteAts(was.notes);
+    for (var i = 0; i < was.notes.length; i++) {
+      var n = was.notes[i];
+      if (n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map' || id !== 'tn-' + n.step + '-' + S.noteKey(n.id, ats[i])) continue;
+      var t = S.noteTarget(state.runKey, n, was.notes.filter(function (x) { return x.id === n.id; }));
+      t.gen = gen; t.run = state.runKey; t.step = n.step;
+      return t;
+    }
+    return null;
   }
   var lastOverlay = '', lastPick = '';
   /* The draft editor is a page of its own: the app's top bar hides and the page stops scrolling (each pane scrolls). The
@@ -26879,7 +26919,8 @@ PF.examples = (function () {
     if (el && t && (t !== said || state.msg !== saidMsg)) el.textContent = t === said && el.textContent === t ? t + '\u00a0' : t;
     said = t; saidMsg = state.msg;
   }
-  function cssEsc(s) { return window.CSS && CSS.escape ? CSS.escape(s) : String(s).replace(/"/g, '\\"'); }
+  /* Inside a quoted selector, CSS.escape's output is valid too; without it, PF.vk.cssStr (quotes, backslashes, control characters). */
+  function cssEsc(s) { return window.CSS && CSS.escape ? CSS.escape(s) : PF.vk.cssStr(s); }
 
   /* Timers and countdowns update every second without a full re-render. */
   /* While a run is open in the recorder's window, say once when a timed step is about to start or is late. */
@@ -29121,7 +29162,7 @@ PF.examples = (function () {
      go (the focusout below). It's noted for whichever Find box is in use; only a dropdown's box reads it. */
   function selBoxKept(list) { if (list) state.selFocus = list; }
   /* 50 more of a long dropdown's options (K.select); its own choice is untouched. */
-  function selMore(id) { if (!id) return; var P = PF.vk.PAGE, m = state.more = Object.assign({}, state.more); m[id] = Math.max(P, m[id] || P) + P; render(); }
+  function selMore(id, step) { if (!id) return; var P = PF.vk.PAGE, m = state.more = Object.assign({}, state.more); m[id] = Math.max(P, m[id] || P) + (+step > 0 ? Math.min(+step, 100000) : P); render(); }
   /* Focusing the box is enough, before anything is typed: a refresh that leaves 50 or fewer choices doesn't take it away. */
   document.addEventListener('focusin', function (e) { var t = e.target; if (t && t.dataset && t.dataset.selFind) selBoxKept(findList(t)); });
   document.addEventListener('focusout', function (e) {
@@ -30345,7 +30386,7 @@ PF.examples = (function () {
     /* A Find box's Clear: the box empties and takes focus. */
     'find-clear': function (id) { if (!id) return; setFind(id, ''); selBoxKept(id); state.focus = 'find-' + id; state.focusWins = true; render(); },
     /* A long dropdown's Show more choices (K.select): 50 more options, and focus goes to the dropdown to choose among them. */
-    'sel-more': function (id) { if (!id) return; selMore(id); state.focus = id; state.focusWins = true; render(); },
+    'sel-more': function (id, b) { if (!id) return; selMore(id, b && b.dataset && b.dataset.step); state.focus = id; state.focusWins = true; render(); },
     tag: function (id) { var t = state.tags || []; state.tags = !id ? [] : t.indexOf(id) >= 0 ? t.filter(function (x) { return x !== id; }) : t.concat(id); (state.tagsBy = state.tagsBy || {})[state.view] = state.tags; state.focus = id ? '[data-act="tag"][data-id="' + cssEsc(id) + '"]' : null; render(); },
     'open-process': function (id) { setView('process'); state.processId = id; state.diffOf = null; state.ptab = 'overview'; state.mapVer = null; resetRunUi(); render(); window.scrollTo(0, 0); },
     /* ---------- the sections ---------- */
@@ -31499,7 +31540,12 @@ PF.examples = (function () {
         });
       }, function (e) { endBusy(); if (ng !== gen) return; say('Couldn\'t add the note: ' + e.message, 'bad'); render(); });
     },
-    'just-me': function () { app.querySelectorAll('#start-form [data-role], #plan-form [data-role]').forEach(function (el) { el.value = state.me; }); },
+    /* Every role, drawn or in a hidden field, kept in the form's state so a redraw (Show more, Find, a refresh) draws it so. */
+    'just-me': function () {
+      var rb = rolesBox(), pub = startFormPub();
+      ((pub && pub.map.meta.roles) || []).forEach(function (role) { rb.vals[role] = state.me; var el = document.getElementById('role-' + role); if (el) el.value = state.me; });
+      render();
+    },
     /* The Copy button itself says Copied for a moment, and it's announced once. */
     copy: function (id, b) {
       var text = b.dataset.text, g = gen;
@@ -32297,13 +32343,27 @@ PF.examples = (function () {
       say((adding ? 'Added the team value ' : 'Saved the team value ') + name + '.', 'good');
     }, adding ? null : f.base);
   });
+  /* The Start, Plan or test-run form's own role state (2.11): the roles changed on it (kept drawn) and what each is set to. */
+  function rolesBox() {
+    var fk = state.testStage ? 'test:' + state.processId + ':' + state.testStage : startFormKey();
+    if (!state.rolesPicked || state.rolesPicked.at !== fk) state.rolesPicked = { at: fk, roles: {}, vals: {} };
+    if (!state.rolesPicked.vals) state.rolesPicked.vals = {};
+    return state.rolesPicked;
+  }
+  /* The version the Start or Plan form starts: the latest, or the one its plan names. */
+  function startFormPub() {
+    var p = procFind(state.processId); if (!p || !p.latest) return null;
+    var planning = state.planning && state.planning.process === p.id ? state.planning : null;
+    var plan = !planning && state.planId ? data.plans.filter(function (x) { return x.id === state.planId; })[0] : null;
+    return plan ? PF.plans.pick(p, plan, V.planChoice(ctx, plan)).pub : p.latest;
+  }
   /* Which start or plan form is open, as the view names it (its scope and the version it starts): a choice of mode made on
      it applies to it alone when the version has an approval role (2.10). */
   function startFormKey() {
     var p = procFind(state.processId); if (!p || !p.latest) return '';
     var planning = state.planning && state.planning.process === p.id ? state.planning : null;
     var plan = !planning && state.planId ? data.plans.filter(function (x) { return x.id === state.planId; })[0] : null;
-    var pub = plan ? PF.plans.pick(p, plan, V.planChoice(ctx, plan)).pub : p.latest;
+    var pub = startFormPub();
     return (planning ? 'plan:' + p.id + ':' + (planning.from || '') : 'start:' + p.id + ':' + (plan ? plan.id : '')) + ':' + (pub ? pub.info.folder : '');
   }
   /* Who approves has to be chosen (2.10): left empty, Start and Save the plan are refused there, and nothing typed is lost. */
@@ -32483,11 +32543,11 @@ PF.examples = (function () {
   }, true);
   document.addEventListener('change', function (e) {
     /* A long dropdown's "Show 50 more…" (K.select): the list widens and the choice stays what it was; nothing else hears it. */
-    if (e.target && e.target.tagName === 'SELECT' && e.target.value === PF.vk.SEL_MORE) { e.target.value = (e.target.dataset && e.target.dataset.cur) || ''; selMore(e.target.id); return; }
+    if (e.target && e.target.tagName === 'SELECT' && e.target.value === PF.vk.SEL_MORE) { e.target.value = (e.target.dataset && e.target.dataset.cur) || ''; selMore(e.target.id, e.target.dataset && e.target.dataset.step); return; }
     /* A role given someone on Start or Plan (2.11) stays drawn through Show more, Find and a refresh, for this form only. */
     var rm = state.view === 'start' && e.target && /^role-(.+)$/.exec(e.target.id || '');
     /* A test run's form is its own form: its key is its scope (test:<process>:<stage>). */
-    if (rm) { var fk = state.testStage ? 'test:' + state.processId + ':' + state.testStage : startFormKey(); if (!state.rolesPicked || state.rolesPicked.at !== fk) state.rolesPicked = { at: fk, roles: {} }; state.rolesPicked.roles[rm[1]] = true; }
+    if (rm) { var rb = rolesBox(); rb.roles[rm[1]] = true; rb.vals[rm[1]] = e.target.value; }
     /* A practice sample is one practice action when it's committed (Enter or leaving the box). */
     var smp = e.target && e.target.dataset && e.target.dataset.prSample;
     if (smp) {
