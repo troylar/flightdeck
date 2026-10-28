@@ -40,7 +40,7 @@ const people = fixture().facts.people, isPerson = new Set(people.map(p => p.id))
 const personSelect = s => s && s.tag === 'select' && s.kids.filter(k => k.tag === 'option').every(o => o.attrs.value === '' || isPerson.has(o.attrs.value)) && s.kids.some(o => isPerson.has(o.attrs.value));
 
 /* The bounded lists. rows: a node test, counted across the whole screen (aggregate), so many small lists that add up are caught;
-   per: 'parent' counts each parent's rows instead. count: for a list joined into one line, the number of names drawn. */
+   per: 'parent' counts each parent's rows instead (a function, each container it returns). count: for a list joined into one line, the number of names drawn. */
 const REGISTRY = [
   /* Runs: Running 50, the 8 newest finished, Flagged 50, Earlier finished 50; a filtered or cohort list 50 instead. */
   { name: 'run cards (runs-running, runs-flagged, runs-ended, runs-filtered, runs-cohort)', rows: n => n.tag === 'button' && n.attrs.class === 'card' && n.attrs['data-act'] === 'open-run', bound: 50 + 8 + 50 + 50 },
@@ -58,6 +58,13 @@ const REGISTRY = [
   { name: 'the tag buttons (tags), 50 and the chosen ones', rows: n => n.tag === 'button' && cls(n, 'tag') && n.parent && cls(n.parent, 'tagbar'), bound: 50 },
   { name: 'a process\'s Skills panel (p-skills)', rows: n => n.tag === 'li' && n.parent && n.parent.tag === 'ul' && n.parent.attrs.class === 'plist' && within(n, x => x.attrs['aria-labelledby'] === 'sk-h' || /^sk:/.test(x.attrs['data-disc'] || '')), bound: 50 },
   { name: 'Skills, Needs an update (sk-att) and Ready to become a skill (sk-ready)', rows: n => n.tag === 'li' && n.parent && (cls(n.parent, 'plist') || cls(n.parent, 'rlist')) && within(n, x => x.attrs['aria-labelledby'] === 'att-h' || x.attrs['aria-labelledby'] === 'rdy-h'), bound: 50 + 50 },
+  /* Home: Needs you, Your corrections and Your follow-ups, 10 each; Follow-ups 50 a chip; Planned 50 and the Just planned card. */
+  { name: 'Home, Needs you (home-todo)', rows: n => n.tag === 'li' && cls(n, 'todo') && !cls(n, 'ack') && within(n, x => cls(x, 'todos')), bound: 10 },
+  { name: 'Home, Your corrections (home-acks)', rows: n => n.tag === 'li' && cls(n, 'todo') && cls(n, 'ack'), bound: 10 },
+  { name: 'follow-ups (fu, home-fu), the page and the one being edited', rows: n => n.tag === 'li' && cls(n, 'fu'), bound: 50 + 1 },
+  { name: 'Runs, Planned (runs-planned) and Just planned', rows: n => n.tag === 'button' && cls(n, 'plan') && cls(n, 'card'), bound: 50 + 1 },
+  /* Every bounded dropdown (D9): 50 candidates, the kept choice, the select's own special choices and Show 50 more…. */
+  { name: 'a bounded dropdown (K.select), per select', rows: n => n.tag === 'option' && !!up(n, x => x.tag === 'select' && 'data-kselect' in x.attrs), bound: 50 + 1 + 2 + 1, per: n => up(n, x => x.tag === 'select') },
   { name: 'a skill page\'s changes (sk-changes)', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'changes') && within(n, x => cls(x, 'status-card')), bound: 50 }
 ];
 /* Drawn in full on purpose, each with its reason. A capped one is also in REGISTRY at its cap. */
@@ -80,13 +87,6 @@ const inDisc = d => n => within(n, x => x.attrs['data-disc'] === d);
    entries and registers the bound. An entry not drawn over 25 on a screen it names fails, so none can outstay its slice.
    slice null: a list the plan's D7 doesn't have yet; reported, not assigned. */
 const PENDING = [
-  { slice: 3, name: 'Home, Needs you', rows: n => n.tag === 'li' && cls(n, 'todo'), on: ['Home'] },
-  { slice: 3, name: 'Runs, Planned', rows: n => n.tag === 'button' && cls(n, 'plan') && cls(n, 'card'), on: ['Runs'] },
-  { slice: 3, name: 'Follow-ups', rows: n => n.tag === 'li' && cls(n, 'fu'), on: ['Runs › Follow-ups, Open', 'Runs › Follow-ups, All'] },
-  { slice: 3, name: 'Moved to\'s destinations (K.select)', rows: n => n.tag === 'option' && within(n, x => cls(x, 'fu-form')), on: ['Runs › Follow-ups, Open', 'Runs › Follow-ups, All'] },
-  { slice: 3, name: 'the version picker #map-ver (K.select)', rows: n => n.tag === 'option' && up(n, x => x.tag === 'select') && up(n, x => x.tag === 'select').attrs.id === 'map-ver', on: ['Many versions'] },
-  { slice: 3, name: 'How runs go, #ins-folder (K.select)', rows: n => n.tag === 'option' && up(n, x => x.tag === 'select') && up(n, x => x.tag === 'select').attrs.id === 'ins-folder', on: ['Many versions'] },
-  { slice: 3, name: 'the Phase select #rw-phase (K.select)', rows: n => n.tag === 'option' && up(n, x => x.tag === 'select') && up(n, x => x.tag === 'select').attrs.id === 'rw-phase', on: ['A run with 300 phases'] },
   { slice: 3, name: 'Checks', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'checks'), on: ['Commands to fill in'] },
   { slice: 3, name: 'Why is this here? (members, reasons, source runs)', rows: n => within(n, x => cls(x, 'prov-why')) && /^(dt|dd|button)$/.test(n.tag), on: ['A run on a version with a landed correction'] },
   { slice: 3, name: 'unreadable note lines, one notice each (D10)', rows: n => n.tag === 'div' && cls(n, 'notice') && n.parent && cls(n.parent, 'rw-alerts'), on: ['The busy run', 'The busy run, picked up'] },
@@ -133,7 +133,7 @@ function check(screen, html, o) {
   reg.forEach(e => {
     if (e.count) { const n = e.count(html); if (n > e.bound) fails.push(screen + ': ' + e.name + ' draws ' + n + ', over its bound of ' + e.bound); return; }
     const rows = all.filter(e.rows), per = new Map();
-    if (e.per) rows.forEach(n => per.set(n.parent, (per.get(n.parent) || 0) + 1)); else per.set(root, rows.length);
+    if (e.per) rows.forEach(n => { const k = typeof e.per === 'function' ? e.per(n) : n.parent; per.set(k, (per.get(k) || 0) + 1); }); else per.set(root, rows.length);
     per.forEach(n => { if (n > e.bound) fails.push(screen + ': ' + e.name + ' draws ' + n + ', over its bound of ' + e.bound); });
   });
   PENDING.filter(e => e.count).forEach(e => { if (e.count(html) > 25) pending.add(e.name); });

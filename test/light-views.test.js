@@ -154,7 +154,7 @@ function exampleFolder() {
   (function walk(d) { fs.readdirSync(d).forEach(f => { const q = path.join(d, f); if (fs.statSync(q).isDirectory()) walk(q); else files[path.relative(root, q).split(path.sep).join('/')] = fs.readFileSync(q, 'utf8'); }); })(root);
   return files;
 }
-const todos = html => [...html.matchAll(/<li class="todo ([\w ]+)"><div><b>([^<]*)<\/b>/g)].map(m => m[1] + ': ' + m[2].replace(/&quot;/g, '"').replace(/&#39;/g, '\''));
+const todos = html => [...html.matchAll(/<li class="todo ([\w ]+)"[^>]*><div><b[^>]*>([^<]*)<\/b>/g)].map(m => m[1] + ': ' + m[2].replace(/&quot;/g, '"').replace(/&#39;/g, '\''));
 async function joined(who, edit) {
   const files = exampleFolder(); if (edit) edit(files);
   const app = boot({ picker: folderHandle('Team', files), indexedDB: memoryIDB(), firstRun: true }); await app.tick(60);

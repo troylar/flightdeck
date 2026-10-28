@@ -1128,7 +1128,7 @@ rule('Correct this step: the published text stays; the wording starts filled in,
   assert.ok(/<textarea id="corr-why" rows="2" maxlength="2000" data-bound aria-invalid="true" aria-describedby="ferr-corr"><\/textarea><p class="ferr" id="ferr-corr" role="alert">Remove this step/.test(ins), 'the error sits under its field');
   state.fieldErr = null;
   state.corrForm.op = 'move'; ins = insOf(V.run(ctx));
-  assert.ok(/<select id="corr-move" data-bound><option value="">Choose…<\/option><optgroup label="Before production changes"><option value="start:prep">At the start of Before production changes<\/option><option value="after:tests">/.test(ins) && !/value="after:approved"/.test(ins));
+  assert.ok(/<select id="corr-move" data-bound data-kselect data-cur=""><option value="">Choose…<\/option><optgroup label="Before production changes"><option value="start:prep">At the start of Before production changes<\/option><option value="after:tests">/.test(ins) && !/value="after:approved"/.test(ins));
   state.corrForm.op = 'roles'; ins = insOf(V.run(ctx));
   assert.ok(/<input type="checkbox" id="corr-role-release-lead" data-bound checked> @release-lead \(Casey Nguyen\)/.test(ins) && /id="corr-role-qa" data-bound>/.test(ins));
   state.corrForm.op = 'add'; ins = insOf(V.run(ctx));
@@ -1358,8 +1358,8 @@ rule('Home: "Your correction to … is published in vN" and "… declined your c
   state.view = 'home'; state.me = 'person-blake'; ctx.data.plans = []; ctx.lostDrafts = () => [];
   const html = V.home(ctx), panel = html.slice(html.indexOf('aria-labelledby="ack-h"'));
   assert.ok(/<h2 id="ack-h">Your corrections<\/h2>/.test(html));
-  assert.ok(/<b>Your correction to &quot;Change request approved for tonight&#39;s window&quot; is published in v2\.<\/b>/.test(panel), panel);
-  assert.ok(/<b>Casey Nguyen declined your correction: We watch &lt;u&gt;dashboards&lt;\/u&gt;<\/b>/.test(panel) && !/<u>dashboards/.test(panel));
+  assert.ok(/<b tabindex="-1">Your correction to &quot;Change request approved for tonight&#39;s window&quot; is published in v2\.<\/b>/.test(panel), panel);
+  assert.ok(/<b tabindex="-1">Casey Nguyen declined your correction: We watch &lt;u&gt;dashboards&lt;\/u&gt;<\/b>/.test(panel) && !/<u>dashboards/.test(panel));
   assert.ok(/data-act="ack-view" data-id="l\.release\.v2-view0102" data-process="release">View change<\/button><button class="mini" data-act="ack-dismiss" data-id="l\.release\.v2-view0102"/.test(panel));
   assert.ok(!/things? need/.test(html.slice(0, html.indexOf('aria-labelledby="ack-h"'))) || /Nothing needs you right now\./.test(html), 'acknowledgments never count as needing you');
   ctx.acks = () => [];
@@ -1628,7 +1628,7 @@ rule('Run workspace: a slim header with progress in words, three named panes, an
   assert.ok(/data-act="run-details" aria-expanded="false"/.test(html) && /data-act="receipt"/.test(html) && /<details class="rw-menu" data-disc="rw-menu"><summary class="mini">More<\/summary>/.test(html) && /data-act="finish">End run…/.test(html) && /You: <b>Casey Nguyen<\/b>/.test(html));
   assert.ok(/<nav class="fpe-pane rw-rail" aria-label="Phases">/.test(html) && /<section class="fpe-pane rw-list" id="rw-list" aria-label="Checklist">/.test(html) && /<aside class="fpe-pane rw-ins" id="rw-ins" data-open="false" aria-label="Selected step">/.test(html), 'named regions');
   assert.ok(/data-act="goto" data-id="phase-deploy" data-s="current" aria-current="step">/.test(html) && /class="rw-gate g-passed">.*Ready to deploy · Passed/.test(html) && /class="rw-gate g-open">.*Deployed · Waiting on steps/.test(html) && /class="rw-gate g-locked">/.test(html), 'the rail marks the current phase and each gate\'s state');
-  assert.ok(/<select id="rw-phase" data-bound><option value="prep">1\. Before production changes · 6\/6 · Ready to deploy: passed<\/option><option value="deploy" selected>/.test(html), 'a compact Phases picker for narrower screens');
+  assert.ok(/<select id="rw-phase" data-bound data-kselect data-cur="deploy"><option value="prep">1\. Before production changes · 6\/6 · Ready to deploy: passed<\/option><option value="deploy" selected>/.test(html), 'a compact Phases picker for narrower screens');
   assert.ok(/data-act="timeline" data-id="rail"/.test(html) && /data-act="timeline" data-id="picker"/.test(html) && /data-act="run-fu" data-id="picker"[^>]*>.*Follow-ups · 0/.test(html), 'timeline and follow-ups at every width');
   assert.ok(!/class="runhead"/.test(html) && !/class="headline"/.test(html), 'the old header and headline are gone');
   state.runDetails = true;
@@ -2066,7 +2066,7 @@ rule('Follow-up actions are named for their follow-up, and the open form labels 
   assert.ok(/<p class="ferr" id="ferr-fud-reason" role="alert">Why won&#39;t it be done\? Say why\.<\/p>/.test(html));
   state.fuPick = { key: 'release/run1/fu2', status: 'moved' }; state.fieldErr = null;
   html = N(V.followUpsPage(ctx));
-  assert.ok(/<label class="field" for="fud-to">The run or plan it moved to<select id="fud-to">/.test(html) && /for="fud-link">Or a link \(optional\)/.test(html));
+  assert.ok(/<label class="field" for="fud-to">The run or plan it moved to<select id="fud-to" data-kselect data-cur="">/.test(html) && /for="fud-link">Or a link \(optional\)/.test(html));
   assert.ok(!/<option value="release\/run1">/.test(html), 'never the run it came from');
   state.me = null;
   assert.ok(!/data-act="fu-pick"/.test(V.followUpsPage(ctx)) && /Choose who you are/.test(V.followUpsPage(ctx)), 'deciding needs to know who you are');
