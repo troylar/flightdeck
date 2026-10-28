@@ -141,7 +141,10 @@
      (marked when it's no longer open), and so is a group search or Home opened (state.justShown), marked as shown for that. */
   function fixesPanel(ctx, p) {
     var st = ctx.state, all = fixesOf(ctx, p), C = PF.corrections;
-    if (!all.length) return '';
+    /* The correction being declined that a newer read no longer has: drawn from the decline's snapshot (D4). */
+    var pk = st.pick && st.pick.kind === 'corr-decline' && st.pick.snap && st.pick.snap.process === p.id ? st.pick : null;
+    var removed = pk && !all.some(function (g) { return g.id === pk.id; }) ? pk : null;
+    if (!all.length && !removed) return '';
     var open = all.filter(function (g) { return g.status === 'open'; });
     var showAll = st.fixFilter === 'all', map = p.latest ? p.latest.map : p.draft ? M.parse(p.draft.md) : null;
     var lid = 'fx:' + p.id, declining = st.pick && st.pick.kind === 'corr-decline' ? st.pick.id : null, js = st.justShown && st.justShown.lists ? st.justShown.lists[lid] : null, jsG = js ? String(js).split('#')[0] : null;
@@ -179,11 +182,23 @@
     };
     h += K.list(st, lid, items, { draw: draw, keyOf: function (x) { return x.g.id + '#' + x.i; }, focusOf: function (key) { return K.byId('fxm-' + key); },
       keep: declining ? [declining + '#0'] : [], keptLabel: 'You\'re declining this one', shownWord: 'opened' });
+    if (removed) h += '<p class="small kept-h">You\'re declining this one</p><ul class="fixlist">' + removedItem(removed) + '</ul>';
     if (open.length) h += '<div class="row" style="margin-top:10px"><button class="btn" data-act="copy-corr-brief" data-id="' + esc(p.id) + '">' + I('copy') + 'Copy correction brief</button></div>' + briefBox(st, 'corrections:' + p.id);
     var head = '<h2 id="fx-h" tabindex="-1">' + I('edit') + 'Corrections · ' + open.length + ' open</h2>';
     /* Open for whoever looks after the checklist, and whenever it holds a warning; for everyone else, one closed line. */
     if (unread.length || K.keeps(ctx, p)) return '<section class="panel" aria-labelledby="fx-h">' + head + h + '</section>';
     return '<details class="panel fold" data-disc="fx:' + esc(p.id) + '"' + ((st.disc || {})['fx:' + p.id] ? ' open' : '') + '><summary>' + head + '<span class="fold-act">Review</span></summary>' + h + '</details>';
+  }
+  /* A correction being declined that's no longer in the folder (2.11, D4): what it said, from the decline's snapshot, and the
+     reason typed, with Copy my text and Cancel, never Decline. */
+  function removedItem(pk) {
+    var sn = pk.snap, dl = '';
+    if (sn.from) dl += '<dt>Checklist said</dt><dd>' + esc(sn.from) + '</dd>';
+    if (sn.to) dl += '<dt>Suggested</dt><dd>' + esc(sn.to) + '</dd>';
+    return '<li class="fx-removed" data-scope="corr:' + esc(pk.id) + '" id="' + esc('fxg-' + pk.id) + '" tabindex="-1"><div class="row"><span class="badge b-plan">' + esc(sn.op) + '</span><span class="small">' + esc(sn.target) + '</span></div>' +
+      '<p class="small fx-gone" role="note"><b>Removed elsewhere.</b> This correction isn\'t in the folder anymore, so it can\'t be declined. Your reason is still here to copy.</p>' +
+      (dl ? '<dl class="corr-dl">' + dl + '</dl>' : '') +
+      '<div class="row"><label class="sr" for="pick-input">Why not?</label><input id="pick-input" maxlength="300" value="' + esc(pk.text || '') + '"><button class="btn" type="button" data-act="corr-copy-reason">Copy my text</button><button class="mini" type="button" data-act="unpick">Cancel</button></div></li>';
   }
   /* One group, with the members the page draws (ms: { m, i }, i its place in the group). Each drawn member's Why, What
      happened, files and run are drawn in full; its first line (fxm-<group>#<i>) is where Show more puts focus. */
@@ -697,7 +712,9 @@
          always drawn; a role not drawn keeps its value in a hidden field, so the form starts or plans exactly what it would. */
       var chosenOf = function (role) { return pre.roles && typeof pre.roles === 'object' && typeof pre.roles[role] === 'string' ? pre.roles[role] : ''; };
       var picked = st.rolesPicked && st.rolesPicked.at === scope + ':' + pub.info.folder ? st.rolesPicked.roles : {};
-      /* What this form has set a role to (a change, or Just me for every role), drawn or not, over the plan and the suggestion. */
+      /* What this form has set a role to (a change, or Just me for every role), drawn or not, over the plan and the suggestion.
+         Each role, drawn or in a hidden field, also carries what the plan or the suggestion would have it be (data-was), so a
+         choice redrawn as the control's own value still counts as unsaved: navigation asks about it (pendingBox in app.js). */
       var setTo = st.rolesPicked && st.rolesPicked.at === scope + ':' + pub.info.folder ? st.rolesPicked.vals || {} : {};
       var setOf = function (role, dflt) { return Object.prototype.hasOwnProperty.call(setTo, role) ? setTo[role] : dflt; };
       var keepRole = function (role) { return !!chosenOf(role) || !!picked[role] || !!(st.fieldErr && st.fieldErr.id === 'start-approver' && st.fieldErr.field === 'role-' + role); };
@@ -712,13 +729,13 @@
            suggestion as a hint (what it knows: who had the role on past runs). */
         if (apRole[role]) {
           var bad = st.fieldErr && st.fieldErr.id === 'start-approver' && st.fieldErr.field === 'role-' + role;
-          h += '<div><label class="field" for="role-' + esc(role) + '">' + esc(role) + ' <span class="small">· approves ' + esc(apRole[role].map(function (t) { return '"' + t + '"'; }).join(' and ')) + '</span><select id="role-' + esc(role) + '" data-role="' + esc(role) + '"' + (sug ? ' data-suggested="' + esc(sug.person) + '"' : '') + (bad ? ' aria-invalid="true" aria-describedby="ferr-role-' + esc(role) + '"' : '') + '><option value="">Choose a person</option>' +
+          h += '<div><label class="field" for="role-' + esc(role) + '">' + esc(role) + ' <span class="small">· approves ' + esc(apRole[role].map(function (t) { return '"' + t + '"'; }).join(' and ')) + '</span><select id="role-' + esc(role) + '" data-role="' + esc(role) + '" data-was="' + esc(chosen) + '"' + (sug ? ' data-suggested="' + esc(sug.person) + '"' : '') + (bad ? ' aria-invalid="true" aria-describedby="ferr-role-' + esc(role) + '"' : '') + '><option value="">Choose a person</option>' +
             people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === setOf(role, chosen) ? ' selected' : '') + '>' + esc(nmStage(x)) + '</option>'; }).join('') + '</select></label>' +
             (sug ? '<p class="small">Suggested: ' + esc(nameOf(ctx, sug.person)) + ' · ' + (sug.last ? 'last had this role on ' + esc(U.day(sug.last)) : 'hasn\'t had this role yet') + '</p>' : '') +
             (bad ? '<p class="ferr" id="ferr-role-' + esc(role) + '" role="alert">' + esc(st.fieldErr.msg) + '</p>' : '') + '</div>';
           return h;
         }
-        h += '<label class="field" for="role-' + esc(role) + '">' + esc(role) + (sug ? ' <span class="small">· suggestion: ' + esc(nameOf(ctx, sug.person)) + ' (' + esc(sug.why) + ')</span>' : '') + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '"><option value="">Nobody yet</option>' +
+        h += '<label class="field" for="role-' + esc(role) + '">' + esc(role) + (sug ? ' <span class="small">· suggestion: ' + esc(nameOf(ctx, sug.person)) + ' (' + esc(sug.why) + ')</span>' : '') + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '" data-was="' + esc(chosen || (sug && sug.person) || '') + '"><option value="">Nobody yet</option>' +
           people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === setOf(role, chosen || (sug && sug.person)) ? ' selected' : '') + '>' + esc(nmStage(x)) + '</option>'; }).join('') + '</select></label>';
         return h;
       };
@@ -727,7 +744,8 @@
       meta.roles.forEach(function (role) {
         if (drawnRole[role]) return;
         var chosen = chosenOf(role), sug = apRole[role] ? null : ctx.suggestRole(p.id, role);
-        roleRows += '<input type="hidden" id="role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(setOf(role, chosen || (sug && sug.person) || '')) + '">';
+        var was = chosen || (sug && sug.person) || '';
+        roleRows += '<input type="hidden" id="role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(setOf(role, was)) + '" data-was="' + esc(was) + '">';
       });
       h += '</div>' + roleRows + '<p class="small">Suggestions rotate roles to whoever did them least recently, so everyone gets the experience. Change anything.</p>';
     }
@@ -757,9 +775,9 @@
       var tset = st.rolesPicked && st.rolesPicked.at === 'test:' + p.id + ':' + pub.folder ? st.rolesPicked.vals || {} : {};
       var tsetOf = function (role, dflt) { return Object.prototype.hasOwnProperty.call(tset, role) ? tset[role] : dflt; };
       var tr = K.roleRows(st, 'test-roles', meta.roles, { keep: meta.roles.filter(function (role) { return !!tpicked[role]; }), focusOf: function (k) { return K.byId('role-' + k); },
-        row: function (role) { return '<label class="field" for="role-' + esc(role) + '">' + esc(role) + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '"><option value="">Nobody yet</option>' +
+        row: function (role) { return '<label class="field" for="role-' + esc(role) + '">' + esc(role) + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '" data-was="' + esc(st.me || '') + '"><option value="">Nobody yet</option>' +
           people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === tsetOf(role, st.me) ? ' selected' : '') + '>' + esc(nmRun(x)) + '</option>'; }).join('') + '</select></label>'; },
-        hidden: function (role) { return '<input type="hidden" id="role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(tsetOf(role, meOn)) + '">'; } });
+        hidden: function (role) { return '<input type="hidden" id="role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(tsetOf(role, meOn)) + '" data-was="' + esc(meOn) + '">'; } });
       h += tr.box + '<div class="grid2">' + tr.rows + '</div>' + tr.hidden;
     }
     return h + '<div class="row"><button class="btn go" type="submit" id="start-submit"' + (st.me ? '' : ' disabled') + '>' + I('play') + 'Start the test run</button><span class="small">A test run tries this staged version. It isn\'t counted in How runs go or toward a skill.</span>' + back + '</div></form>';

@@ -1587,6 +1587,7 @@
     if (state.justPlanned && state.justPlanned.gen !== gen) state.justPlanned = null;
     dropBatchRender();
     repHarvest();
+    corrHarvest();
     procCache = null; pplBy = { list: null, len: -1, by: null }; pplSorted = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null;
     var keep = {}, ae = document.activeElement, focusKey = null;
     /* What a person typed or ticked survives a redraw of the same thing: the same screen, run, step and open form. Moving to
@@ -4989,7 +4990,7 @@
     setTimeout(function () { var f = document.activeElement; if (dbxAc && (!f || f.id !== dbxAc.id)) dbxClose(); }, 0);
   });
 
-  function pendingBox() { var pf = state.obPending && state.obPendingField; return pf ? document.getElementById(pf) || { id: pf } : dirtyControl() || fuPending(); }
+  function pendingBox() { var pf = state.obPending && state.obPendingField; return pf ? document.getElementById(pf) || { id: pf } : dirtyControl() || fuPending() || rolesPending() || corrGonePending(); }
   /* An open follow-up form holding a chosen destination, a link or text is unsaved work, even once a redraw has drawn it as the
      page's own (2.11): leaving refuses, as for any changed control. */
   function fuPending() {
@@ -6102,10 +6103,13 @@
       /* Another small form on the step keeps an open Fill in (as leaving the step would); opening Fill in brings back its own. */
       leaveFillIn();
       state.pick = { kind: b.dataset.kind, id: id, back: '[data-act="pick"][data-kind="' + cssEsc(b.dataset.kind || '') + '"][data-id="' + cssEsc(id || '') + '"]' };
+      if (b.dataset.kind === 'corr-decline') state.pick.snap = corrSnap(id);
       var fd = b.dataset.kind === 'fields' && state.runKey ? draftOf(state.runKey, id, false) : null;
       state.fieldsDraft = fd && fd.fd && fd.fd.key === state.runKey && fd.fd.fs === fsKey() ? fd.fd : null; if (fd) fd.open = false;
       if (b.dataset.kind === 'block' || b.dataset.kind === 'differently' || b.dataset.kind === 'deadline' || b.dataset.kind === 'fields') state.sel = id; render(); },
-    unpick: function () { childEpoch++; var pk = state.pick; state.pick = null; state.fieldErr = null; state.fieldsDraft = null; if (pk && pk.kind === 'fields') dropDraft(state.runKey, pk.id, ['fields', 'open']); if (pk && pk.back) state.focus = pk.back; render(); },
+    unpick: function () { childEpoch++; var pk = state.pick; state.pick = null; state.fieldErr = null; state.fieldsDraft = null; if (pk && pk.kind === 'fields') dropDraft(state.runKey, pk.id, ['fields', 'open']); if (pk && pk.back) state.focus = pk.back; if (corrGoneOf(pk)) state.focus = 'fx-h'; render(); },
+    /* A decline reason on a correction that's gone (2.11): copied, since it can't be saved. */
+    'corr-copy-reason': function () { var pk = state.pick, el = document.getElementById('pick-input'); copyText(el ? String(el.value || '') : (pk && pk.text) || '', null, 'Copied.'); },
     block: function (id, b) { var reason = b.dataset.reason || val('pick-input'); if (!reason.trim()) return; mutate(function (r, map, me, now) { R.block(r, map, id, reason, me, now); }); },
     differently: function (id) { var note = val('pick-input'); if (!note.trim()) return; mutate(function (r, map, me, now) { R.differently(r, map, id, note, me, now); }); },
     deadline: function (id) {
@@ -6323,9 +6327,11 @@
       var on = x && key ? ((reportsOf(r) || { list: [] }).list).filter(function (it) { return it.g.step === x.step.id; }).map(function (it) { return it.g.key; }) : [], n = on.indexOf(key);
       if (n < 0) { ACTIONS.goto(id); return; }
       selectStep(x.step.id); state.refOpen = true; state.unfold[x.phase.id] = true;
-      ensureListItemVisible(V.reportListId(r, x.step.id), key, { focus: '#rep-' + n + '-h', word: 'opened' });
+      /* The card's id is its report's (2.11), so focus stays on this report when another arrives ahead of it. */
+      var hsel = '#' + V.reportCardId(key) + '-h';
+      ensureListItemVisible(V.reportListId(r, x.step.id), key, { focus: hsel, word: 'opened' });
       /* On a phone the inspector sheet opens on the report, which keeps focus instead of Close, as a note from search does. */
-      sheetFor = '#rep-' + n + '-h';
+      sheetFor = hsel;
       render();
     },
     /* Every copy of a report, 50 at a time in its Details fold (2.11), with focus on the first one the first 10 didn't show. */
@@ -6682,6 +6688,28 @@
   }
   /* Anyone on the team decides on a group of corrections; the decision is a new file written once, following the decision
      this window shows. */
+  /* What a correction being declined said (2.11), kept with the decline: if a newer read no longer has it, its row is drawn
+     from this, as Removed elsewhere, with the reason typed (D4). */
+  function corrSnap(id) {
+    var p = currentProcess(), g = p && ctx.corrections(p.id).filter(function (x) { return x.id === id; })[0], C = PF.corrections;
+    if (!g) return null;
+    return { process: p.id, op: C.OP_LABEL[g.change.op] || '', target: C.targetName(g), from: g.change.op !== 'describe' ? g.from || '' : '', to: g.change.op === 'wording' ? g.change.to || '' : '' };
+  }
+  /* The decline pick whose correction is no longer in the folder. */
+  function corrGoneOf(pk) {
+    if (!pk || pk.kind !== 'corr-decline' || !pk.snap) return false;
+    return !ctx.corrections(pk.snap.process).some(function (g) { return g.id === pk.id; });
+  }
+  /* Its reason is kept through redraws (drawn as the box's own text), so navigation asks this instead of dirtyControl(). */
+  function corrHarvest() {
+    var pk = state.pick; if (!pk || pk.kind !== 'corr-decline') return;
+    var el = document.getElementById('pick-input'); if (el) pk.text = String(el.value == null ? '' : el.value);
+  }
+  function corrGonePending() {
+    var pk = state.pick; if (!corrGoneOf(pk)) return null;
+    var el = document.getElementById('pick-input'), t = el ? String(el.value || '') : pk.text || '';
+    return t.trim() ? el || { id: 'pick-input' } : null;
+  }
   function decideCorr(id, status, reason, done, pid, more) {
     var p = pid ? procFind(pid) : currentProcess(), g = p && ctx.corrections(p.id).filter(function (x) { return x.id === id; })[0];
     if (!g || !state.me) return;
@@ -6833,11 +6861,10 @@
   function repOpenForm(id, mode) {
     var o = repItem(id);
     if (!o.it || !ctx.recording(o.r)) return;
-    var n = o.b.list.filter(function (x) { return x.g.step === o.it.g.step; }).indexOf(o.it);
     repHarvest();
     state.repPick = { key: id, mode: mode };
     if (state.fieldErr && /^rep-reason-/.test(state.fieldErr.id)) state.fieldErr = null;
-    state.focus = mode === 'decline' ? PF.reports.reasonId(id) : 'rep-' + n + '-cf';
+    state.focus = mode === 'decline' ? PF.reports.reasonId(id) : V.reportCardId(id) + '-cf';
     render();
   }
   /* Acceptances this window made in this session, per folder: only a hint that the finalizer should try them by itself, once
@@ -7341,6 +7368,26 @@
     if (!state.rolesPicked || state.rolesPicked.at !== fk) state.rolesPicked = { at: fk, roles: {}, vals: {} };
     if (!state.rolesPicked.vals) state.rolesPicked.vals = {};
     return state.rolesPicked;
+  }
+  /* The open Start, Plan or test-run form's role state, when it's this form's (2.11), without making one. */
+  function rolesHere() {
+    if (state.view !== 'start' || !state.rolesPicked) return null;
+    var fk = state.testStage ? 'test:' + state.processId + ':' + state.testStage : startFormKey();
+    return state.rolesPicked.at === fk ? state.rolesPicked : null;
+  }
+  /* A role this form changed (or Just me) is redrawn with its choice as the control's own value, and one not drawn is a hidden
+     field, so dirtyControl() can't see either: one whose value differs from what the plan or the suggestion has it be
+     (data-was) is unsaved work, as an undrawn change was in 2.10. Focus goes to the role, or for a hidden one the submit button. */
+  function rolesPending() {
+    var rb = rolesHere(); if (!rb || !rb.vals) return null;
+    var roles = Object.keys(rb.vals);
+    for (var i = 0; i < roles.length; i++) {
+      var el = document.getElementById('role-' + roles[i]);
+      if (!el || !el.getAttribute) continue;
+      var was = el.getAttribute('data-was');
+      if (was != null && String(el.value == null ? '' : el.value) !== was) return el.type === 'hidden' ? document.getElementById('start-submit') || el : el;
+    }
+    return null;
   }
   /* The version the Start or Plan form starts: the latest, or the one its plan names. */
   function startFormPub() {

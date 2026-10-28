@@ -25,7 +25,9 @@
     h += '</div><div class="stack"><h2>Gates</h2><ul class="gates">' + map.phases.map(function (p, pi) {
       var st = R.gateStatus(r, map, pi);
       return '<li><span>' + esc(p.gate.implicit ? 'Confirm ' + p.title : p.gate.title) + '</span><span class="pill ' + st + '">' + esc(st) + '</span></li>';
-    }).join('') + '</ul><h2>Who\'s on what</h2><ul class="gates">' + map.meta.roles.map(function (ro) { return '<li><span>' + esc(ro) + '</span><span class="row">' + (r.roles[ro] ? avatar(ctx, r.roles[ro], true) + esc(nameOf(ctx, r.roles[ro])) : '<span class="muted">nobody</span>') + '</span></li>'; }).join('') + '</ul></div></div>';
+    }).join('') + '</ul><h2>Who\'s on what</h2>' + K.list(ctx.state, 'ms-roles:' + runKey(r), map.meta.roles, { page: 20, keyOf: function (ro) { return ro; }, focusOf: function (ro) { return K.byId('ms-role-' + ro); },
+      /* 20 roles at a time in checklist order (2.11), Show more focusing the first one it adds. */
+      draw: function (shown) { return '<ul class="gates mroles">' + shown.map(function (ro) { return '<li id="' + esc('ms-role-' + ro) + '" tabindex="-1"><span>' + esc(ro) + '</span><span class="row">' + (r.roles[ro] ? avatar(ctx, r.roles[ro], true) + esc(nameOf(ctx, r.roles[ro])) : '<span class="muted">nobody</span>') + '</span></li>'; }).join('') + '</ul>'; } }) + '</div></div>';
     return h;
   }
 

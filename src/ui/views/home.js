@@ -221,7 +221,7 @@
       '</details></span></div>';
     var chosen = st.tags || [], tagged = procs.filter(function (p) { return has(p.tags); }), q = K.findQ(st, 'processes'), hit = K.finds(q);
     var found = q ? tagged.filter(function (p) { return hit([p.title, p.id, (p.group || []).join(' / '), p.category, (p.tags || []).join(' ')]); }) : tagged;
-    h += '<section class="panel">' + (procs.length ? K.findBox(st, 'processes', 'Find a checklist', found.length, tagged.length, 'checklist') : '') + K.tagBar(allTags(ctx, chosen), chosen, st.disc, st) + (procs.length ? K.treeList(st, 'processes', found, function (p) { return p.group && p.group.length ? p.group : [p.category]; }, function (p) {
+    h += '<section class="panel" id="procs-all">' + (procs.length ? K.findBox(st, 'processes', 'Find a checklist', found.length, tagged.length, 'checklist') : '') + K.tagBar(allTags(ctx, chosen), chosen, st.disc, st) + (procs.length ? K.treeList(st, 'processes', found, function (p) { return p.group && p.group.length ? p.group : [p.category]; }, function (p) {
       PF.perf.add('procs.rows');
       var pub = p.latest, info = pub ? 'v' + pub.info.version : p.proposedOnly ? 'Proposed, not drafted yet' : 'not published yet';
       var flags = [];
@@ -236,16 +236,19 @@
         return '<button class="skillchip" data-act="open-skill" data-id="' + esc(x.skill.file || x.skill.name) + '">' + esc(x.skill.name) + ' <span class="pill ' + pill[0] + '">' + pill[1] + '</span></button>';
       }).join('') + (more > 0 ? '<span class="small">+' + more.toLocaleString('en-US') + ' more skill' + (more === 1 ? '' : 's') + '</span>' : '') + '</div>' : '';
       return '<li><button data-act="open-process" data-id="' + esc(p.id) + '"><span class="t">' + esc(p.title) + '</span>' + (flags.length ? '<span class="small" style="color:var(--stop)">' + esc(flags.join(' · ')) + '</span>' : '<span></span>') + '<span class="small">' + info + (p.lastRun ? ' · last run ' + esc(U.day(p.lastRun)) : '') + '</span></button>' + skills + '</li>';
-    }, { keyOf: function (p) { return p.id; }, focusOf: function (id) { return K.byAct('open-process', id); } }) : '<p class="small">No checklists yet. Choose <b>New checklist</b>, or ask your AI assistant: <code>/flightdeck-new-checklist</code>.</p>') + '</section>';
+    /* Scoped to this list: the lost-drafts notice above can have a button for the same checklist (2.11). */
+    }, { keyOf: function (p) { return p.id; }, focusOf: function (id) { return '#procs-all ' + K.byAct('open-process', id); } }) : '<p class="small">No checklists yet. Choose <b>New checklist</b>, or ask your AI assistant: <code>/flightdeck-new-checklist</code>.</p>') + '</section>';
     return h;
   }
 
   /* ---------- Skills: what they are, which need attention, and which processes are ready to become one ---------- */
-  function skillRow(k) {
+  /* A skill's row in one of the page's lists (pre: sk-att- or sk-all-), its button with an id of its own from the row's key, so
+     Show more in one list never focuses the same skill in another, or another registration with its name (2.11). */
+  function skillRow(pre) { return function (k) {
     PF.perf.add('skills.rows');
     var s = k.x.skill, pill = SKILL_PILL[k.x.status.s] || SKILL_PILL.missing;
-    return '<li><button data-act="open-skill" data-id="' + esc(s.file || s.name) + '"><span class="t">' + I('spark') + esc(s.name) + (s.version ? ' <span class="small">' + esc(s.version) + '</span>' : '') + '</span><span class="pill ' + pill[0] + '">' + pill[1] + '</span><span class="small">' + (k.p.id ? 'Automates ' + esc(k.p.title) + ' v' + esc(s.implements) + (s.steps ? ' · ' + s.steps.length + ' step' + (s.steps.length === 1 ? '' : 's') : ' · the whole checklist') : esc(k.x.status.text)) + '</span>' + K.tagChips(s.tags) + '</button></li>';
-  }
+    return '<li><button id="' + esc(pre + k.key) + '" data-act="open-skill" data-id="' + esc(s.file || s.name) + '"><span class="t">' + I('spark') + esc(s.name) + (s.version ? ' <span class="small">' + esc(s.version) + '</span>' : '') + '</span><span class="pill ' + pill[0] + '">' + pill[1] + '</span><span class="small">' + (k.p.id ? 'Automates ' + esc(k.p.title) + ' v' + esc(s.implements) + (s.steps ? ' · ' + s.steps.length + ' step' + (s.steps.length === 1 ? '' : 's') : ' · the whole checklist') : esc(k.x.status.text)) + '</span>' + K.tagChips(s.tags) + '</button></li>';
+  }; }
   function skillsPage(ctx) {
     var st = ctx.state, d = ctx.data, has = hasTags(ctx), skills = [], orphans = ctx.orphanSkills ? ctx.orphanSkills() : [];
     ctx.processes().forEach(function (p) { p.skills.forEach(function (x) { skills.push({ x: x, p: p }); }); });
@@ -262,11 +265,11 @@
       '<li><b>Register it.</b><span>Your AI assistant adds <code>skills/&lt;name&gt;.json</code>: where it lives, what it implements.</span></li>' +
       '<li><b>Stay in step.</b><span>When the checklist changes, the skill shows here as needing an update, with a brief.</span></li></ol></details>';
     /* Each skill's key is its file, made unique (two registrations can share a name); Show more focuses its row's button. */
-    var seen = Object.create(null), baseOf = Object.create(null);
-    skills.forEach(function (k) { var b = k.x.skill.file || k.x.skill.name; seen[b] = (seen[b] || 0) + 1; k.key = seen[b] > 1 ? b + '#' + seen[b] : b; baseOf[k.key] = b; });
-    var skillKey = function (k) { return k.key; }, skillFocus = function (key) { return K.byAct('open-skill', baseOf[key]); };
+    var seen = Object.create(null);
+    skills.forEach(function (k) { var b = k.x.skill.file || k.x.skill.name; seen[b] = (seen[b] || 0) + 1; k.key = seen[b] > 1 ? b + '#' + seen[b] : b; });
+    var skillKey = function (k) { return k.key; }, focusIn = function (pre) { return function (key) { return K.byId(pre + key); }; };
     if (attention.length) h += '<section class="panel" aria-labelledby="att-h"><h2 id="att-h">Needs an update · ' + attention.length + '</h2><p class="small">Their checklist changed. Open one to copy the update brief.</p>' +
-      K.list(st, 'sk-att', attention, { draw: function (shown) { return '<ul class="plist">' + shown.map(skillRow).join('') + '</ul>'; }, keyOf: skillKey, focusOf: skillFocus }) + '</section>';
+      K.list(st, 'sk-att', attention, { draw: function (shown) { return '<ul class="plist">' + shown.map(skillRow('sk-att-')).join('') + '</ul>'; }, keyOf: skillKey, focusOf: focusIn('sk-att-') }) + '</section>';
     /* A signed-off version that no skill implements yet: the one action is to brief the AI assistant. The row whose brief is
        open stays drawn. */
     if (ready.length) h += '<section class="panel" aria-labelledby="rdy-h"><h2 id="rdy-h">Ready to become a skill · ' + ready.length + '</h2>' + K.list(st, 'sk-ready', ready, { draw: function (shown) { return '<ul class="rlist">' + shown.map(function (p) {
@@ -274,7 +277,7 @@
     }).join('') + '</ul>'; }, keyOf: function (p) { return p.id; }, focusOf: function (id) { return K.byAct('open-process', id); }, keep: st.brief && /^create:/.test(st.brief.key) ? [st.brief.key.slice(7)] : [], keptLabel: 'Its brief is open' }) + '</section>';
     var chosen = st.tags || [], tagged = skills.filter(function (k) { return has(k.x.skill.tags); }), q = K.findQ(st, 'skills'), hit = K.finds(q);
     var found = q ? tagged.filter(function (k) { return hit([k.x.skill.name, k.p.title, k.p.id, (k.x.skill.tags || []).join(' ')]); }) : tagged;
-    h += '<section class="panel" aria-labelledby="all-h"><h2 id="all-h">All skills · ' + skills.length + '</h2>' + (skills.length ? K.findBox(st, 'skills', 'Find a skill', found.length, tagged.length, 'skill') : '') + K.tagBar(skillTags(skills, chosen), chosen, st.disc, st) + (skills.length ? K.treeList(st, 'skills', found, function (k) { return k.x.skill.group.length ? k.x.skill.group : (k.p.group && k.p.group.length ? k.p.group : [k.p.category || 'Other']); }, skillRow, { keyOf: skillKey, focusOf: skillFocus })
+    h += '<section class="panel" aria-labelledby="all-h"><h2 id="all-h">All skills · ' + skills.length + '</h2>' + (skills.length ? K.findBox(st, 'skills', 'Find a skill', found.length, tagged.length, 'skill') : '') + K.tagBar(skillTags(skills, chosen), chosen, st.disc, st) + (skills.length ? K.treeList(st, 'skills', found, function (k) { return k.x.skill.group.length ? k.x.skill.group : (k.p.group && k.p.group.length ? k.p.group : [k.p.category || 'Other']); }, skillRow('sk-all-'), { keyOf: skillKey, focusOf: focusIn('sk-all-') })
       : '<p class="small">No skills yet. Follow the steps above: once a checklist version is signed off, its page has the brief your AI assistant needs.</p>') + '</section>';
     return h;
   }

@@ -51,9 +51,11 @@
   }
 
   /* One report on the selected step: the three facts, the producer line, Details, and the recorder's actions. */
-  function card(ctx, r, map, it, n, folded) {
+  /* A report card's id, from its report's key (2.11), so a report arriving ahead of it never gives its id to another. */
+  function cardId(key) { return 'rep-' + PF.sha256.hex(String(key)).slice(0, 32); }
+  function card(ctx, r, map, it, folded) {
     var g = it.g, rep = g.report, st = ctx.state, b = bundle(ctx, r), x = M.findStep(map, g.step), step = x ? x.step : null;
-    var dec = decidedOf(ctx, r, map, g), ap = appliesOf(r, map, g), id = 'rep-' + n;
+    var dec = decidedOf(ctx, r, map, g), ap = appliesOf(r, map, g), id = cardId(g.key);
     var head = (rep ? esc(saysText(rep)) : 'A report that can\'t be read') + ' · ' + esc(g.producer);
     var h = '';
     if (it.depth) h += '<p class="small">Replaced by a newer report from ' + esc(g.producer) + '.</p>';
@@ -159,13 +161,12 @@
     if (!items.length && !gone.length) return '';
     var many = items.length > 1, open = st.repPick ? st.repPick.key : '', js = st.justShown && st.justShown.lists ? st.justShown.lists[lid] : null;
     var kept = function (k) { return ctx.repDraft && ctx.repDraft(k) != null; };
-    var list = items.map(function (it, i) { return { it: it, n: i }; }), nOf = Object.create(null);
-    list.forEach(function (x) { nOf[x.it.g.key] = x.n; });
+    var list = items.map(function (it) { return { it: it }; });
     var keep = list.filter(function (x) { return x.it.g.key === open || kept(x.it.g.key); }).map(function (x) { return x.it.g.key; });
     return '<section class="rw-box rw-reps" aria-labelledby="ins-reps"><h3 class="rw-h3" id="ins-reps">Reports · ' + items.length + '</h3>' +
       failedNote(b) + (b.loading ? '<p class="small" role="status">Reading reports…</p>' : '') +
-      (list.length ? K.list(st, lid, list, { page: 20, keyOf: function (x) { return x.it.g.key; }, focusOf: function (k) { return '#rep-' + nOf[k] + '-h'; }, keep: keep, keptLabel: 'The ones you\'re deciding on', shownWord: 'opened',
-        draw: function (shown) { return shown.map(function (x) { PF.perf.add('rep.card'); return card(ctx, r, map, x.it, x.n, many && x.it.g.key !== open && !kept(x.it.g.key) && x.it.g.key !== js); }).join(''); } }) : '') +
+      (list.length ? K.list(st, lid, list, { page: 20, keyOf: function (x) { return x.it.g.key; }, focusOf: function (k) { return '#' + cardId(k) + '-h'; }, keep: keep, keptLabel: 'The ones you\'re deciding on', shownWord: 'opened',
+        draw: function (shown) { return shown.map(function (x) { PF.perf.add('rep.card'); return card(ctx, r, map, x.it, many && x.it.g.key !== open && !kept(x.it.g.key) && x.it.g.key !== js); }).join(''); } }) : '') +
       gone.map(function (x) { return goneCard(ctx, x); }).join('') + '</section>';
   }
 
@@ -203,5 +204,5 @@
     return '<button class="mini" data-act="run-reports" data-id="' + esc(where) + '" aria-expanded="' + !!ctx.state.repOpen + '" aria-controls="rw-reps">' + I('flag') + 'Reports · ' + n + (failed ? ' · couldn\'t be read' : '') + '</button>';
   }
 
-  V.reportListId = listId; V.reportBadge = badge; V.reportSection = section; V.reportPanel = panel; V.reportButton = button; V.reportSays = saysText;
+  V.reportCardId = cardId; V.reportListId = listId; V.reportBadge = badge; V.reportSection = section; V.reportPanel = panel; V.reportButton = button; V.reportSays = saysText;
 })();

@@ -19649,7 +19649,7 @@ PF.vk = (function () {
       '</details></span></div>';
     var chosen = st.tags || [], tagged = procs.filter(function (p) { return has(p.tags); }), q = K.findQ(st, 'processes'), hit = K.finds(q);
     var found = q ? tagged.filter(function (p) { return hit([p.title, p.id, (p.group || []).join(' / '), p.category, (p.tags || []).join(' ')]); }) : tagged;
-    h += '<section class="panel">' + (procs.length ? K.findBox(st, 'processes', 'Find a checklist', found.length, tagged.length, 'checklist') : '') + K.tagBar(allTags(ctx, chosen), chosen, st.disc, st) + (procs.length ? K.treeList(st, 'processes', found, function (p) { return p.group && p.group.length ? p.group : [p.category]; }, function (p) {
+    h += '<section class="panel" id="procs-all">' + (procs.length ? K.findBox(st, 'processes', 'Find a checklist', found.length, tagged.length, 'checklist') : '') + K.tagBar(allTags(ctx, chosen), chosen, st.disc, st) + (procs.length ? K.treeList(st, 'processes', found, function (p) { return p.group && p.group.length ? p.group : [p.category]; }, function (p) {
       PF.perf.add('procs.rows');
       var pub = p.latest, info = pub ? 'v' + pub.info.version : p.proposedOnly ? 'Proposed, not drafted yet' : 'not published yet';
       var flags = [];
@@ -19664,16 +19664,19 @@ PF.vk = (function () {
         return '<button class="skillchip" data-act="open-skill" data-id="' + esc(x.skill.file || x.skill.name) + '">' + esc(x.skill.name) + ' <span class="pill ' + pill[0] + '">' + pill[1] + '</span></button>';
       }).join('') + (more > 0 ? '<span class="small">+' + more.toLocaleString('en-US') + ' more skill' + (more === 1 ? '' : 's') + '</span>' : '') + '</div>' : '';
       return '<li><button data-act="open-process" data-id="' + esc(p.id) + '"><span class="t">' + esc(p.title) + '</span>' + (flags.length ? '<span class="small" style="color:var(--stop)">' + esc(flags.join(' · ')) + '</span>' : '<span></span>') + '<span class="small">' + info + (p.lastRun ? ' · last run ' + esc(U.day(p.lastRun)) : '') + '</span></button>' + skills + '</li>';
-    }, { keyOf: function (p) { return p.id; }, focusOf: function (id) { return K.byAct('open-process', id); } }) : '<p class="small">No checklists yet. Choose <b>New checklist</b>, or ask your AI assistant: <code>/flightdeck-new-checklist</code>.</p>') + '</section>';
+    /* Scoped to this list: the lost-drafts notice above can have a button for the same checklist (2.11). */
+    }, { keyOf: function (p) { return p.id; }, focusOf: function (id) { return '#procs-all ' + K.byAct('open-process', id); } }) : '<p class="small">No checklists yet. Choose <b>New checklist</b>, or ask your AI assistant: <code>/flightdeck-new-checklist</code>.</p>') + '</section>';
     return h;
   }
 
   /* ---------- Skills: what they are, which need attention, and which processes are ready to become one ---------- */
-  function skillRow(k) {
+  /* A skill's row in one of the page's lists (pre: sk-att- or sk-all-), its button with an id of its own from the row's key, so
+     Show more in one list never focuses the same skill in another, or another registration with its name (2.11). */
+  function skillRow(pre) { return function (k) {
     PF.perf.add('skills.rows');
     var s = k.x.skill, pill = SKILL_PILL[k.x.status.s] || SKILL_PILL.missing;
-    return '<li><button data-act="open-skill" data-id="' + esc(s.file || s.name) + '"><span class="t">' + I('spark') + esc(s.name) + (s.version ? ' <span class="small">' + esc(s.version) + '</span>' : '') + '</span><span class="pill ' + pill[0] + '">' + pill[1] + '</span><span class="small">' + (k.p.id ? 'Automates ' + esc(k.p.title) + ' v' + esc(s.implements) + (s.steps ? ' · ' + s.steps.length + ' step' + (s.steps.length === 1 ? '' : 's') : ' · the whole checklist') : esc(k.x.status.text)) + '</span>' + K.tagChips(s.tags) + '</button></li>';
-  }
+    return '<li><button id="' + esc(pre + k.key) + '" data-act="open-skill" data-id="' + esc(s.file || s.name) + '"><span class="t">' + I('spark') + esc(s.name) + (s.version ? ' <span class="small">' + esc(s.version) + '</span>' : '') + '</span><span class="pill ' + pill[0] + '">' + pill[1] + '</span><span class="small">' + (k.p.id ? 'Automates ' + esc(k.p.title) + ' v' + esc(s.implements) + (s.steps ? ' · ' + s.steps.length + ' step' + (s.steps.length === 1 ? '' : 's') : ' · the whole checklist') : esc(k.x.status.text)) + '</span>' + K.tagChips(s.tags) + '</button></li>';
+  }; }
   function skillsPage(ctx) {
     var st = ctx.state, d = ctx.data, has = hasTags(ctx), skills = [], orphans = ctx.orphanSkills ? ctx.orphanSkills() : [];
     ctx.processes().forEach(function (p) { p.skills.forEach(function (x) { skills.push({ x: x, p: p }); }); });
@@ -19690,11 +19693,11 @@ PF.vk = (function () {
       '<li><b>Register it.</b><span>Your AI assistant adds <code>skills/&lt;name&gt;.json</code>: where it lives, what it implements.</span></li>' +
       '<li><b>Stay in step.</b><span>When the checklist changes, the skill shows here as needing an update, with a brief.</span></li></ol></details>';
     /* Each skill's key is its file, made unique (two registrations can share a name); Show more focuses its row's button. */
-    var seen = Object.create(null), baseOf = Object.create(null);
-    skills.forEach(function (k) { var b = k.x.skill.file || k.x.skill.name; seen[b] = (seen[b] || 0) + 1; k.key = seen[b] > 1 ? b + '#' + seen[b] : b; baseOf[k.key] = b; });
-    var skillKey = function (k) { return k.key; }, skillFocus = function (key) { return K.byAct('open-skill', baseOf[key]); };
+    var seen = Object.create(null);
+    skills.forEach(function (k) { var b = k.x.skill.file || k.x.skill.name; seen[b] = (seen[b] || 0) + 1; k.key = seen[b] > 1 ? b + '#' + seen[b] : b; });
+    var skillKey = function (k) { return k.key; }, focusIn = function (pre) { return function (key) { return K.byId(pre + key); }; };
     if (attention.length) h += '<section class="panel" aria-labelledby="att-h"><h2 id="att-h">Needs an update · ' + attention.length + '</h2><p class="small">Their checklist changed. Open one to copy the update brief.</p>' +
-      K.list(st, 'sk-att', attention, { draw: function (shown) { return '<ul class="plist">' + shown.map(skillRow).join('') + '</ul>'; }, keyOf: skillKey, focusOf: skillFocus }) + '</section>';
+      K.list(st, 'sk-att', attention, { draw: function (shown) { return '<ul class="plist">' + shown.map(skillRow('sk-att-')).join('') + '</ul>'; }, keyOf: skillKey, focusOf: focusIn('sk-att-') }) + '</section>';
     /* A signed-off version that no skill implements yet: the one action is to brief the AI assistant. The row whose brief is
        open stays drawn. */
     if (ready.length) h += '<section class="panel" aria-labelledby="rdy-h"><h2 id="rdy-h">Ready to become a skill · ' + ready.length + '</h2>' + K.list(st, 'sk-ready', ready, { draw: function (shown) { return '<ul class="rlist">' + shown.map(function (p) {
@@ -19702,7 +19705,7 @@ PF.vk = (function () {
     }).join('') + '</ul>'; }, keyOf: function (p) { return p.id; }, focusOf: function (id) { return K.byAct('open-process', id); }, keep: st.brief && /^create:/.test(st.brief.key) ? [st.brief.key.slice(7)] : [], keptLabel: 'Its brief is open' }) + '</section>';
     var chosen = st.tags || [], tagged = skills.filter(function (k) { return has(k.x.skill.tags); }), q = K.findQ(st, 'skills'), hit = K.finds(q);
     var found = q ? tagged.filter(function (k) { return hit([k.x.skill.name, k.p.title, k.p.id, (k.x.skill.tags || []).join(' ')]); }) : tagged;
-    h += '<section class="panel" aria-labelledby="all-h"><h2 id="all-h">All skills · ' + skills.length + '</h2>' + (skills.length ? K.findBox(st, 'skills', 'Find a skill', found.length, tagged.length, 'skill') : '') + K.tagBar(skillTags(skills, chosen), chosen, st.disc, st) + (skills.length ? K.treeList(st, 'skills', found, function (k) { return k.x.skill.group.length ? k.x.skill.group : (k.p.group && k.p.group.length ? k.p.group : [k.p.category || 'Other']); }, skillRow, { keyOf: skillKey, focusOf: skillFocus })
+    h += '<section class="panel" aria-labelledby="all-h"><h2 id="all-h">All skills · ' + skills.length + '</h2>' + (skills.length ? K.findBox(st, 'skills', 'Find a skill', found.length, tagged.length, 'skill') : '') + K.tagBar(skillTags(skills, chosen), chosen, st.disc, st) + (skills.length ? K.treeList(st, 'skills', found, function (k) { return k.x.skill.group.length ? k.x.skill.group : (k.p.group && k.p.group.length ? k.p.group : [k.p.category || 'Other']); }, skillRow('sk-all-'), { keyOf: skillKey, focusOf: focusIn('sk-all-') })
       : '<p class="small">No skills yet. Follow the steps above: once a checklist version is signed off, its page has the brief your AI assistant needs.</p>') + '</section>';
     return h;
   }
@@ -19853,7 +19856,10 @@ PF.vk = (function () {
      (marked when it's no longer open), and so is a group search or Home opened (state.justShown), marked as shown for that. */
   function fixesPanel(ctx, p) {
     var st = ctx.state, all = fixesOf(ctx, p), C = PF.corrections;
-    if (!all.length) return '';
+    /* The correction being declined that a newer read no longer has: drawn from the decline's snapshot (D4). */
+    var pk = st.pick && st.pick.kind === 'corr-decline' && st.pick.snap && st.pick.snap.process === p.id ? st.pick : null;
+    var removed = pk && !all.some(function (g) { return g.id === pk.id; }) ? pk : null;
+    if (!all.length && !removed) return '';
     var open = all.filter(function (g) { return g.status === 'open'; });
     var showAll = st.fixFilter === 'all', map = p.latest ? p.latest.map : p.draft ? M.parse(p.draft.md) : null;
     var lid = 'fx:' + p.id, declining = st.pick && st.pick.kind === 'corr-decline' ? st.pick.id : null, js = st.justShown && st.justShown.lists ? st.justShown.lists[lid] : null, jsG = js ? String(js).split('#')[0] : null;
@@ -19891,11 +19897,23 @@ PF.vk = (function () {
     };
     h += K.list(st, lid, items, { draw: draw, keyOf: function (x) { return x.g.id + '#' + x.i; }, focusOf: function (key) { return K.byId('fxm-' + key); },
       keep: declining ? [declining + '#0'] : [], keptLabel: 'You\'re declining this one', shownWord: 'opened' });
+    if (removed) h += '<p class="small kept-h">You\'re declining this one</p><ul class="fixlist">' + removedItem(removed) + '</ul>';
     if (open.length) h += '<div class="row" style="margin-top:10px"><button class="btn" data-act="copy-corr-brief" data-id="' + esc(p.id) + '">' + I('copy') + 'Copy correction brief</button></div>' + briefBox(st, 'corrections:' + p.id);
     var head = '<h2 id="fx-h" tabindex="-1">' + I('edit') + 'Corrections · ' + open.length + ' open</h2>';
     /* Open for whoever looks after the checklist, and whenever it holds a warning; for everyone else, one closed line. */
     if (unread.length || K.keeps(ctx, p)) return '<section class="panel" aria-labelledby="fx-h">' + head + h + '</section>';
     return '<details class="panel fold" data-disc="fx:' + esc(p.id) + '"' + ((st.disc || {})['fx:' + p.id] ? ' open' : '') + '><summary>' + head + '<span class="fold-act">Review</span></summary>' + h + '</details>';
+  }
+  /* A correction being declined that's no longer in the folder (2.11, D4): what it said, from the decline's snapshot, and the
+     reason typed, with Copy my text and Cancel, never Decline. */
+  function removedItem(pk) {
+    var sn = pk.snap, dl = '';
+    if (sn.from) dl += '<dt>Checklist said</dt><dd>' + esc(sn.from) + '</dd>';
+    if (sn.to) dl += '<dt>Suggested</dt><dd>' + esc(sn.to) + '</dd>';
+    return '<li class="fx-removed" data-scope="corr:' + esc(pk.id) + '" id="' + esc('fxg-' + pk.id) + '" tabindex="-1"><div class="row"><span class="badge b-plan">' + esc(sn.op) + '</span><span class="small">' + esc(sn.target) + '</span></div>' +
+      '<p class="small fx-gone" role="note"><b>Removed elsewhere.</b> This correction isn\'t in the folder anymore, so it can\'t be declined. Your reason is still here to copy.</p>' +
+      (dl ? '<dl class="corr-dl">' + dl + '</dl>' : '') +
+      '<div class="row"><label class="sr" for="pick-input">Why not?</label><input id="pick-input" maxlength="300" value="' + esc(pk.text || '') + '"><button class="btn" type="button" data-act="corr-copy-reason">Copy my text</button><button class="mini" type="button" data-act="unpick">Cancel</button></div></li>';
   }
   /* One group, with the members the page draws (ms: { m, i }, i its place in the group). Each drawn member's Why, What
      happened, files and run are drawn in full; its first line (fxm-<group>#<i>) is where Show more puts focus. */
@@ -20409,7 +20427,9 @@ PF.vk = (function () {
          always drawn; a role not drawn keeps its value in a hidden field, so the form starts or plans exactly what it would. */
       var chosenOf = function (role) { return pre.roles && typeof pre.roles === 'object' && typeof pre.roles[role] === 'string' ? pre.roles[role] : ''; };
       var picked = st.rolesPicked && st.rolesPicked.at === scope + ':' + pub.info.folder ? st.rolesPicked.roles : {};
-      /* What this form has set a role to (a change, or Just me for every role), drawn or not, over the plan and the suggestion. */
+      /* What this form has set a role to (a change, or Just me for every role), drawn or not, over the plan and the suggestion.
+         Each role, drawn or in a hidden field, also carries what the plan or the suggestion would have it be (data-was), so a
+         choice redrawn as the control's own value still counts as unsaved: navigation asks about it (pendingBox in app.js). */
       var setTo = st.rolesPicked && st.rolesPicked.at === scope + ':' + pub.info.folder ? st.rolesPicked.vals || {} : {};
       var setOf = function (role, dflt) { return Object.prototype.hasOwnProperty.call(setTo, role) ? setTo[role] : dflt; };
       var keepRole = function (role) { return !!chosenOf(role) || !!picked[role] || !!(st.fieldErr && st.fieldErr.id === 'start-approver' && st.fieldErr.field === 'role-' + role); };
@@ -20424,13 +20444,13 @@ PF.vk = (function () {
            suggestion as a hint (what it knows: who had the role on past runs). */
         if (apRole[role]) {
           var bad = st.fieldErr && st.fieldErr.id === 'start-approver' && st.fieldErr.field === 'role-' + role;
-          h += '<div><label class="field" for="role-' + esc(role) + '">' + esc(role) + ' <span class="small">· approves ' + esc(apRole[role].map(function (t) { return '"' + t + '"'; }).join(' and ')) + '</span><select id="role-' + esc(role) + '" data-role="' + esc(role) + '"' + (sug ? ' data-suggested="' + esc(sug.person) + '"' : '') + (bad ? ' aria-invalid="true" aria-describedby="ferr-role-' + esc(role) + '"' : '') + '><option value="">Choose a person</option>' +
+          h += '<div><label class="field" for="role-' + esc(role) + '">' + esc(role) + ' <span class="small">· approves ' + esc(apRole[role].map(function (t) { return '"' + t + '"'; }).join(' and ')) + '</span><select id="role-' + esc(role) + '" data-role="' + esc(role) + '" data-was="' + esc(chosen) + '"' + (sug ? ' data-suggested="' + esc(sug.person) + '"' : '') + (bad ? ' aria-invalid="true" aria-describedby="ferr-role-' + esc(role) + '"' : '') + '><option value="">Choose a person</option>' +
             people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === setOf(role, chosen) ? ' selected' : '') + '>' + esc(nmStage(x)) + '</option>'; }).join('') + '</select></label>' +
             (sug ? '<p class="small">Suggested: ' + esc(nameOf(ctx, sug.person)) + ' · ' + (sug.last ? 'last had this role on ' + esc(U.day(sug.last)) : 'hasn\'t had this role yet') + '</p>' : '') +
             (bad ? '<p class="ferr" id="ferr-role-' + esc(role) + '" role="alert">' + esc(st.fieldErr.msg) + '</p>' : '') + '</div>';
           return h;
         }
-        h += '<label class="field" for="role-' + esc(role) + '">' + esc(role) + (sug ? ' <span class="small">· suggestion: ' + esc(nameOf(ctx, sug.person)) + ' (' + esc(sug.why) + ')</span>' : '') + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '"><option value="">Nobody yet</option>' +
+        h += '<label class="field" for="role-' + esc(role) + '">' + esc(role) + (sug ? ' <span class="small">· suggestion: ' + esc(nameOf(ctx, sug.person)) + ' (' + esc(sug.why) + ')</span>' : '') + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '" data-was="' + esc(chosen || (sug && sug.person) || '') + '"><option value="">Nobody yet</option>' +
           people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === setOf(role, chosen || (sug && sug.person)) ? ' selected' : '') + '>' + esc(nmStage(x)) + '</option>'; }).join('') + '</select></label>';
         return h;
       };
@@ -20439,7 +20459,8 @@ PF.vk = (function () {
       meta.roles.forEach(function (role) {
         if (drawnRole[role]) return;
         var chosen = chosenOf(role), sug = apRole[role] ? null : ctx.suggestRole(p.id, role);
-        roleRows += '<input type="hidden" id="role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(setOf(role, chosen || (sug && sug.person) || '')) + '">';
+        var was = chosen || (sug && sug.person) || '';
+        roleRows += '<input type="hidden" id="role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(setOf(role, was)) + '" data-was="' + esc(was) + '">';
       });
       h += '</div>' + roleRows + '<p class="small">Suggestions rotate roles to whoever did them least recently, so everyone gets the experience. Change anything.</p>';
     }
@@ -20469,9 +20490,9 @@ PF.vk = (function () {
       var tset = st.rolesPicked && st.rolesPicked.at === 'test:' + p.id + ':' + pub.folder ? st.rolesPicked.vals || {} : {};
       var tsetOf = function (role, dflt) { return Object.prototype.hasOwnProperty.call(tset, role) ? tset[role] : dflt; };
       var tr = K.roleRows(st, 'test-roles', meta.roles, { keep: meta.roles.filter(function (role) { return !!tpicked[role]; }), focusOf: function (k) { return K.byId('role-' + k); },
-        row: function (role) { return '<label class="field" for="role-' + esc(role) + '">' + esc(role) + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '"><option value="">Nobody yet</option>' +
+        row: function (role) { return '<label class="field" for="role-' + esc(role) + '">' + esc(role) + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '" data-was="' + esc(st.me || '') + '"><option value="">Nobody yet</option>' +
           people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === tsetOf(role, st.me) ? ' selected' : '') + '>' + esc(nmRun(x)) + '</option>'; }).join('') + '</select></label>'; },
-        hidden: function (role) { return '<input type="hidden" id="role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(tsetOf(role, meOn)) + '">'; } });
+        hidden: function (role) { return '<input type="hidden" id="role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(tsetOf(role, meOn)) + '" data-was="' + esc(meOn) + '">'; } });
       h += tr.box + '<div class="grid2">' + tr.rows + '</div>' + tr.hidden;
     }
     return h + '<div class="row"><button class="btn go" type="submit" id="start-submit"' + (st.me ? '' : ' disabled') + '>' + I('play') + 'Start the test run</button><span class="small">A test run tries this staged version. It isn\'t counted in How runs go or toward a skill.</span>' + back + '</div></form>';
@@ -21590,9 +21611,11 @@ PF.vk = (function () {
   }
 
   /* One report on the selected step: the three facts, the producer line, Details, and the recorder's actions. */
-  function card(ctx, r, map, it, n, folded) {
+  /* A report card's id, from its report's key (2.11), so a report arriving ahead of it never gives its id to another. */
+  function cardId(key) { return 'rep-' + PF.sha256.hex(String(key)).slice(0, 32); }
+  function card(ctx, r, map, it, folded) {
     var g = it.g, rep = g.report, st = ctx.state, b = bundle(ctx, r), x = M.findStep(map, g.step), step = x ? x.step : null;
-    var dec = decidedOf(ctx, r, map, g), ap = appliesOf(r, map, g), id = 'rep-' + n;
+    var dec = decidedOf(ctx, r, map, g), ap = appliesOf(r, map, g), id = cardId(g.key);
     var head = (rep ? esc(saysText(rep)) : 'A report that can\'t be read') + ' · ' + esc(g.producer);
     var h = '';
     if (it.depth) h += '<p class="small">Replaced by a newer report from ' + esc(g.producer) + '.</p>';
@@ -21698,13 +21721,12 @@ PF.vk = (function () {
     if (!items.length && !gone.length) return '';
     var many = items.length > 1, open = st.repPick ? st.repPick.key : '', js = st.justShown && st.justShown.lists ? st.justShown.lists[lid] : null;
     var kept = function (k) { return ctx.repDraft && ctx.repDraft(k) != null; };
-    var list = items.map(function (it, i) { return { it: it, n: i }; }), nOf = Object.create(null);
-    list.forEach(function (x) { nOf[x.it.g.key] = x.n; });
+    var list = items.map(function (it) { return { it: it }; });
     var keep = list.filter(function (x) { return x.it.g.key === open || kept(x.it.g.key); }).map(function (x) { return x.it.g.key; });
     return '<section class="rw-box rw-reps" aria-labelledby="ins-reps"><h3 class="rw-h3" id="ins-reps">Reports · ' + items.length + '</h3>' +
       failedNote(b) + (b.loading ? '<p class="small" role="status">Reading reports…</p>' : '') +
-      (list.length ? K.list(st, lid, list, { page: 20, keyOf: function (x) { return x.it.g.key; }, focusOf: function (k) { return '#rep-' + nOf[k] + '-h'; }, keep: keep, keptLabel: 'The ones you\'re deciding on', shownWord: 'opened',
-        draw: function (shown) { return shown.map(function (x) { PF.perf.add('rep.card'); return card(ctx, r, map, x.it, x.n, many && x.it.g.key !== open && !kept(x.it.g.key) && x.it.g.key !== js); }).join(''); } }) : '') +
+      (list.length ? K.list(st, lid, list, { page: 20, keyOf: function (x) { return x.it.g.key; }, focusOf: function (k) { return '#' + cardId(k) + '-h'; }, keep: keep, keptLabel: 'The ones you\'re deciding on', shownWord: 'opened',
+        draw: function (shown) { return shown.map(function (x) { PF.perf.add('rep.card'); return card(ctx, r, map, x.it, many && x.it.g.key !== open && !kept(x.it.g.key) && x.it.g.key !== js); }).join(''); } }) : '') +
       gone.map(function (x) { return goneCard(ctx, x); }).join('') + '</section>';
   }
 
@@ -21742,7 +21764,7 @@ PF.vk = (function () {
     return '<button class="mini" data-act="run-reports" data-id="' + esc(where) + '" aria-expanded="' + !!ctx.state.repOpen + '" aria-controls="rw-reps">' + I('flag') + 'Reports · ' + n + (failed ? ' · couldn\'t be read' : '') + '</button>';
   }
 
-  V.reportListId = listId; V.reportBadge = badge; V.reportSection = section; V.reportPanel = panel; V.reportButton = button; V.reportSays = saysText;
+  V.reportCardId = cardId; V.reportListId = listId; V.reportBadge = badge; V.reportSection = section; V.reportPanel = panel; V.reportButton = button; V.reportSays = saysText;
 })();
 
 /* Pages about one run: screen-share mode, finishing it, and the receipt. */
@@ -21772,7 +21794,9 @@ PF.vk = (function () {
     h += '</div><div class="stack"><h2>Gates</h2><ul class="gates">' + map.phases.map(function (p, pi) {
       var st = R.gateStatus(r, map, pi);
       return '<li><span>' + esc(p.gate.implicit ? 'Confirm ' + p.title : p.gate.title) + '</span><span class="pill ' + st + '">' + esc(st) + '</span></li>';
-    }).join('') + '</ul><h2>Who\'s on what</h2><ul class="gates">' + map.meta.roles.map(function (ro) { return '<li><span>' + esc(ro) + '</span><span class="row">' + (r.roles[ro] ? avatar(ctx, r.roles[ro], true) + esc(nameOf(ctx, r.roles[ro])) : '<span class="muted">nobody</span>') + '</span></li>'; }).join('') + '</ul></div></div>';
+    }).join('') + '</ul><h2>Who\'s on what</h2>' + K.list(ctx.state, 'ms-roles:' + runKey(r), map.meta.roles, { page: 20, keyOf: function (ro) { return ro; }, focusOf: function (ro) { return K.byId('ms-role-' + ro); },
+      /* 20 roles at a time in checklist order (2.11), Show more focusing the first one it adds. */
+      draw: function (shown) { return '<ul class="gates mroles">' + shown.map(function (ro) { return '<li id="' + esc('ms-role-' + ro) + '" tabindex="-1"><span>' + esc(ro) + '</span><span class="row">' + (r.roles[ro] ? avatar(ctx, r.roles[ro], true) + esc(nameOf(ctx, r.roles[ro])) : '<span class="muted">nobody</span>') + '</span></li>'; }).join('') + '</ul>'; } }) + '</div></div>';
     return h;
   }
 
@@ -26595,6 +26619,7 @@ PF.examples = (function () {
     if (state.justPlanned && state.justPlanned.gen !== gen) state.justPlanned = null;
     dropBatchRender();
     repHarvest();
+    corrHarvest();
     procCache = null; pplBy = { list: null, len: -1, by: null }; pplSorted = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null;
     var keep = {}, ae = document.activeElement, focusKey = null;
     /* What a person typed or ticked survives a redraw of the same thing: the same screen, run, step and open form. Moving to
@@ -29997,7 +30022,7 @@ PF.examples = (function () {
     setTimeout(function () { var f = document.activeElement; if (dbxAc && (!f || f.id !== dbxAc.id)) dbxClose(); }, 0);
   });
 
-  function pendingBox() { var pf = state.obPending && state.obPendingField; return pf ? document.getElementById(pf) || { id: pf } : dirtyControl() || fuPending(); }
+  function pendingBox() { var pf = state.obPending && state.obPendingField; return pf ? document.getElementById(pf) || { id: pf } : dirtyControl() || fuPending() || rolesPending() || corrGonePending(); }
   /* An open follow-up form holding a chosen destination, a link or text is unsaved work, even once a redraw has drawn it as the
      page's own (2.11): leaving refuses, as for any changed control. */
   function fuPending() {
@@ -31110,10 +31135,13 @@ PF.examples = (function () {
       /* Another small form on the step keeps an open Fill in (as leaving the step would); opening Fill in brings back its own. */
       leaveFillIn();
       state.pick = { kind: b.dataset.kind, id: id, back: '[data-act="pick"][data-kind="' + cssEsc(b.dataset.kind || '') + '"][data-id="' + cssEsc(id || '') + '"]' };
+      if (b.dataset.kind === 'corr-decline') state.pick.snap = corrSnap(id);
       var fd = b.dataset.kind === 'fields' && state.runKey ? draftOf(state.runKey, id, false) : null;
       state.fieldsDraft = fd && fd.fd && fd.fd.key === state.runKey && fd.fd.fs === fsKey() ? fd.fd : null; if (fd) fd.open = false;
       if (b.dataset.kind === 'block' || b.dataset.kind === 'differently' || b.dataset.kind === 'deadline' || b.dataset.kind === 'fields') state.sel = id; render(); },
-    unpick: function () { childEpoch++; var pk = state.pick; state.pick = null; state.fieldErr = null; state.fieldsDraft = null; if (pk && pk.kind === 'fields') dropDraft(state.runKey, pk.id, ['fields', 'open']); if (pk && pk.back) state.focus = pk.back; render(); },
+    unpick: function () { childEpoch++; var pk = state.pick; state.pick = null; state.fieldErr = null; state.fieldsDraft = null; if (pk && pk.kind === 'fields') dropDraft(state.runKey, pk.id, ['fields', 'open']); if (pk && pk.back) state.focus = pk.back; if (corrGoneOf(pk)) state.focus = 'fx-h'; render(); },
+    /* A decline reason on a correction that's gone (2.11): copied, since it can't be saved. */
+    'corr-copy-reason': function () { var pk = state.pick, el = document.getElementById('pick-input'); copyText(el ? String(el.value || '') : (pk && pk.text) || '', null, 'Copied.'); },
     block: function (id, b) { var reason = b.dataset.reason || val('pick-input'); if (!reason.trim()) return; mutate(function (r, map, me, now) { R.block(r, map, id, reason, me, now); }); },
     differently: function (id) { var note = val('pick-input'); if (!note.trim()) return; mutate(function (r, map, me, now) { R.differently(r, map, id, note, me, now); }); },
     deadline: function (id) {
@@ -31331,9 +31359,11 @@ PF.examples = (function () {
       var on = x && key ? ((reportsOf(r) || { list: [] }).list).filter(function (it) { return it.g.step === x.step.id; }).map(function (it) { return it.g.key; }) : [], n = on.indexOf(key);
       if (n < 0) { ACTIONS.goto(id); return; }
       selectStep(x.step.id); state.refOpen = true; state.unfold[x.phase.id] = true;
-      ensureListItemVisible(V.reportListId(r, x.step.id), key, { focus: '#rep-' + n + '-h', word: 'opened' });
+      /* The card's id is its report's (2.11), so focus stays on this report when another arrives ahead of it. */
+      var hsel = '#' + V.reportCardId(key) + '-h';
+      ensureListItemVisible(V.reportListId(r, x.step.id), key, { focus: hsel, word: 'opened' });
       /* On a phone the inspector sheet opens on the report, which keeps focus instead of Close, as a note from search does. */
-      sheetFor = '#rep-' + n + '-h';
+      sheetFor = hsel;
       render();
     },
     /* Every copy of a report, 50 at a time in its Details fold (2.11), with focus on the first one the first 10 didn't show. */
@@ -31690,6 +31720,28 @@ PF.examples = (function () {
   }
   /* Anyone on the team decides on a group of corrections; the decision is a new file written once, following the decision
      this window shows. */
+  /* What a correction being declined said (2.11), kept with the decline: if a newer read no longer has it, its row is drawn
+     from this, as Removed elsewhere, with the reason typed (D4). */
+  function corrSnap(id) {
+    var p = currentProcess(), g = p && ctx.corrections(p.id).filter(function (x) { return x.id === id; })[0], C = PF.corrections;
+    if (!g) return null;
+    return { process: p.id, op: C.OP_LABEL[g.change.op] || '', target: C.targetName(g), from: g.change.op !== 'describe' ? g.from || '' : '', to: g.change.op === 'wording' ? g.change.to || '' : '' };
+  }
+  /* The decline pick whose correction is no longer in the folder. */
+  function corrGoneOf(pk) {
+    if (!pk || pk.kind !== 'corr-decline' || !pk.snap) return false;
+    return !ctx.corrections(pk.snap.process).some(function (g) { return g.id === pk.id; });
+  }
+  /* Its reason is kept through redraws (drawn as the box's own text), so navigation asks this instead of dirtyControl(). */
+  function corrHarvest() {
+    var pk = state.pick; if (!pk || pk.kind !== 'corr-decline') return;
+    var el = document.getElementById('pick-input'); if (el) pk.text = String(el.value == null ? '' : el.value);
+  }
+  function corrGonePending() {
+    var pk = state.pick; if (!corrGoneOf(pk)) return null;
+    var el = document.getElementById('pick-input'), t = el ? String(el.value || '') : pk.text || '';
+    return t.trim() ? el || { id: 'pick-input' } : null;
+  }
   function decideCorr(id, status, reason, done, pid, more) {
     var p = pid ? procFind(pid) : currentProcess(), g = p && ctx.corrections(p.id).filter(function (x) { return x.id === id; })[0];
     if (!g || !state.me) return;
@@ -31841,11 +31893,10 @@ PF.examples = (function () {
   function repOpenForm(id, mode) {
     var o = repItem(id);
     if (!o.it || !ctx.recording(o.r)) return;
-    var n = o.b.list.filter(function (x) { return x.g.step === o.it.g.step; }).indexOf(o.it);
     repHarvest();
     state.repPick = { key: id, mode: mode };
     if (state.fieldErr && /^rep-reason-/.test(state.fieldErr.id)) state.fieldErr = null;
-    state.focus = mode === 'decline' ? PF.reports.reasonId(id) : 'rep-' + n + '-cf';
+    state.focus = mode === 'decline' ? PF.reports.reasonId(id) : V.reportCardId(id) + '-cf';
     render();
   }
   /* Acceptances this window made in this session, per folder: only a hint that the finalizer should try them by itself, once
@@ -32349,6 +32400,26 @@ PF.examples = (function () {
     if (!state.rolesPicked || state.rolesPicked.at !== fk) state.rolesPicked = { at: fk, roles: {}, vals: {} };
     if (!state.rolesPicked.vals) state.rolesPicked.vals = {};
     return state.rolesPicked;
+  }
+  /* The open Start, Plan or test-run form's role state, when it's this form's (2.11), without making one. */
+  function rolesHere() {
+    if (state.view !== 'start' || !state.rolesPicked) return null;
+    var fk = state.testStage ? 'test:' + state.processId + ':' + state.testStage : startFormKey();
+    return state.rolesPicked.at === fk ? state.rolesPicked : null;
+  }
+  /* A role this form changed (or Just me) is redrawn with its choice as the control's own value, and one not drawn is a hidden
+     field, so dirtyControl() can't see either: one whose value differs from what the plan or the suggestion has it be
+     (data-was) is unsaved work, as an undrawn change was in 2.10. Focus goes to the role, or for a hidden one the submit button. */
+  function rolesPending() {
+    var rb = rolesHere(); if (!rb || !rb.vals) return null;
+    var roles = Object.keys(rb.vals);
+    for (var i = 0; i < roles.length; i++) {
+      var el = document.getElementById('role-' + roles[i]);
+      if (!el || !el.getAttribute) continue;
+      var was = el.getAttribute('data-was');
+      if (was != null && String(el.value == null ? '' : el.value) !== was) return el.type === 'hidden' ? document.getElementById('start-submit') || el : el;
+    }
+    return null;
   }
   /* The version the Start or Plan form starts: the latest, or the one its plan names. */
   function startFormPub() {
