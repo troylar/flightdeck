@@ -74,8 +74,10 @@
     h += vs ? '<span class="ins-pick">' + vs.box + '<label for="ins-folder">Version</label>' + vs.select + vs.more + '</span>' : '<span class="small">' + esc(verLabel(f)) + '</span>';
     h += '</div>';
     if (f.clash) h += '<div class="notice warn"><span>Two folders are numbered v' + f.version + '. Each is counted on its own; this is <code>' + esc(f.folder) + '</code>.</span></div>';
-    var notes = res.notes.map(function (t) { return '<div class="notice warn" role="status"><span>' + esc(t) + '</span></div>'; }).join('');
-    h += notes;
+    /* What the numbers can't count, one notice however many there are (2.11): one note as it reads, more in a fold. */
+    if (res.notes.length === 1) h += '<div class="notice warn" role="status"><span>' + esc(res.notes[0]) + '</span></div>';
+    else if (res.notes.length) h += '<div class="notice warn ins-notes" role="status"><div><b>' + res.notes.length + ' things these numbers can\'t count.</b><details data-disc="ins-notes"' + ((ctx.state.disc || {})['ins-notes'] ? ' open' : '') + '><summary class="small">What they are</summary>' +
+      K.list(ctx.state, 'ins-notes', res.notes.map(function (t, i) { return { t: t, i: i }; }), { keyOf: function (x) { return String(x.i); }, focusOf: function (k) { return '#ins-note-' + k; }, draw: function (shown) { return '<ul class="small">' + shown.map(function (x) { return '<li id="ins-note-' + x.i + '" tabindex="-1">' + esc(x.t) + '</li>'; }).join('') + '</ul>'; } }) + '</details></div></div>';
     var r = res.runs, outs = Object.keys(r.outcomes);
     h += '<ul class="ins-sum">' +
       '<li><span class="big">' + link('runs:all', I.num(r.n), r.n) + '</span><span class="small">' + (r.n === 1 ? 'run' : 'runs') + ' of v' + f.version + '</span></li>' +
@@ -131,15 +133,17 @@
     }
     h += qualLine(d.q);
     if (res.phases.length) {
+      /* The scale is every phase's; only the 50 drawn (2.11) are built, in checklist order. */
       var top = Math.max.apply(null, res.phases.map(function (x) { return x.median || 0; }).concat([1]));
-      h += '<h3>Each phase</h3><ul class="ins-phases">' + res.phases.map(function (x) {
+      h += '<h3 id="ins-ph-h" tabindex="-1">Each phase</h3>' + K.list(ctx.state, 'ins-ph', res.phases, { keyOf: function (x) { return 'ins-ph-' + x.id; }, focusOf: function (k) { return K.byId(k) + ' .ins-lab'; }, draw: function (shown) { return '<ul class="ins-phases">' + shown.map(function (x) {
+        PF.perf.add('ins.phase');
         var w = x.median != null ? Math.max(1, Math.round(1000 * x.median / top) / 10) : 0;
-        return '<li><div class="ins-row"><span class="ins-lab">' + esc(x.title) + '</span>' +
+        return '<li id="' + esc('ins-ph-' + x.id) + '"><div class="ins-row"><span class="ins-lab" tabindex="-1">' + esc(x.title) + '</span>' +
           (x.n ? '<svg class="ins-bar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="ins-track" width="100" height="8" rx="2"/><rect class="ins-fill" width="' + w + '" height="8" rx="2"/></svg>' : '<span class="ins-nobar"></span>') +
           '<span class="ins-num">' + (x.n ? '<b>' + esc(about(x.median)) + '</b>' + (x.q1 != null ? ' <span class="small">(' + esc(about(x.q1)) + ' to ' + esc(about(x.q3)) + ')</span>' : '') + ' · ' : '') + link('phase:' + x.id, I.num(x.n) + ' of ' + plural(x.of, 'run'), x.n) + '</span></div>' +
           qualLine(x.q) +
           gateLine(x) + '</li>';
-      }).join('') + '</ul><p class="small">Bars are typical times, to scale with the longest phase.</p>';
+      }).join('') + '</ul>'; } }) + '<p class="small">Bars are typical times, to scale with the longest phase.</p>';
     }
     return h + '</section>';
   }
@@ -154,7 +158,7 @@
   var ROWS = [['offScript', 'Any off-script'], ['blocked', 'Ever blocked'], ['redone', 'Ever redone'], ['na', 'Ever N/A'], ['differently', 'Done differently'], ['skipped', 'Skipped (N/A now)'], ['corrections', 'Corrections']];
   var STATUS_WORDS = { open: 'open', applied: 'applied', declined: 'declined', withdrawn: 'withdrawn', included: 'published', tie: 'needs review', legacy: 'accepted' };
   function hotSpots(ctx, res) {
-    var h = '<section class="panel ins" aria-labelledby="ins-hot-h"><h2 id="ins-hot-h">' + IC('flag') + 'Steps that go off-script</h2>';
+    var h = '<section class="panel ins" aria-labelledby="ins-hot-h"><h2 id="ins-hot-h" tabindex="-1">' + IC('flag') + 'Steps that go off-script</h2>';
     if (res.corrections.note) h += '<div class="notice warn" role="status"><span>' + esc(res.corrections.note) + '</span></div>';
     var list = res.steps.filter(function (s) { return s.offScript.hits || s.offScript.incomplete || s.skipped.hits || s.corrections.hits || ROWS.some(function (r) { return I.hasProblems(s[r[0]].q); }); });
     if (!list.length) return h + '<p class="small">' + (res.pool.n ? 'No step went off-script in ' + esc(plural(res.pool.n, 'run')) + '.' : 'No finished runs of this version yet.') + '</p></section>';
@@ -188,12 +192,24 @@
     h += qualLine(d.q);
     return h + '</section>';
   }
+  /* People by name, 50 at a time, and roles in checklist order, 20 columns at a time (2.11): only the drawn cells are built,
+     so a draw builds at most 50 × 20. Show 20 more roles sits after the last heading and focuses the first new one. */
+  var ROLE_COLS = 20;
   function roles(ctx, res) {
-    var rot = res.roles, people = Object.keys(rot.grid);
+    var rot = res.roles, st = ctx.state, people = Object.keys(rot.grid);
     if (!rot.roles.length || !people.length) return '';
-    return '<section class="panel ins" aria-labelledby="ins-rot-h"><h2 id="ins-rot-h">Who has done each role</h2><div class="grid-wrap"><table class="grid"><thead><tr><th scope="col">Person</th>' + rot.roles.map(function (ro) { return '<th scope="col">' + esc(ro) + '</th>'; }).join('') + '</tr></thead><tbody>' + people.sort(function (a, b) { return nameOf(ctx, a).localeCompare(nameOf(ctx, b)); }).map(function (pid) {
-      return '<tr><th scope="row">' + esc(nameOf(ctx, pid)) + '</th>' + rot.roles.map(function (ro) { var c = rot.grid[pid][ro]; return c ? '<td>' + c.count + '× · last ' + esc(U.when(c.last)) + '</td>' : '<td class="cold">never</td>'; }).join('') + '</tr>';
-    }).join('') + '</tbody></table></div><p class="small">In runs of this version. "Never" is a good place to rotate someone in. Starting a run suggests whoever did a role least recently.</p></section>';
+    var nc = Math.max(ROLE_COLS, Math.floor(((st.more || {})['ins-rolecols']) || ROLE_COLS));
+    if (PF.vk.PAGE_OFF === 'ins-rolecols') nc = rot.roles.length;
+    var cols = rot.roles.slice(0, nc), left = rot.roles.length - cols.length, add = Math.min(ROLE_COLS, left);
+    var colMore = left > 0 ? '<th scope="col" class="ins-colmore"><button type="button" class="mini" data-act="more" data-id="ins-rolecols" data-page="' + ROLE_COLS + '" data-next="' + esc(rot.roles[nc]) + '" data-focus="' + esc(K.byId('ins-role-' + rot.roles[nc])) + '">Show ' + add + ' more roles</button><span class="small" role="status">' + cols.length + ' of ' + rot.roles.length + ' roles</span></th>' : '';
+    var sorted = people.sort(function (a, b) { return PF.text.natural(nameOf(ctx, a), nameOf(ctx, b)) || (a < b ? -1 : a > b ? 1 : 0); });
+    var rows = function (shown) {
+      return '<div class="grid-wrap"><table class="grid"><thead><tr><th scope="col">Person</th>' + cols.map(function (ro) { return '<th scope="col" id="' + esc('ins-role-' + ro) + '" tabindex="-1">' + esc(ro) + '</th>'; }).join('') + colMore + '</tr></thead><tbody>' + shown.map(function (pid) {
+        return '<tr><th scope="row" id="' + esc('ins-who-' + pid) + '" tabindex="-1">' + esc(nameOf(ctx, pid)) + '</th>' + cols.map(function (ro) { PF.perf.add('ins.rolecell'); var c = rot.grid[pid][ro]; return c ? '<td>' + c.count + '× · last ' + esc(U.when(c.last)) + '</td>' : '<td class="cold">never</td>'; }).join('') + (colMore ? '<td></td>' : '') + '</tr>';
+      }).join('') + '</tbody></table></div>';
+    };
+    return '<section class="panel ins" aria-labelledby="ins-rot-h"><h2 id="ins-rot-h">Who has done each role</h2>' + K.list(st, 'ins-rot', sorted, { keyOf: function (pid) { return pid; }, focusOf: function (k) { return K.byId('ins-who-' + k); }, draw: rows }) +
+      '<p class="small">In runs of this version. "Never" is a good place to rotate someone in. Starting a run suggests whoever did a role least recently.</p></section>';
   }
   function counted() {
     return '<details class="panel ins-defs" data-disc="ins-defs"><summary><h2>How these are counted</h2></summary><dl>' + I.DEFS.map(function (d) {
@@ -205,11 +221,13 @@
     if (list.length < 2) return '';
     var open = (ctx.state.disc || {})['ins-cmp'];
     /* Drawn closed too: opening a details element doesn't redraw the page. */
-    return '<details class="panel" data-disc="ins-cmp"' + (open ? ' open' : '') + '><summary><h2>Compare versions</h2></summary><p class="small">Side by side, each out of its own runs. Versions aren\'t added together.</p><div class="grid-wrap"><table class="grid"><thead><tr><th scope="col">Version</th><th scope="col">Runs</th><th scope="col">Completed, timed</th><th scope="col">Typical completed run</th><th scope="col">Not counted</th></tr></thead><tbody>' +
-      list.map(function (f) {
+    /* 20 versions at a time, newest first (2.11): each one's numbers are worked out only when it's drawn. */
+    return '<details class="panel" data-disc="ins-cmp"' + (open ? ' open' : '') + '><summary><h2>Compare versions</h2></summary><p class="small">Side by side, each out of its own runs. Versions aren\'t added together.</p>' +
+      K.list(ctx.state, 'ins-cmp', list, { page: 20, keyOf: function (f) { return f.folder; }, focusOf: function (k) { return K.byId('ins-cmp-' + k); }, draw: function (shown) { return '<div class="grid-wrap"><table class="grid"><thead><tr><th scope="col">Version</th><th scope="col">Runs</th><th scope="col">Completed, timed</th><th scope="col">Typical completed run</th><th scope="col">Not counted</th></tr></thead><tbody>' +
+      shown.map(function (f) {
         var r = insightsOf(ctx, p.id, f.folder, false);
-        return '<tr><th scope="row">' + esc(verLabel(f)) + '</th><td>' + I.num(r.runs.n) + '</td><td>' + I.num(r.duration.n) + '</td><td>' + (r.duration.n ? esc(about(r.duration.median)) : '—') + '</td><td>' + ((qualLine(r.runs.q, null, 'span') + qualLine(r.duration.q, null, 'span')) || '—') + '</td></tr>';
-      }).join('') + '</tbody></table></div></details>';
+        return '<tr><th scope="row" id="' + esc('ins-cmp-' + f.folder) + '" tabindex="-1">' + esc(verLabel(f)) + '</th><td>' + I.num(r.runs.n) + '</td><td>' + I.num(r.duration.n) + '</td><td>' + (r.duration.n ? esc(about(r.duration.median)) : '—') + '</td><td>' + ((qualLine(r.runs.q, null, 'span') + qualLine(r.duration.q, null, 'span')) || '—') + '</td></tr>';
+      }).join('') + '</tbody></table></div>'; } }) + '</details>';
   }
 
   /* ---------- Runs: filters and the runs behind a number ---------- */

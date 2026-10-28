@@ -452,6 +452,11 @@
   }
   /* Corrections first published in exactly this run's version, by the step they're about there. Only that version's runs
      show "Changed in vN": a later version has the step as it is, with nothing new to explain. */
+  /* A step's corrections as a list's items (2.11): keyed by ID, and by its occurrence when two share one ("id#2"). */
+  function corrItems(rows) {
+    var seen = Object.create(null);
+    return rows.map(function (c) { var n = seen[c.id] = (seen[c.id] || 0) + 1; return { c: c, k: n > 1 ? c.id + '#' + n : c.id }; });
+  }
   function changedHere(ctx, r) { return r && r.process && r.folder ? C.changedIn(corrGroups(ctx, r.process), r.folder) : {}; }
   /* "Changed in vN" with "Why is this here?": what it said before and after, why, the runs that suggested it, who applied it. */
   /* The members of every change on this step, 20 at a time counted across them (2.11): a change is drawn once one of its
@@ -531,8 +536,14 @@
         var mv = K.select(st, 'corr-move', places, f.moveTo || '', { attrs: ' data-bound' + bad('corr-move'), lead: '<option value="">Choose…</option>', around: near, noun: 'place', group: function (it) { return it.g; } });
         h += mv.box + '<label class="small" for="corr-move">Move it to</label>' + mv.select + mv.more + fe('corr-move');
       } else if (f.op === 'roles') {
-        var roles = map.meta.roles || [];
-        h += roles.length ? '<fieldset class="corr-roles" id="corr-roles" tabindex="-1"' + bad('corr-roles') + '><legend class="small">Who should do it</legend>' + roles.map(function (ro) { return '<label class="check-label small"><input type="checkbox" id="corr-role-' + esc(ro) + '" data-bound' + (f.roles.indexOf(ro) >= 0 ? ' checked' : '') + '> @' + esc(ro) + (r.roles[ro] ? ' (' + esc(nameOf(ctx, r.roles[ro])) + ')' : '') + '</label>'; }).join('') + '</fieldset>' + fe('corr-roles')
+        /* 20 roles at a time in checklist order, with Find past 20 (2.11); a role ticked is always drawn, so it's never lost. */
+        var roles = map.meta.roles || [], rq = roles.length > 20 ? K.findQ(st, 'corr-roles') : '', rhit = K.finds(rq);
+        var rmatch = roles.filter(function (ro) { return rhit([ro, r.roles[ro] ? nameOf(ctx, r.roles[ro]) : '']); }), rlist = rq ? roles.filter(function (ro) { return f.roles.indexOf(ro) >= 0 || rmatch.indexOf(ro) >= 0; }) : roles;
+        var rbox = function (ro) { return '<label class="check-label small"><input type="checkbox" id="corr-role-' + esc(ro) + '" data-bound' + (f.roles.indexOf(ro) >= 0 ? ' checked' : '') + '> @' + esc(ro) + (r.roles[ro] ? ' (' + esc(nameOf(ctx, r.roles[ro])) + ')' : '') + '</label>'; };
+        h += roles.length ? '<fieldset class="corr-roles" id="corr-roles" tabindex="-1"' + bad('corr-roles') + '><legend class="small">Who should do it</legend>' +
+          (roles.length > 20 ? K.findBox(st, 'corr-roles', 'Find a role', rmatch.length, roles.length, 'role') : '') +
+          K.list(st, 'corr-roles', rlist, { page: 20, keyOf: function (ro) { return ro; }, focusOf: function (k) { return K.byId('corr-role-' + k); }, keep: f.roles.filter(function (ro) { return roles.indexOf(ro) >= 0; }), keptLabel: 'Ticked', draw: function (shown) { return shown.map(rbox).join(''); } }) +
+          '</fieldset>' + fe('corr-roles')
           : '<p class="small">This checklist has no roles. Use Describe another problem to say who should do it.</p>';
       } else if (f.op === 'screenshot') {
         var shot = s.shots.filter(function (sh) { return sh.src === f.shot; })[0] || s.shots[0];
@@ -702,11 +713,15 @@
         (linked ? '<button class="mini" data-act="goto-corr" data-id="corr-' + esc(linked.id) + '">View correction</button>' : '') + (rec && !r.paused && a.s === 'done' && R.phaseOpen(r, map, x.phaseIndex) ? '<button class="mini" data-act="toggle" data-id="' + esc(st.id) + '">Change answer</button>' : '') + '</span></div>';
     }
     /* Earlier answers: who, when, values and reasons; older ones from the run's history files on request. */
-    if (a && a.history && a.history.length) h += '<details><summary class="small" style="cursor:pointer">Earlier answers (' + a.history.length + ')</summary><ul class="tnotes" style="margin-top:8px">' + a.history.slice().reverse().map(function (y) {
-      return '<li>' + avatar(ctx, y.by) + '<div><div class="meta">' + esc(nameOf(ctx, y.by)) + ' · ' + esc(U.when(y.at)) + '</div><div>' + esc({ done: 'Done', na: 'N/A', blocked: 'Blocked', recheck: 'Needed a re-check' }[y.s] || y.s) + (y.reason ? ': ' + esc(y.reason) : '') + (y.values ? ' · ' + esc(Object.keys(y.values).map(function (k) { return k + ' ' + y.values[k]; }).join(', ')) : '') + (y.differently ? ' · done differently: ' + esc(y.differently.note) : '') + '</div></div></li>';
-    }).join('') + '</ul></details>';
+    /* Each 20 at a time (2.11), in its own order: Earlier answers newest first, Archived answers oldest first. */
+    var rk = runKey(r) + ':' + st.id;
+    if (a && a.history && a.history.length) h += '<details data-disc="ans:' + esc(st.id) + '"' + ((s.disc || {})['ans:' + st.id] ? ' open' : '') + '><summary class="small" style="cursor:pointer">Earlier answers (' + a.history.length + ')</summary>' + K.list(s, 'ans:' + rk, a.history.slice().reverse().map(function (y, i) { return { y: y, i: i }; }), { page: 20, keyOf: function (x) { return String(x.i); }, focusOf: function (k) { return K.byId('ans-' + st.id + '-' + k); },
+      draw: function (shown) { return '<ul class="tnotes" style="margin-top:8px">' + shown.map(function (x) { var y = x.y;
+      return '<li id="' + esc('ans-' + st.id + '-' + x.i) + '" tabindex="-1">' + avatar(ctx, y.by) + '<div><div class="meta">' + esc(nameOf(ctx, y.by)) + ' · ' + esc(U.when(y.at)) + '</div><div>' + esc({ done: 'Done', na: 'N/A', blocked: 'Blocked', recheck: 'Needed a re-check' }[y.s] || y.s) + (y.reason ? ': ' + esc(y.reason) : '') + (y.values ? ' · ' + esc(Object.keys(y.values).map(function (k) { return k + ' ' + y.values[k]; }).join(', ')) : '') + (y.differently ? ' · done differently: ' + esc(y.differently.note) : '') + '</div></div></li>';
+    }).join('') + '</ul>'; } }) + '</details>';
     var arch = s.archive[runKey(r)];
-    if (arch) { var mine = arch.filter(function (y) { return y.kind === 'answer' && y.step === st.id; }); if (mine.length) h += '<details open><summary class="small">Archived answers (' + mine.length + ')</summary><ul class="tnotes">' + mine.map(function (y) { return '<li>' + avatar(ctx, y.by) + '<div><div class="meta">' + esc(nameOf(ctx, y.by)) + ' · ' + esc(U.when(y.at)) + '</div><div>' + esc(y.s) + (y.reason ? ': ' + esc(y.reason) : '') + '</div></div></li>'; }).join('') + '</ul></details>';
+    if (arch) { var mine = arch.filter(function (y) { return y.kind === 'answer' && y.step === st.id; }); if (mine.length) h += '<details open><summary class="small">Archived answers (' + mine.length + ')</summary>' + K.list(s, 'arch:' + rk, mine.map(function (y, i) { return { y: y, i: i }; }), { page: 20, keyOf: function (x) { return String(x.i); }, focusOf: function (k) { return K.byId('arch-' + st.id + '-' + k); },
+        draw: function (shown) { return '<ul class="tnotes">' + shown.map(function (x) { var y = x.y; return '<li id="' + esc('arch-' + st.id + '-' + x.i) + '" tabindex="-1">' + avatar(ctx, y.by) + '<div><div class="meta">' + esc(nameOf(ctx, y.by)) + ' · ' + esc(U.when(y.at)) + '</div><div>' + esc(y.s) + (y.reason ? ': ' + esc(y.reason) : '') + '</div></div></li>'; }).join('') + '</ul>'; } }) + '</details>';
       /* Archived records this copy refused (a newer Flightdeck's) are counted, never hidden. */
       var nr = (arch.refused || []).length; if (nr) h += '<p class="small">' + nr + ' archived record' + (nr === 1 ? ' needs' : 's need') + ' a newer Flightdeck. This copy leaves ' + (nr === 1 ? 'it' : 'them') + ' alone.</p>'; }
     else if (a && a.history && a.history.length >= 10) h += '<button class="mini" style="align-self:flex-start" data-act="load-history">Show older answers</button>';
@@ -715,7 +730,8 @@
     /* Corrections to this step from this run, then Correct this step (anyone who has said who they are, whatever the run's state). */
     h += '<section class="rw-box rw-corr" aria-labelledby="ins-corr"><div class="row between"><h3 class="rw-h3" id="ins-corr">Corrections' + (rows.length ? ' · ' + rows.length : '') + '</h3>' +
       (s.me && !(cf && cf.mode === 'correct') ? '<button class="mini" data-act="corr-open" data-mode="correct" data-id="' + esc(st.id) + '" title="If the checklist was wrong or unclear here, correct it. The team reviews corrections on the checklist&#39;s page.">' + I('edit') + 'Correct this step</button>' : '') + '</div>' +
-      (rows.length ? '<ul class="corrlist">' + rows.map(function (c) { return corrRow(ctx, c, idx[c.id], { withdraw: true }); }).join('') + '</ul>' : '') +
+      (rows.length ? K.list(s, 'rcorr:' + rk, corrItems(rows), { page: 20, keyOf: function (x) { return x.k; }, focusOf: function (k) { return K.byId('corr-' + String(k).split('#')[0]); },
+        draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) { return corrRow(ctx, x.c, idx[x.c.id], { withdraw: true }); }).join('') + '</ul>'; } }) : '') +
       (cf && cf.mode === 'correct' ? composer(ctx, r, map, x, cf) : '') + '</section>';
     var notes = (r._notes || []).filter(function (n) { return n.step === st.id && n.kind !== 'correction' && n.kind !== 'fix' && n.kind !== 'map'; });
     h += '<section class="rw-box rw-notes" aria-labelledby="ins-notes"><h3 class="rw-h3" id="ins-notes">' + (R.solo(r) ? 'Notes' : 'Team notes') + (notes.length ? ' · ' + notes.length : '') + '</h3>' + (notes.length ? '<ul class="tnotes">' + notes.map(function (n) {

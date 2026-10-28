@@ -297,6 +297,13 @@
       describedBy: described(ctx, id, g, more), after: whyOf(id, g) + (more && more.after || '') + errMsg(ctx, id) });
   }
   function formSelect(ctx, id, name, options, why) { var g = G.form(name); if (why != null) g = { q: g.q, eg: g.eg, why: why }; return '<label class="field" for="' + id + '">' + esc(g.q) + '<select id="' + id + '" data-bound' + describe(ctx, id, g) + '>' + options + '</select></label>' + whyOf(id, g) + errMsg(ctx, id); }
+  /* A lane's or an approval's role: the checklist's roles in order, 50 at a time with Find past 50 (K.select, 2.11), and
+     Nobody in particular first. */
+  function roleSelect(ctx, id, name, roles, cur, why) {
+    var g = G.form(name); if (why != null) g = { q: g.q, eg: g.eg, why: why };
+    var ks = K.select(ctx.state, id, roles.map(function (r) { return { v: r, t: '@' + r }; }), cur, { attrs: ' data-bound' + describe(ctx, id, g), lead: '<option value=""' + (cur ? '' : ' selected') + '>Nobody in particular</option>', noun: 'role' });
+    return ks.box + '<label class="field" for="' + id + '">' + esc(g.q) + ks.select + '</label>' + ks.more + whyOf(id, g) + errMsg(ctx, id);
+  }
   /* + Add role (2.10): one box in place; Enter adds the role to the checklist and gives it to what's selected, as one change. */
   function addRole(ctx, at) {
     var nr = ctx.state.obNewRole, sel = ctx.state.obSel, open = nr && sel && nr.at === at && nr.pid === sel.pid && nr.key === sel.key && String(nr.track) === String(sel.track);
@@ -641,7 +648,7 @@
       var t = '<section class="panel stack ob-form" aria-labelledby="ob-form-h" data-scope="ob-track|' + esc(ph.key) + '|' + tr.index + '|' + sigOf(o, tr.line, tr.line + 1) + '">' + formHead('Lane', [ph.title || 'Untitled phase', name]) +
         '<p class="small">' + LANES_SAY + '</p>' +
         formBox(ctx, 'ob-tr-title', 'tr-title', 'input', ' maxlength="120" data-enter="ob-commit" value="' + esc(tr.title) + '"') +
-        formSelect(ctx, 'ob-tr-role', 'tr-role', '<option value=""' + (tr.roles.length ? '' : ' selected') + '>Nobody in particular</option>' + lroles.map(function (r) { return '<option value="' + esc(r) + '"' + (r === tr.roles[0] ? ' selected' : '') + '>@' + esc(r) + '</option>'; }).join('')) + addRole(ctx, 'track') +
+        roleSelect(ctx, 'ob-tr-role', 'tr-role', lroles, tr.roles[0] || '') + addRole(ctx, 'track') +
         source(ctx, tr.id, 'lane', U.slug(name, 24)) +
         '<div class="row"><button type="button" class="mini" data-act="ob-add" data-id="' + esc(ph.key) + '" data-track="' + tr.index + '">' + I('plus') + 'Add a step to this lane</button><button type="button" class="mini" data-act="ob-ask" data-id="track">Delete this lane</button></div>';
       if (ask) t += '<div class="notice warn" role="group" aria-labelledby="ob-ask-t"><span id="ob-ask-t">' + (n ? 'Delete the ' + esc(name) + ' lane? Its ' + n + ' step' + (n === 1 ? '' : 's') + ' can move up into the phase, or go with it.' : 'Delete the ' + esc(name) + ' lane?') + '</span>' +
@@ -676,7 +683,7 @@
     if (!gt) return f + formBox(ctx, 'ob-g-title', 'g-title', 'input', ' maxlength="120" data-enter="ob-commit" value=""') + '<p class="small">Name it to add it. Without one, the phase ends with a check that it\'s done.</p></section>';
     var roles = meta.roles.concat(gt.owner && meta.roles.indexOf(gt.owner) < 0 ? [gt.owner] : []);
     return f + formBox(ctx, 'ob-g-title', 'g-title', 'input', ' maxlength="120" data-enter="ob-commit" value="' + esc(gt.title) + '"') +
-      formSelect(ctx, 'ob-g-owner', 'g-owner', '<option value=""' + (gt.owner ? '' : ' selected') + '>Nobody in particular</option>' + roles.map(function (r) { return '<option value="' + esc(r) + '"' + (r === gt.owner ? ' selected' : '') + '>@' + esc(r) + '</option>'; }).join(''), gt.owner ? null : 'No approval role is named. Whoever is recording records the approval.') + addRole(ctx, 'gate') +
+      roleSelect(ctx, 'ob-g-owner', 'g-owner', roles, gt.owner || '', gt.owner ? null : 'No approval role is named. Whoever is recording records the approval.') + addRole(ctx, 'gate') +
       '<details class="ob-more-ap"' + (gt.approves ? ' open' : '') + '><summary>More approval options</summary>' + gateApproves(ctx, p, text, ph, gt) + source(ctx, gt.id, 'approval', U.slug(gt.title, 24)) + '</details>' +
       '<div class="row"><button type="button" class="mini" data-act="ob-gate-remove" data-id="' + esc(ph.key) + '">Remove this approval</button><span class="small">The phase then ends with a check that it\'s done.</span></div></section>';
   }

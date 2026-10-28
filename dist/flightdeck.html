@@ -12045,7 +12045,7 @@ PF.search = (function () {
     var f = [], word = DECIDED[d.status] || 'Decided';
     field(f, d.reason, 5); field(f, word, 2);
     return { id: id, kind: 'correction', title: 'Correction ' + word.toLowerCase() + (d.reason ? ': ' + d.reason : ''), sub: d.process, fields: f, people: uniq([d.by]), types: [],
-      at: d.at || '', process: d.process, run: '', target: target({ view: 'process', process: d.process }) };
+      at: d.at || '', process: d.process, run: '', target: target({ view: 'process', process: d.process, decision: id, group: d.group }) };
   }
   function pubDocs(proc, x, latest) {
     var map = x.map, meta = map.meta || {}, title = meta.title || proc, ver = x.info.version, f = [];
@@ -19029,7 +19029,7 @@ PF.vk = (function () {
     var h = '', more = '';
     if (left > 0) {
       var add = Math.min(P, left), first = o.tail ? items[from - add] : items[from + n], k = o.keyOf(first), f = o.focusOf ? o.focusOf(k) : null;
-      more = '<div class="row paged"><span class="small" role="status">Showing ' + shown.length.toLocaleString('en-US') + ' of ' + items.length.toLocaleString('en-US') + (plus ? ', plus the one you just ' + esc(o.shownWord || 'added') : '') + '</span>' +
+      more = '<div class="row paged"><span class="small" role="status">Showing ' + shown.length.toLocaleString('en-US') + ' of ' + items.length.toLocaleString('en-US') + (plus ? ', plus the one you just ' + esc((st.justShown.words || {})[id] || o.shownWord || 'added') : '') + '</span>' +
         '<button type="button" class="btn" data-act="more" data-id="' + esc(id) + '" data-next="' + esc(k) + '"' + (f ? ' data-focus="' + esc(f) + '"' : '') + (P !== PAGE ? ' data-page="' + P + '"' : '') + (o.inDialog ? ' data-dialog="1"' : '') + '>' +
         (o.tail ? 'Show ' + add + ' earlier' : 'Show ' + add + ' more') + '</button></div>';
     }
@@ -19434,7 +19434,7 @@ PF.vk = (function () {
         : 'Your corrections to ' + stepName(gs[0]) + (gs.length === 2 ? ' and ' + stepName(gs[1]) : ' and ' + (gs.length - 1) + ' other steps') + ' are published in v' + a.version + '.';
       else title = nameOf(ctx, a.by) + ' declined your correction: ' + a.reason;
       var sub = ctx.processTitle(a.process) + (a.kind === 'declined' ? ' · ' + stepName(a.group) : '');
-      return '<li class="todo ack ' + a.kind + '" id="ack-' + x.n + '"><div><b tabindex="-1">' + esc(title) + '</b><div class="small">' + esc(sub) + '</div></div><span class="row"><button class="btn" data-act="ack-view" data-id="' + esc(a.key) + '" data-process="' + esc(a.process) + '">View change</button>' +
+      return '<li class="todo ack ' + a.kind + '" id="ack-' + x.n + '"><div><b tabindex="-1">' + esc(title) + '</b><div class="small">' + esc(sub) + '</div></div><span class="row"><button class="btn" data-act="ack-view" data-id="' + esc(a.key) + '" data-process="' + esc(a.process) + '" data-group="' + esc(a.group ? a.group.id : a.groups && a.groups[0] ? a.groups[0].id : '') + '">View change</button>' +
         '<button class="mini" data-act="ack-dismiss" data-id="' + esc(a.key) + '" aria-label="Dismiss: ' + esc(title) + '">Dismiss</button></span></li>';
     }).join('') + '</ul>'; } }) + '</section>';
   }
@@ -19718,51 +19718,87 @@ PF.vk = (function () {
     return V.corrGroups(ctx, p.id);
   }
   /* Grouped by step in checklist order: each group is one proposed change, "Suggested in N runs" with the runs behind it,
-     and two different changes to the same step are shown as alternatives. Anyone decides; declining needs a reason. */
+     and two different changes to the same step are shown as alternatives. Anyone decides; declining needs a reason.
+     2.11: 50 members at a time, counted across groups, so one change suggested in 400 runs or 300 changes of one each draw
+     50; a group the page splits says how many more it has. The group being declined is drawn whatever the page or Open/All
+     (marked when it's no longer open), and so is a group search or Home opened (state.justShown), marked as shown for that. */
   function fixesPanel(ctx, p) {
     var st = ctx.state, all = fixesOf(ctx, p), C = PF.corrections;
     if (!all.length) return '';
     var open = all.filter(function (g) { return g.status === 'open'; });
-    var showAll = st.fixFilter === 'all', list = showAll ? all : open, map = p.latest ? p.latest.map : p.draft ? M.parse(p.draft.md) : null;
+    var showAll = st.fixFilter === 'all', map = p.latest ? p.latest.map : p.draft ? M.parse(p.draft.md) : null;
+    var lid = 'fx:' + p.id, declining = st.pick && st.pick.kind === 'corr-decline' ? st.pick.id : null, js = st.justShown && st.justShown.lists ? st.justShown.lists[lid] : null, jsG = js ? String(js).split('#')[0] : null;
+    var list = all.filter(function (g) { return showAll || g.status === 'open' || g.id === declining || g.id === jsG; });
     var h = '<p class="small">Recorded during runs: what the checklist said, what it should say, and what happened. Review one to apply it to the draft, or mark it as applied once the draft has it.</p>' +
       '<div class="seg" role="group" aria-label="Show">' + [['open', 'Open'], ['all', 'All']].map(function (x) { return '<button type="button" data-act="corr-filter" data-id="' + x[0] + '" aria-pressed="' + ((x[0] === 'all') === showAll) + '">' + x[1] + '</button>'; }).join('') + '</div>';
     var unread = (ctx.data.corrUnread || []).filter(function (u) { return u.process === p.id; });
     if (unread.length) h += '<div class="notice bad"><span>Couldn\'t read ' + unread.length + ' decision file' + (unread.length === 1 ? '' : 's') + ' in <code>corrections/' + esc(p.id) + '</code>' + (unread.every(function (u) { return u.kept; }) ? '. Showing what they said last time.' : '. Some corrections may show the wrong status until it syncs.') + '</span></div>';
     if (!list.length) h += '<p class="small">No open corrections.</p>';
-    var order = [], groups = Object.create(null);
+    var order = [], groups = Object.create(null), at = Object.create(null);
     if (map) map.phases.forEach(function (ph) { order.push('phase:' + ph.id); ph.steps.forEach(function (x) { order.push(x.id); }); if (ph.gate && !ph.gate.implicit) order.push('gate:' + ph.gate.id); });
-    list.forEach(function (g) { var k = C.targetKey(g.target); if (!groups[k]) { groups[k] = []; if (order.indexOf(k) < 0) order.push(k); } groups[k].push(g); });
-    order.filter(function (k) { return groups[k]; }).forEach(function (k) {
+    order.forEach(function (k, i) { at[k] = i; });
+    list.forEach(function (g) { var k = C.targetKey(g.target); if (!groups[k]) { groups[k] = []; if (!(k in at)) { at[k] = order.length; order.push(k); } } groups[k].push(g); });
+    /* One item per member, in the order 2.10 draws them: target, then group, then member. */
+    var items = [];
+    order.filter(function (k) { return groups[k]; }).forEach(function (k) { groups[k].forEach(function (g) { g.members.forEach(function (m, i) { items.push({ k: k, g: g, m: m, i: i }); }); }); });
+    var heading = function (k, gs) {
       var x = map && !/^(phase|gate):/.test(k) && M.findStep(map, k), ph = map && k.indexOf('phase:') === 0 && map.phases.filter(function (q) { return 'phase:' + q.id === k; })[0], gt = map && k.indexOf('gate:') === 0 && map.phases.filter(function (q) { return q.gate && 'gate:' + q.gate.id === k; })[0];
-      var gs = groups[k], alts = gs.filter(function (g) { return g.status === 'open' && g.change.op !== 'describe'; }).length;
-      h += '<h3 class="fixgroup">' + (x ? K.stepHtml(x.step, null) : ph ? 'Phase: ' + esc(ph.title) : gt ? 'Gate: ' + esc(gt.gate.title) : esc(C.targetName(gs[0])) + ' <span class="small">(not in the current version)</span>') + '</h3>' +
-        (alts > 1 ? '<p class="small corr-alts"><b>' + (alts === 2 ? 'Two' : alts) + ' proposed changes.</b> Each can be decided on its own.</p>' : '') +
-        '<ul class="fixlist">' + gs.map(function (g) { return groupItem(ctx, p, g); }).join('') + '</ul>';
-    });
+      var alts = gs.filter(function (g) { return g.status === 'open' && g.change.op !== 'describe'; }).length;
+      return '<h3 class="fixgroup">' + (x ? K.stepHtml(x.step, null) : ph ? 'Phase: ' + esc(ph.title) : gt ? 'Gate: ' + esc(gt.gate.title) : esc(C.targetName(gs[0])) + ' <span class="small">(not in the current version)</span>') + '</h3>' +
+        (alts > 1 ? '<p class="small corr-alts"><b>' + (alts === 2 ? 'Two' : alts) + ' proposed changes.</b> Each can be decided on its own.</p>' : '');
+    };
+    var draw = function (shown) {
+      var out = '', i = 0;
+      while (i < shown.length) {
+        var k = shown[i].k, body = '';
+        while (i < shown.length && shown[i].k === k) {
+          var g = shown[i].g, ms = [];
+          while (i < shown.length && shown[i].g === g) ms.push(shown[i++]);
+          body += groupItem(ctx, p, g, ms, { gone: g.id === declining && !showAll && g.status !== 'open', opened: g.id === jsG && !showAll && g.status !== 'open' });
+        }
+        out += heading(k, groups[k]) + '<ul class="fixlist">' + body + '</ul>';
+      }
+      return out;
+    };
+    h += K.list(st, lid, items, { draw: draw, keyOf: function (x) { return x.g.id + '#' + x.i; }, focusOf: function (key) { return K.byId('fxm-' + key); },
+      keep: declining ? [declining + '#0'] : [], keptLabel: 'You\'re declining this one', shownWord: 'opened' });
     if (open.length) h += '<div class="row" style="margin-top:10px"><button class="btn" data-act="copy-corr-brief" data-id="' + esc(p.id) + '">' + I('copy') + 'Copy correction brief</button></div>' + briefBox(st, 'corrections:' + p.id);
     var head = '<h2 id="fx-h" tabindex="-1">' + I('edit') + 'Corrections · ' + open.length + ' open</h2>';
     /* Open for whoever looks after the checklist, and whenever it holds a warning; for everyone else, one closed line. */
     if (unread.length || K.keeps(ctx, p)) return '<section class="panel" aria-labelledby="fx-h">' + head + h + '</section>';
     return '<details class="panel fold" data-disc="fx:' + esc(p.id) + '"' + ((st.disc || {})['fx:' + p.id] ? ' open' : '') + '><summary>' + head + '<span class="fold-act">Review</span></summary>' + h + '</details>';
   }
-  function groupItem(ctx, p, g) {
+  /* One group, with the members the page draws (ms: { m, i }, i its place in the group). Each drawn member's Why, What
+     happened, files and run are drawn in full; its first line (fxm-<group>#<i>) is where Show more puts focus. */
+  function groupItem(ctx, p, g, ms, o) {
     var st = ctx.state, C = PF.corrections, d = g.decision, c = g.first, declining = st.pick && st.pick.kind === 'corr-decline' && st.pick.id === g.id;
     var map = p.latest ? p.latest.map : null;
-    var h = '<li data-scope="corr:' + esc(g.id) + '"><div class="row"><span class="badge b-plan">' + esc(C.OP_LABEL[g.change.op]) + '</span>' + V.corrPill(g) + (g.legacy ? '<span class="small">From a suggested fix</span>' : '') + '</div>';
+    ms = ms || g.members.map(function (m, i) { return { m: m, i: i }; }); o = o || {};
+    var fid = function (x) { return 'fxm-' + g.id + '#' + x.i; }, first = ms[0] && ms[0].i === 0;
+    var h = '<li data-scope="corr:' + esc(g.id) + '" id="' + esc('fxg-' + g.id) + '" tabindex="-1"><div class="row"><span class="badge b-plan">' + esc(C.OP_LABEL[g.change.op]) + '</span>' + V.corrPill(g) + (g.legacy ? '<span class="small">From a suggested fix</span>' : '') + '</div>';
+    if (o.gone) h += '<p class="small fx-gone"><b>No longer open:</b> ' + esc(C.label(g).toLowerCase()) + (d ? ' by ' + esc(nameOf(ctx, d.by)) : '') + '</p>';
+    if (o.opened) h += '<p class="small fx-opened">Shown because you opened it.</p>';
     var dl = '';
     if (g.change.op !== 'describe' && g.from) dl += '<dt>Checklist said (v' + esc(c.version) + ')</dt><dd>' + esc(g.from) + '</dd>';
     if (g.change.op === 'wording') dl += '<dt>Suggested</dt><dd>' + V.redline(g.from, g.change.to) + '</dd>';
     else if (g.change.op !== 'describe') dl += '<dt>Suggested</dt><dd>' + esc(C.proposal(c, map)) + '</dd>';
-    g.members.forEach(function (m) {
-      if (m.why) dl += '<dt>' + (g.change.op === 'describe' ? 'Problem' : 'Why') + ' · ' + esc(nameOf(ctx, m.by)) + '</dt><dd>' + esc(m.why) + '</dd>';
-      if (m.happened) dl += '<dt>What happened · ' + esc(nameOf(ctx, m.by)) + '</dt><dd>' + esc(m.happened) + '</dd>';
+    /* A member without a Why or What happened is focused on its run's line. */
+    var focused = Object.create(null);
+    ms.forEach(function (x) {
+      var m = x.m, tag = function () { if (focused[x.i]) return ''; focused[x.i] = true; return ' id="' + esc(fid(x)) + '" tabindex="-1"'; };
+      if (m.why) dl += '<dt' + tag() + '>' + (g.change.op === 'describe' ? 'Problem' : 'Why') + ' · ' + esc(nameOf(ctx, m.by)) + '</dt><dd>' + esc(m.why) + '</dd>';
+      if (m.happened) dl += '<dt' + tag() + '>What happened · ' + esc(nameOf(ctx, m.by)) + '</dt><dd>' + esc(m.happened) + '</dd>';
     });
     if (dl) h += '<dl class="corr-dl">' + dl + '</dl>';
-    g.members.forEach(function (m) { h += V.attachments(ctx, m.id, m.files, m.fileInfo, 'corr'); });
+    ms.forEach(function (x) { h += V.attachments(ctx, x.m.id, x.m.files, x.m.fileInfo, 'corr'); });
     /* The runs behind it, with names inside: a count of runs, never a vote. */
-    h += '<details class="corr-runs"><summary class="small">Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + '</summary><ul class="small">' + g.members.map(function (m) {
-      return '<li>' + esc(nameOf(ctx, m.by)) + ' · ' + esc(U.day(m.at)) + ' · <button class="linkish" data-act="open-run" data-id="' + esc(m.process + '/' + m.run) + '">' + esc(m.runTitle) + '</button> · ' + (m.test ? 'test run, staged v' : 'v') + esc(m.version) + '</li>';
+    h += '<details class="corr-runs"><summary class="small">Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + '</summary><ul class="small">' + ms.map(function (x) {
+      var m = x.m;
+      return '<li' + (focused[x.i] ? '' : ' id="' + esc(fid(x)) + '" tabindex="-1"') + '>' + esc(nameOf(ctx, m.by)) + ' · ' + esc(U.day(m.at)) + ' · <button class="linkish" data-act="open-run" data-id="' + esc(m.process + '/' + m.run) + '">' + esc(m.runTitle) + '</button> · ' + (m.test ? 'test run, staged v' : 'v') + esc(m.version) + '</li>';
     }).join('') + '</ul></details>';
+    var left = g.members.length - ms.length;
+    if (left > 0) h += '<p class="small fx-more">' + left.toLocaleString('en-US') + ' more in this group</p>';
+    if (!first && !declining) return h + '</li>';
     if (d) h += '<div class="small">' + esc(d.addressed ? 'Marked as addressed differently' : { applied: 'Marked as applied', declined: 'Declined', open: 'Reopened', withdrawn: 'Withdrawn', legacy: 'Accepted before 1.13', included: 'Said v' + d.version + ' has it' }[d.status] || d.status) + ' by ' + esc(nameOf(ctx, d.by)) + ' ' + esc(U.day(d.at)) + (d.reason ? ': ' + esc(d.reason) : '') + '</div>';
     if (g.landed) h += '<div class="small">v' + esc(g.landed.version) + ' has it' + (g.landed.at ? ', published ' + esc(U.day(g.landed.at)) : '') + '.</div>';
     if (g.proofless) {
@@ -19902,7 +19938,12 @@ PF.vk = (function () {
     if (p.proposedOnly) h += '<div class="notice"><span><b>Proposed, not drafted yet.</b> Your AI assistant proposed this checklist. Review it below; applying it creates the draft.</span></div>';
     h += editingNote(ctx, p);
     if (p.clashes.length) h += '<div class="notice bad"><span>Two people published version ' + p.clashes.join(', ') + ' at the same time. Neither is used until one is removed from <code>publications/' + esc(p.id) + '</code>. Publish again to make a clean next version.</span></div>';
-    p.broken.forEach(function (b) { h += '<div class="notice warn"><span>' + esc(b.folder) + ': ' + esc(b.why) + '</span></div>'; });
+    /* One version that can't be used is one notice, as before; more are one notice with them 20 at a time (2.11). */
+    if (p.broken.length === 1) h += '<div class="notice warn"><span>' + esc(p.broken[0].folder) + ': ' + esc(p.broken[0].why) + '</span></div>';
+    else if (p.broken.length) h += '<div class="notice warn pub-broken"><div><b>' + p.broken.length.toLocaleString('en-US') + ' versions in <code>publications/' + esc(p.id) + '</code> can\'t be used.</b>' +
+      '<details data-disc="pub-broken:' + esc(p.id) + '"' + ((st.disc || {})['pub-broken:' + p.id] ? ' open' : '') + '><summary class="small">Which ones, and why</summary>' +
+      K.list(st, 'pub-broken:' + p.id, p.broken, { page: 20, keyOf: function (b) { return b.folder; }, focusOf: function (k) { return K.byId('pb-' + k); },
+        draw: function (shown) { return '<ul class="small">' + shown.map(function (b) { PF.perf.add('pub.broken'); return '<li id="' + esc('pb-' + b.folder) + '" tabindex="-1">' + esc(b.folder) + ': ' + esc(b.why) + '</li>'; }).join('') + '</ul>'; } }) + '</details></div></div>';
     /* C3 (2.8): the latest version's linked steps that can't start their child as it is now. */
     if (pub && ctx.procOf) PF.links.broken(pub.map, PF.links.childrenFrom(ctx.procOf)).forEach(function (b) {
       h += '<div class="notice warn" role="status"><span>Step "' + esc(b.step.text.slice(0, 40)) + '" passes ' + esc(b.names.join(', ')) + ' to ' + esc(b.title) + ', whose latest version (v' + esc(b.version) + ') doesn\'t have ' + (b.names.length > 1 ? 'them' : 'it') + '. New runs can\'t start that child until this checklist changes.</span></div>';
@@ -19920,7 +19961,7 @@ PF.vk = (function () {
           '<button class="btn go" data-act="publish" data-id="' + esc(p.id) + '"' + (c.blockers.length || !st.me || held ? ' disabled' : '') + (held ? ' aria-describedby="pub-why"' : '') + '>Publish v' + PF.publish.nextVersion(p.taken || p.all.map(function (x) { return x.info; })) + '</button></div>' +
           (held ? '<p class="small" id="pub-why">' + (base.dirty || base.conflict ? 'Your edits aren\'t saved, so they wouldn\'t be in this version. Save or discard them in the editor first.' : 'A screenshot is still being added to this draft. Publish when it\'s done.') + '</p>' : '') +
           '<p class="small">Anyone can publish. It\'s logged with your name, the time and the change note, and runs already started keep their version.</p>' + publishNeeds(ctx, p) + publishCorrections(ctx, p);
-        if (pub) h += '<details style="margin-top:8px"><summary class="small" style="cursor:pointer">Compare the draft with v' + pub.info.version + '</summary>' + diffHtml(PF.publish.diff(pub.md, p.draft.md)) + '</details>';
+        if (pub) h += '<details style="margin-top:8px"><summary class="small" style="cursor:pointer">Compare the draft with v' + pub.info.version + '</summary>' + diffHtml(PF.publish.diff(pub.md, p.draft.md), st, 'draft-diff') + '</details>';
       }
       h += '</section>';
     }
@@ -19932,14 +19973,16 @@ PF.vk = (function () {
     /* Versions: the newest on show, earlier ones folded; one line each; the change note shows in full on hover and in Changes. */
     var verLi = function (v, i) {
       var older = p.all[i + 1];
-      return '<li><b>v' + v.info.version + '</b><span><span class="clip" title="' + esc(v.info.changes) + '">' + esc(v.info.changes) + '</span><span class="small">' + esc(U.day(v.info.publishedAt)) + '</span></span>' +
+      return '<li id="' + esc('ver-' + v.folder) + '" tabindex="-1"><b>v' + v.info.version + '</b><span><span class="clip" title="' + esc(v.info.changes) + '">' + esc(v.info.changes) + '</span><span class="small">' + esc(U.day(v.info.publishedAt)) + '</span></span>' +
         '<span class="row">' + (older ? '<button class="mini" data-act="diff" data-id="' + esc(v.folder) + '" aria-expanded="' + (st.diffOf === v.folder) + '">Changes</button>' : '') + '<button class="mini" data-act="view-version" data-id="' + esc(v.folder) + '" aria-pressed="' + (st.mapVer === v.folder) + '">View</button></span></li>' +
-        (st.diffOf === v.folder && older ? '<li style="display:block">' + diffHtml(PF.publish.diff(older.md, v.md)) + '</li>' : '');
+        (st.diffOf === v.folder && older ? '<li style="display:block">' + diffHtml(PF.publish.diff(older.md, v.md), st, 'ver-diff') + '</li>' : '');
     };
     /* Staging (2.1) lives inside the closed All versions disclosure, so nobody who never stages sees it. */
     var earlier = p.all.slice(1), stg = stagesHtml(ctx, p), verOpen = (st.disc || {})['vers:' + p.id] || earlier.some(function (v) { return st.diffOf === v.folder || st.mapVer === v.folder; });
     h += '<section class="panel" aria-labelledby="ver-h"><h2 id="ver-h">Versions</h2><ul class="vlist compact">' + (p.all.length ? verLi(p.all[0], 0) : '<li class="small">Not published yet. Edit the checklist, then publish it.</li>') + '</ul>' +
-      (earlier.length || stg ? '<details data-disc="vers:' + esc(p.id) + '"' + (verOpen ? ' open' : '') + '><summary class="small">All versions' + (earlier.length ? ' (' + p.all.length + ')' : '') + '</summary>' + (earlier.length ? '<ul class="vlist compact">' + earlier.map(function (v, i) { return verLi(v, i + 1); }).join('') + '</ul>' : '') + stg + '</details>' : '') + '</section>';
+      (earlier.length || stg ? '<details data-disc="vers:' + esc(p.id) + '"' + (verOpen ? ' open' : '') + '><summary class="small">All versions' + (earlier.length ? ' (' + p.all.length + ')' : '') + '</summary>' + (earlier.length ? K.list(st, 'vers:' + p.id, earlier.map(function (v, i) { return { v: v, i: i + 1 }; }), { keyOf: function (x) { return x.v.folder; }, focusOf: function (k) { return K.byId('ver-' + k); },
+        keep: earlier.filter(function (v) { return st.diffOf === v.folder || st.mapVer === v.folder; }).map(function (v) { return v.folder; }), keptLabel: 'The version you have open',
+        draw: function (shown) { return '<ul class="vlist compact">' + shown.map(function (x) { return verLi(x.v, x.i); }).join('') + '</ul>'; } }) : '') + stg + '</details>' : '') + '</section>';
     var runs = ctx.data.runs.filter(function (r) { return r.process === p.id; }).sort(function (a, b) { return a.created < b.created ? 1 : -1; });
     h += '<section class="panel" aria-labelledby="pr-h"><h2 id="pr-h">Recent runs</h2>' + (runs.length ? '<ul class="plist">' + runs.slice(0, 3).map(function (r) {
       var hl = K.headline(r, R.mapOf(r));
@@ -19972,9 +20015,13 @@ PF.vk = (function () {
     if (!sp && !canStage) return '';
     /* Decisions that can't be read could say it's retired: no status is shown as settled and nothing can be changed until they read. */
     var held = !!sp && (!!(ctx.data.failed || {}).stages || !!sp.unlisted || sp.unread.length > 0 || sp.refused.some(function (r) { return /\/decisions\//.test(r.path); }));
-    var rows = (sp ? sp.stages : []).map(function (s) {
-      if (s.newer) return '<li class="stg"><b>Staged</b><span><span class="small">' + esc(s.folder) + ': ' + esc(s.why) + '</span></span></li>';
-      if (!s.ok) return '<li class="stg"><b>Staged</b><span><span class="small">' + esc(s.folder) + ' is incomplete: nothing runs from it.</span></span></li>';
+    /* 50 at a time (2.11): a stage's status, sign-off and test runs are worked out only for the ones drawn. A stage just made
+       is drawn whatever the page (state.justShown). */
+    var row = function (s) {
+      PF.perf.add('stage.row');
+      var li = '<li class="stg" id="' + esc('stg-' + s.folder) + '" tabindex="-1">';
+      if (s.newer) return li + '<b>Staged</b><span><span class="small">' + esc(s.folder) + ': ' + esc(s.why) + '</span></span></li>';
+      if (!s.ok) return li + '<b>Staged</b><span><span class="small">' + esc(s.folder) + ' is incomplete: nothing runs from it.</span></span></li>';
       var x = S.status(s, sp.decisions, p.all), i = s.info, id = esc(s.folder), b = '';
       var word = x.status === 'promoted' ? 'Published as v' + x.pub.info.version : held ? 'Status unknown until its decisions can be read' : x.status === 'retired' ? 'Retired' : x.status === 'tie' ? 'Two decisions disagree' : '';
       if (held) b = '';
@@ -19985,11 +20032,13 @@ PF.vk = (function () {
       var anyTest = (ctx.data.runs || []).some(function (r) { return r.process === p.id && r.folder === s.folder && PF.run.isTest(r); });
       if (sg.ready && anyTest) tw = ' · ' + sg.ready.clean + ' of ' + sg.ready.needed + ' clean test runs' + (sg.signs.length ? ' · Signed off by ' + nameOf(ctx, sg.signs[0].by) : sg.hold && sg.hold.kind === 'newer' ? ' · Signed off with a newer Flightdeck: update to see it' : sg.unknown ? ' · Can\'t tell whether it was signed off: ' + sg.unknown : '');
       if (sg.as) b += '<button class="mini" data-act="signoff-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Sign off staged v' + esc(i.stage.proposed) + '</button>';
-      return '<li class="stg"><b>Staged</b><span><span class="clip" title="' + esc(i.changes) + '">' + esc(i.changes) + '</span><span class="small">' + esc(U.day(i.stagedAt)) + ' by ' + esc(nameOf(ctx, i.stagedBy)) + (word ? ' · ' + esc(word) : '') + esc(tw) + '</span></span>' + (b ? '<span class="row">' + b + '</span>' : '') + '</li>';
-    });
+      return li + '<b>Staged</b><span><span class="clip" title="' + esc(i.changes) + '">' + esc(i.changes) + '</span><span class="small">' + esc(U.day(i.stagedAt)) + ' by ' + esc(nameOf(ctx, i.stagedBy)) + (word ? ' · ' + esc(word) : '') + esc(tw) + '</span></span>' + (b ? '<span class="row">' + b + '</span>' : '') + '</li>';
+    };
+    var list = sp ? sp.stages : [];
     var gone = (ctx.data.failed || {}).stages;
     return (sp && (sp.unlisted || gone) ? '<p class="small">' + esc(sp.unlisted || 'staged/ couldn\'t be read (' + gone + ')') + '. Staged versions are shown as last read.</p>' : held ? '<p class="small">A decision on these staged versions can\'t be read now, so they can\'t be changed until it can. Folder health names it.</p>' : '') +
-      (rows.length ? '<ul class="vlist compact">' + rows.join('') + '</ul>' : '') +
+      (list.length ? K.list(st, 'stages:' + p.id, list, { keyOf: function (s) { return s.folder; }, focusOf: function (k) { return K.byId('stg-' + k); }, shownWord: 'staged',
+        draw: function (shown) { return '<ul class="vlist compact">' + shown.map(row).join('') + '</ul>'; } }) : '') +
       (canStage ? '<p class="small"><button class="mini" data-act="stage-draft" data-id="' + esc(p.id) + '"' + (busy ? ' disabled' : '') + '>Stage the draft for testing</button> Only test runs use it until someone makes it the default.</p>' : '');
   }
   function proposalsPanel(ctx, p) {
@@ -20072,10 +20121,37 @@ PF.vk = (function () {
     return '<div class="diff">' + rows.map(function (r) { return r.op === '+' ? '<span class="add">+ ' + esc(r.text) + '</span>' : r.op === '-' ? '<span class="del">- ' + esc(r.text) + '</span>' : r.op === '…' ? '<span class="small">  … ' + esc(r.text) + '</span>\n' : '<span>  ' + esc(r.text) + '</span>\n'; }).join('') + '</div>';
   }
 
-  function diffHtml(rows) {
-    var changed = rows.some(function (r) { return r.op !== ' '; });
-    if (!changed) return '<p class="small">No differences.</p>';
-    return '<div class="diff">' + rows.map(function (r) { return r.op === '+' ? '<span class="add">+ ' + esc(r.text) + '</span>' : r.op === '-' ? '<span class="del">- ' + esc(r.text) + '</span>' : '<span>  ' + esc(r.text) + '</span>\n'; }).join('') + '</div>';
+  /* The differences between two checklists: the changed lines 50 at a time (2.11), in order, each with a line of what's
+     around it; longer stretches that didn't change are one line saying how many. id names the list (its Show more), and each
+     change's line (id-<n>) is where Show more puts focus. */
+  function diffHtml(rows, st, id) {
+    var ch = [];
+    rows.forEach(function (r, i) { if (r.op !== ' ') ch.push(i); });
+    if (!ch.length) return '<p class="small">No differences.</p>';
+    id = id || 'diff';
+    var line = function (i) {
+      var r = rows[i];
+      return r.op === '+' ? '<span class="add" id="' + esc(id + '-' + i) + '" tabindex="-1">+ ' + esc(r.text) + '</span>' : r.op === '-' ? '<span class="del" id="' + esc(id + '-' + i) + '" tabindex="-1">- ' + esc(r.text) + '</span>' : '<span>  ' + esc(r.text) + '</span>\n';
+    };
+    var gap = function (n) { return '<span class="small diff-gap">  … ' + n.toLocaleString('en-US') + ' unchanged line' + (n === 1 ? '' : 's') + '</span>\n'; };
+    /* Unchanged lines from a to b (inclusive): all of them when there are 3 or fewer, else the first and last around a gap. */
+    var same = function (a, b, lead, trail) {
+      var n = b - a + 1, out = '';
+      if (n <= 0) return '';
+      if (n <= 3) { for (var k = a; k <= b; k++) out += line(k); return out; }
+      if (lead) out += line(a);
+      out += gap(n - (lead ? 1 : 0) - (trail ? 1 : 0));
+      if (trail) out += line(b);
+      return out;
+    };
+    var draw = function (shown) {
+      var out = '', last = -1;
+      shown.forEach(function (i) { out += same(last + 1, i - 1, last >= 0, true) + line(i); last = i; });
+      var end = shown[shown.length - 1] === ch[ch.length - 1];
+      out += end ? same(last + 1, rows.length - 1, true, false) : last + 1 < rows.length && rows[last + 1].op === ' ' ? line(last + 1) : '';
+      return '<div class="diff">' + out + '</div>';
+    };
+    return K.list(st || {}, id, ch, { draw: draw, keyOf: function (i) { return String(i); }, focusOf: function (k) { return K.byId(id + '-' + k); } });
   }
 
   /* The exact publication a person switched this plan to, if it was in this folder, on this plan, as it reads now. */
@@ -20147,7 +20223,7 @@ PF.vk = (function () {
     if (plan && pick.older) {
       h += '<div class="notice warn"><span>' + (pick.chosen ? 'You switched this plan to v' : 'This plan was made for v') + esc(pub.info.version) + '. v' + esc(latest.info.version) + ' is now published.</span><span class="row"><button class="mini" type="button" data-act="plan-diff" aria-expanded="' + !!st.planDiff + '">See what changed</button>' +
         (pick.exact ? '<button class="btn" type="button" data-act="plan-retarget" data-id="' + esc(plan.id) + '" data-folder="' + esc(latest.info.folder) + '">Start on v' + esc(latest.info.version) + ' instead</button>' : '<button class="btn" type="button" data-act="plan-latest" data-id="' + esc(plan.id) + '">Switch to v' + esc(latest.info.version) + '</button>') + '</span></div>';
-      if (st.planDiff) h += '<section class="panel" aria-label="Changes from v' + pub.info.version + ' to v' + latest.info.version + '">' + diffHtml(PF.publish.diff(pub.md, latest.md)) + '</section>';
+      if (st.planDiff) h += '<section class="panel" aria-label="Changes from v' + pub.info.version + ' to v' + latest.info.version + '">' + diffHtml(PF.publish.diff(pub.md, latest.md), st, 'plan-diff') + '</section>';
     } else if (plan && pick.missing) {
       /* Say why, when the version is in the folder but can't be used here (still syncing, damaged, or too new for this copy). */
       var gone = !chosen && (p.broken || []).filter(function (b) { return PF.publish.versionOf(b.folder) === +plan.version; })[0];
@@ -20712,6 +20788,11 @@ PF.vk = (function () {
   }
   /* Corrections first published in exactly this run's version, by the step they're about there. Only that version's runs
      show "Changed in vN": a later version has the step as it is, with nothing new to explain. */
+  /* A step's corrections as a list's items (2.11): keyed by ID, and by its occurrence when two share one ("id#2"). */
+  function corrItems(rows) {
+    var seen = Object.create(null);
+    return rows.map(function (c) { var n = seen[c.id] = (seen[c.id] || 0) + 1; return { c: c, k: n > 1 ? c.id + '#' + n : c.id }; });
+  }
   function changedHere(ctx, r) { return r && r.process && r.folder ? C.changedIn(corrGroups(ctx, r.process), r.folder) : {}; }
   /* "Changed in vN" with "Why is this here?": what it said before and after, why, the runs that suggested it, who applied it. */
   /* The members of every change on this step, 20 at a time counted across them (2.11): a change is drawn once one of its
@@ -20791,8 +20872,14 @@ PF.vk = (function () {
         var mv = K.select(st, 'corr-move', places, f.moveTo || '', { attrs: ' data-bound' + bad('corr-move'), lead: '<option value="">Choose…</option>', around: near, noun: 'place', group: function (it) { return it.g; } });
         h += mv.box + '<label class="small" for="corr-move">Move it to</label>' + mv.select + mv.more + fe('corr-move');
       } else if (f.op === 'roles') {
-        var roles = map.meta.roles || [];
-        h += roles.length ? '<fieldset class="corr-roles" id="corr-roles" tabindex="-1"' + bad('corr-roles') + '><legend class="small">Who should do it</legend>' + roles.map(function (ro) { return '<label class="check-label small"><input type="checkbox" id="corr-role-' + esc(ro) + '" data-bound' + (f.roles.indexOf(ro) >= 0 ? ' checked' : '') + '> @' + esc(ro) + (r.roles[ro] ? ' (' + esc(nameOf(ctx, r.roles[ro])) + ')' : '') + '</label>'; }).join('') + '</fieldset>' + fe('corr-roles')
+        /* 20 roles at a time in checklist order, with Find past 20 (2.11); a role ticked is always drawn, so it's never lost. */
+        var roles = map.meta.roles || [], rq = roles.length > 20 ? K.findQ(st, 'corr-roles') : '', rhit = K.finds(rq);
+        var rmatch = roles.filter(function (ro) { return rhit([ro, r.roles[ro] ? nameOf(ctx, r.roles[ro]) : '']); }), rlist = rq ? roles.filter(function (ro) { return f.roles.indexOf(ro) >= 0 || rmatch.indexOf(ro) >= 0; }) : roles;
+        var rbox = function (ro) { return '<label class="check-label small"><input type="checkbox" id="corr-role-' + esc(ro) + '" data-bound' + (f.roles.indexOf(ro) >= 0 ? ' checked' : '') + '> @' + esc(ro) + (r.roles[ro] ? ' (' + esc(nameOf(ctx, r.roles[ro])) + ')' : '') + '</label>'; };
+        h += roles.length ? '<fieldset class="corr-roles" id="corr-roles" tabindex="-1"' + bad('corr-roles') + '><legend class="small">Who should do it</legend>' +
+          (roles.length > 20 ? K.findBox(st, 'corr-roles', 'Find a role', rmatch.length, roles.length, 'role') : '') +
+          K.list(st, 'corr-roles', rlist, { page: 20, keyOf: function (ro) { return ro; }, focusOf: function (k) { return K.byId('corr-role-' + k); }, keep: f.roles.filter(function (ro) { return roles.indexOf(ro) >= 0; }), keptLabel: 'Ticked', draw: function (shown) { return shown.map(rbox).join(''); } }) +
+          '</fieldset>' + fe('corr-roles')
           : '<p class="small">This checklist has no roles. Use Describe another problem to say who should do it.</p>';
       } else if (f.op === 'screenshot') {
         var shot = s.shots.filter(function (sh) { return sh.src === f.shot; })[0] || s.shots[0];
@@ -20962,11 +21049,15 @@ PF.vk = (function () {
         (linked ? '<button class="mini" data-act="goto-corr" data-id="corr-' + esc(linked.id) + '">View correction</button>' : '') + (rec && !r.paused && a.s === 'done' && R.phaseOpen(r, map, x.phaseIndex) ? '<button class="mini" data-act="toggle" data-id="' + esc(st.id) + '">Change answer</button>' : '') + '</span></div>';
     }
     /* Earlier answers: who, when, values and reasons; older ones from the run's history files on request. */
-    if (a && a.history && a.history.length) h += '<details><summary class="small" style="cursor:pointer">Earlier answers (' + a.history.length + ')</summary><ul class="tnotes" style="margin-top:8px">' + a.history.slice().reverse().map(function (y) {
-      return '<li>' + avatar(ctx, y.by) + '<div><div class="meta">' + esc(nameOf(ctx, y.by)) + ' · ' + esc(U.when(y.at)) + '</div><div>' + esc({ done: 'Done', na: 'N/A', blocked: 'Blocked', recheck: 'Needed a re-check' }[y.s] || y.s) + (y.reason ? ': ' + esc(y.reason) : '') + (y.values ? ' · ' + esc(Object.keys(y.values).map(function (k) { return k + ' ' + y.values[k]; }).join(', ')) : '') + (y.differently ? ' · done differently: ' + esc(y.differently.note) : '') + '</div></div></li>';
-    }).join('') + '</ul></details>';
+    /* Each 20 at a time (2.11), in its own order: Earlier answers newest first, Archived answers oldest first. */
+    var rk = runKey(r) + ':' + st.id;
+    if (a && a.history && a.history.length) h += '<details data-disc="ans:' + esc(st.id) + '"' + ((s.disc || {})['ans:' + st.id] ? ' open' : '') + '><summary class="small" style="cursor:pointer">Earlier answers (' + a.history.length + ')</summary>' + K.list(s, 'ans:' + rk, a.history.slice().reverse().map(function (y, i) { return { y: y, i: i }; }), { page: 20, keyOf: function (x) { return String(x.i); }, focusOf: function (k) { return K.byId('ans-' + st.id + '-' + k); },
+      draw: function (shown) { return '<ul class="tnotes" style="margin-top:8px">' + shown.map(function (x) { var y = x.y;
+      return '<li id="' + esc('ans-' + st.id + '-' + x.i) + '" tabindex="-1">' + avatar(ctx, y.by) + '<div><div class="meta">' + esc(nameOf(ctx, y.by)) + ' · ' + esc(U.when(y.at)) + '</div><div>' + esc({ done: 'Done', na: 'N/A', blocked: 'Blocked', recheck: 'Needed a re-check' }[y.s] || y.s) + (y.reason ? ': ' + esc(y.reason) : '') + (y.values ? ' · ' + esc(Object.keys(y.values).map(function (k) { return k + ' ' + y.values[k]; }).join(', ')) : '') + (y.differently ? ' · done differently: ' + esc(y.differently.note) : '') + '</div></div></li>';
+    }).join('') + '</ul>'; } }) + '</details>';
     var arch = s.archive[runKey(r)];
-    if (arch) { var mine = arch.filter(function (y) { return y.kind === 'answer' && y.step === st.id; }); if (mine.length) h += '<details open><summary class="small">Archived answers (' + mine.length + ')</summary><ul class="tnotes">' + mine.map(function (y) { return '<li>' + avatar(ctx, y.by) + '<div><div class="meta">' + esc(nameOf(ctx, y.by)) + ' · ' + esc(U.when(y.at)) + '</div><div>' + esc(y.s) + (y.reason ? ': ' + esc(y.reason) : '') + '</div></div></li>'; }).join('') + '</ul></details>';
+    if (arch) { var mine = arch.filter(function (y) { return y.kind === 'answer' && y.step === st.id; }); if (mine.length) h += '<details open><summary class="small">Archived answers (' + mine.length + ')</summary>' + K.list(s, 'arch:' + rk, mine.map(function (y, i) { return { y: y, i: i }; }), { page: 20, keyOf: function (x) { return String(x.i); }, focusOf: function (k) { return K.byId('arch-' + st.id + '-' + k); },
+        draw: function (shown) { return '<ul class="tnotes">' + shown.map(function (x) { var y = x.y; return '<li id="' + esc('arch-' + st.id + '-' + x.i) + '" tabindex="-1">' + avatar(ctx, y.by) + '<div><div class="meta">' + esc(nameOf(ctx, y.by)) + ' · ' + esc(U.when(y.at)) + '</div><div>' + esc(y.s) + (y.reason ? ': ' + esc(y.reason) : '') + '</div></div></li>'; }).join('') + '</ul>'; } }) + '</details>';
       /* Archived records this copy refused (a newer Flightdeck's) are counted, never hidden. */
       var nr = (arch.refused || []).length; if (nr) h += '<p class="small">' + nr + ' archived record' + (nr === 1 ? ' needs' : 's need') + ' a newer Flightdeck. This copy leaves ' + (nr === 1 ? 'it' : 'them') + ' alone.</p>'; }
     else if (a && a.history && a.history.length >= 10) h += '<button class="mini" style="align-self:flex-start" data-act="load-history">Show older answers</button>';
@@ -20975,7 +21066,8 @@ PF.vk = (function () {
     /* Corrections to this step from this run, then Correct this step (anyone who has said who they are, whatever the run's state). */
     h += '<section class="rw-box rw-corr" aria-labelledby="ins-corr"><div class="row between"><h3 class="rw-h3" id="ins-corr">Corrections' + (rows.length ? ' · ' + rows.length : '') + '</h3>' +
       (s.me && !(cf && cf.mode === 'correct') ? '<button class="mini" data-act="corr-open" data-mode="correct" data-id="' + esc(st.id) + '" title="If the checklist was wrong or unclear here, correct it. The team reviews corrections on the checklist&#39;s page.">' + I('edit') + 'Correct this step</button>' : '') + '</div>' +
-      (rows.length ? '<ul class="corrlist">' + rows.map(function (c) { return corrRow(ctx, c, idx[c.id], { withdraw: true }); }).join('') + '</ul>' : '') +
+      (rows.length ? K.list(s, 'rcorr:' + rk, corrItems(rows), { page: 20, keyOf: function (x) { return x.k; }, focusOf: function (k) { return K.byId('corr-' + String(k).split('#')[0]); },
+        draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) { return corrRow(ctx, x.c, idx[x.c.id], { withdraw: true }); }).join('') + '</ul>'; } }) : '') +
       (cf && cf.mode === 'correct' ? composer(ctx, r, map, x, cf) : '') + '</section>';
     var notes = (r._notes || []).filter(function (n) { return n.step === st.id && n.kind !== 'correction' && n.kind !== 'fix' && n.kind !== 'map'; });
     h += '<section class="rw-box rw-notes" aria-labelledby="ins-notes"><h3 class="rw-h3" id="ins-notes">' + (R.solo(r) ? 'Notes' : 'Team notes') + (notes.length ? ' · ' + notes.length : '') + '</h3>' + (notes.length ? '<ul class="tnotes">' + notes.map(function (n) {
@@ -21348,12 +21440,29 @@ PF.vk = (function () {
       : '<div class="notice warn"><span>Accepted in the run, but the report it accepted isn\'t in the folder in that form anymore.</span></div>';
     h += actions(ctx, r, map, g, dec, id);
     h += '<details class="small rep-details"><summary>Details</summary><p>Flightdeck can\'t confirm which tool or person wrote this file.</p>' +
-      (rep && rep.created ? '<p>The tool\'s clock said ' + esc(rep.created) + '.</p>' : '') +
-      g.copies.map(function (c) { return '<p>' + esc(c.path || c.name) + (c.sha256 ? ' · SHA-256 ' + esc(c.sha256) : '') + (c.ok ? '' : ' · ' + esc(c.why || 'can\'t be read')) + '</p>'; }).join('') +
+      (rep && rep.created ? '<p>The tool\'s clock said ' + esc(rep.created) + '.</p>' : '') + copiesHtml(st, g) +
       '<p>Flightdeck compares inputs with this run\'s details only; it can\'t see your other systems.</p></details>';
     return '<section class="rep-card" aria-labelledby="' + id + '-h">' + (folded
-      ? '<details><summary><h4 class="rep-h" id="' + id + '-h">' + head + '</h4></summary>' + h + '</details>'
-      : '<h4 class="rep-h" id="' + id + '-h">' + head + '</h4>' + h) + '</section>';
+      ? '<details><summary><h4 class="rep-h" id="' + id + '-h" tabindex="-1">' + head + '</h4></summary>' + h + '</details>'
+      : '<h4 class="rep-h" id="' + id + '-h" tabindex="-1">' + head + '</h4>' + h) + '</section>';
+  }
+  /* Every physical copy of a report, each line built only when drawn (2.11): the first 10, then Show all, which lists them
+     50 at a time inside the fold. */
+  function copiesHtml(st, g) {
+    var line = function (c, i) { PF.perf.add('rep.copy'); return '<p class="rep-copy" id="' + esc('repc-' + g.key + '-' + i) + '" tabindex="-1">' + esc(c.path || c.name) + (c.sha256 ? ' · SHA-256 ' + esc(c.sha256) : '') + (c.ok ? '' : ' · ' + esc(c.why || 'can\'t be read')) + '</p>'; };
+    var all = (st.repCopies || {})[g.key], list = g.copies.map(function (c, i) { return { c: c, i: i }; });
+    if (list.length <= 10) return list.map(function (x) { return line(x.c, x.i); }).join('');
+    if (!all) return list.slice(0, 10).map(function (x) { return line(x.c, x.i); }).join('') + '<p class="row"><button type="button" class="mini" data-act="rep-copies" data-id="' + esc(g.key) + '">Show all ' + list.length.toLocaleString('en-US') + ' copies</button></p>';
+    return K.list(st, 'repc:' + g.key, list, { keyOf: function (x) { return String(x.i); }, focusOf: function (k) { return K.byId('repc-' + g.key + '-' + k); }, draw: function (shown) { return shown.map(function (x) { return line(x.c, x.i); }).join(''); } });
+  }
+  /* A report with a decline reason kept (repDrafts) whose files are gone, from what it said when the reason was typed
+     (repSnaps): the reason, Copy my text and Cancel, never Decline (2.11). */
+  function goneCard(ctx, x) {
+    var rid = X.reasonId(x.key), id = 'repg-' + X.reasonId(x.key).replace(/^rep-reason-/, '');
+    return '<section class="rep-card rep-gone" aria-labelledby="' + esc(id) + '-h"><h4 class="rep-h" id="' + esc(id) + '-h" tabindex="-1">' + esc(x.snap.says || 'A report') + ' · ' + esc(x.snap.producer || '') + '</h4>' +
+      '<p class="small"><b>Removed elsewhere.</b> This report\'s files aren\'t in the team folder anymore, so it can\'t be declined. Your reason is still here to copy.</p>' +
+      '<div class="rep-confirm" role="group" data-draft-kept><label class="small" for="' + esc(rid) + '">Why not?</label><textarea id="' + esc(rid) + '" rows="2" maxlength="' + X.LIMITS.text + '">' + esc(x.text || '') + '</textarea>' +
+      '<div class="row"><button class="btn" data-act="rep-copy-reason" data-id="' + esc(x.key) + '">Copy my text</button><button class="btn" data-act="rep-cancel" data-id="' + esc(x.key) + '">Cancel</button></div></div></section>';
   }
 
   /* Accept, Decline and Reopen, for the recorder; disabled with the reason beside it when a report can't be accepted. */
@@ -21395,15 +21504,23 @@ PF.vk = (function () {
     return acts ? '<div class="row rep-acts" role="group" aria-label="Decide on this report">' + acts + '</div>' : '';
   }
 
-  /* The inspector's Reports section: only on steps with a report. Several are folded to one line each, in order. */
+  /* The inspector's Reports section: only on steps with a report. Several are folded to one line each, in order: 20 at a
+     time (2.11), in the same order, with an open form, a kept decline reason and a report a panel link opened always drawn. */
+  function listId(r, stepId) { return 'repcards:' + r.process + '/' + r.id + ':' + stepId; }
   function section(ctx, r, map, stepId) {
-    var b = bundle(ctx, r), items = onStep(ctx, r, stepId);
-    if (!items.length) return '';
-    var many = items.length > 1, open = ctx.state.repPick ? ctx.state.repPick.key : '';
+    var b = bundle(ctx, r), items = onStep(ctx, r, stepId), st = ctx.state, lid = listId(r, stepId);
+    var gone = ctx.repGone ? ctx.repGone(r, stepId) : [];
+    if (!items.length && !gone.length) return '';
+    var many = items.length > 1, open = st.repPick ? st.repPick.key : '', js = st.justShown && st.justShown.lists ? st.justShown.lists[lid] : null;
     var kept = function (k) { return ctx.repDraft && ctx.repDraft(k) != null; };
+    var list = items.map(function (it, i) { return { it: it, n: i }; }), nOf = Object.create(null);
+    list.forEach(function (x) { nOf[x.it.g.key] = x.n; });
+    var keep = list.filter(function (x) { return x.it.g.key === open || kept(x.it.g.key); }).map(function (x) { return x.it.g.key; });
     return '<section class="rw-box rw-reps" aria-labelledby="ins-reps"><h3 class="rw-h3" id="ins-reps">Reports · ' + items.length + '</h3>' +
       failedNote(b) + (b.loading ? '<p class="small" role="status">Reading reports…</p>' : '') +
-      items.map(function (it, i) { return card(ctx, r, map, it, i, many && it.g.key !== open && !kept(it.g.key)); }).join('') + '</section>';
+      (list.length ? K.list(st, lid, list, { page: 20, keyOf: function (x) { return x.it.g.key; }, focusOf: function (k) { return '#rep-' + nOf[k] + '-h'; }, keep: keep, keptLabel: 'The ones you\'re deciding on', shownWord: 'opened',
+        draw: function (shown) { return shown.map(function (x) { PF.perf.add('rep.card'); return card(ctx, r, map, x.it, x.n, many && x.it.g.key !== open && !kept(x.it.g.key) && x.it.g.key !== js); }).join(''); } }) : '') +
+      gone.map(function (x) { return goneCard(ctx, x); }).join('') + '</section>';
   }
 
   /* The reports folder couldn't be read on the last check: what's shown is the last read, said wherever reports are. */
@@ -21417,15 +21534,20 @@ PF.vk = (function () {
     if (!ctx.state.repOpen) return '';
     var b = bundle(ctx, r), order = M.steps(map).map(function (y) { return y.step.id; });
     var items = b.list.slice().sort(function (a, c) { var i = order.indexOf(a.g.step), j = order.indexOf(c.g.step); return (i < 0 ? 1e9 : i) - (j < 0 ? 1e9 : j); });
-    var rows = items.map(function (it) {
+    /* 20 at a time (2.11), each row built only when drawn; each opens its own card (data-report), not only its step. */
+    var row = function (it) {
+      PF.perf.add('rep.row');
       var g = it.g, x = M.findStep(map, g.step), dec = decidedOf(ctx, r, map, g);
-      return '<li><button class="link" data-act="goto" data-id="step-' + esc(g.step) + '">' + (x ? K.stepHtml(x.step, K.refValue(r, map), false) : esc(g.step)) + '</button><span class="small">' + esc(saysText(g.report)) + ' · ' + esc(g.producer) + ' · ' + esc(dec.text) + '</span></li>';
-    }).join('');
-    var bad = (b.badNames || []).map(function (e) { return '<li class="small">' + esc(e.path || e.name) + ': isn\'t named as a report.</li>'; }).join('');
+      return '<li><button class="link" data-act="rep-goto" data-id="step-' + esc(g.step) + '" data-report="' + esc(g.key) + '">' + (x ? K.stepHtml(x.step, K.refValue(r, map), false) : esc(g.step)) + '</button><span class="small">' + esc(saysText(g.report)) + ' · ' + esc(g.producer) + ' · ' + esc(dec.text) + '</span></li>';
+    };
+    var bad = (b.badNames || []).map(function (e, i) { return '<li class="small" id="repbad-' + i + '" tabindex="-1">' + esc(e.path || e.name) + ': isn\'t named as a report.</li>'; });
+    var all = items.concat(bad.map(function (h, i) { return { bad: h, i: i }; }));
     return '<section class="rw-panel" id="rw-reps" aria-label="Reports"><h2 class="rw-h2">Reports</h2>' +
       failedNote(b) +
       (b.loading ? '<p class="small" role="status">Reading reports…</p>' : '') +
-      (rows || bad ? '<ul class="replist">' + rows + bad + '</ul>' : b.failed ? '' : '<p class="small">No reports on this run. A tool writes them with flightdeck report write.</p>') + '</section>';
+      (all.length ? K.list(ctx.state, 'reppanel:' + r.process + '/' + r.id, all, { page: 20, keyOf: function (it) { return it.bad != null ? 'bad#' + it.i : it.g.key; },
+        focusOf: function (k) { return /^bad#/.test(k) ? '#repbad-' + String(k).slice(4) : '[data-act="rep-goto"][data-report="' + String(k).replace(/["\\]/g, '\\$&') + '"]'; },
+        draw: function (shown) { return '<ul class="replist">' + shown.map(function (it) { return it.bad != null ? it.bad : row(it); }).join('') + '</ul>'; } }) : b.failed ? '' : '<p class="small">No reports on this run. A tool writes them with flightdeck report write.</p>') + '</section>';
   }
   /* The rail button beside Follow-ups. */
   function button(ctx, r, where) {
@@ -21435,7 +21557,7 @@ PF.vk = (function () {
     return '<button class="mini" data-act="run-reports" data-id="' + esc(where) + '" aria-expanded="' + !!ctx.state.repOpen + '" aria-controls="rw-reps">' + I('flag') + 'Reports · ' + n + (failed ? ' · couldn\'t be read' : '') + '</button>';
   }
 
-  V.reportBadge = badge; V.reportSection = section; V.reportPanel = panel; V.reportButton = button; V.reportSays = saysText;
+  V.reportListId = listId; V.reportBadge = badge; V.reportSection = section; V.reportPanel = panel; V.reportButton = button; V.reportSays = saysText;
 })();
 
 /* Pages about one run: screen-share mode, finishing it, and the receipt. */
@@ -21483,10 +21605,10 @@ PF.vk = (function () {
     var nmFu = PF.people.labeler(people);
     h += '<details class="fu-add" data-disc="fu-add"' + (fuOpen ? ' open' : '') + '><summary class="btn">Add a follow-up</summary><p class="small">Work this run turned up that outlives it. It goes on the receipt and stays on its owner\'s Home until someone says what became of it.</p>' + ferr(s, 'followup') + '<div class="grid2"><label class="field" for="fu-text">What needs doing<input id="fu-text" maxlength="300" data-enter="add-followup"' + (s.fieldErr && s.fieldErr.id === 'followup' ? ' aria-invalid="true" aria-describedby="ferr-followup"' : '') + '></label><label class="field" for="fu-owner">Who<select id="fu-owner"><option value="">Nobody yet</option>' + people.map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(nmFu(p)) + '</option>'; }).join('') + '</select></label><label class="field" for="fu-ticket">Jira ticket (optional)<input id="fu-ticket" maxlength="120" placeholder="ABC-123"></label></div><button class="btn" style="align-self:flex-start" data-act="add-followup">Add follow-up</button></details></section>';
     h += !cor.length ? '<p class="small fin-none">No corrections.</p>' : '<section class="panel stack"><h2>Corrections · ' + cor.length + '</h2><p class="small">Where the checklist was wrong or the work went differently. They also wait on the checklist\'s page, where the team decides on them.</p>' +
-      ('<ul class="corrlist">' + cor.map(function (c) {
+      K.list(s, 'fin-corr:' + r.process + '/' + r.id, cor, { keyOf: function (c) { return c.id; }, focusOf: function (k) { return K.byId('corr-' + k); }, draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (c) {
         var fu = '<button class="mini" data-act="add-followup" data-text="' + esc(('Update the checklist: ' + (c.stepText || c.step) + ' (' + (c.proposed || c.why || c.happened) + ')').slice(0, 300)) + '" data-step="' + esc(c.step) + '" data-from="' + esc(c.id) + '">Make it a follow-up</button>';
         return V.corrRow(ctx, c, idx[c.id], { step: true, followUp: fus.some(function (f) { return f.from === c.id; }) ? '<span class="small">Follow-up added</span>' : fu });
-      }).join('') + '</ul>') + '</section>';
+      }).join('') + '</ul>'; } }) + '</section>';
     h += '<section class="panel stack"><h2>End the run</h2><div class="row">' + ['Completed', 'Stopped early', 'Cancelled'].map(function (o) {
       var allowed = o !== 'Completed' || ok;
       return '<button class="btn' + (o === 'Completed' ? ' go' : '') + '" data-act="end" data-id="' + o + '"' + (allowed ? '' : ' disabled aria-describedby="end-why"') + '>End as ' + esc(K.outcomeWord(o)) + '</button>';
@@ -21495,14 +21617,29 @@ PF.vk = (function () {
   }
 
   /* ---------- receipt ---------- */
+  /* What a receipt's reports and statuses read, shared by the page and the copied text. */
+  function receiptParts(ctx, r, map) {
+    var who = function (id) { return nameOf(ctx, id); }, rb = ctx.reports ? ctx.reports(r) : null, reps = rb ? rb.list.map(function (it) { return it.g; }) : [];
+    var reportOf = function (id) { return PF.reports.provenance(r, id, who, rb ? rb.archived : null); };
+    var cor = R.corrections(r, map), idx = cor.length ? V.corrIndex(ctx, r.process) : {};
+    var statusOf = function (c) { var g = idx[c.id]; return c.oneOff ? 'One-off' : g ? PF.corrections.label(g) + (g.status === 'declined' && g.decision && g.decision.reason ? ': ' + g.decision.reason : '') : 'Open'; };
+    var fuX = PF.followups.forRun(V.fuList(ctx), r), fuOf = function (f) { return fuX.filter(function (x) { return x.id === f.id; })[0]; };
+    var fuStatusOf = function (f) { var x = fuOf(f); if (!x) return 'Open'; var d = PF.followups.detail(x, function (k) { if (/^plan:/.test(k)) { var pl = (ctx.data.plans || []).filter(function (q) { return 'plan:' + q.id === k; })[0]; return pl ? pl.title : ''; } var t = ctx.findRun ? ctx.findRun(k) : null; return t ? t.title : ''; }); return x.status === 'open' || !d ? x.label : d; };
+    return { who: who, rb: rb, reps: reps, reportOf: reportOf, cor: cor, idx: idx, statusOf: statusOf, fuOf: fuOf, fuStatusOf: fuStatusOf };
+  }
+  /* The receipt as text, for Copy for Jira: every report and correction, worked out when it's copied, not on every draw (2.11). */
+  function receiptText(ctx) {
+    var r = ctx.run(); if (!r) return '';
+    var map = R.mapOf(r), x = receiptParts(ctx, r, map);
+    x.reportOf.lines = PF.reports.lines(x.reps, x.rb ? x.rb.cur : null, r, map, x.who);
+    return R.receipt(r, map, x.who, new Date(ctx.now()).toISOString(), r._notes, x.statusOf, x.fuStatusOf, x.reportOf);
+  }
   function receipt(ctx) {
     var r = ctx.run(); if (!r) return V.run(ctx);
     var map = R.mapOf(r), hl = K.headline(r, map), rv = K.refValue(r, map), ICON = { done: '✓', na: 'N/A', blocked: '■', recheck: '↻', open: '○' };
     var det = map.meta.context.filter(function (f) { return r.details[f]; }).map(function (f) { return f + ': ' + R.shown(r, map, 'details.' + f, r.details[f]); }).join(' · ');
     /* Where an answer came from, when it was an accepted report: from the run's own log line, which names the report's bytes. */
-    var who = function (id) { return nameOf(ctx, id); }, rb = ctx.reports ? ctx.reports(r) : null, reps = rb ? rb.list.map(function (it) { return it.g; }) : [];
-    var reportOf = function (id) { return PF.reports.provenance(r, id, who, rb ? rb.archived : null); };
-    reportOf.lines = PF.reports.lines(reps, rb ? rb.cur : null, r, map, who);
+    var parts = receiptParts(ctx, r, map), rb = parts.rb, reps = parts.reps, reportOf = parts.reportOf, st = ctx.state, rkey = r.process + '/' + r.id;
     /* Conditions (2.1): what wasn't needed is listed once, with why, after the phases. */
     var notNeeded = [];
     var body = map.phases.map(function (p, pi) {
@@ -21518,28 +21655,29 @@ PF.vk = (function () {
       }).join('') + '</div>';
     }).join('');
     if (notNeeded.length) body += '<div class="r-nn"><h4><span>Not needed in this run</span></h4>' + notNeeded.map(function (x) { return '<div class="rrow"><span class="ric open">–</span><span class="small">' + esc(x.replace(/\^/g, '')) + '</span></div>'; }).join('') + '</div>';
-    var fus = r.followUps || [], cor = R.corrections(r, map), idx = cor.length ? V.corrIndex(ctx, r.process) : {};
-    var statusOf = function (c) { var g = idx[c.id]; return c.oneOff ? 'One-off' : g ? PF.corrections.label(g) + (g.status === 'declined' && g.decision && g.decision.reason ? ': ' + g.decision.reason : '') : 'Open'; };
+    var fus = r.followUps || [], cor = parts.cor, idx = parts.idx;
     var pz = (r.pauses || []).concat(r.paused ? [{ from: r.paused.at, to: null, by: r.paused.by, reason: r.paused.reason }] : []);
     if (pz.length) body += '<div><h4><span>Pauses</span></h4>' + pz.map(function (p) { return '<div class="rrow"><span class="ric open">' + I('pause') + '</span><span>' + esc(U.hm(p.from)) + (p.to ? '–' + esc(U.hm(p.to)) + ' (' + U.clock(new Date(p.to) - new Date(p.from)) + ')' : ', still paused') + ': ' + esc(p.reason) + ' <span class="cat">' + esc(nameOf(ctx, p.by)) + '</span></span></div>'; }).join('') + '</div>';
-    var fuX = PF.followups.forRun(V.fuList(ctx), r), fuOf = function (f) { return fuX.filter(function (x) { return x.id === f.id; })[0]; };
-    var fuStatusOf = function (f) { var x = fuOf(f); if (!x) return 'Open'; var d = PF.followups.detail(x, function (k) { if (/^plan:/.test(k)) { var pl = (ctx.data.plans || []).filter(function (q) { return 'plan:' + q.id === k; })[0]; return pl ? pl.title : ''; } var t = ctx.findRun ? ctx.findRun(k) : null; return t ? t.title : ''; }); return x.status === 'open' || !d ? x.label : d; };
+    var fuOf = parts.fuOf, fuStatusOf = parts.fuStatusOf;
     if (fus.length) body += '<div class="r-fu"><h4><span>Follow-ups</span></h4>' + fus.map(function (f) {
       var x = fuOf(f);
       return '<div class="rrow"><span class="ric open">→</span><span>' + esc(f.text) + (f.ticket ? ' <span class="cat">' + esc(f.ticket) + '</span>' : '') + (x ? ' ' + V.fuPill(x) : '') + (x && x.decision && !x.tie && x.status !== 'open' ? '<span class="small" style="display:block">' + esc(fuStatusOf(f)) + '</span>' : '') + '</span><span class="small">' + esc(f.owner ? nameOf(ctx, f.owner) : '') + '</span></div>';
     }).join('') + '</div>';
     var unread = reps.filter(function (g) { return g.unreadable.length; }).length;
-    if (reportOf.lines.length || (rb && (rb.loading || rb.failed))) body += '<div class="r-reps"><h4><span>Reports · ' + reportOf.lines.length + '</span></h4>' +
+    /* 50 report groups at a time, formatted only when drawn (2.11); Copy for Jira formats every one. */
+    if (reps.length || (rb && (rb.loading || rb.failed))) body += '<div class="r-reps"><h4><span>Reports · ' + reps.length + '</span></h4>' +
       (rb.loading ? '<p class="small" role="status">Reading reports…</p>' : '') +
       (rb.failed ? '<p class="small">The reports couldn\'t be read, so this receipt may be missing some.</p>' : unread ? '<p class="small">' + unread + ' report' + (unread === 1 ? ' couldn\'t' : 's couldn\'t') + ' be read; this receipt may be missing ' + (unread === 1 ? 'it' : 'them') + '.</p>' : '') +
-      reportOf.lines.map(function (l) { return '<div class="rrow"><span class="ric open">◇</span><span>' + esc(l) + '</span><span></span></div>'; }).join('') + '</div>';
-    if (cor.length) body += '<div class="r-corr"><h4><span>Corrections · ' + cor.length + '</span></h4><ul class="corrlist">' + cor.map(function (c) { return V.corrRow(ctx, c, idx[c.id], { step: true }); }).join('') + '</ul></div>';
+      K.list(st, 'rcpt-reps:' + rkey, reps, { keyOf: function (g) { return g.key; }, focusOf: function (k) { return K.byId('rr-' + k); },
+        draw: function (shown) { return PF.reports.lines(shown, rb ? rb.cur : null, r, map, parts.who).map(function (l, i) { return '<div class="rrow rr-rep" id="' + esc('rr-' + shown[i].key) + '" tabindex="-1"><span class="ric open">◇</span><span>' + esc(l) + '</span><span></span></div>'; }).join(''); } }) + '</div>';
+    if (cor.length) body += '<div class="r-corr"><h4><span>Corrections · ' + cor.length + '</span></h4>' + K.list(st, 'rcpt-corr:' + rkey, cor, { keyOf: function (c) { return c.id; }, focusOf: function (k) { return K.byId('corr-' + k); },
+      draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (c) { return V.corrRow(ctx, c, idx[c.id], { step: true }); }).join('') + '</ul>'; } }) + '</div>';
     return notices(ctx) + '<div class="runhead"><div><div class="eyebrow">Receipt · Copy it into your ticket, or take a screenshot</div><h1 id="page-h" tabindex="-1">' + esc(r.title) + '</h1></div><div class="row"><button class="btn primary" data-act="copy-receipt">' + I('copy') + 'Copy for Jira</button><button class="btn" data-act="exit-mission">' + I('back') + 'Back to the run</button><button class="btn" data-act="ev-open" data-id="' + esc(r.process + '/' + r.id) + '">' + I('doc') + 'Export evidence</button>' + V.planAgain(ctx, r) + '<span class="small" id="copy-msg" aria-live="polite"></span></div></div>' +
       '<div class="receipt"><div class="head"><div><div class="eyebrow">' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) + '</div><div class="rt">' + esc(r.title) + '</div>' + (det ? '<div class="small">' + esc(det) + '</div>' : '') + '</div><div style="text-align:right"><div class="pill ' + hl.s + '">' + esc(r.ended ? K.hlText(r, hl) : 'In progress') + '</div><div class="small">started ' + esc(U.when(r.created)) + '<br>run ' + esc(r.id) + '</div></div></div>' + body +
-      '<div class="small">✓ done · N/A not applicable · ■ blocked · ↻ re-check · ○ not checked</div></div><pre id="receipt-text" hidden>' + esc(R.receipt(r, map, function (id) { return nameOf(ctx, id); }, new Date(ctx.now()).toISOString(), r._notes, statusOf, fuStatusOf, reportOf)) + '</pre>';
+      '<div class="small">✓ done · N/A not applicable · ■ blocked · ↻ re-check · ○ not checked</div></div><pre id="receipt-text" hidden></pre>';
   }
 
-  V.mission = mission; V.finish = finish; V.receipt = receipt;
+  V.mission = mission; V.finish = finish; V.receipt = receipt; V.receiptText = receiptText;
 })();
 
 /* Dialogs: What's new, keyboard help and the screenshot viewer. */
@@ -21744,28 +21882,39 @@ PF.vk = (function () {
     } else if (e.big) detail = '<p class="small">Too big to keep line by line; only its fingerprints were kept.</p>';
     else detail = histHunks(e, item).map(function (h) { return histBa(h.del.join('\n'), h.ins.join('\n'), 'Line ' + (h.at + 1) + ': before and after'); }).join('');
     var open = o.compare === e.ref, canReverse = PF.timeline.reversible(e);
-    return '<li class="hist-entry saved"><div class="hist-what">' + esc(histSource(e)) + '</div><div class="small">' + esc(who) + (ai ? ' (AI assistant)' : '') + (e.at ? ' · ' + esc(U.when(e.at)) : '') + '</div>' +
+    return '<li class="hist-entry saved" id="' + esc('hist-e-' + e.ref) + '" tabindex="-1"><div class="hist-what">' + esc(histSource(e)) + '</div><div class="small">' + esc(who) + (ai ? ' (AI assistant)' : '') + (e.at ? ' · ' + esc(U.when(e.at)) : '') + '</div>' +
       (e.units.length ? '<ul class="hist-units small">' + e.units.map(function (u) { return '<li>' + esc(u) + '</li>'; }).join('') + '</ul>' : '') + detail +
       '<div class="row hist-acts"><button type="button" class="mini" data-act="hist-compare" data-id="' + esc(e.ref) + '" aria-expanded="' + open + '">Compare</button>' +
       (canReverse ? '<button type="button" class="mini" data-act="hist-reverse" data-id="' + esc(e.ref) + '">Reverse this change</button>' : '') + '</div>' +
       (open ? histCompare(e, o, item) : '') + '</li>';
   }
+  /* Newest first, 50 at a time in the dialog (2.11); an entry is built only when it's drawn, and the one being compared is
+     always drawn. */
   function savedHistory(ctx, o) {
     var s = o.saved || {}, item = o.savedItem || o.item, n = 0, list = '';
     if (s.state === 'none') return '<p class="small">Saved history starts once this step type is saved.</p>';
     if (s.state === 'error') return '<p class="small" role="status">Couldn\'t read the saved history: ' + esc(s.msg || '') + '</p>';
     if (s.state !== 'ok') return '<p class="small" role="status">Reading the saved history…</p>';
-    s.items.forEach(function (x) {
-      if (x.gap) { if (!item) list += '<li class="hist-mark hist-outside"><b>Changed outside Flightdeck</b> · by hand, by an AI assistant, or by a copy of Flightdeck that doesn\'t keep history.</li>'; return; }
-      if (x.pub) { if (!item) list += '<li class="hist-mark hist-pub"><b>Published v' + esc(String(x.pub.version)) + '</b> · ' + esc(nameOf(ctx, x.pub.by)) + (x.pub.at ? ' · ' + esc(U.when(x.pub.at)) : '') + '</li>'; return; }
+    var rows = [];
+    s.items.forEach(function (x, i) {
+      if (x.gap || x.pub) { if (!item) rows.push({ x: x, k: 'm' + i }); return; }
       if (item && x.entry.items.indexOf(item) < 0) return;
-      n++; list += savedEntry(ctx, o, x.entry, item);
+      n++; rows.push({ x: x, k: 'e' + x.entry.ref });
     });
+    var row = function (r) {
+      var x = r.x, mid = ' id="hist-' + esc(r.k) + '" tabindex="-1"';
+      if (x.gap) return '<li class="hist-mark hist-outside"' + mid + '><b>Changed outside Flightdeck</b> · by hand, by an AI assistant, or by a copy of Flightdeck that doesn\'t keep history.</li>';
+      if (x.pub) return '<li class="hist-mark hist-pub"' + mid + '><b>Published v' + esc(String(x.pub.version)) + '</b> · ' + esc(nameOf(ctx, x.pub.by)) + (x.pub.at ? ' · ' + esc(U.when(x.pub.at)) : '') + '</li>';
+      return savedEntry(ctx, o, x.entry, item);
+    };
+    var focusOf = function (k) { return /^e/.test(k) ? K.byId('hist-e-' + k.slice(1)) : '#hist-' + k; };
+    list = K.list(ctx.state, 'hist', rows, { inDialog: true, keyOf: function (r) { return r.k; }, focusOf: focusOf, keep: o.compare ? ['e' + o.compare] : [], keptLabel: 'The one you\'re comparing',
+      draw: function (shown) { return '<ol class="hist-list">' + shown.map(row).join('') + '</ol>'; } });
     var other = s.unknown && s.unknown.length ? '<p class="small">Not read, since they aren\'t history files: ' + s.unknown.map(esc).join(', ') + '.</p>' : '';
     if (s.skipped) other += '<p class="small">' + s.skipped + (s.skipped === 1 ? ' older line' : ' older lines') + ' in the history files ' + (s.skipped === 1 ? 'isn\'t' : 'aren\'t') + ' shown: only each file\'s newest 2,000 are read.</p>';
     var bad = s.bad ? '<p class="small">' + s.bad + (s.bad === 1 ? ' line' : ' lines') + ' in the history files couldn\'t be read and ' + (s.bad === 1 ? 'isn\'t' : 'aren\'t') + ' shown.</p>' : '';
-    if (!n) return '<p class="small">' + (item ? 'No saved changes to it yet.' : 'No saved changes yet. Each save from now on is kept here.') + '</p>' + (list && !item ? '<ol class="hist-list">' + list + '</ol>' : '') + bad + other;
-    return '<ol class="hist-list">' + list + '</ol>' + bad + other;
+    if (!n) return '<p class="small">' + (item ? 'No saved changes to it yet.' : 'No saved changes yet. Each save from now on is kept here.') + '</p>' + (rows.length && !item ? list : '') + bad + other;
+    return list + bad + other;
   }
 
   /* ---------- Starting a linked step's child (2.8): what it passes, read-only, and the boxes it asks ---------- */
@@ -22262,6 +22411,13 @@ PF.vk = (function () {
       describedBy: described(ctx, id, g, more), after: whyOf(id, g) + (more && more.after || '') + errMsg(ctx, id) });
   }
   function formSelect(ctx, id, name, options, why) { var g = G.form(name); if (why != null) g = { q: g.q, eg: g.eg, why: why }; return '<label class="field" for="' + id + '">' + esc(g.q) + '<select id="' + id + '" data-bound' + describe(ctx, id, g) + '>' + options + '</select></label>' + whyOf(id, g) + errMsg(ctx, id); }
+  /* A lane's or an approval's role: the checklist's roles in order, 50 at a time with Find past 50 (K.select, 2.11), and
+     Nobody in particular first. */
+  function roleSelect(ctx, id, name, roles, cur, why) {
+    var g = G.form(name); if (why != null) g = { q: g.q, eg: g.eg, why: why };
+    var ks = K.select(ctx.state, id, roles.map(function (r) { return { v: r, t: '@' + r }; }), cur, { attrs: ' data-bound' + describe(ctx, id, g), lead: '<option value=""' + (cur ? '' : ' selected') + '>Nobody in particular</option>', noun: 'role' });
+    return ks.box + '<label class="field" for="' + id + '">' + esc(g.q) + ks.select + '</label>' + ks.more + whyOf(id, g) + errMsg(ctx, id);
+  }
   /* + Add role (2.10): one box in place; Enter adds the role to the checklist and gives it to what's selected, as one change. */
   function addRole(ctx, at) {
     var nr = ctx.state.obNewRole, sel = ctx.state.obSel, open = nr && sel && nr.at === at && nr.pid === sel.pid && nr.key === sel.key && String(nr.track) === String(sel.track);
@@ -22606,7 +22762,7 @@ PF.vk = (function () {
       var t = '<section class="panel stack ob-form" aria-labelledby="ob-form-h" data-scope="ob-track|' + esc(ph.key) + '|' + tr.index + '|' + sigOf(o, tr.line, tr.line + 1) + '">' + formHead('Lane', [ph.title || 'Untitled phase', name]) +
         '<p class="small">' + LANES_SAY + '</p>' +
         formBox(ctx, 'ob-tr-title', 'tr-title', 'input', ' maxlength="120" data-enter="ob-commit" value="' + esc(tr.title) + '"') +
-        formSelect(ctx, 'ob-tr-role', 'tr-role', '<option value=""' + (tr.roles.length ? '' : ' selected') + '>Nobody in particular</option>' + lroles.map(function (r) { return '<option value="' + esc(r) + '"' + (r === tr.roles[0] ? ' selected' : '') + '>@' + esc(r) + '</option>'; }).join('')) + addRole(ctx, 'track') +
+        roleSelect(ctx, 'ob-tr-role', 'tr-role', lroles, tr.roles[0] || '') + addRole(ctx, 'track') +
         source(ctx, tr.id, 'lane', U.slug(name, 24)) +
         '<div class="row"><button type="button" class="mini" data-act="ob-add" data-id="' + esc(ph.key) + '" data-track="' + tr.index + '">' + I('plus') + 'Add a step to this lane</button><button type="button" class="mini" data-act="ob-ask" data-id="track">Delete this lane</button></div>';
       if (ask) t += '<div class="notice warn" role="group" aria-labelledby="ob-ask-t"><span id="ob-ask-t">' + (n ? 'Delete the ' + esc(name) + ' lane? Its ' + n + ' step' + (n === 1 ? '' : 's') + ' can move up into the phase, or go with it.' : 'Delete the ' + esc(name) + ' lane?') + '</span>' +
@@ -22641,7 +22797,7 @@ PF.vk = (function () {
     if (!gt) return f + formBox(ctx, 'ob-g-title', 'g-title', 'input', ' maxlength="120" data-enter="ob-commit" value=""') + '<p class="small">Name it to add it. Without one, the phase ends with a check that it\'s done.</p></section>';
     var roles = meta.roles.concat(gt.owner && meta.roles.indexOf(gt.owner) < 0 ? [gt.owner] : []);
     return f + formBox(ctx, 'ob-g-title', 'g-title', 'input', ' maxlength="120" data-enter="ob-commit" value="' + esc(gt.title) + '"') +
-      formSelect(ctx, 'ob-g-owner', 'g-owner', '<option value=""' + (gt.owner ? '' : ' selected') + '>Nobody in particular</option>' + roles.map(function (r) { return '<option value="' + esc(r) + '"' + (r === gt.owner ? ' selected' : '') + '>@' + esc(r) + '</option>'; }).join(''), gt.owner ? null : 'No approval role is named. Whoever is recording records the approval.') + addRole(ctx, 'gate') +
+      roleSelect(ctx, 'ob-g-owner', 'g-owner', roles, gt.owner || '', gt.owner ? null : 'No approval role is named. Whoever is recording records the approval.') + addRole(ctx, 'gate') +
       '<details class="ob-more-ap"' + (gt.approves ? ' open' : '') + '><summary>More approval options</summary>' + gateApproves(ctx, p, text, ph, gt) + source(ctx, gt.id, 'approval', U.slug(gt.title, 24)) + '</details>' +
       '<div class="row"><button type="button" class="mini" data-act="ob-gate-remove" data-id="' + esc(ph.key) + '">Remove this approval</button><span class="small">The phase then ends with a check that it\'s done.</span></div></section>';
   }
@@ -22882,11 +23038,14 @@ PF.vk = (function () {
     var C = PF.corrections, open = V.fixesOf(ctx, p).filter(function (g) { return g.status === 'open'; });
     if (!open.length) return '';
     var o = PF.outline.parse(text), on = !ctx.state.disc || ctx.state.disc['md-corr'] !== false;
-    return '<details class="md-corr" data-disc="md-corr"' + (on ? ' open' : '') + '><summary class="small">Open corrections · ' + open.length + '</summary><ul class="small">' + open.map(function (g) {
+    /* 50 at a time (2.11): each one's line is looked up only when it's drawn. */
+    var row = function (g) {
       var s = g.target.step && o.steps.filter(function (x) { return x.id === g.target.step; })[0], ph = !s && (g.target.gate ? o.phases.filter(function (x) { return x.gate && x.gate.id === g.target.gate; })[0] : g.target.phase && o.phases.filter(function (x) { return x.id === g.target.phase; })[0]);
       var at = s ? s.line : ph && g.target.gate ? ph.gate.line : ph ? ph.line : -1, name = s ? s.text : ph && g.target.gate ? 'Gate: ' + ph.gate.title : ph ? 'Phase: ' + ph.title : C.targetName(g);
-      return '<li><span class="md-corr-t">' + esc(C.OP_LABEL[g.change.op]) + ': ' + esc(name) + '</span>' + (at >= 0 ? '<button type="button" class="linkish" data-act="corr-goto-line" data-id="' + (at + 1) + '">Go to line ' + (at + 1) + '</button>' : '<span>Not in the draft</span>') + '</li>';
-    }).join('') + '</ul></details>';
+      return '<li id="' + esc('mdc-' + g.id) + '" tabindex="-1"><span class="md-corr-t">' + esc(C.OP_LABEL[g.change.op]) + ': ' + esc(name) + '</span>' + (at >= 0 ? '<button type="button" class="linkish" data-act="corr-goto-line" data-id="' + (at + 1) + '">Go to line ' + (at + 1) + '</button>' : '<span>Not in the draft</span>') + '</li>';
+    };
+    return '<details class="md-corr" data-disc="md-corr"' + (on ? ' open' : '') + '><summary class="small">Open corrections · ' + open.length + '</summary>' +
+      K.list(ctx.state, 'md-corr:' + p.id, open, { keyOf: function (g) { return g.id; }, focusOf: function (k) { return K.byId('mdc-' + k); }, draw: function (shown) { return '<ul class="small">' + shown.map(row).join('') + '</ul>'; } }) + '</details>';
   }
 
   /* ---------- a new process ---------- */
@@ -23588,8 +23747,10 @@ PF.vk = (function () {
     h += vs ? '<span class="ins-pick">' + vs.box + '<label for="ins-folder">Version</label>' + vs.select + vs.more + '</span>' : '<span class="small">' + esc(verLabel(f)) + '</span>';
     h += '</div>';
     if (f.clash) h += '<div class="notice warn"><span>Two folders are numbered v' + f.version + '. Each is counted on its own; this is <code>' + esc(f.folder) + '</code>.</span></div>';
-    var notes = res.notes.map(function (t) { return '<div class="notice warn" role="status"><span>' + esc(t) + '</span></div>'; }).join('');
-    h += notes;
+    /* What the numbers can't count, one notice however many there are (2.11): one note as it reads, more in a fold. */
+    if (res.notes.length === 1) h += '<div class="notice warn" role="status"><span>' + esc(res.notes[0]) + '</span></div>';
+    else if (res.notes.length) h += '<div class="notice warn ins-notes" role="status"><div><b>' + res.notes.length + ' things these numbers can\'t count.</b><details data-disc="ins-notes"' + ((ctx.state.disc || {})['ins-notes'] ? ' open' : '') + '><summary class="small">What they are</summary>' +
+      K.list(ctx.state, 'ins-notes', res.notes.map(function (t, i) { return { t: t, i: i }; }), { keyOf: function (x) { return String(x.i); }, focusOf: function (k) { return '#ins-note-' + k; }, draw: function (shown) { return '<ul class="small">' + shown.map(function (x) { return '<li id="ins-note-' + x.i + '" tabindex="-1">' + esc(x.t) + '</li>'; }).join('') + '</ul>'; } }) + '</details></div></div>';
     var r = res.runs, outs = Object.keys(r.outcomes);
     h += '<ul class="ins-sum">' +
       '<li><span class="big">' + link('runs:all', I.num(r.n), r.n) + '</span><span class="small">' + (r.n === 1 ? 'run' : 'runs') + ' of v' + f.version + '</span></li>' +
@@ -23645,15 +23806,17 @@ PF.vk = (function () {
     }
     h += qualLine(d.q);
     if (res.phases.length) {
+      /* The scale is every phase's; only the 50 drawn (2.11) are built, in checklist order. */
       var top = Math.max.apply(null, res.phases.map(function (x) { return x.median || 0; }).concat([1]));
-      h += '<h3>Each phase</h3><ul class="ins-phases">' + res.phases.map(function (x) {
+      h += '<h3 id="ins-ph-h" tabindex="-1">Each phase</h3>' + K.list(ctx.state, 'ins-ph', res.phases, { keyOf: function (x) { return 'ins-ph-' + x.id; }, focusOf: function (k) { return K.byId(k) + ' .ins-lab'; }, draw: function (shown) { return '<ul class="ins-phases">' + shown.map(function (x) {
+        PF.perf.add('ins.phase');
         var w = x.median != null ? Math.max(1, Math.round(1000 * x.median / top) / 10) : 0;
-        return '<li><div class="ins-row"><span class="ins-lab">' + esc(x.title) + '</span>' +
+        return '<li id="' + esc('ins-ph-' + x.id) + '"><div class="ins-row"><span class="ins-lab" tabindex="-1">' + esc(x.title) + '</span>' +
           (x.n ? '<svg class="ins-bar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="ins-track" width="100" height="8" rx="2"/><rect class="ins-fill" width="' + w + '" height="8" rx="2"/></svg>' : '<span class="ins-nobar"></span>') +
           '<span class="ins-num">' + (x.n ? '<b>' + esc(about(x.median)) + '</b>' + (x.q1 != null ? ' <span class="small">(' + esc(about(x.q1)) + ' to ' + esc(about(x.q3)) + ')</span>' : '') + ' · ' : '') + link('phase:' + x.id, I.num(x.n) + ' of ' + plural(x.of, 'run'), x.n) + '</span></div>' +
           qualLine(x.q) +
           gateLine(x) + '</li>';
-      }).join('') + '</ul><p class="small">Bars are typical times, to scale with the longest phase.</p>';
+      }).join('') + '</ul>'; } }) + '<p class="small">Bars are typical times, to scale with the longest phase.</p>';
     }
     return h + '</section>';
   }
@@ -23668,7 +23831,7 @@ PF.vk = (function () {
   var ROWS = [['offScript', 'Any off-script'], ['blocked', 'Ever blocked'], ['redone', 'Ever redone'], ['na', 'Ever N/A'], ['differently', 'Done differently'], ['skipped', 'Skipped (N/A now)'], ['corrections', 'Corrections']];
   var STATUS_WORDS = { open: 'open', applied: 'applied', declined: 'declined', withdrawn: 'withdrawn', included: 'published', tie: 'needs review', legacy: 'accepted' };
   function hotSpots(ctx, res) {
-    var h = '<section class="panel ins" aria-labelledby="ins-hot-h"><h2 id="ins-hot-h">' + IC('flag') + 'Steps that go off-script</h2>';
+    var h = '<section class="panel ins" aria-labelledby="ins-hot-h"><h2 id="ins-hot-h" tabindex="-1">' + IC('flag') + 'Steps that go off-script</h2>';
     if (res.corrections.note) h += '<div class="notice warn" role="status"><span>' + esc(res.corrections.note) + '</span></div>';
     var list = res.steps.filter(function (s) { return s.offScript.hits || s.offScript.incomplete || s.skipped.hits || s.corrections.hits || ROWS.some(function (r) { return I.hasProblems(s[r[0]].q); }); });
     if (!list.length) return h + '<p class="small">' + (res.pool.n ? 'No step went off-script in ' + esc(plural(res.pool.n, 'run')) + '.' : 'No finished runs of this version yet.') + '</p></section>';
@@ -23702,12 +23865,24 @@ PF.vk = (function () {
     h += qualLine(d.q);
     return h + '</section>';
   }
+  /* People by name, 50 at a time, and roles in checklist order, 20 columns at a time (2.11): only the drawn cells are built,
+     so a draw builds at most 50 × 20. Show 20 more roles sits after the last heading and focuses the first new one. */
+  var ROLE_COLS = 20;
   function roles(ctx, res) {
-    var rot = res.roles, people = Object.keys(rot.grid);
+    var rot = res.roles, st = ctx.state, people = Object.keys(rot.grid);
     if (!rot.roles.length || !people.length) return '';
-    return '<section class="panel ins" aria-labelledby="ins-rot-h"><h2 id="ins-rot-h">Who has done each role</h2><div class="grid-wrap"><table class="grid"><thead><tr><th scope="col">Person</th>' + rot.roles.map(function (ro) { return '<th scope="col">' + esc(ro) + '</th>'; }).join('') + '</tr></thead><tbody>' + people.sort(function (a, b) { return nameOf(ctx, a).localeCompare(nameOf(ctx, b)); }).map(function (pid) {
-      return '<tr><th scope="row">' + esc(nameOf(ctx, pid)) + '</th>' + rot.roles.map(function (ro) { var c = rot.grid[pid][ro]; return c ? '<td>' + c.count + '× · last ' + esc(U.when(c.last)) + '</td>' : '<td class="cold">never</td>'; }).join('') + '</tr>';
-    }).join('') + '</tbody></table></div><p class="small">In runs of this version. "Never" is a good place to rotate someone in. Starting a run suggests whoever did a role least recently.</p></section>';
+    var nc = Math.max(ROLE_COLS, Math.floor(((st.more || {})['ins-rolecols']) || ROLE_COLS));
+    if (PF.vk.PAGE_OFF === 'ins-rolecols') nc = rot.roles.length;
+    var cols = rot.roles.slice(0, nc), left = rot.roles.length - cols.length, add = Math.min(ROLE_COLS, left);
+    var colMore = left > 0 ? '<th scope="col" class="ins-colmore"><button type="button" class="mini" data-act="more" data-id="ins-rolecols" data-page="' + ROLE_COLS + '" data-next="' + esc(rot.roles[nc]) + '" data-focus="' + esc(K.byId('ins-role-' + rot.roles[nc])) + '">Show ' + add + ' more roles</button><span class="small" role="status">' + cols.length + ' of ' + rot.roles.length + ' roles</span></th>' : '';
+    var sorted = people.sort(function (a, b) { return PF.text.natural(nameOf(ctx, a), nameOf(ctx, b)) || (a < b ? -1 : a > b ? 1 : 0); });
+    var rows = function (shown) {
+      return '<div class="grid-wrap"><table class="grid"><thead><tr><th scope="col">Person</th>' + cols.map(function (ro) { return '<th scope="col" id="' + esc('ins-role-' + ro) + '" tabindex="-1">' + esc(ro) + '</th>'; }).join('') + colMore + '</tr></thead><tbody>' + shown.map(function (pid) {
+        return '<tr><th scope="row" id="' + esc('ins-who-' + pid) + '" tabindex="-1">' + esc(nameOf(ctx, pid)) + '</th>' + cols.map(function (ro) { PF.perf.add('ins.rolecell'); var c = rot.grid[pid][ro]; return c ? '<td>' + c.count + '× · last ' + esc(U.when(c.last)) + '</td>' : '<td class="cold">never</td>'; }).join('') + (colMore ? '<td></td>' : '') + '</tr>';
+      }).join('') + '</tbody></table></div>';
+    };
+    return '<section class="panel ins" aria-labelledby="ins-rot-h"><h2 id="ins-rot-h">Who has done each role</h2>' + K.list(st, 'ins-rot', sorted, { keyOf: function (pid) { return pid; }, focusOf: function (k) { return K.byId('ins-who-' + k); }, draw: rows }) +
+      '<p class="small">In runs of this version. "Never" is a good place to rotate someone in. Starting a run suggests whoever did a role least recently.</p></section>';
   }
   function counted() {
     return '<details class="panel ins-defs" data-disc="ins-defs"><summary><h2>How these are counted</h2></summary><dl>' + I.DEFS.map(function (d) {
@@ -23719,11 +23894,13 @@ PF.vk = (function () {
     if (list.length < 2) return '';
     var open = (ctx.state.disc || {})['ins-cmp'];
     /* Drawn closed too: opening a details element doesn't redraw the page. */
-    return '<details class="panel" data-disc="ins-cmp"' + (open ? ' open' : '') + '><summary><h2>Compare versions</h2></summary><p class="small">Side by side, each out of its own runs. Versions aren\'t added together.</p><div class="grid-wrap"><table class="grid"><thead><tr><th scope="col">Version</th><th scope="col">Runs</th><th scope="col">Completed, timed</th><th scope="col">Typical completed run</th><th scope="col">Not counted</th></tr></thead><tbody>' +
-      list.map(function (f) {
+    /* 20 versions at a time, newest first (2.11): each one's numbers are worked out only when it's drawn. */
+    return '<details class="panel" data-disc="ins-cmp"' + (open ? ' open' : '') + '><summary><h2>Compare versions</h2></summary><p class="small">Side by side, each out of its own runs. Versions aren\'t added together.</p>' +
+      K.list(ctx.state, 'ins-cmp', list, { page: 20, keyOf: function (f) { return f.folder; }, focusOf: function (k) { return K.byId('ins-cmp-' + k); }, draw: function (shown) { return '<div class="grid-wrap"><table class="grid"><thead><tr><th scope="col">Version</th><th scope="col">Runs</th><th scope="col">Completed, timed</th><th scope="col">Typical completed run</th><th scope="col">Not counted</th></tr></thead><tbody>' +
+      shown.map(function (f) {
         var r = insightsOf(ctx, p.id, f.folder, false);
-        return '<tr><th scope="row">' + esc(verLabel(f)) + '</th><td>' + I.num(r.runs.n) + '</td><td>' + I.num(r.duration.n) + '</td><td>' + (r.duration.n ? esc(about(r.duration.median)) : '—') + '</td><td>' + ((qualLine(r.runs.q, null, 'span') + qualLine(r.duration.q, null, 'span')) || '—') + '</td></tr>';
-      }).join('') + '</tbody></table></div></details>';
+        return '<tr><th scope="row" id="' + esc('ins-cmp-' + f.folder) + '" tabindex="-1">' + esc(verLabel(f)) + '</th><td>' + I.num(r.runs.n) + '</td><td>' + I.num(r.duration.n) + '</td><td>' + (r.duration.n ? esc(about(r.duration.median)) : '—') + '</td><td>' + ((qualLine(r.runs.q, null, 'span') + qualLine(r.duration.q, null, 'span')) || '—') + '</td></tr>';
+      }).join('') + '</tbody></table></div>'; } }) + '</details>';
   }
 
   /* ---------- Runs: filters and the runs behind a number ---------- */
@@ -24104,9 +24281,11 @@ PF.vk = (function () {
     var people = PF.people.sorted(ctx).filter(function (p) { return !p.inactive; }), owner = PP.roles(ctx.data.people).owner;
     h += '<h2 id="su-h" tabindex="-1">Who are you?</h2>';
     if (!people.length) return h + '<div class="notice warn" role="status"><span><b>' + esc(fs.name) + '</b> has no people list yet. If you\'re setting up a new team, choose Start your team instead.</span><button class="btn" data-act="setup-mode" data-id="start">Start your team</button></div></section>';
-    h += '<p>Choose your name in <b>' + esc(fs.name) + '</b>. Everything you record or note is stamped with it.</p><ul class="su-who">' + people.map(function (p) {
-      return '<li><button type="button" class="su-pers" data-act="setup-who" data-id="' + esc(p.id) + '"' + (p.id === st.me ? ' aria-current="true"' : '') + '>' + K.avatar(ctx, p.id, true) + '<span class="su-pt"><b>' + esc(p.name) + '</b><span class="small">' + esc(p.email || p.id) + '</span></span>' + arrow() + '</button></li>';
-    }).join('') + '</ul>';
+    /* By name, 50 at a time, with Find your name past 50 (2.11). */
+    var q = people.length > 50 ? K.findQ(st, 'su-who') : '', hit = K.finds(q), shown = q ? people.filter(function (p) { return hit([p.name, p.email, p.id]); }) : people;
+    var who1 = function (p) { return '<li><button type="button" class="su-pers" data-act="setup-who" data-id="' + esc(p.id) + '"' + (p.id === st.me ? ' aria-current="true"' : '') + '>' + K.avatar(ctx, p.id, true) + '<span class="su-pt"><b>' + esc(p.name) + '</b><span class="small">' + esc(p.email || p.id) + '</span></span>' + arrow() + '</button></li>'; };
+    h += '<p>Choose your name in <b>' + esc(fs.name) + '</b>. Everything you record or note is stamped with it.</p>' + (people.length > 50 ? K.findBox(st, 'su-who', 'Find your name', shown.length, people.length, 'name') : '') +
+      K.list(st, 'su-who', shown, { keyOf: function (p) { return p.id; }, focusOf: function (k) { return K.byAct('setup-who', k); }, draw: function (list) { return '<ul class="su-who">' + list.map(who1).join('') + '</ul>'; } });
     var who = owner && !owner.inactive ? owner.name : 'whoever set up the team folder', rq = su.request || {};
     h += '<details class="su-notme"' + (su.askOpen ? ' open' : '') + ' data-disc="su-notme"><summary>Not on the list?</summary><p>Ask ' + esc(who) + ' to add you. Only the folder owner and backup owner change the people list, so nothing here writes to it.</p><div class="grid2">' +
       input(st, 'su-rq-name', 'Your name', rq.name, ' maxlength="60" autocomplete="name"') + input(st, 'su-rq-email', 'Email (optional)', rq.email, ' maxlength="120" type="email" autocomplete="email"') + '</div>' +
@@ -24787,6 +24966,7 @@ PF.examples = (function () {
     reports: function (r) { return reportsOf(r); },
     reportCur: function () { return repCur(); },
     repDraft: function (key) { return repDraft(key); },
+    repGone: function (r, stepId) { return repGone(r, stepId); },
     /* Runs this person records, with how many reports on each nobody has decided yet (Home). */
     reportsWaiting: function () { return reportsWaiting(); },
     corrections: function (pid) {
@@ -25038,7 +25218,10 @@ PF.examples = (function () {
     var gone = sxGone(x.target);
     if (gone) { s.err = gone; sxSay(gone); state.overlayFocus = '#sx-q'; render(); return; }
     if (state.obPending || dirtyControl([app])) closeOverlay();
-    if (go(x.target) && x.target.view === 'process' && !x.target.mapVer) { state.focus = 'page-h'; render(); }
+    /* A result that names a place on the page (a decision's group, a version, a step) leaves focus to the reveal; only a
+       checklist itself focuses its page's heading (2.11). */
+    var t = x.target;
+    if (go(t) && t.view === 'process' && !t.mapVer && !t.group && !t.step && !t.decision) { state.focus = 'page-h'; render(); }
   }
   function sxMove(d) {
     var s = state.sx; if (!s || !s.flat || !s.flat.length) return;
@@ -26207,7 +26390,7 @@ PF.examples = (function () {
     /* Controls marked data-bound are drawn from state (the draft editor, the step-type form), so they're never carried over. */
     if (!state.planFormReset) app.querySelectorAll('input[id], textarea[id], select[id]').forEach(function (el) { if (el.type !== 'file' && el.type !== 'hidden' && !(el.hasAttribute && el.hasAttribute('data-bound'))) keep[el.id] = { v: el.value, c: el.checked, s: el.selectionStart, e: el.selectionEnd, box: el.type === 'checkbox' || (el.type === 'radio' && el.id.indexOf('opt-') === 0), scope: scopeOf(el) }; });
     state.planFormReset = false;
-    if (ae && (app.contains(ae) || topEl.contains(ae))) focusKey = ae.id ? '#' + ae.id : ae.dataset && ae.dataset.act ? '[data-act="' + ae.dataset.act + '"]' + (ae.dataset.id ? '[data-id="' + cssEsc(ae.dataset.id) + '"]' : '') : null;
+    if (ae && (app.contains(ae) || topEl.contains(ae))) focusKey = ae.id ? (/^[A-Za-z][\w-]*$/.test(ae.id) ? '#' + ae.id : PF.vk.byId(ae.id)) : ae.dataset && ae.dataset.act ? '[data-act="' + ae.dataset.act + '"]' + (ae.dataset.id ? '[data-id="' + cssEsc(ae.dataset.id) + '"]' : '') : null;
     var y = window.scrollY;
     renderTop();
     followDrafts();
@@ -28019,7 +28202,8 @@ PF.examples = (function () {
         if (!origin) {
           prEnded(id, shown); state.clearInputs = 'change-note'; state.disc = Object.assign({}, state.disc); state.disc['vers:' + id] = true;
           say('Staged. Only test runs use it until someone makes it the default.', 'good');
-          return loadAfterWrite();
+          /* The new stage is shown whatever the page of Stages (2.11), with Start a test run focused and in view. */
+          return loadAfterWrite().then(function () { if (pg !== gen || state.processId !== id || state.view !== 'process') return; ensureListItemVisible('stages:' + id, res.folder, { focus: '[data-act="start-test"][data-id="' + cssEsc(res.folder) + '"]', word: 'staged' }); render(); });
         }
         /* From Practice: the stage's page opens, and practice ends, only if nobody moved on meanwhile (same folder, person and
            process, the editor's text as it was, no unapplied typing, no practice activity since the click). */
@@ -28045,7 +28229,7 @@ PF.examples = (function () {
           if (!shown1()) { say('Staged as ' + res.folder + ', but a test run can\'t start from it yet: part of the folder couldn\'t be read just now. Your practice is still open.', 'warn'); render(); return; }
           if (!calm()) { say('Staged. Your practice is still open.', 'good'); render(); return; }
           prEnded(id, shown); setView('process'); state.processId = id; state.ptab = 'overview'; state.mapVer = null; state.disc = Object.assign({}, state.disc); state.disc['vers:' + id] = true;
-          state.focus = '[data-act="start-test"][data-id="' + cssEsc(res.folder) + '"]';
+          ensureListItemVisible('stages:' + id, res.folder, { focus: '[data-act="start-test"][data-id="' + cssEsc(res.folder) + '"]', word: 'staged' });
           say('Staged. Start a test run from it; only test runs use it until someone makes it the default.', 'good'); render();
         });
       }, function (e) { state.stageBusy = null; if (pg !== gen) return; say('Couldn\'t stage it: ' + e.message, 'bad'); load(true); });
@@ -28696,11 +28880,12 @@ PF.examples = (function () {
   function revealAt(sel, open) { state.revealTarget = sel; state.revealOpen = !!open; state.revealGen = gen; }
   /* A row Flightdeck has to show you, whatever the page or the filters (2.11): the latest one per list is drawn as an exception
      (K.list), focused and brought into view. It's held for this folder only (gen), and goes on nav, on a folder switch and when
-     that list's Find text changes. o.focus: the selector to focus (also brought into view); o.reveal: to bring into view only. */
+     that list's Find text changes. o.focus: the selector to focus (also brought into view); o.reveal: to bring into view only;
+     o.word: how the count line says it ("plus the one you just opened"; added by default). */
   function ensureListItemVisible(list, key, o) {
     o = o || {};
     var js = state.justShown && state.justShown.gen === gen ? state.justShown : { gen: gen, lists: {} };
-    js.lists[list] = key; state.justShown = js;
+    js.lists[list] = key; (js.words = js.words || {})[list] = o.word || ''; state.justShown = js;
     if (o.focus) { state.focus = o.focus; state.focusWins = true; }
     if (o.focus || o.reveal) revealAt(o.reveal || o.focus, true);
   }
@@ -29849,11 +30034,15 @@ PF.examples = (function () {
     filter: function (id) { state.filter = id; render(); },
     /* ---------- Insights (docs/design.md section 23): the runs behind a number, and back ---------- */
     'ins-runs': function (path) { insightRuns(path); },
+    /* Back from the runs behind a number: the row it was in is drawn whatever the page (2.11), its count focused and the place
+       on the page put back. A row a newer read took away focuses its list's heading instead. */
     'ins-back': function () {
       var f = state.runFilter, b = f && f.back; if (!b) return;
       if (!go({ view: 'process', process: b.process, ptab: 'insights' })) return;
       state.runFilter = null; (state.insFolder = state.insFolder || {})[b.process] = b.folder;
-      state.focus = b.focus || 'ins-h'; render();
+      if (b.list) { if (b.more) { state.more = Object.assign({}, state.more); state.more[b.list] = b.more; } ensureListItemVisible(b.list, b.key, { word: 'opened' }); }
+      state.focus = b.focus || 'ins-h'; state.focusWins = true; render();
+      if (b.list && b.focus && !app.querySelector(b.focus)) { state.focus = b.head || 'ins-h'; render(); }
       setTimeout(function () { window.scrollTo(0, b.scrollY || 0); }, 0);
     },
     /* The same number, worked out again from what's loaded now: the cohort is replaced, Back still goes where it went. */
@@ -30871,7 +31060,21 @@ PF.examples = (function () {
     /* Reports: Accept asks first, in the card; Decline asks why. Nothing has a single-key shortcut. */
     'rep-accept': function (id) { repOpenForm(id, 'accept'); },
     'rep-decline': function (id) { repOpenForm(id, 'decline'); },
-    'rep-cancel': function (id) { delete repDrafts()[id]; repBoxes = repBoxes.filter(function (x) { return x.key !== id; }); state.repPick = null; if (state.fieldErr && /^rep-reason-/.test(state.fieldErr.id)) state.fieldErr = null; state.focus = '[data-act="rep-accept"][data-id="' + cssEsc(id) + '"], [data-act="rep-decline"][data-id="' + cssEsc(id) + '"]'; render(); },
+    /* A Reports panel row opens its own report's card (2.11): its step is selected, and the card is drawn whatever the page,
+       unfolded, focused and brought into view. */
+    'rep-goto': function (id, b) {
+      var r = ctx.run(), map = r && R.mapOf(r), m = /^step-(.+)$/.exec(id || ''), x = m && map ? M.findStep(map, m[1]) : null, key = b && b.dataset ? b.dataset.report : '';
+      var on = x && key ? ((reportsOf(r) || { list: [] }).list).filter(function (it) { return it.g.step === x.step.id; }).map(function (it) { return it.g.key; }) : [], n = on.indexOf(key);
+      if (n < 0) { ACTIONS.goto(id); return; }
+      selectStep(x.step.id); state.refOpen = true; state.unfold[x.phase.id] = true;
+      ensureListItemVisible(V.reportListId(r, x.step.id), key, { focus: '#rep-' + n + '-h', word: 'opened' });
+      render();
+    },
+    /* Every copy of a report, 50 at a time in its Details fold (2.11), with focus on the first one the first 10 didn't show. */
+    'rep-copies': function (id) { if (!id) return; (state.repCopies = state.repCopies || {})[id] = true; var to = PF.vk.byId('repc-' + id + '-10'); state.focus = to; state.focusWins = true; revealAt(to, true); render(); },
+    /* A kept reason on a report that's gone (2.11): copied, since it can't be saved. */
+    'rep-copy-reason': function (id) { var el = document.getElementById(PF.reports.reasonId(id)); copyText(el ? String(el.value || '') : repDraft(id) || '', null, 'Copied.'); },
+    'rep-cancel': function (id) { delete repDrafts()[id]; delete repSnaps()[id]; repBoxes = repBoxes.filter(function (x) { return x.key !== id; }); state.repPick = null; if (state.fieldErr && /^rep-reason-/.test(state.fieldErr.id)) state.fieldErr = null; state.focus = '[data-act="rep-accept"][data-id="' + cssEsc(id) + '"], [data-act="rep-decline"][data-id="' + cssEsc(id) + '"]'; render(); },
     'rep-accept-go': function (id) { acceptReport(id); },
     'rep-decline-go': function (id) { decideOnReport(id, 'declined'); },
     'rep-reopen': function (id) { decideOnReport(id, 'open'); },
@@ -30911,7 +31114,12 @@ PF.examples = (function () {
       state.focus = mode === 'differently' ? 'corr-happened' : corrFocus(op); state.focusEnd = true; render();
     },
     'partial-dismiss': function (id) { delete state.partial[id]; render(); },
-    'goto-corr': function (id) { var el = document.getElementById(id); if (!el) return; if (el.scrollIntoView) el.scrollIntoView({ block: 'nearest' }); if (el.focus) el.focus(); },
+    /* View correction (Done differently): the correction is drawn whatever the page of the step's list (2.11), then focused and
+       brought into view. */
+    'goto-corr': function (id) {
+      var r = ctx.run(), cid = String(id || '').replace(/^corr-/, ''); if (!r || !state.sel || !cid) return;
+      ensureListItemVisible('rcorr:' + state.runKey + ':' + state.sel, cid, { focus: PF.vk.byId('corr-' + cid), word: 'opened' }); render();
+    },
     'corr-menu': function () { var f = state.corrForm; if (!f) return; f.menu = !f.menu; state.focus = f.menu ? '.corr-menu-list button' : '[data-act="corr-menu"]'; render(); },
     'corr-op': function (id) {
       var f = state.corrForm; if (!f || PF.corrections.OPS.indexOf(id) < 0) return;
@@ -30951,9 +31159,11 @@ PF.examples = (function () {
       decideCorr(id, 'included', '', 'Noted: v' + v + ' has it.', null, { version: v, folder: f });
     },
     /* Home acknowledgments: View change opens the process's corrections; Dismiss is remembered in this browser only. */
+    /* It lands on the group it's about (2.11), drawn whatever the page, focused and in view; fx-h when that group is gone. */
     'ack-view': function (id, b) {
       var pid = b && b.dataset.process; if (!pid) return;
-      ACTIONS['open-process'](pid); state.fixFilter = 'all'; (state.disc = state.disc || {})['fx:' + pid] = true; state.focus = 'fx-h'; render();
+      ACTIONS['open-process'](pid); state.fixFilter = 'all'; (state.disc = state.disc || {})['fx:' + pid] = true; state.focus = 'fx-h';
+      corrShow(pid, b.dataset.group); render();
     },
     'ack-dismiss': function (id) {
       if (!ACK_KEY.test(id || '')) return;
@@ -31021,7 +31231,7 @@ PF.examples = (function () {
       ta.focus(); ta.setSelectionRange(start, start + (lines[n - 1] || '').length);
       var lh = parseFloat(window.getComputedStyle ? getComputedStyle(ta).lineHeight : '') || 20; ta.scrollTop = Math.max(0, (n - 4) * lh);
     },
-    'corr-filter': function (id) { state.fixFilter = id === 'all' ? 'all' : 'open'; state.focus = '[data-act="corr-filter"][data-id="' + state.fixFilter + '"]'; render(); },
+    'corr-filter': function (id) { state.fixFilter = id === 'all' ? 'all' : 'open'; state.more = Object.assign({}, state.more); delete state.more['fx:' + state.processId]; state.focus = '[data-act="corr-filter"][data-id="' + state.fixFilter + '"]'; render(); },
     'copy-corr-brief': function (id) {
       var p = procFind(id); if (!p) return;
       /* The brief quotes the steps as the draft has them now, since that's the file the assistant edits. */
@@ -31074,7 +31284,9 @@ PF.examples = (function () {
     'exit-mission': function () { reenterRun(); render(); },
     /* The key other apps use for this run (flightdeck run <folder> <key> --json). */
     'copy-run-key': function (id) { copyText(id, null, 'Copied the run key.'); },
-    'copy-receipt': function () { var pre = document.getElementById('receipt-text'); copyText(pre ? pre.textContent : '', pre); },
+    /* The receipt's text is worked out when it's copied (2.11), with every report and correction, and put in its hidden box for
+       a browser that can't copy by itself. */
+    'copy-receipt': function () { var pre = document.getElementById('receipt-text'), text = V.receiptText(ctx); if (pre) pre.textContent = text; copyText(text, pre); },
     zoom: function (id, b) { var r = ctx.run(), x = r && M.findStep(R.mapOf(r), id); if (!x) return; openLightbox(x.step.shots.map(function (s) { return { src: s.src, caption: s.caption }; }), +b.dataset.i); },
     'zoom-phase': function (id, b) { var r = ctx.run(), ph = r && R.mapOf(r).phases.filter(function (x) { return x.id === id; })[0]; if (!ph) return; openLightbox(ph.shots.map(function (s) { return { src: s.src, caption: s.caption }; }), +b.dataset.i); },
     'zoom-gate': function (id, b) { var r = ctx.run(), ph = r && R.mapOf(r).phases.filter(function (x) { return x.gate.id === id; })[0]; if (!ph) return; openLightbox(ph.gate.shots.map(function (s) { return { src: s.src, caption: s.caption }; }), +b.dataset.i); },
@@ -31168,7 +31380,11 @@ PF.examples = (function () {
           render();
         });
       } : function () { say('Correction saved on this computer. It doesn\'t answer the step.', 'good'); state.msg.quiet = true; state.focus = '[data-act="corr-open"][data-id="' + cssEsc(step) + '"][data-mode="correct"]'; return Promise.resolve(); };
-      return then().then(function () { return withNote && state.runKey === key ? refreshRun() : null; }).then(function () { render(); });
+      /* The new correction is drawn whatever the page of the step's list (2.11), focused and brought into view. */
+      return then().then(function () { return withNote && state.runKey === key ? refreshRun() : null; }).then(function () {
+        if (note && state.view === 'run' && state.runKey === key && ng === gen) ensureListItemVisible('rcorr:' + key + ':' + step, note.id, { focus: PF.vk.byId('corr-' + note.id), word: 'added' });
+        render();
+      });
     }, function (e) { endBusy(); f.sending = false; settled(); if (ng !== gen) return; say('Couldn\'t save. Try again. ' + e.message, 'bad'); render(); });
   }
   /* A note correction's draft: by folder, run and the phase or gate it's about. */
@@ -31316,6 +31532,21 @@ PF.examples = (function () {
   var repBoxes = [], repBoxFs = null;
   function repDrafts(fk) { var all = state.repDrafts || (state.repDrafts = {}), k = fk == null ? fsKey() : fk; return all[k] || (all[k] = Object.create(null)); }
   function repDraft(key) { var d = repDrafts(); return typeof d[key] === 'string' ? d[key] : null; }
+  /* What a report with a kept reason said (2.11), beside the reason, per folder: so if its files go, its card can still be drawn
+     from this, as Removed elsewhere, with the reason. */
+  function repSnaps(fk) { var all = state.repSnaps || (state.repSnaps = {}), k = fk == null ? fsKey() : fk; return all[k] || (all[k] = Object.create(null)); }
+  function repSnapNow(r) {
+    var d = repDrafts(), keys = Object.keys(d), b = keys.length && r ? reportsOf(r) : null; if (!b) return;
+    var sn = repSnaps(), rk = r.process + '/' + r.id;
+    b.list.forEach(function (it) { if (typeof d[it.g.key] === 'string') sn[it.g.key] = { run: rk, step: it.g.step, producer: it.g.producer, says: V.reportSays(it.g.report) }; });
+  }
+  /* Kept reasons on a run's step whose report is no longer in the folder. */
+  function repGone(r, stepId) {
+    var d = repDrafts(), sn = repSnaps(), rk = r.process + '/' + r.id, b = reportsOf(r), here = Object.create(null);
+    if (!b) return [];
+    b.list.forEach(function (it) { here[it.g.key] = true; });
+    return Object.keys(d).filter(function (k) { return typeof d[k] === 'string' && sn[k] && sn[k].run === rk && sn[k].step === stepId && !here[k]; }).sort().map(function (k) { return { key: k, snap: sn[k], text: d[k] }; });
+  }
   /* Only the boxes the last render drew hold typing. */
   function repHarvest() {
     if (!repBoxes.length) return;
@@ -31323,6 +31554,7 @@ PF.examples = (function () {
     repBoxes.forEach(function (b) { var el = document.getElementById(b.id); if (el) d[b.key] = String(el.value == null ? '' : el.value); });
   }
   function repNoteDrawn(page) {
+    repSnapNow(ctx.run && ctx.run());
     var d = repDrafts(), keys = Object.keys(d), p = state.repPick;
     if (p && p.mode === 'decline' && keys.indexOf(p.key) < 0) keys.push(p.key);
     repBoxFs = fsKey();
@@ -32031,7 +32263,7 @@ PF.examples = (function () {
       return;
     }
     if (e.target.id === 'rel-area') { state.rel.area = e.target.value; render(); }
-    if (e.target.id === 'ins-folder' && state.processId) { (state.insFolder = state.insFolder || {})[state.processId] = e.target.value; state.more = Object.assign({}, state.more, { 'ins-hot': 0, 'ins-dur': 0 }); render(); }
+    if (e.target.id === 'ins-folder' && state.processId) { (state.insFolder = state.insFolder || {})[state.processId] = e.target.value; state.more = Object.assign({}, state.more, { 'ins-hot': 0, 'ins-dur': 0, 'ins-ph': 0, 'ins-rot': 0, 'ins-rolecols': 0, 'ins-notes': 0 }); render(); }
     if (/^rf-(process|folder|outcome|from|through)$/.test(e.target.id || '')) {
       var rf = state.runFilter && !state.runFilter.cohort ? Object.assign({}, state.runFilter) : {}, rk = e.target.id.slice(3);
       if (e.target.value) rf[rk] = String(e.target.value).slice(0, 120); else delete rf[rk];
@@ -32204,6 +32436,12 @@ PF.examples = (function () {
     var list = V.insightsFolders(ctx, p), folder = V.insightsChosen(ctx, p, list); if (!folder) return;
     var sp = PF.insights.spec(V.insightsOf(ctx, pid, folder, false), path, data.runs); if (!sp) return;
     var back = { process: pid, folder: folder, scrollY: window.scrollY || window.pageYOffset || 0, focus: '[data-act="ins-runs"][data-id="' + cssEsc(path) + '"]' };
+    /* The row the count is in, when it's in a paged list (2.11): Back draws it whatever the page. */
+    var pm = /^step:([^:]+):/.exec(path) || null, ph = /^(?:phase|gate):([^:]+)/.exec(path) || null;
+    if (pm) { back.list = 'ins-hot'; back.key = 'ins-' + pm[1]; back.head = 'ins-hot-h'; }
+    else if (ph) { back.list = 'ins-ph'; back.key = 'ins-ph-' + ph[1]; back.head = 'ins-ph-h'; }
+    /* And how far that list was shown, so the page is as long as it was and the scroll comes back to the same place. */
+    if (back.list) back.more = (state.more || {})[back.list] || 0;
     if (!go({ view: 'runs' })) return;
     state.runFilter = Object.assign(sp, { cohort: true, back: back }); state.more = Object.assign({}, state.more, { 'runs-cohort': 0 });
     state.focus = 'rf-h'; render(); window.scrollTo(0, 0);
@@ -32226,9 +32464,16 @@ PF.examples = (function () {
     if (narrow() && state.refOpen && state.view === 'run') state.refOpen = false;
     if (t.view === 'run') {
       if (!t.run || !ctx.findRun(t.run)) return false;
+      /* A correction, fix or map note (2.11): on a step, its row in the inspector's Corrections, kept past the page; on a phase
+         or a gate, its group on the checklist's page. */
+      var tr = ctx.findRun(t.run), cn = t.note ? (tr._notes || []).filter(function (n) { return n.id === t.note && (n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map'); })[0] : null;
+      if (cn && !t.step) { var cg = corrGroupOf(tr, cn.id); if (cg) return go({ view: 'process', process: tr.process, group: cg }); }
       if (t.run !== state.runKey || !inRun()) openRun(t.run); else setView('run');
       var r = ctx.run(), x = t.step ? M.findStep(R.mapOf(r), t.step) : null;
-      if (x) {
+      if (x && cn) {
+        state.unfold[x.phase.id] = true; selectStep(x.step.id); state.refOpen = true;
+        ensureListItemVisible('rcorr:' + t.run + ':' + x.step.id, cn.id, { focus: PF.vk.byId('corr-' + cn.id), word: 'opened' });
+      } else if (x) {
         state.unfold[x.phase.id] = true; selectStep(x.step.id); state.refOpen = !narrow();
         state.focus = '[data-act="select"][data-id="' + cssEsc(x.step.id) + '"]'; revealAt('#step-' + cssEsc(x.step.id));
         var mark = state.flash = { ids: [x.step.id], notes: t.note ? [t.note] : [] };
@@ -32241,6 +32486,8 @@ PF.examples = (function () {
       ACTIONS['open-process'](t.process);
       if (t.mapVer) ACTIONS['view-version'](t.mapVer);
       if (t.ptab && t.ptab !== 'overview') ACTIONS.ptab(t.ptab);
+      /* A correction's group (2.11): Corrections unfolded, the group drawn whatever the page and Open/All, and focused. */
+      if (t.group && corrShow(t.process, t.group)) { (state.disc = state.disc || {})['fx:' + t.process] = true; render(); }
       /* A step opens in the checklist, at that step, with focus on it. */
       if (t.step) {
         var sid = 'cl-st-' + t.step;
@@ -32255,6 +32502,20 @@ PF.examples = (function () {
     if (t.view === 'runs' && (t.filter === 'mine' || t.filter === 'all')) state.filter = t.filter;
     ACTIONS.nav(t.view || 'home');
     return true;
+  }
+  /* A correction group shown on its checklist's page whatever the page or Open/All (2.11): drawn as Process › Corrections'
+     just-shown item, focused and brought into view. false when the group isn't there. */
+  function corrShow(pid, gid) {
+    var g = gid ? ctx.corrections(pid).filter(function (x) { return x.id === gid; })[0] : null;
+    if (!g) return false;
+    (state.disc = state.disc || {})['fx:' + pid] = true;
+    ensureListItemVisible('fx:' + pid, g.id + '#0', { focus: PF.vk.byId('fxg-' + g.id), word: 'opened' });
+    return true;
+  }
+  /* The group on a run's checklist a correction note is in. */
+  function corrGroupOf(r, noteId) {
+    var g = ctx.corrections(r.process).filter(function (x) { return x.members.some(function (m) { return m.id === noteId && m.run === r.id; }); })[0];
+    return g ? g.id : null;
   }
   /* What go() would lose: the first control on the page or in the open dialog whose value isn't what the page drew
      (input and textarea: value vs defaultValue; checkbox and radio: checked vs defaultChecked; select: the chosen option vs

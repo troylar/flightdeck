@@ -183,7 +183,7 @@ PF.search = (function () {
     var f = [], word = DECIDED[d.status] || 'Decided';
     field(f, d.reason, 5); field(f, word, 2);
     return { id: id, kind: 'correction', title: 'Correction ' + word.toLowerCase() + (d.reason ? ': ' + d.reason : ''), sub: d.process, fields: f, people: uniq([d.by]), types: [],
-      at: d.at || '', process: d.process, run: '', target: target({ view: 'process', process: d.process }) };
+      at: d.at || '', process: d.process, run: '', target: target({ view: 'process', process: d.process, decision: id, group: d.group }) };
   }
   function pubDocs(proc, x, latest) {
     var map = x.map, meta = map.meta || {}, title = meta.title || proc, ver = x.info.version, f = [];

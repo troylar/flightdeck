@@ -161,9 +161,11 @@
     var people = PF.people.sorted(ctx).filter(function (p) { return !p.inactive; }), owner = PP.roles(ctx.data.people).owner;
     h += '<h2 id="su-h" tabindex="-1">Who are you?</h2>';
     if (!people.length) return h + '<div class="notice warn" role="status"><span><b>' + esc(fs.name) + '</b> has no people list yet. If you\'re setting up a new team, choose Start your team instead.</span><button class="btn" data-act="setup-mode" data-id="start">Start your team</button></div></section>';
-    h += '<p>Choose your name in <b>' + esc(fs.name) + '</b>. Everything you record or note is stamped with it.</p><ul class="su-who">' + people.map(function (p) {
-      return '<li><button type="button" class="su-pers" data-act="setup-who" data-id="' + esc(p.id) + '"' + (p.id === st.me ? ' aria-current="true"' : '') + '>' + K.avatar(ctx, p.id, true) + '<span class="su-pt"><b>' + esc(p.name) + '</b><span class="small">' + esc(p.email || p.id) + '</span></span>' + arrow() + '</button></li>';
-    }).join('') + '</ul>';
+    /* By name, 50 at a time, with Find your name past 50 (2.11). */
+    var q = people.length > 50 ? K.findQ(st, 'su-who') : '', hit = K.finds(q), shown = q ? people.filter(function (p) { return hit([p.name, p.email, p.id]); }) : people;
+    var who1 = function (p) { return '<li><button type="button" class="su-pers" data-act="setup-who" data-id="' + esc(p.id) + '"' + (p.id === st.me ? ' aria-current="true"' : '') + '>' + K.avatar(ctx, p.id, true) + '<span class="su-pt"><b>' + esc(p.name) + '</b><span class="small">' + esc(p.email || p.id) + '</span></span>' + arrow() + '</button></li>'; };
+    h += '<p>Choose your name in <b>' + esc(fs.name) + '</b>. Everything you record or note is stamped with it.</p>' + (people.length > 50 ? K.findBox(st, 'su-who', 'Find your name', shown.length, people.length, 'name') : '') +
+      K.list(st, 'su-who', shown, { keyOf: function (p) { return p.id; }, focusOf: function (k) { return K.byAct('setup-who', k); }, draw: function (list) { return '<ul class="su-who">' + list.map(who1).join('') + '</ul>'; } });
     var who = owner && !owner.inactive ? owner.name : 'whoever set up the team folder', rq = su.request || {};
     h += '<details class="su-notme"' + (su.askOpen ? ' open' : '') + ' data-disc="su-notme"><summary>Not on the list?</summary><p>Ask ' + esc(who) + ' to add you. Only the folder owner and backup owner change the people list, so nothing here writes to it.</p><div class="grid2">' +
       input(st, 'su-rq-name', 'Your name', rq.name, ' maxlength="60" autocomplete="name"') + input(st, 'su-rq-email', 'Email (optional)', rq.email, ' maxlength="120" type="email" autocomplete="email"') + '</div>' +

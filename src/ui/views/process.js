@@ -135,51 +135,87 @@
     return V.corrGroups(ctx, p.id);
   }
   /* Grouped by step in checklist order: each group is one proposed change, "Suggested in N runs" with the runs behind it,
-     and two different changes to the same step are shown as alternatives. Anyone decides; declining needs a reason. */
+     and two different changes to the same step are shown as alternatives. Anyone decides; declining needs a reason.
+     2.11: 50 members at a time, counted across groups, so one change suggested in 400 runs or 300 changes of one each draw
+     50; a group the page splits says how many more it has. The group being declined is drawn whatever the page or Open/All
+     (marked when it's no longer open), and so is a group search or Home opened (state.justShown), marked as shown for that. */
   function fixesPanel(ctx, p) {
     var st = ctx.state, all = fixesOf(ctx, p), C = PF.corrections;
     if (!all.length) return '';
     var open = all.filter(function (g) { return g.status === 'open'; });
-    var showAll = st.fixFilter === 'all', list = showAll ? all : open, map = p.latest ? p.latest.map : p.draft ? M.parse(p.draft.md) : null;
+    var showAll = st.fixFilter === 'all', map = p.latest ? p.latest.map : p.draft ? M.parse(p.draft.md) : null;
+    var lid = 'fx:' + p.id, declining = st.pick && st.pick.kind === 'corr-decline' ? st.pick.id : null, js = st.justShown && st.justShown.lists ? st.justShown.lists[lid] : null, jsG = js ? String(js).split('#')[0] : null;
+    var list = all.filter(function (g) { return showAll || g.status === 'open' || g.id === declining || g.id === jsG; });
     var h = '<p class="small">Recorded during runs: what the checklist said, what it should say, and what happened. Review one to apply it to the draft, or mark it as applied once the draft has it.</p>' +
       '<div class="seg" role="group" aria-label="Show">' + [['open', 'Open'], ['all', 'All']].map(function (x) { return '<button type="button" data-act="corr-filter" data-id="' + x[0] + '" aria-pressed="' + ((x[0] === 'all') === showAll) + '">' + x[1] + '</button>'; }).join('') + '</div>';
     var unread = (ctx.data.corrUnread || []).filter(function (u) { return u.process === p.id; });
     if (unread.length) h += '<div class="notice bad"><span>Couldn\'t read ' + unread.length + ' decision file' + (unread.length === 1 ? '' : 's') + ' in <code>corrections/' + esc(p.id) + '</code>' + (unread.every(function (u) { return u.kept; }) ? '. Showing what they said last time.' : '. Some corrections may show the wrong status until it syncs.') + '</span></div>';
     if (!list.length) h += '<p class="small">No open corrections.</p>';
-    var order = [], groups = Object.create(null);
+    var order = [], groups = Object.create(null), at = Object.create(null);
     if (map) map.phases.forEach(function (ph) { order.push('phase:' + ph.id); ph.steps.forEach(function (x) { order.push(x.id); }); if (ph.gate && !ph.gate.implicit) order.push('gate:' + ph.gate.id); });
-    list.forEach(function (g) { var k = C.targetKey(g.target); if (!groups[k]) { groups[k] = []; if (order.indexOf(k) < 0) order.push(k); } groups[k].push(g); });
-    order.filter(function (k) { return groups[k]; }).forEach(function (k) {
+    order.forEach(function (k, i) { at[k] = i; });
+    list.forEach(function (g) { var k = C.targetKey(g.target); if (!groups[k]) { groups[k] = []; if (!(k in at)) { at[k] = order.length; order.push(k); } } groups[k].push(g); });
+    /* One item per member, in the order 2.10 draws them: target, then group, then member. */
+    var items = [];
+    order.filter(function (k) { return groups[k]; }).forEach(function (k) { groups[k].forEach(function (g) { g.members.forEach(function (m, i) { items.push({ k: k, g: g, m: m, i: i }); }); }); });
+    var heading = function (k, gs) {
       var x = map && !/^(phase|gate):/.test(k) && M.findStep(map, k), ph = map && k.indexOf('phase:') === 0 && map.phases.filter(function (q) { return 'phase:' + q.id === k; })[0], gt = map && k.indexOf('gate:') === 0 && map.phases.filter(function (q) { return q.gate && 'gate:' + q.gate.id === k; })[0];
-      var gs = groups[k], alts = gs.filter(function (g) { return g.status === 'open' && g.change.op !== 'describe'; }).length;
-      h += '<h3 class="fixgroup">' + (x ? K.stepHtml(x.step, null) : ph ? 'Phase: ' + esc(ph.title) : gt ? 'Gate: ' + esc(gt.gate.title) : esc(C.targetName(gs[0])) + ' <span class="small">(not in the current version)</span>') + '</h3>' +
-        (alts > 1 ? '<p class="small corr-alts"><b>' + (alts === 2 ? 'Two' : alts) + ' proposed changes.</b> Each can be decided on its own.</p>' : '') +
-        '<ul class="fixlist">' + gs.map(function (g) { return groupItem(ctx, p, g); }).join('') + '</ul>';
-    });
+      var alts = gs.filter(function (g) { return g.status === 'open' && g.change.op !== 'describe'; }).length;
+      return '<h3 class="fixgroup">' + (x ? K.stepHtml(x.step, null) : ph ? 'Phase: ' + esc(ph.title) : gt ? 'Gate: ' + esc(gt.gate.title) : esc(C.targetName(gs[0])) + ' <span class="small">(not in the current version)</span>') + '</h3>' +
+        (alts > 1 ? '<p class="small corr-alts"><b>' + (alts === 2 ? 'Two' : alts) + ' proposed changes.</b> Each can be decided on its own.</p>' : '');
+    };
+    var draw = function (shown) {
+      var out = '', i = 0;
+      while (i < shown.length) {
+        var k = shown[i].k, body = '';
+        while (i < shown.length && shown[i].k === k) {
+          var g = shown[i].g, ms = [];
+          while (i < shown.length && shown[i].g === g) ms.push(shown[i++]);
+          body += groupItem(ctx, p, g, ms, { gone: g.id === declining && !showAll && g.status !== 'open', opened: g.id === jsG && !showAll && g.status !== 'open' });
+        }
+        out += heading(k, groups[k]) + '<ul class="fixlist">' + body + '</ul>';
+      }
+      return out;
+    };
+    h += K.list(st, lid, items, { draw: draw, keyOf: function (x) { return x.g.id + '#' + x.i; }, focusOf: function (key) { return K.byId('fxm-' + key); },
+      keep: declining ? [declining + '#0'] : [], keptLabel: 'You\'re declining this one', shownWord: 'opened' });
     if (open.length) h += '<div class="row" style="margin-top:10px"><button class="btn" data-act="copy-corr-brief" data-id="' + esc(p.id) + '">' + I('copy') + 'Copy correction brief</button></div>' + briefBox(st, 'corrections:' + p.id);
     var head = '<h2 id="fx-h" tabindex="-1">' + I('edit') + 'Corrections · ' + open.length + ' open</h2>';
     /* Open for whoever looks after the checklist, and whenever it holds a warning; for everyone else, one closed line. */
     if (unread.length || K.keeps(ctx, p)) return '<section class="panel" aria-labelledby="fx-h">' + head + h + '</section>';
     return '<details class="panel fold" data-disc="fx:' + esc(p.id) + '"' + ((st.disc || {})['fx:' + p.id] ? ' open' : '') + '><summary>' + head + '<span class="fold-act">Review</span></summary>' + h + '</details>';
   }
-  function groupItem(ctx, p, g) {
+  /* One group, with the members the page draws (ms: { m, i }, i its place in the group). Each drawn member's Why, What
+     happened, files and run are drawn in full; its first line (fxm-<group>#<i>) is where Show more puts focus. */
+  function groupItem(ctx, p, g, ms, o) {
     var st = ctx.state, C = PF.corrections, d = g.decision, c = g.first, declining = st.pick && st.pick.kind === 'corr-decline' && st.pick.id === g.id;
     var map = p.latest ? p.latest.map : null;
-    var h = '<li data-scope="corr:' + esc(g.id) + '"><div class="row"><span class="badge b-plan">' + esc(C.OP_LABEL[g.change.op]) + '</span>' + V.corrPill(g) + (g.legacy ? '<span class="small">From a suggested fix</span>' : '') + '</div>';
+    ms = ms || g.members.map(function (m, i) { return { m: m, i: i }; }); o = o || {};
+    var fid = function (x) { return 'fxm-' + g.id + '#' + x.i; }, first = ms[0] && ms[0].i === 0;
+    var h = '<li data-scope="corr:' + esc(g.id) + '" id="' + esc('fxg-' + g.id) + '" tabindex="-1"><div class="row"><span class="badge b-plan">' + esc(C.OP_LABEL[g.change.op]) + '</span>' + V.corrPill(g) + (g.legacy ? '<span class="small">From a suggested fix</span>' : '') + '</div>';
+    if (o.gone) h += '<p class="small fx-gone"><b>No longer open:</b> ' + esc(C.label(g).toLowerCase()) + (d ? ' by ' + esc(nameOf(ctx, d.by)) : '') + '</p>';
+    if (o.opened) h += '<p class="small fx-opened">Shown because you opened it.</p>';
     var dl = '';
     if (g.change.op !== 'describe' && g.from) dl += '<dt>Checklist said (v' + esc(c.version) + ')</dt><dd>' + esc(g.from) + '</dd>';
     if (g.change.op === 'wording') dl += '<dt>Suggested</dt><dd>' + V.redline(g.from, g.change.to) + '</dd>';
     else if (g.change.op !== 'describe') dl += '<dt>Suggested</dt><dd>' + esc(C.proposal(c, map)) + '</dd>';
-    g.members.forEach(function (m) {
-      if (m.why) dl += '<dt>' + (g.change.op === 'describe' ? 'Problem' : 'Why') + ' · ' + esc(nameOf(ctx, m.by)) + '</dt><dd>' + esc(m.why) + '</dd>';
-      if (m.happened) dl += '<dt>What happened · ' + esc(nameOf(ctx, m.by)) + '</dt><dd>' + esc(m.happened) + '</dd>';
+    /* A member without a Why or What happened is focused on its run's line. */
+    var focused = Object.create(null);
+    ms.forEach(function (x) {
+      var m = x.m, tag = function () { if (focused[x.i]) return ''; focused[x.i] = true; return ' id="' + esc(fid(x)) + '" tabindex="-1"'; };
+      if (m.why) dl += '<dt' + tag() + '>' + (g.change.op === 'describe' ? 'Problem' : 'Why') + ' · ' + esc(nameOf(ctx, m.by)) + '</dt><dd>' + esc(m.why) + '</dd>';
+      if (m.happened) dl += '<dt' + tag() + '>What happened · ' + esc(nameOf(ctx, m.by)) + '</dt><dd>' + esc(m.happened) + '</dd>';
     });
     if (dl) h += '<dl class="corr-dl">' + dl + '</dl>';
-    g.members.forEach(function (m) { h += V.attachments(ctx, m.id, m.files, m.fileInfo, 'corr'); });
+    ms.forEach(function (x) { h += V.attachments(ctx, x.m.id, x.m.files, x.m.fileInfo, 'corr'); });
     /* The runs behind it, with names inside: a count of runs, never a vote. */
-    h += '<details class="corr-runs"><summary class="small">Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + '</summary><ul class="small">' + g.members.map(function (m) {
-      return '<li>' + esc(nameOf(ctx, m.by)) + ' · ' + esc(U.day(m.at)) + ' · <button class="linkish" data-act="open-run" data-id="' + esc(m.process + '/' + m.run) + '">' + esc(m.runTitle) + '</button> · ' + (m.test ? 'test run, staged v' : 'v') + esc(m.version) + '</li>';
+    h += '<details class="corr-runs"><summary class="small">Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + '</summary><ul class="small">' + ms.map(function (x) {
+      var m = x.m;
+      return '<li' + (focused[x.i] ? '' : ' id="' + esc(fid(x)) + '" tabindex="-1"') + '>' + esc(nameOf(ctx, m.by)) + ' · ' + esc(U.day(m.at)) + ' · <button class="linkish" data-act="open-run" data-id="' + esc(m.process + '/' + m.run) + '">' + esc(m.runTitle) + '</button> · ' + (m.test ? 'test run, staged v' : 'v') + esc(m.version) + '</li>';
     }).join('') + '</ul></details>';
+    var left = g.members.length - ms.length;
+    if (left > 0) h += '<p class="small fx-more">' + left.toLocaleString('en-US') + ' more in this group</p>';
+    if (!first && !declining) return h + '</li>';
     if (d) h += '<div class="small">' + esc(d.addressed ? 'Marked as addressed differently' : { applied: 'Marked as applied', declined: 'Declined', open: 'Reopened', withdrawn: 'Withdrawn', legacy: 'Accepted before 1.13', included: 'Said v' + d.version + ' has it' }[d.status] || d.status) + ' by ' + esc(nameOf(ctx, d.by)) + ' ' + esc(U.day(d.at)) + (d.reason ? ': ' + esc(d.reason) : '') + '</div>';
     if (g.landed) h += '<div class="small">v' + esc(g.landed.version) + ' has it' + (g.landed.at ? ', published ' + esc(U.day(g.landed.at)) : '') + '.</div>';
     if (g.proofless) {
@@ -319,7 +355,12 @@
     if (p.proposedOnly) h += '<div class="notice"><span><b>Proposed, not drafted yet.</b> Your AI assistant proposed this checklist. Review it below; applying it creates the draft.</span></div>';
     h += editingNote(ctx, p);
     if (p.clashes.length) h += '<div class="notice bad"><span>Two people published version ' + p.clashes.join(', ') + ' at the same time. Neither is used until one is removed from <code>publications/' + esc(p.id) + '</code>. Publish again to make a clean next version.</span></div>';
-    p.broken.forEach(function (b) { h += '<div class="notice warn"><span>' + esc(b.folder) + ': ' + esc(b.why) + '</span></div>'; });
+    /* One version that can't be used is one notice, as before; more are one notice with them 20 at a time (2.11). */
+    if (p.broken.length === 1) h += '<div class="notice warn"><span>' + esc(p.broken[0].folder) + ': ' + esc(p.broken[0].why) + '</span></div>';
+    else if (p.broken.length) h += '<div class="notice warn pub-broken"><div><b>' + p.broken.length.toLocaleString('en-US') + ' versions in <code>publications/' + esc(p.id) + '</code> can\'t be used.</b>' +
+      '<details data-disc="pub-broken:' + esc(p.id) + '"' + ((st.disc || {})['pub-broken:' + p.id] ? ' open' : '') + '><summary class="small">Which ones, and why</summary>' +
+      K.list(st, 'pub-broken:' + p.id, p.broken, { page: 20, keyOf: function (b) { return b.folder; }, focusOf: function (k) { return K.byId('pb-' + k); },
+        draw: function (shown) { return '<ul class="small">' + shown.map(function (b) { PF.perf.add('pub.broken'); return '<li id="' + esc('pb-' + b.folder) + '" tabindex="-1">' + esc(b.folder) + ': ' + esc(b.why) + '</li>'; }).join('') + '</ul>'; } }) + '</details></div></div>';
     /* C3 (2.8): the latest version's linked steps that can't start their child as it is now. */
     if (pub && ctx.procOf) PF.links.broken(pub.map, PF.links.childrenFrom(ctx.procOf)).forEach(function (b) {
       h += '<div class="notice warn" role="status"><span>Step "' + esc(b.step.text.slice(0, 40)) + '" passes ' + esc(b.names.join(', ')) + ' to ' + esc(b.title) + ', whose latest version (v' + esc(b.version) + ') doesn\'t have ' + (b.names.length > 1 ? 'them' : 'it') + '. New runs can\'t start that child until this checklist changes.</span></div>';
@@ -337,7 +378,7 @@
           '<button class="btn go" data-act="publish" data-id="' + esc(p.id) + '"' + (c.blockers.length || !st.me || held ? ' disabled' : '') + (held ? ' aria-describedby="pub-why"' : '') + '>Publish v' + PF.publish.nextVersion(p.taken || p.all.map(function (x) { return x.info; })) + '</button></div>' +
           (held ? '<p class="small" id="pub-why">' + (base.dirty || base.conflict ? 'Your edits aren\'t saved, so they wouldn\'t be in this version. Save or discard them in the editor first.' : 'A screenshot is still being added to this draft. Publish when it\'s done.') + '</p>' : '') +
           '<p class="small">Anyone can publish. It\'s logged with your name, the time and the change note, and runs already started keep their version.</p>' + publishNeeds(ctx, p) + publishCorrections(ctx, p);
-        if (pub) h += '<details style="margin-top:8px"><summary class="small" style="cursor:pointer">Compare the draft with v' + pub.info.version + '</summary>' + diffHtml(PF.publish.diff(pub.md, p.draft.md)) + '</details>';
+        if (pub) h += '<details style="margin-top:8px"><summary class="small" style="cursor:pointer">Compare the draft with v' + pub.info.version + '</summary>' + diffHtml(PF.publish.diff(pub.md, p.draft.md), st, 'draft-diff') + '</details>';
       }
       h += '</section>';
     }
@@ -349,14 +390,16 @@
     /* Versions: the newest on show, earlier ones folded; one line each; the change note shows in full on hover and in Changes. */
     var verLi = function (v, i) {
       var older = p.all[i + 1];
-      return '<li><b>v' + v.info.version + '</b><span><span class="clip" title="' + esc(v.info.changes) + '">' + esc(v.info.changes) + '</span><span class="small">' + esc(U.day(v.info.publishedAt)) + '</span></span>' +
+      return '<li id="' + esc('ver-' + v.folder) + '" tabindex="-1"><b>v' + v.info.version + '</b><span><span class="clip" title="' + esc(v.info.changes) + '">' + esc(v.info.changes) + '</span><span class="small">' + esc(U.day(v.info.publishedAt)) + '</span></span>' +
         '<span class="row">' + (older ? '<button class="mini" data-act="diff" data-id="' + esc(v.folder) + '" aria-expanded="' + (st.diffOf === v.folder) + '">Changes</button>' : '') + '<button class="mini" data-act="view-version" data-id="' + esc(v.folder) + '" aria-pressed="' + (st.mapVer === v.folder) + '">View</button></span></li>' +
-        (st.diffOf === v.folder && older ? '<li style="display:block">' + diffHtml(PF.publish.diff(older.md, v.md)) + '</li>' : '');
+        (st.diffOf === v.folder && older ? '<li style="display:block">' + diffHtml(PF.publish.diff(older.md, v.md), st, 'ver-diff') + '</li>' : '');
     };
     /* Staging (2.1) lives inside the closed All versions disclosure, so nobody who never stages sees it. */
     var earlier = p.all.slice(1), stg = stagesHtml(ctx, p), verOpen = (st.disc || {})['vers:' + p.id] || earlier.some(function (v) { return st.diffOf === v.folder || st.mapVer === v.folder; });
     h += '<section class="panel" aria-labelledby="ver-h"><h2 id="ver-h">Versions</h2><ul class="vlist compact">' + (p.all.length ? verLi(p.all[0], 0) : '<li class="small">Not published yet. Edit the checklist, then publish it.</li>') + '</ul>' +
-      (earlier.length || stg ? '<details data-disc="vers:' + esc(p.id) + '"' + (verOpen ? ' open' : '') + '><summary class="small">All versions' + (earlier.length ? ' (' + p.all.length + ')' : '') + '</summary>' + (earlier.length ? '<ul class="vlist compact">' + earlier.map(function (v, i) { return verLi(v, i + 1); }).join('') + '</ul>' : '') + stg + '</details>' : '') + '</section>';
+      (earlier.length || stg ? '<details data-disc="vers:' + esc(p.id) + '"' + (verOpen ? ' open' : '') + '><summary class="small">All versions' + (earlier.length ? ' (' + p.all.length + ')' : '') + '</summary>' + (earlier.length ? K.list(st, 'vers:' + p.id, earlier.map(function (v, i) { return { v: v, i: i + 1 }; }), { keyOf: function (x) { return x.v.folder; }, focusOf: function (k) { return K.byId('ver-' + k); },
+        keep: earlier.filter(function (v) { return st.diffOf === v.folder || st.mapVer === v.folder; }).map(function (v) { return v.folder; }), keptLabel: 'The version you have open',
+        draw: function (shown) { return '<ul class="vlist compact">' + shown.map(function (x) { return verLi(x.v, x.i); }).join('') + '</ul>'; } }) : '') + stg + '</details>' : '') + '</section>';
     var runs = ctx.data.runs.filter(function (r) { return r.process === p.id; }).sort(function (a, b) { return a.created < b.created ? 1 : -1; });
     h += '<section class="panel" aria-labelledby="pr-h"><h2 id="pr-h">Recent runs</h2>' + (runs.length ? '<ul class="plist">' + runs.slice(0, 3).map(function (r) {
       var hl = K.headline(r, R.mapOf(r));
@@ -389,9 +432,13 @@
     if (!sp && !canStage) return '';
     /* Decisions that can't be read could say it's retired: no status is shown as settled and nothing can be changed until they read. */
     var held = !!sp && (!!(ctx.data.failed || {}).stages || !!sp.unlisted || sp.unread.length > 0 || sp.refused.some(function (r) { return /\/decisions\//.test(r.path); }));
-    var rows = (sp ? sp.stages : []).map(function (s) {
-      if (s.newer) return '<li class="stg"><b>Staged</b><span><span class="small">' + esc(s.folder) + ': ' + esc(s.why) + '</span></span></li>';
-      if (!s.ok) return '<li class="stg"><b>Staged</b><span><span class="small">' + esc(s.folder) + ' is incomplete: nothing runs from it.</span></span></li>';
+    /* 50 at a time (2.11): a stage's status, sign-off and test runs are worked out only for the ones drawn. A stage just made
+       is drawn whatever the page (state.justShown). */
+    var row = function (s) {
+      PF.perf.add('stage.row');
+      var li = '<li class="stg" id="' + esc('stg-' + s.folder) + '" tabindex="-1">';
+      if (s.newer) return li + '<b>Staged</b><span><span class="small">' + esc(s.folder) + ': ' + esc(s.why) + '</span></span></li>';
+      if (!s.ok) return li + '<b>Staged</b><span><span class="small">' + esc(s.folder) + ' is incomplete: nothing runs from it.</span></span></li>';
       var x = S.status(s, sp.decisions, p.all), i = s.info, id = esc(s.folder), b = '';
       var word = x.status === 'promoted' ? 'Published as v' + x.pub.info.version : held ? 'Status unknown until its decisions can be read' : x.status === 'retired' ? 'Retired' : x.status === 'tie' ? 'Two decisions disagree' : '';
       if (held) b = '';
@@ -402,11 +449,13 @@
       var anyTest = (ctx.data.runs || []).some(function (r) { return r.process === p.id && r.folder === s.folder && PF.run.isTest(r); });
       if (sg.ready && anyTest) tw = ' · ' + sg.ready.clean + ' of ' + sg.ready.needed + ' clean test runs' + (sg.signs.length ? ' · Signed off by ' + nameOf(ctx, sg.signs[0].by) : sg.hold && sg.hold.kind === 'newer' ? ' · Signed off with a newer Flightdeck: update to see it' : sg.unknown ? ' · Can\'t tell whether it was signed off: ' + sg.unknown : '');
       if (sg.as) b += '<button class="mini" data-act="signoff-stage" data-id="' + id + '"' + (busy ? ' disabled' : '') + '>Sign off staged v' + esc(i.stage.proposed) + '</button>';
-      return '<li class="stg"><b>Staged</b><span><span class="clip" title="' + esc(i.changes) + '">' + esc(i.changes) + '</span><span class="small">' + esc(U.day(i.stagedAt)) + ' by ' + esc(nameOf(ctx, i.stagedBy)) + (word ? ' · ' + esc(word) : '') + esc(tw) + '</span></span>' + (b ? '<span class="row">' + b + '</span>' : '') + '</li>';
-    });
+      return li + '<b>Staged</b><span><span class="clip" title="' + esc(i.changes) + '">' + esc(i.changes) + '</span><span class="small">' + esc(U.day(i.stagedAt)) + ' by ' + esc(nameOf(ctx, i.stagedBy)) + (word ? ' · ' + esc(word) : '') + esc(tw) + '</span></span>' + (b ? '<span class="row">' + b + '</span>' : '') + '</li>';
+    };
+    var list = sp ? sp.stages : [];
     var gone = (ctx.data.failed || {}).stages;
     return (sp && (sp.unlisted || gone) ? '<p class="small">' + esc(sp.unlisted || 'staged/ couldn\'t be read (' + gone + ')') + '. Staged versions are shown as last read.</p>' : held ? '<p class="small">A decision on these staged versions can\'t be read now, so they can\'t be changed until it can. Folder health names it.</p>' : '') +
-      (rows.length ? '<ul class="vlist compact">' + rows.join('') + '</ul>' : '') +
+      (list.length ? K.list(st, 'stages:' + p.id, list, { keyOf: function (s) { return s.folder; }, focusOf: function (k) { return K.byId('stg-' + k); }, shownWord: 'staged',
+        draw: function (shown) { return '<ul class="vlist compact">' + shown.map(row).join('') + '</ul>'; } }) : '') +
       (canStage ? '<p class="small"><button class="mini" data-act="stage-draft" data-id="' + esc(p.id) + '"' + (busy ? ' disabled' : '') + '>Stage the draft for testing</button> Only test runs use it until someone makes it the default.</p>' : '');
   }
   function proposalsPanel(ctx, p) {
@@ -489,10 +538,37 @@
     return '<div class="diff">' + rows.map(function (r) { return r.op === '+' ? '<span class="add">+ ' + esc(r.text) + '</span>' : r.op === '-' ? '<span class="del">- ' + esc(r.text) + '</span>' : r.op === '…' ? '<span class="small">  … ' + esc(r.text) + '</span>\n' : '<span>  ' + esc(r.text) + '</span>\n'; }).join('') + '</div>';
   }
 
-  function diffHtml(rows) {
-    var changed = rows.some(function (r) { return r.op !== ' '; });
-    if (!changed) return '<p class="small">No differences.</p>';
-    return '<div class="diff">' + rows.map(function (r) { return r.op === '+' ? '<span class="add">+ ' + esc(r.text) + '</span>' : r.op === '-' ? '<span class="del">- ' + esc(r.text) + '</span>' : '<span>  ' + esc(r.text) + '</span>\n'; }).join('') + '</div>';
+  /* The differences between two checklists: the changed lines 50 at a time (2.11), in order, each with a line of what's
+     around it; longer stretches that didn't change are one line saying how many. id names the list (its Show more), and each
+     change's line (id-<n>) is where Show more puts focus. */
+  function diffHtml(rows, st, id) {
+    var ch = [];
+    rows.forEach(function (r, i) { if (r.op !== ' ') ch.push(i); });
+    if (!ch.length) return '<p class="small">No differences.</p>';
+    id = id || 'diff';
+    var line = function (i) {
+      var r = rows[i];
+      return r.op === '+' ? '<span class="add" id="' + esc(id + '-' + i) + '" tabindex="-1">+ ' + esc(r.text) + '</span>' : r.op === '-' ? '<span class="del" id="' + esc(id + '-' + i) + '" tabindex="-1">- ' + esc(r.text) + '</span>' : '<span>  ' + esc(r.text) + '</span>\n';
+    };
+    var gap = function (n) { return '<span class="small diff-gap">  … ' + n.toLocaleString('en-US') + ' unchanged line' + (n === 1 ? '' : 's') + '</span>\n'; };
+    /* Unchanged lines from a to b (inclusive): all of them when there are 3 or fewer, else the first and last around a gap. */
+    var same = function (a, b, lead, trail) {
+      var n = b - a + 1, out = '';
+      if (n <= 0) return '';
+      if (n <= 3) { for (var k = a; k <= b; k++) out += line(k); return out; }
+      if (lead) out += line(a);
+      out += gap(n - (lead ? 1 : 0) - (trail ? 1 : 0));
+      if (trail) out += line(b);
+      return out;
+    };
+    var draw = function (shown) {
+      var out = '', last = -1;
+      shown.forEach(function (i) { out += same(last + 1, i - 1, last >= 0, true) + line(i); last = i; });
+      var end = shown[shown.length - 1] === ch[ch.length - 1];
+      out += end ? same(last + 1, rows.length - 1, true, false) : last + 1 < rows.length && rows[last + 1].op === ' ' ? line(last + 1) : '';
+      return '<div class="diff">' + out + '</div>';
+    };
+    return K.list(st || {}, id, ch, { draw: draw, keyOf: function (i) { return String(i); }, focusOf: function (k) { return K.byId(id + '-' + k); } });
   }
 
   /* The exact publication a person switched this plan to, if it was in this folder, on this plan, as it reads now. */
@@ -564,7 +640,7 @@
     if (plan && pick.older) {
       h += '<div class="notice warn"><span>' + (pick.chosen ? 'You switched this plan to v' : 'This plan was made for v') + esc(pub.info.version) + '. v' + esc(latest.info.version) + ' is now published.</span><span class="row"><button class="mini" type="button" data-act="plan-diff" aria-expanded="' + !!st.planDiff + '">See what changed</button>' +
         (pick.exact ? '<button class="btn" type="button" data-act="plan-retarget" data-id="' + esc(plan.id) + '" data-folder="' + esc(latest.info.folder) + '">Start on v' + esc(latest.info.version) + ' instead</button>' : '<button class="btn" type="button" data-act="plan-latest" data-id="' + esc(plan.id) + '">Switch to v' + esc(latest.info.version) + '</button>') + '</span></div>';
-      if (st.planDiff) h += '<section class="panel" aria-label="Changes from v' + pub.info.version + ' to v' + latest.info.version + '">' + diffHtml(PF.publish.diff(pub.md, latest.md)) + '</section>';
+      if (st.planDiff) h += '<section class="panel" aria-label="Changes from v' + pub.info.version + ' to v' + latest.info.version + '">' + diffHtml(PF.publish.diff(pub.md, latest.md), st, 'plan-diff') + '</section>';
     } else if (plan && pick.missing) {
       /* Say why, when the version is in the folder but can't be used here (still syncing, damaged, or too new for this copy). */
       var gone = !chosen && (p.broken || []).filter(function (b) { return PF.publish.versionOf(b.folder) === +plan.version; })[0];

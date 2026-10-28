@@ -171,6 +171,7 @@
     reports: function (r) { return reportsOf(r); },
     reportCur: function () { return repCur(); },
     repDraft: function (key) { return repDraft(key); },
+    repGone: function (r, stepId) { return repGone(r, stepId); },
     /* Runs this person records, with how many reports on each nobody has decided yet (Home). */
     reportsWaiting: function () { return reportsWaiting(); },
     corrections: function (pid) {
@@ -422,7 +423,10 @@
     var gone = sxGone(x.target);
     if (gone) { s.err = gone; sxSay(gone); state.overlayFocus = '#sx-q'; render(); return; }
     if (state.obPending || dirtyControl([app])) closeOverlay();
-    if (go(x.target) && x.target.view === 'process' && !x.target.mapVer) { state.focus = 'page-h'; render(); }
+    /* A result that names a place on the page (a decision's group, a version, a step) leaves focus to the reveal; only a
+       checklist itself focuses its page's heading (2.11). */
+    var t = x.target;
+    if (go(t) && t.view === 'process' && !t.mapVer && !t.group && !t.step && !t.decision) { state.focus = 'page-h'; render(); }
   }
   function sxMove(d) {
     var s = state.sx; if (!s || !s.flat || !s.flat.length) return;
@@ -1591,7 +1595,7 @@
     /* Controls marked data-bound are drawn from state (the draft editor, the step-type form), so they're never carried over. */
     if (!state.planFormReset) app.querySelectorAll('input[id], textarea[id], select[id]').forEach(function (el) { if (el.type !== 'file' && el.type !== 'hidden' && !(el.hasAttribute && el.hasAttribute('data-bound'))) keep[el.id] = { v: el.value, c: el.checked, s: el.selectionStart, e: el.selectionEnd, box: el.type === 'checkbox' || (el.type === 'radio' && el.id.indexOf('opt-') === 0), scope: scopeOf(el) }; });
     state.planFormReset = false;
-    if (ae && (app.contains(ae) || topEl.contains(ae))) focusKey = ae.id ? '#' + ae.id : ae.dataset && ae.dataset.act ? '[data-act="' + ae.dataset.act + '"]' + (ae.dataset.id ? '[data-id="' + cssEsc(ae.dataset.id) + '"]' : '') : null;
+    if (ae && (app.contains(ae) || topEl.contains(ae))) focusKey = ae.id ? (/^[A-Za-z][\w-]*$/.test(ae.id) ? '#' + ae.id : PF.vk.byId(ae.id)) : ae.dataset && ae.dataset.act ? '[data-act="' + ae.dataset.act + '"]' + (ae.dataset.id ? '[data-id="' + cssEsc(ae.dataset.id) + '"]' : '') : null;
     var y = window.scrollY;
     renderTop();
     followDrafts();
@@ -3403,7 +3407,8 @@
         if (!origin) {
           prEnded(id, shown); state.clearInputs = 'change-note'; state.disc = Object.assign({}, state.disc); state.disc['vers:' + id] = true;
           say('Staged. Only test runs use it until someone makes it the default.', 'good');
-          return loadAfterWrite();
+          /* The new stage is shown whatever the page of Stages (2.11), with Start a test run focused and in view. */
+          return loadAfterWrite().then(function () { if (pg !== gen || state.processId !== id || state.view !== 'process') return; ensureListItemVisible('stages:' + id, res.folder, { focus: '[data-act="start-test"][data-id="' + cssEsc(res.folder) + '"]', word: 'staged' }); render(); });
         }
         /* From Practice: the stage's page opens, and practice ends, only if nobody moved on meanwhile (same folder, person and
            process, the editor's text as it was, no unapplied typing, no practice activity since the click). */
@@ -3429,7 +3434,7 @@
           if (!shown1()) { say('Staged as ' + res.folder + ', but a test run can\'t start from it yet: part of the folder couldn\'t be read just now. Your practice is still open.', 'warn'); render(); return; }
           if (!calm()) { say('Staged. Your practice is still open.', 'good'); render(); return; }
           prEnded(id, shown); setView('process'); state.processId = id; state.ptab = 'overview'; state.mapVer = null; state.disc = Object.assign({}, state.disc); state.disc['vers:' + id] = true;
-          state.focus = '[data-act="start-test"][data-id="' + cssEsc(res.folder) + '"]';
+          ensureListItemVisible('stages:' + id, res.folder, { focus: '[data-act="start-test"][data-id="' + cssEsc(res.folder) + '"]', word: 'staged' });
           say('Staged. Start a test run from it; only test runs use it until someone makes it the default.', 'good'); render();
         });
       }, function (e) { state.stageBusy = null; if (pg !== gen) return; say('Couldn\'t stage it: ' + e.message, 'bad'); load(true); });
@@ -4080,11 +4085,12 @@
   function revealAt(sel, open) { state.revealTarget = sel; state.revealOpen = !!open; state.revealGen = gen; }
   /* A row Flightdeck has to show you, whatever the page or the filters (2.11): the latest one per list is drawn as an exception
      (K.list), focused and brought into view. It's held for this folder only (gen), and goes on nav, on a folder switch and when
-     that list's Find text changes. o.focus: the selector to focus (also brought into view); o.reveal: to bring into view only. */
+     that list's Find text changes. o.focus: the selector to focus (also brought into view); o.reveal: to bring into view only;
+     o.word: how the count line says it ("plus the one you just opened"; added by default). */
   function ensureListItemVisible(list, key, o) {
     o = o || {};
     var js = state.justShown && state.justShown.gen === gen ? state.justShown : { gen: gen, lists: {} };
-    js.lists[list] = key; state.justShown = js;
+    js.lists[list] = key; (js.words = js.words || {})[list] = o.word || ''; state.justShown = js;
     if (o.focus) { state.focus = o.focus; state.focusWins = true; }
     if (o.focus || o.reveal) revealAt(o.reveal || o.focus, true);
   }
@@ -5233,11 +5239,15 @@
     filter: function (id) { state.filter = id; render(); },
     /* ---------- Insights (docs/design.md section 23): the runs behind a number, and back ---------- */
     'ins-runs': function (path) { insightRuns(path); },
+    /* Back from the runs behind a number: the row it was in is drawn whatever the page (2.11), its count focused and the place
+       on the page put back. A row a newer read took away focuses its list's heading instead. */
     'ins-back': function () {
       var f = state.runFilter, b = f && f.back; if (!b) return;
       if (!go({ view: 'process', process: b.process, ptab: 'insights' })) return;
       state.runFilter = null; (state.insFolder = state.insFolder || {})[b.process] = b.folder;
-      state.focus = b.focus || 'ins-h'; render();
+      if (b.list) { if (b.more) { state.more = Object.assign({}, state.more); state.more[b.list] = b.more; } ensureListItemVisible(b.list, b.key, { word: 'opened' }); }
+      state.focus = b.focus || 'ins-h'; state.focusWins = true; render();
+      if (b.list && b.focus && !app.querySelector(b.focus)) { state.focus = b.head || 'ins-h'; render(); }
       setTimeout(function () { window.scrollTo(0, b.scrollY || 0); }, 0);
     },
     /* The same number, worked out again from what's loaded now: the cohort is replaced, Back still goes where it went. */
@@ -6255,7 +6265,21 @@
     /* Reports: Accept asks first, in the card; Decline asks why. Nothing has a single-key shortcut. */
     'rep-accept': function (id) { repOpenForm(id, 'accept'); },
     'rep-decline': function (id) { repOpenForm(id, 'decline'); },
-    'rep-cancel': function (id) { delete repDrafts()[id]; repBoxes = repBoxes.filter(function (x) { return x.key !== id; }); state.repPick = null; if (state.fieldErr && /^rep-reason-/.test(state.fieldErr.id)) state.fieldErr = null; state.focus = '[data-act="rep-accept"][data-id="' + cssEsc(id) + '"], [data-act="rep-decline"][data-id="' + cssEsc(id) + '"]'; render(); },
+    /* A Reports panel row opens its own report's card (2.11): its step is selected, and the card is drawn whatever the page,
+       unfolded, focused and brought into view. */
+    'rep-goto': function (id, b) {
+      var r = ctx.run(), map = r && R.mapOf(r), m = /^step-(.+)$/.exec(id || ''), x = m && map ? M.findStep(map, m[1]) : null, key = b && b.dataset ? b.dataset.report : '';
+      var on = x && key ? ((reportsOf(r) || { list: [] }).list).filter(function (it) { return it.g.step === x.step.id; }).map(function (it) { return it.g.key; }) : [], n = on.indexOf(key);
+      if (n < 0) { ACTIONS.goto(id); return; }
+      selectStep(x.step.id); state.refOpen = true; state.unfold[x.phase.id] = true;
+      ensureListItemVisible(V.reportListId(r, x.step.id), key, { focus: '#rep-' + n + '-h', word: 'opened' });
+      render();
+    },
+    /* Every copy of a report, 50 at a time in its Details fold (2.11), with focus on the first one the first 10 didn't show. */
+    'rep-copies': function (id) { if (!id) return; (state.repCopies = state.repCopies || {})[id] = true; var to = PF.vk.byId('repc-' + id + '-10'); state.focus = to; state.focusWins = true; revealAt(to, true); render(); },
+    /* A kept reason on a report that's gone (2.11): copied, since it can't be saved. */
+    'rep-copy-reason': function (id) { var el = document.getElementById(PF.reports.reasonId(id)); copyText(el ? String(el.value || '') : repDraft(id) || '', null, 'Copied.'); },
+    'rep-cancel': function (id) { delete repDrafts()[id]; delete repSnaps()[id]; repBoxes = repBoxes.filter(function (x) { return x.key !== id; }); state.repPick = null; if (state.fieldErr && /^rep-reason-/.test(state.fieldErr.id)) state.fieldErr = null; state.focus = '[data-act="rep-accept"][data-id="' + cssEsc(id) + '"], [data-act="rep-decline"][data-id="' + cssEsc(id) + '"]'; render(); },
     'rep-accept-go': function (id) { acceptReport(id); },
     'rep-decline-go': function (id) { decideOnReport(id, 'declined'); },
     'rep-reopen': function (id) { decideOnReport(id, 'open'); },
@@ -6295,7 +6319,12 @@
       state.focus = mode === 'differently' ? 'corr-happened' : corrFocus(op); state.focusEnd = true; render();
     },
     'partial-dismiss': function (id) { delete state.partial[id]; render(); },
-    'goto-corr': function (id) { var el = document.getElementById(id); if (!el) return; if (el.scrollIntoView) el.scrollIntoView({ block: 'nearest' }); if (el.focus) el.focus(); },
+    /* View correction (Done differently): the correction is drawn whatever the page of the step's list (2.11), then focused and
+       brought into view. */
+    'goto-corr': function (id) {
+      var r = ctx.run(), cid = String(id || '').replace(/^corr-/, ''); if (!r || !state.sel || !cid) return;
+      ensureListItemVisible('rcorr:' + state.runKey + ':' + state.sel, cid, { focus: PF.vk.byId('corr-' + cid), word: 'opened' }); render();
+    },
     'corr-menu': function () { var f = state.corrForm; if (!f) return; f.menu = !f.menu; state.focus = f.menu ? '.corr-menu-list button' : '[data-act="corr-menu"]'; render(); },
     'corr-op': function (id) {
       var f = state.corrForm; if (!f || PF.corrections.OPS.indexOf(id) < 0) return;
@@ -6335,9 +6364,11 @@
       decideCorr(id, 'included', '', 'Noted: v' + v + ' has it.', null, { version: v, folder: f });
     },
     /* Home acknowledgments: View change opens the process's corrections; Dismiss is remembered in this browser only. */
+    /* It lands on the group it's about (2.11), drawn whatever the page, focused and in view; fx-h when that group is gone. */
     'ack-view': function (id, b) {
       var pid = b && b.dataset.process; if (!pid) return;
-      ACTIONS['open-process'](pid); state.fixFilter = 'all'; (state.disc = state.disc || {})['fx:' + pid] = true; state.focus = 'fx-h'; render();
+      ACTIONS['open-process'](pid); state.fixFilter = 'all'; (state.disc = state.disc || {})['fx:' + pid] = true; state.focus = 'fx-h';
+      corrShow(pid, b.dataset.group); render();
     },
     'ack-dismiss': function (id) {
       if (!ACK_KEY.test(id || '')) return;
@@ -6405,7 +6436,7 @@
       ta.focus(); ta.setSelectionRange(start, start + (lines[n - 1] || '').length);
       var lh = parseFloat(window.getComputedStyle ? getComputedStyle(ta).lineHeight : '') || 20; ta.scrollTop = Math.max(0, (n - 4) * lh);
     },
-    'corr-filter': function (id) { state.fixFilter = id === 'all' ? 'all' : 'open'; state.focus = '[data-act="corr-filter"][data-id="' + state.fixFilter + '"]'; render(); },
+    'corr-filter': function (id) { state.fixFilter = id === 'all' ? 'all' : 'open'; state.more = Object.assign({}, state.more); delete state.more['fx:' + state.processId]; state.focus = '[data-act="corr-filter"][data-id="' + state.fixFilter + '"]'; render(); },
     'copy-corr-brief': function (id) {
       var p = procFind(id); if (!p) return;
       /* The brief quotes the steps as the draft has them now, since that's the file the assistant edits. */
@@ -6458,7 +6489,9 @@
     'exit-mission': function () { reenterRun(); render(); },
     /* The key other apps use for this run (flightdeck run <folder> <key> --json). */
     'copy-run-key': function (id) { copyText(id, null, 'Copied the run key.'); },
-    'copy-receipt': function () { var pre = document.getElementById('receipt-text'); copyText(pre ? pre.textContent : '', pre); },
+    /* The receipt's text is worked out when it's copied (2.11), with every report and correction, and put in its hidden box for
+       a browser that can't copy by itself. */
+    'copy-receipt': function () { var pre = document.getElementById('receipt-text'), text = V.receiptText(ctx); if (pre) pre.textContent = text; copyText(text, pre); },
     zoom: function (id, b) { var r = ctx.run(), x = r && M.findStep(R.mapOf(r), id); if (!x) return; openLightbox(x.step.shots.map(function (s) { return { src: s.src, caption: s.caption }; }), +b.dataset.i); },
     'zoom-phase': function (id, b) { var r = ctx.run(), ph = r && R.mapOf(r).phases.filter(function (x) { return x.id === id; })[0]; if (!ph) return; openLightbox(ph.shots.map(function (s) { return { src: s.src, caption: s.caption }; }), +b.dataset.i); },
     'zoom-gate': function (id, b) { var r = ctx.run(), ph = r && R.mapOf(r).phases.filter(function (x) { return x.gate.id === id; })[0]; if (!ph) return; openLightbox(ph.gate.shots.map(function (s) { return { src: s.src, caption: s.caption }; }), +b.dataset.i); },
@@ -6552,7 +6585,11 @@
           render();
         });
       } : function () { say('Correction saved on this computer. It doesn\'t answer the step.', 'good'); state.msg.quiet = true; state.focus = '[data-act="corr-open"][data-id="' + cssEsc(step) + '"][data-mode="correct"]'; return Promise.resolve(); };
-      return then().then(function () { return withNote && state.runKey === key ? refreshRun() : null; }).then(function () { render(); });
+      /* The new correction is drawn whatever the page of the step's list (2.11), focused and brought into view. */
+      return then().then(function () { return withNote && state.runKey === key ? refreshRun() : null; }).then(function () {
+        if (note && state.view === 'run' && state.runKey === key && ng === gen) ensureListItemVisible('rcorr:' + key + ':' + step, note.id, { focus: PF.vk.byId('corr-' + note.id), word: 'added' });
+        render();
+      });
     }, function (e) { endBusy(); f.sending = false; settled(); if (ng !== gen) return; say('Couldn\'t save. Try again. ' + e.message, 'bad'); render(); });
   }
   /* A note correction's draft: by folder, run and the phase or gate it's about. */
@@ -6700,6 +6737,21 @@
   var repBoxes = [], repBoxFs = null;
   function repDrafts(fk) { var all = state.repDrafts || (state.repDrafts = {}), k = fk == null ? fsKey() : fk; return all[k] || (all[k] = Object.create(null)); }
   function repDraft(key) { var d = repDrafts(); return typeof d[key] === 'string' ? d[key] : null; }
+  /* What a report with a kept reason said (2.11), beside the reason, per folder: so if its files go, its card can still be drawn
+     from this, as Removed elsewhere, with the reason. */
+  function repSnaps(fk) { var all = state.repSnaps || (state.repSnaps = {}), k = fk == null ? fsKey() : fk; return all[k] || (all[k] = Object.create(null)); }
+  function repSnapNow(r) {
+    var d = repDrafts(), keys = Object.keys(d), b = keys.length && r ? reportsOf(r) : null; if (!b) return;
+    var sn = repSnaps(), rk = r.process + '/' + r.id;
+    b.list.forEach(function (it) { if (typeof d[it.g.key] === 'string') sn[it.g.key] = { run: rk, step: it.g.step, producer: it.g.producer, says: V.reportSays(it.g.report) }; });
+  }
+  /* Kept reasons on a run's step whose report is no longer in the folder. */
+  function repGone(r, stepId) {
+    var d = repDrafts(), sn = repSnaps(), rk = r.process + '/' + r.id, b = reportsOf(r), here = Object.create(null);
+    if (!b) return [];
+    b.list.forEach(function (it) { here[it.g.key] = true; });
+    return Object.keys(d).filter(function (k) { return typeof d[k] === 'string' && sn[k] && sn[k].run === rk && sn[k].step === stepId && !here[k]; }).sort().map(function (k) { return { key: k, snap: sn[k], text: d[k] }; });
+  }
   /* Only the boxes the last render drew hold typing. */
   function repHarvest() {
     if (!repBoxes.length) return;
@@ -6707,6 +6759,7 @@
     repBoxes.forEach(function (b) { var el = document.getElementById(b.id); if (el) d[b.key] = String(el.value == null ? '' : el.value); });
   }
   function repNoteDrawn(page) {
+    repSnapNow(ctx.run && ctx.run());
     var d = repDrafts(), keys = Object.keys(d), p = state.repPick;
     if (p && p.mode === 'decline' && keys.indexOf(p.key) < 0) keys.push(p.key);
     repBoxFs = fsKey();
@@ -7415,7 +7468,7 @@
       return;
     }
     if (e.target.id === 'rel-area') { state.rel.area = e.target.value; render(); }
-    if (e.target.id === 'ins-folder' && state.processId) { (state.insFolder = state.insFolder || {})[state.processId] = e.target.value; state.more = Object.assign({}, state.more, { 'ins-hot': 0, 'ins-dur': 0 }); render(); }
+    if (e.target.id === 'ins-folder' && state.processId) { (state.insFolder = state.insFolder || {})[state.processId] = e.target.value; state.more = Object.assign({}, state.more, { 'ins-hot': 0, 'ins-dur': 0, 'ins-ph': 0, 'ins-rot': 0, 'ins-rolecols': 0, 'ins-notes': 0 }); render(); }
     if (/^rf-(process|folder|outcome|from|through)$/.test(e.target.id || '')) {
       var rf = state.runFilter && !state.runFilter.cohort ? Object.assign({}, state.runFilter) : {}, rk = e.target.id.slice(3);
       if (e.target.value) rf[rk] = String(e.target.value).slice(0, 120); else delete rf[rk];
@@ -7588,6 +7641,12 @@
     var list = V.insightsFolders(ctx, p), folder = V.insightsChosen(ctx, p, list); if (!folder) return;
     var sp = PF.insights.spec(V.insightsOf(ctx, pid, folder, false), path, data.runs); if (!sp) return;
     var back = { process: pid, folder: folder, scrollY: window.scrollY || window.pageYOffset || 0, focus: '[data-act="ins-runs"][data-id="' + cssEsc(path) + '"]' };
+    /* The row the count is in, when it's in a paged list (2.11): Back draws it whatever the page. */
+    var pm = /^step:([^:]+):/.exec(path) || null, ph = /^(?:phase|gate):([^:]+)/.exec(path) || null;
+    if (pm) { back.list = 'ins-hot'; back.key = 'ins-' + pm[1]; back.head = 'ins-hot-h'; }
+    else if (ph) { back.list = 'ins-ph'; back.key = 'ins-ph-' + ph[1]; back.head = 'ins-ph-h'; }
+    /* And how far that list was shown, so the page is as long as it was and the scroll comes back to the same place. */
+    if (back.list) back.more = (state.more || {})[back.list] || 0;
     if (!go({ view: 'runs' })) return;
     state.runFilter = Object.assign(sp, { cohort: true, back: back }); state.more = Object.assign({}, state.more, { 'runs-cohort': 0 });
     state.focus = 'rf-h'; render(); window.scrollTo(0, 0);
@@ -7610,9 +7669,16 @@
     if (narrow() && state.refOpen && state.view === 'run') state.refOpen = false;
     if (t.view === 'run') {
       if (!t.run || !ctx.findRun(t.run)) return false;
+      /* A correction, fix or map note (2.11): on a step, its row in the inspector's Corrections, kept past the page; on a phase
+         or a gate, its group on the checklist's page. */
+      var tr = ctx.findRun(t.run), cn = t.note ? (tr._notes || []).filter(function (n) { return n.id === t.note && (n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map'); })[0] : null;
+      if (cn && !t.step) { var cg = corrGroupOf(tr, cn.id); if (cg) return go({ view: 'process', process: tr.process, group: cg }); }
       if (t.run !== state.runKey || !inRun()) openRun(t.run); else setView('run');
       var r = ctx.run(), x = t.step ? M.findStep(R.mapOf(r), t.step) : null;
-      if (x) {
+      if (x && cn) {
+        state.unfold[x.phase.id] = true; selectStep(x.step.id); state.refOpen = true;
+        ensureListItemVisible('rcorr:' + t.run + ':' + x.step.id, cn.id, { focus: PF.vk.byId('corr-' + cn.id), word: 'opened' });
+      } else if (x) {
         state.unfold[x.phase.id] = true; selectStep(x.step.id); state.refOpen = !narrow();
         state.focus = '[data-act="select"][data-id="' + cssEsc(x.step.id) + '"]'; revealAt('#step-' + cssEsc(x.step.id));
         var mark = state.flash = { ids: [x.step.id], notes: t.note ? [t.note] : [] };
@@ -7625,6 +7691,8 @@
       ACTIONS['open-process'](t.process);
       if (t.mapVer) ACTIONS['view-version'](t.mapVer);
       if (t.ptab && t.ptab !== 'overview') ACTIONS.ptab(t.ptab);
+      /* A correction's group (2.11): Corrections unfolded, the group drawn whatever the page and Open/All, and focused. */
+      if (t.group && corrShow(t.process, t.group)) { (state.disc = state.disc || {})['fx:' + t.process] = true; render(); }
       /* A step opens in the checklist, at that step, with focus on it. */
       if (t.step) {
         var sid = 'cl-st-' + t.step;
@@ -7639,6 +7707,20 @@
     if (t.view === 'runs' && (t.filter === 'mine' || t.filter === 'all')) state.filter = t.filter;
     ACTIONS.nav(t.view || 'home');
     return true;
+  }
+  /* A correction group shown on its checklist's page whatever the page or Open/All (2.11): drawn as Process › Corrections'
+     just-shown item, focused and brought into view. false when the group isn't there. */
+  function corrShow(pid, gid) {
+    var g = gid ? ctx.corrections(pid).filter(function (x) { return x.id === gid; })[0] : null;
+    if (!g) return false;
+    (state.disc = state.disc || {})['fx:' + pid] = true;
+    ensureListItemVisible('fx:' + pid, g.id + '#0', { focus: PF.vk.byId('fxg-' + g.id), word: 'opened' });
+    return true;
+  }
+  /* The group on a run's checklist a correction note is in. */
+  function corrGroupOf(r, noteId) {
+    var g = ctx.corrections(r.process).filter(function (x) { return x.members.some(function (m) { return m.id === noteId && m.run === r.id; }); })[0];
+    return g ? g.id : null;
   }
   /* What go() would lose: the first control on the page or in the open dialog whose value isn't what the page drew
      (input and textarea: value vs defaultValue; checkbox and radio: checked vs defaultChecked; select: the chosen option vs

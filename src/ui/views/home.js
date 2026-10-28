@@ -135,7 +135,7 @@
         : 'Your corrections to ' + stepName(gs[0]) + (gs.length === 2 ? ' and ' + stepName(gs[1]) : ' and ' + (gs.length - 1) + ' other steps') + ' are published in v' + a.version + '.';
       else title = nameOf(ctx, a.by) + ' declined your correction: ' + a.reason;
       var sub = ctx.processTitle(a.process) + (a.kind === 'declined' ? ' · ' + stepName(a.group) : '');
-      return '<li class="todo ack ' + a.kind + '" id="ack-' + x.n + '"><div><b tabindex="-1">' + esc(title) + '</b><div class="small">' + esc(sub) + '</div></div><span class="row"><button class="btn" data-act="ack-view" data-id="' + esc(a.key) + '" data-process="' + esc(a.process) + '">View change</button>' +
+      return '<li class="todo ack ' + a.kind + '" id="ack-' + x.n + '"><div><b tabindex="-1">' + esc(title) + '</b><div class="small">' + esc(sub) + '</div></div><span class="row"><button class="btn" data-act="ack-view" data-id="' + esc(a.key) + '" data-process="' + esc(a.process) + '" data-group="' + esc(a.group ? a.group.id : a.groups && a.groups[0] ? a.groups[0].id : '') + '">View change</button>' +
         '<button class="mini" data-act="ack-dismiss" data-id="' + esc(a.key) + '" aria-label="Dismiss: ' + esc(title) + '">Dismiss</button></span></li>';
     }).join('') + '</ul>'; } }) + '</section>';
   }

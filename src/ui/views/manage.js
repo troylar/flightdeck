@@ -131,11 +131,14 @@
     var C = PF.corrections, open = V.fixesOf(ctx, p).filter(function (g) { return g.status === 'open'; });
     if (!open.length) return '';
     var o = PF.outline.parse(text), on = !ctx.state.disc || ctx.state.disc['md-corr'] !== false;
-    return '<details class="md-corr" data-disc="md-corr"' + (on ? ' open' : '') + '><summary class="small">Open corrections · ' + open.length + '</summary><ul class="small">' + open.map(function (g) {
+    /* 50 at a time (2.11): each one's line is looked up only when it's drawn. */
+    var row = function (g) {
       var s = g.target.step && o.steps.filter(function (x) { return x.id === g.target.step; })[0], ph = !s && (g.target.gate ? o.phases.filter(function (x) { return x.gate && x.gate.id === g.target.gate; })[0] : g.target.phase && o.phases.filter(function (x) { return x.id === g.target.phase; })[0]);
       var at = s ? s.line : ph && g.target.gate ? ph.gate.line : ph ? ph.line : -1, name = s ? s.text : ph && g.target.gate ? 'Gate: ' + ph.gate.title : ph ? 'Phase: ' + ph.title : C.targetName(g);
-      return '<li><span class="md-corr-t">' + esc(C.OP_LABEL[g.change.op]) + ': ' + esc(name) + '</span>' + (at >= 0 ? '<button type="button" class="linkish" data-act="corr-goto-line" data-id="' + (at + 1) + '">Go to line ' + (at + 1) + '</button>' : '<span>Not in the draft</span>') + '</li>';
-    }).join('') + '</ul></details>';
+      return '<li id="' + esc('mdc-' + g.id) + '" tabindex="-1"><span class="md-corr-t">' + esc(C.OP_LABEL[g.change.op]) + ': ' + esc(name) + '</span>' + (at >= 0 ? '<button type="button" class="linkish" data-act="corr-goto-line" data-id="' + (at + 1) + '">Go to line ' + (at + 1) + '</button>' : '<span>Not in the draft</span>') + '</li>';
+    };
+    return '<details class="md-corr" data-disc="md-corr"' + (on ? ' open' : '') + '><summary class="small">Open corrections · ' + open.length + '</summary>' +
+      K.list(ctx.state, 'md-corr:' + p.id, open, { keyOf: function (g) { return g.id; }, focusOf: function (k) { return K.byId('mdc-' + k); }, draw: function (shown) { return '<ul class="small">' + shown.map(row).join('') + '</ul>'; } }) + '</details>';
   }
 
   /* ---------- a new process ---------- */

@@ -200,28 +200,39 @@
     } else if (e.big) detail = '<p class="small">Too big to keep line by line; only its fingerprints were kept.</p>';
     else detail = histHunks(e, item).map(function (h) { return histBa(h.del.join('\n'), h.ins.join('\n'), 'Line ' + (h.at + 1) + ': before and after'); }).join('');
     var open = o.compare === e.ref, canReverse = PF.timeline.reversible(e);
-    return '<li class="hist-entry saved"><div class="hist-what">' + esc(histSource(e)) + '</div><div class="small">' + esc(who) + (ai ? ' (AI assistant)' : '') + (e.at ? ' · ' + esc(U.when(e.at)) : '') + '</div>' +
+    return '<li class="hist-entry saved" id="' + esc('hist-e-' + e.ref) + '" tabindex="-1"><div class="hist-what">' + esc(histSource(e)) + '</div><div class="small">' + esc(who) + (ai ? ' (AI assistant)' : '') + (e.at ? ' · ' + esc(U.when(e.at)) : '') + '</div>' +
       (e.units.length ? '<ul class="hist-units small">' + e.units.map(function (u) { return '<li>' + esc(u) + '</li>'; }).join('') + '</ul>' : '') + detail +
       '<div class="row hist-acts"><button type="button" class="mini" data-act="hist-compare" data-id="' + esc(e.ref) + '" aria-expanded="' + open + '">Compare</button>' +
       (canReverse ? '<button type="button" class="mini" data-act="hist-reverse" data-id="' + esc(e.ref) + '">Reverse this change</button>' : '') + '</div>' +
       (open ? histCompare(e, o, item) : '') + '</li>';
   }
+  /* Newest first, 50 at a time in the dialog (2.11); an entry is built only when it's drawn, and the one being compared is
+     always drawn. */
   function savedHistory(ctx, o) {
     var s = o.saved || {}, item = o.savedItem || o.item, n = 0, list = '';
     if (s.state === 'none') return '<p class="small">Saved history starts once this step type is saved.</p>';
     if (s.state === 'error') return '<p class="small" role="status">Couldn\'t read the saved history: ' + esc(s.msg || '') + '</p>';
     if (s.state !== 'ok') return '<p class="small" role="status">Reading the saved history…</p>';
-    s.items.forEach(function (x) {
-      if (x.gap) { if (!item) list += '<li class="hist-mark hist-outside"><b>Changed outside Flightdeck</b> · by hand, by an AI assistant, or by a copy of Flightdeck that doesn\'t keep history.</li>'; return; }
-      if (x.pub) { if (!item) list += '<li class="hist-mark hist-pub"><b>Published v' + esc(String(x.pub.version)) + '</b> · ' + esc(nameOf(ctx, x.pub.by)) + (x.pub.at ? ' · ' + esc(U.when(x.pub.at)) : '') + '</li>'; return; }
+    var rows = [];
+    s.items.forEach(function (x, i) {
+      if (x.gap || x.pub) { if (!item) rows.push({ x: x, k: 'm' + i }); return; }
       if (item && x.entry.items.indexOf(item) < 0) return;
-      n++; list += savedEntry(ctx, o, x.entry, item);
+      n++; rows.push({ x: x, k: 'e' + x.entry.ref });
     });
+    var row = function (r) {
+      var x = r.x, mid = ' id="hist-' + esc(r.k) + '" tabindex="-1"';
+      if (x.gap) return '<li class="hist-mark hist-outside"' + mid + '><b>Changed outside Flightdeck</b> · by hand, by an AI assistant, or by a copy of Flightdeck that doesn\'t keep history.</li>';
+      if (x.pub) return '<li class="hist-mark hist-pub"' + mid + '><b>Published v' + esc(String(x.pub.version)) + '</b> · ' + esc(nameOf(ctx, x.pub.by)) + (x.pub.at ? ' · ' + esc(U.when(x.pub.at)) : '') + '</li>';
+      return savedEntry(ctx, o, x.entry, item);
+    };
+    var focusOf = function (k) { return /^e/.test(k) ? K.byId('hist-e-' + k.slice(1)) : '#hist-' + k; };
+    list = K.list(ctx.state, 'hist', rows, { inDialog: true, keyOf: function (r) { return r.k; }, focusOf: focusOf, keep: o.compare ? ['e' + o.compare] : [], keptLabel: 'The one you\'re comparing',
+      draw: function (shown) { return '<ol class="hist-list">' + shown.map(row).join('') + '</ol>'; } });
     var other = s.unknown && s.unknown.length ? '<p class="small">Not read, since they aren\'t history files: ' + s.unknown.map(esc).join(', ') + '.</p>' : '';
     if (s.skipped) other += '<p class="small">' + s.skipped + (s.skipped === 1 ? ' older line' : ' older lines') + ' in the history files ' + (s.skipped === 1 ? 'isn\'t' : 'aren\'t') + ' shown: only each file\'s newest 2,000 are read.</p>';
     var bad = s.bad ? '<p class="small">' + s.bad + (s.bad === 1 ? ' line' : ' lines') + ' in the history files couldn\'t be read and ' + (s.bad === 1 ? 'isn\'t' : 'aren\'t') + ' shown.</p>' : '';
-    if (!n) return '<p class="small">' + (item ? 'No saved changes to it yet.' : 'No saved changes yet. Each save from now on is kept here.') + '</p>' + (list && !item ? '<ol class="hist-list">' + list + '</ol>' : '') + bad + other;
-    return '<ol class="hist-list">' + list + '</ol>' + bad + other;
+    if (!n) return '<p class="small">' + (item ? 'No saved changes to it yet.' : 'No saved changes yet. Each save from now on is kept here.') + '</p>' + (rows.length && !item ? list : '') + bad + other;
+    return list + bad + other;
   }
 
   /* ---------- Starting a linked step's child (2.8): what it passes, read-only, and the boxes it asks ---------- */
