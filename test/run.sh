@@ -40,6 +40,8 @@ test/find.test.js -
 test/find-runs.test.js -
 test/find-process.test.js 0/2
 test/find-process.test.js 1/2
+test/find-notes.test.js 0/2
+test/find-notes.test.js 1/2
 test/ui-states.test.js -
 test/reports.test.js -
 test/insights.test.js -

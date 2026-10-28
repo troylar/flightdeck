@@ -202,6 +202,10 @@ function make(opts) {
     put('skills/old-whole-skill.json', json({ name: 'old-whole-skill', implements: 'steps@1', version: '0.9.0', location: 'skills/old' }));
     /* A draft with 400 Run a command steps missing their command: 400 checks. */
     put('maps/drafts/commands.md', head('commands', 'Commands to fill in', { group: 'Busy' }) + phases(4, S.steps / 4, n => 'Run command ' + n, { type: 'run.command' }));
+    /* 30 linked steps passing a detail their child's latest version doesn't have (slice 5): one notice, not 30. */
+    publish(head('linkkid', 'Linked child', { group: 'Busy', context: 'region' }) + phases(1, 1, n => 'Child step ' + n));
+    publish(head('linker', 'Many linked steps', { group: 'Busy', context: 'env' }) + '## Ship · READ-DO {#ship}\n' +
+      Array.from({ length: 30 }, (x, i) => '- [ ] {run.process} Start child ' + i + ' {#lk' + i + '}\n  process: linkkid\n  pass: environment=^env\n').join(''));
     /* 300 drafts that say the same process. */
     for (let i = 0; i < S.many; i++) put('maps/drafts/dupe-' + pad(i, 3) + '.md', head('dupes', 'Duplicated draft', { group: 'Busy' }) + phases(1, 1, () => 'Draft ' + i));
 

@@ -104,7 +104,18 @@ const REGISTRY = [
   { name: 'a version\'s Show changes, its lines: the changes, a line around each and the gaps', rows: n => n.tag === 'span' && n.parent && cls(n.parent, 'diff'), bound: 50 + 2 * 50 + 51, per: 'parent' },
   { name: 'saved history (hist), and the one being compared', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'hist-list'), bound: 50 + 1 },
   { name: 'a correction\'s Who should do it (corr-roles), and the roles ticked', rows: n => n.tag === 'label' && within(n, x => x.tag === 'fieldset' && cls(x, 'corr-roles')), bound: 20 + 2 },
-  { name: 'Earlier answers and Archived answers (ans, arch)', rows: n => n.tag === 'li' && /^(ans|arch)-/.test(n.attrs.id || ''), bound: 20, per: 'parent' }
+  { name: 'Earlier answers and Archived answers (ans, arch)', rows: n => n.tag === 'li' && /^(ans|arch)-/.test(n.attrs.id || ''), bound: 20, per: 'parent' },
+  /* Slice 5. The step-note thread (notes:<run>:<step>): the newest 20, and the one a search or a save showed you. Earlier and
+     Archived answers share ul.tnotes; they're counted above, by their ans- and arch- ids, not here. */
+  { name: 'the step-note thread (notes), the newest 20 and the one shown from earlier', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'tnotes') && /^tn-/.test(n.attrs.id || ''), bound: 20 + 1 },
+  { name: 'Folder health issues (hz-stop, hz-look), 50 a section', rows: n => n.tag === 'li' && cls(n, 'hz-issue'), bound: 50 + 50 },
+  { name: 'Settings, People (people), the one being made owner and the one just added', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'pp-list'), bound: 50 + 2 },
+  /* D10: a list joined into one line shows 50 names; a notice repeated per item is one notice with a paged fold. */
+  { name: 'the legacy v0.1 runs, joined into one line (legacy), 50 names', count: h => (h.match(/Legacy run \d+/g) || []).length, bound: 50 },
+  { name: 'a duplicate-draft warning\'s names (dupes:<process>), in its fold', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'sd-names'), bound: 50 },
+  { name: 'a report\'s differing copies, named in its notice\'s fold (repdiff:<report>)', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'rep-names'), bound: 50, per: 'parent' },
+  { name: 'a report\'s differing copies, every name on the screen: the notice\'s fold and the card\'s copies', count: h => (h.match(/diffcopy \(\d+\)/g) || []).length, bound: 50 + 50 },
+  { name: 'linked steps that can\'t start their child, one notice with its fold (links-broken:<process>)', rows: n => n.tag === 'li' && within(n, x => cls(x, 'links-broken')), bound: 20 }
 ];
 /* Drawn in full on purpose, each with its reason. A capped one is also in REGISTRY at its cap. */
 const STRUCTURE = n => (n.tag === 'li' && (cls(n, 'step') || cls(n, 'gate'))) || (n.tag === 'section' && cls(n, 'phase')) ||
@@ -120,6 +131,7 @@ const EXEMPT = [
   { why: 'bundled with the app, not the team folder: What\'s new and the built-in step types', rows: n => within(n, x => /\b(rel-|rn-)/.test(x.attrs.class || '') || x.attrs['data-disc'] === 'types-built') },
   { why: 'team values are capped by the format (registered at 100)', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'tv-list') },
   { why: 'a Start or Plan form\'s roles not drawn keep their value in a hidden field each (nothing shown), so the form starts or plans what 2.10 did, and the form\'s own mode field', rows: n => n.tag === 'input' && n.attrs.type === 'hidden' && ('data-role' in n.attrs || n.attrs.id === 'start-mode') && within(n, x => x.tag === 'form' && /^(start|plan)-form$/.test(x.attrs.id || '')) },
+  { why: 'a step type\'s Group and Tags suggestions are native datalists, which the browser filters as you type', rows: n => n.tag === 'option' && n.parent && n.parent.tag === 'datalist' },
   { why: 'the Connection check is left unchanged in 2.11', rows: n => within(n, x => /^(conn|cn-)/.test(x.attrs.class || '') || /^conn/.test(x.attrs.id || '')) }
 ];
 const inIns = n => within(n, x => x.tag === 'section' && cls(x, 'ins'));
@@ -127,14 +139,7 @@ const inDisc = d => n => within(n, x => x.attrs['data-disc'] === d);
 /* Lists the later slices of 2.11 bound, each with the slice that bounds it (plan section "Slices"). The slice removes its
    entries and registers the bound. An entry not drawn over 25 on a screen it names fails, so none can outstay its slice.
    slice null: a list the plan's D7 doesn't have yet; reported, not assigned. */
-const PENDING = [
-  { slice: 5, name: 'the step-note thread', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'tnotes'), on: ['The busy run', 'The busy run, picked up'] },
-  { slice: 5, name: 'Folder health issues', rows: n => n.tag === 'li' && cls(n, 'hz-issue'), on: ['Folder health'] },
-  { slice: 5, name: 'Settings, People', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'pp-list'), on: ['Settings'] },
-  { slice: 5, name: 'a duplicate-draft warning\'s names (D10)', rows: n => n.tag === 'code' && within(n, x => cls(x, 'notice')), on: ['Duplicated draft'] },
-  { slice: 5, name: 'the legacy v0.1 runs, joined into one line (D10)', count: h => (h.match(/Legacy run \d+/g) || []).length, on: ['Runs'] },
-  { slice: 5, name: 'a report\'s conflict warning, its copies joined into one line (D10)', count: h => (h.match(/diffcopy \(\d+\)/g) || []).length, on: ['The busy run, step 3'] }
-];
+const PENDING = [];
 
 /* ---------- checking one screen ---------- */
 /* Every crowd on the screen: more than 25 children of one tag and class. */
@@ -287,6 +292,7 @@ const SCREENS = [
   ['Four hundred steps › Edit', openProc('steps', 'edit')],
   ['Commands to fill in', openProc('commands')],
   ['Duplicated draft', openProc('dupes')],
+  ['Many linked steps', openProc('linker')],
   ['Landed change', openProc('landed')],
   ['Busy run\'s checklist', openProc('busy')],
   ['Start a run with 300 roles', openProc('roles', null), { start: 'roles' }],
@@ -314,8 +320,8 @@ rule('D8: Join\'s Who are you? with 500 people', async () => {
   assert.deepStrictEqual([...c.pending], PENDING.filter(p => (p.on || []).indexOf('Join') >= 0).map(p => p.name));
 });
 
-/* The check is itself checked: with paging off for one list, that list must fail it. A flat page, the tree, a select and
-   the nested list (corrections, one page across groups) here; the tail (slice 5) is added by the slice that pages it. */
+/* The check is itself checked: with paging off for one list, that list must fail it. A flat page, the tree, a select, the
+   nested list (corrections, one page across groups) and the tail (the step-note thread). */
 const PAGE_OFF = [
   { list: 'runs-running', kind: 'flat', screen: 'Runs', go: SCREENS.filter(s => s[0] === 'Runs')[0][1], expect: /run cards .* draws \d+, over its bound/ },
   { list: 'processes', kind: 'tree', screen: 'Checklists', go: SCREENS.filter(s => s[0] === 'Checklists')[0][1], expect: /the Checklists and All skills tree, its rows .* draws \d+, over its bound of 50/ },
@@ -324,9 +330,11 @@ const PAGE_OFF = [
   { list: 'ins-hot', kind: 'flat', screen: 'Four hundred steps › How runs go', go: SCREENS.filter(s => s[0] === 'Four hundred steps › How runs go')[0][1], expect: /steps that go off-script \(ins-hot\) draws \d+, over its bound of 50/ },
   { list: 'corr-move', kind: 'select', screen: 'A run with 400 steps, moving step 200', go: openRun('steps', async a => { a.click('takeover'); await a.tick(40); a.click('select', 's199'); await a.tick(10); a.click('corr-open', 's199', { mode: 'correct' }); await a.tick(10); a.click('corr-op', 'move'); await a.tick(10); }), expect: /a bounded dropdown \(K\.select\), per select draws \d+, over its bound of 54/ },
   /* Nested: one page across groups, 400 members of one correction group. */
-  { list: 'fx:versions', kind: 'nested', screen: 'Many versions', go: openProc('versions'), expect: /Corrections, the members drawn .* draws \d+, over its bound of 52/ }
+  { list: 'fx:versions', kind: 'nested', screen: 'Many versions', go: openProc('versions'), expect: /Corrections, the members drawn .* draws \d+, over its bound of 52/ },
+  /* The tail: the busy step's 327 notes, the newest 20 drawn. */
+  { list: 'notes:' + fixture().facts.busy + ':s0', kind: 'tail', screen: 'The busy run', go: SCREENS.filter(s => s[0] === 'The busy run')[0][1], expect: /the step-note thread .* draws \d+, over its bound of 21/ }
 ];
-const PAGE_OFF_PENDING = [{ kind: 'tail', slice: 5 }];
+const PAGE_OFF_PENDING = [];
 PAGE_OFF.forEach(t => {
   rule('D8 is tested: with paging off for ' + t.list + ' (' + t.kind + '), the bounds check fails for it, and passes again with paging on', async () => {
     const { app } = await bigApp();

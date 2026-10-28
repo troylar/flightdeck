@@ -612,10 +612,9 @@ const D10_OK = [
   { file: 'run.js', has: 'nmMe(p)', why: PERSON }, { file: 'run.js', has: 'nmTo(p)', why: PERSON }, { file: 'run.js', has: 'nmRole(p)', why: PERSON },
   { file: 'setup.js', has: 'nmBk(', why: PERSON }, { file: 'setup.js', has: 'nmTo(p)', why: PERSON }
 ];
-/* Hits the plan doesn't have yet, reported rather than assigned (as D8's PENDING with slice null). */
-const D10_PENDING = [
-  { file: 'process.js', has: 'whose latest version (v', why: 'a linked step that can\'t start its child: one notice per such step of the latest version' }
-];
+/* Hits the plan doesn't have yet, reported rather than assigned (as D8's PENDING with slice null). None left: the linked
+   step that can't start its child became one notice in slice 5. */
+const D10_PENDING = [];
 rule('D10: a notice built once per item, and an option built in a .map, are each covered by a bound, exempt with a reason, or listed as pending', () => {
   const dir = path.join(__dirname, '..', 'src', 'ui', 'views'), left = [], used = new Set();
   fs.readdirSync(dir).filter(f => /\.js$/.test(f)).forEach(f => {
