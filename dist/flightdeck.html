@@ -19102,10 +19102,19 @@ PF.vk = (function () {
       items.forEach(function (it) { var k = o.keyOf(it); if (keep[k] && !inPage[k]) { extra.push(it); if (k === js) plus = true; else kept = true; } });
     }
     var h = '', more = '';
-    if (left > 0) {
-      var add = Math.min(P, left), first = o.tail ? items[from - add] : items[from + n], k = o.keyOf(first), f = o.focusOf ? o.focusOf(k) : null;
+    /* What Show more adds is counted past every row already drawn, kept ones too: up to a page of rows not on screen, the first
+       of them focused, and the page grows by however many it steps over (step) to reach them. */
+    var drawnK = Object.create(null), add = 0, step = 0, first = null;
+    extra.forEach(function (it) { drawnK[o.keyOf(it)] = true; });
+    for (var i = o.tail ? from - 1 : from + shown.length; left > 0 && add < P && i >= 0 && i < items.length; i += o.tail ? -1 : 1) {
+      step++;
+      if (drawnK[o.keyOf(items[i])]) continue;
+      add++; if (o.tail || !first) first = items[i];
+    }
+    if (add > 0) {
+      var k = o.keyOf(first), f = o.focusOf ? o.focusOf(k) : null;
       more = '<div class="row paged"><span class="small" role="status">Showing ' + shown.length.toLocaleString('en-US') + ' of ' + items.length.toLocaleString('en-US') + (plus ? ', plus the one you just ' + esc((st.justShown.words || {})[id] || o.shownWord || 'added') : '') + '</span>' +
-        '<button type="button" class="btn" data-act="more" data-id="' + esc(id) + '" data-next="' + esc(k) + '"' + (f ? ' data-focus="' + esc(f) + '"' : '') + (P !== PAGE ? ' data-page="' + P + '"' : '') + (o.inDialog ? ' data-dialog="1"' : '') + '>' +
+        '<button type="button" class="btn" data-act="more" data-id="' + esc(id) + '" data-next="' + esc(k) + '"' + (f ? ' data-focus="' + esc(f) + '"' : '') + (P !== PAGE ? ' data-page="' + P + '"' : '') + (step !== add ? ' data-step="' + step + '"' : '') + (o.inDialog ? ' data-dialog="1"' : '') + '>' +
         (o.tail ? 'Show ' + add + ' earlier' : 'Show ' + add + ' more') + '</button></div>';
     }
     var rest = extra.length ? (kept ? '<p class="small kept-h">' + esc(o.keptLabel || 'You\'re editing this one') + '</p>' : '') + o.draw(extra) : '';
@@ -19114,6 +19123,21 @@ PF.vk = (function () {
     if (o.tail) h = more + rest + o.draw(shown);
     else h = o.draw(shown) + more + rest;
     return h;
+  }
+  /* A form's roles a page at a time (2.11), as Start and Plan draw them: 20 in checklist order, with Find a role past 20. o:
+     row(role), the role's HTML; keep, the roles always drawn (given someone on this form, or showing an error); hidden(role),
+     what stands in for a role not drawn (its value in a hidden field), so the form sends exactly what it would with every role
+     drawn; focusOf, keptLabel, inDialog as K.list. Returns { box, rows, hidden }. */
+  function roleRows(st, id, roles, o) {
+    var P = o.page || 20, q = findQ(st, id), hit = finds(q), kept = Object.create(null), on = Object.create(null);
+    (o.keep || []).forEach(function (r) { kept[r] = true; });
+    var found = q ? roles.filter(function (r) { return hit([r]); }) : roles;
+    var rs = q ? roles.filter(function (r) { return kept[r] || found.indexOf(r) >= 0; }) : roles;
+    var box = roles.length > P || q ? findBox(st, id, 'Find a role', found.length, roles.length, 'role') : '';
+    var rows = list(st, id, rs, { page: P, keep: roles.filter(function (r) { return kept[r]; }), keptLabel: o.keptLabel || 'Roles you\'ve chosen someone for', keyOf: function (r) { return r; }, focusOf: o.focusOf, inDialog: o.inDialog,
+      draw: function (shown) { return shown.map(function (r) { on[r] = true; return o.row(r); }).join(''); } });
+    var hidden = o.hidden ? roles.filter(function (r) { return !on[r]; }).map(o.hidden).join('') : '';
+    return { box: box, rows: rows, hidden: hidden };
   }
   /* A list joined into one line (2.11, D10): the first 50 names, then "and 250 more" with Show more, which adds 50 and keeps
      focus on the line. name(item) is the item's escaped HTML; only the names shown are built. o: lead (the line's escaped
@@ -19262,7 +19286,7 @@ PF.vk = (function () {
   }
   function unsavedWords(ps) { return ps && ps.saved ? 'its run was saved and has changed since' : ps && ps.certain === false ? 'Flightdeck couldn\'t confirm whether its run saved' : 'its run didn\'t save'; }
   function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
-  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, finds: finds, findBox: findBox, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, joined: joined, select: select, SEL_MORE: SEL_MORE, byId: byId, PAGE: PAGE, PAGE_OFF: null, testTag: testTag, verWord: verWord };
+  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, finds: finds, findBox: findBox, roleRows: roleRows, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, joined: joined, select: select, SEL_MORE: SEL_MORE, byId: byId, PAGE: PAGE, PAGE_OFF: null, testTag: testTag, verWord: verWord };
 })();
 (function () {
   'use strict';
@@ -20419,13 +20443,15 @@ PF.vk = (function () {
     });
     h += '</div>';
     if (meta.roles.length) {
-      h += '<div class="grid2">';
-      var nmRun = PF.people.labeler(people);
-      meta.roles.forEach(function (role) {
-        h += '<label class="field" for="role-' + esc(role) + '">' + esc(role) + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '"><option value="">Nobody yet</option>' +
-          people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === st.me ? ' selected' : '') + '>' + esc(nmRun(x)) + '</option>'; }).join('') + '</select></label>';
-      });
-      h += '</div>';
+      var nmRun = PF.people.labeler(people), meOn = people.some(function (x) { return x.id === st.me; }) ? st.me : '';
+      /* 20 roles at a time with Find past 20 (2.11), as Start: a role changed on this form stays drawn, and one not drawn is
+         you, as its box would have been, in a hidden field. */
+      var tpicked = st.rolesPicked && st.rolesPicked.at === 'test:' + p.id + ':' + pub.folder ? st.rolesPicked.roles : {};
+      var tr = K.roleRows(st, 'test-roles', meta.roles, { keep: meta.roles.filter(function (role) { return !!tpicked[role]; }), focusOf: function (k) { return K.byId('role-' + k); },
+        row: function (role) { return '<label class="field" for="role-' + esc(role) + '">' + esc(role) + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '"><option value="">Nobody yet</option>' +
+          people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === st.me ? ' selected' : '') + '>' + esc(nmRun(x)) + '</option>'; }).join('') + '</select></label>'; },
+        hidden: function (role) { return '<input type="hidden" id="role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(meOn) + '">'; } });
+      h += tr.box + '<div class="grid2">' + tr.rows + '</div>' + tr.hidden;
     }
     return h + '<div class="row"><button class="btn go" type="submit" id="start-submit"' + (st.me ? '' : ' disabled') + '>' + I('play') + 'Start the test run</button><span class="small">A test run tries this staged version. It isn\'t counted in How runs go or toward a skill.</span>' + back + '</div></form>';
   }
@@ -20787,15 +20813,16 @@ PF.vk = (function () {
       return '<button class="chip' + (r.details[f] ? '' : ' empty') + '" data-act="edit" data-id="detail:' + esc(f) + '"' + (rec ? '' : ' disabled') + '><span class="k">' + (r.details[f] ? '' : 'Set ') + esc(f) + '</span>' + (r.details[f] ? '<span class="v">' + esc(r.details[f]) + '</span>' : '') + '</button>';
     }).join('');
     var nmRole = PF.people.labeler(ctx.data.people);
-    var roles = map.meta.roles.map(function (ro) {
+    /* 20 roles at a time with Find past 20 (2.11); the one being edited is always drawn. */
+    var rolePaged = K.roleRows(s, 'det-roles', map.meta.roles, { keep: map.meta.roles.filter(function (ro) { return s.edit === 'role:' + ro; }), keptLabel: 'You\'re editing this one', focusOf: function (k) { return K.byAct('edit', 'role:' + k); }, row: function (ro) {
       if (s.edit === 'role:' + ro && rec) return '<span class="inline-edit" data-scope="edit:role:' + esc(ro) + '"><label class="small" for="edit-input">' + esc(ro) + '</label><select id="edit-input"><option value="">Nobody</option>' + PF.people.sorted(ctx).filter(function (p) { return !p.inactive; }).map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === r.roles[ro] ? ' selected' : '') + '>' + esc(nmRole(p)) + '</option>'; }).join('') + '</select><button class="mini" data-act="save-edit">Save</button><button class="mini" data-act="unedit">Cancel</button></span>';
       return '<button class="chip' + (r.roles[ro] ? '' : ' empty') + '" data-act="edit" data-id="role:' + esc(ro) + '"' + (rec ? '' : ' disabled') + '><span class="k">' + esc(ro) + '</span>' + (r.roles[ro] ? avatar(ctx, r.roles[ro]) + esc(nameOf(ctx, r.roles[ro])) : 'assign') + '</button>';
-    }).join('');
+    } }), roles = rolePaged.rows;
     /* Solo runs keep collaboration out of the way: roles appear only if someone asks for them. */
     var alone = R.solo(r), roleRow = map.meta.roles.length ? (alone && !s.showRoles ? (rec ? '<button class="mini" data-act="show-roles">' + I('people') + 'Add people</button>' : '') : roles) : '';
     var h = '<section class="rw-details" id="rw-details" aria-labelledby="rw-det-h"><h2 id="rw-det-h" class="rw-h2" tabindex="-1">Details</h2>' +
       '<p class="small">' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) + ' · started ' + esc(U.when(r.created)) + ' · recorded by ' + esc(nameOf(ctx, r.recorder.person)) + ' · revision ' + (r.rev || 0) + '</p>' +
-      (det ? '<div class="chips" role="group" aria-label="Run details">' + det + '</div>' : '') + (roleRow ? '<div class="chips" role="group" aria-label="Roles">' + roleRow + '</div>' : '') +
+      (det ? '<div class="chips" role="group" aria-label="Run details">' + det + '</div>' : '') + (roleRow ? (roleRow === roles ? rolePaged.box : '') + '<div class="chips" role="group" aria-label="Roles">' + roleRow + '</div>' : '') +
       (rec ? '<p class="small">Changing a detail sends steps that used it back for a re-check, and gates that approved it need review.</p>' : '') + migrationsList(ctx, r, map);
     if (r.parent) { var pk = r.parent.process + '/' + r.parent.id, pr = ctx.findRun(pk); h += '<p class="small">' + I('nest') + ' Part of <b>' + esc(pr ? pr.title : r.parent.process) + '</b>. When this run ends, that run\'s step is checked (or blocked, if this one stops). ' + (pr ? '<button class="linkish" data-act="open-run" data-id="' + esc(pk) + '">Open it</button>' : '') + '</p>'; }
     return h + '</section>';
@@ -20935,7 +20962,7 @@ PF.vk = (function () {
       (dl ? '<dl class="corr-dl">' + dl + '</dl>' : '') + runs + who + '</details></div>';
   }
   V.fuList = fuList; V.fuRow = fuRow; V.fuPill = fuPill; V.fuPaged = fuPaged;
-  V.redline = redline; V.corrRow = corrRow; V.corrDomId = corrDomId; V.corrPill = corrPill; V.corrIndex = corrIndex; V.corrGroups = corrGroups;
+  V.redline = redline; V.corrRow = corrRow; V.corrDomId = corrDomId; V.corrItems = corrItems; V.corrPill = corrPill; V.corrIndex = corrIndex; V.corrGroups = corrGroups;
   /* The composer: Correct this step (a proposal; it doesn't answer the step) or Done differently (answers it; what happened
      first, then whether the checklist should change). The published step stays shown above it, never replaced. */
   function composer(ctx, r, map, x, f) {
@@ -21725,10 +21752,12 @@ PF.vk = (function () {
     return h;
   }
 
+  /* A correction row's own id from its list key (id, or id#n for a later note sharing that id). */
+  function corrFocus(k) { var m = /^(.*)#(\d+)$/.exec(k); return K.byId(m ? V.corrDomId(m[1], +m[2]) : V.corrDomId(k, 1)); }
   /* ---------- finishing a run ---------- */
   function finish(ctx) {
     var r = ctx.run(); if (!r) return V.run(ctx);
-    var s = ctx.state, map = R.mapOf(r), rec = ctx.recording(r), ok = R.allGatesOk(r, map), fus = r.followUps || [], cor = R.corrections(r, map), idx = cor.length ? V.corrIndex(ctx, r.process) : {};
+    var s = ctx.state, map = R.mapOf(r), rec = ctx.recording(r), ok = R.allGatesOk(r, map), fus = r.followUps || [], cor = PF.corrections.forRun(r, map, { at: true }), idx = cor.length ? V.corrIndex(ctx, r.process) : {};
     var people = PF.people.sorted(ctx).filter(function (p) { return !p.inactive; });
     var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) + '</div><h1 id="page-h" tabindex="-1">Finish ' + esc(r.title) + '</h1></div><button class="btn" data-act="exit-mission">' + I('back') + 'Back to the run</button></div>';
     if (!rec) return h + '<div class="notice warn"><span>Only the recorder can finish the run.</span></div>';
@@ -21739,9 +21768,10 @@ PF.vk = (function () {
     var nmFu = PF.people.labeler(people);
     h += '<details class="fu-add" data-disc="fu-add"' + (fuOpen ? ' open' : '') + '><summary class="btn">Add a follow-up</summary><p class="small">Work this run turned up that outlives it. It goes on the receipt and stays on its owner\'s Home until someone says what became of it.</p>' + ferr(s, 'followup') + '<div class="grid2"><label class="field" for="fu-text">What needs doing<input id="fu-text" maxlength="300" data-enter="add-followup"' + (s.fieldErr && s.fieldErr.id === 'followup' ? ' aria-invalid="true" aria-describedby="ferr-followup"' : '') + '></label><label class="field" for="fu-owner">Who<select id="fu-owner"><option value="">Nobody yet</option>' + people.map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(nmFu(p)) + '</option>'; }).join('') + '</select></label><label class="field" for="fu-ticket">Jira ticket (optional)<input id="fu-ticket" maxlength="120" placeholder="ABC-123"></label></div><button class="btn" style="align-self:flex-start" data-act="add-followup">Add follow-up</button></details></section>';
     h += !cor.length ? '<p class="small fin-none">No corrections.</p>' : '<section class="panel stack"><h2>Corrections · ' + cor.length + '</h2><p class="small">Where the checklist was wrong or the work went differently. They also wait on the checklist\'s page, where the team decides on them.</p>' +
-      K.list(s, 'fin-corr:' + r.process + '/' + r.id, cor, { keyOf: function (c) { return c.id; }, focusOf: function (k) { return K.byId('corr-' + k); }, draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (c) {
+      K.list(s, 'fin-corr:' + r.process + '/' + r.id, V.corrItems(cor), { keyOf: function (x) { return x.k; }, focusOf: corrFocus, draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) {
+        var c = x.c;
         var fu = '<button class="mini" data-act="add-followup" data-text="' + esc(('Update the checklist: ' + (c.stepText || c.step) + ' (' + (c.proposed || c.why || c.happened) + ')').slice(0, 300)) + '" data-step="' + esc(c.step) + '" data-from="' + esc(c.id) + '">Make it a follow-up</button>';
-        return V.corrRow(ctx, c, idx[c.id], { step: true, followUp: fus.some(function (f) { return f.from === c.id; }) ? '<span class="small">Follow-up added</span>' : fu });
+        return V.corrRow(ctx, c, idx[c.id], { step: true, domId: x.dom, followUp: fus.some(function (f) { return f.from === c.id; }) ? '<span class="small">Follow-up added</span>' : fu });
       }).join('') + '</ul>'; } }) + '</section>';
     h += '<section class="panel stack"><h2>End the run</h2><div class="row">' + ['Completed', 'Stopped early', 'Cancelled'].map(function (o) {
       var allowed = o !== 'Completed' || ok;
@@ -21804,8 +21834,9 @@ PF.vk = (function () {
       (rb.failed ? '<p class="small">The reports couldn\'t be read, so this receipt may be missing some.</p>' : unread ? '<p class="small">' + unread + ' report' + (unread === 1 ? ' couldn\'t' : 's couldn\'t') + ' be read; this receipt may be missing ' + (unread === 1 ? 'it' : 'them') + '.</p>' : '') +
       K.list(st, 'rcpt-reps:' + rkey, reps, { keyOf: function (g) { return g.key; }, focusOf: function (k) { return K.byId('rr-' + k); },
         draw: function (shown) { return PF.reports.lines(shown, rb ? rb.cur : null, r, map, parts.who).map(function (l, i) { return '<div class="rrow rr-rep" id="' + esc('rr-' + shown[i].key) + '" tabindex="-1"><span class="ric open">◇</span><span>' + esc(l) + '</span><span></span></div>'; }).join(''); } }) + '</div>';
-    if (cor.length) body += '<div class="r-corr"><h4><span>Corrections · ' + cor.length + '</span></h4>' + K.list(st, 'rcpt-corr:' + rkey, cor, { keyOf: function (c) { return c.id; }, focusOf: function (k) { return K.byId('corr-' + k); },
-      draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (c) { return V.corrRow(ctx, c, idx[c.id], { step: true }); }).join('') + '</ul>'; } }) + '</div>';
+    /* The page's rows are told apart when two share an id ({ at: true }); the copied text (receiptText) is as it always was. */
+    if (cor.length) body += '<div class="r-corr"><h4><span>Corrections · ' + cor.length + '</span></h4>' + K.list(st, 'rcpt-corr:' + rkey, V.corrItems(PF.corrections.forRun(r, map, { at: true })), { keyOf: function (x) { return x.k; }, focusOf: corrFocus,
+      draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) { return V.corrRow(ctx, x.c, idx[x.c.id], { step: true, domId: x.dom }); }).join('') + '</ul>'; } }) + '</div>';
     return notices(ctx) + '<div class="runhead"><div><div class="eyebrow">Receipt · Copy it into your ticket, or take a screenshot</div><h1 id="page-h" tabindex="-1">' + esc(r.title) + '</h1></div><div class="row"><button class="btn primary" data-act="copy-receipt">' + I('copy') + 'Copy for Jira</button><button class="btn" data-act="exit-mission">' + I('back') + 'Back to the run</button><button class="btn" data-act="ev-open" data-id="' + esc(r.process + '/' + r.id) + '">' + I('doc') + 'Export evidence</button>' + V.planAgain(ctx, r) + '<span class="small" id="copy-msg" aria-live="polite"></span></div></div>' +
       '<div class="receipt"><div class="head"><div><div class="eyebrow">' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) + '</div><div class="rt">' + esc(r.title) + '</div>' + (det ? '<div class="small">' + esc(det) + '</div>' : '') + '</div><div style="text-align:right"><div class="pill ' + hl.s + '">' + esc(r.ended ? K.hlText(r, hl) : 'In progress') + '</div><div class="small">started ' + esc(U.when(r.created)) + '<br>run ' + esc(r.id) + '</div></div></div>' + body +
       '<div class="small">✓ done · N/A not applicable · ■ blocked · ↻ re-check · ○ not checked</div></div><pre id="receipt-text" hidden></pre>';
@@ -22100,13 +22131,17 @@ PF.vk = (function () {
     var later = prep.rows.filter(function (x) { return x.source === 'ask' && Object.prototype.hasOwnProperty.call(setBy, x.name); });
     if (later.length) h += '<p class="small">' + later.map(function (x) { return '<b>' + esc(x.name) + '</b> is filled in by "' + esc(setBy[x.name][0].text) + '"'; }).join('; ') + '.</p>';
     if (meta.roles.length) {
-      h += '<h3>Who\'s doing what</h3><div class="grid2">';
-      meta.roles.forEach(function (role) {
-        var chosen = prep.roleVals && typeof prep.roleVals[role] === 'string' ? prep.roleVals[role] : r && r.roles && typeof r.roles[role] === 'string' ? r.roles[role] : '';
-        h += '<label class="field" for="cs-role-' + esc(role) + '">' + esc(role) + '<select id="cs-role-' + esc(role) + '" data-role="' + esc(role) + '"><option value="">Nobody yet</option>' +
-          people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === chosen ? ' selected' : '') + '>' + esc(nm(x)) + '</option>'; }).join('') + '</select></label>';
-      });
-      h += '</div>';
+      /* A hidden role holds what its box would: the person chosen, when they're on the team, else nobody. */
+      var onTeam = Object.create(null); people.forEach(function (x) { onTeam[x.id] = true; });
+      var had = function (role) { return r && r.roles && typeof r.roles[role] === 'string' ? r.roles[role] : ''; };
+      var chosenOf = function (role) { return prep.roleVals && typeof prep.roleVals[role] === 'string' ? prep.roleVals[role] : had(role); };
+      /* 20 roles at a time with Find past 20 (2.11): a role changed in this dialog stays drawn, and one not drawn keeps its
+         value in a hidden field, so the child starts with exactly the roles it would. */
+      var cr = K.roleRows(ctx.state, 'cs-roles', meta.roles, { inDialog: true, keep: meta.roles.filter(function (role) { return chosenOf(role) !== had(role); }), focusOf: function (k) { return K.byId('cs-role-' + k); },
+        row: function (role) { var chosen = chosenOf(role); return '<label class="field" for="cs-role-' + esc(role) + '">' + esc(role) + '<select id="cs-role-' + esc(role) + '" data-role="' + esc(role) + '"><option value="">Nobody yet</option>' +
+          people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === chosen ? ' selected' : '') + '>' + esc(nm(x)) + '</option>'; }).join('') + '</select></label>'; },
+        hidden: function (role) { return '<input type="hidden" id="cs-role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(onTeam[chosenOf(role)] ? chosenOf(role) : '') + '">'; } });
+      h += '<h3>Who\'s doing what</h3>' + cr.box + '<div class="grid2">' + cr.rows + '</div>' + cr.hidden;
     }
     return h + '<div class="row"><button class="btn go" type="submit" id="cs-submit">' + I('play') + 'Start the run</button><button class="mini" type="button" data-act="close-overlay">Cancel</button><span class="small">This step is checked when it completes.</span></div></form></div></div>';
   }
@@ -26546,6 +26581,7 @@ PF.examples = (function () {
     if (!state.planFormReset) app.querySelectorAll('input[id], textarea[id], select[id]').forEach(function (el) { if (el.type !== 'file' && el.type !== 'hidden' && !(el.hasAttribute && el.hasAttribute('data-bound'))) keep[el.id] = { v: el.value, c: el.checked, s: el.selectionStart, e: el.selectionEnd, box: el.type === 'checkbox' || (el.type === 'radio' && el.id.indexOf('opt-') === 0), scope: scopeOf(el) }; });
     state.planFormReset = false;
     if (ae && (app.contains(ae) || topEl.contains(ae))) focusKey = ae.id ? (/^[A-Za-z][\w-]*$/.test(ae.id) ? '#' + ae.id : PF.vk.byId(ae.id)) : ae.dataset && ae.dataset.act ? '[data-act="' + ae.dataset.act + '"]' + (ae.dataset.id ? '[data-id="' + cssEsc(ae.dataset.id) + '"]' : '') : null;
+    if (focusKey && ae.id) focusKey = noteFocus(ae.id, focusKey);
     var y = window.scrollY;
     renderTop();
     followDrafts();
@@ -26646,6 +26682,27 @@ PF.examples = (function () {
     announce();
     tick();
     lsSet('filter', state.filter);
+    var nr = /^(run|finish|receipt)$/.test(state.view) && ctx.run();
+    notesSeen = nr ? { run: state.runKey, notes: nr._notes || [] } : null;
+  }
+  /* A focused note or correction row is that note, not its place among the notes sharing its id (2.11): after a newer read
+     moves its twins, focus follows the note by its whole content (PF.search.noteFind). A note that's gone, or can no longer
+     be told apart, leaves focus on the inspector's title (the page's heading off the run screen), never on another note. */
+  var notesSeen = null;
+  function noteFocus(id, key) {
+    var was = notesSeen, r = /^(run|finish|receipt)$/.test(state.view) && ctx.run(), S = PF.search;
+    if (!was || !r || was.run !== state.runKey || was.notes === r._notes || !/^(tn|corr)-/.test(id)) return key;
+    var ats = S.noteAts(was.notes), old = null, oldKey = '';
+    for (var i = 0; i < was.notes.length && !old; i++) {
+      var n = was.notes[i], corr = n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map';
+      if (id === (corr ? V.corrDomId(n.id, ats[i]) : 'tn-' + n.step + '-' + S.noteKey(n.id, ats[i]))) { old = n; oldKey = S.noteKey(n.id, ats[i]); }
+    }
+    if (!old) return key;
+    var hit = S.noteFind(r._notes || [], S.noteTarget(state.runKey, old, was.notes.filter(function (x) { return x.id === old.id; })));
+    if (!hit) return state.view === 'run' ? '#ins-h' : '#page-h';
+    if (state.flash && state.flash.noteKey === oldKey) state.flash.noteKey = hit.key;
+    var hc = hit.n.kind === 'correction' || hit.n.kind === 'fix' || hit.n.kind === 'map';
+    return PF.vk.byId(hc ? V.corrDomId(hit.n.id, hit.k) : 'tn-' + hit.n.step + '-' + hit.key);
   }
   var lastOverlay = '', lastPick = '';
   /* The draft editor is a page of its own: the app's top bar hides and the page stops scrolling (each pane scrolls). The
@@ -29065,6 +29122,8 @@ PF.examples = (function () {
   function selBoxKept(list) { if (list) state.selFocus = list; }
   /* 50 more of a long dropdown's options (K.select); its own choice is untouched. */
   function selMore(id) { if (!id) return; var P = PF.vk.PAGE, m = state.more = Object.assign({}, state.more); m[id] = Math.max(P, m[id] || P) + P; render(); }
+  /* Focusing the box is enough, before anything is typed: a refresh that leaves 50 or fewer choices doesn't take it away. */
+  document.addEventListener('focusin', function (e) { var t = e.target; if (t && t.dataset && t.dataset.selFind) selBoxKept(findList(t)); });
   document.addEventListener('focusout', function (e) {
     var id = findList(e.target);
     if (!id || state.selFocus !== id) return;
@@ -30297,7 +30356,8 @@ PF.examples = (function () {
        of run cards. */
     more: function (id, b) {
       var d = (b && b.dataset) || {}, P = +d.page > 0 ? +d.page : PF.vk.PAGE, m = state.more = state.more || {};
-      m[id] = Math.max(P, m[id] || P) + P;
+      /* data-step: the page grows past rows already drawn (kept ones), so it adds as many new rows as it says. */
+      m[id] = Math.max(P, m[id] || P) + (+d.step > 0 ? Math.min(+d.step, 100000) : P);
       var to = d.focus || (d.next ? '[data-act="open-run"][data-id="' + cssEsc(d.next) + '"]' : null);
       if (to) { if (d.dialog) state.overlayFocus = to; else { state.focus = to; state.focusWins = true; } revealAt(to, true); }
       render();
@@ -31231,6 +31291,8 @@ PF.examples = (function () {
       if (n < 0) { ACTIONS.goto(id); return; }
       selectStep(x.step.id); state.refOpen = true; state.unfold[x.phase.id] = true;
       ensureListItemVisible(V.reportListId(r, x.step.id), key, { focus: '#rep-' + n + '-h', word: 'opened' });
+      /* On a phone the inspector sheet opens on the report, which keeps focus instead of Close, as a note from search does. */
+      sheetFor = '#rep-' + n + '-h';
       render();
     },
     /* Every copy of a report, 50 at a time in its Details fold (2.11), with focus on the first one the first 10 didn't show. */
@@ -32420,7 +32482,8 @@ PF.examples = (function () {
     if (e.target && e.target.tagName === 'SELECT' && e.target.value === PF.vk.SEL_MORE) { e.target.value = (e.target.dataset && e.target.dataset.cur) || ''; selMore(e.target.id); return; }
     /* A role given someone on Start or Plan (2.11) stays drawn through Show more, Find and a refresh, for this form only. */
     var rm = state.view === 'start' && e.target && /^role-(.+)$/.exec(e.target.id || '');
-    if (rm) { var fk = startFormKey(); if (!state.rolesPicked || state.rolesPicked.at !== fk) state.rolesPicked = { at: fk, roles: {} }; state.rolesPicked.roles[rm[1]] = true; }
+    /* A test run's form is its own form: its key is its scope (test:<process>:<stage>). */
+    if (rm) { var fk = state.testStage ? 'test:' + state.processId + ':' + state.testStage : startFormKey(); if (!state.rolesPicked || state.rolesPicked.at !== fk) state.rolesPicked = { at: fk, roles: {} }; state.rolesPicked.roles[rm[1]] = true; }
     /* A practice sample is one practice action when it's committed (Enter or leaving the box). */
     var smp = e.target && e.target.dataset && e.target.dataset.prSample;
     if (smp) {
@@ -32692,13 +32755,22 @@ PF.examples = (function () {
     ensureListItemVisible('fx:' + pid, g.id + '#0', { focus: PF.vk.byId('fxg-' + g.id), word: 'opened' });
     return true;
   }
-  /* The group on a run's checklist a correction note is in. */
+  /* The group on a run's checklist a correction note is in: the one whose member is this very note, matched on everything the
+     note says (2.11), its target included, so twins on a phase and a gate never open each other's group. A note no group holds,
+     or one that two groups could hold, opens none (as PF.search.noteFind chooses nothing rather than guess). */
   function corrGroupOf(r, n) {
-    var gs = ctx.corrections(r.process), of = function (test) { return gs.filter(function (x) { return x.members.some(function (m) { return m.id === n.id && m.run === r.id && test(m); }); }); };
-    /* Notes that share an id are told apart by what they say (2.11): a legacy fix by its kind, a correction by its reason. */
-    var exact = of(function (m) { return m.at === n.at && m.by === n.by && (n.kind === 'fix' ? m.fixKind === (n.fixKind || '') : n.kind === 'correction' ? m.why === (n.newer ? n.text || n.why || '' : n.why || '') && JSON.stringify(m.change) === JSON.stringify(n.change) : true); });
-    var g = exact[0] || of(function () { return true; })[0];
-    return g ? g.id : null;
+    var A = PF.search.noteAnchor, same = function (a, b) { return A(a == null ? null : a) === A(b == null ? null : b); };
+    var text = String(n.text || ''), fixT = n.kind === 'fix' && n.target ? n.target : null;
+    var isIt = function (m) {
+      if (m.id !== n.id || m.run !== r.id || m.at !== n.at || m.by !== n.by || !same(m.files || [], n.files || [])) return false;
+      if (n.kind === 'correction') return !m.legacy && !!m.newer === !!n.newer && same(m.target, n.target) && same(m.change, n.change) &&
+        m.why === (n.newer ? n.text || n.why || '' : n.why || '') && (m.happened || '') === (n.happened || '');
+      var why = String(m.why || '');
+      return m.legacy === n.kind && (m.fixKind || '') === (n.kind === 'fix' ? n.fixKind || '' : '') && why.slice(why.length - text.length) === text &&
+        (m.target && m.target.step || null) === ((fixT ? fixT.step : n.step) || null) && (!fixT || !fixT.phase || (m.target && m.target.phase) === fixT.phase);
+    };
+    var gs = ctx.corrections(r.process).filter(function (g) { return g.members.some(isIt); });
+    return gs.length === 1 ? gs[0].id : null;
   }
   /* What go() would lose: the first control on the page or in the open dialog whose value isn't what the page drew
      (input and textarea: value vs defaultValue; checkbox and radio: checked vs defaultChecked; select: the chosen option vs

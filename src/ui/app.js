@@ -1597,6 +1597,7 @@
     if (!state.planFormReset) app.querySelectorAll('input[id], textarea[id], select[id]').forEach(function (el) { if (el.type !== 'file' && el.type !== 'hidden' && !(el.hasAttribute && el.hasAttribute('data-bound'))) keep[el.id] = { v: el.value, c: el.checked, s: el.selectionStart, e: el.selectionEnd, box: el.type === 'checkbox' || (el.type === 'radio' && el.id.indexOf('opt-') === 0), scope: scopeOf(el) }; });
     state.planFormReset = false;
     if (ae && (app.contains(ae) || topEl.contains(ae))) focusKey = ae.id ? (/^[A-Za-z][\w-]*$/.test(ae.id) ? '#' + ae.id : PF.vk.byId(ae.id)) : ae.dataset && ae.dataset.act ? '[data-act="' + ae.dataset.act + '"]' + (ae.dataset.id ? '[data-id="' + cssEsc(ae.dataset.id) + '"]' : '') : null;
+    if (focusKey && ae.id) focusKey = noteFocus(ae.id, focusKey);
     var y = window.scrollY;
     renderTop();
     followDrafts();
@@ -1697,6 +1698,27 @@
     announce();
     tick();
     lsSet('filter', state.filter);
+    var nr = /^(run|finish|receipt)$/.test(state.view) && ctx.run();
+    notesSeen = nr ? { run: state.runKey, notes: nr._notes || [] } : null;
+  }
+  /* A focused note or correction row is that note, not its place among the notes sharing its id (2.11): after a newer read
+     moves its twins, focus follows the note by its whole content (PF.search.noteFind). A note that's gone, or can no longer
+     be told apart, leaves focus on the inspector's title (the page's heading off the run screen), never on another note. */
+  var notesSeen = null;
+  function noteFocus(id, key) {
+    var was = notesSeen, r = /^(run|finish|receipt)$/.test(state.view) && ctx.run(), S = PF.search;
+    if (!was || !r || was.run !== state.runKey || was.notes === r._notes || !/^(tn|corr)-/.test(id)) return key;
+    var ats = S.noteAts(was.notes), old = null, oldKey = '';
+    for (var i = 0; i < was.notes.length && !old; i++) {
+      var n = was.notes[i], corr = n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map';
+      if (id === (corr ? V.corrDomId(n.id, ats[i]) : 'tn-' + n.step + '-' + S.noteKey(n.id, ats[i]))) { old = n; oldKey = S.noteKey(n.id, ats[i]); }
+    }
+    if (!old) return key;
+    var hit = S.noteFind(r._notes || [], S.noteTarget(state.runKey, old, was.notes.filter(function (x) { return x.id === old.id; })));
+    if (!hit) return state.view === 'run' ? '#ins-h' : '#page-h';
+    if (state.flash && state.flash.noteKey === oldKey) state.flash.noteKey = hit.key;
+    var hc = hit.n.kind === 'correction' || hit.n.kind === 'fix' || hit.n.kind === 'map';
+    return PF.vk.byId(hc ? V.corrDomId(hit.n.id, hit.k) : 'tn-' + hit.n.step + '-' + hit.key);
   }
   var lastOverlay = '', lastPick = '';
   /* The draft editor is a page of its own: the app's top bar hides and the page stops scrolling (each pane scrolls). The
@@ -4116,6 +4138,8 @@
   function selBoxKept(list) { if (list) state.selFocus = list; }
   /* 50 more of a long dropdown's options (K.select); its own choice is untouched. */
   function selMore(id) { if (!id) return; var P = PF.vk.PAGE, m = state.more = Object.assign({}, state.more); m[id] = Math.max(P, m[id] || P) + P; render(); }
+  /* Focusing the box is enough, before anything is typed: a refresh that leaves 50 or fewer choices doesn't take it away. */
+  document.addEventListener('focusin', function (e) { var t = e.target; if (t && t.dataset && t.dataset.selFind) selBoxKept(findList(t)); });
   document.addEventListener('focusout', function (e) {
     var id = findList(e.target);
     if (!id || state.selFocus !== id) return;
@@ -5348,7 +5372,8 @@
        of run cards. */
     more: function (id, b) {
       var d = (b && b.dataset) || {}, P = +d.page > 0 ? +d.page : PF.vk.PAGE, m = state.more = state.more || {};
-      m[id] = Math.max(P, m[id] || P) + P;
+      /* data-step: the page grows past rows already drawn (kept ones), so it adds as many new rows as it says. */
+      m[id] = Math.max(P, m[id] || P) + (+d.step > 0 ? Math.min(+d.step, 100000) : P);
       var to = d.focus || (d.next ? '[data-act="open-run"][data-id="' + cssEsc(d.next) + '"]' : null);
       if (to) { if (d.dialog) state.overlayFocus = to; else { state.focus = to; state.focusWins = true; } revealAt(to, true); }
       render();
@@ -6282,6 +6307,8 @@
       if (n < 0) { ACTIONS.goto(id); return; }
       selectStep(x.step.id); state.refOpen = true; state.unfold[x.phase.id] = true;
       ensureListItemVisible(V.reportListId(r, x.step.id), key, { focus: '#rep-' + n + '-h', word: 'opened' });
+      /* On a phone the inspector sheet opens on the report, which keeps focus instead of Close, as a note from search does. */
+      sheetFor = '#rep-' + n + '-h';
       render();
     },
     /* Every copy of a report, 50 at a time in its Details fold (2.11), with focus on the first one the first 10 didn't show. */
@@ -7471,7 +7498,8 @@
     if (e.target && e.target.tagName === 'SELECT' && e.target.value === PF.vk.SEL_MORE) { e.target.value = (e.target.dataset && e.target.dataset.cur) || ''; selMore(e.target.id); return; }
     /* A role given someone on Start or Plan (2.11) stays drawn through Show more, Find and a refresh, for this form only. */
     var rm = state.view === 'start' && e.target && /^role-(.+)$/.exec(e.target.id || '');
-    if (rm) { var fk = startFormKey(); if (!state.rolesPicked || state.rolesPicked.at !== fk) state.rolesPicked = { at: fk, roles: {} }; state.rolesPicked.roles[rm[1]] = true; }
+    /* A test run's form is its own form: its key is its scope (test:<process>:<stage>). */
+    if (rm) { var fk = state.testStage ? 'test:' + state.processId + ':' + state.testStage : startFormKey(); if (!state.rolesPicked || state.rolesPicked.at !== fk) state.rolesPicked = { at: fk, roles: {} }; state.rolesPicked.roles[rm[1]] = true; }
     /* A practice sample is one practice action when it's committed (Enter or leaving the box). */
     var smp = e.target && e.target.dataset && e.target.dataset.prSample;
     if (smp) {
@@ -7743,13 +7771,22 @@
     ensureListItemVisible('fx:' + pid, g.id + '#0', { focus: PF.vk.byId('fxg-' + g.id), word: 'opened' });
     return true;
   }
-  /* The group on a run's checklist a correction note is in. */
+  /* The group on a run's checklist a correction note is in: the one whose member is this very note, matched on everything the
+     note says (2.11), its target included, so twins on a phase and a gate never open each other's group. A note no group holds,
+     or one that two groups could hold, opens none (as PF.search.noteFind chooses nothing rather than guess). */
   function corrGroupOf(r, n) {
-    var gs = ctx.corrections(r.process), of = function (test) { return gs.filter(function (x) { return x.members.some(function (m) { return m.id === n.id && m.run === r.id && test(m); }); }); };
-    /* Notes that share an id are told apart by what they say (2.11): a legacy fix by its kind, a correction by its reason. */
-    var exact = of(function (m) { return m.at === n.at && m.by === n.by && (n.kind === 'fix' ? m.fixKind === (n.fixKind || '') : n.kind === 'correction' ? m.why === (n.newer ? n.text || n.why || '' : n.why || '') && JSON.stringify(m.change) === JSON.stringify(n.change) : true); });
-    var g = exact[0] || of(function () { return true; })[0];
-    return g ? g.id : null;
+    var A = PF.search.noteAnchor, same = function (a, b) { return A(a == null ? null : a) === A(b == null ? null : b); };
+    var text = String(n.text || ''), fixT = n.kind === 'fix' && n.target ? n.target : null;
+    var isIt = function (m) {
+      if (m.id !== n.id || m.run !== r.id || m.at !== n.at || m.by !== n.by || !same(m.files || [], n.files || [])) return false;
+      if (n.kind === 'correction') return !m.legacy && !!m.newer === !!n.newer && same(m.target, n.target) && same(m.change, n.change) &&
+        m.why === (n.newer ? n.text || n.why || '' : n.why || '') && (m.happened || '') === (n.happened || '');
+      var why = String(m.why || '');
+      return m.legacy === n.kind && (m.fixKind || '') === (n.kind === 'fix' ? n.fixKind || '' : '') && why.slice(why.length - text.length) === text &&
+        (m.target && m.target.step || null) === ((fixT ? fixT.step : n.step) || null) && (!fixT || !fixT.phase || (m.target && m.target.phase) === fixT.phase);
+    };
+    var gs = ctx.corrections(r.process).filter(function (g) { return g.members.some(isIt); });
+    return gs.length === 1 ? gs[0].id : null;
   }
   /* What go() would lose: the first control on the page or in the open dialog whose value isn't what the page drew
      (input and textarea: value vs defaultValue; checkbox and radio: checked vs defaultChecked; select: the chosen option vs

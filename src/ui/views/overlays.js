@@ -284,13 +284,17 @@
     var later = prep.rows.filter(function (x) { return x.source === 'ask' && Object.prototype.hasOwnProperty.call(setBy, x.name); });
     if (later.length) h += '<p class="small">' + later.map(function (x) { return '<b>' + esc(x.name) + '</b> is filled in by "' + esc(setBy[x.name][0].text) + '"'; }).join('; ') + '.</p>';
     if (meta.roles.length) {
-      h += '<h3>Who\'s doing what</h3><div class="grid2">';
-      meta.roles.forEach(function (role) {
-        var chosen = prep.roleVals && typeof prep.roleVals[role] === 'string' ? prep.roleVals[role] : r && r.roles && typeof r.roles[role] === 'string' ? r.roles[role] : '';
-        h += '<label class="field" for="cs-role-' + esc(role) + '">' + esc(role) + '<select id="cs-role-' + esc(role) + '" data-role="' + esc(role) + '"><option value="">Nobody yet</option>' +
-          people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === chosen ? ' selected' : '') + '>' + esc(nm(x)) + '</option>'; }).join('') + '</select></label>';
-      });
-      h += '</div>';
+      /* A hidden role holds what its box would: the person chosen, when they're on the team, else nobody. */
+      var onTeam = Object.create(null); people.forEach(function (x) { onTeam[x.id] = true; });
+      var had = function (role) { return r && r.roles && typeof r.roles[role] === 'string' ? r.roles[role] : ''; };
+      var chosenOf = function (role) { return prep.roleVals && typeof prep.roleVals[role] === 'string' ? prep.roleVals[role] : had(role); };
+      /* 20 roles at a time with Find past 20 (2.11): a role changed in this dialog stays drawn, and one not drawn keeps its
+         value in a hidden field, so the child starts with exactly the roles it would. */
+      var cr = K.roleRows(ctx.state, 'cs-roles', meta.roles, { inDialog: true, keep: meta.roles.filter(function (role) { return chosenOf(role) !== had(role); }), focusOf: function (k) { return K.byId('cs-role-' + k); },
+        row: function (role) { var chosen = chosenOf(role); return '<label class="field" for="cs-role-' + esc(role) + '">' + esc(role) + '<select id="cs-role-' + esc(role) + '" data-role="' + esc(role) + '"><option value="">Nobody yet</option>' +
+          people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === chosen ? ' selected' : '') + '>' + esc(nm(x)) + '</option>'; }).join('') + '</select></label>'; },
+        hidden: function (role) { return '<input type="hidden" id="cs-role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(onTeam[chosenOf(role)] ? chosenOf(role) : '') + '">'; } });
+      h += '<h3>Who\'s doing what</h3>' + cr.box + '<div class="grid2">' + cr.rows + '</div>' + cr.hidden;
     }
     return h + '<div class="row"><button class="btn go" type="submit" id="cs-submit">' + I('play') + 'Start the run</button><button class="mini" type="button" data-act="close-overlay">Cancel</button><span class="small">This step is checked when it completes.</span></div></form></div></div>';
   }

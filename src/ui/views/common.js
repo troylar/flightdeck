@@ -177,10 +177,19 @@ PF.vk = (function () {
       items.forEach(function (it) { var k = o.keyOf(it); if (keep[k] && !inPage[k]) { extra.push(it); if (k === js) plus = true; else kept = true; } });
     }
     var h = '', more = '';
-    if (left > 0) {
-      var add = Math.min(P, left), first = o.tail ? items[from - add] : items[from + n], k = o.keyOf(first), f = o.focusOf ? o.focusOf(k) : null;
+    /* What Show more adds is counted past every row already drawn, kept ones too: up to a page of rows not on screen, the first
+       of them focused, and the page grows by however many it steps over (step) to reach them. */
+    var drawnK = Object.create(null), add = 0, step = 0, first = null;
+    extra.forEach(function (it) { drawnK[o.keyOf(it)] = true; });
+    for (var i = o.tail ? from - 1 : from + shown.length; left > 0 && add < P && i >= 0 && i < items.length; i += o.tail ? -1 : 1) {
+      step++;
+      if (drawnK[o.keyOf(items[i])]) continue;
+      add++; if (o.tail || !first) first = items[i];
+    }
+    if (add > 0) {
+      var k = o.keyOf(first), f = o.focusOf ? o.focusOf(k) : null;
       more = '<div class="row paged"><span class="small" role="status">Showing ' + shown.length.toLocaleString('en-US') + ' of ' + items.length.toLocaleString('en-US') + (plus ? ', plus the one you just ' + esc((st.justShown.words || {})[id] || o.shownWord || 'added') : '') + '</span>' +
-        '<button type="button" class="btn" data-act="more" data-id="' + esc(id) + '" data-next="' + esc(k) + '"' + (f ? ' data-focus="' + esc(f) + '"' : '') + (P !== PAGE ? ' data-page="' + P + '"' : '') + (o.inDialog ? ' data-dialog="1"' : '') + '>' +
+        '<button type="button" class="btn" data-act="more" data-id="' + esc(id) + '" data-next="' + esc(k) + '"' + (f ? ' data-focus="' + esc(f) + '"' : '') + (P !== PAGE ? ' data-page="' + P + '"' : '') + (step !== add ? ' data-step="' + step + '"' : '') + (o.inDialog ? ' data-dialog="1"' : '') + '>' +
         (o.tail ? 'Show ' + add + ' earlier' : 'Show ' + add + ' more') + '</button></div>';
     }
     var rest = extra.length ? (kept ? '<p class="small kept-h">' + esc(o.keptLabel || 'You\'re editing this one') + '</p>' : '') + o.draw(extra) : '';
@@ -189,6 +198,21 @@ PF.vk = (function () {
     if (o.tail) h = more + rest + o.draw(shown);
     else h = o.draw(shown) + more + rest;
     return h;
+  }
+  /* A form's roles a page at a time (2.11), as Start and Plan draw them: 20 in checklist order, with Find a role past 20. o:
+     row(role), the role's HTML; keep, the roles always drawn (given someone on this form, or showing an error); hidden(role),
+     what stands in for a role not drawn (its value in a hidden field), so the form sends exactly what it would with every role
+     drawn; focusOf, keptLabel, inDialog as K.list. Returns { box, rows, hidden }. */
+  function roleRows(st, id, roles, o) {
+    var P = o.page || 20, q = findQ(st, id), hit = finds(q), kept = Object.create(null), on = Object.create(null);
+    (o.keep || []).forEach(function (r) { kept[r] = true; });
+    var found = q ? roles.filter(function (r) { return hit([r]); }) : roles;
+    var rs = q ? roles.filter(function (r) { return kept[r] || found.indexOf(r) >= 0; }) : roles;
+    var box = roles.length > P || q ? findBox(st, id, 'Find a role', found.length, roles.length, 'role') : '';
+    var rows = list(st, id, rs, { page: P, keep: roles.filter(function (r) { return kept[r]; }), keptLabel: o.keptLabel || 'Roles you\'ve chosen someone for', keyOf: function (r) { return r; }, focusOf: o.focusOf, inDialog: o.inDialog,
+      draw: function (shown) { return shown.map(function (r) { on[r] = true; return o.row(r); }).join(''); } });
+    var hidden = o.hidden ? roles.filter(function (r) { return !on[r]; }).map(o.hidden).join('') : '';
+    return { box: box, rows: rows, hidden: hidden };
   }
   /* A list joined into one line (2.11, D10): the first 50 names, then "and 250 more" with Show more, which adds 50 and keeps
      focus on the line. name(item) is the item's escaped HTML; only the names shown are built. o: lead (the line's escaped
@@ -337,7 +361,7 @@ PF.vk = (function () {
   }
   function unsavedWords(ps) { return ps && ps.saved ? 'its run was saved and has changed since' : ps && ps.certain === false ? 'Flightdeck couldn\'t confirm whether its run saved' : 'its run didn\'t save'; }
   function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
-  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, finds: finds, findBox: findBox, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, joined: joined, select: select, SEL_MORE: SEL_MORE, byId: byId, PAGE: PAGE, PAGE_OFF: null, testTag: testTag, verWord: verWord };
+  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, finds: finds, findBox: findBox, roleRows: roleRows, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, joined: joined, select: select, SEL_MORE: SEL_MORE, byId: byId, PAGE: PAGE, PAGE_OFF: null, testTag: testTag, verWord: verWord };
 })();
 (function () {
   'use strict';
