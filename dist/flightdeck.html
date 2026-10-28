@@ -32339,7 +32339,11 @@ PF.examples = (function () {
     queued(function () { return repo.savePlan(sfs, plan, { lock: LOCKS ? lock : null }); }).then(function (res) {
       endBusy(); planning.saving = false; if (g !== gen) return;
       if (res.conflict) { say(res.afterWrite ? 'Something else wrote the same plan file just now. Check Runs before planning it again.' : 'A plan with the same name is already in the folder, so nothing was saved. Save again.', 'warn'); render(); return; }
-      return load(true).then(function () {
+      /* A read already under way when the save landed is joined by load() and doesn't have the plan: read again, up to
+         three times, until a read started after the save is the one shown, so Just planned has its card to focus. */
+      var after = readsStarted, tries = 0;
+      var settle = function () { return load(true).then(function () { if (g === gen && (data.readSeq || 0) <= after && ++tries < 3) return settle(); }); };
+      return settle().then(function () {
         if (g !== gen) return;
         if (state.planning === planning && state.view === 'start') { state.planning = null; setView('runs'); state.processId = null; state.justPlanned = { id: plan.id, gen: gen }; state.focus = 'card-' + plan.id; state.focusWins = true; window.scrollTo(0, 0); revealAt('#card-' + cssEsc(plan.id)); }
         say('Planned ' + plan.title + '.', 'good'); render();
