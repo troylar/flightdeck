@@ -205,7 +205,7 @@
     var allT = chosen.slice(); teamTypes.forEach(function (t) { T.tagsOf(t).forEach(function (x) { if (allT.indexOf(x) < 0) allT.push(x); }); }); allT.sort();
     var has = function (t) { var tg = T.tagsOf(t); return chosen.every(function (c) { return tg.indexOf(c) >= 0; }); };
     var shownTeam = teamTypes.filter(has), shownBuilt = T.LIST.filter(has);
-    h += K.tagBar(allT, chosen, st.disc);
+    h += K.tagBar(allT, chosen, st.disc, st);
     h += '<section class="panel"><h2>Your team\'s types · ' + teamTypes.length + '</h2>' + (teamTypes.length ? (shownTeam.length ? K.tree(shownTeam, T.groupOf, function (t) { return typeCard(st, t, true, uses(t.id)); }, st.groupsOpen) : '<p class="small">None with these tags.</p>') : '<p class="small">None yet. Choose <b>New step type</b>, or copy a built-in below.</p>') + '</section>';
     /* The built-ins are a reference: one closed line, open once opened (or while a tag filter is on). */
     if (shownBuilt.length) h += '<details class="panel fold" data-disc="types-built"' + ((st.disc || {})['types-built'] || chosen.length ? ' open' : '') + '><summary><h2>Built-in types · ' + T.LIST.length + '</h2></summary>' + K.tree(shownBuilt, T.groupOf, function (t) { return typeCard(st, t, false, uses(t.id)); }, st.groupsOpen) + '</details>';
@@ -440,12 +440,14 @@
     var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">Skill' + (s.version ? ' · version ' + esc(s.version) : '') + '</div><h1 id="page-h" tabindex="-1">' + I('spark') + ' ' + esc(s.name) + '</h1>' + (s.description ? '<div class="small">' + esc(s.description) + '</div>' : '') + K.tagChips(s.tags) + '</div>' +
       '<div class="row">' + (proc ? '<button class="btn" data-act="open-process" data-id="' + esc(proc.id) + '">Open ' + esc(proc.title) + '</button>' : '') + '</div></div>';
     h += '<section class="panel status-card" data-s="' + esc(hit.status.s) + '" aria-labelledby="ss-h"><h2 id="ss-h"><span class="pill ' + sw[0] + '">' + sw[1] + '</span></h2><p>' + esc(hit.status.text) + (sw[2] ? ' ' + esc(sw[2]) : '') + '</p>';
-    if (hit.status.s === 'update' && hit.status.changes) h += '<ul class="changes">' + hit.status.changes.map(function (c) {
-      if (c.change === 'order') return '<li><b>Order:</b> its steps now run in a different order.</li>';
-      if (c.change === 'inputs') return '<li><b>What it takes:</b> ' + esc(c.what.join('; ')) + '.</li>';
-      if (c.change === 'context') return '<li><b>Run details:</b> now ' + esc(c.to.join(', ') || 'none') + ' (was ' + esc(c.from.join(', ') || 'none') + ').</li>';
-      return '<li><b>' + esc(K.stepPlain(c.to || c.from, null)) + '</b>: ' + ({ changed: 'changed', removed: 'removed', added: 'new' })[c.change] + '</li>';
-    }).join('') + '</ul>';
+    /* What changed, 50 at a time in its own order (2.11); the update brief is built from all of it when copied. */
+    if (hit.status.s === 'update' && hit.status.changes) h += K.list(st, 'sk-changes', hit.status.changes.map(function (c, i) { return { c: c, i: i }; }), { draw: function (shown) { return '<ul class="changes">' + shown.map(function (r) {
+      var c = r.c, li = '<li id="skc-' + r.i + '" tabindex="-1">';
+      if (c.change === 'order') return li + '<b>Order:</b> its steps now run in a different order.</li>';
+      if (c.change === 'inputs') return li + '<b>What it takes:</b> ' + esc(c.what.join('; ')) + '.</li>';
+      if (c.change === 'context') return li + '<b>Run details:</b> now ' + esc(c.to.join(', ') || 'none') + ' (was ' + esc(c.from.join(', ') || 'none') + ').</li>';
+      return li + '<b>' + esc(K.stepPlain(c.to || c.from, null)) + '</b>: ' + ({ changed: 'changed', removed: 'removed', added: 'new' })[c.change] + '</li>';
+    }).join('') + '</ul>'; }, keyOf: function (r) { return 'skc-' + r.i; }, focusOf: function (k) { return K.byId(k); } });
     if (hit.status.s === 'update' || hit.status.s === 'unaffected') h += '<div class="row"><button class="btn go" data-act="copy-brief" data-id="update:' + esc(s.file) + '">' + I('copy') + 'Copy the update brief</button></div>' + briefBoxOf(st, 'update:' + s.file);
     h += '</section>';
     h += '<section class="panel" aria-labelledby="sf-h"><h2 id="sf-h">About this skill</h2><dl class="facts">' +

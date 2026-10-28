@@ -366,6 +366,9 @@ button.card:hover { border-color: var(--ink); }
 .tgroup > details > summary { cursor: pointer; padding: 6px 4px; font-family: var(--display); text-transform: uppercase; letter-spacing: .05em; font-size: 14px; }
 .tgroup > details > .plist { margin-left: 12px; border-left: 2px solid var(--line); padding-left: 6px; }
 .tagbar { display: flex; gap: 6px; flex-wrap: wrap; margin: 10px 0; }
+.findbox { justify-content: flex-start; flex-wrap: wrap; gap: 8px; margin: 0 0 8px; }
+.findbox input { flex: 1 1 14em; min-width: 0; max-width: 28em; border: 1px solid var(--field); background: var(--card); border-radius: 7px; padding: 7px 10px; color: var(--ink); font-size: 14px; }
+.tagbar > .paged { flex-basis: 100%; }
 .tag { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--chip); color: var(--muted); border: 1px solid transparent; }
 button.tag { cursor: pointer; }
 button.tag.on { background: var(--plan-soft); color: var(--plan); border-color: var(--plan); }
@@ -18913,8 +18916,9 @@ PF.vk = (function () {
     return '<span class="small">' + esc(parts.join(' · ')) + (st.fs && st.fs.kind === 'folder' ? ' · OneDrive shares it with others' : '') + '</span>';
   }
 
-  /* A hierarchy (group paths like ["Engineering", "Releases"]) as nested, foldable lists. Items without a group go last. */
-  function tree(items, pathOf, render, openSet) {
+  /* A hierarchy (group paths like ["Engineering", "Releases"]) as nested, foldable lists. Items without a group go last. Group
+     names sort by name, naturally (Group 2 before Group 10). */
+  function treeOf(items, pathOf) {
     /* Group names come from files, so nodes have no prototype: a group called "constructor" is just a group. */
     var root = { kids: Object.create(null), order: [], items: [] };
     items.forEach(function (it) {
@@ -18922,29 +18926,77 @@ PF.vk = (function () {
       (pathOf(it) || []).forEach(function (seg) { if (!node.kids[seg]) { node.kids[seg] = { kids: Object.create(null), order: [], items: [] }; node.order.push(seg); } node = node.kids[seg]; });
       node.items.push(it);
     });
-    function count(n) { return n.items.length + n.order.reduce(function (s, k) { return s + count(n.kids[k]); }, 0); }
+    (function sort(n) { n.order.sort(PF.text.natural); n.order.forEach(function (k) { sort(n.kids[k]); }); })(root);
+    return root;
+  }
+  /* The items in the order the tree draws them: each level's groups by name, then its own items. */
+  function treeOrder(root) {
+    var out = [];
+    (function walk(n) { n.order.forEach(function (k) { walk(n.kids[k]); }); n.items.forEach(function (it) { out.push(it); }); })(root);
+    return out;
+  }
+  /* on: the keys of the items to draw (keyOf), or null for all of them. A group with none of them drawn isn't drawn; its count
+     is always of every item, and says how many are shown when that's fewer ("12 · 3 shown"). The shape (which groups fold
+     into one heading) is the whole list's, so paging never renames a group. */
+  function treeDraw(root, render, openSet, on, keyOf) {
+    var N = function (x) { return x.toLocaleString('en-US'); };
+    function count(n, only) { return n.items.reduce(function (s, it) { return s + (!only || on[keyOf(it)] ? 1 : 0); }, 0) + n.order.reduce(function (s, k) { return s + count(n.kids[k], only); }, 0); }
     function draw(n, path) {
-      var groups = n.order.slice().sort().map(function (seg) {
+      var groups = n.order.map(function (seg) {
         /* A group whose only child is a group is one heading ("Delivery / Backlog"); a count of 1 isn't drawn. */
         var kid = n.kids[seg], p = path.concat(seg), name = [seg];
         while (!kid.items.length && kid.order.length === 1) { name.push(kid.order[0]); p = p.concat(kid.order[0]); kid = kid.kids[kid.order[0]]; }
-        var key = p.join(' / '), shut = openSet && Object.prototype.hasOwnProperty.call(openSet, key) && openSet[key] === false, c = count(kid);
-        return '<li class="tgroup"><details' + (shut ? '' : ' open') + ' data-group="' + esc(key) + '"><summary><span class="t">' + esc(name.join(' / ')) + '</span>' + (c > 1 ? ' <span class="small">' + c + '</span>' : '') + '</summary><ul class="plist">' + draw(kid, p) + '</ul></details></li>';
+        var c = count(kid, false), s = on ? count(kid, true) : c;
+        if (!s) return '';
+        var key = p.join(' / '), shut = openSet && Object.prototype.hasOwnProperty.call(openSet, key) && openSet[key] === false;
+        return '<li class="tgroup"><details' + (shut ? '' : ' open') + ' data-group="' + esc(key) + '"><summary><span class="t">' + esc(name.join(' / ')) + '</span>' + (c > 1 ? ' <span class="small">' + N(c) + (s < c ? ' · ' + N(s) + ' shown' : '') + '</span>' : '') + '</summary><ul class="plist">' + draw(kid, p) + '</ul></details></li>';
       }).join('');
-      return groups + n.items.map(render).join('');
+      return groups + n.items.filter(function (it) { return !on || on[keyOf(it)]; }).map(render).join('');
     }
     return '<ul class="plist tree">' + draw(root, []) + '</ul>';
   }
+  function tree(items, pathOf, render, openSet) { return treeDraw(treeOf(items, pathOf), render, openSet, null, null); }
+  /* A tree a page at a time (2.11): the page is the first n items in the order the tree draws them, and only their groups are
+     drawn, so closed folds and 1,000 groups of one still draw 50 rows. Group counts are of every item given. o: as K.list,
+     with keyOf required. */
+  function treeList(st, id, items, pathOf, render, o) {
+    var root = treeOf(items, pathOf), keyOf = o.keyOf;
+    return list(st, id, treeOrder(root), Object.assign({}, o, { draw: function (shown) {
+      var on = Object.create(null); shown.forEach(function (it) { on[keyOf(it)] = true; });
+      return treeDraw(root, render, st.groupsOpen, on, keyOf);
+    } }));
+  }
   /* The tag filter: every tag in use, as toggles. A list shows only items with all chosen tags. */
-  /* Folded into Filter by tag (N) unless a tag is chosen or it was opened (st.disc.tags). */
-  function tagBar(all, chosen, disc) {
+  /* Folded into Filter by tag (N) unless a tag is chosen or it was opened (st.disc.tags). With st, the tags are drawn 50 at a
+     time (2.11), chosen ones always. */
+  function tagBar(all, chosen, disc, st) {
     if (!all.length) return '';
     var open = chosen.length || (disc || {}).tags;
-    return '<details class="tagfold" data-disc="tags"' + (open ? ' open' : '') + '><summary class="small">Filter by tag (' + all.length + ')</summary>' + tagButtons(all, chosen) + '</details>';
+    return '<details class="tagfold" data-disc="tags"' + (open ? ' open' : '') + '><summary class="small">Filter by tag (' + all.length + ')</summary>' + tagButtons(all, chosen, st) + '</details>';
   }
-  function tagButtons(all, chosen) {
-    return '<div class="tagbar" role="group" aria-label="Filter by tag">' + all.map(function (t) { var on = chosen.indexOf(t) >= 0; return '<button class="tag' + (on ? ' on' : '') + '" data-act="tag" data-id="' + esc(t) + '" aria-pressed="' + on + '">#' + esc(t) + '</button>'; }).join('') +
-      (chosen.length ? '<button class="mini" data-act="tag" data-id="">Clear</button>' : '') + '</div>';
+  function tagButtons(all, chosen, st) {
+    var btn = function (t) { var on = chosen.indexOf(t) >= 0; return '<button class="tag' + (on ? ' on' : '') + '" data-act="tag" data-id="' + esc(t) + '" aria-pressed="' + on + '">#' + esc(t) + '</button>'; };
+    var body = st ? list(st, 'tags', all, { draw: function (shown) { return shown.map(btn).join(''); }, keyOf: function (t) { return t; }, focusOf: function (t) { return byAct('tag', t); }, keep: chosen, keptLabel: 'Chosen' }) : all.map(btn).join('');
+    return '<div class="tagbar" role="group" aria-label="Filter by tag">' + body + (chosen.length ? '<button class="mini" data-act="tag" data-id="">Clear</button>' : '') + '</div>';
+  }
+  /* ---------- Find boxes (2.11) ---------- */
+  /* What's typed in a list's Find box (state.find, for this folder only: renderNow drops it after a folder switch). */
+  function findQ(st, id) { return st.find && st.find.q ? String(st.find.q[id] || '') : ''; }
+  /* Whether an item's words hold every term typed, ignoring case. */
+  function finds(q) {
+    var terms = String(q || '').toLowerCase().split(/\s+/).filter(Boolean);
+    return function (words) {
+      if (!terms.length) return true;
+      var w = words.filter(function (x) { return x != null && x !== ''; }).join('\n').toLowerCase();
+      return terms.every(function (t) { return w.indexOf(t) >= 0; });
+    };
+  }
+  /* The box, drawn from state (data-bound), with its count: "12 of 1,000 match", or that none does, and Clear. */
+  function findBox(st, id, label, n, total, noun) {
+    var q = findQ(st, id), N = function (x) { return x.toLocaleString('en-US'); }, fid = 'find-' + id;
+    var count = !q ? '' : n ? N(n) + ' of ' + N(total) + ' match' : 'No ' + noun + ' matches "' + esc(q) + '"';
+    return '<div class="row findbox"><label for="' + esc(fid) + '">' + esc(label) + '</label><input type="search" id="' + esc(fid) + '" data-find="' + esc(id) + '" data-nav-safe data-bound value="' + esc(q) + '" autocomplete="off" maxlength="200" aria-describedby="' + esc(fid) + '-n">' +
+      '<span class="small" id="' + esc(fid) + '-n" role="status">' + count + '</span>' + (q ? '<button class="mini" data-act="find-clear" data-id="' + esc(id) + '">Clear</button>' : '') + '</div>';
   }
   /* A long list, 50 at a time: the first n items (n grows by 50 with Show more, kept per list in state.more), how many there
      are, and the button. keyOf names an item, so focus can move to the first one Show more adds. Paging rather than
@@ -18988,6 +19040,8 @@ PF.vk = (function () {
   }
   /* A selector for the element with this id, whatever the id holds (it comes from files). */
   function byId(id) { return '[id="' + String(id).replace(/["\\]/g, '\\$&') + '"]'; }
+  /* A selector for the control that does act on this id (a row that is one button). */
+  function byAct(act, id) { return '[data-act="' + act + '"][data-id="' + String(id).replace(/["\\]/g, '\\$&') + '"]'; }
   /* A must-do step on a row: a small red mark, named for screen readers and on hover; the step's own pane says it in words. */
   function mustMark() { return '<span class="mustmark" role="img" aria-label="Must do" title="Must do">!</span>'; }
   /* How a phase is worked, in words (the file keeps READ-DO and DO-CONFIRM). */
@@ -19072,7 +19126,7 @@ PF.vk = (function () {
   }
   function unsavedWords(ps) { return ps && ps.saved ? 'its run was saved and has changed since' : ps && ps.certain === false ? 'Flightdeck couldn\'t confirm whether its run saved' : 'its run didn\'t save'; }
   function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
-  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, byId: byId, PAGE: PAGE, PAGE_OFF: null, testTag: testTag, verWord: verWord };
+  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, finds: finds, findBox: findBox, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, byId: byId, PAGE: PAGE, PAGE_OFF: null, testTag: testTag, verWord: verWord };
 })();
 (function () {
   'use strict';
@@ -19209,17 +19263,20 @@ PF.vk = (function () {
       (r.ended ? '' : '<div class="bar" aria-hidden="true"><i style="width:' + (t.total ? Math.round(100 * t.done / t.total) : 0) + '%"></i></div>') +
       '<span class="small">' + t.done + ' of ' + t.total + ' steps · started ' + esc(U.when(r.created)) + (r._conflicts && r._conflicts.length ? ' · <b style="color:var(--stop)">conflict copy found</b>' : '') + ((ctx.state.missing || {})[runKey(r)] ? ' · <b style="color:var(--stop)">its file is gone from the team folder</b>' : '') + '</span></button>';
   }
+  /* A Processes row shows this many skill chips (2.11). */
+  var CHIPS = 5;
   var SKILL_PILL = { current: ['passed', 'current'], unaffected: ['open', 'note version'], update: ['failed', 'needs update'], missing: ['failed', 'check it'], unmatched: ['failed', 'can\'t be matched'] };
-  function allTags(ctx) {
-    var all = [];
+  /* Every tag in use, plus any chosen (a newer read may have taken it off every checklist, and Clear must stay), by name. */
+  function allTags(ctx, chosen) {
+    var all = (chosen || []).slice();
     ctx.processes().forEach(function (p) { (p.tags || []).forEach(function (t) { if (all.indexOf(t) < 0) all.push(t); }); p.skills.forEach(function (x) { (x.skill.tags || []).forEach(function (t) { if (all.indexOf(t) < 0) all.push(t); }); }); });
-    return all.sort();
+    return all.sort(PF.text.natural);
   }
   /* Only tags some skill carries, plus any already chosen so it can be cleared. */
   function skillTags(skills, chosen) {
     var all = chosen.slice();
     skills.forEach(function (k) { (k.x.skill.tags || []).forEach(function (t) { if (all.indexOf(t) < 0) all.push(t); }); });
-    return all.sort();
+    return all.sort(PF.text.natural);
   }
   function hasTags(ctx) { var chosen = ctx.state.tags || []; return function (tags) { return chosen.every(function (t) { return (tags || []).indexOf(t) >= 0; }); }; }
   /* id: the heading that takes focus when the page opens (page-h unless given; Back and Forward focus it too). */
@@ -19390,24 +19447,30 @@ PF.vk = (function () {
     var st = ctx.state, procs = ctx.processes(), has = hasTags(ctx);
     var h = notices(ctx) + (st.renamed ? '' : '<p class="notice renamed" role="note"><span>Checklists were called Processes before 2.10.</span><button type="button" class="mini" data-act="renamed-ok">Got it</button></p>') + pageHead('Checklists', 'Checklists', 'Open one to start it or edit it.', '<button class="mini" data-act="nav" data-id="skills">' + I('spark') + 'Skills</button><button class="mini" data-act="nav" data-id="types">Step types</button><button class="btn go" data-act="new-process">' + I('edit') + 'New checklist</button>');
     (ctx.lostDrafts ? ctx.lostDrafts() : []).forEach(function (id) { h += '<div class="notice warn" role="status"><span>You have unsaved edits to <b>' + esc(id) + '</b>, whose draft was removed from the folder.</span><button class="mini" data-act="open-process" data-id="' + esc(id) + '">Open it</button></div>'; });
-    h += '<section class="panel">' + K.tagBar(allTags(ctx), st.tags || [], st.disc) + (procs.length ? K.tree(procs.filter(function (p) { return has(p.tags); }), function (p) { return p.group && p.group.length ? p.group : [p.category]; }, function (p) {
+    var chosen = st.tags || [], tagged = procs.filter(function (p) { return has(p.tags); }), q = K.findQ(st, 'processes'), hit = K.finds(q);
+    var found = q ? tagged.filter(function (p) { return hit([p.title, p.id, (p.group || []).join(' / '), p.category, (p.tags || []).join(' ')]); }) : tagged;
+    h += '<section class="panel">' + (procs.length ? K.findBox(st, 'processes', 'Find a checklist', found.length, tagged.length, 'checklist') : '') + K.tagBar(allTags(ctx, chosen), chosen, st.disc, st) + (procs.length ? K.treeList(st, 'processes', found, function (p) { return p.group && p.group.length ? p.group : [p.category]; }, function (p) {
+      PF.perf.add('procs.rows');
       var pub = p.latest, info = pub ? 'v' + pub.info.version : p.proposedOnly ? 'Proposed, not drafted yet' : 'not published yet';
       var flags = [];
       if (p.draftChanged) flags.push('draft changes');
       if (p.clashes.length) flags.push('version clash');
       if (p.proposed && p.proposed.list.some(function (x) { return x.fit === 'ready' || x.fit === 'older' || x.fit === 'review' || x.fit === 'already'; })) flags.push('proposed changes');
-      /* Its skills by name, each with its status and a link to its own page. */
-      var skills = p.skills.length ? '<div class="pskills"><span class="small">' + I('spark') + 'Skills</span>' + p.skills.map(function (x) {
+      /* Its skills by name, each with its status and a link to its own page: the first 5, and how many more (all of them are on
+         the checklist's page). */
+      var more = p.skills.length - CHIPS;
+      var skills = p.skills.length ? '<div class="pskills"><span class="small">' + I('spark') + 'Skills</span>' + p.skills.slice(0, CHIPS).map(function (x) {
         var pill = SKILL_PILL[x.status.s] || SKILL_PILL.missing;
         return '<button class="skillchip" data-act="open-skill" data-id="' + esc(x.skill.file || x.skill.name) + '">' + esc(x.skill.name) + ' <span class="pill ' + pill[0] + '">' + pill[1] + '</span></button>';
-      }).join('') + '</div>' : '';
+      }).join('') + (more > 0 ? '<span class="small">+' + more.toLocaleString('en-US') + ' more skill' + (more === 1 ? '' : 's') + '</span>' : '') + '</div>' : '';
       return '<li><button data-act="open-process" data-id="' + esc(p.id) + '"><span class="t">' + esc(p.title) + '</span>' + (flags.length ? '<span class="small" style="color:var(--stop)">' + esc(flags.join(' · ')) + '</span>' : '<span></span>') + '<span class="small">' + info + (p.lastRun ? ' · last run ' + esc(U.day(p.lastRun)) : '') + '</span></button>' + skills + '</li>';
-    }, st.groupsOpen) : '<p class="small">No checklists yet. Choose <b>New checklist</b>, or ask your AI assistant: <code>/flightdeck-new-checklist</code>.</p>') + '</section>';
+    }, { keyOf: function (p) { return p.id; }, focusOf: function (id) { return K.byAct('open-process', id); } }) : '<p class="small">No checklists yet. Choose <b>New checklist</b>, or ask your AI assistant: <code>/flightdeck-new-checklist</code>.</p>') + '</section>';
     return h;
   }
 
   /* ---------- Skills: what they are, which need attention, and which processes are ready to become one ---------- */
   function skillRow(k) {
+    PF.perf.add('skills.rows');
     var s = k.x.skill, pill = SKILL_PILL[k.x.status.s] || SKILL_PILL.missing;
     return '<li><button data-act="open-skill" data-id="' + esc(s.file || s.name) + '"><span class="t">' + I('spark') + esc(s.name) + (s.version ? ' <span class="small">' + esc(s.version) + '</span>' : '') + '</span><span class="pill ' + pill[0] + '">' + pill[1] + '</span><span class="small">' + (k.p.id ? 'Automates ' + esc(k.p.title) + ' v' + esc(s.implements) + (s.steps ? ' · ' + s.steps.length + ' step' + (s.steps.length === 1 ? '' : 's') : ' · the whole checklist') : esc(k.x.status.text)) + '</span>' + K.tagChips(s.tags) + '</button></li>';
   }
@@ -19426,12 +19489,20 @@ PF.vk = (function () {
       '<li><b>Brief your AI assistant.</b><span>Copy the brief from the checklist\'s page; your AI assistant builds the skill.</span></li>' +
       '<li><b>Register it.</b><span>Your AI assistant adds <code>skills/&lt;name&gt;.json</code>: where it lives, what it implements.</span></li>' +
       '<li><b>Stay in step.</b><span>When the checklist changes, the skill shows here as needing an update, with a brief.</span></li></ol></details>';
-    if (attention.length) h += '<section class="panel" aria-labelledby="att-h"><h2 id="att-h">Needs an update · ' + attention.length + '</h2><p class="small">Their checklist changed. Open one to copy the update brief.</p><ul class="plist">' + attention.map(skillRow).join('') + '</ul></section>';
-    /* A signed-off version that no skill implements yet: the one action is to brief the AI assistant. */
-    if (ready.length) h += '<section class="panel" aria-labelledby="rdy-h"><h2 id="rdy-h">Ready to become a skill · ' + ready.length + '</h2><ul class="rlist">' + ready.map(function (p) {
+    /* Each skill's key is its file, made unique (two registrations can share a name); Show more focuses its row's button. */
+    var seen = Object.create(null), baseOf = Object.create(null);
+    skills.forEach(function (k) { var b = k.x.skill.file || k.x.skill.name; seen[b] = (seen[b] || 0) + 1; k.key = seen[b] > 1 ? b + '#' + seen[b] : b; baseOf[k.key] = b; });
+    var skillKey = function (k) { return k.key; }, skillFocus = function (key) { return K.byAct('open-skill', baseOf[key]); };
+    if (attention.length) h += '<section class="panel" aria-labelledby="att-h"><h2 id="att-h">Needs an update · ' + attention.length + '</h2><p class="small">Their checklist changed. Open one to copy the update brief.</p>' +
+      K.list(st, 'sk-att', attention, { draw: function (shown) { return '<ul class="plist">' + shown.map(skillRow).join('') + '</ul>'; }, keyOf: skillKey, focusOf: skillFocus }) + '</section>';
+    /* A signed-off version that no skill implements yet: the one action is to brief the AI assistant. The row whose brief is
+       open stays drawn. */
+    if (ready.length) h += '<section class="panel" aria-labelledby="rdy-h"><h2 id="rdy-h">Ready to become a skill · ' + ready.length + '</h2>' + K.list(st, 'sk-ready', ready, { draw: function (shown) { return '<ul class="rlist">' + shown.map(function (p) {
       return '<li><div class="row"><button class="link t" data-act="open-process" data-id="' + esc(p.id) + '">' + esc(p.title) + ' v' + p.latest.info.version + '</button><button class="btn go" data-act="copy-brief" data-id="create:' + esc(p.id) + '">' + I('copy') + 'Copy brief</button></div>' + V.briefBox(st, 'create:' + p.id) + '</li>';
-    }).join('') + '</ul></section>';
-    h += '<section class="panel" aria-labelledby="all-h"><h2 id="all-h">All skills · ' + skills.length + '</h2>' + K.tagBar(skillTags(skills, st.tags || []), st.tags || [], st.disc) + (skills.length ? K.tree(skills.filter(function (k) { return has(k.x.skill.tags); }), function (k) { return k.x.skill.group.length ? k.x.skill.group : (k.p.group && k.p.group.length ? k.p.group : [k.p.category || 'Other']); }, skillRow, st.groupsOpen)
+    }).join('') + '</ul>'; }, keyOf: function (p) { return p.id; }, focusOf: function (id) { return K.byAct('open-process', id); }, keep: st.brief && /^create:/.test(st.brief.key) ? [st.brief.key.slice(7)] : [], keptLabel: 'Its brief is open' }) + '</section>';
+    var chosen = st.tags || [], tagged = skills.filter(function (k) { return has(k.x.skill.tags); }), q = K.findQ(st, 'skills'), hit = K.finds(q);
+    var found = q ? tagged.filter(function (k) { return hit([k.x.skill.name, k.p.title, k.p.id, (k.x.skill.tags || []).join(' ')]); }) : tagged;
+    h += '<section class="panel" aria-labelledby="all-h"><h2 id="all-h">All skills · ' + skills.length + '</h2>' + (skills.length ? K.findBox(st, 'skills', 'Find a skill', found.length, tagged.length, 'skill') : '') + K.tagBar(skillTags(skills, chosen), chosen, st.disc, st) + (skills.length ? K.treeList(st, 'skills', found, function (k) { return k.x.skill.group.length ? k.x.skill.group : (k.p.group && k.p.group.length ? k.p.group : [k.p.category || 'Other']); }, skillRow, { keyOf: skillKey, focusOf: skillFocus })
       : '<p class="small">No skills yet. Follow the steps above: once a checklist version is signed off, its page has the brief your AI assistant needs.</p>') + '</section>';
     return h;
   }
@@ -19496,10 +19567,12 @@ PF.vk = (function () {
   function skillsPanel(ctx, p, bare) {
     var h = bare ? '<h3>Skills</h3>' : '<section class="panel" aria-labelledby="sk-h"><h2 id="sk-h">' + I('spark') + 'Skills</h2>', end = bare ? '' : '</section>';
     if (!p.skills.length) return h + '<p class="small">None yet. Once a version is signed off, copy its brief for your AI assistant.</p>' + end;
-    return h + '<ul class="plist">' + p.skills.map(function (x) {
-      var s = x.skill, pill = SKILL_PILL[x.status.s] || SKILL_PILL.missing;
+    /* 50 at a time (2.11); each is keyed by its place, and Show more focuses its button. */
+    var rows = p.skills.map(function (x, i) { return { x: x, i: i }; });
+    return h + K.list(ctx.state, 'p-skills', rows, { draw: function (shown) { return '<ul class="plist">' + shown.map(function (r) {
+      var s = r.x.skill, pill = SKILL_PILL[r.x.status.s] || SKILL_PILL.missing;
       return '<li><button data-act="open-skill" data-id="' + esc(s.file || s.name) + '"><span class="t">' + esc(s.name) + '</span><span class="pill ' + pill[0] + '">' + pill[1] + '</span></button></li>';
-    }).join('') + '</ul>' + end;
+    }).join('') + '</ul>'; }, keyOf: function (r) { return String(r.i); }, focusOf: function (k) { var s = p.skills[+k].skill; return K.byAct('open-skill', s.file || s.name); } }) + end;
   }
   /* For someone who doesn't look after the checklist: Ready for a skill? and Skills as one closed line that says what they hold. */
   function skillsFold(ctx, p, pub) {
@@ -22696,7 +22769,7 @@ PF.vk = (function () {
     var allT = chosen.slice(); teamTypes.forEach(function (t) { T.tagsOf(t).forEach(function (x) { if (allT.indexOf(x) < 0) allT.push(x); }); }); allT.sort();
     var has = function (t) { var tg = T.tagsOf(t); return chosen.every(function (c) { return tg.indexOf(c) >= 0; }); };
     var shownTeam = teamTypes.filter(has), shownBuilt = T.LIST.filter(has);
-    h += K.tagBar(allT, chosen, st.disc);
+    h += K.tagBar(allT, chosen, st.disc, st);
     h += '<section class="panel"><h2>Your team\'s types · ' + teamTypes.length + '</h2>' + (teamTypes.length ? (shownTeam.length ? K.tree(shownTeam, T.groupOf, function (t) { return typeCard(st, t, true, uses(t.id)); }, st.groupsOpen) : '<p class="small">None with these tags.</p>') : '<p class="small">None yet. Choose <b>New step type</b>, or copy a built-in below.</p>') + '</section>';
     /* The built-ins are a reference: one closed line, open once opened (or while a tag filter is on). */
     if (shownBuilt.length) h += '<details class="panel fold" data-disc="types-built"' + ((st.disc || {})['types-built'] || chosen.length ? ' open' : '') + '><summary><h2>Built-in types · ' + T.LIST.length + '</h2></summary>' + K.tree(shownBuilt, T.groupOf, function (t) { return typeCard(st, t, false, uses(t.id)); }, st.groupsOpen) + '</details>';
@@ -22931,12 +23004,14 @@ PF.vk = (function () {
     var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">Skill' + (s.version ? ' · version ' + esc(s.version) : '') + '</div><h1 id="page-h" tabindex="-1">' + I('spark') + ' ' + esc(s.name) + '</h1>' + (s.description ? '<div class="small">' + esc(s.description) + '</div>' : '') + K.tagChips(s.tags) + '</div>' +
       '<div class="row">' + (proc ? '<button class="btn" data-act="open-process" data-id="' + esc(proc.id) + '">Open ' + esc(proc.title) + '</button>' : '') + '</div></div>';
     h += '<section class="panel status-card" data-s="' + esc(hit.status.s) + '" aria-labelledby="ss-h"><h2 id="ss-h"><span class="pill ' + sw[0] + '">' + sw[1] + '</span></h2><p>' + esc(hit.status.text) + (sw[2] ? ' ' + esc(sw[2]) : '') + '</p>';
-    if (hit.status.s === 'update' && hit.status.changes) h += '<ul class="changes">' + hit.status.changes.map(function (c) {
-      if (c.change === 'order') return '<li><b>Order:</b> its steps now run in a different order.</li>';
-      if (c.change === 'inputs') return '<li><b>What it takes:</b> ' + esc(c.what.join('; ')) + '.</li>';
-      if (c.change === 'context') return '<li><b>Run details:</b> now ' + esc(c.to.join(', ') || 'none') + ' (was ' + esc(c.from.join(', ') || 'none') + ').</li>';
-      return '<li><b>' + esc(K.stepPlain(c.to || c.from, null)) + '</b>: ' + ({ changed: 'changed', removed: 'removed', added: 'new' })[c.change] + '</li>';
-    }).join('') + '</ul>';
+    /* What changed, 50 at a time in its own order (2.11); the update brief is built from all of it when copied. */
+    if (hit.status.s === 'update' && hit.status.changes) h += K.list(st, 'sk-changes', hit.status.changes.map(function (c, i) { return { c: c, i: i }; }), { draw: function (shown) { return '<ul class="changes">' + shown.map(function (r) {
+      var c = r.c, li = '<li id="skc-' + r.i + '" tabindex="-1">';
+      if (c.change === 'order') return li + '<b>Order:</b> its steps now run in a different order.</li>';
+      if (c.change === 'inputs') return li + '<b>What it takes:</b> ' + esc(c.what.join('; ')) + '.</li>';
+      if (c.change === 'context') return li + '<b>Run details:</b> now ' + esc(c.to.join(', ') || 'none') + ' (was ' + esc(c.from.join(', ') || 'none') + ').</li>';
+      return li + '<b>' + esc(K.stepPlain(c.to || c.from, null)) + '</b>: ' + ({ changed: 'changed', removed: 'removed', added: 'new' })[c.change] + '</li>';
+    }).join('') + '</ul>'; }, keyOf: function (r) { return 'skc-' + r.i; }, focusOf: function (k) { return K.byId(k); } });
     if (hit.status.s === 'update' || hit.status.s === 'unaffected') h += '<div class="row"><button class="btn go" data-act="copy-brief" data-id="update:' + esc(s.file) + '">' + I('copy') + 'Copy the update brief</button></div>' + briefBoxOf(st, 'update:' + s.file);
     h += '</section>';
     h += '<section class="panel" aria-labelledby="sf-h"><h2 id="sf-h">About this skill</h2><dl class="facts">' +
@@ -24902,7 +24977,9 @@ PF.examples = (function () {
       e.skills.push({ skill: x.skill, errors: x.errors, status: st });
       if (st.s === 'update' || st.s === 'missing' || st.s === 'unmatched') e.staleSkills++;
     });
-    procCache = Object.keys(by).map(function (k) { return by[k]; }).sort(function (a, b) { return a.category === b.category ? (a.title < b.title ? -1 : 1) : (a.category < b.category ? -1 : 1); });
+    /* Category, then title, by name (2.11): naturally and ignoring case, ties by ID. For the screen only; the CLI lists its own. */
+    var Nat = PF.text.natural;
+    procCache = Object.keys(by).map(function (k) { return by[k]; }).sort(function (a, b) { return Nat(a.category, b.category) || Nat(a.title, b.title) || Nat(a.id, b.id); });
     return procCache;
   }
 
@@ -25917,6 +25994,7 @@ PF.examples = (function () {
     PF.perf.add('render');
     /* What was just shown is this folder's: after a folder switch it's gone (gen), without the switch itself changing. */
     if (state.justShown && state.justShown.gen !== gen) state.justShown = null;
+    if (state.find && state.find.gen !== gen) state.find = null;
     dropBatchRender();
     repHarvest();
     procCache = null; pplBy = { list: null, len: -1, by: null }; pplSorted = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null;
@@ -28425,6 +28503,16 @@ PF.examples = (function () {
     if (o.focus) { state.focus = o.focus; state.focusWins = true; }
     if (o.focus || o.reveal) revealAt(o.reveal || o.focus, true);
   }
+  /* What's typed in a list's Find box (2.11), held for this folder only (gen) and never in the URL. Changing it starts the list
+     from its first page and lets go of the row just shown in it. */
+  function setFind(list, q) {
+    var f = state.find && state.find.gen === gen ? state.find : { gen: gen, q: {} };
+    f.q[list] = String(q || '').slice(0, 200); state.find = f;
+    state.more = Object.assign({}, state.more); delete state.more[list];
+    if (state.justShown && state.justShown.lists) delete state.justShown.lists[list];
+  }
+  /* The list a Find box filters (its data-find, which matches its id: find-<list>), or null for any other control. */
+  function findList(el) { var m = el && /^find-([a-z][\w-]*)$/.exec(el.id || ''); return m && (!el.dataset || !el.dataset.find || el.dataset.find === m[1]) ? m[1] : null; }
   /* The one place a reveal happens, after every draw, once focus and the scroll are put back: the page, then the top bar, then
      the open dialog (scrollIntoView moves the nearest scrolling box, so a dialog's list scrolls inside the dialog). Asked once,
      found or not. A row inside a closed fold has the fold opened and recorded as its own toggle records it, and takes the
@@ -29622,6 +29710,8 @@ PF.examples = (function () {
     },
     'lib-tab': function (id) { state.libTab = id === 'skills' ? 'skills' : 'processes'; state.focus = '[data-act="lib-tab"][data-id="' + state.libTab + '"]'; render(); },
     /* Each list keeps its own tag filter, so a tag picked on one page never hides things on another. */
+    /* A Find box's Clear: the box empties and takes focus. */
+    'find-clear': function (id) { if (!id) return; setFind(id, ''); state.focus = 'find-' + id; state.focusWins = true; render(); },
     tag: function (id) { var t = state.tags || []; state.tags = !id ? [] : t.indexOf(id) >= 0 ? t.filter(function (x) { return x !== id; }) : t.concat(id); (state.tagsBy = state.tagsBy || {})[state.view] = state.tags; state.focus = id ? '[data-act="tag"][data-id="' + cssEsc(id) + '"]' : null; render(); },
     'open-process': function (id) { setView('process'); state.processId = id; state.diffOf = null; state.ptab = 'overview'; state.mapVer = null; resetRunUi(); render(); window.scrollTo(0, 0); },
     /* ---------- the sections ---------- */
@@ -31577,6 +31667,7 @@ PF.examples = (function () {
     if (e.target && e.target.id === 'pr-note') { var npx = currentProcess(); if (npx) { var ne = prEntry(npx.id); ne.stageNote = e.target.value; ne.noteErr = null; } return; }
     if (e.target && e.target.id === 'pr-found') { var fpx = currentProcess(); if (fpx) { var fe = prEntry(fpx.id); fe.st = PF.practice.setFound(fe.st, e.target.value).state; prSave(fe); var cm = e.target.closest('.field'); var cnt = cm && cm.querySelector('.small'); if (cnt) cnt.textContent = fe.st.found.length + ' of ' + PF.practice.FOUND_MAX; var cb = document.querySelector('[data-act="pr-copy"]'); if (cb) cb.disabled = !fe.st.found; } return; }
     if (e.target.id === 'rel-search') { state.rel.q = e.target.value; render(); }
+    var fl = findList(e.target); if (fl) { setFind(fl, e.target.value); render(); return; }
     if (e.target.id === 'sx-q' && state.sx) { state.sx.q = String(e.target.value || '').slice(0, 200); state.sx.active = null; state.sx.pos = 0; state.sx.err = ''; sxRun(); render(); }
     if (e.target.id === 'ca-edit' && caOv() && caOv().edit) { caOv().edit.text = e.target.value; caOv().err = null; }
     /* The correction composer keeps what's typed in its state, so the Before/After redline follows the wording as it changes. */
@@ -32146,6 +32237,12 @@ PF.examples = (function () {
     }
     var split = !typing && !e.metaKey && !e.ctrlKey && !e.altKey && t && t.closest && t.closest('.pane-split');
     if (split && V.PANES[split.dataset.split] && paneKey(split.dataset.split, e)) { e.preventDefault(); return; }
+    /* A Find box's own Escape: with text, it clears the box and keeps focus there, and nothing else happens; empty, Escape does
+       what it always does. */
+    if (e.key === 'Escape' && findList(t) && String(t.value || '') && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault(); if (e.stopPropagation) e.stopPropagation();
+      setFind(findList(t), ''); state.focus = t.id; state.focusWins = true; render(); return;
+    }
     if (e.key === 'Escape') { if (state.overlay) { closeOverlay(); return; } var om = document.querySelector && document.querySelector('.rw-menu[open]'); if (om) { om.open = false; (state.disc = state.disc || {})[(om.dataset && om.dataset.disc) || 'rw-menu'] = false; var sm = om.querySelector('summary'); if (sm) sm.focus(); return; } if (state.tfPreview && state.view === 'types') { ACTIONS['tf-preview'](); return; } if (state.obAdd && !composing && t && /^ob-new-/.test(t.id || '')) { ACTIONS['ob-add-cancel'](); return; } if (state.obPlace) { cancelPlacing(); return; } if (state.obAsk) { ACTIONS['ob-ask-cancel'](); return; } if (obSheetOpen) { ACTIONS['ob-done'](); return; } if (state.view === 'practice' && state.pick) { PRACTICE.unpick(); return; } if (sheetWasOpen && state.view === 'practice') { PRACTICE['close-ref'](); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.view === 'practice' && !typing) { PRACTICE['pr-back'](); return; } if (state.pick || state.edit) { var pk = state.pick; if (pk && pk.kind === 'fields') { dropDraft(state.runKey, pk.id, ['fields', 'open']); state.fieldsDraft = null; } state.pick = null; state.edit = null; state.fieldErr = null; if (pk && pk.back) state.focus = pk.back; render(); return; } if (state.corrForm) { if (state.corrForm.menu) { state.corrForm.menu = false; state.focus = '[data-act="corr-menu"]'; render(); return; } ACTIONS['corr-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt') { reenterRun(); render(); } return; }
     /* A dialog keeps Tab and Shift+Tab inside it, wrapping at the ends, so keyboard focus never falls behind it. */
     var trap = state.overlay ? overlayEl : state.tfPreview && state.view === 'types' ? document.getElementById('tf-preview') : null;

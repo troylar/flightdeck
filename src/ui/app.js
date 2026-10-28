@@ -561,7 +561,9 @@
       e.skills.push({ skill: x.skill, errors: x.errors, status: st });
       if (st.s === 'update' || st.s === 'missing' || st.s === 'unmatched') e.staleSkills++;
     });
-    procCache = Object.keys(by).map(function (k) { return by[k]; }).sort(function (a, b) { return a.category === b.category ? (a.title < b.title ? -1 : 1) : (a.category < b.category ? -1 : 1); });
+    /* Category, then title, by name (2.11): naturally and ignoring case, ties by ID. For the screen only; the CLI lists its own. */
+    var Nat = PF.text.natural;
+    procCache = Object.keys(by).map(function (k) { return by[k]; }).sort(function (a, b) { return Nat(a.category, b.category) || Nat(a.title, b.title) || Nat(a.id, b.id); });
     return procCache;
   }
 
@@ -1576,6 +1578,7 @@
     PF.perf.add('render');
     /* What was just shown is this folder's: after a folder switch it's gone (gen), without the switch itself changing. */
     if (state.justShown && state.justShown.gen !== gen) state.justShown = null;
+    if (state.find && state.find.gen !== gen) state.find = null;
     dropBatchRender();
     repHarvest();
     procCache = null; pplBy = { list: null, len: -1, by: null }; pplSorted = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null;
@@ -4084,6 +4087,16 @@
     if (o.focus) { state.focus = o.focus; state.focusWins = true; }
     if (o.focus || o.reveal) revealAt(o.reveal || o.focus, true);
   }
+  /* What's typed in a list's Find box (2.11), held for this folder only (gen) and never in the URL. Changing it starts the list
+     from its first page and lets go of the row just shown in it. */
+  function setFind(list, q) {
+    var f = state.find && state.find.gen === gen ? state.find : { gen: gen, q: {} };
+    f.q[list] = String(q || '').slice(0, 200); state.find = f;
+    state.more = Object.assign({}, state.more); delete state.more[list];
+    if (state.justShown && state.justShown.lists) delete state.justShown.lists[list];
+  }
+  /* The list a Find box filters (its data-find, which matches its id: find-<list>), or null for any other control. */
+  function findList(el) { var m = el && /^find-([a-z][\w-]*)$/.exec(el.id || ''); return m && (!el.dataset || !el.dataset.find || el.dataset.find === m[1]) ? m[1] : null; }
   /* The one place a reveal happens, after every draw, once focus and the scroll are put back: the page, then the top bar, then
      the open dialog (scrollIntoView moves the nearest scrolling box, so a dialog's list scrolls inside the dialog). Asked once,
      found or not. A row inside a closed fold has the fold opened and recorded as its own toggle records it, and takes the
@@ -5281,6 +5294,8 @@
     },
     'lib-tab': function (id) { state.libTab = id === 'skills' ? 'skills' : 'processes'; state.focus = '[data-act="lib-tab"][data-id="' + state.libTab + '"]'; render(); },
     /* Each list keeps its own tag filter, so a tag picked on one page never hides things on another. */
+    /* A Find box's Clear: the box empties and takes focus. */
+    'find-clear': function (id) { if (!id) return; setFind(id, ''); state.focus = 'find-' + id; state.focusWins = true; render(); },
     tag: function (id) { var t = state.tags || []; state.tags = !id ? [] : t.indexOf(id) >= 0 ? t.filter(function (x) { return x !== id; }) : t.concat(id); (state.tagsBy = state.tagsBy || {})[state.view] = state.tags; state.focus = id ? '[data-act="tag"][data-id="' + cssEsc(id) + '"]' : null; render(); },
     'open-process': function (id) { setView('process'); state.processId = id; state.diffOf = null; state.ptab = 'overview'; state.mapVer = null; resetRunUi(); render(); window.scrollTo(0, 0); },
     /* ---------- the sections ---------- */
@@ -7236,6 +7251,7 @@
     if (e.target && e.target.id === 'pr-note') { var npx = currentProcess(); if (npx) { var ne = prEntry(npx.id); ne.stageNote = e.target.value; ne.noteErr = null; } return; }
     if (e.target && e.target.id === 'pr-found') { var fpx = currentProcess(); if (fpx) { var fe = prEntry(fpx.id); fe.st = PF.practice.setFound(fe.st, e.target.value).state; prSave(fe); var cm = e.target.closest('.field'); var cnt = cm && cm.querySelector('.small'); if (cnt) cnt.textContent = fe.st.found.length + ' of ' + PF.practice.FOUND_MAX; var cb = document.querySelector('[data-act="pr-copy"]'); if (cb) cb.disabled = !fe.st.found; } return; }
     if (e.target.id === 'rel-search') { state.rel.q = e.target.value; render(); }
+    var fl = findList(e.target); if (fl) { setFind(fl, e.target.value); render(); return; }
     if (e.target.id === 'sx-q' && state.sx) { state.sx.q = String(e.target.value || '').slice(0, 200); state.sx.active = null; state.sx.pos = 0; state.sx.err = ''; sxRun(); render(); }
     if (e.target.id === 'ca-edit' && caOv() && caOv().edit) { caOv().edit.text = e.target.value; caOv().err = null; }
     /* The correction composer keeps what's typed in its state, so the Before/After redline follows the wording as it changes. */
@@ -7805,6 +7821,12 @@
     }
     var split = !typing && !e.metaKey && !e.ctrlKey && !e.altKey && t && t.closest && t.closest('.pane-split');
     if (split && V.PANES[split.dataset.split] && paneKey(split.dataset.split, e)) { e.preventDefault(); return; }
+    /* A Find box's own Escape: with text, it clears the box and keeps focus there, and nothing else happens; empty, Escape does
+       what it always does. */
+    if (e.key === 'Escape' && findList(t) && String(t.value || '') && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault(); if (e.stopPropagation) e.stopPropagation();
+      setFind(findList(t), ''); state.focus = t.id; state.focusWins = true; render(); return;
+    }
     if (e.key === 'Escape') { if (state.overlay) { closeOverlay(); return; } var om = document.querySelector && document.querySelector('.rw-menu[open]'); if (om) { om.open = false; (state.disc = state.disc || {})[(om.dataset && om.dataset.disc) || 'rw-menu'] = false; var sm = om.querySelector('summary'); if (sm) sm.focus(); return; } if (state.tfPreview && state.view === 'types') { ACTIONS['tf-preview'](); return; } if (state.obAdd && !composing && t && /^ob-new-/.test(t.id || '')) { ACTIONS['ob-add-cancel'](); return; } if (state.obPlace) { cancelPlacing(); return; } if (state.obAsk) { ACTIONS['ob-ask-cancel'](); return; } if (obSheetOpen) { ACTIONS['ob-done'](); return; } if (state.view === 'practice' && state.pick) { PRACTICE.unpick(); return; } if (sheetWasOpen && state.view === 'practice') { PRACTICE['close-ref'](); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.view === 'practice' && !typing) { PRACTICE['pr-back'](); return; } if (state.pick || state.edit) { var pk = state.pick; if (pk && pk.kind === 'fields') { dropDraft(state.runKey, pk.id, ['fields', 'open']); state.fieldsDraft = null; } state.pick = null; state.edit = null; state.fieldErr = null; if (pk && pk.back) state.focus = pk.back; render(); return; } if (state.corrForm) { if (state.corrForm.menu) { state.corrForm.menu = false; state.focus = '[data-act="corr-menu"]'; render(); return; } ACTIONS['corr-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt') { reenterRun(); render(); } return; }
     /* A dialog keeps Tab and Shift+Tab inside it, wrapping at the ends, so keyboard focus never falls behind it. */
     var trap = state.overlay ? overlayEl : state.tfPreview && state.view === 'types' ? document.getElementById('tf-preview') : null;

@@ -55,10 +55,12 @@
   function skillsPanel(ctx, p, bare) {
     var h = bare ? '<h3>Skills</h3>' : '<section class="panel" aria-labelledby="sk-h"><h2 id="sk-h">' + I('spark') + 'Skills</h2>', end = bare ? '' : '</section>';
     if (!p.skills.length) return h + '<p class="small">None yet. Once a version is signed off, copy its brief for your AI assistant.</p>' + end;
-    return h + '<ul class="plist">' + p.skills.map(function (x) {
-      var s = x.skill, pill = SKILL_PILL[x.status.s] || SKILL_PILL.missing;
+    /* 50 at a time (2.11); each is keyed by its place, and Show more focuses its button. */
+    var rows = p.skills.map(function (x, i) { return { x: x, i: i }; });
+    return h + K.list(ctx.state, 'p-skills', rows, { draw: function (shown) { return '<ul class="plist">' + shown.map(function (r) {
+      var s = r.x.skill, pill = SKILL_PILL[r.x.status.s] || SKILL_PILL.missing;
       return '<li><button data-act="open-skill" data-id="' + esc(s.file || s.name) + '"><span class="t">' + esc(s.name) + '</span><span class="pill ' + pill[0] + '">' + pill[1] + '</span></button></li>';
-    }).join('') + '</ul>' + end;
+    }).join('') + '</ul>'; }, keyOf: function (r) { return String(r.i); }, focusOf: function (k) { var s = p.skills[+k].skill; return K.byAct('open-skill', s.file || s.name); } }) + end;
   }
   /* For someone who doesn't look after the checklist: Ready for a skill? and Skills as one closed line that says what they hold. */
   function skillsFold(ctx, p, pub) {

@@ -65,8 +65,9 @@ PF.vk = (function () {
     return '<span class="small">' + esc(parts.join(' · ')) + (st.fs && st.fs.kind === 'folder' ? ' · OneDrive shares it with others' : '') + '</span>';
   }
 
-  /* A hierarchy (group paths like ["Engineering", "Releases"]) as nested, foldable lists. Items without a group go last. */
-  function tree(items, pathOf, render, openSet) {
+  /* A hierarchy (group paths like ["Engineering", "Releases"]) as nested, foldable lists. Items without a group go last. Group
+     names sort by name, naturally (Group 2 before Group 10). */
+  function treeOf(items, pathOf) {
     /* Group names come from files, so nodes have no prototype: a group called "constructor" is just a group. */
     var root = { kids: Object.create(null), order: [], items: [] };
     items.forEach(function (it) {
@@ -74,29 +75,77 @@ PF.vk = (function () {
       (pathOf(it) || []).forEach(function (seg) { if (!node.kids[seg]) { node.kids[seg] = { kids: Object.create(null), order: [], items: [] }; node.order.push(seg); } node = node.kids[seg]; });
       node.items.push(it);
     });
-    function count(n) { return n.items.length + n.order.reduce(function (s, k) { return s + count(n.kids[k]); }, 0); }
+    (function sort(n) { n.order.sort(PF.text.natural); n.order.forEach(function (k) { sort(n.kids[k]); }); })(root);
+    return root;
+  }
+  /* The items in the order the tree draws them: each level's groups by name, then its own items. */
+  function treeOrder(root) {
+    var out = [];
+    (function walk(n) { n.order.forEach(function (k) { walk(n.kids[k]); }); n.items.forEach(function (it) { out.push(it); }); })(root);
+    return out;
+  }
+  /* on: the keys of the items to draw (keyOf), or null for all of them. A group with none of them drawn isn't drawn; its count
+     is always of every item, and says how many are shown when that's fewer ("12 · 3 shown"). The shape (which groups fold
+     into one heading) is the whole list's, so paging never renames a group. */
+  function treeDraw(root, render, openSet, on, keyOf) {
+    var N = function (x) { return x.toLocaleString('en-US'); };
+    function count(n, only) { return n.items.reduce(function (s, it) { return s + (!only || on[keyOf(it)] ? 1 : 0); }, 0) + n.order.reduce(function (s, k) { return s + count(n.kids[k], only); }, 0); }
     function draw(n, path) {
-      var groups = n.order.slice().sort().map(function (seg) {
+      var groups = n.order.map(function (seg) {
         /* A group whose only child is a group is one heading ("Delivery / Backlog"); a count of 1 isn't drawn. */
         var kid = n.kids[seg], p = path.concat(seg), name = [seg];
         while (!kid.items.length && kid.order.length === 1) { name.push(kid.order[0]); p = p.concat(kid.order[0]); kid = kid.kids[kid.order[0]]; }
-        var key = p.join(' / '), shut = openSet && Object.prototype.hasOwnProperty.call(openSet, key) && openSet[key] === false, c = count(kid);
-        return '<li class="tgroup"><details' + (shut ? '' : ' open') + ' data-group="' + esc(key) + '"><summary><span class="t">' + esc(name.join(' / ')) + '</span>' + (c > 1 ? ' <span class="small">' + c + '</span>' : '') + '</summary><ul class="plist">' + draw(kid, p) + '</ul></details></li>';
+        var c = count(kid, false), s = on ? count(kid, true) : c;
+        if (!s) return '';
+        var key = p.join(' / '), shut = openSet && Object.prototype.hasOwnProperty.call(openSet, key) && openSet[key] === false;
+        return '<li class="tgroup"><details' + (shut ? '' : ' open') + ' data-group="' + esc(key) + '"><summary><span class="t">' + esc(name.join(' / ')) + '</span>' + (c > 1 ? ' <span class="small">' + N(c) + (s < c ? ' · ' + N(s) + ' shown' : '') + '</span>' : '') + '</summary><ul class="plist">' + draw(kid, p) + '</ul></details></li>';
       }).join('');
-      return groups + n.items.map(render).join('');
+      return groups + n.items.filter(function (it) { return !on || on[keyOf(it)]; }).map(render).join('');
     }
     return '<ul class="plist tree">' + draw(root, []) + '</ul>';
   }
+  function tree(items, pathOf, render, openSet) { return treeDraw(treeOf(items, pathOf), render, openSet, null, null); }
+  /* A tree a page at a time (2.11): the page is the first n items in the order the tree draws them, and only their groups are
+     drawn, so closed folds and 1,000 groups of one still draw 50 rows. Group counts are of every item given. o: as K.list,
+     with keyOf required. */
+  function treeList(st, id, items, pathOf, render, o) {
+    var root = treeOf(items, pathOf), keyOf = o.keyOf;
+    return list(st, id, treeOrder(root), Object.assign({}, o, { draw: function (shown) {
+      var on = Object.create(null); shown.forEach(function (it) { on[keyOf(it)] = true; });
+      return treeDraw(root, render, st.groupsOpen, on, keyOf);
+    } }));
+  }
   /* The tag filter: every tag in use, as toggles. A list shows only items with all chosen tags. */
-  /* Folded into Filter by tag (N) unless a tag is chosen or it was opened (st.disc.tags). */
-  function tagBar(all, chosen, disc) {
+  /* Folded into Filter by tag (N) unless a tag is chosen or it was opened (st.disc.tags). With st, the tags are drawn 50 at a
+     time (2.11), chosen ones always. */
+  function tagBar(all, chosen, disc, st) {
     if (!all.length) return '';
     var open = chosen.length || (disc || {}).tags;
-    return '<details class="tagfold" data-disc="tags"' + (open ? ' open' : '') + '><summary class="small">Filter by tag (' + all.length + ')</summary>' + tagButtons(all, chosen) + '</details>';
+    return '<details class="tagfold" data-disc="tags"' + (open ? ' open' : '') + '><summary class="small">Filter by tag (' + all.length + ')</summary>' + tagButtons(all, chosen, st) + '</details>';
   }
-  function tagButtons(all, chosen) {
-    return '<div class="tagbar" role="group" aria-label="Filter by tag">' + all.map(function (t) { var on = chosen.indexOf(t) >= 0; return '<button class="tag' + (on ? ' on' : '') + '" data-act="tag" data-id="' + esc(t) + '" aria-pressed="' + on + '">#' + esc(t) + '</button>'; }).join('') +
-      (chosen.length ? '<button class="mini" data-act="tag" data-id="">Clear</button>' : '') + '</div>';
+  function tagButtons(all, chosen, st) {
+    var btn = function (t) { var on = chosen.indexOf(t) >= 0; return '<button class="tag' + (on ? ' on' : '') + '" data-act="tag" data-id="' + esc(t) + '" aria-pressed="' + on + '">#' + esc(t) + '</button>'; };
+    var body = st ? list(st, 'tags', all, { draw: function (shown) { return shown.map(btn).join(''); }, keyOf: function (t) { return t; }, focusOf: function (t) { return byAct('tag', t); }, keep: chosen, keptLabel: 'Chosen' }) : all.map(btn).join('');
+    return '<div class="tagbar" role="group" aria-label="Filter by tag">' + body + (chosen.length ? '<button class="mini" data-act="tag" data-id="">Clear</button>' : '') + '</div>';
+  }
+  /* ---------- Find boxes (2.11) ---------- */
+  /* What's typed in a list's Find box (state.find, for this folder only: renderNow drops it after a folder switch). */
+  function findQ(st, id) { return st.find && st.find.q ? String(st.find.q[id] || '') : ''; }
+  /* Whether an item's words hold every term typed, ignoring case. */
+  function finds(q) {
+    var terms = String(q || '').toLowerCase().split(/\s+/).filter(Boolean);
+    return function (words) {
+      if (!terms.length) return true;
+      var w = words.filter(function (x) { return x != null && x !== ''; }).join('\n').toLowerCase();
+      return terms.every(function (t) { return w.indexOf(t) >= 0; });
+    };
+  }
+  /* The box, drawn from state (data-bound), with its count: "12 of 1,000 match", or that none does, and Clear. */
+  function findBox(st, id, label, n, total, noun) {
+    var q = findQ(st, id), N = function (x) { return x.toLocaleString('en-US'); }, fid = 'find-' + id;
+    var count = !q ? '' : n ? N(n) + ' of ' + N(total) + ' match' : 'No ' + noun + ' matches "' + esc(q) + '"';
+    return '<div class="row findbox"><label for="' + esc(fid) + '">' + esc(label) + '</label><input type="search" id="' + esc(fid) + '" data-find="' + esc(id) + '" data-nav-safe data-bound value="' + esc(q) + '" autocomplete="off" maxlength="200" aria-describedby="' + esc(fid) + '-n">' +
+      '<span class="small" id="' + esc(fid) + '-n" role="status">' + count + '</span>' + (q ? '<button class="mini" data-act="find-clear" data-id="' + esc(id) + '">Clear</button>' : '') + '</div>';
   }
   /* A long list, 50 at a time: the first n items (n grows by 50 with Show more, kept per list in state.more), how many there
      are, and the button. keyOf names an item, so focus can move to the first one Show more adds. Paging rather than
@@ -140,6 +189,8 @@ PF.vk = (function () {
   }
   /* A selector for the element with this id, whatever the id holds (it comes from files). */
   function byId(id) { return '[id="' + String(id).replace(/["\\]/g, '\\$&') + '"]'; }
+  /* A selector for the control that does act on this id (a row that is one button). */
+  function byAct(act, id) { return '[data-act="' + act + '"][data-id="' + String(id).replace(/["\\]/g, '\\$&') + '"]'; }
   /* A must-do step on a row: a small red mark, named for screen readers and on hover; the step's own pane says it in words. */
   function mustMark() { return '<span class="mustmark" role="img" aria-label="Must do" title="Must do">!</span>'; }
   /* How a phase is worked, in words (the file keeps READ-DO and DO-CONFIRM). */
@@ -224,7 +275,7 @@ PF.vk = (function () {
   }
   function unsavedWords(ps) { return ps && ps.saved ? 'its run was saved and has changed since' : ps && ps.certain === false ? 'Flightdeck couldn\'t confirm whether its run saved' : 'its run didn\'t save'; }
   function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
-  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, byId: byId, PAGE: PAGE, PAGE_OFF: null, testTag: testTag, verWord: verWord };
+  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, finds: finds, findBox: findBox, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, byId: byId, PAGE: PAGE, PAGE_OFF: null, testTag: testTag, verWord: verWord };
 })();
 (function () {
   'use strict';
