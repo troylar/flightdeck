@@ -238,7 +238,7 @@
   }
   function childStart(ctx, prep) {
     var pub = prep.pub, meta = pub.map.meta, r = ctx.run(), setBy = M.setBy(pub.map), w = childVersionWords(ctx, prep);
-    var people = ctx.data.people.filter(function (x) { return !x.inactive; }), nm = PF.people.labeler(people);
+    var people = PF.people.sorted(ctx).filter(function (x) { return !x.inactive; }), nm = PF.people.labeler(people);
     var h = '<div class="overlay" data-act="close-overlay"><div class="help cs-box" role="dialog" aria-modal="true" aria-labelledby="cs-t"><div class="eyebrow">' + esc(w.head) + '</div><h2 id="cs-t" tabindex="-1">Start the ' + esc(meta.title) + ' run</h2>' +
       (w.newer ? '<p class="small">' + esc(w.newer) + '</p>' : '') +
       '<form class="stack" id="child-start-form" data-token="' + esc(String(prep.token)) + '">' +

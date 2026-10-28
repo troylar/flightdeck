@@ -74,7 +74,7 @@
     var b = ferr(st, 'su-backup'), cands = [{ id: ids.me, name: su.me.name }].concat(named.map(function (x) { return { id: ids[x.k], name: x.name, email: String(x.email || '').trim() }; }));
     var nmBk = PP.labeler(cands);
     h += '<fieldset class="su-backup"><legend>Backup owner</legend><label class="field" for="su-backup">If you\'re away or leave, your backup owner keeps the people list and can hand the folder to someone else.<select id="su-backup" data-bound' + b.attrs + '><option value="">Nobody yet</option>' +
-      named.map(function (x) { return '<option value="' + esc(x.k) + '"' + (su.backup === x.k ? ' selected' : '') + '>' + esc(nmBk({ id: ids[x.k], name: x.name, email: String(x.email || '').trim() })) + '</option>'; }).join('') + '</select></label>' + b.html + '</fieldset>';
+      named.slice().sort(function (a, b) { return PF.text.natural(a.name, b.name); }).map(function (x) { return '<option value="' + esc(x.k) + '"' + (su.backup === x.k ? ' selected' : '') + '>' + esc(nmBk({ id: ids[x.k], name: x.name, email: String(x.email || '').trim() })) + '</option>'; }).join('') + '</select></label>' + b.html + '</fieldset>';
     h += promise();
     h += '<div class="row su-actions"><button class="btn go" type="submit"' + (su.busy ? ' disabled' : '') + '>' + (su.busy ? 'Creating…' : 'Create the team folder') + '</button><button type="button" class="mini" data-act="setup-step" data-id="folder">Back</button></div>' +
       '<p class="small">Flightdeck writes <code>people.json</code>, <code>AGENTS.md</code> (instructions for AI assistants) and their skills into <b>' + esc(su.dirName || '') + '</b>.</p></form>';
@@ -114,7 +114,7 @@
     }).join('') + '</ul>';
   }
   function secondStep(ctx, su, prog) {
-    var st = ctx.state, me = st.me, fs = st.fs, others = ctx.data.people.filter(function (p) { return !p.inactive && p.id !== me; });
+    var st = ctx.state, me = st.me, fs = st.fs, others = PF.people.sorted(ctx).filter(function (p) { return !p.inactive && p.id !== me; });
     var to = others.filter(function (p) { return p.id === su.to; })[0] || others[0] || null, done = prog.steps[4].done;
     var h = '<h2 id="su-h" tabindex="-1">Open it on a second computer</h2><p>A run helps most when the team can see it. Have a teammate open the folder on their computer, then check that files travel between you.</p><ol class="su-sub">';
     h += '<li><h3>Flightdeck in the team folder</h3>' + (su.hasApp === true ? ok('<code>flightdeck.html</code> is in the team folder, so everyone opens the same version.')
@@ -158,7 +158,7 @@
       if (su.err) h += '<div class="notice bad" role="alert"><span>' + esc(su.err.text) + '</span></div>';
       return h + '<div class="row su-actions"><button class="btn go" data-act="setup-open"' + (su.busy ? ' disabled' : '') + '>' + I('doc') + (su.busy ? 'Opening…' : 'Open team folder') + '</button></div></section>';
     }
-    var people = ctx.data.people.filter(function (p) { return !p.inactive; }), owner = PP.roles(ctx.data.people).owner;
+    var people = PF.people.sorted(ctx).filter(function (p) { return !p.inactive; }), owner = PP.roles(ctx.data.people).owner;
     h += '<h2 id="su-h" tabindex="-1">Who are you?</h2>';
     if (!people.length) return h + '<div class="notice warn" role="status"><span><b>' + esc(fs.name) + '</b> has no people list yet. If you\'re setting up a new team, choose Start your team instead.</span><button class="btn" data-act="setup-mode" data-id="start">Start your team</button></div></section>';
     h += '<p>Choose your name in <b>' + esc(fs.name) + '</b>. Everything you record or note is stamped with it.</p><ul class="su-who">' + people.map(function (p) {

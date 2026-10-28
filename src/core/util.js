@@ -198,6 +198,20 @@ PF.util = (function () {
   return { DRAFT_BYTES: DRAFT_BYTES, utf8Bytes: utf8Bytes, draftTooBig: draftTooBig, draftSize: draftSize, drift: drift, esc: esc, timeOnDayIn: timeOnDayIn, safeUrl: safeUrl, mdInline: mdInline, mdBlock: mdBlock, slug: slug, randomId: randomId, hash: hash,
     hm: hm, when: when, day: day, dueWords: dueWords, localDateTime: localDateTime, clock: clock, duration: duration, timeToday: timeToday };
 })();
+/* Name order for the lists people scan by name (2.11): numbers in a name compare as numbers, so Process 2 comes before
+   Process 10, and case and accents don't count. Names that still compare equal fall back to their exact text, so equal-looking
+   names always come in the same order. Views sort copies with it; files, the CLI and outside apps keep their own order. */
+PF.text = (function () {
+  'use strict';
+  var coll = null;
+  try { coll = typeof Intl !== 'undefined' && Intl.Collator ? new Intl.Collator('en', { numeric: true, sensitivity: 'base' }) : null; } catch (e) { coll = null; }
+  function exact(a, b) { return a < b ? -1 : a > b ? 1 : 0; }
+  function natural(a, b) {
+    a = String(a == null ? '' : a); b = String(b == null ? '' : b);
+    return (coll ? coll.compare(a, b) : 0) || exact(a, b);
+  }
+  return { natural: natural };
+})();
 /* Counts of the work done (2.5.0): tests read them, so what a refresh or a screen costs is a number, the same on every computer. */
 /* plain: every index answers by a scan from the start, as before 2.5.0, so a test can compare a screen drawn both ways. */
 PF.perf = { n: {}, plain: false, add: function (k, x) { this.n[k] = (this.n[k] || 0) + (x == null ? 1 : x); }, reset: function () { this.n = {}; } };

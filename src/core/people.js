@@ -134,6 +134,17 @@ PF.people = (function () {
       return twin ? p.name + ' (' + (p.email || p.id) + ')' : p.name;
     };
   }
+  /* Everyone in name order (2.11), for pickers and lists people scan by name: a sorted copy, with people who share a name in
+     ID order. people.json, the CLI and outside apps keep the file's order. sorted(ctx) uses the screen's copy, made once per
+     draw (ctx.peopleSorted), when there is one. */
+  function byName(list) {
+    var N = PF.text.natural;
+    return (list || []).slice().sort(function (a, b) { return N(a.name, b.name) || N(a.id, b.id); });
+  }
+  function sorted(ctx) {
+    if (Array.isArray(ctx)) return byName(ctx);
+    return ctx && typeof ctx.peopleSorted === 'function' ? ctx.peopleSorted() : byName(ctx && ctx.data ? ctx.data.people : []);
+  }
   function text(doc) { return JSON.stringify(doc, null, 2) + '\n'; }
 
   /* What someone not on the list sends the folder owner. */
@@ -144,5 +155,5 @@ PF.people = (function () {
       'In Flightdeck: Settings, People, Add a person. Then I can choose my name when I open the folder.', '', 'Thanks!'].join('\n');
   }
 
-  return { FILE: FILE, ROLES: ROLES, initials: initials, checkName: checkName, checkEmail: checkEmail, allowed: allowed, permits: permits, label: label, labeler: labeler, listOf: listOf, clean: clean, verdict: verdict, idFor: idFor, roles: roles, canManage: canManage, create: create, add: add, setActive: setActive, setRole: setRole, text: text, request: request };
+  return { FILE: FILE, ROLES: ROLES, initials: initials, checkName: checkName, checkEmail: checkEmail, allowed: allowed, permits: permits, label: label, labeler: labeler, byName: byName, sorted: sorted, listOf: listOf, clean: clean, verdict: verdict, idFor: idFor, roles: roles, canManage: canManage, create: create, add: add, setActive: setActive, setRole: setRole, text: text, request: request };
 })();

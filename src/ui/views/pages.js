@@ -33,7 +33,7 @@
   function finish(ctx) {
     var r = ctx.run(); if (!r) return V.run(ctx);
     var s = ctx.state, map = R.mapOf(r), rec = ctx.recording(r), ok = R.allGatesOk(r, map), fus = r.followUps || [], cor = R.corrections(r, map), idx = cor.length ? V.corrIndex(ctx, r.process) : {};
-    var people = ctx.data.people.filter(function (p) { return !p.inactive; });
+    var people = PF.people.sorted(ctx).filter(function (p) { return !p.inactive; });
     var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) + '</div><h1 id="page-h" tabindex="-1">Finish ' + esc(r.title) + '</h1></div><button class="btn" data-act="exit-mission">' + I('back') + 'Back to the run</button></div>';
     if (!rec) return h + '<div class="notice warn"><span>Only the recorder can finish the run.</span></div>';
     /* Only what has something in it: the follow-up form waits under Add a follow-up (opened by an error, or once opened). */

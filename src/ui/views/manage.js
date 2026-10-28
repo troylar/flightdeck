@@ -149,7 +149,7 @@
       var err = f.err && f.err.box === 'np-' + id ? f.err.msg : '';
       return '<label class="field" for="np-' + id + '">' + label + (hint ? ' <span class="small">' + hint + '</span>' : '') + '<input id="np-' + id + '" maxlength="120" value="' + esc(val || '') + '"' + (extra || '') + (err ? ' aria-invalid="true" aria-describedby="ferr-np-' + id + '"' : '') + '></label>' + (err ? '<p class="ferr" id="ferr-np-' + id + '" role="alert">' + esc(err) + '</p>' : '');
     };
-    var people = ctx.data.people.filter(function (p) { return !p.inactive; });
+    var people = PF.people.sorted(ctx).filter(function (p) { return !p.inactive; });
     var title = typed.title != null ? typed.title : f.title || '', ownId = typed.id != null ? typed.id : f.id || '', file = String(ownId).trim().toLowerCase() || fileIdOf(title);
     var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">New checklist</div><h1 id="page-h" tabindex="-1">Write down how something is done</h1></div></div>' +
       '<form class="panel stack" id="new-process-form" data-scope="new-process">' +

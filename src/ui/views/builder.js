@@ -688,7 +688,7 @@
   /* A person to choose: the active people whose IDs a checklist can hold, and the current value even when it isn't one of
      them (inactive, or not in people.json), so an unrelated change never drops it. */
   function personSelect(ctx, id, name, cur, none) {
-    var all = ctx.data.people || [], ok = all.filter(function (x) { return !x.inactive && O.personOk(x.id); }), have = ok.some(function (x) { return x.id === cur; });
+    var all = ctx.data.people || [], ok = PF.people.sorted(ctx).filter(function (x) { return !x.inactive && O.personOk(x.id); }), have = ok.some(function (x) { return x.id === cur; });
     var gone = cur && !have ? all.filter(function (x) { return x.id === cur; })[0] : null;
     var nm = PF.people.labeler(all);
     var opt = function (v, t, on) { return '<option value="' + esc(v) + '"' + (on ? ' selected' : '') + '>' + esc(t) + '</option>'; };

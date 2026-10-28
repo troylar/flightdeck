@@ -123,6 +123,12 @@
       if (!pplBy || pplBy.list !== ps || pplBy.len !== ps.length) { var o = {}; ps.forEach(function (p) { o[p.id] = p; }); pplBy = { list: ps, len: ps.length, by: o }; }
       return pplBy.by;
     },
+    /* Everyone in name order (2.11), sorted once per draw for every picker on it; views filter it, never change it. */
+    peopleSorted: function () {
+      var ps = data.people;
+      if (!pplSorted || pplSorted.list !== ps || pplSorted.len !== ps.length) pplSorted = { list: ps, len: ps.length, out: PF.people.byName(ps) };
+      return pplSorted.out;
+    },
     run: function () { return findRun(state.runKey); },
     /* The runs a sign-off counts: every run shown, less those whose latest read failed or whose file is gone (their last copy
        stays on screen, but isn't what the folder holds), and none while the runs folder can't be read. */
@@ -457,6 +463,7 @@
     }, function () {});
   }
   var pplBy = { list: null, len: -1, by: null };
+  var pplSorted = null;
   var procCache = null, orphanSkills = [], fixMemo = Object.create(null), fuMemo = null, insMemo = Object.create(null), repMemo = Object.create(null), repCurMemo = null;
   /* A process by ID (2.5.0): one look in a map built once for each list processes() makes, keeping the first entry for an ID
      as the old filter()[0] did. */
@@ -1567,9 +1574,11 @@
   /* Re-render without losing what someone is typing or where their focus is. */
   function renderNow() {
     PF.perf.add('render');
+    /* What was just shown is this folder's: after a folder switch it's gone (gen), without the switch itself changing. */
+    if (state.justShown && state.justShown.gen !== gen) state.justShown = null;
     dropBatchRender();
     repHarvest();
-    procCache = null; pplBy = { list: null, len: -1, by: null }; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null;
+    procCache = null; pplBy = { list: null, len: -1, by: null }; pplSorted = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null;
     var keep = {}, ae = document.activeElement, focusKey = null;
     /* What a person typed or ticked survives a redraw of the same thing: the same screen, run, step and open form. Moving to
        another step or form starts clean, so a note or a value never jumps to the wrong place. Hidden inputs are never carried. */
@@ -1615,6 +1624,7 @@
     typeEditorPage();
     /* The draft editor's text is only there in Markdown mode; in the builder, focus goes to the editor's heading instead. */
     if (state.focus === 'draft-editor' && !document.getElementById('draft-editor')) state.focus = 'ed-h';
+    var asked = state.focus, askedOv = state.overlayFocus, wins = state.focusWins; state.focusWins = false;
     var target = state.focus ? document.getElementById(state.focus) || app.querySelector(state.focus) || topEl.querySelector(state.focus) : focusKey ? app.querySelector(focusKey) || topEl.querySelector(focusKey) : null;
     /* The page someone was on went away (its skill was removed): focus goes to the way back, next to the message saying so. */
     if (!target && focusKey === '#page-h') target = document.getElementById('page-back');
@@ -1632,8 +1642,12 @@
     /* A box opened prefilled puts the caret at the end, ready to edit. */
     if (target && state.focusEnd && target.setSelectionRange && typeof target.value === 'string') try { target.setSelectionRange(target.value.length, target.value.length); } catch (e) { /* not a text field */ }
     state.focusEnd = false;
+    /* An open pick or edit box takes focus when it opens, then keeps it as any control does, by its id: focus the person moved
+       elsewhere (Show more, a click) isn't pulled back by a later draw, and focus an action asked for wins (focusWins). */
     var pi = document.getElementById('pick-input') || document.getElementById('edit-input');
-    if (pi && document.activeElement !== pi) pi.focus({ preventScroll: true });
+    var piKey = pi ? [pi.id, state.view, state.runKey, state.processId, state.pick ? state.pick.kind + ':' + state.pick.id : '', state.edit || ''].join('|') : '';
+    if (pi && piKey !== lastPick && !wins && document.activeElement !== pi) pi.focus({ preventScroll: true });
+    lastPick = piKey;
     pinOffsets();
     if (window.scrollY !== y) window.scrollTo(0, y);
     /* An open dialog isn't rebuilt by background refreshes unless its content changed, so focus inside it stays put. */
@@ -1662,6 +1676,7 @@
     if (state.obRepend) { state.obRepend = false; obRepend(); }
     editorPage();
     runPage();
+    revealNow(asked, askedOv);
     fitPanes();
     sheet();
     prArrived();
@@ -1670,7 +1685,7 @@
     tick();
     lsSet('filter', state.filter);
   }
-  var lastOverlay = '';
+  var lastOverlay = '', lastPick = '';
   /* The draft editor is a page of its own: the app's top bar hides and the page stops scrolling (each pane scrolls). The
      selected item and its line in the preview are brought into view when the selection or the inspector tab changes. */
   var lastShown = '';
@@ -1701,8 +1716,6 @@
     if (keep) { state.paneScroll = null; ['rw-list', 'rw-ins'].forEach(function (id) { var el = document.getElementById(id); if (el && keep[id] != null) el.scrollTop = keep[id]; }); }
     /* A run opens with its selected step in view beside the inspector. */
     if (on && state.revealSel) { state.revealSel = false; if (!narrow() && state.sel) reveal('#step-' + cssEsc(state.sel), 'center'); }
-    /* go() to a step brings its row into view, in the run already open and on a phone too (focus alone doesn't scroll). */
-    if (on && state.revealTarget) { var rt = app.querySelector(state.revealTarget); state.revealTarget = null; if (rt && rt.scrollIntoView) rt.scrollIntoView({ block: 'nearest' }); }
   }
   /* Resizable sidebars (V.splitter). After each redraw and on a window resize, each panes container on screen is fitted as a
      whole (V.fitPanes) from its width and the widths chosen; a sidebar left at the layout's width is measured. A change redraws
@@ -4058,6 +4071,40 @@
   function edText(p) { var ed = openEditor(p); return ed.text != null ? ed.text : ed.base; }
   /* The new item is shown: the page scrolls just enough to bring it into view (renders keep the scroll where it was). */
   function reveal(sel, block) { var el = sel && document.querySelector(sel); if (el && el.scrollIntoView) el.scrollIntoView({ block: block || 'nearest' }); }
+  /* Brought into view after the next draw (revealNow), on any screen or dialog, for the folder it was asked in. open: folds the
+     person closed above it are opened first (Show more, a just-shown row). */
+  function revealAt(sel, open) { state.revealTarget = sel; state.revealOpen = !!open; state.revealGen = gen; }
+  /* A row Flightdeck has to show you, whatever the page or the filters (2.11): the latest one per list is drawn as an exception
+     (K.list), focused and brought into view. It's held for this folder only (gen), and goes on nav, on a folder switch and when
+     that list's Find text changes. o.focus: the selector to focus (also brought into view); o.reveal: to bring into view only. */
+  function ensureListItemVisible(list, key, o) {
+    o = o || {};
+    var js = state.justShown && state.justShown.gen === gen ? state.justShown : { gen: gen, lists: {} };
+    js.lists[list] = key; state.justShown = js;
+    if (o.focus) { state.focus = o.focus; state.focusWins = true; }
+    if (o.focus || o.reveal) revealAt(o.reveal || o.focus, true);
+  }
+  /* The one place a reveal happens, after every draw, once focus and the scroll are put back: the page, then the top bar, then
+     the open dialog (scrollIntoView moves the nearest scrolling box, so a dialog's list scrolls inside the dialog). Asked once,
+     found or not. A row inside a closed fold has the fold opened and recorded as its own toggle records it, and takes the
+     focus it was asked for, which a closed fold refused. */
+  function revealNow(asked, askedOv) {
+    var sel = state.revealTarget, open = state.revealOpen, ok = state.revealGen === gen;
+    state.revealTarget = null; state.revealOpen = false;
+    if (!sel || !ok) return;
+    var el = null;
+    try { el = app.querySelector(sel) || topEl.querySelector(sel) || (state.overlay ? overlayEl.querySelector(sel) : null); } catch (e) { el = null; }
+    if (!el) return;
+    var shut = false;
+    for (var x = el.parentNode; open && x && x !== app && x !== overlayEl && x !== topEl; x = x.parentNode) {
+      if (x.tagName !== 'DETAILS' || x.open) continue;
+      x.open = true; shut = true;
+      if (x.dataset && x.dataset.group) (state.groupsOpen = state.groupsOpen || {})[x.dataset.group] = true;
+      else if (x.dataset && x.dataset.disc) (state.disc = state.disc || {})[x.dataset.disc] = true;
+    }
+    if (shut && (asked === sel || askedOv === sel) && document.activeElement !== el && el.focus) el.focus({ preventScroll: true });
+    if (el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+  }
 
   /* ---------- the parts box: placing a new part ---------- */
   /* Choosing a part (click, Enter or Space) starts placing it: the place nearest what's selected is offered first, the
@@ -5239,15 +5286,18 @@
     /* ---------- the sections ---------- */
     /* Go straight to a run's step, a process or a section (go()), keeping what's typed. */
     go: function (id, b) { var d = (b && b.dataset) || {}; go({ view: d.view, process: d.process, ptab: d.ptab, mapVer: d.mapVer, run: d.run, step: d.step, note: d.note, filter: d.filter }); },
-    /* Show 50 more of a long list; focus moves to the first one added. */
+    /* Show 50 more of a long list (K.list): focus moves to the first one added, which is brought into view, with any fold the
+       person closed above it opened. A list in a dialog moves the dialog's focus. A list without its own focus target is a list
+       of run cards. */
     more: function (id, b) {
-      var P = PF.vk.PAGE, m = state.more = state.more || {}, next = b && b.dataset && b.dataset.next;
+      var d = (b && b.dataset) || {}, P = +d.page > 0 ? +d.page : PF.vk.PAGE, m = state.more = state.more || {};
       m[id] = Math.max(P, m[id] || P) + P;
-      if (next) state.focus = '[data-act="open-run"][data-id="' + cssEsc(next) + '"]';
+      var to = d.focus || (d.next ? '[data-act="open-run"][data-id="' + cssEsc(d.next) + '"]' : null);
+      if (to) { if (d.dialog) state.overlayFocus = to; else { state.focus = to; state.focusWins = true; } revealAt(to, true); }
       render();
     },
     nav: function (id) {
-      typeOpens++; state.more = {};
+      typeOpens++; state.more = {}; state.justShown = null; state.revealTarget = null;
       if (id === 'home') { home(); state.focus = '[data-act="nav"][data-id="home"]'; render(); window.scrollTo(0, 0); return; }
       if (['runs', 'followups', 'processes', 'skills', 'types', 'settings'].indexOf(id) < 0) return;
       releaseUrls(state.urls); setView(id); state.processId = null; state.runKey = null; resetRunUi(); state.fuPick = null;
@@ -7307,7 +7357,7 @@
       return;
     }
     if (e.target.id === 'rel-area') { state.rel.area = e.target.value; render(); }
-    if (e.target.id === 'ins-folder' && state.processId) { (state.insFolder = state.insFolder || {})[state.processId] = e.target.value; state.more = Object.assign({}, state.more, { 'ins-hot': 0 }); render(); }
+    if (e.target.id === 'ins-folder' && state.processId) { (state.insFolder = state.insFolder || {})[state.processId] = e.target.value; state.more = Object.assign({}, state.more, { 'ins-hot': 0, 'ins-dur': 0 }); render(); }
     if (/^rf-(process|folder|outcome|from|through)$/.test(e.target.id || '')) {
       var rf = state.runFilter && !state.runFilter.cohort ? Object.assign({}, state.runFilter) : {}, rk = e.target.id.slice(3);
       if (e.target.value) rf[rk] = String(e.target.value).slice(0, 120); else delete rf[rk];
@@ -7501,7 +7551,7 @@
       var r = ctx.run(), x = t.step ? M.findStep(R.mapOf(r), t.step) : null;
       if (x) {
         state.unfold[x.phase.id] = true; selectStep(x.step.id); state.refOpen = !narrow();
-        state.focus = '[data-act="select"][data-id="' + cssEsc(x.step.id) + '"]'; state.revealTarget = '#step-' + cssEsc(x.step.id);
+        state.focus = '[data-act="select"][data-id="' + cssEsc(x.step.id) + '"]'; revealAt('#step-' + cssEsc(x.step.id));
         var mark = state.flash = { ids: [x.step.id], notes: t.note ? [t.note] : [] };
         setTimeout(function () { if (state.flash === mark) { state.flash = null; scheduleRender(); } }, 1800);
       }
@@ -7762,9 +7812,15 @@
       /* Only controls on screen count: a hidden one (a narrow screen's other panel, a closed section) can't take focus. */
       var fo = Array.prototype.slice.call(trap.querySelectorAll('button:not([disabled]), a[href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])')).filter(function (el) { return !el.getClientRects || el.getClientRects().length > 0; });
       if (fo.length) {
-        /* Focus on something inside that isn't a control (a dialog's heading, focused when it opens) counts as before the first. */
+        /* Focus on something inside that isn't a control (a dialog's heading, focused when it opens; a row Show more focused)
+           moves on from where it is: Tab to the next control after it, Shift+Tab to the one before it, wrapping at the ends. */
         var fa = document.activeElement, inside = trap.contains(fa), off = inside && fo.indexOf(fa) < 0;
-        if (e.shiftKey && (!inside || off || fa === fo[0])) { e.preventDefault(); fo[fo.length - 1].focus(); }
+        if (off && fa.compareDocumentPosition) {
+          var pos = function (el) { return fa.compareDocumentPosition(el); };
+          var to = e.shiftKey ? fo.filter(function (el) { return pos(el) & 2; }).pop() || fo[fo.length - 1] : fo.filter(function (el) { return pos(el) & 4; })[0] || fo[0];
+          e.preventDefault(); to.focus();
+        }
+        else if (e.shiftKey && (!inside || off || fa === fo[0])) { e.preventDefault(); fo[fo.length - 1].focus(); }
         else if (!e.shiftKey && (!inside || off || fa === fo[fo.length - 1])) { e.preventDefault(); fo[0].focus(); }
       }
       return;

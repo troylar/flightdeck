@@ -2361,6 +2361,20 @@ PF.util = (function () {
   return { DRAFT_BYTES: DRAFT_BYTES, utf8Bytes: utf8Bytes, draftTooBig: draftTooBig, draftSize: draftSize, drift: drift, esc: esc, timeOnDayIn: timeOnDayIn, safeUrl: safeUrl, mdInline: mdInline, mdBlock: mdBlock, slug: slug, randomId: randomId, hash: hash,
     hm: hm, when: when, day: day, dueWords: dueWords, localDateTime: localDateTime, clock: clock, duration: duration, timeToday: timeToday };
 })();
+/* Name order for the lists people scan by name (2.11): numbers in a name compare as numbers, so Process 2 comes before
+   Process 10, and case and accents don't count. Names that still compare equal fall back to their exact text, so equal-looking
+   names always come in the same order. Views sort copies with it; files, the CLI and outside apps keep their own order. */
+PF.text = (function () {
+  'use strict';
+  var coll = null;
+  try { coll = typeof Intl !== 'undefined' && Intl.Collator ? new Intl.Collator('en', { numeric: true, sensitivity: 'base' }) : null; } catch (e) { coll = null; }
+  function exact(a, b) { return a < b ? -1 : a > b ? 1 : 0; }
+  function natural(a, b) {
+    a = String(a == null ? '' : a); b = String(b == null ? '' : b);
+    return (coll ? coll.compare(a, b) : 0) || exact(a, b);
+  }
+  return { natural: natural };
+})();
 /* Counts of the work done (2.5.0): tests read them, so what a refresh or a screen costs is a number, the same on every computer. */
 /* plain: every index answers by a scan from the start, as before 2.5.0, so a test can compare a screen drawn both ways. */
 PF.perf = { n: {}, plain: false, add: function (k, x) { this.n[k] = (this.n[k] || 0) + (x == null ? 1 : x); }, reset: function () { this.n = {}; } };
@@ -11029,6 +11043,17 @@ PF.people = (function () {
       return twin ? p.name + ' (' + (p.email || p.id) + ')' : p.name;
     };
   }
+  /* Everyone in name order (2.11), for pickers and lists people scan by name: a sorted copy, with people who share a name in
+     ID order. people.json, the CLI and outside apps keep the file's order. sorted(ctx) uses the screen's copy, made once per
+     draw (ctx.peopleSorted), when there is one. */
+  function byName(list) {
+    var N = PF.text.natural;
+    return (list || []).slice().sort(function (a, b) { return N(a.name, b.name) || N(a.id, b.id); });
+  }
+  function sorted(ctx) {
+    if (Array.isArray(ctx)) return byName(ctx);
+    return ctx && typeof ctx.peopleSorted === 'function' ? ctx.peopleSorted() : byName(ctx && ctx.data ? ctx.data.people : []);
+  }
   function text(doc) { return JSON.stringify(doc, null, 2) + '\n'; }
 
   /* What someone not on the list sends the folder owner. */
@@ -11039,7 +11064,7 @@ PF.people = (function () {
       'In Flightdeck: Settings, People, Add a person. Then I can choose my name when I open the folder.', '', 'Thanks!'].join('\n');
   }
 
-  return { FILE: FILE, ROLES: ROLES, initials: initials, checkName: checkName, checkEmail: checkEmail, allowed: allowed, permits: permits, label: label, labeler: labeler, listOf: listOf, clean: clean, verdict: verdict, idFor: idFor, roles: roles, canManage: canManage, create: create, add: add, setActive: setActive, setRole: setRole, text: text, request: request };
+  return { FILE: FILE, ROLES: ROLES, initials: initials, checkName: checkName, checkEmail: checkEmail, allowed: allowed, permits: permits, label: label, labeler: labeler, byName: byName, sorted: sorted, listOf: listOf, clean: clean, verdict: verdict, idFor: idFor, roles: roles, canManage: canManage, create: create, add: add, setActive: setActive, setRole: setRole, text: text, request: request };
 })();
 
 /* Team values (2.9): shared settings of the team folder, like a Bitbucket base URL, kept in team-values.json and edited in
@@ -18925,13 +18950,44 @@ PF.vk = (function () {
      are, and the button. keyOf names an item, so focus can move to the first one Show more adds. Paging rather than
      scrolling tricks keeps Ctrl+F, screen readers and the page's patching working. */
   var PAGE = 50;
-  function paged(st, id, items, draw, keyOf) {
-    var n = Math.max(PAGE, Math.floor(((st.more || {})[id]) || PAGE)), shown = items.slice(0, n), left = items.length - shown.length;
-    var h = draw(shown);
-    if (left > 0) h += '<div class="row paged"><span class="small">Showing ' + shown.length.toLocaleString('en-US') + ' of ' + items.length.toLocaleString('en-US') + '</span>' +
-      '<button class="btn" data-act="more" data-id="' + esc(id) + '" data-next="' + esc(keyOf(items[n])) + '">Show ' + Math.min(PAGE, left) + ' more</button></div>';
+  function paged(st, id, items, draw, keyOf) { return list(st, id, items, { draw: draw, keyOf: keyOf }); }
+  /* The same, with what a list says about itself (2.11). Items are light descriptors: the costly work for a row happens in
+     o.draw, which only gets the rows drawn. o:
+       draw(shown), keyOf(item): the rows' HTML, and an item's key;
+       focusOf(key): the selector Show more focuses for the first item it adds, something always there and focusable (a row's
+         heading or title with tabindex="-1", or a row that is one button). Without it, the run card with that key, as before;
+       page: the page size (50); keep: keys drawn whatever the page (a row being edited);
+       tail: the last n items, with Show earlier above them (a thread read newest last);
+       inDialog: the list is in a dialog, so focus moves through the dialog's own focus.
+     The item Flightdeck just showed you (state.justShown, ensureListItemVisible in app.js) is drawn whatever the page too.
+     Rows kept past the page are drawn after it (before it, for a tail), so nobody loses the row they're working on. */
+  function list(st, id, items, o) {
+    var P = o.page || PAGE, n = Math.max(P, Math.floor(((st.more || {})[id]) || P));
+    /* Tests turn paging off for one list (PF.vk.PAGE_OFF = its id), to prove the bounds test notices. */
+    if (PF.vk.PAGE_OFF === id) n = items.length;
+    var from = o.tail ? Math.max(0, items.length - n) : 0, shown = items.slice(from, from + n), left = items.length - shown.length;
+    var keep = Object.create(null), js = st.justShown && st.justShown.lists ? st.justShown.lists[id] : null, extra = [], plus = false, kept = false;
+    (o.keep || []).forEach(function (k) { if (k != null) keep[k] = true; });
+    if (js != null) keep[js] = true;
+    if (left > 0 && (js != null || (o.keep || []).length)) {
+      var inPage = Object.create(null);
+      shown.forEach(function (it) { inPage[o.keyOf(it)] = true; });
+      items.forEach(function (it) { var k = o.keyOf(it); if (keep[k] && !inPage[k]) { extra.push(it); if (k === js) plus = true; else kept = true; } });
+    }
+    var h = '', more = '';
+    if (left > 0) {
+      var add = Math.min(P, left), first = o.tail ? items[from - add] : items[from + n], k = o.keyOf(first), f = o.focusOf ? o.focusOf(k) : null;
+      more = '<div class="row paged"><span class="small" role="status">Showing ' + shown.length.toLocaleString('en-US') + ' of ' + items.length.toLocaleString('en-US') + (plus ? ', plus the one you just ' + esc(o.shownWord || 'added') : '') + '</span>' +
+        '<button class="btn" data-act="more" data-id="' + esc(id) + '" data-next="' + esc(k) + '"' + (f ? ' data-focus="' + esc(f) + '"' : '') + (P !== PAGE ? ' data-page="' + P + '"' : '') + (o.inDialog ? ' data-dialog="1"' : '') + '>' +
+        (o.tail ? 'Show ' + add + ' earlier' : 'Show ' + add + ' more') + '</button></div>';
+    }
+    var rest = extra.length ? (kept ? '<p class="small kept-h">' + esc(o.keptLabel || 'You\'re editing this one') + '</p>' : '') + o.draw(extra) : '';
+    if (o.tail) h = more + rest + o.draw(shown);
+    else h = o.draw(shown) + more + rest;
     return h;
   }
+  /* A selector for the element with this id, whatever the id holds (it comes from files). */
+  function byId(id) { return '[id="' + String(id).replace(/["\\]/g, '\\$&') + '"]'; }
   /* A must-do step on a row: a small red mark, named for screen readers and on hover; the step's own pane says it in words. */
   function mustMark() { return '<span class="mustmark" role="img" aria-label="Must do" title="Must do">!</span>'; }
   /* How a phase is worked, in words (the file keeps READ-DO and DO-CONFIRM). */
@@ -19016,7 +19072,7 @@ PF.vk = (function () {
   }
   function unsavedWords(ps) { return ps && ps.saved ? 'its run was saved and has changed since' : ps && ps.certain === false ? 'Flightdeck couldn\'t confirm whether its run saved' : 'its run didn\'t save'; }
   function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
-  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, PAGE: PAGE, testTag: testTag, verWord: verWord };
+  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, byId: byId, PAGE: PAGE, PAGE_OFF: null, testTag: testTag, verWord: verWord };
 })();
 (function () {
   'use strict';
@@ -19048,7 +19104,7 @@ PF.vk = (function () {
     var th = THEMES[st.theme] ? st.theme : 'system';
     h += '<button class="mini icon-btn" data-act="theme" data-id="' + THEMES[th].next + '" aria-label="Appearance: ' + THEMES[th].label + '. Switch to ' + THEMES[THEMES[th].next].label + '" title="Appearance: ' + THEMES[th].label + '">' + I(THEMES[th].icon) + '</button>';
     h += '<label class="me" for="me">You are ';
-    var people = ctx.data.people.filter(function (p) { return !p.inactive; });
+    var people = PF.people.sorted(ctx).filter(function (p) { return !p.inactive; });
     var nmMe = PF.people.labeler(ctx.data.people);
     if (people.length) h += '<select id="me"><option value="">Choose…</option>' + people.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === st.me ? ' selected' : '') + '>' + esc(nmMe(p)) + '</option>'; }).join('') + '</select>';
     else h += '<input id="me" value="' + esc(st.me) + '" placeholder="Your name" maxlength="40">';
@@ -19926,7 +19982,7 @@ PF.vk = (function () {
       '<div class="notice warn" role="status"><span>' + esc(planHeldWhy(plan, ctx.data)) + '</span><span class="row"><button class="mini" type="button" data-act="home">Back</button></span></div>';
     var chosen = plan ? planChoice(ctx, plan) : null, pick = plan ? PF.plans.pick(p, plan, chosen) : { pub: p.latest };
     if (plan && pick.exact && !pick.pub) return notices(ctx) + exactAsk(ctx, p, plan, pick);
-    var pub = pick.pub, latest = p.latest, meta = pub.map.meta, people = ctx.data.people.filter(function (x) { return !x.inactive; }), pre = planning || plan || {};
+    var pub = pick.pub, latest = p.latest, meta = pub.map.meta, people = PF.people.sorted(ctx).filter(function (x) { return !x.inactive; }), pre = planning || plan || {};
     var defTitle = plan ? plan.title : planning ? planning.title || meta.title : meta.title + ' · ' + U.day(new Date().toISOString());
     var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">' + esc(meta.title) + ' · v' + pub.info.version + (plan ? ' · ' + esc(V.plannedBy(ctx, plan)) : '') + '</div><h1 id="page-h" tabindex="-1">' + (planning ? 'Plan a run' : 'Start a run') + '</h1>' + (plan && plan.note ? '<div class="small">' + esc(plan.note) + '</div>' : '') + '</div></div>';
     var claim = plan ? PF.requests.claim(plan) : null, copies = plan ? V.planCopies(plan) : '';
@@ -20003,7 +20059,7 @@ PF.vk = (function () {
   function startTest(ctx, p) {
     var st = ctx.state, ts = testStage(ctx, p), back = '<button class="mini" data-act="open-process" data-id="' + esc(p.id) + '">Back</button>';
     if (!ts.stage) return notices(ctx) + '<div class="panel">' + esc(ts.why) + ' ' + back + '</div>';
-    var pub = ts.stage, meta = pub.map.meta, n = pub.info.stage.proposed, people = ctx.data.people.filter(function (x) { return !x.inactive; });
+    var pub = ts.stage, meta = pub.map.meta, n = pub.info.stage.proposed, people = PF.people.sorted(ctx).filter(function (x) { return !x.inactive; });
     var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">' + esc(meta.title) + ' · staged v' + esc(n) + '</div><h1 id="page-h" tabindex="-1">Start a test run</h1><div class="small">' + esc(pub.info.changes || '') + '</div></div></div>';
     h += '<form class="panel stack" id="start-form" data-scope="' + esc('test:' + p.id + ':' + pub.folder) + '" data-process="' + esc(p.id) + '" data-folder="' + esc(pub.folder) + '" data-test="1"><div class="grid2"><label class="field" for="run-title">Run name<input id="run-title" maxlength="100" value="' + esc(meta.title + ' (test) · ' + U.day(new Date().toISOString())) + '"></label>';
     var setBy = M.setBy(pub.map);
@@ -20295,7 +20351,7 @@ PF.vk = (function () {
     else if (r.ended) { kind = 'ended'; text = '<b>Ended: ' + esc(K.outcomeWord(r.ended.outcome)) + '</b>' + (r.ended.byName || r.ended.by ? ' by ' + esc(r.ended.byName || nameOf(ctx, r.ended.by)) : '') + (r.ended.at ? ' at ' + U.hm(r.ended.at) : '') + '.'; ctl = '<button class="btn go" data-act="receipt">' + I('receipt') + 'Receipt</button>'; }
     else if (!s.me) {
       kind = 'who'; text = '<b>Choose who you are</b> to record or add notes. Everything you do here is stamped with your name.';
-      var people = ctx.data.people.filter(function (p) { return !p.inactive; });
+      var people = PF.people.sorted(ctx).filter(function (p) { return !p.inactive; });
       var nmMe = PF.people.labeler(people);
       ctl = people.length ? '<label class="sr" for="me-run">You are</label><select id="me-run"><option value="">Choose…</option>' + people.map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(nmMe(p)) + '</option>'; }).join('') + '</select>' : '<label class="sr" for="me-run">Your name</label><input id="me-run" class="rw-in" placeholder="Your name" maxlength="40">';
     } else if (r.paused) {
@@ -20308,7 +20364,7 @@ PF.vk = (function () {
       text = solo ? '<b>Your run</b>' : '<b>You\'re recording</b>';
       var pause = s.pick && s.pick.kind === 'pause' ? '<span class="row rw-ask" data-scope="pause"><label class="sr" for="pick-input">Why pause?</label><input id="pick-input" class="rw-in" placeholder="Why pause? (what are we waiting for)" maxlength="120" data-enter="pause" data-id="run"><button class="mini" data-act="pause">Pause</button><button class="mini" data-act="unpick">Cancel</button></span>'
         : '<button class="mini" data-act="pick" data-kind="pause" data-id="run">' + I('pause') + 'Pause</button>';
-      var people2 = ctx.data.people.filter(function (p) { return !p.inactive && p.id !== s.me; });
+      var people2 = PF.people.sorted(ctx).filter(function (p) { return !p.inactive && p.id !== s.me; });
       var nmTo = PF.people.labeler(people2);
       var hand = s.pick && s.pick.kind === 'handoff' ? '<span class="row rw-ask"><label class="sr" for="handoff-to">Hand recording to</label><select id="handoff-to">' + people2.map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(nmTo(p)) + '</option>'; }).join('') + '</select><button class="mini" data-act="handoff">Hand off</button><button class="mini" data-act="unpick">Cancel</button></span>'
         : '<button class="mini" data-act="pick" data-kind="handoff" data-id="recorder">' + I('swap') + (solo ? 'Hand to someone' : 'Hand off') + '</button>';
@@ -20378,7 +20434,7 @@ PF.vk = (function () {
     }).join('');
     var nmRole = PF.people.labeler(ctx.data.people);
     var roles = map.meta.roles.map(function (ro) {
-      if (s.edit === 'role:' + ro && rec) return '<span class="inline-edit" data-scope="edit:role:' + esc(ro) + '"><label class="small" for="edit-input">' + esc(ro) + '</label><select id="edit-input"><option value="">Nobody</option>' + ctx.data.people.filter(function (p) { return !p.inactive; }).map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === r.roles[ro] ? ' selected' : '') + '>' + esc(nmRole(p)) + '</option>'; }).join('') + '</select><button class="mini" data-act="save-edit">Save</button><button class="mini" data-act="unedit">Cancel</button></span>';
+      if (s.edit === 'role:' + ro && rec) return '<span class="inline-edit" data-scope="edit:role:' + esc(ro) + '"><label class="small" for="edit-input">' + esc(ro) + '</label><select id="edit-input"><option value="">Nobody</option>' + PF.people.sorted(ctx).filter(function (p) { return !p.inactive; }).map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === r.roles[ro] ? ' selected' : '') + '>' + esc(nmRole(p)) + '</option>'; }).join('') + '</select><button class="mini" data-act="save-edit">Save</button><button class="mini" data-act="unedit">Cancel</button></span>';
       return '<button class="chip' + (r.roles[ro] ? '' : ' empty') + '" data-act="edit" data-id="role:' + esc(ro) + '"' + (rec ? '' : ' disabled') + '><span class="k">' + esc(ro) + '</span>' + (r.roles[ro] ? avatar(ctx, r.roles[ro]) + esc(nameOf(ctx, r.roles[ro])) : 'assign') + '</button>';
     }).join('');
     /* Solo runs keep collaboration out of the way: roles appear only if someone asks for them. */
@@ -21159,7 +21215,7 @@ PF.vk = (function () {
   function finish(ctx) {
     var r = ctx.run(); if (!r) return V.run(ctx);
     var s = ctx.state, map = R.mapOf(r), rec = ctx.recording(r), ok = R.allGatesOk(r, map), fus = r.followUps || [], cor = R.corrections(r, map), idx = cor.length ? V.corrIndex(ctx, r.process) : {};
-    var people = ctx.data.people.filter(function (p) { return !p.inactive; });
+    var people = PF.people.sorted(ctx).filter(function (p) { return !p.inactive; });
     var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) + '</div><h1 id="page-h" tabindex="-1">Finish ' + esc(r.title) + '</h1></div><button class="btn" data-act="exit-mission">' + I('back') + 'Back to the run</button></div>';
     if (!rec) return h + '<div class="notice warn"><span>Only the recorder can finish the run.</span></div>';
     /* Only what has something in it: the follow-up form waits under Add a follow-up (opened by an error, or once opened). */
@@ -21468,7 +21524,7 @@ PF.vk = (function () {
   }
   function childStart(ctx, prep) {
     var pub = prep.pub, meta = pub.map.meta, r = ctx.run(), setBy = M.setBy(pub.map), w = childVersionWords(ctx, prep);
-    var people = ctx.data.people.filter(function (x) { return !x.inactive; }), nm = PF.people.labeler(people);
+    var people = PF.people.sorted(ctx).filter(function (x) { return !x.inactive; }), nm = PF.people.labeler(people);
     var h = '<div class="overlay" data-act="close-overlay"><div class="help cs-box" role="dialog" aria-modal="true" aria-labelledby="cs-t"><div class="eyebrow">' + esc(w.head) + '</div><h2 id="cs-t" tabindex="-1">Start the ' + esc(meta.title) + ' run</h2>' +
       (w.newer ? '<p class="small">' + esc(w.newer) + '</p>' : '') +
       '<form class="stack" id="child-start-form" data-token="' + esc(String(prep.token)) + '">' +
@@ -22339,7 +22395,7 @@ PF.vk = (function () {
   /* A person to choose: the active people whose IDs a checklist can hold, and the current value even when it isn't one of
      them (inactive, or not in people.json), so an unrelated change never drops it. */
   function personSelect(ctx, id, name, cur, none) {
-    var all = ctx.data.people || [], ok = all.filter(function (x) { return !x.inactive && O.personOk(x.id); }), have = ok.some(function (x) { return x.id === cur; });
+    var all = ctx.data.people || [], ok = PF.people.sorted(ctx).filter(function (x) { return !x.inactive && O.personOk(x.id); }), have = ok.some(function (x) { return x.id === cur; });
     var gone = cur && !have ? all.filter(function (x) { return x.id === cur; })[0] : null;
     var nm = PF.people.labeler(all);
     var opt = function (v, t, on) { return '<option value="' + esc(v) + '"' + (on ? ' selected' : '') + '>' + esc(t) + '</option>'; };
@@ -22584,7 +22640,7 @@ PF.vk = (function () {
       var err = f.err && f.err.box === 'np-' + id ? f.err.msg : '';
       return '<label class="field" for="np-' + id + '">' + label + (hint ? ' <span class="small">' + hint + '</span>' : '') + '<input id="np-' + id + '" maxlength="120" value="' + esc(val || '') + '"' + (extra || '') + (err ? ' aria-invalid="true" aria-describedby="ferr-np-' + id + '"' : '') + '></label>' + (err ? '<p class="ferr" id="ferr-np-' + id + '" role="alert">' + esc(err) + '</p>' : '');
     };
-    var people = ctx.data.people.filter(function (p) { return !p.inactive; });
+    var people = PF.people.sorted(ctx).filter(function (p) { return !p.inactive; });
     var title = typed.title != null ? typed.title : f.title || '', ownId = typed.id != null ? typed.id : f.id || '', file = String(ownId).trim().toLowerCase() || fileIdOf(title);
     var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">New checklist</div><h1 id="page-h" tabindex="-1">Write down how something is done</h1></div></div>' +
       '<form class="panel stack" id="new-process-form" data-scope="new-process">' +
@@ -23316,7 +23372,7 @@ PF.vk = (function () {
       var rows = function (list) { return '<div class="grid-wrap"><table class="grid"><thead><tr><th scope="col">Run</th><th scope="col">Active time</th></tr></thead><tbody>' +
         list.map(function (v) { var r = ctx.findRun ? ctx.findRun(v.key) : null; return '<tr id="ins-row-' + esc(v.key.replace(/\//g, '-')) + '"><td><button class="linkish" data-act="go" data-view="run" data-run="' + esc(v.key) + '">' + esc(r ? r.title : v.key) + '</button></td><td>' + esc(about(v.ms)) + '</td></tr>'; }).join('') + '</tbody></table></div>'; };
       h += '<details data-disc="ins-dur-table"' + ((ctx.state.disc || {})['ins-dur-table'] ? ' open' : '') + '><summary class="small">The same as a table</summary>' +
-        K.paged(ctx.state, 'ins-dur', d.values.slice().sort(function (a, b) { return a.ms - b.ms; }), rows, function (v) { return 'ins-row-' + v.key.replace(/\//g, '-'); }) + '</details>';
+        K.list(ctx.state, 'ins-dur', d.values.slice().sort(function (a, b) { return a.ms - b.ms; }), { draw: rows, keyOf: function (v) { return 'ins-row-' + v.key.replace(/\//g, '-'); }, focusOf: function (k) { return K.byId(k) + ' button'; } }) + '</details>';
     }
     h += qualLine(d.q);
     if (res.phases.length) {
@@ -23359,10 +23415,10 @@ PF.vk = (function () {
           if (m.incomplete) extra += ' · ' + link('step:' + s.id + ':' + r[0] + ':incomplete', I.num(m.incomplete) + ' history incomplete', 1);
           return '<div class="ins-row"><span class="ins-lab">' + r[1] + '</span>' + bar(m.hits, m.n) + '<span class="ins-num">' + link('step:' + s.id + ':' + r[0], I.count(m.hits, m.n), m.hits) + extra + qualLine(m.q, ['incomplete'], 'span') + '</span></div>';
         }).join('');
-        return '<li class="ins-step" id="ins-' + esc(s.id) + '"><h3>' + K.stepHtml(s, null) + '</h3>' + rows + '</li>';
+        return '<li class="ins-step" id="ins-' + esc(s.id) + '"><h3 tabindex="-1">' + K.stepHtml(s, null) + '</h3>' + rows + '</li>';
       }).join('') + '</ul>';
     };
-    return h + K.paged(ctx.state, 'ins-hot', list, draw, function (s) { return 'ins-' + s.id; }) + '</section>';
+    return h + K.list(ctx.state, 'ins-hot', list, { draw: draw, keyOf: function (s) { return 'ins-' + s.id; }, focusOf: function (k) { return K.byId(k) + ' h3'; } }) + '</section>';
   }
   function followUps(ctx, res) {
     var f = res.followUps, o = f.open, d = f.decided;
@@ -23688,7 +23744,7 @@ PF.vk = (function () {
     var b = ferr(st, 'su-backup'), cands = [{ id: ids.me, name: su.me.name }].concat(named.map(function (x) { return { id: ids[x.k], name: x.name, email: String(x.email || '').trim() }; }));
     var nmBk = PP.labeler(cands);
     h += '<fieldset class="su-backup"><legend>Backup owner</legend><label class="field" for="su-backup">If you\'re away or leave, your backup owner keeps the people list and can hand the folder to someone else.<select id="su-backup" data-bound' + b.attrs + '><option value="">Nobody yet</option>' +
-      named.map(function (x) { return '<option value="' + esc(x.k) + '"' + (su.backup === x.k ? ' selected' : '') + '>' + esc(nmBk({ id: ids[x.k], name: x.name, email: String(x.email || '').trim() })) + '</option>'; }).join('') + '</select></label>' + b.html + '</fieldset>';
+      named.slice().sort(function (a, b) { return PF.text.natural(a.name, b.name); }).map(function (x) { return '<option value="' + esc(x.k) + '"' + (su.backup === x.k ? ' selected' : '') + '>' + esc(nmBk({ id: ids[x.k], name: x.name, email: String(x.email || '').trim() })) + '</option>'; }).join('') + '</select></label>' + b.html + '</fieldset>';
     h += promise();
     h += '<div class="row su-actions"><button class="btn go" type="submit"' + (su.busy ? ' disabled' : '') + '>' + (su.busy ? 'Creating…' : 'Create the team folder') + '</button><button type="button" class="mini" data-act="setup-step" data-id="folder">Back</button></div>' +
       '<p class="small">Flightdeck writes <code>people.json</code>, <code>AGENTS.md</code> (instructions for AI assistants) and their skills into <b>' + esc(su.dirName || '') + '</b>.</p></form>';
@@ -23728,7 +23784,7 @@ PF.vk = (function () {
     }).join('') + '</ul>';
   }
   function secondStep(ctx, su, prog) {
-    var st = ctx.state, me = st.me, fs = st.fs, others = ctx.data.people.filter(function (p) { return !p.inactive && p.id !== me; });
+    var st = ctx.state, me = st.me, fs = st.fs, others = PF.people.sorted(ctx).filter(function (p) { return !p.inactive && p.id !== me; });
     var to = others.filter(function (p) { return p.id === su.to; })[0] || others[0] || null, done = prog.steps[4].done;
     var h = '<h2 id="su-h" tabindex="-1">Open it on a second computer</h2><p>A run helps most when the team can see it. Have a teammate open the folder on their computer, then check that files travel between you.</p><ol class="su-sub">';
     h += '<li><h3>Flightdeck in the team folder</h3>' + (su.hasApp === true ? ok('<code>flightdeck.html</code> is in the team folder, so everyone opens the same version.')
@@ -23772,7 +23828,7 @@ PF.vk = (function () {
       if (su.err) h += '<div class="notice bad" role="alert"><span>' + esc(su.err.text) + '</span></div>';
       return h + '<div class="row su-actions"><button class="btn go" data-act="setup-open"' + (su.busy ? ' disabled' : '') + '>' + I('doc') + (su.busy ? 'Opening…' : 'Open team folder') + '</button></div></section>';
     }
-    var people = ctx.data.people.filter(function (p) { return !p.inactive; }), owner = PP.roles(ctx.data.people).owner;
+    var people = PF.people.sorted(ctx).filter(function (p) { return !p.inactive; }), owner = PP.roles(ctx.data.people).owner;
     h += '<h2 id="su-h" tabindex="-1">Who are you?</h2>';
     if (!people.length) return h + '<div class="notice warn" role="status"><span><b>' + esc(fs.name) + '</b> has no people list yet. If you\'re setting up a new team, choose Start your team instead.</span><button class="btn" data-act="setup-mode" data-id="start">Start your team</button></div></section>';
     h += '<p>Choose your name in <b>' + esc(fs.name) + '</b>. Everything you record or note is stamped with it.</p><ul class="su-who">' + people.map(function (p) {
@@ -24408,6 +24464,12 @@ PF.examples = (function () {
       if (!pplBy || pplBy.list !== ps || pplBy.len !== ps.length) { var o = {}; ps.forEach(function (p) { o[p.id] = p; }); pplBy = { list: ps, len: ps.length, by: o }; }
       return pplBy.by;
     },
+    /* Everyone in name order (2.11), sorted once per draw for every picker on it; views filter it, never change it. */
+    peopleSorted: function () {
+      var ps = data.people;
+      if (!pplSorted || pplSorted.list !== ps || pplSorted.len !== ps.length) pplSorted = { list: ps, len: ps.length, out: PF.people.byName(ps) };
+      return pplSorted.out;
+    },
     run: function () { return findRun(state.runKey); },
     /* The runs a sign-off counts: every run shown, less those whose latest read failed or whose file is gone (their last copy
        stays on screen, but isn't what the folder holds), and none while the runs folder can't be read. */
@@ -24742,6 +24804,7 @@ PF.examples = (function () {
     }, function () {});
   }
   var pplBy = { list: null, len: -1, by: null };
+  var pplSorted = null;
   var procCache = null, orphanSkills = [], fixMemo = Object.create(null), fuMemo = null, insMemo = Object.create(null), repMemo = Object.create(null), repCurMemo = null;
   /* A process by ID (2.5.0): one look in a map built once for each list processes() makes, keeping the first entry for an ID
      as the old filter()[0] did. */
@@ -25852,9 +25915,11 @@ PF.examples = (function () {
   /* Re-render without losing what someone is typing or where their focus is. */
   function renderNow() {
     PF.perf.add('render');
+    /* What was just shown is this folder's: after a folder switch it's gone (gen), without the switch itself changing. */
+    if (state.justShown && state.justShown.gen !== gen) state.justShown = null;
     dropBatchRender();
     repHarvest();
-    procCache = null; pplBy = { list: null, len: -1, by: null }; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null;
+    procCache = null; pplBy = { list: null, len: -1, by: null }; pplSorted = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null;
     var keep = {}, ae = document.activeElement, focusKey = null;
     /* What a person typed or ticked survives a redraw of the same thing: the same screen, run, step and open form. Moving to
        another step or form starts clean, so a note or a value never jumps to the wrong place. Hidden inputs are never carried. */
@@ -25900,6 +25965,7 @@ PF.examples = (function () {
     typeEditorPage();
     /* The draft editor's text is only there in Markdown mode; in the builder, focus goes to the editor's heading instead. */
     if (state.focus === 'draft-editor' && !document.getElementById('draft-editor')) state.focus = 'ed-h';
+    var asked = state.focus, askedOv = state.overlayFocus, wins = state.focusWins; state.focusWins = false;
     var target = state.focus ? document.getElementById(state.focus) || app.querySelector(state.focus) || topEl.querySelector(state.focus) : focusKey ? app.querySelector(focusKey) || topEl.querySelector(focusKey) : null;
     /* The page someone was on went away (its skill was removed): focus goes to the way back, next to the message saying so. */
     if (!target && focusKey === '#page-h') target = document.getElementById('page-back');
@@ -25917,8 +25983,12 @@ PF.examples = (function () {
     /* A box opened prefilled puts the caret at the end, ready to edit. */
     if (target && state.focusEnd && target.setSelectionRange && typeof target.value === 'string') try { target.setSelectionRange(target.value.length, target.value.length); } catch (e) { /* not a text field */ }
     state.focusEnd = false;
+    /* An open pick or edit box takes focus when it opens, then keeps it as any control does, by its id: focus the person moved
+       elsewhere (Show more, a click) isn't pulled back by a later draw, and focus an action asked for wins (focusWins). */
     var pi = document.getElementById('pick-input') || document.getElementById('edit-input');
-    if (pi && document.activeElement !== pi) pi.focus({ preventScroll: true });
+    var piKey = pi ? [pi.id, state.view, state.runKey, state.processId, state.pick ? state.pick.kind + ':' + state.pick.id : '', state.edit || ''].join('|') : '';
+    if (pi && piKey !== lastPick && !wins && document.activeElement !== pi) pi.focus({ preventScroll: true });
+    lastPick = piKey;
     pinOffsets();
     if (window.scrollY !== y) window.scrollTo(0, y);
     /* An open dialog isn't rebuilt by background refreshes unless its content changed, so focus inside it stays put. */
@@ -25947,6 +26017,7 @@ PF.examples = (function () {
     if (state.obRepend) { state.obRepend = false; obRepend(); }
     editorPage();
     runPage();
+    revealNow(asked, askedOv);
     fitPanes();
     sheet();
     prArrived();
@@ -25955,7 +26026,7 @@ PF.examples = (function () {
     tick();
     lsSet('filter', state.filter);
   }
-  var lastOverlay = '';
+  var lastOverlay = '', lastPick = '';
   /* The draft editor is a page of its own: the app's top bar hides and the page stops scrolling (each pane scrolls). The
      selected item and its line in the preview are brought into view when the selection or the inspector tab changes. */
   var lastShown = '';
@@ -25986,8 +26057,6 @@ PF.examples = (function () {
     if (keep) { state.paneScroll = null; ['rw-list', 'rw-ins'].forEach(function (id) { var el = document.getElementById(id); if (el && keep[id] != null) el.scrollTop = keep[id]; }); }
     /* A run opens with its selected step in view beside the inspector. */
     if (on && state.revealSel) { state.revealSel = false; if (!narrow() && state.sel) reveal('#step-' + cssEsc(state.sel), 'center'); }
-    /* go() to a step brings its row into view, in the run already open and on a phone too (focus alone doesn't scroll). */
-    if (on && state.revealTarget) { var rt = app.querySelector(state.revealTarget); state.revealTarget = null; if (rt && rt.scrollIntoView) rt.scrollIntoView({ block: 'nearest' }); }
   }
   /* Resizable sidebars (V.splitter). After each redraw and on a window resize, each panes container on screen is fitted as a
      whole (V.fitPanes) from its width and the widths chosen; a sidebar left at the layout's width is measured. A change redraws
@@ -28343,6 +28412,40 @@ PF.examples = (function () {
   function edText(p) { var ed = openEditor(p); return ed.text != null ? ed.text : ed.base; }
   /* The new item is shown: the page scrolls just enough to bring it into view (renders keep the scroll where it was). */
   function reveal(sel, block) { var el = sel && document.querySelector(sel); if (el && el.scrollIntoView) el.scrollIntoView({ block: block || 'nearest' }); }
+  /* Brought into view after the next draw (revealNow), on any screen or dialog, for the folder it was asked in. open: folds the
+     person closed above it are opened first (Show more, a just-shown row). */
+  function revealAt(sel, open) { state.revealTarget = sel; state.revealOpen = !!open; state.revealGen = gen; }
+  /* A row Flightdeck has to show you, whatever the page or the filters (2.11): the latest one per list is drawn as an exception
+     (K.list), focused and brought into view. It's held for this folder only (gen), and goes on nav, on a folder switch and when
+     that list's Find text changes. o.focus: the selector to focus (also brought into view); o.reveal: to bring into view only. */
+  function ensureListItemVisible(list, key, o) {
+    o = o || {};
+    var js = state.justShown && state.justShown.gen === gen ? state.justShown : { gen: gen, lists: {} };
+    js.lists[list] = key; state.justShown = js;
+    if (o.focus) { state.focus = o.focus; state.focusWins = true; }
+    if (o.focus || o.reveal) revealAt(o.reveal || o.focus, true);
+  }
+  /* The one place a reveal happens, after every draw, once focus and the scroll are put back: the page, then the top bar, then
+     the open dialog (scrollIntoView moves the nearest scrolling box, so a dialog's list scrolls inside the dialog). Asked once,
+     found or not. A row inside a closed fold has the fold opened and recorded as its own toggle records it, and takes the
+     focus it was asked for, which a closed fold refused. */
+  function revealNow(asked, askedOv) {
+    var sel = state.revealTarget, open = state.revealOpen, ok = state.revealGen === gen;
+    state.revealTarget = null; state.revealOpen = false;
+    if (!sel || !ok) return;
+    var el = null;
+    try { el = app.querySelector(sel) || topEl.querySelector(sel) || (state.overlay ? overlayEl.querySelector(sel) : null); } catch (e) { el = null; }
+    if (!el) return;
+    var shut = false;
+    for (var x = el.parentNode; open && x && x !== app && x !== overlayEl && x !== topEl; x = x.parentNode) {
+      if (x.tagName !== 'DETAILS' || x.open) continue;
+      x.open = true; shut = true;
+      if (x.dataset && x.dataset.group) (state.groupsOpen = state.groupsOpen || {})[x.dataset.group] = true;
+      else if (x.dataset && x.dataset.disc) (state.disc = state.disc || {})[x.dataset.disc] = true;
+    }
+    if (shut && (asked === sel || askedOv === sel) && document.activeElement !== el && el.focus) el.focus({ preventScroll: true });
+    if (el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+  }
 
   /* ---------- the parts box: placing a new part ---------- */
   /* Choosing a part (click, Enter or Space) starts placing it: the place nearest what's selected is offered first, the
@@ -29524,15 +29627,18 @@ PF.examples = (function () {
     /* ---------- the sections ---------- */
     /* Go straight to a run's step, a process or a section (go()), keeping what's typed. */
     go: function (id, b) { var d = (b && b.dataset) || {}; go({ view: d.view, process: d.process, ptab: d.ptab, mapVer: d.mapVer, run: d.run, step: d.step, note: d.note, filter: d.filter }); },
-    /* Show 50 more of a long list; focus moves to the first one added. */
+    /* Show 50 more of a long list (K.list): focus moves to the first one added, which is brought into view, with any fold the
+       person closed above it opened. A list in a dialog moves the dialog's focus. A list without its own focus target is a list
+       of run cards. */
     more: function (id, b) {
-      var P = PF.vk.PAGE, m = state.more = state.more || {}, next = b && b.dataset && b.dataset.next;
+      var d = (b && b.dataset) || {}, P = +d.page > 0 ? +d.page : PF.vk.PAGE, m = state.more = state.more || {};
       m[id] = Math.max(P, m[id] || P) + P;
-      if (next) state.focus = '[data-act="open-run"][data-id="' + cssEsc(next) + '"]';
+      var to = d.focus || (d.next ? '[data-act="open-run"][data-id="' + cssEsc(d.next) + '"]' : null);
+      if (to) { if (d.dialog) state.overlayFocus = to; else { state.focus = to; state.focusWins = true; } revealAt(to, true); }
       render();
     },
     nav: function (id) {
-      typeOpens++; state.more = {};
+      typeOpens++; state.more = {}; state.justShown = null; state.revealTarget = null;
       if (id === 'home') { home(); state.focus = '[data-act="nav"][data-id="home"]'; render(); window.scrollTo(0, 0); return; }
       if (['runs', 'followups', 'processes', 'skills', 'types', 'settings'].indexOf(id) < 0) return;
       releaseUrls(state.urls); setView(id); state.processId = null; state.runKey = null; resetRunUi(); state.fuPick = null;
@@ -31592,7 +31698,7 @@ PF.examples = (function () {
       return;
     }
     if (e.target.id === 'rel-area') { state.rel.area = e.target.value; render(); }
-    if (e.target.id === 'ins-folder' && state.processId) { (state.insFolder = state.insFolder || {})[state.processId] = e.target.value; state.more = Object.assign({}, state.more, { 'ins-hot': 0 }); render(); }
+    if (e.target.id === 'ins-folder' && state.processId) { (state.insFolder = state.insFolder || {})[state.processId] = e.target.value; state.more = Object.assign({}, state.more, { 'ins-hot': 0, 'ins-dur': 0 }); render(); }
     if (/^rf-(process|folder|outcome|from|through)$/.test(e.target.id || '')) {
       var rf = state.runFilter && !state.runFilter.cohort ? Object.assign({}, state.runFilter) : {}, rk = e.target.id.slice(3);
       if (e.target.value) rf[rk] = String(e.target.value).slice(0, 120); else delete rf[rk];
@@ -31786,7 +31892,7 @@ PF.examples = (function () {
       var r = ctx.run(), x = t.step ? M.findStep(R.mapOf(r), t.step) : null;
       if (x) {
         state.unfold[x.phase.id] = true; selectStep(x.step.id); state.refOpen = !narrow();
-        state.focus = '[data-act="select"][data-id="' + cssEsc(x.step.id) + '"]'; state.revealTarget = '#step-' + cssEsc(x.step.id);
+        state.focus = '[data-act="select"][data-id="' + cssEsc(x.step.id) + '"]'; revealAt('#step-' + cssEsc(x.step.id));
         var mark = state.flash = { ids: [x.step.id], notes: t.note ? [t.note] : [] };
         setTimeout(function () { if (state.flash === mark) { state.flash = null; scheduleRender(); } }, 1800);
       }
@@ -32047,9 +32153,15 @@ PF.examples = (function () {
       /* Only controls on screen count: a hidden one (a narrow screen's other panel, a closed section) can't take focus. */
       var fo = Array.prototype.slice.call(trap.querySelectorAll('button:not([disabled]), a[href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])')).filter(function (el) { return !el.getClientRects || el.getClientRects().length > 0; });
       if (fo.length) {
-        /* Focus on something inside that isn't a control (a dialog's heading, focused when it opens) counts as before the first. */
+        /* Focus on something inside that isn't a control (a dialog's heading, focused when it opens; a row Show more focused)
+           moves on from where it is: Tab to the next control after it, Shift+Tab to the one before it, wrapping at the ends. */
         var fa = document.activeElement, inside = trap.contains(fa), off = inside && fo.indexOf(fa) < 0;
-        if (e.shiftKey && (!inside || off || fa === fo[0])) { e.preventDefault(); fo[fo.length - 1].focus(); }
+        if (off && fa.compareDocumentPosition) {
+          var pos = function (el) { return fa.compareDocumentPosition(el); };
+          var to = e.shiftKey ? fo.filter(function (el) { return pos(el) & 2; }).pop() || fo[fo.length - 1] : fo.filter(function (el) { return pos(el) & 4; })[0] || fo[0];
+          e.preventDefault(); to.focus();
+        }
+        else if (e.shiftKey && (!inside || off || fa === fo[0])) { e.preventDefault(); fo[fo.length - 1].focus(); }
         else if (!e.shiftKey && (!inside || off || fa === fo[fo.length - 1])) { e.preventDefault(); fo[0].focus(); }
       }
       return;

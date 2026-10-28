@@ -127,7 +127,7 @@
       var rows = function (list) { return '<div class="grid-wrap"><table class="grid"><thead><tr><th scope="col">Run</th><th scope="col">Active time</th></tr></thead><tbody>' +
         list.map(function (v) { var r = ctx.findRun ? ctx.findRun(v.key) : null; return '<tr id="ins-row-' + esc(v.key.replace(/\//g, '-')) + '"><td><button class="linkish" data-act="go" data-view="run" data-run="' + esc(v.key) + '">' + esc(r ? r.title : v.key) + '</button></td><td>' + esc(about(v.ms)) + '</td></tr>'; }).join('') + '</tbody></table></div>'; };
       h += '<details data-disc="ins-dur-table"' + ((ctx.state.disc || {})['ins-dur-table'] ? ' open' : '') + '><summary class="small">The same as a table</summary>' +
-        K.paged(ctx.state, 'ins-dur', d.values.slice().sort(function (a, b) { return a.ms - b.ms; }), rows, function (v) { return 'ins-row-' + v.key.replace(/\//g, '-'); }) + '</details>';
+        K.list(ctx.state, 'ins-dur', d.values.slice().sort(function (a, b) { return a.ms - b.ms; }), { draw: rows, keyOf: function (v) { return 'ins-row-' + v.key.replace(/\//g, '-'); }, focusOf: function (k) { return K.byId(k) + ' button'; } }) + '</details>';
     }
     h += qualLine(d.q);
     if (res.phases.length) {
@@ -170,10 +170,10 @@
           if (m.incomplete) extra += ' · ' + link('step:' + s.id + ':' + r[0] + ':incomplete', I.num(m.incomplete) + ' history incomplete', 1);
           return '<div class="ins-row"><span class="ins-lab">' + r[1] + '</span>' + bar(m.hits, m.n) + '<span class="ins-num">' + link('step:' + s.id + ':' + r[0], I.count(m.hits, m.n), m.hits) + extra + qualLine(m.q, ['incomplete'], 'span') + '</span></div>';
         }).join('');
-        return '<li class="ins-step" id="ins-' + esc(s.id) + '"><h3>' + K.stepHtml(s, null) + '</h3>' + rows + '</li>';
+        return '<li class="ins-step" id="ins-' + esc(s.id) + '"><h3 tabindex="-1">' + K.stepHtml(s, null) + '</h3>' + rows + '</li>';
       }).join('') + '</ul>';
     };
-    return h + K.paged(ctx.state, 'ins-hot', list, draw, function (s) { return 'ins-' + s.id; }) + '</section>';
+    return h + K.list(ctx.state, 'ins-hot', list, { draw: draw, keyOf: function (s) { return 'ins-' + s.id; }, focusOf: function (k) { return K.byId(k) + ' h3'; } }) + '</section>';
   }
   function followUps(ctx, res) {
     var f = res.followUps, o = f.open, d = f.decided;

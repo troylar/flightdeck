@@ -102,13 +102,44 @@ PF.vk = (function () {
      are, and the button. keyOf names an item, so focus can move to the first one Show more adds. Paging rather than
      scrolling tricks keeps Ctrl+F, screen readers and the page's patching working. */
   var PAGE = 50;
-  function paged(st, id, items, draw, keyOf) {
-    var n = Math.max(PAGE, Math.floor(((st.more || {})[id]) || PAGE)), shown = items.slice(0, n), left = items.length - shown.length;
-    var h = draw(shown);
-    if (left > 0) h += '<div class="row paged"><span class="small">Showing ' + shown.length.toLocaleString('en-US') + ' of ' + items.length.toLocaleString('en-US') + '</span>' +
-      '<button class="btn" data-act="more" data-id="' + esc(id) + '" data-next="' + esc(keyOf(items[n])) + '">Show ' + Math.min(PAGE, left) + ' more</button></div>';
+  function paged(st, id, items, draw, keyOf) { return list(st, id, items, { draw: draw, keyOf: keyOf }); }
+  /* The same, with what a list says about itself (2.11). Items are light descriptors: the costly work for a row happens in
+     o.draw, which only gets the rows drawn. o:
+       draw(shown), keyOf(item): the rows' HTML, and an item's key;
+       focusOf(key): the selector Show more focuses for the first item it adds, something always there and focusable (a row's
+         heading or title with tabindex="-1", or a row that is one button). Without it, the run card with that key, as before;
+       page: the page size (50); keep: keys drawn whatever the page (a row being edited);
+       tail: the last n items, with Show earlier above them (a thread read newest last);
+       inDialog: the list is in a dialog, so focus moves through the dialog's own focus.
+     The item Flightdeck just showed you (state.justShown, ensureListItemVisible in app.js) is drawn whatever the page too.
+     Rows kept past the page are drawn after it (before it, for a tail), so nobody loses the row they're working on. */
+  function list(st, id, items, o) {
+    var P = o.page || PAGE, n = Math.max(P, Math.floor(((st.more || {})[id]) || P));
+    /* Tests turn paging off for one list (PF.vk.PAGE_OFF = its id), to prove the bounds test notices. */
+    if (PF.vk.PAGE_OFF === id) n = items.length;
+    var from = o.tail ? Math.max(0, items.length - n) : 0, shown = items.slice(from, from + n), left = items.length - shown.length;
+    var keep = Object.create(null), js = st.justShown && st.justShown.lists ? st.justShown.lists[id] : null, extra = [], plus = false, kept = false;
+    (o.keep || []).forEach(function (k) { if (k != null) keep[k] = true; });
+    if (js != null) keep[js] = true;
+    if (left > 0 && (js != null || (o.keep || []).length)) {
+      var inPage = Object.create(null);
+      shown.forEach(function (it) { inPage[o.keyOf(it)] = true; });
+      items.forEach(function (it) { var k = o.keyOf(it); if (keep[k] && !inPage[k]) { extra.push(it); if (k === js) plus = true; else kept = true; } });
+    }
+    var h = '', more = '';
+    if (left > 0) {
+      var add = Math.min(P, left), first = o.tail ? items[from - add] : items[from + n], k = o.keyOf(first), f = o.focusOf ? o.focusOf(k) : null;
+      more = '<div class="row paged"><span class="small" role="status">Showing ' + shown.length.toLocaleString('en-US') + ' of ' + items.length.toLocaleString('en-US') + (plus ? ', plus the one you just ' + esc(o.shownWord || 'added') : '') + '</span>' +
+        '<button class="btn" data-act="more" data-id="' + esc(id) + '" data-next="' + esc(k) + '"' + (f ? ' data-focus="' + esc(f) + '"' : '') + (P !== PAGE ? ' data-page="' + P + '"' : '') + (o.inDialog ? ' data-dialog="1"' : '') + '>' +
+        (o.tail ? 'Show ' + add + ' earlier' : 'Show ' + add + ' more') + '</button></div>';
+    }
+    var rest = extra.length ? (kept ? '<p class="small kept-h">' + esc(o.keptLabel || 'You\'re editing this one') + '</p>' : '') + o.draw(extra) : '';
+    if (o.tail) h = more + rest + o.draw(shown);
+    else h = o.draw(shown) + more + rest;
     return h;
   }
+  /* A selector for the element with this id, whatever the id holds (it comes from files). */
+  function byId(id) { return '[id="' + String(id).replace(/["\\]/g, '\\$&') + '"]'; }
   /* A must-do step on a row: a small red mark, named for screen readers and on hover; the step's own pane says it in words. */
   function mustMark() { return '<span class="mustmark" role="img" aria-label="Must do" title="Must do">!</span>'; }
   /* How a phase is worked, in words (the file keeps READ-DO and DO-CONFIRM). */
@@ -193,7 +224,7 @@ PF.vk = (function () {
   }
   function unsavedWords(ps) { return ps && ps.saved ? 'its run was saved and has changed since' : ps && ps.certain === false ? 'Flightdeck couldn\'t confirm whether its run saved' : 'its run didn\'t save'; }
   function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
-  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, PAGE: PAGE, testTag: testTag, verWord: verWord };
+  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, byId: byId, PAGE: PAGE, PAGE_OFF: null, testTag: testTag, verWord: verWord };
 })();
 (function () {
   'use strict';
@@ -225,7 +256,7 @@ PF.vk = (function () {
     var th = THEMES[st.theme] ? st.theme : 'system';
     h += '<button class="mini icon-btn" data-act="theme" data-id="' + THEMES[th].next + '" aria-label="Appearance: ' + THEMES[th].label + '. Switch to ' + THEMES[THEMES[th].next].label + '" title="Appearance: ' + THEMES[th].label + '">' + I(THEMES[th].icon) + '</button>';
     h += '<label class="me" for="me">You are ';
-    var people = ctx.data.people.filter(function (p) { return !p.inactive; });
+    var people = PF.people.sorted(ctx).filter(function (p) { return !p.inactive; });
     var nmMe = PF.people.labeler(ctx.data.people);
     if (people.length) h += '<select id="me"><option value="">Choose…</option>' + people.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === st.me ? ' selected' : '') + '>' + esc(nmMe(p)) + '</option>'; }).join('') + '</select>';
     else h += '<input id="me" value="' + esc(st.me) + '" placeholder="Your name" maxlength="40">';

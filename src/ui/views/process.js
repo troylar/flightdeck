@@ -541,7 +541,7 @@
       '<div class="notice warn" role="status"><span>' + esc(planHeldWhy(plan, ctx.data)) + '</span><span class="row"><button class="mini" type="button" data-act="home">Back</button></span></div>';
     var chosen = plan ? planChoice(ctx, plan) : null, pick = plan ? PF.plans.pick(p, plan, chosen) : { pub: p.latest };
     if (plan && pick.exact && !pick.pub) return notices(ctx) + exactAsk(ctx, p, plan, pick);
-    var pub = pick.pub, latest = p.latest, meta = pub.map.meta, people = ctx.data.people.filter(function (x) { return !x.inactive; }), pre = planning || plan || {};
+    var pub = pick.pub, latest = p.latest, meta = pub.map.meta, people = PF.people.sorted(ctx).filter(function (x) { return !x.inactive; }), pre = planning || plan || {};
     var defTitle = plan ? plan.title : planning ? planning.title || meta.title : meta.title + ' · ' + U.day(new Date().toISOString());
     var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">' + esc(meta.title) + ' · v' + pub.info.version + (plan ? ' · ' + esc(V.plannedBy(ctx, plan)) : '') + '</div><h1 id="page-h" tabindex="-1">' + (planning ? 'Plan a run' : 'Start a run') + '</h1>' + (plan && plan.note ? '<div class="small">' + esc(plan.note) + '</div>' : '') + '</div></div>';
     var claim = plan ? PF.requests.claim(plan) : null, copies = plan ? V.planCopies(plan) : '';
@@ -618,7 +618,7 @@
   function startTest(ctx, p) {
     var st = ctx.state, ts = testStage(ctx, p), back = '<button class="mini" data-act="open-process" data-id="' + esc(p.id) + '">Back</button>';
     if (!ts.stage) return notices(ctx) + '<div class="panel">' + esc(ts.why) + ' ' + back + '</div>';
-    var pub = ts.stage, meta = pub.map.meta, n = pub.info.stage.proposed, people = ctx.data.people.filter(function (x) { return !x.inactive; });
+    var pub = ts.stage, meta = pub.map.meta, n = pub.info.stage.proposed, people = PF.people.sorted(ctx).filter(function (x) { return !x.inactive; });
     var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">' + esc(meta.title) + ' · staged v' + esc(n) + '</div><h1 id="page-h" tabindex="-1">Start a test run</h1><div class="small">' + esc(pub.info.changes || '') + '</div></div></div>';
     h += '<form class="panel stack" id="start-form" data-scope="' + esc('test:' + p.id + ':' + pub.folder) + '" data-process="' + esc(p.id) + '" data-folder="' + esc(pub.folder) + '" data-test="1"><div class="grid2"><label class="field" for="run-title">Run name<input id="run-title" maxlength="100" value="' + esc(meta.title + ' (test) · ' + U.day(new Date().toISOString())) + '"></label>';
     var setBy = M.setBy(pub.map);

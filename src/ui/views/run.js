@@ -262,7 +262,7 @@
     else if (r.ended) { kind = 'ended'; text = '<b>Ended: ' + esc(K.outcomeWord(r.ended.outcome)) + '</b>' + (r.ended.byName || r.ended.by ? ' by ' + esc(r.ended.byName || nameOf(ctx, r.ended.by)) : '') + (r.ended.at ? ' at ' + U.hm(r.ended.at) : '') + '.'; ctl = '<button class="btn go" data-act="receipt">' + I('receipt') + 'Receipt</button>'; }
     else if (!s.me) {
       kind = 'who'; text = '<b>Choose who you are</b> to record or add notes. Everything you do here is stamped with your name.';
-      var people = ctx.data.people.filter(function (p) { return !p.inactive; });
+      var people = PF.people.sorted(ctx).filter(function (p) { return !p.inactive; });
       var nmMe = PF.people.labeler(people);
       ctl = people.length ? '<label class="sr" for="me-run">You are</label><select id="me-run"><option value="">Choose…</option>' + people.map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(nmMe(p)) + '</option>'; }).join('') + '</select>' : '<label class="sr" for="me-run">Your name</label><input id="me-run" class="rw-in" placeholder="Your name" maxlength="40">';
     } else if (r.paused) {
@@ -275,7 +275,7 @@
       text = solo ? '<b>Your run</b>' : '<b>You\'re recording</b>';
       var pause = s.pick && s.pick.kind === 'pause' ? '<span class="row rw-ask" data-scope="pause"><label class="sr" for="pick-input">Why pause?</label><input id="pick-input" class="rw-in" placeholder="Why pause? (what are we waiting for)" maxlength="120" data-enter="pause" data-id="run"><button class="mini" data-act="pause">Pause</button><button class="mini" data-act="unpick">Cancel</button></span>'
         : '<button class="mini" data-act="pick" data-kind="pause" data-id="run">' + I('pause') + 'Pause</button>';
-      var people2 = ctx.data.people.filter(function (p) { return !p.inactive && p.id !== s.me; });
+      var people2 = PF.people.sorted(ctx).filter(function (p) { return !p.inactive && p.id !== s.me; });
       var nmTo = PF.people.labeler(people2);
       var hand = s.pick && s.pick.kind === 'handoff' ? '<span class="row rw-ask"><label class="sr" for="handoff-to">Hand recording to</label><select id="handoff-to">' + people2.map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(nmTo(p)) + '</option>'; }).join('') + '</select><button class="mini" data-act="handoff">Hand off</button><button class="mini" data-act="unpick">Cancel</button></span>'
         : '<button class="mini" data-act="pick" data-kind="handoff" data-id="recorder">' + I('swap') + (solo ? 'Hand to someone' : 'Hand off') + '</button>';
@@ -345,7 +345,7 @@
     }).join('');
     var nmRole = PF.people.labeler(ctx.data.people);
     var roles = map.meta.roles.map(function (ro) {
-      if (s.edit === 'role:' + ro && rec) return '<span class="inline-edit" data-scope="edit:role:' + esc(ro) + '"><label class="small" for="edit-input">' + esc(ro) + '</label><select id="edit-input"><option value="">Nobody</option>' + ctx.data.people.filter(function (p) { return !p.inactive; }).map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === r.roles[ro] ? ' selected' : '') + '>' + esc(nmRole(p)) + '</option>'; }).join('') + '</select><button class="mini" data-act="save-edit">Save</button><button class="mini" data-act="unedit">Cancel</button></span>';
+      if (s.edit === 'role:' + ro && rec) return '<span class="inline-edit" data-scope="edit:role:' + esc(ro) + '"><label class="small" for="edit-input">' + esc(ro) + '</label><select id="edit-input"><option value="">Nobody</option>' + PF.people.sorted(ctx).filter(function (p) { return !p.inactive; }).map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === r.roles[ro] ? ' selected' : '') + '>' + esc(nmRole(p)) + '</option>'; }).join('') + '</select><button class="mini" data-act="save-edit">Save</button><button class="mini" data-act="unedit">Cancel</button></span>';
       return '<button class="chip' + (r.roles[ro] ? '' : ' empty') + '" data-act="edit" data-id="role:' + esc(ro) + '"' + (rec ? '' : ' disabled') + '><span class="k">' + esc(ro) + '</span>' + (r.roles[ro] ? avatar(ctx, r.roles[ro]) + esc(nameOf(ctx, r.roles[ro])) : 'assign') + '</button>';
     }).join('');
     /* Solo runs keep collaboration out of the way: roles appear only if someone asks for them. */
