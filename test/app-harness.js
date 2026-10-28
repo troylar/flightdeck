@@ -51,6 +51,15 @@ function boot(opts) {
         return g ? { dataset: { obg: g } } : null;
       };
       if (opts.replace) el.setSelectionRange = (a, b) => { el.selectionStart = a; el.selectionEnd = b; };
+      /* An attribute as the markup on screen draws it for this id (the screen, then the dialog), as a page's node has it. */
+      if (['app', 'top', 'overlay', 'live', 'tab-badge'].indexOf(id) < 0) el.getAttribute = k => {
+        for (const h of [els.app._html || '', els.overlay._html || '']) {
+          const at = h.indexOf(' id="' + id + '"'); if (at < 0) continue;
+          const m = new RegExp('\\s' + k + '="([^"]*)"').exec(h.slice(h.lastIndexOf('<', at), h.indexOf('>', at)));
+          return m ? m[1].replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&') : null;
+        }
+        return null;
+      };
     }
     return els[id];
   };
@@ -189,7 +198,7 @@ function boot(opts) {
     const nodes = [], stack = [], re = /<(\/?)([a-zA-Z][\w-]*)\b([^>]*)>/g; let m;
     while ((m = re.exec(html))) {
       const tag = m[2].toLowerCase();
-      if (m[1]) { for (let i = stack.length - 1; i >= 0; i--) if (stack[i].tag === tag) { stack.splice(i).forEach(n => { n._end = m.index; }); break; } continue; }
+      if (m[1]) { for (let i = stack.length - 1; i >= 0; i--) if (stack[i].tagName === tag.toUpperCase()) { stack.splice(i).forEach(n => { n._end = m.index; }); break; } continue; }
       const n = drawnNode(region, html, tag, attrsOf(m[3]), m.index, stack[stack.length - 1] || null);
       nodes.push(n);
       if (!VOID.test(tag) && !/\/$/.test(m[3])) stack.push(n); else n._end = m.index + m[0].length;

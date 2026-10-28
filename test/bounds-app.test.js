@@ -78,6 +78,8 @@ const REGISTRY = [
   /* Found in code review of 2.11: the linked step's start dialog and the run's Details (Add people) drew every role. */
   { name: 'a linked step\'s start dialog, role rows (cs-roles)', rows: n => n.tag === 'label' && cls(n, 'field') && /^cs-role-/.test(n.attrs.for || '') && within(n, x => x.tag === 'form' && x.attrs.id === 'child-start-form'), bound: 20 },
   { name: 'a run\'s Details, its role chips (det-roles), and the one being edited', rows: n => (n.tag === 'button' && cls(n, 'chip') && /^role:/.test(n.attrs['data-id'] || '')) || (n.tag === 'span' && cls(n, 'inline-edit') && /^edit:role:/.test(n.attrs['data-scope'] || '')), bound: 20 + 1 },
+  /* Found in code review round 3: Screen share's Who's on what drew every role of a team run. */
+  { name: 'Screen share, Who\'s on what (ms-roles), 20 roles', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'mroles'), bound: 20 },
   { name: 'a skill page\'s changes (sk-changes)', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'changes') && within(n, x => cls(x, 'status-card')), bound: 50 },
   /* Slice 4. Process › Corrections (fx:<process>): 50 members at a time across groups, plus the group being declined and the
      one a search, Home or a link opened. A group, its target's heading and a member's lines are drawn only for members drawn. */
@@ -123,7 +125,7 @@ const REGISTRY = [
 /* Drawn in full on purpose, each with its reason. A capped one is also in REGISTRY at its cap. */
 const STRUCTURE = n => (n.tag === 'li' && (cls(n, 'step') || cls(n, 'gate'))) || (n.tag === 'section' && cls(n, 'phase')) ||
   (n.tag === 'li' && n.parent && n.parent.tag === 'ol' && cls(n.parent, 'rw-phases')) || (n.tag === 'div' && cls(n, 'rrow')) ||
-  (n.tag === 'li' && n.parent && cls(n.parent, 'msteps')) ||
+  (n.tag === 'li' && n.parent && (cls(n.parent, 'msteps') || (cls(n.parent, 'gates') && !cls(n.parent, 'mroles') && within(n, x => cls(x, 'mission'))))) ||
   (n.tag === 'div' && !n.attrs.class && n.parent && cls(n.parent, 'receipt')) ||
   (within(n, x => cls(x, 'mapview')) && (n.tag === 'li' || (n.tag === 'div' && cls(n, 'ph')))) ||
   within(n, x => /^(ob-|fpe-outline|flight|fp-|share)/.test(x.attrs.class || ''));
@@ -199,6 +201,13 @@ async function bigApp() {
   if (process.env.BOUNDS_TIME) console.log('bounds: fixture ' + (t1 - t0) + ' ms, first read ' + (Date.now() - t1) + ' ms, ' + Object.keys(fx.files).length + ' files');
   booted = { app, fx };
   return booted;
+}
+/* An app of its own on the same folder, for a check that needs the folder as the fixture made it: the screens before it open
+   every form they can, and on Many versions those include Apply and Decline on its corrections. */
+async function freshApp() {
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true }); await app.tick(60);
+  await into(app, fixture());
+  return { app };
 }
 /* A redraw that changes nothing else. */
 const redraw = async app => { app.click('dismiss'); await app.tick(5); };
@@ -298,6 +307,9 @@ const SCREENS = [
   /* Receipt, screen share and the checklist preview (Four hundred steps, below) with the 400-step checklist (slice 4). */
   ['A run with 400 steps, its receipt', openRun('steps', async a => { a.click('receipt'); await a.tick(10); })],
   ['A run with 400 steps, shared on screen', openRun('steps', async a => { a.click('mission'); await a.tick(10); })],
+  /* A team run (a solo run has no Screen share) with 300 roles, and one with 300 phases (its gates are structure). */
+  ['A team run with 300 roles, shared on screen', openRun('rolesTeam', async a => { a.click('mission'); await a.tick(10); })],
+  ['A run with 300 phases, shared on screen', openRun('phases', async a => { a.click('mission'); await a.tick(10); })],
   ['Many versions', openProc('versions')],
   ['Many versions › How runs go', openProc('versions', 'insights')],
   ['Many versions › Edit', openProc('versions', 'edit')],
@@ -354,18 +366,19 @@ const PAGE_OFF = [
   { list: 'ins-hot', kind: 'flat', screen: 'Four hundred steps › How runs go', go: SCREENS.filter(s => s[0] === 'Four hundred steps › How runs go')[0][1], expect: /steps that go off-script \(ins-hot\) draws \d+, over its bound of 50/ },
   { list: 'corr-move', kind: 'select', screen: 'A run with 400 steps, moving step 200', go: openRun('steps', async a => { a.click('takeover'); await a.tick(40); a.click('select', 's199'); await a.tick(10); a.click('corr-open', 's199', { mode: 'correct' }); await a.tick(10); a.click('corr-op', 'move'); await a.tick(10); }), expect: /a bounded dropdown \(K\.select\), per select draws \d+, over its bound of 54/ },
   /* Nested: one page across groups, 400 members of one correction group. */
-  { list: 'fx:versions', kind: 'nested', screen: 'Many versions', go: openProc('versions'), expect: /Corrections, the members drawn .* draws \d+, over its bound of 52/ },
+  { list: 'fx:versions', kind: 'nested', screen: 'Many versions', go: openProc('versions'), fresh: true, expect: /Corrections, the members drawn .* draws \d+, over its bound of 52/ },
   /* The tail: the busy step's 327 notes, the newest 20 drawn. */
   /* Found in code review: Start a test run, Details › Add people and a linked step's start dialog, 20 roles each. */
   { list: 'test-roles', kind: 'flat', screen: 'Start a test run with 300 roles', go: testRoles, expect: /Start a test run, role rows .* draws \d+, over its bound of 20/ },
   { list: 'det-roles', kind: 'flat', screen: 'A run with 300 roles, Details › Add people', go: detailsRoles, expect: /Details, its role chips .* draws \d+, over its bound of 21/ },
   { list: 'cs-roles', kind: 'flat', screen: 'A run whose step starts a 300-role run, its start dialog', go: childRoles, dialog: true, expect: /start dialog, role rows \(cs-roles\) draws \d+, over its bound of 20/ },
+  { list: 'ms-roles:' + fixture().facts.rolesTeam, kind: 'flat', screen: 'A team run with 300 roles, shared on screen', go: openRun('rolesTeam', async a => { a.click('mission'); await a.tick(10); }), expect: /Who's on what \(ms-roles\), 20 roles draws \d+, over its bound of 20/ },
   { list: 'notes:' + fixture().facts.busy + ':s0', kind: 'tail', screen: 'The busy run', go: SCREENS.filter(s => s[0] === 'The busy run')[0][1], expect: /the step-note thread .* draws \d+, over its bound of 21/ }
 ];
 const PAGE_OFF_PENDING = [];
 PAGE_OFF.forEach(t => {
   rule('D8 is tested: with paging off for ' + t.list + ' (' + t.kind + '), the bounds check fails for it, and passes again with paging on', async () => {
-    const { app } = await bigApp();
+    const { app } = t.fresh ? await freshApp() : await bigApp();
     const look = async () => { if (app.overlay()) { app.click('close-overlay'); await app.tick(5); } await t.go(app); await app.tick(10); await openFolds(app); return check(t.screen, t.dialog ? app.overlay() : app.html()).fails; };
     assert.deepStrictEqual((await look()).filter(f => t.expect.test(f)), [], 'set-up: bounded with paging on');
     app.PF.vk.PAGE_OFF = t.list;

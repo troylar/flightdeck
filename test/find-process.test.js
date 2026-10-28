@@ -325,14 +325,18 @@ rule('1,000 archived answers on a step draw 20, and Show more adds 20', async ()
 });
 
 /* ---------- Reports ---------- */
-const cardKeys = h => ids(h, /<section class="rep-card[^"]*" aria-labelledby="rep-(\d+)-h"/g);
+/* Report n on the busy run's step 1 (r0000000 to r0000299), and its card's id (from its key, 2.11). */
+const repKey = n => fixture().facts.busy + '/s0/ci-check/r' + String(n).padStart(7, '0');
+const cardOf = (app, n) => app.PF.views.reportCardId(repKey(n));
+/* The cards drawn, as the numbers of their reports. */
+const cardKeys = (app, h) => { const at = {}; for (let i = 0; i < 300; i++) at[cardOf(app, i)] = String(i); return ids(h, /<section class="rep-card[^"]*" aria-labelledby="(rep-[0-9a-f]+)-h"/g).map(x => at[x]); };
 rule('Reports: 300 on a step draw 20 panel rows and 20 cards, each built once per draw, in the order 2.10 draws them', async () => {
   const app = await bigApp(); await openRun(app, 'busy', 's0');
   const d = await perfDelta(app, ['rep.card', 'rep.row'], async () => { app.click('dismiss'); await app.tick(5); });
   const h = app.html();
   assert.strictEqual(count(h, /<section class="rep-card/g), 20, '20 cards');
   assert.ok(d['rep.card'] <= 20 * d.draws, 'cards built once each: ' + JSON.stringify(d));
-  assert.deepStrictEqual(cardKeys(h), Array.from({ length: 20 }, (x, i) => String(i)), 'in 2.10\'s order');
+  assert.deepStrictEqual(cardKeys(app, h), Array.from({ length: 20 }, (x, i) => String(i)), 'in 2.10\'s order');
   const order = ids(h, /data-act="rep-goto" data-id="step-s0" data-report="([^"]+)"/g);
   const all = app.PF.reports && (await (async () => order)());
   assert.ok(order.length <= 20, 'panel rows on the page: ' + order.length);
@@ -344,7 +348,7 @@ rule('Reports: an open decline form on report 150 keeps its reason through Show 
   app.click('takeover'); await app.tick(40); app.click('select', 's0'); await app.tick(10);
   const lid = 'repcards:' + fixture().facts.busy + ':s0';
   for (let i = 0; i < 11; i++) await more(app, lid);
-  const keyOf = n => (new RegExp('aria-labelledby="rep-' + n + '-h"[\\s\\S]*?data-act="rep-decline" data-id="([^"]+)"').exec(app.html()) || [])[1];
+  const keyOf = n => (new RegExp('aria-labelledby="' + cardOf(app, n) + '-h"[\\s\\S]*?data-act="rep-decline" data-id="([^"]+)"').exec(app.html()) || [])[1];
   const k150 = un(keyOf(150) || ''), k220 = un(keyOf(220) || '');
   assert.ok(k150 && k220, 'set-up: both drawn');
   const rid = k => app.PF.reports.reasonId(k);
@@ -378,8 +382,9 @@ rule('Reports: the panel links for reports 150 and 220 each open and focus their
   for (const n of [150, 220]) {
     app.click('rep-goto', 'step-s0', { report: keys[n] }); await app.tick(10);
     const h = app.html();
-    assert.strictEqual(app.activeId(), 'rep-' + n + '-h', 'its own card is focused');
-    assert.ok(new RegExp('<section class="rep-card[^"]*" aria-labelledby="rep-' + n + '-h"><h4').test(h), 'unfolded');
+    const cid = app.PF.views.reportCardId(keys[n]);
+    assert.strictEqual(app.activeId(), cid + '-h', 'its own card is focused');
+    assert.ok(new RegExp('<section class="rep-card[^"]*" aria-labelledby="' + cid + '-h"><h4').test(h), 'unfolded');
     assert.ok(count(h, /<section class="rep-card/g) <= 21);
   }
 });
@@ -395,7 +400,7 @@ rule('Reports: at phone width, with the inspector closed, a Reports panel row op
     assert.ok(keys.length >= 3, 'set-up: the panel lists reports');
     app.click('rep-goto', 'step-s0', { report: keys[2] }); await app.tick(10);
     assert.ok(/id="rw-ins"[^>]*data-open="true"/.test(app.html()), 'the sheet opens');
-    assert.strictEqual(app.activeId(), 'rep-2-h', 'on the report\'s card');
+    assert.strictEqual(app.activeId(), app.PF.views.reportCardId(keys[2]) + '-h', 'on the report\'s card');
   } finally { app.setNarrow(false); await app.tick(5); }
 });
 
@@ -418,7 +423,7 @@ rule('Reports: one report with 300 copies draws 10 copy lines, Show all pages th
 rule('Reports: a kept decline reason on a report a newer read deleted is drawn as Removed elsewhere with its reason; two are kept apart', async () => {
   const app = await fresh(); await openRun(app, 'busy');
   app.click('takeover'); await app.tick(40); app.click('select', 's0'); await app.tick(10);
-  const keyOf = n => un((new RegExp('aria-labelledby="rep-' + n + '-h"[\\s\\S]*?data-act="rep-decline" data-id="([^"]+)"').exec(app.html()) || [])[1] || '');
+  const keyOf = n => un((new RegExp('aria-labelledby="' + cardOf(app, n) + '-h"[\\s\\S]*?data-act="rep-decline" data-id="([^"]+)"').exec(app.html()) || [])[1] || '');
   const k3 = keyOf(3), k7 = keyOf(7), rid = k => app.PF.reports.reasonId(k);
   for (const [k, t] of [[k3, 'Reason for three'], [k7, 'Reason for seven']]) { app.click('rep-decline', k); await app.tick(5); app.set(rid(k), t); app.click('select', 's1'); await app.tick(5); app.click('select', 's0'); await app.tick(5); }
   app.click('nav', 'home'); await app.tick(5);
@@ -434,6 +439,63 @@ rule('Reports: a kept decline reason on a report a newer read deleted is drawn a
   assert.ok(/data-act="rep-copy-reason"/.test(h) && !/rep-gone[\s\S]{0,900}data-act="rep-decline-go"/.test(h), 'Copy my text, never Decline');
   app.click('rep-cancel', k3); await app.tick(5);
   assert.strictEqual(count(app.html(), /<section class="rep-card rep-gone"/g), 1, 'Cancel takes one away, the other stays');
+});
+
+/* Code review round 3. */
+rule('Corrections: an open Decline with a reason, whose correction a newer read no longer has, is drawn as Removed elsewhere with the reason, Copy my text and Cancel; leaving is refused while it holds text', async () => {
+  let copied = null;
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true, navigator: { clipboard: { writeText: t => { copied = t; return Promise.resolve(); } } } }); await app.tick(60);
+  await into(app, fixture());
+  await corrections(app, 'busy');
+  let h = app.html();
+  const gid = fxGroups(h)[3], n = (/<dd>Reason (\d+)<\/dd>/.exec(liText(h, 'fxg-' + gid)) || [])[1];
+  assert.ok(gid && n, 'set-up: a group and its correction');
+  app.click('pick', gid, { kind: 'corr-decline' }); await app.tick(5);
+  app.set('pick-input', 'Covered by another change');
+  const nf = app.files('runs/busy/').filter(f => /\/notes-busy-s1\.jsonl$/.test(f))[0];
+  const lines = app.fs.files[nf].t.split('\n').filter(l => { if (!l) return true; const x = JSON.parse(l); return !(x.kind === 'correction' && x.why === 'Reason ' + n); });
+  await app.fs.write(nf, lines.join('\n'));
+  await reread(app);
+  h = app.html();
+  assert.ok(fxGroups(h).indexOf(gid) < 0 || /class="fx-removed"/.test(h), 'set-up: the correction is gone from the folder');
+  const li = (new RegExp('<li class="fx-removed" data-scope="corr:[^"]*" id="fxg-' + gid + '"[\\s\\S]*?</li>').exec(h) || [''])[0];
+  assert.ok(li, 'its row is still drawn, from what it said');
+  assert.ok(/Removed elsewhere\./.test(li) && /Busy step 0, worded/.test(li), 'marked, with what it suggested');
+  assert.ok(/id="pick-input"/.test(li) && app.draft('pick-input') === 'Covered by another change', 'with the reason typed');
+  assert.ok(/data-act="corr-copy-reason"/.test(li) && /data-act="unpick"/.test(li) && !/data-act="corr-decline"/.test(li), 'Copy my text and Cancel, never Decline');
+  const at = app.url();
+  app.click('go', null, { view: 'process', process: 'tiny' }); await app.tick(10);
+  assert.ok(/class="fx-removed"/.test(app.html()) && app.url() === at, 'go() refused');
+  app.back(); await app.settle();
+  assert.ok(/class="fx-removed"/.test(app.html()), 'Back refused');
+  app.click('corr-copy-reason'); await app.tick(5);
+  assert.strictEqual(copied, 'Covered by another change', 'Copy my text');
+  app.click('unpick'); await app.tick(5);
+  assert.ok(!/class="fx-removed"/.test(app.html()), 'Cancel takes it away');
+  app.click('go', null, { view: 'process', process: 'tiny' }); await app.tick(10);
+  assert.ok(app.url() !== at, 'then leaving is allowed');
+});
+
+rule('Reports: report 31 opened from the Reports panel keeps focus on its own card when a report that sorts before it arrives', async () => {
+  const app = await fresh(); await openRun(app, 'busy', 's1');
+  const pl = 'reppanel:' + fixture().facts.busy;
+  await reportsOpen(app);
+  await more(app, pl, app.html() + app.overlay());
+  const keys = ids(app.html() + app.overlay(), /data-act="rep-goto" data-id="step-s0" data-report="([^"]+)"/g);
+  assert.strictEqual(keys[31], repKey(31), 'set-up: report 31 in the panel');
+  app.click('rep-goto', 'step-s0', { report: keys[31] }); await app.tick(10);
+  /* The card the focused heading is on, as far as its report's own words (Report r0000031). */
+  const headOf = () => { const a = app.doc.activeElement, h = app.html(), i = a && a.id ? h.indexOf('id="' + a.id + '"') : -1; return i < 0 ? '' : h.slice(i, h.indexOf('</section>', i)).replace(/<[^>]+>/g, ' ').slice(0, 400); };
+  assert.ok(/r0000031/.test(headOf()), 'set-up: report 31\'s card is focused: ' + headOf());
+  const src = app.files('reports/busy/').filter(f => /\.r0000031\.json$/.test(f))[0];
+  await app.fs.write(src.replace(/r0000031\.json$/, 'a0000000.json'), app.fs.files[src].t.replace(/r0000031/g, 'a0000000'));
+  /* A newer read, with focus left where it is (pressing Refresh would take it). */
+  const was = app.PF.perf.n['load.done'] || 0, held = app.doc.activeElement;
+  app.click('refresh'); app.doc.activeElement = held;
+  for (let i = 0; i < 4000 && (app.PF.perf.n['load.done'] || 0) <= was; i++) await app.tick(5);
+  await app.tick(5);
+  assert.ok(/a0000000/.test(app.html()), 'set-up: the new report is drawn ahead');
+  assert.ok(/r0000031/.test(headOf()), 'focus is still on report 31\'s card: ' + app.activeId() + ' ' + headOf());
 });
 
 /* ---------- Join ---------- */

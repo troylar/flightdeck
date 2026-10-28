@@ -294,7 +294,7 @@ rule('Checklists on the big folder: 50 checklist rows across 1,000 groups, 5 ski
 
 rule('Checklists: Show more focuses the first checklist it adds, in its group, and the tree grows by 50', async () => {
   const app = await big2(), d = moreOf(app.html(), 'processes');
-  assert.ok(d && d.focus === '[data-act="open-process"][data-id="' + d.next + '"]', JSON.stringify(d));
+  assert.ok(d && d.focus === '#procs-all [data-act="open-process"][data-id="' + d.next + '"]', JSON.stringify(d));
   app.click('more', 'processes', d); await app.tick(5);
   assert.strictEqual(procRows(app.html()), 100);
   assert.strictEqual(app.activeId(), '[data-act="open-process"][data-id="' + d.next + '"]');
@@ -413,15 +413,15 @@ rule('Checklists: a go() to a checklist bypasses the list, whatever it shows', a
 rule('Skills on the big folder: All skills draws 50 across its tree, with Find a skill; Needs an update and Ready to become a skill page at 50', async () => {
   const app = await bigApp(); app.click('nav', 'skills'); await app.tick(10);
   const h = app.html(), all = h.slice(h.indexOf('id="all-h"'));
-  assert.strictEqual((all.match(/<li><button data-act="open-skill"/g) || []).length, 50);
+  assert.strictEqual((all.match(/<li><button id="sk-(?:all|att)-[^"]*" data-act="open-skill"/g) || []).length, 50);
   assert.ok(/data-act="more" data-id="skills"/.test(all) && /id="find-skills"/.test(all) && /Find a skill/.test(all));
   await typeFind(app, 'skills', 'step-skill-12');
   let a = app.html().slice(app.html().indexOf('id="all-h"'));
-  assert.strictEqual((a.match(/<li><button data-act="open-skill"/g) || []).length, 10, 'step-skill-120 to 129');
+  assert.strictEqual((a.match(/<li><button id="sk-(?:all|att)-[^"]*" data-act="open-skill"/g) || []).length, 10, 'step-skill-120 to 129');
   assert.ok(/role="status">10 of [\d,]+ match</.test(a));
   await typeFind(app, 'skills', 'skilltag-7 four hundred');
   a = app.html().slice(app.html().indexOf('id="all-h"'));
-  assert.ok(/role="status">\d+ of [\d,]+ match</.test(a) && (a.match(/<li><button data-act="open-skill"/g) || []).length > 0, 'by tag and checklist');
+  assert.ok(/role="status">\d+ of [\d,]+ match</.test(a) && (a.match(/<li><button id="sk-(?:all|att)-[^"]*" data-act="open-skill"/g) || []).length > 0, 'by tag and checklist');
   app.click('find-clear', 'skills'); await app.tick(5);
   const PF = loadViews(), V = PF.views, mk = (i, s) => ({ skill: { name: 'sk ' + i, file: 'sk' + i + '.json', group: [], tags: [], implements: 1 }, status: { s, text: '' } });
   const procs = [{ id: 'p', title: 'P', group: [], category: 'C', latest: { info: { version: 1 } }, skills: Array.from({ length: 120 }, (x, i) => mk(i, 'update')) }];
@@ -429,7 +429,7 @@ rule('Skills on the big folder: All skills draws 50 across its tree, with Find a
   PF.skills.signoffs = () => [{}];
   const ctx = { state: { tags: [] }, data: { validations: [], people: [], failed: {} }, processes: () => procs, peopleById: {}, run: () => null, now: () => Date.now() };
   const sp = V.skillsPage(ctx), att = sp.slice(sp.indexOf('id="att-h"'), sp.indexOf('id="rdy-h"')), rdy = sp.slice(sp.indexOf('id="rdy-h"'), sp.indexOf('id="all-h"'));
-  assert.ok(/Needs an update · 120/.test(att) && (att.match(/<li><button data-act="open-skill"/g) || []).length === 50 && /data-act="more" data-id="sk-att"/.test(att), 'Needs an update: 50 of 120');
+  assert.ok(/Needs an update · 120/.test(att) && (att.match(/<li><button id="sk-(?:all|att)-[^"]*" data-act="open-skill"/g) || []).length === 50 && /data-act="more" data-id="sk-att"/.test(att), 'Needs an update: 50 of 120');
   assert.ok(/Ready to become a skill · 120/.test(rdy) && (rdy.match(/<li>/g) || []).length === 50 && /data-act="more" data-id="sk-ready"/.test(rdy), 'Ready to become a skill: 50 of 120');
 });
 

@@ -86,7 +86,7 @@ rule('App: Accept is refused, with the reason beside it, when the step can\'t ta
   app = await recording();
   x = await plant(app, { rep: { evidence: { buildLink: 'https://ci.example.com/jobs/1432' } } });
   await openStep(app, 'jenkins');
-  assert.ok(/This report doesn(&#39;|')t have Build number, which this step requires\./.test(app.html()), app.html().match(/rw-why-off[^<]*<\/span>|id="rep-0-why">[^<]*/g));
+  assert.ok(/This report doesn(&#39;|')t have Build number, which this step requires\./.test(app.html()), app.html().match(/rw-why-off[^<]*<\/span>|id="rep-[0-9a-f]+-why">[^<]*/g));
   // Paused.
   app = await recording();
   x = await plant(app);
@@ -109,7 +109,7 @@ rule('App: Accept waits while Fill in is open on the step, and leaves what was t
   const x = await plant(app);
   await openStep(app, 'jenkins');
   app.click('pick', 'jenkins', { kind: 'fields' }); await app.tick(40);
-  assert.ok(/id="rep-0-why">Save or cancel Fill in first\./.test(app.html()), "the reason beside Accept");
+  assert.ok(new RegExp('id="' + app.PF.views.reportCardId(x.key) + '-why">Save or cancel Fill in first\\.').test(app.html()), "the reason beside Accept");
   app.click('rep-accept-go', x.key); await app.tick(120);
   assert.ok(!isDone(app), 'nothing accepted');
   assert.deepStrictEqual(decisions(app), []);

@@ -1069,4 +1069,128 @@ rule('Many removed drafts are one notice on Checklists, announced once, with a w
   assert.ok(/EDITED 55/.test(app.html()), 'its edits are kept');
 });
 
+
+/* Code review round 3. */
+/* A role choice is still unsaved after a redraw draws it as the control's own value: go() and the browser's Back refuse, as
+   2.10 refuses a choice not redrawn, whether it's a drawn role, Just me, a role past the first 20, or only roles not drawn. */
+async function planForm(app) {
+  app.click('nav', 'processes'); await app.tick(5); app.click('open-process', 'roles'); await app.tick(10); app.click('plan-run', 'roles'); await app.tick(20);
+  assert.ok(/id="plan-form"/.test(app.html()), 'set-up: the Plan form');
+}
+const selOfAt = (h, role) => { const m = new RegExp('<select id="role-' + role + '"[^>]*>([\\s\\S]*?)</select>').exec(h); return m ? (/<option value="([^"]+)" selected>/.exec(m[1]) || [, ''])[1] : null; };
+async function refused(app, what) {
+  await reread(app);
+  const at = app.url();
+  app.click('go', null, { view: 'process', process: 'tiny' }); await app.tick(10);
+  assert.ok(/id="plan-form"/.test(app.html()) && app.url() === at, what + ': go() refused');
+  app.back(); await app.settle();
+  assert.ok(/id="plan-form"/.test(app.html()), what + ': Back refused');
+}
+async function leavePlan(app) { app.click('cancel-plan'); await app.tick(10); app.click('nav', 'runs'); await app.tick(5); }
+rule('Plan on 300 roles: a role changed, then a refresh: go() and Back are refused, as in 2.10', async () => {
+  const app = await bigApp();
+  await planForm(app);
+  try {
+    const was = selOfAt(app.html(), 'r2'), to = was === 'person-morgan' ? 'person-casey' : 'person-morgan';
+    app.select('role-r2', to); await app.tick(5);
+    await refused(app, 'a drawn role');
+  } finally { await leavePlan(app); }
+});
+rule('Plan on 300 roles: Just me, then a refresh: go() and Back are refused', async () => {
+  const app = await bigApp();
+  app.choose('person-blake'); await app.tick(5);
+  try {
+    await planForm(app);
+    app.click('just-me'); await app.tick(5);
+    await refused(app, 'Just me');
+  } finally { await leavePlan(app); app.choose('person-avery'); await app.tick(5); }
+});
+rule('Plan on 300 roles: a role Show more draws, changed, then a refresh: go() and Back are refused', async () => {
+  const app = await bigApp();
+  await planForm(app);
+  try {
+    await more(app, 'start-roles');
+    const was = selOfAt(app.html(), 'r25'), to = was === 'person-morgan' ? 'person-casey' : 'person-morgan';
+    app.select('role-r25', to); await app.tick(5);
+    await refused(app, 'a role past the first 20');
+  } finally { await leavePlan(app); }
+});
+rule('Plan on 300 roles: Just me, then the 20 drawn roles set back: the roles not drawn still count, so go() and Back are refused', async () => {
+  const app = await bigApp();
+  app.choose('person-blake'); await app.tick(5);
+  try {
+    await planForm(app);
+    const h0 = app.html(), was = {};
+    for (let i = 1; i <= 20; i++) was['r' + i] = selOfAt(h0, 'r' + i);
+    assert.ok(hiddenOfAt(h0, 'r200') !== 'person-blake', 'set-up: role 200 isn\'t Blake');
+    app.click('just-me'); await app.tick(5);
+    for (let i = 1; i <= 20; i++) { app.select('role-r' + i, was['r' + i]); await app.tick(2); }
+    assert.strictEqual(hiddenOfAt(app.html(), 'r200'), 'person-blake', 'set-up: role 200 is Blake, not drawn');
+    await refused(app, 'roles not drawn');
+  } finally { await leavePlan(app); app.choose('person-avery'); await app.tick(5); }
+});
+
+/* Show more in one list of a page never focuses the same item drawn in another list on it. */
+rule('Skills: with 60 needing an update and Needs an update expanded, All skills\' Show more focuses its own row, not the same skill in Needs an update', () => {
+  const PF = loadViews(), V = PF.views, mk = i => ({ skill: { name: 'sk ' + String(i).padStart(3, '0'), file: 'sk' + String(i).padStart(3, '0') + '.json', group: [], tags: [], implements: 1 }, status: { s: 'update', text: '' } });
+  const procs = [{ id: 'p', title: 'P', group: [], category: 'C', latest: { info: { version: 1 } }, skills: Array.from({ length: 60 }, (x, i) => mk(i)) }];
+  const ctx = { state: { tags: [], more: { 'sk-att': 100 } }, data: { validations: [], people: [], failed: {} }, processes: () => procs, peopleById: {}, run: () => null, now: () => Date.now() };
+  const sp = V.skillsPage(ctx), allAt = sp.indexOf('id="all-h"');
+  const d = moreOf(sp.slice(allAt), 'skills');
+  assert.ok(d && d.focus, 'All skills has Show more');
+  const m = /^\[id="([^"]+)"\]$/.exec(d.focus);
+  assert.ok(m, 'focus names one row by its id: ' + d.focus);
+  /* Before Show more, the row it adds isn't drawn anywhere; once drawn, the selector names it, in All skills, once. */
+  const hits = (h, id) => [...h.matchAll(new RegExp('id="' + id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '"', 'g'))].map(x => x.index);
+  assert.strictEqual(hits(sp, m[1]).length, 0, 'not drawn before Show more');
+  assert.ok(new RegExp('data-act="open-skill" data-id="' + d.next + '"').test(sp.slice(0, allAt)), 'set-up: the same skill is drawn in Needs an update');
+  ctx.state.more.skills = 100;
+  const sp2 = V.skillsPage(ctx), at = hits(sp2, m[1]);
+  assert.strictEqual(at.length, 1, 'that id is drawn once');
+  assert.ok(at[0] > sp2.indexOf('id="all-h"'), 'in All skills');
+  const att = moreOf(sp.slice(0, allAt), 'sk-att');
+  assert.ok(!att, 'Needs an update is all drawn');
+});
+rule('Checklists: Show more in the list focuses its own row, not a lost-drafts link to the same checklist above it', () => {
+  const PF = loadViews(), V = PF.views;
+  const procs = Array.from({ length: 60 }, (x, i) => ({ id: 'q' + String(i).padStart(2, '0'), title: 'Q ' + String(i).padStart(2, '0'), group: ['G'], category: 'C', tags: [], skills: [], clashes: [], latest: { info: { version: 1, folder: 'v1' } } }));
+  const ctx = { state: { tags: [], renamed: true, groupsOpen: { G: true } }, data: { validations: [], people: [], failed: {} }, processes: () => procs, lostDrafts: () => ['q50', 'q51'], peopleById: {}, run: () => null, now: () => Date.now() };
+  const h = V.processesPage(ctx), d = moreOf(h, 'processes');
+  assert.ok(d && d.next === 'q50', 'Show more adds q50: ' + JSON.stringify(d));
+  assert.ok(/^#procs-all /.test(d.focus), 'scoped to the list: ' + d.focus);
+  assert.ok(h.indexOf('id="procs-all"') > h.indexOf('data-act="open-process" data-id="q50"'), 'the lost-drafts link to q50 comes first on the page');
+});
+
+rule('Screen share of a team run with 300 roles: Who\'s on what draws 20 roles, and Show more adds 20 with focus on the first one added', async () => {
+  const app = await bigApp();
+  app.click('nav', 'home'); await app.tick(5); app.click('open-run', fixture().facts.rolesTeam); await app.tick(10);
+  assert.ok(/data-act="mission"/.test(app.html()), 'set-up: a team run has Screen share');
+  app.click('mission'); await app.tick(10);
+  const rows = h => [...h.matchAll(/<li id="ms-role-(r\d+)" tabindex="-1">/g)].map(m => m[1]);
+  let h = app.html();
+  assert.deepStrictEqual(rows(h), Array.from({ length: 20 }, (x, i) => 'r' + (i + 1)), '20, in checklist order');
+  assert.ok(/<li id="ms-role-r1" tabindex="-1"><span>r1<\/span><span class="row">[\s\S]*?Blake/.test(h), 'with who has each');
+  const d = moreOf(h, 'ms-roles:' + fixture().facts.rolesTeam);
+  assert.ok(d && d.focus === '[id="ms-role-r21"]', 'Show more: ' + JSON.stringify(d));
+  app.click('more', 'ms-roles:' + fixture().facts.rolesTeam, d); await app.tick(5);
+  assert.strictEqual(rows(app.html()).length, 40);
+  assert.strictEqual(app.activeId(), 'ms-role-r21', 'focus on the first one added');
+  app.click('exit-mission'); await app.tick(5);
+});
+
+
+/* The test page reads a drawn screen as nodes once per redraw. A closing tag ends its element, so reading a 300-role form
+   with every person in every select (150,000 nodes, the paging-off set-up above) takes well under a second, not minutes,
+   and a node's ancestors are the elements it's inside, not every element before it. */
+rule('The test page reads a big drawn screen in linear time, and a closing tag ends its element', () => {
+  const app = boot({ domFocus: true });
+  const sel = i => '<label class="field" for="s' + i + '">Role ' + i + '</label><select id="s' + i + '">' + Array.from({ length: 60 }, (x, j) => '<option value="v' + i + '-' + j + '">P ' + j + '</option>').join('') + '</select>';
+  app.el('app')._html = '<form>' + Array.from({ length: 1500 }, (x, i) => sel(i)).join('') + '</form>';
+  const t = Date.now();
+  assert.ok(app.doc.querySelector('#s1499 option[value="v1499-59"]'), 'the last option, inside its select');
+  assert.ok(Date.now() - t < 5000, 'read in ' + (Date.now() - t) + 'ms');
+  assert.strictEqual(app.doc.querySelector('#s0 option[value="v1-0"]'), null, 'an option in the next select isn\'t inside the one before it');
+  assert.strictEqual(app.doc.querySelector('label option'), null, 'a label closed before the select holds no options');
+});
+
 run();
