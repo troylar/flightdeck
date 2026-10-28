@@ -32,6 +32,7 @@ async function run() {
   // ONLY=<text> runs just the rules whose names contain it, while working on them. SHARD=i/n runs every nth rule from
   // the ith, so test/run.sh can split a long file across processes.
   const sh = /^(\d+)\/(\d+)$/.exec(process.env.SHARD || ''), at = sh ? +sh[1] : 0, of = sh ? +sh[2] : 1;
+  if (process.env.SHARD && !(sh && of > 0 && at < of)) { console.log('FAIL: SHARD=' + process.env.SHARD + ' isn\'t i/n with 0 <= i < n'); process.exit(1); }
   for (let i = 0; i < queue.length; i++) {
     const [name, fn] = queue[i];
     if (i % of !== at) continue;

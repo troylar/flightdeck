@@ -14,6 +14,8 @@ job() { # file, and its shard i/n or -
   printf '%s\t%s\t%s\n' "$rc" "$what" "$name" >> "$logs/status"
 }
 export -f job; export logs
+# The older releases are cached once, before any job reads them (tools/old-bundles.js); its own errors show in the tests.
+node tools/old-bundles.js > "$logs/old-bundles.log" 2>&1 || true
 cat <<'JOBS_LIST' | xargs -P "$JOBS" -L 1 bash -c 'job "$0" "$1"'
 test/rules.test.js -
 test/envelope.test.js -
