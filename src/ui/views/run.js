@@ -305,13 +305,17 @@
     if (!copies.length && !local) return '';
     var h = '<section class="notice bad recovery" aria-labelledby="rec-t"><div class="stack" style="gap:8px;width:100%"><h3 id="rec-t" tabindex="-1" style="margin:0">' + (copies.length + (local ? 1 : 0)) + ' other version' + (copies.length + (local ? 1 : 0) === 1 ? '' : 's') + ' of this run</h3>' +
       '<span class="small">Two computers saved at once, or a save couldn\'t be written. Compare, keep the right one, and delete the rest. Nothing is merged automatically. <button type="button" class="linkish" data-act="recovery" data-id="a-run-has-conflict-copies">What to do</button></span>';
-    copies.forEach(function (name) {
-      var open = s.copyView && s.copyView.name === name && s.copyView.key === runKey(r);
-      h += '<div class="copyrow"><code>' + esc(name) + '</code><span class="row"><button class="mini" data-act="compare-copy" data-id="' + esc(name) + '">' + (open ? 'Compared' : 'Compare') + '</button>' +
+    /* 20 at a time, in name order (2.11); the copy being compared or confirmed for deletion stays drawn. */
+    var cmp = s.copyView && s.copyView.key === runKey(r) ? s.copyView.name : null, del = s.pick && s.pick.kind === 'delete-copy' ? s.pick.id : null;
+    h += K.list(s, 'copies', copies, { page: 20, keyOf: function (n) { return n; }, keep: [cmp, del], keptLabel: 'The copy you\'re working on', focusOf: function (k) { return K.byId('copy-' + k); }, draw: function (shown) { var o = ''; shown.forEach(function (name) { o += copyRow(name); }); return o; } });
+    function copyRow(name) {
+      var open = s.copyView && s.copyView.name === name && s.copyView.key === runKey(r), h = '';
+      h += '<div class="copyrow"><code id="copy-' + esc(name) + '" tabindex="-1">' + esc(name) + '</code><span class="row"><button class="mini" data-act="compare-copy" data-id="' + esc(name) + '">' + (open ? 'Compared' : 'Compare') + '</button>' +
         (rec ? '<button class="mini" data-act="use-copy" data-id="' + esc(name) + '">Keep this one</button>' : '') +
         (s.pick && s.pick.kind === 'delete-copy' && s.pick.id === name ? '<button class="btn stop" data-act="delete-copy" data-id="' + esc(name) + '">Yes, delete it</button><button class="mini" data-act="unpick">Cancel</button>' : '<button class="mini" data-act="delete-copy" data-id="' + esc(name) + '">Delete</button>') + '</span></div>';
       if (open) h += s.copyView.lines ? '<ul class="small difflist">' + s.copyView.lines.map(function (l) { return '<li>' + esc(l) + '</li>'; }).join('') + '</ul>' : '<p class="small">That copy can\'t be read.</p>';
-    });
+      return h;
+    }
     if (local) h += '<div class="copyrow"><span>A copy kept in this browser (' + esc(U.when(local.savedAt || local.created)) + ')</span><span class="row">' + (rec ? '<button class="mini" data-act="restore-local">Restore it</button>' : '') + '<button class="mini" data-act="discard-local">Discard</button></span></div>';
     if (!rec && copies.length) h += '<span class="small">' + (r.ended ? 'Only whoever recorded or ended this run can keep a copy' : 'Only the recorder can keep a copy') + '; anyone can compare.</span>';
     return h + '</div></section>';
@@ -450,18 +454,34 @@
      show "Changed in vN": a later version has the step as it is, with nothing new to explain. */
   function changedHere(ctx, r) { return r && r.process && r.folder ? C.changedIn(corrGroups(ctx, r.process), r.folder) : {}; }
   /* "Changed in vN" with "Why is this here?": what it said before and after, why, the runs that suggested it, who applied it. */
-  function provenance(ctx, r, map, st, g) {
+  /* The members of every change on this step, 20 at a time counted across them (2.11): a change is drawn once one of its
+     members is, each member with its whole reason and the run it came from, built only when drawn. */
+  function provList(ctx, r, map, st, gs) {
+    var items = [], byK = Object.create(null);
+    gs.forEach(function (g, gi) { g.members.forEach(function (m, i) { var x = { g: g, gi: gi, m: m, k: gi + '-' + i }; items.push(x); byK[x.k] = x; }); });
+    return K.list(ctx.state, 'prov-' + st.id, items, { page: 20, keyOf: function (x) { return x.k; },
+      focusOf: function (k) { var x = byK[k]; return K.byId('pm-' + st.id + '-' + k + (x && x.m.why ? '' : '-run')); },
+      draw: function (shown) {
+        var out = '', run = [];
+        shown.forEach(function (x, i) { run.push(x); if (i === shown.length - 1 || shown[i + 1].gi !== x.gi) { out += provenance(ctx, r, map, st, x.g, run); run = []; } });
+        return out;
+      } });
+  }
+  function provenance(ctx, r, map, st, g, shown) {
     var c = g.first, d = g.decision, ch = g.change, disc = 'prov:' + g.id, open = !!(ctx.state.disc && ctx.state.disc[disc]);
+    var pm = function (x) { PF.perf.add('prov.member'); return 'pm-' + st.id + '-' + x.k; };
+    shown.forEach(function (x) { x.id = pm(x); });
     var dl = '';
     if (ch.op === 'wording' && g.from) dl += '<dt>Before → after</dt><dd>' + redline(g.from, st.text) + '</dd>';
     else {
       if (g.from && ch.op !== 'add') dl += '<dt>Before</dt><dd>' + esc(g.from) + '</dd>';
       var prop = C.proposal(c, map); if (prop) dl += '<dt>' + (ch.op === 'describe' || ch.op === 'screenshot' ? 'Change' : 'After') + '</dt><dd>' + esc(ch.op === 'add' ? 'Added' + (g.from ? ' after "' + g.from + '"' : '') + ': ' + st.text : prop) + '</dd>';
     }
-    g.members.forEach(function (m) { if (m.why) dl += '<dt>' + (ch.op === 'describe' ? 'Problem' : 'Why') + ' · ' + esc(nameOf(ctx, m.by)) + '</dt><dd>' + esc(m.why) + '</dd>'; });
-    var runs = '<p class="small prov-runs">Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + ': ' + g.members.map(function (m) {
-      return '<button class="linkish" data-act="open-run" data-id="' + esc(m.process + '/' + m.run) + '">' + esc(m.runTitle) + '</button> (' + esc(nameOf(ctx, m.by)) + ', ' + (m.test ? 'test run, staged v' : 'v') + esc(m.version) + ')';
-    }).join(', ') + '</p>';
+    shown.forEach(function (x) { var m = x.m; if (m.why) dl += '<dt id="' + esc(x.id) + '" tabindex="-1">' + (ch.op === 'describe' ? 'Problem' : 'Why') + ' · ' + esc(nameOf(ctx, m.by)) + '</dt><dd>' + esc(m.why) + '</dd>'; });
+    var runs = '<p class="small prov-runs">Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + ': ' + shown.map(function (x) {
+      var m = x.m;
+      return '<button class="linkish" id="' + esc(x.id) + '-run" data-act="open-run" data-id="' + esc(m.process + '/' + m.run) + '">' + esc(m.runTitle) + '</button> (' + esc(nameOf(ctx, m.by)) + ', ' + (m.test ? 'test run, staged v' : 'v') + esc(m.version) + ')';
+    }).join(', ') + (shown.length < g.members.length ? ', and ' + (g.members.length - shown.length).toLocaleString('en-US') + ' more' : '') + '</p>';
     var who = d && d.by ? '<p class="small">' + (d.status === 'included' ? esc(nameOf(ctx, d.by)) + ' said v' + esc(d.version) + ' has it' : 'Applied by ' + esc(nameOf(ctx, d.by))) + (d.at ? ' ' + esc(U.day(d.at)) : '') + '.</p>' : '';
     return '<div class="prov"><span class="badge b-changed">Changed in v' + esc(g.landed.version) + '</span><details class="prov-why" data-disc="' + esc(disc) + '"' + (open ? ' open' : '') + '><summary class="small">Why is this here?</summary>' +
       (dl ? '<dl class="corr-dl">' + dl + '</dl>' : '') + runs + who + '</details></div>';
@@ -575,7 +595,7 @@
       '<span class="badge rw-st s-' + esc(aState) + '">' + esc(P && pm.status === 'assumed' ? 'Assumed for practice' : aState === 'open' ? 'Not checked' : aState === 'done' ? 'Done' : aState === 'na' ? (P ? 'Not needed' : 'N/A') : aState === 'blocked' ? 'Blocked' : P ? 'Try it again' : 'Re-check') + '</span>' +
       (a && (a.s === 'done' || a.s === 'na') && !P ? '<span class="small">' + esc(nameOf(ctx, a.by)) + ' · ' + U.hm(a.at) + '</span>' : '') + '</div>';
     var chg = changedHere(ctx, r)[st.id];
-    if (chg) h += '<div class="rw-prov">' + chg.map(function (g) { return provenance(ctx, r, map, st, g); }).join('') + '</div>';
+    if (chg) h += '<div class="rw-prov">' + provList(ctx, r, map, st, chg) + '</div>';
     if (P) h += V.prStepNote(P, st.id);
     else if (aState === 'blocked' || aState === 'recheck') h += '<div class="notice ' + (aState === 'blocked' ? 'bad' : 'warn') + ' rw-why"><span><b>' + (aState === 'blocked' ? 'Blocked' : 'Needs a re-check') + ':</b> ' + esc(a.reason) + (a.by ? ' · ' + esc(nameOf(ctx, a.by)) + ' ' + U.hm(a.at) : '') + '</span></div>';
 
@@ -964,7 +984,16 @@
     var part = (s.partial || {})[runKey(r)], pa = part && r.steps[part.step];
     if (part && !(pa && pa.s === 'done' && pa.differently)) { var px = M.findStep(map, part.step); al += '<div class="notice warn" role="status"><span><b>Correction saved; the step wasn\'t marked done.</b> ' + (px ? K.stepHtml(px.step, K.refValue(r, map)) : esc(part.step)) + '</span><span class="row">' + (rec && px ? '<button class="btn" data-act="corr-open" data-mode="differently" data-id="' + esc(part.step) + '">Mark it now</button>' : '') + '<button class="mini" data-act="partial-dismiss" data-id="' + esc(runKey(r)) + '">Dismiss</button></span></div>'; }
     /* A note line that isn't complete JSON (2.1.1): named, never guessed at; the rest of the notes show. */
-    (r._noteLines || []).forEach(function (x) { al += '<div class="notice warn" role="status"><span>' + esc(PF.health.noteLineText(x)) + '</span></div>'; });
+    /* More than one is one notice, announced once, with the lines in a fold 50 at a time (2.11). */
+    var nl = r._noteLines || [];
+    if (nl.length === 1) al += '<div class="notice warn" role="status"><span>' + esc(PF.health.noteLineText(nl[0])) + '</span></div>';
+    else if (nl.length) {
+      var nd = 'badnotes:' + runKey(r), nOpen = !!(s.disc || {})[nd];
+      al += '<div class="notice warn rw-badnotes"><span><b role="status">' + nl.length.toLocaleString('en-US') + ' note lines can\'t be read.</b> They may still be arriving; if they stay, the notes on those lines are lost and the rest are shown.' +
+        '<details data-disc="' + esc(nd) + '"' + (nOpen ? ' open' : '') + '><summary class="small">Which lines</summary>' +
+        K.list(s, 'badnotes', nl.map(function (x, i) { return { x: x, i: i }; }), { keyOf: function (y) { return String(y.i); }, focusOf: function (k) { return '#badnote-' + k; }, draw: function (shown) { return '<ul class="small">' + shown.map(function (y) { return '<li id="badnote-' + y.i + '" tabindex="-1"><code>' + esc(y.x.file) + '</code>, line ' + esc(y.x.line) + '</li>'; }).join('') + '</ul>'; } }) +
+        '</details></span></div>';
+    }
     al += recovery(ctx, r, ctx.canRecover(r));
     if (K.connBanner) al += K.connBanner(ctx);
     if (s.runDetails) al += details(ctx, r, map, rec);

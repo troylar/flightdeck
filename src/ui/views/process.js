@@ -32,11 +32,17 @@
         '<div class="g">' + I('gate') + '<span class="pv-gate-copy">Gate: ' + esc(p.gate.title) + (p.gate.approves ? ' · approves ' + K.detailWords(U.mdInline(p.gate.approves)) : '') + '</span></div></div>';
     }).join('');
   }
-  function checkList(c) {
-    var rows = c.blockers.map(function (b) { return '<li><span class="lvl bad">Fix</span><span>' + esc(b) + '</span></li>'; })
-      .concat(c.suggestions.map(function (s) { return '<li><span class="lvl tip">Tip</span><span>' + esc(s) + '</span></li>'; }));
-    if (!rows.length) rows.push('<li><span class="lvl ok">Good</span><span>Ready to publish.</span></li>');
-    return '<ul class="checks">' + rows.join('') + '</ul>';
+  /* What the checker found, 50 at a time (2.11): every one still blocks publishing; only the rows drawn are built. id names
+     the list where it's drawn (the editor, the overview, a proposal's review). */
+  /* Start and Plan draw this many role rows at a time (2.11). */
+  var ROLE_PAGE = 20;
+  function checkList(c, st, id, o) {
+    var items = c.blockers.map(function (b, i) { return { lvl: 'bad', w: 'Fix', t: b, n: i }; })
+      .concat(c.suggestions.map(function (s, i) { return { lvl: 'tip', w: 'Tip', t: s, n: c.blockers.length + i }; }));
+    if (!items.length) return '<ul class="checks"><li><span class="lvl ok">Good</span><span>Ready to publish.</span></li></ul>';
+    id = id || 'checks';
+    var row = function (x) { PF.perf.add('checks.row'); return '<li id="' + esc(id) + '-' + x.n + '" tabindex="-1"><span class="lvl ' + x.lvl + '">' + x.w + '</span><span>' + esc(x.t) + '</span></li>'; };
+    return K.list(st || {}, id, items, { keyOf: function (x) { return String(x.n); }, focusOf: function (k) { return '#' + id + '-' + k; }, inDialog: !!(o && o.inDialog), draw: function (shown) { return '<ul class="checks">' + shown.map(row).join('') + '</ul>'; } });
   }
   /* How runs of this process have gone, one version at a time (docs/design.md section 23; views/insights.js draws it). */
   function insights(ctx, p) { return V.insightsPage(ctx, p); }
@@ -323,7 +329,7 @@
     h += '<div class="pgrid"><div class="stack">';
     if (p.draft && p.draftChanged) {
       var c = M.check(M.parse(p.draft.md), { people: ctx.data.people, types: (ctx.data.stepTypes || {}).types, workflows: (ctx.data.jira || {}).workflows, processes: ctx.processes().filter(function (x) { return x.latest; }).map(function (x) { return x.id; }), children: ctx.procOf ? PF.links.childrenFrom(ctx.procOf) : null, parents: ctx.processes(), teamValues: ctx.data.teamValues });
-      h += '<section class="panel"><div class="row between"><h2 style="margin:0">Draft · ' + esc(p.draft.file) + '</h2><span class="small">' + (p.typesChanged && p.typesChanged.length ? 'Step type ' + p.typesChanged.join(', ') + ' changed since v' + pub.info.version + '; publish to use it' : p.draftChanged ? 'Has changes not yet published' : 'Same as the published version') + '</span></div>' + checkList(c);
+      h += '<section class="panel"><div class="row between"><h2 style="margin:0">Draft · ' + esc(p.draft.file) + '</h2><span class="small">' + (p.typesChanged && p.typesChanged.length ? 'Step type ' + p.typesChanged.join(', ') + ' changed since v' + pub.info.version + '; publish to use it' : p.draftChanged ? 'Has changes not yet published' : 'Same as the published version') + '</span></div>' + checkList(c, ctx.state, 'checks-ov');
       if (p.draftChanged) {
         /* Publishing takes the draft in the folder: while newer edits wait unsaved in the editor, it would publish the older text. */
         var base = corrBase(ctx, p), shots = ctx.shotBusy ? ctx.shotBusy(p.id) : 0, held = base.dirty || base.conflict || shots;
@@ -453,18 +459,21 @@
     var maybe = x.rec && (x.rec.state === 'maybe' || (x.rec.open && x.rec.open.length));
     if (maybe) h += '<div class="notice warn"><span>Flightdeck started applying this but couldn\'t record what happened. Compare it with the draft below, then mark it as applied or apply it again.</span></div>';
     var recs = ov.records || [];
-    if (recs.length) h += '<details open><summary class="small">What happened before (' + recs.length + ')</summary><ul class="small">' + recs.map(function (r) {
-      if (!r.rec) return '<li><code>' + esc(r.name) + '</code> can\'t be read yet. It may still be arriving.</li>';
+    /* 20 at a time, in order (2.11); what the actions below allow is still worked out from every record. */
+    var rec = function (r, i) {
+      var li = '<li id="prop-rec-' + i + '" tabindex="-1">';
+      if (!r.rec) return li + '<code>' + esc(r.name) + '</code> can\'t be read yet. It may still be arriving.</li>';
       var who = esc(nameOf(ctx, r.rec.by)) + ' · ' + esc(U.when(r.rec.at));
-      return '<li>' + (r.rec.kind === 'attempt' ? 'Started applying it' + (r.rec.how === 'live' ? ' in an editor' : '') : esc(DEC_WORDS[r.rec.status] || r.rec.status)) + ' · ' + who + '</li>';
-    }).join('') + '</ul></details>';
+      return li + (r.rec.kind === 'attempt' ? 'Started applying it' + (r.rec.how === 'live' ? ' in an editor' : '') : esc(DEC_WORDS[r.rec.status] || r.rec.status)) + ' · ' + who + '</li>';
+    };
+    if (recs.length) h += '<details open><summary class="small">What happened before (' + recs.length + ')</summary>' + K.list(ctx.state, 'prop-recs', recs.map(function (r, i) { return { r: r, i: i }; }), { page: 20, inDialog: true, keyOf: function (x) { return String(x.i); }, focusOf: function (k) { return '#prop-rec-' + k; }, draw: function (shown) { return '<ul class="small">' + shown.map(function (x) { return rec(x.r, x.i); }).join('') + '</ul>'; } }) + '</details>';
     var draftText = ov.draftText == null ? '' : ov.draftText, d = PF.proposals.diff(draftText, ov.proposal.text);
     h += '<h3 class="small">' + (ov.draftText == null ? 'Compared with nothing (there\'s no draft yet)' : 'Compared with the draft as it is now') + '</h3>';
     h += d.tooMany ? '<p class="small">Too many changes to show line by line.</p>' : capDiff(d.rows);
     var ids = PF.proposals.ids(draftText, ov.proposal.text);
     if (ids.removed.length || ids.renamed.length) h += '<div class="notice warn"><span>' + (ids.removed.length ? 'Step or phase IDs this removes: ' + esc(ids.removed.slice(0, 20).join(', ')) + '. ' : '') + (ids.renamed.length ? 'IDs it changes: ' + esc(ids.renamed.slice(0, 20).map(function (r) { return r.from + ' → ' + r.to; }).join(', ')) + '. ' : '') + 'Runs and skills that name them will need a look.</span></div>';
     var c = M.check(M.parse(ov.proposal.text), { people: ctx.data.people, types: (ctx.data.stepTypes || {}).types, workflows: (ctx.data.jira || {}).workflows, processes: ctx.processes().filter(function (q) { return q.latest; }).map(function (q) { return q.id; }), children: ctx.procOf ? PF.links.childrenFrom(ctx.procOf) : null, parents: ctx.processes(), teamValues: ctx.data.teamValues });
-    h += '<h3 class="small">Checks on the proposed text</h3>' + checkList(c);
+    h += '<h3 class="small">Checks on the proposed text</h3>' + checkList(c, ctx.state, 'checks-prop', { inDialog: true });
     var blocked = recs.some(function (r) { return !r.rec; }), acts = '';
     if (x.fit === 'ready' && !blocked && x.rec.state !== 'applied' && x.rec.state !== 'applied-twice') acts += '<button type="button" class="btn go" data-act="prop-apply" data-id="' + esc(x.id) + '"' + (ov.busy ? ' disabled' : '') + '>' + (recs.length ? 'Apply again' : 'Apply') + '</button>';
     if (maybe && !blocked) acts += '<button type="button" class="btn" data-act="prop-mark-applied" data-id="' + esc(x.id) + '">Mark as applied</button>';
@@ -594,8 +603,18 @@
     if (meta.roles.length && !soloMap) {
       h += '<div class="row" style="margin-top:6px"><h3 style="margin:0">Who\'s doing what</h3>' + (st.me ? '<button class="mini" type="button" data-act="just-me">' + (aps.length ? 'Just me (every role, including who approves)' : 'Just me') + '</button>' : '') + '</div><div class="grid2">';
       var nmStage = PF.people.labeler(people);
-      meta.roles.forEach(function (role) {
-        var chosen = pre.roles && typeof pre.roles === 'object' && typeof pre.roles[role] === 'string' ? pre.roles[role] : '', sug = ctx.suggestRole(p.id, role);
+      /* 20 roles at a time in checklist order, with Find past 20 (2.11). A role the plan or this form has given someone is
+         always drawn; a role not drawn keeps its value in a hidden field, so the form starts or plans exactly what it would. */
+      var chosenOf = function (role) { return pre.roles && typeof pre.roles === 'object' && typeof pre.roles[role] === 'string' ? pre.roles[role] : ''; };
+      var picked = st.rolesPicked && st.rolesPicked.at === scope + ':' + pub.info.folder ? st.rolesPicked.roles : {};
+      var keepRole = function (role) { return !!chosenOf(role) || !!picked[role] || !!(st.fieldErr && st.fieldErr.id === 'start-approver' && st.fieldErr.field === 'role-' + role); };
+      var rq = K.findQ(st, 'start-roles'), rhit = K.finds(rq), rfound = rq ? meta.roles.filter(function (role) { return rhit([role]); }) : meta.roles;
+      var rlist = rq ? meta.roles.filter(function (role) { return rfound.indexOf(role) >= 0 || keepRole(role); }) : meta.roles, drawnRole = Object.create(null), roleRows = '';
+      if (meta.roles.length > ROLE_PAGE || rq) h = h.replace(/<div class="grid2">$/, '') + K.findBox(st, 'start-roles', 'Find a role', rfound.length, meta.roles.length, 'role') + '<div class="grid2">';
+      var roleRow = function (role) {
+        var h = '';
+        drawnRole[role] = true;
+        var chosen = chosenOf(role), sug = ctx.suggestRole(p.id, role);
         /* Who approves is never preselected: a saved plan's choice stays, otherwise it's Choose a person, with the rotation's
            suggestion as a hint (what it knows: who had the role on past runs). */
         if (apRole[role]) {
@@ -604,12 +623,20 @@
             people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === chosen ? ' selected' : '') + '>' + esc(nmStage(x)) + '</option>'; }).join('') + '</select></label>' +
             (sug ? '<p class="small">Suggested: ' + esc(nameOf(ctx, sug.person)) + ' · ' + (sug.last ? 'last had this role on ' + esc(U.day(sug.last)) : 'hasn\'t had this role yet') + '</p>' : '') +
             (bad ? '<p class="ferr" id="ferr-role-' + esc(role) + '" role="alert">' + esc(st.fieldErr.msg) + '</p>' : '') + '</div>';
-          return;
+          return h;
         }
         h += '<label class="field" for="role-' + esc(role) + '">' + esc(role) + (sug ? ' <span class="small">· suggestion: ' + esc(nameOf(ctx, sug.person)) + ' (' + esc(sug.why) + ')</span>' : '') + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '"><option value="">Nobody yet</option>' +
           people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === (chosen || (sug && sug.person)) ? ' selected' : '') + '>' + esc(nmStage(x)) + '</option>'; }).join('') + '</select></label>';
+        return h;
+      };
+      h += K.list(st, 'start-roles', rlist, { page: ROLE_PAGE, keep: meta.roles.filter(keepRole), keptLabel: 'Roles you\'ve chosen someone for', keyOf: function (role) { return role; }, focusOf: function (k) { return K.byId('role-' + k); },
+        draw: function (shown) { return shown.map(roleRow).join(''); } });
+      meta.roles.forEach(function (role) {
+        if (drawnRole[role]) return;
+        var chosen = chosenOf(role), sug = apRole[role] ? null : ctx.suggestRole(p.id, role);
+        roleRows += '<input type="hidden" id="role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(chosen || (sug && sug.person) || '') + '">';
       });
-      h += '</div><p class="small">Suggestions rotate roles to whoever did them least recently, so everyone gets the experience. Change anything.</p>';
+      h += '</div>' + roleRows + '<p class="small">Suggestions rotate roles to whoever did them least recently, so everyone gets the experience. Change anything.</p>';
     }
     if (planning) return h + '<div class="row"><button class="btn go" type="submit" id="start-submit"' + (st.me ? '' : ' disabled') + '>Save the plan</button><span class="small">It waits under Runs until someone starts it.</span><button class="mini" type="button" data-act="cancel-plan">Cancel</button></div></form>';
     h += '<div class="row"><button class="btn go" type="submit" id="start-submit"' + (st.me && !(plan && plan._copiesDiffer) ? '' : ' disabled') + '>' + I('play') + 'Start the run</button><span class="small">' + (soloMap ? 'It\'s your run. You can bring someone in at any time.' : 'You\'ll be the recorder. You can hand recording to someone else at any time.') + '</span>' +

@@ -35,7 +35,12 @@
     });
     return notes;
   }
+  /* A line names at most this many skills, then "+N more skills" (2.11); the Skills panel lists them all. */
+  var SKILLS_SHOWN = 3;
+  function moreSkills(n, cls) { return n > 0 ? '<' + (cls ? 'div class="fp-line fp-more small"' : 'span class="small fp-more"') + '>+' + n.toLocaleString('en-US') + ' more skill' + (n === 1 ? '' : 's') + '</' + (cls ? 'div' : 'span') + '>' : ''; }
+  function noteLines(list) { return list.slice(0, SKILLS_SHOWN).map(function (x) { return noteLine(x.n, x.count); }).join('') + moreSkills(list.length - SKILLS_SHOWN, true); }
   function noteLine(n, count) {
+    PF.perf.add('fp.skill');
     var name = esc(n.skill.name);
     if (n.kind === 'auto') return '<div class="fp-line fp-auto">' + I('spark') + '<span><b>Autopilot</b> ' + name + ' covers ' + (count == null ? 'the whole checklist' : plural(count, 'step')) + '</span></div>';
     if (n.kind === 'update') return '<div class="fp-line fp-stale">' + I('spark') + '<span>' + name + ' needs an update</span></div>';
@@ -54,7 +59,7 @@
      built from this version that covers it, and its roles. */
   function stepLine(s, go, types, auto) {
     var t = T.get(s.type, types), by = auto.filter(function (x) { return x.skill.steps.indexOf(s.id) >= 0; }).map(function (x) { return x.skill.name; });
-    var meta = (s.must ? '<span class="badge b-must">Must do</span>' : '') + by.map(function (n) { return '<span class="badge b-skill">' + I('spark') + esc(n) + '</span>'; }).join('') +
+    var meta = (s.must ? '<span class="badge b-must">Must do</span>' : '') + by.slice(0, SKILLS_SHOWN).map(function (n) { PF.perf.add('fp.skill'); return '<span class="badge b-skill">' + I('spark') + esc(n) + '</span>'; }).join('') + moreSkills(by.length - SKILLS_SHOWN) +
       (s.roles.length ? '<span class="pv-role">@' + esc(s.roles.join(' @')) + '</span>' : ''), cond = K.whenWords(s);
     return '<li>' + (t ? I(t.icon, t.label) : '<span class="ic"></span>') + '<div class="pv-body"><button type="button" class="fp-step" data-act="go" ' + go + ' data-step="' + esc(s.id) + '">' + K.stepHtml(s, null, false) +
       '<span class="sr">. Show it in the checklist</span></button>' + (cond ? '<span class="pv-when">' + cond + '</span>' : '') + (meta ? '<span class="pv-meta">' + meta + '</span>' : '') + '</div></li>';
@@ -90,12 +95,13 @@
       return '<li class="fp-lane"><b>' + esc(t.title || 'Track') + '</b>' + (t.roles.length ? '<span class="small">@' + esc(t.roles.join(' @')) + '</span>' : '') + '<span class="small">' + plural(count, 'step') + '</span></li>';
     }).join('') + '</ul>';
     head += '</div>';
-    var ids = p.steps.map(function (s) { return s.id; }), lines = '';
+    var ids = p.steps.map(function (s) { return s.id; }), lines = '', covers = [];
     notes.forEach(function (x) {
       if (!x.skill.steps) return;
       var count = x.skill.steps.filter(function (id) { return ids.indexOf(id) >= 0; }).length;
-      if (count) lines += noteLine(x, count);
+      if (count) covers.push({ n: x, count: count });
     });
+    lines += noteLines(covers);
     /* A marker for a phase's note and screenshots (2.0) and a gate's note, said in words; the run shows them. */
     if (p.when) lines += '<div class="fp-line fp-when">' + I('fork') + '<span>' + K.whenWords(p) + '</span></div>';
     var marks = [];
@@ -137,7 +143,7 @@
     var all = map.phases.every(function (ph, i) { return steps.open(i); });
     var h = '<div class="fp-tools"><button type="button" class="mini fp-all" data-act="fp-steps" data-id="' + (all ? 'hide">Hide all steps' : 'show">Show all steps') + '</button></div><ol class="fp" aria-label="Flight plan">';
     h += '<li class="fp-end"><span class="fp-tag">Start</span>' + (meta.context.length ? '<span class="small">Asks for ' + esc(meta.context.join(', ')) + '</span>' : '') +
-      notes.filter(function (x) { return !x.skill.steps; }).map(function (x) { return noteLine(x, null); }).join('') + '</li>';
+      noteLines(notes.filter(function (x) { return !x.skill.steps; }).map(function (x) { return { n: x, count: null }; })) + '</li>';
     map.phases.forEach(function (ph, i) { h += '<li class="fp-leg">' + leg(ctx, map, ph, i, an, notes, steps) + '</li>'; });
     h += '<li class="fp-end"><span class="fp-tag">Landed</span>' + (an && an.medianMs != null ? '<span class="small">A completed run typically takes ' + about(an.medianMs) + ' (from ' + plural(an.completed, 'completed run') + ')</span>' : '') + (an ? V.insightsQual(an.durationQ, null, 'span') : '') + '</li>';
     /* The footer counts finished runs only; a run still going adds only what it has done so far. */

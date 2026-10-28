@@ -39,9 +39,11 @@
       (rep.scanned ? '' : '<p class="small">Choose Check again to read every file, not just what Flightdeck already loaded.</p>');
     if (hs && hs.scan) {
       var areas = hs.scan.areas || {}, keys = Object.keys(areas).sort(function (a, b) { return areas[b].bytes - areas[a].bytes || (a < b ? -1 : 1); });
-      h += '<details class="panel hz-sec"><summary><h2 style="display:inline">What\'s in the folder</h2></summary><table class="hz-table"><thead><tr><th scope="col">Folder</th><th scope="col">Files</th><th scope="col">Size</th></tr></thead><tbody>' +
-        keys.map(function (k) { return '<tr><th scope="row"><code>' + esc(k === '(top)' ? 'top level' : k + '/') + '</code></th><td>' + areas[k].files.toLocaleString('en-US') + '</td><td>' + esc(H.bytes(areas[k].bytes)) + '</td></tr>'; }).join('') +
-        '</tbody></table><p class="small">Longest path: ' + hs.scan.longest + ' characters.</p></details>';
+      /* Largest first, 50 at a time (2.11); the fold stays open through Show more. */
+      var row = function (k) { return '<tr><th scope="row"><code id="hz-area-' + esc(k) + '" tabindex="-1">' + esc(k === '(top)' ? 'top level' : k + '/') + '</code></th><td>' + areas[k].files.toLocaleString('en-US') + '</td><td>' + esc(H.bytes(areas[k].bytes)) + '</td></tr>'; };
+      h += '<details class="panel hz-sec" data-disc="hz-areas"' + ((st.disc || {})['hz-areas'] ? ' open' : '') + '><summary><h2 style="display:inline">What\'s in the folder</h2></summary>' +
+        K.list(st, 'hz-areas', keys, { keyOf: function (k) { return k; }, focusOf: function (k) { return K.byId('hz-area-' + k); }, draw: function (shown) { return '<table class="hz-table"><thead><tr><th scope="col">Folder</th><th scope="col">Files</th><th scope="col">Size</th></tr></thead><tbody>' + shown.map(row).join('') + '</tbody></table>'; } }) +
+        '<p class="small">Longest path: ' + hs.scan.longest + ' characters.</p></details>';
     }
     return h + links();
   }

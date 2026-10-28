@@ -212,7 +212,13 @@
   function processesPage(ctx) {
     var st = ctx.state, procs = ctx.processes(), has = hasTags(ctx);
     var h = notices(ctx) + (st.renamed ? '' : '<p class="notice renamed" role="note"><span>Checklists were called Processes before 2.10.</span><button type="button" class="mini" data-act="renamed-ok">Got it</button></p>') + pageHead('Checklists', 'Checklists', 'Open one to start it or edit it.', '<button class="mini" data-act="nav" data-id="skills">' + I('spark') + 'Skills</button><button class="mini" data-act="nav" data-id="types">Step types</button><button class="btn go" data-act="new-process">' + I('edit') + 'New checklist</button>');
-    (ctx.lostDrafts ? ctx.lostDrafts() : []).forEach(function (id) { h += '<div class="notice warn" role="status"><span>You have unsaved edits to <b>' + esc(id) + '</b>, whose draft was removed from the folder.</span><button class="mini" data-act="open-process" data-id="' + esc(id) + '">Open it</button></div>'; });
+    /* More than one is one notice, announced once, with a way to each in a fold 50 at a time (2.11); every editor's text is kept. */
+    var lost = ctx.lostDrafts ? ctx.lostDrafts() : [];
+    if (lost.length === 1) h += '<div class="notice warn" role="status"><span>You have unsaved edits to <b>' + esc(lost[0]) + '</b>, whose draft was removed from the folder.</span><button class="mini" data-act="open-process" data-id="' + esc(lost[0]) + '">Open it</button></div>';
+    else if (lost.length) h += '<div class="notice warn lost-drafts"><span><b role="status">' + lost.length.toLocaleString('en-US') + ' drafts you were editing aren\'t in the folder anymore.</b> Your edits to each are kept here: open one to save it again or copy it.' +
+      '<details data-disc="lost-drafts"' + ((st.disc || {})['lost-drafts'] ? ' open' : '') + '><summary class="small">Which drafts</summary>' +
+      K.list(st, 'lost-drafts', lost, { keyOf: function (id) { return id; }, focusOf: function (k) { return K.byAct('open-process', k); }, draw: function (shown) { return '<ul class="small">' + shown.map(function (id) { return '<li><button class="linkish" data-act="open-process" data-id="' + esc(id) + '">' + esc(id) + '</button></li>'; }).join('') + '</ul>'; } }) +
+      '</details></span></div>';
     var chosen = st.tags || [], tagged = procs.filter(function (p) { return has(p.tags); }), q = K.findQ(st, 'processes'), hit = K.finds(q);
     var found = q ? tagged.filter(function (p) { return hit([p.title, p.id, (p.group || []).join(' / '), p.category, (p.tags || []).join(' ')]); }) : tagged;
     h += '<section class="panel">' + (procs.length ? K.findBox(st, 'processes', 'Find a checklist', found.length, tagged.length, 'checklist') : '') + K.tagBar(allTags(ctx, chosen), chosen, st.disc, st) + (procs.length ? K.treeList(st, 'processes', found, function (p) { return p.group && p.group.length ? p.group : [p.category]; }, function (p) {

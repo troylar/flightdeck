@@ -18996,7 +18996,7 @@ PF.vk = (function () {
     var q = findQ(st, id), N = function (x) { return x.toLocaleString('en-US'); }, fid = 'find-' + id;
     var count = !q ? '' : n ? N(n) + ' of ' + N(total) + ' match' : 'No ' + noun + ' matches "' + esc(q) + '"';
     return '<div class="row findbox"><label for="' + esc(fid) + '">' + esc(label) + '</label><input type="search" id="' + esc(fid) + '" data-find="' + esc(id) + '" data-nav-safe data-bound value="' + esc(q) + '" autocomplete="off" maxlength="200" aria-describedby="' + esc(fid) + '-n">' +
-      '<span class="small" id="' + esc(fid) + '-n" role="status">' + count + '</span>' + (q ? '<button class="mini" data-act="find-clear" data-id="' + esc(id) + '">Clear</button>' : '') + '</div>';
+      '<span class="small" id="' + esc(fid) + '-n" role="status">' + count + '</span>' + (q ? '<button type="button" class="mini" data-act="find-clear" data-id="' + esc(id) + '">Clear</button>' : '') + '</div>';
   }
   /* A long list, 50 at a time: the first n items (n grows by 50 with Show more, kept per list in state.more), how many there
      are, and the button. keyOf names an item, so focus can move to the first one Show more adds. Paging rather than
@@ -19030,7 +19030,7 @@ PF.vk = (function () {
     if (left > 0) {
       var add = Math.min(P, left), first = o.tail ? items[from - add] : items[from + n], k = o.keyOf(first), f = o.focusOf ? o.focusOf(k) : null;
       more = '<div class="row paged"><span class="small" role="status">Showing ' + shown.length.toLocaleString('en-US') + ' of ' + items.length.toLocaleString('en-US') + (plus ? ', plus the one you just ' + esc(o.shownWord || 'added') : '') + '</span>' +
-        '<button class="btn" data-act="more" data-id="' + esc(id) + '" data-next="' + esc(k) + '"' + (f ? ' data-focus="' + esc(f) + '"' : '') + (P !== PAGE ? ' data-page="' + P + '"' : '') + (o.inDialog ? ' data-dialog="1"' : '') + '>' +
+        '<button type="button" class="btn" data-act="more" data-id="' + esc(id) + '" data-next="' + esc(k) + '"' + (f ? ' data-focus="' + esc(f) + '"' : '') + (P !== PAGE ? ' data-page="' + P + '"' : '') + (o.inDialog ? ' data-dialog="1"' : '') + '>' +
         (o.tail ? 'Show ' + add + ' earlier' : 'Show ' + add + ' more') + '</button></div>';
     }
     var rest = extra.length ? (kept ? '<p class="small kept-h">' + esc(o.keptLabel || 'You\'re editing this one') + '</p>' : '') + o.draw(extra) : '';
@@ -19511,7 +19511,13 @@ PF.vk = (function () {
   function processesPage(ctx) {
     var st = ctx.state, procs = ctx.processes(), has = hasTags(ctx);
     var h = notices(ctx) + (st.renamed ? '' : '<p class="notice renamed" role="note"><span>Checklists were called Processes before 2.10.</span><button type="button" class="mini" data-act="renamed-ok">Got it</button></p>') + pageHead('Checklists', 'Checklists', 'Open one to start it or edit it.', '<button class="mini" data-act="nav" data-id="skills">' + I('spark') + 'Skills</button><button class="mini" data-act="nav" data-id="types">Step types</button><button class="btn go" data-act="new-process">' + I('edit') + 'New checklist</button>');
-    (ctx.lostDrafts ? ctx.lostDrafts() : []).forEach(function (id) { h += '<div class="notice warn" role="status"><span>You have unsaved edits to <b>' + esc(id) + '</b>, whose draft was removed from the folder.</span><button class="mini" data-act="open-process" data-id="' + esc(id) + '">Open it</button></div>'; });
+    /* More than one is one notice, announced once, with a way to each in a fold 50 at a time (2.11); every editor's text is kept. */
+    var lost = ctx.lostDrafts ? ctx.lostDrafts() : [];
+    if (lost.length === 1) h += '<div class="notice warn" role="status"><span>You have unsaved edits to <b>' + esc(lost[0]) + '</b>, whose draft was removed from the folder.</span><button class="mini" data-act="open-process" data-id="' + esc(lost[0]) + '">Open it</button></div>';
+    else if (lost.length) h += '<div class="notice warn lost-drafts"><span><b role="status">' + lost.length.toLocaleString('en-US') + ' drafts you were editing aren\'t in the folder anymore.</b> Your edits to each are kept here: open one to save it again or copy it.' +
+      '<details data-disc="lost-drafts"' + ((st.disc || {})['lost-drafts'] ? ' open' : '') + '><summary class="small">Which drafts</summary>' +
+      K.list(st, 'lost-drafts', lost, { keyOf: function (id) { return id; }, focusOf: function (k) { return K.byAct('open-process', k); }, draw: function (shown) { return '<ul class="small">' + shown.map(function (id) { return '<li><button class="linkish" data-act="open-process" data-id="' + esc(id) + '">' + esc(id) + '</button></li>'; }).join('') + '</ul>'; } }) +
+      '</details></span></div>';
     var chosen = st.tags || [], tagged = procs.filter(function (p) { return has(p.tags); }), q = K.findQ(st, 'processes'), hit = K.finds(q);
     var found = q ? tagged.filter(function (p) { return hit([p.title, p.id, (p.group || []).join(' / '), p.category, (p.tags || []).join(' ')]); }) : tagged;
     h += '<section class="panel">' + (procs.length ? K.findBox(st, 'processes', 'Find a checklist', found.length, tagged.length, 'checklist') : '') + K.tagBar(allTags(ctx, chosen), chosen, st.disc, st) + (procs.length ? K.treeList(st, 'processes', found, function (p) { return p.group && p.group.length ? p.group : [p.category]; }, function (p) {
@@ -19609,11 +19615,17 @@ PF.vk = (function () {
         '<div class="g">' + I('gate') + '<span class="pv-gate-copy">Gate: ' + esc(p.gate.title) + (p.gate.approves ? ' · approves ' + K.detailWords(U.mdInline(p.gate.approves)) : '') + '</span></div></div>';
     }).join('');
   }
-  function checkList(c) {
-    var rows = c.blockers.map(function (b) { return '<li><span class="lvl bad">Fix</span><span>' + esc(b) + '</span></li>'; })
-      .concat(c.suggestions.map(function (s) { return '<li><span class="lvl tip">Tip</span><span>' + esc(s) + '</span></li>'; }));
-    if (!rows.length) rows.push('<li><span class="lvl ok">Good</span><span>Ready to publish.</span></li>');
-    return '<ul class="checks">' + rows.join('') + '</ul>';
+  /* What the checker found, 50 at a time (2.11): every one still blocks publishing; only the rows drawn are built. id names
+     the list where it's drawn (the editor, the overview, a proposal's review). */
+  /* Start and Plan draw this many role rows at a time (2.11). */
+  var ROLE_PAGE = 20;
+  function checkList(c, st, id, o) {
+    var items = c.blockers.map(function (b, i) { return { lvl: 'bad', w: 'Fix', t: b, n: i }; })
+      .concat(c.suggestions.map(function (s, i) { return { lvl: 'tip', w: 'Tip', t: s, n: c.blockers.length + i }; }));
+    if (!items.length) return '<ul class="checks"><li><span class="lvl ok">Good</span><span>Ready to publish.</span></li></ul>';
+    id = id || 'checks';
+    var row = function (x) { PF.perf.add('checks.row'); return '<li id="' + esc(id) + '-' + x.n + '" tabindex="-1"><span class="lvl ' + x.lvl + '">' + x.w + '</span><span>' + esc(x.t) + '</span></li>'; };
+    return K.list(st || {}, id, items, { keyOf: function (x) { return String(x.n); }, focusOf: function (k) { return '#' + id + '-' + k; }, inDialog: !!(o && o.inDialog), draw: function (shown) { return '<ul class="checks">' + shown.map(row).join('') + '</ul>'; } });
   }
   /* How runs of this process have gone, one version at a time (docs/design.md section 23; views/insights.js draws it). */
   function insights(ctx, p) { return V.insightsPage(ctx, p); }
@@ -19900,7 +19912,7 @@ PF.vk = (function () {
     h += '<div class="pgrid"><div class="stack">';
     if (p.draft && p.draftChanged) {
       var c = M.check(M.parse(p.draft.md), { people: ctx.data.people, types: (ctx.data.stepTypes || {}).types, workflows: (ctx.data.jira || {}).workflows, processes: ctx.processes().filter(function (x) { return x.latest; }).map(function (x) { return x.id; }), children: ctx.procOf ? PF.links.childrenFrom(ctx.procOf) : null, parents: ctx.processes(), teamValues: ctx.data.teamValues });
-      h += '<section class="panel"><div class="row between"><h2 style="margin:0">Draft · ' + esc(p.draft.file) + '</h2><span class="small">' + (p.typesChanged && p.typesChanged.length ? 'Step type ' + p.typesChanged.join(', ') + ' changed since v' + pub.info.version + '; publish to use it' : p.draftChanged ? 'Has changes not yet published' : 'Same as the published version') + '</span></div>' + checkList(c);
+      h += '<section class="panel"><div class="row between"><h2 style="margin:0">Draft · ' + esc(p.draft.file) + '</h2><span class="small">' + (p.typesChanged && p.typesChanged.length ? 'Step type ' + p.typesChanged.join(', ') + ' changed since v' + pub.info.version + '; publish to use it' : p.draftChanged ? 'Has changes not yet published' : 'Same as the published version') + '</span></div>' + checkList(c, ctx.state, 'checks-ov');
       if (p.draftChanged) {
         /* Publishing takes the draft in the folder: while newer edits wait unsaved in the editor, it would publish the older text. */
         var base = corrBase(ctx, p), shots = ctx.shotBusy ? ctx.shotBusy(p.id) : 0, held = base.dirty || base.conflict || shots;
@@ -20030,18 +20042,21 @@ PF.vk = (function () {
     var maybe = x.rec && (x.rec.state === 'maybe' || (x.rec.open && x.rec.open.length));
     if (maybe) h += '<div class="notice warn"><span>Flightdeck started applying this but couldn\'t record what happened. Compare it with the draft below, then mark it as applied or apply it again.</span></div>';
     var recs = ov.records || [];
-    if (recs.length) h += '<details open><summary class="small">What happened before (' + recs.length + ')</summary><ul class="small">' + recs.map(function (r) {
-      if (!r.rec) return '<li><code>' + esc(r.name) + '</code> can\'t be read yet. It may still be arriving.</li>';
+    /* 20 at a time, in order (2.11); what the actions below allow is still worked out from every record. */
+    var rec = function (r, i) {
+      var li = '<li id="prop-rec-' + i + '" tabindex="-1">';
+      if (!r.rec) return li + '<code>' + esc(r.name) + '</code> can\'t be read yet. It may still be arriving.</li>';
       var who = esc(nameOf(ctx, r.rec.by)) + ' · ' + esc(U.when(r.rec.at));
-      return '<li>' + (r.rec.kind === 'attempt' ? 'Started applying it' + (r.rec.how === 'live' ? ' in an editor' : '') : esc(DEC_WORDS[r.rec.status] || r.rec.status)) + ' · ' + who + '</li>';
-    }).join('') + '</ul></details>';
+      return li + (r.rec.kind === 'attempt' ? 'Started applying it' + (r.rec.how === 'live' ? ' in an editor' : '') : esc(DEC_WORDS[r.rec.status] || r.rec.status)) + ' · ' + who + '</li>';
+    };
+    if (recs.length) h += '<details open><summary class="small">What happened before (' + recs.length + ')</summary>' + K.list(ctx.state, 'prop-recs', recs.map(function (r, i) { return { r: r, i: i }; }), { page: 20, inDialog: true, keyOf: function (x) { return String(x.i); }, focusOf: function (k) { return '#prop-rec-' + k; }, draw: function (shown) { return '<ul class="small">' + shown.map(function (x) { return rec(x.r, x.i); }).join('') + '</ul>'; } }) + '</details>';
     var draftText = ov.draftText == null ? '' : ov.draftText, d = PF.proposals.diff(draftText, ov.proposal.text);
     h += '<h3 class="small">' + (ov.draftText == null ? 'Compared with nothing (there\'s no draft yet)' : 'Compared with the draft as it is now') + '</h3>';
     h += d.tooMany ? '<p class="small">Too many changes to show line by line.</p>' : capDiff(d.rows);
     var ids = PF.proposals.ids(draftText, ov.proposal.text);
     if (ids.removed.length || ids.renamed.length) h += '<div class="notice warn"><span>' + (ids.removed.length ? 'Step or phase IDs this removes: ' + esc(ids.removed.slice(0, 20).join(', ')) + '. ' : '') + (ids.renamed.length ? 'IDs it changes: ' + esc(ids.renamed.slice(0, 20).map(function (r) { return r.from + ' → ' + r.to; }).join(', ')) + '. ' : '') + 'Runs and skills that name them will need a look.</span></div>';
     var c = M.check(M.parse(ov.proposal.text), { people: ctx.data.people, types: (ctx.data.stepTypes || {}).types, workflows: (ctx.data.jira || {}).workflows, processes: ctx.processes().filter(function (q) { return q.latest; }).map(function (q) { return q.id; }), children: ctx.procOf ? PF.links.childrenFrom(ctx.procOf) : null, parents: ctx.processes(), teamValues: ctx.data.teamValues });
-    h += '<h3 class="small">Checks on the proposed text</h3>' + checkList(c);
+    h += '<h3 class="small">Checks on the proposed text</h3>' + checkList(c, ctx.state, 'checks-prop', { inDialog: true });
     var blocked = recs.some(function (r) { return !r.rec; }), acts = '';
     if (x.fit === 'ready' && !blocked && x.rec.state !== 'applied' && x.rec.state !== 'applied-twice') acts += '<button type="button" class="btn go" data-act="prop-apply" data-id="' + esc(x.id) + '"' + (ov.busy ? ' disabled' : '') + '>' + (recs.length ? 'Apply again' : 'Apply') + '</button>';
     if (maybe && !blocked) acts += '<button type="button" class="btn" data-act="prop-mark-applied" data-id="' + esc(x.id) + '">Mark as applied</button>';
@@ -20171,8 +20186,18 @@ PF.vk = (function () {
     if (meta.roles.length && !soloMap) {
       h += '<div class="row" style="margin-top:6px"><h3 style="margin:0">Who\'s doing what</h3>' + (st.me ? '<button class="mini" type="button" data-act="just-me">' + (aps.length ? 'Just me (every role, including who approves)' : 'Just me') + '</button>' : '') + '</div><div class="grid2">';
       var nmStage = PF.people.labeler(people);
-      meta.roles.forEach(function (role) {
-        var chosen = pre.roles && typeof pre.roles === 'object' && typeof pre.roles[role] === 'string' ? pre.roles[role] : '', sug = ctx.suggestRole(p.id, role);
+      /* 20 roles at a time in checklist order, with Find past 20 (2.11). A role the plan or this form has given someone is
+         always drawn; a role not drawn keeps its value in a hidden field, so the form starts or plans exactly what it would. */
+      var chosenOf = function (role) { return pre.roles && typeof pre.roles === 'object' && typeof pre.roles[role] === 'string' ? pre.roles[role] : ''; };
+      var picked = st.rolesPicked && st.rolesPicked.at === scope + ':' + pub.info.folder ? st.rolesPicked.roles : {};
+      var keepRole = function (role) { return !!chosenOf(role) || !!picked[role] || !!(st.fieldErr && st.fieldErr.id === 'start-approver' && st.fieldErr.field === 'role-' + role); };
+      var rq = K.findQ(st, 'start-roles'), rhit = K.finds(rq), rfound = rq ? meta.roles.filter(function (role) { return rhit([role]); }) : meta.roles;
+      var rlist = rq ? meta.roles.filter(function (role) { return rfound.indexOf(role) >= 0 || keepRole(role); }) : meta.roles, drawnRole = Object.create(null), roleRows = '';
+      if (meta.roles.length > ROLE_PAGE || rq) h = h.replace(/<div class="grid2">$/, '') + K.findBox(st, 'start-roles', 'Find a role', rfound.length, meta.roles.length, 'role') + '<div class="grid2">';
+      var roleRow = function (role) {
+        var h = '';
+        drawnRole[role] = true;
+        var chosen = chosenOf(role), sug = ctx.suggestRole(p.id, role);
         /* Who approves is never preselected: a saved plan's choice stays, otherwise it's Choose a person, with the rotation's
            suggestion as a hint (what it knows: who had the role on past runs). */
         if (apRole[role]) {
@@ -20181,12 +20206,20 @@ PF.vk = (function () {
             people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === chosen ? ' selected' : '') + '>' + esc(nmStage(x)) + '</option>'; }).join('') + '</select></label>' +
             (sug ? '<p class="small">Suggested: ' + esc(nameOf(ctx, sug.person)) + ' · ' + (sug.last ? 'last had this role on ' + esc(U.day(sug.last)) : 'hasn\'t had this role yet') + '</p>' : '') +
             (bad ? '<p class="ferr" id="ferr-role-' + esc(role) + '" role="alert">' + esc(st.fieldErr.msg) + '</p>' : '') + '</div>';
-          return;
+          return h;
         }
         h += '<label class="field" for="role-' + esc(role) + '">' + esc(role) + (sug ? ' <span class="small">· suggestion: ' + esc(nameOf(ctx, sug.person)) + ' (' + esc(sug.why) + ')</span>' : '') + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '"><option value="">Nobody yet</option>' +
           people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === (chosen || (sug && sug.person)) ? ' selected' : '') + '>' + esc(nmStage(x)) + '</option>'; }).join('') + '</select></label>';
+        return h;
+      };
+      h += K.list(st, 'start-roles', rlist, { page: ROLE_PAGE, keep: meta.roles.filter(keepRole), keptLabel: 'Roles you\'ve chosen someone for', keyOf: function (role) { return role; }, focusOf: function (k) { return K.byId('role-' + k); },
+        draw: function (shown) { return shown.map(roleRow).join(''); } });
+      meta.roles.forEach(function (role) {
+        if (drawnRole[role]) return;
+        var chosen = chosenOf(role), sug = apRole[role] ? null : ctx.suggestRole(p.id, role);
+        roleRows += '<input type="hidden" id="role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(chosen || (sug && sug.person) || '') + '">';
       });
-      h += '</div><p class="small">Suggestions rotate roles to whoever did them least recently, so everyone gets the experience. Change anything.</p>';
+      h += '</div>' + roleRows + '<p class="small">Suggestions rotate roles to whoever did them least recently, so everyone gets the experience. Change anything.</p>';
     }
     if (planning) return h + '<div class="row"><button class="btn go" type="submit" id="start-submit"' + (st.me ? '' : ' disabled') + '>Save the plan</button><span class="small">It waits under Runs until someone starts it.</span><button class="mini" type="button" data-act="cancel-plan">Cancel</button></div></form>';
     h += '<div class="row"><button class="btn go" type="submit" id="start-submit"' + (st.me && !(plan && plan._copiesDiffer) ? '' : ' disabled') + '>' + I('play') + 'Start the run</button><span class="small">' + (soloMap ? 'It\'s your run. You can bring someone in at any time.' : 'You\'ll be the recorder. You can hand recording to someone else at any time.') + '</span>' +
@@ -20532,13 +20565,17 @@ PF.vk = (function () {
     if (!copies.length && !local) return '';
     var h = '<section class="notice bad recovery" aria-labelledby="rec-t"><div class="stack" style="gap:8px;width:100%"><h3 id="rec-t" tabindex="-1" style="margin:0">' + (copies.length + (local ? 1 : 0)) + ' other version' + (copies.length + (local ? 1 : 0) === 1 ? '' : 's') + ' of this run</h3>' +
       '<span class="small">Two computers saved at once, or a save couldn\'t be written. Compare, keep the right one, and delete the rest. Nothing is merged automatically. <button type="button" class="linkish" data-act="recovery" data-id="a-run-has-conflict-copies">What to do</button></span>';
-    copies.forEach(function (name) {
-      var open = s.copyView && s.copyView.name === name && s.copyView.key === runKey(r);
-      h += '<div class="copyrow"><code>' + esc(name) + '</code><span class="row"><button class="mini" data-act="compare-copy" data-id="' + esc(name) + '">' + (open ? 'Compared' : 'Compare') + '</button>' +
+    /* 20 at a time, in name order (2.11); the copy being compared or confirmed for deletion stays drawn. */
+    var cmp = s.copyView && s.copyView.key === runKey(r) ? s.copyView.name : null, del = s.pick && s.pick.kind === 'delete-copy' ? s.pick.id : null;
+    h += K.list(s, 'copies', copies, { page: 20, keyOf: function (n) { return n; }, keep: [cmp, del], keptLabel: 'The copy you\'re working on', focusOf: function (k) { return K.byId('copy-' + k); }, draw: function (shown) { var o = ''; shown.forEach(function (name) { o += copyRow(name); }); return o; } });
+    function copyRow(name) {
+      var open = s.copyView && s.copyView.name === name && s.copyView.key === runKey(r), h = '';
+      h += '<div class="copyrow"><code id="copy-' + esc(name) + '" tabindex="-1">' + esc(name) + '</code><span class="row"><button class="mini" data-act="compare-copy" data-id="' + esc(name) + '">' + (open ? 'Compared' : 'Compare') + '</button>' +
         (rec ? '<button class="mini" data-act="use-copy" data-id="' + esc(name) + '">Keep this one</button>' : '') +
         (s.pick && s.pick.kind === 'delete-copy' && s.pick.id === name ? '<button class="btn stop" data-act="delete-copy" data-id="' + esc(name) + '">Yes, delete it</button><button class="mini" data-act="unpick">Cancel</button>' : '<button class="mini" data-act="delete-copy" data-id="' + esc(name) + '">Delete</button>') + '</span></div>';
       if (open) h += s.copyView.lines ? '<ul class="small difflist">' + s.copyView.lines.map(function (l) { return '<li>' + esc(l) + '</li>'; }).join('') + '</ul>' : '<p class="small">That copy can\'t be read.</p>';
-    });
+      return h;
+    }
     if (local) h += '<div class="copyrow"><span>A copy kept in this browser (' + esc(U.when(local.savedAt || local.created)) + ')</span><span class="row">' + (rec ? '<button class="mini" data-act="restore-local">Restore it</button>' : '') + '<button class="mini" data-act="discard-local">Discard</button></span></div>';
     if (!rec && copies.length) h += '<span class="small">' + (r.ended ? 'Only whoever recorded or ended this run can keep a copy' : 'Only the recorder can keep a copy') + '; anyone can compare.</span>';
     return h + '</div></section>';
@@ -20677,18 +20714,34 @@ PF.vk = (function () {
      show "Changed in vN": a later version has the step as it is, with nothing new to explain. */
   function changedHere(ctx, r) { return r && r.process && r.folder ? C.changedIn(corrGroups(ctx, r.process), r.folder) : {}; }
   /* "Changed in vN" with "Why is this here?": what it said before and after, why, the runs that suggested it, who applied it. */
-  function provenance(ctx, r, map, st, g) {
+  /* The members of every change on this step, 20 at a time counted across them (2.11): a change is drawn once one of its
+     members is, each member with its whole reason and the run it came from, built only when drawn. */
+  function provList(ctx, r, map, st, gs) {
+    var items = [], byK = Object.create(null);
+    gs.forEach(function (g, gi) { g.members.forEach(function (m, i) { var x = { g: g, gi: gi, m: m, k: gi + '-' + i }; items.push(x); byK[x.k] = x; }); });
+    return K.list(ctx.state, 'prov-' + st.id, items, { page: 20, keyOf: function (x) { return x.k; },
+      focusOf: function (k) { var x = byK[k]; return K.byId('pm-' + st.id + '-' + k + (x && x.m.why ? '' : '-run')); },
+      draw: function (shown) {
+        var out = '', run = [];
+        shown.forEach(function (x, i) { run.push(x); if (i === shown.length - 1 || shown[i + 1].gi !== x.gi) { out += provenance(ctx, r, map, st, x.g, run); run = []; } });
+        return out;
+      } });
+  }
+  function provenance(ctx, r, map, st, g, shown) {
     var c = g.first, d = g.decision, ch = g.change, disc = 'prov:' + g.id, open = !!(ctx.state.disc && ctx.state.disc[disc]);
+    var pm = function (x) { PF.perf.add('prov.member'); return 'pm-' + st.id + '-' + x.k; };
+    shown.forEach(function (x) { x.id = pm(x); });
     var dl = '';
     if (ch.op === 'wording' && g.from) dl += '<dt>Before → after</dt><dd>' + redline(g.from, st.text) + '</dd>';
     else {
       if (g.from && ch.op !== 'add') dl += '<dt>Before</dt><dd>' + esc(g.from) + '</dd>';
       var prop = C.proposal(c, map); if (prop) dl += '<dt>' + (ch.op === 'describe' || ch.op === 'screenshot' ? 'Change' : 'After') + '</dt><dd>' + esc(ch.op === 'add' ? 'Added' + (g.from ? ' after "' + g.from + '"' : '') + ': ' + st.text : prop) + '</dd>';
     }
-    g.members.forEach(function (m) { if (m.why) dl += '<dt>' + (ch.op === 'describe' ? 'Problem' : 'Why') + ' · ' + esc(nameOf(ctx, m.by)) + '</dt><dd>' + esc(m.why) + '</dd>'; });
-    var runs = '<p class="small prov-runs">Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + ': ' + g.members.map(function (m) {
-      return '<button class="linkish" data-act="open-run" data-id="' + esc(m.process + '/' + m.run) + '">' + esc(m.runTitle) + '</button> (' + esc(nameOf(ctx, m.by)) + ', ' + (m.test ? 'test run, staged v' : 'v') + esc(m.version) + ')';
-    }).join(', ') + '</p>';
+    shown.forEach(function (x) { var m = x.m; if (m.why) dl += '<dt id="' + esc(x.id) + '" tabindex="-1">' + (ch.op === 'describe' ? 'Problem' : 'Why') + ' · ' + esc(nameOf(ctx, m.by)) + '</dt><dd>' + esc(m.why) + '</dd>'; });
+    var runs = '<p class="small prov-runs">Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + ': ' + shown.map(function (x) {
+      var m = x.m;
+      return '<button class="linkish" id="' + esc(x.id) + '-run" data-act="open-run" data-id="' + esc(m.process + '/' + m.run) + '">' + esc(m.runTitle) + '</button> (' + esc(nameOf(ctx, m.by)) + ', ' + (m.test ? 'test run, staged v' : 'v') + esc(m.version) + ')';
+    }).join(', ') + (shown.length < g.members.length ? ', and ' + (g.members.length - shown.length).toLocaleString('en-US') + ' more' : '') + '</p>';
     var who = d && d.by ? '<p class="small">' + (d.status === 'included' ? esc(nameOf(ctx, d.by)) + ' said v' + esc(d.version) + ' has it' : 'Applied by ' + esc(nameOf(ctx, d.by))) + (d.at ? ' ' + esc(U.day(d.at)) : '') + '.</p>' : '';
     return '<div class="prov"><span class="badge b-changed">Changed in v' + esc(g.landed.version) + '</span><details class="prov-why" data-disc="' + esc(disc) + '"' + (open ? ' open' : '') + '><summary class="small">Why is this here?</summary>' +
       (dl ? '<dl class="corr-dl">' + dl + '</dl>' : '') + runs + who + '</details></div>';
@@ -20802,7 +20855,7 @@ PF.vk = (function () {
       '<span class="badge rw-st s-' + esc(aState) + '">' + esc(P && pm.status === 'assumed' ? 'Assumed for practice' : aState === 'open' ? 'Not checked' : aState === 'done' ? 'Done' : aState === 'na' ? (P ? 'Not needed' : 'N/A') : aState === 'blocked' ? 'Blocked' : P ? 'Try it again' : 'Re-check') + '</span>' +
       (a && (a.s === 'done' || a.s === 'na') && !P ? '<span class="small">' + esc(nameOf(ctx, a.by)) + ' · ' + U.hm(a.at) + '</span>' : '') + '</div>';
     var chg = changedHere(ctx, r)[st.id];
-    if (chg) h += '<div class="rw-prov">' + chg.map(function (g) { return provenance(ctx, r, map, st, g); }).join('') + '</div>';
+    if (chg) h += '<div class="rw-prov">' + provList(ctx, r, map, st, chg) + '</div>';
     if (P) h += V.prStepNote(P, st.id);
     else if (aState === 'blocked' || aState === 'recheck') h += '<div class="notice ' + (aState === 'blocked' ? 'bad' : 'warn') + ' rw-why"><span><b>' + (aState === 'blocked' ? 'Blocked' : 'Needs a re-check') + ':</b> ' + esc(a.reason) + (a.by ? ' · ' + esc(nameOf(ctx, a.by)) + ' ' + U.hm(a.at) : '') + '</span></div>';
 
@@ -21191,7 +21244,16 @@ PF.vk = (function () {
     var part = (s.partial || {})[runKey(r)], pa = part && r.steps[part.step];
     if (part && !(pa && pa.s === 'done' && pa.differently)) { var px = M.findStep(map, part.step); al += '<div class="notice warn" role="status"><span><b>Correction saved; the step wasn\'t marked done.</b> ' + (px ? K.stepHtml(px.step, K.refValue(r, map)) : esc(part.step)) + '</span><span class="row">' + (rec && px ? '<button class="btn" data-act="corr-open" data-mode="differently" data-id="' + esc(part.step) + '">Mark it now</button>' : '') + '<button class="mini" data-act="partial-dismiss" data-id="' + esc(runKey(r)) + '">Dismiss</button></span></div>'; }
     /* A note line that isn't complete JSON (2.1.1): named, never guessed at; the rest of the notes show. */
-    (r._noteLines || []).forEach(function (x) { al += '<div class="notice warn" role="status"><span>' + esc(PF.health.noteLineText(x)) + '</span></div>'; });
+    /* More than one is one notice, announced once, with the lines in a fold 50 at a time (2.11). */
+    var nl = r._noteLines || [];
+    if (nl.length === 1) al += '<div class="notice warn" role="status"><span>' + esc(PF.health.noteLineText(nl[0])) + '</span></div>';
+    else if (nl.length) {
+      var nd = 'badnotes:' + runKey(r), nOpen = !!(s.disc || {})[nd];
+      al += '<div class="notice warn rw-badnotes"><span><b role="status">' + nl.length.toLocaleString('en-US') + ' note lines can\'t be read.</b> They may still be arriving; if they stay, the notes on those lines are lost and the rest are shown.' +
+        '<details data-disc="' + esc(nd) + '"' + (nOpen ? ' open' : '') + '><summary class="small">Which lines</summary>' +
+        K.list(s, 'badnotes', nl.map(function (x, i) { return { x: x, i: i }; }), { keyOf: function (y) { return String(y.i); }, focusOf: function (k) { return '#badnote-' + k; }, draw: function (shown) { return '<ul class="small">' + shown.map(function (y) { return '<li id="badnote-' + y.i + '" tabindex="-1"><code>' + esc(y.x.file) + '</code>, line ' + esc(y.x.line) + '</li>'; }).join('') + '</ul>'; } }) +
+        '</details></span></div>';
+    }
     al += recovery(ctx, r, ctx.canRecover(r));
     if (K.connBanner) al += K.connBanner(ctx);
     if (s.runDetails) al += details(ctx, r, map, rec);
@@ -22796,7 +22858,7 @@ PF.vk = (function () {
     var panes = {
       selected: form || '<div class="ob-nosel"><p><b>Nothing selected.</b> Choose a step, lane, phase or gate in the outline, or Checklist details, to change it here.</p>' +
         '<ul class="ob-sample" aria-hidden="true"><li class="s-ph">Phase</li><li class="s-st on">' + I('check') + 'A step, selected</li><li class="s-st">' + I('check') + 'Another step</li><li class="s-gt">Gate</li></ul></div>',
-      checks: (dirty && !builder ? V.changedLines(ed.base, text) : '') + '<h2 class="fpe-ph">' + (nb ? 'Won\'t publish yet' : 'Checks') + '</h2>' + V.checkList(c) +
+      checks: (dirty && !builder ? V.changedLines(ed.base, text) : '') + '<h2 class="fpe-ph">' + (nb ? 'Won\'t publish yet' : 'Checks') + '</h2>' + V.checkList(c, ctx.state, 'checks-ed') +
         '<p class="small">Saving never publishes. When it\'s ready, choose Save draft, then Review &amp; publish.</p><p class="small">The full format, every step type and its fields: <button class="link" data-act="open-types">Step types</button>. Or ask your AI assistant: <code>/flightdeck-edit-checklist</code>.</p>',
       preview: map.phases.length ? '<div class="mapview">' + V.mapPreview(map, (ctx.data.stepTypes || {}).types, p.skills, null, PF.corrections.openCounts(V.fixesOf(ctx, p)), hl) + '</div>' : '<p class="small">Add a phase to see it here.</p>'
     };
@@ -23328,7 +23390,12 @@ PF.vk = (function () {
     });
     return notes;
   }
+  /* A line names at most this many skills, then "+N more skills" (2.11); the Skills panel lists them all. */
+  var SKILLS_SHOWN = 3;
+  function moreSkills(n, cls) { return n > 0 ? '<' + (cls ? 'div class="fp-line fp-more small"' : 'span class="small fp-more"') + '>+' + n.toLocaleString('en-US') + ' more skill' + (n === 1 ? '' : 's') + '</' + (cls ? 'div' : 'span') + '>' : ''; }
+  function noteLines(list) { return list.slice(0, SKILLS_SHOWN).map(function (x) { return noteLine(x.n, x.count); }).join('') + moreSkills(list.length - SKILLS_SHOWN, true); }
   function noteLine(n, count) {
+    PF.perf.add('fp.skill');
     var name = esc(n.skill.name);
     if (n.kind === 'auto') return '<div class="fp-line fp-auto">' + I('spark') + '<span><b>Autopilot</b> ' + name + ' covers ' + (count == null ? 'the whole checklist' : plural(count, 'step')) + '</span></div>';
     if (n.kind === 'update') return '<div class="fp-line fp-stale">' + I('spark') + '<span>' + name + ' needs an update</span></div>';
@@ -23347,7 +23414,7 @@ PF.vk = (function () {
      built from this version that covers it, and its roles. */
   function stepLine(s, go, types, auto) {
     var t = T.get(s.type, types), by = auto.filter(function (x) { return x.skill.steps.indexOf(s.id) >= 0; }).map(function (x) { return x.skill.name; });
-    var meta = (s.must ? '<span class="badge b-must">Must do</span>' : '') + by.map(function (n) { return '<span class="badge b-skill">' + I('spark') + esc(n) + '</span>'; }).join('') +
+    var meta = (s.must ? '<span class="badge b-must">Must do</span>' : '') + by.slice(0, SKILLS_SHOWN).map(function (n) { PF.perf.add('fp.skill'); return '<span class="badge b-skill">' + I('spark') + esc(n) + '</span>'; }).join('') + moreSkills(by.length - SKILLS_SHOWN) +
       (s.roles.length ? '<span class="pv-role">@' + esc(s.roles.join(' @')) + '</span>' : ''), cond = K.whenWords(s);
     return '<li>' + (t ? I(t.icon, t.label) : '<span class="ic"></span>') + '<div class="pv-body"><button type="button" class="fp-step" data-act="go" ' + go + ' data-step="' + esc(s.id) + '">' + K.stepHtml(s, null, false) +
       '<span class="sr">. Show it in the checklist</span></button>' + (cond ? '<span class="pv-when">' + cond + '</span>' : '') + (meta ? '<span class="pv-meta">' + meta + '</span>' : '') + '</div></li>';
@@ -23383,12 +23450,13 @@ PF.vk = (function () {
       return '<li class="fp-lane"><b>' + esc(t.title || 'Track') + '</b>' + (t.roles.length ? '<span class="small">@' + esc(t.roles.join(' @')) + '</span>' : '') + '<span class="small">' + plural(count, 'step') + '</span></li>';
     }).join('') + '</ul>';
     head += '</div>';
-    var ids = p.steps.map(function (s) { return s.id; }), lines = '';
+    var ids = p.steps.map(function (s) { return s.id; }), lines = '', covers = [];
     notes.forEach(function (x) {
       if (!x.skill.steps) return;
       var count = x.skill.steps.filter(function (id) { return ids.indexOf(id) >= 0; }).length;
-      if (count) lines += noteLine(x, count);
+      if (count) covers.push({ n: x, count: count });
     });
+    lines += noteLines(covers);
     /* A marker for a phase's note and screenshots (2.0) and a gate's note, said in words; the run shows them. */
     if (p.when) lines += '<div class="fp-line fp-when">' + I('fork') + '<span>' + K.whenWords(p) + '</span></div>';
     var marks = [];
@@ -23430,7 +23498,7 @@ PF.vk = (function () {
     var all = map.phases.every(function (ph, i) { return steps.open(i); });
     var h = '<div class="fp-tools"><button type="button" class="mini fp-all" data-act="fp-steps" data-id="' + (all ? 'hide">Hide all steps' : 'show">Show all steps') + '</button></div><ol class="fp" aria-label="Flight plan">';
     h += '<li class="fp-end"><span class="fp-tag">Start</span>' + (meta.context.length ? '<span class="small">Asks for ' + esc(meta.context.join(', ')) + '</span>' : '') +
-      notes.filter(function (x) { return !x.skill.steps; }).map(function (x) { return noteLine(x, null); }).join('') + '</li>';
+      noteLines(notes.filter(function (x) { return !x.skill.steps; }).map(function (x) { return { n: x, count: null }; })) + '</li>';
     map.phases.forEach(function (ph, i) { h += '<li class="fp-leg">' + leg(ctx, map, ph, i, an, notes, steps) + '</li>'; });
     h += '<li class="fp-end"><span class="fp-tag">Landed</span>' + (an && an.medianMs != null ? '<span class="small">A completed run typically takes ' + about(an.medianMs) + ' (from ' + plural(an.completed, 'completed run') + ')</span>' : '') + (an ? V.insightsQual(an.durationQ, null, 'span') : '') + '</li>';
     /* The footer counts finished runs only; a run still going adds only what it has done so far. */
@@ -23755,9 +23823,11 @@ PF.vk = (function () {
       (rep.scanned ? '' : '<p class="small">Choose Check again to read every file, not just what Flightdeck already loaded.</p>');
     if (hs && hs.scan) {
       var areas = hs.scan.areas || {}, keys = Object.keys(areas).sort(function (a, b) { return areas[b].bytes - areas[a].bytes || (a < b ? -1 : 1); });
-      h += '<details class="panel hz-sec"><summary><h2 style="display:inline">What\'s in the folder</h2></summary><table class="hz-table"><thead><tr><th scope="col">Folder</th><th scope="col">Files</th><th scope="col">Size</th></tr></thead><tbody>' +
-        keys.map(function (k) { return '<tr><th scope="row"><code>' + esc(k === '(top)' ? 'top level' : k + '/') + '</code></th><td>' + areas[k].files.toLocaleString('en-US') + '</td><td>' + esc(H.bytes(areas[k].bytes)) + '</td></tr>'; }).join('') +
-        '</tbody></table><p class="small">Longest path: ' + hs.scan.longest + ' characters.</p></details>';
+      /* Largest first, 50 at a time (2.11); the fold stays open through Show more. */
+      var row = function (k) { return '<tr><th scope="row"><code id="hz-area-' + esc(k) + '" tabindex="-1">' + esc(k === '(top)' ? 'top level' : k + '/') + '</code></th><td>' + areas[k].files.toLocaleString('en-US') + '</td><td>' + esc(H.bytes(areas[k].bytes)) + '</td></tr>'; };
+      h += '<details class="panel hz-sec" data-disc="hz-areas"' + ((st.disc || {})['hz-areas'] ? ' open' : '') + '><summary><h2 style="display:inline">What\'s in the folder</h2></summary>' +
+        K.list(st, 'hz-areas', keys, { keyOf: function (k) { return k; }, focusOf: function (k) { return K.byId('hz-area-' + k); }, draw: function (shown) { return '<table class="hz-table"><thead><tr><th scope="col">Folder</th><th scope="col">Files</th><th scope="col">Size</th></tr></thead><tbody>' + shown.map(row).join('') + '</tbody></table>'; } }) +
+        '<p class="small">Longest path: ' + hs.scan.longest + ' characters.</p></details>';
     }
     return h + links();
   }
@@ -31946,6 +32016,9 @@ PF.examples = (function () {
   document.addEventListener('change', function (e) {
     /* A long dropdown's "Show 50 more…" (K.select): the list widens and the choice stays what it was; nothing else hears it. */
     if (e.target && e.target.tagName === 'SELECT' && e.target.value === PF.vk.SEL_MORE) { e.target.value = (e.target.dataset && e.target.dataset.cur) || ''; selMore(e.target.id); return; }
+    /* A role given someone on Start or Plan (2.11) stays drawn through Show more, Find and a refresh, for this form only. */
+    var rm = state.view === 'start' && e.target && /^role-(.+)$/.exec(e.target.id || '');
+    if (rm) { var fk = startFormKey(); if (!state.rolesPicked || state.rolesPicked.at !== fk) state.rolesPicked = { at: fk, roles: {} }; state.rolesPicked.roles[rm[1]] = true; }
     /* A practice sample is one practice action when it's committed (Enter or leaving the box). */
     var smp = e.target && e.target.dataset && e.target.dataset.prSample;
     if (smp) {
@@ -32117,7 +32190,7 @@ PF.examples = (function () {
     });
   }
   /* Every change of screen goes through here: what's typed on the run's selected step is kept first. */
-  function setView(v) { childEpoch++; if (v !== 'runs') state.justPlanned = null; if (state.view === 'start' && v !== 'start') state.startModeAt = {}; if (state.view === 'practice' && v !== 'practice') prLeave(); leaveContext(); state.view = v; }
+  function setView(v) { childEpoch++; if (v !== 'runs') state.justPlanned = null; if (state.view === 'start' && v !== 'start') { state.startModeAt = {}; state.rolesPicked = null; } if (state.view === 'practice' && v !== 'practice') prLeave(); leaveContext(); state.view = v; }
   /* Leaving the practice page (any way: Edit, Back, a link): what's typed is kept, and where it was, for coming back. */
   function prLeave() {
     prHarvest(); var p = currentProcess(), e = p && prs[edKey(p.id)];
@@ -32417,6 +32490,8 @@ PF.examples = (function () {
       e.preventDefault(); if (e.stopPropagation) e.stopPropagation();
       setFind(findList(t), ''); selBoxKept(findList(t)); state.focus = t.id; state.focusWins = true; render(); return;
     }
+    /* Find narrows as you type; Enter in its box never submits the form around it (Export evidence, Start a run). */
+    if (e.key === 'Enter' && findList(t) && t.closest && t.closest('form')) { e.preventDefault(); return; }
     if (e.key === 'Escape') { if (state.overlay) { closeOverlay(); return; } var om = document.querySelector && document.querySelector('.rw-menu[open]'); if (om) { om.open = false; (state.disc = state.disc || {})[(om.dataset && om.dataset.disc) || 'rw-menu'] = false; var sm = om.querySelector('summary'); if (sm) sm.focus(); return; } if (state.tfPreview && state.view === 'types') { ACTIONS['tf-preview'](); return; } if (state.obAdd && !composing && t && /^ob-new-/.test(t.id || '')) { ACTIONS['ob-add-cancel'](); return; } if (state.obPlace) { cancelPlacing(); return; } if (state.obAsk) { ACTIONS['ob-ask-cancel'](); return; } if (obSheetOpen) { ACTIONS['ob-done'](); return; } if (state.view === 'practice' && state.pick) { PRACTICE.unpick(); return; } if (sheetWasOpen && state.view === 'practice') { PRACTICE['close-ref'](); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.view === 'practice' && !typing) { PRACTICE['pr-back'](); return; } if (state.pick || state.edit) { var pk = state.pick; if (pk && pk.kind === 'fields') { dropDraft(state.runKey, pk.id, ['fields', 'open']); state.fieldsDraft = null; } state.pick = null; state.edit = null; state.fieldErr = null; if (pk && pk.back) state.focus = pk.back; render(); return; } if (state.corrForm) { if (state.corrForm.menu) { state.corrForm.menu = false; state.focus = '[data-act="corr-menu"]'; render(); return; } ACTIONS['corr-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt') { reenterRun(); render(); } return; }
     /* A dialog keeps Tab and Shift+Tab inside it, wrapping at the ends, so keyboard focus never falls behind it. */
     var trap = state.overlay ? overlayEl : state.tfPreview && state.view === 'types' ? document.getElementById('tf-preview') : null;
