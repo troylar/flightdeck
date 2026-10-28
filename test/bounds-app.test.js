@@ -50,7 +50,15 @@ const REGISTRY = [
   /* Checklist structure is drawn whole (below), at the checklist's own size: the biggest in the fixture has 400 steps and 300 phases. */
   { name: 'checklist steps, at the checklist\'s step count', rows: n => n.tag === 'li' && cls(n, 'step'), bound: 400 },
   { name: 'the duration chart, at its renderer\'s cap of 300 dots (insights.js)', rows: n => n.tag === 'a' && cls(n, 'ins-dot-a'), bound: 300 },
-  { name: 'team values, at the format\'s cap of 100 (core/teamvalues.js)', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'tv-list'), bound: 100 }
+  { name: 'team values, at the format\'s cap of 100 (core/teamvalues.js)', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'tv-list'), bound: 100 },
+  /* Checklists and All skills: 50 rows across the tree, and only their groups. */
+  { name: 'the Checklists and All skills tree, its rows (processes, skills)', rows: n => n.tag === 'li' && !cls(n, 'tgroup') && n.parent && cls(n.parent, 'plist') && within(n, x => cls(x, 'tree')), bound: 50 },
+  { name: 'the Checklists and All skills tree, its groups', rows: n => n.tag === 'li' && cls(n, 'tgroup'), bound: 50 },
+  { name: 'the skill chips on a process row (5, then "+N more skills")', rows: n => n.tag === 'button' && cls(n, 'skillchip'), bound: 5, per: 'parent' },
+  { name: 'the tag buttons (tags), 50 and the chosen ones', rows: n => n.tag === 'button' && cls(n, 'tag') && n.parent && cls(n.parent, 'tagbar'), bound: 50 },
+  { name: 'a process\'s Skills panel (p-skills)', rows: n => n.tag === 'li' && n.parent && n.parent.tag === 'ul' && n.parent.attrs.class === 'plist' && within(n, x => x.attrs['aria-labelledby'] === 'sk-h' || /^sk:/.test(x.attrs['data-disc'] || '')), bound: 50 },
+  { name: 'Skills, Needs an update (sk-att) and Ready to become a skill (sk-ready)', rows: n => n.tag === 'li' && n.parent && (cls(n.parent, 'plist') || cls(n.parent, 'rlist')) && within(n, x => x.attrs['aria-labelledby'] === 'att-h' || x.attrs['aria-labelledby'] === 'rdy-h'), bound: 50 + 50 },
+  { name: 'a skill page\'s changes (sk-changes)', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'changes') && within(n, x => cls(x, 'status-card')), bound: 50 }
 ];
 /* Drawn in full on purpose, each with its reason. A capped one is also in REGISTRY at its cap. */
 const STRUCTURE = n => (n.tag === 'li' && (cls(n, 'step') || cls(n, 'gate'))) || (n.tag === 'section' && cls(n, 'phase')) ||
@@ -72,10 +80,6 @@ const inDisc = d => n => within(n, x => x.attrs['data-disc'] === d);
    entries and registers the bound. An entry not drawn over 25 on a screen it names fails, so none can outstay its slice.
    slice null: a list the plan's D7 doesn't have yet; reported, not assigned. */
 const PENDING = [
-  { slice: 2, name: 'Checklists and Skills, the group tree', rows: n => n.tag === 'li' && (cls(n, 'tgroup') || (n.parent && cls(n.parent, 'plist') && within(n, x => cls(x, 'tree')))), on: ['Checklists', 'Skills'] },
-  { slice: 2, name: 'the skill chips on a process row', rows: n => n.tag === 'button' && cls(n, 'skillchip'), on: ['Checklists'] },
-  { slice: 2, name: 'the tag buttons', rows: n => n.tag === 'button' && cls(n, 'tag') && n.parent && cls(n.parent, 'tagbar'), on: ['Checklists', 'Skills'] },
-  { slice: 2, name: 'a process\'s Skills panel', rows: n => n.tag === 'li' && n.parent && n.parent.tag === 'ul' && n.parent.attrs.class === 'plist' && within(n, x => x.tag === 'aside'), on: ['Four hundred steps'] },
   { slice: 3, name: 'Home, Needs you', rows: n => n.tag === 'li' && cls(n, 'todo'), on: ['Home'] },
   { slice: 3, name: 'Runs, Planned', rows: n => n.tag === 'button' && cls(n, 'plan') && cls(n, 'card'), on: ['Runs'] },
   { slice: 3, name: 'Follow-ups', rows: n => n.tag === 'li' && cls(n, 'fu'), on: ['Runs › Follow-ups, Open', 'Runs › Follow-ups, All'] },
@@ -83,7 +87,6 @@ const PENDING = [
   { slice: 3, name: 'the version picker #map-ver (K.select)', rows: n => n.tag === 'option' && up(n, x => x.tag === 'select') && up(n, x => x.tag === 'select').attrs.id === 'map-ver', on: ['Many versions'] },
   { slice: 3, name: 'How runs go, #ins-folder (K.select)', rows: n => n.tag === 'option' && up(n, x => x.tag === 'select') && up(n, x => x.tag === 'select').attrs.id === 'ins-folder', on: ['Many versions'] },
   { slice: 3, name: 'the Phase select #rw-phase (K.select)', rows: n => n.tag === 'option' && up(n, x => x.tag === 'select') && up(n, x => x.tag === 'select').attrs.id === 'rw-phase', on: ['A run with 300 phases'] },
-  { slice: 3, name: 'a skill page\'s changes', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'changes') && within(n, x => cls(x, 'status-card')), on: ['A skill built on v1 of a 400-step checklist'] },
   { slice: 3, name: 'Checks', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'checks'), on: ['Commands to fill in'] },
   { slice: 3, name: 'Why is this here? (members, reasons, source runs)', rows: n => within(n, x => cls(x, 'prov-why')) && /^(dt|dd|button)$/.test(n.tag), on: ['A run on a version with a landed correction'] },
   { slice: 3, name: 'unreadable note lines, one notice each (D10)', rows: n => n.tag === 'div' && cls(n, 'notice') && n.parent && cls(n.parent, 'rw-alerts'), on: ['The busy run', 'The busy run, picked up'] },
@@ -288,13 +291,14 @@ rule('D8: Join\'s Who are you? with 500 people', async () => {
   assert.deepStrictEqual([...c.pending], PENDING.filter(p => (p.on || []).indexOf('Join') >= 0).map(p => p.name));
 });
 
-/* The check is itself checked: with paging off for one list, that list must fail it. A flat page here; the tree (slice 2),
+/* The check is itself checked: with paging off for one list, that list must fail it. A flat page and the tree here;
    the tail (slice 5) and the nested list (slice 4, corrections across groups) are added by the slice that pages them. */
 const PAGE_OFF = [
   { list: 'runs-running', kind: 'flat', screen: 'Runs', go: SCREENS.filter(s => s[0] === 'Runs')[0][1], expect: /run cards .* draws \d+, over its bound/ },
+  { list: 'processes', kind: 'tree', screen: 'Checklists', go: SCREENS.filter(s => s[0] === 'Checklists')[0][1], expect: /the Checklists and All skills tree, its rows .* draws \d+, over its bound of 50/ },
   { list: 'ins-dur', kind: 'flat', screen: 'Many versions › How runs go', go: SCREENS.filter(s => s[0] === 'Many versions › How runs go')[0][1], expect: /the duration table \(ins-dur\) draws \d+, over its bound of 50/ }
 ];
-const PAGE_OFF_PENDING = [{ kind: 'tree', slice: 2 }, { kind: 'tail', slice: 5 }, { kind: 'nested', slice: 4 }];
+const PAGE_OFF_PENDING = [{ kind: 'tail', slice: 5 }, { kind: 'nested', slice: 4 }];
 PAGE_OFF.forEach(t => {
   rule('D8 is tested: with paging off for ' + t.list + ' (' + t.kind + '), the bounds check fails for it, and passes again with paging on', async () => {
     const { app } = await bigApp();

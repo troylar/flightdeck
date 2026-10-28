@@ -210,4 +210,242 @@ rule('Every person picker on the big folder lists its 500 scrambled people in na
   assert.strictEqual(app.fs.files['people.json'].t, file, 'people.json is untouched');
 });
 
+/* ---------- slice 2: Checklists, Skills and tags ---------- */
+rule('K.treeList: the page is the first 50 in the tree\'s own order, groups by name, and each group counts every item, saying how many are shown', () => {
+  const its = [];
+  for (let i = 0; i < 40; i++) its.push({ k: 'b' + i, g: ['Group 10'] });
+  for (let i = 0; i < 30; i++) its.push({ k: 'a' + i, g: ['Group 2'] });
+  its.push({ k: 'loose', g: [] });
+  const row = x => '<li id="' + x.k + '">' + x.k + '</li>', o = { keyOf: x => x.k, focusOf: k => K.byId(k) };
+  const h = K.treeList({}, 'tr', its, x => x.g, row, o);
+  assert.deepStrictEqual(ids(h), its.slice(40, 70).map(x => x.k).concat(its.slice(0, 20).map(x => x.k)), 'Group 2 before Group 10, then the rest');
+  assert.ok(/<span class="t">Group 2<\/span> <span class="small">30<\/span>/.test(h), 'a group drawn whole: its count');
+  assert.ok(/<span class="t">Group 10<\/span> <span class="small">40 · 20 shown<\/span>/.test(h), 'a group split by the page: "40 · 20 shown"');
+  assert.ok(/data-act="more" data-id="tr" data-next="b20" data-focus="\[id=&quot;b20&quot;\]">Show 21 more/.test(h), h.slice(-300));
+  const all = K.treeList({ more: { tr: 100 } }, 'tr', its, x => x.g, row, o);
+  assert.strictEqual(ids(all).length, 71);
+  assert.ok(/Group 10<\/span> <span class="small">40<\/span>/.test(all));
+  const one = K.treeList({}, 'tr', Array.from({ length: 1000 }, (x, i) => ({ k: 'p' + i, g: ['G ' + i] })), x => x.g, row, o);
+  assert.strictEqual(ids(one).length, 50, '1,000 groups of one still draw 50 rows');
+  assert.strictEqual((one.match(/class="tgroup"/g) || []).length, 50, 'and only their groups');
+  assert.strictEqual(K.tree(its, x => x.g, row), K.treeList({ more: { tr: 100 } }, 'tr', its, x => x.g, row, o), 'K.tree draws the same whole tree');
+});
+
+rule('K.findBox: drawn from state through esc(), safe to leave, with its count; finds matches every term in any case', () => {
+  const st = { find: { gen: 0, q: { processes: '"><b>x' } } };
+  const h = K.findBox(st, 'processes', 'Find a checklist', 0, 9, 'checklist');
+  assert.ok(/<label for="find-processes">Find a checklist<\/label><input type="search" id="find-processes" data-find="processes" data-nav-safe data-bound value="&quot;&gt;&lt;b&gt;x" autocomplete="off"/.test(h), h);
+  assert.ok(/aria-describedby="find-processes-n"/.test(h) && /id="find-processes-n" role="status">No checklist matches "&quot;&gt;&lt;b&gt;x"</.test(h));
+  assert.ok(/data-act="find-clear" data-id="processes">Clear</.test(h));
+  assert.ok(/role="status">12 of 1,000 match</.test(K.findBox({ find: { q: { processes: 'a' } } }, 'processes', 'Find a checklist', 12, 1000, 'checklist')));
+  const empty = K.findBox({}, 'processes', 'Find a checklist', 9, 9, 'checklist');
+  assert.ok(/value=""/.test(empty) && !/find-clear/.test(empty) && /role="status"><\/span>/.test(empty));
+  const f = K.finds('  deploy  PROD ');
+  assert.ok(f(['Deploy to prod']) && f(['deploy', 'tag-prod']) && !f(['Deploy']) && K.finds('')(['x']));
+});
+
+const big2 = async () => { const app = await bigApp(); app.click('nav', 'processes'); await app.tick(5); return app; };
+const procRows = h => (h.match(/<li><button data-act="open-process"/g) || []).length;
+const typeFind = async (app, id, v) => { app.set('find-' + id, v); app.input('find-' + id, v); await app.tick(5); };
+/* The harness doesn't redraw a data-bound box from its markup as a page does (syncBound): after the app clears it, the box is
+   made to hold what was drawn, so the next key sees what a person would. The drawn value is what's checked. */
+const drawnBox = (app, id) => { const v = (new RegExp('<input type="search" id="find-' + id + '"[^>]*value="([^"]*)"').exec(app.html()) || [])[1]; app.set('find-' + id, v == null ? '' : un(v)); return v; };
+
+rule('Checklists on the big folder: 50 checklist rows across 1,000 groups, 5 skill chips a row and "+N more skills", 50 tags, chosen ones always', async () => {
+  const app = await big2(), h = app.html();
+  assert.strictEqual(procRows(h), 50);
+  assert.ok((h.match(/class="tgroup"/g) || []).length <= 50, 'only the groups of the rows drawn');
+  assert.ok(/<span class="t">Busy<\/span> <span class="small">9<\/span>/.test(h), 'Busy counts its 9');
+  assert.ok(h.indexOf('>Group 2<') < h.indexOf('>Group 10<'), 'groups in natural order');
+  const steps = h.slice(h.indexOf('data-id="steps"'), h.indexOf('</li>', h.indexOf('data-id="steps"')));
+  assert.strictEqual((steps.match(/class="skillchip"/g) || []).length, 5);
+  assert.ok(/\+596 more skills/.test(steps), steps.slice(-200));
+  assert.strictEqual((h.match(/<button class="tag[ "]/g) || []).length, 50);
+  const tagIds = (h.match(/<button class="tag[^"]*" data-act="tag" data-id="[^"]*"/g) || []).map(x => /data-id="([^"]*)"/.exec(x)[1]);
+  assert.deepStrictEqual(tagIds, tagIds.slice().sort(load().text.natural), 'by name');
+  assert.ok(/Filter by tag \(\d+\)/.test(h) && /data-act="more" data-id="tags"/.test(h), 'the first 50, then Show more');
+  app.click('tag', 'tag-300'); await app.tick(5);
+  const t = app.html();
+  assert.strictEqual((t.match(/<button class="tag[ "]/g) || []).length, 51, 'a chosen tag past the page is drawn too');
+  assert.ok(/class="tag on" data-act="tag" data-id="tag-300"/.test(t) && /data-act="tag" data-id="">Clear/.test(t));
+  assert.strictEqual(procRows(t), 2, 'tag-300: processes 300 and 700');
+  app.click('tag', ''); await app.tick(5);
+  const d = moreOf(app.html(), 'tags');
+  app.click('more', 'tags', d); await app.tick(5);
+  assert.strictEqual((app.html().match(/<button class="tag[ "]/g) || []).length, 100);
+  assert.strictEqual(app.activeId(), '[data-act="tag"][data-id="' + d.next + '"]', 'Show more focuses the first tag it adds');
+});
+
+rule('Checklists: Show more focuses the first checklist it adds, in its group, and the tree grows by 50', async () => {
+  const app = await big2(), d = moreOf(app.html(), 'processes');
+  assert.ok(d && d.focus === '[data-act="open-process"][data-id="' + d.next + '"]', JSON.stringify(d));
+  app.click('more', 'processes', d); await app.tick(5);
+  assert.strictEqual(procRows(app.html()), 100);
+  assert.strictEqual(app.activeId(), '[data-act="open-process"][data-id="' + d.next + '"]');
+});
+
+rule('Checklists: Find narrows the list over every checklist, the count says so, and Find and the tag filter combine', async () => {
+  const app = await big2();
+  await typeFind(app, 'processes', 'process 777');
+  let h = app.html();
+  assert.strictEqual(procRows(h), 1);
+  assert.ok(/data-id="proc-0777"/.test(h) && /role="status">1 of 1,016 match</.test(h), h.slice(h.indexOf('findbox'), h.indexOf('findbox') + 600));
+  await typeFind(app, 'processes', 'TAG-007');
+  assert.strictEqual(procRows(app.html()), 3, 'tags are words too: 7, 407 and 807');
+  await typeFind(app, 'processes', 'busy');
+  assert.strictEqual(procRows(app.html()), 9, 'and groups');
+  await typeFind(app, 'processes', 'process 7');
+  assert.ok(/role="status">\d+ of 1,016 match</.test(app.html()) && procRows(app.html()) === 50, 'many matches: paged');
+  app.click('tag', 'tag-007'); await app.tick(5);
+  h = app.html();
+  assert.strictEqual(procRows(h), 3, 'with tag-007 chosen: 7, 407 and 807 match both');
+  assert.ok(/role="status">3 of 3 match</.test(h), 'counted within the tag filter');
+  await typeFind(app, 'processes', 'process 407');
+  assert.strictEqual(procRows(app.html()), 1);
+  app.click('tag', ''); await app.tick(5);
+  await typeFind(app, 'processes', 'deploy nowhere');
+  h = app.html();
+  assert.strictEqual(procRows(h), 0);
+  assert.ok(/No checklist matches "deploy nowhere"/.test(h) && /data-act="find-clear" data-id="processes"/.test(h));
+  app.click('find-clear', 'processes'); await app.tick(5);
+});
+
+rule('Checklists: the box shows what\'s kept after Clear, after Escape and after coming back by Back, with the results and focus to match', async () => {
+  const app = await big2(), val = () => drawnBox(app, 'processes');
+  await typeFind(app, 'processes', 'process 777');
+  app.click('find-clear', 'processes'); await app.tick(5);
+  assert.strictEqual(val(), '', 'Clear: the box is empty');
+  assert.strictEqual(procRows(app.html()), 50, 'Clear: every checklist again');
+  assert.strictEqual(app.activeId(), 'find-processes', 'Clear: focus in the box');
+  await typeFind(app, 'processes', 'process 777');
+  let prevented = false, stopped = false;
+  app.el('find-processes').tagName = 'INPUT'; app.el('find-processes').type = 'search';
+  app.keyOn('Escape', { preventDefault() { prevented = true; }, stopPropagation() { stopped = true; } }, app.el('find-processes')); await app.tick(5);
+  assert.strictEqual(val(), '', 'Escape: the box is empty');
+  assert.strictEqual(procRows(app.html()), 50, 'Escape: every checklist again');
+  assert.strictEqual(app.activeId(), 'find-processes', 'Escape: focus stays in the box');
+  assert.ok(prevented && stopped, 'Escape is the box\'s own');
+  app.keyOn('Escape', {}, app.el('find-processes')); await app.tick(5);
+  assert.ok(/id="find-processes"/.test(app.html()), 'an empty box lets Escape do what it did, which on Checklists is nothing');
+  await typeFind(app, 'processes', 'process 777');
+  app.click('open-process', 'proc-0777'); await app.tick(10);
+  assert.ok(!/id="find-processes"/.test(app.html()), 'set-up: on the checklist');
+  app.back(); await app.settle();
+  assert.strictEqual(val(), 'process 777', 'Back: the box shows the filter');
+  assert.strictEqual(procRows(app.html()), 1, 'Back: and its results');
+  assert.notStrictEqual(app.activeId(), 'find-processes', 'Back focuses what Back focuses, not the box');
+  app.click('nav', 'home'); await app.tick(5); app.click('nav', 'processes'); await app.tick(5);
+  assert.strictEqual(val(), 'process 777', 'coming back by the top bar keeps it too');
+  app.click('find-clear', 'processes'); await app.tick(5);
+});
+
+rule('Checklists: a non-empty Escape in the Find box doesn\'t also close or leave anything', async () => {
+  const app = boot({ domFocus: true }); await app.tick(80);
+  app.choose('person-casey'); await app.tick();
+  app.click('nav', 'processes'); await app.tick(5);
+  app.click('search'); await app.tick(10);
+  assert.ok(app.overlay(), 'set-up: a dialog open');
+  app.set('find-processes', 'code'); app.input('find-processes', 'code'); await app.tick(5);
+  app.el('find-processes').tagName = 'INPUT'; app.el('find-processes').type = 'search';
+  app.keyOn('Escape', {}, app.el('find-processes')); await app.tick(5);
+  assert.ok(app.overlay(), 'the dialog is still open');
+  assert.strictEqual(drawnBox(app, 'processes'), '', 'only the box was cleared');
+  app.keyOn('Escape', {}, app.el('find-processes')); await app.tick(5);
+  assert.ok(!app.overlay(), 'then, empty, Escape closes the dialog as before');
+});
+
+rule('Checklists: Find belongs to its folder: a folder switch, and back, starts it empty, without a change to useFs', async () => {
+  const app = boot({ domFocus: true }); await app.tick(80);
+  app.choose('person-casey'); await app.tick();
+  app.click('nav', 'processes'); await app.tick(5);
+  app.set('find-processes', 'sprint'); app.input('find-processes', 'sprint'); await app.tick(5);
+  assert.ok(/id="find-processes"[^>]*value="sprint"/.test(app.html()), 'set-up');
+  app.click('reset-examples'); await app.tick(60); app.choose('person-casey'); await app.tick();
+  app.click('nav', 'processes'); await app.tick(5);
+  assert.ok(/id="find-processes"[^>]*value=""/.test(app.html()), 'another folder: empty');
+  assert.ok(!/No checklist matches/.test(app.html()));
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8'), at = src.indexOf('function useFs(');
+  assert.ok(at > 0 && !/state\.find\b/.test(src.slice(at, src.indexOf('\n  function ', at + 10))), 'useFs doesn\'t touch state.find');
+});
+
+rule('Checklists: with the folder\'s last tag chosen, a newer read that removes it still shows the tag, chosen, with Clear', async () => {
+  const app = boot({ domFocus: true }); await app.tick(80);
+  app.choose('person-casey'); await app.tick();
+  const md = '---\nprocess: lonely\ntitle: Lonely checklist\ncategory: Other\ntags: lonely-tag\nowner: person-casey\nroles: lead\n---\n\n## One · READ-DO {#ph1}\n- [ ] {confirm} Do it @lead {#s0}\n';
+  await app.fs.write('maps/drafts/lonely.md', md);
+  app.click('refresh'); await app.tick(60);
+  app.click('nav', 'processes'); await app.tick(5);
+  app.click('tag', 'lonely-tag'); await app.tick(5);
+  assert.ok(/data-id="lonely"/.test(app.html()), 'set-up: the checklist with the tag');
+  await app.fs.remove('maps/drafts/lonely.md');
+  app.click('refresh'); await app.tick(60);
+  const h = app.html();
+  assert.ok(!/data-act="open-process" data-id="lonely"/.test(h), 'set-up: it\'s gone');
+  assert.ok(/class="tag on" data-act="tag" data-id="lonely-tag" aria-pressed="true"/.test(h), 'the tag is still drawn, chosen');
+  assert.ok(/data-act="tag" data-id="">Clear/.test(h), 'with Clear');
+});
+
+rule('Checklists: a go() to a checklist bypasses the list, whatever it shows', async () => {
+  const app = await big2();
+  await typeFind(app, 'processes', 'nothing matches this');
+  app.click('go', null, { view: 'process', process: 'proc-0900' }); await app.tick(10);
+  assert.ok(/Process 900/.test(app.html()) && /id="page-h"/.test(app.html()), 'checklist 900 opened');
+  app.click('nav', 'processes'); await app.tick(5);
+  app.click('find-clear', 'processes'); await app.tick(5);
+});
+
+rule('Skills on the big folder: All skills draws 50 across its tree, with Find a skill; Needs an update and Ready to become a skill page at 50', async () => {
+  const app = await bigApp(); app.click('nav', 'skills'); await app.tick(10);
+  const h = app.html(), all = h.slice(h.indexOf('id="all-h"'));
+  assert.strictEqual((all.match(/<li><button data-act="open-skill"/g) || []).length, 50);
+  assert.ok(/data-act="more" data-id="skills"/.test(all) && /id="find-skills"/.test(all) && /Find a skill/.test(all));
+  await typeFind(app, 'skills', 'step-skill-12');
+  let a = app.html().slice(app.html().indexOf('id="all-h"'));
+  assert.strictEqual((a.match(/<li><button data-act="open-skill"/g) || []).length, 10, 'step-skill-120 to 129');
+  assert.ok(/role="status">10 of [\d,]+ match</.test(a));
+  await typeFind(app, 'skills', 'skilltag-7 four hundred');
+  a = app.html().slice(app.html().indexOf('id="all-h"'));
+  assert.ok(/role="status">\d+ of [\d,]+ match</.test(a) && (a.match(/<li><button data-act="open-skill"/g) || []).length > 0, 'by tag and checklist');
+  app.click('find-clear', 'skills'); await app.tick(5);
+  const PF = loadViews(), V = PF.views, mk = (i, s) => ({ skill: { name: 'sk ' + i, file: 'sk' + i + '.json', group: [], tags: [], implements: 1 }, status: { s, text: '' } });
+  const procs = [{ id: 'p', title: 'P', group: [], category: 'C', latest: { info: { version: 1 } }, skills: Array.from({ length: 120 }, (x, i) => mk(i, 'update')) }];
+  for (let i = 0; i < 120; i++) procs.push({ id: 'q' + i, title: 'Q ' + i, group: [], category: 'C', latest: { info: { version: 1, folder: 'v1' } }, skills: [] });
+  PF.skills.signoffs = () => [{}];
+  const ctx = { state: { tags: [] }, data: { validations: [], people: [], failed: {} }, processes: () => procs, peopleById: {}, run: () => null, now: () => Date.now() };
+  const sp = V.skillsPage(ctx), att = sp.slice(sp.indexOf('id="att-h"'), sp.indexOf('id="rdy-h"')), rdy = sp.slice(sp.indexOf('id="rdy-h"'), sp.indexOf('id="all-h"'));
+  assert.ok(/Needs an update · 120/.test(att) && (att.match(/<li><button data-act="open-skill"/g) || []).length === 50 && /data-act="more" data-id="sk-att"/.test(att), 'Needs an update: 50 of 120');
+  assert.ok(/Ready to become a skill · 120/.test(rdy) && (rdy.match(/<li>/g) || []).length === 50 && /data-act="more" data-id="sk-ready"/.test(rdy), 'Ready to become a skill: 50 of 120');
+});
+
+rule('A checklist\'s Skills panel draws 50 of its 601 skills, with Show more focusing the first added', async () => {
+  const app = await bigApp(); app.click('nav', 'processes'); await app.tick(5);
+  app.click('open-process', 'steps'); await app.tick(10);
+  const h = app.html(), panel = h.slice(h.indexOf('id="sk-h"'));
+  assert.strictEqual((panel.match(/<li><button data-act="open-skill"/g) || []).length, 50);
+  const d = moreOf(panel, 'p-skills');
+  assert.ok(d && /^\[data-act="open-skill"\]\[data-id="[^"]+"\]$/.test(d.focus) && d.next === '50', JSON.stringify(d));
+  app.click('more', 'p-skills', d); await app.tick(5);
+  const p2 = app.html().slice(app.html().indexOf('id="sk-h"'));
+  assert.strictEqual((p2.match(/<li><button data-act="open-skill"/g) || []).length, 100);
+  assert.strictEqual(app.activeId(), d.focus, 'the 51st skill\'s button');
+});
+
+rule('A skill page with 400 changes draws 50 in order, Show more focuses the first added change, and the update brief has all 400', async () => {
+  const app = await bigApp(); app.click('nav', 'skills'); await app.tick(5);
+  app.click('open-skill', 'old-whole-skill.json'); await app.tick(10);
+  const ch = () => { const h = app.html(), a = h.indexOf('<ul class="changes">'); return a < 0 ? [] : (h.slice(a, h.indexOf('</ul>', a)).match(/<li id="skc-\d+"/g) || []).map(x => +x.slice(12, -1)); };
+  assert.deepStrictEqual(ch(), Array.from({ length: 50 }, (x, i) => i), 'the first 50, in order');
+  const d = moreOf(app.html(), 'sk-changes');
+  assert.ok(d && d.focus === '[id="skc-50"]', JSON.stringify(d));
+  app.click('more', 'sk-changes', d); await app.tick(5);
+  assert.strictEqual(ch().length, 100);
+  assert.strictEqual(app.activeId(), 'skc-50');
+  assert.ok(/<li id="skc-50" tabindex="-1">/.test(app.html()), 'a focusable change');
+  /* The harness has no clipboard or selection: the brief is drawn before copying falls back to selecting it. */
+  try { app.click('copy-brief', 'update:old-whole-skill.json'); } catch (e) { if (!/createRange/.test(e.message)) throw e; }
+  await app.tick(5);
+  const brief = /<pre id="brief-pre"[^>]*>([\s\S]*?)<\/pre>/.exec(app.html())[1];
+  assert.ok((brief.match(/\(v2\)/g) || []).length >= 400, 'the brief names every changed step');
+});
+
 run();

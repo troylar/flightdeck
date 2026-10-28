@@ -294,4 +294,19 @@ rule('Five hundred people: each draw names everyone once per list, and Settings,
   assert.ok(rows <= 2 * 500 * c.renders, 'people rows read for permissions ' + rows + ' ≤ 2 × people per draw');
 });
 
+rule('Checklists and Skills for 200 processes draw a page: rows are built only for the 50 drawn, and Find narrows over all of them', async () => {
+  const { app } = await bigApp();
+  const procs = new Set(Object.keys(app.fs.files).map(p => (/^(?:publications|drafts)\/([^/.]+)/.exec(p) || [])[1]).filter(Boolean)).size;
+  assert.ok(procs >= 200, 'set-up: ' + procs + ' processes');
+  app.PF.perf.reset(); app.click('nav', 'processes'); await app.tick(10);
+  const renders = count(app, 'render'), rows = count(app, 'procs.rows');
+  assert.ok(renders >= 1 && rows <= 50 * renders, 'process rows built ' + rows + ' ≤ 50 per draw (' + renders + ' draws)');
+  assert.strictEqual((app.html().match(/<li><button data-act="open-process"/g) || []).length, 50);
+  app.set('find-processes', 'proc-19'); app.input('find-processes', 'proc-19'); await app.tick(5);
+  assert.ok((app.html().match(/<li><button data-act="open-process"/g) || []).length >= 10, 'Find reaches past the first page');
+  app.click('find-clear', 'processes'); await app.tick(5);
+  app.PF.perf.reset(); app.click('nav', 'skills'); await app.tick(10);
+  assert.ok(count(app, 'skills.rows') <= 3 * 50 * count(app, 'render'), 'skill rows built only for the pages drawn');
+});
+
 run();
