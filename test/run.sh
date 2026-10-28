@@ -30,6 +30,12 @@ test/scale.test.js -
 test/scale-app.test.js 0/3
 test/scale-app.test.js 1/3
 test/scale-app.test.js 2/3
+test/bounds-app.test.js 0/6
+test/bounds-app.test.js 1/6
+test/bounds-app.test.js 2/6
+test/bounds-app.test.js 3/6
+test/bounds-app.test.js 4/6
+test/bounds-app.test.js 5/6
 test/ui-states.test.js -
 test/reports.test.js -
 test/insights.test.js -
