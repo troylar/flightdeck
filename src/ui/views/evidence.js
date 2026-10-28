@@ -22,7 +22,9 @@
   }
   function askForm(ctx, ov) {
     var procs = ctx.processes().filter(function (p) { return p.id; }), s = ov.form;
-    return '<form class="ev-form" id="ev-form" data-nav-safe><label for="ev-proc">Process</label><select id="ev-proc" data-nav-safe>' + procs.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === s.process ? ' selected' : '') + '>' + esc(p.title) + '</option>'; }).join('') + '</select>' +
+    /* Every checklist by name, 50 at a time with Find past 50 (K.select); the days typed are kept in the dialog's own state. */
+    var ps = PF.vk.select(ctx.state, 'ev-proc', procs.map(function (p) { return { v: p.id, t: p.title, place: p.id }; }), s.process, { attrs: ' data-nav-safe', noun: 'checklist' });
+    return '<form class="ev-form" id="ev-form" data-nav-safe>' + ps.box + '<label for="ev-proc">Process</label>' + ps.select + ps.more +
       '<div class="ev-days"><span><label for="ev-from">First day</label><input id="ev-from" type="date" data-nav-safe value="' + esc(s.from) + '"' + (ov.fieldErr === 'ev-from' ? ' aria-invalid="true" aria-describedby="ev-err"' : '') + '></span>' +
       '<span><label for="ev-through">Last day</label><input id="ev-through" type="date" data-nav-safe value="' + esc(s.through) + '"' + (ov.fieldErr === 'ev-through' ? ' aria-invalid="true" aria-describedby="ev-err"' : '') + '></span></div>' +
       '<p class="small">Runs that started on these days, both included, in this computer\'s time zone (' + esc(ov.tz) + ').</p>' +

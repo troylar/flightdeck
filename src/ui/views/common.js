@@ -187,6 +187,53 @@ PF.vk = (function () {
     else h = o.draw(shown) + more + rest;
     return h;
   }
+  /* ---------- a dropdown over a growing list (2.11, K.select) ---------- */
+  /* The value of the last option, "Show 50 more…": no real value can be it (folder, run, plan and step values are words,
+     dashes, slashes and colons). Choosing it widens the list and leaves the choice as it was (app.js). */
+  var SEL_MORE = '#more';
+  /* A native <select> over a list that grows with the team folder: at most 50 of its items (the page) as options, plus the
+     chosen one, in the list's own order; past 50, a Find box above narrows them over every item, and "Show 50 more…" (an
+     option, and a Show more choices button for the keyboard) widens them. The box stays while it has text or focus
+     (st.selFocus), even when fewer than 50 are left. Only the drawn options are built. items: { v, t, place, words,
+     disabled, group } in order; place tells apart items with the same label ("Confirm the result · Phase 3, step 4"), and Find
+     matches it. sel: the value drawn as chosen (the saved one: a choice not saved yet is put back by the page after the draw,
+     so leaving still sees it as unsaved). o: attrs (the select's own attributes, escaped), lead and trail (its fixed options'
+     HTML: None, Any, Latest), keep (values always drawn, sel by default), around (the item to center the first 50 on, with
+     no Find text: the current phase), cur (the choice to keep when Show 50 more… is chosen), noun ("run or plan"), page,
+     draw(item) (what's worked out only for a drawn option: { more: text added to its label, disabled }), group(item) (its
+     optgroup's label).
+     Returns { box, select, more, html, drawn, total }. */
+  function select(st, id, items, sel, o) {
+    o = o || {};
+    var P = o.page || PAGE, n = Math.max(P, Math.floor(((st.more || {})[id]) || P)), q = findQ(st, id), Nn = function (x) { return x.toLocaleString('en-US'); };
+    if (PF.vk.PAGE_OFF === id) n = items.length;
+    var seen = Object.create(null);
+    items.forEach(function (it) { seen[it.t] = (seen[it.t] || 0) + 1; });
+    var text = function (it) { return seen[it.t] > 1 && it.place ? it.t + ' · ' + it.place : it.t; };
+    var hit = finds(q), match = [];
+    items.forEach(function (it, i) { if (!q || hit([text(it), it.place || '', it.words || ''])) match.push(i); });
+    var from = !q && o.around != null && o.around >= 0 ? Math.max(0, Math.min(o.around - Math.floor(n / 2), match.length - n)) : 0;
+    var on = Object.create(null), keep = Object.create(null), cur = o.cur != null ? o.cur : sel;
+    match.slice(from, from + n).forEach(function (i) { on[i] = true; });
+    (o.keep || [sel]).forEach(function (v) { if (v != null && v !== '') keep[v] = true; });
+    items.forEach(function (it, i) { if (keep[it.v]) on[i] = true; });
+    var more = match.length > n, drawn = 0, grp = null, opts = '';
+    items.forEach(function (it, i) {
+      if (!on[i]) return;
+      drawn++;
+      var g = o.group ? o.group(it) : null;
+      if (g !== grp) { opts += (grp != null ? '</optgroup>' : '') + (g != null ? '<optgroup label="' + esc(g) + '">' : ''); grp = g; }
+      var d = o.draw ? o.draw(it) : null, off = d && d.disabled != null ? d.disabled : it.disabled;
+      opts += '<option value="' + esc(it.v) + '"' + (it.v === sel ? ' selected' : '') + (off ? ' disabled' : '') + '>' + esc(text(it) + (d && d.more ? d.more : '')) + '</option>';
+    });
+    if (grp != null) opts += '</optgroup>';
+    var fid = 'find-' + id, showBox = items.length > P || !!q || st.selFocus === id;
+    var box = !showBox ? '' : '<div class="row findbox selfind"><label for="' + esc(fid) + '">Find a ' + esc(o.noun || 'choice') + '</label><input type="search" id="' + esc(fid) + '" data-find="' + esc(id) + '" data-sel-find="' + esc(id) + '" data-nav-safe data-bound value="' + esc(q) + '" autocomplete="off" maxlength="200" aria-controls="' + esc(id) + '" aria-describedby="' + esc(fid) + '-n">' +
+      '<span class="small" id="' + esc(fid) + '-n" role="status">' + (!q ? '' : match.length ? Nn(match.length) + ' of ' + Nn(items.length) + ' match' : 'No ' + esc(o.noun || 'choice') + ' matches "' + esc(q) + '"') + '</span>' + (q ? '<button type="button" class="mini" data-act="find-clear" data-id="' + esc(id) + '">Clear</button>' : '') + '</div>';
+    var selHtml = '<select id="' + esc(id) + '"' + (o.attrs || '') + ' data-kselect data-cur="' + esc(cur == null ? '' : cur) + '">' + (o.lead || '') + opts + (o.trail || '') + (more ? '<option value="' + SEL_MORE + '">Show ' + Math.min(P, match.length - n) + ' more…</option>' : '') + '</select>';
+    var moreBtn = more ? '<button type="button" class="mini selmore" data-act="sel-more" data-id="' + esc(id) + '" aria-controls="' + esc(id) + '">Show more choices</button>' : '';
+    return { box: box, select: selHtml, more: moreBtn, html: box + selHtml + moreBtn, drawn: drawn, total: items.length };
+  }
   /* A selector for the element with this id, whatever the id holds (it comes from files). */
   function byId(id) { return '[id="' + String(id).replace(/["\\]/g, '\\$&') + '"]'; }
   /* A selector for the control that does act on this id (a row that is one button). */
@@ -275,7 +322,7 @@ PF.vk = (function () {
   }
   function unsavedWords(ps) { return ps && ps.saved ? 'its run was saved and has changed since' : ps && ps.certain === false ? 'Flightdeck couldn\'t confirm whether its run saved' : 'its run didn\'t save'; }
   function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
-  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, finds: finds, findBox: findBox, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, byId: byId, PAGE: PAGE, PAGE_OFF: null, testTag: testTag, verWord: verWord };
+  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, finds: finds, findBox: findBox, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, select: select, SEL_MORE: SEL_MORE, byId: byId, PAGE: PAGE, PAGE_OFF: null, testTag: testTag, verWord: verWord };
 })();
 (function () {
   'use strict';

@@ -386,9 +386,10 @@
   function linkSection(ctx, p, text, s, meta) {
     var f = s.fields, map = M.parse(text), x = O.mapStep(map, s) || { step: null }, st = x.step; if (!st) return '';
     var procs = ctx.processes().filter(function (e) { return e.id !== meta.process; }), other = ctx.state.obLinkOther === s.key || (f.process && !procs.some(function (e) { return e.id === f.process; }));
-    var h = '<h3 class="ob-sec">Which process</h3><label class="field" for="ob-link-proc">' + esc(G.form('link-proc').q) + '<select id="ob-link-proc" data-bound><option value=""' + (!f.process ? ' selected' : '') + '>Choose one</option>' +
-      procs.map(function (e) { return '<option value="' + esc(e.id) + '"' + (e.id === f.process && !other ? ' selected' : '') + '>' + esc((e.title || e.id) + ' (' + e.id + ') · ' + (e.latest ? 'v' + e.latest.info.version : 'not published yet')) + '</option>'; }).join('') +
-      '<option value="__other"' + (other ? ' selected' : '') + '>Other ID…</option></select></label>';
+    /* Every other checklist by name, 50 at a time with Find past 50 (K.select); Choose one and Other ID… stay. */
+    var ps = K.select(ctx.state, 'ob-link-proc', procs.map(function (e) { return { v: e.id, t: (e.title || e.id) + ' (' + e.id + ') · ' + (e.latest ? 'v' + e.latest.info.version : 'not published yet'), place: e.id }; }), other ? '__other' : f.process || '',
+      { attrs: ' data-bound', lead: '<option value=""' + (!f.process ? ' selected' : '') + '>Choose one</option>', trail: '<option value="__other"' + (other ? ' selected' : '') + '>Other ID…</option>', keep: [f.process], noun: 'checklist' });
+    var h = '<h3 class="ob-sec">Which process</h3>' + ps.box + '<label class="field" for="ob-link-proc">' + esc(G.form('link-proc').q) + ps.select + '</label>' + ps.more;
     if (other) h += '<label class="field" for="ob-link-proc-other">' + esc(G.form('link-proc-other').q) + '<input id="ob-link-proc-other" maxlength="60" value="' + esc(f.process || '') + '" data-enter="ob-commit"></label>';
     var e = f.process && ctx.procOf ? ctx.procOf(f.process) : null;
     if (f.process && e) {
@@ -399,8 +400,9 @@
       h += '<fieldset class="field"><legend>Which version</legend><label class="ob-switch" for="ob-link-ver-latest"><input type="radio" name="ob-link-ver" id="ob-link-ver-latest" value="latest" data-bound' + (pinned ? '' : ' checked') + '><span><b>' + (two ? 'Latest when this run starts' : 'Latest when the child starts') + '</b></span></label>';
       if (nums.length) h += '<label class="ob-switch" for="ob-link-ver-pin"><input type="radio" name="ob-link-ver" id="ob-link-ver-pin" value="pin" data-bound' + (pinned ? ' checked' : '') + '><span><b>Always one version</b></span></label>';
       /* Which version is asked only once one is pinned. */
-      if (nums.length && pinned) h += '<label class="field" for="ob-link-vn">' + esc(G.form('link-vn').q) + '<select id="ob-link-vn" data-bound>' +
-        nums.map(function (n) { var at = PF.pins.atVersion(e, f.process, n); return '<option value="' + n + '"' + (String(n) === String(f.version) ? ' selected' : '') + (at.why ? ' disabled' : '') + '>v' + n + (at.why ? ' (' + esc(at.why) + ')' : '') + '</option>'; }).join('') + '</select></label>';
+      /* Newest first, 50 at a time with Find past 50 (K.select); whether a version can be pinned is worked out only for those drawn. */
+      if (nums.length && pinned) { var vs = K.select(ctx.state, 'ob-link-vn', nums.map(function (n) { return { v: String(n), t: 'v' + n }; }), String(f.version), { attrs: ' data-bound', noun: 'version', draw: function (it) { var at = PF.pins.atVersion(e, f.process, +it.v); return at.why ? { more: ' (' + at.why + ')', disabled: true } : null; } });
+        h += vs.box + '<label class="field" for="ob-link-vn">' + esc(G.form('link-vn').q) + vs.select + '</label>' + vs.more; }
       h += '</fieldset>';
     }
     var kid = f.process ? linkChildOf(ctx, f.process, f.version) : null;

@@ -19038,6 +19038,53 @@ PF.vk = (function () {
     else h = o.draw(shown) + more + rest;
     return h;
   }
+  /* ---------- a dropdown over a growing list (2.11, K.select) ---------- */
+  /* The value of the last option, "Show 50 more…": no real value can be it (folder, run, plan and step values are words,
+     dashes, slashes and colons). Choosing it widens the list and leaves the choice as it was (app.js). */
+  var SEL_MORE = '#more';
+  /* A native <select> over a list that grows with the team folder: at most 50 of its items (the page) as options, plus the
+     chosen one, in the list's own order; past 50, a Find box above narrows them over every item, and "Show 50 more…" (an
+     option, and a Show more choices button for the keyboard) widens them. The box stays while it has text or focus
+     (st.selFocus), even when fewer than 50 are left. Only the drawn options are built. items: { v, t, place, words,
+     disabled, group } in order; place tells apart items with the same label ("Confirm the result · Phase 3, step 4"), and Find
+     matches it. sel: the value drawn as chosen (the saved one: a choice not saved yet is put back by the page after the draw,
+     so leaving still sees it as unsaved). o: attrs (the select's own attributes, escaped), lead and trail (its fixed options'
+     HTML: None, Any, Latest), keep (values always drawn, sel by default), around (the item to center the first 50 on, with
+     no Find text: the current phase), cur (the choice to keep when Show 50 more… is chosen), noun ("run or plan"), page,
+     draw(item) (what's worked out only for a drawn option: { more: text added to its label, disabled }), group(item) (its
+     optgroup's label).
+     Returns { box, select, more, html, drawn, total }. */
+  function select(st, id, items, sel, o) {
+    o = o || {};
+    var P = o.page || PAGE, n = Math.max(P, Math.floor(((st.more || {})[id]) || P)), q = findQ(st, id), Nn = function (x) { return x.toLocaleString('en-US'); };
+    if (PF.vk.PAGE_OFF === id) n = items.length;
+    var seen = Object.create(null);
+    items.forEach(function (it) { seen[it.t] = (seen[it.t] || 0) + 1; });
+    var text = function (it) { return seen[it.t] > 1 && it.place ? it.t + ' · ' + it.place : it.t; };
+    var hit = finds(q), match = [];
+    items.forEach(function (it, i) { if (!q || hit([text(it), it.place || '', it.words || ''])) match.push(i); });
+    var from = !q && o.around != null && o.around >= 0 ? Math.max(0, Math.min(o.around - Math.floor(n / 2), match.length - n)) : 0;
+    var on = Object.create(null), keep = Object.create(null), cur = o.cur != null ? o.cur : sel;
+    match.slice(from, from + n).forEach(function (i) { on[i] = true; });
+    (o.keep || [sel]).forEach(function (v) { if (v != null && v !== '') keep[v] = true; });
+    items.forEach(function (it, i) { if (keep[it.v]) on[i] = true; });
+    var more = match.length > n, drawn = 0, grp = null, opts = '';
+    items.forEach(function (it, i) {
+      if (!on[i]) return;
+      drawn++;
+      var g = o.group ? o.group(it) : null;
+      if (g !== grp) { opts += (grp != null ? '</optgroup>' : '') + (g != null ? '<optgroup label="' + esc(g) + '">' : ''); grp = g; }
+      var d = o.draw ? o.draw(it) : null, off = d && d.disabled != null ? d.disabled : it.disabled;
+      opts += '<option value="' + esc(it.v) + '"' + (it.v === sel ? ' selected' : '') + (off ? ' disabled' : '') + '>' + esc(text(it) + (d && d.more ? d.more : '')) + '</option>';
+    });
+    if (grp != null) opts += '</optgroup>';
+    var fid = 'find-' + id, showBox = items.length > P || !!q || st.selFocus === id;
+    var box = !showBox ? '' : '<div class="row findbox selfind"><label for="' + esc(fid) + '">Find a ' + esc(o.noun || 'choice') + '</label><input type="search" id="' + esc(fid) + '" data-find="' + esc(id) + '" data-sel-find="' + esc(id) + '" data-nav-safe data-bound value="' + esc(q) + '" autocomplete="off" maxlength="200" aria-controls="' + esc(id) + '" aria-describedby="' + esc(fid) + '-n">' +
+      '<span class="small" id="' + esc(fid) + '-n" role="status">' + (!q ? '' : match.length ? Nn(match.length) + ' of ' + Nn(items.length) + ' match' : 'No ' + esc(o.noun || 'choice') + ' matches "' + esc(q) + '"') + '</span>' + (q ? '<button type="button" class="mini" data-act="find-clear" data-id="' + esc(id) + '">Clear</button>' : '') + '</div>';
+    var selHtml = '<select id="' + esc(id) + '"' + (o.attrs || '') + ' data-kselect data-cur="' + esc(cur == null ? '' : cur) + '">' + (o.lead || '') + opts + (o.trail || '') + (more ? '<option value="' + SEL_MORE + '">Show ' + Math.min(P, match.length - n) + ' more…</option>' : '') + '</select>';
+    var moreBtn = more ? '<button type="button" class="mini selmore" data-act="sel-more" data-id="' + esc(id) + '" aria-controls="' + esc(id) + '">Show more choices</button>' : '';
+    return { box: box, select: selHtml, more: moreBtn, html: box + selHtml + moreBtn, drawn: drawn, total: items.length };
+  }
   /* A selector for the element with this id, whatever the id holds (it comes from files). */
   function byId(id) { return '[id="' + String(id).replace(/["\\]/g, '\\$&') + '"]'; }
   /* A selector for the control that does act on this id (a row that is one button). */
@@ -19126,7 +19173,7 @@ PF.vk = (function () {
   }
   function unsavedWords(ps) { return ps && ps.saved ? 'its run was saved and has changed since' : ps && ps.certain === false ? 'Flightdeck couldn\'t confirm whether its run saved' : 'its run didn\'t save'; }
   function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
-  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, finds: finds, findBox: findBox, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, byId: byId, PAGE: PAGE, PAGE_OFF: null, testTag: testTag, verWord: verWord };
+  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, finds: finds, findBox: findBox, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, select: select, SEL_MORE: SEL_MORE, byId: byId, PAGE: PAGE, PAGE_OFF: null, testTag: testTag, verWord: verWord };
 })();
 (function () {
   'use strict';
@@ -19263,6 +19310,8 @@ PF.vk = (function () {
       (r.ended ? '' : '<div class="bar" aria-hidden="true"><i style="width:' + (t.total ? Math.round(100 * t.done / t.total) : 0) + '%"></i></div>') +
       '<span class="small">' + t.done + ' of ' + t.total + ' steps · started ' + esc(U.when(r.created)) + (r._conflicts && r._conflicts.length ? ' · <b style="color:var(--stop)">conflict copy found</b>' : '') + ((ctx.state.missing || {})[runKey(r)] ? ' · <b style="color:var(--stop)">its file is gone from the team folder</b>' : '') + '</span></button>';
   }
+  /* Home's lists are a glance: 10 at a time, each linking to its full page (2.11). */
+  var HOME_PAGE = 10;
   /* A Processes row shows this many skill chips (2.11). */
   var CHIPS = 5;
   var SKILL_PILL = { current: ['passed', 'current'], unaffected: ['open', 'note version'], update: ['failed', 'needs update'], missing: ['failed', 'check it'], unmatched: ['failed', 'can\'t be matched'] };
@@ -19319,33 +19368,36 @@ PF.vk = (function () {
   /* ---------- Home: only what needs this person, each with one obvious next step ---------- */
   function home(ctx) {
     var st = ctx.state, d = ctx.data, me = st.me, items = [];
-    var add = function (kind, title, sub, act, id, label) { items.push('<li class="todo ' + kind + '"><div><b>' + title + '</b>' + (sub ? '<div class="small">' + sub + '</div>' : '') + '</div><button class="btn" data-act="' + act + '" data-id="' + esc(id) + '">' + esc(label) + '</button></li>'); };
+    /* Each row is a light descriptor (2.11): what it says (text(), returning its title and line as HTML) is worked out only
+       for the rows drawn, 10 at a time; whether it's there at all is decided here, for the count. */
+    var add = function (kind, text, act, id, label) { items.push({ kind: kind, text: text, act: act, id: id, label: label }); };
+    var todo = function (x, i) { PF.perf.add('home.todo'); var t = x.text(); return '<li class="todo ' + x.kind + '" id="todo-' + x.n + '"><div><b tabindex="-1">' + t[0] + '</b>' + (t[1] ? '<div class="small">' + t[1] + '</div>' : '') + '</div><button class="btn" data-act="' + x.act + '" data-id="' + esc(x.id) + '">' + esc(x.label) + '</button></li>'; };
     /* Folder problems that need a person come first, with one way to see them all. */
     var hr = ctx.health ? ctx.health(false) : null, stops = hr ? hr.issues.filter(function (i) { return i.severity === 'stop'; }) : [];
-    if (stops.length) add('health', 'The team folder needs attention', esc(stops[0].title) + (stops.length > 1 ? ', and ' + (stops.length - 1) + ' more' : '') + '.', 'health', '', 'Open Folder health');
+    if (stops.length) add('health', function () { return ['The team folder needs attention', esc(stops[0].title) + (stops.length > 1 ? ', and ' + (stops.length - 1) + ' more' : '') + '.']; }, 'health', '', 'Open Folder health');
     var repWait = me && ctx.reportsWaiting ? ctx.reportsWaiting() : {};
     if (me) d.runs.filter(function (r) { return r.state === 'running'; }).forEach(function (r) {
-      var map = R.mapOf(r), hl = K.headline(r, map), nx = R.myNext(r, map, me), nr = Object.prototype.hasOwnProperty.call(repWait, runKey(r)) ? repWait[runKey(r)] : 0;
+      var mine = r.recorder.person === me, map = R.mapOf(r), nx = mine ? null : R.myNext(r, map, me), nr = Object.prototype.hasOwnProperty.call(repWait, runKey(r)) ? repWait[runKey(r)] : 0;
       var tt = R.isTest(r) ? 'Test run · ' : '';
-      if (r.recorder.person === me) add('run', tt + esc(r.title) + ': you\'re recording', esc(hl.text), 'open-run', runKey(r), 'Open the run');
-      else if (nx) add('run', tt + esc(r.title) + ': you\'re up', K.stepHtml(nx.step, K.refValue(r, map), false) + ' · ' + esc(nameOf(ctx, r.recorder.person)) + ' is recording', 'open-run', runKey(r), 'Open the run');
-      if (r.recorder.person === me && nr) add('run', nr + ' report' + (nr === 1 ? '' : 's') + ' to review on ' + esc(r.title), 'A tool says it did ' + (nr === 1 ? 'a step' : 'steps') + '. Accept or decline ' + (nr === 1 ? 'it' : 'each') + ' on the step.', 'open-run', runKey(r), 'Review');
+      if (mine) add('run', function () { return [tt + esc(r.title) + ': you\'re recording', esc(K.headline(r, map).text)]; }, 'open-run', runKey(r), 'Open the run');
+      else if (nx) add('run', function () { return [tt + esc(r.title) + ': you\'re up', K.stepHtml(nx.step, K.refValue(r, map), false) + ' · ' + esc(nameOf(ctx, r.recorder.person)) + ' is recording']; }, 'open-run', runKey(r), 'Open the run');
+      if (mine && nr) add('run', function () { return [nr + ' report' + (nr === 1 ? '' : 's') + ' to review on ' + esc(r.title), 'A tool says it did ' + (nr === 1 ? 'a step' : 'steps') + '. Accept or decline ' + (nr === 1 ? 'it' : 'each') + ' on the step.']; }, 'open-run', runKey(r), 'Review');
     });
     /* A plan with a time shows here from 24 hours before it; one without a time shows until someone decides on it. */
     var now = ctx.now(), clash = 'Two decisions on it disagree; check Runs before starting it.';
     byWhen(d.plans.filter(function (p) { return !p._status && !p._decidedEarlier; })).forEach(function (p) {
       var t = whenOf(p), c = PF.requests.claim(p), flag = p._conflicting ? clash : p._copiesDiffer ? copiesLine(p) : null;
-      if (t == null) add('plan', c ? esc(c.name) + ' requested "' + esc(p.title) + '" (by its own account)' : esc(p.by ? nameOf(ctx, p.by) : 'Your AI assistant') + ' planned "' + esc(p.title) + '"', flag || 'Review it before it starts.', 'review-plan', p.id, 'Review the plan');
-      else if (t - now <= 86400000) add('plan', esc(p.title) + ' is planned for ' + esc(U.dueWords(p.when, now)), flag || (c ? 'Requested by ' + esc(c.name) + ', by its own account.' : 'Planned by ' + esc(p.by ? nameOf(ctx, p.by) : 'an AI assistant') + '.'), 'review-plan', p.id, 'Review and start');
+      if (t == null) add('plan', function () { return [c ? esc(c.name) + ' requested "' + esc(p.title) + '" (by its own account)' : esc(p.by ? nameOf(ctx, p.by) : 'Your AI assistant') + ' planned "' + esc(p.title) + '"', flag || 'Review it before it starts.']; }, 'review-plan', p.id, 'Review the plan');
+      else if (t - now <= 86400000) add('plan', function () { return [esc(p.title) + ' is planned for ' + esc(U.dueWords(p.when, now)), flag || (c ? 'Requested by ' + esc(c.name) + ', by its own account.' : 'Planned by ' + esc(p.by ? nameOf(ctx, p.by) : 'an AI assistant') + '.')]; }, 'review-plan', p.id, 'Review and start');
     });
-    (ctx.lostDrafts ? ctx.lostDrafts() : []).forEach(function (id) { add('draft', 'Unsaved edits to "' + esc(id) + '"', 'Its draft was removed from the folder. Save it again or copy it.', 'open-process', id, 'Open it'); });
+    (ctx.lostDrafts ? ctx.lostDrafts() : []).forEach(function (id) { add('draft', function () { return ['Unsaved edits to "' + esc(id) + '"', 'Its draft was removed from the folder. Save it again or copy it.']; }, 'open-process', id, 'Open it'); });
     ctx.processes().forEach(function (p) {
       var owner = p.latest && p.latest.map.meta.owner, mine = K.keeps(ctx, p);
       /* A draft and skills that need attention go to whoever looks after the checklist (K.keepers); to everyone when nobody does. */
-      if (p.draft && p.draftChanged && mine) add('draft', esc(p.title) + ': the draft has unpublished changes', p.latest ? 'Publish it as v' + (p.latest.info.version + 1) + ' when it\'s ready.' : 'Not published yet.', 'open-process', p.id, 'Review and publish');
-      if (p.staleSkills && mine) add('skill', esc(p.title) + ': ' + p.staleSkills + ' skill' + (p.staleSkills === 1 ? ' needs' : 's need') + ' attention', 'The checklist changed since they were built.', 'open-process', p.id, 'See the skills');
+      if (p.draft && p.draftChanged && mine) add('draft', function () { return [esc(p.title) + ': the draft has unpublished changes', p.latest ? 'Publish it as v' + (p.latest.info.version + 1) + ' when it\'s ready.' : 'Not published yet.']; }, 'open-process', p.id, 'Review and publish');
+      if (p.staleSkills && mine) add('skill', function () { return [esc(p.title) + ': ' + p.staleSkills + ' skill' + (p.staleSkills === 1 ? ' needs' : 's need') + ' attention', 'The checklist changed since they were built.']; }, 'open-process', p.id, 'See the skills');
       var signer = p.latest && owner ? PF.skills.signer(p.latest, d.people, me, !!(d.failed || {}).people) : '';
-      if (signer && !PF.skills.signoffs(d.validations, p.latest).length && !PF.skills.signUnknown(d, p.latest) && PF.skills.readiness(ctx.countedRuns ? ctx.countedRuns(p.latest.map.meta.process) : d.runs, p.latest, null).enough) add('sign', esc(p.title) + ' v' + p.latest.info.version + ' is ready for a skill', signer === 'backup' ? 'Enough clean runs. Its owner is away, so as backup owner, you sign it off.' : 'Enough clean runs. As its owner, you sign it off.', 'open-process', p.id, 'Sign it off');
+      if (signer && !PF.skills.signoffs(d.validations, p.latest).length && !PF.skills.signUnknown(d, p.latest) && PF.skills.readiness(ctx.countedRuns ? ctx.countedRuns(p.latest.map.meta.process) : d.runs, p.latest, null).enough) add('sign', function () { return [esc(p.title) + ' v' + p.latest.info.version + ' is ready for a skill', signer === 'backup' ? 'Enough clean runs. Its owner is away, so as backup owner, you sign it off.' : 'Enough clean runs. As its owner, you sign it off.']; }, 'open-process', p.id, 'Sign it off');
     });
     var h = notices(ctx);
     if (st.needsReconnect && ctx.navPending && ctx.navPending()) h += '<div class="notice" role="status"><span>Reconnect to open the page you linked to.</span><button class="mini" data-act="reconnect">Reconnect</button></div>';
@@ -19353,7 +19405,8 @@ PF.vk = (function () {
     h += pageHead('Home', me ? 'Hi, ' + esc(nameOf(ctx, me).split(' ')[0]) : 'Welcome', me ? (items.length ? items.length + ' thing' + (items.length === 1 ? '' : 's') + ' need' + (items.length === 1 ? 's' : '') + ' you.' : st.reading ? 'Still reading the team folder.' : 'Nothing needs you right now.') : '', '', 'page-h');
     h += stillReading(ctx, true);
     if (V.setupHome) h += V.setupHome(ctx);
-    if (items.length) h += '<section class="panel" aria-labelledby="todo-h"><h2 id="todo-h">Needs you</h2><ul class="todos">' + items.join('') + '</ul></section>';
+    items.forEach(function (x, i) { x.n = i; });
+    if (items.length) h += '<section class="panel" aria-labelledby="todo-h"><h2 id="todo-h">Needs you</h2>' + K.list(st, 'home-todo', items, { draw: function (shown) { return '<ul class="todos">' + shown.map(todo).join('') + '</ul>'; }, keyOf: function (x) { return String(x.n); }, focusOf: function (k) { return '#todo-' + k + ' b'; }, page: HOME_PAGE }) + '</section>';
     h += acksPanel(ctx);
     h += myFollowUps(ctx);
     /* Test runs (2.1) are never counted as real runs. */
@@ -19372,24 +19425,26 @@ PF.vk = (function () {
     var list = ctx.acks ? ctx.acks() : me ? [].concat.apply([], ctx.processes().map(function (p) { return C.acks(V.corrGroups(ctx, p.id), me, null); })) : [];
     if (!list.length) return '';
     var stepName = function (g) { return '"' + C.targetName(g) + '"'; };
-    return '<section class="panel" aria-labelledby="ack-h"><h2 id="ack-h">Your corrections</h2><ul class="todos">' + list.map(function (a) {
+    var rows = list.map(function (a, i) { return { a: a, n: i }; });
+    return '<section class="panel" aria-labelledby="ack-h"><h2 id="ack-h">Your corrections</h2>' + K.list(ctx.state, 'home-acks', rows, { page: HOME_PAGE, keyOf: function (x) { return String(x.n); }, focusOf: function (k) { return '#ack-' + k + ' b'; }, draw: function (shown) { return '<ul class="todos">' + shown.map(function (x) {
+      var a = x.a;
       var gs = a.groups || [a.group], title;
       /* Plain text, escaped once where it's used. */
       if (a.kind === 'landed') title = gs.length === 1 ? 'Your correction to ' + stepName(gs[0]) + ' is published in v' + a.version + '.'
         : 'Your corrections to ' + stepName(gs[0]) + (gs.length === 2 ? ' and ' + stepName(gs[1]) : ' and ' + (gs.length - 1) + ' other steps') + ' are published in v' + a.version + '.';
       else title = nameOf(ctx, a.by) + ' declined your correction: ' + a.reason;
       var sub = ctx.processTitle(a.process) + (a.kind === 'declined' ? ' · ' + stepName(a.group) : '');
-      return '<li class="todo ack ' + a.kind + '"><div><b>' + esc(title) + '</b><div class="small">' + esc(sub) + '</div></div><span class="row"><button class="btn" data-act="ack-view" data-id="' + esc(a.key) + '" data-process="' + esc(a.process) + '">View change</button>' +
+      return '<li class="todo ack ' + a.kind + '" id="ack-' + x.n + '"><div><b tabindex="-1">' + esc(title) + '</b><div class="small">' + esc(sub) + '</div></div><span class="row"><button class="btn" data-act="ack-view" data-id="' + esc(a.key) + '" data-process="' + esc(a.process) + '">View change</button>' +
         '<button class="mini" data-act="ack-dismiss" data-id="' + esc(a.key) + '" aria-label="Dismiss: ' + esc(title) + '">Dismiss</button></span></li>';
-    }).join('') + '</ul></section>';
+    }).join('') + '</ul>'; } }) + '</section>';
   }
 
   /* Open follow-ups this person owns, however old; resolved ones drop off. Like acknowledgments, never counted in Needs you. */
   function myFollowUps(ctx) {
     var me = ctx.state.me, all = V.fuList(ctx), mine = PF.followups.mine(all, me), open = all.filter(PF.followups.isOpen).length;
-    if (!mine.length) return open ? '<p class="small fu-all"><button class="linkish" data-act="nav" data-id="followups">All open follow-ups · ' + open + '</button></p>' : '';
+    if (!mine.length && !(ctx.state.fuPick && ctx.state.view === 'home')) return open ? '<p class="small fu-all"><button class="linkish" data-act="nav" data-id="followups">All open follow-ups · ' + open + '</button></p>' : '';
     return '<section class="panel" aria-labelledby="fu-home-h"><div class="row between"><h2 id="fu-home-h">Your follow-ups · ' + mine.length + '</h2><button class="mini" data-act="nav" data-id="followups">All open follow-ups · ' + open + '</button></div>' +
-      '<ul class="fulist">' + mine.map(function (x) { return V.fuRow(ctx, x, { run: true, age: true }); }).join('') + '</ul></section>';
+      V.fuPaged(ctx, 'home-fu', mine, all, { page: HOME_PAGE }) + '</section>';
   }
 
   /* ---------- Runs › Follow-ups: every follow-up across runs, and what became of it ---------- */
@@ -19403,8 +19458,11 @@ PF.vk = (function () {
     h += '<section class="panel"><div class="row between" style="margin-bottom:10px"><h2 id="fu-list-h" tabindex="-1" style="margin:0">' + (filter === 'all' ? 'Every follow-up · ' + all.length : filter === 'mine' ? 'Open and yours · ' + mine.length : 'Open · ' + open.length) + '</h2>' +
       '<div class="filter" role="group" aria-label="Show follow-ups">' + [['open', 'Open'], ['mine', 'Yours'], ['all', 'All']].map(function (f) { return '<button class="chipbtn" data-act="fu-filter" data-id="' + f[0] + '" aria-pressed="' + (filter === f[0]) + '">' + f[1] + '</button>'; }).join('') + '</div></div>';
     if (!me && shown.length) h += '<p class="small">Choose who you are at the top right to say what became of a follow-up.</p>';
-    h += shown.length ? '<ul class="fulist">' + shown.map(function (x) { return V.fuRow(ctx, x, { run: true, age: true }); }).join('') + '</ul>'
-      : '<p class="muted">' + (filter === 'all' ? 'No run has follow-ups yet. The recorder adds them while finishing a run.' : filter === 'mine' ? (me ? 'Nothing open is yours.' : 'Choose who you are to see yours.') : 'Nothing is open. Every follow-up has been dealt with.') + '</p>';
+    /* Find a follow-up (2.11): by its text, its run, its owner and its step, over the chip's whole list; 50 at a time. */
+    var q = K.findQ(st, 'fu'), hit = K.finds(q), stepOf = function (x) { if (!x.f.step) return ''; var r = ctx.findRun ? ctx.findRun(x.runKey) : null, y = r ? M.findStep(R.mapOf(r), x.f.step) : null; return y ? K.stepPlain(y.step, null) : x.f.step; };
+    var found = q ? shown.filter(function (x) { return hit([x.text, x.runTitle, x.owner ? nameOf(ctx, x.owner) : '', x.f.ticket, stepOf(x)]); }) : shown;
+    if (shown.length) h += K.findBox(st, 'fu', 'Find a follow-up', found.length, shown.length, 'follow-up');
+    h += V.fuPaged(ctx, 'fu', found, all) || (shown.length ? '' : '<p class="muted">' + (filter === 'all' ? 'No run has follow-ups yet. The recorder adds them while finishing a run.' : filter === 'mine' ? (me ? 'Nothing open is yours.' : 'Choose who you are to see yours.') : 'Nothing is open. Every follow-up has been dealt with.') + '</p>');
     return h + '</section>';
   }
 
@@ -19422,18 +19480,25 @@ PF.vk = (function () {
     if (bad.length) h += '<div class="notice bad" role="alert"><span><b>' + (bad.length === 1 ? 'A run file can\'t be read' : bad.length + ' run files can\'t be read') + '.</b> ' + bad.slice(0, 3).map(function (u) { return '<code>' + esc(u.path) + '</code> ' + esc(u.why); }).join('; ') + (bad.length > 3 ? '; and ' + (bad.length - 3) + ' more' : '') + '. ' + (bad.some(function (u) { return ctx.findRun(u.key); }) ? 'What was read before is still shown. ' : '') + 'It may still be arriving.</span><span class="row"><button class="mini" data-act="health">Folder health</button><button class="mini" data-act="recovery" data-id="a-file-cant-be-read">What to do</button></span></div>';
     var cards = function (list) { return '<div class="cards">' + list.map(function (r) { return runCard(ctx, r); }).join('') + '</div>'; };
     /* A filter or the runs behind a number in How runs go (views/insights.js) replace the lists below. */
+    /* A plan just saved (2.11) is shown at the top, above the filters, whatever they or a cohort from How runs go leave out,
+       until you leave Runs; it has the card's id there. */
+    var cardIds = {}, jp = st.justPlanned ? d.plans.filter(function (p) { return p.id === st.justPlanned.id; })[0] : null;
+    if (jp) h += '<section class="panel just-planned" aria-labelledby="jp-h"><h2 id="jp-h">Just planned</h2><div class="cards">' + planCard(jp, '') + '</div></section>';
     var cohort = st.runFilter && st.runFilter.cohort, only = V.runsFiltered(ctx, cards);
     if (!cohort) h += V.runsFilterBar(ctx);
     if (only) return h + only;
     h += '<section class="panel"><div class="row between" style="margin-bottom:10px"><h2 style="margin:0">Running</h2><div class="filter" role="group" aria-label="Show runs"><button class="chipbtn" data-act="filter" data-id="mine" aria-pressed="' + (st.filter !== 'all') + '">Mine</button><button class="chipbtn" data-act="filter" data-id="all" aria-pressed="' + (st.filter === 'all') + '">Everyone</button></div></div>';
     h += (running.length ? K.paged(st, 'runs-running', running, cards, runKey) : '<div class="cards"><p class="muted">' + (st.reading ? 'None read yet.' : st.filter === 'all' ? 'Nothing is running.' : 'Nothing you\'re recording or assigned to. Switch to Everyone to see the rest.') + '</p></div>') + '</section>';
-    /* Copies of one plan that differ are each shown; only the first keeps the card's id, so ids stay unique. */
-    var cardIds = {};
-    if (plans.length) h += '<section class="panel"><h2>Planned</h2><div class="cards">' + plans.map(function (p) {
+    /* 50 at a time, soonest first (2.11). Copies of one plan that differ are each shown; only the first keeps the card's id, so
+       ids stay unique, and none does while the plan is in Just planned above. */
+    var nth = {};
+    var planKeyed = plans.map(function (p) { nth[p.id] = (nth[p.id] || 0) + 1; return { p: p, key: nth[p.id] > 1 ? p.id + '#' + nth[p.id] : p.id }; });
+    if (plans.length) h += '<section class="panel" aria-labelledby="planned-h"><h2 id="planned-h">Planned · ' + plans.length.toLocaleString('en-US') + '</h2>' + K.list(st, 'runs-planned', planKeyed, { keyOf: function (x) { return x.key; }, focusOf: function (k) { return '[data-act="review-plan"][data-key="' + String(k).replace(/["\\]/g, '\\$&') + '"]'; }, draw: function (shown) { return '<div class="cards">' + shown.map(function (x) { return planCard(x.p, x.key); }).join('') + '</div>'; } }) + '</section>';
+    function planCard(p, key) {
       var cid = cardIds[p.id] ? '' : ' id="card-' + esc(p.id) + '"', copies = copiesLine(p);
       cardIds[p.id] = true;
-      return '<button class="card plan"' + cid + ' data-act="review-plan" data-id="' + esc(p.id) + '"><span class="cat">' + esc(ctx.processTitle(p.process)) + ' · ' + esc(plannedBy(ctx, p)) + '</span><span class="card-title">' + esc(p.title) + '</span>' + (whenOf(p) != null ? '<span class="small">' + esc(U.dueWords(p.when, now)) + '</span>' : '') + (p._conflicting ? '<span class="small" style="color:var(--stop)"><b>Two decisions on this plan disagree.</b> Someone may have started it already; check Runs before starting it again.</span>' : '') + (p._decidedEarlier && !p._conflicting ? '<span class="small">' + esc(V.earlierWords(p, d)) + '</span>' : '') + (copies ? '<span class="small"' + (p._copiesDiffer ? ' style="color:var(--stop)"' : '') + '>' + copies + '</span>' : '') + (p.note ? '<span class="small">' + esc(p.note) + '</span>' : '') + '</button>';
-    }).join('') + '</div></section>';
+      return '<button class="card plan"' + cid + ' data-act="review-plan" data-id="' + esc(p.id) + '"' + (key ? ' data-key="' + esc(key) + '"' : '') + '><span class="cat">' + esc(ctx.processTitle(p.process)) + ' · ' + esc(plannedBy(ctx, p)) + '</span><span class="card-title">' + esc(p.title) + '</span>' + (whenOf(p) != null ? '<span class="small">' + esc(U.dueWords(p.when, now)) + '</span>' : '') + (p._conflicting ? '<span class="small" style="color:var(--stop)"><b>Two decisions on this plan disagree.</b> Someone may have started it already; check Runs before starting it again.</span>' : '') + (p._decidedEarlier && !p._conflicting ? '<span class="small">' + esc(V.earlierWords(p, d)) + '</span>' : '') + (copies ? '<span class="small"' + (p._copiesDiffer ? ' style="color:var(--stop)"' : '') + '>' + copies + '</span>' : '') + (p.note ? '<span class="small">' + esc(p.note) + '</span>' : '') + '</button>';
+    }
     /* The newest 8 finished runs, and any run with a warning; the rest one click away, remembered. */
     var warned = function (r) { return (r._conflicts && r._conflicts.length) || (st.missing || {})[runKey(r)]; };
     var flagged = ended.filter(function (r, i) { return i >= 8 && warned(r); }), older = ended.filter(function (r, i) { return i >= 8 && !warned(r); }), allOpen = (st.disc || {})['runs-older'];
@@ -20628,7 +20693,7 @@ PF.vk = (function () {
     return '<div class="prov"><span class="badge b-changed">Changed in v' + esc(g.landed.version) + '</span><details class="prov-why" data-disc="' + esc(disc) + '"' + (open ? ' open' : '') + '><summary class="small">Why is this here?</summary>' +
       (dl ? '<dl class="corr-dl">' + dl + '</dl>' : '') + runs + who + '</details></div>';
   }
-  V.fuList = fuList; V.fuRow = fuRow; V.fuPill = fuPill;
+  V.fuList = fuList; V.fuRow = fuRow; V.fuPill = fuPill; V.fuPaged = fuPaged;
   V.redline = redline; V.corrRow = corrRow; V.corrPill = corrPill; V.corrIndex = corrIndex; V.corrGroups = corrGroups;
   /* The composer: Correct this step (a proposal; it doesn't answer the step) or Done differently (answers it; what happened
      first, then whether the checklist should change). The published step stays shown above it, never replaced. */
@@ -20660,10 +20725,18 @@ PF.vk = (function () {
         h += '<label class="sr" for="corr-text">The missing step</label><textarea id="corr-text" rows="2" maxlength="2000" placeholder="What the missing step says" data-bound' + bad('corr-text') + '>' + esc(f.text) + '</textarea>' + fe('corr-text') +
           '<fieldset class="corr-where"><legend class="small">Where it goes</legend>' + [['after', 'After this step'], ['end', 'At the end of ' + x.phase.title]].map(function (w) { return '<label class="check-label small"><input type="radio" name="corr-where" id="corr-where-' + w[0] + '" data-bound' + (f.where === w[0] ? ' checked' : '') + '> ' + esc(w[1]) + '</label>'; }).join('') + '</fieldset>';
       } else if (f.op === 'move') {
-        var opts = '<option value="">Choose…</option>' + map.phases.map(function (p) {
-          return '<optgroup label="' + esc(p.title) + '"><option value="start:' + esc(p.id) + '"' + (f.moveTo === 'start:' + p.id ? ' selected' : '') + '>At the start of ' + esc(p.title) + '</option>' + p.steps.filter(function (y) { return y.id !== s.id; }).map(function (y) { return '<option value="after:' + esc(y.id) + '"' + (f.moveTo === 'after:' + y.id ? ' selected' : '') + '>After "' + esc(K.stepPlain(y, K.refValue(r, map)).slice(0, 80)) + '"</option>'; }).join('') + '</optgroup>';
-        }).join('');
-        h += '<label class="small" for="corr-move">Move it to</label><select id="corr-move" data-bound' + bad('corr-move') + '>' + opts + '</select>' + fe('corr-move');
+        /* Every place in checklist order, the 50 nearest this step first, with Find past 50 (K.select). Places whose step reads the
+           same are told apart by where they are. */
+        var places = [], near = 0, rv = K.refValue(r, map);
+        map.phases.forEach(function (p, pi) {
+          places.push({ v: 'start:' + p.id, t: 'At the start of ' + p.title, place: 'Phase ' + (pi + 1), g: p.title });
+          p.steps.forEach(function (y, si) {
+            if (y.id === s.id) { near = places.length; return; }
+            places.push({ v: 'after:' + y.id, t: 'After "' + K.stepPlain(y, rv).slice(0, 80) + '"', place: 'Phase ' + (pi + 1) + ', step ' + (si + 1), g: p.title });
+          });
+        });
+        var mv = K.select(st, 'corr-move', places, f.moveTo || '', { attrs: ' data-bound' + bad('corr-move'), lead: '<option value="">Choose…</option>', around: near, noun: 'place', group: function (it) { return it.g; } });
+        h += mv.box + '<label class="small" for="corr-move">Move it to</label>' + mv.select + mv.more + fe('corr-move');
       } else if (f.op === 'roles') {
         var roles = map.meta.roles || [];
         h += roles.length ? '<fieldset class="corr-roles" id="corr-roles" tabindex="-1"' + bad('corr-roles') + '><legend class="small">Who should do it</legend>' + roles.map(function (ro) { return '<label class="check-label small"><input type="checkbox" id="corr-role-' + esc(ro) + '" data-bound' + (f.roles.indexOf(ro) >= 0 ? ' checked' : '') + '> @' + esc(ro) + (r.roles[ro] ? ' (' + esc(nameOf(ctx, r.roles[ro])) + ')' : '') + '</label>'; }).join('') + '</fieldset>' + fe('corr-roles')
@@ -20933,9 +21006,13 @@ PF.vk = (function () {
     if (x.owner) meta.push(esc(nameOf(ctx, x.owner)));
     if (opts.run) meta.push((x.test ? 'Test run · ' : '') + '<button class="linkish" data-act="open-run" data-id="' + esc(x.runKey) + '">' + esc(x.runTitle) + '</button>');
     if (opts.age && x.status === 'open') meta.push(days === 0 ? 'added today' : 'open ' + days + ' day' + (days === 1 ? '' : 's'));
-    var h = '<li class="fu" id="fu-' + esc(x.key.replace(/\//g, '--')) + '"><div class="fu-main"><span class="fu-text">' + esc(f.text) + (f.ticket ? ' <span class="cat">' + esc(f.ticket) + '</span>' : '') + '</span>' + fuPill(x) +
-      (meta.length ? '<span class="small fu-meta">' + meta.join(' · ') + '</span>' : '') + '</div>' + fuDecided(ctx, x);
+    var h = '<li class="fu' + (opts.removed ? ' fu-gone' : '') + '" id="fu-' + esc(x.key.replace(/\//g, '--')) + '"><div class="fu-main"><span class="fu-text" tabindex="-1">' + esc(f.text) + (f.ticket ? ' <span class="cat">' + esc(f.ticket) + '</span>' : '') + '</span>' + (opts.removed ? '' : fuPill(x)) +
+      (meta.length ? '<span class="small fu-meta">' + meta.join(' · ') + '</span>' : '') + '</div>' + (opts.removed ? '' : fuDecided(ctx, x));
+    /* A row kept for its open form (2.11) says when it no longer matches: someone decided it, or it left the folder. */
+    if (opts.removed) h += '<p class="small fu-kept" role="note"><b>Removed elsewhere.</b> This follow-up isn\'t in the folder anymore, so what you typed can\'t be saved. Copy it if you need it.</p>';
+    else if (pick && x.status !== 'open' && x.decision) h += '<p class="small fu-kept" role="note"><b>No longer open:</b> ' + esc(PF.followups.LABEL[x.status].toLowerCase()) + ' by ' + esc(nameOf(ctx, x.decision.by)) + '</p>';
     var acts = '';
+    if (opts.removed) { if (pick && opts.actions !== false) h += fuForm(ctx, x, pick.status, true); return h + '</li>'; }
     if (opts.actions !== false && me && x.decidable) {
       if (x.status === 'open') acts = ['done', 'ticket', 'moved', 'wont'].map(function (k) {
         var on = !!pick && pick.status === k;
@@ -20950,7 +21027,7 @@ PF.vk = (function () {
   }
   /* The form for one decision. Its element IDs belong to this follow-up (PF.followups.formId), so a box typed in for one
      follow-up is never carried into another's form. Labels above boxes, errors next to their box. */
-  function fuForm(ctx, x, status) {
+  function fuForm(ctx, x, status, removed) {
     var st = ctx.state, saving = !!(st.fuSaving && st.fuSaving[x.key]), base = PF.followups.formId(x.key);
     var box = function (part, label, attrs, hint) {
       var id = base + '-' + part, bad = st.fieldErr && st.fieldErr.id === id, desc = [hint ? id + '-hint' : '', bad ? 'ferr-' + id : ''].filter(Boolean).join(' ');
@@ -20960,14 +21037,56 @@ PF.vk = (function () {
     if (status === 'done') h += box('link', 'Link (optional)', 'type="url" maxlength="500" placeholder="https://"', 'Where the work is: a merged pull request, a page, a message.') + box('note', 'Note (optional)', 'maxlength="300"');
     else if (status === 'ticket') h += box('ticket', 'Ticket key or link', 'maxlength="500" placeholder="ABC-123" autocomplete="off"');
     else if (status === 'moved') {
-      var runs = (ctx.data.runs || []).filter(function (r) { return r.state === 'running' && !(r.process === x.process && r.id === x.run); }), plans = (ctx.data.plans || []).filter(function (p) { return !p._status && !p._decidedEarlier && /^[\w-]{1,100}$/.test(p.id || ''); });
-      var toId = base + '-to', bad = st.fieldErr && st.fieldErr.id === toId;
-      h += '<label class="field" for="' + toId + '">The run or plan it moved to<select id="' + toId + '"' + (bad ? ' aria-invalid="true" aria-describedby="ferr-' + toId + '"' : '') + '><option value="">None: I\'ll paste a link</option>' +
-        (runs.length ? '<optgroup label="Running">' + runs.map(function (r) { return '<option value="' + esc(r.process + '/' + r.id) + '">' + esc(r.title) + '</option>'; }).join('') + '</optgroup>' : '') +
-        (plans.length ? '<optgroup label="Planned">' + plans.map(function (p) { return '<option value="plan:' + esc(p.id) + '">' + esc(p.title) + '</option>'; }).join('') + '</optgroup>' : '') + '</select></label>' + ferr(st, toId) +
+      var toId = base + '-to', bad = st.fieldErr && st.fieldErr.id === toId, pick = st.fuPick && st.fuPick.key === x.key ? st.fuPick : {}, to = pick.to || null;
+      var dest = movedTo(ctx, x), chosen = to ? dest.filter(function (it) { return it.v === to.v; })[0] : null, gone = to && !chosen ? destGone(ctx, to) : null;
+      /* A run whose file left the folder is still listed (its last copy stays on screen), but chosen, it's said to be gone. */
+      if (chosen && (st.missing || {})[to.v]) { gone = destGone(ctx, to, true); dest = dest.filter(function (it) { return it !== chosen; }); }
+      /* The chosen destination is drawn whatever Find shows, and, once a newer read has ended, started or removed it, as it
+         was, marked; Save sends it as chosen (2.10 checks only that it's a run or plan reference). The saved default stays
+         None, so a choice not saved yet is still unsaved work (the page puts it back after each draw). */
+      var ms = K.select(st, toId, dest, '', { attrs: bad ? ' aria-invalid="true" aria-describedby="ferr-' + toId + '"' : (gone ? ' aria-describedby="' + toId + '-gone"' : ''), keep: to ? [to.v] : [], cur: to ? to.v : '', noun: 'run or plan', group: function (it) { return it.g; },
+        lead: '<option value="">None: I\'ll paste a link</option>' + (gone ? '<option value="' + esc(to.v) + '">' + esc(to.t + ' (' + gone.mark + ')') + '</option>' : '') });
+      h += ms.box + '<label class="field" for="' + toId + '">The run or plan it moved to' + ms.select + '</label>' + ms.more + (gone ? '<p class="small fu-gone-to" id="' + toId + '-gone" role="note">' + esc(gone.line) + '</p>' : '') + ferr(st, toId) +
         box('link', 'Or a link (optional)', 'type="url" maxlength="500" placeholder="https://"');
     } else if (status === 'wont') h += box('reason', 'Why won\'t it be done?', 'maxlength="300"', 'Everyone who opens the run sees this.');
+    /* A follow-up removed by a newer read can't be decided: what was typed can be copied, and the form closed. */
+    if (removed) return h + '<div class="row"><button class="btn" data-act="fu-copy" data-id="' + esc(x.key) + '">Copy my text</button><button class="mini" data-act="fu-cancel" data-id="' + esc(x.key) + '">Cancel</button></div></div>';
     return h + '<div class="row"><button class="btn primary" data-act="fu-save" data-id="' + esc(x.key) + '"' + (saving ? ' disabled' : '') + '>' + (saving ? 'Saving…' : 'Save') + '</button><button class="mini" data-act="fu-cancel" data-id="' + esc(x.key) + '">Cancel</button></div></div>';
+  }
+  /* Where a follow-up can move to (2.11): running runs and undecided plans, as K.select items. In this order, so the first 50
+     are the likeliest: running runs of the same checklist, then other running runs, newest first, then plans, soonest
+     first. Find matches a run or plan by its title, key and checklist. */
+  function movedTo(ctx, x) {
+    var runs = (ctx.data.runs || []).filter(function (r) { return r.state === 'running' && !(r.process === x.process && r.id === x.run); }), plans = (ctx.data.plans || []).filter(function (p) { return !p._status && !p._decidedEarlier && /^[\w-]{1,100}$/.test(p.id || ''); });
+    var at = function (r) { return String(r.created || ''); }, when = function (p) { var t = typeof p.when === 'string' ? Date.parse(p.when) : NaN; return isNaN(t) ? Infinity : t; };
+    runs = runs.slice().sort(function (a, b) { return (a.process === x.process ? 0 : 1) - (b.process === x.process ? 0 : 1) || (at(a) < at(b) ? 1 : at(a) > at(b) ? -1 : 0); });
+    plans = plans.slice().sort(function (a, b) { return when(a) - when(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0); });
+    return runs.map(function (r) { var t = ctx.processTitle(r.process); return { v: r.process + '/' + r.id, t: r.title, place: t + ' · started ' + U.day(r.created), words: r.process + '/' + r.id + ' ' + t, g: 'Running' }; })
+      .concat(plans.map(function (p) { var t = ctx.processTitle(p.process); return { v: 'plan:' + p.id, t: p.title, place: t + (p.when ? ' · ' + U.day(p.when) : ''), words: p.id + ' ' + t, g: 'Planned' }; }));
+  }
+  /* A chosen destination a newer read took away: how it's marked, and the line under it. */
+  function destGone(ctx, to, missing) {
+    var plan = /^plan:(.+)$/.exec(to.v);
+    if (plan) {
+      var pl = (ctx.data.plans || []).filter(function (p) { return p.id === plan[1]; })[0];
+      var w = pl && pl._status && pl._status.status === 'declined' ? 'declined' : 'started';
+      return pl ? { mark: w, line: w === 'declined' ? 'That plan was declined. Choose where it moved to, or keep it.' : 'That plan has started. Choose where it moved to, or keep it.' } : { mark: 'no longer in the folder', line: 'That plan is no longer in the folder. Saving still records that the work moved there; choose another to change it.' };
+    }
+    var r = !missing && ctx.findRun ? ctx.findRun(to.v) : null;
+    return r ? { mark: 'ended', line: 'That run has ended. Choose where it moved to, or keep it.' } : { mark: 'no longer in the folder', line: 'That run is no longer in the folder. Saving still records that the work moved there; choose another to change it.' };
+  }
+  /* A list of follow-ups a page at a time (2.11): K.list over the rows shown, keeping the one whose form is open wherever it
+     is, even when the chip or Find leaves it out (drawn after the list, marked), and from its snapshot when a newer read
+     removed it. id: the list's paging id; page: its size. */
+  function fuPaged(ctx, id, items, all, o) {
+    var st = ctx.state, pick = st.fuPick, key = pick && pick.key, opts = { run: true, age: true };
+    var row = function (x) { return fuRow(ctx, x, opts); };
+    var h = items.length ? K.list(st, id, items, { draw: function (shown) { return '<ul class="fulist">' + shown.map(row).join('') + '</ul>'; }, keyOf: function (x) { return x.key; },
+      focusOf: function (k) { return K.byId('fu-' + k.replace(/\//g, '--')) + ' .fu-text'; }, page: o && o.page, keep: key ? [key] : [] }) : '';
+    if (!key || items.some(function (x) { return x.key === key; })) return h;
+    var x = all.filter(function (y) { return y.key === key; })[0];
+    if (!x && !pick.snap) return h;
+    return h + '<p class="small kept-h">You\'re editing this one</p><ul class="fulist">' + (x ? row(x) : fuRow(ctx, pick.snap, { run: true, removed: true })) + '</ul>';
   }
   /* Steps outside any track first, then the phase's tracks side by side: parallel work, all finished before the gate. */
   function stepsHtml(ctx, r, p, row, map, pi) {
@@ -21014,10 +21133,14 @@ PF.vk = (function () {
       deck += gateBlock(ctx, r, map, pi, rec, schedBy['gate:' + p.gate.id], folded && locked && !(!P && (s.noteCorrs || {})[ctx.fsKey + '\n' + runKey(r) + '|nc:gate:' + p.gate.id])) + '</section>';
     });
     /* A compact Phases picker, timeline and follow-ups for screens too narrow for the rail. */
-    var picker = '<div class="rw-picker"><label class="small" for="rw-phase">Phase</label><select id="rw-phase" data-bound>' + map.phases.map(function (p, pi) {
-      var gst = R.gateStatus(r, map, pi), info = R.phaseInfo(r, map, pi);
-      return '<option value="' + esc(p.id) + '"' + (pi === cur ? ' selected' : '') + '>' + (pi + 1) + '. ' + esc(p.title) + ' · ' + info.done + '/' + info.total + ' · ' + esc(p.gate.implicit ? 'confirm' : p.gate.title) + ': ' + GATE_WORD[gst].toLowerCase() + '</option>';
-    }).join('') + '</select>' + (P ? '' : utilities(ctx, r, items.length, late, 'picker')) + '</div>';
+    /* Every phase in order, the 50 around the current one first, with Find past 50 (K.select); how far each is is worked out
+       only for the phases drawn. */
+    var phIdx = {}; map.phases.forEach(function (p, pi) { phIdx[p.id] = pi; });
+    var ph = K.select(s, 'rw-phase', map.phases.map(function (p, pi) { return { v: p.id, t: (pi + 1) + '. ' + p.title }; }), cur >= 0 ? map.phases[cur].id : '', { attrs: ' data-bound', around: cur, noun: 'phase', draw: function (it) {
+      var pi = phIdx[it.v], p = map.phases[pi], gst = R.gateStatus(r, map, pi), info = R.phaseInfo(r, map, pi);
+      return { more: ' · ' + info.done + '/' + info.total + ' · ' + (p.gate.implicit ? 'confirm' : p.gate.title) + ': ' + GATE_WORD[gst].toLowerCase() };
+    } });
+    var picker = '<div class="rw-picker">' + ph.box + '<label class="small" for="rw-phase">Phase</label>' + ph.select + ph.more + (P ? '' : utilities(ctx, r, items.length, late, 'picker')) + '</div>';
     return '<div class="fpe-panes rw-panes"><nav class="fpe-pane rw-rail" aria-label="Phases"><h2 class="rw-h2">Phases</h2>' + railHtml(ctx, r, map, nx, items.length, late) + '</nav>' +
       '<section class="fpe-pane rw-list" id="rw-list" aria-label="Checklist">' + (selOf(ctx) ? '<button class="linkish rw-skip" data-act="to-ins">Skip to the selected step</button>' : '') + '<div class="rw-dock">' + nextBar(ctx, r, map, nx, rec) + picker + '</div>' + (P ? '' : timeline(ctx, r, map, items) + followUps(ctx, r, rec) + (V.reportPanel ? V.reportPanel(ctx, r, map) : '')) + '<div class="deck">' + deck + '</div></section>' +
       inspector(ctx, r, map, rec) + '</div>';
@@ -22166,9 +22289,10 @@ PF.vk = (function () {
   function linkSection(ctx, p, text, s, meta) {
     var f = s.fields, map = M.parse(text), x = O.mapStep(map, s) || { step: null }, st = x.step; if (!st) return '';
     var procs = ctx.processes().filter(function (e) { return e.id !== meta.process; }), other = ctx.state.obLinkOther === s.key || (f.process && !procs.some(function (e) { return e.id === f.process; }));
-    var h = '<h3 class="ob-sec">Which process</h3><label class="field" for="ob-link-proc">' + esc(G.form('link-proc').q) + '<select id="ob-link-proc" data-bound><option value=""' + (!f.process ? ' selected' : '') + '>Choose one</option>' +
-      procs.map(function (e) { return '<option value="' + esc(e.id) + '"' + (e.id === f.process && !other ? ' selected' : '') + '>' + esc((e.title || e.id) + ' (' + e.id + ') · ' + (e.latest ? 'v' + e.latest.info.version : 'not published yet')) + '</option>'; }).join('') +
-      '<option value="__other"' + (other ? ' selected' : '') + '>Other ID…</option></select></label>';
+    /* Every other checklist by name, 50 at a time with Find past 50 (K.select); Choose one and Other ID… stay. */
+    var ps = K.select(ctx.state, 'ob-link-proc', procs.map(function (e) { return { v: e.id, t: (e.title || e.id) + ' (' + e.id + ') · ' + (e.latest ? 'v' + e.latest.info.version : 'not published yet'), place: e.id }; }), other ? '__other' : f.process || '',
+      { attrs: ' data-bound', lead: '<option value=""' + (!f.process ? ' selected' : '') + '>Choose one</option>', trail: '<option value="__other"' + (other ? ' selected' : '') + '>Other ID…</option>', keep: [f.process], noun: 'checklist' });
+    var h = '<h3 class="ob-sec">Which process</h3>' + ps.box + '<label class="field" for="ob-link-proc">' + esc(G.form('link-proc').q) + ps.select + '</label>' + ps.more;
     if (other) h += '<label class="field" for="ob-link-proc-other">' + esc(G.form('link-proc-other').q) + '<input id="ob-link-proc-other" maxlength="60" value="' + esc(f.process || '') + '" data-enter="ob-commit"></label>';
     var e = f.process && ctx.procOf ? ctx.procOf(f.process) : null;
     if (f.process && e) {
@@ -22179,8 +22303,9 @@ PF.vk = (function () {
       h += '<fieldset class="field"><legend>Which version</legend><label class="ob-switch" for="ob-link-ver-latest"><input type="radio" name="ob-link-ver" id="ob-link-ver-latest" value="latest" data-bound' + (pinned ? '' : ' checked') + '><span><b>' + (two ? 'Latest when this run starts' : 'Latest when the child starts') + '</b></span></label>';
       if (nums.length) h += '<label class="ob-switch" for="ob-link-ver-pin"><input type="radio" name="ob-link-ver" id="ob-link-ver-pin" value="pin" data-bound' + (pinned ? ' checked' : '') + '><span><b>Always one version</b></span></label>';
       /* Which version is asked only once one is pinned. */
-      if (nums.length && pinned) h += '<label class="field" for="ob-link-vn">' + esc(G.form('link-vn').q) + '<select id="ob-link-vn" data-bound>' +
-        nums.map(function (n) { var at = PF.pins.atVersion(e, f.process, n); return '<option value="' + n + '"' + (String(n) === String(f.version) ? ' selected' : '') + (at.why ? ' disabled' : '') + '>v' + n + (at.why ? ' (' + esc(at.why) + ')' : '') + '</option>'; }).join('') + '</select></label>';
+      /* Newest first, 50 at a time with Find past 50 (K.select); whether a version can be pinned is worked out only for those drawn. */
+      if (nums.length && pinned) { var vs = K.select(ctx.state, 'ob-link-vn', nums.map(function (n) { return { v: String(n), t: 'v' + n }; }), String(f.version), { attrs: ' data-bound', noun: 'version', draw: function (it) { var at = PF.pins.atVersion(e, f.process, +it.v); return at.why ? { more: ' (' + at.why + ')', disabled: true } : null; } });
+        h += vs.box + '<label class="field" for="ob-link-vn">' + esc(G.form('link-vn').q) + vs.select + '</label>' + vs.more; }
       h += '</fieldset>';
     }
     var kid = f.process ? linkChildOf(ctx, f.process, f.version) : null;
@@ -22586,12 +22711,13 @@ PF.vk = (function () {
     if (!shown) return '<section class="panel"><p class="small">This checklist has nothing written down yet.</p><button class="btn go" data-act="ptab" data-id="edit">' + I('edit') + 'Write the checklist</button></section>';
     var all = p.all || [], hasDraft = p.draft && (p.draftChanged || !p.latest), gone = (p.broken || []).filter(function (b) { return PF.publish.versionOf(b.folder); });
     var cur = shown.draft ? 'draft' : shown.pub.folder, view = st.clView === 'plan' || st.clView === 'md' ? st.clView : 'list';
-    var opts = (hasDraft ? '<option value="draft"' + (cur === 'draft' ? ' selected' : '') + '>Draft (not published)</option>' : '') +
-      all.map(function (v) { return '<option value="' + esc(v.folder) + '"' + (v.folder === cur ? ' selected' : '') + '>v' + v.info.version + (v === p.latest ? ' (current)' : '') + ' · ' + esc(v.info.changes.slice(0, 50)) + '</option>'; }).join('') +
-      /* Versions in the folder that can't be shown or run here (still syncing, damaged, or too new for this copy) say why. */
-      gone.map(function (b) { return '<option value="" disabled>v' + PF.publish.versionOf(b.folder) + ' · can\'t be used here: ' + esc(String(b.why).slice(0, 200)) + '</option>'; }).join('');
+    /* Every version, newest first, 50 at a time with Find past 50 (K.select). Versions in the folder that can't be shown or run
+       here (still syncing, damaged, or too new for this copy) say why, after them. */
+    var verItems = all.map(function (v) { return { v: v.folder, t: 'v' + v.info.version + (v === p.latest ? ' (current)' : '') + ' · ' + v.info.changes.slice(0, 50), place: v.folder }; })
+      .concat(gone.map(function (b, i) { return { v: '', t: 'v' + PF.publish.versionOf(b.folder) + ' · can\'t be used here: ' + String(b.why).slice(0, 200), place: b.folder, disabled: true, key: i }; }));
+    var verSel = K.select(st, 'map-ver', verItems, cur, { attrs: ' class="ver-pick" data-bound', lead: hasDraft ? '<option value="draft"' + (cur === 'draft' ? ' selected' : '') + '>Draft (not published)</option>' : '', noun: 'version' });
     var h = '<section class="panel mapview" aria-labelledby="cl-h"><div class="row between"><h2 id="cl-h" tabindex="-1" style="margin:0">' + (shown.draft ? 'The draft' : 'The checklist') + '</h2>' +
-      '<div class="row">' + (all.length + (hasDraft ? 1 : 0) + gone.length > 1 ? '<label class="sr" for="map-ver">Version to show</label><select id="map-ver" class="ver-pick" data-bound>' + opts + '</select>' : '<span class="small">' + (shown.draft ? 'Draft' : 'v' + shown.pub.info.version) + '</span>') +
+      '<div class="row">' + (all.length + (hasDraft ? 1 : 0) + gone.length > 1 ? verSel.box + '<label class="sr" for="map-ver">Version to show</label>' + verSel.select + verSel.more : '<span class="small">' + (shown.draft ? 'Draft' : 'v' + shown.pub.info.version) + '</span>') +
       /* One switch for the three ways to see the same version: the checklist, its flight plan, or its Markdown source. */
       '<div class="seg" role="group" aria-label="Show as">' + [['list', 'Checklist'], ['plan', 'Flight plan'], ['md', 'Markdown']].map(function (x) { return '<button type="button" data-act="flight" data-id="' + x[0] + '" aria-pressed="' + (view === x[0]) + '">' + x[1] + '</button>'; }).join('') + '</div>' +
       (restoring ? '<span class="small" role="status">Restoring…</span>' : shown.current ? '<button class="btn" data-act="ptab" data-id="edit">' + I('edit') + ((p.editing || []).length ? 'Edit anyway' : 'Edit') + '</button>' : '<button class="btn" data-act="restore-draft" data-id="' + esc(shown.pub.folder) + '">Restore as draft</button>') + '</div></div>';
@@ -23389,9 +23515,9 @@ PF.vk = (function () {
   }
   function summary(ctx, p, res, list, f) {
     var h = '<section class="panel ins" aria-labelledby="ins-h"><div class="row between ins-head"><h2 id="ins-h" tabindex="-1">' + IC('chart') + 'How runs go</h2>';
-    h += list.length > 1 ? '<span class="ins-pick"><label for="ins-folder">Version</label><select id="ins-folder" data-bound data-nav-safe>' + list.map(function (x) {
-      return '<option value="' + esc(x.folder) + '"' + (x.folder === f.folder ? ' selected' : '') + '>' + esc(verLabel(x)) + ' · ' + plural(x.runs, 'run') + '</option>';
-    }).join('') + '</select></span>' : '<span class="small">' + esc(verLabel(f)) + '</span>';
+    /* Every version, newest first: 50 at a time, with Find past 50 (K.select). */
+    var vs = list.length > 1 ? K.select(ctx.state, 'ins-folder', list.map(function (x) { return { v: x.folder, t: verLabel(x) + ' · ' + plural(x.runs, 'run'), place: x.folder }; }), f.folder, { attrs: ' data-bound data-nav-safe', noun: 'version' }) : null;
+    h += vs ? '<span class="ins-pick">' + vs.box + '<label for="ins-folder">Version</label>' + vs.select + vs.more + '</span>' : '<span class="small">' + esc(verLabel(f)) + '</span>';
     h += '</div>';
     if (f.clash) h += '<div class="notice warn"><span>Two folders are numbered v' + f.version + '. Each is counted on its own; this is <code>' + esc(f.folder) + '</code>.</span></div>';
     var notes = res.notes.map(function (t) { return '<div class="notice warn" role="status"><span>' + esc(t) + '</span></div>'; }).join('');
@@ -23538,8 +23664,10 @@ PF.vk = (function () {
   function filterBar(ctx) {
     var st = ctx.state, f = st.runFilter && !st.runFilter.cohort ? st.runFilter : {}, runs = ctx.data.runs || [];
     var procs = []; runs.forEach(function (r) { if (procs.indexOf(r.process) < 0) procs.push(r.process); });
-    procs.sort(function (a, b) { return ctx.processTitle(a).localeCompare(ctx.processTitle(b)); });
+    procs.sort(function (a, b) { return PF.text.natural(ctx.processTitle(a), ctx.processTitle(b)) || PF.text.natural(a, b); });
     var opt = function (v, label, cur) { return '<option value="' + esc(v) + '"' + (v === (cur || '') ? ' selected' : '') + '>' + esc(label) + '</option>'; };
+    /* Process and Version list every checklist and version runs are of: 50 at a time, with Find past 50 (K.select). */
+    var rfSel = function (id, label, items, cur, noun) { var x = K.select(st, id, items, cur || '', { attrs: ' data-bound data-nav-safe', lead: opt('', 'Any', cur), noun: noun }); return '<span class="rf-f">' + x.box + '<label for="' + id + '">' + label + '</label>' + x.select + x.more + '</span>'; };
     var vers = f.process ? I.folders(runs, f.process, [], []) : [];
     var chips = [];
     if (f.process) chips.push(['process', 'Checklist: ' + ctx.processTitle(f.process)]);
@@ -23549,8 +23677,8 @@ PF.vk = (function () {
     if (f.through) chips.push(['through', 'Started through ' + f.through]);
     var open = active(f) || (st.disc || {}).rf;
     return '<details class="panel rf" data-disc="rf"' + (open ? ' open' : '') + '><summary><h2>Filter runs</h2></summary><div class="rf-row">' +
-      '<span class="rf-f"><label for="rf-process">Process</label><select id="rf-process" data-bound data-nav-safe>' + opt('', 'Any', f.process) + procs.map(function (pid) { return opt(pid, ctx.processTitle(pid), f.process); }).join('') + '</select></span>' +
-      (f.process ? '<span class="rf-f"><label for="rf-folder">Version</label><select id="rf-folder" data-bound data-nav-safe>' + opt('', 'Any', f.folder) + vers.map(function (x) { return opt(x.folder, verLabel(x), f.folder); }).join('') + '</select></span>' : '') +
+      rfSel('rf-process', 'Process', procs.map(function (pid) { return { v: pid, t: ctx.processTitle(pid), place: pid }; }), f.process, 'checklist') +
+      (f.process ? rfSel('rf-folder', 'Version', vers.map(function (x) { return { v: x.folder, t: verLabel(x), place: x.folder }; }), f.folder, 'version') : '') +
       '<span class="rf-f"><label for="rf-outcome">Outcome</label><select id="rf-outcome" data-bound data-nav-safe>' + OUTCOMES.map(function (o) { return opt(o[0], o[1], f.outcome); }).join('') + '</select></span>' +
       '<span class="rf-f"><label for="rf-from">Started from</label><input type="date" id="rf-from" value="' + esc(f.from || '') + '" data-bound data-nav-safe></span>' +
       '<span class="rf-f"><label for="rf-through">through</label><input type="date" id="rf-through" value="' + esc(f.through || '') + '" data-bound data-nav-safe></span></div>' +
@@ -24035,7 +24163,9 @@ PF.vk = (function () {
   }
   function askForm(ctx, ov) {
     var procs = ctx.processes().filter(function (p) { return p.id; }), s = ov.form;
-    return '<form class="ev-form" id="ev-form" data-nav-safe><label for="ev-proc">Process</label><select id="ev-proc" data-nav-safe>' + procs.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === s.process ? ' selected' : '') + '>' + esc(p.title) + '</option>'; }).join('') + '</select>' +
+    /* Every checklist by name, 50 at a time with Find past 50 (K.select); the days typed are kept in the dialog's own state. */
+    var ps = PF.vk.select(ctx.state, 'ev-proc', procs.map(function (p) { return { v: p.id, t: p.title, place: p.id }; }), s.process, { attrs: ' data-nav-safe', noun: 'checklist' });
+    return '<form class="ev-form" id="ev-form" data-nav-safe>' + ps.box + '<label for="ev-proc">Process</label>' + ps.select + ps.more +
       '<div class="ev-days"><span><label for="ev-from">First day</label><input id="ev-from" type="date" data-nav-safe value="' + esc(s.from) + '"' + (ov.fieldErr === 'ev-from' ? ' aria-invalid="true" aria-describedby="ev-err"' : '') + '></span>' +
       '<span><label for="ev-through">Last day</label><input id="ev-through" type="date" data-nav-safe value="' + esc(s.through) + '"' + (ov.fieldErr === 'ev-through' ? ' aria-invalid="true" aria-describedby="ev-err"' : '') + '></span></div>' +
       '<p class="small">Runs that started on these days, both included, in this computer\'s time zone (' + esc(ov.tz) + ').</p>' +
@@ -24170,8 +24300,8 @@ PF.exporter = function (api) {
   }
   function ov() { return state.overlay && state.overlay.evidence ? state.overlay : null; }
   /* Typing in the days form is kept in the dialog's state, so a redraw never loses it. */
-  document.addEventListener('input', function (e) { var o = ov(); if (!o || o.stage !== 'ask' || !e.target || !/^ev-(proc|from|through)$/.test(e.target.id)) return; o.form[{ 'ev-proc': 'process', 'ev-from': 'from', 'ev-through': 'through' }[e.target.id]] = e.target.value; });
-  document.addEventListener('change', function (e) { var o = ov(); if (!o || o.stage !== 'ask' || !e.target || e.target.id !== 'ev-proc') return; o.form.process = e.target.value; });
+  document.addEventListener('input', function (e) { var o = ov(); if (!o || o.stage !== 'ask' || !e.target || !/^ev-(proc|from|through)$/.test(e.target.id) || e.target.value === PF.vk.SEL_MORE) return; o.form[{ 'ev-proc': 'process', 'ev-from': 'from', 'ev-through': 'through' }[e.target.id]] = e.target.value; });
+  document.addEventListener('change', function (e) { var o = ov(); if (!o || o.stage !== 'ask' || !e.target || e.target.id !== 'ev-proc' || e.target.value === PF.vk.SEL_MORE) return; o.form.process = e.target.value; });
 
   var actions = {
     'ev-open': function (key) { var r = api.ctx.findRun(key); open({ run: key }, r ? r.title : key); },
@@ -25995,6 +26125,7 @@ PF.examples = (function () {
     /* What was just shown is this folder's: after a folder switch it's gone (gen), without the switch itself changing. */
     if (state.justShown && state.justShown.gen !== gen) state.justShown = null;
     if (state.find && state.find.gen !== gen) state.find = null;
+    if (state.justPlanned && state.justPlanned.gen !== gen) state.justPlanned = null;
     dropBatchRender();
     repHarvest();
     procCache = null; pplBy = { list: null, len: -1, by: null }; pplSorted = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null;
@@ -27747,7 +27878,7 @@ PF.examples = (function () {
     if (ok) { if (g && how !== 'reopen') { dropDraft(prKey(p.id), 'gate:' + g.id, ['record']); prKeepTyped(p.id); } if (!(state.pick && state.pick.kind === 'fields')) state.pick = null; var pm2 = how === 'pass' ? prModel() : null; if (pm2 && pm2.r && pm2.map) { afterPass(R.nextUp(pm2.r, pm2.map, state.me), pm2.map, true); render(); return; } state.focus = g ? '#gate-' + cssEsc(g.id) + ' button:not([disabled])' : 'run-h'; render(); }
   }
   /* Run-screen actions the practice page allows, with any condition on their payload; pr-* are practice's own. */
-  var PRACTICE_OK = { toggle: 1, record: 1, na: 1, clear: 1, select: 1, goto: 1, 'to-ins': 1, 'to-row': 1, 'close-ref': 1, unfold: 1, fold: 1, pick: function (b) { return !!b && /^(fields|pass|waive)$/.test(b.dataset.kind || ''); }, unpick: 1, 'save-fields': 1, pass: 1, waive: 1, reopen: 1, dismiss: 1, help: 1, copy: 1, zoom: 1, 'zoom-phase': 1, 'zoom-gate': 1, nav: function (b) { return !!b && b.dataset.id === 'processes'; } };
+  var PRACTICE_OK = { toggle: 1, record: 1, na: 1, clear: 1, select: 1, goto: 1, 'to-ins': 1, 'to-row': 1, 'close-ref': 1, unfold: 1, fold: 1, pick: function (b) { return !!b && /^(fields|pass|waive)$/.test(b.dataset.kind || ''); }, unpick: 1, 'save-fields': 1, pass: 1, waive: 1, reopen: 1, dismiss: 1, help: 1, 'find-clear': 1, 'sel-more': 1, copy: 1, zoom: 1, 'zoom-phase': 1, 'zoom-gate': 1, nav: function (b) { return !!b && b.dataset.id === 'processes'; } };
   /* The one way an action runs: on the practice page only what's allowed there, through Practice's own handlers. */
   /* The practice page's own controls (not the top bar's or a dialog's, which act as anywhere). */
   function onPracticePage(el) { return state.view === 'practice' && !(el && el.closest && (el.closest('#top') || el.closest('#overlay'))); }
@@ -28511,6 +28642,16 @@ PF.examples = (function () {
     state.more = Object.assign({}, state.more); delete state.more[list];
     if (state.justShown && state.justShown.lists) delete state.justShown.lists[list];
   }
+  /* A long dropdown's Find box (K.select) stays drawn while it has focus, even emptied below the page size; leaving it lets it
+     go (the focusout below). It's noted for whichever Find box is in use; only a dropdown's box reads it. */
+  function selBoxKept(list) { if (list) state.selFocus = list; }
+  /* 50 more of a long dropdown's options (K.select); its own choice is untouched. */
+  function selMore(id) { if (!id) return; var P = PF.vk.PAGE, m = state.more = Object.assign({}, state.more); m[id] = Math.max(P, m[id] || P) + P; render(); }
+  document.addEventListener('focusout', function (e) {
+    var id = findList(e.target);
+    if (!id || state.selFocus !== id) return;
+    setTimeout(function () { var a = document.activeElement; if (state.selFocus === id && !(a && a.id === 'find-' + id)) { state.selFocus = null; render(); } }, 0);
+  });
   /* The list a Find box filters (its data-find, which matches its id: find-<list>), or null for any other control. */
   function findList(el) { var m = el && /^find-([a-z][\w-]*)$/.exec(el.id || ''); return m && (!el.dataset || !el.dataset.find || el.dataset.find === m[1]) ? m[1] : null; }
   /* The one place a reveal happens, after every draw, once focus and the scroll are put back: the page, then the top bar, then
@@ -29338,7 +29479,17 @@ PF.examples = (function () {
     setTimeout(function () { var f = document.activeElement; if (dbxAc && (!f || f.id !== dbxAc.id)) dbxClose(); }, 0);
   });
 
-  function pendingBox() { var pf = state.obPending && state.obPendingField; return pf ? document.getElementById(pf) || { id: pf } : dirtyControl(); }
+  function pendingBox() { var pf = state.obPending && state.obPendingField; return pf ? document.getElementById(pf) || { id: pf } : dirtyControl() || fuPending(); }
+  /* An open follow-up form holding a chosen destination, a link or text is unsaved work, even once a redraw has drawn it as the
+     page's own (2.11): leaving refuses, as for any changed control. */
+  function fuPending() {
+    var p = state.fuPick; if (!p) return null;
+    var base = PF.followups.formId(p.key);
+    if (p.to) return document.getElementById(base + '-to') || { id: base + '-to' };
+    var hit = null;
+    ['link', 'note', 'ticket', 'reason'].some(function (k) { var el = document.getElementById(base + '-' + k); if (el && String(el.value || '').trim()) hit = el; return !!hit; });
+    return hit;
+  }
   /* A decline reason with text in it is unsaved work even after a redraw draws it as the box's own text, or while another
      step is selected: leaving refuses, and its step is brought back so the box is on screen. */
   /* Back with a layer open (a dialog, the run's More menu, a sheet, placing a part, a question) closes that one, as Escape
@@ -29711,7 +29862,9 @@ PF.examples = (function () {
     'lib-tab': function (id) { state.libTab = id === 'skills' ? 'skills' : 'processes'; state.focus = '[data-act="lib-tab"][data-id="' + state.libTab + '"]'; render(); },
     /* Each list keeps its own tag filter, so a tag picked on one page never hides things on another. */
     /* A Find box's Clear: the box empties and takes focus. */
-    'find-clear': function (id) { if (!id) return; setFind(id, ''); state.focus = 'find-' + id; state.focusWins = true; render(); },
+    'find-clear': function (id) { if (!id) return; setFind(id, ''); selBoxKept(id); state.focus = 'find-' + id; state.focusWins = true; render(); },
+    /* A long dropdown's Show more choices (K.select): 50 more options, and focus goes to the dropdown to choose among them. */
+    'sel-more': function (id) { if (!id) return; selMore(id); state.focus = id; state.focusWins = true; render(); },
     tag: function (id) { var t = state.tags || []; state.tags = !id ? [] : t.indexOf(id) >= 0 ? t.filter(function (x) { return x !== id; }) : t.concat(id); (state.tagsBy = state.tagsBy || {})[state.view] = state.tags; state.focus = id ? '[data-act="tag"][data-id="' + cssEsc(id) + '"]' : null; render(); },
     'open-process': function (id) { setView('process'); state.processId = id; state.diffOf = null; state.ptab = 'overview'; state.mapVer = null; resetRunUi(); render(); window.scrollTo(0, 0); },
     /* ---------- the sections ---------- */
@@ -29728,7 +29881,7 @@ PF.examples = (function () {
       render();
     },
     nav: function (id) {
-      typeOpens++; state.more = {}; state.justShown = null; state.revealTarget = null;
+      typeOpens++; state.more = {}; state.justShown = null; state.revealTarget = null; state.justPlanned = null;
       if (id === 'home') { home(); state.focus = '[data-act="nav"][data-id="home"]'; render(); window.scrollTo(0, 0); return; }
       if (['runs', 'followups', 'processes', 'skills', 'types', 'settings'].indexOf(id) < 0) return;
       releaseUrls(state.urls); setView(id); state.processId = null; state.runKey = null; resetRunUi(); state.fuPick = null;
@@ -30480,13 +30633,25 @@ PF.examples = (function () {
     'fu-pick': function (id, b) {
       var k = b && b.dataset.status; if (!PF.followups.LABEL[k] || k === 'open') return;
       /* Each follow-up's form has its own boxes (PF.followups.formId); switching to another starts it empty. */
-      state.fuPick = { key: id, status: k }; state.fieldErr = null;
+      /* A snapshot of the row goes with the form (2.11): a newer read that removes the follow-up still draws it, marked, with
+         what's typed, so it can be copied. Moved to's Find starts empty. */
+      var sx = ctx.followUps().filter(function (y) { return y.key === id; })[0];
+      state.fuPick = { key: id, status: k, snap: sx ? { key: sx.key, id: sx.id, process: sx.process, run: sx.run, runKey: sx.runKey, runTitle: sx.runTitle, test: sx.test, f: { text: sx.f.text, ticket: sx.f.ticket }, text: sx.text, owner: sx.owner, at: sx.at, status: 'open' } : null, to: null }; state.fieldErr = null;
+      if (k === 'moved') setFind(PF.followups.formId(id) + '-to', '');
       state.focus = PF.followups.formId(id) + '-' + { done: 'link', ticket: 'ticket', moved: 'to', wont: 'reason' }[k]; render();
     },
     'fu-cancel': function (id) { var k = state.fuPick && state.fuPick.status; state.fuPick = null; state.fieldErr = null; state.focus = k ? '[data-act="fu-pick"][data-id="' + cssEsc(id) + '"][data-status="' + k + '"]' : null; render(); },
+    /* A follow-up removed elsewhere while its form was open: what was typed in the form, to keep somewhere else. */
+    'fu-copy': function (id) {
+      var base = PF.followups.formId(id), parts = [];
+      [['link', 'Link'], ['note', 'Note'], ['ticket', 'Ticket'], ['to', 'Moved to'], ['reason', 'Why']].forEach(function (b) { var v = val(base + '-' + b[0]); if (String(v || '').trim()) parts.push(b[1] + ': ' + String(v).trim()); });
+      var snap = state.fuPick && state.fuPick.key === id && state.fuPick.snap;
+      copyText((snap ? snap.text + '\n' : '') + parts.join('\n'), null, 'Copied what you typed.');
+    },
     'fu-save': function (id) { if (state.fuPick && state.fuPick.key === id) decideFu(id, state.fuPick.status); },
     'fu-reopen': function (id) { decideFu(id, 'open'); },
-    'fu-filter': function (id) { state.fuFilter = id === 'mine' || id === 'all' ? id : 'open'; state.fuPick = null; state.focus = '[data-act="fu-filter"][data-id="' + state.fuFilter + '"]'; render(); },
+    /* Open, Yours or All: an open form stays open with what's typed in it (2.11); its row is drawn whichever chip is on. */
+    'fu-filter': function (id) { state.fuFilter = id === 'mine' || id === 'all' ? id : 'open'; state.more = Object.assign({}, state.more); delete state.more.fu; state.focus = '[data-act="fu-filter"][data-id="' + state.fuFilter + '"]'; render(); },
     /* Recovery: conflict copies sit next to run.json until someone keeps or deletes them. */
     'compare-copy': function (name) {
       var r = ctx.run(), g = gen, key = state.runKey; if (!r) return;
@@ -31642,7 +31807,7 @@ PF.examples = (function () {
       if (res.conflict) { say(res.afterWrite ? 'Something else wrote the same plan file just now. Check Runs before planning it again.' : 'A plan with the same name is already in the folder, so nothing was saved. Save again.', 'warn'); render(); return; }
       return load(true).then(function () {
         if (g !== gen) return;
-        if (state.planning === planning && state.view === 'start') { state.planning = null; setView('runs'); state.processId = null; state.focus = 'card-' + plan.id; window.scrollTo(0, 0); }
+        if (state.planning === planning && state.view === 'start') { state.planning = null; setView('runs'); state.processId = null; state.justPlanned = { id: plan.id, gen: gen }; state.focus = 'card-' + plan.id; state.focusWins = true; window.scrollTo(0, 0); revealAt('#card-' + cssEsc(plan.id)); }
         say('Planned ' + plan.title + '.', 'good'); render();
       });
     }, function (err) { endBusy(); planning.saving = false; if (g !== gen) return; say('Couldn\'t save the plan: ' + err.message, 'bad'); render(); });
@@ -31659,6 +31824,8 @@ PF.examples = (function () {
   document.addEventListener('focusout', function (e) { var t = e.target; if (prTypedBox(t) && /INPUT|TEXTAREA|SELECT/.test(t.tagName || '')) prLastBox = { id: t.id, s: t.selectionStart, e: t.selectionEnd, top: t.scrollTop || 0 }; }, true);
   document.addEventListener('focusin', function (e) { var t = e.target, a = t && t.dataset && t.dataset.act; if (!(a === 'pr-edit' || a === 'pr-back')) prLastBox = null; }, true);
   document.addEventListener('input', function (e) {
+    /* A long dropdown's "Show 50 more…" is handled when it changes (below), never as a choice. */
+    if (e.target && e.target.tagName === 'SELECT' && e.target.value === PF.vk.SEL_MORE) return;
     prActivity(e.target);
     if (e.target && e.target.dataset && e.target.dataset.prSample) { var tpx = currentProcess(); if (tpx) { var tpe = prEntry(tpx.id); tpe.typed[e.target.dataset.prSample] = e.target.value; } return; }
     /* What changed, for Stage it for a test run: kept on the practice entry, so a redraw or a reopened phase never loses it. */
@@ -31667,7 +31834,7 @@ PF.examples = (function () {
     if (e.target && e.target.id === 'pr-note') { var npx = currentProcess(); if (npx) { var ne = prEntry(npx.id); ne.stageNote = e.target.value; ne.noteErr = null; } return; }
     if (e.target && e.target.id === 'pr-found') { var fpx = currentProcess(); if (fpx) { var fe = prEntry(fpx.id); fe.st = PF.practice.setFound(fe.st, e.target.value).state; prSave(fe); var cm = e.target.closest('.field'); var cnt = cm && cm.querySelector('.small'); if (cnt) cnt.textContent = fe.st.found.length + ' of ' + PF.practice.FOUND_MAX; var cb = document.querySelector('[data-act="pr-copy"]'); if (cb) cb.disabled = !fe.st.found; } return; }
     if (e.target.id === 'rel-search') { state.rel.q = e.target.value; render(); }
-    var fl = findList(e.target); if (fl) { setFind(fl, e.target.value); render(); return; }
+    var fl = findList(e.target); if (fl) { selBoxKept(fl); setFind(fl, e.target.value); render(); return; }
     if (e.target.id === 'sx-q' && state.sx) { state.sx.q = String(e.target.value || '').slice(0, 200); state.sx.active = null; state.sx.pos = 0; state.sx.err = ''; sxRun(); render(); }
     if (e.target.id === 'ca-edit' && caOv() && caOv().edit) { caOv().edit.text = e.target.value; caOv().err = null; }
     /* The correction composer keeps what's typed in its state, so the Before/After redline follows the wording as it changes. */
@@ -31777,6 +31944,8 @@ PF.examples = (function () {
     }
   }, true);
   document.addEventListener('change', function (e) {
+    /* A long dropdown's "Show 50 more…" (K.select): the list widens and the choice stays what it was; nothing else hears it. */
+    if (e.target && e.target.tagName === 'SELECT' && e.target.value === PF.vk.SEL_MORE) { e.target.value = (e.target.dataset && e.target.dataset.cur) || ''; selMore(e.target.id); return; }
     /* A practice sample is one practice action when it's committed (Enter or leaving the box). */
     var smp = e.target && e.target.dataset && e.target.dataset.prSample;
     if (smp) {
@@ -31821,6 +31990,11 @@ PF.examples = (function () {
     if (e.target.id === 'note-file') { addFiles(e.target.files, state.sel); e.target.value = ''; }
     if (e.target.id === 'me-run') { state.me = String(e.target.value || '').trim().slice(0, 60); lsSet('me', state.me); forgetStartIfNotMine(); render(); }
     if (e.target.id === 'rw-phase' && e.target.value) ACTIONS.goto('phase-' + e.target.value);
+    /* Moved to's choice is remembered with the form (2.11), so it's drawn whatever Find shows and after a newer read. */
+    if (state.fuPick && state.fuPick.status === 'moved' && e.target.id === PF.followups.formId(state.fuPick.key) + '-to') {
+      var tv = String(e.target.value || ''), tp = /^plan:(.+)$/.exec(tv), tr = tp ? null : ctx.findRun(tv), tpl = tp ? data.plans.filter(function (q) { return q.id === tp[1]; })[0] : null;
+      state.fuPick.to = tv ? { v: tv, t: tr ? tr.title : tpl ? tpl.title : tv } : null; render();
+    }
     /* The correction composer: where a new step goes, where a step moves, who does it, and its files. */
     if (state.corrForm) {
       var cf = state.corrForm;
@@ -31943,7 +32117,7 @@ PF.examples = (function () {
     });
   }
   /* Every change of screen goes through here: what's typed on the run's selected step is kept first. */
-  function setView(v) { childEpoch++; if (state.view === 'start' && v !== 'start') state.startModeAt = {}; if (state.view === 'practice' && v !== 'practice') prLeave(); leaveContext(); state.view = v; }
+  function setView(v) { childEpoch++; if (v !== 'runs') state.justPlanned = null; if (state.view === 'start' && v !== 'start') state.startModeAt = {}; if (state.view === 'practice' && v !== 'practice') prLeave(); leaveContext(); state.view = v; }
   /* Leaving the practice page (any way: Edit, Back, a link): what's typed is kept, and where it was, for coming back. */
   function prLeave() {
     prHarvest(); var p = currentProcess(), e = p && prs[edKey(p.id)];
@@ -32241,7 +32415,7 @@ PF.examples = (function () {
        what it always does. */
     if (e.key === 'Escape' && findList(t) && String(t.value || '') && !e.altKey && !e.ctrlKey && !e.metaKey) {
       e.preventDefault(); if (e.stopPropagation) e.stopPropagation();
-      setFind(findList(t), ''); state.focus = t.id; state.focusWins = true; render(); return;
+      setFind(findList(t), ''); selBoxKept(findList(t)); state.focus = t.id; state.focusWins = true; render(); return;
     }
     if (e.key === 'Escape') { if (state.overlay) { closeOverlay(); return; } var om = document.querySelector && document.querySelector('.rw-menu[open]'); if (om) { om.open = false; (state.disc = state.disc || {})[(om.dataset && om.dataset.disc) || 'rw-menu'] = false; var sm = om.querySelector('summary'); if (sm) sm.focus(); return; } if (state.tfPreview && state.view === 'types') { ACTIONS['tf-preview'](); return; } if (state.obAdd && !composing && t && /^ob-new-/.test(t.id || '')) { ACTIONS['ob-add-cancel'](); return; } if (state.obPlace) { cancelPlacing(); return; } if (state.obAsk) { ACTIONS['ob-ask-cancel'](); return; } if (obSheetOpen) { ACTIONS['ob-done'](); return; } if (state.view === 'practice' && state.pick) { PRACTICE.unpick(); return; } if (sheetWasOpen && state.view === 'practice') { PRACTICE['close-ref'](); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.view === 'practice' && !typing) { PRACTICE['pr-back'](); return; } if (state.pick || state.edit) { var pk = state.pick; if (pk && pk.kind === 'fields') { dropDraft(state.runKey, pk.id, ['fields', 'open']); state.fieldsDraft = null; } state.pick = null; state.edit = null; state.fieldErr = null; if (pk && pk.back) state.focus = pk.back; render(); return; } if (state.corrForm) { if (state.corrForm.menu) { state.corrForm.menu = false; state.focus = '[data-act="corr-menu"]'; render(); return; } ACTIONS['corr-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt') { reenterRun(); render(); } return; }
     /* A dialog keeps Tab and Shift+Tab inside it, wrapping at the ends, so keyboard focus never falls behind it. */

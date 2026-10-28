@@ -466,7 +466,7 @@
     return '<div class="prov"><span class="badge b-changed">Changed in v' + esc(g.landed.version) + '</span><details class="prov-why" data-disc="' + esc(disc) + '"' + (open ? ' open' : '') + '><summary class="small">Why is this here?</summary>' +
       (dl ? '<dl class="corr-dl">' + dl + '</dl>' : '') + runs + who + '</details></div>';
   }
-  V.fuList = fuList; V.fuRow = fuRow; V.fuPill = fuPill;
+  V.fuList = fuList; V.fuRow = fuRow; V.fuPill = fuPill; V.fuPaged = fuPaged;
   V.redline = redline; V.corrRow = corrRow; V.corrPill = corrPill; V.corrIndex = corrIndex; V.corrGroups = corrGroups;
   /* The composer: Correct this step (a proposal; it doesn't answer the step) or Done differently (answers it; what happened
      first, then whether the checklist should change). The published step stays shown above it, never replaced. */
@@ -498,10 +498,18 @@
         h += '<label class="sr" for="corr-text">The missing step</label><textarea id="corr-text" rows="2" maxlength="2000" placeholder="What the missing step says" data-bound' + bad('corr-text') + '>' + esc(f.text) + '</textarea>' + fe('corr-text') +
           '<fieldset class="corr-where"><legend class="small">Where it goes</legend>' + [['after', 'After this step'], ['end', 'At the end of ' + x.phase.title]].map(function (w) { return '<label class="check-label small"><input type="radio" name="corr-where" id="corr-where-' + w[0] + '" data-bound' + (f.where === w[0] ? ' checked' : '') + '> ' + esc(w[1]) + '</label>'; }).join('') + '</fieldset>';
       } else if (f.op === 'move') {
-        var opts = '<option value="">Choose…</option>' + map.phases.map(function (p) {
-          return '<optgroup label="' + esc(p.title) + '"><option value="start:' + esc(p.id) + '"' + (f.moveTo === 'start:' + p.id ? ' selected' : '') + '>At the start of ' + esc(p.title) + '</option>' + p.steps.filter(function (y) { return y.id !== s.id; }).map(function (y) { return '<option value="after:' + esc(y.id) + '"' + (f.moveTo === 'after:' + y.id ? ' selected' : '') + '>After "' + esc(K.stepPlain(y, K.refValue(r, map)).slice(0, 80)) + '"</option>'; }).join('') + '</optgroup>';
-        }).join('');
-        h += '<label class="small" for="corr-move">Move it to</label><select id="corr-move" data-bound' + bad('corr-move') + '>' + opts + '</select>' + fe('corr-move');
+        /* Every place in checklist order, the 50 nearest this step first, with Find past 50 (K.select). Places whose step reads the
+           same are told apart by where they are. */
+        var places = [], near = 0, rv = K.refValue(r, map);
+        map.phases.forEach(function (p, pi) {
+          places.push({ v: 'start:' + p.id, t: 'At the start of ' + p.title, place: 'Phase ' + (pi + 1), g: p.title });
+          p.steps.forEach(function (y, si) {
+            if (y.id === s.id) { near = places.length; return; }
+            places.push({ v: 'after:' + y.id, t: 'After "' + K.stepPlain(y, rv).slice(0, 80) + '"', place: 'Phase ' + (pi + 1) + ', step ' + (si + 1), g: p.title });
+          });
+        });
+        var mv = K.select(st, 'corr-move', places, f.moveTo || '', { attrs: ' data-bound' + bad('corr-move'), lead: '<option value="">Choose…</option>', around: near, noun: 'place', group: function (it) { return it.g; } });
+        h += mv.box + '<label class="small" for="corr-move">Move it to</label>' + mv.select + mv.more + fe('corr-move');
       } else if (f.op === 'roles') {
         var roles = map.meta.roles || [];
         h += roles.length ? '<fieldset class="corr-roles" id="corr-roles" tabindex="-1"' + bad('corr-roles') + '><legend class="small">Who should do it</legend>' + roles.map(function (ro) { return '<label class="check-label small"><input type="checkbox" id="corr-role-' + esc(ro) + '" data-bound' + (f.roles.indexOf(ro) >= 0 ? ' checked' : '') + '> @' + esc(ro) + (r.roles[ro] ? ' (' + esc(nameOf(ctx, r.roles[ro])) + ')' : '') + '</label>'; }).join('') + '</fieldset>' + fe('corr-roles')
@@ -771,9 +779,13 @@
     if (x.owner) meta.push(esc(nameOf(ctx, x.owner)));
     if (opts.run) meta.push((x.test ? 'Test run · ' : '') + '<button class="linkish" data-act="open-run" data-id="' + esc(x.runKey) + '">' + esc(x.runTitle) + '</button>');
     if (opts.age && x.status === 'open') meta.push(days === 0 ? 'added today' : 'open ' + days + ' day' + (days === 1 ? '' : 's'));
-    var h = '<li class="fu" id="fu-' + esc(x.key.replace(/\//g, '--')) + '"><div class="fu-main"><span class="fu-text">' + esc(f.text) + (f.ticket ? ' <span class="cat">' + esc(f.ticket) + '</span>' : '') + '</span>' + fuPill(x) +
-      (meta.length ? '<span class="small fu-meta">' + meta.join(' · ') + '</span>' : '') + '</div>' + fuDecided(ctx, x);
+    var h = '<li class="fu' + (opts.removed ? ' fu-gone' : '') + '" id="fu-' + esc(x.key.replace(/\//g, '--')) + '"><div class="fu-main"><span class="fu-text" tabindex="-1">' + esc(f.text) + (f.ticket ? ' <span class="cat">' + esc(f.ticket) + '</span>' : '') + '</span>' + (opts.removed ? '' : fuPill(x)) +
+      (meta.length ? '<span class="small fu-meta">' + meta.join(' · ') + '</span>' : '') + '</div>' + (opts.removed ? '' : fuDecided(ctx, x));
+    /* A row kept for its open form (2.11) says when it no longer matches: someone decided it, or it left the folder. */
+    if (opts.removed) h += '<p class="small fu-kept" role="note"><b>Removed elsewhere.</b> This follow-up isn\'t in the folder anymore, so what you typed can\'t be saved. Copy it if you need it.</p>';
+    else if (pick && x.status !== 'open' && x.decision) h += '<p class="small fu-kept" role="note"><b>No longer open:</b> ' + esc(PF.followups.LABEL[x.status].toLowerCase()) + ' by ' + esc(nameOf(ctx, x.decision.by)) + '</p>';
     var acts = '';
+    if (opts.removed) { if (pick && opts.actions !== false) h += fuForm(ctx, x, pick.status, true); return h + '</li>'; }
     if (opts.actions !== false && me && x.decidable) {
       if (x.status === 'open') acts = ['done', 'ticket', 'moved', 'wont'].map(function (k) {
         var on = !!pick && pick.status === k;
@@ -788,7 +800,7 @@
   }
   /* The form for one decision. Its element IDs belong to this follow-up (PF.followups.formId), so a box typed in for one
      follow-up is never carried into another's form. Labels above boxes, errors next to their box. */
-  function fuForm(ctx, x, status) {
+  function fuForm(ctx, x, status, removed) {
     var st = ctx.state, saving = !!(st.fuSaving && st.fuSaving[x.key]), base = PF.followups.formId(x.key);
     var box = function (part, label, attrs, hint) {
       var id = base + '-' + part, bad = st.fieldErr && st.fieldErr.id === id, desc = [hint ? id + '-hint' : '', bad ? 'ferr-' + id : ''].filter(Boolean).join(' ');
@@ -798,14 +810,56 @@
     if (status === 'done') h += box('link', 'Link (optional)', 'type="url" maxlength="500" placeholder="https://"', 'Where the work is: a merged pull request, a page, a message.') + box('note', 'Note (optional)', 'maxlength="300"');
     else if (status === 'ticket') h += box('ticket', 'Ticket key or link', 'maxlength="500" placeholder="ABC-123" autocomplete="off"');
     else if (status === 'moved') {
-      var runs = (ctx.data.runs || []).filter(function (r) { return r.state === 'running' && !(r.process === x.process && r.id === x.run); }), plans = (ctx.data.plans || []).filter(function (p) { return !p._status && !p._decidedEarlier && /^[\w-]{1,100}$/.test(p.id || ''); });
-      var toId = base + '-to', bad = st.fieldErr && st.fieldErr.id === toId;
-      h += '<label class="field" for="' + toId + '">The run or plan it moved to<select id="' + toId + '"' + (bad ? ' aria-invalid="true" aria-describedby="ferr-' + toId + '"' : '') + '><option value="">None: I\'ll paste a link</option>' +
-        (runs.length ? '<optgroup label="Running">' + runs.map(function (r) { return '<option value="' + esc(r.process + '/' + r.id) + '">' + esc(r.title) + '</option>'; }).join('') + '</optgroup>' : '') +
-        (plans.length ? '<optgroup label="Planned">' + plans.map(function (p) { return '<option value="plan:' + esc(p.id) + '">' + esc(p.title) + '</option>'; }).join('') + '</optgroup>' : '') + '</select></label>' + ferr(st, toId) +
+      var toId = base + '-to', bad = st.fieldErr && st.fieldErr.id === toId, pick = st.fuPick && st.fuPick.key === x.key ? st.fuPick : {}, to = pick.to || null;
+      var dest = movedTo(ctx, x), chosen = to ? dest.filter(function (it) { return it.v === to.v; })[0] : null, gone = to && !chosen ? destGone(ctx, to) : null;
+      /* A run whose file left the folder is still listed (its last copy stays on screen), but chosen, it's said to be gone. */
+      if (chosen && (st.missing || {})[to.v]) { gone = destGone(ctx, to, true); dest = dest.filter(function (it) { return it !== chosen; }); }
+      /* The chosen destination is drawn whatever Find shows, and, once a newer read has ended, started or removed it, as it
+         was, marked; Save sends it as chosen (2.10 checks only that it's a run or plan reference). The saved default stays
+         None, so a choice not saved yet is still unsaved work (the page puts it back after each draw). */
+      var ms = K.select(st, toId, dest, '', { attrs: bad ? ' aria-invalid="true" aria-describedby="ferr-' + toId + '"' : (gone ? ' aria-describedby="' + toId + '-gone"' : ''), keep: to ? [to.v] : [], cur: to ? to.v : '', noun: 'run or plan', group: function (it) { return it.g; },
+        lead: '<option value="">None: I\'ll paste a link</option>' + (gone ? '<option value="' + esc(to.v) + '">' + esc(to.t + ' (' + gone.mark + ')') + '</option>' : '') });
+      h += ms.box + '<label class="field" for="' + toId + '">The run or plan it moved to' + ms.select + '</label>' + ms.more + (gone ? '<p class="small fu-gone-to" id="' + toId + '-gone" role="note">' + esc(gone.line) + '</p>' : '') + ferr(st, toId) +
         box('link', 'Or a link (optional)', 'type="url" maxlength="500" placeholder="https://"');
     } else if (status === 'wont') h += box('reason', 'Why won\'t it be done?', 'maxlength="300"', 'Everyone who opens the run sees this.');
+    /* A follow-up removed by a newer read can't be decided: what was typed can be copied, and the form closed. */
+    if (removed) return h + '<div class="row"><button class="btn" data-act="fu-copy" data-id="' + esc(x.key) + '">Copy my text</button><button class="mini" data-act="fu-cancel" data-id="' + esc(x.key) + '">Cancel</button></div></div>';
     return h + '<div class="row"><button class="btn primary" data-act="fu-save" data-id="' + esc(x.key) + '"' + (saving ? ' disabled' : '') + '>' + (saving ? 'Saving…' : 'Save') + '</button><button class="mini" data-act="fu-cancel" data-id="' + esc(x.key) + '">Cancel</button></div></div>';
+  }
+  /* Where a follow-up can move to (2.11): running runs and undecided plans, as K.select items. In this order, so the first 50
+     are the likeliest: running runs of the same checklist, then other running runs, newest first, then plans, soonest
+     first. Find matches a run or plan by its title, key and checklist. */
+  function movedTo(ctx, x) {
+    var runs = (ctx.data.runs || []).filter(function (r) { return r.state === 'running' && !(r.process === x.process && r.id === x.run); }), plans = (ctx.data.plans || []).filter(function (p) { return !p._status && !p._decidedEarlier && /^[\w-]{1,100}$/.test(p.id || ''); });
+    var at = function (r) { return String(r.created || ''); }, when = function (p) { var t = typeof p.when === 'string' ? Date.parse(p.when) : NaN; return isNaN(t) ? Infinity : t; };
+    runs = runs.slice().sort(function (a, b) { return (a.process === x.process ? 0 : 1) - (b.process === x.process ? 0 : 1) || (at(a) < at(b) ? 1 : at(a) > at(b) ? -1 : 0); });
+    plans = plans.slice().sort(function (a, b) { return when(a) - when(b) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0); });
+    return runs.map(function (r) { var t = ctx.processTitle(r.process); return { v: r.process + '/' + r.id, t: r.title, place: t + ' · started ' + U.day(r.created), words: r.process + '/' + r.id + ' ' + t, g: 'Running' }; })
+      .concat(plans.map(function (p) { var t = ctx.processTitle(p.process); return { v: 'plan:' + p.id, t: p.title, place: t + (p.when ? ' · ' + U.day(p.when) : ''), words: p.id + ' ' + t, g: 'Planned' }; }));
+  }
+  /* A chosen destination a newer read took away: how it's marked, and the line under it. */
+  function destGone(ctx, to, missing) {
+    var plan = /^plan:(.+)$/.exec(to.v);
+    if (plan) {
+      var pl = (ctx.data.plans || []).filter(function (p) { return p.id === plan[1]; })[0];
+      var w = pl && pl._status && pl._status.status === 'declined' ? 'declined' : 'started';
+      return pl ? { mark: w, line: w === 'declined' ? 'That plan was declined. Choose where it moved to, or keep it.' : 'That plan has started. Choose where it moved to, or keep it.' } : { mark: 'no longer in the folder', line: 'That plan is no longer in the folder. Saving still records that the work moved there; choose another to change it.' };
+    }
+    var r = !missing && ctx.findRun ? ctx.findRun(to.v) : null;
+    return r ? { mark: 'ended', line: 'That run has ended. Choose where it moved to, or keep it.' } : { mark: 'no longer in the folder', line: 'That run is no longer in the folder. Saving still records that the work moved there; choose another to change it.' };
+  }
+  /* A list of follow-ups a page at a time (2.11): K.list over the rows shown, keeping the one whose form is open wherever it
+     is, even when the chip or Find leaves it out (drawn after the list, marked), and from its snapshot when a newer read
+     removed it. id: the list's paging id; page: its size. */
+  function fuPaged(ctx, id, items, all, o) {
+    var st = ctx.state, pick = st.fuPick, key = pick && pick.key, opts = { run: true, age: true };
+    var row = function (x) { return fuRow(ctx, x, opts); };
+    var h = items.length ? K.list(st, id, items, { draw: function (shown) { return '<ul class="fulist">' + shown.map(row).join('') + '</ul>'; }, keyOf: function (x) { return x.key; },
+      focusOf: function (k) { return K.byId('fu-' + k.replace(/\//g, '--')) + ' .fu-text'; }, page: o && o.page, keep: key ? [key] : [] }) : '';
+    if (!key || items.some(function (x) { return x.key === key; })) return h;
+    var x = all.filter(function (y) { return y.key === key; })[0];
+    if (!x && !pick.snap) return h;
+    return h + '<p class="small kept-h">You\'re editing this one</p><ul class="fulist">' + (x ? row(x) : fuRow(ctx, pick.snap, { run: true, removed: true })) + '</ul>';
   }
   /* Steps outside any track first, then the phase's tracks side by side: parallel work, all finished before the gate. */
   function stepsHtml(ctx, r, p, row, map, pi) {
@@ -852,10 +906,14 @@
       deck += gateBlock(ctx, r, map, pi, rec, schedBy['gate:' + p.gate.id], folded && locked && !(!P && (s.noteCorrs || {})[ctx.fsKey + '\n' + runKey(r) + '|nc:gate:' + p.gate.id])) + '</section>';
     });
     /* A compact Phases picker, timeline and follow-ups for screens too narrow for the rail. */
-    var picker = '<div class="rw-picker"><label class="small" for="rw-phase">Phase</label><select id="rw-phase" data-bound>' + map.phases.map(function (p, pi) {
-      var gst = R.gateStatus(r, map, pi), info = R.phaseInfo(r, map, pi);
-      return '<option value="' + esc(p.id) + '"' + (pi === cur ? ' selected' : '') + '>' + (pi + 1) + '. ' + esc(p.title) + ' · ' + info.done + '/' + info.total + ' · ' + esc(p.gate.implicit ? 'confirm' : p.gate.title) + ': ' + GATE_WORD[gst].toLowerCase() + '</option>';
-    }).join('') + '</select>' + (P ? '' : utilities(ctx, r, items.length, late, 'picker')) + '</div>';
+    /* Every phase in order, the 50 around the current one first, with Find past 50 (K.select); how far each is is worked out
+       only for the phases drawn. */
+    var phIdx = {}; map.phases.forEach(function (p, pi) { phIdx[p.id] = pi; });
+    var ph = K.select(s, 'rw-phase', map.phases.map(function (p, pi) { return { v: p.id, t: (pi + 1) + '. ' + p.title }; }), cur >= 0 ? map.phases[cur].id : '', { attrs: ' data-bound', around: cur, noun: 'phase', draw: function (it) {
+      var pi = phIdx[it.v], p = map.phases[pi], gst = R.gateStatus(r, map, pi), info = R.phaseInfo(r, map, pi);
+      return { more: ' · ' + info.done + '/' + info.total + ' · ' + (p.gate.implicit ? 'confirm' : p.gate.title) + ': ' + GATE_WORD[gst].toLowerCase() };
+    } });
+    var picker = '<div class="rw-picker">' + ph.box + '<label class="small" for="rw-phase">Phase</label>' + ph.select + ph.more + (P ? '' : utilities(ctx, r, items.length, late, 'picker')) + '</div>';
     return '<div class="fpe-panes rw-panes"><nav class="fpe-pane rw-rail" aria-label="Phases"><h2 class="rw-h2">Phases</h2>' + railHtml(ctx, r, map, nx, items.length, late) + '</nav>' +
       '<section class="fpe-pane rw-list" id="rw-list" aria-label="Checklist">' + (selOf(ctx) ? '<button class="linkish rw-skip" data-act="to-ins">Skip to the selected step</button>' : '') + '<div class="rw-dock">' + nextBar(ctx, r, map, nx, rec) + picker + '</div>' + (P ? '' : timeline(ctx, r, map, items) + followUps(ctx, r, rec) + (V.reportPanel ? V.reportPanel(ctx, r, map) : '')) + '<div class="deck">' + deck + '</div></section>' +
       inspector(ctx, r, map, rec) + '</div>';

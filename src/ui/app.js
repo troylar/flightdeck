@@ -1579,6 +1579,7 @@
     /* What was just shown is this folder's: after a folder switch it's gone (gen), without the switch itself changing. */
     if (state.justShown && state.justShown.gen !== gen) state.justShown = null;
     if (state.find && state.find.gen !== gen) state.find = null;
+    if (state.justPlanned && state.justPlanned.gen !== gen) state.justPlanned = null;
     dropBatchRender();
     repHarvest();
     procCache = null; pplBy = { list: null, len: -1, by: null }; pplSorted = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null;
@@ -3331,7 +3332,7 @@
     if (ok) { if (g && how !== 'reopen') { dropDraft(prKey(p.id), 'gate:' + g.id, ['record']); prKeepTyped(p.id); } if (!(state.pick && state.pick.kind === 'fields')) state.pick = null; var pm2 = how === 'pass' ? prModel() : null; if (pm2 && pm2.r && pm2.map) { afterPass(R.nextUp(pm2.r, pm2.map, state.me), pm2.map, true); render(); return; } state.focus = g ? '#gate-' + cssEsc(g.id) + ' button:not([disabled])' : 'run-h'; render(); }
   }
   /* Run-screen actions the practice page allows, with any condition on their payload; pr-* are practice's own. */
-  var PRACTICE_OK = { toggle: 1, record: 1, na: 1, clear: 1, select: 1, goto: 1, 'to-ins': 1, 'to-row': 1, 'close-ref': 1, unfold: 1, fold: 1, pick: function (b) { return !!b && /^(fields|pass|waive)$/.test(b.dataset.kind || ''); }, unpick: 1, 'save-fields': 1, pass: 1, waive: 1, reopen: 1, dismiss: 1, help: 1, copy: 1, zoom: 1, 'zoom-phase': 1, 'zoom-gate': 1, nav: function (b) { return !!b && b.dataset.id === 'processes'; } };
+  var PRACTICE_OK = { toggle: 1, record: 1, na: 1, clear: 1, select: 1, goto: 1, 'to-ins': 1, 'to-row': 1, 'close-ref': 1, unfold: 1, fold: 1, pick: function (b) { return !!b && /^(fields|pass|waive)$/.test(b.dataset.kind || ''); }, unpick: 1, 'save-fields': 1, pass: 1, waive: 1, reopen: 1, dismiss: 1, help: 1, 'find-clear': 1, 'sel-more': 1, copy: 1, zoom: 1, 'zoom-phase': 1, 'zoom-gate': 1, nav: function (b) { return !!b && b.dataset.id === 'processes'; } };
   /* The one way an action runs: on the practice page only what's allowed there, through Practice's own handlers. */
   /* The practice page's own controls (not the top bar's or a dialog's, which act as anywhere). */
   function onPracticePage(el) { return state.view === 'practice' && !(el && el.closest && (el.closest('#top') || el.closest('#overlay'))); }
@@ -4095,6 +4096,16 @@
     state.more = Object.assign({}, state.more); delete state.more[list];
     if (state.justShown && state.justShown.lists) delete state.justShown.lists[list];
   }
+  /* A long dropdown's Find box (K.select) stays drawn while it has focus, even emptied below the page size; leaving it lets it
+     go (the focusout below). It's noted for whichever Find box is in use; only a dropdown's box reads it. */
+  function selBoxKept(list) { if (list) state.selFocus = list; }
+  /* 50 more of a long dropdown's options (K.select); its own choice is untouched. */
+  function selMore(id) { if (!id) return; var P = PF.vk.PAGE, m = state.more = Object.assign({}, state.more); m[id] = Math.max(P, m[id] || P) + P; render(); }
+  document.addEventListener('focusout', function (e) {
+    var id = findList(e.target);
+    if (!id || state.selFocus !== id) return;
+    setTimeout(function () { var a = document.activeElement; if (state.selFocus === id && !(a && a.id === 'find-' + id)) { state.selFocus = null; render(); } }, 0);
+  });
   /* The list a Find box filters (its data-find, which matches its id: find-<list>), or null for any other control. */
   function findList(el) { var m = el && /^find-([a-z][\w-]*)$/.exec(el.id || ''); return m && (!el.dataset || !el.dataset.find || el.dataset.find === m[1]) ? m[1] : null; }
   /* The one place a reveal happens, after every draw, once focus and the scroll are put back: the page, then the top bar, then
@@ -4922,7 +4933,17 @@
     setTimeout(function () { var f = document.activeElement; if (dbxAc && (!f || f.id !== dbxAc.id)) dbxClose(); }, 0);
   });
 
-  function pendingBox() { var pf = state.obPending && state.obPendingField; return pf ? document.getElementById(pf) || { id: pf } : dirtyControl(); }
+  function pendingBox() { var pf = state.obPending && state.obPendingField; return pf ? document.getElementById(pf) || { id: pf } : dirtyControl() || fuPending(); }
+  /* An open follow-up form holding a chosen destination, a link or text is unsaved work, even once a redraw has drawn it as the
+     page's own (2.11): leaving refuses, as for any changed control. */
+  function fuPending() {
+    var p = state.fuPick; if (!p) return null;
+    var base = PF.followups.formId(p.key);
+    if (p.to) return document.getElementById(base + '-to') || { id: base + '-to' };
+    var hit = null;
+    ['link', 'note', 'ticket', 'reason'].some(function (k) { var el = document.getElementById(base + '-' + k); if (el && String(el.value || '').trim()) hit = el; return !!hit; });
+    return hit;
+  }
   /* A decline reason with text in it is unsaved work even after a redraw draws it as the box's own text, or while another
      step is selected: leaving refuses, and its step is brought back so the box is on screen. */
   /* Back with a layer open (a dialog, the run's More menu, a sheet, placing a part, a question) closes that one, as Escape
@@ -5295,7 +5316,9 @@
     'lib-tab': function (id) { state.libTab = id === 'skills' ? 'skills' : 'processes'; state.focus = '[data-act="lib-tab"][data-id="' + state.libTab + '"]'; render(); },
     /* Each list keeps its own tag filter, so a tag picked on one page never hides things on another. */
     /* A Find box's Clear: the box empties and takes focus. */
-    'find-clear': function (id) { if (!id) return; setFind(id, ''); state.focus = 'find-' + id; state.focusWins = true; render(); },
+    'find-clear': function (id) { if (!id) return; setFind(id, ''); selBoxKept(id); state.focus = 'find-' + id; state.focusWins = true; render(); },
+    /* A long dropdown's Show more choices (K.select): 50 more options, and focus goes to the dropdown to choose among them. */
+    'sel-more': function (id) { if (!id) return; selMore(id); state.focus = id; state.focusWins = true; render(); },
     tag: function (id) { var t = state.tags || []; state.tags = !id ? [] : t.indexOf(id) >= 0 ? t.filter(function (x) { return x !== id; }) : t.concat(id); (state.tagsBy = state.tagsBy || {})[state.view] = state.tags; state.focus = id ? '[data-act="tag"][data-id="' + cssEsc(id) + '"]' : null; render(); },
     'open-process': function (id) { setView('process'); state.processId = id; state.diffOf = null; state.ptab = 'overview'; state.mapVer = null; resetRunUi(); render(); window.scrollTo(0, 0); },
     /* ---------- the sections ---------- */
@@ -5312,7 +5335,7 @@
       render();
     },
     nav: function (id) {
-      typeOpens++; state.more = {}; state.justShown = null; state.revealTarget = null;
+      typeOpens++; state.more = {}; state.justShown = null; state.revealTarget = null; state.justPlanned = null;
       if (id === 'home') { home(); state.focus = '[data-act="nav"][data-id="home"]'; render(); window.scrollTo(0, 0); return; }
       if (['runs', 'followups', 'processes', 'skills', 'types', 'settings'].indexOf(id) < 0) return;
       releaseUrls(state.urls); setView(id); state.processId = null; state.runKey = null; resetRunUi(); state.fuPick = null;
@@ -6064,13 +6087,25 @@
     'fu-pick': function (id, b) {
       var k = b && b.dataset.status; if (!PF.followups.LABEL[k] || k === 'open') return;
       /* Each follow-up's form has its own boxes (PF.followups.formId); switching to another starts it empty. */
-      state.fuPick = { key: id, status: k }; state.fieldErr = null;
+      /* A snapshot of the row goes with the form (2.11): a newer read that removes the follow-up still draws it, marked, with
+         what's typed, so it can be copied. Moved to's Find starts empty. */
+      var sx = ctx.followUps().filter(function (y) { return y.key === id; })[0];
+      state.fuPick = { key: id, status: k, snap: sx ? { key: sx.key, id: sx.id, process: sx.process, run: sx.run, runKey: sx.runKey, runTitle: sx.runTitle, test: sx.test, f: { text: sx.f.text, ticket: sx.f.ticket }, text: sx.text, owner: sx.owner, at: sx.at, status: 'open' } : null, to: null }; state.fieldErr = null;
+      if (k === 'moved') setFind(PF.followups.formId(id) + '-to', '');
       state.focus = PF.followups.formId(id) + '-' + { done: 'link', ticket: 'ticket', moved: 'to', wont: 'reason' }[k]; render();
     },
     'fu-cancel': function (id) { var k = state.fuPick && state.fuPick.status; state.fuPick = null; state.fieldErr = null; state.focus = k ? '[data-act="fu-pick"][data-id="' + cssEsc(id) + '"][data-status="' + k + '"]' : null; render(); },
+    /* A follow-up removed elsewhere while its form was open: what was typed in the form, to keep somewhere else. */
+    'fu-copy': function (id) {
+      var base = PF.followups.formId(id), parts = [];
+      [['link', 'Link'], ['note', 'Note'], ['ticket', 'Ticket'], ['to', 'Moved to'], ['reason', 'Why']].forEach(function (b) { var v = val(base + '-' + b[0]); if (String(v || '').trim()) parts.push(b[1] + ': ' + String(v).trim()); });
+      var snap = state.fuPick && state.fuPick.key === id && state.fuPick.snap;
+      copyText((snap ? snap.text + '\n' : '') + parts.join('\n'), null, 'Copied what you typed.');
+    },
     'fu-save': function (id) { if (state.fuPick && state.fuPick.key === id) decideFu(id, state.fuPick.status); },
     'fu-reopen': function (id) { decideFu(id, 'open'); },
-    'fu-filter': function (id) { state.fuFilter = id === 'mine' || id === 'all' ? id : 'open'; state.fuPick = null; state.focus = '[data-act="fu-filter"][data-id="' + state.fuFilter + '"]'; render(); },
+    /* Open, Yours or All: an open form stays open with what's typed in it (2.11); its row is drawn whichever chip is on. */
+    'fu-filter': function (id) { state.fuFilter = id === 'mine' || id === 'all' ? id : 'open'; state.more = Object.assign({}, state.more); delete state.more.fu; state.focus = '[data-act="fu-filter"][data-id="' + state.fuFilter + '"]'; render(); },
     /* Recovery: conflict copies sit next to run.json until someone keeps or deletes them. */
     'compare-copy': function (name) {
       var r = ctx.run(), g = gen, key = state.runKey; if (!r) return;
@@ -7226,7 +7261,7 @@
       if (res.conflict) { say(res.afterWrite ? 'Something else wrote the same plan file just now. Check Runs before planning it again.' : 'A plan with the same name is already in the folder, so nothing was saved. Save again.', 'warn'); render(); return; }
       return load(true).then(function () {
         if (g !== gen) return;
-        if (state.planning === planning && state.view === 'start') { state.planning = null; setView('runs'); state.processId = null; state.focus = 'card-' + plan.id; window.scrollTo(0, 0); }
+        if (state.planning === planning && state.view === 'start') { state.planning = null; setView('runs'); state.processId = null; state.justPlanned = { id: plan.id, gen: gen }; state.focus = 'card-' + plan.id; state.focusWins = true; window.scrollTo(0, 0); revealAt('#card-' + cssEsc(plan.id)); }
         say('Planned ' + plan.title + '.', 'good'); render();
       });
     }, function (err) { endBusy(); planning.saving = false; if (g !== gen) return; say('Couldn\'t save the plan: ' + err.message, 'bad'); render(); });
@@ -7243,6 +7278,8 @@
   document.addEventListener('focusout', function (e) { var t = e.target; if (prTypedBox(t) && /INPUT|TEXTAREA|SELECT/.test(t.tagName || '')) prLastBox = { id: t.id, s: t.selectionStart, e: t.selectionEnd, top: t.scrollTop || 0 }; }, true);
   document.addEventListener('focusin', function (e) { var t = e.target, a = t && t.dataset && t.dataset.act; if (!(a === 'pr-edit' || a === 'pr-back')) prLastBox = null; }, true);
   document.addEventListener('input', function (e) {
+    /* A long dropdown's "Show 50 more…" is handled when it changes (below), never as a choice. */
+    if (e.target && e.target.tagName === 'SELECT' && e.target.value === PF.vk.SEL_MORE) return;
     prActivity(e.target);
     if (e.target && e.target.dataset && e.target.dataset.prSample) { var tpx = currentProcess(); if (tpx) { var tpe = prEntry(tpx.id); tpe.typed[e.target.dataset.prSample] = e.target.value; } return; }
     /* What changed, for Stage it for a test run: kept on the practice entry, so a redraw or a reopened phase never loses it. */
@@ -7251,7 +7288,7 @@
     if (e.target && e.target.id === 'pr-note') { var npx = currentProcess(); if (npx) { var ne = prEntry(npx.id); ne.stageNote = e.target.value; ne.noteErr = null; } return; }
     if (e.target && e.target.id === 'pr-found') { var fpx = currentProcess(); if (fpx) { var fe = prEntry(fpx.id); fe.st = PF.practice.setFound(fe.st, e.target.value).state; prSave(fe); var cm = e.target.closest('.field'); var cnt = cm && cm.querySelector('.small'); if (cnt) cnt.textContent = fe.st.found.length + ' of ' + PF.practice.FOUND_MAX; var cb = document.querySelector('[data-act="pr-copy"]'); if (cb) cb.disabled = !fe.st.found; } return; }
     if (e.target.id === 'rel-search') { state.rel.q = e.target.value; render(); }
-    var fl = findList(e.target); if (fl) { setFind(fl, e.target.value); render(); return; }
+    var fl = findList(e.target); if (fl) { selBoxKept(fl); setFind(fl, e.target.value); render(); return; }
     if (e.target.id === 'sx-q' && state.sx) { state.sx.q = String(e.target.value || '').slice(0, 200); state.sx.active = null; state.sx.pos = 0; state.sx.err = ''; sxRun(); render(); }
     if (e.target.id === 'ca-edit' && caOv() && caOv().edit) { caOv().edit.text = e.target.value; caOv().err = null; }
     /* The correction composer keeps what's typed in its state, so the Before/After redline follows the wording as it changes. */
@@ -7361,6 +7398,8 @@
     }
   }, true);
   document.addEventListener('change', function (e) {
+    /* A long dropdown's "Show 50 more…" (K.select): the list widens and the choice stays what it was; nothing else hears it. */
+    if (e.target && e.target.tagName === 'SELECT' && e.target.value === PF.vk.SEL_MORE) { e.target.value = (e.target.dataset && e.target.dataset.cur) || ''; selMore(e.target.id); return; }
     /* A practice sample is one practice action when it's committed (Enter or leaving the box). */
     var smp = e.target && e.target.dataset && e.target.dataset.prSample;
     if (smp) {
@@ -7405,6 +7444,11 @@
     if (e.target.id === 'note-file') { addFiles(e.target.files, state.sel); e.target.value = ''; }
     if (e.target.id === 'me-run') { state.me = String(e.target.value || '').trim().slice(0, 60); lsSet('me', state.me); forgetStartIfNotMine(); render(); }
     if (e.target.id === 'rw-phase' && e.target.value) ACTIONS.goto('phase-' + e.target.value);
+    /* Moved to's choice is remembered with the form (2.11), so it's drawn whatever Find shows and after a newer read. */
+    if (state.fuPick && state.fuPick.status === 'moved' && e.target.id === PF.followups.formId(state.fuPick.key) + '-to') {
+      var tv = String(e.target.value || ''), tp = /^plan:(.+)$/.exec(tv), tr = tp ? null : ctx.findRun(tv), tpl = tp ? data.plans.filter(function (q) { return q.id === tp[1]; })[0] : null;
+      state.fuPick.to = tv ? { v: tv, t: tr ? tr.title : tpl ? tpl.title : tv } : null; render();
+    }
     /* The correction composer: where a new step goes, where a step moves, who does it, and its files. */
     if (state.corrForm) {
       var cf = state.corrForm;
@@ -7527,7 +7571,7 @@
     });
   }
   /* Every change of screen goes through here: what's typed on the run's selected step is kept first. */
-  function setView(v) { childEpoch++; if (state.view === 'start' && v !== 'start') state.startModeAt = {}; if (state.view === 'practice' && v !== 'practice') prLeave(); leaveContext(); state.view = v; }
+  function setView(v) { childEpoch++; if (v !== 'runs') state.justPlanned = null; if (state.view === 'start' && v !== 'start') state.startModeAt = {}; if (state.view === 'practice' && v !== 'practice') prLeave(); leaveContext(); state.view = v; }
   /* Leaving the practice page (any way: Edit, Back, a link): what's typed is kept, and where it was, for coming back. */
   function prLeave() {
     prHarvest(); var p = currentProcess(), e = p && prs[edKey(p.id)];
@@ -7825,7 +7869,7 @@
        what it always does. */
     if (e.key === 'Escape' && findList(t) && String(t.value || '') && !e.altKey && !e.ctrlKey && !e.metaKey) {
       e.preventDefault(); if (e.stopPropagation) e.stopPropagation();
-      setFind(findList(t), ''); state.focus = t.id; state.focusWins = true; render(); return;
+      setFind(findList(t), ''); selBoxKept(findList(t)); state.focus = t.id; state.focusWins = true; render(); return;
     }
     if (e.key === 'Escape') { if (state.overlay) { closeOverlay(); return; } var om = document.querySelector && document.querySelector('.rw-menu[open]'); if (om) { om.open = false; (state.disc = state.disc || {})[(om.dataset && om.dataset.disc) || 'rw-menu'] = false; var sm = om.querySelector('summary'); if (sm) sm.focus(); return; } if (state.tfPreview && state.view === 'types') { ACTIONS['tf-preview'](); return; } if (state.obAdd && !composing && t && /^ob-new-/.test(t.id || '')) { ACTIONS['ob-add-cancel'](); return; } if (state.obPlace) { cancelPlacing(); return; } if (state.obAsk) { ACTIONS['ob-ask-cancel'](); return; } if (obSheetOpen) { ACTIONS['ob-done'](); return; } if (state.view === 'practice' && state.pick) { PRACTICE.unpick(); return; } if (sheetWasOpen && state.view === 'practice') { PRACTICE['close-ref'](); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.view === 'practice' && !typing) { PRACTICE['pr-back'](); return; } if (state.pick || state.edit) { var pk = state.pick; if (pk && pk.kind === 'fields') { dropDraft(state.runKey, pk.id, ['fields', 'open']); state.fieldsDraft = null; } state.pick = null; state.edit = null; state.fieldErr = null; if (pk && pk.back) state.focus = pk.back; render(); return; } if (state.corrForm) { if (state.corrForm.menu) { state.corrForm.menu = false; state.focus = '[data-act="corr-menu"]'; render(); return; } ACTIONS['corr-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt') { reenterRun(); render(); } return; }
     /* A dialog keeps Tab and Shift+Tab inside it, wrapping at the ends, so keyboard focus never falls behind it. */

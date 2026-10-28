@@ -11,6 +11,8 @@
       (r.ended ? '' : '<div class="bar" aria-hidden="true"><i style="width:' + (t.total ? Math.round(100 * t.done / t.total) : 0) + '%"></i></div>') +
       '<span class="small">' + t.done + ' of ' + t.total + ' steps · started ' + esc(U.when(r.created)) + (r._conflicts && r._conflicts.length ? ' · <b style="color:var(--stop)">conflict copy found</b>' : '') + ((ctx.state.missing || {})[runKey(r)] ? ' · <b style="color:var(--stop)">its file is gone from the team folder</b>' : '') + '</span></button>';
   }
+  /* Home's lists are a glance: 10 at a time, each linking to its full page (2.11). */
+  var HOME_PAGE = 10;
   /* A Processes row shows this many skill chips (2.11). */
   var CHIPS = 5;
   var SKILL_PILL = { current: ['passed', 'current'], unaffected: ['open', 'note version'], update: ['failed', 'needs update'], missing: ['failed', 'check it'], unmatched: ['failed', 'can\'t be matched'] };
@@ -67,33 +69,36 @@
   /* ---------- Home: only what needs this person, each with one obvious next step ---------- */
   function home(ctx) {
     var st = ctx.state, d = ctx.data, me = st.me, items = [];
-    var add = function (kind, title, sub, act, id, label) { items.push('<li class="todo ' + kind + '"><div><b>' + title + '</b>' + (sub ? '<div class="small">' + sub + '</div>' : '') + '</div><button class="btn" data-act="' + act + '" data-id="' + esc(id) + '">' + esc(label) + '</button></li>'); };
+    /* Each row is a light descriptor (2.11): what it says (text(), returning its title and line as HTML) is worked out only
+       for the rows drawn, 10 at a time; whether it's there at all is decided here, for the count. */
+    var add = function (kind, text, act, id, label) { items.push({ kind: kind, text: text, act: act, id: id, label: label }); };
+    var todo = function (x, i) { PF.perf.add('home.todo'); var t = x.text(); return '<li class="todo ' + x.kind + '" id="todo-' + x.n + '"><div><b tabindex="-1">' + t[0] + '</b>' + (t[1] ? '<div class="small">' + t[1] + '</div>' : '') + '</div><button class="btn" data-act="' + x.act + '" data-id="' + esc(x.id) + '">' + esc(x.label) + '</button></li>'; };
     /* Folder problems that need a person come first, with one way to see them all. */
     var hr = ctx.health ? ctx.health(false) : null, stops = hr ? hr.issues.filter(function (i) { return i.severity === 'stop'; }) : [];
-    if (stops.length) add('health', 'The team folder needs attention', esc(stops[0].title) + (stops.length > 1 ? ', and ' + (stops.length - 1) + ' more' : '') + '.', 'health', '', 'Open Folder health');
+    if (stops.length) add('health', function () { return ['The team folder needs attention', esc(stops[0].title) + (stops.length > 1 ? ', and ' + (stops.length - 1) + ' more' : '') + '.']; }, 'health', '', 'Open Folder health');
     var repWait = me && ctx.reportsWaiting ? ctx.reportsWaiting() : {};
     if (me) d.runs.filter(function (r) { return r.state === 'running'; }).forEach(function (r) {
-      var map = R.mapOf(r), hl = K.headline(r, map), nx = R.myNext(r, map, me), nr = Object.prototype.hasOwnProperty.call(repWait, runKey(r)) ? repWait[runKey(r)] : 0;
+      var mine = r.recorder.person === me, map = R.mapOf(r), nx = mine ? null : R.myNext(r, map, me), nr = Object.prototype.hasOwnProperty.call(repWait, runKey(r)) ? repWait[runKey(r)] : 0;
       var tt = R.isTest(r) ? 'Test run · ' : '';
-      if (r.recorder.person === me) add('run', tt + esc(r.title) + ': you\'re recording', esc(hl.text), 'open-run', runKey(r), 'Open the run');
-      else if (nx) add('run', tt + esc(r.title) + ': you\'re up', K.stepHtml(nx.step, K.refValue(r, map), false) + ' · ' + esc(nameOf(ctx, r.recorder.person)) + ' is recording', 'open-run', runKey(r), 'Open the run');
-      if (r.recorder.person === me && nr) add('run', nr + ' report' + (nr === 1 ? '' : 's') + ' to review on ' + esc(r.title), 'A tool says it did ' + (nr === 1 ? 'a step' : 'steps') + '. Accept or decline ' + (nr === 1 ? 'it' : 'each') + ' on the step.', 'open-run', runKey(r), 'Review');
+      if (mine) add('run', function () { return [tt + esc(r.title) + ': you\'re recording', esc(K.headline(r, map).text)]; }, 'open-run', runKey(r), 'Open the run');
+      else if (nx) add('run', function () { return [tt + esc(r.title) + ': you\'re up', K.stepHtml(nx.step, K.refValue(r, map), false) + ' · ' + esc(nameOf(ctx, r.recorder.person)) + ' is recording']; }, 'open-run', runKey(r), 'Open the run');
+      if (mine && nr) add('run', function () { return [nr + ' report' + (nr === 1 ? '' : 's') + ' to review on ' + esc(r.title), 'A tool says it did ' + (nr === 1 ? 'a step' : 'steps') + '. Accept or decline ' + (nr === 1 ? 'it' : 'each') + ' on the step.']; }, 'open-run', runKey(r), 'Review');
     });
     /* A plan with a time shows here from 24 hours before it; one without a time shows until someone decides on it. */
     var now = ctx.now(), clash = 'Two decisions on it disagree; check Runs before starting it.';
     byWhen(d.plans.filter(function (p) { return !p._status && !p._decidedEarlier; })).forEach(function (p) {
       var t = whenOf(p), c = PF.requests.claim(p), flag = p._conflicting ? clash : p._copiesDiffer ? copiesLine(p) : null;
-      if (t == null) add('plan', c ? esc(c.name) + ' requested "' + esc(p.title) + '" (by its own account)' : esc(p.by ? nameOf(ctx, p.by) : 'Your AI assistant') + ' planned "' + esc(p.title) + '"', flag || 'Review it before it starts.', 'review-plan', p.id, 'Review the plan');
-      else if (t - now <= 86400000) add('plan', esc(p.title) + ' is planned for ' + esc(U.dueWords(p.when, now)), flag || (c ? 'Requested by ' + esc(c.name) + ', by its own account.' : 'Planned by ' + esc(p.by ? nameOf(ctx, p.by) : 'an AI assistant') + '.'), 'review-plan', p.id, 'Review and start');
+      if (t == null) add('plan', function () { return [c ? esc(c.name) + ' requested "' + esc(p.title) + '" (by its own account)' : esc(p.by ? nameOf(ctx, p.by) : 'Your AI assistant') + ' planned "' + esc(p.title) + '"', flag || 'Review it before it starts.']; }, 'review-plan', p.id, 'Review the plan');
+      else if (t - now <= 86400000) add('plan', function () { return [esc(p.title) + ' is planned for ' + esc(U.dueWords(p.when, now)), flag || (c ? 'Requested by ' + esc(c.name) + ', by its own account.' : 'Planned by ' + esc(p.by ? nameOf(ctx, p.by) : 'an AI assistant') + '.')]; }, 'review-plan', p.id, 'Review and start');
     });
-    (ctx.lostDrafts ? ctx.lostDrafts() : []).forEach(function (id) { add('draft', 'Unsaved edits to "' + esc(id) + '"', 'Its draft was removed from the folder. Save it again or copy it.', 'open-process', id, 'Open it'); });
+    (ctx.lostDrafts ? ctx.lostDrafts() : []).forEach(function (id) { add('draft', function () { return ['Unsaved edits to "' + esc(id) + '"', 'Its draft was removed from the folder. Save it again or copy it.']; }, 'open-process', id, 'Open it'); });
     ctx.processes().forEach(function (p) {
       var owner = p.latest && p.latest.map.meta.owner, mine = K.keeps(ctx, p);
       /* A draft and skills that need attention go to whoever looks after the checklist (K.keepers); to everyone when nobody does. */
-      if (p.draft && p.draftChanged && mine) add('draft', esc(p.title) + ': the draft has unpublished changes', p.latest ? 'Publish it as v' + (p.latest.info.version + 1) + ' when it\'s ready.' : 'Not published yet.', 'open-process', p.id, 'Review and publish');
-      if (p.staleSkills && mine) add('skill', esc(p.title) + ': ' + p.staleSkills + ' skill' + (p.staleSkills === 1 ? ' needs' : 's need') + ' attention', 'The checklist changed since they were built.', 'open-process', p.id, 'See the skills');
+      if (p.draft && p.draftChanged && mine) add('draft', function () { return [esc(p.title) + ': the draft has unpublished changes', p.latest ? 'Publish it as v' + (p.latest.info.version + 1) + ' when it\'s ready.' : 'Not published yet.']; }, 'open-process', p.id, 'Review and publish');
+      if (p.staleSkills && mine) add('skill', function () { return [esc(p.title) + ': ' + p.staleSkills + ' skill' + (p.staleSkills === 1 ? ' needs' : 's need') + ' attention', 'The checklist changed since they were built.']; }, 'open-process', p.id, 'See the skills');
       var signer = p.latest && owner ? PF.skills.signer(p.latest, d.people, me, !!(d.failed || {}).people) : '';
-      if (signer && !PF.skills.signoffs(d.validations, p.latest).length && !PF.skills.signUnknown(d, p.latest) && PF.skills.readiness(ctx.countedRuns ? ctx.countedRuns(p.latest.map.meta.process) : d.runs, p.latest, null).enough) add('sign', esc(p.title) + ' v' + p.latest.info.version + ' is ready for a skill', signer === 'backup' ? 'Enough clean runs. Its owner is away, so as backup owner, you sign it off.' : 'Enough clean runs. As its owner, you sign it off.', 'open-process', p.id, 'Sign it off');
+      if (signer && !PF.skills.signoffs(d.validations, p.latest).length && !PF.skills.signUnknown(d, p.latest) && PF.skills.readiness(ctx.countedRuns ? ctx.countedRuns(p.latest.map.meta.process) : d.runs, p.latest, null).enough) add('sign', function () { return [esc(p.title) + ' v' + p.latest.info.version + ' is ready for a skill', signer === 'backup' ? 'Enough clean runs. Its owner is away, so as backup owner, you sign it off.' : 'Enough clean runs. As its owner, you sign it off.']; }, 'open-process', p.id, 'Sign it off');
     });
     var h = notices(ctx);
     if (st.needsReconnect && ctx.navPending && ctx.navPending()) h += '<div class="notice" role="status"><span>Reconnect to open the page you linked to.</span><button class="mini" data-act="reconnect">Reconnect</button></div>';
@@ -101,7 +106,8 @@
     h += pageHead('Home', me ? 'Hi, ' + esc(nameOf(ctx, me).split(' ')[0]) : 'Welcome', me ? (items.length ? items.length + ' thing' + (items.length === 1 ? '' : 's') + ' need' + (items.length === 1 ? 's' : '') + ' you.' : st.reading ? 'Still reading the team folder.' : 'Nothing needs you right now.') : '', '', 'page-h');
     h += stillReading(ctx, true);
     if (V.setupHome) h += V.setupHome(ctx);
-    if (items.length) h += '<section class="panel" aria-labelledby="todo-h"><h2 id="todo-h">Needs you</h2><ul class="todos">' + items.join('') + '</ul></section>';
+    items.forEach(function (x, i) { x.n = i; });
+    if (items.length) h += '<section class="panel" aria-labelledby="todo-h"><h2 id="todo-h">Needs you</h2>' + K.list(st, 'home-todo', items, { draw: function (shown) { return '<ul class="todos">' + shown.map(todo).join('') + '</ul>'; }, keyOf: function (x) { return String(x.n); }, focusOf: function (k) { return '#todo-' + k + ' b'; }, page: HOME_PAGE }) + '</section>';
     h += acksPanel(ctx);
     h += myFollowUps(ctx);
     /* Test runs (2.1) are never counted as real runs. */
@@ -120,24 +126,26 @@
     var list = ctx.acks ? ctx.acks() : me ? [].concat.apply([], ctx.processes().map(function (p) { return C.acks(V.corrGroups(ctx, p.id), me, null); })) : [];
     if (!list.length) return '';
     var stepName = function (g) { return '"' + C.targetName(g) + '"'; };
-    return '<section class="panel" aria-labelledby="ack-h"><h2 id="ack-h">Your corrections</h2><ul class="todos">' + list.map(function (a) {
+    var rows = list.map(function (a, i) { return { a: a, n: i }; });
+    return '<section class="panel" aria-labelledby="ack-h"><h2 id="ack-h">Your corrections</h2>' + K.list(ctx.state, 'home-acks', rows, { page: HOME_PAGE, keyOf: function (x) { return String(x.n); }, focusOf: function (k) { return '#ack-' + k + ' b'; }, draw: function (shown) { return '<ul class="todos">' + shown.map(function (x) {
+      var a = x.a;
       var gs = a.groups || [a.group], title;
       /* Plain text, escaped once where it's used. */
       if (a.kind === 'landed') title = gs.length === 1 ? 'Your correction to ' + stepName(gs[0]) + ' is published in v' + a.version + '.'
         : 'Your corrections to ' + stepName(gs[0]) + (gs.length === 2 ? ' and ' + stepName(gs[1]) : ' and ' + (gs.length - 1) + ' other steps') + ' are published in v' + a.version + '.';
       else title = nameOf(ctx, a.by) + ' declined your correction: ' + a.reason;
       var sub = ctx.processTitle(a.process) + (a.kind === 'declined' ? ' · ' + stepName(a.group) : '');
-      return '<li class="todo ack ' + a.kind + '"><div><b>' + esc(title) + '</b><div class="small">' + esc(sub) + '</div></div><span class="row"><button class="btn" data-act="ack-view" data-id="' + esc(a.key) + '" data-process="' + esc(a.process) + '">View change</button>' +
+      return '<li class="todo ack ' + a.kind + '" id="ack-' + x.n + '"><div><b tabindex="-1">' + esc(title) + '</b><div class="small">' + esc(sub) + '</div></div><span class="row"><button class="btn" data-act="ack-view" data-id="' + esc(a.key) + '" data-process="' + esc(a.process) + '">View change</button>' +
         '<button class="mini" data-act="ack-dismiss" data-id="' + esc(a.key) + '" aria-label="Dismiss: ' + esc(title) + '">Dismiss</button></span></li>';
-    }).join('') + '</ul></section>';
+    }).join('') + '</ul>'; } }) + '</section>';
   }
 
   /* Open follow-ups this person owns, however old; resolved ones drop off. Like acknowledgments, never counted in Needs you. */
   function myFollowUps(ctx) {
     var me = ctx.state.me, all = V.fuList(ctx), mine = PF.followups.mine(all, me), open = all.filter(PF.followups.isOpen).length;
-    if (!mine.length) return open ? '<p class="small fu-all"><button class="linkish" data-act="nav" data-id="followups">All open follow-ups · ' + open + '</button></p>' : '';
+    if (!mine.length && !(ctx.state.fuPick && ctx.state.view === 'home')) return open ? '<p class="small fu-all"><button class="linkish" data-act="nav" data-id="followups">All open follow-ups · ' + open + '</button></p>' : '';
     return '<section class="panel" aria-labelledby="fu-home-h"><div class="row between"><h2 id="fu-home-h">Your follow-ups · ' + mine.length + '</h2><button class="mini" data-act="nav" data-id="followups">All open follow-ups · ' + open + '</button></div>' +
-      '<ul class="fulist">' + mine.map(function (x) { return V.fuRow(ctx, x, { run: true, age: true }); }).join('') + '</ul></section>';
+      V.fuPaged(ctx, 'home-fu', mine, all, { page: HOME_PAGE }) + '</section>';
   }
 
   /* ---------- Runs › Follow-ups: every follow-up across runs, and what became of it ---------- */
@@ -151,8 +159,11 @@
     h += '<section class="panel"><div class="row between" style="margin-bottom:10px"><h2 id="fu-list-h" tabindex="-1" style="margin:0">' + (filter === 'all' ? 'Every follow-up · ' + all.length : filter === 'mine' ? 'Open and yours · ' + mine.length : 'Open · ' + open.length) + '</h2>' +
       '<div class="filter" role="group" aria-label="Show follow-ups">' + [['open', 'Open'], ['mine', 'Yours'], ['all', 'All']].map(function (f) { return '<button class="chipbtn" data-act="fu-filter" data-id="' + f[0] + '" aria-pressed="' + (filter === f[0]) + '">' + f[1] + '</button>'; }).join('') + '</div></div>';
     if (!me && shown.length) h += '<p class="small">Choose who you are at the top right to say what became of a follow-up.</p>';
-    h += shown.length ? '<ul class="fulist">' + shown.map(function (x) { return V.fuRow(ctx, x, { run: true, age: true }); }).join('') + '</ul>'
-      : '<p class="muted">' + (filter === 'all' ? 'No run has follow-ups yet. The recorder adds them while finishing a run.' : filter === 'mine' ? (me ? 'Nothing open is yours.' : 'Choose who you are to see yours.') : 'Nothing is open. Every follow-up has been dealt with.') + '</p>';
+    /* Find a follow-up (2.11): by its text, its run, its owner and its step, over the chip's whole list; 50 at a time. */
+    var q = K.findQ(st, 'fu'), hit = K.finds(q), stepOf = function (x) { if (!x.f.step) return ''; var r = ctx.findRun ? ctx.findRun(x.runKey) : null, y = r ? M.findStep(R.mapOf(r), x.f.step) : null; return y ? K.stepPlain(y.step, null) : x.f.step; };
+    var found = q ? shown.filter(function (x) { return hit([x.text, x.runTitle, x.owner ? nameOf(ctx, x.owner) : '', x.f.ticket, stepOf(x)]); }) : shown;
+    if (shown.length) h += K.findBox(st, 'fu', 'Find a follow-up', found.length, shown.length, 'follow-up');
+    h += V.fuPaged(ctx, 'fu', found, all) || (shown.length ? '' : '<p class="muted">' + (filter === 'all' ? 'No run has follow-ups yet. The recorder adds them while finishing a run.' : filter === 'mine' ? (me ? 'Nothing open is yours.' : 'Choose who you are to see yours.') : 'Nothing is open. Every follow-up has been dealt with.') + '</p>');
     return h + '</section>';
   }
 
@@ -170,18 +181,25 @@
     if (bad.length) h += '<div class="notice bad" role="alert"><span><b>' + (bad.length === 1 ? 'A run file can\'t be read' : bad.length + ' run files can\'t be read') + '.</b> ' + bad.slice(0, 3).map(function (u) { return '<code>' + esc(u.path) + '</code> ' + esc(u.why); }).join('; ') + (bad.length > 3 ? '; and ' + (bad.length - 3) + ' more' : '') + '. ' + (bad.some(function (u) { return ctx.findRun(u.key); }) ? 'What was read before is still shown. ' : '') + 'It may still be arriving.</span><span class="row"><button class="mini" data-act="health">Folder health</button><button class="mini" data-act="recovery" data-id="a-file-cant-be-read">What to do</button></span></div>';
     var cards = function (list) { return '<div class="cards">' + list.map(function (r) { return runCard(ctx, r); }).join('') + '</div>'; };
     /* A filter or the runs behind a number in How runs go (views/insights.js) replace the lists below. */
+    /* A plan just saved (2.11) is shown at the top, above the filters, whatever they or a cohort from How runs go leave out,
+       until you leave Runs; it has the card's id there. */
+    var cardIds = {}, jp = st.justPlanned ? d.plans.filter(function (p) { return p.id === st.justPlanned.id; })[0] : null;
+    if (jp) h += '<section class="panel just-planned" aria-labelledby="jp-h"><h2 id="jp-h">Just planned</h2><div class="cards">' + planCard(jp, '') + '</div></section>';
     var cohort = st.runFilter && st.runFilter.cohort, only = V.runsFiltered(ctx, cards);
     if (!cohort) h += V.runsFilterBar(ctx);
     if (only) return h + only;
     h += '<section class="panel"><div class="row between" style="margin-bottom:10px"><h2 style="margin:0">Running</h2><div class="filter" role="group" aria-label="Show runs"><button class="chipbtn" data-act="filter" data-id="mine" aria-pressed="' + (st.filter !== 'all') + '">Mine</button><button class="chipbtn" data-act="filter" data-id="all" aria-pressed="' + (st.filter === 'all') + '">Everyone</button></div></div>';
     h += (running.length ? K.paged(st, 'runs-running', running, cards, runKey) : '<div class="cards"><p class="muted">' + (st.reading ? 'None read yet.' : st.filter === 'all' ? 'Nothing is running.' : 'Nothing you\'re recording or assigned to. Switch to Everyone to see the rest.') + '</p></div>') + '</section>';
-    /* Copies of one plan that differ are each shown; only the first keeps the card's id, so ids stay unique. */
-    var cardIds = {};
-    if (plans.length) h += '<section class="panel"><h2>Planned</h2><div class="cards">' + plans.map(function (p) {
+    /* 50 at a time, soonest first (2.11). Copies of one plan that differ are each shown; only the first keeps the card's id, so
+       ids stay unique, and none does while the plan is in Just planned above. */
+    var nth = {};
+    var planKeyed = plans.map(function (p) { nth[p.id] = (nth[p.id] || 0) + 1; return { p: p, key: nth[p.id] > 1 ? p.id + '#' + nth[p.id] : p.id }; });
+    if (plans.length) h += '<section class="panel" aria-labelledby="planned-h"><h2 id="planned-h">Planned · ' + plans.length.toLocaleString('en-US') + '</h2>' + K.list(st, 'runs-planned', planKeyed, { keyOf: function (x) { return x.key; }, focusOf: function (k) { return '[data-act="review-plan"][data-key="' + String(k).replace(/["\\]/g, '\\$&') + '"]'; }, draw: function (shown) { return '<div class="cards">' + shown.map(function (x) { return planCard(x.p, x.key); }).join('') + '</div>'; } }) + '</section>';
+    function planCard(p, key) {
       var cid = cardIds[p.id] ? '' : ' id="card-' + esc(p.id) + '"', copies = copiesLine(p);
       cardIds[p.id] = true;
-      return '<button class="card plan"' + cid + ' data-act="review-plan" data-id="' + esc(p.id) + '"><span class="cat">' + esc(ctx.processTitle(p.process)) + ' · ' + esc(plannedBy(ctx, p)) + '</span><span class="card-title">' + esc(p.title) + '</span>' + (whenOf(p) != null ? '<span class="small">' + esc(U.dueWords(p.when, now)) + '</span>' : '') + (p._conflicting ? '<span class="small" style="color:var(--stop)"><b>Two decisions on this plan disagree.</b> Someone may have started it already; check Runs before starting it again.</span>' : '') + (p._decidedEarlier && !p._conflicting ? '<span class="small">' + esc(V.earlierWords(p, d)) + '</span>' : '') + (copies ? '<span class="small"' + (p._copiesDiffer ? ' style="color:var(--stop)"' : '') + '>' + copies + '</span>' : '') + (p.note ? '<span class="small">' + esc(p.note) + '</span>' : '') + '</button>';
-    }).join('') + '</div></section>';
+      return '<button class="card plan"' + cid + ' data-act="review-plan" data-id="' + esc(p.id) + '"' + (key ? ' data-key="' + esc(key) + '"' : '') + '><span class="cat">' + esc(ctx.processTitle(p.process)) + ' · ' + esc(plannedBy(ctx, p)) + '</span><span class="card-title">' + esc(p.title) + '</span>' + (whenOf(p) != null ? '<span class="small">' + esc(U.dueWords(p.when, now)) + '</span>' : '') + (p._conflicting ? '<span class="small" style="color:var(--stop)"><b>Two decisions on this plan disagree.</b> Someone may have started it already; check Runs before starting it again.</span>' : '') + (p._decidedEarlier && !p._conflicting ? '<span class="small">' + esc(V.earlierWords(p, d)) + '</span>' : '') + (copies ? '<span class="small"' + (p._copiesDiffer ? ' style="color:var(--stop)"' : '') + '>' + copies + '</span>' : '') + (p.note ? '<span class="small">' + esc(p.note) + '</span>' : '') + '</button>';
+    }
     /* The newest 8 finished runs, and any run with a warning; the rest one click away, remembered. */
     var warned = function (r) { return (r._conflicts && r._conflicts.length) || (st.missing || {})[runKey(r)]; };
     var flagged = ended.filter(function (r, i) { return i >= 8 && warned(r); }), older = ended.filter(function (r, i) { return i >= 8 && !warned(r); }), allOpen = (st.disc || {})['runs-older'];

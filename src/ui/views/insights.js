@@ -69,9 +69,9 @@
   }
   function summary(ctx, p, res, list, f) {
     var h = '<section class="panel ins" aria-labelledby="ins-h"><div class="row between ins-head"><h2 id="ins-h" tabindex="-1">' + IC('chart') + 'How runs go</h2>';
-    h += list.length > 1 ? '<span class="ins-pick"><label for="ins-folder">Version</label><select id="ins-folder" data-bound data-nav-safe>' + list.map(function (x) {
-      return '<option value="' + esc(x.folder) + '"' + (x.folder === f.folder ? ' selected' : '') + '>' + esc(verLabel(x)) + ' · ' + plural(x.runs, 'run') + '</option>';
-    }).join('') + '</select></span>' : '<span class="small">' + esc(verLabel(f)) + '</span>';
+    /* Every version, newest first: 50 at a time, with Find past 50 (K.select). */
+    var vs = list.length > 1 ? K.select(ctx.state, 'ins-folder', list.map(function (x) { return { v: x.folder, t: verLabel(x) + ' · ' + plural(x.runs, 'run'), place: x.folder }; }), f.folder, { attrs: ' data-bound data-nav-safe', noun: 'version' }) : null;
+    h += vs ? '<span class="ins-pick">' + vs.box + '<label for="ins-folder">Version</label>' + vs.select + vs.more + '</span>' : '<span class="small">' + esc(verLabel(f)) + '</span>';
     h += '</div>';
     if (f.clash) h += '<div class="notice warn"><span>Two folders are numbered v' + f.version + '. Each is counted on its own; this is <code>' + esc(f.folder) + '</code>.</span></div>';
     var notes = res.notes.map(function (t) { return '<div class="notice warn" role="status"><span>' + esc(t) + '</span></div>'; }).join('');
@@ -218,8 +218,10 @@
   function filterBar(ctx) {
     var st = ctx.state, f = st.runFilter && !st.runFilter.cohort ? st.runFilter : {}, runs = ctx.data.runs || [];
     var procs = []; runs.forEach(function (r) { if (procs.indexOf(r.process) < 0) procs.push(r.process); });
-    procs.sort(function (a, b) { return ctx.processTitle(a).localeCompare(ctx.processTitle(b)); });
+    procs.sort(function (a, b) { return PF.text.natural(ctx.processTitle(a), ctx.processTitle(b)) || PF.text.natural(a, b); });
     var opt = function (v, label, cur) { return '<option value="' + esc(v) + '"' + (v === (cur || '') ? ' selected' : '') + '>' + esc(label) + '</option>'; };
+    /* Process and Version list every checklist and version runs are of: 50 at a time, with Find past 50 (K.select). */
+    var rfSel = function (id, label, items, cur, noun) { var x = K.select(st, id, items, cur || '', { attrs: ' data-bound data-nav-safe', lead: opt('', 'Any', cur), noun: noun }); return '<span class="rf-f">' + x.box + '<label for="' + id + '">' + label + '</label>' + x.select + x.more + '</span>'; };
     var vers = f.process ? I.folders(runs, f.process, [], []) : [];
     var chips = [];
     if (f.process) chips.push(['process', 'Checklist: ' + ctx.processTitle(f.process)]);
@@ -229,8 +231,8 @@
     if (f.through) chips.push(['through', 'Started through ' + f.through]);
     var open = active(f) || (st.disc || {}).rf;
     return '<details class="panel rf" data-disc="rf"' + (open ? ' open' : '') + '><summary><h2>Filter runs</h2></summary><div class="rf-row">' +
-      '<span class="rf-f"><label for="rf-process">Process</label><select id="rf-process" data-bound data-nav-safe>' + opt('', 'Any', f.process) + procs.map(function (pid) { return opt(pid, ctx.processTitle(pid), f.process); }).join('') + '</select></span>' +
-      (f.process ? '<span class="rf-f"><label for="rf-folder">Version</label><select id="rf-folder" data-bound data-nav-safe>' + opt('', 'Any', f.folder) + vers.map(function (x) { return opt(x.folder, verLabel(x), f.folder); }).join('') + '</select></span>' : '') +
+      rfSel('rf-process', 'Process', procs.map(function (pid) { return { v: pid, t: ctx.processTitle(pid), place: pid }; }), f.process, 'checklist') +
+      (f.process ? rfSel('rf-folder', 'Version', vers.map(function (x) { return { v: x.folder, t: verLabel(x), place: x.folder }; }), f.folder, 'version') : '') +
       '<span class="rf-f"><label for="rf-outcome">Outcome</label><select id="rf-outcome" data-bound data-nav-safe>' + OUTCOMES.map(function (o) { return opt(o[0], o[1], f.outcome); }).join('') + '</select></span>' +
       '<span class="rf-f"><label for="rf-from">Started from</label><input type="date" id="rf-from" value="' + esc(f.from || '') + '" data-bound data-nav-safe></span>' +
       '<span class="rf-f"><label for="rf-through">through</label><input type="date" id="rf-through" value="' + esc(f.through || '') + '" data-bound data-nav-safe></span></div>' +
