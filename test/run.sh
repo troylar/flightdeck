@@ -36,6 +36,7 @@ test/bounds-app.test.js 2/6
 test/bounds-app.test.js 3/6
 test/bounds-app.test.js 4/6
 test/bounds-app.test.js 5/6
+test/find.test.js -
 test/ui-states.test.js -
 test/reports.test.js -
 test/insights.test.js -
