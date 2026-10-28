@@ -69,8 +69,10 @@ function readCache(tag) {
 function writeCache(tag, got) {
   const dir = path.join(CACHE, tag);
   fs.mkdirSync(dir, { recursive: true });
-  Object.keys(got.files).forEach((k) => fs.writeFileSync(path.join(dir, k), got.files[k]));
-  fs.writeFileSync(path.join(dir, 'meta.json'), JSON.stringify({ tag, commit: got.commit, sha256: hashes(got.files) }, null, 2) + '\n');
+  /* Each file lands whole (written beside it, then renamed), so test files reading the cache in parallel never see half of one. */
+  const put = (k, text) => { const tmp = path.join(dir, k + '.' + process.pid + '.tmp'); fs.writeFileSync(tmp, text); fs.renameSync(tmp, path.join(dir, k)); };
+  Object.keys(got.files).forEach((k) => put(k, got.files[k]));
+  put('meta.json', JSON.stringify({ tag, commit: got.commit, sha256: hashes(got.files) }, null, 2) + '\n');
 }
 
 /* Does what was read match the record for this tag? Returns what differs, or ''. */

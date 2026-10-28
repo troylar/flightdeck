@@ -17,10 +17,24 @@ function check(releases) {
 }
 const clone = () => JSON.parse(JSON.stringify(GOOD));
 
-rule('test/run.sh runs every test file in test/', () => {
-  const listed = fs.readFileSync(path.join(__dirname, 'run.sh'), 'utf8').split('\n').filter(l => /^t test\//.test(l)).map(l => l.slice(7).trim());
+rule('test/run.sh runs every test file in test/, once, with every shard of a split file', () => {
+  const sh = fs.readFileSync(path.join(__dirname, 'run.sh'), 'utf8');
+  const jobs = /<<'JOBS_LIST'[^\n]*\n([\s\S]*?)\nJOBS_LIST\n/.exec(sh), serial = /^for f in ((?:test\/[\w.-]+\.test\.js ?)+); do job "\$f" -; done$/m.exec(sh);
+  assert.ok(jobs && serial, 'test/run.sh has its JOBS_LIST and its serial for-loop');
+  const seen = {};
+  jobs[1].split('\n').concat(serial[1].trim().split(' ').map(f => f + ' -')).forEach((l) => {
+    const m = /^test\/([\w.-]+\.test\.js) (-|(\d+)\/(\d+))$/.exec(l);
+    assert.ok(m, 'a job line is "test/<file> -" or "test/<file> i/n": ' + JSON.stringify(l));
+    (seen[m[1]] = seen[m[1]] || []).push(m[2]);
+  });
+  Object.keys(seen).forEach((f) => {
+    const s = seen[f];
+    if (s.length === 1 && s[0] === '-') return;
+    const n = +(s[0].split('/')[1] || 0), want = Array.from({ length: n }, (_, i) => i + '/' + n);
+    assert.deepStrictEqual(s.slice().sort((a, b) => parseInt(a, 10) - parseInt(b, 10)), want, f + ' runs once whole, or once per shard of one split');
+  });
   const files = fs.readdirSync(__dirname).filter(f => /\.test\.js$/.test(f));
-  assert.deepStrictEqual(files.filter(f => listed.indexOf(f) < 0), [], 'add these to test/run.sh');
+  assert.deepStrictEqual(files.filter(f => !seen[f]), [], 'add these to test/run.sh');
 });
 
 rule('The shipped release notes are valid, and CHANGELOG.md is exactly what they generate', () => {
