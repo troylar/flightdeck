@@ -178,6 +178,10 @@ function make(opts) {
     const rolesRun = newRun(rolesPub, { id: 'rolesrun', title: 'A run with 300 roles', start: NOW - HOUR, by: 'person-avery', roles: { r1: 'person-avery' } });
     put(base(rolesRun) + 'run.json', runFile(rolesRun));
     facts.roles = 'roles/' + rolesRun.id;
+    /* A team run of it someone else records: its Details show the roles to a viewer, as disabled chips. */
+    const rolesTeam = newRun(rolesPub, { id: 'rolesteam', title: 'A team run with 300 roles', start: NOW - HOUR, by: 'person-blake', roles: { r1: 'person-blake', r2: 'person-casey' } });
+    put(base(rolesTeam) + 'run.json', runFile(rolesTeam));
+    facts.rolesTeam = 'roles/' + rolesTeam.id;
     /* The other forms that ask for every role: a staged version's Start a test run, and a step that starts a 300-role child. */
     publish(rolesMd.replace('Role 1 does this', 'Role 1 does this, staged'), 0, { stage: true, existing: pubs.roles.map(x => ({ version: x.info.version })) });
     publish(head('roleskid', 'Many roles, started from a step', { group: 'Busy', context: 'ticket', roles: rolesPub.map.meta.roles.join(', ') }) + '## Only · READ-DO {#ph1}\n' + Array.from({ length: S.many }, (x, i) => stepLine('s' + i, 'Role ' + (i + 1) + ' does this', { role: 'r' + (i + 1) })).join('') + '\n');

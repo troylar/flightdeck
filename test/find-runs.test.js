@@ -365,6 +365,26 @@ rule('The checklist\'s version picker and How runs go\'s version each list at mo
   assert.strictEqual(candidates(byUrl, ['', 'draft']).length, 51);
 });
 
+rule('K.select: Show more counts only the choices still hidden, kept ones too: none hidden, none offered; 49 hidden, 49 offered and added', () => {
+  const PF = loadViews(), K = PF.vk, items = n => Array.from({ length: n }, (x, i) => ({ v: 'v' + i, t: 'Choice ' + i }));
+  const opts = r => [...r.select.matchAll(/<option value="([^"]*)"/g)].map(m => m[1]).filter(v => v !== MORE);
+  let r = K.select({}, 'sel', items(51), 'v50', {});
+  assert.strictEqual(opts(r).length, 51, 'all 51 drawn, the kept one too');
+  assert.ok(r.select.indexOf(MORE) < 0 && !r.more, 'nothing left to show');
+  r = K.select({}, 'sel', items(100), 'v60', {});
+  assert.strictEqual(opts(r).length, 51);
+  assert.ok(/<option value="#more">Show 49 more…</.test(r.select), 'says the 49 hidden: ' + r.select.slice(-80));
+  const step = +(/data-step="(\d+)"/.exec(r.select) || [])[1];
+  assert.ok(step > 0 && new RegExp('data-act="sel-more"[^>]*data-step="' + step + '"').test(r.more), 'both say how far the page grows');
+  r = K.select({ more: { sel: 50 + step } }, 'sel', items(100), 'v60', {});
+  assert.strictEqual(opts(r).length, 100, 'and adds those 49');
+  assert.ok(r.select.indexOf(MORE) < 0, 'with nothing left');
+  r = K.select({}, 'sel', items(200), 'v120', { around: 150 });
+  const n0 = opts(r).length, st2 = +(/data-step="(\d+)"/.exec(r.select) || [])[1], said = +(/Show (\d+) more…/.exec(r.select) || [])[1];
+  r = K.select({ more: { sel: 50 + st2 } }, 'sel', items(200), 'v120', { around: 150 });
+  assert.strictEqual(opts(r).length - n0, said, 'around a choice too: it adds what it says (' + said + ')');
+});
+
 rule('Show 50 more… and Show more choices widen a dropdown without changing its choice; nothing else hears the special option', async () => {
   const app = await bigApp();
   app.click('nav', 'processes'); await app.tick(5); app.click('open-process', 'versions'); await app.tick(10);
@@ -971,6 +991,52 @@ rule('A run\'s Details with 300 roles: Add people draws 20 role chips with Find;
   assert.strictEqual(chips(app.html()).length, 40, '20 more chips');
   assert.strictEqual(app.activeId(), '[data-act="edit"][data-id="role:r21"]', 'focus on the first one added');
   app.click('unedit'); await app.tick(5);
+});
+
+/* Code review round 2. */
+const hiddenOfAt = (h, role) => (new RegExp('<input type="hidden" id="role-' + role + '" data-role="[^"]*" value="([^"]*)"').exec(h) || [])[1];
+/* As Blake, who isn't the rotation's suggestion for these roles (no one who never had one is), so only Just me puts Blake in them. */
+rule('Plan on 300 roles: Just me sets every role, drawn or not, and it stays so through Show more, Find and a refresh; the plan saves you in every role', async () => {
+  const app = await bigApp();
+  app.choose('person-blake'); await app.tick(5);
+  try {
+    app.click('nav', 'processes'); await app.tick(5); app.click('open-process', 'roles'); await app.tick(10); app.click('plan-run', 'roles'); await app.tick(20);
+    const selOf = (h, role) => { const m = new RegExp('<select id="role-' + role + '"[^>]*>([\\s\\S]*?)</select>').exec(h); return m && (/<option value="([^"]+)" selected>/.exec(m[1]) || [])[1]; };
+    let h = app.html();
+    assert.ok(/data-act="just-me"/.test(h), 'set-up: Just me');
+    assert.ok(selOf(h, 'r2') !== 'person-blake' && hiddenOfAt(h, 'r200') !== 'person-blake', 'set-up: Blake isn\'t suggested');
+    app.click('just-me'); await app.tick(5);
+    h = app.html();
+    assert.strictEqual(selOf(h, 'r2'), 'person-blake', 'a drawn role is you');
+    assert.strictEqual(hiddenOfAt(h, 'r200'), 'person-blake', 'a role not drawn is you too');
+    await more(app, 'start-roles');
+    assert.strictEqual(selOf(app.html(), 'r21'), 'person-blake', 'a role Show more draws is you');
+    await typeFind(app, 'start-roles', 'r250');
+    assert.strictEqual(selOf(app.html(), 'r250'), 'person-blake', 'and one Find reaches');
+    app.click('find-clear', 'start-roles'); await app.tick(5);
+    app.set('run-title', 'Just me on 300 roles').set('plan-when', '2099-03-01T09:00');
+    await reread(app);
+    h = app.html();
+    assert.strictEqual(hiddenOfAt(h, 'r300'), 'person-blake', 'through a refresh');
+    app.chooseApprovers().submitForm('plan-form'); await app.tick(120);
+    const made = Object.keys(app.fs.files).filter(f => /^proposals\/plan-roles-[a-z0-9]{8}\.json$/.test(f)).map(f => JSON.parse(app.fs.files[f].t)).filter(p => p.title === 'Just me on 300 roles');
+    assert.strictEqual(made.length, 1, 'the plan is saved');
+    const roles = made[0].roles;
+    assert.strictEqual(Object.keys(roles).length, 300);
+    assert.deepStrictEqual(Object.keys(roles).filter(k => roles[k] !== 'person-blake'), [], 'every role is you');
+  } finally { app.click('nav', 'runs'); await app.tick(5); app.choose('person-avery'); await app.tick(5); }
+});
+
+rule('A run\'s Details with 300 roles, seen by someone who isn\'t recording: Show 20 more focuses the first role it adds, in a wrapper that takes focus', async () => {
+  const app = await bigApp();
+  app.click('nav', 'home'); await app.tick(5); app.click('open-run', fixture().facts.rolesTeam); await app.tick(10);
+  if (!/id="rw-details"/.test(app.html())) { app.click('run-details'); await app.tick(5); }
+  let h = app.html();
+  assert.ok(/<span class="chip-at" id="det-role-r1" tabindex="-1"><button class="chip[^"]*" data-act="edit" data-id="role:r1" disabled>/.test(h), 'a viewer\'s chip is disabled, in a wrapper that takes focus');
+  const d = moreOf(h, 'det-roles');
+  assert.strictEqual(d.focus, '[id="det-role-r21"]');
+  app.click('more', 'det-roles', d); await app.tick(5);
+  assert.strictEqual(app.activeId(), 'det-role-r21', 'focus on the first one added');
 });
 
 rule('Many removed drafts are one notice on Checklists, announced once, with a way to each 50 at a time; Show more focuses the first added, and each editor\'s text is kept', async () => {

@@ -195,6 +195,40 @@ rule('Notes: focus on a correction twin in the inspector follows its note throug
   assert.ok(liText(app.html(), 'corr-twin-corr-3').indexOf('The second twin correction') >= 0, 'on its own text');
 });
 
+/* Code review round 2. */
+rule('Notes: the note Show earlier focused stays drawn and focused, by its exact anchor, when a newer note arrives and would push it off the page', async () => {
+  const app = await fresh(); await openRun(app, 'busy', 's0');
+  await more(app, busyList());
+  assert.strictEqual(app.activeId(), 'tn-s0-n0285', 'set-up: Show earlier focused the first note it added');
+  const p = notesFile(app), all = lines(app, p);
+  await arrive(app, p, all.concat([{ id: 'arrived', at: '2100-01-01T00:00:00.000Z', by: 'person-blake', session: 'busy-s1', step: 's0', text: 'A newer note arrives' }]));
+  const h = app.html(), t = thread(h, 's0');
+  assert.ok(t.indexOf('arrived') >= 0, 'the newer note is drawn');
+  assert.ok(t.indexOf('n0285') >= 0, 'the focused note is still drawn');
+  assert.ok(t.length <= 41, 'one note past the page at most: ' + t.length);
+  assert.strictEqual(app.activeId(), 'tn-s0-n0285', 'and still focused');
+  /* Once focus leaves it, a redraw lets it go (it was held for focus only). */
+  app.el('note-text').focus(); app.click('dismiss'); await app.tick(5);
+  assert.ok(thread(app.html(), 's0').indexOf('n0285') < 0, 'not kept once focus has left it');
+});
+
+rule('Selectors from file ids: quotes, backslashes and control characters (a newline in a note id) are escaped as a CSS string', async () => {
+  const app = await fresh();
+  const V = app.PF.vk;
+  assert.strictEqual(V.byId('a\nb'), '[id="a\\a b"]');
+  assert.strictEqual(V.byId('q"\\\t\u007f\u0000'), '[id="q\\"\\\\\\9 \\7f �"]');
+  assert.strictEqual(V.byAct('edit', 'role:x\ny'), '[data-act="edit"][data-id="role:x\\a y"]');
+  /* A note whose id holds a newline: its search hit opens it, focused. */
+  const p = notesFile(app), all = lines(app, p);
+  await rewrite(app, p, all.concat([{ id: 'line\nbreak', at: '2026-01-02T00:00:00.000Z', by: 'person-blake', session: 'busy-s1', step: 's0', text: 'A note whose id has a newline' }]));
+  app.click('nav', 'home'); await app.tick(5);
+  const hit = (await search(app, 'whose id has a newline'))[0];
+  assert.ok(hit && /line\nbreak/.test(hit), 'set-up: its search hit: ' + JSON.stringify(hit));
+  app.click('sx-open', hit); await app.tick(20);
+  assert.strictEqual(app.activeId(), 'tn-s0-line\nbreak', 'opened and focused');
+  assert.ok(app.asked().some(x => x.indexOf('line\\a break') >= 0), 'through an escaped selector');
+});
+
 rule('Notes: a note saved while 25 notes are an hour ahead is drawn after the refresh, under From earlier, in time order', async () => {
   const app = await fresh();
   /* 25 notes an hour ahead of this computer's clock, as a teammate's fast clock writes them. */

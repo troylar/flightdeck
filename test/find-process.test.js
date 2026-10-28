@@ -366,10 +366,12 @@ rule('Reports: an open decline form on report 150 keeps its reason through Show 
   assert.ok(new RegExp('id="' + rid(k220) + '"').test(h) && /Wrong build for 220/.test(h), 'report 220 keeps its own');
 });
 
+/* The Reports panel toggles, and the shared app keeps it as an earlier rule left it: open it only if it's closed. */
+async function reportsOpen(app) { if (!/data-act="rep-goto"/.test(app.html() + app.overlay())) { app.click('run-reports'); await app.tick(10); } }
 rule('Reports: the panel links for reports 150 and 220 each open and focus their own card', async () => {
   const app = await bigApp(); await openRun(app, 'busy', 's1');
   const pl = 'reppanel:' + fixture().facts.busy;
-  app.click('run-reports'); await app.tick(10);
+  await reportsOpen(app);
   for (let i = 0; i < 11 && moreOf(app.html() + app.overlay(), pl); i++) { app.click('more', pl, moreOf(app.html() + app.overlay(), pl)); await app.tick(5); }
   const all = app.html() + app.overlay(), keys = ids(all, /data-act="rep-goto" data-id="step-s0" data-report="([^"]+)"/g);
   assert.ok(keys.length >= 221, 'set-up: the panel reaches report 220: ' + keys.length);
@@ -388,7 +390,7 @@ rule('Reports: at phone width, with the inspector closed, a Reports panel row op
     await openRun(app, 'busy', 's1');
     if (/id="rw-ins"[^>]*data-open="true"/.test(app.html())) { app.click('close-ref'); await app.tick(5); }
     assert.ok(!/id="rw-ins"[^>]*data-open="true"/.test(app.html()), 'set-up: the inspector is closed');
-    app.click('run-reports'); await app.tick(10);
+    await reportsOpen(app);
     const keys = ids(app.html() + app.overlay(), /data-act="rep-goto" data-id="step-s0" data-report="([^"]+)"/g);
     assert.ok(keys.length >= 3, 'set-up: the panel lists reports');
     app.click('rep-goto', 'step-s0', { report: keys[2] }); await app.tick(10);
