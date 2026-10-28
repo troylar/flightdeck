@@ -25,6 +25,7 @@ function moreOf(html, id) {
   const m = new RegExp('<button[^>]*data-act="more" data-id="' + id.replace(/[-/]/g, '\\$&') + '"([^>]*)>').exec(html); if (!m) return null;
   const d = {}; m[1].replace(/data-([\w-]+)="([^"]*)"/g, (x, k, v) => { d[k] = un(v); return x; }); return d;
 }
+async function more(app, id, h) { const d = moreOf(h || app.html() + app.overlay(), id); assert.ok(d, 'a Show more for ' + id); app.click('more', id, d); await app.tick(5); return d; }
 const fuKeys = h => [...h.matchAll(/<li class="fu[^"]*" id="fu-([^"]+)"/g)].map(m => un(m[1]).replace(/--/g, '/'));
 const fuId = k => 'fud-' + k.replace(/[^A-Za-z0-9]/g, c => '_' + ('000' + c.charCodeAt(0).toString(16)).slice(-4));
 const typeFind = async (app, id, v) => { app.set('find-' + id, v); app.input('find-' + id, v); await app.tick(5); };
@@ -251,6 +252,31 @@ rule('Moved to with 51 destinations and Find matching one, then a refresh leavin
   assert.strictEqual(app.activeId(), 'find-' + to);
   app.el(to).focus(); app.fire('focusout', { target: app.el('find-' + to) }); await app.tick(5); app.click('dismiss'); await app.tick(5);
   assert.ok(!new RegExp('id="find-' + to + '"').test(app.html()), 'it goes once focus leaves it, with 49 left');
+  app.click('fu-cancel', key); await app.tick(5);
+});
+
+rule('Moved to with 51 destinations: its Find box focused but never typed in stays through a refresh that leaves 49, with focus; it goes once focus leaves', async () => {
+  const fx = fixture({ size: { running: 47, plans: 0, ended: 3, followUps: 6, procs: 2, versions: 2, stages: 1, members: 1, health: 1, many: 2, steps: 8, legacy: 1, archived: 1, hot: 1, teamValues: 1, people: 6, tags: 2 } });
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true }); await app.tick(60);
+  await into(app, fx);
+  const runFiles = () => Object.keys(app.fs.files).filter(f => /^runs\/[^/]+\/[^/]+\/run\.json$/.test(f) && JSON.parse(app.fs.files[f].t).state === 'running');
+  const plans = Object.keys(app.fs.files).filter(f => /^proposals\/[^/]+\.json$/.test(f) && !/\.status-/.test(f)).length;
+  const end = async p => { const r = JSON.parse(app.fs.files[p].t); r.ended = { outcome: 'Cancelled', at: new Date().toISOString(), by: 'person-blake' }; r.state = 'cancelled'; await app.fs.write(p, JSON.stringify(r, null, 2) + '\n'); };
+  const tinyRuns = () => runFiles().filter(f => /^runs\/tiny\//.test(f));
+  for (const p of tinyRuns().slice(0, runFiles().length + plans - 51)) await end(p);
+  await reread(app);
+  assert.strictEqual(runFiles().length + plans, 51, 'set-up: 51 places');
+  const { key, to } = await movedForm(app, 0);
+  assert.ok(new RegExp('id="find-' + to + '"').test(app.html()), 'set-up: the Find box, with 51');
+  const box = app.el('find-' + to); box.focus(); app.fire('focusin', { target: app.node('[id="find-' + to + '"]') || box }); await app.tick(5);
+  for (const p of tinyRuns().slice(0, 2)) await end(p);
+  await reread(app);
+  const h = app.html();
+  assert.strictEqual(candidates(options(h, to), ['']).length, 49, 'set-up: 49 left');
+  assert.ok(new RegExp('id="find-' + to + '"[^>]*value=""').test(h), 'the untouched box stays while it has focus');
+  assert.strictEqual(app.activeId(), 'find-' + to, 'and keeps focus');
+  app.el(to).focus(); app.fire('focusout', { target: app.el('find-' + to) }); await app.tick(5); app.click('dismiss'); await app.tick(5);
+  assert.ok(!new RegExp('id="find-' + to + '"').test(app.html()), 'it goes once focus leaves it');
   app.click('fu-cancel', key); await app.tick(5);
 });
 
@@ -805,6 +831,116 @@ rule('Plan a run on a 300-role checklist: 20 role rows, Find reaches role 300, S
   const made = Object.keys(app.fs.files).filter(f => /^proposals\/plan-roles-[a-z0-9]{8}\.json$/.test(f)).map(f => JSON.parse(app.fs.files[f].t)).filter(p => p.title === 'Planned with 300 roles');
   assert.strictEqual(made.length, 1, 'the plan is saved');
   assert.deepStrictEqual(made[0].roles, Object.assign({}, want, { r5: 'person-blake', r250: 'person-morgan' }), 'every role as 2.10 saves it, with the two chosen');
+});
+
+rule('Plan on 300 roles: Find role 21, give it someone, Clear, then Show more adds the 20 roles after it, focusing role 22, never the kept one', async () => {
+  const app = await bigApp();
+  app.click('nav', 'processes'); await app.tick(5); app.click('open-process', 'roles'); await app.tick(10); app.click('plan-run', 'roles'); await app.tick(20);
+  const roleRows = h => [...h.matchAll(/<label class="field" for="role-(r\d+)"/g)].map(m => m[1]);
+  await typeFind(app, 'start-roles', 'r21');
+  assert.ok(roleRows(app.html()).indexOf('r21') >= 0, 'set-up: Find reaches role 21');
+  app.set('role-r21', 'person-blake'); app.select('role-r21', 'person-blake'); await app.tick(5);
+  app.click('find-clear', 'start-roles'); await app.tick(5);
+  let h = app.html();
+  assert.deepStrictEqual(roleRows(h), Array.from({ length: 21 }, (x, i) => 'r' + (i + 1)), 'roles 1-20, and the kept role 21');
+  const d = moreOf(h, 'start-roles');
+  assert.strictEqual(d.next, 'r22', 'Show more names the first role not drawn');
+  assert.strictEqual(d.focus, '[id="role-r22"]');
+  assert.ok(/>Show 20 more</.test(h), 'and says how many it adds');
+  app.click('more', 'start-roles', d); await app.tick(5);
+  h = app.html();
+  const rows = roleRows(h);
+  assert.deepStrictEqual(rows, Array.from({ length: 41 }, (x, i) => 'r' + (i + 1)), '20 more: roles 1-41, each once');
+  assert.strictEqual(app.activeId(), 'role-r22', 'focus on the first one added');
+  assert.strictEqual(app.el('role-r21').value, 'person-blake', 'the kept choice stays');
+  app.click('cancel-plan'); await app.tick(5);
+});
+
+/* ---------- the other forms that ask for every role (code review of 2.11) ---------- */
+const roleRowsOf = (h, pre) => [...h.matchAll(new RegExp('<label class="field" for="' + pre + '(r\\d+)"', 'g'))].map(m => m[1]);
+/* What a form sends for every role with nothing paged: each drawn select's chosen person. */
+function rolesDrawn(h, pre) { const out = {}; for (const m of h.matchAll(new RegExp('<select id="' + pre + '(r\\d+)" data-role="[^"]*"[^>]*>([\\s\\S]*?)</select>', 'g'))) { const sel = /<option value="([^"]+)" selected>/.exec(m[2]); out[m[1]] = sel ? sel[1] : ''; } return out; }
+
+rule('Start a test run on 300 roles: 20 role rows with Find, a changed role kept through Find and Show more, and the test run starts with the roles 2.10 gives it', async () => {
+  const app = await bigApp();
+  const open = async () => { app.click('nav', 'processes'); await app.tick(5); app.click('open-process', 'roles'); await app.tick(10); const m = /data-act="start-test" data-id="([^"]+)"/.exec(app.html()); assert.ok(m, 'set-up: the staged version'); app.click('start-test', m[1]); await app.tick(10); };
+  app.PF.vk.PAGE_OFF = 'test-roles';
+  await open();
+  const want = rolesDrawn(app.html(), 'role-');
+  assert.strictEqual(Object.keys(want).length, 300, 'set-up: every role, paging off');
+  app.PF.vk.PAGE_OFF = null;
+  await open();
+  let h = app.html();
+  assert.deepStrictEqual(roleRowsOf(h, 'role-'), Array.from({ length: 20 }, (x, i) => 'r' + (i + 1)), '20, in checklist order');
+  assert.strictEqual(lis(h, /<input type="hidden" id="role-r\d+" data-role=/g), 280, 'the rest keep their values');
+  assert.ok(/id="find-test-roles"/.test(h), 'Find a role');
+  await typeFind(app, 'test-roles', 'r250');
+  assert.deepStrictEqual(roleRowsOf(app.html(), 'role-'), ['r250'], 'Find reaches role 250');
+  app.set('role-r250', 'person-morgan'); app.select('role-r250', 'person-morgan'); await app.tick(5);
+  app.click('find-clear', 'test-roles'); await app.tick(5);
+  h = app.html();
+  assert.ok(roleRowsOf(h, 'role-').indexOf('r250') >= 0 && roleRowsOf(h, 'role-').length === 21, 'the changed role stays drawn');
+  await more(app, 'test-roles');
+  assert.strictEqual(roleRowsOf(app.html(), 'role-').length, 41);
+  assert.strictEqual(app.activeId(), 'role-r21');
+  app.set('run-title', 'Test with 300 roles').submitForm('start-form'); await app.tick(200);
+  const made = Object.keys(app.fs.files).filter(f => /^runs\/roles\/[^/]+\/run\.json$/.test(f)).map(f => JSON.parse(app.fs.files[f].t)).filter(r => r.title === 'Test with 300 roles');
+  assert.strictEqual(made.length, 1, 'the test run is saved');
+  assert.deepStrictEqual(made[0].roles, Object.assign({}, want, { r250: 'person-morgan' }), 'every role as 2.10 gives it, with the one changed');
+});
+
+rule('A linked step starting a 300-role run: its dialog draws 20 roles with Find, a changed role is kept through Find and Show more, and the child starts with the roles 2.10 gives it', async () => {
+  const app = await bigApp();
+  const open = async () => { app.click('nav', 'home'); await app.tick(5); app.click('open-run', fixture().facts.rolelink); await app.tick(10); if (/data-act="takeover"/.test(app.html())) { app.click('takeover'); await app.tick(40); } app.click('select', 'kid'); await app.tick(10); app.click('start-child', 'kid'); await app.tick(20); };
+  app.PF.vk.PAGE_OFF = 'cs-roles';
+  await open();
+  const want = rolesDrawn(app.overlay(), 'cs-role-');
+  assert.strictEqual(Object.keys(want).length, 300, 'set-up: every role, paging off');
+  app.PF.vk.PAGE_OFF = null; app.click('close-overlay'); await app.tick(5);
+  await open();
+  let h = app.overlay();
+  assert.deepStrictEqual(roleRowsOf(h, 'cs-role-'), Array.from({ length: 20 }, (x, i) => 'r' + (i + 1)), '20, in checklist order');
+  assert.strictEqual(lis(h, /<input type="hidden" id="cs-role-r\d+" data-role=/g), 280, 'the rest keep their values');
+  await typeFind(app, 'cs-roles', 'r250');
+  assert.deepStrictEqual(roleRowsOf(app.overlay(), 'cs-role-'), ['r250'], 'Find reaches role 250');
+  app.set('cs-role-r250', 'person-morgan'); app.select('cs-role-r250', 'person-morgan'); await app.tick(5);
+  app.click('find-clear', 'cs-roles'); await app.tick(5);
+  h = app.overlay();
+  assert.ok(roleRowsOf(h, 'cs-role-').indexOf('r250') >= 0 && roleRowsOf(h, 'cs-role-').length === 21, 'the changed role stays drawn');
+  assert.ok(/<option value="person-morgan" selected>/.test(h.slice(h.indexOf('id="cs-role-r250"'))), 'with its choice');
+  const d = moreOf(h, 'cs-roles');
+  assert.ok(d && d.dialog === '1', 'Show more in the dialog moves the dialog\'s focus');
+  app.click('more', 'cs-roles', d); await app.tick(5);
+  assert.strictEqual(roleRowsOf(app.overlay(), 'cs-role-').length, 41);
+  app.set('cs-ticket', 'T-300'); app.input('cs-ticket', 'T-300'); await app.tick(5);
+  app.submitForm('child-start-form'); await app.tick(200);
+  const made = Object.keys(app.fs.files).filter(f => /^runs\/roleskid\/[^/]+\/run\.json$/.test(f)).map(f => JSON.parse(app.fs.files[f].t));
+  assert.strictEqual(made.length, 1, 'the child is started: ' + made.length);
+  assert.deepStrictEqual(made[0].roles, Object.assign({}, want, { r250: 'person-morgan' }), 'every role as 2.10 gives it, with the one changed');
+});
+
+rule('A run\'s Details with 300 roles: Add people draws 20 role chips with Find; the role being edited stays drawn through Find and Show more', async () => {
+  const app = await bigApp();
+  app.click('nav', 'home'); await app.tick(5); app.click('open-run', fixture().facts.roles); await app.tick(10);
+  if (/data-act="takeover"/.test(app.html())) { app.click('takeover'); await app.tick(40); }
+  if (!/id="rw-details"/.test(app.html())) { app.click('run-details'); await app.tick(5); }
+  if (/data-act="show-roles"/.test(app.html())) { app.click('show-roles'); await app.tick(5); }
+  const chips = h => [...h.matchAll(/data-act="edit" data-id="role:(r\d+)"/g)].map(m => m[1]);
+  let h = app.html();
+  assert.deepStrictEqual(chips(h), Array.from({ length: 20 }, (x, i) => 'r' + (i + 1)), '20 chips, in checklist order');
+  assert.ok(/id="find-det-roles"/.test(h), 'Find a role');
+  await typeFind(app, 'det-roles', 'r250');
+  assert.deepStrictEqual(chips(app.html()), ['r250']);
+  app.click('edit', 'role:r250'); await app.tick(5);
+  app.click('find-clear', 'det-roles'); await app.tick(5);
+  h = app.html();
+  assert.ok(/data-scope="edit:role:r250"/.test(h) && /You(&#39;|')re editing this one/.test(h), 'the role being edited stays, labeled');
+  const d = moreOf(h, 'det-roles');
+  assert.strictEqual(d.next, 'r21');
+  app.click('more', 'det-roles', d); await app.tick(5);
+  assert.strictEqual(chips(app.html()).length, 40, '20 more chips');
+  assert.strictEqual(app.activeId(), '[data-act="edit"][data-id="role:r21"]', 'focus on the first one added');
+  app.click('unedit'); await app.tick(5);
 });
 
 rule('Many removed drafts are one notice on Checklists, announced once, with a way to each 50 at a time; Show more focuses the first added, and each editor\'s text is kept', async () => {

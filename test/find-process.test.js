@@ -31,6 +31,7 @@ function moreOf(html, id) {
 async function more(app, id, h) { const d = moreOf(h || app.html(), id); assert.ok(d, 'a Show more for ' + id); app.click('more', id, d); await app.tick(5); return d; }
 const typeFind = async (app, id, v) => { app.set('find-' + id, v); app.input('find-' + id, v); await app.tick(5); };
 const ids = (h, re) => [...h.matchAll(re)].map(m => un(m[1]));
+const liText = (h, id) => { const i = h.indexOf('id="' + id + '"'); return i < 0 ? '' : h.slice(i, h.indexOf('</li>', i)); };
 const count = (h, re) => (h.match(re) || []).length;
 const fxGroups = h => ids(h, /<li data-scope="corr:[^"]*" id="fxg-([^"]+)"/g);
 const fxMembers = h => ids(h, /id="fxm-([^"]+)" tabindex="-1"/g);
@@ -153,6 +154,27 @@ rule('Corrections: phase and gate note corrections found by search, past page 1,
   }
 });
 
+rule('Corrections: twins on a phase\'s note and a gate\'s, sharing id, author, time, reason and wording, each open their own group', async () => {
+  const app = await fresh();
+  const Cc = app.PF.corrections, key = fixture().facts.busy;
+  const r = JSON.parse(app.fs.files['runs/' + key + '/run.json'].t), cmap = app.PF.run.mapOf(r);
+  const b = o => Cc.build(Object.assign({ id: 'pgtwin', at: '2026-10-27T08:00:00.000Z', by: 'person-blake', session: 'ph', map: cmap, version: +r.version, folder: r.folder, op: 'wording', to: 'Same new wording for both', why: 'Same reason for both' }, o));
+  await app.fs.write('runs/' + key + '/notes-pg.jsonl', [b({ phase: 'ph2' }), b({ gate: 'g1' })].map(n => JSON.stringify(n)).join('\n') + '\n');
+  await reread(app);
+  const hits = (await search(app, 'Same reason for both')).filter(x => /:pgtwin#/.test(x));
+  assert.strictEqual(hits.length, 2, 'set-up: two results: ' + hits.join(', '));
+  const opened = [];
+  for (const [hit, heading] of [[hits.find(x => /#1$/.test(x)), 'Phase: Phase 2'], [hits.find(x => /#2$/.test(x)), 'Gate: Phase one checked']]) {
+    app.click('nav', 'home'); await app.tick(5); await search(app, 'Same reason for both');
+    app.click('sx-open', hit); await app.tick(20);
+    const h = app.html(), id = app.activeId(), at = h.indexOf('id="' + id + '"'), hs = h.lastIndexOf('<h3 class="fixgroup">', at);
+    assert.ok(/^fxg-/.test(id), 'a group is focused: ' + id);
+    assert.strictEqual(h.slice(hs + 21, h.indexOf('</h3>', hs)), heading, 'the group for its own target');
+    opened.push(id);
+  }
+  assert.notStrictEqual(opened[0], opened[1], 'two groups');
+});
+
 /* ---------- the Markdown editor and the run's corrections ---------- */
 rule('Corrections: 300 open in the Markdown editor draw 50; 300 on one run step draw 20 in the inspector', async () => {
   const app = await bigApp();
@@ -248,6 +270,50 @@ rule('Finish and Receipt with 300 corrections draw 50 each; Receipt with 300 rep
   } finally { app.PF.reports.lines = lines; }
 });
 
+/* The example release with 51 corrections on its first step, the first and the last sharing an id. */
+async function twinCorrections(html) {
+  const app = boot(Object.assign({ localStore: { 'preflight:builder': 'false' } }, html ? { html } : { domFocus: true })); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const r = app.run(), dir = r.path.replace(/run\.json$/, ''), map = app.PF.run.mapOf(r.json), Cc = app.PF.corrections, st = map.phases[0].steps[0].id;
+  const list = Array.from({ length: 51 }, (x, i) => Cc.build({ id: i === 50 ? 'ctw0' : 'ctw' + i, at: '2026-01-01T10:' + String(i).padStart(2, '0') + ':00.000Z', by: 'person-blake', session: 'other', map, version: +r.json.version, folder: r.json.folder, step: st, op: 'wording', to: 'Worded ' + i, why: 'Reason ' + i }));
+  await app.fs.write(dir + 'notes-other.jsonl', list.map(x => JSON.stringify(x)).join('\n') + '\n');
+  await reread(app);
+  app.click('nav', 'home'); await app.tick(5); app.click('open-run', r.key); await app.tick(10);
+  for (const act of ['pickup', 'takeover']) if (new RegExp('data-act="' + act + '"').test(app.html())) { app.click(act); await app.tick(40); }
+  return { app, key: r.key };
+}
+function receiptCopy(app) {
+  const pre = app.el('receipt-text'); try { app.click('copy-receipt'); } catch (e) { /* no createRange in the harness */ }
+  /* 2.10.0 drew the text in the page; 2.11 makes it when copied. The run's id is random per boot. */
+  const m = /<pre id="receipt-text"[^>]*>([\s\S]*?)<\/pre>/.exec(app.html()), text = pre.textContent || (m ? un(m[1]) : '');
+  return text.replace(/ · run [a-z0-9]+\n/, ' · run X\n').replace(/captured [^·]+·/, 'captured X ·');
+}
+rule('Finish and Receipt: 51 corrections on a step, the last sharing the first\'s id; Show more draws it with its own id and focuses it, and Copy for Jira is byte for byte 2.10.0\'s', async () => {
+  const { app, key } = await twinCorrections();
+  const rows = h => ids(h, /<li class="corr" id="(corr-[^"]+)"/g);
+  for (const [page, list] of [['finish', 'fin-corr:' + key], ['receipt', 'rcpt-corr:' + key]]) {
+    app.click(page); await app.tick(10);
+    let h = app.html();
+    assert.strictEqual(rows(h).length, 50, page + ': 50');
+    const d = await more(app, list, h);
+    assert.strictEqual(d.focus, '[id="corr-ctw0-2"]', page + ': Show more names the twin by its own id');
+    h = app.html();
+    const r = rows(h), n = +/Corrections · (\d+)</.exec(h)[1];
+    assert.ok(n > 50 && r.length === n, page + ': all ' + n + ' (the example\'s own too): ' + r.length);
+    assert.strictEqual(new Set(r).size, n, page + ': every row its own id');
+    assert.strictEqual(app.activeId(), 'corr-ctw0-2', page + ': the twin is focused, not the first correction');
+    assert.ok(liText(h, 'corr-ctw0-2').indexOf('Worded 50') >= 0 && liText(h, 'corr-ctw0').indexOf('Worded 0') >= 0, page + ': each with its own wording');
+    if (page === 'finish') { app.click('exit-mission'); await app.tick(10); }
+  }
+  const now = receiptCopy(app);
+  assert.ok(/Corrections · 5\d/.test(now) && /Worded 50/.test(now) && /Worded 0\b/.test(now), 'the copied text has every correction');
+  const OB = require('../tools/old-bundles'), old = OB.get('v2.10.0');
+  if (!old) return;
+  const was = await twinCorrections(old.files['flightdeck.html']);
+  was.app.click('receipt'); await was.app.tick(10);
+  assert.strictEqual(now, receiptCopy(was.app), 'Copy for Jira is the text 2.10.0 copies');
+});
+
 rule('1,000 archived answers on a step draw 20, and Show more adds 20', async () => {
   const app = await bigApp(); await openRun(app, 'busy', 's0');
   app.click('load-history'); await app.tick(60);
@@ -314,6 +380,21 @@ rule('Reports: the panel links for reports 150 and 220 each open and focus their
     assert.ok(new RegExp('<section class="rep-card[^"]*" aria-labelledby="rep-' + n + '-h"><h4').test(h), 'unfolded');
     assert.ok(count(h, /<section class="rep-card/g) <= 21);
   }
+});
+
+rule('Reports: at phone width, with the inspector closed, a Reports panel row opens the sheet on its own card, focused, not on Close', async () => {
+  const app = await bigApp(); app.setNarrow(true); await app.tick(5);
+  try {
+    await openRun(app, 'busy', 's1');
+    if (/id="rw-ins"[^>]*data-open="true"/.test(app.html())) { app.click('close-ref'); await app.tick(5); }
+    assert.ok(!/id="rw-ins"[^>]*data-open="true"/.test(app.html()), 'set-up: the inspector is closed');
+    app.click('run-reports'); await app.tick(10);
+    const keys = ids(app.html() + app.overlay(), /data-act="rep-goto" data-id="step-s0" data-report="([^"]+)"/g);
+    assert.ok(keys.length >= 3, 'set-up: the panel lists reports');
+    app.click('rep-goto', 'step-s0', { report: keys[2] }); await app.tick(10);
+    assert.ok(/id="rw-ins"[^>]*data-open="true"/.test(app.html()), 'the sheet opens');
+    assert.strictEqual(app.activeId(), 'rep-2-h', 'on the report\'s card');
+  } finally { app.setNarrow(false); await app.tick(5); }
 });
 
 rule('Reports: one report with 300 copies draws 10 copy lines, Show all pages the rest, and each line is built only when drawn', async () => {

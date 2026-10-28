@@ -107,6 +107,22 @@ rule('K.list: a tail shows the last ones with Show earlier above; a dialog\'s li
   assert.ok(ids(kept)[0] === 'row-2' && kept.indexOf('data-act="more"') < kept.indexOf('id="row-2"'), 'a kept row of a tail comes before the page');
 });
 
+rule('K.list: Show more counts past kept rows: it adds a page of rows not drawn yet and focuses the first of them; so does Show earlier', () => {
+  const o = lo({ page: 20, keep: ['row-20'], focusOf: k => K.byId(k) });
+  let h = K.list({}, 'demo', items(120), o);
+  assert.deepStrictEqual(ids(h), items(21).map(x => x.k), 'the page and the kept row 20');
+  assert.ok(/data-next="row-21" data-focus="\[id=&quot;row-21&quot;\]" data-page="20" data-step="21">Show 20 more</.test(h), h.slice(-400));
+  h = K.list({ more: { demo: 20 + 21 } }, 'demo', items(120), o);
+  assert.deepStrictEqual(ids(h), items(41).map(x => x.k), '20 added, each drawn once');
+  assert.ok(!/data-act="more"/.test(K.list({}, 'demo', items(22), lo({ page: 20, keep: ['row-20', 'row-21'] }))), 'every row left is kept: nothing to show more of');
+  assert.ok(/data-next="row-22"[^>]*data-step="3">Show 1 more</.test(K.list({}, 'demo', items(23), lo({ page: 20, keep: ['row-20', 'row-21'] }))), 'fewer than a page left after the kept ones');
+  const t = lo({ tail: true, page: 20, keep: ['row-24'] });
+  h = K.list({}, 'thread', items(45), t);
+  assert.ok(/data-next="row-4" data-page="20" data-step="21">Show 20 earlier</.test(h), h.slice(0, 400));
+  h = K.list({ more: { thread: 41 } }, 'thread', items(45), t);
+  assert.deepStrictEqual(ids(h), items(45).slice(4).map(x => x.k), 'Show earlier adds 20 above, each drawn once');
+});
+
 rule('K.list: PF.vk.PAGE_OFF turns paging off for the one list it names, so the bounds test can prove it notices', () => {
   try {
     K.PAGE_OFF = 'demo';
@@ -255,7 +271,7 @@ rule('Checklists on the big folder: 50 checklist rows across 1,000 groups, 5 ski
   const app = await big2(), h = app.html();
   assert.strictEqual(procRows(h), 50);
   assert.ok((h.match(/class="tgroup"/g) || []).length <= 50, 'only the groups of the rows drawn');
-  assert.ok(/<span class="t">Busy<\/span> <span class="small">11<\/span>/.test(h), 'Busy counts its 11');
+  assert.ok(/<span class="t">Busy<\/span> <span class="small">13<\/span>/.test(h), 'Busy counts its 13');
   assert.ok(h.indexOf('>Group 2<') < h.indexOf('>Group 10<'), 'groups in natural order');
   const steps = h.slice(h.indexOf('data-id="steps"'), h.indexOf('</li>', h.indexOf('data-id="steps"')));
   assert.strictEqual((steps.match(/class="skillchip"/g) || []).length, 5);
@@ -289,13 +305,13 @@ rule('Checklists: Find narrows the list over every checklist, the count says so,
   await typeFind(app, 'processes', 'process 777');
   let h = app.html();
   assert.strictEqual(procRows(h), 1);
-  assert.ok(/data-id="proc-0777"/.test(h) && /role="status">1 of 1,018 match</.test(h), h.slice(h.indexOf('findbox'), h.indexOf('findbox') + 600));
+  assert.ok(/data-id="proc-0777"/.test(h) && /role="status">1 of 1,020 match</.test(h), h.slice(h.indexOf('findbox'), h.indexOf('findbox') + 600));
   await typeFind(app, 'processes', 'TAG-007');
   assert.strictEqual(procRows(app.html()), 3, 'tags are words too: 7, 407 and 807');
   await typeFind(app, 'processes', 'busy');
-  assert.strictEqual(procRows(app.html()), 11, 'and groups');
+  assert.strictEqual(procRows(app.html()), 13, 'and groups');
   await typeFind(app, 'processes', 'process 7');
-  assert.ok(/role="status">\d+ of 1,018 match</.test(app.html()) && procRows(app.html()) === 50, 'many matches: paged');
+  assert.ok(/role="status">\d+ of 1,020 match</.test(app.html()) && procRows(app.html()) === 50, 'many matches: paged');
   app.click('tag', 'tag-007'); await app.tick(5);
   h = app.html();
   assert.strictEqual(procRows(h), 3, 'with tag-007 chosen: 7, 407 and 807 match both');

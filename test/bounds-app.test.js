@@ -74,7 +74,10 @@ const REGISTRY = [
   { name: 'proposal review, What happened before (prop-recs)', rows: n => n.tag === 'li' && /^prop-rec-/.test(n.attrs.id || ''), bound: 20 },
   { name: 'Folder health, What\'s in the folder (hz-areas) and its heading row', rows: n => n.tag === 'tr' && within(n, x => cls(x, 'hz-table')), bound: 50 + 1 },
   /* Start and Plan (found while building slice 1): 20 role rows; a role given someone is drawn too (none in the fixture). */
-  { name: 'Start and Plan, role rows (start-roles)', rows: n => n.tag === 'label' && cls(n, 'field') && /^role-/.test(n.attrs.for || '') && within(n, x => x.tag === 'form' && /^(start|plan)-form$/.test(x.attrs.id || '')), bound: 20 },
+  { name: 'Start, Plan and Start a test run, role rows (start-roles, test-roles)', rows: n => n.tag === 'label' && cls(n, 'field') && /^role-/.test(n.attrs.for || '') && within(n, x => x.tag === 'form' && /^(start|plan)-form$/.test(x.attrs.id || '')), bound: 20 },
+  /* Found in code review of 2.11: the linked step's start dialog and the run's Details (Add people) drew every role. */
+  { name: 'a linked step\'s start dialog, role rows (cs-roles)', rows: n => n.tag === 'label' && cls(n, 'field') && /^cs-role-/.test(n.attrs.for || '') && within(n, x => x.tag === 'form' && x.attrs.id === 'child-start-form'), bound: 20 },
+  { name: 'a run\'s Details, its role chips (det-roles), and the one being edited', rows: n => (n.tag === 'button' && cls(n, 'chip') && /^role:/.test(n.attrs['data-id'] || '')) || (n.tag === 'span' && cls(n, 'inline-edit') && /^edit:role:/.test(n.attrs['data-scope'] || '')), bound: 20 + 1 },
   { name: 'a skill page\'s changes (sk-changes)', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'changes') && within(n, x => cls(x, 'status-card')), bound: 50 },
   /* Slice 4. Process › Corrections (fx:<process>): 50 members at a time across groups, plus the group being declined and the
      one a search, Home or a link opened. A group, its target's heading and a member's lines are drawn only for members drawn. */
@@ -130,7 +133,7 @@ const EXEMPT = [
   { why: 'checklist structure, drawn whole on every surface that draws a whole checklist: phases, steps and gates on the run screen, the builder, the flight plan, Receipt\'s rows, screen share and the checklist preview', rows: STRUCTURE },
   { why: 'bundled with the app, not the team folder: What\'s new and the built-in step types', rows: n => within(n, x => /\b(rel-|rn-)/.test(x.attrs.class || '') || x.attrs['data-disc'] === 'types-built') },
   { why: 'team values are capped by the format (registered at 100)', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'tv-list') },
-  { why: 'a Start or Plan form\'s roles not drawn keep their value in a hidden field each (nothing shown), so the form starts or plans what 2.10 did, and the form\'s own mode field', rows: n => n.tag === 'input' && n.attrs.type === 'hidden' && ('data-role' in n.attrs || n.attrs.id === 'start-mode') && within(n, x => x.tag === 'form' && /^(start|plan)-form$/.test(x.attrs.id || '')) },
+  { why: 'a Start, Plan, test run or linked start form\'s roles not drawn keep their value in a hidden field each (nothing shown), so the form starts or plans what 2.10 did, and the form\'s own mode field', rows: n => n.tag === 'input' && n.attrs.type === 'hidden' && ('data-role' in n.attrs || n.attrs.id === 'start-mode') && within(n, x => x.tag === 'form' && /^(start|plan|child-start)-form$/.test(x.attrs.id || '')) },
   { why: 'a step type\'s Group and Tags suggestions are native datalists, which the browser filters as you type', rows: n => n.tag === 'option' && n.parent && n.parent.tag === 'datalist' },
   { why: 'the Connection check is left unchanged in 2.11', rows: n => within(n, x => /^(conn|cn-)/.test(x.attrs.class || '') || /^conn/.test(x.attrs.id || '')) }
 ];
@@ -239,14 +242,25 @@ async function visit(name, go, o) {
   await go(app); await app.tick(10);
   await look(name);
   if (!o.noOpeners) {
-    const list = openers(app.html() + app.overlay() + app.top());
+    const list = openers(app.html() + app.overlay() + app.top()), seen = new Set(list.map(x => x.key)), next = [];
     for (const x of list) {
       await go(app); await app.tick(10);
       app.click(x.act, x.id, x.data); await app.tick(15);
       await look(name + ' › ' + x.key);
+      /* Openers a form or panel reveals (Details › Add people) are opened too, each kind once per screen. */
+      openers(app.html() + app.overlay() + app.top()).forEach(y => { if (!seen.has(y.key)) { seen.add(y.key); next.push([x, y]); } });
+      if (app.overlay()) { app.click('close-overlay'); await app.tick(5); }
+    }
+    for (const [x, y] of next) {
+      await go(app); await app.tick(10);
+      app.click(x.act, x.id, x.data); await app.tick(15);
+      app.click(y.act, y.id, y.data); await app.tick(15);
+      await look(name + ' › ' + x.key + ' › ' + y.key);
       if (app.overlay()) { app.click('close-overlay'); await app.tick(5); }
     }
   }
+  /* A practice (Many roles › pr-open) only lets Checklists through: leave it, so the next screen's nav isn't refused. */
+  if (/data-act="pr-back"/.test(app.html())) { app.click('pr-back'); await app.tick(10); }
   const expected = PENDING.filter(p => (p.on || []).indexOf(name) >= 0).map(p => p.name).filter(p => !pending.has(p));
   expected.forEach(p => fails.push(name + ': PENDING lists "' + p + '" here, but it isn\'t drawn over 25 any more. Take it off PENDING (and register its bound).'));
   assert.deepStrictEqual([...new Set(fails)], [], 'lists drawn past their bound');
@@ -254,6 +268,11 @@ async function visit(name, go, o) {
 const nav = (v, then) => async app => { app.click('nav', v); await app.tick(5); if (then) await then(app); };
 const openRun = (key, then) => async app => { const { fx } = await bigApp(); app.click('nav', 'home'); await app.tick(5); app.click('open-run', fx.facts[key] || key); await app.tick(10); if (then) await then(app); };
 const openProc = (id, tab) => async app => { app.click('nav', 'processes'); await app.tick(5); app.click('open-process', id); await app.tick(10); if (tab) { app.click('ptab', tab); await app.tick(10); } };
+
+/* The forms found in code review that list every role, reached the same way each time (Details and Add people toggle). */
+const detailsRoles = openRun('roles', async a => { a.click('takeover'); await a.tick(40); if (!/id="rw-details"/.test(a.html())) { a.click('run-details'); await a.tick(5); } if (/data-act="show-roles"/.test(a.html())) { a.click('show-roles'); await a.tick(5); } });
+const testRoles = async a => { await openProc('roles')(a); const m = /data-act="start-test" data-id="([^"]+)"/.exec(a.html()); assert.ok(m, 'set-up: a staged version of Many roles'); a.click('start-test', m[1]); await a.tick(10); };
+const childRoles = openRun('rolelink', async a => { a.click('takeover'); await a.tick(40); a.click('select', 'kid'); await a.tick(10); a.click('start-child', 'kid'); await a.tick(20); });
 
 /* ---------- every screen ---------- */
 const SCREENS = [
@@ -296,6 +315,11 @@ const SCREENS = [
   ['Landed change', openProc('landed')],
   ['Busy run\'s checklist', openProc('busy')],
   ['Start a run with 300 roles', openProc('roles', null), { start: 'roles' }],
+  /* Its process page opens Plan, Start and its staged version's Start a test run; a linked step starts a 300-role child. */
+  ['Many roles', openProc('roles')],
+  ['A run with 300 roles, Details › Add people', detailsRoles],
+  ['Start a test run with 300 roles', testRoles],
+  ['A run whose step starts a 300-role run', openRun('rolelink', async a => { a.click('takeover'); await a.tick(40); a.click('select', 'kid'); await a.tick(10); })],
   ['Plan a run', openProc('tiny', null), { plan: 'tiny' }]
 ];
 
@@ -332,17 +356,21 @@ const PAGE_OFF = [
   /* Nested: one page across groups, 400 members of one correction group. */
   { list: 'fx:versions', kind: 'nested', screen: 'Many versions', go: openProc('versions'), expect: /Corrections, the members drawn .* draws \d+, over its bound of 52/ },
   /* The tail: the busy step's 327 notes, the newest 20 drawn. */
+  /* Found in code review: Start a test run, Details › Add people and a linked step's start dialog, 20 roles each. */
+  { list: 'test-roles', kind: 'flat', screen: 'Start a test run with 300 roles', go: testRoles, expect: /Start a test run, role rows .* draws \d+, over its bound of 20/ },
+  { list: 'det-roles', kind: 'flat', screen: 'A run with 300 roles, Details › Add people', go: detailsRoles, expect: /Details, its role chips .* draws \d+, over its bound of 21/ },
+  { list: 'cs-roles', kind: 'flat', screen: 'A run whose step starts a 300-role run, its start dialog', go: childRoles, dialog: true, expect: /start dialog, role rows \(cs-roles\) draws \d+, over its bound of 20/ },
   { list: 'notes:' + fixture().facts.busy + ':s0', kind: 'tail', screen: 'The busy run', go: SCREENS.filter(s => s[0] === 'The busy run')[0][1], expect: /the step-note thread .* draws \d+, over its bound of 21/ }
 ];
 const PAGE_OFF_PENDING = [];
 PAGE_OFF.forEach(t => {
   rule('D8 is tested: with paging off for ' + t.list + ' (' + t.kind + '), the bounds check fails for it, and passes again with paging on', async () => {
     const { app } = await bigApp();
-    const look = async () => { await t.go(app); await app.tick(10); await openFolds(app); return check(t.screen, app.html()).fails; };
+    const look = async () => { if (app.overlay()) { app.click('close-overlay'); await app.tick(5); } await t.go(app); await app.tick(10); await openFolds(app); return check(t.screen, t.dialog ? app.overlay() : app.html()).fails; };
     assert.deepStrictEqual((await look()).filter(f => t.expect.test(f)), [], 'set-up: bounded with paging on');
     app.PF.vk.PAGE_OFF = t.list;
     try { const f = await look(); assert.ok(f.some(x => t.expect.test(x)), 'paging off for ' + t.list + ' must fail the check: ' + f.join('; ')); }
-    finally { app.PF.vk.PAGE_OFF = null; await redraw(app); if (t.kind === 'select') { app.click('corr-cancel'); await app.tick(5); } }
+    finally { app.PF.vk.PAGE_OFF = null; await redraw(app); if (t.kind === 'select') { app.click('corr-cancel'); await app.tick(5); } if (app.overlay()) { app.click('close-overlay'); await app.tick(5); } }
   });
 });
 rule('D8: the duration chart draws its 300 dots (400 ended runs of one version) and passes, registered at its cap', async () => {

@@ -43,6 +43,14 @@ const busyList = () => 'notes:' + fixture().facts.busy + ':s0';
 const notesFile = app => Object.keys(app.fs.files).find(p => /notes-busy-s1\.jsonl$/.test(p));
 const lines = (app, p) => app.fs.files[p].t.split('\n').filter(Boolean).map(l => JSON.parse(l));
 async function rewrite(app, p, list) { await app.fs.write(p, list.map(x => JSON.stringify(x)).join('\n') + '\n'); await reread(app); }
+/* A newer read that arrives on its own (the window coming back into focus), leaving focus where it is. */
+async function arrive(app, p, list) {
+  await app.fs.write(p, list.map(x => JSON.stringify(x)).join('\n') + '\n');
+  const was = app.PF.perf.n['load.done'] || 0;
+  app.focus();
+  for (let i = 0; i < 4000 && (app.PF.perf.n['load.done'] || 0) <= was; i++) await app.tick(5);
+  await app.tick(5);
+}
 
 /* ---------- the step-note thread ---------- */
 rule('Notes: 327 notes on a step draw the newest 20; Show earlier adds 20 above, focusing the first one it adds', async () => {
@@ -143,6 +151,48 @@ rule('Notes: a revealed note is found again by its content after a newer read ad
   h = app.html(); t = thread(h, 's0');
   assert.ok(/That note isn&#39;t in this run anymore|That note isn't in this run anymore/.test(h), 'the line says it\'s gone');
   assert.ok(!/From earlier/.test(h) && t.length === 20, 'and the slot is empty: ' + t.length);
+});
+
+rule('Notes: focus on a revealed twin follows the note, not its place, through a newer read that inserts, deletes or reorders notes sharing its id', async () => {
+  const app = await fresh();
+  const p = notesFile(app), all = lines(app, p), second = 'The second twin note';
+  const older = { id: 'twin-note', at: '2000-01-01T00:00:00.000Z', by: 'person-blake', session: 'busy-s1', step: 's0', text: 'An older note with the same id' };
+  const open = async () => {
+    app.click('nav', 'home'); await app.tick(5);
+    const hit = (await search(app, 'twin note')).find(x => /:twin-note#2$/.test(x));
+    app.click('sx-open', hit); await app.tick(20);
+    assert.strictEqual(app.activeId(), 'tn-s0-twin-note#2', 'set-up: the second twin focused');
+  };
+  const on = (id, what) => { assert.strictEqual(app.activeId(), id, what); assert.ok(liText(app.html(), id).indexOf(second) >= 0, what + ': on the second twin\'s own text'); };
+  await open();
+  /* Inserted: an older twin arrives, so the revealed one is now third with that id. */
+  await arrive(app, p, [older].concat(all));
+  on('tn-s0-twin-note#3', 'an older twin inserted');
+  /* Deleted: the other twins go, so it's the only one with that id. */
+  await arrive(app, p, all.filter(n => n.text !== 'The first twin note'));
+  on('tn-s0-twin-note', 'the other twins deleted');
+  /* Reordered: the first twin's time moves after it, so it's first with that id. */
+  await arrive(app, p, all); await open();
+  await arrive(app, p, all.map(n => n.text === 'The first twin note' ? Object.assign({}, n, { at: new Date(Date.parse(n.at) + 6 * 60000).toISOString() }) : n));
+  on('tn-s0-twin-note', 'the twins reordered');
+  /* The revealed note itself deleted: focus goes to the step's heading, never onto another note. */
+  await arrive(app, p, all); await open();
+  await arrive(app, p, all.filter(n => n.text !== second));
+  assert.strictEqual(app.activeId(), 'ins-h', 'the revealed note deleted');
+});
+
+rule('Notes: focus on a correction twin in the inspector follows its note through a newer read that inserts an older twin', async () => {
+  const app = await fresh();
+  const p = notesFile(app), all = lines(app, p), first = all.find(n => n.id === 'twin-corr');
+  app.click('nav', 'home'); await app.tick(5);
+  const hit = (await search(app, 'second twin correction')).find(x => /:twin-corr#2$/.test(x));
+  assert.ok(hit, 'set-up: the second twin correction');
+  app.click('sx-open', hit); await app.tick(20);
+  assert.strictEqual(app.activeId(), 'corr-twin-corr-2', 'set-up: focused');
+  const older = Object.assign({}, first, { at: '2000-01-01T00:00:00.000Z', change: { op: 'wording', to: 'An older twin correction' }, text: 'An older twin correction' });
+  await arrive(app, p, [older].concat(all));
+  assert.strictEqual(app.activeId(), 'corr-twin-corr-3', 'focus follows it to its new place');
+  assert.ok(liText(app.html(), 'corr-twin-corr-3').indexOf('The second twin correction') >= 0, 'on its own text');
 });
 
 rule('Notes: a note saved while 25 notes are an hour ahead is drawn after the refresh, under From earlier, in time order', async () => {

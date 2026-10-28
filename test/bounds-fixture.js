@@ -2,7 +2,7 @@
 // so a list drawn without a bound shows up there (docs: the 2.11 plan's D8). Files are made with the real rules, the same
 // every time; runs and records are written as the app writes them. Generating takes some seconds, so a process makes it once.
 'use strict';
-const { load } = require('./harness');
+const { load, exactOf } = require('./harness');
 
 const NOW = Date.parse('2026-10-26T12:00:00.000Z'), MIN = 60000, HOUR = 3600000, DAY = 86400000;
 /* mulberry32, as tools/big-folder.js: the same on every computer. */
@@ -46,7 +46,9 @@ function make(opts) {
       if (built.blockers) throw new Error(proc + ': ' + built.blockers.join('; '));
       const base = (more && more.stage ? 'staged/' : 'publications/') + proc + '/' + built.folder + '/';
       Object.keys(built.files).forEach(f => put(base + f, built.files[f]));
-      const v = P.verify(built.folder, built.files, null, { stage: !!(more && more.stage) });
+      let v = P.verify(built.folder, built.files, null, { stage: !!(more && more.stage) });
+      /* A version that needs its exact bytes read (a step that passes details, 2.8) is checked with them. */
+      if (v.needsBytes) v = P.verify(built.folder, built.files, exactOf(PF, built.files), { stage: !!(more && more.stage) });
       const pub = { proc, folder: built.folder, base, info: v.info, md, map: v.map, types: v.types };
       if (!(more && more.stage)) (pubs[proc] = pubs[proc] || []).push(pub);
       return pub;
@@ -176,6 +178,13 @@ function make(opts) {
     const rolesRun = newRun(rolesPub, { id: 'rolesrun', title: 'A run with 300 roles', start: NOW - HOUR, by: 'person-avery', roles: { r1: 'person-avery' } });
     put(base(rolesRun) + 'run.json', runFile(rolesRun));
     facts.roles = 'roles/' + rolesRun.id;
+    /* The other forms that ask for every role: a staged version's Start a test run, and a step that starts a 300-role child. */
+    publish(rolesMd.replace('Role 1 does this', 'Role 1 does this, staged'), 0, { stage: true, existing: pubs.roles.map(x => ({ version: x.info.version })) });
+    publish(head('roleskid', 'Many roles, started from a step', { group: 'Busy', context: 'ticket', roles: rolesPub.map.meta.roles.join(', ') }) + '## Only · READ-DO {#ph1}\n' + Array.from({ length: S.many }, (x, i) => stepLine('s' + i, 'Role ' + (i + 1) + ' does this', { role: 'r' + (i + 1) })).join('') + '\n');
+    const rlink = publish(head('rolelink', 'Starts many roles', { group: 'Busy' }) + '## Start · READ-DO {#start}\n- [ ] {run.process} Start the many-role run {#kid}\n  process: roleskid\n  pass: ticket=?\n\n');
+    const rlRun = newRun(rlink, { id: 'rolelinkrun', title: 'A run that starts a 300-role run', start: NOW - HOUR, by: 'person-avery', roles: { lead: 'person-avery' } });
+    put(base(rlRun) + 'run.json', runFile(rlRun));
+    facts.rolelink = 'rolelink/' + rlRun.id;
     /* 300 phases, run, practiced, and ended five times. */
     const phasesPub = publish(head('phases', 'Many phases', { group: 'Busy' }) + phases(S.many, 1, n => 'Phase step ' + n));
     for (let k = 0; k < 5; k++) { const r = newRun(phasesPub, { title: 'Phases run ' + k, start: NOW - (k + 3) * DAY, by: 'person-casey' }); R.end(r, R.mapOf(r), 'Completed', 'person-casey', 'person-casey', iso(playAll(r, 'person-casey', NOW - (k + 3) * DAY) + MIN)); put(base(r) + 'run.json', runFile(r)); }
