@@ -526,6 +526,36 @@ rule('Just planned: a plan saved while a Runs filter is on, and again while a co
   assert.strictEqual(bannerOf(h), cohort, 'the cohort is unchanged');
 });
 
+/* Found in the headless check: the save's read joined one already under way, so Runs was drawn before the plan was in it. */
+rule('Just planned: a plan saved while a read is under way is still drawn and focused once that read and the one after the save land', async () => {
+  const { gate } = require('./app-harness');
+  const fx = fixture({ size: { running: 4, plans: 0, ended: 3, followUps: 6, procs: 2, versions: 2, stages: 1, members: 1, health: 1, many: 2, steps: 8, legacy: 1, archived: 1, hot: 1, teamValues: 1, people: 6, tags: 2 } });
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true }); await app.tick(60);
+  await into(app, fx);
+  app.click('nav', 'runs'); await app.tick(10);
+  app.select('rf-process', 'versions'); await app.tick(10);
+  app.click('nav', 'processes'); await app.tick(5); app.click('open-process', 'tiny'); await app.tick(10);
+  app.click('plan-run', 'tiny'); await app.tick(10);
+  app.set('run-title', 'Planned during a read').set('plan-when', '2099-01-01T09:00');
+  app.chooseApprovers();
+  /* A read starts and lists the plans before the plan is written, then is held there. */
+  const fsl = app.fs.list.bind(app.fs), g = gate(); let held = 0;
+  app.fs.list = function (p) { if (!held && /^proposals\/?$/.test(p)) { held = 1; const before = fsl(p); return g.p.then(() => before); } return fsl(p); };
+  const was = app.PF.perf.n['load.done'] || 0;
+  app.click('refresh'); await app.tick(20);
+  assert.strictEqual(held, 1, 'set-up: a read is held on the plans listing');
+  app.submitForm('plan-form'); await app.tick(60);
+  assert.ok(Object.keys(app.fs.files).some(f => /^proposals\/plan-tiny-[a-z0-9]{8}\.json$/.test(f)), 'set-up: the plan is written while the read is held');
+  assert.strictEqual(app.PF.perf.n['load.done'] || 0, was, 'set-up: the held read hasn\'t finished');
+  g.open(); await app.tick(200);
+  app.fs.list = fsl;
+  const id = Object.keys(app.fs.files).filter(f => /^proposals\/plan-tiny-[a-z0-9]{8}\.json$/.test(f)).map(f => JSON.parse(app.fs.files[f].t)).filter(p => p.title === 'Planned during a read')[0].id;
+  const h = app.html();
+  assert.ok(/id="jp-h">Just planned</.test(h) && new RegExp('id="card-' + id + '"').test(h), 'drawn in Just planned');
+  assert.strictEqual(app.activeId(), 'card-' + id, 'focused');
+  assert.ok(options(h, 'rf-process').some(x => x[0] === 'versions' && x[2]), 'the filter unchanged');
+});
+
 const todos = h => [...h.matchAll(/<li class="todo (?!ack)[^"]*" id="(todo-\d+)"/g)].map(m => m[1]);
 rule('Home: Needs you shows 10 and Show more adds 10, focusing the first one added; the count says how many need you, and only drawn rows are built (a counted draw)', async () => {
   const app = await bigApp();

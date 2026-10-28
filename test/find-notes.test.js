@@ -357,6 +357,8 @@ rule('A report with 300 differing copies: one line, and a fold naming them 50 at
   assert.ok(!/Two copies of this report differ \(/.test(h), 'not the joined reason');
   const key = (h.match(/data-disc="repdiff:([^"]+)"/) || [])[1];
   assert.ok(key);
+  /* A redraw an earlier rule scheduled (a flash ending, 1.8 s, then the 250 ms redraw) lands first, not in the count. */
+  await new Promise(res => setTimeout(res, 2200)); await app.tick(5);
   const d = await perfDelta(app, ['rep.differ'], async () => { app.fire('toggle', { target: { dataset: { disc: 'repdiff:' + un(key) }, open: true } }); app.click('dismiss'); await app.tick(5); });
   h = app.html();
   assert.ok(d['rep.differ'] <= 50, 'names built: ' + d['rep.differ']);
