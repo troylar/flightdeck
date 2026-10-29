@@ -417,7 +417,9 @@
           '<button class="btn go" data-act="publish" data-id="' + esc(p.id) + '"' + (c.blockers.length || !st.me || held ? ' disabled' : '') + (held ? ' aria-describedby="pub-why"' : '') + '>Publish v' + PF.publish.nextVersion(p.taken || p.all.map(function (x) { return x.info; })) + '</button></div>' +
           (held ? '<p class="small" id="pub-why">' + (base.dirty || base.conflict ? 'Your edits aren\'t saved, so they wouldn\'t be in this version. Save or discard them in the editor first.' : 'A screenshot is still being added to this draft. Publish when it\'s done.') + '</p>' : '') +
           '<p class="small">Anyone can publish. It\'s logged with your name, the time and the change note, and runs already started keep their version.</p>' + publishNeeds(ctx, p) + publishCorrections(ctx, p);
-        if (pub) h += '<details style="margin-top:8px"><summary class="small" style="cursor:pointer">Compare the draft with v' + pub.info.version + '</summary>' + diffHtml(PF.publish.diff(pub.md, p.draft.md), st, 'draft-diff') + '</details>';
+        /* Kept open through redraws (state.disc), so Show more and a refresh don't fold it away from the change someone is on. */
+        var cmpKey = 'draft-diff:' + p.id;
+        if (pub) h += '<details style="margin-top:8px" data-disc="' + esc(cmpKey) + '"' + ((st.disc || {})[cmpKey] ? ' open' : '') + '><summary class="small" style="cursor:pointer">Compare the draft with v' + pub.info.version + '</summary>' + diffHtml(PF.publish.diff(pub.md, p.draft.md), st, 'draft-diff') + '</details>';
       }
       h += '</section>';
     }
@@ -606,9 +608,24 @@
       if (trail) out += line(b);
       return out;
     };
+    /* Rows a to b hold changes this draw doesn't (a kept change's draw starts past the page): one line counting them and the
+       unchanged lines among them, so no change is drawn twice or counted as unchanged. */
+    var other = function (a, b) {
+      var c = 0, u = 0;
+      for (var k = a; k <= b; k++) { if (rows[k].op === ' ') u++; else c++; }
+      return '<span class="small diff-gap">  … ' + c.toLocaleString('en-US') + ' other change' + (c === 1 ? '' : 's') + (u ? ' and ' + u.toLocaleString('en-US') + ' unchanged line' + (u === 1 ? '' : 's') : '') + '</span>\n';
+    };
+    /* What comes between row last and change i: the unchanged lines (around a gap) when none of them is a change; otherwise
+       the line counting what's between, then the unchanged lines just before i. */
+    var before = function (last, i) {
+      var a = i;
+      while (a - 1 > last && rows[a - 1].op === ' ') a--;
+      if (a === last + 1) return same(last + 1, i - 1, last >= 0, true);
+      return other(last + 1, a - 1) + same(a, i - 1, false, true);
+    };
     var draw = function (shown) {
       var out = '', last = -1;
-      shown.forEach(function (i) { out += same(last + 1, i - 1, last >= 0, true) + line(i); last = i; });
+      shown.forEach(function (i) { out += before(last, i) + line(i); last = i; });
       var end = shown[shown.length - 1] === ch[ch.length - 1];
       out += end ? same(last + 1, rows.length - 1, true, false) : last + 1 < rows.length && rows[last + 1].op === ' ' ? line(last + 1) : '';
       return '<div class="diff">' + out + '</div>';

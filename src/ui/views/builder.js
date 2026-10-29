@@ -420,13 +420,17 @@
     /* Before 2.8 (no pass: line) nothing is asked: a name with no source starts empty ("Not passed"). Choosing Asked writes
        name=?, which gives the step a pass: line. */
     var asks = function (n) { return PF.links.has(st) || (!PF.links.carryList(st).length && meta.context.indexOf(n) >= 0); };
-    var kinds = meta.detailTypes || {}, kindOf = function (n) { return ownKey(kinds, n) && kinds[n] ? ' (' + esc(kinds[n].kind || 'text') + ')' : ''; };
+    var kinds = meta.detailTypes || {}, kindOf = function (n) { return ownKey(kinds, n) && kinds[n] ? ' (' + (kinds[n].kind || 'text') + ')' : ''; };
+    /* Where a detail comes from: this run's details, then the team values, 50 at a time with Find past 50 (K.select, 2.11);
+       a fixed value, asked and not passed stay last. */
+    var srcItems = meta.context.map(function (n) { return { v: '^' + n, t: 'This run\'s ^' + n + kindOf(n) }; }).concat(teamItems(ctx));
     rr.rows.forEach(function (r) {
       var sid = 'ob-link-src-' + r.name, cur = r.source === 'value' || fixed[s.key + ':' + r.name] ? '=' : r.source === 'detail' ? '^' + r.from : r.source === 'team' ? 'team:' + r.team : ownKey(setBy, r.name) || asks(r.name) ? '?' : '-';
-      h += '<div class="field ob-link-row"><label for="' + esc(sid) + '"><b>' + esc(r.name) + '</b> <span class="small">' + esc(r.kind) + (ownKey(setBy, r.name) ? ' · ' + esc(t) + ' also sets this itself, later' : '') + '</span></label><select id="' + esc(sid) + '" data-bound>' +
-        meta.context.map(function (n) { return '<option value="^' + esc(n) + '"' + (cur === '^' + n ? ' selected' : '') + '>This run\'s ^' + esc(n) + kindOf(n) + '</option>'; }).join('') +
-        teamOpts(ctx, cur) + '<option value="="' + (cur === '=' ? ' selected' : '') + '>A fixed value</option><option value="?"' + (cur === '?' ? ' selected' : '') + '>' + (ownKey(setBy, r.name) ? esc(t) + ' fills this in itself' : 'Asked when ' + esc(t) + ' starts') + '</option>' +
-        (cur === '-' ? '<option value="-" selected>Not passed: ' + esc(t) + ' starts without it</option>' : '') + '</select>';
+      var items = /^team:/.test(cur) && !srcItems.some(function (x) { return x.v === cur; }) ? srcItems.concat([{ v: cur, t: 'Team value ' + cur.slice(5) + ' (not in this folder)', group: 'A team value' }]) : srcItems;
+      var ks = K.select(ctx.state, sid, items, cur, { attrs: ' data-bound', noun: 'source', group: function (x) { return x.group || null; },
+        trail: '<option value="="' + (cur === '=' ? ' selected' : '') + '>A fixed value</option><option value="?"' + (cur === '?' ? ' selected' : '') + '>' + (ownKey(setBy, r.name) ? esc(t) + ' fills this in itself' : 'Asked when ' + esc(t) + ' starts') + '</option>' +
+          (cur === '-' ? '<option value="-" selected>Not passed: ' + esc(t) + ' starts without it</option>' : '') });
+      h += '<div class="field ob-link-row">' + ks.box + '<label for="' + esc(sid) + '"><b>' + esc(r.name) + '</b> <span class="small">' + esc(r.kind) + (ownKey(setBy, r.name) ? ' · ' + esc(t) + ' also sets this itself, later' : '') + '</span></label>' + ks.select + ks.more;
       if (r.source === 'team') h += teamNote(ctx, r.team, t);
       if (cur === '=') h += '<label class="field" for="ob-link-val-' + esc(r.name) + '">' + esc(G.form('link-val').q) + '<input id="ob-link-val-' + esc(r.name) + '" maxlength="120" value="' + esc(r.value || '') + '" data-enter="ob-commit"' + errAt(ctx, 'ob-link-val-' + r.name) + '></label>' + errMsg(ctx, 'ob-link-val-' + r.name);
       h += '</div>';
@@ -436,13 +440,11 @@
     });
     return h;
   }
-  /* "A team value" (2.9): each name in team-values.json, with what it's for; one the step names that isn't there stays
-     shown, flagged. */
-  function teamOpts(ctx, cur) {
-    var tv = ctx.data.teamValues, vals = tv && tv.state === 'ok' && tv.doc ? tv.doc.values : {}, names = Object.keys(vals).sort(), h = '';
-    names.forEach(function (n) { h += '<option value="team:' + esc(n) + '"' + (cur === 'team:' + n ? ' selected' : '') + '>Team value ' + esc(n) + (vals[n].about ? ': ' + esc(vals[n].about) : '') + '</option>'; });
-    if (/^team:/.test(cur) && names.indexOf(cur.slice(5)) < 0) h += '<option value="' + esc(cur) + '" selected>Team value ' + esc(cur.slice(5)) + ' (not in this folder)</option>';
-    return h ? '<optgroup label="A team value">' + h + '</optgroup>' : '';
+  /* "A team value" (2.9): each name in team-values.json, with what it's for, as a linked step's source choices (one the
+     step names that isn't there is added by linkSection, flagged). */
+  function teamItems(ctx) {
+    var tv = ctx.data.teamValues, vals = tv && tv.state === 'ok' && tv.doc ? tv.doc.values : {};
+    return Object.keys(vals).sort().map(function (n) { return { v: 'team:' + n, t: 'Team value ' + n + (vals[n].about ? ': ' + vals[n].about : ''), group: 'A team value' }; });
   }
   function teamNote(ctx, name, t) {
     var l = PF.teamValues.lookup(ctx.data.teamValues, name);
@@ -512,13 +514,15 @@
     var box = k === 'must' ? '<input type="checkbox" id="ob-must" data-bound' : '<input type="checkbox" id="ob-planned" data-bound';
     return '<label class="ob-check' + (reveal && k === 'must' ? ' reveal' : '') + '" for="ob-' + k + '">' + box + (on ? ' checked' : '') + '><span><b>' + esc(label) + '</b> <span class="small">' + esc(help) + '</span></span></label>';
   }
-  /* Who does it: Anyone (or the lane's people), the checklist's roles as chips, and + Add role. */
+  /* Who does it: Anyone (or the lane's people), the checklist's roles as chips, 20 at a time with Find a role past 20 and the
+     step's own always drawn (K.roleRows, 2.11), and + Add role. */
   function whoField(ctx, s, meta) {
     var own = s.parts.roles, roles = meta.roles.concat(own.filter(function (r) { return meta.roles.indexOf(r) < 0; })), lane = s.track >= 0 ? s.phase.tracks[s.track] : null;
     var none = lane && lane.roles.length ? 'Uses this lane\'s people (@' + lane.roles.join(' @') + ')' : 'Anyone';
-    return '<div class="field"><span id="ob-roles-l">' + esc(G.step('roles').q) + '</span><div class="row" role="group" aria-labelledby="ob-roles-l" aria-describedby="why-ob-roles">' +
-      (own.length ? '' : '<span class="chipbtn ob-anyone" aria-current="true">' + esc(none) + '</span>') +
-      roles.map(function (r) { return '<button type="button" class="chipbtn" data-act="ob-role" data-id="' + esc(r) + '" aria-pressed="' + (own.indexOf(r) >= 0) + '">@' + esc(r) + '</button>'; }).join('') + '</div>' +
+    var rr = K.roleRows(ctx.state, 'ob-roles', roles, { keep: own, keptLabel: 'This step\'s roles', focusOf: function (r) { return K.byAct('ob-role', r); },
+      row: function (r) { return '<button type="button" class="chipbtn" data-act="ob-role" data-id="' + esc(r) + '" aria-pressed="' + (own.indexOf(r) >= 0) + '">@' + esc(r) + '</button>'; } });
+    return '<div class="field"><span id="ob-roles-l">' + esc(G.step('roles').q) + '</span>' + rr.box + '<div class="row" role="group" aria-labelledby="ob-roles-l" aria-describedby="why-ob-roles">' +
+      (own.length ? '' : '<span class="chipbtn ob-anyone" aria-current="true">' + esc(none) + '</span>') + rr.rows + '</div>' +
       addRole(ctx, 'step') + whyOf('ob-roles', G.step('roles')) + '</div>';
   }
   /* The note: + Add instructions while it's empty, the box once it has text or was opened (it stays while revealed, focused,
@@ -704,17 +708,22 @@
     return formSelect(ctx, id, name, opt('', none, !cur) + (cur && !have ? opt(cur, (gone ? gone.name : cur) + (gone ? (gone.inactive ? ' (inactive)' : '') : ' (not in people.json)'), true) : '') +
       ok.map(function (x) { return opt(x.id, nm(x), x.id === cur); }).join(''));
   }
+  /* The checklist's roles or run details, 20 at a time with Find past 20 (2.11); the one being renamed is always drawn. */
   function listField(ctx, key, label, hint, list, mark, addId, ren) {
     var lid = 'ob-' + key + '-l', cls = key === 'roles' ? 'ob-role' : 'ob-chip', g = G.form(key === 'roles' ? 'role' : 'context');
-    return '<div class="field"><span id="' + lid + '">' + label + '</span><span class="small">' + hint + '</span>' +
-      (list.length ? '<ul class="ob-metalist" aria-labelledby="' + lid + '">' + list.map(function (n) {
-        var rn = ctx.state.obRename;
-        if (key === 'context' && ren && ren.o && rn && rn.name === n && rn.pid === ren.map.meta.process) return renameRow(ctx, ren, n);
+    var st = ctx.state, rn = st.obRename, renaming = function (n) { return key === 'context' && ren && ren.o && rn && rn.name === n && rn.pid === ren.map.meta.process; };
+    var fid = 'ob-meta-' + key, P = 20, q = K.findQ(st, fid), hit = K.finds(q), keep = list.filter(renaming), noun = key === 'roles' ? 'role' : 'run detail';
+    var found = q ? list.filter(function (n) { return hit([n]); }) : list, rows = q ? list.filter(function (n) { return keep.indexOf(n) >= 0 || found.indexOf(n) >= 0; }) : list;
+    var box = list.length > P || q ? K.findBox(st, fid, 'Find a ' + noun, found.length, list.length, noun) : '';
+    return '<div class="field"><span id="' + lid + '">' + label + '</span><span class="small">' + hint + '</span>' + box +
+      (rows.length ? K.list(st, fid, rows, { page: P, keep: keep, keptLabel: 'Being renamed', keyOf: function (n) { return n; },
+        focusOf: function (n) { return '[data-act="ob-meta-del"][data-key="' + key + '"][data-id="' + K.cssStr(n) + '"]'; }, draw: function (shown) { return '<ul class="ob-metalist" aria-labelledby="' + lid + '">' + shown.map(function (n) {
+        if (renaming(n)) return renameRow(ctx, ren, n);
         var used = key === 'context' && ren && ren.o ? O.usesOf(ren.o, 'context', n).length : -1;
         return '<li><span class="' + cls + '">' + mark + esc(n) + '</span>' + (used >= 0 ? '<span class="small">' + (used ? 'used in ' + used + ' place' + (used === 1 ? '' : 's') : 'not used yet') + '</span>' : '') +
           (used >= 0 ? '<button type="button" class="mini" data-act="ob-ren" data-id="' + esc(n) + '" aria-label="Rename ' + mark + esc(n) + '">Rename</button>' : '') +
           '<button type="button" class="mini" data-act="ob-meta-del" data-key="' + key + '" data-id="' + esc(n) + '" aria-label="Remove ' + mark + esc(n) + '">Remove</button></li>';
-      }).join('') + '</ul>' : '<span class="small">None yet.</span>') +
+      }).join('') + '</ul>'; } }) : '<span class="small">' + (q ? 'No ' + noun + ' matches.' : 'None yet.') + '</span>') +
       '<div class="row"><label class="sr" for="' + addId + '">' + esc(g.q) + '</label><input id="' + addId + '" maxlength="60" autocomplete="off"' + egOf(g) + ' data-enter="ob-meta-add" data-id="' + key + '"' + describe(ctx, addId, g) + '>' +
       '<button type="button" class="mini" data-act="ob-meta-add" data-id="' + key + '">' + I('plus') + 'Add</button></div>' + whyOf(addId, g) + errMsg(ctx, addId) + '</div>';
   }
