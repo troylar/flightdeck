@@ -126,10 +126,10 @@
       var team = function (x) { var l = PF.teamValues.lookup(ctx.data.teamValues, x.team); return x.name + (l.value != null ? ' ' + l.value : l.missing ? ' (not set; asked when it starts)' : ' (can\'t be read)') + ' (team value ' + x.team + ')'; };
       var gave = rows.filter(function (x) { return x.source !== 'ask'; }).map(function (x) { if (x.source === 'team') return team(x); var v = Object.prototype.hasOwnProperty.call(dv, x.name) ? dv[x.name] : ''; return x.name + (v ? ' ' + v : ' (empty)') + (x.source === 'value' ? ' (fixed)' : x.from !== x.name ? ' (from ' + x.from + ')' : ''); });
       var asks = rows.filter(function (x) { return x.source === 'ask' && !Object.prototype.hasOwnProperty.call(setBy, x.name); }).map(function (x) { return x.name; });
-      return (gave.length ? 'Passes on ' + gave.join(', ') : 'Passes on no details') + (asks.length ? '; asks for ' + asks.join(', ') + ' when it starts' : '');
+      return (gave.length ? 'Passes on ' + K.capJoin(gave) : 'Passes on no details') + (asks.length ? '; asks for ' + K.capJoin(asks) + ' when it starts' : '');
     }
     var d = R.childDetails(r, s, pub.map.meta.context), keys = Object.keys(d);
-    return keys.length ? 'Passes on ' + keys.map(function (k) { return k + (d[k] ? ' ' + d[k] : ' (empty)'); }).join(', ') : 'Passes on no details';
+    return keys.length ? 'Passes on ' + K.capJoin(keys, function (k) { return k + (d[k] ? ' ' + d[k] : ' (empty)'); }) : 'Passes on no details';
   }
   /* A step that runs a skill: what was registered when it was checked (run/3), and a warning, never a block, when the team
      folder registers another version than skillVersion: expects. */

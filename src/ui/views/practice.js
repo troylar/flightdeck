@@ -3,7 +3,7 @@
    a step or gate says that a run never needs to. The model comes from ctx.practice (app.js), which follows PF.practice. */
 (function () {
   'use strict';
-  var V = PF.views, U = PF.util, I = PF.icons.icon, esc = U.esc;
+  var K = PF.vk, V = PF.views, U = PF.util, I = PF.icons.icon, esc = U.esc;
 
   function againWhy(s) {
     if (s.again && s.again.reason === 'setter') return '^' + s.again.detail + ' came from a step to try again.';
@@ -73,7 +73,7 @@
     if (P.note) h += '<div class="notice warn pr-note"><span>' + esc(P.note) + '</span></div>';
     if (P.refusal && P.refusal.at == null) h += '<div class="notice warn pr-note" role="alert"><span>' + esc(P.refusal.msg) + '</span></div>';
     if (P.paused) h += '<div class="notice pr-note"><span>' + esc(P.paused) + '</span></div>';
-    if (P.gone.length) h += '<div class="notice pr-gone"><span>Removed from the draft: ' + P.gone.map(function (g) { return esc(g.text || g.id); }).join(', ') + '</span></div>' + P.gone.filter(function (g) { return g.kept; }).map(function (g) { return keptHtml(g.kept); }).join('');
+    if (P.gone.length) h += '<div class="notice pr-gone"><span>Removed from the draft: ' + K.capJoin(P.gone, function (g) { return esc(g.text || g.id); }) + '</span></div>' + P.gone.filter(function (g) { return g.kept; }).map(function (g) { return keptHtml(g.kept); }).join('');
     if (!m) return h + '<p class="small">Fix the draft to start practicing it.</p>';
     var need = m.from ? m.from.needed : [];
     if (m.from) h += '<p class="small pr-from">' + (m.from.assumed ? m.from.assumed + (m.from.assumed === 1 ? ' earlier step' : ' earlier steps') + ' assumed for practice · ' : 'Practicing from "' + esc(m.from.shown || m.from.text) + '" · ') + '<button type="button" class="linkish" data-act="pr-from-clear">Start from the beginning</button></p>';

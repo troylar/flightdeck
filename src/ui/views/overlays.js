@@ -234,7 +234,7 @@
     var focusOf = function (k) { return /^e/.test(k) ? K.byId('hist-e-' + k.slice(1)) : '#hist-' + k; };
     list = K.list(ctx.state, 'hist', rows, { inDialog: true, keyOf: function (r) { return r.k; }, focusOf: focusOf, keep: o.compare ? ['e' + o.compare] : [], keptLabel: 'The one you\'re comparing',
       draw: function (shown) { return '<ol class="hist-list">' + shown.map(row).join('') + '</ol>'; } });
-    var other = s.unknown && s.unknown.length ? '<p class="small">Not read, since they aren\'t history files: ' + s.unknown.map(esc).join(', ') + '.</p>' : '';
+    var other = s.unknown && s.unknown.length ? '<p class="small">Not read, since they aren\'t history files: ' + K.capJoin(s.unknown, esc) + '.</p>' : '';
     if (s.skipped) other += '<p class="small">' + s.skipped + (s.skipped === 1 ? ' older line' : ' older lines') + ' in the history files ' + (s.skipped === 1 ? 'isn\'t' : 'aren\'t') + ' shown: only each file\'s newest 2,000 are read.</p>';
     var bad = s.bad ? '<p class="small">' + s.bad + (s.bad === 1 ? ' line' : ' lines') + ' in the history files couldn\'t be read and ' + (s.bad === 1 ? 'isn\'t' : 'aren\'t') + ' shown.</p>' : '';
     if (!n) return '<p class="small">' + (item ? 'No saved changes to it yet.' : 'No saved changes yet. Each save from now on is kept here.') + '</p>' + (rows.length && !item ? list : '') + bad + other;
@@ -288,7 +288,7 @@
       h += '</div>';
     }
     var later = prep.rows.filter(function (x) { return x.source === 'ask' && Object.prototype.hasOwnProperty.call(setBy, x.name); });
-    if (later.length) h += '<p class="small">' + later.map(function (x) { return '<b>' + esc(x.name) + '</b> is filled in by "' + esc(setBy[x.name][0].text) + '"'; }).join('; ') + '.</p>';
+    if (later.length) h += '<p class="small">' + K.capJoin(later, function (x) { return '<b>' + esc(x.name) + '</b> is filled in by "' + esc(setBy[x.name][0].text) + '"'; }, '; ') + '.</p>';
     if (meta.roles.length) {
       /* A hidden role holds what its box would: the person chosen, when they're on the team, else nobody. */
       var onTeam = Object.create(null); people.forEach(function (x) { onTeam[x.id] = true; });

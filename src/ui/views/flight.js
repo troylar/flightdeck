@@ -142,7 +142,7 @@
     };
     var all = map.phases.every(function (ph, i) { return steps.open(i); });
     var h = '<div class="fp-tools"><button type="button" class="mini fp-all" data-act="fp-steps" data-id="' + (all ? 'hide">Hide all steps' : 'show">Show all steps') + '</button></div><ol class="fp" aria-label="Flight plan">';
-    h += '<li class="fp-end"><span class="fp-tag">Start</span>' + (meta.context.length ? '<span class="small">Asks for ' + esc(meta.context.join(', ')) + '</span>' : '') +
+    h += '<li class="fp-end"><span class="fp-tag">Start</span>' + (meta.context.length ? '<span class="small">Asks for ' + esc(K.capJoin(meta.context)) + '</span>' : '') +
       noteLines(notes.filter(function (x) { return !x.skill.steps; }).map(function (x) { return { n: x, count: null }; })) + '</li>';
     map.phases.forEach(function (ph, i) { h += '<li class="fp-leg">' + leg(ctx, map, ph, i, an, notes, steps) + '</li>'; });
     h += '<li class="fp-end"><span class="fp-tag">Landed</span>' + (an && an.medianMs != null ? '<span class="small">A completed run typically takes ' + about(an.medianMs) + ' (from ' + plural(an.completed, 'completed run') + ')</span>' : '') + (an ? V.insightsQual(an.durationQ, null, 'span') : '') + '</li>';

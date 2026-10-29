@@ -19177,7 +19177,8 @@ PF.vk = (function () {
     else h = o.draw(shown) + more + rest;
     return h;
   }
-  /* A form's roles a page at a time (2.11), as Start and Plan draw them: 20 in checklist order, with Find a role past 20. o:
+  /* A form's roles a page at a time (2.11), as Start and Plan draw them: 20 in checklist order, with Find a role past 20 (or
+     o.label and o.noun for another list of names: a step's run details in the builder). o:
      row(role), the role's HTML; keep, the roles always drawn (given someone on this form, or showing an error); hidden(role),
      what stands in for a role not drawn (its value in a hidden field), so the form sends exactly what it would with every role
      drawn; focusOf, keptLabel, inDialog as K.list. Returns { box, rows, hidden }. */
@@ -19186,7 +19187,7 @@ PF.vk = (function () {
     (o.keep || []).forEach(function (r) { kept[r] = true; });
     var found = q ? roles.filter(function (r) { return hit([r]); }) : roles;
     var rs = q ? roles.filter(function (r) { return kept[r] || found.indexOf(r) >= 0; }) : roles;
-    var box = roles.length > P || q ? findBox(st, id, 'Find a role', found.length, roles.length, 'role') : '';
+    var box = roles.length > P || q ? findBox(st, id, o.label || 'Find a role', found.length, roles.length, o.noun || 'role') : '';
     var rows = list(st, id, rs, { page: P, keep: roles.filter(function (r) { return kept[r]; }), keptLabel: o.keptLabel || 'Roles you\'ve chosen someone for', keyOf: function (r) { return r; }, focusOf: o.focusOf, inDialog: o.inDialog,
       draw: function (shown) { return shown.map(function (r) { on[r] = true; return o.row(r); }).join(''); } });
     var hidden = o.hidden ? roles.filter(function (r) { return !on[r]; }).map(o.hidden).join('') : '';
@@ -19203,6 +19204,14 @@ PF.vk = (function () {
     var h = '<p class="' + esc(o.cls || 'small') + ' joined" id="' + esc(lid) + '" tabindex="-1">' + (o.lead || '') + shown.map(name).join(', ') + (left ? ', and ' + left.toLocaleString('en-US') + ' more' : '') + '</p>';
     if (left) h += '<div class="row paged"><button type="button" class="mini" data-act="more" data-id="' + esc(id) + '" data-focus="' + esc(byId(lid)) + '">Show ' + Math.min(PAGE, left) + ' more ' + esc(o.noun ? o.noun + 's' : '') + '</button></div>';
     return h;
+  }
+  /* A list joined into text where it can't page (a sentence, a preview, a reason): the first 50 and "and 250 more" (D10).
+     name(item), when given, is the item's text or HTML, built only for the names shown; sep is ', ' by default. id lets a
+     test turn the cap off (PF.vk.PAGE_OFF), to prove the bounds check notices. */
+  function capJoin(items, name, sep, id) {
+    sep = sep || ', ';
+    var n = id != null && PF.vk.PAGE_OFF === id ? items.length : PAGE, shown = items.slice(0, n), left = items.length - shown.length;
+    return (name ? shown.map(function (x) { return name(x); }) : shown).join(sep) + (left ? sep + 'and ' + left.toLocaleString('en-US') + ' more' : '');
   }
   /* ---------- a dropdown over a growing list (2.11, K.select) ---------- */
   /* The value of the last option, "Show 50 more…": no real value can be it (folder, run, plan and step values are words,
@@ -19363,7 +19372,7 @@ PF.vk = (function () {
   }
   function unsavedWords(ps) { return ps && ps.saved ? 'its run was saved and has changed since' : ps && ps.certain === false ? 'Flightdeck couldn\'t confirm whether its run saved' : 'its run didn\'t save'; }
   function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
-  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, finds: finds, findBox: findBox, roleRows: roleRows, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, joined: joined, select: select, SEL_MORE: SEL_MORE, byId: byId, cssStr: cssStr, PAGE: PAGE, PAGE_OFF: null, ARRIVE: null, TRACE: null, focusAt: null, domKey: domKey, uniqKeys: uniqKeys, testTag: testTag, verWord: verWord };
+  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, finds: finds, findBox: findBox, roleRows: roleRows, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, joined: joined, capJoin: capJoin, select: select, SEL_MORE: SEL_MORE, byId: byId, cssStr: cssStr, PAGE: PAGE, PAGE_OFF: null, ARRIVE: null, TRACE: null, focusAt: null, domKey: domKey, uniqKeys: uniqKeys, testTag: testTag, verWord: verWord };
 })();
 (function () {
   'use strict';
@@ -19793,15 +19802,19 @@ PF.vk = (function () {
     /* Which skills cover each step (skills mapped to the whole process are listed once, above). */
     var by = Object.create(null), whole = [];
     (skills || []).forEach(function (x) { if (!x.skill.steps) whole.push(x.skill.name); else x.skill.steps.forEach(function (id) { (by[id] = by[id] || []).push(x.skill.name); }); });
+    /* The first 50 names (D10); the rest are in the process's Skills panel, 50 at a time, which the link opens. */
+    var skillNames = function (names, id) {
+      return esc(K.capJoin(names, null, ', ', id)) + (names.length > K.PAGE && PF.vk.PAGE_OFF !== id ? ' <button type="button" class="link" data-act="pv-skills" aria-label="See all ' + names.length.toLocaleString('en-US') + ' skills in Skills">See all in Skills</button>' : '');
+    };
     var step = function (s) {
       var t = T.get(s.type, types), hs = hl && hl.line === s.line;
-      var meta = (s.must ? K.mustMark() : '') + (by[s.id] ? '<span class="pv-skill">' + I('spark') + esc(by[s.id].join(', ')) + '</span>' : '') + (s.planned ? '<span class="badge b-plan">Automation planned</span>' : '') +
+      var meta = (s.must ? K.mustMark() : '') + (by[s.id] ? '<span class="pv-skill">' + I('spark') + skillNames(by[s.id], 'pv-skills') + '</span>' : '') + (s.planned ? '<span class="badge b-plan">Automation planned</span>' : '') +
         (s.roles.length ? '<span class="pv-role">@' + esc(s.roles.join(' @')) + '</span>' : '') + fixBadge(s.id), cond = K.whenWords(s);
       /* The checklist panel gives each step an anchor, so the flight plan (go() with a step) can open it there. */
       return '<li' + (hs ? ' class="pv-sel" id="pv-sel" aria-current="true"' : anchor ? ' id="cl-st-' + esc(s.id) + '" tabindex="-1"' : '') + '>' + (t ? I(t.icon, T.nameOf(t)) : '<span class="ic"></span>') + '<div class="pv-body"><span class="pv-copy">' + K.stepHtml(s, null) + '</span>' + (cond ? '<span class="pv-when">' + cond + '</span>' : '') + (meta ? '<span class="pv-meta">' + meta + '</span>' : '') + '</div></li>';
     };
     /* Lanes stay lanes: the steps before any lane, then each lane as a labeled group under "Do all lanes". */
-    return (whole.length ? '<p class="small">' + I('spark') + ' The whole checklist: ' + esc(whole.join(', ')) + '</p>' : '') + map.phases.map(function (p, pi) {
+    return (whole.length ? '<p class="small">' + I('spark') + ' The whole checklist: ' + skillNames(whole, 'pv-whole') + '</p>' : '') + map.phases.map(function (p, pi) {
       var hp = hl && hl.phase === pi, lead = p.steps.filter(function (s) { return !s.track; });
       var lanes = p.tracks.map(function (t) { return { t: t, steps: p.steps.filter(function (s) { return s.track === t.id && t.id; }) }; });
       var body = lead.length || !lanes.length ? '<ul>' + lead.map(step).join('') + '</ul>' : '';
@@ -19841,7 +19854,7 @@ PF.vk = (function () {
   /* Skills built from this process: one row each, opening the skill's own page. */
   /* bare: inside the Skills fold, as a heading and its content rather than a panel of its own. */
   function skillsPanel(ctx, p, bare) {
-    var h = bare ? '<h3>Skills</h3>' : '<section class="panel" aria-labelledby="sk-h"><h2 id="sk-h">' + I('spark') + 'Skills</h2>', end = bare ? '' : '</section>';
+    var h = bare ? '<h3>Skills</h3>' : '<section class="panel" aria-labelledby="sk-h"><h2 id="sk-h" tabindex="-1">' + I('spark') + 'Skills</h2>', end = bare ? '' : '</section>';
     if (!p.skills.length) return h + '<p class="small">None yet. Once a version is signed off, copy its brief for your AI assistant.</p>' + end;
     /* 50 at a time (2.11); each is keyed by its file (made unique: two registrations can share a name), and Show more focuses
        its button. */
@@ -19862,7 +19875,7 @@ PF.vk = (function () {
     else { var ready = PF.skills.readiness(ctx.countedRuns ? ctx.countedRuns(pub.map.meta.process) : ctx.data.runs, pub, null); line += 'none yet (' + ready.clean + ' of ' + ready.needed + ' clean runs)'; }
     /* Open whenever it holds a warning: a sign-off file of this process that can't be read. */
     var warn = signUnread(ctx, p).length > 0;
-    return '<details class="panel fold" data-disc="sk:' + esc(p.id) + '"' + ((st.disc || {})['sk:' + p.id] || warn ? ' open' : '') + '><summary><h2 id="sk-h">' + I('spark') + esc(line) + '</h2></summary>' +
+    return '<details class="panel fold" data-disc="sk:' + esc(p.id) + '"' + ((st.disc || {})['sk:' + p.id] || warn ? ' open' : '') + '><summary><h2 id="sk-h" tabindex="-1">' + I('spark') + esc(line) + '</h2></summary>' +
       readyPanel(ctx, p, pub, true) + skillsPanel(ctx, p, true) + '</details>';
   }
   /* The last brief copied, shown so it can be read or selected by hand if the clipboard isn't available. */
@@ -20054,7 +20067,7 @@ PF.vk = (function () {
     if (!fp.groups.length && !fp.left.length) return '';
     var name = function (g) { return '"' + esc(C.targetName(g)) + '"'; };
     return '<p class="small corr-pub" role="status"><b>Included in this version: ' + fp.groups.length + ' correction' + (fp.groups.length === 1 ? '' : 's') + '.</b>' +
-      (fp.left.length ? ' Left out, changed since applied: ' + fp.left.map(name).join(', ') + '.' : '') + '</p>';
+      (fp.left.length ? ' Left out, changed since applied: ' + K.capJoin(fp.left, name) + '.' : '') + '</p>';
   }
   /* The draft a correction is compared with and applied to: the editor's (what it started from, so applying and its Undo
      share one timeline), else the draft in the folder, else the latest version, which applying makes the draft. */
@@ -20070,7 +20083,7 @@ PF.vk = (function () {
     if (!v) body = '<p class="ca-none">' + esc(other) + '</p>';
     else {
       body = v.text ? '<p class="ca-text">' + (v.redFrom != null && v.redFrom !== v.text ? V.redline(v.redFrom, v.text) : esc(v.text)) + '</p>' : '';
-      if (op === 'roles' || v.rolesToo) body += '<p class="small">Who: ' + (v.roles.length ? esc(v.roles.map(function (r) { return '@' + r; }).join(', ')) : 'anyone') + '</p>';
+      if (op === 'roles' || v.rolesToo) body += '<p class="small">Who: ' + (v.roles.length ? esc(K.capJoin(v.roles, function (r) { return '@' + r; })) : 'anyone') + '</p>';
       if ((op === 'move' || op === 'add') && v.where) body += '<p class="small">' + esc(v.where) + '</p>';
     }
     return '<section class="ca-col" aria-labelledby="' + id + '"><h3 id="' + id + '">' + head + '</h3>' + body + '</section>';
@@ -20167,7 +20180,7 @@ PF.vk = (function () {
     }
     if (p.proposedOnly) h += '<div class="notice"><span><b>Proposed, not drafted yet.</b> Your AI assistant proposed this checklist. Review it below; applying it creates the draft.</span></div>';
     h += editingNote(ctx, p);
-    if (p.clashes.length) h += '<div class="notice bad"><span>Two people published version ' + p.clashes.join(', ') + ' at the same time. Neither is used until one is removed from <code>publications/' + esc(p.id) + '</code>. Publish again to make a clean next version.</span></div>';
+    if (p.clashes.length) h += '<div class="notice bad"><span>Two people published version ' + esc(K.capJoin(p.clashes)) + ' at the same time. Neither is used until one is removed from <code>publications/' + esc(p.id) + '</code>. Publish again to make a clean next version.</span></div>';
     /* One version that can't be used is one notice, as before; more are one notice with them 20 at a time (2.11). */
     if (p.broken.length === 1) h += '<div class="notice warn"><span>' + esc(p.broken[0].folder) + ': ' + esc(p.broken[0].why) + '</span></div>';
     else if (p.broken.length) h += '<div class="notice warn pub-broken"><div><b>' + p.broken.length.toLocaleString('en-US') + ' versions in <code>publications/' + esc(p.id) + '</code> can\'t be used.</b>' +
@@ -20189,7 +20202,7 @@ PF.vk = (function () {
     h += '<div class="pgrid"><div class="stack">';
     if (p.draft && p.draftChanged) {
       var c = M.check(M.parse(p.draft.md), { people: ctx.data.people, types: (ctx.data.stepTypes || {}).types, workflows: (ctx.data.jira || {}).workflows, processes: ctx.processes().filter(function (x) { return x.latest; }).map(function (x) { return x.id; }), children: ctx.procOf ? PF.links.childrenFrom(ctx.procOf) : null, parents: ctx.processes(), teamValues: ctx.data.teamValues });
-      h += '<section class="panel"><div class="row between"><h2 style="margin:0">Draft · ' + esc(p.draft.file) + '</h2><span class="small">' + (p.typesChanged && p.typesChanged.length ? 'Step type ' + p.typesChanged.join(', ') + ' changed since v' + pub.info.version + '; publish to use it' : p.draftChanged ? 'Has changes not yet published' : 'Same as the published version') + '</span></div>' + checkList(c, ctx.state, 'checks-ov');
+      h += '<section class="panel"><div class="row between"><h2 style="margin:0">Draft · ' + esc(p.draft.file) + '</h2><span class="small">' + (p.typesChanged && p.typesChanged.length ? 'Step type ' + esc(K.capJoin(p.typesChanged)) + ' changed since v' + pub.info.version + '; publish to use it' : p.draftChanged ? 'Has changes not yet published' : 'Same as the published version') + '</span></div>' + checkList(c, ctx.state, 'checks-ov');
       if (p.draftChanged) {
         /* Publishing takes the draft in the folder: while newer edits wait unsaved in the editor, it would publish the older text. */
         var base = corrBase(ctx, p), shots = ctx.shotBusy ? ctx.shotBusy(p.id) : 0, held = base.dirty || base.conflict || shots;
@@ -20341,7 +20354,7 @@ PF.vk = (function () {
     h += '<h3 class="small">' + (ov.draftText == null ? 'Compared with nothing (there\'s no draft yet)' : 'Compared with the draft as it is now') + '</h3>';
     h += d.tooMany ? '<p class="small">Too many changes to show line by line.</p>' : capDiff(d.rows);
     var ids = PF.proposals.ids(draftText, ov.proposal.text);
-    if (ids.removed.length || ids.renamed.length) h += '<div class="notice warn"><span>' + (ids.removed.length ? 'Step or phase IDs this removes: ' + esc(ids.removed.slice(0, 20).join(', ')) + '. ' : '') + (ids.renamed.length ? 'IDs it changes: ' + esc(ids.renamed.slice(0, 20).map(function (r) { return r.from + ' → ' + r.to; }).join(', ')) + '. ' : '') + 'Runs and skills that name them will need a look.</span></div>';
+    if (ids.removed.length || ids.renamed.length) h += '<div class="notice warn"><span>' + (ids.removed.length ? 'Step or phase IDs this removes: ' + esc(K.capJoin(ids.removed)) + '. ' : '') + (ids.renamed.length ? 'IDs it changes: ' + esc(K.capJoin(ids.renamed, function (r) { return r.from + ' → ' + r.to; })) + '. ' : '') + 'Runs and skills that name them will need a look.</span></div>';
     var c = M.check(M.parse(ov.proposal.text), { people: ctx.data.people, types: (ctx.data.stepTypes || {}).types, workflows: (ctx.data.jira || {}).workflows, processes: ctx.processes().filter(function (q) { return q.latest; }).map(function (q) { return q.id; }), children: ctx.procOf ? PF.links.childrenFrom(ctx.procOf) : null, parents: ctx.processes(), teamValues: ctx.data.teamValues });
     h += '<h3 class="small">Checks on the proposed text</h3>' + checkList(c, ctx.state, 'checks-prop', { inDialog: true });
     var blocked = recs.some(function (r) { return !r.rec; }), acts = '';
@@ -20475,7 +20488,7 @@ PF.vk = (function () {
     var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">' + esc(meta.title) + ' · v' + pub.info.version + (plan ? ' · ' + esc(V.plannedBy(ctx, plan)) : '') + '</div><h1 id="page-h" tabindex="-1">' + (planning ? 'Plan a run' : 'Start a run') + '</h1>' + (plan && plan.note ? '<div class="small">' + esc(plan.note) + '</div>' : '') + '</div></div>';
     var claim = plan ? PF.requests.claim(plan) : null, copies = plan ? V.planCopies(plan) : '';
     if (claim) h += '<p class="small">Requested by ' + esc(claim.name + ' ' + claim.version) + ', by its own account. Flightdeck can\'t confirm which tool or person wrote this file. Nothing starts until you start it.</p>';
-    if (plan && plan._copiesDiffer) h += '<div class="notice bad" role="alert"><span>' + copies + ' The files: ' + (plan._files || []).map(function (f) { return '<code>proposals/' + esc(f) + '</code>'; }).join(', ') + '. Compare them, then delete the wrong one (When something goes wrong, A planned run arrived twice).</span></div>';
+    if (plan && plan._copiesDiffer) h += '<div class="notice bad" role="alert"><span>' + copies + ' The files: ' + K.capJoin(plan._files || [], function (f) { return '<code>proposals/' + esc(f) + '</code>'; }) + '. Compare them, then delete the wrong one (When something goes wrong, A planned run arrived twice).</span></div>';
     else if (copies) h += '<div class="notice" role="status"><span>' + copies + '</span></div>';
     if (plan && planHeldWhy(plan, ctx.data)) h += '<div class="notice bad" role="alert"><span>' + esc(planHeldWhy(plan, ctx.data)) + '</span></div>';
     if (plan && plan._conflicting) h += '<div class="notice bad" role="alert"><span><b>Two decisions on this plan disagree</b>: it was started and declined, or started twice. Someone may have started it already; check Runs before you start it again.</span></div>';
@@ -20501,7 +20514,7 @@ PF.vk = (function () {
       var m = plan && g ? PF.run.migrateDetail(def, g) : null, shown = m && (m.verdict === 'exact' || m.verdict === 'converted') ? m.result : plan ? '' : g;
       h += '<div>' + K.typedField('detail-' + f, f, def, shown, 'data-detail="' + esc(f) + '"') + (m && m.verdict !== 'exact' && m.verdict !== 'converted' ? '<p class="small">' + esc(PF.values.ask(def, g)) + '</p>' : '') + '</div>';
     });
-    if (later.length) h += '<p class="small" style="grid-column:1/-1">' + later.map(function (f) { return '<b>' + esc(f) + '</b> is filled in by "' + esc(setBy[f][0].text) + '"'; }).join('; ') + '.</p>';
+    if (later.length) h += '<p class="small" style="grid-column:1/-1">' + K.capJoin(later, function (f) { return '<b>' + esc(f) + '</b> is filled in by "' + esc(setBy[f][0].text) + '"'; }, '; ') + '.</p>';
     if (planning) {
       var err = st.fieldErr && st.fieldErr.id === 'plan-when';
       h += '<p class="small" style="grid-column:1/-1">Details can stay blank until the run starts.</p>' +
@@ -20731,10 +20744,10 @@ PF.vk = (function () {
       var team = function (x) { var l = PF.teamValues.lookup(ctx.data.teamValues, x.team); return x.name + (l.value != null ? ' ' + l.value : l.missing ? ' (not set; asked when it starts)' : ' (can\'t be read)') + ' (team value ' + x.team + ')'; };
       var gave = rows.filter(function (x) { return x.source !== 'ask'; }).map(function (x) { if (x.source === 'team') return team(x); var v = Object.prototype.hasOwnProperty.call(dv, x.name) ? dv[x.name] : ''; return x.name + (v ? ' ' + v : ' (empty)') + (x.source === 'value' ? ' (fixed)' : x.from !== x.name ? ' (from ' + x.from + ')' : ''); });
       var asks = rows.filter(function (x) { return x.source === 'ask' && !Object.prototype.hasOwnProperty.call(setBy, x.name); }).map(function (x) { return x.name; });
-      return (gave.length ? 'Passes on ' + gave.join(', ') : 'Passes on no details') + (asks.length ? '; asks for ' + asks.join(', ') + ' when it starts' : '');
+      return (gave.length ? 'Passes on ' + K.capJoin(gave) : 'Passes on no details') + (asks.length ? '; asks for ' + K.capJoin(asks) + ' when it starts' : '');
     }
     var d = R.childDetails(r, s, pub.map.meta.context), keys = Object.keys(d);
-    return keys.length ? 'Passes on ' + keys.map(function (k) { return k + (d[k] ? ' ' + d[k] : ' (empty)'); }).join(', ') : 'Passes on no details';
+    return keys.length ? 'Passes on ' + K.capJoin(keys, function (k) { return k + (d[k] ? ' ' + d[k] : ' (empty)'); }) : 'Passes on no details';
   }
   /* A step that runs a skill: what was registered when it was checked (run/3), and a warning, never a block, when the team
      folder registers another version than skillVersion: expects. */
@@ -22269,7 +22282,7 @@ PF.vk = (function () {
     var focusOf = function (k) { return /^e/.test(k) ? K.byId('hist-e-' + k.slice(1)) : '#hist-' + k; };
     list = K.list(ctx.state, 'hist', rows, { inDialog: true, keyOf: function (r) { return r.k; }, focusOf: focusOf, keep: o.compare ? ['e' + o.compare] : [], keptLabel: 'The one you\'re comparing',
       draw: function (shown) { return '<ol class="hist-list">' + shown.map(row).join('') + '</ol>'; } });
-    var other = s.unknown && s.unknown.length ? '<p class="small">Not read, since they aren\'t history files: ' + s.unknown.map(esc).join(', ') + '.</p>' : '';
+    var other = s.unknown && s.unknown.length ? '<p class="small">Not read, since they aren\'t history files: ' + K.capJoin(s.unknown, esc) + '.</p>' : '';
     if (s.skipped) other += '<p class="small">' + s.skipped + (s.skipped === 1 ? ' older line' : ' older lines') + ' in the history files ' + (s.skipped === 1 ? 'isn\'t' : 'aren\'t') + ' shown: only each file\'s newest 2,000 are read.</p>';
     var bad = s.bad ? '<p class="small">' + s.bad + (s.bad === 1 ? ' line' : ' lines') + ' in the history files couldn\'t be read and ' + (s.bad === 1 ? 'isn\'t' : 'aren\'t') + ' shown.</p>' : '';
     if (!n) return '<p class="small">' + (item ? 'No saved changes to it yet.' : 'No saved changes yet. Each save from now on is kept here.') + '</p>' + (rows.length && !item ? list : '') + bad + other;
@@ -22323,7 +22336,7 @@ PF.vk = (function () {
       h += '</div>';
     }
     var later = prep.rows.filter(function (x) { return x.source === 'ask' && Object.prototype.hasOwnProperty.call(setBy, x.name); });
-    if (later.length) h += '<p class="small">' + later.map(function (x) { return '<b>' + esc(x.name) + '</b> is filled in by "' + esc(setBy[x.name][0].text) + '"'; }).join('; ') + '.</p>';
+    if (later.length) h += '<p class="small">' + K.capJoin(later, function (x) { return '<b>' + esc(x.name) + '</b> is filled in by "' + esc(setBy[x.name][0].text) + '"'; }, '; ') + '.</p>';
     if (meta.roles.length) {
       /* A hidden role holds what its box would: the person chosen, when they're on the team, else nobody. */
       var onTeam = Object.create(null); people.forEach(function (x) { onTeam[x.id] = true; });
@@ -22827,8 +22840,10 @@ PF.vk = (function () {
   function setsRow(ctx, def, s, meta) {
     var id = 'ob-fld-sets', g = G.field(def, 'sets', s.fields), cur = String(s.fields.sets || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean), all = (meta && meta.context) || [];
     var chip = function (n, bad) { return '<button type="button" class="chipbtn ob-req' + (bad ? ' bad" data-bad="1' : '') + '" data-act="ob-sets" data-id="' + esc(n) + '" aria-pressed="' + (cur.indexOf(n) >= 0) + '">^' + esc(n) + (bad ? ' <span class="small">Not one of this checklist\'s run details; press to remove it.</span>' : '') + '</button>'; };
-    var h = all.map(function (n) { return chip(n); }).join('') + cur.filter(function (n) { return all.indexOf(n) < 0; }).map(function (n) { return chip(n, true); }).join('');
-    return '<div class="field"><span id="q-' + id + '">' + esc(g.q) + '</span><div class="row ob-grp" id="' + id + '" tabindex="-1" role="group" aria-labelledby="q-' + id + '" aria-describedby="' + described(ctx, id, g) + '">' +
+    /* 20 at a time with Find past 20, the ones it sets always drawn (2.11, code review round 8). */
+    var rr = K.roleRows(ctx.state, 'ob-sets', all, { keep: cur, keptLabel: 'Run details this step sets', label: 'Find a run detail', noun: 'run detail', focusOf: function (n) { return K.byAct('ob-sets', n); }, row: function (n) { return chip(n); } });
+    var h = rr.rows + cur.filter(function (n) { return all.indexOf(n) < 0; }).map(function (n) { return chip(n, true); }).join('');
+    return '<div class="field"><span id="q-' + id + '">' + esc(g.q) + '</span>' + rr.box + '<div class="row ob-grp" id="' + id + '" tabindex="-1" role="group" aria-labelledby="q-' + id + '" aria-describedby="' + described(ctx, id, g) + '">' +
       (h || '<span class="small">The checklist lists no run details yet.</span>') + '</div>' + whyOf(id, g) + '</div>' + errMsg(ctx, id);
   }
   /* What checking the step asks for, read the way the run reads it (R.evidenceFor), given what practice gives it: the
@@ -22974,7 +22989,7 @@ PF.vk = (function () {
      starts empty (before 2.8, nothing is asked). */
   function ioRest(rows, st, cmap) {
     var setBy = M.setBy(cmap), left = rows.filter(function (r) { return r.source === 'ask'; }), self = left.filter(function (r) { return ownKey(setBy, r.name); }), rest = left.filter(function (r) { return !ownKey(setBy, r.name); });
-    var names = function (a) { return a.map(function (r) { return esc(r.name); }).join(', '); };
+    var names = function (a) { return K.capJoin(a, function (r) { return esc(r.name); }); };
     return (rest.length ? (PF.links.has(st) ? '; asks ' : '; starts without ') + names(rest) : '') + (self.length ? '; fills in ' + names(self) + ' itself' : '');
   }
   function askOf(ctx, kind, key, track) { var a = ctx.state.obAsk; return a && a.kind === kind && a.key === key && (track == null || +a.track === +track) ? a : null; }
@@ -23065,7 +23080,10 @@ PF.vk = (function () {
     var waiting = apply.filter(function (n) { return rows.indexOf(n) < 0; });
     var guideList = typed ? [] : apply;
     var binds = s.parts.binds, ctxs = meta.context.concat(binds.filter(function (b) { return meta.context.indexOf(b) < 0; }));
-    var bindsHtml = '<div class="field"><span id="ob-binds-l">' + esc(G.step('binds').q) + '</span>' + whyOf('ob-binds', G.step('binds')) + (ctxs.length ? '<div class="row" role="group" aria-labelledby="ob-binds-l" aria-describedby="why-ob-binds">' + ctxs.map(function (b) { return '<button type="button" class="ob-chip" data-act="ob-bind" data-id="' + esc(b) + '" aria-pressed="' + (binds.indexOf(b) >= 0) + '">^' + esc(b) + '</button>'; }).join('') + '</div>' : '<span class="small">The checklist lists no run details yet.</span> <button type="button" class="linkish" data-act="ob-sel-details" data-focus="ob-add-ctx">Add run details</button>') + '</div>';
+    /* The checklist's run details, 20 at a time with Find past 20, the step's own always drawn (2.11, code review round 8). */
+    var br = K.roleRows(ctx.state, 'ob-binds', ctxs, { keep: binds, keptLabel: 'This step\'s run details', label: 'Find a run detail', noun: 'run detail', focusOf: function (b) { return K.byAct('ob-bind', b); },
+      row: function (b) { return '<button type="button" class="ob-chip" data-act="ob-bind" data-id="' + esc(b) + '" aria-pressed="' + (binds.indexOf(b) >= 0) + '">^' + esc(b) + '</button>'; } });
+    var bindsHtml = '<div class="field"><span id="ob-binds-l">' + esc(G.step('binds').q) + '</span>' + whyOf('ob-binds', G.step('binds')) + (ctxs.length ? br.box + '<div class="row" role="group" aria-labelledby="ob-binds-l" aria-describedby="why-ob-binds">' + br.rows + '</div>' : '<span class="small">The checklist lists no run details yet.</span> <button type="button" class="linkish" data-act="ob-sel-details" data-focus="ob-add-ctx">Add run details</button>') + '</div>';
     var err = function (res) { var fe = ctx.state.fieldErr; return !!(fe && fe.id === 'ob' && res.some(function (re) { return re.test(fe.field); })); };
     var mk = function (html, ids) { return { html: html, ids: ids, err: err(ids) }; };
     var groups = {
@@ -23189,11 +23207,15 @@ PF.vk = (function () {
   function listField(ctx, key, label, hint, list, mark, addId, ren) {
     var lid = 'ob-' + key + '-l', cls = key === 'roles' ? 'ob-role' : 'ob-chip', g = G.form(key === 'roles' ? 'role' : 'context');
     var st = ctx.state, rn = st.obRename, renaming = function (n) { return key === 'context' && ren && ren.o && rn && rn.name === n && rn.pid === ren.map.meta.process; };
-    var fid = 'ob-meta-' + key, P = 20, q = K.findQ(st, fid), hit = K.finds(q), keep = list.filter(renaming), noun = key === 'roles' ? 'role' : 'run detail';
-    var found = q ? list.filter(function (n) { return hit([n]); }) : list, rows = q ? list.filter(function (n) { return keep.indexOf(n) >= 0 || found.indexOf(n) >= 0; }) : list;
+    /* The one just renamed is drawn whatever the page or the Find text (state.justShown, then state.obRenamed once the Find text
+       changes), so focus can go to it and it doesn't vanish. */
+    var rd = st.obRenamed, renamed = function (n) { return key === 'context' && ren && ren.map && rd && rd.name === n && rd.pid === ren.map.meta.process; };
+    var fid = 'ob-meta-' + key, P = 20, q = K.findQ(st, fid), hit = K.finds(q), keep = list.filter(function (n) { return renaming(n) || renamed(n); }), noun = key === 'roles' ? 'role' : 'run detail';
+    var js = st.justShown && st.justShown.lists ? st.justShown.lists[fid] : null;
+    var found = q ? list.filter(function (n) { return hit([n]); }) : list, rows = q ? list.filter(function (n) { return n === js || keep.indexOf(n) >= 0 || found.indexOf(n) >= 0; }) : list;
     var box = list.length > P || q ? K.findBox(st, fid, 'Find a ' + noun, found.length, list.length, noun) : '';
     return '<div class="field"><span id="' + lid + '">' + label + '</span><span class="small">' + hint + '</span>' + box +
-      (rows.length ? K.list(st, fid, rows, { page: P, keep: keep, keptLabel: 'Being renamed', keyOf: function (n) { return n; },
+      (rows.length ? K.list(st, fid, rows, { page: P, keep: keep, keptLabel: list.some(renaming) ? 'Being renamed' : 'Just renamed', keyOf: function (n) { return n; },
         focusOf: function (n) { return '[data-act="ob-meta-del"][data-key="' + key + '"][data-id="' + K.cssStr(n) + '"]'; }, draw: function (shown) { return '<ul class="ob-metalist" aria-labelledby="' + lid + '">' + shown.map(function (n) {
         if (renaming(n)) return renameRow(ctx, ren, n);
         var used = key === 'context' && ren && ren.o ? O.usesOf(ren.o, 'context', n).length : -1;
@@ -23206,6 +23228,14 @@ PF.vk = (function () {
   }
   /* Renaming a run detail (2.7): the new name, what else changes with it, and what other files say. A dependent that would
      stop working refuses the rename when it's applied; the rest are notes. */
+  /* Other checklists' steps that pass it, and the like, 20 at a time (2.11): the rename still checks every one. */
+  function depsList(ctx, deps) {
+    if (!deps.length) return '';
+    var rows = deps.map(function (d) { return { d: d }; });
+    K.uniqKeys(deps, function (d) { return (d.refuse ? 'bad' : 'info') + '\n' + d.text; }).forEach(function (k, i) { rows[i].k = K.domKey(k); });
+    return K.list(ctx.state, 'ob-ren-deps', rows, { page: 20, keyOf: function (r) { return r.k; }, focusOf: function (k) { return K.byId('ob-ren-dep-' + k); },
+      draw: function (shown) { return '<ul class="ob-ren-deps small">' + shown.map(function (r) { return '<li id="' + esc('ob-ren-dep-' + r.k) + '" tabindex="-1" class="' + (r.d.refuse ? 'bad' : 'info') + '">' + esc(r.d.text) + '</li>'; }).join('') + '</ul>'; } });
+  }
   function renameRow(ctx, ren, n) {
     var used = O.usesOf(ren.o, 'context', n), deps = ctx.renameDeps ? ctx.renameDeps(ren.map, n) : [];
     var id = 'ob-ren-ctx', note = 'Every ^' + n + ' in this checklist follows: step text, gate approvals, fields, only when and sets. Runs already started keep the old name.';
@@ -23213,8 +23243,7 @@ PF.vk = (function () {
       '<div class="row"><input id="' + id + '" maxlength="60" autocomplete="off" spellcheck="false" value="' + esc(n) + '" data-enter="ob-ren-go" data-id="' + esc(n) + '" aria-describedby="ob-ren-note' + (ctx.state.fieldErr && ctx.state.fieldErr.field === id ? ' ferr-' + id : '') + '">' +
       '<button type="button" class="mini primary" data-act="ob-ren-go" data-id="' + esc(n) + '">Rename</button><button type="button" class="mini" data-act="ob-ren-cancel" data-id="' + esc(n) + '">Cancel</button></div>' +
       errMsg(ctx, id) +
-      '<p class="small" id="ob-ren-note">' + esc(note) + (used.length ? ' Used in ' + esc(used.join(', ')) + '.' : '') + '</p>' +
-      (deps.length ? '<ul class="ob-ren-deps small">' + deps.map(function (d) { return '<li class="' + (d.refuse ? 'bad' : 'info') + '">' + esc(d.text) + '</li>'; }).join('') + '</ul>' : '') + '</li>';
+      '<p class="small" id="ob-ren-note">' + esc(note) + (used.length ? ' Used in ' + esc(K.capJoin(used)) + '.' : '') + '</p>' + depsList(ctx, deps) + '</li>';
   }
   function detailsForm(ctx, o, meta, text) {
     var ren = { o: o, map: null }; try { ren.map = M.parse(text); } catch (e) { ren = null; }
@@ -23728,7 +23757,7 @@ PF.vk = (function () {
       var c = r.c, li = '<li id="' + r.k + '" tabindex="-1">';
       if (c.change === 'order') return li + '<b>Order:</b> its steps now run in a different order.</li>';
       if (c.change === 'inputs') return li + '<b>What it takes:</b> ' + esc(c.what.join('; ')) + '.</li>';
-      if (c.change === 'context') return li + '<b>Run details:</b> now ' + esc(c.to.join(', ') || 'none') + ' (was ' + esc(c.from.join(', ') || 'none') + ').</li>';
+      if (c.change === 'context') return li + '<b>Run details:</b> now ' + esc(K.capJoin(c.to) || 'none') + ' (was ' + esc(K.capJoin(c.from) || 'none') + ').</li>';
       return li + '<b>' + esc(K.stepPlain(c.to || c.from, null)) + '</b>: ' + ({ changed: 'changed', removed: 'removed', added: 'new' })[c.change] + '</li>';
     }).join('') + '</ul>'; }, keyOf: function (r) { return r.k; }, focusOf: function (k) { return K.byId(k); } });
     if (hit.status.s === 'update' || hit.status.s === 'unaffected') h += '<div class="row"><button class="btn go" data-act="copy-brief" data-id="update:' + esc(s.file) + '">' + I('copy') + 'Copy the update brief</button></div>' + briefBoxOf(st, 'update:' + s.file);
@@ -23795,7 +23824,7 @@ PF.vk = (function () {
    a step or gate says that a run never needs to. The model comes from ctx.practice (app.js), which follows PF.practice. */
 (function () {
   'use strict';
-  var V = PF.views, U = PF.util, I = PF.icons.icon, esc = U.esc;
+  var K = PF.vk, V = PF.views, U = PF.util, I = PF.icons.icon, esc = U.esc;
 
   function againWhy(s) {
     if (s.again && s.again.reason === 'setter') return '^' + s.again.detail + ' came from a step to try again.';
@@ -23865,7 +23894,7 @@ PF.vk = (function () {
     if (P.note) h += '<div class="notice warn pr-note"><span>' + esc(P.note) + '</span></div>';
     if (P.refusal && P.refusal.at == null) h += '<div class="notice warn pr-note" role="alert"><span>' + esc(P.refusal.msg) + '</span></div>';
     if (P.paused) h += '<div class="notice pr-note"><span>' + esc(P.paused) + '</span></div>';
-    if (P.gone.length) h += '<div class="notice pr-gone"><span>Removed from the draft: ' + P.gone.map(function (g) { return esc(g.text || g.id); }).join(', ') + '</span></div>' + P.gone.filter(function (g) { return g.kept; }).map(function (g) { return keptHtml(g.kept); }).join('');
+    if (P.gone.length) h += '<div class="notice pr-gone"><span>Removed from the draft: ' + K.capJoin(P.gone, function (g) { return esc(g.text || g.id); }) + '</span></div>' + P.gone.filter(function (g) { return g.kept; }).map(function (g) { return keptHtml(g.kept); }).join('');
     if (!m) return h + '<p class="small">Fix the draft to start practicing it.</p>';
     var need = m.from ? m.from.needed : [];
     if (m.from) h += '<p class="small pr-from">' + (m.from.assumed ? m.from.assumed + (m.from.assumed === 1 ? ' earlier step' : ' earlier steps') + ' assumed for practice · ' : 'Practicing from "' + esc(m.from.shown || m.from.text) + '" · ') + '<button type="button" class="linkish" data-act="pr-from-clear">Start from the beginning</button></p>';
@@ -24028,7 +24057,7 @@ PF.vk = (function () {
     };
     var all = map.phases.every(function (ph, i) { return steps.open(i); });
     var h = '<div class="fp-tools"><button type="button" class="mini fp-all" data-act="fp-steps" data-id="' + (all ? 'hide">Hide all steps' : 'show">Show all steps') + '</button></div><ol class="fp" aria-label="Flight plan">';
-    h += '<li class="fp-end"><span class="fp-tag">Start</span>' + (meta.context.length ? '<span class="small">Asks for ' + esc(meta.context.join(', ')) + '</span>' : '') +
+    h += '<li class="fp-end"><span class="fp-tag">Start</span>' + (meta.context.length ? '<span class="small">Asks for ' + esc(K.capJoin(meta.context)) + '</span>' : '') +
       noteLines(notes.filter(function (x) { return !x.skill.steps; }).map(function (x) { return { n: x, count: null }; })) + '</li>';
     map.phases.forEach(function (ph, i) { h += '<li class="fp-leg">' + leg(ctx, map, ph, i, an, notes, steps) + '</li>'; });
     h += '<li class="fp-end"><span class="fp-tag">Landed</span>' + (an && an.medianMs != null ? '<span class="small">A completed run typically takes ' + about(an.medianMs) + ' (from ' + plural(an.completed, 'completed run') + ')</span>' : '') + (an ? V.insightsQual(an.durationQ, null, 'span') : '') + '</li>';
@@ -24592,7 +24621,7 @@ PF.vk = (function () {
         '<pre class="source" id="su-prompt" tabindex="0">' + esc(text) + '</pre><div class="row"><button class="btn" data-act="setup-copy" data-id="prompt">' + I('copy') + 'Copy the prompt</button><span class="small" id="copy-msg" role="status"></span></div></div>';
     }
     var md = ctx.setupTemplate ? ctx.setupTemplate(t.id) : '', map = M.parse(md), steps = M.steps(map).length;
-    return h + '<div class="su-pick"><div class="row between"><div><b>' + esc(map.meta.title || t.title) + '</b><div class="small">' + map.phases.length + ' phase' + (map.phases.length === 1 ? '' : 's') + ', ' + steps + ' step' + (steps === 1 ? '' : 's') + (map.meta.runs === 'solo' ? ' · run on your own' : map.meta.roles.length ? ' · roles: ' + esc(map.meta.roles.join(', ')) : '') + '</div></div></div>' +
+    return h + '<div class="su-pick"><div class="row between"><div><b>' + esc(map.meta.title || t.title) + '</b><div class="small">' + map.phases.length + ' phase' + (map.phases.length === 1 ? '' : 's') + ', ' + steps + ' step' + (steps === 1 ? '' : 's') + (map.meta.runs === 'solo' ? ' · run on your own' : map.meta.roles.length ? ' · roles: ' + esc(K.capJoin(map.meta.roles)) : '') + '</div></div></div>' +
       '<ol class="su-phases">' + map.phases.map(function (p) { return '<li><b>' + esc(p.title) + '</b> <span class="small">' + p.steps.map(function (s) { return esc(K.stepPlain(s, null)); }).join(' · ') + '</span></li>'; }).join('') + '</ol>' +
       '<div class="row su-actions"><button class="btn go" data-act="setup-publish" data-id="' + t.id + '"' + (su.busy ? ' disabled' : '') + '>' + I('play') + 'Publish v1 as it is</button><button class="btn" data-act="setup-edit" data-id="' + t.id + '"' + (su.busy ? ' disabled' : '') + '>' + I('edit') + 'Open it in the editor</button></div>' +
       '<p class="small">Publishing makes a numbered version people can run. You can edit and publish v2 any time; runs already started keep their version.</p></div>';
@@ -28482,7 +28511,7 @@ PF.examples = (function () {
     if (state.runKey) { state.runKey = null; resetRunUi(); }
     openEditor(p);
     setView('practice'); state.processId = p.id; state.ptab = 'edit'; state.mapVer = null;
-    state.obPlace = null; state.obAsk = null; state.obRename = null; state.sel = null; state.pick = null; state.edit = null; state.fieldErr = null;
+    state.obPlace = null; state.obAsk = null; state.obRename = null; state.obRenamed = null; state.sel = null; state.pick = null; state.edit = null; state.fieldErr = null;
     prFollow(p);
     var c = prMap(e, prText(p)), model = c.map ? PR.follow(e.st, c.map, prEnv(), state.me) : null, dest = model ? prResolve(e, model) : null, t = e.trip;
     /* The restore order (docs/design.md section 34): reconciled, the target resolved, its phase unfolded, drawn, the inspector
@@ -28811,7 +28840,7 @@ PF.examples = (function () {
     var before = obSnap(ed);
     learnIds(ed, ed.base); dropPending();
     TL.record(tlOf(ed), base, rv.text, { kind: 'op', lines: true, label: lb.label, subject: subj, items: ['step:' + (rv.added || g.target.step)], selBefore: before });
-    ed.text = rv.text; state.planFormReset = true; state.obFlash = null; state.obAsk = null; state.obRename = null;
+    ed.text = rv.text; state.planFormReset = true; state.obFlash = null; state.obAsk = null; state.obRename = null; state.obRenamed = null;
     var dfs = state.fs, gg = gen, text = rv.text, added = rv.added, me = state.me, left = others.filter(function (y) { return ids.indexOf(y.id) < 0; }).length;
     closeOverlay(); state.focus = 'fx-h';
     saveDraftText(p, text, ed.baseHash, TL.past(lb.past, subj) + '. Saved to the draft.' + (left ? ' The other proposal' + (left === 1 ? ' is' : 's are') + ' still open.' : ''), {
@@ -29700,7 +29729,7 @@ PF.examples = (function () {
   }
   function obSelWhole(kind, focus) {
     var p = currentProcess(); if (!p || obHeld(p)) return;
-    obClearErr(); state.insTab = null; state.obShown = null; state.obSel = { pid: p.id, kind: kind, key: ':' + kind }; state.obAdd = null; state.obAsk = null; state.obRename = null; state.obPlace = null; state.planFormReset = true;
+    obClearErr(); state.insTab = null; state.obShown = null; state.obSel = { pid: p.id, kind: kind, key: ':' + kind }; state.obAdd = null; state.obAsk = null; state.obRename = null; state.obRenamed = null; state.obPlace = null; state.planFormReset = true;
     state.focus = focus === 'ob-add-role' || focus === 'ob-add-ctx' ? '#' + focus : kind === 'details' ? '[data-act="ob-sel-details"]' : 'ob-q-text';
     render();
   }
@@ -30686,6 +30715,12 @@ PF.examples = (function () {
       state.focus = id === 'edit' ? 'draft-editor' : id === 'insights' ? '[data-act="ptab"][data-id="overview"]' : 'cl-h';
       render(); window.scrollTo(0, 0);
     },
+    /* The checklist preview names 50 skills on a step or the whole checklist; the rest are in the Skills panel (2.11, D10). */
+    'pv-skills': function () {
+      var p = currentProcess(); if (!p) return;
+      state.ptab = 'overview'; state.pick = null; state.disc = Object.assign({}, state.disc); state.disc['sk:' + p.id] = true;
+      state.focus = 'sk-h'; revealAt('#sk-h'); render();
+    },
     'view-version': function (id) { state.ptab = 'overview'; state.mapVer = id; state.pick = null; state.focus = 'cl-h'; render(); window.scrollTo(0, 0); },
     'back-current': function () { state.mapVer = 'current'; state.pick = null; state.focus = 'map-ver'; render(); },
     /* Checklist or flight plan: the same version either way. A phase in the flight plan opens it in the checklist. */
@@ -30827,13 +30862,13 @@ PF.examples = (function () {
       var s = state.obSel, cp = currentProcess(); if (!s || s.kind !== 'details' || !cp || obHeld(cp, 'then rename')) return;
       /* The box redraws holding what it held; it starts from this detail's name instead. */
       var was = document.getElementById('ob-ren-ctx'); if (was) was.value = String(id);
-      state.obRename = { pid: cp.id, name: String(id) }; state.fieldErr = null; state.focus = '#ob-ren-ctx'; render();
+      state.obRename = { pid: cp.id, name: String(id) }; state.obRenamed = null; state.fieldErr = null; state.more = Object.assign({}, state.more); delete state.more['ob-ren-deps']; state.focus = '#ob-ren-ctx'; render();
       var bx = document.getElementById('ob-ren-ctx'); if (bx && bx.select) bx.select();
     },
     'ob-ren-cancel': function (id) {
       /* Cancel is the one way to drop what's typed for a new name. */
       var bx = document.getElementById('ob-ren-ctx'); if (bx) bx.value = ''; if (state.obPendingField === 'ob-ren-ctx') dropPending();
-      state.obRename = null; state.fieldErr = null; state.focus = '[data-act="ob-ren"][data-id="' + cssEsc(String(id)) + '"]'; render();
+      state.obRename = null; state.obRenamed = null; state.fieldErr = null; state.focus = '[data-act="ob-ren"][data-id="' + cssEsc(String(id)) + '"]'; render();
     },
     'ob-ren-go': function (id) {
       var s = state.obSel, cp = currentProcess(), from = String(id); if (!s || s.kind !== 'details' || !cp || !state.obRename || state.obRename.pid !== cp.id || state.obRename.name !== from) return;
@@ -30845,8 +30880,11 @@ PF.examples = (function () {
       if (!res || res.same) return;
       state.obRename = null; state.fieldErr = null; if (state.obPendingField === 'ob-ren-ctx') dropPending();
       var done = document.getElementById('ob-ren-ctx'); if (done) done.value = '';
-      sayUndo('Renamed ^' + from + ' to ^' + to + (res.places ? ' in ' + res.places + ' place' + (res.places === 1 ? '' : 's') : '') + '.' + (res.notes && res.notes.length ? ' ' + res.notes.join(' ') : ''));
-      state.focus = '[data-act="ob-ren"][data-id="' + cssEsc(to) + '"]'; render();
+      sayUndo('Renamed ^' + from + ' to ^' + to + (res.places ? ' in ' + res.places + ' place' + (res.places === 1 ? '' : 's') : '') + '.' + (res.notes && res.notes.length ? ' ' + res.notes.slice(0, 3).join(' ') + (res.notes.length > 3 ? ' And ' + (res.notes.length - 3).toLocaleString('en-US') + ' more like these.' : '') : ''));
+      /* Drawn whatever the Find text or the page (2.11), so focus has its row to go to; it stays drawn, as just renamed, when the
+         Find text changes, until another rename or the form is left. */
+      state.obRenamed = { pid: cp.id, name: to };
+      ensureListItemVisible('ob-meta-context', to, { focus: '[data-act="ob-ren"][data-id="' + cssEsc(to) + '"]', word: 'renamed' }); render();
     },
     'ob-ask-cancel': function () { state.obAsk = null; state.focus = '[data-act="ob-ask"]'; render(); },
     'ob-del-track': function (how) {

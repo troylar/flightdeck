@@ -13,15 +13,19 @@
     /* Which skills cover each step (skills mapped to the whole process are listed once, above). */
     var by = Object.create(null), whole = [];
     (skills || []).forEach(function (x) { if (!x.skill.steps) whole.push(x.skill.name); else x.skill.steps.forEach(function (id) { (by[id] = by[id] || []).push(x.skill.name); }); });
+    /* The first 50 names (D10); the rest are in the process's Skills panel, 50 at a time, which the link opens. */
+    var skillNames = function (names, id) {
+      return esc(K.capJoin(names, null, ', ', id)) + (names.length > K.PAGE && PF.vk.PAGE_OFF !== id ? ' <button type="button" class="link" data-act="pv-skills" aria-label="See all ' + names.length.toLocaleString('en-US') + ' skills in Skills">See all in Skills</button>' : '');
+    };
     var step = function (s) {
       var t = T.get(s.type, types), hs = hl && hl.line === s.line;
-      var meta = (s.must ? K.mustMark() : '') + (by[s.id] ? '<span class="pv-skill">' + I('spark') + esc(by[s.id].join(', ')) + '</span>' : '') + (s.planned ? '<span class="badge b-plan">Automation planned</span>' : '') +
+      var meta = (s.must ? K.mustMark() : '') + (by[s.id] ? '<span class="pv-skill">' + I('spark') + skillNames(by[s.id], 'pv-skills') + '</span>' : '') + (s.planned ? '<span class="badge b-plan">Automation planned</span>' : '') +
         (s.roles.length ? '<span class="pv-role">@' + esc(s.roles.join(' @')) + '</span>' : '') + fixBadge(s.id), cond = K.whenWords(s);
       /* The checklist panel gives each step an anchor, so the flight plan (go() with a step) can open it there. */
       return '<li' + (hs ? ' class="pv-sel" id="pv-sel" aria-current="true"' : anchor ? ' id="cl-st-' + esc(s.id) + '" tabindex="-1"' : '') + '>' + (t ? I(t.icon, T.nameOf(t)) : '<span class="ic"></span>') + '<div class="pv-body"><span class="pv-copy">' + K.stepHtml(s, null) + '</span>' + (cond ? '<span class="pv-when">' + cond + '</span>' : '') + (meta ? '<span class="pv-meta">' + meta + '</span>' : '') + '</div></li>';
     };
     /* Lanes stay lanes: the steps before any lane, then each lane as a labeled group under "Do all lanes". */
-    return (whole.length ? '<p class="small">' + I('spark') + ' The whole checklist: ' + esc(whole.join(', ')) + '</p>' : '') + map.phases.map(function (p, pi) {
+    return (whole.length ? '<p class="small">' + I('spark') + ' The whole checklist: ' + skillNames(whole, 'pv-whole') + '</p>' : '') + map.phases.map(function (p, pi) {
       var hp = hl && hl.phase === pi, lead = p.steps.filter(function (s) { return !s.track; });
       var lanes = p.tracks.map(function (t) { return { t: t, steps: p.steps.filter(function (s) { return s.track === t.id && t.id; }) }; });
       var body = lead.length || !lanes.length ? '<ul>' + lead.map(step).join('') + '</ul>' : '';
@@ -61,7 +65,7 @@
   /* Skills built from this process: one row each, opening the skill's own page. */
   /* bare: inside the Skills fold, as a heading and its content rather than a panel of its own. */
   function skillsPanel(ctx, p, bare) {
-    var h = bare ? '<h3>Skills</h3>' : '<section class="panel" aria-labelledby="sk-h"><h2 id="sk-h">' + I('spark') + 'Skills</h2>', end = bare ? '' : '</section>';
+    var h = bare ? '<h3>Skills</h3>' : '<section class="panel" aria-labelledby="sk-h"><h2 id="sk-h" tabindex="-1">' + I('spark') + 'Skills</h2>', end = bare ? '' : '</section>';
     if (!p.skills.length) return h + '<p class="small">None yet. Once a version is signed off, copy its brief for your AI assistant.</p>' + end;
     /* 50 at a time (2.11); each is keyed by its file (made unique: two registrations can share a name), and Show more focuses
        its button. */
@@ -82,7 +86,7 @@
     else { var ready = PF.skills.readiness(ctx.countedRuns ? ctx.countedRuns(pub.map.meta.process) : ctx.data.runs, pub, null); line += 'none yet (' + ready.clean + ' of ' + ready.needed + ' clean runs)'; }
     /* Open whenever it holds a warning: a sign-off file of this process that can't be read. */
     var warn = signUnread(ctx, p).length > 0;
-    return '<details class="panel fold" data-disc="sk:' + esc(p.id) + '"' + ((st.disc || {})['sk:' + p.id] || warn ? ' open' : '') + '><summary><h2 id="sk-h">' + I('spark') + esc(line) + '</h2></summary>' +
+    return '<details class="panel fold" data-disc="sk:' + esc(p.id) + '"' + ((st.disc || {})['sk:' + p.id] || warn ? ' open' : '') + '><summary><h2 id="sk-h" tabindex="-1">' + I('spark') + esc(line) + '</h2></summary>' +
       readyPanel(ctx, p, pub, true) + skillsPanel(ctx, p, true) + '</details>';
   }
   /* The last brief copied, shown so it can be read or selected by hand if the clipboard isn't available. */
@@ -274,7 +278,7 @@
     if (!fp.groups.length && !fp.left.length) return '';
     var name = function (g) { return '"' + esc(C.targetName(g)) + '"'; };
     return '<p class="small corr-pub" role="status"><b>Included in this version: ' + fp.groups.length + ' correction' + (fp.groups.length === 1 ? '' : 's') + '.</b>' +
-      (fp.left.length ? ' Left out, changed since applied: ' + fp.left.map(name).join(', ') + '.' : '') + '</p>';
+      (fp.left.length ? ' Left out, changed since applied: ' + K.capJoin(fp.left, name) + '.' : '') + '</p>';
   }
   /* The draft a correction is compared with and applied to: the editor's (what it started from, so applying and its Undo
      share one timeline), else the draft in the folder, else the latest version, which applying makes the draft. */
@@ -290,7 +294,7 @@
     if (!v) body = '<p class="ca-none">' + esc(other) + '</p>';
     else {
       body = v.text ? '<p class="ca-text">' + (v.redFrom != null && v.redFrom !== v.text ? V.redline(v.redFrom, v.text) : esc(v.text)) + '</p>' : '';
-      if (op === 'roles' || v.rolesToo) body += '<p class="small">Who: ' + (v.roles.length ? esc(v.roles.map(function (r) { return '@' + r; }).join(', ')) : 'anyone') + '</p>';
+      if (op === 'roles' || v.rolesToo) body += '<p class="small">Who: ' + (v.roles.length ? esc(K.capJoin(v.roles, function (r) { return '@' + r; })) : 'anyone') + '</p>';
       if ((op === 'move' || op === 'add') && v.where) body += '<p class="small">' + esc(v.where) + '</p>';
     }
     return '<section class="ca-col" aria-labelledby="' + id + '"><h3 id="' + id + '">' + head + '</h3>' + body + '</section>';
@@ -387,7 +391,7 @@
     }
     if (p.proposedOnly) h += '<div class="notice"><span><b>Proposed, not drafted yet.</b> Your AI assistant proposed this checklist. Review it below; applying it creates the draft.</span></div>';
     h += editingNote(ctx, p);
-    if (p.clashes.length) h += '<div class="notice bad"><span>Two people published version ' + p.clashes.join(', ') + ' at the same time. Neither is used until one is removed from <code>publications/' + esc(p.id) + '</code>. Publish again to make a clean next version.</span></div>';
+    if (p.clashes.length) h += '<div class="notice bad"><span>Two people published version ' + esc(K.capJoin(p.clashes)) + ' at the same time. Neither is used until one is removed from <code>publications/' + esc(p.id) + '</code>. Publish again to make a clean next version.</span></div>';
     /* One version that can't be used is one notice, as before; more are one notice with them 20 at a time (2.11). */
     if (p.broken.length === 1) h += '<div class="notice warn"><span>' + esc(p.broken[0].folder) + ': ' + esc(p.broken[0].why) + '</span></div>';
     else if (p.broken.length) h += '<div class="notice warn pub-broken"><div><b>' + p.broken.length.toLocaleString('en-US') + ' versions in <code>publications/' + esc(p.id) + '</code> can\'t be used.</b>' +
@@ -409,7 +413,7 @@
     h += '<div class="pgrid"><div class="stack">';
     if (p.draft && p.draftChanged) {
       var c = M.check(M.parse(p.draft.md), { people: ctx.data.people, types: (ctx.data.stepTypes || {}).types, workflows: (ctx.data.jira || {}).workflows, processes: ctx.processes().filter(function (x) { return x.latest; }).map(function (x) { return x.id; }), children: ctx.procOf ? PF.links.childrenFrom(ctx.procOf) : null, parents: ctx.processes(), teamValues: ctx.data.teamValues });
-      h += '<section class="panel"><div class="row between"><h2 style="margin:0">Draft · ' + esc(p.draft.file) + '</h2><span class="small">' + (p.typesChanged && p.typesChanged.length ? 'Step type ' + p.typesChanged.join(', ') + ' changed since v' + pub.info.version + '; publish to use it' : p.draftChanged ? 'Has changes not yet published' : 'Same as the published version') + '</span></div>' + checkList(c, ctx.state, 'checks-ov');
+      h += '<section class="panel"><div class="row between"><h2 style="margin:0">Draft · ' + esc(p.draft.file) + '</h2><span class="small">' + (p.typesChanged && p.typesChanged.length ? 'Step type ' + esc(K.capJoin(p.typesChanged)) + ' changed since v' + pub.info.version + '; publish to use it' : p.draftChanged ? 'Has changes not yet published' : 'Same as the published version') + '</span></div>' + checkList(c, ctx.state, 'checks-ov');
       if (p.draftChanged) {
         /* Publishing takes the draft in the folder: while newer edits wait unsaved in the editor, it would publish the older text. */
         var base = corrBase(ctx, p), shots = ctx.shotBusy ? ctx.shotBusy(p.id) : 0, held = base.dirty || base.conflict || shots;
@@ -561,7 +565,7 @@
     h += '<h3 class="small">' + (ov.draftText == null ? 'Compared with nothing (there\'s no draft yet)' : 'Compared with the draft as it is now') + '</h3>';
     h += d.tooMany ? '<p class="small">Too many changes to show line by line.</p>' : capDiff(d.rows);
     var ids = PF.proposals.ids(draftText, ov.proposal.text);
-    if (ids.removed.length || ids.renamed.length) h += '<div class="notice warn"><span>' + (ids.removed.length ? 'Step or phase IDs this removes: ' + esc(ids.removed.slice(0, 20).join(', ')) + '. ' : '') + (ids.renamed.length ? 'IDs it changes: ' + esc(ids.renamed.slice(0, 20).map(function (r) { return r.from + ' → ' + r.to; }).join(', ')) + '. ' : '') + 'Runs and skills that name them will need a look.</span></div>';
+    if (ids.removed.length || ids.renamed.length) h += '<div class="notice warn"><span>' + (ids.removed.length ? 'Step or phase IDs this removes: ' + esc(K.capJoin(ids.removed)) + '. ' : '') + (ids.renamed.length ? 'IDs it changes: ' + esc(K.capJoin(ids.renamed, function (r) { return r.from + ' → ' + r.to; })) + '. ' : '') + 'Runs and skills that name them will need a look.</span></div>';
     var c = M.check(M.parse(ov.proposal.text), { people: ctx.data.people, types: (ctx.data.stepTypes || {}).types, workflows: (ctx.data.jira || {}).workflows, processes: ctx.processes().filter(function (q) { return q.latest; }).map(function (q) { return q.id; }), children: ctx.procOf ? PF.links.childrenFrom(ctx.procOf) : null, parents: ctx.processes(), teamValues: ctx.data.teamValues });
     h += '<h3 class="small">Checks on the proposed text</h3>' + checkList(c, ctx.state, 'checks-prop', { inDialog: true });
     var blocked = recs.some(function (r) { return !r.rec; }), acts = '';
@@ -695,7 +699,7 @@
     var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">' + esc(meta.title) + ' · v' + pub.info.version + (plan ? ' · ' + esc(V.plannedBy(ctx, plan)) : '') + '</div><h1 id="page-h" tabindex="-1">' + (planning ? 'Plan a run' : 'Start a run') + '</h1>' + (plan && plan.note ? '<div class="small">' + esc(plan.note) + '</div>' : '') + '</div></div>';
     var claim = plan ? PF.requests.claim(plan) : null, copies = plan ? V.planCopies(plan) : '';
     if (claim) h += '<p class="small">Requested by ' + esc(claim.name + ' ' + claim.version) + ', by its own account. Flightdeck can\'t confirm which tool or person wrote this file. Nothing starts until you start it.</p>';
-    if (plan && plan._copiesDiffer) h += '<div class="notice bad" role="alert"><span>' + copies + ' The files: ' + (plan._files || []).map(function (f) { return '<code>proposals/' + esc(f) + '</code>'; }).join(', ') + '. Compare them, then delete the wrong one (When something goes wrong, A planned run arrived twice).</span></div>';
+    if (plan && plan._copiesDiffer) h += '<div class="notice bad" role="alert"><span>' + copies + ' The files: ' + K.capJoin(plan._files || [], function (f) { return '<code>proposals/' + esc(f) + '</code>'; }) + '. Compare them, then delete the wrong one (When something goes wrong, A planned run arrived twice).</span></div>';
     else if (copies) h += '<div class="notice" role="status"><span>' + copies + '</span></div>';
     if (plan && planHeldWhy(plan, ctx.data)) h += '<div class="notice bad" role="alert"><span>' + esc(planHeldWhy(plan, ctx.data)) + '</span></div>';
     if (plan && plan._conflicting) h += '<div class="notice bad" role="alert"><span><b>Two decisions on this plan disagree</b>: it was started and declined, or started twice. Someone may have started it already; check Runs before you start it again.</span></div>';
@@ -721,7 +725,7 @@
       var m = plan && g ? PF.run.migrateDetail(def, g) : null, shown = m && (m.verdict === 'exact' || m.verdict === 'converted') ? m.result : plan ? '' : g;
       h += '<div>' + K.typedField('detail-' + f, f, def, shown, 'data-detail="' + esc(f) + '"') + (m && m.verdict !== 'exact' && m.verdict !== 'converted' ? '<p class="small">' + esc(PF.values.ask(def, g)) + '</p>' : '') + '</div>';
     });
-    if (later.length) h += '<p class="small" style="grid-column:1/-1">' + later.map(function (f) { return '<b>' + esc(f) + '</b> is filled in by "' + esc(setBy[f][0].text) + '"'; }).join('; ') + '.</p>';
+    if (later.length) h += '<p class="small" style="grid-column:1/-1">' + K.capJoin(later, function (f) { return '<b>' + esc(f) + '</b> is filled in by "' + esc(setBy[f][0].text) + '"'; }, '; ') + '.</p>';
     if (planning) {
       var err = st.fieldErr && st.fieldErr.id === 'plan-when';
       h += '<p class="small" style="grid-column:1/-1">Details can stay blank until the run starts.</p>' +

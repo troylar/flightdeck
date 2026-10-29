@@ -3295,7 +3295,7 @@
     if (state.runKey) { state.runKey = null; resetRunUi(); }
     openEditor(p);
     setView('practice'); state.processId = p.id; state.ptab = 'edit'; state.mapVer = null;
-    state.obPlace = null; state.obAsk = null; state.obRename = null; state.sel = null; state.pick = null; state.edit = null; state.fieldErr = null;
+    state.obPlace = null; state.obAsk = null; state.obRename = null; state.obRenamed = null; state.sel = null; state.pick = null; state.edit = null; state.fieldErr = null;
     prFollow(p);
     var c = prMap(e, prText(p)), model = c.map ? PR.follow(e.st, c.map, prEnv(), state.me) : null, dest = model ? prResolve(e, model) : null, t = e.trip;
     /* The restore order (docs/design.md section 34): reconciled, the target resolved, its phase unfolded, drawn, the inspector
@@ -3624,7 +3624,7 @@
     var before = obSnap(ed);
     learnIds(ed, ed.base); dropPending();
     TL.record(tlOf(ed), base, rv.text, { kind: 'op', lines: true, label: lb.label, subject: subj, items: ['step:' + (rv.added || g.target.step)], selBefore: before });
-    ed.text = rv.text; state.planFormReset = true; state.obFlash = null; state.obAsk = null; state.obRename = null;
+    ed.text = rv.text; state.planFormReset = true; state.obFlash = null; state.obAsk = null; state.obRename = null; state.obRenamed = null;
     var dfs = state.fs, gg = gen, text = rv.text, added = rv.added, me = state.me, left = others.filter(function (y) { return ids.indexOf(y.id) < 0; }).length;
     closeOverlay(); state.focus = 'fx-h';
     saveDraftText(p, text, ed.baseHash, TL.past(lb.past, subj) + '. Saved to the draft.' + (left ? ' The other proposal' + (left === 1 ? ' is' : 's are') + ' still open.' : ''), {
@@ -4513,7 +4513,7 @@
   }
   function obSelWhole(kind, focus) {
     var p = currentProcess(); if (!p || obHeld(p)) return;
-    obClearErr(); state.insTab = null; state.obShown = null; state.obSel = { pid: p.id, kind: kind, key: ':' + kind }; state.obAdd = null; state.obAsk = null; state.obRename = null; state.obPlace = null; state.planFormReset = true;
+    obClearErr(); state.insTab = null; state.obShown = null; state.obSel = { pid: p.id, kind: kind, key: ':' + kind }; state.obAdd = null; state.obAsk = null; state.obRename = null; state.obRenamed = null; state.obPlace = null; state.planFormReset = true;
     state.focus = focus === 'ob-add-role' || focus === 'ob-add-ctx' ? '#' + focus : kind === 'details' ? '[data-act="ob-sel-details"]' : 'ob-q-text';
     render();
   }
@@ -5499,6 +5499,12 @@
       state.focus = id === 'edit' ? 'draft-editor' : id === 'insights' ? '[data-act="ptab"][data-id="overview"]' : 'cl-h';
       render(); window.scrollTo(0, 0);
     },
+    /* The checklist preview names 50 skills on a step or the whole checklist; the rest are in the Skills panel (2.11, D10). */
+    'pv-skills': function () {
+      var p = currentProcess(); if (!p) return;
+      state.ptab = 'overview'; state.pick = null; state.disc = Object.assign({}, state.disc); state.disc['sk:' + p.id] = true;
+      state.focus = 'sk-h'; revealAt('#sk-h'); render();
+    },
     'view-version': function (id) { state.ptab = 'overview'; state.mapVer = id; state.pick = null; state.focus = 'cl-h'; render(); window.scrollTo(0, 0); },
     'back-current': function () { state.mapVer = 'current'; state.pick = null; state.focus = 'map-ver'; render(); },
     /* Checklist or flight plan: the same version either way. A phase in the flight plan opens it in the checklist. */
@@ -5640,13 +5646,13 @@
       var s = state.obSel, cp = currentProcess(); if (!s || s.kind !== 'details' || !cp || obHeld(cp, 'then rename')) return;
       /* The box redraws holding what it held; it starts from this detail's name instead. */
       var was = document.getElementById('ob-ren-ctx'); if (was) was.value = String(id);
-      state.obRename = { pid: cp.id, name: String(id) }; state.fieldErr = null; state.focus = '#ob-ren-ctx'; render();
+      state.obRename = { pid: cp.id, name: String(id) }; state.obRenamed = null; state.fieldErr = null; state.more = Object.assign({}, state.more); delete state.more['ob-ren-deps']; state.focus = '#ob-ren-ctx'; render();
       var bx = document.getElementById('ob-ren-ctx'); if (bx && bx.select) bx.select();
     },
     'ob-ren-cancel': function (id) {
       /* Cancel is the one way to drop what's typed for a new name. */
       var bx = document.getElementById('ob-ren-ctx'); if (bx) bx.value = ''; if (state.obPendingField === 'ob-ren-ctx') dropPending();
-      state.obRename = null; state.fieldErr = null; state.focus = '[data-act="ob-ren"][data-id="' + cssEsc(String(id)) + '"]'; render();
+      state.obRename = null; state.obRenamed = null; state.fieldErr = null; state.focus = '[data-act="ob-ren"][data-id="' + cssEsc(String(id)) + '"]'; render();
     },
     'ob-ren-go': function (id) {
       var s = state.obSel, cp = currentProcess(), from = String(id); if (!s || s.kind !== 'details' || !cp || !state.obRename || state.obRename.pid !== cp.id || state.obRename.name !== from) return;
@@ -5658,8 +5664,11 @@
       if (!res || res.same) return;
       state.obRename = null; state.fieldErr = null; if (state.obPendingField === 'ob-ren-ctx') dropPending();
       var done = document.getElementById('ob-ren-ctx'); if (done) done.value = '';
-      sayUndo('Renamed ^' + from + ' to ^' + to + (res.places ? ' in ' + res.places + ' place' + (res.places === 1 ? '' : 's') : '') + '.' + (res.notes && res.notes.length ? ' ' + res.notes.join(' ') : ''));
-      state.focus = '[data-act="ob-ren"][data-id="' + cssEsc(to) + '"]'; render();
+      sayUndo('Renamed ^' + from + ' to ^' + to + (res.places ? ' in ' + res.places + ' place' + (res.places === 1 ? '' : 's') : '') + '.' + (res.notes && res.notes.length ? ' ' + res.notes.slice(0, 3).join(' ') + (res.notes.length > 3 ? ' And ' + (res.notes.length - 3).toLocaleString('en-US') + ' more like these.' : '') : ''));
+      /* Drawn whatever the Find text or the page (2.11), so focus has its row to go to; it stays drawn, as just renamed, when the
+         Find text changes, until another rename or the form is left. */
+      state.obRenamed = { pid: cp.id, name: to };
+      ensureListItemVisible('ob-meta-context', to, { focus: '[data-act="ob-ren"][data-id="' + cssEsc(to) + '"]', word: 'renamed' }); render();
     },
     'ob-ask-cancel': function () { state.obAsk = null; state.focus = '[data-act="ob-ask"]'; render(); },
     'ob-del-track': function (how) {

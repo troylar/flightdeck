@@ -350,8 +350,10 @@
   function setsRow(ctx, def, s, meta) {
     var id = 'ob-fld-sets', g = G.field(def, 'sets', s.fields), cur = String(s.fields.sets || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean), all = (meta && meta.context) || [];
     var chip = function (n, bad) { return '<button type="button" class="chipbtn ob-req' + (bad ? ' bad" data-bad="1' : '') + '" data-act="ob-sets" data-id="' + esc(n) + '" aria-pressed="' + (cur.indexOf(n) >= 0) + '">^' + esc(n) + (bad ? ' <span class="small">Not one of this checklist\'s run details; press to remove it.</span>' : '') + '</button>'; };
-    var h = all.map(function (n) { return chip(n); }).join('') + cur.filter(function (n) { return all.indexOf(n) < 0; }).map(function (n) { return chip(n, true); }).join('');
-    return '<div class="field"><span id="q-' + id + '">' + esc(g.q) + '</span><div class="row ob-grp" id="' + id + '" tabindex="-1" role="group" aria-labelledby="q-' + id + '" aria-describedby="' + described(ctx, id, g) + '">' +
+    /* 20 at a time with Find past 20, the ones it sets always drawn (2.11, code review round 8). */
+    var rr = K.roleRows(ctx.state, 'ob-sets', all, { keep: cur, keptLabel: 'Run details this step sets', label: 'Find a run detail', noun: 'run detail', focusOf: function (n) { return K.byAct('ob-sets', n); }, row: function (n) { return chip(n); } });
+    var h = rr.rows + cur.filter(function (n) { return all.indexOf(n) < 0; }).map(function (n) { return chip(n, true); }).join('');
+    return '<div class="field"><span id="q-' + id + '">' + esc(g.q) + '</span>' + rr.box + '<div class="row ob-grp" id="' + id + '" tabindex="-1" role="group" aria-labelledby="q-' + id + '" aria-describedby="' + described(ctx, id, g) + '">' +
       (h || '<span class="small">The checklist lists no run details yet.</span>') + '</div>' + whyOf(id, g) + '</div>' + errMsg(ctx, id);
   }
   /* What checking the step asks for, read the way the run reads it (R.evidenceFor), given what practice gives it: the
@@ -497,7 +499,7 @@
      starts empty (before 2.8, nothing is asked). */
   function ioRest(rows, st, cmap) {
     var setBy = M.setBy(cmap), left = rows.filter(function (r) { return r.source === 'ask'; }), self = left.filter(function (r) { return ownKey(setBy, r.name); }), rest = left.filter(function (r) { return !ownKey(setBy, r.name); });
-    var names = function (a) { return a.map(function (r) { return esc(r.name); }).join(', '); };
+    var names = function (a) { return K.capJoin(a, function (r) { return esc(r.name); }); };
     return (rest.length ? (PF.links.has(st) ? '; asks ' : '; starts without ') + names(rest) : '') + (self.length ? '; fills in ' + names(self) + ' itself' : '');
   }
   function askOf(ctx, kind, key, track) { var a = ctx.state.obAsk; return a && a.kind === kind && a.key === key && (track == null || +a.track === +track) ? a : null; }
@@ -588,7 +590,10 @@
     var waiting = apply.filter(function (n) { return rows.indexOf(n) < 0; });
     var guideList = typed ? [] : apply;
     var binds = s.parts.binds, ctxs = meta.context.concat(binds.filter(function (b) { return meta.context.indexOf(b) < 0; }));
-    var bindsHtml = '<div class="field"><span id="ob-binds-l">' + esc(G.step('binds').q) + '</span>' + whyOf('ob-binds', G.step('binds')) + (ctxs.length ? '<div class="row" role="group" aria-labelledby="ob-binds-l" aria-describedby="why-ob-binds">' + ctxs.map(function (b) { return '<button type="button" class="ob-chip" data-act="ob-bind" data-id="' + esc(b) + '" aria-pressed="' + (binds.indexOf(b) >= 0) + '">^' + esc(b) + '</button>'; }).join('') + '</div>' : '<span class="small">The checklist lists no run details yet.</span> <button type="button" class="linkish" data-act="ob-sel-details" data-focus="ob-add-ctx">Add run details</button>') + '</div>';
+    /* The checklist's run details, 20 at a time with Find past 20, the step's own always drawn (2.11, code review round 8). */
+    var br = K.roleRows(ctx.state, 'ob-binds', ctxs, { keep: binds, keptLabel: 'This step\'s run details', label: 'Find a run detail', noun: 'run detail', focusOf: function (b) { return K.byAct('ob-bind', b); },
+      row: function (b) { return '<button type="button" class="ob-chip" data-act="ob-bind" data-id="' + esc(b) + '" aria-pressed="' + (binds.indexOf(b) >= 0) + '">^' + esc(b) + '</button>'; } });
+    var bindsHtml = '<div class="field"><span id="ob-binds-l">' + esc(G.step('binds').q) + '</span>' + whyOf('ob-binds', G.step('binds')) + (ctxs.length ? br.box + '<div class="row" role="group" aria-labelledby="ob-binds-l" aria-describedby="why-ob-binds">' + br.rows + '</div>' : '<span class="small">The checklist lists no run details yet.</span> <button type="button" class="linkish" data-act="ob-sel-details" data-focus="ob-add-ctx">Add run details</button>') + '</div>';
     var err = function (res) { var fe = ctx.state.fieldErr; return !!(fe && fe.id === 'ob' && res.some(function (re) { return re.test(fe.field); })); };
     var mk = function (html, ids) { return { html: html, ids: ids, err: err(ids) }; };
     var groups = {
@@ -712,11 +717,15 @@
   function listField(ctx, key, label, hint, list, mark, addId, ren) {
     var lid = 'ob-' + key + '-l', cls = key === 'roles' ? 'ob-role' : 'ob-chip', g = G.form(key === 'roles' ? 'role' : 'context');
     var st = ctx.state, rn = st.obRename, renaming = function (n) { return key === 'context' && ren && ren.o && rn && rn.name === n && rn.pid === ren.map.meta.process; };
-    var fid = 'ob-meta-' + key, P = 20, q = K.findQ(st, fid), hit = K.finds(q), keep = list.filter(renaming), noun = key === 'roles' ? 'role' : 'run detail';
-    var found = q ? list.filter(function (n) { return hit([n]); }) : list, rows = q ? list.filter(function (n) { return keep.indexOf(n) >= 0 || found.indexOf(n) >= 0; }) : list;
+    /* The one just renamed is drawn whatever the page or the Find text (state.justShown, then state.obRenamed once the Find text
+       changes), so focus can go to it and it doesn't vanish. */
+    var rd = st.obRenamed, renamed = function (n) { return key === 'context' && ren && ren.map && rd && rd.name === n && rd.pid === ren.map.meta.process; };
+    var fid = 'ob-meta-' + key, P = 20, q = K.findQ(st, fid), hit = K.finds(q), keep = list.filter(function (n) { return renaming(n) || renamed(n); }), noun = key === 'roles' ? 'role' : 'run detail';
+    var js = st.justShown && st.justShown.lists ? st.justShown.lists[fid] : null;
+    var found = q ? list.filter(function (n) { return hit([n]); }) : list, rows = q ? list.filter(function (n) { return n === js || keep.indexOf(n) >= 0 || found.indexOf(n) >= 0; }) : list;
     var box = list.length > P || q ? K.findBox(st, fid, 'Find a ' + noun, found.length, list.length, noun) : '';
     return '<div class="field"><span id="' + lid + '">' + label + '</span><span class="small">' + hint + '</span>' + box +
-      (rows.length ? K.list(st, fid, rows, { page: P, keep: keep, keptLabel: 'Being renamed', keyOf: function (n) { return n; },
+      (rows.length ? K.list(st, fid, rows, { page: P, keep: keep, keptLabel: list.some(renaming) ? 'Being renamed' : 'Just renamed', keyOf: function (n) { return n; },
         focusOf: function (n) { return '[data-act="ob-meta-del"][data-key="' + key + '"][data-id="' + K.cssStr(n) + '"]'; }, draw: function (shown) { return '<ul class="ob-metalist" aria-labelledby="' + lid + '">' + shown.map(function (n) {
         if (renaming(n)) return renameRow(ctx, ren, n);
         var used = key === 'context' && ren && ren.o ? O.usesOf(ren.o, 'context', n).length : -1;
@@ -729,6 +738,14 @@
   }
   /* Renaming a run detail (2.7): the new name, what else changes with it, and what other files say. A dependent that would
      stop working refuses the rename when it's applied; the rest are notes. */
+  /* Other checklists' steps that pass it, and the like, 20 at a time (2.11): the rename still checks every one. */
+  function depsList(ctx, deps) {
+    if (!deps.length) return '';
+    var rows = deps.map(function (d) { return { d: d }; });
+    K.uniqKeys(deps, function (d) { return (d.refuse ? 'bad' : 'info') + '\n' + d.text; }).forEach(function (k, i) { rows[i].k = K.domKey(k); });
+    return K.list(ctx.state, 'ob-ren-deps', rows, { page: 20, keyOf: function (r) { return r.k; }, focusOf: function (k) { return K.byId('ob-ren-dep-' + k); },
+      draw: function (shown) { return '<ul class="ob-ren-deps small">' + shown.map(function (r) { return '<li id="' + esc('ob-ren-dep-' + r.k) + '" tabindex="-1" class="' + (r.d.refuse ? 'bad' : 'info') + '">' + esc(r.d.text) + '</li>'; }).join('') + '</ul>'; } });
+  }
   function renameRow(ctx, ren, n) {
     var used = O.usesOf(ren.o, 'context', n), deps = ctx.renameDeps ? ctx.renameDeps(ren.map, n) : [];
     var id = 'ob-ren-ctx', note = 'Every ^' + n + ' in this checklist follows: step text, gate approvals, fields, only when and sets. Runs already started keep the old name.';
@@ -736,8 +753,7 @@
       '<div class="row"><input id="' + id + '" maxlength="60" autocomplete="off" spellcheck="false" value="' + esc(n) + '" data-enter="ob-ren-go" data-id="' + esc(n) + '" aria-describedby="ob-ren-note' + (ctx.state.fieldErr && ctx.state.fieldErr.field === id ? ' ferr-' + id : '') + '">' +
       '<button type="button" class="mini primary" data-act="ob-ren-go" data-id="' + esc(n) + '">Rename</button><button type="button" class="mini" data-act="ob-ren-cancel" data-id="' + esc(n) + '">Cancel</button></div>' +
       errMsg(ctx, id) +
-      '<p class="small" id="ob-ren-note">' + esc(note) + (used.length ? ' Used in ' + esc(used.join(', ')) + '.' : '') + '</p>' +
-      (deps.length ? '<ul class="ob-ren-deps small">' + deps.map(function (d) { return '<li class="' + (d.refuse ? 'bad' : 'info') + '">' + esc(d.text) + '</li>'; }).join('') + '</ul>' : '') + '</li>';
+      '<p class="small" id="ob-ren-note">' + esc(note) + (used.length ? ' Used in ' + esc(K.capJoin(used)) + '.' : '') + '</p>' + depsList(ctx, deps) + '</li>';
   }
   function detailsForm(ctx, o, meta, text) {
     var ren = { o: o, map: null }; try { ren.map = M.parse(text); } catch (e) { ren = null; }

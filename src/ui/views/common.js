@@ -244,7 +244,8 @@ PF.vk = (function () {
     else h = o.draw(shown) + more + rest;
     return h;
   }
-  /* A form's roles a page at a time (2.11), as Start and Plan draw them: 20 in checklist order, with Find a role past 20. o:
+  /* A form's roles a page at a time (2.11), as Start and Plan draw them: 20 in checklist order, with Find a role past 20 (or
+     o.label and o.noun for another list of names: a step's run details in the builder). o:
      row(role), the role's HTML; keep, the roles always drawn (given someone on this form, or showing an error); hidden(role),
      what stands in for a role not drawn (its value in a hidden field), so the form sends exactly what it would with every role
      drawn; focusOf, keptLabel, inDialog as K.list. Returns { box, rows, hidden }. */
@@ -253,7 +254,7 @@ PF.vk = (function () {
     (o.keep || []).forEach(function (r) { kept[r] = true; });
     var found = q ? roles.filter(function (r) { return hit([r]); }) : roles;
     var rs = q ? roles.filter(function (r) { return kept[r] || found.indexOf(r) >= 0; }) : roles;
-    var box = roles.length > P || q ? findBox(st, id, 'Find a role', found.length, roles.length, 'role') : '';
+    var box = roles.length > P || q ? findBox(st, id, o.label || 'Find a role', found.length, roles.length, o.noun || 'role') : '';
     var rows = list(st, id, rs, { page: P, keep: roles.filter(function (r) { return kept[r]; }), keptLabel: o.keptLabel || 'Roles you\'ve chosen someone for', keyOf: function (r) { return r; }, focusOf: o.focusOf, inDialog: o.inDialog,
       draw: function (shown) { return shown.map(function (r) { on[r] = true; return o.row(r); }).join(''); } });
     var hidden = o.hidden ? roles.filter(function (r) { return !on[r]; }).map(o.hidden).join('') : '';
@@ -270,6 +271,14 @@ PF.vk = (function () {
     var h = '<p class="' + esc(o.cls || 'small') + ' joined" id="' + esc(lid) + '" tabindex="-1">' + (o.lead || '') + shown.map(name).join(', ') + (left ? ', and ' + left.toLocaleString('en-US') + ' more' : '') + '</p>';
     if (left) h += '<div class="row paged"><button type="button" class="mini" data-act="more" data-id="' + esc(id) + '" data-focus="' + esc(byId(lid)) + '">Show ' + Math.min(PAGE, left) + ' more ' + esc(o.noun ? o.noun + 's' : '') + '</button></div>';
     return h;
+  }
+  /* A list joined into text where it can't page (a sentence, a preview, a reason): the first 50 and "and 250 more" (D10).
+     name(item), when given, is the item's text or HTML, built only for the names shown; sep is ', ' by default. id lets a
+     test turn the cap off (PF.vk.PAGE_OFF), to prove the bounds check notices. */
+  function capJoin(items, name, sep, id) {
+    sep = sep || ', ';
+    var n = id != null && PF.vk.PAGE_OFF === id ? items.length : PAGE, shown = items.slice(0, n), left = items.length - shown.length;
+    return (name ? shown.map(function (x) { return name(x); }) : shown).join(sep) + (left ? sep + 'and ' + left.toLocaleString('en-US') + ' more' : '');
   }
   /* ---------- a dropdown over a growing list (2.11, K.select) ---------- */
   /* The value of the last option, "Show 50 more…": no real value can be it (folder, run, plan and step values are words,
@@ -430,7 +439,7 @@ PF.vk = (function () {
   }
   function unsavedWords(ps) { return ps && ps.saved ? 'its run was saved and has changed since' : ps && ps.certain === false ? 'Flightdeck couldn\'t confirm whether its run saved' : 'its run didn\'t save'; }
   function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
-  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, finds: finds, findBox: findBox, roleRows: roleRows, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, joined: joined, select: select, SEL_MORE: SEL_MORE, byId: byId, cssStr: cssStr, PAGE: PAGE, PAGE_OFF: null, ARRIVE: null, TRACE: null, focusAt: null, domKey: domKey, uniqKeys: uniqKeys, testTag: testTag, verWord: verWord };
+  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, finds: finds, findBox: findBox, roleRows: roleRows, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, joined: joined, capJoin: capJoin, select: select, SEL_MORE: SEL_MORE, byId: byId, cssStr: cssStr, PAGE: PAGE, PAGE_OFF: null, ARRIVE: null, TRACE: null, focusAt: null, domKey: domKey, uniqKeys: uniqKeys, testTag: testTag, verWord: verWord };
 })();
 (function () {
   'use strict';
