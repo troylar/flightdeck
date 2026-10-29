@@ -200,7 +200,7 @@ function boot(opts) {
       const tag = m[2].toLowerCase();
       if (m[1]) { for (let i = stack.length - 1; i >= 0; i--) if (stack[i].tagName === tag.toUpperCase()) { stack.splice(i).forEach(n => { n._end = m.index; }); break; } continue; }
       const n = drawnNode(region, html, tag, attrsOf(m[3]), m.index, stack[stack.length - 1] || null);
-      nodes.push(n);
+      n._i = nodes.length; nodes.push(n);
       if (!VOID.test(tag) && !/\/$/.test(m[3])) stack.push(n); else n._end = m.index + m[0].length;
     }
     stack.forEach(n => { n._end = html.length; });
@@ -235,14 +235,15 @@ function boot(opts) {
   function drawnNode(region, html, tag, attrs, at, parent) {
     const ds = {}; Object.keys(attrs).forEach(k => { if (/^data-/.test(k)) ds[k.slice(5).replace(/-(\w)/g, (x, c) => c.toUpperCase())] = attrs[k]; });
     const n = {
-      tagName: tag.toUpperCase(), id: attrs.id || '', dataset: ds, _attrs: attrs, _region: region, _src: html, _at: at, _parent: parent, nodeType: 1,
+      tagName: tag.toUpperCase(), id: attrs.id || '', dataset: ds, _attrs: attrs, _region: region, _src: html, _at: at, _parent: parent, parentElement: parent, nodeType: 1,
       getAttribute: k => (k in attrs ? attrs[k] : null), hasAttribute: k => k in attrs, setAttribute(k, v) { attrs[k] = String(v); }, removeAttribute(k) { delete attrs[k]; },
       classList: { contains: c => (attrs.class || '').split(/\s+/).indexOf(c) >= 0, add() {}, remove() {} },
       focus() { document.activeElement = n; }, scrollIntoView() {}, getClientRects: () => [1], select() {}, setSelectionRange() {},
       // A typed box (an element the test made) is inside when its drawn node is.
       contains: o => { if (o && o._src === undefined && o.id) o = nodesOf(region).filter(x => x.id === o.id)[0]; return !!o && o._src === n._src && o._region === n._region && o._at >= n._at && o._at < n._end; },
       closest: sel => { for (let x = n; x; x = x._parent) if (matches(x, sel)) return x; return null; },
-      querySelectorAll: sel => nodesOf(region).filter(x => x !== n && n.contains(x) && matches(x, sel)),
+      // Its own elements only: those drawn after it and before its closing tag, as a browser searches only inside it.
+      querySelectorAll: sel => { const all = nodesOf(region), out = []; if (all[n._i] !== n) return all.filter(x => x !== n && n.contains(x) && matches(x, sel)); for (let i = n._i + 1; i < all.length && all[i]._at < n._end; i++) if (matches(all[i], sel)) out.push(all[i]); return out; },
       // opts.layout: a 1,000-pixel-wide page where a drawn width:N% is N% of its box, and animate() is recorded, not played.
       ...(opts.layout ? {
         clientWidth: 1000,
