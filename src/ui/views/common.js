@@ -162,20 +162,52 @@ PF.vk = (function () {
          rows and the tail ("270 notes between");
        inDialog: the list is in a dialog, so focus moves through the dialog's own focus.
      The item Flightdeck just showed you (state.justShown, ensureListItemVisible in app.js) is drawn whatever the page too.
-     Rows kept past the page are drawn after it (before it, for a tail), so nobody loses the row they're working on. */
+     So is the row that has focus (focusHeld): a refresh that sorts something in above it never takes it off the page.
+     Rows kept past the page are drawn after it (before it, for a tail), so nobody loses the row they're working on.
+       hold: false for a list that keeps its focused row itself (the note thread and corrections, by the note's anchor). */
+  /* The keys each list drew last time, so a redraw can tell which of them had focus (focusHeld). */
+  var drawnBy = Object.create(null);
+  function runCardSel(k) { return '[data-act="open-run"][data-id="' + cssStr(k) + '"]'; }
+  /* The row with focus, among those this list drew last time and won't draw on its page now: its key, kept drawn whatever the
+     page (one extra row, for this list only), or, when its item is gone, focus goes to the list's heading (PF.vk.focusAt is
+     set by the app's render while focus is on the page, and holds the page as it was drawn). */
+  function focusHeld(id, items, onPage, keep, o) {
+    var fa = PF.vk.focusAt, was = drawnBy[id];
+    if (!fa || !was || !was.length || o.hold === false) return null;
+    var sel = function (k) { return o.focusOf ? o.focusOf(k) : runCardSel(k); };
+    if (was.length > 1 && fa.away(sel(was[0]), sel(was[was.length - 1]))) return null;
+    for (var i = 0; i < was.length && i < 1000; i++) {
+      var k = was[i];
+      if (onPage[k] || keep[k]) continue;
+      var other = was[0] !== k ? was[0] : was.length > 1 ? was[1] : null;
+      if (!fa.inRow(sel(k), other == null ? null : sel(other))) continue;
+      for (var j = 0; j < items.length; j++) if (o.keyOf(items[j]) === k) return k;
+      fa.lost(id);
+      return null;
+    }
+    return null;
+  }
   function list(st, id, items, o) {
     var P = o.page || PAGE, n = Math.max(P, Math.floor(((st.more || {})[id]) || P));
-    /* Tests turn paging off for one list (PF.vk.PAGE_OFF = its id), to prove the bounds test notices. */
+    /* Tests turn paging off for one list (PF.vk.PAGE_OFF = its id), to prove the bounds test notices; PF.vk.ARRIVE = its id
+       moves the list's last item to the top (its first, for a tail), as a newer read that sorts one in above would. */
     if (PF.vk.PAGE_OFF === id) n = items.length;
+    if (PF.vk.ARRIVE === id && items.length > 1) items = o.tail ? items.slice(1).concat(items.slice(0, 1)) : items.slice(-1).concat(items.slice(0, -1));
     var from = o.tail ? Math.max(0, items.length - n) : 0, shown = items.slice(from, from + n), left = items.length - shown.length;
-    var keep = Object.create(null), js = st.justShown && st.justShown.lists ? st.justShown.lists[id] : null, extra = [], plus = false, kept = false;
+    var keep = Object.create(null), js = st.justShown && st.justShown.lists ? st.justShown.lists[id] : null, extra = [], plus = false, kept = false, onIt = false;
     (o.keep || []).forEach(function (k) { if (k != null) keep[k] = true; });
     if (js != null) keep[js] = true;
-    if (left > 0 && (js != null || (o.keep || []).length)) {
-      var inPage = Object.create(null);
-      shown.forEach(function (it) { inPage[o.keyOf(it)] = true; });
-      items.forEach(function (it) { var k = o.keyOf(it); if (keep[k] && !inPage[k]) { extra.push(it); if (k === js) plus = true; else kept = true; } });
+    var inPage = Object.create(null);
+    shown.forEach(function (it) { inPage[o.keyOf(it)] = true; });
+    var held = left > 0 ? focusHeld(id, items, inPage, keep, o) : null;
+    if (held != null) keep[held] = true;
+    if (left > 0 && (js != null || held != null || (o.keep || []).length)) {
+      items.forEach(function (it) { var k = o.keyOf(it); if (keep[k] && !inPage[k]) { extra.push(it); if (k === js) plus = true; else if (k === held && (o.keep || []).indexOf(k) < 0) onIt = true; else kept = true; } });
     }
+    if (left <= 0 && PF.vk.focusAt && drawnBy[id] && o.hold !== false) focusHeld(id, items, inPage, keep, o);
+    drawnBy[id] = Object.keys(inPage).concat(extra.map(o.keyOf));
+    /* Tests list every list drawn (PF.vk.TRACE, an array): its id, every item's key, and the selector Show more focuses. */
+    if (PF.vk.TRACE) PF.vk.TRACE.push({ id: id, keys: items.map(o.keyOf), page: shown.map(o.keyOf), extra: extra.map(o.keyOf), tail: !!o.tail, hold: o.hold !== false, focusOf: function (k) { return o.focusOf ? o.focusOf(k) : runCardSel(k); } });
     var h = '', more = '';
     /* What Show more adds is counted past every row already drawn, kept ones too: up to a page of rows not on screen, the first
        of them focused, and the page grows by however many it steps over (step) to reach them. */
@@ -188,7 +220,7 @@ PF.vk = (function () {
     }
     if (add > 0) {
       var k = o.keyOf(first), f = o.focusOf ? o.focusOf(k) : null;
-      more = '<div class="row paged"><span class="small" role="status">Showing ' + shown.length.toLocaleString('en-US') + ' of ' + items.length.toLocaleString('en-US') + (plus ? ', plus the one you just ' + esc((st.justShown.words || {})[id] || o.shownWord || 'added') : '') + '</span>' +
+      more = '<div class="row paged"><span class="small" role="status">Showing ' + shown.length.toLocaleString('en-US') + ' of ' + items.length.toLocaleString('en-US') + (plus ? ', plus the one you just ' + esc((st.justShown.words || {})[id] || o.shownWord || 'added') : '') + (onIt ? (plus ? ' and' : ', plus') + ' the one you\'re on' : '') + '</span>' +
         '<button type="button" class="btn" data-act="more" data-id="' + esc(id) + '" data-next="' + esc(k) + '"' + (f ? ' data-focus="' + esc(f) + '"' : '') + (P !== PAGE ? ' data-page="' + P + '"' : '') + (step !== add ? ' data-step="' + step + '"' : '') + (o.inDialog ? ' data-dialog="1"' : '') + '>' +
         (o.tail ? 'Show ' + add + ' earlier' : 'Show ' + add + ' more') + '</button></div>';
     }
@@ -285,6 +317,14 @@ PF.vk = (function () {
     var moreBtn = more ? '<button type="button" class="mini selmore" data-act="sel-more" data-id="' + esc(id) + '" data-step="' + step + '" aria-controls="' + esc(id) + '">Show more choices</button>' : '';
     return { box: box, select: selHtml, more: moreBtn, html: box + selHtml + moreBtn, drawn: drawn, total: items.length };
   }
+  /* An element id's part for a key made from content (a line of text, a path): 16 hex characters, so it's a valid id whatever
+     the content holds. */
+  function domKey(k) { k = String(k); return U.hash(k) + U.hash(k + '|2'); }
+  /* Keys for items from what they are (sig(item)), never their place: the second item with the same content is sig#2. */
+  function uniqKeys(items, sig) {
+    var seen = Object.create(null);
+    return items.map(function (it) { var s = String(sig(it)); seen[s] = (seen[s] || 0) + 1; return seen[s] > 1 ? s + '#' + seen[s] : s; });
+  }
   /* A selector for the element with this id, whatever the id holds (it comes from files). */
   /* A CSS string's contents: quotes and backslashes escaped, and control characters (a newline in an id from a file) as hex
      escapes, so the selector stays valid. */
@@ -376,7 +416,7 @@ PF.vk = (function () {
   }
   function unsavedWords(ps) { return ps && ps.saved ? 'its run was saved and has changed since' : ps && ps.certain === false ? 'Flightdeck couldn\'t confirm whether its run saved' : 'its run didn\'t save'; }
   function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
-  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, finds: finds, findBox: findBox, roleRows: roleRows, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, joined: joined, select: select, SEL_MORE: SEL_MORE, byId: byId, cssStr: cssStr, PAGE: PAGE, PAGE_OFF: null, testTag: testTag, verWord: verWord };
+  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, finds: finds, findBox: findBox, roleRows: roleRows, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, joined: joined, select: select, SEL_MORE: SEL_MORE, byId: byId, cssStr: cssStr, PAGE: PAGE, PAGE_OFF: null, ARRIVE: null, TRACE: null, focusAt: null, domKey: domKey, uniqKeys: uniqKeys, testTag: testTag, verWord: verWord };
 })();
 (function () {
   'use strict';

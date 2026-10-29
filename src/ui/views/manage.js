@@ -445,13 +445,13 @@
       '<div class="row">' + (proc ? '<button class="btn" data-act="open-process" data-id="' + esc(proc.id) + '">Open ' + esc(proc.title) + '</button>' : '') + '</div></div>';
     h += '<section class="panel status-card" data-s="' + esc(hit.status.s) + '" aria-labelledby="ss-h"><h2 id="ss-h"><span class="pill ' + sw[0] + '">' + sw[1] + '</span></h2><p>' + esc(hit.status.text) + (sw[2] ? ' ' + esc(sw[2]) : '') + '</p>';
     /* What changed, 50 at a time in its own order (2.11); the update brief is built from all of it when copied. */
-    if (hit.status.s === 'update' && hit.status.changes) h += K.list(st, 'sk-changes', hit.status.changes.map(function (c, i) { return { c: c, i: i }; }), { draw: function (shown) { return '<ul class="changes">' + shown.map(function (r) {
-      var c = r.c, li = '<li id="skc-' + r.i + '" tabindex="-1">';
+    if (hit.status.s === 'update' && hit.status.changes) h += K.list(st, 'sk-changes', K.uniqKeys(hit.status.changes, function (c) { return c.change + '\n' + c.id; }).map(function (k, i) { return { c: hit.status.changes[i], k: 'skc-' + K.domKey(k) }; }), { draw: function (shown) { return '<ul class="changes">' + shown.map(function (r) {
+      var c = r.c, li = '<li id="' + r.k + '" tabindex="-1">';
       if (c.change === 'order') return li + '<b>Order:</b> its steps now run in a different order.</li>';
       if (c.change === 'inputs') return li + '<b>What it takes:</b> ' + esc(c.what.join('; ')) + '.</li>';
       if (c.change === 'context') return li + '<b>Run details:</b> now ' + esc(c.to.join(', ') || 'none') + ' (was ' + esc(c.from.join(', ') || 'none') + ').</li>';
       return li + '<b>' + esc(K.stepPlain(c.to || c.from, null)) + '</b>: ' + ({ changed: 'changed', removed: 'removed', added: 'new' })[c.change] + '</li>';
-    }).join('') + '</ul>'; }, keyOf: function (r) { return 'skc-' + r.i; }, focusOf: function (k) { return K.byId(k); } });
+    }).join('') + '</ul>'; }, keyOf: function (r) { return r.k; }, focusOf: function (k) { return K.byId(k); } });
     if (hit.status.s === 'update' || hit.status.s === 'unaffected') h += '<div class="row"><button class="btn go" data-act="copy-brief" data-id="update:' + esc(s.file) + '">' + I('copy') + 'Copy the update brief</button></div>' + briefBoxOf(st, 'update:' + s.file);
     h += '</section>';
     h += '<section class="panel" aria-labelledby="sf-h"><h2 id="sf-h">About this skill</h2><dl class="facts">' +

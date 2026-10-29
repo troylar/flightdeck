@@ -1599,9 +1599,15 @@
     state.planFormReset = false;
     if (ae && (app.contains(ae) || topEl.contains(ae))) focusKey = ae.id ? (/^[A-Za-z][\w-]*$/.test(ae.id) ? '#' + ae.id : PF.vk.byId(ae.id)) : ae.dataset && ae.dataset.act ? '[data-act="' + ae.dataset.act + '"]' + (ae.dataset.id ? '[data-id="' + cssEsc(ae.dataset.id) + '"]' : '') : null;
     if (focusKey && ae.id) focusKey = noteFocus(ae.id, focusKey);
-    /* The thread note that has focus stays drawn by its exact anchor (one note, 2.11), even when newer notes push it out of
-       the page Show earlier reached. */
-    state.noteHeld = focusKey && ae.id ? noteHold(ae.id) : null;
+    /* The thread note or correction that has focus (or holds it: its row's buttons) stays drawn by its exact anchor (one
+       note, 2.11), even when newer notes push it out of the page Show earlier reached. */
+    var heldLi = ae && ae.id && /^(tn|corr)-/.test(ae.id) ? ae : ae && ae !== document.body && ae.closest ? ae.closest('li[id]') : null;
+    state.noteHeld = focusKey && heldLi && /^(tn|corr)-/.test(heldLi.id) ? noteHold(heldLi.id) : null;
+    /* A list row with focus stays drawn while it has it, whatever a newer read sorts in above it (K.list); gone, focus goes to
+       its list's heading. Only for the folder it was drawn for. */
+    var heldAe = ae && ae !== document.body && holdGen === gen && (app.contains(ae) || topEl.contains(ae) || overlayEl.contains(ae)) ? ae : null, lostHead = null;
+    holdGen = gen;
+    PF.vk.focusAt = heldAe ? { inRow: function (sel, other) { return rowHas(heldAe, sel, other); }, away: function (sel, other) { return awayFrom(heldAe, sel, other); }, lost: function () { if (!lostHead) lostHead = headOf(heldAe); } } : null;
     var y = window.scrollY;
     renderTop();
     followDrafts();
@@ -1648,6 +1654,10 @@
     if (!target && focusKey === '#page-h') target = document.getElementById('page-back');
     /* A row that had focus is gone (a change that arrived removed it) and no dialog is open: the editor's heading, never the page. */
     if (!target && !state.overlay && focusKey && /data-act="ob-sel/.test(focusKey)) target = document.getElementById('ed-h');
+    /* A list row that had focus is gone: its list's heading. */
+    if (!target && lostHead && !asked) target = app.querySelector(lostHead) || topEl.querySelector(lostHead);
+    /* A heading taking focus (a row's, or a list's when its row went) can: it's drawn without a tab stop of its own. */
+    if (target && /^H[1-6]$/.test(target.tagName || '') && !target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
     /* A group of radios takes focus on its chosen option, else its first. */
     if (target && target.tagName === 'FIELDSET') target = target.querySelector('input:checked') || target.querySelector('input') || target;
     state.focus = null;
@@ -1671,6 +1681,7 @@
     /* An open dialog isn't rebuilt by background refreshes unless its content changed, so focus inside it stays put. */
     if (sxOpen()) sxRefresh();
     var ov = state.overlay ? state.overlay.html() : '';
+    PF.vk.focusAt = null;
     if (ov !== lastOverlay) {
       /* Typing in a dialog's search redraws it; focus and the caret go back to the same control. */
       var oa = document.activeElement, osel = oa && overlayEl.contains(oa) ? selectorOf(oa) : null, os = oa && oa.selectionStart;
@@ -1724,13 +1735,40 @@
     var hc = hit.n.kind === 'correction' || hit.n.kind === 'fix' || hit.n.kind === 'map';
     return PF.vk.byId(hc ? V.corrDomId(hit.n.id, hit.k) : 'tn-' + hit.n.step + '-' + hit.key);
   }
+  /* Whether the row of a list's item (the element sel finds, as the page was drawn, and the row around it) holds el. A row
+     around it that also holds another item (other) of the same list isn't its row: the element itself is. */
+  var holdGen = null, ROW_SEL = 'li, tr, .card, .copyrow, .rep-card, .rr-rep';
+  function rowHas(el, sel, other) {
+    var t = null, o = null;
+    try { t = document.querySelector(sel); o = other ? document.querySelector(other) : null; } catch (e) { return false; }
+    if (!t) return false;
+    var row = t.closest ? t.closest(ROW_SEL) : null;
+    if (row && o && o !== t && row.contains(o)) row = null;
+    row = row || t;
+    return row === el || row.contains(el);
+  }
+  /* Whether el is outside the section that holds two of a list's rows (sel, other), so outside the list: one look, before
+     looking row by row. A section around one row only (a report card is one) isn't the list's. */
+  function awayFrom(el, sel, other) {
+    var t = null, o = null; try { t = document.querySelector(sel); o = other ? document.querySelector(other) : null; } catch (e) { return false; }
+    var sec = t && o && t.closest ? t.closest('section, aside, [role="dialog"], .panel') : null;
+    return !!sec && sec.contains(o) && sec !== el && !sec.contains(el);
+  }
+  /* The heading of the list el is in: the element naming its section, or the section's first heading with an id, else the
+     page's. */
+  function headOf(el) {
+    var lab = el.closest && el.closest('section[aria-labelledby], [role="dialog"][aria-labelledby], details[aria-labelledby]'), id = lab && lab.getAttribute('aria-labelledby');
+    if (id && document.getElementById(id)) return PF.vk.byId(id);
+    var sec = el.closest && el.closest('section, aside, .panel'), h = sec && sec.querySelector('h1[id], h2[id], h3[id], h4[id]');
+    return h && h.id ? PF.vk.byId(h.id) : '#page-h';
+  }
   function noteHold(id) {
     var was = notesSeen, S = PF.search;
-    if (!was || was.run !== state.runKey || !/^tn-/.test(id)) return null;
+    if (!was || was.run !== state.runKey || !/^(tn|corr)-/.test(id)) return null;
     var ats = S.noteAts(was.notes);
     for (var i = 0; i < was.notes.length; i++) {
-      var n = was.notes[i];
-      if (n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map' || id !== 'tn-' + n.step + '-' + S.noteKey(n.id, ats[i])) continue;
+      var n = was.notes[i], corr = n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map';
+      if (id !== (corr ? V.corrDomId(n.id, ats[i]) : 'tn-' + n.step + '-' + S.noteKey(n.id, ats[i]))) continue;
       var t = S.noteTarget(state.runKey, n, was.notes.filter(function (x) { return x.id === n.id; }));
       t.gen = gen; t.run = state.runKey; t.step = n.step;
       return t;
@@ -6335,7 +6373,7 @@
       render();
     },
     /* Every copy of a report, 50 at a time in its Details fold (2.11), with focus on the first one the first 10 didn't show. */
-    'rep-copies': function (id) { if (!id) return; (state.repCopies = state.repCopies || {})[id] = true; var to = PF.vk.byId('repc-' + id + '-10'); state.focus = to; state.focusWins = true; revealAt(to, true); render(); },
+    'rep-copies': function (id, b) { if (!id) return; (state.repCopies = state.repCopies || {})[id] = true; var to = b && b.dataset && b.dataset.focus || PF.vk.byId('repc-' + id); state.focus = to; state.focusWins = true; revealAt(to, true); render(); },
     /* A kept reason on a report that's gone (2.11): copied, since it can't be saved. */
     'rep-copy-reason': function (id) { var el = document.getElementById(PF.reports.reasonId(id)); copyText(el ? String(el.value || '') : repDraft(id) || '', null, 'Copied.'); },
     'rep-cancel': function (id) { delete repDrafts()[id]; delete repSnaps()[id]; repBoxes = repBoxes.filter(function (x) { return x.key !== id; }); state.repPick = null; if (state.fieldErr && /^rep-reason-/.test(state.fieldErr.id)) state.fieldErr = null; state.focus = '[data-act="rep-accept"][data-id="' + cssEsc(id) + '"], [data-act="rep-decline"][data-id="' + cssEsc(id) + '"]'; render(); },
@@ -6379,11 +6417,16 @@
     },
     'partial-dismiss': function (id) { delete state.partial[id]; render(); },
     /* View correction (Done differently): the correction is drawn whatever the page of the step's list (2.11), then focused and
-       brought into view. */
+       brought into view. It's kept by the note's identity (state.noteShown, its anchor), as a search result is, so a newer
+       read that moves its twins never puts another in its place. */
     'goto-corr': function (id) {
       var r = ctx.run(), cid = String(id || '').replace(/^corr-/, ''); if (!r || !state.sel || !cid) return;
-      var m = /^(.*)#(\d+)$/.exec(cid);
-      ensureListItemVisible('rcorr:' + state.runKey + ':' + state.sel, cid, { focus: PF.vk.byId(m ? V.corrDomId(m[1], +m[2]) : 'corr-' + cid), word: 'opened' }); render();
+      var m = /^(.*)#(\d+)$/.exec(cid), nid = m ? m[1] : cid, at = m ? +m[2] : 1, S = PF.search, notes = r._notes || [], ats = S.noteAts(notes), cn = null;
+      notes.forEach(function (n, i) { if (!cn && n.id === nid && ats[i] === at && (n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map')) cn = n; });
+      if (!cn) return;
+      var t = S.noteTarget(state.runKey, cn, notes.filter(function (x) { return x.id === nid; }));
+      state.noteShown = { gen: gen, run: state.runKey, step: state.sel, note: t.note, anchor: t.anchor, same: t.same, rank: t.rank };
+      var csel = PF.vk.byId(V.corrDomId(nid, at)); state.focus = csel; state.focusWins = true; revealAt(csel, true); render();
     },
     'corr-menu': function () { var f = state.corrForm; if (!f) return; f.menu = !f.menu; state.focus = f.menu ? '.corr-menu-list button' : '[data-act="corr-menu"]'; render(); },
     'corr-op': function (id) {
@@ -7855,7 +7898,7 @@
     var g = gid ? ctx.corrections(pid).filter(function (x) { return x.id === gid; })[0] : null;
     if (!g) return false;
     (state.disc = state.disc || {})['fx:' + pid] = true;
-    ensureListItemVisible('fx:' + pid, g.id + '#0', { focus: PF.vk.byId('fxg-' + g.id), word: 'opened' });
+    ensureListItemVisible('fx:' + pid, V.fxKeys(g)[0], { focus: PF.vk.byId('fxg-' + g.id), word: 'opened' });
     return true;
   }
   /* The group on a run's checklist a correction note is in: the one whose member is this very note, matched on everything the

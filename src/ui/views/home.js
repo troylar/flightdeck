@@ -72,7 +72,9 @@
     /* Each row is a light descriptor (2.11): what it says (text(), returning its title and line as HTML) is worked out only
        for the rows drawn, 10 at a time; whether it's there at all is decided here, for the count. */
     var add = function (kind, text, act, id, label) { items.push({ kind: kind, text: text, act: act, id: id, label: label }); };
-    var todo = function (x, i) { PF.perf.add('home.todo'); var t = x.text(); return '<li class="todo ' + x.kind + '" id="todo-' + x.n + '"><div><b tabindex="-1">' + t[0] + '</b>' + (t[1] ? '<div class="small">' + t[1] + '</div>' : '') + '</div><button class="btn" data-act="' + x.act + '" data-id="' + esc(x.id) + '">' + esc(x.label) + '</button></li>'; };
+    /* A row's id is from what it is (its kind, action, item and label), never its place, so a row sorting in above it never
+       turns the row someone is on into another (2.11). */
+    var todo = function (x) { PF.perf.add('home.todo'); var t = x.text(), d = 'todo-' + K.domKey(x.key); return '<li class="todo ' + x.kind + '" id="' + d + '"><div><b id="' + d + '-t" tabindex="-1">' + t[0] + '</b>' + (t[1] ? '<div class="small">' + t[1] + '</div>' : '') + '</div><button class="btn" id="' + d + '-go" data-act="' + x.act + '" data-id="' + esc(x.id) + '">' + esc(x.label) + '</button></li>'; };
     /* Folder problems that need a person come first, with one way to see them all. */
     var hr = ctx.health ? ctx.health(false) : null, stops = hr ? hr.issues.filter(function (i) { return i.severity === 'stop'; }) : [];
     if (stops.length) add('health', function () { return ['The team folder needs attention', esc(stops[0].title) + (stops.length > 1 ? ', and ' + (stops.length - 1) + ' more' : '') + '.']; }, 'health', '', 'Open Folder health');
@@ -106,8 +108,8 @@
     h += pageHead('Home', me ? 'Hi, ' + esc(nameOf(ctx, me).split(' ')[0]) : 'Welcome', me ? (items.length ? items.length + ' thing' + (items.length === 1 ? '' : 's') + ' need' + (items.length === 1 ? 's' : '') + ' you.' : st.reading ? 'Still reading the team folder.' : 'Nothing needs you right now.') : '', '', 'page-h');
     h += stillReading(ctx, true);
     if (V.setupHome) h += V.setupHome(ctx);
-    items.forEach(function (x, i) { x.n = i; });
-    if (items.length) h += '<section class="panel" aria-labelledby="todo-h"><h2 id="todo-h">Needs you</h2>' + K.list(st, 'home-todo', items, { draw: function (shown) { return '<ul class="todos">' + shown.map(todo).join('') + '</ul>'; }, keyOf: function (x) { return String(x.n); }, focusOf: function (k) { return '#todo-' + k + ' b'; }, page: HOME_PAGE }) + '</section>';
+    K.uniqKeys(items, function (x) { return [x.kind, x.act, x.id, x.label].join('\n'); }).forEach(function (k, i) { items[i].key = k; });
+    if (items.length) h += '<section class="panel" aria-labelledby="todo-h"><h2 id="todo-h">Needs you</h2>' + K.list(st, 'home-todo', items, { draw: function (shown) { return '<ul class="todos">' + shown.map(todo).join('') + '</ul>'; }, keyOf: function (x) { return x.key; }, focusOf: function (k) { return '#todo-' + K.domKey(k) + '-t'; }, page: HOME_PAGE }) + '</section>';
     h += acksPanel(ctx);
     h += myFollowUps(ctx);
     /* Test runs (2.1) are never counted as real runs. */
@@ -126,8 +128,10 @@
     var list = ctx.acks ? ctx.acks() : me ? [].concat.apply([], ctx.processes().map(function (p) { return C.acks(V.corrGroups(ctx, p.id), me, null); })) : [];
     if (!list.length) return '';
     var stepName = function (g) { return '"' + C.targetName(g) + '"'; };
-    var rows = list.map(function (a, i) { return { a: a, n: i }; });
-    return '<section class="panel" aria-labelledby="ack-h"><h2 id="ack-h">Your corrections</h2>' + K.list(ctx.state, 'home-acks', rows, { page: HOME_PAGE, keyOf: function (x) { return String(x.n); }, focusOf: function (k) { return '#ack-' + k + ' b'; }, draw: function (shown) { return '<ul class="todos">' + shown.map(function (x) {
+    /* Each row by its acknowledgment's key (what Dismiss remembers), never its place. */
+    var rows = list.map(function (a) { return { a: a }; });
+    K.uniqKeys(list, function (a) { return a.key; }).forEach(function (k, i) { rows[i].key = k; rows[i].d = 'ack-' + K.domKey(k); });
+    return '<section class="panel" aria-labelledby="ack-h"><h2 id="ack-h">Your corrections</h2>' + K.list(ctx.state, 'home-acks', rows, { page: HOME_PAGE, keyOf: function (x) { return x.key; }, focusOf: function (k) { return '#ack-' + K.domKey(k) + '-t'; }, draw: function (shown) { return '<ul class="todos">' + shown.map(function (x) {
       var a = x.a;
       var gs = a.groups || [a.group], title;
       /* Plain text, escaped once where it's used. */
@@ -135,7 +139,7 @@
         : 'Your corrections to ' + stepName(gs[0]) + (gs.length === 2 ? ' and ' + stepName(gs[1]) : ' and ' + (gs.length - 1) + ' other steps') + ' are published in v' + a.version + '.';
       else title = nameOf(ctx, a.by) + ' declined your correction: ' + a.reason;
       var sub = ctx.processTitle(a.process) + (a.kind === 'declined' ? ' · ' + stepName(a.group) : '');
-      return '<li class="todo ack ' + a.kind + '" id="ack-' + x.n + '"><div><b tabindex="-1">' + esc(title) + '</b><div class="small">' + esc(sub) + '</div></div><span class="row"><button class="btn" data-act="ack-view" data-id="' + esc(a.key) + '" data-process="' + esc(a.process) + '" data-group="' + esc(a.group ? a.group.id : a.groups && a.groups[0] ? a.groups[0].id : '') + '">View change</button>' +
+      return '<li class="todo ack ' + a.kind + '" id="' + x.d + '"><div><b id="' + x.d + '-t" tabindex="-1">' + esc(title) + '</b><div class="small">' + esc(sub) + '</div></div><span class="row"><button class="btn" data-act="ack-view" data-id="' + esc(a.key) + '" data-process="' + esc(a.process) + '" data-group="' + esc(a.group ? a.group.id : a.groups && a.groups[0] ? a.groups[0].id : '') + '">View change</button>' +
         '<button class="mini" data-act="ack-dismiss" data-id="' + esc(a.key) + '" aria-label="Dismiss: ' + esc(title) + '">Dismiss</button></span></li>';
     }).join('') + '</ul>'; } }) + '</section>';
   }

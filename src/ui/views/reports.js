@@ -91,17 +91,20 @@
     if (!(g.differ && g.copies.length > 3)) return '<div class="notice warn"><span>' + esc(g.reason) + '</span></div>';
     var k = 'repdiff:' + g.key;
     return '<div class="notice warn rep-differ"><div>' + esc(reasonText(g)) + '<details data-disc="' + esc(k) + '"' + ((st.disc || {})[k] ? ' open' : '') + '><summary class="small">Which copies</summary>' +
-      K.list(st, k, g.copies.map(function (c, i) { return { c: c, i: i }; }), { keyOf: function (x) { return String(x.i); }, focusOf: function (i) { return K.byId('repd-' + g.key + '-' + i); },
-        draw: function (shown) { return '<ul class="small rep-names">' + shown.map(function (x) { PF.perf.add('rep.differ'); return '<li id="' + esc('repd-' + g.key + '-' + x.i) + '" tabindex="-1"><code>' + esc(x.c.name) + '</code></li>'; }).join('') + '</ul>'; } }) + '</details></div></div>';
+      K.list(st, k, copyRows(g), { keyOf: function (x) { return x.k; }, focusOf: function (i) { return K.byId('repd-' + g.key + '-' + i); },
+        draw: function (shown) { return '<ul class="small rep-names">' + shown.map(function (x) { PF.perf.add('rep.differ'); return '<li id="' + esc('repd-' + g.key + '-' + x.k) + '" tabindex="-1"><code>' + esc(x.c.name) + '</code></li>'; }).join('') + '</ul>'; } }) + '</details></div></div>';
   }
+  /* A report's copies as list items, each keyed by its file (its path), never its place: a copy arriving above doesn't turn
+     the line someone is on into another. */
+  function copyRows(g) { var ks = K.uniqKeys(g.copies, function (c) { return c.path || c.name; }); return g.copies.map(function (c, i) { return { c: c, k: K.domKey(ks[i]) }; }); }
   /* Every physical copy of a report, each line built only when drawn (2.11): the first 10, then Show all, which lists them
      50 at a time inside the fold. */
   function copiesHtml(st, g) {
     var line = function (c, i) { PF.perf.add('rep.copy'); return '<p class="rep-copy" id="' + esc('repc-' + g.key + '-' + i) + '" tabindex="-1">' + esc(c.path || c.name) + (c.sha256 ? ' · SHA-256 ' + esc(c.sha256) : '') + (c.ok ? '' : ' · ' + esc(c.why || 'can\'t be read')) + '</p>'; };
-    var all = (st.repCopies || {})[g.key], list = g.copies.map(function (c, i) { return { c: c, i: i }; });
-    if (list.length <= 10) return list.map(function (x) { return line(x.c, x.i); }).join('');
-    if (!all) return list.slice(0, 10).map(function (x) { return line(x.c, x.i); }).join('') + '<p class="row"><button type="button" class="mini" data-act="rep-copies" data-id="' + esc(g.key) + '">Show all ' + list.length.toLocaleString('en-US') + ' copies</button></p>';
-    return K.list(st, 'repc:' + g.key, list, { keyOf: function (x) { return String(x.i); }, focusOf: function (k) { return K.byId('repc-' + g.key + '-' + k); }, draw: function (shown) { return shown.map(function (x) { return line(x.c, x.i); }).join(''); } });
+    var all = (st.repCopies || {})[g.key], list = copyRows(g);
+    if (list.length <= 10) return list.map(function (x) { return line(x.c, x.k); }).join('');
+    if (!all) return list.slice(0, 10).map(function (x) { return line(x.c, x.k); }).join('') + '<p class="row"><button type="button" class="mini" data-act="rep-copies" data-id="' + esc(g.key) + '" data-focus="' + esc(K.byId('repc-' + g.key + '-' + list[10].k)) + '">Show all ' + list.length.toLocaleString('en-US') + ' copies</button></p>';
+    return K.list(st, 'repc:' + g.key, list, { keyOf: function (x) { return x.k; }, focusOf: function (k) { return K.byId('repc-' + g.key + '-' + k); }, draw: function (shown) { return shown.map(function (x) { return line(x.c, x.k); }).join(''); } });
   }
   /* A report with a decline reason kept (repDrafts) whose files are gone, from what it said when the reason was typed
      (repSnaps): the reason, Copy my text and Cancel, never Decline (2.11). */
@@ -187,12 +190,13 @@
       var g = it.g, x = M.findStep(map, g.step), dec = decidedOf(ctx, r, map, g);
       return '<li><button class="link" data-act="rep-goto" data-id="step-' + esc(g.step) + '" data-report="' + esc(g.key) + '">' + (x ? K.stepHtml(x.step, K.refValue(r, map), false) : esc(g.step)) + '</button><span class="small">' + esc(saysText(g.report)) + ' · ' + esc(g.producer) + ' · ' + esc(dec.text) + '</span></li>';
     };
-    var bad = (b.badNames || []).map(function (e, i) { return '<li class="small" id="repbad-' + i + '" tabindex="-1">' + esc(e.path || e.name) + ': isn\'t named as a report.</li>'; });
-    var all = items.concat(bad.map(function (h, i) { return { bad: h, i: i }; }));
+    /* A file that isn't named as a report, keyed by its path. */
+    var bn = b.badNames || [], bk = K.uniqKeys(bn, function (e) { return e.path || e.name; }).map(K.domKey);
+    var all = items.concat(bn.map(function (e, i) { return { bad: '<li class="small" id="repbad-' + bk[i] + '" tabindex="-1">' + esc(e.path || e.name) + ': isn\'t named as a report.</li>', k: bk[i] }; }));
     return '<section class="rw-panel" id="rw-reps" aria-label="Reports"><h2 class="rw-h2">Reports</h2>' +
       failedNote(b) +
       (b.loading ? '<p class="small" role="status">Reading reports…</p>' : '') +
-      (all.length ? K.list(ctx.state, 'reppanel:' + r.process + '/' + r.id, all, { page: 20, keyOf: function (it) { return it.bad != null ? 'bad#' + it.i : it.g.key; },
+      (all.length ? K.list(ctx.state, 'reppanel:' + r.process + '/' + r.id, all, { page: 20, keyOf: function (it) { return it.bad != null ? 'bad#' + it.k : it.g.key; },
         focusOf: function (k) { return /^bad#/.test(k) ? '#repbad-' + String(k).slice(4) : '[data-act="rep-goto"][data-report="' + String(k).replace(/["\\]/g, '\\$&') + '"]'; },
         draw: function (shown) { return '<ul class="replist">' + shown.map(function (it) { return it.bad != null ? it.bad : row(it); }).join('') + '</ul>'; } }) : b.failed ? '' : '<p class="small">No reports on this run. A tool writes them with flightdeck report write.</p>') + '</section>';
   }

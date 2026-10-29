@@ -77,7 +77,7 @@
     /* What the numbers can't count, one notice however many there are (2.11): one note as it reads, more in a fold. */
     if (res.notes.length === 1) h += '<div class="notice warn" role="status"><span>' + esc(res.notes[0]) + '</span></div>';
     else if (res.notes.length) h += '<div class="notice warn ins-notes" role="status"><div><b>' + res.notes.length + ' things these numbers can\'t count.</b><details data-disc="ins-notes"' + ((ctx.state.disc || {})['ins-notes'] ? ' open' : '') + '><summary class="small">What they are</summary>' +
-      K.list(ctx.state, 'ins-notes', res.notes.map(function (t, i) { return { t: t, i: i }; }), { keyOf: function (x) { return String(x.i); }, focusOf: function (k) { return '#ins-note-' + k; }, draw: function (shown) { return '<ul class="small">' + shown.map(function (x) { return '<li id="ins-note-' + x.i + '" tabindex="-1">' + esc(x.t) + '</li>'; }).join('') + '</ul>'; } }) + '</details></div></div>';
+      K.list(ctx.state, 'ins-notes', K.uniqKeys(res.notes, function (t) { return t; }).map(function (k, i) { return { t: res.notes[i], k: K.domKey(k) }; }), { keyOf: function (x) { return x.k; }, focusOf: function (k) { return '#ins-note-' + k; }, draw: function (shown) { return '<ul class="small">' + shown.map(function (x) { return '<li id="ins-note-' + x.k + '" tabindex="-1">' + esc(x.t) + '</li>'; }).join('') + '</ul>'; } }) + '</details></div></div>';
     var r = res.runs, outs = Object.keys(r.outcomes);
     h += '<ul class="ins-sum">' +
       '<li><span class="big">' + link('runs:all', I.num(r.n), r.n) + '</span><span class="small">' + (r.n === 1 ? 'run' : 'runs') + ' of v' + f.version + '</span></li>' +
@@ -127,18 +127,18 @@
         link('dur', I.num(d.n) + ' of ' + plural(d.of, 'completed run'), d.n) + '. Paused time isn\'t counted.</p>';
       h += dotStrip(ctx, d.values, d.median);
       var rows = function (list) { return '<div class="grid-wrap"><table class="grid"><thead><tr><th scope="col">Run</th><th scope="col">Active time</th></tr></thead><tbody>' +
-        list.map(function (v) { var r = ctx.findRun ? ctx.findRun(v.key) : null; return '<tr id="ins-row-' + esc(v.key.replace(/\//g, '-')) + '"><td><button class="linkish" data-act="go" data-view="run" data-run="' + esc(v.key) + '">' + esc(r ? r.title : v.key) + '</button></td><td>' + esc(about(v.ms)) + '</td></tr>'; }).join('') + '</tbody></table></div>'; };
+        list.map(function (v) { var r = ctx.findRun ? ctx.findRun(v.key) : null; return '<tr id="ins-row-' + esc(v.key.replace(/\//g, '-')) + '"><td><button class="linkish" id="ins-row-' + esc(v.key.replace(/\//g, '-')) + '-go" data-act="go" data-view="run" data-run="' + esc(v.key) + '">' + esc(r ? r.title : v.key) + '</button></td><td>' + esc(about(v.ms)) + '</td></tr>'; }).join('') + '</tbody></table></div>'; };
       h += '<details data-disc="ins-dur-table"' + ((ctx.state.disc || {})['ins-dur-table'] ? ' open' : '') + '><summary class="small">The same as a table</summary>' +
-        K.list(ctx.state, 'ins-dur', d.values.slice().sort(function (a, b) { return a.ms - b.ms; }), { draw: rows, keyOf: function (v) { return 'ins-row-' + v.key.replace(/\//g, '-'); }, focusOf: function (k) { return K.byId(k) + ' button'; } }) + '</details>';
+        K.list(ctx.state, 'ins-dur', d.values.slice().sort(function (a, b) { return a.ms - b.ms; }), { draw: rows, keyOf: function (v) { return 'ins-row-' + v.key.replace(/\//g, '-'); }, focusOf: function (k) { return K.byId(k + '-go'); } }) + '</details>';
     }
     h += qualLine(d.q);
     if (res.phases.length) {
       /* The scale is every phase's; only the 50 drawn (2.11) are built, in checklist order. */
       var top = Math.max.apply(null, res.phases.map(function (x) { return x.median || 0; }).concat([1]));
-      h += '<h3 id="ins-ph-h" tabindex="-1">Each phase</h3>' + K.list(ctx.state, 'ins-ph', res.phases, { keyOf: function (x) { return 'ins-ph-' + x.id; }, focusOf: function (k) { return K.byId(k) + ' .ins-lab'; }, draw: function (shown) { return '<ul class="ins-phases">' + shown.map(function (x) {
+      h += '<h3 id="ins-ph-h" tabindex="-1">Each phase</h3>' + K.list(ctx.state, 'ins-ph', res.phases, { keyOf: function (x) { return 'ins-ph-' + x.id; }, focusOf: function (k) { return K.byId(k + '-lab'); }, draw: function (shown) { return '<ul class="ins-phases">' + shown.map(function (x) {
         PF.perf.add('ins.phase');
         var w = x.median != null ? Math.max(1, Math.round(1000 * x.median / top) / 10) : 0;
-        return '<li id="' + esc('ins-ph-' + x.id) + '"><div class="ins-row"><span class="ins-lab" tabindex="-1">' + esc(x.title) + '</span>' +
+        return '<li id="' + esc('ins-ph-' + x.id) + '"><div class="ins-row"><span class="ins-lab" id="' + esc('ins-ph-' + x.id + '-lab') + '" tabindex="-1">' + esc(x.title) + '</span>' +
           (x.n ? '<svg class="ins-bar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="ins-track" width="100" height="8" rx="2"/><rect class="ins-fill" width="' + w + '" height="8" rx="2"/></svg>' : '<span class="ins-nobar"></span>') +
           '<span class="ins-num">' + (x.n ? '<b>' + esc(about(x.median)) + '</b>' + (x.q1 != null ? ' <span class="small">(' + esc(about(x.q1)) + ' to ' + esc(about(x.q3)) + ')</span>' : '') + ' · ' : '') + link('phase:' + x.id, I.num(x.n) + ' of ' + plural(x.of, 'run'), x.n) + '</span></div>' +
           qualLine(x.q) +
@@ -174,10 +174,10 @@
           if (m.incomplete) extra += ' · ' + link('step:' + s.id + ':' + r[0] + ':incomplete', I.num(m.incomplete) + ' history incomplete', 1);
           return '<div class="ins-row"><span class="ins-lab">' + r[1] + '</span>' + bar(m.hits, m.n) + '<span class="ins-num">' + link('step:' + s.id + ':' + r[0], I.count(m.hits, m.n), m.hits) + extra + qualLine(m.q, ['incomplete'], 'span') + '</span></div>';
         }).join('');
-        return '<li class="ins-step" id="ins-' + esc(s.id) + '"><h3 tabindex="-1">' + K.stepHtml(s, null) + '</h3>' + rows + '</li>';
+        return '<li class="ins-step" id="ins-' + esc(s.id) + '"><h3 id="ins-' + esc(s.id) + '-h" tabindex="-1">' + K.stepHtml(s, null) + '</h3>' + rows + '</li>';
       }).join('') + '</ul>';
     };
-    return h + K.list(ctx.state, 'ins-hot', list, { draw: draw, keyOf: function (s) { return 'ins-' + s.id; }, focusOf: function (k) { return K.byId(k) + ' h3'; } }) + '</section>';
+    return h + K.list(ctx.state, 'ins-hot', list, { draw: draw, keyOf: function (s) { return 'ins-' + s.id; }, focusOf: function (k) { return K.byId(k + '-h'); } }) + '</section>';
   }
   function followUps(ctx, res) {
     var f = res.followUps, o = f.open, d = f.decided;

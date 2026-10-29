@@ -462,6 +462,14 @@
     var seen = Object.create(null);
     return rows.map(function (c) { var n = c.noteAt || (seen[c.id] = (seen[c.id] || 0) + 1); return { c: c, k: PF.search.noteKey(c.id, n), dom: corrDomId(c.id, n) }; });
   }
+  /* Earlier or archived answers as list items, each keyed by the whole answer (who, when, what), never its place: a newer
+     answer arriving on top doesn't turn the row someone is on into another. */
+  function answerRows(list) {
+    var ks = K.uniqKeys(list, function (y) { return U.hash(JSON.stringify(y)); });
+    return list.map(function (y, i) { return { y: y, k: ks[i] }; });
+  }
+  /* Unreadable note lines, each keyed by its file and line. */
+  function badRows(nl) { var ks = K.uniqKeys(nl, function (x) { return x.file + '\n' + x.line; }); return nl.map(function (x, i) { return { x: x, k: ks[i] }; }); }
   /* A correction row's id: corr-<id>, and corr-<id>-<n> for a later note sharing that id. */
   function corrDomId(id, n) { return 'corr-' + (n > 1 ? id + '-' + n : id); }
   function changedHere(ctx, r) { return r && r.process && r.folder ? C.changedIn(corrGroups(ctx, r.process), r.folder) : {}; }
@@ -470,7 +478,8 @@
      members is, each member with its whole reason and the run it came from, built only when drawn. */
   function provList(ctx, r, map, st, gs) {
     var items = [], byK = Object.create(null);
-    gs.forEach(function (g, gi) { g.members.forEach(function (m, i) { var x = { g: g, gi: gi, m: m, k: gi + '-' + i }; items.push(x); byK[x.k] = x; }); });
+    /* Each member by its change and its own note (run, id, place among its twins), never its place in the list. */
+    gs.forEach(function (g, gi) { var ks = K.uniqKeys(g.members, function (m) { return m.run + '\n' + m.id + '\n' + (m.noteAt || 1); }); g.members.forEach(function (m, i) { var x = { g: g, gi: gi, m: m, i: i, k: K.domKey(g.id + '\n' + ks[i]) }; items.push(x); byK[x.k] = x; }); });
     return K.list(ctx.state, 'prov-' + st.id, items, { page: 20, keyOf: function (x) { return x.k; },
       focusOf: function (k) { var x = byK[k]; return K.byId('pm-' + st.id + '-' + k + (x && x.m.why ? '' : '-run')); },
       draw: function (shown) {
@@ -722,13 +731,13 @@
     /* Earlier answers: who, when, values and reasons; older ones from the run's history files on request. */
     /* Each 20 at a time (2.11), in its own order: Earlier answers newest first, Archived answers oldest first. */
     var rk = runKey(r) + ':' + st.id;
-    if (a && a.history && a.history.length) h += '<details data-disc="ans:' + esc(st.id) + '"' + ((s.disc || {})['ans:' + st.id] ? ' open' : '') + '><summary class="small" style="cursor:pointer">Earlier answers (' + a.history.length + ')</summary>' + K.list(s, 'ans:' + rk, a.history.slice().reverse().map(function (y, i) { return { y: y, i: i }; }), { page: 20, keyOf: function (x) { return String(x.i); }, focusOf: function (k) { return K.byId('ans-' + st.id + '-' + k); },
+    if (a && a.history && a.history.length) h += '<details data-disc="ans:' + esc(st.id) + '"' + ((s.disc || {})['ans:' + st.id] ? ' open' : '') + '><summary class="small" style="cursor:pointer">Earlier answers (' + a.history.length + ')</summary>' + K.list(s, 'ans:' + rk, answerRows(a.history.slice().reverse()), { page: 20, keyOf: function (x) { return x.k; }, focusOf: function (k) { return K.byId('ans-' + st.id + '-' + K.domKey(k)); },
       draw: function (shown) { return '<ul class="tnotes" style="margin-top:8px">' + shown.map(function (x) { var y = x.y;
-      return '<li id="' + esc('ans-' + st.id + '-' + x.i) + '" tabindex="-1">' + avatar(ctx, y.by) + '<div><div class="meta">' + esc(nameOf(ctx, y.by)) + ' · ' + esc(U.when(y.at)) + '</div><div>' + esc({ done: 'Done', na: 'N/A', blocked: 'Blocked', recheck: 'Needed a re-check' }[y.s] || y.s) + (y.reason ? ': ' + esc(y.reason) : '') + (y.values ? ' · ' + esc(Object.keys(y.values).map(function (k) { return k + ' ' + y.values[k]; }).join(', ')) : '') + (y.differently ? ' · done differently: ' + esc(y.differently.note) : '') + '</div></div></li>';
+      return '<li id="' + esc('ans-' + st.id + '-' + K.domKey(x.k)) + '" tabindex="-1">' + avatar(ctx, y.by) + '<div><div class="meta">' + esc(nameOf(ctx, y.by)) + ' · ' + esc(U.when(y.at)) + '</div><div>' + esc({ done: 'Done', na: 'N/A', blocked: 'Blocked', recheck: 'Needed a re-check' }[y.s] || y.s) + (y.reason ? ': ' + esc(y.reason) : '') + (y.values ? ' · ' + esc(Object.keys(y.values).map(function (k) { return k + ' ' + y.values[k]; }).join(', ')) : '') + (y.differently ? ' · done differently: ' + esc(y.differently.note) : '') + '</div></div></li>';
     }).join('') + '</ul>'; } }) + '</details>';
     var arch = s.archive[runKey(r)];
-    if (arch) { var mine = arch.filter(function (y) { return y.kind === 'answer' && y.step === st.id; }); if (mine.length) h += '<details open><summary class="small">Archived answers (' + mine.length + ')</summary>' + K.list(s, 'arch:' + rk, mine.map(function (y, i) { return { y: y, i: i }; }), { page: 20, keyOf: function (x) { return String(x.i); }, focusOf: function (k) { return K.byId('arch-' + st.id + '-' + k); },
-        draw: function (shown) { return '<ul class="tnotes">' + shown.map(function (x) { var y = x.y; return '<li id="' + esc('arch-' + st.id + '-' + x.i) + '" tabindex="-1">' + avatar(ctx, y.by) + '<div><div class="meta">' + esc(nameOf(ctx, y.by)) + ' · ' + esc(U.when(y.at)) + '</div><div>' + esc(y.s) + (y.reason ? ': ' + esc(y.reason) : '') + '</div></div></li>'; }).join('') + '</ul>'; } }) + '</details>';
+    if (arch) { var mine = arch.filter(function (y) { return y.kind === 'answer' && y.step === st.id; }); if (mine.length) h += '<details open><summary class="small">Archived answers (' + mine.length + ')</summary>' + K.list(s, 'arch:' + rk, answerRows(mine), { page: 20, keyOf: function (x) { return x.k; }, focusOf: function (k) { return K.byId('arch-' + st.id + '-' + K.domKey(k)); },
+        draw: function (shown) { return '<ul class="tnotes">' + shown.map(function (x) { var y = x.y; return '<li id="' + esc('arch-' + st.id + '-' + K.domKey(x.k)) + '" tabindex="-1">' + avatar(ctx, y.by) + '<div><div class="meta">' + esc(nameOf(ctx, y.by)) + ' · ' + esc(U.when(y.at)) + '</div><div>' + esc(y.s) + (y.reason ? ': ' + esc(y.reason) : '') + '</div></div></li>'; }).join('') + '</ul>'; } }) + '</details>';
       /* Archived records this copy refused (a newer Flightdeck's) are counted, never hidden. */
       var nr = (arch.refused || []).length; if (nr) h += '<p class="small">' + nr + ' archived record' + (nr === 1 ? ' needs' : 's need') + ' a newer Flightdeck. This copy leaves ' + (nr === 1 ? 'it' : 'them') + ' alone.</p>'; }
     else if (a && a.history && a.history.length >= 10) h += '<button class="mini" style="align-self:flex-start" data-act="load-history">Show older answers</button>';
@@ -738,12 +747,13 @@
     var ns = s.noteShown && s.noteShown.run === runKey(r) && s.noteShown.step === st.id ? s.noteShown : null, nsAny = ns ? PF.search.noteFind(r._notes || [], ns) : null;
     var nsCorrKind = !!nsAny && (nsAny.n.kind === 'correction' || nsAny.n.kind === 'fix' || nsAny.n.kind === 'map');
     var nsHit = nsAny && !nsCorrKind && nsAny.n.step === st.id ? nsAny : null, nsCorr = nsAny && nsCorrKind ? nsAny : null;
-    var nh = s.noteHeld && s.noteHeld.run === runKey(r) && s.noteHeld.step === st.id ? PF.search.noteFind(r._notes || [], s.noteHeld) : null;
+    var nhAny = s.noteHeld && s.noteHeld.run === runKey(r) && s.noteHeld.step === st.id ? PF.search.noteFind(r._notes || [], s.noteHeld) : null;
+    var nhCorr = nhAny && (nhAny.n.kind === 'correction' || nhAny.n.kind === 'fix' || nhAny.n.kind === 'map'), nh = nhAny && !nhCorr ? nhAny : null;
     /* Notes, with attachments; anyone who has said who they are can add one. */
     /* Corrections to this step from this run, then Correct this step (anyone who has said who they are, whatever the run's state). */
     h += '<section class="rw-box rw-corr" aria-labelledby="ins-corr"><div class="row between"><h3 class="rw-h3" id="ins-corr">Corrections' + (rows.length ? ' · ' + rows.length : '') + '</h3>' +
       (s.me && !(cf && cf.mode === 'correct') ? '<button class="mini" data-act="corr-open" data-mode="correct" data-id="' + esc(st.id) + '" title="If the checklist was wrong or unclear here, correct it. The team reviews corrections on the checklist&#39;s page.">' + I('edit') + 'Correct this step</button>' : '') + '</div>' +
-      (rows.length ? K.list(s, 'rcorr:' + rk, corrItems(rows), { page: 20, keep: nsCorr ? [nsCorr.key] : [], keptLabel: 'Shown because you opened it', keyOf: function (x) { return x.k; }, focusOf: function (k) { var m = /^(.*)#(\d+)$/.exec(k); return K.byId(m ? corrDomId(m[1], +m[2]) : corrDomId(k, 1)); },
+      (rows.length ? K.list(s, 'rcorr:' + rk, corrItems(rows), { page: 20, hold: false, keep: [nsCorr ? nsCorr.key : null, nhCorr ? nhAny.key : null].filter(Boolean), keptLabel: nsCorr ? 'Shown because you opened it' : 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: function (k) { var m = /^(.*)#(\d+)$/.exec(k); return K.byId(m ? corrDomId(m[1], +m[2]) : corrDomId(k, 1)); },
         draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) { return corrRow(ctx, x.c, idx[x.c.id], { withdraw: true, domId: x.dom }); }).join('') + '</ul>'; } }) : '') +
       (cf && cf.mode === 'correct' ? composer(ctx, r, map, x, cf) : '') + '</section>';
     /* The newest 20 notes, with Show earlier above them (2.11). A note is its id and where it stands among the notes sharing
@@ -761,7 +771,7 @@
     };
     h += '<section class="rw-box rw-notes" aria-labelledby="ins-notes"><h3 class="rw-h3" id="ins-notes">' + (R.solo(r) ? 'Notes' : 'Team notes') + (notes.length ? ' · ' + notes.length : '') + '</h3>' +
       (ns && !nsAny && ns.anchor != null ? '<p class="small tn-gone" role="status">That note isn\'t in this run anymore.</p>' : '') +
-      (notes.length ? K.list(s, 'notes:' + rk, notes, { page: 20, tail: true, keyOf: function (x) { return x.key; }, focusOf: function (k) { return K.byId(tn(k)); }, keep: [nsHit && nsHit.key, nh && nh.n.step === st.id ? nh.key : null].filter(Boolean), keptLabel: 'From earlier',
+      (notes.length ? K.list(s, 'notes:' + rk, notes, { page: 20, tail: true, hold: false, keyOf: function (x) { return x.key; }, focusOf: function (k) { return K.byId(tn(k)); }, keep: [nsHit && nsHit.key, nh && nh.n.step === st.id ? nh.key : null].filter(Boolean), keptLabel: 'From earlier',
         gap: function (n) { return n.toLocaleString('en-US') + (n === 1 ? ' note' : ' notes') + ' between'; },
         draw: function (shown) { return '<ul class="tnotes">' + shown.map(noteLi).join('') + '</ul>'; } }) : '');
     if (s.me) {
@@ -839,7 +849,7 @@
     if (x.owner) meta.push(esc(nameOf(ctx, x.owner)));
     if (opts.run) meta.push((x.test ? 'Test run · ' : '') + '<button class="linkish" data-act="open-run" data-id="' + esc(x.runKey) + '">' + esc(x.runTitle) + '</button>');
     if (opts.age && x.status === 'open') meta.push(days === 0 ? 'added today' : 'open ' + days + ' day' + (days === 1 ? '' : 's'));
-    var h = '<li class="fu' + (opts.removed ? ' fu-gone' : '') + '" id="fu-' + esc(x.key.replace(/\//g, '--')) + '"><div class="fu-main"><span class="fu-text" tabindex="-1">' + esc(f.text) + (f.ticket ? ' <span class="cat">' + esc(f.ticket) + '</span>' : '') + '</span>' + (opts.removed ? '' : fuPill(x)) +
+    var h = '<li class="fu' + (opts.removed ? ' fu-gone' : '') + '" id="fu-' + esc(x.key.replace(/\//g, '--')) + '"><div class="fu-main"><span class="fu-text" id="fu-' + esc(x.key.replace(/\//g, '--')) + '-t" tabindex="-1">' + esc(f.text) + (f.ticket ? ' <span class="cat">' + esc(f.ticket) + '</span>' : '') + '</span>' + (opts.removed ? '' : fuPill(x)) +
       (meta.length ? '<span class="small fu-meta">' + meta.join(' · ') + '</span>' : '') + '</div>' + (opts.removed ? '' : fuDecided(ctx, x));
     /* A row kept for its open form (2.11) says when it no longer matches: someone decided it, or it left the folder. */
     if (opts.removed) h += '<p class="small fu-kept" role="note"><b>Removed elsewhere.</b> This follow-up isn\'t in the folder anymore, so what you typed can\'t be saved. Copy it if you need it.</p>';
@@ -915,7 +925,7 @@
     var st = ctx.state, pick = st.fuPick, key = pick && pick.key, opts = { run: true, age: true };
     var row = function (x) { return fuRow(ctx, x, opts); };
     var h = items.length ? K.list(st, id, items, { draw: function (shown) { return '<ul class="fulist">' + shown.map(row).join('') + '</ul>'; }, keyOf: function (x) { return x.key; },
-      focusOf: function (k) { return K.byId('fu-' + k.replace(/\//g, '--')) + ' .fu-text'; }, page: o && o.page, keep: key ? [key] : [] }) : '';
+      focusOf: function (k) { return K.byId('fu-' + k.replace(/\//g, '--') + '-t'); }, page: o && o.page, keep: key ? [key] : [] }) : '';
     if (!key || items.some(function (x) { return x.key === key; })) return h;
     var x = all.filter(function (y) { return y.key === key; })[0];
     if (!x && !pick.snap) return h;
@@ -1031,7 +1041,7 @@
       var nd = 'badnotes:' + runKey(r), nOpen = !!(s.disc || {})[nd];
       al += '<div class="notice warn rw-badnotes"><span><b role="status">' + nl.length.toLocaleString('en-US') + ' note lines can\'t be read.</b> They may still be arriving; if they stay, the notes on those lines are lost and the rest are shown.' +
         '<details data-disc="' + esc(nd) + '"' + (nOpen ? ' open' : '') + '><summary class="small">Which lines</summary>' +
-        K.list(s, 'badnotes', nl.map(function (x, i) { return { x: x, i: i }; }), { keyOf: function (y) { return String(y.i); }, focusOf: function (k) { return '#badnote-' + k; }, draw: function (shown) { return '<ul class="small">' + shown.map(function (y) { return '<li id="badnote-' + y.i + '" tabindex="-1"><code>' + esc(y.x.file) + '</code>, line ' + esc(y.x.line) + '</li>'; }).join('') + '</ul>'; } }) +
+        K.list(s, 'badnotes', badRows(nl), { keyOf: function (y) { return y.k; }, focusOf: function (k) { return K.byId('badnote-' + K.domKey(k)); }, draw: function (shown) { return '<ul class="small">' + shown.map(function (y) { return '<li id="badnote-' + K.domKey(y.k) + '" tabindex="-1"><code>' + esc(y.x.file) + '</code>, line ' + esc(y.x.line) + '</li>'; }).join('') + '</ul>'; } }) +
         '</details></span></div>';
     }
     al += recovery(ctx, r, ctx.canRecover(r));

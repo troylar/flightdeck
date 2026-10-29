@@ -37,12 +37,14 @@
   /* Start and Plan draw this many role rows at a time (2.11). */
   var ROLE_PAGE = 20;
   function checkList(c, st, id, o) {
-    var items = c.blockers.map(function (b, i) { return { lvl: 'bad', w: 'Fix', t: b, n: i }; })
-      .concat(c.suggestions.map(function (s, i) { return { lvl: 'tip', w: 'Tip', t: s, n: c.blockers.length + i }; }));
+    var items = c.blockers.map(function (b) { return { lvl: 'bad', w: 'Fix', t: b }; })
+      .concat(c.suggestions.map(function (s) { return { lvl: 'tip', w: 'Tip', t: s }; }));
     if (!items.length) return '<ul class="checks"><li><span class="lvl ok">Good</span><span>Ready to publish.</span></li></ul>';
     id = id || 'checks';
-    var row = function (x) { PF.perf.add('checks.row'); return '<li id="' + esc(id) + '-' + x.n + '" tabindex="-1"><span class="lvl ' + x.lvl + '">' + x.w + '</span><span>' + esc(x.t) + '</span></li>'; };
-    return K.list(st || {}, id, items, { keyOf: function (x) { return String(x.n); }, focusOf: function (k) { return '#' + id + '-' + k; }, inDialog: !!(o && o.inDialog), draw: function (shown) { return '<ul class="checks">' + shown.map(row).join('') + '</ul>'; } });
+    /* Each by what it says, never its place: fixing one above never turns the row someone is on into another. */
+    K.uniqKeys(items, function (x) { return x.lvl + '\n' + x.t; }).forEach(function (k, i) { items[i].k = K.domKey(k); });
+    var row = function (x) { PF.perf.add('checks.row'); return '<li id="' + esc(id + '-' + x.k) + '" tabindex="-1"><span class="lvl ' + x.lvl + '">' + x.w + '</span><span>' + esc(x.t) + '</span></li>'; };
+    return K.list(st || {}, id, items, { keyOf: function (x) { return x.k; }, focusOf: function (k) { return K.byId(id + '-' + k); }, inDialog: !!(o && o.inDialog), draw: function (shown) { return '<ul class="checks">' + shown.map(row).join('') + '</ul>'; } });
   }
   /* How runs of this process have gone, one version at a time (docs/design.md section 23; views/insights.js draws it). */
   function insights(ctx, p) { return V.insightsPage(ctx, p); }
@@ -61,12 +63,14 @@
   function skillsPanel(ctx, p, bare) {
     var h = bare ? '<h3>Skills</h3>' : '<section class="panel" aria-labelledby="sk-h"><h2 id="sk-h">' + I('spark') + 'Skills</h2>', end = bare ? '' : '</section>';
     if (!p.skills.length) return h + '<p class="small">None yet. Once a version is signed off, copy its brief for your AI assistant.</p>' + end;
-    /* 50 at a time (2.11); each is keyed by its place, and Show more focuses its button. */
-    var rows = p.skills.map(function (x, i) { return { x: x, i: i }; });
+    /* 50 at a time (2.11); each is keyed by its file (made unique: two registrations can share a name), and Show more focuses
+       its button. */
+    var rows = p.skills.map(function (x) { return { x: x }; }), byK = Object.create(null);
+    K.uniqKeys(p.skills, function (x) { return x.skill.file || x.skill.name; }).forEach(function (k, i) { rows[i].k = k; byK[k] = rows[i]; });
     return h + K.list(ctx.state, 'p-skills', rows, { draw: function (shown) { return '<ul class="plist">' + shown.map(function (r) {
       var s = r.x.skill, pill = SKILL_PILL[r.x.status.s] || SKILL_PILL.missing;
       return '<li><button data-act="open-skill" data-id="' + esc(s.file || s.name) + '"><span class="t">' + esc(s.name) + '</span><span class="pill ' + pill[0] + '">' + pill[1] + '</span></button></li>';
-    }).join('') + '</ul>'; }, keyOf: function (r) { return String(r.i); }, focusOf: function (k) { var s = p.skills[+k].skill; return K.byAct('open-skill', s.file || s.name); } }) + end;
+    }).join('') + '</ul>'; }, keyOf: function (r) { return r.k; }, focusOf: function (k) { var s = byK[k] ? byK[k].x.skill : { name: k }; return K.byAct('open-skill', s.file || s.name); } }) + end;
   }
   /* For someone who doesn't look after the checklist: Ready for a skill? and Skills as one closed line that says what they hold. */
   function skillsFold(ctx, p, pub) {
@@ -160,7 +164,7 @@
     list.forEach(function (g) { var k = C.targetKey(g.target); if (!groups[k]) { groups[k] = []; if (!(k in at)) { at[k] = order.length; order.push(k); } } groups[k].push(g); });
     /* One item per member, in the order 2.10 draws them: target, then group, then member. */
     var items = [];
-    order.filter(function (k) { return groups[k]; }).forEach(function (k) { groups[k].forEach(function (g) { g.members.forEach(function (m, i) { items.push({ k: k, g: g, m: m, i: i }); }); }); });
+    order.filter(function (k) { return groups[k]; }).forEach(function (k) { groups[k].forEach(function (g) { var ks = fxKeys(g); g.members.forEach(function (m, i) { items.push({ k: k, g: g, m: m, i: i, key: ks[i] }); }); }); });
     var heading = function (k, gs) {
       var x = map && !/^(phase|gate):/.test(k) && M.findStep(map, k), ph = map && k.indexOf('phase:') === 0 && map.phases.filter(function (q) { return 'phase:' + q.id === k; })[0], gt = map && k.indexOf('gate:') === 0 && map.phases.filter(function (q) { return q.gate && 'gate:' + q.gate.id === k; })[0];
       var alts = gs.filter(function (g) { return g.status === 'open' && g.change.op !== 'describe'; }).length;
@@ -180,8 +184,9 @@
       }
       return out;
     };
-    h += K.list(st, lid, items, { draw: draw, keyOf: function (x) { return x.g.id + '#' + x.i; }, focusOf: function (key) { return K.byId('fxm-' + key); },
-      keep: declining ? [declining + '#0'] : [], keptLabel: 'You\'re declining this one', shownWord: 'opened' });
+    var decG = declining ? all.filter(function (g) { return g.id === declining; })[0] : null;
+    h += K.list(st, lid, items, { draw: draw, keyOf: function (x) { return x.key; }, focusOf: function (key) { return K.byId('fxm-' + key); },
+      keep: decG && decG.members.length ? [fxKeys(decG)[0]] : [], keptLabel: 'You\'re declining this one', shownWord: 'opened' });
     if (removed) h += '<p class="small kept-h">You\'re declining this one</p><ul class="fixlist">' + removedItem(removed) + '</ul>';
     if (open.length) h += '<div class="row" style="margin-top:10px"><button class="btn" data-act="copy-corr-brief" data-id="' + esc(p.id) + '">' + I('copy') + 'Copy correction brief</button></div>' + briefBox(st, 'corrections:' + p.id);
     var head = '<h2 id="fx-h" tabindex="-1">' + I('edit') + 'Corrections · ' + open.length + ' open</h2>';
@@ -200,13 +205,16 @@
       (dl ? '<dl class="corr-dl">' + dl + '</dl>' : '') +
       '<div class="row"><label class="sr" for="pick-input">Why not?</label><input id="pick-input" maxlength="300" value="' + esc(pk.text || '') + '"><button class="btn" type="button" data-act="corr-copy-reason">Copy my text</button><button class="mini" type="button" data-act="unpick">Cancel</button></div></li>';
   }
-  /* One group, with the members the page draws (ms: { m, i }, i its place in the group). Each drawn member's Why, What
-     happened, files and run are drawn in full; its first line (fxm-<group>#<i>) is where Show more puts focus. */
+  /* A group's members' keys (2.11): the group and each member's own note (its run, id and place among its twins), never its
+     place in the group, so a member arriving above never turns the row someone is on into another. */
+  function fxKeys(g) { return K.uniqKeys(g.members, function (m) { return m.run + '\n' + m.id + '\n' + (m.noteAt || 1); }).map(function (k) { return g.id + '#' + K.domKey(k); }); }
+  /* One group, with the members the page draws (ms: { m, i, key }, i its place in the group). Each drawn member's Why, What
+     happened, files and run are drawn in full; its first line (fxm-<key>) is where Show more puts focus. */
   function groupItem(ctx, p, g, ms, o) {
     var st = ctx.state, C = PF.corrections, d = g.decision, c = g.first, declining = st.pick && st.pick.kind === 'corr-decline' && st.pick.id === g.id;
     var map = p.latest ? p.latest.map : null;
-    ms = ms || g.members.map(function (m, i) { return { m: m, i: i }; }); o = o || {};
-    var fid = function (x) { return 'fxm-' + g.id + '#' + x.i; }, first = ms[0] && ms[0].i === 0;
+    if (!ms) { var gk = fxKeys(g); ms = g.members.map(function (m, i) { return { m: m, i: i, key: gk[i] }; }); } o = o || {};
+    var fid = function (x) { return 'fxm-' + x.key; }, first = ms[0] && ms[0].i === 0;
     var h = '<li data-scope="corr:' + esc(g.id) + '" id="' + esc('fxg-' + g.id) + '" tabindex="-1"><div class="row"><span class="badge b-plan">' + esc(C.OP_LABEL[g.change.op]) + '</span>' + V.corrPill(g) + (g.legacy ? '<span class="small">From a suggested fix</span>' : '') + '</div>';
     if (o.gone) h += '<p class="small fx-gone"><b>No longer open:</b> ' + esc(C.label(g).toLowerCase()) + (d ? ' by ' + esc(nameOf(ctx, d.by)) : '') + '</p>';
     if (o.opened) h += '<p class="small fx-opened">Shown because you opened it.</p>';
@@ -538,13 +546,13 @@
     if (maybe) h += '<div class="notice warn"><span>Flightdeck started applying this but couldn\'t record what happened. Compare it with the draft below, then mark it as applied or apply it again.</span></div>';
     var recs = ov.records || [];
     /* 20 at a time, in order (2.11); what the actions below allow is still worked out from every record. */
-    var rec = function (r, i) {
-      var li = '<li id="prop-rec-' + i + '" tabindex="-1">';
+    var rec = function (r, k) {
+      var li = '<li id="prop-rec-' + K.domKey(k) + '" tabindex="-1">';
       if (!r.rec) return li + '<code>' + esc(r.name) + '</code> can\'t be read yet. It may still be arriving.</li>';
       var who = esc(nameOf(ctx, r.rec.by)) + ' · ' + esc(U.when(r.rec.at));
       return li + (r.rec.kind === 'attempt' ? 'Started applying it' + (r.rec.how === 'live' ? ' in an editor' : '') : esc(DEC_WORDS[r.rec.status] || r.rec.status)) + ' · ' + who + '</li>';
     };
-    if (recs.length) h += '<details open><summary class="small">What happened before (' + recs.length + ')</summary>' + K.list(ctx.state, 'prop-recs', recs.map(function (r, i) { return { r: r, i: i }; }), { page: 20, inDialog: true, keyOf: function (x) { return String(x.i); }, focusOf: function (k) { return '#prop-rec-' + k; }, draw: function (shown) { return '<ul class="small">' + shown.map(function (x) { return rec(x.r, x.i); }).join('') + '</ul>'; } }) + '</details>';
+    if (recs.length) h += '<details open><summary class="small">What happened before (' + recs.length + ')</summary>' + K.list(ctx.state, 'prop-recs', recRows(recs), { page: 20, inDialog: true, keyOf: function (x) { return x.k; }, focusOf: function (k) { return '#prop-rec-' + K.domKey(k); }, draw: function (shown) { return '<ul class="small">' + shown.map(function (x) { return rec(x.r, x.k); }).join('') + '</ul>'; } }) + '</details>';
     var draftText = ov.draftText == null ? '' : ov.draftText, d = PF.proposals.diff(draftText, ov.proposal.text);
     h += '<h3 class="small">' + (ov.draftText == null ? 'Compared with nothing (there\'s no draft yet)' : 'Compared with the draft as it is now') + '</h3>';
     h += d.tooMany ? '<p class="small">Too many changes to show line by line.</p>' : capDiff(d.rows);
@@ -561,6 +569,8 @@
     h += '<div class="row ca-acts" id="pr-acts">' + acts + '<button type="button" class="mini" data-act="close-overlay">Close</button></div>';
     return box(h);
   }
+  /* A proposal's records, each keyed by its file's name. */
+  function recRows(recs) { var ks = K.uniqKeys(recs, function (r) { return r.name; }); return recs.map(function (r, i) { return { r: r, k: ks[i] }; }); }
   var DEC_WORDS = { applied: 'Applied', declined: 'Declined', reopened: 'Reopened', withdrawn: 'Taken back before it was saved', 'not-saved': 'Not saved: someone else changed the draft', cancelled: 'Stopped: the draft changed while it was being applied', overwritten: 'Saved, then replaced by another change before Flightdeck read it back' };
   function capDiff(rows) {
     if (!rows.some(function (r) { return r.op === '+' || r.op === '-'; })) return '<p class="small">No differences.</p>';
@@ -575,9 +585,13 @@
     rows.forEach(function (r, i) { if (r.op !== ' ') ch.push(i); });
     if (!ch.length) return '<p class="small">No differences.</p>';
     id = id || 'diff';
+    /* Each change by what it says (added or removed, and the line), never its line number, so an edit above it doesn't turn
+       the change someone is on into another. */
+    var kOf = Object.create(null);
+    K.uniqKeys(ch, function (i) { return rows[i].op + rows[i].text; }).forEach(function (k, j) { kOf[ch[j]] = K.domKey(k); });
     var line = function (i) {
       var r = rows[i];
-      return r.op === '+' ? '<span class="add" id="' + esc(id + '-' + i) + '" tabindex="-1">+ ' + esc(r.text) + '</span>' : r.op === '-' ? '<span class="del" id="' + esc(id + '-' + i) + '" tabindex="-1">- ' + esc(r.text) + '</span>' : '<span>  ' + esc(r.text) + '</span>\n';
+      return r.op === '+' ? '<span class="add" id="' + esc(id + '-' + kOf[i]) + '" tabindex="-1">+ ' + esc(r.text) + '</span>' : r.op === '-' ? '<span class="del" id="' + esc(id + '-' + kOf[i]) + '" tabindex="-1">- ' + esc(r.text) + '</span>' : '<span>  ' + esc(r.text) + '</span>\n';
     };
     var gap = function (n) { return '<span class="small diff-gap">  … ' + n.toLocaleString('en-US') + ' unchanged line' + (n === 1 ? '' : 's') + '</span>\n'; };
     /* Unchanged lines from a to b (inclusive): all of them when there are 3 or fewer, else the first and last around a gap. */
@@ -597,7 +611,7 @@
       out += end ? same(last + 1, rows.length - 1, true, false) : last + 1 < rows.length && rows[last + 1].op === ' ' ? line(last + 1) : '';
       return '<div class="diff">' + out + '</div>';
     };
-    return K.list(st || {}, id, ch, { draw: draw, keyOf: function (i) { return String(i); }, focusOf: function (k) { return K.byId(id + '-' + k); } });
+    return K.list(st || {}, id, ch, { draw: draw, keyOf: function (i) { return kOf[i]; }, focusOf: function (k) { return K.byId(id + '-' + k); } });
   }
 
   /* The exact publication a person switched this plan to, if it was in this folder, on this plan, as it reads now. */
@@ -782,7 +796,7 @@
     }
     return h + '<div class="row"><button class="btn go" type="submit" id="start-submit"' + (st.me ? '' : ' disabled') + '>' + I('play') + 'Start the test run</button><span class="small">A test run tries this staged version. It isn\'t counted in How runs go or toward a skill.</span>' + back + '</div></form>';
   }
-  V.testStage = testStage;
+  V.testStage = testStage; V.fxKeys = fxKeys;
   V.stageSign = stageSign;
   /* The approvals a version names a role for (2.10): who approves is chosen when it starts. */
   function approvals(map) { return (map.phases || []).filter(function (ph) { return ph.gate && !ph.gate.implicit && ph.gate.owner && map.meta.roles.indexOf(ph.gate.owner) >= 0; }).map(function (ph) { return { role: ph.gate.owner, title: ph.gate.title }; }); }

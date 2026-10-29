@@ -213,9 +213,15 @@
     if (s.state === 'none') return '<p class="small">Saved history starts once this step type is saved.</p>';
     if (s.state === 'error') return '<p class="small" role="status">Couldn\'t read the saved history: ' + esc(s.msg || '') + '</p>';
     if (s.state !== 'ok') return '<p class="small" role="status">Reading the saved history…</p>';
-    var rows = [];
+    /* Each row by what it is, never its place: an entry by its ref, a publication by its version and fingerprint, a change made
+       outside Flightdeck by the entry it comes before. */
+    var rows = [], seenM = Object.create(null), mark = function (x, i) {
+      var nx = null; for (var j = i + 1; j < s.items.length && !nx; j++) if (s.items[j].entry) nx = s.items[j].entry.ref;
+      var b = x.pub ? 'p' + K.domKey(x.pub.version + '\n' + (x.pub.hash || '') + '\n' + (x.pub.at || '')) : 'g' + K.domKey(String(nx)); seenM[b] = (seenM[b] || 0) + 1;
+      return 'm' + b + (seenM[b] > 1 ? '-' + seenM[b] : '');
+    };
     s.items.forEach(function (x, i) {
-      if (x.gap || x.pub) { if (!item) rows.push({ x: x, k: 'm' + i }); return; }
+      if (x.gap || x.pub) { if (!item) rows.push({ x: x, k: mark(x, i) }); return; }
       if (item && x.entry.items.indexOf(item) < 0) return;
       n++; rows.push({ x: x, k: 'e' + x.entry.ref });
     });
