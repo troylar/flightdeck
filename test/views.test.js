@@ -631,7 +631,7 @@ rule('How runs go: a run title is escaped inside the chart\'s SVG title, the cha
   assert.ok(!/<img src=x|<script>bad/.test(html), 'nothing from a run is raw markup, in the SVG or anywhere');
   assert.ok(/<title>&lt;img src=x onerror=alert\(1\)&gt;&lt;\/title&gt;&lt;script&gt;bad\(\)&lt;\/script&gt;, under a minute<\/title>/.test(html), 'escaped in the dot\'s title');
   assert.ok(/aria-label="&lt;img src=x/.test(html) && /data-act="go" data-view="run" data-run="release\/in0"/.test(html), 'each dot is a link to its run with an accessible name');
-  assert.ok(/The same as a table/.test(html) && /<td><button class="linkish" data-act="go" data-view="run" data-run="release\/in1">Run 1<\/button><\/td>/.test(html), 'the table equivalent');
+  assert.ok(/The same as a table/.test(html) && /<td><button class="linkish" id="ins-row-release-in1-go" data-act="go" data-view="run" data-run="release\/in1">Run 1<\/button><\/td>/.test(html), 'the table equivalent');
   assert.ok(html.indexOf(PF.insights.FEW) >= 0, 'says it\'s too few for a rate');
   const hot = html.slice(html.indexOf('id="ins-hot-h"'));
   assert.ok(/data-act="ins-runs" data-id="step:approved:offScript">2 of 3 runs</.test(hot) && !/% · /.test(hot), 'counts, no percentages');
@@ -1342,8 +1342,8 @@ rule('Published in vN: the pill on the process page and the run\'s record, and "
   const ins = insOf(html);
   assert.ok(new RegExp('<details class="prov-why" data-disc="prov:' + g.id + '"><summary class="small">Why is this here\\?</summary>').test(ins));
   assert.ok(/<dt>Before → after<\/dt><dd><span class="redline">/.test(ins) && /<ins>by<\/ins>|<ins>/.test(ins), 'before and after, as a redline');
-  assert.ok(/<dt id="pm-approved-0-0" tabindex="-1">Why · Blake Ortiz<\/dt><dd>The board &lt;img src=x onerror=alert\(1\)&gt; meets at 4<\/dd>/.test(ins) && !/<img src=x/.test(ins), 'the reason, escaped');
-  assert.ok(/Suggested in 1 run: <button class="linkish" id="pm-approved-0-0-run" data-act="open-run" data-id="release\/r1">Release &lt;i&gt;A&lt;\/i&gt;<\/button>/.test(ins) && /Applied by Avery Lee /.test(ins));
+  assert.ok(/<dt id="pm-approved-[0-9a-f]{16}" tabindex="-1">Why · Blake Ortiz<\/dt><dd>The board &lt;img src=x onerror=alert\(1\)&gt; meets at 4<\/dd>/.test(ins) && !/<img src=x/.test(ins), 'the reason, escaped');
+  assert.ok(/Suggested in 1 run: <button class="linkish" id="pm-approved-[0-9a-f]{16}-run" data-act="open-run" data-id="release\/r1">Release &lt;i&gt;A&lt;\/i&gt;<\/button>/.test(ins) && /Applied by Avery Lee /.test(ins));
   state.disc = { ['prov:' + g.id]: true };
   assert.ok(/data-disc="prov:[^"]+" open>/.test(insOf(V.run(ctx))), 'stays open across redraws');
   // A v3 that lists it again isn't where it changed.
@@ -1358,8 +1358,8 @@ rule('Home: "Your correction to … is published in vN" and "… declined your c
   state.view = 'home'; state.me = 'person-blake'; ctx.data.plans = []; ctx.lostDrafts = () => [];
   const html = V.home(ctx), panel = html.slice(html.indexOf('aria-labelledby="ack-h"'));
   assert.ok(/<h2 id="ack-h">Your corrections<\/h2>/.test(html));
-  assert.ok(/<b tabindex="-1">Your correction to &quot;Change request approved for tonight&#39;s window&quot; is published in v2\.<\/b>/.test(panel), panel);
-  assert.ok(/<b tabindex="-1">Casey Nguyen declined your correction: We watch &lt;u&gt;dashboards&lt;\/u&gt;<\/b>/.test(panel) && !/<u>dashboards/.test(panel));
+  assert.ok(/<b id="ack-[0-9a-f]{16}-t" tabindex="-1">Your correction to &quot;Change request approved for tonight&#39;s window&quot; is published in v2\.<\/b>/.test(panel), panel);
+  assert.ok(/<b id="ack-[0-9a-f]{16}-t" tabindex="-1">Casey Nguyen declined your correction: We watch &lt;u&gt;dashboards&lt;\/u&gt;<\/b>/.test(panel) && !/<u>dashboards/.test(panel));
   assert.ok(/data-act="ack-view" data-id="l\.release\.v2-view0102" data-process="release" data-group="[^"]+">View change<\/button><button class="mini" data-act="ack-dismiss" data-id="l\.release\.v2-view0102"/.test(panel));
   assert.ok(!/things? need/.test(html.slice(0, html.indexOf('aria-labelledby="ack-h"'))) || /Nothing needs you right now\./.test(html), 'acknowledgments never count as needing you');
   ctx.acks = () => [];

@@ -65,7 +65,8 @@ rule('Corrections: 400 members of one group draw 50, each with its whole Why, an
   h = app.html();
   assert.strictEqual(fxMembers(h).length, 100);
   assert.ok(d.focus && app.node(d.focus) && app.doc.activeElement === app.node(d.focus), 'focus on the first added member: ' + d.focus);
-  assert.ok(/fxm-/.test(d.focus) && /#50/.test(d.focus), d.focus);
+  /* The 51st member, by an id from its own note (2.11), never its place in the group. */
+  assert.ok(d.focus === '[id="fxm-' + fxMembers(h)[50] + '"]' && /#[0-9a-f]{16}$/.test(fxMembers(h)[50]), d.focus + ' ' + fxMembers(h)[50]);
   app.click('corr-filter', 'open'); await app.tick(5);
 });
 
@@ -412,10 +413,14 @@ rule('Reports: one report with 300 copies draws 10 copy lines, Show all pages th
   assert.ok(d['rep.copy'] <= 10 * d.draws, JSON.stringify(d));
   const key = un(/data-act="rep-copies" data-id="([^"]+)"/.exec(h)[1]);
   assert.ok(/Show all 300 copies/.test(h));
-  app.click('rep-copies', key); await app.tick(10);
+  const eleventh = un(/data-act="rep-copies" data-id="[^"]+" data-focus="\[id=&quot;([^"]+)&quot;\]"/.exec(h)[1]);
+  const firstTen = [...h.matchAll(/<p class="rep-copy" id="([^"]+)"/g)].map(m => un(m[1]));
+  app.click('rep-copies', key, { focus: '[id="' + eleventh + '"]' }); await app.tick(10);
   h = app.html();
   assert.strictEqual(count(h, /<p class="rep-copy"/g), 50, 'Show all lists them 50 at a time');
-  assert.strictEqual(app.activeId(), 'repc-' + key + '-10', 'focus on the first one not shown before');
+  /* The 11th copy, by an id from its path (2.11), never its place. */
+  assert.ok(firstTen.indexOf(eleventh) < 0 && [...h.matchAll(/<p class="rep-copy" id="([^"]+)"/g)].map(m => un(m[1]))[10] === eleventh, eleventh);
+  assert.strictEqual(app.activeId(), eleventh, 'focus on the first one not shown before');
   await more(app, 'repc:' + key);
   assert.strictEqual(count(app.html(), /<p class="rep-copy"/g), 100);
 });
@@ -565,10 +570,10 @@ rule('Versions: Show changes on a 400-step checklist draws 50 changes, with Show
   const m = /data-act="diff" data-id="([^"]+)"/.exec(app.html());
   assert.ok(m, 'set-up: Changes');
   app.click('diff', un(m[1])); await app.tick(10);
-  const h = app.html(), n = count(h, /<span class="(?:add|del)" id="ver-diff-\d+"/g);
+  const h = app.html(), n = count(h, /<span class="(?:add|del)" id="ver-diff-[0-9a-f]{16}"/g);
   assert.strictEqual(n, 50, 'a page of changes');
   const d = await more(app, 'ver-diff');
-  assert.strictEqual(count(app.html(), /<span class="(?:add|del)" id="ver-diff-\d+"/g), 100);
+  assert.strictEqual(count(app.html(), /<span class="(?:add|del)" id="ver-diff-[0-9a-f]{16}"/g), 100);
   assert.ok(app.doc.activeElement === app.node(d.focus), 'focus on the first added change');
 });
 

@@ -161,12 +161,12 @@ rule('Show more on How runs go\'s duration table moves focus to the first added 
   const rows = () => rowsOf(app.html(), /<tr id="ins-row-/g);
   assert.strictEqual(rows(), 50, 'set-up: a page drawn');
   const d = moreOf(app.html(), 'ins-dur');
-  assert.ok(d && d.focus === '[id="' + d.next + '"] button', 'Show more names the row\'s link: ' + JSON.stringify(d));
+  assert.ok(d && d.focus === '[id="' + d.next + '-go"]', 'Show more names the row\'s link: ' + JSON.stringify(d));
   app.click('more', 'ins-dur', d); await app.tick(5);
   assert.strictEqual(rows(), 100);
   const want = app.node(d.focus);
   assert.ok(want && want.tagName === 'BUTTON', 'the first added row is drawn, with its link');
-  assert.strictEqual(app.activeId(), '[data-act="go"]', 'focus moved to a link');
+  assert.strictEqual(app.activeId(), d.next + '-go', 'focus moved to the link, by its own id');
   assert.ok(want.contains(app.node(d.focus)) && app.node('[id="' + d.next + '"]').contains(app.node(d.focus)), 'inside the first added row');
 });
 
@@ -175,13 +175,13 @@ rule('Show more on Steps that go off-script moves focus to the first added step\
   const rows = () => rowsOf(app.html(), /<li class="ins-step"/g);
   assert.strictEqual(rows(), 50, 'set-up: a page of the 120 steps drawn');
   const d = moreOf(app.html(), 'ins-hot');
-  assert.ok(d && d.focus === '[id="' + d.next + '"] h3', JSON.stringify(d));
+  assert.ok(d && d.focus === '[id="' + d.next + '-h"]', JSON.stringify(d));
   app.click('more', 'ins-hot', d); await app.tick(5);
   assert.strictEqual(rows(), 100);
   const h3 = app.node(d.focus);
   assert.ok(h3 && h3.tagName === 'H3' && h3.getAttribute('tabindex') === '-1', 'a focusable heading');
   assert.ok(app.node('[id="' + d.next + '"]').contains(h3));
-  assert.ok(/<li class="ins-step" id="[^"]+"><h3 tabindex="-1">/.test(app.html()));
+  assert.ok(/<li class="ins-step" id="[^"]+"><h3 id="[^"]+-h" tabindex="-1">/.test(app.html()));
 });
 
 rule('Choosing another version on How runs go starts both of its lists again from their first page', async () => {
@@ -439,7 +439,9 @@ rule('A checklist\'s Skills panel draws 50 of its 601 skills, with Show more foc
   const h = app.html(), panel = h.slice(h.indexOf('id="sk-h"'));
   assert.strictEqual((panel.match(/<li><button data-act="open-skill"/g) || []).length, 50);
   const d = moreOf(panel, 'p-skills');
-  assert.ok(d && /^\[data-act="open-skill"\]\[data-id="[^"]+"\]$/.test(d.focus) && d.next === '50', JSON.stringify(d));
+  /* Keyed by its file, never its place (2.11): the 51st skill's own registration. */
+  const files = [...h.matchAll(/data-act="open-skill" data-id="([^"]+)"/g)].map(m => m[1]);
+  assert.ok(d && d.focus === '[data-act="open-skill"][data-id="' + d.next + '"]' && files.indexOf(d.next) < 0 && /\.json$/.test(d.next), JSON.stringify(d));
   app.click('more', 'p-skills', d); await app.tick(5);
   const p2 = app.html().slice(app.html().indexOf('id="sk-h"'));
   assert.strictEqual((p2.match(/<li><button data-act="open-skill"/g) || []).length, 100);
@@ -449,19 +451,103 @@ rule('A checklist\'s Skills panel draws 50 of its 601 skills, with Show more foc
 rule('A skill page with 400 changes draws 50 in order, Show more focuses the first added change, and the update brief has all 400', async () => {
   const app = await bigApp(); app.click('nav', 'skills'); await app.tick(5);
   app.click('open-skill', 'old-whole-skill.json'); await app.tick(10);
-  const ch = () => { const h = app.html(), a = h.indexOf('<ul class="changes">'); return a < 0 ? [] : (h.slice(a, h.indexOf('</ul>', a)).match(/<li id="skc-\d+"/g) || []).map(x => +x.slice(12, -1)); };
-  assert.deepStrictEqual(ch(), Array.from({ length: 50 }, (x, i) => i), 'the first 50, in order');
+  /* Each change's id is from the change (what changed, and its step), never its place (2.11). */
+  const ch = () => { const h = app.html(), a = h.indexOf('<ul class="changes">'); return a < 0 ? [] : [...h.slice(a, h.indexOf('</ul>', a)).matchAll(/<li id="(skc-[0-9a-f]{16})"/g)].map(m => m[1]); };
+  const first = ch();
+  assert.strictEqual(new Set(first).size, 50, 'the first 50, each with an id of its own');
   const d = moreOf(app.html(), 'sk-changes');
-  assert.ok(d && d.focus === '[id="skc-50"]', JSON.stringify(d));
+  assert.ok(d && first.indexOf(d.next) < 0 && d.focus === '[id="' + d.next + '"]', JSON.stringify(d));
   app.click('more', 'sk-changes', d); await app.tick(5);
-  assert.strictEqual(ch().length, 100);
-  assert.strictEqual(app.activeId(), 'skc-50');
-  assert.ok(/<li id="skc-50" tabindex="-1">/.test(app.html()), 'a focusable change');
+  const all = ch();
+  assert.strictEqual(all.length, 100);
+  assert.deepStrictEqual(all.slice(0, 50), first, 'in order: the first 50 stay first');
+  assert.strictEqual(all[50], d.next, 'the 51st is the one Show more named');
+  assert.strictEqual(app.activeId(), d.next);
+  assert.ok(new RegExp('<li id="' + d.next + '" tabindex="-1">').test(app.html()), 'a focusable change');
   /* The harness has no clipboard or selection: the brief is drawn before copying falls back to selecting it. */
   try { app.click('copy-brief', 'update:old-whole-skill.json'); } catch (e) { if (!/createRange/.test(e.message)) throw e; }
   await app.tick(5);
   const brief = /<pre id="brief-pre"[^>]*>([\s\S]*?)<\/pre>/.exec(app.html())[1];
   assert.ok((brief.match(/\(v2\)/g) || []).length >= 400, 'the brief names every changed step');
+});
+
+/* ---------- code review round 4: the focused row stays drawn ---------- */
+rule('K.list: the row with focus stays drawn when an item sorting in above pushes it off the page, once, with the count and Show more still right; gone, its list says so', () => {
+  const PF = loadViews(), K = PF.vk, st = { more: {} };
+  const keys = n => Array.from({ length: n }, (x, i) => 'item' + String(i).padStart(3, '0'));
+  const o = { keyOf: k => k, focusOf: k => K.byId('row-' + k), draw: shown => '<ul>' + shown.map(k => '<li id="row-' + k + '" tabindex="-1">' + k + '</li>').join('') + '</ul>' };
+  const drawn = h => [...h.matchAll(/<li id="row-([^"]+)"/g)].map(m => m[1]);
+  let items = keys(60);
+  assert.strictEqual(drawn(K.list(st, 'L', items, o)).length, 50, 'set-up: a page');
+  const focused = 'item049', lost = [];
+  K.focusAt = { away: () => false, inRow: sel => sel === K.byId('row-' + focused), lost: id => lost.push(id) };
+  try {
+    /* Inserted above: the focused row is 51st now, and kept. */
+    items = ['aaa'].concat(items);
+    let h = K.list(st, 'L', items, o), d = drawn(h);
+    assert.strictEqual(d.length, 51, 'the page and the one row: ' + d.length);
+    assert.ok(d.indexOf(focused) >= 0 && d.filter(k => k === focused).length === 1, 'the focused row, once');
+    assert.ok(/Showing 50 of 61, plus the one you(&#39;|')re on/.test(h), 'the count says so: ' + (/Showing[^<]*/.exec(h) || [''])[0]);
+    assert.ok(/data-act="more" data-id="L" data-next="item050"/.test(h) && /Show 10 more/.test(h), 'Show more adds the 10 not drawn, from the first of them');
+    assert.ok(!/kept-h/.test(h), 'no "you\'re editing" line for a row that only has focus');
+    /* Redrawn again with focus still there: still drawn. Focus gone: let go. */
+    assert.ok(drawn(K.list(st, 'L', items, o)).indexOf(focused) >= 0, 'still kept on the next redraw');
+    K.focusAt = null;
+    assert.ok(drawn(K.list(st, 'L', items, o)).indexOf(focused) < 0, 'let go once focus has left it');
+    /* Reordered: the focused row moved past the page by a sort. */
+    drawn(K.list(st, 'L', keys(60), o));
+    K.focusAt = { away: () => false, inRow: sel => sel === K.byId('row-' + focused), lost: id => lost.push(id) };
+    assert.ok(drawn(K.list(st, 'L', keys(60).filter(k => k !== focused).concat([focused]), o)).indexOf(focused) >= 0, 'reordered past the page: kept');
+    /* Deleted: the item is gone, so nothing is kept and the list says it lost its focused row. */
+    drawn(K.list(st, 'L', keys(60), o));
+    h = K.list(st, 'L', keys(60).filter(k => k !== focused), o);
+    assert.strictEqual(drawn(h).length, 50, 'deleted: just the page');
+    assert.deepStrictEqual(lost, ['L'], 'its heading takes focus (app.js)');
+    /* Only this list: another list drawing the same keys doesn't keep it. */
+    drawn(K.list(st, 'M', keys(60), o));
+    K.focusAt = { away: () => true, inRow: () => true, lost: id => lost.push(id) };
+    assert.ok(drawn(K.list(st, 'M', ['aaa'].concat(keys(60)), o)).indexOf(focused) < 0, 'focus outside the list keeps nothing');
+    /* A list holding its rows itself (hold: false) isn't touched. */
+    K.focusAt = { away: () => false, inRow: () => true, lost: id => lost.push(id) };
+    drawn(K.list(st, 'N', keys(60), Object.assign({ hold: false }, o)));
+    assert.strictEqual(drawn(K.list(st, 'N', ['aaa'].concat(keys(60)), Object.assign({ hold: false }, o))).length, 50);
+  } finally { K.focusAt = null; }
+});
+
+async function arriveRead(app) {
+  const was = app.PF.perf.n['load.done'] || 0;
+  app.focus();
+  for (let i = 0; i < 4000 && (app.PF.perf.n['load.done'] || 0) <= was; i++) await app.tick(5);
+  await app.tick(5);
+}
+rule('Checklists: with 1,000, the last row drawn keeps focus and stays drawn when a checklist sorting first arrives, is deleted, or moves', async () => {
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true }); await app.tick(60);
+  await into(app, fixture());
+  app.click('nav', 'processes'); await app.tick(10);
+  const rows = h => { const a = h.indexOf('id="procs-all"'); return [...h.slice(a).matchAll(/<li><button data-act="open-process" data-id="([^"]+)"/g)].map(m => m[1]); };
+  const r0 = rows(app.html()), last = r0[r0.length - 1], sel = '#procs-all [data-act="open-process"][data-id="' + last + '"]';
+  assert.strictEqual(r0.length, 50, 'set-up: a page');
+  app.node(sel).focus();
+  const on = what => {
+    const r = rows(app.html());
+    assert.ok(r.indexOf(last) >= 0 && r.filter(x => x === last).length === 1, what + ': still drawn, once');
+    assert.ok(r.length <= 51, what + ': one past the page at most: ' + r.length);
+    assert.strictEqual(app.activeId(), '[data-act="open-process"][data-id="' + last + '"]', what + ': still focused');
+  };
+  const draft = (id, group) => '---\nprocess: ' + id + '\ntitle: ' + id + '\ncategory: Synthetic\ngroup: ' + group + '\nowner: person-avery\n---\n\n## Only · READ-DO {#only}\n- [ ] {confirm} Do it {#a}\n';
+  /* Inserted: a draft in a group that sorts first. */
+  await app.fs.write('maps/drafts/arrived-first.md', draft('arrived-first', 'Aardvark')); await arriveRead(app);
+  assert.ok(rows(app.html())[0] === 'arrived-first', 'set-up: it sorts first');
+  on('a checklist inserted above');
+  /* Moved: it moves to a group that sorts last; then deleted. */
+  await app.fs.write('maps/drafts/arrived-first.md', draft('arrived-first', 'Zebra')); await arriveRead(app);
+  on('a checklist above it moved below');
+  await app.fs.write('maps/drafts/arrived-second.md', draft('arrived-second', 'Aardvark')); await arriveRead(app);
+  await app.fs.remove('maps/drafts/arrived-first.md'); await arriveRead(app);
+  on('a checklist deleted');
+  await app.fs.remove('maps/drafts/arrived-second.md'); await arriveRead(app);
+  assert.strictEqual(rows(app.html()).length, 50, 'back on the page, nothing kept past it');
+  assert.strictEqual(app.activeId(), '[data-act="open-process"][data-id="' + last + '"]');
 });
 
 run();

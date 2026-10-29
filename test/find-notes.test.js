@@ -39,6 +39,7 @@ async function openRun(app, key, step) {
 /* The thread's notes drawn: their keys (id, or id#n for a later note sharing that id), in order. */
 const thread = (h, step) => ids(h.slice(h.indexOf('id="ins-notes"')), new RegExp('<li id="tn-' + step + '-([^"]+)" tabindex="-1"', 'g'));
 const liText = (h, id) => { const i = h.indexOf('id="' + id + '"'); return i < 0 ? '' : h.slice(i, h.indexOf('</li>', i)); };
+const K = id => '[id="' + id.replace(/["\\]/g, '\\$&') + '"]';
 const busyList = () => 'notes:' + fixture().facts.busy + ':s0';
 const notesFile = app => Object.keys(app.fs.files).find(p => /notes-busy-s1\.jsonl$/.test(p));
 const lines = (app, p) => app.fs.files[p].t.split('\n').filter(Boolean).map(l => JSON.parse(l));
@@ -74,7 +75,7 @@ rule('Notes: Earlier and Archived answers share the thread\'s look, and aren\'t 
   await more(app, busyList());
   const h = app.html();
   assert.strictEqual(thread(h, 's0').length, 40, '40 notes after one Show earlier');
-  assert.strictEqual(count(h, /<li id="arch-s0-\d+"/g), 20, 'the archived answers page on their own');
+  assert.strictEqual(count(h, /<li id="arch-s0-[0-9a-f]{16}"/g), 20, 'the archived answers page on their own');
   assert.ok(count(h, /<ul class="tnotes"/g) >= 2, 'both lists use the thread\'s look');
 });
 
@@ -495,6 +496,56 @@ rule('Team values: 100 in natural order; value 90, just saved, is drawn and focu
   assert.ok(new RegExp('id="tvv-' + n90 + '"').test(h), 'drawn');
   assert.strictEqual(app.activeId(), 'tvv-' + n90, 'focused');
   assert.ok(app.asked().some(s => s.indexOf('tvv-' + n90) >= 0), 'brought into view');
+});
+
+/* Code review round 4. */
+rule('Corrections: View correction on a twin past the page keeps that twin, by its anchor, through a newer read that inserts, deletes or reorders notes sharing its id', async () => {
+  const app = await fresh(); await openRun(app, 'busy', 's0');
+  const p = notesFile(app), all = lines(app, p), first = all.find(n => n.id === 'twin-corr'), second = 'The second twin correction';
+  const corrIds = h => ids(h.slice(h.indexOf('id="ins-corr"'), h.indexOf('id="ins-notes"')), /<li class="corr" id="(corr-[^"]+)"/g);
+  const drawnText = h => { const a = h.indexOf('id="ins-corr"'); return h.slice(a, h.indexOf('id="ins-notes"', a)); };
+  const open = async () => {
+    await openRun(app, 'busy', 's0');
+    assert.ok(drawnText(app.html()).indexOf(second) < 0, 'set-up: the second twin is past the page');
+    /* As the rendered View correction button for it would (its data-id). */
+    app.click('goto-corr', 'corr-twin-corr#2'); await app.tick(10);
+    assert.strictEqual(app.activeId(), 'corr-twin-corr-2', 'set-up: focused');
+    assert.ok(liText(app.html(), 'corr-twin-corr-2').indexOf(second) >= 0, 'set-up: on the second twin');
+  };
+  const kept = what => {
+    const h = app.html(), t = drawnText(h);
+    assert.ok(t.indexOf(second) >= 0, what + ': the twin it opened is still drawn');
+    assert.ok(t.indexOf('The first twin correction') < 0, what + ': and not the other twin in its place');
+    assert.ok(corrIds(h).length <= 21, what + ': with at most 21 drawn');
+    const row = corrIds(h).find(id => liText(h, id).indexOf(second) >= 0);
+    assert.strictEqual(app.activeId(), row, what + ': focus on it');
+  };
+  await open();
+  /* Inserted: an older twin arrives, so the opened one is now third with that id. */
+  const older = Object.assign({}, first, { at: '2000-01-01T00:00:00.000Z', change: { op: 'wording', to: 'An older twin correction' }, text: 'An older twin correction' });
+  await arrive(app, p, [older].concat(all));
+  kept('an older twin inserted');
+  /* Deleted: the first twin goes, so it's the only one with that id. */
+  await arrive(app, p, all); await open();
+  await arrive(app, p, all.filter(n => n !== first));
+  kept('the other twin deleted');
+  /* Reordered: the first twin's time moves after it, so it's first with that id. */
+  await arrive(app, p, all); await open();
+  await arrive(app, p, all.map(n => n === first ? Object.assign({}, n, { at: new Date(Date.parse(n.at) + 600 * 60000).toISOString() }) : n));
+  kept('the twins reordered');
+});
+
+rule('Corrections: the correction row with focus stays drawn, by its anchor, when a newer read sorts one in above it and would push it off the page', async () => {
+  const app = await fresh(); await openRun(app, 'busy', 's0');
+  const d = moreOf(app.html(), 'rcorr:' + fixture().facts.busy + ':s0');
+  app.click('more', 'rcorr:' + fixture().facts.busy + ':s0', d); await app.tick(5);
+  const h0 = app.html(), rows = ids(h0.slice(h0.indexOf('id="ins-corr"'), h0.indexOf('id="ins-notes"')), /<li class="corr" id="(corr-[^"]+)"/g), last = rows[rows.length - 1];
+  app.node(K(last)).focus();
+  const p = notesFile(app), all = lines(app, p), c0 = all.find(n => n.kind === 'correction' && n.step === 's0');
+  await arrive(app, p, [Object.assign({}, c0, { id: 'arrived-first', at: '2000-01-01T00:00:00.000Z', text: 'Arrived first', change: { op: 'wording', to: 'Arrived first' } })].concat(all));
+  const h = app.html();
+  assert.ok(h.indexOf('id="' + last + '"') >= 0 && h.indexOf('Arrived first') >= 0, 'both drawn');
+  assert.strictEqual(app.activeId(), last, 'and focus stays on it');
 });
 
 run();

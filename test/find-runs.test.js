@@ -48,11 +48,11 @@ rule('Follow-ups: 5,000 draw 50 a chip, oldest open first, with Show more focusi
   assert.strictEqual(fuKeys(h).length, 50);
   assert.ok(/Open · 5000</.test(h) || /Open · 5,000</.test(h) || /Open · \d+</.test(h), 'the heading counts every one');
   const d = moreOf(h, 'fu');
-  assert.ok(d && d.focus === '[id="fu-' + d.next.replace(/\//g, '--') + '"] .fu-text', JSON.stringify(d));
+  assert.ok(d && d.focus === '[id="fu-' + d.next.replace(/\//g, '--') + '-t"]', JSON.stringify(d));
   app.click('more', 'fu', d); await app.tick(5);
   assert.strictEqual(fuKeys(app.html()).length, 100);
   assert.ok(app.node(d.focus) && app.doc.activeElement === app.node(d.focus), 'focus is on the first added row\'s text');
-  assert.ok(/<span class="fu-text" tabindex="-1">/.test(app.html()));
+  assert.ok(/<span class="fu-text" id="fu-[^"]+-t" tabindex="-1">/.test(app.html()));
   await typeFind(app, 'fu', 'follow up 4321');
   h = app.html();
   assert.deepStrictEqual(fuKeys(h).length, 1, 'one match');
@@ -576,7 +576,7 @@ rule('Just planned: a plan saved while a read is under way is still drawn and fo
   assert.ok(options(h, 'rf-process').some(x => x[0] === 'versions' && x[2]), 'the filter unchanged');
 });
 
-const todos = h => [...h.matchAll(/<li class="todo (?!ack)[^"]*" id="(todo-\d+)"/g)].map(m => m[1]);
+const todos = h => [...h.matchAll(/<li class="todo (?!ack)[^"]*" id="(todo-[0-9a-f]{16})"/g)].map(m => m[1]);
 rule('Home: Needs you shows 10 and Show more adds 10, focusing the first one added; the count says how many need you, and only drawn rows are built (a counted draw)', async () => {
   const app = await bigApp();
   app.click('nav', 'home'); await app.tick(10);
@@ -588,11 +588,13 @@ rule('Home: Needs you shows 10 and Show more adds 10, focusing the first one add
   app.click('dismiss'); await app.tick(5);
   let draws = (app.PF.perf.n.render || 0) - r0;
   assert.ok(draws >= 1 && app.PF.perf.n['home.todo'] === 10 * draws, 'each draw builds the 10 drawn rows, not ' + n + ': ' + app.PF.perf.n['home.todo'] + ' in ' + draws);
-  const d = moreOf(h, 'home-todo');
-  assert.ok(d && d.focus === '#todo-10 b', JSON.stringify(d));
+  const d = moreOf(h, 'home-todo'), first = todos(h);
+  /* The 11th row's title, by an id from what the row is (2.11), never its place. */
+  assert.ok(d && /^#todo-[0-9a-f]{16}-t$/.test(d.focus) && first.indexOf(d.focus.slice(1, -2)) < 0, JSON.stringify(d));
   app.click('more', 'home-todo', d); await app.tick(5);
   h = app.html();
   assert.strictEqual(todos(h).length, 20, 'Show more adds 10');
+  assert.strictEqual(todos(h)[10], d.focus.slice(1, -2), 'the first one added');
   assert.ok(app.node(d.focus) && app.doc.activeElement === app.node(d.focus), 'focus on the first one added');
   app.PF.perf.n['home.todo'] = 0; r0 = app.PF.perf.n.render || 0;
   app.click('dismiss'); await app.tick(5);
@@ -608,12 +610,13 @@ rule('Home: Your corrections shows 10 of 30, and Show more adds 10', () => {
   let h = V.home(ctx);
   assert.strictEqual((h.match(/<li class="todo ack/g) || []).length, 10);
   assert.ok(/Reason &lt;0&gt;/.test(h) && !/Reason <0>/.test(h), 'escaped');
-  const d = moreOf(h, 'home-acks');
-  assert.ok(d && d.focus === '#ack-10 b' && /Show 10 more/.test(h), JSON.stringify(d));
+  const d = moreOf(h, 'home-acks'), dk = k => PF.vk.domKey(k);
+  /* Each row by its acknowledgment's key (2.11), never its place. */
+  assert.ok(d && d.next === 'k10' && d.focus === '#ack-' + dk('k10') + '-t' && /Show 10 more/.test(h), JSON.stringify(d));
   state.more['home-acks'] = 20;
   h = V.home(ctx);
   assert.strictEqual((h.match(/<li class="todo ack/g) || []).length, 20);
-  assert.ok(/id="ack-19"/.test(h) && !/id="ack-20"/.test(h));
+  assert.ok(h.indexOf('id="ack-' + dk('k19') + '"') >= 0 && h.indexOf('id="ack-' + dk('k20') + '"') < 0);
 });
 
 rule('Home: Your follow-ups shows 10 of 50, Show more adds 10 with focus on the first one added, and the link to all follow-ups stays', async () => {
@@ -697,18 +700,18 @@ rule('Checks with 400 commands to fill in draw 50 in the overview and the editor
   app.PF.perf.n['checks.row'] = 0;
   app.click('open-process', 'commands'); await app.tick(10);
   let h = app.html();
-  assert.strictEqual(lis(h, /<li id="checks-ov-\d+"/g), 50, 'the overview draws 50');
+  assert.strictEqual(lis(h, /<li id="checks-ov-[0-9a-f]+"/g), 50, 'the overview draws 50');
   const d = moreOf(h, 'checks-ov');
   assert.ok(d && /Showing 50 of 40\d/.test(h), 'and says how many there are');
   app.PF.perf.n['checks.row'] = 0; const c0 = app.PF.perf.n.render || 0; app.click('dismiss'); await app.tick(5);
   const cd = (app.PF.perf.n.render || 0) - c0;
   assert.ok(cd >= 1 && app.PF.perf.n['checks.row'] === 50 * cd, 'each draw builds 50 rows: ' + app.PF.perf.n['checks.row'] + ' in ' + cd);
   app.click('more', 'checks-ov', d); await app.tick(5);
-  assert.strictEqual(lis(app.html(), /<li id="checks-ov-\d+"/g), 100);
+  assert.strictEqual(lis(app.html(), /<li id="checks-ov-[0-9a-f]+"/g), 100);
   assert.ok(app.node(d.focus) && app.doc.activeElement === app.node(d.focus), 'Show more focuses the first one added');
   app.click('ptab', 'edit'); await app.tick(10); app.click('ins-tab', 'checks'); await app.tick(10);
   h = app.html();
-  assert.strictEqual(lis(h, /<li id="checks-ed-\d+"/g), 50, 'the editor draws 50');
+  assert.strictEqual(lis(h, /<li id="checks-ed-[0-9a-f]+"/g), 50, 'the editor draws 50');
   assert.ok(/aria-label="Checks: 40\d tips"/.test(h), 'and counts every one: ' + (/aria-label="Checks: [^"]*"/.exec(h) || [''])[0]);
   /* 400 things to fix: 50 drawn, and Publish is held for all 400. */
   const steps = Array.from({ length: 400 }, (x, i) => '- [ ] {no.such.type} Blocked step ' + i + ' {#b' + i + '}\n').join('');
@@ -716,7 +719,7 @@ rule('Checks with 400 commands to fill in draw 50 in the overview and the editor
   app.click('nav', 'processes'); await app.tick(5); app.focus(); await app.tick(200);
   app.click('open-process', 'blocked'); await app.tick(10);
   h = app.html();
-  assert.strictEqual(lis(h, /<li id="checks-ov-\d+"/g), 50, 'the overview draws 50 of 400 to fix');
+  assert.strictEqual(lis(h, /<li id="checks-ov-[0-9a-f]+"/g), 50, 'the overview draws 50 of 400 to fix');
   assert.ok(lis(h, /<span class="lvl bad">Fix<\/span>/g) === 50 && /Showing 50 of 4\d\d/.test(h));
   assert.ok(/data-act="publish" data-id="blocked"[^>]*disabled/.test(h), 'Publish is held');
   app.click('ptab', 'edit'); await app.tick(10); app.click('ins-tab', 'checks'); await app.tick(10);
@@ -728,7 +731,7 @@ rule('Why is this here? with 300 members draws 20, each with its whole reason an
   app.click('nav', 'home'); await app.tick(5); app.click('open-run', facts.landed); await app.tick(10);
   app.click('select', 's0'); await app.tick(10);
   let h = app.html();
-  const runs = lis(h, /<button class="linkish" id="pm-s0-[\d-]+-run"/g), whys = lis(h, /<dt id="pm-s0-[\d-]+" tabindex="-1">Why · /g);
+  const runs = lis(h, /<button class="linkish" id="pm-s0-[0-9a-f]+-run"/g), whys = lis(h, /<dt id="pm-s0-[0-9a-f]+" tabindex="-1">Why · /g);
   assert.strictEqual(runs, 20, '20 source runs');
   assert.strictEqual(whys, 20, 'and their 20 reasons');
   assert.ok(/Suggested in 300 runs: /.test(h) && /, and 280 more<\/p>/.test(h), 'the count is all of them');
@@ -737,7 +740,7 @@ rule('Why is this here? with 300 members draws 20, each with its whole reason an
   assert.ok(pd >= 1 && app.PF.perf.n['prov.member'] === 20 * pd, 'built only when drawn: ' + app.PF.perf.n['prov.member'] + ' in ' + pd);
   const d = moreOf(h, 'prov-s0');
   app.click('more', 'prov-s0', d); await app.tick(5);
-  assert.strictEqual(lis(app.html(), /<button class="linkish" id="pm-s0-[\d-]+-run"/g), 40);
+  assert.strictEqual(lis(app.html(), /<button class="linkish" id="pm-s0-[0-9a-f]+-run"/g), 40);
   assert.ok(app.node(d.focus) && app.doc.activeElement === app.node(d.focus), 'Show more focuses the first added member\'s reason: ' + d.focus);
 });
 
@@ -750,10 +753,10 @@ rule('300 unreadable note lines are one notice, announced once, with the lines 5
   assert.ok(/<b role="status">300 note lines can/.test(h), 'announced once, with the count');
   app.fire('toggle', { target: { dataset: { disc: 'badnotes:' + facts.busy }, open: true } }); app.click('dismiss'); await app.tick(5);
   h = app.html();
-  assert.strictEqual(lis(h, /<li id="badnote-\d+"/g), 50, '50 in the fold');
-  let seen = lis(h, /<li id="badnote-\d+"/g);
+  assert.strictEqual(lis(h, /<li id="badnote-[0-9a-f]+"/g), 50, '50 in the fold');
+  let seen = lis(h, /<li id="badnote-[0-9a-f]+"/g);
   for (let i = 0; i < 10 && moreOf(app.html(), 'badnotes'); i++) { const d = moreOf(app.html(), 'badnotes'); app.click('more', 'badnotes', d); await app.tick(5); assert.ok(app.doc.activeElement === app.node(d.focus), 'focus on the first added line'); }
-  seen = lis(app.html(), /<li id="badnote-\d+"/g);
+  seen = lis(app.html(), /<li id="badnote-[0-9a-f]+"/g);
   assert.strictEqual(seen, 300, 'every line reachable');
   assert.ok(/<code>[^<]+\.jsonl<\/code>, line \d+/.test(app.html()), 'file and line');
 });
@@ -797,12 +800,12 @@ rule('Proposal review with 300 records draws 20 in the dialog, Show more focuses
   app.click('prop-review', un(m[1])); await app.tick(80);
   let o = app.overlay();
   assert.ok(/What happened before \((\d+)\)/.test(o) && +/What happened before \((\d+)\)/.exec(o)[1] >= 300, 'every record counted');
-  assert.strictEqual(lis(o, /<li id="prop-rec-\d+"/g), 20);
+  assert.strictEqual(lis(o, /<li id="prop-rec-[0-9a-f]+"/g), 20);
   const d = moreOf(o, 'prop-recs');
   assert.ok(d && d.dialog === '1', 'Show more in a dialog');
   app.click('more', 'prop-recs', d); await app.tick(10);
   o = app.overlay();
-  assert.strictEqual(lis(o, /<li id="prop-rec-\d+"/g), 40);
+  assert.strictEqual(lis(o, /<li id="prop-rec-[0-9a-f]+"/g), 40);
   assert.ok(app.doc.activeElement === app.node(d.focus), 'focus inside the dialog, on the first added record');
   app.click('close-overlay'); await app.tick(5);
 });
@@ -1191,6 +1194,65 @@ rule('The test page reads a big drawn screen in linear time, and a closing tag e
   assert.ok(Date.now() - t < 5000, 'read in ' + (Date.now() - t) + 'ms');
   assert.strictEqual(app.doc.querySelector('#s0 option[value="v1-0"]'), null, 'an option in the next select isn\'t inside the one before it');
   assert.strictEqual(app.doc.querySelector('label option'), null, 'a label closed before the select holds no options');
+});
+
+/* ---------- Code review round 4 ---------- */
+/* A newer read that arrives on its own (the window coming back into focus), leaving focus where it is. */
+async function arrive(app) {
+  const was = app.PF.perf.n['load.done'] || 0;
+  app.focus();
+  for (let i = 0; i < 4000 && (app.PF.perf.n['load.done'] || 0) <= was; i++) await app.tick(5);
+  await app.tick(5);
+}
+/* A small folder whose Needs you is mostly plans, so one arriving early moves the rows below it. */
+async function plansApp() {
+  const fx = fixture({ size: { running: 1, plans: 30, ended: 2, followUps: 1, procs: 2, versions: 2, stages: 1, members: 1, health: 1, many: 2, steps: 8, legacy: 1, archived: 1, hot: 1, teamValues: 1, people: 6, tags: 2 } });
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true }); await app.tick(60);
+  await into(app, fx);
+  return app;
+}
+const todoRow = (h, id) => { const i = h.indexOf('<li class="todo plan" id="' + id + '"'); return i < 0 ? '' : h.slice(i, h.indexOf('</li>', i)); };
+const planOf = row => (/data-act="review-plan" data-id="([^"]+)"/.exec(row) || [])[1];
+rule('Home: Needs you keeps the task under focus when an earlier plan arrives, is deleted, or the plans reorder (rows keyed by what they are, not their place)', async () => {
+  const app = await plansApp();
+  app.click('nav', 'home'); await app.tick(10);
+  const d = moreOf(app.html(), 'home-todo');
+  app.click('more', 'home-todo', d); await app.tick(5);
+  const id = d.focus.slice(1, -2), plan = planOf(todoRow(app.html(), id));
+  assert.ok(plan && app.activeId() === id + '-t', 'set-up: the 11th row, a plan, focused: ' + app.activeId());
+  const title = /<b id="[^"]+" tabindex="-1">([^<]*)/.exec(todoRow(app.html(), id))[1];
+  const on = what => {
+    const h = app.html(), row = todoRow(h, id);
+    assert.strictEqual(app.activeId(), id + '-t', what + ': focus stays on the row');
+    assert.strictEqual(planOf(row), plan, what + ': the same plan under it, and its Review button');
+    assert.ok(row.indexOf(title) >= 0, what + ': its own title');
+  };
+  const src = JSON.parse(app.fs.files['proposals/plan-00000.json'].t), t0 = Date.parse(src.when);
+  const early = id => Object.assign({}, src, { id, title: 'Arrived early ' + id, when: new Date(t0 - 30 * 60000).toISOString() });
+  /* Inserted: a plan that sorts first arrives. */
+  await app.fs.write('proposals/plan-early.json', JSON.stringify(early('plan-early')));
+  await arrive(app);
+  on('an earlier plan inserted');
+  /* Deleted: the plan above it goes. */
+  await app.fs.remove('proposals/plan-00000.json'); await arrive(app);
+  on('a plan above it deleted');
+  /* Reordered: the plan above it moves below it. */
+  const moved = JSON.parse(app.fs.files['proposals/plan-early.json'].t); moved.when = new Date(t0 + 20 * 3600000 + 1800000).toISOString();
+  await app.fs.write('proposals/plan-early.json', JSON.stringify(moved)); await arrive(app);
+  on('the plans reordered');
+});
+
+rule('Home: Your corrections rows are keyed by their acknowledgment, so one inserted, deleted or reordered above never turns a row into another', () => {
+  const PF = loadViews(), V = PF.views, people = [{ id: 'person-casey', name: 'Casey Nguyen' }];
+  let acks = Array.from({ length: 30 }, (x, i) => ({ key: 'k' + i, kind: 'declined', by: 'person-casey', reason: 'Reason ' + i, process: 'release', group: { target: { kind: 'step', step: 's' + i }, text: 'Step ' + i } }));
+  const state = { view: 'home', me: 'person-casey', more: { 'home-acks': 20 }, unfold: {}, disc: {} };
+  const ctx = { state, data: { people, runs: [], plans: [], processes: [], drafts: [], skills: [], legacy: [], validations: [] }, now: () => Date.now(), peopleById: { 'person-casey': people[0] }, processes: () => [], processTitle: id => id, acks: () => acks, findRun: () => null };
+  const rowOf = (h, reason) => { const i = h.indexOf('Reason ' + reason + '<'); const a = h.lastIndexOf('<li class="todo ack', i); return /id="([^"]+)"/.exec(h.slice(a))[1]; };
+  const id = rowOf(V.home(ctx), 10), text = h => { const i = h.indexOf('id="' + id + '"'); return h.slice(i, h.indexOf('</li>', i)); };
+  const same = what => { const h = V.home(ctx); assert.ok(/Reason 10</.test(text(h)) && h.indexOf('id="' + id + '-t"') >= 0, what + ': ' + text(h).slice(0, 200)); };
+  acks = [{ key: 'new', kind: 'declined', by: 'person-casey', reason: 'Arrived', process: 'release', group: { target: { kind: 'step', step: 'x' }, text: 'X' } }].concat(acks); same('inserted above');
+  acks = acks.filter(a => a.key !== 'k3'); same('deleted above');
+  acks = acks.slice().reverse(); same('reordered');
 });
 
 run();

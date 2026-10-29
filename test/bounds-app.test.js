@@ -402,4 +402,80 @@ rule('D8: PENDING names each list once, with a slice of 2.11 or null for one the
   PENDING.forEach(p => assert.ok(p.slice === null || [2, 3, 4, 5].indexOf(p.slice) >= 0, p.name));
 });
 
+/* ---------- code review round 4: keys are identities, and the focused row stays drawn ---------- */
+/* A redraw that changes nothing else and leaves focus where it is (a click on Dismiss would take it). */
+const quietRedraw = async app => { app.fire('click', { target: { closest: () => ({ dataset: { act: 'dismiss' }, disabled: false, classList: { contains: () => false } }) } }); await app.tick(5); };
+/* Every list each screen draws (PF.vk.TRACE): its id, keys, page and focus target. */
+async function traced(app, name, go, o) {
+  let g = go;
+  if (o && o.start) g = async a => { await go(a); a.click('start', o.start); await a.tick(10); };
+  if (o && o.plan) g = async a => { await go(a); a.click('plan-run', o.plan); await a.tick(10); };
+  if (app.overlay()) { app.click('close-overlay'); await app.tick(5); }
+  await g(app); await app.tick(10); await openFolds(app);
+  app.PF.vk.TRACE = [];
+  try { await quietRedraw(app); return app.PF.vk.TRACE; } finally { app.PF.vk.TRACE = null; }
+}
+rule('Round 4: on every screen, the last row drawn of every paged list keeps focus and stays drawn, once, when an item sorting in above pushes it off the page', async () => {
+  /* Its own app: a rule before it in the same shard can leave a list shown in full (Show more), so not paged here. */
+  const { app } = await freshApp(), fails = [], tried = new Set();
+  for (const [name, go, o] of SCREENS) {
+    const seen = new Set();
+    for (const l of await traced(app, name, go, o)) {
+      if (seen.has(l.id) || l.keys.length <= l.page.length || !l.page.length) continue;
+      seen.add(l.id);
+      /* The row the arrival pushes off: the page's last (a tail's first, the newest arriving below it). */
+      const k = l.tail ? l.page[0] : l.page[l.page.length - 1], sel = l.focusOf(k), el = app.node(sel);
+      if (!el) { fails.push(name + ' › ' + l.id + ': its row ' + k + ' has no element for ' + sel); continue; }
+      el.focus();
+      app.PF.vk.ARRIVE = l.id; app.PF.vk.TRACE = [];
+      let after;
+      try { await quietRedraw(app); after = app.PF.vk.TRACE.filter(x => x.id === l.id)[0]; } finally { app.PF.vk.ARRIVE = null; app.PF.vk.TRACE = null; }
+      tried.add(l.id.replace(/:.*/, ''));
+      const now = app.node(sel);
+      if (!after || after.page.indexOf(k) >= 0) fails.push(name + ' › ' + l.id + ': set-up: the arrival didn\'t push ' + k + ' off the page');
+      else if (after.extra.filter(x => x === k).length !== 1 || after.extra.length > 1 + after.extra.filter(x => x !== k && l.extra.indexOf(x) >= 0).length) fails.push(name + ' › ' + l.id + ': ' + k + ' isn\'t drawn once past the page: ' + after.extra.join(', '));
+      if (!now || app.doc.activeElement !== now) fails.push(name + ' › ' + l.id + ': focus on ' + k + ' went to ' + app.activeId());
+      await quietRedraw(app);
+    }
+  }
+  assert.deepStrictEqual(fails, []);
+  /* The kinds of paged list the fixture fills: flat, tree, tail and the nested corrections, at least. */
+  ['runs-running', 'processes', 'notes', 'rcorr', 'fx', 'home-todo', 'ins-dur'].forEach(x => assert.ok(tried.has(x), 'tried ' + x + ': ' + [...tried].join(', ')));
+});
+/* A key built from a row's place: an item's index (from map's or forEach's second argument) kept on it and returned by keyOf.
+   Checked in the source of every list the views draw, since a screen's keys can't tell a place from an id that happens to
+   count up (the fixture's roles are r1, r2…). */
+const fsx = require('fs'), pathx = require('path');
+function placeKeys(src) {
+  const out = [], idx = new Set();
+  /* Fields given an index: { …, i: i } or x.n = i, from a callback's (x, i). */
+  for (const m of src.matchAll(/function \(\w+, (\w+)\) \{[^\n]*?\{[^{}\n]*\b(\w+): \1\b/g)) idx.add(m[2]);
+  for (const m of src.matchAll(/function \(\w+, (\w+)\) \{ \w+\.(\w+) = \1;/g)) idx.add(m[2]);
+  for (const m of src.matchAll(/keyOf: function \((\w+)\) \{ return ([^}]*)\}/g)) {
+    const body = m[2], uses = [...body.matchAll(new RegExp('\\b' + m[1] + '\\.(\\w+)', 'g'))].map(x => x[1]);
+    if (uses.some(f => idx.has(f)) || new RegExp('^String\\(' + m[1] + '\\);?\\s*$').test(body.trim())) out.push(m[0]);
+  }
+  return out;
+}
+rule('Round 4: no list the views draw is keyed by its rows\' places, and on every screen no two rows of a list share a key', async () => {
+  const dir = pathx.join(__dirname, '..', 'src', 'ui', 'views'), fails = [];
+  fsx.readdirSync(dir).filter(f => /\.js$/.test(f)).forEach(f => placeKeys(fsx.readFileSync(pathx.join(dir, f), 'utf8')).forEach(k => fails.push(f + ': keyed by place: ' + k)));
+  const { app } = await bigApp();
+  for (const [name, go, o] of SCREENS) for (const l of await traced(app, name, go, o)) if (new Set(l.keys).size !== l.keys.length) fails.push(name + ' › ' + l.id + ': two rows share a key');
+  assert.deepStrictEqual([...new Set(fails)], []);
+});
+rule('Round 4: the place check is itself checked: the lists 2.11 keyed by place fail it, the same lists keyed by their items pass', () => {
+  /* As the views had them before code review round 4. */
+  const before = [
+    "items.forEach(function (x, i) { x.n = i; });\n K.list(st, 'home-todo', items, { keyOf: function (x) { return String(x.n); } });",
+    "K.list(s, 'ans:' + rk, a.history.slice().reverse().map(function (y, i) { return { y: y, i: i }; }), { page: 20, keyOf: function (x) { return String(x.i); } });",
+    "K.list(ctx.state, 'prop-recs', recs.map(function (r, i) { return { r: r, i: i }; }), { keyOf: function (x) { return String(x.i); } });",
+    "g.members.forEach(function (m, i) { items.push({ k: k, g: g, m: m, i: i }); });\n K.list(st, lid, items, { draw: draw, keyOf: function (x) { return x.g.id + '#' + x.i; } });",
+    "K.list(st || {}, id, ch, { draw: draw, keyOf: function (i) { return String(i); } });"
+  ];
+  before.forEach(src => assert.strictEqual(placeKeys(src).length, 1, src));
+  ["K.list(st, 'x', items, { keyOf: function (x) { return x.key; } });", "K.list(st, 'x', rows, { keyOf: function (r) { return r.k; } });", "K.list(st, 'x', items, { keyOf: function (i) { return kOf[i]; } });"]
+    .forEach(src => assert.strictEqual(placeKeys(src).length, 0, src));
+});
+
 run();
