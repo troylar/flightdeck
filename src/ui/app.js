@@ -153,6 +153,9 @@
     renameDeps: function (map, name) { return renameDeps(map, name); },
     latestPub: function (id) { var p = procFind(id); return p ? p.latest : null; },
     suggestRole: suggestRole,
+    /* What each role of the open Start or Plan form started as (2.11), kept per form and version: a refresh that changes the
+       rotation's suggestion or the plan never changes a role off the page, as it never changes one drawn. */
+    rolesInit: function (fk) { if (!state.rolesInit || state.rolesInit.at !== fk) state.rolesInit = { at: fk, was: Object.create(null) }; return state.rolesInit.was; },
     attachments: function (key, step) { return attachmentsFor(key, step); },
     /* What was typed on a step of the open run and not used yet: evidence, Fill in values, a note. */
     stepDraft: function (id) { return draftOf(state.runKey, id, false); },
@@ -4902,6 +4905,9 @@
     holdAt(state.processId, dirty.id);
     /* Focus never lands on a box in a closed phone sheet. */
     if (state.view === 'run' && narrow() && !state.refOpen) state.refOpen = true;
+    /* Nor on a builder box behind the inspector's Checks or Preview: Selected, where it is, is shown. */
+    var bx = /^ob-/.test(dirty.id || '') && state.view === 'process' && state.ptab === 'edit' ? document.getElementById(dirty.id) : null;
+    if (bx && bx.closest && bx.closest('[hidden]') && (state.insTab === 'checks' || state.insTab === 'preview')) state.insTab = 'selected';
     state.focus = dirty.id ? '#' + cssEsc(dirty.id) : null; render();
   }
   /* ---------- boxes that know the run details (2.7, views/detailbox.js) ----------
@@ -5502,6 +5508,8 @@
     /* The checklist preview names 50 skills on a step or the whole checklist; the rest are in the Skills panel (2.11, D10). */
     'pv-skills': function () {
       var p = currentProcess(); if (!p) return;
+      /* From the editor's Preview it leaves the editor: text typed in a builder box and not applied refuses it, as go() does. */
+      if (state.ptab === 'edit') { var dirty = pendingBox(); if (dirty) { refuseFor(dirty); return; } }
       state.ptab = 'overview'; state.pick = null; state.disc = Object.assign({}, state.disc); state.disc['sk:' + p.id] = true;
       state.focus = 'sk-h'; revealAt('#sk-h'); render();
     },
@@ -7849,7 +7857,7 @@
     });
   }
   /* Every change of screen goes through here: what's typed on the run's selected step is kept first. */
-  function setView(v) { childEpoch++; if (v !== 'runs') state.justPlanned = null; if (state.view === 'start' && v !== 'start') { state.startModeAt = {}; state.rolesPicked = null; } if (state.view === 'practice' && v !== 'practice') prLeave(); leaveContext(); state.view = v; }
+  function setView(v) { childEpoch++; if (v !== 'runs') state.justPlanned = null; if (state.view === 'start' && v !== 'start') { state.startModeAt = {}; state.rolesPicked = null; state.rolesInit = null; } if (state.view === 'practice' && v !== 'practice') prLeave(); leaveContext(); state.view = v; }
   /* Leaving the practice page (any way: Edit, Back, a link): what's typed is kept, and where it was, for coming back. */
   function prLeave() {
     prHarvest(); var p = currentProcess(), e = p && prs[edKey(p.id)];

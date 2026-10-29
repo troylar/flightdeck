@@ -10084,8 +10084,11 @@ PF.signature = (function () {
   }
   function process(pub) { var x = inputs(pub); return PF.util.hash(JSON.stringify([x.context, x.roles, x.runs, PF.publish.canonical(x.extensions), PF.publish.canonical(x.pins)])); }
   /* What changed in the inputs apart from the run details (which skills.changes reports on their own), in words. */
-  function inputChanges(a, b) {
-    var x = inputs(a), y = inputs(b), out = [], list = function (l) { return l.join(', ') || 'none'; };
+  function inputChanges(a, b) { return inputWords(inputs(a), inputs(b)); }
+  /* The same words from two inputs() results; list(names) writes a list of roles (a page shows only some: K.capJoin). */
+  function inputWords(x, y, list) {
+    var out = [];
+    list = list || function (l) { return l.join(', ') || 'none'; };
     if (x.roles.join(',') !== y.roles.join(',')) out.push('Roles: now ' + list(y.roles) + ' (was ' + list(x.roles) + ')');
     if (x.runs !== y.runs) out.push('Runs: ' + (y.runs || 'not set') + ' (was ' + (x.runs || 'not set') + ')');
     if (PF.publish.canonical(x.extensions) !== PF.publish.canonical(y.extensions)) out.push('Its extensions changed');
@@ -10095,7 +10098,7 @@ PF.signature = (function () {
   /* A gate's and a phase's own instruction parts, the same ones steps() uses (practice compares them; docs/design.md, Practice). */
   function gateParts(g, images) { return JSON.stringify(gate(g, images)); }
   function phaseParts(p, images) { return JSON.stringify([p.id, p.title, p.mode, p.note || '', shots(p.shots, images), texts(p.when)]); }
-  return { steps: steps, process: process, inputs: inputs, inputChanges: inputChanges, gateParts: gateParts, phaseParts: phaseParts };
+  return { steps: steps, process: process, inputs: inputs, inputChanges: inputChanges, inputWords: inputWords, gateParts: gateParts, phaseParts: phaseParts };
 })();
 
 /* Skills built from processes. A skill lives wherever its team keeps it (a Bitbucket repo, a local folder, anywhere); the team
@@ -10384,7 +10387,8 @@ PF.skills = (function () {
     /* Every other declared input (roles, runs, and the payload's extensions and pins), bound by a step or not. */
     if (PF.signature.process(from) !== PF.signature.process(to)) {
       var what = PF.signature.inputChanges(from, to);
-      if (what.length) out.push({ id: '(inputs)', change: 'inputs', what: what });
+      /* ins: both sides' inputs, so a page can write the same words with long role lists shortened; the brief uses what. */
+      if (what.length) out.push({ id: '(inputs)', change: 'inputs', what: what, ins: { from: PF.signature.inputs(from), to: PF.signature.inputs(to) } });
     }
     /* The same steps in a different order is a change too: a skill follows the order. */
     var oa = orderOf(fromMap, ids).filter(function (id) { return b[id]; }), ob = orderOf(toMap, ids).filter(function (id) { return a[id]; });
@@ -20543,6 +20547,10 @@ PF.vk = (function () {
          choice redrawn as the control's own value still counts as unsaved: navigation asks about it (pendingBox in app.js). */
       var setTo = st.rolesPicked && st.rolesPicked.at === scope + ':' + pub.info.folder ? st.rolesPicked.vals || {} : {};
       var setOf = function (role, dflt) { return Object.prototype.hasOwnProperty.call(setTo, role) ? setTo[role] : dflt; };
+      /* What each role started as on this form (ctx.rolesInit), drawn or not: the plan's choice, else the suggestion (never for
+         who approves). Snapshotted the first time the role is drawn or hidden, so a newer read changes no role by itself. */
+      var init = ctx.rolesInit ? ctx.rolesInit(scope + ':' + pub.info.folder) : Object.create(null);
+      var wasOf = function (role, chosen, sug) { if (!Object.prototype.hasOwnProperty.call(init, role)) init[role] = apRole[role] ? chosen : chosen || (sug && sug.person) || ''; return init[role]; };
       var keepRole = function (role) { return !!chosenOf(role) || !!picked[role] || !!(st.fieldErr && st.fieldErr.id === 'start-approver' && st.fieldErr.field === 'role-' + role); };
       var rq = K.findQ(st, 'start-roles'), rhit = K.finds(rq), rfound = rq ? meta.roles.filter(function (role) { return rhit([role]); }) : meta.roles;
       var rlist = rq ? meta.roles.filter(function (role) { return rfound.indexOf(role) >= 0 || keepRole(role); }) : meta.roles, drawnRole = Object.create(null), roleRows = '';
@@ -20550,7 +20558,7 @@ PF.vk = (function () {
       var roleRow = function (role) {
         var h = '';
         drawnRole[role] = true;
-        var chosen = chosenOf(role), sug = ctx.suggestRole(p.id, role);
+        var sug = ctx.suggestRole(p.id, role), chosen = wasOf(role, chosenOf(role), sug);
         /* Who approves is never preselected: a saved plan's choice stays, otherwise it's Choose a person, with the rotation's
            suggestion as a hint (what it knows: who had the role on past runs). */
         if (apRole[role]) {
@@ -20561,16 +20569,15 @@ PF.vk = (function () {
             (bad ? '<p class="ferr" id="ferr-role-' + esc(role) + '" role="alert">' + esc(st.fieldErr.msg) + '</p>' : '') + '</div>';
           return h;
         }
-        h += '<label class="field" for="role-' + esc(role) + '">' + esc(role) + (sug ? ' <span class="small">· suggestion: ' + esc(nameOf(ctx, sug.person)) + ' (' + esc(sug.why) + ')</span>' : '') + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '" data-was="' + esc(chosen || (sug && sug.person) || '') + '"><option value="">Nobody yet</option>' +
-          people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === setOf(role, chosen || (sug && sug.person)) ? ' selected' : '') + '>' + esc(nmStage(x)) + '</option>'; }).join('') + '</select></label>';
+        h += '<label class="field" for="role-' + esc(role) + '">' + esc(role) + (sug ? ' <span class="small">· suggestion: ' + esc(nameOf(ctx, sug.person)) + ' (' + esc(sug.why) + ')</span>' : '') + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '" data-was="' + esc(chosen) + '"><option value="">Nobody yet</option>' +
+          people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === setOf(role, chosen) ? ' selected' : '') + '>' + esc(nmStage(x)) + '</option>'; }).join('') + '</select></label>';
         return h;
       };
       h += K.list(st, 'start-roles', rlist, { page: ROLE_PAGE, keep: meta.roles.filter(keepRole), keptLabel: 'Roles you\'ve chosen someone for', keyOf: function (role) { return role; }, focusOf: function (k) { return K.byId('role-' + k); },
         draw: function (shown) { return shown.map(roleRow).join(''); } });
       meta.roles.forEach(function (role) {
         if (drawnRole[role]) return;
-        var chosen = chosenOf(role), sug = apRole[role] ? null : ctx.suggestRole(p.id, role);
-        var was = chosen || (sug && sug.person) || '';
+        var was = wasOf(role, chosenOf(role), apRole[role] ? null : ctx.suggestRole(p.id, role));
         roleRows += '<input type="hidden" id="role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(setOf(role, was)) + '" data-was="' + esc(was) + '">';
       });
       h += '</div>' + roleRows + '<p class="small">Suggestions rotate roles to whoever did them least recently, so everyone gets the experience. Change anything.</p>';
@@ -23756,7 +23763,8 @@ PF.vk = (function () {
     if (hit.status.s === 'update' && hit.status.changes) h += K.list(st, 'sk-changes', K.uniqKeys(hit.status.changes, function (c) { return c.change + '\n' + c.id; }).map(function (k, i) { return { c: hit.status.changes[i], k: 'skc-' + K.domKey(k) }; }), { draw: function (shown) { return '<ul class="changes">' + shown.map(function (r) {
       var c = r.c, li = '<li id="' + r.k + '" tabindex="-1">';
       if (c.change === 'order') return li + '<b>Order:</b> its steps now run in a different order.</li>';
-      if (c.change === 'inputs') return li + '<b>What it takes:</b> ' + esc(c.what.join('; ')) + '.</li>';
+      /* Its role lists grow with the checklist: 50 names each and how many more (D10); the brief keeps them whole. */
+      if (c.change === 'inputs') return li + '<b>What it takes:</b> ' + esc(PF.signature.inputWords(c.ins.from, c.ins.to, function (l) { return K.capJoin(l, null, ', ', 'sk-inputs') || 'none'; }).join('; ')) + '.</li>';
       if (c.change === 'context') return li + '<b>Run details:</b> now ' + esc(K.capJoin(c.to) || 'none') + ' (was ' + esc(K.capJoin(c.from) || 'none') + ').</li>';
       return li + '<b>' + esc(K.stepPlain(c.to || c.from, null)) + '</b>: ' + ({ changed: 'changed', removed: 'removed', added: 'new' })[c.change] + '</li>';
     }).join('') + '</ul>'; }, keyOf: function (r) { return r.k; }, focusOf: function (k) { return K.byId(k); } });
@@ -25369,6 +25377,9 @@ PF.examples = (function () {
     renameDeps: function (map, name) { return renameDeps(map, name); },
     latestPub: function (id) { var p = procFind(id); return p ? p.latest : null; },
     suggestRole: suggestRole,
+    /* What each role of the open Start or Plan form started as (2.11), kept per form and version: a refresh that changes the
+       rotation's suggestion or the plan never changes a role off the page, as it never changes one drawn. */
+    rolesInit: function (fk) { if (!state.rolesInit || state.rolesInit.at !== fk) state.rolesInit = { at: fk, was: Object.create(null) }; return state.rolesInit.was; },
     attachments: function (key, step) { return attachmentsFor(key, step); },
     /* What was typed on a step of the open run and not used yet: evidence, Fill in values, a note. */
     stepDraft: function (id) { return draftOf(state.runKey, id, false); },
@@ -30118,6 +30129,9 @@ PF.examples = (function () {
     holdAt(state.processId, dirty.id);
     /* Focus never lands on a box in a closed phone sheet. */
     if (state.view === 'run' && narrow() && !state.refOpen) state.refOpen = true;
+    /* Nor on a builder box behind the inspector's Checks or Preview: Selected, where it is, is shown. */
+    var bx = /^ob-/.test(dirty.id || '') && state.view === 'process' && state.ptab === 'edit' ? document.getElementById(dirty.id) : null;
+    if (bx && bx.closest && bx.closest('[hidden]') && (state.insTab === 'checks' || state.insTab === 'preview')) state.insTab = 'selected';
     state.focus = dirty.id ? '#' + cssEsc(dirty.id) : null; render();
   }
   /* ---------- boxes that know the run details (2.7, views/detailbox.js) ----------
@@ -30718,6 +30732,8 @@ PF.examples = (function () {
     /* The checklist preview names 50 skills on a step or the whole checklist; the rest are in the Skills panel (2.11, D10). */
     'pv-skills': function () {
       var p = currentProcess(); if (!p) return;
+      /* From the editor's Preview it leaves the editor: text typed in a builder box and not applied refuses it, as go() does. */
+      if (state.ptab === 'edit') { var dirty = pendingBox(); if (dirty) { refuseFor(dirty); return; } }
       state.ptab = 'overview'; state.pick = null; state.disc = Object.assign({}, state.disc); state.disc['sk:' + p.id] = true;
       state.focus = 'sk-h'; revealAt('#sk-h'); render();
     },
@@ -33065,7 +33081,7 @@ PF.examples = (function () {
     });
   }
   /* Every change of screen goes through here: what's typed on the run's selected step is kept first. */
-  function setView(v) { childEpoch++; if (v !== 'runs') state.justPlanned = null; if (state.view === 'start' && v !== 'start') { state.startModeAt = {}; state.rolesPicked = null; } if (state.view === 'practice' && v !== 'practice') prLeave(); leaveContext(); state.view = v; }
+  function setView(v) { childEpoch++; if (v !== 'runs') state.justPlanned = null; if (state.view === 'start' && v !== 'start') { state.startModeAt = {}; state.rolesPicked = null; state.rolesInit = null; } if (state.view === 'practice' && v !== 'practice') prLeave(); leaveContext(); state.view = v; }
   /* Leaving the practice page (any way: Edit, Back, a link): what's typed is kept, and where it was, for coming back. */
   function prLeave() {
     prHarvest(); var p = currentProcess(), e = p && prs[edKey(p.id)];

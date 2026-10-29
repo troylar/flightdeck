@@ -284,7 +284,8 @@ PF.skills = (function () {
     /* Every other declared input (roles, runs, and the payload's extensions and pins), bound by a step or not. */
     if (PF.signature.process(from) !== PF.signature.process(to)) {
       var what = PF.signature.inputChanges(from, to);
-      if (what.length) out.push({ id: '(inputs)', change: 'inputs', what: what });
+      /* ins: both sides' inputs, so a page can write the same words with long role lists shortened; the brief uses what. */
+      if (what.length) out.push({ id: '(inputs)', change: 'inputs', what: what, ins: { from: PF.signature.inputs(from), to: PF.signature.inputs(to) } });
     }
     /* The same steps in a different order is a change too: a skill follows the order. */
     var oa = orderOf(fromMap, ids).filter(function (id) { return b[id]; }), ob = orderOf(toMap, ids).filter(function (id) { return a[id]; });

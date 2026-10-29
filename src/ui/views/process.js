@@ -754,6 +754,10 @@
          choice redrawn as the control's own value still counts as unsaved: navigation asks about it (pendingBox in app.js). */
       var setTo = st.rolesPicked && st.rolesPicked.at === scope + ':' + pub.info.folder ? st.rolesPicked.vals || {} : {};
       var setOf = function (role, dflt) { return Object.prototype.hasOwnProperty.call(setTo, role) ? setTo[role] : dflt; };
+      /* What each role started as on this form (ctx.rolesInit), drawn or not: the plan's choice, else the suggestion (never for
+         who approves). Snapshotted the first time the role is drawn or hidden, so a newer read changes no role by itself. */
+      var init = ctx.rolesInit ? ctx.rolesInit(scope + ':' + pub.info.folder) : Object.create(null);
+      var wasOf = function (role, chosen, sug) { if (!Object.prototype.hasOwnProperty.call(init, role)) init[role] = apRole[role] ? chosen : chosen || (sug && sug.person) || ''; return init[role]; };
       var keepRole = function (role) { return !!chosenOf(role) || !!picked[role] || !!(st.fieldErr && st.fieldErr.id === 'start-approver' && st.fieldErr.field === 'role-' + role); };
       var rq = K.findQ(st, 'start-roles'), rhit = K.finds(rq), rfound = rq ? meta.roles.filter(function (role) { return rhit([role]); }) : meta.roles;
       var rlist = rq ? meta.roles.filter(function (role) { return rfound.indexOf(role) >= 0 || keepRole(role); }) : meta.roles, drawnRole = Object.create(null), roleRows = '';
@@ -761,7 +765,7 @@
       var roleRow = function (role) {
         var h = '';
         drawnRole[role] = true;
-        var chosen = chosenOf(role), sug = ctx.suggestRole(p.id, role);
+        var sug = ctx.suggestRole(p.id, role), chosen = wasOf(role, chosenOf(role), sug);
         /* Who approves is never preselected: a saved plan's choice stays, otherwise it's Choose a person, with the rotation's
            suggestion as a hint (what it knows: who had the role on past runs). */
         if (apRole[role]) {
@@ -772,16 +776,15 @@
             (bad ? '<p class="ferr" id="ferr-role-' + esc(role) + '" role="alert">' + esc(st.fieldErr.msg) + '</p>' : '') + '</div>';
           return h;
         }
-        h += '<label class="field" for="role-' + esc(role) + '">' + esc(role) + (sug ? ' <span class="small">· suggestion: ' + esc(nameOf(ctx, sug.person)) + ' (' + esc(sug.why) + ')</span>' : '') + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '" data-was="' + esc(chosen || (sug && sug.person) || '') + '"><option value="">Nobody yet</option>' +
-          people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === setOf(role, chosen || (sug && sug.person)) ? ' selected' : '') + '>' + esc(nmStage(x)) + '</option>'; }).join('') + '</select></label>';
+        h += '<label class="field" for="role-' + esc(role) + '">' + esc(role) + (sug ? ' <span class="small">· suggestion: ' + esc(nameOf(ctx, sug.person)) + ' (' + esc(sug.why) + ')</span>' : '') + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '" data-was="' + esc(chosen) + '"><option value="">Nobody yet</option>' +
+          people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === setOf(role, chosen) ? ' selected' : '') + '>' + esc(nmStage(x)) + '</option>'; }).join('') + '</select></label>';
         return h;
       };
       h += K.list(st, 'start-roles', rlist, { page: ROLE_PAGE, keep: meta.roles.filter(keepRole), keptLabel: 'Roles you\'ve chosen someone for', keyOf: function (role) { return role; }, focusOf: function (k) { return K.byId('role-' + k); },
         draw: function (shown) { return shown.map(roleRow).join(''); } });
       meta.roles.forEach(function (role) {
         if (drawnRole[role]) return;
-        var chosen = chosenOf(role), sug = apRole[role] ? null : ctx.suggestRole(p.id, role);
-        var was = chosen || (sug && sug.person) || '';
+        var was = wasOf(role, chosenOf(role), apRole[role] ? null : ctx.suggestRole(p.id, role));
         roleRows += '<input type="hidden" id="role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(setOf(role, was)) + '" data-was="' + esc(was) + '">';
       });
       h += '</div>' + roleRows + '<p class="small">Suggestions rotate roles to whoever did them least recently, so everyone gets the experience. Change anything.</p>';

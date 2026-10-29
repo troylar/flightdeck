@@ -448,7 +448,8 @@
     if (hit.status.s === 'update' && hit.status.changes) h += K.list(st, 'sk-changes', K.uniqKeys(hit.status.changes, function (c) { return c.change + '\n' + c.id; }).map(function (k, i) { return { c: hit.status.changes[i], k: 'skc-' + K.domKey(k) }; }), { draw: function (shown) { return '<ul class="changes">' + shown.map(function (r) {
       var c = r.c, li = '<li id="' + r.k + '" tabindex="-1">';
       if (c.change === 'order') return li + '<b>Order:</b> its steps now run in a different order.</li>';
-      if (c.change === 'inputs') return li + '<b>What it takes:</b> ' + esc(c.what.join('; ')) + '.</li>';
+      /* Its role lists grow with the checklist: 50 names each and how many more (D10); the brief keeps them whole. */
+      if (c.change === 'inputs') return li + '<b>What it takes:</b> ' + esc(PF.signature.inputWords(c.ins.from, c.ins.to, function (l) { return K.capJoin(l, null, ', ', 'sk-inputs') || 'none'; }).join('; ')) + '.</li>';
       if (c.change === 'context') return li + '<b>Run details:</b> now ' + esc(K.capJoin(c.to) || 'none') + ' (was ' + esc(K.capJoin(c.from) || 'none') + ').</li>';
       return li + '<b>' + esc(K.stepPlain(c.to || c.from, null)) + '</b>: ' + ({ changed: 'changed', removed: 'removed', added: 'new' })[c.change] + '</li>';
     }).join('') + '</ul>'; }, keyOf: function (r) { return r.k; }, focusOf: function (k) { return K.byId(k); } });
