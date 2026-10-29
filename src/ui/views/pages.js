@@ -38,7 +38,7 @@
     return h && (h.n.kind === 'correction' || h.n.kind === 'fix' || h.n.kind === 'map') ? [h.key] : [];
   }
   /* A correction row's own id from its list key (id, or id#n for a later note sharing that id). */
-  function corrFocus(k) { var m = /^(.*)#(\d+)$/.exec(k); return K.byId(m ? V.corrDomId(m[1], +m[2]) : V.corrDomId(k, 1)); }
+  function corrFocus(k) { var x = U.nthOf(k); return K.byId(V.corrDomId(x.s, x.n)); }
   /* ---------- finishing a run ---------- */
   function finish(ctx) {
     var r = ctx.run(); if (!r) return V.run(ctx);

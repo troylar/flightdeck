@@ -50,6 +50,11 @@ PF.util = (function () {
     return s;
   }
 
+  /* The key of the nth item sharing one signature: the signature for the first, sig#n after, with every # and \ in the
+     signature escaped, so a key reads back to one (signature, n) only: a literal "same#2" is never the second "same". */
+  function nthKey(s, n) { s = String(s); if (/[\\#]/.test(s)) s = s.replace(/[\\#]/g, '\\$&'); return n > 1 ? s + '#' + n : s; }
+  /* nthKey read back: { s, n }. */
+  function nthOf(k) { var m = /^((?:[^\\#]|\\[\s\S])*)(?:#(\d+))?$/.exec(String(k)); return m ? { s: m[1].replace(/\\([\s\S])/g, '$1'), n: m[2] ? +m[2] : 1 } : { s: String(k), n: 1 }; }
   /* FNV-1a, 32-bit, as 8 hex characters. Identifies content; not for security. */
   function hash(str) {
     var h = 0x811c9dc5;
@@ -195,7 +200,7 @@ PF.util = (function () {
     return b >= 0.9 * DRAFT_BYTES ? String(Math.round(b / 1048576 * 100) / 100) + ' of 1 MB' : '';
   }
 
-  return { DRAFT_BYTES: DRAFT_BYTES, utf8Bytes: utf8Bytes, draftTooBig: draftTooBig, draftSize: draftSize, drift: drift, esc: esc, timeOnDayIn: timeOnDayIn, safeUrl: safeUrl, mdInline: mdInline, mdBlock: mdBlock, slug: slug, randomId: randomId, hash: hash,
+  return { DRAFT_BYTES: DRAFT_BYTES, utf8Bytes: utf8Bytes, draftTooBig: draftTooBig, draftSize: draftSize, drift: drift, esc: esc, timeOnDayIn: timeOnDayIn, safeUrl: safeUrl, mdInline: mdInline, mdBlock: mdBlock, slug: slug, randomId: randomId, hash: hash, nthKey: nthKey, nthOf: nthOf,
     hm: hm, when: when, day: day, dueWords: dueWords, localDateTime: localDateTime, clock: clock, duration: duration, timeToday: timeToday };
 })();
 /* Name order for the lists people scan by name (2.11): numbers in a name compare as numbers, so Process 2 comes before

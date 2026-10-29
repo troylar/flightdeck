@@ -1607,7 +1607,7 @@
        its list's heading. Only for the folder it was drawn for. */
     var heldAe = ae && ae !== document.body && holdGen === gen && (app.contains(ae) || topEl.contains(ae) || overlayEl.contains(ae)) ? ae : null, lostHead = null;
     holdGen = gen;
-    PF.vk.focusAt = heldAe ? { inRow: function (sel, other) { return rowHas(heldAe, sel, other); }, away: function (sel, other) { return awayFrom(heldAe, sel, other); }, lost: function () { if (!lostHead) lostHead = headOf(heldAe); } } : null;
+    PF.vk.focusAt = heldAe ? { inRow: function (sel, other) { return rowHas(heldAe, sel, other); }, away: function (sel, other) { return awayFrom(heldAe, sel, other); }, lost: function () { if (!lostHead) lostHead = listHeadOf(heldAe); } } : null;
     var y = window.scrollY;
     renderTop();
     followDrafts();
@@ -1756,7 +1756,7 @@
   }
   /* The heading of the list el is in: the element naming its section, or the section's first heading with an id, else the
      page's. */
-  function headOf(el) {
+  function listHeadOf(el) {
     var lab = el.closest && el.closest('section[aria-labelledby], [role="dialog"][aria-labelledby], details[aria-labelledby]'), id = lab && lab.getAttribute('aria-labelledby');
     if (id && document.getElementById(id)) return PF.vk.byId(id);
     var sec = el.closest && el.closest('section, aside, .panel'), h = sec && sec.querySelector('h1[id], h2[id], h3[id], h4[id]');
@@ -6421,7 +6421,7 @@
        read that moves its twins never puts another in its place. */
     'goto-corr': function (id) {
       var r = ctx.run(), cid = String(id || '').replace(/^corr-/, ''); if (!r || !state.sel || !cid) return;
-      var m = /^(.*)#(\d+)$/.exec(cid), nid = m ? m[1] : cid, at = m ? +m[2] : 1, S = PF.search, notes = r._notes || [], ats = S.noteAts(notes), cn = null;
+      var m = U.nthOf(cid), nid = m.s, at = m.n, S = PF.search, notes = r._notes || [], ats = S.noteAts(notes), cn = null;
       notes.forEach(function (n, i) { if (!cn && n.id === nid && ats[i] === at && (n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map')) cn = n; });
       if (!cn) return;
       var t = S.noteTarget(state.runKey, cn, notes.filter(function (x) { return x.id === nid; }));

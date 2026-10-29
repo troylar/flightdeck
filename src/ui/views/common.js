@@ -160,7 +160,8 @@ PF.vk = (function () {
        page: the page size (50); keep: keys drawn whatever the page (a row being edited);
        tail: the last n items, with Show earlier above them (a thread read newest last); gap(n): the line between a tail's kept
          rows and the tail ("270 notes between");
-       inDialog: the list is in a dialog, so focus moves through the dialog's own focus.
+       inDialog: the list is in a dialog, so focus moves through the dialog's own focus;
+       groupOf(item): the item a row belongs to, when several rows draw one item (below).
      The item Flightdeck just showed you (state.justShown, ensureListItemVisible in app.js) is drawn whatever the page too.
      So is the row that has focus (focusHeld): a refresh that sorts something in above it never takes it off the page.
      Rows kept past the page are drawn after it (before it, for a tail), so nobody loses the row they're working on.
@@ -223,6 +224,15 @@ PF.vk = (function () {
       more = '<div class="row paged"><span class="small" role="status">Showing ' + shown.length.toLocaleString('en-US') + ' of ' + items.length.toLocaleString('en-US') + (plus ? ', plus the one you just ' + esc((st.justShown.words || {})[id] || o.shownWord || 'added') : '') + (onIt ? (plus ? ' and' : ', plus') + ' the one you\'re on' : '') + '</span>' +
         '<button type="button" class="btn" data-act="more" data-id="' + esc(id) + '" data-next="' + esc(k) + '"' + (f ? ' data-focus="' + esc(f) + '"' : '') + (P !== PAGE ? ' data-page="' + P + '"' : '') + (step !== add ? ' data-step="' + step + '"' : '') + (o.inDialog ? ' data-dialog="1"' : '') + '>' +
         (o.tail ? 'Show ' + add + ' earlier' : 'Show ' + add + ' more') + '</button></div>';
+    }
+    /* groupOf: rows of one item drawn as one (a correction group's members, a change's): a kept row whose item is on the page
+       is drawn inside it, after that item's last row there, so no item is drawn twice. */
+    if (o.groupOf && !o.tail && extra.length) {
+      var lastAt = Object.create(null), into = Object.create(null), apart = [], seq = [];
+      shown.forEach(function (it, j) { lastAt[o.groupOf(it)] = j; });
+      extra.forEach(function (it) { var g = o.groupOf(it); if (g in lastAt) (into[lastAt[g]] = into[lastAt[g]] || []).push(it); else apart.push(it); });
+      shown.forEach(function (it, j) { seq.push(it); if (into[j]) seq.push.apply(seq, into[j]); });
+      shown = seq; extra = apart; kept = kept && apart.some(function (it) { return (o.keep || []).indexOf(o.keyOf(it)) >= 0; });
     }
     var rest = extra.length ? (kept ? '<p class="small kept-h">' + esc(o.keptLabel || 'You\'re editing this one') + '</p>' : '') + o.draw(extra) : '';
     /* A tail's kept rows sit above it: o.gap(n) says how many rows lie between the last of them and the tail. */
@@ -320,10 +330,11 @@ PF.vk = (function () {
   /* An element id's part for a key made from content (a line of text, a path): 16 hex characters, so it's a valid id whatever
      the content holds. */
   function domKey(k) { k = String(k); return U.hash(k) + U.hash(k + '|2'); }
-  /* Keys for items from what they are (sig(item)), never their place: the second item with the same content is sig#2. */
+  /* Keys for items from what they are (sig(item)), never their place: the second item with the same content is sig#2, told
+     apart from a literal "sig#2" (U.nthKey). */
   function uniqKeys(items, sig) {
     var seen = Object.create(null);
-    return items.map(function (it) { var s = String(sig(it)); seen[s] = (seen[s] || 0) + 1; return seen[s] > 1 ? s + '#' + seen[s] : s; });
+    return items.map(function (it) { var s = String(sig(it)); seen[s] = (seen[s] || 0) + 1; return U.nthKey(s, seen[s]); });
   }
   /* A selector for the element with this id, whatever the id holds (it comes from files). */
   /* A CSS string's contents: quotes and backslashes escaped, and control characters (a newline in an id from a file) as hex

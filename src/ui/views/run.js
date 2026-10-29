@@ -470,8 +470,8 @@
   }
   /* Unreadable note lines, each keyed by its file and line. */
   function badRows(nl) { var ks = K.uniqKeys(nl, function (x) { return x.file + '\n' + x.line; }); return nl.map(function (x, i) { return { x: x, k: ks[i] }; }); }
-  /* A correction row's id: corr-<id>, and corr-<id>-<n> for a later note sharing that id. */
-  function corrDomId(id, n) { return 'corr-' + (n > 1 ? id + '-' + n : id); }
+  /* A correction row's id: corr-<id>, and corr-<id>#<n> for a later note sharing that id (U.nthKey: never a literal id's). */
+  function corrDomId(id, n) { return 'corr-' + U.nthKey(id, n); }
   function changedHere(ctx, r) { return r && r.process && r.folder ? C.changedIn(corrGroups(ctx, r.process), r.folder) : {}; }
   /* "Changed in vN" with "Why is this here?": what it said before and after, why, the runs that suggested it, who applied it. */
   /* The members of every change on this step, 20 at a time counted across them (2.11): a change is drawn once one of its
@@ -480,7 +480,7 @@
     var items = [], byK = Object.create(null);
     /* Each member by its change and its own note (run, id, place among its twins), never its place in the list. */
     gs.forEach(function (g, gi) { var ks = K.uniqKeys(g.members, function (m) { return m.run + '\n' + m.id + '\n' + (m.noteAt || 1); }); g.members.forEach(function (m, i) { var x = { g: g, gi: gi, m: m, i: i, k: K.domKey(g.id + '\n' + ks[i]) }; items.push(x); byK[x.k] = x; }); });
-    return K.list(ctx.state, 'prov-' + st.id, items, { page: 20, keyOf: function (x) { return x.k; },
+    return K.list(ctx.state, 'prov-' + st.id, items, { page: 20, keyOf: function (x) { return x.k; }, groupOf: function (x) { return x.g.id; },
       focusOf: function (k) { var x = byK[k]; return K.byId('pm-' + st.id + '-' + k + (x && x.m.why ? '' : '-run')); },
       draw: function (shown) {
         var out = '', run = [];
@@ -753,7 +753,7 @@
     /* Corrections to this step from this run, then Correct this step (anyone who has said who they are, whatever the run's state). */
     h += '<section class="rw-box rw-corr" aria-labelledby="ins-corr"><div class="row between"><h3 class="rw-h3" id="ins-corr">Corrections' + (rows.length ? ' · ' + rows.length : '') + '</h3>' +
       (s.me && !(cf && cf.mode === 'correct') ? '<button class="mini" data-act="corr-open" data-mode="correct" data-id="' + esc(st.id) + '" title="If the checklist was wrong or unclear here, correct it. The team reviews corrections on the checklist&#39;s page.">' + I('edit') + 'Correct this step</button>' : '') + '</div>' +
-      (rows.length ? K.list(s, 'rcorr:' + rk, corrItems(rows), { page: 20, hold: false, keep: [nsCorr ? nsCorr.key : null, nhCorr ? nhAny.key : null].filter(Boolean), keptLabel: nsCorr ? 'Shown because you opened it' : 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: function (k) { var m = /^(.*)#(\d+)$/.exec(k); return K.byId(m ? corrDomId(m[1], +m[2]) : corrDomId(k, 1)); },
+      (rows.length ? K.list(s, 'rcorr:' + rk, corrItems(rows), { page: 20, hold: false, keep: [nsCorr ? nsCorr.key : null, nhCorr ? nhAny.key : null].filter(Boolean), keptLabel: nsCorr ? 'Shown because you opened it' : 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: function (k) { var x = U.nthOf(k); return K.byId(corrDomId(x.s, x.n)); },
         draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) { return corrRow(ctx, x.c, idx[x.c.id], { withdraw: true, domId: x.dom }); }).join('') + '</ul>'; } }) : '') +
       (cf && cf.mode === 'correct' ? composer(ctx, r, map, x, cf) : '') + '</section>';
     /* The newest 20 notes, with Show earlier above them (2.11). A note is its id and where it stands among the notes sharing

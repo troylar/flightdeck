@@ -197,7 +197,7 @@
     /* 50 at a time, soonest first (2.11). Copies of one plan that differ are each shown; only the first keeps the card's id, so
        ids stay unique, and none does while the plan is in Just planned above. */
     var nth = {};
-    var planKeyed = plans.map(function (p) { nth[p.id] = (nth[p.id] || 0) + 1; return { p: p, key: nth[p.id] > 1 ? p.id + '#' + nth[p.id] : p.id }; });
+    var planKeyed = plans.map(function (p) { nth[p.id] = (nth[p.id] || 0) + 1; return { p: p, key: U.nthKey(p.id, nth[p.id]) }; });
     if (plans.length) h += '<section class="panel" aria-labelledby="planned-h"><h2 id="planned-h">Planned · ' + plans.length.toLocaleString('en-US') + '</h2>' + K.list(st, 'runs-planned', planKeyed, { keyOf: function (x) { return x.key; }, focusOf: function (k) { return '[data-act="review-plan"][data-key="' + String(k).replace(/["\\]/g, '\\$&') + '"]'; }, draw: function (shown) { return '<div class="cards">' + shown.map(function (x) { return planCard(x.p, x.key); }).join('') + '</div>'; } }) + '</section>';
     function planCard(p, key) {
       var cid = cardIds[p.id] ? '' : ' id="card-' + esc(p.id) + '"', copies = copiesLine(p);
@@ -270,7 +270,7 @@
       '<li><b>Stay in step.</b><span>When the checklist changes, the skill shows here as needing an update, with a brief.</span></li></ol></details>';
     /* Each skill's key is its file, made unique (two registrations can share a name); Show more focuses its row's button. */
     var seen = Object.create(null);
-    skills.forEach(function (k) { var b = k.x.skill.file || k.x.skill.name; seen[b] = (seen[b] || 0) + 1; k.key = seen[b] > 1 ? b + '#' + seen[b] : b; });
+    skills.forEach(function (k) { var b = k.x.skill.file || k.x.skill.name; seen[b] = (seen[b] || 0) + 1; k.key = U.nthKey(b, seen[b]); });
     var skillKey = function (k) { return k.key; }, focusIn = function (pre) { return function (key) { return K.byId(pre + key); }; };
     if (attention.length) h += '<section class="panel" aria-labelledby="att-h"><h2 id="att-h">Needs an update · ' + attention.length + '</h2><p class="small">Their checklist changed. Open one to copy the update brief.</p>' +
       K.list(st, 'sk-att', attention, { draw: function (shown) { return '<ul class="plist">' + shown.map(skillRow('sk-att-')).join('') + '</ul>'; }, keyOf: skillKey, focusOf: focusIn('sk-att-') }) + '</section>';

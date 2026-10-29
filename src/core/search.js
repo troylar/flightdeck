@@ -201,7 +201,7 @@ PF.search = (function () {
     var x = !hits.length ? null : t.anchor == null ? hits[hits.length - 1] : hits.length !== want ? null : want === 1 ? hits[0] : t.rank >= 0 && t.rank < hits.length ? hits[t.rank] : null;
     return x ? { n: x.n, k: x.k, key: noteKey(x.n.id, x.k) } : null;
   }
-  function noteKey(id, k) { return k > 1 ? id + '#' + k : id; }
+  function noteKey(id, k) { return U.nthKey(id, k); }
   /* Each note's noteAt, in the notes' order (worked out once per notes array). */
   var atMemo = typeof WeakMap === 'function' ? new WeakMap() : null;
   function noteAts(notes) {

@@ -2217,6 +2217,11 @@ PF.util = (function () {
     return s;
   }
 
+  /* The key of the nth item sharing one signature: the signature for the first, sig#n after, with every # and \ in the
+     signature escaped, so a key reads back to one (signature, n) only: a literal "same#2" is never the second "same". */
+  function nthKey(s, n) { s = String(s); if (/[\\#]/.test(s)) s = s.replace(/[\\#]/g, '\\$&'); return n > 1 ? s + '#' + n : s; }
+  /* nthKey read back: { s, n }. */
+  function nthOf(k) { var m = /^((?:[^\\#]|\\[\s\S])*)(?:#(\d+))?$/.exec(String(k)); return m ? { s: m[1].replace(/\\([\s\S])/g, '$1'), n: m[2] ? +m[2] : 1 } : { s: String(k), n: 1 }; }
   /* FNV-1a, 32-bit, as 8 hex characters. Identifies content; not for security. */
   function hash(str) {
     var h = 0x811c9dc5;
@@ -2362,7 +2367,7 @@ PF.util = (function () {
     return b >= 0.9 * DRAFT_BYTES ? String(Math.round(b / 1048576 * 100) / 100) + ' of 1 MB' : '';
   }
 
-  return { DRAFT_BYTES: DRAFT_BYTES, utf8Bytes: utf8Bytes, draftTooBig: draftTooBig, draftSize: draftSize, drift: drift, esc: esc, timeOnDayIn: timeOnDayIn, safeUrl: safeUrl, mdInline: mdInline, mdBlock: mdBlock, slug: slug, randomId: randomId, hash: hash,
+  return { DRAFT_BYTES: DRAFT_BYTES, utf8Bytes: utf8Bytes, draftTooBig: draftTooBig, draftSize: draftSize, drift: drift, esc: esc, timeOnDayIn: timeOnDayIn, safeUrl: safeUrl, mdInline: mdInline, mdBlock: mdBlock, slug: slug, randomId: randomId, hash: hash, nthKey: nthKey, nthOf: nthOf,
     hm: hm, when: when, day: day, dueWords: dueWords, localDateTime: localDateTime, clock: clock, duration: duration, timeToday: timeToday };
 })();
 /* Name order for the lists people scan by name (2.11): numbers in a name compare as numbers, so Process 2 comes before
@@ -12068,7 +12073,7 @@ PF.search = (function () {
     var x = !hits.length ? null : t.anchor == null ? hits[hits.length - 1] : hits.length !== want ? null : want === 1 ? hits[0] : t.rank >= 0 && t.rank < hits.length ? hits[t.rank] : null;
     return x ? { n: x.n, k: x.k, key: noteKey(x.n.id, x.k) } : null;
   }
-  function noteKey(id, k) { return k > 1 ? id + '#' + k : id; }
+  function noteKey(id, k) { return U.nthKey(id, k); }
   /* Each note's noteAt, in the notes' order (worked out once per notes array). */
   var atMemo = typeof WeakMap === 'function' ? new WeakMap() : null;
   function noteAts(notes) {
@@ -19086,7 +19091,8 @@ PF.vk = (function () {
        page: the page size (50); keep: keys drawn whatever the page (a row being edited);
        tail: the last n items, with Show earlier above them (a thread read newest last); gap(n): the line between a tail's kept
          rows and the tail ("270 notes between");
-       inDialog: the list is in a dialog, so focus moves through the dialog's own focus.
+       inDialog: the list is in a dialog, so focus moves through the dialog's own focus;
+       groupOf(item): the item a row belongs to, when several rows draw one item (below).
      The item Flightdeck just showed you (state.justShown, ensureListItemVisible in app.js) is drawn whatever the page too.
      So is the row that has focus (focusHeld): a refresh that sorts something in above it never takes it off the page.
      Rows kept past the page are drawn after it (before it, for a tail), so nobody loses the row they're working on.
@@ -19149,6 +19155,15 @@ PF.vk = (function () {
       more = '<div class="row paged"><span class="small" role="status">Showing ' + shown.length.toLocaleString('en-US') + ' of ' + items.length.toLocaleString('en-US') + (plus ? ', plus the one you just ' + esc((st.justShown.words || {})[id] || o.shownWord || 'added') : '') + (onIt ? (plus ? ' and' : ', plus') + ' the one you\'re on' : '') + '</span>' +
         '<button type="button" class="btn" data-act="more" data-id="' + esc(id) + '" data-next="' + esc(k) + '"' + (f ? ' data-focus="' + esc(f) + '"' : '') + (P !== PAGE ? ' data-page="' + P + '"' : '') + (step !== add ? ' data-step="' + step + '"' : '') + (o.inDialog ? ' data-dialog="1"' : '') + '>' +
         (o.tail ? 'Show ' + add + ' earlier' : 'Show ' + add + ' more') + '</button></div>';
+    }
+    /* groupOf: rows of one item drawn as one (a correction group's members, a change's): a kept row whose item is on the page
+       is drawn inside it, after that item's last row there, so no item is drawn twice. */
+    if (o.groupOf && !o.tail && extra.length) {
+      var lastAt = Object.create(null), into = Object.create(null), apart = [], seq = [];
+      shown.forEach(function (it, j) { lastAt[o.groupOf(it)] = j; });
+      extra.forEach(function (it) { var g = o.groupOf(it); if (g in lastAt) (into[lastAt[g]] = into[lastAt[g]] || []).push(it); else apart.push(it); });
+      shown.forEach(function (it, j) { seq.push(it); if (into[j]) seq.push.apply(seq, into[j]); });
+      shown = seq; extra = apart; kept = kept && apart.some(function (it) { return (o.keep || []).indexOf(o.keyOf(it)) >= 0; });
     }
     var rest = extra.length ? (kept ? '<p class="small kept-h">' + esc(o.keptLabel || 'You\'re editing this one') + '</p>' : '') + o.draw(extra) : '';
     /* A tail's kept rows sit above it: o.gap(n) says how many rows lie between the last of them and the tail. */
@@ -19246,10 +19261,11 @@ PF.vk = (function () {
   /* An element id's part for a key made from content (a line of text, a path): 16 hex characters, so it's a valid id whatever
      the content holds. */
   function domKey(k) { k = String(k); return U.hash(k) + U.hash(k + '|2'); }
-  /* Keys for items from what they are (sig(item)), never their place: the second item with the same content is sig#2. */
+  /* Keys for items from what they are (sig(item)), never their place: the second item with the same content is sig#2, told
+     apart from a literal "sig#2" (U.nthKey). */
   function uniqKeys(items, sig) {
     var seen = Object.create(null);
-    return items.map(function (it) { var s = String(sig(it)); seen[s] = (seen[s] || 0) + 1; return seen[s] > 1 ? s + '#' + seen[s] : s; });
+    return items.map(function (it) { var s = String(sig(it)); seen[s] = (seen[s] || 0) + 1; return U.nthKey(s, seen[s]); });
   }
   /* A selector for the element with this id, whatever the id holds (it comes from files). */
   /* A CSS string's contents: quotes and backslashes escaped, and control characters (a newline in an id from a file) as hex
@@ -19665,7 +19681,7 @@ PF.vk = (function () {
     /* 50 at a time, soonest first (2.11). Copies of one plan that differ are each shown; only the first keeps the card's id, so
        ids stay unique, and none does while the plan is in Just planned above. */
     var nth = {};
-    var planKeyed = plans.map(function (p) { nth[p.id] = (nth[p.id] || 0) + 1; return { p: p, key: nth[p.id] > 1 ? p.id + '#' + nth[p.id] : p.id }; });
+    var planKeyed = plans.map(function (p) { nth[p.id] = (nth[p.id] || 0) + 1; return { p: p, key: U.nthKey(p.id, nth[p.id]) }; });
     if (plans.length) h += '<section class="panel" aria-labelledby="planned-h"><h2 id="planned-h">Planned · ' + plans.length.toLocaleString('en-US') + '</h2>' + K.list(st, 'runs-planned', planKeyed, { keyOf: function (x) { return x.key; }, focusOf: function (k) { return '[data-act="review-plan"][data-key="' + String(k).replace(/["\\]/g, '\\$&') + '"]'; }, draw: function (shown) { return '<div class="cards">' + shown.map(function (x) { return planCard(x.p, x.key); }).join('') + '</div>'; } }) + '</section>';
     function planCard(p, key) {
       var cid = cardIds[p.id] ? '' : ' id="card-' + esc(p.id) + '"', copies = copiesLine(p);
@@ -19738,7 +19754,7 @@ PF.vk = (function () {
       '<li><b>Stay in step.</b><span>When the checklist changes, the skill shows here as needing an update, with a brief.</span></li></ol></details>';
     /* Each skill's key is its file, made unique (two registrations can share a name); Show more focuses its row's button. */
     var seen = Object.create(null);
-    skills.forEach(function (k) { var b = k.x.skill.file || k.x.skill.name; seen[b] = (seen[b] || 0) + 1; k.key = seen[b] > 1 ? b + '#' + seen[b] : b; });
+    skills.forEach(function (k) { var b = k.x.skill.file || k.x.skill.name; seen[b] = (seen[b] || 0) + 1; k.key = U.nthKey(b, seen[b]); });
     var skillKey = function (k) { return k.key; }, focusIn = function (pre) { return function (key) { return K.byId(pre + key); }; };
     if (attention.length) h += '<section class="panel" aria-labelledby="att-h"><h2 id="att-h">Needs an update · ' + attention.length + '</h2><p class="small">Their checklist changed. Open one to copy the update brief.</p>' +
       K.list(st, 'sk-att', attention, { draw: function (shown) { return '<ul class="plist">' + shown.map(skillRow('sk-att-')).join('') + '</ul>'; }, keyOf: skillKey, focusOf: focusIn('sk-att-') }) + '</section>';
@@ -19945,7 +19961,9 @@ PF.vk = (function () {
     };
     var decG = declining ? all.filter(function (g) { return g.id === declining; })[0] : null;
     h += K.list(st, lid, items, { draw: draw, keyOf: function (x) { return x.key; }, focusOf: function (key) { return K.byId('fxm-' + key); },
-      keep: decG && decG.members.length ? [fxKeys(decG)[0]] : [], keptLabel: 'You\'re declining this one', shownWord: 'opened' });
+      keep: decG && decG.members.length ? [fxKeys(decG)[0]] : [], keptLabel: 'You\'re declining this one', shownWord: 'opened',
+      /* A kept member of a group on the page is drawn in that group: one group, one Decline box, counted over every member drawn. */
+      groupOf: function (x) { return x.g.id; } });
     if (removed) h += '<p class="small kept-h">You\'re declining this one</p><ul class="fixlist">' + removedItem(removed) + '</ul>';
     if (open.length) h += '<div class="row" style="margin-top:10px"><button class="btn" data-act="copy-corr-brief" data-id="' + esc(p.id) + '">' + I('copy') + 'Copy correction brief</button></div>' + briefBox(st, 'corrections:' + p.id);
     var head = '<h2 id="fx-h" tabindex="-1">' + I('edit') + 'Corrections · ' + open.length + ' open</h2>';
@@ -21035,8 +21053,8 @@ PF.vk = (function () {
   }
   /* Unreadable note lines, each keyed by its file and line. */
   function badRows(nl) { var ks = K.uniqKeys(nl, function (x) { return x.file + '\n' + x.line; }); return nl.map(function (x, i) { return { x: x, k: ks[i] }; }); }
-  /* A correction row's id: corr-<id>, and corr-<id>-<n> for a later note sharing that id. */
-  function corrDomId(id, n) { return 'corr-' + (n > 1 ? id + '-' + n : id); }
+  /* A correction row's id: corr-<id>, and corr-<id>#<n> for a later note sharing that id (U.nthKey: never a literal id's). */
+  function corrDomId(id, n) { return 'corr-' + U.nthKey(id, n); }
   function changedHere(ctx, r) { return r && r.process && r.folder ? C.changedIn(corrGroups(ctx, r.process), r.folder) : {}; }
   /* "Changed in vN" with "Why is this here?": what it said before and after, why, the runs that suggested it, who applied it. */
   /* The members of every change on this step, 20 at a time counted across them (2.11): a change is drawn once one of its
@@ -21045,7 +21063,7 @@ PF.vk = (function () {
     var items = [], byK = Object.create(null);
     /* Each member by its change and its own note (run, id, place among its twins), never its place in the list. */
     gs.forEach(function (g, gi) { var ks = K.uniqKeys(g.members, function (m) { return m.run + '\n' + m.id + '\n' + (m.noteAt || 1); }); g.members.forEach(function (m, i) { var x = { g: g, gi: gi, m: m, i: i, k: K.domKey(g.id + '\n' + ks[i]) }; items.push(x); byK[x.k] = x; }); });
-    return K.list(ctx.state, 'prov-' + st.id, items, { page: 20, keyOf: function (x) { return x.k; },
+    return K.list(ctx.state, 'prov-' + st.id, items, { page: 20, keyOf: function (x) { return x.k; }, groupOf: function (x) { return x.g.id; },
       focusOf: function (k) { var x = byK[k]; return K.byId('pm-' + st.id + '-' + k + (x && x.m.why ? '' : '-run')); },
       draw: function (shown) {
         var out = '', run = [];
@@ -21318,7 +21336,7 @@ PF.vk = (function () {
     /* Corrections to this step from this run, then Correct this step (anyone who has said who they are, whatever the run's state). */
     h += '<section class="rw-box rw-corr" aria-labelledby="ins-corr"><div class="row between"><h3 class="rw-h3" id="ins-corr">Corrections' + (rows.length ? ' · ' + rows.length : '') + '</h3>' +
       (s.me && !(cf && cf.mode === 'correct') ? '<button class="mini" data-act="corr-open" data-mode="correct" data-id="' + esc(st.id) + '" title="If the checklist was wrong or unclear here, correct it. The team reviews corrections on the checklist&#39;s page.">' + I('edit') + 'Correct this step</button>' : '') + '</div>' +
-      (rows.length ? K.list(s, 'rcorr:' + rk, corrItems(rows), { page: 20, hold: false, keep: [nsCorr ? nsCorr.key : null, nhCorr ? nhAny.key : null].filter(Boolean), keptLabel: nsCorr ? 'Shown because you opened it' : 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: function (k) { var m = /^(.*)#(\d+)$/.exec(k); return K.byId(m ? corrDomId(m[1], +m[2]) : corrDomId(k, 1)); },
+      (rows.length ? K.list(s, 'rcorr:' + rk, corrItems(rows), { page: 20, hold: false, keep: [nsCorr ? nsCorr.key : null, nhCorr ? nhAny.key : null].filter(Boolean), keptLabel: nsCorr ? 'Shown because you opened it' : 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: function (k) { var x = U.nthOf(k); return K.byId(corrDomId(x.s, x.n)); },
         draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) { return corrRow(ctx, x.c, idx[x.c.id], { withdraw: true, domId: x.dom }); }).join('') + '</ul>'; } }) : '') +
       (cf && cf.mode === 'correct' ? composer(ctx, r, map, x, cf) : '') + '</section>';
     /* The newest 20 notes, with Show earlier above them (2.11). A note is its id and where it stands among the notes sharing
@@ -21879,7 +21897,7 @@ PF.vk = (function () {
     return h && (h.n.kind === 'correction' || h.n.kind === 'fix' || h.n.kind === 'map') ? [h.key] : [];
   }
   /* A correction row's own id from its list key (id, or id#n for a later note sharing that id). */
-  function corrFocus(k) { var m = /^(.*)#(\d+)$/.exec(k); return K.byId(m ? V.corrDomId(m[1], +m[2]) : V.corrDomId(k, 1)); }
+  function corrFocus(k) { var x = U.nthOf(k); return K.byId(V.corrDomId(x.s, x.n)); }
   /* ---------- finishing a run ---------- */
   function finish(ctx) {
     var r = ctx.run(); if (!r) return V.run(ctx);
@@ -26723,7 +26741,7 @@ PF.examples = (function () {
        its list's heading. Only for the folder it was drawn for. */
     var heldAe = ae && ae !== document.body && holdGen === gen && (app.contains(ae) || topEl.contains(ae) || overlayEl.contains(ae)) ? ae : null, lostHead = null;
     holdGen = gen;
-    PF.vk.focusAt = heldAe ? { inRow: function (sel, other) { return rowHas(heldAe, sel, other); }, away: function (sel, other) { return awayFrom(heldAe, sel, other); }, lost: function () { if (!lostHead) lostHead = headOf(heldAe); } } : null;
+    PF.vk.focusAt = heldAe ? { inRow: function (sel, other) { return rowHas(heldAe, sel, other); }, away: function (sel, other) { return awayFrom(heldAe, sel, other); }, lost: function () { if (!lostHead) lostHead = listHeadOf(heldAe); } } : null;
     var y = window.scrollY;
     renderTop();
     followDrafts();
@@ -26872,7 +26890,7 @@ PF.examples = (function () {
   }
   /* The heading of the list el is in: the element naming its section, or the section's first heading with an id, else the
      page's. */
-  function headOf(el) {
+  function listHeadOf(el) {
     var lab = el.closest && el.closest('section[aria-labelledby], [role="dialog"][aria-labelledby], details[aria-labelledby]'), id = lab && lab.getAttribute('aria-labelledby');
     if (id && document.getElementById(id)) return PF.vk.byId(id);
     var sec = el.closest && el.closest('section, aside, .panel'), h = sec && sec.querySelector('h1[id], h2[id], h3[id], h4[id]');
@@ -31537,7 +31555,7 @@ PF.examples = (function () {
        read that moves its twins never puts another in its place. */
     'goto-corr': function (id) {
       var r = ctx.run(), cid = String(id || '').replace(/^corr-/, ''); if (!r || !state.sel || !cid) return;
-      var m = /^(.*)#(\d+)$/.exec(cid), nid = m ? m[1] : cid, at = m ? +m[2] : 1, S = PF.search, notes = r._notes || [], ats = S.noteAts(notes), cn = null;
+      var m = U.nthOf(cid), nid = m.s, at = m.n, S = PF.search, notes = r._notes || [], ats = S.noteAts(notes), cn = null;
       notes.forEach(function (n, i) { if (!cn && n.id === nid && ats[i] === at && (n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map')) cn = n; });
       if (!cn) return;
       var t = S.noteTarget(state.runKey, cn, notes.filter(function (x) { return x.id === nid; }));

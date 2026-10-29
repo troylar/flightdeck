@@ -186,7 +186,9 @@
     };
     var decG = declining ? all.filter(function (g) { return g.id === declining; })[0] : null;
     h += K.list(st, lid, items, { draw: draw, keyOf: function (x) { return x.key; }, focusOf: function (key) { return K.byId('fxm-' + key); },
-      keep: decG && decG.members.length ? [fxKeys(decG)[0]] : [], keptLabel: 'You\'re declining this one', shownWord: 'opened' });
+      keep: decG && decG.members.length ? [fxKeys(decG)[0]] : [], keptLabel: 'You\'re declining this one', shownWord: 'opened',
+      /* A kept member of a group on the page is drawn in that group: one group, one Decline box, counted over every member drawn. */
+      groupOf: function (x) { return x.g.id; } });
     if (removed) h += '<p class="small kept-h">You\'re declining this one</p><ul class="fixlist">' + removedItem(removed) + '</ul>';
     if (open.length) h += '<div class="row" style="margin-top:10px"><button class="btn" data-act="copy-corr-brief" data-id="' + esc(p.id) + '">' + I('copy') + 'Copy correction brief</button></div>' + briefBox(st, 'corrections:' + p.id);
     var head = '<h2 id="fx-h" tabindex="-1">' + I('edit') + 'Corrections · ' + open.length + ' open</h2>';
