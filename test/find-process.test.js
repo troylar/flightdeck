@@ -778,6 +778,53 @@ rule('D10: a notice built once per item, and an option built in a .map, are each
   assert.deepStrictEqual(left, [], 'not covered');
   assert.deepStrictEqual(D10_OK.concat(D10_PENDING).filter(e => !used.has(e)).map(e => e.file + ': ' + e.has), [], 'an exemption that matches nothing any more');
 });
+/* D10 rule 3 (code review round 8): a list joined into text with ', ' or '; '. Each is capped (K.capJoin, K.joined, or the
+   first few and "and N more"), or is a list that doesn't grow with the folder, with the reason. */
+const JOIN_STRUCT = 'one step\'s or lane\'s own parts (its structure), not the folder\'s';
+const D10_JOIN_OK = [
+  { file: 'builder.js', has: 'Pick one of: \' + opts.join', why: 'a step type\'s own choices, set by the type' },
+  { file: 'builder.js', has: '<b>Uses:</b>', why: JOIN_STRUCT }, { file: 'builder.js', has: '<b>Sets:</b>', why: JOIN_STRUCT },
+  { file: 'builder.js', has: 'given.map(function (r)', why: 'one linked step\'s pass: entries (its structure)' },
+  { file: 'common.js', has: 'Part of the team folder couldn', why: 'the folder\'s areas, a fixed set' },
+  { file: 'common.js', has: 'shown.map(name).join(\', \')', why: 'K.joined: the first 50 and Show more' },
+  { file: 'home.js', has: 'bad.slice(0, 3)', why: 'the first 3 and "and N more"' },
+  { file: 'insights.js', has: 'STATUS_WORDS[k]', why: 'correction statuses, a fixed set' },
+  { file: 'manage.js', has: 'e.errors.join(\'; \')', why: 'one step type file\'s problems, at most one per field of the type' },
+  { file: 'manage.js', has: 't.tags.join(\', \')', why: 'a step type\'s tags as its form box\'s value, not drawn as text' },
+  { file: 'manage.js', has: 'c.what.join(\'; \')', why: 'what one step takes, set by its type' },
+  { file: 'overlays.js', has: 'snap.empty.join', why: 'one linked step\'s passed team values (its structure)' },
+  { file: 'process.js', has: 'u.slice(0, 3)', why: 'the first 3 and "and N more"' },
+  { file: 'process.js', has: 'un.slice(0, 5)', why: 'the first 5 and "and N more"' },
+  { file: 'process.js', has: 'n.names.slice(0, -1)', why: 'the features new in 2.0 a draft uses, a fixed set' },
+  { file: 'process.js', has: 'sd.length <= 3', why: 'only when there are 3 or fewer' },
+  { file: 'process.js', has: 'b.names.slice(0, 50)', why: 'the first 50 and "and N more"' },
+  { file: 'process.js', has: 'pr.bad.slice(0, 3)', why: 'the first 3' },
+  { file: 'reports.js', has: 'unused.join', why: 'a step\'s record fields, set by its type' },
+  { file: 'reports.js', has: 'vals.join', why: 'one step\'s evidence, set by its type' },
+  { file: 'run.js', has: 'var who = s.roles.map', why: JOIN_STRUCT }, { file: 'run.js', has: 'nx.track.roles.map', why: JOIN_STRUCT },
+  { file: 'run.js', has: 'var who = P ? st.roles.map', why: JOIN_STRUCT }, { file: 'run.js', has: 'var who = t.roles.map', why: JOIN_STRUCT },
+  { file: 'run.js', has: 'shown.length < g.members.length', why: 'the members drawn, and "and N more"' },
+  { file: 'run.js', has: 'Object.keys(y.values)', why: 'one answer\'s values, set by its step\'s type' },
+  { file: 'run.js', has: 'esc(parts.join', why: 'the folder\'s areas, a fixed set' }
+];
+/* Every line of the views that joins with ', ' or '; ', with its line number. */
+function joins(src) {
+  const out = [];
+  src.split('\n').forEach((line, i) => { if (/\.join\('(?:, |; )'\)/.test(line)) out.push({ line: i + 1, text: line }); });
+  return out;
+}
+rule('D10: a list joined into text with \', \' or \'; \' in the views is capped, or exempt with a reason', () => {
+  const dir = path.join(__dirname, '..', 'src', 'ui', 'views'), left = [], used = new Set();
+  fs.readdirSync(dir).filter(f => /\.js$/.test(f)).forEach(f => {
+    joins(fs.readFileSync(path.join(dir, f), 'utf8')).forEach(j => {
+      const ok = D10_JOIN_OK.filter(e => e.file === f && j.text.indexOf(e.has) >= 0);
+      ok.forEach(e => used.add(e));
+      if (!ok.length) left.push(f + ':' + j.line + ': ' + j.text.trim().slice(0, 140));
+    });
+  });
+  assert.deepStrictEqual(left, [], 'joined without a cap');
+  assert.deepStrictEqual(D10_JOIN_OK.filter(e => !used.has(e)).map(e => e.file + ': ' + e.has), [], 'an exemption that matches nothing any more');
+});
 rule('D10 is tested: the reader finds a notice built in a forEach and an option built in a map', () => {
   const found = callbacks('a.forEach(function (x) { h += \'<div role="status">\' + /[(]/.test(x) + \'</div>\'; }); b.map(function (y) { return \'<option>\' + y; });');
   assert.deepStrictEqual(found.map(c => c.kind), ['forEach', 'map']);
@@ -825,6 +872,111 @@ rule('Round 5: 170 members with Decline open, Show more to 100, newer members so
   app.click('corr-decline', gid); await app.tick(30);
   const dec = app.files('corrections/versions/').map(f => app.fs.files[f].t).filter(t => /declined/.test(t));
   assert.ok(dec.length === 1 && /Not this one, again/.test(dec[0]), 'Decline sends the one box\'s text: ' + dec.length);
+});
+
+/* ---------- code review round 8 ---------- */
+/* A small folder with a draft of 60 run details (detail0…detail59), and that many other drafts whose linked step passes
+   detail59 to it, open in the builder on its Checklist details. */
+const SMALL = { procs: 3, tags: 3, people: 10, followUps: 3, running: 3, plans: 3, versions: 3, stages: 2, members: 3, health: 3, many: 3, ended: 3, steps: 8, teamValues: 3, legacy: 3, archived: 3, hot: 3 };
+async function sixtyDetails(parents) {
+  const fx = fixture({ size: SMALL }), files = Object.assign({}, fx.files);
+  const fm = (proc, title, ctx) => '---\nprocess: ' + proc + '\ntitle: ' + title + '\ncategory: Synthetic\nowner: person-avery\ncontext: ' + ctx + '\nroles: lead\n---\n\n';
+  files['maps/drafts/sixty.md'] = fm('sixty', 'Sixty details', Array.from({ length: 60 }, (x, i) => 'detail' + i).join(', ')) + '## Only · READ-DO {#ph1}\n- [ ] {confirm} Check ^detail59 and ^detail45 @lead {#s0}\n';
+  for (let i = 0; i < parents; i++) files['maps/drafts/parent-' + i + '.md'] = fm('parent' + i, 'Parent ' + i, 'detail59') + '## Only · READ-DO {#ph1}\n- [ ] {run.process} Start the sixty @lead {#k0}\n  process: sixty\n  pass: detail59=^detail59\n';
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true }); await app.tick(60);
+  await into(app, { files, facts: fx.facts });
+  await openProc(app, 'sixty', 'edit');
+  app.click('ed-mode', 'builder'); await app.tick(10);
+  app.click('ob-sel-details'); await app.tick(10);
+  assert.ok(/data-act="ob-ren" data-id="detail0"/.test(app.html()), 'set-up: Checklist details of Sixty details');
+  return app;
+}
+const renBtn = n => '[data-act="ob-ren"][data-id="' + n + '"]';
+const focusedOn = (app, sel) => { const el = app.node(sel); return !!el && app.doc.activeElement === el; };
+async function rename(app, from, to) { app.click('ob-ren', from); await app.tick(5); app.set('ob-ren-ctx', to); app.click('ob-ren-go', from); await app.tick(10); }
+rule('Round 8: a run detail renamed while Find narrows 60 to it is drawn and focused, and stays drawn when Find is cleared; one past page one, the same', async () => {
+  const app = await sixtyDetails(0);
+  await typeFind(app, 'ob-meta-context', 'detail59');
+  assert.ok(/data-act="ob-ren" data-id="detail59"/.test(app.html()) && count(app.html(), /data-act="ob-ren" data-id=/g) === 1, 'set-up: Find found it');
+  await rename(app, 'detail59', 'renamed59');
+  let h = app.html();
+  assert.ok(/data-act="ob-ren" data-id="renamed59"/.test(h), 'the renamed detail is drawn, though Find says detail59');
+  assert.ok(focusedOn(app, renBtn('renamed59')), 'and focused: ' + app.activeId());
+  app.click('find-clear', 'ob-meta-context'); await app.tick(5);
+  h = app.html();
+  assert.ok(/data-act="ob-ren" data-id="renamed59"/.test(h), 'still drawn with Find cleared, though past page one');
+  assert.ok(/Just renamed/.test(h), 'said to be the one just renamed');
+  assert.ok(count(h, /data-act="ob-ren" data-id=/g) <= 21, 'the page and that one');
+  /* Without Find: detail45 is past page one of 60. */
+  await rename(app, 'detail45', 'renamed45');
+  h = app.html();
+  assert.ok(/data-act="ob-ren" data-id="renamed45"/.test(h) && focusedOn(app, renBtn('renamed45')), 'drawn and focused past page one: ' + app.activeId());
+  assert.ok(!/data-act="ob-ren" data-id="renamed59"/.test(h), 'the earlier rename is let go');
+});
+rule('Round 8: Rename with 60 other checklists passing the detail draws 20 of their warnings, Show more adds 20 and focuses the first, and the rename still reads all 60', async () => {
+  const app = await sixtyDetails(60);
+  app.click('ob-ren', 'detail59'); await app.tick(10);
+  let h = app.html();
+  const warn = () => count(app.html(), /<li id="ob-ren-dep-[^"]*" tabindex="-1" class="info">/g);
+  assert.strictEqual(warn(), 20, 'a page of warnings');
+  assert.ok(/Showing 20 of 60/.test(h), 'the count');
+  assert.ok(/ Used in [^<]*\./.test(h), 'what it\'s used in');
+  const d = await more(app, 'ob-ren-deps');
+  assert.strictEqual(warn(), 40, 'Show more adds 20');
+  assert.ok(focusedOn(app, d.focus), 'and focuses the first it adds: ' + app.activeId());
+  app.set('ob-ren-ctx', 'renamed59'); app.click('ob-ren-go', 'detail59'); await app.tick(10);
+  h = app.html();
+  assert.ok(/data-act="ob-ren" data-id="renamed59"/.test(h), 'renamed');
+  const msg = (app.top() + h).match(/Renamed \^detail59 to \^renamed59[^<]*/);
+  assert.ok(msg && /And 57 more like these\./.test(msg[0]), 'the message names three of the 60 and counts the rest: ' + (msg || [''])[0].slice(0, 200));
+  assert.ok((msg[0].match(/passes \^detail59 to this checklist/g) || []).length === 3, 'three said in full');
+});
+rule('Round 8: a step of a checklist with 60 run details draws 20 of them and the 2 it names, and 20 in Sets a run detail; Find reaches detail 58, and once tied it stays drawn with Find cleared', async () => {
+  const app = await sixtyDetails(0);
+  app.click('ob-sel', 's0'); await app.tick(10);
+  app.click('ob-show', 'sets'); await app.tick(10);
+  let h = app.html();
+  assert.strictEqual(count(h, /data-act="ob-bind"/g), 22, 'a page of the step\'s run details, and detail45 and detail59 it names');
+  assert.strictEqual(count(h, /data-act="ob-sets"/g), 20, 'a page of Sets a run detail');
+  assert.ok(/id="find-ob-binds"/.test(h) && /id="find-ob-sets"/.test(h), 'each with Find');
+  assert.ok(!/data-act="ob-bind" data-id="detail58"/.test(h), 'set-up: detail 58 is past the page');
+  await typeFind(app, 'ob-binds', 'detail58');
+  assert.ok(/data-act="ob-bind" data-id="detail58"/.test(app.html()), 'Find reaches detail 58');
+  app.click('ob-bind', 'detail58'); await app.tick(10);
+  assert.ok(/data-act="ob-bind" data-id="detail58" aria-pressed="true"/.test(app.html()), 'tied to the step');
+  app.click('find-clear', 'ob-binds'); await app.tick(5);
+  h = app.html();
+  assert.ok(/data-act="ob-bind" data-id="detail58" aria-pressed="true"/.test(h), 'drawn with Find cleared, past page one');
+  assert.strictEqual(count(h, /data-act="ob-bind"/g), 23, 'the page and the step\'s own three');
+});
+rule('Round 8: K.capJoin draws the first 50 names and "and N more", builds only those, and lists 50 or fewer whole', () => {
+  const K = require('./harness').loadViews().vk;
+  const names = Array.from({ length: 300 }, (x, i) => 'n' + i);
+  let built = 0;
+  const t = K.capJoin(names, x => { built++; return '<b>' + x + '</b>'; });
+  assert.strictEqual((t.match(/<b>/g) || []).length, 50);
+  assert.ok(/, and 250 more$/.test(t) && built === 50, t.slice(-40) + ' ' + built);
+  assert.strictEqual(K.capJoin(names.slice(0, 50)), names.slice(0, 50).join(', '));
+  assert.strictEqual(K.capJoin(['a', 'b', 'c'], null, '; '), 'a; b; c');
+  assert.ok(/; and 1 more$/.test(K.capJoin(names.slice(0, 51), null, '; ')));
+});
+rule('Round 8: the checklist preview names 50 of a step\'s 300 skills and 50 of the whole checklist\'s 301, each with how many more and a link that opens and focuses Skills', async () => {
+  const app = await bigApp(); await openProc(app, 'steps');
+  let h = app.html();
+  const upTo = (from, end) => { const i = h.indexOf(from); return i < 0 ? null : [h.slice(i, h.indexOf(end, i))]; };
+  const stepSkills = upTo('<span class="pv-skill">', '</span></span>'), whole = upTo('The whole checklist: ', '</p>');
+  assert.ok(stepSkills && whole, 'set-up: both are drawn');
+  assert.strictEqual(count(stepSkills[0], /step-skill-\d+/g), 50);
+  assert.strictEqual(count(whole[0], /whole-skill/g), 50, 'v2\'s 300 and one built on v1');
+  assert.ok(/and 250 more/.test(stepSkills[0]) && /and 251 more/.test(whole[0]), 'the rest counted');
+  assert.ok(/data-act="pv-skills"/.test(stepSkills[0]) && /data-act="pv-skills"/.test(whole[0]), 'each with the link to Skills');
+  /* From the editor's Preview too: the link goes to the overview with Skills open and focused. */
+  app.click('ptab', 'edit'); await app.tick(10);
+  app.click('pv-skills'); await app.tick(10);
+  h = app.html();
+  assert.ok(/id="sk-h" tabindex="-1"/.test(h), 'Skills is drawn');
+  assert.strictEqual(app.activeId(), 'sk-h', 'and focused');
+  assert.ok(/data-act="open-skill"/.test(h), 'its rows are there, paged');
 });
 
 run();

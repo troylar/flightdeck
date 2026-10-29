@@ -41,6 +41,8 @@ const personSelect = s => s && s.tag === 'select' && s.kids.filter(k => k.tag ==
 
 /* The bounded lists. rows: a node test, counted across the whole screen (aggregate), so many small lists that add up are caught;
    per: 'parent' counts each parent's rows instead (a function, each container it returns). count: for a list joined into one line, the number of names drawn. */
+/* The most names drawn in any one line that starts at from and ends at end. */
+const joinedIn = (from, end, re) => h => { let most = 0; for (let i = h.indexOf(from); i >= 0; i = h.indexOf(from, i + 1)) most = Math.max(most, (h.slice(i, h.indexOf(end, i)).match(re) || []).length); return most; };
 const REGISTRY = [
   /* Runs: Running 50, the 8 newest finished, Flagged 50, Earlier finished 50; a filtered or cohort list 50 instead. */
   { name: 'run cards (runs-running, runs-flagged, runs-ended, runs-filtered, runs-cohort)', rows: n => n.tag === 'button' && n.attrs.class === 'card' && n.attrs['data-act'] === 'open-run', bound: 50 + 8 + 50 + 50 },
@@ -130,7 +132,15 @@ const REGISTRY = [
   { name: 'the step type selects (ob-type, ob-new-type), the built-in types and 100 team types', rows: n => n.tag === 'option' && !!up(n, x => x.tag === 'select' && /^ob-(new-)?type$/.test(x.attrs.id || '')), bound: BUILT_IN + 100 + 1, per: n => up(n, x => x.tag === 'select') },
   { name: 'the builder\'s parts, a group\'s parts, at most the 100 team types', rows: n => n.tag === 'li' && n.parent && n.parent.tag === 'ul' && within(n, x => cls(x, 'ob-plist')) && !cls(n, 'ob-broken'), bound: 100, per: 'parent' },
   { name: 'the builder\'s parts, the type files it can\'t use, at most the 100 read', rows: n => n.tag === 'li' && cls(n, 'ob-broken'), bound: 100, per: 'parent' },
-  { name: 'linked steps that can\'t start their child, one notice with its fold (links-broken:<process>)', rows: n => n.tag === 'li' && within(n, x => cls(x, 'links-broken')), bound: 20 }
+  { name: 'linked steps that can\'t start their child, one notice with its fold (links-broken:<process>)', rows: n => n.tag === 'li' && within(n, x => cls(x, 'links-broken')), bound: 20 },
+  /* Found in code review round 8: Rename's warnings about other checklists, and the checklist preview's skill names, joined
+     into one line on a step and for the whole checklist (D10), 50 each with "and N more" and a link to Skills. */
+  { name: 'the builder, Rename\'s warnings about other checklists (ob-ren-deps), 20', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'ob-ren-deps'), bound: 20 },
+  /* Found by the round 8 opener inventory: a step's run details (ob-binds) and Sets a run detail (ob-sets) drew every one. */
+  { name: 'the builder, a step\'s run details (ob-binds), 20 and the step\'s own', rows: n => n.tag === 'button' && n.attrs['data-act'] === 'ob-bind', bound: 20 + 1 },
+  { name: 'the builder, Sets a run detail (ob-sets), 20 and the ones the step sets', rows: n => n.tag === 'button' && n.attrs['data-act'] === 'ob-sets', bound: 20 + 1 },
+  { name: 'the checklist preview, a step\'s skills joined into one line (pv-skills), 50 names', count: joinedIn('<span class="pv-skill">', '</span></span>', /step-skill-\d+/g), bound: 50 },
+  { name: 'the checklist preview, the whole checklist\'s skills joined into one line (pv-whole), 50 names', count: joinedIn('The whole checklist: ', '</p>', /whole-skill/g), bound: 50 }
 ];
 /* Drawn in full on purpose, each with its reason. A capped one is also in REGISTRY at its cap. */
 const STRUCTURE = n => (n.tag === 'li' && (cls(n, 'step') || cls(n, 'gate'))) || (n.tag === 'section' && cls(n, 'phase')) ||
@@ -233,8 +243,10 @@ async function openFolds(app) {
     await redraw(app);
   }
 }
-/* The actions that open a form or a dialog, as a person can on that screen: the first of each kind drawn there. */
-const OPENERS = /^(pick|edit|fu-pick|corr-open|nc-open|people-owner|team-edit|team-remove|delete-copy|compare-copy|rep-accept|rep-decline|ev-open|hist-open|search|plan-from-run|start|plan-run|start-test|start-child|prop-review|corr-review|corr-apply|corr-decline|show-roles|timeline|load-history|run-reports|run-details|run-fu|mission|receipt|finish|diff|view-version|flight|fp-steps|ptab|ob-parts-open|new-process|new-type|corr-menu|fold|unfold|pr-open|setup-mode)$/;
+/* The actions that open a form or a dialog, as a person can on that screen: the first of each kind drawn there. The builder's
+   (code review round 8): what selects a part and so draws its form, Rename, the delete questions, the add forms, + Add role,
+   a step's hidden fields and note, and placing a part. */
+const OPENERS = /^(pick|edit|fu-pick|corr-open|nc-open|people-owner|team-edit|team-remove|delete-copy|compare-copy|rep-accept|rep-decline|ev-open|hist-open|search|plan-from-run|start|plan-run|start-test|start-child|prop-review|corr-review|corr-apply|corr-decline|show-roles|timeline|load-history|run-reports|run-details|run-fu|mission|receipt|finish|diff|view-version|flight|fp-steps|ptab|ob-parts-open|new-process|new-type|corr-menu|fold|unfold|pr-open|setup-mode|ob-sel|ob-sel-track|ob-sel-phase|ob-sel-gate|ob-sel-details|ob-sel-questions|ob-ren|ob-ask|ob-add|ob-add-after|ob-add-phase|ob-role-add|ob-note-open|ob-show|ob-part)$/;
 function openers(html) {
   const out = [], seen = new Set();
   walk(parse(html), n => {
@@ -250,7 +262,7 @@ function openers(html) {
 /* One screen, then every form and dialog its actions open, each from the screen as reached. */
 async function visit(name, go, o) {
   o = o || {};
-  const { app } = await bigApp();
+  const { app } = o.app ? { app: o.app } : await bigApp();
   const fails = [], pending = new Set();
   const look = async what => {
     await openFolds(app);
@@ -391,8 +403,45 @@ assert.strictEqual(team('ob-type'), 100, 'set-up: the step form\'s type select l
   assert.deepStrictEqual(check('100 team step types, the builder', h).fails, []);
 });
 
+/* Code review round 8: Rename on a run detail 60 other checklists pass draws 20 of their warnings, reached through the
+   builder's openers (Rename is one), and with paging off for them the check fails. Its own small folder: the big one has no
+   detail that many checklists pass. */
+rule('D8: Rename on a run detail 60 other checklists pass, and a step of that checklist, draw the warnings and the step\'s run details within bounds, and with paging off for each the check fails', async () => {
+  const small = { procs: 3, tags: 3, people: 10, followUps: 3, running: 3, plans: 3, versions: 3, stages: 2, members: 3, health: 3, many: 3, ended: 3, steps: 8, teamValues: 3, legacy: 3, archived: 3, hot: 3 };
+  const fx = fixture({ size: small }), files = Object.assign({}, fx.files);
+  const fm = (proc, title, ctx) => '---\nprocess: ' + proc + '\ntitle: ' + title + '\ncategory: Synthetic\nowner: person-avery\ncontext: ' + ctx + '\nroles: lead\n---\n\n';
+  files['maps/drafts/sixty.md'] = fm('sixty', 'Sixty details', Array.from({ length: 60 }, (x, i) => 'detail' + i).join(', ')) + '## Only · READ-DO {#ph1}\n- [ ] {confirm} Check ^detail0 @lead {#s0}\n';
+  for (let i = 0; i < 60; i++) files['maps/drafts/parent-' + i + '.md'] = fm('parent' + i, 'Parent ' + i, 'detail0') + '## Only · READ-DO {#ph1}\n- [ ] {run.process} Start the sixty @lead {#k0}\n  process: sixty\n  pass: detail0=^detail0\n';
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true }); await app.tick(60);
+  await into(app, { files, facts: fx.facts });
+  const details = inBuilder('sixty', 'ob-sel-details', '');
+  /* Every form the screen's openers draw, Rename of its first run detail among them. */
+  await visit('Sixty details › Edit › Builder, checklist details', details, { app });
+  const look = async () => { await details(app); app.click('ob-ren', 'detail0'); await app.tick(10); await openFolds(app); return app.html(); };
+  let h = await look();
+  assert.strictEqual((h.match(/<li id="ob-ren-dep-/g) || []).length, 20, 'set-up: Rename lists its warnings');
+  assert.deepStrictEqual(check('Sixty details › Edit › Builder, checklist details › Rename', h).fails, []);
+  const offFails = async (list, go, expect) => {
+    app.PF.vk.PAGE_OFF = list;
+    try { const f = check(list + ', paging off', await go()).fails; assert.ok(f.some(x => expect.test(x)), 'paging off for ' + list + ' must fail the check: ' + f.join('; ')); }
+    finally { app.PF.vk.PAGE_OFF = null; }
+  };
+  await offFails('ob-ren-deps', look, /Rename's warnings about other checklists \(ob-ren-deps\), 20 draws 60, over its bound of 20/);
+  /* A step's run details, and Sets a run detail shown: 60 each, 20 drawn. */
+  const step = async () => { await inBuilder('sixty', 'ob-sel', 's0')(app); app.click('ob-show', 'sets'); await app.tick(10); await openFolds(app); return app.html(); };
+  h = await step();
+  assert.strictEqual((h.match(/data-act="ob-bind"/g) || []).length, 20, 'set-up: a step\'s run details');
+  assert.strictEqual((h.match(/data-act="ob-sets"/g) || []).length, 20, 'set-up: Sets a run detail');
+  assert.deepStrictEqual(check('Sixty details › Edit › Builder, a step with Sets a run detail', h).fails, []);
+  await offFails('ob-binds', step, /a step's run details \(ob-binds\), 20 and the step's own draws 60, over its bound of 21/);
+  await offFails('ob-sets', step, /Sets a run detail \(ob-sets\), 20 and the ones the step sets draws 60, over its bound of 21/);
+});
+
 /* The check is itself checked: with paging off for one list, that list must fail it. A flat page, the tree, a select, the
    nested list (corrections, one page across groups) and the tail (the step-note thread). */
+/* The checklist preview of the current version of Four hundred steps, whatever screens before it chose (Flight plan, Markdown, an
+   older version). */
+const stepsList = async app => { await openProc('steps', 'overview')(app); app.click('flight', 'list'); await app.tick(5); if (/data-act="back-current"/.test(app.html())) { app.click('back-current'); await app.tick(5); } };
 const PAGE_OFF = [
   { list: 'runs-running', kind: 'flat', screen: 'Runs', go: SCREENS.filter(s => s[0] === 'Runs')[0][1], expect: /run cards .* draws \d+, over its bound/ },
   { list: 'processes', kind: 'tree', screen: 'Checklists', go: SCREENS.filter(s => s[0] === 'Checklists')[0][1], expect: /the Checklists and All skills tree, its rows .* draws \d+, over its bound of 50/ },
@@ -412,6 +461,9 @@ const PAGE_OFF = [
   { list: 'ob-link-src-region', kind: 'select', screen: 'Many linked steps › Edit › Builder, a linked step', go: SCREENS.filter(s => s[0] === 'Many linked steps › Edit › Builder, a linked step')[0][1], expect: /a bounded dropdown \(K\.select\), per select draws \d+, over its bound of 54/ },
   { list: 'ob-roles', kind: 'flat', screen: 'Many roles › Edit › Builder, a step', go: SCREENS.filter(s => s[0] === 'Many roles › Edit › Builder, a step')[0][1], expect: /a step's roles \(ob-roles\), 20 and the step's own draws \d+, over its bound of 21/ },
   { list: 'ob-meta-roles', kind: 'flat', screen: 'Many roles › Edit › Builder, checklist details', go: SCREENS.filter(s => s[0] === 'Many roles › Edit › Builder, checklist details')[0][1], expect: /Checklist details' roles and run details .* draws \d+, over its bound of 21/ },
+  /* Found in code review round 8: the preview's skill names, a step's and the whole checklist's (K.capJoin). */
+  { list: 'pv-skills', kind: 'joined', screen: 'Four hundred steps', go: stepsList, expect: /a step's skills joined into one line \(pv-skills\), 50 names draws \d+, over its bound of 50/ },
+  { list: 'pv-whole', kind: 'joined', screen: 'Four hundred steps', go: stepsList, expect: /the whole checklist's skills joined into one line \(pv-whole\), 50 names draws \d+, over its bound of 50/ },
   { list: 'notes:' + fixture().facts.busy + ':s0', kind: 'tail', screen: 'The busy run', go: SCREENS.filter(s => s[0] === 'The busy run')[0][1], expect: /the step-note thread .* draws \d+, over its bound of 21/ }
 ];
 const PAGE_OFF_PENDING = [];
@@ -433,7 +485,7 @@ rule('D8: the duration chart draws its 300 dots (400 ended runs of one version) 
   assert.deepStrictEqual(check('Many versions › How runs go', html).fails, []);
 });
 rule('D8 is tested: the kinds of list not yet paged in this slice are listed with the slice that adds their PAGE_OFF check', () => {
-  assert.deepStrictEqual(PAGE_OFF_PENDING.map(k => k.kind).concat(PAGE_OFF.map(t => t.kind)).filter((k, i, a) => a.indexOf(k) === i).sort(), ['flat', 'nested', 'select', 'tail', 'tree']);
+  assert.deepStrictEqual(PAGE_OFF_PENDING.map(k => k.kind).concat(PAGE_OFF.map(t => t.kind)).filter((k, i, a) => a.indexOf(k) === i).sort(), ['flat', 'joined', 'nested', 'select', 'tail', 'tree']);
 });
 rule('D8: PENDING names each list once, with a slice of 2.11 or null for one the plan doesn\'t have yet', () => {
   const names = PENDING.map(p => p.name);

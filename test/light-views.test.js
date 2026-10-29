@@ -50,7 +50,7 @@ rule('Process page, not its owner: Corrections and Skills are one closed line ea
   assert.ok(/<summary><h2 id="fx-h" tabindex="-1">[\s\S]{0,400}?Corrections · \d+ open<\/h2>[\s\S]{0,80}?Review[\s\S]{0,40}?<\/summary>/.test(html), 'one line: Corrections · N open, Review');
   assert.ok(!shown(html, /Copy correction brief/) && !shown(html, /data-act="corr-review"/) && inHtml(html, /data-act="corr-review"/), 'its body is on the page, closed');
   assert.ok(folded(html, 'sk:release'), 'skills folded');
-  assert.ok(/<summary><h2 id="sk-h">[\s\S]{0,300}?Skills · 2 · 2 need attention<\/h2><\/summary>/.test(html), 'one line with the count and what needs an update');
+  assert.ok(/<summary><h2 id="sk-h" tabindex="-1">[\s\S]{0,300}?Skills · 2 · 2 need attention<\/h2><\/summary>/.test(html), 'one line with the count and what needs an update');
   assert.ok(!shown(html, /Ready for a skill\?/) && inHtml(html, /Ready for a skill\?/) && !shown(html, /needs update/), 'readiness and the list are inside it');
   assert.ok(html.indexOf('data-disc="sk:release"') > html.indexOf('id="pr-h"'), 'at the bottom of the side column');
 });
@@ -119,7 +119,7 @@ rule('Process page: with no skills and no clean runs yet, the fold says so for s
   const app = boot(); await app.tick(60);
   app.choose('person-casey'); await app.tick(); app.click('open-process', 'jira-cleanup'); await app.tick();
   const html = app.html();
-  assert.ok(/<summary><h2 id="sk-h">[\s\S]{0,300}?Skills · none yet \(\d of 3 clean runs\)<\/h2><\/summary>/.test(html), html.slice(html.indexOf('sk-h') - 200, html.indexOf('sk-h') + 300));
+  assert.ok(/<summary><h2 id="sk-h" tabindex="-1">[\s\S]{0,300}?Skills · none yet \(\d of 3 clean runs\)<\/h2><\/summary>/.test(html), html.slice(html.indexOf('sk-h') - 200, html.indexOf('sk-h') + 300));
 });
 
 /* A blank new process starts with no steps (2.2.1): one typed into its open Add a step box. */
