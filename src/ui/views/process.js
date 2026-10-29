@@ -207,9 +207,9 @@
       (dl ? '<dl class="corr-dl">' + dl + '</dl>' : '') +
       '<div class="row"><label class="sr" for="pick-input">Why not?</label><input id="pick-input" maxlength="300" value="' + esc(pk.text || '') + '"><button class="btn" type="button" data-act="corr-copy-reason">Copy my text</button><button class="mini" type="button" data-act="unpick">Cancel</button></div></li>';
   }
-  /* A group's members' keys (2.11): the group and each member's own note (its run, id and place among its twins), never its
-     place in the group, so a member arriving above never turns the row someone is on into another. */
-  function fxKeys(g) { return K.uniqKeys(g.members, function (m) { return m.run + '\n' + m.id + '\n' + (m.noteAt || 1); }).map(function (k) { return g.id + '#' + K.domKey(k); }); }
+  /* A group's members' keys (2.11): the group and each member's own note (V.memberKeys: its run, id and whole content), never
+     its place in the group, so a member arriving above never turns the row someone is on into another. */
+  function fxKeys(g) { return V.memberKeys(g).map(function (k) { return g.id + '#' + K.domKey(k); }); }
   /* One group, with the members the page draws (ms: { m, i, key }, i its place in the group). Each drawn member's Why, What
      happened, files and run are drawn in full; its first line (fxm-<key>) is where Show more puts focus. */
   function groupItem(ctx, p, g, ms, o) {

@@ -1607,7 +1607,8 @@
        its list's heading. Only for the folder it was drawn for. */
     var heldAe = ae && ae !== document.body && holdGen === gen && (app.contains(ae) || topEl.contains(ae) || overlayEl.contains(ae)) ? ae : null, lostHead = null;
     holdGen = gen;
-    PF.vk.focusAt = heldAe ? { inRow: function (sel, other) { return rowHas(heldAe, sel, other); }, away: function (sel, other) { return awayFrom(heldAe, sel, other); }, lost: function () { if (!lostHead) lostHead = listHeadOf(heldAe); } } : null;
+    var heldOut = null;
+    PF.vk.focusAt = heldAe ? { inRow: function (sel, other) { return rowHas(heldAe, sel, other); }, near: function (sel) { if (!heldOut) heldOut = outerRow(heldAe); return nearRow(heldAe, heldOut, sel); }, away: function (sel, other) { return awayFrom(heldAe, sel, other); }, lost: function () { if (!lostHead) lostHead = listHeadOf(heldAe); } } : null;
     var y = window.scrollY;
     renderTop();
     followDrafts();
@@ -1714,15 +1715,39 @@
     tick();
     lsSet('filter', state.filter);
     var nr = /^(run|finish|receipt)$/.test(state.view) && ctx.run();
-    notesSeen = nr ? { run: state.runKey, notes: nr._notes || [] } : null;
+    notesSeen = nr ? { run: state.runKey, notes: nr._notes || [], diffs: answersOf(nr) } : null;
   }
   /* A focused note or correction row is that note, not its place among the notes sharing its id (2.11): after a newer read
      moves its twins, focus follows the note by its whole content (PF.search.noteFind). A note that's gone, or can no longer
      be told apart, leaves focus on the inspector's title (the page's heading off the run screen), never on another note. */
   var notesSeen = null;
+  /* Each step's Done differently answer, as drawn: who, when and what (a one-off row's identity, 2.11). */
+  function answersOf(r) {
+    var o = Object.create(null);
+    Object.keys(r.steps || {}).forEach(function (k) { var d = r.steps[k] && r.steps[k].differently; if (d) o[k] = { by: d.by, at: d.at, note: d.note }; });
+    return o;
+  }
+  /* The one-off row (a Done differently answer with no correction, corr-diff-<step>) a drawn row id names, unless a note had
+     that id: { step, a (its answer as drawn) }. */
+  function oneOffAt(was, id) {
+    if (!was || !was.diffs || id.indexOf('corr-diff-') !== 0) return null;
+    var sid = id.slice(10), a = was.diffs[sid];
+    if (!a || V.corrDomId('diff-' + sid, 1) !== id) return null;
+    var ats = PF.search.noteAts(was.notes);
+    for (var i = 0; i < was.notes.length; i++) if (V.corrDomId(was.notes[i].id, ats[i]) === id) return null;
+    return { step: sid, a: a };
+  }
+  /* Whether the run still draws that answer as a one-off row: the same step, who, when and what. */
+  function oneOffNow(r, o) {
+    return PF.corrections.forRun(r, PF.run.mapOf(r), { at: true }).some(function (c) { return c.oneOff && c.step === o.step && c.by === o.a.by && c.at === o.a.at && c.happened === o.a.note; });
+  }
   function noteFocus(id, key) {
     var was = notesSeen, r = /^(run|finish|receipt)$/.test(state.view) && ctx.run(), S = PF.search;
-    if (!was || !r || was.run !== state.runKey || was.notes === r._notes || !/^(tn|corr)-/.test(id)) return key;
+    if (!was || !r || was.run !== state.runKey || !/^(tn|corr)-/.test(id)) return key;
+    /* A one-off row is its answer: changed or gone, focus goes to the heading, never onto another answer in its place. */
+    var off = oneOffAt(was, id);
+    if (off) return oneOffNow(r, off) ? key : state.view === 'run' ? '#ins-h' : '#page-h';
+    if (was.notes === r._notes) return key;
     var ats = S.noteAts(was.notes), old = null, oldKey = '';
     for (var i = 0; i < was.notes.length && !old; i++) {
       var n = was.notes[i], corr = n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map';
@@ -1746,6 +1771,18 @@
     if (row && o && o !== t && row.contains(o)) row = null;
     row = row || t;
     return row === el || row.contains(el);
+  }
+  /* The outermost row around el (el itself when none). */
+  function outerRow(el) {
+    var r = el.closest ? el.closest(ROW_SEL) : null, up = null;
+    while (r && r.parentElement && (up = r.parentElement.closest(ROW_SEL))) r = up;
+    return r || el;
+  }
+  /* A quick look before rowHas, searching only around el, never the whole page: whether the element sel finds could be the
+     one whose row holds el. Any row holding el lies inside its outermost row (out), and an element that is its own row and
+     holds el is around it, so a no here is always a no for rowHas too. A list can have thousands of rows drawn last time. */
+  function nearRow(el, out, sel) {
+    try { return out.closest(sel) === out || !!out.querySelector(sel) || !!el.closest(sel); } catch (e) { return false; }
   }
   /* Whether el is outside the section that holds two of a list's rows (sel, other), so outside the list: one look, before
      looking row by row. A section around one row only (a report card is one) isn't the list's. */
@@ -1773,7 +1810,9 @@
       t.gen = gen; t.run = state.runKey; t.step = n.step;
       return t;
     }
-    return null;
+    /* A one-off row (Done differently, no correction) is held by its answer. */
+    var off = oneOffAt(was, id);
+    return off ? { gen: gen, run: state.runKey, step: off.step, oneOff: off.a } : null;
   }
   var lastOverlay = '', lastPick = '';
   /* The draft editor is a page of its own: the app's top bar hides and the page stops scrolling (each pane scrolls). The

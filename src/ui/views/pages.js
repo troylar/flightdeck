@@ -31,11 +31,12 @@
     return h;
   }
 
-  /* The correction that has focus, kept drawn by its note's anchor (app.js noteHold), so a newer read can't put its twin in
-     its place: these lists don't hold their focused row by key (hold: false). */
-  function heldCorr(st, r) {
-    var h = st.noteHeld && st.noteHeld.run === K.runKey(r) ? PF.search.noteFind(r._notes || [], st.noteHeld) : null;
-    return h && (h.n.kind === 'correction' || h.n.kind === 'fix' || h.n.kind === 'map') ? [h.key] : [];
+  /* The row that has focus, kept drawn by what it is (app.js noteHold): a correction by its note's anchor, so a newer read
+     can't put its twin in its place, and a one-off Done differently row by its answer. These lists don't hold their focused
+     row by key (hold: false), so this covers every kind of row they draw. */
+  function heldCorr(st, r, items) {
+    var h = st.noteHeld && st.noteHeld.run === K.runKey(r) ? PF.search.noteFind(r._notes || [], st.noteHeld) : null, off = V.oneOffHeld(st, r, items);
+    return (h && (h.n.kind === 'correction' || h.n.kind === 'fix' || h.n.kind === 'map') ? [h.key] : []).concat(off ? [off] : []);
   }
   /* A correction row's own id from its list key (id, or id#n for a later note sharing that id). */
   function corrFocus(k) { var x = U.nthOf(k); return K.byId(V.corrDomId(x.s, x.n)); }
@@ -52,8 +53,9 @@
     if (fus.length) h += '<ul class="fulist">' + PF.followups.forRun(V.fuList(ctx), r).map(function (x) { return V.fuRow(ctx, x, { remove: true, actions: false }); }).join('') + '</ul>';
     var nmFu = PF.people.labeler(people);
     h += '<details class="fu-add" data-disc="fu-add"' + (fuOpen ? ' open' : '') + '><summary class="btn">Add a follow-up</summary><p class="small">Work this run turned up that outlives it. It goes on the receipt and stays on its owner\'s Home until someone says what became of it.</p>' + ferr(s, 'followup') + '<div class="grid2"><label class="field" for="fu-text">What needs doing<input id="fu-text" maxlength="300" data-enter="add-followup"' + (s.fieldErr && s.fieldErr.id === 'followup' ? ' aria-invalid="true" aria-describedby="ferr-followup"' : '') + '></label><label class="field" for="fu-owner">Who<select id="fu-owner"><option value="">Nobody yet</option>' + people.map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(nmFu(p)) + '</option>'; }).join('') + '</select></label><label class="field" for="fu-ticket">Jira ticket (optional)<input id="fu-ticket" maxlength="120" placeholder="ABC-123"></label></div><button class="btn" style="align-self:flex-start" data-act="add-followup">Add follow-up</button></details></section>';
+    var finItems = V.corrItems(cor);
     h += !cor.length ? '<p class="small fin-none">No corrections.</p>' : '<section class="panel stack"><h2>Corrections · ' + cor.length + '</h2><p class="small">Where the checklist was wrong or the work went differently. They also wait on the checklist\'s page, where the team decides on them.</p>' +
-      K.list(s, 'fin-corr:' + r.process + '/' + r.id, V.corrItems(cor), { hold: false, keep: heldCorr(s, r), keptLabel: 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: corrFocus, draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) {
+      K.list(s, 'fin-corr:' + r.process + '/' + r.id, finItems, { hold: false, keep: heldCorr(s, r, finItems), keptLabel: 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: corrFocus, draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) {
         var c = x.c;
         var fu = '<button class="mini" data-act="add-followup" data-text="' + esc(('Update the checklist: ' + (c.stepText || c.step) + ' (' + (c.proposed || c.why || c.happened) + ')').slice(0, 300)) + '" data-step="' + esc(c.step) + '" data-from="' + esc(c.id) + '">Make it a follow-up</button>';
         return V.corrRow(ctx, c, idx[c.id], { step: true, domId: x.dom, followUp: fus.some(function (f) { return f.from === c.id; }) ? '<span class="small">Follow-up added</span>' : fu });
@@ -120,7 +122,8 @@
       K.list(st, 'rcpt-reps:' + rkey, reps, { keyOf: function (g) { return g.key; }, focusOf: function (k) { return K.byId('rr-' + k); },
         draw: function (shown) { return PF.reports.lines(shown, rb ? rb.cur : null, r, map, parts.who).map(function (l, i) { return '<div class="rrow rr-rep" id="' + esc('rr-' + shown[i].key) + '" tabindex="-1"><span class="ric open">◇</span><span>' + esc(l) + '</span><span></span></div>'; }).join(''); } }) + '</div>';
     /* The page's rows are told apart when two share an id ({ at: true }); the copied text (receiptText) is as it always was. */
-    if (cor.length) body += '<div class="r-corr"><h4><span>Corrections · ' + cor.length + '</span></h4>' + K.list(st, 'rcpt-corr:' + rkey, V.corrItems(PF.corrections.forRun(r, map, { at: true })), { hold: false, keep: heldCorr(st, r), keptLabel: 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: corrFocus,
+    var rcItems = cor.length ? V.corrItems(PF.corrections.forRun(r, map, { at: true })) : [];
+    if (cor.length) body += '<div class="r-corr"><h4><span>Corrections · ' + cor.length + '</span></h4>' + K.list(st, 'rcpt-corr:' + rkey, rcItems, { hold: false, keep: heldCorr(st, r, rcItems), keptLabel: 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: corrFocus,
       draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) { return V.corrRow(ctx, x.c, idx[x.c.id], { step: true, domId: x.dom }); }).join('') + '</ul>'; } }) + '</div>';
     return notices(ctx) + '<div class="runhead"><div><div class="eyebrow">Receipt · Copy it into your ticket, or take a screenshot</div><h1 id="page-h" tabindex="-1">' + esc(r.title) + '</h1></div><div class="row"><button class="btn primary" data-act="copy-receipt">' + I('copy') + 'Copy for Jira</button><button class="btn" data-act="exit-mission">' + I('back') + 'Back to the run</button><button class="btn" data-act="ev-open" data-id="' + esc(r.process + '/' + r.id) + '">' + I('doc') + 'Export evidence</button>' + V.planAgain(ctx, r) + '<span class="small" id="copy-msg" aria-live="polite"></span></div></div>' +
       '<div class="receipt"><div class="head"><div><div class="eyebrow">' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) + '</div><div class="rt">' + esc(r.title) + '</div>' + (det ? '<div class="small">' + esc(det) + '</div>' : '') + '</div><div style="text-align:right"><div class="pill ' + hl.s + '">' + esc(r.ended ? K.hlText(r, hl) : 'In progress') + '</div><div class="small">started ' + esc(U.when(r.created)) + '<br>run ' + esc(r.id) + '</div></div></div>' + body +

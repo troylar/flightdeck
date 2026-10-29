@@ -177,9 +177,12 @@ PF.vk = (function () {
     if (!fa || !was || !was.length || o.hold === false) return null;
     var sel = function (k) { return o.focusOf ? o.focusOf(k) : runCardSel(k); };
     if (was.length > 1 && fa.away(sel(was[0]), sel(was[was.length - 1]))) return null;
-    for (var i = 0; i < was.length && i < 1000; i++) {
+    /* Every row drawn last time is looked at, however many (Show more can reach thousands): those not drawn now are looked
+       for around the focused element first (fa.near, no search of the whole page), then checked row by row. */
+    for (var i = 0; i < was.length; i++) {
       var k = was[i];
       if (onPage[k] || keep[k]) continue;
+      if (fa.near && !fa.near(sel(k))) continue;
       var other = was[0] !== k ? was[0] : was.length > 1 ? was[1] : null;
       if (!fa.inRow(sel(k), other == null ? null : sel(other))) continue;
       for (var j = 0; j < items.length; j++) if (o.keyOf(items[j]) === k) return k;

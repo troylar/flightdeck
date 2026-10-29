@@ -8660,6 +8660,8 @@ PF.corrections = (function () {
       (r._notes || []).forEach(function (n) {
         if (n.kind !== 'correction' && n.kind !== 'fix' && n.kind !== 'map') return;
         var base = { id: n.id, process: process, run: r.id, runTitle: r.title, by: n.by, at: n.at, files: n.files || [], fileInfo: n.fileInfo || {}, runEnded: !!r.ended, test: PF.run.isTest(r) };
+        /* The note itself, for telling twins apart by their whole content (PF.search.noteAnchor); not one of its fields. */
+        Object.defineProperty(base, 'note', { value: n });
         if (n.kind === 'correction') {
           if (n.replaces) gone[n.by + '|' + n.replaces] = true;
           /* One this copy can't fully read shows its own plain summary as the problem. */
@@ -19108,9 +19110,12 @@ PF.vk = (function () {
     if (!fa || !was || !was.length || o.hold === false) return null;
     var sel = function (k) { return o.focusOf ? o.focusOf(k) : runCardSel(k); };
     if (was.length > 1 && fa.away(sel(was[0]), sel(was[was.length - 1]))) return null;
-    for (var i = 0; i < was.length && i < 1000; i++) {
+    /* Every row drawn last time is looked at, however many (Show more can reach thousands): those not drawn now are looked
+       for around the focused element first (fa.near, no search of the whole page), then checked row by row. */
+    for (var i = 0; i < was.length; i++) {
       var k = was[i];
       if (onPage[k] || keep[k]) continue;
+      if (fa.near && !fa.near(sel(k))) continue;
       var other = was[0] !== k ? was[0] : was.length > 1 ? was[1] : null;
       if (!fa.inRow(sel(k), other == null ? null : sel(other))) continue;
       for (var j = 0; j < items.length; j++) if (o.keyOf(items[j]) === k) return k;
@@ -19982,9 +19987,9 @@ PF.vk = (function () {
       (dl ? '<dl class="corr-dl">' + dl + '</dl>' : '') +
       '<div class="row"><label class="sr" for="pick-input">Why not?</label><input id="pick-input" maxlength="300" value="' + esc(pk.text || '') + '"><button class="btn" type="button" data-act="corr-copy-reason">Copy my text</button><button class="mini" type="button" data-act="unpick">Cancel</button></div></li>';
   }
-  /* A group's members' keys (2.11): the group and each member's own note (its run, id and place among its twins), never its
-     place in the group, so a member arriving above never turns the row someone is on into another. */
-  function fxKeys(g) { return K.uniqKeys(g.members, function (m) { return m.run + '\n' + m.id + '\n' + (m.noteAt || 1); }).map(function (k) { return g.id + '#' + K.domKey(k); }); }
+  /* A group's members' keys (2.11): the group and each member's own note (V.memberKeys: its run, id and whole content), never
+     its place in the group, so a member arriving above never turns the row someone is on into another. */
+  function fxKeys(g) { return V.memberKeys(g).map(function (k) { return g.id + '#' + K.domKey(k); }); }
   /* One group, with the members the page draws (ms: { m, i, key }, i its place in the group). Each drawn member's Why, What
      happened, files and run are drawn in full; its first line (fxm-<key>) is where Show more puts focus. */
   function groupItem(ctx, p, g, ms, o) {
@@ -21053,6 +21058,22 @@ PF.vk = (function () {
   }
   /* Unreadable note lines, each keyed by its file and line. */
   function badRows(nl) { var ks = K.uniqKeys(nl, function (x) { return x.file + '\n' + x.line; }); return nl.map(function (x, i) { return { x: x, k: ks[i] }; }); }
+  /* The key of the one-off row (a Done differently answer with no correction) that has focus, by its answer (app.js
+     noteHold): these lists hold their focused rows themselves (hold: false), notes by their anchor, one-offs by this. */
+  function oneOffHeld(st, r, items) {
+    var h = st.noteHeld; if (!h || !h.oneOff || h.run !== runKey(r)) return null;
+    for (var i = 0; i < items.length; i++) { var c = items[i].c; if (c.oneOff && c.step === h.step && c.by === h.oneOff.by && c.at === h.oneOff.at && c.happened === h.oneOff.note) return items[i].k; }
+    return null;
+  }
+  /* A group's members' keys (2.11): each member by its run, its id and its note's whole content (PF.search.noteAnchor, as
+     noteFind and noteHold tell twins apart), never its place in the group or among notes sharing its id. Members identical
+     in every field are told apart by rank only while there are as many of them: when their number changes, each gets a new
+     key, so focus on one goes to its list's heading rather than onto another (noteFind chooses none then too). */
+  function memberKeys(g) {
+    var sigs = g.members.map(function (m) { return m.run + '\n' + m.id + '\n' + (m.note ? PF.search.noteAnchor(m.note) : m.noteAt || 1); }), n = Object.create(null);
+    sigs.forEach(function (s) { n[s] = (n[s] || 0) + 1; });
+    return K.uniqKeys(sigs.map(function (s) { return n[s] > 1 ? s + '\n' + n[s] : s; }), function (s) { return s; });
+  }
   /* A correction row's id: corr-<id>, and corr-<id>#<n> for a later note sharing that id (U.nthKey: never a literal id's). */
   function corrDomId(id, n) { return 'corr-' + U.nthKey(id, n); }
   function changedHere(ctx, r) { return r && r.process && r.folder ? C.changedIn(corrGroups(ctx, r.process), r.folder) : {}; }
@@ -21062,9 +21083,11 @@ PF.vk = (function () {
   function provList(ctx, r, map, st, gs) {
     var items = [], byK = Object.create(null);
     /* Each member by its change and its own note (run, id, place among its twins), never its place in the list. */
-    gs.forEach(function (g, gi) { var ks = K.uniqKeys(g.members, function (m) { return m.run + '\n' + m.id + '\n' + (m.noteAt || 1); }); g.members.forEach(function (m, i) { var x = { g: g, gi: gi, m: m, i: i, k: K.domKey(g.id + '\n' + ks[i]) }; items.push(x); byK[x.k] = x; }); });
+    gs.forEach(function (g, gi) { var ks = memberKeys(g); g.members.forEach(function (m, i) { var x = { g: g, gi: gi, m: m, i: i, k: K.domKey(g.id + '\n' + ks[i]) }; items.push(x); byK[x.k] = x; }); });
     return K.list(ctx.state, 'prov-' + st.id, items, { page: 20, keyOf: function (x) { return x.k; }, groupOf: function (x) { return x.g.id; },
-      focusOf: function (k) { var x = byK[k]; return K.byId('pm-' + st.id + '-' + k + (x && x.m.why ? '' : '-run')); },
+      /* A member gone from this draw (its row still on the page as drawn) is found by either of its ids, so focus on it can go
+         to the list's heading. */
+      focusOf: function (k) { var x = byK[k], why = K.byId('pm-' + st.id + '-' + k), run = K.byId('pm-' + st.id + '-' + k + '-run'); return x ? (x.m.why ? why : run) : why + ', ' + run; },
       draw: function (shown) {
         var out = '', run = [];
         shown.forEach(function (x, i) { run.push(x); if (i === shown.length - 1 || shown[i + 1].gi !== x.gi) { out += provenance(ctx, r, map, st, x.g, run); run = []; } });
@@ -21091,7 +21114,7 @@ PF.vk = (function () {
       (dl ? '<dl class="corr-dl">' + dl + '</dl>' : '') + runs + who + '</details></div>';
   }
   V.fuList = fuList; V.fuRow = fuRow; V.fuPill = fuPill; V.fuPaged = fuPaged;
-  V.redline = redline; V.corrRow = corrRow; V.corrDomId = corrDomId; V.corrItems = corrItems; V.corrPill = corrPill; V.corrIndex = corrIndex; V.corrGroups = corrGroups;
+  V.redline = redline; V.corrRow = corrRow; V.corrDomId = corrDomId; V.memberKeys = memberKeys; V.oneOffHeld = oneOffHeld; V.corrItems = corrItems; V.corrPill = corrPill; V.corrIndex = corrIndex; V.corrGroups = corrGroups;
   /* The composer: Correct this step (a proposal; it doesn't answer the step) or Done differently (answers it; what happened
      first, then whether the checklist should change). The published step stays shown above it, never replaced. */
   function composer(ctx, r, map, x, f) {
@@ -21332,11 +21355,12 @@ PF.vk = (function () {
     var nsHit = nsAny && !nsCorrKind && nsAny.n.step === st.id ? nsAny : null, nsCorr = nsAny && nsCorrKind ? nsAny : null;
     var nhAny = s.noteHeld && s.noteHeld.run === runKey(r) && s.noteHeld.step === st.id ? PF.search.noteFind(r._notes || [], s.noteHeld) : null;
     var nhCorr = nhAny && (nhAny.n.kind === 'correction' || nhAny.n.kind === 'fix' || nhAny.n.kind === 'map'), nh = nhAny && !nhCorr ? nhAny : null;
+    var ci = rows.length ? corrItems(rows) : [];
     /* Notes, with attachments; anyone who has said who they are can add one. */
     /* Corrections to this step from this run, then Correct this step (anyone who has said who they are, whatever the run's state). */
     h += '<section class="rw-box rw-corr" aria-labelledby="ins-corr"><div class="row between"><h3 class="rw-h3" id="ins-corr">Corrections' + (rows.length ? ' · ' + rows.length : '') + '</h3>' +
       (s.me && !(cf && cf.mode === 'correct') ? '<button class="mini" data-act="corr-open" data-mode="correct" data-id="' + esc(st.id) + '" title="If the checklist was wrong or unclear here, correct it. The team reviews corrections on the checklist&#39;s page.">' + I('edit') + 'Correct this step</button>' : '') + '</div>' +
-      (rows.length ? K.list(s, 'rcorr:' + rk, corrItems(rows), { page: 20, hold: false, keep: [nsCorr ? nsCorr.key : null, nhCorr ? nhAny.key : null].filter(Boolean), keptLabel: nsCorr ? 'Shown because you opened it' : 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: function (k) { var x = U.nthOf(k); return K.byId(corrDomId(x.s, x.n)); },
+      (rows.length ? K.list(s, 'rcorr:' + rk, ci, { page: 20, hold: false, keep: [nsCorr ? nsCorr.key : null, nhCorr ? nhAny.key : null, oneOffHeld(s, r, ci)].filter(Boolean), keptLabel: nsCorr ? 'Shown because you opened it' : 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: function (k) { var x = U.nthOf(k); return K.byId(corrDomId(x.s, x.n)); },
         draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) { return corrRow(ctx, x.c, idx[x.c.id], { withdraw: true, domId: x.dom }); }).join('') + '</ul>'; } }) : '') +
       (cf && cf.mode === 'correct' ? composer(ctx, r, map, x, cf) : '') + '</section>';
     /* The newest 20 notes, with Show earlier above them (2.11). A note is its id and where it stands among the notes sharing
@@ -21890,11 +21914,12 @@ PF.vk = (function () {
     return h;
   }
 
-  /* The correction that has focus, kept drawn by its note's anchor (app.js noteHold), so a newer read can't put its twin in
-     its place: these lists don't hold their focused row by key (hold: false). */
-  function heldCorr(st, r) {
-    var h = st.noteHeld && st.noteHeld.run === K.runKey(r) ? PF.search.noteFind(r._notes || [], st.noteHeld) : null;
-    return h && (h.n.kind === 'correction' || h.n.kind === 'fix' || h.n.kind === 'map') ? [h.key] : [];
+  /* The row that has focus, kept drawn by what it is (app.js noteHold): a correction by its note's anchor, so a newer read
+     can't put its twin in its place, and a one-off Done differently row by its answer. These lists don't hold their focused
+     row by key (hold: false), so this covers every kind of row they draw. */
+  function heldCorr(st, r, items) {
+    var h = st.noteHeld && st.noteHeld.run === K.runKey(r) ? PF.search.noteFind(r._notes || [], st.noteHeld) : null, off = V.oneOffHeld(st, r, items);
+    return (h && (h.n.kind === 'correction' || h.n.kind === 'fix' || h.n.kind === 'map') ? [h.key] : []).concat(off ? [off] : []);
   }
   /* A correction row's own id from its list key (id, or id#n for a later note sharing that id). */
   function corrFocus(k) { var x = U.nthOf(k); return K.byId(V.corrDomId(x.s, x.n)); }
@@ -21911,8 +21936,9 @@ PF.vk = (function () {
     if (fus.length) h += '<ul class="fulist">' + PF.followups.forRun(V.fuList(ctx), r).map(function (x) { return V.fuRow(ctx, x, { remove: true, actions: false }); }).join('') + '</ul>';
     var nmFu = PF.people.labeler(people);
     h += '<details class="fu-add" data-disc="fu-add"' + (fuOpen ? ' open' : '') + '><summary class="btn">Add a follow-up</summary><p class="small">Work this run turned up that outlives it. It goes on the receipt and stays on its owner\'s Home until someone says what became of it.</p>' + ferr(s, 'followup') + '<div class="grid2"><label class="field" for="fu-text">What needs doing<input id="fu-text" maxlength="300" data-enter="add-followup"' + (s.fieldErr && s.fieldErr.id === 'followup' ? ' aria-invalid="true" aria-describedby="ferr-followup"' : '') + '></label><label class="field" for="fu-owner">Who<select id="fu-owner"><option value="">Nobody yet</option>' + people.map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(nmFu(p)) + '</option>'; }).join('') + '</select></label><label class="field" for="fu-ticket">Jira ticket (optional)<input id="fu-ticket" maxlength="120" placeholder="ABC-123"></label></div><button class="btn" style="align-self:flex-start" data-act="add-followup">Add follow-up</button></details></section>';
+    var finItems = V.corrItems(cor);
     h += !cor.length ? '<p class="small fin-none">No corrections.</p>' : '<section class="panel stack"><h2>Corrections · ' + cor.length + '</h2><p class="small">Where the checklist was wrong or the work went differently. They also wait on the checklist\'s page, where the team decides on them.</p>' +
-      K.list(s, 'fin-corr:' + r.process + '/' + r.id, V.corrItems(cor), { hold: false, keep: heldCorr(s, r), keptLabel: 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: corrFocus, draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) {
+      K.list(s, 'fin-corr:' + r.process + '/' + r.id, finItems, { hold: false, keep: heldCorr(s, r, finItems), keptLabel: 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: corrFocus, draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) {
         var c = x.c;
         var fu = '<button class="mini" data-act="add-followup" data-text="' + esc(('Update the checklist: ' + (c.stepText || c.step) + ' (' + (c.proposed || c.why || c.happened) + ')').slice(0, 300)) + '" data-step="' + esc(c.step) + '" data-from="' + esc(c.id) + '">Make it a follow-up</button>';
         return V.corrRow(ctx, c, idx[c.id], { step: true, domId: x.dom, followUp: fus.some(function (f) { return f.from === c.id; }) ? '<span class="small">Follow-up added</span>' : fu });
@@ -21979,7 +22005,8 @@ PF.vk = (function () {
       K.list(st, 'rcpt-reps:' + rkey, reps, { keyOf: function (g) { return g.key; }, focusOf: function (k) { return K.byId('rr-' + k); },
         draw: function (shown) { return PF.reports.lines(shown, rb ? rb.cur : null, r, map, parts.who).map(function (l, i) { return '<div class="rrow rr-rep" id="' + esc('rr-' + shown[i].key) + '" tabindex="-1"><span class="ric open">◇</span><span>' + esc(l) + '</span><span></span></div>'; }).join(''); } }) + '</div>';
     /* The page's rows are told apart when two share an id ({ at: true }); the copied text (receiptText) is as it always was. */
-    if (cor.length) body += '<div class="r-corr"><h4><span>Corrections · ' + cor.length + '</span></h4>' + K.list(st, 'rcpt-corr:' + rkey, V.corrItems(PF.corrections.forRun(r, map, { at: true })), { hold: false, keep: heldCorr(st, r), keptLabel: 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: corrFocus,
+    var rcItems = cor.length ? V.corrItems(PF.corrections.forRun(r, map, { at: true })) : [];
+    if (cor.length) body += '<div class="r-corr"><h4><span>Corrections · ' + cor.length + '</span></h4>' + K.list(st, 'rcpt-corr:' + rkey, rcItems, { hold: false, keep: heldCorr(st, r, rcItems), keptLabel: 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: corrFocus,
       draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) { return V.corrRow(ctx, x.c, idx[x.c.id], { step: true, domId: x.dom }); }).join('') + '</ul>'; } }) + '</div>';
     return notices(ctx) + '<div class="runhead"><div><div class="eyebrow">Receipt · Copy it into your ticket, or take a screenshot</div><h1 id="page-h" tabindex="-1">' + esc(r.title) + '</h1></div><div class="row"><button class="btn primary" data-act="copy-receipt">' + I('copy') + 'Copy for Jira</button><button class="btn" data-act="exit-mission">' + I('back') + 'Back to the run</button><button class="btn" data-act="ev-open" data-id="' + esc(r.process + '/' + r.id) + '">' + I('doc') + 'Export evidence</button>' + V.planAgain(ctx, r) + '<span class="small" id="copy-msg" aria-live="polite"></span></div></div>' +
       '<div class="receipt"><div class="head"><div><div class="eyebrow">' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) + '</div><div class="rt">' + esc(r.title) + '</div>' + (det ? '<div class="small">' + esc(det) + '</div>' : '') + '</div><div style="text-align:right"><div class="pill ' + hl.s + '">' + esc(r.ended ? K.hlText(r, hl) : 'In progress') + '</div><div class="small">started ' + esc(U.when(r.created)) + '<br>run ' + esc(r.id) + '</div></div></div>' + body +
@@ -26741,7 +26768,8 @@ PF.examples = (function () {
        its list's heading. Only for the folder it was drawn for. */
     var heldAe = ae && ae !== document.body && holdGen === gen && (app.contains(ae) || topEl.contains(ae) || overlayEl.contains(ae)) ? ae : null, lostHead = null;
     holdGen = gen;
-    PF.vk.focusAt = heldAe ? { inRow: function (sel, other) { return rowHas(heldAe, sel, other); }, away: function (sel, other) { return awayFrom(heldAe, sel, other); }, lost: function () { if (!lostHead) lostHead = listHeadOf(heldAe); } } : null;
+    var heldOut = null;
+    PF.vk.focusAt = heldAe ? { inRow: function (sel, other) { return rowHas(heldAe, sel, other); }, near: function (sel) { if (!heldOut) heldOut = outerRow(heldAe); return nearRow(heldAe, heldOut, sel); }, away: function (sel, other) { return awayFrom(heldAe, sel, other); }, lost: function () { if (!lostHead) lostHead = listHeadOf(heldAe); } } : null;
     var y = window.scrollY;
     renderTop();
     followDrafts();
@@ -26848,15 +26876,39 @@ PF.examples = (function () {
     tick();
     lsSet('filter', state.filter);
     var nr = /^(run|finish|receipt)$/.test(state.view) && ctx.run();
-    notesSeen = nr ? { run: state.runKey, notes: nr._notes || [] } : null;
+    notesSeen = nr ? { run: state.runKey, notes: nr._notes || [], diffs: answersOf(nr) } : null;
   }
   /* A focused note or correction row is that note, not its place among the notes sharing its id (2.11): after a newer read
      moves its twins, focus follows the note by its whole content (PF.search.noteFind). A note that's gone, or can no longer
      be told apart, leaves focus on the inspector's title (the page's heading off the run screen), never on another note. */
   var notesSeen = null;
+  /* Each step's Done differently answer, as drawn: who, when and what (a one-off row's identity, 2.11). */
+  function answersOf(r) {
+    var o = Object.create(null);
+    Object.keys(r.steps || {}).forEach(function (k) { var d = r.steps[k] && r.steps[k].differently; if (d) o[k] = { by: d.by, at: d.at, note: d.note }; });
+    return o;
+  }
+  /* The one-off row (a Done differently answer with no correction, corr-diff-<step>) a drawn row id names, unless a note had
+     that id: { step, a (its answer as drawn) }. */
+  function oneOffAt(was, id) {
+    if (!was || !was.diffs || id.indexOf('corr-diff-') !== 0) return null;
+    var sid = id.slice(10), a = was.diffs[sid];
+    if (!a || V.corrDomId('diff-' + sid, 1) !== id) return null;
+    var ats = PF.search.noteAts(was.notes);
+    for (var i = 0; i < was.notes.length; i++) if (V.corrDomId(was.notes[i].id, ats[i]) === id) return null;
+    return { step: sid, a: a };
+  }
+  /* Whether the run still draws that answer as a one-off row: the same step, who, when and what. */
+  function oneOffNow(r, o) {
+    return PF.corrections.forRun(r, PF.run.mapOf(r), { at: true }).some(function (c) { return c.oneOff && c.step === o.step && c.by === o.a.by && c.at === o.a.at && c.happened === o.a.note; });
+  }
   function noteFocus(id, key) {
     var was = notesSeen, r = /^(run|finish|receipt)$/.test(state.view) && ctx.run(), S = PF.search;
-    if (!was || !r || was.run !== state.runKey || was.notes === r._notes || !/^(tn|corr)-/.test(id)) return key;
+    if (!was || !r || was.run !== state.runKey || !/^(tn|corr)-/.test(id)) return key;
+    /* A one-off row is its answer: changed or gone, focus goes to the heading, never onto another answer in its place. */
+    var off = oneOffAt(was, id);
+    if (off) return oneOffNow(r, off) ? key : state.view === 'run' ? '#ins-h' : '#page-h';
+    if (was.notes === r._notes) return key;
     var ats = S.noteAts(was.notes), old = null, oldKey = '';
     for (var i = 0; i < was.notes.length && !old; i++) {
       var n = was.notes[i], corr = n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map';
@@ -26880,6 +26932,18 @@ PF.examples = (function () {
     if (row && o && o !== t && row.contains(o)) row = null;
     row = row || t;
     return row === el || row.contains(el);
+  }
+  /* The outermost row around el (el itself when none). */
+  function outerRow(el) {
+    var r = el.closest ? el.closest(ROW_SEL) : null, up = null;
+    while (r && r.parentElement && (up = r.parentElement.closest(ROW_SEL))) r = up;
+    return r || el;
+  }
+  /* A quick look before rowHas, searching only around el, never the whole page: whether the element sel finds could be the
+     one whose row holds el. Any row holding el lies inside its outermost row (out), and an element that is its own row and
+     holds el is around it, so a no here is always a no for rowHas too. A list can have thousands of rows drawn last time. */
+  function nearRow(el, out, sel) {
+    try { return out.closest(sel) === out || !!out.querySelector(sel) || !!el.closest(sel); } catch (e) { return false; }
   }
   /* Whether el is outside the section that holds two of a list's rows (sel, other), so outside the list: one look, before
      looking row by row. A section around one row only (a report card is one) isn't the list's. */
@@ -26907,7 +26971,9 @@ PF.examples = (function () {
       t.gen = gen; t.run = state.runKey; t.step = n.step;
       return t;
     }
-    return null;
+    /* A one-off row (Done differently, no correction) is held by its answer. */
+    var off = oneOffAt(was, id);
+    return off ? { gen: gen, run: state.runKey, step: off.step, oneOff: off.a } : null;
   }
   var lastOverlay = '', lastPick = '';
   /* The draft editor is a page of its own: the app's top bar hides and the page stops scrolling (each pane scrolls). The

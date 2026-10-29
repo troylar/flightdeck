@@ -470,6 +470,22 @@
   }
   /* Unreadable note lines, each keyed by its file and line. */
   function badRows(nl) { var ks = K.uniqKeys(nl, function (x) { return x.file + '\n' + x.line; }); return nl.map(function (x, i) { return { x: x, k: ks[i] }; }); }
+  /* The key of the one-off row (a Done differently answer with no correction) that has focus, by its answer (app.js
+     noteHold): these lists hold their focused rows themselves (hold: false), notes by their anchor, one-offs by this. */
+  function oneOffHeld(st, r, items) {
+    var h = st.noteHeld; if (!h || !h.oneOff || h.run !== runKey(r)) return null;
+    for (var i = 0; i < items.length; i++) { var c = items[i].c; if (c.oneOff && c.step === h.step && c.by === h.oneOff.by && c.at === h.oneOff.at && c.happened === h.oneOff.note) return items[i].k; }
+    return null;
+  }
+  /* A group's members' keys (2.11): each member by its run, its id and its note's whole content (PF.search.noteAnchor, as
+     noteFind and noteHold tell twins apart), never its place in the group or among notes sharing its id. Members identical
+     in every field are told apart by rank only while there are as many of them: when their number changes, each gets a new
+     key, so focus on one goes to its list's heading rather than onto another (noteFind chooses none then too). */
+  function memberKeys(g) {
+    var sigs = g.members.map(function (m) { return m.run + '\n' + m.id + '\n' + (m.note ? PF.search.noteAnchor(m.note) : m.noteAt || 1); }), n = Object.create(null);
+    sigs.forEach(function (s) { n[s] = (n[s] || 0) + 1; });
+    return K.uniqKeys(sigs.map(function (s) { return n[s] > 1 ? s + '\n' + n[s] : s; }), function (s) { return s; });
+  }
   /* A correction row's id: corr-<id>, and corr-<id>#<n> for a later note sharing that id (U.nthKey: never a literal id's). */
   function corrDomId(id, n) { return 'corr-' + U.nthKey(id, n); }
   function changedHere(ctx, r) { return r && r.process && r.folder ? C.changedIn(corrGroups(ctx, r.process), r.folder) : {}; }
@@ -479,9 +495,11 @@
   function provList(ctx, r, map, st, gs) {
     var items = [], byK = Object.create(null);
     /* Each member by its change and its own note (run, id, place among its twins), never its place in the list. */
-    gs.forEach(function (g, gi) { var ks = K.uniqKeys(g.members, function (m) { return m.run + '\n' + m.id + '\n' + (m.noteAt || 1); }); g.members.forEach(function (m, i) { var x = { g: g, gi: gi, m: m, i: i, k: K.domKey(g.id + '\n' + ks[i]) }; items.push(x); byK[x.k] = x; }); });
+    gs.forEach(function (g, gi) { var ks = memberKeys(g); g.members.forEach(function (m, i) { var x = { g: g, gi: gi, m: m, i: i, k: K.domKey(g.id + '\n' + ks[i]) }; items.push(x); byK[x.k] = x; }); });
     return K.list(ctx.state, 'prov-' + st.id, items, { page: 20, keyOf: function (x) { return x.k; }, groupOf: function (x) { return x.g.id; },
-      focusOf: function (k) { var x = byK[k]; return K.byId('pm-' + st.id + '-' + k + (x && x.m.why ? '' : '-run')); },
+      /* A member gone from this draw (its row still on the page as drawn) is found by either of its ids, so focus on it can go
+         to the list's heading. */
+      focusOf: function (k) { var x = byK[k], why = K.byId('pm-' + st.id + '-' + k), run = K.byId('pm-' + st.id + '-' + k + '-run'); return x ? (x.m.why ? why : run) : why + ', ' + run; },
       draw: function (shown) {
         var out = '', run = [];
         shown.forEach(function (x, i) { run.push(x); if (i === shown.length - 1 || shown[i + 1].gi !== x.gi) { out += provenance(ctx, r, map, st, x.g, run); run = []; } });
@@ -508,7 +526,7 @@
       (dl ? '<dl class="corr-dl">' + dl + '</dl>' : '') + runs + who + '</details></div>';
   }
   V.fuList = fuList; V.fuRow = fuRow; V.fuPill = fuPill; V.fuPaged = fuPaged;
-  V.redline = redline; V.corrRow = corrRow; V.corrDomId = corrDomId; V.corrItems = corrItems; V.corrPill = corrPill; V.corrIndex = corrIndex; V.corrGroups = corrGroups;
+  V.redline = redline; V.corrRow = corrRow; V.corrDomId = corrDomId; V.memberKeys = memberKeys; V.oneOffHeld = oneOffHeld; V.corrItems = corrItems; V.corrPill = corrPill; V.corrIndex = corrIndex; V.corrGroups = corrGroups;
   /* The composer: Correct this step (a proposal; it doesn't answer the step) or Done differently (answers it; what happened
      first, then whether the checklist should change). The published step stays shown above it, never replaced. */
   function composer(ctx, r, map, x, f) {
@@ -749,11 +767,12 @@
     var nsHit = nsAny && !nsCorrKind && nsAny.n.step === st.id ? nsAny : null, nsCorr = nsAny && nsCorrKind ? nsAny : null;
     var nhAny = s.noteHeld && s.noteHeld.run === runKey(r) && s.noteHeld.step === st.id ? PF.search.noteFind(r._notes || [], s.noteHeld) : null;
     var nhCorr = nhAny && (nhAny.n.kind === 'correction' || nhAny.n.kind === 'fix' || nhAny.n.kind === 'map'), nh = nhAny && !nhCorr ? nhAny : null;
+    var ci = rows.length ? corrItems(rows) : [];
     /* Notes, with attachments; anyone who has said who they are can add one. */
     /* Corrections to this step from this run, then Correct this step (anyone who has said who they are, whatever the run's state). */
     h += '<section class="rw-box rw-corr" aria-labelledby="ins-corr"><div class="row between"><h3 class="rw-h3" id="ins-corr">Corrections' + (rows.length ? ' · ' + rows.length : '') + '</h3>' +
       (s.me && !(cf && cf.mode === 'correct') ? '<button class="mini" data-act="corr-open" data-mode="correct" data-id="' + esc(st.id) + '" title="If the checklist was wrong or unclear here, correct it. The team reviews corrections on the checklist&#39;s page.">' + I('edit') + 'Correct this step</button>' : '') + '</div>' +
-      (rows.length ? K.list(s, 'rcorr:' + rk, corrItems(rows), { page: 20, hold: false, keep: [nsCorr ? nsCorr.key : null, nhCorr ? nhAny.key : null].filter(Boolean), keptLabel: nsCorr ? 'Shown because you opened it' : 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: function (k) { var x = U.nthOf(k); return K.byId(corrDomId(x.s, x.n)); },
+      (rows.length ? K.list(s, 'rcorr:' + rk, ci, { page: 20, hold: false, keep: [nsCorr ? nsCorr.key : null, nhCorr ? nhAny.key : null, oneOffHeld(s, r, ci)].filter(Boolean), keptLabel: nsCorr ? 'Shown because you opened it' : 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: function (k) { var x = U.nthOf(k); return K.byId(corrDomId(x.s, x.n)); },
         draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) { return corrRow(ctx, x.c, idx[x.c.id], { withdraw: true, domId: x.dom }); }).join('') + '</ul>'; } }) : '') +
       (cf && cf.mode === 'correct' ? composer(ctx, r, map, x, cf) : '') + '</section>';
     /* The newest 20 notes, with Show earlier above them (2.11). A note is its id and where it stands among the notes sharing

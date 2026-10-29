@@ -183,6 +183,8 @@ PF.corrections = (function () {
       (r._notes || []).forEach(function (n) {
         if (n.kind !== 'correction' && n.kind !== 'fix' && n.kind !== 'map') return;
         var base = { id: n.id, process: process, run: r.id, runTitle: r.title, by: n.by, at: n.at, files: n.files || [], fileInfo: n.fileInfo || {}, runEnded: !!r.ended, test: PF.run.isTest(r) };
+        /* The note itself, for telling twins apart by their whole content (PF.search.noteAnchor); not one of its fields. */
+        Object.defineProperty(base, 'note', { value: n });
         if (n.kind === 'correction') {
           if (n.replaces) gone[n.by + '|' + n.replaces] = true;
           /* One this copy can't fully read shows its own plain summary as the problem. */
