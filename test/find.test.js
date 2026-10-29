@@ -593,6 +593,34 @@ rule('Round 5: a diff with two added "same" lines and an added "same#2" line at 
   assert.ok(target.length === 1 && target[0].text === 'same#2', 'Show more focuses the 51st change: ' + focus + ' ' + JSON.stringify(target));
 });
 
+rule('Round 7: a change kept past the page draws only unchanged lines as its context: no hidden change drawn, none called unchanged, no id twice, and Show more counts and focuses a change not drawn', () => {
+  const PF = loadViews(), V = PF.views, K = PF.vk;
+  /* 123 changes, each after two unchanged lines; 100 shown, the last of them kept after two changes sort in above it. */
+  const rows = [];
+  for (let i = 0; i < 121; i++) rows.push({ op: ' ', text: 'ctx ' + i + 'a' }, { op: ' ', text: 'ctx ' + i + 'b' }, { op: '+', text: 'chg ' + i });
+  rows.push({ op: ' ', text: 'tail' });
+  const kept = K.domKey('+chg 99');
+  rows.splice(3, 0, { op: '+', text: 'chg new1' }, { op: '+', text: 'chg new2' });
+  const st = { more: { dd: 100 }, justShown: { lists: { dd: kept }, words: {} } };
+  const h = V.diffHtml(rows, st, 'dd');
+  const ids = [...h.matchAll(/ id="([^"]+)"/g)].map(m => m[1]);
+  assert.strictEqual(new Set(ids).size, ids.length, 'no id twice: ' + ids.filter((x, i) => ids.indexOf(x) !== i).join(', '));
+  const drawn = [...h.matchAll(/<span class="(?:add|del)" id="([^"]+)"/g)].map(m => m[1]);
+  assert.strictEqual(drawn.length, 101, 'the 100 on the page and the kept one, nothing else: ' + drawn.length);
+  assert.ok(drawn.indexOf('dd-' + kept) >= 0, 'the kept change is drawn');
+  assert.ok(!/<span>  chg /.test(h), 'no change is drawn as an unchanged line');
+  /* No stretch here has more than two unchanged lines, so no gap says "unchanged lines" alone; the kept change's line counts
+     exactly the changes and unchanged lines above its own context. */
+  assert.ok(!/… [\d,]+ unchanged line/.test(h), 'no stretch with a change in it is called unchanged: ' + (/… [\d,]+ unchanged lines?/.exec(h) || [])[0]);
+  const a = rows.findIndex(r => r.text === 'ctx 99a'), above = rows.slice(0, a);
+  const want = '… ' + above.filter(r => r.op !== ' ').length + ' other changes and ' + above.filter(r => r.op === ' ').length + ' unchanged lines';
+  assert.ok(h.indexOf(want) >= 0, 'the kept change says what\'s above it: ' + want);
+  const m = /data-act="more" data-id="dd" data-next="([^"]+)"[^>]*data-focus="([^"]+)"[^>]*>Show (\d+) more</.exec(h);
+  assert.ok(m, 'a Show more');
+  assert.strictEqual(+m[3], 123 - 101, 'Show more says how many changes are still hidden');
+  assert.ok(drawn.indexOf('dd-' + m[1]) < 0, 'and focuses one not drawn yet: ' + m[1]);
+});
+
 rule('Round 5: a kept row whose item is on the page is drawn inside that item, once (K.list groupOf, as corrections and a change\'s members use)', () => {
   const K = loadViews().vk, st = { more: {} };
   const items = [];

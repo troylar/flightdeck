@@ -221,32 +221,55 @@ rule('Round 6, by property: in every list that holds twins, focus stays on the s
     /* The pool: six twins sharing id "pt" (one of them twice, identical in every field), each with its own file. */
     const at = () => l.win[0] + Math.floor(rand() * (l.win[1] - l.win[0]) / 1000) * 1000;
     const pool = []; for (let i = 0; i < 6; i++) pool.push({ n: i, note: l.make('pt', at(), l.mark + '-' + i) });
+    /* The identical pair (1 and 6) at the end of the window the page draws (the newest, for the thread's tail), so both are drawn. */
+    pool[1].note = l.make('pt', l.name === 'the note thread' ? l.win[1] : l.win[0], l.mark + '-1');
     pool.push({ n: 6, note: Object.assign({}, pool[1].note) });
     const on = new Set([0, 1, 2, 3, 6]);
     const write = () => arrive(app, pool.map(p => [l.file(p.n), on.has(p.n) ? [p.note] : null]));
     const count = mk => pool.filter(p => on.has(p.n) && l.markOf(p.note.why || p.note.text) === mk).length;
     await write(); await l.go(app);
-    let ok = 0;
+    let ok = 0, steps = 0;
+    const twinsOf = (h, mk) => l.rows(h).filter(x => l.markOf(l.text(h, x)) === mk);
+    /* Focus the drawn row id (marked mk), make the change, read: gone or no longer told apart (one more or one fewer note
+       identical to it) sends focus to the heading, checked first; otherwise focus is on its own row, by its exact id now. */
+    const trial = async (tag, id, mk, change) => {
+      const h = app.html(), was = count(mk), rank = twinsOf(h, mk).indexOf(id);
+      app.node('[id="' + id.replace(/["\\]/g, '\\$&') + '"]').focus();
+      const what = change();
+      await write();
+      const h2 = app.html(), now = count(mk), a = app.activeId(), got = a ? l.markOf(l.text(h2, a)) : null;
+      const gone = now === 0, ambiguous = now !== was && (was > 1 || now > 1);
+      const want = gone || ambiguous ? l.heading : now === 1 ? twinsOf(h2, mk)[0] : twinsOf(h2, mk)[rank];
+      log.push(l.name + ' ' + tag + ': on ' + mk + ' (' + was + ' like it, ' + id + '), ' + what + ' -> ' + now + ' like it, focus ' + a + (got ? ' (' + got + ')' : '') + ', wanted ' + want);
+      steps++;
+      if (want && a === want) ok++; else fails.push(log[log.length - 1]);
+    };
+    /* Every surface, deterministically: two notes identical in every field become one, and one becomes two again. */
+    const mk1 = l.markOf(pool[1].note.why || pool[1].note.text);
+    let tw = twinsOf(app.html(), mk1);
+    if (!tw.length) fails.push(l.name + ': set-up: its identical twins aren\'t drawn');
+    else {
+      await trial('identical 2 to 1', tw[tw.length - 1], mk1, () => { on.delete(6); return 'delete one of the two identical'; });
+      tw = twinsOf(app.html(), mk1);
+      if (!tw.length) fails.push(l.name + ': set-up: the identical survivor isn\'t drawn');
+      else await trial('identical 1 to 2', tw[0], mk1, () => { on.add(6); return 'insert its identical twin'; });
+    }
     for (let step = 0; step < 6; step++) {
       const h = app.html(), drawn = l.rows(h).filter(id => (l.markOf(l.text(h, id)) || '').indexOf(l.mark + '-') === 0);
       if (!drawn.length) { fails.push(l.name + ': no twin drawn at step ' + step); break; }
-      const id = drawn[step % drawn.length], mk = l.markOf(l.text(h, id)), was = count(mk);
-      app.node('[id="' + id.replace(/["\\]/g, '\\$&') + '"]').focus();
+      const id = drawn[step % drawn.length], mk = l.markOf(l.text(h, id));
       const self = [...on].filter(n => l.markOf(pool[n].note.why || pool[n].note.text) === mk), others = [...on].filter(n => self.indexOf(n) < 0), off = pool.filter(p => !on.has(p.n)).map(p => p.n);
-      const r = rand(), what = [];
-      if (r < 0.12 && self.length) { const n = pick(self); on.delete(n); what.push('delete the focused ' + mk); }
-      else if (r < 0.45 && off.length) { const n = pick(off); pool[n].note = Object.assign({}, pool[n].note, n === 6 ? {} : { at: iso(at()) }); on.add(n); what.push('insert ' + l.markOf(pool[n].note.why || pool[n].note.text)); }
-      else if (r < 0.75 && others.length > 1) { const n = pick(others); on.delete(n); what.push('delete ' + l.markOf(pool[n].note.why || pool[n].note.text)); }
-      else if (others.length) { const n = pick(others); if (n !== 6 && n !== 1) pool[n].note = Object.assign({}, pool[n].note, { at: iso(at()) }); else { on.delete(n); } what.push((n !== 6 && n !== 1 ? 'move ' : 'delete ') + l.markOf(pool[n].note.why || pool[n].note.text)); }
-      await write();
-      const now = count(mk), a = app.activeId(), got = a ? l.markOf(l.text(app.html(), a)) : null;
-      const gone = now === 0, ambiguous = now !== was && was > 1 || now > 1 && now !== was;
-      log.push(l.name + ' #' + step + ': on ' + mk + ' (' + was + ' like it, ' + id + '), ' + what.join(', ') + ' -> ' + a + (got ? ' (' + got + ')' : ''));
-      if (got === mk) { ok++; continue; }
-      if (a === l.heading && (gone || ambiguous)) { ok++; continue; }
-      fails.push(log[log.length - 1]);
+      await trial('#' + step, id, mk, () => {
+        const r = rand();
+        if (r < 0.12 && self.length) { const n = pick(self); on.delete(n); return 'delete the focused ' + mk; }
+        if (r < 0.45 && off.length) { const n = pick(off); pool[n].note = Object.assign({}, pool[n].note, n === 6 ? {} : { at: iso(at()) }); on.add(n); return 'insert ' + l.markOf(pool[n].note.why || pool[n].note.text); }
+        if (r < 0.75 && others.length > 1) { const n = pick(others); on.delete(n); return 'delete ' + l.markOf(pool[n].note.why || pool[n].note.text); }
+        if (others.length) { const n = pick(others); if (n !== 6 && n !== 1) pool[n].note = Object.assign({}, pool[n].note, { at: iso(at()) }); else { on.delete(n); } return (n !== 6 && n !== 1 ? 'move ' : 'delete ') + l.markOf(pool[n].note.why || pool[n].note.text); }
+        return 'nothing';
+      });
     }
-    if (ok < 6 && !fails.some(f => f.indexOf(l.name) === 0)) fails.push(l.name + ': only ' + ok + ' steps checked');
+    if (ok < steps && !fails.some(f => f.indexOf(l.name) === 0)) fails.push(l.name + ': only ' + ok + ' of ' + steps + ' steps checked');
+    if (steps < 8 && !fails.some(f => f.indexOf(l.name) === 0)) fails.push(l.name + ': only ' + steps + ' steps run');
     /* This list's twins go, so the next list's are the only twins sharing their id. */
     on.clear(); await write();
   }

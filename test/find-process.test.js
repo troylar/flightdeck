@@ -746,7 +746,6 @@ function callbacks(src) {
 const PERSON = 'a person picker, a native select by name (D6)';
 const D10_OK = [
   { file: 'builder.js', has: 'esc(x) + \'"\' + (x === v', why: 'a step type\'s own choices, set by the type' },
-  { file: 'builder.js', has: 'This run\\\'s ^', why: 'the run details of the checklist being edited (its structure)' },
   { file: 'builder.js', has: 'has no run detail', why: 'one linked step\'s passed names (its structure)' },
   { file: 'common.js', has: 'is marked started, but', why: 'this window\'s own unsaved starts, not the folder\'s' },
   { file: 'common.js', has: '(o === v ? \' selected\'', why: 'a step\'s choices, set by its type' },

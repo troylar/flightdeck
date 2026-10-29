@@ -6,7 +6,7 @@
 // The registry is itself tested: PF.vk.PAGE_OFF turns paging off for one list, and the check must then fail for that list.
 'use strict';
 const assert = require('assert');
-const { rule, run } = require('./harness');
+const { load, rule, run } = require('./harness');
 const { boot } = require('./app-harness');
 const { fixture, into } = require('./bounds-fixture');
 
@@ -35,7 +35,7 @@ const within = (n, test) => !!up(n, test);
 function where(n) { const p = []; for (let x = n; x && x.tag !== '#root'; x = x.parent) p.unshift(x.tag + (x.attrs.id ? '#' + x.attrs.id : '') + (x.attrs.class ? '.' + x.attrs.class.trim().split(/\s+/).join('.') : '')); return p.slice(-5).join(' > '); }
 
 /* ---------- what may be drawn ---------- */
-const people = fixture().facts.people, isPerson = new Set(people.map(p => p.id));
+const people = fixture().facts.people, isPerson = new Set(people.map(p => p.id)), BUILT_IN = load().types.LIST.length;
 /* A select of people (or nobody): a person picker stays a native select, so its options are exempt. */
 const personSelect = s => s && s.tag === 'select' && s.kids.filter(k => k.tag === 'option').every(o => o.attrs.value === '' || isPerson.has(o.attrs.value)) && s.kids.some(o => isPerson.has(o.attrs.value));
 
@@ -120,6 +120,16 @@ const REGISTRY = [
   { name: 'a duplicate-draft warning\'s names (dupes:<process>), in its fold', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'sd-names'), bound: 50 },
   { name: 'a report\'s differing copies, named in its notice\'s fold (repdiff:<report>)', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'rep-names'), bound: 50, per: 'parent' },
   { name: 'a report\'s differing copies, every name on the screen: the notice\'s fold and the card\'s copies', count: h => (h.match(/diffcopy \(\d+\)/g) || []).length, bound: 50 + 50 },
+  /* Found in code review round 7, once the builder's form was no longer exempt: a step's Who does it, and Checklist details'
+     roles and run details, 20 at a time and the step's own roles or the run detail being renamed. A linked step's sources
+     are K.select dropdowns, counted above. */
+  { name: 'the builder, a step\'s roles (ob-roles), 20 and the step\'s own', rows: n => n.tag === 'button' && cls(n, 'chipbtn') && n.attrs['data-act'] === 'ob-role', bound: 20 + 1 },
+  { name: 'the builder, Checklist details\' roles and run details (ob-meta-roles, ob-meta-context), 20 each and the one being renamed', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'ob-metalist'), bound: 20 + 1, per: 'parent' },
+  /* Team step types are capped by their reader at 100 (storage/repo.js MAX_TYPES), so the builder lists them whole, registered
+     at that cap: the type selects (the built-ins too, bundled), the parts list's groups, and the type files it can't use. */
+  { name: 'the step type selects (ob-type, ob-new-type), the built-in types and 100 team types', rows: n => n.tag === 'option' && !!up(n, x => x.tag === 'select' && /^ob-(new-)?type$/.test(x.attrs.id || '')), bound: BUILT_IN + 100 + 1, per: n => up(n, x => x.tag === 'select') },
+  { name: 'the builder\'s parts, a group\'s parts, at most the 100 team types', rows: n => n.tag === 'li' && n.parent && n.parent.tag === 'ul' && within(n, x => cls(x, 'ob-plist')) && !cls(n, 'ob-broken'), bound: 100, per: 'parent' },
+  { name: 'the builder\'s parts, the type files it can\'t use, at most the 100 read', rows: n => n.tag === 'li' && cls(n, 'ob-broken'), bound: 100, per: 'parent' },
   { name: 'linked steps that can\'t start their child, one notice with its fold (links-broken:<process>)', rows: n => n.tag === 'li' && within(n, x => cls(x, 'links-broken')), bound: 20 }
 ];
 /* Drawn in full on purpose, each with its reason. A capped one is also in REGISTRY at its cap. */
@@ -128,7 +138,9 @@ const STRUCTURE = n => (n.tag === 'li' && (cls(n, 'step') || cls(n, 'gate'))) ||
   (n.tag === 'li' && n.parent && (cls(n.parent, 'msteps') || (cls(n.parent, 'gates') && !cls(n.parent, 'mroles') && within(n, x => cls(x, 'mission'))))) ||
   (n.tag === 'div' && !n.attrs.class && n.parent && cls(n.parent, 'receipt')) ||
   (within(n, x => cls(x, 'mapview')) && (n.tag === 'li' || (n.tag === 'div' && cls(n, 'ph')))) ||
-  within(n, x => /^(ob-|fpe-outline|flight|fp-|share)/.test(x.attrs.class || ''));
+  /* The builder's outline (#ob-outline) is the checklist; its form, parts pane and the add-step form's type select aren't, so
+     they're checked (code review round 7). */
+  (n.tag !== 'option' && within(n, x => x.attrs.id === 'ob-outline')) || within(n, x => /^(flight|fp-|share)/.test(x.attrs.class || ''));
 const EXEMPT = [
   { why: 'person pickers stay native selects (D6)', rows: n => n.tag === 'option' && personSelect(n.parent) },
   { why: 'the duration chart has its own cap (registered at 300)', rows: n => n.tag === 'a' && cls(n, 'ins-dot-a') },
@@ -276,7 +288,9 @@ async function visit(name, go, o) {
 }
 const nav = (v, then) => async app => { app.click('nav', v); await app.tick(5); if (then) await then(app); };
 const openRun = (key, then) => async app => { const { fx } = await bigApp(); app.click('nav', 'home'); await app.tick(5); app.click('open-run', fx.facts[key] || key); await app.tick(10); if (then) await then(app); };
-const openProc = (id, tab) => async app => { app.click('nav', 'processes'); await app.tick(5); app.click('open-process', id); await app.tick(10); if (tab) { app.click('ptab', tab); await app.tick(10); } };
+const openProc = (id, tab) => async app => { app.click('nav', 'processes'); await app.tick(5); app.click('open-process', id); await app.tick(10); if (tab) { app.click('ptab', tab); await app.tick(10); } if (tab === 'edit' && /id="ob-outline"/.test(app.html())) { app.click('ed-mode', 'markdown'); await app.tick(10); } };
+/* The builder (code review round 7): Edit, the builder, and what's selected in it (an action and its id). */
+const inBuilder = (id, act, sel) => async app => { await openProc(id, 'edit')(app); app.click('ed-mode', 'builder'); await app.tick(10); if (act) { app.click(act, sel); await app.tick(10); } };
 
 /* The forms found in code review that list every role, reached the same way each time (Details and Add people toggle). */
 const detailsRoles = openRun('roles', async a => { a.click('takeover'); await a.tick(40); if (!/id="rw-details"/.test(a.html())) { a.click('run-details'); await a.tick(5); } if (/data-act="show-roles"/.test(a.html())) { a.click('show-roles'); await a.tick(5); } });
@@ -332,7 +346,13 @@ const SCREENS = [
   ['A run with 300 roles, Details › Add people', detailsRoles],
   ['Start a test run with 300 roles', testRoles],
   ['A run whose step starts a 300-role run', openRun('rolelink', async a => { a.click('takeover'); await a.tick(40); a.click('select', 'kid'); await a.tick(10); })],
-  ['Plan a run', openProc('tiny', null), { plan: 'tiny' }]
+  ['Plan a run', openProc('tiny', null), { plan: 'tiny' }],
+  /* Found in code review round 7: the builder's form and parts pane were exempt with its outline. */
+  ['Many linked steps › Edit › Builder, a linked step', inBuilder('linker', 'ob-sel', 'lk0')],
+  ['Many roles › Edit › Builder, a step', inBuilder('roles', 'ob-sel', 's0')],
+  ['Many roles › Edit › Builder, checklist details', inBuilder('roles', 'ob-sel-details', '')],
+  ['Many phases › Edit › Builder, a phase', inBuilder('phases', 'ob-sel-phase', 'ph1')],
+  ['Four hundred steps › Edit › Builder, a step', inBuilder('steps', 'ob-sel', 's1')]
 ];
 
 SCREENS.forEach(([name, go, o]) => {
@@ -356,6 +376,21 @@ rule('D8: Join\'s Who are you? with 500 people', async () => {
   assert.deepStrictEqual([...c.pending], PENDING.filter(p => (p.on || []).indexOf('Join') >= 0).map(p => p.name));
 });
 
+rule('D8: 100 team step types, their reader\'s cap: the builder\'s type selects and parts list draw them within their bound', async () => {
+  const fx = fixture({ size: { procs: 3, tags: 3, people: 10, followUps: 3, running: 3, plans: 3, versions: 3, stages: 2, members: 3, health: 3, many: 3, ended: 3, steps: 8, teamValues: 3, legacy: 3, archived: 3, hot: 3 } });
+  for (let i = 0; i < 100; i++) fx.files['step-types/team.t' + String(i).padStart(3, '0') + '.json'] = JSON.stringify({ id: 'team.t' + String(i).padStart(3, '0'), label: 'Team type ' + i, fields: {}, record: [] });
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true }); await app.tick(60);
+  await into(app, fx);
+  await inBuilder('steps', 'ob-sel', 's1')(app);
+  app.click('ob-add', 'ph1'); await app.tick(10);
+  await openFolds(app);
+  const h = app.html(), team = id => { const i = h.indexOf('<select id="' + id + '"'), sel = i < 0 ? '' : h.slice(i, h.indexOf('</select>', i)), g = sel.indexOf('label="Your team'); return g < 0 ? -1 : (sel.slice(g).match(/<option /g) || []).length; };
+assert.strictEqual(team('ob-type'), 100, 'set-up: the step form\'s type select lists the 100');
+  assert.strictEqual(team('ob-new-type'), 100, 'set-up: and the add-step form\'s');
+  assert.ok((h.match(/data-act="ob-part" data-id="type:team\.t\d+"/g) || []).length >= 99, 'set-up: and the parts list');
+  assert.deepStrictEqual(check('100 team step types, the builder', h).fails, []);
+});
+
 /* The check is itself checked: with paging off for one list, that list must fail it. A flat page, the tree, a select, the
    nested list (corrections, one page across groups) and the tail (the step-note thread). */
 const PAGE_OFF = [
@@ -373,6 +408,10 @@ const PAGE_OFF = [
   { list: 'det-roles', kind: 'flat', screen: 'A run with 300 roles, Details › Add people', go: detailsRoles, expect: /Details, its role chips .* draws \d+, over its bound of 21/ },
   { list: 'cs-roles', kind: 'flat', screen: 'A run whose step starts a 300-role run, its start dialog', go: childRoles, dialog: true, expect: /start dialog, role rows \(cs-roles\) draws \d+, over its bound of 20/ },
   { list: 'ms-roles:' + fixture().facts.rolesTeam, kind: 'flat', screen: 'A team run with 300 roles, shared on screen', go: openRun('rolesTeam', async a => { a.click('mission'); await a.tick(10); }), expect: /Who's on what \(ms-roles\), 20 roles draws \d+, over its bound of 20/ },
+  /* Found in code review round 7: the builder's linked-step sources, a step's roles and Checklist details' roles. */
+  { list: 'ob-link-src-region', kind: 'select', screen: 'Many linked steps › Edit › Builder, a linked step', go: SCREENS.filter(s => s[0] === 'Many linked steps › Edit › Builder, a linked step')[0][1], expect: /a bounded dropdown \(K\.select\), per select draws \d+, over its bound of 54/ },
+  { list: 'ob-roles', kind: 'flat', screen: 'Many roles › Edit › Builder, a step', go: SCREENS.filter(s => s[0] === 'Many roles › Edit › Builder, a step')[0][1], expect: /a step's roles \(ob-roles\), 20 and the step's own draws \d+, over its bound of 21/ },
+  { list: 'ob-meta-roles', kind: 'flat', screen: 'Many roles › Edit › Builder, checklist details', go: SCREENS.filter(s => s[0] === 'Many roles › Edit › Builder, checklist details')[0][1], expect: /Checklist details' roles and run details .* draws \d+, over its bound of 21/ },
   { list: 'notes:' + fixture().facts.busy + ':s0', kind: 'tail', screen: 'The busy run', go: SCREENS.filter(s => s[0] === 'The busy run')[0][1], expect: /the step-note thread .* draws \d+, over its bound of 21/ }
 ];
 const PAGE_OFF_PENDING = [];
