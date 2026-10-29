@@ -550,4 +550,59 @@ rule('Checklists: with 1,000, the last row drawn keeps focus and stays drawn whe
   assert.strictEqual(app.activeId(), '[data-act="open-process"][data-id="' + last + '"]');
 });
 
+
+rule('Round 5: Checklists, the row with focus deleted itself: focus goes to the list\'s heading (a selector, never a file reader\'s Promise)', async () => {
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true }); await app.tick(60);
+  await into(app, fixture());
+  app.click('nav', 'processes'); await app.tick(10);
+  const draft = '---\nprocess: arrived-first\ntitle: arrived-first\ncategory: Synthetic\ngroup: Aardvark\nowner: person-avery\n---\n\n## Only · READ-DO {#only}\n- [ ] {confirm} Do it {#a}\n';
+  await app.fs.write('maps/drafts/arrived-first.md', draft); await arriveRead(app);
+  const sel = '#procs-all [data-act="open-process"][data-id="arrived-first"]';
+  assert.ok(app.node(sel), 'set-up: drawn');
+  app.node(sel).focus();
+  await app.fs.remove('maps/drafts/arrived-first.md'); await arriveRead(app);
+  assert.ok(!app.node(sel), 'gone');
+  const id = app.activeId(), a = /^[\w-]+$/.test(id) ? app.node('#' + id) : null;
+  assert.ok(a && /^H[1-6]$/.test(a.tagName), 'its heading has focus: ' + id);
+});
+
+
+rule('Round 5: a key for the nth item sharing a signature never equals a literal one: "same" twice and "same#2" are three keys, in the views and in notes', () => {
+  const PF = loadViews(), K = PF.vk, S = PF.search, V = PF.views;
+  const ks = K.uniqKeys(['same', 'same', 'same#2', 'a\\#2', 'a\\', 'a\\'], x => x);
+  assert.strictEqual(new Set(ks).size, ks.length, 'all distinct: ' + JSON.stringify(ks));
+  assert.notStrictEqual(S.noteKey('same', 2), S.noteKey('same#2', 1), 'a note\'s second twin and a note whose id says #2');
+  assert.notStrictEqual(V.corrDomId('same', 2), V.corrDomId('same-2', 1), 'and their correction rows');
+  assert.notStrictEqual(V.corrDomId('same', 2), V.corrDomId('same#2', 1));
+});
+
+rule('Round 5: a diff with two added "same" lines and an added "same#2" line at position 51: every change its own id, and Show more focuses "same#2"', () => {
+  const PF = loadViews(), V = PF.views, st = { more: {} };
+  const rows = [{ op: ' ', text: 'top' }];
+  for (let i = 0; i < 48; i++) rows.push({ op: '+', text: 'line ' + i });
+  rows.push({ op: '+', text: 'same' }, { op: '+', text: 'same' }, { op: '+', text: 'same#2' }, { op: ' ', text: 'end' });
+  const h1 = V.diffHtml(rows, st, 'dd');
+  const m = /data-act="more" data-id="dd"[^>]*data-focus="([^"]+)"/.exec(h1);
+  assert.ok(m, 'a Show more past 50 changes');
+  const focus = m[1].replace(/&quot;/g, '"');
+  st.more.dd = 100;
+  const h2 = V.diffHtml(rows, st, 'dd'), spans = [...h2.matchAll(/<span class="(add|del)" id="([^"]+)" tabindex="-1">\+ ([^<]*)<\/span>/g)].map(x => ({ id: x[2], text: x[3] }));
+  assert.strictEqual(spans.length, 51);
+  assert.strictEqual(new Set(spans.map(x => x.id)).size, 51, 'no two changes share an id');
+  const target = spans.filter(x => focus === '[id="' + x.id + '"]' || focus === '#' + x.id);
+  assert.ok(target.length === 1 && target[0].text === 'same#2', 'Show more focuses the 51st change: ' + focus + ' ' + JSON.stringify(target));
+});
+
+rule('Round 5: a kept row whose item is on the page is drawn inside that item, once (K.list groupOf, as corrections and a change\'s members use)', () => {
+  const K = loadViews().vk, st = { more: {} };
+  const items = [];
+  for (const g of ['a', 'b', 'c']) for (let i = 0; i < 4; i++) items.push({ g, k: g + i });
+  const draw = shown => { let out = '', i = 0; while (i < shown.length) { const g = shown[i].g, ms = []; while (i < shown.length && shown[i].g === g) ms.push(shown[i++].k); out += '[' + g + ':' + ms.join(',') + ']'; } return out; };
+  const h = K.list(st, 'gl', items, { page: 6, keyOf: x => x.k, draw, keep: ['b3', 'c2'], keptLabel: 'Kept', groupOf: x => x.g });
+  const body = h.replace(/<div class="row paged">[\s\S]*?<\/div>/, '|');
+  assert.strictEqual(body, '[a:a0,a1,a2,a3][b:b0,b1,b3]|<p class="small kept-h">Kept</p>[c:c2]', body);
+  const h2 = K.list(st, 'gl2', items, { page: 6, keyOf: x => x.k, draw, keep: ['b3'], keptLabel: 'Kept', groupOf: x => x.g });
+  assert.ok(!/Kept/.test(h2) && /\[b:b0,b1,b3\]/.test(h2) && (h2.match(/\[b:/g) || []).length === 1, 'all kept rows drawn in their items: no kept line ' + h2);
+});
+
 run();

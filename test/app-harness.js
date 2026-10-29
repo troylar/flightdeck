@@ -260,7 +260,8 @@ function boot(opts) {
     if (/^(input|textarea|select)$/.test(tag) && attrs.id) { const d = drawnValue(html, attrs.id); n.value = d == null ? '' : d; n.defaultValue = n.value; n.type = attrs.type || (tag === 'input' ? 'text' : tag); }
     return n;
   }
-  const drawn = (region, sel) => { try { return nodesOf(region).filter(x => matches(x, sel))[0] || null; } catch (e) { return null; } };
+  /* As a browser does, a selector that isn't text (a Promise: "[object Promise]") is a SyntaxError, never just no match. */
+  const drawn = (region, sel) => { if (sel && typeof sel === 'object') throw new SyntaxError('\'' + String(sel) + '\' is not a valid selector'); try { return nodesOf(region).filter(x => matches(x, sel))[0] || null; } catch (e) { return null; } };
   const drawnAnywhere = sel => [appEl, els.overlay, els.top].map(r => drawn(r, sel)).filter(Boolean)[0] || null;
   if (opts.domFocus) {
     const own = r => el => !!el && el._region === r && el._src === r._html;

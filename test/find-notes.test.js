@@ -189,11 +189,11 @@ rule('Notes: focus on a correction twin in the inspector follows its note throug
   const hit = (await search(app, 'second twin correction')).find(x => /:twin-corr#2$/.test(x));
   assert.ok(hit, 'set-up: the second twin correction');
   app.click('sx-open', hit); await app.tick(20);
-  assert.strictEqual(app.activeId(), 'corr-twin-corr-2', 'set-up: focused');
+  assert.strictEqual(app.activeId(), 'corr-twin-corr#2', 'set-up: focused');
   const older = Object.assign({}, first, { at: '2000-01-01T00:00:00.000Z', change: { op: 'wording', to: 'An older twin correction' }, text: 'An older twin correction' });
   await arrive(app, p, [older].concat(all));
-  assert.strictEqual(app.activeId(), 'corr-twin-corr-3', 'focus follows it to its new place');
-  assert.ok(liText(app.html(), 'corr-twin-corr-3').indexOf('The second twin correction') >= 0, 'on its own text');
+  assert.strictEqual(app.activeId(), 'corr-twin-corr#3', 'focus follows it to its new place');
+  assert.ok(liText(app.html(), 'corr-twin-corr#3').indexOf('The second twin correction') >= 0, 'on its own text');
 });
 
 /* Code review round 2. */
@@ -267,7 +267,7 @@ rule('Fix notes sharing id, time, author and text but not their kind: each searc
   const { app } = await withFixes([fix('missing'), fix('instructions')]);
   const hits = (await search(app, 'flag step trips')).filter(x => /fixtwin1#/.test(x));
   assert.strictEqual(hits.length, 2, hits.join(', '));
-  for (const [hit, row, word] of [[hits.find(x => /#1$/.test(x)), 'corr-fixtwin1', 'A step is missing'], [hits.find(x => /#2$/.test(x)), 'corr-fixtwin1-2', 'The instructions are wrong']]) {
+  for (const [hit, row, word] of [[hits.find(x => /#1$/.test(x)), 'corr-fixtwin1', 'A step is missing'], [hits.find(x => /#2$/.test(x)), 'corr-fixtwin1#2', 'The instructions are wrong']]) {
     app.click('nav', 'home'); await app.tick(5); await search(app, 'flag step trips');
     app.click('sx-open', hit); await app.tick(20);
     assert.strictEqual(app.activeId(), row);
@@ -279,7 +279,7 @@ rule('Fix notes sharing everything but their kind: the revealed one deleted by a
   const s = await withFixes([fix('missing'), fix('instructions')]), app = s.app;
   const hit = (await search(app, 'flag step trips')).find(x => /fixtwin1#2$/.test(x));
   app.click('sx-open', hit); await app.tick(20);
-  assert.strictEqual(app.activeId(), 'corr-fixtwin1-2');
+  assert.strictEqual(app.activeId(), 'corr-fixtwin1#2');
   await app.fs.write(s.dir + 'notes-other.jsonl', JSON.stringify(fix('missing')) + '\n'); await reread(app);
   const h = app.html();
   assert.deepStrictEqual(corrRows(h).filter(x => /fixtwin1/.test(x)), ['corr-fixtwin1'], 'the other one is still there');
@@ -291,7 +291,7 @@ rule('Notes identical in every field: one deleted after the reveal selects nothi
   const s = await withFixes([fix('missing'), fix('missing')]), app = s.app;
   const hit = (await search(app, 'flag step trips')).find(x => /fixtwin1#2$/.test(x));
   app.click('sx-open', hit); await app.tick(20);
-  assert.strictEqual(app.activeId(), 'corr-fixtwin1-2');
+  assert.strictEqual(app.activeId(), 'corr-fixtwin1#2');
   const nf = app.PF.search.noteFind, notes = app.PF.store ? null : null;
   await app.fs.write(s.dir + 'notes-other.jsonl', JSON.stringify(fix('missing')) + '\n'); await reread(app);
   assert.ok(!/Shown because you opened it/.test(app.html()), 'not the survivor: there were two like it when it was opened');
@@ -509,8 +509,8 @@ rule('Corrections: View correction on a twin past the page keeps that twin, by i
     assert.ok(drawnText(app.html()).indexOf(second) < 0, 'set-up: the second twin is past the page');
     /* As the rendered View correction button for it would (its data-id). */
     app.click('goto-corr', 'corr-twin-corr#2'); await app.tick(10);
-    assert.strictEqual(app.activeId(), 'corr-twin-corr-2', 'set-up: focused');
-    assert.ok(liText(app.html(), 'corr-twin-corr-2').indexOf(second) >= 0, 'set-up: on the second twin');
+    assert.strictEqual(app.activeId(), 'corr-twin-corr#2', 'set-up: focused');
+    assert.ok(liText(app.html(), 'corr-twin-corr#2').indexOf(second) >= 0, 'set-up: on the second twin');
   };
   const kept = what => {
     const h = app.html(), t = drawnText(h);
@@ -546,6 +546,30 @@ rule('Corrections: the correction row with focus stays drawn, by its anchor, whe
   const h = app.html();
   assert.ok(h.indexOf('id="' + last + '"') >= 0 && h.indexOf('Arrived first') >= 0, 'both drawn');
   assert.strictEqual(app.activeId(), last, 'and focus stays on it');
+});
+
+
+rule('Round 5: the note with focus deleted itself by a newer read: focus goes to the inspector\'s heading', async () => {
+  const app = await fresh(); await openRun(app, 'busy', 's0');
+  await more(app, busyList());
+  assert.strictEqual(app.activeId(), 'tn-s0-n0285', 'set-up: Show earlier focused the first note it added');
+  const p = notesFile(app), all = lines(app, p);
+  await arrive(app, p, all.filter(n => n.id !== 'n0285'));
+  assert.ok(thread(app.html(), 's0').indexOf('n0285') < 0, 'gone');
+  assert.strictEqual(app.activeId(), 'ins-h', 'the heading of the list it was in');
+});
+
+rule('Round 5: the correction row with focus deleted itself by a newer read: focus goes to the inspector\'s heading', async () => {
+  const app = await fresh(); await openRun(app, 'busy', 's0');
+  const d = moreOf(app.html(), 'rcorr:' + fixture().facts.busy + ':s0');
+  app.click('more', 'rcorr:' + fixture().facts.busy + ':s0', d); await app.tick(5);
+  const h0 = app.html(), rows = ids(h0.slice(h0.indexOf('id="ins-corr"'), h0.indexOf('id="ins-notes"')), /<li class="corr" id="(corr-[^"]+)"/g), last = rows[rows.length - 1];
+  app.node(K(last)).focus();
+  const p = notesFile(app), all = lines(app, p), gone = last.slice(5);
+  assert.ok(all.some(n => n.id === gone), 'set-up: its note is in the file: ' + gone);
+  await arrive(app, p, all.filter(n => n.id !== gone));
+  assert.ok(app.html().indexOf('id="' + last + '"') < 0, 'gone');
+  assert.strictEqual(app.activeId(), 'ins-h', 'the heading of the list it was in');
 });
 
 run();

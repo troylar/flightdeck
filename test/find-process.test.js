@@ -297,13 +297,13 @@ rule('Finish and Receipt: 51 corrections on a step, the last sharing the first\'
     let h = app.html();
     assert.strictEqual(rows(h).length, 50, page + ': 50');
     const d = await more(app, list, h);
-    assert.strictEqual(d.focus, '[id="corr-ctw0-2"]', page + ': Show more names the twin by its own id');
+    assert.strictEqual(d.focus, '[id="corr-ctw0#2"]', page + ': Show more names the twin by its own id');
     h = app.html();
     const r = rows(h), n = +/Corrections · (\d+)</.exec(h)[1];
     assert.ok(n > 50 && r.length === n, page + ': all ' + n + ' (the example\'s own too): ' + r.length);
     assert.strictEqual(new Set(r).size, n, page + ': every row its own id');
-    assert.strictEqual(app.activeId(), 'corr-ctw0-2', page + ': the twin is focused, not the first correction');
-    assert.ok(liText(h, 'corr-ctw0-2').indexOf('Worded 50') >= 0 && liText(h, 'corr-ctw0').indexOf('Worded 0') >= 0, page + ': each with its own wording');
+    assert.strictEqual(app.activeId(), 'corr-ctw0#2', page + ': the twin is focused, not the first correction');
+    assert.ok(liText(h, 'corr-ctw0#2').indexOf('Worded 50') >= 0 && liText(h, 'corr-ctw0').indexOf('Worded 0') >= 0, page + ': each with its own wording');
     if (page === 'finish') { app.click('exit-mission'); await app.tick(10); }
   }
   const now = receiptCopy(app);
@@ -783,6 +783,49 @@ rule('D10 is tested: the reader finds a notice built in a forEach and an option 
   const found = callbacks('a.forEach(function (x) { h += \'<div role="status">\' + /[(]/.test(x) + \'</div>\'; }); b.map(function (y) { return \'<option>\' + y; });');
   assert.deepStrictEqual(found.map(c => c.kind), ['forEach', 'map']);
   assert.ok(/role="status"/.test(found[0].body) && /<option/.test(found[1].body));
+});
+
+
+rule('Round 5: 170 members with Decline open, Show more to 100, newer members sort in above and push the focused one past the page: one group, one Decline box, and the right count', async () => {
+  const app = await fresh();
+  const notes = app.files('runs/versions/').filter(f => /\/notes-corr\.jsonl$/.test(f)).sort();
+  for (const f of notes.slice(170)) await app.fs.remove(f);
+  await reread(app);
+  await corrections(app, 'versions');
+  let h = app.html();
+  const gid = fxGroups(h)[0];
+  assert.ok(gid && fxGroups(h).length === 1 && /120 more in this group/.test(h), 'set-up: one group of 170, 50 drawn');
+  app.click('pick', gid, { kind: 'corr-decline' }); await app.tick(5);
+  app.set('pick-input', 'Not this one');
+  await more(app, 'fx:versions');
+  h = app.html();
+  const ms = fxMembers(h), last = ms[ms.length - 1];
+  assert.strictEqual(ms.length, 100, 'set-up: 100 drawn');
+  app.node('[id="fxm-' + last + '"]').focus();
+  /* Five more members arrive, in runs that had none, sorting in above: the focused member is past the page. */
+  const first = JSON.parse(app.fs.files[notes[0]].t.split('\n')[0]);
+  for (let i = 0; i < 5; i++) {
+    const n = Object.assign({}, first, { id: 'old' + i, at: '2026-10-26T01:0' + i + ':00.000Z', why: 'Older ' + i });
+    await app.fs.write(notes[170 + i], JSON.stringify(n) + '\n');
+  }
+  const was = app.PF.perf.n['load.done'] || 0;
+  app.focus();
+  for (let i = 0; i < 4000 && (app.PF.perf.n['load.done'] || 0) <= was; i++) await app.tick(5);
+  await app.tick(5);
+  h = app.html();
+  assert.strictEqual(app.activeId(), 'fxm-' + last, 'focus stays on its member');
+  assert.ok(fxMembers(h).indexOf(last) >= 0 && fxMembers(h).length === 101, 'the page and the one with focus: ' + fxMembers(h).length);
+  assert.strictEqual(count(h, new RegExp('id="fxg-' + gid + '"', 'g')), 1, 'the group drawn once');
+  assert.strictEqual(count(h, /id="pick-input"/g), 1, 'one Decline box');
+  assert.strictEqual(count(h, /data-act="corr-decline"/g), 1, 'one Decline button');
+  const of = /Showing 100 of (\d+), plus the one you(?:&#39;|')re on/.exec(h);
+  assert.ok(of && +of[1] > 170, 'the list says so: ' + (/Showing[^<]*/.exec(h) || [''])[0]);
+  assert.deepStrictEqual(h.match(/[\d,]+ more in this group/g), [(of[1] - 101) + ' more in this group'], 'counted over every member drawn');
+  assert.strictEqual(app.draft('pick-input'), 'Not this one', 'what was typed is in the one box');
+  app.set('pick-input', 'Not this one, again');
+  app.click('corr-decline', gid); await app.tick(30);
+  const dec = app.files('corrections/versions/').map(f => app.fs.files[f].t).filter(t => /declined/.test(t));
+  assert.ok(dec.length === 1 && /Not this one, again/.test(dec[0]), 'Decline sends the one box\'s text: ' + dec.length);
 });
 
 run();
