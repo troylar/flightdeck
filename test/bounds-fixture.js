@@ -213,6 +213,10 @@ function make(opts) {
       put('skills/whole-skill-' + pad(i, 3) + '.json', json({ name: 'whole-skill-' + pad(i, 3), implements: 'steps@2', version: '1.0.0', location: 'skills/whole-' + i }));
     }
     put('skills/old-whole-skill.json', json({ name: 'old-whole-skill', implements: 'steps@1', version: '0.9.0', location: 'skills/old' }));
+    /* A checklist that went from 1 role to 300, and a skill built on the 1-role version (code review round 9): its What it takes. */
+    publish(head('rolesgrow', 'Roles that grew', { group: 'Busy' }) + phases(1, 2, n => 'Grown step ' + n));
+    publish(head('rolesgrow', 'Roles that grew', { group: 'Busy', roles: ['lead'].concat(Array.from({ length: S.many - 1 }, (x, i) => 'r' + (i + 1))).join(', ') }) + phases(1, 2, n => 'Grown step ' + n));
+    put('skills/old-roles-skill.json', json({ name: 'old-roles-skill', implements: 'rolesgrow@1', version: '0.9.0', location: 'skills/old-roles' }));
     /* A draft with 400 Run a command steps missing their command: 400 checks. */
     put('maps/drafts/commands.md', head('commands', 'Commands to fill in', { group: 'Busy' }) + phases(4, S.steps / 4, n => 'Run command ' + n, { type: 'run.command' }));
     /* 30 linked steps passing a detail their child's latest version doesn't have (slice 5): one notice, not 30. */

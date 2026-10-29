@@ -140,7 +140,9 @@ const REGISTRY = [
   { name: 'the builder, a step\'s run details (ob-binds), 20 and the step\'s own', rows: n => n.tag === 'button' && n.attrs['data-act'] === 'ob-bind', bound: 20 + 1 },
   { name: 'the builder, Sets a run detail (ob-sets), 20 and the ones the step sets', rows: n => n.tag === 'button' && n.attrs['data-act'] === 'ob-sets', bound: 20 + 1 },
   { name: 'the checklist preview, a step\'s skills joined into one line (pv-skills), 50 names', count: joinedIn('<span class="pv-skill">', '</span></span>', /step-skill-\d+/g), bound: 50 },
-  { name: 'the checklist preview, the whole checklist\'s skills joined into one line (pv-whole), 50 names', count: joinedIn('The whole checklist: ', '</p>', /whole-skill/g), bound: 50 }
+  { name: 'the checklist preview, the whole checklist\'s skills joined into one line (pv-whole), 50 names', count: joinedIn('The whole checklist: ', '</p>', /whole-skill/g), bound: 50 },
+  /* Found in code review round 9: a skill page's What it takes joined a checklist's roles, now and before, into one line. */
+  { name: 'a skill page\'s What it takes, the roles now and before joined into one line (sk-inputs), 50 names each', count: joinedIn('<b>What it takes:</b>', '</li>', /\br\d+\b/g), bound: 100 }
 ];
 /* Drawn in full on purpose, each with its reason. A capped one is also in REGISTRY at its cap. */
 const STRUCTURE = n => (n.tag === 'li' && (cls(n, 'step') || cls(n, 'gate'))) || (n.tag === 'section' && cls(n, 'phase')) ||
@@ -318,6 +320,7 @@ const SCREENS = [
   ['Checklists', nav('processes')],
   ['Skills', nav('skills')],
   ['A skill built on v1 of a 400-step checklist', nav('skills', async a => { a.click('open-skill', 'old-whole-skill.json'); await a.tick(10); })],
+  ['A skill built on the 1-role version of a 300-role checklist', nav('skills', async a => { a.click('open-skill', 'old-roles-skill.json'); await a.tick(10); })],
   ['Step types', nav('types')],
   ['Settings', nav('settings')],
   ['Folder health', nav('settings', async a => { a.click('health'); await a.tick(20); })],
@@ -464,6 +467,8 @@ const PAGE_OFF = [
   /* Found in code review round 8: the preview's skill names, a step's and the whole checklist's (K.capJoin). */
   { list: 'pv-skills', kind: 'joined', screen: 'Four hundred steps', go: stepsList, expect: /a step's skills joined into one line \(pv-skills\), 50 names draws \d+, over its bound of 50/ },
   { list: 'pv-whole', kind: 'joined', screen: 'Four hundred steps', go: stepsList, expect: /the whole checklist's skills joined into one line \(pv-whole\), 50 names draws \d+, over its bound of 50/ },
+  /* Found in code review round 9: a skill's What it takes, the roles of a checklist that went from 1 to 300 (K.capJoin). */
+  { list: 'sk-inputs', kind: 'joined', screen: 'A skill built on the 1-role version of a 300-role checklist', go: SCREENS.filter(s => s[0] === 'A skill built on the 1-role version of a 300-role checklist')[0][1], expect: /What it takes, the roles now and before joined into one line \(sk-inputs\), 50 names each draws \d+, over its bound of 100/ },
   { list: 'notes:' + fixture().facts.busy + ':s0', kind: 'tail', screen: 'The busy run', go: SCREENS.filter(s => s[0] === 'The busy run')[0][1], expect: /the step-note thread .* draws \d+, over its bound of 21/ }
 ];
 const PAGE_OFF_PENDING = [];

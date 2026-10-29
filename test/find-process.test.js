@@ -791,7 +791,7 @@ const D10_JOIN_OK = [
   { file: 'insights.js', has: 'STATUS_WORDS[k]', why: 'correction statuses, a fixed set' },
   { file: 'manage.js', has: 'e.errors.join(\'; \')', why: 'one step type file\'s problems, at most one per field of the type' },
   { file: 'manage.js', has: 't.tags.join(\', \')', why: 'a step type\'s tags as its form box\'s value, not drawn as text' },
-  { file: 'manage.js', has: 'c.what.join(\'; \')', why: 'what one step takes, set by its type' },
+  { file: 'manage.js', has: 'PF.signature.inputWords(', why: 'a skill\'s What it takes: at most four phrases (roles, runs, extensions, pins), each role list capped by K.capJoin' },
   { file: 'overlays.js', has: 'snap.empty.join', why: 'one linked step\'s passed team values (its structure)' },
   { file: 'process.js', has: 'u.slice(0, 3)', why: 'the first 3 and "and N more"' },
   { file: 'process.js', has: 'un.slice(0, 5)', why: 'the first 5 and "and N more"' },
@@ -961,7 +961,8 @@ rule('Round 8: K.capJoin draws the first 50 names and "and N more", builds only 
   assert.ok(/; and 1 more$/.test(K.capJoin(names.slice(0, 51), null, '; ')));
 });
 rule('Round 8: the checklist preview names 50 of a step\'s 300 skills and 50 of the whole checklist\'s 301, each with how many more and a link that opens and focuses Skills', async () => {
-  const app = await bigApp(); await openProc(app, 'steps');
+  /* Its own app: an earlier rule can leave the shared one on another view of the checklist (code review round 9). */
+  const app = await fresh(); await openProc(app, 'steps');
   let h = app.html();
   const upTo = (from, end) => { const i = h.indexOf(from); return i < 0 ? null : [h.slice(i, h.indexOf(end, i))]; };
   const stepSkills = upTo('<span class="pv-skill">', '</span></span>'), whole = upTo('The whole checklist: ', '</p>');
@@ -977,6 +978,35 @@ rule('Round 8: the checklist preview names 50 of a step\'s 300 skills and 50 of 
   assert.ok(/id="sk-h" tabindex="-1"/.test(h), 'Skills is drawn');
   assert.strictEqual(app.activeId(), 'sk-h', 'and focused');
   assert.ok(/data-act="open-skill"/.test(h), 'its rows are there, paged');
+});
+
+/* ---------- code review round 9 ---------- */
+rule('Round 9: See all in Skills from the editor\'s Preview refuses while a run detail typed in Checklist details isn\'t added, keeps the text and says so; added, it goes', async () => {
+  const app = await sixtyDetails(0);
+  app.set('ob-add-ctx', 'typednew'); app.input('ob-add-ctx', 'typednew'); await app.tick(5);
+  app.click('ins-tab', 'preview'); await app.tick(5);
+  app.click('pv-skills'); await app.tick(10);
+  let h = app.html();
+  assert.ok(/id="ob-add-ctx"/.test(h) && !/id="sk-h"/.test(h), 'still in the editor, Skills not opened');
+  assert.strictEqual(app.el('ob-add-ctx').value, 'typednew', 'the typed name is kept');
+  assert.ok(/Apply or clear what you typed in the box first/.test(app.top() + h), 'and it says why');
+  assert.strictEqual(app.activeId(), 'ob-add-ctx', 'focus on the box');
+  app.set('ob-add-ctx', ''); app.input('ob-add-ctx', ''); await app.tick(5);
+  app.click('pv-skills'); await app.tick(10);
+  assert.ok(/id="sk-h"/.test(app.html()), 'with the box cleared, it opens Skills');
+});
+rule('Round 9: a skill built on a 1-role version of a checklist that now has 300 roles names 50 in What it takes and how many more; the copied brief names all 300', async () => {
+  const app = await bigApp();
+  app.click('nav', 'skills'); await app.tick(5); app.click('open-skill', 'old-roles-skill.json'); await app.tick(10);
+  const h = app.html(), m = /<b>What it takes:<\/b>([^<]*)<\/li>/.exec(h);
+  assert.ok(m, 'set-up: What it takes is drawn');
+  const line = un(m[1]);
+  assert.strictEqual(count(line, /\br\d+\b/g), 49, 'lead and 49 of the r roles: 50 names');
+  assert.ok(/Roles: now lead, r1, r2, [^(]*, r49, and 250 more \(was lead\)/.test(line), line.slice(0, 80) + ' … ' + line.slice(-60));
+  try { app.click('copy-brief', 'update:old-roles-skill.json'); } catch (e) { if (!/createRange/.test(e.message)) throw e; }
+  await app.tick(5);
+  const brief = un(/<pre id="brief-pre"[^>]*>([\s\S]*?)<\/pre>/.exec(app.html())[1]);
+  assert.ok(/Roles: now lead, r1, r2, [\s\S]*, r298, r299 \(was lead\)/.test(brief) && count(brief, /\br\d+\b/g) >= 299, 'the brief keeps every role');
 });
 
 run();

@@ -1255,4 +1255,37 @@ rule('Home: Your corrections rows are keyed by their acknowledgment, so one inse
   acks = acks.slice().reverse(); same('reordered');
 });
 
+/* ---------- code review round 9 ---------- */
+rule('Round 9: Plan on 300 roles keeps what every role started as through a refresh after another run moves the rotation: role 250, not drawn, and role 2, drawn, stay; the plan saves them', async () => {
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true }); await app.tick(60);
+  await into(app, fixture());
+  app.click('nav', 'processes'); await app.tick(5); app.click('open-process', 'roles'); await app.tick(10); app.click('plan-run', 'roles'); await app.tick(20);
+  const selOf = (h, role) => { const m = new RegExp('<select id="role-' + role + '"[^>]*>([\\s\\S]*?)</select>').exec(h); return m && (/<option value="([^"]+)" selected>/.exec(m[1]) || [])[1]; };
+  const sugOf = (h, role) => (new RegExp('for="role-' + role + '">' + role + ' <span class="small">· suggestion: ([^<(]*)').exec(h) || [])[1];
+  const wasOf = (h, role) => (new RegExp('id="role-' + role + '" data-role="[^"]*"[^>]*data-was="([^"]*)"').exec(h) || [])[1];
+  let h = app.html();
+  const r250 = hiddenOfAt(h, 'r250'), r2 = selOf(h, 'r2'), sug2 = sugOf(h, 'r2');
+  assert.ok(r250 && r2 && sug2, 'set-up: role 250 hidden, role 2 drawn, each suggested');
+  /* Another run gives them the very people suggested now, so the rotation suggests someone else. */
+  const src = Object.keys(app.fs.files).find(f => /^runs\/roles\/[^/]+\/run\.json$/.test(f) && /"title": "Roles run 0"/.test(app.fs.files[f].t));
+  const run = JSON.parse(app.fs.files[src].t);
+  run.id = 'rot9abcd'; run.title = 'Moves the rotation'; run.created = new Date().toISOString(); run.roles = Object.assign({}, run.roles, { r2: r2, r250: r250 });
+  await app.fs.write('runs/roles/rot9abcd/run.json', JSON.stringify(run, null, 2));
+  app.set('run-title', 'Kept through the rotation').set('plan-when', '2099-04-01T09:00');
+  await reread(app);
+  h = app.html();
+  assert.ok(sugOf(h, 'r2') && sugOf(h, 'r2') !== sug2, 'set-up: the suggestion for role 2 moved: ' + sug2 + ' to ' + sugOf(h, 'r2'));
+  assert.strictEqual(hiddenOfAt(h, 'r250'), r250, 'role 250, not drawn, keeps what it started as');
+  assert.strictEqual(wasOf(h, 'r250'), r250, 'and so does what it is compared with');
+  assert.strictEqual(selOf(h, 'r2'), r2, 'role 2, drawn, keeps it too');
+  assert.strictEqual(wasOf(h, 'r2'), r2);
+  await more(app, 'start-roles'); await more(app, 'start-roles');
+  for (let i = 0; i < 12; i++) await more(app, 'start-roles');
+  assert.strictEqual(selOf(app.html(), 'r250'), r250, 'drawn later by Show more, still what it started as');
+  app.chooseApprovers().submitForm('plan-form'); await app.tick(120);
+  const made = Object.keys(app.fs.files).filter(f => /^proposals\/plan-roles-[a-z0-9]{8}\.json$/.test(f)).map(f => JSON.parse(app.fs.files[f].t)).filter(p => p.title === 'Kept through the rotation');
+  assert.strictEqual(made.length, 1, 'the plan is saved');
+  assert.strictEqual(made[0].roles.r250, r250); assert.strictEqual(made[0].roles.r2, r2);
+});
+
 run();
