@@ -30135,7 +30135,7 @@ PF.examples = (function () {
       if (recoveringEnded && !r.ended && !(r.recorder.person === state.me && r.recorder.session === SESSION)) R.takeOver(r, state.me, SESSION, now, R.legacyLinks(r, ctx.findRun));
     }
     catch (e) {
-      if (opts.fieldsFor) { state.fieldErr = { id: opts.fieldsFor, msg: e.message, field: e.field || '' }; state.focus = e.field ? '#' + cssEsc(e.field) : '[aria-invalid="true"]'; }
+      if (opts.fieldsFor) { state.fieldErr = { id: opts.fieldsFor, msg: e.message, field: e.field || '' }; state.focus = e.field ? '#' + e.field : '[aria-invalid="true"]'; }
       else if (!opts.background) say(e.message, 'warn');
       render(); return Promise.resolve(false);
     }

@@ -61,6 +61,7 @@ const ALLOWED = {
   'app.js|tf-open [data-id]|parts[0]': [2, 'f or e, then a row key the type form makes (k1, k2…)'],
   'app.js|theme [data-id]|id': [1, 'system, light or dark, checked'],
   'app.js|[data-for]|partDrag.kind': [1, 'a part kind set in code'],
+  'app.js|#|e.field': [1, 'inside mutateRun, which this release leaves byte for byte as in 2.10.0; a run field id is a [\\w-]+ name from its type'],
   'app.js|#|(field || e.field || \'corr-to\')': [1, 'a correction form box id set in code'],
   'app.js|#|(state.obMarkFrom || (mk === \'~\' ? \'ob-planned\' : \'ob-must\'))': [1, BOXID],
   'app.js|#|ae.id': [1, 'only when it is letters, digits, _ and - (tested beside it); otherwise PF.vk.byId'],
