@@ -204,6 +204,17 @@ PF.search = (function () {
     return x ? { n: x.n, k: x.k, key: noteKey(x.n.id, x.k) } : null;
   }
   function noteKey(id, k) { return U.nthKey(id, k); }
+  /* A note kept across redraws (2.11): a note just saved, a search hit, a focused row, a flash. It's held by what it is, never
+     by its key (id, or id#k), which a twin arriving, leaving or moving changes: { run, step, note, anchor, same, rank } for
+     note n among a run's notes. Every draw finds it again with noteFind and keeps, focuses or reveals it by the key it has
+     then (code review round 21). sent: a note this window wrote, found among the notes as read back (its id, time, author
+     and window; the reader cleans a note, so its anchor is worked out from what was read); null when it isn't there. */
+  function noteKeep(key, notes, n, step, sent) {
+    if (sent) n = (notes || []).filter(function (x) { return x.id === sent.id && x.at === sent.at && x.by === sent.by && x.session === sent.session; })[0];
+    if (!n) return null;
+    var s = noteStand((notes || []).filter(function (x) { return x.id === n.id; }), n);
+    return { run: key, step: step != null ? step : n.step, note: n.id, anchor: noteAnchor(n), same: s.same, rank: s.rank };
+  }
   /* Each note's noteAt, in the notes' order (worked out once per notes array). */
   var atMemo = typeof WeakMap === 'function' ? new WeakMap() : null;
   function noteAts(notes) {
@@ -606,5 +617,5 @@ PF.search = (function () {
   function size(ix) { return { docs: ix.live, words: Object.keys(ix.post).length, sources: Object.keys(ix.src).length }; }
 
   return { KINDS: KINDS, LABEL: LABEL, fold: fold, foldText: foldText, words: words, parse: parse, mark: mark, snippet: snippet, docs: docs, create: create, sync: sync,
-    update: update, start: start, query: query, size: size, noteAnchor: noteAnchor, noteFind: noteFind, noteAts: noteAts, noteKey: noteKey, noteTarget: noteTarget };
+    update: update, start: start, query: query, size: size, noteAnchor: noteAnchor, noteFind: noteFind, noteAts: noteAts, noteKey: noteKey, noteTarget: noteTarget, noteKeep: noteKeep };
 })();

@@ -1586,6 +1586,8 @@
     /* What was just shown is this folder's: after a folder switch it's gone (gen), without the switch itself changing. */
     if (state.justShown && state.justShown.gen !== gen) state.justShown = null;
     if (state.noteShown && state.noteShown.gen !== gen) state.noteShown = null;
+    sentNotes();
+    justNotes();
     if (state.find && state.find.gen !== gen) state.find = null;
     if (state.justPlanned && state.justPlanned.gen !== gen) state.justPlanned = null;
     /* What the Start, Plan or test-run form's roles held at the last redraw goes to this redraw only, as 2.10's page carries
@@ -1764,15 +1766,14 @@
     var off = oneOffAt(was, id);
     if (off) return oneOffNow(r, off) ? key : state.view === 'run' ? '#ins-h' : '#page-h';
     if (was.notes === r._notes) return key;
-    var ats = S.noteAts(was.notes), old = null, oldKey = '';
+    var ats = S.noteAts(was.notes), old = null;
     for (var i = 0; i < was.notes.length && !old; i++) {
       var n = was.notes[i], corr = n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map';
-      if (id === (corr ? V.corrDomId(n.id, ats[i]) : V.noteDomId(n.step, S.noteKey(n.id, ats[i])))) { old = n; oldKey = S.noteKey(n.id, ats[i]); }
+      if (id === (corr ? V.corrDomId(n.id, ats[i]) : V.noteDomId(n.step, S.noteKey(n.id, ats[i])))) old = n;
     }
     if (!old) return key;
-    var hit = S.noteFind(r._notes || [], S.noteTarget(state.runKey, old, was.notes.filter(function (x) { return x.id === old.id; })));
+    var hit = S.noteFind(r._notes || [], keepNote(state.runKey, was.notes, old));
     if (!hit) return state.view === 'run' ? '#ins-h' : '#page-h';
-    if (state.flash && state.flash.noteKey === oldKey) state.flash.noteKey = hit.key;
     var hc = hit.n.kind === 'correction' || hit.n.kind === 'fix' || hit.n.kind === 'map';
     return PF.vk.byId(hc ? V.corrDomId(hit.n.id, hit.k) : V.noteDomId(hit.n.step, hit.key));
   }
@@ -1853,6 +1854,31 @@
     var key = noteFocus(rowId, PF.vk.byId(rowId));
     return key === '#ins-h' || key === '#page-h' ? key : key + ' ' + sel;
   }
+  /* A note kept across redraws, for this folder only (gen): PF.search.noteKeep, the one way a note is held by what it is. */
+  function keepNote(key, notes, n, step, sent) { var t = PF.search.noteKeep(key, notes, n, step, sent); if (t) t.gen = gen; return t; }
+  /* A note or correction this window just saved (state.noteSent), until a read has it: the read right after the save may not
+     yet (another read in progress). Found, it's kept by what it is from then on: a note in its step's thread (state.noteShown,
+     brought into view) or a correction in its step's list (just shown, focused). Never by its id alone, which a twin shares. */
+  function sentNotes() {
+    var ns = state.noteSent; if (!ns) return;
+    if (ns.gen !== gen) { state.noteSent = null; return; }
+    var r = ctx.findRun(ns.run), notes = r ? r._notes || [] : [], t = keepNote(ns.run, notes, null, ns.step, ns.sent), hit = t && PF.search.noteFind(notes, t);
+    if (!hit) return;
+    state.noteSent = null;
+    var here = state.view === 'run' && state.runKey === ns.run;
+    if (ns.corr) { if (here) ensureListItemVisible('rcorr:' + ns.run + ':' + ns.step, hit.key, { note: t, focus: PF.vk.byId(V.corrDomId(hit.n.id, hit.k)), word: 'added' }); return; }
+    state.noteShown = t;
+    if (here && state.sel === ns.step) revealAt(PF.vk.byId(V.noteDomId(ns.step, hit.key)));
+  }
+  /* A list's just-shown row that is a note (a correction just saved, ensureListItemVisible's o.note) is found again by what it
+     is at every draw, and shown by its key then; gone, no row is shown in its place (code review round 21). */
+  function justNotes() {
+    var js = state.justShown; if (!js || !js.notes) return;
+    Object.keys(js.notes).forEach(function (list) {
+      var t = js.notes[list], r = ctx.findRun(t.run), hit = r ? PF.search.noteFind(r._notes || [], t) : null;
+      if (hit) js.lists[list] = hit.key; else delete js.lists[list];
+    });
+  }
   function noteHold(id) {
     var was = notesSeen, S = PF.search;
     if (!was || was.run !== state.runKey || !/^(tn|corr)-/.test(id)) return null;
@@ -1860,9 +1886,7 @@
     for (var i = 0; i < was.notes.length; i++) {
       var n = was.notes[i], corr = n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map';
       if (id !== (corr ? V.corrDomId(n.id, ats[i]) : V.noteDomId(n.step, S.noteKey(n.id, ats[i])))) continue;
-      var t = S.noteTarget(state.runKey, n, was.notes.filter(function (x) { return x.id === n.id; }));
-      t.gen = gen; t.run = state.runKey; t.step = n.step;
-      return t;
+      return keepNote(state.runKey, was.notes, n);
     }
     /* A one-off row (Done differently, no correction) is held by its answer. */
     var off = oneOffAt(was, id);
@@ -4287,6 +4311,8 @@
     o = o || {};
     var js = state.justShown && state.justShown.gen === gen ? state.justShown : { gen: gen, lists: {} };
     js.lists[list] = key; (js.words = js.words || {})[list] = o.word || ''; state.justShown = js;
+    /* o.note: the row is a note, kept by what it is (PF.search.noteKeep), its key worked out again at every draw (justNotes). */
+    js.notes = js.notes || {}; if (o.note) js.notes[list] = o.note; else delete js.notes[list];
     if (o.focus) { state.focus = o.focus; state.focusWins = true; }
     if (o.focus || o.reveal) revealAt(o.reveal || o.focus, true);
   }
@@ -4297,6 +4323,7 @@
     f.q[list] = String(q || '').slice(0, 200); state.find = f;
     state.more = Object.assign({}, state.more); delete state.more[list];
     if (state.justShown && state.justShown.lists) delete state.justShown.lists[list];
+    if (state.justShown && state.justShown.notes) delete state.justShown.notes[list];
   }
   /* A long dropdown's Find box (K.select) stays drawn while it has focus, even emptied below the page size; leaving it lets it
      go (the focusout below). It's noted for whichever Find box is in use; only a dropdown's box reads it. */
@@ -5548,7 +5575,7 @@
       render();
     },
     nav: function (id) {
-      typeOpens++; state.more = {}; state.justShown = null; state.noteShown = null; state.revealTarget = null; state.justPlanned = null;
+      typeOpens++; state.more = {}; state.justShown = null; state.noteShown = null; state.noteSent = null; state.revealTarget = null; state.justPlanned = null;
       if (id === 'home') { home(); state.focus = '[data-act="nav"][data-id="home"]'; render(); window.scrollTo(0, 0); return; }
       if (['runs', 'followups', 'processes', 'skills', 'types', 'settings'].indexOf(id) < 0) return;
       releaseUrls(state.urls); setView(id); state.processId = null; state.runKey = null; resetRunUi(); state.fuPick = null;
@@ -6550,8 +6577,7 @@
       var m = U.nthOf(cid), nid = m.s, at = m.n, S = PF.search, notes = r._notes || [], ats = S.noteAts(notes), cn = null;
       notes.forEach(function (n, i) { if (!cn && n.id === nid && ats[i] === at && (n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map')) cn = n; });
       if (!cn) return;
-      var t = S.noteTarget(state.runKey, cn, notes.filter(function (x) { return x.id === nid; }));
-      state.noteShown = { gen: gen, run: state.runKey, step: state.sel, note: t.note, anchor: t.anchor, same: t.same, rank: t.rank };
+      state.noteShown = keepNote(state.runKey, notes, cn, state.sel);
       var csel = PF.vk.byId(V.corrDomId(nid, at)); state.focus = csel; state.focusWins = true; revealAt(csel, true); render();
     },
     'corr-menu': function () { var f = state.corrForm; if (!f) return; f.menu = !f.menu; state.focus = f.menu ? '.corr-menu-list button' : '[data-act="corr-menu"]'; render(); },
@@ -6682,10 +6708,10 @@
       /* A note that's too long is refused, not cut short; the draft stays so it can be shortened or split. */
       if (text.length > NOTE_MAX) { state.fieldErr = { id: 'note:' + id, msg: 'Notes can be up to 2,000 characters; this one is ' + text.length.toLocaleString('en-US') + '. Shorten it, or split it into two notes.', field: 'note-text' }; state.focus = '#note-text'; render(); return; }
       state.fieldErr = null;
-      var endBusy = busyStart(), nid = U.randomId(10);
+      var endBusy = busyStart(), nid = U.randomId(10), sent = null;
       queued(function () {
         return saveFiles(nfs, r, files).then(function (saved) {
-          var note = { id: nid, at: new Date().toISOString(), by: who, session: WRITER, step: id, text: text, files: saved.paths, fileInfo: saved.info };
+          var note = sent = { id: nid, at: new Date().toISOString(), by: who, session: WRITER, step: id, text: text, files: saved.paths, fileInfo: saved.info };
           return repo.addNote(nfs, r, WRITER, note);
         });
       }).then(function () {
@@ -6699,11 +6725,12 @@
         if (state.attErr && state.attErr.key === 'note:' + id) state.attErr = null;
         var ack = state.noteAck = { key: nkey, step: id }; setTimeout(function () { if (state.noteAck === ack) { state.noteAck = null; scheduleRender(); } }, 4000);
         if (state.runKey === nkey) { say('Note added to "' + noteStepText(id) + '".', 'good'); state.msg.quiet = true; }
-        /* The new note is drawn wherever its time sorts it, even outside the newest 20 (a clock behind), and brought into view (2.11). */
+        /* The new note is drawn wherever its time sorts it, even outside the newest 20 (a clock behind), and brought into view (2.11).
+           It's kept by what it is, as read back (keepNote), so a twin arriving later never takes its place (code review round 21). */
         return refreshRun().then(function () {
-          if (ng !== gen || state.runKey !== nkey) return;
-          state.noteShown = { gen: gen, run: nkey, step: id, note: nid };
-          if (state.sel === id) { revealAt(PF.vk.byId(V.noteDomId(id, PF.search.noteKey(nid, 1)))); render(); }
+          if (ng !== gen || state.runKey !== nkey || !sent) return;
+          state.noteShown = null; state.noteSent = { gen: gen, run: nkey, step: id, sent: sent };
+          render();
         });
       }, function (e) { endBusy(); if (ng !== gen) return; say('Couldn\'t add the note: ' + e.message, 'bad'); render(); });
     },
@@ -6827,7 +6854,8 @@
       } : function () { say('Correction saved on this computer. It doesn\'t answer the step.', 'good'); state.msg.quiet = true; state.focus = '[data-act="corr-open"][data-id="' + cssEsc(step) + '"][data-mode="correct"]'; return Promise.resolve(); };
       /* The new correction is drawn whatever the page of the step's list (2.11), focused and brought into view. */
       return then().then(function () { return withNote && state.runKey === key ? refreshRun() : null; }).then(function () {
-        if (note && state.view === 'run' && state.runKey === key && ng === gen) ensureListItemVisible('rcorr:' + key + ':' + step, note.id, { focus: PF.vk.byId('corr-' + note.id), word: 'added' });
+        /* By what it is, as read back (sentNotes), never by its key now: a twin arriving later never takes its place. */
+        if (note && state.view === 'run' && state.runKey === key && ng === gen) state.noteSent = { gen: gen, run: key, step: step, sent: note, corr: true };
         render();
       });
     }, function (e) { endBusy(); f.sending = false; settled(); if (ng !== gen) return; say('Couldn\'t save. Try again. ' + e.message, 'bad'); render(); });
@@ -7984,17 +8012,19 @@
       if (x && cn) {
         state.unfold[x.phase.id] = true; selectStep(x.step.id); state.refOpen = true;
         /* Kept in the step's Corrections by its identity (state.noteShown), so a newer read can't put another in its place. */
-        state.noteShown = { gen: gen, run: t.run, step: x.step.id, note: t.note, anchor: t.anchor, same: t.same, rank: t.rank };
+        state.noteShown = keepNote(t.run, tr._notes, cn, x.step.id);
         var csel = PF.vk.byId(V.corrDomId(cn.id, hit.k)); state.focus = csel; state.focusWins = true; revealAt(csel, true); sheetFor = csel;
       } else if (x) {
         state.unfold[x.phase.id] = true; selectStep(x.step.id); state.refOpen = !narrow() || hasNote;
         /* A note: drawn in its step's thread whatever the page, focused and brought into view; on a phone the inspector
            sheet opens on it. A note that's gone leaves the step selected and the thread says so. */
         var nsel = hit ? PF.vk.byId(V.noteDomId(x.step.id, hit.key)) : null;
-        if (hasNote) state.noteShown = { gen: gen, run: t.run, step: x.step.id, note: t.note, anchor: t.anchor, same: t.same, rank: t.rank };
+        /* A note that's gone is still asked for by the hit's identity, so the thread says it's gone. */
+        if (hasNote) state.noteShown = hit ? keepNote(t.run, tr._notes, hit.n, x.step.id) : { gen: gen, run: t.run, step: x.step.id, note: t.note, anchor: t.anchor, same: t.same, rank: t.rank };
         if (nsel) { state.focus = nsel; state.focusWins = true; revealAt(nsel, true); sheetFor = nsel; }
         else { state.focus = '[data-act="select"][data-id="' + cssEsc(x.step.id) + '"]'; revealAt('#step-' + cssEsc(x.step.id)); }
-        var mark = state.flash = { ids: [x.step.id], noteKey: hit ? hit.key : null };
+        /* The note flashes by what it is, its key worked out at each draw. */
+        var mark = state.flash = { ids: [x.step.id], note: hit ? keepNote(t.run, tr._notes, hit.n, x.step.id) : null };
         setTimeout(function () { if (state.flash === mark) { state.flash = null; scheduleRender(); } }, 1800);
       }
       render(); return true;

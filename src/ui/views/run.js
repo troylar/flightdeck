@@ -796,7 +796,7 @@
        wherever it sorts, under From earlier, found again by its whole content after a newer read; gone, the line says so. */
     var ats = PF.search.noteAts(r._notes || []), notes = [];
     (r._notes || []).forEach(function (n, i) { if (n.step === st.id && n.kind !== 'correction' && n.kind !== 'fix' && n.kind !== 'map') notes.push({ n: n, key: PF.search.noteKey(n.id, ats[i]) }); });
-    var flashKey = s.flash && s.flash.noteKey, tn = function (key) { return noteDomId(st.id, key); };
+    var fl = s.flash && s.flash.note && s.flash.note.run === runKey(r) ? PF.search.noteFind(r._notes || [], s.flash.note) : null, flashKey = fl ? fl.key : null, tn = function (key) { return noteDomId(st.id, key); };
     var noteLi = function (x) {
       var n = x.n, made = (r.followUps || []).some(function (f) { return f.from === n.id; });
       PF.perf.add('note.row');
