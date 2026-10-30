@@ -96,7 +96,7 @@ for (const [where, go, prefix, heading] of [['the process page', processFx, 'fxm
 
 /* ---------- 2. a one-off Done differently row, held by its answer ---------- */
 /* The landed run's step s0 with 55 corrections from another computer, then a Done differently answer with no correction
-   (a one-off row, corr-diff-s0), the newest on the step. */
+   (a one-off row, corr-#off-s0), the newest on the step. */
 async function oneOff() {
   const app = await fresh(), key = small().facts.landed, dir = 'runs/' + key + '/';
   const rj = JSON.parse(app.fs.files[dir + 'run.json'].t), map = app.PF.run.mapOf(rj), C = app.PF.corrections, t0 = Date.parse(rj.created);
@@ -109,7 +109,7 @@ async function oneOff() {
   app.input('corr-happened', 'Did it by hand'); app.click('corr-done', 's0'); await app.tick(120);
   /* Done moves on to the next step; back to s0. */
   app.click('select', 's0'); await app.tick(10);
-  assert.ok(/<li class="corr" id="corr-diff-s0"/.test(app.html()) || moreOf(app.html(), 'rcorr:' + key + ':s0'), 'set-up: a one-off row');
+  assert.ok(/<li class="corr" id="corr-#off-s0"/.test(app.html()) || moreOf(app.html(), 'rcorr:' + key + ':s0'), 'set-up: a one-off row');
   let n = 0;
   /* Older corrections arriving from another computer, each read in a file of its own: they sort in above the one-off. */
   const older = async count => { n++; await arrive(app, [[dir + 'notes-older' + n + '.jsonl', mk('old' + n + '-', count, t0 + 1000)]]); };
@@ -117,22 +117,22 @@ async function oneOff() {
 }
 const oneOffOn = (app, what) => {
   const h = app.html();
-  assert.ok(/<li class="corr" id="corr-diff-s0"/.test(h), what + ': the one-off row is still drawn');
-  assert.strictEqual(app.activeId(), 'corr-diff-s0', what + ': and focused');
-  assert.ok(textOf(h, 'corr-diff-s0').indexOf('Did it by hand') >= 0, what + ': on its own answer');
-  assert.ok(/<p class="small kept-h">You(&#39;|')re on this one<\/p><ul class="corrlist"><li class="corr" id="corr-diff-s0"/.test(h), what + ': past the page, under You\'re on this one');
+  assert.ok(/<li class="corr" id="corr-#off-s0"/.test(h), what + ': the one-off row is still drawn');
+  assert.strictEqual(app.activeId(), 'corr-#off-s0', what + ': and focused');
+  assert.ok(textOf(h, 'corr-#off-s0').indexOf('Did it by hand') >= 0, what + ': on its own answer');
+  assert.ok(/<p class="small kept-h">You(&#39;|')re on this one<\/p><ul class="corrlist"><li class="corr" id="corr-#off-s0"/.test(h), what + ': past the page, under You\'re on this one');
 };
 rule('Round 6: a focused one-off Done differently row stays drawn and focused in the inspector, Finish and Receipt when older corrections push it past the page', async () => {
   const { app, key, older } = await oneOff();
   const id = 'rcorr:' + key + ':s0';
-  while (!/<li class="corr" id="corr-diff-s0"/.test(app.html())) await more(app, id);
-  app.node('[id="corr-diff-s0"]').focus();
+  while (!/<li class="corr" id="corr-#off-s0"/.test(app.html())) await more(app, id);
+  app.node('[id="corr-#off-s0"]').focus();
   await older(50);
   oneOffOn(app, 'the inspector');
   for (const [page, list] of [['finish', 'fin-corr:' + key], ['receipt', 'rcpt-corr:' + key]]) {
     app.click(page); await app.tick(10);
-    while (!/<li class="corr" id="corr-diff-s0"/.test(app.html())) await more(app, list);
-    app.node('[id="corr-diff-s0"]').focus();
+    while (!/<li class="corr" id="corr-#off-s0"/.test(app.html())) await more(app, list);
+    app.node('[id="corr-#off-s0"]').focus();
     await older(60);
     oneOffOn(app, page);
     if (page === 'finish') { app.click('exit-mission'); await app.tick(10); }
@@ -141,13 +141,13 @@ rule('Round 6: a focused one-off Done differently row stays drawn and focused in
 rule('Round 6: the focused one-off row\'s answer changed by a newer read: focus goes to the inspector\'s heading, never onto the new answer in its place', async () => {
   const { app, key } = await oneOff();
   const id = 'rcorr:' + key + ':s0';
-  while (!/<li class="corr" id="corr-diff-s0"/.test(app.html())) await more(app, id);
-  app.node('[id="corr-diff-s0"]').focus();
+  while (!/<li class="corr" id="corr-#off-s0"/.test(app.html())) await more(app, id);
+  app.node('[id="corr-#off-s0"]').focus();
   const p = 'runs/' + key + '/run.json', rj = JSON.parse(app.fs.files[p].t);
   rj.steps.s0.differently = Object.assign({}, rj.steps.s0.differently, { note: 'Did it another way' });
   await app.fs.write(p, JSON.stringify(rj, null, 2) + '\n');
   await arrive(app, []);
-  assert.ok(textOf(app.html(), 'corr-diff-s0').indexOf('Did it another way') >= 0, 'set-up: the new answer is drawn');
+  assert.ok(textOf(app.html(), 'corr-#off-s0').indexOf('Did it another way') >= 0, 'set-up: the new answer is drawn');
   assert.strictEqual(app.activeId(), 'ins-h', 'focus on the inspector\'s heading');
 });
 
