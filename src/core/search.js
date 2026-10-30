@@ -123,7 +123,9 @@ PF.search = (function () {
   function own(o, k) { return o && Object.prototype.hasOwnProperty.call(o, k) ? o[k] : undefined; }
   function str(v) { return typeof v === 'string' ? v : ''; }
   function uniq(list) { var seen = Object.create(null), out = []; list.forEach(function (x) { if (x && typeof x === 'string' && !seen[x]) { seen[x] = 1; out.push(x); } }); return out; }
-  function target(o) { var t = {}; Object.keys(o).forEach(function (k) { if (o[k] != null && o[k] !== '') t[k] = o[k]; }); return t; }
+  /* A result's target: what's given, less what's empty. A note's id is kept even when it's "" (code review round 16): the
+     folder accepts that id, and the target is how the note is found again. */
+  function target(o) { var t = {}; Object.keys(o).forEach(function (k) { if (o[k] != null && (o[k] !== '' || k === 'note')) t[k] = o[k]; }); return t; }
   function field(list, t, w, step) { t = str(t); if (t) list.push(step ? { t: t, w: w, step: step } : { t: t, w: w }); }
   /* A long first line is cut at a space for the result's title; the whole text is still indexed. */
   function clip(t, n) {
@@ -194,7 +196,7 @@ PF.search = (function () {
      number changed (one more, or one fewer), none is chosen, and nothing is chosen in a missing note's place. Without an anchor (a note just saved, whose id is
      new), the newest note with that id. */
   function noteFind(notes, t) {
-    if (!t || !t.note) return null;
+    if (!t || typeof t.note !== 'string') return null;
     var k = 0, hits = [];
     (notes || []).forEach(function (n) { if (n.id !== t.note) return; k++; if (t.anchor == null || noteAnchor(n) === t.anchor) hits.push({ n: n, k: k }); });
     var want = t.same > 1 ? t.same : 1;

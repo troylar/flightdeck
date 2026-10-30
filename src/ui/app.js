@@ -153,11 +153,9 @@
     renameDeps: function (map, name) { return renameDeps(map, name); },
     latestPub: function (id) { var p = procFind(id); return p ? p.latest : null; },
     suggestRole: suggestRole,
-    /* What each role of the open Start or Plan form started as (2.11), kept per form and version: a refresh that changes the
-       rotation's suggestion or the plan never changes a role off the page, as it never changes one drawn. */
-    rolesInit: function (fk) { if (!state.rolesInit || state.rolesInit.at !== fk || state.rolesInit.gen !== gen) state.rolesInit = { at: fk, gen: gen, was: Object.create(null) }; return state.rolesInit.was; },
-    /* The roles this form has changed and what each is set to, when they're this form's in this folder (null otherwise). */
-    rolesPick: function (fk) { var b = state.rolesPicked; return b && b.at === fk && b.gen === gen ? b : null; },
+    /* What each role of the Start, Plan or test-run form being drawn held at the last redraw, as 2.10's selects carry it
+       (roleBoxes in process.js, code review round 16). */
+    roleCarry: function (scope) { return roleCarry(scope); },
     attachments: function (key, step) { return attachmentsFor(key, step); },
     /* What was typed on a step of the open run and not used yet: evidence, Fill in values, a note. */
     stepDraft: function (id) { return draftOf(state.runKey, id, false); },
@@ -1590,12 +1588,9 @@
     if (state.noteShown && state.noteShown.gen !== gen) state.noteShown = null;
     if (state.find && state.find.gen !== gen) state.find = null;
     if (state.justPlanned && state.justPlanned.gen !== gen) state.justPlanned = null;
-    /* The Start, Plan or test-run form's roles (what each started as, and what it changed) are this folder's and this drawing
-       of the form's: another folder (Reconnect from the examples) or the form drawn afresh (the plan changed under it) starts
-       them over, as the form's own boxes do, so a role never saves what an older plan or folder had it be. */
-    var rolesReset = state.planFormReset && state.view === 'start';
-    if (state.rolesPicked && (state.rolesPicked.gen !== gen || rolesReset)) state.rolesPicked = null;
-    if (state.rolesInit && (state.rolesInit.gen !== gen || rolesReset)) state.rolesInit = null;
+    /* What the Start, Plan or test-run form's roles held at the last redraw goes to this redraw only, as 2.10's page carries
+       its selects (roleCarry): none when the form is drawn afresh (planFormReset), and gone if this redraw doesn't draw it. */
+    carryPrev = state.planFormReset ? null : state.roleCarry; state.roleCarry = null;
     dropBatchRender();
     repHarvest();
     corrHarvest();
@@ -1642,6 +1637,7 @@
     /* The first time, with only the examples to show, Home is the welcome: Start your team, Join, or Look around. */
     var welcome = ctx.welcome();
     var page = (welcome ? V.setup : PAGES[v] || V.home)(ctx), was = drawn;
+    carryPrev = null;
     /* In the editor, a practice open for this draft follows each change as it's applied, and where you are in it. */
     if (v === 'process' && state.ptab === 'edit') { var epx = currentProcess(); if (epx && prs[edKey(epx.id)]) { prFollow(epx); prTargetNow(epx); } }
     /* A run's panes keep their scroll when a redraw replaces one showing the same step (on a phone the inspector is a sheet
@@ -6547,7 +6543,9 @@
        brought into view. It's kept by the note's identity (state.noteShown, its anchor), as a search result is, so a newer
        read that moves its twins never puts another in its place. */
     'goto-corr': function (id) {
-      var r = ctx.run(), cid = String(id || '').replace(/^corr-/, ''); if (!r || !state.sel || !cid) return;
+      /* The row's id is corr-<key>; a note whose id is "" has the key "" (code review round 16). */
+      var r = ctx.run(); if (!r || !state.sel || typeof id !== 'string' || id.indexOf('corr-') !== 0) return;
+      var cid = id.slice(5);
       var m = U.nthOf(cid), nid = m.s, at = m.n, S = PF.search, notes = r._notes || [], ats = S.noteAts(notes), cn = null;
       notes.forEach(function (n, i) { if (!cn && n.id === nid && ats[i] === at && (n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map')) cn = n; });
       if (!cn) return;
@@ -6710,8 +6708,9 @@
     },
     /* Every role, drawn or in a hidden field, kept in the form's state so a redraw (Show more, Find, a refresh) draws it so. */
     'just-me': function () {
-      var rb = rolesBox(), pub = startFormPub();
-      ((pub && pub.map.meta.roles) || []).forEach(function (role) { rb.vals[role] = state.me; var el = document.getElementById('role-' + role); if (el) el.value = state.me; });
+      var rc = state.view === 'start' ? state.roleCarry : null, me = state.me, on = PF.people.sorted(ctx).some(function (x) { return x.id === me && !x.inactive; });
+      /* As 2.10 sets every role's select to you: a select can't hold someone who isn't on the team, so it's nobody then. */
+      if (rc) Object.keys(rc.vals).forEach(function (role) { rc.vals[role] = on ? me : ''; var el = document.getElementById('role-' + role); if (el) el.value = on ? me : ''; });
       render();
     },
     /* The Copy button itself says Copied for a moment, and it's announced once. */
@@ -7423,7 +7422,7 @@
     if (plan && plan._copiesDiffer) { say('Two different copies of this plan are in the folder. Delete the wrong one, then start it.', 'warn'); render(); return; }
     /* Decisions on the plan started to disagree after this form was drawn: show the warning before anything starts. */
     if (plan && plan._conflicting && e.target.dataset.planConflict !== '1') { say('Someone decided on this plan while you were filling this in, and the decisions disagree. Check Runs, then start again if it still needs to run.', 'warn'); render(); return; }
-    if (plan && e.target.dataset.planHash !== plan._sha) { say('Someone changed this plan while you were reviewing it. The form now shows the new plan; check it, then start again.', 'warn'); state.planFormReset = true; state.rolesPicked = null; state.rolesInit = null; render(); return; }
+    if (plan && e.target.dataset.planHash !== plan._sha) { say('Someone changed this plan while you were reviewing it. The form now shows the new plan; check it, then start again.', 'warn'); state.planFormReset = true; render(); return; }
     var tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (err) { tz = ''; }
     /* R.create refuses a version this copy can't fully read; verified versions never get here, but the refusal is shown. */
     /* A plan's details are text: typed ones are migrated from it (PF.run.create), never guessed. */
@@ -7534,24 +7533,21 @@
       say((adding ? 'Added the team value ' : 'Saved the team value ') + name + '.', 'good');
     }, adding ? null : f.base);
   });
-  /* The Start, Plan or test-run form's own role state (2.11): the roles changed on it (kept drawn) and what each is set to. */
-  function rolesBox() {
-    var fk = state.testStage ? 'test:' + state.processId + ':' + state.testStage : startFormKey();
-    if (!state.rolesPicked || state.rolesPicked.at !== fk || state.rolesPicked.gen !== gen) state.rolesPicked = { at: fk, gen: gen, roles: Object.create(null), vals: Object.create(null) };
-    if (!state.rolesPicked.vals) state.rolesPicked.vals = Object.create(null);
-    return state.rolesPicked;
+  /* The role boxes of the Start, Plan or test-run form being drawn (roleBoxes in process.js): what each held at the last
+     redraw (prev), only when that redraw drew this very form in the same place, as renderNow carries a select in 2.10 (the
+     screen, run, checklist, folder and folder generation in app.dataset.scope, and the form's data-scope); and what each
+     holds now, which the next redraw, a change and Just me read. */
+  var carryPrev = null;
+  function roleCarry(scope) {
+    var key = (app.dataset.scope || '') + '|' + scope, prev = carryPrev && carryPrev.key === key ? carryPrev : null;
+    var now = state.roleCarry = { key: key, vals: Object.create(null), touched: Object.create(null) };
+    return { prev: prev, now: now };
   }
-  /* The open Start, Plan or test-run form's role state, when it's this form's (2.11), without making one. */
-  function rolesHere() {
-    if (state.view !== 'start' || !state.rolesPicked) return null;
-    var fk = state.testStage ? 'test:' + state.processId + ':' + state.testStage : startFormKey();
-    return state.rolesPicked.at === fk && state.rolesPicked.gen === gen ? state.rolesPicked : null;
-  }
-  /* A role this form changed (or Just me) is redrawn with its choice as the control's own value, and one not drawn is a hidden
-     field, so dirtyControl() can't see either: one whose value differs from what the plan or the suggestion has it be
-     (data-was) is unsaved work, as an undrawn change was in 2.10. Focus goes to the role, or for a hidden one the submit button. */
+  /* A role redrawn with its value as the control's own, and one not drawn (a hidden field), are both out of dirtyControl()'s
+     sight: one whose value differs from its default as drawn now (data-was) is unsaved work, as 2.10's carried select is. Focus
+     goes to the role, or for a hidden one the submit button. */
   function rolesPending() {
-    var rb = rolesHere(); if (!rb || !rb.vals) return null;
+    var rb = state.view === 'start' ? state.roleCarry : null; if (!rb) return null;
     var roles = Object.keys(rb.vals);
     for (var i = 0; i < roles.length; i++) {
       var el = document.getElementById('role-' + roles[i]);
@@ -7759,7 +7755,8 @@
     /* A role given someone on Start or Plan (2.11) stays drawn through Show more, Find and a refresh, for this form only. */
     var rm = state.view === 'start' && e.target && /^role-(.+)$/.exec(e.target.id || '');
     /* A test run's form is its own form: its key is its scope (test:<process>:<stage>). */
-    if (rm) { var rb = rolesBox(); rb.roles[rm[1]] = true; rb.vals[rm[1]] = e.target.value; }
+    var rc = rm ? state.roleCarry : null;
+    if (rc && Object.prototype.hasOwnProperty.call(rc.vals, rm[1])) { rc.vals[rm[1]] = String(e.target.value == null ? '' : e.target.value); rc.touched[rm[1]] = true; }
     /* A practice sample is one practice action when it's committed (Enter or leaving the box). */
     var smp = e.target && e.target.dataset && e.target.dataset.prSample;
     if (smp) {
@@ -7931,7 +7928,7 @@
     });
   }
   /* Every change of screen goes through here: what's typed on the run's selected step is kept first. */
-  function setView(v) { childEpoch++; if (v !== 'runs') state.justPlanned = null; if (state.view === 'start' && v !== 'start') { state.startModeAt = {}; state.rolesPicked = null; state.rolesInit = null; } if (state.view === 'practice' && v !== 'practice') prLeave(); leaveContext(); state.view = v; }
+  function setView(v) { childEpoch++; if (v !== 'runs') state.justPlanned = null; if (state.view === 'start' && v !== 'start') { state.startModeAt = {}; state.roleCarry = null; } if (state.view === 'practice' && v !== 'practice') prLeave(); leaveContext(); state.view = v; }
   /* Leaving the practice page (any way: Edit, Back, a link): what's typed is kept, and where it was, for coming back. */
   function prLeave() {
     prHarvest(); var p = currentProcess(), e = p && prs[edKey(p.id)];
@@ -7977,7 +7974,7 @@
          or a gate, its group on the checklist's page. */
       /* A note is found by its id and its whole content (2.11): of notes sharing an id, only the one the target names is
          chosen, never another in its place (PF.search.noteFind). */
-      var tr = ctx.findRun(t.run), hit = t.note ? PF.search.noteFind(tr._notes || [], t) : null;
+      var tr = ctx.findRun(t.run), hasNote = typeof t.note === 'string', hit = hasNote ? PF.search.noteFind(tr._notes || [], t) : null;
       var cn = hit && (hit.n.kind === 'correction' || hit.n.kind === 'fix' || hit.n.kind === 'map') ? hit.n : null;
       if (cn && !t.step) { var cg = corrGroupOf(tr, cn); if (cg) return go({ view: 'process', process: tr.process, group: cg }); }
       if (t.run !== state.runKey || !inRun()) openRun(t.run); else setView('run');
@@ -7988,11 +7985,11 @@
         state.noteShown = { gen: gen, run: t.run, step: x.step.id, note: t.note, anchor: t.anchor, same: t.same, rank: t.rank };
         var csel = PF.vk.byId(V.corrDomId(cn.id, hit.k)); state.focus = csel; state.focusWins = true; revealAt(csel, true); sheetFor = csel;
       } else if (x) {
-        state.unfold[x.phase.id] = true; selectStep(x.step.id); state.refOpen = !narrow() || !!t.note;
+        state.unfold[x.phase.id] = true; selectStep(x.step.id); state.refOpen = !narrow() || hasNote;
         /* A note: drawn in its step's thread whatever the page, focused and brought into view; on a phone the inspector
            sheet opens on it. A note that's gone leaves the step selected and the thread says so. */
         var nsel = hit ? PF.vk.byId('tn-' + x.step.id + '-' + hit.key) : null;
-        if (t.note) state.noteShown = { gen: gen, run: t.run, step: x.step.id, note: t.note, anchor: t.anchor, same: t.same, rank: t.rank };
+        if (hasNote) state.noteShown = { gen: gen, run: t.run, step: x.step.id, note: t.note, anchor: t.anchor, same: t.same, rank: t.rank };
         if (nsel) { state.focus = nsel; state.focusWins = true; revealAt(nsel, true); sheetFor = nsel; }
         else { state.focus = '[data-act="select"][data-id="' + cssEsc(x.step.id) + '"]'; revealAt('#step-' + cssEsc(x.step.id)); }
         var mark = state.flash = { ids: [x.step.id], noteKey: hit ? hit.key : null };

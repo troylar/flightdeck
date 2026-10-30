@@ -480,6 +480,8 @@
   }
   /* Unreadable note lines, each keyed by its file and line. */
   function badRows(nl) { var ks = K.uniqKeys(nl, function (x) { return x.file + '\n' + x.line; }); return nl.map(function (x, i) { return { x: x, k: ks[i] }; }); }
+  /* A list key, "" included: a note's id can be "" and its key with it (code review round 16). */
+  function isKey(k) { return typeof k === 'string'; }
   /* The key of the one-off row (a Done differently answer with no correction) that has focus, by its answer (app.js
      noteHold): these lists hold their focused rows themselves (hold: false), notes by their anchor, one-offs by this. */
   function oneOffHeld(st, r, items) {
@@ -782,7 +784,7 @@
     /* Corrections to this step from this run, then Correct this step (anyone who has said who they are, whatever the run's state). */
     h += '<section class="rw-box rw-corr" aria-labelledby="ins-corr"><div class="row between"><h3 class="rw-h3" id="ins-corr">Corrections' + (rows.length ? ' · ' + rows.length : '') + '</h3>' +
       (s.me && !(cf && cf.mode === 'correct') ? '<button class="mini" data-act="corr-open" data-mode="correct" data-id="' + esc(st.id) + '" title="If the checklist was wrong or unclear here, correct it. The team reviews corrections on the checklist&#39;s page.">' + I('edit') + 'Correct this step</button>' : '') + '</div>' +
-      (rows.length ? K.list(s, 'rcorr:' + rk, ci, { page: 20, hold: false, keep: [nsCorr ? nsCorr.key : null, nhCorr ? nhAny.key : null, oneOffHeld(s, r, ci)].filter(Boolean), keptLabel: nsCorr ? 'Shown because you opened it' : 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: corrFocus,
+      (rows.length ? K.list(s, 'rcorr:' + rk, ci, { page: 20, hold: false, keep: [nsCorr ? nsCorr.key : null, nhCorr ? nhAny.key : null, oneOffHeld(s, r, ci)].filter(isKey), keptLabel: nsCorr ? 'Shown because you opened it' : 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: corrFocus,
         draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) { return corrRow(ctx, x.c, idx[x.c.id], { withdraw: true, domId: x.dom }); }).join('') + '</ul>'; } }) : '') +
       (cf && cf.mode === 'correct' ? composer(ctx, r, map, x, cf) : '') + '</section>';
     /* The newest 20 notes, with Show earlier above them (2.11). A note is its id and where it stands among the notes sharing
@@ -800,7 +802,7 @@
     };
     h += '<section class="rw-box rw-notes" aria-labelledby="ins-notes"><h3 class="rw-h3" id="ins-notes">' + (R.solo(r) ? 'Notes' : 'Team notes') + (notes.length ? ' · ' + notes.length : '') + '</h3>' +
       (ns && !nsAny && ns.anchor != null ? '<p class="small tn-gone" role="status">That note isn\'t in this run anymore.</p>' : '') +
-      (notes.length ? K.list(s, 'notes:' + rk, notes, { page: 20, tail: true, hold: false, keyOf: function (x) { return x.key; }, focusOf: function (k) { return K.byId(tn(k)); }, keep: [nsHit && nsHit.key, nh && nh.n.step === st.id ? nh.key : null].filter(Boolean), keptLabel: 'From earlier',
+      (notes.length ? K.list(s, 'notes:' + rk, notes, { page: 20, tail: true, hold: false, keyOf: function (x) { return x.key; }, focusOf: function (k) { return K.byId(tn(k)); }, keep: [nsHit ? nsHit.key : null, nh && nh.n.step === st.id ? nh.key : null].filter(isKey), keptLabel: 'From earlier',
         gap: function (n) { return n.toLocaleString('en-US') + (n === 1 ? ' note' : ' notes') + ' between'; },
         draw: function (shown) { return '<ul class="tnotes">' + shown.map(noteLi).join('') + '</ul>'; } }) : '');
     if (s.me) {

@@ -693,6 +693,30 @@
     var as = !held && !unknown && x.status === 'staged' && ready.enough && !signs.length ? PF.skills.signer(s, ctx.data.people, ctx.state.me, !!(ctx.data.failed || {}).people) : '';
     return { stage: s, ready: ready, signs: signs, as: as, status: x.status, unknown: unknown, hold: hold };
   }
+  /* What each role's box holds on the Start, Plan or test-run form, drawn or in a hidden field: what its <select> would hold in
+     2.10, where every role is drawn (code review round 16). 2.10's rule (renderNow in app.js): every redraw draws a role's
+     select at its default (the plan's choice, else, unless it approves, the rotation's suggestion; a test run, you), as
+     someone on the team now or nobody; then, if the same select was on the page just before, in the same form drawn in the
+     same place (the same screen, run, checklist, folder and folder generation, and the form's data-scope, which has no
+     version in it) and the form isn't drawn afresh (planFormReset), the value it held then is put back when it's still one of
+     its options (nobody, or someone on the team now). A select that wasn't on the page just before (the form just opened, On
+     my own, a role the version didn't have) starts at its default. ctx.roleCarry(scope) keeps what every role held at the
+     last redraw, drawn or not, under that same place and the role's name, and hands it back only to that form: so a hidden
+     role follows the very same rule, and a new version, a refresh, Find, Show more or paging changes it exactly when 2.10
+     would. value(role, default) gives { value, was }: what the box holds and its default (data-was, the unsaved check). */
+  function roleBoxes(ctx, scope, onTeam) {
+    var c = ctx.roleCarry ? ctx.roleCarry(scope) : null, prev = c ? c.prev : null, now = c ? c.now : null, own = Object.prototype.hasOwnProperty;
+    return {
+      value: function (role, dflt) {
+        var d = typeof dflt === 'string' && onTeam[dflt] ? dflt : '', held = prev && own.call(prev.vals, role) ? prev.vals[role] : null;
+        var v = typeof held === 'string' && (held === '' || onTeam[held]) ? held : d;
+        if (now) { now.vals[role] = v; if (prev && prev.touched[role]) now.touched[role] = true; }
+        return { value: v, was: d };
+      },
+      /* A role changed on this form (it stays drawn, as a kept row): only while its value is carried. */
+      touched: function (role) { return !!(prev && prev.touched[role]); }
+    };
+  }
   function start(ctx) {
     var st = ctx.state, p = ctx.processes().filter(function (x) { return x.id === st.processId; })[0];
     if (p && st.testStage) return startTest(ctx, p);
@@ -761,32 +785,24 @@
       /* 20 roles at a time in checklist order, with Find past 20 (2.11). A role the plan or this form has given someone is
          always drawn; a role not drawn keeps its value in a hidden field, so the form starts or plans exactly what it would. */
       var chosenOf = function (role) { return pre.roles && typeof pre.roles === 'object' && typeof pre.roles[role] === 'string' ? pre.roles[role] : ''; };
-      var rpick = ctx.rolesPick ? ctx.rolesPick(scope + ':' + pub.info.folder) : null, picked = rpick ? rpick.roles : Object.create(null);
-      /* What this form has set a role to (a change, or Just me for every role), drawn or not, over the plan and the suggestion.
-         Each role, drawn or in a hidden field, also carries what the plan or the suggestion would have it be (data-was), so a
-         choice redrawn as the control's own value still counts as unsaved: navigation asks about it (pendingBox in app.js). */
-      var setTo = rpick ? rpick.vals || Object.create(null) : Object.create(null);
-      var setOf = function (role, dflt) { return Object.prototype.hasOwnProperty.call(setTo, role) ? setTo[role] : dflt; };
-      /* What each role started as on this form (ctx.rolesInit), drawn or not: the plan's choice, else the suggestion (never for
-         who approves). Snapshotted the first time the role is drawn or hidden, so a newer read changes no role by itself. */
-      var init = ctx.rolesInit ? ctx.rolesInit(scope + ':' + pub.info.folder) : Object.create(null);
-      var wasOf = function (role, chosen, sug) { if (!Object.prototype.hasOwnProperty.call(init, role)) init[role] = apRole[role] ? chosen : chosen || (sug && sug.person) || ''; return init[role]; };
-      /* One resolver for every role, drawn or in a hidden field (code review round 10): its value and what it's compared with
-         (data-was) are each someone on the team now or nobody, as its box can show them, so whether a role is drawn never
-         changes what the form starts or plans, even after someone is marked inactive while it's open. */
+      /* One resolver for every role, drawn or in a hidden field (roleBoxes): each role's default is 2.10's (the plan's choice,
+         else, unless it approves, the suggestion), and what it holds is what 2.10's select would. Each role also carries its
+         default (data-was), so a value redrawn as the control's own still counts as unsaved, as 2.10's carried select does:
+         navigation asks about it (pendingBox in app.js). */
       var onTeam = Object.create(null); people.forEach(function (x) { onTeam[x.id] = true; });
-      var roleVal = function (role, sug) { var was = wasOf(role, chosenOf(role), sug), v = setOf(role, was); return { was: onTeam[was] ? was : '', value: onTeam[v] ? v : '' }; };
+      var boxes = roleBoxes(ctx, scope, onTeam), sugOf = Object.create(null), rvOf = Object.create(null);
+      meta.roles.forEach(function (role) { var sug = sugOf[role] = ctx.suggestRole(p.id, role), chosen = chosenOf(role); rvOf[role] = boxes.value(role, apRole[role] ? chosen : chosen || (sug && sug.person) || ''); });
       /* A refused role is pinned, drawn whatever the page or Find; one given someone is an ordinary kept row (its value is in a
          hidden field when it isn't drawn), so with Find the matches come first (K.list's tiers, code review round 12). */
       var errRole = function (role) { return !!(st.fieldErr && st.fieldErr.id === 'start-approver' && st.fieldErr.field === 'role-' + role); };
-      var keepRole = function (role) { return !!chosenOf(role) || !!picked[role]; };
+      var keepRole = function (role) { return !!chosenOf(role) || boxes.touched(role); };
       var rq = K.findQ(st, 'start-roles'), rhit = K.finds(rq), rfound = rq ? meta.roles.filter(function (role) { return rhit([role]); }) : meta.roles;
       var rout = rq ? meta.roles.filter(function (role) { return !rhit([role]); }) : null, drawnRole = Object.create(null), roleRows = '';
       if (meta.roles.length > ROLE_PAGE || rq) h = h.replace(/<div class="grid2">$/, '') + K.findBox(st, 'start-roles', 'Find a role', rfound.length, meta.roles.length, 'role') + '<div class="grid2">';
       var roleRow = function (role) {
         var h = '';
         drawnRole[role] = true;
-        var sug = ctx.suggestRole(p.id, role), rv = roleVal(role, sug);
+        var sug = sugOf[role], rv = rvOf[role];
         /* Who approves is never preselected: a saved plan's choice stays, otherwise it's Choose a person, with the rotation's
            suggestion as a hint (what it knows: who had the role on past runs). */
         if (apRole[role]) {
@@ -805,7 +821,7 @@
         draw: function (shown) { return shown.map(roleRow).join(''); } });
       meta.roles.forEach(function (role) {
         if (drawnRole[role]) return;
-        var rv = roleVal(role, apRole[role] ? null : ctx.suggestRole(p.id, role));
+        var rv = rvOf[role];
         roleRows += '<input type="hidden" id="role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(rv.value) + '" data-was="' + esc(rv.was) + '">';
       });
       h += '</div>' + roleRows + '<p class="small">Suggestions rotate roles to whoever did them least recently, so everyone gets the experience. Change anything.</p>';
@@ -832,13 +848,12 @@
       var nmRun = PF.people.labeler(people), meOn = people.some(function (x) { return x.id === st.me; }) ? st.me : '';
       /* 20 roles at a time with Find past 20 (2.11), as Start: a role changed on this form stays drawn, and one not drawn is
          you, as its box would have been, in a hidden field. */
-      var tpick = ctx.rolesPick ? ctx.rolesPick('test:' + p.id + ':' + pub.folder) : null, tpicked = tpick ? tpick.roles : Object.create(null);
-      var tset = tpick ? tpick.vals || Object.create(null) : Object.create(null);
-      var tsetOf = function (role, dflt) { return Object.prototype.hasOwnProperty.call(tset, role) ? tset[role] : dflt; };
-      /* One resolver for a role drawn or hidden (code review round 10): you, or what this form set, when on the team now. */
+      /* One resolver for a role drawn or hidden (roleBoxes): its default is you, and it holds what 2.10's select would. */
       var tOn = Object.create(null); people.forEach(function (x) { tOn[x.id] = true; });
-      var tval = function (role) { var v = tsetOf(role, meOn); return tOn[v] ? v : ''; };
-      var tr = K.roleRows(st, 'test-roles', meta.roles, { soft: meta.roles.filter(function (role) { return !!tpicked[role]; }), focusOf: function (k) { return K.byId('role-' + k); },
+      var tboxes = roleBoxes(ctx, 'test:' + p.id + ':' + pub.folder, tOn), tv = Object.create(null);
+      meta.roles.forEach(function (role) { tv[role] = tboxes.value(role, meOn).value; });
+      var tval = function (role) { return tv[role]; };
+      var tr = K.roleRows(st, 'test-roles', meta.roles, { soft: meta.roles.filter(tboxes.touched), focusOf: function (k) { return K.byId('role-' + k); },
         row: function (role) { return '<label class="field" for="role-' + esc(role) + '">' + esc(role) + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '" data-was="' + esc(meOn) + '"><option value="">Nobody yet</option>' +
           people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === tval(role) ? ' selected' : '') + '>' + esc(nmRun(x)) + '</option>'; }).join('') + '</select></label>'; },
         hidden: function (role) { return '<input type="hidden" id="role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(tval(role)) + '" data-was="' + esc(meOn) + '">'; } });
