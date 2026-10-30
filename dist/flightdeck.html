@@ -19732,7 +19732,7 @@ PF.vk = (function () {
     /* A filter or the runs behind a number in How runs go (views/insights.js) replace the lists below. */
     /* A plan just saved (2.11) is shown at the top, above the filters, whatever they or a cohort from How runs go leave out,
        until you leave Runs; it has the card's id there. */
-    var cardIds = {}, jp = st.justPlanned ? d.plans.filter(function (p) { return p.id === st.justPlanned.id; })[0] : null;
+    var cardIds = Object.create(null), jp = st.justPlanned ? d.plans.filter(function (p) { return p.id === st.justPlanned.id; })[0] : null;
     if (jp) h += '<section class="panel just-planned" aria-labelledby="jp-h"><h2 id="jp-h">Just planned</h2><div class="cards">' + planCard(jp, '') + '</div></section>';
     var cohort = st.runFilter && st.runFilter.cohort, only = V.runsFiltered(ctx, cards);
     if (!cohort) h += V.runsFilterBar(ctx);
@@ -19741,7 +19741,7 @@ PF.vk = (function () {
     h += (running.length ? K.paged(st, 'runs-running', running, cards, runKey) : '<div class="cards"><p class="muted">' + (st.reading ? 'None read yet.' : st.filter === 'all' ? 'Nothing is running.' : 'Nothing you\'re recording or assigned to. Switch to Everyone to see the rest.') + '</p></div>') + '</section>';
     /* 50 at a time, soonest first (2.11). Copies of one plan that differ are each shown; only the first keeps the card's id, so
        ids stay unique, and none does while the plan is in Just planned above. */
-    var nth = {};
+    var nth = Object.create(null);
     var planKeyed = plans.map(function (p) { nth[p.id] = (nth[p.id] || 0) + 1; return { p: p, key: U.nthKey(p.id, nth[p.id]) }; });
     if (plans.length) h += '<section class="panel" aria-labelledby="planned-h"><h2 id="planned-h">Planned · ' + plans.length.toLocaleString('en-US') + '</h2>' + K.list(st, 'runs-planned', planKeyed, { keyOf: function (x) { return x.key; }, focusOf: function (k) { return '[data-act="review-plan"][data-key="' + K.cssStr(k) + '"]'; }, draw: function (shown) { return '<div class="cards">' + shown.map(function (x) { return planCard(x.p, x.key); }).join('') + '</div>'; } }) + '</section>';
     function planCard(p, key) {
@@ -20584,7 +20584,7 @@ PF.vk = (function () {
     h += '</div>';
     /* On my own or with others: the map suggests which (runs: solo), the person decides. A version with an approval role
        (2.10) opens With others unless On my own was chosen on this very form, so who approves is always a choice. */
-    var aps = approvals(pub.map), apRole = {}; aps.forEach(function (a) { (apRole[a.role] = apRole[a.role] || []).push(a.title); });
+    var aps = approvals(pub.map), apRole = Object.create(null); aps.forEach(function (a) { (apRole[a.role] = apRole[a.role] || []).push(a.title); });
     var picked = st.startMode[p.id], pickedHere = picked && (st.startModeAt || {})[p.id] === scope + ':' + pub.info.folder;
     var mode = aps.length ? (pickedHere ? picked : 'team') : picked || (meta.runs === 'solo' || !meta.roles.length ? 'solo' : 'team'), soloMap = mode === 'solo';
     /* The approvals named in a sentence, 50 and how many more (D10, code review round 10): a checklist can have a gate a phase. */
@@ -20597,11 +20597,11 @@ PF.vk = (function () {
       /* 20 roles at a time in checklist order, with Find past 20 (2.11). A role the plan or this form has given someone is
          always drawn; a role not drawn keeps its value in a hidden field, so the form starts or plans exactly what it would. */
       var chosenOf = function (role) { return pre.roles && typeof pre.roles === 'object' && typeof pre.roles[role] === 'string' ? pre.roles[role] : ''; };
-      var picked = st.rolesPicked && st.rolesPicked.at === scope + ':' + pub.info.folder ? st.rolesPicked.roles : {};
+      var picked = st.rolesPicked && st.rolesPicked.at === scope + ':' + pub.info.folder ? st.rolesPicked.roles : Object.create(null);
       /* What this form has set a role to (a change, or Just me for every role), drawn or not, over the plan and the suggestion.
          Each role, drawn or in a hidden field, also carries what the plan or the suggestion would have it be (data-was), so a
          choice redrawn as the control's own value still counts as unsaved: navigation asks about it (pendingBox in app.js). */
-      var setTo = st.rolesPicked && st.rolesPicked.at === scope + ':' + pub.info.folder ? st.rolesPicked.vals || {} : {};
+      var setTo = st.rolesPicked && st.rolesPicked.at === scope + ':' + pub.info.folder ? st.rolesPicked.vals || Object.create(null) : Object.create(null);
       var setOf = function (role, dflt) { return Object.prototype.hasOwnProperty.call(setTo, role) ? setTo[role] : dflt; };
       /* What each role started as on this form (ctx.rolesInit), drawn or not: the plan's choice, else the suggestion (never for
          who approves). Snapshotted the first time the role is drawn or hidden, so a newer read changes no role by itself. */
@@ -20668,8 +20668,8 @@ PF.vk = (function () {
       var nmRun = PF.people.labeler(people), meOn = people.some(function (x) { return x.id === st.me; }) ? st.me : '';
       /* 20 roles at a time with Find past 20 (2.11), as Start: a role changed on this form stays drawn, and one not drawn is
          you, as its box would have been, in a hidden field. */
-      var tpicked = st.rolesPicked && st.rolesPicked.at === 'test:' + p.id + ':' + pub.folder ? st.rolesPicked.roles : {};
-      var tset = st.rolesPicked && st.rolesPicked.at === 'test:' + p.id + ':' + pub.folder ? st.rolesPicked.vals || {} : {};
+      var tpicked = st.rolesPicked && st.rolesPicked.at === 'test:' + p.id + ':' + pub.folder ? st.rolesPicked.roles : Object.create(null);
+      var tset = st.rolesPicked && st.rolesPicked.at === 'test:' + p.id + ':' + pub.folder ? st.rolesPicked.vals || Object.create(null) : Object.create(null);
       var tsetOf = function (role, dflt) { return Object.prototype.hasOwnProperty.call(tset, role) ? tset[role] : dflt; };
       /* One resolver for a role drawn or hidden (code review round 10): you, or what this form set, when on the team now. */
       var tOn = Object.create(null); people.forEach(function (x) { tOn[x.id] = true; });
@@ -21689,7 +21689,7 @@ PF.vk = (function () {
     /* A compact Phases picker, timeline and follow-ups for screens too narrow for the rail. */
     /* Every phase in order, the 50 around the current one first, with Find past 50 (K.select); how far each is is worked out
        only for the phases drawn. */
-    var phIdx = {}; map.phases.forEach(function (p, pi) { phIdx[p.id] = pi; });
+    var phIdx = Object.create(null); map.phases.forEach(function (p, pi) { phIdx[p.id] = pi; });
     var ph = K.select(s, 'rw-phase', map.phases.map(function (p, pi) { return { v: p.id, t: (pi + 1) + '. ' + p.title }; }), cur >= 0 ? map.phases[cur].id : '', { attrs: ' data-bound', around: cur, noun: 'phase', draw: function (it) {
       var pi = phIdx[it.v], p = map.phases[pi], gst = R.gateStatus(r, map, pi), info = R.phaseInfo(r, map, pi);
       return { more: ' · ' + info.done + '/' + info.total + ' · ' + (p.gate.implicit ? 'confirm' : p.gate.title) + ': ' + GATE_WORD[gst].toLowerCase() };
@@ -32873,8 +32873,8 @@ PF.examples = (function () {
   /* The Start, Plan or test-run form's own role state (2.11): the roles changed on it (kept drawn) and what each is set to. */
   function rolesBox() {
     var fk = state.testStage ? 'test:' + state.processId + ':' + state.testStage : startFormKey();
-    if (!state.rolesPicked || state.rolesPicked.at !== fk) state.rolesPicked = { at: fk, roles: {}, vals: {} };
-    if (!state.rolesPicked.vals) state.rolesPicked.vals = {};
+    if (!state.rolesPicked || state.rolesPicked.at !== fk) state.rolesPicked = { at: fk, roles: Object.create(null), vals: Object.create(null) };
+    if (!state.rolesPicked.vals) state.rolesPicked.vals = Object.create(null);
     return state.rolesPicked;
   }
   /* The open Start, Plan or test-run form's role state, when it's this form's (2.11), without making one. */

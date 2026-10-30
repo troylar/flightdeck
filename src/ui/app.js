@@ -7531,8 +7531,8 @@
   /* The Start, Plan or test-run form's own role state (2.11): the roles changed on it (kept drawn) and what each is set to. */
   function rolesBox() {
     var fk = state.testStage ? 'test:' + state.processId + ':' + state.testStage : startFormKey();
-    if (!state.rolesPicked || state.rolesPicked.at !== fk) state.rolesPicked = { at: fk, roles: {}, vals: {} };
-    if (!state.rolesPicked.vals) state.rolesPicked.vals = {};
+    if (!state.rolesPicked || state.rolesPicked.at !== fk) state.rolesPicked = { at: fk, roles: Object.create(null), vals: Object.create(null) };
+    if (!state.rolesPicked.vals) state.rolesPicked.vals = Object.create(null);
     return state.rolesPicked;
   }
   /* The open Start, Plan or test-run form's role state, when it's this form's (2.11), without making one. */

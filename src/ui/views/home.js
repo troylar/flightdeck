@@ -187,7 +187,7 @@
     /* A filter or the runs behind a number in How runs go (views/insights.js) replace the lists below. */
     /* A plan just saved (2.11) is shown at the top, above the filters, whatever they or a cohort from How runs go leave out,
        until you leave Runs; it has the card's id there. */
-    var cardIds = {}, jp = st.justPlanned ? d.plans.filter(function (p) { return p.id === st.justPlanned.id; })[0] : null;
+    var cardIds = Object.create(null), jp = st.justPlanned ? d.plans.filter(function (p) { return p.id === st.justPlanned.id; })[0] : null;
     if (jp) h += '<section class="panel just-planned" aria-labelledby="jp-h"><h2 id="jp-h">Just planned</h2><div class="cards">' + planCard(jp, '') + '</div></section>';
     var cohort = st.runFilter && st.runFilter.cohort, only = V.runsFiltered(ctx, cards);
     if (!cohort) h += V.runsFilterBar(ctx);
@@ -196,7 +196,7 @@
     h += (running.length ? K.paged(st, 'runs-running', running, cards, runKey) : '<div class="cards"><p class="muted">' + (st.reading ? 'None read yet.' : st.filter === 'all' ? 'Nothing is running.' : 'Nothing you\'re recording or assigned to. Switch to Everyone to see the rest.') + '</p></div>') + '</section>';
     /* 50 at a time, soonest first (2.11). Copies of one plan that differ are each shown; only the first keeps the card's id, so
        ids stay unique, and none does while the plan is in Just planned above. */
-    var nth = {};
+    var nth = Object.create(null);
     var planKeyed = plans.map(function (p) { nth[p.id] = (nth[p.id] || 0) + 1; return { p: p, key: U.nthKey(p.id, nth[p.id]) }; });
     if (plans.length) h += '<section class="panel" aria-labelledby="planned-h"><h2 id="planned-h">Planned · ' + plans.length.toLocaleString('en-US') + '</h2>' + K.list(st, 'runs-planned', planKeyed, { keyOf: function (x) { return x.key; }, focusOf: function (k) { return '[data-act="review-plan"][data-key="' + K.cssStr(k) + '"]'; }, draw: function (shown) { return '<div class="cards">' + shown.map(function (x) { return planCard(x.p, x.key); }).join('') + '</div>'; } }) + '</section>';
     function planCard(p, key) {

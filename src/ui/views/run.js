@@ -997,7 +997,7 @@
     /* A compact Phases picker, timeline and follow-ups for screens too narrow for the rail. */
     /* Every phase in order, the 50 around the current one first, with Find past 50 (K.select); how far each is is worked out
        only for the phases drawn. */
-    var phIdx = {}; map.phases.forEach(function (p, pi) { phIdx[p.id] = pi; });
+    var phIdx = Object.create(null); map.phases.forEach(function (p, pi) { phIdx[p.id] = pi; });
     var ph = K.select(s, 'rw-phase', map.phases.map(function (p, pi) { return { v: p.id, t: (pi + 1) + '. ' + p.title }; }), cur >= 0 ? map.phases[cur].id : '', { attrs: ' data-bound', around: cur, noun: 'phase', draw: function (it) {
       var pi = phIdx[it.v], p = map.phases[pi], gst = R.gateStatus(r, map, pi), info = R.phaseInfo(r, map, pi);
       return { more: ' · ' + info.done + '/' + info.total + ' · ' + (p.gate.implicit ? 'confirm' : p.gate.title) + ': ' + GATE_WORD[gst].toLowerCase() };
