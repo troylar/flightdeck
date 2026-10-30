@@ -206,7 +206,7 @@
   function stepRow(ctx, p, s, sel, B) {
     var t = T.get(s.type, teamTypes(ctx)), on = sel && sel.kind === 'step' && sel.key === s.key;
     var meta = (s.must ? '<span class="badge b-must">Must do</span>' : '') + (s.planned ? '<span class="badge b-plan">Automation planned</span>' : '') +
-      (s.roles.length ? '<span class="ob-role">@' + esc(s.roles.join(' @')) + '</span>' : '') + s.binds.map(function (b) { return '<span class="ob-chip">^' + esc(b) + '</span>'; }).join('') + fixBadge(B, s.id);
+      (s.roles.length ? '<span class="ob-role">' + esc(K.atRoles(s.roles, 'ob-step-roles')) + '</span>' : '') + s.binds.map(function (b) { return '<span class="ob-chip">^' + esc(b) + '</span>'; }).join('') + fixBadge(B, s.id);
     var inc = incoming(ctx, 'step', s.key);
     if (inc) meta = incWords(inc) + meta;
     return slot(B, 'li', 'step', 'before:' + s.key, '') +
@@ -237,7 +237,7 @@
         body += slot(B, 'div', 'lanes', 'lane:' + ph.key + ':' + k, 'v') +
           '<section class="ob-lane' + (tsel ? ' sel' : '') + (isNew(ctx, 'track', ph.key, k) ? ' ob-new' : '') + '" aria-label="Lane: ' + esc(name) + '"><div class="ob-lane-h">' +
           '<button type="button" class="ob-lane-name" data-act="ob-sel-track" data-id="' + esc(ph.key) + '" data-track="' + k + '" aria-pressed="' + !!tsel + '">' + esc(name) + '</button>' +
-          (tr.roles.length ? '<span class="small">@' + esc(tr.roles.join(' @')) + '</span>' : '<span class="small">No role</span>') + '</div>' +
+          (tr.roles.length ? '<span class="small">' + esc(K.atRoles(tr.roles, 'ob-lane-roles')) + '</span>' : '<span class="small">No role</span>') + '</div>' +
           groupList(ctx, p, ph, k, sel, add, B, 'Steps in the ' + name + ' lane') + '</section>';
       });
       body += slot(B, 'div', 'lanes', 'lane:' + ph.key + ':end', 'v') + '</div></div>';
@@ -319,7 +319,7 @@
     var known = T.fieldDef(def, name), d = known || { label: name, kind: 'text' }, v = s.fields[name] || '', id = 'ob-fld-' + name;
     var g = known ? G.field(def, name, s.fields) : { q: name, eg: '', why: '' }, fl = flag ? ['flag-' + id] : [];
     var opts = d.kind === 'choice' ? T.options(d, s.fields) : [];
-    if (!flag && v && opts.length && !T.hasOption(d, s.fields, v)) { flag = '{' + (s.type || '') + '} doesn\'t have ' + v + '. Pick one of: ' + opts.join(', ') + '.'; fl = ['flag-' + id]; }
+    if (!flag && v && opts.length && !T.hasOption(d, s.fields, v)) { flag = '{' + (s.type || '') + '} doesn\'t have ' + v + '. Pick one of: ' + K.capJoin(opts, null, ', ', 'ob-opts') + '.'; fl = ['flag-' + id]; }
     if (opts.length && opts.length <= 5) return choices(ctx, id, g, opts, v, 'Not set', name === 'evidence' ? PROOF : null, flag);
     if (opts.length) {
       var list = opts.indexOf(v) < 0 && v ? opts.concat([v]) : opts;
@@ -329,7 +329,7 @@
     return '<label class="field" for="' + esc(id) + '">' + esc(g.q) + '<input id="' + esc(id) + '" maxlength="300" data-enter="ob-commit" value="' + esc(v) + '"' + egOf(g) + describe(ctx, id, g, fl) + '></label>' + whyOf(id, g) + flagOf(id, flag) + errMsg(ctx, id);
   }
   function ownKey(o, k) { return !!o && Object.prototype.hasOwnProperty.call(o, k); }
-  function condText(c) { return Object.keys(c).map(function (k) { return 'the ' + k + ' is ' + c[k]; }).join(' and '); }
+  function condText(c) { return K.capJoin(Object.keys(c), function (k) { return 'the ' + k + ' is ' + c[k]; }, ' and ', 'ob-cond'); }
   /* What must be recorded (require:): only names it accepts, the type's records and All, each a toggle; what other
      mechanisms already need shows fixed beside them, never written into require:. A name it doesn't accept (after a type
      change, say) is kept, marked, and removed by pressing it. */
@@ -446,9 +446,17 @@
     };
     var lr = K.roleRows(ctx.state, 'ob-link-rows', names, { keep: names.filter(keepRow), keptLabel: 'Being filled in', label: 'Find a run detail', noun: 'run detail', focusOf: function (n) { return K.byId('ob-link-src-' + n); }, row: linkRow });
     h += lr.box + lr.rows;
-    rr.stale.forEach(function (x) {
-      h += '<div class="notice warn" role="status"><span>' + esc(t) + (kid.version ? ' v' + esc(kid.version) : '') + ' has no run detail ' + esc(x.name) + ', so this step can\'t pass it.</span><button type="button" class="mini" data-act="ob-link-rm" data-id="' + esc(s.key) + '" data-name="' + esc(x.name) + '">Remove ^' + esc(x.name) + ' from what\'s passed</button></div>';
-    });
+    /* What this step passes that the child has no run detail for any more: one notice, with each name and its Remove 20 at a
+       time in its fold past one (code review round 11, D10), never a notice per name. */
+    var kv = esc(t) + (kid.version ? ' v' + esc(kid.version) : ''), rmBtn = function (x) { return '<button type="button" class="mini" data-act="ob-link-rm" data-id="' + esc(s.key) + '" data-name="' + esc(x.name) + '">Remove ^' + esc(x.name) + ' from what\'s passed</button>'; };
+    if (rr.stale.length === 1) h += '<div class="notice warn ob-stale" role="status"><span>' + kv + ' has no run detail ' + esc(rr.stale[0].name) + ', so this step can\'t pass it.</span>' + rmBtn(rr.stale[0]) + '</div>';
+    else if (rr.stale.length) {
+      var sk = 'ob-stale:' + s.key, sid = function (n) { return 'ob-stale-' + s.key + '-' + n; };
+      h += '<div class="notice warn ob-stale" role="status"><div><b>' + kv + ' has no run detail for ' + rr.stale.length.toLocaleString('en-US') + ' of the names this step passes</b>, so this step can\'t pass them. Remove each from what\'s passed.' +
+        '<details data-disc="' + esc(sk) + '"' + ((ctx.state.disc || {})[sk] ? ' open' : '') + '><summary class="small">Which ones</summary>' +
+        K.list(ctx.state, sk, rr.stale, { page: 20, keyOf: function (x) { return x.where + ':' + x.name; }, focusOf: function (k) { return K.byId(sid(k)); },
+          draw: function (shown) { return '<ul class="small ob-stale-list">' + shown.map(function (x) { PF.perf.add('ob.stale'); return '<li id="' + esc(sid(x.where + ':' + x.name)) + '" tabindex="-1"><code>^' + esc(x.name) + '</code> ' + rmBtn(x) + '</li>'; }).join('') + '</ul>'; } }) + '</details></div></div>';
+    }
     return h;
   }
   /* "A team value" (2.9): each name in team-values.json, with what it's for, as a linked step's source choices (one the
@@ -496,11 +504,11 @@
     var x = O.mapStep(map, s); if (!x) return '';
     var st = x.step, f = st.fields || {}, got = st.type === 'run.process' && f.process && ctx.procOf ? PF.links.childrenFrom(ctx.procOf)(f.process, f.version || '') : null;
     var io = PF.links.io(map, st, got && got.map ? got.map : null, { types: teamTypes(ctx) }), out = [];
-    if (io.uses.length) out.push('<b>Uses:</b> ' + io.uses.map(function (u) { return '<code>^' + esc(u.name) + '</code> (' + esc(u.where) + ')'; }).join(', '));
-    if (io.sets.length) out.push('<b>Sets:</b> ' + io.sets.map(function (n) { return '<code>^' + esc(n) + '</code>'; }).join(', '));
+    if (io.uses.length) out.push('<b>Uses:</b> ' + K.capJoin(io.uses, function (u) { return '<code>^' + esc(u.name) + '</code> (' + esc(u.where) + ')'; }, ', ', 'ob-io-uses'));
+    if (io.sets.length) out.push('<b>Sets:</b> ' + K.capJoin(io.sets, function (n) { return '<code>^' + esc(n) + '</code>'; }, ', ', 'ob-io-sets'));
     if (io.passes) {
       var given = io.passes.filter(function (r) { return r.source !== 'ask'; });
-      out.push('<b>Passes to ' + esc(got.title) + ':</b> ' + (given.length ? given.map(function (r) { return esc(r.name) + (r.source === 'value' ? ' = ' + esc(r.value) : r.source === 'team' ? ' ← team value ' + esc(r.team) : ' ← ^' + esc(r.from)); }).join(', ') : 'nothing') + ioRest(io.passes, st, got.map));
+      out.push('<b>Passes to ' + esc(got.title) + ':</b> ' + (given.length ? K.capJoin(given, function (r) { return esc(r.name) + (r.source === 'value' ? ' = ' + esc(r.value) : r.source === 'team' ? ' ← team value ' + esc(r.team) : ' ← ^' + esc(r.from)); }, ', ', 'ob-io-passes') : 'nothing') + ioRest(io.passes, st, got.map));
     } else if (io.shared) out.push('May also pass details ' + esc(f.process || 'the other checklist') + ' shares with this checklist.');
     return out.length ? '<div class="small ob-io">' + out.map(function (l) { return '<p>' + l + '</p>'; }).join('') + '</div>' : '';
   }
@@ -529,7 +537,7 @@
      step's own always drawn (K.roleRows, 2.11), and + Add role. */
   function whoField(ctx, s, meta) {
     var own = s.parts.roles, roles = meta.roles.concat(own.filter(function (r) { return meta.roles.indexOf(r) < 0; })), lane = s.track >= 0 ? s.phase.tracks[s.track] : null;
-    var none = lane && lane.roles.length ? 'Uses this lane\'s people (@' + lane.roles.join(' @') + ')' : 'Anyone';
+    var none = lane && lane.roles.length ? 'Uses this lane\'s people (' + K.atRoles(lane.roles, 'ob-lane-roles') + ')' : 'Anyone';
     var rr = K.roleRows(ctx.state, 'ob-roles', roles, { keep: own, keptLabel: 'This step\'s roles', focusOf: function (r) { return K.byAct('ob-role', r); },
       row: function (r) { return '<button type="button" class="chipbtn" data-act="ob-role" data-id="' + esc(r) + '" aria-pressed="' + (own.indexOf(r) >= 0) + '">@' + esc(r) + '</button>'; } });
     return '<div class="field"><span id="ob-roles-l">' + esc(G.step('roles').q) + '</span>' + rr.box + '<div class="row" role="group" aria-labelledby="ob-roles-l" aria-describedby="why-ob-roles">' +

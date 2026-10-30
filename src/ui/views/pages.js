@@ -16,7 +16,7 @@
     if (cur != null) {
       var p = map.phases[cur];
       h += '<h2>' + esc(p.title) + '</h2><ul class="msteps">' + p.steps.map(function (s) {
-        var a = r.steps[s.id], st = a && a.s !== 'open' ? a.s : 'open', who = s.roles.map(function (ro) { return r.roles[ro] ? avatar(ctx, r.roles[ro], true) : ''; }).join('');
+        var a = r.steps[s.id], st = a && a.s !== 'open' ? a.s : 'open', who = K.capJoin(s.roles.filter(function (ro) { return r.roles[ro]; }), function (ro) { return avatar(ctx, r.roles[ro], true); }, '', 'ms-step-roles', function (n) { return ' <span class="small">and ' + n.toLocaleString('en-US') + ' more</span>'; });
         var right = a && a.deadline && st !== 'done' ? '<span class="timer due" data-until="' + esc(a.deadline.at) + '">' + U.clock(new Date(a.deadline.at) - now) + '</span>' : a && a.started && st !== 'done' && st !== 'na' ? (r.paused ? '<span class="timer">' + U.clock(R.activeMs(r, a.started.at, now)) + ' · paused</span>' : '<span class="timer" data-since="' + esc(a.started.at) + '" data-offset="' + ((now - new Date(a.started.at).getTime()) - R.activeMs(r, a.started.at, now)) + '">' + U.clock(R.activeMs(r, a.started.at, now)) + '</span>') : '';
         var why = a && (st === 'blocked' || st === 'recheck') && a.reason ? '<span class="m-why">' + (st === 'blocked' ? 'Blocked: ' : 'Re-check: ') + esc(a.reason) + '</span>' : '';
         return '<li data-a="' + st + '"><span class="ric ' + st + '">' + ({ done: '✓', na: 'N/A', blocked: '■', recheck: '↻', open: '○' }[st]) + '<span class="sr"> ' + st + '</span></span><span>' + K.stepHtml(s, rv) + ' ' + who + why + '</span>' + right + '</li>';
@@ -88,7 +88,7 @@
   function receipt(ctx) {
     var r = ctx.run(); if (!r) return V.run(ctx);
     var map = R.mapOf(r), hl = K.headline(r, map), rv = K.refValue(r, map), ICON = { done: '✓', na: 'N/A', blocked: '■', recheck: '↻', open: '○' };
-    var det = map.meta.context.filter(function (f) { return r.details[f]; }).map(function (f) { return f + ': ' + R.shown(r, map, 'details.' + f, r.details[f]); }).join(' · ');
+    var det = K.capJoin(map.meta.context.filter(function (f) { return r.details[f]; }), function (f) { return f + ': ' + R.shown(r, map, 'details.' + f, r.details[f]); }, ' · ', 'rcpt-details');
     /* Where an answer came from, when it was an accepted report: from the run's own log line, which names the report's bytes. */
     var parts = receiptParts(ctx, r, map), rb = parts.rb, reps = parts.reps, reportOf = parts.reportOf, st = ctx.state, rkey = r.process + '/' + r.id;
     /* Conditions (2.1): what wasn't needed is listed once, with why, after the phases. */

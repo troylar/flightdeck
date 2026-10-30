@@ -1600,8 +1600,16 @@
     /* Controls marked data-bound are drawn from state (the draft editor, the step-type form), so they're never carried over. */
     if (!state.planFormReset) app.querySelectorAll('input[id], textarea[id], select[id]').forEach(function (el) { if (el.type !== 'file' && el.type !== 'hidden' && !(el.hasAttribute && el.hasAttribute('data-bound'))) keep[el.id] = { v: el.value, c: el.checked, s: el.selectionStart, e: el.selectionEnd, box: el.type === 'checkbox' || (el.type === 'radio' && el.id.indexOf('opt-') === 0), scope: scopeOf(el) }; });
     state.planFormReset = false;
-    if (ae && (app.contains(ae) || topEl.contains(ae))) focusKey = ae.id ? (/^[A-Za-z][\w-]*$/.test(ae.id) ? '#' + ae.id : PF.vk.byId(ae.id)) : ae.dataset && ae.dataset.act ? '[data-act="' + ae.dataset.act + '"]' + (ae.dataset.id ? '[data-id="' + cssEsc(ae.dataset.id) + '"]' : '') : null;
-    if (focusKey && ae.id) focusKey = noteFocus(ae.id, focusKey);
+    /* A control without an id (a row's button) is found again inside its own row (actAt), never by its action alone, which
+       would land on the same button in another row; its row gone, focus goes to its list's heading (rowHead). */
+    var rowHead = null;
+    if (ae && (app.contains(ae) || topEl.contains(ae))) {
+      if (ae.id) focusKey = noteFocus(ae.id, /^[A-Za-z][\w-]*$/.test(ae.id) ? '#' + ae.id : PF.vk.byId(ae.id));
+      else {
+        var at = actAt(ae);
+        if (at) { rowHead = listHeadOf(ae); focusKey = at.row ? rowFocus(at.row, at.sel) : at.only ? at.sel : null; }
+      }
+    }
     /* The thread note or correction that has focus (or holds it: its row's buttons) stays drawn by its exact anchor (one
        note, 2.11), even when newer notes push it out of the page Show earlier reached. */
     var heldLi = ae && ae.id && /^(tn|corr)-/.test(ae.id) ? ae : ae && ae !== document.body && ae.closest ? ae.closest('li[id]') : null;
@@ -1660,6 +1668,8 @@
     if (!target && !state.overlay && focusKey && /data-act="ob-sel/.test(focusKey)) target = document.getElementById('ed-h');
     /* A list row that had focus is gone: its list's heading. */
     if (!target && lostHead && !asked) target = app.querySelector(lostHead) || topEl.querySelector(lostHead);
+    /* A row's button whose row is gone, or whose row no longer has it: that list's heading, never another row's button. */
+    if (!target && rowHead && !asked) target = app.querySelector(rowHead) || topEl.querySelector(rowHead);
     /* A heading taking focus (a row's, or a list's when its row went) can: it's drawn without a tab stop of its own. */
     if (target && /^H[1-6]$/.test(target.tagName || '') && !target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
     /* A group of radios takes focus on its chosen option, else its first. */
@@ -1801,6 +1811,42 @@
     if (id && document.getElementById(id)) return PF.vk.byId(id);
     var sec = el.closest && el.closest('section, aside, .panel'), h = sec && sec.querySelector('h1[id], h2[id], h3[id], h4[id]');
     return h && h.id ? PF.vk.byId(h.id) : '#page-h';
+  }
+  /* Where a control with no id of its own is (2.11): sel, its action (data-act, with data-id when it has one), and row, the id
+     of the nearest element around it holding no other control with that action, so the control is found again in the same
+     row (a note's Make it a follow-up, never another note's). With no such row, only: it can be found by sel alone, either
+     the only one on the page, or told apart by its other data- attributes (sel then has them too), or the same command as
+     every other match (the same action on the same thing, drawn twice). Otherwise only is false: nothing tells it apart, and
+     focus goes to its list's heading. null for a control with no action. */
+  function actAt(el) {
+    if (!el || !el.dataset || !el.dataset.act) return null;
+    var sel = '[data-act="' + cssEsc(el.dataset.act) + '"]' + (el.dataset.id ? '[data-id="' + cssEsc(el.dataset.id) + '"]' : '');
+    for (var up = el.parentElement; up && up.nodeType === 1; up = up.parentElement) {
+      if (!up.id) continue;
+      var n = up.querySelectorAll ? up.querySelectorAll(sel).length : 0;
+      if (n === 1) return { sel: sel, row: up.id };
+      if (n > 1) break;
+    }
+    var matches = function (q) { var out = []; [app, topEl, overlayEl].forEach(function (r) { if (r && r.querySelectorAll) Array.prototype.push.apply(out, Array.prototype.slice.call(r.querySelectorAll(q))); }); return out; };
+    if (matches(sel).length <= 1) return { sel: sel, row: null, only: true };
+    var full = sel + dataSel(el), extra = Object.create(null);
+    /* A data- attribute the others have and it hasn't tells it apart too (a page's History beside a step's History of this step). */
+    matches(full).forEach(function (x) { Array.prototype.forEach.call(x.attributes || [], function (a) { if (/^data-/.test(a.name) && !el.hasAttribute(a.name)) extra[a.name] = true; }); });
+    full += Object.keys(extra).sort().map(function (k) { return ':not([' + k + '])'; }).join('');
+    var same = matches(full);
+    return { sel: full, row: null, only: same.length <= 1 || same.every(function (x) { return dataSel(x) === dataSel(el); }) };
+  }
+  /* Every data- attribute but the action and its id, as a selector, in name order. */
+  function dataSel(el) {
+    var out = [];
+    Array.prototype.forEach.call(el.attributes || [], function (a) { if (/^data-/.test(a.name) && a.name !== 'data-act' && a.name !== 'data-id') out.push('[' + a.name + '="' + cssEsc(a.value) + '"]'); });
+    return out.sort().join('');
+  }
+  /* The selector for a control inside the row with this id: a note or correction row by its note (noteFocus), so a newer read
+     that renumbers twins keeps it on the same note; the note gone, the heading noteFocus names. */
+  function rowFocus(rowId, sel) {
+    var key = noteFocus(rowId, PF.vk.byId(rowId));
+    return key === '#ins-h' || key === '#page-h' ? key : key + ' ' + sel;
   }
   function noteHold(id) {
     var was = notesSeen, S = PF.search;
@@ -7150,7 +7196,9 @@
   function selectorOf(el) {
     if (!el || el === document.body) return null;
     if (el.id) return '#' + cssEsc(el.id);
-    return el.dataset && el.dataset.act ? '[data-act="' + el.dataset.act + '"]' + (el.dataset.id ? '[data-id="' + cssEsc(el.dataset.id) + '"]' : '') : null;
+    /* A row's button, inside its row (actAt); one that can't be told apart from another row's goes to its list's heading. */
+    var at = actAt(el);
+    return !at ? null : at.row ? PF.vk.byId(at.row) + ' ' + at.sel : at.only ? at.sel : listHeadOf(el);
   }
   function openOverlay(o) { childEpoch++; o.back = selectorOf(document.activeElement); state.overlay = o; render(); }
   /* Closing returns focus to whatever opened it and releases full-size images. */
@@ -7964,6 +8012,9 @@
     var A = PF.search.noteAnchor, same = function (a, b) { return A(a == null ? null : a) === A(b == null ? null : b); };
     var text = String(n.text || ''), fixT = n.kind === 'fix' && n.target ? n.target : null;
     var isIt = function (m) {
+      /* A member keeps the note it was read from (m.note): it is this note when their whole content is the same, every field,
+         from and base among them, as noteFind and V.memberKeys tell twins apart. */
+      if (m.note) return m.run === r.id && m.id === n.id && (m.note === n || PF.search.noteAnchor(m.note) === PF.search.noteAnchor(n));
       if (m.id !== n.id || m.run !== r.id || m.at !== n.at || m.by !== n.by || !same(m.files || [], n.files || [])) return false;
       if (n.kind === 'correction') return !m.legacy && !!m.newer === !!n.newer && same(m.target, n.target) && same(m.change, n.change) &&
         m.why === (n.newer ? n.text || n.why || '' : n.why || '') && (m.happened || '') === (n.happened || '');

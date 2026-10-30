@@ -19142,8 +19142,12 @@ PF.vk = (function () {
     shown.forEach(function (it) { inPage[o.keyOf(it)] = true; });
     var held = left > 0 ? focusHeld(id, items, inPage, keep, o) : null;
     if (held != null) keep[held] = true;
+    /* What o.keep keeps past the page is a page at most (code review round 11): a step can own 300 roles, and a plan made from
+       a run has someone for every role. The rest are reached with Find and Show more (a form keeps their values in hidden
+       fields). What a search showed and the row with focus are kept whatever the count. */
+    var keptN = 0;
     if (left > 0 && (js != null || held != null || (o.keep || []).length)) {
-      items.forEach(function (it) { var k = o.keyOf(it); if (keep[k] && !inPage[k]) { extra.push(it); if (k === js) plus = true; else if (k === held && (o.keep || []).indexOf(k) < 0) onIt = true; else kept = true; } });
+      items.forEach(function (it) { var k = o.keyOf(it); if (keep[k] && !inPage[k] && (k === js || k === held || keptN++ < P)) { extra.push(it); if (k === js) plus = true; else if (k === held && (o.keep || []).indexOf(k) < 0) onIt = true; else kept = true; } });
     }
     if (left <= 0 && PF.vk.focusAt && drawnBy[id] && o.hold !== false) focusHeld(id, items, inPage, keep, o);
     drawnBy[id] = Object.keys(inPage).concat(extra.map(o.keyOf));
@@ -19219,6 +19223,9 @@ PF.vk = (function () {
     var tail = !left ? '' : more ? more(left) : sep + (/\band $/.test(sep) ? '' : 'and ') + left.toLocaleString('en-US') + ' more';
     return (name ? shown.map(function (x) { return name(x); }) : shown).join(sep) + tail;
   }
+  /* A step's or lane's roles as text, "@r1 @r2 and 250 more" (code review round 11): the checklist's author can give one
+     step or lane any number of roles, so its summary is capped like any list (K.capJoin). Plain text, for esc(). */
+  function atRoles(roles, id) { return capJoin(roles || [], function (r) { return '@' + r; }, ' ', id); }
   /* ---------- a dropdown over a growing list (2.11, K.select) ---------- */
   /* The value of the last option, "Show 50 more…": no real value can be it (folder, run, plan and step values are words,
      dashes, slashes and colons). Choosing it widens the list and leaves the choice as it was (app.js). */
@@ -19378,7 +19385,7 @@ PF.vk = (function () {
   }
   function unsavedWords(ps) { return ps && ps.saved ? 'its run was saved and has changed since' : ps && ps.certain === false ? 'Flightdeck couldn\'t confirm whether its run saved' : 'its run didn\'t save'; }
   function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
-  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, finds: finds, findBox: findBox, roleRows: roleRows, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, joined: joined, capJoin: capJoin, select: select, SEL_MORE: SEL_MORE, byId: byId, cssStr: cssStr, PAGE: PAGE, PAGE_OFF: null, ARRIVE: null, TRACE: null, focusAt: null, domKey: domKey, uniqKeys: uniqKeys, testTag: testTag, verWord: verWord };
+  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, finds: finds, findBox: findBox, roleRows: roleRows, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, joined: joined, capJoin: capJoin, atRoles: atRoles, select: select, SEL_MORE: SEL_MORE, byId: byId, cssStr: cssStr, PAGE: PAGE, PAGE_OFF: null, ARRIVE: null, TRACE: null, focusAt: null, domKey: domKey, uniqKeys: uniqKeys, testTag: testTag, verWord: verWord };
 })();
 (function () {
   'use strict';
@@ -19815,7 +19822,7 @@ PF.vk = (function () {
     var step = function (s) {
       var t = T.get(s.type, types), hs = hl && hl.line === s.line;
       var meta = (s.must ? K.mustMark() : '') + (by[s.id] ? '<span class="pv-skill">' + I('spark') + skillNames(by[s.id], 'pv-skills') + '</span>' : '') + (s.planned ? '<span class="badge b-plan">Automation planned</span>' : '') +
-        (s.roles.length ? '<span class="pv-role">@' + esc(s.roles.join(' @')) + '</span>' : '') + fixBadge(s.id), cond = K.whenWords(s);
+        (s.roles.length ? '<span class="pv-role">' + esc(K.atRoles(s.roles, 'pv-step-roles')) + '</span>' : '') + fixBadge(s.id), cond = K.whenWords(s);
       /* The checklist panel gives each step an anchor, so the flight plan (go() with a step) can open it there. */
       return '<li' + (hs ? ' class="pv-sel" id="pv-sel" aria-current="true"' : anchor ? ' id="cl-st-' + esc(s.id) + '" tabindex="-1"' : '') + '>' + (t ? I(t.icon, T.nameOf(t)) : '<span class="ic"></span>') + '<div class="pv-body"><span class="pv-copy">' + K.stepHtml(s, null) + '</span>' + (cond ? '<span class="pv-when">' + cond + '</span>' : '') + (meta ? '<span class="pv-meta">' + meta + '</span>' : '') + '</div></li>';
     };
@@ -19825,7 +19832,7 @@ PF.vk = (function () {
       var lanes = p.tracks.map(function (t) { return { t: t, steps: p.steps.filter(function (s) { return s.track === t.id && t.id; }) }; });
       var body = lead.length || !lanes.length ? '<ul>' + lead.map(step).join('') + '</ul>' : '';
       if (lanes.length) body += '<div class="pv-lanes"><p class="pv-lanes-h">Do all lanes</p>' + lanes.map(function (l) {
-        return '<div class="pv-lane"><p class="pv-lane-h">' + esc(l.t.title || 'Untitled lane') + (l.t.roles.length ? ' <span class="pv-role">@' + esc(l.t.roles.join(' @')) + '</span>' : '') + '</p><ul>' + l.steps.map(step).join('') + '</ul></div>';
+        return '<div class="pv-lane"><p class="pv-lane-h">' + esc(l.t.title || 'Untitled lane') + (l.t.roles.length ? ' <span class="pv-role">' + esc(K.atRoles(l.t.roles, 'pv-lane-roles')) + '</span>' : '') + '</p><ul>' + l.steps.map(step).join('') + '</ul></div>';
       }).join('') + '</div>';
       return '<div class="ph' + (hp ? ' pv-sel" id="pv-sel' : '') + '"><h3' + (anchor ? ' id="' + anchor + pi + '" tabindex="-1"' : '') + '>' + esc(p.title) + (p.mode ? ' <span class="cat mode">' + esc(K.modeWord(p.mode)) + '</span>' : '') + fixBadge('phase:' + p.id) + '</h3>' + (p.when ? '<p class="pv-when">' + K.whenWords(p) + '</p>' : '') + body +
         '<div class="g">' + I('gate') + '<span class="pv-gate-copy">Gate: ' + esc(p.gate.title) + (p.gate.approves ? ' · approves ' + K.detailWords(U.mdInline(p.gate.approves)) : '') + '</span></div></div>';
@@ -19847,13 +19854,24 @@ PF.vk = (function () {
   }
   /* How runs of this process have gone, one version at a time (docs/design.md section 23; views/insights.js draws it). */
   function insights(ctx, p) { return V.insightsPage(ctx, p); }
+  /* What in jira/workflows.json couldn't be used: one notice, with each problem 20 at a time in its fold past one (code review
+     round 11, D10): a file with 50 issue types of 300 transitions each can have thousands. */
+  function jiraErrs(ctx, errs) {
+    if (!errs.length) return '';
+    if (errs.length === 1) return '<div class="notice warn"><span>' + esc(errs[0]) + '</span></div>';
+    var st = ctx.state, k = 'jira-errs', id = function (key) { return 'jira-err-' + key; }, ks = K.uniqKeys(errs, function (e) { return e; }), items = errs.map(function (e, i) { return { e: e, k: K.domKey(ks[i]) }; });
+    return '<div class="notice warn jira-errs"><div><b>' + errs.length.toLocaleString('en-US') + ' problems in jira/workflows.json</b>. The issue types they\'re in aren\'t used until they\'re fixed.' +
+      '<details data-disc="' + k + '"' + ((st.disc || {})[k] ? ' open' : '') + '><summary class="small">Which ones</summary>' +
+      K.list(st, k, items, { page: 20, keyOf: function (x) { return x.k; }, focusOf: function (key) { return K.byId(id(key)); },
+        draw: function (shown) { return '<ul class="small">' + shown.map(function (x) { return '<li id="' + esc(id(x.k)) + '" tabindex="-1">' + esc(x.e) + '</li>'; }).join('') + '</ul>'; } }) + '</details></div></div>';
+  }
   /* The team's own step types and Jira workflows, with anything in those files that couldn't be used. */
   /* Jira workflows the folder defines (step types have their own page). */
   function teamSetup(ctx) {
     var jw = ctx.data.jira || { workflows: {}, errors: [] }, wf = Object.keys(jw.workflows || {});
     if (!wf.length && !jw.errors.length) return '';
     return '<section class="panel"><h2>' + I('ticket') + 'Jira workflows</h2>' + (wf.length ? '<ul class="vlist">' + wf.map(function (k) { var w = jw.workflows[k]; if (w.invalid) return '<li><b>' + esc(k === PF.jira.FILE ? 'The file' : k) + '</b> · not used: ' + esc(w.invalid) + '</li>'; var req = w.transitions.reduce(function (n, t) { return n + t.fields.length; }, 0); return '<li><b>' + esc(k) + '</b> · ' + w.statuses.length + ' statuses, ' + w.transitions.length + ' transitions' + (req ? ', ' + req + ' required fields' : '') + '</li>'; }).join('') + '</ul>' : '') +
-      jw.errors.map(function (e) { return '<div class="notice warn"><span>' + esc(e) + '</span></div>'; }).join('') + '<p class="small">Edit <code>jira/workflows.json</code> to change them.</p></section>';
+      jiraErrs(ctx, jw.errors) + '<p class="small">Edit <code>jira/workflows.json</code> to change them.</p></section>';
   }
 
   var SKILL_PILL = { current: ['passed', 'in step'], unaffected: ['open', 'note version'], update: ['failed', 'needs update'], missing: ['failed', 'check it'] };
@@ -20715,7 +20733,7 @@ PF.vk = (function () {
     open = open && !r.paused;
     var s = x.step, a = r.steps[s.id] || null, t = T.get(s.type, r.types) || { label: s.type, icon: 'check', fields: {} }, st = ctx.state, now = ctx.now();
     var aState = stateOf(r, s), sel = selOf(ctx) === s.id, isNext = !!(nx && nx.step && nx.step.id === s.id), P = prOf(ctx), pm = P ? P.steps[s.id] || {} : null;
-    var who = s.roles.map(function (ro) { return r.roles[ro] ? nameOf(ctx, r.roles[ro]) : '@' + ro; }).join(', ');
+    var who = K.capJoin(s.roles, function (ro) { return r.roles[ro] ? nameOf(ctx, r.roles[ro]) : '@' + ro; }, ', ', 'rw-step-roles');
     var meta = (t.id === 'confirm' ? '' : '<span class="type">' + I(t.icon) + esc(T.nameOf(t)) + '</span>') + (who ? '<span class="s-who">' + esc(who) + '</span>' : '');
     /* Target details that tell two similar steps apart (an environment, a job) stay on the row. */
     var eff = R.fieldsOf(r, s), shown = 0;
@@ -20840,7 +20858,7 @@ PF.vk = (function () {
   function gateReceipt(ctx, rec2, st) {
     if (!rec2 || !rec2.by) return '';
     return esc(GATE_WORD[st] || st) + (st === 'review' ? ' (was ' + esc((rec2.s === 'review' ? rec2.was : rec2.s) || 'passed') + ')' : '') + ' by ' + esc(nameOf(ctx, rec2.by)) + ' at ' + U.hm(rec2.at) +
-      (rec2.approved && Object.keys(rec2.approved).length ? ' for ' + esc(Object.keys(rec2.approved).map(function (k) { return k + ' ' + (rec2.approved[k] || '(not set)'); }).join(' · ')) : '') + (rec2.reason ? ': ' + esc(rec2.reason) : '');
+      (rec2.approved && Object.keys(rec2.approved).length ? ' for ' + esc(K.capJoin(Object.keys(rec2.approved), function (k) { return k + ' ' + (rec2.approved[k] || '(not set)'); }, ' · ', 'gate-approved')) : '') + (rec2.reason ? ': ' + esc(rec2.reason) : '');
   }
   /* brief: the gate of a phase that can't start yet and is folded, so only its name and status show until it's reached
      (never while a suggestion to its note is being written). */
@@ -21028,14 +21046,14 @@ PF.vk = (function () {
       var p = map.phases[nx.phaseIndex], g2 = p.gate, here = selOf(ctx) === nx.step.id;
       hint = esc(p.title) + ' · ' + nx.left + ' to go, then ' + (g2.implicit ? (R.solo(r) ? 'confirm the phase' : 'confirm together') : 'the "' + esc(g2.title) + '" gate');
       if (nx.track) {
-        var who = nx.track.roles.map(function (ro) { return r.roles[ro] ? nameOf(ctx, r.roles[ro]) : ''; }).filter(Boolean).join(', ');
+        var who = K.capJoin(nx.track.roles.filter(function (ro) { return r.roles[ro]; }), function (ro) { return nameOf(ctx, r.roles[ro]); }, ', ', 'rw-next-roles');
         hint += ' · ' + esc(nx.track.title) + (who ? ' (' + esc(who) + ')' : '');
       }
       main = nx.step;
       btn = here ? '<span class="small rw-here">Selected' + (rec && s.keys ? '<span class="rw-kbd"> · Space checks it</span>' : '') + '</span>' : '<button class="btn" data-act="goto" data-id="step-' + esc(nx.step.id) + '">' + (selOf(ctx) ? 'Back to it' : 'Go to step') + '</button>';
       if (ctx.practice && ctx.practice.canEdit(nx.step.id)) btn += '<button class="mini" data-act="pr-edit" data-id="' + esc(nx.step.id) + '">' + I('edit') + 'Edit</button>';
       var others = (nx.tracks || []).filter(function (t) { return t.step && (!nx.track || t.track.id !== nx.track.id); });
-      var tail = others.map(function (t) { return esc(t.track.title) + ': ' + t.left + ' left'; }).join(' · ');
+      var tail = K.capJoin(others, function (t) { return esc(t.track.title) + ': ' + t.left + ' left'; }, ' · ', 'rw-next-lanes');
       return '<div class="rw-next" data-k="step" role="region" aria-label="Next up"><div class="rw-next-t"><div class="small">Next up · ' + hint + '</div><b>' + mainHtml(r, map, main) + '</b>' + (tail ? '<div class="small">Also open: ' + tail + '</div>' : '') + '</div>' + btn + '</div>';
     }
     return '<div class="rw-next" data-k="' + esc(nx.kind) + (nx.status ? ' ' + esc(nx.status) : '') + '" role="region" aria-label="Next up"><div class="rw-next-t"><div class="small">' + esc(hint) + '</div><b>' + mainHtml(r, map, main) + '</b></div>' + btn + '</div>';
@@ -21264,7 +21282,7 @@ PF.vk = (function () {
     var work = canWork(ctx, r, map, x), all = M.steps(map), i = all.map(function (y) { return y.step.id; }).indexOf(st.id), prev = all[i - 1], next = all[i + 1];
     var ph = map.phases[x.phaseIndex], inPhase = ph.steps.map(function (y) { return y.id; }).indexOf(st.id) + 1, track = st.track ? (ph.tracks || []).filter(function (tr) { return tr.id === st.track; })[0] : null;
     var sched = P ? null : (R.schedule(r, map, now).filter(function (it) { return it.what === 'step' && it.id === st.id; }) || [])[0];
-    var who = P ? st.roles.map(function (ro) { return '@' + esc(ro); }).join(', ') : st.roles.map(function (ro) { return r.roles[ro] ? avatar(ctx, r.roles[ro]) + esc(nameOf(ctx, r.roles[ro])) : '@' + esc(ro); }).join(', ');
+    var who = K.capJoin(st.roles, function (ro) { return !P && r.roles[ro] ? avatar(ctx, r.roles[ro]) + esc(nameOf(ctx, r.roles[ro])) : '@' + esc(ro); }, ', ', 'rw-ins-roles');
     var cf = s.corrForm && s.corrForm.key === runKey(r) && s.corrForm.step === st.id ? s.corrForm : null, corrOpen = !!cf;
     var h = '<aside class="fpe-pane rw-ins" id="rw-ins" data-scope="ref:' + esc(st.id) + '" data-open="' + open + '" aria-label="Selected step">';
     h += '<div class="rw-ins-top"><button class="mini close" data-act="close-ref">Close</button>' + (P && P.canEdit(st.id) ? '<button class="mini rw-ins-edit" data-act="pr-edit" data-id="' + esc(st.id) + '">' + I('edit') + 'Edit this step</button>' : '') + '<nav class="row rw-steps" aria-label="Other steps">' +
@@ -21596,7 +21614,7 @@ PF.vk = (function () {
     if (!p.tracks || !p.tracks.length) return h + folded;
     return h + '<div class="tracks">' + p.tracks.map(function (t) {
       var steps = p.steps.filter(function (st) { return st.track === t.id && needed(st); }), done = steps.filter(function (st) { return R.answered(r, st); }).length;
-      var who = t.roles.map(function (ro) { return r.roles[ro] ? avatar(ctx, r.roles[ro]) + esc(nameOf(ctx, r.roles[ro])) : esc(ro); }).join(', ');
+      var who = K.capJoin(t.roles, function (ro) { return r.roles[ro] ? avatar(ctx, r.roles[ro]) + esc(nameOf(ctx, r.roles[ro])) : esc(ro); }, ', ', 'rw-lane-roles');
       return '<section class="track" aria-labelledby="tr-' + esc(t.id) + '"><div class="track-head"><h3 id="tr-' + esc(t.id) + '">' + esc(t.title) + '</h3><span class="small">' + (who ? who + ' · ' : '') + done + '/' + steps.length + '</span></div><ul class="steps">' + steps.map(row).join('') + '</ul></section>';
     }).join('') + '<p class="small tracks-note">Finish every track before the gate.</p></div>' + folded;
   }
@@ -21948,7 +21966,7 @@ PF.vk = (function () {
     if (cur != null) {
       var p = map.phases[cur];
       h += '<h2>' + esc(p.title) + '</h2><ul class="msteps">' + p.steps.map(function (s) {
-        var a = r.steps[s.id], st = a && a.s !== 'open' ? a.s : 'open', who = s.roles.map(function (ro) { return r.roles[ro] ? avatar(ctx, r.roles[ro], true) : ''; }).join('');
+        var a = r.steps[s.id], st = a && a.s !== 'open' ? a.s : 'open', who = K.capJoin(s.roles.filter(function (ro) { return r.roles[ro]; }), function (ro) { return avatar(ctx, r.roles[ro], true); }, '', 'ms-step-roles', function (n) { return ' <span class="small">and ' + n.toLocaleString('en-US') + ' more</span>'; });
         var right = a && a.deadline && st !== 'done' ? '<span class="timer due" data-until="' + esc(a.deadline.at) + '">' + U.clock(new Date(a.deadline.at) - now) + '</span>' : a && a.started && st !== 'done' && st !== 'na' ? (r.paused ? '<span class="timer">' + U.clock(R.activeMs(r, a.started.at, now)) + ' · paused</span>' : '<span class="timer" data-since="' + esc(a.started.at) + '" data-offset="' + ((now - new Date(a.started.at).getTime()) - R.activeMs(r, a.started.at, now)) + '">' + U.clock(R.activeMs(r, a.started.at, now)) + '</span>') : '';
         var why = a && (st === 'blocked' || st === 'recheck') && a.reason ? '<span class="m-why">' + (st === 'blocked' ? 'Blocked: ' : 'Re-check: ') + esc(a.reason) + '</span>' : '';
         return '<li data-a="' + st + '"><span class="ric ' + st + '">' + ({ done: '✓', na: 'N/A', blocked: '■', recheck: '↻', open: '○' }[st]) + '<span class="sr"> ' + st + '</span></span><span>' + K.stepHtml(s, rv) + ' ' + who + why + '</span>' + right + '</li>';
@@ -22020,7 +22038,7 @@ PF.vk = (function () {
   function receipt(ctx) {
     var r = ctx.run(); if (!r) return V.run(ctx);
     var map = R.mapOf(r), hl = K.headline(r, map), rv = K.refValue(r, map), ICON = { done: '✓', na: 'N/A', blocked: '■', recheck: '↻', open: '○' };
-    var det = map.meta.context.filter(function (f) { return r.details[f]; }).map(function (f) { return f + ': ' + R.shown(r, map, 'details.' + f, r.details[f]); }).join(' · ');
+    var det = K.capJoin(map.meta.context.filter(function (f) { return r.details[f]; }), function (f) { return f + ': ' + R.shown(r, map, 'details.' + f, r.details[f]); }, ' · ', 'rcpt-details');
     /* Where an answer came from, when it was an accepted report: from the run's own log line, which names the report's bytes. */
     var parts = receiptParts(ctx, r, map), rb = parts.rb, reps = parts.reps, reportOf = parts.reportOf, st = ctx.state, rkey = r.process + '/' + r.id;
     /* Conditions (2.1): what wasn't needed is listed once, with why, after the phases. */
@@ -22717,7 +22735,7 @@ PF.vk = (function () {
   function stepRow(ctx, p, s, sel, B) {
     var t = T.get(s.type, teamTypes(ctx)), on = sel && sel.kind === 'step' && sel.key === s.key;
     var meta = (s.must ? '<span class="badge b-must">Must do</span>' : '') + (s.planned ? '<span class="badge b-plan">Automation planned</span>' : '') +
-      (s.roles.length ? '<span class="ob-role">@' + esc(s.roles.join(' @')) + '</span>' : '') + s.binds.map(function (b) { return '<span class="ob-chip">^' + esc(b) + '</span>'; }).join('') + fixBadge(B, s.id);
+      (s.roles.length ? '<span class="ob-role">' + esc(K.atRoles(s.roles, 'ob-step-roles')) + '</span>' : '') + s.binds.map(function (b) { return '<span class="ob-chip">^' + esc(b) + '</span>'; }).join('') + fixBadge(B, s.id);
     var inc = incoming(ctx, 'step', s.key);
     if (inc) meta = incWords(inc) + meta;
     return slot(B, 'li', 'step', 'before:' + s.key, '') +
@@ -22748,7 +22766,7 @@ PF.vk = (function () {
         body += slot(B, 'div', 'lanes', 'lane:' + ph.key + ':' + k, 'v') +
           '<section class="ob-lane' + (tsel ? ' sel' : '') + (isNew(ctx, 'track', ph.key, k) ? ' ob-new' : '') + '" aria-label="Lane: ' + esc(name) + '"><div class="ob-lane-h">' +
           '<button type="button" class="ob-lane-name" data-act="ob-sel-track" data-id="' + esc(ph.key) + '" data-track="' + k + '" aria-pressed="' + !!tsel + '">' + esc(name) + '</button>' +
-          (tr.roles.length ? '<span class="small">@' + esc(tr.roles.join(' @')) + '</span>' : '<span class="small">No role</span>') + '</div>' +
+          (tr.roles.length ? '<span class="small">' + esc(K.atRoles(tr.roles, 'ob-lane-roles')) + '</span>' : '<span class="small">No role</span>') + '</div>' +
           groupList(ctx, p, ph, k, sel, add, B, 'Steps in the ' + name + ' lane') + '</section>';
       });
       body += slot(B, 'div', 'lanes', 'lane:' + ph.key + ':end', 'v') + '</div></div>';
@@ -22830,7 +22848,7 @@ PF.vk = (function () {
     var known = T.fieldDef(def, name), d = known || { label: name, kind: 'text' }, v = s.fields[name] || '', id = 'ob-fld-' + name;
     var g = known ? G.field(def, name, s.fields) : { q: name, eg: '', why: '' }, fl = flag ? ['flag-' + id] : [];
     var opts = d.kind === 'choice' ? T.options(d, s.fields) : [];
-    if (!flag && v && opts.length && !T.hasOption(d, s.fields, v)) { flag = '{' + (s.type || '') + '} doesn\'t have ' + v + '. Pick one of: ' + opts.join(', ') + '.'; fl = ['flag-' + id]; }
+    if (!flag && v && opts.length && !T.hasOption(d, s.fields, v)) { flag = '{' + (s.type || '') + '} doesn\'t have ' + v + '. Pick one of: ' + K.capJoin(opts, null, ', ', 'ob-opts') + '.'; fl = ['flag-' + id]; }
     if (opts.length && opts.length <= 5) return choices(ctx, id, g, opts, v, 'Not set', name === 'evidence' ? PROOF : null, flag);
     if (opts.length) {
       var list = opts.indexOf(v) < 0 && v ? opts.concat([v]) : opts;
@@ -22840,7 +22858,7 @@ PF.vk = (function () {
     return '<label class="field" for="' + esc(id) + '">' + esc(g.q) + '<input id="' + esc(id) + '" maxlength="300" data-enter="ob-commit" value="' + esc(v) + '"' + egOf(g) + describe(ctx, id, g, fl) + '></label>' + whyOf(id, g) + flagOf(id, flag) + errMsg(ctx, id);
   }
   function ownKey(o, k) { return !!o && Object.prototype.hasOwnProperty.call(o, k); }
-  function condText(c) { return Object.keys(c).map(function (k) { return 'the ' + k + ' is ' + c[k]; }).join(' and '); }
+  function condText(c) { return K.capJoin(Object.keys(c), function (k) { return 'the ' + k + ' is ' + c[k]; }, ' and ', 'ob-cond'); }
   /* What must be recorded (require:): only names it accepts, the type's records and All, each a toggle; what other
      mechanisms already need shows fixed beside them, never written into require:. A name it doesn't accept (after a type
      change, say) is kept, marked, and removed by pressing it. */
@@ -22957,9 +22975,17 @@ PF.vk = (function () {
     };
     var lr = K.roleRows(ctx.state, 'ob-link-rows', names, { keep: names.filter(keepRow), keptLabel: 'Being filled in', label: 'Find a run detail', noun: 'run detail', focusOf: function (n) { return K.byId('ob-link-src-' + n); }, row: linkRow });
     h += lr.box + lr.rows;
-    rr.stale.forEach(function (x) {
-      h += '<div class="notice warn" role="status"><span>' + esc(t) + (kid.version ? ' v' + esc(kid.version) : '') + ' has no run detail ' + esc(x.name) + ', so this step can\'t pass it.</span><button type="button" class="mini" data-act="ob-link-rm" data-id="' + esc(s.key) + '" data-name="' + esc(x.name) + '">Remove ^' + esc(x.name) + ' from what\'s passed</button></div>';
-    });
+    /* What this step passes that the child has no run detail for any more: one notice, with each name and its Remove 20 at a
+       time in its fold past one (code review round 11, D10), never a notice per name. */
+    var kv = esc(t) + (kid.version ? ' v' + esc(kid.version) : ''), rmBtn = function (x) { return '<button type="button" class="mini" data-act="ob-link-rm" data-id="' + esc(s.key) + '" data-name="' + esc(x.name) + '">Remove ^' + esc(x.name) + ' from what\'s passed</button>'; };
+    if (rr.stale.length === 1) h += '<div class="notice warn ob-stale" role="status"><span>' + kv + ' has no run detail ' + esc(rr.stale[0].name) + ', so this step can\'t pass it.</span>' + rmBtn(rr.stale[0]) + '</div>';
+    else if (rr.stale.length) {
+      var sk = 'ob-stale:' + s.key, sid = function (n) { return 'ob-stale-' + s.key + '-' + n; };
+      h += '<div class="notice warn ob-stale" role="status"><div><b>' + kv + ' has no run detail for ' + rr.stale.length.toLocaleString('en-US') + ' of the names this step passes</b>, so this step can\'t pass them. Remove each from what\'s passed.' +
+        '<details data-disc="' + esc(sk) + '"' + ((ctx.state.disc || {})[sk] ? ' open' : '') + '><summary class="small">Which ones</summary>' +
+        K.list(ctx.state, sk, rr.stale, { page: 20, keyOf: function (x) { return x.where + ':' + x.name; }, focusOf: function (k) { return K.byId(sid(k)); },
+          draw: function (shown) { return '<ul class="small ob-stale-list">' + shown.map(function (x) { PF.perf.add('ob.stale'); return '<li id="' + esc(sid(x.where + ':' + x.name)) + '" tabindex="-1"><code>^' + esc(x.name) + '</code> ' + rmBtn(x) + '</li>'; }).join('') + '</ul>'; } }) + '</details></div></div>';
+    }
     return h;
   }
   /* "A team value" (2.9): each name in team-values.json, with what it's for, as a linked step's source choices (one the
@@ -23007,11 +23033,11 @@ PF.vk = (function () {
     var x = O.mapStep(map, s); if (!x) return '';
     var st = x.step, f = st.fields || {}, got = st.type === 'run.process' && f.process && ctx.procOf ? PF.links.childrenFrom(ctx.procOf)(f.process, f.version || '') : null;
     var io = PF.links.io(map, st, got && got.map ? got.map : null, { types: teamTypes(ctx) }), out = [];
-    if (io.uses.length) out.push('<b>Uses:</b> ' + io.uses.map(function (u) { return '<code>^' + esc(u.name) + '</code> (' + esc(u.where) + ')'; }).join(', '));
-    if (io.sets.length) out.push('<b>Sets:</b> ' + io.sets.map(function (n) { return '<code>^' + esc(n) + '</code>'; }).join(', '));
+    if (io.uses.length) out.push('<b>Uses:</b> ' + K.capJoin(io.uses, function (u) { return '<code>^' + esc(u.name) + '</code> (' + esc(u.where) + ')'; }, ', ', 'ob-io-uses'));
+    if (io.sets.length) out.push('<b>Sets:</b> ' + K.capJoin(io.sets, function (n) { return '<code>^' + esc(n) + '</code>'; }, ', ', 'ob-io-sets'));
     if (io.passes) {
       var given = io.passes.filter(function (r) { return r.source !== 'ask'; });
-      out.push('<b>Passes to ' + esc(got.title) + ':</b> ' + (given.length ? given.map(function (r) { return esc(r.name) + (r.source === 'value' ? ' = ' + esc(r.value) : r.source === 'team' ? ' ← team value ' + esc(r.team) : ' ← ^' + esc(r.from)); }).join(', ') : 'nothing') + ioRest(io.passes, st, got.map));
+      out.push('<b>Passes to ' + esc(got.title) + ':</b> ' + (given.length ? K.capJoin(given, function (r) { return esc(r.name) + (r.source === 'value' ? ' = ' + esc(r.value) : r.source === 'team' ? ' ← team value ' + esc(r.team) : ' ← ^' + esc(r.from)); }, ', ', 'ob-io-passes') : 'nothing') + ioRest(io.passes, st, got.map));
     } else if (io.shared) out.push('May also pass details ' + esc(f.process || 'the other checklist') + ' shares with this checklist.');
     return out.length ? '<div class="small ob-io">' + out.map(function (l) { return '<p>' + l + '</p>'; }).join('') + '</div>' : '';
   }
@@ -23040,7 +23066,7 @@ PF.vk = (function () {
      step's own always drawn (K.roleRows, 2.11), and + Add role. */
   function whoField(ctx, s, meta) {
     var own = s.parts.roles, roles = meta.roles.concat(own.filter(function (r) { return meta.roles.indexOf(r) < 0; })), lane = s.track >= 0 ? s.phase.tracks[s.track] : null;
-    var none = lane && lane.roles.length ? 'Uses this lane\'s people (@' + lane.roles.join(' @') + ')' : 'Anyone';
+    var none = lane && lane.roles.length ? 'Uses this lane\'s people (' + K.atRoles(lane.roles, 'ob-lane-roles') + ')' : 'Anyone';
     var rr = K.roleRows(ctx.state, 'ob-roles', roles, { keep: own, keptLabel: 'This step\'s roles', focusOf: function (r) { return K.byAct('ob-role', r); },
       row: function (r) { return '<button type="button" class="chipbtn" data-act="ob-role" data-id="' + esc(r) + '" aria-pressed="' + (own.indexOf(r) >= 0) + '">@' + esc(r) + '</button>'; } });
     return '<div class="field"><span id="ob-roles-l">' + esc(G.step('roles').q) + '</span>' + rr.box + '<div class="row" role="group" aria-labelledby="ob-roles-l" aria-describedby="why-ob-roles">' +
@@ -23531,15 +23557,15 @@ PF.vk = (function () {
       '<span class="row"><span class="small">' + (uses ? 'in ' + uses + ' checklist' + (uses === 1 ? '' : 's') : 'not used yet') + '</span>' + (team ? '<button class="mini" data-act="edit-type" data-id="' + esc(t.id) + '">' + I('edit') + 'Edit</button>' : '<button class="mini" data-act="copy-type" data-id="' + esc(t.id) + '">Copy to a team type</button>') + '</span></div>' +
       (t.hint ? '<div class="small">' + esc(t.hint) + '</div>' : '') +
       '<details data-disc="' + esc(key) + '"' + (open ? ' open' : '') + '><summary class="small">What it asks for</summary><p class="small">In a checklist: <code>{' + esc(t.id) + '}</code></p><div class="tcols">' +
-      '<div><div class="small"><b>In the checklist</b></div>' + list(fields.map(function (f) { var d = t.fields[f]; return '<li><code>' + esc(f) + '</code> ' + esc(d.label) + ' · ' + esc(d.kind) + (d.required ? ', usually filled in' : '') + (d.requiredWhen ? ', when ' + esc(JSON.stringify(d.requiredWhen).replace(/[{}"]/g, '')) : '') + (d.options ? ': ' + esc(d.options.join(' / ')) : '') + '</li>'; })) + '</div>' +
-      '<div><div class="small"><b>When it\'s checked</b></div>' + list(rec.map(function (d) { return '<li><code>' + esc(d.name) + '</code> ' + esc(d.label) + ' · ' + esc(d.kind) + (d.options ? ': ' + esc(d.options.join(' / ')) : '') + (d.when ? ', when ' + esc(JSON.stringify(d.when).replace(/[{}"]/g, '')) : '') + '</li>'; })) + '</div></div></details></li>';
+      '<div><div class="small"><b>In the checklist</b></div>' + list(fields.map(function (f) { var d = t.fields[f]; return '<li><code>' + esc(f) + '</code> ' + esc(d.label) + ' · ' + esc(d.kind) + (d.required ? ', usually filled in' : '') + (d.requiredWhen ? ', when ' + esc(JSON.stringify(d.requiredWhen).replace(/[{}"]/g, '')) : '') + (d.options ? ': ' + esc(K.capJoin(d.options, null, ' / ', 'type-opts')) : '') + '</li>'; })) + '</div>' +
+      '<div><div class="small"><b>When it\'s checked</b></div>' + list(rec.map(function (d) { return '<li><code>' + esc(d.name) + '</code> ' + esc(d.label) + ' · ' + esc(d.kind) + (d.options ? ': ' + esc(K.capJoin(d.options, null, ' / ', 'type-opts')) : '') + (d.when ? ', when ' + esc(JSON.stringify(d.when).replace(/[{}"]/g, '')) : '') + '</li>'; })) + '</div></div></details></li>';
   }
   function types(ctx) {
     var st = ctx.state, team = (ctx.data.stepTypes || {}).types || {}, errs = (ctx.data.stepTypes || {}).errors || [];
     var uses = function (id) { return ctx.processes().filter(function (p) { return p.latest && M.usedTypes(p.latest.map).indexOf(id) >= 0; }).length; };
     if (st.typeForm && st.typeForm.fsKey === ctx.fsKey) return typeForm(ctx);
     var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">Library</div><h1 id="page-h" tabindex="-1">Step types</h1><div class="small">A step\'s type decides what it asks for. Add your own for tools the built-ins don\'t cover.</div></div><div class="row"><button class="btn go" data-act="new-type">' + I('edit') + 'New step type</button></div></div>';
-    if (errs.length) h += '<div class="notice warn"><span>' + errs.map(function (e) { return 'step-types/' + esc(e.file) + ': ' + esc(e.errors.join('; ')); }).join('<br>') + '</span></div>';
+    if (errs.length) h += '<div class="notice warn"><span>' + errs.map(function (e) { return 'step-types/' + esc(e.file) + ': ' + esc(K.capJoin(e.errors, null, '; ', 'type-errs')); }).join('<br>') + '</span></div>';
     var skipped = (ctx.data.stepTypes || {}).skipped || 0;
     if (skipped) h += '<div class="notice warn" role="status"><span><b>' + skipped + ' more step-type file' + (skipped === 1 ? ' wasn\'t' : 's weren\'t') + ' read.</b> Flightdeck reads the first 100 in <code>step-types/</code>, by name. Remove types nobody uses.</span><button class="mini" data-act="health">Folder health</button></div>';
     /* Organized like processes and skills: a tag filter, then each list as a tree by group. */
@@ -23635,7 +23661,7 @@ PF.vk = (function () {
     var tagsPart = '<div class="tf-field"><label for="tf-tagadd">Tags</label><div class="tf-chipbox">' + (tags.length ? '<ul class="tf-chips" aria-label="Tags">' + tags.map(function (t) { return '<li class="tf-chip">#' + esc(t) + '<button type="button" data-act="tf-tag-del" data-id="' + esc(t) + '" aria-label="Remove tag ' + esc(t) + '">×</button></li>'; }).join('') + '</ul>' : '') +
       '<input id="tf-tagadd" maxlength="30" list="tf-tag-list" placeholder="Add a tag" data-enter="tf-tag-add"' + (tagErr.length ? ' aria-invalid="true"' : '') + ' aria-describedby="' + tagErr.map(function (n) { return 'tf-err-' + n; }).concat(['tf-tagadd-help']).join(' ') + '"></div><datalist id="tf-tag-list">' + tagsAll.filter(function (t) { return tags.indexOf(t) < 0; }).map(function (t) { return '<option value="' + esc(t) + '">'; }).join('') + '</datalist>' +
       errHtml('tf-tags', tags.length > 0) + '<p class="tf-help" id="tf-tagadd-help">Press Enter or type a comma; it\'s also added when you leave the box. Tags filter the Step types list.</p></div>';
-    var orgOpen = disc['tf-org'] || shown('tf-group', true).length || tagErr.length, orgSum = [String(d.group || '').trim()].filter(Boolean).concat(tags.map(function (t) { return '#' + t; })).join(' · ');
+    var orgOpen = disc['tf-org'] || shown('tf-group', true).length || tagErr.length, orgSum = [String(d.group || '').trim()].filter(Boolean).concat(K.capJoin(tags, function (t) { return '#' + t; }, ' · ', 'tf-tags')).filter(Boolean).join(' · ');
     h += '<div class="fpe-panes tf-panes"' + V.paneAttr(ctx, ['tf']) + '><section class="fpe-pane tf-formpane" aria-label="Step type"' + behind + '><form class="tf-form stack" id="type-form" data-scope="type-form" data-draft-kept novalidate>' +
       '<section class="panel tf-card" aria-labelledby="tf-basics-h"><h2 id="tf-basics-h">Basics</h2>' +
       field('tf-label', 'What people call it', '<input id="tf-label" maxlength="40" value="' + esc(d.label) + '"' + attrs('tf-label', !!String(d.label || '').trim(), true) + '>', 'Shown on every step of this type, like Change request.', !!String(d.label || '').trim()) +
@@ -23703,7 +23729,7 @@ PF.vk = (function () {
       '<div class="tf-run" aria-label="Sample step"><div class="tf-run-head' + flash('type:icon') + '">' + I(d.icon || 'check') + '<b>What to do</b><span class="cat' + flash('type:label') + '">' + esc(String(d.label || '').trim() || 'Your type') + '</span></div>' +
       (d.hint ? '<p class="small tf-run-hint' + flash('type:hint') + '">' + esc(d.hint) + '</p>' : '') +
       (named.length ? '<dl class="tf-run-fields">' + named.map(function (r) { var fl = flash('field:' + r.k) ? ' class="flash"' : ''; return '<dt' + fl + '>' + esc(r.label || r.name) + '</dt><dd' + fl + '>' + esc(sample(r)) + '</dd>'; }).join('') + '</dl>' : '') +
-      (recs.length ? '<div class="tf-run-ev"><div class="small"><b>When it\'s checked</b></div>' + recs.map(function (r) { return '<div class="tf-fakefield' + flash('evidence:' + r.k) + '"><span class="small">' + esc(r.label || r.name) + '</span><span class="tf-fake' + (r.long ? ' long' : '') + '">' + esc(r.kind === 'choice' ? (optsOf(r).join(' / ') || 'Choose…') : r.kind === 'url' ? 'https://…' : '') + '</span></div>'; }).join('') + '</div>' : '') +
+      (recs.length ? '<div class="tf-run-ev"><div class="small"><b>When it\'s checked</b></div>' + recs.map(function (r) { return '<div class="tf-fakefield' + flash('evidence:' + r.k) + '"><span class="small">' + esc(r.label || r.name) + '</span><span class="tf-fake' + (r.long ? ' long' : '') + '">' + esc(r.kind === 'choice' ? (K.capJoin(optsOf(r), null, ' / ', 'tf-opts') || 'Choose…') : r.kind === 'url' ? 'https://…' : '') + '</span></div>'; }).join('') + '</div>' : '') +
       '<div class="row"><span class="tf-fakebtn">' + I('check') + 'Done</span></div></div>' +
       '<h3 class="tf-prevsub">As written in a checklist</h3><p class="tf-help">How you, a teammate or your AI assistant write a step of this type.</p><pre class="source">' + esc(line) + '</pre></aside></div></div>';
     return h;
@@ -24015,7 +24041,7 @@ PF.vk = (function () {
   function stepLine(s, go, types, auto) {
     var t = T.get(s.type, types), by = auto.filter(function (x) { return x.skill.steps.indexOf(s.id) >= 0; }).map(function (x) { return x.skill.name; });
     var meta = (s.must ? '<span class="badge b-must">Must do</span>' : '') + by.slice(0, SKILLS_SHOWN).map(function (n) { PF.perf.add('fp.skill'); return '<span class="badge b-skill">' + I('spark') + esc(n) + '</span>'; }).join('') + moreSkills(by.length - SKILLS_SHOWN) +
-      (s.roles.length ? '<span class="pv-role">@' + esc(s.roles.join(' @')) + '</span>' : ''), cond = K.whenWords(s);
+      (s.roles.length ? '<span class="pv-role">' + esc(K.atRoles(s.roles, 'pv-step-roles')) + '</span>' : ''), cond = K.whenWords(s);
     return '<li>' + (t ? I(t.icon, t.label) : '<span class="ic"></span>') + '<div class="pv-body"><button type="button" class="fp-step" data-act="go" ' + go + ' data-step="' + esc(s.id) + '">' + K.stepHtml(s, null, false) +
       '<span class="sr">. Show it in the checklist</span></button>' + (cond ? '<span class="pv-when">' + cond + '</span>' : '') + (meta ? '<span class="pv-meta">' + meta + '</span>' : '') + '</div></li>';
   }
@@ -24028,7 +24054,7 @@ PF.vk = (function () {
     if (lead.length || !p.tracks.length) body += stepList(lead, p.title, line);
     if (p.tracks.length) body += '<div class="fp-slanes">' + p.tracks.map(function (t) {
       var name = t.title || 'Track';
-      return '<div class="fp-slane"><p class="fp-slane-h"><b>' + esc(name) + '</b>' + (t.roles.length ? ' <span class="pv-role">@' + esc(t.roles.join(' @')) + '</span>' : '') + '</p>' +
+      return '<div class="fp-slane"><p class="fp-slane-h"><b>' + esc(name) + '</b>' + (t.roles.length ? ' <span class="pv-role">' + esc(K.atRoles(t.roles, 'pv-lane-roles')) + '</span>' : '') + '</p>' +
         stepList(p.steps.filter(function (s) { return s.track === t.id && t.id; }), name, line) + '</div>';
     }).join('') + '</div>';
     body += p.gate.implicit ? '<p class="fp-sgate">' + I('check') + '<span>Phase checked, no named gate</span></p>' : '<p class="fp-sgate">' + I('gate') + '<span>Gate: ' + esc(p.gate.title) + '</span></p>';
@@ -24047,7 +24073,7 @@ PF.vk = (function () {
     /* Tracks are worked at the same time, so they sit side by side as lanes. */
     if (p.tracks.length) head += '<ul class="fp-lanes" aria-label="Parallel tracks">' + p.tracks.map(function (t) {
       var count = p.steps.filter(function (s) { return s.track === t.id; }).length;
-      return '<li class="fp-lane"><b>' + esc(t.title || 'Track') + '</b>' + (t.roles.length ? '<span class="small">@' + esc(t.roles.join(' @')) + '</span>' : '') + '<span class="small">' + plural(count, 'step') + '</span></li>';
+      return '<li class="fp-lane"><b>' + esc(t.title || 'Track') + '</b>' + (t.roles.length ? '<span class="small">' + esc(K.atRoles(t.roles, 'pv-lane-roles')) + '</span>' : '') + '<span class="small">' + plural(count, 'step') + '</span></li>';
     }).join('') + '</ul>';
     head += '</div>';
     var ids = p.steps.map(function (s) { return s.id; }), lines = '', covers = [];
@@ -26856,8 +26882,16 @@ PF.examples = (function () {
     /* Controls marked data-bound are drawn from state (the draft editor, the step-type form), so they're never carried over. */
     if (!state.planFormReset) app.querySelectorAll('input[id], textarea[id], select[id]').forEach(function (el) { if (el.type !== 'file' && el.type !== 'hidden' && !(el.hasAttribute && el.hasAttribute('data-bound'))) keep[el.id] = { v: el.value, c: el.checked, s: el.selectionStart, e: el.selectionEnd, box: el.type === 'checkbox' || (el.type === 'radio' && el.id.indexOf('opt-') === 0), scope: scopeOf(el) }; });
     state.planFormReset = false;
-    if (ae && (app.contains(ae) || topEl.contains(ae))) focusKey = ae.id ? (/^[A-Za-z][\w-]*$/.test(ae.id) ? '#' + ae.id : PF.vk.byId(ae.id)) : ae.dataset && ae.dataset.act ? '[data-act="' + ae.dataset.act + '"]' + (ae.dataset.id ? '[data-id="' + cssEsc(ae.dataset.id) + '"]' : '') : null;
-    if (focusKey && ae.id) focusKey = noteFocus(ae.id, focusKey);
+    /* A control without an id (a row's button) is found again inside its own row (actAt), never by its action alone, which
+       would land on the same button in another row; its row gone, focus goes to its list's heading (rowHead). */
+    var rowHead = null;
+    if (ae && (app.contains(ae) || topEl.contains(ae))) {
+      if (ae.id) focusKey = noteFocus(ae.id, /^[A-Za-z][\w-]*$/.test(ae.id) ? '#' + ae.id : PF.vk.byId(ae.id));
+      else {
+        var at = actAt(ae);
+        if (at) { rowHead = listHeadOf(ae); focusKey = at.row ? rowFocus(at.row, at.sel) : at.only ? at.sel : null; }
+      }
+    }
     /* The thread note or correction that has focus (or holds it: its row's buttons) stays drawn by its exact anchor (one
        note, 2.11), even when newer notes push it out of the page Show earlier reached. */
     var heldLi = ae && ae.id && /^(tn|corr)-/.test(ae.id) ? ae : ae && ae !== document.body && ae.closest ? ae.closest('li[id]') : null;
@@ -26916,6 +26950,8 @@ PF.examples = (function () {
     if (!target && !state.overlay && focusKey && /data-act="ob-sel/.test(focusKey)) target = document.getElementById('ed-h');
     /* A list row that had focus is gone: its list's heading. */
     if (!target && lostHead && !asked) target = app.querySelector(lostHead) || topEl.querySelector(lostHead);
+    /* A row's button whose row is gone, or whose row no longer has it: that list's heading, never another row's button. */
+    if (!target && rowHead && !asked) target = app.querySelector(rowHead) || topEl.querySelector(rowHead);
     /* A heading taking focus (a row's, or a list's when its row went) can: it's drawn without a tab stop of its own. */
     if (target && /^H[1-6]$/.test(target.tagName || '') && !target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
     /* A group of radios takes focus on its chosen option, else its first. */
@@ -27057,6 +27093,42 @@ PF.examples = (function () {
     if (id && document.getElementById(id)) return PF.vk.byId(id);
     var sec = el.closest && el.closest('section, aside, .panel'), h = sec && sec.querySelector('h1[id], h2[id], h3[id], h4[id]');
     return h && h.id ? PF.vk.byId(h.id) : '#page-h';
+  }
+  /* Where a control with no id of its own is (2.11): sel, its action (data-act, with data-id when it has one), and row, the id
+     of the nearest element around it holding no other control with that action, so the control is found again in the same
+     row (a note's Make it a follow-up, never another note's). With no such row, only: it can be found by sel alone, either
+     the only one on the page, or told apart by its other data- attributes (sel then has them too), or the same command as
+     every other match (the same action on the same thing, drawn twice). Otherwise only is false: nothing tells it apart, and
+     focus goes to its list's heading. null for a control with no action. */
+  function actAt(el) {
+    if (!el || !el.dataset || !el.dataset.act) return null;
+    var sel = '[data-act="' + cssEsc(el.dataset.act) + '"]' + (el.dataset.id ? '[data-id="' + cssEsc(el.dataset.id) + '"]' : '');
+    for (var up = el.parentElement; up && up.nodeType === 1; up = up.parentElement) {
+      if (!up.id) continue;
+      var n = up.querySelectorAll ? up.querySelectorAll(sel).length : 0;
+      if (n === 1) return { sel: sel, row: up.id };
+      if (n > 1) break;
+    }
+    var matches = function (q) { var out = []; [app, topEl, overlayEl].forEach(function (r) { if (r && r.querySelectorAll) Array.prototype.push.apply(out, Array.prototype.slice.call(r.querySelectorAll(q))); }); return out; };
+    if (matches(sel).length <= 1) return { sel: sel, row: null, only: true };
+    var full = sel + dataSel(el), extra = Object.create(null);
+    /* A data- attribute the others have and it hasn't tells it apart too (a page's History beside a step's History of this step). */
+    matches(full).forEach(function (x) { Array.prototype.forEach.call(x.attributes || [], function (a) { if (/^data-/.test(a.name) && !el.hasAttribute(a.name)) extra[a.name] = true; }); });
+    full += Object.keys(extra).sort().map(function (k) { return ':not([' + k + '])'; }).join('');
+    var same = matches(full);
+    return { sel: full, row: null, only: same.length <= 1 || same.every(function (x) { return dataSel(x) === dataSel(el); }) };
+  }
+  /* Every data- attribute but the action and its id, as a selector, in name order. */
+  function dataSel(el) {
+    var out = [];
+    Array.prototype.forEach.call(el.attributes || [], function (a) { if (/^data-/.test(a.name) && a.name !== 'data-act' && a.name !== 'data-id') out.push('[' + a.name + '="' + cssEsc(a.value) + '"]'); });
+    return out.sort().join('');
+  }
+  /* The selector for a control inside the row with this id: a note or correction row by its note (noteFocus), so a newer read
+     that renumbers twins keeps it on the same note; the note gone, the heading noteFocus names. */
+  function rowFocus(rowId, sel) {
+    var key = noteFocus(rowId, PF.vk.byId(rowId));
+    return key === '#ins-h' || key === '#page-h' ? key : key + ' ' + sel;
   }
   function noteHold(id) {
     var was = notesSeen, S = PF.search;
@@ -32406,7 +32478,9 @@ PF.examples = (function () {
   function selectorOf(el) {
     if (!el || el === document.body) return null;
     if (el.id) return '#' + cssEsc(el.id);
-    return el.dataset && el.dataset.act ? '[data-act="' + el.dataset.act + '"]' + (el.dataset.id ? '[data-id="' + cssEsc(el.dataset.id) + '"]' : '') : null;
+    /* A row's button, inside its row (actAt); one that can't be told apart from another row's goes to its list's heading. */
+    var at = actAt(el);
+    return !at ? null : at.row ? PF.vk.byId(at.row) + ' ' + at.sel : at.only ? at.sel : listHeadOf(el);
   }
   function openOverlay(o) { childEpoch++; o.back = selectorOf(document.activeElement); state.overlay = o; render(); }
   /* Closing returns focus to whatever opened it and releases full-size images. */
@@ -33220,6 +33294,9 @@ PF.examples = (function () {
     var A = PF.search.noteAnchor, same = function (a, b) { return A(a == null ? null : a) === A(b == null ? null : b); };
     var text = String(n.text || ''), fixT = n.kind === 'fix' && n.target ? n.target : null;
     var isIt = function (m) {
+      /* A member keeps the note it was read from (m.note): it is this note when their whole content is the same, every field,
+         from and base among them, as noteFind and V.memberKeys tell twins apart. */
+      if (m.note) return m.run === r.id && m.id === n.id && (m.note === n || PF.search.noteAnchor(m.note) === PF.search.noteAnchor(n));
       if (m.id !== n.id || m.run !== r.id || m.at !== n.at || m.by !== n.by || !same(m.files || [], n.files || [])) return false;
       if (n.kind === 'correction') return !m.legacy && !!m.newer === !!n.newer && same(m.target, n.target) && same(m.change, n.change) &&
         m.why === (n.newer ? n.text || n.why || '' : n.why || '') && (m.happened || '') === (n.happened || '');

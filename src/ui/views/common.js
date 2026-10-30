@@ -205,8 +205,12 @@ PF.vk = (function () {
     shown.forEach(function (it) { inPage[o.keyOf(it)] = true; });
     var held = left > 0 ? focusHeld(id, items, inPage, keep, o) : null;
     if (held != null) keep[held] = true;
+    /* What o.keep keeps past the page is a page at most (code review round 11): a step can own 300 roles, and a plan made from
+       a run has someone for every role. The rest are reached with Find and Show more (a form keeps their values in hidden
+       fields). What a search showed and the row with focus are kept whatever the count. */
+    var keptN = 0;
     if (left > 0 && (js != null || held != null || (o.keep || []).length)) {
-      items.forEach(function (it) { var k = o.keyOf(it); if (keep[k] && !inPage[k]) { extra.push(it); if (k === js) plus = true; else if (k === held && (o.keep || []).indexOf(k) < 0) onIt = true; else kept = true; } });
+      items.forEach(function (it) { var k = o.keyOf(it); if (keep[k] && !inPage[k] && (k === js || k === held || keptN++ < P)) { extra.push(it); if (k === js) plus = true; else if (k === held && (o.keep || []).indexOf(k) < 0) onIt = true; else kept = true; } });
     }
     if (left <= 0 && PF.vk.focusAt && drawnBy[id] && o.hold !== false) focusHeld(id, items, inPage, keep, o);
     drawnBy[id] = Object.keys(inPage).concat(extra.map(o.keyOf));
@@ -282,6 +286,9 @@ PF.vk = (function () {
     var tail = !left ? '' : more ? more(left) : sep + (/\band $/.test(sep) ? '' : 'and ') + left.toLocaleString('en-US') + ' more';
     return (name ? shown.map(function (x) { return name(x); }) : shown).join(sep) + tail;
   }
+  /* A step's or lane's roles as text, "@r1 @r2 and 250 more" (code review round 11): the checklist's author can give one
+     step or lane any number of roles, so its summary is capped like any list (K.capJoin). Plain text, for esc(). */
+  function atRoles(roles, id) { return capJoin(roles || [], function (r) { return '@' + r; }, ' ', id); }
   /* ---------- a dropdown over a growing list (2.11, K.select) ---------- */
   /* The value of the last option, "Show 50 more…": no real value can be it (folder, run, plan and step values are words,
      dashes, slashes and colons). Choosing it widens the list and leaves the choice as it was (app.js). */
@@ -441,7 +448,7 @@ PF.vk = (function () {
   }
   function unsavedWords(ps) { return ps && ps.saved ? 'its run was saved and has changed since' : ps && ps.certain === false ? 'Flightdeck couldn\'t confirm whether its run saved' : 'its run didn\'t save'; }
   function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
-  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, finds: finds, findBox: findBox, roleRows: roleRows, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, joined: joined, capJoin: capJoin, select: select, SEL_MORE: SEL_MORE, byId: byId, cssStr: cssStr, PAGE: PAGE, PAGE_OFF: null, ARRIVE: null, TRACE: null, focusAt: null, domKey: domKey, uniqKeys: uniqKeys, testTag: testTag, verWord: verWord };
+  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, finds: finds, findBox: findBox, roleRows: roleRows, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, joined: joined, capJoin: capJoin, atRoles: atRoles, select: select, SEL_MORE: SEL_MORE, byId: byId, cssStr: cssStr, PAGE: PAGE, PAGE_OFF: null, ARRIVE: null, TRACE: null, focusAt: null, domKey: domKey, uniqKeys: uniqKeys, testTag: testTag, verWord: verWord };
 })();
 (function () {
   'use strict';

@@ -20,7 +20,7 @@
     var step = function (s) {
       var t = T.get(s.type, types), hs = hl && hl.line === s.line;
       var meta = (s.must ? K.mustMark() : '') + (by[s.id] ? '<span class="pv-skill">' + I('spark') + skillNames(by[s.id], 'pv-skills') + '</span>' : '') + (s.planned ? '<span class="badge b-plan">Automation planned</span>' : '') +
-        (s.roles.length ? '<span class="pv-role">@' + esc(s.roles.join(' @')) + '</span>' : '') + fixBadge(s.id), cond = K.whenWords(s);
+        (s.roles.length ? '<span class="pv-role">' + esc(K.atRoles(s.roles, 'pv-step-roles')) + '</span>' : '') + fixBadge(s.id), cond = K.whenWords(s);
       /* The checklist panel gives each step an anchor, so the flight plan (go() with a step) can open it there. */
       return '<li' + (hs ? ' class="pv-sel" id="pv-sel" aria-current="true"' : anchor ? ' id="cl-st-' + esc(s.id) + '" tabindex="-1"' : '') + '>' + (t ? I(t.icon, T.nameOf(t)) : '<span class="ic"></span>') + '<div class="pv-body"><span class="pv-copy">' + K.stepHtml(s, null) + '</span>' + (cond ? '<span class="pv-when">' + cond + '</span>' : '') + (meta ? '<span class="pv-meta">' + meta + '</span>' : '') + '</div></li>';
     };
@@ -30,7 +30,7 @@
       var lanes = p.tracks.map(function (t) { return { t: t, steps: p.steps.filter(function (s) { return s.track === t.id && t.id; }) }; });
       var body = lead.length || !lanes.length ? '<ul>' + lead.map(step).join('') + '</ul>' : '';
       if (lanes.length) body += '<div class="pv-lanes"><p class="pv-lanes-h">Do all lanes</p>' + lanes.map(function (l) {
-        return '<div class="pv-lane"><p class="pv-lane-h">' + esc(l.t.title || 'Untitled lane') + (l.t.roles.length ? ' <span class="pv-role">@' + esc(l.t.roles.join(' @')) + '</span>' : '') + '</p><ul>' + l.steps.map(step).join('') + '</ul></div>';
+        return '<div class="pv-lane"><p class="pv-lane-h">' + esc(l.t.title || 'Untitled lane') + (l.t.roles.length ? ' <span class="pv-role">' + esc(K.atRoles(l.t.roles, 'pv-lane-roles')) + '</span>' : '') + '</p><ul>' + l.steps.map(step).join('') + '</ul></div>';
       }).join('') + '</div>';
       return '<div class="ph' + (hp ? ' pv-sel" id="pv-sel' : '') + '"><h3' + (anchor ? ' id="' + anchor + pi + '" tabindex="-1"' : '') + '>' + esc(p.title) + (p.mode ? ' <span class="cat mode">' + esc(K.modeWord(p.mode)) + '</span>' : '') + fixBadge('phase:' + p.id) + '</h3>' + (p.when ? '<p class="pv-when">' + K.whenWords(p) + '</p>' : '') + body +
         '<div class="g">' + I('gate') + '<span class="pv-gate-copy">Gate: ' + esc(p.gate.title) + (p.gate.approves ? ' · approves ' + K.detailWords(U.mdInline(p.gate.approves)) : '') + '</span></div></div>';
@@ -52,13 +52,24 @@
   }
   /* How runs of this process have gone, one version at a time (docs/design.md section 23; views/insights.js draws it). */
   function insights(ctx, p) { return V.insightsPage(ctx, p); }
+  /* What in jira/workflows.json couldn't be used: one notice, with each problem 20 at a time in its fold past one (code review
+     round 11, D10): a file with 50 issue types of 300 transitions each can have thousands. */
+  function jiraErrs(ctx, errs) {
+    if (!errs.length) return '';
+    if (errs.length === 1) return '<div class="notice warn"><span>' + esc(errs[0]) + '</span></div>';
+    var st = ctx.state, k = 'jira-errs', id = function (key) { return 'jira-err-' + key; }, ks = K.uniqKeys(errs, function (e) { return e; }), items = errs.map(function (e, i) { return { e: e, k: K.domKey(ks[i]) }; });
+    return '<div class="notice warn jira-errs"><div><b>' + errs.length.toLocaleString('en-US') + ' problems in jira/workflows.json</b>. The issue types they\'re in aren\'t used until they\'re fixed.' +
+      '<details data-disc="' + k + '"' + ((st.disc || {})[k] ? ' open' : '') + '><summary class="small">Which ones</summary>' +
+      K.list(st, k, items, { page: 20, keyOf: function (x) { return x.k; }, focusOf: function (key) { return K.byId(id(key)); },
+        draw: function (shown) { return '<ul class="small">' + shown.map(function (x) { return '<li id="' + esc(id(x.k)) + '" tabindex="-1">' + esc(x.e) + '</li>'; }).join('') + '</ul>'; } }) + '</details></div></div>';
+  }
   /* The team's own step types and Jira workflows, with anything in those files that couldn't be used. */
   /* Jira workflows the folder defines (step types have their own page). */
   function teamSetup(ctx) {
     var jw = ctx.data.jira || { workflows: {}, errors: [] }, wf = Object.keys(jw.workflows || {});
     if (!wf.length && !jw.errors.length) return '';
     return '<section class="panel"><h2>' + I('ticket') + 'Jira workflows</h2>' + (wf.length ? '<ul class="vlist">' + wf.map(function (k) { var w = jw.workflows[k]; if (w.invalid) return '<li><b>' + esc(k === PF.jira.FILE ? 'The file' : k) + '</b> · not used: ' + esc(w.invalid) + '</li>'; var req = w.transitions.reduce(function (n, t) { return n + t.fields.length; }, 0); return '<li><b>' + esc(k) + '</b> · ' + w.statuses.length + ' statuses, ' + w.transitions.length + ' transitions' + (req ? ', ' + req + ' required fields' : '') + '</li>'; }).join('') + '</ul>' : '') +
-      jw.errors.map(function (e) { return '<div class="notice warn"><span>' + esc(e) + '</span></div>'; }).join('') + '<p class="small">Edit <code>jira/workflows.json</code> to change them.</p></section>';
+      jiraErrs(ctx, jw.errors) + '<p class="small">Edit <code>jira/workflows.json</code> to change them.</p></section>';
   }
 
   var SKILL_PILL = { current: ['passed', 'in step'], unaffected: ['open', 'note version'], update: ['failed', 'needs update'], missing: ['failed', 'check it'] };

@@ -78,7 +78,7 @@
     open = open && !r.paused;
     var s = x.step, a = r.steps[s.id] || null, t = T.get(s.type, r.types) || { label: s.type, icon: 'check', fields: {} }, st = ctx.state, now = ctx.now();
     var aState = stateOf(r, s), sel = selOf(ctx) === s.id, isNext = !!(nx && nx.step && nx.step.id === s.id), P = prOf(ctx), pm = P ? P.steps[s.id] || {} : null;
-    var who = s.roles.map(function (ro) { return r.roles[ro] ? nameOf(ctx, r.roles[ro]) : '@' + ro; }).join(', ');
+    var who = K.capJoin(s.roles, function (ro) { return r.roles[ro] ? nameOf(ctx, r.roles[ro]) : '@' + ro; }, ', ', 'rw-step-roles');
     var meta = (t.id === 'confirm' ? '' : '<span class="type">' + I(t.icon) + esc(T.nameOf(t)) + '</span>') + (who ? '<span class="s-who">' + esc(who) + '</span>' : '');
     /* Target details that tell two similar steps apart (an environment, a job) stay on the row. */
     var eff = R.fieldsOf(r, s), shown = 0;
@@ -203,7 +203,7 @@
   function gateReceipt(ctx, rec2, st) {
     if (!rec2 || !rec2.by) return '';
     return esc(GATE_WORD[st] || st) + (st === 'review' ? ' (was ' + esc((rec2.s === 'review' ? rec2.was : rec2.s) || 'passed') + ')' : '') + ' by ' + esc(nameOf(ctx, rec2.by)) + ' at ' + U.hm(rec2.at) +
-      (rec2.approved && Object.keys(rec2.approved).length ? ' for ' + esc(Object.keys(rec2.approved).map(function (k) { return k + ' ' + (rec2.approved[k] || '(not set)'); }).join(' · ')) : '') + (rec2.reason ? ': ' + esc(rec2.reason) : '');
+      (rec2.approved && Object.keys(rec2.approved).length ? ' for ' + esc(K.capJoin(Object.keys(rec2.approved), function (k) { return k + ' ' + (rec2.approved[k] || '(not set)'); }, ' · ', 'gate-approved')) : '') + (rec2.reason ? ': ' + esc(rec2.reason) : '');
   }
   /* brief: the gate of a phase that can't start yet and is folded, so only its name and status show until it's reached
      (never while a suggestion to its note is being written). */
@@ -391,14 +391,14 @@
       var p = map.phases[nx.phaseIndex], g2 = p.gate, here = selOf(ctx) === nx.step.id;
       hint = esc(p.title) + ' · ' + nx.left + ' to go, then ' + (g2.implicit ? (R.solo(r) ? 'confirm the phase' : 'confirm together') : 'the "' + esc(g2.title) + '" gate');
       if (nx.track) {
-        var who = nx.track.roles.map(function (ro) { return r.roles[ro] ? nameOf(ctx, r.roles[ro]) : ''; }).filter(Boolean).join(', ');
+        var who = K.capJoin(nx.track.roles.filter(function (ro) { return r.roles[ro]; }), function (ro) { return nameOf(ctx, r.roles[ro]); }, ', ', 'rw-next-roles');
         hint += ' · ' + esc(nx.track.title) + (who ? ' (' + esc(who) + ')' : '');
       }
       main = nx.step;
       btn = here ? '<span class="small rw-here">Selected' + (rec && s.keys ? '<span class="rw-kbd"> · Space checks it</span>' : '') + '</span>' : '<button class="btn" data-act="goto" data-id="step-' + esc(nx.step.id) + '">' + (selOf(ctx) ? 'Back to it' : 'Go to step') + '</button>';
       if (ctx.practice && ctx.practice.canEdit(nx.step.id)) btn += '<button class="mini" data-act="pr-edit" data-id="' + esc(nx.step.id) + '">' + I('edit') + 'Edit</button>';
       var others = (nx.tracks || []).filter(function (t) { return t.step && (!nx.track || t.track.id !== nx.track.id); });
-      var tail = others.map(function (t) { return esc(t.track.title) + ': ' + t.left + ' left'; }).join(' · ');
+      var tail = K.capJoin(others, function (t) { return esc(t.track.title) + ': ' + t.left + ' left'; }, ' · ', 'rw-next-lanes');
       return '<div class="rw-next" data-k="step" role="region" aria-label="Next up"><div class="rw-next-t"><div class="small">Next up · ' + hint + '</div><b>' + mainHtml(r, map, main) + '</b>' + (tail ? '<div class="small">Also open: ' + tail + '</div>' : '') + '</div>' + btn + '</div>';
     }
     return '<div class="rw-next" data-k="' + esc(nx.kind) + (nx.status ? ' ' + esc(nx.status) : '') + '" role="region" aria-label="Next up"><div class="rw-next-t"><div class="small">' + esc(hint) + '</div><b>' + mainHtml(r, map, main) + '</b></div>' + btn + '</div>';
@@ -627,7 +627,7 @@
     var work = canWork(ctx, r, map, x), all = M.steps(map), i = all.map(function (y) { return y.step.id; }).indexOf(st.id), prev = all[i - 1], next = all[i + 1];
     var ph = map.phases[x.phaseIndex], inPhase = ph.steps.map(function (y) { return y.id; }).indexOf(st.id) + 1, track = st.track ? (ph.tracks || []).filter(function (tr) { return tr.id === st.track; })[0] : null;
     var sched = P ? null : (R.schedule(r, map, now).filter(function (it) { return it.what === 'step' && it.id === st.id; }) || [])[0];
-    var who = P ? st.roles.map(function (ro) { return '@' + esc(ro); }).join(', ') : st.roles.map(function (ro) { return r.roles[ro] ? avatar(ctx, r.roles[ro]) + esc(nameOf(ctx, r.roles[ro])) : '@' + esc(ro); }).join(', ');
+    var who = K.capJoin(st.roles, function (ro) { return !P && r.roles[ro] ? avatar(ctx, r.roles[ro]) + esc(nameOf(ctx, r.roles[ro])) : '@' + esc(ro); }, ', ', 'rw-ins-roles');
     var cf = s.corrForm && s.corrForm.key === runKey(r) && s.corrForm.step === st.id ? s.corrForm : null, corrOpen = !!cf;
     var h = '<aside class="fpe-pane rw-ins" id="rw-ins" data-scope="ref:' + esc(st.id) + '" data-open="' + open + '" aria-label="Selected step">';
     h += '<div class="rw-ins-top"><button class="mini close" data-act="close-ref">Close</button>' + (P && P.canEdit(st.id) ? '<button class="mini rw-ins-edit" data-act="pr-edit" data-id="' + esc(st.id) + '">' + I('edit') + 'Edit this step</button>' : '') + '<nav class="row rw-steps" aria-label="Other steps">' +
@@ -959,7 +959,7 @@
     if (!p.tracks || !p.tracks.length) return h + folded;
     return h + '<div class="tracks">' + p.tracks.map(function (t) {
       var steps = p.steps.filter(function (st) { return st.track === t.id && needed(st); }), done = steps.filter(function (st) { return R.answered(r, st); }).length;
-      var who = t.roles.map(function (ro) { return r.roles[ro] ? avatar(ctx, r.roles[ro]) + esc(nameOf(ctx, r.roles[ro])) : esc(ro); }).join(', ');
+      var who = K.capJoin(t.roles, function (ro) { return r.roles[ro] ? avatar(ctx, r.roles[ro]) + esc(nameOf(ctx, r.roles[ro])) : esc(ro); }, ', ', 'rw-lane-roles');
       return '<section class="track" aria-labelledby="tr-' + esc(t.id) + '"><div class="track-head"><h3 id="tr-' + esc(t.id) + '">' + esc(t.title) + '</h3><span class="small">' + (who ? who + ' · ' : '') + done + '/' + steps.length + '</span></div><ul class="steps">' + steps.map(row).join('') + '</ul></section>';
     }).join('') + '<p class="small tracks-note">Finish every track before the gate.</p></div>' + folded;
   }

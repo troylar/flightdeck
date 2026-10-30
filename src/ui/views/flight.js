@@ -60,7 +60,7 @@
   function stepLine(s, go, types, auto) {
     var t = T.get(s.type, types), by = auto.filter(function (x) { return x.skill.steps.indexOf(s.id) >= 0; }).map(function (x) { return x.skill.name; });
     var meta = (s.must ? '<span class="badge b-must">Must do</span>' : '') + by.slice(0, SKILLS_SHOWN).map(function (n) { PF.perf.add('fp.skill'); return '<span class="badge b-skill">' + I('spark') + esc(n) + '</span>'; }).join('') + moreSkills(by.length - SKILLS_SHOWN) +
-      (s.roles.length ? '<span class="pv-role">@' + esc(s.roles.join(' @')) + '</span>' : ''), cond = K.whenWords(s);
+      (s.roles.length ? '<span class="pv-role">' + esc(K.atRoles(s.roles, 'pv-step-roles')) + '</span>' : ''), cond = K.whenWords(s);
     return '<li>' + (t ? I(t.icon, t.label) : '<span class="ic"></span>') + '<div class="pv-body"><button type="button" class="fp-step" data-act="go" ' + go + ' data-step="' + esc(s.id) + '">' + K.stepHtml(s, null, false) +
       '<span class="sr">. Show it in the checklist</span></button>' + (cond ? '<span class="pv-when">' + cond + '</span>' : '') + (meta ? '<span class="pv-meta">' + meta + '</span>' : '') + '</div></li>';
   }
@@ -73,7 +73,7 @@
     if (lead.length || !p.tracks.length) body += stepList(lead, p.title, line);
     if (p.tracks.length) body += '<div class="fp-slanes">' + p.tracks.map(function (t) {
       var name = t.title || 'Track';
-      return '<div class="fp-slane"><p class="fp-slane-h"><b>' + esc(name) + '</b>' + (t.roles.length ? ' <span class="pv-role">@' + esc(t.roles.join(' @')) + '</span>' : '') + '</p>' +
+      return '<div class="fp-slane"><p class="fp-slane-h"><b>' + esc(name) + '</b>' + (t.roles.length ? ' <span class="pv-role">' + esc(K.atRoles(t.roles, 'pv-lane-roles')) + '</span>' : '') + '</p>' +
         stepList(p.steps.filter(function (s) { return s.track === t.id && t.id; }), name, line) + '</div>';
     }).join('') + '</div>';
     body += p.gate.implicit ? '<p class="fp-sgate">' + I('check') + '<span>Phase checked, no named gate</span></p>' : '<p class="fp-sgate">' + I('gate') + '<span>Gate: ' + esc(p.gate.title) + '</span></p>';
@@ -92,7 +92,7 @@
     /* Tracks are worked at the same time, so they sit side by side as lanes. */
     if (p.tracks.length) head += '<ul class="fp-lanes" aria-label="Parallel tracks">' + p.tracks.map(function (t) {
       var count = p.steps.filter(function (s) { return s.track === t.id; }).length;
-      return '<li class="fp-lane"><b>' + esc(t.title || 'Track') + '</b>' + (t.roles.length ? '<span class="small">@' + esc(t.roles.join(' @')) + '</span>' : '') + '<span class="small">' + plural(count, 'step') + '</span></li>';
+      return '<li class="fp-lane"><b>' + esc(t.title || 'Track') + '</b>' + (t.roles.length ? '<span class="small">' + esc(K.atRoles(t.roles, 'pv-lane-roles')) + '</span>' : '') + '<span class="small">' + plural(count, 'step') + '</span></li>';
     }).join('') + '</ul>';
     head += '</div>';
     var ids = p.steps.map(function (s) { return s.id; }), lines = '', covers = [];
