@@ -411,12 +411,14 @@
       if (nums.length) h += '<label class="ob-switch" for="ob-link-ver-pin"><input type="radio" name="ob-link-ver" id="ob-link-ver-pin" value="pin" data-bound' + (pinned ? ' checked' : '') + '><span><b>Always one version</b></span></label>';
       /* Which version is asked only once one is pinned. */
       /* Newest first, 50 at a time with Find past 50 (K.select); whether a version can be pinned is worked out only for those drawn. */
-      if (nums.length && pinned) { var vs = K.select(ctx.state, 'ob-link-vn', nums.map(function (n) { return { v: String(n), t: 'v' + n }; }), String(f.version), { attrs: ' data-bound', noun: 'version', draw: function (it) { var at = PF.pins.atVersion(e, f.process, +it.v); return at.why ? { more: ' (' + at.why + ')', disabled: true } : null; } });
+      /* Find for versions stays while it has text or focus, with no version left too (K.findOn, code review round 20). */
+      if ((nums.length || K.findOn(ctx.state, 'ob-link-vn', false)) && pinned) { var vs = K.select(ctx.state, 'ob-link-vn', nums.map(function (n) { return { v: String(n), t: 'v' + n }; }), String(f.version), { attrs: ' data-bound', noun: 'version', draw: function (it) { var at = PF.pins.atVersion(e, f.process, +it.v); return at.why ? { more: ' (' + at.why + ')', disabled: true } : null; } });
         h += vs.box + '<label class="field" for="ob-link-vn">' + esc(G.form('link-vn').q) + vs.select + '</label>' + vs.more; }
       h += '</fieldset>';
-    }
+    } else if (f.process && f.version && K.findOn(ctx.state, 'ob-link-vn', false)) h += K.select(ctx.state, 'ob-link-vn', [], String(f.version), { noun: 'version' }).box;
     var kid = f.process ? linkChildOf(ctx, f.process, f.version) : null;
-    if (!kid) return h + (f.process ? '<p class="small">' + esc(f.process) + ' isn\'t in this folder, so what it needs can\'t be shown.</p>' : '');
+    /* A child that left the folder has nothing to pass; Find a run detail stays while it has text or focus (code review round 20). */
+    if (!kid) return h + (K.findOn(ctx.state, 'ob-link-rows', false) ? K.findBox(ctx.state, 'ob-link-rows', 'Find a run detail', 0, 0, 'run detail') : '') + (f.process ? '<p class="small">' + esc(f.process) + ' isn\'t in this folder, so what it needs can\'t be shown.</p>' : '');
     var rr = PF.links.rows(st, meta.context, kid.map), setBy = M.setBy(kid.map), fixed = ctx.state.obLinkFixed || {}, t = kid.title;
     h += '<h3 class="ob-sec">What ' + esc(t) + ' needs</h3>' + (kid.draft ? '<p class="small">' + esc(t) + ' isn\'t published yet, so this can\'t be checked until it is.</p>' : '') +
       (kid.nextAdds && kid.nextAdds.length ? '<p class="small">' + esc(t) + '\'s draft adds ' + K.capJoin(kid.nextAdds, function (n) { return '^' + esc(n); }, null, 'ob-link-adds') + '.</p>' : '');
@@ -628,10 +630,11 @@
     var waiting = apply.filter(function (n) { return rows.indexOf(n) < 0; });
     var guideList = typed ? [] : apply;
     var binds = s.parts.binds, ctxs = meta.context.concat(binds.filter(function (b) { return meta.context.indexOf(b) < 0; }));
-    /* The checklist's run details, 20 at a time with Find past 20, the step's own always drawn (2.11, code review round 8). */
+    /* The checklist's run details, 20 at a time with Find past 20, the step's own always drawn (2.11, code review round 8); Find
+       stays while it has text or focus, with none left too (code review round 20). */
     var br = K.roleRows(ctx.state, 'ob-binds', ctxs, { soft: binds, keptLabel: 'This step\'s run details', label: 'Find a run detail', noun: 'run detail', focusOf: function (b) { return K.byAct('ob-bind', b); },
       row: function (b) { return '<button type="button" class="ob-chip" data-act="ob-bind" data-id="' + esc(b) + '" aria-pressed="' + (binds.indexOf(b) >= 0) + '">^' + esc(b) + '</button>'; } });
-    var bindsHtml = '<div class="field"><span id="ob-binds-l">' + esc(G.step('binds').q) + '</span>' + whyOf('ob-binds', G.step('binds')) + (ctxs.length ? br.box + '<div class="row" role="group" aria-labelledby="ob-binds-l" aria-describedby="why-ob-binds">' + br.rows + '</div>' : '<span class="small">The checklist lists no run details yet.</span> <button type="button" class="linkish" data-act="ob-sel-details" data-focus="ob-add-ctx">Add run details</button>') + '</div>';
+    var bindsHtml = '<div class="field"><span id="ob-binds-l">' + esc(G.step('binds').q) + '</span>' + whyOf('ob-binds', G.step('binds')) + br.box + (ctxs.length ? '<div class="row" role="group" aria-labelledby="ob-binds-l" aria-describedby="why-ob-binds">' + br.rows + '</div>' : '<span class="small">The checklist lists no run details yet.</span> <button type="button" class="linkish" data-act="ob-sel-details" data-focus="ob-add-ctx">Add run details</button>') + '</div>';
     var err = function (res) { var fe = ctx.state.fieldErr; return !!(fe && fe.id === 'ob' && res.some(function (re) { return re.test(fe.field); })); };
     var mk = function (html, ids) { return { html: html, ids: ids, err: err(ids) }; };
     var groups = {

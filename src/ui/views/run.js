@@ -355,8 +355,9 @@
       /* A viewer's chip is disabled, so Show more's focus goes to a wrapper that can take it. */
       return rec ? chip : '<span class="chip-at" id="det-role-' + esc(ro) + '" tabindex="-1">' + chip + '</span>';
     } }), roles = rolePaged.rows;
-    /* Solo runs keep collaboration out of the way: roles appear only if someone asks for them. */
-    var alone = R.solo(r), roleRow = map.meta.roles.length ? (alone && !s.showRoles ? (rec ? '<button class="mini" data-act="show-roles">' + I('people') + 'Add people</button>' : '') : roles) : '';
+    /* Solo runs keep collaboration out of the way: roles appear only if someone asks for them, or while Find a role has text or
+       focus, so a newer read leaving the run to one person never takes the box away (K.findOn, code review round 20). */
+    var alone = R.solo(r), roleRow = map.meta.roles.length ? (alone && !s.showRoles && !K.findOn(s, 'det-roles', false) ? (rec ? '<button class="mini" data-act="show-roles">' + I('people') + 'Add people</button>' : '') : roles) : '';
     var h = '<section class="rw-details" id="rw-details" aria-labelledby="rw-det-h"><h2 id="rw-det-h" class="rw-h2" tabindex="-1">Details</h2>' +
       '<p class="small">' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) + ' · started ' + esc(U.when(r.created)) + ' · recorded by ' + esc(nameOf(ctx, r.recorder.person)) + ' · revision ' + (r.rev || 0) + '</p>' +
       (det ? '<div class="chips" role="group" aria-label="Run details">' + det + '</div>' : '') + (roleRow ? (roleRow === roles ? rolePaged.box : '') + '<div class="chips" role="group" aria-label="Roles">' + roleRow + '</div>' : '') +

@@ -18,17 +18,20 @@
   }
   function checklistPanel(ctx, p) {
     var st = ctx.state, shown = shownOf(p, st), restoring = (st.draftSaving || {})[ctx.fsKey + '\n' + p.id] === 'restore';
-    if (!shown && p.proposedOnly) return '';
-    if (!shown) return '<section class="panel"><p class="small">This checklist has nothing written down yet.</p><button class="btn go" data-act="ptab" data-id="edit">' + I('edit') + 'Write the checklist</button></section>';
+    /* With no version left, a Find for versions that has text or focus stays, over none (K.findOn, code review round 20). */
+    var noVer = shown || !K.findOn(st, 'map-ver', false) ? '' : '<section class="panel"><div class="row">' + K.select(st, 'map-ver', [], '', { attrs: ' class="ver-pick" data-bound', noun: 'version' }).box + '</div></section>';
+    if (!shown && p.proposedOnly) return noVer;
+    if (!shown) return noVer + '<section class="panel"><p class="small">This checklist has nothing written down yet.</p><button class="btn go" data-act="ptab" data-id="edit">' + I('edit') + 'Write the checklist</button></section>';
     var all = p.all || [], hasDraft = p.draft && (p.draftChanged || !p.latest), gone = (p.broken || []).filter(function (b) { return PF.publish.versionOf(b.folder); });
     var cur = shown.draft ? 'draft' : shown.pub.folder, view = st.clView === 'plan' || st.clView === 'md' ? st.clView : 'list';
     /* Every version, newest first, 50 at a time with Find past 50 (K.select). Versions in the folder that can't be shown or run
-       here (still syncing, damaged, or too new for this copy) say why, after them. */
+       here (still syncing, damaged, or too new for this copy) say why, after them. A single version is just named, unless its
+       Find has text or focus (K.findOn): a newer read leaving one version never takes away the box in use (code review round 20). */
     var verItems = all.map(function (v) { return { v: v.folder, t: 'v' + v.info.version + (v === p.latest ? ' (current)' : '') + ' · ' + v.info.changes.slice(0, 50), place: v.folder }; })
       .concat(gone.map(function (b, i) { return { v: '', t: 'v' + PF.publish.versionOf(b.folder) + ' · can\'t be used here: ' + String(b.why).slice(0, 200), place: b.folder, disabled: true, key: i }; }));
     var verSel = K.select(st, 'map-ver', verItems, cur, { attrs: ' class="ver-pick" data-bound', lead: hasDraft ? '<option value="draft"' + (cur === 'draft' ? ' selected' : '') + '>Draft (not published)</option>' : '', noun: 'version' });
     var h = '<section class="panel mapview" aria-labelledby="cl-h"><div class="row between"><h2 id="cl-h" tabindex="-1" style="margin:0">' + (shown.draft ? 'The draft' : 'The checklist') + '</h2>' +
-      '<div class="row">' + (all.length + (hasDraft ? 1 : 0) + gone.length > 1 ? verSel.box + '<label class="sr" for="map-ver">Version to show</label>' + verSel.select + verSel.more : '<span class="small">' + (shown.draft ? 'Draft' : 'v' + shown.pub.info.version) + '</span>') +
+      '<div class="row">' + (K.findOn(st, 'map-ver', all.length + (hasDraft ? 1 : 0) + gone.length > 1) ? verSel.box + '<label class="sr" for="map-ver">Version to show</label>' + verSel.select + verSel.more : '<span class="small">' + (shown.draft ? 'Draft' : 'v' + shown.pub.info.version) + '</span>') +
       /* One switch for the three ways to see the same version: the checklist, its flight plan, or its Markdown source. */
       '<div class="seg" role="group" aria-label="Show as">' + [['list', 'Checklist'], ['plan', 'Flight plan'], ['md', 'Markdown']].map(function (x) { return '<button type="button" data-act="flight" data-id="' + x[0] + '" aria-pressed="' + (view === x[0]) + '">' + x[1] + '</button>'; }).join('') + '</div>' +
       (restoring ? '<span class="small" role="status">Restoring…</span>' : shown.current ? '<button class="btn" data-act="ptab" data-id="edit">' + I('edit') + ((p.editing || []).length ? 'Edit anyway' : 'Edit') + '</button>' : '<button class="btn" data-act="restore-draft" data-id="' + esc(shown.pub.folder) + '">Restore as draft</button>') + '</div></div>';

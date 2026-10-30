@@ -160,7 +160,8 @@
     }
     var people = PF.people.sorted(ctx).filter(function (p) { return !p.inactive; }), owner = PP.roles(ctx.data.people).owner;
     h += '<h2 id="su-h" tabindex="-1">Who are you?</h2>';
-    if (!people.length) return h + '<div class="notice warn" role="status"><span><b>' + esc(fs.name) + '</b> has no people list yet. If you\'re setting up a new team, choose Start your team instead.</span><button class="btn" data-act="setup-mode" data-id="start">Start your team</button></div></section>';
+    /* Find your name stays while it has text or focus, even over nobody (K.findOn, code review round 20). */
+    if (!people.length) return h + (K.findOn(st, 'su-who', false) ? K.findBox(st, 'su-who', 'Find your name', 0, 0, 'name') : '') + '<div class="notice warn" role="status"><span><b>' + esc(fs.name) + '</b> has no people list yet. If you\'re setting up a new team, choose Start your team instead.</span><button class="btn" data-act="setup-mode" data-id="start">Start your team</button></div></section>';
     /* By name, 50 at a time, with Find your name past 50 (2.11), and whatever their number while it has text or focus: a newer
        list of 50 or fewer never takes away the box or its filtering (code review round 19). */
     var q = K.findQ(st, 'su-who'), hit = K.finds(q), shown = q ? people.filter(function (p) { return hit([p.name, p.email, p.id]); }) : people;

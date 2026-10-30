@@ -62,15 +62,18 @@
   /* ---------- How runs go ---------- */
   function page(ctx, p) {
     var list = folderList(ctx, p);
-    if (!list.length) return '';
+    /* No version: nothing to show (process.js says there are no runs yet), but Find for versions stays while it has text or
+       focus, with that line after it (K.findOn, code review round 20). */
+    if (!list.length) return K.findOn(ctx.state, 'ins-folder', false) ? '<section class="panel"><div class="row">' + K.select(ctx.state, 'ins-folder', [], '', { attrs: ' data-bound data-nav-safe', noun: 'version' }).box + '</div><p class="small">No runs yet. This fills in after the first run.</p></section>' : '';
     var folder = chosen(ctx, p, list), f = list.filter(function (x) { return x.folder === folder; })[0];
     var res = insightsOf(ctx, p.id, folder, false);
     return summary(ctx, p, res, list, f) + timePanel(ctx, res) + hotSpots(ctx, res) + followUps(ctx, res) + roles(ctx, res) + counted() + compare(ctx, p, list);
   }
   function summary(ctx, p, res, list, f) {
     var h = '<section class="panel ins" aria-labelledby="ins-h"><div class="row between ins-head"><h2 id="ins-h" tabindex="-1">' + IC('chart') + 'How runs go</h2>';
-    /* Every version, newest first: 50 at a time, with Find past 50 (K.select). */
-    var vs = list.length > 1 ? K.select(ctx.state, 'ins-folder', list.map(function (x) { return { v: x.folder, t: verLabel(x) + ' · ' + plural(x.runs, 'run'), place: x.folder }; }), f.folder, { attrs: ' data-bound data-nav-safe', noun: 'version' }) : null;
+    /* Every version, newest first: 50 at a time, with Find past 50 (K.select). A single version is just named, unless its Find
+       has text or focus (K.findOn, code review round 20). */
+    var vs = K.findOn(ctx.state, 'ins-folder', list.length > 1) ? K.select(ctx.state, 'ins-folder', list.map(function (x) { return { v: x.folder, t: verLabel(x) + ' · ' + plural(x.runs, 'run'), place: x.folder }; }), f.folder, { attrs: ' data-bound data-nav-safe', noun: 'version' }) : null;
     h += vs ? '<span class="ins-pick">' + vs.box + '<label for="ins-folder">Version</label>' + vs.select + vs.more + '</span>' : '<span class="small">' + esc(verLabel(f)) + '</span>';
     h += '</div>';
     if (f.clash) h += '<div class="notice warn"><span>Two folders are numbered v' + f.version + '. Each is counted on its own; this is <code>' + esc(f.folder) + '</code>.</span></div>';

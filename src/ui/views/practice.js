@@ -80,7 +80,8 @@
     if (m.from && m.from.through) h += '<div class="notice good pr-done" tabindex="-1"><span>You got through from "' + esc(m.from.shown || m.from.text) + '".</span><button type="button" class="btn" data-act="pr-from-clear">Start from the beginning</button></div>';
     else if (m.complete) h += '<div class="notice good pr-done" tabindex="-1"><span>You got through the whole checklist.' + (P.dirty ? ' Save it, then stage it for a test run.' : '') + '</span>' +
       (P.dirty ? '<button type="button" class="btn" data-act="pr-save"' + (P.saving ? ' disabled' : '') + '>Save draft</button>' : stageLine(P)) + '</div>';
-    if (P.details.length && (s.prSamples || need.length)) h += '<section class="rw-details pr-sample" id="pr-sample" aria-labelledby="pr-sample-h"><h2 id="pr-sample-h" class="rw-h2" tabindex="-1">Sample details' + (need.length ? ' <span class="pill warn">' + need.length + ' needed from here</span>' : '') + '</h2><p class="small">Values to practice with, as a run would have them. Used only here.</p>' + prSamples(s, P, need) + '</section>';
+    /* Shown while asked for or needed, and while its Find has text or focus (K.findOn, code review round 20). */
+    if (P.details.length && (s.prSamples || need.length) || K.findOn(s, 'pr-samples', false)) h += '<section class="rw-details pr-sample" id="pr-sample" aria-labelledby="pr-sample-h"><h2 id="pr-sample-h" class="rw-h2" tabindex="-1">Sample details' + (need.length ? ' <span class="pill warn">' + need.length + ' needed from here</span>' : '') + '</h2><p class="small">Values to practice with, as a run would have them. Used only here.</p>' + prSamples(s, P, need) + '</section>';
     /* 20 sample details at a time with Find past 20 (code review round 10): a draft can list hundreds of run details. Each
        value is kept in the practice's state as it's committed, so a box not drawn loses nothing; a refused one stays drawn. */
     function prSamples(s, P, need) {

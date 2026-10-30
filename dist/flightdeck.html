@@ -20634,7 +20634,8 @@ PF.vk = (function () {
     var apNames = K.capJoin(aps, function (a) { return '"' + a.title + '"'; }, ' and ', 'start-approvals');
     h += '<input type="hidden" id="start-mode" value="' + mode + '"><div class="seg" role="radiogroup" aria-label="Who is running it"><button type="button" role="radio" aria-checked="' + soloMap + '" data-act="start-mode" data-id="solo" data-process="' + esc(p.id) + '">On my own</button><button type="button" role="radio" aria-checked="' + !soloMap + '" data-act="start-mode" data-id="team" data-process="' + esc(p.id) + '">With others</button></div>';
     if (soloMap) h += '<p class="small">' + (aps.length ? 'Every role is yours, including who approves ' + esc(apNames) + '.' : 'Every role is yours.') + ' If someone joins later, add them from the run.</p>';
-    if (meta.roles.length && !soloMap) {
+    /* Find a role stays while it has text or focus, even when a newer version has no roles (K.findOn, code review round 20). */
+    if ((meta.roles.length || K.findOn(st, 'start-roles', false)) && !soloMap) {
       h += '<div class="row" style="margin-top:6px"><h3 style="margin:0">Who\'s doing what</h3>' + (st.me ? '<button class="mini" type="button" data-act="just-me">' + (aps.length ? 'Just me (every role, including who approves)' : 'Just me') + '</button>' : '') + '</div><div class="grid2">';
       var nmStage = PF.people.labeler(people);
       /* 20 roles at a time in checklist order, with Find past 20 (2.11). A role the plan or this form has given someone is
@@ -21081,8 +21082,9 @@ PF.vk = (function () {
       /* A viewer's chip is disabled, so Show more's focus goes to a wrapper that can take it. */
       return rec ? chip : '<span class="chip-at" id="det-role-' + esc(ro) + '" tabindex="-1">' + chip + '</span>';
     } }), roles = rolePaged.rows;
-    /* Solo runs keep collaboration out of the way: roles appear only if someone asks for them. */
-    var alone = R.solo(r), roleRow = map.meta.roles.length ? (alone && !s.showRoles ? (rec ? '<button class="mini" data-act="show-roles">' + I('people') + 'Add people</button>' : '') : roles) : '';
+    /* Solo runs keep collaboration out of the way: roles appear only if someone asks for them, or while Find a role has text or
+       focus, so a newer read leaving the run to one person never takes the box away (K.findOn, code review round 20). */
+    var alone = R.solo(r), roleRow = map.meta.roles.length ? (alone && !s.showRoles && !K.findOn(s, 'det-roles', false) ? (rec ? '<button class="mini" data-act="show-roles">' + I('people') + 'Add people</button>' : '') : roles) : '';
     var h = '<section class="rw-details" id="rw-details" aria-labelledby="rw-det-h"><h2 id="rw-det-h" class="rw-h2" tabindex="-1">Details</h2>' +
       '<p class="small">' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) + ' · started ' + esc(U.when(r.created)) + ' · recorded by ' + esc(nameOf(ctx, r.recorder.person)) + ' · revision ' + (r.rev || 0) + '</p>' +
       (det ? '<div class="chips" role="group" aria-label="Run details">' + det + '</div>' : '') + (roleRow ? (roleRow === roles ? rolePaged.box : '') + '<div class="chips" role="group" aria-label="Roles">' + roleRow + '</div>' : '') +
@@ -23030,12 +23032,14 @@ PF.vk = (function () {
       if (nums.length) h += '<label class="ob-switch" for="ob-link-ver-pin"><input type="radio" name="ob-link-ver" id="ob-link-ver-pin" value="pin" data-bound' + (pinned ? ' checked' : '') + '><span><b>Always one version</b></span></label>';
       /* Which version is asked only once one is pinned. */
       /* Newest first, 50 at a time with Find past 50 (K.select); whether a version can be pinned is worked out only for those drawn. */
-      if (nums.length && pinned) { var vs = K.select(ctx.state, 'ob-link-vn', nums.map(function (n) { return { v: String(n), t: 'v' + n }; }), String(f.version), { attrs: ' data-bound', noun: 'version', draw: function (it) { var at = PF.pins.atVersion(e, f.process, +it.v); return at.why ? { more: ' (' + at.why + ')', disabled: true } : null; } });
+      /* Find for versions stays while it has text or focus, with no version left too (K.findOn, code review round 20). */
+      if ((nums.length || K.findOn(ctx.state, 'ob-link-vn', false)) && pinned) { var vs = K.select(ctx.state, 'ob-link-vn', nums.map(function (n) { return { v: String(n), t: 'v' + n }; }), String(f.version), { attrs: ' data-bound', noun: 'version', draw: function (it) { var at = PF.pins.atVersion(e, f.process, +it.v); return at.why ? { more: ' (' + at.why + ')', disabled: true } : null; } });
         h += vs.box + '<label class="field" for="ob-link-vn">' + esc(G.form('link-vn').q) + vs.select + '</label>' + vs.more; }
       h += '</fieldset>';
-    }
+    } else if (f.process && f.version && K.findOn(ctx.state, 'ob-link-vn', false)) h += K.select(ctx.state, 'ob-link-vn', [], String(f.version), { noun: 'version' }).box;
     var kid = f.process ? linkChildOf(ctx, f.process, f.version) : null;
-    if (!kid) return h + (f.process ? '<p class="small">' + esc(f.process) + ' isn\'t in this folder, so what it needs can\'t be shown.</p>' : '');
+    /* A child that left the folder has nothing to pass; Find a run detail stays while it has text or focus (code review round 20). */
+    if (!kid) return h + (K.findOn(ctx.state, 'ob-link-rows', false) ? K.findBox(ctx.state, 'ob-link-rows', 'Find a run detail', 0, 0, 'run detail') : '') + (f.process ? '<p class="small">' + esc(f.process) + ' isn\'t in this folder, so what it needs can\'t be shown.</p>' : '');
     var rr = PF.links.rows(st, meta.context, kid.map), setBy = M.setBy(kid.map), fixed = ctx.state.obLinkFixed || {}, t = kid.title;
     h += '<h3 class="ob-sec">What ' + esc(t) + ' needs</h3>' + (kid.draft ? '<p class="small">' + esc(t) + ' isn\'t published yet, so this can\'t be checked until it is.</p>' : '') +
       (kid.nextAdds && kid.nextAdds.length ? '<p class="small">' + esc(t) + '\'s draft adds ' + K.capJoin(kid.nextAdds, function (n) { return '^' + esc(n); }, null, 'ob-link-adds') + '.</p>' : '');
@@ -23247,10 +23251,11 @@ PF.vk = (function () {
     var waiting = apply.filter(function (n) { return rows.indexOf(n) < 0; });
     var guideList = typed ? [] : apply;
     var binds = s.parts.binds, ctxs = meta.context.concat(binds.filter(function (b) { return meta.context.indexOf(b) < 0; }));
-    /* The checklist's run details, 20 at a time with Find past 20, the step's own always drawn (2.11, code review round 8). */
+    /* The checklist's run details, 20 at a time with Find past 20, the step's own always drawn (2.11, code review round 8); Find
+       stays while it has text or focus, with none left too (code review round 20). */
     var br = K.roleRows(ctx.state, 'ob-binds', ctxs, { soft: binds, keptLabel: 'This step\'s run details', label: 'Find a run detail', noun: 'run detail', focusOf: function (b) { return K.byAct('ob-bind', b); },
       row: function (b) { return '<button type="button" class="ob-chip" data-act="ob-bind" data-id="' + esc(b) + '" aria-pressed="' + (binds.indexOf(b) >= 0) + '">^' + esc(b) + '</button>'; } });
-    var bindsHtml = '<div class="field"><span id="ob-binds-l">' + esc(G.step('binds').q) + '</span>' + whyOf('ob-binds', G.step('binds')) + (ctxs.length ? br.box + '<div class="row" role="group" aria-labelledby="ob-binds-l" aria-describedby="why-ob-binds">' + br.rows + '</div>' : '<span class="small">The checklist lists no run details yet.</span> <button type="button" class="linkish" data-act="ob-sel-details" data-focus="ob-add-ctx">Add run details</button>') + '</div>';
+    var bindsHtml = '<div class="field"><span id="ob-binds-l">' + esc(G.step('binds').q) + '</span>' + whyOf('ob-binds', G.step('binds')) + br.box + (ctxs.length ? '<div class="row" role="group" aria-labelledby="ob-binds-l" aria-describedby="why-ob-binds">' + br.rows + '</div>' : '<span class="small">The checklist lists no run details yet.</span> <button type="button" class="linkish" data-act="ob-sel-details" data-focus="ob-add-ctx">Add run details</button>') + '</div>';
     var err = function (res) { var fe = ctx.state.fieldErr; return !!(fe && fe.id === 'ob' && res.some(function (re) { return re.test(fe.field); })); };
     var mk = function (html, ids) { return { html: html, ids: ids, err: err(ids) }; };
     var groups = {
@@ -23495,17 +23500,20 @@ PF.vk = (function () {
   }
   function checklistPanel(ctx, p) {
     var st = ctx.state, shown = shownOf(p, st), restoring = (st.draftSaving || {})[ctx.fsKey + '\n' + p.id] === 'restore';
-    if (!shown && p.proposedOnly) return '';
-    if (!shown) return '<section class="panel"><p class="small">This checklist has nothing written down yet.</p><button class="btn go" data-act="ptab" data-id="edit">' + I('edit') + 'Write the checklist</button></section>';
+    /* With no version left, a Find for versions that has text or focus stays, over none (K.findOn, code review round 20). */
+    var noVer = shown || !K.findOn(st, 'map-ver', false) ? '' : '<section class="panel"><div class="row">' + K.select(st, 'map-ver', [], '', { attrs: ' class="ver-pick" data-bound', noun: 'version' }).box + '</div></section>';
+    if (!shown && p.proposedOnly) return noVer;
+    if (!shown) return noVer + '<section class="panel"><p class="small">This checklist has nothing written down yet.</p><button class="btn go" data-act="ptab" data-id="edit">' + I('edit') + 'Write the checklist</button></section>';
     var all = p.all || [], hasDraft = p.draft && (p.draftChanged || !p.latest), gone = (p.broken || []).filter(function (b) { return PF.publish.versionOf(b.folder); });
     var cur = shown.draft ? 'draft' : shown.pub.folder, view = st.clView === 'plan' || st.clView === 'md' ? st.clView : 'list';
     /* Every version, newest first, 50 at a time with Find past 50 (K.select). Versions in the folder that can't be shown or run
-       here (still syncing, damaged, or too new for this copy) say why, after them. */
+       here (still syncing, damaged, or too new for this copy) say why, after them. A single version is just named, unless its
+       Find has text or focus (K.findOn): a newer read leaving one version never takes away the box in use (code review round 20). */
     var verItems = all.map(function (v) { return { v: v.folder, t: 'v' + v.info.version + (v === p.latest ? ' (current)' : '') + ' · ' + v.info.changes.slice(0, 50), place: v.folder }; })
       .concat(gone.map(function (b, i) { return { v: '', t: 'v' + PF.publish.versionOf(b.folder) + ' · can\'t be used here: ' + String(b.why).slice(0, 200), place: b.folder, disabled: true, key: i }; }));
     var verSel = K.select(st, 'map-ver', verItems, cur, { attrs: ' class="ver-pick" data-bound', lead: hasDraft ? '<option value="draft"' + (cur === 'draft' ? ' selected' : '') + '>Draft (not published)</option>' : '', noun: 'version' });
     var h = '<section class="panel mapview" aria-labelledby="cl-h"><div class="row between"><h2 id="cl-h" tabindex="-1" style="margin:0">' + (shown.draft ? 'The draft' : 'The checklist') + '</h2>' +
-      '<div class="row">' + (all.length + (hasDraft ? 1 : 0) + gone.length > 1 ? verSel.box + '<label class="sr" for="map-ver">Version to show</label>' + verSel.select + verSel.more : '<span class="small">' + (shown.draft ? 'Draft' : 'v' + shown.pub.info.version) + '</span>') +
+      '<div class="row">' + (K.findOn(st, 'map-ver', all.length + (hasDraft ? 1 : 0) + gone.length > 1) ? verSel.box + '<label class="sr" for="map-ver">Version to show</label>' + verSel.select + verSel.more : '<span class="small">' + (shown.draft ? 'Draft' : 'v' + shown.pub.info.version) + '</span>') +
       /* One switch for the three ways to see the same version: the checklist, its flight plan, or its Markdown source. */
       '<div class="seg" role="group" aria-label="Show as">' + [['list', 'Checklist'], ['plan', 'Flight plan'], ['md', 'Markdown']].map(function (x) { return '<button type="button" data-act="flight" data-id="' + x[0] + '" aria-pressed="' + (view === x[0]) + '">' + x[1] + '</button>'; }).join('') + '</div>' +
       (restoring ? '<span class="small" role="status">Restoring…</span>' : shown.current ? '<button class="btn" data-act="ptab" data-id="edit">' + I('edit') + ((p.editing || []).length ? 'Edit anyway' : 'Edit') + '</button>' : '<button class="btn" data-act="restore-draft" data-id="' + esc(shown.pub.folder) + '">Restore as draft</button>') + '</div></div>';
@@ -24071,7 +24079,8 @@ PF.vk = (function () {
     if (m.from && m.from.through) h += '<div class="notice good pr-done" tabindex="-1"><span>You got through from "' + esc(m.from.shown || m.from.text) + '".</span><button type="button" class="btn" data-act="pr-from-clear">Start from the beginning</button></div>';
     else if (m.complete) h += '<div class="notice good pr-done" tabindex="-1"><span>You got through the whole checklist.' + (P.dirty ? ' Save it, then stage it for a test run.' : '') + '</span>' +
       (P.dirty ? '<button type="button" class="btn" data-act="pr-save"' + (P.saving ? ' disabled' : '') + '>Save draft</button>' : stageLine(P)) + '</div>';
-    if (P.details.length && (s.prSamples || need.length)) h += '<section class="rw-details pr-sample" id="pr-sample" aria-labelledby="pr-sample-h"><h2 id="pr-sample-h" class="rw-h2" tabindex="-1">Sample details' + (need.length ? ' <span class="pill warn">' + need.length + ' needed from here</span>' : '') + '</h2><p class="small">Values to practice with, as a run would have them. Used only here.</p>' + prSamples(s, P, need) + '</section>';
+    /* Shown while asked for or needed, and while its Find has text or focus (K.findOn, code review round 20). */
+    if (P.details.length && (s.prSamples || need.length) || K.findOn(s, 'pr-samples', false)) h += '<section class="rw-details pr-sample" id="pr-sample" aria-labelledby="pr-sample-h"><h2 id="pr-sample-h" class="rw-h2" tabindex="-1">Sample details' + (need.length ? ' <span class="pill warn">' + need.length + ' needed from here</span>' : '') + '</h2><p class="small">Values to practice with, as a run would have them. Used only here.</p>' + prSamples(s, P, need) + '</section>';
     /* 20 sample details at a time with Find past 20 (code review round 10): a draft can list hundreds of run details. Each
        value is kept in the practice's state as it's committed, so a box not drawn loses nothing; a refused one stays drawn. */
     function prSamples(s, P, need) {
@@ -24315,15 +24324,18 @@ PF.vk = (function () {
   /* ---------- How runs go ---------- */
   function page(ctx, p) {
     var list = folderList(ctx, p);
-    if (!list.length) return '';
+    /* No version: nothing to show (process.js says there are no runs yet), but Find for versions stays while it has text or
+       focus, with that line after it (K.findOn, code review round 20). */
+    if (!list.length) return K.findOn(ctx.state, 'ins-folder', false) ? '<section class="panel"><div class="row">' + K.select(ctx.state, 'ins-folder', [], '', { attrs: ' data-bound data-nav-safe', noun: 'version' }).box + '</div><p class="small">No runs yet. This fills in after the first run.</p></section>' : '';
     var folder = chosen(ctx, p, list), f = list.filter(function (x) { return x.folder === folder; })[0];
     var res = insightsOf(ctx, p.id, folder, false);
     return summary(ctx, p, res, list, f) + timePanel(ctx, res) + hotSpots(ctx, res) + followUps(ctx, res) + roles(ctx, res) + counted() + compare(ctx, p, list);
   }
   function summary(ctx, p, res, list, f) {
     var h = '<section class="panel ins" aria-labelledby="ins-h"><div class="row between ins-head"><h2 id="ins-h" tabindex="-1">' + IC('chart') + 'How runs go</h2>';
-    /* Every version, newest first: 50 at a time, with Find past 50 (K.select). */
-    var vs = list.length > 1 ? K.select(ctx.state, 'ins-folder', list.map(function (x) { return { v: x.folder, t: verLabel(x) + ' · ' + plural(x.runs, 'run'), place: x.folder }; }), f.folder, { attrs: ' data-bound data-nav-safe', noun: 'version' }) : null;
+    /* Every version, newest first: 50 at a time, with Find past 50 (K.select). A single version is just named, unless its Find
+       has text or focus (K.findOn, code review round 20). */
+    var vs = K.findOn(ctx.state, 'ins-folder', list.length > 1) ? K.select(ctx.state, 'ins-folder', list.map(function (x) { return { v: x.folder, t: verLabel(x) + ' · ' + plural(x.runs, 'run'), place: x.folder }; }), f.folder, { attrs: ' data-bound data-nav-safe', noun: 'version' }) : null;
     h += vs ? '<span class="ins-pick">' + vs.box + '<label for="ins-folder">Version</label>' + vs.select + vs.more + '</span>' : '<span class="small">' + esc(verLabel(f)) + '</span>';
     h += '</div>';
     if (f.clash) h += '<div class="notice warn"><span>Two folders are numbered v' + f.version + '. Each is counted on its own; this is <code>' + esc(f.folder) + '</code>.</span></div>';
@@ -24863,7 +24875,8 @@ PF.vk = (function () {
     }
     var people = PF.people.sorted(ctx).filter(function (p) { return !p.inactive; }), owner = PP.roles(ctx.data.people).owner;
     h += '<h2 id="su-h" tabindex="-1">Who are you?</h2>';
-    if (!people.length) return h + '<div class="notice warn" role="status"><span><b>' + esc(fs.name) + '</b> has no people list yet. If you\'re setting up a new team, choose Start your team instead.</span><button class="btn" data-act="setup-mode" data-id="start">Start your team</button></div></section>';
+    /* Find your name stays while it has text or focus, even over nobody (K.findOn, code review round 20). */
+    if (!people.length) return h + (K.findOn(st, 'su-who', false) ? K.findBox(st, 'su-who', 'Find your name', 0, 0, 'name') : '') + '<div class="notice warn" role="status"><span><b>' + esc(fs.name) + '</b> has no people list yet. If you\'re setting up a new team, choose Start your team instead.</span><button class="btn" data-act="setup-mode" data-id="start">Start your team</button></div></section>';
     /* By name, 50 at a time, with Find your name past 50 (2.11), and whatever their number while it has text or focus: a newer
        list of 50 or fewer never takes away the box or its filtering (code review round 19). */
     var q = K.findQ(st, 'su-who'), hit = K.finds(q), shown = q ? people.filter(function (p) { return hit([p.name, p.email, p.id]); }) : people;

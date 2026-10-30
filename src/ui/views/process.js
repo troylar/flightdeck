@@ -779,7 +779,8 @@
     var apNames = K.capJoin(aps, function (a) { return '"' + a.title + '"'; }, ' and ', 'start-approvals');
     h += '<input type="hidden" id="start-mode" value="' + mode + '"><div class="seg" role="radiogroup" aria-label="Who is running it"><button type="button" role="radio" aria-checked="' + soloMap + '" data-act="start-mode" data-id="solo" data-process="' + esc(p.id) + '">On my own</button><button type="button" role="radio" aria-checked="' + !soloMap + '" data-act="start-mode" data-id="team" data-process="' + esc(p.id) + '">With others</button></div>';
     if (soloMap) h += '<p class="small">' + (aps.length ? 'Every role is yours, including who approves ' + esc(apNames) + '.' : 'Every role is yours.') + ' If someone joins later, add them from the run.</p>';
-    if (meta.roles.length && !soloMap) {
+    /* Find a role stays while it has text or focus, even when a newer version has no roles (K.findOn, code review round 20). */
+    if ((meta.roles.length || K.findOn(st, 'start-roles', false)) && !soloMap) {
       h += '<div class="row" style="margin-top:6px"><h3 style="margin:0">Who\'s doing what</h3>' + (st.me ? '<button class="mini" type="button" data-act="just-me">' + (aps.length ? 'Just me (every role, including who approves)' : 'Just me') + '</button>' : '') + '</div><div class="grid2">';
       var nmStage = PF.people.labeler(people);
       /* 20 roles at a time in checklist order, with Find past 20 (2.11). A role the plan or this form has given someone is
