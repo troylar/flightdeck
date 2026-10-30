@@ -90,7 +90,7 @@ const ALLOWED = {
   'exporter.js|ev-format [data-id]|o.format': [1, 'report or pack'],
   'views/builder.js|ob-meta-del [data-key]|key': [1, 'roles or context'],
   'views/common.js|#|esc(t)': [1, 'not a selector: a tag drawn as text, #tag'],
-  'views/insights.js|#ins-note-|k': [1, 'a K.domKey hash'],
+  'views/insights.js|#ins_note_|k': [1, 'a K.domKey hash'],
   'views/manage.js|#|t': [1, 'not a selector: a tag in a summary line'],
   'views/overlays.js|#hist-|k': [1, 'm plus a K.domKey hash'],
   'views/reports.js|#repbad-|String(k).slice(4)': [1, 'a K.domKey hash after bad#']

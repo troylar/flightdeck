@@ -338,8 +338,8 @@ rule('A process page and its How runs go for a 2,000-run folder draw a page: ver
   h = app.html(); renders = count(app, 'render');
   assert.ok(count(app, 'ins.rolecell') <= 50 * 20 * renders, 'role cells built ' + count(app, 'ins.rolecell') + ' ≤ 50 × 20 per draw');
   assert.ok(count(app, 'ins.phase') <= 50 * renders, 'phase rows built ≤ 50 per draw');
-  assert.ok((h.match(/<th scope="row" id="ins-cmp-/g) || []).length <= 20, 'Compare versions: 20');
-  assert.ok((h.match(/<th scope="row" id="ins-who-/g) || []).length <= 50, 'the roles grid: 50 people');
+  assert.ok((h.match(/<th scope="row" id="ins_cmp_/g) || []).length <= 20, 'Compare versions: 20');
+  assert.ok((h.match(/<th scope="row" id="ins_who_/g) || []).length <= 50, 'the roles grid: 50 people');
   app.click('ptab', 'overview'); await app.tick(5);
 });
 

@@ -106,7 +106,7 @@ const REGISTRY = [
   { name: 'How runs go, Who has done each role: people (ins-rot), and the heading row', rows: n => n.tag === 'tr' && within(n, x => x.attrs['aria-labelledby'] === 'ins-rot-h'), bound: 50 + 1 },
   { name: 'How runs go, Who has done each role: 20 role columns at a time (ins-rolecols), the person and Show more roles', rows: n => (n.tag === 'th' || n.tag === 'td') && within(n, x => x.attrs['aria-labelledby'] === 'ins-rot-h'), bound: 20 + 2, per: 'parent' },
   { name: 'How runs go, Each phase (ins-ph)', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'ins-phases'), bound: 50 },
-  { name: 'How runs go, the notes on what the numbers can\'t count (ins-notes)', rows: n => n.tag === 'li' && /^ins-note-/.test(n.attrs.id || ''), bound: 50 },
+  { name: 'How runs go, the notes on what the numbers can\'t count (ins-notes)', rows: n => n.tag === 'li' && /^ins_note_/.test(n.attrs.id || ''), bound: 50 },
   /* A version's Show changes (found while building slice 1): 50 changes at a time, each with a line around it, and a line per gap. */
   { name: 'a version\'s Show changes, the changes (ver-diff, draft-diff, plan-diff)', rows: n => n.tag === 'span' && (cls(n, 'add') || cls(n, 'del')) && n.parent && cls(n.parent, 'diff'), bound: 50, per: 'parent' },
   { name: 'a version\'s Show changes, its lines: the changes, a line around each and the gaps', rows: n => n.tag === 'span' && n.parent && cls(n.parent, 'diff'), bound: 50 + 2 * 50 + 51, per: 'parent' },

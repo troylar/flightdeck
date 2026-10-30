@@ -161,12 +161,12 @@ rule('Show more on How runs go\'s duration table moves focus to the first added 
   const rows = () => rowsOf(app.html(), /<tr id="ins-row-/g);
   assert.strictEqual(rows(), 50, 'set-up: a page drawn');
   const d = moreOf(app.html(), 'ins-dur');
-  assert.ok(d && d.focus === '[id="' + d.next + '-go"]', 'Show more names the row\'s link: ' + JSON.stringify(d));
+  assert.ok(d && d.focus === '[id="ins_go_' + d.next.slice(8) + '"]', 'Show more names the row\'s link: ' + JSON.stringify(d));
   app.click('more', 'ins-dur', d); await app.tick(5);
   assert.strictEqual(rows(), 100);
   const want = app.node(d.focus);
   assert.ok(want && want.tagName === 'BUTTON', 'the first added row is drawn, with its link');
-  assert.strictEqual(app.activeId(), d.next + '-go', 'focus moved to the link, by its own id');
+  assert.strictEqual(app.activeId(), 'ins_go_' + d.next.slice(8), 'focus moved to the link, by its own id');
   assert.ok(want.contains(app.node(d.focus)) && app.node('[id="' + d.next + '"]').contains(app.node(d.focus)), 'inside the first added row');
 });
 
@@ -175,13 +175,13 @@ rule('Show more on Steps that go off-script moves focus to the first added step\
   const rows = () => rowsOf(app.html(), /<li class="ins-step"/g);
   assert.strictEqual(rows(), 50, 'set-up: a page of the 120 steps drawn');
   const d = moreOf(app.html(), 'ins-hot');
-  assert.ok(d && d.focus === '[id="' + d.next + '-h"]', JSON.stringify(d));
+  assert.ok(d && d.focus === '[id="ins_h_' + d.next.slice(4) + '"]', JSON.stringify(d));
   app.click('more', 'ins-hot', d); await app.tick(5);
   assert.strictEqual(rows(), 100);
   const h3 = app.node(d.focus);
   assert.ok(h3 && h3.tagName === 'H3' && h3.getAttribute('tabindex') === '-1', 'a focusable heading');
   assert.ok(app.node('[id="' + d.next + '"]').contains(h3));
-  assert.ok(/<li class="ins-step" id="[^"]+"><h3 id="[^"]+-h" tabindex="-1">/.test(app.html()));
+  assert.ok(/<li class="ins-step" id="[^"]+"><h3 id="ins_h_[^"]+" tabindex="-1">/.test(app.html()));
 });
 
 rule('Choosing another version on How runs go starts both of its lists again from their first page', async () => {

@@ -631,7 +631,7 @@ rule('How runs go: a run title is escaped inside the chart\'s SVG title, the cha
   assert.ok(!/<img src=x|<script>bad/.test(html), 'nothing from a run is raw markup, in the SVG or anywhere');
   assert.ok(/<title>&lt;img src=x onerror=alert\(1\)&gt;&lt;\/title&gt;&lt;script&gt;bad\(\)&lt;\/script&gt;, under a minute<\/title>/.test(html), 'escaped in the dot\'s title');
   assert.ok(/aria-label="&lt;img src=x/.test(html) && /data-act="go" data-view="run" data-run="release\/in0"/.test(html), 'each dot is a link to its run with an accessible name');
-  assert.ok(/The same as a table/.test(html) && /<td><button class="linkish" id="ins-row-release-in1-go" data-act="go" data-view="run" data-run="release\/in1">Run 1<\/button><\/td>/.test(html), 'the table equivalent');
+  assert.ok(/The same as a table/.test(html) && /<td><button class="linkish" id="ins_go_release-in1" data-act="go" data-view="run" data-run="release\/in1">Run 1<\/button><\/td>/.test(html), 'the table equivalent');
   assert.ok(html.indexOf(PF.insights.FEW) >= 0, 'says it\'s too few for a rate');
   const hot = html.slice(html.indexOf('id="ins-hot-h"'));
   assert.ok(/data-act="ins-runs" data-id="step:approved:offScript">2 of 3 runs</.test(hot) && !/% · /.test(hot), 'counts, no percentages');

@@ -48,7 +48,7 @@ rule('Follow-ups: 5,000 draw 50 a chip, oldest open first, with Show more focusi
   assert.strictEqual(fuKeys(h).length, 50);
   assert.ok(/Open · 5000</.test(h) || /Open · 5,000</.test(h) || /Open · \d+</.test(h), 'the heading counts every one');
   const d = moreOf(h, 'fu');
-  assert.ok(d && d.focus === '[id="fu-' + d.next.replace(/\//g, '--') + '-t"]', JSON.stringify(d));
+  assert.ok(d && d.focus === '[id="fu-t-' + d.next + '"]', JSON.stringify(d));
   app.click('more', 'fu', d); await app.tick(5);
   assert.strictEqual(fuKeys(app.html()).length, 100);
   assert.ok(app.node(d.focus) && app.doc.activeElement === app.node(d.focus), 'focus is on the first added row\'s text');

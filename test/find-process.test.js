@@ -631,7 +631,7 @@ rule('How runs go: Compare versions over 300 versions works out at most 20 of th
     app.click('dismiss'); await app.tick(5);
     const draws = (app.PF.perf.n.render || 0) - r0;
     assert.ok(n <= 21 * draws, 'insightsOf, per draw: ' + n + ' in ' + draws);
-    assert.strictEqual(count(app.html(), /<th scope="row" id="ins-cmp-/g), 20);
+    assert.strictEqual(count(app.html(), /<th scope="row" id="ins_cmp_/g), 20);
   } finally { I.forProcess = f; }
 });
 
@@ -640,19 +640,19 @@ rule('How runs go: the roles grid with 300 roles and 60 people builds at most 50
   const d = await perfDelta(app, ['ins.rolecell'], async () => { app.click('dismiss'); await app.tick(5); });
   let h = app.html();
   assert.ok(d['ins.rolecell'] <= 50 * 20 * d.draws, JSON.stringify(d));
-  assert.strictEqual(count(h, /<th scope="col" id="ins-role-/g), 20);
+  assert.strictEqual(count(h, /<th scope="col" id="ins_role_/g), 20);
   for (let i = 0; i < 14; i++) {
     const m = moreOf(app.html(), 'ins-rolecols'); assert.ok(m, 'Show more roles, ' + i);
     app.click('more', 'ins-rolecols', m); await app.tick(5);
-    assert.strictEqual(app.activeId(), 'ins-role-' + m.next, 'focus on the first new heading');
+    assert.strictEqual(app.activeId(), 'ins_role_' + m.next, 'focus on the first new heading');
   }
   h = app.html();
-  assert.ok(/id="ins-role-r300"/.test(h) && !moreOf(h, 'ins-rolecols'), 'role 300 reached');
-  assert.strictEqual(count(h, /<th scope="row" id="ins-who-/g), 50, '50 people');
+  assert.ok(/id="ins_role_r300"/.test(h) && !moreOf(h, 'ins-rolecols'), 'role 300 reached');
+  assert.strictEqual(count(h, /<th scope="row" id="ins_who_/g), 50, '50 people');
   const pm = await more(app, 'ins-rot');
-  assert.strictEqual(app.activeId(), 'ins-who-' + pm.next, 'Show more people focuses the first one it adds');
+  assert.strictEqual(app.activeId(), 'ins_who_' + pm.next, 'Show more people focuses the first one it adds');
   h = app.html();
-  assert.ok(count(h, /<th scope="row" id="ins-who-/g) >= 60 && !moreOf(h, 'ins-rot'), 'every person who did a role');
+  assert.ok(count(h, /<th scope="row" id="ins_who_/g) >= 60 && !moreOf(h, 'ins-rot'), 'every person who did a role');
   app.click('ptab', 'overview'); await app.tick(5);
 });
 
@@ -660,13 +660,13 @@ rule('How runs go: Each phase on the 300-phase checklist builds 50 rows in order
   const app = await bigApp(); await openProc(app, 'phases', 'insights');
   const d = await perfDelta(app, ['ins.phase'], async () => { app.click('dismiss'); await app.tick(5); });
   let h = app.html();
-  const ph = ids(h, /<li id="ins-ph-([^"]+)"/g);
+  const ph = ids(h, /<span class="ins-lab" id="ins_ph_([^"]+)"/g);
   assert.strictEqual(ph.length, 50);
   assert.deepStrictEqual(ph, Array.from({ length: 50 }, (x, i) => 'ph' + (i + 1)), 'checklist order');
   assert.ok(d['ins.phase'] <= 50 * d.draws, JSON.stringify(d));
   for (let i = 0; i < 5; i++) { const m = await more(app, 'ins-ph'); assert.ok(app.doc.activeElement === app.node(m.focus), 'focus on the first new row'); }
   h = app.html();
-  assert.ok(/<li id="ins-ph-ph300"/.test(h));
+  assert.ok(/id="ins_ph_ph300"/.test(h));
   app.click('ptab', 'overview'); await app.tick(5);
 });
 
