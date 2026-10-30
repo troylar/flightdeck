@@ -761,11 +761,11 @@
       /* 20 roles at a time in checklist order, with Find past 20 (2.11). A role the plan or this form has given someone is
          always drawn; a role not drawn keeps its value in a hidden field, so the form starts or plans exactly what it would. */
       var chosenOf = function (role) { return pre.roles && typeof pre.roles === 'object' && typeof pre.roles[role] === 'string' ? pre.roles[role] : ''; };
-      var picked = st.rolesPicked && st.rolesPicked.at === scope + ':' + pub.info.folder ? st.rolesPicked.roles : Object.create(null);
+      var rpick = ctx.rolesPick ? ctx.rolesPick(scope + ':' + pub.info.folder) : null, picked = rpick ? rpick.roles : Object.create(null);
       /* What this form has set a role to (a change, or Just me for every role), drawn or not, over the plan and the suggestion.
          Each role, drawn or in a hidden field, also carries what the plan or the suggestion would have it be (data-was), so a
          choice redrawn as the control's own value still counts as unsaved: navigation asks about it (pendingBox in app.js). */
-      var setTo = st.rolesPicked && st.rolesPicked.at === scope + ':' + pub.info.folder ? st.rolesPicked.vals || Object.create(null) : Object.create(null);
+      var setTo = rpick ? rpick.vals || Object.create(null) : Object.create(null);
       var setOf = function (role, dflt) { return Object.prototype.hasOwnProperty.call(setTo, role) ? setTo[role] : dflt; };
       /* What each role started as on this form (ctx.rolesInit), drawn or not: the plan's choice, else the suggestion (never for
          who approves). Snapshotted the first time the role is drawn or hidden, so a newer read changes no role by itself. */
@@ -832,8 +832,8 @@
       var nmRun = PF.people.labeler(people), meOn = people.some(function (x) { return x.id === st.me; }) ? st.me : '';
       /* 20 roles at a time with Find past 20 (2.11), as Start: a role changed on this form stays drawn, and one not drawn is
          you, as its box would have been, in a hidden field. */
-      var tpicked = st.rolesPicked && st.rolesPicked.at === 'test:' + p.id + ':' + pub.folder ? st.rolesPicked.roles : Object.create(null);
-      var tset = st.rolesPicked && st.rolesPicked.at === 'test:' + p.id + ':' + pub.folder ? st.rolesPicked.vals || Object.create(null) : Object.create(null);
+      var tpick = ctx.rolesPick ? ctx.rolesPick('test:' + p.id + ':' + pub.folder) : null, tpicked = tpick ? tpick.roles : Object.create(null);
+      var tset = tpick ? tpick.vals || Object.create(null) : Object.create(null);
       var tsetOf = function (role, dflt) { return Object.prototype.hasOwnProperty.call(tset, role) ? tset[role] : dflt; };
       /* One resolver for a role drawn or hidden (code review round 10): you, or what this form set, when on the team now. */
       var tOn = Object.create(null); people.forEach(function (x) { tOn[x.id] = true; });

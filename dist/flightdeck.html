@@ -20597,11 +20597,11 @@ PF.vk = (function () {
       /* 20 roles at a time in checklist order, with Find past 20 (2.11). A role the plan or this form has given someone is
          always drawn; a role not drawn keeps its value in a hidden field, so the form starts or plans exactly what it would. */
       var chosenOf = function (role) { return pre.roles && typeof pre.roles === 'object' && typeof pre.roles[role] === 'string' ? pre.roles[role] : ''; };
-      var picked = st.rolesPicked && st.rolesPicked.at === scope + ':' + pub.info.folder ? st.rolesPicked.roles : Object.create(null);
+      var rpick = ctx.rolesPick ? ctx.rolesPick(scope + ':' + pub.info.folder) : null, picked = rpick ? rpick.roles : Object.create(null);
       /* What this form has set a role to (a change, or Just me for every role), drawn or not, over the plan and the suggestion.
          Each role, drawn or in a hidden field, also carries what the plan or the suggestion would have it be (data-was), so a
          choice redrawn as the control's own value still counts as unsaved: navigation asks about it (pendingBox in app.js). */
-      var setTo = st.rolesPicked && st.rolesPicked.at === scope + ':' + pub.info.folder ? st.rolesPicked.vals || Object.create(null) : Object.create(null);
+      var setTo = rpick ? rpick.vals || Object.create(null) : Object.create(null);
       var setOf = function (role, dflt) { return Object.prototype.hasOwnProperty.call(setTo, role) ? setTo[role] : dflt; };
       /* What each role started as on this form (ctx.rolesInit), drawn or not: the plan's choice, else the suggestion (never for
          who approves). Snapshotted the first time the role is drawn or hidden, so a newer read changes no role by itself. */
@@ -20668,8 +20668,8 @@ PF.vk = (function () {
       var nmRun = PF.people.labeler(people), meOn = people.some(function (x) { return x.id === st.me; }) ? st.me : '';
       /* 20 roles at a time with Find past 20 (2.11), as Start: a role changed on this form stays drawn, and one not drawn is
          you, as its box would have been, in a hidden field. */
-      var tpicked = st.rolesPicked && st.rolesPicked.at === 'test:' + p.id + ':' + pub.folder ? st.rolesPicked.roles : Object.create(null);
-      var tset = st.rolesPicked && st.rolesPicked.at === 'test:' + p.id + ':' + pub.folder ? st.rolesPicked.vals || Object.create(null) : Object.create(null);
+      var tpick = ctx.rolesPick ? ctx.rolesPick('test:' + p.id + ':' + pub.folder) : null, tpicked = tpick ? tpick.roles : Object.create(null);
+      var tset = tpick ? tpick.vals || Object.create(null) : Object.create(null);
       var tsetOf = function (role, dflt) { return Object.prototype.hasOwnProperty.call(tset, role) ? tset[role] : dflt; };
       /* One resolver for a role drawn or hidden (code review round 10): you, or what this form set, when on the team now. */
       var tOn = Object.create(null); people.forEach(function (x) { tOn[x.id] = true; });
@@ -21150,10 +21150,20 @@ PF.vk = (function () {
   /* A step's corrections as a list's items (2.11): keyed by ID, and by its occurrence when two share one ("id#2"). */
   /* A step's corrections as list items, each keyed by its note's identity (its id, and where it stands among the run's notes
      sharing that id: noteAt), so two corrections sharing an id are two rows with their own ids on the page. */
+  /* A one-off row (a Done differently answer with no correction) is keyed, and has its row id, by its step under ONE_OFF:
+     a note's key is its id as U.nthKey writes it, which starts with '#' only as '#' and digits (an empty id's later note),
+     so no note, whatever its id (diff-s0 too), can share a one-off's key or row id (code review round 15). */
+  var ONE_OFF = '#off-';
   function corrItems(rows) {
     var seen = Object.create(null);
-    return rows.map(function (c) { var n = c.noteAt || (seen[c.id] = (seen[c.id] || 0) + 1); return { c: c, k: PF.search.noteKey(c.id, n), dom: corrDomId(c.id, n) }; });
+    return rows.map(function (c) {
+      if (c.oneOff) return { c: c, k: ONE_OFF + c.step, dom: oneOffDom(c.step) };
+      var n = c.noteAt || (seen[c.id] = (seen[c.id] || 0) + 1); return { c: c, k: PF.search.noteKey(c.id, n), dom: corrDomId(c.id, n) };
+    });
   }
+  function oneOffDom(step) { return 'corr-' + ONE_OFF + step; }
+  /* The selector of a correction list's row from its key: a one-off's by its step, a note's by its id and place. */
+  function corrFocus(k) { k = String(k); if (k.indexOf(ONE_OFF) === 0) return K.byId('corr-' + k); var x = U.nthOf(k); return K.byId(corrDomId(x.s, x.n)); }
   /* Earlier or archived answers as list items, each keyed by the whole answer (who, when, what), never its place: a newer
      answer arriving on top doesn't turn the row someone is on into another. */
   function answerRows(list) {
@@ -21218,7 +21228,7 @@ PF.vk = (function () {
       (dl ? '<dl class="corr-dl">' + dl + '</dl>' : '') + runs + who + '</details></div>';
   }
   V.fuList = fuList; V.fuRow = fuRow; V.fuPill = fuPill; V.fuPaged = fuPaged;
-  V.redline = redline; V.corrRow = corrRow; V.corrDomId = corrDomId; V.memberKeys = memberKeys; V.oneOffHeld = oneOffHeld; V.corrItems = corrItems; V.corrPill = corrPill; V.corrIndex = corrIndex; V.corrGroups = corrGroups;
+  V.redline = redline; V.corrRow = corrRow; V.corrDomId = corrDomId; V.oneOffDom = oneOffDom; V.ONE_OFF = ONE_OFF; V.corrFocus = corrFocus; V.memberKeys = memberKeys; V.oneOffHeld = oneOffHeld; V.corrItems = corrItems; V.corrPill = corrPill; V.corrIndex = corrIndex; V.corrGroups = corrGroups;
   /* The composer: Correct this step (a proposal; it doesn't answer the step) or Done differently (answers it; what happened
      first, then whether the checklist should change). The published step stays shown above it, never replaced. */
   function composer(ctx, r, map, x, f) {
@@ -21464,7 +21474,7 @@ PF.vk = (function () {
     /* Corrections to this step from this run, then Correct this step (anyone who has said who they are, whatever the run's state). */
     h += '<section class="rw-box rw-corr" aria-labelledby="ins-corr"><div class="row between"><h3 class="rw-h3" id="ins-corr">Corrections' + (rows.length ? ' · ' + rows.length : '') + '</h3>' +
       (s.me && !(cf && cf.mode === 'correct') ? '<button class="mini" data-act="corr-open" data-mode="correct" data-id="' + esc(st.id) + '" title="If the checklist was wrong or unclear here, correct it. The team reviews corrections on the checklist&#39;s page.">' + I('edit') + 'Correct this step</button>' : '') + '</div>' +
-      (rows.length ? K.list(s, 'rcorr:' + rk, ci, { page: 20, hold: false, keep: [nsCorr ? nsCorr.key : null, nhCorr ? nhAny.key : null, oneOffHeld(s, r, ci)].filter(Boolean), keptLabel: nsCorr ? 'Shown because you opened it' : 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: function (k) { var x = U.nthOf(k); return K.byId(corrDomId(x.s, x.n)); },
+      (rows.length ? K.list(s, 'rcorr:' + rk, ci, { page: 20, hold: false, keep: [nsCorr ? nsCorr.key : null, nhCorr ? nhAny.key : null, oneOffHeld(s, r, ci)].filter(Boolean), keptLabel: nsCorr ? 'Shown because you opened it' : 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: corrFocus,
         draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) { return corrRow(ctx, x.c, idx[x.c.id], { withdraw: true, domId: x.dom }); }).join('') + '</ul>'; } }) : '') +
       (cf && cf.mode === 'correct' ? composer(ctx, r, map, x, cf) : '') + '</section>';
     /* The newest 20 notes, with Show earlier above them (2.11). A note is its id and where it stands among the notes sharing
@@ -22025,8 +22035,8 @@ PF.vk = (function () {
     var h = st.noteHeld && st.noteHeld.run === K.runKey(r) ? PF.search.noteFind(r._notes || [], st.noteHeld) : null, off = V.oneOffHeld(st, r, items);
     return (h && (h.n.kind === 'correction' || h.n.kind === 'fix' || h.n.kind === 'map') ? [h.key] : []).concat(off ? [off] : []);
   }
-  /* A correction row's own id from its list key (id, or id#n for a later note sharing that id). */
-  function corrFocus(k) { var x = U.nthOf(k); return K.byId(V.corrDomId(x.s, x.n)); }
+  /* A correction row's own id from its list key (id, or id#n for a later note sharing that id; a one-off by its step). */
+  function corrFocus(k) { return V.corrFocus(k); }
   /* ---------- finishing a run ---------- */
   function finish(ctx) {
     var r = ctx.run(); if (!r) return V.run(ctx);
@@ -25497,7 +25507,9 @@ PF.examples = (function () {
     suggestRole: suggestRole,
     /* What each role of the open Start or Plan form started as (2.11), kept per form and version: a refresh that changes the
        rotation's suggestion or the plan never changes a role off the page, as it never changes one drawn. */
-    rolesInit: function (fk) { if (!state.rolesInit || state.rolesInit.at !== fk) state.rolesInit = { at: fk, was: Object.create(null) }; return state.rolesInit.was; },
+    rolesInit: function (fk) { if (!state.rolesInit || state.rolesInit.at !== fk || state.rolesInit.gen !== gen) state.rolesInit = { at: fk, gen: gen, was: Object.create(null) }; return state.rolesInit.was; },
+    /* The roles this form has changed and what each is set to, when they're this form's in this folder (null otherwise). */
+    rolesPick: function (fk) { var b = state.rolesPicked; return b && b.at === fk && b.gen === gen ? b : null; },
     attachments: function (key, step) { return attachmentsFor(key, step); },
     /* What was typed on a step of the open run and not used yet: evidence, Fill in values, a note. */
     stepDraft: function (id) { return draftOf(state.runKey, id, false); },
@@ -26930,6 +26942,12 @@ PF.examples = (function () {
     if (state.noteShown && state.noteShown.gen !== gen) state.noteShown = null;
     if (state.find && state.find.gen !== gen) state.find = null;
     if (state.justPlanned && state.justPlanned.gen !== gen) state.justPlanned = null;
+    /* The Start, Plan or test-run form's roles (what each started as, and what it changed) are this folder's and this drawing
+       of the form's: another folder (Reconnect from the examples) or the form drawn afresh (the plan changed under it) starts
+       them over, as the form's own boxes do, so a role never saves what an older plan or folder had it be. */
+    var rolesReset = state.planFormReset && state.view === 'start';
+    if (state.rolesPicked && (state.rolesPicked.gen !== gen || rolesReset)) state.rolesPicked = null;
+    if (state.rolesInit && (state.rolesInit.gen !== gen || rolesReset)) state.rolesInit = null;
     dropBatchRender();
     repHarvest();
     corrHarvest();
@@ -27083,15 +27101,13 @@ PF.examples = (function () {
     Object.keys(r.steps || {}).forEach(function (k) { var d = r.steps[k] && r.steps[k].differently; if (d) o[k] = { by: d.by, at: d.at, note: d.note }; });
     return o;
   }
-  /* The one-off row (a Done differently answer with no correction, corr-diff-<step>) a drawn row id names, unless a note had
-     that id: { step, a (its answer as drawn) }. */
+  /* The one-off row (a Done differently answer with no correction, V.oneOffDom: a row id no note's can be) a drawn row id
+     names: { step, a (its answer as drawn) }. */
   function oneOffAt(was, id) {
-    if (!was || !was.diffs || id.indexOf('corr-diff-') !== 0) return null;
-    var sid = id.slice(10), a = was.diffs[sid];
-    if (!a || V.corrDomId('diff-' + sid, 1) !== id) return null;
-    var ats = PF.search.noteAts(was.notes);
-    for (var i = 0; i < was.notes.length; i++) if (V.corrDomId(was.notes[i].id, ats[i]) === id) return null;
-    return { step: sid, a: a };
+    var pre = V.oneOffDom('');
+    if (!was || !was.diffs || id.indexOf(pre) !== 0) return null;
+    var sid = id.slice(pre.length), a = Object.prototype.hasOwnProperty.call(was.diffs, sid) ? was.diffs[sid] : null;
+    return a ? { step: sid, a: a } : null;
   }
   /* Whether the run still draws that answer as a one-off row: the same step, who, when and what. */
   function oneOffNow(r, o) {
@@ -32759,7 +32775,7 @@ PF.examples = (function () {
     if (plan && plan._copiesDiffer) { say('Two different copies of this plan are in the folder. Delete the wrong one, then start it.', 'warn'); render(); return; }
     /* Decisions on the plan started to disagree after this form was drawn: show the warning before anything starts. */
     if (plan && plan._conflicting && e.target.dataset.planConflict !== '1') { say('Someone decided on this plan while you were filling this in, and the decisions disagree. Check Runs, then start again if it still needs to run.', 'warn'); render(); return; }
-    if (plan && e.target.dataset.planHash !== plan._sha) { say('Someone changed this plan while you were reviewing it. The form now shows the new plan; check it, then start again.', 'warn'); state.planFormReset = true; render(); return; }
+    if (plan && e.target.dataset.planHash !== plan._sha) { say('Someone changed this plan while you were reviewing it. The form now shows the new plan; check it, then start again.', 'warn'); state.planFormReset = true; state.rolesPicked = null; state.rolesInit = null; render(); return; }
     var tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (err) { tz = ''; }
     /* R.create refuses a version this copy can't fully read; verified versions never get here, but the refusal is shown. */
     /* A plan's details are text: typed ones are migrated from it (PF.run.create), never guessed. */
@@ -32873,7 +32889,7 @@ PF.examples = (function () {
   /* The Start, Plan or test-run form's own role state (2.11): the roles changed on it (kept drawn) and what each is set to. */
   function rolesBox() {
     var fk = state.testStage ? 'test:' + state.processId + ':' + state.testStage : startFormKey();
-    if (!state.rolesPicked || state.rolesPicked.at !== fk) state.rolesPicked = { at: fk, roles: Object.create(null), vals: Object.create(null) };
+    if (!state.rolesPicked || state.rolesPicked.at !== fk || state.rolesPicked.gen !== gen) state.rolesPicked = { at: fk, gen: gen, roles: Object.create(null), vals: Object.create(null) };
     if (!state.rolesPicked.vals) state.rolesPicked.vals = Object.create(null);
     return state.rolesPicked;
   }
@@ -32881,7 +32897,7 @@ PF.examples = (function () {
   function rolesHere() {
     if (state.view !== 'start' || !state.rolesPicked) return null;
     var fk = state.testStage ? 'test:' + state.processId + ':' + state.testStage : startFormKey();
-    return state.rolesPicked.at === fk ? state.rolesPicked : null;
+    return state.rolesPicked.at === fk && state.rolesPicked.gen === gen ? state.rolesPicked : null;
   }
   /* A role this form changed (or Just me) is redrawn with its choice as the control's own value, and one not drawn is a hidden
      field, so dirtyControl() can't see either: one whose value differs from what the plan or the suggestion has it be

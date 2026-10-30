@@ -458,10 +458,20 @@
   /* A step's corrections as a list's items (2.11): keyed by ID, and by its occurrence when two share one ("id#2"). */
   /* A step's corrections as list items, each keyed by its note's identity (its id, and where it stands among the run's notes
      sharing that id: noteAt), so two corrections sharing an id are two rows with their own ids on the page. */
+  /* A one-off row (a Done differently answer with no correction) is keyed, and has its row id, by its step under ONE_OFF:
+     a note's key is its id as U.nthKey writes it, which starts with '#' only as '#' and digits (an empty id's later note),
+     so no note, whatever its id (diff-s0 too), can share a one-off's key or row id (code review round 15). */
+  var ONE_OFF = '#off-';
   function corrItems(rows) {
     var seen = Object.create(null);
-    return rows.map(function (c) { var n = c.noteAt || (seen[c.id] = (seen[c.id] || 0) + 1); return { c: c, k: PF.search.noteKey(c.id, n), dom: corrDomId(c.id, n) }; });
+    return rows.map(function (c) {
+      if (c.oneOff) return { c: c, k: ONE_OFF + c.step, dom: oneOffDom(c.step) };
+      var n = c.noteAt || (seen[c.id] = (seen[c.id] || 0) + 1); return { c: c, k: PF.search.noteKey(c.id, n), dom: corrDomId(c.id, n) };
+    });
   }
+  function oneOffDom(step) { return 'corr-' + ONE_OFF + step; }
+  /* The selector of a correction list's row from its key: a one-off's by its step, a note's by its id and place. */
+  function corrFocus(k) { k = String(k); if (k.indexOf(ONE_OFF) === 0) return K.byId('corr-' + k); var x = U.nthOf(k); return K.byId(corrDomId(x.s, x.n)); }
   /* Earlier or archived answers as list items, each keyed by the whole answer (who, when, what), never its place: a newer
      answer arriving on top doesn't turn the row someone is on into another. */
   function answerRows(list) {
@@ -526,7 +536,7 @@
       (dl ? '<dl class="corr-dl">' + dl + '</dl>' : '') + runs + who + '</details></div>';
   }
   V.fuList = fuList; V.fuRow = fuRow; V.fuPill = fuPill; V.fuPaged = fuPaged;
-  V.redline = redline; V.corrRow = corrRow; V.corrDomId = corrDomId; V.memberKeys = memberKeys; V.oneOffHeld = oneOffHeld; V.corrItems = corrItems; V.corrPill = corrPill; V.corrIndex = corrIndex; V.corrGroups = corrGroups;
+  V.redline = redline; V.corrRow = corrRow; V.corrDomId = corrDomId; V.oneOffDom = oneOffDom; V.ONE_OFF = ONE_OFF; V.corrFocus = corrFocus; V.memberKeys = memberKeys; V.oneOffHeld = oneOffHeld; V.corrItems = corrItems; V.corrPill = corrPill; V.corrIndex = corrIndex; V.corrGroups = corrGroups;
   /* The composer: Correct this step (a proposal; it doesn't answer the step) or Done differently (answers it; what happened
      first, then whether the checklist should change). The published step stays shown above it, never replaced. */
   function composer(ctx, r, map, x, f) {
@@ -772,7 +782,7 @@
     /* Corrections to this step from this run, then Correct this step (anyone who has said who they are, whatever the run's state). */
     h += '<section class="rw-box rw-corr" aria-labelledby="ins-corr"><div class="row between"><h3 class="rw-h3" id="ins-corr">Corrections' + (rows.length ? ' · ' + rows.length : '') + '</h3>' +
       (s.me && !(cf && cf.mode === 'correct') ? '<button class="mini" data-act="corr-open" data-mode="correct" data-id="' + esc(st.id) + '" title="If the checklist was wrong or unclear here, correct it. The team reviews corrections on the checklist&#39;s page.">' + I('edit') + 'Correct this step</button>' : '') + '</div>' +
-      (rows.length ? K.list(s, 'rcorr:' + rk, ci, { page: 20, hold: false, keep: [nsCorr ? nsCorr.key : null, nhCorr ? nhAny.key : null, oneOffHeld(s, r, ci)].filter(Boolean), keptLabel: nsCorr ? 'Shown because you opened it' : 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: function (k) { var x = U.nthOf(k); return K.byId(corrDomId(x.s, x.n)); },
+      (rows.length ? K.list(s, 'rcorr:' + rk, ci, { page: 20, hold: false, keep: [nsCorr ? nsCorr.key : null, nhCorr ? nhAny.key : null, oneOffHeld(s, r, ci)].filter(Boolean), keptLabel: nsCorr ? 'Shown because you opened it' : 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: corrFocus,
         draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) { return corrRow(ctx, x.c, idx[x.c.id], { withdraw: true, domId: x.dom }); }).join('') + '</ul>'; } }) : '') +
       (cf && cf.mode === 'correct' ? composer(ctx, r, map, x, cf) : '') + '</section>';
     /* The newest 20 notes, with Show earlier above them (2.11). A note is its id and where it stands among the notes sharing

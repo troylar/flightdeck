@@ -155,7 +155,9 @@
     suggestRole: suggestRole,
     /* What each role of the open Start or Plan form started as (2.11), kept per form and version: a refresh that changes the
        rotation's suggestion or the plan never changes a role off the page, as it never changes one drawn. */
-    rolesInit: function (fk) { if (!state.rolesInit || state.rolesInit.at !== fk) state.rolesInit = { at: fk, was: Object.create(null) }; return state.rolesInit.was; },
+    rolesInit: function (fk) { if (!state.rolesInit || state.rolesInit.at !== fk || state.rolesInit.gen !== gen) state.rolesInit = { at: fk, gen: gen, was: Object.create(null) }; return state.rolesInit.was; },
+    /* The roles this form has changed and what each is set to, when they're this form's in this folder (null otherwise). */
+    rolesPick: function (fk) { var b = state.rolesPicked; return b && b.at === fk && b.gen === gen ? b : null; },
     attachments: function (key, step) { return attachmentsFor(key, step); },
     /* What was typed on a step of the open run and not used yet: evidence, Fill in values, a note. */
     stepDraft: function (id) { return draftOf(state.runKey, id, false); },
@@ -1588,6 +1590,12 @@
     if (state.noteShown && state.noteShown.gen !== gen) state.noteShown = null;
     if (state.find && state.find.gen !== gen) state.find = null;
     if (state.justPlanned && state.justPlanned.gen !== gen) state.justPlanned = null;
+    /* The Start, Plan or test-run form's roles (what each started as, and what it changed) are this folder's and this drawing
+       of the form's: another folder (Reconnect from the examples) or the form drawn afresh (the plan changed under it) starts
+       them over, as the form's own boxes do, so a role never saves what an older plan or folder had it be. */
+    var rolesReset = state.planFormReset && state.view === 'start';
+    if (state.rolesPicked && (state.rolesPicked.gen !== gen || rolesReset)) state.rolesPicked = null;
+    if (state.rolesInit && (state.rolesInit.gen !== gen || rolesReset)) state.rolesInit = null;
     dropBatchRender();
     repHarvest();
     corrHarvest();
@@ -1741,15 +1749,13 @@
     Object.keys(r.steps || {}).forEach(function (k) { var d = r.steps[k] && r.steps[k].differently; if (d) o[k] = { by: d.by, at: d.at, note: d.note }; });
     return o;
   }
-  /* The one-off row (a Done differently answer with no correction, corr-diff-<step>) a drawn row id names, unless a note had
-     that id: { step, a (its answer as drawn) }. */
+  /* The one-off row (a Done differently answer with no correction, V.oneOffDom: a row id no note's can be) a drawn row id
+     names: { step, a (its answer as drawn) }. */
   function oneOffAt(was, id) {
-    if (!was || !was.diffs || id.indexOf('corr-diff-') !== 0) return null;
-    var sid = id.slice(10), a = was.diffs[sid];
-    if (!a || V.corrDomId('diff-' + sid, 1) !== id) return null;
-    var ats = PF.search.noteAts(was.notes);
-    for (var i = 0; i < was.notes.length; i++) if (V.corrDomId(was.notes[i].id, ats[i]) === id) return null;
-    return { step: sid, a: a };
+    var pre = V.oneOffDom('');
+    if (!was || !was.diffs || id.indexOf(pre) !== 0) return null;
+    var sid = id.slice(pre.length), a = Object.prototype.hasOwnProperty.call(was.diffs, sid) ? was.diffs[sid] : null;
+    return a ? { step: sid, a: a } : null;
   }
   /* Whether the run still draws that answer as a one-off row: the same step, who, when and what. */
   function oneOffNow(r, o) {
@@ -7417,7 +7423,7 @@
     if (plan && plan._copiesDiffer) { say('Two different copies of this plan are in the folder. Delete the wrong one, then start it.', 'warn'); render(); return; }
     /* Decisions on the plan started to disagree after this form was drawn: show the warning before anything starts. */
     if (plan && plan._conflicting && e.target.dataset.planConflict !== '1') { say('Someone decided on this plan while you were filling this in, and the decisions disagree. Check Runs, then start again if it still needs to run.', 'warn'); render(); return; }
-    if (plan && e.target.dataset.planHash !== plan._sha) { say('Someone changed this plan while you were reviewing it. The form now shows the new plan; check it, then start again.', 'warn'); state.planFormReset = true; render(); return; }
+    if (plan && e.target.dataset.planHash !== plan._sha) { say('Someone changed this plan while you were reviewing it. The form now shows the new plan; check it, then start again.', 'warn'); state.planFormReset = true; state.rolesPicked = null; state.rolesInit = null; render(); return; }
     var tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (err) { tz = ''; }
     /* R.create refuses a version this copy can't fully read; verified versions never get here, but the refusal is shown. */
     /* A plan's details are text: typed ones are migrated from it (PF.run.create), never guessed. */
@@ -7531,7 +7537,7 @@
   /* The Start, Plan or test-run form's own role state (2.11): the roles changed on it (kept drawn) and what each is set to. */
   function rolesBox() {
     var fk = state.testStage ? 'test:' + state.processId + ':' + state.testStage : startFormKey();
-    if (!state.rolesPicked || state.rolesPicked.at !== fk) state.rolesPicked = { at: fk, roles: Object.create(null), vals: Object.create(null) };
+    if (!state.rolesPicked || state.rolesPicked.at !== fk || state.rolesPicked.gen !== gen) state.rolesPicked = { at: fk, gen: gen, roles: Object.create(null), vals: Object.create(null) };
     if (!state.rolesPicked.vals) state.rolesPicked.vals = Object.create(null);
     return state.rolesPicked;
   }
@@ -7539,7 +7545,7 @@
   function rolesHere() {
     if (state.view !== 'start' || !state.rolesPicked) return null;
     var fk = state.testStage ? 'test:' + state.processId + ':' + state.testStage : startFormKey();
-    return state.rolesPicked.at === fk ? state.rolesPicked : null;
+    return state.rolesPicked.at === fk && state.rolesPicked.gen === gen ? state.rolesPicked : null;
   }
   /* A role this form changed (or Just me) is redrawn with its choice as the control's own value, and one not drawn is a hidden
      field, so dirtyControl() can't see either: one whose value differs from what the plan or the suggestion has it be

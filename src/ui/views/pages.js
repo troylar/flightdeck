@@ -38,8 +38,8 @@
     var h = st.noteHeld && st.noteHeld.run === K.runKey(r) ? PF.search.noteFind(r._notes || [], st.noteHeld) : null, off = V.oneOffHeld(st, r, items);
     return (h && (h.n.kind === 'correction' || h.n.kind === 'fix' || h.n.kind === 'map') ? [h.key] : []).concat(off ? [off] : []);
   }
-  /* A correction row's own id from its list key (id, or id#n for a later note sharing that id). */
-  function corrFocus(k) { var x = U.nthOf(k); return K.byId(V.corrDomId(x.s, x.n)); }
+  /* A correction row's own id from its list key (id, or id#n for a later note sharing that id; a one-off by its step). */
+  function corrFocus(k) { return V.corrFocus(k); }
   /* ---------- finishing a run ---------- */
   function finish(ctx) {
     var r = ctx.run(); if (!r) return V.run(ctx);
