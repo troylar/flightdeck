@@ -198,7 +198,7 @@
        ids stay unique, and none does while the plan is in Just planned above. */
     var nth = {};
     var planKeyed = plans.map(function (p) { nth[p.id] = (nth[p.id] || 0) + 1; return { p: p, key: U.nthKey(p.id, nth[p.id]) }; });
-    if (plans.length) h += '<section class="panel" aria-labelledby="planned-h"><h2 id="planned-h">Planned · ' + plans.length.toLocaleString('en-US') + '</h2>' + K.list(st, 'runs-planned', planKeyed, { keyOf: function (x) { return x.key; }, focusOf: function (k) { return '[data-act="review-plan"][data-key="' + String(k).replace(/["\\]/g, '\\$&') + '"]'; }, draw: function (shown) { return '<div class="cards">' + shown.map(function (x) { return planCard(x.p, x.key); }).join('') + '</div>'; } }) + '</section>';
+    if (plans.length) h += '<section class="panel" aria-labelledby="planned-h"><h2 id="planned-h">Planned · ' + plans.length.toLocaleString('en-US') + '</h2>' + K.list(st, 'runs-planned', planKeyed, { keyOf: function (x) { return x.key; }, focusOf: function (k) { return '[data-act="review-plan"][data-key="' + K.cssStr(k) + '"]'; }, draw: function (shown) { return '<div class="cards">' + shown.map(function (x) { return planCard(x.p, x.key); }).join('') + '</div>'; } }) + '</section>';
     function planCard(p, key) {
       var cid = cardIds[p.id] ? '' : ' id="card-' + esc(p.id) + '"', copies = copiesLine(p);
       cardIds[p.id] = true;

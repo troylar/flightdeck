@@ -19743,7 +19743,7 @@ PF.vk = (function () {
        ids stay unique, and none does while the plan is in Just planned above. */
     var nth = {};
     var planKeyed = plans.map(function (p) { nth[p.id] = (nth[p.id] || 0) + 1; return { p: p, key: U.nthKey(p.id, nth[p.id]) }; });
-    if (plans.length) h += '<section class="panel" aria-labelledby="planned-h"><h2 id="planned-h">Planned · ' + plans.length.toLocaleString('en-US') + '</h2>' + K.list(st, 'runs-planned', planKeyed, { keyOf: function (x) { return x.key; }, focusOf: function (k) { return '[data-act="review-plan"][data-key="' + String(k).replace(/["\\]/g, '\\$&') + '"]'; }, draw: function (shown) { return '<div class="cards">' + shown.map(function (x) { return planCard(x.p, x.key); }).join('') + '</div>'; } }) + '</section>';
+    if (plans.length) h += '<section class="panel" aria-labelledby="planned-h"><h2 id="planned-h">Planned · ' + plans.length.toLocaleString('en-US') + '</h2>' + K.list(st, 'runs-planned', planKeyed, { keyOf: function (x) { return x.key; }, focusOf: function (k) { return '[data-act="review-plan"][data-key="' + K.cssStr(k) + '"]'; }, draw: function (shown) { return '<div class="cards">' + shown.map(function (x) { return planCard(x.p, x.key); }).join('') + '</div>'; } }) + '</section>';
     function planCard(p, key) {
       var cid = cardIds[p.id] ? '' : ' id="card-' + esc(p.id) + '"', copies = copiesLine(p);
       cardIds[p.id] = true;
@@ -21971,7 +21971,7 @@ PF.vk = (function () {
       failedNote(b) +
       (b.loading ? '<p class="small" role="status">Reading reports…</p>' : '') +
       (all.length ? K.list(ctx.state, 'reppanel:' + r.process + '/' + r.id, all, { page: 20, keyOf: function (it) { return it.bad != null ? 'bad#' + it.k : it.g.key; },
-        focusOf: function (k) { return /^bad#/.test(k) ? '#repbad-' + String(k).slice(4) : '[data-act="rep-goto"][data-report="' + String(k).replace(/["\\]/g, '\\$&') + '"]'; },
+        focusOf: function (k) { return /^bad#/.test(k) ? '#repbad-' + String(k).slice(4) : '[data-act="rep-goto"][data-report="' + K.cssStr(k) + '"]'; },
         draw: function (shown) { return '<ul class="replist">' + shown.map(function (it) { return it.bad != null ? it.bad : row(it); }).join('') + '</ul>'; } }) : b.failed ? '' : '<p class="small">No reports on this run. A tool writes them with flightdeck report write.</p>') + '</section>';
   }
   /* The rail button beside Follow-ups. */
@@ -22997,7 +22997,10 @@ PF.vk = (function () {
        details. A row with text typed and not applied, a refused value, or A fixed value just chosen stays drawn, so paging
        or Find never takes away what's being typed. */
     var byName = Object.create(null); rr.rows.forEach(function (r) { byName[r.name] = r; });
-    var pf = ctx.state.obPendingField, keepRow = function (n) { return pf === 'ob-link-val-' + n || !!errOf(ctx, 'ob-link-val-' + n) || !!fixed[s.key + ':' + n]; };
+    /* Every row with text not applied is kept, each on its own (state.obUnapplied), not only the latest one typed or refused
+       (code review round 13). */
+    var pf = ctx.state.obPendingField, un = ctx.state.obUnapplied, unIds = un && un.pid === p.id && un.key === s.key ? un.ids : null;
+    var keepRow = function (n) { var vid = 'ob-link-val-' + n; return pf === vid || !!errOf(ctx, vid) || !!(unIds && unIds[vid]) || !!fixed[s.key + ':' + n]; };
     var names = rr.rows.map(function (r) { return r.name; }), linkRow = function (name) {
       var r = byName[name], h = '';
       var sid = 'ob-link-src-' + r.name, cur = r.source === 'value' || fixed[s.key + ':' + r.name] ? '=' : r.source === 'detail' ? '^' + r.from : r.source === 'team' ? 'team:' + r.team : ownKey(setBy, r.name) || asks(r.name) ? '?' : '-';
@@ -23005,7 +23008,7 @@ PF.vk = (function () {
       var ks = K.select(ctx.state, sid, items, cur, { attrs: ' data-bound', noun: 'source', group: function (x) { return x.group || null; },
         trail: '<option value="="' + (cur === '=' ? ' selected' : '') + '>A fixed value</option><option value="?"' + (cur === '?' ? ' selected' : '') + '>' + (ownKey(setBy, r.name) ? esc(t) + ' fills this in itself' : 'Asked when ' + esc(t) + ' starts') + '</option>' +
           (cur === '-' ? '<option value="-" selected>Not passed: ' + esc(t) + ' starts without it</option>' : '') });
-      h += '<div class="field ob-link-row">' + ks.box + '<label for="' + esc(sid) + '"><b>' + esc(r.name) + '</b> <span class="small">' + esc(r.kind) + (ownKey(setBy, r.name) ? ' · ' + esc(t) + ' also sets this itself, later' : '') + '</span></label>' + ks.select + ks.more;
+      h += '<div class="field ob-link-row" data-row>' + ks.box + '<label for="' + esc(sid) + '"><b>' + esc(r.name) + '</b> <span class="small">' + esc(r.kind) + (ownKey(setBy, r.name) ? ' · ' + esc(t) + ' also sets this itself, later' : '') + '</span></label>' + ks.select + ks.more;
       if (r.source === 'team') h += teamNote(ctx, r.team, t);
       if (cur === '=') h += '<label class="field" for="ob-link-val-' + esc(r.name) + '">' + esc(G.form('link-val').q) + '<input id="ob-link-val-' + esc(r.name) + '" maxlength="120" value="' + esc(r.value || '') + '" data-enter="ob-commit"' + errAt(ctx, 'ob-link-val-' + r.name) + '></label>' + errMsg(ctx, 'ob-link-val-' + r.name);
       return h + '</div>';
@@ -23154,7 +23157,11 @@ PF.vk = (function () {
     return out;
   }
   /* The fold stays open while a box inside it holds typing not applied, so the typing is never hidden. */
-  function foldBusy(ctx, G4, inside) { var pf = ctx.state.obPendingField; return !!pf && inside.some(function (g) { return G4.groups[g[0]].ids.some(function (re) { return re.test(pf); }); }); }
+  /* Any such box, not only the latest one (state.obUnapplied, code review round 13). */
+  function foldBusy(ctx, G4, inside) {
+    var st = ctx.state, u = st.obUnapplied, sel = st.obSel, ids = (st.obPendingField ? [st.obPendingField] : []).concat(u && sel && u.pid === sel.pid && u.key === sel.key ? Object.keys(u.ids) : []);
+    return ids.length > 0 && inside.some(function (g) { return G4.groups[g[0]].ids.some(function (re) { return ids.some(function (id) { return re.test(id); }); }); });
+  }
   /* The parts of the step form: what sits at the top for a typed step, and each group's controls and box IDs. */
   function stepParts(ctx, p, text, o, s, def, meta) {
     var f = s.fields, shown = shownOf(ctx, p, s), names = def ? Object.keys(def.fields || {}) : [], typed = s.type && s.type !== 'confirm';
@@ -26927,6 +26934,7 @@ PF.examples = (function () {
     repHarvest();
     corrHarvest();
     procCache = null; pplBy = { list: null, len: -1, by: null }; pplSorted = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null;
+    pruneUnapplied();
     var keep = {}, ae = document.activeElement, focusKey = null;
     /* What a person typed or ticked survives a redraw of the same thing: the same screen, run, step and open form. Moving to
        another step or form starts clean, so a note or a value never jumps to the wrong place. Hidden inputs are never carried. */
@@ -27109,8 +27117,10 @@ PF.examples = (function () {
     return PF.vk.byId(hc ? V.corrDomId(hit.n.id, hit.k) : 'tn-' + hit.n.step + '-' + hit.key);
   }
   /* Whether the row of a list's item (the element sel finds, as the page was drawn, and the row around it) holds el. A row
-     around it that also holds another item (other) of the same list isn't its row: the element itself is. */
-  var holdGen = null, ROW_SEL = 'li, tr, .card, .copyrow, .rep-card, .rr-rep';
+     around it that also holds another item (other) of the same list isn't its row: the element itself is. A row drawn as
+     another element marks itself data-row, so focus on any control nested in it (a dropdown's Find box, its Show more
+     choices, a value's box) holds the row (code review round 13). */
+  var holdGen = null, ROW_SEL = 'li, tr, .card, .copyrow, .rep-card, .rr-rep, [data-row]';
   function rowHas(el, sel, other) {
     var t = null, o = null;
     try { t = document.querySelector(sel); o = other ? document.querySelector(other) : null; } catch (e) { return false; }
@@ -29538,6 +29548,22 @@ PF.examples = (function () {
      (a command's arguments) are its content. */
   function norm(v) { return String(v == null ? '' : v).replace(/[\r\n]+/g, ' ').trim(); }
   function dropPending() { state.obPending = null; state.obPendingField = null; state.obHold = null; }
+  /* Every builder box of the selected step or phase holding text not applied (typed, or refused), not only the latest one
+     (state.obPendingField): a list that pages its rows keeps each of them drawn, so Find or Show more never takes away
+     an earlier one's text (code review round 13). { pid, key, ids }, for one selection only. */
+  function markUnapplied(id, on) {
+    var s = state.obSel, u = state.obUnapplied;
+    if (!s || !state.processId) return;
+    if (!u || u.pid !== state.processId || u.key !== s.key) u = state.obUnapplied = { pid: state.processId, key: s.key, ids: Object.create(null) };
+    if (on) u.ids[id] = true; else delete u.ids[id];
+  }
+  /* Before a redraw, from the page as drawn: a box applied, cleared back to what the draft says, or gone with its form is no
+     longer one; a form drawn afresh (planFormReset) or another selection forgets them all. */
+  function pruneUnapplied() {
+    var u = state.obUnapplied, s = state.obSel; if (!u) return;
+    if (state.planFormReset || state.view !== 'process' || state.ptab !== 'edit' || !s || u.pid !== state.processId || u.key !== s.key) { state.obUnapplied = null; return; }
+    Object.keys(u.ids).forEach(function (id) { var el = document.getElementById(id); if (!el || boxNorm(id, el.value) === boxNorm(id, fieldApplied(id))) delete u.ids[id]; });
+  }
   /* What the draft says now for a box in the builder's form, to tell typed text from what's applied. */
   function fieldApplied(id) {
     var p = currentProcess(), s = state.obSel; if (!p || !s || /^ob-new-/.test(id)) return '';
@@ -30038,7 +30064,7 @@ PF.examples = (function () {
       f.tried = true; f.leaving = false; f.closeAfterSave = false; render();
       var bad = document.querySelector && document.querySelector('#type-form [aria-invalid="true"]');
       say('Not saved yet. ' + errs.length + (errs.length === 1 ? ' thing needs' : ' things need') + ' fixing first.', 'warn');
-      state.focus = bad && bad.id ? '#' + bad.id : 'tf-h'; render(); return;
+      state.focus = bad && bad.id ? '#' + cssEsc(bad.id) : 'tf-h'; render(); return;
     }
     if (!f.existing && (T.get(def.id) || ((data.stepTypes || {}).types || {})[def.id])) { say('There\'s already a step type {' + def.id + '}. Choose another ID, or edit that one.', 'warn'); render(); return; }
     if (f.saving) { say('Still saving this step type. Try again in a moment.', 'warn'); render(); return; }
@@ -30109,7 +30135,7 @@ PF.examples = (function () {
       if (recoveringEnded && !r.ended && !(r.recorder.person === state.me && r.recorder.session === SESSION)) R.takeOver(r, state.me, SESSION, now, R.legacyLinks(r, ctx.findRun));
     }
     catch (e) {
-      if (opts.fieldsFor) { state.fieldErr = { id: opts.fieldsFor, msg: e.message, field: e.field || '' }; state.focus = e.field ? '#' + e.field : '[aria-invalid="true"]'; }
+      if (opts.fieldsFor) { state.fieldErr = { id: opts.fieldsFor, msg: e.message, field: e.field || '' }; state.focus = e.field ? '#' + cssEsc(e.field) : '[aria-invalid="true"]'; }
       else if (!opts.background) say(e.message, 'warn');
       render(); return Promise.resolve(false);
     }
@@ -31526,7 +31552,7 @@ PF.examples = (function () {
       var merged = Object.assign({}, R.fieldsOf(r, x.step), fields);
       R.evidenceFor(r, x.step, merged).list.forEach(function (d) { var el = document.getElementById('rec-' + d.name); if (el) values[d.name] = inputValue(el); });
       var chk = R.checkEvidence(r, x.step, merged, values, true);
-      if (chk.error) { state.fieldErr = { id: id, msg: chk.error, field: chk.field ? 'rec-' + chk.field : '' }; state.focus = chk.field ? '#rec-' + chk.field : '[aria-invalid="true"]'; render(); return; }
+      if (chk.error) { state.fieldErr = { id: id, msg: chk.error, field: chk.field ? 'rec-' + chk.field : '' }; state.focus = chk.field ? '#' + cssEsc('rec-' + chk.field) : '[aria-invalid="true"]'; render(); return; }
       /* The draft is dropped only once the values are in the run, and only the evidence this form saved: evidence typed for
          an action no longer chosen stays a draft. */
       var key = state.runKey;
@@ -32892,7 +32918,7 @@ PF.examples = (function () {
     var gap = V.approvals(pub.map).filter(function (a) { return !roles[a.role]; })[0];
     if (!gap) { if (state.fieldErr && state.fieldErr.id === 'start-approver') state.fieldErr = null; return false; }
     state.fieldErr = { id: 'start-approver', field: 'role-' + gap.role, msg: 'Choose who approves "' + gap.title + '".' };
-    state.focus = '#role-' + gap.role; say(null); render(); return true;
+    state.focus = '#' + cssEsc('role-' + gap.role); say(null); render(); return true;
   }
   /* Save a plan: a new file, never a replacement for one that's there. */
   document.addEventListener('submit', function (e) {
@@ -32974,6 +33000,7 @@ PF.examples = (function () {
     if (OB_TYPED.test(e.target.id || '') && state.processId) {
       /* Pending only while the box differs from what the draft says (or, for a new item, holds anything). */
       var differs = boxNorm(e.target.id, e.target.value) !== boxNorm(e.target.id, fieldApplied(e.target.id)), was = !!state.obPending;
+      markUnapplied(e.target.id, differs);
       if (differs) { state.obPending = state.processId; state.obPendingField = e.target.id; } else if (state.obPendingField === e.target.id) { dropPending(); obRepend(); }
       if (was !== !!state.obPending) scheduleRender();
     }

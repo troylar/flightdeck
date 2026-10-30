@@ -197,7 +197,7 @@
       failedNote(b) +
       (b.loading ? '<p class="small" role="status">Reading reports…</p>' : '') +
       (all.length ? K.list(ctx.state, 'reppanel:' + r.process + '/' + r.id, all, { page: 20, keyOf: function (it) { return it.bad != null ? 'bad#' + it.k : it.g.key; },
-        focusOf: function (k) { return /^bad#/.test(k) ? '#repbad-' + String(k).slice(4) : '[data-act="rep-goto"][data-report="' + String(k).replace(/["\\]/g, '\\$&') + '"]'; },
+        focusOf: function (k) { return /^bad#/.test(k) ? '#repbad-' + String(k).slice(4) : '[data-act="rep-goto"][data-report="' + K.cssStr(k) + '"]'; },
         draw: function (shown) { return '<ul class="replist">' + shown.map(function (it) { return it.bad != null ? it.bad : row(it); }).join('') + '</ul>'; } }) : b.failed ? '' : '<p class="small">No reports on this run. A tool writes them with flightdeck report write.</p>') + '</section>';
   }
   /* The rail button beside Follow-ups. */

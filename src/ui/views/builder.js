@@ -431,7 +431,10 @@
        details. A row with text typed and not applied, a refused value, or A fixed value just chosen stays drawn, so paging
        or Find never takes away what's being typed. */
     var byName = Object.create(null); rr.rows.forEach(function (r) { byName[r.name] = r; });
-    var pf = ctx.state.obPendingField, keepRow = function (n) { return pf === 'ob-link-val-' + n || !!errOf(ctx, 'ob-link-val-' + n) || !!fixed[s.key + ':' + n]; };
+    /* Every row with text not applied is kept, each on its own (state.obUnapplied), not only the latest one typed or refused
+       (code review round 13). */
+    var pf = ctx.state.obPendingField, un = ctx.state.obUnapplied, unIds = un && un.pid === p.id && un.key === s.key ? un.ids : null;
+    var keepRow = function (n) { var vid = 'ob-link-val-' + n; return pf === vid || !!errOf(ctx, vid) || !!(unIds && unIds[vid]) || !!fixed[s.key + ':' + n]; };
     var names = rr.rows.map(function (r) { return r.name; }), linkRow = function (name) {
       var r = byName[name], h = '';
       var sid = 'ob-link-src-' + r.name, cur = r.source === 'value' || fixed[s.key + ':' + r.name] ? '=' : r.source === 'detail' ? '^' + r.from : r.source === 'team' ? 'team:' + r.team : ownKey(setBy, r.name) || asks(r.name) ? '?' : '-';
@@ -439,7 +442,7 @@
       var ks = K.select(ctx.state, sid, items, cur, { attrs: ' data-bound', noun: 'source', group: function (x) { return x.group || null; },
         trail: '<option value="="' + (cur === '=' ? ' selected' : '') + '>A fixed value</option><option value="?"' + (cur === '?' ? ' selected' : '') + '>' + (ownKey(setBy, r.name) ? esc(t) + ' fills this in itself' : 'Asked when ' + esc(t) + ' starts') + '</option>' +
           (cur === '-' ? '<option value="-" selected>Not passed: ' + esc(t) + ' starts without it</option>' : '') });
-      h += '<div class="field ob-link-row">' + ks.box + '<label for="' + esc(sid) + '"><b>' + esc(r.name) + '</b> <span class="small">' + esc(r.kind) + (ownKey(setBy, r.name) ? ' · ' + esc(t) + ' also sets this itself, later' : '') + '</span></label>' + ks.select + ks.more;
+      h += '<div class="field ob-link-row" data-row>' + ks.box + '<label for="' + esc(sid) + '"><b>' + esc(r.name) + '</b> <span class="small">' + esc(r.kind) + (ownKey(setBy, r.name) ? ' · ' + esc(t) + ' also sets this itself, later' : '') + '</span></label>' + ks.select + ks.more;
       if (r.source === 'team') h += teamNote(ctx, r.team, t);
       if (cur === '=') h += '<label class="field" for="ob-link-val-' + esc(r.name) + '">' + esc(G.form('link-val').q) + '<input id="ob-link-val-' + esc(r.name) + '" maxlength="120" value="' + esc(r.value || '') + '" data-enter="ob-commit"' + errAt(ctx, 'ob-link-val-' + r.name) + '></label>' + errMsg(ctx, 'ob-link-val-' + r.name);
       return h + '</div>';
@@ -588,7 +591,11 @@
     return out;
   }
   /* The fold stays open while a box inside it holds typing not applied, so the typing is never hidden. */
-  function foldBusy(ctx, G4, inside) { var pf = ctx.state.obPendingField; return !!pf && inside.some(function (g) { return G4.groups[g[0]].ids.some(function (re) { return re.test(pf); }); }); }
+  /* Any such box, not only the latest one (state.obUnapplied, code review round 13). */
+  function foldBusy(ctx, G4, inside) {
+    var st = ctx.state, u = st.obUnapplied, sel = st.obSel, ids = (st.obPendingField ? [st.obPendingField] : []).concat(u && sel && u.pid === sel.pid && u.key === sel.key ? Object.keys(u.ids) : []);
+    return ids.length > 0 && inside.some(function (g) { return G4.groups[g[0]].ids.some(function (re) { return ids.some(function (id) { return re.test(id); }); }); });
+  }
   /* The parts of the step form: what sits at the top for a typed step, and each group's controls and box IDs. */
   function stepParts(ctx, p, text, o, s, def, meta) {
     var f = s.fields, shown = shownOf(ctx, p, s), names = def ? Object.keys(def.fields || {}) : [], typed = s.type && s.type !== 'confirm';

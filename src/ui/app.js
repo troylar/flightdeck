@@ -1592,6 +1592,7 @@
     repHarvest();
     corrHarvest();
     procCache = null; pplBy = { list: null, len: -1, by: null }; pplSorted = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null;
+    pruneUnapplied();
     var keep = {}, ae = document.activeElement, focusKey = null;
     /* What a person typed or ticked survives a redraw of the same thing: the same screen, run, step and open form. Moving to
        another step or form starts clean, so a note or a value never jumps to the wrong place. Hidden inputs are never carried. */
@@ -1774,8 +1775,10 @@
     return PF.vk.byId(hc ? V.corrDomId(hit.n.id, hit.k) : 'tn-' + hit.n.step + '-' + hit.key);
   }
   /* Whether the row of a list's item (the element sel finds, as the page was drawn, and the row around it) holds el. A row
-     around it that also holds another item (other) of the same list isn't its row: the element itself is. */
-  var holdGen = null, ROW_SEL = 'li, tr, .card, .copyrow, .rep-card, .rr-rep';
+     around it that also holds another item (other) of the same list isn't its row: the element itself is. A row drawn as
+     another element marks itself data-row, so focus on any control nested in it (a dropdown's Find box, its Show more
+     choices, a value's box) holds the row (code review round 13). */
+  var holdGen = null, ROW_SEL = 'li, tr, .card, .copyrow, .rep-card, .rr-rep, [data-row]';
   function rowHas(el, sel, other) {
     var t = null, o = null;
     try { t = document.querySelector(sel); o = other ? document.querySelector(other) : null; } catch (e) { return false; }
@@ -4203,6 +4206,22 @@
      (a command's arguments) are its content. */
   function norm(v) { return String(v == null ? '' : v).replace(/[\r\n]+/g, ' ').trim(); }
   function dropPending() { state.obPending = null; state.obPendingField = null; state.obHold = null; }
+  /* Every builder box of the selected step or phase holding text not applied (typed, or refused), not only the latest one
+     (state.obPendingField): a list that pages its rows keeps each of them drawn, so Find or Show more never takes away
+     an earlier one's text (code review round 13). { pid, key, ids }, for one selection only. */
+  function markUnapplied(id, on) {
+    var s = state.obSel, u = state.obUnapplied;
+    if (!s || !state.processId) return;
+    if (!u || u.pid !== state.processId || u.key !== s.key) u = state.obUnapplied = { pid: state.processId, key: s.key, ids: Object.create(null) };
+    if (on) u.ids[id] = true; else delete u.ids[id];
+  }
+  /* Before a redraw, from the page as drawn: a box applied, cleared back to what the draft says, or gone with its form is no
+     longer one; a form drawn afresh (planFormReset) or another selection forgets them all. */
+  function pruneUnapplied() {
+    var u = state.obUnapplied, s = state.obSel; if (!u) return;
+    if (state.planFormReset || state.view !== 'process' || state.ptab !== 'edit' || !s || u.pid !== state.processId || u.key !== s.key) { state.obUnapplied = null; return; }
+    Object.keys(u.ids).forEach(function (id) { var el = document.getElementById(id); if (!el || boxNorm(id, el.value) === boxNorm(id, fieldApplied(id))) delete u.ids[id]; });
+  }
   /* What the draft says now for a box in the builder's form, to tell typed text from what's applied. */
   function fieldApplied(id) {
     var p = currentProcess(), s = state.obSel; if (!p || !s || /^ob-new-/.test(id)) return '';
@@ -4703,7 +4722,7 @@
       f.tried = true; f.leaving = false; f.closeAfterSave = false; render();
       var bad = document.querySelector && document.querySelector('#type-form [aria-invalid="true"]');
       say('Not saved yet. ' + errs.length + (errs.length === 1 ? ' thing needs' : ' things need') + ' fixing first.', 'warn');
-      state.focus = bad && bad.id ? '#' + bad.id : 'tf-h'; render(); return;
+      state.focus = bad && bad.id ? '#' + cssEsc(bad.id) : 'tf-h'; render(); return;
     }
     if (!f.existing && (T.get(def.id) || ((data.stepTypes || {}).types || {})[def.id])) { say('There\'s already a step type {' + def.id + '}. Choose another ID, or edit that one.', 'warn'); render(); return; }
     if (f.saving) { say('Still saving this step type. Try again in a moment.', 'warn'); render(); return; }
@@ -4774,7 +4793,7 @@
       if (recoveringEnded && !r.ended && !(r.recorder.person === state.me && r.recorder.session === SESSION)) R.takeOver(r, state.me, SESSION, now, R.legacyLinks(r, ctx.findRun));
     }
     catch (e) {
-      if (opts.fieldsFor) { state.fieldErr = { id: opts.fieldsFor, msg: e.message, field: e.field || '' }; state.focus = e.field ? '#' + e.field : '[aria-invalid="true"]'; }
+      if (opts.fieldsFor) { state.fieldErr = { id: opts.fieldsFor, msg: e.message, field: e.field || '' }; state.focus = e.field ? '#' + cssEsc(e.field) : '[aria-invalid="true"]'; }
       else if (!opts.background) say(e.message, 'warn');
       render(); return Promise.resolve(false);
     }
@@ -6191,7 +6210,7 @@
       var merged = Object.assign({}, R.fieldsOf(r, x.step), fields);
       R.evidenceFor(r, x.step, merged).list.forEach(function (d) { var el = document.getElementById('rec-' + d.name); if (el) values[d.name] = inputValue(el); });
       var chk = R.checkEvidence(r, x.step, merged, values, true);
-      if (chk.error) { state.fieldErr = { id: id, msg: chk.error, field: chk.field ? 'rec-' + chk.field : '' }; state.focus = chk.field ? '#rec-' + chk.field : '[aria-invalid="true"]'; render(); return; }
+      if (chk.error) { state.fieldErr = { id: id, msg: chk.error, field: chk.field ? 'rec-' + chk.field : '' }; state.focus = chk.field ? '#' + cssEsc('rec-' + chk.field) : '[aria-invalid="true"]'; render(); return; }
       /* The draft is dropped only once the values are in the run, and only the evidence this form saved: evidence typed for
          an action no longer chosen stays a draft. */
       var key = state.runKey;
@@ -7557,7 +7576,7 @@
     var gap = V.approvals(pub.map).filter(function (a) { return !roles[a.role]; })[0];
     if (!gap) { if (state.fieldErr && state.fieldErr.id === 'start-approver') state.fieldErr = null; return false; }
     state.fieldErr = { id: 'start-approver', field: 'role-' + gap.role, msg: 'Choose who approves "' + gap.title + '".' };
-    state.focus = '#role-' + gap.role; say(null); render(); return true;
+    state.focus = '#' + cssEsc('role-' + gap.role); say(null); render(); return true;
   }
   /* Save a plan: a new file, never a replacement for one that's there. */
   document.addEventListener('submit', function (e) {
@@ -7639,6 +7658,7 @@
     if (OB_TYPED.test(e.target.id || '') && state.processId) {
       /* Pending only while the box differs from what the draft says (or, for a new item, holds anything). */
       var differs = boxNorm(e.target.id, e.target.value) !== boxNorm(e.target.id, fieldApplied(e.target.id)), was = !!state.obPending;
+      markUnapplied(e.target.id, differs);
       if (differs) { state.obPending = state.processId; state.obPendingField = e.target.id; } else if (state.obPendingField === e.target.id) { dropPending(); obRepend(); }
       if (was !== !!state.obPending) scheduleRender();
     }
