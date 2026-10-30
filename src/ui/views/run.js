@@ -500,6 +500,9 @@
   }
   /* A correction row's id: corr-<id>, and corr-<id>#<n> for a later note sharing that id (U.nthKey: never a literal id's). */
   function corrDomId(id, n) { return 'corr-' + U.nthKey(id, n); }
+  /* A thread note's row id: tn-, its step's id with each - and \ escaped by a \, then -, then the note's key. The step's id
+     ends at the first - not escaped, so step s0-a's note b and step s0's note a-b never share a row id (code review round 18). */
+  function noteDomId(step, key) { return 'tn-' + String(step).replace(/[\\-]/g, '\\$&') + '-' + key; }
   function changedHere(ctx, r) { return r && r.process && r.folder ? C.changedIn(corrGroups(ctx, r.process), r.folder) : {}; }
   /* "Changed in vN" with "Why is this here?": what it said before and after, why, the runs that suggested it, who applied it. */
   /* The members of every change on this step, 20 at a time counted across them (2.11): a change is drawn once one of its
@@ -538,7 +541,7 @@
       (dl ? '<dl class="corr-dl">' + dl + '</dl>' : '') + runs + who + '</details></div>';
   }
   V.fuList = fuList; V.fuRow = fuRow; V.fuPill = fuPill; V.fuPaged = fuPaged;
-  V.redline = redline; V.corrRow = corrRow; V.corrDomId = corrDomId; V.oneOffDom = oneOffDom; V.ONE_OFF = ONE_OFF; V.corrFocus = corrFocus; V.memberKeys = memberKeys; V.oneOffHeld = oneOffHeld; V.corrItems = corrItems; V.corrPill = corrPill; V.corrIndex = corrIndex; V.corrGroups = corrGroups;
+  V.redline = redline; V.corrRow = corrRow; V.corrDomId = corrDomId; V.noteDomId = noteDomId; V.oneOffDom = oneOffDom; V.ONE_OFF = ONE_OFF; V.corrFocus = corrFocus; V.memberKeys = memberKeys; V.oneOffHeld = oneOffHeld; V.corrItems = corrItems; V.corrPill = corrPill; V.corrIndex = corrIndex; V.corrGroups = corrGroups;
   /* The composer: Correct this step (a proposal; it doesn't answer the step) or Done differently (answers it; what happened
      first, then whether the checklist should change). The published step stays shown above it, never replaced. */
   function composer(ctx, r, map, x, f) {
@@ -792,7 +795,7 @@
        wherever it sorts, under From earlier, found again by its whole content after a newer read; gone, the line says so. */
     var ats = PF.search.noteAts(r._notes || []), notes = [];
     (r._notes || []).forEach(function (n, i) { if (n.step === st.id && n.kind !== 'correction' && n.kind !== 'fix' && n.kind !== 'map') notes.push({ n: n, key: PF.search.noteKey(n.id, ats[i]) }); });
-    var flashKey = s.flash && s.flash.noteKey, tn = function (key) { return 'tn-' + st.id + '-' + key; };
+    var flashKey = s.flash && s.flash.noteKey, tn = function (key) { return noteDomId(st.id, key); };
     var noteLi = function (x) {
       var n = x.n, made = (r.followUps || []).some(function (f) { return f.from === n.id; });
       PF.perf.add('note.row');
@@ -880,7 +883,7 @@
     if (x.owner) meta.push(esc(nameOf(ctx, x.owner)));
     if (opts.run) meta.push((x.test ? 'Test run · ' : '') + '<button class="linkish" data-act="open-run" data-id="' + esc(x.runKey) + '">' + esc(x.runTitle) + '</button>');
     if (opts.age && x.status === 'open') meta.push(days === 0 ? 'added today' : 'open ' + days + ' day' + (days === 1 ? '' : 's'));
-    var h = '<li class="fu' + (opts.removed ? ' fu-gone' : '') + '" id="fu-' + esc(x.key.replace(/\//g, '--')) + '"><div class="fu-main"><span class="fu-text" id="fu-' + esc(x.key.replace(/\//g, '--')) + '-t" tabindex="-1">' + esc(f.text) + (f.ticket ? ' <span class="cat">' + esc(f.ticket) + '</span>' : '') + '</span>' + (opts.removed ? '' : fuPill(x)) +
+    var h = '<li class="fu' + (opts.removed ? ' fu-gone' : '') + '" id="fu-' + esc(x.key.replace(/\//g, '--')) + '"><div class="fu-main"><span class="fu-text" id="' + esc(fuTextId(x.key)) + '" tabindex="-1">' + esc(f.text) + (f.ticket ? ' <span class="cat">' + esc(f.ticket) + '</span>' : '') + '</span>' + (opts.removed ? '' : fuPill(x)) +
       (meta.length ? '<span class="small fu-meta">' + meta.join(' · ') + '</span>' : '') + '</div>' + (opts.removed ? '' : fuDecided(ctx, x));
     /* A row kept for its open form (2.11) says when it no longer matches: someone decided it, or it left the folder. */
     if (opts.removed) h += '<p class="small fu-kept" role="note"><b>Removed elsewhere.</b> This follow-up isn\'t in the folder anymore, so what you typed can\'t be saved. Copy it if you need it.</p>';
@@ -949,14 +952,18 @@
     var r = !missing && ctx.findRun ? ctx.findRun(to.v) : null;
     return r ? { mark: 'ended', line: 'That run has ended. Choose where it moved to, or keep it.' } : { mark: 'no longer in the folder', line: 'That run is no longer in the folder. Saving still records that the work moved there; choose another to change it.' };
   }
+  /* A follow-up's text, which Show more and focus go to: fu-t- and its key as it is (process/run/id). The key's slashes keep it
+     apart from every row's id (fu- and the key with each / as --, which has none) and from every other follow-up's (code
+     review round 18). */
+  function fuTextId(key) { return 'fu-t-' + key; }
   /* A list of follow-ups a page at a time (2.11): K.list over the rows shown, keeping the one whose form is open wherever it
      is, even when the chip or Find leaves it out (drawn after the list, marked), and from its snapshot when a newer read
      removed it. id: the list's paging id; page: its size. */
   function fuPaged(ctx, id, items, all, o) {
     var st = ctx.state, pick = st.fuPick, key = pick && pick.key, opts = { run: true, age: true };
     var row = function (x) { return fuRow(ctx, x, opts); };
-    var h = items.length ? K.list(st, id, items, { draw: function (shown) { return '<ul class="fulist">' + shown.map(row).join('') + '</ul>'; }, keyOf: function (x) { return x.key; },
-      focusOf: function (k) { return K.byId('fu-' + k.replace(/\//g, '--') + '-t'); }, page: o && o.page, keep: key ? [key] : [] }) : '';
+    var h = K.list(st, id, items, { draw: function (shown) { return '<ul class="fulist">' + shown.map(row).join('') + '</ul>'; }, keyOf: function (x) { return x.key; },
+      focusOf: function (k) { return K.byId(fuTextId(k)); }, page: o && o.page, keep: key ? [key] : [], empty: '' });
     if (!key || items.some(function (x) { return x.key === key; })) return h;
     var x = all.filter(function (y) { return y.key === key; })[0];
     if (!x && !pick.snap) return h;

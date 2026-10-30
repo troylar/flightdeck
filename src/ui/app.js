@@ -1767,14 +1767,14 @@
     var ats = S.noteAts(was.notes), old = null, oldKey = '';
     for (var i = 0; i < was.notes.length && !old; i++) {
       var n = was.notes[i], corr = n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map';
-      if (id === (corr ? V.corrDomId(n.id, ats[i]) : 'tn-' + n.step + '-' + S.noteKey(n.id, ats[i]))) { old = n; oldKey = S.noteKey(n.id, ats[i]); }
+      if (id === (corr ? V.corrDomId(n.id, ats[i]) : V.noteDomId(n.step, S.noteKey(n.id, ats[i])))) { old = n; oldKey = S.noteKey(n.id, ats[i]); }
     }
     if (!old) return key;
     var hit = S.noteFind(r._notes || [], S.noteTarget(state.runKey, old, was.notes.filter(function (x) { return x.id === old.id; })));
     if (!hit) return state.view === 'run' ? '#ins-h' : '#page-h';
     if (state.flash && state.flash.noteKey === oldKey) state.flash.noteKey = hit.key;
     var hc = hit.n.kind === 'correction' || hit.n.kind === 'fix' || hit.n.kind === 'map';
-    return PF.vk.byId(hc ? V.corrDomId(hit.n.id, hit.k) : 'tn-' + hit.n.step + '-' + hit.key);
+    return PF.vk.byId(hc ? V.corrDomId(hit.n.id, hit.k) : V.noteDomId(hit.n.step, hit.key));
   }
   /* Whether the row of a list's item (the element sel finds, as the page was drawn, and the row around it) holds el. A row
      around it that also holds another item (other) of the same list isn't its row: the element itself is. A row drawn as
@@ -1859,7 +1859,7 @@
     var ats = S.noteAts(was.notes);
     for (var i = 0; i < was.notes.length; i++) {
       var n = was.notes[i], corr = n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map';
-      if (id !== (corr ? V.corrDomId(n.id, ats[i]) : 'tn-' + n.step + '-' + S.noteKey(n.id, ats[i]))) continue;
+      if (id !== (corr ? V.corrDomId(n.id, ats[i]) : V.noteDomId(n.step, S.noteKey(n.id, ats[i])))) continue;
       var t = S.noteTarget(state.runKey, n, was.notes.filter(function (x) { return x.id === n.id; }));
       t.gen = gen; t.run = state.runKey; t.step = n.step;
       return t;
@@ -6702,7 +6702,7 @@
         return refreshRun().then(function () {
           if (ng !== gen || state.runKey !== nkey) return;
           state.noteShown = { gen: gen, run: nkey, step: id, note: nid };
-          if (state.sel === id) { revealAt(PF.vk.byId('tn-' + id + '-' + nid)); render(); }
+          if (state.sel === id) { revealAt(PF.vk.byId(V.noteDomId(id, PF.search.noteKey(nid, 1)))); render(); }
         });
       }, function (e) { endBusy(); if (ng !== gen) return; say('Couldn\'t add the note: ' + e.message, 'bad'); render(); });
     },
@@ -7988,7 +7988,7 @@
         state.unfold[x.phase.id] = true; selectStep(x.step.id); state.refOpen = !narrow() || hasNote;
         /* A note: drawn in its step's thread whatever the page, focused and brought into view; on a phone the inspector
            sheet opens on it. A note that's gone leaves the step selected and the thread says so. */
-        var nsel = hit ? PF.vk.byId('tn-' + x.step.id + '-' + hit.key) : null;
+        var nsel = hit ? PF.vk.byId(V.noteDomId(x.step.id, hit.key)) : null;
         if (hasNote) state.noteShown = { gen: gen, run: t.run, step: x.step.id, note: t.note, anchor: t.anchor, same: t.same, rank: t.rank };
         if (nsel) { state.focus = nsel; state.focusWins = true; revealAt(nsel, true); sheetFor = nsel; }
         else { state.focus = '[data-act="select"][data-id="' + cssEsc(x.step.id) + '"]'; revealAt('#step-' + cssEsc(x.step.id)); }

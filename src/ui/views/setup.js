@@ -219,7 +219,7 @@
     var list = function (ps) { return '<ul class="vlist pp-list">' + ps.map(row).join('') + '</ul>'; };
     if (people.length) {
       h += K.findBox(st, 'people', 'Find a person', found.length, people.length, 'person');
-      if (found.length) h += K.list(st, 'people', found, { keyOf: function (p) { return p.id; }, focusOf: function (k) { return K.byId('pp-' + k); }, keep: pick ? [pick] : [], keptLabel: 'You\'re changing this one', draw: list });
+      h += K.list(st, 'people', found, { keyOf: function (p) { return p.id; }, focusOf: function (k) { return K.byId('pp-' + k); }, keep: pick ? [pick] : [], keptLabel: 'You\'re changing this one', draw: list, empty: '' });
       /* Kept rows the Find text leaves out: drawn after the list, said why, without changing the Find text. */
       [[pick, 'You\'re changing this one'], [js !== pick ? js : null, 'Just added']].forEach(function (k) {
         if (!k[0] || inFound[k[0]]) return;

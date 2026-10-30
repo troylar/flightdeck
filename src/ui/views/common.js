@@ -240,6 +240,9 @@ PF.vk = (function () {
     drawnBy[id] = Object.keys(inPage).concat(extra.map(keyOf));
     /* Tests list every list drawn (PF.vk.TRACE, an array): its id, every item's key, and the selector Show more focuses. */
     if (PF.vk.TRACE) PF.vk.TRACE.push({ id: id, keys: items.map(keyOf), page: shown.map(keyOf), extra: extra.map(keyOf), tail: !!o.tail, hold: o.hold !== false, focusOf: function (k) { return o.focusOf ? o.focusOf(k) : runCardSel(k); } });
+    /* No row to draw (Find matches none, or the list is empty): o.empty. A list drawn even then still reports the row with focus
+       gone (focusHeld), so focus goes to the list's heading, never to the page (code review round 18). */
+    if (!shown.length && !extra.length && o.empty != null) return o.empty;
     var h = '', more = '';
     /* Show more: the page grows by step, the smallest that adds the most new rows up to a page, counted as the next draw will
        draw them: rows it steps over not drawn now, and ordinary kept rows that come into the nearest page past the bigger page

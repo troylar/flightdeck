@@ -77,7 +77,7 @@
     /* What the numbers can't count, one notice however many there are (2.11): one note as it reads, more in a fold. */
     if (res.notes.length === 1) h += '<div class="notice warn" role="status"><span>' + esc(res.notes[0]) + '</span></div>';
     else if (res.notes.length) h += '<div class="notice warn ins-notes" role="status"><div><b>' + res.notes.length + ' things these numbers can\'t count.</b><details data-disc="ins-notes"' + ((ctx.state.disc || {})['ins-notes'] ? ' open' : '') + '><summary class="small">What they are</summary>' +
-      K.list(ctx.state, 'ins-notes', K.uniqKeys(res.notes, function (t) { return t; }).map(function (k, i) { return { t: res.notes[i], k: K.domKey(k) }; }), { keyOf: function (x) { return x.k; }, focusOf: function (k) { return '#ins-note-' + k; }, draw: function (shown) { return '<ul class="small">' + shown.map(function (x) { return '<li id="ins-note-' + x.k + '" tabindex="-1">' + esc(x.t) + '</li>'; }).join('') + '</ul>'; } }) + '</details></div></div>';
+      K.list(ctx.state, 'ins-notes', K.uniqKeys(res.notes, function (t) { return t; }).map(function (k, i) { return { t: res.notes[i], k: K.domKey(k) }; }), { keyOf: function (x) { return x.k; }, focusOf: function (k) { return '#ins_note_' + k; }, draw: function (shown) { return '<ul class="small">' + shown.map(function (x) { return '<li id="ins_note_' + x.k + '" tabindex="-1">' + esc(x.t) + '</li>'; }).join('') + '</ul>'; } }) + '</details></div></div>';
     var r = res.runs, outs = Object.keys(r.outcomes);
     h += '<ul class="ins-sum">' +
       '<li><span class="big">' + link('runs:all', I.num(r.n), r.n) + '</span><span class="small">' + (r.n === 1 ? 'run' : 'runs') + ' of v' + f.version + '</span></li>' +
@@ -127,18 +127,18 @@
         link('dur', I.num(d.n) + ' of ' + plural(d.of, 'completed run'), d.n) + '. Paused time isn\'t counted.</p>';
       h += dotStrip(ctx, d.values, d.median);
       var rows = function (list) { return '<div class="grid-wrap"><table class="grid"><thead><tr><th scope="col">Run</th><th scope="col">Active time</th></tr></thead><tbody>' +
-        list.map(function (v) { var r = ctx.findRun ? ctx.findRun(v.key) : null; return '<tr id="ins-row-' + esc(v.key.replace(/\//g, '-')) + '"><td><button class="linkish" id="ins-row-' + esc(v.key.replace(/\//g, '-')) + '-go" data-act="go" data-view="run" data-run="' + esc(v.key) + '">' + esc(r ? r.title : v.key) + '</button></td><td>' + esc(about(v.ms)) + '</td></tr>'; }).join('') + '</tbody></table></div>'; };
+        list.map(function (v) { var r = ctx.findRun ? ctx.findRun(v.key) : null; return '<tr id="ins-row-' + esc(v.key.replace(/\//g, '-')) + '"><td><button class="linkish" id="ins_go_' + esc(v.key.replace(/\//g, '-')) + '" data-act="go" data-view="run" data-run="' + esc(v.key) + '">' + esc(r ? r.title : v.key) + '</button></td><td>' + esc(about(v.ms)) + '</td></tr>'; }).join('') + '</tbody></table></div>'; };
       h += '<details data-disc="ins-dur-table"' + ((ctx.state.disc || {})['ins-dur-table'] ? ' open' : '') + '><summary class="small">The same as a table</summary>' +
-        K.list(ctx.state, 'ins-dur', d.values.slice().sort(function (a, b) { return a.ms - b.ms; }), { draw: rows, keyOf: function (v) { return 'ins-row-' + v.key.replace(/\//g, '-'); }, focusOf: function (k) { return K.byId(k + '-go'); } }) + '</details>';
+        K.list(ctx.state, 'ins-dur', d.values.slice().sort(function (a, b) { return a.ms - b.ms; }), { draw: rows, keyOf: function (v) { return 'ins-row-' + v.key.replace(/\//g, '-'); }, focusOf: function (k) { return K.byId('ins_go_' + k.slice(8)); } }) + '</details>';
     }
     h += qualLine(d.q);
     if (res.phases.length) {
       /* The scale is every phase's; only the 50 drawn (2.11) are built, in checklist order. */
       var top = Math.max.apply(null, res.phases.map(function (x) { return x.median || 0; }).concat([1]));
-      h += '<h3 id="ins-ph-h" tabindex="-1">Each phase</h3>' + K.list(ctx.state, 'ins-ph', res.phases, { keyOf: function (x) { return 'ins-ph-' + x.id; }, focusOf: function (k) { return K.byId(k + '-lab'); }, draw: function (shown) { return '<ul class="ins-phases">' + shown.map(function (x) {
+      h += '<h3 id="ins-ph-h" tabindex="-1">Each phase</h3>' + K.list(ctx.state, 'ins-ph', res.phases, { keyOf: function (x) { return 'ins-ph-' + x.id; }, focusOf: function (k) { return K.byId('ins_ph_' + k.slice(7)); }, draw: function (shown) { return '<ul class="ins-phases">' + shown.map(function (x) {
         PF.perf.add('ins.phase');
         var w = x.median != null ? Math.max(1, Math.round(1000 * x.median / top) / 10) : 0;
-        return '<li id="' + esc('ins-ph-' + x.id) + '"><div class="ins-row"><span class="ins-lab" id="' + esc('ins-ph-' + x.id + '-lab') + '" tabindex="-1">' + esc(x.title) + '</span>' +
+        return '<li><div class="ins-row"><span class="ins-lab" id="' + esc('ins_ph_' + x.id) + '" tabindex="-1">' + esc(x.title) + '</span>' +
           (x.n ? '<svg class="ins-bar" viewBox="0 0 100 8" preserveAspectRatio="none" aria-hidden="true"><rect class="ins-track" width="100" height="8" rx="2"/><rect class="ins-fill" width="' + w + '" height="8" rx="2"/></svg>' : '<span class="ins-nobar"></span>') +
           '<span class="ins-num">' + (x.n ? '<b>' + esc(about(x.median)) + '</b>' + (x.q1 != null ? ' <span class="small">(' + esc(about(x.q1)) + ' to ' + esc(about(x.q3)) + ')</span>' : '') + ' · ' : '') + link('phase:' + x.id, I.num(x.n) + ' of ' + plural(x.of, 'run'), x.n) + '</span></div>' +
           qualLine(x.q) +
@@ -174,10 +174,10 @@
           if (m.incomplete) extra += ' · ' + link('step:' + s.id + ':' + r[0] + ':incomplete', I.num(m.incomplete) + ' history incomplete', 1);
           return '<div class="ins-row"><span class="ins-lab">' + r[1] + '</span>' + bar(m.hits, m.n) + '<span class="ins-num">' + link('step:' + s.id + ':' + r[0], I.count(m.hits, m.n), m.hits) + extra + qualLine(m.q, ['incomplete'], 'span') + '</span></div>';
         }).join('');
-        return '<li class="ins-step" id="ins-' + esc(s.id) + '"><h3 id="ins-' + esc(s.id) + '-h" tabindex="-1">' + K.stepHtml(s, null) + '</h3>' + rows + '</li>';
+        return '<li class="ins-step" id="ins-' + esc(s.id) + '"><h3 id="ins_h_' + esc(s.id) + '" tabindex="-1">' + K.stepHtml(s, null) + '</h3>' + rows + '</li>';
       }).join('') + '</ul>';
     };
-    return h + K.list(ctx.state, 'ins-hot', list, { draw: draw, keyOf: function (s) { return 'ins-' + s.id; }, focusOf: function (k) { return K.byId(k + '-h'); } }) + '</section>';
+    return h + K.list(ctx.state, 'ins-hot', list, { draw: draw, keyOf: function (s) { return 'ins-' + s.id; }, focusOf: function (k) { return K.byId('ins_h_' + k.slice(4)); } }) + '</section>';
   }
   function followUps(ctx, res) {
     var f = res.followUps, o = f.open, d = f.decided;
@@ -201,14 +201,14 @@
     var nc = Math.max(ROLE_COLS, Math.floor(((st.more || {})['ins-rolecols']) || ROLE_COLS));
     if (PF.vk.PAGE_OFF === 'ins-rolecols') nc = rot.roles.length;
     var cols = rot.roles.slice(0, nc), left = rot.roles.length - cols.length, add = Math.min(ROLE_COLS, left);
-    var colMore = left > 0 ? '<th scope="col" class="ins-colmore"><button type="button" class="mini" data-act="more" data-id="ins-rolecols" data-page="' + ROLE_COLS + '" data-next="' + esc(rot.roles[nc]) + '" data-focus="' + esc(K.byId('ins-role-' + rot.roles[nc])) + '">Show ' + add + ' more roles</button><span class="small" role="status">' + cols.length + ' of ' + rot.roles.length + ' roles</span></th>' : '';
+    var colMore = left > 0 ? '<th scope="col" class="ins-colmore"><button type="button" class="mini" data-act="more" data-id="ins-rolecols" data-page="' + ROLE_COLS + '" data-next="' + esc(rot.roles[nc]) + '" data-focus="' + esc(K.byId('ins_role_' + rot.roles[nc])) + '">Show ' + add + ' more roles</button><span class="small" role="status">' + cols.length + ' of ' + rot.roles.length + ' roles</span></th>' : '';
     var sorted = people.sort(function (a, b) { return PF.text.natural(nameOf(ctx, a), nameOf(ctx, b)) || (a < b ? -1 : a > b ? 1 : 0); });
     var rows = function (shown) {
-      return '<div class="grid-wrap"><table class="grid"><thead><tr><th scope="col">Person</th>' + cols.map(function (ro) { return '<th scope="col" id="' + esc('ins-role-' + ro) + '" tabindex="-1">' + esc(ro) + '</th>'; }).join('') + colMore + '</tr></thead><tbody>' + shown.map(function (pid) {
-        return '<tr><th scope="row" id="' + esc('ins-who-' + pid) + '" tabindex="-1">' + esc(nameOf(ctx, pid)) + '</th>' + cols.map(function (ro) { PF.perf.add('ins.rolecell'); var c = rot.grid[pid][ro]; return c ? '<td>' + c.count + '× · last ' + esc(U.when(c.last)) + '</td>' : '<td class="cold">never</td>'; }).join('') + (colMore ? '<td></td>' : '') + '</tr>';
+      return '<div class="grid-wrap"><table class="grid"><thead><tr><th scope="col">Person</th>' + cols.map(function (ro) { return '<th scope="col" id="' + esc('ins_role_' + ro) + '" tabindex="-1">' + esc(ro) + '</th>'; }).join('') + colMore + '</tr></thead><tbody>' + shown.map(function (pid) {
+        return '<tr><th scope="row" id="' + esc('ins_who_' + pid) + '" tabindex="-1">' + esc(nameOf(ctx, pid)) + '</th>' + cols.map(function (ro) { PF.perf.add('ins.rolecell'); var c = rot.grid[pid][ro]; return c ? '<td>' + c.count + '× · last ' + esc(U.when(c.last)) + '</td>' : '<td class="cold">never</td>'; }).join('') + (colMore ? '<td></td>' : '') + '</tr>';
       }).join('') + '</tbody></table></div>';
     };
-    return '<section class="panel ins" aria-labelledby="ins-rot-h"><h2 id="ins-rot-h">Who has done each role</h2>' + K.list(st, 'ins-rot', sorted, { keyOf: function (pid) { return pid; }, focusOf: function (k) { return K.byId('ins-who-' + k); }, draw: rows }) +
+    return '<section class="panel ins" aria-labelledby="ins-rot-h"><h2 id="ins-rot-h">Who has done each role</h2>' + K.list(st, 'ins-rot', sorted, { keyOf: function (pid) { return pid; }, focusOf: function (k) { return K.byId('ins_who_' + k); }, draw: rows }) +
       '<p class="small">In runs of this version. "Never" is a good place to rotate someone in. Starting a run suggests whoever did a role least recently.</p></section>';
   }
   function counted() {
@@ -223,10 +223,10 @@
     /* Drawn closed too: opening a details element doesn't redraw the page. */
     /* 20 versions at a time, newest first (2.11): each one's numbers are worked out only when it's drawn. */
     return '<details class="panel" data-disc="ins-cmp"' + (open ? ' open' : '') + '><summary><h2>Compare versions</h2></summary><p class="small">Side by side, each out of its own runs. Versions aren\'t added together.</p>' +
-      K.list(ctx.state, 'ins-cmp', list, { page: 20, keyOf: function (f) { return f.folder; }, focusOf: function (k) { return K.byId('ins-cmp-' + k); }, draw: function (shown) { return '<div class="grid-wrap"><table class="grid"><thead><tr><th scope="col">Version</th><th scope="col">Runs</th><th scope="col">Completed, timed</th><th scope="col">Typical completed run</th><th scope="col">Not counted</th></tr></thead><tbody>' +
+      K.list(ctx.state, 'ins-cmp', list, { page: 20, keyOf: function (f) { return f.folder; }, focusOf: function (k) { return K.byId('ins_cmp_' + k); }, draw: function (shown) { return '<div class="grid-wrap"><table class="grid"><thead><tr><th scope="col">Version</th><th scope="col">Runs</th><th scope="col">Completed, timed</th><th scope="col">Typical completed run</th><th scope="col">Not counted</th></tr></thead><tbody>' +
       shown.map(function (f) {
         var r = insightsOf(ctx, p.id, f.folder, false);
-        return '<tr><th scope="row" id="' + esc('ins-cmp-' + f.folder) + '" tabindex="-1">' + esc(verLabel(f)) + '</th><td>' + I.num(r.runs.n) + '</td><td>' + I.num(r.duration.n) + '</td><td>' + (r.duration.n ? esc(about(r.duration.median)) : '—') + '</td><td>' + ((qualLine(r.runs.q, null, 'span') + qualLine(r.duration.q, null, 'span')) || '—') + '</td></tr>';
+        return '<tr><th scope="row" id="' + esc('ins_cmp_' + f.folder) + '" tabindex="-1">' + esc(verLabel(f)) + '</th><td>' + I.num(r.runs.n) + '</td><td>' + I.num(r.duration.n) + '</td><td>' + (r.duration.n ? esc(about(r.duration.median)) : '—') + '</td><td>' + ((qualLine(r.runs.q, null, 'span') + qualLine(r.duration.q, null, 'span')) || '—') + '</td></tr>';
       }).join('') + '</tbody></table></div>'; } }) + '</details>';
   }
 
