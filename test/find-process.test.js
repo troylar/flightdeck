@@ -708,7 +708,9 @@ rule('Who should do it: 300 roles build 20 checkboxes; Find reaches role 300; ti
   assert.strictEqual(app.activeId(), 'corr-role-' + d.next, 'Show more focuses the first new checkbox');
   await typeFind(app, 'corr-roles', 'r250');
   h = app.html();
-  assert.ok(/id="corr-role-r250"/.test(h) && /id="corr-role-r5"/.test(h), 'Find reaches it, the ticked one kept');
+  /* Code review round 12: with Find the page is the matches; a ticked role Find leaves out is an ordinary kept row, its tick
+     kept in the form's state and drawn again once the Find text is cleared. */
+  assert.ok(/id="corr-role-r250"/.test(h) && !/id="corr-role-r5"/.test(h), 'Find reaches it, matches first, the ticked one kept in the form');
   app.check('corr-role-r250', true); await app.tick(5);
   await typeFind(app, 'corr-roles', 'r300');
   assert.ok(/id="corr-role-r300"/.test(app.html()), 'role 300');
@@ -722,26 +724,53 @@ rule('Who should do it: 300 roles build 20 checkboxes; Find reaches role 300; ti
 });
 
 /* ---------- D10: the two shapes, found by reading the views ---------- */
-/* The callback of every .map( and .forEach( call, from its ( to the matching ), past strings, comments and regexes. */
+/* Where the bracket opened just before i closes (its index), past strings, comments and regexes. */
+function closeAt(src, i) {
+  let depth = 1, prev = '(';
+  while (i < src.length && depth) {
+    const c = src[i];
+    if (c === '"' || c === "'") { i++; while (i < src.length && src[i] !== c) { if (src[i] === '\\') i++; i++; } prev = 'x'; i++; continue; }
+    if (c === '/' && src[i + 1] === '/') { while (i < src.length && src[i] !== '\n') i++; continue; }
+    if (c === '/' && src[i + 1] === '*') { i = src.indexOf('*/', i + 2) + 2; continue; }
+    if (c === '/' && /[(,=:[!&|?{};+]/.test(prev)) { i++; let cls = false; while (i < src.length && (src[i] !== '/' || cls)) { if (src[i] === '\\') i++; else if (src[i] === '[') cls = true; else if (src[i] === ']') cls = false; i++; } i++; prev = 'x'; continue; }
+    if (c === '(' || c === '[' || c === '{') depth++;
+    else if (c === ')' || c === ']' || c === '}') depth--;
+    if (!/\s/.test(c)) prev = c;
+    i++;
+  }
+  return i;
+}
+/* The callback of every .map( and .forEach( call, from its ( to the matching ), and (code review round 12) the body of every
+   function a list calls once per row: a row: option, inline or named. */
 function callbacks(src) {
   const out = [], re = /\.(map|forEach)\(/g; let m;
   while ((m = re.exec(src))) {
-    let i = m.index + m[0].length, depth = 1, prev = '(';
-    while (i < src.length && depth) {
-      const c = src[i];
-      if (c === '"' || c === "'") { i++; while (i < src.length && src[i] !== c) { if (src[i] === '\\') i++; i++; } prev = 'x'; i++; continue; }
-      if (c === '/' && src[i + 1] === '/') { while (i < src.length && src[i] !== '\n') i++; continue; }
-      if (c === '/' && src[i + 1] === '*') { i = src.indexOf('*/', i + 2) + 2; continue; }
-      if (c === '/' && /[(,=:[!&|?{};+]/.test(prev)) { i++; let cls = false; while (i < src.length && (src[i] !== '/' || cls)) { if (src[i] === '\\') i++; else if (src[i] === '[') cls = true; else if (src[i] === ']') cls = false; i++; } i++; prev = 'x'; continue; }
-      if (c === '(' || c === '[' || c === '{') depth++;
-      else if (c === ')' || c === ']' || c === '}') depth--;
-      if (!/\s/.test(c)) prev = c;
-      i++;
-    }
+    const i = closeAt(src, m.index + m[0].length);
     out.push({ kind: m[1], line: src.slice(0, m.index).split('\n').length, body: src.slice(m.index + m[0].length, i - 1) });
+  }
+  const fns = functions(src), rr = /\brow\s*:\s*(function\b[^{]*\{|([A-Za-z_$][\w$]*)\b)/g;
+  while ((m = rr.exec(src))) {
+    const line = src.slice(0, m.index).split('\n').length;
+    if (m[2]) { if (fns[m[2]]) out.push({ kind: 'row', line, body: fns[m[2]] }); continue; }
+    const i = closeAt(src, m.index + m[0].length);
+    out.push({ kind: 'row', line, body: src.slice(m.index + m[0].length, i - 1) });
   }
   return out;
 }
+/* Every named function's body: function name( and name = function (. */
+function functions(src) {
+  const out = {}, re = /(?:\bfunction\s+([A-Za-z_$][\w$]*)|\b([A-Za-z_$][\w$]*)\s*=\s*function\b)[^{]*\{/g; let m;
+  while ((m = re.exec(src))) { const i = closeAt(src, m.index + m[0].length); out[m[1] || m[2]] = src.slice(m.index + m[0].length, i - 1); }
+  return out;
+}
+/* The functions that build a notice, themselves or through another one (code review round 12: a row calling teamNote drew a
+   notice per run detail, and the check read only markup written inline). */
+function noticeHelpers(src, skip) {
+  const fns = functions(src), names = new Set(Object.keys(fns).filter(n => NOTICE.test(fns[n]) && !(skip && skip.has(n))));
+  for (let grew = true; grew;) { grew = false; Object.keys(fns).forEach(n => { if (!names.has(n) && !(skip && skip.has(n)) && [...names].some(h => new RegExp('\\b' + h.replace(/\$/g, '\\$') + '\\s*\\(').test(fns[n]))) { names.add(n); grew = true; } }); }
+  return names;
+}
+const callsAny = (body, names) => [...names].filter(h => new RegExp('(^|[^\\w$.])' + h.replace(/\$/g, '\\$') + '\\s*\\(').test(body));
 /* Every hit, with why it's allowed: covered by a bound, a person picker (D6), or a list that doesn't grow with the folder. */
 const PERSON = 'a person picker, a native select by name (D6)';
 const D10_OK = [
@@ -758,7 +787,24 @@ const D10_OK = [
   { file: 'process.js', has: 'nmStage(x)', why: PERSON }, { file: 'process.js', has: 'nmRun(x)', why: PERSON },
   { file: 'run.js', has: 'String(value || \'\').trim().toLowerCase()', why: 'a step\'s choices, set by its type' },
   { file: 'run.js', has: 'nmMe(p)', why: PERSON }, { file: 'run.js', has: 'nmTo(p)', why: PERSON }, { file: 'run.js', has: 'nmRole(p)', why: PERSON },
+  { file: 'setup.js', has: 'esc(k[1]) + \'</p>\' + list([p])', why: 'a fixed pair: the person being changed and the one just added, each drawn once' },
   { file: 'setup.js', has: 'nmBk(', why: PERSON }, { file: 'setup.js', has: 'nmTo(p)', why: PERSON }
+];
+/* Helpers that draw a notice for one thing at a time, never once per row (code review round 12): a call to one of these in a
+   row or a loop isn't a repeated notice. Every other function that builds a notice, itself or through another, counts as one
+   when a row or a loop calls it. */
+const ONE = 'a field\'s own error: state.fieldErr names one field at a time';
+const D10_HELPER_OK = [
+  { file: 'builder.js', helper: 'errMsg', why: ONE },
+  { file: 'builder.js', helper: 'holdIn', why: 'the one box with typing not applied (state.obHold), at most one' },
+  { file: 'builder.js', helper: 'groupList', why: 'its notice is Delete the lane?, for the one lane being deleted (state.obAsk)' },
+  { file: 'builder.js', helper: 'phaseCard', why: 'its notice is Delete the phase?, for the one phase being deleted (state.obAsk)' },
+  { file: 'builder.js', helper: 'renameRow', why: 'drawn only for the one run detail being renamed (state.obRename)' },
+  { file: 'run.js', helper: 'ferr', why: ONE }, { file: 'run.js', helper: 'fe', why: ONE }, { file: 'run.js', helper: 'noteCorr', why: ONE + ', for the one note being corrected' },
+  { file: 'run.js', helper: 'fuForm', why: 'the one follow-up whose form is open (state.fuPick)' },
+  { file: 'setup.js', helper: 'ferr', why: ONE },
+  { file: 'practice.js', helper: 'keptHtml', why: 'what the person typed in this practice for a step that changed since: one per step they typed into, kept so they can copy it, not a status announced' },
+  { file: 'reports.js', helper: 'card', why: 'a report card\'s own decision state, not announced but for the person\'s own decision being saved; cards are paged at 20 (D8, repcards)' }
 ];
 /* Hits the plan doesn't have yet, reported rather than assigned (as D8's PENDING with slice null). None left: the linked
    step that can't start its child became one notice in slice 5. */
@@ -766,10 +812,12 @@ const D10_PENDING = [];
 /* A notice: a status or alert role, a live region, or the notice class (code review round 11: Jira's problems had no role). */
 const NOTICE = /role=\\?"(status|alert)\\?"|aria-live|class=\\?"(?:[\w-]+ )*notice\b/;
 rule('D10: a notice built once per item, and an option built in a .map, are each covered by a bound, exempt with a reason, or listed as pending', () => {
-  const dir = path.join(__dirname, '..', 'src', 'ui', 'views'), left = [], used = new Set();
+  const dir = path.join(__dirname, '..', 'src', 'ui', 'views'), left = [], used = new Set(), usedHelper = new Set();
   fs.readdirSync(dir).filter(f => /\.js$/.test(f)).forEach(f => {
-    callbacks(fs.readFileSync(path.join(dir, f), 'utf8')).forEach(c => {
-      const notice = NOTICE.test(c.body), option = c.kind === 'map' && /<option/.test(c.body);
+    const skip = new Set(D10_HELPER_OK.filter(e => e.file === f).map(e => e.helper)), src = fs.readFileSync(path.join(dir, f), 'utf8'), helpers = noticeHelpers(src, skip), fns = functions(src);
+    D10_HELPER_OK.filter(e => e.file === f && fns[e.helper] && (NOTICE.test(fns[e.helper]) || callsAny(fns[e.helper], noticeHelpers(src)).length)).forEach(e => usedHelper.add(e));
+    callbacks(src).forEach(c => {
+      const notice = NOTICE.test(c.body) || callsAny(c.body, helpers).length > 0, option = c.kind === 'map' && /<option/.test(c.body);
       if (!notice && !option) return;
       const ok = D10_OK.concat(D10_PENDING).filter(e => e.file === f && c.body.indexOf(e.has) >= 0);
       ok.forEach(e => used.add(e));
@@ -778,6 +826,7 @@ rule('D10: a notice built once per item, and an option built in a .map, are each
   });
   assert.deepStrictEqual(left, [], 'not covered');
   assert.deepStrictEqual(D10_OK.concat(D10_PENDING).filter(e => !used.has(e)).map(e => e.file + ': ' + e.has), [], 'an exemption that matches nothing any more');
+  assert.deepStrictEqual(D10_HELPER_OK.filter(e => !usedHelper.has(e)).map(e => e.file + ': ' + e.helper), [], 'a helper exemption for a function that no longer draws a notice');
 });
 /* D10 rule 3 (code review round 8, widened in round 10): every .join( in the views and app.js with any separator but '' (a
    list of rows, bounded by D8's check). Each is capped (K.capJoin, K.joined, or the first few and "and N more"), or exempt
@@ -904,6 +953,20 @@ rule('D10 is tested (round 11): a notice without a role (class="notice ...") or 
   const src = "a.map(function (e) { return '<div class=\"notice warn\"><span>' + e + '</span></div>'; }); b.forEach(function (x) { h += '<p aria-live=\"polite\">' + x + '</p>'; }); c.map(function (y) { return '<li>' + y + '</li>'; });";
   const found = callbacks(src).filter(c => NOTICE.test(c.body));
   assert.deepStrictEqual(found.map(c => c.kind), ['map', 'forEach']);
+});
+rule('D10 is tested (round 12): a notice built by a helper, or by a helper of a helper, called from a .map or from a list\'s row: function, inline or named, is found', () => {
+  const src = "function note(n) { return '<div class=\\\"notice warn\\\" role=\\\"status\\\">' + n + '</div>'; }\n" +
+    "function wrap(n) { return '<p>' + note(n) + '</p>'; }\n" +
+    "function plain(n) { return '<p>' + n + '</p>'; }\n" +
+    "var linkRow = function (n) { return '<div>' + wrap(n) + '</div>'; };\n" +
+    "K.roleRows(st, 'a', names, { row: linkRow });\n" +
+    "K.roleRows(st, 'b', names, { row: function (n) { return note(n); } });\n" +
+    "x.map(function (n) { return wrap(n); }); y.map(function (n) { return plain(n); });";
+  const helpers = noticeHelpers(src);
+  assert.deepStrictEqual([...helpers].sort(), ['linkRow', 'note', 'wrap']);
+  const hits = callbacks(src).filter(c => NOTICE.test(c.body) || callsAny(c.body, helpers).length);
+  assert.deepStrictEqual(hits.map(c => c.kind + ':' + c.line), ['map:7', 'row:5', 'row:6']);
+  assert.deepStrictEqual([...noticeHelpers(src, new Set(['note']))], [], 'an exempt helper makes no helper of its callers');
 });
 rule('D10 is tested: the reader finds a notice built in a forEach and an option built in a map', () => {
   const found = callbacks('a.forEach(function (x) { h += \'<div role="status">\' + /[(]/.test(x) + \'</div>\'; }); b.map(function (y) { return \'<option>\' + y; });');
@@ -1228,6 +1291,54 @@ rule('Round 11: a linked step carrying 40 run details its child doesn\'t have sh
   await reread(app);
   const a = app.doc.activeElement;
   assert.ok(a && a.dataset && a.dataset.act === 'ob-link-rm' && a.dataset.name === 'd004', 'focus stays on the fifth row\'s Remove: ' + app.activeId() + ' ' + (a && a.dataset && a.dataset.name));
+});
+
+/* ---------- code review round 12 ---------- */
+/* The builder's Who does it on the wide checklist's step "all": 301 roles, the step's own 300 kept (K.list's ordinary tier). */
+async function wideWho(app) {
+  app.click('nav', 'processes'); await app.tick(5); app.click('open-process', 'wide'); await app.tick(10);
+  app.click('ptab', 'edit'); await app.tick(10); app.click('ed-mode', 'builder'); await app.tick(10); app.click('ob-sel', 'all'); await app.tick(10);
+}
+const roleChips = h => ids(h, /data-act="ob-role" data-id="([^"]+)"/g);
+rule('Round 12: Find w250 in Who does it, with all 300 of the step\'s roles kept, draws w250 first and announces 1 of 301 match', async () => {
+  const app = await fresh();
+  await wideWho(app);
+  assert.strictEqual(roleChips(app.html()).length, 40, 'set-up: a page of 20 and a page of its kept roles');
+  await typeFind(app, 'ob-roles', 'w250');
+  const h = app.html(), drawn = roleChips(h);
+  assert.ok(/id="find-ob-roles-n" role="status">1 of 301 match</.test(h), 'announced');
+  assert.deepStrictEqual(drawn, ['w250'], 'the one match, and no role Find leaves out: ' + drawn.slice(0, 5).join(', '));
+});
+rule('Round 12: Show 20 more in Who does it, with all 300 of the step\'s roles kept, adds the 20 rows it says', async () => {
+  const app = await fresh();
+  await wideWho(app);
+  const before = roleChips(app.html()), d = moreOf(app.html(), 'ob-roles');
+  assert.ok(d, 'a Show more');
+  const said = +/Show (\d+) more/.exec(app.html().slice(app.html().indexOf('data-id="ob-roles" data-next'))) [1];
+  await more(app, 'ob-roles');
+  const after = roleChips(app.html()), added = after.filter(r => before.indexOf(r) < 0);
+  assert.strictEqual(said, 20, 'it says 20');
+  assert.strictEqual(added.length, said, 'Show ' + said + ' more added ' + added.length);
+  assert.strictEqual(new Set(after).size, after.length, 'no role twice');
+  assert.strictEqual(app.doc.activeElement && app.doc.activeElement.dataset.id, d.next, 'focus on the first it adds');
+});
+rule('Round 12: a linked step passing 40 team values that aren\'t in the folder draws one notice, with 20 names in its fold and Show more', async () => {
+  const app = await fresh();
+  const md = app.fs.files['maps/drafts/linkbig.md'].t.replace(/process: linkbig/, 'process: teamgap').replace(/title: [^\n]*/, 'title: Passes missing team values').replace('{#lkb}', '{#lkt}')
+    .replace('  process: bigkid\n', '  process: bigkid\n  pass: ' + Array.from({ length: 40 }, (x, i) => 'd' + String(i).padStart(3, '0') + '=team:gone-' + String(i).padStart(3, '0')).join(', ') + '\n');
+  await app.fs.write('maps/drafts/teamgap.md', md); await reread(app);
+  app.click('nav', 'processes'); await app.tick(5); app.click('open-process', 'teamgap'); await app.tick(10);
+  app.click('ptab', 'edit'); await app.tick(10); app.click('ed-mode', 'builder'); await app.tick(10); app.click('ob-sel', 'lkt'); await app.tick(10);
+  let h = app.html();
+  assert.ok(/data-act="ob-link-rm"|ob-link-src-d000/.test(h), 'set-up: the linked step');
+  assert.strictEqual(count(h, /role="status"><span>gone-\d+ isn/g), 0, 'no notice per run detail');
+  assert.strictEqual(count(h, /class="notice warn ob-team-bad" role="status"/g), 1, 'one notice');
+  assert.ok(/40 run details this step passes take a team value that isn(&#39;|')t in this folder/.test(h), 'with how many');
+  assert.strictEqual(count(h, /<li id="ob-team-miss-lkt-d\d+"/g), 20, '20 in its fold');
+  await more(app, 'ob-team-miss:lkt');
+  h = app.html();
+  assert.strictEqual(count(h, /<li id="ob-team-miss-lkt-d\d+"/g), 40, 'Show more adds 20');
+  assert.strictEqual(app.activeId(), 'ob-team-miss-lkt-d020', 'and focuses the first it adds');
 });
 
 run();

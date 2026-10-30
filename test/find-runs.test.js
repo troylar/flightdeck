@@ -862,11 +862,16 @@ rule('Plan a run on a 300-role checklist: 20 role rows, Find reaches role 300, S
   app.set('role-r5', 'person-blake'); app.select('role-r5', 'person-blake'); await app.tick(5);
   await typeFind(app, 'start-roles', 'r250');
   h = app.html();
-  assert.ok(roleRows(h).indexOf('r250') >= 0 && roleRows(h).indexOf('r5') >= 0, 'Find reaches role 250; the chosen r5 stays drawn');
+  /* Code review round 12: with Find the page is the matches; a chosen role Find leaves out is an ordinary kept row, its value
+     in its hidden field. */
+  const hiddenVal = (h, r) => { const m = new RegExp('<input type="hidden" id="role-' + r + '" data-role="' + r + '" value="([^"]*)"').exec(h); return m ? m[1] : null; };
+  assert.deepStrictEqual(roleRows(h), ['r250'], 'Find reaches role 250, the one match');
+  assert.strictEqual(hiddenVal(h, 'r5'), 'person-blake', 'the chosen r5 keeps its value in its hidden field');
   app.set('role-r250', 'person-morgan'); app.select('role-r250', 'person-morgan'); await app.tick(5);
   await typeFind(app, 'start-roles', 'r300');
   h = app.html();
-  assert.ok(roleRows(h).indexOf('r300') >= 0 && roleRows(h).indexOf('r5') >= 0 && roleRows(h).indexOf('r250') >= 0, 'Find reaches role 300; both chosen roles stay');
+  assert.deepStrictEqual(roleRows(h), ['r300'], 'Find reaches role 300, the one match');
+  assert.ok(hiddenVal(h, 'r5') === 'person-blake' && hiddenVal(h, 'r250') === 'person-morgan', 'both chosen roles keep their values');
   app.click('find-clear', 'start-roles'); await app.tick(5);
   const d = moreOf(app.html(), 'start-roles');
   app.click('more', 'start-roles', d); await app.tick(5);

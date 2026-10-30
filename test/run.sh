@@ -44,6 +44,7 @@ test/find-notes.test.js 0/2
 test/find-notes.test.js 1/2
 test/find-twins.test.js 0/2
 test/find-twins.test.js 1/2
+test/find-tiers.test.js -
 test/ui-states.test.js -
 test/reports.test.js -
 test/insights.test.js -
