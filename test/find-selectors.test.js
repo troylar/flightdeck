@@ -1,6 +1,9 @@
 // Find things in big folders (2.11), code review round 13: every selector built from data goes through an escape. An id from a
 // file can hold a quote, a backslash or a newline; a selector that leaves one raw is invalid, and querySelector throws, which
 // interrupts the redraw (finding 3: a plan id with a newline as Planned's Show more target).
+// Code review round 14: an id from a file can also be a name every plain object already has (constructor, __proto__,
+// toString, hasOwnProperty). A lookup keyed by one is made without a prototype (Object.create(null)), so it never reads an
+// inherited value as the item's own.
 'use strict';
 const assert = require('assert');
 const fs = require('fs');
@@ -132,5 +135,183 @@ rule('Round 13: a plan whose id holds a newline, Planned\'s Show more target pas
   app.click('more', 'runs-planned', d); await app.tick(5);
   const a = app.doc.activeElement;
   assert.ok(a && a.dataset && a.dataset.act === 'review-plan' && un(a.dataset.id) === odd, 'focus on that plan\'s card: ' + JSON.stringify(a && a.dataset));
+});
+/* ---------- Round 14: lookups keyed by data from the folder have no prototype ---------- */
+/* Every lookup a source makes on a plain object literal: an object declared as {} (var x = {}, x = {}) and indexed later in
+   the file with a key that isn't a literal, or (expr || {})[key]. A key joined with a literal holding a character no
+   Object.prototype name has (':', '/', a newline...) is safe whatever the rest is, so it isn't listed. Returns
+   { line, name, key }. */
+function plainLookups(src) {
+  const out = [], lineOf = i => src.slice(0, i).split('\n').length;
+  const inner = i => { let d = 0, q = null, e = ''; for (; i < src.length; i++) { const c = src[i]; if (q) { e += c; if (c === '\\') { e += src[++i]; continue; } if (c === q) q = null; continue; } if (c === "'" || c === '"') { q = c; e += c; continue; } if ('([{'.includes(c)) d++; if (')]}'.includes(c)) { if (!d) break; d--; } e += c; } return e.trim(); };
+  const safeKey = e => /^(?:'[^']*'|"[^"]*"|\d+)$/.test(e) || /'(?:[^'\\]|\\.)*[^A-Za-z0-9_$'\\](?:[^'\\]|\\.)*'/.test(e.replace(/\\n/g, '\n'));
+  let m;
+  const INL = /\|\|\s*\{\}\)\s*\[/g;
+  while ((m = INL.exec(src))) { const e = inner(m.index + m[0].length); if (!safeKey(e)) out.push({ line: lineOf(m.index), name: '(… || {})', key: e }); }
+  const DECL = /(?:\b(?:var|let|const)\s+|,\s*|[;{]\s*)([A-Za-z_$][\w$]*)\s*=\s*\{\}/g;
+  while ((m = DECL.exec(src))) {
+    const name = m[1], from = m.index + m[0].length, again = new RegExp('(?:\\b(?:var|let|const)\\s+|,\\s*|[;{]\\s*)' + name.replace(/\$/g, '\\$') + '\\s*=(?!=)', 'g');
+    again.lastIndex = from; const nx = again.exec(src), to = nx ? nx.index : src.length;
+    const use = new RegExp('(?<![\\w$.])' + name.replace(/\$/g, '\\$') + '\\[', 'g'); use.lastIndex = from; let u;
+    while ((u = use.exec(src)) && u.index < to) { const e = inner(u.index + u[0].length); if (!safeKey(e)) out.push({ line: lineOf(u.index), name, key: e }); }
+  }
+  return out;
+}
+/* The plain-object lookups left as they are in src/ui/views, each with why its key can't be a name Object.prototype has, or
+   why it is left (pre-existing: as in 2.10.0, not changed by 2.11), and how many there are. A new one isn't here, so the
+   check fails until it is made with Object.create(null), a Map, or an own-property test. */
+const PREFIXED = 'a key this code builds with a fixed prefix holding a colon (ob-stale:, dupes:, repdiff:...)', RUNKEY = 'a run key (process/id): it always holds a slash';
+const LISTID = 'a list\'s paging id, a fixed name or a fixed prefix with a colon set in code', PANE = 'a pane name from the code\'s PANES specs';
+const PRE = 'pre-existing (as in 2.10.0, not changed by 2.11): ';
+const LOOKUPS_OK = {
+  'views/builder.js|(… || {})|sk': [2, PREFIXED],
+  'views/builder.js|(… || {})|dk': [1, PRE + 'a disclosure key, a field id, a colon and the checklist id'],
+  'views/builder.js|u|s.type': [1, PRE + 'written before any read; read back only by Object.keys'],
+  'views/builder.js|P|k': [2, PRE + 'step, lanes, gate or phase, from a fixed list'],
+  'views/builder.js|P|pt.kind': [1, PRE + 'a part kind set in code'],
+  'views/common.js|(… || {})|id': [4, LISTID],
+  'views/common.js|(… || {})|key': [2, PRE + PANE],
+  'views/common.js|chosen|it.key': [2, PRE + PANE],
+  'views/common.js|chosen|k': [1, PRE + PANE],
+  'views/common.js|out|it.key': [1, PRE + PANE],
+  'views/common.js|w|it.key': [4, PRE + PANE],
+  'views/common.js|w|k': [2, PRE + PANE],
+  'views/detailbox.js|d|n': [1, PRE + 'a run detail name: a map refuses one Object.prototype has (map.js reserved)'],
+  'views/flight.js|(… || {})|p.id': [1, PRE + 'state.fpSteps is made with Object.create(null) (fpStepsKept); {} only stands in before it is set'],
+  'views/home.js|(… || {})|runKey(r)': [2, RUNKEY],
+  'views/insights.js|(… || {})|p.id': [1, PRE + 'compared with each version\'s folder name, so an inherited value matches none'],
+  'views/insights.js|status|k': [2, PRE + RUNKEY],
+  'views/insights.js|by|k': [2, PRE + RUNKEY],
+  'views/manage.js|seen|n': [2, PRE + 'a step type field name typed in the type form; a field named like an Object.prototype name is called listed twice'],
+  'views/manage.js|at|id': [2, PRE + 'a type form control id, tf- and a name'],
+  'views/overlays.js|teamOf|e.name': [1, PRE + 'a pass name: PF.links refuses one Object.prototype has (links.js reserved)'],
+  'views/overlays.js|teamOf|f': [2, PRE + 'a pass name: PF.links refuses one Object.prototype has (links.js reserved)'],
+  'views/overlays.js|teamOf|k': [1, PRE + 'a pass name: PF.links refuses one Object.prototype has (links.js reserved)'],
+  'views/process.js|(… || {})|k': [1, PREFIXED],
+  'views/process.js|(… || {})|sdk': [1, PREFIXED],
+  'views/process.js|(… || {})|lbk': [1, PREFIXED],
+  'views/process.js|(… || {})|cmpKey': [1, PREFIXED],
+  'views/process.js|(… || {})|p.draft.file': [1, PRE + 'a draft file name; the value is only shown as why it can\'t be read'],
+  'views/process.js|(… || {})|p.id': [1, PRE + 'compared with a form key string, so an inherited value never equals it'],
+  'views/reports.js|(… || {})|k': [1, PREFIXED],
+  'views/reports.js|(… || {})|g.key': [1, 'a report\'s identity, process/run/step/producer/id: it always holds a slash'],
+  'views/run.js|(… || {})|r.id': [1, PRE + 'state.pendingSaves, set while a run saves; a run id is letters, digits and dashes, so constructor is one (reported)'],
+  'views/run.js|(… || {})|s.id': [1, PRE + 'the run file\'s own fields object, keyed by step id'],
+  'views/run.js|(… || {})|st.id': [1, PRE + 'the run file\'s own fields object, keyed by step id'],
+  'views/run.js|(… || {})|runKey(r)': [3, RUNKEY],
+  'views/run.js|(… || {})|nd': [1, PREFIXED],
+  'views/run.js|(… || {})|to.v': [1, 'a destination value, process/id or plan:id, so it always holds a slash or a colon'],
+  'views/setup.js|out|x.k': [1, PRE + 'me or a row key the setup form makes']
+};
+rule('Round 14: no lookup in src/ui/views reads a plain object by a key from the folder unless it is listed with why it can\'t be an inherited name', () => {
+  /* The check itself: it finds a counter and a fallback read by an id, and passes Object.create(null) and a prefixed key. */
+  const bad = plainLookups("var nth = {}; a.forEach(function (p) { nth[p.id] = (nth[p.id] || 0) + 1; }); x = (st.more || {})[p.id];");
+  assert.deepStrictEqual(bad.map(x => x.name + '[' + x.key + ']'), ['(… || {})[p.id]', 'nth[p.id]', 'nth[p.id]'], JSON.stringify(bad));
+  assert.deepStrictEqual(plainLookups("var nth = Object.create(null); nth[p.id] = 1; y = (st.disc || {})['fx:' + p.id]; var o = {}; o['a'] = 1; z = (s.m || {})[ctx.fsKey + '\\n' + p.id];"), []);
+  const seen = {}, fails = [];
+  fs.readdirSync(path.join(UI, 'views')).filter(f => /\.js$/.test(f)).forEach(f => {
+    plainLookups(fs.readFileSync(path.join(UI, 'views', f), 'utf8')).forEach(x => { const k = 'views/' + f + '|' + x.name + '|' + x.key; (seen[k] = seen[k] || []).push(x.line); });
+  });
+  Object.keys(seen).forEach(k => {
+    if (!LOOKUPS_OK[k]) fails.push(k.split('|')[0] + ':' + seen[k].join(',') + ' reads ' + k.split('|')[1] + '[' + k.split('|')[2] + '] on a plain object');
+    else if (seen[k].length > LOOKUPS_OK[k][0]) fails.push(k + ': ' + seen[k].length + ' reads, ' + LOOKUPS_OK[k][0] + ' listed (lines ' + seen[k].join(',') + ')');
+  });
+  Object.keys(LOOKUPS_OK).forEach(k => { if (!seen[k]) fails.push('listed but gone: ' + k); });
+  assert.deepStrictEqual(fails, []);
+});
+
+const PROTO = ['constructor', '__proto__', 'toString', 'hasOwnProperty'];
+const SMALL = { procs: 3, tags: 3, people: 10, followUps: 3, running: 3, plans: 3, versions: 3, stages: 2, members: 3, health: 3, many: 3, ended: 3, steps: 8, teamValues: 3, legacy: 3, archived: 3, hot: 3 };
+async function protoApp(size, edit) {
+  const fx = fixture({ size: Object.assign({}, SMALL, size) }), files = Object.assign({}, fx.files);
+  edit(files);
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true }); await app.tick(60);
+  await into(app, { files, facts: fx.facts });
+  return app;
+}
+function moreData(h, id) {
+  const m = new RegExp('<button[^>]*data-act="more" data-id="' + id.replace(/[-/:.#]/g, '\\$&') + '"([^>]*)>').exec(h); if (!m) return null;
+  const d = {}; m[1].replace(/data-([\w-]+)="([^"]*)"/g, (x, k, v) => { d[k] = un(v); return x; }); return d;
+}
+/* Planned (finding 1): two differing copies of each, the first ending page one; each is drawn once, the first copy with the card's id. */
+async function protoPlanned() {
+  const app = await protoApp({ plans: 60 }, files => {
+    /* 49 ordinary plans, soonest first, then two differing copies of each id: the first one ends page one. */
+    for (let i = 49; i < 60; i++) {
+      const f = 'proposals/plan-000' + i + '.json', p = JSON.parse(files[f]); delete files[f];
+      const j = i - 49; if (j >= 8) continue;
+      p.id = PROTO[j >> 1]; p.title = 'Copy ' + (j & 1 ? 'B' : 'A') + ' of ' + p.id;
+      files['proposals/' + p.id + (j & 1 ? ' (1)' : '') + '.json'] = JSON.stringify(p, null, 2) + '\n';
+    }
+  });
+  app.click('nav', 'runs'); await app.tick(10);
+  let h = app.html();
+  const cards = html => [...html.matchAll(/<button class="card plan"([^>]*)>/g)].map(m => { const d = {}; m[1].replace(/(id|data-id|data-key)="([^"]*)"/g, (x, k, v) => { d[k] = un(v); return x; }); return d; });
+  assert.ok(/id="planned-h">Planned · 59</.test(h), 'set-up: Planned counts 49 plans, 8 copies and the folder\'s own 2 plans, which come last');
+  assert.strictEqual(cards(h).length, 50, 'a page of 50');
+  const d = moreData(h, 'runs-planned');
+  assert.ok(d, 'Show more is there for the 7 copies and 2 plans past the page');
+  app.click('more', 'runs-planned', d); await app.tick(5);
+  h = app.html();
+  const all = cards(h), keys = all.map(c => c['data-key']);
+  assert.strictEqual(all.length, 59, 'every plan and every copy drawn');
+  assert.strictEqual(new Set(keys).size, 59, 'each with its own paging key: ' + JSON.stringify(keys.slice(48)));
+  PROTO.forEach(id => {
+    const mine = all.filter(c => c['data-id'] === id);
+    assert.strictEqual(mine.length, 2, 'both copies of ' + id);
+    assert.deepStrictEqual(mine.map(c => c.id || null), ['card-' + id, null], 'the first copy of ' + id + ' has the card\'s id, and only it');
+  });
+  const a = app.doc.activeElement;
+  assert.ok(a && a.dataset && a.dataset.act === 'review-plan' && un(a.dataset.key) === all[50]['data-key'], 'focus on the first card Show more added: ' + JSON.stringify(a && a.dataset));
+}
+/* A step's notes: two of each, across the thread's Show earlier boundary; each is drawn once, by its own key, with its own text. */
+async function protoNotes() {
+  const app = await protoApp({}, files => {
+    const p = Object.keys(files).find(f => /notes-busy-s1\.jsonl$/.test(f)), lines = files[p].split('\n').filter(Boolean).map(l => JSON.parse(l));
+    const ahead = lines.find(n => n.id === 'ahead09'), t0 = Date.parse(ahead.at);
+    /* After ahead09, before ahead10: 15 newer notes, so the newest 20 hold 5 of these 8 and Show earlier the other 3. */
+    PROTO.forEach((id, i) => [0, 1].forEach(c => lines.push({ id, at: new Date(t0 + (i * 2 + c + 1) * 5000).toISOString(), by: 'person-blake', session: 'busy-s1', step: 's0', text: 'Note ' + id + ' copy ' + (c + 1) })));
+    files[p] = lines.map(x => JSON.stringify(x)).join('\n') + '\n';
+  });
+  app.click('nav', 'home'); await app.tick(5); app.click('open-run', fixture({ size: SMALL }).facts.busy); await app.tick(10);
+  app.click('select', 's0'); await app.tick(10);
+  const thread = h => [...h.slice(h.indexOf('id="ins-notes"')).matchAll(/<li id="tn-s0-([^"]+)" tabindex="-1"/g)].map(m => un(m[1]));
+  const want = [].concat(...PROTO.map(id => [id, id + '#2']));
+  let t = thread(app.html());
+  assert.strictEqual(t.length, 20, 'the newest 20');
+  assert.deepStrictEqual(want.filter(k => t.indexOf(k) >= 0), want.slice(3), 'set-up: 5 of them on the first page');
+  const d = moreData(app.html(), 'notes:' + fixture({ size: SMALL }).facts.busy + ':s0');
+  assert.ok(d, 'Show earlier');
+  app.click('more', d.id || ('notes:' + fixture({ size: SMALL }).facts.busy + ':s0'), d); await app.tick(5);
+  t = thread(app.html());
+  assert.deepStrictEqual(want.filter(k => t.indexOf(k) >= 0), want, 'all 8 drawn, by their own keys');
+  assert.strictEqual(new Set(t).size, t.length, 'none drawn twice');
+  want.forEach((k, i) => { const li = app.html().slice(app.html().indexOf('id="tn-s0-' + k + '"')); assert.ok(li.slice(0, li.indexOf('</li>')).indexOf('Note ' + PROTO[i >> 1] + ' copy ' + (i % 2 + 1)) >= 0, k + ' shows its own text'); });
+}
+/* Checklists: one in a group of each name, one with the id constructor, across the page boundary; each drawn once, in its own group.
+   (A run id can be constructor or toString too, but a running run with one stops the app as it reads the folder, as in 2.10.0;
+   that is outside this release's changes, so runs aren't used here.) */
+async function protoChecklists() {
+  const md = (id, g) => '---\nprocess: ' + id + '\ntitle: Checklist in ' + g + '\ncategory: Synthetic\ngroup: ' + g + '\nowner: person-avery\nroles: lead\n---\n\n## Phase 1 · READ-DO {#ph1}\n- [ ] {confirm} Do it @lead {#s1}\n';
+  const ids = PROTO.map((g, i) => i ? 'proto-' + i : 'constructor');
+  const app = await protoApp({ procs: 60 }, files => { PROTO.forEach((g, i) => { files['maps/drafts/' + ids[i] + '.md'] = md(ids[i], g); }); });
+  app.click('nav', 'processes'); await app.tick(10);
+  const drawn = h => { const s = h.slice(h.indexOf('id="procs-all"')); return [...s.matchAll(/data-act="open-process" data-id="([^"]+)"/g)].map(m => un(m[1])); };
+  let list = drawn(app.html());
+  const first = ids.filter(k => list.indexOf(k) >= 0);
+  assert.ok(first.length > 0 && first.length < 4, 'set-up: the page boundary falls among them: ' + JSON.stringify(first));
+  for (let i = 0, d; i < 5 && (d = moreData(app.html(), 'processes')); i++) { app.click('more', 'processes', d); await app.tick(5); }
+  const h = app.html(); list = drawn(h);
+  assert.strictEqual(new Set(list).size, list.length, 'none drawn twice');
+  ids.forEach((k, i) => {
+    assert.strictEqual(list.filter(x => x === k).length, 1, k + ' drawn once');
+    const g = h.indexOf('data-group="' + PROTO[i] + '"'), at = h.indexOf('data-act="open-process" data-id="' + k + '"'), next = h.indexOf('data-group=', g + 1);
+    assert.ok(g >= 0 && at > g && (next < 0 || next > at), k + ' is in the group ' + PROTO[i]);
+  });
+}
+rule('Round 14: ids constructor, __proto__, toString and hasOwnProperty across a page boundary are each drawn once, as themselves, on Planned, a step\'s notes and Checklists (finding 1)', async () => {
+  await protoPlanned();
+  await protoNotes();
+  await protoChecklists();
 });
 run();
