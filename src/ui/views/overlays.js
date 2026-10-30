@@ -298,7 +298,7 @@
          value in a hidden field, so the child starts with exactly the roles it would. */
       /* One resolver for a role drawn or hidden (code review round 10): the person chosen when they're on the team now, else nobody. */
       var roleVal = function (role) { var c = chosenOf(role); return onTeam[c] ? c : ''; };
-      var cr = K.roleRows(ctx.state, 'cs-roles', meta.roles, { inDialog: true, keep: meta.roles.filter(function (role) { return chosenOf(role) !== had(role); }), focusOf: function (k) { return K.byId('cs-role-' + k); },
+      var cr = K.roleRows(ctx.state, 'cs-roles', meta.roles, { inDialog: true, soft: meta.roles.filter(function (role) { return chosenOf(role) !== had(role); }), focusOf: function (k) { return K.byId('cs-role-' + k); },
         row: function (role) { var chosen = roleVal(role); return '<label class="field" for="cs-role-' + esc(role) + '">' + esc(role) + '<select id="cs-role-' + esc(role) + '" data-role="' + esc(role) + '"><option value="">Nobody yet</option>' +
           people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === chosen ? ' selected' : '') + '>' + esc(nm(x)) + '</option>'; }).join('') + '</select></label>'; },
         hidden: function (role) { return '<input type="hidden" id="cs-role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(roleVal(role)) + '">'; } });

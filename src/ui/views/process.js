@@ -776,9 +776,12 @@
          changes what the form starts or plans, even after someone is marked inactive while it's open. */
       var onTeam = Object.create(null); people.forEach(function (x) { onTeam[x.id] = true; });
       var roleVal = function (role, sug) { var was = wasOf(role, chosenOf(role), sug), v = setOf(role, was); return { was: onTeam[was] ? was : '', value: onTeam[v] ? v : '' }; };
-      var keepRole = function (role) { return !!chosenOf(role) || !!picked[role] || !!(st.fieldErr && st.fieldErr.id === 'start-approver' && st.fieldErr.field === 'role-' + role); };
+      /* A refused role is pinned, drawn whatever the page or Find; one given someone is an ordinary kept row (its value is in a
+         hidden field when it isn't drawn), so with Find the matches come first (K.list's tiers, code review round 12). */
+      var errRole = function (role) { return !!(st.fieldErr && st.fieldErr.id === 'start-approver' && st.fieldErr.field === 'role-' + role); };
+      var keepRole = function (role) { return !!chosenOf(role) || !!picked[role]; };
       var rq = K.findQ(st, 'start-roles'), rhit = K.finds(rq), rfound = rq ? meta.roles.filter(function (role) { return rhit([role]); }) : meta.roles;
-      var rlist = rq ? meta.roles.filter(function (role) { return rfound.indexOf(role) >= 0 || keepRole(role); }) : meta.roles, drawnRole = Object.create(null), roleRows = '';
+      var rout = rq ? meta.roles.filter(function (role) { return !rhit([role]); }) : null, drawnRole = Object.create(null), roleRows = '';
       if (meta.roles.length > ROLE_PAGE || rq) h = h.replace(/<div class="grid2">$/, '') + K.findBox(st, 'start-roles', 'Find a role', rfound.length, meta.roles.length, 'role') + '<div class="grid2">';
       var roleRow = function (role) {
         var h = '';
@@ -798,7 +801,7 @@
           people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === rv.value ? ' selected' : '') + '>' + esc(nmStage(x)) + '</option>'; }).join('') + '</select></label>';
         return h;
       };
-      h += K.list(st, 'start-roles', rlist, { page: ROLE_PAGE, keep: meta.roles.filter(keepRole), keptLabel: 'Roles you\'ve chosen someone for', keyOf: function (role) { return role; }, focusOf: function (k) { return K.byId('role-' + k); },
+      h += K.list(st, 'start-roles', rfound, { page: ROLE_PAGE, keep: meta.roles.filter(errRole), soft: meta.roles.filter(keepRole), outside: rout, keptLabel: 'Roles you\'ve chosen someone for', keyOf: function (role) { return role; }, focusOf: function (k) { return K.byId('role-' + k); },
         draw: function (shown) { return shown.map(roleRow).join(''); } });
       meta.roles.forEach(function (role) {
         if (drawnRole[role]) return;
@@ -835,7 +838,7 @@
       /* One resolver for a role drawn or hidden (code review round 10): you, or what this form set, when on the team now. */
       var tOn = Object.create(null); people.forEach(function (x) { tOn[x.id] = true; });
       var tval = function (role) { var v = tsetOf(role, meOn); return tOn[v] ? v : ''; };
-      var tr = K.roleRows(st, 'test-roles', meta.roles, { keep: meta.roles.filter(function (role) { return !!tpicked[role]; }), focusOf: function (k) { return K.byId('role-' + k); },
+      var tr = K.roleRows(st, 'test-roles', meta.roles, { soft: meta.roles.filter(function (role) { return !!tpicked[role]; }), focusOf: function (k) { return K.byId('role-' + k); },
         row: function (role) { return '<label class="field" for="role-' + esc(role) + '">' + esc(role) + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '" data-was="' + esc(meOn) + '"><option value="">Nobody yet</option>' +
           people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === tval(role) ? ' selected' : '') + '>' + esc(nmRun(x)) + '</option>'; }).join('') + '</select></label>'; },
         hidden: function (role) { return '<input type="hidden" id="role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(tval(role)) + '" data-was="' + esc(meOn) + '">'; } });

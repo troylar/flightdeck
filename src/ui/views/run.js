@@ -572,11 +572,11 @@
       } else if (f.op === 'roles') {
         /* 20 roles at a time in checklist order, with Find past 20 (2.11); a role ticked is always drawn, so it's never lost. */
         var roles = map.meta.roles || [], rq = roles.length > 20 ? K.findQ(st, 'corr-roles') : '', rhit = K.finds(rq);
-        var rmatch = roles.filter(function (ro) { return rhit([ro, r.roles[ro] ? nameOf(ctx, r.roles[ro]) : '']); }), rlist = rq ? roles.filter(function (ro) { return f.roles.indexOf(ro) >= 0 || rmatch.indexOf(ro) >= 0; }) : roles;
+        var rmatch = roles.filter(function (ro) { return rhit([ro, r.roles[ro] ? nameOf(ctx, r.roles[ro]) : '']); }), rout = rq ? roles.filter(function (ro) { return !rhit([ro, r.roles[ro] ? nameOf(ctx, r.roles[ro]) : '']); }) : null;
         var rbox = function (ro) { return '<label class="check-label small"><input type="checkbox" id="corr-role-' + esc(ro) + '" data-bound' + (f.roles.indexOf(ro) >= 0 ? ' checked' : '') + '> @' + esc(ro) + (r.roles[ro] ? ' (' + esc(nameOf(ctx, r.roles[ro])) + ')' : '') + '</label>'; };
         h += roles.length ? '<fieldset class="corr-roles" id="corr-roles" tabindex="-1"' + bad('corr-roles') + '><legend class="small">Who should do it</legend>' +
           (roles.length > 20 ? K.findBox(st, 'corr-roles', 'Find a role', rmatch.length, roles.length, 'role') : '') +
-          K.list(st, 'corr-roles', rlist, { page: 20, keyOf: function (ro) { return ro; }, focusOf: function (k) { return K.byId('corr-role-' + k); }, keep: f.roles.filter(function (ro) { return roles.indexOf(ro) >= 0; }), keptLabel: 'Ticked', draw: function (shown) { return shown.map(rbox).join(''); } }) +
+          K.list(st, 'corr-roles', rmatch, { page: 20, keyOf: function (ro) { return ro; }, focusOf: function (k) { return K.byId('corr-role-' + k); }, outside: rout, soft: f.roles.filter(function (ro) { return roles.indexOf(ro) >= 0; }), keptLabel: 'Ticked', draw: function (shown) { return shown.map(rbox).join(''); } }) +
           '</fieldset>' + fe('corr-roles')
           : '<p class="small">This checklist has no roles. Use Describe another problem to say who should do it.</p>';
       } else if (f.op === 'screenshot') {

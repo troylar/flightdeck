@@ -125,7 +125,7 @@ PF.vk = (function () {
   }
   function tagButtons(all, chosen, st) {
     var btn = function (t) { var on = chosen.indexOf(t) >= 0; return '<button class="tag' + (on ? ' on' : '') + '" data-act="tag" data-id="' + esc(t) + '" aria-pressed="' + on + '">#' + esc(t) + '</button>'; };
-    var body = st ? list(st, 'tags', all, { draw: function (shown) { return shown.map(btn).join(''); }, keyOf: function (t) { return t; }, focusOf: function (t) { return byAct('tag', t); }, keep: chosen, keptLabel: 'Chosen' }) : all.map(btn).join('');
+    var body = st ? list(st, 'tags', all, { draw: function (shown) { return shown.map(btn).join(''); }, keyOf: function (t) { return t; }, focusOf: function (t) { return byAct('tag', t); }, soft: chosen, keptLabel: 'Chosen' }) : all.map(btn).join('');
     return '<div class="tagbar" role="group" aria-label="Filter by tag">' + body + (chosen.length ? '<button class="mini" data-act="tag" data-id="">Clear</button>' : '') + '</div>';
   }
   /* ---------- Find boxes (2.11) ---------- */
@@ -157,7 +157,9 @@ PF.vk = (function () {
        draw(shown), keyOf(item): the rows' HTML, and an item's key;
        focusOf(key): the selector Show more focuses for the first item it adds, something always there and focusable (a row's
          heading or title with tabindex="-1", or a row that is one button). Without it, the run card with that key, as before;
-       page: the page size (50); keep: keys drawn whatever the page (a row being edited);
+       page: the page size (50); keep: keys drawn whatever the page (a row being edited: pinned, never dropped); soft: keys
+         drawn past the page while they fit in a page of them (a role given someone, its value kept elsewhere);
+       outside: items Find leaves out, drawn after the list only when pinned or focused (K.roleRows);
        tail: the last n items, with Show earlier above them (a thread read newest last); gap(n): the line between a tail's kept
          rows and the tail ("270 notes between");
        inDialog: the list is in a dialog, so focus moves through the dialog's own focus;
@@ -169,10 +171,12 @@ PF.vk = (function () {
   /* The keys each list drew last time, so a redraw can tell which of them had focus (focusHeld). */
   var drawnBy = Object.create(null);
   function runCardSel(k) { return '[data-act="open-run"][data-id="' + cssStr(k) + '"]'; }
-  /* The row with focus, among those this list drew last time and won't draw on its page now: its key, kept drawn whatever the
-     page (one extra row, for this list only), or, when its item is gone, focus goes to the list's heading (PF.vk.focusAt is
-     set by the app's render while focus is on the page, and holds the page as it was drawn). */
-  function focusHeld(id, items, onPage, keep, o) {
+  /* The row with focus, among those this list drew last time and won't draw now: its key, kept drawn whatever the page (one
+     extra row, for this list only), or, when its item is gone, focus goes to the list's heading (PF.vk.focusAt is set by the
+     app's render while focus is on the page, and holds the page as it was drawn). drawn: every key this render draws without
+     it, the same set the rows are drawn from, so a row skipped here as drawn always is (code review round 12). cands: the
+     list's items and its outside ones. */
+  function focusHeld(id, cands, drawn, o) {
     var fa = PF.vk.focusAt, was = drawnBy[id];
     if (!fa || !was || !was.length || o.hold === false) return null;
     var sel = function (k) { return o.focusOf ? o.focusOf(k) : runCardSel(k); };
@@ -181,11 +185,11 @@ PF.vk = (function () {
        for around the focused element first (fa.near, no search of the whole page), then checked row by row. */
     for (var i = 0; i < was.length; i++) {
       var k = was[i];
-      if (onPage[k] || keep[k]) continue;
+      if (drawn[k]) continue;
       if (fa.near && !fa.near(sel(k))) continue;
       var other = was[0] !== k ? was[0] : was.length > 1 ? was[1] : null;
       if (!fa.inRow(sel(k), other == null ? null : sel(other))) continue;
-      for (var j = 0; j < items.length; j++) if (o.keyOf(items[j]) === k) return k;
+      for (var j = 0; j < cands.length; j++) if (o.keyOf(cands[j]) === k) return k;
       fa.lost(id);
       return null;
     }
@@ -197,39 +201,69 @@ PF.vk = (function () {
        moves the list's last item to the top (its first, for a tail), as a newer read that sorts one in above would. */
     if (PF.vk.PAGE_OFF === id) n = items.length;
     if (PF.vk.ARRIVE === id && items.length > 1) items = o.tail ? items.slice(1).concat(items.slice(0, 1)) : items.slice(-1).concat(items.slice(0, -1));
-    var from = o.tail ? Math.max(0, items.length - n) : 0, shown = items.slice(from, from + n), left = items.length - shown.length;
-    var keep = Object.create(null), js = st.justShown && st.justShown.lists ? st.justShown.lists[id] : null, extra = [], plus = false, kept = false, onIt = false;
-    (o.keep || []).forEach(function (k) { if (k != null) keep[k] = true; });
-    if (js != null) keep[js] = true;
-    var inPage = Object.create(null);
-    shown.forEach(function (it) { inPage[o.keyOf(it)] = true; });
-    var held = left > 0 ? focusHeld(id, items, inPage, keep, o) : null;
-    if (held != null) keep[held] = true;
-    /* What o.keep keeps past the page is a page at most (code review round 11): a step can own 300 roles, and a plan made from
-       a run has someone for every role. The rest are reached with Find and Show more (a form keeps their values in hidden
-       fields). What a search showed and the row with focus are kept whatever the count. */
-    var keptN = 0;
-    if (left > 0 && (js != null || held != null || (o.keep || []).length)) {
-      items.forEach(function (it) { var k = o.keyOf(it); if (keep[k] && !inPage[k] && (k === js || k === held || keptN++ < P)) { extra.push(it); if (k === js) plus = true; else if (k === held && (o.keep || []).indexOf(k) < 0) onIt = true; else kept = true; } });
+    var keyOf = o.keyOf, outside = o.outside || [], L = items.length;
+    var from = o.tail ? Math.max(0, L - n) : 0, shown = items.slice(from, from + n), left = L - shown.length;
+    /* The rows drawn, in three tiers (code review round 12):
+       1. the page: the first n items (the last n, for a tail). With Find, the caller gives only the matches as items, so the
+          page is matches and nothing else pushes them off it;
+       2. pinned rows, never dropped and bounded by what they are: o.keep (a row with text typed and not applied, refused, held
+          by its note, being edited or renamed, a fixed value just chosen), what a search just showed (state.justShown) and
+          the row with focus. A pinned row Find leaves out is drawn from o.outside, after the matches;
+       3. ordinary kept rows, o.soft (a role given someone, whose value a form keeps in a hidden field or in state): past the
+          page, the nearest page of them, and with Find only those that match.
+       Focus is looked for among rows not drawn by these tiers, and Show more's label and step come from the same tiers
+       worked out for the bigger page, so what it says it adds is what the next draw adds. */
+    var pin = Object.create(null), soft = Object.create(null), js = st.justShown && st.justShown.lists ? st.justShown.lists[id] : null;
+    (o.keep || []).forEach(function (k) { if (k != null) pin[k] = true; });
+    if (js != null) pin[js] = true;
+    (o.soft || []).forEach(function (k) { if (k != null && !pin[k]) soft[k] = true; });
+    var drawn = Object.create(null), at = function (t) { return o.tail ? from - 1 - t : from + shown.length + t; };
+    shown.forEach(function (it) { drawn[keyOf(it)] = true; });
+    var inPage = Object.assign(Object.create(null), drawn);
+    /* Past the page, in page order (away from it): softAt holds each ordinary kept row's offset, the first page of them drawn. */
+    var softAt = [];
+    for (var t = 0; t < left; t++) { var kt = keyOf(items[at(t)]); if (pin[kt]) drawn[kt] = true; else if (soft[kt]) { if (softAt.length < P) drawn[kt] = true; softAt.push(t); } }
+    var outPin = outside.filter(function (it) { return pin[keyOf(it)]; });
+    outPin.forEach(function (it) { drawn[keyOf(it)] = true; });
+    var held = focusHeld(id, outside.length ? items.concat(outside) : items, drawn, o);
+    if (held != null) {
+      drawn[held] = true;
+      if (!items.some(function (it) { return keyOf(it) === held; })) outPin = outPin.concat(outside.filter(function (it) { return keyOf(it) === held; }));
     }
-    if (left <= 0 && PF.vk.focusAt && drawnBy[id] && o.hold !== false) focusHeld(id, items, inPage, keep, o);
-    drawnBy[id] = Object.keys(inPage).concat(extra.map(o.keyOf));
+    var extra = [], plus = false, kept = false, onIt = false;
+    items.forEach(function (it) {
+      var k = keyOf(it); if (inPage[k] || !drawn[k]) return;
+      extra.push(it);
+      if (k === js) plus = true; else if (k === held && !pin[k] && !soft[k]) onIt = true; else kept = true;
+    });
+    outPin.forEach(function (it) { var k = keyOf(it); extra.push(it); if (k === js) plus = true; else if (k === held && !pin[k]) onIt = true; else kept = true; });
+    drawnBy[id] = Object.keys(inPage).concat(extra.map(keyOf));
     /* Tests list every list drawn (PF.vk.TRACE, an array): its id, every item's key, and the selector Show more focuses. */
-    if (PF.vk.TRACE) PF.vk.TRACE.push({ id: id, keys: items.map(o.keyOf), page: shown.map(o.keyOf), extra: extra.map(o.keyOf), tail: !!o.tail, hold: o.hold !== false, focusOf: function (k) { return o.focusOf ? o.focusOf(k) : runCardSel(k); } });
+    if (PF.vk.TRACE) PF.vk.TRACE.push({ id: id, keys: items.map(keyOf), page: shown.map(keyOf), extra: extra.map(keyOf), tail: !!o.tail, hold: o.hold !== false, focusOf: function (k) { return o.focusOf ? o.focusOf(k) : runCardSel(k); } });
     var h = '', more = '';
-    /* What Show more adds is counted past every row already drawn, kept ones too: up to a page of rows not on screen, the first
-       of them focused, and the page grows by however many it steps over (step) to reach them. */
-    var drawnK = Object.create(null), add = 0, step = 0, first = null;
-    extra.forEach(function (it) { drawnK[o.keyOf(it)] = true; });
-    for (var i = o.tail ? from - 1 : from + shown.length; left > 0 && add < P && i >= 0 && i < items.length; i += o.tail ? -1 : 1) {
-      step++;
-      if (drawnK[o.keyOf(items[i])]) continue;
-      add++; if (o.tail || !first) first = items[i];
+    /* Show more: the page grows by step, the smallest that adds the most new rows up to a page, counted as the next draw will
+       draw them: rows it steps over not drawn now, and ordinary kept rows that come into the nearest page past the bigger page
+       (softAt[b..b+P), b of them now inside it). add is that count, and first the earliest of them in the list. */
+    var add = 0, step = 0;
+    if (left > 0) {
+      var newIn = 0, b = 0, best = 0, bestS = 0, newKept = function (b) { var c = 0; for (var x = Math.max(b, P); x < b + P && x < softAt.length; x++) if (!drawn[keyOf(items[at(softAt[x])])]) c++; return c; };
+      for (var s = 1; s <= left; s++) {
+        var ks = keyOf(items[at(s - 1)]);
+        if (!drawn[ks]) newIn++;
+        if (soft[ks]) b++;
+        var a = newIn + newKept(b);
+        if (a > P) { if (!best) { best = a; bestS = s; } break; }
+        if (a > best) { best = a; bestS = s; }
+      }
+      add = best; step = bestS;
     }
     if (add > 0) {
-      var k = o.keyOf(first), f = o.focusOf ? o.focusOf(k) : null;
-      more = '<div class="row paged"><span class="small" role="status">Showing ' + shown.length.toLocaleString('en-US') + ' of ' + items.length.toLocaleString('en-US') + (plus ? ', plus the one you just ' + esc((st.justShown.words || {})[id] || o.shownWord || 'added') : '') + (onIt ? (plus ? ' and' : ', plus') + ' the one you\'re on' : '') + '</span>' +
-        '<button type="button" class="btn" data-act="more" data-id="' + esc(id) + '" data-next="' + esc(k) + '"' + (f ? ' data-focus="' + esc(f) + '"' : '') + (P !== PAGE ? ' data-page="' + P + '"' : '') + (step !== add ? ' data-step="' + step + '"' : '') + (o.inDialog ? ' data-dialog="1"' : '') + '>' +
+      var first = -1, bs = 0;
+      for (var u = 0; u < step; u++) { var ku = keyOf(items[at(u)]); if (soft[ku]) bs++; if (!drawn[ku] && (first < 0 || at(u) < first)) first = at(u); }
+      for (var x = Math.max(bs, P); x < bs + P && x < softAt.length; x++) { var ix = at(softAt[x]); if (!drawn[keyOf(items[ix])] && (first < 0 || ix < first)) first = ix; }
+      var k = keyOf(items[first]), f = o.focusOf ? o.focusOf(k) : null;
+      more = '<div class="row paged"><span class="small" role="status">Showing ' + shown.length.toLocaleString('en-US') + ' of ' + L.toLocaleString('en-US') + (plus ? ', plus the one you just ' + esc((st.justShown.words || {})[id] || o.shownWord || 'added') : '') + (onIt ? (plus ? ' and' : ', plus') + ' the one you\'re on' : '') + '</span>' +
+        '<button type="button" class="btn" data-act="more" data-id="' + esc(id) + '" data-next="' + esc(k) + '"' + (f ? ' data-focus="' + esc(f) + '"' : '') + (P !== PAGE ? ' data-page="' + P + '"' : '') + (step !== P && !(step === add && step === left) ? ' data-step="' + step + '"' : '') + (o.inDialog ? ' data-dialog="1"' : '') + '>' +
         (o.tail ? 'Show ' + add + ' earlier' : 'Show ' + add + ' more') + '</button></div>';
     }
     /* groupOf: rows of one item drawn as one (a correction group's members, a change's): a kept row whose item is on the page
@@ -239,7 +273,7 @@ PF.vk = (function () {
       shown.forEach(function (it, j) { lastAt[o.groupOf(it)] = j; });
       extra.forEach(function (it) { var g = o.groupOf(it); if (g in lastAt) (into[lastAt[g]] = into[lastAt[g]] || []).push(it); else apart.push(it); });
       shown.forEach(function (it, j) { seq.push(it); if (into[j]) seq.push.apply(seq, into[j]); });
-      shown = seq; extra = apart; kept = kept && apart.some(function (it) { return (o.keep || []).indexOf(o.keyOf(it)) >= 0; });
+      shown = seq; extra = apart; kept = kept && apart.some(function (it) { var k = keyOf(it); return pin[k] || soft[k]; });
     }
     var rest = extra.length ? (kept ? '<p class="small kept-h">' + esc(o.keptLabel || 'You\'re editing this one') + '</p>' : '') + o.draw(extra) : '';
     /* A tail's kept rows sit above it: o.gap(n) says how many rows lie between the last of them and the tail. */
@@ -250,16 +284,16 @@ PF.vk = (function () {
   }
   /* A form's roles a page at a time (2.11), as Start and Plan draw them: 20 in checklist order, with Find a role past 20 (or
      o.label and o.noun for another list of names: a step's run details in the builder). o:
-     row(role), the role's HTML; keep, the roles always drawn (given someone on this form, or showing an error); hidden(role),
-     what stands in for a role not drawn (its value in a hidden field), so the form sends exactly what it would with every role
-     drawn; focusOf, keptLabel, inDialog as K.list. Returns { box, rows, hidden }. */
+     row(role), the role's HTML; keep, the roles always drawn, Find or not (being edited, refused, typed and not applied);
+     soft, the roles drawn past the page when they fit in a page of them, and with Find only when they match (given someone
+     on this form: their value is kept); hidden(role), what stands in for a role not drawn (its value in a hidden field), so
+     the form sends exactly what it would with every role drawn; focusOf, keptLabel, inDialog as K.list. With Find, the page
+     is the matches (K.list's tiers), so a kept role never pushes one off it. Returns { box, rows, hidden }. */
   function roleRows(st, id, roles, o) {
-    var P = o.page || 20, q = findQ(st, id), hit = finds(q), kept = Object.create(null), on = Object.create(null);
-    (o.keep || []).forEach(function (r) { kept[r] = true; });
+    var P = o.page || 20, q = findQ(st, id), hit = finds(q), on = Object.create(null);
     var found = q ? roles.filter(function (r) { return hit([r]); }) : roles;
-    var rs = q ? roles.filter(function (r) { return kept[r] || found.indexOf(r) >= 0; }) : roles;
     var box = roles.length > P || q ? findBox(st, id, o.label || 'Find a role', found.length, roles.length, o.noun || 'role') : '';
-    var rows = list(st, id, rs, { page: P, keep: roles.filter(function (r) { return kept[r]; }), keptLabel: o.keptLabel || 'Roles you\'ve chosen someone for', keyOf: function (r) { return r; }, focusOf: o.focusOf, inDialog: o.inDialog,
+    var rows = list(st, id, found, { page: P, keep: o.keep, soft: o.soft, outside: q ? roles.filter(function (r) { return !hit([r]); }) : null, keptLabel: o.keptLabel || 'Roles you\'ve chosen someone for', keyOf: function (r) { return r; }, focusOf: o.focusOf, inDialog: o.inDialog,
       draw: function (shown) { return shown.map(function (r) { on[r] = true; return o.row(r); }).join(''); } });
     var hidden = o.hidden ? roles.filter(function (r) { return !on[r]; }).map(o.hidden).join('') : '';
     return { box: box, rows: rows, hidden: hidden };

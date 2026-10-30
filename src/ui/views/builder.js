@@ -352,7 +352,7 @@
     var id = 'ob-fld-sets', g = G.field(def, 'sets', s.fields), cur = String(s.fields.sets || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean), all = (meta && meta.context) || [];
     var chip = function (n, bad) { return '<button type="button" class="chipbtn ob-req' + (bad ? ' bad" data-bad="1' : '') + '" data-act="ob-sets" data-id="' + esc(n) + '" aria-pressed="' + (cur.indexOf(n) >= 0) + '">^' + esc(n) + (bad ? ' <span class="small">Not one of this checklist\'s run details; press to remove it.</span>' : '') + '</button>'; };
     /* 20 at a time with Find past 20, the ones it sets always drawn (2.11, code review round 8). */
-    var rr = K.roleRows(ctx.state, 'ob-sets', all, { keep: cur, keptLabel: 'Run details this step sets', label: 'Find a run detail', noun: 'run detail', focusOf: function (n) { return K.byAct('ob-sets', n); }, row: function (n) { return chip(n); } });
+    var rr = K.roleRows(ctx.state, 'ob-sets', all, { soft: cur, keptLabel: 'Run details this step sets', label: 'Find a run detail', noun: 'run detail', focusOf: function (n) { return K.byAct('ob-sets', n); }, row: function (n) { return chip(n); } });
     var h = rr.rows + cur.filter(function (n) { return all.indexOf(n) < 0; }).map(function (n) { return chip(n, true); }).join('');
     return '<div class="field"><span id="q-' + id + '">' + esc(g.q) + '</span>' + rr.box + '<div class="row ob-grp" id="' + id + '" tabindex="-1" role="group" aria-labelledby="q-' + id + '" aria-describedby="' + described(ctx, id, g) + '">' +
       (h || '<span class="small">The checklist lists no run details yet.</span>') + '</div>' + whyOf(id, g) + '</div>' + errMsg(ctx, id);
@@ -445,7 +445,7 @@
       return h + '</div>';
     };
     var lr = K.roleRows(ctx.state, 'ob-link-rows', names, { keep: names.filter(keepRow), keptLabel: 'Being filled in', label: 'Find a run detail', noun: 'run detail', focusOf: function (n) { return K.byId('ob-link-src-' + n); }, row: linkRow });
-    h += lr.box + lr.rows;
+    h += lr.box + lr.rows + teamProblems(ctx, s, rr.rows);
     /* What this step passes that the child has no run detail for any more: one notice, with each name and its Remove 20 at a
        time in its fold past one (code review round 11, D10), never a notice per name. */
     var kv = esc(t) + (kid.version ? ' v' + esc(kid.version) : ''), rmBtn = function (x) { return '<button type="button" class="mini" data-act="ob-link-rm" data-id="' + esc(s.key) + '" data-name="' + esc(x.name) + '">Remove ^' + esc(x.name) + ' from what\'s passed</button>'; };
@@ -465,11 +465,25 @@
     var tv = ctx.data.teamValues, vals = tv && tv.state === 'ok' && tv.doc ? tv.doc.values : {};
     return Object.keys(vals).sort().map(function (n) { return { v: 'team:' + n, t: 'Team value ' + n + (vals[n].about ? ': ' + vals[n].about : ''), group: 'A team value' }; });
   }
+  /* A team value's row says what it is now; what's wrong with it is said once for the whole step (teamProblems). */
   function teamNote(ctx, name, t) {
     var l = PF.teamValues.lookup(ctx.data.teamValues, name);
-    if (l.value != null) return '<p class="small">Now <code>' + esc(l.value) + '</code>. It\'s read when ' + esc(t) + ' starts, so a later change in Settings › Team values is what new runs get.</p>';
-    if (l.missing) return '<div class="notice warn" role="status"><span>' + esc(name) + ' isn\'t a team value in this folder. Add it in Settings › Team values, or pass something else.</span></div>';
-    return '<div class="notice warn" role="status"><span>' + esc(l.why) + '</span></div>';
+    return l.value != null ? '<p class="small">Now <code>' + esc(l.value) + '</code>. It\'s read when ' + esc(t) + ' starts, so a later change in Settings › Team values is what new runs get.</p>' : '';
+  }
+  /* Team values this step passes that can't be read or aren't in the folder: one notice for the step, never one per run detail
+     (code review round 12, D10), with the names 20 at a time in its fold past one. The file's own problem is the same for
+     every name, so it's said once. */
+  function teamProblems(ctx, s, rows) {
+    var tv = ctx.data.teamValues, bad = rows.filter(function (r) { return r.source === 'team' && PF.teamValues.lookup(tv, r.team).value == null; });
+    if (!bad.length) return '';
+    var l = PF.teamValues.lookup(tv, bad[0].team);
+    if (!l.missing) return '<div class="notice warn ob-team-bad" role="status"><span>' + esc(l.why) + '</span></div>';
+    if (bad.length === 1) return '<div class="notice warn ob-team-bad" role="status"><span>' + esc(bad[0].team) + ' isn\'t a team value in this folder. Add it in Settings › Team values, or pass something else.</span></div>';
+    var sk = 'ob-team-miss:' + s.key, tid = function (n) { return 'ob-team-miss-' + s.key + '-' + n; };
+    return '<div class="notice warn ob-team-bad" role="status"><div><b>' + bad.length.toLocaleString('en-US') + ' run details this step passes take a team value that isn\'t in this folder.</b> Add each in Settings › Team values, or pass something else.' +
+      '<details data-disc="' + esc(sk) + '"' + ((ctx.state.disc || {})[sk] ? ' open' : '') + '><summary class="small">Which ones</summary>' +
+      K.list(ctx.state, sk, bad, { page: 20, keyOf: function (r) { return r.name; }, focusOf: function (k) { return K.byId(tid(k)); },
+        draw: function (shown) { return '<ul class="small ob-team-list">' + shown.map(function (r) { return '<li id="' + esc(tid(r.name)) + '" tabindex="-1"><code>^' + esc(r.name) + '</code> takes team value <code>' + esc(r.team) + '</code></li>'; }).join('') + '</ul>'; } }) + '</details></div></div>';
   }
   /* On a phone the form is a sheet over the outline; Done closes it. */
   /* The selected item's name, Previous / Next through the steps, and on a phone Done to close the sheet. */
@@ -538,7 +552,7 @@
   function whoField(ctx, s, meta) {
     var own = s.parts.roles, roles = meta.roles.concat(own.filter(function (r) { return meta.roles.indexOf(r) < 0; })), lane = s.track >= 0 ? s.phase.tracks[s.track] : null;
     var none = lane && lane.roles.length ? 'Uses this lane\'s people (' + K.atRoles(lane.roles, 'ob-lane-roles') + ')' : 'Anyone';
-    var rr = K.roleRows(ctx.state, 'ob-roles', roles, { keep: own, keptLabel: 'This step\'s roles', focusOf: function (r) { return K.byAct('ob-role', r); },
+    var rr = K.roleRows(ctx.state, 'ob-roles', roles, { soft: own, keptLabel: 'This step\'s roles', focusOf: function (r) { return K.byAct('ob-role', r); },
       row: function (r) { return '<button type="button" class="chipbtn" data-act="ob-role" data-id="' + esc(r) + '" aria-pressed="' + (own.indexOf(r) >= 0) + '">@' + esc(r) + '</button>'; } });
     return '<div class="field"><span id="ob-roles-l">' + esc(G.step('roles').q) + '</span>' + rr.box + '<div class="row" role="group" aria-labelledby="ob-roles-l" aria-describedby="why-ob-roles">' +
       (own.length ? '' : '<span class="chipbtn ob-anyone" aria-current="true">' + esc(none) + '</span>') + rr.rows + '</div>' +
@@ -608,7 +622,7 @@
     var guideList = typed ? [] : apply;
     var binds = s.parts.binds, ctxs = meta.context.concat(binds.filter(function (b) { return meta.context.indexOf(b) < 0; }));
     /* The checklist's run details, 20 at a time with Find past 20, the step's own always drawn (2.11, code review round 8). */
-    var br = K.roleRows(ctx.state, 'ob-binds', ctxs, { keep: binds, keptLabel: 'This step\'s run details', label: 'Find a run detail', noun: 'run detail', focusOf: function (b) { return K.byAct('ob-bind', b); },
+    var br = K.roleRows(ctx.state, 'ob-binds', ctxs, { soft: binds, keptLabel: 'This step\'s run details', label: 'Find a run detail', noun: 'run detail', focusOf: function (b) { return K.byAct('ob-bind', b); },
       row: function (b) { return '<button type="button" class="ob-chip" data-act="ob-bind" data-id="' + esc(b) + '" aria-pressed="' + (binds.indexOf(b) >= 0) + '">^' + esc(b) + '</button>'; } });
     var bindsHtml = '<div class="field"><span id="ob-binds-l">' + esc(G.step('binds').q) + '</span>' + whyOf('ob-binds', G.step('binds')) + (ctxs.length ? br.box + '<div class="row" role="group" aria-labelledby="ob-binds-l" aria-describedby="why-ob-binds">' + br.rows + '</div>' : '<span class="small">The checklist lists no run details yet.</span> <button type="button" class="linkish" data-act="ob-sel-details" data-focus="ob-add-ctx">Add run details</button>') + '</div>';
     var err = function (res) { var fe = ctx.state.fieldErr; return !!(fe && fe.id === 'ob' && res.some(function (re) { return re.test(fe.field); })); };
@@ -739,10 +753,12 @@
     var rd = st.obRenamed, renamed = function (n) { return key === 'context' && ren && ren.map && rd && rd.name === n && rd.pid === ren.map.meta.process; };
     var fid = 'ob-meta-' + key, P = 20, q = K.findQ(st, fid), hit = K.finds(q), keep = list.filter(function (n) { return renaming(n) || renamed(n); }), noun = key === 'roles' ? 'role' : 'run detail';
     var js = st.justShown && st.justShown.lists ? st.justShown.lists[fid] : null;
-    var found = q ? list.filter(function (n) { return hit([n]); }) : list, rows = q ? list.filter(function (n) { return n === js || keep.indexOf(n) >= 0 || found.indexOf(n) >= 0; }) : list;
+    /* With Find, the page is the matches; the renamed one Find leaves out is drawn after them (K.list's tiers, code review round 12). */
+    var found = q ? list.filter(function (n) { return hit([n]); }) : list, out = q ? list.filter(function (n) { return !hit([n]); }) : null;
+    var any = found.length || (out || []).some(function (n) { return n === js || keep.indexOf(n) >= 0; });
     var box = list.length > P || q ? K.findBox(st, fid, 'Find a ' + noun, found.length, list.length, noun) : '';
     return '<div class="field"><span id="' + lid + '">' + label + '</span><span class="small">' + hint + '</span>' + box +
-      (rows.length ? K.list(st, fid, rows, { page: P, keep: keep, keptLabel: list.some(renaming) ? 'Being renamed' : 'Just renamed', keyOf: function (n) { return n; },
+      (any ? K.list(st, fid, found, { page: P, keep: keep, outside: out, keptLabel: list.some(renaming) ? 'Being renamed' : 'Just renamed', keyOf: function (n) { return n; },
         focusOf: function (n) { return '[data-act="ob-meta-del"][data-key="' + key + '"][data-id="' + K.cssStr(n) + '"]'; }, draw: function (shown) { return '<ul class="ob-metalist" aria-labelledby="' + lid + '">' + shown.map(function (n) {
         if (renaming(n)) return renameRow(ctx, ren, n);
         var used = key === 'context' && ren && ren.o ? O.usesOf(ren.o, 'context', n).length : -1;
