@@ -1288,4 +1288,55 @@ rule('Round 9: Plan on 300 roles keeps what every role started as through a refr
   assert.strictEqual(made[0].roles.r250, r250); assert.strictEqual(made[0].roles.r2, r2);
 });
 
+
+/* ---------- code review round 10 ---------- */
+rule('Round 10: Plan on 300 roles, the people suggested for role 2 (drawn) and role 250 (not drawn) marked inactive while it\'s open: after a refresh both are nobody and compared with nobody, role 250 drawn by Show more is the same, and the plan saves neither', async () => {
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true }); await app.tick(60);
+  await into(app, fixture());
+  app.click('nav', 'processes'); await app.tick(5); app.click('open-process', 'roles'); await app.tick(10); app.click('plan-run', 'roles'); await app.tick(20);
+  const selOf = (h, role) => { const m = new RegExp('<select id="role-' + role + '"[^>]*>([\\s\\S]*?)</select>').exec(h); return m ? (/<option value="([^"]+)" selected>/.exec(m[1]) || [])[1] || '' : null; };
+  const wasOf = (h, role) => (new RegExp('id="role-' + role + '" data-role="[^"]*"[^>]*data-was="([^"]*)"').exec(h) || [])[1];
+  let h = app.html();
+  const r250 = hiddenOfAt(h, 'r250'), r2 = selOf(h, 'r2');
+  assert.ok(r250 && r2, 'set-up: role 250 hidden and role 2 drawn, each with someone suggested');
+  /* Someone marks both people inactive in people.json while the form is open. */
+  const ppl = JSON.parse(app.fs.files['people.json'].t);
+  ppl.forEach(p => { if (p.id === r2 || p.id === r250) p.inactive = true; });
+  await app.fs.write('people.json', JSON.stringify(ppl, null, 2));
+  app.set('run-title', 'After the directory changed').set('plan-when', '2099-05-01T09:00');
+  await reread(app);
+  h = app.html();
+  assert.strictEqual(selOf(h, 'r2'), '', 'role 2, drawn, is nobody: its box can\'t show an inactive person');
+  assert.strictEqual(wasOf(h, 'r2'), '', 'and is compared with nobody');
+  assert.strictEqual(hiddenOfAt(h, 'r250'), '', 'role 250, not drawn, is nobody too, as its box would be');
+  assert.strictEqual(wasOf(h, 'r250'), '', 'and is compared with nobody');
+  for (let i = 0; i < 14 && selOf(app.html(), 'r250') === null; i++) await more(app, 'start-roles');
+  h = app.html();
+  assert.strictEqual(selOf(h, 'r250'), '', 'drawn by Show more, role 250 is still nobody');
+  assert.strictEqual(wasOf(h, 'r250'), '');
+  app.chooseApprovers().submitForm('plan-form'); await app.tick(120);
+  const made = Object.keys(app.fs.files).filter(f => /^proposals\/plan-roles-[a-z0-9]{8}\.json$/.test(f)).map(f => JSON.parse(app.fs.files[f].t)).filter(p => p.title === 'After the directory changed');
+  assert.strictEqual(made.length, 1, 'the plan is saved');
+  assert.ok(!made[0].roles.r250 && !made[0].roles.r2, 'neither inactive person is planned: ' + made[0].roles.r250 + ', ' + made[0].roles.r2);
+});
+rule('Round 10: Plan with role 250 hidden after its person is marked inactive saves the same roles whether role 250 is drawn first or not', async () => {
+  const plans = [];
+  for (const draw of [false, true]) {
+    const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true }); await app.tick(60);
+    await into(app, fixture());
+    app.click('nav', 'processes'); await app.tick(5); app.click('open-process', 'roles'); await app.tick(10); app.click('plan-run', 'roles'); await app.tick(20);
+    const r250 = hiddenOfAt(app.html(), 'r250');
+    const ppl = JSON.parse(app.fs.files['people.json'].t); ppl.forEach(p => { if (p.id === r250) p.inactive = true; });
+    await app.fs.write('people.json', JSON.stringify(ppl, null, 2));
+    app.set('run-title', 'Drawn ' + draw).set('plan-when', '2099-05-02T09:00');
+    await reread(app);
+    if (draw) for (let i = 0; i < 14 && !/<select id="role-r250"/.test(app.html()); i++) await more(app, 'start-roles');
+    app.chooseApprovers().submitForm('plan-form'); await app.tick(120);
+    const made = Object.keys(app.fs.files).filter(f => /^proposals\/plan-roles-[a-z0-9]{8}\.json$/.test(f)).map(f => JSON.parse(app.fs.files[f].t)).filter(p => p.title === 'Drawn ' + draw)[0];
+    assert.ok(made, 'set-up: the plan is saved');
+    plans.push(made.roles);
+  }
+  assert.deepStrictEqual(plans[1], plans[0], 'paging changes nothing the plan saves');
+});
+
 run();

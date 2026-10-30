@@ -223,6 +223,21 @@ function make(opts) {
     publish(head('linkkid', 'Linked child', { group: 'Busy', context: 'region' }) + phases(1, 1, n => 'Child step ' + n));
     publish(head('linker', 'Many linked steps', { group: 'Busy', context: 'env' }) + '## Ship · READ-DO {#ship}\n' +
       Array.from({ length: 30 }, (x, i) => '- [ ] {run.process} Start child ' + i + ' {#lk' + i + '}\n  process: linkkid\n  pass: environment=^env\n').join(''));
+    /* Code review round 10: run details and approvals by the hundred. A child draft with 300 run details, not published yet,
+       and a draft whose linked step names it (the builder's What it needs); a checklist with 40 run details, the most a
+       version can have (core/map.js), published and staged (Start, Plan, Start a test run), and a step that starts it asking
+       for all 40 (the child's start dialog); a checklist with 300 approvals, each owned by one role (who approves). */
+    const dets = Array.from({ length: S.many }, (x, i) => 'd' + pad(i, 3));
+    put('maps/drafts/bigkid.md', head('bigkid', 'Big child draft', { group: 'Busy', context: dets.join(', ') }) + phases(1, 1, () => 'Use ^d000 and ^d299'));
+    put('maps/drafts/linkbig.md', head('linkbig', 'Links a big draft', { group: 'Busy', context: 'env' }) + '## Ship · READ-DO {#ship}\n- [ ] {run.process} Start the big child {#lkb}\n  process: bigkid\n\n');
+    const dets40 = dets.slice(0, 40), manyDetMd = v => head('manydet', 'Many run details', { group: 'Busy', context: dets40.join(', ') }) + phases(1, 2, n => 'Detail step ' + n + (v > 1 ? ' (v' + v + ')' : ''));
+    publish(manyDetMd(1));
+    publish(manyDetMd(2), 0, { stage: true, existing: pubs.manydet.map(x => ({ version: x.info.version })) });
+    const dlink = publish(head('detlink', 'Starts many details', { group: 'Busy' }) + '## Start · READ-DO {#start}\n- [ ] {run.process} Start the many-detail run {#kid}\n  process: manydet\n  pass: ' + dets40.map(d => d + '=?').join(', ') + '\n\n');
+    const dlRun = newRun(dlink, { id: 'detlinkrun', title: 'A run that starts a 40-detail run', start: NOW - HOUR, by: 'person-avery', roles: { lead: 'person-avery' } });
+    put(base(dlRun) + 'run.json', runFile(dlRun));
+    facts.detlink = 'detlink/' + dlRun.id;
+    publish(head('gates', 'Many approvals', { group: 'Busy', roles: 'lead, approver' }) + Array.from({ length: S.many }, (x, i) => '## Phase ' + (i + 1) + ' · READ-DO {#ph' + (i + 1) + '}\n' + stepLine('s' + i, 'Gate step ' + i) + '\n## Gate: Approval ' + (i + 1) + ' · owner @approver {#g' + (i + 1) + '}\n\n').join(''));
     /* 300 drafts that say the same process. */
     for (let i = 0; i < S.many; i++) put('maps/drafts/dupe-' + pad(i, 3) + '.md', head('dupes', 'Duplicated draft', { group: 'Busy' }) + phases(1, 1, () => 'Draft ' + i));
 

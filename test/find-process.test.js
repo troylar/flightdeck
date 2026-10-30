@@ -778,21 +778,61 @@ rule('D10: a notice built once per item, and an option built in a .map, are each
   assert.deepStrictEqual(left, [], 'not covered');
   assert.deepStrictEqual(D10_OK.concat(D10_PENDING).filter(e => !used.has(e)).map(e => e.file + ': ' + e.has), [], 'an exemption that matches nothing any more');
 });
-/* D10 rule 3 (code review round 8): a list joined into text with ', ' or '; '. Each is capped (K.capJoin, K.joined, or the
-   first few and "and N more"), or is a list that doesn't grow with the folder, with the reason. */
+/* D10 rule 3 (code review round 8, widened in round 10): every .join( in the views and app.js with any separator but '' (a
+   list of rows, bounded by D8's check). Each is capped (K.capJoin, K.joined, or the first few and "and N more"), or exempt
+   with the reason it can't grow with the team folder or isn't drawn as text. */
 const JOIN_STRUCT = 'one step\'s or lane\'s own parts (its structure), not the folder\'s';
+const NOT_TEXT = 'never drawn: a key, signature, selector, pattern or comparison';
+const ARIA = 'element ids for aria-describedby, never drawn';
+const SEARCH = 'the words Find or search matches against, never drawn';
+const COPY = 'copied whole to the clipboard on purpose: what the person typed';
+const FORMVAL = 'a form box\'s value, which the person edits, not a line of text';
+const FILE = 'text written to a file (front matter, a step\'s lines), never drawn';
+const FIXED = 'a fixed set of parts, at most a handful';
+const TYPEDEF = 'one step type\'s own definition (its fields, options, tags, group), set by its type file';
+const GROUP = 'one group path (Group / Subgroup), as deep as its author wrote it';
 const D10_JOIN_OK = [
   { file: 'builder.js', has: 'Pick one of: \' + opts.join', why: 'a step type\'s own choices, set by the type' },
   { file: 'builder.js', has: '<b>Uses:</b>', why: JOIN_STRUCT }, { file: 'builder.js', has: '<b>Sets:</b>', why: JOIN_STRUCT },
   { file: 'builder.js', has: 'given.map(function (r)', why: 'one linked step\'s pass: entries (its structure)' },
+  { file: 'builder.js', has: 'function described(', why: ARIA }, { file: 'builder.js', has: 'function sigOf(', why: NOT_TEXT },
+  { file: 'builder.js', has: 'group: T.groupOf(t).join(\' / \')', why: 'a step type\'s group path and, for Find, its tags: its own definition' },
+  { file: 'builder.js', has: 'keys: \'github.pr bitbucket.pr', why: SEARCH }, { file: 'builder.js', has: 'function matches(pt, q)', why: SEARCH },
+  { file: 'builder.js', has: '<span class="ob-role">@\' + esc(s.roles.join', why: JOIN_STRUCT }, { file: 'builder.js', has: 'esc(tr.roles.join', why: JOIN_STRUCT },
+  { file: 'builder.js', has: 'Uses this lane\\\'s people', why: JOIN_STRUCT }, { file: 'builder.js', has: 'function condText(c)', why: 'one condition\'s own terms (its structure)' },
+  { file: 'builder.js', has: 'esc(t.when.join(\'\\n\'))', why: FORMVAL }, { file: 'builder.js', has: 'guideList.join(\'|\')', why: NOT_TEXT },
+  { file: 'builder.js', has: '\' · fields \' + names.map', why: TYPEDEF },
   { file: 'common.js', has: 'Part of the team folder couldn', why: 'the folder\'s areas, a fixed set' },
   { file: 'common.js', has: 'shown.map(name).join(\', \')', why: 'K.joined: the first 50 and Show more' },
-  { file: 'home.js', has: 'bad.slice(0, 3)', why: 'the first 3 and "and N more"' },
-  { file: 'insights.js', has: 'STATUS_WORDS[k]', why: 'correction statuses, a fixed set' },
-  { file: 'manage.js', has: 'e.errors.join(\'; \')', why: 'one step type file\'s problems, at most one per field of the type' },
-  { file: 'manage.js', has: 't.tags.join(\', \')', why: 'a step type\'s tags as its form box\'s value, not drawn as text' },
+  { file: 'common.js', has: '.join(sep) + tail', why: 'K.capJoin itself: the first 50 and "and N more"' },
+  { file: 'common.js', has: 'esc(parts.join(\' · \'))', why: FIXED }, { file: 'common.js', has: 'var key = p.join(\' / \')', why: NOT_TEXT },
+  { file: 'common.js', has: 'esc(name.join(\' / \'))', why: GROUP }, { file: 'common.js', has: '.join(\'\\n\').toLowerCase()', why: SEARCH },
+  { file: 'common.js', has: 'function whenWords(x)', why: 'one step\'s or phase\'s own conditions (its structure)' }, { file: 'common.js', has: '\'--pane-\'', why: NOT_TEXT },
+  { file: 'detailbox.js', has: 's0.when.join(\' and \')', why: 'one step\'s own conditions (its structure)' }, { file: 'detailbox.js', has: 'var desc = [o.describedBy', why: ARIA },
+  { file: 'evidence.js', has: 'return parts.join(\' · \')', why: FIXED },
+  { file: 'flight.js', has: 'esc(s.roles.join', why: JOIN_STRUCT }, { file: 'flight.js', has: 'fp-slane-h', why: JOIN_STRUCT }, { file: 'flight.js', has: 'fp-lane', why: JOIN_STRUCT },
+  { file: 'flight.js', has: 'esc(marks.join(\' and \'))', why: FIXED }, { file: 'flight.js', has: '<b>Gate note</b>', why: FIXED },
+  { file: 'health.js', has: 'function flushP()', why: 'a paragraph of the recovery guide, bundled with the app' },
+  { file: 'home.js', has: 'K.uniqKeys(items', why: NOT_TEXT }, { file: 'home.js', has: 'bad.slice(0, 3)', why: 'the first 3 and "and N more"' },
+  { file: 'home.js', has: 'var found = q ? tagged.filter(function (p)', why: SEARCH }, { file: 'home.js', has: 'var found = q ? tagged.filter(function (k)', why: SEARCH },
+  { file: 'home.js', has: 'esc(flags.join(\' · \'))', why: 'a checklist\'s warning flags, a fixed set' },
+  { file: 'insights.js', has: 'STATUS_WORDS[k]', why: 'correction statuses, a fixed set' }, { file: 'insights.js', has: 'var m = x.gate[k[0]]', why: FIXED },
+  { file: 'manage.js', has: 'e.errors.join(\'; \')', why: 'one step type file\'s problems, at most one per field of the type; the files, at most the 100 the reader reads (storage/repo.js)' },
   { file: 'manage.js', has: 'PF.signature.inputWords(', why: 'a skill\'s What it takes: at most four phrases (roles, runs, extensions, pins), each role list capped by K.capJoin' },
-  { file: 'overlays.js', has: 'snap.empty.join', why: 'one linked step\'s passed team values (its structure)' },
+  { file: 'manage.js', has: '\'## First phase · READ-DO {#first}\'', why: FILE },
+  { file: 'manage.js', has: '<b>In the checklist</b>', why: TYPEDEF }, { file: 'manage.js', has: '<b>When it\\\'s checked</b></div>\' + list(rec.map', why: TYPEDEF },
+  { file: 'manage.js', has: 'function slugId(t)', why: NOT_TEXT }, { file: 'manage.js', has: 'var describe = function (id, has, help)', why: ARIA },
+  { file: 'manage.js', has: 'g = (t.group || []).join(\' / \')', why: 'the team types\' groups as a native datalist\'s suggestions, at most the 100 type files read' },
+  { file: 'manage.js', has: 'id="tf-tagadd"', why: ARIA }, { file: 'manage.js', has: 'orgSum = [', why: TYPEDEF }, { file: 'manage.js', has: 'id(\'optadd\')', why: ARIA },
+  { file: 'manage.js', has: 'tf-run-ev', why: TYPEDEF }, { file: 'manage.js', has: 'norm(r.orig.join(\'\\n\'))', why: NOT_TEXT },
+  { file: 'manage.js', has: 'group: keepId && t.group ? t.group.join', why: FORMVAL }, { file: 'manage.js', has: 'fields: Object.keys(t.fields || {})', why: FORMVAL },
+  { file: 'manage.js', has: 'record: (t.record || []).map', why: FORMVAL }, { file: 'manage.js', has: 'esc(s.group.join(\' / \'))', why: GROUP },
+  { file: 'overlays.js', has: 'c.title, c.now, c.before', why: SEARCH }, { file: 'overlays.js', has: 'foot.map(esc).join(\' \')', why: FIXED },
+  { file: 'overlays.js', has: 'histBa(h.del.join(\'\\n\'), h.ins.join(\'\\n\')', why: 'one saved change\'s lines; history keeps a change over 64 KB as fingerprints only (core/timeline.js)' },
+  { file: 'pages.js', has: 'R.evidenceFor(r, s).list', why: 'one step\'s evidence, set by its type' },
+  { file: 'pages.js', has: 'var det = map.meta.context.filter', why: 'a run\'s details, at most the 40 a published version can have (core/map.js)' },
+  { file: 'practice.js', has: 'You typed this before the step changed', why: 'one step\'s values typed in practice, set by its type' },
+  { file: 'process.js', has: '<span class="pv-role">@\' + esc(s.roles.join', why: JOIN_STRUCT }, { file: 'process.js', has: 'esc(l.t.roles.join', why: JOIN_STRUCT },
   { file: 'process.js', has: 'u.slice(0, 3)', why: 'the first 3 and "and N more"' },
   { file: 'process.js', has: 'un.slice(0, 5)', why: 'the first 5 and "and N more"' },
   { file: 'process.js', has: 'n.names.slice(0, -1)', why: 'the features new in 2.0 a draft uses, a fixed set' },
@@ -801,22 +841,64 @@ const D10_JOIN_OK = [
   { file: 'process.js', has: 'pr.bad.slice(0, 3)', why: 'the first 3' },
   { file: 'reports.js', has: 'unused.join', why: 'a step\'s record fields, set by its type' },
   { file: 'reports.js', has: 'vals.join', why: 'one step\'s evidence, set by its type' },
+  { file: 'run.js', has: 'var hint = [d.hint', why: FIXED + ' (a hint, an example and a why), and ' + ARIA },
   { file: 'run.js', has: 'var who = s.roles.map', why: JOIN_STRUCT }, { file: 'run.js', has: 'nx.track.roles.map', why: JOIN_STRUCT },
   { file: 'run.js', has: 'var who = P ? st.roles.map', why: JOIN_STRUCT }, { file: 'run.js', has: 'var who = t.roles.map', why: JOIN_STRUCT },
+  { file: 'run.js', has: 'rec2.approved', why: 'the details one gate approves, its approves: line (its structure)' },
+  { file: 'run.js', has: 'var tail = others.map', why: 'a phase\'s own lanes (its structure)' },
   { file: 'run.js', has: 'shown.length < g.members.length', why: 'the members drawn, and "and N more"' },
+  { file: 'run.js', has: 'val.split(\',\')', why: 'one value as typed, at most its box\'s length' },
   { file: 'run.js', has: 'Object.keys(y.values)', why: 'one answer\'s values, set by its step\'s type' },
-  { file: 'run.js', has: 'esc(parts.join', why: 'the folder\'s areas, a fixed set' }
+  { file: 'run.js', has: 'meta.join(\' · \')', why: FIXED }, { file: 'run.js', has: 'var id = base + \'-\' + part', why: ARIA },
+  { file: 'run.js', has: 'c.done ? c.done + \' done\'', why: FIXED },
+  { file: 'run.js', has: 'esc(parts.join', why: 'the folder\'s areas, a fixed set' },
+  { file: 'setup.js', has: 'su-phases', why: 'a starter template\'s steps, bundled with the app' },
+  { file: 'app.js', has: 'ids.join(\'\\n\') : \'\'', why: NOT_TEXT }, { file: 'app.js', has: 'orphanSkills.push(', why: 'one skill file\'s problems, at most one per check of its fields' },
+  { file: 'app.js', has: '\'Can\\\'t be matched: \' + x.errors.join', why: 'one skill file\'s problems, at most one per check of its fields' },
+  { file: 'app.js', has: 'function shownSig(r)', why: NOT_TEXT }, { file: 'app.js', has: '(d.corrDecisions || [])', why: NOT_TEXT },
+  { file: 'app.js', has: 'Object.keys((d.proposed || {}).procs || {})', why: NOT_TEXT }, { file: 'app.js', has: '(d.presence || []).map', why: NOT_TEXT },
+  { file: 'app.js', has: 'Object.keys((d.stages || {}).procs || {})', why: NOT_TEXT },
+  { file: 'app.js', has: 'Object.keys(state.missing || {}).join', why: NOT_TEXT }, { file: 'app.js', has: 'function connSig(l)', why: NOT_TEXT },
+  { file: 'app.js', has: '[n.nodeName, n.id, n.className', why: NOT_TEXT }, { file: 'app.js', has: 'var fsig = [', why: NOT_TEXT },
+  { file: 'app.js', has: 'function fillKey()', why: NOT_TEXT }, { file: 'app.js', has: 'app.dataset.scope = [', why: NOT_TEXT },
+  { file: 'app.js', has: 'var piKey = pi ? [', why: NOT_TEXT }, { file: 'app.js', has: '[s.kind, s.key, s.track, state.insTab]', why: NOT_TEXT },
+  { file: 'app.js', has: 'return it.id + \':\' + it.status; }).join', why: NOT_TEXT }, { file: 'app.js', has: '    }).join(\'|\');', why: NOT_TEXT },
+  { file: 'app.js', has: 'return i.name; }).sort().join', why: NOT_TEXT },
+  /* decideProposal is a queued write, left unchanged in 2.11 (gated); its message names the decision records still arriving. */
+  { file: 'app.js', has: 'A record about this proposal can', why: 'in decideProposal, a queued write gated for 2.11: left as it is and reported' },
+  { file: 'app.js', has: '\'one of \' + dd.options.join', why: 'one typed run detail\'s own choices, set by its checklist' },
+  { file: 'app.js', has: '\'pr-kept-copy\'', why: COPY }, { file: 'app.js', has: 'copyText((snap ? snap.text', why: COPY },
+  { file: 'app.js', has: 'block: o.lines.slice(s.line, s.end).join', why: NOT_TEXT }, { file: 'app.js', has: 'return o.lines.slice(x.line, x.end).join', why: NOT_TEXT },
+  { file: 'app.js', has: 'var sig = text.split(\'\\n\')', why: NOT_TEXT },
+  { file: 'app.js', has: 'r.options = o.concat(v).join', why: FORMVAL }, { file: 'app.js', has: 'f.def.tags = t.concat(v).join', why: FORMVAL },
+  { file: 'app.js', has: 'st.when.join(\'\\n\') : \'\'', why: NOT_TEXT }, { file: 'app.js', has: 'ph.when.join(\'\\n\') : \'\'', why: NOT_TEXT },
+  { file: 'app.js', has: 'builderField(box, cur.join', why: FILE }, { file: 'app.js', has: 'cssEsc(p.join(\':\'))', why: NOT_TEXT },
+  { file: 'app.js', has: 'typeChange(\'move\'', why: NOT_TEXT }, { file: 'app.js', has: 'res.notes.slice(0, 3)', why: 'the first 3 and "And N more"' },
+  { file: 'app.js', has: 'fields.carry = carry.join', why: FILE }, { file: 'app.js', has: 'fields.pass = pe.map', why: FILE },
+  { file: 'app.js', has: '[gone.name, gone.label, gone.kind]', why: FIXED }, { file: 'app.js', has: 'typeChange(\'option removal\'', why: FORMVAL },
+  { file: 'app.js', has: 'typeChange(\'tag removal\'', why: FORMVAL }, { file: 'app.js', has: 'sigN = names.join', why: NOT_TEXT },
+  { file: 'app.js', has: 'return { text: out.join', why: FILE },
+  { file: 'app.js', has: 'cx.renamed.concat(rl.renamed)', why: 'names typed in New checklist\'s boxes, each at most 120 characters' }
 ];
-/* Every line of the views that joins with ', ' or '; ', with its line number. */
+/* Every .join( in the views and app.js whose separator isn't '', with its line number and file. */
 function joins(src) {
   const out = [];
-  src.split('\n').forEach((line, i) => { if (/\.join\('(?:, |; )'\)/.test(line)) out.push({ line: i + 1, text: line }); });
+  src.split('\n').forEach((line, i) => {
+    const re = /\.join\(([^)]*)\)/g; let m, any = false;
+    while ((m = re.exec(line))) if (m[1] !== "''") any = true;
+    if (any) out.push({ line: i + 1, text: line });
+  });
   return out;
 }
-rule('D10: a list joined into text with \', \' or \'; \' in the views is capped, or exempt with a reason', () => {
-  const dir = path.join(__dirname, '..', 'src', 'ui', 'views'), left = [], used = new Set();
-  fs.readdirSync(dir).filter(f => /\.js$/.test(f)).forEach(f => {
-    joins(fs.readFileSync(path.join(dir, f), 'utf8')).forEach(j => {
+const JOIN_SRC = () => {
+  const dir = path.join(__dirname, '..', 'src', 'ui', 'views');
+  return fs.readdirSync(dir).filter(f => /\.js$/.test(f)).map(f => ({ f, src: fs.readFileSync(path.join(dir, f), 'utf8') }))
+    .concat([{ f: 'app.js', src: fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8') }]);
+};
+rule('D10: every list joined into text in the views and app.js, with any separator, is capped, or exempt with a reason', () => {
+  const left = [], used = new Set();
+  JOIN_SRC().forEach(({ f, src }) => {
+    joins(src).forEach(j => {
       const ok = D10_JOIN_OK.filter(e => e.file === f && j.text.indexOf(e.has) >= 0);
       ok.forEach(e => used.add(e));
       if (!ok.length) left.push(f + ':' + j.line + ': ' + j.text.trim().slice(0, 140));
@@ -824,6 +906,10 @@ rule('D10: a list joined into text with \', \' or \'; \' in the views is capped,
   });
   assert.deepStrictEqual(left, [], 'joined without a cap');
   assert.deepStrictEqual(D10_JOIN_OK.filter(e => !used.has(e)).map(e => e.file + ': ' + e.has), [], 'an exemption that matches nothing any more');
+});
+rule('D10 is tested (round 10): the join reader finds \' and \', \' · \', \' / \', \'\\n\' and \' @\', and passes \'\' (rows, which D8 bounds)', () => {
+  const src = ["a.join(' and ')", "b.join(' · ')", "c.join(' / ')", "d.join('\\n')", "e.join(' @')", "f.join('')", "g.join()"].join('\n');
+  assert.deepStrictEqual(joins(src).map(j => j.line), [1, 2, 3, 4, 5, 7]);
 });
 rule('D10 is tested: the reader finds a notice built in a forEach and an option built in a map', () => {
   const found = callbacks('a.forEach(function (x) { h += \'<div role="status">\' + /[(]/.test(x) + \'</div>\'; }); b.map(function (y) { return \'<option>\' + y; });');
@@ -1007,6 +1093,71 @@ rule('Round 9: a skill built on a 1-role version of a checklist that now has 300
   await app.tick(5);
   const brief = un(/<pre id="brief-pre"[^>]*>([\s\S]*?)<\/pre>/.exec(app.html())[1]);
   assert.ok(/Roles: now lead, r1, r2, [\s\S]*, r298, r299 \(was lead\)/.test(brief) && count(brief, /\br\d+\b/g) >= 299, 'the brief keeps every role');
+});
+
+
+/* ---------- code review round 10 ---------- */
+rule('Round 10: K.capJoin with \' and \' says "and 250 more" once, and a list of sentences can end its own way', () => {
+  const K = require('./harness').loadViews().vk, names = Array.from({ length: 300 }, (x, i) => '"A' + i + '"');
+  const t = K.capJoin(names, null, ' and ');
+  assert.strictEqual((t.match(/"A\d+"/g) || []).length, 50);
+  assert.ok(/"A49" and 250 more$/.test(t) && !/and and/.test(t), t.slice(-40));
+  assert.strictEqual(K.capJoin(['a', 'b'], null, ' and '), 'a and b');
+  assert.ok(/ c\. And 250 more\.$/.test(K.capJoin(Array.from({ length: 300 }, () => 'c.'), null, ' ', null, n => ' And ' + n + ' more.')));
+});
+rule('Round 10: a checklist with 300 approvals one role owns names 50 in that role\'s label and in On my own, with how many more', async () => {
+  const fx = fixture({ size: SMALL }), files = Object.assign({}, fx.files);
+  const md = '---\nprocess: gates300\ntitle: Many approvals\ncategory: Synthetic\nowner: person-avery\nroles: lead, approver\n---\n\n' +
+    Array.from({ length: 300 }, (x, i) => '## Phase ' + (i + 1) + ' · READ-DO {#ph' + (i + 1) + '}\n- [ ] {confirm} Step ' + i + ' @lead {#s' + i + '}\n\n## Gate: Approval ' + (i + 1) + ' · owner @approver {#g' + (i + 1) + '}\n\n').join('');
+  const pub = require('./harness').load().publish.build(md, { people: fx.facts.people, by: 'person-avery', changes: 'First', existing: [], now: new Date().toISOString(), rand: 'gatesabc' });
+  assert.ok(!pub.blockers, 'set-up: publishes: ' + (pub.blockers || []).join('; '));
+  Object.keys(pub.files).forEach(f => { files['publications/gates300/' + pub.folder + '/' + f] = pub.files[f]; });
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true }); await app.tick(60);
+  await into(app, { files, facts: fx.facts });
+  app.click('nav', 'processes'); await app.tick(5); app.click('open-process', 'gates300'); await app.tick(10);
+  app.click('start', 'gates300'); await app.tick(10);
+  let h = app.html();
+  const label = (/· approves ([^<]*)<\/span>/.exec(h) || [])[1] || '';
+  assert.strictEqual((label.match(/Approval \d+/g) || []).length, 50, 'the role\'s label names 50');
+  assert.ok(/Approval 50&quot; and 250 more$/.test(label), 'and says how many more: ' + label.slice(-40));
+  app.click('start-mode', 'solo', { process: 'gates300' }); await app.tick(10);
+  h = app.html();
+  const solo = (/including who approves ([^<]*)<\/p>/.exec(h) || [])[1] || '';
+  assert.strictEqual((solo.match(/Approval \d+/g) || []).length, 50, 'On my own names 50');
+  assert.ok(/and 250 more\. If someone joins/.test(solo), solo.slice(-60));
+});
+rule('Round 10: a linked step whose child is a draft with 60 run details draws 20 of them, with Find; a fixed value typed and not applied stays drawn with its text through Find and Show more', async () => {
+  const fx = fixture({ size: SMALL }), files = Object.assign({}, fx.files);
+  const fm = (proc, title, ctx) => '---\nprocess: ' + proc + '\ntitle: ' + title + '\ncategory: Synthetic\nowner: person-avery\ncontext: ' + ctx + '\nroles: lead\n---\n\n';
+  files['maps/drafts/kid60.md'] = fm('kid60', 'Sixty child', Array.from({ length: 60 }, (x, i) => 'detail' + i).join(', ')) + '## Only · READ-DO {#ph1}\n- [ ] {confirm} Check ^detail0 @lead {#s0}\n';
+  files['maps/drafts/par.md'] = fm('par', 'Parent', 'env') + '## Only · READ-DO {#ph1}\n- [ ] {run.process} Start the child @lead {#k0}\n  process: kid60\n';
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true }); await app.tick(60);
+  await into(app, { files, facts: fx.facts });
+  await openProc(app, 'par', 'edit');
+  app.click('ed-mode', 'builder'); await app.tick(10);
+  app.click('ob-sel', 'k0'); await app.tick(10);
+  const rows = () => count(app.html(), /<div class="field ob-link-row">/g);
+  assert.strictEqual(rows(), 20, 'a page of what the child needs');
+  assert.ok(/id="find-ob-link-rows"/.test(app.html()), 'with Find');
+  app.select('ob-link-src-detail5', '='); await app.tick(10);
+  assert.ok(/id="ob-link-val-detail5"/.test(app.html()), 'set-up: A fixed value asks for it');
+  app.set('ob-link-val-detail5', 'typed, not applied'); app.input('ob-link-val-detail5', 'typed, not applied'); await app.tick(5);
+  await typeFind(app, 'ob-link-rows', 'detail58');
+  let h = app.html();
+  assert.ok(/id="ob-link-src-detail58"/.test(h), 'Find reaches detail 58');
+  assert.ok(/id="ob-link-val-detail5"/.test(h), 'the row being filled in stays drawn');
+  assert.strictEqual(app.draft('ob-link-val-detail5'), 'typed, not applied', 'with its text');
+  app.click('find-clear', 'ob-link-rows'); await app.tick(5);
+  await more(app, 'ob-link-rows');
+  assert.strictEqual(rows(), 40, 'Show more adds 20');
+  assert.strictEqual(app.draft('ob-link-val-detail5'), 'typed, not applied', 'the text is still there');
+});
+rule('Round 10: a draft open by 60 people names 50 of them and how many more', () => {
+  const PF = require('./harness').loadViews(), V = PF.views;
+  const ctx = { state: {}, data: { people: [] }, peopleById: {} };
+  const h = V.editingNote(ctx, { editing: Array.from({ length: 60 }, (x, i) => ({ by: 'person-' + i, ago: 1000 })) });
+  assert.strictEqual(count(h, /Being edited by/g), 50);
+  assert.ok(/And 10 more\./.test(h), h.slice(-120));
 });
 
 run();
