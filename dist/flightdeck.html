@@ -12085,13 +12085,28 @@ PF.search = (function () {
   /* A note kept across redraws (2.11): a note just saved, a search hit, a focused row, a flash. It's held by what it is, never
      by its key (id, or id#k), which a twin arriving, leaving or moving changes: { run, step, note, anchor, same, rank } for
      note n among a run's notes. Every draw finds it again with noteFind and keeps, focuses or reveals it by the key it has
-     then (code review round 21). sent: a note this window wrote, found among the notes as read back (its id, time, author
-     and window; the reader cleans a note, so its anchor is worked out from what was read); null when it isn't there. */
+     then (code review round 21). sent: a note this window wrote, as a read gives it back (noteRead), found among the notes
+     by its whole record, every field it was written with, never by its id, time, author and window alone, which a copy with
+     other text can share (code review round 22). Several notes with that whole record are identical copies, told apart
+     only by place, as noteFind tells them apart: the first, kept by its rank among them while their number holds. Null
+     while no note read has that record. */
   function noteKeep(key, notes, n, step, sent) {
-    if (sent) n = (notes || []).filter(function (x) { return x.id === sent.id && x.at === sent.at && x.by === sent.by && x.session === sent.session; })[0];
+    if (sent) { var want = noteAnchor(sent); n = (notes || []).filter(function (x) { return x.id === sent.id && noteAnchor(x) === want; })[0]; }
     if (!n) return null;
     var s = noteStand((notes || []).filter(function (x) { return x.id === n.id; }), n);
     return { run: key, step: step != null ? step : n.step, note: n.id, anchor: noteAnchor(n), same: s.same, rank: s.rank };
+  }
+  /* A note this window wrote, as a read of its run gives it back (code review round 22): what JSON writes, cleaned as the
+     run's reader cleans every note (repo's cleanNote: its fields cut to their limits, only attachments in this run's files/
+     folder, their names cleaned, and a correction's own fields by PF.corrections.cleanNote). base: the run's folder,
+     runs/<process>/<run>/. Its anchor is the whole record a note read back must have to be this one. */
+  function noteRead(note, base) {
+    var n = JSON.parse(JSON.stringify(note || null));
+    if (!n || typeof n !== 'object' || typeof n.text !== 'string' || typeof n.id !== 'string') return null;
+    var files = Array.isArray(n.files) ? n.files.filter(function (f) { return PF.attach.pathOk(f, base); }) : [];
+    var c = { id: n.id.slice(0, 40), at: typeof n.at === 'string' ? n.at : '', by: typeof n.by === 'string' ? n.by : '', session: typeof n.session === 'string' ? n.session.slice(0, 40) : '',
+      step: typeof n.step === 'string' ? n.step.slice(0, 60) : '', text: n.text.slice(0, 2000), files: files, fileInfo: PF.attach.cleanInfo(n.fileInfo, files), kind: n.kind === 'map' || n.kind === 'fix' || n.kind === 'correction' ? n.kind : undefined };
+    return n.kind === 'correction' ? Object.assign(c, PF.corrections.cleanNote(n)) : c;
   }
   /* Each note's noteAt, in the notes' order (worked out once per notes array). */
   var atMemo = typeof WeakMap === 'function' ? new WeakMap() : null;
@@ -12495,7 +12510,7 @@ PF.search = (function () {
   function size(ix) { return { docs: ix.live, words: Object.keys(ix.post).length, sources: Object.keys(ix.src).length }; }
 
   return { KINDS: KINDS, LABEL: LABEL, fold: fold, foldText: foldText, words: words, parse: parse, mark: mark, snippet: snippet, docs: docs, create: create, sync: sync,
-    update: update, start: start, query: query, size: size, noteAnchor: noteAnchor, noteFind: noteFind, noteAts: noteAts, noteKey: noteKey, noteTarget: noteTarget, noteKeep: noteKeep };
+    update: update, start: start, query: query, size: size, noteAnchor: noteAnchor, noteFind: noteFind, noteAts: noteAts, noteKey: noteKey, noteTarget: noteTarget, noteKeep: noteKeep, noteRead: noteRead };
 })();
 
 /* SHA-256 (FIPS 180-4) in plain JavaScript, incremental: create().update(bytes or text)… .digest() gives lowercase hex.
@@ -27274,11 +27289,14 @@ PF.examples = (function () {
     var key = noteFocus(rowId, PF.vk.byId(rowId));
     return key === '#ins-h' || key === '#page-h' ? key : key + ' ' + sel;
   }
+  /* A run's folder, as its reader names it: where its notes' attachments must be for a read to keep them. */
+  function runBase(r) { return 'runs/' + r.process + '/' + r.id + '/'; }
   /* A note kept across redraws, for this folder only (gen): PF.search.noteKeep, the one way a note is held by what it is. */
   function keepNote(key, notes, n, step, sent) { var t = PF.search.noteKeep(key, notes, n, step, sent); if (t) t.gen = gen; return t; }
   /* A note or correction this window just saved (state.noteSent), until a read has it: the read right after the save may not
      yet (another read in progress). Found, it's kept by what it is from then on: a note in its step's thread (state.noteShown,
-     brought into view) or a correction in its step's list (just shown, focused). Never by its id alone, which a twin shares. */
+     brought into view) or a correction in its step's list (just shown, focused). Found by the whole record it was written
+     with, as a read gives it back (PF.search.noteRead), never by its id alone, which a twin shares (code review round 22). */
   function sentNotes() {
     var ns = state.noteSent; if (!ns) return;
     if (ns.gen !== gen) { state.noteSent = null; return; }
@@ -32149,7 +32167,7 @@ PF.examples = (function () {
            It's kept by what it is, as read back (keepNote), so a twin arriving later never takes its place (code review round 21). */
         return refreshRun().then(function () {
           if (ng !== gen || state.runKey !== nkey || !sent) return;
-          state.noteShown = null; state.noteSent = { gen: gen, run: nkey, step: id, sent: sent };
+          state.noteShown = null; state.noteSent = { gen: gen, run: nkey, step: id, sent: PF.search.noteRead(sent, runBase(r)) };
           render();
         });
       }, function (e) { endBusy(); if (ng !== gen) return; say('Couldn\'t add the note: ' + e.message, 'bad'); render(); });
@@ -32275,7 +32293,7 @@ PF.examples = (function () {
       /* The new correction is drawn whatever the page of the step's list (2.11), focused and brought into view. */
       return then().then(function () { return withNote && state.runKey === key ? refreshRun() : null; }).then(function () {
         /* By what it is, as read back (sentNotes), never by its key now: a twin arriving later never takes its place. */
-        if (note && state.view === 'run' && state.runKey === key && ng === gen) state.noteSent = { gen: gen, run: key, step: step, sent: note, corr: true };
+        if (note && state.view === 'run' && state.runKey === key && ng === gen) state.noteSent = { gen: gen, run: key, step: step, sent: PF.search.noteRead(note, runBase(r)), corr: true };
         render();
       });
     }, function (e) { endBusy(); f.sending = false; settled(); if (ng !== gen) return; say('Couldn\'t save. Try again. ' + e.message, 'bad'); render(); });

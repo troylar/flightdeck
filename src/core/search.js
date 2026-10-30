@@ -207,13 +207,28 @@ PF.search = (function () {
   /* A note kept across redraws (2.11): a note just saved, a search hit, a focused row, a flash. It's held by what it is, never
      by its key (id, or id#k), which a twin arriving, leaving or moving changes: { run, step, note, anchor, same, rank } for
      note n among a run's notes. Every draw finds it again with noteFind and keeps, focuses or reveals it by the key it has
-     then (code review round 21). sent: a note this window wrote, found among the notes as read back (its id, time, author
-     and window; the reader cleans a note, so its anchor is worked out from what was read); null when it isn't there. */
+     then (code review round 21). sent: a note this window wrote, as a read gives it back (noteRead), found among the notes
+     by its whole record, every field it was written with, never by its id, time, author and window alone, which a copy with
+     other text can share (code review round 22). Several notes with that whole record are identical copies, told apart
+     only by place, as noteFind tells them apart: the first, kept by its rank among them while their number holds. Null
+     while no note read has that record. */
   function noteKeep(key, notes, n, step, sent) {
-    if (sent) n = (notes || []).filter(function (x) { return x.id === sent.id && x.at === sent.at && x.by === sent.by && x.session === sent.session; })[0];
+    if (sent) { var want = noteAnchor(sent); n = (notes || []).filter(function (x) { return x.id === sent.id && noteAnchor(x) === want; })[0]; }
     if (!n) return null;
     var s = noteStand((notes || []).filter(function (x) { return x.id === n.id; }), n);
     return { run: key, step: step != null ? step : n.step, note: n.id, anchor: noteAnchor(n), same: s.same, rank: s.rank };
+  }
+  /* A note this window wrote, as a read of its run gives it back (code review round 22): what JSON writes, cleaned as the
+     run's reader cleans every note (repo's cleanNote: its fields cut to their limits, only attachments in this run's files/
+     folder, their names cleaned, and a correction's own fields by PF.corrections.cleanNote). base: the run's folder,
+     runs/<process>/<run>/. Its anchor is the whole record a note read back must have to be this one. */
+  function noteRead(note, base) {
+    var n = JSON.parse(JSON.stringify(note || null));
+    if (!n || typeof n !== 'object' || typeof n.text !== 'string' || typeof n.id !== 'string') return null;
+    var files = Array.isArray(n.files) ? n.files.filter(function (f) { return PF.attach.pathOk(f, base); }) : [];
+    var c = { id: n.id.slice(0, 40), at: typeof n.at === 'string' ? n.at : '', by: typeof n.by === 'string' ? n.by : '', session: typeof n.session === 'string' ? n.session.slice(0, 40) : '',
+      step: typeof n.step === 'string' ? n.step.slice(0, 60) : '', text: n.text.slice(0, 2000), files: files, fileInfo: PF.attach.cleanInfo(n.fileInfo, files), kind: n.kind === 'map' || n.kind === 'fix' || n.kind === 'correction' ? n.kind : undefined };
+    return n.kind === 'correction' ? Object.assign(c, PF.corrections.cleanNote(n)) : c;
   }
   /* Each note's noteAt, in the notes' order (worked out once per notes array). */
   var atMemo = typeof WeakMap === 'function' ? new WeakMap() : null;
@@ -617,5 +632,5 @@ PF.search = (function () {
   function size(ix) { return { docs: ix.live, words: Object.keys(ix.post).length, sources: Object.keys(ix.src).length }; }
 
   return { KINDS: KINDS, LABEL: LABEL, fold: fold, foldText: foldText, words: words, parse: parse, mark: mark, snippet: snippet, docs: docs, create: create, sync: sync,
-    update: update, start: start, query: query, size: size, noteAnchor: noteAnchor, noteFind: noteFind, noteAts: noteAts, noteKey: noteKey, noteTarget: noteTarget, noteKeep: noteKeep };
+    update: update, start: start, query: query, size: size, noteAnchor: noteAnchor, noteFind: noteFind, noteAts: noteAts, noteKey: noteKey, noteTarget: noteTarget, noteKeep: noteKeep, noteRead: noteRead };
 })();

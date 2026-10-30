@@ -1854,11 +1854,14 @@
     var key = noteFocus(rowId, PF.vk.byId(rowId));
     return key === '#ins-h' || key === '#page-h' ? key : key + ' ' + sel;
   }
+  /* A run's folder, as its reader names it: where its notes' attachments must be for a read to keep them. */
+  function runBase(r) { return 'runs/' + r.process + '/' + r.id + '/'; }
   /* A note kept across redraws, for this folder only (gen): PF.search.noteKeep, the one way a note is held by what it is. */
   function keepNote(key, notes, n, step, sent) { var t = PF.search.noteKeep(key, notes, n, step, sent); if (t) t.gen = gen; return t; }
   /* A note or correction this window just saved (state.noteSent), until a read has it: the read right after the save may not
      yet (another read in progress). Found, it's kept by what it is from then on: a note in its step's thread (state.noteShown,
-     brought into view) or a correction in its step's list (just shown, focused). Never by its id alone, which a twin shares. */
+     brought into view) or a correction in its step's list (just shown, focused). Found by the whole record it was written
+     with, as a read gives it back (PF.search.noteRead), never by its id alone, which a twin shares (code review round 22). */
   function sentNotes() {
     var ns = state.noteSent; if (!ns) return;
     if (ns.gen !== gen) { state.noteSent = null; return; }
@@ -6729,7 +6732,7 @@
            It's kept by what it is, as read back (keepNote), so a twin arriving later never takes its place (code review round 21). */
         return refreshRun().then(function () {
           if (ng !== gen || state.runKey !== nkey || !sent) return;
-          state.noteShown = null; state.noteSent = { gen: gen, run: nkey, step: id, sent: sent };
+          state.noteShown = null; state.noteSent = { gen: gen, run: nkey, step: id, sent: PF.search.noteRead(sent, runBase(r)) };
           render();
         });
       }, function (e) { endBusy(); if (ng !== gen) return; say('Couldn\'t add the note: ' + e.message, 'bad'); render(); });
@@ -6855,7 +6858,7 @@
       /* The new correction is drawn whatever the page of the step's list (2.11), focused and brought into view. */
       return then().then(function () { return withNote && state.runKey === key ? refreshRun() : null; }).then(function () {
         /* By what it is, as read back (sentNotes), never by its key now: a twin arriving later never takes its place. */
-        if (note && state.view === 'run' && state.runKey === key && ng === gen) state.noteSent = { gen: gen, run: key, step: step, sent: note, corr: true };
+        if (note && state.view === 'run' && state.runKey === key && ng === gen) state.noteSent = { gen: gen, run: key, step: step, sent: PF.search.noteRead(note, runBase(r)), corr: true };
         render();
       });
     }, function (e) { endBusy(); f.sending = false; settled(); if (ng !== gen) return; say('Couldn\'t save. Try again. ' + e.message, 'bad'); render(); });
