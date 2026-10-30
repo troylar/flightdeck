@@ -273,12 +273,14 @@ PF.vk = (function () {
     return h;
   }
   /* A list joined into text where it can't page (a sentence, a preview, a reason): the first 50 and "and 250 more" (D10).
-     name(item), when given, is the item's text or HTML, built only for the names shown; sep is ', ' by default. id lets a
-     test turn the cap off (PF.vk.PAGE_OFF), to prove the bounds check notices. */
-  function capJoin(items, name, sep, id) {
+     name(item), when given, is the item's text or HTML, built only for the names shown; sep is ', ' by default (' and ' ends
+     "and 250 more" without a second and). id lets a test turn the cap off (PF.vk.PAGE_OFF), to prove the bounds check
+     notices. more(n), when given, is what follows the names instead (for a list of sentences: " And 250 more."). */
+  function capJoin(items, name, sep, id, more) {
     sep = sep || ', ';
     var n = id != null && PF.vk.PAGE_OFF === id ? items.length : PAGE, shown = items.slice(0, n), left = items.length - shown.length;
-    return (name ? shown.map(function (x) { return name(x); }) : shown).join(sep) + (left ? sep + 'and ' + left.toLocaleString('en-US') + ' more' : '');
+    var tail = !left ? '' : more ? more(left) : sep + (/\band $/.test(sep) ? '' : 'and ') + left.toLocaleString('en-US') + ' more';
+    return (name ? shown.map(function (x) { return name(x); }) : shown).join(sep) + tail;
   }
   /* ---------- a dropdown over a growing list (2.11, K.select) ---------- */
   /* The value of the last option, "Show 50 more…": no real value can be it (folder, run, plan and step values are words,

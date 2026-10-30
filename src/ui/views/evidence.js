@@ -3,7 +3,7 @@
    dialog's state, kept by src/ui/exporter.js. */
 (function () {
   'use strict';
-  var V = PF.views, U = PF.util, E = PF.evidence, esc = U.esc, I = PF.icons.icon;
+  var K = PF.vk, V = PF.views, U = PF.util, E = PF.evidence, esc = U.esc, I = PF.icons.icon;
 
   function counts(ctx, ov) {
     var p = ov.plan, runs = p.keys.map(function (k) { return ctx.findRun(k); }).filter(Boolean);
@@ -55,7 +55,7 @@
     }
     /* done */
     var r = ov.result;
-    if (r.status === 'partial') h += '<div class="notice bad" role="alert"><span><b>Partial.</b> ' + r.unresolved.map(esc).join(' ') + ' The pack lists this at the top.</span></div>';
+    if (r.status === 'partial') h += '<div class="notice bad" role="alert"><span><b>Partial.</b> ' + K.capJoin(r.unresolved, esc, ' ', 'ev-unresolved', function (n) { return ' And ' + n.toLocaleString('en-US') + ' more.'; }) + ' The pack lists this at the top.</span></div>';
     else h += '<p class="small" role="status">' + (ov.format === 'pack' ? 'The pack is ready.' : 'The report is ready.') + '</p>';
     h += '<div class="row"><button type="button" class="btn primary" id="ev-save" data-act="ev-save">' + I('doc') + (ov.format === 'pack' ? 'Save the pack' : 'Save the report') + '</button><span class="small">' + esc(r.name) + ' · ' + esc(E.size(r.size)) + '</span></div>' +
       '<p class="small">It goes to your browser\'s downloads, never into the team folder.</p>' +

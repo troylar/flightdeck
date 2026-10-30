@@ -526,7 +526,8 @@
     var eds = p.editing || [];
     if (!eds.length) return '';
     var secs = function (ms) { var s = Math.max(0, Math.round(ms / 1000)); return s < 60 ? s + ' second' + (s === 1 ? '' : 's') : Math.round(s / 60) + ' minute' + (Math.round(s / 60) === 1 ? '' : 's'); };
-    return '<div class="notice edit-by"><span>' + eds.map(function (e) { return '<b>Being edited by ' + esc(nameOf(ctx, e.by)) + (e.device ? ' on ' + esc(e.device) : '') + '</b> (seen ' + secs(e.ago) + ' ago).'; }).join(' ') +
+    /* 50 editors and how many more (D10, code review round 10): everyone on the team could have it open. */
+    return '<div class="notice edit-by"><span>' + K.capJoin(eds, function (e) { return '<b>Being edited by ' + esc(nameOf(ctx, e.by)) + (e.device ? ' on ' + esc(e.device) : '') + '</b> (seen ' + secs(e.ago) + ' ago).'; }, ' ', 'edit-by', function (n) { return ' And ' + n.toLocaleString('en-US') + ' more.'; }) +
       ' Flightdeck shows the editors this computer can see right now.</span></div>';
   }
   /* The editor's line about which window is the main editor for this draft (the one that will apply proposals live). */
@@ -739,7 +740,8 @@
     var aps = approvals(pub.map), apRole = {}; aps.forEach(function (a) { (apRole[a.role] = apRole[a.role] || []).push(a.title); });
     var picked = st.startMode[p.id], pickedHere = picked && (st.startModeAt || {})[p.id] === scope + ':' + pub.info.folder;
     var mode = aps.length ? (pickedHere ? picked : 'team') : picked || (meta.runs === 'solo' || !meta.roles.length ? 'solo' : 'team'), soloMap = mode === 'solo';
-    var apNames = aps.map(function (a) { return '"' + a.title + '"'; }).join(' and ');
+    /* The approvals named in a sentence, 50 and how many more (D10, code review round 10): a checklist can have a gate a phase. */
+    var apNames = K.capJoin(aps, function (a) { return '"' + a.title + '"'; }, ' and ', 'start-approvals');
     h += '<input type="hidden" id="start-mode" value="' + mode + '"><div class="seg" role="radiogroup" aria-label="Who is running it"><button type="button" role="radio" aria-checked="' + soloMap + '" data-act="start-mode" data-id="solo" data-process="' + esc(p.id) + '">On my own</button><button type="button" role="radio" aria-checked="' + !soloMap + '" data-act="start-mode" data-id="team" data-process="' + esc(p.id) + '">With others</button></div>';
     if (soloMap) h += '<p class="small">' + (aps.length ? 'Every role is yours, including who approves ' + esc(apNames) + '.' : 'Every role is yours.') + ' If someone joins later, add them from the run.</p>';
     if (meta.roles.length && !soloMap) {
@@ -758,6 +760,11 @@
          who approves). Snapshotted the first time the role is drawn or hidden, so a newer read changes no role by itself. */
       var init = ctx.rolesInit ? ctx.rolesInit(scope + ':' + pub.info.folder) : Object.create(null);
       var wasOf = function (role, chosen, sug) { if (!Object.prototype.hasOwnProperty.call(init, role)) init[role] = apRole[role] ? chosen : chosen || (sug && sug.person) || ''; return init[role]; };
+      /* One resolver for every role, drawn or in a hidden field (code review round 10): its value and what it's compared with
+         (data-was) are each someone on the team now or nobody, as its box can show them, so whether a role is drawn never
+         changes what the form starts or plans, even after someone is marked inactive while it's open. */
+      var onTeam = Object.create(null); people.forEach(function (x) { onTeam[x.id] = true; });
+      var roleVal = function (role, sug) { var was = wasOf(role, chosenOf(role), sug), v = setOf(role, was); return { was: onTeam[was] ? was : '', value: onTeam[v] ? v : '' }; };
       var keepRole = function (role) { return !!chosenOf(role) || !!picked[role] || !!(st.fieldErr && st.fieldErr.id === 'start-approver' && st.fieldErr.field === 'role-' + role); };
       var rq = K.findQ(st, 'start-roles'), rhit = K.finds(rq), rfound = rq ? meta.roles.filter(function (role) { return rhit([role]); }) : meta.roles;
       var rlist = rq ? meta.roles.filter(function (role) { return rfound.indexOf(role) >= 0 || keepRole(role); }) : meta.roles, drawnRole = Object.create(null), roleRows = '';
@@ -765,27 +772,27 @@
       var roleRow = function (role) {
         var h = '';
         drawnRole[role] = true;
-        var sug = ctx.suggestRole(p.id, role), chosen = wasOf(role, chosenOf(role), sug);
+        var sug = ctx.suggestRole(p.id, role), rv = roleVal(role, sug);
         /* Who approves is never preselected: a saved plan's choice stays, otherwise it's Choose a person, with the rotation's
            suggestion as a hint (what it knows: who had the role on past runs). */
         if (apRole[role]) {
           var bad = st.fieldErr && st.fieldErr.id === 'start-approver' && st.fieldErr.field === 'role-' + role;
-          h += '<div><label class="field" for="role-' + esc(role) + '">' + esc(role) + ' <span class="small">· approves ' + esc(apRole[role].map(function (t) { return '"' + t + '"'; }).join(' and ')) + '</span><select id="role-' + esc(role) + '" data-role="' + esc(role) + '" data-was="' + esc(chosen) + '"' + (sug ? ' data-suggested="' + esc(sug.person) + '"' : '') + (bad ? ' aria-invalid="true" aria-describedby="ferr-role-' + esc(role) + '"' : '') + '><option value="">Choose a person</option>' +
-            people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === setOf(role, chosen) ? ' selected' : '') + '>' + esc(nmStage(x)) + '</option>'; }).join('') + '</select></label>' +
+          h += '<div><label class="field" for="role-' + esc(role) + '">' + esc(role) + ' <span class="small">· approves ' + esc(K.capJoin(apRole[role], function (t) { return '"' + t + '"'; }, ' and ', 'start-approves')) + '</span><select id="role-' + esc(role) + '" data-role="' + esc(role) + '" data-was="' + esc(rv.was) + '"' + (sug ? ' data-suggested="' + esc(sug.person) + '"' : '') + (bad ? ' aria-invalid="true" aria-describedby="ferr-role-' + esc(role) + '"' : '') + '><option value="">Choose a person</option>' +
+            people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === rv.value ? ' selected' : '') + '>' + esc(nmStage(x)) + '</option>'; }).join('') + '</select></label>' +
             (sug ? '<p class="small">Suggested: ' + esc(nameOf(ctx, sug.person)) + ' · ' + (sug.last ? 'last had this role on ' + esc(U.day(sug.last)) : 'hasn\'t had this role yet') + '</p>' : '') +
             (bad ? '<p class="ferr" id="ferr-role-' + esc(role) + '" role="alert">' + esc(st.fieldErr.msg) + '</p>' : '') + '</div>';
           return h;
         }
-        h += '<label class="field" for="role-' + esc(role) + '">' + esc(role) + (sug ? ' <span class="small">· suggestion: ' + esc(nameOf(ctx, sug.person)) + ' (' + esc(sug.why) + ')</span>' : '') + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '" data-was="' + esc(chosen) + '"><option value="">Nobody yet</option>' +
-          people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === setOf(role, chosen) ? ' selected' : '') + '>' + esc(nmStage(x)) + '</option>'; }).join('') + '</select></label>';
+        h += '<label class="field" for="role-' + esc(role) + '">' + esc(role) + (sug ? ' <span class="small">· suggestion: ' + esc(nameOf(ctx, sug.person)) + ' (' + esc(sug.why) + ')</span>' : '') + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '" data-was="' + esc(rv.was) + '"><option value="">Nobody yet</option>' +
+          people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === rv.value ? ' selected' : '') + '>' + esc(nmStage(x)) + '</option>'; }).join('') + '</select></label>';
         return h;
       };
       h += K.list(st, 'start-roles', rlist, { page: ROLE_PAGE, keep: meta.roles.filter(keepRole), keptLabel: 'Roles you\'ve chosen someone for', keyOf: function (role) { return role; }, focusOf: function (k) { return K.byId('role-' + k); },
         draw: function (shown) { return shown.map(roleRow).join(''); } });
       meta.roles.forEach(function (role) {
         if (drawnRole[role]) return;
-        var was = wasOf(role, chosenOf(role), apRole[role] ? null : ctx.suggestRole(p.id, role));
-        roleRows += '<input type="hidden" id="role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(setOf(role, was)) + '" data-was="' + esc(was) + '">';
+        var rv = roleVal(role, apRole[role] ? null : ctx.suggestRole(p.id, role));
+        roleRows += '<input type="hidden" id="role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(rv.value) + '" data-was="' + esc(rv.was) + '">';
       });
       h += '</div>' + roleRows + '<p class="small">Suggestions rotate roles to whoever did them least recently, so everyone gets the experience. Change anything.</p>';
     }
@@ -814,10 +821,13 @@
       var tpicked = st.rolesPicked && st.rolesPicked.at === 'test:' + p.id + ':' + pub.folder ? st.rolesPicked.roles : {};
       var tset = st.rolesPicked && st.rolesPicked.at === 'test:' + p.id + ':' + pub.folder ? st.rolesPicked.vals || {} : {};
       var tsetOf = function (role, dflt) { return Object.prototype.hasOwnProperty.call(tset, role) ? tset[role] : dflt; };
+      /* One resolver for a role drawn or hidden (code review round 10): you, or what this form set, when on the team now. */
+      var tOn = Object.create(null); people.forEach(function (x) { tOn[x.id] = true; });
+      var tval = function (role) { var v = tsetOf(role, meOn); return tOn[v] ? v : ''; };
       var tr = K.roleRows(st, 'test-roles', meta.roles, { keep: meta.roles.filter(function (role) { return !!tpicked[role]; }), focusOf: function (k) { return K.byId('role-' + k); },
-        row: function (role) { return '<label class="field" for="role-' + esc(role) + '">' + esc(role) + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '" data-was="' + esc(st.me || '') + '"><option value="">Nobody yet</option>' +
-          people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === tsetOf(role, st.me) ? ' selected' : '') + '>' + esc(nmRun(x)) + '</option>'; }).join('') + '</select></label>'; },
-        hidden: function (role) { return '<input type="hidden" id="role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(tsetOf(role, meOn)) + '" data-was="' + esc(meOn) + '">'; } });
+        row: function (role) { return '<label class="field" for="role-' + esc(role) + '">' + esc(role) + '<select id="role-' + esc(role) + '" data-role="' + esc(role) + '" data-was="' + esc(meOn) + '"><option value="">Nobody yet</option>' +
+          people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === tval(role) ? ' selected' : '') + '>' + esc(nmRun(x)) + '</option>'; }).join('') + '</select></label>'; },
+        hidden: function (role) { return '<input type="hidden" id="role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(tval(role)) + '" data-was="' + esc(meOn) + '">'; } });
       h += tr.box + '<div class="grid2">' + tr.rows + '</div>' + tr.hidden;
     }
     return h + '<div class="row"><button class="btn go" type="submit" id="start-submit"' + (st.me ? '' : ' disabled') + '>' + I('play') + 'Start the test run</button><span class="small">A test run tries this staged version. It isn\'t counted in How runs go or toward a skill.</span>' + back + '</div></form>';

@@ -258,8 +258,9 @@
     var m = map.meta, on = !!sel && sel.kind === 'details';
     return '<div class="ob-details' + (on ? ' sel' : '') + '"><button type="button" class="ob-det" data-act="ob-sel-details" aria-pressed="' + on + '">' + I('people') +
       '<span class="ob-row"><span class="ob-txt">Checklist details</span><span class="ob-meta"><span class="small">' + (m.owner ? 'Owner ' + esc(personName(ctx, m.owner)) : 'No owner yet') + (m.backup ? ' · backup ' + esc(personName(ctx, m.backup)) : '') + '</span>' +
-      (m.roles.length ? '<span class="ob-role">@' + esc(m.roles.join(' @')) + '</span>' : '<span class="small">No roles</span>') +
-      (m.context.length ? m.context.map(function (c) { return '<span class="ob-chip">^' + esc(c) + '</span>'; }).join('') : '<span class="small">No run details</span>') + '</span></span></button></div>';
+      (m.roles.length ? '<span class="ob-role">' + esc(K.capJoin(m.roles, function (r) { return '@' + r; }, ' ', 'ob-det-roles', function (n) { return ' and ' + n.toLocaleString('en-US') + ' more'; })) + '</span>' : '<span class="small">No roles</span>') +
+      /* The card names 50 roles and 50 run details and how many more (code review round 10); Checklist details lists them all. */
+      (m.context.length ? m.context.slice(0, PF.vk.PAGE_OFF === 'ob-det-context' ? m.context.length : K.PAGE).map(function (c) { return '<span class="ob-chip">^' + esc(c) + '</span>'; }).join('') + (m.context.length > K.PAGE && PF.vk.PAGE_OFF !== 'ob-det-context' ? '<span class="small">and ' + (m.context.length - K.PAGE).toLocaleString('en-US') + ' more</span>' : '') : '<span class="small">No run details</span>') + '</span></span></button></div>';
   }
 
   /* The outline pane of the full-page editor. The parts pane (partsPane) and the inspector sit beside it (manage.js). */
@@ -418,7 +419,7 @@
     if (!kid) return h + (f.process ? '<p class="small">' + esc(f.process) + ' isn\'t in this folder, so what it needs can\'t be shown.</p>' : '');
     var rr = PF.links.rows(st, meta.context, kid.map), setBy = M.setBy(kid.map), fixed = ctx.state.obLinkFixed || {}, t = kid.title;
     h += '<h3 class="ob-sec">What ' + esc(t) + ' needs</h3>' + (kid.draft ? '<p class="small">' + esc(t) + ' isn\'t published yet, so this can\'t be checked until it is.</p>' : '') +
-      (kid.nextAdds && kid.nextAdds.length ? '<p class="small">' + esc(t) + '\'s draft adds ^' + kid.nextAdds.map(esc).join(', ^') + '.</p>' : '');
+      (kid.nextAdds && kid.nextAdds.length ? '<p class="small">' + esc(t) + '\'s draft adds ' + K.capJoin(kid.nextAdds, function (n) { return '^' + esc(n); }, null, 'ob-link-adds') + '.</p>' : '');
     /* Before 2.8 (no pass: line) nothing is asked: a name with no source starts empty ("Not passed"). Choosing Asked writes
        name=?, which gives the step a pass: line. */
     var asks = function (n) { return PF.links.has(st) || (!PF.links.carryList(st).length && meta.context.indexOf(n) >= 0); };
@@ -426,7 +427,13 @@
     /* Where a detail comes from: this run's details, then the team values, 50 at a time with Find past 50 (K.select, 2.11);
        a fixed value, asked and not passed stay last. */
     var srcItems = meta.context.map(function (n) { return { v: '^' + n, t: 'This run\'s ^' + n + kindOf(n) }; }).concat(teamItems(ctx));
-    rr.rows.forEach(function (r) {
+    /* What the child needs, 20 at a time with Find past 20 (code review round 10): a child's draft can list hundreds of run
+       details. A row with text typed and not applied, a refused value, or A fixed value just chosen stays drawn, so paging
+       or Find never takes away what's being typed. */
+    var byName = Object.create(null); rr.rows.forEach(function (r) { byName[r.name] = r; });
+    var pf = ctx.state.obPendingField, keepRow = function (n) { return pf === 'ob-link-val-' + n || !!errOf(ctx, 'ob-link-val-' + n) || !!fixed[s.key + ':' + n]; };
+    var names = rr.rows.map(function (r) { return r.name; }), linkRow = function (name) {
+      var r = byName[name], h = '';
       var sid = 'ob-link-src-' + r.name, cur = r.source === 'value' || fixed[s.key + ':' + r.name] ? '=' : r.source === 'detail' ? '^' + r.from : r.source === 'team' ? 'team:' + r.team : ownKey(setBy, r.name) || asks(r.name) ? '?' : '-';
       var items = /^team:/.test(cur) && !srcItems.some(function (x) { return x.v === cur; }) ? srcItems.concat([{ v: cur, t: 'Team value ' + cur.slice(5) + ' (not in this folder)', group: 'A team value' }]) : srcItems;
       var ks = K.select(ctx.state, sid, items, cur, { attrs: ' data-bound', noun: 'source', group: function (x) { return x.group || null; },
@@ -435,8 +442,10 @@
       h += '<div class="field ob-link-row">' + ks.box + '<label for="' + esc(sid) + '"><b>' + esc(r.name) + '</b> <span class="small">' + esc(r.kind) + (ownKey(setBy, r.name) ? ' · ' + esc(t) + ' also sets this itself, later' : '') + '</span></label>' + ks.select + ks.more;
       if (r.source === 'team') h += teamNote(ctx, r.team, t);
       if (cur === '=') h += '<label class="field" for="ob-link-val-' + esc(r.name) + '">' + esc(G.form('link-val').q) + '<input id="ob-link-val-' + esc(r.name) + '" maxlength="120" value="' + esc(r.value || '') + '" data-enter="ob-commit"' + errAt(ctx, 'ob-link-val-' + r.name) + '></label>' + errMsg(ctx, 'ob-link-val-' + r.name);
-      h += '</div>';
-    });
+      return h + '</div>';
+    };
+    var lr = K.roleRows(ctx.state, 'ob-link-rows', names, { keep: names.filter(keepRow), keptLabel: 'Being filled in', label: 'Find a run detail', noun: 'run detail', focusOf: function (n) { return K.byId('ob-link-src-' + n); }, row: linkRow });
+    h += lr.box + lr.rows;
     rr.stale.forEach(function (x) {
       h += '<div class="notice warn" role="status"><span>' + esc(t) + (kid.version ? ' v' + esc(kid.version) : '') + ' has no run detail ' + esc(x.name) + ', so this step can\'t pass it.</span><button type="button" class="mini" data-act="ob-link-rm" data-id="' + esc(s.key) + '" data-name="' + esc(x.name) + '">Remove ^' + esc(x.name) + ' from what\'s passed</button></div>';
     });

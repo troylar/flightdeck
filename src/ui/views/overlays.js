@@ -296,10 +296,12 @@
       var chosenOf = function (role) { return prep.roleVals && typeof prep.roleVals[role] === 'string' ? prep.roleVals[role] : had(role); };
       /* 20 roles at a time with Find past 20 (2.11): a role changed in this dialog stays drawn, and one not drawn keeps its
          value in a hidden field, so the child starts with exactly the roles it would. */
+      /* One resolver for a role drawn or hidden (code review round 10): the person chosen when they're on the team now, else nobody. */
+      var roleVal = function (role) { var c = chosenOf(role); return onTeam[c] ? c : ''; };
       var cr = K.roleRows(ctx.state, 'cs-roles', meta.roles, { inDialog: true, keep: meta.roles.filter(function (role) { return chosenOf(role) !== had(role); }), focusOf: function (k) { return K.byId('cs-role-' + k); },
-        row: function (role) { var chosen = chosenOf(role); return '<label class="field" for="cs-role-' + esc(role) + '">' + esc(role) + '<select id="cs-role-' + esc(role) + '" data-role="' + esc(role) + '"><option value="">Nobody yet</option>' +
+        row: function (role) { var chosen = roleVal(role); return '<label class="field" for="cs-role-' + esc(role) + '">' + esc(role) + '<select id="cs-role-' + esc(role) + '" data-role="' + esc(role) + '"><option value="">Nobody yet</option>' +
           people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === chosen ? ' selected' : '') + '>' + esc(nm(x)) + '</option>'; }).join('') + '</select></label>'; },
-        hidden: function (role) { return '<input type="hidden" id="cs-role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(onTeam[chosenOf(role)] ? chosenOf(role) : '') + '">'; } });
+        hidden: function (role) { return '<input type="hidden" id="cs-role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(roleVal(role)) + '">'; } });
       h += '<h3>Who\'s doing what</h3>' + cr.box + '<div class="grid2">' + cr.rows + '</div>' + cr.hidden;
     }
     return h + '<div class="row"><button class="btn go" type="submit" id="cs-submit">' + I('play') + 'Start the run</button><button class="mini" type="button" data-act="close-overlay">Cancel</button><span class="small">This step is checked when it completes.</span></div></form></div></div>';
@@ -312,7 +314,7 @@
       (snap.changed ? '<p class="notice warn" role="alert">' + esc(snap.changed) + '</p>' : '') +
       '<p>This run was linked after it started, so Flightdeck didn\'t record what it was passed. Link it if these are the values it was meant to get.</p><dl>' +
       names.map(function (n) { var v = snap.values[n]; return '<dt>' + esc(n) + '</dt><dd>' + (v === '' ? '<span class="small">(empty)</span>' : esc(v)) + ' <span class="small">· team value ' + esc(snap.teams[n]) + '</span></dd>'; }).join('') + '</dl>' +
-      (snap.empty ? '<p class="notice warn" role="status">' + esc(snap.empty.join(', ')) + (snap.empty.length > 1 ? ' aren\'t values' : ' isn\'t a value') + ' a team value can be, so this run can\'t be linked this way. Start a new run instead.</p>' : '') +
+      (snap.empty ? '<p class="notice warn" role="status">' + esc(K.capJoin(snap.empty)) + (snap.empty.length > 1 ? ' aren\'t values' : ' isn\'t a value') + ' a team value can be, so this run can\'t be linked this way. Start a new run instead.</p>' : '') +
       '<div class="row">' + (snap.empty ? '' : '<button class="btn go" type="button" data-act="link-child-confirm">Link it with these values</button>') + '<button class="mini" type="button" data-act="close-overlay">Cancel</button></div></div></div>';
     return h;
   }
