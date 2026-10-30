@@ -52,6 +52,7 @@ test/find-r18.test.js -
 test/find-r19.test.js -
 test/find-r20.test.js -
 test/find-r21.test.js -
+test/find-r22.test.js -
 test/find-roles-diff.test.js -
 test/ui-states.test.js -
 test/reports.test.js -
