@@ -43,6 +43,8 @@ function boot(opts) {
       el.focus = () => { if (opts.domFocus || opts.replace) document.activeElement = el; };
       /* The step form's group a box is drawn in (2.10), as closest('[data-obg]') finds it on a page. */
       el.closest = sel => {
+        /* opts.liveForms: the form or region a control is drawn in, its nearest enclosing data-scope, as a page finds it. */
+        if (opts.liveForms && sel === '[data-scope]') return liveScope(id);
         if (sel !== '[data-obg]') return null;
         const h = appEl._html || '', at = h.indexOf(' id="' + id + '"'); if (at < 0) return null;
         const re = /<(\/?)section\b([^>]*)>/g, stack = []; let m;
@@ -76,7 +78,30 @@ function boot(opts) {
     if (/^select/.test(name)) { const m = /<option[^>]*value="([^"]*)"[^>]*\sselected/.exec(html.slice(at, html.indexOf('</select>', at))); return m ? un(m[1]) : ''; }
     const m = /\svalue="([^"]*)"/.exec(html.slice(at, html.indexOf('>', at))); return m ? un(m[1]) : '';
   };
-  Object.defineProperty(appEl, 'innerHTML', { get() { return this._html; }, set(v) { this._html = String(v); inputs.forEach(id => { const d = drawnValue(this._html, id); if (d === null) return; els[id].value = d; if (opts.replace) { els[id].selectionStart = els[id].selectionEnd = 0; if (document.activeElement === els[id]) document.activeElement = document.body; } }); } });
+  /* opts.liveForms: every control drawn is a live node, as on a page, not only the ones a test typed in. A redraw makes each
+     anew as its markup draws it (its value the drawn one), so only the app's own code carries a value over; a select's value
+     is one of its options (setting another leaves it on none, ''), and querySelectorAll finds the [data-role] ones. Used to
+     compare two builds' forms event for event (test/find-roles-diff.test.js). */
+  const LIVE_CTRL = /<(input|select|textarea)\b[^>]*\sid="([^"]*)"[^>]*>/g;
+  const liveIds = html => { const out = []; let m; LIVE_CTRL.lastIndex = 0; while ((m = LIVE_CTRL.exec(html))) out.push({ tag: m[1], id: unqh(m[2]), src: m[0] }); return out; };
+  const unqh = v => v.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+  const optionsOf = id => { const h = appEl._html || '', at = h.indexOf('<select id="' + id.replace(/&/g, '&amp;').replace(/"/g, '&quot;') + '"'); if (at < 0) return []; return [...h.slice(at, h.indexOf('</select>', at)).matchAll(/<option value="([^"]*)"/g)].map(x => ({ value: unqh(x[1]) })); };
+  const liveScope = id => { const n = nodesOf(appEl).filter(x => x.id === id)[0]; const z = n && n.closest('[data-scope]'); return z ? { dataset: { scope: z._attrs['data-scope'] } } : null; };
+  const liveRegister = html => {
+    liveIds(html).forEach(c => {
+      const el = get(c.id); inputs.add(c.id);
+      el.tagName = c.tag.toUpperCase(); el.type = (/\stype="([^"]*)"/.exec(c.src) || [])[1] || (c.tag === 'input' ? 'text' : c.tag);
+      el.dataset = {}; c.src.replace(/\sdata-([\w-]+)="([^"]*)"/g, (x, k, v) => { el.dataset[k.replace(/-(\w)/g, (y, ch) => ch.toUpperCase())] = unqh(v); return x; });
+      el.hasAttribute = a => new RegExp('\\s' + a + '(=|\\s|>|$)').test(c.src);
+      /* The same id drawn as a select one time and a hidden field the next (a role past the page) is a new node each time. */
+      if (!el._live) {
+        el._live = true; let v = String(el.value == null ? '' : el.value);
+        Object.defineProperty(el, 'options', { configurable: true, get: () => (el.tagName === 'SELECT' ? optionsOf(c.id) : undefined) });
+        Object.defineProperty(el, 'value', { configurable: true, get: () => v, set: x => { x = x == null ? '' : String(x); v = el.tagName !== 'SELECT' || optionsOf(c.id).some(o => o.value === x) ? x : ''; } });
+      }
+    });
+  };
+  Object.defineProperty(appEl, 'innerHTML', { get() { return this._html; }, set(v) { this._html = String(v); if (opts.liveForms) liveRegister(this._html); inputs.forEach(id => { const d = drawnValue(this._html, id); if (d === null) return; els[id].value = d; if (opts.replace) { els[id].selectionStart = els[id].selectionEnd = 0; if (document.activeElement === els[id]) document.activeElement = document.body; } }); } });
   const onScreen = id => appEl._html.indexOf('id="' + id + '"') >= 0;
   /* Thumbnail placeholders as nodes: the same node while it stays drawn, a new one once it's drawn again (as morph does). */
   const thumbs = new Map(), unq = v => v.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
@@ -108,6 +133,7 @@ function boot(opts) {
   appEl.querySelectorAll = sel => {
     if (sel === 'input, textarea, select') return controls(appEl);
     if (sel === '[data-thumb]') { const now = drawnThumbs(); [...thumbs.keys()].forEach(k => { if (now.indexOf(k) < 0) thumbs.delete(k); }); return now.map(k => { if (!thumbs.has(k)) thumbs.set(k, { nodeType: 1, dataset: { thumb: k } }); return thumbs.get(k); }); }
+    if (opts.liveForms && /\[data-role\]/.test(sel)) return liveIds(appEl._html || '').filter(c => /\sdata-role="/.test(c.src)).map(c => els[c.id]);
     return /input|textarea|select/.test(sel) ? [...inputs].filter(onScreen).map(id => els[id]) : [];
   };
   appEl.contains = el => !!el && (el.dataset && el.dataset.thumb != null && !el.id ? drawnThumbs().indexOf(el.dataset.thumb) >= 0 && thumbs.get(el.dataset.thumb) === el : inputs.has(el.id) && onScreen(el.id));

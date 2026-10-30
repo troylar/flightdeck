@@ -1261,7 +1261,7 @@ rule('Home: Your corrections rows are keyed by their acknowledgment, so one inse
 });
 
 /* ---------- code review round 9 ---------- */
-rule('Round 9: Plan on 300 roles keeps what every role started as through a refresh after another run moves the rotation: role 250, not drawn, and role 2, drawn, stay; the plan saves them', async () => {
+rule('Round 9: Plan on 300 roles keeps what every role started as through a refresh after another run moves the rotation: role 250, not drawn, and role 2, drawn, stay, each compared with its new default as 2.10\'s select is; the plan saves them', async () => {
   const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true }); await app.tick(60);
   await into(app, fixture());
   app.click('nav', 'processes'); await app.tick(5); app.click('open-process', 'roles'); await app.tick(10); app.click('plan-run', 'roles'); await app.tick(20);
@@ -1281,9 +1281,12 @@ rule('Round 9: Plan on 300 roles keeps what every role started as through a refr
   h = app.html();
   assert.ok(sugOf(h, 'r2') && sugOf(h, 'r2') !== sug2, 'set-up: the suggestion for role 2 moved: ' + sug2 + ' to ' + sugOf(h, 'r2'));
   assert.strictEqual(hiddenOfAt(h, 'r250'), r250, 'role 250, not drawn, keeps what it started as');
-  assert.strictEqual(wasOf(h, 'r250'), r250, 'and so does what it is compared with');
   assert.strictEqual(selOf(h, 'r2'), r2, 'role 2, drawn, keeps it too');
-  assert.strictEqual(wasOf(h, 'r2'), r2);
+  /* Code review round 16: what each is compared with is its default as drawn now (the new suggestion), as 2.10's carried
+     select is compared with its newly drawn default; so each counts as unsaved, as there. */
+  const sel2 = /<select id="role-r2"[^>]*>([\s\S]*?)<\/select>/.exec(h)[1], now2 = wasOf(h, 'r2');
+  assert.ok(now2 && now2 !== r2 && new RegExp('<option value="' + now2 + '"[^>]*>' + sugOf(h, 'r2').trim()).test(sel2), 'role 2 is compared with the new suggestion: ' + now2);
+  assert.ok(wasOf(h, 'r250') && wasOf(h, 'r250') !== r250, 'and role 250 with its new default: ' + wasOf(h, 'r250'));
   await more(app, 'start-roles'); await more(app, 'start-roles');
   for (let i = 0; i < 12; i++) await more(app, 'start-roles');
   assert.strictEqual(selOf(app.html(), 'r250'), r250, 'drawn later by Show more, still what it started as');
@@ -1295,7 +1298,7 @@ rule('Round 9: Plan on 300 roles keeps what every role started as through a refr
 
 
 /* ---------- code review round 10 ---------- */
-rule('Round 10: Plan on 300 roles, the people suggested for role 2 (drawn) and role 250 (not drawn) marked inactive while it\'s open: after a refresh both are nobody and compared with nobody, role 250 drawn by Show more is the same, and the plan saves neither', async () => {
+rule('Round 10: Plan on 300 roles, the people suggested for role 2 (drawn) and role 250 (not drawn) marked inactive while it\'s open: after a refresh each is its new default, as 2.10\'s select is, role 250 drawn by Show more is the same, and the plan saves neither inactive person', async () => {
   const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true }); await app.tick(60);
   await into(app, fixture());
   app.click('nav', 'processes'); await app.tick(5); app.click('open-process', 'roles'); await app.tick(10); app.click('plan-run', 'roles'); await app.tick(20);
@@ -1311,18 +1314,21 @@ rule('Round 10: Plan on 300 roles, the people suggested for role 2 (drawn) and r
   app.set('run-title', 'After the directory changed').set('plan-when', '2099-05-01T09:00');
   await reread(app);
   h = app.html();
-  assert.strictEqual(selOf(h, 'r2'), '', 'role 2, drawn, is nobody: its box can\'t show an inactive person');
-  assert.strictEqual(wasOf(h, 'r2'), '', 'and is compared with nobody');
-  assert.strictEqual(hiddenOfAt(h, 'r250'), '', 'role 250, not drawn, is nobody too, as its box would be');
-  assert.strictEqual(wasOf(h, 'r250'), '', 'and is compared with nobody');
+  /* Code review round 16: 2.10's select can't hold an inactive person, so it shows its default as drawn now: the rotation's
+     suggestion among the people still on the team. A role not drawn is the same. */
+  const now2 = selOf(h, 'r2'), now250 = hiddenOfAt(h, 'r250');
+  assert.ok(now2 && now2 !== r2 && now2 !== r250, 'role 2, drawn, is its new default, someone on the team: ' + now2);
+  assert.strictEqual(wasOf(h, 'r2'), now2, 'and is compared with it');
+  assert.ok(now250 && now250 !== r250 && now250 !== r2, 'role 250, not drawn, is its new default too, as its box would be: ' + now250);
+  assert.strictEqual(wasOf(h, 'r250'), now250, 'and is compared with it');
   for (let i = 0; i < 14 && selOf(app.html(), 'r250') === null; i++) await more(app, 'start-roles');
   h = app.html();
-  assert.strictEqual(selOf(h, 'r250'), '', 'drawn by Show more, role 250 is still nobody');
-  assert.strictEqual(wasOf(h, 'r250'), '');
+  assert.strictEqual(selOf(h, 'r250'), now250, 'drawn by Show more, role 250 is the same');
+  assert.strictEqual(wasOf(h, 'r250'), now250);
   app.chooseApprovers().submitForm('plan-form'); await app.tick(120);
   const made = Object.keys(app.fs.files).filter(f => /^proposals\/plan-roles-[a-z0-9]{8}\.json$/.test(f)).map(f => JSON.parse(app.fs.files[f].t)).filter(p => p.title === 'After the directory changed');
   assert.strictEqual(made.length, 1, 'the plan is saved');
-  assert.ok(!made[0].roles.r250 && !made[0].roles.r2, 'neither inactive person is planned: ' + made[0].roles.r250 + ', ' + made[0].roles.r2);
+  assert.ok(made[0].roles.r250 === now250 && made[0].roles.r2 === now2, 'neither inactive person is planned: ' + made[0].roles.r250 + ', ' + made[0].roles.r2);
 });
 rule('Round 10: Plan with role 250 hidden after its person is marked inactive saves the same roles whether role 250 is drawn first or not', async () => {
   const plans = [];

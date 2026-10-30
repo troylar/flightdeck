@@ -47,6 +47,8 @@ test/find-twins.test.js 1/2
 test/find-tiers.test.js -
 test/find-selectors.test.js -
 test/find-r15.test.js -
+test/find-r16.test.js -
+test/find-roles-diff.test.js -
 test/ui-states.test.js -
 test/reports.test.js -
 test/insights.test.js -
