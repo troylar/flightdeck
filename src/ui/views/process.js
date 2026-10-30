@@ -799,7 +799,6 @@
       var keepRole = function (role) { return !!chosenOf(role) || boxes.touched(role); };
       var rq = K.findQ(st, 'start-roles'), rhit = K.finds(rq), rfound = rq ? meta.roles.filter(function (role) { return rhit([role]); }) : meta.roles;
       var rout = rq ? meta.roles.filter(function (role) { return !rhit([role]); }) : null, drawnRole = Object.create(null), roleRows = '';
-      if (K.findOn(st, 'start-roles', meta.roles.length > ROLE_PAGE)) h = h.replace(/<div class="grid2">$/, '') + K.findBox(st, 'start-roles', 'Find a role', rfound.length, meta.roles.length, 'role') + '<div class="grid2">';
       var roleRow = function (role) {
         var h = '';
         drawnRole[role] = true;
@@ -818,8 +817,10 @@
           people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === rv.value ? ' selected' : '') + '>' + esc(nmStage(x)) + '</option>'; }).join('') + '</select></label>';
         return h;
       };
-      h += K.list(st, 'start-roles', rfound, { page: ROLE_PAGE, keep: meta.roles.filter(errRole), soft: meta.roles.filter(keepRole), outside: rout, keptLabel: 'Roles you\'ve chosen someone for', keyOf: function (role) { return role; }, focusOf: function (k) { return K.byId('role-' + k); },
+      var rlist = K.list(st, 'start-roles', rfound, { page: ROLE_PAGE, keep: meta.roles.filter(errRole), soft: meta.roles.filter(keepRole), outside: rout, keptLabel: 'Roles you\'ve chosen someone for', keyOf: function (role) { return role; }, focusOf: function (k) { return K.byId('role-' + k); },
         draw: function (shown) { return shown.map(roleRow).join(''); } });
+      if (K.findOn(st, 'start-roles', meta.roles.length > ROLE_PAGE)) h = h.replace(/<div class="grid2">$/, '') + K.findBox(st, 'start-roles', 'Find a role', rfound.length, meta.roles.length, 'role', { kept: !rfound.length && K.drewAny('start-roles') }) + '<div class="grid2">';
+      h += rlist;
       meta.roles.forEach(function (role) {
         if (drawnRole[role]) return;
         var rv = rvOf[role];

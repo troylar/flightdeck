@@ -133,8 +133,13 @@ PF.vk = (function () {
   function findQ(st, id) { return st.find && st.find.q ? String(st.find.q[id] || '') : ''; }
   /* Whether a list's Find box is drawn: when the list is long enough (over), and whatever its length while the box has text
      or focus (st.selFocus, kept by the app while focus is in it), so a newer read that shortens the list never takes away
-     the box someone is typing in or filtering with (code review round 19). */
-  function findOn(st, id, over) { return !!over || !!findQ(st, id) || st.selFocus === id; }
+     the box someone is typing in or filtering with (code review round 19). A box drawn for its focus alone is noted in
+     PF.vk.findHeld (which the app empties at every draw): leaving it takes it away, and leaving any other box draws nothing. */
+  function findOn(st, id, over) {
+    var on = !!over || !!findQ(st, id);
+    if (!on && st.selFocus === id && PF.vk.findHeld) PF.vk.findHeld[id] = true;
+    return on || st.selFocus === id;
+  }
   /* Whether an item's words hold every term typed, ignoring case. */
   function finds(q) {
     var terms = String(q || '').toLowerCase().split(/\s+/).filter(Boolean);
@@ -144,10 +149,13 @@ PF.vk = (function () {
       return terms.every(function (t) { return w.indexOf(t) >= 0; });
     };
   }
-  /* The box, drawn from state (data-bound), with its count: "12 of 1,000 match", or that none does, and Clear. */
-  function findBox(st, id, label, n, total, noun) {
+  /* The box, drawn from state (data-bound), with its count: "12 of 1,000 match", or that none does, and Clear. o (plain text,
+     escaped here): by, another filter that applies with the Find text ("with Yours on"), said after it, so the zero isn't
+     put on the Find text alone; kept, a row drawn though Find leaves it out (being edited, say), so it says "No other". */
+  function findBox(st, id, label, n, total, noun, o) {
+    o = o || {};
     var q = findQ(st, id), N = function (x) { return x.toLocaleString('en-US'); }, fid = 'find-' + id;
-    var count = !q ? '' : n ? N(n) + ' of ' + N(total) + ' match' : 'No ' + noun + ' matches "' + esc(q) + '"';
+    var count = !q ? '' : n ? N(n) + ' of ' + N(total) + ' match' : 'No ' + (o.kept ? 'other ' : '') + esc(noun) + ' matches "' + esc(q) + '"' + (o.by ? ' ' + esc(o.by) : '');
     return '<div class="row findbox"><label for="' + esc(fid) + '">' + esc(label) + '</label><input type="search" id="' + esc(fid) + '" data-find="' + esc(id) + '" data-nav-safe data-bound value="' + esc(q) + '" autocomplete="off" maxlength="200" aria-describedby="' + esc(fid) + '-n">' +
       '<span class="small" id="' + esc(fid) + '-n" role="status">' + count + '</span>' + (q ? '<button type="button" class="mini" data-act="find-clear" data-id="' + esc(id) + '">Clear</button>' : '') + '</div>';
   }
@@ -199,6 +207,8 @@ PF.vk = (function () {
     }
     return null;
   }
+  /* Whether the list last drawn under id drew any row (with no match, only rows kept though Find leaves them out). */
+  function drewAny(id) { return !!(drawnBy[id] && drawnBy[id].length); }
   function list(st, id, items, o) {
     var P = o.page || PAGE, n = Math.max(P, Math.floor(((st.more || {})[id]) || P));
     /* Tests turn paging off for one list (PF.vk.PAGE_OFF = its id), to prove the bounds test notices; PF.vk.ARRIVE = its id
@@ -299,10 +309,10 @@ PF.vk = (function () {
   function roleRows(st, id, roles, o) {
     var P = o.page || 20, q = findQ(st, id), hit = finds(q), on = Object.create(null);
     var found = q ? roles.filter(function (r) { return hit([r]); }) : roles;
-    var box = findOn(st, id, roles.length > P) ? findBox(st, id, o.label || 'Find a role', found.length, roles.length, o.noun || 'role') : '';
     var rows = list(st, id, found, { page: P, keep: o.keep, soft: o.soft, outside: q ? roles.filter(function (r) { return !hit([r]); }) : null, keptLabel: o.keptLabel || 'Roles you\'ve chosen someone for', keyOf: function (r) { return r; }, focusOf: o.focusOf, inDialog: o.inDialog,
       draw: function (shown) { return shown.map(function (r) { on[r] = true; return o.row(r); }).join(''); } });
     var hidden = o.hidden ? roles.filter(function (r) { return !on[r]; }).map(o.hidden).join('') : '';
+    var box = findOn(st, id, roles.length > P) ? findBox(st, id, o.label || 'Find a role', found.length, roles.length, o.noun || 'role', { kept: !found.length && drewAny(id) }) : '';
     return { box: box, rows: rows, hidden: hidden };
   }
   /* A list joined into one line (2.11, D10): the first 50 names, then "and 250 more" with Show more, which adds 50 and keeps
@@ -499,7 +509,7 @@ PF.vk = (function () {
   }
   function unsavedWords(ps) { return ps && ps.saved ? 'its run was saved and has changed since' : ps && ps.certain === false ? 'Flightdeck couldn\'t confirm whether its run saved' : 'its run didn\'t save'; }
   function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
-  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, findOn: findOn, finds: finds, findBox: findBox, roleRows: roleRows, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, joined: joined, capJoin: capJoin, atRoles: atRoles, select: select, SEL_MORE: SEL_MORE, isSelMore: isSelMore, byId: byId, cssStr: cssStr, PAGE: PAGE, PAGE_OFF: null, ARRIVE: null, TRACE: null, focusAt: null, domKey: domKey, uniqKeys: uniqKeys, testTag: testTag, verWord: verWord };
+  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, findOn: findOn, finds: finds, findBox: findBox, drewAny: drewAny, roleRows: roleRows, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, joined: joined, capJoin: capJoin, atRoles: atRoles, select: select, SEL_MORE: SEL_MORE, isSelMore: isSelMore, byId: byId, cssStr: cssStr, PAGE: PAGE, PAGE_OFF: null, ARRIVE: null, TRACE: null, focusAt: null, findHeld: null, domKey: domKey, uniqKeys: uniqKeys, testTag: testTag, verWord: verWord };
 })();
 (function () {
   'use strict';

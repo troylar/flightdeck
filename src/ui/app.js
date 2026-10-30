@@ -1583,6 +1583,7 @@
   /* Re-render without losing what someone is typing or where their focus is. */
   function renderNow() {
     PF.perf.add('render');
+    PF.vk.findHeld = Object.create(null);
     /* What was just shown is this folder's: after a folder switch it's gone (gen), without the switch itself changing. */
     if (state.justShown && state.justShown.gen !== gen) state.justShown = null;
     if (state.noteShown && state.noteShown.gen !== gen) state.noteShown = null;
@@ -4336,10 +4337,22 @@
   /* Focusing the box is enough, before anything is typed: a refresh that leaves 50 or fewer choices doesn't take it away. So
      for every list's Find box, not only a dropdown's (K.findOn, code review round 19). */
   document.addEventListener('focusin', function (e) { var t = e.target; if (t && t.dataset && t.dataset.find != null) selBoxKept(findList(t)); });
+  /* Leaving the box redraws only when the box was drawn for its focus alone (PF.vk.findHeld): any other box looks the same
+     either way, and a redraw then would land between a click's press and its release, replacing what was clicked (a fold
+     opened by the click went shut again and lost focus). When it does go away under a pressed pointer, it goes once the
+     pointer is released, before the click, so the click lands on what was pressed. */
+  var ptrDown = false, ptrLeft = false;
+  document.addEventListener('pointerdown', function () { ptrDown = true; }, true);
+  ['pointerup', 'pointercancel'].forEach(function (ev) { document.addEventListener(ev, function () { ptrDown = false; if (ptrLeft) { ptrLeft = false; render(); } }, true); });
   document.addEventListener('focusout', function (e) {
     var id = findList(e.target);
     if (!id || state.selFocus !== id) return;
-    setTimeout(function () { var a = document.activeElement; if (state.selFocus === id && !(a && a.id === 'find-' + id)) { state.selFocus = null; render(); } }, 0);
+    setTimeout(function () {
+      var a = document.activeElement; if (state.selFocus !== id || (a && a.id === 'find-' + id)) return;
+      state.selFocus = null;
+      if (!(PF.vk.findHeld || {})[id]) return;
+      if (ptrDown) ptrLeft = true; else render();
+    }, 0);
   });
   /* The list a Find box filters (its data-find, which matches its id: find-<list>), or null for any other control. */
   function findList(el) { var m = el && /^find-([a-z][\w-]*)$/.exec(el.id || ''); return m && (!el.dataset || !el.dataset.find || el.dataset.find === m[1]) ? m[1] : null; }

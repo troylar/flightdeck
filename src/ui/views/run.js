@@ -590,10 +590,10 @@
         var roles = map.meta.roles || [], rq = K.findQ(st, 'corr-roles'), rhit = K.finds(rq);
         var rmatch = roles.filter(function (ro) { return rhit([ro, r.roles[ro] ? nameOf(ctx, r.roles[ro]) : '']); }), rout = rq ? roles.filter(function (ro) { return !rhit([ro, r.roles[ro] ? nameOf(ctx, r.roles[ro]) : '']); }) : null;
         var rbox = function (ro) { return '<label class="check-label small"><input type="checkbox" id="corr-role-' + esc(ro) + '" data-bound' + (f.roles.indexOf(ro) >= 0 ? ' checked' : '') + '> @' + esc(ro) + (r.roles[ro] ? ' (' + esc(nameOf(ctx, r.roles[ro])) + ')' : '') + '</label>'; };
+        var rlist = roles.length ? K.list(st, 'corr-roles', rmatch, { page: 20, keyOf: function (ro) { return ro; }, focusOf: function (k) { return K.byId('corr-role-' + k); }, outside: rout, soft: f.roles.filter(function (ro) { return roles.indexOf(ro) >= 0; }), keptLabel: 'Ticked', draw: function (shown) { return shown.map(rbox).join(''); } }) : '';
         h += roles.length ? '<fieldset class="corr-roles" id="corr-roles" tabindex="-1"' + bad('corr-roles') + '><legend class="small">Who should do it</legend>' +
-          (K.findOn(st, 'corr-roles', roles.length > 20) ? K.findBox(st, 'corr-roles', 'Find a role', rmatch.length, roles.length, 'role') : '') +
-          K.list(st, 'corr-roles', rmatch, { page: 20, keyOf: function (ro) { return ro; }, focusOf: function (k) { return K.byId('corr-role-' + k); }, outside: rout, soft: f.roles.filter(function (ro) { return roles.indexOf(ro) >= 0; }), keptLabel: 'Ticked', draw: function (shown) { return shown.map(rbox).join(''); } }) +
-          '</fieldset>' + fe('corr-roles')
+          (K.findOn(st, 'corr-roles', roles.length > 20) ? K.findBox(st, 'corr-roles', 'Find a role', rmatch.length, roles.length, 'role', { kept: !rmatch.length && K.drewAny('corr-roles') }) : '') +
+          rlist + '</fieldset>' + fe('corr-roles')
           : '<p class="small">This checklist has no roles. Use Describe another problem to say who should do it.</p>';
       } else if (f.op === 'screenshot') {
         var shot = s.shots.filter(function (sh) { return sh.src === f.shot; })[0] || s.shots[0];

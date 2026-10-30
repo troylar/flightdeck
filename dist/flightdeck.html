@@ -19098,8 +19098,13 @@ PF.vk = (function () {
   function findQ(st, id) { return st.find && st.find.q ? String(st.find.q[id] || '') : ''; }
   /* Whether a list's Find box is drawn: when the list is long enough (over), and whatever its length while the box has text
      or focus (st.selFocus, kept by the app while focus is in it), so a newer read that shortens the list never takes away
-     the box someone is typing in or filtering with (code review round 19). */
-  function findOn(st, id, over) { return !!over || !!findQ(st, id) || st.selFocus === id; }
+     the box someone is typing in or filtering with (code review round 19). A box drawn for its focus alone is noted in
+     PF.vk.findHeld (which the app empties at every draw): leaving it takes it away, and leaving any other box draws nothing. */
+  function findOn(st, id, over) {
+    var on = !!over || !!findQ(st, id);
+    if (!on && st.selFocus === id && PF.vk.findHeld) PF.vk.findHeld[id] = true;
+    return on || st.selFocus === id;
+  }
   /* Whether an item's words hold every term typed, ignoring case. */
   function finds(q) {
     var terms = String(q || '').toLowerCase().split(/\s+/).filter(Boolean);
@@ -19109,10 +19114,13 @@ PF.vk = (function () {
       return terms.every(function (t) { return w.indexOf(t) >= 0; });
     };
   }
-  /* The box, drawn from state (data-bound), with its count: "12 of 1,000 match", or that none does, and Clear. */
-  function findBox(st, id, label, n, total, noun) {
+  /* The box, drawn from state (data-bound), with its count: "12 of 1,000 match", or that none does, and Clear. o (plain text,
+     escaped here): by, another filter that applies with the Find text ("with Yours on"), said after it, so the zero isn't
+     put on the Find text alone; kept, a row drawn though Find leaves it out (being edited, say), so it says "No other". */
+  function findBox(st, id, label, n, total, noun, o) {
+    o = o || {};
     var q = findQ(st, id), N = function (x) { return x.toLocaleString('en-US'); }, fid = 'find-' + id;
-    var count = !q ? '' : n ? N(n) + ' of ' + N(total) + ' match' : 'No ' + noun + ' matches "' + esc(q) + '"';
+    var count = !q ? '' : n ? N(n) + ' of ' + N(total) + ' match' : 'No ' + (o.kept ? 'other ' : '') + esc(noun) + ' matches "' + esc(q) + '"' + (o.by ? ' ' + esc(o.by) : '');
     return '<div class="row findbox"><label for="' + esc(fid) + '">' + esc(label) + '</label><input type="search" id="' + esc(fid) + '" data-find="' + esc(id) + '" data-nav-safe data-bound value="' + esc(q) + '" autocomplete="off" maxlength="200" aria-describedby="' + esc(fid) + '-n">' +
       '<span class="small" id="' + esc(fid) + '-n" role="status">' + count + '</span>' + (q ? '<button type="button" class="mini" data-act="find-clear" data-id="' + esc(id) + '">Clear</button>' : '') + '</div>';
   }
@@ -19164,6 +19172,8 @@ PF.vk = (function () {
     }
     return null;
   }
+  /* Whether the list last drawn under id drew any row (with no match, only rows kept though Find leaves them out). */
+  function drewAny(id) { return !!(drawnBy[id] && drawnBy[id].length); }
   function list(st, id, items, o) {
     var P = o.page || PAGE, n = Math.max(P, Math.floor(((st.more || {})[id]) || P));
     /* Tests turn paging off for one list (PF.vk.PAGE_OFF = its id), to prove the bounds test notices; PF.vk.ARRIVE = its id
@@ -19264,10 +19274,10 @@ PF.vk = (function () {
   function roleRows(st, id, roles, o) {
     var P = o.page || 20, q = findQ(st, id), hit = finds(q), on = Object.create(null);
     var found = q ? roles.filter(function (r) { return hit([r]); }) : roles;
-    var box = findOn(st, id, roles.length > P) ? findBox(st, id, o.label || 'Find a role', found.length, roles.length, o.noun || 'role') : '';
     var rows = list(st, id, found, { page: P, keep: o.keep, soft: o.soft, outside: q ? roles.filter(function (r) { return !hit([r]); }) : null, keptLabel: o.keptLabel || 'Roles you\'ve chosen someone for', keyOf: function (r) { return r; }, focusOf: o.focusOf, inDialog: o.inDialog,
       draw: function (shown) { return shown.map(function (r) { on[r] = true; return o.row(r); }).join(''); } });
     var hidden = o.hidden ? roles.filter(function (r) { return !on[r]; }).map(o.hidden).join('') : '';
+    var box = findOn(st, id, roles.length > P) ? findBox(st, id, o.label || 'Find a role', found.length, roles.length, o.noun || 'role', { kept: !found.length && drewAny(id) }) : '';
     return { box: box, rows: rows, hidden: hidden };
   }
   /* A list joined into one line (2.11, D10): the first 50 names, then "and 250 more" with Show more, which adds 50 and keeps
@@ -19464,7 +19474,7 @@ PF.vk = (function () {
   }
   function unsavedWords(ps) { return ps && ps.saved ? 'its run was saved and has changed since' : ps && ps.certain === false ? 'Flightdeck couldn\'t confirm whether its run saved' : 'its run didn\'t save'; }
   function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
-  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, findOn: findOn, finds: finds, findBox: findBox, roleRows: roleRows, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, joined: joined, capJoin: capJoin, atRoles: atRoles, select: select, SEL_MORE: SEL_MORE, isSelMore: isSelMore, byId: byId, cssStr: cssStr, PAGE: PAGE, PAGE_OFF: null, ARRIVE: null, TRACE: null, focusAt: null, domKey: domKey, uniqKeys: uniqKeys, testTag: testTag, verWord: verWord };
+  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, findOn: findOn, finds: finds, findBox: findBox, drewAny: drewAny, roleRows: roleRows, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, joined: joined, capJoin: capJoin, atRoles: atRoles, select: select, SEL_MORE: SEL_MORE, isSelMore: isSelMore, byId: byId, cssStr: cssStr, PAGE: PAGE, PAGE_OFF: null, ARRIVE: null, TRACE: null, focusAt: null, findHeld: null, domKey: domKey, uniqKeys: uniqKeys, testTag: testTag, verWord: verWord };
 })();
 (function () {
   'use strict';
@@ -19756,8 +19766,10 @@ PF.vk = (function () {
     /* Find a follow-up (2.11): by its text, its run, its owner and its step, over the chip's whole list; 50 at a time. */
     var q = K.findQ(st, 'fu'), hit = K.finds(q), stepOf = function (x) { if (!x.f.step) return ''; var r = ctx.findRun ? ctx.findRun(x.runKey) : null, y = r ? M.findStep(R.mapOf(r), x.f.step) : null; return y ? K.stepPlain(y.step, null) : x.f.step; };
     var found = q ? shown.filter(function (x) { return hit([x.text, x.runTitle, x.owner ? nameOf(ctx, x.owner) : '', x.f.ticket, stepOf(x)]); }) : shown;
-    if (K.findOn(st, 'fu', shown.length > 0)) h += K.findBox(st, 'fu', 'Find a follow-up', found.length, shown.length, 'follow-up');
-    h += V.fuPaged(ctx, 'fu', found, all) || (shown.length ? '' : '<p class="muted">' + (filter === 'all' ? 'No run has follow-ups yet. The recorder adds them while finishing a run.' : filter === 'mine' ? (me ? 'Nothing open is yours.' : 'Choose who you are to see yours.') : 'Nothing is open. Every follow-up has been dealt with.') + '</p>');
+    /* With no match, the count says which chip applies too, and "No other" beside the row kept for its open form. */
+    var fuRows = V.fuPaged(ctx, 'fu', found, all);
+    if (K.findOn(st, 'fu', shown.length > 0)) h += K.findBox(st, 'fu', 'Find a follow-up', found.length, shown.length, 'follow-up', { by: filter === 'all' ? '' : filter === 'mine' ? 'with Yours on' : 'with Open on', kept: !found.length && !!fuRows });
+    h += fuRows || (shown.length ? '' : '<p class="muted">' + (filter === 'all' ? 'No run has follow-ups yet. The recorder adds them while finishing a run.' : filter === 'mine' ? (me ? 'Nothing open is yours.' : 'Choose who you are to see yours.') : 'Nothing is open. Every follow-up has been dealt with.') + '</p>');
     return h + '</section>';
   }
 
@@ -19802,6 +19814,8 @@ PF.vk = (function () {
     return h;
   }
 
+  /* The tag filter, as a Find box's count says it applies too. */
+  function tagWords(chosen) { return !chosen.length ? '' : chosen.length === 1 ? 'with the tag you chose' : 'with the tags you chose'; }
   /* ---------- Processes: the templates, in the team's hierarchy ---------- */
   function processesPage(ctx) {
     var st = ctx.state, procs = ctx.processes(), has = hasTags(ctx);
@@ -19815,7 +19829,7 @@ PF.vk = (function () {
       '</details></span></div>';
     var chosen = st.tags || [], tagged = procs.filter(function (p) { return has(p.tags); }), q = K.findQ(st, 'processes'), hit = K.finds(q);
     var found = q ? tagged.filter(function (p) { return hit([p.title, p.id, (p.group || []).join(' / '), p.category, (p.tags || []).join(' ')]); }) : tagged;
-    h += '<section class="panel" id="procs-all">' + (K.findOn(st, 'processes', procs.length > 0) ? K.findBox(st, 'processes', 'Find a checklist', found.length, tagged.length, 'checklist') : '') + K.tagBar(allTags(ctx, chosen), chosen, st.disc, st) + (procs.length ? K.treeList(st, 'processes', found, function (p) { return p.group && p.group.length ? p.group : [p.category]; }, function (p) {
+    h += '<section class="panel" id="procs-all">' + (K.findOn(st, 'processes', procs.length > 0) ? K.findBox(st, 'processes', 'Find a checklist', found.length, tagged.length, 'checklist', { by: tagWords(chosen) }) : '') + K.tagBar(allTags(ctx, chosen), chosen, st.disc, st) + (procs.length ? K.treeList(st, 'processes', found, function (p) { return p.group && p.group.length ? p.group : [p.category]; }, function (p) {
       PF.perf.add('procs.rows');
       var pub = p.latest, info = pub ? 'v' + pub.info.version : p.proposedOnly ? 'Proposed, not drafted yet' : 'not published yet';
       var flags = [];
@@ -19871,7 +19885,7 @@ PF.vk = (function () {
     }).join('') + '</ul>'; }, keyOf: function (p) { return p.id; }, focusOf: function (id) { return K.byAct('open-process', id); }, keep: st.brief && /^create:/.test(st.brief.key) ? [st.brief.key.slice(7)] : [], keptLabel: 'Its brief is open' }) + '</section>';
     var chosen = st.tags || [], tagged = skills.filter(function (k) { return has(k.x.skill.tags); }), q = K.findQ(st, 'skills'), hit = K.finds(q);
     var found = q ? tagged.filter(function (k) { return hit([k.x.skill.name, k.p.title, k.p.id, (k.x.skill.tags || []).join(' ')]); }) : tagged;
-    h += '<section class="panel" aria-labelledby="all-h"><h2 id="all-h">All skills · ' + skills.length + '</h2>' + (K.findOn(st, 'skills', skills.length > 0) ? K.findBox(st, 'skills', 'Find a skill', found.length, tagged.length, 'skill') : '') + K.tagBar(skillTags(skills, chosen), chosen, st.disc, st) + (skills.length ? K.treeList(st, 'skills', found, function (k) { return k.x.skill.group.length ? k.x.skill.group : (k.p.group && k.p.group.length ? k.p.group : [k.p.category || 'Other']); }, skillRow('sk-all-'), { keyOf: skillKey, focusOf: focusIn('sk-all-') })
+    h += '<section class="panel" aria-labelledby="all-h"><h2 id="all-h">All skills · ' + skills.length + '</h2>' + (K.findOn(st, 'skills', skills.length > 0) ? K.findBox(st, 'skills', 'Find a skill', found.length, tagged.length, 'skill', { by: tagWords(chosen) }) : '') + K.tagBar(skillTags(skills, chosen), chosen, st.disc, st) + (skills.length ? K.treeList(st, 'skills', found, function (k) { return k.x.skill.group.length ? k.x.skill.group : (k.p.group && k.p.group.length ? k.p.group : [k.p.category || 'Other']); }, skillRow('sk-all-'), { keyOf: skillKey, focusOf: focusIn('sk-all-') })
       : '<p class="small">No skills yet. Follow the steps above: once a checklist version is signed off, its page has the brief your AI assistant needs.</p>') + '</section>';
     return h;
   }
@@ -20680,7 +20694,6 @@ PF.vk = (function () {
       var keepRole = function (role) { return !!chosenOf(role) || boxes.touched(role); };
       var rq = K.findQ(st, 'start-roles'), rhit = K.finds(rq), rfound = rq ? meta.roles.filter(function (role) { return rhit([role]); }) : meta.roles;
       var rout = rq ? meta.roles.filter(function (role) { return !rhit([role]); }) : null, drawnRole = Object.create(null), roleRows = '';
-      if (K.findOn(st, 'start-roles', meta.roles.length > ROLE_PAGE)) h = h.replace(/<div class="grid2">$/, '') + K.findBox(st, 'start-roles', 'Find a role', rfound.length, meta.roles.length, 'role') + '<div class="grid2">';
       var roleRow = function (role) {
         var h = '';
         drawnRole[role] = true;
@@ -20699,8 +20712,10 @@ PF.vk = (function () {
           people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === rv.value ? ' selected' : '') + '>' + esc(nmStage(x)) + '</option>'; }).join('') + '</select></label>';
         return h;
       };
-      h += K.list(st, 'start-roles', rfound, { page: ROLE_PAGE, keep: meta.roles.filter(errRole), soft: meta.roles.filter(keepRole), outside: rout, keptLabel: 'Roles you\'ve chosen someone for', keyOf: function (role) { return role; }, focusOf: function (k) { return K.byId('role-' + k); },
+      var rlist = K.list(st, 'start-roles', rfound, { page: ROLE_PAGE, keep: meta.roles.filter(errRole), soft: meta.roles.filter(keepRole), outside: rout, keptLabel: 'Roles you\'ve chosen someone for', keyOf: function (role) { return role; }, focusOf: function (k) { return K.byId('role-' + k); },
         draw: function (shown) { return shown.map(roleRow).join(''); } });
+      if (K.findOn(st, 'start-roles', meta.roles.length > ROLE_PAGE)) h = h.replace(/<div class="grid2">$/, '') + K.findBox(st, 'start-roles', 'Find a role', rfound.length, meta.roles.length, 'role', { kept: !rfound.length && K.drewAny('start-roles') }) + '<div class="grid2">';
+      h += rlist;
       meta.roles.forEach(function (role) {
         if (drawnRole[role]) return;
         var rv = rvOf[role];
@@ -21343,10 +21358,10 @@ PF.vk = (function () {
         var roles = map.meta.roles || [], rq = K.findQ(st, 'corr-roles'), rhit = K.finds(rq);
         var rmatch = roles.filter(function (ro) { return rhit([ro, r.roles[ro] ? nameOf(ctx, r.roles[ro]) : '']); }), rout = rq ? roles.filter(function (ro) { return !rhit([ro, r.roles[ro] ? nameOf(ctx, r.roles[ro]) : '']); }) : null;
         var rbox = function (ro) { return '<label class="check-label small"><input type="checkbox" id="corr-role-' + esc(ro) + '" data-bound' + (f.roles.indexOf(ro) >= 0 ? ' checked' : '') + '> @' + esc(ro) + (r.roles[ro] ? ' (' + esc(nameOf(ctx, r.roles[ro])) + ')' : '') + '</label>'; };
+        var rlist = roles.length ? K.list(st, 'corr-roles', rmatch, { page: 20, keyOf: function (ro) { return ro; }, focusOf: function (k) { return K.byId('corr-role-' + k); }, outside: rout, soft: f.roles.filter(function (ro) { return roles.indexOf(ro) >= 0; }), keptLabel: 'Ticked', draw: function (shown) { return shown.map(rbox).join(''); } }) : '';
         h += roles.length ? '<fieldset class="corr-roles" id="corr-roles" tabindex="-1"' + bad('corr-roles') + '><legend class="small">Who should do it</legend>' +
-          (K.findOn(st, 'corr-roles', roles.length > 20) ? K.findBox(st, 'corr-roles', 'Find a role', rmatch.length, roles.length, 'role') : '') +
-          K.list(st, 'corr-roles', rmatch, { page: 20, keyOf: function (ro) { return ro; }, focusOf: function (k) { return K.byId('corr-role-' + k); }, outside: rout, soft: f.roles.filter(function (ro) { return roles.indexOf(ro) >= 0; }), keptLabel: 'Ticked', draw: function (shown) { return shown.map(rbox).join(''); } }) +
-          '</fieldset>' + fe('corr-roles')
+          (K.findOn(st, 'corr-roles', roles.length > 20) ? K.findBox(st, 'corr-roles', 'Find a role', rmatch.length, roles.length, 'role', { kept: !rmatch.length && K.drewAny('corr-roles') }) : '') +
+          rlist + '</fieldset>' + fe('corr-roles')
           : '<p class="small">This checklist has no roles. Use Describe another problem to say who should do it.</p>';
       } else if (f.op === 'screenshot') {
         var shot = s.shots.filter(function (sh) { return sh.src === f.shot; })[0] || s.shots[0];
@@ -23413,7 +23428,7 @@ PF.vk = (function () {
     /* With Find, the page is the matches; the renamed one Find leaves out is drawn after them (K.list's tiers, code review round 12). */
     var found = q ? list.filter(function (n) { return hit([n]); }) : list, out = q ? list.filter(function (n) { return !hit([n]); }) : null;
     var any = found.length || (out || []).some(function (n) { return n === js || keep.indexOf(n) >= 0; });
-    var box = K.findOn(st, fid, list.length > P) ? K.findBox(st, fid, 'Find a ' + noun, found.length, list.length, noun) : '';
+    var box = K.findOn(st, fid, list.length > P) ? K.findBox(st, fid, 'Find a ' + noun, found.length, list.length, noun, { kept: !found.length && any }) : '';
     return '<div class="field"><span id="' + lid + '">' + label + '</span><span class="small">' + hint + '</span>' + box +
       (any ? K.list(st, fid, found, { page: P, keep: keep, outside: out, keptLabel: list.some(renaming) ? 'Being renamed' : 'Just renamed', keyOf: function (n) { return n; },
         focusOf: function (n) { return '[data-act="ob-meta-del"][data-key="' + key + '"][data-id="' + K.cssStr(n) + '"]'; }, draw: function (shown) { return '<ul class="ob-metalist" aria-labelledby="' + lid + '">' + shown.map(function (n) {
@@ -24961,14 +24976,14 @@ PF.vk = (function () {
     };
     var list = function (ps) { return '<ul class="vlist pp-list">' + ps.map(row).join('') + '</ul>'; };
     if (people.length || K.findOn(st, 'people', false)) {
-      h += K.findBox(st, 'people', 'Find a person', found.length, people.length, 'person');
-      h += K.list(st, 'people', found, { keyOf: function (p) { return p.id; }, focusOf: function (k) { return K.byId('pp-' + k); }, keep: pick ? [pick] : [], keptLabel: 'You\'re changing this one', draw: list, empty: '' });
+      var ppRows = K.list(st, 'people', found, { keyOf: function (p) { return p.id; }, focusOf: function (k) { return K.byId('pp-' + k); }, keep: pick ? [pick] : [], keptLabel: 'You\'re changing this one', draw: list, empty: '' });
       /* Kept rows the Find text leaves out: drawn after the list, said why, without changing the Find text. */
       [[pick, 'You\'re changing this one'], [js !== pick ? js : null, 'Just added']].forEach(function (k) {
         if (!k[0] || inFound[k[0]]) return;
         var p = people.filter(function (x) { return x.id === k[0]; })[0];
-        if (p) h += '<p class="small kept-h">' + esc(k[1]) + '</p>' + list([p]);
+        if (p) ppRows += '<p class="small kept-h">' + esc(k[1]) + '</p>' + list([p]);
       });
+      h += K.findBox(st, 'people', 'Find a person', found.length, people.length, 'person', { kept: !found.length && !!ppRows }) + ppRows;
     } else h += '<p class="small">Nobody yet.</p>';
     if (can) {
       var add = st.peopleAdd || {}, e1 = ferr(st, 'pa-name'), e2 = ferr(st, 'pa-email'), id = String(add.name || '').trim() ? PP.idFor(add.name, people.map(function (p) { return p.id; })) : '';
@@ -27018,6 +27033,7 @@ PF.examples = (function () {
   /* Re-render without losing what someone is typing or where their focus is. */
   function renderNow() {
     PF.perf.add('render');
+    PF.vk.findHeld = Object.create(null);
     /* What was just shown is this folder's: after a folder switch it's gone (gen), without the switch itself changing. */
     if (state.justShown && state.justShown.gen !== gen) state.justShown = null;
     if (state.noteShown && state.noteShown.gen !== gen) state.noteShown = null;
@@ -29771,10 +29787,22 @@ PF.examples = (function () {
   /* Focusing the box is enough, before anything is typed: a refresh that leaves 50 or fewer choices doesn't take it away. So
      for every list's Find box, not only a dropdown's (K.findOn, code review round 19). */
   document.addEventListener('focusin', function (e) { var t = e.target; if (t && t.dataset && t.dataset.find != null) selBoxKept(findList(t)); });
+  /* Leaving the box redraws only when the box was drawn for its focus alone (PF.vk.findHeld): any other box looks the same
+     either way, and a redraw then would land between a click's press and its release, replacing what was clicked (a fold
+     opened by the click went shut again and lost focus). When it does go away under a pressed pointer, it goes once the
+     pointer is released, before the click, so the click lands on what was pressed. */
+  var ptrDown = false, ptrLeft = false;
+  document.addEventListener('pointerdown', function () { ptrDown = true; }, true);
+  ['pointerup', 'pointercancel'].forEach(function (ev) { document.addEventListener(ev, function () { ptrDown = false; if (ptrLeft) { ptrLeft = false; render(); } }, true); });
   document.addEventListener('focusout', function (e) {
     var id = findList(e.target);
     if (!id || state.selFocus !== id) return;
-    setTimeout(function () { var a = document.activeElement; if (state.selFocus === id && !(a && a.id === 'find-' + id)) { state.selFocus = null; render(); } }, 0);
+    setTimeout(function () {
+      var a = document.activeElement; if (state.selFocus !== id || (a && a.id === 'find-' + id)) return;
+      state.selFocus = null;
+      if (!(PF.vk.findHeld || {})[id]) return;
+      if (ptrDown) ptrLeft = true; else render();
+    }, 0);
   });
   /* The list a Find box filters (its data-find, which matches its id: find-<list>), or null for any other control. */
   function findList(el) { var m = el && /^find-([a-z][\w-]*)$/.exec(el.id || ''); return m && (!el.dataset || !el.dataset.find || el.dataset.find === m[1]) ? m[1] : null; }

@@ -220,14 +220,14 @@
     };
     var list = function (ps) { return '<ul class="vlist pp-list">' + ps.map(row).join('') + '</ul>'; };
     if (people.length || K.findOn(st, 'people', false)) {
-      h += K.findBox(st, 'people', 'Find a person', found.length, people.length, 'person');
-      h += K.list(st, 'people', found, { keyOf: function (p) { return p.id; }, focusOf: function (k) { return K.byId('pp-' + k); }, keep: pick ? [pick] : [], keptLabel: 'You\'re changing this one', draw: list, empty: '' });
+      var ppRows = K.list(st, 'people', found, { keyOf: function (p) { return p.id; }, focusOf: function (k) { return K.byId('pp-' + k); }, keep: pick ? [pick] : [], keptLabel: 'You\'re changing this one', draw: list, empty: '' });
       /* Kept rows the Find text leaves out: drawn after the list, said why, without changing the Find text. */
       [[pick, 'You\'re changing this one'], [js !== pick ? js : null, 'Just added']].forEach(function (k) {
         if (!k[0] || inFound[k[0]]) return;
         var p = people.filter(function (x) { return x.id === k[0]; })[0];
-        if (p) h += '<p class="small kept-h">' + esc(k[1]) + '</p>' + list([p]);
+        if (p) ppRows += '<p class="small kept-h">' + esc(k[1]) + '</p>' + list([p]);
       });
+      h += K.findBox(st, 'people', 'Find a person', found.length, people.length, 'person', { kept: !found.length && !!ppRows }) + ppRows;
     } else h += '<p class="small">Nobody yet.</p>';
     if (can) {
       var add = st.peopleAdd || {}, e1 = ferr(st, 'pa-name'), e2 = ferr(st, 'pa-email'), id = String(add.name || '').trim() ? PP.idFor(add.name, people.map(function (p) { return p.id; })) : '';
