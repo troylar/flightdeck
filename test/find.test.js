@@ -452,7 +452,7 @@ rule('A skill page with 400 changes draws 50 in order, Show more focuses the fir
   const app = await bigApp(); app.click('nav', 'skills'); await app.tick(5);
   app.click('open-skill', 'old-whole-skill.json'); await app.tick(10);
   /* Each change's id is from the change (what changed, and its step), never its place (2.11). */
-  const ch = () => { const h = app.html(), a = h.indexOf('<ul class="changes">'); return a < 0 ? [] : [...h.slice(a, h.indexOf('</ul>', a)).matchAll(/<li id="(skc-[0-9a-f]{16})"/g)].map(m => m[1]); };
+  const ch = () => { const h = app.html(), a = h.indexOf('<ul class="changes">'); return a < 0 ? [] : [...h.slice(a, h.indexOf('</ul>', a)).matchAll(/<li id="(skc-_[A-Za-z0-9_]+)"/g)].map(m => m[1]); };
   const first = ch();
   assert.strictEqual(new Set(first).size, 50, 'the first 50, each with an id of its own');
   const d = moreOf(app.html(), 'sk-changes');

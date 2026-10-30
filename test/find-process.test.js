@@ -66,7 +66,7 @@ rule('Corrections: 400 members of one group draw 50, each with its whole Why, an
   assert.strictEqual(fxMembers(h).length, 100);
   assert.ok(d.focus && app.node(d.focus) && app.doc.activeElement === app.node(d.focus), 'focus on the first added member: ' + d.focus);
   /* The 51st member, by an id from its own note (2.11), never its place in the group. */
-  assert.ok(d.focus === '[id="fxm-' + fxMembers(h)[50] + '"]' && /#[0-9a-f]{16}$/.test(fxMembers(h)[50]), d.focus + ' ' + fxMembers(h)[50]);
+  assert.ok(d.focus === '[id="fxm-' + fxMembers(h)[50] + '"]' && /#_[A-Za-z0-9_]+$/.test(fxMembers(h)[50]), d.focus + ' ' + fxMembers(h)[50]);
   app.click('corr-filter', 'open'); await app.tick(5);
 });
 
@@ -570,10 +570,10 @@ rule('Versions: Show changes on a 400-step checklist draws 50 changes, with Show
   const m = /data-act="diff" data-id="([^"]+)"/.exec(app.html());
   assert.ok(m, 'set-up: Changes');
   app.click('diff', un(m[1])); await app.tick(10);
-  const h = app.html(), n = count(h, /<span class="(?:add|del)" id="ver-diff-[0-9a-f]{16}"/g);
+  const h = app.html(), n = count(h, /<span class="(?:add|del)" id="ver-diff-_[A-Za-z0-9_]+"/g);
   assert.strictEqual(n, 50, 'a page of changes');
   const d = await more(app, 'ver-diff');
-  assert.strictEqual(count(app.html(), /<span class="(?:add|del)" id="ver-diff-[0-9a-f]{16}"/g), 100);
+  assert.strictEqual(count(app.html(), /<span class="(?:add|del)" id="ver-diff-_[A-Za-z0-9_]+"/g), 100);
   assert.ok(app.doc.activeElement === app.node(d.focus), 'focus on the first added change');
 });
 

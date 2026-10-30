@@ -75,7 +75,7 @@ rule('Notes: Earlier and Archived answers share the thread\'s look, and aren\'t 
   await more(app, busyList());
   const h = app.html();
   assert.strictEqual(thread(h, 's0').length, 40, '40 notes after one Show earlier');
-  assert.strictEqual(count(h, /<li id="arch-s0-[0-9a-f]{16}"/g), 20, 'the archived answers page on their own');
+  assert.strictEqual(count(h, /<li id="arch-s0-_[A-Za-z0-9_]+"/g), 20, 'the archived answers page on their own');
   assert.ok(count(h, /<ul class="tnotes"/g) >= 2, 'both lists use the thread\'s look');
 });
 

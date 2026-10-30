@@ -35,6 +35,15 @@ function options(html, id) {
   return [...m[1].matchAll(/<option value="([^"]*)"([^>]*)>([^<]*)<\/option>/g)].map(x => [un(x[1]), un(x[3]), /selected/.test(x[2])]);
 }
 const MORE = '#more';
+/* A select stand-in as the page drew it: its tag and its data- attributes (data-kselect, data-cur, data-step), as a browser's
+   dataset has them. */
+function asDrawn(app, id) {
+  const m = new RegExp('<select id="' + id + '"([^>]*)>').exec(app.html()), el = app.el(id), d = {};
+  assert.ok(m, id + ' is drawn');
+  m[1].replace(/\sdata-([\w-]+)(?:="([^"]*)")?/g, (x, k, v) => { d[k.replace(/-(\w)/g, (y, c) => c.toUpperCase())] = un(v || ''); return x; });
+  el.dataset = d; el.tagName = 'SELECT';
+  return el;
+}
 const candidates = (opts, special) => opts.filter(o => o[0] !== MORE && special.indexOf(o[0]) < 0);
 async function followUps(app, chip) {
   app.click('nav', 'followups'); await app.tick(10);
@@ -52,7 +61,7 @@ rule('Follow-ups: 5,000 draw 50 a chip, oldest open first, with Show more focusi
   app.click('more', 'fu', d); await app.tick(5);
   assert.strictEqual(fuKeys(app.html()).length, 100);
   assert.ok(app.node(d.focus) && app.doc.activeElement === app.node(d.focus), 'focus is on the first added row\'s text');
-  assert.ok(/<span class="fu-text" id="fu-[^"]+-t" tabindex="-1">/.test(app.html()));
+  assert.ok(/<span class="fu-text" id="fu-t-[^"]+" tabindex="-1">/.test(app.html()));
   await typeFind(app, 'fu', 'follow up 4321');
   h = app.html();
   assert.deepStrictEqual(fuKeys(h).length, 1, 'one match');
@@ -390,7 +399,7 @@ rule('Show 50 more… and Show more choices widen a dropdown without changing it
   app.click('nav', 'processes'); await app.tick(5); app.click('open-process', 'versions'); await app.tick(10);
   app.click('ptab', 'insights'); await app.tick(20);
   const cur = options(app.html(), 'ins-folder').filter(x => x[2])[0][0];
-  app.el('ins-folder').dataset = { cur }; app.el('ins-folder').tagName = 'SELECT';
+  assert.strictEqual(asDrawn(app, 'ins-folder').dataset.cur, cur);
   app.select('ins-folder', MORE); await app.tick(10);
   let o = options(app.html(), 'ins-folder');
   assert.ok([100, 101].indexOf(candidates(o, []).length) >= 0, 'widened to 100, and the chosen one: ' + candidates(o, []).length);
@@ -464,7 +473,7 @@ rule('Move it to on a 400-step checklist with 200 "Confirm the result" steps: 50
   o = options(app.html(), 'corr-move');
   assert.ok(o.some(x => x[0] === 'after:s389' && x[2]), 'the choice stays, in its place');
   assert.strictEqual(candidates(o, ['']).length, 51);
-  app.el('corr-move').dataset = { cur: 'after:s389' }; app.el('corr-move').tagName = 'SELECT';
+  assert.strictEqual(asDrawn(app, 'corr-move').dataset.cur, 'after:s389');
   app.select('corr-move', MORE); await app.tick(10);
   o = options(app.html(), 'corr-move');
   assert.strictEqual(candidates(o, ['']).length, 101, 'Show 50 more… widens');
@@ -576,7 +585,7 @@ rule('Just planned: a plan saved while a read is under way is still drawn and fo
   assert.ok(options(h, 'rf-process').some(x => x[0] === 'versions' && x[2]), 'the filter unchanged');
 });
 
-const todos = h => [...h.matchAll(/<li class="todo (?!ack)[^"]*" id="(todo-[0-9a-f]{16})"/g)].map(m => m[1]);
+const todos = h => [...h.matchAll(/<li class="todo (?!ack)[^"]*" id="(todo-_[A-Za-z0-9_]+)"/g)].map(m => m[1]);
 rule('Home: Needs you shows 10 and Show more adds 10, focusing the first one added; the count says how many need you, and only drawn rows are built (a counted draw)', async () => {
   const app = await bigApp();
   app.click('nav', 'home'); await app.tick(10);
@@ -590,7 +599,7 @@ rule('Home: Needs you shows 10 and Show more adds 10, focusing the first one add
   assert.ok(draws >= 1 && app.PF.perf.n['home.todo'] === 10 * draws, 'each draw builds the 10 drawn rows, not ' + n + ': ' + app.PF.perf.n['home.todo'] + ' in ' + draws);
   const d = moreOf(h, 'home-todo'), first = todos(h);
   /* The 11th row's title, by an id from what the row is (2.11), never its place. */
-  assert.ok(d && /^#todo-[0-9a-f]{16}-t$/.test(d.focus) && first.indexOf(d.focus.slice(1, -2)) < 0, JSON.stringify(d));
+  assert.ok(d && /^#todo-_[A-Za-z0-9_]+-t$/.test(d.focus) && first.indexOf(d.focus.slice(1, -2)) < 0, JSON.stringify(d));
   app.click('more', 'home-todo', d); await app.tick(5);
   h = app.html();
   assert.strictEqual(todos(h).length, 20, 'Show more adds 10');
@@ -700,18 +709,18 @@ rule('Checks with 400 commands to fill in draw 50 in the overview and the editor
   app.PF.perf.n['checks.row'] = 0;
   app.click('open-process', 'commands'); await app.tick(10);
   let h = app.html();
-  assert.strictEqual(lis(h, /<li id="checks-ov-[0-9a-f]+"/g), 50, 'the overview draws 50');
+  assert.strictEqual(lis(h, /<li id="checks-ov-_[A-Za-z0-9_]+"/g), 50, 'the overview draws 50');
   const d = moreOf(h, 'checks-ov');
   assert.ok(d && /Showing 50 of 40\d/.test(h), 'and says how many there are');
   app.PF.perf.n['checks.row'] = 0; const c0 = app.PF.perf.n.render || 0; app.click('dismiss'); await app.tick(5);
   const cd = (app.PF.perf.n.render || 0) - c0;
   assert.ok(cd >= 1 && app.PF.perf.n['checks.row'] === 50 * cd, 'each draw builds 50 rows: ' + app.PF.perf.n['checks.row'] + ' in ' + cd);
   app.click('more', 'checks-ov', d); await app.tick(5);
-  assert.strictEqual(lis(app.html(), /<li id="checks-ov-[0-9a-f]+"/g), 100);
+  assert.strictEqual(lis(app.html(), /<li id="checks-ov-_[A-Za-z0-9_]+"/g), 100);
   assert.ok(app.node(d.focus) && app.doc.activeElement === app.node(d.focus), 'Show more focuses the first one added');
   app.click('ptab', 'edit'); await app.tick(10); app.click('ins-tab', 'checks'); await app.tick(10);
   h = app.html();
-  assert.strictEqual(lis(h, /<li id="checks-ed-[0-9a-f]+"/g), 50, 'the editor draws 50');
+  assert.strictEqual(lis(h, /<li id="checks-ed-_[A-Za-z0-9_]+"/g), 50, 'the editor draws 50');
   assert.ok(/aria-label="Checks: 40\d tips"/.test(h), 'and counts every one: ' + (/aria-label="Checks: [^"]*"/.exec(h) || [''])[0]);
   /* 400 things to fix: 50 drawn, and Publish is held for all 400. */
   const steps = Array.from({ length: 400 }, (x, i) => '- [ ] {no.such.type} Blocked step ' + i + ' {#b' + i + '}\n').join('');
@@ -719,7 +728,7 @@ rule('Checks with 400 commands to fill in draw 50 in the overview and the editor
   app.click('nav', 'processes'); await app.tick(5); app.focus(); await app.tick(200);
   app.click('open-process', 'blocked'); await app.tick(10);
   h = app.html();
-  assert.strictEqual(lis(h, /<li id="checks-ov-[0-9a-f]+"/g), 50, 'the overview draws 50 of 400 to fix');
+  assert.strictEqual(lis(h, /<li id="checks-ov-_[A-Za-z0-9_]+"/g), 50, 'the overview draws 50 of 400 to fix');
   assert.ok(lis(h, /<span class="lvl bad">Fix<\/span>/g) === 50 && /Showing 50 of 4\d\d/.test(h));
   assert.ok(/data-act="publish" data-id="blocked"[^>]*disabled/.test(h), 'Publish is held');
   app.click('ptab', 'edit'); await app.tick(10); app.click('ins-tab', 'checks'); await app.tick(10);
@@ -731,7 +740,7 @@ rule('Why is this here? with 300 members draws 20, each with its whole reason an
   app.click('nav', 'home'); await app.tick(5); app.click('open-run', facts.landed); await app.tick(10);
   app.click('select', 's0'); await app.tick(10);
   let h = app.html();
-  const runs = lis(h, /<button class="linkish" id="pm-s0-[0-9a-f]+-run"/g), whys = lis(h, /<dt id="pm-s0-[0-9a-f]+" tabindex="-1">Why · /g);
+  const runs = lis(h, /<button class="linkish" id="pm-s0-_[A-Za-z0-9_]+-run"/g), whys = lis(h, /<dt id="pm-s0-_[A-Za-z0-9_]+" tabindex="-1">Why · /g);
   assert.strictEqual(runs, 20, '20 source runs');
   assert.strictEqual(whys, 20, 'and their 20 reasons');
   assert.ok(/Suggested in 300 runs: /.test(h) && /, and 280 more<\/p>/.test(h), 'the count is all of them');
@@ -740,7 +749,7 @@ rule('Why is this here? with 300 members draws 20, each with its whole reason an
   assert.ok(pd >= 1 && app.PF.perf.n['prov.member'] === 20 * pd, 'built only when drawn: ' + app.PF.perf.n['prov.member'] + ' in ' + pd);
   const d = moreOf(h, 'prov-s0');
   app.click('more', 'prov-s0', d); await app.tick(5);
-  assert.strictEqual(lis(app.html(), /<button class="linkish" id="pm-s0-[0-9a-f]+-run"/g), 40);
+  assert.strictEqual(lis(app.html(), /<button class="linkish" id="pm-s0-_[A-Za-z0-9_]+-run"/g), 40);
   assert.ok(app.node(d.focus) && app.doc.activeElement === app.node(d.focus), 'Show more focuses the first added member\'s reason: ' + d.focus);
 });
 
@@ -753,10 +762,10 @@ rule('300 unreadable note lines are one notice, announced once, with the lines 5
   assert.ok(/<b role="status">300 note lines can/.test(h), 'announced once, with the count');
   app.fire('toggle', { target: { dataset: { disc: 'badnotes:' + facts.busy }, open: true } }); app.click('dismiss'); await app.tick(5);
   h = app.html();
-  assert.strictEqual(lis(h, /<li id="badnote-[0-9a-f]+"/g), 50, '50 in the fold');
-  let seen = lis(h, /<li id="badnote-[0-9a-f]+"/g);
+  assert.strictEqual(lis(h, /<li id="badnote-_[A-Za-z0-9_]+"/g), 50, '50 in the fold');
+  let seen = lis(h, /<li id="badnote-_[A-Za-z0-9_]+"/g);
   for (let i = 0; i < 10 && moreOf(app.html(), 'badnotes'); i++) { const d = moreOf(app.html(), 'badnotes'); app.click('more', 'badnotes', d); await app.tick(5); assert.ok(app.doc.activeElement === app.node(d.focus), 'focus on the first added line'); }
-  seen = lis(app.html(), /<li id="badnote-[0-9a-f]+"/g);
+  seen = lis(app.html(), /<li id="badnote-_[A-Za-z0-9_]+"/g);
   assert.strictEqual(seen, 300, 'every line reachable');
   assert.ok(/<code>[^<]+\.jsonl<\/code>, line \d+/.test(app.html()), 'file and line');
 });
@@ -800,12 +809,12 @@ rule('Proposal review with 300 records draws 20 in the dialog, Show more focuses
   app.click('prop-review', un(m[1])); await app.tick(80);
   let o = app.overlay();
   assert.ok(/What happened before \((\d+)\)/.test(o) && +/What happened before \((\d+)\)/.exec(o)[1] >= 300, 'every record counted');
-  assert.strictEqual(lis(o, /<li id="prop-rec-[0-9a-f]+"/g), 20);
+  assert.strictEqual(lis(o, /<li id="prop-rec-_[A-Za-z0-9_]+"/g), 20);
   const d = moreOf(o, 'prop-recs');
   assert.ok(d && d.dialog === '1', 'Show more in a dialog');
   app.click('more', 'prop-recs', d); await app.tick(10);
   o = app.overlay();
-  assert.strictEqual(lis(o, /<li id="prop-rec-[0-9a-f]+"/g), 40);
+  assert.strictEqual(lis(o, /<li id="prop-rec-_[A-Za-z0-9_]+"/g), 40);
   assert.ok(app.doc.activeElement === app.node(d.focus), 'focus inside the dialog, on the first added record');
   app.click('close-overlay'); await app.tick(5);
 });
