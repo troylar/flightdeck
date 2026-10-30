@@ -572,4 +572,26 @@ rule('Round 5: the correction row with focus deleted itself by a newer read: foc
   assert.strictEqual(app.activeId(), 'ins-h', 'the heading of the list it was in');
 });
 
+/* Code review round 11. */
+rule('Round 11: focus on the 15th note\'s Make it a follow-up stays on that note\'s button through a newer read, never another note\'s; the note deleted, focus goes to the heading', async () => {
+  const app = await fresh(); await openRun(app, 'busy');
+  app.click('takeover'); await app.tick(40); app.click('select', 's0'); await app.tick(10);
+  const t = thread(app.html(), 's0'), key = t[14], li = 'tn-s0-' + key;
+  assert.strictEqual(t.length, 20, 'set-up: 20 notes drawn');
+  const btn = app.node(K(li) + ' [data-act="add-followup"]');
+  assert.ok(btn, 'set-up: the 15th note has Make it a follow-up');
+  const from = btn.dataset.from, text = btn.dataset.text;
+  btn.focus();
+  const p = notesFile(app), all = lines(app, p);
+  await arrive(app, p, all.concat([{ id: 'arrived', at: '2100-01-01T00:00:00.000Z', by: 'person-blake', session: 'busy-s1', step: 's0', text: 'A newer note arrives' }]));
+  const a = app.doc.activeElement;
+  assert.ok(a && a.dataset && a.dataset.act === 'add-followup', 'focus is on a Make it a follow-up: ' + app.activeId());
+  assert.strictEqual(a.dataset.from, from, 'the same note\'s, so activating it saves that note');
+  assert.strictEqual(a.dataset.text, text, 'with that note\'s text');
+  assert.strictEqual(a.closest('li[id]').id, li, 'inside that note\'s row');
+  /* The note itself deleted: the heading, never another note's button. */
+  await arrive(app, p, all.filter(n => n.id !== from));
+  assert.strictEqual(app.activeId(), 'ins-h', 'its note gone: the inspector\'s heading');
+});
+
 run();

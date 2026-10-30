@@ -238,6 +238,24 @@ function make(opts) {
     put(base(dlRun) + 'run.json', runFile(dlRun));
     facts.detlink = 'detlink/' + dlRun.id;
     publish(head('gates', 'Many approvals', { group: 'Busy', roles: 'lead, approver' }) + Array.from({ length: S.many }, (x, i) => '## Phase ' + (i + 1) + ' · READ-DO {#ph' + (i + 1) + '}\n' + stepLine('s' + i, 'Gate step ' + i) + '\n## Gate: Approval ' + (i + 1) + ' · owner @approver {#g' + (i + 1) + '}\n\n').join(''));
+    /* Code review round 11: a checklist whose one step and one lane name 300 roles each (the role summaries on a step, a lane,
+       the previews and a run), published, with someone else's run giving every role a different person and its first step done,
+       so Next up is in the 300-role lane (nothing on Avery's Home); and a draft whose linked step carries 40 run details its child doesn't have (stale). */
+    const wideRoles = Array.from({ length: S.many }, (x, i) => 'w' + (i + 1)), ats = wideRoles.map(r => '@' + r).join(' ');
+    const wideMd = head('wide', 'Wide roles', { group: 'Busy', roles: ['lead'].concat(wideRoles).join(', ') }) + '## Only · READ-DO {#ph1}\n' +
+      '- [ ] {confirm} Everyone signs this ' + ats + ' {#all}\n\n### Track: Wide lane ' + ats + ' {#wide}\n- [ ] {confirm} In the wide lane {#inwide}\n\n' +
+      '### Track: Small lane @lead {#small}\n- [ ] {confirm} In the small lane @lead {#insmall}\n\n';
+    const widePub = publish(wideMd);
+    put('maps/drafts/wide.md', wideMd);
+    const named = people.filter(p => /^Person \d+$/.test(p.name)), wideAs = { lead: 'person-blake' };
+    wideRoles.forEach((r, i) => { wideAs[r] = named[i % named.length].id; });
+    const wideRun = newRun(widePub, { id: 'widerun', title: 'A run with a 300-role step', start: NOW - HOUR, by: 'person-blake', roles: wideAs });
+    R.done(wideRun, R.mapOf(wideRun), 'all', 'person-blake', iso(NOW - HOUR + MIN), {});
+    put(base(wideRun) + 'run.json', runFile(wideRun));
+    facts.wide = 'wide/' + wideRun.id;
+    publish(head('stalekid', 'Stale child', { group: 'Busy', context: 'region' }) + phases(1, 1, n => 'Stale child step ' + n));
+    put('maps/drafts/staleparent.md', head('staleparent', 'Carries stale details', { group: 'Busy', context: dets40.join(', ') }) + '## Ship · READ-DO {#ship}\n' +
+      '- [ ] {run.process} Start the stale child {#lks}\n  process: stalekid\n  carry: ' + dets40.join(', ') + '\n\n');
     /* 300 drafts that say the same process. */
     for (let i = 0; i < S.many; i++) put('maps/drafts/dupe-' + pad(i, 3) + '.md', head('dupes', 'Duplicated draft', { group: 'Busy' }) + phases(1, 1, () => 'Draft ' + i));
 

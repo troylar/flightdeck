@@ -271,7 +271,7 @@ rule('Checklists on the big folder: 50 checklist rows across 1,000 groups, 5 ski
   const app = await big2(), h = app.html();
   assert.strictEqual(procRows(h), 50);
   assert.ok((h.match(/class="tgroup"/g) || []).length <= 50, 'only the groups of the rows drawn');
-  assert.ok(/<span class="t">Busy<\/span> <span class="small">19<\/span>/.test(h), 'Busy counts its 19');
+  assert.ok(/<span class="t">Busy<\/span> <span class="small">22<\/span>/.test(h), 'Busy counts its 22');
   assert.ok(h.indexOf('>Group 2<') < h.indexOf('>Group 10<'), 'groups in natural order');
   const steps = h.slice(h.indexOf('data-id="steps"'), h.indexOf('</li>', h.indexOf('data-id="steps"')));
   assert.strictEqual((steps.match(/class="skillchip"/g) || []).length, 5);
@@ -305,13 +305,13 @@ rule('Checklists: Find narrows the list over every checklist, the count says so,
   await typeFind(app, 'processes', 'process 777');
   let h = app.html();
   assert.strictEqual(procRows(h), 1);
-  assert.ok(/data-id="proc-0777"/.test(h) && /role="status">1 of 1,026 match</.test(h), h.slice(h.indexOf('findbox'), h.indexOf('findbox') + 600));
+  assert.ok(/data-id="proc-0777"/.test(h) && /role="status">1 of 1,029 match</.test(h), h.slice(h.indexOf('findbox'), h.indexOf('findbox') + 600));
   await typeFind(app, 'processes', 'TAG-007');
   assert.strictEqual(procRows(app.html()), 3, 'tags are words too: 7, 407 and 807');
   await typeFind(app, 'processes', 'busy');
-  assert.strictEqual(procRows(app.html()), 19, 'and groups');
+  assert.strictEqual(procRows(app.html()), 22, 'and groups');
   await typeFind(app, 'processes', 'process 7');
-  assert.ok(/role="status">\d+ of 1,026 match</.test(app.html()) && procRows(app.html()) === 50, 'many matches: paged');
+  assert.ok(/role="status">\d+ of 1,029 match</.test(app.html()) && procRows(app.html()) === 50, 'many matches: paged');
   app.click('tag', 'tag-007'); await app.tick(5);
   h = app.html();
   assert.strictEqual(procRows(h), 3, 'with tag-007 chosen: 7, 407 and 807 match both');

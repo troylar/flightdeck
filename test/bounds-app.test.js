@@ -75,10 +75,11 @@ const REGISTRY = [
   { name: 'a run\'s recovery copies (copies), 20, the compared one, the one being deleted and the browser\'s copy', rows: n => n.tag === 'div' && cls(n, 'copyrow'), bound: 20 + 2 + 1 },
   { name: 'proposal review, What happened before (prop-recs)', rows: n => n.tag === 'li' && /^prop-rec-/.test(n.attrs.id || ''), bound: 20 },
   { name: 'Folder health, What\'s in the folder (hz-areas) and its heading row', rows: n => n.tag === 'tr' && within(n, x => cls(x, 'hz-table')), bound: 50 + 1 },
-  /* Start and Plan (found while building slice 1): 20 role rows; a role given someone is drawn too (none in the fixture). */
-  { name: 'Start, Plan and Start a test run, role rows (start-roles, test-roles)', rows: n => n.tag === 'label' && cls(n, 'field') && /^role-/.test(n.attrs.for || '') && within(n, x => x.tag === 'form' && /^(start|plan)-form$/.test(x.attrs.id || '')), bound: 20 },
+  /* Start and Plan (found while building slice 1): 20 role rows, and the roles given someone past the page, 20 at most (K.list
+     keeps a page at most past the page since code review round 11: a plan made from a run of the 300-role step has all). */
+  { name: 'Start, Plan and Start a test run, role rows (start-roles, test-roles)', rows: n => n.tag === 'label' && cls(n, 'field') && /^role-/.test(n.attrs.for || '') && within(n, x => x.tag === 'form' && /^(start|plan)-form$/.test(x.attrs.id || '')), bound: 20 + 20 },
   /* Found in code review of 2.11: the linked step's start dialog and the run's Details (Add people) drew every role. */
-  { name: 'a linked step\'s start dialog, role rows (cs-roles)', rows: n => n.tag === 'label' && cls(n, 'field') && /^cs-role-/.test(n.attrs.for || '') && within(n, x => x.tag === 'form' && x.attrs.id === 'child-start-form'), bound: 20 },
+  { name: 'a linked step\'s start dialog, role rows (cs-roles)', rows: n => n.tag === 'label' && cls(n, 'field') && /^cs-role-/.test(n.attrs.for || '') && within(n, x => x.tag === 'form' && x.attrs.id === 'child-start-form'), bound: 20 + 20 },
   { name: 'a run\'s Details, its role chips (det-roles), and the one being edited', rows: n => (n.tag === 'button' && cls(n, 'chip') && /^role:/.test(n.attrs['data-id'] || '')) || (n.tag === 'span' && cls(n, 'inline-edit') && /^edit:role:/.test(n.attrs['data-scope'] || '')), bound: 20 + 1 },
   /* Found in code review round 3: Screen share's Who's on what drew every role of a team run. */
   { name: 'Screen share, Who\'s on what (ms-roles), 20 roles', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'mroles'), bound: 20 },
@@ -125,7 +126,7 @@ const REGISTRY = [
   /* Found in code review round 7, once the builder's form was no longer exempt: a step's Who does it, and Checklist details'
      roles and run details, 20 at a time and the step's own roles or the run detail being renamed. A linked step's sources
      are K.select dropdowns, counted above. */
-  { name: 'the builder, a step\'s roles (ob-roles), 20 and the step\'s own', rows: n => n.tag === 'button' && cls(n, 'chipbtn') && n.attrs['data-act'] === 'ob-role', bound: 20 + 1 },
+  { name: 'the builder, a step\'s roles (ob-roles), 20 and at most 20 of the step\'s own', rows: n => n.tag === 'button' && cls(n, 'chipbtn') && n.attrs['data-act'] === 'ob-role', bound: 20 + 20 },
   { name: 'the builder, Checklist details\' roles and run details (ob-meta-roles, ob-meta-context), 20 each and the one being renamed', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'ob-metalist'), bound: 20 + 1, per: 'parent' },
   /* Team step types are capped by their reader at 100 (storage/repo.js MAX_TYPES), so the builder lists them whole, registered
      at that cap: the type selects (the built-ins too, bundled), the parts list's groups, and the type files it can't use. */
@@ -137,8 +138,8 @@ const REGISTRY = [
      into one line on a step and for the whole checklist (D10), 50 each with "and N more" and a link to Skills. */
   { name: 'the builder, Rename\'s warnings about other checklists (ob-ren-deps), 20', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'ob-ren-deps'), bound: 20 },
   /* Found by the round 8 opener inventory: a step's run details (ob-binds) and Sets a run detail (ob-sets) drew every one. */
-  { name: 'the builder, a step\'s run details (ob-binds), 20 and the step\'s own', rows: n => n.tag === 'button' && n.attrs['data-act'] === 'ob-bind', bound: 20 + 1 },
-  { name: 'the builder, Sets a run detail (ob-sets), 20 and the ones the step sets', rows: n => n.tag === 'button' && n.attrs['data-act'] === 'ob-sets', bound: 20 + 1 },
+  { name: 'the builder, a step\'s run details (ob-binds), 20 and at most 20 of the step\'s own', rows: n => n.tag === 'button' && n.attrs['data-act'] === 'ob-bind', bound: 20 + 20 },
+  { name: 'the builder, Sets a run detail (ob-sets), 20 and at most 20 of the ones the step sets', rows: n => n.tag === 'button' && n.attrs['data-act'] === 'ob-sets', bound: 20 + 20 },
   { name: 'the checklist preview, a step\'s skills joined into one line (pv-skills), 50 names', count: joinedIn('<span class="pv-skill">', '</span></span>', /step-skill-\d+/g), bound: 50 },
   { name: 'the checklist preview, the whole checklist\'s skills joined into one line (pv-whole), 50 names', count: joinedIn('The whole checklist: ', '</p>', /whole-skill/g), bound: 50 },
   /* Found in code review round 9: a skill page's What it takes joined a checklist's roles, now and before, into one line. */
@@ -153,6 +154,20 @@ const REGISTRY = [
   { name: 'the builder outline\'s Checklist details card, its roles (ob-det-roles), 50 names', count: joinedIn('class="ob-details', '</button>', /@r\d+/g), bound: 50 },
   { name: 'Start and Plan, the approvals in a role\'s label (start-approves), 50 names', count: joinedIn('· approves ', '</span>', /Approval \d+/g), bound: 50 },
   { name: 'Start and Plan, On my own\'s who approves (start-approvals), 50 names', count: joinedIn('including who approves ', '</p>', /Approval \d+/g), bound: 50 },
+  /* Found in code review round 11: a step's or a lane's roles, joined into one line in the builder, the previews and a run, drew
+     every role its author gave it; and a linked step's run details its child doesn't have drew a notice each. */
+  { name: 'the builder outline, a step\'s roles (ob-step-roles), 50 names', count: joinedIn('<span class="ob-role">', '</span>', /@w\d+/g), bound: 50 },
+  { name: 'the builder outline, a lane\'s roles (ob-lane-roles), 50 names', count: joinedIn('<div class="ob-lane-h">', '</div>', /@w\d+/g), bound: 50 },
+  { name: 'the builder, Who does it for a step in a lane, the lane\'s roles (ob-lane-roles), 50 names', count: joinedIn('Uses this lane', '</span>', /@w\d+/g), bound: 50 },
+  { name: 'the checklist preview, a step\'s and a lane\'s roles (pv-step-roles, pv-lane-roles), 50 names', count: joinedIn('<span class="pv-role">', '</span>', /@w\d+/g), bound: 50 },
+  { name: 'the flight plan, a lane\'s roles (pv-lane-roles), 50 names', count: h => Math.max(joinedIn('<p class="fp-slane-h">', '</p>', /@w\d+/g)(h), joinedIn('<li class="fp-lane">', '</li>', /@w\d+/g)(h)), bound: 50 },
+  { name: 'a run, a step row\'s people (rw-step-roles), 50 names', count: joinedIn('<span class="s-who">', '</span>', /Person \d+/g), bound: 50 },
+  { name: 'a run, Next up\'s lane people (rw-next-roles), 50 names', count: joinedIn('aria-label="Next up"', '</div>', /Person \d+/g), bound: 50 },
+  { name: 'a run, a lane\'s people (rw-lane-roles), 50 names', count: joinedIn('<div class="track-head">', '</div>', /<\/span>Person \d+/g), bound: 50 },
+  { name: 'a run, the inspector\'s people for the step (rw-ins-roles), 50 names', count: joinedIn('<div class="rw-ins-meta">', '</div>', /<\/span>Person \d+/g), bound: 50 },
+  { name: 'a run, the people avatars in a capped line (rw-ins-roles, rw-lane-roles), 50 each', rows: n => n.tag === 'span' && cls(n, 'avatar') && within(n, x => cls(x, 'rw-ins-meta') || cls(x, 'track-head')), bound: 50, per: 'parent' },
+  { name: 'Screen share, a step\'s people (ms-step-roles), 50 avatars', rows: n => n.tag === 'span' && cls(n, 'avatar') && cls(n, 'lg') && within(n, x => cls(x, 'msteps')), bound: 50, per: 'parent' },
+  { name: 'the builder, a linked step\'s run details its child doesn\'t have, one notice with its fold (ob-stale), 20', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'ob-stale-list'), bound: 20 },
   { name: 'Start, Plan and Start a test run, the run name, run detail boxes, and Plan\'s When and Note, at the format\'s cap of 40 (core/map.js)', rows: n => n.tag === 'label' && cls(n, 'field') && /^(detail-|run-title$|plan-when$|plan-note$)/.test(n.attrs.for || '') && within(n, x => x.tag === 'form' && /^(start|plan)-form$/.test(x.attrs.id || '')), bound: 40 + 3 },
   { name: 'a linked step\'s start dialog, run detail boxes, at the format\'s cap of 40 (core/map.js)', rows: n => n.tag === 'label' && cls(n, 'field') && /^cs-/.test(n.attrs.for || '') && !/^cs-role-/.test(n.attrs.for || '') && within(n, x => x.tag === 'form' && x.attrs.id === 'child-start-form'), bound: 40 }
 ];
@@ -332,6 +347,12 @@ const detChild = openRun('detlink', async a => { a.click('takeover'); await a.ti
 const gatesStart = async a => { await openProc('gates')(a); a.click('start', 'gates'); await a.tick(10); };
 const gatesSolo = async a => { await gatesStart(a); a.click('start-mode', 'solo', { process: 'gates' }); await a.tick(10); };
 
+/* Code review round 11: a checklist whose step and lane name 300 roles, its flight plan, a run of it on that step, and a
+   linked step carrying 40 run details its child doesn't have. */
+const widePlan = async a => { await openProc('wide')(a); a.click('flight', 'plan'); await a.tick(5); };
+const wideRun = openRun('wide', async a => { a.click('select', 'all'); await a.tick(10); });
+const staleLink = inBuilder('staleparent', 'ob-sel', 'lks');
+
 /* ---------- every screen ---------- */
 const SCREENS = [
   ['Home', nav('home')],
@@ -397,6 +418,13 @@ const SCREENS = [
   ['Plan a run with 40 run details', openProc('manydet', null), { plan: 'manydet' }],
   ['Start a test run with 40 run details', testOf('manydet')],
   ['A run whose step starts a 40-detail run, its start dialog', detChild],
+  ['Wide roles', openProc('wide')],
+  ['Wide roles, its flight plan', widePlan],
+  ['Wide roles › Edit › Builder, the 300-role step', inBuilder('wide', 'ob-sel', 'all')],
+  ['Wide roles › Edit › Builder, a step in the 300-role lane', inBuilder('wide', 'ob-sel', 'inwide')],
+  ['A run with a 300-role step', wideRun],
+  ['A run with a 300-role step, shared on screen', openRun('wide', async a => { a.click('mission'); await a.tick(10); })],
+  ['Carries stale details › Edit › Builder, the linked step', staleLink],
   ['Start a run with 300 approvals', gatesStart],
   ['Start a run with 300 approvals, On my own', gatesSolo]
 ];
@@ -467,8 +495,8 @@ rule('D8: Rename on a run detail 60 other checklists pass, and a step of that ch
   assert.strictEqual((h.match(/data-act="ob-bind"/g) || []).length, 20, 'set-up: a step\'s run details');
   assert.strictEqual((h.match(/data-act="ob-sets"/g) || []).length, 20, 'set-up: Sets a run detail');
   assert.deepStrictEqual(check('Sixty details › Edit › Builder, a step with Sets a run detail', h).fails, []);
-  await offFails('ob-binds', step, /a step's run details \(ob-binds\), 20 and the step's own draws 60, over its bound of 21/);
-  await offFails('ob-sets', step, /Sets a run detail \(ob-sets\), 20 and the ones the step sets draws 60, over its bound of 21/);
+  await offFails('ob-binds', step, /a step's run details \(ob-binds\), 20 and at most 20 of the step's own draws 60, over its bound of 40/);
+  await offFails('ob-sets', step, /Sets a run detail \(ob-sets\), 20 and at most 20 of the ones the step sets draws 60, over its bound of 40/);
 });
 
 /* The check is itself checked: with paging off for one list, that list must fail it. A flat page, the tree, a select, the
@@ -487,13 +515,13 @@ const PAGE_OFF = [
   { list: 'fx:versions', kind: 'nested', screen: 'Many versions', go: openProc('versions'), fresh: true, expect: /Corrections, the members drawn .* draws \d+, over its bound of 52/ },
   /* The tail: the busy step's 327 notes, the newest 20 drawn. */
   /* Found in code review: Start a test run, Details › Add people and a linked step's start dialog, 20 roles each. */
-  { list: 'test-roles', kind: 'flat', screen: 'Start a test run with 300 roles', go: testRoles, expect: /Start a test run, role rows .* draws \d+, over its bound of 20/ },
+  { list: 'test-roles', kind: 'flat', screen: 'Start a test run with 300 roles', go: testRoles, expect: /Start a test run, role rows .* draws \d+, over its bound of 40/ },
   { list: 'det-roles', kind: 'flat', screen: 'A run with 300 roles, Details › Add people', go: detailsRoles, expect: /Details, its role chips .* draws \d+, over its bound of 21/ },
-  { list: 'cs-roles', kind: 'flat', screen: 'A run whose step starts a 300-role run, its start dialog', go: childRoles, dialog: true, expect: /start dialog, role rows \(cs-roles\) draws \d+, over its bound of 20/ },
+  { list: 'cs-roles', kind: 'flat', screen: 'A run whose step starts a 300-role run, its start dialog', go: childRoles, dialog: true, expect: /start dialog, role rows \(cs-roles\) draws \d+, over its bound of 40/ },
   { list: 'ms-roles:' + fixture().facts.rolesTeam, kind: 'flat', screen: 'A team run with 300 roles, shared on screen', go: openRun('rolesTeam', async a => { a.click('mission'); await a.tick(10); }), expect: /Who's on what \(ms-roles\), 20 roles draws \d+, over its bound of 20/ },
   /* Found in code review round 7: the builder's linked-step sources, a step's roles and Checklist details' roles. */
   { list: 'ob-link-src-region', kind: 'select', screen: 'Many linked steps › Edit › Builder, a linked step', go: SCREENS.filter(s => s[0] === 'Many linked steps › Edit › Builder, a linked step')[0][1], expect: /a bounded dropdown \(K\.select\), per select draws \d+, over its bound of 54/ },
-  { list: 'ob-roles', kind: 'flat', screen: 'Many roles › Edit › Builder, a step', go: SCREENS.filter(s => s[0] === 'Many roles › Edit › Builder, a step')[0][1], expect: /a step's roles \(ob-roles\), 20 and the step's own draws \d+, over its bound of 21/ },
+  { list: 'ob-roles', kind: 'flat', screen: 'Many roles › Edit › Builder, a step', go: SCREENS.filter(s => s[0] === 'Many roles › Edit › Builder, a step')[0][1], expect: /a step's roles \(ob-roles\), 20 and at most 20 of the step's own draws \d+, over its bound of 40/ },
   { list: 'ob-meta-roles', kind: 'flat', screen: 'Many roles › Edit › Builder, checklist details', go: SCREENS.filter(s => s[0] === 'Many roles › Edit › Builder, checklist details')[0][1], expect: /Checklist details' roles and run details .* draws \d+, over its bound of 21/ },
   /* Found in code review round 8: the preview's skill names, a step's and the whole checklist's (K.capJoin). */
   { list: 'pv-skills', kind: 'joined', screen: 'Four hundred steps', go: stepsList, expect: /a step's skills joined into one line \(pv-skills\), 50 names draws \d+, over its bound of 50/ },
@@ -507,6 +535,18 @@ const PAGE_OFF = [
   { list: 'ob-det-roles', kind: 'joined', screen: 'Many roles › Edit › Builder, a step', go: SCREENS.filter(s => s[0] === 'Many roles › Edit › Builder, a step')[0][1], expect: /Checklist details card, its roles \(ob-det-roles\), 50 names draws 300, over its bound of 50/ },
   { list: 'start-approves', kind: 'joined', screen: 'Start a run with 300 approvals', go: gatesStart, expect: /the approvals in a role's label \(start-approves\), 50 names draws 300, over its bound of 50/ },
   { list: 'start-approvals', kind: 'joined', screen: 'Start a run with 300 approvals, On my own', go: gatesSolo, expect: /On my own's who approves \(start-approvals\), 50 names draws 300, over its bound of 50/ },
+  /* Found in code review round 11: role summaries on a step, a lane, the previews and a run (K.atRoles), and stale run details. */
+  { list: 'ob-step-roles', kind: 'joined', screen: 'Wide roles › Edit › Builder, the 300-role step', go: inBuilder('wide', 'ob-sel', 'all'), expect: /a step's roles \(ob-step-roles\), 50 names draws 300, over its bound of 50/ },
+  { list: 'ob-lane-roles', kind: 'joined', screen: 'Wide roles › Edit › Builder, the 300-role step', go: inBuilder('wide', 'ob-sel', 'all'), expect: /the builder outline, a lane's roles \(ob-lane-roles\), 50 names draws 300, over its bound of 50/ },
+  { list: 'ob-lane-roles', kind: 'joined', screen: 'Wide roles › Edit › Builder, a step in the 300-role lane', go: inBuilder('wide', 'ob-sel', 'inwide'), expect: /Who does it for a step in a lane, the lane's roles \(ob-lane-roles\), 50 names draws 300, over its bound of 50/ },
+  { list: 'pv-step-roles', kind: 'joined', screen: 'Wide roles', go: async a => { await openProc('wide')(a); a.click('flight', 'list'); await a.tick(5); }, expect: /the checklist preview, a step's and a lane's roles .*, 50 names draws 300, over its bound of 50/ },
+  { list: 'pv-lane-roles', kind: 'joined', screen: 'Wide roles, its flight plan', go: widePlan, expect: /the flight plan, a lane's roles \(pv-lane-roles\), 50 names draws 300, over its bound of 50/ },
+  { list: 'rw-step-roles', kind: 'joined', screen: 'A run with a 300-role step', go: wideRun, expect: /a step row's people \(rw-step-roles\), 50 names draws 300, over its bound of 50/ },
+  { list: 'rw-next-roles', kind: 'joined', screen: 'A run with a 300-role step', go: wideRun, expect: /Next up's lane people \(rw-next-roles\), 50 names draws 300, over its bound of 50/ },
+  { list: 'rw-lane-roles', kind: 'joined', screen: 'A run with a 300-role step', go: wideRun, expect: /a lane's people \(rw-lane-roles\), 50 names draws 300, over its bound of 50/ },
+  { list: 'rw-ins-roles', kind: 'joined', screen: 'A run with a 300-role step', go: wideRun, expect: /the inspector's people for the step \(rw-ins-roles\), 50 names draws 300, over its bound of 50/ },
+  { list: 'ms-step-roles', kind: 'joined', screen: 'A run with a 300-role step, shared on screen', go: openRun('wide', async a => { a.click('mission'); await a.tick(10); }), expect: /a step's people \(ms-step-roles\), 50 avatars draws 300, over its bound of 50/ },
+  { list: 'ob-stale:lks', kind: 'flat', screen: 'Carries stale details › Edit › Builder, the linked step', go: staleLink, expect: /run details its child doesn't have, one notice with its fold \(ob-stale\), 20 draws 40, over its bound of 20/ },
   { list: 'notes:' + fixture().facts.busy + ':s0', kind: 'tail', screen: 'The busy run', go: SCREENS.filter(s => s[0] === 'The busy run')[0][1], expect: /the step-note thread .* draws \d+, over its bound of 21/ }
 ];
 const PAGE_OFF_PENDING = [];
