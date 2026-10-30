@@ -80,12 +80,30 @@ function boot(opts) {
   };
   /* opts.liveForms: every control drawn is a live node, as on a page, not only the ones a test typed in. A redraw makes each
      anew as its markup draws it (its value the drawn one), so only the app's own code carries a value over; a select's value
-     is one of its options (setting another leaves it on none, ''), and querySelectorAll finds the [data-role] ones. Used to
-     compare two builds' forms event for event (test/find-roles-diff.test.js). */
+     is one of its options (setting another leaves it on none, ''), and querySelectorAll finds the [data-role] ones. A select
+     chooses as a browser's does: its options, as drawn, each defaultSelected by its selected attribute; the last of those is
+     chosen when drawn, else the first that isn't disabled; selectedIndex, an option's selected and the select's value follow
+     each other, and setting a value no option has chooses none (selectedIndex -1). Used to compare two builds' forms event
+     for event, and whether each lets the page be left (test/find-roles-diff.test.js). */
   const LIVE_CTRL = /<(input|select|textarea)\b[^>]*\sid="([^"]*)"[^>]*>/g;
-  const liveIds = html => { const out = []; let m; LIVE_CTRL.lastIndex = 0; while ((m = LIVE_CTRL.exec(html))) out.push({ tag: m[1], id: unqh(m[2]), src: m[0] }); return out; };
+  const liveIds = html => { const out = []; let m; LIVE_CTRL.lastIndex = 0; while ((m = LIVE_CTRL.exec(html))) out.push({ tag: m[1], id: unqh(m[2]), src: m[0], at: m.index }); return out; };
   const unqh = v => v.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
-  const optionsOf = id => { const h = appEl._html || '', at = h.indexOf('<select id="' + id.replace(/&/g, '&amp;').replace(/"/g, '&quot;') + '"'); if (at < 0) return []; return [...h.slice(at, h.indexOf('</select>', at)).matchAll(/<option value="([^"]*)"/g)].map(x => ({ value: unqh(x[1]) })); };
+  /* A select as drawn: its options (value, defaultSelected, disabled) and the one chosen, as a browser parses it. */
+  const selectOf = (html, at) => {
+    const body = html.slice(at, html.indexOf('</select>', at)), list = [];
+    for (const x of body.matchAll(/<option\b([^>]*)>([^<]*)/g)) {
+      const vm = /\svalue="([^"]*)"/.exec(x[1]);
+      list.push({ value: vm ? unqh(vm[1]) : unqh(x[2]).trim(), defaultSelected: /\sselected(=|\s|$)/.test(x[1]), disabled: /\sdisabled(=|\s|$)/.test(x[1]) });
+    }
+    let idx = -1; list.forEach((o, i) => { if (o.defaultSelected) idx = i; });
+    if (idx < 0) idx = list.findIndex(o => !o.disabled);
+    return { list, idx };
+  };
+  const optionNodes = el => el._sel.list.map((o, i) => ({
+    get value() { return o.value; }, get defaultSelected() { return o.defaultSelected; }, get disabled() { return o.disabled; }, get index() { return i; },
+    get selected() { return el._sel.idx === i; },
+    set selected(on) { if (on) el._sel.idx = i; else if (el._sel.idx === i) el._sel.idx = el._sel.list.findIndex(x => !x.disabled); }
+  }));
   const liveScope = id => { const n = nodesOf(appEl).filter(x => x.id === id)[0]; const z = n && n.closest('[data-scope]'); return z ? { dataset: { scope: z._attrs['data-scope'] } } : null; };
   const liveRegister = html => {
     liveIds(html).forEach(c => {
@@ -93,15 +111,20 @@ function boot(opts) {
       el.tagName = c.tag.toUpperCase(); el.type = (/\stype="([^"]*)"/.exec(c.src) || [])[1] || (c.tag === 'input' ? 'text' : c.tag);
       el.dataset = {}; c.src.replace(/\sdata-([\w-]+)="([^"]*)"/g, (x, k, v) => { el.dataset[k.replace(/-(\w)/g, (y, ch) => ch.toUpperCase())] = unqh(v); return x; });
       el.hasAttribute = a => new RegExp('\\s' + a + '(=|\\s|>|$)').test(c.src);
+      el.multiple = c.tag === 'select' && el.hasAttribute('multiple');
+      if (c.tag === 'select') { el._sel = selectOf(html, c.at); el._opts = optionNodes(el); } else { el._sel = null; el._opts = undefined; }
       /* The same id drawn as a select one time and a hidden field the next (a role past the page) is a new node each time. */
       if (!el._live) {
         el._live = true; let v = String(el.value == null ? '' : el.value);
-        Object.defineProperty(el, 'options', { configurable: true, get: () => (el.tagName === 'SELECT' ? optionsOf(c.id) : undefined) });
-        Object.defineProperty(el, 'value', { configurable: true, get: () => v, set: x => { x = x == null ? '' : String(x); v = el.tagName !== 'SELECT' || optionsOf(c.id).some(o => o.value === x) ? x : ''; } });
+        Object.defineProperty(el, 'options', { configurable: true, get: () => (el._sel ? el._opts : undefined) });
+        Object.defineProperty(el, 'selectedIndex', { configurable: true, get: () => (el._sel ? el._sel.idx : undefined), set: x => { if (!el._sel) return; x = Math.trunc(Number(x)); el._sel.idx = x >= 0 && x < el._sel.list.length ? x : -1; } });
+        Object.defineProperty(el, 'value', { configurable: true,
+          get: () => (el._sel ? (el._sel.idx >= 0 ? el._sel.list[el._sel.idx].value : '') : v),
+          set: x => { x = x == null ? '' : String(x); if (el._sel) el._sel.idx = el._sel.list.findIndex(o => o.value === x); else v = x; } });
       }
     });
   };
-  Object.defineProperty(appEl, 'innerHTML', { get() { return this._html; }, set(v) { this._html = String(v); if (opts.liveForms) liveRegister(this._html); inputs.forEach(id => { const d = drawnValue(this._html, id); if (d === null) return; els[id].value = d; if (opts.replace) { els[id].selectionStart = els[id].selectionEnd = 0; if (document.activeElement === els[id]) document.activeElement = document.body; } }); } });
+  Object.defineProperty(appEl, 'innerHTML', { get() { return this._html; }, set(v) { this._html = String(v); if (opts.liveForms) liveRegister(this._html); inputs.forEach(id => { const d = drawnValue(this._html, id); if (d === null) return; if (!(opts.liveForms && els[id]._sel)) els[id].value = d; if (opts.replace) { els[id].selectionStart = els[id].selectionEnd = 0; if (document.activeElement === els[id]) document.activeElement = document.body; } }); } });
   const onScreen = id => appEl._html.indexOf('id="' + id + '"') >= 0;
   /* Thumbnail placeholders as nodes: the same node while it stays drawn, a new one once it's drawn again (as morph does). */
   const thumbs = new Map(), unq = v => v.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');

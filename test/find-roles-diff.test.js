@@ -205,7 +205,7 @@ async function walk(n, seed, steps) {
 module.exports = { world, pair, put, reread, formRoles, prng, PID };
 if (require.main !== module) return;
 
-/* ---------- the named sequences of code review round 16, then the random walks ---------- */
+/* ---------- the named sequences of code review rounds 16 and 17, then the random walks ---------- */
 rule('Round 16 differential: Plan on 60 roles, Just me, v2 arrives with the same roles, refresh: every role is what 2.10 sends', async () => {
   const rand = prng(1), W = world(60, rand);
   const sides = await pair(W, Object.assign({}, W.publish(W.roles), W.peopleFile(), W.runFile(() => 'person-avery')));
@@ -216,6 +216,49 @@ rule('Round 16 differential: Plan on 60 roles, Just me, v2 arrives with the same
   assert.strictEqual(a.roles.r50, 'person-avery', 'set-up: 2.10 keeps Avery in r50');
   assert.deepStrictEqual(b, a, 'this build sends what 2.10 sends');
 });
+
+/* ---------- code review round 17: whether each build lets the form be left ---------- */
+/* Browser Back from the open form, in both windows: whether it left the form or refused ("Finish or cancel this first."). */
+async function backFrom(app) {
+  const form = formRoles(app); assert.ok(form, 'set-up: a form is open');
+  app.back(); await app.tick(30);
+  const now = formRoles(app);
+  return { left: !now, refused: /Finish or cancel this first/.test(app.live()) };
+}
+/* A role changed as someone would: in this build, a role past the page is found first so its select is drawn. */
+async function setRole(s, role, v) {
+  if (s.which === 'this build' && hiddenRole(s.app.html(), role)) await typeFind(s.app, role);
+  assert.ok(s.app.html().indexOf('<select id="role-' + role + '"') >= 0, s.which + ': set-up: role ' + role + ' is drawn as a select');
+  s.app.select('role-' + role, v); await s.app.tick(5);
+}
+const LEAVE = {
+  untouched: { expect: 'left', go: async () => {} },
+  changed: { expect: 'refused', go: async (s, role) => { const was = s.app.el('role-' + role).value; await setRole(s, role, was === 'person-casey' ? 'person-blake' : 'person-casey'); } },
+  'Just me': { expect: 'refused', go: async s => { assert.ok(/data-act="just-me"/.test(s.app.html()), s.which + ': set-up: Just me is offered'); s.app.click('just-me'); await s.app.tick(5); } },
+  /* As 2.10.0 does: a role changed and then set back to what it was drawn with is nothing to lose. */
+  'changed and set back': { expect: 'left', go: async (s, role) => { const was = s.app.el('role-' + role).value; await setRole(s, role, was === 'person-casey' ? 'person-blake' : 'person-casey'); await setRole(s, role, was); } }
+};
+for (const [n, role] of [[8, 'r2'], [60, 'r50']]) for (const kind of ['start', 'plan']) for (const what of Object.keys(LEAVE)) {
+  rule('Round 17 differential: ' + (kind === 'start' ? 'Start' : 'Plan') + ' on ' + n + ' roles, ' + what + (what === 'untouched' || what === 'Just me' ? '' : ' (' + role + ')') + ', then browser Back: ' + (LEAVE[what].expect === 'left' ? 'both builds leave' : 'both builds refuse') + ', and send the same roles', async () => {
+    const W = world(n, prng(17));
+    const sides = await pair(W, Object.assign({}, W.publish(W.roles), W.peopleFile(), W.runFile(() => 'person-avery')));
+    const out = [];
+    for (const s of sides) {
+      s.app.click(kind === 'start' ? 'start' : 'plan-run', PID); await s.app.tick(20);
+      await LEAVE[what].go(s, role);
+      const f = formRoles(s.app);
+      out.push(Object.assign({ which: s.which, roles: f && f.roles }, await backFrom(s.app)));
+    }
+    const [a, b] = out;
+    assert.deepStrictEqual(b.roles, a.roles, 'this build sends what 2.10 sends before Back');
+    assert.strictEqual(b.left, a.left, 'Back: 2.10 ' + (a.left ? 'left' : 'stayed') + ', this build ' + (b.left ? 'left' : 'stayed'));
+    assert.strictEqual(b.refused, a.refused, 'Back: 2.10 ' + (a.refused ? 'refused' : 'did not refuse') + ', this build ' + (b.refused ? 'refused' : 'did not refuse'));
+    for (const x of out) {
+      if (LEAVE[what].expect === 'left') assert.ok(x.left && !x.refused, x.which + ': Back leaves the form');
+      else assert.ok(!x.left && x.refused, x.which + ': Back refuses and keeps the form');
+    }
+  });
+}
 const walks = (n, count, steps) => { for (let w = 0; w < count; w++) rule('Round 16 differential: ' + n + ' roles, walk ' + (w + 1) + ' of ' + count + ' (seed ' + (SEED + w) + ', ' + steps + ' events): every role sent is what 2.10 sends', async () => { await walk(n, SEED + w, steps); }); };
 walks(60, 5, STEPS);
 walks(300, 1, Math.max(10, Math.round(STEPS / 2)));
