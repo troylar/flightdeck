@@ -166,7 +166,7 @@
     /* Find a follow-up (2.11): by its text, its run, its owner and its step, over the chip's whole list; 50 at a time. */
     var q = K.findQ(st, 'fu'), hit = K.finds(q), stepOf = function (x) { if (!x.f.step) return ''; var r = ctx.findRun ? ctx.findRun(x.runKey) : null, y = r ? M.findStep(R.mapOf(r), x.f.step) : null; return y ? K.stepPlain(y.step, null) : x.f.step; };
     var found = q ? shown.filter(function (x) { return hit([x.text, x.runTitle, x.owner ? nameOf(ctx, x.owner) : '', x.f.ticket, stepOf(x)]); }) : shown;
-    if (shown.length) h += K.findBox(st, 'fu', 'Find a follow-up', found.length, shown.length, 'follow-up');
+    if (K.findOn(st, 'fu', shown.length > 0)) h += K.findBox(st, 'fu', 'Find a follow-up', found.length, shown.length, 'follow-up');
     h += V.fuPaged(ctx, 'fu', found, all) || (shown.length ? '' : '<p class="muted">' + (filter === 'all' ? 'No run has follow-ups yet. The recorder adds them while finishing a run.' : filter === 'mine' ? (me ? 'Nothing open is yours.' : 'Choose who you are to see yours.') : 'Nothing is open. Every follow-up has been dealt with.') + '</p>');
     return h + '</section>';
   }
@@ -225,7 +225,7 @@
       '</details></span></div>';
     var chosen = st.tags || [], tagged = procs.filter(function (p) { return has(p.tags); }), q = K.findQ(st, 'processes'), hit = K.finds(q);
     var found = q ? tagged.filter(function (p) { return hit([p.title, p.id, (p.group || []).join(' / '), p.category, (p.tags || []).join(' ')]); }) : tagged;
-    h += '<section class="panel" id="procs-all">' + (procs.length ? K.findBox(st, 'processes', 'Find a checklist', found.length, tagged.length, 'checklist') : '') + K.tagBar(allTags(ctx, chosen), chosen, st.disc, st) + (procs.length ? K.treeList(st, 'processes', found, function (p) { return p.group && p.group.length ? p.group : [p.category]; }, function (p) {
+    h += '<section class="panel" id="procs-all">' + (K.findOn(st, 'processes', procs.length > 0) ? K.findBox(st, 'processes', 'Find a checklist', found.length, tagged.length, 'checklist') : '') + K.tagBar(allTags(ctx, chosen), chosen, st.disc, st) + (procs.length ? K.treeList(st, 'processes', found, function (p) { return p.group && p.group.length ? p.group : [p.category]; }, function (p) {
       PF.perf.add('procs.rows');
       var pub = p.latest, info = pub ? 'v' + pub.info.version : p.proposedOnly ? 'Proposed, not drafted yet' : 'not published yet';
       var flags = [];
@@ -281,7 +281,7 @@
     }).join('') + '</ul>'; }, keyOf: function (p) { return p.id; }, focusOf: function (id) { return K.byAct('open-process', id); }, keep: st.brief && /^create:/.test(st.brief.key) ? [st.brief.key.slice(7)] : [], keptLabel: 'Its brief is open' }) + '</section>';
     var chosen = st.tags || [], tagged = skills.filter(function (k) { return has(k.x.skill.tags); }), q = K.findQ(st, 'skills'), hit = K.finds(q);
     var found = q ? tagged.filter(function (k) { return hit([k.x.skill.name, k.p.title, k.p.id, (k.x.skill.tags || []).join(' ')]); }) : tagged;
-    h += '<section class="panel" aria-labelledby="all-h"><h2 id="all-h">All skills · ' + skills.length + '</h2>' + (skills.length ? K.findBox(st, 'skills', 'Find a skill', found.length, tagged.length, 'skill') : '') + K.tagBar(skillTags(skills, chosen), chosen, st.disc, st) + (skills.length ? K.treeList(st, 'skills', found, function (k) { return k.x.skill.group.length ? k.x.skill.group : (k.p.group && k.p.group.length ? k.p.group : [k.p.category || 'Other']); }, skillRow('sk-all-'), { keyOf: skillKey, focusOf: focusIn('sk-all-') })
+    h += '<section class="panel" aria-labelledby="all-h"><h2 id="all-h">All skills · ' + skills.length + '</h2>' + (K.findOn(st, 'skills', skills.length > 0) ? K.findBox(st, 'skills', 'Find a skill', found.length, tagged.length, 'skill') : '') + K.tagBar(skillTags(skills, chosen), chosen, st.disc, st) + (skills.length ? K.treeList(st, 'skills', found, function (k) { return k.x.skill.group.length ? k.x.skill.group : (k.p.group && k.p.group.length ? k.p.group : [k.p.category || 'Other']); }, skillRow('sk-all-'), { keyOf: skillKey, focusOf: focusIn('sk-all-') })
       : '<p class="small">No skills yet. Follow the steps above: once a checklist version is signed off, its page has the brief your AI assistant needs.</p>') + '</section>';
     return h;
   }

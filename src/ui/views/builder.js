@@ -763,7 +763,7 @@
     /* With Find, the page is the matches; the renamed one Find leaves out is drawn after them (K.list's tiers, code review round 12). */
     var found = q ? list.filter(function (n) { return hit([n]); }) : list, out = q ? list.filter(function (n) { return !hit([n]); }) : null;
     var any = found.length || (out || []).some(function (n) { return n === js || keep.indexOf(n) >= 0; });
-    var box = list.length > P || q ? K.findBox(st, fid, 'Find a ' + noun, found.length, list.length, noun) : '';
+    var box = K.findOn(st, fid, list.length > P) ? K.findBox(st, fid, 'Find a ' + noun, found.length, list.length, noun) : '';
     return '<div class="field"><span id="' + lid + '">' + label + '</span><span class="small">' + hint + '</span>' + box +
       (any ? K.list(st, fid, found, { page: P, keep: keep, outside: out, keptLabel: list.some(renaming) ? 'Being renamed' : 'Just renamed', keyOf: function (n) { return n; },
         focusOf: function (n) { return '[data-act="ob-meta-del"][data-key="' + key + '"][data-id="' + K.cssStr(n) + '"]'; }, draw: function (shown) { return '<ul class="ob-metalist" aria-labelledby="' + lid + '">' + shown.map(function (n) {

@@ -4303,8 +4303,9 @@
   function selBoxKept(list) { if (list) state.selFocus = list; }
   /* 50 more of a long dropdown's options (K.select); its own choice is untouched. */
   function selMore(id, step) { if (!id) return; var P = PF.vk.PAGE, m = state.more = Object.assign({}, state.more); m[id] = Math.max(P, m[id] || P) + (+step > 0 ? Math.min(+step, 100000) : P); render(); }
-  /* Focusing the box is enough, before anything is typed: a refresh that leaves 50 or fewer choices doesn't take it away. */
-  document.addEventListener('focusin', function (e) { var t = e.target; if (t && t.dataset && t.dataset.selFind) selBoxKept(findList(t)); });
+  /* Focusing the box is enough, before anything is typed: a refresh that leaves 50 or fewer choices doesn't take it away. So
+     for every list's Find box, not only a dropdown's (K.findOn, code review round 19). */
+  document.addEventListener('focusin', function (e) { var t = e.target; if (t && t.dataset && t.dataset.find != null) selBoxKept(findList(t)); });
   document.addEventListener('focusout', function (e) {
     var id = findList(e.target);
     if (!id || state.selFocus !== id) return;
@@ -7629,8 +7630,9 @@
   document.addEventListener('focusout', function (e) { var t = e.target; if (prTypedBox(t) && /INPUT|TEXTAREA|SELECT/.test(t.tagName || '')) prLastBox = { id: t.id, s: t.selectionStart, e: t.selectionEnd, top: t.scrollTop || 0 }; }, true);
   document.addEventListener('focusin', function (e) { var t = e.target, a = t && t.dataset && t.dataset.act; if (!(a === 'pr-edit' || a === 'pr-back')) prLastBox = null; }, true);
   document.addEventListener('input', function (e) {
-    /* A long dropdown's "Show 50 more…" is handled when it changes (below), never as a choice. */
-    if (e.target && e.target.tagName === 'SELECT' && e.target.value === PF.vk.SEL_MORE) return;
+    /* A long dropdown's "Show 50 more…" is handled when it changes (below), never as a choice: only on a K.select (any other
+       control's "#more" is a value like any other). */
+    if (PF.vk.isSelMore(e.target)) return;
     prActivity(e.target);
     if (e.target && e.target.dataset && e.target.dataset.prSample) { var tpx = currentProcess(); if (tpx) { var tpe = prEntry(tpx.id); tpe.typed[e.target.dataset.prSample] = e.target.value; } return; }
     /* What changed, for Stage it for a test run: kept on the practice entry, so a redraw or a reopened phase never loses it. */
@@ -7751,7 +7753,7 @@
   }, true);
   document.addEventListener('change', function (e) {
     /* A long dropdown's "Show 50 more…" (K.select): the list widens and the choice stays what it was; nothing else hears it. */
-    if (e.target && e.target.tagName === 'SELECT' && e.target.value === PF.vk.SEL_MORE) { e.target.value = (e.target.dataset && e.target.dataset.cur) || ''; selMore(e.target.id, e.target.dataset && e.target.dataset.step); return; }
+    if (PF.vk.isSelMore(e.target)) { e.target.value = (e.target.dataset && e.target.dataset.cur) || ''; selMore(e.target.id, e.target.dataset && e.target.dataset.step); return; }
     /* A role given someone on Start or Plan (2.11) stays drawn through Show more, Find and a refresh, for this form only. */
     var rm = state.view === 'start' && e.target && /^role-(.+)$/.exec(e.target.id || '');
     /* A test run's form is its own form: its key is its scope (test:<process>:<stage>). */

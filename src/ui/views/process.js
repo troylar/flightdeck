@@ -798,7 +798,7 @@
       var keepRole = function (role) { return !!chosenOf(role) || boxes.touched(role); };
       var rq = K.findQ(st, 'start-roles'), rhit = K.finds(rq), rfound = rq ? meta.roles.filter(function (role) { return rhit([role]); }) : meta.roles;
       var rout = rq ? meta.roles.filter(function (role) { return !rhit([role]); }) : null, drawnRole = Object.create(null), roleRows = '';
-      if (meta.roles.length > ROLE_PAGE || rq) h = h.replace(/<div class="grid2">$/, '') + K.findBox(st, 'start-roles', 'Find a role', rfound.length, meta.roles.length, 'role') + '<div class="grid2">';
+      if (K.findOn(st, 'start-roles', meta.roles.length > ROLE_PAGE)) h = h.replace(/<div class="grid2">$/, '') + K.findBox(st, 'start-roles', 'Find a role', rfound.length, meta.roles.length, 'role') + '<div class="grid2">';
       var roleRow = function (role) {
         var h = '';
         drawnRole[role] = true;

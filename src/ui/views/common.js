@@ -131,6 +131,10 @@ PF.vk = (function () {
   /* ---------- Find boxes (2.11) ---------- */
   /* What's typed in a list's Find box (state.find, for this folder only: renderNow drops it after a folder switch). */
   function findQ(st, id) { return st.find && st.find.q ? String(st.find.q[id] || '') : ''; }
+  /* Whether a list's Find box is drawn: when the list is long enough (over), and whatever its length while the box has text
+     or focus (st.selFocus, kept by the app while focus is in it), so a newer read that shortens the list never takes away
+     the box someone is typing in or filtering with (code review round 19). */
+  function findOn(st, id, over) { return !!over || !!findQ(st, id) || st.selFocus === id; }
   /* Whether an item's words hold every term typed, ignoring case. */
   function finds(q) {
     var terms = String(q || '').toLowerCase().split(/\s+/).filter(Boolean);
@@ -295,7 +299,7 @@ PF.vk = (function () {
   function roleRows(st, id, roles, o) {
     var P = o.page || 20, q = findQ(st, id), hit = finds(q), on = Object.create(null);
     var found = q ? roles.filter(function (r) { return hit([r]); }) : roles;
-    var box = roles.length > P || q ? findBox(st, id, o.label || 'Find a role', found.length, roles.length, o.noun || 'role') : '';
+    var box = findOn(st, id, roles.length > P) ? findBox(st, id, o.label || 'Find a role', found.length, roles.length, o.noun || 'role') : '';
     var rows = list(st, id, found, { page: P, keep: o.keep, soft: o.soft, outside: q ? roles.filter(function (r) { return !hit([r]); }) : null, keptLabel: o.keptLabel || 'Roles you\'ve chosen someone for', keyOf: function (r) { return r; }, focusOf: o.focusOf, inDialog: o.inDialog,
       draw: function (shown) { return shown.map(function (r) { on[r] = true; return o.row(r); }).join(''); } });
     var hidden = o.hidden ? roles.filter(function (r) { return !on[r]; }).map(o.hidden).join('') : '';
@@ -330,6 +334,13 @@ PF.vk = (function () {
   /* The value of the last option, "Show 50 more…": no real value can be it (folder, run, plan and step values are words,
      dashes, slashes and colons). Choosing it widens the list and leaves the choice as it was (app.js). */
   var SEL_MORE = '#more';
+  /* Whether a change or input is a K.select's "Show 50 more…" being chosen: only on a select K.select drew (data-kselect)
+     with more to show (data-step), and only its last option, so a value that happens to be "#more" (a Decide step's choice
+     from its options:) is always a choice (code review round 19). */
+  function isSelMore(t) {
+    if (!t || t.tagName !== 'SELECT' || t.value !== SEL_MORE || !t.dataset || t.dataset.kselect == null || t.dataset.step == null) return false;
+    return !t.options || t.selectedIndex === t.options.length - 1;
+  }
   /* A native <select> over a list that grows with the team folder: at most 50 of its items (the page) as options, plus the
      chosen one, in the list's own order; past 50, a Find box above narrows them over every item, and "Show 50 more…" (an
      option, and a Show more choices button for the keyboard) widens them. The box stays while it has text or focus
@@ -378,16 +389,19 @@ PF.vk = (function () {
       opts += '<option value="' + esc(it.v) + '"' + (it.v === sel ? ' selected' : '') + (off ? ' disabled' : '') + '>' + esc(text(it) + (d && d.more ? d.more : '')) + '</option>';
     });
     if (grp != null) opts += '</optgroup>';
-    var fid = 'find-' + id, showBox = items.length > P || !!q || st.selFocus === id;
+    var fid = 'find-' + id, showBox = findOn(st, id, items.length > P);
     var box = !showBox ? '' : '<div class="row findbox selfind"><label for="' + esc(fid) + '">Find a ' + esc(o.noun || 'choice') + '</label><input type="search" id="' + esc(fid) + '" data-find="' + esc(id) + '" data-sel-find="' + esc(id) + '" data-nav-safe data-bound value="' + esc(q) + '" autocomplete="off" maxlength="200" aria-controls="' + esc(id) + '" aria-describedby="' + esc(fid) + '-n">' +
       '<span class="small" id="' + esc(fid) + '-n" role="status">' + (!q ? '' : match.length ? Nn(match.length) + ' of ' + Nn(items.length) + ' match' : 'No ' + esc(o.noun || 'choice') + ' matches "' + esc(q) + '"') + '</span>' + (q ? '<button type="button" class="mini" data-act="find-clear" data-id="' + esc(id) + '">Clear</button>' : '') + '</div>';
     var selHtml = '<select id="' + esc(id) + '"' + (o.attrs || '') + ' data-kselect data-cur="' + esc(cur == null ? '' : cur) + '"' + (more ? ' data-step="' + step + '"' : '') + '>' + (o.lead || '') + opts + (o.trail || '') + (more ? '<option value="' + SEL_MORE + '">Show ' + want + ' more…</option>' : '') + '</select>';
     var moreBtn = more ? '<button type="button" class="mini selmore" data-act="sel-more" data-id="' + esc(id) + '" data-step="' + step + '" aria-controls="' + esc(id) + '">Show more choices</button>' : '';
     return { box: box, select: selHtml, more: moreBtn, html: box + selHtml + moreBtn, drawn: drawn, total: items.length };
   }
-  /* An element id's part for a key made from content (a line of text, a path): 16 hex characters, so it's a valid id whatever
-     the content holds. */
-  function domKey(k) { k = String(k); return U.hash(k) + U.hash(k + '|2'); }
+  /* An element id's part for a key made from content (a line of text, a path): _, then the key with each character but a
+     letter or digit written as _ and its 4 hex digits, as PF.followups.formId does. Two keys give one id part only when they
+     are the same key, so a list can page, keep and focus its rows by it (code review round 19: a hash of the key, 32 bits
+     however long it was written, let two changes share a key and one go missing). It has no -, so an id ending in -t or -go
+     is never another key's, and its leading _ keeps it from any fixed id (todo-h). It's valid in a #selector as it is. */
+  function domKey(k) { return '_' + String(k).replace(/[^A-Za-z0-9]/g, function (c) { return '_' + ('000' + c.charCodeAt(0).toString(16)).slice(-4); }); }
   /* Keys for items from what they are (sig(item)), never their place: the second item with the same content is sig#2, told
      apart from a literal "sig#2" (U.nthKey). */
   function uniqKeys(items, sig) {
@@ -485,7 +499,7 @@ PF.vk = (function () {
   }
   function unsavedWords(ps) { return ps && ps.saved ? 'its run was saved and has changed since' : ps && ps.certain === false ? 'Flightdeck couldn\'t confirm whether its run saved' : 'its run didn\'t save'; }
   function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
-  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, finds: finds, findBox: findBox, roleRows: roleRows, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, joined: joined, capJoin: capJoin, atRoles: atRoles, select: select, SEL_MORE: SEL_MORE, byId: byId, cssStr: cssStr, PAGE: PAGE, PAGE_OFF: null, ARRIVE: null, TRACE: null, focusAt: null, domKey: domKey, uniqKeys: uniqKeys, testTag: testTag, verWord: verWord };
+  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, findOn: findOn, finds: finds, findBox: findBox, roleRows: roleRows, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, joined: joined, capJoin: capJoin, atRoles: atRoles, select: select, SEL_MORE: SEL_MORE, isSelMore: isSelMore, byId: byId, cssStr: cssStr, PAGE: PAGE, PAGE_OFF: null, ARRIVE: null, TRACE: null, focusAt: null, domKey: domKey, uniqKeys: uniqKeys, testTag: testTag, verWord: verWord };
 })();
 (function () {
   'use strict';

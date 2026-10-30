@@ -90,8 +90,8 @@ PF.exporter = function (api) {
   }
   function ov() { return state.overlay && state.overlay.evidence ? state.overlay : null; }
   /* Typing in the days form is kept in the dialog's state, so a redraw never loses it. */
-  document.addEventListener('input', function (e) { var o = ov(); if (!o || o.stage !== 'ask' || !e.target || !/^ev-(proc|from|through)$/.test(e.target.id) || e.target.value === PF.vk.SEL_MORE) return; o.form[{ 'ev-proc': 'process', 'ev-from': 'from', 'ev-through': 'through' }[e.target.id]] = e.target.value; });
-  document.addEventListener('change', function (e) { var o = ov(); if (!o || o.stage !== 'ask' || !e.target || e.target.id !== 'ev-proc' || e.target.value === PF.vk.SEL_MORE) return; o.form.process = e.target.value; });
+  document.addEventListener('input', function (e) { var o = ov(); if (!o || o.stage !== 'ask' || !e.target || !/^ev-(proc|from|through)$/.test(e.target.id) || PF.vk.isSelMore(e.target)) return; o.form[{ 'ev-proc': 'process', 'ev-from': 'from', 'ev-through': 'through' }[e.target.id]] = e.target.value; });
+  document.addEventListener('change', function (e) { var o = ov(); if (!o || o.stage !== 'ask' || !e.target || e.target.id !== 'ev-proc' || PF.vk.isSelMore(e.target)) return; o.form.process = e.target.value; });
 
   var actions = {
     'ev-open': function (key) { var r = api.ctx.findRun(key); open({ run: key }, r ? r.title : key); },
