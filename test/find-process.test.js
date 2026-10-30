@@ -1193,7 +1193,7 @@ rule('Round 10: a linked step whose child is a draft with 60 run details draws 2
   await openProc(app, 'par', 'edit');
   app.click('ed-mode', 'builder'); await app.tick(10);
   app.click('ob-sel', 'k0'); await app.tick(10);
-  const rows = () => count(app.html(), /<div class="field ob-link-row">/g);
+  const rows = () => count(app.html(), /<div class="field ob-link-row"[ >]/g);
   assert.strictEqual(rows(), 20, 'a page of what the child needs');
   assert.ok(/id="find-ob-link-rows"/.test(app.html()), 'with Find');
   app.select('ob-link-src-detail5', '='); await app.tick(10);
@@ -1339,6 +1339,62 @@ rule('Round 12: a linked step passing 40 team values that aren\'t in the folder 
   h = app.html();
   assert.strictEqual(count(h, /<li id="ob-team-miss-lkt-d\d+"/g), 40, 'Show more adds 20');
   assert.strictEqual(app.activeId(), 'ob-team-miss-lkt-d020', 'and focuses the first it adds');
+});
+
+/* ---------- code review round 13 ---------- */
+/* A parent with 60 run details of its own (so each source dropdown has Find and Show more choices) linking a child draft with
+   60 run details; the parent passes detail3 and detail5 a fixed value. Open in the builder on the linked step. */
+async function linkedSixty() {
+  const fx = fixture({ size: SMALL }), files = Object.assign({}, fx.files);
+  const fm = (proc, title, ctx) => '---\nprocess: ' + proc + '\ntitle: ' + title + '\ncategory: Synthetic\nowner: person-avery\ncontext: ' + ctx + '\nroles: lead\n---\n\n';
+  const kid = ctx => fm('kid60', 'Sixty child', ctx.join(', ')) + '## Only · READ-DO {#ph1}\n- [ ] {confirm} Check ^detail0 @lead {#s0}\n';
+  const names = Array.from({ length: 60 }, (x, i) => 'detail' + i);
+  files['maps/drafts/kid60.md'] = kid(names);
+  files['maps/drafts/par.md'] = fm('par', 'Parent', Array.from({ length: 60 }, (x, i) => 'own' + i).join(', ')) + '## Only · READ-DO {#ph1}\n- [ ] {run.process} Start the child @lead {#k0}\n  process: kid60\n  pass: detail3=aaa, detail5=bbb\n';
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true }); await app.tick(60);
+  await into(app, { files, facts: fx.facts });
+  await openProc(app, 'par', 'edit');
+  app.click('ed-mode', 'builder'); await app.tick(10);
+  app.click('ob-sel', 'k0'); await app.tick(10);
+  /* A newer child draft with a run detail inserted first (or n of them), read as Check the folder now does. */
+  const insert = async n => { await app.fs.write('maps/drafts/kid60.md', kid(Array.from({ length: n }, (x, i) => 'aaa' + i).concat(names))); await reread(app); };
+  return { app, insert };
+}
+const leave = async (app, id, v) => { app.set(id, v); app.input(id, v); await app.tick(2); app.select(id, v); await app.tick(5); };
+rule('Round 13: two existing fixed values edited to refused text and left both stay drawn with their text through Find and back (finding 1)', async () => {
+  const { app } = await linkedSixty();
+  let h = app.html();
+  assert.ok(/id="ob-link-val-detail3"[^>]*value="aaa"/.test(h) && /id="ob-link-val-detail5"[^>]*value="bbb"/.test(h), 'set-up: both fixed values drawn');
+  await leave(app, 'ob-link-val-detail3', 'first, refused');
+  await leave(app, 'ob-link-val-detail5', 'second, refused');
+  await typeFind(app, 'ob-link-rows', 'detail39');
+  h = app.html();
+  assert.ok(/id="ob-link-src-detail39"/.test(h), 'set-up: Find reaches detail39');
+  assert.ok(/id="ob-link-val-detail3"/.test(h), 'the first refused row stays drawn');
+  assert.ok(/id="ob-link-val-detail5"/.test(h), 'the second refused row stays drawn');
+  app.click('find-clear', 'ob-link-rows'); await app.tick(5);
+  assert.strictEqual(app.draft('ob-link-val-detail3'), 'first, refused', 'the first one\'s text is still there');
+  assert.strictEqual(app.draft('ob-link-val-detail5'), 'second, refused', 'and the second one\'s');
+  assert.ok(/  pass: detail3=aaa, detail5=bbb\n/.test(app.fs.files['maps/drafts/par.md'].t), 'nothing refused was saved');
+});
+rule('Round 13: focus on a nested control of the 20th linked detail (its source Find box, its Show more choices, its fixed value) keeps that row drawn and focused when a newer child draft pushes it off the page (finding 2)', async () => {
+  const { app, insert } = await linkedSixty();
+  const rowOn = id => new RegExp('<div class="field ob-link-row"[^>]*>(?:(?!<div class="field ob-link-row")[\\s\\S])*?(id|data-id)="' + id + '"').test(app.html());
+  assert.ok(/id="find-ob-link-src-detail19"/.test(app.html()), 'set-up: the 20th row\'s source dropdown has Find');
+  assert.ok(!/id="ob-link-src-detail20"/.test(app.html()), 'set-up: the 21st is past the page');
+  app.doc.activeElement = app.node('#find-ob-link-src-detail19');
+  await insert(1);
+  assert.ok(rowOn('find-ob-link-src-detail19'), 'the row with the focused Find box stays drawn');
+  assert.strictEqual(app.activeId(), 'find-ob-link-src-detail19', 'and focus stays on the box');
+  app.doc.activeElement = app.node('[data-act="sel-more"][data-id="ob-link-src-detail19"]');
+  assert.ok(app.doc.activeElement, 'set-up: its Show more choices');
+  await insert(2);
+  assert.ok(rowOn('ob-link-src-detail19'), 'the row with the focused Show more choices stays drawn');
+  assert.strictEqual(app.activeId(), '[data-act="sel-more"][data-id="ob-link-src-detail19"]', 'and focus stays on that button');
+  app.doc.activeElement = app.node('#ob-link-val-detail5');
+  await app.fs.write('maps/drafts/kid60.md', app.fs.files['maps/drafts/kid60.md'].t.replace('context: ', 'context: ' + Array.from({ length: 20 }, (x, i) => 'zzz' + i).join(', ') + ', ')); await reread(app);
+  assert.ok(/id="ob-link-val-detail5"/.test(app.html()), 'the row whose fixed value box has focus stays drawn');
+  assert.strictEqual(app.activeId(), 'ob-link-val-detail5', 'and focus stays on the box');
 });
 
 run();
