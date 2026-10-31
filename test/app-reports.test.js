@@ -86,7 +86,7 @@ rule('App: Accept is refused, with the reason beside it, when the step can\'t ta
   app = await recording();
   x = await plant(app, { rep: { evidence: { buildLink: 'https://ci.example.com/jobs/1432' } } });
   await openStep(app, 'jenkins');
-  assert.ok(/This report doesn(&#39;|')t have Build number, which this step requires\./.test(app.html()), app.html().match(/rw-why-off[^<]*<\/span>|id="rep-0-why">[^<]*/g));
+  assert.ok(/This report doesn(&#39;|')t have Build number, which this step requires\./.test(app.html()), app.html().match(/rw-why-off[^<]*<\/span>|id="rep-[0-9a-f]+-why">[^<]*/g));
   // Paused.
   app = await recording();
   x = await plant(app);
@@ -109,7 +109,7 @@ rule('App: Accept waits while Fill in is open on the step, and leaves what was t
   const x = await plant(app);
   await openStep(app, 'jenkins');
   app.click('pick', 'jenkins', { kind: 'fields' }); await app.tick(40);
-  assert.ok(/id="rep-0-why">Save or cancel Fill in first\./.test(app.html()), "the reason beside Accept");
+  assert.ok(new RegExp('id="' + app.PF.views.reportCardId(x.key) + '-why">Save or cancel Fill in first\\.').test(app.html()), "the reason beside Accept");
   app.click('rep-accept-go', x.key); await app.tick(120);
   assert.ok(!isDone(app), 'nothing accepted');
   assert.deepStrictEqual(decisions(app), []);
@@ -776,7 +776,9 @@ rule('App: the receipt names the accepted report and lists every report on the r
   assert.ok(/Accepted report ci-check\/abcd1234, sha256 /.test(h) && h.indexOf(x.sha.slice(0, 12)) >= 0, 'the step names the report and its hash');
   assert.ok(/Reports · 2/.test(h), 'a Reports section');
   assert.ok(/pod-check\/efgh5678 on [^:<]+: says blocked \(No access\)/.test(h), 'every report is listed with what it says');
-  const text = (h.match(/<pre id="receipt-text" hidden>([\s\S]*?)<\/pre>/) || [])[1] || '';
+  /* The text is made when copied; with no clipboard here the fallback's selection throws after the text is in place. */
+  const pre = app.el('receipt-text'); try { app.click('copy-receipt'); } catch (e) { /* no createRange in the harness */ }
+  const text = pre.textContent || '';
   assert.ok(/\[DONE\] [^\n]*\(accepted report ci-check\/abcd1234, sha256 [0-9a-f]{12}…, by Casey[^)]*\)/.test(text), 'the copied text too');
   assert.ok(/Reports · 2/.test(text));
 });

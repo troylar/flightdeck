@@ -115,7 +115,8 @@ rule('The visible-content counter skips closed details bodies, screen-reader tex
    checklist's process page and run), and the builder's Done became Review & publish (2 more words). */
 const BUDGETS = {
   home: { words: 139, buttons: 13, chips: 1, target: { words: 120 } },
-  processes: { words: 95, buttons: 13, chips: 3, target: { chips: 8 } },
+  /* Raised by 2 in 2.11 on purpose: the Find a checklist box's label. */
+  processes: { words: 97, buttons: 13, chips: 3, target: { chips: 8 } },
   /* The harness also counts the CSS-hidden phone picker and skip links, so its run and process numbers sit above the browser's. */
   'process page as a non-owner': { words: 274, buttons: 13, chips: 3, target: { words: 260, buttons: 16, chips: 12 } },
   'process page as its owner': { words: 421, buttons: 24, chips: 9, target: { words: 430 } },

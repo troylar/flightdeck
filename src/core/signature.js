@@ -49,8 +49,11 @@ PF.signature = (function () {
   }
   function process(pub) { var x = inputs(pub); return PF.util.hash(JSON.stringify([x.context, x.roles, x.runs, PF.publish.canonical(x.extensions), PF.publish.canonical(x.pins)])); }
   /* What changed in the inputs apart from the run details (which skills.changes reports on their own), in words. */
-  function inputChanges(a, b) {
-    var x = inputs(a), y = inputs(b), out = [], list = function (l) { return l.join(', ') || 'none'; };
+  function inputChanges(a, b) { return inputWords(inputs(a), inputs(b)); }
+  /* The same words from two inputs() results; list(names) writes a list of roles (a page shows only some: K.capJoin). */
+  function inputWords(x, y, list) {
+    var out = [];
+    list = list || function (l) { return l.join(', ') || 'none'; };
     if (x.roles.join(',') !== y.roles.join(',')) out.push('Roles: now ' + list(y.roles) + ' (was ' + list(x.roles) + ')');
     if (x.runs !== y.runs) out.push('Runs: ' + (y.runs || 'not set') + ' (was ' + (x.runs || 'not set') + ')');
     if (PF.publish.canonical(x.extensions) !== PF.publish.canonical(y.extensions)) out.push('Its extensions changed');
@@ -60,5 +63,5 @@ PF.signature = (function () {
   /* A gate's and a phase's own instruction parts, the same ones steps() uses (practice compares them; docs/design.md, Practice). */
   function gateParts(g, images) { return JSON.stringify(gate(g, images)); }
   function phaseParts(p, images) { return JSON.stringify([p.id, p.title, p.mode, p.note || '', shots(p.shots, images), texts(p.when)]); }
-  return { steps: steps, process: process, inputs: inputs, inputChanges: inputChanges, gateParts: gateParts, phaseParts: phaseParts };
+  return { steps: steps, process: process, inputs: inputs, inputChanges: inputChanges, inputWords: inputWords, gateParts: gateParts, phaseParts: phaseParts };
 })();

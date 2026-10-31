@@ -200,28 +200,45 @@
     } else if (e.big) detail = '<p class="small">Too big to keep line by line; only its fingerprints were kept.</p>';
     else detail = histHunks(e, item).map(function (h) { return histBa(h.del.join('\n'), h.ins.join('\n'), 'Line ' + (h.at + 1) + ': before and after'); }).join('');
     var open = o.compare === e.ref, canReverse = PF.timeline.reversible(e);
-    return '<li class="hist-entry saved"><div class="hist-what">' + esc(histSource(e)) + '</div><div class="small">' + esc(who) + (ai ? ' (AI assistant)' : '') + (e.at ? ' · ' + esc(U.when(e.at)) : '') + '</div>' +
+    return '<li class="hist-entry saved" id="' + esc('hist-e-' + e.ref) + '" tabindex="-1"><div class="hist-what">' + esc(histSource(e)) + '</div><div class="small">' + esc(who) + (ai ? ' (AI assistant)' : '') + (e.at ? ' · ' + esc(U.when(e.at)) : '') + '</div>' +
       (e.units.length ? '<ul class="hist-units small">' + e.units.map(function (u) { return '<li>' + esc(u) + '</li>'; }).join('') + '</ul>' : '') + detail +
       '<div class="row hist-acts"><button type="button" class="mini" data-act="hist-compare" data-id="' + esc(e.ref) + '" aria-expanded="' + open + '">Compare</button>' +
       (canReverse ? '<button type="button" class="mini" data-act="hist-reverse" data-id="' + esc(e.ref) + '">Reverse this change</button>' : '') + '</div>' +
       (open ? histCompare(e, o, item) : '') + '</li>';
   }
+  /* Newest first, 50 at a time in the dialog (2.11); an entry is built only when it's drawn, and the one being compared is
+     always drawn. */
   function savedHistory(ctx, o) {
     var s = o.saved || {}, item = o.savedItem || o.item, n = 0, list = '';
     if (s.state === 'none') return '<p class="small">Saved history starts once this step type is saved.</p>';
     if (s.state === 'error') return '<p class="small" role="status">Couldn\'t read the saved history: ' + esc(s.msg || '') + '</p>';
     if (s.state !== 'ok') return '<p class="small" role="status">Reading the saved history…</p>';
-    s.items.forEach(function (x) {
-      if (x.gap) { if (!item) list += '<li class="hist-mark hist-outside"><b>Changed outside Flightdeck</b> · by hand, by an AI assistant, or by a copy of Flightdeck that doesn\'t keep history.</li>'; return; }
-      if (x.pub) { if (!item) list += '<li class="hist-mark hist-pub"><b>Published v' + esc(String(x.pub.version)) + '</b> · ' + esc(nameOf(ctx, x.pub.by)) + (x.pub.at ? ' · ' + esc(U.when(x.pub.at)) : '') + '</li>'; return; }
+    /* Each row by what it is, never its place: an entry by its ref, a publication by its version and fingerprint, a change made
+       outside Flightdeck by the entry it comes before. */
+    var rows = [], seenM = Object.create(null), mark = function (x, i) {
+      var nx = null; for (var j = i + 1; j < s.items.length && !nx; j++) if (s.items[j].entry) nx = s.items[j].entry.ref;
+      var b = x.pub ? 'p' + K.domKey(x.pub.version + '\n' + (x.pub.hash || '') + '\n' + (x.pub.at || '')) : 'g' + K.domKey(String(nx)); seenM[b] = (seenM[b] || 0) + 1;
+      return 'm' + b + (seenM[b] > 1 ? '-' + seenM[b] : '');
+    };
+    s.items.forEach(function (x, i) {
+      if (x.gap || x.pub) { if (!item) rows.push({ x: x, k: mark(x, i) }); return; }
       if (item && x.entry.items.indexOf(item) < 0) return;
-      n++; list += savedEntry(ctx, o, x.entry, item);
+      n++; rows.push({ x: x, k: 'e' + x.entry.ref });
     });
-    var other = s.unknown && s.unknown.length ? '<p class="small">Not read, since they aren\'t history files: ' + s.unknown.map(esc).join(', ') + '.</p>' : '';
+    var row = function (r) {
+      var x = r.x, mid = ' id="hist-' + esc(r.k) + '" tabindex="-1"';
+      if (x.gap) return '<li class="hist-mark hist-outside"' + mid + '><b>Changed outside Flightdeck</b> · by hand, by an AI assistant, or by a copy of Flightdeck that doesn\'t keep history.</li>';
+      if (x.pub) return '<li class="hist-mark hist-pub"' + mid + '><b>Published v' + esc(String(x.pub.version)) + '</b> · ' + esc(nameOf(ctx, x.pub.by)) + (x.pub.at ? ' · ' + esc(U.when(x.pub.at)) : '') + '</li>';
+      return savedEntry(ctx, o, x.entry, item);
+    };
+    var focusOf = function (k) { return /^e/.test(k) ? K.byId('hist-e-' + k.slice(1)) : '#hist-' + k; };
+    list = K.list(ctx.state, 'hist', rows, { inDialog: true, keyOf: function (r) { return r.k; }, focusOf: focusOf, keep: o.compare ? ['e' + o.compare] : [], keptLabel: 'The one you\'re comparing',
+      draw: function (shown) { return '<ol class="hist-list">' + shown.map(row).join('') + '</ol>'; } });
+    var other = s.unknown && s.unknown.length ? '<p class="small">Not read, since they aren\'t history files: ' + K.capJoin(s.unknown, esc) + '.</p>' : '';
     if (s.skipped) other += '<p class="small">' + s.skipped + (s.skipped === 1 ? ' older line' : ' older lines') + ' in the history files ' + (s.skipped === 1 ? 'isn\'t' : 'aren\'t') + ' shown: only each file\'s newest 2,000 are read.</p>';
     var bad = s.bad ? '<p class="small">' + s.bad + (s.bad === 1 ? ' line' : ' lines') + ' in the history files couldn\'t be read and ' + (s.bad === 1 ? 'isn\'t' : 'aren\'t') + ' shown.</p>' : '';
-    if (!n) return '<p class="small">' + (item ? 'No saved changes to it yet.' : 'No saved changes yet. Each save from now on is kept here.') + '</p>' + (list && !item ? '<ol class="hist-list">' + list + '</ol>' : '') + bad + other;
-    return '<ol class="hist-list">' + list + '</ol>' + bad + other;
+    if (!n) return '<p class="small">' + (item ? 'No saved changes to it yet.' : 'No saved changes yet. Each save from now on is kept here.') + '</p>' + (rows.length && !item ? list : '') + bad + other;
+    return list + bad + other;
   }
 
   /* ---------- Starting a linked step's child (2.8): what it passes, read-only, and the boxes it asks ---------- */
@@ -238,7 +255,7 @@
   }
   function childStart(ctx, prep) {
     var pub = prep.pub, meta = pub.map.meta, r = ctx.run(), setBy = M.setBy(pub.map), w = childVersionWords(ctx, prep);
-    var people = ctx.data.people.filter(function (x) { return !x.inactive; }), nm = PF.people.labeler(people);
+    var people = PF.people.sorted(ctx).filter(function (x) { return !x.inactive; }), nm = PF.people.labeler(people);
     var h = '<div class="overlay" data-act="close-overlay"><div class="help cs-box" role="dialog" aria-modal="true" aria-labelledby="cs-t"><div class="eyebrow">' + esc(w.head) + '</div><h2 id="cs-t" tabindex="-1">Start the ' + esc(meta.title) + ' run</h2>' +
       (w.newer ? '<p class="small">' + esc(w.newer) + '</p>' : '') +
       '<form class="stack" id="child-start-form" data-token="' + esc(String(prep.token)) + '">' +
@@ -271,15 +288,21 @@
       h += '</div>';
     }
     var later = prep.rows.filter(function (x) { return x.source === 'ask' && Object.prototype.hasOwnProperty.call(setBy, x.name); });
-    if (later.length) h += '<p class="small">' + later.map(function (x) { return '<b>' + esc(x.name) + '</b> is filled in by "' + esc(setBy[x.name][0].text) + '"'; }).join('; ') + '.</p>';
+    if (later.length) h += '<p class="small">' + K.capJoin(later, function (x) { return '<b>' + esc(x.name) + '</b> is filled in by "' + esc(setBy[x.name][0].text) + '"'; }, '; ') + '.</p>';
     if (meta.roles.length) {
-      h += '<h3>Who\'s doing what</h3><div class="grid2">';
-      meta.roles.forEach(function (role) {
-        var chosen = prep.roleVals && typeof prep.roleVals[role] === 'string' ? prep.roleVals[role] : r && r.roles && typeof r.roles[role] === 'string' ? r.roles[role] : '';
-        h += '<label class="field" for="cs-role-' + esc(role) + '">' + esc(role) + '<select id="cs-role-' + esc(role) + '" data-role="' + esc(role) + '"><option value="">Nobody yet</option>' +
-          people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === chosen ? ' selected' : '') + '>' + esc(nm(x)) + '</option>'; }).join('') + '</select></label>';
-      });
-      h += '</div>';
+      /* A hidden role holds what its box would: the person chosen, when they're on the team, else nobody. */
+      var onTeam = Object.create(null); people.forEach(function (x) { onTeam[x.id] = true; });
+      var had = function (role) { return r && r.roles && typeof r.roles[role] === 'string' ? r.roles[role] : ''; };
+      var chosenOf = function (role) { return prep.roleVals && typeof prep.roleVals[role] === 'string' ? prep.roleVals[role] : had(role); };
+      /* 20 roles at a time with Find past 20 (2.11): a role changed in this dialog stays drawn, and one not drawn keeps its
+         value in a hidden field, so the child starts with exactly the roles it would. */
+      /* One resolver for a role drawn or hidden (code review round 10): the person chosen when they're on the team now, else nobody. */
+      var roleVal = function (role) { var c = chosenOf(role); return onTeam[c] ? c : ''; };
+      var cr = K.roleRows(ctx.state, 'cs-roles', meta.roles, { inDialog: true, soft: meta.roles.filter(function (role) { return chosenOf(role) !== had(role); }), focusOf: function (k) { return K.byId('cs-role-' + k); },
+        row: function (role) { var chosen = roleVal(role); return '<label class="field" for="cs-role-' + esc(role) + '">' + esc(role) + '<select id="cs-role-' + esc(role) + '" data-role="' + esc(role) + '"><option value="">Nobody yet</option>' +
+          people.map(function (x) { return '<option value="' + esc(x.id) + '"' + (x.id === chosen ? ' selected' : '') + '>' + esc(nm(x)) + '</option>'; }).join('') + '</select></label>'; },
+        hidden: function (role) { return '<input type="hidden" id="cs-role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(roleVal(role)) + '">'; } });
+      h += '<h3>Who\'s doing what</h3>' + cr.box + '<div class="grid2">' + cr.rows + '</div>' + cr.hidden;
     }
     return h + '<div class="row"><button class="btn go" type="submit" id="cs-submit">' + I('play') + 'Start the run</button><button class="mini" type="button" data-act="close-overlay">Cancel</button><span class="small">This step is checked when it completes.</span></div></form></div></div>';
   }
@@ -291,7 +314,7 @@
       (snap.changed ? '<p class="notice warn" role="alert">' + esc(snap.changed) + '</p>' : '') +
       '<p>This run was linked after it started, so Flightdeck didn\'t record what it was passed. Link it if these are the values it was meant to get.</p><dl>' +
       names.map(function (n) { var v = snap.values[n]; return '<dt>' + esc(n) + '</dt><dd>' + (v === '' ? '<span class="small">(empty)</span>' : esc(v)) + ' <span class="small">· team value ' + esc(snap.teams[n]) + '</span></dd>'; }).join('') + '</dl>' +
-      (snap.empty ? '<p class="notice warn" role="status">' + esc(snap.empty.join(', ')) + (snap.empty.length > 1 ? ' aren\'t values' : ' isn\'t a value') + ' a team value can be, so this run can\'t be linked this way. Start a new run instead.</p>' : '') +
+      (snap.empty ? '<p class="notice warn" role="status">' + esc(K.capJoin(snap.empty)) + (snap.empty.length > 1 ? ' aren\'t values' : ' isn\'t a value') + ' a team value can be, so this run can\'t be linked this way. Start a new run instead.</p>' : '') +
       '<div class="row">' + (snap.empty ? '' : '<button class="btn go" type="button" data-act="link-child-confirm">Link it with these values</button>') + '<button class="mini" type="button" data-act="close-overlay">Cancel</button></div></div></div>';
     return h;
   }

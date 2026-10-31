@@ -285,4 +285,53 @@ rule('1.22.0 has its own release entry: Back and Forward and the builder\'s deta
   assert.ok(!/colour|cancelled|behaviour|\bAI\b|assistant/i.test(text), 'US English, and no tool named');
 });
 
+
+/* Two function declarations with one name in one scope: the later silently replaces the earlier everywhere in that scope
+   (2.11: a list heading's helper and the attachment reader's were both headOf, so a heading lookup got a Promise). */
+function dupDecls(src) {
+  const KW = /^(return|typeof|case|in|of|delete|void|new|throw|else|do|instanceof|yield|await)$/;
+  const scopes = [{ names: Object.create(null) }], stack = [], out = [];
+  let i = 0, line = 1, prev = null, prev2 = null, pendingFn = false;
+  const tok = (t) => { prev2 = prev; prev = t; };
+  while (i < src.length) {
+    const c = src[i];
+    if (c === '\n') { line++; i++; continue; }
+    if (/\s/.test(c)) { i++; continue; }
+    if (c === '/' && src[i + 1] === '/') { while (i < src.length && src[i] !== '\n') i++; continue; }
+    if (c === '/' && src[i + 1] === '*') { const e = src.indexOf('*/', i + 2); for (let k = i; k < e; k++) if (src[k] === '\n') line++; i = e + 2; continue; }
+    if (c === '"' || c === "'" || c === '`') {
+      i++; while (i < src.length && src[i] !== c) { if (src[i] === '\\') i++; else if (src[i] === '\n') line++; i++; }
+      i++; tok('str'); continue;
+    }
+    if (c === '/' && !(prev && (/^[\w$]+$/.test(prev) && !KW.test(prev) || prev === ')' || prev === ']' || prev === 'str'))) {
+      i++; let cls = false;
+      while (i < src.length && (cls || src[i] !== '/')) { if (src[i] === '\\') i++; else if (src[i] === '[') cls = true; else if (src[i] === ']') cls = false; i++; }
+      i++; while (/[a-z]/.test(src[i] || '')) i++; tok('str'); continue;
+    }
+    const w = /^[A-Za-z_$][\w$]*|^\d[\w.]*/.exec(src.slice(i, i + 200));
+    if (w) {
+      const t = w[0];
+      if (prev === 'function' && /^[A-Za-z_$]/.test(t) && (prev2 === null || prev2 === ';' || prev2 === '{' || prev2 === '}')) {
+        const s = scopes[scopes.length - 1];
+        if (s.names[t]) out.push({ name: t, first: s.names[t], line: line }); else s.names[t] = line;
+      }
+      if (t === 'function') pendingFn = true;
+      i += t.length; tok(t); continue;
+    }
+    if (c === '{') { if (pendingFn) { scopes.push({ names: Object.create(null) }); stack.push('fn'); pendingFn = false; } else stack.push('blk'); }
+    else if (c === '}') { if (stack.pop() === 'fn') scopes.pop(); }
+    i++; tok(c);
+  }
+  if (stack.length) throw new Error('unbalanced braces: ' + stack.length + ' open');
+  return out;
+}
+rule('no source file declares two functions with one name in one scope', () => {
+  const sample = "function a() {}\nfunction b() { function a() {} var s = '{ function b() {}', r = /}{/g; /* function b() {} */ }\n" +
+    "var o = { a: function a() {} };\nif (x) { y(); }\nfunction a() { return 1 / 2; }\n";
+  assert.deepStrictEqual(dupDecls(sample).map(d => [d.name, d.first, d.line]), [['a', 1, 5]], 'the check finds a real repeat, and only that');
+  const walk = d => fs.readdirSync(d, { withFileTypes: true }).flatMap(e => e.isDirectory() ? walk(path.join(d, e.name)) : e.name.endsWith('.js') ? [path.join(d, e.name)] : []);
+  const found = walk(path.join(ROOT, 'src')).flatMap(f => dupDecls(fs.readFileSync(f, 'utf8')).map(d => path.relative(ROOT, f) + ': ' + d.name + ' (lines ' + d.first + ' and ' + d.line + ')'));
+  assert.deepStrictEqual(found, []);
+});
+
 run();

@@ -50,7 +50,7 @@ rule('Process page, not its owner: Corrections and Skills are one closed line ea
   assert.ok(/<summary><h2 id="fx-h" tabindex="-1">[\s\S]{0,400}?Corrections · \d+ open<\/h2>[\s\S]{0,80}?Review[\s\S]{0,40}?<\/summary>/.test(html), 'one line: Corrections · N open, Review');
   assert.ok(!shown(html, /Copy correction brief/) && !shown(html, /data-act="corr-review"/) && inHtml(html, /data-act="corr-review"/), 'its body is on the page, closed');
   assert.ok(folded(html, 'sk:release'), 'skills folded');
-  assert.ok(/<summary><h2 id="sk-h">[\s\S]{0,300}?Skills · 2 · 2 need attention<\/h2><\/summary>/.test(html), 'one line with the count and what needs an update');
+  assert.ok(/<summary><h2 id="sk-h" tabindex="-1">[\s\S]{0,300}?Skills · 2 · 2 need attention<\/h2><\/summary>/.test(html), 'one line with the count and what needs an update');
   assert.ok(!shown(html, /Ready for a skill\?/) && inHtml(html, /Ready for a skill\?/) && !shown(html, /needs update/), 'readiness and the list are inside it');
   assert.ok(html.indexOf('data-disc="sk:release"') > html.indexOf('id="pr-h"'), 'at the bottom of the side column');
 });
@@ -119,7 +119,7 @@ rule('Process page: with no skills and no clean runs yet, the fold says so for s
   const app = boot(); await app.tick(60);
   app.choose('person-casey'); await app.tick(); app.click('open-process', 'jira-cleanup'); await app.tick();
   const html = app.html();
-  assert.ok(/<summary><h2 id="sk-h">[\s\S]{0,300}?Skills · none yet \(\d of 3 clean runs\)<\/h2><\/summary>/.test(html), html.slice(html.indexOf('sk-h') - 200, html.indexOf('sk-h') + 300));
+  assert.ok(/<summary><h2 id="sk-h" tabindex="-1">[\s\S]{0,300}?Skills · none yet \(\d of 3 clean runs\)<\/h2><\/summary>/.test(html), html.slice(html.indexOf('sk-h') - 200, html.indexOf('sk-h') + 300));
 });
 
 /* A blank new process starts with no steps (2.2.1): one typed into its open Add a step box. */
@@ -154,7 +154,7 @@ function exampleFolder() {
   (function walk(d) { fs.readdirSync(d).forEach(f => { const q = path.join(d, f); if (fs.statSync(q).isDirectory()) walk(q); else files[path.relative(root, q).split(path.sep).join('/')] = fs.readFileSync(q, 'utf8'); }); })(root);
   return files;
 }
-const todos = html => [...html.matchAll(/<li class="todo ([\w ]+)"><div><b>([^<]*)<\/b>/g)].map(m => m[1] + ': ' + m[2].replace(/&quot;/g, '"').replace(/&#39;/g, '\''));
+const todos = html => [...html.matchAll(/<li class="todo ([\w ]+)"[^>]*><div><b[^>]*>([^<]*)<\/b>/g)].map(m => m[1] + ': ' + m[2].replace(/&quot;/g, '"').replace(/&#39;/g, '\''));
 async function joined(who, edit) {
   const files = exampleFolder(); if (edit) edit(files);
   const app = boot({ picker: folderHandle('Team', files), indexedDB: memoryIDB(), firstRun: true }); await app.tick(60);
@@ -326,7 +326,8 @@ rule('Finish: End as Canceled on screen, while the run file keeps Cancelled; the
   const html = app.html();
   assert.ok(shown(html, /Ended: Canceled/) && !shown(html, /Cancelled/), 'the receipt says Canceled');
   assert.ok(shown(html, /Copy it into your ticket, or take a screenshot/), 'the receipt\'s eyebrow');
-  assert.ok(/Ended: Cancelled/.test(app.el('receipt-text').textContent || between(html, 'id="receipt-text"', '</pre>')), 'the receipt\'s text keeps the stored word');
+  const pre = app.el('receipt-text'); try { app.click('copy-receipt'); } catch (e) { /* no createRange in the harness */ }
+  assert.ok(/Ended: Cancelled/.test(pre.textContent), 'the receipt\'s text keeps the stored word');
   void key;
 });
 

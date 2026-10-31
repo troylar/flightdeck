@@ -50,6 +50,11 @@ PF.util = (function () {
     return s;
   }
 
+  /* The key of the nth item sharing one signature: the signature for the first, sig#n after, with every # and \ in the
+     signature escaped, so a key reads back to one (signature, n) only: a literal "same#2" is never the second "same". */
+  function nthKey(s, n) { s = String(s); if (/[\\#]/.test(s)) s = s.replace(/[\\#]/g, '\\$&'); return n > 1 ? s + '#' + n : s; }
+  /* nthKey read back: { s, n }. */
+  function nthOf(k) { var m = /^((?:[^\\#]|\\[\s\S])*)(?:#(\d+))?$/.exec(String(k)); return m ? { s: m[1].replace(/\\([\s\S])/g, '$1'), n: m[2] ? +m[2] : 1 } : { s: String(k), n: 1 }; }
   /* FNV-1a, 32-bit, as 8 hex characters. Identifies content; not for security. */
   function hash(str) {
     var h = 0x811c9dc5;
@@ -195,8 +200,22 @@ PF.util = (function () {
     return b >= 0.9 * DRAFT_BYTES ? String(Math.round(b / 1048576 * 100) / 100) + ' of 1 MB' : '';
   }
 
-  return { DRAFT_BYTES: DRAFT_BYTES, utf8Bytes: utf8Bytes, draftTooBig: draftTooBig, draftSize: draftSize, drift: drift, esc: esc, timeOnDayIn: timeOnDayIn, safeUrl: safeUrl, mdInline: mdInline, mdBlock: mdBlock, slug: slug, randomId: randomId, hash: hash,
+  return { DRAFT_BYTES: DRAFT_BYTES, utf8Bytes: utf8Bytes, draftTooBig: draftTooBig, draftSize: draftSize, drift: drift, esc: esc, timeOnDayIn: timeOnDayIn, safeUrl: safeUrl, mdInline: mdInline, mdBlock: mdBlock, slug: slug, randomId: randomId, hash: hash, nthKey: nthKey, nthOf: nthOf,
     hm: hm, when: when, day: day, dueWords: dueWords, localDateTime: localDateTime, clock: clock, duration: duration, timeToday: timeToday };
+})();
+/* Name order for the lists people scan by name (2.11): numbers in a name compare as numbers, so Process 2 comes before
+   Process 10, and case and accents don't count. Names that still compare equal fall back to their exact text, so equal-looking
+   names always come in the same order. Views sort copies with it; files, the CLI and outside apps keep their own order. */
+PF.text = (function () {
+  'use strict';
+  var coll = null;
+  try { coll = typeof Intl !== 'undefined' && Intl.Collator ? new Intl.Collator('en', { numeric: true, sensitivity: 'base' }) : null; } catch (e) { coll = null; }
+  function exact(a, b) { return a < b ? -1 : a > b ? 1 : 0; }
+  function natural(a, b) {
+    a = String(a == null ? '' : a); b = String(b == null ? '' : b);
+    return (coll ? coll.compare(a, b) : 0) || exact(a, b);
+  }
+  return { natural: natural };
 })();
 /* Counts of the work done (2.5.0): tests read them, so what a refresh or a screen costs is a number, the same on every computer. */
 /* plain: every index answers by a scan from the start, as before 2.5.0, so a test can compare a screen drawn both ways. */

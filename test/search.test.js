@@ -138,7 +138,10 @@ rule('Search: results are grouped by type, each with somewhere to go, and the co
   const runs = res.groups.filter(g => g.kind === 'run')[0];
   assert.strictEqual(runs.items[0].id, 'run:hotfix/r2', 'the open run first among equals');
   const n = res.groups.filter(g => g.kind === 'note')[0].items[0];
-  same(n.target, { view: 'run', run: 'release/r1', step: 'pods', note: 'n1' });
+  /* A note is named by its id and its whole content (2.11): the anchor, and where it stands among notes sharing its id. */
+  const { anchor, ...where } = n.target;
+  same(where, { view: 'run', run: 'release/r1', step: 'pods', note: 'n1', noteAt: 1, same: 1, rank: 0 });
+  assert.ok(/"id":"n1"/.test(anchor) && /"text":"Deploy waited for the backup"/.test(anchor), anchor);
   assert.ok(kinds(S.query(ix, 'folder health')).indexOf('page') >= 0, 'pages of the app are found too');
 });
 

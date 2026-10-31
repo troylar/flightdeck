@@ -294,4 +294,53 @@ rule('Five hundred people: each draw names everyone once per list, and Settings,
   assert.ok(rows <= 2 * 500 * c.renders, 'people rows read for permissions ' + rows + ' ≤ 2 × people per draw');
 });
 
+rule('Checklists and Skills for 200 processes draw a page: rows are built only for the 50 drawn, and Find narrows over all of them', async () => {
+  const { app } = await bigApp();
+  const procs = new Set(Object.keys(app.fs.files).map(p => (/^(?:publications|drafts)\/([^/.]+)/.exec(p) || [])[1]).filter(Boolean)).size;
+  assert.ok(procs >= 200, 'set-up: ' + procs + ' processes');
+  app.PF.perf.reset(); app.click('nav', 'processes'); await app.tick(10);
+  const renders = count(app, 'render'), rows = count(app, 'procs.rows');
+  assert.ok(renders >= 1 && rows <= 50 * renders, 'process rows built ' + rows + ' ≤ 50 per draw (' + renders + ' draws)');
+  assert.strictEqual((app.html().match(/<li><button data-act="open-process"/g) || []).length, 50);
+  app.set('find-processes', 'proc-19'); app.input('find-processes', 'proc-19'); await app.tick(5);
+  assert.ok((app.html().match(/<li><button data-act="open-process"/g) || []).length >= 10, 'Find reaches past the first page');
+  app.click('find-clear', 'processes'); await app.tick(5);
+  app.PF.perf.reset(); app.click('nav', 'skills'); await app.tick(10);
+  assert.ok(count(app, 'skills.rows') <= 3 * 50 * count(app, 'render'), 'skill rows built only for the pages drawn');
+});
+
+rule('Home, Runs and Follow-ups for a 2,000-run folder draw a page: Needs you builds at most 10 rows a draw, Follow-ups and Planned draw at most 50', async () => {
+  const { app } = await bigApp();
+  app.choose('person-avery'); await app.tick(10);
+  app.PF.perf.reset(); app.click('nav', 'home'); await app.tick(10);
+  const renders = count(app, 'render');
+  assert.ok(renders >= 1 && count(app, 'home.todo') <= 10 * renders, 'Needs you rows built ' + count(app, 'home.todo') + ' ≤ 10 per draw (' + renders + ' draws)');
+  assert.ok((app.html().match(/<li class="todo (?!ack)/g) || []).length <= 10);
+  app.click('nav', 'runs'); await app.tick(10);
+  assert.ok((app.html().match(/<button class="card plan"/g) || []).length <= 51, 'Planned: a page');
+  app.click('nav', 'followups'); await app.tick(10); app.click('fu-filter', 'all'); await app.tick(10);
+  assert.ok((app.html().match(/<li class="fu[ "]/g) || []).length <= 51, 'Follow-ups: a page');
+  app.click('fu-filter', 'open'); await app.tick(5);
+});
+
+rule('A process page and its How runs go for a 2,000-run folder draw a page: versions, stages, corrections, Compare versions, the roles grid and Each phase', async () => {
+  const { app } = await bigApp();
+  app.choose('person-avery'); await app.tick(10);
+  const by = {}; Object.keys(app.fs.files).forEach(p => { const m = /^runs\/([^/]+)\/[^/]+\/run\.json$/.exec(p); if (m) by[m[1]] = (by[m[1]] || 0) + 1; });
+  const pid = Object.keys(by).sort((a, b) => by[b] - by[a])[0];
+  app.PF.perf.reset(); app.click('open-process', pid); await app.tick(10);
+  let h = app.html(), renders = count(app, 'render');
+  assert.ok(renders >= 1, 'set-up: ' + pid + ' with ' + by[pid] + ' runs drew');
+  assert.ok(count(app, 'stage.row') <= 50 * renders, 'stage rows built ' + count(app, 'stage.row') + ' ≤ 50 per draw');
+  assert.ok((h.match(/<li[^>]*id="ver-/g) || []).length <= 53, 'versions: a page');
+  assert.ok((h.match(/id="fxm-/g) || []).length <= 52, 'corrections: a page of members');
+  app.PF.perf.reset(); app.click('ptab', 'insights'); await app.tick(10);
+  h = app.html(); renders = count(app, 'render');
+  assert.ok(count(app, 'ins.rolecell') <= 50 * 20 * renders, 'role cells built ' + count(app, 'ins.rolecell') + ' ≤ 50 × 20 per draw');
+  assert.ok(count(app, 'ins.phase') <= 50 * renders, 'phase rows built ≤ 50 per draw');
+  assert.ok((h.match(/<th scope="row" id="ins_cmp_/g) || []).length <= 20, 'Compare versions: 20');
+  assert.ok((h.match(/<th scope="row" id="ins_who_/g) || []).length <= 50, 'the roles grid: 50 people');
+  app.click('ptab', 'overview'); await app.tick(5);
+});
+
 run();

@@ -18,16 +18,20 @@
   }
   function checklistPanel(ctx, p) {
     var st = ctx.state, shown = shownOf(p, st), restoring = (st.draftSaving || {})[ctx.fsKey + '\n' + p.id] === 'restore';
-    if (!shown && p.proposedOnly) return '';
-    if (!shown) return '<section class="panel"><p class="small">This checklist has nothing written down yet.</p><button class="btn go" data-act="ptab" data-id="edit">' + I('edit') + 'Write the checklist</button></section>';
+    /* With no version left, a Find for versions that has text or focus stays, over none (K.findOn, code review round 20). */
+    var noVer = shown || !K.findOn(st, 'map-ver', false) ? '' : '<section class="panel"><div class="row">' + K.select(st, 'map-ver', [], '', { attrs: ' class="ver-pick" data-bound', noun: 'version' }).box + '</div></section>';
+    if (!shown && p.proposedOnly) return noVer;
+    if (!shown) return noVer + '<section class="panel"><p class="small">This checklist has nothing written down yet.</p><button class="btn go" data-act="ptab" data-id="edit">' + I('edit') + 'Write the checklist</button></section>';
     var all = p.all || [], hasDraft = p.draft && (p.draftChanged || !p.latest), gone = (p.broken || []).filter(function (b) { return PF.publish.versionOf(b.folder); });
     var cur = shown.draft ? 'draft' : shown.pub.folder, view = st.clView === 'plan' || st.clView === 'md' ? st.clView : 'list';
-    var opts = (hasDraft ? '<option value="draft"' + (cur === 'draft' ? ' selected' : '') + '>Draft (not published)</option>' : '') +
-      all.map(function (v) { return '<option value="' + esc(v.folder) + '"' + (v.folder === cur ? ' selected' : '') + '>v' + v.info.version + (v === p.latest ? ' (current)' : '') + ' · ' + esc(v.info.changes.slice(0, 50)) + '</option>'; }).join('') +
-      /* Versions in the folder that can't be shown or run here (still syncing, damaged, or too new for this copy) say why. */
-      gone.map(function (b) { return '<option value="" disabled>v' + PF.publish.versionOf(b.folder) + ' · can\'t be used here: ' + esc(String(b.why).slice(0, 200)) + '</option>'; }).join('');
+    /* Every version, newest first, 50 at a time with Find past 50 (K.select). Versions in the folder that can't be shown or run
+       here (still syncing, damaged, or too new for this copy) say why, after them. A single version is just named, unless its
+       Find has text or focus (K.findOn): a newer read leaving one version never takes away the box in use (code review round 20). */
+    var verItems = all.map(function (v) { return { v: v.folder, t: 'v' + v.info.version + (v === p.latest ? ' (current)' : '') + ' · ' + v.info.changes.slice(0, 50), place: v.folder }; })
+      .concat(gone.map(function (b, i) { return { v: '', t: 'v' + PF.publish.versionOf(b.folder) + ' · can\'t be used here: ' + String(b.why).slice(0, 200), place: b.folder, disabled: true, key: i }; }));
+    var verSel = K.select(st, 'map-ver', verItems, cur, { attrs: ' class="ver-pick" data-bound', lead: hasDraft ? '<option value="draft"' + (cur === 'draft' ? ' selected' : '') + '>Draft (not published)</option>' : '', noun: 'version' });
     var h = '<section class="panel mapview" aria-labelledby="cl-h"><div class="row between"><h2 id="cl-h" tabindex="-1" style="margin:0">' + (shown.draft ? 'The draft' : 'The checklist') + '</h2>' +
-      '<div class="row">' + (all.length + (hasDraft ? 1 : 0) + gone.length > 1 ? '<label class="sr" for="map-ver">Version to show</label><select id="map-ver" class="ver-pick" data-bound>' + opts + '</select>' : '<span class="small">' + (shown.draft ? 'Draft' : 'v' + shown.pub.info.version) + '</span>') +
+      '<div class="row">' + (K.findOn(st, 'map-ver', all.length + (hasDraft ? 1 : 0) + gone.length > 1) ? verSel.box + '<label class="sr" for="map-ver">Version to show</label>' + verSel.select + verSel.more : '<span class="small">' + (shown.draft ? 'Draft' : 'v' + shown.pub.info.version) + '</span>') +
       /* One switch for the three ways to see the same version: the checklist, its flight plan, or its Markdown source. */
       '<div class="seg" role="group" aria-label="Show as">' + [['list', 'Checklist'], ['plan', 'Flight plan'], ['md', 'Markdown']].map(function (x) { return '<button type="button" data-act="flight" data-id="' + x[0] + '" aria-pressed="' + (view === x[0]) + '">' + x[1] + '</button>'; }).join('') + '</div>' +
       (restoring ? '<span class="small" role="status">Restoring…</span>' : shown.current ? '<button class="btn" data-act="ptab" data-id="edit">' + I('edit') + ((p.editing || []).length ? 'Edit anyway' : 'Edit') + '</button>' : '<button class="btn" data-act="restore-draft" data-id="' + esc(shown.pub.folder) + '">Restore as draft</button>') + '</div></div>';
@@ -106,7 +110,7 @@
     var panes = {
       selected: form || '<div class="ob-nosel"><p><b>Nothing selected.</b> Choose a step, lane, phase or gate in the outline, or Checklist details, to change it here.</p>' +
         '<ul class="ob-sample" aria-hidden="true"><li class="s-ph">Phase</li><li class="s-st on">' + I('check') + 'A step, selected</li><li class="s-st">' + I('check') + 'Another step</li><li class="s-gt">Gate</li></ul></div>',
-      checks: (dirty && !builder ? V.changedLines(ed.base, text) : '') + '<h2 class="fpe-ph">' + (nb ? 'Won\'t publish yet' : 'Checks') + '</h2>' + V.checkList(c) +
+      checks: (dirty && !builder ? V.changedLines(ed.base, text) : '') + '<h2 class="fpe-ph">' + (nb ? 'Won\'t publish yet' : 'Checks') + '</h2>' + V.checkList(c, ctx.state, 'checks-ed') +
         '<p class="small">Saving never publishes. When it\'s ready, choose Save draft, then Review &amp; publish.</p><p class="small">The full format, every step type and its fields: <button class="link" data-act="open-types">Step types</button>. Or ask your AI assistant: <code>/flightdeck-edit-checklist</code>.</p>',
       preview: map.phases.length ? '<div class="mapview">' + V.mapPreview(map, (ctx.data.stepTypes || {}).types, p.skills, null, PF.corrections.openCounts(V.fixesOf(ctx, p)), hl) + '</div>' : '<p class="small">Add a phase to see it here.</p>'
     };
@@ -130,11 +134,14 @@
     var C = PF.corrections, open = V.fixesOf(ctx, p).filter(function (g) { return g.status === 'open'; });
     if (!open.length) return '';
     var o = PF.outline.parse(text), on = !ctx.state.disc || ctx.state.disc['md-corr'] !== false;
-    return '<details class="md-corr" data-disc="md-corr"' + (on ? ' open' : '') + '><summary class="small">Open corrections · ' + open.length + '</summary><ul class="small">' + open.map(function (g) {
+    /* 50 at a time (2.11): each one's line is looked up only when it's drawn. */
+    var row = function (g) {
       var s = g.target.step && o.steps.filter(function (x) { return x.id === g.target.step; })[0], ph = !s && (g.target.gate ? o.phases.filter(function (x) { return x.gate && x.gate.id === g.target.gate; })[0] : g.target.phase && o.phases.filter(function (x) { return x.id === g.target.phase; })[0]);
       var at = s ? s.line : ph && g.target.gate ? ph.gate.line : ph ? ph.line : -1, name = s ? s.text : ph && g.target.gate ? 'Gate: ' + ph.gate.title : ph ? 'Phase: ' + ph.title : C.targetName(g);
-      return '<li><span class="md-corr-t">' + esc(C.OP_LABEL[g.change.op]) + ': ' + esc(name) + '</span>' + (at >= 0 ? '<button type="button" class="linkish" data-act="corr-goto-line" data-id="' + (at + 1) + '">Go to line ' + (at + 1) + '</button>' : '<span>Not in the draft</span>') + '</li>';
-    }).join('') + '</ul></details>';
+      return '<li id="' + esc('mdc-' + g.id) + '" tabindex="-1"><span class="md-corr-t">' + esc(C.OP_LABEL[g.change.op]) + ': ' + esc(name) + '</span>' + (at >= 0 ? '<button type="button" class="linkish" data-act="corr-goto-line" data-id="' + (at + 1) + '">Go to line ' + (at + 1) + '</button>' : '<span>Not in the draft</span>') + '</li>';
+    };
+    return '<details class="md-corr" data-disc="md-corr"' + (on ? ' open' : '') + '><summary class="small">Open corrections · ' + open.length + '</summary>' +
+      K.list(ctx.state, 'md-corr:' + p.id, open, { keyOf: function (g) { return g.id; }, focusOf: function (k) { return K.byId('mdc-' + k); }, draw: function (shown) { return '<ul class="small">' + shown.map(row).join('') + '</ul>'; } }) + '</details>';
   }
 
   /* ---------- a new process ---------- */
@@ -149,7 +156,7 @@
       var err = f.err && f.err.box === 'np-' + id ? f.err.msg : '';
       return '<label class="field" for="np-' + id + '">' + label + (hint ? ' <span class="small">' + hint + '</span>' : '') + '<input id="np-' + id + '" maxlength="120" value="' + esc(val || '') + '"' + (extra || '') + (err ? ' aria-invalid="true" aria-describedby="ferr-np-' + id + '"' : '') + '></label>' + (err ? '<p class="ferr" id="ferr-np-' + id + '" role="alert">' + esc(err) + '</p>' : '');
     };
-    var people = ctx.data.people.filter(function (p) { return !p.inactive; });
+    var people = PF.people.sorted(ctx).filter(function (p) { return !p.inactive; });
     var title = typed.title != null ? typed.title : f.title || '', ownId = typed.id != null ? typed.id : f.id || '', file = String(ownId).trim().toLowerCase() || fileIdOf(title);
     var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">New checklist</div><h1 id="page-h" tabindex="-1">Write down how something is done</h1></div></div>' +
       '<form class="panel stack" id="new-process-form" data-scope="new-process">' +
@@ -189,15 +196,15 @@
       '<span class="row"><span class="small">' + (uses ? 'in ' + uses + ' checklist' + (uses === 1 ? '' : 's') : 'not used yet') + '</span>' + (team ? '<button class="mini" data-act="edit-type" data-id="' + esc(t.id) + '">' + I('edit') + 'Edit</button>' : '<button class="mini" data-act="copy-type" data-id="' + esc(t.id) + '">Copy to a team type</button>') + '</span></div>' +
       (t.hint ? '<div class="small">' + esc(t.hint) + '</div>' : '') +
       '<details data-disc="' + esc(key) + '"' + (open ? ' open' : '') + '><summary class="small">What it asks for</summary><p class="small">In a checklist: <code>{' + esc(t.id) + '}</code></p><div class="tcols">' +
-      '<div><div class="small"><b>In the checklist</b></div>' + list(fields.map(function (f) { var d = t.fields[f]; return '<li><code>' + esc(f) + '</code> ' + esc(d.label) + ' · ' + esc(d.kind) + (d.required ? ', usually filled in' : '') + (d.requiredWhen ? ', when ' + esc(JSON.stringify(d.requiredWhen).replace(/[{}"]/g, '')) : '') + (d.options ? ': ' + esc(d.options.join(' / ')) : '') + '</li>'; })) + '</div>' +
-      '<div><div class="small"><b>When it\'s checked</b></div>' + list(rec.map(function (d) { return '<li><code>' + esc(d.name) + '</code> ' + esc(d.label) + ' · ' + esc(d.kind) + (d.options ? ': ' + esc(d.options.join(' / ')) : '') + (d.when ? ', when ' + esc(JSON.stringify(d.when).replace(/[{}"]/g, '')) : '') + '</li>'; })) + '</div></div></details></li>';
+      '<div><div class="small"><b>In the checklist</b></div>' + list(fields.map(function (f) { var d = t.fields[f]; return '<li><code>' + esc(f) + '</code> ' + esc(d.label) + ' · ' + esc(d.kind) + (d.required ? ', usually filled in' : '') + (d.requiredWhen ? ', when ' + esc(JSON.stringify(d.requiredWhen).replace(/[{}"]/g, '')) : '') + (d.options ? ': ' + esc(K.capJoin(d.options, null, ' / ', 'type-opts')) : '') + '</li>'; })) + '</div>' +
+      '<div><div class="small"><b>When it\'s checked</b></div>' + list(rec.map(function (d) { return '<li><code>' + esc(d.name) + '</code> ' + esc(d.label) + ' · ' + esc(d.kind) + (d.options ? ': ' + esc(K.capJoin(d.options, null, ' / ', 'type-opts')) : '') + (d.when ? ', when ' + esc(JSON.stringify(d.when).replace(/[{}"]/g, '')) : '') + '</li>'; })) + '</div></div></details></li>';
   }
   function types(ctx) {
     var st = ctx.state, team = (ctx.data.stepTypes || {}).types || {}, errs = (ctx.data.stepTypes || {}).errors || [];
     var uses = function (id) { return ctx.processes().filter(function (p) { return p.latest && M.usedTypes(p.latest.map).indexOf(id) >= 0; }).length; };
     if (st.typeForm && st.typeForm.fsKey === ctx.fsKey) return typeForm(ctx);
     var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">Library</div><h1 id="page-h" tabindex="-1">Step types</h1><div class="small">A step\'s type decides what it asks for. Add your own for tools the built-ins don\'t cover.</div></div><div class="row"><button class="btn go" data-act="new-type">' + I('edit') + 'New step type</button></div></div>';
-    if (errs.length) h += '<div class="notice warn"><span>' + errs.map(function (e) { return 'step-types/' + esc(e.file) + ': ' + esc(e.errors.join('; ')); }).join('<br>') + '</span></div>';
+    if (errs.length) h += '<div class="notice warn"><span>' + errs.map(function (e) { return 'step-types/' + esc(e.file) + ': ' + esc(K.capJoin(e.errors, null, '; ', 'type-errs')); }).join('<br>') + '</span></div>';
     var skipped = (ctx.data.stepTypes || {}).skipped || 0;
     if (skipped) h += '<div class="notice warn" role="status"><span><b>' + skipped + ' more step-type file' + (skipped === 1 ? ' wasn\'t' : 's weren\'t') + ' read.</b> Flightdeck reads the first 100 in <code>step-types/</code>, by name. Remove types nobody uses.</span><button class="mini" data-act="health">Folder health</button></div>';
     /* Organized like processes and skills: a tag filter, then each list as a tree by group. */
@@ -205,7 +212,7 @@
     var allT = chosen.slice(); teamTypes.forEach(function (t) { T.tagsOf(t).forEach(function (x) { if (allT.indexOf(x) < 0) allT.push(x); }); }); allT.sort();
     var has = function (t) { var tg = T.tagsOf(t); return chosen.every(function (c) { return tg.indexOf(c) >= 0; }); };
     var shownTeam = teamTypes.filter(has), shownBuilt = T.LIST.filter(has);
-    h += K.tagBar(allT, chosen, st.disc);
+    h += K.tagBar(allT, chosen, st.disc, st);
     h += '<section class="panel"><h2>Your team\'s types · ' + teamTypes.length + '</h2>' + (teamTypes.length ? (shownTeam.length ? K.tree(shownTeam, T.groupOf, function (t) { return typeCard(st, t, true, uses(t.id)); }, st.groupsOpen) : '<p class="small">None with these tags.</p>') : '<p class="small">None yet. Choose <b>New step type</b>, or copy a built-in below.</p>') + '</section>';
     /* The built-ins are a reference: one closed line, open once opened (or while a tag filter is on). */
     if (shownBuilt.length) h += '<details class="panel fold" data-disc="types-built"' + ((st.disc || {})['types-built'] || chosen.length ? ' open' : '') + '><summary><h2>Built-in types · ' + T.LIST.length + '</h2></summary>' + K.tree(shownBuilt, T.groupOf, function (t) { return typeCard(st, t, false, uses(t.id)); }, st.groupsOpen) + '</details>';
@@ -293,7 +300,7 @@
     var tagsPart = '<div class="tf-field"><label for="tf-tagadd">Tags</label><div class="tf-chipbox">' + (tags.length ? '<ul class="tf-chips" aria-label="Tags">' + tags.map(function (t) { return '<li class="tf-chip">#' + esc(t) + '<button type="button" data-act="tf-tag-del" data-id="' + esc(t) + '" aria-label="Remove tag ' + esc(t) + '">×</button></li>'; }).join('') + '</ul>' : '') +
       '<input id="tf-tagadd" maxlength="30" list="tf-tag-list" placeholder="Add a tag" data-enter="tf-tag-add"' + (tagErr.length ? ' aria-invalid="true"' : '') + ' aria-describedby="' + tagErr.map(function (n) { return 'tf-err-' + n; }).concat(['tf-tagadd-help']).join(' ') + '"></div><datalist id="tf-tag-list">' + tagsAll.filter(function (t) { return tags.indexOf(t) < 0; }).map(function (t) { return '<option value="' + esc(t) + '">'; }).join('') + '</datalist>' +
       errHtml('tf-tags', tags.length > 0) + '<p class="tf-help" id="tf-tagadd-help">Press Enter or type a comma; it\'s also added when you leave the box. Tags filter the Step types list.</p></div>';
-    var orgOpen = disc['tf-org'] || shown('tf-group', true).length || tagErr.length, orgSum = [String(d.group || '').trim()].filter(Boolean).concat(tags.map(function (t) { return '#' + t; })).join(' · ');
+    var orgOpen = disc['tf-org'] || shown('tf-group', true).length || tagErr.length, orgSum = [String(d.group || '').trim()].filter(Boolean).concat(K.capJoin(tags, function (t) { return '#' + t; }, ' · ', 'tf-tags')).filter(Boolean).join(' · ');
     h += '<div class="fpe-panes tf-panes"' + V.paneAttr(ctx, ['tf']) + '><section class="fpe-pane tf-formpane" aria-label="Step type"' + behind + '><form class="tf-form stack" id="type-form" data-scope="type-form" data-draft-kept novalidate>' +
       '<section class="panel tf-card" aria-labelledby="tf-basics-h"><h2 id="tf-basics-h">Basics</h2>' +
       field('tf-label', 'What people call it', '<input id="tf-label" maxlength="40" value="' + esc(d.label) + '"' + attrs('tf-label', !!String(d.label || '').trim(), true) + '>', 'Shown on every step of this type, like Change request.', !!String(d.label || '').trim()) +
@@ -361,7 +368,7 @@
       '<div class="tf-run" aria-label="Sample step"><div class="tf-run-head' + flash('type:icon') + '">' + I(d.icon || 'check') + '<b>What to do</b><span class="cat' + flash('type:label') + '">' + esc(String(d.label || '').trim() || 'Your type') + '</span></div>' +
       (d.hint ? '<p class="small tf-run-hint' + flash('type:hint') + '">' + esc(d.hint) + '</p>' : '') +
       (named.length ? '<dl class="tf-run-fields">' + named.map(function (r) { var fl = flash('field:' + r.k) ? ' class="flash"' : ''; return '<dt' + fl + '>' + esc(r.label || r.name) + '</dt><dd' + fl + '>' + esc(sample(r)) + '</dd>'; }).join('') + '</dl>' : '') +
-      (recs.length ? '<div class="tf-run-ev"><div class="small"><b>When it\'s checked</b></div>' + recs.map(function (r) { return '<div class="tf-fakefield' + flash('evidence:' + r.k) + '"><span class="small">' + esc(r.label || r.name) + '</span><span class="tf-fake' + (r.long ? ' long' : '') + '">' + esc(r.kind === 'choice' ? (optsOf(r).join(' / ') || 'Choose…') : r.kind === 'url' ? 'https://…' : '') + '</span></div>'; }).join('') + '</div>' : '') +
+      (recs.length ? '<div class="tf-run-ev"><div class="small"><b>When it\'s checked</b></div>' + recs.map(function (r) { return '<div class="tf-fakefield' + flash('evidence:' + r.k) + '"><span class="small">' + esc(r.label || r.name) + '</span><span class="tf-fake' + (r.long ? ' long' : '') + '">' + esc(r.kind === 'choice' ? (K.capJoin(optsOf(r), null, ' / ', 'tf-opts') || 'Choose…') : r.kind === 'url' ? 'https://…' : '') + '</span></div>'; }).join('') + '</div>' : '') +
       '<div class="row"><span class="tf-fakebtn">' + I('check') + 'Done</span></div></div>' +
       '<h3 class="tf-prevsub">As written in a checklist</h3><p class="tf-help">How you, a teammate or your AI assistant write a step of this type.</p><pre class="source">' + esc(line) + '</pre></aside></div></div>';
     return h;
@@ -440,12 +447,15 @@
     var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">Skill' + (s.version ? ' · version ' + esc(s.version) : '') + '</div><h1 id="page-h" tabindex="-1">' + I('spark') + ' ' + esc(s.name) + '</h1>' + (s.description ? '<div class="small">' + esc(s.description) + '</div>' : '') + K.tagChips(s.tags) + '</div>' +
       '<div class="row">' + (proc ? '<button class="btn" data-act="open-process" data-id="' + esc(proc.id) + '">Open ' + esc(proc.title) + '</button>' : '') + '</div></div>';
     h += '<section class="panel status-card" data-s="' + esc(hit.status.s) + '" aria-labelledby="ss-h"><h2 id="ss-h"><span class="pill ' + sw[0] + '">' + sw[1] + '</span></h2><p>' + esc(hit.status.text) + (sw[2] ? ' ' + esc(sw[2]) : '') + '</p>';
-    if (hit.status.s === 'update' && hit.status.changes) h += '<ul class="changes">' + hit.status.changes.map(function (c) {
-      if (c.change === 'order') return '<li><b>Order:</b> its steps now run in a different order.</li>';
-      if (c.change === 'inputs') return '<li><b>What it takes:</b> ' + esc(c.what.join('; ')) + '.</li>';
-      if (c.change === 'context') return '<li><b>Run details:</b> now ' + esc(c.to.join(', ') || 'none') + ' (was ' + esc(c.from.join(', ') || 'none') + ').</li>';
-      return '<li><b>' + esc(K.stepPlain(c.to || c.from, null)) + '</b>: ' + ({ changed: 'changed', removed: 'removed', added: 'new' })[c.change] + '</li>';
-    }).join('') + '</ul>';
+    /* What changed, 50 at a time in its own order (2.11); the update brief is built from all of it when copied. */
+    if (hit.status.s === 'update' && hit.status.changes) h += K.list(st, 'sk-changes', K.uniqKeys(hit.status.changes, function (c) { return c.change + '\n' + c.id; }).map(function (k, i) { return { c: hit.status.changes[i], k: 'skc-' + K.domKey(k) }; }), { draw: function (shown) { return '<ul class="changes">' + shown.map(function (r) {
+      var c = r.c, li = '<li id="' + r.k + '" tabindex="-1">';
+      if (c.change === 'order') return li + '<b>Order:</b> its steps now run in a different order.</li>';
+      /* Its role lists grow with the checklist: 50 names each and how many more (D10); the brief keeps them whole. */
+      if (c.change === 'inputs') return li + '<b>What it takes:</b> ' + esc(PF.signature.inputWords(c.ins.from, c.ins.to, function (l) { return K.capJoin(l, null, ', ', 'sk-inputs') || 'none'; }).join('; ')) + '.</li>';
+      if (c.change === 'context') return li + '<b>Run details:</b> now ' + esc(K.capJoin(c.to) || 'none') + ' (was ' + esc(K.capJoin(c.from) || 'none') + ').</li>';
+      return li + '<b>' + esc(K.stepPlain(c.to || c.from, null)) + '</b>: ' + ({ changed: 'changed', removed: 'removed', added: 'new' })[c.change] + '</li>';
+    }).join('') + '</ul>'; }, keyOf: function (r) { return r.k; }, focusOf: function (k) { return K.byId(k); } });
     if (hit.status.s === 'update' || hit.status.s === 'unaffected') h += '<div class="row"><button class="btn go" data-act="copy-brief" data-id="update:' + esc(s.file) + '">' + I('copy') + 'Copy the update brief</button></div>' + briefBoxOf(st, 'update:' + s.file);
     h += '</section>';
     h += '<section class="panel" aria-labelledby="sf-h"><h2 id="sf-h">About this skill</h2><dl class="facts">' +

@@ -43,6 +43,8 @@ function boot(opts) {
       el.focus = () => { if (opts.domFocus || opts.replace) document.activeElement = el; };
       /* The step form's group a box is drawn in (2.10), as closest('[data-obg]') finds it on a page. */
       el.closest = sel => {
+        /* opts.liveForms: the form or region a control is drawn in, its nearest enclosing data-scope, as a page finds it. */
+        if (opts.liveForms && sel === '[data-scope]') return liveScope(id);
         if (sel !== '[data-obg]') return null;
         const h = appEl._html || '', at = h.indexOf(' id="' + id + '"'); if (at < 0) return null;
         const re = /<(\/?)section\b([^>]*)>/g, stack = []; let m;
@@ -51,6 +53,15 @@ function boot(opts) {
         return g ? { dataset: { obg: g } } : null;
       };
       if (opts.replace) el.setSelectionRange = (a, b) => { el.selectionStart = a; el.selectionEnd = b; };
+      /* An attribute as the markup on screen draws it for this id (the screen, then the dialog), as a page's node has it. */
+      if (['app', 'top', 'overlay', 'live', 'tab-badge'].indexOf(id) < 0) el.getAttribute = k => {
+        for (const h of [els.app._html || '', els.overlay._html || '']) {
+          const at = h.indexOf(' id="' + id + '"'); if (at < 0) continue;
+          const m = new RegExp('\\s' + k + '="([^"]*)"').exec(h.slice(h.lastIndexOf('<', at), h.indexOf('>', at)));
+          return m ? m[1].replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&') : null;
+        }
+        return null;
+      };
     }
     return els[id];
   };
@@ -67,7 +78,53 @@ function boot(opts) {
     if (/^select/.test(name)) { const m = /<option[^>]*value="([^"]*)"[^>]*\sselected/.exec(html.slice(at, html.indexOf('</select>', at))); return m ? un(m[1]) : ''; }
     const m = /\svalue="([^"]*)"/.exec(html.slice(at, html.indexOf('>', at))); return m ? un(m[1]) : '';
   };
-  Object.defineProperty(appEl, 'innerHTML', { get() { return this._html; }, set(v) { this._html = String(v); inputs.forEach(id => { const d = drawnValue(this._html, id); if (d === null) return; els[id].value = d; if (opts.replace) { els[id].selectionStart = els[id].selectionEnd = 0; if (document.activeElement === els[id]) document.activeElement = document.body; } }); } });
+  /* opts.liveForms: every control drawn is a live node, as on a page, not only the ones a test typed in. A redraw makes each
+     anew as its markup draws it (its value the drawn one), so only the app's own code carries a value over; a select's value
+     is one of its options (setting another leaves it on none, ''), and querySelectorAll finds the [data-role] ones. A select
+     chooses as a browser's does: its options, as drawn, each defaultSelected by its selected attribute; the last of those is
+     chosen when drawn, else the first that isn't disabled; selectedIndex, an option's selected and the select's value follow
+     each other, and setting a value no option has chooses none (selectedIndex -1). Used to compare two builds' forms event
+     for event, and whether each lets the page be left (test/find-roles-diff.test.js). */
+  const LIVE_CTRL = /<(input|select|textarea)\b[^>]*\sid="([^"]*)"[^>]*>/g;
+  const liveIds = html => { const out = []; let m; LIVE_CTRL.lastIndex = 0; while ((m = LIVE_CTRL.exec(html))) out.push({ tag: m[1], id: unqh(m[2]), src: m[0], at: m.index }); return out; };
+  const unqh = v => v.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+  /* A select as drawn: its options (value, defaultSelected, disabled) and the one chosen, as a browser parses it. */
+  const selectOf = (html, at) => {
+    const body = html.slice(at, html.indexOf('</select>', at)), list = [];
+    for (const x of body.matchAll(/<option\b([^>]*)>([^<]*)/g)) {
+      const vm = /\svalue="([^"]*)"/.exec(x[1]);
+      list.push({ value: vm ? unqh(vm[1]) : unqh(x[2]).trim(), defaultSelected: /\sselected(=|\s|$)/.test(x[1]), disabled: /\sdisabled(=|\s|$)/.test(x[1]) });
+    }
+    let idx = -1; list.forEach((o, i) => { if (o.defaultSelected) idx = i; });
+    if (idx < 0) idx = list.findIndex(o => !o.disabled);
+    return { list, idx };
+  };
+  const optionNodes = el => el._sel.list.map((o, i) => ({
+    get value() { return o.value; }, get defaultSelected() { return o.defaultSelected; }, get disabled() { return o.disabled; }, get index() { return i; },
+    get selected() { return el._sel.idx === i; },
+    set selected(on) { if (on) el._sel.idx = i; else if (el._sel.idx === i) el._sel.idx = el._sel.list.findIndex(x => !x.disabled); }
+  }));
+  const liveScope = id => { const n = nodesOf(appEl).filter(x => x.id === id)[0]; const z = n && n.closest('[data-scope]'); return z ? { dataset: { scope: z._attrs['data-scope'] } } : null; };
+  const liveRegister = html => {
+    liveIds(html).forEach(c => {
+      const el = get(c.id); inputs.add(c.id);
+      el.tagName = c.tag.toUpperCase(); el.type = (/\stype="([^"]*)"/.exec(c.src) || [])[1] || (c.tag === 'input' ? 'text' : c.tag);
+      el.dataset = {}; c.src.replace(/\sdata-([\w-]+)="([^"]*)"/g, (x, k, v) => { el.dataset[k.replace(/-(\w)/g, (y, ch) => ch.toUpperCase())] = unqh(v); return x; });
+      el.hasAttribute = a => new RegExp('\\s' + a + '(=|\\s|>|$)').test(c.src);
+      el.multiple = c.tag === 'select' && el.hasAttribute('multiple');
+      if (c.tag === 'select') { el._sel = selectOf(html, c.at); el._opts = optionNodes(el); } else { el._sel = null; el._opts = undefined; }
+      /* The same id drawn as a select one time and a hidden field the next (a role past the page) is a new node each time. */
+      if (!el._live) {
+        el._live = true; let v = String(el.value == null ? '' : el.value);
+        Object.defineProperty(el, 'options', { configurable: true, get: () => (el._sel ? el._opts : undefined) });
+        Object.defineProperty(el, 'selectedIndex', { configurable: true, get: () => (el._sel ? el._sel.idx : undefined), set: x => { if (!el._sel) return; x = Math.trunc(Number(x)); el._sel.idx = x >= 0 && x < el._sel.list.length ? x : -1; } });
+        Object.defineProperty(el, 'value', { configurable: true,
+          get: () => (el._sel ? (el._sel.idx >= 0 ? el._sel.list[el._sel.idx].value : '') : v),
+          set: x => { x = x == null ? '' : String(x); if (el._sel) el._sel.idx = el._sel.list.findIndex(o => o.value === x); else v = x; } });
+      }
+    });
+  };
+  Object.defineProperty(appEl, 'innerHTML', { get() { return this._html; }, set(v) { this._html = String(v); if (opts.liveForms) liveRegister(this._html); inputs.forEach(id => { const d = drawnValue(this._html, id); if (d === null) return; if (!(opts.liveForms && els[id]._sel)) els[id].value = d; if (opts.replace) { els[id].selectionStart = els[id].selectionEnd = 0; if (document.activeElement === els[id]) document.activeElement = document.body; } }); } });
   const onScreen = id => appEl._html.indexOf('id="' + id + '"') >= 0;
   /* Thumbnail placeholders as nodes: the same node while it stays drawn, a new one once it's drawn again (as morph does). */
   const thumbs = new Map(), unq = v => v.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
@@ -99,6 +156,7 @@ function boot(opts) {
   appEl.querySelectorAll = sel => {
     if (sel === 'input, textarea, select') return controls(appEl);
     if (sel === '[data-thumb]') { const now = drawnThumbs(); [...thumbs.keys()].forEach(k => { if (now.indexOf(k) < 0) thumbs.delete(k); }); return now.map(k => { if (!thumbs.has(k)) thumbs.set(k, { nodeType: 1, dataset: { thumb: k } }); return thumbs.get(k); }); }
+    if (opts.liveForms && /\[data-role\]/.test(sel)) return liveIds(appEl._html || '').filter(c => /\sdata-role="/.test(c.src)).map(c => els[c.id]);
     return /input|textarea|select/.test(sel) ? [...inputs].filter(onScreen).map(id => els[id]) : [];
   };
   appEl.contains = el => !!el && (el.dataset && el.dataset.thumb != null && !el.id ? drawnThumbs().indexOf(el.dataset.thumb) >= 0 && thumbs.get(el.dataset.thumb) === el : inputs.has(el.id) && onScreen(el.id));
@@ -189,9 +247,9 @@ function boot(opts) {
     const nodes = [], stack = [], re = /<(\/?)([a-zA-Z][\w-]*)\b([^>]*)>/g; let m;
     while ((m = re.exec(html))) {
       const tag = m[2].toLowerCase();
-      if (m[1]) { for (let i = stack.length - 1; i >= 0; i--) if (stack[i].tag === tag) { stack.splice(i).forEach(n => { n._end = m.index; }); break; } continue; }
+      if (m[1]) { for (let i = stack.length - 1; i >= 0; i--) if (stack[i].tagName === tag.toUpperCase()) { stack.splice(i).forEach(n => { n._end = m.index; }); break; } continue; }
       const n = drawnNode(region, html, tag, attrsOf(m[3]), m.index, stack[stack.length - 1] || null);
-      nodes.push(n);
+      n._i = nodes.length; nodes.push(n);
       if (!VOID.test(tag) && !/\/$/.test(m[3])) stack.push(n); else n._end = m.index + m[0].length;
     }
     stack.forEach(n => { n._end = html.length; });
@@ -203,7 +261,7 @@ function boot(opts) {
     const re = /^([a-zA-Z][\w-]*|\*)?((?:#[\w-]+|\.[\w-]+|\[[\w-]+(?:="(?:[^"\\]|\\.)*")?\])*)$/, m = re.exec(c);
     if (!m) return null;
     const parts = { tag: m[1] && m[1] !== '*' ? m[1].toLowerCase() : null, ids: [], classes: [], attrs: [] };
-    m[2].replace(/#([\w-]+)|\.([\w-]+)|\[([\w-]+)(?:="((?:[^"\\]|\\.)*)")?\]/g, (x, id, cl, k, v) => { if (id) parts.ids.push(id); else if (cl) parts.classes.push(cl); else parts.attrs.push([k, v == null ? null : v.replace(/\\(.)/g, '$1')]); return x; });
+    m[2].replace(/#([\w-]+)|\.([\w-]+)|\[([\w-]+)(?:="((?:[^"\\]|\\.)*)")?\]/g, (x, id, cl, k, v) => { if (id) parts.ids.push(id); else if (cl) parts.classes.push(cl); else parts.attrs.push([k, v == null ? null : v.replace(/\\([0-9a-fA-F]{1,6}) ?|\\([\s\S])/g, (e, hex, c) => hex ? String.fromCodePoint(parseInt(hex, 16)) : c)]); return x; });
     return parts;
   }
   function matchOne(n, p) {
@@ -226,14 +284,15 @@ function boot(opts) {
   function drawnNode(region, html, tag, attrs, at, parent) {
     const ds = {}; Object.keys(attrs).forEach(k => { if (/^data-/.test(k)) ds[k.slice(5).replace(/-(\w)/g, (x, c) => c.toUpperCase())] = attrs[k]; });
     const n = {
-      tagName: tag.toUpperCase(), id: attrs.id || '', dataset: ds, _attrs: attrs, _region: region, _src: html, _at: at, _parent: parent, nodeType: 1,
+      tagName: tag.toUpperCase(), id: attrs.id || '', dataset: ds, _attrs: attrs, _region: region, _src: html, _at: at, _parent: parent, parentElement: parent, nodeType: 1,
       getAttribute: k => (k in attrs ? attrs[k] : null), hasAttribute: k => k in attrs, setAttribute(k, v) { attrs[k] = String(v); }, removeAttribute(k) { delete attrs[k]; },
       classList: { contains: c => (attrs.class || '').split(/\s+/).indexOf(c) >= 0, add() {}, remove() {} },
       focus() { document.activeElement = n; }, scrollIntoView() {}, getClientRects: () => [1], select() {}, setSelectionRange() {},
       // A typed box (an element the test made) is inside when its drawn node is.
       contains: o => { if (o && o._src === undefined && o.id) o = nodesOf(region).filter(x => x.id === o.id)[0]; return !!o && o._src === n._src && o._region === n._region && o._at >= n._at && o._at < n._end; },
       closest: sel => { for (let x = n; x; x = x._parent) if (matches(x, sel)) return x; return null; },
-      querySelectorAll: sel => nodesOf(region).filter(x => x !== n && n.contains(x) && matches(x, sel)),
+      // Its own elements only: those drawn after it and before its closing tag, as a browser searches only inside it.
+      querySelectorAll: sel => { const all = nodesOf(region), out = []; if (all[n._i] !== n) return all.filter(x => x !== n && n.contains(x) && matches(x, sel)); for (let i = n._i + 1; i < all.length && all[i]._at < n._end; i++) if (matches(all[i], sel)) out.push(all[i]); return out; },
       // opts.layout: a 1,000-pixel-wide page where a drawn width:N% is N% of its box, and animate() is recorded, not played.
       ...(opts.layout ? {
         clientWidth: 1000,
@@ -251,7 +310,8 @@ function boot(opts) {
     if (/^(input|textarea|select)$/.test(tag) && attrs.id) { const d = drawnValue(html, attrs.id); n.value = d == null ? '' : d; n.defaultValue = n.value; n.type = attrs.type || (tag === 'input' ? 'text' : tag); }
     return n;
   }
-  const drawn = (region, sel) => { try { return nodesOf(region).filter(x => matches(x, sel))[0] || null; } catch (e) { return null; } };
+  /* As a browser does, a selector that isn't text (a Promise: "[object Promise]") is a SyntaxError, never just no match. */
+  const drawn = (region, sel) => { if (sel && typeof sel === 'object') throw new SyntaxError('\'' + String(sel) + '\' is not a valid selector'); try { return nodesOf(region).filter(x => matches(x, sel))[0] || null; } catch (e) { return null; } };
   const drawnAnywhere = sel => [appEl, els.overlay, els.top].map(r => drawn(r, sel)).filter(Boolean)[0] || null;
   if (opts.domFocus) {
     const own = r => el => !!el && el._region === r && el._src === r._html;
@@ -340,7 +400,7 @@ function boot(opts) {
       form.slice(0, form.indexOf('>') + 1).replace(/\sdata-([\w-]+)="([^"]*)"/g, (m, k, v) => { ds[k.replace(/-(\w)/g, (x, c) => c.toUpperCase())] = unesc(v); });
       el.dataset = Object.assign(ds, dataset || {});
       const fields = [];
-      (form.match(/<input\b[^>]*>/g) || []).forEach(tag => { const fid = attr(tag, 'id'); if (!fid) return; if (!inputs.has(fid)) get(fid).value = attr(tag, 'value') || ''; if (attr(tag, 'data-detail') != null) fields.push({ id: fid, dataset: { detail: attr(tag, 'data-detail') } }); });
+      (form.match(/<input\b[^>]*>/g) || []).forEach(tag => { const fid = attr(tag, 'id'); if (!fid) return; if (!inputs.has(fid)) get(fid).value = attr(tag, 'value') || ''; if (attr(tag, 'data-detail') != null) fields.push({ id: fid, dataset: { detail: attr(tag, 'data-detail') } }); if (attr(tag, 'data-role') != null) fields.push({ id: fid, dataset: { role: attr(tag, 'data-role') } }); });
       (form.match(/<select\b[^>]*>[\s\S]*?<\/select>/g) || []).forEach(sel => { const tag = sel.slice(0, sel.indexOf('>') + 1), fid = attr(tag, 'id'), m = /<option value="([^"]*)" selected>/.exec(sel); if (!inputs.has(fid)) get(fid).value = m ? unesc(m[1]) : ''; if (attr(tag, 'data-role') != null) fields.push({ id: fid, dataset: { role: attr(tag, 'data-role') } }); });
       el.querySelectorAll = sel => fields.filter(f => sel === '[data-detail]' ? f.dataset.detail != null : sel === '[data-role]' ? f.dataset.role != null : false).map(f => ({ dataset: f.dataset, get value() { return els[f.id].value; } }));
       (listeners.submit || []).forEach(fn => fn({ target: el, preventDefault() {} }));

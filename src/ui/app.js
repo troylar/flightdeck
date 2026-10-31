@@ -123,6 +123,12 @@
       if (!pplBy || pplBy.list !== ps || pplBy.len !== ps.length) { var o = {}; ps.forEach(function (p) { o[p.id] = p; }); pplBy = { list: ps, len: ps.length, by: o }; }
       return pplBy.by;
     },
+    /* Everyone in name order (2.11), sorted once per draw for every picker on it; views filter it, never change it. */
+    peopleSorted: function () {
+      var ps = data.people;
+      if (!pplSorted || pplSorted.list !== ps || pplSorted.len !== ps.length) pplSorted = { list: ps, len: ps.length, out: PF.people.byName(ps) };
+      return pplSorted.out;
+    },
     run: function () { return findRun(state.runKey); },
     /* The runs a sign-off counts: every run shown, less those whose latest read failed or whose file is gone (their last copy
        stays on screen, but isn't what the folder holds), and none while the runs folder can't be read. */
@@ -147,6 +153,9 @@
     renameDeps: function (map, name) { return renameDeps(map, name); },
     latestPub: function (id) { var p = procFind(id); return p ? p.latest : null; },
     suggestRole: suggestRole,
+    /* What each role of the Start, Plan or test-run form being drawn held at the last redraw, as 2.10's selects carry it
+       (roleBoxes in process.js, code review round 16). */
+    roleCarry: function (scope) { return roleCarry(scope); },
     attachments: function (key, step) { return attachmentsFor(key, step); },
     /* What was typed on a step of the open run and not used yet: evidence, Fill in values, a note. */
     stepDraft: function (id) { return draftOf(state.runKey, id, false); },
@@ -165,6 +174,7 @@
     reports: function (r) { return reportsOf(r); },
     reportCur: function () { return repCur(); },
     repDraft: function (key) { return repDraft(key); },
+    repGone: function (r, stepId) { return repGone(r, stepId); },
     /* Runs this person records, with how many reports on each nobody has decided yet (Home). */
     reportsWaiting: function () { return reportsWaiting(); },
     corrections: function (pid) {
@@ -416,7 +426,10 @@
     var gone = sxGone(x.target);
     if (gone) { s.err = gone; sxSay(gone); state.overlayFocus = '#sx-q'; render(); return; }
     if (state.obPending || dirtyControl([app])) closeOverlay();
-    if (go(x.target) && x.target.view === 'process' && !x.target.mapVer) { state.focus = 'page-h'; render(); }
+    /* A result that names a place on the page (a decision's group, a version, a step) leaves focus to the reveal; only a
+       checklist itself focuses its page's heading (2.11). */
+    var t = x.target;
+    if (go(t) && t.view === 'process' && !t.mapVer && !t.group && !t.step && !t.decision) { state.focus = 'page-h'; render(); }
   }
   function sxMove(d) {
     var s = state.sx; if (!s || !s.flat || !s.flat.length) return;
@@ -457,6 +470,7 @@
     }, function () {});
   }
   var pplBy = { list: null, len: -1, by: null };
+  var pplSorted = null;
   var procCache = null, orphanSkills = [], fixMemo = Object.create(null), fuMemo = null, insMemo = Object.create(null), repMemo = Object.create(null), repCurMemo = null;
   /* A process by ID (2.5.0): one look in a map built once for each list processes() makes, keeping the first entry for an ID
      as the old filter()[0] did. */
@@ -554,7 +568,9 @@
       e.skills.push({ skill: x.skill, errors: x.errors, status: st });
       if (st.s === 'update' || st.s === 'missing' || st.s === 'unmatched') e.staleSkills++;
     });
-    procCache = Object.keys(by).map(function (k) { return by[k]; }).sort(function (a, b) { return a.category === b.category ? (a.title < b.title ? -1 : 1) : (a.category < b.category ? -1 : 1); });
+    /* Category, then title, by name (2.11): naturally and ignoring case, ties by ID. For the screen only; the CLI lists its own. */
+    var Nat = PF.text.natural;
+    procCache = Object.keys(by).map(function (k) { return by[k]; }).sort(function (a, b) { return Nat(a.category, b.category) || Nat(a.title, b.title) || Nat(a.id, b.id); });
     return procCache;
   }
 
@@ -1567,9 +1583,21 @@
   /* Re-render without losing what someone is typing or where their focus is. */
   function renderNow() {
     PF.perf.add('render');
+    /* What was just shown is this folder's: after a folder switch it's gone (gen), without the switch itself changing. */
+    if (state.justShown && state.justShown.gen !== gen) state.justShown = null;
+    if (state.noteShown && state.noteShown.gen !== gen) state.noteShown = null;
+    sentNotes();
+    justNotes();
+    if (state.find && state.find.gen !== gen) state.find = null;
+    if (state.justPlanned && state.justPlanned.gen !== gen) state.justPlanned = null;
+    /* What the Start, Plan or test-run form's roles held at the last redraw goes to this redraw only, as 2.10's page carries
+       its selects (roleCarry): none when the form is drawn afresh (planFormReset), and gone if this redraw doesn't draw it. */
+    carryPrev = state.planFormReset ? null : state.roleCarry; state.roleCarry = null;
     dropBatchRender();
     repHarvest();
-    procCache = null; pplBy = { list: null, len: -1, by: null }; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null;
+    corrHarvest();
+    procCache = null; pplBy = { list: null, len: -1, by: null }; pplSorted = null; fixMemo = Object.create(null); fuMemo = null; insMemo = Object.create(null); repMemo = Object.create(null); repCurMemo = null;
+    pruneUnapplied();
     var keep = {}, ae = document.activeElement, focusKey = null;
     /* What a person typed or ticked survives a redraw of the same thing: the same screen, run, step and open form. Moving to
        another step or form starts clean, so a note or a value never jumps to the wrong place. Hidden inputs are never carried. */
@@ -1578,7 +1606,26 @@
     /* Controls marked data-bound are drawn from state (the draft editor, the step-type form), so they're never carried over. */
     if (!state.planFormReset) app.querySelectorAll('input[id], textarea[id], select[id]').forEach(function (el) { if (el.type !== 'file' && el.type !== 'hidden' && !(el.hasAttribute && el.hasAttribute('data-bound'))) keep[el.id] = { v: el.value, c: el.checked, s: el.selectionStart, e: el.selectionEnd, box: el.type === 'checkbox' || (el.type === 'radio' && el.id.indexOf('opt-') === 0), scope: scopeOf(el) }; });
     state.planFormReset = false;
-    if (ae && (app.contains(ae) || topEl.contains(ae))) focusKey = ae.id ? '#' + ae.id : ae.dataset && ae.dataset.act ? '[data-act="' + ae.dataset.act + '"]' + (ae.dataset.id ? '[data-id="' + cssEsc(ae.dataset.id) + '"]' : '') : null;
+    /* A control without an id (a row's button) is found again inside its own row (actAt), never by its action alone, which
+       would land on the same button in another row; its row gone, focus goes to its list's heading (rowHead). */
+    var rowHead = null;
+    if (ae && (app.contains(ae) || topEl.contains(ae))) {
+      if (ae.id) focusKey = noteFocus(ae.id, /^[A-Za-z][\w-]*$/.test(ae.id) ? '#' + ae.id : PF.vk.byId(ae.id));
+      else {
+        var at = actAt(ae);
+        if (at) { rowHead = listHeadOf(ae); focusKey = at.row ? rowFocus(at.row, at.sel) : at.only ? at.sel : null; }
+      }
+    }
+    /* The thread note or correction that has focus (or holds it: its row's buttons) stays drawn by its exact anchor (one
+       note, 2.11), even when newer notes push it out of the page Show earlier reached. */
+    var heldLi = ae && ae.id && /^(tn|corr)-/.test(ae.id) ? ae : ae && ae !== document.body && ae.closest ? ae.closest('li[id]') : null;
+    state.noteHeld = focusKey && heldLi && /^(tn|corr)-/.test(heldLi.id) ? noteHold(heldLi.id) : null;
+    /* A list row with focus stays drawn while it has it, whatever a newer read sorts in above it (K.list); gone, focus goes to
+       its list's heading. Only for the folder it was drawn for. */
+    var heldAe = ae && ae !== document.body && holdGen === gen && (app.contains(ae) || topEl.contains(ae) || overlayEl.contains(ae)) ? ae : null, lostHead = null;
+    holdGen = gen;
+    var heldOut = null;
+    PF.vk.focusAt = heldAe ? { inRow: function (sel, other) { return rowHas(heldAe, sel, other); }, near: function (sel) { if (!heldOut) heldOut = outerRow(heldAe); return nearRow(heldAe, heldOut, sel); }, away: function (sel, other) { return awayFrom(heldAe, sel, other); }, lost: function () { if (!lostHead) lostHead = listHeadOf(heldAe); } } : null;
     var y = window.scrollY;
     renderTop();
     followDrafts();
@@ -1592,9 +1639,14 @@
     /* The first time, with only the examples to show, Home is the welcome: Start your team, Join, or Look around. */
     var welcome = ctx.welcome();
     var page = (welcome ? V.setup : PAGES[v] || V.home)(ctx), was = drawn;
+    carryPrev = null;
     /* In the editor, a practice open for this draft follows each change as it's applied, and where you are in it. */
     if (v === 'process' && state.ptab === 'edit') { var epx = currentProcess(); if (epx && prs[edKey(epx.id)]) { prFollow(epx); prTargetNow(epx); } }
+    /* A run's panes keep their scroll when a redraw replaces one showing the same step (on a phone the inspector is a sheet
+       that scrolls on its own, and a note brought into view in it must stay in view; 2.11). */
+    var panes = ['rw-list', 'rw-ins'].map(function (id) { var el = document.getElementById(id); return el ? { id: id, el: el, scope: el.getAttribute('data-scope'), top: el.scrollTop } : null; }).filter(Boolean);
     patch(app, page);
+    panes.forEach(function (w) { var el = document.getElementById(w.id); if (el && el !== w.el && w.top && el.getAttribute('data-scope') === w.scope && el.scrollTop !== w.top) el.scrollTop = w.top; });
     noteDrawn(page);
     repNoteDrawn(page);
     /* Boxes drafts own (evidence, Fill in, the note) are carried by their step's draft, never from another step or form. */
@@ -1615,11 +1667,18 @@
     typeEditorPage();
     /* The draft editor's text is only there in Markdown mode; in the builder, focus goes to the editor's heading instead. */
     if (state.focus === 'draft-editor' && !document.getElementById('draft-editor')) state.focus = 'ed-h';
+    var asked = state.focus, askedOv = state.overlayFocus, wins = state.focusWins; state.focusWins = false;
     var target = state.focus ? document.getElementById(state.focus) || app.querySelector(state.focus) || topEl.querySelector(state.focus) : focusKey ? app.querySelector(focusKey) || topEl.querySelector(focusKey) : null;
     /* The page someone was on went away (its skill was removed): focus goes to the way back, next to the message saying so. */
     if (!target && focusKey === '#page-h') target = document.getElementById('page-back');
     /* A row that had focus is gone (a change that arrived removed it) and no dialog is open: the editor's heading, never the page. */
     if (!target && !state.overlay && focusKey && /data-act="ob-sel/.test(focusKey)) target = document.getElementById('ed-h');
+    /* A list row that had focus is gone: its list's heading. */
+    if (!target && lostHead && !asked) target = app.querySelector(lostHead) || topEl.querySelector(lostHead);
+    /* A row's button whose row is gone, or whose row no longer has it: that list's heading, never another row's button. */
+    if (!target && rowHead && !asked) target = app.querySelector(rowHead) || topEl.querySelector(rowHead);
+    /* A heading taking focus (a row's, or a list's when its row went) can: it's drawn without a tab stop of its own. */
+    if (target && /^H[1-6]$/.test(target.tagName || '') && !target.hasAttribute('tabindex')) target.setAttribute('tabindex', '-1');
     /* A group of radios takes focus on its chosen option, else its first. */
     if (target && target.tagName === 'FIELDSET') target = target.querySelector('input:checked') || target.querySelector('input') || target;
     state.focus = null;
@@ -1632,13 +1691,18 @@
     /* A box opened prefilled puts the caret at the end, ready to edit. */
     if (target && state.focusEnd && target.setSelectionRange && typeof target.value === 'string') try { target.setSelectionRange(target.value.length, target.value.length); } catch (e) { /* not a text field */ }
     state.focusEnd = false;
+    /* An open pick or edit box takes focus when it opens, then keeps it as any control does, by its id: focus the person moved
+       elsewhere (Show more, a click) isn't pulled back by a later draw, and focus an action asked for wins (focusWins). */
     var pi = document.getElementById('pick-input') || document.getElementById('edit-input');
-    if (pi && document.activeElement !== pi) pi.focus({ preventScroll: true });
+    var piKey = pi ? [pi.id, state.view, state.runKey, state.processId, state.pick ? state.pick.kind + ':' + state.pick.id : '', state.edit || ''].join('|') : '';
+    if (pi && piKey !== lastPick && !wins && document.activeElement !== pi) pi.focus({ preventScroll: true });
+    lastPick = piKey;
     pinOffsets();
     if (window.scrollY !== y) window.scrollTo(0, y);
     /* An open dialog isn't rebuilt by background refreshes unless its content changed, so focus inside it stays put. */
     if (sxOpen()) sxRefresh();
     var ov = state.overlay ? state.overlay.html() : '';
+    PF.vk.focusAt = null;
     if (ov !== lastOverlay) {
       /* Typing in a dialog's search redraws it; focus and the caret go back to the same control. */
       var oa = document.activeElement, osel = oa && overlayEl.contains(oa) ? selectorOf(oa) : null, os = oa && oa.selectionStart;
@@ -1662,6 +1726,7 @@
     if (state.obRepend) { state.obRepend = false; obRepend(); }
     editorPage();
     runPage();
+    revealNow(asked, askedOv);
     fitPanes();
     sheet();
     prArrived();
@@ -1669,8 +1734,168 @@
     announce();
     tick();
     lsSet('filter', state.filter);
+    var nr = /^(run|finish|receipt)$/.test(state.view) && ctx.run();
+    notesSeen = nr ? { run: state.runKey, notes: nr._notes || [], diffs: answersOf(nr) } : null;
   }
-  var lastOverlay = '';
+  /* A focused note or correction row is that note, not its place among the notes sharing its id (2.11): after a newer read
+     moves its twins, focus follows the note by its whole content (PF.search.noteFind). A note that's gone, or can no longer
+     be told apart, leaves focus on the inspector's title (the page's heading off the run screen), never on another note. */
+  var notesSeen = null;
+  /* Each step's Done differently answer, as drawn: who, when and what (a one-off row's identity, 2.11). */
+  function answersOf(r) {
+    var o = Object.create(null);
+    Object.keys(r.steps || {}).forEach(function (k) { var d = r.steps[k] && r.steps[k].differently; if (d) o[k] = { by: d.by, at: d.at, note: d.note }; });
+    return o;
+  }
+  /* The one-off row (a Done differently answer with no correction, V.oneOffDom: a row id no note's can be) a drawn row id
+     names: { step, a (its answer as drawn) }. */
+  function oneOffAt(was, id) {
+    var pre = V.oneOffDom('');
+    if (!was || !was.diffs || id.indexOf(pre) !== 0) return null;
+    var sid = id.slice(pre.length), a = Object.prototype.hasOwnProperty.call(was.diffs, sid) ? was.diffs[sid] : null;
+    return a ? { step: sid, a: a } : null;
+  }
+  /* Whether the run still draws that answer as a one-off row: the same step, who, when and what. */
+  function oneOffNow(r, o) {
+    return PF.corrections.forRun(r, PF.run.mapOf(r), { at: true }).some(function (c) { return c.oneOff && c.step === o.step && c.by === o.a.by && c.at === o.a.at && c.happened === o.a.note; });
+  }
+  function noteFocus(id, key) {
+    var was = notesSeen, r = /^(run|finish|receipt)$/.test(state.view) && ctx.run(), S = PF.search;
+    if (!was || !r || was.run !== state.runKey || !/^(tn|corr)-/.test(id)) return key;
+    /* A one-off row is its answer: changed or gone, focus goes to the heading, never onto another answer in its place. */
+    var off = oneOffAt(was, id);
+    if (off) return oneOffNow(r, off) ? key : state.view === 'run' ? '#ins-h' : '#page-h';
+    if (was.notes === r._notes) return key;
+    var ats = S.noteAts(was.notes), old = null;
+    for (var i = 0; i < was.notes.length && !old; i++) {
+      var n = was.notes[i], corr = n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map';
+      if (id === (corr ? V.corrDomId(n.id, ats[i]) : V.noteDomId(n.step, S.noteKey(n.id, ats[i])))) old = n;
+    }
+    if (!old) return key;
+    var hit = S.noteFind(r._notes || [], keepNote(state.runKey, was.notes, old));
+    if (!hit) return state.view === 'run' ? '#ins-h' : '#page-h';
+    var hc = hit.n.kind === 'correction' || hit.n.kind === 'fix' || hit.n.kind === 'map';
+    return PF.vk.byId(hc ? V.corrDomId(hit.n.id, hit.k) : V.noteDomId(hit.n.step, hit.key));
+  }
+  /* Whether the row of a list's item (the element sel finds, as the page was drawn, and the row around it) holds el. A row
+     around it that also holds another item (other) of the same list isn't its row: the element itself is. A row drawn as
+     another element marks itself data-row, so focus on any control nested in it (a dropdown's Find box, its Show more
+     choices, a value's box) holds the row (code review round 13). */
+  var holdGen = null, ROW_SEL = 'li, tr, .card, .copyrow, .rep-card, .rr-rep, [data-row]';
+  function rowHas(el, sel, other) {
+    var t = null, o = null;
+    try { t = document.querySelector(sel); o = other ? document.querySelector(other) : null; } catch (e) { return false; }
+    if (!t) return false;
+    var row = t.closest ? t.closest(ROW_SEL) : null;
+    if (row && o && o !== t && row.contains(o)) row = null;
+    row = row || t;
+    return row === el || row.contains(el);
+  }
+  /* The outermost row around el (el itself when none). */
+  function outerRow(el) {
+    var r = el.closest ? el.closest(ROW_SEL) : null, up = null;
+    while (r && r.parentElement && (up = r.parentElement.closest(ROW_SEL))) r = up;
+    return r || el;
+  }
+  /* A quick look before rowHas, searching only around el, never the whole page: whether the element sel finds could be the
+     one whose row holds el. Any row holding el lies inside its outermost row (out), and an element that is its own row and
+     holds el is around it, so a no here is always a no for rowHas too. A list can have thousands of rows drawn last time. */
+  function nearRow(el, out, sel) {
+    try { return out.closest(sel) === out || !!out.querySelector(sel) || !!el.closest(sel); } catch (e) { return false; }
+  }
+  /* Whether el is outside the section that holds two of a list's rows (sel, other), so outside the list: one look, before
+     looking row by row. A section around one row only (a report card is one) isn't the list's. */
+  function awayFrom(el, sel, other) {
+    var t = null, o = null; try { t = document.querySelector(sel); o = other ? document.querySelector(other) : null; } catch (e) { return false; }
+    var sec = t && o && t.closest ? t.closest('section, aside, [role="dialog"], .panel') : null;
+    return !!sec && sec.contains(o) && sec !== el && !sec.contains(el);
+  }
+  /* The heading of the list el is in: the element naming its section, or the section's first heading with an id, else the
+     page's. */
+  function listHeadOf(el) {
+    var lab = el.closest && el.closest('section[aria-labelledby], [role="dialog"][aria-labelledby], details[aria-labelledby]'), id = lab && lab.getAttribute('aria-labelledby');
+    if (id && document.getElementById(id)) return PF.vk.byId(id);
+    var sec = el.closest && el.closest('section, aside, .panel'), h = sec && sec.querySelector('h1[id], h2[id], h3[id], h4[id]');
+    return h && h.id ? PF.vk.byId(h.id) : '#page-h';
+  }
+  /* Where a control with no id of its own is (2.11): sel, its action (data-act, with data-id when it has one), and row, the id
+     of the nearest element around it holding no other control with that action, so the control is found again in the same
+     row (a note's Make it a follow-up, never another note's). With no such row, only: it can be found by sel alone, either
+     the only one on the page, or told apart by its other data- attributes (sel then has them too), or the same command as
+     every other match (the same action on the same thing, drawn twice). Otherwise only is false: nothing tells it apart, and
+     focus goes to its list's heading. null for a control with no action. */
+  function actAt(el) {
+    if (!el || !el.dataset || !el.dataset.act) return null;
+    var sel = '[data-act="' + cssEsc(el.dataset.act) + '"]' + (el.dataset.id ? '[data-id="' + cssEsc(el.dataset.id) + '"]' : '');
+    for (var up = el.parentElement; up && up.nodeType === 1; up = up.parentElement) {
+      if (!up.id) continue;
+      var n = up.querySelectorAll ? up.querySelectorAll(sel).length : 0;
+      if (n === 1) return { sel: sel, row: up.id };
+      if (n > 1) break;
+    }
+    var matches = function (q) { var out = []; [app, topEl, overlayEl].forEach(function (r) { if (r && r.querySelectorAll) Array.prototype.push.apply(out, Array.prototype.slice.call(r.querySelectorAll(q))); }); return out; };
+    if (matches(sel).length <= 1) return { sel: sel, row: null, only: true };
+    var full = sel + dataSel(el), extra = Object.create(null);
+    /* A data- attribute the others have and it hasn't tells it apart too (a page's History beside a step's History of this step). */
+    matches(full).forEach(function (x) { Array.prototype.forEach.call(x.attributes || [], function (a) { if (/^data-/.test(a.name) && !el.hasAttribute(a.name)) extra[a.name] = true; }); });
+    full += Object.keys(extra).sort().map(function (k) { return ':not([' + k + '])'; }).join('');
+    var same = matches(full);
+    return { sel: full, row: null, only: same.length <= 1 || same.every(function (x) { return dataSel(x) === dataSel(el); }) };
+  }
+  /* Every data- attribute but the action and its id, as a selector, in name order. */
+  function dataSel(el) {
+    var out = [];
+    Array.prototype.forEach.call(el.attributes || [], function (a) { if (/^data-/.test(a.name) && a.name !== 'data-act' && a.name !== 'data-id') out.push('[' + a.name + '="' + cssEsc(a.value) + '"]'); });
+    return out.sort().join('');
+  }
+  /* The selector for a control inside the row with this id: a note or correction row by its note (noteFocus), so a newer read
+     that renumbers twins keeps it on the same note; the note gone, the heading noteFocus names. */
+  function rowFocus(rowId, sel) {
+    var key = noteFocus(rowId, PF.vk.byId(rowId));
+    return key === '#ins-h' || key === '#page-h' ? key : key + ' ' + sel;
+  }
+  /* A run's folder, as its reader names it: where its notes' attachments must be for a read to keep them. */
+  function runBase(r) { return 'runs/' + r.process + '/' + r.id + '/'; }
+  /* A note kept across redraws, for this folder only (gen): PF.search.noteKeep, the one way a note is held by what it is. */
+  function keepNote(key, notes, n, step, sent) { var t = PF.search.noteKeep(key, notes, n, step, sent); if (t) t.gen = gen; return t; }
+  /* A note or correction this window just saved (state.noteSent), until a read has it: the read right after the save may not
+     yet (another read in progress). Found, it's kept by what it is from then on: a note in its step's thread (state.noteShown,
+     brought into view) or a correction in its step's list (just shown, focused). Found by the whole record it was written
+     with, as a read gives it back (PF.search.noteRead), never by its id alone, which a twin shares (code review round 22). */
+  function sentNotes() {
+    var ns = state.noteSent; if (!ns) return;
+    if (ns.gen !== gen) { state.noteSent = null; return; }
+    var r = ctx.findRun(ns.run), notes = r ? r._notes || [] : [], t = keepNote(ns.run, notes, null, ns.step, ns.sent), hit = t && PF.search.noteFind(notes, t);
+    if (!hit) return;
+    state.noteSent = null;
+    var here = state.view === 'run' && state.runKey === ns.run;
+    if (ns.corr) { if (here) ensureListItemVisible('rcorr:' + ns.run + ':' + ns.step, hit.key, { note: t, focus: PF.vk.byId(V.corrDomId(hit.n.id, hit.k)), word: 'added' }); return; }
+    state.noteShown = t;
+    if (here && state.sel === ns.step) revealAt(PF.vk.byId(V.noteDomId(ns.step, hit.key)));
+  }
+  /* A list's just-shown row that is a note (a correction just saved, ensureListItemVisible's o.note) is found again by what it
+     is at every draw, and shown by its key then; gone, no row is shown in its place (code review round 21). */
+  function justNotes() {
+    var js = state.justShown; if (!js || !js.notes) return;
+    Object.keys(js.notes).forEach(function (list) {
+      var t = js.notes[list], r = ctx.findRun(t.run), hit = r ? PF.search.noteFind(r._notes || [], t) : null;
+      if (hit) js.lists[list] = hit.key; else delete js.lists[list];
+    });
+  }
+  function noteHold(id) {
+    var was = notesSeen, S = PF.search;
+    if (!was || was.run !== state.runKey || !/^(tn|corr)-/.test(id)) return null;
+    var ats = S.noteAts(was.notes);
+    for (var i = 0; i < was.notes.length; i++) {
+      var n = was.notes[i], corr = n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map';
+      if (id !== (corr ? V.corrDomId(n.id, ats[i]) : V.noteDomId(n.step, S.noteKey(n.id, ats[i])))) continue;
+      return keepNote(state.runKey, was.notes, n);
+    }
+    /* A one-off row (Done differently, no correction) is held by its answer. */
+    var off = oneOffAt(was, id);
+    return off ? { gen: gen, run: state.runKey, step: off.step, oneOff: off.a } : null;
+  }
+  var lastOverlay = '', lastPick = '';
   /* The draft editor is a page of its own: the app's top bar hides and the page stops scrolling (each pane scrolls). The
      selected item and its line in the preview are brought into view when the selection or the inspector tab changes. */
   var lastShown = '';
@@ -1701,8 +1926,6 @@
     if (keep) { state.paneScroll = null; ['rw-list', 'rw-ins'].forEach(function (id) { var el = document.getElementById(id); if (el && keep[id] != null) el.scrollTop = keep[id]; }); }
     /* A run opens with its selected step in view beside the inspector. */
     if (on && state.revealSel) { state.revealSel = false; if (!narrow() && state.sel) reveal('#step-' + cssEsc(state.sel), 'center'); }
-    /* go() to a step brings its row into view, in the run already open and on a phone too (focus alone doesn't scroll). */
-    if (on && state.revealTarget) { var rt = app.querySelector(state.revealTarget); state.revealTarget = null; if (rt && rt.scrollIntoView) rt.scrollIntoView({ block: 'nearest' }); }
   }
   /* Resizable sidebars (V.splitter). After each redraw and on a window resize, each panes container on screen is fitted as a
      whole (V.fitPanes) from its width and the widths chosen; a sidebar left at the layout's width is measured. A change redraws
@@ -1811,7 +2034,8 @@
   function savePanes() { var k = { key: state.runKey }; ['rw-list', 'rw-ins'].forEach(function (id) { var el = document.getElementById(id); if (el) k[id] = el.scrollTop; }); state.paneScroll = k; }
   /* On a phone the step panel covers the screen, so it behaves like a dialog: the rest is inert, focus moves into it, and
      closing returns focus to the step it came from. */
-  var sheetWasOpen = false, obSheetOpen = false, obInert = [];
+  /* sheetFor: the sheet opens on something inside it (a note from search, 2.11), which keeps focus instead of Close. */
+  var sheetWasOpen = false, obSheetOpen = false, obInert = [], sheetFor = null;
   /* The builder's side form too: on a phone it covers the outline, everything else is inert, and Done closes it. */
   function obSheet(narrow) {
     obInert.forEach(function (el) { el.removeAttribute('inert'); }); obInert = [];
@@ -1830,8 +2054,11 @@
     if (obSheet(narrow)) return;
     var open = !!(narrow && ref && (state.view === 'run' || state.view === 'practice'));
     app.querySelectorAll('.rw-head, .rw-strip, .rw-alerts, .rw-rail, .rw-list').forEach(function (el) { if (open) el.setAttribute('inert', ''); else el.removeAttribute('inert'); });
-    if (open) { topEl.setAttribute('inert', ''); ref.setAttribute('role', 'dialog'); ref.setAttribute('aria-modal', 'true'); if ((!sheetWasOpen || !ref.contains(document.activeElement)) && !(state.view === 'practice' && ref.contains(document.activeElement))) { var c = ref.querySelector('.close'); if (c) c.focus(); } }
+    if (open) { topEl.setAttribute('inert', ''); ref.setAttribute('role', 'dialog'); ref.setAttribute('aria-modal', 'true'); if ((!sheetWasOpen || !ref.contains(document.activeElement)) && !(state.view === 'practice' && ref.contains(document.activeElement)) && !(sheetFor && ref.contains(document.activeElement))) { var c = ref.querySelector('.close'); if (c) c.focus(); }
+      /* The sheet's layout comes after the draw's reveal, so what it opened on is brought into view again inside it. */
+      var on = null; try { on = sheetFor ? ref.querySelector(sheetFor) : null; } catch (e) { on = null; } if (on && on.scrollIntoView) on.scrollIntoView({ block: 'nearest' }); }
     else if (!state.overlay) topEl.removeAttribute('inert');
+    sheetFor = null;
     if (sheetWasOpen && !open && state.sel) { var back = document.querySelector('[data-act="select"][data-id="' + cssEsc(state.sel) + '"]'); if (back) back.focus({ preventScroll: true }); }
     sheetWasOpen = open;
   }
@@ -1843,7 +2070,8 @@
     if (el && t && (t !== said || state.msg !== saidMsg)) el.textContent = t === said && el.textContent === t ? t + '\u00a0' : t;
     said = t; saidMsg = state.msg;
   }
-  function cssEsc(s) { return window.CSS && CSS.escape ? CSS.escape(s) : String(s).replace(/"/g, '\\"'); }
+  /* Inside a quoted selector, CSS.escape's output is valid too; without it, PF.vk.cssStr (quotes, backslashes, control characters). */
+  function cssEsc(s) { return window.CSS && CSS.escape ? CSS.escape(s) : PF.vk.cssStr(s); }
 
   /* Timers and countdowns update every second without a full re-render. */
   /* While a run is open in the recorder's window, say once when a timed step is about to start or is late. */
@@ -3148,7 +3376,7 @@
     if (state.runKey) { state.runKey = null; resetRunUi(); }
     openEditor(p);
     setView('practice'); state.processId = p.id; state.ptab = 'edit'; state.mapVer = null;
-    state.obPlace = null; state.obAsk = null; state.obRename = null; state.sel = null; state.pick = null; state.edit = null; state.fieldErr = null;
+    state.obPlace = null; state.obAsk = null; state.obRename = null; state.obRenamed = null; state.sel = null; state.pick = null; state.edit = null; state.fieldErr = null;
     prFollow(p);
     var c = prMap(e, prText(p)), model = c.map ? PR.follow(e.st, c.map, prEnv(), state.me) : null, dest = model ? prResolve(e, model) : null, t = e.trip;
     /* The restore order (docs/design.md section 34): reconciled, the target resolved, its phase unfolded, drawn, the inspector
@@ -3315,7 +3543,7 @@
     if (ok) { if (g && how !== 'reopen') { dropDraft(prKey(p.id), 'gate:' + g.id, ['record']); prKeepTyped(p.id); } if (!(state.pick && state.pick.kind === 'fields')) state.pick = null; var pm2 = how === 'pass' ? prModel() : null; if (pm2 && pm2.r && pm2.map) { afterPass(R.nextUp(pm2.r, pm2.map, state.me), pm2.map, true); render(); return; } state.focus = g ? '#gate-' + cssEsc(g.id) + ' button:not([disabled])' : 'run-h'; render(); }
   }
   /* Run-screen actions the practice page allows, with any condition on their payload; pr-* are practice's own. */
-  var PRACTICE_OK = { toggle: 1, record: 1, na: 1, clear: 1, select: 1, goto: 1, 'to-ins': 1, 'to-row': 1, 'close-ref': 1, unfold: 1, fold: 1, pick: function (b) { return !!b && /^(fields|pass|waive)$/.test(b.dataset.kind || ''); }, unpick: 1, 'save-fields': 1, pass: 1, waive: 1, reopen: 1, dismiss: 1, help: 1, copy: 1, zoom: 1, 'zoom-phase': 1, 'zoom-gate': 1, nav: function (b) { return !!b && b.dataset.id === 'processes'; } };
+  var PRACTICE_OK = { toggle: 1, record: 1, na: 1, clear: 1, select: 1, goto: 1, 'to-ins': 1, 'to-row': 1, 'close-ref': 1, unfold: 1, fold: 1, pick: function (b) { return !!b && /^(fields|pass|waive)$/.test(b.dataset.kind || ''); }, unpick: 1, 'save-fields': 1, pass: 1, waive: 1, reopen: 1, dismiss: 1, help: 1, 'find-clear': 1, 'sel-more': 1, copy: 1, zoom: 1, 'zoom-phase': 1, 'zoom-gate': 1, nav: function (b) { return !!b && b.dataset.id === 'processes'; } };
   /* The one way an action runs: on the practice page only what's allowed there, through Practice's own handlers. */
   /* The practice page's own controls (not the top bar's or a dialog's, which act as anywhere). */
   function onPracticePage(el) { return state.view === 'practice' && !(el && el.closest && (el.closest('#top') || el.closest('#overlay'))); }
@@ -3386,7 +3614,8 @@
         if (!origin) {
           prEnded(id, shown); state.clearInputs = 'change-note'; state.disc = Object.assign({}, state.disc); state.disc['vers:' + id] = true;
           say('Staged. Only test runs use it until someone makes it the default.', 'good');
-          return loadAfterWrite();
+          /* The new stage is shown whatever the page of Stages (2.11), with Start a test run focused and in view. */
+          return loadAfterWrite().then(function () { if (pg !== gen || state.processId !== id || state.view !== 'process') return; ensureListItemVisible('stages:' + id, res.folder, { focus: '[data-act="start-test"][data-id="' + cssEsc(res.folder) + '"]', word: 'staged' }); render(); });
         }
         /* From Practice: the stage's page opens, and practice ends, only if nobody moved on meanwhile (same folder, person and
            process, the editor's text as it was, no unapplied typing, no practice activity since the click). */
@@ -3412,7 +3641,7 @@
           if (!shown1()) { say('Staged as ' + res.folder + ', but a test run can\'t start from it yet: part of the folder couldn\'t be read just now. Your practice is still open.', 'warn'); render(); return; }
           if (!calm()) { say('Staged. Your practice is still open.', 'good'); render(); return; }
           prEnded(id, shown); setView('process'); state.processId = id; state.ptab = 'overview'; state.mapVer = null; state.disc = Object.assign({}, state.disc); state.disc['vers:' + id] = true;
-          state.focus = '[data-act="start-test"][data-id="' + cssEsc(res.folder) + '"]';
+          ensureListItemVisible('stages:' + id, res.folder, { focus: '[data-act="start-test"][data-id="' + cssEsc(res.folder) + '"]', word: 'staged' });
           say('Staged. Start a test run from it; only test runs use it until someone makes it the default.', 'good'); render();
         });
       }, function (e) { state.stageBusy = null; if (pg !== gen) return; say('Couldn\'t stage it: ' + e.message, 'bad'); load(true); });
@@ -3476,7 +3705,7 @@
     var before = obSnap(ed);
     learnIds(ed, ed.base); dropPending();
     TL.record(tlOf(ed), base, rv.text, { kind: 'op', lines: true, label: lb.label, subject: subj, items: ['step:' + (rv.added || g.target.step)], selBefore: before });
-    ed.text = rv.text; state.planFormReset = true; state.obFlash = null; state.obAsk = null; state.obRename = null;
+    ed.text = rv.text; state.planFormReset = true; state.obFlash = null; state.obAsk = null; state.obRename = null; state.obRenamed = null;
     var dfs = state.fs, gg = gen, text = rv.text, added = rv.added, me = state.me, left = others.filter(function (y) { return ids.indexOf(y.id) < 0; }).length;
     closeOverlay(); state.focus = 'fx-h';
     saveDraftText(p, text, ed.baseHash, TL.past(lb.past, subj) + '. Saved to the draft.' + (left ? ' The other proposal' + (left === 1 ? ' is' : 's are') + ' still open.' : ''), {
@@ -4006,6 +4235,22 @@
      (a command's arguments) are its content. */
   function norm(v) { return String(v == null ? '' : v).replace(/[\r\n]+/g, ' ').trim(); }
   function dropPending() { state.obPending = null; state.obPendingField = null; state.obHold = null; }
+  /* Every builder box of the selected step or phase holding text not applied (typed, or refused), not only the latest one
+     (state.obPendingField): a list that pages its rows keeps each of them drawn, so Find or Show more never takes away
+     an earlier one's text (code review round 13). { pid, key, ids }, for one selection only. */
+  function markUnapplied(id, on) {
+    var s = state.obSel, u = state.obUnapplied;
+    if (!s || !state.processId) return;
+    if (!u || u.pid !== state.processId || u.key !== s.key) u = state.obUnapplied = { pid: state.processId, key: s.key, ids: Object.create(null) };
+    if (on) u.ids[id] = true; else delete u.ids[id];
+  }
+  /* Before a redraw, from the page as drawn: a box applied, cleared back to what the draft says, or gone with its form is no
+     longer one; a form drawn afresh (planFormReset) or another selection forgets them all. */
+  function pruneUnapplied() {
+    var u = state.obUnapplied, s = state.obSel; if (!u) return;
+    if (state.planFormReset || state.view !== 'process' || state.ptab !== 'edit' || !s || u.pid !== state.processId || u.key !== s.key) { state.obUnapplied = null; return; }
+    Object.keys(u.ids).forEach(function (id) { var el = document.getElementById(id); if (!el || boxNorm(id, el.value) === boxNorm(id, fieldApplied(id))) delete u.ids[id]; });
+  }
   /* What the draft says now for a box in the builder's form, to tell typed text from what's applied. */
   function fieldApplied(id) {
     var p = currentProcess(), s = state.obSel; if (!p || !s || /^ob-new-/.test(id)) return '';
@@ -4058,6 +4303,69 @@
   function edText(p) { var ed = openEditor(p); return ed.text != null ? ed.text : ed.base; }
   /* The new item is shown: the page scrolls just enough to bring it into view (renders keep the scroll where it was). */
   function reveal(sel, block) { var el = sel && document.querySelector(sel); if (el && el.scrollIntoView) el.scrollIntoView({ block: block || 'nearest' }); }
+  /* Brought into view after the next draw (revealNow), on any screen or dialog, for the folder it was asked in. open: folds the
+     person closed above it are opened first (Show more, a just-shown row). */
+  function revealAt(sel, open) { state.revealTarget = sel; state.revealOpen = !!open; state.revealGen = gen; }
+  /* A row Flightdeck has to show you, whatever the page or the filters (2.11): the latest one per list is drawn as an exception
+     (K.list), focused and brought into view. It's held for this folder only (gen), and goes on nav, on a folder switch and when
+     that list's Find text changes. o.focus: the selector to focus (also brought into view); o.reveal: to bring into view only;
+     o.word: how the count line says it ("plus the one you just opened"; added by default). */
+  function ensureListItemVisible(list, key, o) {
+    o = o || {};
+    var js = state.justShown && state.justShown.gen === gen ? state.justShown : { gen: gen, lists: {} };
+    js.lists[list] = key; (js.words = js.words || {})[list] = o.word || ''; state.justShown = js;
+    /* o.note: the row is a note, kept by what it is (PF.search.noteKeep), its key worked out again at every draw (justNotes). */
+    js.notes = js.notes || {}; if (o.note) js.notes[list] = o.note; else delete js.notes[list];
+    if (o.focus) { state.focus = o.focus; state.focusWins = true; }
+    if (o.focus || o.reveal) revealAt(o.reveal || o.focus, true);
+  }
+  /* What's typed in a list's Find box (2.11), held for this folder only (gen) and never in the URL. Changing it starts the list
+     from its first page and lets go of the row just shown in it. */
+  function setFind(list, q) {
+    var f = state.find && state.find.gen === gen ? state.find : { gen: gen, q: {} };
+    f.q[list] = String(q || '').slice(0, 200); state.find = f;
+    state.more = Object.assign({}, state.more); delete state.more[list];
+    if (state.justShown && state.justShown.lists) delete state.justShown.lists[list];
+    if (state.justShown && state.justShown.notes) delete state.justShown.notes[list];
+  }
+  /* A long dropdown's Find box (K.select) stays drawn while it has focus, even emptied below the page size; leaving it lets it
+     go (the focusout below). It's noted for whichever Find box is in use; only a dropdown's box reads it. */
+  function selBoxKept(list) { if (list) state.selFocus = list; }
+  /* 50 more of a long dropdown's options (K.select); its own choice is untouched. */
+  function selMore(id, step) { if (!id) return; var P = PF.vk.PAGE, m = state.more = Object.assign({}, state.more); m[id] = Math.max(P, m[id] || P) + (+step > 0 ? Math.min(+step, 100000) : P); render(); }
+  /* Focusing the box is enough, before anything is typed: a refresh that leaves 50 or fewer choices doesn't take it away. So
+     for every list's Find box, not only a dropdown's (K.findOn, code review round 19). */
+  document.addEventListener('focusin', function (e) { var t = e.target; if (t && t.dataset && t.dataset.find != null) selBoxKept(findList(t)); });
+  /* Leaving the box lets go of it and draws nothing: a redraw then would land between a click's press and its click, or a
+     key's press and its activation, and replace what was pressed. A box drawn for its focus alone stays until the next
+     redraw, which no longer draws it (code review round 25). Focus still in it (the window left) keeps it. */
+  document.addEventListener('focusout', function (e) {
+    var id = findList(e.target), a = document.activeElement;
+    if (id && state.selFocus === id && !(a && a.id === 'find-' + id)) state.selFocus = null;
+  });
+  /* The list a Find box filters (its data-find, which matches its id: find-<list>), or null for any other control. */
+  function findList(el) { var m = el && /^find-([a-z][\w-]*)$/.exec(el.id || ''); return m && (!el.dataset || !el.dataset.find || el.dataset.find === m[1]) ? m[1] : null; }
+  /* The one place a reveal happens, after every draw, once focus and the scroll are put back: the page, then the top bar, then
+     the open dialog (scrollIntoView moves the nearest scrolling box, so a dialog's list scrolls inside the dialog). Asked once,
+     found or not. A row inside a closed fold has the fold opened and recorded as its own toggle records it, and takes the
+     focus it was asked for, which a closed fold refused. */
+  function revealNow(asked, askedOv) {
+    var sel = state.revealTarget, open = state.revealOpen, ok = state.revealGen === gen;
+    state.revealTarget = null; state.revealOpen = false;
+    if (!sel || !ok) return;
+    var el = null;
+    try { el = app.querySelector(sel) || topEl.querySelector(sel) || (state.overlay ? overlayEl.querySelector(sel) : null); } catch (e) { el = null; }
+    if (!el) return;
+    var shut = false;
+    for (var x = el.parentNode; open && x && x !== app && x !== overlayEl && x !== topEl; x = x.parentNode) {
+      if (x.tagName !== 'DETAILS' || x.open) continue;
+      x.open = true; shut = true;
+      if (x.dataset && x.dataset.group) (state.groupsOpen = state.groupsOpen || {})[x.dataset.group] = true;
+      else if (x.dataset && x.dataset.disc) (state.disc = state.disc || {})[x.dataset.disc] = true;
+    }
+    if (shut && (asked === sel || askedOv === sel) && document.activeElement !== el && el.focus) el.focus({ preventScroll: true });
+    if (el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+  }
 
   /* ---------- the parts box: placing a new part ---------- */
   /* Choosing a part (click, Enter or Space) starts placing it: the place nearest what's selected is offered first, the
@@ -4308,7 +4616,7 @@
   }
   function obSelWhole(kind, focus) {
     var p = currentProcess(); if (!p || obHeld(p)) return;
-    obClearErr(); state.insTab = null; state.obShown = null; state.obSel = { pid: p.id, kind: kind, key: ':' + kind }; state.obAdd = null; state.obAsk = null; state.obRename = null; state.obPlace = null; state.planFormReset = true;
+    obClearErr(); state.insTab = null; state.obShown = null; state.obSel = { pid: p.id, kind: kind, key: ':' + kind }; state.obAdd = null; state.obAsk = null; state.obRename = null; state.obRenamed = null; state.obPlace = null; state.planFormReset = true;
     state.focus = focus === 'ob-add-role' || focus === 'ob-add-ctx' ? '#' + focus : kind === 'details' ? '[data-act="ob-sel-details"]' : 'ob-q-text';
     render();
   }
@@ -4449,7 +4757,7 @@
       f.tried = true; f.leaving = false; f.closeAfterSave = false; render();
       var bad = document.querySelector && document.querySelector('#type-form [aria-invalid="true"]');
       say('Not saved yet. ' + errs.length + (errs.length === 1 ? ' thing needs' : ' things need') + ' fixing first.', 'warn');
-      state.focus = bad && bad.id ? '#' + bad.id : 'tf-h'; render(); return;
+      state.focus = bad && bad.id ? '#' + cssEsc(bad.id) : 'tf-h'; render(); return;
     }
     if (!f.existing && (T.get(def.id) || ((data.stepTypes || {}).types || {})[def.id])) { say('There\'s already a step type {' + def.id + '}. Choose another ID, or edit that one.', 'warn'); render(); return; }
     if (f.saving) { say('Still saving this step type. Try again in a moment.', 'warn'); render(); return; }
@@ -4697,6 +5005,9 @@
     holdAt(state.processId, dirty.id);
     /* Focus never lands on a box in a closed phone sheet. */
     if (state.view === 'run' && narrow() && !state.refOpen) state.refOpen = true;
+    /* Nor on a builder box behind the inspector's Checks or Preview: Selected, where it is, is shown. */
+    var bx = /^ob-/.test(dirty.id || '') && state.view === 'process' && state.ptab === 'edit' ? document.getElementById(dirty.id) : null;
+    if (bx && bx.closest && bx.closest('[hidden]') && (state.insTab === 'checks' || state.insTab === 'preview')) state.insTab = 'selected';
     state.focus = dirty.id ? '#' + cssEsc(dirty.id) : null; render();
   }
   /* ---------- boxes that know the run details (2.7, views/detailbox.js) ----------
@@ -4862,7 +5173,17 @@
     setTimeout(function () { var f = document.activeElement; if (dbxAc && (!f || f.id !== dbxAc.id)) dbxClose(); }, 0);
   });
 
-  function pendingBox() { var pf = state.obPending && state.obPendingField; return pf ? document.getElementById(pf) || { id: pf } : dirtyControl(); }
+  function pendingBox() { var pf = state.obPending && state.obPendingField; return pf ? document.getElementById(pf) || { id: pf } : dirtyControl() || fuPending() || rolesPending() || corrGonePending(); }
+  /* An open follow-up form holding a chosen destination, a link or text is unsaved work, even once a redraw has drawn it as the
+     page's own (2.11): leaving refuses, as for any changed control. */
+  function fuPending() {
+    var p = state.fuPick; if (!p) return null;
+    var base = PF.followups.formId(p.key);
+    if (p.to) return document.getElementById(base + '-to') || { id: base + '-to' };
+    var hit = null;
+    ['link', 'note', 'ticket', 'reason'].some(function (k) { var el = document.getElementById(base + '-' + k); if (el && String(el.value || '').trim()) hit = el; return !!hit; });
+    return hit;
+  }
   /* A decline reason with text in it is unsaved work even after a redraw draws it as the box's own text, or while another
      step is selected: leaving refuses, and its step is brought back so the box is on screen. */
   /* Back with a layer open (a dialog, the run's More menu, a sheet, placing a part, a question) closes that one, as Escape
@@ -5152,11 +5473,15 @@
     filter: function (id) { state.filter = id; render(); },
     /* ---------- Insights (docs/design.md section 23): the runs behind a number, and back ---------- */
     'ins-runs': function (path) { insightRuns(path); },
+    /* Back from the runs behind a number: the row it was in is drawn whatever the page (2.11), its count focused and the place
+       on the page put back. A row a newer read took away focuses its list's heading instead. */
     'ins-back': function () {
       var f = state.runFilter, b = f && f.back; if (!b) return;
       if (!go({ view: 'process', process: b.process, ptab: 'insights' })) return;
       state.runFilter = null; (state.insFolder = state.insFolder || {})[b.process] = b.folder;
-      state.focus = b.focus || 'ins-h'; render();
+      if (b.list) { if (b.more) { state.more = Object.assign({}, state.more); state.more[b.list] = b.more; } ensureListItemVisible(b.list, b.key, { word: 'opened' }); }
+      state.focus = b.focus || 'ins-h'; state.focusWins = true; render();
+      if (b.list && b.focus && !app.querySelector(b.focus)) { state.focus = b.head || 'ins-h'; render(); }
       setTimeout(function () { window.scrollTo(0, b.scrollY || 0); }, 0);
     },
     /* The same number, worked out again from what's loaded now: the cohort is replaced, Back still goes where it went. */
@@ -5234,20 +5559,28 @@
     },
     'lib-tab': function (id) { state.libTab = id === 'skills' ? 'skills' : 'processes'; state.focus = '[data-act="lib-tab"][data-id="' + state.libTab + '"]'; render(); },
     /* Each list keeps its own tag filter, so a tag picked on one page never hides things on another. */
+    /* A Find box's Clear: the box empties and takes focus. */
+    'find-clear': function (id) { if (!id) return; setFind(id, ''); selBoxKept(id); state.focus = 'find-' + id; state.focusWins = true; render(); },
+    /* A long dropdown's Show more choices (K.select): 50 more options, and focus goes to the dropdown to choose among them. */
+    'sel-more': function (id, b) { if (!id) return; selMore(id, b && b.dataset && b.dataset.step); state.focus = id; state.focusWins = true; render(); },
     tag: function (id) { var t = state.tags || []; state.tags = !id ? [] : t.indexOf(id) >= 0 ? t.filter(function (x) { return x !== id; }) : t.concat(id); (state.tagsBy = state.tagsBy || {})[state.view] = state.tags; state.focus = id ? '[data-act="tag"][data-id="' + cssEsc(id) + '"]' : null; render(); },
     'open-process': function (id) { setView('process'); state.processId = id; state.diffOf = null; state.ptab = 'overview'; state.mapVer = null; resetRunUi(); render(); window.scrollTo(0, 0); },
     /* ---------- the sections ---------- */
     /* Go straight to a run's step, a process or a section (go()), keeping what's typed. */
     go: function (id, b) { var d = (b && b.dataset) || {}; go({ view: d.view, process: d.process, ptab: d.ptab, mapVer: d.mapVer, run: d.run, step: d.step, note: d.note, filter: d.filter }); },
-    /* Show 50 more of a long list; focus moves to the first one added. */
+    /* Show 50 more of a long list (K.list): focus moves to the first one added, which is brought into view, with any fold the
+       person closed above it opened. A list in a dialog moves the dialog's focus. A list without its own focus target is a list
+       of run cards. */
     more: function (id, b) {
-      var P = PF.vk.PAGE, m = state.more = state.more || {}, next = b && b.dataset && b.dataset.next;
-      m[id] = Math.max(P, m[id] || P) + P;
-      if (next) state.focus = '[data-act="open-run"][data-id="' + cssEsc(next) + '"]';
+      var d = (b && b.dataset) || {}, P = +d.page > 0 ? +d.page : PF.vk.PAGE, m = state.more = state.more || {};
+      /* data-step: the page grows past rows already drawn (kept ones), so it adds as many new rows as it says. */
+      m[id] = Math.max(P, m[id] || P) + (+d.step > 0 ? Math.min(+d.step, 100000) : P);
+      var to = d.focus || (d.next ? '[data-act="open-run"][data-id="' + cssEsc(d.next) + '"]' : null);
+      if (to) { if (d.dialog) state.overlayFocus = to; else { state.focus = to; state.focusWins = true; } revealAt(to, true); }
       render();
     },
     nav: function (id) {
-      typeOpens++; state.more = {};
+      typeOpens++; state.more = {}; state.justShown = null; state.noteShown = null; state.noteSent = null; state.revealTarget = null; state.justPlanned = null;
       if (id === 'home') { home(); state.focus = '[data-act="nav"][data-id="home"]'; render(); window.scrollTo(0, 0); return; }
       if (['runs', 'followups', 'processes', 'skills', 'types', 'settings'].indexOf(id) < 0) return;
       releaseUrls(state.urls); setView(id); state.processId = null; state.runKey = null; resetRunUi(); state.fuPick = null;
@@ -5271,6 +5604,14 @@
       if (id === 'edit') { var p = currentProcess(); var dw = draftUnread(p); if (dw) { state.ptab = 'overview'; say(dw + ' The draft isn\'t edited until it can be read, so nothing is saved over it. Choose Refresh.', 'warn'); render(); return; } if (p && state.draftSaving[edKey(p.id)] === 'restore') { state.ptab = 'overview'; say('Restoring the draft. You can edit it when that finishes.', 'warn'); render(); return; } if (p) openEditor(p); state.mapVer = null; }
       state.focus = id === 'edit' ? 'draft-editor' : id === 'insights' ? '[data-act="ptab"][data-id="overview"]' : 'cl-h';
       render(); window.scrollTo(0, 0);
+    },
+    /* The checklist preview names 50 skills on a step or the whole checklist; the rest are in the Skills panel (2.11, D10). */
+    'pv-skills': function () {
+      var p = currentProcess(); if (!p) return;
+      /* From the editor's Preview it leaves the editor: text typed in a builder box and not applied refuses it, as go() does. */
+      if (state.ptab === 'edit') { var dirty = pendingBox(); if (dirty) { refuseFor(dirty); return; } }
+      state.ptab = 'overview'; state.pick = null; state.disc = Object.assign({}, state.disc); state.disc['sk:' + p.id] = true;
+      state.focus = 'sk-h'; revealAt('#sk-h'); render();
     },
     'view-version': function (id) { state.ptab = 'overview'; state.mapVer = id; state.pick = null; state.focus = 'cl-h'; render(); window.scrollTo(0, 0); },
     'back-current': function () { state.mapVer = 'current'; state.pick = null; state.focus = 'map-ver'; render(); },
@@ -5413,13 +5754,13 @@
       var s = state.obSel, cp = currentProcess(); if (!s || s.kind !== 'details' || !cp || obHeld(cp, 'then rename')) return;
       /* The box redraws holding what it held; it starts from this detail's name instead. */
       var was = document.getElementById('ob-ren-ctx'); if (was) was.value = String(id);
-      state.obRename = { pid: cp.id, name: String(id) }; state.fieldErr = null; state.focus = '#ob-ren-ctx'; render();
+      state.obRename = { pid: cp.id, name: String(id) }; state.obRenamed = null; state.fieldErr = null; state.more = Object.assign({}, state.more); delete state.more['ob-ren-deps']; state.focus = '#ob-ren-ctx'; render();
       var bx = document.getElementById('ob-ren-ctx'); if (bx && bx.select) bx.select();
     },
     'ob-ren-cancel': function (id) {
       /* Cancel is the one way to drop what's typed for a new name. */
       var bx = document.getElementById('ob-ren-ctx'); if (bx) bx.value = ''; if (state.obPendingField === 'ob-ren-ctx') dropPending();
-      state.obRename = null; state.fieldErr = null; state.focus = '[data-act="ob-ren"][data-id="' + cssEsc(String(id)) + '"]'; render();
+      state.obRename = null; state.obRenamed = null; state.fieldErr = null; state.focus = '[data-act="ob-ren"][data-id="' + cssEsc(String(id)) + '"]'; render();
     },
     'ob-ren-go': function (id) {
       var s = state.obSel, cp = currentProcess(), from = String(id); if (!s || s.kind !== 'details' || !cp || !state.obRename || state.obRename.pid !== cp.id || state.obRename.name !== from) return;
@@ -5431,8 +5772,11 @@
       if (!res || res.same) return;
       state.obRename = null; state.fieldErr = null; if (state.obPendingField === 'ob-ren-ctx') dropPending();
       var done = document.getElementById('ob-ren-ctx'); if (done) done.value = '';
-      sayUndo('Renamed ^' + from + ' to ^' + to + (res.places ? ' in ' + res.places + ' place' + (res.places === 1 ? '' : 's') : '') + '.' + (res.notes && res.notes.length ? ' ' + res.notes.join(' ') : ''));
-      state.focus = '[data-act="ob-ren"][data-id="' + cssEsc(to) + '"]'; render();
+      sayUndo('Renamed ^' + from + ' to ^' + to + (res.places ? ' in ' + res.places + ' place' + (res.places === 1 ? '' : 's') : '') + '.' + (res.notes && res.notes.length ? ' ' + res.notes.slice(0, 3).join(' ') + (res.notes.length > 3 ? ' And ' + (res.notes.length - 3).toLocaleString('en-US') + ' more like these.' : '') : ''));
+      /* Drawn whatever the Find text or the page (2.11), so focus has its row to go to; it stays drawn, as just renamed, when the
+         Find text changes, until another rename or the form is left. */
+      state.obRenamed = { pid: cp.id, name: to };
+      ensureListItemVisible('ob-meta-context', to, { focus: '[data-act="ob-ren"][data-id="' + cssEsc(to) + '"]', word: 'renamed' }); render();
     },
     'ob-ask-cancel': function () { state.obAsk = null; state.focus = '[data-act="ob-ask"]'; render(); },
     'ob-del-track': function (how) {
@@ -5901,7 +6245,7 @@
       var merged = Object.assign({}, R.fieldsOf(r, x.step), fields);
       R.evidenceFor(r, x.step, merged).list.forEach(function (d) { var el = document.getElementById('rec-' + d.name); if (el) values[d.name] = inputValue(el); });
       var chk = R.checkEvidence(r, x.step, merged, values, true);
-      if (chk.error) { state.fieldErr = { id: id, msg: chk.error, field: chk.field ? 'rec-' + chk.field : '' }; state.focus = chk.field ? '#rec-' + chk.field : '[aria-invalid="true"]'; render(); return; }
+      if (chk.error) { state.fieldErr = { id: id, msg: chk.error, field: chk.field ? 'rec-' + chk.field : '' }; state.focus = chk.field ? '#' + cssEsc('rec-' + chk.field) : '[aria-invalid="true"]'; render(); return; }
       /* The draft is dropped only once the values are in the run, and only the evidence this form saved: evidence typed for
          an action no longer chosen stays a draft. */
       var key = state.runKey;
@@ -5953,10 +6297,13 @@
       /* Another small form on the step keeps an open Fill in (as leaving the step would); opening Fill in brings back its own. */
       leaveFillIn();
       state.pick = { kind: b.dataset.kind, id: id, back: '[data-act="pick"][data-kind="' + cssEsc(b.dataset.kind || '') + '"][data-id="' + cssEsc(id || '') + '"]' };
+      if (b.dataset.kind === 'corr-decline') state.pick.snap = corrSnap(id);
       var fd = b.dataset.kind === 'fields' && state.runKey ? draftOf(state.runKey, id, false) : null;
       state.fieldsDraft = fd && fd.fd && fd.fd.key === state.runKey && fd.fd.fs === fsKey() ? fd.fd : null; if (fd) fd.open = false;
       if (b.dataset.kind === 'block' || b.dataset.kind === 'differently' || b.dataset.kind === 'deadline' || b.dataset.kind === 'fields') state.sel = id; render(); },
-    unpick: function () { childEpoch++; var pk = state.pick; state.pick = null; state.fieldErr = null; state.fieldsDraft = null; if (pk && pk.kind === 'fields') dropDraft(state.runKey, pk.id, ['fields', 'open']); if (pk && pk.back) state.focus = pk.back; render(); },
+    unpick: function () { childEpoch++; var pk = state.pick; state.pick = null; state.fieldErr = null; state.fieldsDraft = null; if (pk && pk.kind === 'fields') dropDraft(state.runKey, pk.id, ['fields', 'open']); if (pk && pk.back) state.focus = pk.back; if (corrGoneOf(pk)) state.focus = 'fx-h'; render(); },
+    /* A decline reason on a correction that's gone (2.11): copied, since it can't be saved. */
+    'corr-copy-reason': function () { var pk = state.pick, el = document.getElementById('pick-input'); copyText(el ? String(el.value || '') : (pk && pk.text) || '', null, 'Copied.'); },
     block: function (id, b) { var reason = b.dataset.reason || val('pick-input'); if (!reason.trim()) return; mutate(function (r, map, me, now) { R.block(r, map, id, reason, me, now); }); },
     differently: function (id) { var note = val('pick-input'); if (!note.trim()) return; mutate(function (r, map, me, now) { R.differently(r, map, id, note, me, now); }); },
     deadline: function (id) {
@@ -5999,13 +6346,25 @@
     'fu-pick': function (id, b) {
       var k = b && b.dataset.status; if (!PF.followups.LABEL[k] || k === 'open') return;
       /* Each follow-up's form has its own boxes (PF.followups.formId); switching to another starts it empty. */
-      state.fuPick = { key: id, status: k }; state.fieldErr = null;
+      /* A snapshot of the row goes with the form (2.11): a newer read that removes the follow-up still draws it, marked, with
+         what's typed, so it can be copied. Moved to's Find starts empty. */
+      var sx = ctx.followUps().filter(function (y) { return y.key === id; })[0];
+      state.fuPick = { key: id, status: k, snap: sx ? { key: sx.key, id: sx.id, process: sx.process, run: sx.run, runKey: sx.runKey, runTitle: sx.runTitle, test: sx.test, f: { text: sx.f.text, ticket: sx.f.ticket }, text: sx.text, owner: sx.owner, at: sx.at, status: 'open' } : null, to: null }; state.fieldErr = null;
+      if (k === 'moved') setFind(PF.followups.formId(id) + '-to', '');
       state.focus = PF.followups.formId(id) + '-' + { done: 'link', ticket: 'ticket', moved: 'to', wont: 'reason' }[k]; render();
     },
     'fu-cancel': function (id) { var k = state.fuPick && state.fuPick.status; state.fuPick = null; state.fieldErr = null; state.focus = k ? '[data-act="fu-pick"][data-id="' + cssEsc(id) + '"][data-status="' + k + '"]' : null; render(); },
+    /* A follow-up removed elsewhere while its form was open: what was typed in the form, to keep somewhere else. */
+    'fu-copy': function (id) {
+      var base = PF.followups.formId(id), parts = [];
+      [['link', 'Link'], ['note', 'Note'], ['ticket', 'Ticket'], ['to', 'Moved to'], ['reason', 'Why']].forEach(function (b) { var v = val(base + '-' + b[0]); if (String(v || '').trim()) parts.push(b[1] + ': ' + String(v).trim()); });
+      var snap = state.fuPick && state.fuPick.key === id && state.fuPick.snap;
+      copyText((snap ? snap.text + '\n' : '') + parts.join('\n'), null, 'Copied what you typed.');
+    },
     'fu-save': function (id) { if (state.fuPick && state.fuPick.key === id) decideFu(id, state.fuPick.status); },
     'fu-reopen': function (id) { decideFu(id, 'open'); },
-    'fu-filter': function (id) { state.fuFilter = id === 'mine' || id === 'all' ? id : 'open'; state.fuPick = null; state.focus = '[data-act="fu-filter"][data-id="' + state.fuFilter + '"]'; render(); },
+    /* Open, Yours or All: an open form stays open with what's typed in it (2.11); its row is drawn whichever chip is on. */
+    'fu-filter': function (id) { state.fuFilter = id === 'mine' || id === 'all' ? id : 'open'; state.more = Object.assign({}, state.more); delete state.more.fu; state.focus = '[data-act="fu-filter"][data-id="' + state.fuFilter + '"]'; render(); },
     /* Recovery: conflict copies sit next to run.json until someone keeps or deletes them. */
     'compare-copy': function (name) {
       var r = ctx.run(), g = gen, key = state.runKey; if (!r) return;
@@ -6155,7 +6514,25 @@
     /* Reports: Accept asks first, in the card; Decline asks why. Nothing has a single-key shortcut. */
     'rep-accept': function (id) { repOpenForm(id, 'accept'); },
     'rep-decline': function (id) { repOpenForm(id, 'decline'); },
-    'rep-cancel': function (id) { delete repDrafts()[id]; repBoxes = repBoxes.filter(function (x) { return x.key !== id; }); state.repPick = null; if (state.fieldErr && /^rep-reason-/.test(state.fieldErr.id)) state.fieldErr = null; state.focus = '[data-act="rep-accept"][data-id="' + cssEsc(id) + '"], [data-act="rep-decline"][data-id="' + cssEsc(id) + '"]'; render(); },
+    /* A Reports panel row opens its own report's card (2.11): its step is selected, and the card is drawn whatever the page,
+       unfolded, focused and brought into view. */
+    'rep-goto': function (id, b) {
+      var r = ctx.run(), map = r && R.mapOf(r), m = /^step-(.+)$/.exec(id || ''), x = m && map ? M.findStep(map, m[1]) : null, key = b && b.dataset ? b.dataset.report : '';
+      var on = x && key ? ((reportsOf(r) || { list: [] }).list).filter(function (it) { return it.g.step === x.step.id; }).map(function (it) { return it.g.key; }) : [], n = on.indexOf(key);
+      if (n < 0) { ACTIONS.goto(id); return; }
+      selectStep(x.step.id); state.refOpen = true; state.unfold[x.phase.id] = true;
+      /* The card's id is its report's (2.11), so focus stays on this report when another arrives ahead of it. */
+      var hsel = '#' + V.reportCardId(key) + '-h';
+      ensureListItemVisible(V.reportListId(r, x.step.id), key, { focus: hsel, word: 'opened' });
+      /* On a phone the inspector sheet opens on the report, which keeps focus instead of Close, as a note from search does. */
+      sheetFor = hsel;
+      render();
+    },
+    /* Every copy of a report, 50 at a time in its Details fold (2.11), with focus on the first one the first 10 didn't show. */
+    'rep-copies': function (id, b) { if (!id) return; (state.repCopies = state.repCopies || {})[id] = true; var to = b && b.dataset && b.dataset.focus || PF.vk.byId('repc-' + id); state.focus = to; state.focusWins = true; revealAt(to, true); render(); },
+    /* A kept reason on a report that's gone (2.11): copied, since it can't be saved. */
+    'rep-copy-reason': function (id) { var el = document.getElementById(PF.reports.reasonId(id)); copyText(el ? String(el.value || '') : repDraft(id) || '', null, 'Copied.'); },
+    'rep-cancel': function (id) { delete repDrafts()[id]; delete repSnaps()[id]; repBoxes = repBoxes.filter(function (x) { return x.key !== id; }); state.repPick = null; if (state.fieldErr && /^rep-reason-/.test(state.fieldErr.id)) state.fieldErr = null; state.focus = '[data-act="rep-accept"][data-id="' + cssEsc(id) + '"], [data-act="rep-decline"][data-id="' + cssEsc(id) + '"]'; render(); },
     'rep-accept-go': function (id) { acceptReport(id); },
     'rep-decline-go': function (id) { decideOnReport(id, 'declined'); },
     'rep-reopen': function (id) { decideOnReport(id, 'open'); },
@@ -6195,7 +6572,19 @@
       state.focus = mode === 'differently' ? 'corr-happened' : corrFocus(op); state.focusEnd = true; render();
     },
     'partial-dismiss': function (id) { delete state.partial[id]; render(); },
-    'goto-corr': function (id) { var el = document.getElementById(id); if (!el) return; if (el.scrollIntoView) el.scrollIntoView({ block: 'nearest' }); if (el.focus) el.focus(); },
+    /* View correction (Done differently): the correction is drawn whatever the page of the step's list (2.11), then focused and
+       brought into view. It's kept by the note's identity (state.noteShown, its anchor), as a search result is, so a newer
+       read that moves its twins never puts another in its place. */
+    'goto-corr': function (id) {
+      /* The row's id is corr-<key>; a note whose id is "" has the key "" (code review round 16). */
+      var r = ctx.run(); if (!r || !state.sel || typeof id !== 'string' || id.indexOf('corr-') !== 0) return;
+      var cid = id.slice(5);
+      var m = U.nthOf(cid), nid = m.s, at = m.n, S = PF.search, notes = r._notes || [], ats = S.noteAts(notes), cn = null;
+      notes.forEach(function (n, i) { if (!cn && n.id === nid && ats[i] === at && (n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map')) cn = n; });
+      if (!cn) return;
+      state.noteShown = keepNote(state.runKey, notes, cn, state.sel);
+      var csel = PF.vk.byId(V.corrDomId(nid, at)); state.focus = csel; state.focusWins = true; revealAt(csel, true); render();
+    },
     'corr-menu': function () { var f = state.corrForm; if (!f) return; f.menu = !f.menu; state.focus = f.menu ? '.corr-menu-list button' : '[data-act="corr-menu"]'; render(); },
     'corr-op': function (id) {
       var f = state.corrForm; if (!f || PF.corrections.OPS.indexOf(id) < 0) return;
@@ -6235,9 +6624,11 @@
       decideCorr(id, 'included', '', 'Noted: v' + v + ' has it.', null, { version: v, folder: f });
     },
     /* Home acknowledgments: View change opens the process's corrections; Dismiss is remembered in this browser only. */
+    /* It lands on the group it's about (2.11), drawn whatever the page, focused and in view; fx-h when that group is gone. */
     'ack-view': function (id, b) {
       var pid = b && b.dataset.process; if (!pid) return;
-      ACTIONS['open-process'](pid); state.fixFilter = 'all'; (state.disc = state.disc || {})['fx:' + pid] = true; state.focus = 'fx-h'; render();
+      ACTIONS['open-process'](pid); state.fixFilter = 'all'; (state.disc = state.disc || {})['fx:' + pid] = true; state.focus = 'fx-h';
+      corrShow(pid, b.dataset.group); render();
     },
     'ack-dismiss': function (id) {
       if (!ACK_KEY.test(id || '')) return;
@@ -6305,7 +6696,7 @@
       ta.focus(); ta.setSelectionRange(start, start + (lines[n - 1] || '').length);
       var lh = parseFloat(window.getComputedStyle ? getComputedStyle(ta).lineHeight : '') || 20; ta.scrollTop = Math.max(0, (n - 4) * lh);
     },
-    'corr-filter': function (id) { state.fixFilter = id === 'all' ? 'all' : 'open'; state.focus = '[data-act="corr-filter"][data-id="' + state.fixFilter + '"]'; render(); },
+    'corr-filter': function (id) { state.fixFilter = id === 'all' ? 'all' : 'open'; state.more = Object.assign({}, state.more); delete state.more['fx:' + state.processId]; state.focus = '[data-act="corr-filter"][data-id="' + state.fixFilter + '"]'; render(); },
     'copy-corr-brief': function (id) {
       var p = procFind(id); if (!p) return;
       /* The brief quotes the steps as the draft has them now, since that's the file the assistant edits. */
@@ -6322,10 +6713,10 @@
       /* A note that's too long is refused, not cut short; the draft stays so it can be shortened or split. */
       if (text.length > NOTE_MAX) { state.fieldErr = { id: 'note:' + id, msg: 'Notes can be up to 2,000 characters; this one is ' + text.length.toLocaleString('en-US') + '. Shorten it, or split it into two notes.', field: 'note-text' }; state.focus = '#note-text'; render(); return; }
       state.fieldErr = null;
-      var endBusy = busyStart();
+      var endBusy = busyStart(), nid = U.randomId(10), sent = null;
       queued(function () {
         return saveFiles(nfs, r, files).then(function (saved) {
-          var note = { id: U.randomId(10), at: new Date().toISOString(), by: who, session: WRITER, step: id, text: text, files: saved.paths, fileInfo: saved.info };
+          var note = sent = { id: nid, at: new Date().toISOString(), by: who, session: WRITER, step: id, text: text, files: saved.paths, fileInfo: saved.info };
           return repo.addNote(nfs, r, WRITER, note);
         });
       }).then(function () {
@@ -6339,10 +6730,22 @@
         if (state.attErr && state.attErr.key === 'note:' + id) state.attErr = null;
         var ack = state.noteAck = { key: nkey, step: id }; setTimeout(function () { if (state.noteAck === ack) { state.noteAck = null; scheduleRender(); } }, 4000);
         if (state.runKey === nkey) { say('Note added to "' + noteStepText(id) + '".', 'good'); state.msg.quiet = true; }
-        return refreshRun();
+        /* The new note is drawn wherever its time sorts it, even outside the newest 20 (a clock behind), and brought into view (2.11).
+           It's kept by what it is, as read back (keepNote), so a twin arriving later never takes its place (code review round 21). */
+        return refreshRun().then(function () {
+          if (ng !== gen || state.runKey !== nkey || !sent) return;
+          state.noteShown = null; state.noteSent = { gen: gen, run: nkey, step: id, sent: PF.search.noteRead(sent, runBase(r)) };
+          render();
+        });
       }, function (e) { endBusy(); if (ng !== gen) return; say('Couldn\'t add the note: ' + e.message, 'bad'); render(); });
     },
-    'just-me': function () { app.querySelectorAll('#start-form [data-role], #plan-form [data-role]').forEach(function (el) { el.value = state.me; }); },
+    /* Every role, drawn or in a hidden field, kept in the form's state so a redraw (Show more, Find, a refresh) draws it so. */
+    'just-me': function () {
+      var rc = state.view === 'start' ? state.roleCarry : null, me = state.me, on = PF.people.sorted(ctx).some(function (x) { return x.id === me && !x.inactive; });
+      /* As 2.10 sets every role's select to you: a select can't hold someone who isn't on the team, so it's nobody then. */
+      if (rc) Object.keys(rc.vals).forEach(function (role) { rc.vals[role] = on ? me : ''; var el = document.getElementById('role-' + role); if (el) el.value = on ? me : ''; });
+      render();
+    },
     /* The Copy button itself says Copied for a moment, and it's announced once. */
     copy: function (id, b) {
       var text = b.dataset.text, g = gen;
@@ -6358,7 +6761,9 @@
     'exit-mission': function () { reenterRun(); render(); },
     /* The key other apps use for this run (flightdeck run <folder> <key> --json). */
     'copy-run-key': function (id) { copyText(id, null, 'Copied the run key.'); },
-    'copy-receipt': function () { var pre = document.getElementById('receipt-text'); copyText(pre ? pre.textContent : '', pre); },
+    /* The receipt's text is worked out when it's copied (2.11), with every report and correction, and put in its hidden box for
+       a browser that can't copy by itself. */
+    'copy-receipt': function () { var pre = document.getElementById('receipt-text'), text = V.receiptText(ctx); if (pre) pre.textContent = text; copyText(text, pre); },
     zoom: function (id, b) { var r = ctx.run(), x = r && M.findStep(R.mapOf(r), id); if (!x) return; openLightbox(x.step.shots.map(function (s) { return { src: s.src, caption: s.caption }; }), +b.dataset.i); },
     'zoom-phase': function (id, b) { var r = ctx.run(), ph = r && R.mapOf(r).phases.filter(function (x) { return x.id === id; })[0]; if (!ph) return; openLightbox(ph.shots.map(function (s) { return { src: s.src, caption: s.caption }; }), +b.dataset.i); },
     'zoom-gate': function (id, b) { var r = ctx.run(), ph = r && R.mapOf(r).phases.filter(function (x) { return x.gate.id === id; })[0]; if (!ph) return; openLightbox(ph.gate.shots.map(function (s) { return { src: s.src, caption: s.caption }; }), +b.dataset.i); },
@@ -6452,7 +6857,12 @@
           render();
         });
       } : function () { say('Correction saved on this computer. It doesn\'t answer the step.', 'good'); state.msg.quiet = true; state.focus = '[data-act="corr-open"][data-id="' + cssEsc(step) + '"][data-mode="correct"]'; return Promise.resolve(); };
-      return then().then(function () { return withNote && state.runKey === key ? refreshRun() : null; }).then(function () { render(); });
+      /* The new correction is drawn whatever the page of the step's list (2.11), focused and brought into view. */
+      return then().then(function () { return withNote && state.runKey === key ? refreshRun() : null; }).then(function () {
+        /* By what it is, as read back (sentNotes), never by its key now: a twin arriving later never takes its place. */
+        if (note && state.view === 'run' && state.runKey === key && ng === gen) state.noteSent = { gen: gen, run: key, step: step, sent: PF.search.noteRead(note, runBase(r)), corr: true };
+        render();
+      });
     }, function (e) { endBusy(); f.sending = false; settled(); if (ng !== gen) return; say('Couldn\'t save. Try again. ' + e.message, 'bad'); render(); });
   }
   /* A note correction's draft: by folder, run and the phase or gate it's about. */
@@ -6481,6 +6891,28 @@
   }
   /* Anyone on the team decides on a group of corrections; the decision is a new file written once, following the decision
      this window shows. */
+  /* What a correction being declined said (2.11), kept with the decline: if a newer read no longer has it, its row is drawn
+     from this, as Removed elsewhere, with the reason typed (D4). */
+  function corrSnap(id) {
+    var p = currentProcess(), g = p && ctx.corrections(p.id).filter(function (x) { return x.id === id; })[0], C = PF.corrections;
+    if (!g) return null;
+    return { process: p.id, op: C.OP_LABEL[g.change.op] || '', target: C.targetName(g), from: g.change.op !== 'describe' ? g.from || '' : '', to: g.change.op === 'wording' ? g.change.to || '' : '' };
+  }
+  /* The decline pick whose correction is no longer in the folder. */
+  function corrGoneOf(pk) {
+    if (!pk || pk.kind !== 'corr-decline' || !pk.snap) return false;
+    return !ctx.corrections(pk.snap.process).some(function (g) { return g.id === pk.id; });
+  }
+  /* Its reason is kept through redraws (drawn as the box's own text), so navigation asks this instead of dirtyControl(). */
+  function corrHarvest() {
+    var pk = state.pick; if (!pk || pk.kind !== 'corr-decline') return;
+    var el = document.getElementById('pick-input'); if (el) pk.text = String(el.value == null ? '' : el.value);
+  }
+  function corrGonePending() {
+    var pk = state.pick; if (!corrGoneOf(pk)) return null;
+    var el = document.getElementById('pick-input'), t = el ? String(el.value || '') : pk.text || '';
+    return t.trim() ? el || { id: 'pick-input' } : null;
+  }
   function decideCorr(id, status, reason, done, pid, more) {
     var p = pid ? procFind(pid) : currentProcess(), g = p && ctx.corrections(p.id).filter(function (x) { return x.id === id; })[0];
     if (!g || !state.me) return;
@@ -6600,6 +7032,21 @@
   var repBoxes = [], repBoxFs = null;
   function repDrafts(fk) { var all = state.repDrafts || (state.repDrafts = {}), k = fk == null ? fsKey() : fk; return all[k] || (all[k] = Object.create(null)); }
   function repDraft(key) { var d = repDrafts(); return typeof d[key] === 'string' ? d[key] : null; }
+  /* What a report with a kept reason said (2.11), beside the reason, per folder: so if its files go, its card can still be drawn
+     from this, as Removed elsewhere, with the reason. */
+  function repSnaps(fk) { var all = state.repSnaps || (state.repSnaps = {}), k = fk == null ? fsKey() : fk; return all[k] || (all[k] = Object.create(null)); }
+  function repSnapNow(r) {
+    var d = repDrafts(), keys = Object.keys(d), b = keys.length && r ? reportsOf(r) : null; if (!b) return;
+    var sn = repSnaps(), rk = r.process + '/' + r.id;
+    b.list.forEach(function (it) { if (typeof d[it.g.key] === 'string') sn[it.g.key] = { run: rk, step: it.g.step, producer: it.g.producer, says: V.reportSays(it.g.report) }; });
+  }
+  /* Kept reasons on a run's step whose report is no longer in the folder. */
+  function repGone(r, stepId) {
+    var d = repDrafts(), sn = repSnaps(), rk = r.process + '/' + r.id, b = reportsOf(r), here = Object.create(null);
+    if (!b) return [];
+    b.list.forEach(function (it) { here[it.g.key] = true; });
+    return Object.keys(d).filter(function (k) { return typeof d[k] === 'string' && sn[k] && sn[k].run === rk && sn[k].step === stepId && !here[k]; }).sort().map(function (k) { return { key: k, snap: sn[k], text: d[k] }; });
+  }
   /* Only the boxes the last render drew hold typing. */
   function repHarvest() {
     if (!repBoxes.length) return;
@@ -6607,6 +7054,7 @@
     repBoxes.forEach(function (b) { var el = document.getElementById(b.id); if (el) d[b.key] = String(el.value == null ? '' : el.value); });
   }
   function repNoteDrawn(page) {
+    repSnapNow(ctx.run && ctx.run());
     var d = repDrafts(), keys = Object.keys(d), p = state.repPick;
     if (p && p.mode === 'decline' && keys.indexOf(p.key) < 0) keys.push(p.key);
     repBoxFs = fsKey();
@@ -6616,11 +7064,10 @@
   function repOpenForm(id, mode) {
     var o = repItem(id);
     if (!o.it || !ctx.recording(o.r)) return;
-    var n = o.b.list.filter(function (x) { return x.g.step === o.it.g.step; }).indexOf(o.it);
     repHarvest();
     state.repPick = { key: id, mode: mode };
     if (state.fieldErr && /^rep-reason-/.test(state.fieldErr.id)) state.fieldErr = null;
-    state.focus = mode === 'decline' ? PF.reports.reasonId(id) : 'rep-' + n + '-cf';
+    state.focus = mode === 'decline' ? PF.reports.reasonId(id) : V.reportCardId(id) + '-cf';
     render();
   }
   /* Acceptances this window made in this session, per folder: only a hint that the finalizer should try them by itself, once
@@ -6807,7 +7254,9 @@
   function selectorOf(el) {
     if (!el || el === document.body) return null;
     if (el.id) return '#' + cssEsc(el.id);
-    return el.dataset && el.dataset.act ? '[data-act="' + el.dataset.act + '"]' + (el.dataset.id ? '[data-id="' + cssEsc(el.dataset.id) + '"]' : '') : null;
+    /* A row's button, inside its row (actAt); one that can't be told apart from another row's goes to its list's heading. */
+    var at = actAt(el);
+    return !at ? null : at.row ? PF.vk.byId(at.row) + ' ' + at.sel : at.only ? at.sel : listHeadOf(el);
   }
   function openOverlay(o) { childEpoch++; o.back = selectorOf(document.activeElement); state.overlay = o; render(); }
   /* Closing returns focus to whatever opened it and releases full-size images. */
@@ -7089,7 +7538,7 @@
     state.fieldErr = null;
     try { P.checkName(add.name); } catch (err) { state.fieldErr = { id: 'setup', field: 'pa-name', msg: err.message }; state.focus = 'pa-name'; render(); return; }
     try { P.checkEmail(add.email); } catch (err) { state.fieldErr = { id: 'setup', field: 'pa-email', msg: err.message }; state.focus = 'pa-email'; render(); return; }
-    changePeople('add', null, function (doc) { return P.add(doc, add.name, add.email); }, function (p) { state.peopleAdd = null; state.focus = 'pa-name'; say('Added ' + p.name + ' as ' + p.id + '. They choose their name when they open the folder.', 'good'); });
+    changePeople('add', null, function (doc) { return P.add(doc, add.name, add.email); }, function (p) { state.peopleAdd = null; state.focus = 'pa-name'; ensureListItemVisible('people', p.id, { word: 'added' }); say('Added ' + p.name + ' as ' + p.id + '. They choose their name when they open the folder.', 'good'); });
   });
   /* Settings' Add a team value and its Edit (2.9). */
   document.addEventListener('submit', function (e) {
@@ -7113,17 +7562,49 @@
       if (!adding && !Object.prototype.hasOwnProperty.call(doc.values, name)) throw new Error('"' + name + '" isn\'t a team value anymore.');
       doc.values[name] = entry; return name;
     }, function () {
-      if (same()) { if (adding) { state.teamAdd = null; state.focus = 'tv-name'; } else state.teamEdit = null; }
+      /* The value just saved is focused and brought into view (2.11); team values aren't paged (100 at most), so it's drawn. */
+      if (same()) { if (adding) state.teamAdd = null; else state.teamEdit = null; state.focus = PF.vk.byId('tvv-' + name); state.focusWins = true; revealAt(state.focus); }
       say((adding ? 'Added the team value ' : 'Saved the team value ') + name + '.', 'good');
     }, adding ? null : f.base);
   });
+  /* The role boxes of the Start, Plan or test-run form being drawn (roleBoxes in process.js): what each held at the last
+     redraw (prev), only when that redraw drew this very form in the same place, as renderNow carries a select in 2.10 (the
+     screen, run, checklist, folder and folder generation in app.dataset.scope, and the form's data-scope); and what each
+     holds now, which the next redraw, a change and Just me read. */
+  var carryPrev = null;
+  function roleCarry(scope) {
+    var key = (app.dataset.scope || '') + '|' + scope, prev = carryPrev && carryPrev.key === key ? carryPrev : null;
+    var now = state.roleCarry = { key: key, vals: Object.create(null), touched: Object.create(null) };
+    return { prev: prev, now: now };
+  }
+  /* A role redrawn with its value as the control's own, and one not drawn (a hidden field), are both out of dirtyControl()'s
+     sight: one whose value differs from its default as drawn now (data-was) is unsaved work, as 2.10's carried select is. Focus
+     goes to the role, or for a hidden one the submit button. */
+  function rolesPending() {
+    var rb = state.view === 'start' ? state.roleCarry : null; if (!rb) return null;
+    var roles = Object.keys(rb.vals);
+    for (var i = 0; i < roles.length; i++) {
+      var el = document.getElementById('role-' + roles[i]);
+      if (!el || !el.getAttribute) continue;
+      var was = el.getAttribute('data-was');
+      if (was != null && String(el.value == null ? '' : el.value) !== was) return el.type === 'hidden' ? document.getElementById('start-submit') || el : el;
+    }
+    return null;
+  }
+  /* The version the Start or Plan form starts: the latest, or the one its plan names. */
+  function startFormPub() {
+    var p = procFind(state.processId); if (!p || !p.latest) return null;
+    var planning = state.planning && state.planning.process === p.id ? state.planning : null;
+    var plan = !planning && state.planId ? data.plans.filter(function (x) { return x.id === state.planId; })[0] : null;
+    return plan ? PF.plans.pick(p, plan, V.planChoice(ctx, plan)).pub : p.latest;
+  }
   /* Which start or plan form is open, as the view names it (its scope and the version it starts): a choice of mode made on
      it applies to it alone when the version has an approval role (2.10). */
   function startFormKey() {
     var p = procFind(state.processId); if (!p || !p.latest) return '';
     var planning = state.planning && state.planning.process === p.id ? state.planning : null;
     var plan = !planning && state.planId ? data.plans.filter(function (x) { return x.id === state.planId; })[0] : null;
-    var pub = plan ? PF.plans.pick(p, plan, V.planChoice(ctx, plan)).pub : p.latest;
+    var pub = startFormPub();
     return (planning ? 'plan:' + p.id + ':' + (planning.from || '') : 'start:' + p.id + ':' + (plan ? plan.id : '')) + ':' + (pub ? pub.info.folder : '');
   }
   /* Who approves has to be chosen (2.10): left empty, Start and Save the plan are refused there, and nothing typed is lost. */
@@ -7131,7 +7612,7 @@
     var gap = V.approvals(pub.map).filter(function (a) { return !roles[a.role]; })[0];
     if (!gap) { if (state.fieldErr && state.fieldErr.id === 'start-approver') state.fieldErr = null; return false; }
     state.fieldErr = { id: 'start-approver', field: 'role-' + gap.role, msg: 'Choose who approves "' + gap.title + '".' };
-    state.focus = '#role-' + gap.role; say(null); render(); return true;
+    state.focus = '#' + cssEsc('role-' + gap.role); say(null); render(); return true;
   }
   /* Save a plan: a new file, never a replacement for one that's there. */
   document.addEventListener('submit', function (e) {
@@ -7159,9 +7640,13 @@
     queued(function () { return repo.savePlan(sfs, plan, { lock: LOCKS ? lock : null }); }).then(function (res) {
       endBusy(); planning.saving = false; if (g !== gen) return;
       if (res.conflict) { say(res.afterWrite ? 'Something else wrote the same plan file just now. Check Runs before planning it again.' : 'A plan with the same name is already in the folder, so nothing was saved. Save again.', 'warn'); render(); return; }
-      return load(true).then(function () {
+      /* A read already under way when the save landed is joined by load() and doesn't have the plan: read again, up to
+         three times, until a read started after the save is the one shown, so Just planned has its card to focus. */
+      var after = readsStarted, tries = 0;
+      var settle = function () { return load(true).then(function () { if (g === gen && (data.readSeq || 0) <= after && ++tries < 3) return settle(); }); };
+      return settle().then(function () {
         if (g !== gen) return;
-        if (state.planning === planning && state.view === 'start') { state.planning = null; setView('runs'); state.processId = null; state.focus = 'card-' + plan.id; window.scrollTo(0, 0); }
+        if (state.planning === planning && state.view === 'start') { state.planning = null; setView('runs'); state.processId = null; state.justPlanned = { id: plan.id, gen: gen }; state.focus = 'card-' + plan.id; state.focusWins = true; window.scrollTo(0, 0); revealAt('#card-' + cssEsc(plan.id)); }
         say('Planned ' + plan.title + '.', 'good'); render();
       });
     }, function (err) { endBusy(); planning.saving = false; if (g !== gen) return; say('Couldn\'t save the plan: ' + err.message, 'bad'); render(); });
@@ -7178,6 +7663,9 @@
   document.addEventListener('focusout', function (e) { var t = e.target; if (prTypedBox(t) && /INPUT|TEXTAREA|SELECT/.test(t.tagName || '')) prLastBox = { id: t.id, s: t.selectionStart, e: t.selectionEnd, top: t.scrollTop || 0 }; }, true);
   document.addEventListener('focusin', function (e) { var t = e.target, a = t && t.dataset && t.dataset.act; if (!(a === 'pr-edit' || a === 'pr-back')) prLastBox = null; }, true);
   document.addEventListener('input', function (e) {
+    /* A long dropdown's "Show 50 more…" is handled when it changes (below), never as a choice: only on a K.select (any other
+       control's "#more" is a value like any other). */
+    if (PF.vk.isSelMore(e.target)) return;
     prActivity(e.target);
     if (e.target && e.target.dataset && e.target.dataset.prSample) { var tpx = currentProcess(); if (tpx) { var tpe = prEntry(tpx.id); tpe.typed[e.target.dataset.prSample] = e.target.value; } return; }
     /* What changed, for Stage it for a test run: kept on the practice entry, so a redraw or a reopened phase never loses it. */
@@ -7186,6 +7674,7 @@
     if (e.target && e.target.id === 'pr-note') { var npx = currentProcess(); if (npx) { var ne = prEntry(npx.id); ne.stageNote = e.target.value; ne.noteErr = null; } return; }
     if (e.target && e.target.id === 'pr-found') { var fpx = currentProcess(); if (fpx) { var fe = prEntry(fpx.id); fe.st = PF.practice.setFound(fe.st, e.target.value).state; prSave(fe); var cm = e.target.closest('.field'); var cnt = cm && cm.querySelector('.small'); if (cnt) cnt.textContent = fe.st.found.length + ' of ' + PF.practice.FOUND_MAX; var cb = document.querySelector('[data-act="pr-copy"]'); if (cb) cb.disabled = !fe.st.found; } return; }
     if (e.target.id === 'rel-search') { state.rel.q = e.target.value; render(); }
+    var fl = findList(e.target); if (fl) { selBoxKept(fl); setFind(fl, e.target.value); render(); return; }
     if (e.target.id === 'sx-q' && state.sx) { state.sx.q = String(e.target.value || '').slice(0, 200); state.sx.active = null; state.sx.pos = 0; state.sx.err = ''; sxRun(); render(); }
     if (e.target.id === 'ca-edit' && caOv() && caOv().edit) { caOv().edit.text = e.target.value; caOv().err = null; }
     /* The correction composer keeps what's typed in its state, so the Before/After redline follows the wording as it changes. */
@@ -7206,6 +7695,7 @@
     if (OB_TYPED.test(e.target.id || '') && state.processId) {
       /* Pending only while the box differs from what the draft says (or, for a new item, holds anything). */
       var differs = boxNorm(e.target.id, e.target.value) !== boxNorm(e.target.id, fieldApplied(e.target.id)), was = !!state.obPending;
+      markUnapplied(e.target.id, differs);
       if (differs) { state.obPending = state.processId; state.obPendingField = e.target.id; } else if (state.obPendingField === e.target.id) { dropPending(); obRepend(); }
       if (was !== !!state.obPending) scheduleRender();
     }
@@ -7295,6 +7785,13 @@
     }
   }, true);
   document.addEventListener('change', function (e) {
+    /* A long dropdown's "Show 50 more…" (K.select): the list widens and the choice stays what it was; nothing else hears it. */
+    if (PF.vk.isSelMore(e.target)) { e.target.value = (e.target.dataset && e.target.dataset.cur) || ''; selMore(e.target.id, e.target.dataset && e.target.dataset.step); return; }
+    /* A role given someone on Start or Plan (2.11) stays drawn through Show more, Find and a refresh, for this form only. */
+    var rm = state.view === 'start' && e.target && /^role-(.+)$/.exec(e.target.id || '');
+    /* A test run's form is its own form: its key is its scope (test:<process>:<stage>). */
+    var rc = rm ? state.roleCarry : null;
+    if (rc && Object.prototype.hasOwnProperty.call(rc.vals, rm[1])) { rc.vals[rm[1]] = String(e.target.value == null ? '' : e.target.value); rc.touched[rm[1]] = true; }
     /* A practice sample is one practice action when it's committed (Enter or leaving the box). */
     var smp = e.target && e.target.dataset && e.target.dataset.prSample;
     if (smp) {
@@ -7307,7 +7804,7 @@
       return;
     }
     if (e.target.id === 'rel-area') { state.rel.area = e.target.value; render(); }
-    if (e.target.id === 'ins-folder' && state.processId) { (state.insFolder = state.insFolder || {})[state.processId] = e.target.value; state.more = Object.assign({}, state.more, { 'ins-hot': 0 }); render(); }
+    if (e.target.id === 'ins-folder' && state.processId) { (state.insFolder = state.insFolder || {})[state.processId] = e.target.value; state.more = Object.assign({}, state.more, { 'ins-hot': 0, 'ins-dur': 0, 'ins-ph': 0, 'ins-rot': 0, 'ins-rolecols': 0, 'ins-notes': 0 }); render(); }
     if (/^rf-(process|folder|outcome|from|through)$/.test(e.target.id || '')) {
       var rf = state.runFilter && !state.runFilter.cohort ? Object.assign({}, state.runFilter) : {}, rk = e.target.id.slice(3);
       if (e.target.value) rf[rk] = String(e.target.value).slice(0, 120); else delete rf[rk];
@@ -7339,6 +7836,11 @@
     if (e.target.id === 'note-file') { addFiles(e.target.files, state.sel); e.target.value = ''; }
     if (e.target.id === 'me-run') { state.me = String(e.target.value || '').trim().slice(0, 60); lsSet('me', state.me); forgetStartIfNotMine(); render(); }
     if (e.target.id === 'rw-phase' && e.target.value) ACTIONS.goto('phase-' + e.target.value);
+    /* Moved to's choice is remembered with the form (2.11), so it's drawn whatever Find shows and after a newer read. */
+    if (state.fuPick && state.fuPick.status === 'moved' && e.target.id === PF.followups.formId(state.fuPick.key) + '-to') {
+      var tv = String(e.target.value || ''), tp = /^plan:(.+)$/.exec(tv), tr = tp ? null : ctx.findRun(tv), tpl = tp ? data.plans.filter(function (q) { return q.id === tp[1]; })[0] : null;
+      state.fuPick.to = tv ? { v: tv, t: tr ? tr.title : tpl ? tpl.title : tv } : null; render();
+    }
     /* The correction composer: where a new step goes, where a step moves, who does it, and its files. */
     if (state.corrForm) {
       var cf = state.corrForm;
@@ -7461,7 +7963,7 @@
     });
   }
   /* Every change of screen goes through here: what's typed on the run's selected step is kept first. */
-  function setView(v) { childEpoch++; if (state.view === 'start' && v !== 'start') state.startModeAt = {}; if (state.view === 'practice' && v !== 'practice') prLeave(); leaveContext(); state.view = v; }
+  function setView(v) { childEpoch++; if (v !== 'runs') state.justPlanned = null; if (state.view === 'start' && v !== 'start') { state.startModeAt = {}; state.roleCarry = null; } if (state.view === 'practice' && v !== 'practice') prLeave(); leaveContext(); state.view = v; }
   /* Leaving the practice page (any way: Edit, Back, a link): what's typed is kept, and where it was, for coming back. */
   function prLeave() {
     prHarvest(); var p = currentProcess(), e = p && prs[edKey(p.id)];
@@ -7475,6 +7977,12 @@
     var list = V.insightsFolders(ctx, p), folder = V.insightsChosen(ctx, p, list); if (!folder) return;
     var sp = PF.insights.spec(V.insightsOf(ctx, pid, folder, false), path, data.runs); if (!sp) return;
     var back = { process: pid, folder: folder, scrollY: window.scrollY || window.pageYOffset || 0, focus: '[data-act="ins-runs"][data-id="' + cssEsc(path) + '"]' };
+    /* The row the count is in, when it's in a paged list (2.11): Back draws it whatever the page. */
+    var pm = /^step:([^:]+):/.exec(path) || null, ph = /^(?:phase|gate):([^:]+)/.exec(path) || null;
+    if (pm) { back.list = 'ins-hot'; back.key = 'ins-' + pm[1]; back.head = 'ins-hot-h'; }
+    else if (ph) { back.list = 'ins-ph'; back.key = 'ins-ph-' + ph[1]; back.head = 'ins-ph-h'; }
+    /* And how far that list was shown, so the page is as long as it was and the scroll comes back to the same place. */
+    if (back.list) back.more = (state.more || {})[back.list] || 0;
     if (!go({ view: 'runs' })) return;
     state.runFilter = Object.assign(sp, { cohort: true, back: back }); state.more = Object.assign({}, state.more, { 'runs-cohort': 0 });
     state.focus = 'rf-h'; render(); window.scrollTo(0, 0);
@@ -7497,12 +8005,31 @@
     if (narrow() && state.refOpen && state.view === 'run') state.refOpen = false;
     if (t.view === 'run') {
       if (!t.run || !ctx.findRun(t.run)) return false;
+      /* A correction, fix or map note (2.11): on a step, its row in the inspector's Corrections, kept past the page; on a phase
+         or a gate, its group on the checklist's page. */
+      /* A note is found by its id and its whole content (2.11): of notes sharing an id, only the one the target names is
+         chosen, never another in its place (PF.search.noteFind). */
+      var tr = ctx.findRun(t.run), hasNote = typeof t.note === 'string', hit = hasNote ? PF.search.noteFind(tr._notes || [], t) : null;
+      var cn = hit && (hit.n.kind === 'correction' || hit.n.kind === 'fix' || hit.n.kind === 'map') ? hit.n : null;
+      if (cn && !t.step) { var cg = corrGroupOf(tr, cn); if (cg) return go({ view: 'process', process: tr.process, group: cg }); }
       if (t.run !== state.runKey || !inRun()) openRun(t.run); else setView('run');
       var r = ctx.run(), x = t.step ? M.findStep(R.mapOf(r), t.step) : null;
-      if (x) {
-        state.unfold[x.phase.id] = true; selectStep(x.step.id); state.refOpen = !narrow();
-        state.focus = '[data-act="select"][data-id="' + cssEsc(x.step.id) + '"]'; state.revealTarget = '#step-' + cssEsc(x.step.id);
-        var mark = state.flash = { ids: [x.step.id], notes: t.note ? [t.note] : [] };
+      if (x && cn) {
+        state.unfold[x.phase.id] = true; selectStep(x.step.id); state.refOpen = true;
+        /* Kept in the step's Corrections by its identity (state.noteShown), so a newer read can't put another in its place. */
+        state.noteShown = keepNote(t.run, tr._notes, cn, x.step.id);
+        var csel = PF.vk.byId(V.corrDomId(cn.id, hit.k)); state.focus = csel; state.focusWins = true; revealAt(csel, true); sheetFor = csel;
+      } else if (x) {
+        state.unfold[x.phase.id] = true; selectStep(x.step.id); state.refOpen = !narrow() || hasNote;
+        /* A note: drawn in its step's thread whatever the page, focused and brought into view; on a phone the inspector
+           sheet opens on it. A note that's gone leaves the step selected and the thread says so. */
+        var nsel = hit ? PF.vk.byId(V.noteDomId(x.step.id, hit.key)) : null;
+        /* A note that's gone is still asked for by the hit's identity, so the thread says it's gone. */
+        if (hasNote) state.noteShown = hit ? keepNote(t.run, tr._notes, hit.n, x.step.id) : { gen: gen, run: t.run, step: x.step.id, note: t.note, anchor: t.anchor, same: t.same, rank: t.rank };
+        if (nsel) { state.focus = nsel; state.focusWins = true; revealAt(nsel, true); sheetFor = nsel; }
+        else { state.focus = '[data-act="select"][data-id="' + cssEsc(x.step.id) + '"]'; revealAt('#step-' + cssEsc(x.step.id)); }
+        /* The note flashes by what it is, its key worked out at each draw. */
+        var mark = state.flash = { ids: [x.step.id], note: hit ? keepNote(t.run, tr._notes, hit.n, x.step.id) : null };
         setTimeout(function () { if (state.flash === mark) { state.flash = null; scheduleRender(); } }, 1800);
       }
       render(); return true;
@@ -7512,6 +8039,8 @@
       ACTIONS['open-process'](t.process);
       if (t.mapVer) ACTIONS['view-version'](t.mapVer);
       if (t.ptab && t.ptab !== 'overview') ACTIONS.ptab(t.ptab);
+      /* A correction's group (2.11): Corrections unfolded, the group drawn whatever the page and Open/All, and focused. */
+      if (t.group && corrShow(t.process, t.group)) { (state.disc = state.disc || {})['fx:' + t.process] = true; render(); }
       /* A step opens in the checklist, at that step, with focus on it. */
       if (t.step) {
         var sid = 'cl-st-' + t.step;
@@ -7526,6 +8055,35 @@
     if (t.view === 'runs' && (t.filter === 'mine' || t.filter === 'all')) state.filter = t.filter;
     ACTIONS.nav(t.view || 'home');
     return true;
+  }
+  /* A correction group shown on its checklist's page whatever the page or Open/All (2.11): drawn as Process › Corrections'
+     just-shown item, focused and brought into view. false when the group isn't there. */
+  function corrShow(pid, gid) {
+    var g = gid ? ctx.corrections(pid).filter(function (x) { return x.id === gid; })[0] : null;
+    if (!g) return false;
+    (state.disc = state.disc || {})['fx:' + pid] = true;
+    ensureListItemVisible('fx:' + pid, V.fxKeys(g)[0], { focus: PF.vk.byId('fxg-' + g.id), word: 'opened' });
+    return true;
+  }
+  /* The group on a run's checklist a correction note is in: the one whose member is this very note, matched on everything the
+     note says (2.11), its target included, so twins on a phase and a gate never open each other's group. A note no group holds,
+     or one that two groups could hold, opens none (as PF.search.noteFind chooses nothing rather than guess). */
+  function corrGroupOf(r, n) {
+    var A = PF.search.noteAnchor, same = function (a, b) { return A(a == null ? null : a) === A(b == null ? null : b); };
+    var text = String(n.text || ''), fixT = n.kind === 'fix' && n.target ? n.target : null;
+    var isIt = function (m) {
+      /* A member keeps the note it was read from (m.note): it is this note when their whole content is the same, every field,
+         from and base among them, as noteFind and V.memberKeys tell twins apart. */
+      if (m.note) return m.run === r.id && m.id === n.id && (m.note === n || PF.search.noteAnchor(m.note) === PF.search.noteAnchor(n));
+      if (m.id !== n.id || m.run !== r.id || m.at !== n.at || m.by !== n.by || !same(m.files || [], n.files || [])) return false;
+      if (n.kind === 'correction') return !m.legacy && !!m.newer === !!n.newer && same(m.target, n.target) && same(m.change, n.change) &&
+        m.why === (n.newer ? n.text || n.why || '' : n.why || '') && (m.happened || '') === (n.happened || '');
+      var why = String(m.why || '');
+      return m.legacy === n.kind && (m.fixKind || '') === (n.kind === 'fix' ? n.fixKind || '' : '') && why.slice(why.length - text.length) === text &&
+        (m.target && m.target.step || null) === ((fixT ? fixT.step : n.step) || null) && (!fixT || !fixT.phase || (m.target && m.target.phase) === fixT.phase);
+    };
+    var gs = ctx.corrections(r.process).filter(function (g) { return g.members.some(isIt); });
+    return gs.length === 1 ? gs[0].id : null;
   }
   /* What go() would lose: the first control on the page or in the open dialog whose value isn't what the page drew
      (input and textarea: value vs defaultValue; checkbox and radio: checked vs defaultChecked; select: the chosen option vs
@@ -7755,6 +8313,14 @@
     }
     var split = !typing && !e.metaKey && !e.ctrlKey && !e.altKey && t && t.closest && t.closest('.pane-split');
     if (split && V.PANES[split.dataset.split] && paneKey(split.dataset.split, e)) { e.preventDefault(); return; }
+    /* A Find box's own Escape: with text, it clears the box and keeps focus there, and nothing else happens; empty, Escape does
+       what it always does. */
+    if (e.key === 'Escape' && findList(t) && String(t.value || '') && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault(); if (e.stopPropagation) e.stopPropagation();
+      setFind(findList(t), ''); selBoxKept(findList(t)); state.focus = t.id; state.focusWins = true; render(); return;
+    }
+    /* Find narrows as you type; Enter in its box never submits the form around it (Export evidence, Start a run). */
+    if (e.key === 'Enter' && findList(t) && t.closest && t.closest('form')) { e.preventDefault(); return; }
     if (e.key === 'Escape') { if (state.overlay) { closeOverlay(); return; } var om = document.querySelector && document.querySelector('.rw-menu[open]'); if (om) { om.open = false; (state.disc = state.disc || {})[(om.dataset && om.dataset.disc) || 'rw-menu'] = false; var sm = om.querySelector('summary'); if (sm) sm.focus(); return; } if (state.tfPreview && state.view === 'types') { ACTIONS['tf-preview'](); return; } if (state.obAdd && !composing && t && /^ob-new-/.test(t.id || '')) { ACTIONS['ob-add-cancel'](); return; } if (state.obPlace) { cancelPlacing(); return; } if (state.obAsk) { ACTIONS['ob-ask-cancel'](); return; } if (obSheetOpen) { ACTIONS['ob-done'](); return; } if (state.view === 'practice' && state.pick) { PRACTICE.unpick(); return; } if (sheetWasOpen && state.view === 'practice') { PRACTICE['close-ref'](); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.view === 'practice' && !typing) { PRACTICE['pr-back'](); return; } if (state.pick || state.edit) { var pk = state.pick; if (pk && pk.kind === 'fields') { dropDraft(state.runKey, pk.id, ['fields', 'open']); state.fieldsDraft = null; } state.pick = null; state.edit = null; state.fieldErr = null; if (pk && pk.back) state.focus = pk.back; render(); return; } if (state.corrForm) { if (state.corrForm.menu) { state.corrForm.menu = false; state.focus = '[data-act="corr-menu"]'; render(); return; } ACTIONS['corr-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt') { reenterRun(); render(); } return; }
     /* A dialog keeps Tab and Shift+Tab inside it, wrapping at the ends, so keyboard focus never falls behind it. */
     var trap = state.overlay ? overlayEl : state.tfPreview && state.view === 'types' ? document.getElementById('tf-preview') : null;
@@ -7762,9 +8328,15 @@
       /* Only controls on screen count: a hidden one (a narrow screen's other panel, a closed section) can't take focus. */
       var fo = Array.prototype.slice.call(trap.querySelectorAll('button:not([disabled]), a[href], input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), summary, [tabindex]:not([tabindex="-1"])')).filter(function (el) { return !el.getClientRects || el.getClientRects().length > 0; });
       if (fo.length) {
-        /* Focus on something inside that isn't a control (a dialog's heading, focused when it opens) counts as before the first. */
+        /* Focus on something inside that isn't a control (a dialog's heading, focused when it opens; a row Show more focused)
+           moves on from where it is: Tab to the next control after it, Shift+Tab to the one before it, wrapping at the ends. */
         var fa = document.activeElement, inside = trap.contains(fa), off = inside && fo.indexOf(fa) < 0;
-        if (e.shiftKey && (!inside || off || fa === fo[0])) { e.preventDefault(); fo[fo.length - 1].focus(); }
+        if (off && fa.compareDocumentPosition) {
+          var pos = function (el) { return fa.compareDocumentPosition(el); };
+          var to = e.shiftKey ? fo.filter(function (el) { return pos(el) & 2; }).pop() || fo[fo.length - 1] : fo.filter(function (el) { return pos(el) & 4; })[0] || fo[0];
+          e.preventDefault(); to.focus();
+        }
+        else if (e.shiftKey && (!inside || off || fa === fo[0])) { e.preventDefault(); fo[fo.length - 1].focus(); }
         else if (!e.shiftKey && (!inside || off || fa === fo[fo.length - 1])) { e.preventDefault(); fo[0].focus(); }
       }
       return;

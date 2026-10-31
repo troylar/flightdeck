@@ -3,7 +3,7 @@
    a step or gate says that a run never needs to. The model comes from ctx.practice (app.js), which follows PF.practice. */
 (function () {
   'use strict';
-  var V = PF.views, U = PF.util, I = PF.icons.icon, esc = U.esc;
+  var K = PF.vk, V = PF.views, U = PF.util, I = PF.icons.icon, esc = U.esc;
 
   function againWhy(s) {
     if (s.again && s.again.reason === 'setter') return '^' + s.again.detail + ' came from a step to try again.';
@@ -73,18 +73,28 @@
     if (P.note) h += '<div class="notice warn pr-note"><span>' + esc(P.note) + '</span></div>';
     if (P.refusal && P.refusal.at == null) h += '<div class="notice warn pr-note" role="alert"><span>' + esc(P.refusal.msg) + '</span></div>';
     if (P.paused) h += '<div class="notice pr-note"><span>' + esc(P.paused) + '</span></div>';
-    if (P.gone.length) h += '<div class="notice pr-gone"><span>Removed from the draft: ' + P.gone.map(function (g) { return esc(g.text || g.id); }).join(', ') + '</span></div>' + P.gone.filter(function (g) { return g.kept; }).map(function (g) { return keptHtml(g.kept); }).join('');
+    if (P.gone.length) h += '<div class="notice pr-gone"><span>Removed from the draft: ' + K.capJoin(P.gone, function (g) { return esc(g.text || g.id); }) + '</span></div>' + P.gone.filter(function (g) { return g.kept; }).map(function (g) { return keptHtml(g.kept); }).join('');
     if (!m) return h + '<p class="small">Fix the draft to start practicing it.</p>';
     var need = m.from ? m.from.needed : [];
     if (m.from) h += '<p class="small pr-from">' + (m.from.assumed ? m.from.assumed + (m.from.assumed === 1 ? ' earlier step' : ' earlier steps') + ' assumed for practice · ' : 'Practicing from "' + esc(m.from.shown || m.from.text) + '" · ') + '<button type="button" class="linkish" data-act="pr-from-clear">Start from the beginning</button></p>';
     if (m.from && m.from.through) h += '<div class="notice good pr-done" tabindex="-1"><span>You got through from "' + esc(m.from.shown || m.from.text) + '".</span><button type="button" class="btn" data-act="pr-from-clear">Start from the beginning</button></div>';
     else if (m.complete) h += '<div class="notice good pr-done" tabindex="-1"><span>You got through the whole checklist.' + (P.dirty ? ' Save it, then stage it for a test run.' : '') + '</span>' +
       (P.dirty ? '<button type="button" class="btn" data-act="pr-save"' + (P.saving ? ' disabled' : '') + '>Save draft</button>' : stageLine(P)) + '</div>';
-    if (P.details.length && (s.prSamples || need.length)) h += '<section class="rw-details pr-sample" id="pr-sample" aria-labelledby="pr-sample-h"><h2 id="pr-sample-h" class="rw-h2" tabindex="-1">Sample details' + (need.length ? ' <span class="pill warn">' + need.length + ' needed from here</span>' : '') + '</h2><p class="small">Values to practice with, as a run would have them. Used only here.</p><div class="pr-fields">' + P.details.map(function (d) {
+    /* Shown while asked for or needed, and while its Find has text or focus (K.findOn, code review round 20). */
+    if (P.details.length && (s.prSamples || need.length) || K.findOn(s, 'pr-samples', false)) h += '<section class="rw-details pr-sample" id="pr-sample" aria-labelledby="pr-sample-h"><h2 id="pr-sample-h" class="rw-h2" tabindex="-1">Sample details' + (need.length ? ' <span class="pill warn">' + need.length + ' needed from here</span>' : '') + '</h2><p class="small">Values to practice with, as a run would have them. Used only here.</p>' + prSamples(s, P, need) + '</section>';
+    /* 20 sample details at a time with Find past 20 (code review round 10): a draft can list hundreds of run details. Each
+       value is kept in the practice's state as it's committed, so a box not drawn loses nothing; a refused one stays drawn. */
+    function prSamples(s, P, need) {
+      var by = Object.create(null); P.details.forEach(function (d) { by[d.name] = d; });
+      var names = P.details.map(function (d) { return d.name; }), bad = function (n) { return !!(P.sampleErr && Object.prototype.hasOwnProperty.call(P.sampleErr, n)); };
+      var pr = K.roleRows(s, 'pr-samples', names, { keep: names.filter(bad), keptLabel: 'Not accepted', label: 'Find a run detail', noun: 'run detail', focusOf: function (n) { return K.byId('pr-s-' + n); }, row: function (n) { return sampleRow(by[n]); } });
+      return pr.box + '<div class="pr-fields">' + pr.rows + '</div>';
+    }
+    function sampleRow(d) {
       var se = P.sampleErr && Object.prototype.hasOwnProperty.call(P.sampleErr, d.name) ? P.sampleErr[d.name] : null, err = se ? se.msg : '';
       var note = need.indexOf(d.name) >= 0 ? 'Needed from here' : d.setBy ? 'Set by "' + d.setBy + '"' : '';
       return '<label class="field" for="pr-s-' + esc(d.name) + '">' + esc(d.name) + (d.hint ? ' <span class="small">' + esc(d.hint) + '</span>' : '') + (note ? ' <span class="small pr-set">' + esc(note) + '</span>' : '') + '<input id="pr-s-' + esc(d.name) + '" data-pr-sample="' + esc(d.name) + '" value="' + esc(P.typed && Object.prototype.hasOwnProperty.call(P.typed, d.name) ? P.typed[d.name] : se ? se.value : d.value) + '" data-bound data-draft-kept maxlength="120"' + (err ? ' aria-invalid="true" aria-describedby="pr-s-e-' + esc(d.name) + '"' : '') + '></label>' + (err ? '<span class="err small" id="pr-s-e-' + esc(d.name) + '">' + esc(err) + '</span>' : '');
-    }).join('') + '</div></section>';
+    }
     if (s.prFound) h += '<section class="rw-details pr-foot" id="pr-found-box" aria-labelledby="pr-found-h"><h2 id="pr-found-h" class="rw-h2" tabindex="-1">Things to fix</h2>' +
       '<label class="field" for="pr-found">What you noticed while practicing <span class="small">' + P.found.length + ' of ' + PF.practice.FOUND_MAX + '</span><textarea id="pr-found" data-draft-kept rows="3" maxlength="' + PF.practice.FOUND_MAX + '">' + esc(P.found) + '</textarea></label>' +
       '<span class="row"><button type="button" class="mini" data-act="pr-copy"' + (P.found ? '' : ' disabled') + '>' + I('copy') + 'Copy what I found</button><span class="small" id="pr-copy-msg" role="status"></span></span></section>';

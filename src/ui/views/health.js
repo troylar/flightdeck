@@ -14,7 +14,8 @@
     var files = paths.length ? (paths.length <= 3 ? '<ul class="hz-paths">' + shown.map(function (p) { return '<li><code>' + esc(p) + '</code></li>'; }).join('') + '</ul>'
       : '<details class="hz-more"><summary class="small">' + plural(paths.length, 'file or folder', 'files and folders') + '</summary><ul class="hz-paths">' + paths.map(function (p) { return '<li><code>' + esc(p) + '</code></li>'; }).join('') + '</ul></details>') : '';
     var a = i.action;
-    return '<li class="hz-issue ' + esc(i.severity) + '"><div class="hz-main"><span class="cat">' + esc(i.area) + '</span><b class="hz-t">' + esc(i.title) + '</b><p class="small">' + esc(i.detail) + '</p>' + files + '</div>' +
+    PF.perf.add('health.issue');
+    return '<li class="hz-issue ' + esc(i.severity) + '"><div class="hz-main"><span class="cat">' + esc(i.area) + '</span><b class="hz-t" id="' + esc('hz-i-' + i.id) + '" tabindex="-1">' + esc(i.title) + '</b><p class="small">' + esc(i.detail) + '</p>' + files + '</div>' +
       '<button type="button" class="btn' + (i.severity === 'stop' ? ' primary' : '') + '" data-act="' + esc(a.act) + '" data-id="' + esc(a.id) + '">' + esc(a.label) + '</button></li>';
   }
   function health(ctx) {
@@ -33,15 +34,19 @@
       (kind === 'busy' ? '<span class="hz-busy" aria-hidden="true"></span>' : '') + '</section>';
     if (!rep || (!rep.scanned && busy)) return h + links();
     var stop = rep.issues.filter(function (i) { return i.severity === 'stop'; }), look = rep.issues.filter(function (i) { return i.severity !== 'stop'; });
-    if (stop.length) h += '<section class="panel hz-sec" aria-labelledby="hz-stop"><h2 id="hz-stop">Needs action · ' + stop.length + '</h2><ul class="hz-list">' + stop.map(issueRow).join('') + '</ul></section>';
-    if (look.length) h += '<section class="panel hz-sec" aria-labelledby="hz-look"><h2 id="hz-look">Worth a look · ' + look.length + '</h2><ul class="hz-list">' + look.map(issueRow).join('') + '</ul></section>';
+    /* 50 issues a section at a time (2.11), most severe first as core orders them; each row is built only when drawn. */
+    var issues = function (id, list) { return K.list(st, id, list, { keyOf: function (i) { return i.id; }, focusOf: function (k) { return K.byId('hz-i-' + k); }, draw: function (shown) { return '<ul class="hz-list">' + shown.map(issueRow).join('') + '</ul>'; } }); };
+    if (stop.length) h += '<section class="panel hz-sec" aria-labelledby="hz-stop"><h2 id="hz-stop">Needs action · ' + stop.length.toLocaleString('en-US') + '</h2>' + issues('hz-stop', stop) + '</section>';
+    if (look.length) h += '<section class="panel hz-sec" aria-labelledby="hz-look"><h2 id="hz-look">Worth a look · ' + look.length.toLocaleString('en-US') + '</h2>' + issues('hz-look', look) + '</section>';
     h += '<details class="panel hz-sec" data-disc="hz-ok"' + ((st.disc || {})['hz-ok'] ? ' open' : '') + '><summary><h2 id="hz-ok">All clear · ' + plural(rep.clear.length, 'check') + ' passed</h2></summary><ul class="hz-clear">' + rep.clear.map(function (c) { return '<li><span class="hz-tick" aria-hidden="true">' + I('check') + '</span><span>' + esc(c.text) + '</span></li>'; }).join('') + '</ul></details>' +
       (rep.scanned ? '' : '<p class="small">Choose Check again to read every file, not just what Flightdeck already loaded.</p>');
     if (hs && hs.scan) {
       var areas = hs.scan.areas || {}, keys = Object.keys(areas).sort(function (a, b) { return areas[b].bytes - areas[a].bytes || (a < b ? -1 : 1); });
-      h += '<details class="panel hz-sec"><summary><h2 style="display:inline">What\'s in the folder</h2></summary><table class="hz-table"><thead><tr><th scope="col">Folder</th><th scope="col">Files</th><th scope="col">Size</th></tr></thead><tbody>' +
-        keys.map(function (k) { return '<tr><th scope="row"><code>' + esc(k === '(top)' ? 'top level' : k + '/') + '</code></th><td>' + areas[k].files.toLocaleString('en-US') + '</td><td>' + esc(H.bytes(areas[k].bytes)) + '</td></tr>'; }).join('') +
-        '</tbody></table><p class="small">Longest path: ' + hs.scan.longest + ' characters.</p></details>';
+      /* Largest first, 50 at a time (2.11); the fold stays open through Show more. */
+      var row = function (k) { return '<tr><th scope="row"><code id="hz-area-' + esc(k) + '" tabindex="-1">' + esc(k === '(top)' ? 'top level' : k + '/') + '</code></th><td>' + areas[k].files.toLocaleString('en-US') + '</td><td>' + esc(H.bytes(areas[k].bytes)) + '</td></tr>'; };
+      h += '<details class="panel hz-sec" data-disc="hz-areas"' + ((st.disc || {})['hz-areas'] ? ' open' : '') + '><summary><h2 style="display:inline">What\'s in the folder</h2></summary>' +
+        K.list(st, 'hz-areas', keys, { keyOf: function (k) { return k; }, focusOf: function (k) { return K.byId('hz-area-' + k); }, draw: function (shown) { return '<table class="hz-table"><thead><tr><th scope="col">Folder</th><th scope="col">Files</th><th scope="col">Size</th></tr></thead><tbody>' + shown.map(row).join('') + '</tbody></table>'; } }) +
+        '<p class="small">Longest path: ' + hs.scan.longest + ' characters.</p></details>';
     }
     return h + links();
   }

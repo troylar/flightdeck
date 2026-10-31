@@ -3919,7 +3919,7 @@ rule('App: a version this copy doesn\'t understand says why, can\'t be picked or
   app.click('open-process', 'release'); await app.tick();
   let h = app.html();
   assert.ok(new RegExp('v3-newer123: ' + NEWER.source).test(h), 'the process page says why');
-  assert.ok(new RegExp('<option value="" disabled>v3 · can\'t be used here: ' + NEWER.source).test(h), 'the version picker says why and can\'t pick it');
+  assert.ok(new RegExp('<option value="" disabled>v3 · can(?:\'|&#39;)t be used here: ' + NEWER.source.replace(/&#39;/g, '(?:\'|&#39;)')).test(h), 'the version picker says why and can\'t pick it');
   assert.ok(!/value="v3-newer123"/.test(h) && !/data-id="v3-newer123"/.test(h), 'never offered to view or compare');
   app.click('start', 'release'); await app.tick();
   assert.ok(/data-folder="v2-/.test(app.html()) && !/v3-newer123/.test(app.html()), 'a new run starts on v2');
@@ -6566,7 +6566,8 @@ rule('Search: a read-only dialog gives way to it, and on a phone a jump from it 
   assert.ok(/id="rw-ins"[^>]*data-open="true"/.test(ph.html()), 'set-up: the step sheet is open');
   ph.keyOn('k', { ctrlKey: true }); await ph.tick(40);
   await sxType(ph, 'pods');
-  const hit = sxIds(ph).find(x => /^step:|^note:|^run:/.test(x));
+  /* A step or a run (a correction note opens the sheet on its Corrections row instead, 2.11). */
+  const hit = sxIds(ph).find(x => /^step:|^run:/.test(x));
   assert.ok(hit, 'set-up: a result: ' + sxIds(ph).join(', '));
   ph.click('sx-open', hit); await ph.tick(40);
   assert.strictEqual(ph.overlay(), '');

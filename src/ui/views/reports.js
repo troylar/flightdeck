@@ -51,9 +51,11 @@
   }
 
   /* One report on the selected step: the three facts, the producer line, Details, and the recorder's actions. */
-  function card(ctx, r, map, it, n, folded) {
+  /* A report card's id, from its report's key (2.11), so a report arriving ahead of it never gives its id to another. */
+  function cardId(key) { return 'rep-' + PF.sha256.hex(String(key)).slice(0, 32); }
+  function card(ctx, r, map, it, folded) {
     var g = it.g, rep = g.report, st = ctx.state, b = bundle(ctx, r), x = M.findStep(map, g.step), step = x ? x.step : null;
-    var dec = decidedOf(ctx, r, map, g), ap = appliesOf(r, map, g), id = 'rep-' + n;
+    var dec = decidedOf(ctx, r, map, g), ap = appliesOf(r, map, g), id = cardId(g.key);
     var head = (rep ? esc(saysText(rep)) : 'A report that can\'t be read') + ' · ' + esc(g.producer);
     var h = '';
     if (it.depth) h += '<p class="small">Replaced by a newer report from ' + esc(g.producer) + '.</p>';
@@ -62,8 +64,8 @@
       var vu = step ? X.valuesFor(rep, r, step) : { unused: [] };
       h += '<div class="rep-fact"><h4 class="small">What it says</h4>' + saysBody(r, step, rep, vu.unused) + '</div>';
       h += '<p class="small rep-producer">From ' + esc(rep.producer.name) + (rep.producer.version ? ' ' + esc(rep.producer.version) : '') + ', by its own account.</p>';
-    } else h += '<div class="notice warn"><span>' + esc(g.reason) + '</span></div>';
-    if (rep && g.reason) h += '<div class="notice warn"><span>' + esc(g.reason) + '</span></div>';
+    } else h += reasonHtml(st, g);
+    if (rep && g.reason) h += reasonHtml(st, g);
     h += '<div class="rep-fact"><h4 class="small">What a person decided</h4><p>' + esc(dec.text) + '</p></div>';
     if (ap) h += '<div class="rep-fact"><h4 class="small">Whether its inputs match the run</h4><p>' + esc(X.appliesText(ap)) + '</p></div>';
     /* An acceptance the run logs whose decision isn't in the folder (from saved state); this window's own while its step
@@ -75,12 +77,43 @@
       : '<div class="notice warn"><span>Accepted in the run, but the report it accepted isn\'t in the folder in that form anymore.</span></div>';
     h += actions(ctx, r, map, g, dec, id);
     h += '<details class="small rep-details"><summary>Details</summary><p>Flightdeck can\'t confirm which tool or person wrote this file.</p>' +
-      (rep && rep.created ? '<p>The tool\'s clock said ' + esc(rep.created) + '.</p>' : '') +
-      g.copies.map(function (c) { return '<p>' + esc(c.path || c.name) + (c.sha256 ? ' · SHA-256 ' + esc(c.sha256) : '') + (c.ok ? '' : ' · ' + esc(c.why || 'can\'t be read')) + '</p>'; }).join('') +
+      (rep && rep.created ? '<p>The tool\'s clock said ' + esc(rep.created) + '.</p>' : '') + copiesHtml(st, g) +
       '<p>Flightdeck compares inputs with this run\'s details only; it can\'t see your other systems.</p></details>';
     return '<section class="rep-card" aria-labelledby="' + id + '-h">' + (folded
-      ? '<details><summary><h4 class="rep-h" id="' + id + '-h">' + head + '</h4></summary>' + h + '</details>'
-      : '<h4 class="rep-h" id="' + id + '-h">' + head + '</h4>' + h) + '</section>';
+      ? '<details><summary><h4 class="rep-h" id="' + id + '-h" tabindex="-1">' + head + '</h4></summary>' + h + '</details>'
+      : '<h4 class="rep-h" id="' + id + '-h" tabindex="-1">' + head + '</h4>' + h) + '</section>';
+  }
+  /* Why a report can't be accepted. Copies that differ are named in the line when there are a few; past 3, one summary line
+     and a fold naming them 50 at a time (2.11, D10), built only for the names shown. The reason core gives (for the CLI and
+     outside apps) is unchanged. */
+  function reasonText(g) { return g.differ && g.copies.length > 3 ? g.copies.length.toLocaleString('en-US') + ' copies of this report differ, so none of them can be accepted. Delete the wrong ones.' : g.reason; }
+  function reasonHtml(st, g) {
+    if (!(g.differ && g.copies.length > 3)) return '<div class="notice warn"><span>' + esc(g.reason) + '</span></div>';
+    var k = 'repdiff:' + g.key;
+    return '<div class="notice warn rep-differ"><div>' + esc(reasonText(g)) + '<details data-disc="' + esc(k) + '"' + ((st.disc || {})[k] ? ' open' : '') + '><summary class="small">Which copies</summary>' +
+      K.list(st, k, copyRows(g), { keyOf: function (x) { return x.k; }, focusOf: function (i) { return K.byId('repd-' + g.key + '-' + i); },
+        draw: function (shown) { return '<ul class="small rep-names">' + shown.map(function (x) { PF.perf.add('rep.differ'); return '<li id="' + esc('repd-' + g.key + '-' + x.k) + '" tabindex="-1"><code>' + esc(x.c.name) + '</code></li>'; }).join('') + '</ul>'; } }) + '</details></div></div>';
+  }
+  /* A report's copies as list items, each keyed by its file (its path), never its place: a copy arriving above doesn't turn
+     the line someone is on into another. */
+  function copyRows(g) { var ks = K.uniqKeys(g.copies, function (c) { return c.path || c.name; }); return g.copies.map(function (c, i) { return { c: c, k: K.domKey(ks[i]) }; }); }
+  /* Every physical copy of a report, each line built only when drawn (2.11): the first 10, then Show all, which lists them
+     50 at a time inside the fold. */
+  function copiesHtml(st, g) {
+    var line = function (c, i) { PF.perf.add('rep.copy'); return '<p class="rep-copy" id="' + esc('repc-' + g.key + '-' + i) + '" tabindex="-1">' + esc(c.path || c.name) + (c.sha256 ? ' · SHA-256 ' + esc(c.sha256) : '') + (c.ok ? '' : ' · ' + esc(c.why || 'can\'t be read')) + '</p>'; };
+    var all = (st.repCopies || {})[g.key], list = copyRows(g);
+    if (list.length <= 10) return list.map(function (x) { return line(x.c, x.k); }).join('');
+    if (!all) return list.slice(0, 10).map(function (x) { return line(x.c, x.k); }).join('') + '<p class="row"><button type="button" class="mini" data-act="rep-copies" data-id="' + esc(g.key) + '" data-focus="' + esc(K.byId('repc-' + g.key + '-' + list[10].k)) + '">Show all ' + list.length.toLocaleString('en-US') + ' copies</button></p>';
+    return K.list(st, 'repc:' + g.key, list, { keyOf: function (x) { return x.k; }, focusOf: function (k) { return K.byId('repc-' + g.key + '-' + k); }, draw: function (shown) { return shown.map(function (x) { return line(x.c, x.k); }).join(''); } });
+  }
+  /* A report with a decline reason kept (repDrafts) whose files are gone, from what it said when the reason was typed
+     (repSnaps): the reason, Copy my text and Cancel, never Decline (2.11). */
+  function goneCard(ctx, x) {
+    var rid = X.reasonId(x.key), id = 'repg-' + X.reasonId(x.key).replace(/^rep-reason-/, '');
+    return '<section class="rep-card rep-gone" aria-labelledby="' + esc(id) + '-h"><h4 class="rep-h" id="' + esc(id) + '-h" tabindex="-1">' + esc(x.snap.says || 'A report') + ' · ' + esc(x.snap.producer || '') + '</h4>' +
+      '<p class="small"><b>Removed elsewhere.</b> This report\'s files aren\'t in the team folder anymore, so it can\'t be declined. Your reason is still here to copy.</p>' +
+      '<div class="rep-confirm" role="group" data-draft-kept><label class="small" for="' + esc(rid) + '">Why not?</label><textarea id="' + esc(rid) + '" rows="2" maxlength="' + X.LIMITS.text + '">' + esc(x.text || '') + '</textarea>' +
+      '<div class="row"><button class="btn" data-act="rep-copy-reason" data-id="' + esc(x.key) + '">Copy my text</button><button class="btn" data-act="rep-cancel" data-id="' + esc(x.key) + '">Cancel</button></div></div></section>';
   }
 
   /* Accept, Decline and Reopen, for the recorder; disabled with the reason beside it when a report can't be accepted. */
@@ -116,21 +149,28 @@
     }
     var acts = '';
     if (dec.state !== 'accepted') acts += el.ok ? '<button class="btn go" data-act="rep-accept" data-id="' + esc(g.key) + '"' + (busy ? ' disabled' : '') + '>Accept</button>'
-      : '<button class="btn" disabled aria-describedby="' + id + '-why">Accept</button><span class="small rw-why-off" id="' + id + '-why">' + esc(el.why) + '</span>';
+      : '<button class="btn" disabled aria-describedby="' + id + '-why">Accept</button><span class="small rw-why-off" id="' + id + '-why">' + esc(el.why === g.reason ? reasonText(g) : el.why) + '</span>';
     if (dec.state !== 'declined' && g.sha256) acts += '<button class="btn" data-act="rep-decline" data-id="' + esc(g.key) + '"' + (busy ? ' disabled' : '') + '>Decline</button>';
     if (dec.state !== 'none' && dec.state !== 'open' && g.sha256) acts += '<button class="mini" data-act="rep-reopen" data-id="' + esc(g.key) + '"' + (busy ? ' disabled' : '') + '>Reopen</button>';
     return acts ? '<div class="row rep-acts" role="group" aria-label="Decide on this report">' + acts + '</div>' : '';
   }
 
-  /* The inspector's Reports section: only on steps with a report. Several are folded to one line each, in order. */
+  /* The inspector's Reports section: only on steps with a report. Several are folded to one line each, in order: 20 at a
+     time (2.11), in the same order, with an open form, a kept decline reason and a report a panel link opened always drawn. */
+  function listId(r, stepId) { return 'repcards:' + r.process + '/' + r.id + ':' + stepId; }
   function section(ctx, r, map, stepId) {
-    var b = bundle(ctx, r), items = onStep(ctx, r, stepId);
-    if (!items.length) return '';
-    var many = items.length > 1, open = ctx.state.repPick ? ctx.state.repPick.key : '';
+    var b = bundle(ctx, r), items = onStep(ctx, r, stepId), st = ctx.state, lid = listId(r, stepId);
+    var gone = ctx.repGone ? ctx.repGone(r, stepId) : [];
+    if (!items.length && !gone.length) return '';
+    var many = items.length > 1, open = st.repPick ? st.repPick.key : '', js = st.justShown && st.justShown.lists ? st.justShown.lists[lid] : null;
     var kept = function (k) { return ctx.repDraft && ctx.repDraft(k) != null; };
+    var list = items.map(function (it) { return { it: it }; });
+    var keep = list.filter(function (x) { return x.it.g.key === open || kept(x.it.g.key); }).map(function (x) { return x.it.g.key; });
     return '<section class="rw-box rw-reps" aria-labelledby="ins-reps"><h3 class="rw-h3" id="ins-reps">Reports · ' + items.length + '</h3>' +
       failedNote(b) + (b.loading ? '<p class="small" role="status">Reading reports…</p>' : '') +
-      items.map(function (it, i) { return card(ctx, r, map, it, i, many && it.g.key !== open && !kept(it.g.key)); }).join('') + '</section>';
+      (list.length ? K.list(st, lid, list, { page: 20, keyOf: function (x) { return x.it.g.key; }, focusOf: function (k) { return '#' + cardId(k) + '-h'; }, keep: keep, keptLabel: 'The ones you\'re deciding on', shownWord: 'opened',
+        draw: function (shown) { return shown.map(function (x) { PF.perf.add('rep.card'); return card(ctx, r, map, x.it, many && x.it.g.key !== open && !kept(x.it.g.key) && x.it.g.key !== js); }).join(''); } }) : '') +
+      gone.map(function (x) { return goneCard(ctx, x); }).join('') + '</section>';
   }
 
   /* The reports folder couldn't be read on the last check: what's shown is the last read, said wherever reports are. */
@@ -144,15 +184,21 @@
     if (!ctx.state.repOpen) return '';
     var b = bundle(ctx, r), order = M.steps(map).map(function (y) { return y.step.id; });
     var items = b.list.slice().sort(function (a, c) { var i = order.indexOf(a.g.step), j = order.indexOf(c.g.step); return (i < 0 ? 1e9 : i) - (j < 0 ? 1e9 : j); });
-    var rows = items.map(function (it) {
+    /* 20 at a time (2.11), each row built only when drawn; each opens its own card (data-report), not only its step. */
+    var row = function (it) {
+      PF.perf.add('rep.row');
       var g = it.g, x = M.findStep(map, g.step), dec = decidedOf(ctx, r, map, g);
-      return '<li><button class="link" data-act="goto" data-id="step-' + esc(g.step) + '">' + (x ? K.stepHtml(x.step, K.refValue(r, map), false) : esc(g.step)) + '</button><span class="small">' + esc(saysText(g.report)) + ' · ' + esc(g.producer) + ' · ' + esc(dec.text) + '</span></li>';
-    }).join('');
-    var bad = (b.badNames || []).map(function (e) { return '<li class="small">' + esc(e.path || e.name) + ': isn\'t named as a report.</li>'; }).join('');
+      return '<li><button class="link" data-act="rep-goto" data-id="step-' + esc(g.step) + '" data-report="' + esc(g.key) + '">' + (x ? K.stepHtml(x.step, K.refValue(r, map), false) : esc(g.step)) + '</button><span class="small">' + esc(saysText(g.report)) + ' · ' + esc(g.producer) + ' · ' + esc(dec.text) + '</span></li>';
+    };
+    /* A file that isn't named as a report, keyed by its path. */
+    var bn = b.badNames || [], bk = K.uniqKeys(bn, function (e) { return e.path || e.name; }).map(K.domKey);
+    var all = items.concat(bn.map(function (e, i) { return { bad: '<li class="small" id="repbad-' + bk[i] + '" tabindex="-1">' + esc(e.path || e.name) + ': isn\'t named as a report.</li>', k: bk[i] }; }));
     return '<section class="rw-panel" id="rw-reps" aria-label="Reports"><h2 class="rw-h2">Reports</h2>' +
       failedNote(b) +
       (b.loading ? '<p class="small" role="status">Reading reports…</p>' : '') +
-      (rows || bad ? '<ul class="replist">' + rows + bad + '</ul>' : b.failed ? '' : '<p class="small">No reports on this run. A tool writes them with flightdeck report write.</p>') + '</section>';
+      (all.length ? K.list(ctx.state, 'reppanel:' + r.process + '/' + r.id, all, { page: 20, keyOf: function (it) { return it.bad != null ? 'bad#' + it.k : it.g.key; },
+        focusOf: function (k) { return /^bad#/.test(k) ? '#repbad-' + String(k).slice(4) : '[data-act="rep-goto"][data-report="' + K.cssStr(k) + '"]'; },
+        draw: function (shown) { return '<ul class="replist">' + shown.map(function (it) { return it.bad != null ? it.bad : row(it); }).join('') + '</ul>'; } }) : b.failed ? '' : '<p class="small">No reports on this run. A tool writes them with flightdeck report write.</p>') + '</section>';
   }
   /* The rail button beside Follow-ups. */
   function button(ctx, r, where) {
@@ -162,5 +208,5 @@
     return '<button class="mini" data-act="run-reports" data-id="' + esc(where) + '" aria-expanded="' + !!ctx.state.repOpen + '" aria-controls="rw-reps">' + I('flag') + 'Reports · ' + n + (failed ? ' · couldn\'t be read' : '') + '</button>';
   }
 
-  V.reportBadge = badge; V.reportSection = section; V.reportPanel = panel; V.reportButton = button; V.reportSays = saysText;
+  V.reportCardId = cardId; V.reportListId = listId; V.reportBadge = badge; V.reportSection = section; V.reportPanel = panel; V.reportButton = button; V.reportSays = saysText;
 })();

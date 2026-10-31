@@ -74,7 +74,7 @@
     var b = ferr(st, 'su-backup'), cands = [{ id: ids.me, name: su.me.name }].concat(named.map(function (x) { return { id: ids[x.k], name: x.name, email: String(x.email || '').trim() }; }));
     var nmBk = PP.labeler(cands);
     h += '<fieldset class="su-backup"><legend>Backup owner</legend><label class="field" for="su-backup">If you\'re away or leave, your backup owner keeps the people list and can hand the folder to someone else.<select id="su-backup" data-bound' + b.attrs + '><option value="">Nobody yet</option>' +
-      named.map(function (x) { return '<option value="' + esc(x.k) + '"' + (su.backup === x.k ? ' selected' : '') + '>' + esc(nmBk({ id: ids[x.k], name: x.name, email: String(x.email || '').trim() })) + '</option>'; }).join('') + '</select></label>' + b.html + '</fieldset>';
+      named.slice().sort(function (a, b) { return PF.text.natural(a.name, b.name); }).map(function (x) { return '<option value="' + esc(x.k) + '"' + (su.backup === x.k ? ' selected' : '') + '>' + esc(nmBk({ id: ids[x.k], name: x.name, email: String(x.email || '').trim() })) + '</option>'; }).join('') + '</select></label>' + b.html + '</fieldset>';
     h += promise();
     h += '<div class="row su-actions"><button class="btn go" type="submit"' + (su.busy ? ' disabled' : '') + '>' + (su.busy ? 'Creating…' : 'Create the team folder') + '</button><button type="button" class="mini" data-act="setup-step" data-id="folder">Back</button></div>' +
       '<p class="small">Flightdeck writes <code>people.json</code>, <code>AGENTS.md</code> (instructions for AI assistants) and their skills into <b>' + esc(su.dirName || '') + '</b>.</p></form>';
@@ -97,7 +97,7 @@
         '<pre class="source" id="su-prompt" tabindex="0">' + esc(text) + '</pre><div class="row"><button class="btn" data-act="setup-copy" data-id="prompt">' + I('copy') + 'Copy the prompt</button><span class="small" id="copy-msg" role="status"></span></div></div>';
     }
     var md = ctx.setupTemplate ? ctx.setupTemplate(t.id) : '', map = M.parse(md), steps = M.steps(map).length;
-    return h + '<div class="su-pick"><div class="row between"><div><b>' + esc(map.meta.title || t.title) + '</b><div class="small">' + map.phases.length + ' phase' + (map.phases.length === 1 ? '' : 's') + ', ' + steps + ' step' + (steps === 1 ? '' : 's') + (map.meta.runs === 'solo' ? ' · run on your own' : map.meta.roles.length ? ' · roles: ' + esc(map.meta.roles.join(', ')) : '') + '</div></div></div>' +
+    return h + '<div class="su-pick"><div class="row between"><div><b>' + esc(map.meta.title || t.title) + '</b><div class="small">' + map.phases.length + ' phase' + (map.phases.length === 1 ? '' : 's') + ', ' + steps + ' step' + (steps === 1 ? '' : 's') + (map.meta.runs === 'solo' ? ' · run on your own' : map.meta.roles.length ? ' · roles: ' + esc(K.capJoin(map.meta.roles)) : '') + '</div></div></div>' +
       '<ol class="su-phases">' + map.phases.map(function (p) { return '<li><b>' + esc(p.title) + '</b> <span class="small">' + p.steps.map(function (s) { return esc(K.stepPlain(s, null)); }).join(' · ') + '</span></li>'; }).join('') + '</ol>' +
       '<div class="row su-actions"><button class="btn go" data-act="setup-publish" data-id="' + t.id + '"' + (su.busy ? ' disabled' : '') + '>' + I('play') + 'Publish v1 as it is</button><button class="btn" data-act="setup-edit" data-id="' + t.id + '"' + (su.busy ? ' disabled' : '') + '>' + I('edit') + 'Open it in the editor</button></div>' +
       '<p class="small">Publishing makes a numbered version people can run. You can edit and publish v2 any time; runs already started keep their version.</p></div>';
@@ -114,7 +114,7 @@
     }).join('') + '</ul>';
   }
   function secondStep(ctx, su, prog) {
-    var st = ctx.state, me = st.me, fs = st.fs, others = ctx.data.people.filter(function (p) { return !p.inactive && p.id !== me; });
+    var st = ctx.state, me = st.me, fs = st.fs, others = PF.people.sorted(ctx).filter(function (p) { return !p.inactive && p.id !== me; });
     var to = others.filter(function (p) { return p.id === su.to; })[0] || others[0] || null, done = prog.steps[4].done;
     var h = '<h2 id="su-h" tabindex="-1">Open it on a second computer</h2><p>A run helps most when the team can see it. Have a teammate open the folder on their computer, then check that files travel between you.</p><ol class="su-sub">';
     h += '<li><h3>Flightdeck in the team folder</h3>' + (su.hasApp === true ? ok('<code>flightdeck.html</code> is in the team folder, so everyone opens the same version.')
@@ -158,12 +158,16 @@
       if (su.err) h += '<div class="notice bad" role="alert"><span>' + esc(su.err.text) + '</span></div>';
       return h + '<div class="row su-actions"><button class="btn go" data-act="setup-open"' + (su.busy ? ' disabled' : '') + '>' + I('doc') + (su.busy ? 'Opening…' : 'Open team folder') + '</button></div></section>';
     }
-    var people = ctx.data.people.filter(function (p) { return !p.inactive; }), owner = PP.roles(ctx.data.people).owner;
+    var people = PF.people.sorted(ctx).filter(function (p) { return !p.inactive; }), owner = PP.roles(ctx.data.people).owner;
     h += '<h2 id="su-h" tabindex="-1">Who are you?</h2>';
-    if (!people.length) return h + '<div class="notice warn" role="status"><span><b>' + esc(fs.name) + '</b> has no people list yet. If you\'re setting up a new team, choose Start your team instead.</span><button class="btn" data-act="setup-mode" data-id="start">Start your team</button></div></section>';
-    h += '<p>Choose your name in <b>' + esc(fs.name) + '</b>. Everything you record or note is stamped with it.</p><ul class="su-who">' + people.map(function (p) {
-      return '<li><button type="button" class="su-pers" data-act="setup-who" data-id="' + esc(p.id) + '"' + (p.id === st.me ? ' aria-current="true"' : '') + '>' + K.avatar(ctx, p.id, true) + '<span class="su-pt"><b>' + esc(p.name) + '</b><span class="small">' + esc(p.email || p.id) + '</span></span>' + arrow() + '</button></li>';
-    }).join('') + '</ul>';
+    /* Find your name stays while it has text or focus, even over nobody (K.findOn, code review round 20). */
+    if (!people.length) return h + (K.findOn(st, 'su-who', false) ? K.findBox(st, 'su-who', 'Find your name', 0, 0, 'name') : '') + '<div class="notice warn" role="status"><span><b>' + esc(fs.name) + '</b> has no people list yet. If you\'re setting up a new team, choose Start your team instead.</span><button class="btn" data-act="setup-mode" data-id="start">Start your team</button></div></section>';
+    /* By name, 50 at a time, with Find your name past 50 (2.11), and whatever their number while it has text or focus: a newer
+       list of 50 or fewer never takes away the box or its filtering (code review round 19). */
+    var q = K.findQ(st, 'su-who'), hit = K.finds(q), shown = q ? people.filter(function (p) { return hit([p.name, p.email, p.id]); }) : people;
+    var who1 = function (p) { return '<li><button type="button" class="su-pers" data-act="setup-who" data-id="' + esc(p.id) + '"' + (p.id === st.me ? ' aria-current="true"' : '') + '>' + K.avatar(ctx, p.id, true) + '<span class="su-pt"><b>' + esc(p.name) + '</b><span class="small">' + esc(p.email || p.id) + '</span></span>' + arrow() + '</button></li>'; };
+    h += '<p>Choose your name in <b>' + esc(fs.name) + '</b>. Everything you record or note is stamped with it.</p>' + (K.findOn(st, 'su-who', people.length > 50) ? K.findBox(st, 'su-who', 'Find your name', shown.length, people.length, 'name') : '') +
+      K.list(st, 'su-who', shown, { keyOf: function (p) { return p.id; }, focusOf: function (k) { return K.byAct('setup-who', k); }, draw: function (list) { return '<ul class="su-who">' + list.map(who1).join('') + '</ul>'; } });
     var who = owner && !owner.inactive ? owner.name : 'whoever set up the team folder', rq = su.request || {};
     h += '<details class="su-notme"' + (su.askOpen ? ' open' : '') + ' data-disc="su-notme"><summary>Not on the list?</summary><p>Ask ' + esc(who) + ' to add you. Only the folder owner and backup owner change the people list, so nothing here writes to it.</p><div class="grid2">' +
       input(st, 'su-rq-name', 'Your name', rq.name, ' maxlength="60" autocomplete="name"') + input(st, 'su-rq-email', 'Email (optional)', rq.email, ' maxlength="120" type="email" autocomplete="email"') + '</div>' +
@@ -196,8 +200,14 @@
     var role = function (p) { return p.folderRole === 'owner' ? '<span class="pill passed">Folder owner</span>' : p.folderRole === 'backup' ? '<span class="pill waived">Backup owner</span>' : ''; };
     var h = '<section class="panel" aria-labelledby="set-people"><h2 id="set-people">' + I('people') + 'People · ' + people.length + '</h2>';
     if (st.peopleErr) h += '<div class="notice warn" role="alert"><span>' + esc(st.peopleErr) + '</span><button class="mini" data-act="people-err-dismiss">Dismiss</button></div>';
-    h += people.length ? '<ul class="vlist pp-list">' + people.map(function (p) {
+    /* By name, 50 at a time, with Find a person (2.11): people.json keeps its own order. The person whose owner change is
+       being confirmed, and the one just added, are drawn whatever the page or the Find text. */
+    var q = K.findQ(st, 'people'), hit = K.finds(q), sorted = PP.sorted(ctx), found = q ? sorted.filter(function (p) { return hit([p.name, p.email, p.id]); }) : sorted;
+    var js = st.justShown && st.justShown.lists ? st.justShown.lists.people : null, inFound = Object.create(null);
+    found.forEach(function (p) { inFound[p.id] = true; });
+    var row = function (p) {
       var acts = '';
+      PF.perf.add('people.row');
       if (can) {
         if (pick === p.id) acts = '<span class="row" data-scope="people-owner"><span class="small">Make ' + esc(p.name) + ' the folder owner?' + (r.owner && r.owner.id === me ? ' You become ' + (p.folderRole === 'backup' ? 'backup owner' : 'an ordinary member') + '.' : '') + '</span><button class="btn go" data-act="people-owner" data-id="' + esc(p.id) + '">Make folder owner</button><button class="mini" data-act="unpick">Cancel</button></span>';
         else {
@@ -206,8 +216,19 @@
           if (!allowed(p.inactive ? 'active' : 'inactive', p.id)) acts += '<button class="mini" data-act="people-active" data-id="' + esc(p.id) + '" data-on="' + (p.inactive ? '1' : '') + '">' + (p.inactive ? 'Mark active' : 'Mark inactive') + '</button>';
         }
       }
-      return '<li class="' + (p.inactive ? 'inactive' : '') + '">' + K.avatar(ctx, p.id) + '<span class="pp-who"><b>' + esc(p.name) + '</b> ' + role(p) + (p.inactive ? ' <span class="pill locked">Inactive</span>' : '') + (p.id === me ? ' <span class="small">(you)</span>' : '') + '<br><span class="small">' + esc(p.id) + (p.email ? ' · ' + esc(p.email) : '') + '</span></span>' + (acts ? '<span class="row pp-acts">' + acts + '</span>' : '') + '</li>';
-    }).join('') + '</ul>' : '<p class="small">Nobody yet.</p>';
+      return '<li class="' + (p.inactive ? 'inactive' : '') + '">' + K.avatar(ctx, p.id) + '<span class="pp-who"><b id="' + esc('pp-' + p.id) + '" tabindex="-1">' + esc(p.name) + '</b> ' + role(p) + (p.inactive ? ' <span class="pill locked">Inactive</span>' : '') + (p.id === me ? ' <span class="small">(you)</span>' : '') + '<br><span class="small">' + esc(p.id) + (p.email ? ' · ' + esc(p.email) : '') + '</span></span>' + (acts ? '<span class="row pp-acts">' + acts + '</span>' : '') + '</li>';
+    };
+    var list = function (ps) { return '<ul class="vlist pp-list">' + ps.map(row).join('') + '</ul>'; };
+    if (people.length || K.findOn(st, 'people', false)) {
+      var ppRows = K.list(st, 'people', found, { keyOf: function (p) { return p.id; }, focusOf: function (k) { return K.byId('pp-' + k); }, keep: pick ? [pick] : [], keptLabel: 'You\'re changing this one', draw: list, empty: '' });
+      /* Kept rows the Find text leaves out: drawn after the list, said why, without changing the Find text. */
+      [[pick, 'You\'re changing this one'], [js !== pick ? js : null, 'Just added']].forEach(function (k) {
+        if (!k[0] || inFound[k[0]]) return;
+        var p = people.filter(function (x) { return x.id === k[0]; })[0];
+        if (p) ppRows += '<p class="small kept-h">' + esc(k[1]) + '</p>' + list([p]);
+      });
+      h += K.findBox(st, 'people', 'Find a person', found.length, people.length, 'person', { kept: !found.length && !!ppRows }) + ppRows;
+    } else h += '<p class="small">Nobody yet.</p>';
     if (can) {
       var add = st.peopleAdd || {}, e1 = ferr(st, 'pa-name'), e2 = ferr(st, 'pa-email'), id = String(add.name || '').trim() ? PP.idFor(add.name, people.map(function (p) { return p.id; })) : '';
       h += '<form id="people-add-form" class="pp-add" data-scope="people-add" novalidate><h3>Add a person</h3><div class="grid2"><label class="field" for="pa-name">Name<input id="pa-name" data-bound maxlength="60" value="' + esc(add.name || '') + '"' + e1.attrs + '></label>' + e1.html +
@@ -226,7 +247,7 @@
   var TEAM_WARN = 'Don\'t store passwords or tokens here: every teammate and every run that uses it can read it.';
   function teamValuesPanel(ctx) {
     var st = ctx.state, T = PF.teamValues, tv = ctx.data.teamValues || T.parse(null), people = ctx.data.people, r = PP.roles(people);
-    var usable = tv.state === 'ok' || tv.state === 'missing', values = usable && tv.doc ? tv.doc.values : {}, names = Object.keys(values).sort();
+    var usable = tv.state === 'ok' || tv.state === 'missing', values = usable && tv.doc ? tv.doc.values : {}, names = Object.keys(values).sort(PF.text.natural);
     var can = PP.canManage(people, st.me) && usable && !tv.readOnly, edit = st.teamEdit, pick = st.pick && st.pick.kind === 'team-remove' ? st.pick.id : null;
     var h = '<section class="panel" aria-labelledby="set-team"><h2 id="set-team">Team values · ' + names.length + '</h2>' +
       '<p class="small">Shared settings of this team folder, like a Bitbucket base URL. A linked step passes one to its run with <code>pass: name=team:value-name</code>; it\'s read when that run starts.</p>' +
@@ -247,7 +268,7 @@
         if (pick === n) acts = '<span class="row" data-scope="team-remove"><span class="small">Remove ' + esc(n) + '? Steps that pass it ask for it when their run starts.</span><button class="btn stop" data-act="team-remove" data-id="' + esc(n) + '"' + (st.teamSaving ? ' disabled' : '') + '>Remove</button><button class="mini" data-act="unpick">Cancel</button></span>';
         else acts = '<button class="mini" data-act="team-edit" data-id="' + esc(n) + '">Edit</button><button class="mini" data-act="pick" data-kind="team-remove" data-id="' + esc(n) + '">Remove</button>';
       }
-      return '<li><span class="tv-who"><code>' + esc(n) + '</code>' + (e.about ? ' <span class="small">' + esc(e.about) + '</span>' : '') + '<br><span class="tv-val">' + esc(e.value) + '</span></span>' + (acts ? '<span class="row">' + acts + '</span>' : '') + '</li>';
+      return '<li><span class="tv-who"><code id="' + esc('tvv-' + n) + '" tabindex="-1">' + esc(n) + '</code>' + (e.about ? ' <span class="small">' + esc(e.about) + '</span>' : '') + '<br><span class="tv-val">' + esc(e.value) + '</span></span>' + (acts ? '<span class="row">' + acts + '</span>' : '') + '</li>';
     }).join('') + '</ul>' : '<p class="small">None yet.</p>';
     if (can) {
       var add = st.teamAdd || {}, a1 = ferr(st, 'tv-name'), a2 = ferr(st, 'tv-value'), a3 = ferr(st, 'tv-about');

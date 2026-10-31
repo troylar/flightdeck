@@ -631,7 +631,7 @@ rule('How runs go: a run title is escaped inside the chart\'s SVG title, the cha
   assert.ok(!/<img src=x|<script>bad/.test(html), 'nothing from a run is raw markup, in the SVG or anywhere');
   assert.ok(/<title>&lt;img src=x onerror=alert\(1\)&gt;&lt;\/title&gt;&lt;script&gt;bad\(\)&lt;\/script&gt;, under a minute<\/title>/.test(html), 'escaped in the dot\'s title');
   assert.ok(/aria-label="&lt;img src=x/.test(html) && /data-act="go" data-view="run" data-run="release\/in0"/.test(html), 'each dot is a link to its run with an accessible name');
-  assert.ok(/The same as a table/.test(html) && /<td><button class="linkish" data-act="go" data-view="run" data-run="release\/in1">Run 1<\/button><\/td>/.test(html), 'the table equivalent');
+  assert.ok(/The same as a table/.test(html) && /<td><button class="linkish" id="ins_go_release-in1" data-act="go" data-view="run" data-run="release\/in1">Run 1<\/button><\/td>/.test(html), 'the table equivalent');
   assert.ok(html.indexOf(PF.insights.FEW) >= 0, 'says it\'s too few for a rate');
   const hot = html.slice(html.indexOf('id="ins-hot-h"'));
   assert.ok(/data-act="ins-runs" data-id="step:approved:offScript">2 of 3 runs</.test(hot) && !/% · /.test(hot), 'counts, no percentages');
@@ -710,7 +710,7 @@ rule('How runs go: corrections on runs still going show even before any run has 
   p.all = [latest, older]; ctx.state.ptab = 'insights';
   const html = V.insightsPage(ctx, p);
   assert.ok(!/No finished runs of this version yet/.test(html) && /data-id="step:approved:corrections"/.test(html), 'the correction shows');
-  assert.ok(/<th scope="row">v0<\/th><td>0<\/td><td>0<\/td><td>—<\/td><td><span class="small ins-q">Not counted: 1 run, it&#39;s from a newer Flightdeck/.test(html), html.slice(html.indexOf('Compare versions'), html.indexOf('Compare versions') + 900));
+  assert.ok(/<th scope="row"[^>]*>v0<\/th><td>0<\/td><td>0<\/td><td>—<\/td><td><span class="small ins-q">Not counted: 1 run, it&#39;s from a newer Flightdeck/.test(html), html.slice(html.indexOf('Compare versions'), html.indexOf('Compare versions') + 900));
 });
 rule('Runs: the banner over the runs behind a number never says "vnull", and names the folder when two folders share a version number', () => {
   const { ctx, state, runs, latest } = insightsSetup(2);
@@ -743,7 +743,7 @@ rule('Compare versions and the flight plan say what each number left out, throug
   ctx.data.runs = [ahead, a, b, fut]; ctx.findRun = () => null; ctx.followUps = () => []; ctx.corrections = () => [];
   p.all = [latest, older]; state.ptab = 'insights';
   const html = V.insightsPage(ctx, p), cmp = html.slice(html.indexOf('Compare versions'));
-  assert.ok(/<th scope="row">v0<\/th><td>1<\/td><td>0<\/td><td>—<\/td><td><span class="small ins-q">Not counted: 1 run, a time is later than now, by the recorder&#39;s clock\./.test(cmp), cmp.slice(0, 1200));
+  assert.ok(/<th scope="row"[^>]*>v0<\/th><td>1<\/td><td>0<\/td><td>—<\/td><td><span class="small ins-q">Not counted: 1 run, a time is later than now, by the recorder&#39;s clock\./.test(cmp), cmp.slice(0, 1200));
   state.ptab = 'checklist';
   const fp = V.checklistPanel(ctx, p);
   assert.ok(/A completed run typically takes [^<]+<\/span><span class="small ins-q">Not counted: 1 run, a time is later than now, by the recorder&#39;s clock\./.test(fp), 'the landed time says what it left out');
@@ -1128,7 +1128,7 @@ rule('Correct this step: the published text stays; the wording starts filled in,
   assert.ok(/<textarea id="corr-why" rows="2" maxlength="2000" data-bound aria-invalid="true" aria-describedby="ferr-corr"><\/textarea><p class="ferr" id="ferr-corr" role="alert">Remove this step/.test(ins), 'the error sits under its field');
   state.fieldErr = null;
   state.corrForm.op = 'move'; ins = insOf(V.run(ctx));
-  assert.ok(/<select id="corr-move" data-bound><option value="">Choose…<\/option><optgroup label="Before production changes"><option value="start:prep">At the start of Before production changes<\/option><option value="after:tests">/.test(ins) && !/value="after:approved"/.test(ins));
+  assert.ok(/<select id="corr-move" data-bound data-kselect data-cur=""><option value="">Choose…<\/option><optgroup label="Before production changes"><option value="start:prep">At the start of Before production changes<\/option><option value="after:tests">/.test(ins) && !/value="after:approved"/.test(ins));
   state.corrForm.op = 'roles'; ins = insOf(V.run(ctx));
   assert.ok(/<input type="checkbox" id="corr-role-release-lead" data-bound checked> @release-lead \(Casey Nguyen\)/.test(ins) && /id="corr-role-qa" data-bound>/.test(ins));
   state.corrForm.op = 'add'; ins = insOf(V.run(ctx));
@@ -1177,7 +1177,7 @@ rule('Run record: the finish page and receipt list Corrections · N with Checkli
   assert.ok(/data-act="add-followup" data-text="Update the checklist: Change request approved/.test(html), 'Make it a follow-up stays');
   assert.ok(/Phase: Verify in production/.test(html) && /A step is missing: Add an error budget check/.test(html), 'a suggested fix from before 1.13 shows as a problem');
   html = V.receipt(ctx);
-  assert.ok(/<h4><span>Corrections · 4<\/span><\/h4>/.test(html) && /\[Declined: We set them in the job\]/.test(html) && /\[One-off\]/.test(html), 'the card and the plain text');
+  assert.ok(/<h4><span>Corrections · 4<\/span><\/h4>/.test(html) && /\[Declined: We set them in the job\]/.test(V.receiptText(ctx)) && /\[One-off\]/.test(V.receiptText(ctx)), 'the card and the plain text (worked out when copied)');
 });
 
 rule('Process page: Corrections · N open grouped by step, Suggested in N runs, two proposed changes, and Mark as applied, Decline with a reason, Reopen, Withdraw', () => {
@@ -1195,7 +1195,7 @@ rule('Process page: Corrections · N open grouped by step, Suggested in N runs, 
   let html = V.process(ctx);
   assert.ok(/Corrections · 2 open<\/h2>/.test(html) && /<h3 class="fixgroup">Change request approved for tonight&#39;s window<\/h3><p class="small corr-alts"><b>Two proposed changes\.<\/b>/.test(html));
   assert.ok(/<summary class="small">Suggested in 2 runs<\/summary>/.test(html) && /Release &lt;b&gt;1&lt;\/b&gt;/.test(html) && /Avery Lee · /.test(html), 'the runs behind it, with names inside');
-  assert.ok(/<dt>Why · Blake Ortiz<\/dt><dd>Say &quot;when&quot; &lt;script&gt;<\/dd>/.test(html) && /<dt>What happened · Avery Lee<\/dt><dd>The board met at 4<\/dd>/.test(html));
+  assert.ok(/<dt[^>]*>Why · Blake Ortiz<\/dt><dd>Say &quot;when&quot; &lt;script&gt;<\/dd>/.test(html) && /<dt[^>]*>What happened · Avery Lee<\/dt><dd>The board met at 4<\/dd>/.test(html));
   const first = gs[0].id;
   assert.ok(new RegExp('data-act="corr-applied" data-id="' + first + '">Mark as applied</button><button class="mini" data-act="pick" data-kind="corr-decline" data-id="' + first + '">Decline').test(html), 'anyone, not only the owner');
   assert.ok(!/data-act="corr-withdraw" data-id="' + first + '"/.test(html), 'not Blake\'s alone, so no Withdraw');
@@ -1342,8 +1342,8 @@ rule('Published in vN: the pill on the process page and the run\'s record, and "
   const ins = insOf(html);
   assert.ok(new RegExp('<details class="prov-why" data-disc="prov:' + g.id + '"><summary class="small">Why is this here\\?</summary>').test(ins));
   assert.ok(/<dt>Before → after<\/dt><dd><span class="redline">/.test(ins) && /<ins>by<\/ins>|<ins>/.test(ins), 'before and after, as a redline');
-  assert.ok(/<dt>Why · Blake Ortiz<\/dt><dd>The board &lt;img src=x onerror=alert\(1\)&gt; meets at 4<\/dd>/.test(ins) && !/<img src=x/.test(ins), 'the reason, escaped');
-  assert.ok(/Suggested in 1 run: <button class="linkish" data-act="open-run" data-id="release\/r1">Release &lt;i&gt;A&lt;\/i&gt;<\/button>/.test(ins) && /Applied by Avery Lee /.test(ins));
+  assert.ok(/<dt id="pm-approved-_[A-Za-z0-9_]+" tabindex="-1">Why · Blake Ortiz<\/dt><dd>The board &lt;img src=x onerror=alert\(1\)&gt; meets at 4<\/dd>/.test(ins) && !/<img src=x/.test(ins), 'the reason, escaped');
+  assert.ok(/Suggested in 1 run: <button class="linkish" id="pm-approved-_[A-Za-z0-9_]+-run" data-act="open-run" data-id="release\/r1">Release &lt;i&gt;A&lt;\/i&gt;<\/button>/.test(ins) && /Applied by Avery Lee /.test(ins));
   state.disc = { ['prov:' + g.id]: true };
   assert.ok(/data-disc="prov:[^"]+" open>/.test(insOf(V.run(ctx))), 'stays open across redraws');
   // A v3 that lists it again isn't where it changed.
@@ -1358,9 +1358,9 @@ rule('Home: "Your correction to … is published in vN" and "… declined your c
   state.view = 'home'; state.me = 'person-blake'; ctx.data.plans = []; ctx.lostDrafts = () => [];
   const html = V.home(ctx), panel = html.slice(html.indexOf('aria-labelledby="ack-h"'));
   assert.ok(/<h2 id="ack-h">Your corrections<\/h2>/.test(html));
-  assert.ok(/<b>Your correction to &quot;Change request approved for tonight&#39;s window&quot; is published in v2\.<\/b>/.test(panel), panel);
-  assert.ok(/<b>Casey Nguyen declined your correction: We watch &lt;u&gt;dashboards&lt;\/u&gt;<\/b>/.test(panel) && !/<u>dashboards/.test(panel));
-  assert.ok(/data-act="ack-view" data-id="l\.release\.v2-view0102" data-process="release">View change<\/button><button class="mini" data-act="ack-dismiss" data-id="l\.release\.v2-view0102"/.test(panel));
+  assert.ok(/<b id="ack-_[A-Za-z0-9_]+-t" tabindex="-1">Your correction to &quot;Change request approved for tonight&#39;s window&quot; is published in v2\.<\/b>/.test(panel), panel);
+  assert.ok(/<b id="ack-_[A-Za-z0-9_]+-t" tabindex="-1">Casey Nguyen declined your correction: We watch &lt;u&gt;dashboards&lt;\/u&gt;<\/b>/.test(panel) && !/<u>dashboards/.test(panel));
+  assert.ok(/data-act="ack-view" data-id="l\.release\.v2-view0102" data-process="release" data-group="[^"]+">View change<\/button><button class="mini" data-act="ack-dismiss" data-id="l\.release\.v2-view0102"/.test(panel));
   assert.ok(!/things? need/.test(html.slice(0, html.indexOf('aria-labelledby="ack-h"'))) || /Nothing needs you right now\./.test(html), 'acknowledgments never count as needing you');
   ctx.acks = () => [];
   assert.ok(!/ack-h/.test(V.home(ctx)), 'dismissed: gone');
@@ -1628,7 +1628,7 @@ rule('Run workspace: a slim header with progress in words, three named panes, an
   assert.ok(/data-act="run-details" aria-expanded="false"/.test(html) && /data-act="receipt"/.test(html) && /<details class="rw-menu" data-disc="rw-menu"><summary class="mini">More<\/summary>/.test(html) && /data-act="finish">End run…/.test(html) && /You: <b>Casey Nguyen<\/b>/.test(html));
   assert.ok(/<nav class="fpe-pane rw-rail" aria-label="Phases">/.test(html) && /<section class="fpe-pane rw-list" id="rw-list" aria-label="Checklist">/.test(html) && /<aside class="fpe-pane rw-ins" id="rw-ins" data-open="false" aria-label="Selected step">/.test(html), 'named regions');
   assert.ok(/data-act="goto" data-id="phase-deploy" data-s="current" aria-current="step">/.test(html) && /class="rw-gate g-passed">.*Ready to deploy · Passed/.test(html) && /class="rw-gate g-open">.*Deployed · Waiting on steps/.test(html) && /class="rw-gate g-locked">/.test(html), 'the rail marks the current phase and each gate\'s state');
-  assert.ok(/<select id="rw-phase" data-bound><option value="prep">1\. Before production changes · 6\/6 · Ready to deploy: passed<\/option><option value="deploy" selected>/.test(html), 'a compact Phases picker for narrower screens');
+  assert.ok(/<select id="rw-phase" data-bound data-kselect data-cur="deploy"><option value="prep">1\. Before production changes · 6\/6 · Ready to deploy: passed<\/option><option value="deploy" selected>/.test(html), 'a compact Phases picker for narrower screens');
   assert.ok(/data-act="timeline" data-id="rail"/.test(html) && /data-act="timeline" data-id="picker"/.test(html) && /data-act="run-fu" data-id="picker"[^>]*>.*Follow-ups · 0/.test(html), 'timeline and follow-ups at every width');
   assert.ok(!/class="runhead"/.test(html) && !/class="headline"/.test(html), 'the old header and headline are gone');
   state.runDetails = true;
@@ -1802,7 +1802,7 @@ rule('Folder health: Needs action first, one button per problem, all clear after
   assert.ok(/data-act="open-run" data-id="release\/run1">Compare copies</.test(html));
   assert.ok(!/<script>alert|<img src=x/.test(html) && /Night &lt;script&gt;/.test(html) && /run-&lt;img src=x/.test(html), 'run titles and file names are escaped');
   assert.ok(/Team &lt;b&gt;ops&lt;\/b&gt;/.test(html), 'the folder name is escaped');
-  assert.ok(/What's in the folder/.test(html) && /<code>top level<\/code>/.test(html), 'per-area counts');
+  assert.ok(/What's in the folder/.test(html) && /<code id="hz-area-\(top\)" tabindex="-1">top level<\/code>/.test(html), 'per-area counts');
   assert.ok(/data-act="connection"/.test(html) && /data-act="recovery" data-id=""/.test(html), 'links to the connection check and the guide');
 });
 
@@ -2066,7 +2066,7 @@ rule('Follow-up actions are named for their follow-up, and the open form labels 
   assert.ok(/<p class="ferr" id="ferr-fud-reason" role="alert">Why won&#39;t it be done\? Say why\.<\/p>/.test(html));
   state.fuPick = { key: 'release/run1/fu2', status: 'moved' }; state.fieldErr = null;
   html = N(V.followUpsPage(ctx));
-  assert.ok(/<label class="field" for="fud-to">The run or plan it moved to<select id="fud-to">/.test(html) && /for="fud-link">Or a link \(optional\)/.test(html));
+  assert.ok(/<label class="field" for="fud-to">The run or plan it moved to<select id="fud-to" data-kselect data-cur="">/.test(html) && /for="fud-link">Or a link \(optional\)/.test(html));
   assert.ok(!/<option value="release\/run1">/.test(html), 'never the run it came from');
   state.me = null;
   assert.ok(!/data-act="fu-pick"/.test(V.followUpsPage(ctx)) && /Choose who you are/.test(V.followUpsPage(ctx)), 'deciding needs to know who you are');
@@ -2106,7 +2106,7 @@ rule('The run\'s Follow-ups, the finish page and the receipt show each follow-up
   html = V.finish(ctx);
   assert.ok(/<span class="pill open">Open<\/span>/.test(html) && /Moved to a ticket/.test(html) && !/data-act="fu-pick"/.test(html), 'statuses, no deciding while finishing');
   html = V.receipt(ctx);
-  assert.ok(/<span class="pill waived">Moved to a ticket<\/span>/.test(html) && /Ask for a window \([^)]+\) · Moved to ABC-77/.test(html), 'card and text');
+  assert.ok(/<span class="pill waived">Moved to a ticket<\/span>/.test(html) && /Ask for a window \([^)]+\) · Moved to ABC-77/.test(V.receiptText(ctx)), 'card and text (worked out when copied)');
 });
 
 rule('Saved history: a step type entry with a malformed definition still draws, and says it couldn\'t be read', () => {
@@ -2136,7 +2136,7 @@ rule('Runs: the first view shows at most 50 running and 50 finished runs, says h
   let html = V.runs(ctx);
   assert.strictEqual(cards(html), 108, 'at most 50 running, the 8 newest finished and 50 earlier ones on the first view');
   assert.ok(/Showing 50 of 1,942/.test(html) && /Showing 50 of 70/.test(html));
-  assert.ok(/<button class="btn" data-act="more" data-id="runs-ended"[^>]*>Show 50 more<\/button>/.test(html));
+  assert.ok(/<button type="button" class="btn" data-act="more" data-id="runs-ended"[^>]*>Show 50 more<\/button>/.test(html));
   assert.ok(/data-act="more" data-id="runs-running"[^>]*>Show 20 more</.test(html), 'says how many more when it\'s fewer than 50');
   state.more = { 'runs-ended': 100 };
   html = V.runs(ctx);
