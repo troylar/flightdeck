@@ -618,6 +618,56 @@ rule('A folder that finishes opening while a screenshot is open closes it, and f
   assert.ok(app.html().includes('id="page-h"') && !/data-act="toggle"/.test(app.html()), 'on the new folder\'s Home');
   assert.strictEqual(app.activeId(), 'page-h', 'focus on its heading');
 }));
+rule('A folder that finishes opening while a dialog holds typing doesn\'t open: the typing stays and the person is told', () => noThrow(async () => {
+  const pending = gate(), other = folderHandle('Folder B', {});
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, indexedDB: memoryIDB(), picker: () => pending.p.then(() => other) }); await app.tick(80);
+  app.choose('person-morgan'); await app.tick();
+  app.click('open-process', 'release'); await app.tick(20);
+  const id = /data-act="corr-review" data-id="([\w-]+)"/.exec(app.html())[1];
+  app.click('connect'); await app.tick(5);
+  app.click('corr-review', id); await app.tick(20); app.click('corr-ca-declining'); await app.tick();
+  app.set('ca-reason', 'Not this time'); await app.tick();
+  pending.open(); await app.tick(80);
+  assert.ok(/id="ca-reason"/.test(app.overlay()), 'the dialog is still up'); assert.strictEqual(app.draft('ca-reason'), 'Not this time');
+  assert.ok(/Finish or cancel this first\./.test(app.live()), 'says why');
+  assert.ok(/id="page-h"/.test(app.html()) && /data-act="ptab"/.test(app.html()), 'still on the checklist');
+}));
+rule('A slow attachment that finishes reading after another dialog opened doesn\'t replace it', () => noThrow(async () => {
+  const app = await twins([note(Object.assign({ text: 'First file' }, att('first.log')))]);
+  const d = buttons(app.html(), 'att-open')[0], data = Object.assign({}, d); delete data.act; delete data.id;
+  app.click(d.act, d.id, data); app.click('help'); await app.tick(40);
+  assert.ok(app.overlay() !== '' && !app.overlay().includes('first.log'), 'Help is still up');
+}));
+async function rememberedFolder(files) {
+  const dir = folderHandle('Team', files), idb = memoryIDB();
+  dir.queryPermission = () => Promise.resolve('prompt');
+  await new Promise(res => { const q = idb.open(); q.onsuccess = () => { const tx = q.result.transaction(); tx.oncomplete = res; tx.objectStore().put({ dir, id: 'team-1' }, 'folder'); }; });
+  return idb;
+}
+rule('Reconnecting with a dialog up lands on the heading of the page it comes back to', () => noThrow(async () => {
+  const files = {};
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true, indexedDB: await rememberedFolder(files), picker: folderHandle('Other', {}) }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  Object.keys(app.fs.files).forEach(p => { const t = app.fs.files[p].t; if (!/^data:/.test(t)) files[p] = t; });
+  app.click('nav', 'home'); await app.tick(5); app.click('open-run', app.run().key); await app.tick(20);
+  assert.ok(/id="run-h"/.test(app.html()), 'set-up: on the run');
+  app.click('help'); await app.tick(5);
+  app.click('reconnect'); await app.tick(200);
+  assert.strictEqual(app.overlay(), '', 'Help closes');
+  assert.ok(/id="run-h"/.test(app.html()), 'the run, in the team folder');
+  assert.strictEqual(app.activeId(), 'run-h', 'focus on its heading');
+}));
+rule('The assistants\' checker refuses the same names the app does: step, phase, gate, role and run detail', () => {
+  const PF = load(), dir = path.dirname(CHECKER);
+  const md = over => '---\nprocess: plain\ntitle: Plain\nowner: person-avery\nroles: ' + (over.role || 'lead') + '\ncontext: ' + (over.detail || 'ticket') + '\n---\n\n## One {#' + (over.phase || 'ph1') + '}\n- [ ] {confirm} Do it {#' + (over.step || 's1') + '}\n## Gate: Check {#' + (over.gate || 'g1') + '}\n';
+  const cases = [{}, { step: 'constructor' }, { phase: 'constructor' }, { gate: 'constructor' }, { role: 'toString' }, { detail: 'valueOf' }, { role: 'ToString' }];
+  const py = 'import json,sys\nsys.path.insert(0,sys.argv[1])\nimport check_folder as c\nprint(json.dumps([c.unrunnable(m,{}) for m in json.load(sys.stdin)]))';
+  const out = JSON.parse(cp.execFileSync('python3', ['-I', '-c', py, dir], { input: JSON.stringify(cases.map(md)), encoding: 'utf8', env: Object.assign({}, process.env, { PYTHONDONTWRITEBYTECODE: '1' }) }));
+  cases.forEach((c, i) => {
+    assert.strictEqual(/keeps that name for itself/.test(out[i]), !!(c.step || c.phase || c.gate || (c.role === 'toString') || c.detail), JSON.stringify(c) + ': ' + out[i]);
+    assert.strictEqual(out[i], PF.publish.unrunnable(md(c), {}), JSON.stringify(c));
+  });
+});
 rule('Everything that opens another folder closes what is open first; only the first read of the page has nothing to close', () => {
   const lines = fsN.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8').split('\n');
   const calls = lines.map((l, i) => [l, i]).filter(([l]) => /\buseFs\(/.test(l) && !/function useFs/.test(l));

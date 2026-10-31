@@ -1134,15 +1134,19 @@
   var opening = 0;
   /* Another folder is about to open. A dialog still up belongs to the one being left, and what it holds (a screenshot's path, a
      form's target) would be read from or written to the new one, so it closes first, and focus goes to where the folder lands:
-     what opened the dialog is about to be gone. Called by whoever switches: useFs is gated, and a read it starts draws the rest. */
+     what opened the dialog is about to be gone. A dialog with typing or choices in it is never closed: the folder doesn't open
+     (false) and the person finishes or cancels first. Called by whoever switches: useFs is gated, and a read it starts draws the rest. */
   function leaveFolderOverlay(to) {
-    if (!state.overlay) return;
+    if (!state.overlay) return true;
+    if (overlayHeld()) { say('Finish or cancel this first.', 'warn'); render(); focusOverlay(); return false; }
     childEpoch++;
     var done = state.overlay.onClose; state.overlay = null; if (done) done(); releaseUrls(state.full);
     /* The screen behind a dialog is inert, and an inert heading can't take focus. */
     app.removeAttribute('inert'); topEl.removeAttribute('inert');
     state.focus = to; state.focusWins = true; later();
+    return true;
   }
+  function overlayHeld() { return !!state.overlay && !!((state.overlay.held && state.overlay.held()) || dirtyControl([overlayEl])); }
   function connect() {
     var t = ++opening;
     window.showDirectoryPicker({ id: 'preflight', mode: 'readwrite' }).then(function (dir) {
@@ -1150,7 +1154,7 @@
       var notRemembered = '';
       return handles.set(dir).catch(function (e) { notRemembered = ' This browser couldn\'t remember the folder (' + e.message + '), so you\'ll be asked to choose it again next time.'; return { dir: dir, id: 'unremembered-' + U.randomId(12) }; }).then(function (rec) {
         if (t !== opening) return;
-        state.needsReconnect = null; leaveFolderOverlay('page-h'); home();
+        if (!leaveFolderOverlay('page-h')) return; state.needsReconnect = null; home();
         return useFs(folderFs(rec)).then(function () {
           if (t !== opening) return;
           if (!data.drafts.length && !data.processes.length) say('Connected to "' + dir.name + '", but it has no checklists yet. Copy the example folder into it, or ask your AI assistant to write a checklist into maps/drafts.' + notRemembered, 'warn');
@@ -1269,7 +1273,7 @@
     };
     (LOCKS ? lock('preflight:new-folder', init) : init()).then(function () { return handles.set(dir); }).then(function (rec) {
       if (t !== opening) return;
-      state.me = myId; lsSet('me', myId); state.needsReconnect = null; forgetStartIfNotMine(); leaveFolderOverlay('su-h');
+      if (!leaveFolderOverlay('su-h')) { su.busy = false; render(); return; } state.me = myId; lsSet('me', myId); state.needsReconnect = null; forgetStartIfNotMine();
       var made = useFs(folderFs(rec), { setup: true }); su.fs = fsKey();
       return made.then(function () {
         if (t !== opening) return;
@@ -1322,7 +1326,7 @@
       su.busy = true; su.err = null; render();
       return handles.set(d).catch(function () { return { dir: d, id: 'unremembered-' + U.randomId(12) }; }).then(function (rec) {
         if (t !== opening) return;
-        state.needsReconnect = null; leaveFolderOverlay('su-h');
+        if (!leaveFolderOverlay('su-h')) { su.busy = false; render(); return; } state.needsReconnect = null;
         var opened = useFs(folderFs(rec), { setup: true }); su.fs = fsKey();
         return opened.then(function () {
           if (t !== opening) return;
@@ -5485,8 +5489,8 @@
     dismiss: function () { var cp = currentProcess(), ce = cp && editorOf(cp.id); if (ce) ce.incoming = null; say(null); render(); announceRelease(); },
     refresh: function () { load(true, true); },
     connect: function () { connect(); },
-    reconnect: function () { var rec = state.needsReconnect, t = ++opening; rec.dir.requestPermission({ mode: 'readwrite' }).then(function (p) { if (p === 'granted' && t === opening) { state.needsReconnect = null; leaveFolderOverlay('page-h'); useFs(folderFs(rec)); } }); },
-    'reset-examples': function () { var mem = new PF.fs.MemoryFS(LS + ':examples', null), t = ++opening; seedExamples(mem).then(function () { if (t !== opening) return; leaveFolderOverlay('page-h'); home(); return useFs(mem).then(function () { if (t === opening) { say('Examples reset.', 'good'); render(); } }); }, function (e) { if (t === opening) { say(e && e.message || 'The examples couldn\'t be reset.', 'warn'); render(); } }); },
+    reconnect: function () { var rec = state.needsReconnect, t = ++opening; rec.dir.requestPermission({ mode: 'readwrite' }).then(function (p) { if (p !== 'granted' || t !== opening) return; var had = !!state.overlay; if (!leaveFolderOverlay(headingOf())) return; state.needsReconnect = null; var read = useFs(folderFs(rec)); if (had) read.then(function () { if (t === opening) { state.focus = headingOf(); state.focusWins = true; render(); } }); }); },
+    'reset-examples': function () { var mem = new PF.fs.MemoryFS(LS + ':examples', null), t = ++opening; seedExamples(mem).then(function () { if (t !== opening || !leaveFolderOverlay('page-h')) return; home(); return useFs(mem).then(function () { if (t === opening) { say('Examples reset.', 'good'); render(); } }); }, function (e) { if (t === opening) { say(e && e.message || 'The examples couldn\'t be reset.', 'warn'); render(); } }); },
     filter: function (id) { state.filter = id; render(); },
     /* ---------- Insights (docs/design.md section 23): the runs behind a number, and back ---------- */
     'ins-runs': function (path) { insightRuns(path); },
@@ -6788,16 +6792,17 @@
     'att-remove': function (id) { var p = state.pendingFiles.filter(function (x) { return x.id === id; })[0]; if (!p) return; state.pendingFiles = state.pendingFiles.filter(function (x) { return x !== p; }); state.attErr = null; state.focus = /^corr:/.test(p.step) ? 'corr-why' : 'note-text'; render(); },
     /* A text attachment opens as plain text in a dialog; anything else saves a copy. Only files of the note or suggestion named are read. */
     'att-open': function (id, b) {
-      var it = attOwner(b), path = b && b.dataset.path, g = gen, key = state.runKey, view = state.view, pid = state.processId; if (!it || !path) return;
+      var it = attOwner(b), path = b && b.dataset.path, g = gen, key = state.runKey, view = state.view, pid = state.processId, ov = state.overlay; if (!it || !path) return;
       var name = PF.attach.nameOf(path, (it.fileInfo || {})[path]);
-      /* A slow read that finishes after the person moved to another run or page opens nothing. */
-      var still = function () { return g === gen && state.view === view && (view === 'process' ? state.processId === pid : state.runKey === key); };
+      /* A slow read that finishes after the person moved to another run or page, or opened a dialog meanwhile, opens nothing. */
+      var still = function () { return g === gen && state.overlay === ov && state.view === view && (view === 'process' ? state.processId === pid : state.runKey === key); };
       state.fs.blob(path).then(function (blob) {
         if (!still()) return;
         if (!blob) { say('"' + name + '" isn\'t in the folder yet. OneDrive may still be syncing it.', 'warn'); render(); return; }
         var cut = blob.size > PF.attach.PREVIEW_MAX;
         return blob.slice(0, PF.attach.PREVIEW_MAX).text().then(function (text) {
           if (!still()) return;
+          if (overlayHeld()) { say('Finish or cancel this first.', 'warn'); render(); focusOverlay(); return; }
           openOverlay({ text: text, html: function () { return V.textPreview(name, path, cut, blob.size, id, b.dataset.from, b.dataset.note); } });
         });
       }, function (e) { if (g === gen) { say('Couldn\'t open "' + name + '": ' + e.message, 'bad'); render(); } });

@@ -410,7 +410,7 @@ def parse_map(md):
     lines = md.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     errors, steps, phases = [], [], []
     i, phase, step, gate, track, questions = 0, None, None, None, None, False
-    context, ctx_line = "", -1
+    context, ctx_line, roles = "", -1, ""
 
     def err(n, msg):
         errors.append({"line": n + 1, "msg": msg})
@@ -423,6 +423,8 @@ def parse_map(md):
                 err(i, "Front matter line isn't \"key: value\".")
             elif kv and kv.group(1) == "context":
                 context, ctx_line = js_trim(kv.group(2)), i
+            elif kv and kv.group(1) == "roles":
+                roles = kv.group(2)
             i += 1
         i += 1
     names, typed, ctx_errors = detail_types([js_trim(x) for x in context.split(",") if js_trim(x)])
@@ -445,7 +447,7 @@ def parse_map(md):
         m = re.match(r"^##\s+(.+?)\s*$", line)
         if m:
             step, gate, track = None, None, None
-            head = take_id(m.group(1))[1]
+            head_id, head = take_id(m.group(1))
             if re.match(r"^questions(?![A-Za-z0-9_])", head, re.I):
                 questions, phase = True, None
             else:
@@ -459,11 +461,11 @@ def parse_map(md):
                         for part in re.split(r"\s+·\s+", g.group(1))[1:]:
                             if not re.match(r"^owner\s+@(%s|-)+$" % W, part.strip(), re.I):
                                 err(i, "Gate option not understood: \"%s\"." % part)
-                        gate = {"kind": "gate", "note": "", "shots": []}
+                        gate = {"id": head_id, "kind": "gate", "note": "", "shots": []}
                         phase["gate"] = gate
                 else:
                     pm = re.match(r"^(.*?)\s+·\s+(READ-DO|DO-CONFIRM)$", head)
-                    phase = {"title": (pm.group(1) if pm else head).strip(), "gate": None, "note": "", "shots": [], "noted": False}
+                    phase = {"id": head_id, "title": (pm.group(1) if pm else head).strip(), "gate": None, "note": "", "shots": [], "noted": False}
                     phases.append(phase)
             i += 1
             continue
@@ -543,7 +545,7 @@ def parse_map(md):
                 if w["name"] in later:
                     err(w["line"] - 1, "^%s is set in this phase or a later one (sets:), so it can't decide whether this applies. Only a step in an earlier phase can set it." % w["name"])
     errors.sort(key=lambda e: e["line"])
-    return {"errors": errors, "steps": steps, "questions": questions, "phases": phases, "context": names, "detailTypes": typed}
+    return {"errors": errors, "steps": steps, "questions": questions, "phases": phases, "context": names, "detailTypes": typed, "roles": js_list(roles)}
 
 
 NEW_KINDS = {"number", "yes-no", "date"}
@@ -818,6 +820,12 @@ def unrunnable(md, types):
         return "%s Line %d: %s" % (NEWER, e["line"], e["msg"])
     if parsed["questions"]:
         return "It has a \"Questions\" section, so steps after it would be skipped. Publish it again without one."
+    taken = parsed["roles"] + parsed["context"]
+    for p in parsed["phases"]:
+        taken += [p["id"]] + ([p["gate"]["id"]] if p["gate"] else [])
+    taken = [n for n in taken + [s["id"] for s in parsed["steps"]] if n in JS_PROTO]
+    if taken:
+        return "It uses the name \"%s\" for a step, phase, gate, role or run detail, and Flightdeck keeps that name for itself. Publish the checklist again with another one." % taken[0]
     for s in parsed["steps"]:
         label = "Step \"%s\"" % s["text"][:40]
         if not s["type"]:
