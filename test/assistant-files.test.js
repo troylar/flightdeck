@@ -659,4 +659,136 @@ rule('The AI assistant files code never logs and never builds a path from a file
   assert.ok(/VERSION_DIR\.test\(i\.name\)/.test(body), 'version folders are checked by name');
 });
 
+/* ---------------- review round 1 ---------------- */
+
+/* A folder handle with hooks: reads may wait, count or fail, by path. */
+function hooked(d, o, prefix) {
+  prefix = prefix || '';
+  return Object.assign({}, d, {
+    getDirectoryHandle: (n, x) => d.getDirectoryHandle(n, x).then(c => hooked(c, o, prefix + n + '/')),
+    getFileHandle: (n, x) => {
+      const p = prefix + n;
+      if (x && x.create) return d.getFileHandle(n, x);
+      return d.getFileHandle(n, x).then(h => Object.assign({}, h, { getFile: async () => {
+        o.reads = (o.reads || 0) + 1; o.now = (o.now || 0) + 1; o.most = Math.max(o.most || 0, o.now);
+        try {
+          if (o.delay) await new Promise(r => setTimeout(r, o.delay));
+          if (o.wait && o.wait(p)) await o.wait(p);
+          if (o.fail && o.fail.test(p)) throw Object.assign(new Error('The file could not be read.'), { name: 'NotReadableError' });
+          return await h.getFile();
+        } finally { o.now--; }
+      } }));
+    }
+  });
+}
+
+rule('Round 1, 1: I merged it deletes nothing after a folder switch', async () => {
+  const dir = scenario('staged from 2.6.0'), files = asFiles(dir), second = asFiles(scenario('settled')), src = '.flightdeck/updates/2.6.0/' + STATUS;
+  const st = { armed: false, gate: gate() }, one = paused(folderHandle('Team', files), st);
+  let pick = one;
+  const app = boot({ picker: () => pick, indexedDB: memoryIDB() }); await app.tick(60);
+  app.click('connect'); await app.tick(200);
+  app.click('ai-files'); await wait(app);
+  st.armed = true; app.click('af-merged', STATUS); await app.tick(100);
+  assert.ok(st.reached, 'set-up: caught while copying');
+  pick = folderHandle('Other team', second); app.click('connect'); await app.tick(200);
+  st.gate.open(); await wait(app);
+  assert.strictEqual(files[src], 'old default', 'the waiting copy is still there');
+});
+
+rule('Round 1, 2: a record that would grow past what Flightdeck reads is refused before any file changes', async () => {
+  const dir = scenario('deleted');
+  const r = JSON.parse(fs.readFileSync(path.join(dir, '.flightdeck/installed.json'), 'utf8')), LIMIT = 8 * 1048576, HASH = 'e'.repeat(64);
+  r.version = '2.6.0'; /* so Update has a record to write */
+  for (let i = 0; JSON.stringify(r).length < LIMIT - 200; i++) r.files['old/' + String(i).padStart(7, '0') + '.md'] = HASH;
+  const text = JSON.stringify(r);
+  assert.ok(text.length <= LIMIT && JSON.stringify(r, null, 2).length > LIMIT, 'set-up: it fits only as it stands');
+  fs.writeFileSync(path.join(dir, '.flightdeck/installed.json'), text);
+  const files = asFiles(dir), before = Object.keys(files).length, app = await openTeam(files);
+  app.click('ai-files'); await app.tick(800);
+  assert.ok(/data-act="af-update"/.test(app.html()), 'set-up: it can be read and updated');
+  app.click('af-update'); await app.tick(800);
+  assert.ok(!(PLAN in files), 'the deleted file isn\'t written');
+  assert.strictEqual(files['.flightdeck/installed.json'], text, 'the record stays');
+  assert.strictEqual(Object.keys(files).length, before, 'nothing new at all');
+  assert.ok(/too big/.test(app.html()) && /Nothing was changed/.test(app.html()), 'says so, in plain words');
+  assert.ok(!/Working…/.test(app.html()), 'not stuck');
+});
+
+rule('Round 1, 3: closing help after Update\'s button went away puts focus on the section\'s heading', async () => {
+  const files = asFiles(scenario('deleted')), st = { armed: false, gate: gate() };
+  const app = boot({ picker: paused(folderHandle('Team', files), st), indexedDB: memoryIDB(), domFocus: true }); await app.tick(60);
+  app.click('connect'); await app.tick(200);
+  app.click('ai-files'); await wait(app);
+  app.node('[data-act="af-update"]').focus(); await app.tick(1);
+  st.armed = true; app.click('af-update'); await app.tick(100);
+  assert.ok(st.reached, 'set-up: Update is running');
+  app.click('help'); await app.tick(5);
+  st.gate.open(); await wait(app);
+  assert.ok(!app.node('[data-act="af-update"]'), 'set-up: the button went while help was open');
+  app.key('Escape'); await app.tick(5);
+  assert.strictEqual(app.activeId(), 'set-ai', 'the heading, never the page');
+});
+
+rule('Round 1, 4: Open AI assistant files during another folder\'s read loads the team folder and isn\'t stuck', async () => {
+  const dir = scenario('settled'), other = { 'flightdeck-status/SKILL.md': 'a skill of ours' };
+  const g = gate(), o = {}, otherDir = hooked(folderHandle('Skills', other), o);
+  let pick = folderHandle('Team', asFiles(dir));
+  const app = boot({ picker: () => pick, indexedDB: memoryIDB() }); await app.tick(60);
+  app.click('connect'); await app.tick(200);
+  app.click('ai-files'); await wait(app);
+  app.click('af-where', 'other'); await app.tick(50);
+  o.wait = () => g.p;
+  pick = otherDir; app.click('af-pick'); await app.tick(50);
+  assert.ok(/Checking the files…/.test(app.html()), 'set-up: its read is under way');
+  app.click('ai-files'); await wait(app);
+  g.open(); await wait(app);
+  assert.ok(!/Checking the files…/.test(app.html()), 'not stuck');
+  assert.ok(/data-af-row="AGENTS\.md"/.test(app.html()) && /All up to date/.test(app.html()), 'the team folder\'s files');
+});
+
+rule('Round 1, 5: a hundred waiting versions: folders listed first, only files that exist read, a few at a time, no copy kept in memory', async () => {
+  const dir = scenario('kept');
+  for (let i = 0; i < 100; i++) { const p = path.join(dir, '.flightdeck/updates/1.' + i + '.0', STATUS); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, 'copy ' + i); }
+  const files = asFiles(dir), o = {};
+  const app = boot({ picker: hooked(folderHandle('Team', files), o), indexedDB: memoryIDB() }); await app.tick(60);
+  app.click('connect'); await app.tick(400);
+  o.delay = 1; o.reads = 0; o.most = 0;
+  app.click('nav', 'settings'); await app.tick(1500);
+  assert.ok(/1\.0\.0, 1\.1\.0, 1\.2\.0 and 97 more/.test(app.html()), 'set-up: it read them all');
+  assert.ok(o.reads <= CONTRACT.length + 1 + 100, 'reads ' + o.reads + ': each contract file, the record and each copy that exists');
+  assert.ok(o.most <= 8, 'at most 8 at once, it was ' + o.most);
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8'), a = src.indexOf('function afRead(tg)'), body = src.slice(a, src.indexOf('function afGuard', a));
+  assert.ok(!/version: v, path: p, text/.test(body) && !/x\.text/.test(body), 'a waiting copy is kept as its fingerprints, not its text');
+});
+
+rule('Round 1, 6: a waiting copy that is listed but can\'t be read stays a merge, with no all-clear, as the last release says', async () => {
+  const bundles = require('../tools/old-bundles');
+  const b = bundles.get('v2.11.1');
+  if (!b) { if (process.env.CI) throw new Error('2.11.1\'s shipped page is needed'); console.log('skipped: v2.11.1 isn\'t cached'); return; }
+  const verdict = async (html, name) => {
+    const dir = scenario('settled');
+    if (name !== 'settled') { fs.mkdirSync(path.join(dir, '.flightdeck/updates/2.6.0', path.dirname(STATUS)), { recursive: true }); fs.writeFileSync(path.join(dir, '.flightdeck/updates/2.6.0', STATUS), 'old default'); }
+    const o = name === 'unreadable' ? { fail: /^\.flightdeck\/updates\// } : {};
+    const app = boot(Object.assign({ picker: hooked(folderHandle('Team', asFiles(dir)), o), indexedDB: memoryIDB() }, html ? { html } : {})); await app.tick(60);
+    app.click('connect'); await app.tick(300);
+    app.click('health'); await app.tick(800);
+    const page = app.html();
+    return { merge: /waiting to be merged|for AI assistants to merge/.test(page), clear: /The files for AI assistants (are current|match this version)/.test(page) };
+  };
+  for (const name of ['settled', 'readable', 'unreadable']) assert.deepStrictEqual(await verdict(null, name), await verdict(b.files['flightdeck.html'], name), name);
+  assert.deepStrictEqual(await verdict(null, 'unreadable'), { merge: true, clear: false }, 'the verdict itself');
+});
+
+rule('Round 1, 7 and 9: the docs say the race limit the command\'s text has, and close your editors', () => {
+  const updating = fs.readFileSync(path.join(__dirname, '..', 'docs', 'updating.md'), 'utf8');
+  const at = updating.indexOf('**A file that changes while the app updates.**'), para = updating.slice(at, updating.indexOf('\n', at));
+  assert.ok(/instant between/.test(para) && /Close editors on `AGENTS\.md` and the skills/.test(para), 'docs/updating.md, for Update');
+  assert.ok(/\*\*I merged it\*\*[^\n]*instant between/.test(updating), 'docs/updating.md, for I merged it');
+  const rel = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'src', 'releases.json'), 'utf8'))[0], first = rel.changes[0].now;
+  assert.ok(/instant/.test(first) && /[Cc]lose editors/.test(first), 'the release note');
+  const waiver = fs.readFileSync(path.join(__dirname, '..', 'docs', 'rehearsals', '2.12.0-2026-10-31-waiver.md'), 'utf8');
+  assert.ok(/fileAway/.test(waiver) && /final comparison/.test(waiver), 'the waiver');
+});
+
 run();

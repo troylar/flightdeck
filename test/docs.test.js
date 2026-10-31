@@ -119,4 +119,11 @@ rule('Docs: the README says how to start, and the download it names is in the pa
   assert.ok(md.indexOf('npx @troylar/flightdeck open') < 4000, 'on the first screen');
 });
 
+rule('The README\'s manual download is the release being shipped, so it can\'t go stale', () => {
+  const version = JSON.parse(read('src/releases.json'))[0].version;
+  const links = read('README.md').match(/@troylar\/flightdeck@\d+\.\d+\.\d+\/dist\/flightdeck\.html/g) || [];
+  assert.ok(links.length >= 1, 'the README links a download');
+  links.forEach(l => assert.strictEqual(l, '@troylar/flightdeck@' + version + '/dist/flightdeck.html'));
+});
+
 run();

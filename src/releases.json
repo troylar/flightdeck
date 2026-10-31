@@ -8,7 +8,7 @@
         "kind": "new",
         "area": "Settings",
         "title": "See and update AI assistant files without a command line",
-        "now": "Settings has an AI assistant files section. Each file says where it stands: Up to date, Update ready, Not there yet, Deleted, You changed it, or Waiting to merge. Update follows the same rules as flightdeck install: a copy is kept first, a file your team changed is never replaced, and a file that changes while updating is left alone and named. Update never changes the app file itself.",
+        "now": "Each file says where it stands. Update follows flightdeck install's rules: a copy is kept first, a file your team changed is never replaced, and one that changes while updating is left alone and named. A save in the instant between the last check and the write can still be overwritten, so close editors on these files first. Update never changes the app file itself.",
         "where": "Settings › AI assistant files"
       },
       {

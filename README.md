@@ -25,7 +25,7 @@
 ## Quick start
 
 1. `npx @troylar/flightdeck open` opens the app in your browser (needs Node 18 or later).
-2. No Node? Save [flightdeck.html](https://unpkg.com/@troylar/flightdeck@2.6.1/dist/flightdeck.html) from the npm package as a file (right-click, **Save link as…**) and open that file in Edge or Chrome.
+2. No Node? Save [flightdeck.html](https://unpkg.com/@troylar/flightdeck@2.12.0/dist/flightdeck.html) from the npm package as a file (right-click, **Save link as…**) and open that file in Edge or Chrome.
 3. Choose **Look around the examples** to try it, or **Start your team** to set up your team's folder.
 
 <p align="center"><a href="https://github.com/troylar/flightdeck/blob/main/docs/images/run-light.png" title="Open in GitHub's image viewer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/run-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/run-light.png" alt="A release in progress on the run screen: 7/15 answered in the header with Details, Screen share, Receipt and More; a strip saying you're recording, with Pause and Hand off and the run's details; Phases with each gate's state; the checklist with Next up pinned at its top; and the selected step, whose text shows the run's tag (Start the production deploy job v2026.10.16), with the values to copy, Record the result, Done, Done differently and Blocked" width="1000"></picture></a></p>

@@ -960,6 +960,11 @@
         if (j[0] !== 'staged') { out[j[0]][j[1]] = ds[i]; return; }
         var sg = repo.stagedOf(j[1]); (out.staged[sg.key] = out.staged[sg.key] || []).push({ version: sg.version, hash: ds[i] });
       });
+      /* Listed but not read: it's still there, so its file still waits. Its text is unknown, never taken to be gone. */
+      (scan.updates || []).forEach(function (p) {
+        var sg = !Object.prototype.hasOwnProperty.call(st, p) && repo.stagedOf(p);
+        if (sg) (out.staged[sg.key] = out.staged[sg.key] || []).push({ version: sg.version, hash: null });
+      });
       Object.keys(out.staged).forEach(function (k) { out.staged[k].sort(function (a, b) { return C.byVersion(a.version, b.version); }); });
       return out;
     }, function () { return null; });
@@ -1228,28 +1233,53 @@
     if (rec && rec.newer) return tg.recordAt + ' ' + rec.newer + ' This copy shows the files and leaves them alone. Use the newer Flightdeck, or run its ' + cmd + '.';
     return '';
   }
+  /* The screen moves to the other target: nothing from this one's requests stays, and its read in flight no longer counts. */
+  function afGo(af, where) { afTok++; af.where = where; af.load = null; af.loading = false; af.peek = null; af.perm = null; af.err = null; af.result = null; af.briefShown = null; }
   function afPerm(fs) {
     var d = fs && fs.dir;
     return d && d.queryPermission ? Promise.resolve(d.queryPermission({ mode: 'readwrite' })).catch(function () { return 'denied'; }) : Promise.resolve('granted');
   }
-  /* Everything an update compares, read now: each file, every copy waiting under a valid version, and the record. */
+  /* Everything an update compares, read now: each file, every copy waiting under a valid version, and the record. Reads go
+     through the folder's shared pool, so it's at most 8 at once however many versions wait. A version's folders are listed
+     first, so only files that exist are read, and a copy is kept as its fingerprints: afMerged reads it again when it's needed. */
   function afRead(tg) {
-    var C = PF.contract, fs = tg.fs, ud = tg.updates.join('/');
+    var C = PF.contract, fs = repo.lane(tg.fs), ud = tg.updates.join('/');
     var read = function (p) { return fs.read(p, { maxBytes: AF_MAX }).then(function (r) { return r ? r.text : null; }); };
+    var noPrints = function () { return new Error('This browser can\'t compute file fingerprints, so it can\'t tell a default from your team\'s change. Use the flightdeck command instead.'); };
+    var tree = Object.create(null), byRel = Object.create(null);
+    var items = tg.files.map(function (f) { return { key: f.key, rel: f.rel, baseKey: f.baseKey, text: f.text, staged: [] }; });
+    items.forEach(function (it) {
+      byRel[it.rel] = it;
+      var parts = it.rel.split('/'), at = tree;
+      parts.forEach(function (x, i) { if (i === parts.length - 1) at[x] = true; else at = at[x] = at[x] || Object.create(null); });
+    });
+    /* One folder of a version: its copies of this version's files, and its folders that can hold more. */
+    function walk(v, dir, node, rel) {
+      return fs.list(dir).then(function (list) {
+        return Promise.all(list.map(function (i) {
+          var want = node[i.name], here = rel + i.name, p = dir + '/' + i.name;
+          if (!want) return null;
+          if (want !== true) return i.kind === 'dir' ? walk(v, p, want, here + '/') : null;
+          if (i.kind !== 'file') return null;
+          var it = byRel[here];
+          return read(p).then(function (t) {
+            if (t == null) return null;
+            return digests([C.managed(it.key, t), t]).then(function (ds) { if (!ds) throw noPrints(); it.staged.push({ version: v, path: p, hash: ds[0], full: ds[1] }); });
+          });
+        }));
+      });
+    }
     return Promise.all([fs.list(ud), read(tg.recordAt)]).then(function (got) {
-      var vers = got[0].filter(function (i) { return i.kind === 'dir' && C.VERSION_DIR.test(i.name); }).map(function (i) { return i.name; }).sort(C.byVersion);
-      var recText = got[1], items = tg.files.map(function (f) { return { key: f.key, rel: f.rel, baseKey: f.baseKey, text: f.text, staged: [] }; });
-      return Promise.all(items.map(function (it) {
-        return read(it.rel).then(function (t) { it.now = t; }).then(function () {
-          return Promise.all(vers.map(function (v) { var p = ud + '/' + v + '/' + it.rel; return read(p).then(function (t) { return t == null ? null : { version: v, path: p, text: t }; }); }));
-        }).then(function (st) { it.staged = st.filter(Boolean); });
-      })).then(function () {
+      var vers = got[0].filter(function (i) { return i.kind === 'dir' && C.VERSION_DIR.test(i.name); }).map(function (i) { return i.name; });
+      var recText = got[1];
+      return Promise.all(items.map(function (it) { return read(it.rel).then(function (t) { it.now = t; }); }).concat(vers.map(function (v) { return walk(v, ud + '/' + v, tree, ''); }))).then(function () {
+        items.forEach(function (it) { it.staged.sort(function (x, y) { return C.byVersion(x.version, y.version); }); });
         var texts = [];
-        items.forEach(function (it) { texts.push(C.managed(it.key, it.text), it.now == null ? '' : C.managed(it.key, it.now)); it.staged.forEach(function (x) { texts.push(C.managed(it.key, x.text)); }); });
+        items.forEach(function (it) { texts.push(C.managed(it.key, it.text), it.now == null ? '' : C.managed(it.key, it.now)); });
         return digests(texts).then(function (ds) {
-          if (!ds) throw new Error('This browser can\'t compute file fingerprints, so it can\'t tell a default from your team\'s change. Use the flightdeck command instead.');
+          if (!ds) throw noPrints();
           var n = 0;
-          items.forEach(function (it) { it.want = ds[n++]; var h = ds[n++]; it.have = it.now == null ? null : h; it.staged.forEach(function (x) { x.hash = ds[n++]; }); });
+          items.forEach(function (it) { it.want = ds[n++]; var h = ds[n++]; it.have = it.now == null ? null : h; });
           var rec = C.readRecord(recText, items.map(function (i) { return i.key; }));
           if (rec.newer) return { items: items, record: rec, recText: recText };
           C.classify(items, rec, (C.BASELINES && C.BASELINES.files) || {}, APP_VERSION).forEach(function (d, i) { items[i].status = d.status; items[i].waiting = d.waiting || ''; items[i].stage = !!d.stage; });
@@ -1257,6 +1287,15 @@
         });
       });
     });
+  }
+  /* The record an update would write has to be one Flightdeck can read back: over the limit, nothing is touched. A file
+     skipped during the update keeps an old hash of the same length, so this is the most it can come to. */
+  function afRecordRoom(tg, l) {
+    var rec = PF.contract.nextRecord(l.record, l.items, APP_VERSION);
+    if (!rec) return '';
+    var bytes = new TextEncoder().encode(PF.contract.installed(APP_VERSION, new Date().toISOString(), 'app', rec)).length;
+    if (bytes <= AF_MAX) return '';
+    return tg.recordAt + ' would be too big for Flightdeck to read back (' + (Math.ceil(bytes / 1048576 * 100) / 100) + ' MB, over ' + (AF_MAX / 1048576) + ' MB). Nothing was changed. Remove the entries for files Flightdeck no longer ships, then try again.';
   }
   /* Bound to this folder and this request: switching folders or choosing another folder drops it. A request never starts
      while an update or a merge is running (af.busy), so nothing cuts one short in the same folder. */
@@ -1287,6 +1326,8 @@
       if (!alive()) throw stop();
       l = got;
       if (l.record.newer) { af.load = l; return null; }
+      var full = afRecordRoom(tg, l);
+      if (full) throw new Error(full);
       return l.items.reduce(function (q, it) {
         return q.then(function () {
           if (!alive()) throw stop();
@@ -1325,7 +1366,17 @@
     af.busy = true; af.loading = false; af.err = null; render();
     repo.archiveDir(fs, tg.updates.join('/') + '/' + APP_VERSION + '/replaced').then(function (d) {
       return it.staged.reduce(function (q, x) {
-        return q.then(function () { if (!alive()) return; return repo.archiveStaged(fs, d, x.path, 'staged/' + x.version + '/' + it.rel, x.text).then(function (r) { if (r.changed) kept.push(x.version); }); });
+        return q.then(function () {
+          if (!alive()) return;
+          return fs.read(x.path, { maxBytes: AF_MAX }).then(function (r) {
+            if (!alive()) return null;
+            if (!r) { kept.push(x.version); return null; }
+            return digests([r.text]).then(function (ds) {
+              if (!ds || ds[0] !== x.full) { kept.push(x.version); return; }
+              return repo.archiveStaged(fs, d, x.path, 'staged/' + x.version + '/' + it.rel, r.text, alive).then(function (done) { if (done.changed) kept.push(x.version); });
+            });
+          });
+        });
       }, Promise.resolve());
     }).then(function () {
       if (!alive()) return; af.busy = false; afFilesChanged(tg);
@@ -5648,12 +5699,12 @@
       copyText(PF.health.text(rep, { folder: state.fs && state.fs.name, at: U.when(hs.scan.at), app: APP_VERSION, files: hs.scan.files }), null, 'Copied. Paste it to a teammate or your AI assistant.');
     },
     'ai-files': function () {
-      ACTIONS.nav('settings'); var af = afState(); if (!af.busy) af.where = 'team'; state.focus = 'set-ai'; render();
+      ACTIONS.nav('settings'); var af = afState(); if (!af.busy && af.where !== 'team') afGo(af, 'team'); state.focus = 'set-ai'; render();
       var el = document.getElementById('set-ai'); if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start' });
       if (!af.loading) afLoad();
     },
     'af-load': function () { afLoad(); },
-    'af-where': function (id) { var af = afState(); if (af.busy || (id !== 'team' && id !== 'other') || af.where === id) return; af.where = id; af.load = null; af.peek = null; af.perm = null; af.err = null; af.result = null; if (id === 'other') afRemembered(af); else afLoad(); },
+    'af-where': function (id) { var af = afState(); if (af.busy || (id !== 'team' && id !== 'other') || af.where === id) return; afGo(af, id); if (id === 'other') afRemembered(af); else afLoad(); },
     'af-pick': function () { afPick(); },
     'af-allow': function () { afAllow(); },
     'af-update': function () { afUpdate(); },
@@ -7499,7 +7550,10 @@
     childEpoch++;
     var back = state.overlay && state.overlay.back, att = state.overlay && state.overlay.backAtt, done = state.overlay && state.overlay.onClose; state.overlay = null; if (done) done(); releaseUrls(state.full); render();
     if (att && att.gen === gen && att.view === state.view && att.run === state.runKey && att.pid === state.processId) { attBack(att); return; }
-    var el = back && document.querySelector(back); if (el) el.focus();
+    var el = back && document.querySelector(back);
+    /* A button of AI assistant files that went while the dialog was open (nothing left to update): its section's heading. */
+    if (!el && back && /data-act="af-/.test(back)) el = document.getElementById('set-ai');
+    if (el) el.focus();
   }
   /* An attachment's button (V.attachments) is on one note, and its row can move or go while the overlay is open: a twin arrives
      and the row's key changes, or the note is removed. So the opener is kept by the note it's on and which attachment, not by

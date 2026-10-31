@@ -8,7 +8,7 @@ AI assistant files, from the app.
 
 ### New
 
-- **See and update AI assistant files without a command line** (Settings). Settings has an AI assistant files section. Each file says where it stands: Up to date, Update ready, Not there yet, Deleted, You changed it, or Waiting to merge. Update follows the same rules as flightdeck install: a copy is kept first, a file your team changed is never replaced, and a file that changes while updating is left alone and named. Update never changes the app file itself. *Where:* Settings › AI assistant files
+- **See and update AI assistant files without a command line** (Settings). Each file says where it stands. Update follows flightdeck install's rules: a copy is kept first, a file your team changed is never replaced, and one that changes while updating is left alone and named. A save in the instant between the last check and the write can still be overwritten, so close editors on these files first. Update never changes the app file itself. *Where:* Settings › AI assistant files
 - **Show and Copy any file, and merge requests** (Settings). Show and Copy give any file as this version ships it, for an AI assistant that can't open the folder. A file waiting to merge also has Copy merge request, and I merged it, which puts the waiting copy away beside the replaced files. *Where:* Settings › AI assistant files
 - **Keep skills in another folder** (Settings). In another folder saves and updates the skills in a folder your AI assistant reads, with their own record there, like flightdeck skills --to. *Where:* Settings › AI assistant files
 

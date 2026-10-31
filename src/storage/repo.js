@@ -1775,9 +1775,14 @@ PF.repo = (function () {
     });
   }
   /* A merged file's staged copy, put away beside the replaced files: copied, read back, and removed only if it's still exactly
-     the text that was read. This is copy-then-remove, not a move: a failure leaves the staged copy where it was. */
-  function archiveStaged(fs, dir, path, rel, text) {
-    return archiveCopy(fs, dir, rel, text).then(function () { return fs.read(path); }).then(function (now) {
+     the text that was read. This is copy-then-remove, not a move: a failure leaves the staged copy where it was. alive() false
+     (the folder was switched) stops it before its next change. A file changed in the instant between the last read and the
+     removal is removed; the command's --force has the same limit, and this is a generated copy. */
+  function archiveStaged(fs, dir, path, rel, text, alive) {
+    var on = function () { return !alive || alive(); };
+    if (!on()) return Promise.resolve({ stale: true });
+    return archiveCopy(fs, dir, rel, text).then(function () { return on() ? fs.read(path) : null; }).then(function (now) {
+      if (!on()) return { stale: true };
       if (!now || now.text !== text) return { changed: true };
       return fs.remove(path).then(function () { return { ok: true }; });
     });
