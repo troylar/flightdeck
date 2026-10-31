@@ -217,8 +217,8 @@ job() { # file, and its shard i/n, - for the whole file, or budgets for its budg
   t0="$(now_ms)"
   case "$s" in */*) sh="$s";; esac
   BUDGETS="$mode" SHARD="$sh" node "$f" > "$logs/$name.log" 2>&1 < /dev/null || rc=$?
-  # A failed rule is a failure whatever the exit code says.
-  if [ "$rc" = 0 ] && grep -q '^FAIL' "$logs/$name.log"; then rc=1; fi
+  # A failed rule is a failure whatever the exit code says, and so is a file that stopped before saying how its rules went.
+  if [ "$rc" = 0 ] && { grep -q '^FAIL' "$logs/$name.log" || ! grep -Eq '^[0-9]+ passed, 0 failed$' "$logs/$name.log"; }; then rc=1; fi
   printf '%s\t%s\t%s\n' "$rc" "$what" "$name" >> "$logs/status"
   printf '%s\t%s\n' "$(( $(now_ms) - t0 ))" "$name" >> "$logs/times"
 }

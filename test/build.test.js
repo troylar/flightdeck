@@ -128,7 +128,8 @@ rule('test/run.sh: the only failure that can end in exit 0 is a segfault with no
     ['another signal, then a pass', { codes: { skip: [134, 0] } }, 1, 1, 2],
     ['a failed rule with exit 0', { codes: { skip: ['F0', 0] } }, 1, 1, 2],
     ['a segfault, then a rerun with exit 0 and no results', { codes: { skip: [139, 'E0'] } }, 1, 1, 2],
-    ['a segfault, then a rerun where no rule ran', { codes: { skip: [139, 'Z0'] } }, 1, 1, 2]
+    ['a segfault, then a rerun where no rule ran', { codes: { skip: [139, 'Z0'] } }, 1, 1, 2],
+    ['exit 0 with no results', { codes: { skip: ['E0', 0] } }, 1, 1, 2]
   ];
   const got = await Promise.all(cases.map(c => runnerWith(c[1])));
   cases.forEach((c, i) => {
@@ -142,7 +143,8 @@ rule('test/run.sh: the only failure that can end in exit 0 is a segfault with no
 rule('A rule that never settles fails the file instead of ending it with exit 0', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-hung-')), f = path.join(dir, 'hung.test.js');
   fs.writeFileSync(f, 'const { rule, run } = require(' + JSON.stringify(path.join(__dirname, 'harness')) + ');\nrule("hangs", () => new Promise(() => {}));\nrule("never reached", () => {});\nrun();\n');
-  const r = cp.spawnSync(process.execPath, [f], { encoding: 'utf8' });
+  const env = Object.assign({}, process.env); ['ONLY', 'SHARD', 'BUDGETS'].forEach(k => delete env[k]);
+  const r = cp.spawnSync(process.execPath, [f], { encoding: 'utf8', env });
   fs.rmSync(dir, { recursive: true, force: true });
   assert.strictEqual(r.status, 1, r.stdout + r.stderr);
   assert.ok(/FAIL: stopped before every rule had run/.test(r.stdout), r.stdout);
