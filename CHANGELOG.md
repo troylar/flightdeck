@@ -16,6 +16,15 @@ AI assistant files, from the app.
 
 - **Folder health judges these files by the installer's rules** (Folder health). Folder health and flightdeck install now agree on each file. Its AI assistants items open AI assistant files. *Where:* Settings › Folder health
 
+## 2.11.2 · Oct 31, 2026
+
+Duplicated tabs and Conditions.
+
+### Fixed
+
+- **A duplicated tab always gets its own identity** (Runs). A tab duplicated on a slow computer takes its own identity even when the first window answers late, and follows the recording in the first window. *Where:* Duplicating a browser tab with a run open
+- **Conditions moves as soon as a newer draft arrives** (Editor). When a newer draft gives the selected step an Only when, Conditions comes out of More options right away. *Where:* The builder
+
 ## 2.11.1 · Oct 31, 2026
 
 Odd names in a folder, and notes that share an ID.

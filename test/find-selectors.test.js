@@ -462,6 +462,14 @@ async function protoPlanned() {
   /* A redraw (any read may bring one) keeps it there: the card, not the first with its id. */
   app.setNarrow(true); app.setNarrow(false); await app.tick(5);
   assert.ok(onIt(), 'and it stays there through a redraw: ' + JSON.stringify(app.doc.activeElement && app.doc.activeElement.dataset));
+  /* The second copy of a plan: it has no id of its own, and focus stays on it, not the first copy. */
+  for (const id of PROTO) {
+    const second = all.filter(c => c['data-id'] === id)[1]['data-key'], el = app.doc.querySelector('[data-act="review-plan"][data-key="' + second.replace(/["\\]/g, '\\$&') + '"]');
+    el.focus(); await app.tick(2);
+    app.setNarrow(true); app.setNarrow(false); await app.tick(5);
+    const n = app.doc.activeElement;
+    assert.strictEqual(n && n.dataset && un(n.dataset.key), second, 'the second copy of ' + id + ' keeps focus through a redraw');
+  }
 }
 /* A step's notes: two of each, across the thread's Show earlier boundary; each is drawn once, by its own key, with its own text. */
 async function protoNotes() {

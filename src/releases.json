@@ -36,6 +36,29 @@
     ]
   },
   {
+    "version": "2.11.2",
+    "date": "2026-10-31",
+    "headline": "Duplicated tabs and Conditions",
+    "changes": [
+      {
+        "kind": "fixed",
+        "area": "Runs",
+        "title": "A duplicated tab always gets its own identity",
+        "now": "A tab duplicated on a slow computer takes its own identity even when the first window answers late, and follows the recording in the first window.",
+        "before": "A late answer was ignored, so both windows counted as recording the same run.",
+        "where": "Duplicating a browser tab with a run open"
+      },
+      {
+        "kind": "fixed",
+        "area": "Editor",
+        "title": "Conditions moves as soon as a newer draft arrives",
+        "now": "When a newer draft gives the selected step an Only when, Conditions comes out of More options right away.",
+        "before": "It stayed inside More options until the next redraw.",
+        "where": "The builder"
+      }
+    ]
+  },
+  {
     "version": "2.11.1",
     "date": "2026-10-31",
     "headline": "Odd names in a folder, and notes that share an ID",
