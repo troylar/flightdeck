@@ -619,8 +619,9 @@ rule('A folder that finishes opening while a screenshot is open closes it, and f
   assert.strictEqual(app.activeId(), 'page-h', 'focus on its heading');
 }));
 rule('A folder that finishes opening while a dialog holds typing doesn\'t open: the typing stays and the person is told', () => noThrow(async () => {
-  const pending = gate(), other = folderHandle('Folder B', {});
-  const app = boot({ localStore: { 'preflight:builder': 'false' }, indexedDB: memoryIDB(), picker: () => pending.p.then(() => other) }); await app.tick(80);
+  const pending = gate(), other = folderHandle('Folder B', {}), idb = memoryIDB();
+  const remembered = () => new Promise(res => { const q = idb.open(); q.onsuccess = () => { const g = q.result.transaction().objectStore().get('folder'); g.onsuccess = () => res(g.result); }; });
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, indexedDB: idb, picker: () => pending.p.then(() => other) }); await app.tick(80);
   app.choose('person-morgan'); await app.tick();
   app.click('open-process', 'release'); await app.tick(20);
   const id = /data-act="corr-review" data-id="([\w-]+)"/.exec(app.html())[1];
@@ -631,6 +632,7 @@ rule('A folder that finishes opening while a dialog holds typing doesn\'t open: 
   assert.ok(/id="ca-reason"/.test(app.overlay()), 'the dialog is still up'); assert.strictEqual(app.draft('ca-reason'), 'Not this time');
   assert.ok(/Finish or cancel this first\./.test(app.live()), 'says why');
   assert.ok(/id="page-h"/.test(app.html()) && /data-act="ptab"/.test(app.html()), 'still on the checklist');
+  assert.ok(!(await remembered()), 'and the next visit doesn\'t open the folder that was refused');
 }));
 rule('A slow attachment that finishes reading after another dialog opened doesn\'t replace it', () => noThrow(async () => {
   const app = await twins([note(Object.assign({ text: 'First file' }, att('first.log')))]);

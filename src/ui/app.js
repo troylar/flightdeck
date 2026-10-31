@@ -1151,10 +1151,11 @@
     var t = ++opening;
     window.showDirectoryPicker({ id: 'preflight', mode: 'readwrite' }).then(function (dir) {
       if (t !== opening) return;
-      var notRemembered = '';
-      return handles.set(dir).catch(function (e) { notRemembered = ' This browser couldn\'t remember the folder (' + e.message + '), so you\'ll be asked to choose it again next time.'; return { dir: dir, id: 'unremembered-' + U.randomId(12) }; }).then(function (rec) {
+      var notRemembered = '', was = null;
+      return handles.read('folder').then(function (v) { was = { v: v }; return handles.set(dir); }).catch(function (e) { notRemembered = ' This browser couldn\'t remember the folder (' + e.message + '), so you\'ll be asked to choose it again next time.'; return { dir: dir, id: 'unremembered-' + U.randomId(12) }; }).then(function (rec) {
         if (t !== opening) return;
-        if (!leaveFolderOverlay('page-h')) return; state.needsReconnect = null; home();
+        /* Not opened, so not what this browser opens next time either. */
+        if (!leaveFolderOverlay('page-h')) { if (was) handles.write('folder', was.v).catch(function () {}); return; } state.needsReconnect = null; home();
         return useFs(folderFs(rec)).then(function () {
           if (t !== opening) return;
           if (!data.drafts.length && !data.processes.length) say('Connected to "' + dir.name + '", but it has no checklists yet. Copy the example folder into it, or ask your AI assistant to write a checklist into maps/drafts.' + notRemembered, 'warn');
