@@ -81,14 +81,14 @@ rule('A budget() registered inside a loop counts as a file with budgets, and tes
 });
 
 /* test/run.sh with node standing in for one file, which exits with the codes listed, one per attempt, and counts its attempts.
-   "F1" prints a FAIL line first. busy sets what the machine counts as (PERF_BUSY=0 or 100); sampler makes the load sampler
+   "F1" prints a FAIL line first, "E0" exits with no results line, "Z0" says no rule ran. busy sets what the machine counts as (PERF_BUSY=0 or 100); sampler makes the load sampler
    fail ("fail") or print nonsense ("junk"). */
 function runnerWith(c) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-runner-'));
   const shim = '#!/usr/bin/env bash\n' +
     'case "$1" in\n' +
     '  test/timeline.test.js) echo x >> "$SHIM_DIR/$BUDGETS.ran"; q="$SHIM_DIR/$BUDGETS"; c="$(head -n 1 "$q" 2>/dev/null)"; if [ -n "$c" ]; then tail -n +2 "$q" > "$q.n"; mv "$q.n" "$q"; fi; c="${c:-0}"\n' +
-    '    case "$c" in F*) echo "FAIL: a rule"; c="${c#F}";; esac; echo "1 passed, 0 failed"; exit "$c";;\n' +
+    '    case "$c" in F*) echo "FAIL: a rule"; c="${c#F}";; E*) exit "${c#E}";; Z*) echo "0 passed, 0 failed"; exit "${c#Z}";; esac; echo "1 passed, 0 failed"; exit "$c";;\n' +
     '  tools/old-bundles.js) exit 0;;\n' +
     '  test/machine-load.js) case "${SHIM_SAMPLER:-}" in fail) exit 127;; junk) echo "no idea"; exit 0;; esac;;\n' +
     'esac\nexec "$SHIM_REAL" "$@"\n';
@@ -125,7 +125,10 @@ rule('test/run.sh: the only failure that can end in exit 0 is a segfault with no
     ['a segfault after a rule failed, then a pass', { codes: { skip: ['F139', 0] } }, 1, 1, 2],
     ['a segfault, then a failure', { codes: { skip: [139, 1] } }, 1, 1, 2],
     ['a segfault twice', { codes: { skip: [139, 139] } }, 1, 1, 2],
-    ['another signal, then a pass', { codes: { skip: [134, 0] } }, 1, 1, 2]
+    ['another signal, then a pass', { codes: { skip: [134, 0] } }, 1, 1, 2],
+    ['a failed rule with exit 0', { codes: { skip: ['F0', 0] } }, 1, 1, 2],
+    ['a segfault, then a rerun with exit 0 and no results', { codes: { skip: [139, 'E0'] } }, 1, 1, 2],
+    ['a segfault, then a rerun where no rule ran', { codes: { skip: [139, 'Z0'] } }, 1, 1, 2]
   ];
   const got = await Promise.all(cases.map(c => runnerWith(c[1])));
   cases.forEach((c, i) => {
@@ -134,6 +137,15 @@ rule('test/run.sh: the only failure that can end in exit 0 is a segfault with no
     assert.strictEqual(got[i].plainRuns, c[4], c[0] + ': parallel job ran ' + got[i].plainRuns + ' times');
     if (c[5]) assert.ok(c[5].test(got[i].out), c[0] + ': says so\n' + got[i].out);
   });
+});
+
+rule('A rule that never settles fails the file instead of ending it with exit 0', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-hung-')), f = path.join(dir, 'hung.test.js');
+  fs.writeFileSync(f, 'const { rule, run } = require(' + JSON.stringify(path.join(__dirname, 'harness')) + ');\nrule("hangs", () => new Promise(() => {}));\nrule("never reached", () => {});\nrun();\n');
+  const r = cp.spawnSync(process.execPath, [f], { encoding: 'utf8' });
+  fs.rmSync(dir, { recursive: true, force: true });
+  assert.strictEqual(r.status, 1, r.stdout + r.stderr);
+  assert.ok(/FAIL: stopped before every rule had run/.test(r.stdout), r.stdout);
 });
 
 rule('The shipped release notes are valid, and CHANGELOG.md is exactly what they generate', () => {

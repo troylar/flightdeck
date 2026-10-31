@@ -32,6 +32,9 @@ function rule(name, fn) { queue.push([name, fn]); }
    (BUDGETS=only there, BUDGETS=skip in the jobs). Run by hand, a file runs them with its other rules, as it always did. */
 function budget(name, fn) { queue.push([name, fn, true]); }
 async function run() {
+  /* A rule whose promise never settles ends the process with nothing left to do, exit 0 and no results: that's never a pass. */
+  let done = false;
+  process.on('exit', code => { if (!done && !code) { console.log('FAIL: stopped before every rule had run'); process.exitCode = 1; } });
   // ONLY=<text> runs just the rules whose names contain it, while working on them. SHARD=i/n runs every nth rule from
   // the ith, so test/run.sh can split a long file across processes. BUDGETS=only or skip picks the budget rules or the rest.
   // RULE_TIMES=1 prints how long each rule took.
@@ -52,6 +55,7 @@ async function run() {
     }
     if (process.env.RULE_TIMES) console.log((Date.now() - t0) + ' ms: ' + name);
   }
+  done = true;
   console.log(passed + ' passed, ' + failed + ' failed');
   process.exit(failed ? 1 : 0);
 }

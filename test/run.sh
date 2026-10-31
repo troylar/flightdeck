@@ -217,6 +217,8 @@ job() { # file, and its shard i/n, - for the whole file, or budgets for its budg
   t0="$(now_ms)"
   case "$s" in */*) sh="$s";; esac
   BUDGETS="$mode" SHARD="$sh" node "$f" > "$logs/$name.log" 2>&1 < /dev/null || rc=$?
+  # A failed rule is a failure whatever the exit code says.
+  if [ "$rc" = 0 ] && grep -q '^FAIL' "$logs/$name.log"; then rc=1; fi
   printf '%s\t%s\t%s\n' "$rc" "$what" "$name" >> "$logs/status"
   printf '%s\t%s\n' "$(( $(now_ms) - t0 ))" "$name" >> "$logs/times"
 }
@@ -233,7 +235,7 @@ while IFS=$'\t' read -r rc what name; do
   crash=; if [ "$rc" = 139 ] && ! grep -q '^FAIL' "$logs/$name.log"; then crash=1; fi
   cp "$logs/$name.log" "$logs/$name.parallel.log"; job "$f" "$s"
   again="$(tail -n 1 "$logs/status")"; again="${again%%$'\t'*}"
-  if [ -n "$crash" ] && [ "$again" = 0 ]; then crashed+=("$what: exit 139 (segfault) in the parallel run, no rule failed, then passed in full"); continue; fi
+  if [ -n "$crash" ] && [ "$again" = 0 ] && tail -n 1 "$logs/$name.log" | grep -Eq '^[1-9][0-9]* passed, 0 failed$'; then crashed+=("$what: exit 139 (segfault) in the parallel run, no rule failed, then passed in full"); continue; fi
   cp "$logs/$name.log" "$logs/$name.alone.log"; cp "$logs/$name.parallel.log" "$logs/$name.log"
   sed -i.bak '$d' "$logs/status" && rm -f "$logs/status.bak"
   printf '%s\t%s\t%s\n' "$rc" "$what" "$name" >> "$logs/status"
