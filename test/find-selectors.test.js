@@ -165,7 +165,7 @@ function plainLookups(src) {
   }
   return out;
 }
-/* The plain-object lookups left as they are in src/ui/views, each with why its key can't be a name Object.prototype has, or
+/* The plain-object lookups left as they are in src/ui/views, src/ui/app.js and src/core (2.11.1; src/storage isn't scanned), each with why its key can't be a name Object.prototype has, or
    why it is left (pre-existing: as in 2.10.0, not changed by 2.11), and how many there are. A new one isn't here, so the
    check fails until it is made with Object.create(null), a Map, or an own-property test. */
 const PREFIXED = 'a key this code builds with a fixed prefix holding a colon (ob-stale:, dupes:, repdiff:...)', RUNKEY = 'a run key (process/id): it always holds a slash';
@@ -184,13 +184,12 @@ const LOOKUPS_OK = {
   'views/common.js|out|it.key': [1, PRE + PANE],
   'views/common.js|w|it.key': [4, PRE + PANE],
   'views/common.js|w|k': [2, PRE + PANE],
-  'views/detailbox.js|d|n': [1, PRE + 'a run detail name: a map refuses one Object.prototype has (map.js reserved)'],
+  'views/detailbox.js|d|n': [1, PRE + 'a run detail name: publishing refuses one Object.prototype has (map.js reserved), a version or run with one isn\'t run (publish.unrunnable), and Practice doesn\'t admit one (practice.js admit)'],
   'views/flight.js|(… || {})|p.id': [1, PRE + 'state.fpSteps is made with Object.create(null) (fpStepsKept); {} only stands in before it is set'],
   'views/home.js|(… || {})|runKey(r)': [2, RUNKEY],
-  'views/insights.js|(… || {})|p.id': [1, PRE + 'compared with each version\'s folder name, so an inherited value matches none'],
+  'views/insights.js|(… || {})|p.id': [1, 'state.insFolder is made with Object.create(null); {} only stands in before it is set'],
   'views/insights.js|status|k': [2, PRE + RUNKEY],
   'views/insights.js|by|k': [2, PRE + RUNKEY],
-  'views/manage.js|seen|n': [2, PRE + 'a step type field name typed in the type form; a field named like an Object.prototype name is called listed twice'],
   'views/manage.js|at|id': [2, PRE + 'a type form control id, tf- and a name'],
   'views/overlays.js|teamOf|e.name': [1, PRE + 'a pass name: PF.links refuses one Object.prototype has (links.js reserved)'],
   'views/overlays.js|teamOf|f': [2, PRE + 'a pass name: PF.links refuses one Object.prototype has (links.js reserved)'],
@@ -200,25 +199,210 @@ const LOOKUPS_OK = {
   'views/process.js|(… || {})|lbk': [1, PREFIXED],
   'views/process.js|(… || {})|cmpKey': [1, PREFIXED],
   'views/process.js|(… || {})|p.draft.file': [1, PRE + 'a draft file name; the value is only shown as why it can\'t be read'],
-  'views/process.js|(… || {})|p.id': [1, PRE + 'compared with a form key string, so an inherited value never equals it'],
+  'views/process.js|(… || {})|p.id': [1, 'state.startModeAt is made with Object.create(null); {} only stands in before it is set'],
   'views/reports.js|(… || {})|k': [1, PREFIXED],
   'views/reports.js|(… || {})|g.key': [1, 'a report\'s identity, process/run/step/producer/id: it always holds a slash'],
-  'views/run.js|(… || {})|r.id': [1, PRE + 'state.pendingSaves, set while a run saves; a run id is letters, digits and dashes, so constructor is one (reported)'],
+  'views/run.js|(… || {})|r.id': [1, 'state.pendingSaves is made with Object.create(null); {} only stands in before it is set'],
   'views/run.js|(… || {})|s.id': [1, PRE + 'the run file\'s own fields object, keyed by step id'],
   'views/run.js|(… || {})|st.id': [1, PRE + 'the run file\'s own fields object, keyed by step id'],
   'views/run.js|(… || {})|runKey(r)': [3, RUNKEY],
   'views/run.js|(… || {})|nd': [1, PREFIXED],
   'views/run.js|(… || {})|to.v': [1, 'a destination value, process/id or plan:id, so it always holds a slash or a colon'],
-  'views/setup.js|out|x.k': [1, PRE + 'me or a row key the setup form makes']
+  'views/setup.js|out|x.k': [1, PRE + 'me or a row key the setup form makes'],
+/* app.js and src/core (extended for 2.11.1). */
+  'app.js|(… || {})|i': [1, 'digits: the test beside it allows only 1 to 3 of them'],
+  'app.js|(… || {})|p._file': [2, 'a file name in the folder as a reader lists it: it ends in .json or .md, so it holds a dot'],
+  'app.js|(… || {})|id': [4, 'state.pendingSaves is made without a prototype and {} only stands in; or a Connection check file name (ends in .json); or a report key, process/run/step/producer/id, which holds a slash'],
+  'app.js|(… || {})|r.id': [3, 'state.pendingSaves and state.saveOpts are made with Object.create(null); {} only stands in before they are set'],
+  'app.js|(… || {})|key': [4, RUNKEY],
+  'app.js|(… || {})|name': [1, 'a file name in the folder as a reader lists it: it ends in .json or .md, so it holds a dot'],
+  'app.js|(… || {})|state.view': [2, 'a screen name set in code'],
+  'app.js|(… || {})|rkey': [2, 'a run key, a colon and a step id: it always holds a slash'],
+  'app.js|(… || {})|prep.rkey': [1, 'a run key, a colon and a step id: it always holds a slash'],
+  'app.js|(… || {})|edKey(pid, k)': [1, 'a key this code builds holding a newline (the folder, a newline and the rest)'],
+  'app.js|(… || {})|edKey(ed.pid, ed.fsKey)': [1, 'a key this code builds holding a newline (the folder, a newline and the rest)'],
+  'app.js|(… || {})|m.id': [1, 'a proposal id: PP.check requires p-<letters>-<letters> (ID), for its id and for what it replaces or follows'],
+  'app.js|(… || {})|edKey(p.id)': [1, 'a key this code builds holding a newline (the folder, a newline and the rest)'],
+  'app.js|(… || {})|list': [1, LISTID],
+  'app.js|(… || {})|x.dataset.disc': [1, 'a data-disc the views draw: a fixed name, or a fixed prefix and a colon; only true or false is written'],
+  'app.js|(… || {})|corrKey(f)': [1, 'a key this code builds holding a newline (the folder, a newline and the rest)'],
+  'app.js|(… || {})|path': [2, 'an attachment path a note keeps: PF.attach.pathOk requires its run\'s folder, so it holds a slash'],
+  'app.js|(… || {})|ncKey(state.runKey, ncm[2], ncm[3])': [1, 'a key this code builds holding a newline (the folder, a newline and the rest)'],
+  'app.js|(… || {})|sm[2]': [1, 'name, email or t and digits: the pattern beside it'],
+  'app.js|(… || {})|d.dataset.disc': [1, 'a data-disc the views draw: a fixed name, or a fixed prefix and a colon; only true or false is written'],
+  'app.js|(… || {})|state.processId': [1, 'state.fpSteps is made with Object.create(null) (fpStepsKept); {} only stands in before it is set'],
+  'app.js|(… || {})|f': [1, 'an attachment path a note keeps: PF.attach.pathOk requires its run\'s folder, so it holds a slash'],
+  'app.js|(… || {})|back.list': [1, LISTID],
+  'app.js|out|k': [3, 'a pane name from PANES; a box id the pattern beside it checks (rec- or fld-); or a field of the type form this code builds'],
+  'app.js|typeForms|fsKey()': [4, 'the folder\'s key, its kind, a colon and its name; or empty with no folder'],
+  'app.js|typeForms|f.fsKey': [1, 'the folder\'s key, its kind, a colon and its name; or empty with no folder'],
+  'app.js|typeForms|F.fsKey': [1, 'the folder\'s key, its kind, a colon and its name; or empty with no folder'],
+  'app.js|thumbWant|k': [2, 'a thumbnail\'s key: an image path (holds a slash) or process/folder|path'],
+  'app.js|thumbWant|el.dataset.thumb': [1, 'a thumbnail\'s key: an image path (holds a slash) or process/folder|path'],
+  'app.js|o|k': [3, 'a run key from state.unread or state.missing (holds a slash); or a field of the type form this code builds'],
+  'app.js|shown|m.id': [1, 'a proposal id: PP.check requires p-<letters>-<letters> (ID), for its id and for what it replaces or follows'],
+  'app.js|shown|x.id': [1, 'a proposal id: PP.check requires p-<letters>-<letters> (ID), for its id and for what it replaces or follows'],
+  'app.js|recs|m.id': [1, 'a proposal id: PP.check requires p-<letters>-<letters> (ID), for its id and for what it replaces or follows'],
+  'app.js|recs|m[1]': [2, 'a proposal id: PP.check requires p-<letters>-<letters> (ID), for its id and for what it replaces or follows'],
+  'app.js|editCount|id': [2, 'read with an own-property test; a run id (RUN_ID, letters, digits and dashes) or ~ and one is never __proto__, and any other name is written as its own. useFs (gated) resets it to {}'],
+  'app.js|drafts|u.draft': [1, 'a file name in the folder as a reader lists it: it ends in .json or .md, so it holds a dot'],
+  'app.js|applied|key': [5, RUNKEY + ', inside applyRunRead and runOutcome'],
+  'app.js|staleCache|key': [1, RUNKEY],
+  'app.js|notCounted|k': [1, RUNKEY],
+  'app.js|notCounted|key': [4, RUNKEY],
+  'app.js|hashes|paths[i]': [1, 'a managed file\'s path from the Connection check\'s list'],
+  'app.js|baselines|r.id': [2, 'in mutateRun (gated, left byte for byte) useFs has made it a plain {}, so a run named constructor reads as already kept there; every read of a run keeps its own first (keepBaseline), so one is there before a recorder can change it. Discard reads it with an own-property test'],
+  'app.js|files|contract[i]': [1, 'a managed file\'s path from the Connection check\'s list'],
+  'app.js|keep|el.id': [1, 'a form box\'s own id: a fixed name or a fixed prefix and a dash (ob-, rec-, fld-, find-...), never a bare name from a file'],
+  'app.js|keep|id': [7, 'a form box\'s own id: a fixed name or a fixed prefix and a dash (ob-, rec-, fld-, find-...), never a bare name from a file'],
+  'app.js|keep|target && target.id': [1, 'a form box\'s own id: a fixed name or a fixed prefix and a dash (ob-, rec-, fld-, find-...), never a bare name from a file'],
+  'app.js|fit|k': [3, 'a pane name from PANES'],
+  'app.js|mineAt|r.id': [1, 'a run id, written as its own just above, and read as that (RUN_ID can\'t be __proto__)'],
+  'app.js|c|k': [1, 'a key starting with _ is skipped beside it, so never __proto__; any other is written as its own and only stringified'],
+  'app.js|inputs|k': [3, 'a run detail or role of a published checklist: M.check refuses a name Object.prototype has (a run with one by hand is read-only), and this only writes it, as its own'],
+  'app.js|teamSrc|r.name': [2, 'a pass name: PF.links refuses one Object.prototype has (links.js reserved)'],
+  'app.js|was|e.name': [1, 'a pass name: PF.links refuses one Object.prototype has (links.js reserved)'],
+  'app.js|roles|ro': [4, 'a run detail or role of a published checklist: M.check refuses a name Object.prototype has (a run with one by hand is read-only), and this only writes it, as its own'],
+  'app.js|edEpochs|edKey(pid, fk)': [1, 'a key this code builds holding a newline (the folder, a newline and the rest)'],
+  'app.js|edEpochs|k': [2, 'a key this code builds holding a newline (the folder, a newline and the rest)'],
+  'app.js|fileSeq|f': [2, 'a file name in the folder as a reader lists it: it ends in .json or .md, so it holds a dot'],
+  'app.js|fileSeq|file': [3, 'a file name in the folder as a reader lists it: it ends in .json or .md, so it holds a dot'],
+  'app.js|paths|x.file': [1, 'a file name in the folder as a reader lists it: it ends in .json or .md, so it holds a dot'],
+  'app.js|all|m.id': [2, 'a proposal id: PP.check requires p-<letters>-<letters> (ID), for its id and for what it replaces or follows'],
+  'app.js|all|id': [2, 'a proposal id: PP.check requires p-<letters>-<letters> (ID), for its id and for what it replaces or follows'],
+  'app.js|histRoll|key': [2, 'a key this code builds holding a newline (the folder, a newline and the rest)'],
+  'app.js|histPending|k': [2, 'a key this code builds holding a newline (the folder, a newline and the rest)'],
+  'app.js|histSeen|k': [2, 'a key this code builds holding a newline (the folder, a newline and the rest)'],
+  'app.js|histSeen|histKey(key, dir)': [1, 'a key this code builds holding a newline (the folder, a newline and the rest)'],
+  'app.js|prs|k': [4, 'a key this code builds holding a newline (the folder, a newline and the rest)'],
+  'app.js|prs|edKey(pid)': [3, 'a key this code builds holding a newline (the folder, a newline and the rest)'],
+  'app.js|prs|edKey(p.id)': [4, 'a key this code builds holding a newline (the folder, a newline and the rest)'],
+  'app.js|prs|edKey(id)': [2, 'a key this code builds holding a newline (the folder, a newline and the rest)'],
+  'app.js|add|from': [1, 'a string is written: under __proto__ that is ignored, under any other name it is the object\'s own; read back by Object.keys or an own-property test'],
+  'app.js|steps|s.id': [1, 'a step, phase, gate or lane id of a draft Practice admitted: admit refuses a name Object.prototype has'],
+  'app.js|gates|ph.gate.id': [1, 'a step, phase, gate or lane id of a draft Practice admitted: admit refuses a name Object.prototype has'],
+  'app.js|kept|id': [5, 'an admitted draft\'s step id, or one prLoadTyped kept: it skips a name Object.prototype has'],
+  'app.js|names|b': [1, 'a box id of a step\'s kept typing, rec- or fld- and a name'],
+  'app.js|values|ev.name': [2, 'an evidence name: a team\'s type refuses a record named like Object.prototype (checkCustom), and a version or run frozen with one isn\'t run (understood, through publish.verify and the run\'s reader); a Jira field is jf-, a detail rd-'],
+  'app.js|fields|f': [2, 'a step field name: a team type\'s field can\'t be named like Object.prototype (checkCustom: COMMON[f] finds the inherited one and refuses it), and a version or run frozen with one isn\'t run (understood); a field the type doesn\'t have is refused by checkFields'],
+  'app.js|o|flag': [1, 'required or long, in this code'],
+  'app.js|o|list': [1, 'phases or steps, in this code'],
+  'app.js|set|kind': [1, 'role or bind, in this code'],
+  'app.js|details|f': [1, 'a key of a run as PF.run.sanitize read it: written to a plain object, __proto__ is dropped there (or skipped by name); any other name is written as its own and read back by Object.keys or an own-property test'],
+  'app.js|values|d.name': [1, 'an evidence name: a team\'s type refuses a record named like Object.prototype (checkCustom), and a version or run frozen with one isn\'t run (understood, through publish.verify and the run\'s reader); a Jira field is jf-, a detail rd-'],
+  'app.js|keep|k': [1, 'a box id of a step\'s kept typing, rec- or fld- and a name'],
+  'app.js|tp|n': [1, 'a pass name: PF.links refuses one Object.prototype has (links.js reserved)'],
+  'app.js|own|k': [1, 'a key starting with _ is skipped beside it, so never __proto__; any other is written as its own and read by Object.keys'],
+  'app.js|values|e.name': [1, 'a pass name: PF.links refuses one Object.prototype has (links.js reserved)'],
+  'app.js|teams|e.name': [1, 'a pass name: PF.links refuses one Object.prototype has (links.js reserved)'],
+  'app.js|asked|el.dataset.detail': [1, 'a run detail or role of a published checklist: M.check refuses a name Object.prototype has (a run with one by hand is read-only), and this only writes it, as its own'],
+  'app.js|roles|el.dataset.role': [4, 'a run detail or role of a published checklist: M.check refuses a name Object.prototype has (a run with one by hand is read-only), and this only writes it, as its own'],
+  'app.js|details|el.dataset.detail': [3, 'a run detail or role of a published checklist: M.check refuses a name Object.prototype has (a run with one by hand is read-only), and this only writes it, as its own'],
+  'app.js|vals|el.id.slice(4)': [1, 'a step field name: a team type\'s field can\'t be named like Object.prototype (checkCustom: COMMON[f] finds the inherited one and refuses it), and a version or run frozen with one isn\'t run (understood); a field the type doesn\'t have is refused by checkFields'],
+  'app.js|vals|e.target.id.slice(4)': [1, 'a step field name: a team type\'s field can\'t be named like Object.prototype (checkCustom: COMMON[f] finds the inherited one and refuses it), and a version or run frozen with one isn\'t run (understood); a field the type doesn\'t have is refused by checkFields'],
+  'app.js|vals|k': [1, 'a step field name: a team type\'s field can\'t be named like Object.prototype (checkCustom: COMMON[f] finds the inherited one and refuses it), and a version or run frozen with one isn\'t run (understood); a field the type doesn\'t have is refused by checkFields'],
+  'app.js|info|path': [1, 'an attachment path just saved: it holds a slash'],
+  'app.js|base|id': [1, 'rec- or fld- and a name, or note-text: the pattern beside it'],
+  'core/appjson.js|o|k': [3, 'the schema\'s own property names in extend; strMap only reads the keys Object.keys gave it'],
+  'core/appjson.js|out|k': [2, 'the fields of a version or process this code\'s reader built'],
+  'core/attach.js|out|f': [1, 'an attachment path: both callers keep only paths PF.attach.pathOk allows, which hold a slash'],
+  'core/evidence.js|p|x.type': [1, 'a part type Intl.DateTimeFormat gives'],
+  'core/evidence.js|exact|n': [1, 'a name from a fixed list in this code'],
+  'core/health.js|byFam|k': [3, 'a family, a bar and what it needs: it always holds a bar'],
+  'core/insights.js|out|pi': [2, 'a phase\'s number'],
+  'core/insights.js|sigs|k': [1, RUNKEY],
+  'core/insights.js|seen|f.version': [3, 'a number: add() makes it one'],
+  'core/jira.js|o|FILE': [1, 'the constant #file'],
+  'core/links.js|out|x.name': [2, 'a pass name: parse refuses one Object.prototype has; an implicit one is the child\'s published run detail, which M.check refuses too'],
+  'core/links.js|out|k': [1, 'written only when the run\'s details hold it as their own, and sanitize leaves __proto__ out of those'],
+  'core/map.js|meta|kv[1]': [1, 'a front matter line\'s name, written with text: under __proto__ that is ignored, under any other name it is meta\'s own; meta is only read by fixed names'],
+  'core/map.js|sk|k': [3, 'a slug followed by a hash, in digits: never a name Object.prototype has'],
+  'core/outline.js|nf|f': [2, 'a step field the outline read: written with text, so __proto__ is never its own; any other is written as its own and read with own_'],
+  'core/pins.js|out|s.id': [2, 'a published checklist\'s step id: M.check refuses a name Object.prototype has; read back with an own-property test'],
+  'core/plans.js|out|k': [1, 'a name from a fixed list in this code'],
+  'core/practice.js|(… || {})|f': [1, 'a step field name: a team type\'s field can\'t be named like Object.prototype (checkCustom: COMMON[f] finds the inherited one and refuses it), and a version or run frozen with one isn\'t run (understood); a field the type doesn\'t have is refused by checkFields'],
+  'core/practice.js|count|k': [2, 'a kind, a bar, a place, a bar and a text: it always holds a bar'],
+  'core/practice.js|out|s.id': [1, 'a step, phase, gate or lane id of a draft Practice admitted: admit refuses a name Object.prototype has'],
+  'core/practice.js|track|t.id': [1, 'a step, phase, gate or lane id of a draft Practice admitted: admit refuses a name Object.prototype has'],
+  'core/practice.js|track|s.track': [1, 'a step, phase, gate or lane id of a draft Practice admitted: admit refuses a name Object.prototype has'],
+  'core/practice.js|steps|s.id': [5, 'a step, phase, gate or lane id of a draft Practice admitted: admit refuses a name Object.prototype has'],
+  'core/practice.js|again|s.id': [1, 'a step, phase, gate or lane id of a draft Practice admitted: admit refuses a name Object.prototype has'],
+  'core/practice.js|tainted|keyed[k]': [1, 'a run detail name, written true; read back only with an own-property test, and true under __proto__ is ignored'],
+  'core/practice.js|k|R.detailKey(d)': [1, 'rd- and a name'],
+  'core/practice.js|assumed|s.id': [1, 'a step, phase, gate or lane id of a draft Practice admitted: admit refuses a name Object.prototype has'],
+  'core/practice.js|inNow|s.id': [1, 'a step, phase, gate or lane id of a draft Practice admitted: admit refuses a name Object.prototype has'],
+  'core/practice.js|inNow|was.steps[i].id': [1, 'a step, phase, gate or lane id of a draft Practice admitted: admit refuses a name Object.prototype has'],
+  'core/practice.js|out|o': [3, 'a string is written: under __proto__ that is ignored, under any other name it is the object\'s own; read back by Object.keys or an own-property test'],
+  'core/practice.js|out|k': [1, 'the test beside it skips a name Object.prototype has'],
+  'core/practice.js|phaseOf|s.id': [1, 'a step, phase, gate or lane id of a draft Practice admitted: admit refuses a name Object.prototype has'],
+  'core/practice.js|phaseOf|id': [1, 'read after an own-property test'],
+  'core/proposals.js|(… || {})|m.id': [1, 'a proposal id: PP.check requires p-<letters>-<letters> (ID), for its id and for what it replaces or follows'],
+  'core/proposals.js|by|m.id': [1, 'a proposal id: PP.check requires p-<letters>-<letters> (ID), for its id and for what it replaces or follows'],
+  'core/proposals.js|by|t': [2, 'a proposal id: PP.check requires p-<letters>-<letters> (ID), for its id and for what it replaces or follows'],
+  'core/proposals.js|by|nx': [1, 'a proposal id: PP.check requires p-<letters>-<letters> (ID), for its id and for what it replaces or follows'],
+  'core/proposals.js|by|m.replaces': [1, 'a proposal id: PP.check requires p-<letters>-<letters> (ID), for its id and for what it replaces or follows'],
+  'core/proposals.js|by|m.after': [1, 'a proposal id: PP.check requires p-<letters>-<letters> (ID), for its id and for what it replaces or follows'],
+  'core/proposals.js|bad|m.id': [4, 'a proposal id: PP.check requires p-<letters>-<letters> (ID), for its id and for what it replaces or follows'],
+  'core/proposals.js|bad|t.id': [1, 'a proposal id: PP.check requires p-<letters>-<letters> (ID), for its id and for what it replaces or follows'],
+  'core/proposals.js|seen|nx': [2, 'a proposal id: PP.check requires p-<letters>-<letters> (ID), for its id and for what it replaces or follows'],
+  'core/proposals.js|replaced|m.replaces': [1, 'a proposal id: PP.check requires p-<letters>-<letters> (ID), for its id and for what it replaces or follows'],
+  'core/proposals.js|replaced|m.id': [1, 'a proposal id: PP.check requires p-<letters>-<letters> (ID), for its id and for what it replaces or follows'],
+  'core/proposals.js|replaced|t.id': [1, 'a proposal id: PP.check requires p-<letters>-<letters> (ID), for its id and for what it replaces or follows'],
+  'core/proposals.js|states|m.id': [3, 'a proposal id: PP.check requires p-<letters>-<letters> (ID), for its id and for what it replaces or follows'],
+  'core/proposals.js|states|t.id': [1, 'a proposal id: PP.check requires p-<letters>-<letters> (ID), for its id and for what it replaces or follows'],
+  'core/proposals.js|free|k': [1, 'a place, a newline and a line: it always holds a newline'],
+  'core/proposals.js|keep|k': [1, 'a list position'],
+  'core/proposals.js|keep|i': [1, 'a list position'],
+  'core/publish.js|out|n': [1, 'a name from a fixed list in this code'],
+  'core/publish.js|byVersion|p.info.version': [2, 'a version number: verify requires one before a version is ok'],
+  'core/publish.js|byVersion|v': [1, 'a version number: verify requires one before a version is ok'],
+  'core/reports.js|values|k': [1, 'one of the step\'s evidence names, and the reader refuses a report\'s name Object.prototype has'],
+  'core/reports.js|out|k': [1, 'a name from a fixed list in this code'],
+  'core/requests.js|supplied|k': [1, 'details or roles, in this code'],
+  'core/requests.js|m|name': [2, 'the test just above refuses a name Object.prototype has'],
+  'core/requests.js|m|k': [1, 'names that test already let through'],
+  'core/requests.js|o|k': [1, 'names that test already let through'],
+  'core/run.js|(… || {})|f': [1, 'a run detail or role of a published checklist: M.check refuses a name Object.prototype has (a run with one by hand is read-only), and this only writes it, as its own'],
+  'core/run.js|(… || {})|r': [1, 'a run detail or role of a published checklist: M.check refuses a name Object.prototype has (a run with one by hand is read-only), and this only writes it, as its own'],
+  'core/run.js|(… || {})|d.name': [2, 'an evidence name: a team\'s type refuses a record named like Object.prototype (checkCustom), and a version or run frozen with one isn\'t run (understood, through publish.verify and the run\'s reader); a Jira field is jf-, a detail rd-'],
+  'core/run.js|(… || {})|k': [2, 'a name already tested as the child\'s own detail; and sanitize\'s marks skip __proto__ by name'],
+  'core/run.js|details|f': [6, 'a published checklist\'s run detail: M.check refuses a name Object.prototype has; fill reads it after an own-property test'],
+  'core/run.js|roles|r': [1, 'a run detail or role of a published checklist: M.check refuses a name Object.prototype has (a run with one by hand is read-only), and this only writes it, as its own'],
+  'core/run.js|kids|k': [2, 'STEP_ID, tested beside it, can\'t start with an underscore; any other name is written as its own and read with an own-property test'],
+  'core/run.js|out|path': [1, 'details. or steps. and more: it always holds a dot'],
+  'core/run.js|out|k': [5, 'a field of the run this code builds, or a run detail its reader kept (never __proto__), tested as own beside it'],
+  'core/run.js|out|f': [1, 'a run detail or role of a published checklist: M.check refuses a name Object.prototype has (a run with one by hand is read-only), and this only writes it, as its own'],
+  'core/run.js|out|keys[i]': [1, 'teamKey, tested beside it, refuses __proto__; any other name is written as its own and read with an own-property test'],
+  'core/run.js|merged|d.name': [2, 'an evidence name: a team\'s type refuses a record named like Object.prototype (checkCustom), and a version or run frozen with one isn\'t run (understood, through publish.verify and the run\'s reader); a Jira field is jf-, a detail rd-'],
+  'core/run.js|m|k': [5, 'a key of a run as PF.run.sanitize read it: written to a plain object, __proto__ is dropped there (or skipped by name); any other name is written as its own and read back by Object.keys or an own-property test'],
+  'core/run.js|marks|k': [2, 'a key of a run as PF.run.sanitize read it: written to a plain object, __proto__ is dropped there (or skipped by name); any other name is written as its own and read back by Object.keys or an own-property test'],
+  'core/run.js|seen|k': [2, 'a time, a bar, who, a bar and what: it always holds a bar'],
+  'core/run.js|tp|k': [1, 'teamKey, tested beside it, refuses __proto__; any other name is written as its own and read with an own-property test'],
+  'core/run.js|details|k': [1, 'a key of a run as PF.run.sanitize read it: written to a plain object, __proto__ is dropped there (or skipped by name); any other name is written as its own and read back by Object.keys or an own-property test'],
+  'core/run.js|roles|k': [1, 'a key of a run as PF.run.sanitize read it: written to a plain object, __proto__ is dropped there (or skipped by name); any other name is written as its own and read back by Object.keys or an own-property test'],
+  'core/run.js|c|k': [2, 'a string is written: under __proto__ that is ignored, under any other name it is the object\'s own; read back by Object.keys or an own-property test'],
+  'core/run.js|o|f': [1, 'a name from a fixed list in this code'],
+  'core/run.js|o|k': [1, 'a name from a fixed list in this code'],
+  'core/run.js|o|f[0]': [1, 'a name from a fixed list in this code'],
+  'core/search.js|t|k': [1, 'a target\'s fields, an object literal in this file'],
+  'core/types.js|fields|f': [12, 'a step field name: a team type\'s field can\'t be named like Object.prototype (checkCustom: COMMON[f] finds the inherited one and refuses it), and a version or run frozen with one isn\'t run (understood); a field the type doesn\'t have is refused by checkFields'],
+  'core/types.js|fields|k': [1, 'a condition\'s key: a built-in type\'s, as customType copies neither requiredWhen nor requiredUnless; a frozen type naming one Object.prototype has isn\'t run (understood)'],
+  'core/types.js|fields|def.optionsFrom': [1, 'a built-in type\'s, as customType doesn\'t copy optionsFrom; a frozen type naming one Object.prototype has isn\'t run (understood)'],
+  'core/types.js|out|d.name': [2, 'an evidence name: a team\'s type refuses a record named like Object.prototype (checkCustom), and a version or run frozen with one isn\'t run (understood, through publish.verify and the run\'s reader); a Jira field is jf-, a detail rd-'],
+  'core/types.js|out|id': [3, 'a step type id in use: ID has no underscore, so never __proto__, and validation refuses constructor; written as its own'],
+  'core/util.js|o|p.type': [1, 'a part type Intl.DateTimeFormat gives']
 };
-rule('Round 14: no lookup in src/ui/views reads a plain object by a key from the folder unless it is listed with why it can\'t be an inherited name', () => {
+rule('Round 14: no lookup in src/ui/views, src/ui/app.js or src/core reads a plain object by a key from the folder unless it is listed with why it can\'t be an inherited name', () => {
   /* The check itself: it finds a counter and a fallback read by an id, and passes Object.create(null) and a prefixed key. */
   const bad = plainLookups("var nth = {}; a.forEach(function (p) { nth[p.id] = (nth[p.id] || 0) + 1; }); x = (st.more || {})[p.id];");
   assert.deepStrictEqual(bad.map(x => x.name + '[' + x.key + ']'), ['(… || {})[p.id]', 'nth[p.id]', 'nth[p.id]'], JSON.stringify(bad));
   assert.deepStrictEqual(plainLookups("var nth = Object.create(null); nth[p.id] = 1; y = (st.disc || {})['fx:' + p.id]; var o = {}; o['a'] = 1; z = (s.m || {})[ctx.fsKey + '\\n' + p.id];"), []);
-  const seen = {}, fails = [];
-  fs.readdirSync(path.join(UI, 'views')).filter(f => /\.js$/.test(f)).forEach(f => {
-    plainLookups(fs.readFileSync(path.join(UI, 'views', f), 'utf8')).forEach(x => { const k = 'views/' + f + '|' + x.name + '|' + x.key; (seen[k] = seen[k] || []).push(x.line); });
+  const seen = {}, fails = [], CORE = path.join(UI, '..', 'core');
+  const sources = [['app.js', path.join(UI, 'app.js')]]
+    .concat(fs.readdirSync(path.join(UI, 'views')).filter(f => /\.js$/.test(f)).map(f => ['views/' + f, path.join(UI, 'views', f)]))
+    .concat(fs.readdirSync(CORE).filter(f => /\.js$/.test(f)).map(f => ['core/' + f, path.join(CORE, f)]));
+  sources.forEach(([name, p]) => {
+    plainLookups(fs.readFileSync(p, 'utf8')).forEach(x => { const k = name + '|' + x.name + '|' + x.key; (seen[k] = seen[k] || []).push(x.line); });
   });
   Object.keys(seen).forEach(k => {
     if (!LOOKUPS_OK[k]) fails.push(k.split('|')[0] + ':' + seen[k].join(',') + ' reads ' + k.split('|')[1] + '[' + k.split('|')[2] + '] on a plain object');
@@ -268,7 +452,11 @@ async function protoPlanned() {
     assert.deepStrictEqual(mine.map(c => c.id || null), ['card-' + id, null], 'the first copy of ' + id + ' has the card\'s id, and only it');
   });
   const a = app.doc.activeElement;
-  assert.ok(a && a.dataset && a.dataset.act === 'review-plan' && un(a.dataset.key) === all[50]['data-key'], 'focus on the first card Show more added: ' + JSON.stringify(a && a.dataset));
+  const onIt = () => { const n = app.doc.activeElement; return n && n.dataset && n.dataset.act === 'review-plan' && un(n.dataset.key) === all[50]['data-key']; };
+  assert.ok(onIt(), 'focus on the first card Show more added: ' + JSON.stringify(a && a.dataset));
+  /* A redraw (any read may bring one) keeps it there: the card, not the first with its id. */
+  app.setNarrow(true); app.setNarrow(false); await app.tick(5);
+  assert.ok(onIt(), 'and it stays there through a redraw: ' + JSON.stringify(app.doc.activeElement && app.doc.activeElement.dataset));
 }
 /* A step's notes: two of each, across the thread's Show earlier boundary; each is drawn once, by its own key, with its own text. */
 async function protoNotes() {
@@ -295,8 +483,7 @@ async function protoNotes() {
   want.forEach((k, i) => { const li = app.html().slice(app.html().indexOf('id="tn-s0-' + k + '"')); assert.ok(li.slice(0, li.indexOf('</li>')).indexOf('Note ' + PROTO[i >> 1] + ' copy ' + (i % 2 + 1)) >= 0, k + ' shows its own text'); });
 }
 /* Checklists: one in a group of each name, one with the id constructor, across the page boundary; each drawn once, in its own group.
-   (A run id can be constructor or toString too, but a running run with one stops the app as it reads the folder, as in 2.10.0;
-   that is outside this release's changes, so runs aren't used here.) */
+   (A run id can be constructor or toString too: test/patch-2111.test.js.) */
 async function protoChecklists() {
   const md = (id, g) => '---\nprocess: ' + id + '\ntitle: Checklist in ' + g + '\ncategory: Synthetic\ngroup: ' + g + '\nowner: person-avery\nroles: lead\n---\n\n## Phase 1 · READ-DO {#ph1}\n- [ ] {confirm} Do it @lead {#s1}\n';
   const ids = PROTO.map((g, i) => i ? 'proto-' + i : 'constructor');

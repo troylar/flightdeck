@@ -89,7 +89,7 @@ PF.run = (function () {
   /* A copy of a run with its test and stage fields moved last, the frozen order (anything added after them moves before). */
   function testLast(o) {
     if (!o || typeof o !== 'object' || !own(o, 'test')) return o;
-    var c = {}; Object.keys(o).forEach(function (k) { if (k !== 'test' && k !== 'stage') c[k] = o[k]; });
+    var c = Object.create(null); Object.keys(o).forEach(function (k) { if (k !== 'test' && k !== 'stage') c[k] = o[k]; });
     c.test = o.test; if (own(o, 'stage')) c.stage = o.stage;
     return c;
   }
@@ -241,7 +241,7 @@ PF.run = (function () {
     stats: function () { return { parses: memoStats.parses, size: Object.keys(memo).length }; }
   };
   function jiraFor(map, workflows) {
-    var out = {};
+    var out = Object.create(null);
     if (!workflows) return out;
     /* Every workflow, not just the ones the map names: an issue type or status can be filled in during the run. */
     if (M.steps(map).some(function (x) { return x.step.type === 'jira.issue'; })) Object.keys(workflows).forEach(function (k) { out[k] = workflows[k]; });
@@ -482,13 +482,13 @@ PF.run = (function () {
 
   /* A run is solo when nobody but the recorder is assigned to it: a developer or product owner working through a checklist alone. */
   function solo(r) {
-    var who = {}; if (r.recorder.person) who[r.recorder.person] = 1;
+    var who = Object.create(null); if (r.recorder.person) who[r.recorder.person] = 1;
     Object.keys(r.roles).forEach(function (k) { if (r.roles[k]) who[r.roles[k]] = 1; });
     return Object.keys(who).length <= 1;
   }
   /* A box's text with the run's details in place. names (2.7): the run details of the checklist being shown; a ^word that isn't
      one of them (grep ^ERROR) stays as written. Without names, every ^word is a detail, as before 2.7. */
-  function fill(text, details, names) { return String(text || '').replace(/\^([\w-]+)/g, function (all, f) { return names && names.indexOf(f) < 0 ? all : details[f] || ('(' + f + ' not set)'); }); }
+  function fill(text, details, names) { return String(text || '').replace(/\^([\w-]+)/g, function (all, f) { return names && names.indexOf(f) < 0 ? all : (own(details, f) && details[f]) || ('(' + f + ' not set)'); }); }
 
   /* ---------- Changing state (the recorder's window only) ---------- */
   /* Why a step can't be answered now (how: 'done', 'na' or 'open'), or ''. The general refusals only: child runs, evidence
@@ -538,7 +538,9 @@ PF.run = (function () {
     var ed = type ? PF.types.editable(type) : [], f = fieldsOf(r, step);
     return ed.some(function (k) { return !BASE_FIELDS[k] || (f[k] != null && String(f[k]).trim() !== ''); });
   }
-  function fieldsOf(r, step) { return Object.assign({}, step.fields, (r.fields || {})[step.id] || {}); }
+  function fieldsOf(r, step) { return Object.assign({}, step.fields, fieldsAt(r, step.id) || {}); }
+  /* The fields a run changed on a step, its own only: a hand-edited run's step can be named like constructor. */
+  function fieldsAt(r, id) { return own(r.fields, id) ? r.fields[id] : null; }
   /* The step as this run has it: its fields with what Fill in changed (carry: can change; pass: can't). */
   function effStep(r, step) { return Object.assign({}, step, { fields: fieldsOf(r, step) }); }
   /* Evidence the map requires (require: build) is checked here, so a step can't be done without it. Values noted earlier count,
@@ -681,7 +683,7 @@ PF.run = (function () {
      changed in words) or { error, field }. Checked on the merged fields: the Jira workflow, and with o.keep ({ values, map })
      the evidence a checked answer must keep. setFields and practice (docs/design.md section 34) both use it. */
   function checkFill(r, step, fields, o) {
-    var t = PF.types.get(step.type, r.types), allowed = PF.types.editable(t), own = Object.assign({}, (r.fields || {})[step.id] || {}), changed = [], keys = Object.keys(fields || {});
+    var t = PF.types.get(step.type, r.types), allowed = PF.types.editable(t), own = Object.assign({}, fieldsAt(r, step.id) || {}), changed = [], keys = Object.keys(fields || {});
     function shown(v) { return v ? '"' + String(v).slice(0, 60) + '"' : 'empty'; }
     for (var i = 0; i < keys.length; i++) {
       var f = keys[i];
@@ -872,14 +874,14 @@ PF.run = (function () {
       if (word(a) !== word(b)) out.push(name + ': ' + word(a) + ' here, ' + word(b) + ' in the copy' + (b && b.by ? ' (' + nameOf(b.by) + ')' : ''));
       else if (a && b) { pair(name + ' answered by', a.by && nameOf(a.by), b.by && nameOf(b.by)); pair(name + ' answered at', a.at, b.at); pair(name + ' reason', a.reason, b.reason); }
       var t = T.get(x.step.type, cur.types), av = (a && a.values) || {}, bv = (b && b.values) || {};
-      evidenceFor(cur, x.step, Object.assign({}, x.step.fields, (cur.fields || {})[x.step.id], (other.fields || {})[x.step.id])).list.forEach(function (d) { pair(name + ' ' + d.label, av[d.name], bv[d.name]); });
+      evidenceFor(cur, x.step, Object.assign({}, x.step.fields, fieldsAt(cur, x.step.id), fieldsAt(other, x.step.id))).list.forEach(function (d) { pair(name + ' ' + d.label, av[d.name], bv[d.name]); });
       if (vals(av) !== vals(bv) && !evidenceFor(cur, x.step, x.step.fields).list.length) pair(name + ' evidence', vals(av), vals(bv));
       pair(name + ' done differently', a && a.differently && a.differently.note, b && b.differently && b.differently.note);
       var ah = JSON.stringify((a && a.history) || []), bh = JSON.stringify((b && b.history) || []);
       if (ah !== bh) out.push(name + ': earlier answers differ (' + ((a && a.history) || []).length + ' here, ' + ((b && b.history) || []).length + ' in the copy)');
       pair(name + ' deadline', a && a.deadline && a.deadline.at, b && b.deadline && b.deadline.at);
       pair(name + ' started', a && a.started && a.started.at, b && b.started && b.started.at);
-      var af = (cur.fields || {})[x.step.id] || {}, bf = (other.fields || {})[x.step.id] || {};
+      var af = fieldsAt(cur, x.step.id) || {}, bf = fieldsAt(other, x.step.id) || {};
       Object.keys(Object.assign({}, af, bf)).forEach(function (f) { var d = T.fieldDef(t, f); pair(name + ' ' + (d ? d.label : f), af[f], bf[f]); });
     });
     map.phases.forEach(function (p) {
@@ -922,7 +924,7 @@ PF.run = (function () {
        steps it pins, this version's stay for the rest, so a kept copy never lets a linked step fall back to the latest. */
     var cpins = copy.pins && copy.pins.children;
     if (cur.format === FORMAT3 && cpins && Object.keys(cpins).length) {
-      var kids = {}, mine = cur.pins && cur.pins.children || {};
+      var kids = Object.create(null), mine = cur.pins && cur.pins.children || {};
       Object.keys(mine).forEach(function (k) { kids[k] = mine[k]; });
       Object.keys(cpins).forEach(function (k) { kids[k] = JSON.parse(JSON.stringify(cpins[k])); });
       cur.pins = { children: kids };
@@ -1119,7 +1121,7 @@ PF.run = (function () {
   }
   function childCurrent(r, step, a) {
     if (!a || !a.child) return false;
-    var f = fieldsOf(r, step), own = String(f.sets || '').split(',').map(function (k) { return k.trim(); }), was = {}, now = childInputs(r, step, a.child.inputs);
+    var f = fieldsOf(r, step), own = String(f.sets || '').split(',').map(function (k) { return k.trim(); }), was = Object.create(null), now = childInputs(r, step, a.child.inputs);
     Object.keys(a.child.inputs || {}).forEach(function (k) { if (own.indexOf(k) < 0) was[k] = a.child.inputs[k]; });
     /* A different process, or carry: naming a detail the child wasn't started with, means it's not the run this step asks for. */
     if ((f.process || '') !== a.child.process) return false;
@@ -1777,7 +1779,7 @@ PF.run = (function () {
        marks are complete, so readiness won't call it clean on partial information. */
     var markKeys = o.marks && typeof o.marks === 'object' ? Object.keys(o.marks) : [];
     if (o.marksFrom === 'start' && markKeys.length <= 5000) r.marksFrom = 'start';
-    if (o.marks && typeof o.marks === 'object') markKeys.slice(0, 5000).forEach(function (k) { if (/^[\w-]{1,120}$/.test(k) && Array.isArray(o.marks[k])) { var v = o.marks[k].filter(function (x) { return x === 'blocked' || x === 'recheck' || x === 'na' || x === 'differently'; }); if (v.length) (r.marks = r.marks || {})[k] = v; } });
+    if (o.marks && typeof o.marks === 'object') markKeys.slice(0, 5000).forEach(function (k) { if (k !== '__proto__' && /^[\w-]{1,120}$/.test(k) && Array.isArray(o.marks[k])) { var v = o.marks[k].filter(function (x) { return x === 'blocked' || x === 'recheck' || x === 'na' || x === 'differently'; }); if (v.length) (r.marks = r.marks || {})[k] = v; } });
     if (o.paused && isoOrNull(o.paused.at) && r.state === 'running') r.paused = { by: str(o.paused.by, 80), at: o.paused.at, reason: str(o.paused.reason, 120) || 'Paused' };
     if (o.parent && typeof o.parent === 'object' && /^[a-z0-9][a-z0-9-]*$/.test(String(o.parent.process)) && /^[a-z0-9-]{1,40}$/i.test(String(o.parent.id))) { r.parent = { process: o.parent.process, id: o.parent.id, step: str(o.parent.step, 60) }; if (o.parent.inputs && typeof o.parent.inputs === 'object') r.parent.inputs = inputsOf(o.parent.inputs); if (three && folderOk(o.parent.folder)) r.parent.folder = o.parent.folder; }
     var ho = o.recorder.handoff;
@@ -1791,7 +1793,8 @@ PF.run = (function () {
     Object.keys(o.roles || {}).forEach(function (k) { r.roles[k] = str(o.roles[k], 80); });
     Object.keys(o.steps).forEach(function (k) {
       var a = o.steps[k];
-      if (!a || !STEP_STATES[a.s]) return;
+      /* Written to a plain object, this one key would set its prototype. No step can have it as an id. */
+      if (!a || !STEP_STATES[a.s] || k === '__proto__') return;
       var c = { s: a.s, by: str(a.by, 80), at: isoOrNull(a.at), reason: str(a.reason, 120) || undefined, started: stamp(a.started) };
       if (a.deadline && isoOrNull(a.deadline.at)) c.deadline = { at: a.deadline.at, by: str(a.deadline.by, 80), set: isoOrNull(a.deadline.set) };
       if (a.differently && typeof a.differently === 'object') c.differently = { note: str(a.differently.note, 500), by: str(a.differently.by, 80), at: isoOrNull(a.differently.at) };
@@ -1803,7 +1806,7 @@ PF.run = (function () {
     });
     Object.keys(o.gates).forEach(function (k) {
       var g = o.gates[k];
-      if (!g || !GATE_STATES[g.s]) return;
+      if (!g || !GATE_STATES[g.s] || k === '__proto__') return;
       var c = { s: g.s, by: str(g.by, 80), at: isoOrNull(g.at), reason: str(g.reason, 200) || undefined, was: GATE_STATES[g.was] ? g.was : undefined, approved: {} };
       Object.keys(g.approved || {}).forEach(function (f) { c.approved[f] = str(g.approved[f], 120); });
       r.gates[k] = c;

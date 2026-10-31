@@ -1,5 +1,98 @@
 [
   {
+    "version": "2.11.1",
+    "date": "2026-10-31",
+    "headline": "Odd names in a folder, and notes that share an ID",
+    "changes": [
+      {
+        "kind": "fixed",
+        "area": "Everywhere",
+        "title": "A folder with a run named like constructor opens",
+        "now": "A running run whose ID is a word like constructor or toString reads with the rest of the folder, and saves like any other.",
+        "before": "One such run stopped the whole folder from opening.",
+        "where": "Opening a team folder"
+      },
+      {
+        "kind": "fixed",
+        "area": "Everywhere",
+        "title": "Checklists and people named like constructor are themselves",
+        "now": "A checklist named constructor offers On my own or With others as any other does, and a person with an ID like that is shown by it. A run someone edited by hand to give a step, phase, role or detail such a name opens read-only and says why.",
+        "where": "Starting a run, and names on a run"
+      },
+      {
+        "kind": "fixed",
+        "area": "Runs",
+        "title": "A note's screenshot or file opens that note's",
+        "now": "When two notes share an ID, each thumbnail and each file button opens its own note's image or file.",
+        "before": "With a screenshot only on the second note, its thumbnail did nothing. With a screenshot on both, the second opened the first note's image.",
+        "where": "A step's notes and corrections, Finish, the receipt, and a checklist's Corrections"
+      },
+      {
+        "kind": "fixed",
+        "area": "Runs",
+        "title": "A correction shows its own status and its own Withdraw",
+        "now": "When two corrections on a step share an ID, each row shows where it stands, and Withdraw takes back that one.",
+        "before": "Both rows showed one correction's status, and Withdraw on either took back that one.",
+        "where": "A run's step and Finish"
+      },
+      {
+        "kind": "fixed",
+        "area": "Editor",
+        "title": "Other ID… in a linked step is only Other ID…",
+        "now": "A draft whose process is __other isn't listed beside Other ID…, which has that value. Type its ID under Other ID… to link it.",
+        "before": "Choosing that draft opened Other ID… instead of linking it.",
+        "where": "A linked step's Which process"
+      },
+      {
+        "kind": "fixed",
+        "area": "Runs",
+        "title": "Closing a zoomed image goes back to its own thumbnail",
+        "now": "Closing a screenshot puts you back on the thumbnail of the note you opened it from, even if the notes moved while it was open, and brings that note back onto the list if a newer read pushed it off. If the note is gone, or can no longer be told from a copy, you land on the list's heading.",
+        "before": "With two notes sharing an ID, closing could put you on the other note's thumbnail.",
+        "where": "A step's notes and corrections, Finish, the receipt, and a checklist's Corrections"
+      },
+      {
+        "kind": "fixed",
+        "area": "Runs",
+        "title": "A Jira workflow named __proto__ keeps its required fields",
+        "now": "An issue type called __proto__ in jira/workflows.json is read like any other, so a run started from it asks for that workflow's required fields.",
+        "before": "That workflow was silently dropped, so a transition could be recorded without what it requires.",
+        "where": "Jira steps"
+      },
+      {
+        "kind": "fixed",
+        "area": "Runs",
+        "title": "Rotation and team runs count every name",
+        "now": "A person with the ID constructor who has never done the role gets the same place in rotation as anyone else who hasn't, and a run with a second person named __proto__ counts as a team run.",
+        "before": "Rotation pushed that person to the back of the line, and that run was treated as one person working alone.",
+        "where": "Starting a run, and a run's mode"
+      },
+      {
+        "kind": "fixed",
+        "area": "Everywhere",
+        "title": "Other names from a folder are read as they are",
+        "now": "Details, roles, fields, step types and drafts with a name like constructor no longer pick up something the app didn't write. A draft step or custom step type with such a name is refused and told why.",
+        "where": "Drafts, practice, step types, corrections, reports and publishing"
+      },
+      {
+        "kind": "fixed",
+        "area": "Runs",
+        "title": "A hand-edited step type can't lose what you enter",
+        "now": "A version whose step type was edited by hand to name evidence, a field or a condition with a word like __proto__ or constructor says it can't be run here, and so does the assistants' folder checker. Practice says the same of a draft's role or run detail with such a name.",
+        "before": "That version looked fine, and evidence entered under __proto__ disappeared when the step was saved.",
+        "where": "Publishing, runs on such a version, and Practice"
+      },
+      {
+        "kind": "fixed",
+        "area": "Everywhere",
+        "title": "Opening another folder closes what was open",
+        "now": "If a screenshot or another dialog is still open when a folder you picked finishes opening, it closes and you land on the new folder's heading. A dialog with something typed in it stays open instead, the folder doesn't open, and you're asked to finish or cancel first.",
+        "before": "The screenshot stayed open over the new folder, and could show the new folder's file under the old caption.",
+        "where": "Switching team folders"
+      }
+    ]
+  },
+  {
     "version": "2.11.0",
     "date": "2026-10-28",
     "headline": "Find things in big folders",

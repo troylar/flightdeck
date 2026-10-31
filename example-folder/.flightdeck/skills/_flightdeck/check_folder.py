@@ -410,7 +410,7 @@ def parse_map(md):
     lines = md.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     errors, steps, phases = [], [], []
     i, phase, step, gate, track, questions = 0, None, None, None, None, False
-    context, ctx_line = "", -1
+    context, ctx_line, roles = "", -1, ""
 
     def err(n, msg):
         errors.append({"line": n + 1, "msg": msg})
@@ -423,6 +423,8 @@ def parse_map(md):
                 err(i, "Front matter line isn't \"key: value\".")
             elif kv and kv.group(1) == "context":
                 context, ctx_line = js_trim(kv.group(2)), i
+            elif kv and kv.group(1) == "roles":
+                roles = kv.group(2)
             i += 1
         i += 1
     names, typed, ctx_errors = detail_types([js_trim(x) for x in context.split(",") if js_trim(x)])
@@ -445,7 +447,7 @@ def parse_map(md):
         m = re.match(r"^##\s+(.+?)\s*$", line)
         if m:
             step, gate, track = None, None, None
-            head = take_id(m.group(1))[1]
+            head_id, head = take_id(m.group(1))
             if re.match(r"^questions(?![A-Za-z0-9_])", head, re.I):
                 questions, phase = True, None
             else:
@@ -459,11 +461,11 @@ def parse_map(md):
                         for part in re.split(r"\s+·\s+", g.group(1))[1:]:
                             if not re.match(r"^owner\s+@(%s|-)+$" % W, part.strip(), re.I):
                                 err(i, "Gate option not understood: \"%s\"." % part)
-                        gate = {"kind": "gate", "note": "", "shots": []}
+                        gate = {"id": head_id, "kind": "gate", "note": "", "shots": []}
                         phase["gate"] = gate
                 else:
                     pm = re.match(r"^(.*?)\s+·\s+(READ-DO|DO-CONFIRM)$", head)
-                    phase = {"title": (pm.group(1) if pm else head).strip(), "gate": None, "note": "", "shots": [], "noted": False}
+                    phase = {"id": head_id, "title": (pm.group(1) if pm else head).strip(), "gate": None, "note": "", "shots": [], "noted": False}
                     phases.append(phase)
             i += 1
             continue
@@ -543,7 +545,7 @@ def parse_map(md):
                 if w["name"] in later:
                     err(w["line"] - 1, "^%s is set in this phase or a later one (sets:), so it can't decide whether this applies. Only a step in an earlier phase can set it." % w["name"])
     errors.sort(key=lambda e: e["line"])
-    return {"errors": errors, "steps": steps, "questions": questions, "phases": phases, "context": names, "detailTypes": typed}
+    return {"errors": errors, "steps": steps, "questions": questions, "phases": phases, "context": names, "detailTypes": typed, "roles": js_list(roles)}
 
 
 NEW_KINDS = {"number", "yes-no", "date"}
@@ -777,6 +779,15 @@ KNOWN_KINDS = {"text", "url", "code", "message", "list", "choice", "duration", "
 RECORD_KINDS = {"text", "url", "choice", "number", "yes-no", "date"}
 
 
+def inherited(n):
+    """A name every JavaScript object already has, or one that isn't text: the app's own reads would see what's inherited."""
+    return n in JS_PROTO if isinstance(n, str) else n is not None
+
+
+def cond_ok(c):
+    return not isinstance(c, dict) or not any(inherited(k) for k in c)
+
+
 def understood(d):
     """The app's PF.types.understood: a frozen step type uses only the type version, properties and kinds this copy knows."""
     if not isinstance(d, dict) or not set(d) <= TYPE_KEYS:
@@ -787,11 +798,13 @@ def understood(d):
         return False
     fields = d.get("fields")
     if fields is not None and (not isinstance(fields, dict) or not all(
-            isinstance(f, dict) and set(f) <= FIELD_KEYS and isinstance(f.get("kind"), str) and f.get("kind") in KNOWN_KINDS for f in fields.values())):
+            not inherited(n) and isinstance(f, dict) and set(f) <= FIELD_KEYS and isinstance(f.get("kind"), str) and f.get("kind") in KNOWN_KINDS
+            and cond_ok(f.get("requiredWhen")) and cond_ok(f.get("requiredUnless")) for n, f in fields.items())):
         return False
     record = d.get("record")
     if record is not None and (not isinstance(record, list) or not all(
             isinstance(r, dict) and set(r) <= RECORD_KEYS and isinstance(r.get("kind"), str) and r.get("kind") in RECORD_KINDS
+            and not inherited(r.get("name")) and not inherited(r.get("optionsFrom")) and cond_ok(r.get("when"))
             and (not any(k in r for k in NUMBER_KEYS) or (r.get("kind") == "number" and number_def_ok(r))) for r in record)):
         return False
     if uses2(record) and not (isinstance(v, (int, float)) and not isinstance(v, bool) and v == 3):
@@ -807,6 +820,12 @@ def unrunnable(md, types):
         return "%s Line %d: %s" % (NEWER, e["line"], e["msg"])
     if parsed["questions"]:
         return "It has a \"Questions\" section, so steps after it would be skipped. Publish it again without one."
+    taken = parsed["roles"] + parsed["context"]
+    for p in parsed["phases"]:
+        taken += [p["id"]] + ([p["gate"]["id"]] if p["gate"] else [])
+    taken = [n for n in taken + [s["id"] for s in parsed["steps"]] if n in JS_PROTO]
+    if taken:
+        return "It uses the name \"%s\" for a step, phase, gate, role or run detail, and Flightdeck keeps that name for itself. Publish the checklist again with another one." % taken[0]
     for s in parsed["steps"]:
         label = "Step \"%s\"" % s["text"][:40]
         if not s["type"]:

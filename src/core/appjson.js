@@ -139,7 +139,7 @@ PF.appjson = (function () {
      toString) as empty, so a value in the wrong shape can never throw or show up as code. */
   function s(v) { return typeof v === 'string' ? v : typeof v === 'number' || typeof v === 'boolean' ? String(v) : ''; }
   function orNull(v) { var t = s(v); return t === '' ? null : t; }
-  function strMap(o) { var c = {}; Object.keys(o || {}).forEach(function (k) { c[k] = s(o[k]); }); return c; }
+  function strMap(o) { var c = Object.create(null); Object.keys(o || {}).forEach(function (k) { c[k] = s(o[k]); }); return c; }
   function list(v) { return String(v || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean); }
   function timing(f) { f = f || {}; return { at: orNull(f.at), due: orNull(f.due), after: orNull(f.after) }; }
   function evidence(listIn) {
@@ -209,7 +209,7 @@ PF.appjson = (function () {
     if (!pub.ok) return out;
     var mp = pub.map, types = pub.types || {};
     out.context = mp.meta.context.map(s); out.roles = mp.meta.roles.map(s);
-    var used = {};
+    var used = Object.create(null);
     M.steps(mp).forEach(function (x) { if (x.step.type) used[x.step.type] = true; });
     out.types = Object.keys(used).sort().map(function (id) { var t = T.get(id, types); return { id: id, label: s(t && t.label || id) }; });
     out.phases = mp.phases.map(function (ph) {
@@ -328,7 +328,7 @@ PF.appjson = (function () {
     var open = !!mig && R.isOpenMigration(mig), ok = !def || t === '' || V.valid(def, t);
     return { type: typeOf(def), text: t, value: open || !ok || t === '' ? null : def ? V.json(def, t) : t, valid: ok, migration: mig ? migration(mig, nameOf) : null };
   }
-  function details2(r, mp, nameOf) { var o = {}; Object.keys(r.details || {}).forEach(function (k) { o[k] = value(r, mp, 'details.' + k, r.details[k], nameOf); }); return o; }
+  function details2(r, mp, nameOf) { var o = Object.create(null); Object.keys(r.details || {}).forEach(function (k) { o[k] = value(r, mp, 'details.' + k, r.details[k], nameOf); }); return o; }
   function head2(r, out) { out.format = s(r.format); out.features = Array.isArray(r.features) ? r.features.map(s) : []; return out; }
   function summary2(r, nameOf) { var out = summary(r, nameOf); out.details = details2(r, R.mapOf(r), nameOf); head2(r, out); out.test = R.isTest(r); out.stage = r.test === true && r.stage ? { folder: s(r.stage.folder) } : null; return out; }
   function followUps2(items, nameOf) { return { followUps: (items || []).map(function (x) { var o = followUp(x, nameOf); o.test = !!x.test; return o; }) }; }
@@ -385,7 +385,7 @@ PF.appjson = (function () {
     out.followUps.forEach(function (f) { f.test = R.isTest(r); });
     out.migrations = (r._archivedMigrations || []).concat(Array.isArray(r.migrations) ? r.migrations : []).map(function (m) { return migration(m, nameOf); });
     out.steps.forEach(function (st) {
-      var x = M.findStep(mp, st.id), a = r.steps[st.id] || null, vals = {};
+      var x = M.findStep(mp, st.id), a = r.steps[st.id] || null, vals = Object.create(null);
       Object.keys((a && a.values) || {}).forEach(function (k) { vals[k] = value(r, mp, 'steps.' + st.id + '.values.' + k, a.values[k], nameOf); });
       st.values = vals; st.evidence = evidence2(x ? R.evidenceFor(r, x.step).list : []);
       var ap = x ? R.applies(r, mp, x.phaseIndex, x.step) : { applies: true };

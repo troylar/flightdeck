@@ -358,7 +358,7 @@ PF.insights = (function () {
     if (failed.runs) res.notes.push('The runs folder couldn\'t be read on the last check; these numbers come from the last read.');
 
     /* Runs, by state and outcome. */
-    var outcomes = {}, runningKeys = [];
+    var outcomes = Object.create(null), runningKeys = [];
     base.forEach(function (r) { var s = stateOf(r); if (s === 'running') runningKeys.push(keyOf(r)); else (outcomes[s] = outcomes[s] || []).push(keyOf(r)); });
     var rq = qual('run', base.map(keyOf), runEx);
     res.excluded = rq.excluded;

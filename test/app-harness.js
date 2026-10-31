@@ -32,7 +32,8 @@ function boot(opts) {
   /* opts.html: another build of the app (an older release, for the cross-version tests); this build by default. */
   const html = opts.html || fs.readFileSync(path.join(__dirname, '..', 'dist', 'flightdeck.html'), 'utf8');
   const script = id => new RegExp('<script id="' + id + '">([\\s\\S]*?)</script>').exec(html)[1];
-  const intervals = [];
+  const intervals = [], downloads = [];
+  let lastBlob = null;
   // Tests start past the first-run welcome unless they ask for it (firstRun).
   const els = {}, listeners = {}, winListeners = {}, store = Object.assign(opts.firstRun ? {} : { 'preflight:look-around': 'true' }, opts.localStore || {}), inputs = new Set();
   /* opts.replace: a redraw makes typed boxes anew, as setting innerHTML does: focus leaves them and the caret goes to the start,
@@ -178,8 +179,8 @@ function boot(opts) {
   const refuse = k => { if (opts.storageThrows === true || (opts.storageThrows && opts.storageThrows.test(k))) throw Object.assign(new Error('The operation is insecure.'), { name: 'SecurityError' }); };
   const storage = () => ({ getItem: k => (refuse(k), k in store ? store[k] : null), setItem: (k, v) => { refuse(k); store[k] = String(v); }, removeItem: k => { refuse(k); delete store[k]; } });
   const document = {
-    hidden: false, title: '', body: element('body'), activeElement: null,
-    getElementById: id => els[id] || (opts.domFocus ? drawnAnywhere('#' + id) : null), querySelector: sel => (opts.domFocus ? drawnAnywhere(sel) : null), querySelectorAll: () => [], createElement: () => element('x'),
+    hidden: false, title: '', body: Object.assign(element('body'), { appendChild() {} }), activeElement: null,
+    getElementById: id => els[id] || (opts.domFocus ? drawnAnywhere('#' + id) : null), querySelector: sel => (opts.domFocus ? drawnAnywhere(sel) : null), querySelectorAll: () => [], createElement: () => Object.assign(element('x'), { click() { downloads.push({ name: this.download, blob: lastBlob }); }, remove() {} }),
     addEventListener: (t, fn) => { (listeners[t] = listeners[t] || []).push(fn); }, contains: () => false
   };
   document.activeElement = document.body;
@@ -258,10 +259,10 @@ function boot(opts) {
   }
   function splitTop(sel, ch) { const out = []; let depth = 0, q = false, cur = ''; for (const c of sel) { if (c === '"') q = !q; if (!q && c === '[') depth++; if (!q && c === ']') depth--; if (!q && !depth && (ch === ',' ? c === ',' : /\s/.test(c))) { if (cur.trim()) out.push(cur.trim()); cur = ''; continue; } cur += c; } if (cur.trim()) out.push(cur.trim()); return out; }
   function compound(c) {
-    const re = /^([a-zA-Z][\w-]*|\*)?((?:#[\w-]+|\.[\w-]+|\[[\w-]+(?:="(?:[^"\\]|\\.)*")?\])*)$/, m = re.exec(c);
+    const re = /^([a-zA-Z][\w-]*|\*)?((?:#[\w-]+|\.[\w-]+|\[[\w-]+(?:="(?:[^"\\]|\\.)*")?\]|:not\(\[[\w-]+\]\))*)$/, m = re.exec(c);
     if (!m) return null;
-    const parts = { tag: m[1] && m[1] !== '*' ? m[1].toLowerCase() : null, ids: [], classes: [], attrs: [] };
-    m[2].replace(/#([\w-]+)|\.([\w-]+)|\[([\w-]+)(?:="((?:[^"\\]|\\.)*)")?\]/g, (x, id, cl, k, v) => { if (id) parts.ids.push(id); else if (cl) parts.classes.push(cl); else parts.attrs.push([k, v == null ? null : v.replace(/\\([0-9a-fA-F]{1,6}) ?|\\([\s\S])/g, (e, hex, c) => hex ? String.fromCodePoint(parseInt(hex, 16)) : c)]); return x; });
+    const parts = { tag: m[1] && m[1] !== '*' ? m[1].toLowerCase() : null, ids: [], classes: [], attrs: [], nots: (m[2].match(/:not\(\[[\w-]+\]\)/g) || []).map(x => x.slice(6, -2)) };
+    m[2].replace(/:not\(\[[\w-]+\]\)/g, '').replace(/#([\w-]+)|\.([\w-]+)|\[([\w-]+)(?:="((?:[^"\\]|\\.)*)")?\]/g, (x, id, cl, k, v) => { if (id) parts.ids.push(id); else if (cl) parts.classes.push(cl); else parts.attrs.push([k, v == null ? null : v.replace(/\\([0-9a-fA-F]{1,6}) ?|\\([\s\S])/g, (e, hex, c) => hex ? String.fromCodePoint(parseInt(hex, 16)) : c)]); return x; });
     return parts;
   }
   function matchOne(n, p) {
@@ -270,6 +271,7 @@ function boot(opts) {
     if (p.ids.some(id => n._attrs.id !== id)) return false;
     const cls = (n._attrs.class || '').split(/\s+/);
     if (p.classes.some(c => cls.indexOf(c) < 0)) return false;
+    if (p.nots.some(k => k in n._attrs)) return false;
     return p.attrs.every(([k, v]) => k in n._attrs && (v == null || n._attrs[k] === v));
   }
   /* Screens are searched by the same few selectors thousands of times over, so each is read once. */
@@ -291,6 +293,7 @@ function boot(opts) {
     const ds = {}; Object.keys(attrs).forEach(k => { if (/^data-/.test(k)) ds[k.slice(5).replace(/-(\w)/g, (x, c) => c.toUpperCase())] = attrs[k]; });
     const n = {
       tagName: tag.toUpperCase(), id: attrs.id || '', dataset: ds, _attrs: attrs, _region: region, _src: html, _at: at, _parent: parent, parentElement: parent, nodeType: 1,
+      get attributes() { return Object.keys(attrs).map(name => ({ name, value: attrs[name] })); },
       getAttribute: k => (k in attrs ? attrs[k] : null), hasAttribute: k => k in attrs, setAttribute(k, v) { attrs[k] = String(v); }, removeAttribute(k) { delete attrs[k]; },
       classList: { contains: c => (attrs.class || '').split(/\s+/).indexOf(c) >= 0, add() {}, remove() {} },
       focus() { document.activeElement = n; }, scrollIntoView() {}, getClientRects: () => [1], select() {}, setSelectionRange() {},
@@ -322,6 +325,8 @@ function boot(opts) {
   if (opts.domFocus) {
     const own = r => el => !!el && el._region === r && el._src === r._html;
     ['top', 'overlay'].forEach(k => { const r = els[k]; r.querySelector = sel => drawn(r, sel); r.contains = own(r); });
+    /* A control found by its action: as on a page, from the screen or a dialog, so a redraw can tell two with one action apart. */
+    [appEl, els.top, els.overlay].forEach(r => { const was = r.querySelectorAll; r.querySelectorAll = sel => (/^\[data-act=/.test(sel) ? nodesOf(r).filter(x => matches(x, sel)) : was.call(r, sel)); });
   }
   // A folder the picker hands over (see folderHandle), for the screens that choose a real folder.
   // A function picks the folder at each choice, so a test can hand over another folder the next time.
@@ -333,7 +338,7 @@ function boot(opts) {
   const appClearTimeout = !opts.timers ? clearTimeout : id => { const i = timerQ.findIndex(t => t.id === id); if (i >= 0) timerQ.splice(i, 1); else clearTimeout(id); };
   const ctx = vm.createContext({
     window, document, history, location, localStorage: storage(), sessionStorage, navigator: Object.assign(opts.locks ? { locks: opts.locks } : {}, opts.navigator || {}), BroadcastChannel: opts.Channel, console, Date: opts.Date || Date, Math, JSON, Promise, Blob, fetch, btoa, Uint8Array,
-    setTimeout: appSetTimeout, clearTimeout: appClearTimeout, setInterval: fn => { intervals.push(fn); return 0; }, requestAnimationFrame: fn => setTimeout(fn, 0), URL: { createObjectURL: () => 'blob:x', revokeObjectURL() {} },
+    setTimeout: appSetTimeout, clearTimeout: appClearTimeout, setInterval: fn => { intervals.push(fn); return 0; }, requestAnimationFrame: fn => setTimeout(fn, 0), URL: { createObjectURL: b => { lastBlob = b; return 'blob:x'; }, revokeObjectURL() {} },
     crypto: globalThis.crypto, TextEncoder, indexedDB: opts.indexedDB, IntersectionObserver: opts.IntersectionObserver,
     // An elapsed-time clock the test moves (performance.now()); left out, the app falls back on Date.now().
     performance: opts.performance,
@@ -422,6 +427,8 @@ function boot(opts) {
     fire(type, props) { (listeners[type] || []).forEach(fn => fn(Object.assign({ preventDefault() {} }, props || {}))); },
     // An element stand-in by id, and the document, for tests that need focus or a dialog's controls.
     el: get, doc: document,
+    // What the app handed the browser to save: a link's file name and the bytes behind it.
+    downloads,
     // A control no longer drawn: the page no longer finds it (this stand-in otherwise keeps every node it ever made).
     gone(id) { delete els[id]; inputs.delete(id); },
     // Every typed box not drawn now is gone, as after a new folder's screen replaced the page.
@@ -437,7 +444,12 @@ function boot(opts) {
     click(act, id, data) {
       const btn = { dataset: Object.assign({ act, id }, data || {}), disabled: false, classList: { contains: () => false } };
       // As a real click does, the pressed control takes focus first (domFocus).
-      if (opts.domFocus) { const q = v => String(v).replace(/"/g, '\\"'), n = drawnAnywhere('[data-act="' + q(act) + '"]' + (id != null ? '[data-id="' + q(id) + '"]' : '')); if (n) document.activeElement = n; }
+      if (opts.domFocus) {
+        const q = v => String(v).replace(/[\\"]/g, '\\$&'), sel = '[data-act="' + q(act) + '"]' + (id != null ? '[data-id="' + q(id) + '"]' : '');
+        /* The one with what the test pressed drawn on it, when it says: two can share an action and an id. */
+        const n = (data && drawnAnywhere(sel + Object.keys(data).map(k => '[data-' + k.replace(/[A-Z]/g, c => '-' + c.toLowerCase()) + '="' + q(data[k]) + '"]').join(''))) || drawnAnywhere(sel);
+        if (n) document.activeElement = n;
+      }
       (listeners.click || []).forEach(fn => fn({ target: { closest: () => btn }, preventDefault() {} }));
     },
     // A key pressed on an element (a stand-in with dataset and closest), with modifier keys such as { altKey: true }.

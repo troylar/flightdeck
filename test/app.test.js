@@ -4101,12 +4101,13 @@ rule('App: notes take several files of the allowed kinds, saved under their own 
   // A text file opens as plain text: the dialog's markup never holds the file, the text goes in as textContent.
   const path = n.files[1];
   app.set('att-text', '');
-  app.click('att-open', n.id, { from: 'note', path }); await app.tick(40);
+  const held = /<button class="att" data-note="([^"]*)" data-act="att-open"/.exec(h)[1].replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+  app.click('att-open', n.id, { from: 'note', path, note: held }); await app.tick(40);
   assert.ok(/<pre class="tp-text" id="att-text" tabindex="0"><\/pre>/.test(app.overlay()) && !/<script>/.test(app.overlay()), 'nothing from the file in the markup');
   assert.strictEqual(app.text('att-text'), 'pods restarted 0\n<script>alert(1)</script>\n');
   app.click('close-overlay'); await app.tick();
   app.set('att-text', 'untouched');
-  app.click('att-open', n.id, { from: 'note', path: 'runs/release/other/files/secret.log' }); await app.tick(40);
+  app.click('att-open', n.id, { from: 'note', path: 'runs/release/other/files/secret.log', note: held }); await app.tick(40);
   assert.strictEqual(app.overlay(), '', 'only files of that note open');
 });
 

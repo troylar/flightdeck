@@ -43,7 +43,7 @@
   /* ---------- finishing a run ---------- */
   function finish(ctx) {
     var r = ctx.run(); if (!r) return V.run(ctx);
-    var s = ctx.state, map = R.mapOf(r), rec = ctx.recording(r), ok = R.allGatesOk(r, map), fus = r.followUps || [], cor = PF.corrections.forRun(r, map, { at: true }), idx = cor.length ? V.corrIndex(ctx, r.process) : {};
+    var s = ctx.state, map = R.mapOf(r), rec = ctx.recording(r), ok = R.allGatesOk(r, map), fus = r.followUps || [], cor = PF.corrections.forRun(r, map, { at: true }), idx = cor.length ? V.corrByNote(ctx, r.process) : {};
     var people = PF.people.sorted(ctx).filter(function (p) { return !p.inactive; });
     var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) + '</div><h1 id="page-h" tabindex="-1">Finish ' + esc(r.title) + '</h1></div><button class="btn" data-act="exit-mission">' + I('back') + 'Back to the run</button></div>';
     if (!rec) return h + '<div class="notice warn"><span>Only the recorder can finish the run.</span></div>';
@@ -58,7 +58,7 @@
       K.list(s, 'fin-corr:' + r.process + '/' + r.id, finItems, { hold: false, keep: heldCorr(s, r, finItems), keptLabel: 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: corrFocus, draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) {
         var c = x.c;
         var fu = '<button class="mini" data-act="add-followup" data-text="' + esc(('Update the checklist: ' + (c.stepText || c.step) + ' (' + (c.proposed || c.why || c.happened) + ')').slice(0, 300)) + '" data-step="' + esc(c.step) + '" data-from="' + esc(c.id) + '">Make it a follow-up</button>';
-        return V.corrRow(ctx, c, idx[c.id], { step: true, domId: x.dom, followUp: fus.some(function (f) { return f.from === c.id; }) ? '<span class="small">Follow-up added</span>' : fu });
+        return V.corrRow(ctx, c, V.corrOf(idx, r, c), { step: true, run: r, domId: x.dom, followUp: fus.some(function (f) { return f.from === c.id; }) ? '<span class="small">Follow-up added</span>' : fu });
       }).join('') + '</ul>'; } }) + '</section>';
     h += '<section class="panel stack"><h2>End the run</h2><div class="row">' + ['Completed', 'Stopped early', 'Cancelled'].map(function (o) {
       var allowed = o !== 'Completed' || ok;
@@ -124,7 +124,7 @@
     /* The page's rows are told apart when two share an id ({ at: true }); the copied text (receiptText) is as it always was. */
     var rcItems = cor.length ? V.corrItems(PF.corrections.forRun(r, map, { at: true })) : [];
     if (cor.length) body += '<div class="r-corr"><h4><span>Corrections · ' + cor.length + '</span></h4>' + K.list(st, 'rcpt-corr:' + rkey, rcItems, { hold: false, keep: heldCorr(st, r, rcItems), keptLabel: 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: corrFocus,
-      draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) { return V.corrRow(ctx, x.c, idx[x.c.id], { step: true, domId: x.dom }); }).join('') + '</ul>'; } }) + '</div>';
+      draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) { return V.corrRow(ctx, x.c, idx[x.c.id], { step: true, run: r, domId: x.dom }); }).join('') + '</ul>'; } }) + '</div>';
     return notices(ctx) + '<div class="runhead"><div><div class="eyebrow">Receipt · Copy it into your ticket, or take a screenshot</div><h1 id="page-h" tabindex="-1">' + esc(r.title) + '</h1></div><div class="row"><button class="btn primary" data-act="copy-receipt">' + I('copy') + 'Copy for Jira</button><button class="btn" data-act="exit-mission">' + I('back') + 'Back to the run</button><button class="btn" data-act="ev-open" data-id="' + esc(r.process + '/' + r.id) + '">' + I('doc') + 'Export evidence</button>' + V.planAgain(ctx, r) + '<span class="small" id="copy-msg" aria-live="polite"></span></div></div>' +
       '<div class="receipt"><div class="head"><div><div class="eyebrow">' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) + '</div><div class="rt">' + esc(r.title) + '</div>' + (det ? '<div class="small">' + esc(det) + '</div>' : '') + '</div><div style="text-align:right"><div class="pill ' + hl.s + '">' + esc(r.ended ? K.hlText(r, hl) : 'In progress') + '</div><div class="small">started ' + esc(U.when(r.created)) + '<br>run ' + esc(r.id) + '</div></div></div>' + body +
       '<div class="small">✓ done · N/A not applicable · ■ blocked · ↻ re-check · ○ not checked</div></div><pre id="receipt-text" hidden></pre>';

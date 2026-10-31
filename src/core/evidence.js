@@ -18,7 +18,7 @@ PF.evidence = (function () {
 
   /* ---------- dates: inclusive days in a time zone ---------- */
   function zoneOk(tz) { try { new Intl.DateTimeFormat('en-US', { timeZone: tz }).format(0); return true; } catch (e) { return false; } }
-  var fmts = {};
+  var fmts = Object.create(null);
   /* The date (YYYY-MM-DD) a clock in tz shows at instant t. */
   function localDay(t, tz) {
     var f = fmts[tz] || (fmts[tz] = new Intl.DateTimeFormat('en-US', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' })), p = {};

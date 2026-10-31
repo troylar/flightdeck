@@ -118,10 +118,10 @@
 
   /* A text attachment, shown as plain text: the app fills #att-text with textContent after drawing, so nothing in the file is
      ever read as markup. */
-  function textPreview(name, path, cut, bytes, owner, from) {
+  function textPreview(name, path, cut, bytes, owner, from, note) {
     return '<div class="overlay" data-act="close-overlay"><div class="tp-box" role="dialog" aria-modal="true" aria-labelledby="tp-t"><div class="tp-bar"><h2 id="tp-t">' + esc(name) + '</h2>' +
       '<span class="small">' + esc(PF.attach.size(bytes)) + (cut ? ' · showing the first ' + esc(PF.attach.size(PF.attach.PREVIEW_MAX)) : '') + '</span>' +
-      '<button class="mini" data-act="att-save" data-id="' + esc(owner) + '" data-from="' + esc(from || 'note') + '" data-path="' + esc(path) + '">Save a copy</button><button class="mini" data-act="close-overlay" id="tp-close">Close</button></div>' +
+      '<button class="mini" data-act="att-save" data-id="' + esc(owner) + '" data-from="' + esc(from || 'note') + '" data-path="' + esc(path) + '"' + (note ? ' data-note="' + esc(note) + '"' : '') + '>Save a copy</button><button class="mini" data-act="close-overlay" id="tp-close">Close</button></div>' +
       '<pre class="tp-text" id="att-text" tabindex="0"></pre></div></div>';
   }
 

@@ -37,7 +37,7 @@ rule('the token rule is fill()\'s: every ^word a run fills is a token, at the sa
   const corpus = ['^a', 'x^b-c y', '^^d', 'e^f_g!', '^', 'no refs', 'HEAD^ and ^1', '`^tag`', '^tag.^env', 'üñí^tag'];
   corpus.forEach(c => {
     const names = X.tokens(c).map(t => t.name), filled = [];
-    R.fill(c, new Proxy({}, { get: (o, k) => { filled.push(k); return 'V'; } }));
+    R.fill(c, new Proxy({}, { getOwnPropertyDescriptor: (o, k) => { filled.push(k); return { value: 'V', configurable: true, enumerable: true, writable: true }; }, get: () => 'V' }));
     same(names, filled, c);
     X.tokens(c).forEach(t => assert.strictEqual(c.slice(t.start, t.end), '^' + t.name, c));
   });

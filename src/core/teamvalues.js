@@ -85,7 +85,7 @@ PF.teamValues = (function () {
 
   /* The file's text for { values }, in a stable shape: names in order, each value then what it's for. */
   function text(doc) {
-    var values = {}, src = (doc && doc.values) || {};
+    var values = Object.create(null), src = (doc && doc.values) || {};
     Object.keys(src).sort().forEach(function (n) { var e = src[n]; values[n] = e.about ? { value: e.value, about: e.about } : { value: e.value }; });
     return JSON.stringify({ format: FORMAT, values: values }, null, 2) + '\n';
   }
