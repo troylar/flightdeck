@@ -95,6 +95,14 @@ PF.publish = (function () {
     var map = M.parse(md), e = map.errors[0], all = M.steps(map);
     if (e) return NEWER + ' Line ' + e.line + ': ' + e.msg;
     if (map.questions) return 'It has a "Questions" section, so steps after it would be skipped. Publish it again without one.';
+    /* A run keeps its answers, gates, roles and details in plain objects by these names, so one a plain object already has
+       (constructor) would read an inherited value as an answer and write onto it. Publishing refuses these; only a hand-edited
+       run gets here. */
+    var taken = [].concat(map.meta.roles || [], map.meta.context || []);
+    map.phases.forEach(function (p) { taken.push(p.id); if (p.gate) taken.push(p.gate.id); });
+    all.forEach(function (x) { taken.push(x.step.id); });
+    taken = taken.filter(function (n) { return n === '__proto__' || n in Object.prototype; })[0];
+    if (taken) return 'It uses the name "' + taken + '" for a step, phase, gate, role or run detail, and Flightdeck keeps that name for itself. Publish the checklist again with another one.';
     for (var i = 0; i < all.length; i++) {
       var s = all[i].step, label = 'Step "' + s.text.slice(0, 40) + '"', def = s.type ? T.get(s.type, types) : null;
       if (!s.type) return label + ' has no step type, so it can\'t be run. Publish the checklist again.';

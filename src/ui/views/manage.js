@@ -375,7 +375,7 @@
   }
   /* What's wrong with the form: the folder's own checks, plus two names the same (which a JSON object would silently merge). */
   function formErrors(d) {
-    var errs = [], seen = {};
+    var errs = [], seen = Object.create(null);
     d.fields.forEach(function (r) { var n = (r.name || '').trim(); if (!n) return; if (seen[n]) errs.push('field "' + n + '" is listed twice; give each field its own name'); seen[n] = 1; });
     /* A row with a label or options but no name would be dropped on save; say so instead. */
     var unnamed = function (r) { return !(r.name || '').trim() && ((r.label || '').trim() || (r.options || '').trim()); };

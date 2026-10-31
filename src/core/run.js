@@ -1791,7 +1791,8 @@ PF.run = (function () {
     Object.keys(o.roles || {}).forEach(function (k) { r.roles[k] = str(o.roles[k], 80); });
     Object.keys(o.steps).forEach(function (k) {
       var a = o.steps[k];
-      if (!a || !STEP_STATES[a.s]) return;
+      /* Written to a plain object, this one key would set its prototype. No step can have it as an id. */
+      if (!a || !STEP_STATES[a.s] || k === '__proto__') return;
       var c = { s: a.s, by: str(a.by, 80), at: isoOrNull(a.at), reason: str(a.reason, 120) || undefined, started: stamp(a.started) };
       if (a.deadline && isoOrNull(a.deadline.at)) c.deadline = { at: a.deadline.at, by: str(a.deadline.by, 80), set: isoOrNull(a.deadline.set) };
       if (a.differently && typeof a.differently === 'object') c.differently = { note: str(a.differently.note, 500), by: str(a.differently.by, 80), at: isoOrNull(a.differently.at) };
@@ -1803,7 +1804,7 @@ PF.run = (function () {
     });
     Object.keys(o.gates).forEach(function (k) {
       var g = o.gates[k];
-      if (!g || !GATE_STATES[g.s]) return;
+      if (!g || !GATE_STATES[g.s] || k === '__proto__') return;
       var c = { s: g.s, by: str(g.by, 80), at: isoOrNull(g.at), reason: str(g.reason, 200) || undefined, was: GATE_STATES[g.was] ? g.was : undefined, approved: {} };
       Object.keys(g.approved || {}).forEach(function (f) { c.approved[f] = str(g.approved[f], 120); });
       r.gates[k] = c;

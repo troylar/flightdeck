@@ -81,11 +81,17 @@
 
   var state = {
     view: 'home', fs: null, me: lsGet('me', ''), filter: lsGet('filter', 'mine'), processId: null, planId: null, runKey: null,
-    sel: null, refOpen: true, pick: null, edit: null, unfold: {}, diffOf: null, msg: null, justPassed: null,
-    pendingFiles: [], pendingStarts: Object.create(null), urls: {}, full: {}, needsReconnect: null, overlay: null, busy: false, unsaved: {}, saveErr: {},
+    sel: null, refOpen: true, pick: null, edit: null, unfold: Object.create(null), diffOf: null, msg: null, justPassed: null,
+    pendingFiles: [], pendingStarts: Object.create(null), urls: {}, full: {}, needsReconnect: null, overlay: null, busy: false,
     rel: { q: '', kind: '', area: '', sel: 0, detail: false }, newer: null,
-    folderErr: null, deviceName: lsGet('device-name', ''), keys: lsGet('keys', true), theme: lsGet('theme', 'system'), builder: lsGet('builder', true), insTabSaved: lsGet('insTab', ''), partsRail: lsGet('partsRail', false), renamed: lsGet('renamed-checklists', false), panes: panesKept(), fpSteps: fpStepsKept(), paneFit: {}, fieldErr: null, startMode: {}, startModeAt: {}, obMore: lsGet('obMore', false), obGroups: null, showRoles: false, lookAround: lsGet('look-around', !!lsGet('me', '')), copyView: null, archive: {}, stepDrafts: {}, partial: {}, answering: null
+    folderErr: null, deviceName: lsGet('device-name', ''), keys: lsGet('keys', true), theme: lsGet('theme', 'system'), builder: lsGet('builder', true), insTabSaved: lsGet('insTab', ''), partsRail: lsGet('partsRail', false), renamed: lsGet('renamed-checklists', false), panes: panesKept(), fpSteps: fpStepsKept(), paneFit: {}, fieldErr: null, startMode: Object.create(null), startModeAt: Object.create(null), obMore: lsGet('obMore', false), obGroups: null, showRoles: false, lookAround: lsGet('look-around', !!lsGet('me', '')), copyView: null, archive: {}, stepDrafts: {}, partial: {}, answering: null
   };
+  /* Keyed by run or checklist IDs from the folder, which can be names every plain object has (constructor): these never have a
+     prototype, whatever a folder switch sets them to. */
+  ['unsaved', 'saveErr', 'saveOpts', 'pendingSaves', 'insFolder'].forEach(function (k) {
+    var v = Object.create(null);
+    Object.defineProperty(state, k, { enumerable: true, get: function () { return v; }, set: function (x) { v = Object.setPrototypeOf(x, null); } });
+  });
   /* A step-type form belongs to its folder: switching folders and back finds it again, and another folder's form never
      replaces it. */
   var typeForms = {};
@@ -119,8 +125,8 @@
     /* Built once per draw (2.5.0), not once per name shown; the last row for an ID wins, as it always has here. */
     get peopleById() {
       var ps = data.people;
-      if (PF.perf.plain) { var all = {}; ps.forEach(function (p) { all[p.id] = p; }); return all; }
-      if (!pplBy || pplBy.list !== ps || pplBy.len !== ps.length) { var o = {}; ps.forEach(function (p) { o[p.id] = p; }); pplBy = { list: ps, len: ps.length, by: o }; }
+      if (PF.perf.plain) { var all = Object.create(null); ps.forEach(function (p) { all[p.id] = p; }); return all; }
+      if (!pplBy || pplBy.list !== ps || pplBy.len !== ps.length) { var o = Object.create(null); ps.forEach(function (p) { o[p.id] = p; }); pplBy = { list: ps, len: ps.length, by: o }; }
       return pplBy.by;
     },
     /* Everyone in name order (2.11), sorted once per draw for every picker on it; views filter it, never change it. */
@@ -628,9 +634,9 @@
      advances on every local edit and every time a newer copy from the folder is accepted, so a read that began before
      either can never install an older run over it. */
   var editCount = {};
-  function bump(id) { editCount[id] = (editCount[id] || 0) + 1; }
-  function edits(id) { return editCount[id] || 0; }
-  function revsNow() { return Object.assign({}, editCount); }
+  function bump(id) { editCount[id] = edits(id) + 1; }
+  function edits(id) { return Object.prototype.hasOwnProperty.call(editCount, id) ? editCount[id] : 0; }
+  function revsNow() { return Object.assign(Object.create(null), editCount); }
   function localRun(id) { for (var i = 0; i < data.runs.length; i++) if (data.runs[i].id === id) return data.runs[i]; return null; }
   function canReplace(id, before) {
     if (state.unsaved[id] || (state.pendingSaves || {})[id]) return false;
@@ -782,7 +788,7 @@
      Only a fresh read clears "couldn't be read" or "gone"; a cached one never changes a run's status. Nothing about a run
      (its contents, gone, unreadable) changes any other way, except the outcome of this window's own save, which is newer
      than any read (runOutcome). Returns the run object to show when the result replaced it, else null. */
-  var applied = {}, baselines = {}, staleCache = {};
+  var applied = {}, baselines = Object.create(null), staleCache = {};
   /* Runs whose latest read failed (unreadable, or gone), whatever is on screen: a run kept on screen for its unsaved work still
      isn't counted toward a sign-off while its file can't be read as it (2.0.1). */
   var notCounted = {};
@@ -2167,7 +2173,7 @@
   /* Resolves true once the change is in the team folder, false if it isn't. The save always goes to the folder the change was
      made in, even if someone switches folders while it's queued. */
   function save(r, opts) {
-    var fs = state.fs, g = gen, endBusy = busyStart(), rev = edits(r.id), pend = state.pendingSaves = state.pendingSaves || {};
+    var fs = state.fs, g = gen, endBusy = busyStart(), rev = edits(r.id), pend = state.pendingSaves;
     pend[r.id] = (pend[r.id] || 0) + 1;
     function settled() { endBusy(); if (g === gen) { pend[r.id]--; if (pend[r.id] <= 0) delete pend[r.id]; } }
     return queued(function () { return repo.saveRun(fs, r, SESSION, Object.assign({}, opts, { writer: WRITER, lock: LOCKS ? lock : null })); }).then(function (wrote) {
@@ -2215,7 +2221,7 @@
       if (e.missing) runOutcome(r.process + '/' + r.id, 'missing');
       else if (e.unreadable) runOutcome(r.process + '/' + r.id, 'unread', 'isn\'t a run this copy can read');
       /* The run object holding the newest change is what's shown and what Try again saves. */
-      state.unsaved[r.id] = r; state.saveErr[r.id] = e.message; (state.saveOpts = state.saveOpts || {})[r.id] = opts;
+      state.unsaved[r.id] = r; state.saveErr[r.id] = e.message; state.saveOpts[r.id] = opts;
       for (var i = 0; i < data.runs.length; i++) if (data.runs[i].id === r.id) data.runs[i] = r;
       render();
       return false;
@@ -4879,7 +4885,7 @@
   }
   function dropCorrDraft(f) { var all = state.corrDrafts || {}; Object.keys(all).forEach(function (k) { if (all[k] === f) delete all[k]; }); }
   /* How a run's screen is shown starts over; input was already kept by leaveContext (setView calls it). */
-  function resetRunUi() { leaveContext(); state.fieldsDraft = null; state.copyView = null; state.sel = null; state.pick = null; state.edit = null; state.unfold = {}; state.justPassed = null; state.msg = null; state.corrForm = null; state.repPick = null; }
+  function resetRunUi() { leaveContext(); state.fieldsDraft = null; state.copyView = null; state.sel = null; state.pick = null; state.edit = null; state.unfold = Object.create(null); state.justPassed = null; state.msg = null; state.corrForm = null; state.repPick = null; }
   function openRun(key) {
     if (key !== state.runKey) releaseUrls(state.urls);
     setView('run'); state.runKey = key; resetRunUi();
@@ -5478,7 +5484,7 @@
     'ins-back': function () {
       var f = state.runFilter, b = f && f.back; if (!b) return;
       if (!go({ view: 'process', process: b.process, ptab: 'insights' })) return;
-      state.runFilter = null; (state.insFolder = state.insFolder || {})[b.process] = b.folder;
+      state.runFilter = null; state.insFolder[b.process] = b.folder;
       if (b.list) { if (b.more) { state.more = Object.assign({}, state.more); state.more[b.list] = b.more; } ensureListItemVisible(b.list, b.key, { word: 'opened' }); }
       state.focus = b.focus || 'ins-h'; state.focusWins = true; render();
       if (b.list && b.focus && !app.querySelector(b.focus)) { state.focus = b.head || 'ins-h'; render(); }
@@ -7804,7 +7810,7 @@
       return;
     }
     if (e.target.id === 'rel-area') { state.rel.area = e.target.value; render(); }
-    if (e.target.id === 'ins-folder' && state.processId) { (state.insFolder = state.insFolder || {})[state.processId] = e.target.value; state.more = Object.assign({}, state.more, { 'ins-hot': 0, 'ins-dur': 0, 'ins-ph': 0, 'ins-rot': 0, 'ins-rolecols': 0, 'ins-notes': 0 }); render(); }
+    if (e.target.id === 'ins-folder' && state.processId) { state.insFolder[state.processId] = e.target.value; state.more = Object.assign({}, state.more, { 'ins-hot': 0, 'ins-dur': 0, 'ins-ph': 0, 'ins-rot': 0, 'ins-rolecols': 0, 'ins-notes': 0 }); render(); }
     if (/^rf-(process|folder|outcome|from|through)$/.test(e.target.id || '')) {
       var rf = state.runFilter && !state.runFilter.cohort ? Object.assign({}, state.runFilter) : {}, rk = e.target.id.slice(3);
       if (e.target.value) rf[rk] = String(e.target.value).slice(0, 120); else delete rf[rk];
@@ -7963,7 +7969,7 @@
     });
   }
   /* Every change of screen goes through here: what's typed on the run's selected step is kept first. */
-  function setView(v) { childEpoch++; if (v !== 'runs') state.justPlanned = null; if (state.view === 'start' && v !== 'start') { state.startModeAt = {}; state.roleCarry = null; } if (state.view === 'practice' && v !== 'practice') prLeave(); leaveContext(); state.view = v; }
+  function setView(v) { childEpoch++; if (v !== 'runs') state.justPlanned = null; if (state.view === 'start' && v !== 'start') { state.startModeAt = Object.create(null); state.roleCarry = null; } if (state.view === 'practice' && v !== 'practice') prLeave(); leaveContext(); state.view = v; }
   /* Leaving the practice page (any way: Edit, Back, a link): what's typed is kept, and where it was, for coming back. */
   function prLeave() {
     prHarvest(); var p = currentProcess(), e = p && prs[edKey(p.id)];
