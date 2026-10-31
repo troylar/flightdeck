@@ -259,10 +259,10 @@ function boot(opts) {
   }
   function splitTop(sel, ch) { const out = []; let depth = 0, q = false, cur = ''; for (const c of sel) { if (c === '"') q = !q; if (!q && c === '[') depth++; if (!q && c === ']') depth--; if (!q && !depth && (ch === ',' ? c === ',' : /\s/.test(c))) { if (cur.trim()) out.push(cur.trim()); cur = ''; continue; } cur += c; } if (cur.trim()) out.push(cur.trim()); return out; }
   function compound(c) {
-    const re = /^([a-zA-Z][\w-]*|\*)?((?:#[\w-]+|\.[\w-]+|\[[\w-]+(?:="(?:[^"\\]|\\.)*")?\])*)$/, m = re.exec(c);
+    const re = /^([a-zA-Z][\w-]*|\*)?((?:#[\w-]+|\.[\w-]+|\[[\w-]+(?:="(?:[^"\\]|\\.)*")?\]|:not\(\[[\w-]+\]\))*)$/, m = re.exec(c);
     if (!m) return null;
-    const parts = { tag: m[1] && m[1] !== '*' ? m[1].toLowerCase() : null, ids: [], classes: [], attrs: [] };
-    m[2].replace(/#([\w-]+)|\.([\w-]+)|\[([\w-]+)(?:="((?:[^"\\]|\\.)*)")?\]/g, (x, id, cl, k, v) => { if (id) parts.ids.push(id); else if (cl) parts.classes.push(cl); else parts.attrs.push([k, v == null ? null : v.replace(/\\([0-9a-fA-F]{1,6}) ?|\\([\s\S])/g, (e, hex, c) => hex ? String.fromCodePoint(parseInt(hex, 16)) : c)]); return x; });
+    const parts = { tag: m[1] && m[1] !== '*' ? m[1].toLowerCase() : null, ids: [], classes: [], attrs: [], nots: (m[2].match(/:not\(\[[\w-]+\]\)/g) || []).map(x => x.slice(6, -2)) };
+    m[2].replace(/:not\(\[[\w-]+\]\)/g, '').replace(/#([\w-]+)|\.([\w-]+)|\[([\w-]+)(?:="((?:[^"\\]|\\.)*)")?\]/g, (x, id, cl, k, v) => { if (id) parts.ids.push(id); else if (cl) parts.classes.push(cl); else parts.attrs.push([k, v == null ? null : v.replace(/\\([0-9a-fA-F]{1,6}) ?|\\([\s\S])/g, (e, hex, c) => hex ? String.fromCodePoint(parseInt(hex, 16)) : c)]); return x; });
     return parts;
   }
   function matchOne(n, p) {
@@ -271,6 +271,7 @@ function boot(opts) {
     if (p.ids.some(id => n._attrs.id !== id)) return false;
     const cls = (n._attrs.class || '').split(/\s+/);
     if (p.classes.some(c => cls.indexOf(c) < 0)) return false;
+    if (p.nots.some(k => k in n._attrs)) return false;
     return p.attrs.every(([k, v]) => k in n._attrs && (v == null || n._attrs[k] === v));
   }
   function matches(n, sel) {
@@ -286,6 +287,7 @@ function boot(opts) {
     const ds = {}; Object.keys(attrs).forEach(k => { if (/^data-/.test(k)) ds[k.slice(5).replace(/-(\w)/g, (x, c) => c.toUpperCase())] = attrs[k]; });
     const n = {
       tagName: tag.toUpperCase(), id: attrs.id || '', dataset: ds, _attrs: attrs, _region: region, _src: html, _at: at, _parent: parent, parentElement: parent, nodeType: 1,
+      get attributes() { return Object.keys(attrs).map(name => ({ name, value: attrs[name] })); },
       getAttribute: k => (k in attrs ? attrs[k] : null), hasAttribute: k => k in attrs, setAttribute(k, v) { attrs[k] = String(v); }, removeAttribute(k) { delete attrs[k]; },
       classList: { contains: c => (attrs.class || '').split(/\s+/).indexOf(c) >= 0, add() {}, remove() {} },
       focus() { document.activeElement = n; }, scrollIntoView() {}, getClientRects: () => [1], select() {}, setSelectionRange() {},
@@ -317,6 +319,8 @@ function boot(opts) {
   if (opts.domFocus) {
     const own = r => el => !!el && el._region === r && el._src === r._html;
     ['top', 'overlay'].forEach(k => { const r = els[k]; r.querySelector = sel => drawn(r, sel); r.contains = own(r); });
+    /* A control found by its action: as on a page, from the screen or a dialog, so a redraw can tell two with one action apart. */
+    [appEl, els.top, els.overlay].forEach(r => { const was = r.querySelectorAll; r.querySelectorAll = sel => (/^\[data-act=/.test(sel) ? nodesOf(r).filter(x => matches(x, sel)) : was.call(r, sel)); });
   }
   // A folder the picker hands over (see folderHandle), for the screens that choose a real folder.
   // A function picks the folder at each choice, so a test can hand over another folder the next time.
@@ -434,7 +438,12 @@ function boot(opts) {
     click(act, id, data) {
       const btn = { dataset: Object.assign({ act, id }, data || {}), disabled: false, classList: { contains: () => false } };
       // As a real click does, the pressed control takes focus first (domFocus).
-      if (opts.domFocus) { const q = v => String(v).replace(/"/g, '\\"'), n = drawnAnywhere('[data-act="' + q(act) + '"]' + (id != null ? '[data-id="' + q(id) + '"]' : '')); if (n) document.activeElement = n; }
+      if (opts.domFocus) {
+        const q = v => String(v).replace(/[\\"]/g, '\\$&'), sel = '[data-act="' + q(act) + '"]' + (id != null ? '[data-id="' + q(id) + '"]' : '');
+        /* The one with what the test pressed drawn on it, when it says: two can share an action and an id. */
+        const n = (data && drawnAnywhere(sel + Object.keys(data).map(k => '[data-' + k.replace(/[A-Z]/g, c => '-' + c.toLowerCase()) + '="' + q(data[k]) + '"]').join(''))) || drawnAnywhere(sel);
+        if (n) document.activeElement = n;
+      }
       (listeners.click || []).forEach(fn => fn({ target: { closest: () => btn }, preventDefault() {} }));
     },
     // A key pressed on an element (a stand-in with dataset and closest), with modifier keys such as { altKey: true }.

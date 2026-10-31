@@ -176,7 +176,7 @@ const LOOKUPS_OK = {
   'views/common.js|out|it.key': [1, PRE + PANE],
   'views/common.js|w|it.key': [4, PRE + PANE],
   'views/common.js|w|k': [2, PRE + PANE],
-  'views/detailbox.js|d|n': [1, PRE + 'a run detail name: a map refuses one Object.prototype has (map.js reserved)'],
+  'views/detailbox.js|d|n': [1, PRE + 'a run detail name: publishing refuses one Object.prototype has (map.js reserved), a version or run with one isn\'t run (publish.unrunnable), and Practice doesn\'t admit one (practice.js admit)'],
   'views/flight.js|(… || {})|p.id': [1, PRE + 'state.fpSteps is made with Object.create(null) (fpStepsKept); {} only stands in before it is set'],
   'views/home.js|(… || {})|runKey(r)': [2, RUNKEY],
   'views/insights.js|(… || {})|p.id': [1, 'state.insFolder is made with Object.create(null); {} only stands in before it is set'],
@@ -275,13 +275,13 @@ const LOOKUPS_OK = {
   'app.js|gates|ph.gate.id': [1, 'a step, phase, gate or lane id of a draft Practice admitted: admit refuses a name Object.prototype has'],
   'app.js|kept|id': [5, 'an admitted draft\'s step id, or one prLoadTyped kept: it skips a name Object.prototype has'],
   'app.js|names|b': [1, 'a box id of a step\'s kept typing, rec- or fld- and a name'],
-  'app.js|values|ev.name': [2, 'an evidence name: a type refuses a record named like Object.prototype (types.js), a Jira field is jf-, a detail rd-'],
-  'app.js|fields|f': [2, 'a step field name: a team type\'s field can\'t be named like Object.prototype (types.js: COMMON[f] finds the inherited one and refuses it)'],
+  'app.js|values|ev.name': [2, 'an evidence name: a team\'s type refuses a record named like Object.prototype (checkCustom), and a version or run frozen with one isn\'t run (understood, through publish.verify and the run\'s reader); a Jira field is jf-, a detail rd-'],
+  'app.js|fields|f': [2, 'a step field name: a team type\'s field can\'t be named like Object.prototype (checkCustom: COMMON[f] finds the inherited one and refuses it), and a version or run frozen with one isn\'t run (understood); a field the type doesn\'t have is refused by checkFields'],
   'app.js|o|flag': [1, 'required or long, in this code'],
   'app.js|o|list': [1, 'phases or steps, in this code'],
   'app.js|set|kind': [1, 'role or bind, in this code'],
   'app.js|details|f': [1, 'a key of a run as PF.run.sanitize read it: written to a plain object, __proto__ is dropped there (or skipped by name); any other name is written as its own and read back by Object.keys or an own-property test'],
-  'app.js|values|d.name': [1, 'an evidence name: a type refuses a record named like Object.prototype (types.js), a Jira field is jf-, a detail rd-'],
+  'app.js|values|d.name': [1, 'an evidence name: a team\'s type refuses a record named like Object.prototype (checkCustom), and a version or run frozen with one isn\'t run (understood, through publish.verify and the run\'s reader); a Jira field is jf-, a detail rd-'],
   'app.js|keep|k': [1, 'a box id of a step\'s kept typing, rec- or fld- and a name'],
   'app.js|tp|n': [1, 'a pass name: PF.links refuses one Object.prototype has (links.js reserved)'],
   'app.js|own|k': [1, 'a key starting with _ is skipped beside it, so never __proto__; any other is written as its own and read by Object.keys'],
@@ -290,9 +290,9 @@ const LOOKUPS_OK = {
   'app.js|asked|el.dataset.detail': [1, 'a run detail or role of a published checklist: M.check refuses a name Object.prototype has (a run with one by hand is read-only), and this only writes it, as its own'],
   'app.js|roles|el.dataset.role': [4, 'a run detail or role of a published checklist: M.check refuses a name Object.prototype has (a run with one by hand is read-only), and this only writes it, as its own'],
   'app.js|details|el.dataset.detail': [3, 'a run detail or role of a published checklist: M.check refuses a name Object.prototype has (a run with one by hand is read-only), and this only writes it, as its own'],
-  'app.js|vals|el.id.slice(4)': [1, 'a step field name: a team type\'s field can\'t be named like Object.prototype (types.js: COMMON[f] finds the inherited one and refuses it)'],
-  'app.js|vals|e.target.id.slice(4)': [1, 'a step field name: a team type\'s field can\'t be named like Object.prototype (types.js: COMMON[f] finds the inherited one and refuses it)'],
-  'app.js|vals|k': [1, 'a step field name: a team type\'s field can\'t be named like Object.prototype (types.js: COMMON[f] finds the inherited one and refuses it)'],
+  'app.js|vals|el.id.slice(4)': [1, 'a step field name: a team type\'s field can\'t be named like Object.prototype (checkCustom: COMMON[f] finds the inherited one and refuses it), and a version or run frozen with one isn\'t run (understood); a field the type doesn\'t have is refused by checkFields'],
+  'app.js|vals|e.target.id.slice(4)': [1, 'a step field name: a team type\'s field can\'t be named like Object.prototype (checkCustom: COMMON[f] finds the inherited one and refuses it), and a version or run frozen with one isn\'t run (understood); a field the type doesn\'t have is refused by checkFields'],
+  'app.js|vals|k': [1, 'a step field name: a team type\'s field can\'t be named like Object.prototype (checkCustom: COMMON[f] finds the inherited one and refuses it), and a version or run frozen with one isn\'t run (understood); a field the type doesn\'t have is refused by checkFields'],
   'app.js|info|path': [1, 'an attachment path just saved: it holds a slash'],
   'app.js|base|id': [1, 'rec- or fld- and a name, or note-text: the pattern beside it'],
   'core/appjson.js|o|k': [3, 'the schema\'s own property names in extend; strMap only reads the keys Object.keys gave it'],
@@ -312,7 +312,7 @@ const LOOKUPS_OK = {
   'core/outline.js|nf|f': [2, 'a step field the outline read: written with text, so __proto__ is never its own; any other is written as its own and read with own_'],
   'core/pins.js|out|s.id': [2, 'a published checklist\'s step id: M.check refuses a name Object.prototype has; read back with an own-property test'],
   'core/plans.js|out|k': [1, 'a name from a fixed list in this code'],
-  'core/practice.js|(… || {})|f': [1, 'a step field name: a team type\'s field can\'t be named like Object.prototype (types.js: COMMON[f] finds the inherited one and refuses it)'],
+  'core/practice.js|(… || {})|f': [1, 'a step field name: a team type\'s field can\'t be named like Object.prototype (checkCustom: COMMON[f] finds the inherited one and refuses it), and a version or run frozen with one isn\'t run (understood); a field the type doesn\'t have is refused by checkFields'],
   'core/practice.js|count|k': [2, 'a kind, a bar, a place, a bar and a text: it always holds a bar'],
   'core/practice.js|out|s.id': [1, 'a step, phase, gate or lane id of a draft Practice admitted: admit refuses a name Object.prototype has'],
   'core/practice.js|track|t.id': [1, 'a step, phase, gate or lane id of a draft Practice admitted: admit refuses a name Object.prototype has'],
@@ -356,7 +356,7 @@ const LOOKUPS_OK = {
   'core/requests.js|o|k': [1, 'names that test already let through'],
   'core/run.js|(… || {})|f': [1, 'a run detail or role of a published checklist: M.check refuses a name Object.prototype has (a run with one by hand is read-only), and this only writes it, as its own'],
   'core/run.js|(… || {})|r': [1, 'a run detail or role of a published checklist: M.check refuses a name Object.prototype has (a run with one by hand is read-only), and this only writes it, as its own'],
-  'core/run.js|(… || {})|d.name': [2, 'an evidence name: a type refuses a record named like Object.prototype (types.js), a Jira field is jf-, a detail rd-'],
+  'core/run.js|(… || {})|d.name': [2, 'an evidence name: a team\'s type refuses a record named like Object.prototype (checkCustom), and a version or run frozen with one isn\'t run (understood, through publish.verify and the run\'s reader); a Jira field is jf-, a detail rd-'],
   'core/run.js|(… || {})|k': [2, 'a name already tested as the child\'s own detail; and sanitize\'s marks skip __proto__ by name'],
   'core/run.js|details|f': [6, 'a published checklist\'s run detail: M.check refuses a name Object.prototype has; fill reads it after an own-property test'],
   'core/run.js|roles|r': [1, 'a run detail or role of a published checklist: M.check refuses a name Object.prototype has (a run with one by hand is read-only), and this only writes it, as its own'],
@@ -365,7 +365,7 @@ const LOOKUPS_OK = {
   'core/run.js|out|k': [5, 'a field of the run this code builds, or a run detail its reader kept (never __proto__), tested as own beside it'],
   'core/run.js|out|f': [1, 'a run detail or role of a published checklist: M.check refuses a name Object.prototype has (a run with one by hand is read-only), and this only writes it, as its own'],
   'core/run.js|out|keys[i]': [1, 'teamKey, tested beside it, refuses __proto__; any other name is written as its own and read with an own-property test'],
-  'core/run.js|merged|d.name': [2, 'an evidence name: a type refuses a record named like Object.prototype (types.js), a Jira field is jf-, a detail rd-'],
+  'core/run.js|merged|d.name': [2, 'an evidence name: a team\'s type refuses a record named like Object.prototype (checkCustom), and a version or run frozen with one isn\'t run (understood, through publish.verify and the run\'s reader); a Jira field is jf-, a detail rd-'],
   'core/run.js|m|k': [5, 'a key of a run as PF.run.sanitize read it: written to a plain object, __proto__ is dropped there (or skipped by name); any other name is written as its own and read back by Object.keys or an own-property test'],
   'core/run.js|marks|k': [2, 'a key of a run as PF.run.sanitize read it: written to a plain object, __proto__ is dropped there (or skipped by name); any other name is written as its own and read back by Object.keys or an own-property test'],
   'core/run.js|seen|k': [2, 'a time, a bar, who, a bar and what: it always holds a bar'],
@@ -377,10 +377,10 @@ const LOOKUPS_OK = {
   'core/run.js|o|k': [1, 'a name from a fixed list in this code'],
   'core/run.js|o|f[0]': [1, 'a name from a fixed list in this code'],
   'core/search.js|t|k': [1, 'a target\'s fields, an object literal in this file'],
-  'core/types.js|fields|f': [12, 'a step field name: a team type\'s field can\'t be named like Object.prototype (types.js: COMMON[f] finds the inherited one and refuses it)'],
-  'core/types.js|fields|k': [1, 'a built-in type\'s condition: customType copies neither requiredWhen nor requiredUnless'],
-  'core/types.js|fields|def.optionsFrom': [1, 'a built-in type\'s: customType doesn\'t copy optionsFrom'],
-  'core/types.js|out|d.name': [2, 'an evidence name: a type refuses a record named like Object.prototype (types.js), a Jira field is jf-, a detail rd-'],
+  'core/types.js|fields|f': [12, 'a step field name: a team type\'s field can\'t be named like Object.prototype (checkCustom: COMMON[f] finds the inherited one and refuses it), and a version or run frozen with one isn\'t run (understood); a field the type doesn\'t have is refused by checkFields'],
+  'core/types.js|fields|k': [1, 'a condition\'s key: a built-in type\'s, as customType copies neither requiredWhen nor requiredUnless; a frozen type naming one Object.prototype has isn\'t run (understood)'],
+  'core/types.js|fields|def.optionsFrom': [1, 'a built-in type\'s, as customType doesn\'t copy optionsFrom; a frozen type naming one Object.prototype has isn\'t run (understood)'],
+  'core/types.js|out|d.name': [2, 'an evidence name: a team\'s type refuses a record named like Object.prototype (checkCustom), and a version or run frozen with one isn\'t run (understood, through publish.verify and the run\'s reader); a Jira field is jf-, a detail rd-'],
   'core/types.js|out|id': [3, 'a step type id in use: ID has no underscore, so never __proto__, and validation refuses constructor; written as its own'],
   'core/util.js|o|p.type': [1, 'a part type Intl.DateTimeFormat gives']
 };
@@ -446,7 +446,11 @@ async function protoPlanned() {
     assert.deepStrictEqual(mine.map(c => c.id || null), ['card-' + id, null], 'the first copy of ' + id + ' has the card\'s id, and only it');
   });
   const a = app.doc.activeElement;
-  assert.ok(a && a.dataset && a.dataset.act === 'review-plan' && un(a.dataset.key) === all[50]['data-key'], 'focus on the first card Show more added: ' + JSON.stringify(a && a.dataset));
+  const onIt = () => { const n = app.doc.activeElement; return n && n.dataset && n.dataset.act === 'review-plan' && un(n.dataset.key) === all[50]['data-key']; };
+  assert.ok(onIt(), 'focus on the first card Show more added: ' + JSON.stringify(a && a.dataset));
+  /* A redraw (any read may bring one) keeps it there: the card, not the first with its id. */
+  app.setNarrow(true); app.setNarrow(false); await app.tick(5);
+  assert.ok(onIt(), 'and it stays there through a redraw: ' + JSON.stringify(app.doc.activeElement && app.doc.activeElement.dataset));
 }
 /* A step's notes: two of each, across the thread's Show earlier boundary; each is drawn once, by its own key, with its own text. */
 async function protoNotes() {

@@ -5,8 +5,9 @@
 'use strict';
 const assert = require('assert');
 const { rule, run, load } = require('./harness');
-const cp = require('child_process'), path = require('path');
-const { boot } = require('./app-harness');
+const cp = require('child_process'), path = require('path'), fsN = require('fs'), os = require('os');
+const { boot, gate, folderHandle, memoryIDB } = require('./app-harness');
+const { into } = require('./bounds-fixture');
 const { small, fresh, arrive } = require('./find-twins.test');
 
 const NAMES = ['constructor', '__proto__', 'toString', 'hasOwnProperty'];
@@ -59,6 +60,13 @@ rule('A run named constructor: the recorder records in it, the change lands, and
   app.click('discard-unsaved'); await app.tick(60);
   assert.ok(!/isn(&#39;|')t saved/.test(app.html()), 'discarded');
   assert.ok(!file().steps.s1, 'the failed change isn\'t in the file');
+  /* The run in memory is back too, as a later save shows: the discarded answer doesn't come back with it. */
+  const state = id => (new RegExp('<li class="step[^"]*" data-a="([\\w-]+)" id="step-' + id + '">').exec(app.html()) || [])[1];
+  assert.notStrictEqual(state('s1'), 'done', 'on screen, the discarded answer is gone');
+  const was = file().steps.s0;
+  app.click('select', 's0'); await app.tick(5); app.click('toggle', 's0'); await app.tick(60);
+  assert.notDeepStrictEqual(file().steps.s0, was, 'set-up: the next change is saved');
+  assert.ok(!file().steps.s1, 'and the discarded answer isn\'t saved with it');
 }));
 rule('A person named like Object.prototype is shown by their id, never as Object', () => noThrow(async () => {
   for (const who of ['constructor', 'toString']) {
@@ -140,10 +148,14 @@ const ownFile = d => { const m = JSON.parse(d.note).anchor.match(/[\w-]+\.(?:png
 const overlayImages = app => [...new Set(app.overlay().match(/[\w-]+\.png/g) || [])];
 /* Presses each button, and says which image opened for each: each must be the file of the note on that button. */
 async function eachOpensItsOwn(app, b) {
-  const out = [];
+  const out = [], read = app.fs.blob;
   for (const d of b) {
-    await press(app, d);
+    /* The caption alone could be another note's image under this note's name: the file read is what it shows. */
+    const asked = [];
+    app.fs.blob = function (p) { asked.push(p); return read.apply(this, arguments); };
+    try { await press(app, d); } finally { app.fs.blob = read; }
     assert.deepStrictEqual(overlayImages(app), [ownFile(d)], 'the button of the note with ' + ownFile(d) + ' opens only that image');
+    assert.deepStrictEqual([...new Set(asked)], [PNG + ownFile(d)], 'and reads only that file');
     out.push(ownFile(d));
     app.click('close-overlay'); await app.tick(5);
   }
@@ -215,9 +227,44 @@ rule('Twins identical in every field: each opens, as what they are; one more arr
   await press(app, b[1]);
   assert.deepStrictEqual(overlayImages(app), ['same.png'], 'the copy opens');
   app.click('close-overlay'); await app.tick(5);
-  /* What a stale button holds no longer says which: the count of copies changed. */
-  const r = app.PF.search, t = JSON.parse(b[1].note);
-  assert.strictEqual(r.noteFind([same, same, same].map(x => JSON.parse(JSON.stringify(x))), t), null, 'none chosen');
+  /* A third copy arrives. A button drawn before it no longer says which copy it's on, so pressing it opens none in its place. */
+  await arrive(app, [['runs/' + landedKey + '/notes-tw.jsonl', [same, same, same]]]);
+  assert.strictEqual(buttons(app.html(), 'zoom-note').length, 3, 'set-up: the third has arrived');
+  await press(app, b[1]);
+  assert.strictEqual(app.overlay(), '', 'none opens');
+}));
+/* Where focus is, as a test reads it: the file of the thumbnail it's on, or the tag of what else has it. */
+const focusOn = app => { const a = app.doc.activeElement; return a && a.dataset && /^zoom-/.test(a.dataset.act || '') ? ownFile(a.dataset) : a && a.tagName; };
+const pictures = () => [note(Object.assign({ text: 'First picture' }, att('first.png'))), note(Object.assign({ text: 'Second picture' }, att('second.png')))];
+const notesFile = 'runs/landed/landedrun/notes-tw.jsonl';
+const thumbOf = (h, act, file) => { const d = buttons(h, act).filter(x => ownFile(x) === file)[0]; assert.ok(d, 'the thumbnail of ' + file); return d; };
+rule('Closing an image goes back to its own twin\'s thumbnail, as it was, after the notes reorder, and when its note has been paged away', () => noThrow(async () => {
+  const [a, c] = pictures(), app = await twins([a, c]);
+  for (const file of ['first.png', 'second.png']) {
+    await press(app, thumbOf(app.html(), 'zoom-note', file));
+    app.click('close-overlay'); await app.tick(5);
+    assert.strictEqual(focusOn(app), file, 'closed at once: back on ' + file);
+  }
+  await press(app, thumbOf(app.html(), 'zoom-note', 'second.png'));
+  await arrive(app, [[notesFile, [c, a]]]);
+  assert.ok(buttons(app.html(), 'zoom-note')[0].note.includes('second.png'), 'set-up: it has moved up');
+  app.click('close-overlay'); await app.tick(5);
+  assert.strictEqual(focusOn(app), 'second.png', 'reordered: still its own');
+  /* Newer and older notes push it off the thread's page while the image is open: it's brought back to take focus. */
+  const fill = (i, ago) => note({ id: 'fill' + ago + i, session: 'tw', at: new Date(Date.now() - ago * MINUTE - i * 1000).toISOString(), text: 'Filler ' + i });
+  const many = [...Array(30).keys()];
+  await press(app, thumbOf(app.html(), 'zoom-note', 'second.png'));
+  await arrive(app, [[notesFile, [...many.map(i => fill(i, 500)), a, c, ...many.map(i => fill(i, 1))]]]);
+  assert.ok(!buttons(app.html(), 'zoom-note').some(d => ownFile(d) === 'second.png'), 'set-up: it is off the page');
+  app.click('close-overlay'); await app.tick(5);
+  assert.strictEqual(focusOn(app), 'second.png', 'paged away: brought back, and focused');
+}));
+rule('Closing an image whose note has been removed goes to its list\'s heading, never the other twin\'s thumbnail', () => noThrow(async () => {
+  const [a, c] = pictures(), app = await twins([a, c]);
+  await press(app, thumbOf(app.html(), 'zoom-note', 'second.png'));
+  await arrive(app, [[notesFile, [a]]]);
+  app.click('close-overlay'); await app.tick(5);
+  assert.ok(/^H[1-4]$/.test(focusOn(app)), 'a heading: ' + focusOn(app));
 }));
 
 /* ---------- twin corrections: each row says its own group, and acts on it ---------- */
@@ -271,6 +318,22 @@ rule('Twin corrections with different decisions on Finish: each row says its own
   assert.ok(/Finish On the landed version/.test(h) && /<h2>Corrections · \d+<\/h2>/.test(h), 'on Finish, with its corrections');
   assert.strictEqual(statusOf(h, 'First reason'), 'Open', 'the open one');
   assert.strictEqual(statusOf(h, 'Second reason'), 'Declined', 'the declined one');
+}));
+rule('Twin corrections on Finish: the thumbnail opens its note\'s image', () => noThrow(async () => {
+  const app = await twins(twoGroups(), o => { o.recorder = { person: 'person-avery', session: null }; });
+  app.click('pickup'); await app.tick(60); app.click('finish'); await app.tick(20);
+  assert.ok(/Finish On the landed version/.test(app.html()), 'set-up: on Finish');
+  const b = buttons(app.html(), 'zoom-corr');
+  assert.strictEqual(b.length, 1, 'one thumbnail');
+  assert.deepStrictEqual(await eachOpensItsOwn(app, b), ['corr.png']);
+}));
+rule('Twin corrections on the receipt: the thumbnail opens its note\'s image', () => noThrow(async () => {
+  const app = await twins(twoGroups());
+  app.click('receipt'); await app.tick(20);
+  assert.ok(/data-act="copy-receipt"/.test(app.html()), 'set-up: on the receipt');
+  const b = buttons(app.html(), 'zoom-corr');
+  assert.strictEqual(b.length, 1, 'one thumbnail');
+  assert.deepStrictEqual(await eachOpensItsOwn(app, b), ['corr.png']);
 }));
 for (const [why, other] of [['First reason', 'Second reason'], ['Second reason', 'First reason']]) {
   rule('Twin corrections: Withdraw on "' + why + '" writes a decision naming that group, and only that row changes', () => noThrow(async () => {
@@ -399,6 +462,21 @@ rule('A run on a Jira workflow named __proto__ requires its evidence, and still 
   assert.deepStrictEqual(Object.keys(again.jira), ['__proto__']);
   assert.deepStrictEqual(required(PF, again).list, ['Resolution'], 'still required after the read');
 });
+rule('A run on a Jira workflow named __proto__ refuses the transition without its field and records it with one, before and after run.json is written and read', () => {
+  const PF = load(), R = PF.run, { r } = jiraRun(PF), now = '2026-10-31T01:00:00.000Z', key = PF.jira.key('Resolution');
+  const answer = run => {
+    const map = R.mapOf(run);
+    assert.throws(() => R.done(run, map, 'close', 'person-avery', now, {}), /Resolution/, 'refused without it');
+    assert.ok(!(run.steps.close && run.steps.close.s === 'done'), 'and not recorded');
+    R.done(run, map, 'close', 'person-avery', now, { [key]: 'Fixed' });
+    assert.strictEqual(run.steps.close.s, 'done', 'recorded with it');
+    assert.strictEqual(run.steps.close.values[key], 'Fixed', 'with its value');
+  };
+  const again = R.sanitize(JSON.parse(JSON.stringify(r)));
+  answer(r);
+  answer(again);
+  assert.strictEqual(R.sanitize(JSON.parse(JSON.stringify(again))).steps.close.values[key], 'Fixed', 'and it is still there when read back');
+});
 /* 2.11.0 reads the run as it always read one: it opens, its other workflows work, and its own check drops the __proto__ name. */
 rule('A run file this build wrote with a workflow named __proto__ still opens in 2.11.0, with the file\'s other workflows at work', async () => {
   const PF = load(), { r } = jiraRun(PF), disk = JSON.parse(JSON.stringify(r));
@@ -436,6 +514,119 @@ rule('A participant named __proto__ makes the run a team run, as any other secon
   assert.strictEqual(R.solo({ recorder, roles: { lead: 'person-avery' } }), true, 'just the recorder is still solo');
   assert.strictEqual(R.solo({ recorder: { person: '__proto__' }, roles: { lead: '__proto__' } }), true, 'just __proto__ is solo too');
 });
+/* ---------- a step type frozen into a version or a run: names a hand edit can give it ---------- */
+const CHECKER = path.join(__dirname, '..', 'example-folder', '.flightdeck', 'skills', '_flightdeck', 'check_folder.py');
+const PROOF = id => '---\nprocess: ' + id + '\ntitle: Proof\nowner: person-avery\n---\n\n## Check {#check}\n- [ ] {team.proof} Record the proof {#proof}\n';
+const proofType = () => ({ id: 'team.proof', label: 'Proof', fields: { note: { label: 'Note', kind: 'text' } }, record: [{ name: 'proof', label: 'Proof', kind: 'text' }] });
+const OWN = name => JSON.parse('{' + JSON.stringify(name) + ':"x"}');
+/* A version as the app publishes it, its types.json then edited by hand and its fingerprint brought along. */
+function forged(PF, id, edit) {
+  const b = PF.publish.build(PROOF(id), { by: 'person-avery', people: [{ id: 'person-avery', name: 'Avery' }], customTypes: { 'team.proof': PF.types.customType(proofType()) }, existing: [], changes: 'First', now: '2026-03-02T09:00:00.000Z', rand: 'abcd1234' });
+  assert.ok(!b.blockers, JSON.stringify(b.blockers));
+  const types = JSON.parse(b.files['types.json']), info = JSON.parse(b.files['publication.json']);
+  edit(types['team.proof']);
+  b.files['types.json'] = JSON.stringify(types, null, 2);
+  info.typesHash = PF.util.hash(b.files['types.json']);
+  b.files['publication.json'] = JSON.stringify(info, null, 2);
+  return b;
+}
+const PROTO_NAMES = ['__proto__', 'constructor', 'toString', 'valueOf', 'hasOwnProperty', 'isPrototypeOf', 'propertyIsEnumerable', 'toLocaleString', '__defineGetter__', '__defineSetter__', '__lookupGetter__', '__lookupSetter__'];
+const REFUSED = [].concat(
+  PROTO_NAMES.map(n => ['evidence named ' + n, d => { d.record[0].name = n; }]),
+  [['evidence named by a list', d => { d.record[0].name = ['__proto__']; }],
+    ['a field named __proto__', d => { d.fields = JSON.parse('{"__proto__":{"label":"X","kind":"text"}}'); }],
+    ['a field named constructor', d => { d.fields = JSON.parse('{"constructor":{"label":"X","kind":"text"}}'); }],
+    ['evidence shown only when constructor is', d => { d.record[0].when = OWN('constructor'); }],
+    ['evidence shown only when __proto__ is', d => { d.record[0].when = OWN('__proto__'); }],
+    ['a field required when toString is', d => { d.fields.note.requiredWhen = OWN('toString'); }],
+    ['a field required unless __proto__ is', d => { d.fields.note.requiredUnless = OWN('__proto__'); }],
+    ['evidence with options from toString', d => { d.record[0].optionsFrom = 'toString'; }]]);
+const KEPT = [
+  ['as published', () => {}],
+  ['evidence named ToString, which a team\'s type may have', d => { d.record[0].name = 'ToString'; }],
+  ['a field named Constructor, which a team\'s type may have', d => { d.fields = { Constructor: { label: 'X', kind: 'text' } }; }],
+  ['a built-in\'s condition and options', d => { d.fields.note.requiredWhen = { action: 'x' }; d.record[0].when = { action: 'x' }; d.record[0].optionsFrom = 'note'; }]];
+rule('A version whose step type names evidence, a field or a condition like Object.prototype isn\'t run, by the app reading its files and by the assistants\' checker alike', async () => {
+  const PF = load(), root = fsN.mkdtempSync(path.join(os.tmpdir(), 'preflight-frozen-')), mem = new PF.fs.MemoryFS('frozen', null);
+  try {
+    const cases = REFUSED.map(c => [c[0], c[1], false]).concat(KEPT.map(c => [c[0], c[1], true])), ids = cases.map((c, i) => 'case-' + i);
+    fsN.writeFileSync(path.join(root, 'people.json'), JSON.stringify([{ id: 'person-avery', name: 'Avery' }]));
+    await mem.write('people.json', JSON.stringify([{ id: 'person-avery', name: 'Avery' }]));
+    for (let i = 0; i < cases.length; i++) {
+      const b = forged(PF, ids[i], cases[i][1]), v = PF.publish.verify(b.folder, b.files);
+      assert.strictEqual(v.ok, cases[i][2], cases[i][0] + ': publish.verify ' + (v.why || 'accepts'));
+      if (!cases[i][2]) assert.ok(v.unusable && /can't read/.test(v.why), cases[i][0] + ': said why: ' + v.why);
+      for (const f of Object.keys(b.files)) {
+        const p = 'publications/' + ids[i] + '/' + b.folder + '/' + f, disk = path.join(root, p);
+        await mem.write(p, b.files[f]);
+        fsN.mkdirSync(path.dirname(disk), { recursive: true }); fsN.writeFileSync(disk, b.files[f]);
+      }
+    }
+    const app = await PF.repo.loadAll(mem, { deep: true }), out = JSON.parse(cp.execFileSync('python3', ['-I', CHECKER, root], { encoding: 'utf8', maxBuffer: 64 * 1048576 })).publications;
+    cases.forEach((c, i) => {
+      const proc = app.processes.find(p => p.process === ids[i]), latest = proc && proc.index && proc.index.latest, v = out[ids[i]].versions[0];
+      assert.strictEqual(!!latest, c[2], c[0] + ': the app, reading the folder');
+      assert.strictEqual(v.status, c[2] ? 'complete' : 'unusable', c[0] + ': the checker: ' + v.status + ' ' + v.why);
+      if (!c[2]) assert.ok(/can't read/.test(v.why), c[0] + ': the checker says why: ' + v.why);
+    });
+  } finally { fsN.rmSync(root, { recursive: true, force: true }); }
+});
+rule('A run whose copy of its step type has evidence named __proto__ is read-only, so nothing entered is lost', () => {
+  const PF = load(), b = forged(PF, 'plain', () => {}), v = PF.publish.verify(b.folder, b.files);
+  assert.ok(v.ok, v.why);
+  const o = JSON.parse(JSON.stringify(PF.run.create(v, { id: 'run-proof', by: 'person-avery', session: 's1', now: '2026-03-02T09:00:00.000Z' })));
+  assert.ok(!PF.run.sanitize(JSON.parse(JSON.stringify(o)))._unrunnable, 'set-up: as started, it runs');
+  o.types['team.proof'].record[0].name = '__proto__';
+  assert.ok(/can't read/.test(PF.run.sanitize(o)._unrunnable), 'edited by hand, it is read-only');
+});
+rule('Every built-in step type, and every step type frozen in a folder of a shipped release, is still read', () => {
+  const PF = load(), T = PF.types, seen = [];
+  T.LIST.forEach(x => { const d = typeof x === 'string' ? T.get(x) : x; assert.ok(T.understood(JSON.parse(JSON.stringify(d))), 'built-in ' + d.id); });
+  (function walk(dir) {
+    fsN.readdirSync(dir, { withFileTypes: true }).forEach(e => {
+      const p = path.join(dir, e.name);
+      if (e.isDirectory()) walk(p);
+      else if (e.name === 'types.json') { const types = JSON.parse(fsN.readFileSync(p, 'utf8')); Object.keys(types).forEach(k => { seen.push(k); assert.ok(T.understood(types[k]), p + ': ' + k); }); }
+    });
+  })(path.join(__dirname, 'fixtures', 'folders'));
+  assert.ok(seen.length > 10, 'set-up: fixtures read: ' + seen.length);
+});
+rule('Practice doesn\'t admit a draft with a role or run detail named like Object.prototype; publishing refuses them too, and a plain name is untouched', () => {
+  const PF = load(), md = (roles, context) => '---\nprocess: p\ntitle: P\nowner: person-avery\nroles: ' + roles + '\ncontext: ' + context + '\n---\n\n## One · READ-DO {#ph1}\n- [ ] {confirm} Do it {#s1}\n';
+  for (const n of ['constructor', '__proto__', 'toString']) {
+    assert.ok(/keeps for itself/.test(PF.practice.admit(md(n, 'ticket'), {}).why), 'role ' + n);
+    assert.ok(/keeps for itself/.test(PF.practice.admit(md('lead', n), {}).why), 'run detail ' + n);
+    assert.ok(PF.map.check(PF.map.parse(md(n, 'ticket'))).blockers.some(b => /keeps for itself/.test(b)), 'publishing: role ' + n);
+  }
+  assert.ok(PF.practice.admit(md('lead', 'ticket'), {}).ok, 'plain names');
+});
+
+/* ---------- another folder finishes opening while something of this one is open ---------- */
+rule('A folder that finishes opening while a screenshot is open closes it, and focus lands on the new folder\'s heading', () => noThrow(async () => {
+  const fx = small(), files = Object.assign({}, fx.files), key = fx.facts.landed, a = note(Object.assign({ text: 'A picture' }, att('first.png')));
+  files['runs/' + key + '/notes-tw.jsonl'] = JSON.stringify(a) + '\n';
+  files[PNG + 'first.png'] = 'bytes of folder A';
+  const pending = gate(), other = folderHandle('Folder B', Object.assign({}, fx.files, { [PNG + 'first.png']: 'bytes of folder B' }));
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true, indexedDB: memoryIDB(), picker: () => pending.p.then(() => other) }); await app.tick(60);
+  await into(app, { files, facts: fx.facts });
+  app.click('nav', 'home'); await app.tick(5); app.click('open-run', key); await app.tick(10); app.click('select', 's0'); await app.tick(10);
+  app.click('connect'); await app.tick(5);
+  await press(app, buttons(app.html(), 'zoom-note')[0]);
+  assert.ok(app.overlay().includes('first.png'), 'set-up: the screenshot is open');
+  pending.open(); await app.tick(80);
+  assert.strictEqual(app.overlay(), '', 'closed');
+  assert.ok(app.html().includes('id="page-h"') && !/data-act="toggle"/.test(app.html()), 'on the new folder\'s Home');
+  assert.strictEqual(app.activeId(), 'page-h', 'focus on its heading');
+}));
+rule('Everything that opens another folder closes what is open first; only the first read of the page has nothing to close', () => {
+  const lines = fsN.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8').split('\n');
+  const calls = lines.map((l, i) => [l, i]).filter(([l]) => /\buseFs\(/.test(l) && !/function useFs/.test(l));
+  /* Before the call on its own line, or on the line above unless this line is a whole action of its own (the line above is then another action's). */
+  const closes = (l, i) => /leaveFolderOverlay\(/.test(l.slice(0, l.indexOf('useFs('))) || (!/^\s*'?[\w-]+'?: function/.test(l) && /leaveFolderOverlay\(/.test(lines[i - 1]));
+  const unclosed = calls.filter(([l, i]) => !closes(l, i)).map(([l]) => l.trim());
+  assert.deepStrictEqual(unclosed, ['var useMem = function () { return seeded.then(function () { return useFs(mem); }); };', 'if (p === \'granted\') return useFs(folderFs(rec));']);
+});
+
 /* ---------- the same class in the core: an inherited name reads as absent ---------- */
 rule('A text naming a detail like constructor says it isn\'t set, never what every object inherits', () => {
   const PF = load(), R = PF.run;
