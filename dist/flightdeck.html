@@ -19098,13 +19098,9 @@ PF.vk = (function () {
   function findQ(st, id) { return st.find && st.find.q ? String(st.find.q[id] || '') : ''; }
   /* Whether a list's Find box is drawn: when the list is long enough (over), and whatever its length while the box has text
      or focus (st.selFocus, kept by the app while focus is in it), so a newer read that shortens the list never takes away
-     the box someone is typing in or filtering with (code review round 19). A box drawn for its focus alone is noted in
-     PF.vk.findHeld (which the app empties at every draw): leaving it takes it away, and leaving any other box draws nothing. */
-  function findOn(st, id, over) {
-    var on = !!over || !!findQ(st, id);
-    if (!on && st.selFocus === id && PF.vk.findHeld) PF.vk.findHeld[id] = true;
-    return on || st.selFocus === id;
-  }
+     the box someone is typing in or filtering with (code review round 19). Leaving the box draws nothing: one drawn for its
+     focus alone goes at the next redraw (code review round 25). */
+  function findOn(st, id, over) { return !!over || !!findQ(st, id) || st.selFocus === id; }
   /* Whether an item's words hold every term typed, ignoring case. */
   function finds(q) {
     var terms = String(q || '').toLowerCase().split(/\s+/).filter(Boolean);
@@ -19474,7 +19470,7 @@ PF.vk = (function () {
   }
   function unsavedWords(ps) { return ps && ps.saved ? 'its run was saved and has changed since' : ps && ps.certain === false ? 'Flightdeck couldn\'t confirm whether its run saved' : 'its run didn\'t save'; }
   function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
-  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, findOn: findOn, finds: finds, findBox: findBox, drewAny: drewAny, roleRows: roleRows, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, joined: joined, capJoin: capJoin, atRoles: atRoles, select: select, SEL_MORE: SEL_MORE, isSelMore: isSelMore, byId: byId, cssStr: cssStr, PAGE: PAGE, PAGE_OFF: null, ARRIVE: null, TRACE: null, focusAt: null, findHeld: null, domKey: domKey, uniqKeys: uniqKeys, testTag: testTag, verWord: verWord };
+  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, findOn: findOn, finds: finds, findBox: findBox, drewAny: drewAny, roleRows: roleRows, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, joined: joined, capJoin: capJoin, atRoles: atRoles, select: select, SEL_MORE: SEL_MORE, isSelMore: isSelMore, byId: byId, cssStr: cssStr, PAGE: PAGE, PAGE_OFF: null, ARRIVE: null, TRACE: null, focusAt: null, domKey: domKey, uniqKeys: uniqKeys, testTag: testTag, verWord: verWord };
 })();
 (function () {
   'use strict';
@@ -27033,7 +27029,6 @@ PF.examples = (function () {
   /* Re-render without losing what someone is typing or where their focus is. */
   function renderNow() {
     PF.perf.add('render');
-    PF.vk.findHeld = Object.create(null);
     /* What was just shown is this folder's: after a folder switch it's gone (gen), without the switch itself changing. */
     if (state.justShown && state.justShown.gen !== gen) state.justShown = null;
     if (state.noteShown && state.noteShown.gen !== gen) state.noteShown = null;
@@ -29787,40 +29782,12 @@ PF.examples = (function () {
   /* Focusing the box is enough, before anything is typed: a refresh that leaves 50 or fewer choices doesn't take it away. So
      for every list's Find box, not only a dropdown's (K.findOn, code review round 19). */
   document.addEventListener('focusin', function (e) { var t = e.target; if (t && t.dataset && t.dataset.find != null) selBoxKept(findList(t)); });
-  /* Leaving the box redraws only when the box was drawn for its focus alone (PF.vk.findHeld): any other box looks the same
-     either way, and a redraw then would land between a click's press and its release, replacing what was clicked (a fold
-     opened by the click went shut again and lost focus). When it does go away under a pressed pointer, it goes after the
-     click, never during the release: a redraw then would replace what was pressed before its click (code review round 24).
-     A mouse's click comes in the release's own turn, so the next turn is after it; a tap's can come later, so it waits a
-     moment for one; a fold's click toggles it on a later turn still, so it waits for that toggle. With no click (dragged
-     off, canceled) it goes anyway, and a release never heard (outside the window) is let go by the next key, a move with no
-     button down, or focus moving. It draws once. */
-  var ptrDown = false, ptrLeft = false, ptrFold = false, ptrWait = null;
-  function ptrGo() { ptrWait = null; if (!ptrLeft || ptrDown) return; ptrLeft = false; ptrFold = false; render(); }
-  function ptrAfter(ms) { if (ptrWait != null) clearTimeout(ptrWait); ptrWait = setTimeout(ptrGo, ms); }
-  function ptrLost() { ptrDown = false; if (ptrLeft) ptrAfter(0); }
-  document.addEventListener('pointerdown', function () { ptrDown = true; }, true);
-  document.addEventListener('pointerup', function (e) { ptrDown = false; if (ptrLeft) ptrAfter(e.pointerType === 'mouse' ? 0 : 400); }, true);
-  document.addEventListener('pointercancel', function () { ptrDown = false; if (ptrLeft) ptrAfter(0); }, true);
-  document.addEventListener('click', function (e) {
-    if (!ptrLeft || ptrDown) return;
-    var t = e.target, sum = t && t.closest ? t.closest('summary') : null;
-    ptrFold = !!sum; ptrAfter(sum ? 400 : 0);
-  }, true);
-  document.addEventListener('toggle', function () { if (ptrFold) { ptrFold = false; ptrAfter(0); } }, true);
-  document.addEventListener('pointermove', function (e) { if (ptrDown && !e.buttons) ptrLost(); }, true);
-  /* Not a modifier held for a click (Shift repeats while held on some systems): only a key that isn't part of a press. */
-  document.addEventListener('keydown', function (e) { if (!e.repeat && !/^(Shift|Control|Alt|Meta)$/.test(e.key || '')) ptrLost(); }, true);
-  document.addEventListener('focusin', function () { if (ptrLeft && !ptrDown) ptrAfter(0); }, true);
+  /* Leaving the box lets go of it and draws nothing: a redraw then would land between a click's press and its click, or a
+     key's press and its activation, and replace what was pressed. A box drawn for its focus alone stays until the next
+     redraw, which no longer draws it (code review round 25). Focus still in it (the window left) keeps it. */
   document.addEventListener('focusout', function (e) {
-    var id = findList(e.target);
-    if (!id || state.selFocus !== id) return;
-    setTimeout(function () {
-      var a = document.activeElement; if (state.selFocus !== id || (a && a.id === 'find-' + id)) return;
-      state.selFocus = null;
-      if (!(PF.vk.findHeld || {})[id]) return;
-      if (ptrDown) ptrLeft = true; else render();
-    }, 0);
+    var id = findList(e.target), a = document.activeElement;
+    if (id && state.selFocus === id && !(a && a.id === 'find-' + id)) state.selFocus = null;
   });
   /* The list a Find box filters (its data-find, which matches its id: find-<list>), or null for any other control. */
   function findList(el) { var m = el && /^find-([a-z][\w-]*)$/.exec(el.id || ''); return m && (!el.dataset || !el.dataset.find || el.dataset.find === m[1]) ? m[1] : null; }

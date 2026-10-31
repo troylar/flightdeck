@@ -133,13 +133,9 @@ PF.vk = (function () {
   function findQ(st, id) { return st.find && st.find.q ? String(st.find.q[id] || '') : ''; }
   /* Whether a list's Find box is drawn: when the list is long enough (over), and whatever its length while the box has text
      or focus (st.selFocus, kept by the app while focus is in it), so a newer read that shortens the list never takes away
-     the box someone is typing in or filtering with (code review round 19). A box drawn for its focus alone is noted in
-     PF.vk.findHeld (which the app empties at every draw): leaving it takes it away, and leaving any other box draws nothing. */
-  function findOn(st, id, over) {
-    var on = !!over || !!findQ(st, id);
-    if (!on && st.selFocus === id && PF.vk.findHeld) PF.vk.findHeld[id] = true;
-    return on || st.selFocus === id;
-  }
+     the box someone is typing in or filtering with (code review round 19). Leaving the box draws nothing: one drawn for its
+     focus alone goes at the next redraw (code review round 25). */
+  function findOn(st, id, over) { return !!over || !!findQ(st, id) || st.selFocus === id; }
   /* Whether an item's words hold every term typed, ignoring case. */
   function finds(q) {
     var terms = String(q || '').toLowerCase().split(/\s+/).filter(Boolean);
@@ -509,7 +505,7 @@ PF.vk = (function () {
   }
   function unsavedWords(ps) { return ps && ps.saved ? 'its run was saved and has changed since' : ps && ps.certain === false ? 'Flightdeck couldn\'t confirm whether its run saved' : 'its run didn\'t save'; }
   function valueText(def, v) { return !def ? String(v == null ? '' : v) : PF.values.kindOf(def) === 'yes-no' ? PF.values.show(def, v) : PF.values.both(def, v); }
-  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, findOn: findOn, finds: finds, findBox: findBox, drewAny: drewAny, roleRows: roleRows, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, joined: joined, capJoin: capJoin, atRoles: atRoles, select: select, SEL_MORE: SEL_MORE, isSelMore: isSelMore, byId: byId, cssStr: cssStr, PAGE: PAGE, PAGE_OFF: null, ARRIVE: null, TRACE: null, focusAt: null, findHeld: null, domKey: domKey, uniqKeys: uniqKeys, testTag: testTag, verWord: verWord };
+  return { fillFrom: fillFrom, unsavedWords: unsavedWords, refValue: refValue, stepHtml: stepHtml, stepPlain: stepPlain, shownOpt: shownOpt, headline: headline, gateWord: gateWord, typedField: typedField, valueText: valueText, keepers: keepers, keeps: keeps, person: person, nameOf: nameOf, avatar: avatar, notices: notices, tabOnly: tabOnly, ago: ago, runKey: runKey, freshness: freshness, tree: tree, treeList: treeList, findQ: findQ, findOn: findOn, finds: finds, findBox: findBox, drewAny: drewAny, roleRows: roleRows, byAct: byAct, tagBar: tagBar, tagButtons: tagButtons, tagChips: tagChips, mustMark: mustMark, modeWord: modeWord, MODE_WORD: MODE_WORD, detailWords: detailWords, whenWords: whenWords, outcomeWord: outcomeWord, hlText: hlText, paged: paged, list: list, joined: joined, capJoin: capJoin, atRoles: atRoles, select: select, SEL_MORE: SEL_MORE, isSelMore: isSelMore, byId: byId, cssStr: cssStr, PAGE: PAGE, PAGE_OFF: null, ARRIVE: null, TRACE: null, focusAt: null, domKey: domKey, uniqKeys: uniqKeys, testTag: testTag, verWord: verWord };
 })();
 (function () {
   'use strict';

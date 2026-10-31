@@ -1583,7 +1583,6 @@
   /* Re-render without losing what someone is typing or where their focus is. */
   function renderNow() {
     PF.perf.add('render');
-    PF.vk.findHeld = Object.create(null);
     /* What was just shown is this folder's: after a folder switch it's gone (gen), without the switch itself changing. */
     if (state.justShown && state.justShown.gen !== gen) state.justShown = null;
     if (state.noteShown && state.noteShown.gen !== gen) state.noteShown = null;
@@ -4337,40 +4336,12 @@
   /* Focusing the box is enough, before anything is typed: a refresh that leaves 50 or fewer choices doesn't take it away. So
      for every list's Find box, not only a dropdown's (K.findOn, code review round 19). */
   document.addEventListener('focusin', function (e) { var t = e.target; if (t && t.dataset && t.dataset.find != null) selBoxKept(findList(t)); });
-  /* Leaving the box redraws only when the box was drawn for its focus alone (PF.vk.findHeld): any other box looks the same
-     either way, and a redraw then would land between a click's press and its release, replacing what was clicked (a fold
-     opened by the click went shut again and lost focus). When it does go away under a pressed pointer, it goes after the
-     click, never during the release: a redraw then would replace what was pressed before its click (code review round 24).
-     A mouse's click comes in the release's own turn, so the next turn is after it; a tap's can come later, so it waits a
-     moment for one; a fold's click toggles it on a later turn still, so it waits for that toggle. With no click (dragged
-     off, canceled) it goes anyway, and a release never heard (outside the window) is let go by the next key, a move with no
-     button down, or focus moving. It draws once. */
-  var ptrDown = false, ptrLeft = false, ptrFold = false, ptrWait = null;
-  function ptrGo() { ptrWait = null; if (!ptrLeft || ptrDown) return; ptrLeft = false; ptrFold = false; render(); }
-  function ptrAfter(ms) { if (ptrWait != null) clearTimeout(ptrWait); ptrWait = setTimeout(ptrGo, ms); }
-  function ptrLost() { ptrDown = false; if (ptrLeft) ptrAfter(0); }
-  document.addEventListener('pointerdown', function () { ptrDown = true; }, true);
-  document.addEventListener('pointerup', function (e) { ptrDown = false; if (ptrLeft) ptrAfter(e.pointerType === 'mouse' ? 0 : 400); }, true);
-  document.addEventListener('pointercancel', function () { ptrDown = false; if (ptrLeft) ptrAfter(0); }, true);
-  document.addEventListener('click', function (e) {
-    if (!ptrLeft || ptrDown) return;
-    var t = e.target, sum = t && t.closest ? t.closest('summary') : null;
-    ptrFold = !!sum; ptrAfter(sum ? 400 : 0);
-  }, true);
-  document.addEventListener('toggle', function () { if (ptrFold) { ptrFold = false; ptrAfter(0); } }, true);
-  document.addEventListener('pointermove', function (e) { if (ptrDown && !e.buttons) ptrLost(); }, true);
-  /* Not a modifier held for a click (Shift repeats while held on some systems): only a key that isn't part of a press. */
-  document.addEventListener('keydown', function (e) { if (!e.repeat && !/^(Shift|Control|Alt|Meta)$/.test(e.key || '')) ptrLost(); }, true);
-  document.addEventListener('focusin', function () { if (ptrLeft && !ptrDown) ptrAfter(0); }, true);
+  /* Leaving the box lets go of it and draws nothing: a redraw then would land between a click's press and its click, or a
+     key's press and its activation, and replace what was pressed. A box drawn for its focus alone stays until the next
+     redraw, which no longer draws it (code review round 25). Focus still in it (the window left) keeps it. */
   document.addEventListener('focusout', function (e) {
-    var id = findList(e.target);
-    if (!id || state.selFocus !== id) return;
-    setTimeout(function () {
-      var a = document.activeElement; if (state.selFocus !== id || (a && a.id === 'find-' + id)) return;
-      state.selFocus = null;
-      if (!(PF.vk.findHeld || {})[id]) return;
-      if (ptrDown) ptrLeft = true; else render();
-    }, 0);
+    var id = findList(e.target), a = document.activeElement;
+    if (id && state.selFocus === id && !(a && a.id === 'find-' + id)) state.selFocus = null;
   });
   /* The list a Find box filters (its data-find, which matches its id: find-<list>), or null for any other control. */
   function findList(el) { var m = el && /^find-([a-z][\w-]*)$/.exec(el.id || ''); return m && (!el.dataset || !el.dataset.find || el.dataset.find === m[1]) ? m[1] : null; }
