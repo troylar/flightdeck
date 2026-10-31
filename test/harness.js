@@ -1,6 +1,6 @@
 // Loads Flightdeck's core and storage modules from src/ into a sandbox, with an in-memory localStorage.
 'use strict';
-const fs = require('fs'), path = require('path'), vm = require('vm');
+const fs = require('fs'), os = require('os'), path = require('path'), vm = require('vm');
 const SRC = path.join(__dirname, '..', 'src');
 const FILES = ['core/util.js', 'core/nav.js', 'core/envelope.js', 'core/values.js', 'core/conditions.js', 'core/types.js', 'core/jira.js', 'core/map.js', 'core/links.js', 'core/refs.js', 'core/outline.js', 'core/timeline.js', 'core/publish.js', 'core/staging.js', 'core/pins.js', 'core/run.js', 'core/corrections.js', 'core/followups.js', 'core/insights.js', 'core/signature.js', 'core/skills.js', 'core/attach.js', 'core/contract.js', 'core/people.js', 'core/teamvalues.js', 'core/health.js', 'core/connection.js', 'core/setup.js', 'core/search.js', 'core/sha256.js', 'core/zip.js', 'core/evidence.js', 'core/plans.js', 'core/requests.js', 'core/reports.js', 'core/appjson.js', 'core/proposals.js', 'core/practice.js', 'storage/fs.js', 'storage/repo.js'];
 
@@ -28,16 +28,23 @@ function example(rel) { return fs.readFileSync(path.join(__dirname, '..', 'examp
 let passed = 0, failed = 0;
 const queue = [];
 function rule(name, fn) { queue.push([name, fn]); }
+/* A rule that asserts a wall-clock budget: test/run.sh holds these back from the parallel jobs and runs them alone at the end
+   (BUDGETS=only there, BUDGETS=skip in the jobs). Run by hand, a file runs them with its other rules, as it always did. */
+function budget(name, fn) { queue.push([name, fn, true]); }
 async function run() {
   // ONLY=<text> runs just the rules whose names contain it, while working on them. SHARD=i/n runs every nth rule from
-  // the ith, so test/run.sh can split a long file across processes.
+  // the ith, so test/run.sh can split a long file across processes. BUDGETS=only or skip picks the budget rules or the rest.
+  // RULE_TIMES=1 prints how long each rule took.
   const sh = /^(\d+)\/(\d+)$/.exec(process.env.SHARD || ''), at = sh ? +sh[1] : 0, of = sh ? +sh[2] : 1;
   if (process.env.SHARD && !(sh && of > 0 && at < of)) { console.log('FAIL: SHARD=' + process.env.SHARD + ' isn\'t i/n with 0 <= i < n'); process.exit(1); }
   for (let i = 0; i < queue.length; i++) {
-    const [name, fn] = queue[i];
+    const [name, fn, timed] = queue[i];
     if (i % of !== at) continue;
+    if (process.env.BUDGETS === 'only' ? !timed : process.env.BUDGETS === 'skip' && timed) continue;
     if (process.env.ONLY && name.indexOf(process.env.ONLY) < 0) continue;
-    try { await fn(); passed++; } catch (e) { failed++; console.log('FAIL: ' + name + '\n  ' + (process.env.STACK ? e && e.stack : e && e.message)); }
+    const t0 = Date.now();
+    try { await fn(); passed++; } catch (e) { failed++; console.log('FAIL: ' + name + '\n  ' + (process.env.STACK ? e && e.stack : e && e.message) + (timed ? '\n  (a speed budget; load average ' + os.loadavg()[0].toFixed(1) + ' on ' + os.cpus().length + ' CPUs when it ended)' : '')); }
+    if (process.env.RULE_TIMES) console.log((Date.now() - t0) + ' ms: ' + name);
   }
   console.log(passed + ' passed, ' + failed + ' failed');
   process.exit(failed ? 1 : 0);
@@ -75,4 +82,4 @@ function exactOf(PF, files) {
   return PF.publish.exactOf(raw);
 }
 
-module.exports = { FILES, exactOf, completeRun, load, loadViews, example, exampleSetup, rule, run, sampleDone };
+module.exports = { FILES, budget, exactOf, completeRun, load, loadViews, example, exampleSetup, rule, run, sampleDone };

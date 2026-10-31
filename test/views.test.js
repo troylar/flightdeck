@@ -1,7 +1,7 @@
 // The screens, rendered without a browser: what a run file or a failed save can make them show.
 'use strict';
 const assert = require('assert');
-const { completeRun, exactOf, loadViews, example, exampleSetup, rule, run, sampleDone } = require('./harness');
+const { completeRun, exactOf, loadViews, example, exampleSetup, rule, run, sampleDone, budget } = require('./harness');
 const PF = loadViews(), R = PF.run, P = PF.publish, V = PF.views;
 const EX = exampleSetup(PF);
 const NOW = '2026-10-17T21:00:00.000Z';
@@ -2145,7 +2145,7 @@ rule('Runs: the first view shows at most 50 running and 50 finished runs, says h
   assert.ok(html.indexOf('data-id="release/r70"') < html.indexOf('data-id="release/r71"'));
 });
 
-rule('Runs: a short list has no paging line, and growing to 500 cards still renders quickly', () => {
+budget('Runs: a short list has no paging line, and growing to 500 cards still renders quickly', () => {
   const small = manyRuns(3, 10);
   const h = V.runs(small.ctx);
   assert.ok(!/Showing \d/.test(h) && !/data-act="more"/.test(h) && cards(h) === 13);

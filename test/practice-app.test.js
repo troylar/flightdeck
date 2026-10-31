@@ -3,7 +3,7 @@
 // Try it again, and ends when exactly the practiced text is published.
 'use strict';
 const assert = require('assert');
-const { rule, run } = require('./harness');
+const { rule, run, budget } = require('./harness');
 const { boot } = require('./app-harness');
 
 const DRAFT = 'maps/drafts/release.md';
@@ -663,7 +663,7 @@ rule('On a phone, Back from a step opened from practice closes the builder sheet
   assert.equal(row(app, 'rollback'), 'done');
 });
 
-rule('A 300-step draft: the practice run screen draws and answers well under budget', async () => {
+budget('A 300-step draft: the practice run screen draws and answers well under budget', async () => {
   const lines = ['---', 'process: release', 'title: Big', 'owner: person-casey', '---', ''];
   for (let p = 0; p < 10; p++) { lines.push('## Phase ' + p + ' · READ-DO {#ph' + p + '}'); for (let k = 0; k < 30; k++) lines.push('- [ ] {confirm} Step ' + p + '-' + k + ' does a thing {#s' + p + '-' + k + '}'); lines.push(''); }
   const app = await editor();
