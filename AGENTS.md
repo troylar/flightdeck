@@ -44,6 +44,7 @@ The team owns this code. Leave it easier to change than you found it.
 ```bash
 python3 build.py                   # build dist/flightdeck.html
 bash test/run.sh                   # build + every test + "one self-contained file" check (Git Bash on Windows)
+ONLY=app,find-walk bash test/run.sh   # just these jobs while you work; TIER=fast for most of the suite, TIER=perf for the speed budgets (CONTRIBUTING.md)
 node tools/type-table.js --write   # after changing step types or docs/map-format.md
 node tools/baselines.js --write    # after changing example-folder/AGENTS.md, a skill or docs/map-format.md, and for every new version
 ```

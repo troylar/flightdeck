@@ -17,12 +17,15 @@ function check(releases) {
 }
 const clone = () => JSON.parse(JSON.stringify(GOOD));
 
-rule('test/run.sh runs every test file in test/, once, with every shard of a split file', () => {
+const runList = (env) => cp.spawnSync('bash', [path.join(__dirname, 'run.sh')], { encoding: 'utf8', env: Object.assign({}, process.env, { LIST: '1', TIER: '', ONLY: '', RULE: '' }, env) });
+const hasBash = !cp.spawnSync('bash', ['--version']).error;
+
+rule('test/run.sh runs every test file in test/, once, with every shard of a split file, and the speed budgets of every file that has any', () => {
   const sh = fs.readFileSync(path.join(__dirname, 'run.sh'), 'utf8');
-  const jobs = /<<'JOBS_LIST'[^\n]*\n([\s\S]*?)\nJOBS_LIST\n/.exec(sh), serial = /^for f in ((?:test\/[\w.-]+\.test\.js ?)+); do job "\$f" -; done$/m.exec(sh);
-  assert.ok(jobs && serial, 'test/run.sh has its JOBS_LIST and its serial for-loop');
+  const jobs = /<<'JOBS_LIST'[^\n]*\n([\s\S]*?)\nJOBS_LIST\n/.exec(sh), budgets = /^BUDGET_FILES="((?:test\/[\w.-]+\.test\.js ?)+)"$/m.exec(sh), left = /^FAST_LEAVES_OUT="([\w. -]*)"$/m.exec(sh);
+  assert.ok(jobs && budgets && left, 'test/run.sh has its JOBS_LIST, its BUDGET_FILES and its FAST_LEAVES_OUT');
   const seen = {};
-  jobs[1].split('\n').concat(serial[1].trim().split(' ').map(f => f + ' -')).forEach((l) => {
+  jobs[1].split('\n').forEach((l) => {
     const m = /^test\/([\w.-]+\.test\.js) (-|(\d+)\/(\d+))$/.exec(l);
     assert.ok(m, 'a job line is "test/<file> -" or "test/<file> i/n": ' + JSON.stringify(l));
     (seen[m[1]] = seen[m[1]] || []).push(m[2]);
@@ -35,6 +38,26 @@ rule('test/run.sh runs every test file in test/, once, with every shard of a spl
   });
   const files = fs.readdirSync(__dirname).filter(f => /\.test\.js$/.test(f));
   assert.deepStrictEqual(files.filter(f => !seen[f]), [], 'add these to test/run.sh');
+  /* A budget rule runs only in the quiet pass, so a file with one that isn't listed would lose it. */
+  const timed = files.filter(f => /^budget\(/m.test(fs.readFileSync(path.join(__dirname, f), 'utf8'))).sort();
+  assert.deepStrictEqual(budgets[1].trim().split(' ').map(f => f.slice(5)).sort(), timed, 'BUDGET_FILES lists exactly the files with budget() rules');
+  left[1].trim().split(/\s+/).filter(Boolean).forEach(n => assert.ok(seen[n + '.test.js'], 'FAST_LEAVES_OUT names a file with jobs: ' + n));
+});
+
+rule('test/run.sh: fast, rest and perf together are exactly the full run, and ONLY picks just the jobs it names or refuses', () => {
+  if (!hasBash) return console.log('  (skipped: no bash)');
+  const list = (env) => { const r = runList(env); assert.strictEqual(r.status, 0, r.stderr); return r.stdout.split('\n').filter(Boolean); };
+  const full = list({}), fast = list({ TIER: 'fast' }), rest = list({ TIER: 'rest' }), perf = list({ TIER: 'perf' });
+  assert.ok(fast.length > 0 && rest.length > 0 && perf.length > 0, 'each tier has jobs');
+  assert.deepStrictEqual(fast.concat(rest, perf).sort(), full.slice().sort(), 'nothing is left out or run twice');
+  assert.ok(perf.every(j => / budgets$/.test(j)) && !fast.concat(rest).some(j => / budgets$/.test(j)), 'budgets run only in the quiet pass');
+  assert.deepStrictEqual(list({ ONLY: 'rules' }), ['test/rules.test.js -']);
+  assert.strictEqual(list({ ONLY: 'test/app.test.js' }).length, 12, 'a file is every shard');
+  assert.deepStrictEqual(list({ ONLY: 'app.2of12,rules.test.js' }), ['test/app.test.js 2/12', 'test/rules.test.js -']);
+  assert.deepStrictEqual(list({ ONLY: 'perf.budgets' }), ['test/perf.test.js budgets']);
+  assert.deepStrictEqual(list({ ONLY: 'perf' }), ['test/perf.test.js -', 'test/perf.test.js budgets'], 'a file is all of it');
+  assert.strictEqual(runList({ ONLY: 'nothing-called-this' }).status, 2, 'a name no job has is an error, never a pass');
+  assert.strictEqual(runList({ TIER: 'nope' }).status, 2, 'so is a tier that doesn\'t exist');
 });
 
 rule('The shipped release notes are valid, and CHANGELOG.md is exactly what they generate', () => {
