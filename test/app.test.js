@@ -2183,7 +2183,9 @@ rule('R11: a duplicated tab takes its own writer identity, so two windows never 
   const L = locks();
   const a = boot({ Channel, sessionStore: shared, locks: L }); await a.tick(60);
   const copied = JSON.parse(JSON.stringify(shared));               // the browser copies session storage into the duplicate
-  const b = boot({ Channel, sessionStore: copied, locks: L }); await b.tick(80);
+  /* Delayed timers held: the page gives other windows 300 ms to answer, counted from before the rest of its script runs. On a
+     busy machine that script alone takes longer, and the timer ends the wait before the answer can arrive. */
+  const b = boot({ Channel, sessionStore: copied, locks: L, timers: true }); await b.tick(80);
   const idA = shared['preflight:session'], idB = copied['preflight:session'];
   assert.ok(idA && idB && idA !== idB, 'the duplicate chose a new identity (' + idA + ' / ' + idB + ')');
 });

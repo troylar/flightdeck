@@ -11,6 +11,15 @@ const path = require('path');
 const { rule, run } = require('./harness');
 const { boot } = require('./app-harness');
 const { fixture, into } = require('./bounds-fixture');
+/* The app on a folder, with its delayed timers held and nothing left waiting. A redraw put off by 250 ms (scheduleRender) lands
+   after the Show more click on a busy machine, and these rules check where that click put focus. */
+async function settled(fx) {
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true, timers: true }); await app.tick(60);
+  await into(app, fx);
+  for (let i = 0; i < 50 && app.pendingTimers().length; i++) { app.advanceTimers(1000); await app.tick(10); }
+  await app.tick(10);
+  return app;
+}
 
 const UI = path.join(__dirname, '..', 'src', 'ui');
 const un = v => v.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
@@ -124,8 +133,7 @@ rule('Round 13: a plan whose id holds a newline, Planned\'s Show more target pas
   const files = Object.assign({}, fx.files), odd = 'plan-00050\nline';
   const p50 = JSON.parse(files['proposals/plan-00050.json']); p50.id = odd;
   delete files['proposals/plan-00050.json']; files['proposals/plan-odd.json'] = JSON.stringify(p50, null, 2) + '\n';
-  const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true }); await app.tick(60);
-  await into(app, { files, facts: fx.facts });
+  const app = await settled({ files, facts: fx.facts });
   app.click('nav', 'runs'); await app.tick(10);
   const h = app.html(), m = /<button[^>]*data-act="more" data-id="runs-planned"([^>]*)>/.exec(h);
   assert.ok(m, 'set-up: Planned has Show more');
@@ -225,9 +233,7 @@ const SMALL = { procs: 3, tags: 3, people: 10, followUps: 3, running: 3, plans: 
 async function protoApp(size, edit) {
   const fx = fixture({ size: Object.assign({}, SMALL, size) }), files = Object.assign({}, fx.files);
   edit(files);
-  const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true }); await app.tick(60);
-  await into(app, { files, facts: fx.facts });
-  return app;
+  return settled({ files, facts: fx.facts });
 }
 function moreData(h, id) {
   const m = new RegExp('<button[^>]*data-act="more" data-id="' + id.replace(/[-/:.#]/g, '\\$&') + '"([^>]*)>').exec(h); if (!m) return null;
