@@ -179,10 +179,9 @@ const LOOKUPS_OK = {
   'views/detailbox.js|d|n': [1, PRE + 'a run detail name: a map refuses one Object.prototype has (map.js reserved)'],
   'views/flight.js|(… || {})|p.id': [1, PRE + 'state.fpSteps is made with Object.create(null) (fpStepsKept); {} only stands in before it is set'],
   'views/home.js|(… || {})|runKey(r)': [2, RUNKEY],
-  'views/insights.js|(… || {})|p.id': [1, PRE + 'compared with each version\'s folder name, so an inherited value matches none'],
+  'views/insights.js|(… || {})|p.id': [1, 'state.insFolder is made with Object.create(null); {} only stands in before it is set'],
   'views/insights.js|status|k': [2, PRE + RUNKEY],
   'views/insights.js|by|k': [2, PRE + RUNKEY],
-  'views/manage.js|seen|n': [2, PRE + 'a step type field name typed in the type form; a field named like an Object.prototype name is called listed twice'],
   'views/manage.js|at|id': [2, PRE + 'a type form control id, tf- and a name'],
   'views/overlays.js|teamOf|e.name': [1, PRE + 'a pass name: PF.links refuses one Object.prototype has (links.js reserved)'],
   'views/overlays.js|teamOf|f': [2, PRE + 'a pass name: PF.links refuses one Object.prototype has (links.js reserved)'],
@@ -192,10 +191,10 @@ const LOOKUPS_OK = {
   'views/process.js|(… || {})|lbk': [1, PREFIXED],
   'views/process.js|(… || {})|cmpKey': [1, PREFIXED],
   'views/process.js|(… || {})|p.draft.file': [1, PRE + 'a draft file name; the value is only shown as why it can\'t be read'],
-  'views/process.js|(… || {})|p.id': [1, PRE + 'compared with a form key string, so an inherited value never equals it'],
+  'views/process.js|(… || {})|p.id': [1, 'state.startModeAt is made with Object.create(null); {} only stands in before it is set'],
   'views/reports.js|(… || {})|k': [1, PREFIXED],
   'views/reports.js|(… || {})|g.key': [1, 'a report\'s identity, process/run/step/producer/id: it always holds a slash'],
-  'views/run.js|(… || {})|r.id': [1, PRE + 'state.pendingSaves, set while a run saves; a run id is letters, digits and dashes, so constructor is one (reported)'],
+  'views/run.js|(… || {})|r.id': [1, 'state.pendingSaves is made with Object.create(null); {} only stands in before it is set'],
   'views/run.js|(… || {})|s.id': [1, PRE + 'the run file\'s own fields object, keyed by step id'],
   'views/run.js|(… || {})|st.id': [1, PRE + 'the run file\'s own fields object, keyed by step id'],
   'views/run.js|(… || {})|runKey(r)': [3, RUNKEY],
@@ -289,8 +288,7 @@ async function protoNotes() {
   want.forEach((k, i) => { const li = app.html().slice(app.html().indexOf('id="tn-s0-' + k + '"')); assert.ok(li.slice(0, li.indexOf('</li>')).indexOf('Note ' + PROTO[i >> 1] + ' copy ' + (i % 2 + 1)) >= 0, k + ' shows its own text'); });
 }
 /* Checklists: one in a group of each name, one with the id constructor, across the page boundary; each drawn once, in its own group.
-   (A run id can be constructor or toString too, but a running run with one stops the app as it reads the folder, as in 2.10.0;
-   that is outside this release's changes, so runs aren't used here.) */
+   (A run id can be constructor or toString too: test/patch-2111.test.js.) */
 async function protoChecklists() {
   const md = (id, g) => '---\nprocess: ' + id + '\ntitle: Checklist in ' + g + '\ncategory: Synthetic\ngroup: ' + g + '\nowner: person-avery\nroles: lead\n---\n\n## Phase 1 · READ-DO {#ph1}\n- [ ] {confirm} Do it @lead {#s1}\n';
   const ids = PROTO.map((g, i) => i ? 'proto-' + i : 'constructor');

@@ -55,6 +55,7 @@ test/find-r21.test.js -
 test/find-r22.test.js -
 test/find-walk.test.js -
 test/find-roles-diff.test.js -
+test/patch-2111.test.js -
 test/ui-states.test.js -
 test/reports.test.js -
 test/insights.test.js -
