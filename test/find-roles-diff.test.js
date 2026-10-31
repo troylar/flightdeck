@@ -225,9 +225,9 @@ async function backFrom(app) {
   const now = formRoles(app);
   return { left: !now, refused: /Finish or cancel this first/.test(app.live()) };
 }
-/* A role changed as someone would: in this build, a role past the page is found first so its select is drawn. */
+/* A role changed as someone would: a role past the page is found first so its select is drawn. */
 async function setRole(s, role, v) {
-  if (s.which === 'this build' && hiddenRole(s.app.html(), role)) await typeFind(s.app, role);
+  if (hiddenRole(s.app.html(), role)) await typeFind(s.app, role);
   assert.ok(s.app.html().indexOf('<select id="role-' + role + '"') >= 0, s.which + ': set-up: role ' + role + ' is drawn as a select');
   s.app.select('role-' + role, v); await s.app.tick(5);
 }
