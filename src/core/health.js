@@ -406,6 +406,8 @@ PF.health = (function () {
     var all = Object.keys(c.want), unread = c.unread || [];
     if (!all.length || (scan.installed && scan.installed.newer)) return;
     var open = { act: 'ai-files', id: '', label: 'Open AI assistant files' };
+    var stray = c.unmatched || [];
+    if (stray.length) add({ id: 'contract-other', severity: 'warn', area: 'AI assistants', title: plural(stray.length, 'other file') + ' waiting to be merged', detail: 'In .flightdeck/updates/, but not a copy of a file this version ships, such as a copy made by a sync tool. Hand its README.md to your AI assistant, or delete what isn\'t needed.', paths: stray, action: { act: 'health-cmd', id: 'merge', label: 'Copy a request for your AI assistant' }, help: HELP.newer });
     if (unread.length) add({ id: 'contract-unread', severity: 'warn', area: 'AI assistants', title: plural(unread.length, 'file') + ' for AI assistants can\'t be read', detail: 'Flightdeck can\'t tell whether ' + (unread.length === 1 ? 'it is' : 'they are') + ' up to date.', paths: unread, action: open, help: HELP.unreadable });
     /* Without the record, what the other files are can't be told either. */
     if (unread.indexOf('.flightdeck/installed.json') >= 0) return;
@@ -423,7 +425,7 @@ PF.health = (function () {
     if (merge.length) add({ id: 'contract-merge', severity: 'warn', area: 'AI assistants', title: plural(merge.length, 'file') + ' for AI assistants to merge', detail: 'Your team changed ' + (merge.length === 1 ? 'it' : 'them') + ' and so did Flightdeck. AI assistant files stages the new default for your AI assistant to merge.', paths: merge, action: open, help: HELP.newer });
     if (scan.installed === null && !noAgents) add({ id: 'contract-record', severity: 'info', area: 'AI assistants', title: 'No record of which defaults this folder started from', detail: 'Update writes .flightdeck/installed.json, so later updates can tell a default from your team\'s change.', paths: ['.flightdeck/installed.json'], action: open, help: HELP.newer });
     if (rec.ignored) add({ id: 'contract-record', severity: 'warn', area: 'AI assistants', title: '.flightdeck/installed.json can\'t be read', detail: 'The next update writes it again.', paths: ['.flightdeck/installed.json'], action: open, help: HELP.unreadable });
-    if (!unread.length && !old.length && !missing.length && !merge.length) ok('contract', custom.length ? 'The files for AI assistants are current; ' + plural(custom.length, 'file has', 'files have') + ' your team\'s own changes, which updates keep.' : 'The files for AI assistants match this version of Flightdeck.');
+    if (!stray.length && !unread.length && !old.length && !missing.length && !merge.length) ok('contract', custom.length ? 'The files for AI assistants are current; ' + plural(custom.length, 'file has', 'files have') + ' your team\'s own changes, which updates keep.' : 'The files for AI assistants match this version of Flightdeck.');
   }
 
   function dedupe(a) { return a.filter(function (x, i) { return a.indexOf(x) === i; }); }

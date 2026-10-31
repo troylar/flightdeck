@@ -955,13 +955,15 @@
     var jobs = Object.keys(texts).map(function (p) { return ['hashes', p, texts[p]]; }).concat(keys.map(function (k) { return ['want', k, EXAMPLES[k]]; }));
     return digests(jobs.map(function (j) { return C.managed(j[1], j[2]); })).then(function (ds) {
       if (!ds) return null;
-      var out = { hashes: {}, want: {}, staged: {} };
+      var out = { hashes: {}, want: {}, staged: {}, unmatched: [] };
       jobs.forEach(function (j, i) { out[j[0]][j[1]] = ds[i]; });
       /* A copy listed but not read, over the limit or failing: it's still there, so its file still waits. Its text is
          unknown, never taken to be gone. */
       (scan.updates || []).forEach(function (p) {
         var sg = repo.stagedOf(p);
-        if (sg) (out.staged[sg.key] = out.staged[sg.key] || []).push({ version: sg.version, hash: Object.prototype.hasOwnProperty.call(prints, p) ? prints[p] : null });
+        /* Not a copy of a file this version ships, like a sync tool's AGENTS-PC.md: nothing can clear it, so it stays named. */
+        if (!sg || keys.indexOf(sg.key) < 0) { out.unmatched.push(p); return; }
+        (out.staged[sg.key] = out.staged[sg.key] || []).push({ version: sg.version, hash: Object.prototype.hasOwnProperty.call(prints, p) ? prints[p] : null });
       });
       /* A file that's there but couldn't be read isn't a missing file. */
       out.unread = (scan.unreadable || []).map(function (u) { return u.path; }).filter(function (p, i, all) {
@@ -1355,8 +1357,13 @@
       });
     }).then(function () { if (!alive()) return; af.busy = false; afFilesChanged(tg); return afLoad(true, af); }, function (e) {
       if (e && e.stale) return;
-      if (!alive()) return; af.busy = false; af.err = (e && e.name === 'NotAllowedError' ? 'This browser didn\'t allow writing to the folder. ' : '') + (e && e.message || String(e)); afFilesChanged(tg); render();
+      if (!alive()) return; af.busy = false; afFailed(af, tg, 'The AI assistant files weren\'t all updated in', (e && e.name === 'NotAllowedError' ? 'This browser didn\'t allow writing to the folder. ' : '') + (e && e.message || String(e))); afFilesChanged(tg); render();
     });
+  }
+  /* A write that failed: Settings shows it where it happened, and from anywhere else it's said, since nothing there would. */
+  function afFailed(af, tg, lead, text) {
+    af.err = text;
+    if (state.view !== 'settings') say(lead + ' ' + tg.home + '. ' + text, 'warn', tg.standalone ? null : { act: 'ai-files', id: '', label: 'Open AI assistant files' });
   }
   /* What Folder health last found about these files is out of date now: its next look scans again. */
   function afFilesChanged(tg) { if (!tg.standalone) state.healthScan = null; }
@@ -1386,7 +1393,7 @@
       if (!alive()) return; af.busy = false; afFilesChanged(tg);
       af.result = kept.length ? { note: 'A copy waiting in ' + (kept.length === 1 ? kept[0] : kept.length + ' versions') + ' changed since this screen read it, so it was left where it is. Look at it again.' } : { note: 'Put away. The copy is beside the replaced files, in case you need it.' };
       return afLoad(true, af);
-    }, function (e) { if (!alive()) return; af.busy = false; af.err = e && e.message || String(e); render(); });
+    }, function (e) { if (!alive()) return; af.busy = false; afFailed(af, tg, 'An AI assistant file wasn\'t put away in', e && e.message || String(e)); render(); });
   }
   /* The request for an AI assistant: one prompt for each version folder holding a copy of this file. */
   function afBrief(key) {
@@ -1402,18 +1409,29 @@
   }
   /* Another folder for skills: chosen here, remembered where the browser allows, like the team folder. A folder chosen
      makes a new object, so the last folder's rows are gone at once, before this one's read has finished. */
-  function afUse(d) { var fs = new PF.fs.FolderFS(d); afChosen = { gen: gen, fs: fs }; return afLoad(false, afNew('other', fs)); }
+  var AF_IS_TEAM = 'That\'s the team folder. Use In the team folder for it.';
+  /* If the browser can't say, it counts as the team folder: standalone files must never land there. */
+  function afIsTeam(d) {
+    var team = state.fs && state.fs.dir;
+    return Promise.resolve(team && team.isSameEntry ? team.isSameEntry(d) : false).catch(function () { return true; });
+  }
+  /* Every way in, chosen, restored or allowed again, passes here. */
+  function afUse(af, d, remember) {
+    return afIsTeam(d).then(function (same) {
+      if (!afLive(af) || af.busy) return;
+      if (same) { af.err = AF_IS_TEAM; render(); return; }
+      if (remember) handles.write('skills', d).catch(function () { /* this browser can't remember it: it asks again next time */ });
+      var fs = new PF.fs.FolderFS(d);
+      afChosen = { gen: gen, fs: fs };
+      return afLoad(false, afNew('other', fs));
+    });
+  }
   function afPick() {
     var af = afState();
     if (!canFolder || af.busy) return;
     window.showDirectoryPicker({ id: 'flightdeck-skills', mode: 'readwrite' }).then(function (d) {
-      var team = state.fs && state.fs.dir;
-      return Promise.resolve(team && team.isSameEntry ? team.isSameEntry(d) : false).then(function (same) {
-        if (!afLive(af) || af.busy) return;
-        if (same) { af.err = 'That\'s the team folder. Use In the team folder for it.'; render(); return; }
-        handles.write('skills', d).catch(function () { /* this browser can't remember it: it asks again next time */ });
-        return afUse(d);
-      });
+      if (!afLive(af) || af.busy) return;
+      return afUse(af, d, true);
     }, function () { /* picker closed */ });
   }
   function afRemembered(af) {
@@ -1421,12 +1439,20 @@
     if (!canFolder) return;
     return handles.read('skills').then(function (d) {
       if (!d) return;
-      return afPerm({ dir: d }).then(function (p) { if (!afLive(af)) return; if (p === 'granted') return afUse(d); afNew('other', null, d); render(); });
+      return afPerm({ dir: d }).then(function (p) {
+        if (!afLive(af)) return;
+        if (p === 'granted') return afUse(af, d);
+        return afIsTeam(d).then(function (same) {
+          if (!afLive(af)) return;
+          if (same) af.err = AF_IS_TEAM; else afNew('other', null, d);
+          render();
+        });
+      });
     }).catch(function () { /* nothing remembered */ });
   }
   function afAllow() {
     var af = afState(), d = af.otherAsk; if (!d || af.busy) return;
-    d.requestPermission({ mode: 'readwrite' }).then(function (p) { if (!afLive(af) || p !== 'granted') return; return afUse(d); }, function () { /* refused: the screen stays read only */ });
+    d.requestPermission({ mode: 'readwrite' }).then(function (p) { if (!afLive(af) || p !== 'granted') return; return afUse(af, d); }, function () { /* refused: the screen stays read only */ });
   }
   /* Settings opened: where each file stands, once for this folder. */
   function afFirstLook() {

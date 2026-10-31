@@ -773,7 +773,9 @@ rule('Round 1, 6: a waiting copy that is listed but can\'t be read stays a merge
   if (!b) { if (process.env.CI) throw new Error('2.11.1\'s shipped page is needed'); console.log('skipped: v2.11.1 isn\'t cached'); return; }
   const verdict = async (html, name) => {
     const dir = scenario('settled');
-    if (name !== 'settled') { fs.mkdirSync(path.join(dir, '.flightdeck/updates/2.6.0', path.dirname(STATUS)), { recursive: true }); fs.writeFileSync(path.join(dir, '.flightdeck/updates/2.6.0', STATUS), 'old default'); }
+    if (name === 'readable' || name === 'unreadable') { fs.mkdirSync(path.join(dir, '.flightdeck/updates/2.6.0', path.dirname(STATUS)), { recursive: true }); fs.writeFileSync(path.join(dir, '.flightdeck/updates/2.6.0', STATUS), 'old default'); }
+    const stray = { 'a sync copy': '.flightdeck/updates/2.6.0/AGENTS-PC.md', 'not a version': '.flightdeck/updates/latest/AGENTS.md', 'a skill this version doesn\'t ship': '.flightdeck/updates/2.6.0/.flightdeck/skills/gone/SKILL.md' }[name];
+    if (stray) { fs.mkdirSync(path.join(dir, path.dirname(stray)), { recursive: true }); fs.writeFileSync(path.join(dir, stray), 'a copy'); }
     const o = name === 'unreadable' ? { fail: /^\.flightdeck\/updates\// } : {};
     const app = boot(Object.assign({ picker: hooked(folderHandle('Team', asFiles(dir)), o), indexedDB: memoryIDB() }, html ? { html } : {})); await app.tick(60);
     app.click('connect'); await app.tick(300);
@@ -781,8 +783,9 @@ rule('Round 1, 6: a waiting copy that is listed but can\'t be read stays a merge
     const page = app.html();
     return { merge: /waiting to be merged|for AI assistants to merge/.test(page), clear: /The files for AI assistants (are current|match this version)/.test(page) };
   };
-  for (const name of ['settled', 'readable', 'unreadable']) assert.deepStrictEqual(await verdict(null, name), await verdict(b.files['flightdeck.html'], name), name);
-  assert.deepStrictEqual(await verdict(null, 'unreadable'), { merge: true, clear: false }, 'the verdict itself');
+  const STRAY = ['a sync copy', 'not a version', 'a skill this version doesn\'t ship'];
+  for (const name of ['settled', 'readable', 'unreadable'].concat(STRAY)) assert.deepStrictEqual(await verdict(null, name), await verdict(b.files['flightdeck.html'], name), name);
+  for (const name of ['unreadable'].concat(STRAY)) assert.deepStrictEqual(await verdict(null, name), { merge: true, clear: false }, 'the verdict itself: ' + name);
 });
 
 rule('Round 1, 7 and 9: the docs say the race limit the command\'s text has, and close your editors', () => {
@@ -917,7 +920,7 @@ for (const name of Object.keys(ASYNC_PATHS)) for (const change of ['folder', 'ta
 }
 
 /* A function in this feature that waits on something, and how it's bound. A new one fails until it's listed here. */
-const AF_ASYNC = { afPerm: 'a question, no state', afRead: 'reads only, for a caller that checks', afLoad: 'guard', afUpdate: 'guard', afMerged: 'guard', afPick: 'live', afRemembered: 'live', afAllow: 'live' };
+const AF_ASYNC = { afPerm: 'a question, no state', afIsTeam: 'a question, no state', afUse: 'live', afRead: 'reads only, for a caller that checks', afLoad: 'guard', afUpdate: 'guard', afMerged: 'guard', afPick: 'live', afRemembered: 'live', afAllow: 'live' };
 const AF_ACTS = ['ai-files', 'af-load', 'af-where', 'af-pick', 'af-allow', 'af-update', 'af-merged', 'af-peek', 'af-copy', 'af-brief'];
 function afAudit(src) {
   const out = [], a = src.indexOf('Settings, AI assistant files: flightdeck install'), b = src.indexOf('Getting started (views/setup.js', a), body = src.slice(a, b), fns = {};
@@ -1003,6 +1006,93 @@ rule('Round 2, 4: the writer inventory names what Settings writes on an establis
   const row = (p) => d.split('\n').find(l => l.startsWith('  ' + p));
   ['AGENTS.md', '.flightdeck/skills/...', '.flightdeck/installed.json', '.flightdeck/updates/<version>/'].forEach(p => { assert.ok(row(p), p + ' has a row'); assert.ok(/Settings › AI assistant files/.test(row(p)), p + ': names Settings'); });
   assert.ok(/I merged it/.test(row('.flightdeck/updates/<version>/')) && /replaced\//.test(row('.flightdeck/updates/<version>/')), 'I merged it archives and removes');
+});
+
+/* ---------------- review round 3 ---------------- */
+
+rule('Round 3, 1: a sync copy left after I merged it stays named in Folder health, with no all-clear', async () => {
+  const dir = scenario('staged from 2.6.0'), stray = '.flightdeck/updates/2.6.0/AGENTS-PC.md';
+  fs.writeFileSync(path.join(dir, stray), 'a copy OneDrive made');
+  const files = asFiles(dir), app = boot({ picker: folderHandle('Team', files), indexedDB: memoryIDB() }); await app.tick(60);
+  app.click('connect'); await app.tick(200);
+  app.click('ai-files'); await wait(app);
+  app.click('af-merged', STATUS); await wait(app);
+  assert.ok(!('.flightdeck/updates/2.6.0/' + STATUS in files), 'set-up: the file itself was put away');
+  assert.ok(stray in files, 'and the other stays');
+  app.click('health'); await app.tick(800);
+  const html = app.html();
+  assert.ok(html.indexOf(stray) > 0, 'it is named');
+  assert.ok(/waiting to be merged/.test(html), 'as waiting');
+  assert.ok(!/The files for AI assistants (are current|match this version)/.test(html), 'with no all-clear');
+});
+
+rule('Round 3, 2: a remembered skills folder that is now the team folder is refused, restored or allowed again, and nothing is written', async () => {
+  const OTHER_REC = '.flightdeck-installed.json';
+  for (const perm of ['granted', 'prompt']) {
+    const idb = memoryIDB(), bFiles = asFiles(scenario('deleted'));
+    const b = Object.assign(folderHandle('Shared', bFiles), { queryPermission: () => Promise.resolve(perm), requestPermission: () => Promise.resolve('granted') });
+    let pick = folderHandle('Team', asFiles(scenario('settled')));
+    const app = boot({ picker: () => pick, indexedDB: idb }); await app.tick(60);
+    app.click('connect'); await app.tick(200);
+    app.click('ai-files'); await wait(app);
+    app.click('af-where', 'other'); await app.tick(50);
+    pick = b; app.click('af-pick'); await wait(app);
+    assert.ok(/Using <b>Shared<\/b>/.test(app.html()), perm + ': set-up: chosen for skills');
+    app.click('connect'); await app.tick(200);
+    app.click('ai-files'); await wait(app);
+    assert.ok(/data-af-status/.test(app.html()), perm + ': set-up: it is the team folder now');
+    app.click('af-where', 'other'); await wait(app);
+    const whole = app.html(), html = whole.slice(whole.indexOf('id="set-ai"'), whole.indexOf('</section>', whole.indexOf('id="set-ai"')));
+    assert.ok(/the team folder\. Use In the team folder/i.test(html), perm + ': refused, in the picker\'s words');
+    assert.ok(!/Using <b>Shared<\/b>|Allow Shared/.test(html), perm + ': not restored, and not offered');
+    assert.ok(!/data-act="af-update"/.test(html), perm + ': nothing to update');
+    app.click('af-update'); await wait(app);
+    assert.ok(!(OTHER_REC in bFiles) && !Object.keys(bFiles).some(k => /^flightdeck-|^\.flightdeck-/.test(k)), perm + ': no standalone files in the team folder');
+  }
+  /* Allow again checks too: it can be the team folder by the time the person answers. */
+  const idb = memoryIDB(), bFiles = {}, team = folderHandle('Team', asFiles(scenario('settled')));
+  const b = Object.assign(folderHandle('Shared', bFiles), { queryPermission: () => Promise.resolve('granted'), requestPermission: () => Promise.resolve('granted') });
+  const first = boot({ picker: () => b, indexedDB: idb }); await first.tick(60);
+  first.click('nav', 'settings'); await first.tick(20); first.click('af-where', 'other'); await first.tick(30); first.click('af-pick'); await first.tick(100);
+  b.queryPermission = () => Promise.resolve('prompt');
+  let same = false; team.isSameEntry = () => Promise.resolve(same);
+  const app = boot({ picker: () => team, indexedDB: idb }); await app.tick(60);
+  app.click('connect'); await app.tick(200);
+  app.click('ai-files'); await wait(app);
+  app.click('af-where', 'other'); await wait(app);
+  assert.ok(/Allow Shared again/.test(app.html()), 'set-up: it asks');
+  same = true; app.click('af-allow'); await wait(app);
+  assert.ok(/the team folder\. Use In the team folder/i.test(app.html()), 'refused when allowed again');
+  assert.ok(!/Using <b>Shared<\/b>/.test(app.html()), 'and not used');
+  assert.deepStrictEqual(Object.keys(bFiles), [], 'nothing written');
+});
+
+rule('Round 3, 3: Update failing after leaving Settings is announced, naming the assistant files; not after a folder change, and not twice on Settings', async () => {
+  const start = async () => {
+    const o = {}, g = gate(), holder = { pick: hooked(folderHandle('Team', asFiles(scenario('deleted'))), o) };
+    const app = boot({ picker: () => holder.pick, indexedDB: memoryIDB() }); await app.tick(60);
+    app.click('connect'); await app.tick(200);
+    app.click('ai-files'); await wait(app);
+    o.wait = () => g.p; app.click('af-update'); await app.tick(40);
+    return { app, holder, land: async () => { o.fail = /^AGENTS\.md$/; o.wait = null; g.open(); await wait(app); } };
+  };
+  const left = await start();
+  left.app.click('nav', 'home'); await left.app.tick(40);
+  assert.ok(!/AI assistant files/.test(left.app.live()), 'set-up: nothing said yet');
+  await left.land();
+  assert.ok(/AI assistant files/.test(left.app.live()), 'the screen reader hears it, naming the files: ' + left.app.live());
+  const NOTICE = /class="notice warn"[^>]*><span>[^<]*AI assistant files/;
+  assert.ok(NOTICE.test(left.app.html()), 'and Home shows it');
+  assert.ok(/Open AI assistant files/.test(left.app.html()), 'with a way back');
+  const moved = await start();
+  moved.app.click('nav', 'home'); await moved.app.tick(40);
+  moved.holder.pick = folderHandle('Second', asFiles(scenario('settled'))); moved.app.click('connect'); await moved.app.tick(200);
+  await moved.land();
+  assert.ok(!/AI assistant files/.test(moved.app.live()), 'the old folder\'s failure isn\'t said in the new one');
+  const stayed = await start();
+  await stayed.land();
+  assert.ok(/af-err/.test(stayed.app.html()), 'on Settings, it shows where it was');
+  assert.ok(!NOTICE.test(stayed.app.html()), 'once');
 });
 
 run();
