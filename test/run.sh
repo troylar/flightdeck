@@ -194,7 +194,10 @@ if [ -n "${LIST:-}" ]; then printf '%s' "$plain"; for f in $budgets; do echo "$f
 now_ms() { if [ -n "${EPOCHREALTIME:-}" ]; then local t="${EPOCHREALTIME/,/.}"; echo "${t%.*}$(printf '%.3s' "${t#*.}")"; else perl -MTime::HiRes=time -e 'printf "%d\n", time * 1000' 2>/dev/null || echo "$(date +%s)000"; fi; }
 started="$(now_ms)"
 if [ -n "$only" ]; then python3 build.py > /dev/null; else python3 build.py; fi
-logs="$(mktemp -d)"; if [ -n "${KEEP_LOGS:-}" ]; then echo "logs: $logs"; else trap 'rm -rf "$logs"' EXIT; fi
+logs="$(mktemp -d)"
+# Tests make temp folders and leave them behind; give the run one of its own, removed at the end (KEEP_LOGS keeps it).
+tmp="$(mktemp -d)"; export TMPDIR="$tmp"
+if [ -n "${KEEP_LOGS:-}" ]; then echo "logs: $logs, temp files: $tmp"; else trap 'rm -rf "$logs" "$tmp"' EXIT; fi
 touch "$logs/status" "$logs/times"
 job() { # file, and its shard i/n, - for the whole file, or budgets for its budget rules alone
   local f="$1" s="$2" name what rc=0 t0 mode=skip sh=
