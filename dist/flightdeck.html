@@ -8834,6 +8834,8 @@ PF.corrections = (function () {
       out.push({ id: n.id, step: n.step || '', stepText: x ? M.shownText(x.step, M.valuesOf(r)) : n.target && n.target.gate ? 'Gate: ' + gateTitle(map, n.target.gate) : n.target && n.target.phase ? 'Phase: ' + phaseTitle(map, n.target.phase) : '', from: n.kind === 'correction' ? n.from : x ? x.step.text : '',
         change: ch, proposed: proposal(n.kind === 'correction' ? n : { change: ch }, map), why: n.kind === 'correction' ? (n.newer ? n.text || n.why || '' : n.why || '') : (n.kind === 'fix' && LEGACY_KIND[n.fixKind] ? LEGACY_KIND[n.fixKind] + ': ' : '') + n.text,
         happened: n.kind === 'correction' ? n.happened || '' : '', by: n.by, at: n.at, files: n.files || [], fileInfo: n.fileInfo || {}, legacy: n.kind !== 'correction' ? n.kind : '', oneOff: false });
+      /* The note itself, as collect keeps it: its files' buttons and its group find it by what it is, not by its id. */
+      Object.defineProperty(out[out.length - 1], 'note', { value: n });
       if (at) out[out.length - 1].noteAt = y.k;
     });
     M.steps(map).forEach(function (x) {
@@ -20147,7 +20149,7 @@ PF.vk = (function () {
       if (m.happened) dl += '<dt' + tag() + '>What happened · ' + esc(nameOf(ctx, m.by)) + '</dt><dd>' + esc(m.happened) + '</dd>';
     });
     if (dl) h += '<dl class="corr-dl">' + dl + '</dl>';
-    ms.forEach(function (x) { h += V.attachments(ctx, x.m.id, x.m.files, x.m.fileInfo, 'corr'); });
+    ms.forEach(function (x) { h += V.attachments(ctx, x.m.id, x.m.files, x.m.fileInfo, 'corr', ctx.findRun && ctx.findRun(x.m.process + '/' + x.m.run), x.m.note); });
     /* The runs behind it, with names inside: a count of runs, never a vote. */
     h += '<details class="corr-runs"><summary class="small">Suggested in ' + g.runs + ' run' + (g.runs === 1 ? '' : 's') + '</summary><ul class="small">' + ms.map(function (x) {
       var m = x.m;
@@ -21202,6 +21204,15 @@ PF.vk = (function () {
   }
   /* The groups of a process by correction ID, from the app (memoized) or worked out here. */
   function corrIndex(ctx, pid) { return C.statusById(corrGroups(ctx, pid)); }
+  /* The groups of a process by each member's run and note, its whole content: twins in two groups each show their own and offer
+     their own Withdraw. A receipt keeps corrIndex, so its text stays as it was. */
+  function corrByNote(ctx, pid) {
+    var o = Object.create(null);
+    corrGroups(ctx, pid).forEach(function (g) { g.members.forEach(function (m) { if (m.note) o[m.run + '\n' + PF.search.noteAnchor(m.note)] = g; }); });
+    return o;
+  }
+  /* A correction row's group in corrByNote. A one-off answer has no note and no group. */
+  function corrOf(idx, r, c) { return c.note ? idx[r.id + '\n' + PF.search.noteAnchor(c.note)] : undefined; }
   /* Every group on a process, with where it stands and which published version has it: from the app (memoized) or worked out here. */
   function corrGroups(ctx, pid) {
     if (ctx.corrections) return ctx.corrections(pid);
@@ -21221,7 +21232,7 @@ PF.vk = (function () {
     if (c.why) dl += '<dt>' + (ch && ch.op === 'describe' ? 'Problem' : 'Why') + '</dt><dd>' + esc(c.why) + '</dd>';
     if (c.happened) dl += '<dt>What happened</dt><dd>' + esc(c.happened) + '</dd>';
     h += dl ? '<dl class="corr-dl">' + dl + '</dl>' : '';
-    h += attachments(ctx, c.id, c.files, c.fileInfo, 'corr');
+    h += attachments(ctx, c.id, c.files, c.fileInfo, 'corr', opts.run, c.note);
     if (g && g.again) h += '<div class="small">Suggested again after it was ' + esc(g.again.status) + (g.again.reason ? ': ' + esc(g.again.reason) : '') + '</div>';
     if (opts.withdraw && g && g.status === 'open' && !g.tie && C.canWithdraw(g, ctx.state.me)) h += '<div class="row"><button class="mini" data-act="corr-withdraw" data-id="' + esc(g.id) + '" data-process="' + esc(g.process) + '">Withdraw</button></div>';
     if (opts.followUp) h += opts.followUp;
@@ -21315,7 +21326,7 @@ PF.vk = (function () {
       (dl ? '<dl class="corr-dl">' + dl + '</dl>' : '') + runs + who + '</details></div>';
   }
   V.fuList = fuList; V.fuRow = fuRow; V.fuPill = fuPill; V.fuPaged = fuPaged;
-  V.redline = redline; V.corrRow = corrRow; V.corrDomId = corrDomId; V.noteDomId = noteDomId; V.oneOffDom = oneOffDom; V.ONE_OFF = ONE_OFF; V.corrFocus = corrFocus; V.memberKeys = memberKeys; V.oneOffHeld = oneOffHeld; V.corrItems = corrItems; V.corrPill = corrPill; V.corrIndex = corrIndex; V.corrGroups = corrGroups;
+  V.redline = redline; V.corrRow = corrRow; V.corrDomId = corrDomId; V.noteDomId = noteDomId; V.oneOffDom = oneOffDom; V.ONE_OFF = ONE_OFF; V.corrFocus = corrFocus; V.memberKeys = memberKeys; V.oneOffHeld = oneOffHeld; V.corrItems = corrItems; V.corrPill = corrPill; V.corrIndex = corrIndex; V.corrByNote = corrByNote; V.corrOf = corrOf; V.corrGroups = corrGroups;
   /* The composer: Correct this step (a proposal; it doesn't answer the step) or Done differently (answers it; what happened
      first, then whether the checklist should change). The published step stays shown above it, never replaced. */
   function composer(ctx, r, map, x, f) {
@@ -21398,12 +21409,15 @@ PF.vk = (function () {
   }
   /* Attachments on a note or suggestion: images as thumbnails that open the viewer; text files open as plain text; other
      files save a copy. Never shown as a page. */
-  function attachments(ctx, owner, files, info, from) {
+  function attachments(ctx, owner, files, info, from, r, note) {
+    /* Each button carries its run and exactly which note it's on (PF.search.noteKeep): notes can share an id, and the page's
+       attNote finds this one with PF.search.noteFind. */
+    var kept = files && files.length && r && note ? PF.search.noteKeep(runKey(r), r._notes || [], note) : null, keep = kept ? ' data-note="' + esc(JSON.stringify(kept)) + '"' : '';
     var imgs = 0, h = '';
     (files || []).forEach(function (f) {
       var k = A.kindOf(f), name = A.nameOf(f, info && info[f]), sz = info && info[f] && info[f].size != null ? A.size(info[f].size) : '';
-      if (k === 'image') { h += '<button class="thumb" data-act="' + (from === 'corr' ? 'zoom-corr' : 'zoom-note') + '" data-id="' + esc(owner) + '" data-i="' + imgs + '" aria-label="Open ' + esc(name) + '" title="' + esc(name) + '">' + ctx.img(f, name) + '</button>'; imgs++; return; }
-      h += '<button class="att" data-act="' + (k === 'text' ? 'att-open' : 'att-save') + '" data-id="' + esc(owner) + '" data-from="' + esc(from) + '" data-path="' + esc(f) + '" aria-label="' + (k === 'text' ? 'Open ' : 'Save a copy of ') + esc(name) + (sz ? ', ' + esc(sz) : '') + '">' + I('doc') + '<span class="att-n">' + esc(name) + '</span>' + (sz ? '<span class="small">' + esc(sz) + '</span>' : '') + '<span class="att-do">' + (k === 'text' ? 'Open' : 'Save') + '</span></button>';
+      if (k === 'image') { h += '<button class="thumb" data-act="' + (from === 'corr' ? 'zoom-corr' : 'zoom-note') + '" data-id="' + esc(owner) + '" data-i="' + imgs + '" aria-label="Open ' + esc(name) + '" title="' + esc(name) + '"' + keep + '>' + ctx.img(f, name) + '</button>'; imgs++; return; }
+      h += '<button class="att"' + keep + ' data-act="' + (k === 'text' ? 'att-open' : 'att-save') + '" data-id="' + esc(owner) + '" data-from="' + esc(from) + '" data-path="' + esc(f) + '" aria-label="' + (k === 'text' ? 'Open ' : 'Save a copy of ') + esc(name) + (sz ? ', ' + esc(sz) : '') + '">' + I('doc') + '<span class="att-n">' + esc(name) + '</span>' + (sz ? '<span class="small">' + esc(sz) + '</span>' : '') + '<span class="att-do">' + (k === 'text' ? 'Open' : 'Save') + '</span></button>';
     });
     return h ? '<div class="thumbs atts">' + h + '</div>' : '';
   }
@@ -21529,7 +21543,7 @@ PF.vk = (function () {
     /* Done differently: what happened, said with the answer (or after it), and the correction that went with it if any. */
     if (cf && cf.mode === 'differently') h += composer(ctx, r, map, x, cf);
     else if (rec && !r.paused && R.phaseOpen(r, map, x.phaseIndex) && a && a.s === 'done' && !a.differently && t.id !== 'run.process') h += '<button class="mini" style="align-self:flex-start" data-act="corr-open" data-mode="differently" data-id="' + esc(st.id) + '">Did it differently? Say how</button>';
-    var rows = C.forRun(r, map, { at: true }).filter(function (c) { return c.step === st.id; }), idx = rows.length ? corrIndex(ctx, r.process) : {};
+    var rows = C.forRun(r, map, { at: true }).filter(function (c) { return c.step === st.id; }), idx = rows.length ? corrByNote(ctx, r.process) : {};
     if (a && a.differently) {
       var linked = rows.filter(function (c) { return c.answer && !c.oneOff; })[0];
       h += '<div class="notice rw-diff" style="margin:0"><span><span class="badge b-diff">Done differently</span> · ' + esc(nameOf(ctx, a.differently.by)) + (a.differently.at ? ' · ' + U.hm(a.differently.at) : '') + '<span class="rw-diff-t">' + esc(a.differently.note) + '</span></span><span class="row">' +
@@ -21562,7 +21576,7 @@ PF.vk = (function () {
     h += '<section class="rw-box rw-corr" aria-labelledby="ins-corr"><div class="row between"><h3 class="rw-h3" id="ins-corr">Corrections' + (rows.length ? ' · ' + rows.length : '') + '</h3>' +
       (s.me && !(cf && cf.mode === 'correct') ? '<button class="mini" data-act="corr-open" data-mode="correct" data-id="' + esc(st.id) + '" title="If the checklist was wrong or unclear here, correct it. The team reviews corrections on the checklist&#39;s page.">' + I('edit') + 'Correct this step</button>' : '') + '</div>' +
       (rows.length ? K.list(s, 'rcorr:' + rk, ci, { page: 20, hold: false, keep: [nsCorr ? nsCorr.key : null, nhCorr ? nhAny.key : null, oneOffHeld(s, r, ci)].filter(isKey), keptLabel: nsCorr ? 'Shown because you opened it' : 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: corrFocus,
-        draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) { return corrRow(ctx, x.c, idx[x.c.id], { withdraw: true, domId: x.dom }); }).join('') + '</ul>'; } }) : '') +
+        draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) { return corrRow(ctx, x.c, corrOf(idx, r, x.c), { withdraw: true, domId: x.dom, run: r }); }).join('') + '</ul>'; } }) : '') +
       (cf && cf.mode === 'correct' ? composer(ctx, r, map, x, cf) : '') + '</section>';
     /* The newest 20 notes, with Show earlier above them (2.11). A note is its id and where it stands among the notes sharing
        that id (PF.search.noteAt), so notes that share an id are told apart. The note a search or a save showed you is drawn
@@ -21574,7 +21588,7 @@ PF.vk = (function () {
       var n = x.n, made = (r.followUps || []).some(function (f) { return f.from === n.id; });
       PF.perf.add('note.row');
       return '<li id="' + esc(tn(x.key)) + '" tabindex="-1"' + (flashKey === x.key ? ' class="flash"' : '') + '>' + avatar(ctx, n.by) + '<div><div class="meta">' + esc(nameOf(ctx, n.by)) + ' · ' + U.hm(n.at) + '</div><div>' + U.mdInline(n.text) + '</div>' +
-        attachments(ctx, n.id, n.files, n.fileInfo, 'note') +
+        attachments(ctx, n.id, n.files, n.fileInfo, 'note', r, n) +
         (rec && r.state === 'running' && n.text ? (made ? '<span class="small">Follow-up added</span>' : '<button class="linkish" data-act="add-followup" data-text="' + esc(n.text.slice(0, 300)) + '" data-step="' + esc(st.id) + '" data-from="' + esc(n.id) + '">Make it a follow-up</button>') : '') + '</div></li>';
     };
     h += '<section class="rw-box rw-notes" aria-labelledby="ins-notes"><h3 class="rw-h3" id="ins-notes">' + (R.solo(r) ? 'Notes' : 'Team notes') + (notes.length ? ' · ' + notes.length : '') + '</h3>' +
@@ -22131,7 +22145,7 @@ PF.vk = (function () {
   /* ---------- finishing a run ---------- */
   function finish(ctx) {
     var r = ctx.run(); if (!r) return V.run(ctx);
-    var s = ctx.state, map = R.mapOf(r), rec = ctx.recording(r), ok = R.allGatesOk(r, map), fus = r.followUps || [], cor = PF.corrections.forRun(r, map, { at: true }), idx = cor.length ? V.corrIndex(ctx, r.process) : {};
+    var s = ctx.state, map = R.mapOf(r), rec = ctx.recording(r), ok = R.allGatesOk(r, map), fus = r.followUps || [], cor = PF.corrections.forRun(r, map, { at: true }), idx = cor.length ? V.corrByNote(ctx, r.process) : {};
     var people = PF.people.sorted(ctx).filter(function (p) { return !p.inactive; });
     var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) + '</div><h1 id="page-h" tabindex="-1">Finish ' + esc(r.title) + '</h1></div><button class="btn" data-act="exit-mission">' + I('back') + 'Back to the run</button></div>';
     if (!rec) return h + '<div class="notice warn"><span>Only the recorder can finish the run.</span></div>';
@@ -22146,7 +22160,7 @@ PF.vk = (function () {
       K.list(s, 'fin-corr:' + r.process + '/' + r.id, finItems, { hold: false, keep: heldCorr(s, r, finItems), keptLabel: 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: corrFocus, draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) {
         var c = x.c;
         var fu = '<button class="mini" data-act="add-followup" data-text="' + esc(('Update the checklist: ' + (c.stepText || c.step) + ' (' + (c.proposed || c.why || c.happened) + ')').slice(0, 300)) + '" data-step="' + esc(c.step) + '" data-from="' + esc(c.id) + '">Make it a follow-up</button>';
-        return V.corrRow(ctx, c, idx[c.id], { step: true, domId: x.dom, followUp: fus.some(function (f) { return f.from === c.id; }) ? '<span class="small">Follow-up added</span>' : fu });
+        return V.corrRow(ctx, c, V.corrOf(idx, r, c), { step: true, run: r, domId: x.dom, followUp: fus.some(function (f) { return f.from === c.id; }) ? '<span class="small">Follow-up added</span>' : fu });
       }).join('') + '</ul>'; } }) + '</section>';
     h += '<section class="panel stack"><h2>End the run</h2><div class="row">' + ['Completed', 'Stopped early', 'Cancelled'].map(function (o) {
       var allowed = o !== 'Completed' || ok;
@@ -22212,7 +22226,7 @@ PF.vk = (function () {
     /* The page's rows are told apart when two share an id ({ at: true }); the copied text (receiptText) is as it always was. */
     var rcItems = cor.length ? V.corrItems(PF.corrections.forRun(r, map, { at: true })) : [];
     if (cor.length) body += '<div class="r-corr"><h4><span>Corrections · ' + cor.length + '</span></h4>' + K.list(st, 'rcpt-corr:' + rkey, rcItems, { hold: false, keep: heldCorr(st, r, rcItems), keptLabel: 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: corrFocus,
-      draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) { return V.corrRow(ctx, x.c, idx[x.c.id], { step: true, domId: x.dom }); }).join('') + '</ul>'; } }) + '</div>';
+      draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) { return V.corrRow(ctx, x.c, idx[x.c.id], { step: true, run: r, domId: x.dom }); }).join('') + '</ul>'; } }) + '</div>';
     return notices(ctx) + '<div class="runhead"><div><div class="eyebrow">Receipt · Copy it into your ticket, or take a screenshot</div><h1 id="page-h" tabindex="-1">' + esc(r.title) + '</h1></div><div class="row"><button class="btn primary" data-act="copy-receipt">' + I('copy') + 'Copy for Jira</button><button class="btn" data-act="exit-mission">' + I('back') + 'Back to the run</button><button class="btn" data-act="ev-open" data-id="' + esc(r.process + '/' + r.id) + '">' + I('doc') + 'Export evidence</button>' + V.planAgain(ctx, r) + '<span class="small" id="copy-msg" aria-live="polite"></span></div></div>' +
       '<div class="receipt"><div class="head"><div><div class="eyebrow">' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) + '</div><div class="rt">' + esc(r.title) + '</div>' + (det ? '<div class="small">' + esc(det) + '</div>' : '') + '</div><div style="text-align:right"><div class="pill ' + hl.s + '">' + esc(r.ended ? K.hlText(r, hl) : 'In progress') + '</div><div class="small">started ' + esc(U.when(r.created)) + '<br>run ' + esc(r.id) + '</div></div></div>' + body +
       '<div class="small">✓ done · N/A not applicable · ■ blocked · ↻ re-check · ○ not checked</div></div><pre id="receipt-text" hidden></pre>';
@@ -22341,10 +22355,10 @@ PF.vk = (function () {
 
   /* A text attachment, shown as plain text: the app fills #att-text with textContent after drawing, so nothing in the file is
      ever read as markup. */
-  function textPreview(name, path, cut, bytes, owner, from) {
+  function textPreview(name, path, cut, bytes, owner, from, note) {
     return '<div class="overlay" data-act="close-overlay"><div class="tp-box" role="dialog" aria-modal="true" aria-labelledby="tp-t"><div class="tp-bar"><h2 id="tp-t">' + esc(name) + '</h2>' +
       '<span class="small">' + esc(PF.attach.size(bytes)) + (cut ? ' · showing the first ' + esc(PF.attach.size(PF.attach.PREVIEW_MAX)) : '') + '</span>' +
-      '<button class="mini" data-act="att-save" data-id="' + esc(owner) + '" data-from="' + esc(from || 'note') + '" data-path="' + esc(path) + '">Save a copy</button><button class="mini" data-act="close-overlay" id="tp-close">Close</button></div>' +
+      '<button class="mini" data-act="att-save" data-id="' + esc(owner) + '" data-from="' + esc(from || 'note') + '" data-path="' + esc(path) + '"' + (note ? ' data-note="' + esc(note) + '"' : '') + '>Save a copy</button><button class="mini" data-act="close-overlay" id="tp-close">Close</button></div>' +
       '<pre class="tp-text" id="att-text" tabindex="0"></pre></div></div>';
   }
 
@@ -32166,7 +32180,7 @@ PF.examples = (function () {
       state.brief = { key: 'corrections:' + p.id, text: text }; render();
       copyText(text, document.getElementById('brief-pre'), 'Copied. Paste it to your AI assistant.');
     },
-    'zoom-corr': function (id, b) { var c = corrById(id); if (c) openLightbox(imagesOf(c), +b.dataset.i); },
+    'zoom-corr': function (id, b) { var c = attNote(b); if (c) openLightbox(imagesOf(c), +b.dataset.i); },
     'add-note': function (id) {
       var r = ctx.run(), text = val('note-text').trim(), nkey = state.runKey, mine = attachmentsFor(nkey, id), files = mine;
       var who = state.me, nfs = state.fs, ng = gen;
@@ -32228,11 +32242,11 @@ PF.examples = (function () {
     zoom: function (id, b) { var r = ctx.run(), x = r && M.findStep(R.mapOf(r), id); if (!x) return; openLightbox(x.step.shots.map(function (s) { return { src: s.src, caption: s.caption }; }), +b.dataset.i); },
     'zoom-phase': function (id, b) { var r = ctx.run(), ph = r && R.mapOf(r).phases.filter(function (x) { return x.id === id; })[0]; if (!ph) return; openLightbox(ph.shots.map(function (s) { return { src: s.src, caption: s.caption }; }), +b.dataset.i); },
     'zoom-gate': function (id, b) { var r = ctx.run(), ph = r && R.mapOf(r).phases.filter(function (x) { return x.gate.id === id; })[0]; if (!ph) return; openLightbox(ph.gate.shots.map(function (s) { return { src: s.src, caption: s.caption }; }), +b.dataset.i); },
-    'zoom-note': function (id, b) { var r = ctx.run(), n = r && (r._notes || []).filter(function (x) { return x.id === id; })[0]; if (!n) return; openLightbox(imagesOf(n), +b.dataset.i); },
+    'zoom-note': function (id, b) { var n = attNote(b); if (n) openLightbox(imagesOf(n), +b.dataset.i); },
     'att-remove': function (id) { var p = state.pendingFiles.filter(function (x) { return x.id === id; })[0]; if (!p) return; state.pendingFiles = state.pendingFiles.filter(function (x) { return x !== p; }); state.attErr = null; state.focus = /^corr:/.test(p.step) ? 'corr-why' : 'note-text'; render(); },
     /* A text attachment opens as plain text in a dialog; anything else saves a copy. Only files of the note or suggestion named are read. */
     'att-open': function (id, b) {
-      var it = attOwner(id, b), path = b && b.dataset.path, g = gen, key = state.runKey, view = state.view, pid = state.processId; if (!it || !path) return;
+      var it = attOwner(b), path = b && b.dataset.path, g = gen, key = state.runKey, view = state.view, pid = state.processId; if (!it || !path) return;
       var name = PF.attach.nameOf(path, (it.fileInfo || {})[path]);
       /* A slow read that finishes after the person moved to another run or page opens nothing. */
       var still = function () { return g === gen && state.view === view && (view === 'process' ? state.processId === pid : state.runKey === key); };
@@ -32242,12 +32256,12 @@ PF.examples = (function () {
         var cut = blob.size > PF.attach.PREVIEW_MAX;
         return blob.slice(0, PF.attach.PREVIEW_MAX).text().then(function (text) {
           if (!still()) return;
-          openOverlay({ text: text, html: function () { return V.textPreview(name, path, cut, blob.size, id, b.dataset.from); } });
+          openOverlay({ text: text, html: function () { return V.textPreview(name, path, cut, blob.size, id, b.dataset.from, b.dataset.note); } });
         });
       }, function (e) { if (g === gen) { say('Couldn\'t open "' + name + '": ' + e.message, 'bad'); render(); } });
     },
     'att-save': function (id, b) {
-      var it = attOwner(id, b), path = b && b.dataset.path, g = gen; if (!it || !path) return;
+      var it = attOwner(b), path = b && b.dataset.path, g = gen; if (!it || !path) return;
       var name = PF.attach.nameOf(path, (it.fileInfo || {})[path]);
       state.fs.blob(path).then(function (blob) {
         if (g !== gen) return;
@@ -32265,11 +32279,6 @@ PF.examples = (function () {
   var exporter = PF.exporter({ ctx: ctx, state: state, gen: function () { return gen; }, open: openOverlay, render: render, version: APP_VERSION });
   Object.keys(exporter.actions).forEach(function (k) { ACTIONS[k] = exporter.actions[k]; });
   /* Reread the open run before taking over recording. Resolves to the run's key and generation, or null if the folder changed. */
-  /* A correction by ID, from the open run's notes or, on a process page, from the process's corrections. */
-  function corrById(id) {
-    if (state.view === 'process') { var p = currentProcess(), hit = null; if (p) ctx.corrections(p.id).forEach(function (g) { g.members.forEach(function (c) { if (c.id === id) hit = c; }); }); return hit; }
-    var r = ctx.run(); return r && (r._notes || []).filter(function (n) { return n.id === id && (n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map'); })[0];
-  }
   function corrFocus(op) { return { wording: 'corr-to', add: 'corr-text', move: 'corr-move', roles: 'corr-roles', screenshot: 'corr-why', remove: 'corr-why', describe: 'corr-why' }[op] || 'corr-to'; }
   /* Saves a correction (a note in this window's own notes file, with its files), or answers the step done differently and,
      with "Fix the checklist too", saves the correction first: if the note can't be written nothing changes; if the run's
@@ -33351,13 +33360,16 @@ PF.examples = (function () {
       .then(function () { return { paths: paths, info: info }; });
   }
   function imagesOf(n) { return (n.files || []).filter(function (f) { return PF.attach.kindOf(f) === 'image'; }).map(function (f) { return { src: f, caption: PF.attach.nameOf(f, (n.fileInfo || {})[f]) + ' from ' + V.nameOf(ctx, n.by) }; }); }
-  /* The note or suggestion a file button belongs to, and only if the file is one of its own. */
-  function attOwner(id, b) {
-    var from = b && b.dataset.from, path = b && b.dataset.path, it = null;
-    if (from === 'corr') it = corrById(id);
-    else { var r = ctx.run(); it = r && (r._notes || []).filter(function (x) { return x.id === id; })[0]; }
-    return it && (it.files || []).indexOf(path) >= 0 ? it : null;
+  /* The note an attachment button is on: the run and note it carries (V.attachments), found as any kept note is. None if that
+     note is gone, or can't be told from a copy any more; never another in its place. */
+  function attNote(b) {
+    var t = null;
+    try { t = JSON.parse((b && b.dataset.note) || 'null'); } catch (e) { return null; }
+    var r = t && ctx.findRun(t.run), hit = r ? PF.search.noteFind(r._notes || [], t) : null;
+    return hit ? hit.n : null;
   }
+  /* The note or suggestion a file button belongs to, and only if the file is one of its own. */
+  function attOwner(b) { var it = attNote(b); return it && (it.files || []).indexOf(b.dataset.path) >= 0 ? it : null; }
   function noteStepText(id) { var r = ctx.run(), x = r && M.findStep(R.mapOf(r), id); return x ? M.shownText(x.step, M.valuesOf(r)) : id; }
   /* Typed evidence, Fill in values and a note's text belong to their run and step. They're kept here while the person moves
      around the run (J/K, clicks, auto-advance), drawn back into the boxes on return, and dropped only when used or canceled.

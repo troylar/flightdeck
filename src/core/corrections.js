@@ -348,6 +348,8 @@ PF.corrections = (function () {
       out.push({ id: n.id, step: n.step || '', stepText: x ? M.shownText(x.step, M.valuesOf(r)) : n.target && n.target.gate ? 'Gate: ' + gateTitle(map, n.target.gate) : n.target && n.target.phase ? 'Phase: ' + phaseTitle(map, n.target.phase) : '', from: n.kind === 'correction' ? n.from : x ? x.step.text : '',
         change: ch, proposed: proposal(n.kind === 'correction' ? n : { change: ch }, map), why: n.kind === 'correction' ? (n.newer ? n.text || n.why || '' : n.why || '') : (n.kind === 'fix' && LEGACY_KIND[n.fixKind] ? LEGACY_KIND[n.fixKind] + ': ' : '') + n.text,
         happened: n.kind === 'correction' ? n.happened || '' : '', by: n.by, at: n.at, files: n.files || [], fileInfo: n.fileInfo || {}, legacy: n.kind !== 'correction' ? n.kind : '', oneOff: false });
+      /* The note itself, as collect keeps it: its files' buttons and its group find it by what it is, not by its id. */
+      Object.defineProperty(out[out.length - 1], 'note', { value: n });
       if (at) out[out.length - 1].noteAt = y.k;
     });
     M.steps(map).forEach(function (x) {

@@ -6711,7 +6711,7 @@
       state.brief = { key: 'corrections:' + p.id, text: text }; render();
       copyText(text, document.getElementById('brief-pre'), 'Copied. Paste it to your AI assistant.');
     },
-    'zoom-corr': function (id, b) { var c = corrById(id); if (c) openLightbox(imagesOf(c), +b.dataset.i); },
+    'zoom-corr': function (id, b) { var c = attNote(b); if (c) openLightbox(imagesOf(c), +b.dataset.i); },
     'add-note': function (id) {
       var r = ctx.run(), text = val('note-text').trim(), nkey = state.runKey, mine = attachmentsFor(nkey, id), files = mine;
       var who = state.me, nfs = state.fs, ng = gen;
@@ -6773,11 +6773,11 @@
     zoom: function (id, b) { var r = ctx.run(), x = r && M.findStep(R.mapOf(r), id); if (!x) return; openLightbox(x.step.shots.map(function (s) { return { src: s.src, caption: s.caption }; }), +b.dataset.i); },
     'zoom-phase': function (id, b) { var r = ctx.run(), ph = r && R.mapOf(r).phases.filter(function (x) { return x.id === id; })[0]; if (!ph) return; openLightbox(ph.shots.map(function (s) { return { src: s.src, caption: s.caption }; }), +b.dataset.i); },
     'zoom-gate': function (id, b) { var r = ctx.run(), ph = r && R.mapOf(r).phases.filter(function (x) { return x.gate.id === id; })[0]; if (!ph) return; openLightbox(ph.gate.shots.map(function (s) { return { src: s.src, caption: s.caption }; }), +b.dataset.i); },
-    'zoom-note': function (id, b) { var r = ctx.run(), n = r && (r._notes || []).filter(function (x) { return x.id === id; })[0]; if (!n) return; openLightbox(imagesOf(n), +b.dataset.i); },
+    'zoom-note': function (id, b) { var n = attNote(b); if (n) openLightbox(imagesOf(n), +b.dataset.i); },
     'att-remove': function (id) { var p = state.pendingFiles.filter(function (x) { return x.id === id; })[0]; if (!p) return; state.pendingFiles = state.pendingFiles.filter(function (x) { return x !== p; }); state.attErr = null; state.focus = /^corr:/.test(p.step) ? 'corr-why' : 'note-text'; render(); },
     /* A text attachment opens as plain text in a dialog; anything else saves a copy. Only files of the note or suggestion named are read. */
     'att-open': function (id, b) {
-      var it = attOwner(id, b), path = b && b.dataset.path, g = gen, key = state.runKey, view = state.view, pid = state.processId; if (!it || !path) return;
+      var it = attOwner(b), path = b && b.dataset.path, g = gen, key = state.runKey, view = state.view, pid = state.processId; if (!it || !path) return;
       var name = PF.attach.nameOf(path, (it.fileInfo || {})[path]);
       /* A slow read that finishes after the person moved to another run or page opens nothing. */
       var still = function () { return g === gen && state.view === view && (view === 'process' ? state.processId === pid : state.runKey === key); };
@@ -6787,12 +6787,12 @@
         var cut = blob.size > PF.attach.PREVIEW_MAX;
         return blob.slice(0, PF.attach.PREVIEW_MAX).text().then(function (text) {
           if (!still()) return;
-          openOverlay({ text: text, html: function () { return V.textPreview(name, path, cut, blob.size, id, b.dataset.from); } });
+          openOverlay({ text: text, html: function () { return V.textPreview(name, path, cut, blob.size, id, b.dataset.from, b.dataset.note); } });
         });
       }, function (e) { if (g === gen) { say('Couldn\'t open "' + name + '": ' + e.message, 'bad'); render(); } });
     },
     'att-save': function (id, b) {
-      var it = attOwner(id, b), path = b && b.dataset.path, g = gen; if (!it || !path) return;
+      var it = attOwner(b), path = b && b.dataset.path, g = gen; if (!it || !path) return;
       var name = PF.attach.nameOf(path, (it.fileInfo || {})[path]);
       state.fs.blob(path).then(function (blob) {
         if (g !== gen) return;
@@ -6810,11 +6810,6 @@
   var exporter = PF.exporter({ ctx: ctx, state: state, gen: function () { return gen; }, open: openOverlay, render: render, version: APP_VERSION });
   Object.keys(exporter.actions).forEach(function (k) { ACTIONS[k] = exporter.actions[k]; });
   /* Reread the open run before taking over recording. Resolves to the run's key and generation, or null if the folder changed. */
-  /* A correction by ID, from the open run's notes or, on a process page, from the process's corrections. */
-  function corrById(id) {
-    if (state.view === 'process') { var p = currentProcess(), hit = null; if (p) ctx.corrections(p.id).forEach(function (g) { g.members.forEach(function (c) { if (c.id === id) hit = c; }); }); return hit; }
-    var r = ctx.run(); return r && (r._notes || []).filter(function (n) { return n.id === id && (n.kind === 'correction' || n.kind === 'fix' || n.kind === 'map'); })[0];
-  }
   function corrFocus(op) { return { wording: 'corr-to', add: 'corr-text', move: 'corr-move', roles: 'corr-roles', screenshot: 'corr-why', remove: 'corr-why', describe: 'corr-why' }[op] || 'corr-to'; }
   /* Saves a correction (a note in this window's own notes file, with its files), or answers the step done differently and,
      with "Fix the checklist too", saves the correction first: if the note can't be written nothing changes; if the run's
@@ -7896,13 +7891,16 @@
       .then(function () { return { paths: paths, info: info }; });
   }
   function imagesOf(n) { return (n.files || []).filter(function (f) { return PF.attach.kindOf(f) === 'image'; }).map(function (f) { return { src: f, caption: PF.attach.nameOf(f, (n.fileInfo || {})[f]) + ' from ' + V.nameOf(ctx, n.by) }; }); }
-  /* The note or suggestion a file button belongs to, and only if the file is one of its own. */
-  function attOwner(id, b) {
-    var from = b && b.dataset.from, path = b && b.dataset.path, it = null;
-    if (from === 'corr') it = corrById(id);
-    else { var r = ctx.run(); it = r && (r._notes || []).filter(function (x) { return x.id === id; })[0]; }
-    return it && (it.files || []).indexOf(path) >= 0 ? it : null;
+  /* The note an attachment button is on: the run and note it carries (V.attachments), found as any kept note is. None if that
+     note is gone, or can't be told from a copy any more; never another in its place. */
+  function attNote(b) {
+    var t = null;
+    try { t = JSON.parse((b && b.dataset.note) || 'null'); } catch (e) { return null; }
+    var r = t && ctx.findRun(t.run), hit = r ? PF.search.noteFind(r._notes || [], t) : null;
+    return hit ? hit.n : null;
   }
+  /* The note or suggestion a file button belongs to, and only if the file is one of its own. */
+  function attOwner(b) { var it = attNote(b); return it && (it.files || []).indexOf(b.dataset.path) >= 0 ? it : null; }
   function noteStepText(id) { var r = ctx.run(), x = r && M.findStep(R.mapOf(r), id); return x ? M.shownText(x.step, M.valuesOf(r)) : id; }
   /* Typed evidence, Fill in values and a note's text belong to their run and step. They're kept here while the person moves
      around the run (J/K, clicks, auto-advance), drawn back into the boxes on return, and dropped only when used or canceled.
