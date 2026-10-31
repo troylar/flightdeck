@@ -18,7 +18,7 @@ Odd names in a folder, and notes that share an ID.
 - **Rotation and team runs count every name** (Runs). A person with the ID constructor who has never done the role gets the same place in rotation as anyone else who hasn't, and a run with a second person named __proto__ counts as a team run. *Where:* Starting a run, and a run's mode
 - **Other names from a folder are read as they are** (Everywhere). Details, roles, fields, step types and drafts with a name like constructor no longer pick up something the app didn't write. A draft step or custom step type with such a name is refused and told why. *Where:* Drafts, practice, step types, corrections, reports and publishing
 - **A hand-edited step type can't lose what you enter** (Runs). A version whose step type was edited by hand to name evidence, a field or a condition with a word like __proto__ or constructor says it can't be run here, and so does the assistants' folder checker. Practice says the same of a draft's role or run detail with such a name. *Where:* Publishing, runs on such a version, and Practice
-- **Opening another folder closes what was open** (Everywhere). If a screenshot or another dialog is still open when a folder you picked finishes opening, it closes and you land on the new folder's heading. *Where:* Switching team folders
+- **Opening another folder closes what was open** (Everywhere). If a screenshot or another dialog is still open when a folder you picked finishes opening, it closes and you land on the new folder's heading. A dialog with something typed in it stays open instead, the folder doesn't open, and you're asked to finish or cancel first. *Where:* Switching team folders
 
 ## 2.11.0 · Oct 28, 2026
 

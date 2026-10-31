@@ -86,7 +86,7 @@
         "kind": "fixed",
         "area": "Everywhere",
         "title": "Opening another folder closes what was open",
-        "now": "If a screenshot or another dialog is still open when a folder you picked finishes opening, it closes and you land on the new folder's heading.",
+        "now": "If a screenshot or another dialog is still open when a folder you picked finishes opening, it closes and you land on the new folder's heading. A dialog with something typed in it stays open instead, the folder doesn't open, and you're asked to finish or cancel first.",
         "before": "The screenshot stayed open over the new folder, and could show the new folder's file under the old caption.",
         "where": "Switching team folders"
       }
