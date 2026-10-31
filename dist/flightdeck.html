@@ -29789,11 +29789,29 @@ PF.examples = (function () {
   document.addEventListener('focusin', function (e) { var t = e.target; if (t && t.dataset && t.dataset.find != null) selBoxKept(findList(t)); });
   /* Leaving the box redraws only when the box was drawn for its focus alone (PF.vk.findHeld): any other box looks the same
      either way, and a redraw then would land between a click's press and its release, replacing what was clicked (a fold
-     opened by the click went shut again and lost focus). When it does go away under a pressed pointer, it goes once the
-     pointer is released, before the click, so the click lands on what was pressed. */
-  var ptrDown = false, ptrLeft = false;
+     opened by the click went shut again and lost focus). When it does go away under a pressed pointer, it goes after the
+     click, never during the release: a redraw then would replace what was pressed before its click (code review round 24).
+     A mouse's click comes in the release's own turn, so the next turn is after it; a tap's can come later, so it waits a
+     moment for one; a fold's click toggles it on a later turn still, so it waits for that toggle. With no click (dragged
+     off, canceled) it goes anyway, and a release never heard (outside the window) is let go by the next key, a move with no
+     button down, or focus moving. It draws once. */
+  var ptrDown = false, ptrLeft = false, ptrFold = false, ptrWait = null;
+  function ptrGo() { ptrWait = null; if (!ptrLeft || ptrDown) return; ptrLeft = false; ptrFold = false; render(); }
+  function ptrAfter(ms) { if (ptrWait != null) clearTimeout(ptrWait); ptrWait = setTimeout(ptrGo, ms); }
+  function ptrLost() { ptrDown = false; if (ptrLeft) ptrAfter(0); }
   document.addEventListener('pointerdown', function () { ptrDown = true; }, true);
-  ['pointerup', 'pointercancel'].forEach(function (ev) { document.addEventListener(ev, function () { ptrDown = false; if (ptrLeft) { ptrLeft = false; render(); } }, true); });
+  document.addEventListener('pointerup', function (e) { ptrDown = false; if (ptrLeft) ptrAfter(e.pointerType === 'mouse' ? 0 : 400); }, true);
+  document.addEventListener('pointercancel', function () { ptrDown = false; if (ptrLeft) ptrAfter(0); }, true);
+  document.addEventListener('click', function (e) {
+    if (!ptrLeft || ptrDown) return;
+    var t = e.target, sum = t && t.closest ? t.closest('summary') : null;
+    ptrFold = !!sum; ptrAfter(sum ? 400 : 0);
+  }, true);
+  document.addEventListener('toggle', function () { if (ptrFold) { ptrFold = false; ptrAfter(0); } }, true);
+  document.addEventListener('pointermove', function (e) { if (ptrDown && !e.buttons) ptrLost(); }, true);
+  /* Not a modifier held for a click (Shift repeats while held on some systems): only a key that isn't part of a press. */
+  document.addEventListener('keydown', function (e) { if (!e.repeat && !/^(Shift|Control|Alt|Meta)$/.test(e.key || '')) ptrLost(); }, true);
+  document.addEventListener('focusin', function () { if (ptrLeft && !ptrDown) ptrAfter(0); }, true);
   document.addEventListener('focusout', function (e) {
     var id = findList(e.target);
     if (!id || state.selFocus !== id) return;
