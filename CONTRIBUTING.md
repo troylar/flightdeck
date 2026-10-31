@@ -17,11 +17,28 @@ That builds `dist/flightdeck.html` (`python3 build.py`), runs every test file in
 
 ### Running some of the tests
 
+`./test/run.sh` with no settings is the full run, the only one that counts as the final gate. While you work, run less:
+
+| Setting | What it runs | Example |
+|---|---|---|
+| `ONLY=<name>[,<name>]` | Just these jobs, printing only their results. A name is a file (every shard, and its budgets if it has any), one shard, or a file's budgets alone. A name no job has is an error. | `ONLY=app,find-walk ./test/run.sh`, `ONLY=app.2of12 ./test/run.sh`, `ONLY=perf.budgets ./test/run.sh` |
+| `TIER=fast` | Everything but the slowest files and the speed budgets, in about 2 minutes. | `TIER=fast ./test/run.sh` |
+| `TIER=rest` | The files `TIER=fast` leaves out. `fast`, `rest` and `perf` together are exactly the full run. | `TIER=rest ./test/run.sh` |
+| `TIER=perf` | The speed budgets only, alone, after waiting for a quiet moment. | `TIER=perf ./test/run.sh` |
+| `RULE=<text>` | Only the rules whose names contain the text, in whichever jobs run. | `RULE='gate' ./test/run.sh` |
+| `TIMES=1` | Also prints every job's time, slowest first. | `TIMES=1 ./test/run.sh` |
+
+**Speed budgets.** A rule that asserts a wall-clock time is written with `budget()` instead of `rule()`, and its file is listed in `BUDGET_FILES` in `test/run.sh`. The parallel jobs skip these rules. They run once each, alone at the end, after waiting up to `PERF_WAIT` seconds (60) for no more than `PERF_BUSY` percent of the CPUs (25) to be in use. Any failure there, a time miss or not, fails the run: nothing measures it again. The message gives the machine's load before and after the pass, and load shows as unknown if it can't be read. Never raise a budget to get past a miss.
+
+**A failure stands.** A job that fails in the parallel pass is run again alone, only to help diagnose it: the run still fails, and says when the job passed alone. The one failure that can end in a passing run is node itself crashing with a segfault (exit 139) with no rule failed, when the job then passes every rule. The final output lists it under `NODE CRASHED`. A crash in a budget job fails the run.
+
+**A release** needs a full run with no failures. If the only failures were time misses under load, it also needs a clean `TIER=perf` on a quiet machine. `TIER=perf` is a manual, separate run, and it doesn't change the earlier run's result.
+
 Every test file runs its rules through `test/harness.js`, so these work in any file:
 
 | Setting | What it does | Example |
 |---|---|---|
-| `ONLY=<text>` | Runs only the rules whose names contain the text (the rest are skipped, so a file with no match prints "0 passed"). | `ONLY='gate' node test/rules.test.js`, or `ONLY='gate' ./test/run.sh` for every file |
+| `ONLY=<text>` | Runs only the rules whose names contain the text (the rest are skipped, so a file with no match prints "0 passed"). | `ONLY='gate' node test/rules.test.js`; for every file, `RULE='gate' ./test/run.sh` |
 | `STACK=1` | Prints a failing rule's stack trace instead of only its message. | `STACK=1 node test/sync.test.js` |
 | `PERF=big` | Adds the 6,000-run profile to `test/perf.test.js`'s folder-call budgets. | `PERF=big node test/perf.test.js` |
 | `SEEDS=<n>` | How many seeded random walks `test/app.test.js` runs for its save and lookup races (24 and 8 by default). `TYPED_SEEDS`, `THUMB_SEEDS` and `LOAD_SEEDS` do the same for the typed-value, thumbnail and loading walks (6, 6 and 8). Raise them after changing saving or loading. | `SEEDS=200 node test/app.test.js` |
