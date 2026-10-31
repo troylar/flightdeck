@@ -32,7 +32,8 @@ function boot(opts) {
   /* opts.html: another build of the app (an older release, for the cross-version tests); this build by default. */
   const html = opts.html || fs.readFileSync(path.join(__dirname, '..', 'dist', 'flightdeck.html'), 'utf8');
   const script = id => new RegExp('<script id="' + id + '">([\\s\\S]*?)</script>').exec(html)[1];
-  const intervals = [];
+  const intervals = [], downloads = [];
+  let lastBlob = null;
   // Tests start past the first-run welcome unless they ask for it (firstRun).
   const els = {}, listeners = {}, winListeners = {}, store = Object.assign(opts.firstRun ? {} : { 'preflight:look-around': 'true' }, opts.localStore || {}), inputs = new Set();
   /* opts.replace: a redraw makes typed boxes anew, as setting innerHTML does: focus leaves them and the caret goes to the start,
@@ -178,8 +179,8 @@ function boot(opts) {
   const refuse = k => { if (opts.storageThrows === true || (opts.storageThrows && opts.storageThrows.test(k))) throw Object.assign(new Error('The operation is insecure.'), { name: 'SecurityError' }); };
   const storage = () => ({ getItem: k => (refuse(k), k in store ? store[k] : null), setItem: (k, v) => { refuse(k); store[k] = String(v); }, removeItem: k => { refuse(k); delete store[k]; } });
   const document = {
-    hidden: false, title: '', body: element('body'), activeElement: null,
-    getElementById: id => els[id] || (opts.domFocus ? drawnAnywhere('#' + id) : null), querySelector: sel => (opts.domFocus ? drawnAnywhere(sel) : null), querySelectorAll: () => [], createElement: () => element('x'),
+    hidden: false, title: '', body: Object.assign(element('body'), { appendChild() {} }), activeElement: null,
+    getElementById: id => els[id] || (opts.domFocus ? drawnAnywhere('#' + id) : null), querySelector: sel => (opts.domFocus ? drawnAnywhere(sel) : null), querySelectorAll: () => [], createElement: () => Object.assign(element('x'), { click() { downloads.push({ name: this.download, blob: lastBlob }); }, remove() {} }),
     addEventListener: (t, fn) => { (listeners[t] = listeners[t] || []).push(fn); }, contains: () => false
   };
   document.activeElement = document.body;
@@ -327,7 +328,7 @@ function boot(opts) {
   const appClearTimeout = !opts.timers ? clearTimeout : id => { const i = timerQ.findIndex(t => t.id === id); if (i >= 0) timerQ.splice(i, 1); else clearTimeout(id); };
   const ctx = vm.createContext({
     window, document, history, location, localStorage: storage(), sessionStorage, navigator: Object.assign(opts.locks ? { locks: opts.locks } : {}, opts.navigator || {}), BroadcastChannel: opts.Channel, console, Date: opts.Date || Date, Math, JSON, Promise, Blob, fetch, btoa, Uint8Array,
-    setTimeout: appSetTimeout, clearTimeout: appClearTimeout, setInterval: fn => { intervals.push(fn); return 0; }, requestAnimationFrame: fn => setTimeout(fn, 0), URL: { createObjectURL: () => 'blob:x', revokeObjectURL() {} },
+    setTimeout: appSetTimeout, clearTimeout: appClearTimeout, setInterval: fn => { intervals.push(fn); return 0; }, requestAnimationFrame: fn => setTimeout(fn, 0), URL: { createObjectURL: b => { lastBlob = b; return 'blob:x'; }, revokeObjectURL() {} },
     crypto: globalThis.crypto, TextEncoder, indexedDB: opts.indexedDB, IntersectionObserver: opts.IntersectionObserver,
     // An elapsed-time clock the test moves (performance.now()); left out, the app falls back on Date.now().
     performance: opts.performance,
@@ -416,6 +417,8 @@ function boot(opts) {
     fire(type, props) { (listeners[type] || []).forEach(fn => fn(Object.assign({ preventDefault() {} }, props || {}))); },
     // An element stand-in by id, and the document, for tests that need focus or a dialog's controls.
     el: get, doc: document,
+    // What the app handed the browser to save: a link's file name and the bytes behind it.
+    downloads,
     // A control no longer drawn: the page no longer finds it (this stand-in otherwise keeps every node it ever made).
     gone(id) { delete els[id]; inputs.delete(id); },
     // Every typed box not drawn now is gone, as after a new folder's screen replaced the page.

@@ -5,6 +5,8 @@
 'use strict';
 const assert = require('assert');
 const { rule, run, load } = require('./harness');
+const cp = require('child_process'), path = require('path');
+const { boot } = require('./app-harness');
 const { small, fresh, arrive } = require('./find-twins.test');
 
 const NAMES = ['constructor', '__proto__', 'toString', 'hasOwnProperty'];
@@ -112,47 +114,98 @@ rule('A run file with a step or gate keyed __proto__ doesn\'t set what the run\'
 const PNG = 'runs/landed/landedrun/files/';
 const att = (name, by) => ({ files: [PNG + name], fileInfo: { [PNG + name]: { name, size: 10 } }, by: by || 'person-blake' });
 const note = (over) => Object.assign({ id: 'tw1', at: new Date(Date.now() - 2 * MINUTE).toISOString(), by: 'person-blake', session: 'tw', step: 's0', text: 'A note', files: [], fileInfo: {} }, over);
-async function twins(list) {
-  const fx = small(), files = Object.assign({}, fx.files), key = fx.facts.landed;
+const bytesOf = name => 'bytes of ' + PNG + name;
+async function twinFolder(list, edit) {
+  const fx = small(), files = Object.assign({}, fx.files), key = fx.facts.landed, rf = 'runs/' + key + '/run.json';
+  if (edit) { const o = JSON.parse(files[rf]); edit(o); files[rf] = JSON.stringify(o, null, 2) + '\n'; }
   files['runs/' + key + '/notes-tw.jsonl'] = list.map(n => JSON.stringify(n)).join('\n') + '\n';
   list.forEach(n => (n.files || []).forEach(f => { files[f] = 'bytes of ' + f; }));
   const app = await fresh({ files, facts: fx.facts });
+  return { app, key };
+}
+async function twins(list, edit) {
+  const { app, key } = await twinFolder(list, edit);
   app.click('nav', 'home'); await app.tick(5); app.click('open-run', key); await app.tick(10); app.click('select', 's0'); await app.tick(10);
   return app;
 }
 /* Each attachment button drawn, as the page has it: its action, and every data- attribute. */
 function buttons(h, act) {
-  return [...h.matchAll(/<button class="(?:thumb|att)"([^>]*)>/g)].map(m => { const d = {}; m[1].replace(/data-([\w-]+)="([^"]*)"/g, (x, k, v) => { d[k] = un(v); return x; }); return d; }).filter(d => !act || d.act === act);
+  return [...h.matchAll(/<button class="(?:thumb|att)"([^>]*)>/g)].map(m => attrs(m[1])).filter(d => !act || d.act === act);
 }
-const shown = app => { const m = /<img[^>]*alt="([^"]*)"/.exec(app.overlay()); return m ? un(m[1]) : null; };
+function attrs(text) { const d = {}; text.replace(/data-([\w-]+)="([^"]*)"/g, (x, k, v) => { d[k] = un(v); return x; }); return d; }
 function press(app, d) { const data = Object.assign({}, d); delete data.act; delete data.id; app.click(d.act, d.id, data); return app.tick(20); }
+/* The one file the note a button carries has: what that button must open. */
+const ownFile = d => { const m = JSON.parse(d.note).anchor.match(/[\w-]+\.(?:png|log)/); assert.ok(m, 'the button carries a note with a file: ' + d.note); return m[0]; };
+/* Which image the open overlay shows, from every image name it says. */
+const overlayImages = app => [...new Set(app.overlay().match(/[\w-]+\.png/g) || [])];
+/* Presses each button, and says which image opened for each: each must be the file of the note on that button. */
+async function eachOpensItsOwn(app, b) {
+  const out = [];
+  for (const d of b) {
+    await press(app, d);
+    assert.deepStrictEqual(overlayImages(app), [ownFile(d)], 'the button of the note with ' + ownFile(d) + ' opens only that image');
+    out.push(ownFile(d));
+    app.click('close-overlay'); await app.tick(5);
+  }
+  return out.sort();
+}
 
 rule('Twins: the first has no screenshot and the second has one; the second\'s thumbnail opens it', () => noThrow(async () => {
   const app = await twins([note({ text: 'No picture' }), note(Object.assign({ text: 'With a picture' }, att('second.png')))]);
   const b = buttons(app.html(), 'zoom-note');
   assert.strictEqual(b.length, 1, 'one thumbnail');
-  await press(app, b[0]);
-  assert.ok(/second\.png/.test(shown(app) || app.overlay()), 'opens the second note\'s image: ' + app.overlay().slice(0, 200));
+  assert.deepStrictEqual(await eachOpensItsOwn(app, b), ['second.png']);
 }));
-rule('Twins: both have a screenshot; each thumbnail opens its own', () => noThrow(async () => {
+rule('Twins: the first has a screenshot and the second has none; the first\'s thumbnail opens it', () => noThrow(async () => {
+  const app = await twins([note(Object.assign({ text: 'With a picture' }, att('first.png'))), note({ text: 'No picture' })]);
+  const b = buttons(app.html(), 'zoom-note');
+  assert.strictEqual(b.length, 1, 'one thumbnail');
+  assert.deepStrictEqual(await eachOpensItsOwn(app, b), ['first.png']);
+}));
+rule('Twins: both have a screenshot; each thumbnail opens the image of the note it carries, never the other\'s', () => noThrow(async () => {
   const app = await twins([note(Object.assign({ text: 'First picture' }, att('first.png'))), note(Object.assign({ text: 'Second picture' }, att('second.png')))]);
-  const b = buttons(app.html(), 'zoom-note'), by = {};
+  const b = buttons(app.html(), 'zoom-note');
   assert.strictEqual(b.length, 2, 'two thumbnails');
-  for (const d of b) { await press(app, d); const o = app.overlay(); by[/second\.png/.test(o) ? 'second' : /first\.png/.test(o) ? 'first' : 'none'] = (by[/second\.png/.test(o) ? 'second' : /first\.png/.test(o) ? 'first' : 'none'] || 0) + 1; app.click('close-overlay'); await app.tick(5); }
-  assert.deepStrictEqual(by, { first: 1, second: 1 }, 'each opens its own');
+  assert.deepStrictEqual(await eachOpensItsOwn(app, b), ['first.png', 'second.png']);
 }));
-rule('Twins: the same with a file: Open and Save a copy read the second note\'s, and only a file of that note opens', () => noThrow(async () => {
+/* Presses the file button, then the dialog's Save a copy: the file name and the bytes the browser is handed. */
+async function saveCopy(app, d) {
+  await press(app, d);
+  const m = /<button[^>]*data-act="att-save"[^>]*>/.exec(app.overlay());
+  assert.ok(m, 'the dialog has Save a copy');
+  const s = attrs(m[0]);
+  assert.ok(s.note, 'Save a copy carries the note');
+  const was = app.downloads.length;
+  await press(app, s);
+  assert.strictEqual(app.downloads.length, was + 1, 'one file is handed to the browser');
+  const got = app.downloads[was], bytes = await got.blob.text();
+  app.click('close-overlay'); await app.tick(5);
+  return { name: got.name, bytes };
+}
+rule('Twins with files: Open and Save a copy read the note\'s own file, its name and its bytes, and a file of no note opens nothing', () => noThrow(async () => {
+  const app = await twins([note(Object.assign({ text: 'First file' }, att('first.log'))), note(Object.assign({ text: 'Second file' }, att('second.log')))]);
+  const b = buttons(app.html(), 'att-open');
+  assert.strictEqual(b.length, 2, 'two file buttons');
+  const names = [];
+  for (const d of b) {
+    const own = ownFile(d);
+    app.set('att-text', '');
+    await press(app, d);
+    assert.strictEqual(app.text('att-text'), bytesOf(own), 'its text opens: ' + own);
+    app.click('close-overlay'); await app.tick(5);
+    assert.deepStrictEqual(await saveCopy(app, d), { name: own, bytes: bytesOf(own) }, 'Save a copy of ' + own);
+    names.push(own);
+  }
+  assert.deepStrictEqual(names.sort(), ['first.log', 'second.log']);
+  app.set('att-text', 'untouched');
+  await press(app, Object.assign({}, b[0], { path: PNG + 'not-its-own.log' }));
+  assert.strictEqual(app.overlay(), '', 'not a file of that note');
+}));
+rule('Twins where only the second has a file: Save a copy saves that file', () => noThrow(async () => {
   const app = await twins([note({ text: 'No file' }), note(Object.assign({ text: 'With a file' }, att('second.log')))]);
   const d = buttons(app.html(), 'att-open')[0];
   assert.ok(d, 'the file\'s button');
-  app.set('att-text', '');
-  await press(app, d);
-  assert.strictEqual(app.text('att-text'), 'bytes of ' + PNG + 'second.log', 'its text opens');
-  assert.ok(/data-act="att-save"[^>]*data-note="/.test(app.overlay()), 'Save a copy in the dialog carries the note too');
-  app.click('close-overlay'); await app.tick(5);
-  app.set('att-text', 'untouched');
-  await press(app, Object.assign({}, d, { path: PNG + 'not-its-own.log' }));
-  assert.strictEqual(app.overlay(), '', 'not a file of that note');
+  assert.deepStrictEqual(await saveCopy(app, d), { name: 'second.log', bytes: bytesOf('second.log') });
 }));
 rule('Twins identical in every field: each opens, as what they are; one more arriving opens none in its place', () => noThrow(async () => {
   const same = note(Object.assign({ text: 'Same' }, att('same.png')));
@@ -160,54 +213,243 @@ rule('Twins identical in every field: each opens, as what they are; one more arr
   const b = buttons(app.html(), 'zoom-note');
   assert.strictEqual(b.length, 2);
   await press(app, b[1]);
-  assert.ok(/same\.png/.test(app.overlay()), 'the copy opens');
+  assert.deepStrictEqual(overlayImages(app), ['same.png'], 'the copy opens');
   app.click('close-overlay'); await app.tick(5);
   /* What a stale button holds no longer says which: the count of copies changed. */
   const r = app.PF.search, t = JSON.parse(b[1].note);
   assert.strictEqual(r.noteFind([same, same, same].map(x => JSON.parse(JSON.stringify(x))), t), null, 'none chosen');
 }));
+
+/* ---------- twin corrections: each row says its own group, and acts on it ---------- */
 const corrNote = over => note(Object.assign({ kind: 'correction', version: 1, folder: '', target: { phase: '', step: 's0' }, change: { op: 'describe' }, why: 'Why', happened: '' }, over));
-rule('Twin corrections on the run\'s step: the second\'s thumbnail opens its own, and each row says its own group; Withdraw decides the row\'s', () => noThrow(async () => {
-  const app = await twins([
-    corrNote({ why: 'First reason', by: 'person-avery', change: { op: 'describe' } }),
-    corrNote(Object.assign({ why: 'Second reason', by: 'person-avery', change: { op: 'screenshot' } }, att('corr.png', 'person-avery')))]);
-  const h = app.html(), b = buttons(h, 'zoom-corr');
+/* The twins in two groups: one a problem, one a new wording. */
+const twoGroups = () => [
+  corrNote({ why: 'First reason', by: 'person-avery', change: { op: 'describe' } }),
+  corrNote(Object.assign({ why: 'Second reason', by: 'person-avery', change: { op: 'wording', to: 'Better words' } }, att('corr.png', 'person-avery')))];
+const rowsOf = h => [...h.matchAll(/<li class="corr"[\s\S]*?<\/li>/g)].map(m => m[0]);
+const rowWith = (h, why) => { const r = rowsOf(h).filter(x => x.includes(why)); assert.strictEqual(r.length, 1, 'one row says ' + why); return r[0]; };
+const pillOf = row => { const m = /<span class="pill [^"]*">([^<]*)<\/span>/.exec(row); assert.ok(m, 'a status: ' + row.slice(0, 200)); return un(m[1]); };
+const statusOf = (h, why) => pillOf(rowWith(h, why));
+async function decide(app, key, gid, member, status, reason) {
+  const proc = key.split('/')[0];
+  const D = app.PF.corrections.decision({ process: proc, id: gid, members: [{ id: member, by: 'person-avery' }] }, 'person-blake', status, reason || '', new Date().toISOString(), {});
+  await arrive(app, [['corrections/' + proc + '/' + gid + '.w-other.1.json', [D]]]);
+}
+const withdrawOf = row => { const m = /<button[^>]*data-act="corr-withdraw"[^>]*>/.exec(row); return m ? attrs(m[0]) : null; };
+const landedKey = 'landed/landedrun';
+
+rule('Twin corrections on the run\'s step: the thumbnail opens its note\'s image, whichever note has it', () => noThrow(async () => {
+  const app = await twins(twoGroups());
+  const b = buttons(app.html(), 'zoom-corr');
   assert.strictEqual(b.length, 1, 'one thumbnail');
-  await press(app, b[0]);
-  assert.ok(/corr\.png/.test(app.overlay()), 'the second\'s image: ' + app.overlay().slice(0, 160));
-  app.click('close-overlay'); await app.tick(5);
-  const rows = [...h.matchAll(/<li class="corr"[\s\S]*?<\/li>/g)].map(m => m[0]);
-  const w = rows.map(x => { const m = /data-act="corr-withdraw" data-id="([^"]+)"/.exec(x); return m ? m[1] : null; });
-  assert.strictEqual(rows.length, 2, 'two rows: ' + rows.length);
-  assert.ok(w[0] && w[1] && w[0] !== w[1], 'each row withdraws its own group: ' + JSON.stringify(w));
+  assert.deepStrictEqual(await eachOpensItsOwn(app, b), ['corr.png']);
 }));
-rule('Twin corrections on the checklist\'s page: each member\'s thumbnail opens its own', () => noThrow(async () => {
-  const app = await twins([
-    corrNote({ why: 'No picture', change: { op: 'describe' } }),
-    corrNote(Object.assign({ why: 'Picture', change: { op: 'describe' } }, att('page.png')))]);
+rule('Twin corrections with different decisions: each row on the run says its own status, and only the open one offers Withdraw', () => noThrow(async () => {
+  const app = await twins(twoGroups());
+  let h = app.html();
+  assert.strictEqual(statusOf(h, 'First reason'), 'Open'); assert.strictEqual(statusOf(h, 'Second reason'), 'Open');
+  const g1 = withdrawOf(rowWith(h, 'First reason')), g2 = withdrawOf(rowWith(h, 'Second reason'));
+  assert.ok(g1 && g2 && g1.id !== g2.id, 'each row withdraws its own group');
+  await decide(app, landedKey, g1.id, 'tw1', 'declined', 'Not how we work');
+  h = app.html();
+  assert.strictEqual(statusOf(h, 'First reason'), 'Declined', 'the declined one');
+  assert.ok(rowWith(h, 'First reason').includes('Not how we work'), 'with why');
+  assert.strictEqual(statusOf(h, 'Second reason'), 'Open', 'the other stays open');
+  assert.ok(!rowWith(h, 'Second reason').includes('Not how we work'), 'and isn\'t given its reason');
+  assert.strictEqual(withdrawOf(rowWith(h, 'First reason')), null, 'decided: no Withdraw');
+  assert.strictEqual(withdrawOf(rowWith(h, 'Second reason')).id, g2.id, 'still its own');
+}));
+rule('Twin corrections with different decisions on Finish: each row says its own status', () => noThrow(async () => {
+  const app = await twins(twoGroups(), o => { o.recorder = { person: 'person-avery', session: null }; });
+  app.click('pickup'); await app.tick(60);
+  let h = app.html();
+  const g1 = withdrawOf(rowWith(h, 'First reason')), g2 = withdrawOf(rowWith(h, 'Second reason'));
+  assert.ok(g1 && g2 && g1.id !== g2.id, 'two groups');
+  await decide(app, landedKey, g2.id, 'tw1', 'declined', 'Not how we work');
+  app.click('finish'); await app.tick(20);
+  h = app.html();
+  assert.ok(/Finish On the landed version/.test(h) && /<h2>Corrections · \d+<\/h2>/.test(h), 'on Finish, with its corrections');
+  assert.strictEqual(statusOf(h, 'First reason'), 'Open', 'the open one');
+  assert.strictEqual(statusOf(h, 'Second reason'), 'Declined', 'the declined one');
+}));
+for (const [why, other] of [['First reason', 'Second reason'], ['Second reason', 'First reason']]) {
+  rule('Twin corrections: Withdraw on "' + why + '" writes a decision naming that group, and only that row changes', () => noThrow(async () => {
+    const app = await twins(twoGroups());
+    const h = app.html(), d = withdrawOf(rowWith(h, why)), o = withdrawOf(rowWith(h, other));
+    assert.ok(d && o && d.id !== o.id, 'two groups');
+    const had = Object.keys(app.fs.files);
+    await press(app, d); await app.tick(60);
+    const files = Object.keys(app.fs.files).filter(f => had.indexOf(f) < 0 && f.indexOf('corrections/landed/') === 0);
+    assert.strictEqual(files.length, 1, 'one decision: ' + files.join(', '));
+    assert.ok(files[0].startsWith('corrections/landed/' + d.id + '.'), 'in the group\'s name: ' + files[0]);
+    const rec = JSON.parse(app.fs.files[files[0]].t);
+    assert.strictEqual(rec.group, d.id, 'names the group');
+    assert.strictEqual(rec.status, 'withdrawn');
+    assert.strictEqual(rec.by, 'person-avery');
+    const after = app.html();
+    assert.strictEqual(statusOf(after, why), 'Withdrawn', 'the row withdrawn');
+    assert.strictEqual(statusOf(after, other), 'Open', 'the other as it was');
+  }));
+}
+/* The checklist's Corrections page. */
+async function onChecklist(list) {
+  const { app } = await twinFolder(list);
   app.click('nav', 'processes'); await app.tick(8); app.click('open-process', 'landed'); await app.tick(10); app.click('ptab', 'corrections'); await app.tick(10);
+  return app;
+}
+rule('Twin corrections on the checklist\'s page: the screenshot on the first twin opens from its button', () => noThrow(async () => {
+  const app = await onChecklist([
+    corrNote(Object.assign({ why: 'Picture', change: { op: 'describe' } }, att('page.png'))),
+    corrNote({ why: 'No picture', change: { op: 'describe' } })]);
   const b = buttons(app.html(), 'zoom-corr');
   assert.strictEqual(b.length, 1, 'one thumbnail: ' + b.length);
-  await press(app, b[0]);
-  assert.ok(/page\.png/.test(app.overlay()), 'its image: ' + app.overlay().slice(0, 160));
+  assert.deepStrictEqual(await eachOpensItsOwn(app, b), ['page.png']);
+}));
+rule('Twin corrections on the checklist\'s page: the screenshot on the second twin opens from its button', () => noThrow(async () => {
+  const app = await onChecklist([
+    corrNote({ why: 'No picture', change: { op: 'describe' } }),
+    corrNote(Object.assign({ why: 'Picture', change: { op: 'describe' } }, att('page.png')))]);
+  const b = buttons(app.html(), 'zoom-corr');
+  assert.strictEqual(b.length, 1, 'one thumbnail: ' + b.length);
+  assert.deepStrictEqual(await eachOpensItsOwn(app, b), ['page.png']);
+}));
+rule('Twin corrections on the checklist\'s page: distinct screenshots on both; each button opens its own', () => noThrow(async () => {
+  const app = await onChecklist([
+    corrNote(Object.assign({ why: 'One', change: { op: 'describe' } }, att('page1.png'))),
+    corrNote(Object.assign({ why: 'Two', change: { op: 'describe' } }, att('page2.png')))]);
+  const b = buttons(app.html(), 'zoom-corr');
+  assert.strictEqual(b.length, 2, 'two thumbnails: ' + b.length);
+  assert.deepStrictEqual(await eachOpensItsOwn(app, b), ['page1.png', 'page2.png']);
 }));
 rule('No note is found by its id alone in the page (the checklist\'s same-id source check)', () => {
-  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
+  const src = require('fs').readFileSync(path.join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
   const hits = src.split('\n').filter(l => /_notes[^;]{0,30}\.(find|filter|some|findIndex)\(function \((\w+)\) \{ return \2\.id ===/.test(l));
   assert.deepStrictEqual(hits, []);
 });
 
 /* ---------- the linked checklist's reserved Other ID… ---------- */
-rule('A process with the id __other is reached by Other ID…, and choosing Other ID… never links it by accident', () => noThrow(async () => {
+async function linker() {
   const fx = small(), files = Object.assign({}, fx.files);
   files['maps/drafts/__other.md'] = '---\nprocess: __other\ntitle: Odd process\nowner: person-avery\nroles: lead\n---\n\n## One · READ-DO {#ph1}\n- [ ] {confirm} Do it @lead {#s1}\n';
-  files['maps/drafts/linker.md'] = '---\nprocess: linker\ntitle: Linker\nowner: person-avery\n---\n\n## Build · READ-DO {#build}\n- [ ] {run.process} Run the child {#s}\n  process: tiny\n';
+  files['maps/drafts/linker.md'] = '---\nprocess: linker\ntitle: Linker\nowner: person-avery\n---\n\n## Build · READ-DO {#build}\n- [ ] {run.process} Run the child {#s}\n  process: tiny\n  title: Keep me\n';
   const app = await fresh({ files, facts: fx.facts });
   app.click('nav', 'processes'); await app.tick(5);
   app.click('open-process', 'linker'); await app.tick(10); app.click('ptab', 'edit'); await app.tick(10);
   app.click('ed-mode', 'builder'); await app.tick(10); app.click('ob-sel', 's'); await app.tick(10);
-  const h = app.html(), sel = h.slice(h.indexOf('<select id="ob-link-proc"'), h.indexOf('</select>', h.indexOf('<select id="ob-link-proc"')));
+  return app;
+}
+const draftOf = app => app.fs.files['maps/drafts/linker.md'].t;
+const saveDraft = async app => { app.click('save-draft'); await app.tick(80); return draftOf(app); };
+rule('Other ID… is the one choice with its value, even with a process named __other', () => noThrow(async () => {
+  const app = await linker(), h = app.html(), sel = h.slice(h.indexOf('<select id="ob-link-proc"'), h.indexOf('</select>', h.indexOf('<select id="ob-link-proc"')));
   const others = [...sel.matchAll(/<option value="__other"[^>]*>([^<]*)</g)].map(m => un(m[1]));
   assert.deepStrictEqual(others, ['Other ID…'], 'one choice has the value, and it\'s Other ID…');
 }));
+rule('Linking a process named __other: choose Other ID…, type it, apply and save, and the draft links it', () => noThrow(async () => {
+  const app = await linker();
+  app.select('ob-link-proc', '__other'); await app.tick(10);
+  assert.ok(app.html().includes('id="ob-link-proc-other"'), 'the box for the ID is drawn');
+  app.set('ob-link-proc-other', '__other'); app.input('ob-link-proc-other', '__other');
+  app.keyOn('Enter', {}, { tagName: 'INPUT', id: 'ob-link-proc-other', value: '__other', dataset: { enter: 'ob-commit' }, closest: () => null }); await app.tick(10);
+  const t = await saveDraft(app);
+  assert.ok(/\n  process: __other\n/.test(t), 'the step links __other: ' + t);
+  assert.ok(!/process: tiny/.test(t), 'and no longer the old one');
+  assert.ok(/^process: linker$/m.test(t), 'the draft\'s own process is as it was');
+}));
+rule('Choosing Other ID… alone keeps the linked checklist the step has', () => noThrow(async () => {
+  const app = await linker(), before = draftOf(app);
+  app.select('ob-link-proc', '__other'); await app.tick(10);
+  assert.ok(app.html().includes('id="ob-link-proc-other"'), 'the box for the ID is drawn');
+  assert.ok(/\n  process: tiny\n/.test(await saveDraft(app)), 'still links tiny');
+  assert.ok(!/process: __other/.test(draftOf(app)), 'never __other: ' + before.length);
+}));
+
+/* ---------- a Jira workflow, a person and a participant named like Object.prototype ---------- */
+/* What the app's own realm made, compared by value. */
+const plain = v => JSON.parse(JSON.stringify(v));
+const JIRA = '{"__proto__":{"statuses":["To Do","Done"],"transitions":[{"from":"*","to":"Done","fields":[{"name":"Resolution","options":["Fixed","Won\'t do"]}]}]}}';
+const JIRA_MD = '---\nprocess: jira-odd\ntitle: Odd workflow\nowner: person-avery\n---\n\n## One · READ-DO {#ph1}\n- [ ] {jira.issue} Close it {#close}\n  action: transition\n  issue: ABC-1\n  issueType: __proto__\n  status: Done\n';
+/* The run this build starts on a workflow file: its answers need the workflow's required field. */
+function jiraRun(PF) {
+  const wf = PF.jira.check(JSON.parse(JIRA)), now = '2026-10-31T00:00:00.000Z';
+  assert.deepStrictEqual(plain(wf.errors), []);
+  const b = PF.publish.build(JIRA_MD, { people: [{ id: 'person-avery', name: 'Avery' }], workflows: wf.workflows, by: 'person-avery', changes: 'First', existing: [], now, rand: 'abcd1234' });
+  assert.ok(!b.blockers, JSON.stringify(b.blockers));
+  const v = PF.publish.verify(b.folder, b.files);
+  assert.ok(v.ok, v.why);
+  return { r: PF.run.create(v, { title: 'Odd', by: 'person-avery', session: 's1', now, workflows: wf.workflows }) };
+}
+const required = (PF, r) => { const map = PF.run.mapOf(r), s = PF.map.steps(map)[0].step; return { step: s, list: plain(PF.run.evidenceFor(r, s, null, map).list.filter(d => d.jira).map(d => d.label)) }; };
+rule('A Jira workflow named __proto__ is read as a workflow: the file\'s own key survives the check', () => {
+  const PF = load(), wf = PF.jira.check(JSON.parse(JIRA));
+  assert.deepStrictEqual(plain(wf.errors), []);
+  assert.deepStrictEqual(Object.keys(wf.workflows), ['__proto__']);
+  assert.deepStrictEqual(plain(PF.jira.forType(wf.workflows, '__proto__').workflow.statuses), ['To Do', 'Done']);
+  assert.strictEqual(wf.workflows.statuses, undefined, 'nothing landed on the dictionary itself');
+});
+rule('A run on a Jira workflow named __proto__ requires its evidence, and still does after run.json is written and read', () => {
+  const PF = load(), { r } = jiraRun(PF);
+  assert.deepStrictEqual(Object.keys(r.jira), ['__proto__'], 'the run\'s copy has it');
+  assert.deepStrictEqual(required(PF, r).list, ['Resolution'], 'its field is required');
+  assert.strictEqual(PF.run.jiraProblem(r, required(PF, r).step), null, 'the transition is known');
+  const disk = JSON.stringify(r), back = JSON.parse(disk);
+  assert.ok(disk.includes('"__proto__":{"statuses"'), 'on disk as its own key');
+  assert.ok(Object.prototype.hasOwnProperty.call(back.jira, '__proto__'), 'read back as its own key');
+  const again = PF.run.sanitize(back);
+  assert.deepStrictEqual(Object.keys(again.jira), ['__proto__']);
+  assert.deepStrictEqual(required(PF, again).list, ['Resolution'], 'still required after the read');
+});
+/* 2.11.0 reads the run as it always read one: it opens, its other workflows work, and its own check drops the __proto__ name. */
+rule('A run file this build wrote with a workflow named __proto__ still opens in 2.11.0, with the file\'s other workflows at work', async () => {
+  const PF = load(), { r } = jiraRun(PF), disk = JSON.parse(JSON.stringify(r));
+  disk.jira = plain(PF.jira.check({ Story: { statuses: ['To Do', 'Done'], transitions: [{ from: '*', to: 'Done', fields: [{ name: 'Fix version' }] }] } }).workflows);
+  const text = JSON.stringify(disk).replace('"jira":{', '"jira":' + JIRA.slice(0, -1) + ',');
+  assert.deepStrictEqual(Object.keys(JSON.parse(text).jira), ['__proto__', 'Story'], 'both are in the file');
+  let html;
+  try { html = cp.execFileSync('git', ['show', 'v2.11.0:dist/flightdeck.html'], { cwd: path.join(__dirname, '..'), encoding: 'utf8', maxBuffer: 64 * 1048576, stdio: ['ignore', 'pipe', 'ignore'] }); }
+  catch (e) { if (process.env.CI) throw e; console.log('  (skipped: v2.11.0 isn\'t in this clone)'); return; }
+  const old = boot({ html }); await old.tick(40);
+  const back = old.PF.run.sanitize(JSON.parse(text));
+  assert.ok(!back._unrunnable, 'runs there: ' + back._unrunnable);
+  assert.deepStrictEqual(Object.keys(back.jira), ['Story'], 'as 2.11.0 always read it');
+  assert.ok(!JSON.stringify(back.jira).includes('__proto__'), 'and what it would save has no such workflow');
+  const map = old.PF.run.mapOf(back), step = Object.assign({}, old.PF.map.steps(map)[0].step);
+  step.fields = Object.assign({}, step.fields, { issueType: 'Story' });
+  assert.deepStrictEqual(plain(old.PF.run.evidenceFor(back, step, null, map).list.filter(d => d.jira).map(d => d.label)), ['Fix version'], 'Story\'s field is required there');
+});
+rule('Rotation offers a person named constructor who has never done the role, ahead of everyone who has', () => noThrow(async () => {
+  const fx = small(), files = Object.assign({}, fx.files), people = JSON.parse(files['people.json']), list = Array.isArray(people) ? people : people.people;
+  list.push({ id: 'constructor', name: 'Aardvark Never' });
+  files['people.json'] = JSON.stringify(people, null, 2) + '\n';
+  const app = await fresh({ files, facts: fx.facts });
+  app.click('nav', 'processes'); await app.tick(8); app.click('open-process', 'release'); await app.tick(10); app.click('start', 'release'); await app.tick(10);
+  const h = app.html();
+  const said = (h.match(/suggestion: [^<]*/g) || []).map(un);
+  assert.ok(said.length, 'a role is suggested');
+  said.forEach(t => assert.strictEqual(t, 'suggestion: Aardvark Never (hasn\'t done it yet)'));
+}));
+rule('A participant named __proto__ makes the run a team run, as any other second person does', () => {
+  const R = load().run, recorder = { person: 'person-avery' };
+  assert.strictEqual(R.solo({ recorder, roles: { lead: '__proto__' } }), false, '__proto__ as the only other person');
+  assert.strictEqual(R.solo({ recorder: { person: '__proto__' }, roles: { lead: 'person-avery' } }), false, '__proto__ as the recorder');
+  assert.strictEqual(R.solo({ recorder: { person: 'constructor' }, roles: { lead: 'person-avery' } }), false, 'constructor as the recorder');
+  assert.strictEqual(R.solo({ recorder, roles: { lead: 'person-avery' } }), true, 'just the recorder is still solo');
+  assert.strictEqual(R.solo({ recorder: { person: '__proto__' }, roles: { lead: '__proto__' } }), true, 'just __proto__ is solo too');
+});
+/* ---------- the same class in the core: an inherited name reads as absent ---------- */
+rule('A text naming a detail like constructor says it isn\'t set, never what every object inherits', () => {
+  const PF = load(), R = PF.run;
+  assert.strictEqual(R.fill('See ^constructor now', {}, null), 'See (constructor not set) now');
+  assert.strictEqual(R.fill('See ^constructor now', { constructor: 'mine' }, null), 'See mine now');
+  assert.strictEqual(PF.jira.resolve ? PF.jira.resolve('detail:constructor', {}, null) : '', '');
+});
+rule('The checklist check refuses an ID named like Object.prototype; a plain ID is untouched', () => {
+  const PF = load(), md = id => '---\nprocess: plain\ntitle: Plain\nowner: person-avery\nroles: lead\n---\n\n## One · READ-DO {#ph1}\n- [ ] {confirm} Do it @lead {#' + id + '}\n';
+  /* IDs read lowercase, so constructor is the one word of Object.prototype a step ID can spell. */
+  for (const id of ['constructor']) {
+    const blockers = PF.map.check(PF.map.parse(md(id))).blockers;
+    assert.ok(blockers.some(b => /keeps for itself/.test(b)), id + ': ' + JSON.stringify(blockers));
+  }
+  assert.deepStrictEqual(plain(PF.map.check(PF.map.parse(md('s1'))).blockers.filter(b => /keeps for itself/.test(b))), []);
+});
 run();
