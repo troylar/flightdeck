@@ -1,7 +1,7 @@
 // The screens, rendered without a browser: what a run file or a failed save can make them show.
 'use strict';
 const assert = require('assert');
-const { completeRun, exactOf, loadViews, example, exampleSetup, rule, run, sampleDone, budget } = require('./harness');
+const { completeRun, exactOf, loadViews, example, exampleSetup, rule, run, sampleDone, budget, withinBudget } = require('./harness');
 const PF = loadViews(), R = PF.run, P = PF.publish, V = PF.views;
 const EX = exampleSetup(PF);
 const NOW = '2026-10-17T21:00:00.000Z';
@@ -2153,7 +2153,7 @@ budget('Runs: a short list has no paging line, and growing to 500 cards still re
   state.more = { 'runs-ended': 500 };
   const t = process.hrtime.bigint(); const html = V.runs(ctx); const ms = Number(process.hrtime.bigint() - t) / 1e6;
   assert.strictEqual(cards(html), 508);
-  assert.ok(ms <= 250, 'rendered 500 cards in ' + ms.toFixed(0) + ' ms');
+  withinBudget(ms <= 250, 'rendered 500 cards in ' + ms.toFixed(0) + ' ms');
 });
 
 /* ---------- Search palette (docs/design.md section 22) ---------- */

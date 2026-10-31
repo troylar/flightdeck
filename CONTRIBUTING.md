@@ -28,7 +28,9 @@ That builds `dist/flightdeck.html` (`python3 build.py`), runs every test file in
 | `RULE=<text>` | Only the rules whose names contain the text, in whichever jobs run. | `RULE='gate' ./test/run.sh` |
 | `TIMES=1` | Also prints every job's time, slowest first. | `TIMES=1 ./test/run.sh` |
 
-**Speed budgets.** A rule that asserts a wall-clock time is written with `budget()` instead of `rule()`, and its file is listed in `BUDGET_FILES` in `test/run.sh`. The parallel jobs skip these rules; they run alone at the end. The pass waits up to `PERF_WAIT` seconds (60) for no more than `PERF_BUSY` percent of the CPUs (25) to be in use, and says what it found. A budget missed on a busy machine is measured again, up to `PERF_TRIES` times (3). If it still misses, the run fails and says the machine was busy, so run `TIER=perf` when it's quiet. A miss on a quiet machine is a real slowdown. Never raise a budget to get past either one.
+**Speed budgets.** A rule that asserts a wall-clock time is written with `budget()` instead of `rule()`, its file is listed in `BUDGET_FILES` in `test/run.sh`, and the time itself is checked with `withinBudget()`. What it finds, its folder calls and its memory stay ordinary asserts. The parallel jobs skip these rules; they run alone at the end. The pass waits up to `PERF_WAIT` seconds (60) for no more than `PERF_BUSY` percent of the CPUs (25) to be in use, and says what it found. A time over budget on a busy machine is measured again, up to `PERF_TRIES` times (3). If it's still over, the run fails and says the machine was busy, so run `TIER=perf` when it's quiet. Over budget on a quiet machine is a real slowdown. Never raise a budget to get past either one.
+
+**A failure stands.** A job that fails is run again alone, only to help diagnose it: the run still fails, and says when the job passed alone. Two things can end in a passing run, and the final output lists both: a time over budget on a busy machine that's met when measured again, and node itself crashing with a segfault with no rule failed, when the job then passes in full.
 
 Every test file runs its rules through `test/harness.js`, so these work in any file:
 

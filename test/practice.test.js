@@ -4,7 +4,7 @@
 'use strict';
 const assert = require('assert');
 const fs = require('fs'), path = require('path');
-const { load, loadViews, rule, run, budget } = require('./harness');
+const { load, loadViews, rule, run, budget, withinBudget } = require('./harness');
 const PF = load(), P = PF.practice, R = PF.run, O = PF.outline;
 const same = (a, b, msg) => assert.deepStrictEqual(JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b)), msg);
 const NOW = '2026-10-24T09:00:00.000Z';
@@ -332,11 +332,11 @@ budget('a 300-step draft: admission, fingerprints and follow well under budget',
   const t0 = process.hrtime.bigint();
   for (let k = 0; k < 5; k++) { map = admit(md); P.asRun(P.follow(st, map, {}), map, 'casey', true); }
   const ms = Number(process.hrtime.bigint() - t0) / 5e6;
-  assert.ok(ms < 40, 'full edit path (admission, fingerprints, follow, the stand-in run) took ' + ms.toFixed(1) + ' ms');
+  withinBudget(ms < 40, 'full edit path (admission, fingerprints, follow, the stand-in run) took ' + ms.toFixed(1) + ' ms');
   const t1 = process.hrtime.bigint();
   for (let k = 0; k < 10; k++) { const r = P.answer(st, map, 's0-' + k, 'open', {}, NOW); assert.ok(r.state, r.error); st = r.state; P.asRun(P.follow(st, map, {}), map, 'casey', true); }
   const ms1 = Number(process.hrtime.bigint() - t1) / 1e7;
-  assert.ok(ms1 < 25, 'a practice action took ' + ms1.toFixed(1) + ' ms');
+  withinBudget(ms1 < 25, 'a practice action took ' + ms1.toFixed(1) + ' ms');
 });
 
 rule('a team step type changing under an unchanged draft asks again, and its gate needs review', () => {
@@ -381,7 +381,7 @@ budget('one long phase: fingerprints cost one hash per step (3,000 steps well un
   const t0 = process.hrtime.bigint();
   P.prints(map, {}, {});
   const ms = Number(process.hrtime.bigint() - t0) / 1e6;
-  assert.ok(ms < 150, '3,000 steps in one phase took ' + ms.toFixed(1) + ' ms');
+  withinBudget(ms < 150, '3,000 steps in one phase took ' + ms.toFixed(1) + ' ms');
 });
 
 budget('one long conditional phase: still one hash per step', () => {
@@ -391,7 +391,7 @@ budget('one long conditional phase: still one hash per step', () => {
   const t0 = process.hrtime.bigint();
   P.prints(map, { risk: 'high' }, {});
   const ms = Number(process.hrtime.bigint() - t0) / 1e6;
-  assert.ok(ms < 200, '3,000 steps in one conditional phase took ' + ms.toFixed(1) + ' ms');
+  withinBudget(ms < 200, '3,000 steps in one conditional phase took ' + ms.toFixed(1) + ' ms');
 });
 
 rule('the compact signature changes nothing for skills: without it, signatures are exactly as before', () => {
@@ -409,7 +409,7 @@ budget('over the cap, keeping costs about one pass however many answers there ar
   for (let k = 0; k < 5; k++) text = P.keep(st, {});
   const ms = Number(process.hrtime.bigint() - t0) / 5e6;
   assert.ok(text && text.length <= P.CAP, 'it fits');
-  assert.ok(ms < 40, 'keeping 3,000 answers took ' + ms.toFixed(1) + ' ms');
+  withinBudget(ms < 40, 'keeping 3,000 answers took ' + ms.toFixed(1) + ' ms');
 });
 
 budget('many short phases: reopening the last one and following stays within the action budget', () => {
@@ -422,7 +422,7 @@ budget('many short phases: reopening the last one and following stays within the
   const t0 = process.hrtime.bigint();
   for (let k = 0; k < 3; k++) { const r = P.gateAct(st, map, 299, 'reopen', '', {}, NOW); assert.ok(r.state, r.error); P.follow(r.state, map, {}); }
   const ms = Number(process.hrtime.bigint() - t0) / 3e6;
-  assert.ok(ms < 30, 'reopen and follow took ' + ms.toFixed(1) + ' ms');
+  withinBudget(ms < 30, 'reopen and follow took ' + ms.toFixed(1) + ' ms');
 });
 
 rule('a copy of a stand-in never shares its memo, and a real run has none', () => {

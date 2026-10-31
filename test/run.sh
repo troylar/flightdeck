@@ -19,6 +19,12 @@
 # Every job runs even after one fails, so a single failure never hides the rest; the failed ones are listed at the end. The
 # longest files are split into shards (SHARD=i/n in test/harness.js). Rules that assert a wall-clock budget (budget() in
 # test/harness.js) never run in the parallel jobs: they run alone at the end, and a miss says how busy the machine was.
+#
+# A first failure stands, even when the job then passes alone (that rerun is only a diagnosis). Two things can still end in
+# exit 0, and the final output lists both: a job where node itself crashed with a segfault (exit 139) with no rule failed,
+# which then passes in full when run again; and a time over a budget (exit 3 from test/harness.js) on a busy machine, which
+# is then met when measured again. Any other failure in a budget rule, or any crash there, is final.
+# SKIP_BUILD=1 uses dist/flightdeck.html as it is (test/build.test.js runs this script while other jobs read it).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 TIER="${TIER:-full}"; only="${ONLY:-}"; unset ONLY
@@ -149,7 +155,7 @@ test/views.test.js -
 JOBS_LIST
 )"
 # Files with budget() rules; test/build.test.js checks this against the files.
-BUDGET_FILES="test/perf.test.js test/practice.test.js test/practice-app.test.js test/timeline.test.js test/views.test.js test/find-runs.test.js"
+export BUDGET_FILES="test/perf.test.js test/practice.test.js test/practice-app.test.js test/timeline.test.js test/views.test.js test/find-runs.test.js"
 # What TIER=fast leaves out, the slowest files by TIMES=1. test/build.test.js checks each is a file with a job.
 FAST_LEAVES_OUT="bounds-app find-runs find-process find-notes compat perf scale-app"
 
@@ -193,7 +199,7 @@ if [ -n "${LIST:-}" ]; then printf '%s' "$plain"; for f in $budgets; do echo "$f
 
 now_ms() { if [ -n "${EPOCHREALTIME:-}" ]; then local t="${EPOCHREALTIME/,/.}"; echo "${t%.*}$(printf '%.3s' "${t#*.}")"; else perl -MTime::HiRes=time -e 'printf "%d\n", time * 1000' 2>/dev/null || echo "$(date +%s)000"; fi; }
 started="$(now_ms)"
-if [ -n "$only" ]; then python3 build.py > /dev/null; else python3 build.py; fi
+if [ -z "${SKIP_BUILD:-}" ]; then if [ -n "$only" ]; then python3 build.py > /dev/null; else python3 build.py; fi; fi
 logs="$(mktemp -d)"
 # Tests make temp folders and leave them behind; give the run one of its own, removed at the end (KEEP_LOGS keeps it).
 tmp="$(mktemp -d)"; export TMPDIR="$tmp"
@@ -216,20 +222,24 @@ export -f job now_ms; export logs
 # The older releases are cached once, before any job reads them (tools/old-bundles.js); its own errors show in the tests.
 node tools/old-bundles.js > "$logs/old-bundles.log" 2>&1 || true
 if [ -n "$plain" ]; then printf '%s' "$plain" | xargs -P "$JOBS" -L 1 bash -c 'job "$0" "$1"'; fi
-# A job that failed while others ran is run again on its own: some app tests wait on real timers, which a busy machine
-# can starve. One that passes alone is listed as such, never hidden; one that fails alone too is a failure.
-mv "$logs/status" "$logs/status.par"; touch "$logs/status"; alone=()
+# A job that failed is run again on its own, to help diagnose it. Its first result stands, unless node itself crashed with no
+# rule failed: then a full pass when run again replaces it, and the final output says so.
+mv "$logs/status" "$logs/status.par"; touch "$logs/status"; alone=(); crashed=()
 while IFS=$'\t' read -r rc what name; do
   if [ "$rc" = 0 ]; then printf '%s\t%s\t%s\n' "$rc" "$what" "$name" >> "$logs/status"; continue; fi
   f="${what%% *}"; s="-"; case "$what" in *"(shard "*) s="${what##*shard }"; s="${s%)}";; esac
+  crash=; if [ "$rc" = 139 ] && ! grep -q '^FAIL' "$logs/$name.log"; then crash=1; fi
   cp "$logs/$name.log" "$logs/$name.parallel.log"; job "$f" "$s"
-  if tail -n 1 "$logs/status" | grep -q '^0'; then
-    # Above 128 the process itself died on a signal: no rule failed. Node's garbage collector has crashed this way under load.
-    if [ "$rc" -gt 128 ]; then alone+=("$what: node crashed in the parallel run (signal $((rc - 128))), no rule failed"); else alone+=("$what"); fi
-  fi
+  again="$(tail -n 1 "$logs/status")"; again="${again%%$'\t'*}"
+  if [ -n "$crash" ] && [ "$again" = 0 ]; then crashed+=("$what: exit 139 (segfault) in the parallel run, no rule failed, then passed in full"); continue; fi
+  cp "$logs/$name.log" "$logs/$name.alone.log"; cp "$logs/$name.parallel.log" "$logs/$name.log"
+  sed -i.bak '$d' "$logs/status" && rm -f "$logs/status.bak"
+  printf '%s\t%s\t%s\n' "$rc" "$what" "$name" >> "$logs/status"
+  if [ "$again" = 0 ]; then alone+=("$what"); fi
 done < "$logs/status.par"
-# The speed budgets, alone and last. They wait for a quiet moment, and a miss on a busy machine is measured again; if it
-# still misses, it stays a failure and says the machine was busy. A miss on a quiet machine is a real slowdown.
+# The speed budgets, alone and last. They wait for a quiet moment, and a time over budget on a busy machine is measured again;
+# if it's still over, it stays a failure and says the machine was busy. Over budget on a quiet machine is a real slowdown. Any
+# other failure (exit 3 is the only time miss) is final the first time.
 loaded=(); retried=(); slow=()
 if [ -n "$budgets" ]; then
   if [ -n "$only" ]; then wait_s=0; else wait_s="${PERF_WAIT:-60}"; fi
@@ -241,6 +251,7 @@ if [ -n "$budgets" ]; then
       job "$f" budgets
       last="$(tail -n 1 "$logs/status")"
       if [ "${last%%$'\t'*}" = 0 ]; then [ "$try" = 1 ] || retried+=("$f: within budget on try $try"); break; fi
+      if [ "${last%%$'\t'*}" != 3 ]; then break; fi
       state="$(node test/machine-load.js || true)"
       case "$state" in quiet*) slow+=("$f: $state"); break;; esac
       if [ "$try" -ge "$tries" ]; then loaded+=("$f: $state"); break; fi
@@ -256,13 +267,17 @@ failed=()
 while IFS=$'\t' read -r rc what name; do
   if [ "$rc" != 0 ]; then failed+=("$what"); echo "=== $what"; cat "$logs/$name.log"; elif [ -n "$only" ]; then printf '%-34s %s\n' "$name" "$(tail -n 1 "$logs/$name.log")"; fi
 done < <(sort -t$'\t' -k2 "$logs/status")
+# Every job chosen has a result: one that left none is a failure, never a pass.
+want=$(( $(printf '%s' "$plain" | wc -l) + $(echo $budgets | wc -w) )); have="$(wc -l < "$logs/status" | tr -d ' ')"
+if [ "$have" != "$want" ]; then failed+=("$((want - have)) of $want jobs left no result"); fi
 secs="$(( ($(now_ms) - started) / 1000 ))"
 echo "$(wc -l < "$logs/status" | tr -d ' ') test jobs run, ${#failed[@]} failed, ${secs}s ($(( secs / 60 ))m $(( secs % 60 ))s)"
-if [ ${#alone[@]} -gt 0 ]; then echo "Passed only when run alone (timing under load; worth a look if it repeats):"; printf '  %s\n' "${alone[@]}"; fi
-if [ ${#retried[@]} -gt 0 ]; then echo "Speed budgets missed on a busy machine, then met when measured again:"; printf '  %s\n' "${retried[@]}"; fi
+if [ -n "${TIMES:-}" ]; then echo "Job times, slowest first (ms; parallel jobs compete for the CPUs):"; sort -t$'\t' -k1,1nr "$logs/times" | awk -F'\t' '{printf "  %8d  %s\n", $1, $2}'; fi
+if [ ${#alone[@]} -gt 0 ]; then echo "FAILED in the parallel run, then passed alone (the failure stands; timing under load, or a real race):"; printf '  %s\n' "${alone[@]}"; fi
+if [ ${#retried[@]} -gt 0 ]; then echo "Speed budgets over on a busy machine, then met when measured again:"; printf '  %s\n' "${retried[@]}"; fi
 if [ ${#loaded[@]} -gt 0 ]; then echo "SPEED BUDGETS MISSED WHILE THE MACHINE WAS BUSY: this may be the load, not the code. Run TIER=perf on a quiet machine to tell."; printf '  %s\n' "${loaded[@]}"; fi
 if [ ${#slow[@]} -gt 0 ]; then echo "SPEED BUDGETS MISSED ON A QUIET MACHINE: treat this as a real slowdown."; printf '  %s\n' "${slow[@]}"; fi
-if [ -n "${TIMES:-}" ]; then echo "Job times, slowest first (ms; parallel jobs compete for the CPUs):"; sort -t$'\t' -k1,1nr "$logs/times" | awk -F'\t' '{printf "  %8d  %s\n", $1, $2}'; fi
+if [ ${#crashed[@]} -gt 0 ]; then echo "NODE CRASHED (not a test failure):"; printf '  %s\n' "${crashed[@]}"; fi
 if [ -z "$only" ]; then node -e "
 const fs=require('fs'),vm=require('vm');const h=fs.readFileSync('dist/flightdeck.html','utf8');
 for (const id of ['pf-core','pf-storage','pf-app']){const m=new RegExp('<script id=\"'+id+'\">([\\\\s\\\\S]*?)</script>').exec(h);new vm.Script(m[1]);}
