@@ -6,7 +6,10 @@ python3 build.py
 # Files run in parallel (JOBS at a time, the CPU count by default), the longest split into shards (SHARD=i/n in
 # test/harness.js). Files that assert wall-clock budgets run one at a time afterwards, so a busy machine can't fail them.
 JOBS="${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}"
-logs="$(mktemp -d)"; if [ -n "${KEEP_LOGS:-}" ]; then echo "logs: $logs"; else trap 'rm -rf "$logs"' EXIT; fi
+logs="$(mktemp -d)"
+# Tests make temp folders and leave them behind; give the run one of its own, removed at the end (KEEP_LOGS keeps it).
+tmp="$(mktemp -d)"; export TMPDIR="$tmp"
+if [ -n "${KEEP_LOGS:-}" ]; then echo "logs: $logs, temp files: $tmp"; else trap 'rm -rf "$logs" "$tmp"' EXIT; fi
 job() { # file, and its shard i/n or -
   local f="$1" s="$2" name what rc=0
   if [ "$s" = "-" ]; then name="$(basename "$f" .js)"; what="$f"; else name="$(basename "$f" .js).${s/\//of}"; what="$f (shard $s)"; fi
