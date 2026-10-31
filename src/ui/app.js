@@ -1132,6 +1132,17 @@
   function folderFs(rec) { var fs = new PF.fs.FolderFS(rec.dir); fs.id = rec.id; return fs; }
   /* Opening a folder takes a token; if another folder is opened before this one finishes, this one gives way. */
   var opening = 0;
+  /* Another folder is about to open. A dialog still up belongs to the one being left, and what it holds (a screenshot's path, a
+     form's target) would be read from or written to the new one, so it closes first, and focus goes to where the folder lands:
+     what opened the dialog is about to be gone. Called by whoever switches: useFs is gated, and a read it starts draws the rest. */
+  function leaveFolderOverlay(to) {
+    if (!state.overlay) return;
+    childEpoch++;
+    var done = state.overlay.onClose; state.overlay = null; if (done) done(); releaseUrls(state.full);
+    /* The screen behind a dialog is inert, and an inert heading can't take focus. */
+    app.removeAttribute('inert'); topEl.removeAttribute('inert');
+    state.focus = to; state.focusWins = true; later();
+  }
   function connect() {
     var t = ++opening;
     window.showDirectoryPicker({ id: 'preflight', mode: 'readwrite' }).then(function (dir) {
@@ -1139,7 +1150,7 @@
       var notRemembered = '';
       return handles.set(dir).catch(function (e) { notRemembered = ' This browser couldn\'t remember the folder (' + e.message + '), so you\'ll be asked to choose it again next time.'; return { dir: dir, id: 'unremembered-' + U.randomId(12) }; }).then(function (rec) {
         if (t !== opening) return;
-        state.needsReconnect = null; home();
+        state.needsReconnect = null; leaveFolderOverlay('page-h'); home();
         return useFs(folderFs(rec)).then(function () {
           if (t !== opening) return;
           if (!data.drafts.length && !data.processes.length) say('Connected to "' + dir.name + '", but it has no checklists yet. Copy the example folder into it, or ask your AI assistant to write a checklist into maps/drafts.' + notRemembered, 'warn');
@@ -1258,7 +1269,7 @@
     };
     (LOCKS ? lock('preflight:new-folder', init) : init()).then(function () { return handles.set(dir); }).then(function (rec) {
       if (t !== opening) return;
-      state.me = myId; lsSet('me', myId); state.needsReconnect = null; forgetStartIfNotMine();
+      state.me = myId; lsSet('me', myId); state.needsReconnect = null; forgetStartIfNotMine(); leaveFolderOverlay('su-h');
       var made = useFs(folderFs(rec), { setup: true }); su.fs = fsKey();
       return made.then(function () {
         if (t !== opening) return;
@@ -1311,7 +1322,7 @@
       su.busy = true; su.err = null; render();
       return handles.set(d).catch(function () { return { dir: d, id: 'unremembered-' + U.randomId(12) }; }).then(function (rec) {
         if (t !== opening) return;
-        state.needsReconnect = null;
+        state.needsReconnect = null; leaveFolderOverlay('su-h');
         var opened = useFs(folderFs(rec), { setup: true }); su.fs = fsKey();
         return opened.then(function () {
           if (t !== opening) return;
@@ -5474,8 +5485,8 @@
     dismiss: function () { var cp = currentProcess(), ce = cp && editorOf(cp.id); if (ce) ce.incoming = null; say(null); render(); announceRelease(); },
     refresh: function () { load(true, true); },
     connect: function () { connect(); },
-    reconnect: function () { var rec = state.needsReconnect, t = ++opening; rec.dir.requestPermission({ mode: 'readwrite' }).then(function (p) { if (p === 'granted' && t === opening) { state.needsReconnect = null; useFs(folderFs(rec)); } }); },
-    'reset-examples': function () { var mem = new PF.fs.MemoryFS(LS + ':examples', null), t = ++opening; seedExamples(mem).then(function () { if (t !== opening) return; home(); return useFs(mem).then(function () { if (t === opening) { say('Examples reset.', 'good'); render(); } }); }, function (e) { if (t === opening) { say(e && e.message || 'The examples couldn\'t be reset.', 'warn'); render(); } }); },
+    reconnect: function () { var rec = state.needsReconnect, t = ++opening; rec.dir.requestPermission({ mode: 'readwrite' }).then(function (p) { if (p === 'granted' && t === opening) { state.needsReconnect = null; leaveFolderOverlay('page-h'); useFs(folderFs(rec)); } }); },
+    'reset-examples': function () { var mem = new PF.fs.MemoryFS(LS + ':examples', null), t = ++opening; seedExamples(mem).then(function () { if (t !== opening) return; leaveFolderOverlay('page-h'); home(); return useFs(mem).then(function () { if (t === opening) { say('Examples reset.', 'good'); render(); } }); }, function (e) { if (t === opening) { say(e && e.message || 'The examples couldn\'t be reset.', 'warn'); render(); } }); },
     filter: function (id) { state.filter = id; render(); },
     /* ---------- Insights (docs/design.md section 23): the runs behind a number, and back ---------- */
     'ins-runs': function (path) { insightRuns(path); },
@@ -7271,8 +7282,7 @@
      and the row's key changes, or the note is removed. So the opener is kept by the note it's on and which attachment, not by
      where the row was: t, the note as PF.search.noteKeep holds it; act with i or path, the attachment. */
   function attOpener(el) {
-    var t = null;
-    try { t = JSON.parse((el && el.dataset && el.dataset.note) || 'null'); } catch (e) { return null; }
+    var t = attTarget(el);
     return t ? { t: t, act: el.dataset.act, i: el.dataset.i, path: el.dataset.path, head: listHeadOf(el), gen: gen, view: state.view, run: state.runKey, pid: state.processId } : null;
   }
   /* That note's attachment button as drawn now, or null. */
@@ -7280,8 +7290,7 @@
     var all = app.querySelectorAll ? Array.prototype.slice.call(app.querySelectorAll('[data-act="' + cssEsc(b.act) + '"][data-note]')) : [];
     return all.filter(function (x) {
       if (x.dataset.i !== b.i || x.dataset.path !== b.path) return false;
-      var t = null; try { t = JSON.parse(x.dataset.note); } catch (e) { return false; }
-      var h = PF.search.noteFind(r._notes || [], t);
+      var t = attTarget(x), h = t ? PF.search.noteFind(r._notes || [], t) : null;
       return !!h && h.n === hit.n;
     })[0] || null;
   }
@@ -7931,12 +7940,16 @@
       .then(function () { return { paths: paths, info: info }; });
   }
   function imagesOf(n) { return (n.files || []).filter(function (f) { return PF.attach.kindOf(f) === 'image'; }).map(function (f) { return { src: f, caption: PF.attach.nameOf(f, (n.fileInfo || {})[f]) + ' from ' + V.nameOf(ctx, n.by) }; }); }
+  /* What an attachment button carries (V.attachments): the page drew it, so it's only compared with the notes read. */
+  function attTarget(b) {
+    var t = null;
+    try { t = JSON.parse((b && b.dataset && b.dataset.note) || 'null'); } catch (e) { return null; }
+    return t;
+  }
   /* The note an attachment button is on: the run and note it carries (V.attachments), found as any kept note is. None if that
      note is gone, or can't be told from a copy any more; never another in its place. */
   function attNote(b) {
-    var t = null;
-    try { t = JSON.parse((b && b.dataset.note) || 'null'); } catch (e) { return null; }
-    var r = t && ctx.findRun(t.run), hit = r ? PF.search.noteFind(r._notes || [], t) : null;
+    var t = attTarget(b), r = t && ctx.findRun(t.run), hit = r ? PF.search.noteFind(r._notes || [], t) : null;
     return hit ? hit.n : null;
   }
   /* The note or suggestion a file button belongs to, and only if the file is one of its own. */
