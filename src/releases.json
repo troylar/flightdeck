@@ -1,5 +1,51 @@
 [
   {
+    "version": "2.11.1",
+    "date": "2026-10-31",
+    "headline": "Odd names in a folder, and notes that share an ID",
+    "changes": [
+      {
+        "kind": "fixed",
+        "area": "Everywhere",
+        "title": "A folder with a run named like constructor opens",
+        "now": "A running run whose ID is a word like constructor or toString reads with the rest of the folder, and saves like any other.",
+        "before": "One such run stopped the whole folder from opening.",
+        "where": "Opening a team folder"
+      },
+      {
+        "kind": "fixed",
+        "area": "Everywhere",
+        "title": "Checklists and people named like constructor are themselves",
+        "now": "A checklist named constructor offers On my own or With others as any other does, and a person with an ID like that is shown by it. A run someone edited by hand to give a step, phase, role or detail such a name opens read-only and says why.",
+        "where": "Starting a run, and names on a run"
+      },
+      {
+        "kind": "fixed",
+        "area": "Runs",
+        "title": "A note's screenshot or file opens that note's",
+        "now": "When two notes share an ID, each thumbnail and each file button opens its own note's image or file.",
+        "before": "With a screenshot only on the second note, its thumbnail did nothing. With a screenshot on both, the second opened the first note's image.",
+        "where": "A step's notes and corrections, Finish, the receipt, and a checklist's Corrections"
+      },
+      {
+        "kind": "fixed",
+        "area": "Runs",
+        "title": "A correction shows its own status and its own Withdraw",
+        "now": "When two corrections on a step share an ID, each row shows where it stands, and Withdraw takes back that one.",
+        "before": "Both rows showed one correction's status, and Withdraw on either took back that one.",
+        "where": "A run's step and Finish"
+      },
+      {
+        "kind": "fixed",
+        "area": "Editor",
+        "title": "Other ID… in a linked step is only Other ID…",
+        "now": "A draft whose process is __other isn't listed beside Other ID…, which has that value. Type its ID under Other ID… to link it.",
+        "before": "Choosing that draft opened Other ID… instead of linking it.",
+        "where": "A linked step's Which process"
+      }
+    ]
+  },
+  {
     "version": "2.11.0",
     "date": "2026-10-28",
     "headline": "Find things in big folders",
