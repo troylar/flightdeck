@@ -94,7 +94,9 @@ rule('Round 20: the checklist\'s versions, 60 then 1: Find "v3" with focus in it
   stillThere(app, 'map-ver', 'v3', 'the checklist');
   app.click('find-clear', 'map-ver'); await app.tick(5);
   app.doc.activeElement = app.doc.body; app.fire('focusout', { target: { id: 'find-map-ver', dataset: { find: 'map-ver' } } }); await app.tick(5);
-  assert.ok(!/id="find-map-ver"/.test(app.html()), 'cleared and left, one version needs no Find');
+  /* Leaving draws nothing (code review round 25): the box goes at the next redraw. */
+  app.click('ptab', 'overview'); await app.tick(10);
+  assert.ok(!/id="find-map-ver"/.test(app.html()), 'cleared and left, one version needs no Find at the next redraw');
 });
 
 rule('Round 20: How runs go\'s versions, 60 then 1: Find "v3" with focus in it stays drawn, with its text, Clear and focus', async () => {
@@ -124,7 +126,9 @@ rule('Round 20: text without focus keeps the box too, on both, and one version w
   assert.ok(/id="find-map-ver"[^>]*value="v3"/.test(h) && /data-act="find-clear" data-id="map-ver"/.test(h), 'the checklist: Find and Clear');
   app.click('find-clear', 'map-ver'); await app.tick(5);
   app.doc.activeElement = app.doc.body; app.fire('focusout', { target: { id: 'find-map-ver', dataset: { find: 'map-ver' } } }); await app.tick(5);
-  assert.ok(!/id="find-map-ver"/.test(app.html()), 'nothing typed, no focus, one version: no Find');
+  /* Leaving draws nothing (code review round 25): the box goes at the next redraw. */
+  app.click('ptab', 'overview'); await app.tick(10);
+  assert.ok(!/id="find-map-ver"/.test(app.html()), 'nothing typed, no focus, one version: no Find at the next redraw');
   assert.ok(/<span class="small">v60<\/span>/.test(app.html()), 'just the version, as before');
 });
 

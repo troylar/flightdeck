@@ -38,12 +38,25 @@ async function shrink(app) { await arrive(app, app.files('publications/proc-00')
 async function heldFu(app) {
   app.fire('focusin', { target: box('fu') }); app.click('fu-filter', 'mine'); await settle(app);
   app.doc.activeElement = app.el('find-fu');
-  assert.ok(/id="find-fu"/.test(app.html()) && app.PF.vk.findHeld.fu, 'set-up: drawn for its focus alone');
+  assert.ok(/id="find-fu"[^>]*value=""/.test(app.html()) && !fuRows(app.html()), 'set-up: drawn, empty, for its focus alone');
 }
 async function enter(app, id) { app.doc.activeElement = app.el('find-' + id); app.fire('focusin', { target: box(id) }); await app.tick(5); }
 async function leave(app, id, to) { app.doc.activeElement = to || summary; app.fire('focusout', { target: box(id) }); await app.tick(10); }
+/* The app's next ordinary redraw: a folder read that finds a change (a checklist removed). */
+async function reread(app) { const was = renders(app); await arrive(app, [[app.files('publications/').slice(-1)[0], null]]); await settle(app); assert.ok(renders(app) > was, 'set-up: the read redrew'); }
+/* Export evidence with over 50 checklists, its Find focused and empty, then cut below 51 by a newer read: the box is
+   drawn for its focus alone. */
+async function evHeld(app) {
+  app.click('nav', 'runs'); await app.tick(10);
+  app.click('ev-range'); await settle(app);
+  assert.ok(/id="find-ev-proc"/.test(app.overlay()), 'set-up: over 50 checklists, Find');
+  app.set('ev-proc', 'proc-0001').set('ev-from', '2000-01-01').set('ev-through', '2099-12-31');
+  await enter(app, 'ev-proc');
+  await shrink(app);
+  assert.ok(/id="find-ev-proc"[^>]*value=""/.test(app.overlay()), 'set-up: 50 or fewer left; the box is drawn for its focus alone');
+}
 
-/* ---------- F1: leaving a Find box ---------- */
+/* ---------- F1: leaving a Find box draws nothing (code review round 25) ---------- */
 rule('Walkthrough: leaving a Find box that stays drawn (Checklists, Follow-ups, Settings) draws nothing, so the click that left it lands on what it pressed', async () => {
   const app = await freshT(small({ procs: 60 }));
   for (const [nav, id] of [['processes', 'processes'], ['followups', 'fu'], ['settings', 'people']]) {
@@ -51,12 +64,12 @@ rule('Walkthrough: leaving a Find box that stays drawn (Checklists, Follow-ups, 
     assert.ok(new RegExp('id="find-' + id + '"').test(app.html()), 'set-up: ' + nav + ' draws Find');
     await enter(app, id); await settle(app);
     const was = renders(app), h = app.html();
-    app.fire('pointerdown', {}); await leave(app, id); app.fire('pointerup', {}); await app.tick(5);
+    await press(app, id, summary); await settle(app);
     assert.strictEqual(renders(app), was, nav + ': the press that left the box redrew nothing (a redraw replaced the fold it pressed)');
     assert.strictEqual(app.html(), h, nav + ': the page is as it was');
     await enter(app, id); await typeFind(app, id, 'zz'); await settle(app);
     const was2 = renders(app);
-    await leave(app, id);
+    await leave(app, id); await settle(app);
     assert.strictEqual(renders(app), was2, nav + ': with text, leaving by the keyboard redraws nothing either');
     assert.ok(new RegExp('id="find-' + id + '"[^>]*value="zz"').test(app.html()), nav + ': the Find text is kept');
     app.click('find-clear', id); await app.tick(5);
@@ -64,37 +77,42 @@ rule('Walkthrough: leaving a Find box that stays drawn (Checklists, Follow-ups, 
   }
 });
 
-rule('Walkthrough: a Find box drawn for its focus alone goes when it\'s left: at once by the keyboard, and only once a pressed pointer is released', async () => {
+rule('Walkthrough: a Find box drawn for its focus alone: leaving it draws nothing; the next redraw drops it with focus elsewhere and keeps it with focus back in it', async () => {
   const app = await freshT(small({ followUps: 0 }));
   app.click('nav', 'followups'); await app.tick(10);
   app.click('fu-filter', 'mine'); await settle(app);
   assert.ok(!/id="find-fu"/.test(app.html()), 'set-up: none of them is yours, no Find');
-  /* Focus in the box (kept from a longer list) draws it with nothing to find. */
+  /* Left by a press: nothing is drawn, through the release and after it. */
   await heldFu(app);
-  app.fire('pointerdown', { pointerType: 'mouse', buttons: 1 });
-  const was = renders(app);
-  await leave(app, 'fu');
-  assert.strictEqual(renders(app), was, 'nothing is redrawn while the pointer is still pressed');
-  assert.ok(/id="find-fu"/.test(app.html()), 'the box is still there under the press');
-  app.fire('pointerup', { pointerType: 'mouse' }); await app.tick(5);
-  assert.ok(!/id="find-fu"/.test(app.html()), 'released: the box goes');
+  let was = renders(app);
+  await press(app, 'fu', summary);
+  app.fire('pointerup', { target: summary, pointerType: 'mouse' }); await settle(app);
+  assert.strictEqual(renders(app), was, 'left by a press: nothing redrawn');
+  assert.ok(/id="find-fu"/.test(app.html()), 'left by a press: the box stays until the next redraw');
+  await reread(app);
+  assert.ok(!/id="find-fu"/.test(app.html()), 'the next redraw, focus elsewhere: the box goes');
+  /* Left by the keyboard: the same. */
   await heldFu(app);
-  const was2 = renders(app);
-  await leave(app, 'fu', app.doc.body);
-  assert.strictEqual(renders(app), was2 + 1, 'left by the keyboard: one redraw');
-  assert.ok(!/id="find-fu"/.test(app.html()), 'left by the keyboard: it goes at once');
+  was = renders(app);
+  await leave(app, 'fu', app.doc.body); await settle(app);
+  assert.strictEqual(renders(app), was, 'left by the keyboard: nothing redrawn');
+  await reread(app);
+  assert.ok(!/id="find-fu"/.test(app.html()), 'the next redraw: the box goes');
+  /* Focus back in the box before the next redraw: it stays. */
+  await heldFu(app);
+  await leave(app, 'fu'); await enter(app, 'fu');
+  await reread(app);
+  assert.ok(/id="find-fu"/.test(app.html()), 'focus back in it: the next redraw keeps the box');
+  /* The window left with focus still in the box: it stays. */
+  app.fire('focusout', { target: box('fu') }); await app.tick(5);
+  await reread(app);
+  assert.ok(/id="find-fu"/.test(app.html()), 'focus still in it (the window left): the box is kept');
 });
 
-/* ---------- code review round 24: the box goes after the click, never under it ---------- */
+/* ---------- code review rounds 24 and 25: what was pressed out of the box activates the first time ---------- */
 rule('Round 24: Export evidence: with the checklists cut below 51 under a focused, empty Find, one click on Check what\'s included lands and runs', async () => {
   const app = await freshT(small({ procs: 60 }));
-  app.click('nav', 'runs'); await app.tick(10);
-  app.click('ev-range'); await settle(app);
-  assert.ok(/id="find-ev-proc"/.test(app.overlay()), 'set-up: over 50 checklists, Find');
-  app.set('ev-proc', 'proc-0001').set('ev-from', '2000-01-01').set('ev-through', '2099-12-31');
-  await enter(app, 'ev-proc');
-  await shrink(app);
-  assert.ok(/id="find-ev-proc"/.test(app.overlay()) && app.PF.vk.findHeld['ev-proc'], 'set-up: 50 or fewer left; the box is drawn for its focus alone');
+  await evHeld(app);
   const btn = app.node('[data-act="ev-check"]'), was = renders(app);
   await press(app, 'ev-proc', btn);
   app.fire('pointerup', { target: btn, pointerType: 'mouse' });
@@ -108,7 +126,22 @@ rule('Round 24: Export evidence: with the checklists cut below 51 under a focuse
   app.click('close-overlay'); await settle(app);
 });
 
-rule('Round 24: a fold on the page (the editor\'s More options) pressed out of a Find box drawn for its focus alone opens on one click, then the box goes in one redraw', async () => {
+rule('Round 25: Export evidence: pressed out of the Find box with the release never heard, then Space on the focused button runs it the first time', async () => {
+  const app = await freshT(small({ procs: 60 }));
+  await evHeld(app);
+  const btn = app.node('[data-act="ev-check"]'), was = renders(app);
+  await press(app, 'ev-proc', btn); await settle(app);
+  app.keyOn(' ', {}, btn); await app.tick(10); await settle(app);
+  assert.ok(live(btn), 'the button is still in the dialog when Space is released');
+  assert.strictEqual(renders(app), was, 'nothing redrawn between Space\'s press and its release');
+  /* Space activates on its release, and only a button still on the page. */
+  if (live(btn)) app.fire('click', { target: btn });
+  await settle(app);
+  assert.ok(!/data-act="ev-check"/.test(app.overlay()), 'Space ran Check what\'s included: the dialog moved on');
+  app.click('close-overlay'); await settle(app);
+});
+
+rule('Round 24: a fold on the page (the editor\'s More options) pressed out of a Find box drawn for its focus alone opens on one click and stays open', async () => {
   const app = await freshT(small({ procs: 60 }));
   await app.fs.write('maps/drafts/linker.md', '---\nprocess: linker\ntitle: Linker\nowner: person-avery\n---\n\n## Build · READ-DO {#build}\n- [ ] {run.process} Run the child {#s}\n  process: proc-0001\n');
   app.click('nav', 'processes'); await app.tick(5); app.focus(); await settle(app);
@@ -117,80 +150,21 @@ rule('Round 24: a fold on the page (the editor\'s More options) pressed out of a
   assert.ok(/id="find-ob-link-proc"/.test(app.html()), 'set-up: the linked checklist\'s Find, over 50 checklists');
   await enter(app, 'ob-link-proc');
   await shrink(app);
-  assert.ok(/id="find-ob-link-proc"/.test(app.html()) && app.PF.vk.findHeld['ob-link-proc'], 'set-up: 50 or fewer left; the box is drawn for its focus alone');
+  assert.ok(/id="find-ob-link-proc"[^>]*value=""/.test(app.html()), 'set-up: 50 or fewer left; the box is drawn for its focus alone');
   assert.ok(/<details class="ob-more-opts" data-disc="ob-more">/.test(app.html()), 'set-up: More options drawn shut');
   const sum = app.node('[data-disc="ob-more"] summary'), was = renders(app);
   await press(app, 'ob-link-proc', sum);
   app.fire('pointerup', { target: sum, pointerType: 'mouse' });
-  assert.ok(live(sum), 'the pressed fold is still on the page when its click comes');
-  assert.strictEqual(renders(app), was, 'nothing redrawn between the press and the click');
   if (live(sum)) app.fire('click', { target: sum });
-  /* The browser fires the fold's toggle on a later turn; the redraw waits for it, or it would draw the fold shut again. */
   await app.tick(10);
-  assert.strictEqual(renders(app), was, 'not redrawn before the fold\'s toggle');
+  assert.ok(live(sum), 'the pressed fold is still on the page when its toggle comes');
   const d = app.node('[data-disc="ob-more"]'); d.open = true; app.fire('toggle', { target: d });
-  await app.tick(10); await settle(app);
-  assert.strictEqual(renders(app), was + 1, 'one redraw, after the toggle');
+  await settle(app);
+  assert.strictEqual(renders(app), was, 'nothing redrawn through the press, click and toggle');
+  await reread(app);
+  assert.ok(renders(app) > was, 'set-up: redrawn since');
   assert.ok(/<details class="ob-more-opts" data-disc="ob-more" open>/.test(app.html()), 'More options is drawn open, as the click left it');
-  assert.ok(!/id="find-ob-link-proc"/.test(app.html()), 'the box is gone');
-});
-
-rule('Round 24: a press canceled (pointercancel) under a Find box drawn for its focus alone: the box goes in one redraw, after the event', async () => {
-  const app = await freshT(small({ followUps: 0 }));
-  app.click('nav', 'followups'); await app.tick(10);
-  app.click('fu-filter', 'mine'); await settle(app);
-  await heldFu(app);
-  const chip = app.node('[data-act="fu-filter"][data-id="all"]'), was = renders(app);
-  await press(app, 'fu', chip, 'touch');
-  app.fire('pointercancel', { target: chip, pointerType: 'touch' });
-  assert.strictEqual(renders(app), was, 'not redrawn while the cancel is dispatched');
-  await app.tick(10);
-  assert.strictEqual(renders(app), was + 1, 'one redraw once it has been');
-  assert.ok(!/id="find-fu"/.test(app.html()), 'the box is gone');
-  await settle(app);
-  assert.strictEqual(renders(app), was + 1, 'and no other');
-});
-
-rule('Round 24: a press dragged off its control (no click) under a Find box drawn for its focus alone: the box goes in one redraw, by mouse, by touch and when the release is never heard', async () => {
-  const app = await freshT(small({ followUps: 0 }));
-  app.click('nav', 'followups'); await app.tick(10);
-  app.click('fu-filter', 'mine'); await settle(app);
-  /* Mouse: no click follows in the release's turn, so it goes on the next. */
-  await heldFu(app);
-  let chip = app.node('[data-act="fu-filter"][data-id="all"]'), was = renders(app);
-  await press(app, 'fu', chip);
-  app.fire('pointerup', { target: app.doc.body, pointerType: 'mouse' });
-  assert.strictEqual(renders(app), was, 'mouse: not redrawn while the release is dispatched');
-  await app.tick(10);
-  assert.strictEqual(renders(app), was + 1, 'mouse: one redraw after it');
-  assert.ok(!/id="find-fu"/.test(app.html()), 'mouse: the box is gone');
-  await settle(app);
-  assert.strictEqual(renders(app), was + 1, 'mouse: and no other');
-  /* Touch: a tap's click can come on a later turn, so it waits a moment for one, then goes without it. */
-  await heldFu(app);
-  chip = app.node('[data-act="fu-filter"][data-id="all"]'); was = renders(app);
-  await press(app, 'fu', chip, 'touch');
-  app.fire('pointerup', { target: app.doc.body, pointerType: 'touch' });
-  await app.tick(10);
-  assert.strictEqual(renders(app), was, 'touch: still waiting for a click');
-  assert.ok(live(chip), 'touch: what was pressed is still on the page');
-  app.advanceTimers(400); await app.tick(10);
-  assert.strictEqual(renders(app), was + 1, 'touch: one redraw when none came');
-  assert.ok(!/id="find-fu"/.test(app.html()), 'touch: the box is gone');
-  await settle(app);
-  assert.strictEqual(renders(app), was + 1, 'touch: and no other');
-  /* A release the page never heard (outside the window): the next key lets it go. */
-  await heldFu(app);
-  chip = app.node('[data-act="fu-filter"][data-id="all"]'); was = renders(app);
-  await press(app, 'fu', chip);
-  await settle(app);
-  assert.ok(/id="find-fu"/.test(app.html()), 'unheard release: kept while the press may still be held');
-  app.keyOn('Shift', {}, chip); await app.tick(10);
-  assert.strictEqual(renders(app), was, 'unheard release: Shift alone (held for a click) lets nothing go');
-  app.keyOn('Tab', {}, chip);
-  await app.tick(10); await settle(app);
-  assert.strictEqual(renders(app), was + 1, 'unheard release: one redraw after the next key');
-  assert.ok(!/id="find-fu"/.test(app.html()), 'unheard release: the box is gone');
+  assert.ok(!/id="find-ob-link-proc"/.test(app.html()), 'the box is gone at the next redraw');
 });
 
 /* ---------- F3: what the count says ---------- */
