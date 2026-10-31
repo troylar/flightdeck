@@ -2,7 +2,7 @@
 // and Just planned, Home's three lists, and the bounded dropdowns (K.select), on the big folder (test/bounds-fixture.js).
 'use strict';
 const assert = require('assert');
-const { loadViews, rule, run } = require('./harness');
+const { loadViews, rule, run, budget } = require('./harness');
 const { boot } = require('./app-harness');
 const { fixture, into } = require('./bounds-fixture');
 
@@ -1199,13 +1199,14 @@ rule('Screen share of a team run with 300 roles: Who\'s on what draws 20 roles, 
 /* The test page reads a drawn screen as nodes once per redraw. A closing tag ends its element, so reading a 300-role form
    with every person in every select (150,000 nodes, the paging-off set-up above) takes well under a second, not minutes,
    and a node's ancestors are the elements it's inside, not every element before it. */
-rule('The test page reads a big drawn screen in linear time, and a closing tag ends its element', () => {
+budget('The test page reads a big drawn screen in linear time, and a closing tag ends its element', () => {
   const app = boot({ domFocus: true });
   const sel = i => '<label class="field" for="s' + i + '">Role ' + i + '</label><select id="s' + i + '">' + Array.from({ length: 60 }, (x, j) => '<option value="v' + i + '-' + j + '">P ' + j + '</option>').join('') + '</select>';
   app.el('app')._html = '<form>' + Array.from({ length: 1500 }, (x, i) => sel(i)).join('') + '</form>';
   const t = Date.now();
   assert.ok(app.doc.querySelector('#s1499 option[value="v1499-59"]'), 'the last option, inside its select');
-  assert.ok(Date.now() - t < 5000, 'read in ' + (Date.now() - t) + 'ms');
+  const readMs = Date.now() - t;
+  assert.ok(readMs < 5000, 'read in ' + readMs + 'ms');
   assert.strictEqual(app.doc.querySelector('#s0 option[value="v1-0"]'), null, 'an option in the next select isn\'t inside the one before it');
   assert.strictEqual(app.doc.querySelector('label option'), null, 'a label closed before the select holds no options');
 });

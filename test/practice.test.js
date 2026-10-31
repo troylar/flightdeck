@@ -4,7 +4,7 @@
 'use strict';
 const assert = require('assert');
 const fs = require('fs'), path = require('path');
-const { load, loadViews, rule, run } = require('./harness');
+const { load, loadViews, rule, run, budget } = require('./harness');
 const PF = load(), P = PF.practice, R = PF.run, O = PF.outline;
 const same = (a, b, msg) => assert.deepStrictEqual(JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b)), msg);
 const NOW = '2026-10-24T09:00:00.000Z';
@@ -322,7 +322,7 @@ rule('the signature of steps is unchanged by the new gate and phase parts', () =
   assert.strictEqual(typeof PF.signature.phaseParts(map.phases[0]), 'string');
 });
 
-rule('a 300-step draft: admission, fingerprints and follow well under budget', () => {
+budget('a 300-step draft: admission, fingerprints and follow well under budget', () => {
   const lines = ['---', 'process: big', 'title: Big', '---', ''];
   for (let p = 0; p < 10; p++) { lines.push('## Phase ' + p + ' {#ph' + p + '}'); for (let s = 0; s < 30; s++) lines.push('- [ ] {confirm} Step ' + p + '-' + s + ' does a thing {#s' + p + '-' + s + '}'); lines.push(''); }
   const md = lines.join('\n');
@@ -374,7 +374,7 @@ rule('a kept practice with values that aren\'t text is read without throwing, ke
   same(st.sample, {});
 });
 
-rule('one long phase: fingerprints cost one hash per step (3,000 steps well under budget)', () => {
+budget('one long phase: fingerprints cost one hash per step (3,000 steps well under budget)', () => {
   const lines = ['---', 'process: long', 'title: Long', '---', '', '## One {#one}'];
   for (let s = 0; s < 3000; s++) lines.push('- [ ] {confirm} Step ' + s + ' {#s' + s + '}');
   const map = admit(lines.join('\n'));
@@ -384,7 +384,7 @@ rule('one long phase: fingerprints cost one hash per step (3,000 steps well unde
   assert.ok(ms < 150, '3,000 steps in one phase took ' + ms.toFixed(1) + ' ms');
 });
 
-rule('one long conditional phase: still one hash per step', () => {
+budget('one long conditional phase: still one hash per step', () => {
   const lines = ['---', 'process: long', 'title: Long', 'context: risk', '---', '', '## One {#one}', '- [ ] {confirm} Only sometimes {#c0}', '  only when ^risk is set'];
   for (let s = 0; s < 3000; s++) lines.push('- [ ] {confirm} Step ' + s + ' {#s' + s + '}');
   const map = admit(lines.join('\n'));
@@ -401,7 +401,7 @@ rule('the compact signature changes nothing for skills: without it, signatures a
   assert.notStrictEqual(full.tell.sig, compact.tell.sig);
 });
 
-rule('over the cap, keeping costs about one pass however many answers there are', () => {
+budget('over the cap, keeping costs about one pass however many answers there are', () => {
   const st = P.fresh('big');
   for (let i = 0; i < 3000; i++) st.answers['step-number-' + i] = { s: 'done', at: '2026-10-24T09:00:' + String(i % 60).padStart(2, '0') + 'Z', own: 'abcdef12', ctx: '12345678' };
   const t0 = process.hrtime.bigint();
@@ -412,7 +412,7 @@ rule('over the cap, keeping costs about one pass however many answers there are'
   assert.ok(ms < 40, 'keeping 3,000 answers took ' + ms.toFixed(1) + ' ms');
 });
 
-rule('many short phases: reopening the last one and following stays within the action budget', () => {
+budget('many short phases: reopening the last one and following stays within the action budget', () => {
   const lines = ['---', 'process: many', 'title: Many', '---', ''];
   for (let p = 0; p < 300; p++) lines.push('## Phase ' + p + ' {#ph' + p + '}', '- [ ] {confirm} Step ' + p + ' {#s' + p + '}', '');
   const map = admit(lines.join('\n'));

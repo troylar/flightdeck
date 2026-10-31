@@ -1,7 +1,7 @@
 // The session timeline behind Undo, Redo and History in the draft editor and the step-type form.
 'use strict';
 const assert = require('assert');
-const { load, rule, run } = require('./harness');
+const { load, rule, run, budget } = require('./harness');
 const PF = load(), TL = PF.timeline;
 const same = (a, b, msg) => assert.deepStrictEqual(JSON.parse(JSON.stringify(a)), JSON.parse(JSON.stringify(b)), msg);
 
@@ -263,7 +263,7 @@ rule('Saved history: a step type\'s before or after that isn\'t a valid definiti
   assert.doesNotThrow(() => TL.typeChanges({ label: { x: 1 } }, { label: 'B', fields: { a: { label: { y: 2 } } }, record: [{ name: 'n', label: { z: 1 } }] }), 'and the rows never assume text');
 });
 
-rule('Saved history: ordering 10,000 entries stays fast (near-linear), the same as a small list would be ordered', () => {
+budget('Saved history: ordering 10,000 entries stays fast (near-linear), the same as a small list would be ordered', () => {
   const list = [];
   let prev = H('start');
   for (let i = 0; i < 10000; i++) {
@@ -276,11 +276,12 @@ rule('Saved history: ordering 10,000 entries stays fast (near-linear), the same 
   assert.strictEqual(out.length, 10000, 'one chain, no gaps');
   assert.ok(out[0].entry.id === 'e9999' && out[9999].entry.id === 'e0');
   // Off the chain too (no current fingerprint): causal order, still fast.
-  const t2 = Date.now(), off = TL.order(list, 'ffffffff');
-  assert.ok(Date.now() - t2 < 300 && off[1].entry.id === 'e9999' && off[10000].entry.id === 'e0');
+  const t2 = Date.now(), off = TL.order(list, 'ffffffff'), offMs = Date.now() - t2;
+  assert.ok(off[1].entry.id === 'e9999' && off[10000].entry.id === 'e0');
+  assert.ok(offMs < 300, 'off the chain, ordered in ' + offMs + ' ms');
 });
 
-rule('Saved history: a draft that went back and forth between two texts 10,000 times still orders fast', () => {
+budget('Saved history: a draft that went back and forth between two texts 10,000 times still orders fast', () => {
   const A = H('text a'), B = H('text b'), list = [];
   for (let i = 0; i < 10000; i++) list.push(TL.cleanEntry({ v: 1, kind: 'draft-edit', id: 'e' + i, process: 'release', writer: 'w1', seq: i + 1, from: i % 2 ? B : A, to: i % 2 ? A : B, seen: i ? 'e' + (i - 1) : null, units: [], items: [] }, 'w1.jsonl'));
   const t = Date.now(), out = TL.order(list, A), ms = Date.now() - t;

@@ -3,7 +3,7 @@
 // PERF=big adds the 6,000-run profile. Times and memory are printed, not asserted, except where a budget says so.
 'use strict';
 const assert = require('assert');
-const { load, loadViews, rule, run } = require('./harness');
+const { load, loadViews, rule, run, budget } = require('./harness');
 const { bigFolder } = require('./big-folder');
 const { NOW } = require('../tools/big-folder');
 
@@ -76,7 +76,9 @@ rule('Large folder: refreshing every 30 seconds checks every run within 10 minut
   assert.ok(most <= SWEEP_MOST, 'no refresh in the cycle costs more than ' + SWEEP_MOST + ': ' + most);
 });
 
-rule('Large folder: the Runs page parses each checklist once and draws at most 158 cards (50 running, the 8 newest finished, 50 earlier ones with a warning and 50 more earlier), however many runs there are', async () => {
+budget('Large folder: the Runs page parses each checklist once and draws at most 158 cards (50 running, the 8 newest finished, 50 earlier ones with a warning and 50 more earlier), however many runs there are', async () => {
+  /* Generated with another copy, so what's counted below is this page's parses, not the generator's, when this rule runs first. */
+  bigFolder(load(), {});
   const PF = loadViews(), fs = bigFolder(PF, {}), R = PF.run, V = PF.views;
   const mem0 = process.memoryUsage();
   const d = await PF.repo.loadAll(fs);
@@ -110,7 +112,7 @@ rule('Large folder: the Runs page parses each checklist once and draws at most 1
    one version of one process with 500 runs, on its longest checklist. Times are asserted here because the page draws them on
    every redraw of How runs go. */
 const INSIGHTS_500_MS = 150, INSIGHTS_ALL_MS = 1000;
-rule('Large folder: insights for every version of every process, and for one version with 500 runs within ' + INSIGHTS_500_MS + ' ms', async () => {
+budget('Large folder: insights for every version of every process, and for one version with 500 runs within ' + INSIGHTS_500_MS + ' ms', async () => {
   const PF = load(), fs = bigFolder(PF, {}), I = PF.insights, R = PF.run;
   const d = await PF.repo.loadAll(fs, { now: NOW });
   const status = {}; Object.keys(d.reads).forEach(k => { if (d.reads[k].kind === 'unreadable') status[k] = 'unread'; });
@@ -139,7 +141,7 @@ rule('Large folder: insights for every version of every process, and for one ver
 const SEARCH = { buildMs: 400, queryP95Ms: 30, updateMs: 5, heapMB: 80, refreshMs: 20 };
 /* The index's memory is measured after a full garbage collection, so the number is the index, not garbage. */
 const gc = (() => { try { require('v8').setFlagsFromString('--expose-gc'); return require('vm').runInNewContext('gc'); } catch (e) { return null; } })();
-rule('Large folder: search builds, answers and updates within its time and memory budgets', async () => {
+budget('Large folder: search builds, answers and updates within its time and memory budgets', async () => {
   const PF = load(), fs = bigFolder(PF, {}), S = PF.search, now = () => Number(process.hrtime.bigint()) / 1e6;
   const d = await PF.repo.loadAll(fs);
   const input = { runs: d.runs, pubs: d.processes, drafts: d.drafts, people: d.people, stepTypes: d.stepTypes.types, skills: d.skills, corrDecisions: d.corrDecisions, followUps: PF.followups.list(d.runs, d.fuDecisions) };
@@ -198,7 +200,7 @@ rule('Large folder: search builds, answers and updates within its time and memor
    and what it holds in memory outside the JS heap (arrayBuffers, external) stays far below the pack's size, because
    attachments are hashed and copied 1 MB at a time and never kept. */
 const EXPORT = { cliMs: 10000, cliArrayBuffersMB: 24, oneRunMs: 1500, oneRunCalls: 400 };
-rule('Evidence export: the command line packs a run with 50 MB of attachments within 10 s, streaming, with memory reported', async () => {
+budget('Evidence export: the command line packs a run with 50 MB of attachments within 10 s, streaming, with memory reported', async () => {
   const EV = require('./evidence-fixture'), os = require('os'), nodeFs = require('fs'), path = require('path'), crypto = require('crypto');
   const files = Object.assign({}, (await EV.build(load())).files);
   for (let i = 0; i < 5; i++) files['runs/release/run1/files/20261017-big' + i + '-w2-dump.bin'] = crypto.randomBytes(10 * 1048576);
@@ -225,7 +227,7 @@ rule('Evidence export: the command line packs a run with 50 MB of attachments wi
   if (held) assert.ok(held.grew.arrayBuffers <= EXPORT.cliArrayBuffersMB * 1048576 && held.grew.external <= EXPORT.cliArrayBuffersMB * 1048576, 'streams: held ' + say(held.grew));
 });
 
-rule('Evidence export on the 2,000-run folder: one run is collected with few folder calls, and a range past the byte cap is refused before any file is read', async () => {
+budget('Evidence export on the 2,000-run folder: one run is collected with few folder calls, and a range past the byte cap is refused before any file is read', async () => {
   const PF = load(), fs = bigFolder(PF, {}), E = PF.evidence;
   const d = await PF.repo.loadAll(fs, { now: NOW });
   const r = d.runs.find(x => x.ended && x._notes && x._notes.length > 2 && !x._unrunnable);
@@ -273,7 +275,7 @@ rule('READ: runs --json on the 2,000-run folder reads within the cold-open budge
 });
 
 /* ---------- 1.19 slice 1: proposals and presence (docs/design.md section 27) ---------- */
-rule('Proposals: 50 in a big folder cost one list per process folder and one read each the first time, then only lists; verification of 2 MB stays quick', async () => {
+budget('Proposals: 50 in a big folder cost one list per process folder and one read each the first time, then only lists; verification of 2 MB stays quick', async () => {
   const PF = load(), fs = bigFolder(PF, {}), PP = PF.proposals, NOWP = '2026-10-19T14:00:00.000Z';
   const md = fs.files.get([...fs.files.keys()].find(p => /^publications\/.+\/map\.md$/.test(p) && fs.files.get(p).t)).t, proc = /process: (\S+)/.exec(md)[1];
   for (let i = 0; i < 50; i++) {
@@ -298,10 +300,11 @@ rule('Proposals: 50 in a big folder cost one list per process folder and one rea
   const ok = PP.check(JSON.parse(json), p.id + '.json', 'release', Buffer.byteLength(json));
   const ms = Date.now() - t;
   console.log('  verifying a proposal with 2 MB of text: ' + ms + ' ms');
-  assert.ok(ok.ok && ms < 2000, ms + ' ms');
+  assert.ok(ok.ok, 'the proposal verifies');
+  assert.ok(ms < 2000, ms + ' ms');
 });
 
-rule('Review\'s comparison is capped: thousands of identical lines with a few changes are quick, and too many changes stop early', () => {
+budget('Review\'s comparison is capped: thousands of identical lines with a few changes are quick, and too many changes stop early', () => {
   const PF = loadViews(), PP = PF.proposals;
   const same = Array.from({ length: 20000 }, (x, i) => 'line ' + i), changed = same.slice();
   changed[100] = 'changed'; changed[15000] = 'also changed';
@@ -309,11 +312,13 @@ rule('Review\'s comparison is capped: thousands of identical lines with a few ch
   const d = PP.diff(same.join('\n'), changed.join('\n'));
   const ms = Date.now() - t;
   console.log('  Review comparison, 20,000 lines with 2 changes: ' + ms + ' ms');
-  assert.ok(!d.tooMany && d.rows.filter(r => r.op === '+' || r.op === '-').length === 4 && ms < 300, ms + ' ms');
+  assert.ok(!d.tooMany && d.rows.filter(r => r.op === '+' || r.op === '-').length === 4, 'the two changes are found');
+  assert.ok(ms < 300, ms + ' ms');
   t = Date.now();
-  const many = PP.diff(same.join('\n'), same.map(x => x + '!').join('\n'));
-  console.log('  Review comparison, 20,000 lines all changed: ' + (Date.now() - t) + ' ms');
-  assert.ok(many.tooMany && Date.now() - t < 1500);
+  const many = PP.diff(same.join('\n'), same.map(x => x + '!').join('\n')), manyMs = Date.now() - t;
+  console.log('  Review comparison, 20,000 lines all changed: ' + manyMs + ' ms');
+  assert.ok(many.tooMany, 'too many changes stop early');
+  assert.ok(manyMs < 1500, 'all changed: ' + manyMs + ' ms');
 });
 
 run();

@@ -2183,9 +2183,53 @@ rule('R11: a duplicated tab takes its own writer identity, so two windows never 
   const L = locks();
   const a = boot({ Channel, sessionStore: shared, locks: L }); await a.tick(60);
   const copied = JSON.parse(JSON.stringify(shared));               // the browser copies session storage into the duplicate
-  const b = boot({ Channel, sessionStore: copied, locks: L }); await b.tick(80);
+  /* Delayed timers held: the page gives other windows 300 ms to answer, counted from before the rest of its script runs. On a
+     busy machine that script alone takes longer, and the timer ends the wait before the answer can arrive. */
+  const b = boot({ Channel, sessionStore: copied, locks: L, timers: true }); await b.tick(80);
   const idA = shared['preflight:session'], idB = copied['preflight:session'];
   assert.ok(idA && idB && idA !== idB, 'the duplicate chose a new identity (' + idA + ' / ' + idB + ')');
+});
+
+/* Two windows on one folder, a run recorded in the first and the second a duplicate of it. Window messages wait until the test
+   delivers them and the duplicate's delayed timers wait until it moves them, so the reply and the 300 ms wait for it land in
+   an exact order, as they would on a slow machine. */
+async function duplicateTab(beforeReply) {
+  const chans = [], held = [];
+  class Channel { constructor(name) { this.name = name; this.onmessage = null; chans.push(this); }
+    postMessage(data) { const copy = JSON.parse(JSON.stringify(data)); chans.forEach(c => { if (c !== this && c.name === this.name) held.push(() => { if (c.onmessage) c.onmessage({ data: copy }); }); }); }
+    close() {} }
+  const deliver = async (app) => { while (held.length) { held.shift()(); await app.tick(5); } };
+  const files = {}, L = locks(), shared = {};
+  const a = boot({ Channel, sessionStore: shared, locks: L, sharedFiles: files }); await a.tick(60); await deliver(a);
+  a.choose('person-casey'); await a.tick();
+  a.click('open-run', a.run().key); await a.tick(); a.click('pickup'); await a.tick(40);
+  const copied = JSON.parse(JSON.stringify(shared));
+  const b = boot({ Channel, sessionStore: copied, locks: L, sharedFiles: files, timers: true }); await b.tick(60);
+  held.shift()();                                                     // the first window hears the question; its answer waits
+  await a.tick(5);
+  assert.ok(held.length > 0, 'set-up: the first window answered');
+  b.advanceTimers(beforeReply); await b.tick(10);
+  await deliver(b);
+  b.advanceTimers(1000); await b.tick(20);
+  b.choose('person-casey'); await b.tick();
+  b.click('open-run', b.run().key); await b.tick(); b.focus(); await b.tick(40);
+  return { a, b, idA: shared['preflight:session'], idB: copied['preflight:session'], recorder: a.run().json.recorder.session };
+}
+rule('R11: a duplicated tab answered within its 300 ms wait takes a new identity and follows the recording in the first window', async () => {
+  const { b, idA, idB, recorder } = await duplicateTab(299);
+  assert.strictEqual(recorder, idA, 'set-up: the first window records');
+  assert.notStrictEqual(idB, idA, 'the duplicate chose a new identity');
+  assert.ok(/You.re recording in another window/.test(b.html()), 'the duplicate says it is following');
+});
+/* KNOWN PRODUCT BUG. This rule records what the app does today, and it's wrong: an answer that arrives after the 300 ms wait
+   is ignored (settled, src/ui/app.js), so on a slow machine a duplicated tab keeps the first window's identity and both
+   windows count as recording the same run. When the app is fixed this rule fails: replace it with the opposite checks. */
+rule('Known: a duplicated tab answered after its 300 ms wait keeps the first window\'s identity, and both windows count as recording', async () => {
+  const { b, idA, idB, recorder } = await duplicateTab(300);
+  assert.strictEqual(recorder, idA, 'set-up: the first window records');
+  assert.strictEqual(idB, idA, 'today the late answer is ignored; if this fails the bug is fixed, so flip this rule');
+  assert.ok(!/You.re recording in another window/.test(b.html()), 'today the duplicate doesn\'t say it is following');
+  assert.ok(/data-act="toggle"/.test(b.html()), 'today the duplicate can check steps of a run the first window is recording');
 });
 
 rule('R11: reloading a window keeps its identity, so its recording continues', async () => {

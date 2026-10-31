@@ -17,12 +17,18 @@ function check(releases) {
 }
 const clone = () => JSON.parse(JSON.stringify(GOOD));
 
-rule('test/run.sh runs every test file in test/, once, with every shard of a split file', () => {
+const runList = (env) => cp.spawnSync('bash', [path.join(__dirname, 'run.sh')], { encoding: 'utf8', env: Object.assign({}, process.env, { LIST: '1', TIER: '', ONLY: '', RULE: '' }, env) });
+const hasBash = !cp.spawnSync('bash', ['--version']).error;
+
+/* A budget() call as a file makes it: first on its line at any indent, or a callback's body (a loop that registers several). */
+const registersBudget = src => /^\s*budget\(|=>\s*budget\(/m.test(src);
+
+rule('test/run.sh runs every test file in test/, once, with every shard of a split file, and the speed budgets of every file that has any', () => {
   const sh = fs.readFileSync(path.join(__dirname, 'run.sh'), 'utf8');
-  const jobs = /<<'JOBS_LIST'[^\n]*\n([\s\S]*?)\nJOBS_LIST\n/.exec(sh), serial = /^for f in ((?:test\/[\w.-]+\.test\.js ?)+); do job "\$f" -; done$/m.exec(sh);
-  assert.ok(jobs && serial, 'test/run.sh has its JOBS_LIST and its serial for-loop');
+  const jobs = /<<'JOBS_LIST'[^\n]*\n([\s\S]*?)\nJOBS_LIST\n/.exec(sh), budgets = /^(?:export )?BUDGET_FILES="((?:test\/[\w.-]+\.test\.js ?)+)"$/m.exec(sh), left = /^FAST_LEAVES_OUT="([\w. -]*)"$/m.exec(sh);
+  assert.ok(jobs && budgets && left, 'test/run.sh has its JOBS_LIST, its BUDGET_FILES and its FAST_LEAVES_OUT');
   const seen = {};
-  jobs[1].split('\n').concat(serial[1].trim().split(' ').map(f => f + ' -')).forEach((l) => {
+  jobs[1].split('\n').forEach((l) => {
     const m = /^test\/([\w.-]+\.test\.js) (-|(\d+)\/(\d+))$/.exec(l);
     assert.ok(m, 'a job line is "test/<file> -" or "test/<file> i/n": ' + JSON.stringify(l));
     (seen[m[1]] = seen[m[1]] || []).push(m[2]);
@@ -35,6 +41,113 @@ rule('test/run.sh runs every test file in test/, once, with every shard of a spl
   });
   const files = fs.readdirSync(__dirname).filter(f => /\.test\.js$/.test(f));
   assert.deepStrictEqual(files.filter(f => !seen[f]), [], 'add these to test/run.sh');
+  /* A budget rule runs only in the quiet pass, so a file with one that isn't listed would lose it. */
+  const timed = files.filter(f => registersBudget(fs.readFileSync(path.join(__dirname, f), 'utf8'))).sort();
+  assert.deepStrictEqual(budgets[1].trim().split(' ').map(f => f.slice(5)).sort(), timed, 'BUDGET_FILES lists exactly the files with budget() rules');
+  left[1].trim().split(/\s+/).filter(Boolean).forEach(n => assert.ok(seen[n + '.test.js'], 'FAST_LEAVES_OUT names a file with jobs: ' + n));
+});
+
+rule('test/run.sh: fast, rest and perf together are exactly the full run, and ONLY picks just the jobs it names or refuses', () => {
+  if (!hasBash) return console.log('  (skipped: no bash)');
+  const list = (env) => { const r = runList(env); assert.strictEqual(r.status, 0, r.stderr); return r.stdout.split('\n').filter(Boolean); };
+  const full = list({}), fast = list({ TIER: 'fast' }), rest = list({ TIER: 'rest' }), perf = list({ TIER: 'perf' });
+  assert.ok(fast.length > 0 && rest.length > 0 && perf.length > 0, 'each tier has jobs');
+  assert.deepStrictEqual(fast.concat(rest, perf).sort(), full.slice().sort(), 'nothing is left out or run twice');
+  assert.ok(perf.every(j => / budgets$/.test(j)) && !fast.concat(rest).some(j => / budgets$/.test(j)), 'budgets run only in the quiet pass');
+  assert.deepStrictEqual(list({ ONLY: 'rules' }), ['test/rules.test.js -']);
+  assert.strictEqual(list({ ONLY: 'test/app.test.js' }).length, 12, 'a file is every shard');
+  assert.deepStrictEqual(list({ ONLY: 'app.2of12,rules.test.js' }), ['test/app.test.js 2/12', 'test/rules.test.js -']);
+  assert.deepStrictEqual(list({ ONLY: 'perf.budgets' }), ['test/perf.test.js budgets']);
+  assert.deepStrictEqual(list({ ONLY: 'perf' }), ['test/perf.test.js -', 'test/perf.test.js budgets'], 'a file is all of it');
+  assert.strictEqual(runList({ ONLY: 'nothing-called-this' }).status, 2, 'a name no job has is an error, never a pass');
+  assert.strictEqual(runList({ TIER: 'nope' }).status, 2, 'so is a tier that doesn\'t exist');
+});
+
+rule('A budget() registered inside a loop counts as a file with budgets, and test/run.sh refuses a file with budgets it doesn\'t list', () => {
+  const call = 'budget' + "('n', () => {})";   // split so this file doesn't look like it registers one
+  assert.ok(registersBudget("[1, 2].forEach(n => {\n  " + call + ";\n});"), 'indented, in a loop');
+  assert.ok(registersBudget("[1, 2].forEach(n => " + call + ");"), 'as a callback');
+  assert.ok(!registersBudget("const { budget } = require('./harness');\nrule('within budget', () => {});"), 'naming it isn\'t registering one');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-budget-')), f = path.join(dir, 'looped.test.js');
+  fs.writeFileSync(f, "const { budget, run } = require(" + JSON.stringify(path.join(__dirname, 'harness')) + ");\n[1, 2].forEach(n => {\n  budget('looped ' + n, () => {});\n});\nrun();\n");
+  const go = (env) => cp.spawnSync(process.execPath, [f], { encoding: 'utf8', env: Object.assign({}, process.env, { ONLY: '', SHARD: '' }, env) });
+  const off = go({ BUDGETS: 'skip', BUDGET_FILES: 'test/perf.test.js' });
+  assert.strictEqual(off.status, 1, off.stdout);
+  assert.ok(/isn't in BUDGET_FILES/.test(off.stdout), off.stdout);
+  const on = go({ BUDGETS: 'only', BUDGET_FILES: 'test/perf.test.js ' + f });
+  assert.strictEqual(on.status, 0, on.stdout);
+  assert.ok(/^2 passed, 0 failed/m.test(on.stdout), on.stdout);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+/* test/run.sh with node standing in for one file, which exits with the codes listed, one per attempt, and counts its attempts.
+   "F1" prints a FAIL line first, "E0" exits with no results line, "Z0" says no rule ran. busy sets what the machine counts as (PERF_BUSY=0 or 100); sampler makes the load sampler
+   fail ("fail") or print nonsense ("junk"). */
+function runnerWith(c) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-runner-'));
+  const shim = '#!/usr/bin/env bash\n' +
+    'case "$1" in\n' +
+    '  test/timeline.test.js) echo x >> "$SHIM_DIR/$BUDGETS.ran"; q="$SHIM_DIR/$BUDGETS"; c="$(head -n 1 "$q" 2>/dev/null)"; if [ -n "$c" ]; then tail -n +2 "$q" > "$q.n"; mv "$q.n" "$q"; fi; c="${c:-0}"\n' +
+    '    case "$c" in F*) echo "FAIL: a rule"; c="${c#F}";; E*) exit "${c#E}";; Z*) echo "0 passed, 0 failed"; exit "${c#Z}";; esac; echo "1 passed, 0 failed"; exit "$c";;\n' +
+    '  tools/old-bundles.js) exit 0;;\n' +
+    '  test/machine-load.js) case "${SHIM_SAMPLER:-}" in fail) exit 127;; junk) echo "no idea"; exit 0;; esac;;\n' +
+    'esac\nexec "$SHIM_REAL" "$@"\n';
+  fs.writeFileSync(path.join(dir, 'node'), shim, { mode: 0o755 });
+  Object.keys(c.codes || {}).forEach(k => fs.writeFileSync(path.join(dir, k), c.codes[k].join('\n') + '\n'));
+  const env = Object.assign({}, process.env, { PATH: dir + path.delimiter + process.env.PATH, SHIM_DIR: dir, SHIM_REAL: process.execPath, SHIM_SAMPLER: c.sampler || '', SKIP_BUILD: '1', ONLY: 'timeline', TIER: '', RULE: '', LIST: '', TIMES: '', KEEP_LOGS: '', BUDGETS: '', SHARD: '', PERF_WAIT: '0', PERF_BUSY: c.busy ? '0' : '100' });
+  const ran = (k) => { try { return fs.readFileSync(path.join(dir, k + '.ran'), 'utf8').split('\n').filter(Boolean).length; } catch (e) { return 0; } };
+  return new Promise((res) => {
+    let out = '';
+    const p = cp.spawn('bash', [path.join(__dirname, 'run.sh')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    p.stdout.on('data', d => { out += d; }); p.stderr.on('data', d => { out += d; });
+    p.on('close', code => { const got = { code, out, budgetRuns: ran('only'), plainRuns: ran('skip') }; fs.rmSync(dir, { recursive: true, force: true }); res(got); });
+  });
+}
+rule('test/run.sh: the only failure that can end in exit 0 is a segfault with no rule failed in a parallel job that then passes every rule', async () => {
+  if (!hasBash) return console.log('  (skipped: no bash)');
+  const miss = /SPEED BUDGET RULES FAILED[^\n]*may be the load[^\n]*TIER=perf on a quiet machine[^\n]*\n  machine before the pass: (quiet|busy): [^\n]*\n  machine after the pass: (quiet|busy): /;
+  const unknown = /machine before the pass: unknown\n  machine after the pass: unknown/;
+  /* name, settings, exit, how many times the budget job and the parallel job run, what the output says */
+  const cases = [
+    ['every attempt passing', {}, 0, 1, 1],
+    ['a segfault with no rule failed, then a full pass', { codes: { skip: [139, 0] } }, 0, 1, 2, /NODE CRASHED \(not a test failure\):\n.*exit 139/],
+    ['a time miss on a busy machine, which the next try would meet', { busy: true, codes: { only: ['F1', 0] } }, 1, 1, 1, miss],
+    ['a time miss on a quiet machine, which the next try would meet', { codes: { only: ['F1', 0] } }, 1, 1, 1, miss],
+    ['a failed check in a budget job, which the next try would pass', { busy: true, codes: { only: [1, 0] } }, 1, 1, 1, miss],
+    ['a crash in a budget job, on a busy machine', { busy: true, codes: { only: [139, 0] } }, 1, 1, 1, miss],
+    ['a crash in a budget job, on a quiet machine', { codes: { only: [139, 0] } }, 1, 1, 1, miss],
+    ['the old exit 3 from a budget job, on a busy machine', { busy: true, codes: { only: [3, 0] } }, 1, 1, 1, miss],
+    ['a budget miss with the load sampler failing', { sampler: 'fail', codes: { only: ['F1', 0] } }, 1, 1, 1, unknown],
+    ['a budget miss with the load sampler printing nonsense', { sampler: 'junk', codes: { only: ['F1', 0] } }, 1, 1, 1, unknown],
+    ['a failing load sampler when every budget is met', { sampler: 'fail' }, 0, 1, 1, /speed budgets: machine unknown/],
+    ['an ordinary rule failing, then passing alone', { codes: { skip: [1, 0] } }, 1, 1, 2, /the failure stands/],
+    ['exit 3 from an ordinary job, then a pass', { codes: { skip: [3, 0] } }, 1, 1, 2],
+    ['a segfault after a rule failed, then a pass', { codes: { skip: ['F139', 0] } }, 1, 1, 2],
+    ['a segfault, then a failure', { codes: { skip: [139, 1] } }, 1, 1, 2],
+    ['a segfault twice', { codes: { skip: [139, 139] } }, 1, 1, 2],
+    ['another signal, then a pass', { codes: { skip: [134, 0] } }, 1, 1, 2],
+    ['a failed rule with exit 0', { codes: { skip: ['F0', 0] } }, 1, 1, 2],
+    ['a segfault, then a rerun with exit 0 and no results', { codes: { skip: [139, 'E0'] } }, 1, 1, 2],
+    ['a segfault, then a rerun where no rule ran', { codes: { skip: [139, 'Z0'] } }, 1, 1, 2],
+    ['exit 0 with no results', { codes: { skip: ['E0', 0] } }, 1, 1, 2]
+  ];
+  const got = await Promise.all(cases.map(c => runnerWith(c[1])));
+  cases.forEach((c, i) => {
+    assert.strictEqual(got[i].code, c[2], c[0] + ': exit ' + got[i].code + '\n' + got[i].out);
+    assert.strictEqual(got[i].budgetRuns, c[3], c[0] + ': budget job ran ' + got[i].budgetRuns + ' times');
+    assert.strictEqual(got[i].plainRuns, c[4], c[0] + ': parallel job ran ' + got[i].plainRuns + ' times');
+    if (c[5]) assert.ok(c[5].test(got[i].out), c[0] + ': says so\n' + got[i].out);
+  });
+});
+
+rule('A rule that never settles fails the file instead of ending it with exit 0', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-hung-')), f = path.join(dir, 'hung.test.js');
+  fs.writeFileSync(f, 'const { rule, run } = require(' + JSON.stringify(path.join(__dirname, 'harness')) + ');\nrule("hangs", () => new Promise(() => {}));\nrule("never reached", () => {});\nrun();\n');
+  const env = Object.assign({}, process.env); ['ONLY', 'SHARD', 'BUDGETS'].forEach(k => delete env[k]);
+  const r = cp.spawnSync(process.execPath, [f], { encoding: 'utf8', env });
+  fs.rmSync(dir, { recursive: true, force: true });
+  assert.strictEqual(r.status, 1, r.stdout + r.stderr);
+  assert.ok(/FAIL: stopped before every rule had run/.test(r.stdout), r.stdout);
 });
 
 rule('The shipped release notes are valid, and CHANGELOG.md is exactly what they generate', () => {

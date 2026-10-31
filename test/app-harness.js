@@ -272,9 +272,15 @@ function boot(opts) {
     if (p.classes.some(c => cls.indexOf(c) < 0)) return false;
     return p.attrs.every(([k, v]) => k in n._attrs && (v == null || n._attrs[k] === v));
   }
+  /* Screens are searched by the same few selectors thousands of times over, so each is read once. */
+  const parsedSel = new Map();
+  function parseSel(sel) {
+    let alts = parsedSel.get(sel);
+    if (!alts) { alts = splitTop(sel, ',').map(alt => splitTop(alt, ' ').map(compound)); parsedSel.set(sel, alts); }
+    return alts;
+  }
   function matches(n, sel) {
-    return splitTop(sel, ',').some(alt => {
-      const chain = splitTop(alt, ' ').map(compound);
+    return parseSel(sel).some(chain => {
       if (!matchOne(n, chain[chain.length - 1])) return false;
       let anc = n._parent, i = chain.length - 2;
       while (i >= 0 && anc) { if (matchOne(anc, chain[i])) i--; anc = anc._parent; }
@@ -311,8 +317,8 @@ function boot(opts) {
     return n;
   }
   /* As a browser does, a selector that isn't text (a Promise: "[object Promise]") is a SyntaxError, never just no match. */
-  const drawn = (region, sel) => { if (sel && typeof sel === 'object') throw new SyntaxError('\'' + String(sel) + '\' is not a valid selector'); try { return nodesOf(region).filter(x => matches(x, sel))[0] || null; } catch (e) { return null; } };
-  const drawnAnywhere = sel => [appEl, els.overlay, els.top].map(r => drawn(r, sel)).filter(Boolean)[0] || null;
+  const drawn = (region, sel) => { if (sel && typeof sel === 'object') throw new SyntaxError('\'' + String(sel) + '\' is not a valid selector'); try { return nodesOf(region).find(x => matches(x, sel)) || null; } catch (e) { return null; } };
+  const drawnAnywhere = sel => drawn(appEl, sel) || drawn(els.overlay, sel) || drawn(els.top, sel);
   if (opts.domFocus) {
     const own = r => el => !!el && el._region === r && el._src === r._html;
     ['top', 'overlay'].forEach(k => { const r = els[k]; r.querySelector = sel => drawn(r, sel); r.contains = own(r); });
