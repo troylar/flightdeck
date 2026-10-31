@@ -1,6 +1,6 @@
 // Find things in big folders (2.11), code review round 16: the Start and Plan forms' roles, past the first 20, are hidden
 // fields, and each must submit exactly what its select would hold in 2.10, where every role is a drawn <select> and the
-// page's own carry-over across redraws decides what's submitted. This drives the last release's shipped page, 2.11.0's (the cached release,
+// page's own carry-over across redraws decides what's submitted. This drives the last release's shipped page, 2.11.1's (the cached release,
 // tools/old-bundles.js) and this build side by side, in the same stand-in page (test/app-harness.js, liveForms: every drawn
 // control a live node, a select's value one of its options), through the same seeded random events, and after each one
 // compares every role value the open form would send. ROLES_SEED=<n> picks another walk; ROLES_STEPS=<n> sets its length.
@@ -23,8 +23,8 @@ const INTENDED = [];
 let mainHtml = null;
 function shipped() {
   if (mainHtml) return mainHtml;
-  const b = bundles.get('v2.11.0');
-  assert.ok(b, '2.11.0\'s shipped page is needed (node tools/old-bundles.js caches it from the release tag)');
+  const b = bundles.get('v2.11.1');
+  assert.ok(b, '2.11.1\'s shipped page is needed (node tools/old-bundles.js caches it from the release tag)');
   return (mainHtml = b.files['flightdeck.html']);
 }
 
@@ -87,12 +87,12 @@ async function reread(app) {
   for (let i = 0; i < 4000 && (app.PF.perf.n['load.done'] || 0) <= was; i++) await app.tick(5);
   await app.tick(10);
 }
-/* Two windows, 2.11.0 and this build, each on the examples with a team folder to reconnect to, the same files put in both. */
+/* Two windows, 2.11.1 and this build, each on the examples with a team folder to reconnect to, the same files put in both. */
 async function pair(W, initial) {
   const sides = [];
-  for (const which of ['2.11.0', 'this build']) {
+  for (const which of ['2.11.1', 'this build']) {
     const files = {};
-    const app = boot({ html: which === '2.11.0' ? shipped() : undefined, liveForms: true, localStore: { 'preflight:builder': 'false' }, indexedDB: await remembered(files), picker: folderHandle('Other', {}) });
+    const app = boot({ html: which === '2.11.1' ? shipped() : undefined, liveForms: true, localStore: { 'preflight:builder': 'false' }, indexedDB: await remembered(files), picker: folderHandle('Other', {}) });
     await app.tick(60);
     app.choose('person-avery'); await app.tick();
     sides.push({ which, app, files, team: false });
@@ -187,7 +187,7 @@ async function walk(n, seed, steps) {
     if (INTENDED.some(x => x.when(trail))) return;
     const same = (x, y) => (!x && !y) || (!!x && !!y && x.form === y.form && Object.keys(x.roles).length === Object.keys(y.roles).length && Object.keys(x.roles).every(r => y.roles[r] === x.roles[r]));
     if (same(a, b)) return;
-    const diff = !a || !b || a.form !== b.form ? 'forms: ' + (a && a.form) + ' / ' + (b && b.form) : Object.keys(Object.assign({}, a.roles, b.roles)).filter(r => a.roles[r] !== b.roles[r]).slice(0, 6).map(r => r + ': 2.11.0 ' + JSON.stringify(a.roles[r]) + ', this build ' + JSON.stringify(b.roles[r])).join('; ');
+    const diff = !a || !b || a.form !== b.form ? 'forms: ' + (a && a.form) + ' / ' + (b && b.form) : Object.keys(Object.assign({}, a.roles, b.roles)).filter(r => a.roles[r] !== b.roles[r]).slice(0, 6).map(r => r + ': 2.11.1 ' + JSON.stringify(a.roles[r]) + ', this build ' + JSON.stringify(b.roles[r])).join('; ');
     assert.fail(n + ' roles, seed ' + seed + ', after ' + what + ': ' + diff + '\n  events: ' + trail.slice(-14).join(' > '));
   };
   await open(pick(['start', 'plan', 'review'])); check('opening');
@@ -206,15 +206,15 @@ module.exports = { world, pair, put, reread, formRoles, prng, PID };
 if (require.main !== module) return;
 
 /* ---------- the named sequences of code review rounds 16 and 17, then the random walks ---------- */
-rule('Round 16 differential: Plan on 60 roles, Just me, v2 arrives with the same roles, refresh: every role is what 2.11.0 sends', async () => {
+rule('Round 16 differential: Plan on 60 roles, Just me, v2 arrives with the same roles, refresh: every role is what 2.11.1 sends', async () => {
   const rand = prng(1), W = world(60, rand);
   const sides = await pair(W, Object.assign({}, W.publish(W.roles), W.peopleFile(), W.runFile(() => 'person-avery')));
   for (const s of sides) { s.app.click('plan-run', PID); await s.app.tick(20); s.app.click('just-me'); await s.app.tick(5); }
   await put(sides, W.publish(W.roles));
   for (const s of sides) await reread(s.app);
   const [a, b] = sides.map(s => formRoles(s.app));
-  assert.strictEqual(a.roles.r50, 'person-avery', 'set-up: 2.11.0 keeps Avery in r50');
-  assert.deepStrictEqual(b, a, 'this build sends what 2.11.0 sends');
+  assert.strictEqual(a.roles.r50, 'person-avery', 'set-up: 2.11.1 keeps Avery in r50');
+  assert.deepStrictEqual(b, a, 'this build sends what 2.11.1 sends');
 });
 
 /* ---------- code review round 17: whether each build lets the form be left ---------- */
@@ -235,7 +235,7 @@ const LEAVE = {
   untouched: { expect: 'left', go: async () => {} },
   changed: { expect: 'refused', go: async (s, role) => { const was = s.app.el('role-' + role).value; await setRole(s, role, was === 'person-casey' ? 'person-blake' : 'person-casey'); } },
   'Just me': { expect: 'refused', go: async s => { assert.ok(/data-act="just-me"/.test(s.app.html()), s.which + ': set-up: Just me is offered'); s.app.click('just-me'); await s.app.tick(5); } },
-  /* As 2.11.0 does: a role changed and then set back to what it was drawn with is nothing to lose. */
+  /* As 2.11.1 does: a role changed and then set back to what it was drawn with is nothing to lose. */
   'changed and set back': { expect: 'left', go: async (s, role) => { const was = s.app.el('role-' + role).value; await setRole(s, role, was === 'person-casey' ? 'person-blake' : 'person-casey'); await setRole(s, role, was); } }
 };
 for (const [n, role] of [[8, 'r2'], [60, 'r50']]) for (const kind of ['start', 'plan']) for (const what of Object.keys(LEAVE)) {
@@ -250,16 +250,16 @@ for (const [n, role] of [[8, 'r2'], [60, 'r50']]) for (const kind of ['start', '
       out.push(Object.assign({ which: s.which, roles: f && f.roles }, await backFrom(s.app)));
     }
     const [a, b] = out;
-    assert.deepStrictEqual(b.roles, a.roles, 'this build sends what 2.11.0 sends before Back');
-    assert.strictEqual(b.left, a.left, 'Back: 2.11.0 ' + (a.left ? 'left' : 'stayed') + ', this build ' + (b.left ? 'left' : 'stayed'));
-    assert.strictEqual(b.refused, a.refused, 'Back: 2.11.0 ' + (a.refused ? 'refused' : 'did not refuse') + ', this build ' + (b.refused ? 'refused' : 'did not refuse'));
+    assert.deepStrictEqual(b.roles, a.roles, 'this build sends what 2.11.1 sends before Back');
+    assert.strictEqual(b.left, a.left, 'Back: 2.11.1 ' + (a.left ? 'left' : 'stayed') + ', this build ' + (b.left ? 'left' : 'stayed'));
+    assert.strictEqual(b.refused, a.refused, 'Back: 2.11.1 ' + (a.refused ? 'refused' : 'did not refuse') + ', this build ' + (b.refused ? 'refused' : 'did not refuse'));
     for (const x of out) {
       if (LEAVE[what].expect === 'left') assert.ok(x.left && !x.refused, x.which + ': Back leaves the form');
       else assert.ok(!x.left && x.refused, x.which + ': Back refuses and keeps the form');
     }
   });
 }
-const walks = (n, count, steps) => { for (let w = 0; w < count; w++) rule('Round 16 differential: ' + n + ' roles, walk ' + (w + 1) + ' of ' + count + ' (seed ' + (SEED + w) + ', ' + steps + ' events): every role sent is what 2.11.0 sends', async () => { await walk(n, SEED + w, steps); }); };
+const walks = (n, count, steps) => { for (let w = 0; w < count; w++) rule('Round 16 differential: ' + n + ' roles, walk ' + (w + 1) + ' of ' + count + ' (seed ' + (SEED + w) + ', ' + steps + ' events): every role sent is what 2.11.1 sends', async () => { await walk(n, SEED + w, steps); }); };
 walks(60, 5, STEPS);
 walks(300, 1, Math.max(10, Math.round(STEPS / 2)));
 
