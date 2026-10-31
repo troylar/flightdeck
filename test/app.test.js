@@ -2221,15 +2221,13 @@ rule('R11: a duplicated tab answered within its 300 ms wait takes a new identity
   assert.notStrictEqual(idB, idA, 'the duplicate chose a new identity');
   assert.ok(/You.re recording in another window/.test(b.html()), 'the duplicate says it is following');
 });
-/* KNOWN PRODUCT BUG. This rule records what the app does today, and it's wrong: an answer that arrives after the 300 ms wait
-   is ignored (settled, src/ui/app.js), so on a slow machine a duplicated tab keeps the first window's identity and both
-   windows count as recording the same run. When the app is fixed this rule fails: replace it with the opposite checks. */
-rule('Known: a duplicated tab answered after its 300 ms wait keeps the first window\'s identity, and both windows count as recording', async () => {
+rule('R11: a duplicated tab answered after its 300 ms wait still takes a new identity and follows the recording in the first window', async () => {
   const { b, idA, idB, recorder } = await duplicateTab(300);
   assert.strictEqual(recorder, idA, 'set-up: the first window records');
-  assert.strictEqual(idB, idA, 'today the late answer is ignored; if this fails the bug is fixed, so flip this rule');
-  assert.ok(!/You.re recording in another window/.test(b.html()), 'today the duplicate doesn\'t say it is following');
-  assert.ok(/data-act="toggle"/.test(b.html()), 'today the duplicate can check steps of a run the first window is recording');
+  assert.notStrictEqual(idB, idA, 'the late answer counts');
+  assert.ok(/You.re recording in another window/.test(b.html()), 'the duplicate says it is following');
+  const within = await duplicateTab(299);
+  assert.strictEqual(/data-act="toggle"/.test(b.html()), /data-act="toggle"/.test(within.b.html()), 'it offers what a duplicate answered in time offers');
 });
 
 rule('R11: reloading a window keeps its identity, so its recording continues', async () => {

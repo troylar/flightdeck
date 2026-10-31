@@ -25528,7 +25528,8 @@ PF.examples = (function () {
   function acksDismissed() { var v = lsGet('acks:' + fsKey(), []); return Array.isArray(v) ? v.filter(function (k) { return typeof k === 'string' && ACK_KEY.test(k); }).slice(-ACK_MAX) : []; }
   /* One writer per browser window: a session ID that survives a reload of the same tab. A duplicated tab inherits a copy of
      that ID, so each window announces its ID when it opens; if a live window already uses it, the newcomer takes a fresh one.
-     A reload is safe: the old page is gone, so nothing answers. Writes wait until this check is done. */
+     A reload is safe: the old page is gone, so nothing answers. Writes wait until this check is done, at most 300 ms; on a slow
+     machine the answer can come later than that, and it still counts. */
   var SESSION = (function () {
     try { var s = sessionStorage.getItem(LS + ':session'); if (!s) { s = U.randomId(10); sessionStorage.setItem(LS + ':session', s); } return s; }
     catch (e) { return U.randomId(10); }
@@ -25545,20 +25546,20 @@ PF.examples = (function () {
   if (!LOCKS) SESSION = WRITER;
   var sessionReady = (function () {
     if (!LOCKS || typeof BroadcastChannel !== 'function') return Promise.resolve();
-    var chan, nonce = U.randomId(8), settled = false;
+    var chan, nonce = U.randomId(8);
     try { chan = new BroadcastChannel(LS + ':windows'); } catch (e) { return Promise.resolve(); }
     return new Promise(function (res) {
       chan.onmessage = function (e) {
         var m = e.data || {};
         if (m.ask === SESSION && m.nonce !== nonce) chan.postMessage({ taken: SESSION, nonce: m.nonce });
-        if (m.taken === SESSION && m.nonce === nonce && !settled) {
+        if (m.taken === SESSION && m.nonce === nonce) {
           SESSION = U.randomId(10);
           try { sessionStorage.setItem(LS + ':session', SESSION); } catch (err) { /* this window keeps the new ID in memory */ }
-          settled = true; res(); if (typeof render === 'function') render();
+          res(); if (typeof render === 'function') render();
         }
       };
       chan.postMessage({ ask: SESSION, nonce: nonce });
-      setTimeout(function () { settled = true; res(); }, 300);
+      setTimeout(res, 300);
     });
   })();
 
@@ -27034,7 +27035,6 @@ PF.examples = (function () {
     /* Nor while someone is composing text (an input method): the redraw waits until the composition ends. */
     if (rendering || composing) { scheduleRender(); return; }
     rendering = true;
-    obGroupsSync();
     /* Any inline form opened or closed (Fill in, Blocked, Edit, a correction, a note's correction), however it was reached, counts as moving. */
     var fsig = [state.pick ? state.pick.kind + ':' + state.pick.id : '', state.edit || '', state.corrForm ? state.corrForm.step + ':' + state.corrForm.mode : '', Object.keys(state.noteCorrs || {}).sort().join(',')].join('|');
     if (fsig !== formSig) { formSig = fsig; childEpoch++; }
@@ -27134,6 +27134,8 @@ PF.examples = (function () {
     var y = window.scrollY;
     renderTop();
     followDrafts();
+    /* After followDrafts: a newer draft it just took can give the selected step a Condition. */
+    obGroupsSync();
     state.editor = state.processId ? editorOf(state.processId) : null;
     state.tags = (state.tagsBy || {})[state.view] || [];
     var v = state.view;
