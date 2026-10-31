@@ -63,7 +63,7 @@
         "kind": "fixed",
         "area": "Runs",
         "title": "Rotation and team runs count every name",
-        "now": "Rotation treats a person with the ID constructor as someone who hasn't done the role yet, and a run with a second person named __proto__ counts as a team run.",
+        "now": "A person with the ID constructor who has never done the role gets the same place in rotation as anyone else who hasn't, and a run with a second person named __proto__ counts as a team run.",
         "before": "Rotation pushed that person to the back of the line, and that run was treated as one person working alone.",
         "where": "Starting a run, and a run's mode"
       },
@@ -73,6 +73,22 @@
         "title": "Other names from a folder are read as they are",
         "now": "Details, roles, fields, step types and drafts with a name like constructor no longer pick up something the app didn't write. A draft step or custom step type with such a name is refused and told why.",
         "where": "Drafts, practice, step types, corrections, reports and publishing"
+      },
+      {
+        "kind": "fixed",
+        "area": "Runs",
+        "title": "A hand-edited step type can't lose what you enter",
+        "now": "A version whose step type was edited by hand to name evidence, a field or a condition with a word like __proto__ or constructor says it can't be run here, and so does the assistants' folder checker. Practice says the same of a draft's role or run detail with such a name.",
+        "before": "That version looked fine, and evidence entered under __proto__ disappeared when the step was saved.",
+        "where": "Publishing, runs on such a version, and Practice"
+      },
+      {
+        "kind": "fixed",
+        "area": "Everywhere",
+        "title": "Opening another folder closes what was open",
+        "now": "If a screenshot or another dialog is still open when a folder you picked finishes opening, it closes and you land on the new folder's heading.",
+        "before": "The screenshot stayed open over the new folder, and could show the new folder's file under the old caption.",
+        "where": "Switching team folders"
       }
     ]
   },
