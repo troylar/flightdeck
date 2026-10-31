@@ -373,7 +373,7 @@ Thousands of runs open and refresh without stalling. Long lists show a page at a
 
 ## Skills for your AI assistant
 
-`flightdeck install` puts these in the team folder's `.flightdeck/skills/`, with an `AGENTS.md` that any assistant reads. They're plain `SKILL.md` files, so any assistant that supports skills can use them. Open the team folder with your assistant and ask for one by name:
+**Settings → AI assistant files** in the app (or `flightdeck install` in a terminal) puts these in the team folder's `.flightdeck/skills/`, with an `AGENTS.md` that any assistant reads. They're plain `SKILL.md` files, so any assistant that supports skills can use them. Open the team folder with your assistant and ask for one by name:
 
 | Skill | Does |
 |---|---|
@@ -387,6 +387,20 @@ Thousands of runs open and refresh without stalling. Long lists show a page at a
 | `/flightdeck-skill-brief` | Writes the brief to create a skill from a signed-off version, or update one, by the same rules as the app |
 
 In `AGENTS.md`, only the part between the `flightdeck:begin` and `flightdeck:end` markers is Flightdeck's; your Team notes below it are never touched. A file your team changed is left alone on update, and the new default waits in `.flightdeck/updates/<version>/` with a prompt for your assistant to merge it.
+
+### AI assistant files, from the app
+
+**Settings → AI assistant files** installs and updates `AGENTS.md` and the skills without a command line. Each file shows where it stands:
+
+| Status | Means |
+|---|---|
+| Up to date | The same as this version ships |
+| Update ready | An older default nobody changed; **Update** replaces it, after keeping a copy |
+| Not there yet, or Deleted, can be added again | **Update** adds it |
+| You changed it | Never replaced |
+| Waiting to merge | Your team changed it and the default changed too; the new default waits in `.flightdeck/updates/<version>/` |
+
+**Show** and **Copy** give any file as this version ships it, for an assistant that can't open the folder. **Copy merge request** copies the prompt for your assistant, and **I merged it** puts the waiting copy away beside the replaced files once it's merged. **In another folder** does the same for an assistant that reads skills from its own folder (`flightdeck skills --to`). The app and the command share the same rules for these files and the same record (`.flightdeck/installed.json`), so they never disagree; the command also updates `flightdeck.html` itself, which the app leaves alone. Folder health's **AI assistants** items open this screen.
 
 ## Safe by design
 
@@ -402,7 +416,7 @@ Roles prevent ordinary mistakes, not attacks: anyone who can open the team folde
 
 ## Updating and when something goes wrong
 
-Run `flightdeck install <folder>` again with the new version (or `npx @troylar/flightdeck@<version> install <folder>`). It updates what's still a Flightdeck default and keeps what your team changed. [Updating Flightdeck](https://github.com/troylar/flightdeck/blob/main/docs/updating.md) walks through backups, mixed versions and [rolling back](https://github.com/troylar/flightdeck/blob/main/docs/updating.md#rolling-back).
+Run `flightdeck install <folder>` again with the new version (or `npx @troylar/flightdeck@<version> install <folder>`). It updates what's still a Flightdeck default and keeps what your team changed. Once the new `flightdeck.html` is in the folder, **Settings → AI assistant files** can update `AGENTS.md` and the skills from the app the same way. [Updating Flightdeck](https://github.com/troylar/flightdeck/blob/main/docs/updating.md) walks through backups, mixed versions and [rolling back](https://github.com/troylar/flightdeck/blob/main/docs/updating.md#rolling-back).
 
 When the app shows a warning, **Settings → When something goes wrong** explains it in the app; the same guide is [online](https://github.com/troylar/flightdeck/blob/main/docs/recovery.md), covering conflict copies, lost folder access, OneDrive copies and restoring from a backup.
 

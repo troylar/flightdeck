@@ -1,6 +1,6 @@
 {
   "name": "@troylar/flightdeck",
-  "version": "2.11.1",
+  "version": "2.12.0",
   "description": "Offline team process checklists in one HTML file. Run and prove a checklist, then give your AI assistant a brief to build a skill. Track which process version each skill follows.",
   "license": "MIT",
   "keywords": [

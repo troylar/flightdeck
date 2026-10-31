@@ -180,7 +180,7 @@ function boot(opts) {
   const storage = () => ({ getItem: k => (refuse(k), k in store ? store[k] : null), setItem: (k, v) => { refuse(k); store[k] = String(v); }, removeItem: k => { refuse(k); delete store[k]; } });
   const document = {
     hidden: false, title: '', body: Object.assign(element('body'), { appendChild() {} }), activeElement: null,
-    getElementById: id => els[id] || (opts.domFocus ? drawnAnywhere('#' + id) : null), querySelector: sel => (opts.domFocus ? drawnAnywhere(sel) : null), querySelectorAll: () => [], createElement: () => Object.assign(element('x'), { click() { downloads.push({ name: this.download, blob: lastBlob }); }, remove() {} }),
+    getElementById: id => els[id] || (opts.domFocus ? drawnAnywhere('#' + id) : null), querySelector: sel => (opts.domFocus ? drawnAnywhere(sel) : null), querySelectorAll: () => [], createRange: () => ({ selectNodeContents() {} }), createElement: () => Object.assign(element('x'), { click() { downloads.push({ name: this.download, blob: lastBlob }); }, remove() {} }),
     addEventListener: (t, fn) => { (listeners[t] = listeners[t] || []).push(fn); }, contains: () => false
   };
   document.activeElement = document.body;

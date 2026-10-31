@@ -3,7 +3,7 @@
 
 This folder holds the team's process checklists and runs for Flightdeck. Read this before changing anything here, including the team's own notes at the end.
 
-`flightdeck install` updates the part of this file between the `flightdeck:begin` and `flightdeck:end` markers. The team's own instructions go under **Team notes**, below it, which Flightdeck never changes. Don't edit the part between the markers, `.flightdeck/installed.json` or anything in `.flightdeck/updates/`, unless a person asks you to merge a Flightdeck update (the `README.md` in `.flightdeck/updates/<version>/` says how).
+`flightdeck install` (or **Settings → AI assistant files** in the app) updates the part of this file between the `flightdeck:begin` and `flightdeck:end` markers. The team's own instructions go under **Team notes**, below it, which Flightdeck never changes. Don't edit the part between the markers, `.flightdeck/installed.json` or anything in `.flightdeck/updates/`, unless a person asks you to merge a Flightdeck update (the `README.md` in `.flightdeck/updates/<version>/` says how).
 
 ## What you may write
 
@@ -36,7 +36,7 @@ This folder holds the team's process checklists and runs for Flightdeck. Read th
 - `history/`: the saved history of drafts and step types, one file per Flightdeck window. Never edit or delete a file there (see *Saved history* for the one file of your own you may add).
 - `people.json`, unless a person asks: the folder owner and backup owner keep it in Flightdeck. It's an array of `{ "id", "name", "initials", "email", "inactive", "folderRole" }`; `folderRole` is `"owner"` (one person) or `"backup"` (one person). Edit it only when a person asks, never delete anyone (mark them `"inactive": true`), and never change or reuse an ID.
 - `team-values.json`, unless a person asks: the folder owner and backup owner keep it in Flightdeck (Settings › Team values). It's `{ "format": "flightdeck-team-values/1", "values": { "<name>": { "value": "…", "about": "…" } } }`: names are lowercase letters, digits and `-`; a value is at most 120 characters with no spaces at the start or end. A linked step passes one with `pass: name=team:<name>`. Never put passwords or tokens in it.
-- `.flightdeck/installed.json` and `.flightdeck/updates/`: written by `flightdeck install`. Never write them; merge an update only when a person asks (see above).
+- `.flightdeck/installed.json` and `.flightdeck/updates/`: written by `flightdeck install` and the app's AI assistant files. Never write them; merge an update only when a person asks (see above).
 
 ## Skills for this folder
 
