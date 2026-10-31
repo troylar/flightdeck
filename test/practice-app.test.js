@@ -3,7 +3,7 @@
 // Try it again, and ends when exactly the practiced text is published.
 'use strict';
 const assert = require('assert');
-const { rule, run, budget, withinBudget } = require('./harness');
+const { rule, run, budget } = require('./harness');
 const { boot } = require('./app-harness');
 
 const DRAFT = 'maps/drafts/release.md';
@@ -674,7 +674,7 @@ budget('A 300-step draft: the practice run screen draws and answers well under b
   for (let k = 5; k < 15; k++) { app.click('toggle', 's0-' + k); await app.tick(0); }
   const ms = Number(process.hrtime.bigint() - t0) / 1e7;
   assert.equal(row(app, 's0-14'), 'done');
-  withinBudget(ms < 60, 'a practice action, drawn, took ' + ms.toFixed(1) + ' ms');
+  assert.ok(ms < 60, 'a practice action, drawn, took ' + ms.toFixed(1) + ' ms');
 });
 
 /* ---------- code review round 1 ---------- */

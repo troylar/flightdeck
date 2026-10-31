@@ -2,7 +2,7 @@
 // and Just planned, Home's three lists, and the bounded dropdowns (K.select), on the big folder (test/bounds-fixture.js).
 'use strict';
 const assert = require('assert');
-const { loadViews, rule, run, budget, withinBudget } = require('./harness');
+const { loadViews, rule, run, budget } = require('./harness');
 const { boot } = require('./app-harness');
 const { fixture, into } = require('./bounds-fixture');
 
@@ -1206,7 +1206,7 @@ budget('The test page reads a big drawn screen in linear time, and a closing tag
   const t = Date.now();
   assert.ok(app.doc.querySelector('#s1499 option[value="v1499-59"]'), 'the last option, inside its select');
   const readMs = Date.now() - t;
-  withinBudget(readMs < 5000, 'read in ' + readMs + 'ms');
+  assert.ok(readMs < 5000, 'read in ' + readMs + 'ms');
   assert.strictEqual(app.doc.querySelector('#s0 option[value="v1-0"]'), null, 'an option in the next select isn\'t inside the one before it');
   assert.strictEqual(app.doc.querySelector('label option'), null, 'a label closed before the select holds no options');
 });

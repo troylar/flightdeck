@@ -2,7 +2,7 @@
 // A budget missed on a busy machine says little about the code, so the pass waits for a quiet moment and says what it found.
 // It samples the CPUs over a second rather than reading the load average, which lags by minutes and would still count the
 // test jobs that just ended.
-//   node test/machine-load.js                   print one line; exits 0 when quiet, 3 when busy
+//   node test/machine-load.js                   print one line, starting quiet: or busy:
 //   node test/machine-load.js --wait <seconds>  the same, after waiting up to that long for a quiet moment
 // PERF_BUSY: the share of all CPUs (percent) in use that counts as busy (25 by default: a third of them are
 // slower cores on some computers, and the fast ones are full long before all of them are).
@@ -33,10 +33,7 @@ async function waitQuiet(seconds) {
 
 if (require.main === module) {
   const at = process.argv.indexOf('--wait'), wait = at >= 0 ? Number(process.argv[at + 1]) || 0 : 0;
-  waitQuiet(wait).then(s => {
-    console.log((isBusy(s) ? 'busy' : 'quiet') + ': ' + say(s));
-    process.exit(isBusy(s) ? 3 : 0);
-  });
+  waitQuiet(wait).then(s => { console.log((isBusy(s) ? 'busy' : 'quiet') + ': ' + say(s)); });
 }
 
 module.exports = { sample, say, isBusy, waitQuiet };

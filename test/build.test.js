@@ -80,47 +80,59 @@ rule('A budget() registered inside a loop counts as a file with budgets, and tes
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-/* test/run.sh with node standing in for one file, which exits with the codes listed, one per attempt: what the runner decides
-   from each, on a machine that counts as busy (PERF_BUSY=0) or quiet (PERF_BUSY=100). "F139" prints a FAIL line first. */
-function runnerWith(codes) {
+/* test/run.sh with node standing in for one file, which exits with the codes listed, one per attempt, and counts its attempts.
+   "F1" prints a FAIL line first. busy sets what the machine counts as (PERF_BUSY=0 or 100); sampler makes the load sampler
+   fail ("fail") or print nonsense ("junk"). */
+function runnerWith(c) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-runner-'));
   const shim = '#!/usr/bin/env bash\n' +
     'case "$1" in\n' +
-    '  test/timeline.test.js) q="$SHIM_DIR/$BUDGETS"; c="$(head -n 1 "$q" 2>/dev/null)"; if [ -n "$c" ]; then tail -n +2 "$q" > "$q.n"; mv "$q.n" "$q"; fi; c="${c:-0}"\n' +
+    '  test/timeline.test.js) echo x >> "$SHIM_DIR/$BUDGETS.ran"; q="$SHIM_DIR/$BUDGETS"; c="$(head -n 1 "$q" 2>/dev/null)"; if [ -n "$c" ]; then tail -n +2 "$q" > "$q.n"; mv "$q.n" "$q"; fi; c="${c:-0}"\n' +
     '    case "$c" in F*) echo "FAIL: a rule"; c="${c#F}";; esac; echo "1 passed, 0 failed"; exit "$c";;\n' +
     '  tools/old-bundles.js) exit 0;;\n' +
+    '  test/machine-load.js) case "${SHIM_SAMPLER:-}" in fail) exit 127;; junk) echo "no idea"; exit 0;; esac;;\n' +
     'esac\nexec "$SHIM_REAL" "$@"\n';
   fs.writeFileSync(path.join(dir, 'node'), shim, { mode: 0o755 });
-  Object.keys(codes.lists).forEach(k => fs.writeFileSync(path.join(dir, k), codes.lists[k].join('\n') + '\n'));
-  const env = Object.assign({}, process.env, { PATH: dir + path.delimiter + process.env.PATH, SHIM_DIR: dir, SHIM_REAL: process.execPath, SKIP_BUILD: '1', ONLY: 'timeline', TIER: '', RULE: '', LIST: '', TIMES: '', KEEP_LOGS: '', BUDGETS: '', SHARD: '', PERF_WAIT: '0', PERF_TRIES: '3', PERF_BUSY: codes.busy ? '0' : '100' });
+  Object.keys(c.codes || {}).forEach(k => fs.writeFileSync(path.join(dir, k), c.codes[k].join('\n') + '\n'));
+  const env = Object.assign({}, process.env, { PATH: dir + path.delimiter + process.env.PATH, SHIM_DIR: dir, SHIM_REAL: process.execPath, SHIM_SAMPLER: c.sampler || '', SKIP_BUILD: '1', ONLY: 'timeline', TIER: '', RULE: '', LIST: '', TIMES: '', KEEP_LOGS: '', BUDGETS: '', SHARD: '', PERF_WAIT: '0', PERF_BUSY: c.busy ? '0' : '100' });
+  const ran = (k) => { try { return fs.readFileSync(path.join(dir, k + '.ran'), 'utf8').split('\n').filter(Boolean).length; } catch (e) { return 0; } };
   return new Promise((res) => {
     let out = '';
-    const c = cp.spawn('bash', [path.join(__dirname, 'run.sh')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
-    c.stdout.on('data', d => { out += d; }); c.stderr.on('data', d => { out += d; });
-    c.on('close', code => { fs.rmSync(dir, { recursive: true, force: true }); res({ code, out }); });
+    const p = cp.spawn('bash', [path.join(__dirname, 'run.sh')], { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    p.stdout.on('data', d => { out += d; }); p.stderr.on('data', d => { out += d; });
+    p.on('close', code => { const got = { code, out, budgetRuns: ran('only'), plainRuns: ran('skip') }; fs.rmSync(dir, { recursive: true, force: true }); res(got); });
   });
 }
-rule('test/run.sh: a first failure stands unless it is a time over budget on a busy machine or a segfault with no rule failed', async () => {
+rule('test/run.sh: the only failure that can end in exit 0 is a segfault with no rule failed in a parallel job that then passes every rule', async () => {
   if (!hasBash) return console.log('  (skipped: no bash)');
+  const miss = /SPEED BUDGET RULES FAILED[^\n]*may be the load[^\n]*TIER=perf on a quiet machine[^\n]*\n  machine before the pass: (quiet|busy): [^\n]*\n  machine after the pass: (quiet|busy): /;
+  const unknown = /machine before the pass: unknown\n  machine after the pass: unknown/;
+  /* name, settings, exit, how many times the budget job and the parallel job run, what the output says */
   const cases = [
-    ['a budget rule failing a check, then passing, on a busy machine', { busy: true, lists: { only: [1, 0] } }, 1],
-    ['a budget job crashing, then passing, on a busy machine', { busy: true, lists: { only: [139, 0] } }, 1],
-    ['a time over budget, then met, on a busy machine', { busy: true, lists: { only: [3, 0] } }, 0, /busy machine, then met when measured again/],
-    ['a time over budget every try on a busy machine', { busy: true, lists: { only: [3, 3, 3] } }, 1, /MISSED WHILE THE MACHINE WAS BUSY/],
-    ['a time over budget on a quiet machine, which would be met next time', { busy: false, lists: { only: [3, 0] } }, 1, /MISSED ON A QUIET MACHINE/],
-    ['a time miss, then a failed check, on a busy machine', { busy: true, lists: { only: [3, 1, 0] } }, 1],
-    ['an ordinary rule failing, then passing alone', { busy: false, lists: { skip: [1, 0] } }, 1, /the failure stands/],
-    ['a segfault with no rule failed, then a full pass', { busy: false, lists: { skip: [139, 0] } }, 0, /NODE CRASHED \(not a test failure\):\n.*exit 139/],
-    ['a segfault after a rule failed, then a pass', { busy: false, lists: { skip: ['F139', 0] } }, 1],
-    ['a segfault, then a failure', { busy: false, lists: { skip: [139, 1] } }, 1],
-    ['a segfault twice', { busy: false, lists: { skip: [139, 139] } }, 1],
-    ['another signal, then a pass', { busy: false, lists: { skip: [134, 0] } }, 1],
-    ['every attempt passing', { busy: false, lists: {} }, 0]
+    ['every attempt passing', {}, 0, 1, 1],
+    ['a segfault with no rule failed, then a full pass', { codes: { skip: [139, 0] } }, 0, 1, 2, /NODE CRASHED \(not a test failure\):\n.*exit 139/],
+    ['a time miss on a busy machine, which the next try would meet', { busy: true, codes: { only: ['F1', 0] } }, 1, 1, 1, miss],
+    ['a time miss on a quiet machine, which the next try would meet', { codes: { only: ['F1', 0] } }, 1, 1, 1, miss],
+    ['a failed check in a budget job, which the next try would pass', { busy: true, codes: { only: [1, 0] } }, 1, 1, 1, miss],
+    ['a crash in a budget job, on a busy machine', { busy: true, codes: { only: [139, 0] } }, 1, 1, 1, miss],
+    ['a crash in a budget job, on a quiet machine', { codes: { only: [139, 0] } }, 1, 1, 1, miss],
+    ['the old exit 3 from a budget job, on a busy machine', { busy: true, codes: { only: [3, 0] } }, 1, 1, 1, miss],
+    ['a budget miss with the load sampler failing', { sampler: 'fail', codes: { only: ['F1', 0] } }, 1, 1, 1, unknown],
+    ['a budget miss with the load sampler printing nonsense', { sampler: 'junk', codes: { only: ['F1', 0] } }, 1, 1, 1, unknown],
+    ['a failing load sampler when every budget is met', { sampler: 'fail' }, 0, 1, 1, /speed budgets: machine unknown/],
+    ['an ordinary rule failing, then passing alone', { codes: { skip: [1, 0] } }, 1, 1, 2, /the failure stands/],
+    ['exit 3 from an ordinary job, then a pass', { codes: { skip: [3, 0] } }, 1, 1, 2],
+    ['a segfault after a rule failed, then a pass', { codes: { skip: ['F139', 0] } }, 1, 1, 2],
+    ['a segfault, then a failure', { codes: { skip: [139, 1] } }, 1, 1, 2],
+    ['a segfault twice', { codes: { skip: [139, 139] } }, 1, 1, 2],
+    ['another signal, then a pass', { codes: { skip: [134, 0] } }, 1, 1, 2]
   ];
   const got = await Promise.all(cases.map(c => runnerWith(c[1])));
   cases.forEach((c, i) => {
     assert.strictEqual(got[i].code, c[2], c[0] + ': exit ' + got[i].code + '\n' + got[i].out);
-    if (c[3]) assert.ok(c[3].test(got[i].out), c[0] + ': says so\n' + got[i].out);
+    assert.strictEqual(got[i].budgetRuns, c[3], c[0] + ': budget job ran ' + got[i].budgetRuns + ' times');
+    assert.strictEqual(got[i].plainRuns, c[4], c[0] + ': parallel job ran ' + got[i].plainRuns + ' times');
+    if (c[5]) assert.ok(c[5].test(got[i].out), c[0] + ': says so\n' + got[i].out);
   });
 });
 

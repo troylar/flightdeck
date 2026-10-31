@@ -28,9 +28,11 @@ That builds `dist/flightdeck.html` (`python3 build.py`), runs every test file in
 | `RULE=<text>` | Only the rules whose names contain the text, in whichever jobs run. | `RULE='gate' ./test/run.sh` |
 | `TIMES=1` | Also prints every job's time, slowest first. | `TIMES=1 ./test/run.sh` |
 
-**Speed budgets.** A rule that asserts a wall-clock time is written with `budget()` instead of `rule()`, its file is listed in `BUDGET_FILES` in `test/run.sh`, and the time itself is checked with `withinBudget()`. What it finds, its folder calls and its memory stay ordinary asserts. The parallel jobs skip these rules; they run alone at the end. The pass waits up to `PERF_WAIT` seconds (60) for no more than `PERF_BUSY` percent of the CPUs (25) to be in use, and says what it found. A time over budget on a busy machine is measured again, up to `PERF_TRIES` times (3). If it's still over, the run fails and says the machine was busy, so run `TIER=perf` when it's quiet. Over budget on a quiet machine is a real slowdown. Never raise a budget to get past either one.
+**Speed budgets.** A rule that asserts a wall-clock time is written with `budget()` instead of `rule()`, and its file is listed in `BUDGET_FILES` in `test/run.sh`. The parallel jobs skip these rules. They run once each, alone at the end, after waiting up to `PERF_WAIT` seconds (60) for no more than `PERF_BUSY` percent of the CPUs (25) to be in use. Any failure there, a time miss or not, fails the run: nothing measures it again. The message gives the machine's load before and after the pass, and load shows as unknown if it can't be read. Never raise a budget to get past a miss.
 
-**A failure stands.** A job that fails is run again alone, only to help diagnose it: the run still fails, and says when the job passed alone. Two things can end in a passing run, and the final output lists both: a time over budget on a busy machine that's met when measured again, and node itself crashing with a segfault with no rule failed, when the job then passes in full.
+**A failure stands.** A job that fails in the parallel pass is run again alone, only to help diagnose it: the run still fails, and says when the job passed alone. The one failure that can end in a passing run is node itself crashing with a segfault (exit 139) with no rule failed, when the job then passes every rule. The final output lists it under `NODE CRASHED`. A crash in a budget job fails the run.
+
+**A release** needs a full run with no failures. If the only failures were time misses under load, it also needs a clean `TIER=perf` on a quiet machine. `TIER=perf` is a manual, separate run, and it doesn't change the earlier run's result.
 
 Every test file runs its rules through `test/harness.js`, so these work in any file:
 

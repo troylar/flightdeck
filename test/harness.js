@@ -25,15 +25,12 @@ function exampleSetup(PF) {
 }
 function example(rel) { return fs.readFileSync(path.join(__dirname, '..', 'example-folder', rel), 'utf8'); }
 
-let passed = 0, failed = 0, missed = 0;
+let passed = 0, failed = 0;
 const queue = [];
 function rule(name, fn) { queue.push([name, fn]); }
 /* A rule that asserts a wall-clock budget: test/run.sh holds these back from the parallel jobs and runs them alone at the end
    (BUDGETS=only there, BUDGETS=skip in the jobs). Run by hand, a file runs them with its other rules, as it always did. */
 function budget(name, fn) { queue.push([name, fn, true]); }
-/* The one check test/run.sh may measure again: a wall-clock time over its limit, inside a budget() rule. Everything else a
-   budget rule asserts (what it found, folder calls, memory) is an ordinary assert, and failing it is final. */
-function withinBudget(ok, message) { if (ok) return; const e = new Error(message); e.timeMiss = true; throw e; }
 async function run() {
   // ONLY=<text> runs just the rules whose names contain it, while working on them. SHARD=i/n runs every nth rule from
   // the ith, so test/run.sh can split a long file across processes. BUDGETS=only or skip picks the budget rules or the rest.
@@ -50,15 +47,13 @@ async function run() {
     if (process.env.ONLY && name.indexOf(process.env.ONLY) < 0) continue;
     const t0 = Date.now();
     try { await fn(); passed++; } catch (e) {
-      const miss = !!(timed && e && e.timeMiss);
-      failed++; if (miss) missed++;
-      console.log('FAIL: ' + name + '\n  ' + (process.env.STACK ? e && e.stack : e && e.message) + (miss ? '\n  (over a speed budget; load average ' + os.loadavg()[0].toFixed(1) + ' on ' + os.cpus().length + ' CPUs when it ended)' : ''));
+      failed++;
+      console.log('FAIL: ' + name + '\n  ' + (process.env.STACK ? e && e.stack : e && e.message) + (timed ? '\n  (a speed budget; load average ' + os.loadavg()[0].toFixed(1) + ' on ' + os.cpus().length + ' CPUs when it ended)' : ''));
     }
     if (process.env.RULE_TIMES) console.log((Date.now() - t0) + ' ms: ' + name);
   }
   console.log(passed + ' passed, ' + failed + ' failed');
-  // 3: every failure was a time over its budget (test/run.sh may measure those again). Any other failure is 1.
-  process.exit(!failed ? 0 : missed === failed ? 3 : 1);
+  process.exit(failed ? 1 : 0);
 }
 /* Checks a step with sample values for whatever its type requires, for tests about other rules. */
 function sampleDone(PF) {
@@ -93,4 +88,4 @@ function exactOf(PF, files) {
   return PF.publish.exactOf(raw);
 }
 
-module.exports = { FILES, budget, withinBudget, exactOf, completeRun, load, loadViews, example, exampleSetup, rule, run, sampleDone };
+module.exports = { FILES, budget, exactOf, completeRun, load, loadViews, example, exampleSetup, rule, run, sampleDone };

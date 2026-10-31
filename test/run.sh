@@ -12,19 +12,21 @@
 #                                    ONLY=<text>, which still works when you run one file: ONLY=gate node test/rules.test.js
 #
 # More settings: TIMES=1 prints every job's time, slowest first. LIST=1 prints the jobs chosen and runs nothing. JOBS=<n> sets
-# how many run at once (the CPU count by default). KEEP_LOGS=1 keeps the logs and prints where. PERF_WAIT=<seconds> (60),
-# PERF_BUSY=<percent of all CPUs> (25) and PERF_TRIES=<n> (3) set how the budgets wait, what counts as busy, and how many
-# times a budget missed on a busy machine is measured again (test/machine-load.js).
+# how many run at once (the CPU count by default). KEEP_LOGS=1 keeps the logs and prints where. PERF_WAIT=<seconds> (60) and
+# PERF_BUSY=<percent of all CPUs> (25) set how long the budgets wait for a quiet moment and what counts as quiet
+# (test/machine-load.js). SKIP_BUILD=1 uses dist/flightdeck.html as it is (test/build.test.js runs this script while other jobs
+# read it).
 #
 # Every job runs even after one fails, so a single failure never hides the rest; the failed ones are listed at the end. The
 # longest files are split into shards (SHARD=i/n in test/harness.js). Rules that assert a wall-clock budget (budget() in
-# test/harness.js) never run in the parallel jobs: they run alone at the end, and a miss says how busy the machine was.
+# test/harness.js) never run in the parallel jobs: they run once each, alone at the end, and any failure there fails the run.
 #
-# A first failure stands, even when the job then passes alone (that rerun is only a diagnosis). Two things can still end in
-# exit 0, and the final output lists both: a job where node itself crashed with a segfault (exit 139) with no rule failed,
-# which then passes in full when run again; and a time over a budget (exit 3 from test/harness.js) on a busy machine, which
-# is then met when measured again. Any other failure in a budget rule, or any crash there, is final.
-# SKIP_BUILD=1 uses dist/flightdeck.html as it is (test/build.test.js runs this script while other jobs read it).
+# A first failure stands, even when the job then passes alone (that rerun is only a diagnosis). One thing can end in exit 0: a
+# parallel job where node itself crashed with a segfault (exit 139) and no rule failed, which then passes every rule when run
+# again. The final output lists it. A crash in a budget job is final.
+#
+# A release needs a full run with no failures. If the only failures were speed budgets missed under load, it also needs a
+# clean TIER=perf on a quiet machine. TIER=perf is a separate run: it never changes the earlier run's result.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 TIER="${TIER:-full}"; only="${ONLY:-}"; unset ONLY
@@ -237,35 +239,24 @@ while IFS=$'\t' read -r rc what name; do
   printf '%s\t%s\t%s\n' "$rc" "$what" "$name" >> "$logs/status"
   if [ "$again" = 0 ]; then alone+=("$what"); fi
 done < "$logs/status.par"
-# The speed budgets, alone and last. They wait for a quiet moment, and a time over budget on a busy machine is measured again;
-# if it's still over, it stays a failure and says the machine was busy. Over budget on a quiet machine is a real slowdown. Any
-# other failure (exit 3 is the only time miss) is final the first time.
-loaded=(); retried=(); slow=()
+# The speed budgets, alone and last, each once, after waiting a bounded time for a quiet moment. Load is only reported: a
+# sampler that fails makes it "unknown", and neither it nor the load changes the outcome.
+machine() { local m; m="$(node test/machine-load.js "$@" 2>/dev/null || true)"; case "$m" in quiet:*|busy:*) echo "$m";; *) echo unknown;; esac; }
+over=()
 if [ -n "$budgets" ]; then
   if [ -n "$only" ]; then wait_s=0; else wait_s="${PERF_WAIT:-60}"; fi
-  quiet="$(node test/machine-load.js --wait "$wait_s" || true)"
-  echo "speed budgets: machine $quiet"
+  before="$(machine --wait "$wait_s")"
+  echo "speed budgets: machine $before"
   for f in $budgets; do
-    tries="${PERF_TRIES:-3}"; try=1
-    while :; do
-      job "$f" budgets
-      last="$(tail -n 1 "$logs/status")"
-      if [ "${last%%$'\t'*}" = 0 ]; then [ "$try" = 1 ] || retried+=("$f: within budget on try $try"); break; fi
-      if [ "${last%%$'\t'*}" != 3 ]; then break; fi
-      state="$(node test/machine-load.js || true)"
-      case "$state" in quiet*) slow+=("$f: $state"); break;; esac
-      if [ "$try" -ge "$tries" ]; then loaded+=("$f: $state"); break; fi
-      # This try's result is replaced by the next, whose log the end of this script reads.
-      cp "$logs/$(basename "$f" .js).budgets.log" "$logs/$(basename "$f" .js).budgets.try$try.log"
-      sed -i.bak '$d' "$logs/status" && rm -f "$logs/status.bak"
-      try=$((try + 1))
-      node test/machine-load.js --wait "$wait_s" > /dev/null || true
-    done
+    job "$f" budgets
+    last="$(tail -n 1 "$logs/status")"
+    if [ "${last%%$'\t'*}" != 0 ]; then over+=("$f"); fi
   done
+  if [ ${#over[@]} -gt 0 ]; then after="$(machine)"; fi
 fi
 failed=()
 while IFS=$'\t' read -r rc what name; do
-  if [ "$rc" != 0 ]; then failed+=("$what"); echo "=== $what"; cat "$logs/$name.log"; elif [ -n "$only" ]; then printf '%-34s %s\n' "$name" "$(tail -n 1 "$logs/$name.log")"; fi
+  if [ "$rc" != 0 ]; then failed+=("$what"); echo "=== $what (exit $rc)"; cat "$logs/$name.log"; elif [ -n "$only" ]; then printf '%-34s %s\n' "$name" "$(tail -n 1 "$logs/$name.log")"; fi
 done < <(sort -t$'\t' -k2 "$logs/status")
 # Every job chosen has a result: one that left none is a failure, never a pass.
 want=$(( $(printf '%s' "$plain" | wc -l) + $(echo $budgets | wc -w) )); have="$(wc -l < "$logs/status" | tr -d ' ')"
@@ -274,9 +265,10 @@ secs="$(( ($(now_ms) - started) / 1000 ))"
 echo "$(wc -l < "$logs/status" | tr -d ' ') test jobs run, ${#failed[@]} failed, ${secs}s ($(( secs / 60 ))m $(( secs % 60 ))s)"
 if [ -n "${TIMES:-}" ]; then echo "Job times, slowest first (ms; parallel jobs compete for the CPUs):"; sort -t$'\t' -k1,1nr "$logs/times" | awk -F'\t' '{printf "  %8d  %s\n", $1, $2}'; fi
 if [ ${#alone[@]} -gt 0 ]; then echo "FAILED in the parallel run, then passed alone (the failure stands; timing under load, or a real race):"; printf '  %s\n' "${alone[@]}"; fi
-if [ ${#retried[@]} -gt 0 ]; then echo "Speed budgets over on a busy machine, then met when measured again:"; printf '  %s\n' "${retried[@]}"; fi
-if [ ${#loaded[@]} -gt 0 ]; then echo "SPEED BUDGETS MISSED WHILE THE MACHINE WAS BUSY: this may be the load, not the code. Run TIER=perf on a quiet machine to tell."; printf '  %s\n' "${loaded[@]}"; fi
-if [ ${#slow[@]} -gt 0 ]; then echo "SPEED BUDGETS MISSED ON A QUIET MACHINE: treat this as a real slowdown."; printf '  %s\n' "${slow[@]}"; fi
+if [ ${#over[@]} -gt 0 ]; then
+  echo "SPEED BUDGET RULES FAILED, which fails this run. A time miss may be the load, not the code: confirm with TIER=perf on a quiet machine. That is a separate run and doesn't change this result."
+  echo "  machine before the pass: $before"; echo "  machine after the pass: $after"; printf '  %s\n' "${over[@]}"
+fi
 if [ ${#crashed[@]} -gt 0 ]; then echo "NODE CRASHED (not a test failure):"; printf '  %s\n' "${crashed[@]}"; fi
 if [ -z "$only" ]; then node -e "
 const fs=require('fs'),vm=require('vm');const h=fs.readFileSync('dist/flightdeck.html','utf8');

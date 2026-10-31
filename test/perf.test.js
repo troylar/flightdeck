@@ -3,7 +3,7 @@
 // PERF=big adds the 6,000-run profile. Times and memory are printed, not asserted, except where a budget says so.
 'use strict';
 const assert = require('assert');
-const { load, loadViews, rule, run, budget, withinBudget } = require('./harness');
+const { load, loadViews, rule, run, budget } = require('./harness');
 const { bigFolder } = require('./big-folder');
 const { NOW } = require('../tools/big-folder');
 
@@ -105,7 +105,7 @@ budget('Large folder: the Runs page parses each checklist once and draws at most
   d.runs.forEach(r => R.mapOf(r));
   console.log('  R.mapOf over ' + d.runs.length + ' runs: ' + (Number(process.hrtime.bigint() - t) / 1e6).toFixed(0) + ' ms, ' + R.mapMemo.stats().size + ' checklists kept');
   console.log('  memory for one load (this process also holds the generated folders): heap +' + mb(mem.heapUsed - mem0.heapUsed) + ', external ' + mb(mem.external) + ', arrayBuffers ' + mb(mem.arrayBuffers));
-  withinBudget(renderMs <= 250, 'first Runs page in ' + renderMs.toFixed(0) + ' ms');
+  assert.ok(renderMs <= 250, 'first Runs page in ' + renderMs.toFixed(0) + ' ms');
 });
 
 /* Insights (docs/design.md section 23) on the same folder: every process and version, then the worst case the plan budgets,
@@ -132,8 +132,8 @@ budget('Large folder: insights for every version of every process, and for one v
   R.mapMemo.clear();
   for (let i = 0; i < 3; i++) { t = process.hrtime.bigint(); const res = I.forProcess(one, base.process, { now: NOW, folder: base.folder }); times.push(Number(process.hrtime.bigint() - t) / 1e6); assert.strictEqual(res.runs.n, 500); }
   console.log('  insights, one version, 500 runs, ' + steps(base) + ' steps: ' + times.map(x => x.toFixed(1)).join(' / ') + ' ms (first includes the parse)');
-  withinBudget(times[0] <= INSIGHTS_500_MS, 'first: ' + times[0].toFixed(1) + ' ms');
-  withinBudget(allMs <= INSIGHTS_ALL_MS, 'every version: ' + allMs.toFixed(0) + ' ms');
+  assert.ok(times[0] <= INSIGHTS_500_MS, 'first: ' + times[0].toFixed(1) + ' ms');
+  assert.ok(allMs <= INSIGHTS_ALL_MS, 'every version: ' + allMs.toFixed(0) + ' ms');
 });
 
 /* Search (docs/design.md section 22) on the 2,000-run folder: a build in 8 ms slices ≤ 400 ms of work, a query ≤ 30 ms at
@@ -189,10 +189,10 @@ budget('Large folder: search builds, answers and updates within its time and mem
   refresh.sort((a, b) => a - b);
   const refreshMs = refresh[Math.floor(refresh.length / 2)];
   console.log('  search on a routine refresh with the palette open: median ' + refreshMs.toFixed(1) + ' ms, worst ' + refresh[refresh.length - 1].toFixed(1) + ' ms over ' + refresh.length);
-  withinBudget(refreshMs <= SEARCH.refreshMs, 'refresh ' + refreshMs.toFixed(1) + ' ms > ' + SEARCH.refreshMs);
-  withinBudget(docsMs + work <= SEARCH.buildMs, 'build ' + (docsMs + work).toFixed(0) + ' ms > ' + SEARCH.buildMs);
-  withinBudget(p95 <= SEARCH.queryP95Ms, 'query p95 ' + p95.toFixed(1) + ' ms > ' + SEARCH.queryP95Ms);
-  withinBudget(updateMs <= SEARCH.updateMs, 'update ' + updateMs.toFixed(2) + ' ms > ' + SEARCH.updateMs);
+  assert.ok(refreshMs <= SEARCH.refreshMs, 'refresh ' + refreshMs.toFixed(1) + ' ms > ' + SEARCH.refreshMs);
+  assert.ok(docsMs + work <= SEARCH.buildMs, 'build ' + (docsMs + work).toFixed(0) + ' ms > ' + SEARCH.buildMs);
+  assert.ok(p95 <= SEARCH.queryP95Ms, 'query p95 ' + p95.toFixed(1) + ' ms > ' + SEARCH.queryP95Ms);
+  assert.ok(updateMs <= SEARCH.updateMs, 'update ' + updateMs.toFixed(2) + ' ms > ' + SEARCH.updateMs);
   assert.ok(!gc || heap <= SEARCH.heapMB * 1048576, 'index heap ' + mb(heap) + ' > ' + SEARCH.heapMB + ' MB');
 });
 
@@ -223,7 +223,7 @@ budget('Evidence export: the command line packs a run with 50 MB of attachments 
   console.log('  export (command line): 50 MB of attachments, pack ' + mb(a.size) + ' in ' + a.ms + ' ms; peak with garbage: ' + say(a.grew) + (held ? '; held (collected before each sample): ' + say(held.grew) : ''));
   assert.strictEqual(a.r.code, 0, a.r.out);
   assert.ok(a.size > 50 * 1048576, 'every byte is in the pack');
-  withinBudget(a.ms <= EXPORT.cliMs, a.ms + ' ms > ' + EXPORT.cliMs);
+  assert.ok(a.ms <= EXPORT.cliMs, a.ms + ' ms > ' + EXPORT.cliMs);
   if (held) assert.ok(held.grew.arrayBuffers <= EXPORT.cliArrayBuffersMB * 1048576 && held.grew.external <= EXPORT.cliArrayBuffersMB * 1048576, 'streams: held ' + say(held.grew));
 });
 
@@ -237,7 +237,7 @@ budget('Evidence export on the 2,000-run folder: one run is collected with few f
   const ms = Date.now() - t;
   console.log('  export (one run of 2,000, without attachments): ' + res.col.files.length + ' files, ' + mb(bytes) + ' in ' + ms + ' ms; ' + line('folder', fs));
   assert.strictEqual(res.status, 'complete', res.col.unresolved.join(' '));
-  withinBudget(ms <= EXPORT.oneRunMs, ms + ' ms');
+  assert.ok(ms <= EXPORT.oneRunMs, ms + ' ms');
   assert.ok(fs.total() <= EXPORT.oneRunCalls, fs.total() + ' calls');
   // Virtual sizes: the estimate comes from listings and sizes alone, and a pack past the cap is refused before any read.
   const counts = {};
@@ -301,7 +301,7 @@ budget('Proposals: 50 in a big folder cost one list per process folder and one r
   const ms = Date.now() - t;
   console.log('  verifying a proposal with 2 MB of text: ' + ms + ' ms');
   assert.ok(ok.ok, 'the proposal verifies');
-  withinBudget(ms < 2000, ms + ' ms');
+  assert.ok(ms < 2000, ms + ' ms');
 });
 
 budget('Review\'s comparison is capped: thousands of identical lines with a few changes are quick, and too many changes stop early', () => {
@@ -313,12 +313,12 @@ budget('Review\'s comparison is capped: thousands of identical lines with a few 
   const ms = Date.now() - t;
   console.log('  Review comparison, 20,000 lines with 2 changes: ' + ms + ' ms');
   assert.ok(!d.tooMany && d.rows.filter(r => r.op === '+' || r.op === '-').length === 4, 'the two changes are found');
-  withinBudget(ms < 300, ms + ' ms');
+  assert.ok(ms < 300, ms + ' ms');
   t = Date.now();
   const many = PP.diff(same.join('\n'), same.map(x => x + '!').join('\n')), manyMs = Date.now() - t;
   console.log('  Review comparison, 20,000 lines all changed: ' + manyMs + ' ms');
   assert.ok(many.tooMany, 'too many changes stop early');
-  withinBudget(manyMs < 1500, 'all changed: ' + manyMs + ' ms');
+  assert.ok(manyMs < 1500, 'all changed: ' + manyMs + ' ms');
 });
 
 run();
