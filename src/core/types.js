@@ -246,13 +246,18 @@ PF.types = (function () {
   var KNOWN_KINDS = { text: 1, url: 1, code: 1, message: 1, list: 1, choice: 1, duration: 1, deadline: 1, require: 1, time: 1, sets: 1 };
   function plainObj(o) { return !!o && typeof o === 'object' && !Array.isArray(o); }
   function only(o, keys) { return Object.keys(o).every(function (k) { return Object.prototype.hasOwnProperty.call(keys, k); }); }
+  /* A name every plain object already has, or one that isn't text. Looked up in a step's fields or answers it reads what's
+     inherited, and an answer under __proto__ is never stored. checkCustom refuses these for a team's type, so no version
+     publishes one: only a hand-written types.json or run file gets here. */
+  function inherited(n) { return typeof n === 'string' ? n in Object.prototype : n != null; }
+  function condOk(c) { return !plainObj(c) || !Object.keys(c).some(inherited); }
   function understood(def) {
     if (!plainObj(def) || !only(def, TYPE_KEYS)) return false;
     /* Version 3 (2.0): a definition with typed evidence. The 2.0 kinds and keys are read only there, and only with values
        this copy can check (a min that isn't an exact decimal could never be compared). */
     if (def.version != null && !(typeof def.version === 'number' && (def.version <= VERSION || def.version === 3))) return false;
-    if (def.fields != null && (!plainObj(def.fields) || !Object.keys(def.fields).every(function (f) { var d = def.fields[f]; return plainObj(d) && only(d, FIELD_KEYS) && has(KNOWN_KINDS, d.kind); }))) return false;
-    if (def.record != null && (!Array.isArray(def.record) || !def.record.every(function (d) { return plainObj(d) && only(d, RECORD_KEYS) && has(RECORD_KINDS2, d.kind) && (!numberKeys(d).length || (d.kind === 'number' && !PF.values.numberDefProblems(d, '').length)); }))) return false;
+    if (def.fields != null && (!plainObj(def.fields) || !Object.keys(def.fields).every(function (f) { var d = def.fields[f]; return !inherited(f) && plainObj(d) && only(d, FIELD_KEYS) && has(KNOWN_KINDS, d.kind) && condOk(d.requiredWhen) && condOk(d.requiredUnless); }))) return false;
+    if (def.record != null && (!Array.isArray(def.record) || !def.record.every(function (d) { return plainObj(d) && only(d, RECORD_KEYS) && has(RECORD_KINDS2, d.kind) && !inherited(d.name) && !inherited(d.optionsFrom) && condOk(d.when) && (!numberKeys(d).length || (d.kind === 'number' && !PF.values.numberDefProblems(d, '').length)); }))) return false;
     if (uses2(def.record) && def.version !== 3) return false;
     return true;
   }

@@ -777,6 +777,15 @@ KNOWN_KINDS = {"text", "url", "code", "message", "list", "choice", "duration", "
 RECORD_KINDS = {"text", "url", "choice", "number", "yes-no", "date"}
 
 
+def inherited(n):
+    """A name every JavaScript object already has, or one that isn't text: the app's own reads would see what's inherited."""
+    return n in JS_PROTO if isinstance(n, str) else n is not None
+
+
+def cond_ok(c):
+    return not isinstance(c, dict) or not any(inherited(k) for k in c)
+
+
 def understood(d):
     """The app's PF.types.understood: a frozen step type uses only the type version, properties and kinds this copy knows."""
     if not isinstance(d, dict) or not set(d) <= TYPE_KEYS:
@@ -787,11 +796,13 @@ def understood(d):
         return False
     fields = d.get("fields")
     if fields is not None and (not isinstance(fields, dict) or not all(
-            isinstance(f, dict) and set(f) <= FIELD_KEYS and isinstance(f.get("kind"), str) and f.get("kind") in KNOWN_KINDS for f in fields.values())):
+            not inherited(n) and isinstance(f, dict) and set(f) <= FIELD_KEYS and isinstance(f.get("kind"), str) and f.get("kind") in KNOWN_KINDS
+            and cond_ok(f.get("requiredWhen")) and cond_ok(f.get("requiredUnless")) for n, f in fields.items())):
         return False
     record = d.get("record")
     if record is not None and (not isinstance(record, list) or not all(
             isinstance(r, dict) and set(r) <= RECORD_KEYS and isinstance(r.get("kind"), str) and r.get("kind") in RECORD_KINDS
+            and not inherited(r.get("name")) and not inherited(r.get("optionsFrom")) and cond_ok(r.get("when"))
             and (not any(k in r for k in NUMBER_KEYS) or (r.get("kind") == "number" and number_def_ok(r))) for r in record)):
         return False
     if uses2(record) and not (isinstance(v, (int, float)) and not isinstance(v, bool) and v == 3):

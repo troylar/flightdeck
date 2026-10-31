@@ -31,6 +31,8 @@ PF.practice = (function () {
     map.phases.forEach(function (p) { note(p.id); note(p.gate.id); p.tracks.forEach(function (t) { note(t.id); }); p.steps.forEach(function (s) { note(s.id); }); });
     /* Publishing refuses these too (M.check): so every ID past this point can key a plain object. */
     if (kept) return { ok: false, why: 'The ID "' + kept + '" is a name Flightdeck keeps for itself; choose another.' };
+    var name = [].concat(map.meta.roles || [], map.meta.context || []).filter(function (n) { return n === '__proto__' || n in Object.prototype; })[0];
+    if (name) return { ok: false, why: 'The role or run detail "' + name + '" is a name Flightdeck keeps for itself; choose another.' };
     if (dup) return { ok: false, why: 'The ID "' + dup + '" is used twice.' };
     for (var i = 0; i < map.phases.length; i++) {
       for (var j = 0; j < map.phases[i].steps.length; j++) {
