@@ -13,6 +13,10 @@ Odd names in a folder, and notes that share an ID.
 - **A note's screenshot or file opens that note's** (Runs). When two notes share an ID, each thumbnail and each file button opens its own note's image or file. *Where:* A step's notes and corrections, Finish, the receipt, and a checklist's Corrections
 - **A correction shows its own status and its own Withdraw** (Runs). When two corrections on a step share an ID, each row shows where it stands, and Withdraw takes back that one. *Where:* A run's step and Finish
 - **Other ID… in a linked step is only Other ID…** (Editor). A draft whose process is __other isn't listed beside Other ID…, which has that value. Type its ID under Other ID… to link it. *Where:* A linked step's Which process
+- **Closing a zoomed image goes back to its own thumbnail** (Runs). Closing a screenshot puts you back on the thumbnail of the note you opened it from, even if the notes moved while it was open, and brings that note back onto the list if a newer read pushed it off. If the note is gone, or can no longer be told from a copy, you land on the list's heading. *Where:* A step's notes and corrections, Finish, the receipt, and a checklist's Corrections
+- **A Jira workflow named __proto__ keeps its required fields** (Runs). An issue type called __proto__ in jira/workflows.json is read like any other, so a run started from it asks for that workflow's required fields. *Where:* Jira steps
+- **Rotation and team runs count every name** (Runs). Rotation treats a person with the ID constructor as someone who hasn't done the role yet, and a run with a second person named __proto__ counts as a team run. *Where:* Starting a run, and a run's mode
+- **Other names from a folder are read as they are** (Everywhere). Details, roles, fields, step types and drafts with a name like constructor no longer pick up something the app didn't write. A draft step or custom step type with such a name is refused and told why. *Where:* Drafts, practice, step types, corrections, reports and publishing
 
 ## 2.11.0 · Oct 28, 2026
 

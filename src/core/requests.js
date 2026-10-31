@@ -185,11 +185,11 @@ PF.requests = (function () {
   function same(a, b) {
     function canon(v) {
       if (Array.isArray(v)) return v.map(canon);
-      if (isMap(v)) { var o = {}; Object.keys(v).sort().forEach(function (k) { o[k] = canon(v[k]); }); return o; }
+      if (isMap(v)) { var o = Object.create(null); Object.keys(v).sort().forEach(function (k) { o[k] = canon(v[k]); }); return o; }
       return v;
     }
     /* Only the plan's own top level holds what loading adds (_file, _hash…); a detail or role may well start with _. */
-    function root(p) { var o = {}; Object.keys(p).forEach(function (k) { if (k[0] !== '_') o[k] = p[k]; }); return canon(o); }
+    function root(p) { var o = Object.create(null); Object.keys(p).forEach(function (k) { if (k[0] !== '_') o[k] = p[k]; }); return canon(o); }
     var x = root(a), y = root(b), ca = claim(a), cb = claim(b);
     delete x.created; delete y.created;
     if (ca && cb && ca.name === cb.name) { delete x.by; delete y.by; }

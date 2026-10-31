@@ -210,7 +210,7 @@ PF.map = (function () {
   /* blockers: the map can't be published or run. suggestions: advice only. */
   function check(map, opts) {
     opts = opts || {};
-    var blockers = map.errors.map(function (e) { return 'Line ' + e.line + ': ' + e.msg; }), suggestions = [], ids = {};
+    var blockers = map.errors.map(function (e) { return 'Line ' + e.line + ': ' + e.msg; }), suggestions = [], ids = Object.create(null);
     var meta = map.meta;
     if (!meta.process) blockers.push('Front matter needs "process" (the process ID, like release).');
     else if (!PROCESS_ID.test(meta.process)) blockers.push('"process" must be lowercase letters, numbers and dashes.');
@@ -231,6 +231,7 @@ PF.map = (function () {
     function useId(id, what) {
       if (!id) { blockers.push(what + ' needs an ID, like {#' + U.slug(what.replace(/^.*"(.*)".*$/, '$1'), 24) + '}.'); return; }
       if (id.length > 60) blockers.push('The ID "' + id.slice(0, 40) + '…" is longer than 60 characters; shorten it.');
+      if (reserved(id)) blockers.push('The ID "' + id + '" is a name Flightdeck keeps for itself; choose another.');
       if (ids[id]) blockers.push('The ID "' + id + '" is used twice.');
       ids[id] = true;
     }
@@ -410,7 +411,7 @@ PF.map = (function () {
     return out;
   }
   function usedTypes(map) {
-    var seen = {};
+    var seen = Object.create(null);
     steps(map).forEach(function (x) { if (x.step.type) seen[x.step.type] = true; });
     return Object.keys(seen).sort();
   }

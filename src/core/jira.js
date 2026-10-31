@@ -21,7 +21,8 @@ PF.jira = (function () {
 
   /* Check the file. Returns { workflows, errors }: workflows holds only what passed, so one bad type doesn't hide the rest. */
   function check(o) {
-    var out = {}, errors = [];
+    /* Issue types are names in a file: a workflow called __proto__ is kept as any other, so nothing it requires is lost. */
+    var out = Object.create(null), errors = [];
     if (!o || typeof o !== 'object' || Array.isArray(o)) return { workflows: broken('jira/workflows.json must be an object of issue types'), errors: ['jira/workflows.json must be an object of issue types'] };
     /* Over a limit is an error, never a silent cut: a dropped required field would let a transition be checked without it. */
     if (Object.keys(o).length > 50) errors.push('jira/workflows.json lists ' + Object.keys(o).length + ' issue types; the most Flightdeck reads is 50');
@@ -127,7 +128,7 @@ PF.jira = (function () {
     var m = /^(detail|role|value):(.+)$/.exec(source || '');
     if (!m) return '';
     if (m[1] === 'value') return m[2];
-    if (m[1] === 'detail') return (details || {})[m[2]] || '';
+    if (m[1] === 'detail') return details && Object.prototype.hasOwnProperty.call(details, m[2]) ? details[m[2]] || '' : '';
     return roleName ? roleName(m[2]) : '';
   }
   /* The record key a Jira field is stored under: short, and safe as a run-file key. */

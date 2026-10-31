@@ -42,6 +42,37 @@
         "now": "A draft whose process is __other isn't listed beside Other ID…, which has that value. Type its ID under Other ID… to link it.",
         "before": "Choosing that draft opened Other ID… instead of linking it.",
         "where": "A linked step's Which process"
+      },
+      {
+        "kind": "fixed",
+        "area": "Runs",
+        "title": "Closing a zoomed image goes back to its own thumbnail",
+        "now": "Closing a screenshot puts you back on the thumbnail of the note you opened it from, even if the notes moved while it was open, and brings that note back onto the list if a newer read pushed it off. If the note is gone, or can no longer be told from a copy, you land on the list's heading.",
+        "before": "With two notes sharing an ID, closing could put you on the other note's thumbnail.",
+        "where": "A step's notes and corrections, Finish, the receipt, and a checklist's Corrections"
+      },
+      {
+        "kind": "fixed",
+        "area": "Runs",
+        "title": "A Jira workflow named __proto__ keeps its required fields",
+        "now": "An issue type called __proto__ in jira/workflows.json is read like any other, so a run started from it asks for that workflow's required fields.",
+        "before": "That workflow was silently dropped, so a transition could be recorded without what it requires.",
+        "where": "Jira steps"
+      },
+      {
+        "kind": "fixed",
+        "area": "Runs",
+        "title": "Rotation and team runs count every name",
+        "now": "Rotation treats a person with the ID constructor as someone who hasn't done the role yet, and a run with a second person named __proto__ counts as a team run.",
+        "before": "Rotation pushed that person to the back of the line, and that run was treated as one person working alone.",
+        "where": "Starting a run, and a run's mode"
+      },
+      {
+        "kind": "fixed",
+        "area": "Everywhere",
+        "title": "Other names from a folder are read as they are",
+        "now": "Details, roles, fields, step types and drafts with a name like constructor no longer pick up something the app didn't write. A draft step or custom step type with such a name is refused and told why.",
+        "where": "Drafts, practice, step types, corrections, reports and publishing"
       }
     ]
   },

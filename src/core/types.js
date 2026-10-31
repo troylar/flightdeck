@@ -104,7 +104,7 @@ PF.types = (function () {
       record: [{ name: 'value', label: 'Value', kind: 'text' }, { name: 'unit', label: 'Unit', kind: 'text' }] }
   ];
 
-  var BY = {};
+  var BY = Object.create(null);
   LIST.forEach(function (t) { t.version = VERSION; BY[t.id] = t; });
 
   /* Own entries only: a step typed {constructor} or {toString} must not find something every object inherits. */
@@ -133,6 +133,7 @@ PF.types = (function () {
       enveloped = true; two = env.major === 2;
     }
     if (typeof def.id !== 'string' || !ID.test(def.id) || def.id.length > ID_MAX) errs.push('"id" must be lowercase letters, numbers, dashes and dots, like "change.request"');
+    else if (def.id in Object.prototype) errs.push('"' + def.id + '" is a name Flightdeck keeps for itself; choose another id');
     else if (BY[def.id]) errs.push('"' + def.id + '" is a built-in type; choose another id');
     if (typeof def.label !== 'string' || !def.label.trim() || def.label.length > 40) errs.push('"label" must be 1-40 characters');
     if (def.hint != null && (typeof def.hint !== 'string' || def.hint.length > 120)) errs.push('"hint" must be at most 120 characters');
@@ -308,7 +309,7 @@ PF.types = (function () {
      reorganizing types never makes a process or a skill look changed. */
   function freeze(ids, custom) {
     var out = {};
-    ids.forEach(function (id) { var d = BY[id] || (custom && custom[id]); if (d) { out[id] = JSON.parse(JSON.stringify(d)); delete out[id].group; delete out[id].tags; } });
+    ids.forEach(function (id) { var d = BY[id] || (custom && has(custom, id) ? custom[id] : null); if (d) { out[id] = JSON.parse(JSON.stringify(d)); delete out[id].group; delete out[id].tags; } });
     return out;
   }
   var GROUPS = { confirm: 'General', communicate: 'General', meeting: 'General', decide: 'General', review: 'General', wait: 'General',

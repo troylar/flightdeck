@@ -71,7 +71,7 @@ PF.publish = (function () {
     info.images = images;
     /* A /2 version also freezes its payload: SHA-256 over the exact bytes of every file it holds. */
     if (feats.length) {
-      var imgBytes = {};
+      var imgBytes = Object.create(null);
       Object.keys(images).forEach(function (src) { imgBytes[src] = bytes[src]; });
       info.payload = payload({ 'map.md': draftMd, 'types.json': typesJson, images: imgBytes, pins: pins });
     }
@@ -136,7 +136,7 @@ PF.publish = (function () {
   /* The frozen payload of a version from its exact files: { 'map.md': text, 'types.json': text, images: { path: bytes },
      pins: { children, skills } } (pins as publish resolved them). The extensions slot stays empty until slice 5. */
   function payload(files) {
-    var images = {}, src = (files && files.images) || {}, pins = files && files.pins ? JSON.parse(JSON.stringify(files.pins)) : {};
+    var images = Object.create(null), src = (files && files.images) || {}, pins = files && files.pins ? JSON.parse(JSON.stringify(files.pins)) : {};
     Object.keys(src).forEach(function (p) { images[p] = sha(src[p]); });
     return { map: sha(files['map.md']), types: sha(files['types.json']), images: images, extensions: {}, pins: { children: pins.children || {}, skills: pins.skills || {} } };
   }
@@ -165,7 +165,7 @@ PF.publish = (function () {
   /* The payload of any readable version: a /2 version's own, or the one a /1 version implies from its fingerprints. */
   function payloadOf(info) {
     if (info && info.payload && typeof info.payload === 'object' && info.format === FORMAT2) return info.payload;
-    var images = {}, src = info && isObj(info.images) ? info.images : {};
+    var images = Object.create(null), src = info && isObj(info.images) ? info.images : {};
     Object.keys(src).forEach(function (k) { images[k] = src[k]; });
     return { implied: true, map: info.mapHash, types: info.typesHash, images: images, extensions: {}, pins: {} };
   }

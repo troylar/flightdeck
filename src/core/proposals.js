@@ -121,7 +121,7 @@ PF.proposals = (function () {
     records.forEach(function (r) { if (!r || !r.rec) { bad.push(r && r.name || '?'); return; } (r.rec.kind === 'attempt' ? atts : decs).push(r); });
     var top = 0; decs.forEach(function (d) { if (d.rec.decisionRev > top) top = d.rec.decisionRev; });
     var last = decs.filter(function (d) { return d.rec.decisionRev === top; }).sort(function (a, b) { return a.name < b.name ? -1 : 1; });
-    var settled = {}; decs.forEach(function (d) { (d.rec.settles || []).forEach(function (a) { settled[a] = true; }); if (d.rec.attempt) settled[d.rec.attempt] = true; });
+    var settled = Object.create(null); decs.forEach(function (d) { (d.rec.settles || []).forEach(function (a) { settled[a] = true; }); if (d.rec.attempt) settled[d.rec.attempt] = true; });
     var open = atts.filter(function (a) { return !settled[a.rec.attempt]; }).map(function (a) { return a.rec.attempt; });
     var applied = decs.filter(function (d) { return d.rec.status === 'applied'; }).sort(function (a, b) { return a.rec.decisionRev - b.rec.decisionRev; }), twice = false;
     for (var i = 0; i < applied.length; i++) for (var j = i + 1; j < applied.length; j++) {
@@ -209,7 +209,7 @@ PF.proposals = (function () {
   }
   /* Step and phase IDs a change adds, removes, or renames (the same text under a new ID). */
   function ids(before, after) {
-    function all(t) { var out = {}; try { M.parse(t).phases.forEach(function (p) { out[p.id] = p.title; p.steps.forEach(function (s) { out[s.id] = s.text; }); }); } catch (e) { /* nothing to list */ } return out; }
+    function all(t) { var out = Object.create(null); try { M.parse(t).phases.forEach(function (p) { out[p.id] = p.title; p.steps.forEach(function (s) { out[s.id] = s.text; }); }); } catch (e) { /* nothing to list */ } return out; }
     var a = all(before), b = all(after), added = Object.keys(b).filter(function (k) { return !(k in a); }), removed = Object.keys(a).filter(function (k) { return !(k in b); }), renamed = [];
     removed.slice().forEach(function (r) { var to = added.filter(function (x) { return b[x] === a[r]; })[0]; if (to) { renamed.push({ from: r, to: to }); added.splice(added.indexOf(to), 1); removed.splice(removed.indexOf(r), 1); } });
     return { added: added, removed: removed, renamed: renamed };
@@ -226,7 +226,7 @@ PF.proposals = (function () {
        is, so a step added above it doesn't make it look changed. Order: the parts matched in both, kept in the longest
        common order; the rest of them moved. */
     function diffOf(a, b) {
-      var byId = {}, free = {}, out = { changed: [], moved: [], added: [], removed: [] }, pairs = [];
+      var byId = Object.create(null), free = {}, out = { changed: [], moved: [], added: [], removed: [] }, pairs = [];
       a.forEach(function (x, i) { x.i = i; if (x.id) byId[x.key] = x; else (free[x.at + '\n' + x.src] = free[x.at + '\n' + x.src] || []).push(x); });
       b.forEach(function (y) {
         if (y.id) {
@@ -242,7 +242,7 @@ PF.proposals = (function () {
       Object.keys(free).forEach(function (k) { free[k].forEach(function (x) { out.removed.push(x.key); }); });
       /* Out of order within its own phase and lane (moving a whole phase doesn't move its steps): not in the longest
          increasing run of old positions there (patience sorting, n log n). */
-      var groups = {};
+      var groups = Object.create(null);
       pairs.forEach(function (q) { if (q[0].at === q[1].at) (groups[q[1].at] = groups[q[1].at] || []).push(q); });
       Object.keys(groups).forEach(function (g) {
         var list = groups[g], seq = list.map(function (q) { return q[0].i; }), tails = [], prev = [];

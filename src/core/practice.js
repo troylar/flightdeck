@@ -26,9 +26,11 @@ PF.practice = (function () {
     if (map.errors.length) return { ok: false, why: 'Line ' + map.errors[0].line + ': ' + map.errors[0].msg };
     var env = PF.envelope.markdown(map.meta, map);
     if (!env.ok) return { ok: false, why: env.why };
-    var seen = {}, dup = '';
-    var note = function (id) { if (!id) return; if (seen[id] && !dup) dup = id; seen[id] = true; };
+    var seen = Object.create(null), dup = '', kept = '';
+    var note = function (id) { if (!id) return; if (!kept && (id === '__proto__' || id in Object.prototype)) kept = id; if (seen[id] && !dup) dup = id; seen[id] = true; };
     map.phases.forEach(function (p) { note(p.id); note(p.gate.id); p.tracks.forEach(function (t) { note(t.id); }); p.steps.forEach(function (s) { note(s.id); }); });
+    /* Publishing refuses these too (M.check): so every ID past this point can key a plain object. */
+    if (kept) return { ok: false, why: 'The ID "' + kept + '" is a name Flightdeck keeps for itself; choose another.' };
     if (dup) return { ok: false, why: 'The ID "' + dup + '" is used twice.' };
     for (var i = 0; i < map.phases.length; i++) {
       for (var j = 0; j < map.phases[i].steps.length; j++) {
@@ -114,7 +116,7 @@ PF.practice = (function () {
      Exactly the fields PF.run's readers use (test/practice.test.js checks every read). No id, snapshot, rev or folder: it
      is never a run and never saved. Every role is the person's, so it reads as a solo run. */
   function asRun(view, map, me, memo, types) {
-    var who = me || 'practice', roles = {}, e = envOf(types);
+    var who = me || 'practice', roles = Object.create(null), e = envOf(types);
     (map.meta.roles || []).forEach(function (r) { roles[r] = who; });
     var r = { format: R.FORMAT3, practice: true, state: 'running', paused: null, ended: null, recorder: { person: who, session: 'practice' },
       roles: roles, details: Object.assign({}, view.sample), steps: view.steps, gates: view.gates, fields: view.fields || {}, migrations: [], followUps: [], log: [], marksFrom: 'start',
@@ -215,8 +217,8 @@ PF.practice = (function () {
      condition or evidence; a gate's approval), empty, and not set earlier on the walk by a step that applies and wasn't
      checked without its evidence. Assumed setters set nothing. */
   function needed(state, map, pmap, r, fr) {
-    var out = [], supplied = {};
-    var use = function (n) { if (!(state.sample[n]) && !supplied[n] && out.indexOf(n) < 0) out.push(n); };
+    var out = [], supplied = Object.create(null);
+    var use = function (n) { if (!(own(state.sample, n) && state.sample[n]) && !supplied[n] && out.indexOf(n) < 0) out.push(n); };
     for (var pi = fr.pi; pi < pmap.phases.length; pi++) {
       var p = pmap.phases[pi];
       for (var n = pi === fr.pi ? fr.si : 0; n < p.steps.length; n++) {
@@ -264,7 +266,7 @@ PF.practice = (function () {
   /* The pane's model: every phase and step with its status and why, the gates, Next up, answers kept for parts no longer in
      the draft (gone), and whether everything is through (complete; never for a draft with nothing to do). */
   function follow(state, map, types, me) {
-    var d = derive(state, map, types), pm = d.map, r = asRun(d.view, pm, me, true, types), present = {}, fr = d.from;
+    var d = derive(state, map, types), pm = d.map, r = asRun(d.view, pm, me, true, types), present = Object.create(null), fr = d.from;
     var phases = pm.phases.map(function (p, pi) {
       var gst = R.gateStatus(r, pm, pi);
       return { id: p.id, title: p.title, mode: p.mode, gate: { id: p.gate.id, title: p.gate.title, implicit: p.gate.implicit, status: gst, canPass: R.canPass(r, pm, pi), canWaive: R.canWaive(r, pm, pi), rec: d.view.gates[p.gate.id] || null, assumed: !!(fr && pi < fr.pi) },
@@ -385,7 +387,7 @@ PF.practice = (function () {
      try (its wording changed), and stays under the old one, so an Undo of the edit brings it back. Answers for parts no
      longer in the draft are kept, newest 50, so deleting and undoing restores them. */
   function settle(state, map, renames, prev) {
-    var st = copy(state), present = {}, changed = false;
+    var st = copy(state), present = Object.create(null), changed = false;
     renames = compose(renames);
     st.from = st.from || '';
     if (st.from && own(renames || {}, st.from)) { st.from = renames[st.from]; changed = true; }
@@ -423,7 +425,7 @@ PF.practice = (function () {
   function compose(renames) {
     var out = {};
     Object.keys(renames || {}).forEach(function (o) {
-      var n = renames[o], seen = {}; seen[o] = true;
+      var n = renames[o], seen = Object.create(null); seen[o] = true;
       while (own(renames, n) && !seen[n]) { seen[n] = true; n = renames[n]; }
       if (n !== o) out[o] = n;
     });

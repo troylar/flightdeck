@@ -1901,7 +1901,7 @@ rule('The sprint, release and pull request examples use the 1.14 types and run t
 
 rule('A copy from before 1.14 runs versions that use the new types: they freeze only properties it knows, so the type version stays the same', () => {
   // A 1.12/1.13 copy: same type version, none of the new built-ins.
-  const OLD = load(false, (f, src) => f === 'core/types.js' ? src.replace('var BY = {};', 'var BY = {}; LIST = LIST.filter(function (t) { return ' + JSON.stringify(NEW_TYPES) + '.indexOf(t.id) < 0; });') : src);
+  const OLD = load(false, (f, src) => f === 'core/types.js' ? src.replace('var BY = Object.create(null);', 'var BY = Object.create(null); LIST = LIST.filter(function (t) { return ' + JSON.stringify(NEW_TYPES) + '.indexOf(t.id) < 0; });') : src);
   assert.ok(!OLD.types.get('deploy') && OLD.types.VERSION === T.VERSION, 'the stand-in has no new types');
   ['sprint-start', 'release', 'github-pr'].forEach(name => {
     const md = example('maps/drafts/' + name + '.md');

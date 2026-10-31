@@ -38,7 +38,7 @@ PF.corrections = (function () {
   /* A step as it matters for a correction, without its line number: two versions with the same signature say the same thing. */
   function stepSig(map, id) {
     var x = map && M.findStep(map, id); if (!x) return '';
-    var s = x.step, f = {};
+    var s = x.step, f = Object.create(null);
     Object.keys(s.fields || {}).sort().forEach(function (k) { f[k] = s.fields[k]; });
     return U.hash(JSON.stringify({ type: s.type, text: s.text, must: !!s.must, planned: !!s.planned, roles: (s.roles || []).slice().sort(), binds: s.binds || [], fields: f, note: s.note || '', shots: (s.shots || []).map(function (h) { return h.src; }), track: s.track || '' }));
   }
