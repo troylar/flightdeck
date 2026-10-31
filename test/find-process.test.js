@@ -287,7 +287,7 @@ function receiptCopy(app) {
   const pre = app.el('receipt-text'); try { app.click('copy-receipt'); } catch (e) { /* no createRange in the harness */ }
   /* 2.10.0 drew the text in the page; 2.11 makes it when copied. The run's id is random per boot. */
   const m = /<pre id="receipt-text"[^>]*>([\s\S]*?)<\/pre>/.exec(app.html()), text = pre.textContent || (m ? un(m[1]) : '');
-  return text.replace(/ · run [a-z0-9]+\n/, ' · run X\n').replace(/captured [^·]+·/, 'captured X ·');
+  return text.replace(/ · run [a-z0-9]+\n/, ' · run X\n').replace(/captured [^·]+·/, 'captured X ·').replace(/^Started [^·]+·/m, 'Started X ·');
 }
 rule('Finish and Receipt: 51 corrections on a step, the last sharing the first\'s id; Show more draws it with its own id and focuses it, and Copy for Jira is byte for byte 2.10.0\'s', async () => {
   const { app, key } = await twinCorrections();
