@@ -327,8 +327,9 @@ rule('B2: Show and Copy give this version\'s default, escaped; a refused clipboa
   assert.strictEqual(copied[0], EX[CONTRACT[0]], 'this version\'s default, as shipped');
   refuse = true; app.click('af-copy', STATUS); await app.tick(50);
   assert.ok(/Press Ctrl\+C/.test(app.node('#copy-msg').textContent), 'refused: says how');
-  assert.strictEqual(app.node('#af-pre-' + dk(STATUS)).textContent, EX[STATUS], 'and the box holds the text');
-  assert.strictEqual(app.node('#af-pre-' + dk(STATUS)).hidden, false, 'on show');
+  const box = preOf(STATUS), open = box.indexOf('>');
+  assert.ok(!/ hidden/.test(box.slice(0, open)), 'on show');
+  assert.strictEqual(box.slice(open + 1).replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&'), EX[STATUS], 'and the box holds the text, escaped as it\'s drawn');
   app.click('af-load'); await wait(app);
   assert.ok(!/ hidden>$/.test(preOf(STATUS).slice(0, preOf(STATUS).indexOf('>') + 1)) && preOf(STATUS).indexOf('name:') > 0, 'and a redraw keeps it there: the person is about to press Ctrl+C');
   app.click('af-peek', STATUS); await app.tick();
@@ -671,12 +672,15 @@ function hooked(d, o, prefix) {
       if (x && x.create) return d.getFileHandle(n, x);
       return d.getFileHandle(n, x).then(h => Object.assign({}, h, { getFile: async () => {
         o.reads = (o.reads || 0) + 1; o.now = (o.now || 0) + 1; o.most = Math.max(o.most || 0, o.now);
+        const waiting = /^\.flightdeck\/updates\//.test(p);
+        if (waiting) { o.copiesNow = (o.copiesNow || 0) + 1; o.copiesMost = Math.max(o.copiesMost || 0, o.copiesNow); }
         try {
           if (o.delay) await new Promise(r => setTimeout(r, o.delay));
           if (o.wait && o.wait(p)) await o.wait(p);
           if (o.fail && o.fail.test(p)) throw Object.assign(new Error('The file could not be read.'), { name: 'NotReadableError' });
-          return await h.getFile();
-        } finally { o.now--; }
+          const f = await h.getFile();
+          return Object.assign({}, f, { text: () => { (o.texts = o.texts || []).push(p); return f.text(); } });
+        } finally { o.now--; if (waiting) o.copiesNow--; }
       } }));
     }
   });
@@ -700,7 +704,8 @@ rule('Round 1, 2: a record that would grow past what Flightdeck reads is refused
   const dir = scenario('deleted');
   const r = JSON.parse(fs.readFileSync(path.join(dir, '.flightdeck/installed.json'), 'utf8')), LIMIT = 8 * 1048576, HASH = 'e'.repeat(64);
   r.version = '2.6.0'; /* so Update has a record to write */
-  for (let i = 0; JSON.stringify(r).length < LIMIT - 200; i++) r.files['old/' + String(i).padStart(7, '0') + '.md'] = HASH;
+  const room = LIMIT - 200 - JSON.stringify(r).length, each = JSON.stringify({ 'old/0000000.md': HASH }).length - 1;
+  for (let i = 0; i < Math.floor(room / each); i++) r.files['old/' + String(i).padStart(7, '0') + '.md'] = HASH;
   const text = JSON.stringify(r);
   assert.ok(text.length <= LIMIT && JSON.stringify(r, null, 2).length > LIMIT, 'set-up: it fits only as it stands');
   fs.writeFileSync(path.join(dir, '.flightdeck/installed.json'), text);
@@ -789,6 +794,215 @@ rule('Round 1, 7 and 9: the docs say the race limit the command\'s text has, and
   assert.ok(/instant/.test(first) && /[Cc]lose editors/.test(first), 'the release note');
   const waiver = fs.readFileSync(path.join(__dirname, '..', 'docs', 'rehearsals', '2.12.0-2026-10-31-waiver.md'), 'utf8');
   assert.ok(/fileAway/.test(waiver) && /final comparison/.test(waiver), 'the waiver');
+});
+
+/* ---------------- review round 2: one state object per target and folder ---------------- */
+
+rule('Round 2, 1: choosing skills folder B while it reads: A\'s rows are gone, and I merged it can\'t act on B with A\'s fingerprints', async () => {
+  const COPY = '.flightdeck-updates/2.6.0/flightdeck-status/SKILL.md', KEY = 'flightdeck-status/SKILL.md';
+  const a = { [KEY]: 'ours in A', [COPY]: 'A copy' }, b = { [KEY]: 'ours in B', [COPY]: 'B copy' }, g = gate(), o = {};
+  const team = folderHandle('Team', asFiles(scenario('settled')));
+  let pick = team;
+  const app = boot({ picker: () => pick, indexedDB: memoryIDB() }); await app.tick(60);
+  app.click('connect'); await app.tick(200);
+  app.click('ai-files'); await wait(app);
+  app.click('af-where', 'other'); await app.tick(50);
+  pick = folderHandle('Skills A', a); app.click('af-pick'); await wait(app);
+  assert.ok(/data-act="af-merged"/.test(app.html()), 'set-up: A has a waiting merge');
+  o.wait = () => g.p;
+  pick = hooked(folderHandle('Skills B', b), o); app.click('af-pick'); await app.tick(60);
+  assert.ok(/Checking the files…/.test(app.html()) && /Using <b>Skills B<\/b>/.test(app.html()), 'set-up: B is reading');
+  assert.ok(!/data-act="af-merged"/.test(app.html()), 'A\'s action is gone');
+  assert.ok(!/data-af-status/.test(app.html()), 'and A\'s rows');
+  app.click('af-merged', KEY); app.click('af-update'); await app.tick(60);
+  o.wait = null; g.open(); await wait(app);
+  assert.strictEqual(b[COPY], 'B copy', 'B\'s copy is still there');
+  assert.strictEqual(a[COPY], 'A copy', 'and A\'s');
+  assert.ok(!Object.keys(b).concat(Object.keys(a)).some(k => /replaced/.test(k)), 'nothing put away anywhere');
+  assert.ok(/data-act="af-merged"/.test(app.html()), 'B\'s own rows, once read');
+});
+
+rule('Round 2, 1: while a target\'s read is running, Update and I merged it refuse, even in the same folder', async () => {
+  const dir = scenario('staged from 2.6.0'), files = asFiles(dir), o = {}, g = gate(), src = '.flightdeck/updates/2.6.0/' + STATUS;
+  const app = boot({ picker: hooked(folderHandle('Team', files), o), indexedDB: memoryIDB() }); await app.tick(60);
+  app.click('connect'); await app.tick(200);
+  app.click('ai-files'); await wait(app);
+  const before = JSON.stringify(files);
+  o.wait = () => g.p;
+  app.click('ai-files'); await app.tick(60);
+  assert.ok(/Checking the files…/.test(app.html()), 'set-up');
+  assert.ok(/data-act="af-merged"[^>]*aria-disabled="true"/.test(app.html()), 'shown as not available');
+  app.click('af-merged', STATUS); app.click('af-update'); await app.tick(60);
+  o.wait = null; g.open(); await wait(app);
+  assert.strictEqual(JSON.stringify(files), before, 'nothing happened');
+  assert.ok(files[src]);
+});
+
+rule('Round 2, 2: a refused clipboard from another target does nothing here: nothing shown, nothing selected', async () => {
+  for (const act of ['af-brief', 'af-copy']) {
+    const KEY = 'flightdeck-status/SKILL.md', other = { [KEY]: 'ours', ['.flightdeck-updates/2.6.0/' + KEY]: 'copy' };
+    let reject; const navigator = { clipboard: { writeText: () => new Promise((res, rej) => { reject = rej; }) } };
+    let pick = folderHandle('Team', asFiles(scenario('settled')));
+    let selected = 0;
+    const app = boot({ picker: () => pick, indexedDB: memoryIDB(), navigator, domFocus: true, onSelect: () => { selected++; } }); await app.tick(60);
+    app.click('connect'); await app.tick(200);
+    app.click('ai-files'); await wait(app);
+    app.click('af-where', 'other'); await app.tick(50);
+    pick = folderHandle('Skills', other); app.click('af-pick'); await wait(app);
+    app.click(act, KEY); await app.tick(5);
+    app.click('af-where', 'team'); await wait(app);
+    reject(new Error('denied')); await app.tick(50);
+    assert.strictEqual(selected, 0, act + ': nothing is selected');
+    assert.ok(!/Press Ctrl\+C/.test(app.node('#copy-msg').textContent || ''), act + ': and it doesn\'t say to press Ctrl+C');
+    app.click('af-peek', 'AGENTS.md'); app.click('af-peek', 'AGENTS.md'); await app.tick(20); /* whatever it left in the state, the next drawing shows */
+    const html = app.html();
+    assert.ok(!/\.flightdeck-updates/.test(html.slice(html.indexOf('id="af-brief-pre"'), html.indexOf('</pre>', html.indexOf('id="af-brief-pre"')))), act + ': the old folder\'s request isn\'t shown');
+    assert.ok(/id="af-brief-pre"[^>]* hidden/.test(html), act + ': its box stays closed');
+    assert.ok(!/aria-expanded="true"/.test(html), act + ': no file opens');
+    assert.ok(/data-af-row="AGENTS\.md"/.test(html), act + ': set-up: the team folder is showing');
+  }
+});
+
+/* Every async start, against each way the target or folder can change under it. After it lands, the screen shows only
+   the new target, with nothing running, and the new folder is untouched. */
+const ASYNC_PATHS = {
+  'first look': { busy: false, async start(w) { w.o.wait = () => w.g.p; w.app.click('nav', 'settings'); } , team: true },
+  'Check again': { busy: false, async start(w) { w.app.click('ai-files'); await wait(w.app); w.o.wait = () => w.g.p; w.app.click('ai-files'); }, team: true },
+  'Update': { busy: true, two: true, after(w) { assert.ok(Object.keys(w.files).length <= w.keys + 1, 'the old folder gets no write after the one under way'); }, async start(w) { w.app.click('ai-files'); await wait(w.app); w.st.armed = true; w.app.click('af-update'); }, team: true },
+  'I merged it': { busy: true, scenario: 'staged from 2.6.0', after(w) { assert.ok(w.files['.flightdeck/updates/2.6.0/' + STATUS], 'the copy isn\'t removed'); }, async start(w) { w.app.click('ai-files'); await wait(w.app); w.st.armed = true; w.app.click('af-merged', STATUS); }, team: true },
+  'choose a folder': { busy: false, async start(w) { w.app.click('ai-files'); await wait(w.app); w.app.click('af-where', 'other'); await w.app.tick(30); w.next = () => w.g.p.then(() => folderHandle('Leak', {})); w.app.click('af-pick'); } },
+  'is it the team folder': { busy: false, async start(w) { w.app.click('ai-files'); await wait(w.app); w.app.click('af-where', 'other'); await w.app.tick(30); w.next = () => folderHandle('Leak', {}); w.sameWait = w.g.p.then(() => false); w.app.click('af-pick'); } },
+  'remembered folder': { busy: false, seed: true, async start(w) { w.app.click('ai-files'); await wait(w.app); w.leakPerm = w.g.p.then(() => 'granted'); w.app.click('af-where', 'other'); } },
+  'allow again': { busy: false, seed: true, prompt: true, async start(w) { w.app.click('ai-files'); await wait(w.app); w.app.click('af-where', 'other'); await wait(w.app); w.leakAllow = w.g.p.then(() => 'granted'); w.app.click('af-allow'); } },
+  'copy refused': { busy: false, async start(w) { w.app.click('ai-files'); await wait(w.app); w.app.click('af-copy', CONTRACT[0]); }, team: true, refuse: true }
+};
+for (const name of Object.keys(ASYNC_PATHS)) for (const change of ['folder', 'target']) {
+  const P = ASYNC_PATHS[name];
+  if (change === 'target' && P.busy) continue;
+  rule('Round 2, table: ' + name + ', then the ' + change + ' changes', async () => {
+    const dirOf = scenario(P.scenario || 'deleted'); if (P.two) fs.rmSync(path.join(dirOf, STATUS));
+    const files = asFiles(dirOf), second = asFiles(scenario('settled')), secondBefore = JSON.stringify(second);
+    const w = { o: {}, g: gate(), st: { armed: false, gate: null }, files, selected: 0 }; w.st.gate = w.g;
+    let reject;
+    const navigator = { clipboard: { writeText: () => P.refuse ? new Promise((res, rej) => { reject = rej; }) : Promise.resolve() } };
+    const teamDir = Object.assign(paused(hooked(folderHandle('Team', files), w.o), w.st), { isSameEntry: () => w.sameWait || Promise.resolve(false) }), idb = memoryIDB();
+    const leak = Object.assign(folderHandle('Leak', {}), { queryPermission: () => w.leakPerm || Promise.resolve(P.prompt ? 'prompt' : 'granted'), requestPermission: () => w.leakAllow || Promise.resolve('granted') });
+    if (P.seed) {
+      const seed = boot({ picker: () => leak, indexedDB: idb }); await seed.tick(60);
+      seed.click('nav', 'settings'); await seed.tick(20); seed.click('af-where', 'other'); await seed.tick(30); seed.click('af-pick'); await seed.tick(100);
+    }
+    w.next = () => teamDir;
+    const app = w.app = boot({ picker: () => w.next(), indexedDB: idb, navigator, onSelect: () => { w.selected++; } }); await app.tick(60);
+    app.click('connect'); await app.tick(200);
+    await P.start(w); await app.tick(60);
+    w.keys = Object.keys(files).length;
+    if (change === 'folder') { w.next = () => folderHandle('Second', second); app.click('connect'); await app.tick(200); }
+    else if (P.team) { app.click('af-where', 'other'); await app.tick(60); }
+    else { app.click('af-where', 'team'); await app.tick(60); }
+    w.o.wait = null; w.g.open(); if (reject) reject(new Error('denied')); await wait(app);
+    let html = app.html();
+    assert.strictEqual(w.selected, 0, 'nothing is selected');
+    if (P.after) P.after(w);
+    assert.ok(!/Working…/.test(html), 'nothing left running');
+    assert.ok(!/Using <b>Leak<\/b>|Allow Leak/.test(html) || (change === 'target' && P.team), 'nothing from the old target');
+    assert.ok(!/Press Ctrl\+C/.test((app.node('#copy-msg') || {}).textContent || ''), 'no message from the old target');
+    if (change === 'folder') {
+      app.click('ai-files'); await wait(app); html = app.html();
+      assert.ok(!/Checking the files…/.test(html), 'not stuck');
+      const st = afStatuses(html);
+      assert.ok(Object.keys(st).length > 0 && Object.values(st).every(x => x === 'current'), 'the new folder\'s own statuses: ' + JSON.stringify(st));
+      assert.strictEqual(JSON.stringify(second), secondBefore, 'the new folder is untouched');
+    }
+  });
+}
+
+/* A function in this feature that waits on something, and how it's bound. A new one fails until it's listed here. */
+const AF_ASYNC = { afPerm: 'a question, no state', afRead: 'reads only, for a caller that checks', afLoad: 'guard', afUpdate: 'guard', afMerged: 'guard', afPick: 'live', afRemembered: 'live', afAllow: 'live' };
+const AF_ACTS = ['ai-files', 'af-load', 'af-where', 'af-pick', 'af-allow', 'af-update', 'af-merged', 'af-peek', 'af-copy', 'af-brief'];
+function afAudit(src) {
+  const out = [], a = src.indexOf('Settings, AI assistant files: flightdeck install'), b = src.indexOf('Getting started (views/setup.js', a), body = src.slice(a, b), fns = {};
+  for (const m of body.matchAll(/\n  function (af\w+)\(/g)) { const next = body.indexOf('\n  function ', m.index + 5); fns[m[1]] = body.slice(m.index, next < 0 ? body.length : next); }
+  const WAITS = /\.then\(|\.catch\(|\bawait\b|setTimeout|setInterval/;
+  Object.keys(fns).filter(n => WAITS.test(fns[n])).forEach(n => {
+    if (!AF_ASYNC[n]) out.push(n + ' waits on something and isn\'t in the table');
+    if (AF_ASYNC[n] === 'guard' && !/afGuard\(af\)/.test(fns[n])) out.push(n + ' doesn\'t take the guard');
+    if (AF_ASYNC[n] === 'live' && !/afLive\(af\)/.test(fns[n])) out.push(n + ' doesn\'t check the object it began with');
+  });
+  ['afUpdate', 'afMerged', 'afBrief'].forEach(n => { if (!/afReady\(af\)/.test(fns[n] || '')) out.push(n + ' doesn\'t refuse before the read has finished'); });
+  if ((src.match(/state\.af = /g) || []).length !== 1 || !/state\.af = /.test(fns.afNew || '')) out.push('state.af is assigned somewhere other than afNew');
+  if (/\baf\.(where|fs|otherFs|otherAsk)\s*=[^=]/.test(src)) out.push('a state object\'s target changed in place');
+  if (!/function \(\) \{ return afLive\(af\); \}/.test(fns.afCopy || '')) out.push('a copy isn\'t bound to its target');
+  const found = [...src.matchAll(/\n    '(af-[a-z]+|ai-files)': function/g)].map(m => m[1]);
+  found.filter(x => !AF_ACTS.includes(x)).forEach(x => out.push(x + ' is an action not in the list'));
+  AF_ACTS.forEach(act => { const at = src.indexOf("'" + act + "': function"), code = src.slice(at, src.indexOf("\n    '", at + 5)); if (at < 0) out.push(act + ' is gone'); else if (WAITS.test(code)) out.push(act + ' waits outside a guarded function'); });
+  return out;
+}
+
+rule('Round 2, source: every async path in this feature is bound to the object it began with, and only afNew makes one', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
+  assert.deepStrictEqual(afAudit(src), []);
+  /* And the check itself catches each way of skipping it. */
+  const mark = '\n  function afLoad(';
+  const plant = (from, to) => { assert.ok(src.includes(from), 'set-up: ' + from); return afAudit(src.replace(from, to)).length > 0; };
+  assert.ok(plant(mark, '\n  function afNewPath() { return Promise.resolve().then(render); }' + mark), 'a new async function');
+  assert.ok(plant(mark, '\n  function afLater() { setTimeout(render, 1); }' + mark), 'a timer');
+  assert.ok(plant("'af-load': function () {", "'af-load': function () { Promise.resolve().then(render);"), 'a wait in an action');
+  assert.ok(plant('\n    \'af-load\': function', '\n    \'af-new\': function () { },\n    \'af-load\': function'), 'a new action');
+  assert.ok(plant(mark, '\n  function afX(af) { af.where = 1; state.af = af; }' + mark), 'changing a target in place');
+});
+
+rule('Round 2, 3: Folder health reads a waiting copy with a limit, keeps only its fingerprint, and over the limit it stays a merge with no all-clear', async () => {
+  const dir = scenario('settled'), big = '.flightdeck/updates/2.6.0/' + STATUS, o = {};
+  fs.mkdirSync(path.join(dir, path.dirname(big)), { recursive: true }); fs.writeFileSync(path.join(dir, big), 'x'.repeat(8 * 1048576 + 1));
+  const app = boot({ picker: hooked(folderHandle('Team', asFiles(dir)), o), indexedDB: memoryIDB() }); await app.tick(60);
+  app.click('connect'); await app.tick(300);
+  o.texts = [];
+  app.click('health'); await app.tick(800);
+  assert.ok(!o.texts.includes(big), 'it isn\'t read');
+  const html = app.html();
+  assert.ok(/for AI assistants to merge/.test(html), 'it stays a merge');
+  assert.ok(!/The files for AI assistants (are current|match this version)/.test(html), 'with no all-clear');
+  assert.ok(/can&#39;t be read/.test(html), 'and says it can\'t be read');
+  const repoSrc = fs.readFileSync(path.join(__dirname, '..', 'src', 'storage', 'repo.js'), 'utf8');
+  assert.ok(!/stagedTexts/.test(repoSrc), 'the scan keeps fingerprints, not text');
+});
+
+rule('Round 2, 3: Folder health reads waiting copies at most 8 at once', async () => {
+  const dir = scenario('staged from 2.6.0'), o = {};
+  for (let i = 0; i < 40; i++) { const p = path.join(dir, '.flightdeck/updates/1.' + i + '.0', STATUS); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, 'a copy ' + i); }
+  const app = boot({ picker: hooked(folderHandle('Team', asFiles(dir)), o), indexedDB: memoryIDB() }); await app.tick(60);
+  app.click('connect'); await app.tick(300);
+  o.delay = 1; o.copiesMost = 0;
+  app.click('health'); await app.tick(1500);
+  assert.ok(o.copiesMost > 1 && o.copiesMost <= 8, 'at most 8 at once, it was ' + o.copiesMost);
+  assert.ok(/for AI assistants to merge/.test(app.html()), 'it stays a merge');
+});
+
+rule('Round 2, 5: a contract file that can\'t be read is said to be unreadable, never missing, with no all-clear', async () => {
+  for (const [what, fail, path_] of [['AGENTS.md', /^AGENTS\.md$/, 'AGENTS.md'], ['a skill', /flightdeck-status\/SKILL\.md$/, STATUS], ['the record', /^\.flightdeck\/installed\.json$/, '.flightdeck/installed.json']]) {
+    const o = { fail };
+    const app = boot({ picker: hooked(folderHandle('Team', asFiles(scenario('settled'))), o), indexedDB: memoryIDB() }); await app.tick(60);
+    app.click('connect'); await app.tick(300);
+    app.click('health'); await app.tick(800);
+    const html = app.html();
+    assert.ok(!/isn&#39;t in the team folder|Flightdeck skills? missing/.test(html), what + ': not called missing');
+    assert.ok(/for AI assistants can&#39;t be read|for AI assistants couldn&#39;t be read/.test(html), what + ': said to be unreadable');
+    assert.ok(html.indexOf(path_) > 0, what + ': named');
+    assert.ok(!/The files for AI assistants (are current|match this version)/.test(html), what + ': no all-clear');
+  }
+  /* Without the record, nothing can be said about the other files. */
+  const o = { fail: /^\.flightdeck\/installed\.json$/ };
+  const app = boot({ picker: hooked(folderHandle('Team', asFiles(scenario('kept'))), o), indexedDB: memoryIDB() }); await app.tick(60);
+  app.click('connect'); await app.tick(300);
+  app.click('health'); await app.tick(800);
+  assert.ok(!/No record of which defaults|for AI assistants to merge|from an older Flightdeck/.test(app.html()), 'no guess about the others');
+});
+
+rule('Round 2, 4: the writer inventory names what Settings writes on an established folder', () => {
+  const d = fs.readFileSync(path.join(__dirname, '..', 'docs', 'design.md'), 'utf8');
+  const row = (p) => d.split('\n').find(l => l.startsWith('  ' + p));
+  ['AGENTS.md', '.flightdeck/skills/...', '.flightdeck/installed.json', '.flightdeck/updates/<version>/'].forEach(p => { assert.ok(row(p), p + ' has a row'); assert.ok(/Settings › AI assistant files/.test(row(p)), p + ': names Settings'); });
+  assert.ok(/I merged it/.test(row('.flightdeck/updates/<version>/')) && /replaced\//.test(row('.flightdeck/updates/<version>/')), 'I merged it archives and removes');
 });
 
 run();

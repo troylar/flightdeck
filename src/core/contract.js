@@ -32,7 +32,7 @@ PF.contract = (function () {
 
   /* A record written by a newer Flightdeck (flightdeck-installed/2 on, or any features at all, well formed or not): never read
      for meaning and never rewritten. bin/flightdeck.js repeats it (installedNewer); test/assistant-files.test.js checks they agree. */
-  var VERSION_DIR = /^(\d+\.\d+\.\d+|dev)$/, HASH = /^[0-9a-f]{64}$/;
+  var VERSION_DIR = /^(\d+\.\d+\.\d+|dev)$/, HASH = /^[0-9a-f]{64}$/, MAX_BYTES = 8 * 1048576;
   function own(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
   function newerWhy(r) {
     if (!r || typeof r !== 'object' || Array.isArray(r)) return '';
@@ -135,6 +135,6 @@ PF.contract = (function () {
   function mergePrompt(version, here) {
     return '> Flightdeck ' + version + ' put new default versions of some files in `' + here + '/`; its README.md lists them. For each one, compare the new default with our file at the same path. Keep our own changes, and bring in what the new default adds or changes. In AGENTS.md, change only the part between `<!-- flightdeck:begin -->` and `<!-- flightdeck:end -->`; anything that is ours belongs under Team notes, below the end marker. Show me each change before you save it. When a file is merged, delete its copy here. When only README.md is left, delete this folder.';
   }
-  return { cleanInstalled: cleanInstalled, readRecord: readRecord, newerWhy: newerWhy, classify: classify, merged: merged, nextRecord: nextRecord, mergeReadme: mergeReadme, mergePrompt: mergePrompt, byVersion: byVersion, VERSION_DIR: VERSION_DIR,
+  return { MAX_BYTES: MAX_BYTES, cleanInstalled: cleanInstalled, readRecord: readRecord, newerWhy: newerWhy, classify: classify, merged: merged, nextRecord: nextRecord, mergeReadme: mergeReadme, mergePrompt: mergePrompt, byVersion: byVersion, VERSION_DIR: VERSION_DIR,
     BEGIN: BEGIN, END: END, AGENTS: AGENTS, BASELINES: BASELINES, norm: norm, region: region, managed: managed, baselineKey: baselineKey, hex: hex, installed: installed };
 })();

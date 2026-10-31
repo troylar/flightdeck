@@ -527,7 +527,7 @@
     (l ? l.items : []).forEach(function (i) { byKey[i.key] = i; });
     var n = function (st) { return l ? l.items.filter(function (i) { return st.indexOf(i.status) >= 0; }).length : 0; };
     var todo = n(['update', 'new', 'missing']), merge = n(['merge']), stage = l ? l.items.filter(function (i) { return i.status === 'merge' && (!i.waiting || i.stage); }).length : 0;
-    var off = af.busy ? ' aria-disabled="true"' : '';
+    var off = af.busy ? ' aria-disabled="true"' : '', wait = af.busy || af.loading ? ' aria-disabled="true"' : '';
     var h = '<section class="panel stack" aria-labelledby="set-ai"><h2 id="set-ai" tabindex="-1">' + I('spark') + 'AI assistant files</h2>' +
       '<p class="small">The instructions and skills your AI assistant reads, as Flightdeck ' + esc(m.version) + ' ships them. Files your team changed are never replaced, and a copy of each replaced file is kept first. The command <code>flightdeck install</code> follows the same rules and the same record.</p>' +
       '<p class="small">This never changes the app file itself: to update <code>flightdeck.html</code>, copy in the new one. <a href="https://github.com/troylar/flightdeck/blob/main/docs/updating.md" target="_blank" rel="noopener noreferrer">How updating works</a></p>' +
@@ -542,13 +542,13 @@
     if (af.err) h += '<p class="small af-err" role="alert">' + esc(af.err) + '</p>';
     if (l && l.record.ignored && !af.result) h += '<p class="small af-ro">' + esc(tg.recordAt) + ' isn\'t a record Flightdeck wrote, so it isn\'t trusted. Updating writes a new one.</p>';
     if (!l && !af.loading && tg.fs && !ro) h += '<div class="row"><button type="button" class="btn" data-act="af-load"' + off + '>Check the files</button></div>';
-    if (l && !ro && (todo || stage || l.recordDue)) h += '<div class="row"><button type="button" class="btn go" data-act="af-update"' + off + '>' + (todo ? 'Update ' + todo + ' file' + (todo === 1 ? '' : 's') : stage ? 'Get ' + stage + ' new default' + (stage === 1 ? '' : 's') + ' ready to merge' : 'Save the record of these files') + '</button></div>';
+    if (l && !ro && (todo || stage || l.recordDue)) h += '<div class="row"><button type="button" class="btn go" data-act="af-update"' + wait + '>' + (todo ? 'Update ' + todo + ' file' + (todo === 1 ? '' : 's') : stage ? 'Get ' + stage + ' new default' + (stage === 1 ? '' : 's') + ' ready to merge' : 'Save the record of these files') + '</button></div>';
     if (af.result) h += afResult(af.result, tg, m.version);
     h += '<ul class="af-list">' + tg.files.map(function (f) {
       var it = byKey[f.key], st = it ? it.status : '', word = st ? AF_WORD[st] + (st === 'merge' ? afWaiting(it.waiting) : '') : '', peek = af.peek === f.key, dk = K.domKey(f.key);
       return '<li class="af-row" id="af-row-' + dk + '"' + (st ? ' data-af-row="' + esc(f.rel) + '" data-af-status="' + esc(st) + '"' : '') + '><div class="row between"><span><code>' + esc(f.rel) + '</code>' + (word ? ' <span class="cat">' + esc(word) + '</span>' : '') + '</span>' +
         '<span class="row"><button type="button" class="mini" data-act="af-peek" data-id="' + esc(f.key) + '" aria-expanded="' + peek + '" aria-controls="af-pre-' + dk + '">' + (peek ? 'Hide' : 'Show') + '</button><button type="button" class="mini" data-act="af-copy" data-id="' + esc(f.key) + '">Copy</button>' +
-        (st === 'merge' && it.staged.length ? '<button type="button" class="mini" data-act="af-brief" data-id="' + esc(f.key) + '">Copy merge request</button>' + (ro ? '' : '<button type="button" class="mini" data-act="af-merged" data-id="' + esc(f.key) + '"' + off + '>I merged it</button>') : '') + '</span></div>' +
+        (st === 'merge' && it.staged.length ? '<button type="button" class="mini" data-act="af-brief" data-id="' + esc(f.key) + '"' + wait + '>Copy merge request</button>' + (ro ? '' : '<button type="button" class="mini" data-act="af-merged" data-id="' + esc(f.key) + '"' + wait + '>I merged it</button>') : '') + '</span></div>' +
         '<pre id="af-pre-' + dk + '" class="source" tabindex="0"' + (peek ? '' : ' hidden') + '>' + (peek ? esc(f.text) : '') + '</pre></li>';
     }).join('') + '</ul><pre id="af-brief-pre" class="source" tabindex="0"' + (af.briefShown ? '' : ' hidden') + '>' + esc(af.briefShown || '') + '</pre><p class="small"><span id="copy-msg" role="status"></span></p></section>';
     return h;

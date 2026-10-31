@@ -121,7 +121,7 @@
   /* ---------- context handed to views ---------- */
   var ctx = {
     state: state, canFolder: canFolder,
-    assistantFiles: function () { var tg = afTarget(), af = afState(); return { target: tg, readOnly: afReadOnly(tg, af), af: af, version: APP_VERSION }; },
+    assistantFiles: function () { var af = afState(), tg = afTarget(af); return { target: tg, readOnly: afReadOnly(tg, af), af: af, version: APP_VERSION }; },
     get data() { return data; },
     now: function () { return Date.now(); },
     /* Built once per draw (2.5.0), not once per name shown; the last row for an ID wins, as it always has here. */
@@ -951,30 +951,29 @@
   /* The fingerprints of AGENTS.md's Flightdeck part and the skills, as flightdeck install takes them: the folder's files
      (hashes), this version's defaults (want) and the copies waiting to be merged (staged), for PF.contract.classify. */
   function contractHashes(scan) {
-    var C = PF.contract, texts = scan.contractTexts || {}, st = scan.stagedTexts || {}, keys = contractKeys();
-    var jobs = Object.keys(texts).map(function (p) { return ['hashes', p, texts[p]]; }).concat(keys.map(function (k) { return ['want', k, EXAMPLES[k]]; }), Object.keys(st).map(function (p) { return ['staged', p, st[p]]; }));
-    return digests(jobs.map(function (j) { var sg = j[0] === 'staged' && repo.stagedOf(j[1]); return C.managed(sg ? sg.key : j[1], j[2]); })).then(function (ds) {
+    var C = PF.contract, texts = scan.contractTexts || {}, prints = scan.stagedPrints || {}, keys = contractKeys();
+    var jobs = Object.keys(texts).map(function (p) { return ['hashes', p, texts[p]]; }).concat(keys.map(function (k) { return ['want', k, EXAMPLES[k]]; }));
+    return digests(jobs.map(function (j) { return C.managed(j[1], j[2]); })).then(function (ds) {
       if (!ds) return null;
       var out = { hashes: {}, want: {}, staged: {} };
-      jobs.forEach(function (j, i) {
-        if (j[0] !== 'staged') { out[j[0]][j[1]] = ds[i]; return; }
-        var sg = repo.stagedOf(j[1]); (out.staged[sg.key] = out.staged[sg.key] || []).push({ version: sg.version, hash: ds[i] });
-      });
-      /* Listed but not read: it's still there, so its file still waits. Its text is unknown, never taken to be gone. */
+      jobs.forEach(function (j, i) { out[j[0]][j[1]] = ds[i]; });
+      /* A copy listed but not read, over the limit or failing: it's still there, so its file still waits. Its text is
+         unknown, never taken to be gone. */
       (scan.updates || []).forEach(function (p) {
-        var sg = !Object.prototype.hasOwnProperty.call(st, p) && repo.stagedOf(p);
-        if (sg) (out.staged[sg.key] = out.staged[sg.key] || []).push({ version: sg.version, hash: null });
+        var sg = repo.stagedOf(p);
+        if (sg) (out.staged[sg.key] = out.staged[sg.key] || []).push({ version: sg.version, hash: Object.prototype.hasOwnProperty.call(prints, p) ? prints[p] : null });
+      });
+      /* A file that's there but couldn't be read isn't a missing file. */
+      out.unread = (scan.unreadable || []).map(function (u) { return u.path; }).filter(function (p, i, all) {
+        if (all.indexOf(p) !== i) return false;
+        return p === '.flightdeck/installed.json' ? scan.recordText == null : keys.indexOf(p) >= 0 && !Object.prototype.hasOwnProperty.call(texts, p);
       });
       Object.keys(out.staged).forEach(function (k) { out.staged[k].sort(function (a, b) { return C.byVersion(a.version, b.version); }); });
       return out;
     }, function () { return null; });
   }
   /* SHA-256 of each text, as hex; null when this browser can't. */
-  function digests(texts) {
-    var sub = typeof crypto !== 'undefined' && crypto.subtle;
-    if (!sub || typeof TextEncoder === 'undefined') return Promise.resolve(null);
-    return Promise.all(texts.map(function (t) { return sub.digest('SHA-256', new TextEncoder().encode(t)); })).then(function (ds) { return ds.map(PF.contract.hex); });
-  }
+  function digests(texts) { return repo.digests(texts); }
   /* AGENTS.md and the skills this version ships, by their paths in a team folder. */
   function contractKeys() { var C = PF.contract; return Object.keys(EXAMPLES).filter(function (k) { return (k === C.AGENTS || /^\.flightdeck\/skills\//.test(k)) && EXAMPLES[k] != null; }).sort(function (a, b) { return a === C.AGENTS ? -1 : b === C.AGENTS ? 1 : a < b ? -1 : a > b ? 1 : 0; }); }
   /* Reads the folder again, then every file in it, 8 at a time. Bound to the folder it started in. */
@@ -1210,17 +1209,24 @@
   /* Where the files go: the team folder (AGENTS.md and the skills), or another folder an assistant reads skills from (the
      skills only, with the command's standalone names: skills --to). Every path is built here from this version's own file
      list and valid version names; nothing comes from a file or the record. */
-  var afTok = 0, AF_MAX = 8 * 1048576;
-  /* This screen's state belongs to one opened folder: gen moves on when the folder does, so nothing here carries over. */
-  function afState() { if (!state.af || state.af.gen !== gen) state.af = { gen: gen, where: 'team' }; return state.af; }
-  function afTarget() {
-    var af = afState(), keys = contractKeys();
+  var AF_MAX = PF.contract.MAX_BYTES, afChosen = null;
+  /* One state object for one target in one opened folder. Changing the target or the folder makes a new one, so nothing
+     carries over: rows, results, errors, what's open. Nothing but afNew assigns state.af, and an object's target never
+     changes. Whatever starts waiting holds the object it began with and, when it lands, does nothing if that's no longer
+     the screen's (afLive). test/assistant-files.test.js checks this for every async path. */
+  function afNew(where, fs, ask) { return (state.af = { gen: gen, where: where, fs: fs || null, otherAsk: ask || null }); }
+  function afState() { return state.af && state.af.gen === gen ? state.af : afNew('team', state.fs); }
+  function afLive(af) { return state.af === af && af.gen === gen; }
+  /* Update, I merged it and the merge request act on what this target's read found, so only once it has finished. */
+  function afReady(af) { return !!af.load && !af.loading && !af.busy; }
+  function afTarget(af) {
+    var keys = contractKeys();
     if (af.where === 'other') {
       var sk = '.flightdeck/skills/';
-      return { fs: af.otherFs || null, standalone: true, updates: ['.flightdeck-updates'], recordAt: '.flightdeck-installed.json', home: 'the skills folder',
+      return { fs: af.fs, standalone: true, updates: ['.flightdeck-updates'], recordAt: '.flightdeck-installed.json', home: 'the skills folder',
         files: keys.filter(function (k) { return k.indexOf(sk) === 0; }).map(function (k) { return { key: k.slice(sk.length), rel: k.slice(sk.length), baseKey: k, text: EXAMPLES[k] }; }) };
     }
-    return { fs: state.fs, updates: ['.flightdeck', 'updates'], recordAt: '.flightdeck/installed.json', home: 'the team folder',
+    return { fs: af.fs, updates: ['.flightdeck', 'updates'], recordAt: '.flightdeck/installed.json', home: 'the team folder',
       files: keys.map(function (k) { return { key: k, rel: k, text: EXAMPLES[k] }; }) };
   }
   /* Why the screen can only show and copy, or '' when it can update. */
@@ -1233,8 +1239,6 @@
     if (rec && rec.newer) return tg.recordAt + ' ' + rec.newer + ' This copy shows the files and leaves them alone. Use the newer Flightdeck, or run its ' + cmd + '.';
     return '';
   }
-  /* The screen moves to the other target: nothing from this one's requests stays, and its read in flight no longer counts. */
-  function afGo(af, where) { afTok++; af.where = where; af.load = null; af.loading = false; af.peek = null; af.perm = null; af.err = null; af.result = null; af.briefShown = null; }
   function afPerm(fs) {
     var d = fs && fs.dir;
     return d && d.queryPermission ? Promise.resolve(d.queryPermission({ mode: 'readwrite' })).catch(function () { return 'denied'; }) : Promise.resolve('granted');
@@ -1297,28 +1301,28 @@
     if (bytes <= AF_MAX) return '';
     return tg.recordAt + ' would be too big for Flightdeck to read back (' + (Math.ceil(bytes / 1048576 * 100) / 100) + ' MB, over ' + (AF_MAX / 1048576) + ' MB). Nothing was changed. Remove the entries for files Flightdeck no longer ships, then try again.';
   }
-  /* Bound to this folder and this request: switching folders or choosing another folder drops it. A request never starts
-     while an update or a merge is running (af.busy), so nothing cuts one short in the same folder. */
-  function afGuard(tg) { var g = gen, tok = ++afTok; return function () { return g === gen && tok === afTok && afTarget().fs === tg.fs; }; }
-  function afLoad(keepResult) {
-    var af = afState(), tg = afTarget();
-    if (af.busy) return Promise.resolve();
-    var alive = afGuard(tg);
+  function afGuard(af) { return function () { return afLive(af); }; }
+  /* One read at a time for an object, and none during an update or a merge; another target's read is that target's own. */
+  function afLoad(keepResult, on) {
+    var af = on || afState(), tg = afTarget(af);
+    if (af.busy || af.loading) return Promise.resolve();
+    var alive = afGuard(af);
+    af.looked = true;
     if (!keepResult) af.result = null;
     af.err = null;
-    if (!tg.fs) { af.load = null; af.loading = false; af.perm = null; render(); return Promise.resolve(); }
+    if (!tg.fs) { af.load = null; af.perm = null; render(); return Promise.resolve(); }
     af.loading = true; render();
-    return afPerm(tg.fs).then(function (p) { if (alive()) af.perm = p; return afRead(tg); }).then(function (l) { if (!alive()) return; af.loading = false; af.load = l; render(); }, function (e) { if (!alive()) return; af.loading = false; af.load = null; af.err = e && e.message || String(e); render(); });
+    return afPerm(tg.fs).then(function (p) { if (!alive()) return null; af.perm = p; return afRead(tg); }).then(function (l) { if (!alive()) return; af.loading = false; af.load = l; render(); }, function (e) { if (!alive()) return; af.loading = false; af.load = null; af.err = e && e.message || String(e); render(); });
   }
   /* Update: the command's install, file by file, against what's read right now. Replaced files are copied first (and read
      back); every write is over the exact text read; a file changed meanwhile is skipped and keeps its old recorded default. */
   function afUpdate() {
-    var af = afState(); if (af.busy) return;
-    var tg = afTarget(), C = PF.contract, ver = APP_VERSION;
+    var af = afState(); if (!afReady(af)) return;
+    var tg = afTarget(af), C = PF.contract, ver = APP_VERSION;
     if (!tg.fs || afReadOnly(tg, af)) return;
-    var alive = afGuard(tg), fs = tg.fs, dir = null, changed = [], wrote = 0, stagedN = 0, wroteRecord = false, stop = function () { var e = new Error('stale'); e.stale = true; return e; };
+    var alive = afGuard(af), fs = tg.fs, dir = null, changed = [], wrote = 0, stagedN = 0, wroteRecord = false, stop = function () { var e = new Error('stale'); e.stale = true; return e; };
     var ud = tg.updates.join('/') + '/' + ver;
-    af.busy = true; af.loading = false; af.result = null; af.err = null; render();
+    af.busy = true; af.result = null; af.err = null; render();
     var keep = function (rel, text) { return (dir ? Promise.resolve(dir) : repo.archiveDir(fs, ud + '/replaced').then(function (d) { dir = d; return d; })).then(function (d) { return repo.archiveCopy(fs, d, rel, text); }); };
     var write = function (it, path, expect, text) { return repo.contractWrite(fs, path, expect, text).then(function (r) { if (r.conflict) { it.changed = true; changed.push(it.rel); return false; } return true; }); };
     var l;
@@ -1349,7 +1353,7 @@
       }).then(function () {
         af.result = { wrote: wrote, staged: stagedN, kept: l.items.filter(function (i) { return i.status === 'kept'; }).length, changed: changed, replaced: dir, ignored: !!l.record.ignored, record: wroteRecord };
       });
-    }).then(function () { if (!alive()) return; af.busy = false; afFilesChanged(tg); return afLoad(true); }, function (e) {
+    }).then(function () { if (!alive()) return; af.busy = false; afFilesChanged(tg); return afLoad(true, af); }, function (e) {
       if (e && e.stale) return;
       if (!alive()) return; af.busy = false; af.err = (e && e.name === 'NotAllowedError' ? 'This browser didn\'t allow writing to the folder. ' : '') + (e && e.message || String(e)); afFilesChanged(tg); render();
     });
@@ -1360,10 +1364,10 @@
      back), and removed only if it's still exactly what this screen read. */
   function afMerged(key) {
     var af = afState(), it = af.load && af.load.items.filter(function (i) { return i.key === key; })[0];
-    if (!it || af.busy || !it.staged.length) return;
-    var tg = afTarget(); if (afReadOnly(tg, af)) return;
-    var alive = afGuard(tg), fs = tg.fs, kept = [];
-    af.busy = true; af.loading = false; af.err = null; render();
+    if (!it || !afReady(af) || !it.staged.length) return;
+    var tg = afTarget(af); if (afReadOnly(tg, af)) return;
+    var alive = afGuard(af), fs = tg.fs, kept = [];
+    af.busy = true; af.err = null; render();
     repo.archiveDir(fs, tg.updates.join('/') + '/' + APP_VERSION + '/replaced').then(function (d) {
       return it.staged.reduce(function (q, x) {
         return q.then(function () {
@@ -1381,49 +1385,54 @@
     }).then(function () {
       if (!alive()) return; af.busy = false; afFilesChanged(tg);
       af.result = kept.length ? { note: 'A copy waiting in ' + (kept.length === 1 ? kept[0] : kept.length + ' versions') + ' changed since this screen read it, so it was left where it is. Look at it again.' } : { note: 'Put away. The copy is beside the replaced files, in case you need it.' };
-      return afLoad(true);
+      return afLoad(true, af);
     }, function (e) { if (!alive()) return; af.busy = false; af.err = e && e.message || String(e); render(); });
   }
   /* The request for an AI assistant: one prompt for each version folder holding a copy of this file. */
   function afBrief(key) {
-    var af = afState(), tg = afTarget(), C = PF.contract, it = af.load && af.load.items.filter(function (i) { return i.key === key; })[0];
+    var af = afState(), tg = afTarget(af), C = PF.contract, it = afReady(af) && af.load.items.filter(function (i) { return i.key === key; })[0];
     if (!it) return '';
     return it.staged.map(function (x) { return x.version; }).sort(C.byVersion).map(function (v) { return C.mergePrompt(v, tg.updates.concat(v).join('/')).replace(/^> /, ''); }).join('\n\n');
   }
-  function afFile(key) { return afTarget().files.filter(function (f) { return f.key === key; })[0]; }
-  /* Another folder for skills: chosen here, remembered where the browser allows, like the team folder. */
+  function afFile(key) { return afTarget(afState()).files.filter(function (f) { return f.key === key; })[0]; }
+  /* A copy belongs to the target it began in. If the clipboard says no, the text is drawn in that target's own box and that
+     box, just looked up so it's the one on the page, is selected. After a change of target, it does nothing at all. */
+  function afCopy(af, text, boxId, done, show) {
+    copyText(text, document.getElementById(boxId), done, function () { show(); render(); return document.getElementById(boxId); }, function () { return afLive(af); });
+  }
+  /* Another folder for skills: chosen here, remembered where the browser allows, like the team folder. A folder chosen
+     makes a new object, so the last folder's rows are gone at once, before this one's read has finished. */
+  function afUse(d) { var fs = new PF.fs.FolderFS(d); afChosen = { gen: gen, fs: fs }; return afLoad(false, afNew('other', fs)); }
   function afPick() {
-    var af = afState(), g = gen;
+    var af = afState();
     if (!canFolder || af.busy) return;
     window.showDirectoryPicker({ id: 'flightdeck-skills', mode: 'readwrite' }).then(function (d) {
-      if (g !== gen || afState() !== af || af.busy) return;
       var team = state.fs && state.fs.dir;
       return Promise.resolve(team && team.isSameEntry ? team.isSameEntry(d) : false).then(function (same) {
-        if (g !== gen || af.busy) return;
+        if (!afLive(af) || af.busy) return;
         if (same) { af.err = 'That\'s the team folder. Use In the team folder for it.'; render(); return; }
-        af.otherFs = new PF.fs.FolderFS(d); af.otherAsk = null; af.perm = null;
         handles.write('skills', d).catch(function () { /* this browser can't remember it: it asks again next time */ });
-        return afLoad();
+        return afUse(d);
       });
     }, function () { /* picker closed */ });
   }
   function afRemembered(af) {
-    var g = gen, back = function () { return g === gen && afState() === af && af.where === 'other' && !af.busy; };
-    if (af.otherFs || af.otherAsk || !canFolder) return afLoad();
+    render();
+    if (!canFolder) return;
     return handles.read('skills').then(function (d) {
-      if (!d || !back() || af.otherFs) return;
-      return afPerm({ dir: d }).then(function (p) { if (!back() || af.otherFs) return; if (p === 'granted') af.otherFs = new PF.fs.FolderFS(d); else af.otherAsk = d; });
-    }).catch(function () { /* nothing remembered */ }).then(function () { if (back()) return afLoad(); });
+      if (!d) return;
+      return afPerm({ dir: d }).then(function (p) { if (!afLive(af)) return; if (p === 'granted') return afUse(d); afNew('other', null, d); render(); });
+    }).catch(function () { /* nothing remembered */ });
   }
   function afAllow() {
-    var af = afState(), d = af.otherAsk, g = gen; if (!d || af.busy) return;
-    d.requestPermission({ mode: 'readwrite' }).then(function (p) { if (g !== gen || afState() !== af || p !== 'granted') return; af.otherFs = new PF.fs.FolderFS(d); af.otherAsk = null; return afLoad(); }, function () { /* refused: the screen stays read only */ });
+    var af = afState(), d = af.otherAsk; if (!d || af.busy) return;
+    d.requestPermission({ mode: 'readwrite' }).then(function (p) { if (!afLive(af) || p !== 'granted') return; return afUse(d); }, function () { /* refused: the screen stays read only */ });
   }
   /* Settings opened: where each file stands, once for this folder. */
   function afFirstLook() {
     var af = afState();
     if (af.looked || !canFolder || !state.fs || state.fs.kind !== 'folder') return;
-    af.looked = true; afLoad();
+    afLoad(false, af);
   }
 
   /* ---------- Getting started (views/setup.js, core/setup.js) ---------- */
@@ -5699,12 +5708,18 @@
       copyText(PF.health.text(rep, { folder: state.fs && state.fs.name, at: U.when(hs.scan.at), app: APP_VERSION, files: hs.scan.files }), null, 'Copied. Paste it to a teammate or your AI assistant.');
     },
     'ai-files': function () {
-      ACTIONS.nav('settings'); var af = afState(); if (!af.busy && af.where !== 'team') afGo(af, 'team'); state.focus = 'set-ai'; render();
+      ACTIONS.nav('settings'); var af = afState(); if (!af.busy && af.where !== 'team') af = afNew('team', state.fs); state.focus = 'set-ai'; render();
       var el = document.getElementById('set-ai'); if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start' });
-      if (!af.loading) afLoad();
+      afLoad(false, af);
     },
     'af-load': function () { afLoad(); },
-    'af-where': function (id) { var af = afState(); if (af.busy || (id !== 'team' && id !== 'other') || af.where === id) return; afGo(af, id); if (id === 'other') afRemembered(af); else afLoad(); },
+    'af-where': function (id) {
+      var af = afState(), chosen = afChosen && afChosen.gen === gen && afChosen.fs;
+      if (af.busy || (id !== 'team' && id !== 'other') || af.where === id) return;
+      if (id === 'team') afLoad(false, afNew('team', state.fs));
+      else if (chosen) afLoad(false, afNew('other', chosen));
+      else afRemembered(afNew('other', null));
+    },
     'af-pick': function () { afPick(); },
     'af-allow': function () { afAllow(); },
     'af-update': function () { afUpdate(); },
@@ -5712,14 +5727,11 @@
     'af-peek': function (id) { var af = afState(); af.peek = af.peek === id ? null : id; render(); },
     'af-copy': function (id) {
       var f = afFile(id), af = afState(); if (!f) return;
-      var pre = document.getElementById('af-pre-' + PF.vk.domKey(f.key));
-      if (pre && af.peek !== id) pre.textContent = f.text;
-      copyText(f.text, pre, 'Copied ' + f.rel + '. Paste it to your AI assistant.', function () { af.peek = id; });
+      afCopy(af, f.text, 'af-pre-' + PF.vk.domKey(f.key), 'Copied ' + f.rel + '. Paste it to your AI assistant.', function () { af.peek = id; });
     },
     'af-brief': function (id) {
-      var t = afBrief(id), pre = document.getElementById('af-brief-pre'), af = afState(); if (!t) return;
-      if (pre) pre.textContent = t;
-      copyText(t, pre, 'Copied. Paste it to your AI assistant in ' + afTarget().home + '.', function () { af.briefShown = t; });
+      var t = afBrief(id), af = afState(); if (!t) return;
+      afCopy(af, t, 'af-brief-pre', 'Copied. Paste it to your AI assistant in ' + afTarget(af).home + '.', function () { af.briefShown = t; });
     },
     'health-cmd': function (id) { copyText(PF.health.command(id), null, id === 'merge' ? 'Copied. Paste it to your AI assistant in the team folder.' : 'Copied. Run it in a terminal, with your team folder\'s path.'); },
     connection: function () {
@@ -7613,11 +7625,12 @@
     state.overlayFocus = '#lc-t';
   }
   function openLightbox(list, i) { openOverlay({ list: list, i: i || 0, html: function () { return V.lightbox(ctx, this.list, this.i); } }); }
-  function copyText(text, pre, done, refused) {
+  /* refused can name the box to select instead (it may have drawn it); still, if given, says whether this copy still counts. */
+  function copyText(text, pre, done, refused, still) {
     var msg = document.getElementById('copy-msg');
-    function fallback() { if (refused) refused(); if (pre) { pre.hidden = false; var rg = document.createRange(); rg.selectNodeContents(pre); var s = window.getSelection(); s.removeAllRanges(); s.addRange(rg); } if (msg) msg.textContent = 'Selected. Press Ctrl+C.'; }
-    var g = gen, view = state.view, key = state.runKey;
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { if (g !== gen || state.view !== view || state.runKey !== key) return; if (msg && document.contains(msg)) msg.textContent = done || 'Copied. Paste it into the Jira ticket.'; else { say('Copied.', 'good'); render(); } }, function () { if (g === gen && state.view === view && state.runKey === key) fallback(); });
+    function fallback() { var box = refused ? refused() : null; if (box) pre = box; if (pre) { pre.hidden = false; var rg = document.createRange(); rg.selectNodeContents(pre); var s = window.getSelection(); s.removeAllRanges(); s.addRange(rg); } var m = document.getElementById('copy-msg'); if (m) m.textContent = 'Selected. Press Ctrl+C.'; }
+    var g = gen, view = state.view, key = state.runKey, counts = function () { return g === gen && state.view === view && state.runKey === key && (!still || still()); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { if (!counts()) return; if (msg && document.contains(msg)) msg.textContent = done || 'Copied. Paste it into the Jira ticket.'; else { say('Copied.', 'good'); render(); } }, function () { if (counts()) fallback(); });
     else fallback();
   }
 
