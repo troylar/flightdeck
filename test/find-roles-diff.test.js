@@ -1,6 +1,6 @@
 // Find things in big folders (2.11), code review round 16: the Start and Plan forms' roles, past the first 20, are hidden
 // fields, and each must submit exactly what its select would hold in 2.10, where every role is a drawn <select> and the
-// page's own carry-over across redraws decides what's submitted. This drives the last release's shipped page, 2.11.1's (the cached release,
+// page's own carry-over across redraws decides what's submitted. This drives the last release's shipped page, 2.11.2's (the cached release,
 // tools/old-bundles.js) and this build side by side, in the same stand-in page (test/app-harness.js, liveForms: every drawn
 // control a live node, a select's value one of its options), through the same seeded random events, and after each one
 // compares every role value the open form would send. ROLES_SEED=<n> picks another walk; ROLES_STEPS=<n> sets its length.
@@ -23,8 +23,8 @@ const INTENDED = [];
 let mainHtml = null;
 function shipped() {
   if (mainHtml) return mainHtml;
-  const b = bundles.get('v2.11.1');
-  assert.ok(b, '2.11.1\'s shipped page is needed (node tools/old-bundles.js caches it from the release tag)');
+  const b = bundles.get('v2.11.2');
+  assert.ok(b, '2.11.2\'s shipped page is needed (node tools/old-bundles.js caches it from the release tag)');
   return (mainHtml = b.files['flightdeck.html']);
 }
 

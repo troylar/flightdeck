@@ -769,8 +769,8 @@ rule('Round 1, 5: a hundred waiting versions: folders listed first, only files t
 
 rule('Round 1, 6: a waiting copy that is listed but can\'t be read stays a merge, with no all-clear, as the last release says', async () => {
   const bundles = require('../tools/old-bundles');
-  const b = bundles.get('v2.11.1');
-  if (!b) { if (process.env.CI) throw new Error('2.11.1\'s shipped page is needed'); console.log('skipped: v2.11.1 isn\'t cached'); return; }
+  const b = bundles.get('v2.11.2');
+  if (!b) { if (process.env.CI) throw new Error('2.11.2\'s shipped page is needed'); console.log('skipped: v2.11.2 isn\'t cached'); return; }
   const verdict = async (html, name) => {
     const dir = scenario('settled');
     if (name === 'readable' || name === 'unreadable') { fs.mkdirSync(path.join(dir, '.flightdeck/updates/2.6.0', path.dirname(STATUS)), { recursive: true }); fs.writeFileSync(path.join(dir, '.flightdeck/updates/2.6.0', STATUS), 'old default'); }
@@ -1102,7 +1102,7 @@ rule('Round 3, 3: Update failing after leaving Settings is announced, naming the
 /* ---------------- review round 4 ---------------- */
 
 /* The team folder's identity check answers per folder, when told to. */
-async function twoFolders(perm) {
+async function twoFolders(perm, domFocus) {
   const idb = memoryIDB(), aFiles = {}, bFiles = {}, gates = { a: gate(), b: gate() };
   let aPerm = 'granted';
   const A = handle('Skills A', aFiles, { queryPermission: () => Promise.resolve(aPerm), requestPermission: () => (gates.allow ? gates.allow.p : Promise.resolve()).then(() => 'granted') });
@@ -1113,7 +1113,7 @@ async function twoFolders(perm) {
   const team = folderHandle('Team', asFiles(scenario('settled')));
   team.isSameEntry = (d) => (d === A ? gates.a : gates.b).p.then(() => false);
   const w = { pick: team, A, B, aFiles, bFiles, gates };
-  const app = w.app = boot({ picker: () => w.pick, indexedDB: idb }); await app.tick(60);
+  const app = w.app = boot({ picker: () => w.pick, indexedDB: idb, domFocus: !!domFocus }); await app.tick(60);
   app.click('connect'); await app.tick(200);
   app.click('ai-files'); await wait(app);
   return w;
@@ -1160,11 +1160,11 @@ rule('Round 4, 1: Allow answered after another folder is chosen changes nothing'
   await usesB(w);
 });
 
-const slowOther = async () => {
+const slowOther = async (domFocus) => {
   const other = {}, st = { armed: false, gate: gate() }, o = {};
   const dir = paused(hooked(handle('Skills', other, { queryPermission: () => Promise.resolve('granted') }), o), st);
   let pick = folderHandle('Team', asFiles(scenario('deleted')));
-  const app = boot({ picker: () => pick, indexedDB: memoryIDB() }); await app.tick(60);
+  const app = boot({ picker: () => pick, indexedDB: memoryIDB(), domFocus: !!domFocus }); await app.tick(60);
   app.click('connect'); await app.tick(200);
   app.click('ai-files'); await wait(app);
   app.click('af-where', 'other'); await app.tick(50);
@@ -1204,6 +1204,143 @@ rule('Round 4, 2: without asking, the screen stays where the Update ran', async 
   const { app, st } = await slowOther();
   st.gate.open(); await wait(app); await wait(app);
   assert.ok(/Using <b>Skills<\/b>/.test(section(app)) && !/Then this shows/.test(section(app)));
+});
+
+/* ---------------- review round 5 ---------------- */
+
+const MAX = 8 * 1048576, SKILL = 'flightdeck-status/SKILL.md';
+/* AGENTS.md from an older default whose merge comes to exactly `size` bytes, with Team notes padding it out. */
+function bigAgents(size, wide) {
+  const dir = scenario('older defaults'), at = path.join(dir, 'AGENTS.md'), base = fs.readFileSync(at, 'utf8');
+  const room = size - Buffer.byteLength(K.merged('AGENTS.md', base, EX['AGENTS.md']));
+  const pairs = wide ? Math.floor(room / 2) : 0;
+  const text = base + 'é'.repeat(pairs) + 'x'.repeat(room - pairs * 2);
+  fs.writeFileSync(at, text);
+  assert.strictEqual(Buffer.byteLength(K.merged('AGENTS.md', text, EX['AGENTS.md'])), size, 'set-up: the merge comes to the size');
+  return dir;
+}
+const snapshot = (dir) => { const o = asFiles(dir); delete o['flightdeck.html']; return JSON.stringify(o); };
+const firstSentence = (t) => { const m = /(AGENTS\.md|\S*installed\.json) would be too big[^.]*\.\d+ MB[^.]*\.\s*Nothing was changed\./.exec(t); return m && m[0]; };
+
+rule('Round 5, 1: the app and the command agree: a merge over the read limit changes nothing, and one exactly at it is written', async () => {
+  if (OLD_AGENTS == null) return;
+  for (const wide of [false, true]) {
+    const name = wide ? 'wide characters' : 'plain';
+    const over = bigAgents(MAX + 1, wide), before = snapshot(over), rawBefore = fs.readFileSync(path.join(over, 'AGENTS.md'));
+    /* The app, on its own copy of the same folder. */
+    const files = asFiles(over), kept = JSON.stringify(files), app = await openTeam(files);
+    app.click('ai-files'); await app.tick(1500);
+    assert.ok(/data-act="af-update"/.test(app.html()), name + ': set-up: the file can be read and updated');
+    app.click('af-update'); await app.tick(1500);
+    const said = app.html().replace(/&#39;/g, "'");
+    assert.strictEqual(JSON.stringify(files), kept, name + ': the app changes nothing');
+    assert.ok(firstSentence(said), name + ': the app says so: ' + (said.match(/af-err[^<]*<?[^<]{0,160}/) || [''])[0]);
+    assert.ok(!/Working…/.test(said), name + ': and isn\'t stuck');
+    /* The command. */
+    const r = cli('install', over);
+    assert.notStrictEqual(r.code, 0, name + ': the command refuses: ' + r.out.slice(0, 160));
+    assert.strictEqual(snapshot(over), before, name + ': the command changes nothing');
+    assert.ok(fs.readFileSync(path.join(over, 'AGENTS.md')).equals(rawBefore));
+    assert.strictEqual(firstSentence(r.out), firstSentence(said), name + ': in the same words');
+  }
+  /* Exactly at the limit both write, and read it back. */
+  const fits = bigAgents(MAX), files = asFiles(fits), app = await openTeam(files);
+  app.click('ai-files'); await app.tick(1500);
+  app.click('af-update'); await app.tick(2500);
+  assert.ok(files['AGENTS.md'].includes(EX['AGENTS.md'].slice(0, 40)) && Buffer.byteLength(files['AGENTS.md']) === MAX, 'the app writes it');
+  assert.ok(!firstSentence(app.html().replace(/&#39;/g, "'")), 'and says nothing of size');
+  assert.strictEqual(cli('install', fits).code, 0, 'the command writes it');
+  assert.strictEqual(Buffer.byteLength(fs.readFileSync(path.join(fits, 'AGENTS.md'))), MAX);
+});
+
+rule('Round 5, 1: a record too big for the app is too big for the command, and nothing changes', async () => {
+  if (OLD_AGENTS == null) return;
+  const dir = scenario('deleted'), r = JSON.parse(fs.readFileSync(path.join(dir, '.flightdeck/installed.json'), 'utf8')), HASH = 'e'.repeat(64);
+  r.version = '2.6.0';
+  const room = MAX - 200 - JSON.stringify(r).length, each = JSON.stringify({ 'old/0000000.md': HASH }).length - 1;
+  for (let i = 0; i < Math.floor(room / each); i++) r.files['old/' + String(i).padStart(7, '0') + '.md'] = HASH;
+  fs.writeFileSync(path.join(dir, '.flightdeck/installed.json'), JSON.stringify(r));
+  const before = snapshot(dir), out = cli('install', dir);
+  assert.notStrictEqual(out.code, 0, 'refused: ' + out.out.slice(0, 160));
+  assert.ok(/too big/.test(out.out) && /Nothing was changed/.test(out.out), 'in plain words');
+  assert.strictEqual(snapshot(dir), before, 'nothing changed');
+  assert.ok(!fs.existsSync(path.join(dir, PLAN)), 'the deleted file isn\'t written');
+});
+
+rule('Round 5, 2: a target change in the background puts focus on the heading when it removes what had focus, and only then', async () => {
+  const dk = (app, k) => app.PF.vk.domKey(k);
+  /* The team folder asked for during an Update elsewhere, with a file's text focused. */
+  let t = await slowOther(true);
+  t.app.click('nav', 'home'); await t.app.tick(20);
+  t.app.click('ai-files'); await t.app.tick(60);
+  t.app.click('af-peek', SKILL); await t.app.tick(5);
+  t.app.node('#af-pre-' + dk(t.app, SKILL)).focus();
+  t.st.gate.open(); await wait(t.app); await wait(t.app);
+  assert.ok(/data-af-row="AGENTS\.md"/.test(section(t.app)), 'set-up: it moved');
+  assert.strictEqual(t.app.activeId(), 'set-ai', 'the heading, never the page');
+  /* What's still there keeps focus. */
+  t = await slowOther(true);
+  t.app.click('nav', 'home'); await t.app.tick(20);
+  t.app.click('ai-files'); await t.app.tick(60);
+  t.app.node('[data-act="af-where"][data-id="other"]').focus();
+  t.st.gate.open(); await wait(t.app); await wait(t.app);
+  assert.ok(/af-where/.test(t.app.activeId()), 'the target buttons stay, so focus does: ' + t.app.activeId());
+  /* A dialog keeps it. */
+  t = await slowOther(true);
+  t.app.click('nav', 'home'); await t.app.tick(20);
+  t.app.click('ai-files'); await t.app.tick(60);
+  t.app.click('af-peek', SKILL); await t.app.tick(5);
+  t.app.click('help'); await t.app.tick(5);
+  const inDialog = t.app.activeId();
+  assert.notStrictEqual(inDialog, 'set-ai', 'set-up');
+  t.st.gate.open(); await wait(t.app); await wait(t.app);
+  assert.strictEqual(t.app.activeId(), inDialog, 'an open dialog keeps focus');
+  /* A remembered folder landing after a file was opened: same class, a state change no one pressed anything for. */
+  const w = await twoFolders('granted', true);
+  w.app.click('af-where', 'other'); await w.app.tick(60);
+  w.app.click('af-peek', SKILL); await w.app.tick(5);
+  w.app.node('#af-pre-' + dk(w.app, SKILL)).focus();
+  w.gates.a.open(); await wait(w.app);
+  assert.ok(/Using <b>Skills A<\/b>/.test(section(w.app)), 'set-up: it landed');
+  assert.strictEqual(w.app.activeId(), 'set-ai', 'the text closed, so the heading');
+});
+
+/* How each write ends, with what's covering Settings. A case is a folder, what goes wrong, and what the person must hear. */
+const COVERS = { 'a dialog': (app) => app.click('help'), 'another screen': (app) => app.click('nav', 'home') };
+rule('Round 5, 3: however a write ends, it is announced when Settings is covered, and not doubled when it is not', async () => {
+  const OUTCOMES = {
+    'Update fails': { scenario: 'deleted', act: ['af-update'], go(c) { c.o.fail = /^AGENTS\.md$/; }, hear: /AI assistant files/, kind: 'warn' },
+    'Update skips a changed file': { scenario: 'deleted', act: ['af-update'], race: PLAN, go() {}, hear: /AI assistant files[^]*1 file changed|1 file changed[^]*AI assistant files|Finished[^]*1 file changed/, kind: 'warn' },
+    'Update finishes': { scenario: 'deleted', act: ['af-update'], go() {}, hear: /AI assistant files are updated/, kind: 'good' },
+    'the check after it fails': { scenario: 'deleted', act: ['af-update'], go(c) { c.o.fail = { test: (p) => p === 'AGENTS.md' && PLAN in c.files }; }, hear: /AI assistant files/, kind: 'warn' },
+    'I merged it finishes': { scenario: 'staged from 2.6.0', act: ['af-merged', STATUS], go() {}, hear: /AI assistant files[^]*Put away/, kind: 'good' },
+    'I merged it fails': { scenario: 'staged from 2.6.0', act: ['af-merged', STATUS], go(c) { c.o.fail = /updates\/2\.6\.0/; }, hear: /AI assistant file/, kind: 'warn' }
+  };
+  for (const name of Object.keys(OUTCOMES)) for (const cover of Object.keys(COVERS).concat('nothing')) {
+    const X = OUTCOMES[name], raw = asFiles(scenario(X.scenario)), o = {}, g = gate();
+    /* Someone writes the file between Update's own read and its write: the second time it's looked for after the click. */
+    let racing = false, looks = 0;
+    const files = new Proxy(raw, { has(t, k) { if (racing && k === X.race && ++looks === 2) t[k] = 'someone else wrote this'; return k in t; } }), c = { files, o };
+    const app = boot({ picker: hooked(folderHandle('Team', files), o), indexedDB: memoryIDB(), domFocus: true }); await app.tick(60);
+    app.click('connect'); await app.tick(200);
+    app.click('ai-files'); await wait(app);
+    racing = !!X.race; o.wait = () => g.p; app.click(...X.act); await app.tick(30);
+    if (COVERS[cover]) { COVERS[cover](app); await app.tick(10); }
+    const liveBefore = app.live();
+    X.go(c); o.wait = null; g.open(); await wait(app); await wait(app);
+    const label = name + ' under ' + cover + ': ';
+    if (cover === 'nothing') { assert.strictEqual(app.live(), liveBefore, label + 'the screen shows it, so nothing extra is said: ' + app.live()); continue; }
+    assert.ok(X.hear.test(app.live()), label + 'said: ' + app.live());
+  }
+});
+
+rule('Round 5, 3: a dialog over Settings doesn\'t change a move to the team folder: it still says how the write ended', async () => {
+  const t = await slowOther(true);
+  t.app.click('nav', 'home'); await t.app.tick(20);
+  t.app.click('ai-files'); await t.app.tick(60);
+  t.app.click('help'); await t.app.tick(5);
+  t.st.gate.open(); await wait(t.app); await wait(t.app);
+  assert.ok(/Showing the team folder/.test(t.app.live()), t.app.live());
 });
 
 run();

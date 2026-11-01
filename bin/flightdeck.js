@@ -289,6 +289,21 @@ Then run the same flightdeck command with \`--check\`: exit code 0 means nothing
 `;
 }
 
+/* What an install would write has to be something the app can read back (PF.contract.MAX_BYTES): over the limit, nothing is
+   touched. The same check and words as Settings, AI assistant files (afRoom). */
+const CONTRACT_MAX = 8 * 1048576;
+function roomFor(t, items) {
+  const why = (name, n, then) => name + ' would be too big for Flightdeck to read back (' + (Math.ceil(n / 1048576 * 100) / 100) + ' MB, over ' + (CONTRACT_MAX / 1048576) + ' MB). Nothing was changed. ' + then;
+  for (const i of items) {
+    if (['current', 'kept', 'merge'].includes(i.status)) continue;
+    const n = Buffer.byteLength(merged(i), 'utf8');
+    if (n > CONTRACT_MAX) fail(why(i.rel, n, 'Shorten what your team added to it, then try again.'));
+  }
+  const rec = nextRecord(t.record, items, t.version);
+  if (!rec) return;
+  const size = Buffer.byteLength(JSON.stringify({ format: 'flightdeck-installed/1', version: t.version, at: new Date().toISOString(), by: 'cli', files: rec }, null, 2) + '\n', 'utf8');
+  if (size > CONTRACT_MAX) fail(why(t.recordAt.join('/'), size, 'Remove the entries for files Flightdeck no longer ships, then try again.'));
+}
 /* install and skills: one routine for the team folder, and for skills --to <dir>. */
 function contract(t, files, opts) {
   const base = baselines(opts.html), now = new Date();
@@ -296,6 +311,7 @@ function contract(t, files, opts) {
   t.record = readRecord(t, files.map((f) => f.key));
   t.changed = [];
   const items = classify(t, files, base, opts.force);
+  if (!opts.check || opts.room) roomFor(t, items);
   if (opts.check) return items;
   for (const i of items) {
     if (['current', 'kept'].includes(i.status) || (i.status === 'merge' && i.waiting && !i.stage)) {
@@ -1751,7 +1767,7 @@ function main(argv) {
       return { out: out.join('\n'), code };
     }
     /* Everything is checked before anything is written, so a refusal (a link, say) leaves the folder as it was. */
-    if (!appOnly) contract(t, files, { html, force, check: true });
+    if (!appOnly) contract(t, files, { html, force, check: true, room: true });
     t.changed = [];
     [[NAME, appS], [OLD, oldS]].forEach(([file, st]) => {
       if (st.status === 'current' || (file === OLD && !keepOld)) return;

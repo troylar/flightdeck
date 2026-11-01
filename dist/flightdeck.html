@@ -27017,14 +27017,22 @@ PF.examples = (function () {
       });
     });
   }
-  /* The record an update would write has to be one Flightdeck can read back: over the limit, nothing is touched. A file
-     skipped during the update keeps an old hash of the same length, so this is the most it can come to. */
-  function afRecordRoom(tg, l) {
-    var rec = PF.contract.nextRecord(l.record, l.items, APP_VERSION);
+  /* What an update would write has to be something Flightdeck can read back: over the limit, nothing is touched. A file
+     skipped during the update keeps an old hash of the same length, so the record comes to this at most. The same check and
+     words as the command's (bin/flightdeck.js, roomFor). */
+  function afRoom(tg, l) {
+    var C = PF.contract, bytes = function (t) { return new TextEncoder().encode(t).length; };
+    var why = function (name, n, then) { return name + ' would be too big for Flightdeck to read back (' + (Math.ceil(n / 1048576 * 100) / 100) + ' MB, over ' + (AF_MAX / 1048576) + ' MB). Nothing was changed. ' + then; };
+    for (var i = 0; i < l.items.length; i++) {
+      var it = l.items[i];
+      if (['update', 'new', 'missing'].indexOf(it.status) < 0) continue;
+      var n = bytes(C.merged(it.key, it.now, it.text));
+      if (n > AF_MAX) return why(it.rel, n, 'Shorten what your team added to it, then try again.');
+    }
+    var rec = C.nextRecord(l.record, l.items, APP_VERSION);
     if (!rec) return '';
-    var bytes = new TextEncoder().encode(PF.contract.installed(APP_VERSION, new Date().toISOString(), 'app', rec)).length;
-    if (bytes <= AF_MAX) return '';
-    return tg.recordAt + ' would be too big for Flightdeck to read back (' + (Math.ceil(bytes / 1048576 * 100) / 100) + ' MB, over ' + (AF_MAX / 1048576) + ' MB). Nothing was changed. Remove the entries for files Flightdeck no longer ships, then try again.';
+    var size = bytes(C.installed(APP_VERSION, new Date().toISOString(), 'app', rec));
+    return size > AF_MAX ? why(tg.recordAt, size, 'Remove the entries for files Flightdeck no longer ships, then try again.') : '';
   }
   function afGuard(af) { return function () { return afLive(af); }; }
   /* One read at a time for an object, and none during an update or a merge; another target's read is that target's own. */
@@ -27037,7 +27045,7 @@ PF.examples = (function () {
     af.err = null;
     if (!tg.fs) { af.load = null; af.perm = null; render(); return Promise.resolve(); }
     af.loading = true; render();
-    return afPerm(tg.fs).then(function (p) { if (!alive()) return null; af.perm = p; return afRead(tg); }).then(function (l) { if (!alive()) return; af.loading = false; af.load = l; render(); }, function (e) { if (!alive()) return; af.loading = false; af.load = null; af.err = e && e.message || String(e); render(); });
+    return afPerm(tg.fs).then(function (p) { if (!alive()) return null; af.perm = p; return afRead(tg); }).then(function (l) { if (!alive()) return; af.loading = false; af.load = l; render(); }, function (e) { if (!alive()) return; af.loading = false; af.load = null; var why = e && e.message || String(e); if (keepResult) afFailed(af, tg, 'The AI assistant files changed, but couldn\'t be checked again in', why); else af.err = why; render(); });
   }
   /* Update: the command's install, file by file, against what's read right now. Replaced files are copied first (and read
      back); every write is over the exact text read; a file changed meanwhile is skipped and keeps its old recorded default. */
@@ -27055,7 +27063,7 @@ PF.examples = (function () {
       if (!alive()) throw stop();
       l = got;
       if (l.record.newer) { af.load = l; return null; }
-      var full = afRecordRoom(tg, l);
+      var full = afRoom(tg, l);
       if (full) throw new Error(full);
       return l.items.reduce(function (q, it) {
         return q.then(function () {
@@ -27078,23 +27086,47 @@ PF.examples = (function () {
       }).then(function () {
         af.result = { wrote: wrote, staged: stagedN, kept: l.items.filter(function (i) { return i.status === 'kept'; }).length, changed: changed, replaced: dir, ignored: !!l.record.ignored, record: wroteRecord };
       });
-    }).then(function () { if (!alive()) return; af.busy = false; afFilesChanged(tg); return afThenTeam(af, tg) || afLoad(true, af); }, function (e) {
+    }).then(function () { if (!alive()) return; af.busy = false; afFilesChanged(tg); return afEnded(af, tg); }, function (e) {
       if (e && e.stale) return;
-      if (!alive()) return; af.busy = false; afFailed(af, tg, 'The AI assistant files weren\'t all updated in', (e && e.name === 'NotAllowedError' ? 'This browser didn\'t allow writing to the folder. ' : '') + (e && e.message || String(e))); afFilesChanged(tg); if (!afThenTeam(af, tg)) render();
+      if (!alive()) return; af.busy = false; afFailed(af, tg, 'The AI assistant files weren\'t all updated in', (e && e.name === 'NotAllowedError' ? 'This browser didn\'t allow writing to the folder. ' : '') + (e && e.message || String(e))); afFilesChanged(tg); if (!afEnded(af, tg)) render();
     });
   }
-  /* A write that failed: Settings shows it where it happened, and from anywhere else it's said, since nothing there would. */
+  /* The result and the errors are drawn in Settings. That says nothing to someone on another screen, or under a dialog,
+     where the page behind is inert: from there, a write's ending goes through say, so #live announces it. */
+  function afCovered() { return state.view !== 'settings' || !!state.overlay; }
+  function afSay(tg, text, kind) { say(text, kind, tg.standalone ? null : { act: 'ai-files', id: '', label: 'Open AI assistant files' }); }
   function afFailed(af, tg, lead, text) {
     af.err = text;
-    if (state.view !== 'settings' || af.thenTeam) say(lead + ' ' + tg.home + '. ' + text, 'warn', tg.standalone ? null : { act: 'ai-files', id: '', label: 'Open AI assistant files' });
+    if (afCovered() || af.thenTeam) afSay(tg, lead + ' ' + tg.home + '. ' + text, 'warn');
   }
-  /* The team folder was asked for while this was writing elsewhere (Open AI assistant files): it goes there now the write has
-     finished, and what's left behind on this target is said, since that target's screen is gone. */
-  function afThenTeam(af, tg) {
-    if (!af.thenTeam) return null;
-    var r = af.result, left = r && r.changed ? r.changed.length : 0;
-    if (!af.err) say(left ? 'Finished in ' + tg.home + ', but ' + left + (left === 1 ? ' file' : ' files') + ' changed while updating and ' + (left === 1 ? 'was' : 'were') + ' left as ' + (left === 1 ? 'it is' : 'they are') + '. Showing the team folder.' : (r && r.note ? r.note + ' ' : 'Finished in ' + tg.home + '. ') + 'Showing the team folder.', left ? 'warn' : 'good');
-    return afLoad(false, afNew('team', state.fs));
+  /* How a write that finished went, in a sentence. */
+  function afEnding(r, tg) {
+    var left = r && r.changed ? r.changed.length : 0;
+    if (left) return { kind: 'warn', text: 'Finished in ' + tg.home + ', but ' + left + (left === 1 ? ' file' : ' files') + ' changed while updating and ' + (left === 1 ? 'was' : 'were') + ' left as ' + (left === 1 ? 'it is' : 'they are') + '. Open AI assistant files to see which.' };
+    if (r && r.note) return { kind: r.kept ? 'warn' : 'good', text: 'AI assistant files in ' + tg.home + ': ' + r.note };
+    return { kind: 'good', text: 'The AI assistant files are updated in ' + tg.home + '.' };
+  }
+  /* A change of target nobody pressed anything for: what had focus may be gone with it. Then focus goes to the section's
+     heading, never the page; what's still there keeps it, and an open dialog keeps its own. */
+  function afKeepFocus(change) {
+    var ae = document.activeElement, act = ae && ae.dataset && ae.dataset.act;
+    var find = ae && /^af-/.test(ae.id || '') ? function () { return document.getElementById(ae.id); } : act && /^af-/.test(act) ? function () { return document.querySelector('[data-act="' + cssEsc(act) + '"]' + (ae.dataset.id != null ? '[data-id="' + cssEsc(ae.dataset.id) + '"]' : '')); } : null;
+    var out = change();
+    if (!find || state.overlay) return out;
+    var now = find();
+    if (!now || now.hasAttribute('hidden')) { var h = document.getElementById('set-ai'); if (h) h.focus(); }
+    return out;
+  }
+  /* A write has ended. The team folder was asked for while it wrote elsewhere (Open AI assistant files): it goes there now,
+     and how the write went is said, since that target's screen is gone. Otherwise it reloads here. */
+  function afEnded(af, tg) {
+    var end = afEnding(af.result, tg);
+    if (af.thenTeam) {
+      if (!af.err) say(end.text.replace(' Open AI assistant files to see which.', '') + ' Showing the team folder.', end.kind);
+      return afKeepFocus(function () { return afLoad(false, afNew('team', state.fs)); });
+    }
+    if (afCovered() && !af.err) afSay(tg, end.text, end.kind);
+    return af.err ? null : afLoad(true, af);
   }
   /* What Folder health last found about these files is out of date now: its next look scans again. */
   function afFilesChanged(tg) { if (!tg.standalone) state.healthScan = null; }
@@ -27122,9 +27154,9 @@ PF.examples = (function () {
       }, Promise.resolve());
     }).then(function () {
       if (!alive()) return; af.busy = false; afFilesChanged(tg);
-      af.result = kept.length ? { note: 'A copy waiting in ' + (kept.length === 1 ? kept[0] : kept.length + ' versions') + ' changed since this screen read it, so it was left where it is. Look at it again.' } : { note: 'Put away. The copy is beside the replaced files, in case you need it.' };
-      return afThenTeam(af, tg) || afLoad(true, af);
-    }, function (e) { if (!alive()) return; af.busy = false; afFailed(af, tg, 'An AI assistant file wasn\'t put away in', e && e.message || String(e)); if (!afThenTeam(af, tg)) render(); });
+      af.result = kept.length ? { kept: true, note: 'A copy waiting in ' + (kept.length === 1 ? kept[0] : kept.length + ' versions') + ' changed since this screen read it, so it was left where it is. Look at it again.' } : { note: 'Put away. The copy is beside the replaced files, in case you need it.' };
+      return afEnded(af, tg);
+    }, function (e) { if (!alive()) return; af.busy = false; afFailed(af, tg, 'An AI assistant file wasn\'t put away in', e && e.message || String(e)); if (!afEnded(af, tg)) render(); });
   }
   /* The request for an AI assistant: one prompt for each version folder holding a copy of this file. */
   function afBrief(key) {
@@ -27157,7 +27189,7 @@ PF.examples = (function () {
       if (remember) handles.write('skills', d).catch(function () { /* this browser can't remember it: it asks again next time */ });
       var fs = new PF.fs.FolderFS(d);
       afChosen = { gen: gen, fs: fs };
-      return afLoad(false, afNew('other', fs));
+      return afKeepFocus(function () { return afLoad(false, afNew('other', fs)); });
     });
   }
   function afPick() {
@@ -27180,8 +27212,7 @@ PF.examples = (function () {
         if (p === 'granted') return afUse(af, d, turn);
         return afIsTeam(d).then(function (same) {
           if (!turn()) return;
-          if (same) af.err = AF_IS_TEAM; else afNew('other', null, d);
-          render();
+          afKeepFocus(function () { if (same) af.err = AF_IS_TEAM; else afNew('other', null, d); render(); });
         });
       });
     }).catch(function () { /* nothing remembered */ });
