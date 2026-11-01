@@ -485,6 +485,7 @@
     h += '</section>';
     h += '<section class="panel stack" aria-labelledby="set-health"><h2 id="set-health">' + I('pulse') + 'Folder health</h2><p class="small">Conflict copies, files that can\'t be read, versions still arriving, and more, each with what to do. Then check that files travel between two computers.</p>' +
       '<div class="row"><button class="btn" data-act="health">Check folder health</button><button class="btn" data-act="connection">' + I('swap') + 'Connection check</button><button class="mini" data-act="recovery" data-id="">When something goes wrong</button></div></section>';
+    h += assistantFiles(ctx);
     h += '<section class="panel stack" aria-labelledby="set-lib"><h2 id="set-lib">Library</h2><p class="small">Skills built from your checklists, and the kinds of steps a checklist can use.</p><div class="row"><button class="btn" data-act="nav" data-id="skills">' + I('spark') + 'Skills</button><button class="btn" data-act="nav" data-id="types">Step types</button></div></section>';
     h += V.peoplePanel(ctx);
     h += V.teamValuesPanel(ctx);
@@ -497,6 +498,46 @@
       '<section aria-labelledby="set-keys"><h2 id="set-keys">Keyboard</h2><div class="row"><button class="btn" data-act="toggle-keys" aria-pressed="' + (st.keys !== false) + '">' + (st.keys !== false ? 'Single-key shortcuts are on' : 'Single-key shortcuts are off') + '</button><span class="small">Press ? anywhere to see them.</span></div></section></details>';
     h += '<section class="panel" aria-labelledby="set-about"><h2 id="set-about">About</h2><p>Flightdeck <b>' + esc(rel.version) + '</b>' + (rel.newer ? ' · <b>' + esc(rel.newer) + '</b> is in the team folder' : '') + '</p><div class="row">' + (rel.version === 'dev' ? '' : '<button class="btn" data-act="whats-new">What\'s new</button>') + '</div>' +
       '<p class="small">Install or update from a terminal: <code>npm install -g @troylar/flightdeck</code>, then <code>flightdeck install &lt;team folder&gt;</code>.</p></section>';
+    return h;
+  }
+
+  /* ---------- Settings, AI assistant files: AGENTS.md and the skills, installed and updated from the app ---------- */
+  var AF_WORD = { current: 'Up to date', update: 'Update ready', new: 'Not there yet', missing: 'Deleted, can be added again', kept: 'You changed it', merge: 'Waiting to merge' };
+  /* The versions a file waits in, in words: however many folders there are, the row stays one short line. */
+  function afWaiting(w) {
+    var list = w ? w.split(', ') : [];
+    return !list.length ? '' : ' (in ' + (list.length <= 3 ? list.join(', ') : list.slice(0, 3).join(', ') + ' and ' + (list.length - 3) + ' more') + ')';
+  }
+  function assistantFiles(ctx) {
+    if (!ctx.assistantFiles) return '';
+    var m = ctx.assistantFiles(), tg = m.target, af = m.af, l = af.load, ro = m.readOnly, other = af.where === 'other', byKey = Object.create(null);
+    (l ? l.items : []).forEach(function (i) { byKey[i.key] = i; });
+    var n = function (st) { return l ? l.items.filter(function (i) { return st.indexOf(i.status) >= 0; }).length : 0; };
+    var todo = n(['update', 'new', 'missing']), merge = n(['merge']), stage = l ? l.items.filter(function (i) { return i.status === 'merge' && (!i.waiting || i.stage); }).length : 0;
+    var off = af.busy ? ' aria-disabled="true"' : '', wait = af.busy || af.loading ? ' aria-disabled="true"' : '';
+    var h = '<section class="panel stack" aria-labelledby="set-ai"><h2 id="set-ai" tabindex="-1">' + I('spark') + 'AI assistant files</h2>' +
+      '<p class="small">The instructions and skills your AI assistant reads, as Flightdeck ' + esc(m.version) + ' ships them. Files your team changed are never replaced, and a copy of each replaced file is kept first. The command <code>flightdeck install</code> follows the same rules and the same record.</p>' +
+      '<p class="small">This never changes the app file itself: to update <code>flightdeck.html</code>, copy in the new one. <a href="https://github.com/troylar/flightdeck/blob/main/docs/updating.md" target="_blank" rel="noopener noreferrer">How updating works</a></p>' +
+      '<div class="seg" role="group" aria-label="Where the files go">' + [['team', 'In the team folder'], ['other', 'In another folder']].map(function (w) { return '<button type="button" data-act="af-where" data-id="' + w[0] + '" aria-pressed="' + ((other ? 'other' : 'team') === w[0]) + '"' + off + '>' + w[1] + '</button>'; }).join('') + '</div>';
+    if (other) {
+      h += '<p class="small">For an AI assistant that reads skills from its own folder: the skills only, with their own record (<code>.flightdeck-installed.json</code>) and updates folder (<code>.flightdeck-updates</code>), so updates stay safe there too.</p>';
+      if (ctx.canFolder) h += '<div class="row">' + (af.otherAsk ? '<button type="button" class="btn go" data-act="af-allow"' + off + '>Allow ' + esc(af.otherAsk.name) + ' again</button>' : '') + '<button type="button" class="btn" data-act="af-pick"' + off + '>' + (tg.fs || af.otherAsk ? 'Choose another folder' : 'Choose a folder') + '</button>' + (tg.fs ? '<span class="small">Using <b>' + esc(tg.fs.name) + '</b></span>' : '') + '</div>';
+    }
+    var status = af.loading ? 'Checking the files…' : af.busy ? 'Working…' + (af.thenTeam ? ' Then this shows the team folder.' : '') : !l || !l.items.some(function (i) { return i.status; }) ? '' : todo ? todo + ' to update' + (merge ? ', ' + merge + ' to merge' : '') : merge ? merge + ' to merge' : 'All up to date';
+    h += '<p class="af-status" role="status">' + esc(status) + '</p>';
+    if (ro) h += '<p class="small af-ro">' + esc(ro) + '</p>';
+    if (af.err) h += '<p class="small af-err" role="alert">' + esc(af.err) + '</p>';
+    if (l && l.record.ignored && !m.words) h += '<p class="small af-ro">' + esc(tg.recordAt) + ' isn\'t a record Flightdeck wrote, so it isn\'t trusted. Updating writes a new one.</p>';
+    if (!l && !af.loading && tg.fs && !ro) h += '<div class="row"><button type="button" class="btn" data-act="af-load"' + off + '>Check the files</button></div>';
+    if (l && !ro && (todo || stage || l.recordDue)) h += '<div class="row"><button type="button" class="btn go" data-act="af-update"' + wait + '>' + (todo ? 'Update ' + todo + ' file' + (todo === 1 ? '' : 's') : stage ? 'Get ' + stage + ' new default' + (stage === 1 ? '' : 's') + ' ready to merge' : 'Save the record of these files') + '</button></div>';
+    if (m.words) h += m.words.kind === 'warn' ? '<p class="small af-err" role="alert">' + esc(m.words.text) + '</p>' : '<p class="small" role="status">' + esc(m.words.text) + '</p>';
+    h += '<ul class="af-list">' + tg.files.map(function (f) {
+      var it = byKey[f.key], st = it ? it.status : '', word = st ? AF_WORD[st] + (st === 'merge' ? afWaiting(it.waiting) : '') : '', peek = af.peek === f.key, dk = K.domKey(f.key);
+      return '<li class="af-row" id="af-row-' + dk + '"' + (st ? ' data-af-row="' + esc(f.rel) + '" data-af-status="' + esc(st) + '"' : '') + '><div class="row between"><span><code>' + esc(f.rel) + '</code>' + (word ? ' <span class="cat">' + esc(word) + '</span>' : '') + '</span>' +
+        '<span class="row"><button type="button" class="mini" data-act="af-peek" data-id="' + esc(f.key) + '" aria-expanded="' + peek + '" aria-controls="af-pre-' + dk + '">' + (peek ? 'Hide' : 'Show') + '</button><button type="button" class="mini" data-act="af-copy" data-id="' + esc(f.key) + '">Copy</button>' +
+        (st === 'merge' && it.staged.length ? '<button type="button" class="mini" data-act="af-brief" data-id="' + esc(f.key) + '"' + wait + '>Copy merge request</button>' + (ro ? '' : '<button type="button" class="mini" data-act="af-merged" data-id="' + esc(f.key) + '"' + wait + '>I merged it</button>') : '') + '</span></div>' +
+        '<pre id="af-pre-' + dk + '" class="source" tabindex="0"' + (peek ? '' : ' hidden') + '>' + (peek ? esc(f.text) : '') + '</pre></li>';
+    }).join('') + '</ul><pre id="af-brief-pre" class="source" tabindex="0"' + (af.briefShown ? '' : ' hidden') + '>' + esc(af.briefShown || '') + '</pre><p class="small"><span id="copy-msg" role="status"></span></p></section>';
     return h;
   }
 

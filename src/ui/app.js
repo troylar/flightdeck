@@ -121,6 +121,7 @@
   /* ---------- context handed to views ---------- */
   var ctx = {
     state: state, canFolder: canFolder,
+    assistantFiles: function () { var af = afState(), tg = afTarget(af); return { target: tg, readOnly: afReadOnly(tg, af), af: af, version: APP_VERSION, words: af.outcome ? afWords(af.outcome, tg) : null }; },
     get data() { return data; },
     now: function () { return Date.now(); },
     /* Built once per draw (2.5.0), not once per name shown; the last row for an ID wins, as it always has here. */
@@ -947,14 +948,36 @@
     healthMemo = { key: key, rep: rep };
     return rep;
   }
-  /* The fingerprints of AGENTS.md's Flightdeck part and the skills, as flightdeck install takes them. */
+  /* The fingerprints of AGENTS.md's Flightdeck part and the skills, as flightdeck install takes them: the folder's files
+     (hashes), this version's defaults (want) and the copies waiting to be merged (staged), for PF.contract.classify. */
   function contractHashes(scan) {
-    var sub = typeof crypto !== 'undefined' && crypto.subtle, C = PF.contract, paths = Object.keys(scan.contractTexts || {});
-    if (!sub || typeof TextEncoder === 'undefined') return Promise.resolve(null);
-    return Promise.all(paths.map(function (p) { return sub.digest('SHA-256', new TextEncoder().encode(C.managed(p, scan.contractTexts[p]))); })).then(function (ds) {
-      var hashes = {}; ds.forEach(function (d, i) { hashes[paths[i]] = C.hex(d); }); return { hashes: hashes };
+    var C = PF.contract, texts = scan.contractTexts || {}, prints = scan.stagedPrints || {}, keys = contractKeys();
+    var jobs = Object.keys(texts).map(function (p) { return ['hashes', p, texts[p]]; }).concat(keys.map(function (k) { return ['want', k, EXAMPLES[k]]; }));
+    return digests(jobs.map(function (j) { return C.managed(j[1], j[2]); })).then(function (ds) {
+      if (!ds) return null;
+      var out = { hashes: {}, want: {}, staged: {}, unmatched: [] };
+      jobs.forEach(function (j, i) { out[j[0]][j[1]] = ds[i]; });
+      /* A copy listed but not read, over the limit or failing: it's still there, so its file still waits. Its text is
+         unknown, never taken to be gone. */
+      (scan.updates || []).forEach(function (p) {
+        var sg = repo.stagedOf(p);
+        /* Not a copy of a file this version ships, like a sync tool's AGENTS-PC.md: nothing can clear it, so it stays named. */
+        if (!sg || keys.indexOf(sg.key) < 0) { out.unmatched.push(p); return; }
+        (out.staged[sg.key] = out.staged[sg.key] || []).push({ version: sg.version, hash: Object.prototype.hasOwnProperty.call(prints, p) ? prints[p] : null });
+      });
+      /* A file that's there but couldn't be read isn't a missing file. */
+      out.unread = (scan.unreadable || []).map(function (u) { return u.path; }).filter(function (p, i, all) {
+        if (all.indexOf(p) !== i) return false;
+        return p === '.flightdeck/installed.json' ? scan.recordText == null : keys.indexOf(p) >= 0 && !Object.prototype.hasOwnProperty.call(texts, p);
+      });
+      Object.keys(out.staged).forEach(function (k) { out.staged[k].sort(function (a, b) { return C.byVersion(a.version, b.version); }); });
+      return out;
     }, function () { return null; });
   }
+  /* SHA-256 of each text, as hex; null when this browser can't. */
+  function digests(texts) { return repo.digests(texts); }
+  /* AGENTS.md and the skills this version ships, by their paths in a team folder. */
+  function contractKeys() { var C = PF.contract; return Object.keys(EXAMPLES).filter(function (k) { return (k === C.AGENTS || /^\.flightdeck\/skills\//.test(k)) && EXAMPLES[k] != null; }).sort(function (a, b) { return a === C.AGENTS ? -1 : b === C.AGENTS ? 1 : a < b ? -1 : a > b ? 1 : 0; }); }
   /* Reads the folder again, then every file in it, 8 at a time. Bound to the folder it started in. */
   function runHealth() {
     if (!state.fs || state.healthBusy) return;
@@ -1182,6 +1205,337 @@
       }, function () { return null; });
     };
     return contract.reduce(function (p, k) { return p.then(function () { return fs.write(k, EXAMPLES[k]); }); }, Promise.resolve()).then(installed);
+  }
+
+  /* ---------- Settings, AI assistant files: flightdeck install's contract rules, from the app ---------- */
+  /* Where the files go: the team folder (AGENTS.md and the skills), or another folder an assistant reads skills from (the
+     skills only, with the command's standalone names: skills --to). Every path is built here from this version's own file
+     list and valid version names; nothing comes from a file or the record. */
+  var AF_MAX = PF.contract.MAX_BYTES, afChosen = null;
+  /* One state object for one target in one opened folder. Changing the target or the folder makes a new one, so nothing
+     carries over: rows, results, errors, what's open. Nothing but afNew assigns state.af, and an object's target never
+     changes. Whatever starts waiting holds the object it began with and, when it lands, does nothing if that's no longer
+     the screen's (afLive). test/assistant-files.test.js checks this for every async path. */
+  function afNew(where, fs, ask) { return (state.af = { gen: gen, where: where, fs: fs || null, otherAsk: ask || null }); }
+  function afState() { return state.af && state.af.gen === gen ? state.af : afNew('team', state.fs); }
+  function afLive(af) { return state.af === af && af.gen === gen; }
+  /* Update, I merged it and the merge request act on what this target's read found, so only once it has finished. */
+  function afReady(af) { return !!af.load && !af.loading && !af.busy; }
+  function afTarget(af) {
+    var keys = contractKeys();
+    if (af.where === 'other') {
+      var sk = '.flightdeck/skills/';
+      return { fs: af.fs, standalone: true, updates: ['.flightdeck-updates'], recordAt: '.flightdeck-installed.json', home: 'the skills folder',
+        files: keys.filter(function (k) { return k.indexOf(sk) === 0; }).map(function (k) { return { key: k.slice(sk.length), rel: k.slice(sk.length), baseKey: k, text: EXAMPLES[k] }; }) };
+    }
+    return { fs: af.fs, updates: ['.flightdeck', 'updates'], recordAt: '.flightdeck/installed.json', home: 'the team folder',
+      files: keys.map(function (k) { return { key: k, rel: k, text: EXAMPLES[k] }; }) };
+  }
+  /* Why the screen can only show and copy, or '' when it can update. */
+  function afReadOnly(tg, af) {
+    var cmd = tg.standalone ? 'flightdeck skills --to <folder>' : 'flightdeck install', rec = af.load && af.load.record;
+    if (!canFolder) return 'This browser can\'t write to folders. Show and Copy still work; or run ' + cmd + ' in a terminal.';
+    if (!tg.fs) return tg.standalone ? (af.otherAsk ? 'Flightdeck needs your OK to use ' + af.otherAsk.name + ' again. Show and Copy still work.' : 'Choose the folder your AI assistant reads skills from.') : 'Open the team folder first.';
+    if (tg.fs.kind !== 'folder') return 'You\'re using the examples, which live in this browser only. Open a team folder to install these files.';
+    if (af.perm && af.perm !== 'granted') return 'This browser isn\'t allowing changes to ' + tg.fs.name + '. Show and Copy still work; or run ' + cmd + ' in a terminal.';
+    if (rec && rec.newer) return tg.recordAt + ' ' + rec.newer + ' This copy shows the files and leaves them alone. Use the newer Flightdeck, or run its ' + cmd + '.';
+    return '';
+  }
+  function afPerm(fs) {
+    var d = fs && fs.dir;
+    return d && d.queryPermission ? Promise.resolve(d.queryPermission({ mode: 'readwrite' })).catch(function () { return 'denied'; }) : Promise.resolve('granted');
+  }
+  /* Everything an update compares, read now: each file, every copy waiting under a valid version, and the record. Reads go
+     through the folder's shared pool, so it's at most 8 at once however many versions wait. A version's folders are listed
+     first, so only files that exist are read, and a copy is kept as its fingerprints: afMerged reads it again when it's needed.
+     These reads take the pool's lower lane, at most 4 of its 8, so a Refresh never waits behind them. */
+  function afRead(tg) {
+    var C = PF.contract, fs = repo.lane(tg.fs, 'files'), ud = tg.updates.join('/');
+    var read = function (p) { return fs.read(p, { maxBytes: AF_MAX }).then(function (r) { return r ? r.text : null; }); };
+    var noPrints = function () { return new Error('This browser can\'t compute file fingerprints, so it can\'t tell a default from your team\'s change. Use the flightdeck command instead.'); };
+    var tree = Object.create(null), byRel = Object.create(null);
+    var items = tg.files.map(function (f) { return { key: f.key, rel: f.rel, baseKey: f.baseKey, text: f.text, staged: [] }; });
+    items.forEach(function (it) {
+      byRel[it.rel] = it;
+      var parts = it.rel.split('/'), at = tree;
+      parts.forEach(function (x, i) { if (i === parts.length - 1) at[x] = true; else at = at[x] = at[x] || Object.create(null); });
+    });
+    /* One folder of a version: its copies of this version's files, and its folders that can hold more. */
+    function walk(v, dir, node, rel) {
+      return fs.list(dir).then(function (list) {
+        return Promise.all(list.map(function (i) {
+          var want = node[i.name], here = rel + i.name, p = dir + '/' + i.name;
+          if (!want) return null;
+          if (want !== true) return i.kind === 'dir' ? walk(v, p, want, here + '/') : null;
+          if (i.kind !== 'file') return null;
+          var it = byRel[here];
+          return read(p).then(function (t) {
+            if (t == null) return null;
+            return digests([C.managed(it.key, t), t]).then(function (ds) { if (!ds) throw noPrints(); it.staged.push({ version: v, path: p, hash: ds[0], full: ds[1] }); });
+          });
+        }));
+      });
+    }
+    return Promise.all([fs.list(ud), read(tg.recordAt)]).then(function (got) {
+      var vers = got[0].filter(function (i) { return i.kind === 'dir' && C.VERSION_DIR.test(i.name); }).map(function (i) { return i.name; });
+      var recText = got[1];
+      return Promise.all(items.map(function (it) { return read(it.rel).then(function (t) { it.now = t; }); }).concat(vers.map(function (v) { return walk(v, ud + '/' + v, tree, ''); }))).then(function () {
+        items.forEach(function (it) { it.staged.sort(function (x, y) { return C.byVersion(x.version, y.version); }); });
+        var texts = [];
+        items.forEach(function (it) { texts.push(C.managed(it.key, it.text), it.now == null ? '' : C.managed(it.key, it.now)); });
+        return digests(texts).then(function (ds) {
+          if (!ds) throw noPrints();
+          var n = 0;
+          items.forEach(function (it) { it.want = ds[n++]; var h = ds[n++]; it.have = it.now == null ? null : h; });
+          var rec = C.readRecord(recText, items.map(function (i) { return i.key; }));
+          if (rec.newer) return { items: items, record: rec, recText: recText };
+          C.classify(items, rec, (C.BASELINES && C.BASELINES.files) || {}, APP_VERSION).forEach(function (d, i) { items[i].status = d.status; items[i].waiting = d.waiting || ''; items[i].stage = !!d.stage; });
+          return { items: items, record: rec, recText: recText, recordDue: !!C.nextRecord(rec, items, APP_VERSION) };
+        });
+      });
+    });
+  }
+  /* What an update would write has to be something Flightdeck can read back: over the limit, nothing is touched. A file
+     skipped during the update keeps an old hash of the same length, so the record comes to this at most. The same check and
+     words as the command's (bin/flightdeck.js, roomFor). */
+  function afRoom(tg, l) {
+    var C = PF.contract, bytes = function (t) { return new TextEncoder().encode(t).length; };
+    var why = function (name, n, then) { return name + ' would be too big for Flightdeck to read back (' + (Math.ceil(n / 1048576 * 100) / 100) + ' MB, over ' + (AF_MAX / 1048576) + ' MB). Nothing was changed. ' + then; };
+    for (var i = 0; i < l.items.length; i++) {
+      var it = l.items[i];
+      if (['update', 'new', 'missing'].indexOf(it.status) < 0) continue;
+      var n = bytes(C.merged(it.key, it.now, it.text));
+      if (n > AF_MAX) return why(it.rel, n, 'Shorten what your team added to it, then try again.');
+    }
+    var rec = C.nextRecord(l.record, l.items, APP_VERSION);
+    if (!rec) return '';
+    var size = bytes(C.installed(APP_VERSION, new Date().toISOString(), 'app', rec));
+    return size > AF_MAX ? why(tg.recordAt, size, 'Remove the entries for files Flightdeck no longer ships, then try again.') : '';
+  }
+  /* Everywhere an update would write, as the writes below choose them. */
+  function afDests(tg, l, ver) {
+    var C = PF.contract, ud = tg.updates.join('/') + '/' + ver, out = [];
+    l.items.forEach(function (it) {
+      if (['update', 'new', 'missing'].indexOf(it.status) >= 0) {
+        out.push(it.rel);
+        if (it.now != null && it.now !== C.merged(it.key, it.now, it.text)) out.push(ud + '/replaced/x');
+      } else if (it.status === 'merge' && (!it.waiting || it.stage)) { out.push(ud + '/' + it.rel); out.push(ud + '/README.md'); out.push(ud + '/replaced/x'); }
+    });
+    if (C.nextRecord(l.record, l.items, ver)) out.push(tg.recordAt);
+    return out;
+  }
+  function afGuard(af) { return function () { return afLive(af); }; }
+  /* One read at a time for an object, and none during an update or a merge; another target's read is that target's own. */
+  function afLoad(keepResult, on) {
+    var af = on || afState(), tg = afTarget(af);
+    if (af.busy || af.loading) return Promise.resolve();
+    var alive = afGuard(af);
+    af.looked = true;
+    if (!keepResult) af.outcome = null;
+    af.err = null;
+    if (!tg.fs) { af.load = null; af.perm = null; render(); return Promise.resolve(); }
+    af.loading = true; render();
+    return afPerm(tg.fs).then(function (p) { if (!alive()) return null; af.perm = p; return afRead(tg); }).then(function (l) { if (!alive()) return; af.loading = false; af.load = l; render(); }, function (e) { if (!alive()) return; af.loading = false; af.load = null; var why = e && e.message || String(e); if (keepResult && af.outcome) { af.outcome.recheck = why; if (afCovered()) afTell(af.outcome, tg); } else af.err = why; render(); });
+  }
+  /* Update: the command's install, file by file, against what's read right now. Replaced files are copied first (and read
+     back); every write is over the exact text read; a file changed meanwhile is skipped and keeps its old recorded default. */
+  function afUpdate() {
+    var af = afState(); if (!afReady(af)) return;
+    var tg = afTarget(af), C = PF.contract, ver = APP_VERSION;
+    if (!tg.fs || afReadOnly(tg, af)) return;
+    var alive = afGuard(af), fs = tg.fs, stop = function () { var e = new Error('stale'); e.stale = true; return e; };
+    var ud = tg.updates.join('/') + '/' + ver;
+    var f = { op: 'update', wrote: 0, staged: 0, kept: 0, record: false, replaced: null, copiesAt: null, ignored: false, skipped: [], moved: [], unverified: [], unsure: [] };
+    af.busy = true; af.outcome = null; af.err = null; render();
+    var keep = function (rel, text) { return (f.copiesAt ? Promise.resolve(f.copiesAt) : repo.archiveDir(fs, ud + '/replaced').then(function (d) { f.copiesAt = d; return d; })).then(function (d) { return repo.archiveCopy(fs, d, rel, text); }).then(function () { f.replaced = f.copiesAt; }); };
+    /* Refused before writing, or written and then changed before the read-back: saveChecked says which, and they're different things to say. */
+    var conflict = function (r, name) { (r.afterWrite ? f.moved : f.skipped).push(name); };
+    /* contractWrite's ending, into the facts. A write it can't vouch for stops the update, with that file named. */
+    var save = function (path, expect, text, name) { return repo.contractWrite(fs, path, expect, text).then(function (r) { if (r.unverified || r.unsure) { (r.unsure ? f.unsure : f.unverified).push(path); throw new Error(r.why); } if (r.conflict) conflict(r, name); return !r.conflict; }); };
+    var write = function (it, path, expect, text) { return save(path, expect, text, it.rel).then(function (ok) { if (!ok) it.changed = true; return ok; }); };
+    var readmeAt = ud + '/README.md', readme = null;
+    var l;
+    afRead(tg).then(function (got) {
+      if (!alive()) throw stop();
+      l = got;
+      if (l.record.newer) { af.load = l; f.newer = l.record.newer; return null; }
+      f.tooBig = afRoom(tg, l);
+      if (f.tooBig) return null;
+      return repo.contractBlocked(repo.lane(fs, 'files'), afDests(tg, l, ver)).then(function (blocked) {
+        if (!alive()) throw stop();
+        if (blocked) { f.blocked = blocked; return null; }
+        /* The merge list as it was before anything is written: the only text it may replace. */
+        var staging = l.items.some(function (i) { return i.status === 'merge' && (!i.waiting || i.stage); });
+        return (staging ? fs.read(readmeAt, { maxBytes: AF_MAX }).then(function (r) { readme = r ? r.text : null; }) : Promise.resolve()).then(function () { return l.items.reduce(function (q, it) {
+          return q.then(function () {
+            if (!alive()) throw stop();
+            if (['update', 'new', 'missing'].indexOf(it.status) >= 0) {
+              var out = C.merged(it.key, it.now, it.text);
+              return (it.now != null && it.now !== out ? keep(it.rel, it.now) : Promise.resolve()).then(function () { if (!alive()) throw stop(); return write(it, it.rel, it.now, out); }).then(function (ok) { if (ok) f.wrote++; });
+            }
+            if (it.status === 'merge' && (!it.waiting || it.stage)) return write(it, ud + '/' + it.rel, null, it.text).then(function (ok) { if (ok) f.staged++; });
+          });
+        }, Promise.resolve()); }).then(function () {
+          var merges = l.items.filter(function (i) { return i.status === 'merge' && !i.changed; });
+          if (!merges.some(function (i) { return !i.waiting || i.stage; })) return;
+          var list = merges.filter(function (i) { return !i.waiting || i.stage || i.staged.some(function (x) { return x.version === ver; }); });
+          var next = C.mergeReadme(ver, list, tg.updates, tg.home);
+          return (readme != null && readme !== next ? keep('merge-README.md', readme) : Promise.resolve()).then(function () { if (!alive()) throw stop(); return save(readmeAt, readme, next, readmeAt); });
+        }).then(function () {
+          var rec = C.nextRecord(l.record, l.items, ver);
+          if (!rec || !alive()) return;
+          return save(tg.recordAt, l.recText, C.installed(ver, new Date().toISOString(), 'app', rec), tg.recordAt).then(function (ok) { f.record = ok; });
+        }).then(function () {
+          f.kept = l.items.filter(function (i) { return i.status === 'kept'; }).length; f.ignored = !!l.record.ignored;
+        });
+      });
+    }).then(function () { if (alive()) return afFinish(af, tg, f); }, function (e) {
+      if (e && e.stale || !alive()) return;
+      f.error = { why: e && e.message || String(e), denied: !!(e && e.name === 'NotAllowedError') };
+      return afFinish(af, tg, f);
+    });
+  }
+  /* The result is drawn in Settings. That says nothing to someone on another screen, or under a dialog, where the page behind
+     is inert: from there, how a write ended is announced as well, in the same words. */
+  function afCovered() { return state.view !== 'settings' || !!state.overlay; }
+  function afWords(o, tg, then) { return PF.contract.outcomeWords(o, { home: tg.home, updates: tg.updates, recordAt: tg.recordAt, version: APP_VERSION }, then ? { then: then } : null); }
+  function afTell(o, tg, then) { var w = afWords(o, tg, then); say(w.said, w.kind, then || tg.standalone ? null : { act: 'ai-files', id: '', label: 'Open AI assistant files' }); }
+  /* Focus has one rule here: what it should go back to, unless that's gone or hidden, and then the section's heading. */
+  function afRefocus(find) {
+    var el = find();
+    return el && !el.hasAttribute('hidden') ? el : document.getElementById('set-ai');
+  }
+  /* A change of target nobody pressed anything for: what had focus may be gone with it. An open dialog keeps its own focus,
+     and closing it applies the same rule to its opener (closeOverlay). */
+  function afKeepFocus(change) {
+    var ae = document.activeElement, act = ae && ae.dataset && ae.dataset.act;
+    var find = ae && /^af-/.test(ae.id || '') ? function () { return document.getElementById(ae.id); } : act && /^af-/.test(act) ? function () { return document.querySelector('[data-act="' + cssEsc(act) + '"]' + (ae.dataset.id != null ? '[data-id="' + cssEsc(ae.dataset.id) + '"]' : '')); } : null;
+    var place = function () {
+      if (!find || state.overlay) return;
+      var to = afRefocus(find);
+      if (to && to.id === 'set-ai') to.focus();
+    };
+    var out = change();
+    place();
+    if (!out || !out.then) return out;
+    /* After a wait, someone may have moved on: focus only moves if it's still lost. */
+    return out.then(function (v) {
+      var now = document.activeElement;
+      if (!now || now === document.body || now === ae || now.hasAttribute('hidden')) place();
+      return v;
+    });
+  }
+  /* The one way a write ends: its facts become its outcome, and the screen and any announcement take their words from that.
+     If the team folder was asked for while this wrote elsewhere (Open AI assistant files), it goes there now. */
+  function afFinish(af, tg, facts) {
+    var o = af.outcome = PF.contract.settle(facts);
+    af.busy = false; afFilesChanged(tg);
+    if (af.thenTeam) { afTell(o, tg, 'team'); return afKeepFocus(function () { return afLoad(false, afNew('team', state.fs)); }); }
+    if (afCovered()) afTell(o, tg);
+    /* Any write can end because access was lost, so every ending asks the browser again: reloading does, and so does this. */
+    if (PF.contract.OUTCOMES[o.state].reload) return afKeepFocus(function () { return afLoad(true, af); });
+    var alive = afGuard(af);
+    return afKeepFocus(function () { render(); return afPerm(tg.fs).then(function (p) { if (alive()) { af.perm = p; render(); } }); });
+  }
+  /* What Folder health last found about these files is out of date now: its next look scans again. */
+  function afFilesChanged(tg) { if (!tg.standalone) state.healthScan = null; }
+  /* I merged it: each copy of this file waiting in the updates folder is put away beside the replaced files (copied, read
+     back), and removed only if it's still exactly what this screen read. */
+  function afMerged(key) {
+    var af = afState(), it = af.load && af.load.items.filter(function (i) { return i.key === key; })[0];
+    if (!it || !afReady(af) || !it.staged.length) return;
+    var tg = afTarget(af); if (afReadOnly(tg, af)) return;
+    var alive = afGuard(af), fs = tg.fs, f = { op: 'merge', putAway: 0, left: [], unsure: [] };
+    af.busy = true; af.outcome = null; af.err = null; render();
+    repo.archiveDir(fs, tg.updates.join('/') + '/' + APP_VERSION + '/replaced').then(function (d) {
+      return it.staged.reduce(function (q, x) {
+        return q.then(function () {
+          if (!alive()) return;
+          return fs.read(x.path, { maxBytes: AF_MAX }).then(function (r) {
+            if (!alive()) return null;
+            if (!r) { f.left.push(x.version); return null; }
+            return digests([r.text]).then(function (ds) {
+              if (!ds || ds[0] !== x.full) { f.left.push(x.version); return; }
+              return repo.archiveStaged(fs, d, x.path, 'staged/' + x.version + '/' + it.rel, r.text, alive).then(function (done) { if (done.unsure) { f.unsure.push(x.version); throw new Error(done.why); } if (done.changed) f.left.push(x.version); else f.putAway++; });
+            });
+          });
+        });
+      }, Promise.resolve());
+    }).then(function () { if (alive()) return afFinish(af, tg, f); }, function (e) {
+      if (!alive()) return;
+      f.error = { why: e && e.message || String(e) };
+      return afFinish(af, tg, f);
+    });
+  }
+  /* The request for an AI assistant: one prompt for each version folder holding a copy of this file. */
+  function afBrief(key) {
+    var af = afState(), tg = afTarget(af), C = PF.contract, it = afReady(af) && af.load.items.filter(function (i) { return i.key === key; })[0];
+    if (!it) return '';
+    return it.staged.map(function (x) { return x.version; }).sort(C.byVersion).map(function (v) { return C.mergePrompt(v, tg.updates.concat(v).join('/')).replace(/^> /, ''); }).join('\n\n');
+  }
+  function afFile(key) { return afTarget(afState()).files.filter(function (f) { return f.key === key; })[0]; }
+  /* A copy belongs to the target it began in. If the clipboard says no, the text is drawn in that target's own box and that
+     box, just looked up so it's the one on the page, is selected. After a change of target, it does nothing at all. */
+  function afCopy(af, text, boxId, done, show) {
+    copyText(text, document.getElementById(boxId), done, function () { show(); render(); return document.getElementById(boxId); }, function () { return afLive(af); });
+  }
+  /* Another folder for skills: chosen here, remembered where the browser allows, like the team folder. A folder chosen
+     makes a new object, so the last folder's rows are gone at once, before this one's read has finished. */
+  var AF_IS_TEAM = 'That\'s the team folder. Use In the team folder for it.';
+  /* If the browser can't say, it counts as the team folder: standalone files must never land there. */
+  function afIsTeam(d) {
+    var team = state.fs && state.fs.dir;
+    return Promise.resolve(team && team.isSameEntry ? team.isSameEntry(d) : false).catch(function () { return true; });
+  }
+  /* Choosing a folder waits on the picker, the browser's permission and the check above, in any order. Each start, picker,
+     restore or allow, takes a turn and ends every earlier one, so only the latest choice can reach afUse. */
+  function afTurn(af) { var t = af.turn = (af.turn || 0) + 1; return function () { return afLive(af) && af.turn === t && !af.busy; }; }
+  /* Every way in, chosen, restored or allowed again, passes here. */
+  function afUse(af, d, turn, remember) {
+    return afIsTeam(d).then(function (same) {
+      if (!turn()) return;
+      if (same) { af.err = AF_IS_TEAM; render(); return; }
+      if (remember) handles.write('skills', d).catch(function () { /* this browser can't remember it: it asks again next time */ });
+      var fs = new PF.fs.FolderFS(d);
+      afChosen = { gen: gen, fs: fs };
+      return afKeepFocus(function () { return afLoad(false, afNew('other', fs)); });
+    });
+  }
+  function afPick() {
+    var af = afState();
+    if (!canFolder || af.busy) return;
+    var turn = afTurn(af);
+    window.showDirectoryPicker({ id: 'flightdeck-skills', mode: 'readwrite' }).then(function (d) {
+      if (!turn()) return;
+      return afUse(af, d, turn, true);
+    }, function () { /* picker closed */ });
+  }
+  function afRemembered(af) {
+    render();
+    if (!canFolder) return;
+    var turn = afTurn(af);
+    return handles.read('skills').then(function (d) {
+      if (!d || !turn()) return;
+      return afPerm({ dir: d }).then(function (p) {
+        if (!turn()) return;
+        if (p === 'granted') return afUse(af, d, turn);
+        return afIsTeam(d).then(function (same) {
+          if (!turn()) return;
+          afKeepFocus(function () { if (same) af.err = AF_IS_TEAM; else afNew('other', null, d); render(); });
+        });
+      });
+    }).catch(function () { /* nothing remembered */ });
+  }
+  function afAllow() {
+    var af = afState(), d = af.otherAsk; if (!d || af.busy) return;
+    var turn = afTurn(af);
+    d.requestPermission({ mode: 'readwrite' }).then(function (p) { if (!turn() || p !== 'granted') return; return afUse(af, d, turn); }, function () { /* refused: the screen stays read only */ });
+  }
+  /* Settings opened: where each file stands, once for this folder. */
+  function afFirstLook() {
+    var af = afState();
+    if (af.looked || !canFolder || !state.fs || state.fs.kind !== 'folder') return;
+    afLoad(false, af);
   }
 
   /* ---------- Getting started (views/setup.js, core/setup.js) ---------- */
@@ -5456,6 +5810,32 @@
       var hs = state.healthScan, rep = healthReport(true); if (!rep || !hs) return;
       copyText(PF.health.text(rep, { folder: state.fs && state.fs.name, at: U.when(hs.scan.at), app: APP_VERSION, files: hs.scan.files }), null, 'Copied. Paste it to a teammate or your AI assistant.');
     },
+    'ai-files': function () {
+      ACTIONS.nav('settings'); var af = afState(); if (af.where !== 'team') { if (af.busy) af.thenTeam = true; else af = afNew('team', state.fs); } state.focus = 'set-ai'; render();
+      var el = document.getElementById('set-ai'); if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start' });
+      afLoad(false, af);
+    },
+    'af-load': function () { afLoad(); },
+    'af-where': function (id) {
+      var af = afState(), chosen = afChosen && afChosen.gen === gen && afChosen.fs;
+      if (af.busy || (id !== 'team' && id !== 'other') || af.where === id) return;
+      if (id === 'team') afLoad(false, afNew('team', state.fs));
+      else if (chosen) afLoad(false, afNew('other', chosen));
+      else afRemembered(afNew('other', null));
+    },
+    'af-pick': function () { afPick(); },
+    'af-allow': function () { afAllow(); },
+    'af-update': function () { afUpdate(); },
+    'af-merged': function (id) { afMerged(id); },
+    'af-peek': function (id) { var af = afState(); af.peek = af.peek === id ? null : id; render(); },
+    'af-copy': function (id) {
+      var f = afFile(id), af = afState(); if (!f) return;
+      afCopy(af, f.text, 'af-pre-' + PF.vk.domKey(f.key), 'Copied ' + f.rel + '. Paste it to your AI assistant.', function () { af.peek = id; });
+    },
+    'af-brief': function (id) {
+      var t = afBrief(id), af = afState(); if (!t) return;
+      afCopy(af, t, 'af-brief-pre', 'Copied. Paste it to your AI assistant in ' + afTarget(af).home + '.', function () { af.briefShown = t; });
+    },
     'health-cmd': function (id) { copyText(PF.health.command(id), null, id === 'merge' ? 'Copied. Paste it to your AI assistant in the team folder.' : 'Copied. Run it in a terminal, with your team folder\'s path.'); },
     connection: function () {
       releaseUrls(state.urls); setView('connection'); state.runKey = null; state.processId = null; resetRunUi();
@@ -5612,6 +5992,7 @@
       if (state.typeForm && !typeFormChanged(state.typeForm)) state.typeForm = null;
       /* Skills and Step types aren't in the top bar: focus goes to their page's heading. */
       state.focus = V.sectionOf(id) === id ? '[data-act="nav"][data-id="' + id + '"]' : 'page-h'; render(); window.scrollTo(0, 0);
+      if (id === 'settings') afFirstLook();
     },
     /* All runs of one process: Runs, filtered to it. */
     'runs-of': function (id) {
@@ -7284,7 +7665,9 @@
     childEpoch++;
     var back = state.overlay && state.overlay.back, att = state.overlay && state.overlay.backAtt, done = state.overlay && state.overlay.onClose; state.overlay = null; if (done) done(); releaseUrls(state.full); render();
     if (att && att.gen === gen && att.view === state.view && att.run === state.runKey && att.pid === state.processId) { attBack(att); return; }
-    var el = back && document.querySelector(back); if (el) el.focus();
+    /* An opener in AI assistant files can go, or be hidden, while the dialog is open: the section's one rule for focus. */
+    var el = !back ? null : /^#af-|data-act="af-/.test(back) ? afRefocus(function () { return document.querySelector(back); }) : document.querySelector(back);
+    if (el) el.focus();
   }
   /* An attachment's button (V.attachments) is on one note, and its row can move or go while the overlay is open: a twin arrives
      and the row's key changes, or the note is removed. So the opener is kept by the note it's on and which attachment, not by
@@ -7344,11 +7727,12 @@
     state.overlayFocus = '#lc-t';
   }
   function openLightbox(list, i) { openOverlay({ list: list, i: i || 0, html: function () { return V.lightbox(ctx, this.list, this.i); } }); }
-  function copyText(text, pre, done) {
+  /* refused can name the box to select instead (it may have drawn it); still, if given, says whether this copy still counts. */
+  function copyText(text, pre, done, refused, still) {
     var msg = document.getElementById('copy-msg');
-    function fallback() { if (pre) { pre.hidden = false; var rg = document.createRange(); rg.selectNodeContents(pre); var s = window.getSelection(); s.removeAllRanges(); s.addRange(rg); } if (msg) msg.textContent = 'Selected. Press Ctrl+C.'; }
-    var g = gen, view = state.view, key = state.runKey;
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { if (g !== gen || state.view !== view || state.runKey !== key) return; if (msg && document.contains(msg)) msg.textContent = done || 'Copied. Paste it into the Jira ticket.'; else { say('Copied.', 'good'); render(); } }, function () { if (g === gen && state.view === view && state.runKey === key) fallback(); });
+    function fallback() { var box = refused ? refused() : null; if (box) pre = box; if (pre) { pre.hidden = false; var rg = document.createRange(); rg.selectNodeContents(pre); var s = window.getSelection(); s.removeAllRanges(); s.addRange(rg); } var m = document.getElementById('copy-msg'); if (m) m.textContent = 'Selected. Press Ctrl+C.'; }
+    var g = gen, view = state.view, key = state.runKey, counts = function () { return g === gen && state.view === view && state.runKey === key && (!still || still()); };
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { if (!counts()) return; if (msg && document.contains(msg)) msg.textContent = done || 'Copied. Paste it into the Jira ticket.'; else { say('Copied.', 'good'); render(); } }, function () { if (counts()) fallback(); });
     else fallback();
   }
 

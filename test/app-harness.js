@@ -180,7 +180,7 @@ function boot(opts) {
   const storage = () => ({ getItem: k => (refuse(k), k in store ? store[k] : null), setItem: (k, v) => { refuse(k); store[k] = String(v); }, removeItem: k => { refuse(k); delete store[k]; } });
   const document = {
     hidden: false, title: '', body: Object.assign(element('body'), { appendChild() {} }), activeElement: null,
-    getElementById: id => els[id] || (opts.domFocus ? drawnAnywhere('#' + id) : null), querySelector: sel => (opts.domFocus ? drawnAnywhere(sel) : null), querySelectorAll: () => [], createElement: () => Object.assign(element('x'), { click() { downloads.push({ name: this.download, blob: lastBlob }); }, remove() {} }),
+    getElementById: id => els[id] || (opts.domFocus ? drawnAnywhere('#' + id) : null), querySelector: sel => (opts.domFocus ? drawnAnywhere(sel) : null), querySelectorAll: () => [], createRange: () => ({ selectNodeContents() {} }), createElement: () => Object.assign(element('x'), { click() { downloads.push({ name: this.download, blob: lastBlob }); }, remove() {} }),
     addEventListener: (t, fn) => { (listeners[t] = listeners[t] || []).push(fn); }, contains: () => false
   };
   document.activeElement = document.body;
@@ -190,7 +190,7 @@ function boot(opts) {
   const bodyClasses = new Set();
   document.body.classList = { add: (...c) => c.forEach(x => bodyClasses.add(x)), remove: (...c) => c.forEach(x => bodyClasses.delete(x)), contains: c => bodyClasses.has(c) };
   const window = {
-    innerWidth: opts.narrow ? 375 : 1400, scrollY: 0, scrollTo() {}, matchMedia: q => ({ matches: (!!opts.narrow && /max-width/.test(q)) || (!!opts.reducedMotion && /prefers-reduced-motion: reduce/.test(q)) }), getSelection: () => ({ removeAllRanges() {}, addRange() {} }),
+    innerWidth: opts.narrow ? 375 : 1400, scrollY: 0, scrollTo() {}, matchMedia: q => ({ matches: (!!opts.narrow && /max-width/.test(q)) || (!!opts.reducedMotion && /prefers-reduced-motion: reduce/.test(q)) }), getSelection: () => ({ removeAllRanges() {}, addRange() { if (opts.onSelect) opts.onSelect(); } }),
     addEventListener: (t, fn) => { (winListeners[t] = winListeners[t] || []).push(fn); }
   };
   /* The address bar and session history of a file:// page: a list of entries and an index. back(), forward() and go(n)

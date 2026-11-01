@@ -186,27 +186,40 @@ function appStatus(dir, file, html, mine, force) {
    A copy still waiting in .flightdeck/updates/<any version>/ keeps a file at merge until someone deletes the copy.
    With --force, kept and merge files are replaced too, after a copy is saved. */
 function classify(t, files, base, force) {
-  return files.map((f) => {
+  const items = files.map((f) => {
     const parts = f.rel.split('/'), now = readInside(t.dir, parts), want = hash(managed(f.key, f.text));
-    const item = { key: f.key, rel: f.rel, parts, text: f.text, now, want, staged: staged(t, f.rel) };
-    if (now === null) return Object.assign(item, { status: t.record.files[f.key] ? 'missing' : 'new' });
-    const have = hash(managed(f.key, now));
-    /* Still waiting on a merge. When this version's default is new to the person (not already staged, not what the file
-       already says), it's staged too, so an older pending merge never hides newer instructions. */
-    if (item.staged.length && !force) return Object.assign(item, { status: 'merge', waiting: item.staged.map((x) => x.version).join(', '),
-      stage: have !== want && !item.staged.some((x) => x.version === t.version || hash(managed(f.key, x.text)) === want) });
-    if (have === want) return Object.assign(item, { status: 'current' });
-    if ((base[f.baseKey || baselineKey(f.key)] || {})[have]) return Object.assign(item, { status: 'update' });
-    if (force) return Object.assign(item, { status: 'forced' });
-    if (t.record.files[f.key] === want) return Object.assign(item, { status: 'kept' });
-    return Object.assign(item, { status: 'merge' });
+    return { key: f.key, rel: f.rel, baseKey: f.baseKey, parts, text: f.text, now, want, have: now === null ? null : hash(managed(f.key, now)), staged: staged(t, f.rel) };
+  });
+  const why = decide(items.map((i) => ({ key: i.key, baseKey: i.baseKey, want: i.want, have: i.have, staged: i.staged.map((x) => ({ version: x.version, hash: hash(managed(i.key, x.text)) })) })), t.record, base, t.version, force);
+  return items.map((i, n) => Object.assign(i, why[n], { key: i.key }));
+}
+/* The decision alone, from hashes: the same as PF.contract.classify (test/assistant-files.test.js checks they agree), plus
+   forced, which only --force gives. */
+function decide(items, record, base, version, force) {
+  const rf = (record && record.files) || {};
+  return items.map((it) => {
+    const out = { key: it.key, status: '' }, st = it.staged || [];
+    if (it.have === null || it.have === undefined) { out.status = rf[it.key] ? 'missing' : 'new'; return out; }
+    if (st.length && !force) {
+      out.status = 'merge'; out.waiting = st.map((x) => x.version).join(', ');
+      out.stage = it.have !== it.want && !st.some((x) => x.version === version || x.hash === it.want);
+      return out;
+    }
+    if (it.have === it.want) out.status = 'current';
+    else if ((base[it.baseKey || baselineKey(it.key)] || {})[it.have]) out.status = 'update';
+    else if (force) out.status = 'forced';
+    else if (rf[it.key] === it.want) out.status = 'kept';
+    else out.status = 'merge';
+    return out;
   });
 }
 /* The versions under the updates folder, and which of them hold a copy of rel still waiting to be merged. */
+/* Oldest first, dev last: the order install and the app both list waiting versions in. */
+function byVersion(a, b) { return a === b ? 0 : a === 'dev' ? 1 : b === 'dev' ? -1 : cmp(a, b); }
 function versionsStaged(t) {
   if (t.versions) return t.versions;
   const home = folders(t.dir, t.updates, false);
-  t.versions = home ? fs.readdirSync(home).filter((v) => /^(\d+\.\d+\.\d+|dev)$/.test(v) && folders(t.dir, t.updates.concat(v), false)) : [];
+  t.versions = home ? fs.readdirSync(home).filter((v) => /^(\d+\.\d+\.\d+|dev)$/.test(v) && folders(t.dir, t.updates.concat(v), false)).sort(byVersion) : [];
   return t.versions;
 }
 function staged(t, rel) {
@@ -230,12 +243,19 @@ function installedNewer(r) {
 /* The folder's record, checked field by field. Anyone can edit it, so a record that isn't exactly what this command writes is
    ignored (and said so), and only entries for files this version installs, with a well-formed hash, are read. */
 function readRecord(t, keys) {
-  const text = readInside(t.dir, t.recordAt), none = { files: {} };
-  if (text === null) return none;
+  t.recordText = readInside(t.dir, t.recordAt);
+  const r = parseRecord(t.recordText, keys);
+  if (r.newer) fail(path.join(t.dir, ...t.recordAt) + ' ' + r.newer + ' Nothing was changed. Use the newer Flightdeck package.');
+  return r;
+}
+/* The record's text as install reads it: the same as PF.contract.readRecord (test/assistant-files.test.js checks they agree). */
+function parseRecord(text, keys) {
+  const none = { files: {} };
+  if (text === null || text === undefined) return none;
   let r = null;
-  try { r = JSON.parse(text); } catch (e) { /* reported below */ }
+  try { r = JSON.parse(text); } catch (e) { /* ignored below */ }
   const newer = installedNewer(r);
-  if (newer) fail(path.join(t.dir, ...t.recordAt) + ' ' + newer + ' Nothing was changed. Use the newer Flightdeck package.');
+  if (newer) return { newer };
   const ok = r && typeof r === 'object' && !Array.isArray(r) && r.format === 'flightdeck-installed/1' && typeof r.version === 'string' && /^(\d+\.\d+\.\d+|dev)$/.test(r.version)
     && typeof r.at === 'string' && (r.by === 'cli' || r.by === 'app') && r.files && typeof r.files === 'object' && !Array.isArray(r.files)
     && Object.keys(r.files).every((k) => typeof r.files[k] === 'string' && /^[0-9a-f]{64}$/.test(r.files[k]));
@@ -248,19 +268,21 @@ function readRecord(t, keys) {
 function stamp(d) { const p = (n) => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + p(d.getMinutes()); }
 function fineStamp(d) { const p = (n, w) => String(n).padStart(w || 2, '0'); return stamp(d).replace(' ', '-') + p(d.getSeconds()) + '-' + p(d.getMilliseconds(), 3); }
 
-function mergeReadme(version, items, t) {
-  const here = t.updates.concat(version).join('/');
+function mergeReadme(version, items, t) { return mergeReadmeText(version, items, t.updates, t.home); }
+/* The same text as PF.contract.mergeReadme (test/assistant-files.test.js checks they agree). */
+function mergeReadmeText(version, items, updates, home) {
+  const here = updates.concat(version).join('/');
   return `# Flightdeck ${version}: files to merge
 
 Flightdeck ${version} changed these files, and your team changed them too, so the update left your versions in place:
 
 ${items.map((i) => '- `' + i.rel + '`' + (i.key === AGENTS ? ' (only the part between the flightdeck markers)' : '')).join('\n')}
 
-The new default of each file is in this folder (\`${here}/\`), at the same path it has in ${t.home}.
+The new default of each file is in this folder (\`${here}/\`), at the same path it has in ${home}.
 
 ## Ask your AI assistant to merge them
 
-Open your AI assistant in ${t.home}, and give it this:
+Open your AI assistant in ${home}, and give it this:
 
 > Flightdeck ${version} put new default versions of some files in \`${here}/\`; its README.md lists them. For each one, compare the new default with our file at the same path. Keep our own changes, and bring in what the new default adds or changes. In AGENTS.md, change only the part between \`<!-- flightdeck:begin -->\` and \`<!-- flightdeck:end -->\`; anything that is ours belongs under Team notes, below the end marker. Show me each change before you save it. When a file is merged, delete its copy here. When only README.md is left, delete this folder.
 
@@ -268,14 +290,61 @@ Then run the same flightdeck command with \`--check\`: exit code 0 means nothing
 `;
 }
 
+/* What an install would write has to be something the app can read back (PF.contract.MAX_BYTES): over the limit, nothing is
+   touched. The same check and words as Settings, AI assistant files (afRoom). */
+const CONTRACT_MAX = 8 * 1048576;
+function roomFor(t, items) {
+  const why = (name, n, then) => name + ' would be too big for Flightdeck to read back (' + (Math.ceil(n / 1048576 * 100) / 100) + ' MB, over ' + (CONTRACT_MAX / 1048576) + ' MB). Nothing was changed. ' + then;
+  for (const i of items) {
+    if (['current', 'kept', 'merge'].includes(i.status)) continue;
+    const n = Buffer.byteLength(merged(i), 'utf8');
+    if (n > CONTRACT_MAX) fail(why(i.rel, n, 'Shorten what your team added to it, then try again.'));
+  }
+  const rec = nextRecord(t.record, items, t.version);
+  if (!rec) return;
+  const size = Buffer.byteLength(JSON.stringify({ format: 'flightdeck-installed/1', version: t.version, at: new Date().toISOString(), by: 'cli', files: rec }, null, 2) + '\n', 'utf8');
+  if (size > CONTRACT_MAX) fail(why(t.recordAt.join('/'), size, 'Remove the entries for files Flightdeck no longer ships, then try again.'));
+}
+/* Something in the way of where a file goes: the same words as PF.contract.outcomeWords. Every destination is looked at before
+   anything is written, so a predictable refusal never leaves an update half done. */
+function blockedWhy(rel, want) { return rel + (want === 'file' ? ' is a folder, where Flightdeck needs a file.' : ' is a file, where Flightdeck needs a folder.') + ' Nothing was changed. Move it, then try again.'; }
+function clearFor(dir, parts) {
+  let cur = dir;
+  for (let i = 0; i < parts.length; i++) {
+    cur = path.join(cur, parts[i]);
+    const st = lstatOrNull(cur), rel = parts.slice(0, i + 1).join('/');
+    if (!st) return;
+    if (st.isSymbolicLink()) fail('refusing to write through a link: ' + cur);
+    if (i === parts.length - 1 ? !st.isFile() : !st.isDirectory()) fail(blockedWhy(rel, i === parts.length - 1 ? 'file' : 'folder'));
+  }
+}
+function destinationsClear(t, items, more) {
+  const dests = (more || []).slice();
+  for (const i of items) {
+    if (['current', 'kept'].includes(i.status)) continue;
+    if (i.status === 'merge') {
+      if (i.waiting && !i.stage) continue;
+      dests.push(t.updates.concat(t.version, i.rel.split('/')), t.updates.concat(t.version, 'README.md'), t.updates.concat(t.version, 'replaced', 'x'));
+      continue;
+    }
+    dests.push(i.parts);
+    if (i.now !== null && i.now !== merged(i)) dests.push(t.updates.concat(t.version, 'replaced', 'x'));
+  }
+  if (nextRecord(t.record, items, t.version)) dests.push(t.recordAt);
+  dests.forEach((parts) => clearFor(t.dir, parts));
+}
 /* install and skills: one routine for the team folder, and for skills --to <dir>. */
 function contract(t, files, opts) {
   const base = baselines(opts.html), now = new Date();
+  if (!opts.check || opts.room) clearFor(t.dir, t.updates.concat(t.version, 'x'));
   inside(t.dir, t.updates.concat(t.version, 'replaced'));
   t.record = readRecord(t, files.map((f) => f.key));
   t.changed = [];
   const items = classify(t, files, base, opts.force);
+  if (!opts.check || opts.room) { roomFor(t, items); destinationsClear(t, items, opts.more); }
   if (opts.check) return items;
+  /* The merge list as it was before anything is written: the only text it may replace. */
+  const readmeAt = t.updates.concat(t.version, 'README.md'), readmeWas = items.some((i) => i.status === 'merge' && (!i.waiting || i.stage)) ? readInside(t.dir, readmeAt) : null;
   for (const i of items) {
     if (['current', 'kept'].includes(i.status) || (i.status === 'merge' && i.waiting && !i.stage)) {
       if (opts.force) i.staged.forEach((x) => fileAway(t, x));
@@ -293,12 +362,33 @@ function contract(t, files, opts) {
     }
   }
   const merges = items.filter((i) => i.status === 'merge' && !i.changed);
-  if (merges.some((i) => !i.waiting || i.stage)) safeWrite(t.dir, t.updates.concat(t.version, 'README.md'), mergeReadme(t.version, merges.filter((i) => !i.waiting || i.stage || i.staged.some((x) => x.version === t.version)), t));
-  const rec = Object.assign({}, t.record.all || {});
-  items.forEach((i) => { if (!i.changed) rec[i.key] = i.want; });
-  if (!t.record.ignored && t.record.version === t.version && JSON.stringify(rec) === JSON.stringify(t.record.all)) return items;
-  safeWrite(t.dir, t.recordAt, JSON.stringify({ format: 'flightdeck-installed/1', version: t.version, at: now.toISOString(), by: 'cli', files: rec }, null, 2) + '\n');
+  if (merges.some((i) => !i.waiting || i.stage)) {
+    const next = mergeReadme(t.version, merges.filter((i) => !i.waiting || i.stage || i.staged.some((x) => x.version === t.version)), t);
+    try {
+      if (readmeWas !== null && readmeWas !== next) keepCopy(t, ['merge-README.md'], readmeWas);
+      safeWrite(t.dir, readmeAt, next, readmeWas);
+    } catch (e) {
+      if (!(e instanceof Changed)) throw e;
+      t.changed.push(readmeAt.join('/'));
+    }
+  }
+  const rec = nextRecord(t.record, items, t.version);
+  if (!rec) return items;
+  try {
+    safeWrite(t.dir, t.recordAt, JSON.stringify({ format: 'flightdeck-installed/1', version: t.version, at: now.toISOString(), by: 'cli', files: rec }, null, 2) + '\n', t.recordText);
+    t.recordWritten = true;
+  } catch (e) {
+    if (!(e instanceof Changed)) throw e;
+    t.changed.push(t.recordAt.join('/'));
+  }
   return items;
+}
+/* The record's files after an update, or null when it would be written unchanged: the same as PF.contract.nextRecord. */
+function nextRecord(record, items, version) {
+  const rec = Object.assign({}, record.all || {});
+  items.forEach((i) => { if (!i.changed) rec[i.key] = i.want; });
+  if (!record.ignored && record.version === version && JSON.stringify(rec) === JSON.stringify(record.all)) return null;
+  return rec;
 }
 /* Every file install replaces, the app included, is first copied to a folder of its own under
    .flightdeck/updates/<version>/replaced/, made new for this run (never one an earlier run used), and the copy is read back.
@@ -330,8 +420,8 @@ function report(items, check, out) {
 }
 /* What install says after the file list: an ignored record, and files left alone because they changed while it ran. */
 function notes(t, out) {
-  if (t.record && t.record.ignored) out.push('Ignored ' + t.recordAt.join('/') + ': it isn\'t a record this version of Flightdeck wrote, so it wasn\'t trusted. A new one was written.');
-  if (t.changed && t.changed.length) out.push('Left as they are, because they changed while install was running: ' + t.changed.join(', ') + '. Run the command again.');
+  if (t.record && t.record.ignored) out.push('Ignored ' + t.recordAt.join('/') + ': it isn\'t a record this version of Flightdeck wrote, so it wasn\'t trusted.' + (t.recordWritten ? ' A new one was written.' : ''));
+  if (t.changed && t.changed.length) out.push('Left as they are, because they changed while updating: ' + t.changed.join(', ') + '. Those weren\'t replaced; check them again.');
 }
 function exitFor(statuses) {
   if (statuses.includes('merge')) return EXIT.merge;
@@ -1724,7 +1814,7 @@ function main(argv) {
       return { out: out.join('\n'), code };
     }
     /* Everything is checked before anything is written, so a refusal (a link, say) leaves the folder as it was. */
-    if (!appOnly) contract(t, files, { html, force, check: true });
+    if (!appOnly) contract(t, files, { html, force, check: true, room: true, more: [[NAME, appS], [OLD, oldS]].filter(([file, st]) => st.status !== 'current' && (file !== OLD || keepOld)).map(([file]) => [file]) });
     t.changed = [];
     [[NAME, appS], [OLD, oldS]].forEach(([file, st]) => {
       if (st.status === 'current' || (file === OLD && !keepOld)) return;
@@ -1808,4 +1898,4 @@ if (require.main === module) {
     if (r && typeof r.then === 'function') r.then(done, failed); else done(r);
   } catch (e) { failed(e); }
 }
-module.exports = { _hooks, main, installedNewer, versionOf, cmp, skillFiles, norm, region, managed, merged, hash, baselineKey, examples, readAdapter, loadEngine, readData, requestData, writeRequest, reportData, writeOnce, EXIT };
+module.exports = { _hooks, main, installedNewer, parseRecord, decide, mergeReadmeText, nextRecord, baselinesOf: baselines, versionOf, cmp, skillFiles, norm, region, managed, merged, hash, baselineKey, examples, readAdapter, loadEngine, readData, requestData, writeRequest, reportData, writeOnce, EXIT };

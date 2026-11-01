@@ -30,14 +30,176 @@ PF.contract = (function () {
     return JSON.stringify({ format: 'flightdeck-installed/1', version: version, at: at, by: by, files: files }, null, 2) + '\n';
   }
 
-  /* .flightdeck/installed.json as Folder health reads it: the record (an object), 'bad' when it isn't one, or, from a newer
-     Flightdeck (flightdeck-installed/2 or a feature this copy doesn't know), { newer: true, needs, why }, which flightdeck
-     install never rewrites. bin/flightdeck.js repeats the check (installedNewer); test/cli.test.js checks the two agree. */
-  function cleanInstalled(o) {
-    if (!o || typeof o !== 'object' || Array.isArray(o)) return 'bad';
-    var v = PF.envelope.judge('flightdeck-installed', o);
-    if (!v.ok && v.kind === 'newer') return { newer: true, needs: v.needs || '', why: '.flightdeck/installed.json was written by a newer Flightdeck. ' + PF.envelope.needsText(v.needs) };
-    return v.ok ? o : 'bad';
+  /* A record written by a newer Flightdeck (flightdeck-installed/2 on, or any features at all, well formed or not): never read
+     for meaning and never rewritten. bin/flightdeck.js repeats it (installedNewer); test/assistant-files.test.js checks they agree. */
+  var VERSION_DIR = /^(\d+\.\d+\.\d+|dev)$/, HASH = /^[0-9a-f]{64}$/, MAX_BYTES = 8 * 1048576;
+  function own(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
+  function newerWhy(r) {
+    if (!r || typeof r !== 'object' || Array.isArray(r)) return '';
+    var m = typeof r.format === 'string' ? /^([a-z][a-z0-9-]{1,59})\/([1-9]\d{0,3})$/.exec(r.format) : null;
+    if ((m && m[1] === 'flightdeck-installed' && m[2] !== '1') || (m && m[1] === 'flightdeck-installed' && (Array.isArray(r.features) ? r.features.length > 0 : r.features != null))) return 'was written by a newer Flightdeck' + (typeof r.version === 'string' && /^\d+\.\d+\.\d+$/.test(r.version) ? ' (' + r.version + ')' : '') + '.';
+    return '';
   }
-  return { cleanInstalled: cleanInstalled, BEGIN: BEGIN, END: END, AGENTS: AGENTS, BASELINES: BASELINES, norm: norm, region: region, managed: managed, baselineKey: baselineKey, hex: hex, installed: installed };
+  /* Exactly what flightdeck install and this app write; anything else is ignored, and the next update writes a new one. */
+  function wellFormed(r) {
+    return !!(r && typeof r === 'object' && !Array.isArray(r) && r.format === 'flightdeck-installed/1' && typeof r.version === 'string' && VERSION_DIR.test(r.version)
+      && typeof r.at === 'string' && (r.by === 'cli' || r.by === 'app') && r.files && typeof r.files === 'object' && !Array.isArray(r.files)
+      && Object.keys(r.files).every(function (k) { return typeof r.files[k] === 'string' && HASH.test(r.files[k]); }));
+  }
+  /* The record's text (null when there's none) as the installer reads it: { newer: why } (refuse everything), { files: {},
+     ignored: true }, { files: {} } when there's none, or { version, files: the entries for keys, all: every entry }. */
+  function readRecord(text, keys) {
+    if (text == null) return { files: {} };
+    var r = null;
+    try { r = JSON.parse(text); } catch (e) { r = null; }
+    var nw = newerWhy(r);
+    if (nw) return { newer: nw };
+    if (!wellFormed(r)) return { files: {}, ignored: true };
+    var files = {}, all = {};
+    (keys || []).forEach(function (k) { if (own(r.files, k)) files[k] = r.files[k]; });
+    Object.keys(r.files).forEach(function (k) { all[k] = r.files[k]; });
+    return { version: r.version, files: files, all: all };
+  }
+  /* .flightdeck/installed.json as the folder scan shows it: the record (an object), 'bad' when it isn't one, or, from a newer
+     Flightdeck (the installer's own verdict, newerWhy), { newer: true, needs, why }, which neither the app nor flightdeck
+     install ever rewrites. Folder health's decisions read the record's text with readRecord, as the installer does. */
+  function cleanInstalled(o) {
+    var nw = newerWhy(o);
+    if (nw) {
+      var v = PF.envelope.judge('flightdeck-installed', o), needs = v && !v.ok && v.kind === 'newer' ? v.needs || '' : '';
+      return { newer: true, needs: needs, why: '.flightdeck/installed.json was written by a newer Flightdeck. ' + PF.envelope.needsText(needs) };
+    }
+    var j = PF.envelope.judge('flightdeck-installed', o);
+    return j.ok ? o : 'bad';
+  }
+
+  /* What an update does with each contract file. items: { key, baseKey (the name in the baselines, when not the key's own),
+     want (this version's default, hashed), have (the file's hash, null when it isn't there), staged: [{ version, hash }] (copies
+     waiting in the updates folder) }. Statuses, in the order they're decided:
+       new / missing   not there (missing: the record says it was installed)
+       merge           a copy is still waiting to be merged, even if the file already matches; stage says this version's
+                       default has to be staged too (it isn't already, and the file doesn't already say it)
+       current         same as this version's default
+       update          a default some version shipped
+       kept            the team changed it, and the record says it's based on this version's default
+       merge           the team changed it and the default changed too
+   The record only ever makes an update more careful. bin/flightdeck.js repeats this (decide). */
+  function classify(items, record, base, version) {
+    var rf = (record && record.files) || {};
+    return items.map(function (it) {
+      var out = { key: it.key, status: '' }, staged = it.staged || [];
+      if (it.have == null) { out.status = rf[it.key] ? 'missing' : 'new'; return out; }
+      if (staged.length) {
+        out.status = 'merge'; out.waiting = staged.map(function (x) { return x.version; }).join(', ');
+        out.stage = it.have !== it.want && !staged.some(function (x) { return x.version === version || x.hash === it.want; });
+        return out;
+      }
+      if (it.have === it.want) out.status = 'current';
+      else if ((base[it.baseKey || baselineKey(it.key)] || {})[it.have]) out.status = 'update';
+      else if (rf[it.key] === it.want) out.status = 'kept';
+      else out.status = 'merge';
+      return out;
+    });
+  }
+  /* The text written for a contract file: AGENTS.md keeps everything outside its markers (the team's notes). */
+  function merged(key, now, text) {
+    if (key !== AGENTS || now == null) return text;
+    var old = region(now), fresh = region(text);
+    return old.marked ? norm(now).slice(0, old.start) + fresh.text + norm(now).slice(old.end) : text;
+  }
+  /* The record's files after an update: every entry kept, each item not changed during the update set to this version's
+     default. null when nothing would change (a valid record of this version with exactly these entries). */
+  function nextRecord(record, items, version) {
+    var rec = {}, all = (record && record.all) || {};
+    Object.keys(all).forEach(function (k) { rec[k] = all[k]; });
+    items.forEach(function (i) { if (!i.changed) rec[i.key] = i.want; });
+    if (record && !record.ignored && record.version === version && JSON.stringify(rec) === JSON.stringify(record.all)) return null;
+    return rec;
+  }
+  /* Oldest first, dev last: the order install and the app both list waiting versions in. */
+  function byVersion(a, b) {
+    if (a === b) return 0; if (a === 'dev') return 1; if (b === 'dev') return -1;
+    var x = a.split('.'), y = b.split('.');
+    for (var i = 0; i < 3; i++) { if (x[i].length !== y[i].length) return x[i].length - y[i].length; if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1; }
+    return 0;
+  }
+  /* The README beside staged defaults: which files, and a prompt for an AI assistant. updates: the updates folder's parts. */
+  function mergeReadme(version, items, updates, home) {
+    var here = updates.concat(version).join('/');
+    return '# Flightdeck ' + version + ': files to merge\n\nFlightdeck ' + version + ' changed these files, and your team changed them too, so the update left your versions in place:\n\n' +
+      items.map(function (i) { return '- `' + i.rel + '`' + (i.key === AGENTS ? ' (only the part between the flightdeck markers)' : ''); }).join('\n') +
+      '\n\nThe new default of each file is in this folder (`' + here + '/`), at the same path it has in ' + home + '.\n\n## Ask your AI assistant to merge them\n\nOpen your AI assistant in ' + home + ', and give it this:\n\n' +
+      mergePrompt(version, here) + '\n\nThen run the same flightdeck command with `--check`: exit code 0 means nothing is left to merge.\n';
+  }
+  /* The request a person hands their AI assistant, quoted in the README and copied by the app's Copy merge request. */
+  function mergePrompt(version, here) {
+    return '> Flightdeck ' + version + ' put new default versions of some files in `' + here + '/`; its README.md lists them. For each one, compare the new default with our file at the same path. Keep our own changes, and bring in what the new default adds or changes. In AGENTS.md, change only the part between `<!-- flightdeck:begin -->` and `<!-- flightdeck:end -->`; anything that is ours belongs under Team notes, below the end marker. Show me each change before you save it. When a file is merged, delete its copy here. When only README.md is left, delete this folder.';
+  }
+  /* ---------- How a write ended: one outcome, one set of words ----------
+     Update and I merged it collect facts as they go; settle says which outcome those facts are, and outcomeWords is the only
+     thing that turns one into words, for the Settings screen, for an announcement and for the move to the team folder. An
+     outcome with no words is an error, never a guess. */
+  function shortList(a) { return a.slice(0, 5).join(', ') + (a.length > 5 ? ' and ' + (a.length - 5) + ' more' : ''); }
+  function count(n, one) { return n + ' ' + one + (n === 1 ? '' : 's'); }
+  function done(o, w) {
+    var parts = [];
+    if (o.wrote) parts.push('Updated ' + count(o.wrote, 'file') + '.');
+    if (o.kept) parts.push('Kept ' + o.kept + ' you changed.');
+    if (o.staged) parts.push('Put ' + count(o.staged, 'new default') + ' to merge in ' + w.updates.join('/') + '/' + w.version + '/.');
+    if (o.replaced) parts.push('Copies of what was replaced are in ' + o.replaced + '.');
+    else if (o.copiesAt) parts.push('A folder for copies was started at ' + o.copiesAt + ', with no checked copy in it yet.');
+    if (o.ignored) parts.push('The old record wasn\'t one Flightdeck wrote, so it wasn\'t trusted' + (o.record ? '; a new one was written.' : '.'));
+    else if (o.record && !o.wrote && !o.staged) parts.push('The record of these files is saved.');
+    return parts;
+  }
+  function troubles(o) {
+    var parts = [];
+    if (o.unverified && o.unverified.length) parts.push(shortList(o.unverified) + (o.unverified.length === 1 ? ' was written, but Flightdeck couldn\'t read it back to check it.' : ' were written, but Flightdeck couldn\'t read them back to check them.'));
+    if (o.unsure && o.unsure.length) parts.push(shortList(o.unsure) + ' may or may not have been written: the write failed and Flightdeck can\'t tell how far it got.');
+    if (o.moved && o.moved.length) parts.push(shortList(o.moved) + (o.moved.length === 1 ? ' was written, then changed by something else before Flightdeck could read it back. Look at it again.' : ' were written, then changed by something else before Flightdeck could read them back. Look at them again.'));
+    if (o.skipped && o.skipped.length) parts.push('Left as they are, because they changed while updating: ' + shortList(o.skipped) + '. Those weren\'t replaced; check them again.');
+    return parts;
+  }
+  function wroteWords(o, w) { return done(o, w).concat(troubles(o)).join(' '); }
+  var OUTCOMES = {
+    newer: { kind: 'warn', words: function (o, w) { return 'Nothing was changed. ' + w.recordAt + ' ' + o.newer + ' Use the newer Flightdeck.'; } },
+    'too-big': { kind: 'warn', words: function (o) { return o.tooBig; } },
+    blocked: { kind: 'warn', words: function (o) { return blockedWhy(o.blocked.path, o.blocked.want); } },
+    refused: { kind: 'warn', words: function () { return 'Nothing was changed. This browser didn\'t allow writing to the folder.'; } },
+    failed: { kind: 'warn', words: function (o) { return 'Nothing was changed. ' + o.error.why; } },
+    partial: { kind: 'warn', reload: true, words: function (o, w) { return ['The update stopped partway: ' + o.error.why].concat(done(o, w), troubles(o), ['Look at the files, then try again.']).join(' '); } },
+    unverified: { kind: 'warn', reload: true, words: function (o, w) { return ['The update stopped: ' + o.error.why].concat(done(o, w), troubles(o), ['Look at the files, then try again.']).join(' '); } },
+    nothing: { kind: 'good', reload: true, words: function (o, w) { return ['Nothing needed changing.'].concat(done(o, w)).join(' '); } },
+    written: { kind: 'good', reload: true, words: wroteWords },
+    moved: { kind: 'warn', reload: true, words: wroteWords },
+    skipped: { kind: 'warn', reload: true, words: wroteWords },
+    'merge-done': { kind: 'good', reload: true, words: function () { return 'Put away. The copy is beside the replaced files, in case you need it.'; } },
+    'merge-left': { kind: 'warn', reload: true, words: function (o) { return 'A copy waiting in ' + (o.left.length === 1 ? o.left[0] : o.left.length + ' versions') + ' changed since this screen read it, so it was left where it is. Look at it again.'; } },
+    'merge-partial': { kind: 'warn', reload: true, words: function (o) { return count(o.putAway, 'copy').replace('copys', 'copies') + (o.putAway === 1 ? ' was' : ' were') + ' put away before this stopped: ' + o.error.why; } },
+    'merge-unsure': { kind: 'warn', reload: true, words: function (o) { return (o.putAway ? count(o.putAway, 'copy').replace('copys', 'copies') + (o.putAway === 1 ? ' was' : ' were') + ' put away. ' : '') + 'The copy waiting in ' + shortList(o.unsure) + ' may or may not have been put away: removing it failed and Flightdeck couldn\'t check. ' + o.error.why + ' Look at it again.'; } },
+    'merge-failed': { kind: 'warn', words: function (o) { return 'Nothing was put away. ' + o.error.why; } }
+  };
+  function settleState(f) {
+    if (f.op === 'merge' && f.unsure && f.unsure.length) return 'merge-unsure';
+    if (f.op === 'merge') return f.error ? (f.putAway ? 'merge-partial' : 'merge-failed') : f.left.length ? 'merge-left' : 'merge-done';
+    if (f.newer) return 'newer';
+    if (f.tooBig) return 'too-big';
+    if (f.blocked) return 'blocked';
+    if ((f.unverified && f.unverified.length) || (f.unsure && f.unsure.length)) return 'unverified';
+    var any = f.wrote || f.staged || f.record || f.replaced || f.copiesAt || f.moved.length;
+    if (f.error) return any ? 'partial' : f.error.denied ? 'refused' : 'failed';
+    return f.moved.length ? 'moved' : f.skipped.length ? 'skipped' : any ? 'written' : 'nothing';
+  }
+  function settle(facts) { return Object.assign({}, facts, { state: settleState(facts) }); }
+  function outcomeWords(o, w, opts) {
+    var e = OUTCOMES[o.state];
+    if (!e) throw new Error('An outcome with no words: ' + o.state);
+    var text = e.words(o, w) + (o.recheck ? ' Checking the files again didn\'t work: ' + o.recheck : '');
+    return { kind: o.recheck ? 'warn' : e.kind, text: text, said: 'AI assistant files in ' + w.home + ': ' + text + (opts && opts.then ? ' Showing the team folder.' : '') };
+  }
+  /* Something in the way of where a file goes. The same words as the command's. */
+  function blockedWhy(path, want) { return path + (want === 'file' ? ' is a folder, where Flightdeck needs a file.' : ' is a file, where Flightdeck needs a folder.') + ' Nothing was changed. Move it, then try again.'; }
+
+  return { OUTCOMES: OUTCOMES, settle: settle, outcomeWords: outcomeWords, MAX_BYTES: MAX_BYTES, cleanInstalled: cleanInstalled, readRecord: readRecord, newerWhy: newerWhy, classify: classify, merged: merged, nextRecord: nextRecord, mergeReadme: mergeReadme, mergePrompt: mergePrompt, byVersion: byVersion, VERSION_DIR: VERSION_DIR,
+    BEGIN: BEGIN, END: END, AGENTS: AGENTS, BASELINES: BASELINES, norm: norm, region: region, managed: managed, baselineKey: baselineKey, hex: hex, installed: installed };
 })();

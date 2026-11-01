@@ -652,9 +652,9 @@ PF.repo = (function () {
     return b;
   }
   /* One pool of 8 per folder, shared by loading, the open run's reread, thumbnails and (later) export. Waiting calls start
-     in lane order: the open run first, then loading, then thumbnails (at most 4 at once), then export (at most 2), so
-     pictures or an export never slow the run being recorded. */
-  var LANES = ['open', 'load', 'thumb', 'export'], LANE_MAX = { open: 8, load: 8, thumb: 4, export: 2 };
+     in lane order: the open run first, then loading, then thumbnails (at most 4 at once), then Settings' checks of the
+     AI assistant files (at most 4), then export (at most 2), so none of these ever slow the run being recorded or a Refresh. */
+  var LANES = ['open', 'load', 'thumb', 'files', 'export'], LANE_MAX = { open: 8, load: 8, thumb: 4, files: 4, export: 2 };
   var pools = typeof WeakMap === 'function' ? new WeakMap() : null, wrappers = typeof WeakMap === 'function' ? new WeakMap() : null;
   function poolOf(fs) {
     fs = fs && fs._raw || fs;
@@ -1746,6 +1746,85 @@ PF.repo = (function () {
     };
     return opts && opts.lock ? opts.lock('preflight:file:' + path, go) : go();
   }
+  /* ---------- AI assistant files (the contract): the app's half of flightdeck install ---------- */
+  /* A contract file written only over the exact text it was read as (null: it must not be there), then read back. */
+  /* From the first write on, an error is not "nothing happened", so it comes back as a fact: { unverified } written, and the
+     read-back failed; { unsure } the write failed and what's there now is neither text. A failed write that left the file as it
+     was still throws: that one really did change nothing. */
+  function contractWrite(fs, path, expectText, text) {
+    var expect = expectText == null ? null : expectText, wrote = false, failed = null;
+    var why = function (e) { return e && e.message || String(e); };
+    var watched = {
+      read: function (p, o) { return fs.read(p, o); },
+      write: function (p, t) { return fs.write(p, t).then(function () { wrote = true; }, function (e) { failed = { e: e }; throw e; }); }
+    };
+    return saveChecked(watched, path, text, expect == null ? null : U.hash(expect), { expectText: expect }).catch(function (e) {
+      if (wrote) return { unverified: true, why: why(e) };
+      if (!failed) throw e;
+      var unsure = { unsure: true, why: why(failed.e) };
+      return fs.read(path).then(function (f) {
+        var now = f ? f.text : null;
+        if (now === text) return { ok: true, hash: U.hash(text), text: text };
+        if (now === expect) throw failed.e;
+        return unsure;
+      }, function () { return unsure; });
+    });
+  }
+  /* The first thing in the way of these destinations, or null: a folder where a file goes, a file where a folder goes. Looked
+     at before anything is written, so a predictable refusal never leaves an update half done. */
+  function contractBlocked(fs, paths) {
+    var seen = Object.create(null);
+    var ls = function (d) { return seen[d] || (seen[d] = fs.list(d)); };
+    var one = function (parts, i) {
+      var dir = parts.slice(0, i).join('/'), here = parts.slice(0, i + 1).join('/'), last = i === parts.length - 1;
+      return ls(dir).then(function (list) {
+        var e = list.filter(function (x) { return x.name === parts[i]; })[0];
+        if (!e) return null;
+        if (last) return e.kind === 'dir' ? { path: here, want: 'file' } : null;
+        return e.kind === 'dir' ? one(parts, i + 1) : { path: here, want: 'folder' };
+      });
+    };
+    return paths.reduce(function (q, p) { return q.then(function (b) { return b || one(p.split('/'), 0); }); }, Promise.resolve(null));
+  }
+  /* A new folder for this update's copies under base (…/replaced), named like the command's (date, time, milliseconds and a
+     random part), made fresh: never one an earlier update used. */
+  function archiveDir(fs, base) {
+    var p2 = function (n, w) { return String(n).padStart(w || 2, '0'); };
+    function name() {
+      var d = new Date(), rnd = '', b = new Uint8Array(3);
+      if (typeof crypto !== 'undefined' && crypto.getRandomValues) crypto.getRandomValues(b); else for (var i = 0; i < 3; i++) b[i] = Math.floor(Math.random() * 256);
+      for (var j = 0; j < 3; j++) rnd += p2(b[j].toString(16));
+      return d.getFullYear() + '-' + p2(d.getMonth() + 1) + '-' + p2(d.getDate()) + '-' + p2(d.getHours()) + p2(d.getMinutes()) + p2(d.getSeconds()) + '-' + p2(d.getMilliseconds(), 3) + '-' + rnd;
+    }
+    function attempt(n) {
+      var at = base + '/' + name();
+      return fs.mkdirExclusive(at).then(function () { return at; }, function (e) { if (n >= 20 || !/already there/.test(e && e.message)) throw e; return attempt(n + 1); });
+    }
+    return attempt(0);
+  }
+  /* A copy of a file about to be replaced, read back: no checked copy, no replacement. */
+  function archiveCopy(fs, dir, rel, text) {
+    var at = dir + '/' + rel;
+    return fs.write(at, text).then(function () { return fs.read(at); }).then(function (back) {
+      if (!back || back.text !== text) throw new Error('The copy of ' + rel + ' didn\'t read back the same, so nothing was replaced. Check the folder and try again.');
+    });
+  }
+  /* A merged file's staged copy, put away beside the replaced files: copied, read back, and removed only if it's still exactly
+     the text that was read. This is copy-then-remove, not a move: a failure leaves the staged copy where it was. alive() false
+     (the folder was switched) stops it before its next change. A file changed in the instant between the last read and the
+     removal is removed; the command's --force has the same limit, and this is a generated copy. */
+  function archiveStaged(fs, dir, path, rel, text, alive) {
+    var on = function () { return !alive || alive(); };
+    if (!on()) return Promise.resolve({ stale: true });
+    return archiveCopy(fs, dir, rel, text).then(function () { return on() ? fs.read(path) : null; }).then(function (now) {
+      if (!on()) return { stale: true };
+      if (!now || now.text !== text) return { changed: true };
+      /* A removal that says it failed may still have happened: only a file still there is a failure. */
+      return fs.remove(path).then(function () { return { ok: true }; }, function (e) {
+        return fs.read(path).then(function (left) { if (left) throw e; return { ok: true }; }, function () { return { unsure: true, why: e && e.message || String(e) }; });
+      });
+    });
+  }
   /* Every draft save names the exact text it expects (opts.expectText; null when the draft doesn't exist yet), and nothing
      over the size limit is ever written: the refusal (tooBig) says how big it is and what to cut. */
   function saveDraft(fs, file, md, expect, opts) {
@@ -2253,6 +2332,26 @@ PF.repo = (function () {
     function next() { if (active >= n || !waiting.length) return; active++; var job = waiting.shift(); Promise.resolve().then(job.fn).then(function (v) { active--; next(); job.res(v); }, function (e) { active--; next(); job.rej(e); }); }
     return function (fn) { return new Promise(function (res, rej) { waiting.push({ fn: fn, res: res, rej: rej }); next(); }); };
   }
+  /* SHA-256 of each text, as hex; null when this browser can't. */
+  function digests(texts) {
+    var sub = typeof crypto !== 'undefined' && crypto.subtle;
+    if (!sub || typeof TextEncoder === 'undefined') return Promise.resolve(null);
+    return Promise.all(texts.map(function (t) { return sub.digest('SHA-256', new TextEncoder().encode(t)); })).then(function (ds) { return ds.map(PF.contract.hex); });
+  }
+  /* A copy waiting to be merged, read with a limit, as the fingerprint AI assistant files compares. The text goes no further
+     than this, and the caller's pool slot is held until the fingerprint is done. Over the limit it throws, like any read that
+     fails, so the copy is named as unreadable and, still being listed, still waits. */
+  function stagedPrint(fs, p) {
+    return fs.read(p, { maxBytes: PF.contract.MAX_BYTES }).then(function (r) {
+      if (!r) return null;
+      return digests([PF.contract.managed(stagedOf(p).key, r.text)]).then(function (ds) { return { print: ds ? ds[0] : null }; });
+    });
+  }
+  /* A contract file's copy waiting to be merged: .flightdeck/updates/<version>/<the file's own path>. */
+  function stagedOf(p) {
+    var m = /^\.flightdeck\/updates\/([^/]+)\/(AGENTS\.md|\.flightdeck\/skills\/.+)$/.exec(p);
+    return m && PF.contract.VERSION_DIR.test(m[1]) ? { version: m[1], key: m[2] } : null;
+  }
   var SCAN_MAX = 50000, SKIP_DIRS = { '.git': 1, 'node_modules': 1 };
   /* Lists every file with its size and time (8 calls at a time), and reads the few small files nothing else checks: people.json,
      plans and sign-offs, the Jira workflows, and the files for AI assistants. opts.alive() false stops it (the folder was
@@ -2281,14 +2380,16 @@ PF.repo = (function () {
       }));
     }).then(function () {
       /* replaced-*.json beside a run (small, and only these) are read to recognize an older copy's placeholder (H10). */
-      var want = files.filter(function (f) { return f.p === 'people.json' || f.p === PF.teamValues.FILE || f.p === 'jira/workflows.json' || f.p === '.flightdeck/installed.json' || f.p === PF.contract.AGENTS || /^(proposals|validations)\/[^/]+\.json$/i.test(f.p) || /^\.flightdeck\/skills\//.test(f.p) || (/^runs\/[^/]+\/[^/]+\/replaced-[^/]+\.json$/.test(f.p) && f.s != null && f.s <= 65536); });
-      var texts = {}, installed = null, placeholders = [];
+      var want = files.filter(function (f) { return f.p === 'people.json' || f.p === PF.teamValues.FILE || f.p === 'jira/workflows.json' || f.p === '.flightdeck/installed.json' || f.p === PF.contract.AGENTS || stagedOf(f.p) || /^(proposals|validations)\/[^/]+\.json$/i.test(f.p) || /^\.flightdeck\/skills\//.test(f.p) || (/^runs\/[^/]+\/[^/]+\/replaced-[^/]+\.json$/.test(f.p) && f.s != null && f.s <= 65536); });
+      var texts = {}, installed = null, placeholders = [], recordText, stagedPrints = {};
       return Promise.all(want.map(function (f) {
-        return go(function () { if (!alive()) throw stop(); return f.p === PF.teamValues.FILE ? readTeamValues(fs) : fs.read(f.p); }).then(function (r) {
+        return go(function () { if (!alive()) throw stop(); if (stagedOf(f.p)) return stagedPrint(fs, f.p); return f.p === PF.teamValues.FILE ? readTeamValues(fs) : fs.read(f.p); }).then(function (r) {
           if (!r) return;
           /* team-values.json (2.9): through its one bounded reader, so a damaged, newer or oversized file is named here. */
           if (f.p === PF.teamValues.FILE) { if (r.state !== 'ok' && r.state !== 'missing' && r.state !== 'newer') unreadable.push({ path: f.p, why: String(r.why).replace(/^team-values\.json:? ?/, '').replace(/\.$/, '') }); return; }
+          if (stagedOf(f.p)) { if (r.print) stagedPrints[f.p] = r.print; return; }
           if (/^\.flightdeck\/skills\//.test(f.p) || f.p === PF.contract.AGENTS) { texts[f.p] = r.text; return; }
+          if (f.p === '.flightdeck/installed.json') recordText = r.text;
           var o = json(r.text);
           if (f.p === '.flightdeck/installed.json') { installed = PF.contract.cleanInstalled(o); return; }
           if (/^runs\//.test(f.p)) { if (R.isPlaceholder(o)) placeholders.push(f.p); return; }
@@ -2318,7 +2419,7 @@ PF.repo = (function () {
           if (m && f.m != null && (pubs[m[1]] == null || f.m > pubs[m[1]])) pubs[m[1]] = f.m;
         });
         return { at: new Date().toISOString(), ms: Date.now() - started, files: files.length, bytes: bytes, longest: longest, areas: areas, pubs: pubs, list: files, unreadable: unreadable, truncated: truncated,
-          contractTexts: texts, placeholders: placeholders.sort(), reports: reports, installed: files.some(function (f) { return f.p === '.flightdeck/installed.json'; }) ? installed || 'bad' : null,
+          contractTexts: texts, stagedPrints: stagedPrints, recordText: recordText === undefined ? null : recordText, placeholders: placeholders.sort(), reports: reports, installed: files.some(function (f) { return f.p === '.flightdeck/installed.json'; }) ? installed || 'bad' : null,
           updates: files.filter(function (f) { return /^\.flightdeck\/updates\//.test(f.p) && !/\/README\.md$/i.test(f.p) && !/\/replaced\//.test(f.p) && !/\.base$/.test(f.p); }).map(function (f) { return f.p; }) };
       });
     });
@@ -3159,5 +3260,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();
