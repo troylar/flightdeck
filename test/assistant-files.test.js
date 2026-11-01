@@ -920,7 +920,7 @@ for (const name of Object.keys(ASYNC_PATHS)) for (const change of ['folder', 'ta
 }
 
 /* A function in this feature that waits on something, and how it's bound. A new one fails until it's listed here. */
-const AF_ASYNC = { afPerm: 'a question, no state', afIsTeam: 'a question, no state', afUse: 'live', afRead: 'reads only, for a caller that checks', afLoad: 'guard', afUpdate: 'guard', afMerged: 'guard', afPick: 'live', afRemembered: 'live', afAllow: 'live' };
+const AF_ASYNC = { afPerm: 'a question, no state', afIsTeam: 'a question, no state', afUse: 'turn', afRead: 'reads only, for a caller that checks', afLoad: 'guard', afUpdate: 'guard', afMerged: 'guard', afPick: 'chooses', afRemembered: 'chooses', afAllow: 'chooses' };
 const AF_ACTS = ['ai-files', 'af-load', 'af-where', 'af-pick', 'af-allow', 'af-update', 'af-merged', 'af-peek', 'af-copy', 'af-brief'];
 function afAudit(src) {
   const out = [], a = src.indexOf('Settings, AI assistant files: flightdeck install'), b = src.indexOf('Getting started (views/setup.js', a), body = src.slice(a, b), fns = {};
@@ -929,12 +929,15 @@ function afAudit(src) {
   Object.keys(fns).filter(n => WAITS.test(fns[n])).forEach(n => {
     if (!AF_ASYNC[n]) out.push(n + ' waits on something and isn\'t in the table');
     if (AF_ASYNC[n] === 'guard' && !/afGuard\(af\)/.test(fns[n])) out.push(n + ' doesn\'t take the guard');
-    if (AF_ASYNC[n] === 'live' && !/afLive\(af\)/.test(fns[n])) out.push(n + ' doesn\'t check the object it began with');
+    if (AF_ASYNC[n] === 'chooses' && !/afTurn\(af\)/.test(fns[n])) out.push(n + ' chooses a folder without taking a turn');
+    if (AF_ASYNC[n] === 'turn' && !/if \(!turn\(\)\) return/.test(fns[n])) out.push(n + ' doesn\'t check its turn after waiting');
   });
   ['afUpdate', 'afMerged', 'afBrief'].forEach(n => { if (!/afReady\(af\)/.test(fns[n] || '')) out.push(n + ' doesn\'t refuse before the read has finished'); });
   if ((src.match(/state\.af = /g) || []).length !== 1 || !/state\.af = /.test(fns.afNew || '')) out.push('state.af is assigned somewhere other than afNew');
   if (/\baf\.(where|fs|otherFs|otherAsk)\s*=[^=]/.test(src)) out.push('a state object\'s target changed in place');
   if (!/function \(\) \{ return afLive\(af\); \}/.test(fns.afCopy || '')) out.push('a copy isn\'t bound to its target');
+  /* Only the latest choice reaches afUse: each caller holds a turn, and nothing else calls it. */
+  Object.keys(fns).filter(n => /afUse\(/.test(fns[n]) && n !== 'afUse').forEach(n => { if (AF_ASYNC[n] !== 'chooses') out.push(n + ' calls afUse without being in the table as choosing'); if (!/afUse\(af, d, turn/.test(fns[n])) out.push(n + ' calls afUse without its turn'); });
   const found = [...src.matchAll(/\n    '(af-[a-z]+|ai-files)': function/g)].map(m => m[1]);
   found.filter(x => !AF_ACTS.includes(x)).forEach(x => out.push(x + ' is an action not in the list'));
   AF_ACTS.forEach(act => { const at = src.indexOf("'" + act + "': function"), code = src.slice(at, src.indexOf("\n    '", at + 5)); if (at < 0) out.push(act + ' is gone'); else if (WAITS.test(code)) out.push(act + ' waits outside a guarded function'); });
@@ -952,6 +955,7 @@ rule('Round 2, source: every async path in this feature is bound to the object i
   assert.ok(plant("'af-load': function () {", "'af-load': function () { Promise.resolve().then(render);"), 'a wait in an action');
   assert.ok(plant('\n    \'af-load\': function', '\n    \'af-new\': function () { },\n    \'af-load\': function'), 'a new action');
   assert.ok(plant(mark, '\n  function afX(af) { af.where = 1; state.af = af; }' + mark), 'changing a target in place');
+  assert.ok(plant(mark, '\n  function afElse(af, d) { return afUse(af, d, function () { return true; }); }' + mark), 'a new way to choose a folder');
 });
 
 rule('Round 2, 3: Folder health reads a waiting copy with a limit, keeps only its fingerprint, and over the limit it stays a merge with no all-clear', async () => {
@@ -1093,6 +1097,113 @@ rule('Round 3, 3: Update failing after leaving Settings is announced, naming the
   await stayed.land();
   assert.ok(/af-err/.test(stayed.app.html()), 'on Settings, it shows where it was');
   assert.ok(!NOTICE.test(stayed.app.html()), 'once');
+});
+
+/* ---------------- review round 4 ---------------- */
+
+/* The team folder's identity check answers per folder, when told to. */
+async function twoFolders(perm) {
+  const idb = memoryIDB(), aFiles = {}, bFiles = {}, gates = { a: gate(), b: gate() };
+  let aPerm = 'granted';
+  const A = handle('Skills A', aFiles, { queryPermission: () => Promise.resolve(aPerm), requestPermission: () => (gates.allow ? gates.allow.p : Promise.resolve()).then(() => 'granted') });
+  const B = handle('Skills B', bFiles, { queryPermission: () => Promise.resolve('granted') });
+  const seed = boot({ picker: () => A, indexedDB: idb }); await seed.tick(60);
+  seed.click('nav', 'settings'); await seed.tick(20); seed.click('af-where', 'other'); await seed.tick(30); seed.click('af-pick'); await seed.tick(100);
+  aPerm = perm || 'granted';
+  const team = folderHandle('Team', asFiles(scenario('settled')));
+  team.isSameEntry = (d) => (d === A ? gates.a : gates.b).p.then(() => false);
+  const w = { pick: team, A, B, aFiles, bFiles, gates };
+  const app = w.app = boot({ picker: () => w.pick, indexedDB: idb }); await app.tick(60);
+  app.click('connect'); await app.tick(200);
+  app.click('ai-files'); await wait(app);
+  return w;
+}
+const section = (app) => { const h = app.html(), at = h.indexOf('id="set-ai"'); return h.slice(at, h.indexOf('</section>', at)); };
+const usesB = async (w) => {
+  assert.ok(/Using <b>Skills B<\/b>/.test(section(w.app)), 'the last choice is the one in use');
+  w.app.click('af-update'); await wait(w.app); await wait(w.app);
+  assert.ok(w.bFiles['.flightdeck-installed.json'], 'Update writes there');
+  assert.deepStrictEqual(Object.keys(w.aFiles).filter(k => k !== '.flightdeck-installed.json' && !/SKILL|_flightdeck/.test(k)), [], 'and not to the earlier one');
+};
+
+rule('Round 4, 1: a remembered folder\'s check finishing after another is chosen changes nothing, and only the last choice is used', async () => {
+  const w = await twoFolders(), app = w.app, before = JSON.stringify(w.aFiles);
+  app.click('af-where', 'other'); await app.tick(60);
+  w.pick = w.B; app.click('af-pick'); await app.tick(60);
+  w.gates.a.open(); await wait(app);
+  assert.ok(!/Using <b>Skills A<\/b>/.test(section(app)), 'A doesn\'t take over');
+  w.gates.b.open(); await wait(app);
+  await usesB(w);
+  assert.strictEqual(JSON.stringify(w.aFiles), before, 'A is untouched');
+});
+
+rule('Round 4, 1: opening the picker drops a check still running, whatever the picker then does', async () => {
+  const w = await twoFolders(), app = w.app, chooser = gate();
+  app.click('af-where', 'other'); await app.tick(60);
+  w.pick = chooser.p.then(() => w.B); app.click('af-pick'); await app.tick(40);
+  w.gates.a.open(); await wait(app);
+  assert.ok(!/Using <b>Skills A<\/b>/.test(section(app)), 'A doesn\'t land behind the open picker');
+  w.gates.b.open(); chooser.open(); await wait(app);
+  await usesB(w);
+});
+
+rule('Round 4, 1: Allow answered after another folder is chosen changes nothing', async () => {
+  const w = await twoFolders('prompt'), app = w.app; w.gates.a.open();
+  w.gates.allow = gate();
+  app.click('af-where', 'other'); await wait(app);
+  assert.ok(/Allow Skills A again/.test(section(app)), 'set-up: it asks');
+  app.click('af-allow'); await app.tick(40);
+  w.pick = w.B; app.click('af-pick'); await app.tick(40);
+  w.gates.allow.open(); await app.tick(60);
+  assert.ok(!/Using <b>Skills A<\/b>/.test(section(app)), 'the answer about A doesn\'t take over');
+  w.gates.b.open(); await wait(app);
+  await usesB(w);
+});
+
+const slowOther = async () => {
+  const other = {}, st = { armed: false, gate: gate() }, o = {};
+  const dir = paused(hooked(handle('Skills', other, { queryPermission: () => Promise.resolve('granted') }), o), st);
+  let pick = folderHandle('Team', asFiles(scenario('deleted')));
+  const app = boot({ picker: () => pick, indexedDB: memoryIDB() }); await app.tick(60);
+  app.click('connect'); await app.tick(200);
+  app.click('ai-files'); await wait(app);
+  app.click('af-where', 'other'); await app.tick(50);
+  pick = dir; app.click('af-pick'); await wait(app);
+  st.armed = true; app.click('af-update'); await app.tick(100);
+  assert.ok(st.reached, 'set-up: the Update is under way');
+  return { app, other, st, o };
+};
+
+rule('Round 4, 2: asking for the team folder during a slow Update elsewhere says so, then goes there when it finishes', async () => {
+  const { app, other, st } = await slowOther();
+  app.click('nav', 'home'); await app.tick(20);
+  app.click('ai-files'); await app.tick(60);
+  assert.ok(/Using <b>Skills<\/b>/.test(section(app)) && /Working…/.test(section(app)), 'the Update carries on where it is');
+  assert.ok(/Then this shows the team folder/.test(section(app)), 'and it says where it goes next');
+  st.gate.open(); await wait(app); await wait(app);
+  assert.ok(other['.flightdeck-installed.json'], 'the Update finished');
+  const html = section(app);
+  assert.ok(!/Using <b>Skills<\/b>/.test(html) && /data-af-row="AGENTS\.md"/.test(html), 'then the team folder is showing');
+  assert.ok(/data-act="af-where" data-id="team" aria-pressed="true"/.test(html), 'and In the team folder is the one pressed');
+  assert.ok(/data-af-status="(missing|new)"/.test(html), 'with that folder\'s own statuses');
+  assert.ok(!/Then this shows/.test(html), 'and the promise is gone');
+  assert.ok(/Showing the team folder/.test(app.live()), 'and it says it finished: ' + app.live());
+});
+
+rule('Round 4, 2: an Update that fails on the way still goes to the team folder, and says what failed', async () => {
+  const { app, st, o } = await slowOther();
+  app.click('nav', 'home'); await app.tick(20);
+  app.click('ai-files'); await app.tick(60);
+  o.fail = /./; st.gate.open(); await wait(app); await wait(app);
+  const html = section(app);
+  assert.ok(/data-af-row="AGENTS\.md"/.test(html), 'it goes');
+  assert.ok(/AI assistant files/.test(app.live()) && /skills folder/.test(app.live()), 'and what failed, and where, is said: ' + app.live());
+});
+
+rule('Round 4, 2: without asking, the screen stays where the Update ran', async () => {
+  const { app, st } = await slowOther();
+  st.gate.open(); await wait(app); await wait(app);
+  assert.ok(/Using <b>Skills<\/b>/.test(section(app)) && !/Then this shows/.test(section(app)));
 });
 
 run();

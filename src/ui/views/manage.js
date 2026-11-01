@@ -536,7 +536,7 @@
       h += '<p class="small">For an AI assistant that reads skills from its own folder: the skills only, with their own record (<code>.flightdeck-installed.json</code>) and updates folder (<code>.flightdeck-updates</code>), so updates stay safe there too.</p>';
       if (ctx.canFolder) h += '<div class="row">' + (af.otherAsk ? '<button type="button" class="btn go" data-act="af-allow"' + off + '>Allow ' + esc(af.otherAsk.name) + ' again</button>' : '') + '<button type="button" class="btn" data-act="af-pick"' + off + '>' + (tg.fs || af.otherAsk ? 'Choose another folder' : 'Choose a folder') + '</button>' + (tg.fs ? '<span class="small">Using <b>' + esc(tg.fs.name) + '</b></span>' : '') + '</div>';
     }
-    var status = af.loading ? 'Checking the files…' : af.busy ? 'Working…' : !l || !l.items.some(function (i) { return i.status; }) ? '' : todo ? todo + ' to update' + (merge ? ', ' + merge + ' to merge' : '') : merge ? merge + ' to merge' : 'All up to date';
+    var status = af.loading ? 'Checking the files…' : af.busy ? 'Working…' + (af.thenTeam ? ' Then this shows the team folder.' : '') : !l || !l.items.some(function (i) { return i.status; }) ? '' : todo ? todo + ' to update' + (merge ? ', ' + merge + ' to merge' : '') : merge ? merge + ' to merge' : 'All up to date';
     h += '<p class="af-status" role="status">' + esc(status) + '</p>';
     if (ro) h += '<p class="small af-ro">' + esc(ro) + '</p>';
     if (af.err) h += '<p class="small af-err" role="alert">' + esc(af.err) + '</p>';

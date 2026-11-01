@@ -1355,15 +1355,23 @@
       }).then(function () {
         af.result = { wrote: wrote, staged: stagedN, kept: l.items.filter(function (i) { return i.status === 'kept'; }).length, changed: changed, replaced: dir, ignored: !!l.record.ignored, record: wroteRecord };
       });
-    }).then(function () { if (!alive()) return; af.busy = false; afFilesChanged(tg); return afLoad(true, af); }, function (e) {
+    }).then(function () { if (!alive()) return; af.busy = false; afFilesChanged(tg); return afThenTeam(af, tg) || afLoad(true, af); }, function (e) {
       if (e && e.stale) return;
-      if (!alive()) return; af.busy = false; afFailed(af, tg, 'The AI assistant files weren\'t all updated in', (e && e.name === 'NotAllowedError' ? 'This browser didn\'t allow writing to the folder. ' : '') + (e && e.message || String(e))); afFilesChanged(tg); render();
+      if (!alive()) return; af.busy = false; afFailed(af, tg, 'The AI assistant files weren\'t all updated in', (e && e.name === 'NotAllowedError' ? 'This browser didn\'t allow writing to the folder. ' : '') + (e && e.message || String(e))); afFilesChanged(tg); if (!afThenTeam(af, tg)) render();
     });
   }
   /* A write that failed: Settings shows it where it happened, and from anywhere else it's said, since nothing there would. */
   function afFailed(af, tg, lead, text) {
     af.err = text;
-    if (state.view !== 'settings') say(lead + ' ' + tg.home + '. ' + text, 'warn', tg.standalone ? null : { act: 'ai-files', id: '', label: 'Open AI assistant files' });
+    if (state.view !== 'settings' || af.thenTeam) say(lead + ' ' + tg.home + '. ' + text, 'warn', tg.standalone ? null : { act: 'ai-files', id: '', label: 'Open AI assistant files' });
+  }
+  /* The team folder was asked for while this was writing elsewhere (Open AI assistant files): it goes there now the write has
+     finished, and what's left behind on this target is said, since that target's screen is gone. */
+  function afThenTeam(af, tg) {
+    if (!af.thenTeam) return null;
+    var r = af.result, left = r && r.changed ? r.changed.length : 0;
+    if (!af.err) say(left ? 'Finished in ' + tg.home + ', but ' + left + (left === 1 ? ' file' : ' files') + ' changed while updating and ' + (left === 1 ? 'was' : 'were') + ' left as ' + (left === 1 ? 'it is' : 'they are') + '. Showing the team folder.' : (r && r.note ? r.note + ' ' : 'Finished in ' + tg.home + '. ') + 'Showing the team folder.', left ? 'warn' : 'good');
+    return afLoad(false, afNew('team', state.fs));
   }
   /* What Folder health last found about these files is out of date now: its next look scans again. */
   function afFilesChanged(tg) { if (!tg.standalone) state.healthScan = null; }
@@ -1392,8 +1400,8 @@
     }).then(function () {
       if (!alive()) return; af.busy = false; afFilesChanged(tg);
       af.result = kept.length ? { note: 'A copy waiting in ' + (kept.length === 1 ? kept[0] : kept.length + ' versions') + ' changed since this screen read it, so it was left where it is. Look at it again.' } : { note: 'Put away. The copy is beside the replaced files, in case you need it.' };
-      return afLoad(true, af);
-    }, function (e) { if (!alive()) return; af.busy = false; afFailed(af, tg, 'An AI assistant file wasn\'t put away in', e && e.message || String(e)); render(); });
+      return afThenTeam(af, tg) || afLoad(true, af);
+    }, function (e) { if (!alive()) return; af.busy = false; afFailed(af, tg, 'An AI assistant file wasn\'t put away in', e && e.message || String(e)); if (!afThenTeam(af, tg)) render(); });
   }
   /* The request for an AI assistant: one prompt for each version folder holding a copy of this file. */
   function afBrief(key) {
@@ -1415,10 +1423,13 @@
     var team = state.fs && state.fs.dir;
     return Promise.resolve(team && team.isSameEntry ? team.isSameEntry(d) : false).catch(function () { return true; });
   }
+  /* Choosing a folder waits on the picker, the browser's permission and the check above, in any order. Each start, picker,
+     restore or allow, takes a turn and ends every earlier one, so only the latest choice can reach afUse. */
+  function afTurn(af) { var t = af.turn = (af.turn || 0) + 1; return function () { return afLive(af) && af.turn === t && !af.busy; }; }
   /* Every way in, chosen, restored or allowed again, passes here. */
-  function afUse(af, d, remember) {
+  function afUse(af, d, turn, remember) {
     return afIsTeam(d).then(function (same) {
-      if (!afLive(af) || af.busy) return;
+      if (!turn()) return;
       if (same) { af.err = AF_IS_TEAM; render(); return; }
       if (remember) handles.write('skills', d).catch(function () { /* this browser can't remember it: it asks again next time */ });
       var fs = new PF.fs.FolderFS(d);
@@ -1429,21 +1440,23 @@
   function afPick() {
     var af = afState();
     if (!canFolder || af.busy) return;
+    var turn = afTurn(af);
     window.showDirectoryPicker({ id: 'flightdeck-skills', mode: 'readwrite' }).then(function (d) {
-      if (!afLive(af) || af.busy) return;
-      return afUse(af, d, true);
+      if (!turn()) return;
+      return afUse(af, d, turn, true);
     }, function () { /* picker closed */ });
   }
   function afRemembered(af) {
     render();
     if (!canFolder) return;
+    var turn = afTurn(af);
     return handles.read('skills').then(function (d) {
-      if (!d) return;
+      if (!d || !turn()) return;
       return afPerm({ dir: d }).then(function (p) {
-        if (!afLive(af)) return;
-        if (p === 'granted') return afUse(af, d);
+        if (!turn()) return;
+        if (p === 'granted') return afUse(af, d, turn);
         return afIsTeam(d).then(function (same) {
-          if (!afLive(af)) return;
+          if (!turn()) return;
           if (same) af.err = AF_IS_TEAM; else afNew('other', null, d);
           render();
         });
@@ -1452,7 +1465,8 @@
   }
   function afAllow() {
     var af = afState(), d = af.otherAsk; if (!d || af.busy) return;
-    d.requestPermission({ mode: 'readwrite' }).then(function (p) { if (!afLive(af) || p !== 'granted') return; return afUse(af, d); }, function () { /* refused: the screen stays read only */ });
+    var turn = afTurn(af);
+    d.requestPermission({ mode: 'readwrite' }).then(function (p) { if (!turn() || p !== 'granted') return; return afUse(af, d, turn); }, function () { /* refused: the screen stays read only */ });
   }
   /* Settings opened: where each file stands, once for this folder. */
   function afFirstLook() {
@@ -5734,7 +5748,7 @@
       copyText(PF.health.text(rep, { folder: state.fs && state.fs.name, at: U.when(hs.scan.at), app: APP_VERSION, files: hs.scan.files }), null, 'Copied. Paste it to a teammate or your AI assistant.');
     },
     'ai-files': function () {
-      ACTIONS.nav('settings'); var af = afState(); if (!af.busy && af.where !== 'team') af = afNew('team', state.fs); state.focus = 'set-ai'; render();
+      ACTIONS.nav('settings'); var af = afState(); if (af.where !== 'team') { if (af.busy) af.thenTeam = true; else af = afNew('team', state.fs); } state.focus = 'set-ai'; render();
       var el = document.getElementById('set-ai'); if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start' });
       afLoad(false, af);
     },
