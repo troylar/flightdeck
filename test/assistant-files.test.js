@@ -793,7 +793,7 @@ rule('Round 1, 7 and 9: the docs say the race limit the command\'s text has, and
   const at = updating.indexOf('**A file that changes while the app updates.**'), para = updating.slice(at, updating.indexOf('\n', at));
   assert.ok(/instant between/.test(para) && /Close editors on `AGENTS\.md` and the skills/.test(para), 'docs/updating.md, for Update');
   assert.ok(/\*\*I merged it\*\*[^\n]*instant between/.test(updating), 'docs/updating.md, for I merged it');
-  const rel = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'src', 'releases.json'), 'utf8'))[0], first = rel.changes[0].now;
+  const rel = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'src', 'releases.json'), 'utf8')).find(r => r.version === '2.12.0'), first = rel.changes[0].now;
   assert.ok(/instant/.test(first) && /[Cc]lose editors/.test(first), 'the release note');
   const waiver = fs.readFileSync(path.join(__dirname, '..', 'docs', 'rehearsals', '2.12.0-2026-10-31-waiver.md'), 'utf8');
   assert.ok(/fileAway/.test(waiver) && /final comparison/.test(waiver), 'the waiver');
@@ -920,8 +920,8 @@ for (const name of Object.keys(ASYNC_PATHS)) for (const change of ['folder', 'ta
 }
 
 /* A function in this feature that waits on something, and how it's bound. A new one fails until it's listed here. */
-const AF_ASYNC = { afPerm: 'a question, no state', afIsTeam: 'a question, no state', afUse: 'turn', afRead: 'reads only, for a caller that checks', afLoad: 'guard', afUpdate: 'guard', afMerged: 'guard', afPick: 'chooses', afRemembered: 'chooses', afAllow: 'chooses' };
-const AF_ACTS = ['ai-files', 'af-load', 'af-where', 'af-pick', 'af-allow', 'af-update', 'af-merged', 'af-peek', 'af-copy', 'af-brief'];
+const AF_ASYNC = { afPerm: 'a question, no state', afIsTeam: 'a question, no state', afUse: 'turn', afRead: 'reads only, for a caller that checks', afLoad: 'guard', afUpdate: 'guard', afMerged: 'guard', afPick: 'chooses', afRemembered: 'chooses', afAllow: 'chooses', afZip: 'a download of the page\'s own text: no target, no state' };
+const AF_ACTS = ['ai-files', 'af-load', 'af-where', 'af-pick', 'af-allow', 'af-update', 'af-merged', 'af-peek', 'af-copy', 'af-brief', 'af-start', 'af-zip'];
 function afAudit(src) {
   const out = [], a = src.indexOf('Settings, AI assistant files: flightdeck install'), b = src.indexOf('Getting started (views/setup.js', a), body = src.slice(a, b), fns = {};
   for (const m of body.matchAll(/\n  function (af\w+)\(/g)) { const next = body.indexOf('\n  function ', m.index + 5); fns[m[1]] = body.slice(m.index, next < 0 ? body.length : next); }

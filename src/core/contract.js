@@ -135,6 +135,11 @@ PF.contract = (function () {
   function mergePrompt(version, here) {
     return '> Flightdeck ' + version + ' put new default versions of some files in `' + here + '/`; its README.md lists them. For each one, compare the new default with our file at the same path. Keep our own changes, and bring in what the new default adds or changes. In AGENTS.md, change only the part between `<!-- flightdeck:begin -->` and `<!-- flightdeck:end -->`; anything that is ours belongs under Team notes, below the end marker. Show me each change before you save it. When a file is merged, delete its copy here. When only README.md is left, delete this folder.';
   }
-  return { MAX_BYTES: MAX_BYTES, cleanInstalled: cleanInstalled, readRecord: readRecord, newerWhy: newerWhy, classify: classify, merged: merged, nextRecord: nextRecord, mergeReadme: mergeReadme, mergePrompt: mergePrompt, byVersion: byVersion, VERSION_DIR: VERSION_DIR,
+  /* The first thing to paste into an AI assistant opened on the team folder: plain text, naming no tool. Not every tool reads
+     .flightdeck/skills on its own, and one stops reading AGENTS.md partway, so it says both out loud. */
+  var START_PROMPT = 'Read AGENTS.md in this folder, to the end, and follow it. If this folder has no AGENTS.md, stop and tell me to open the team folder itself.\n\n' +
+    'The Flightdeck skills are in .flightdeck/skills/, one folder per skill, each with a SKILL.md. Your tool may not load them on its own, so list that folder yourself. When one fits the job, read its SKILL.md and follow it. A name like /flightdeck-status or $flightdeck-status means .flightdeck/skills/flightdeck-status/SKILL.md.\n\n' +
+    'Don\'t change anything yet. Tell me in a few lines what you can help with here, then ask me what I want done.';
+  return { START_PROMPT: START_PROMPT, MAX_BYTES: MAX_BYTES, cleanInstalled: cleanInstalled, readRecord: readRecord, newerWhy: newerWhy, classify: classify, merged: merged, nextRecord: nextRecord, mergeReadme: mergeReadme, mergePrompt: mergePrompt, byVersion: byVersion, VERSION_DIR: VERSION_DIR,
     BEGIN: BEGIN, END: END, AGENTS: AGENTS, BASELINES: BASELINES, norm: norm, region: region, managed: managed, baselineKey: baselineKey, hex: hex, installed: installed };
 })();

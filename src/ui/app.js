@@ -1412,8 +1412,23 @@
   function afFile(key) { return afTarget(afState()).files.filter(function (f) { return f.key === key; })[0]; }
   /* A copy belongs to the target it began in. If the clipboard says no, the text is drawn in that target's own box and that
      box, just looked up so it's the one on the page, is selected. After a change of target, it does nothing at all. */
-  function afCopy(af, text, boxId, done, show) {
-    copyText(text, document.getElementById(boxId), done, function () { show(); render(); return document.getElementById(boxId); }, function () { return afLive(af); });
+  function afCopy(af, text, boxId, done, show, msgId) {
+    copyText(text, document.getElementById(boxId), done, function () { show(); render(); return document.getElementById(boxId); }, function () { return afLive(af); }, msgId);
+  }
+  /* The skills as a file, from what's in the page: the same files and paths flightdeck skills --to writes, through the writer
+     evidence packs use. No folder, no network, and nothing it depends on can change while it runs. */
+  function afZip() {
+    var name = 'flightdeck-skills-' + APP_VERSION + '.zip', parts = [];
+    var tell = function (t) { var m = document.getElementById('af-start-msg'); if (m) m.textContent = t; };
+    return Promise.resolve().then(function () {
+      var w = PF.zip.writer({ date: new Date(), sink: function (b) { parts.push(b); } });
+      return afTarget({ where: 'other' }).files.reduce(function (q, f) { return q.then(function () { return w.add(f.rel, PF.sha256.utf8(f.text)); }); }, Promise.resolve()).then(function () { return w.finish(); });
+    }).then(function () {
+      var url = URL.createObjectURL(new Blob(parts, { type: 'application/zip' })), a = document.createElement('a');
+      a.href = url; a.download = name; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
+      tell('Downloading ' + name + '. Unzip it into the folder your AI assistant reads skills from.');
+    }).catch(function (e) { tell('Couldn\'t make the ZIP: ' + (e && e.message || String(e)) + ' Use flightdeck skills --to <folder> in a terminal instead.'); });
   }
   /* Another folder for skills: chosen here, remembered where the browser allows, like the team folder. A folder chosen
      makes a new object, so the last folder's rows are gone at once, before this one's read has finished. */
@@ -5769,6 +5784,11 @@
       var f = afFile(id), af = afState(); if (!f) return;
       afCopy(af, f.text, 'af-pre-' + PF.vk.domKey(f.key), 'Copied ' + f.rel + '. Paste it to your AI assistant.', function () { af.peek = id; });
     },
+    'af-start': function () {
+      var af = afState(), t = PF.contract.START_PROMPT;
+      afCopy(af, t, 'af-start-pre', 'Copied. Paste it to your AI assistant.', function () { af.startShown = t; }, 'af-start-msg');
+    },
+    'af-zip': function () { afZip(); },
     'af-brief': function (id) {
       var t = afBrief(id), af = afState(); if (!t) return;
       afCopy(af, t, 'af-brief-pre', 'Copied. Paste it to your AI assistant in ' + afTarget(af).home + '.', function () { af.briefShown = t; });
@@ -7666,9 +7686,9 @@
   }
   function openLightbox(list, i) { openOverlay({ list: list, i: i || 0, html: function () { return V.lightbox(ctx, this.list, this.i); } }); }
   /* refused can name the box to select instead (it may have drawn it); still, if given, says whether this copy still counts. */
-  function copyText(text, pre, done, refused, still) {
-    var msg = document.getElementById('copy-msg');
-    function fallback() { var box = refused ? refused() : null; if (box) pre = box; if (pre) { pre.hidden = false; var rg = document.createRange(); rg.selectNodeContents(pre); var s = window.getSelection(); s.removeAllRanges(); s.addRange(rg); } var m = document.getElementById('copy-msg'); if (m) m.textContent = 'Selected. Press Ctrl+C.'; }
+  function copyText(text, pre, done, refused, still, msgId) {
+    var where = msgId || 'copy-msg', msg = document.getElementById(where);
+    function fallback() { var box = refused ? refused() : null; if (box) pre = box; if (pre) { pre.hidden = false; var rg = document.createRange(); rg.selectNodeContents(pre); var s = window.getSelection(); s.removeAllRanges(); s.addRange(rg); } var m = document.getElementById(where); if (m) m.textContent = 'Selected. Press Ctrl+C.'; }
     var g = gen, view = state.view, key = state.runKey, counts = function () { return g === gen && state.view === view && state.runKey === key && (!still || still()); };
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { if (!counts()) return; if (msg && document.contains(msg)) msg.textContent = done || 'Copied. Paste it into the Jira ticket.'; else { say('Copied.', 'good'); render(); } }, function () { if (counts()) fallback(); });
     else fallback();

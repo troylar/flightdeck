@@ -76,7 +76,7 @@ It copies `flightdeck.html`, then goes through `AGENTS.md` and each skill file. 
 | A file your team changed, when this version changed that default too | Leaves it alone, and puts the new default in `.flightdeck/updates/<version>/` with a `README.md` |
 | Missing | Adds it |
 
-In `AGENTS.md`, only the part between `<!-- flightdeck:begin -->` and `<!-- flightdeck:end -->` is Flightdeck's. **Team notes**, below it, are yours, and install never changes them. Put your team's own instructions for AI assistants there.
+In `AGENTS.md`, only the part between `<!-- flightdeck:begin -->` and `<!-- flightdeck:end -->` is Flightdeck's. **Team notes**, below it, are yours, and install never changes them. Put your team's own instructions for AI assistants there. Keep them to about 4 KiB: one tool stops reading the file at 32 KiB unless it's told to read it.
 
 **When files need merging:** in the app, **Copy merge request** on **Settings → AI assistant files**, or open your AI assistant in the team folder and give it the prompt in `.flightdeck/updates/<version>/README.md`. It compares each new default with your file, keeps your changes, brings in the new ones, and deletes each copy once merged. Run `flightdeck install <folder> --check` again; 0 means nothing is left.
 
