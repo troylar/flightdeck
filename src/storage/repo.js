@@ -652,9 +652,9 @@ PF.repo = (function () {
     return b;
   }
   /* One pool of 8 per folder, shared by loading, the open run's reread, thumbnails and (later) export. Waiting calls start
-     in lane order: the open run first, then loading, then thumbnails (at most 4 at once), then export (at most 2), so
-     pictures or an export never slow the run being recorded. */
-  var LANES = ['open', 'load', 'thumb', 'export'], LANE_MAX = { open: 8, load: 8, thumb: 4, export: 2 };
+     in lane order: the open run first, then loading, then thumbnails (at most 4 at once), then Settings' checks of the
+     AI assistant files (at most 4), then export (at most 2), so none of these ever slow the run being recorded or a Refresh. */
+  var LANES = ['open', 'load', 'thumb', 'files', 'export'], LANE_MAX = { open: 8, load: 8, thumb: 4, files: 4, export: 2 };
   var pools = typeof WeakMap === 'function' ? new WeakMap() : null, wrappers = typeof WeakMap === 'function' ? new WeakMap() : null;
   function poolOf(fs) {
     fs = fs && fs._raw || fs;
@@ -1748,8 +1748,43 @@ PF.repo = (function () {
   }
   /* ---------- AI assistant files (the contract): the app's half of flightdeck install ---------- */
   /* A contract file written only over the exact text it was read as (null: it must not be there), then read back. */
+  /* From the first write on, an error is not "nothing happened", so it comes back as a fact: { unverified } written, and the
+     read-back failed; { unsure } the write failed and what's there now is neither text. A failed write that left the file as it
+     was still throws: that one really did change nothing. */
   function contractWrite(fs, path, expectText, text) {
-    return saveChecked(fs, path, text, expectText == null ? null : U.hash(expectText), { expectText: expectText == null ? null : expectText });
+    var expect = expectText == null ? null : expectText, wrote = false, failed = null;
+    var why = function (e) { return e && e.message || String(e); };
+    var watched = {
+      read: function (p, o) { return fs.read(p, o); },
+      write: function (p, t) { return fs.write(p, t).then(function () { wrote = true; }, function (e) { failed = { e: e }; throw e; }); }
+    };
+    return saveChecked(watched, path, text, expect == null ? null : U.hash(expect), { expectText: expect }).catch(function (e) {
+      if (wrote) return { unverified: true, why: why(e) };
+      if (!failed) throw e;
+      var unsure = { unsure: true, why: why(failed.e) };
+      return fs.read(path).then(function (f) {
+        var now = f ? f.text : null;
+        if (now === text) return { ok: true, hash: U.hash(text), text: text };
+        if (now === expect) throw failed.e;
+        return unsure;
+      }, function () { return unsure; });
+    });
+  }
+  /* The first thing in the way of these destinations, or null: a folder where a file goes, a file where a folder goes. Looked
+     at before anything is written, so a predictable refusal never leaves an update half done. */
+  function contractBlocked(fs, paths) {
+    var seen = Object.create(null);
+    var ls = function (d) { return seen[d] || (seen[d] = fs.list(d)); };
+    var one = function (parts, i) {
+      var dir = parts.slice(0, i).join('/'), here = parts.slice(0, i + 1).join('/'), last = i === parts.length - 1;
+      return ls(dir).then(function (list) {
+        var e = list.filter(function (x) { return x.name === parts[i]; })[0];
+        if (!e) return null;
+        if (last) return e.kind === 'dir' ? { path: here, want: 'file' } : null;
+        return e.kind === 'dir' ? one(parts, i + 1) : { path: here, want: 'folder' };
+      });
+    };
+    return paths.reduce(function (q, p) { return q.then(function (b) { return b || one(p.split('/'), 0); }); }, Promise.resolve(null));
   }
   /* A new folder for this update's copies under base (…/replaced), named like the command's (date, time, milliseconds and a
      random part), made fresh: never one an earlier update used. */
@@ -1784,7 +1819,10 @@ PF.repo = (function () {
     return archiveCopy(fs, dir, rel, text).then(function () { return on() ? fs.read(path) : null; }).then(function (now) {
       if (!on()) return { stale: true };
       if (!now || now.text !== text) return { changed: true };
-      return fs.remove(path).then(function () { return { ok: true }; });
+      /* A removal that says it failed may still have happened: only a file still there is a failure. */
+      return fs.remove(path).then(function () { return { ok: true }; }, function (e) {
+        return fs.read(path).then(function (left) { if (left) throw e; return { ok: true }; }, function () { return { unsure: true, why: e && e.message || String(e) }; });
+      });
     });
   }
   /* Every draft save names the exact text it expects (opts.expectText; null when the draft doesn't exist yet), and nothing
@@ -3222,5 +3260,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    digests: digests, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

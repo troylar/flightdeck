@@ -21,6 +21,7 @@ function walk(dir, base) { const out = {}; (function go(d) { for (const e of fs.
 const text = (o) => { const t = {}; Object.keys(o).forEach(k => { t[k] = o[k].toString('utf8'); }); return t; };
 const unesc = (s) => s.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
 const clipboard = (o) => ({ clipboard: { writeText: (t) => o.refuse ? Promise.reject(new Error('denied')) : (o.copied.push(t), Promise.resolve()) } });
+const saidBy = (app) => unesc((/id="af-start-msg"[^>]*>([^<]*)</.exec(app.html()) || ['', ''])[1]);
 async function settings(opts) {
   const app = boot(Object.assign({ domFocus: true }, opts)); await app.tick(60);
   if (opts.picker) { app.click('connect'); await app.tick(200); }
@@ -272,8 +273,7 @@ rule('Copy instructions copies the prompt on every kind of file: a team folder, 
     assert.ok(/Open the team folder itself as the workspace, in Agent mode/.test(app.html()), what + ': the hint');
     app.click('af-start'); await app.tick(50);
     assert.strictEqual(o.copied[n], PROMPT(), what + ': the prompt');
-    /* Beside the button in a browser (checked there); this harness can't say a drawn node is in the document, so the app says it its other way. */
-    assert.ok(/Copied/.test(app.html()), what + ': says so');
+    assert.ok(/Copied/.test(saidBy(app)), what + ': says so, beside the button');
   }
   team.click('af-where', 'other'); await team.tick(60);
   assert.ok(/data-act="af-start"/.test(team.html()) && /data-act="af-zip"/.test(team.html()), 'and with In another folder chosen');
@@ -285,13 +285,81 @@ rule('A refused clipboard shows the prompt beside the button, selected and escap
   const box = () => { const h = app.html(), at = h.indexOf('id="af-start-pre"'); return h.slice(at, h.indexOf('</pre>', at)); };
   assert.ok(/ hidden>$/.test(box()), 'nothing is drawn until it\'s needed');
   app.click('af-start'); await app.tick(50);
-  assert.ok(/Press Ctrl\+C/.test(app.node('#af-start-msg').textContent), 'says how, beside the button');
+  assert.ok(/Press Ctrl\+C/.test(saidBy(app)), 'says how, beside the button');
   const b = box(), open = b.indexOf('>');
   assert.ok(!/ hidden/.test(b.slice(0, open)));
   assert.strictEqual(unesc(b.slice(open + 1)), PROMPT());
   assert.ok(!/Press Ctrl\+C/.test((app.node('#copy-msg') || {}).textContent || ''), 'the status down the page says nothing');
   app.click('af-load'); await app.tick(300);
   assert.ok(!/ hidden/.test(box().slice(0, box().indexOf('>'))), 'a redraw keeps it showing');
+});
+
+rule('What the two buttons said survives a redraw and an update, and a new target drops it, like a write\'s outcome', async () => {
+  const o = { copied: [] }, d = tmp(); cli('install', d);
+  const app = await settings({ picker: folderHandle('Team', text(walk(d))), indexedDB: memoryIDB(), navigator: clipboard(o) });
+  const said = () => (saidBy(app) || '');
+  app.click('af-start'); await app.tick(50);
+  assert.ok(/Copied/.test(said()));
+  app.click('af-load'); await app.tick(300);
+  assert.ok(/Copied/.test(said()), 'a redraw keeps it');
+  app.click('af-zip'); await app.tick(30);
+  assert.ok(/Unzip/.test(said()) && !/Copied/.test(said()), 'the latest one shows');
+  app.click('af-where', 'other'); await app.tick(60);
+  assert.strictEqual(said(), '', 'another target starts clean');
+});
+
+rule('A ZIP finishing after the target changed says nothing on the new target', async () => {
+  const d = tmp(); cli('install', d);
+  const app = await settings({ picker: folderHandle('Team', text(walk(d))), indexedDB: memoryIDB() });
+  const said = () => (saidBy(app) || '');
+  app.click('af-zip'); app.click('af-where', 'other'); await app.tick(60);
+  assert.strictEqual(said(), '');
+  assert.strictEqual(app.downloads.length, 1, 'the file still downloads: it\'s the page\'s own text');
+});
+
+/* ---------------- the new file goes through the same checks as the others ---------------- */
+
+const FORMATS_PARTS = FORMATS.split('/');
+rule('Something in the way of the file formats stops the command before anything is written, and the app says the same', async () => {
+  const blockers = [
+    ['a folder where the file goes', (dir) => fs.mkdirSync(path.join(dir, ...FORMATS_PARTS), { recursive: true }), FORMATS],
+    ['a file where its folder goes', (dir) => { fs.rmSync(path.join(dir, ...FORMATS_PARTS.slice(0, -1)), { recursive: true }); fs.writeFileSync(path.join(dir, ...FORMATS_PARTS.slice(0, -1)), 'in the way'); }, FORMATS_PARTS.slice(0, -1).join('/')]
+  ];
+  for (const [what, block, named] of blockers) {
+    const dir = installed212(NOTES); block(dir);
+    const before = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), rec = fs.readFileSync(path.join(dir, '.flightdeck', 'installed.json'), 'utf8');
+    const r = cli('install', dir);
+    assert.notStrictEqual(r.code, 0, what + ': refused');
+    assert.ok(r.out.includes(named.split('/').pop()), what + ': names it: ' + r.out);
+    assert.strictEqual(fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), before, what + ': AGENTS.md untouched');
+    assert.strictEqual(fs.readFileSync(path.join(dir, '.flightdeck', 'installed.json'), 'utf8'), rec, what + ': the record untouched');
+  }
+  /* The app, on a folder holding a folder at the file's path. */
+  const handleFiles = text(walk(installed212(NOTES))), was = handleFiles['AGENTS.md'];
+  handleFiles[FORMATS + '/stray.txt'] = 'in the way';
+  const app = await settings({ picker: folderHandle('Team', handleFiles), indexedDB: memoryIDB() });
+  app.click('af-update'); await app.tick(500);
+  assert.strictEqual(handleFiles['AGENTS.md'], was, 'the app: AGENTS.md untouched');
+  assert.ok(app.html().includes('file-formats.md'), 'the app: names it');
+});
+
+rule('A record with no room for the new file\'s entry stops the command and the app before anything is written', async () => {
+  const dir = installed212(NOTES), recPath = path.join(dir, '.flightdeck', 'installed.json'), rec = JSON.parse(fs.readFileSync(recPath, 'utf8'));
+  /* Entries for files no longer shipped, up to just under the limit as written: the record the update would write doesn't fit. */
+  const HASH = 'e'.repeat(64), room = 8 * 1048576 - 200 - JSON.stringify(rec).length, each = JSON.stringify({ 'old/0000000.md': HASH }).length - 1;
+  for (let i = 0; i < Math.floor(room / each); i++) rec.files['old/' + String(i).padStart(7, '0') + '.md'] = HASH;
+  fs.writeFileSync(recPath, JSON.stringify(rec));
+  const before = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
+  const r = cli('install', dir);
+  assert.notStrictEqual(r.code, 0, r.out);
+  assert.ok(/too big/.test(r.out), r.out);
+  assert.strictEqual(fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'), before, 'nothing written');
+  assert.ok(!fs.existsSync(path.join(dir, ...FORMATS_PARTS)), 'not even the new file');
+  const files = text(walk(dir)), app = await settings({ picker: folderHandle('Team', files), indexedDB: memoryIDB() });
+  app.click('af-update'); await app.tick(800);
+  assert.strictEqual(files['AGENTS.md'], before, 'the app: nothing written');
+  assert.ok(!(FORMATS in files), 'the app: not even the new file');
+  assert.ok(/too big/.test(app.html()), 'the app says why');
 });
 
 /* ---------------- the skills ZIP ---------------- */
@@ -359,8 +427,8 @@ rule('The ZIP works with no folder and in a browser that can\'t open one, says s
   try {
     const z = await zipFrom(app);
     assert.ok(readZip(z.buf)['flightdeck-status/SKILL.md'], 'the skills are in it');
-    assert.ok(/flightdeck-skills-/.test(app.node('#af-start-msg').textContent), 'says what it\'s downloading');
-    assert.ok(/[Uu]nzip/.test(app.node('#af-start-msg').textContent), 'and what to do with it');
+    assert.ok(/flightdeck-skills-/.test(saidBy(app)), 'says what it\'s downloading');
+    assert.ok(/[Uu]nzip/.test(saidBy(app)), 'and what to do with it');
   } finally { global.fetch = realFetch; }
   assert.deepStrictEqual(seen, [], 'no network');
 });
@@ -370,7 +438,7 @@ rule('A ZIP that can\'t be made is said beside the button, with the command to u
   app.PF.zip.writer = () => { throw new Error('Out of memory.'); };
   app.click('af-zip'); await app.tick(30);
   assert.strictEqual(app.downloads.length, n, 'nothing is handed to the browser');
-  assert.ok(/Out of memory\..*flightdeck skills --to/.test(app.node('#af-start-msg').textContent), app.node('#af-start-msg').textContent);
+  assert.ok(/Out of memory\..*flightdeck skills --to/.test(saidBy(app)), saidBy(app));
   app.PF.zip.writer = writer;
   app.click('af-zip'); await app.tick(30);
   assert.strictEqual(app.downloads.length, n + 1, 'and the next try works');

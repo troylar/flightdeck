@@ -140,6 +140,71 @@ PF.contract = (function () {
   var START_PROMPT = 'Read AGENTS.md in this folder, to the end, and follow it. If this folder has no AGENTS.md, stop and tell me to open the team folder itself.\n\n' +
     'The Flightdeck skills are in .flightdeck/skills/, one folder per skill, each with a SKILL.md. Your tool may not load them on its own, so list that folder yourself. When one fits the job, read its SKILL.md and follow it. A name like /flightdeck-status or $flightdeck-status means .flightdeck/skills/flightdeck-status/SKILL.md.\n\n' +
     'Don\'t change anything yet. Tell me in a few lines what you can help with here, then ask me what I want done.';
-  return { START_PROMPT: START_PROMPT, MAX_BYTES: MAX_BYTES, cleanInstalled: cleanInstalled, readRecord: readRecord, newerWhy: newerWhy, classify: classify, merged: merged, nextRecord: nextRecord, mergeReadme: mergeReadme, mergePrompt: mergePrompt, byVersion: byVersion, VERSION_DIR: VERSION_DIR,
+  /* ---------- How a write ended: one outcome, one set of words ----------
+     Update and I merged it collect facts as they go; settle says which outcome those facts are, and outcomeWords is the only
+     thing that turns one into words, for the Settings screen, for an announcement and for the move to the team folder. An
+     outcome with no words is an error, never a guess. */
+  function shortList(a) { return a.slice(0, 5).join(', ') + (a.length > 5 ? ' and ' + (a.length - 5) + ' more' : ''); }
+  function count(n, one) { return n + ' ' + one + (n === 1 ? '' : 's'); }
+  function done(o, w) {
+    var parts = [];
+    if (o.wrote) parts.push('Updated ' + count(o.wrote, 'file') + '.');
+    if (o.kept) parts.push('Kept ' + o.kept + ' you changed.');
+    if (o.staged) parts.push('Put ' + count(o.staged, 'new default') + ' to merge in ' + w.updates.join('/') + '/' + w.version + '/.');
+    if (o.replaced) parts.push('Copies of what was replaced are in ' + o.replaced + '.');
+    else if (o.copiesAt) parts.push('A folder for copies was started at ' + o.copiesAt + ', with no checked copy in it yet.');
+    if (o.ignored) parts.push('The old record wasn\'t one Flightdeck wrote, so it wasn\'t trusted' + (o.record ? '; a new one was written.' : '.'));
+    else if (o.record && !o.wrote && !o.staged) parts.push('The record of these files is saved.');
+    return parts;
+  }
+  function troubles(o) {
+    var parts = [];
+    if (o.unverified && o.unverified.length) parts.push(shortList(o.unverified) + (o.unverified.length === 1 ? ' was written, but Flightdeck couldn\'t read it back to check it.' : ' were written, but Flightdeck couldn\'t read them back to check them.'));
+    if (o.unsure && o.unsure.length) parts.push(shortList(o.unsure) + ' may or may not have been written: the write failed and Flightdeck can\'t tell how far it got.');
+    if (o.moved && o.moved.length) parts.push(shortList(o.moved) + (o.moved.length === 1 ? ' was written, then changed by something else before Flightdeck could read it back. Look at it again.' : ' were written, then changed by something else before Flightdeck could read them back. Look at them again.'));
+    if (o.skipped && o.skipped.length) parts.push('Left as they are, because they changed while updating: ' + shortList(o.skipped) + '. Those weren\'t replaced; check them again.');
+    return parts;
+  }
+  function wroteWords(o, w) { return done(o, w).concat(troubles(o)).join(' '); }
+  var OUTCOMES = {
+    newer: { kind: 'warn', words: function (o, w) { return 'Nothing was changed. ' + w.recordAt + ' ' + o.newer + ' Use the newer Flightdeck.'; } },
+    'too-big': { kind: 'warn', words: function (o) { return o.tooBig; } },
+    blocked: { kind: 'warn', words: function (o) { return blockedWhy(o.blocked.path, o.blocked.want); } },
+    refused: { kind: 'warn', words: function () { return 'Nothing was changed. This browser didn\'t allow writing to the folder.'; } },
+    failed: { kind: 'warn', words: function (o) { return 'Nothing was changed. ' + o.error.why; } },
+    partial: { kind: 'warn', reload: true, words: function (o, w) { return ['The update stopped partway: ' + o.error.why].concat(done(o, w), troubles(o), ['Look at the files, then try again.']).join(' '); } },
+    unverified: { kind: 'warn', reload: true, words: function (o, w) { return ['The update stopped: ' + o.error.why].concat(done(o, w), troubles(o), ['Look at the files, then try again.']).join(' '); } },
+    nothing: { kind: 'good', reload: true, words: function (o, w) { return ['Nothing needed changing.'].concat(done(o, w)).join(' '); } },
+    written: { kind: 'good', reload: true, words: wroteWords },
+    moved: { kind: 'warn', reload: true, words: wroteWords },
+    skipped: { kind: 'warn', reload: true, words: wroteWords },
+    'merge-done': { kind: 'good', reload: true, words: function () { return 'Put away. The copy is beside the replaced files, in case you need it.'; } },
+    'merge-left': { kind: 'warn', reload: true, words: function (o) { return 'A copy waiting in ' + (o.left.length === 1 ? o.left[0] : o.left.length + ' versions') + ' changed since this screen read it, so it was left where it is. Look at it again.'; } },
+    'merge-partial': { kind: 'warn', reload: true, words: function (o) { return count(o.putAway, 'copy').replace('copys', 'copies') + (o.putAway === 1 ? ' was' : ' were') + ' put away before this stopped: ' + o.error.why; } },
+    'merge-unsure': { kind: 'warn', reload: true, words: function (o) { return (o.putAway ? count(o.putAway, 'copy').replace('copys', 'copies') + (o.putAway === 1 ? ' was' : ' were') + ' put away. ' : '') + 'The copy waiting in ' + shortList(o.unsure) + ' may or may not have been put away: removing it failed and Flightdeck couldn\'t check. ' + o.error.why + ' Look at it again.'; } },
+    'merge-failed': { kind: 'warn', words: function (o) { return 'Nothing was put away. ' + o.error.why; } }
+  };
+  function settleState(f) {
+    if (f.op === 'merge' && f.unsure && f.unsure.length) return 'merge-unsure';
+    if (f.op === 'merge') return f.error ? (f.putAway ? 'merge-partial' : 'merge-failed') : f.left.length ? 'merge-left' : 'merge-done';
+    if (f.newer) return 'newer';
+    if (f.tooBig) return 'too-big';
+    if (f.blocked) return 'blocked';
+    if ((f.unverified && f.unverified.length) || (f.unsure && f.unsure.length)) return 'unverified';
+    var any = f.wrote || f.staged || f.record || f.replaced || f.copiesAt || f.moved.length;
+    if (f.error) return any ? 'partial' : f.error.denied ? 'refused' : 'failed';
+    return f.moved.length ? 'moved' : f.skipped.length ? 'skipped' : any ? 'written' : 'nothing';
+  }
+  function settle(facts) { return Object.assign({}, facts, { state: settleState(facts) }); }
+  function outcomeWords(o, w, opts) {
+    var e = OUTCOMES[o.state];
+    if (!e) throw new Error('An outcome with no words: ' + o.state);
+    var text = e.words(o, w) + (o.recheck ? ' Checking the files again didn\'t work: ' + o.recheck : '');
+    return { kind: o.recheck ? 'warn' : e.kind, text: text, said: 'AI assistant files in ' + w.home + ': ' + text + (opts && opts.then ? ' Showing the team folder.' : '') };
+  }
+  /* Something in the way of where a file goes. The same words as the command's. */
+  function blockedWhy(path, want) { return path + (want === 'file' ? ' is a folder, where Flightdeck needs a file.' : ' is a file, where Flightdeck needs a folder.') + ' Nothing was changed. Move it, then try again.'; }
+
+  return { START_PROMPT: START_PROMPT, OUTCOMES: OUTCOMES, settle: settle, outcomeWords: outcomeWords, MAX_BYTES: MAX_BYTES, cleanInstalled: cleanInstalled, readRecord: readRecord, newerWhy: newerWhy, classify: classify, merged: merged, nextRecord: nextRecord, mergeReadme: mergeReadme, mergePrompt: mergePrompt, byVersion: byVersion, VERSION_DIR: VERSION_DIR,
     BEGIN: BEGIN, END: END, AGENTS: AGENTS, BASELINES: BASELINES, norm: norm, region: region, managed: managed, baselineKey: baselineKey, hex: hex, installed: installed };
 })();

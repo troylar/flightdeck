@@ -508,19 +508,6 @@
     var list = w ? w.split(', ') : [];
     return !list.length ? '' : ' (in ' + (list.length <= 3 ? list.join(', ') : list.slice(0, 3).join(', ') + ' and ' + (list.length - 3) + ' more') + ')';
   }
-  function afResult(r, tg, version) {
-    if (r.note) return '<p class="small" role="status">' + esc(r.note) + '</p>';
-    var parts = [];
-    if (r.wrote) parts.push('Updated ' + r.wrote + ' file' + (r.wrote === 1 ? '' : 's') + '.');
-    if (r.kept) parts.push('Kept ' + r.kept + ' you changed.');
-    if (r.staged) parts.push('Put ' + r.staged + ' new default' + (r.staged === 1 ? '' : 's') + ' to merge in ' + tg.updates.join('/') + '/' + version + '/.');
-    if (r.replaced) parts.push('Copies of what was replaced are in ' + r.replaced + '.');
-    if (r.ignored) parts.push('The old record wasn\'t one Flightdeck wrote, so it wasn\'t trusted; a new one was written.');
-    else if (r.record && !r.wrote && !r.staged) parts.push('The record of these files is saved.');
-    var h = parts.length ? '<p class="small" role="status">' + esc(parts.join(' ')) + '</p>' : '';
-    if (r.changed.length) h += '<p class="small af-err" role="alert">' + esc('Left as they are, because they changed while updating: ' + r.changed.join(', ') + '. Nothing was replaced; check them again.') + '</p>';
-    return h;
-  }
   function assistantFiles(ctx) {
     if (!ctx.assistantFiles) return '';
     var m = ctx.assistantFiles(), tg = m.target, af = m.af, l = af.load, ro = m.readOnly, other = af.where === 'other', byKey = Object.create(null);
@@ -531,7 +518,7 @@
     var h = '<section class="panel stack" aria-labelledby="set-ai"><h2 id="set-ai" tabindex="-1">' + I('spark') + 'AI assistant files</h2>' +
       '<p class="small">The instructions and skills your AI assistant reads, as Flightdeck ' + esc(m.version) + ' ships them. Files your team changed are never replaced, and a copy of each replaced file is kept first. The command <code>flightdeck install</code> follows the same rules and the same record.</p>' +
       '<p class="small">This never changes the app file itself: to update <code>flightdeck.html</code>, copy in the new one. <a href="https://github.com/troylar/flightdeck/blob/main/docs/updating.md" target="_blank" rel="noopener noreferrer">How updating works</a></p>' +
-      '<div class="stack af-start"><div class="row"><button type="button" class="btn" data-act="af-start">' + I('copy') + 'Copy instructions for your assistant</button><button type="button" class="btn" data-act="af-zip">Download skills ZIP</button></div><p class="small"><span id="af-start-msg" role="status"></span></p>' +
+      '<div class="stack af-start"><div class="row"><button type="button" class="btn" data-act="af-start">' + I('copy') + 'Copy instructions for your assistant</button><button type="button" class="btn" data-act="af-zip">Download skills ZIP</button></div><p class="small"><span id="af-start-msg" role="status">' + esc(af.startSaid || '') + '</span></p>' +
       '<p class="small">Open the team folder itself as the workspace, in Agent mode, then paste the instructions. <a href="https://github.com/troylar/flightdeck/blob/main/docs/skills.md" target="_blank" rel="noopener noreferrer">What each skill does</a></p>' +
       '<pre id="af-start-pre" class="source" tabindex="0"' + (af.startShown ? '' : ' hidden') + '>' + esc(af.startShown || '') + '</pre></div>' +
       '<div class="seg" role="group" aria-label="Where the files go">' + [['team', 'In the team folder'], ['other', 'In another folder']].map(function (w) { return '<button type="button" data-act="af-where" data-id="' + w[0] + '" aria-pressed="' + ((other ? 'other' : 'team') === w[0]) + '"' + off + '>' + w[1] + '</button>'; }).join('') + '</div>';
@@ -543,10 +530,10 @@
     h += '<p class="af-status" role="status">' + esc(status) + '</p>';
     if (ro) h += '<p class="small af-ro">' + esc(ro) + '</p>';
     if (af.err) h += '<p class="small af-err" role="alert">' + esc(af.err) + '</p>';
-    if (l && l.record.ignored && !af.result) h += '<p class="small af-ro">' + esc(tg.recordAt) + ' isn\'t a record Flightdeck wrote, so it isn\'t trusted. Updating writes a new one.</p>';
+    if (l && l.record.ignored && !m.words) h += '<p class="small af-ro">' + esc(tg.recordAt) + ' isn\'t a record Flightdeck wrote, so it isn\'t trusted. Updating writes a new one.</p>';
     if (!l && !af.loading && tg.fs && !ro) h += '<div class="row"><button type="button" class="btn" data-act="af-load"' + off + '>Check the files</button></div>';
     if (l && !ro && (todo || stage || l.recordDue)) h += '<div class="row"><button type="button" class="btn go" data-act="af-update"' + wait + '>' + (todo ? 'Update ' + todo + ' file' + (todo === 1 ? '' : 's') : stage ? 'Get ' + stage + ' new default' + (stage === 1 ? '' : 's') + ' ready to merge' : 'Save the record of these files') + '</button></div>';
-    if (af.result) h += afResult(af.result, tg, m.version);
+    if (m.words) h += m.words.kind === 'warn' ? '<p class="small af-err" role="alert">' + esc(m.words.text) + '</p>' : '<p class="small" role="status">' + esc(m.words.text) + '</p>';
     h += '<ul class="af-list">' + tg.files.map(function (f) {
       var it = byKey[f.key], st = it ? it.status : '', word = st ? AF_WORD[st] + (st === 'merge' ? afWaiting(it.waiting) : '') : '', peek = af.peek === f.key, dk = K.domKey(f.key);
       return '<li class="af-row" id="af-row-' + dk + '"' + (st ? ' data-af-row="' + esc(f.rel) + '" data-af-status="' + esc(st) + '"' : '') + '><div class="row between"><span><code>' + esc(f.rel) + '</code>' + (word ? ' <span class="cat">' + esc(word) + '</span>' : '') + '</span>' +

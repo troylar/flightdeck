@@ -243,7 +243,8 @@ function installedNewer(r) {
 /* The folder's record, checked field by field. Anyone can edit it, so a record that isn't exactly what this command writes is
    ignored (and said so), and only entries for files this version installs, with a well-formed hash, are read. */
 function readRecord(t, keys) {
-  const r = parseRecord(readInside(t.dir, t.recordAt), keys);
+  t.recordText = readInside(t.dir, t.recordAt);
+  const r = parseRecord(t.recordText, keys);
   if (r.newer) fail(path.join(t.dir, ...t.recordAt) + ' ' + r.newer + ' Nothing was changed. Use the newer Flightdeck package.');
   return r;
 }
@@ -289,14 +290,61 @@ Then run the same flightdeck command with \`--check\`: exit code 0 means nothing
 `;
 }
 
+/* What an install would write has to be something the app can read back (PF.contract.MAX_BYTES): over the limit, nothing is
+   touched. The same check and words as Settings, AI assistant files (afRoom). */
+const CONTRACT_MAX = 8 * 1048576;
+function roomFor(t, items) {
+  const why = (name, n, then) => name + ' would be too big for Flightdeck to read back (' + (Math.ceil(n / 1048576 * 100) / 100) + ' MB, over ' + (CONTRACT_MAX / 1048576) + ' MB). Nothing was changed. ' + then;
+  for (const i of items) {
+    if (['current', 'kept', 'merge'].includes(i.status)) continue;
+    const n = Buffer.byteLength(merged(i), 'utf8');
+    if (n > CONTRACT_MAX) fail(why(i.rel, n, 'Shorten what your team added to it, then try again.'));
+  }
+  const rec = nextRecord(t.record, items, t.version);
+  if (!rec) return;
+  const size = Buffer.byteLength(JSON.stringify({ format: 'flightdeck-installed/1', version: t.version, at: new Date().toISOString(), by: 'cli', files: rec }, null, 2) + '\n', 'utf8');
+  if (size > CONTRACT_MAX) fail(why(t.recordAt.join('/'), size, 'Remove the entries for files Flightdeck no longer ships, then try again.'));
+}
+/* Something in the way of where a file goes: the same words as PF.contract.outcomeWords. Every destination is looked at before
+   anything is written, so a predictable refusal never leaves an update half done. */
+function blockedWhy(rel, want) { return rel + (want === 'file' ? ' is a folder, where Flightdeck needs a file.' : ' is a file, where Flightdeck needs a folder.') + ' Nothing was changed. Move it, then try again.'; }
+function clearFor(dir, parts) {
+  let cur = dir;
+  for (let i = 0; i < parts.length; i++) {
+    cur = path.join(cur, parts[i]);
+    const st = lstatOrNull(cur), rel = parts.slice(0, i + 1).join('/');
+    if (!st) return;
+    if (st.isSymbolicLink()) fail('refusing to write through a link: ' + cur);
+    if (i === parts.length - 1 ? !st.isFile() : !st.isDirectory()) fail(blockedWhy(rel, i === parts.length - 1 ? 'file' : 'folder'));
+  }
+}
+function destinationsClear(t, items, more) {
+  const dests = (more || []).slice();
+  for (const i of items) {
+    if (['current', 'kept'].includes(i.status)) continue;
+    if (i.status === 'merge') {
+      if (i.waiting && !i.stage) continue;
+      dests.push(t.updates.concat(t.version, i.rel.split('/')), t.updates.concat(t.version, 'README.md'), t.updates.concat(t.version, 'replaced', 'x'));
+      continue;
+    }
+    dests.push(i.parts);
+    if (i.now !== null && i.now !== merged(i)) dests.push(t.updates.concat(t.version, 'replaced', 'x'));
+  }
+  if (nextRecord(t.record, items, t.version)) dests.push(t.recordAt);
+  dests.forEach((parts) => clearFor(t.dir, parts));
+}
 /* install and skills: one routine for the team folder, and for skills --to <dir>. */
 function contract(t, files, opts) {
   const base = baselines(opts.html), now = new Date();
+  if (!opts.check || opts.room) clearFor(t.dir, t.updates.concat(t.version, 'x'));
   inside(t.dir, t.updates.concat(t.version, 'replaced'));
   t.record = readRecord(t, files.map((f) => f.key));
   t.changed = [];
   const items = classify(t, files, base, opts.force);
+  if (!opts.check || opts.room) { roomFor(t, items); destinationsClear(t, items, opts.more); }
   if (opts.check) return items;
+  /* The merge list as it was before anything is written: the only text it may replace. */
+  const readmeAt = t.updates.concat(t.version, 'README.md'), readmeWas = items.some((i) => i.status === 'merge' && (!i.waiting || i.stage)) ? readInside(t.dir, readmeAt) : null;
   for (const i of items) {
     if (['current', 'kept'].includes(i.status) || (i.status === 'merge' && i.waiting && !i.stage)) {
       if (opts.force) i.staged.forEach((x) => fileAway(t, x));
@@ -314,10 +362,25 @@ function contract(t, files, opts) {
     }
   }
   const merges = items.filter((i) => i.status === 'merge' && !i.changed);
-  if (merges.some((i) => !i.waiting || i.stage)) safeWrite(t.dir, t.updates.concat(t.version, 'README.md'), mergeReadme(t.version, merges.filter((i) => !i.waiting || i.stage || i.staged.some((x) => x.version === t.version)), t));
+  if (merges.some((i) => !i.waiting || i.stage)) {
+    const next = mergeReadme(t.version, merges.filter((i) => !i.waiting || i.stage || i.staged.some((x) => x.version === t.version)), t);
+    try {
+      if (readmeWas !== null && readmeWas !== next) keepCopy(t, ['merge-README.md'], readmeWas);
+      safeWrite(t.dir, readmeAt, next, readmeWas);
+    } catch (e) {
+      if (!(e instanceof Changed)) throw e;
+      t.changed.push(readmeAt.join('/'));
+    }
+  }
   const rec = nextRecord(t.record, items, t.version);
   if (!rec) return items;
-  safeWrite(t.dir, t.recordAt, JSON.stringify({ format: 'flightdeck-installed/1', version: t.version, at: now.toISOString(), by: 'cli', files: rec }, null, 2) + '\n');
+  try {
+    safeWrite(t.dir, t.recordAt, JSON.stringify({ format: 'flightdeck-installed/1', version: t.version, at: now.toISOString(), by: 'cli', files: rec }, null, 2) + '\n', t.recordText);
+    t.recordWritten = true;
+  } catch (e) {
+    if (!(e instanceof Changed)) throw e;
+    t.changed.push(t.recordAt.join('/'));
+  }
   return items;
 }
 /* The record's files after an update, or null when it would be written unchanged: the same as PF.contract.nextRecord. */
@@ -357,8 +420,8 @@ function report(items, check, out) {
 }
 /* What install says after the file list: an ignored record, and files left alone because they changed while it ran. */
 function notes(t, out) {
-  if (t.record && t.record.ignored) out.push('Ignored ' + t.recordAt.join('/') + ': it isn\'t a record this version of Flightdeck wrote, so it wasn\'t trusted. A new one was written.');
-  if (t.changed && t.changed.length) out.push('Left as they are, because they changed while install was running: ' + t.changed.join(', ') + '. Run the command again.');
+  if (t.record && t.record.ignored) out.push('Ignored ' + t.recordAt.join('/') + ': it isn\'t a record this version of Flightdeck wrote, so it wasn\'t trusted.' + (t.recordWritten ? ' A new one was written.' : ''));
+  if (t.changed && t.changed.length) out.push('Left as they are, because they changed while updating: ' + t.changed.join(', ') + '. Those weren\'t replaced; check them again.');
 }
 function exitFor(statuses) {
   if (statuses.includes('merge')) return EXIT.merge;
@@ -1751,7 +1814,7 @@ function main(argv) {
       return { out: out.join('\n'), code };
     }
     /* Everything is checked before anything is written, so a refusal (a link, say) leaves the folder as it was. */
-    if (!appOnly) contract(t, files, { html, force, check: true });
+    if (!appOnly) contract(t, files, { html, force, check: true, room: true, more: [[NAME, appS], [OLD, oldS]].filter(([file, st]) => st.status !== 'current' && (file !== OLD || keepOld)).map(([file]) => [file]) });
     t.changed = [];
     [[NAME, appS], [OLD, oldS]].forEach(([file, st]) => {
       if (st.status === 'current' || (file === OLD && !keepOld)) return;
