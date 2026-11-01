@@ -203,8 +203,8 @@ function cliStatuses(dir) {
 }
 function asFiles(dir) { const o = {}; (function walk(d) { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else o[path.relative(dir, p).split(path.sep).join('/')] = fs.readFileSync(p, 'utf8'); } })(dir); return o; }
 
-async function openTeam(files) {
-  const dir = folderHandle('Team', files);
+async function openTeam(files, o) {
+  const dir = o ? hooked(folderHandle('Team', files), o) : folderHandle('Team', files);
   const app = boot({ picker: dir, indexedDB: memoryIDB() }); await app.tick(60);
   app.click('connect'); await app.tick(200);
   return app;
@@ -267,21 +267,21 @@ rule('B2: Update writes the same contract files, staged files, README and record
   }
 });
 
-rule('B2: a file changed while updating is skipped and named, and keeps its old recorded hash', async () => {
+rule('B2: a file changed after it was written is named as written, and keeps its old recorded hash', async () => {
   const dir = scenario('deleted'); fs.rmSync(path.join(dir, STATUS));
   /* Recorded from an older default, so a record that took this version's would differ. */
   const r = JSON.parse(fs.readFileSync(path.join(dir, '.flightdeck/installed.json'), 'utf8')), OLD_HASH = 'f'.repeat(64);
   r.files[STATUS] = OLD_HASH; fs.writeFileSync(path.join(dir, '.flightdeck/installed.json'), JSON.stringify(r));
   const raw = asFiles(dir);
-  // Someone writes the file between Update's own read and its write: the second time the app looks for it after the click.
+  // Someone writes the file right after Update's write, before its read-back: the second time the app looks for it after the click.
   let armed = false, looks = 0;
   const files = new Proxy(raw, { has(t, k) { if (armed && k === STATUS && ++looks === 2) t[k] = 'written meanwhile'; return k in t; } });
   const app = await openTeam(files);
   app.click('ai-files'); await app.tick(300);
   armed = true;
   app.click('af-update'); await app.tick(400);
-  assert.strictEqual(raw[STATUS], 'written meanwhile', 'never overwritten');
-  assert.ok(/changed while updating/.test(app.html()), 'named');
+  assert.strictEqual(raw[STATUS], 'written meanwhile', 'theirs stands');
+  assert.ok(/SKILL\.md was written, then changed/.test(app.html()), 'named, as written');
   assert.strictEqual(JSON.parse(raw['.flightdeck/installed.json']).files[STATUS], OLD_HASH, 'old hash kept');
   assert.strictEqual(raw[PLAN], EX[PLAN], 'and the rest of the update went ahead');
 });
@@ -795,7 +795,7 @@ rule('Round 1, 7 and 9: the docs say the race limit the command\'s text has, and
   assert.ok(/\*\*I merged it\*\*[^\n]*instant between/.test(updating), 'docs/updating.md, for I merged it');
   const rel = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'src', 'releases.json'), 'utf8'))[0], first = rel.changes[0].now;
   assert.ok(/instant/.test(first) && /[Cc]lose editors/.test(first), 'the release note');
-  const waiver = fs.readFileSync(path.join(__dirname, '..', 'docs', 'rehearsals', '2.12.0-2026-10-31-waiver.md'), 'utf8');
+  const waiver = fs.readFileSync(path.join(__dirname, '..', 'docs', 'rehearsals', '2.12.0-2026-11-01-waiver.md'), 'utf8');
   assert.ok(/fileAway/.test(waiver) && /final comparison/.test(waiver), 'the waiver');
 });
 
@@ -1310,13 +1310,15 @@ const COVERS = { 'a dialog': (app) => app.click('help'), 'another screen': (app)
 rule('Round 5, 3: however a write ends, it is announced when Settings is covered, and not doubled when it is not', async () => {
   const OUTCOMES = {
     'Update fails': { scenario: 'deleted', act: ['af-update'], go(c) { c.o.fail = /^AGENTS\.md$/; }, hear: /AI assistant files/, kind: 'warn' },
-    'Update skips a changed file': { scenario: 'deleted', act: ['af-update'], race: PLAN, go() {}, hear: /AI assistant files[^]*1 file changed|1 file changed[^]*AI assistant files|Finished[^]*1 file changed/, kind: 'warn' },
-    'Update finishes': { scenario: 'deleted', act: ['af-update'], go() {}, hear: /AI assistant files are updated/, kind: 'good' },
+    'Update skips a changed file': { scenario: 'older defaults', act: ['af-update'], go(c) { let n = 0; return (p) => { if (p === 'AGENTS.md' && ++n === 2) c.files['AGENTS.md'] = 'someone else wrote this'; return null; }; }, hear: /AI assistant files[^]*Left as they are[^]*AGENTS\.md/, kind: 'warn' },
+    'Update writes, then the file changes': { scenario: 'deleted', act: ['af-update'], race: PLAN, go() {}, hear: /AI assistant files[^]*SKILL\.md was written, then changed/, kind: 'warn' },
+    'Update finishes': { scenario: 'deleted', act: ['af-update'], go() {}, hear: /AI assistant files in the team folder: [^]*Updated 1 file/, kind: 'good' },
     'the check after it fails': { scenario: 'deleted', act: ['af-update'], go(c) { c.o.fail = { test: (p) => p === 'AGENTS.md' && PLAN in c.files }; }, hear: /AI assistant files/, kind: 'warn' },
     'I merged it finishes': { scenario: 'staged from 2.6.0', act: ['af-merged', STATUS], go() {}, hear: /AI assistant files[^]*Put away/, kind: 'good' },
     'I merged it fails': { scenario: 'staged from 2.6.0', act: ['af-merged', STATUS], go(c) { c.o.fail = /updates\/2\.6\.0/; }, hear: /AI assistant file/, kind: 'warn' }
   };
   for (const name of Object.keys(OUTCOMES)) for (const cover of Object.keys(COVERS).concat('nothing')) {
+    if (OUTCOMES[name].scenario === 'older defaults' && OLD_AGENTS == null) continue;
     const X = OUTCOMES[name], raw = asFiles(scenario(X.scenario)), o = {}, g = gate();
     /* Someone writes the file between Update's own read and its write: the second time it's looked for after the click. */
     let racing = false, looks = 0;
@@ -1327,7 +1329,7 @@ rule('Round 5, 3: however a write ends, it is announced when Settings is covered
     racing = !!X.race; o.wait = () => g.p; app.click(...X.act); await app.tick(30);
     if (COVERS[cover]) { COVERS[cover](app); await app.tick(10); }
     const liveBefore = app.live();
-    X.go(c); o.wait = null; g.open(); await wait(app); await wait(app);
+    const hook = X.go(c); o.wait = hook || null; g.open(); await wait(app); await wait(app);
     const label = name + ' under ' + cover + ': ';
     if (cover === 'nothing') { assert.strictEqual(app.live(), liveBefore, label + 'the screen shows it, so nothing extra is said: ' + app.live()); continue; }
     assert.ok(X.hear.test(app.live()), label + 'said: ' + app.live());
@@ -1341,6 +1343,222 @@ rule('Round 5, 3: a dialog over Settings doesn\'t change a move to the team fold
   t.app.click('help'); await t.app.tick(5);
   t.st.gate.open(); await wait(t.app); await wait(t.app);
   assert.ok(/Showing the team folder/.test(t.app.live()), t.app.live());
+});
+
+/* ---------------- review round 6: one outcome for a write, one rule for focus ---------------- */
+
+const WHERE = { home: 'the team folder', updates: ['.flightdeck', 'updates'], recordAt: '.flightdeck/installed.json', version: '2.12.0' };
+const UP = (x) => Object.assign({ op: 'update', wrote: 0, staged: 0, kept: 0, record: false, replaced: null, ignored: false, skipped: [], moved: [] }, x);
+const ME = (x) => Object.assign({ op: 'merge', putAway: 0, left: [] }, x);
+/* Every outcome a write can have, what it must say and what it must never say. A new outcome fails below until it's here. */
+const OUTCOME_CASES = {
+  newer: { facts: UP({ newer: 'was written by a newer Flightdeck.' }), must: /Nothing was changed/, never: /Updated|updated in/, kind: 'warn' },
+  'too-big': { facts: UP({ tooBig: 'AGENTS.md would be too big for Flightdeck to read back (8.01 MB, over 8 MB). Nothing was changed. Shorten it.' }), must: /too big[^]*Nothing was changed/, never: /Updated/, kind: 'warn' },
+  blocked: { facts: UP({ blocked: { path: '.flightdeck/updates/2.12.0/README.md', want: 'file' } }), must: /README\.md is a folder[^]*Nothing was changed/, never: /Updated/, kind: 'warn' },
+  refused: { facts: UP({ error: { why: 'no', denied: true } }), must: /didn't allow writing[^]*Nothing was changed|Nothing was changed[^]*didn't allow writing/, never: /Updated|partway/, kind: 'warn' },
+  failed: { facts: UP({ error: { why: 'The disk said no.' } }), must: /Nothing was changed[^]*The disk said no/, never: /Updated|partway/, kind: 'warn' },
+  partial: { facts: UP({ wrote: 2, replaced: 'x/replaced/1', error: { why: 'The disk said no.' } }), must: /stopped partway[^]*The disk said no[^]*Updated 2 files[^]*x\/replaced\/1/, never: /Nothing was changed/, kind: 'warn' },
+  nothing: { facts: UP({}), must: /Nothing needed changing/, never: /Updated/, kind: 'good' },
+  written: { facts: UP({ wrote: 1, staged: 2, kept: 1, replaced: 'x/replaced/1', record: true }), must: /Updated 1 file\.[^]*Kept 1[^]*Put 2 new defaults[^]*x\/replaced\/1/, never: /Nothing was/, kind: 'good' },
+  moved: { facts: UP({ wrote: 1, moved: ['AGENTS.md'] }), must: /AGENTS\.md[^]*was written[^]*changed/, never: /Nothing was (changed|replaced)|Left as/, kind: 'warn' },
+  skipped: { facts: UP({ wrote: 1, skipped: ['AGENTS.md'] }), must: /Updated 1 file[^]*Left as[^]*AGENTS\.md/, never: /Nothing was changed/, kind: 'warn' },
+  'merge-done': { facts: ME({ putAway: 2 }), must: /Put away/, never: /left where/, kind: 'good' },
+  'merge-left': { facts: ME({ left: ['2.6.0'] }), must: /2\.6\.0[^]*left where it is/, never: /^Put away/, kind: 'warn' },
+  'merge-partial': { facts: ME({ putAway: 1, error: { why: 'The disk said no.' } }), must: /1[^]*put away[^]*The disk said no/i, never: /Nothing was/, kind: 'warn' },
+  'merge-failed': { facts: ME({ error: { why: 'The disk said no.' } }), must: /Nothing was put away[^]*The disk said no/, never: /Put away\./, kind: 'warn' }
+};
+
+rule('Round 6, outcome: every outcome has one set of words, drawn and announced, and a new one fails until it does', () => {
+  assert.deepStrictEqual(Object.keys(K.OUTCOMES).sort(), Object.keys(OUTCOME_CASES).sort(), 'each outcome has a case here, and each case an outcome');
+  for (const state of Object.keys(OUTCOME_CASES)) {
+    const X = OUTCOME_CASES[state], o = K.settle(X.facts);
+    assert.strictEqual(o.state, state, state + ': the facts settle to it');
+    const w = K.outcomeWords(o, WHERE), then = K.outcomeWords(o, WHERE, { then: 'team' });
+    assert.ok(w.text && !/undefined|null|NaN|\[object/.test(w.text), state + ': words: ' + w.text);
+    assert.ok(X.must.test(w.text), state + ': says what happened: ' + w.text);
+    assert.ok(!X.never.test(w.text), state + ': never the opposite: ' + w.text);
+    assert.strictEqual(w.kind, X.kind, state + ': kind');
+    assert.ok(w.said.includes(w.text) && w.said.includes('AI assistant files') && w.said.includes(WHERE.home), state + ': announced, in the same words, naming the files and where: ' + w.said);
+    assert.ok(then.said.includes(w.text) && /Showing the team folder\.$/.test(then.said), state + ': and the same words on the way to the team folder: ' + then.said);
+  }
+  assert.throws(() => K.outcomeWords({ state: 'something new' }, WHERE), /no words/, 'an outcome with no words is an error, not a guess');
+});
+
+rule('Round 6, outcome: moved and skipped and a failed check afterward are all said together, however they combine', () => {
+  const both = K.outcomeWords(K.settle(UP({ wrote: 1, moved: ['a.md'], skipped: ['b.md'] })), WHERE);
+  assert.ok(/a\.md/.test(both.text) && /b\.md/.test(both.text), both.text);
+  const o = K.settle(UP({ wrote: 1 })); o.recheck = 'The check said no.';
+  assert.ok(/Updated 1 file[^]*The check said no/.test(K.outcomeWords(o, WHERE).text), 'the check afterward');
+  const many = K.outcomeWords(K.settle(UP({ skipped: Array.from({ length: 40 }, (_, i) => 'f' + i + '.md') })), WHERE);
+  assert.ok(many.text.length < 400 && /and 3\d more/.test(many.text), 'a long list stays short: ' + many.text);
+});
+
+rule('Round 6, source: no path in this feature decides its own message', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
+  const a = src.indexOf('Settings, AI assistant files: flightdeck install'), b = src.indexOf('Getting started (views/setup.js', a), body = src.slice(a, b);
+  assert.deepStrictEqual((body.match(/\bsay\(/g) || []).length, 1, 'say is called in one place here');
+  const fn = (n) => { const at = body.indexOf('function ' + n + '('); return body.slice(at, body.indexOf('\n  function ', at + 5)); };
+  ['afUpdate', 'afMerged'].forEach(n => {
+    assert.ok(!/af\.err\s*=(?!\s*null)|af\.result|\.note\b/.test(fn(n)), n + ' reports only through its facts');
+    assert.ok(/afFinish\(/.test(fn(n)), n + ' ends through afFinish');
+  });
+  ['afEnding', 'afFailed', 'afThenTeam', 'afResult'].forEach(n => assert.ok(!body.includes('function ' + n + '('), n + ' is gone'));
+  const view = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'views', 'manage.js'), 'utf8'), v = view.slice(view.indexOf('function assistantFiles'));
+  assert.ok(!/function afResult/.test(view) && !/\.wrote|\.moved|\.skipped|\boutcome\b/.test(v.slice(0, v.indexOf('var keySeq'))), 'the screen draws the words, not the facts');
+});
+
+rule('Round 6, comparison: written, then changed before the read-back, is reported as written; a backup is kept; nothing says untouched', async () => {
+  for (const cover of ['nothing', 'another screen']) {
+    const raw = asFiles(scenario('older defaults')); let armed = false;
+    if (OLD_AGENTS == null) return;
+    const files = new Proxy(raw, { set(t, k, v) { t[k] = v; if (armed && k === 'AGENTS.md' && v) t[k] = 'someone saved right after'; return true; } });
+    const app = await openTeam(files);
+    app.click('ai-files'); await wait(app);
+    armed = true; app.click('af-update');
+    if (cover !== 'nothing') { app.click('nav', 'home'); }
+    await wait(app); await wait(app);
+    assert.strictEqual(raw['AGENTS.md'], 'someone saved right after', 'set-up: changed after the write');
+    assert.ok(Object.keys(raw).some(k => /replaced\/[^/]+\/AGENTS\.md$/.test(k)), 'set-up: a copy was kept');
+    if (cover === 'nothing') {
+      const html = section(app).replace(/&#39;/g, "'");
+      assert.ok(!/Nothing was (replaced|changed)/.test(html), 'not called untouched: ' + (html.match(/af-err[^<]*>[^<]*/) || [''])[0]);
+      assert.ok(/AGENTS\.md[^<]*was written[^<]*changed/.test(html), 'it says what happened');
+    } else {
+      assert.ok(!/Nothing was (replaced|changed)/.test(app.live()) && /AGENTS\.md[^]*was written/.test(app.live()), 'announced the same: ' + app.live());
+    }
+  }
+});
+
+rule('Round 6, comparison: a file changed before the write is reported as left alone, and it is', async () => {
+  if (OLD_AGENTS == null) return;
+  const o = {}, files = asFiles(scenario('older defaults')), app = await openTeam(files, o);
+  app.click('ai-files'); await wait(app);
+  let n = 0; o.wait = (p) => { if (p === 'AGENTS.md' && ++n === 2) files['AGENTS.md'] = 'someone else wrote this'; return null; };
+  app.click('af-update'); await wait(app); await wait(app);
+  assert.strictEqual(files['AGENTS.md'], 'someone else wrote this', 'theirs stands');
+  const html = section(app).replace(/&#39;/g, "'");
+  assert.ok(/Left as they are, because they changed while updating: AGENTS\.md/.test(html) && /weren't replaced/.test(html), 'it says so');
+  assert.ok(!/was written, then changed/.test(html), 'and doesn\'t say it wrote it');
+});
+
+rule('Round 6, comparison: an Update refused by a newer record is never announced as updated, and nothing changes', async () => {
+  for (const cover of ['nothing', 'another screen', 'a dialog']) {
+    const files = asFiles(scenario('deleted')), app = await openTeam(files);
+    app.click('ai-files'); await wait(app);
+    files['.flightdeck/installed.json'] = JSON.stringify({ format: 'flightdeck-installed/2', version: '3.0.0', files: {} });
+    const before = JSON.stringify(files);
+    app.click('af-update');
+    if (cover === 'another screen') app.click('nav', 'home'); else if (cover === 'a dialog') app.click('help');
+    await wait(app); await wait(app);
+    assert.strictEqual(JSON.stringify(files), before, cover + ': nothing changed');
+    if (cover === 'nothing') { assert.ok(/Nothing was changed/.test(section(app)), 'the screen says so'); continue; }
+    assert.ok(!/updated in/i.test(app.live()) && /Nothing was changed/.test(app.live()), cover + ': said: ' + app.live());
+  }
+});
+
+rule('Round 6, focus: a saved opener that is gone or hidden when a dialog closes sends focus to the heading', async () => {
+  const dk = (app, k) => app.PF.vk.domKey(k);
+  /* Gone: the team folder arrives under Help, and the text that opened it went with the old target. */
+  const t = await slowOther(true);
+  t.app.click('nav', 'home'); await t.app.tick(20);
+  t.app.click('ai-files'); await t.app.tick(60);
+  t.app.click('af-peek', SKILL); await t.app.tick(5);
+  t.app.node('#af-pre-' + dk(t.app, SKILL)).focus();
+  t.app.click('help'); await t.app.tick(5);
+  t.st.gate.open(); await wait(t.app); await wait(t.app);
+  assert.ok(/data-af-row="AGENTS\.md"/.test(section(t.app)), 'set-up: it moved');
+  t.app.key('Escape'); await t.app.tick(5);
+  assert.strictEqual(t.app.activeId(), 'set-ai', 'gone: the heading');
+  /* Hidden: a remembered folder lands under Help, closing the text that opened it. */
+  const w = await twoFolders('granted', true);
+  w.app.click('af-where', 'other'); await w.app.tick(60);
+  w.app.click('af-peek', SKILL); await w.app.tick(5);
+  w.app.node('#af-pre-' + dk(w.app, SKILL)).focus();
+  w.app.click('help'); await w.app.tick(5);
+  w.gates.a.open(); await wait(w.app);
+  assert.ok(/Using <b>Skills A<\/b>/.test(section(w.app)), 'set-up: it landed');
+  w.app.key('Escape'); await w.app.tick(5);
+  assert.strictEqual(w.app.activeId(), 'set-ai', 'hidden: the heading');
+  /* Still there: back where it was. */
+  const s2 = boot({ picker: folderHandle('Team', asFiles(scenario('settled'))), indexedDB: memoryIDB(), domFocus: true }); await s2.tick(60);
+  s2.click('connect'); await s2.tick(200);
+  s2.click('ai-files'); await wait(s2);
+  s2.click('af-peek', STATUS); await s2.tick(5);
+  s2.node('#af-pre-' + dk(s2, STATUS)).focus();
+  s2.click('help'); await s2.tick(5);
+  s2.key('Escape'); await s2.tick(5);
+  assert.strictEqual(s2.activeId(), 'af-pre-' + dk(s2, STATUS), 'still there: back on it');
+});
+
+rule('Round 6, source: focus has one rule here, used by the background change and the dialog close', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
+  const fnOf = (n) => { const at = src.indexOf('function ' + n + '('); return src.slice(at, src.indexOf('\n  function ', at + 5)); };
+  assert.ok(/afRefocus\(/.test(fnOf('afKeepFocus')), 'the background change uses it');
+  assert.ok(/afRefocus\(/.test(fnOf('closeOverlay')), 'the dialog close uses it');
+  assert.strictEqual((src.match(/getElementById\('set-ai'\)/g) || []).filter(Boolean).length, 2, 'one rule names the heading, and the action that opens the section the other');
+});
+
+rule('Round 6, comparison: Settings checks yield to Refresh: its root listing starts while they still wait', async () => {
+  const dir = scenario('settled'), o = {}, g = gate();
+  for (let i = 0; i < 100; i++) { const p = path.join(dir, '.flightdeck/updates/1.' + i + '.0', STATUS); fs.mkdirSync(path.dirname(p), { recursive: true }); fs.writeFileSync(p, 'a copy ' + i); }
+  const d = hooked(folderHandle('Team', asFiles(dir)), o), values = d.values;
+  let roots = 0; d.values = function () { roots++; return values.apply(this, arguments); };
+  const app = boot({ picker: d, indexedDB: memoryIDB() }); await app.tick(60);
+  app.click('connect'); await app.tick(300);
+  o.wait = (p) => /^\.flightdeck\/updates\//.test(p) ? g.p : null;
+  app.click('ai-files'); await app.tick(200);
+  assert.ok(o.copiesNow > 0, 'set-up: the checks are waiting');
+  assert.ok(o.copiesMost <= 4, 'they take at most 4 of the 8: ' + o.copiesMost);
+  app.click('nav', 'home'); await app.tick(20);
+  roots = 0; app.click('refresh'); await app.tick(100);
+  assert.ok(roots > 0, 'Refresh lists the root while the checks still wait');
+  assert.ok(o.copiesNow > 0, 'set-up: they still do');
+  o.wait = null; g.open(); await app.tick(600);
+});
+
+/* A thing in the way of a destination, in the command and the app. */
+const OBSTACLES = {
+  'a folder at the merge README': { in: '.flightdeck/updates/2.12.0/README.md/x', says: /README\.md is a folder/ },
+  'a folder at a skill': { in: PLAN + '/x', says: /SKILL\.md is a folder/, cliSays: /SKILL\.md isn't a file/ },
+  'a folder at a waiting copy': { in: '.flightdeck/updates/2.12.0/' + STATUS + '/x', says: /SKILL\.md is a folder/, cliSays: /SKILL\.md isn't a file/ },
+  'a file where the updates folder goes': { rm: '.flightdeck/updates', file: '.flightdeck/updates', says: /\.flightdeck\/updates is a file/ },
+  'a file where the version folder goes': { file: '.flightdeck/updates/2.12.0', says: /2\.12\.0 is a file/ }
+};
+function obstacle(X) {
+  const dir = scenario('custom with an older default recorded');
+  fs.rmSync(path.join(dir, PLAN));
+  if (X.rm) fs.rmSync(path.join(dir, X.rm), { recursive: true, force: true });
+  if (X.in) { fs.mkdirSync(path.dirname(path.join(dir, X.in)), { recursive: true }); fs.writeFileSync(path.join(dir, X.in), 'in the way'); }
+  if (X.file) { fs.mkdirSync(path.dirname(path.join(dir, X.file)), { recursive: true }); fs.writeFileSync(path.join(dir, X.file), 'in the way'); }
+  return dir;
+}
+for (const name of Object.keys(OBSTACLES)) rule('Round 6, comparison: ' + name + ' stops the command and the app before anything changes', async () => {
+  const X = OBSTACLES[name], dir = obstacle(X), raw = () => JSON.stringify(asFiles(dir));
+  /* An older app file, so the command would replace that too. */
+  const bundles = require('../tools/old-bundles'), old = bundles.get('v2.11.2');
+  if (old) fs.writeFileSync(path.join(dir, 'flightdeck.html'), old.files['flightdeck.html']);
+  const files = asFiles(dir), kept = JSON.stringify(files), before = raw();
+  const app = await openTeam(files);
+  app.click('ai-files'); await app.tick(600);
+  assert.ok(/data-act="af-update"/.test(app.html()), 'set-up: Update is offered');
+  app.click('af-update'); await app.tick(600);
+  const said = section(app).replace(/&#39;/g, "'");
+  assert.strictEqual(JSON.stringify(files), kept, 'the app changes nothing');
+  assert.ok(X.says.test(said) && /Nothing was changed/.test(said), 'the app says so: ' + (said.match(/af-err[^<]*>[^<]*/) || [''])[0]);
+  const r = cli('install', dir);
+  assert.notStrictEqual(r.code, 0, 'the command refuses: ' + r.out.slice(0, 200));
+  /* A contract path that's a folder is refused earlier in the command, while reading it, in that reader's own words. */
+  assert.ok(X.cliSays ? X.cliSays.test(r.out) : X.says.test(r.out) && /Nothing was changed/.test(r.out), 'the command says so: ' + r.out.slice(0, 240));
+  assert.strictEqual(raw(), before, 'the command changes nothing, the app file included');
+});
+
+rule('Round 6: this release is dated 2026-11-01 in the entry, the waiver and the list', () => {
+  const rel = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'src', 'releases.json'), 'utf8'))[0];
+  assert.strictEqual(rel.version, '2.12.0'); assert.strictEqual(rel.date, '2026-11-01');
+  const at = path.join(__dirname, '..', 'docs', 'rehearsals', '2.12.0-2026-11-01-waiver.md');
+  assert.ok(fs.existsSync(at) && /Date: 2026-11-01/.test(fs.readFileSync(at, 'utf8')), 'the waiver');
+  assert.ok(!fs.existsSync(path.join(__dirname, '..', 'docs', 'rehearsals', '2.12.0-2026-10-31-waiver.md')), 'and only that one');
+  assert.ok(/\[2\.12\.0, 2026-11-01\]\(2\.12\.0-2026-11-01-waiver\.md\)/.test(fs.readFileSync(path.join(__dirname, '..', 'docs', 'rehearsals', 'README.md'), 'utf8')), 'the list');
 });
 
 run();

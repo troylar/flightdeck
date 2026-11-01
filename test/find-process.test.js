@@ -843,8 +843,7 @@ const FILE = 'text written to a file (front matter, a step\'s lines), never draw
 const FIXED = 'a fixed set of parts, at most a handful';
 const GROUP = 'one group path (Group / Subgroup), as deep as its author wrote it';
 const D10_JOIN_OK = [
-  { file: 'manage.js', has: 'because they changed while updating: \' + r.changed.join', why: 'AI assistant files: at most this version\'s own file list, plus the README and the record' },
-  { file: 'manage.js', has: 'tg.updates.join(', why: 'a folder\'s parts, a fixed list in the code' }, { file: 'manage.js', has: 'list.join(\', \')', why: 'at most 3: afWaiting counts the rest' }, { file: 'manage.js', has: 'list.slice(0, 3).join(', why: 'at most 3: afWaiting counts the rest' }, { file: 'manage.js', has: 'parts.join(\' \')', why: 'at most 5 sentences built here' },
+  { file: 'manage.js', has: 'list.join(\', \')', why: 'at most 3: afWaiting counts the rest' }, { file: 'manage.js', has: 'list.slice(0, 3).join(', why: 'at most 3: afWaiting counts the rest' },
   { file: 'app.js', has: 'tg.updates.join(', why: 'a folder\'s parts, a fixed list in the code' }, { file: 'app.js', has: 'tg.updates.concat(v).join', why: 'one prompt per version folder holding this file, copied to the clipboard, never drawn' },
   { file: 'builder.js', has: 'function described(', why: ARIA }, { file: 'builder.js', has: 'function sigOf(', why: NOT_TEXT },
   { file: 'builder.js', has: 'group: T.groupOf(t).join(\' / \')', why: 'a step type\'s group, at most 80 characters, and its tags, at most 10, a type file over either is refused when read (core/types.js)' },

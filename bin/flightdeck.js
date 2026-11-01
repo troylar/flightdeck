@@ -304,14 +304,43 @@ function roomFor(t, items) {
   const size = Buffer.byteLength(JSON.stringify({ format: 'flightdeck-installed/1', version: t.version, at: new Date().toISOString(), by: 'cli', files: rec }, null, 2) + '\n', 'utf8');
   if (size > CONTRACT_MAX) fail(why(t.recordAt.join('/'), size, 'Remove the entries for files Flightdeck no longer ships, then try again.'));
 }
+/* Something in the way of where a file goes: the same words as PF.contract.outcomeWords. Every destination is looked at before
+   anything is written, so a predictable refusal never leaves an update half done. */
+function blockedWhy(rel, want) { return rel + (want === 'file' ? ' is a folder, where Flightdeck needs a file.' : ' is a file, where Flightdeck needs a folder.') + ' Nothing was changed. Move it, then try again.'; }
+function clearFor(dir, parts) {
+  let cur = dir;
+  for (let i = 0; i < parts.length; i++) {
+    cur = path.join(cur, parts[i]);
+    const st = lstatOrNull(cur), rel = parts.slice(0, i + 1).join('/');
+    if (!st) return;
+    if (st.isSymbolicLink()) fail('refusing to write through a link: ' + cur);
+    if (i === parts.length - 1 ? !st.isFile() : !st.isDirectory()) fail(blockedWhy(rel, i === parts.length - 1 ? 'file' : 'folder'));
+  }
+}
+function destinationsClear(t, items, more) {
+  const dests = (more || []).slice();
+  for (const i of items) {
+    if (['current', 'kept'].includes(i.status)) continue;
+    if (i.status === 'merge') {
+      if (i.waiting && !i.stage) continue;
+      dests.push(t.updates.concat(t.version, i.rel.split('/')), t.updates.concat(t.version, 'README.md'));
+      continue;
+    }
+    dests.push(i.parts);
+    if (i.now !== null && i.now !== merged(i)) dests.push(t.updates.concat(t.version, 'replaced', 'x'));
+  }
+  if (nextRecord(t.record, items, t.version)) dests.push(t.recordAt);
+  dests.forEach((parts) => clearFor(t.dir, parts));
+}
 /* install and skills: one routine for the team folder, and for skills --to <dir>. */
 function contract(t, files, opts) {
   const base = baselines(opts.html), now = new Date();
+  if (!opts.check || opts.room) clearFor(t.dir, t.updates.concat(t.version, 'x'));
   inside(t.dir, t.updates.concat(t.version, 'replaced'));
   t.record = readRecord(t, files.map((f) => f.key));
   t.changed = [];
   const items = classify(t, files, base, opts.force);
-  if (!opts.check || opts.room) roomFor(t, items);
+  if (!opts.check || opts.room) { roomFor(t, items); destinationsClear(t, items, opts.more); }
   if (opts.check) return items;
   for (const i of items) {
     if (['current', 'kept'].includes(i.status) || (i.status === 'merge' && i.waiting && !i.stage)) {
@@ -1767,7 +1796,7 @@ function main(argv) {
       return { out: out.join('\n'), code };
     }
     /* Everything is checked before anything is written, so a refusal (a link, say) leaves the folder as it was. */
-    if (!appOnly) contract(t, files, { html, force, check: true, room: true });
+    if (!appOnly) contract(t, files, { html, force, check: true, room: true, more: [[NAME, appS], [OLD, oldS]].filter(([file, st]) => st.status !== 'current' && (file !== OLD || keepOld)).map(([file]) => [file]) });
     t.changed = [];
     [[NAME, appS], [OLD, oldS]].forEach(([file, st]) => {
       if (st.status === 'current' || (file === OLD && !keepOld)) return;

@@ -508,19 +508,6 @@
     var list = w ? w.split(', ') : [];
     return !list.length ? '' : ' (in ' + (list.length <= 3 ? list.join(', ') : list.slice(0, 3).join(', ') + ' and ' + (list.length - 3) + ' more') + ')';
   }
-  function afResult(r, tg, version) {
-    if (r.note) return '<p class="small" role="status">' + esc(r.note) + '</p>';
-    var parts = [];
-    if (r.wrote) parts.push('Updated ' + r.wrote + ' file' + (r.wrote === 1 ? '' : 's') + '.');
-    if (r.kept) parts.push('Kept ' + r.kept + ' you changed.');
-    if (r.staged) parts.push('Put ' + r.staged + ' new default' + (r.staged === 1 ? '' : 's') + ' to merge in ' + tg.updates.join('/') + '/' + version + '/.');
-    if (r.replaced) parts.push('Copies of what was replaced are in ' + r.replaced + '.');
-    if (r.ignored) parts.push('The old record wasn\'t one Flightdeck wrote, so it wasn\'t trusted; a new one was written.');
-    else if (r.record && !r.wrote && !r.staged) parts.push('The record of these files is saved.');
-    var h = parts.length ? '<p class="small" role="status">' + esc(parts.join(' ')) + '</p>' : '';
-    if (r.changed.length) h += '<p class="small af-err" role="alert">' + esc('Left as they are, because they changed while updating: ' + r.changed.join(', ') + '. Nothing was replaced; check them again.') + '</p>';
-    return h;
-  }
   function assistantFiles(ctx) {
     if (!ctx.assistantFiles) return '';
     var m = ctx.assistantFiles(), tg = m.target, af = m.af, l = af.load, ro = m.readOnly, other = af.where === 'other', byKey = Object.create(null);
@@ -540,10 +527,10 @@
     h += '<p class="af-status" role="status">' + esc(status) + '</p>';
     if (ro) h += '<p class="small af-ro">' + esc(ro) + '</p>';
     if (af.err) h += '<p class="small af-err" role="alert">' + esc(af.err) + '</p>';
-    if (l && l.record.ignored && !af.result) h += '<p class="small af-ro">' + esc(tg.recordAt) + ' isn\'t a record Flightdeck wrote, so it isn\'t trusted. Updating writes a new one.</p>';
+    if (l && l.record.ignored && !m.words) h += '<p class="small af-ro">' + esc(tg.recordAt) + ' isn\'t a record Flightdeck wrote, so it isn\'t trusted. Updating writes a new one.</p>';
     if (!l && !af.loading && tg.fs && !ro) h += '<div class="row"><button type="button" class="btn" data-act="af-load"' + off + '>Check the files</button></div>';
     if (l && !ro && (todo || stage || l.recordDue)) h += '<div class="row"><button type="button" class="btn go" data-act="af-update"' + wait + '>' + (todo ? 'Update ' + todo + ' file' + (todo === 1 ? '' : 's') : stage ? 'Get ' + stage + ' new default' + (stage === 1 ? '' : 's') + ' ready to merge' : 'Save the record of these files') + '</button></div>';
-    if (af.result) h += afResult(af.result, tg, m.version);
+    if (m.words) h += m.words.kind === 'warn' ? '<p class="small af-err" role="alert">' + esc(m.words.text) + '</p>' : '<p class="small" role="status">' + esc(m.words.text) + '</p>';
     h += '<ul class="af-list">' + tg.files.map(function (f) {
       var it = byKey[f.key], st = it ? it.status : '', word = st ? AF_WORD[st] + (st === 'merge' ? afWaiting(it.waiting) : '') : '', peek = af.peek === f.key, dk = K.domKey(f.key);
       return '<li class="af-row" id="af-row-' + dk + '"' + (st ? ' data-af-row="' + esc(f.rel) + '" data-af-status="' + esc(st) + '"' : '') + '><div class="row between"><span><code>' + esc(f.rel) + '</code>' + (word ? ' <span class="cat">' + esc(word) + '</span>' : '') + '</span>' +
