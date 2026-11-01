@@ -11087,9 +11087,11 @@ PF.contract = (function () {
     'merge-done': { kind: 'good', reload: true, words: function () { return 'Put away. The copy is beside the replaced files, in case you need it.'; } },
     'merge-left': { kind: 'warn', reload: true, words: function (o) { return 'A copy waiting in ' + (o.left.length === 1 ? o.left[0] : o.left.length + ' versions') + ' changed since this screen read it, so it was left where it is. Look at it again.'; } },
     'merge-partial': { kind: 'warn', reload: true, words: function (o) { return count(o.putAway, 'copy').replace('copys', 'copies') + (o.putAway === 1 ? ' was' : ' were') + ' put away before this stopped: ' + o.error.why; } },
+    'merge-unsure': { kind: 'warn', reload: true, words: function (o) { return (o.putAway ? count(o.putAway, 'copy').replace('copys', 'copies') + (o.putAway === 1 ? ' was' : ' were') + ' put away. ' : '') + 'The copy waiting in ' + shortList(o.unsure) + ' may or may not have been put away: removing it failed and Flightdeck couldn\'t check. ' + o.error.why + ' Look at it again.'; } },
     'merge-failed': { kind: 'warn', words: function (o) { return 'Nothing was put away. ' + o.error.why; } }
   };
   function settleState(f) {
+    if (f.op === 'merge' && f.unsure && f.unsure.length) return 'merge-unsure';
     if (f.op === 'merge') return f.error ? (f.putAway ? 'merge-partial' : 'merge-failed') : f.left.length ? 'merge-left' : 'merge-done';
     if (f.newer) return 'newer';
     if (f.tooBig) return 'too-big';
@@ -17446,7 +17448,10 @@ PF.repo = (function () {
     return archiveCopy(fs, dir, rel, text).then(function () { return on() ? fs.read(path) : null; }).then(function (now) {
       if (!on()) return { stale: true };
       if (!now || now.text !== text) return { changed: true };
-      return fs.remove(path).then(function () { return { ok: true }; });
+      /* A removal that says it failed may still have happened: only a file still there is a failure. */
+      return fs.remove(path).then(function () { return { ok: true }; }, function (e) {
+        return fs.read(path).then(function (left) { if (left) throw e; return { ok: true }; }, function () { return { unsure: true, why: e && e.message || String(e) }; });
+      });
     });
   }
   /* Every draft save names the exact text it expects (opts.expectText; null when the draft doesn't exist yet), and nothing
@@ -27218,11 +27223,20 @@ PF.examples = (function () {
   function afKeepFocus(change) {
     var ae = document.activeElement, act = ae && ae.dataset && ae.dataset.act;
     var find = ae && /^af-/.test(ae.id || '') ? function () { return document.getElementById(ae.id); } : act && /^af-/.test(act) ? function () { return document.querySelector('[data-act="' + cssEsc(act) + '"]' + (ae.dataset.id != null ? '[data-id="' + cssEsc(ae.dataset.id) + '"]' : '')); } : null;
+    var place = function () {
+      if (!find || state.overlay) return;
+      var to = afRefocus(find);
+      if (to && to.id === 'set-ai') to.focus();
+    };
     var out = change();
-    if (!find || state.overlay) return out;
-    var to = afRefocus(find);
-    if (to && to.id === 'set-ai') to.focus();
-    return out;
+    place();
+    if (!out || !out.then) return out;
+    /* After a wait, someone may have moved on: focus only moves if it's still lost. */
+    return out.then(function (v) {
+      var now = document.activeElement;
+      if (!now || now === document.body || now === ae || now.hasAttribute('hidden')) place();
+      return v;
+    });
   }
   /* The one way a write ends: its facts become its outcome, and the screen and any announcement take their words from that.
      If the team folder was asked for while this wrote elsewhere (Open AI assistant files), it goes there now. */
@@ -27231,8 +27245,10 @@ PF.examples = (function () {
     af.busy = false; afFilesChanged(tg);
     if (af.thenTeam) { afTell(o, tg, 'team'); return afKeepFocus(function () { return afLoad(false, afNew('team', state.fs)); }); }
     if (afCovered()) afTell(o, tg);
-    if (PF.contract.OUTCOMES[o.state].reload) return afLoad(true, af);
-    render();
+    /* Any write can end because access was lost, so every ending asks the browser again: reloading does, and so does this. */
+    if (PF.contract.OUTCOMES[o.state].reload) return afKeepFocus(function () { return afLoad(true, af); });
+    var alive = afGuard(af);
+    return afKeepFocus(function () { render(); return afPerm(tg.fs).then(function (p) { if (alive()) { af.perm = p; render(); } }); });
   }
   /* What Folder health last found about these files is out of date now: its next look scans again. */
   function afFilesChanged(tg) { if (!tg.standalone) state.healthScan = null; }
@@ -27242,7 +27258,7 @@ PF.examples = (function () {
     var af = afState(), it = af.load && af.load.items.filter(function (i) { return i.key === key; })[0];
     if (!it || !afReady(af) || !it.staged.length) return;
     var tg = afTarget(af); if (afReadOnly(tg, af)) return;
-    var alive = afGuard(af), fs = tg.fs, f = { op: 'merge', putAway: 0, left: [] };
+    var alive = afGuard(af), fs = tg.fs, f = { op: 'merge', putAway: 0, left: [], unsure: [] };
     af.busy = true; af.outcome = null; af.err = null; render();
     repo.archiveDir(fs, tg.updates.join('/') + '/' + APP_VERSION + '/replaced').then(function (d) {
       return it.staged.reduce(function (q, x) {
@@ -27253,7 +27269,7 @@ PF.examples = (function () {
             if (!r) { f.left.push(x.version); return null; }
             return digests([r.text]).then(function (ds) {
               if (!ds || ds[0] !== x.full) { f.left.push(x.version); return; }
-              return repo.archiveStaged(fs, d, x.path, 'staged/' + x.version + '/' + it.rel, r.text, alive).then(function (done) { if (done.changed) f.left.push(x.version); else f.putAway++; });
+              return repo.archiveStaged(fs, d, x.path, 'staged/' + x.version + '/' + it.rel, r.text, alive).then(function (done) { if (done.unsure) { f.unsure.push(x.version); throw new Error(done.why); } if (done.changed) f.left.push(x.version); else f.putAway++; });
             });
           });
         });

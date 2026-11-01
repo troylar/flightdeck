@@ -243,7 +243,8 @@ function installedNewer(r) {
 /* The folder's record, checked field by field. Anyone can edit it, so a record that isn't exactly what this command writes is
    ignored (and said so), and only entries for files this version installs, with a well-formed hash, are read. */
 function readRecord(t, keys) {
-  const r = parseRecord(readInside(t.dir, t.recordAt), keys);
+  t.recordText = readInside(t.dir, t.recordAt);
+  const r = parseRecord(t.recordText, keys);
   if (r.newer) fail(path.join(t.dir, ...t.recordAt) + ' ' + r.newer + ' Nothing was changed. Use the newer Flightdeck package.');
   return r;
 }
@@ -373,7 +374,13 @@ function contract(t, files, opts) {
   }
   const rec = nextRecord(t.record, items, t.version);
   if (!rec) return items;
-  safeWrite(t.dir, t.recordAt, JSON.stringify({ format: 'flightdeck-installed/1', version: t.version, at: now.toISOString(), by: 'cli', files: rec }, null, 2) + '\n');
+  try {
+    safeWrite(t.dir, t.recordAt, JSON.stringify({ format: 'flightdeck-installed/1', version: t.version, at: now.toISOString(), by: 'cli', files: rec }, null, 2) + '\n', t.recordText);
+    t.recordWritten = true;
+  } catch (e) {
+    if (!(e instanceof Changed)) throw e;
+    t.changed.push(t.recordAt.join('/'));
+  }
   return items;
 }
 /* The record's files after an update, or null when it would be written unchanged: the same as PF.contract.nextRecord. */
@@ -413,8 +420,8 @@ function report(items, check, out) {
 }
 /* What install says after the file list: an ignored record, and files left alone because they changed while it ran. */
 function notes(t, out) {
-  if (t.record && t.record.ignored) out.push('Ignored ' + t.recordAt.join('/') + ': it isn\'t a record this version of Flightdeck wrote, so it wasn\'t trusted. A new one was written.');
-  if (t.changed && t.changed.length) out.push('Left as they are, because they changed while install was running: ' + t.changed.join(', ') + '. Run the command again.');
+  if (t.record && t.record.ignored) out.push('Ignored ' + t.recordAt.join('/') + ': it isn\'t a record this version of Flightdeck wrote, so it wasn\'t trusted.' + (t.recordWritten ? ' A new one was written.' : ''));
+  if (t.changed && t.changed.length) out.push('Left as they are, because they changed while updating: ' + t.changed.join(', ') + '. Those weren\'t replaced; check them again.');
 }
 function exitFor(statuses) {
   if (statuses.includes('merge')) return EXIT.merge;

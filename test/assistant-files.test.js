@@ -920,7 +920,7 @@ for (const name of Object.keys(ASYNC_PATHS)) for (const change of ['folder', 'ta
 }
 
 /* A function in this feature that waits on something, and how it's bound. A new one fails until it's listed here. */
-const AF_ASYNC = { afPerm: 'a question, no state', afIsTeam: 'a question, no state', afUse: 'turn', afRead: 'reads only, for a caller that checks', afLoad: 'guard', afUpdate: 'guard', afMerged: 'guard', afPick: 'chooses', afRemembered: 'chooses', afAllow: 'chooses' };
+const AF_ASYNC = { afFinish: 'guard', afKeepFocus: 'moves focus only, and only if it is lost; no state', afPerm: 'a question, no state', afIsTeam: 'a question, no state', afUse: 'turn', afRead: 'reads only, for a caller that checks', afLoad: 'guard', afUpdate: 'guard', afMerged: 'guard', afPick: 'chooses', afRemembered: 'chooses', afAllow: 'chooses' };
 const AF_ACTS = ['ai-files', 'af-load', 'af-where', 'af-pick', 'af-allow', 'af-update', 'af-merged', 'af-peek', 'af-copy', 'af-brief'];
 function afAudit(src) {
   const out = [], a = src.indexOf('Settings, AI assistant files: flightdeck install'), b = src.indexOf('Getting started (views/setup.js', a), body = src.slice(a, b), fns = {};
@@ -1366,6 +1366,7 @@ const OUTCOME_CASES = {
   'merge-done': { facts: ME({ putAway: 2 }), must: /Put away/, never: /left where/, kind: 'good' },
   'merge-left': { facts: ME({ left: ['2.6.0'] }), must: /2\.6\.0[^]*left where it is/, never: /^Put away/, kind: 'warn' },
   'merge-partial': { facts: ME({ putAway: 1, error: { why: 'The disk said no.' } }), must: /1[^]*put away[^]*The disk said no/i, never: /Nothing was/, kind: 'warn' },
+  'merge-unsure': { facts: ME({ putAway: 1, unsure: ['2.6.0'], error: { why: 'The disk said no.' } }), must: /1 copy[^]*put away[^]*2\.6\.0[^]*may or may not[^]*The disk said no/, never: /Nothing was/, kind: 'warn' },
   'merge-failed': { facts: ME({ error: { why: 'The disk said no.' } }), must: /Nothing was put away[^]*The disk said no/, never: /Put away\./, kind: 'warn' }
 };
 
@@ -1685,6 +1686,111 @@ rule('Round 7, comparison: a replacement record that is refused is not called wr
   const gf = asFiles(good), ga = await openTeam(gf);
   ga.click('ai-files'); await wait(ga); ga.click('af-update'); await wait(ga); await wait(ga);
   assert.ok(/a new one was written/.test(section(ga).replace(/&#39;/g, "'")) && /flightdeck-installed\/1/.test(gf['.flightdeck/installed.json']), 'replaced, and says so');
+});
+
+/* ---------------- Round 8: the command's record, and access lost during a write ---------------- */
+
+const RECORD = '.flightdeck/installed.json';
+async function installWithEdit(start, edit) {
+  const dir = scenario('deleted'), rename = fs.renameSync;
+  /* An older version in the record, so this install has a new record to write. */
+  const was = JSON.parse(fs.readFileSync(path.join(dir, RECORD), 'utf8')); was.version = '2.0.0';
+  fs.writeFileSync(path.join(dir, RECORD), start !== undefined ? start : JSON.stringify(was));
+  fs.renameSync = function (from, to) { const r = rename.apply(fs, arguments); if (to.endsWith(path.join(path.basename(dir), PLAN))) fs.writeFileSync(path.join(dir, RECORD), edit); return r; };
+  let r; try { r = await C.main(['install', dir]); } finally { fs.renameSync = rename; }
+  return { dir, out: r.out };
+}
+const RECORD_EDITS = [
+  ['an edited record', undefined, JSON.stringify({ format: 'flightdeck-installed/1', version: VER, at: 'x', by: 'app', files: {} })],
+  ['a newer-format record', undefined, JSON.stringify({ format: 'flightdeck-installed/2', version: '9.0.0', files: {} })],
+  ['an edit to a record that was not trusted', '{nope', '{"someone":"else"}']
+];
+rule('Round 8, comparison, command: a record changed during install stands, and is named as skipped in the app\'s words', async () => {
+  for (const [name, start, edit] of RECORD_EDITS) {
+    const r = await installWithEdit(start, edit);
+    assert.ok(readText(r.dir, PLAN), name + ': set-up: the skill was written');
+    assert.strictEqual(readText(r.dir, RECORD), edit, name + ': theirs stands');
+    const words = K.outcomeWords(K.settle(UP({ skipped: [RECORD] })), WHERE).text;
+    assert.ok(r.out.includes(words), name + ': the app\'s words: ' + words + ' in: ' + r.out);
+    assert.ok(!/A new one was written/.test(r.out), name + ': never called replaced: ' + r.out);
+  }
+  const clean = scenario('settled'); fs.writeFileSync(path.join(clean, RECORD), '{nope');
+  const ok = await C.main(['install', clean]);
+  assert.ok(/wasn't trusted[^]*A new one was written/.test(ok.out) && /flightdeck-installed\/1/.test(readText(clean, RECORD)), 'replaced, and says so: ' + ok.out);
+});
+
+/* Access taken away while a write runs: the folder stops allowing writes, and the browser says so if asked. */
+function denying(files, o) {
+  const d = hooked(folderHandle('Team', files), o);
+  const wrap = (x, prefix) => Object.assign({}, x, {
+    getDirectoryHandle: (n, c) => (c && c.create && o.deny && o.deny()) ? Promise.reject(Object.assign(new Error('Not allowed.'), { name: 'NotAllowedError' })) : x.getDirectoryHandle(n, c).then(s => wrap(s)),
+    getFileHandle: (n, c) => (c && c.create && o.deny && o.deny()) ? Promise.reject(Object.assign(new Error('Not allowed.'), { name: 'NotAllowedError' })) : x.getFileHandle(n, c)
+  });
+  return Object.assign(wrap(d), { queryPermission: () => Promise.resolve(o.perm || 'granted'), requestPermission: () => Promise.resolve('granted') });
+}
+const ACCESS_LOST = [
+  { name: 'Update, refused before its first write', scene: 'deleted', act: ['af-update'], allowed: 0, gone: 'af-update', says: /didn't allow writing|Nothing was changed/ },
+  { name: 'Update, refused partway', scene: 'older defaults', act: ['af-update'], allowed: 8, gone: 'af-update', says: /stopped partway/ },
+  { name: 'I merged it, refused', scene: 'staged from 2.6.0', act: ['af-merged', STATUS], allowed: 0, gone: 'af-merged', says: /Nothing was put away/ }
+];
+rule('Round 8, comparison: when access is lost during a write the screen goes read-only, says why, stays that way, and focus isn\'t lost', async () => {
+  for (const X of ACCESS_LOST) {
+    if (X.scene === 'older defaults' && OLD_AGENTS == null) continue;
+    const o = {}, files = asFiles(scenario(X.scene));
+    const app = boot({ picker: denying(files, o), indexedDB: memoryIDB(), domFocus: true }); await app.tick(60);
+    app.click('connect'); await app.tick(200);
+    app.click('ai-files'); await wait(app);
+    assert.ok(app.html().includes('data-act="' + X.gone + '"'), X.name + ': set-up: it can be pressed');
+    app.node(X.gone === 'af-update' ? '[data-act="af-update"]' : '[data-act="af-merged"]').focus();
+    let n = 0; o.deny = () => { if (n++ < X.allowed) return false; o.perm = 'prompt'; return true; };
+    app.click(...X.act); await wait(app); await wait(app);
+    let html = section(app).replace(/&#39;/g, "'");
+    assert.ok(n > X.allowed, X.name + ': set-up: a write was refused');
+    assert.ok(X.says.test(html), X.name + ': says what happened: ' + (html.match(/role="(?:alert|status)"[^>]*>[^<]{5,}/g) || []).join(' | '));
+    assert.ok(!html.includes('data-act="' + X.gone + '"'), X.name + ': no longer offered');
+    assert.ok(/isn't allowing changes/.test(html), X.name + ': and says why');
+    assert.strictEqual(app.activeId(), 'set-ai', X.name + ': focus goes to the heading');
+    app.click('nav', 'home'); await wait(app); app.click('nav', 'settings'); await wait(app);
+    html = section(app).replace(/&#39;/g, "'");
+    assert.ok(!html.includes('data-act="' + X.gone + '"') && /isn't allowing changes/.test(html), X.name + ': still so after coming back');
+  }
+});
+rule('Round 8: a write that fails with access still granted leaves the button, and focus, where they were', async () => {
+  const o = {}, files = asFiles(scenario('deleted'));
+  const app = boot({ picker: denying(files, o), indexedDB: memoryIDB(), domFocus: true }); await app.tick(60);
+  app.click('connect'); await app.tick(200);
+  app.click('ai-files'); await wait(app);
+  o.deny = () => true;
+  app.click('af-update'); await wait(app); await wait(app);
+  const html = section(app);
+  assert.ok(html.includes('data-act="af-update"') && !/isn&#39;t allowing changes|isn't allowing changes/.test(html), 'the browser still allows it, so it can be tried again');
+});
+
+const REMOVES = [
+  ['removed, and the removal says so', { rejects: false }, { ok: true }],
+  ['the removal fails, and the file is still there', { rejects: true, stays: true }, { throws: 'remove no' }],
+  ['the removal fails, but the file is gone', { rejects: true }, { ok: true }],
+  ['the removal fails, and the file can\'t be checked', { rejects: true, stays: true, checkThrows: true }, { unsure: true, why: 'remove no' }]
+];
+rule('Round 8, archiveStaged: a removal that fails is only called a failure if the file is still there', async () => {
+  for (const [name, x, want] of REMOVES) {
+    let now = 'staged', removing = false;
+    const fake = {
+      read: async (p) => { if (p !== 'u/a.md') return { text: 'staged' }; if (removing && x.checkThrows) throw new Error('read no'); return now == null ? null : { text: now }; },
+      write: async () => {},
+      remove: async () => { removing = true; if (!x.stays) now = null; if (x.rejects) throw new Error('remove no'); }
+    };
+    let r, threw = null;
+    try { r = await PF.repo.archiveStaged(fake, 'd', 'u/a.md', 'staged/a.md', 'staged'); } catch (e) { threw = e.message; }
+    if (want.throws) { assert.strictEqual(threw, want.throws, name); continue; }
+    assert.strictEqual(threw, null, name + ': no bare error');
+    for (const k of Object.keys(want)) assert.strictEqual(r[k], want[k], name + ': ' + k + ': ' + JSON.stringify(r));
+  }
+});
+rule('Round 8, comparison: I merged it never says "Nothing was put away" when it can\'t tell', () => {
+  const o = K.settle(ME({ putAway: 1, unsure: ['2.6.0'], error: { why: 'The disk said no.' } })), w = K.outcomeWords(o, WHERE).text;
+  assert.strictEqual(o.state, 'merge-unsure');
+  assert.ok(!/Nothing was put away/.test(w) && /2\.6\.0[^]*may or may not/.test(w), w);
 });
 
 run();

@@ -1410,11 +1410,20 @@
   function afKeepFocus(change) {
     var ae = document.activeElement, act = ae && ae.dataset && ae.dataset.act;
     var find = ae && /^af-/.test(ae.id || '') ? function () { return document.getElementById(ae.id); } : act && /^af-/.test(act) ? function () { return document.querySelector('[data-act="' + cssEsc(act) + '"]' + (ae.dataset.id != null ? '[data-id="' + cssEsc(ae.dataset.id) + '"]' : '')); } : null;
+    var place = function () {
+      if (!find || state.overlay) return;
+      var to = afRefocus(find);
+      if (to && to.id === 'set-ai') to.focus();
+    };
     var out = change();
-    if (!find || state.overlay) return out;
-    var to = afRefocus(find);
-    if (to && to.id === 'set-ai') to.focus();
-    return out;
+    place();
+    if (!out || !out.then) return out;
+    /* After a wait, someone may have moved on: focus only moves if it's still lost. */
+    return out.then(function (v) {
+      var now = document.activeElement;
+      if (!now || now === document.body || now === ae || now.hasAttribute('hidden')) place();
+      return v;
+    });
   }
   /* The one way a write ends: its facts become its outcome, and the screen and any announcement take their words from that.
      If the team folder was asked for while this wrote elsewhere (Open AI assistant files), it goes there now. */
@@ -1423,8 +1432,10 @@
     af.busy = false; afFilesChanged(tg);
     if (af.thenTeam) { afTell(o, tg, 'team'); return afKeepFocus(function () { return afLoad(false, afNew('team', state.fs)); }); }
     if (afCovered()) afTell(o, tg);
-    if (PF.contract.OUTCOMES[o.state].reload) return afLoad(true, af);
-    render();
+    /* Any write can end because access was lost, so every ending asks the browser again: reloading does, and so does this. */
+    if (PF.contract.OUTCOMES[o.state].reload) return afKeepFocus(function () { return afLoad(true, af); });
+    var alive = afGuard(af);
+    return afKeepFocus(function () { render(); return afPerm(tg.fs).then(function (p) { if (alive()) { af.perm = p; render(); } }); });
   }
   /* What Folder health last found about these files is out of date now: its next look scans again. */
   function afFilesChanged(tg) { if (!tg.standalone) state.healthScan = null; }
@@ -1434,7 +1445,7 @@
     var af = afState(), it = af.load && af.load.items.filter(function (i) { return i.key === key; })[0];
     if (!it || !afReady(af) || !it.staged.length) return;
     var tg = afTarget(af); if (afReadOnly(tg, af)) return;
-    var alive = afGuard(af), fs = tg.fs, f = { op: 'merge', putAway: 0, left: [] };
+    var alive = afGuard(af), fs = tg.fs, f = { op: 'merge', putAway: 0, left: [], unsure: [] };
     af.busy = true; af.outcome = null; af.err = null; render();
     repo.archiveDir(fs, tg.updates.join('/') + '/' + APP_VERSION + '/replaced').then(function (d) {
       return it.staged.reduce(function (q, x) {
@@ -1445,7 +1456,7 @@
             if (!r) { f.left.push(x.version); return null; }
             return digests([r.text]).then(function (ds) {
               if (!ds || ds[0] !== x.full) { f.left.push(x.version); return; }
-              return repo.archiveStaged(fs, d, x.path, 'staged/' + x.version + '/' + it.rel, r.text, alive).then(function (done) { if (done.changed) f.left.push(x.version); else f.putAway++; });
+              return repo.archiveStaged(fs, d, x.path, 'staged/' + x.version + '/' + it.rel, r.text, alive).then(function (done) { if (done.unsure) { f.unsure.push(x.version); throw new Error(done.why); } if (done.changed) f.left.push(x.version); else f.putAway++; });
             });
           });
         });

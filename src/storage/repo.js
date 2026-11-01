@@ -1819,7 +1819,10 @@ PF.repo = (function () {
     return archiveCopy(fs, dir, rel, text).then(function () { return on() ? fs.read(path) : null; }).then(function (now) {
       if (!on()) return { stale: true };
       if (!now || now.text !== text) return { changed: true };
-      return fs.remove(path).then(function () { return { ok: true }; });
+      /* A removal that says it failed may still have happened: only a file still there is a failure. */
+      return fs.remove(path).then(function () { return { ok: true }; }, function (e) {
+        return fs.read(path).then(function (left) { if (left) throw e; return { ok: true }; }, function () { return { unsure: true, why: e && e.message || String(e) }; });
+      });
     });
   }
   /* Every draft save names the exact text it expects (opts.expectText; null when the draft doesn't exist yet), and nothing
