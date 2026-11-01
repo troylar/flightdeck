@@ -1361,6 +1361,7 @@ const OUTCOME_CASES = {
   nothing: { facts: UP({}), must: /Nothing needed changing/, never: /Updated/, kind: 'good' },
   written: { facts: UP({ wrote: 1, staged: 2, kept: 1, replaced: 'x/replaced/1', record: true }), must: /Updated 1 file\.[^]*Kept 1[^]*Put 2 new defaults[^]*x\/replaced\/1/, never: /Nothing was/, kind: 'good' },
   moved: { facts: UP({ wrote: 1, moved: ['AGENTS.md'] }), must: /AGENTS\.md[^]*was written[^]*changed/, never: /Nothing was (changed|replaced)|Left as/, kind: 'warn' },
+  unverified: { facts: UP({ wrote: 1, unverified: ['a.md'], unsure: ['b.md'], error: { why: 'The disk said no.' } }), must: /stopped[^]*The disk said no[^]*Updated 1 file[^]*a\.md was written, but Flightdeck couldn't read it back[^]*b\.md/, never: /Nothing was changed/, kind: 'warn' },
   skipped: { facts: UP({ wrote: 1, skipped: ['AGENTS.md'] }), must: /Updated 1 file[^]*Left as[^]*AGENTS\.md/, never: /Nothing was changed/, kind: 'warn' },
   'merge-done': { facts: ME({ putAway: 2 }), must: /Put away/, never: /left where/, kind: 'good' },
   'merge-left': { facts: ME({ left: ['2.6.0'] }), must: /2\.6\.0[^]*left where it is/, never: /^Put away/, kind: 'warn' },
@@ -1559,6 +1560,131 @@ rule('Round 6: this release is dated 2026-11-01 in the entry, the waiver and the
   assert.ok(fs.existsSync(at) && /Date: 2026-11-01/.test(fs.readFileSync(at, 'utf8')), 'the waiver');
   assert.ok(!fs.existsSync(path.join(__dirname, '..', 'docs', 'rehearsals', '2.12.0-2026-10-31-waiver.md')), 'and only that one');
   assert.ok(/\[2\.12\.0, 2026-11-01\]\(2\.12\.0-2026-11-01-waiver\.md\)/.test(fs.readFileSync(path.join(__dirname, '..', 'docs', 'rehearsals', 'README.md'), 'utf8')), 'the list');
+});
+
+/* ---------------- Round 7: what really happened, in three more cases ---------------- */
+
+const README = '.flightdeck/updates/' + VER + '/README.md', STAGED = '.flightdeck/updates/' + VER + '/' + STATUS;
+const readText = (dir, rel) => { try { return fs.readFileSync(path.join(dir, rel), 'utf8'); } catch (e) { return null; } };
+const allCopies = (o, want) => Object.keys(o).filter(k => /\/replaced\//.test(k) && o[k] === want);
+
+rule('Round 7, comparison, app: a merge README changed during the update is left alone and named as skipped', async () => {
+  for (const cover of ['nothing', 'another screen']) {
+    const raw = asFiles(scenario('custom with an older default recorded'));
+    const files = new Proxy(raw, { set(t, k, v) { t[k] = v; if (k === STAGED) t[README] = 'A teammate\'s merge notes'; return true; } });
+    const app = await openTeam(files);
+    app.click('ai-files'); await wait(app);
+    assert.strictEqual(afStatuses(app.html())[STATUS], 'merge', 'set-up: this one waits for a merge');
+    app.click('af-update'); if (cover !== 'nothing') app.click('nav', 'home');
+    await wait(app); await wait(app);
+    assert.ok(raw[STAGED], 'set-up: the new default was staged');
+    assert.strictEqual(raw[README], 'A teammate\'s merge notes', cover + ': theirs stands');
+    const said = (cover === 'nothing' ? section(app) : app.live()).replace(/&#39;/g, "'");
+    assert.ok(/Left as they are[^]*README\.md/.test(said), cover + ': named as skipped: ' + said.slice(0, 400));
+  }
+});
+
+rule('Round 7, comparison, command: a merge README changed during install is left alone and named as skipped', async () => {
+  const dir = scenario('custom with an older default recorded'), rename = fs.renameSync;
+  fs.renameSync = function (from, to) { const r = rename.apply(fs, arguments); if (to.endsWith(path.join(path.basename(dir), STAGED))) fs.writeFileSync(path.join(dir, README), 'A teammate\'s merge notes'); return r; };
+  let r; try { r = await C.main(['install', dir]); } finally { fs.renameSync = rename; }
+  assert.ok(readText(dir, STAGED), 'set-up: the new default was staged');
+  assert.strictEqual(readText(dir, README), 'A teammate\'s merge notes', 'theirs stands');
+  assert.ok(/Left as they are[^]*README\.md/.test(r.out), 'named as skipped: ' + r.out);
+});
+
+rule('Round 7, comparison: a merge README someone had already edited is copied before it is replaced, in the app and the command', async () => {
+  const notes = 'Notes saved before this update';
+  const before = scenario('custom with an older default recorded');
+  fs.mkdirSync(path.dirname(path.join(before, README)), { recursive: true }); fs.writeFileSync(path.join(before, README), notes);
+  const files = asFiles(before), app = await openTeam(files);
+  app.click('ai-files'); await wait(app);
+  app.click('af-update'); await wait(app); await wait(app);
+  assert.ok(files[README] !== notes && allCopies(files, notes).length === 1, 'app: replaced, with a copy: ' + Object.keys(files).filter(k => /replaced/.test(k)));
+  assert.ok(/Copies of what was replaced/.test(section(app)), 'app: and it says where');
+  await C.main(['install', before]);
+  assert.ok(readText(before, README) !== notes && allCopies(asFiles(before), notes).length === 1, 'command: replaced, with a copy');
+  const same = scenario('custom with an older default recorded');
+  await C.main(['install', same]);
+  const first = readText(same, README), sameFiles = asFiles(same);
+  await C.main(['install', same]);
+  assert.strictEqual(readText(same, README), first, 'set-up: installing again writes the same list');
+  assert.deepStrictEqual(Object.keys(asFiles(same)).filter(k => /replaced/.test(k)), Object.keys(sameFiles).filter(k => /replaced/.test(k)), 'no copy of a list that did not change');
+});
+
+const CONTRACT_WRITES = [
+  ['written, read back', { }, { ok: true }],
+  ['the read-back fails', { backThrows: true }, { unverified: true, why: 'read no' }],
+  ['changed before the write', { before: 'theirs' }, { conflict: true }],
+  ['changed before the read-back', { after: 'theirs' }, { conflict: true, afterWrite: true }],
+  ['the write fails, nothing landed', { writeThrows: true }, { throws: 'write no' }],
+  ['the write fails, but it landed', { writeThrows: true, lands: true }, { ok: true }],
+  ['the write fails, something else is there', { writeThrows: true, after: 'theirs' }, { unsure: true, why: 'write no' }],
+  ['the write fails, and the file can\'t be read', { writeThrows: true, backThrows: true }, { unsure: true, why: 'write no' }],
+  ['the first read fails', { firstThrows: true }, { throws: 'first no' }]
+];
+rule('Round 7, contractWrite: from the first write on, every ending is a fact, never a bare error', async () => {
+  for (const [name, x, want] of CONTRACT_WRITES) {
+    let now = x.before !== undefined ? x.before : 'old', reads = 0;
+    const fake = {
+      read: async () => { reads++; if (reads === 1 && x.firstThrows) throw new Error('first no'); if (reads > 1 && x.backThrows) throw new Error('read no'); return now == null ? null : { text: now }; },
+      write: async (p, t) => { if (x.writeThrows) { if (x.lands) now = t; else if (x.after) now = x.after; throw new Error('write no'); } now = x.after || t; }
+    };
+    let r, threw = null;
+    try { r = await PF.repo.contractWrite(fake, 'a.md', 'old', 'new'); } catch (e) { threw = e.message; }
+    if (want.throws) { assert.strictEqual(threw, want.throws, name); continue; }
+    assert.strictEqual(threw, null, name + ': no bare error');
+    for (const k of Object.keys(want)) assert.strictEqual(r[k], want[k], name + ': ' + k + ': ' + JSON.stringify(r));
+  }
+});
+
+rule('Round 7, comparison: a file written whose read-back fails is named as written and unchecked, never "Nothing was changed"', async () => {
+  const o = {}, files = asFiles(scenario('deleted')), app = await openTeam(files, o);
+  app.click('ai-files'); await wait(app);
+  o.fail = new RegExp(PLAN.replace(/[.\/]/g, '\\$&') + '$');
+  app.click('af-update'); await wait(app); await wait(app);
+  assert.ok(files[PLAN], 'set-up: it is on disk');
+  const html = section(app).replace(/&#39;/g, "'");
+  assert.ok(!/Nothing was changed/.test(html), 'not called untouched: ' + (html.match(/af-err[^<]*>[^<]*/) || [''])[0]);
+  assert.ok(html.includes(PLAN) && /was written, but Flightdeck couldn't read it back/.test(html), 'it says what happened');
+});
+
+rule('Round 7, comparison: a copy that fails is not reported as copied', () => {
+  const o = K.settle(UP({ copiesAt: 'x/replaced/1', error: { why: 'The disk said no.' } }));
+  const w = K.outcomeWords(o, WHERE).text;
+  assert.strictEqual(o.state, 'partial', 'a folder was made, so not "Nothing was changed"');
+  assert.ok(!/Copies of what was replaced/.test(w) && /x\/replaced\/1/.test(w), w);
+});
+
+const RECORD_CASES = [
+  ['ignored and replaced', UP({ ignored: true, record: true }), 'written', /wasn't trusted; a new one was written/, /Left as|was written, then/],
+  ['ignored and replaced, with files', UP({ ignored: true, record: true, wrote: 2 }), 'written', /Updated 2 files[^]*a new one was written/, /Left as/],
+  ['ignored, the replacement refused', UP({ ignored: true, skipped: [WHERE.recordAt] }), 'skipped', /wasn't trusted[^]*Left as they are[^]*installed\.json/, /new one was written|Nothing was changed/],
+  ['ignored, files written, the replacement refused', UP({ ignored: true, wrote: 1, skipped: [WHERE.recordAt] }), 'skipped', /Updated 1 file[^]*wasn't trusted[^]*Left as[^]*installed\.json/, /new one was written/],
+  ['ignored, the replacement changed after it was written', UP({ ignored: true, moved: [WHERE.recordAt] }), 'moved', /wasn't trusted[^]*installed\.json was written, then changed/, /new one was written/],
+  ['not ignored, and saved', UP({ record: true }), 'written', /record of these files is saved/, /trusted/]
+];
+rule('Round 7, outcome table: the record is only called replaced when it was, drawn and announced', () => {
+  for (const [name, facts, state, must, never] of RECORD_CASES) {
+    const o = K.settle(facts), w = K.outcomeWords(o, WHERE);
+    assert.strictEqual(o.state, state, name);
+    for (const text of [w.text, w.said]) { assert.ok(must.test(text), name + ': ' + text); assert.ok(!never.test(text), name + ': ' + text); }
+  }
+});
+
+rule('Round 7, comparison: a replacement record that is refused is not called written, and the other writer\'s record stands', async () => {
+  const dir = scenario('settled'); fs.writeFileSync(path.join(dir, '.flightdeck/installed.json'), '{nope');
+  const o = {}, files = asFiles(dir), app = await openTeam(files, o);
+  app.click('ai-files'); await wait(app);
+  let n = 0; o.wait = (p) => { if (p === '.flightdeck/installed.json' && ++n === 2) files[p] = '{"someone":"else"}'; return null; };
+  app.click('af-update'); await wait(app); await wait(app);
+  assert.strictEqual(files['.flightdeck/installed.json'], '{"someone":"else"}', 'theirs stands');
+  const html = section(app).replace(/&#39;/g, "'");
+  assert.ok(!/a new one was written/.test(html) && /wasn't trusted/.test(html) && /Left as they are[^<]*installed\.json/.test(html), html.slice(0, 600));
+  const good = scenario('settled'); fs.writeFileSync(path.join(good, '.flightdeck/installed.json'), '{nope');
+  const gf = asFiles(good), ga = await openTeam(gf);
+  ga.click('ai-files'); await wait(ga); ga.click('af-update'); await wait(ga); await wait(ga);
+  assert.ok(/a new one was written/.test(section(ga).replace(/&#39;/g, "'")) && /flightdeck-installed\/1/.test(gf['.flightdeck/installed.json']), 'replaced, and says so');
 });
 
 run();

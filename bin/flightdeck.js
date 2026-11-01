@@ -323,7 +323,7 @@ function destinationsClear(t, items, more) {
     if (['current', 'kept'].includes(i.status)) continue;
     if (i.status === 'merge') {
       if (i.waiting && !i.stage) continue;
-      dests.push(t.updates.concat(t.version, i.rel.split('/')), t.updates.concat(t.version, 'README.md'));
+      dests.push(t.updates.concat(t.version, i.rel.split('/')), t.updates.concat(t.version, 'README.md'), t.updates.concat(t.version, 'replaced', 'x'));
       continue;
     }
     dests.push(i.parts);
@@ -342,6 +342,8 @@ function contract(t, files, opts) {
   const items = classify(t, files, base, opts.force);
   if (!opts.check || opts.room) { roomFor(t, items); destinationsClear(t, items, opts.more); }
   if (opts.check) return items;
+  /* The merge list as it was before anything is written: the only text it may replace. */
+  const readmeAt = t.updates.concat(t.version, 'README.md'), readmeWas = items.some((i) => i.status === 'merge' && (!i.waiting || i.stage)) ? readInside(t.dir, readmeAt) : null;
   for (const i of items) {
     if (['current', 'kept'].includes(i.status) || (i.status === 'merge' && i.waiting && !i.stage)) {
       if (opts.force) i.staged.forEach((x) => fileAway(t, x));
@@ -359,7 +361,16 @@ function contract(t, files, opts) {
     }
   }
   const merges = items.filter((i) => i.status === 'merge' && !i.changed);
-  if (merges.some((i) => !i.waiting || i.stage)) safeWrite(t.dir, t.updates.concat(t.version, 'README.md'), mergeReadme(t.version, merges.filter((i) => !i.waiting || i.stage || i.staged.some((x) => x.version === t.version)), t));
+  if (merges.some((i) => !i.waiting || i.stage)) {
+    const next = mergeReadme(t.version, merges.filter((i) => !i.waiting || i.stage || i.staged.some((x) => x.version === t.version)), t);
+    try {
+      if (readmeWas !== null && readmeWas !== next) keepCopy(t, ['merge-README.md'], readmeWas);
+      safeWrite(t.dir, readmeAt, next, readmeWas);
+    } catch (e) {
+      if (!(e instanceof Changed)) throw e;
+      t.changed.push(readmeAt.join('/'));
+    }
+  }
   const rec = nextRecord(t.record, items, t.version);
   if (!rec) return items;
   safeWrite(t.dir, t.recordAt, JSON.stringify({ format: 'flightdeck-installed/1', version: t.version, at: now.toISOString(), by: 'cli', files: rec }, null, 2) + '\n');

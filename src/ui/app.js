@@ -1319,7 +1319,7 @@
       if (['update', 'new', 'missing'].indexOf(it.status) >= 0) {
         out.push(it.rel);
         if (it.now != null && it.now !== C.merged(it.key, it.now, it.text)) out.push(ud + '/replaced/x');
-      } else if (it.status === 'merge' && (!it.waiting || it.stage)) { out.push(ud + '/' + it.rel); out.push(ud + '/README.md'); }
+      } else if (it.status === 'merge' && (!it.waiting || it.stage)) { out.push(ud + '/' + it.rel); out.push(ud + '/README.md'); out.push(ud + '/replaced/x'); }
     });
     if (C.nextRecord(l.record, l.items, ver)) out.push(tg.recordAt);
     return out;
@@ -1345,12 +1345,15 @@
     if (!tg.fs || afReadOnly(tg, af)) return;
     var alive = afGuard(af), fs = tg.fs, stop = function () { var e = new Error('stale'); e.stale = true; return e; };
     var ud = tg.updates.join('/') + '/' + ver;
-    var f = { op: 'update', wrote: 0, staged: 0, kept: 0, record: false, replaced: null, ignored: false, skipped: [], moved: [] };
+    var f = { op: 'update', wrote: 0, staged: 0, kept: 0, record: false, replaced: null, copiesAt: null, ignored: false, skipped: [], moved: [], unverified: [], unsure: [] };
     af.busy = true; af.outcome = null; af.err = null; render();
-    var keep = function (rel, text) { return (f.replaced ? Promise.resolve(f.replaced) : repo.archiveDir(fs, ud + '/replaced').then(function (d) { f.replaced = d; return d; })).then(function (d) { return repo.archiveCopy(fs, d, rel, text); }); };
+    var keep = function (rel, text) { return (f.copiesAt ? Promise.resolve(f.copiesAt) : repo.archiveDir(fs, ud + '/replaced').then(function (d) { f.copiesAt = d; return d; })).then(function (d) { return repo.archiveCopy(fs, d, rel, text); }).then(function () { f.replaced = f.copiesAt; }); };
     /* Refused before writing, or written and then changed before the read-back: saveChecked says which, and they're different things to say. */
     var conflict = function (r, name) { (r.afterWrite ? f.moved : f.skipped).push(name); };
-    var write = function (it, path, expect, text) { return repo.contractWrite(fs, path, expect, text).then(function (r) { if (r.conflict) { it.changed = true; conflict(r, it.rel); return false; } return true; }); };
+    /* contractWrite's ending, into the facts. A write it can't vouch for stops the update, with that file named. */
+    var save = function (path, expect, text, name) { return repo.contractWrite(fs, path, expect, text).then(function (r) { if (r.unverified || r.unsure) { (r.unsure ? f.unsure : f.unverified).push(path); throw new Error(r.why); } if (r.conflict) conflict(r, name); return !r.conflict; }); };
+    var write = function (it, path, expect, text) { return save(path, expect, text, it.rel).then(function (ok) { if (!ok) it.changed = true; return ok; }); };
+    var readmeAt = ud + '/README.md', readme = null;
     var l;
     afRead(tg).then(function (got) {
       if (!alive()) throw stop();
@@ -1361,7 +1364,9 @@
       return repo.contractBlocked(repo.lane(fs, 'files'), afDests(tg, l, ver)).then(function (blocked) {
         if (!alive()) throw stop();
         if (blocked) { f.blocked = blocked; return null; }
-        return l.items.reduce(function (q, it) {
+        /* The merge list as it was before anything is written: the only text it may replace. */
+        var staging = l.items.some(function (i) { return i.status === 'merge' && (!i.waiting || i.stage); });
+        return (staging ? fs.read(readmeAt, { maxBytes: AF_MAX }).then(function (r) { readme = r ? r.text : null; }) : Promise.resolve()).then(function () { return l.items.reduce(function (q, it) {
           return q.then(function () {
             if (!alive()) throw stop();
             if (['update', 'new', 'missing'].indexOf(it.status) >= 0) {
@@ -1370,15 +1375,16 @@
             }
             if (it.status === 'merge' && (!it.waiting || it.stage)) return write(it, ud + '/' + it.rel, null, it.text).then(function (ok) { if (ok) f.staged++; });
           });
-        }, Promise.resolve()).then(function () {
+        }, Promise.resolve()); }).then(function () {
           var merges = l.items.filter(function (i) { return i.status === 'merge' && !i.changed; });
           if (!merges.some(function (i) { return !i.waiting || i.stage; })) return;
           var list = merges.filter(function (i) { return !i.waiting || i.stage || i.staged.some(function (x) { return x.version === ver; }); });
-          return fs.read(ud + '/README.md').then(function (r) { if (!alive()) throw stop(); return repo.contractWrite(fs, ud + '/README.md', r ? r.text : null, C.mergeReadme(ver, list, tg.updates, tg.home)); }).then(function (r) { if (r.conflict) conflict(r, ud + '/README.md'); });
+          var next = C.mergeReadme(ver, list, tg.updates, tg.home);
+          return (readme != null && readme !== next ? keep('merge-README.md', readme) : Promise.resolve()).then(function () { if (!alive()) throw stop(); return save(readmeAt, readme, next, readmeAt); });
         }).then(function () {
           var rec = C.nextRecord(l.record, l.items, ver);
           if (!rec || !alive()) return;
-          return repo.contractWrite(fs, tg.recordAt, l.recText, C.installed(ver, new Date().toISOString(), 'app', rec)).then(function (r) { if (r.conflict) conflict(r, tg.recordAt); else f.record = true; });
+          return save(tg.recordAt, l.recText, C.installed(ver, new Date().toISOString(), 'app', rec), tg.recordAt).then(function (ok) { f.record = ok; });
         }).then(function () {
           f.kept = l.items.filter(function (i) { return i.status === 'kept'; }).length; f.ignored = !!l.record.ignored;
         });

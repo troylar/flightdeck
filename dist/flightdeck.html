@@ -11058,12 +11058,15 @@ PF.contract = (function () {
     if (o.kept) parts.push('Kept ' + o.kept + ' you changed.');
     if (o.staged) parts.push('Put ' + count(o.staged, 'new default') + ' to merge in ' + w.updates.join('/') + '/' + w.version + '/.');
     if (o.replaced) parts.push('Copies of what was replaced are in ' + o.replaced + '.');
-    if (o.ignored) parts.push('The old record wasn\'t one Flightdeck wrote, so it wasn\'t trusted; a new one was written.');
+    else if (o.copiesAt) parts.push('A folder for copies was started at ' + o.copiesAt + ', with no checked copy in it yet.');
+    if (o.ignored) parts.push('The old record wasn\'t one Flightdeck wrote, so it wasn\'t trusted' + (o.record ? '; a new one was written.' : '.'));
     else if (o.record && !o.wrote && !o.staged) parts.push('The record of these files is saved.');
     return parts;
   }
   function troubles(o) {
     var parts = [];
+    if (o.unverified && o.unverified.length) parts.push(shortList(o.unverified) + (o.unverified.length === 1 ? ' was written, but Flightdeck couldn\'t read it back to check it.' : ' were written, but Flightdeck couldn\'t read them back to check them.'));
+    if (o.unsure && o.unsure.length) parts.push(shortList(o.unsure) + ' may or may not have been written: the write failed and Flightdeck can\'t tell how far it got.');
     if (o.moved && o.moved.length) parts.push(shortList(o.moved) + (o.moved.length === 1 ? ' was written, then changed by something else before Flightdeck could read it back. Look at it again.' : ' were written, then changed by something else before Flightdeck could read them back. Look at them again.'));
     if (o.skipped && o.skipped.length) parts.push('Left as they are, because they changed while updating: ' + shortList(o.skipped) + '. Those weren\'t replaced; check them again.');
     return parts;
@@ -11076,6 +11079,7 @@ PF.contract = (function () {
     refused: { kind: 'warn', words: function () { return 'Nothing was changed. This browser didn\'t allow writing to the folder.'; } },
     failed: { kind: 'warn', words: function (o) { return 'Nothing was changed. ' + o.error.why; } },
     partial: { kind: 'warn', reload: true, words: function (o, w) { return ['The update stopped partway: ' + o.error.why].concat(done(o, w), troubles(o), ['Look at the files, then try again.']).join(' '); } },
+    unverified: { kind: 'warn', reload: true, words: function (o, w) { return ['The update stopped: ' + o.error.why].concat(done(o, w), troubles(o), ['Look at the files, then try again.']).join(' '); } },
     nothing: { kind: 'good', reload: true, words: function (o, w) { return ['Nothing needed changing.'].concat(done(o, w)).join(' '); } },
     written: { kind: 'good', reload: true, words: wroteWords },
     moved: { kind: 'warn', reload: true, words: wroteWords },
@@ -11090,7 +11094,8 @@ PF.contract = (function () {
     if (f.newer) return 'newer';
     if (f.tooBig) return 'too-big';
     if (f.blocked) return 'blocked';
-    var any = f.wrote || f.staged || f.record || f.replaced || f.moved.length;
+    if ((f.unverified && f.unverified.length) || (f.unsure && f.unsure.length)) return 'unverified';
+    var any = f.wrote || f.staged || f.record || f.replaced || f.copiesAt || f.moved.length;
     if (f.error) return any ? 'partial' : f.error.denied ? 'refused' : 'failed';
     return f.moved.length ? 'moved' : f.skipped.length ? 'skipped' : any ? 'written' : 'nothing';
   }
@@ -17370,8 +17375,27 @@ PF.repo = (function () {
   }
   /* ---------- AI assistant files (the contract): the app's half of flightdeck install ---------- */
   /* A contract file written only over the exact text it was read as (null: it must not be there), then read back. */
+  /* From the first write on, an error is not "nothing happened", so it comes back as a fact: { unverified } written, and the
+     read-back failed; { unsure } the write failed and what's there now is neither text. A failed write that left the file as it
+     was still throws: that one really did change nothing. */
   function contractWrite(fs, path, expectText, text) {
-    return saveChecked(fs, path, text, expectText == null ? null : U.hash(expectText), { expectText: expectText == null ? null : expectText });
+    var expect = expectText == null ? null : expectText, wrote = false, failed = null;
+    var why = function (e) { return e && e.message || String(e); };
+    var watched = {
+      read: function (p, o) { return fs.read(p, o); },
+      write: function (p, t) { return fs.write(p, t).then(function () { wrote = true; }, function (e) { failed = { e: e }; throw e; }); }
+    };
+    return saveChecked(watched, path, text, expect == null ? null : U.hash(expect), { expectText: expect }).catch(function (e) {
+      if (wrote) return { unverified: true, why: why(e) };
+      if (!failed) throw e;
+      var unsure = { unsure: true, why: why(failed.e) };
+      return fs.read(path).then(function (f) {
+        var now = f ? f.text : null;
+        if (now === text) return { ok: true, hash: U.hash(text), text: text };
+        if (now === expect) throw failed.e;
+        return unsure;
+      }, function () { return unsure; });
+    });
   }
   /* The first thing in the way of these destinations, or null: a folder where a file goes, a file where a folder goes. Looked
      at before anything is written, so a predictable refusal never leaves an update half done. */
@@ -27103,7 +27127,7 @@ PF.examples = (function () {
       if (['update', 'new', 'missing'].indexOf(it.status) >= 0) {
         out.push(it.rel);
         if (it.now != null && it.now !== C.merged(it.key, it.now, it.text)) out.push(ud + '/replaced/x');
-      } else if (it.status === 'merge' && (!it.waiting || it.stage)) { out.push(ud + '/' + it.rel); out.push(ud + '/README.md'); }
+      } else if (it.status === 'merge' && (!it.waiting || it.stage)) { out.push(ud + '/' + it.rel); out.push(ud + '/README.md'); out.push(ud + '/replaced/x'); }
     });
     if (C.nextRecord(l.record, l.items, ver)) out.push(tg.recordAt);
     return out;
@@ -27129,12 +27153,15 @@ PF.examples = (function () {
     if (!tg.fs || afReadOnly(tg, af)) return;
     var alive = afGuard(af), fs = tg.fs, stop = function () { var e = new Error('stale'); e.stale = true; return e; };
     var ud = tg.updates.join('/') + '/' + ver;
-    var f = { op: 'update', wrote: 0, staged: 0, kept: 0, record: false, replaced: null, ignored: false, skipped: [], moved: [] };
+    var f = { op: 'update', wrote: 0, staged: 0, kept: 0, record: false, replaced: null, copiesAt: null, ignored: false, skipped: [], moved: [], unverified: [], unsure: [] };
     af.busy = true; af.outcome = null; af.err = null; render();
-    var keep = function (rel, text) { return (f.replaced ? Promise.resolve(f.replaced) : repo.archiveDir(fs, ud + '/replaced').then(function (d) { f.replaced = d; return d; })).then(function (d) { return repo.archiveCopy(fs, d, rel, text); }); };
+    var keep = function (rel, text) { return (f.copiesAt ? Promise.resolve(f.copiesAt) : repo.archiveDir(fs, ud + '/replaced').then(function (d) { f.copiesAt = d; return d; })).then(function (d) { return repo.archiveCopy(fs, d, rel, text); }).then(function () { f.replaced = f.copiesAt; }); };
     /* Refused before writing, or written and then changed before the read-back: saveChecked says which, and they're different things to say. */
     var conflict = function (r, name) { (r.afterWrite ? f.moved : f.skipped).push(name); };
-    var write = function (it, path, expect, text) { return repo.contractWrite(fs, path, expect, text).then(function (r) { if (r.conflict) { it.changed = true; conflict(r, it.rel); return false; } return true; }); };
+    /* contractWrite's ending, into the facts. A write it can't vouch for stops the update, with that file named. */
+    var save = function (path, expect, text, name) { return repo.contractWrite(fs, path, expect, text).then(function (r) { if (r.unverified || r.unsure) { (r.unsure ? f.unsure : f.unverified).push(path); throw new Error(r.why); } if (r.conflict) conflict(r, name); return !r.conflict; }); };
+    var write = function (it, path, expect, text) { return save(path, expect, text, it.rel).then(function (ok) { if (!ok) it.changed = true; return ok; }); };
+    var readmeAt = ud + '/README.md', readme = null;
     var l;
     afRead(tg).then(function (got) {
       if (!alive()) throw stop();
@@ -27145,7 +27172,9 @@ PF.examples = (function () {
       return repo.contractBlocked(repo.lane(fs, 'files'), afDests(tg, l, ver)).then(function (blocked) {
         if (!alive()) throw stop();
         if (blocked) { f.blocked = blocked; return null; }
-        return l.items.reduce(function (q, it) {
+        /* The merge list as it was before anything is written: the only text it may replace. */
+        var staging = l.items.some(function (i) { return i.status === 'merge' && (!i.waiting || i.stage); });
+        return (staging ? fs.read(readmeAt, { maxBytes: AF_MAX }).then(function (r) { readme = r ? r.text : null; }) : Promise.resolve()).then(function () { return l.items.reduce(function (q, it) {
           return q.then(function () {
             if (!alive()) throw stop();
             if (['update', 'new', 'missing'].indexOf(it.status) >= 0) {
@@ -27154,15 +27183,16 @@ PF.examples = (function () {
             }
             if (it.status === 'merge' && (!it.waiting || it.stage)) return write(it, ud + '/' + it.rel, null, it.text).then(function (ok) { if (ok) f.staged++; });
           });
-        }, Promise.resolve()).then(function () {
+        }, Promise.resolve()); }).then(function () {
           var merges = l.items.filter(function (i) { return i.status === 'merge' && !i.changed; });
           if (!merges.some(function (i) { return !i.waiting || i.stage; })) return;
           var list = merges.filter(function (i) { return !i.waiting || i.stage || i.staged.some(function (x) { return x.version === ver; }); });
-          return fs.read(ud + '/README.md').then(function (r) { if (!alive()) throw stop(); return repo.contractWrite(fs, ud + '/README.md', r ? r.text : null, C.mergeReadme(ver, list, tg.updates, tg.home)); }).then(function (r) { if (r.conflict) conflict(r, ud + '/README.md'); });
+          var next = C.mergeReadme(ver, list, tg.updates, tg.home);
+          return (readme != null && readme !== next ? keep('merge-README.md', readme) : Promise.resolve()).then(function () { if (!alive()) throw stop(); return save(readmeAt, readme, next, readmeAt); });
         }).then(function () {
           var rec = C.nextRecord(l.record, l.items, ver);
           if (!rec || !alive()) return;
-          return repo.contractWrite(fs, tg.recordAt, l.recText, C.installed(ver, new Date().toISOString(), 'app', rec)).then(function (r) { if (r.conflict) conflict(r, tg.recordAt); else f.record = true; });
+          return save(tg.recordAt, l.recText, C.installed(ver, new Date().toISOString(), 'app', rec), tg.recordAt).then(function (ok) { f.record = ok; });
         }).then(function () {
           f.kept = l.items.filter(function (i) { return i.status === 'kept'; }).length; f.ignored = !!l.record.ignored;
         });

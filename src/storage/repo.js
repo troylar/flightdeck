@@ -1748,8 +1748,27 @@ PF.repo = (function () {
   }
   /* ---------- AI assistant files (the contract): the app's half of flightdeck install ---------- */
   /* A contract file written only over the exact text it was read as (null: it must not be there), then read back. */
+  /* From the first write on, an error is not "nothing happened", so it comes back as a fact: { unverified } written, and the
+     read-back failed; { unsure } the write failed and what's there now is neither text. A failed write that left the file as it
+     was still throws: that one really did change nothing. */
   function contractWrite(fs, path, expectText, text) {
-    return saveChecked(fs, path, text, expectText == null ? null : U.hash(expectText), { expectText: expectText == null ? null : expectText });
+    var expect = expectText == null ? null : expectText, wrote = false, failed = null;
+    var why = function (e) { return e && e.message || String(e); };
+    var watched = {
+      read: function (p, o) { return fs.read(p, o); },
+      write: function (p, t) { return fs.write(p, t).then(function () { wrote = true; }, function (e) { failed = { e: e }; throw e; }); }
+    };
+    return saveChecked(watched, path, text, expect == null ? null : U.hash(expect), { expectText: expect }).catch(function (e) {
+      if (wrote) return { unverified: true, why: why(e) };
+      if (!failed) throw e;
+      var unsure = { unsure: true, why: why(failed.e) };
+      return fs.read(path).then(function (f) {
+        var now = f ? f.text : null;
+        if (now === text) return { ok: true, hash: U.hash(text), text: text };
+        if (now === expect) throw failed.e;
+        return unsure;
+      }, function () { return unsure; });
+    });
   }
   /* The first thing in the way of these destinations, or null: a folder where a file goes, a file where a folder goes. Looked
      at before anything is written, so a predictable refusal never leaves an update half done. */

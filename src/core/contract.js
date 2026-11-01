@@ -147,12 +147,15 @@ PF.contract = (function () {
     if (o.kept) parts.push('Kept ' + o.kept + ' you changed.');
     if (o.staged) parts.push('Put ' + count(o.staged, 'new default') + ' to merge in ' + w.updates.join('/') + '/' + w.version + '/.');
     if (o.replaced) parts.push('Copies of what was replaced are in ' + o.replaced + '.');
-    if (o.ignored) parts.push('The old record wasn\'t one Flightdeck wrote, so it wasn\'t trusted; a new one was written.');
+    else if (o.copiesAt) parts.push('A folder for copies was started at ' + o.copiesAt + ', with no checked copy in it yet.');
+    if (o.ignored) parts.push('The old record wasn\'t one Flightdeck wrote, so it wasn\'t trusted' + (o.record ? '; a new one was written.' : '.'));
     else if (o.record && !o.wrote && !o.staged) parts.push('The record of these files is saved.');
     return parts;
   }
   function troubles(o) {
     var parts = [];
+    if (o.unverified && o.unverified.length) parts.push(shortList(o.unverified) + (o.unverified.length === 1 ? ' was written, but Flightdeck couldn\'t read it back to check it.' : ' were written, but Flightdeck couldn\'t read them back to check them.'));
+    if (o.unsure && o.unsure.length) parts.push(shortList(o.unsure) + ' may or may not have been written: the write failed and Flightdeck can\'t tell how far it got.');
     if (o.moved && o.moved.length) parts.push(shortList(o.moved) + (o.moved.length === 1 ? ' was written, then changed by something else before Flightdeck could read it back. Look at it again.' : ' were written, then changed by something else before Flightdeck could read them back. Look at them again.'));
     if (o.skipped && o.skipped.length) parts.push('Left as they are, because they changed while updating: ' + shortList(o.skipped) + '. Those weren\'t replaced; check them again.');
     return parts;
@@ -165,6 +168,7 @@ PF.contract = (function () {
     refused: { kind: 'warn', words: function () { return 'Nothing was changed. This browser didn\'t allow writing to the folder.'; } },
     failed: { kind: 'warn', words: function (o) { return 'Nothing was changed. ' + o.error.why; } },
     partial: { kind: 'warn', reload: true, words: function (o, w) { return ['The update stopped partway: ' + o.error.why].concat(done(o, w), troubles(o), ['Look at the files, then try again.']).join(' '); } },
+    unverified: { kind: 'warn', reload: true, words: function (o, w) { return ['The update stopped: ' + o.error.why].concat(done(o, w), troubles(o), ['Look at the files, then try again.']).join(' '); } },
     nothing: { kind: 'good', reload: true, words: function (o, w) { return ['Nothing needed changing.'].concat(done(o, w)).join(' '); } },
     written: { kind: 'good', reload: true, words: wroteWords },
     moved: { kind: 'warn', reload: true, words: wroteWords },
@@ -179,7 +183,8 @@ PF.contract = (function () {
     if (f.newer) return 'newer';
     if (f.tooBig) return 'too-big';
     if (f.blocked) return 'blocked';
-    var any = f.wrote || f.staged || f.record || f.replaced || f.moved.length;
+    if ((f.unverified && f.unverified.length) || (f.unsure && f.unsure.length)) return 'unverified';
+    var any = f.wrote || f.staged || f.record || f.replaced || f.copiesAt || f.moved.length;
     if (f.error) return any ? 'partial' : f.error.denied ? 'refused' : 'failed';
     return f.moved.length ? 'moved' : f.skipped.length ? 'skipped' : any ? 'written' : 'nothing';
   }
