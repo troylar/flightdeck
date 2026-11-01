@@ -1480,13 +1480,9 @@
     copyText(text, document.getElementById(boxId), done, function () { show(); render(); return document.getElementById(boxId); }, function () { return afLive(af); }, tell);
   }
   /* What the two buttons above the target choice said. Kept on the state object and drawn, so a redraw keeps it and a new target
-     drops it, as with a write's outcome; away from the screen it's said instead. These write nothing to any folder, so they
-     aren't outcomes: outcomeWords is for what a write did. */
-  function afStartSay(af, text, kind) {
-    af.startSaid = text;
-    if (afCovered()) { say(text, kind || 'good'); render(); return; }
-    afKeepFocus(render);
-  }
+     drops it, as with a write's outcome. They write nothing to any folder, so they aren't outcomes: outcomeWords is for what a
+     write did. */
+  function afStartSay(af, text) { af.startSaid = text; afKeepFocus(render); }
   /* The skills as a file, from what's in the page: the same files and paths flightdeck skills --to writes, through the writer
      evidence packs use. No folder, no network. */
   function afZip() {
@@ -1499,7 +1495,7 @@
       a.href = url; a.download = name; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove();
       setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
       if (alive()) afStartSay(af, 'Downloading ' + name + '. Unzip it into the folder your AI assistant reads skills from.');
-    }).catch(function (e) { if (alive()) afStartSay(af, 'Couldn\'t make the ZIP: ' + (e && e.message || String(e)) + ' Use flightdeck skills --to <folder> in a terminal instead.', 'warn'); });
+    }).catch(function (e) { if (alive()) afStartSay(af, 'Couldn\'t make the ZIP: ' + (e && e.message || String(e)) + ' Use flightdeck skills --to <folder> in a terminal instead.'); });
   }
   /* Another folder for skills: chosen here, remembered where the browser allows, like the team folder. A folder chosen
      makes a new object, so the last folder's rows are gone at once, before this one's read has finished. */

@@ -1520,11 +1520,11 @@ rule('Round 6, comparison: Settings checks yield to Refresh: its root listing st
 
 /* A thing in the way of a destination, in the command and the app. */
 const OBSTACLES = {
-  'a folder at the merge README': { in: '.flightdeck/updates/2.12.0/README.md/x', says: /README\.md is a folder/ },
+  'a folder at the merge README': { in: '.flightdeck/updates/' + VER + '/README.md/x', says: /README\.md is a folder/ },
   'a folder at a skill': { in: PLAN + '/x', says: /SKILL\.md is a folder/, cliSays: /SKILL\.md isn't a file/ },
-  'a folder at a waiting copy': { in: '.flightdeck/updates/2.12.0/' + STATUS + '/x', says: /SKILL\.md is a folder/, cliSays: /SKILL\.md isn't a file/ },
+  'a folder at a waiting copy': { in: '.flightdeck/updates/' + VER + '/' + STATUS + '/x', says: /SKILL\.md is a folder/, cliSays: /SKILL\.md isn't a file/ },
   'a file where the updates folder goes': { rm: '.flightdeck/updates', file: '.flightdeck/updates', says: /\.flightdeck\/updates is a file/ },
-  'a file where the version folder goes': { file: '.flightdeck/updates/2.12.0', says: /2\.12\.0 is a file/ }
+  'a file where the version folder goes': { file: '.flightdeck/updates/' + VER, says: new RegExp(VER.replace(/\./g, '\\.') + ' is a file') }
 };
 function obstacle(X) {
   const dir = scenario('custom with an older default recorded');
@@ -1555,8 +1555,8 @@ for (const name of Object.keys(OBSTACLES)) rule('Round 6, comparison: ' + name +
 });
 
 rule('Round 6: this release is dated 2026-11-01 in the entry, the waiver and the list', () => {
-  const rel = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'src', 'releases.json'), 'utf8'))[0];
-  assert.strictEqual(rel.version, '2.12.0'); assert.strictEqual(rel.date, '2026-11-01');
+  const rel = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'src', 'releases.json'), 'utf8')).find(r => r.version === '2.12.0');
+  assert.strictEqual(rel.date, '2026-11-01');
   const at = path.join(__dirname, '..', 'docs', 'rehearsals', '2.12.0-2026-11-01-waiver.md');
   assert.ok(fs.existsSync(at) && /Date: 2026-11-01/.test(fs.readFileSync(at, 'utf8')), 'the waiver');
   assert.ok(!fs.existsSync(path.join(__dirname, '..', 'docs', 'rehearsals', '2.12.0-2026-10-31-waiver.md')), 'and only that one');
