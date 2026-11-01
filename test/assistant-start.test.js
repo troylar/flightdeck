@@ -139,13 +139,36 @@ rule('The file formats tell an assistant nothing to do: every sentence is how a 
   assert.deepStrictEqual(sentences(fenceless(REFERENCE)).filter(s => GUIDANCE.test(noCode(s)) && !OK.some(re => re.test(s))), []);
 });
 
-rule('No release note, README or doc says the first prompt works in a tool it wasn\'t tried in', () => {
-  const claim = /\b(works?|tested|verified|proven|confirmed)\b[^.\n]{0,40}\b(Copilot|Cursor)\b|\b(Copilot|Cursor)\b[^.\n]{0,40}\b(works|is tested|was tested|verified|confirmed)\b/i;
+/* A sentence saying a tool it names was checked. By the sentence, so the words can be any distance apart, and one that says it
+   wasn't ("have not been tried") is the honest answer, not a claim. */
+const CLAIM = /\b(works?|tested|tried|verified|proven|confirmed)\b/i, UNTRIED_TOOL = /\b(Copilot|Cursor)\b/i, DENIED = /\b(not|never)\b|n't\b/i;
+const claimsIn = (t) => t.split(/(?<=[.!?])\s+|\n/).filter(x => CLAIM.test(x) && UNTRIED_TOOL.test(x) && !DENIED.test(x));
+/* The tools the guide says the first prompt was tried on. */
+const TRIED_AS = /The first prompt was tried on ([^.\n]+)\./;
+const triedOn = (md) => { const m = TRIED_AS.exec(md); return m ? m[1].split(/,\s*(?:and\s+)?|\s+and\s+/).map(x => x.trim()) : null; };
+const TRIED_TOOLS = ['Codex', 'Claude Code'];
+
+rule('No release note, README or doc says a tool was tried, or works, when it wasn\'t tried', () => {
   const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')).find(r => r.version === VER);
-  const bad = [['the release note', JSON.stringify(rel)], ...['CHANGELOG.md', 'README.md', 'docs/skills.md', 'docs/updating.md', 'docs/design.md'].map(f => [f, fs.readFileSync(path.join(ROOT, f), 'utf8')])].filter(([, t]) => claim.test(t)).map(([f, t]) => f + ': ' + claim.exec(t)[0]);
-  assert.deepStrictEqual(bad, []);
-  assert.ok(claim.test('a first prompt that works in Copilot and other assistants'), 'the check sees the claim');
-  assert.ok(/have not been tried/.test(fs.readFileSync(path.join(ROOT, 'docs', 'skills.md'), 'utf8')), 'and the guide still says so');
+  const docs = [['the release note', JSON.stringify(rel)], ...['CHANGELOG.md', 'README.md', 'docs/skills.md', 'docs/updating.md', 'docs/design.md'].map(f => [f, fs.readFileSync(path.join(ROOT, f), 'utf8')])];
+  assert.deepStrictEqual(docs.flatMap(([f, t]) => claimsIn(t).map(c => f + ': ' + c)), []);
+  /* And the check sees each way of saying it, wherever the words fall. */
+  ['The first prompt was tried on Codex, Claude Code, Copilot and Cursor.', 'a first prompt that works in Copilot and other assistants', 'Copilot was tried.', 'Tried in Cursor, by hand, on a team folder with a long name and several skills in it.', 'We tested it with Copilot.'].forEach(c => assert.strictEqual(claimsIn(c).length, 1, 'it sees: ' + c));
+  /* And leaves alone what says it wasn't, or only names the tool. */
+  ['The Copilot and Cursor details here come from each tool\'s docs and have not been tried.', 'Copilot isn\'t tried here.', 'Open it in Agent mode, for Copilot in VS Code.', 'The first prompt was tried on Codex and Claude Code.'].forEach(c => assert.deepStrictEqual(claimsIn(c), [], 'it leaves alone: ' + c));
+});
+
+rule('The guide lists exactly the tools the first prompt was tried on, and Copilot and Cursor aren\'t among them', () => {
+  const md = fs.readFileSync(path.join(ROOT, 'docs', 'skills.md'), 'utf8');
+  assert.deepStrictEqual(triedOn(md), TRIED_TOOLS);
+  assert.ok(/The Copilot and Cursor details here come from each tool's docs and have not been tried\./.test(md), 'and it says what wasn\'t');
+  /* And the check sees the list grow, in any form of the list. */
+  const planted = md.replace('The first prompt was tried on Codex and Claude Code.', 'The first prompt was tried on Codex, Claude Code, Copilot and Cursor.');
+  assert.notStrictEqual(planted, md, 'set-up: the sentence is there');
+  assert.deepStrictEqual(triedOn(planted), ['Codex', 'Claude Code', 'Copilot', 'Cursor']);
+  assert.notDeepStrictEqual(triedOn(planted), TRIED_TOOLS);
+  assert.strictEqual(claimsIn(planted).length, 1, 'the claim check sees the same text');
+  assert.strictEqual(triedOn(md.replace('The first prompt was tried on Codex and Claude Code.', 'It was tried on more.')), null, 'a sentence reworded away is noticed, not passed');
 });
 
 rule('AGENTS.md says where the file formats are, and every section it names there exists', () => {
