@@ -8,7 +8,7 @@
         "kind": "new",
         "area": "Settings",
         "title": "Copy instructions for your assistant",
-        "now": "One button copies a first prompt that works in Copilot and other assistants: read AGENTS.md to the end, here are the skills, ask what I want done. Open the team folder itself as the workspace, in Agent mode, then paste it.",
+        "now": "One button copies a first prompt for your assistant. It says to read AGENTS.md to the end, says where the skills are, and asks what you want done. Open the team folder itself as the workspace, in Agent mode, then paste it.",
         "where": "Settings › AI assistant files"
       },
       {

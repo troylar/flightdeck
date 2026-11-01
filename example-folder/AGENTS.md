@@ -43,8 +43,8 @@ The long file formats are in `.flightdeck/skills/_flightdeck/file-formats.md` (*
 - `proposed/`: proposals and what people decided about them. Write a proposal only through `flightdeck draft save` or `flightdeck draft propose`; never edit, delete or decide one, and never write an attempt or decision file there.
 - `presence/`: which Flightdeck windows have a draft open, each window's own file. Never write, edit or delete anything there.
 - `history/`: the saved history of drafts and step types, one file per Flightdeck window. Never edit or delete a file there (see *Saved history* for the one file of your own you may add).
-- `people.json`, unless a person asks: the folder owner and backup owner keep it in Flightdeck. It's an array of `{ "id", "name", "initials", "email", "inactive", "folderRole" }`; `folderRole` is `"owner"` (one person) or `"backup"` (one person). Edit it only when a person asks, never delete anyone (mark them `"inactive": true`), and never change or reuse an ID.
-- `team-values.json`, unless a person asks: the folder owner and backup owner keep it in Flightdeck (Settings › Team values). Its format: *Team values* in the file formats. Never put passwords or tokens in it.
+- `people.json`, unless a person asks: the folder owner and backup owner keep it in Flightdeck. Its format: *Team values and people* in the file formats. Edit it only when a person asks, never delete anyone (mark them `"inactive": true`), and never change or reuse an ID.
+- `team-values.json`, unless a person asks: the folder owner and backup owner keep it in Flightdeck (Settings › Team values). Its format: *Team values and people* in the file formats. Never put passwords or tokens in it.
 - `.flightdeck/installed.json` and `.flightdeck/updates/`: written by `flightdeck install` and the app's AI assistant files. Never write them; merge an update only when a person asks (see above).
 
 ## Skills for this folder
@@ -152,7 +152,10 @@ When a tool or script you ran did a step's work, you may report it, and only thr
 
 Anyone in a run can correct a step: what the checklist said, what it should say, and (when the step was done differently) what happened. It's one line in their own `notes-*.jsonl`. The format, every kind of change, attachments and decision files are in *Corrections* in the file formats.
 
-- The current decision on a correction is the one with the highest `rev`; two with the same `rev` were made at once and show as Needs review until someone decides again.
+- `from` is the step's text in `version`, and `base` a fingerprint of the step there: if the draft's step no longer matches `from`, check whether the correction still applies. `text` is a plain summary for older copies of Flightdeck; read `change`.
+- A "done differently" answer without a correction note was meant for that run only.
+- A correction is in a published version only when that version lists it (or an `included` decision names its folder) and its checklist says it; Flightdeck shows "Published in vN" for the lowest such version.
+- The current decision on a correction is the one with the highest `rev`; two with the same `rev` were made at once and show as Needs review until someone decides again. `at` is only shown: computers' clocks differ. A correction that arrives after its group was declined reopens it.
 - **You may read corrections and decisions. Never write a decision or a correction note:** deciding is for people, and notes belong to the people who wrote them.
 - To act on them, use the correction brief a person copies from the process page, or `/flightdeck-learn-from-runs`. Edit only the draft, keep step IDs, and tell a person which corrections you addressed: on the process page, Review and apply then finds them already in the draft, and Link this correction records it.
 
@@ -170,7 +173,7 @@ Read with `flightdeck draft read <team folder> <process> --or-latest --json` and
 
 Each Flightdeck window that saves a draft or a step type adds one line to its own file: `history/drafts/<process>/<window>.jsonl` or `history/step-types/<id>/<window>.jsonl` (`<window>-2.jsonl` and on past 512 KB). People see them in the editor's History under Saved history. Never edit, move or delete these files; nothing in Flightdeck depends on reading them, and older copies never do.
 
-`flightdeck draft save` adds your line for you when it writes the draft (`agent-<operation>.jsonl`, `source` `agent`). Without the command, optional: after you save a draft, you may add a line to your own file, `history/drafts/<process>/agent-<name>.jsonl` (your name in lowercase letters, numbers and dashes; only ever append). Without it, History shows your edit as "Changed outside Flightdeck", which is fine. One JSON object per line, in the format in *Saved history lines* in the file formats.
+`flightdeck draft save` adds your line for you when it writes the draft (`agent-<operation>.jsonl`, `source` `agent`). Without the command, optional: after you save a draft, you may add a line to your own file, `history/drafts/<process>/agent-<name>.jsonl` (your name in lowercase letters, numbers and dashes; only ever append). Without it, History shows your edit as "Changed outside Flightdeck", which is fine. One JSON object per line, in the format in *Saved history lines* in the file formats. A line's `from` and `to` are fingerprints of the draft. History orders lines by these fingerprints, never by `at`. Leave out `hunks` if you're unsure; a line that doesn't check out is skipped.
 
 <!-- flightdeck:end -->
 

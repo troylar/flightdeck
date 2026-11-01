@@ -8,7 +8,7 @@ Get your AI assistant started, and let it read all its instructions.
 
 ### New
 
-- **Copy instructions for your assistant** (Settings). One button copies a first prompt that works in Copilot and other assistants: read AGENTS.md to the end, here are the skills, ask what I want done. Open the team folder itself as the workspace, in Agent mode, then paste it. *Where:* Settings › AI assistant files
+- **Copy instructions for your assistant** (Settings). One button copies a first prompt for your assistant. It says to read AGENTS.md to the end, says where the skills are, and asks what you want done. Open the team folder itself as the workspace, in Agent mode, then paste it. *Where:* Settings › AI assistant files
 - **Download skills ZIP** (Settings). Download the skills as a ZIP, made from what's already in the app file, with no network and no folder needed. It holds the same files flightdeck skills --to writes. What each skill is for, and what to ask for: docs/skills.md. *Where:* Settings › AI assistant files
 
 ### Fixed

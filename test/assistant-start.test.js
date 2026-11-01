@@ -61,12 +61,21 @@ rule('The safety rules come first in AGENTS.md: before what you may write, in th
 
 /* The sentences of a file, so moved text can be compared with where it was. Table rows and code blocks are whole. */
 function sentences(md) {
-  return md.split('\n').flatMap(line => line.split(/(?<=[.;:!?)])\s+(?=[A-Z`*"(])/)).map(s => s.replace(/^\s*(?:[-*]|\d+\.)\s+/, '').replace(/\s+/g, ' ').trim()).filter(s => s.length > 1);
+  const out = []; let fence = false;
+  md.split('\n').forEach(line => {
+    if (/^\s*```/.test(line)) { fence = !fence; return; }
+    if (fence) { out.push(line); return; }
+    /* Inline code stays whole: its quotes and colons aren't the end of a sentence. */
+    const codes = []; const masked = line.replace(/`[^`]*`/g, c => { codes.push(c); return '\u0000' + (codes.length - 1) + '\u0000'; });
+    masked.split(/(?<=[.;:!?)])\s+(?=[A-Z\u0000*"(])/).forEach(x => out.push(x.replace(/\u0000(\d+)\u0000/g, (m, n) => codes[n])));
+  });
+  return out.map(s => s.replace(/^\s*(?:[-*]|\d+\.)\s+/, '').replace(/\s+/g, ' ').trim()).filter(s => s.length > 1);
 }
+const fenceless = (md) => md.replace(/^\s*```[^\n]*\n[\s\S]*?^\s*```[^\n]*$/gm, '');
 /* The few pieces of 2.12.0's text that were reworded rather than moved, and the words that say the same now. Read every one. */
 const REWORDED = {
   'Save the registration to a file outside the team folder:': 'Save the registration to a file outside the team folder (the fields, with an example:',
-  '"preflight-publication/1"`, or no `format`): write `skills/<name>.json`:': '"preflight-publication/1"`, or no `format`): write `skills/<name>.json` (example in the same section).',
+  '**A version published before 2.0** (`"format": "preflight-publication/1"`, or no `format`): write `skills/<name>.json`:': '**A version published before 2.0** (`"format": "preflight-publication/1"`, or no `format`): write `skills/<name>.json` (example in the same section).',
   'It\'s one line in their own `notes-*.jsonl`:': 'It\'s one line in their own `notes-*.jsonl`.',
   'One JSON object per line:': 'One JSON object per line, in the format in *Saved history lines* in the file formats.'
 };
@@ -85,12 +94,57 @@ rule('Every sentence of 2.12.0\'s AGENTS.md is still there, in AGENTS.md or the 
   });
 });
 
-rule('A rule (never, must) stays in AGENTS.md itself; the file formats hold what files look like, which nothing has to read to stay safe', () => {
-  const here = flat(AGENTS);
-  /* What these say is in the format they describe, and AGENTS.md carries the rule: never edit or decide these files. */
-  const FORMAT_DETAIL = [/^History orders lines by these fingerprints/];
-  const moved = sentences(OLD).filter(s => /\b(never|must)\b/i.test(s) && !here.includes(s) && !REWORDED[s] && !FORMAT_DETAIL.some(re => re.test(s)));
-  assert.deepStrictEqual(moved, []);
+/* Words that tell an assistant what to check or not do, as opposed to how a file is shaped. A sentence holding one stays in
+   AGENTS.md, which is the file every tool reads; the file formats are read only when someone goes looking. */
+const GUIDANCE = /\b(never|must|don't|do not|check|checks|read|leave out|only|ignore|skip|should|unless|instead|avoid|make sure|was meant|reopens)\b|\bis only\b/i;
+/* Sentences of 2.12.0 that moved, each reviewed by reading it as how a file is shaped. A new move fails until it's listed here, and
+   no listing excuses a guidance word except these, where the word is about the file's shape. */
+const SHAPE_ONLY = [
+  '`followups/`: what became of each run\'s follow-ups (`followups/', '`"corrections": [{', '`wording` (`to`', '`where` is `after`', '`why` says why', '`corrections/<process>/<group>', '`version` and `folder`', 'Flightdeck shows "Published in vN"', '`rev` is one more than', 'It\'s an array of', '`folderRole` is', 'It\'s `{ "format": "flightdeck-team-values/1"', 'A linked step passes one with',
+  'It takes only `name`', 'Exit 0 is registered', '1 is refused or failed', '`change.op` is one of', 'A correction on a phase\'s note', '`happened` is set when', 'its `change.op`', '`files` on any note', 'Matching corrections',
+  'People decide on a group', '`status` is `applied`', 'An `applied` decision with', 'The current decision is the one', 'Older suggested fixes', '**Linked runs:**', 'A 2.0 run\'s `pins.children`', 'A version published by Flightdeck 1.16',
+  '`{ "v": 1, "kind": "draft-edit"', 'A fingerprint is 32-bit', 'the highest `rev` counts', 'the run\'s `steps.'
+];
+const SHAPE_WORD_OK = [/^It takes only `name`/, /^`rev` is one more/, /^`where` is `after`/];
+const noCode = (t) => t.replace(/`[^`]*`/g, '');
+function movedProblems(oldText, agents) {
+  const here = flat(agents), out = [];
+  sentences(fenceless(oldText)).filter(s => !here.includes(s) && !REWORDED[s]).forEach(s => {
+    if (!SHAPE_ONLY.some(p => s.startsWith(p))) out.push('moved, and not reviewed as format: ' + s);
+    else if (GUIDANCE.test(noCode(s)) && !SHAPE_WORD_OK.some(re => re.test(s))) out.push('moved, but it tells an assistant what to do: ' + s);
+  });
+  return out;
+}
+const SAFEGUARDS = [
+  'if the draft\'s step no longer matches `from`, check whether the correction still applies.',
+  '`text` is a plain summary for older copies of Flightdeck; read `change`.',
+  'A "done differently" answer without a correction note was meant for that run only.',
+  'A correction is in a published version only when that version lists it (or an `included` decision names its folder) and its checklist says it;',
+  '`at` is only shown: computers\' clocks differ.',
+  'A correction that arrives after its group was declined reopens it.',
+  'History orders lines by these fingerprints, never by `at`.',
+  'Leave out `hunks` if you\'re unsure; a line that doesn\'t check out is skipped.'
+];
+rule('A sentence that tells an assistant what to check or not do stays in AGENTS.md: moving it to the file formats doesn\'t count as keeping it', () => {
+  assert.deepStrictEqual(movedProblems(OLD, AGENTS), []);
+  SAFEGUARDS.forEach(s => assert.ok(flat(AGENTS).includes(s), 'in AGENTS.md: ' + s));
+  /* And the check sees each one moved back out. */
+  SAFEGUARDS.forEach(s => assert.ok(movedProblems(OLD, AGENTS.replace(s, '')).length > 0, 'it notices moving: ' + s));
+  assert.ok(movedProblems(OLD, AGENTS.replace('**Candidate files:**', '')).length > 0, 'and a move nobody reviewed');
+});
+
+rule('The file formats tell an assistant nothing to do: every sentence is how a file is shaped', () => {
+  const OK = [/^The long formats behind/, /only says what these files look like/, /^Nothing here allows/].concat(SHAPE_WORD_OK);
+  assert.deepStrictEqual(sentences(fenceless(REFERENCE)).filter(s => GUIDANCE.test(noCode(s)) && !OK.some(re => re.test(s))), []);
+});
+
+rule('No release note, README or doc says the first prompt works in a tool it wasn\'t tried in', () => {
+  const claim = /\b(works?|tested|verified|proven|confirmed)\b[^.\n]{0,40}\b(Copilot|Cursor)\b|\b(Copilot|Cursor)\b[^.\n]{0,40}\b(works|is tested|was tested|verified|confirmed)\b/i;
+  const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')).find(r => r.version === VER);
+  const bad = [['the release note', JSON.stringify(rel)], ...['CHANGELOG.md', 'README.md', 'docs/skills.md', 'docs/updating.md', 'docs/design.md'].map(f => [f, fs.readFileSync(path.join(ROOT, f), 'utf8')])].filter(([, t]) => claim.test(t)).map(([f, t]) => f + ': ' + claim.exec(t)[0]);
+  assert.deepStrictEqual(bad, []);
+  assert.ok(claim.test('a first prompt that works in Copilot and other assistants'), 'the check sees the claim');
+  assert.ok(/have not been tried/.test(fs.readFileSync(path.join(ROOT, 'docs', 'skills.md'), 'utf8')), 'and the guide still says so');
 });
 
 rule('AGENTS.md says where the file formats are, and every section it names there exists', () => {

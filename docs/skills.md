@@ -14,7 +14,7 @@ The Flightdeck skills are in .flightdeck/skills/, one folder per skill, each wit
 Don't change anything yet. Tell me in a few lines what you can help with here, then ask me what I want done.
 ```
 
-Why say all that? Not every tool opens `.flightdeck/skills/` on its own, and one stops reading `AGENTS.md` at 32 KiB unless it's told to read the file. The prompt covers both, and it stops if the wrong folder is open.
+Why say all that? Not every tool opens `.flightdeck/skills/` on its own, and one stops reading `AGENTS.md` at 32 KiB unless it's told to read the file. The prompt asks for both, and tells the assistant to stop if the wrong folder is open.
 
 ## Say what you need
 
@@ -39,7 +39,7 @@ The assistant follows `AGENTS.md`: it never publishes, never edits a published v
 
 ## Naming a skill
 
-You can also ask for a skill by name. Most tools use a slash, like `/flightdeck-status`. Codex starts skill names with a dollar sign, like `$flightdeck-status`. A name only works where the tool has found the skill, and most tools don't look in `.flightdeck/skills/`. To put the skills where your tool looks, use **In another folder** on the same Settings screen, `flightdeck skills --to <folder>`, or the ZIP below. Without any of that, the first prompt above is enough: the assistant reads the file itself.
+You can also ask for a skill by name. Most tools use a slash, like `/flightdeck-status`. Codex starts skill names with a dollar sign, like `$flightdeck-status`. A name only works where the tool has found the skill, and most tools don't look in `.flightdeck/skills/`. To put the skills where your tool looks, use **In another folder** on the same Settings screen, `flightdeck skills --to <folder>`, or the ZIP below. Without any of that, the first prompt above tells the assistant to read the file itself.
 
 | Tool | Folders in the project it reads skills from |
 |---|---|
