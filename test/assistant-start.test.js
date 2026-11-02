@@ -368,6 +368,20 @@ rule('An old copy left by an older app is no merge: install --check counts nothi
   assert.ok(r.code === 3 && /needs merge\s+AGENTS\.md \(still waiting in updates\/2\.12\.0\)/.test(r.out), 'a changed copy is still a merge: ' + r.out);
 });
 
+rule('A team change with an older default still waiting: install stages the new default, after which only the new one is a merge', () => {
+  const dir = leftBy212();
+  fs.writeFileSync(path.join(dir, 'AGENTS.md'), EDITED(fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8')));
+  let r = cli('install', dir, '--check');
+  assert.ok(r.code === 3 && /needs merge\s+AGENTS\.md \(still waiting in updates\/2\.12\.0\)/.test(r.out) && !/old copy/.test(r.out), 'before: the 2.12.0 copy is a merge: ' + r.out);
+  r = cli('install', dir);
+  assert.strictEqual(r.code, 0, r.out);
+  assert.strictEqual(fs.readFileSync(path.join(dir, '.flightdeck', 'updates', VER, 'AGENTS.md'), 'utf8'), AGENTS, 'this version\'s default is staged');
+  r = cli('install', dir, '--check');
+  assert.strictEqual(r.code, 3, r.out);
+  assert.ok(/needs merge\s+AGENTS\.md \(still waiting in updates\/2\.12\.1\)/.test(r.out) && /old copy, nothing to merge\s+AGENTS\.md \(left in updates\/2\.12\.0/.test(r.out), 'after: the new default to merge, the old one named: ' + r.out);
+  assert.strictEqual(fs.readFileSync(path.join(dir, '.flightdeck', 'updates', '2.12.0', 'AGENTS.md'), 'utf8'), OLD, 'nothing removed');
+});
+
 rule('Settings names an old copy without asking for a merge, and Put away files it beside the replaced files, checked, as I merged it does', async () => {
   const files = text(walk(leftBy212())), app = await opened(files);
   const html = await aiFiles(app), page = plain(html);

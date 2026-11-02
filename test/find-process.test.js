@@ -924,7 +924,8 @@ const D10_JOIN_OK = [
   { file: 'app.js', has: '[gone.name, gone.label, gone.kind]', why: FIXED }, { file: 'app.js', has: 'typeChange(\'option removal\'', why: FORMVAL },
   { file: 'app.js', has: 'typeChange(\'tag removal\'', why: FORMVAL }, { file: 'app.js', has: 'sigN = names.join', why: NOT_TEXT },
   { file: 'app.js', has: 'return { text: out.join', why: FILE },
-  { file: 'app.js', has: 'cx.renamed.concat(rl.renamed)', why: 'names typed in New checklist\'s boxes, each at most 120 characters' }
+  { file: 'app.js', has: 'cx.renamed.concat(rl.renamed)', why: 'names typed in New checklist\'s boxes, each at most 120 characters' },
+  { file: 'manage.js', has: 'esc(\'Old copy from \' + afWaiting(', why: 'the versions go through afWaiting, which shows the first 3 and "and N more"' }
 ];
 /* Every .join( in the views and app.js whose separator isn't '', with its line number and file. */
 function joins(src) {

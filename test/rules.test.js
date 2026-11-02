@@ -2172,8 +2172,12 @@ rule('Folder health sorts the files for AI assistants by the installer\'s own ru
   assert.ok(kept.issues.every(i => !/^contract-(old|merge)/.test(i.id)) && kept.clear.some(c => /your team's own changes/.test(c.text)), 'a team\'s change based on this default is fine');
   const merge = check({ 'AGENTS.md': ZZZ, '.flightdeck/skills/s/SKILL.md': CCC }, { files: { 'AGENTS.md': AAA } }).issues.filter(i => i.id === 'contract-merge')[0];
   assert.ok(merge && merge.paths[0] === 'AGENTS.md' && merge.action.act === 'ai-files', 'a team change on an older default: merge, as the command says');
-  const waiting = check({ 'AGENTS.md': BBB, '.flightdeck/skills/s/SKILL.md': CCC }, { staged: { 'AGENTS.md': [{ version: '1.14.0', hash: AAA }] } });
+  const waiting = check({ 'AGENTS.md': BBB, '.flightdeck/skills/s/SKILL.md': CCC }, { staged: { 'AGENTS.md': [{ version: '1.14.0', hash: H64('d') }] } });
   assert.ok(waiting.issues.some(i => i.id === 'contract-merge'), 'a staged copy keeps it at merge');
+  /* 2.12.1: a copy that is exactly its own version's shipped default, beside a file already at a newer default, is an old copy:
+     named, never counted (PF.contract.oldCopy). */
+  const leftOver = check({ 'AGENTS.md': BBB, '.flightdeck/skills/s/SKILL.md': CCC }, { staged: { 'AGENTS.md': [{ version: '1.14.0', hash: AAA }] } });
+  assert.ok(leftOver.issues.every(i => !/^contract/.test(i.id)) && leftOver.clear.some(c => /1 old copy an older Flightdeck left/.test(c.text)), 'an old copy left by an older app is no merge');
   const gone = check({ '.flightdeck/skills/s/SKILL.md': CCC });
   assert.ok(gone.issues.some(i => i.id === 'contract-missing' && i.severity === 'warn'));
   const none = check({ 'AGENTS.md': BBB, '.flightdeck/skills/s/SKILL.md': CCC }, { installed: null, recordText: null });
