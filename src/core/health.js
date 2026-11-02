@@ -431,7 +431,9 @@ PF.health = (function () {
     if (rec.ignored) add({ id: 'contract-record', severity: 'warn', area: 'AI assistants', title: '.flightdeck/installed.json can\'t be read', detail: 'The next update writes it again.', paths: ['.flightdeck/installed.json'], action: open, help: HELP.unreadable });
     /* An old copy an older app left (PF.contract.classifyCopies) is no merge and counts for nothing; it's only named. */
     var oldWords = leftover ? ' ' + leftover + (leftover === 1 ? ' old copy' : ' old copies') + ' an older Flightdeck left in .flightdeck/updates/ ' + (leftover === 1 ? 'has' : 'have') + ' nothing to merge and ' + (leftover === 1 ? 'is' : 'are') + ' safe to delete by hand' + (olds.length ? ': ' + (olds.length <= 3 ? olds.join(', ') : olds.slice(0, 3).join(', ') + ' and ' + (olds.length - 3) + ' more') : '') + '.' : '';
-    if (!stray.length && !unread.length && !old.length && !missing.length && !merge.length) ok('contract', (custom.length ? 'The files for AI assistants are current; ' + plural(custom.length, 'file has', 'files have') + ' your team\'s own changes, which updates keep.' : 'The files for AI assistants match this version of Flightdeck.') + oldWords);
+    if (!stray.length && !unread.length && !old.length && !missing.length && !merge.length) ok('contract', custom.length ? 'The files for AI assistants are current; ' + plural(custom.length, 'file has', 'files have') + ' your team\'s own changes, which updates keep.' : 'The files for AI assistants match this version of Flightdeck.');
+    /* Named on its own, whatever else the files need. */
+    if (oldWords) ok('contract-leftover', oldWords.slice(1));
   }
 
   function dedupe(a) { return a.filter(function (x, i) { return a.indexOf(x) === i; }); }

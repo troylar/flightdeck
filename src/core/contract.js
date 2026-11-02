@@ -135,7 +135,8 @@ PF.contract = (function () {
   }
   /* The one rule for which copies waiting in the updates folder are old copies an older Flightdeck left, with nothing in them
      to merge (2.12.1). The app's scan, Settings, Folder health and the command all ask this, and nothing else decides. An old copy
-     is named, with its path, as safe to delete by hand; nothing removes or archives it. A copy is old when all three hold:
+     is named, with its path, as safe to delete by hand; nothing removes or archives it on its own, but I merged it, on a
+     file with another copy to merge, files away every copy of that file, as 2.12.0 did. A copy is old when all three hold:
      (a) the whole copy is exactly the default its own version shipped: its shape is the one this version ships (Flightdeck has
          shipped one AGENTS.md shape since 1.15; test/assistant-start.test.js checks every release since) and its Flightdeck
          part's hash is in the baselines under that version. A byte-order mark, Windows line endings, a Team note or a merge

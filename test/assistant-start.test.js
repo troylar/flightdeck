@@ -578,6 +578,46 @@ rule('Round 5: a byte-order mark on the file only (the copy is exact): an old co
   assert.strictEqual(files['AGENTS.md'].charCodeAt(0), 0xfeff, 'the file itself untouched');
 });
 
+/* ---- round 7: I merged it clears every waiting copy, Refresh reads the files again, Folder health always names an old copy ---- */
+rule('Round 7.1: I merged it with a 2.12.0 old copy and a 2.12.1 copy waiting files both away, as 2.12.0 did, so the next Update stages nothing; the command agrees', async () => {
+  const dir = leftBy212(), up = path.join(dir, '.flightdeck', 'updates', VER);
+  fs.mkdirSync(up, { recursive: true }); fs.writeFileSync(path.join(up, 'AGENTS.md'), AGENTS); fs.writeFileSync(path.join(up, 'README.md'), '# files to merge\n');
+  fs.writeFileSync(path.join(dir, 'AGENTS.md'), EDITED(AGENTS) + NOTES);
+  /* The record as this version's install left it when it staged its default to merge. */
+  setRecord(dir, RECORD, r => { r.version = VER; r.by = 'cli'; r.files['AGENTS.md'] = C.hash(C.managed('AGENTS.md', AGENTS)); });
+  const files = text(walk(dir)), app = await opened(files), html = await aiFiles(app);
+  assert.ok(/data-af-row="AGENTS.md" data-af-status="merge"/.test(html) && OLD_LINE.test(plain(html)), 'set-up: the 2.12.1 copy to merge, the 2.12.0 one old');
+  app.click('af-merged', 'AGENTS.md'); await app.tick(1200);
+  assert.ok(!(COPY in files) && !(('.flightdeck/updates/' + VER + '/AGENTS.md') in files), 'both copies filed away: ' + Object.keys(files).filter(k => /updates\/[^/]+\/AGENTS\.md$/.test(k)).join(', '));
+  const kept = Object.keys(files).filter(k => /\/replaced\/[^/]+\/staged\/[^/]+\/AGENTS\.md$/.test(k)).sort();
+  assert.strictEqual(kept.length, 2, 'both beside the replaced files: ' + kept.join(', '));
+  assert.ok(kept.some(k => files[k] === OLD) && kept.some(k => files[k] === AGENTS), 'word for word');
+  const h = await aiFiles(app);
+  const st = (/data-af-row="AGENTS\.md" data-af-status="([a-z]+)"/.exec(h) || [])[1];
+  assert.ok(st !== 'merge' && !/Old copy from|Waiting to merge/.test(plain(h)), 'nothing waits for AGENTS.md now: ' + st);
+  if (/data-act="af-update"/.test(h)) { app.click('af-update'); await app.tick(1200); }
+  assert.ok(!(('.flightdeck/updates/' + VER + '/AGENTS.md') in files) && !(COPY in files), 'Update stages nothing again');
+  const r = checkOf(diskOf(files));
+  assert.ok(!/needs merge\s+AGENTS\.md/.test(r.out) && !/old copy/.test(r.out), 'the command: nothing waiting: ' + r.out);
+});
+
+rule('Round 7.2: Refresh reads the AI assistant files again: a merge note added to an old copy outside Flightdeck makes it a merge, not safe to delete', async () => {
+  const files = text(walk(leftBy212())), app = await opened(files);
+  assert.ok(OLD_LINE.test(plain(await aiFiles(app))), 'first an old copy');
+  files[COPY] = NOTED(OLD);
+  app.click('refresh'); await app.tick(1200);
+  const html = app.html();
+  assert.ok(!/Old copy from|safe to delete/.test(plain(html)), 'no longer called safe to delete');
+  assert.ok(/data-af-row="AGENTS.md" data-af-status="merge"/.test(html) && /data-act="af-brief" data-id="AGENTS.md"/.test(html), 'a merge, with Copy merge request');
+});
+
+rule('Round 7.3: Folder health names an old copy, with its path, even when another file for AI assistants needs something', async () => {
+  const dir = leftBy212(); fs.rmSync(path.join(dir, ...SKILL.split('/')));
+  const h = plain(await healthOf(await opened(text(walk(dir)))));
+  assert.ok(/1 Flightdeck skill missing/.test(h), 'set-up: another issue: ' + h.slice(0, 0));
+  assert.ok(/1 old copy an older Flightdeck left in \.flightdeck\/updates\/ has nothing to merge and is safe to delete by hand: \.flightdeck\/updates\/2\.12\.0\/AGENTS\.md\./.test(h), 'still named');
+});
+
 rule('Folder health doesn\'t count an old copy, and says, with its path, it is safe to delete by hand', async () => {
   const app = await opened(text(walk(leftBy212())));
   const h = plain(await healthOf(app));

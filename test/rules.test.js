@@ -2179,6 +2179,11 @@ rule('Folder health sorts the files for AI assistants by the installer\'s own ru
   assert.ok(leftOver.issues.every(i => !/^contract/.test(i.id)) && leftOver.clear.some(c => /1 old copy an older Flightdeck left/.test(c.text)), 'an old copy left by an older app is no merge');
   const noted = check({ 'AGENTS.md': BBB, '.flightdeck/skills/s/SKILL.md': CCC }, { staged: { 'AGENTS.md': [{ version: '1.14.0', hash: AAA, old: false }] } });
   assert.ok(noted.issues.some(i => i.id === 'contract-merge'), 'a copy not called old is a merge');
+  const many = check({ 'AGENTS.md': BBB, '.flightdeck/skills/s/SKILL.md': CCC }, { staged: { 'AGENTS.md': [1, 2, 3, 4, 5].map(i => ({ version: '1.1' + i + '.0', path: '.flightdeck/updates/1.1' + i + '.0/AGENTS<' + i + '>.md', hash: AAA, old: true })) } });
+  const said = JSON.stringify(many);
+  assert.ok(/5 old copies[^"]*safe to delete by hand: [^"]*AGENTS<1>\.md, [^"]*AGENTS<3>\.md and 2 more\./.test(said) && !/AGENTS<4>/.test(said), 'at most three paths, then a count: ' + said.slice(0, 0));
+  const withIssue = check({ 'AGENTS.md': ZZZ, '.flightdeck/skills/s/SKILL.md': CCC }, { files: { 'AGENTS.md': AAA }, staged: { 'AGENTS.md': [{ version: '1.14.0', path: '.flightdeck/updates/1.14.0/AGENTS.md', hash: AAA, old: true }] } });
+  assert.ok(withIssue.issues.some(i => i.id === 'contract-merge') && /1 old copy[^"]*safe to delete by hand/.test(JSON.stringify(withIssue)), 'named even beside another issue');
   const gone = check({ '.flightdeck/skills/s/SKILL.md': CCC });
   assert.ok(gone.issues.some(i => i.id === 'contract-missing' && i.severity === 'warn'));
   const none = check({ 'AGENTS.md': BBB, '.flightdeck/skills/s/SKILL.md': CCC }, { installed: null, recordText: null });

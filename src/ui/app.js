@@ -1459,15 +1459,17 @@
   /* What Folder health last found about these files is out of date now: its next look scans again. */
   function afFilesChanged(tg) { if (!tg.standalone) state.healthScan = null; }
   /* I merged it: each copy of this file waiting in the updates folder is put away beside the replaced files (copied, read
-     back), and removed only if it's still exactly what this screen read. */
+     back), and removed only if it's still exactly what this screen read. Every copy, old copies (PF.contract.classifyCopies)
+     included, as 2.12.0 did: the merge covers them all, so none is left waiting to bring the merge back. */
   function afMerged(key) {
     var af = afState(), it = af.load && af.load.items.filter(function (i) { return i.key === key; })[0];
     if (!it || !afReady(af) || !it.staged.length) return;
+    var copies = it.staged.concat(it.old || []).sort(function (x, y) { return PF.contract.byVersion(x.version, y.version); });
     var tg = afTarget(af); if (afReadOnly(tg, af)) return;
     var alive = afGuard(af), fs = tg.fs, f = { op: 'merge', putAway: 0, left: [], unsure: [] };
     af.busy = true; af.outcome = null; af.err = null; render();
     repo.archiveDir(fs, tg.updates.join('/') + '/' + APP_VERSION + '/replaced').then(function (d) {
-      return it.staged.reduce(function (q, x) {
+      return copies.reduce(function (q, x) {
         return q.then(function () {
           if (!alive()) return;
           return fs.read(x.path, { maxBytes: AF_MAX }).then(function (r) {
@@ -5912,7 +5914,9 @@
       state.recBack = null; setView(b.view); state.runKey = b.runKey || null; state.processId = b.processId || null; state.ptab = b.ptab; render(); window.scrollTo(0, 0);
     },
     dismiss: function () { var cp = currentProcess(), ce = cp && editorOf(cp.id); if (ce) ce.incoming = null; say(null); render(); announceRelease(); },
-    refresh: function () { load(true, true); },
+    /* Settings' AI assistant files are read again too, so what they say about each file (an old copy safe to delete) is never
+       older than the Refresh. */
+    refresh: function () { var af = state.af; load(true, true).then(function () { if (af && afLive(af) && af.load && state.view === 'settings') return afLoad(true, af); }); },
     connect: function () { connect(); },
     reconnect: function () { var rec = state.needsReconnect, t = ++opening; rec.dir.requestPermission({ mode: 'readwrite' }).then(function (p) { if (p !== 'granted' || t !== opening) return; var had = !!state.overlay; if (!leaveFolderOverlay(headingOf())) return; state.needsReconnect = null; var read = useFs(folderFs(rec)); if (had) read.then(function () { if (t === opening) { state.focus = headingOf(); state.focusWins = true; render(); } }); }); },
     'reset-examples': function () { var mem = new PF.fs.MemoryFS(LS + ':examples', null), t = ++opening; seedExamples(mem).then(function () { if (t !== opening || !leaveFolderOverlay('page-h')) return; home(); return useFs(mem).then(function () { if (t === opening) { say('Examples reset.', 'good'); render(); } }); }, function (e) { if (t === opening) { say(e && e.message || 'The examples couldn\'t be reset.', 'warn'); render(); } }); },
