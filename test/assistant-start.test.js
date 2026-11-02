@@ -263,6 +263,99 @@ rule('An older copy still in the folder (2.11.1) says nothing new is wrong with 
   assert.ok(!/waiting to be merged|for AI assistants to merge|can&#39;t be read/.test(page), 'no merge and nothing unreadable');
 });
 
+/* Known limit of 2.12.0 as it shipped, kept here so a change is noticed: its app doesn't treat a record from a newer version as
+   newer (only a newer record format), so on a folder this version installed it reads this version's AGENTS.md as a team change
+   and asks for a merge. Its Update stages its own older default and writes the record back to 2.12.0; AGENTS.md itself and the
+   file formats are left as they are, and this version's --check then waits for a person. 2.12.0's command refuses the folder. */
+rule('2.12.0\'s app on a folder this version installed: the file formats aren\'t a stray file; AGENTS.md is asked to merge, and its Update changes no instructions', async () => {
+  const b = require('../tools/old-bundles').get('v2.12.0');
+  if (!b) { if (process.env.CI) throw new Error('2.12.0\'s shipped page is needed'); console.log('  (skipped: v2.12.0 isn\'t cached)'); return; }
+  const dir = tmp(); cli('install', dir);
+  const files = text(walk(dir)), was = Object.assign({}, files);
+  const app = boot({ picker: folderHandle('Team', files), indexedDB: memoryIDB(), html: b.files['flightdeck.html'] }); await app.tick(60);
+  app.click('connect'); await app.tick(300);
+  app.click('health'); await app.tick(800);
+  const page = app.html();
+  assert.ok(!page.includes('file-formats'), 'the file formats aren\'t named');
+  assert.ok(!/waiting to be merged|can&#39;t be read/.test(page), 'no stray file and nothing unreadable');
+  assert.ok(/1 file for AI assistants to merge/.test(page), 'the known limit: it asks for AGENTS.md to be merged');
+  app.click('nav', 'settings'); await app.tick(300);
+  app.click('ai-files'); await app.tick(800);
+  assert.ok(/data-act="af-update"/.test(app.html()), 'it offers Update');
+  app.click('af-update'); await app.tick(800);
+  const changed = Object.keys(files).filter(k => files[k] !== was[k]).sort();
+  assert.deepStrictEqual(changed, ['.flightdeck/installed.json', '.flightdeck/updates/2.12.0/AGENTS.md', '.flightdeck/updates/2.12.0/README.md'], 'only the record and a staged copy');
+  assert.strictEqual(files['AGENTS.md'], was['AGENTS.md'], 'AGENTS.md is left as it is');
+  assert.strictEqual(files[FORMATS], was[FORMATS], 'so are the file formats');
+  const rec = JSON.parse(files['.flightdeck/installed.json']);
+  assert.strictEqual(rec.version, '2.12.0', 'the record is written back to 2.12.0');
+  assert.strictEqual(rec.files[FORMATS], JSON.parse(was['.flightdeck/installed.json']).files[FORMATS], 'keeping the file formats\' entry');
+  const out = tmp();
+  for (const k of Object.keys(files)) { fs.mkdirSync(path.dirname(path.join(out, k)), { recursive: true }); fs.writeFileSync(path.join(out, k), files[k]); }
+  const r = cli('install', out, '--check');
+  assert.ok(r.code === 3 && /needs merge\s+AGENTS\.md \(still waiting in updates\/2\.12\.0\)/.test(r.out), 'this version then waits for a person: ' + r.out);
+});
+
+/* 2.12.0 as it shipped (tools/old-bundles.js): its own command and its own app file, so the upgrade starts from a real folder. */
+function real212() {
+  const b = require('../tools/old-bundles').get('v2.12.0');
+  if (!b) { if (process.env.CI) throw new Error('2.12.0\'s shipped page is needed: node tools/old-bundles.js'); return null; }
+  const root = tmp();
+  fs.mkdirSync(path.join(root, 'bin')); fs.mkdirSync(path.join(root, 'dist'));
+  fs.writeFileSync(path.join(root, 'bin', 'flightdeck.js'), b.files['flightdeck.js']); fs.writeFileSync(path.join(root, 'dist', 'flightdeck.html'), b.files['flightdeck.html']);
+  const run = (...a) => { const r = spawnSync(process.execPath, [path.join(root, 'bin', 'flightdeck.js'), ...a], { encoding: 'utf8' }); return { out: r.stdout + r.stderr, code: r.status }; };
+  return { html: b.files['flightdeck.html'], run };
+}
+
+rule('The fixture is 2.12.0\'s AGENTS.md as the tagged release shipped it, and that release had no file formats', () => {
+  const old = real212();
+  if (!old) { console.log('  (skipped: v2.12.0 isn\'t cached)'); return; }
+  const ex = C.examples(old.html);
+  assert.strictEqual(C.versionOf(old.html), '2.12.0');
+  assert.strictEqual(OLD, ex['AGENTS.md'], 'test/fixtures/agents-2.12.0.md is byte for byte what 2.12.0 ships');
+  assert.ok(!(FORMATS in ex), 'the file formats are new in this version');
+});
+
+rule('A folder installed by 2.12.0\'s own command, with Team notes, upgrades with this version exactly as the stand-in folder the other rules use', () => {
+  const old = real212();
+  if (!old) { console.log('  (skipped: v2.12.0 isn\'t cached)'); return; }
+  const real = tmp();
+  assert.strictEqual(old.run('install', real).code, 0, '2.12.0 installs');
+  fs.writeFileSync(path.join(real, 'AGENTS.md'), fs.readFileSync(path.join(real, 'AGENTS.md'), 'utf8').replace(/\n*$/, '\n') + NOTES);
+  const recOf = (d) => JSON.parse(fs.readFileSync(path.join(d, '.flightdeck', 'installed.json'), 'utf8'));
+  const stand = installed212(NOTES);
+  assert.strictEqual(fs.readFileSync(path.join(real, 'AGENTS.md'), 'utf8'), fs.readFileSync(path.join(stand, 'AGENTS.md'), 'utf8'), 'the same AGENTS.md before the upgrade');
+  assert.strictEqual(recOf(real).version, '2.12.0');
+  assert.deepStrictEqual(Object.keys(recOf(real).files).sort(), Object.keys(recOf(stand).files).sort(), 'the same files recorded before the upgrade');
+  assert.strictEqual(recOf(real).files['AGENTS.md'], recOf(stand).files['AGENTS.md'], 'the same AGENTS.md entry');
+  const r = cli('install', real);
+  assert.strictEqual(r.code, 0, r.out);
+  cli('install', stand);
+  const now = fs.readFileSync(path.join(real, 'AGENTS.md'), 'utf8');
+  assert.strictEqual(now, fs.readFileSync(path.join(stand, 'AGENTS.md'), 'utf8'), 'the same AGENTS.md after');
+  assert.ok(now.endsWith(NOTES) && C.region(now).text === C.region(AGENTS).text, 'the new Flightdeck part, Team notes kept');
+  assert.strictEqual(fs.readFileSync(path.join(real, ...FORMATS.split('/')), 'utf8'), REFERENCE, 'the file formats arrive');
+  assert.ok(!fs.existsSync(path.join(real, '.flightdeck', 'updates', VER, 'AGENTS.md')), 'nothing waits to merge');
+  assert.deepStrictEqual(recOf(real).files, recOf(stand).files, 'the same record after');
+  assert.strictEqual(cli('install', real, '--check').code, 0, 'nothing left to do');
+  const back = old.run('install', real, '--check');
+  assert.ok(back.code === 1 && /is a newer version \(2\.12\.1\) than this one \(2\.12\.0\)/.test(back.out), '2.12.0\'s own command sees a newer folder: ' + back.out);
+});
+
+rule('This release is dated 2026-11-02 in the entry, the waiver and the list, and each text in the entry is under 400 characters', () => {
+  const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')).find(r => r.version === VER);
+  assert.strictEqual(VER, '2.12.1');
+  assert.strictEqual(rel.date, '2026-11-02');
+  for (const c of rel.changes) for (const f of ['now', 'before']) if (c[f] != null) assert.ok(c[f].length < 400, c.title + ': ' + f + ' is ' + c[f].length);
+  const at = path.join(ROOT, 'docs', 'rehearsals', '2.12.1-2026-11-02-waiver.md');
+  assert.ok(fs.existsSync(at) && /Version: 2\.12\.1/.test(fs.readFileSync(at, 'utf8')) && /Date: 2026-11-02/.test(fs.readFileSync(at, 'utf8')), 'the waiver');
+  const list = fs.readFileSync(path.join(ROOT, 'docs', 'rehearsals', 'README.md'), 'utf8');
+  assert.ok(list.includes('[2.12.1, 2026-11-02](2.12.1-2026-11-02-waiver.md)'), 'the list');
+  const n = fs.readdirSync(path.join(ROOT, 'docs', 'rehearsals')).filter(f => /-waiver\.md$/.test(f)).length;
+  assert.strictEqual(n, 12);
+  assert.ok(list.includes('All twelve are waivers'), 'the count');
+});
+
 /* ---------------- the first prompt ---------------- */
 
 const PROMPT = () => PF.contract.START_PROMPT;
