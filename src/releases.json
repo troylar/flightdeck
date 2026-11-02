@@ -24,6 +24,14 @@
         "title": "AGENTS.md is short enough to be read to the end",
         "before": "AGENTS.md had grown past 32 KiB, the point where one assistant stops reading, so that assistant missed the end of the file, a safety rule and all of Team notes.",
         "now": "AGENTS.md is under 28 KiB, the safety rules come first, and the long formats moved to .flightdeck/skills/_flightdeck/file-formats.md. Every rule stays. Update it with flightdeck install or Settings; Team notes stay as they are. Keep Team notes to about 4 KiB."
+      },
+      {
+        "kind": "fixed",
+        "area": "AI assistants",
+        "title": "A folder set up by a newer version is left alone",
+        "before": "A record from a newer version was read as this copy's own, so 2.12.0's app asked to merge AGENTS.md and left its older default waiting in .flightdeck/updates/2.12.0/.",
+        "now": "flightdeck install, Settings and Folder health leave a folder a newer version set up alone, in the same words. An old default an older app left waiting is named, never merged or counted; Put away files it with the replaced files.",
+        "where": "Settings › AI assistant files"
       }
     ]
   },

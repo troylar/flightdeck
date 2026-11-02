@@ -40,6 +40,15 @@ PF.contract = (function () {
     if ((m && m[1] === 'flightdeck-installed' && m[2] !== '1') || (m && m[1] === 'flightdeck-installed' && (Array.isArray(r.features) ? r.features.length > 0 : r.features != null))) return 'was written by a newer Flightdeck' + (typeof r.version === 'string' && /^\d+\.\d+\.\d+$/.test(r.version) ? ' (' + r.version + ')' : '') + '.';
     return '';
   }
+  /* The one verdict the command, Settings and Folder health all use (2.12.1): a record from a newer Flightdeck, by its format or
+     by its version against this copy's (mine), is left alone everywhere. A dev build compares no version. */
+  function recordNewer(r, mine) {
+    var nw = newerWhy(r);
+    if (nw) return nw;
+    var x = /^\d+\.\d+\.\d+$/;
+    if (r && typeof r === 'object' && !Array.isArray(r) && typeof r.version === 'string' && x.test(r.version) && typeof mine === 'string' && x.test(mine) && byVersion(r.version, mine) > 0) return 'was written by a newer Flightdeck (' + r.version + ').';
+    return '';
+  }
   /* Exactly what flightdeck install and this app write; anything else is ignored, and the next update writes a new one. */
   function wellFormed(r) {
     return !!(r && typeof r === 'object' && !Array.isArray(r) && r.format === 'flightdeck-installed/1' && typeof r.version === 'string' && VERSION_DIR.test(r.version)
@@ -48,11 +57,11 @@ PF.contract = (function () {
   }
   /* The record's text (null when there's none) as the installer reads it: { newer: why } (refuse everything), { files: {},
      ignored: true }, { files: {} } when there's none, or { version, files: the entries for keys, all: every entry }. */
-  function readRecord(text, keys) {
+  function readRecord(text, keys, mine) {
     if (text == null) return { files: {} };
     var r = null;
     try { r = JSON.parse(text); } catch (e) { r = null; }
-    var nw = newerWhy(r);
+    var nw = recordNewer(r, mine);
     if (nw) return { newer: nw };
     if (!wellFormed(r)) return { files: {}, ignored: true };
     var files = {}, all = {};
@@ -100,6 +109,29 @@ PF.contract = (function () {
       else out.status = 'merge';
       return out;
     });
+  }
+  /* A copy waiting in the updates folder that an older Flightdeck left and that has nothing to bring (2.12.1): its text is the
+     default its own version shipped (the baselines say so), and the file is already a default of a newer version, or the
+     record is from a newer version than the copy. 2.12.0's app, on a folder a newer version installed, stages its own older
+     default this way. It's named and can be put away, never merged, deleted or counted. A copy that isn't exactly a shipped
+     default stays a merge. it: { key, baseKey, want, have }; x: { version, hash }. */
+  function oldCopy(it, x, record, base, version) {
+    var x3 = /^\d+\.\d+\.\d+$/, b = base[it.baseKey || baselineKey(it.key)] || {};
+    if (!x || !x3.test(x.version) || !x.hash || !own(b, x.hash) || b[x.hash].indexOf(x.version) < 0) return false;
+    var newer = function (v) { return typeof v === 'string' && x3.test(v) && byVersion(v, x.version) > 0; };
+    if (record && newer(record.version)) return true;
+    if (it.have == null) return false;
+    if (it.have === it.want && newer(version)) return true;
+    return own(b, it.have) && b[it.have].some(newer);
+  }
+  /* Each item's waiting copies, split: old copies (oldCopy) into it.old, the rest stay in it.staged for classify. */
+  function splitStaged(items, record, base, version) {
+    items.forEach(function (it) {
+      var all = it.staged || [];
+      it.old = all.filter(function (x) { return oldCopy(it, x, record, base, version); });
+      it.staged = all.filter(function (x) { return it.old.indexOf(x) < 0; });
+    });
+    return items;
   }
   /* The text written for a contract file: AGENTS.md keeps everything outside its markers (the team's notes). */
   function merged(key, now, text) {
@@ -205,6 +237,6 @@ PF.contract = (function () {
   /* Something in the way of where a file goes. The same words as the command's. */
   function blockedWhy(path, want) { return path + (want === 'file' ? ' is a folder, where Flightdeck needs a file.' : ' is a file, where Flightdeck needs a folder.') + ' Nothing was changed. Move it, then try again.'; }
 
-  return { START_PROMPT: START_PROMPT, OUTCOMES: OUTCOMES, settle: settle, outcomeWords: outcomeWords, MAX_BYTES: MAX_BYTES, cleanInstalled: cleanInstalled, readRecord: readRecord, newerWhy: newerWhy, classify: classify, merged: merged, nextRecord: nextRecord, mergeReadme: mergeReadme, mergePrompt: mergePrompt, byVersion: byVersion, VERSION_DIR: VERSION_DIR,
+  return { START_PROMPT: START_PROMPT, OUTCOMES: OUTCOMES, settle: settle, outcomeWords: outcomeWords, MAX_BYTES: MAX_BYTES, cleanInstalled: cleanInstalled, readRecord: readRecord, newerWhy: newerWhy, recordNewer: recordNewer, oldCopy: oldCopy, splitStaged: splitStaged, classify: classify, merged: merged, nextRecord: nextRecord, mergeReadme: mergeReadme, mergePrompt: mergePrompt, byVersion: byVersion, VERSION_DIR: VERSION_DIR,
     BEGIN: BEGIN, END: END, AGENTS: AGENTS, BASELINES: BASELINES, norm: norm, region: region, managed: managed, baselineKey: baselineKey, hex: hex, installed: installed };
 })();

@@ -263,37 +263,183 @@ rule('An older copy still in the folder (2.11.1) says nothing new is wrong with 
   assert.ok(!/waiting to be merged|for AI assistants to merge|can&#39;t be read/.test(page), 'no merge and nothing unreadable');
 });
 
-/* Known limit of 2.12.0 as it shipped, kept here so a change is noticed: its app doesn't treat a record from a newer version as
-   newer (only a newer record format), so on a folder this version installed it reads this version's AGENTS.md as a team change
-   and asks for a merge. Its Update stages its own older default and writes the record back to 2.12.0; AGENTS.md itself and the
-   file formats are left as they are, and this version's --check then waits for a person. 2.12.0's command refuses the folder. */
-rule('2.12.0\'s app on a folder this version installed: the file formats aren\'t a stray file; AGENTS.md is asked to merge, and its Update changes no instructions', async () => {
+/* ---------------- a record or a copy from another version ---------------- */
+
+const RECORD = '.flightdeck/installed.json', AHEAD = '2.99.0';
+const plain = (h) => unesc(h.replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ');
+async function opened(files, html) {
+  const app = boot(Object.assign({ picker: folderHandle('Team', files), indexedDB: memoryIDB(), domFocus: true }, html ? { html } : {})); await app.tick(60);
+  app.click('connect'); await app.tick(300);
+  return app;
+}
+async function aiFiles(app) { app.click('nav', 'settings'); await app.tick(300); app.click('ai-files'); await app.tick(800); return app.html(); }
+async function healthOf(app) { app.click('health'); await app.tick(800); return app.html(); }
+function toDisk(files) { const d = tmp(); for (const k of Object.keys(files)) { fs.mkdirSync(path.dirname(path.join(d, k)), { recursive: true }); fs.writeFileSync(path.join(d, k), files[k]); } return d; }
+function setRecord(dir, at, change) { const p = path.join(dir, ...at.split('/')), r = JSON.parse(fs.readFileSync(p, 'utf8')); change(r); fs.writeFileSync(p, JSON.stringify(r, null, 2) + '\n'); }
+const NEWER_SAYS = (at) => at + ' was written by a newer Flightdeck (' + AHEAD + ').';
+
+rule('One shared function says whether a record is from a newer Flightdeck: a newer format, or a newer version than this copy', () => {
+  const K = PF.contract, rec = (o) => Object.assign({ format: 'flightdeck-installed/1', at: '2026-11-02T00:00:00.000Z', by: 'cli', files: {} }, o);
+  assert.strictEqual(typeof K.recordNewer, 'function');
+  assert.strictEqual(K.recordNewer(rec({ version: '2.12.2' }), '2.12.1'), 'was written by a newer Flightdeck (2.12.2).');
+  assert.strictEqual(K.recordNewer(rec({ version: '2.13.0' }), '2.12.10'), 'was written by a newer Flightdeck (2.13.0).', 'by number, not by text');
+  for (const v of ['2.12.10', '2.12.1', '2.12.0', '1.22.0', 'dev']) assert.strictEqual(K.recordNewer(rec({ version: v }), v === '2.12.10' ? '2.13.0' : '2.12.1'), '', v);
+  assert.strictEqual(K.recordNewer(rec({ version: '9.9.9' }), 'dev'), '', 'a dev build compares with no version');
+  const fmt = { format: 'flightdeck-installed/2', version: '1.0.0', files: {} };
+  assert.strictEqual(K.recordNewer(fmt, '2.12.1'), K.newerWhy(fmt), 'a newer format, as before');
+  assert.ok(K.readRecord(JSON.stringify(rec({ version: '2.12.2' })), [], '2.12.1').newer, 'readRecord takes this copy\'s version');
+  const src = (f) => fs.readFileSync(path.join(ROOT, ...f.split('/')), 'utf8');
+  assert.ok(/C\.readRecord\(recText, items\.map\(function \(i\) \{ return i\.key; \}\), APP_VERSION\)/.test(src('src/ui/app.js')), 'the app passes its version');
+  assert.ok(/C\.readRecord\(text, keys, snap\.app\)/.test(src('src/core/health.js')), 'Folder health passes the version it checks for');
+  assert.ok(/\.recordNewer\(/.test(src('bin/flightdeck.js')) && !/cmp\([^)]*\.version, *(t\.version|mine)\)/.test(src('bin/flightdeck.js').slice(src('bin/flightdeck.js').indexOf('function parseRecord'), src('bin/flightdeck.js').indexOf('function stamp('))), 'the command calls the same function, with no copy of its own');
+  assert.ok(/newer: \{ kind: 'warn'/.test(src('src/core/contract.js')), 'and it has its outcome');
+});
+
+rule('A record from a newer version is left alone everywhere, in the same words: the command, Settings and Folder health', async () => {
+  const dir = tmp(); assert.strictEqual(cli('install', dir).code, 0);
+  setRecord(dir, RECORD, r => { r.version = AHEAD; });
+  fs.writeFileSync(path.join(dir, 'AGENTS.md'), fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8').replace('## What you may write', '## What you may write (from the newer one)'));
+  const before = JSON.stringify(text(walk(dir)));
+  let r = cli('install', dir, '--check');
+  assert.strictEqual(r.code, 1, r.out);
+  assert.ok(r.out.includes(NEWER_SAYS(RECORD)) && /Nothing was changed\./.test(r.out), 'the command: ' + r.out);
+  r = cli('install', dir);
+  assert.strictEqual(r.code, 1, r.out);
+  assert.ok(r.out.includes(NEWER_SAYS(RECORD)), r.out);
+  assert.strictEqual(JSON.stringify(text(walk(dir))), before, 'the command changed nothing');
+  const files = text(walk(dir)), app = await opened(files);
+  const page = plain(await aiFiles(app));
+  assert.ok(page.includes(NEWER_SAYS(RECORD)), 'Settings says the same: ' + (/[^.]*newer Flightdeck[^.]*\./.exec(page) || [''])[0]);
+  assert.ok(!/data-act="af-update"|data-act="af-merged"/.test(app.html()), 'nothing to press that writes');
+  const h = plain(await healthOf(app));
+  assert.ok(h.includes(NEWER_SAYS(RECORD).replace(/\.$/, '')), 'Folder health says the same: ' + (/A newer Flightdeck wrote[^]*?alone\./.exec(h) || [''])[0]);
+  assert.ok(!/to merge|from an older Flightdeck/.test(h), 'and asks for nothing');
+  assert.strictEqual(JSON.stringify(files), before, 'the app changed nothing');
+  const other = tmp(); assert.strictEqual(cli('skills', '--to', other).code, 0);
+  setRecord(other, '.flightdeck-installed.json', r => { r.version = AHEAD; });
+  r = cli('skills', '--to', other, '--check');
+  assert.ok(r.code === 1 && r.out.includes(NEWER_SAYS('.flightdeck-installed.json')), 'skills --to too: ' + r.out);
+});
+
+/* A folder this version installed, then "updated" by 2.12.0's app, as the real 2.12.0 page leaves it: its own old default
+   waiting in .flightdeck/updates/2.12.0/ and the record written back to 2.12.0. */
+function leftBy212(edit) {
+  const dir = tmp(); assert.strictEqual(cli('install', dir).code, 0);
+  const up = path.join(dir, '.flightdeck', 'updates', '2.12.0');
+  fs.mkdirSync(up, { recursive: true });
+  fs.writeFileSync(path.join(up, 'AGENTS.md'), edit ? edit(OLD) : OLD);
+  fs.writeFileSync(path.join(up, 'README.md'), '# Flightdeck 2.12.0: files to merge\n');
+  setRecord(dir, RECORD, r => { r.version = '2.12.0'; r.by = 'app'; r.files['AGENTS.md'] = C.hash(C.managed('AGENTS.md', OLD)); });
+  return dir;
+}
+const EDITED = (t) => t.replace('## What you may write', '## What you may write (someone changed this copy)');
+
+rule('Which waiting copies are old copies: a default the baselines record for its own version, with the file or the record already newer', () => {
+  const K = PF.contract, B = BASE, h = (t) => C.hash(C.managed('AGENTS.md', t));
+  const it = (have) => ({ key: 'AGENTS.md', want: h(AGENTS), have });
+  const x = (version, t) => ({ version, hash: h(t) });
+  const rec = (v, agents) => ({ version: v, files: { 'AGENTS.md': agents } });
+  assert.strictEqual(typeof K.oldCopy, 'function');
+  assert.ok(K.oldCopy(it(h(AGENTS)), x('2.12.0', OLD), rec('2.12.0', h(OLD)), B, VER), 'the file is already this version\'s default');
+  assert.ok(K.oldCopy(it(h(EDITED(AGENTS))), x('2.12.0', OLD), rec(VER, h(AGENTS)), B, VER), 'the record is newer than the copy');
+  assert.ok(!K.oldCopy(it(h(EDITED(AGENTS))), x('2.12.0', OLD), rec('2.12.0', h(OLD)), B, VER), 'the team changed the file and nothing newer says otherwise: a merge');
+  assert.ok(!K.oldCopy(it(h(OLD)), x('2.12.0', OLD), rec('2.12.0', h(OLD)), B, VER), 'the file is that same default: not newer');
+  assert.ok(!K.oldCopy(it(h(AGENTS)), x('2.12.0', EDITED(OLD)), rec('2.12.0', h(OLD)), B, VER), 'a copy someone changed is no shipped default');
+  assert.ok(!K.oldCopy(it(h(AGENTS)), x('2.11.2', OLD), rec('2.12.0', h(OLD)), B, VER), 'a default of another version than the folder it waits in');
+  assert.ok(!K.oldCopy(it(h(AGENTS)), x('dev', OLD), rec('2.12.0', h(OLD)), B, VER), 'a dev folder');
+  assert.ok(!K.oldCopy(it(h(AGENTS)), { version: '2.12.0', hash: null }, rec('2.12.0', h(OLD)), B, VER), 'a copy that couldn\'t be read');
+  assert.ok(!K.oldCopy(it(null), x('2.12.0', OLD), rec('2.12.0', h(OLD)), B, VER), 'no file to compare');
+});
+
+rule('An old copy left by an older app is no merge: install --check counts nothing, install stages nothing and never removes it, and both name it', () => {
+  const dir = leftBy212(), copy = path.join(dir, '.flightdeck', 'updates', '2.12.0', 'AGENTS.md');
+  let r = cli('install', dir, '--check');
+  assert.strictEqual(r.code, 0, r.out);
+  assert.ok(!/needs merge/.test(r.out), 'no merge: ' + r.out);
+  assert.ok(/old copy, nothing to merge\s+AGENTS\.md \(left in updates\/2\.12\.0 by an older Flightdeck; Settings, AI assistant files can put it away\)/.test(r.out), 'named: ' + r.out);
+  r = cli('install', dir);
+  assert.strictEqual(r.code, 0, r.out);
+  assert.ok(!fs.existsSync(path.join(dir, '.flightdeck', 'updates', VER, 'AGENTS.md')) && !fs.existsSync(path.join(dir, '.flightdeck', 'updates', VER, 'README.md')), 'nothing staged');
+  assert.strictEqual(fs.readFileSync(copy, 'utf8'), OLD, 'the old copy is left where it is');
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(dir, ...RECORD.split('/')), 'utf8')).version, VER);
+  assert.strictEqual(cli('install', dir, '--check').code, 0);
+  const edited = leftBy212(EDITED);
+  r = cli('install', edited, '--check');
+  assert.ok(r.code === 3 && /needs merge\s+AGENTS\.md \(still waiting in updates\/2\.12\.0\)/.test(r.out), 'a changed copy is still a merge: ' + r.out);
+});
+
+rule('Settings names an old copy without asking for a merge, and Put away files it beside the replaced files, checked, as I merged it does', async () => {
+  const files = text(walk(leftBy212())), app = await opened(files);
+  const html = await aiFiles(app), page = plain(html);
+  assert.ok(/data-af-row="AGENTS.md" data-af-status="current"/.test(html), 'AGENTS.md is up to date');
+  assert.ok(!/data-act="af-merged" data-id="AGENTS.md"|data-act="af-brief" data-id="AGENTS.md"/.test(html) && !/\d+ to merge|Waiting to merge/.test(page), 'no merge, no merge request');
+  assert.ok(/Old copy from 2\.12\.0, nothing to merge/.test(page), 'named: ' + page.slice(page.indexOf('AGENTS.md'), page.indexOf('AGENTS.md') + 200));
+  assert.ok(/data-act="af-putaway" data-id="AGENTS.md"/.test(html), 'Put away is offered');
+  app.node('[data-act="af-putaway"]').focus();
+  app.click('af-putaway', 'AGENTS.md'); await app.tick(800);
+  assert.ok(!('.flightdeck/updates/2.12.0/AGENTS.md' in files), 'it\'s gone from where it waited');
+  assert.ok(/role="status">Put away\. The copy is beside the replaced files/.test(app.html()), 'announced, as a status');
+  assert.strictEqual(app.activeId(), 'set-ai', 'the button is gone, so focus goes to the heading');
+  const kept = Object.keys(files).filter(k => new RegExp('^\\.flightdeck/updates/' + VER.replace(/\./g, '\\.') + '/replaced/[^/]+/staged/2\\.12\\.0/AGENTS\\.md$').test(k));
+  assert.ok(kept.length === 1 && files[kept[0]] === OLD, 'filed beside the replaced files, word for word: ' + kept.join(', '));
+  assert.ok(/Put away\. The copy is beside the replaced files/.test(plain(app.html())), 'the outcome says so');
+  assert.ok(!/data-act="af-putaway"/.test(app.html()), 'nothing left to put away');
+
+  const ed = text(walk(leftBy212(EDITED))), app2 = await opened(ed);
+  const h2 = await aiFiles(app2);
+  assert.ok(/data-af-row="AGENTS.md" data-af-status="merge"/.test(h2) && /data-act="af-merged" data-id="AGENTS.md"/.test(h2) && !/data-act="af-putaway"/.test(h2), 'a changed copy is still a merge');
+});
+
+rule('Put away reads the copy again first: one changed since the screen read it is left where it is', async () => {
+  const files = text(walk(leftBy212())), app = await opened(files);
+  await aiFiles(app);
+  files['.flightdeck/updates/2.12.0/AGENTS.md'] = EDITED(OLD);
+  app.click('af-putaway', 'AGENTS.md'); await app.tick(800);
+  assert.strictEqual(files['.flightdeck/updates/2.12.0/AGENTS.md'], EDITED(OLD), 'never removed');
+  assert.ok(/changed since this screen read it, so it was left where it is/.test(plain(app.html())), plain(app.html()).slice(0, 0));
+});
+
+rule('Folder health doesn\'t count an old copy, and says it can be put away', async () => {
+  const app = await opened(text(walk(leftBy212())));
+  const h = plain(await healthOf(app));
+  assert.ok(!/to merge|waiting to be merged/.test(h), 'no merge');
+  assert.ok(/1 old copy an older Flightdeck left in \.flightdeck\/updates\/ can be put away in AI assistant files\./.test(h), (/The files for AI assistants[^]*?\./.exec(h) || [''])[0]);
+  const app2 = await opened(text(walk(leftBy212(EDITED))));
+  assert.ok(/1 file for AI assistants to merge/.test(plain(await healthOf(app2))), 'a changed copy is still a merge');
+});
+
+rule('The real path: 2.12.1 installs, the real 2.12.0 page "updates", 2.12.1 opens it again: the old AGENTS.md is never offered for merging', async () => {
   const b = require('../tools/old-bundles').get('v2.12.0');
   if (!b) { if (process.env.CI) throw new Error('2.12.0\'s shipped page is needed'); console.log('  (skipped: v2.12.0 isn\'t cached)'); return; }
-  const dir = tmp(); cli('install', dir);
+  const dir = tmp(); assert.strictEqual(cli('install', dir).code, 0);
   const files = text(walk(dir)), was = Object.assign({}, files);
-  const app = boot({ picker: folderHandle('Team', files), indexedDB: memoryIDB(), html: b.files['flightdeck.html'] }); await app.tick(60);
-  app.click('connect'); await app.tick(300);
-  app.click('health'); await app.tick(800);
-  const page = app.html();
-  assert.ok(!page.includes('file-formats'), 'the file formats aren\'t named');
-  assert.ok(!/waiting to be merged|can&#39;t be read/.test(page), 'no stray file and nothing unreadable');
-  assert.ok(/1 file for AI assistants to merge/.test(page), 'the known limit: it asks for AGENTS.md to be merged');
-  app.click('nav', 'settings'); await app.tick(300);
-  app.click('ai-files'); await app.tick(800);
-  assert.ok(/data-act="af-update"/.test(app.html()), 'it offers Update');
-  app.click('af-update'); await app.tick(800);
-  const changed = Object.keys(files).filter(k => files[k] !== was[k]).sort();
-  assert.deepStrictEqual(changed, ['.flightdeck/installed.json', '.flightdeck/updates/2.12.0/AGENTS.md', '.flightdeck/updates/2.12.0/README.md'], 'only the record and a staged copy');
-  assert.strictEqual(files['AGENTS.md'], was['AGENTS.md'], 'AGENTS.md is left as it is');
-  assert.strictEqual(files[FORMATS], was[FORMATS], 'so are the file formats');
-  const rec = JSON.parse(files['.flightdeck/installed.json']);
-  assert.strictEqual(rec.version, '2.12.0', 'the record is written back to 2.12.0');
-  assert.strictEqual(rec.files[FORMATS], JSON.parse(was['.flightdeck/installed.json']).files[FORMATS], 'keeping the file formats\' entry');
-  const out = tmp();
-  for (const k of Object.keys(files)) { fs.mkdirSync(path.dirname(path.join(out, k)), { recursive: true }); fs.writeFileSync(path.join(out, k), files[k]); }
-  const r = cli('install', out, '--check');
-  assert.ok(r.code === 3 && /needs merge\s+AGENTS\.md \(still waiting in updates\/2\.12\.0\)/.test(r.out), 'this version then waits for a person: ' + r.out);
+  /* 2.12.0's own page, from the tag. */
+  const old = await opened(files, b.files['flightdeck.html']);
+  assert.ok(/1 file for AI assistants to merge/.test(plain(await healthOf(old))), 'set-up: 2.12.0 asks for a merge');
+  await aiFiles(old);
+  assert.ok(/data-act="af-update"/.test(old.html()), 'set-up: 2.12.0 offers Update');
+  old.click('af-update'); await old.tick(800);
+  assert.deepStrictEqual(Object.keys(files).filter(k => files[k] !== was[k]).sort(), ['.flightdeck/installed.json', '.flightdeck/updates/2.12.0/AGENTS.md', '.flightdeck/updates/2.12.0/README.md'], 'set-up: what 2.12.0 wrote');
+  assert.strictEqual(files['.flightdeck/updates/2.12.0/AGENTS.md'], OLD, 'set-up: its own old default, waiting');
+  assert.strictEqual(JSON.parse(files[RECORD]).version, '2.12.0', 'set-up: the record written back to 2.12.0');
+  assert.strictEqual(files['AGENTS.md'], was['AGENTS.md'], 'AGENTS.md itself untouched');
+  /* This version again. */
+  const app = await opened(files), html = await aiFiles(app), page = plain(html);
+  assert.ok(/data-af-row="AGENTS.md" data-af-status="current"/.test(html), 'Settings: AGENTS.md is up to date');
+  assert.ok(!/data-act="af-merged" data-id="AGENTS.md"|data-act="af-brief" data-id="AGENTS.md"/.test(html) && !/\d+ to merge|Waiting to merge/.test(page), 'Settings: no merge, no merge request');
+  assert.ok(/Old copy from 2\.12\.0, nothing to merge/.test(page), 'Settings: named as an old copy');
+  const h = plain(await healthOf(app));
+  assert.ok(!/to merge|waiting to be merged/.test(h) && /1 old copy an older Flightdeck left/.test(h), 'Folder health: no merge, the old copy named');
+  const disk = toDisk(files);
+  let r = cli('install', disk, '--check');
+  assert.strictEqual(r.code, 0, 'install --check: ' + r.out);
+  assert.ok(!/needs merge/.test(r.out) && /old copy, nothing to merge\s+AGENTS\.md/.test(r.out), r.out);
+  r = cli('install', disk);
+  assert.strictEqual(r.code, 0, r.out);
+  assert.ok(!fs.existsSync(path.join(disk, '.flightdeck', 'updates', VER, 'AGENTS.md')), 'install stages nothing');
+  assert.strictEqual(fs.readFileSync(path.join(disk, '.flightdeck', 'updates', '2.12.0', 'AGENTS.md'), 'utf8'), OLD, 'and removes nothing');
+  assert.strictEqual(fs.readFileSync(path.join(disk, 'AGENTS.md'), 'utf8'), was['AGENTS.md'], 'AGENTS.md is this version\'s, as installed');
+  assert.strictEqual(cli('install', disk, '--check').code, 0);
 });
 
 /* 2.12.0 as it shipped (tools/old-bundles.js): its own command and its own app file, so the upgrade starts from a real folder. */

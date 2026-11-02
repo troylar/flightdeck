@@ -1287,8 +1287,9 @@
           if (!ds) throw noPrints();
           var n = 0;
           items.forEach(function (it) { it.want = ds[n++]; var h = ds[n++]; it.have = it.now == null ? null : h; });
-          var rec = C.readRecord(recText, items.map(function (i) { return i.key; }));
+          var rec = C.readRecord(recText, items.map(function (i) { return i.key; }), APP_VERSION);
           if (rec.newer) return { items: items, record: rec, recText: recText };
+          C.splitStaged(items, rec, (C.BASELINES && C.BASELINES.files) || {}, APP_VERSION);
           C.classify(items, rec, (C.BASELINES && C.BASELINES.files) || {}, APP_VERSION).forEach(function (d, i) { items[i].status = d.status; items[i].waiting = d.waiting || ''; items[i].stage = !!d.stage; });
           return { items: items, record: rec, recText: recText, recordDue: !!C.nextRecord(rec, items, APP_VERSION) };
         });
@@ -1441,14 +1442,18 @@
   function afFilesChanged(tg) { if (!tg.standalone) state.healthScan = null; }
   /* I merged it: each copy of this file waiting in the updates folder is put away beside the replaced files (copied, read
      back), and removed only if it's still exactly what this screen read. */
-  function afMerged(key) {
+  /* I merged it puts away the copies waiting to be merged; Put away (old) the old copies an older app left (PF.contract.oldCopy).
+     The same checked way for both: each copy is read again and must be what this screen read, then filed beside the replaced
+     files and read back before the original is removed. */
+  function afMerged(key, old) {
     var af = afState(), it = af.load && af.load.items.filter(function (i) { return i.key === key; })[0];
-    if (!it || !afReady(af) || !it.staged.length) return;
+    var list = it && (old ? it.old || [] : it.staged);
+    if (!it || !afReady(af) || !list.length) return;
     var tg = afTarget(af); if (afReadOnly(tg, af)) return;
     var alive = afGuard(af), fs = tg.fs, f = { op: 'merge', putAway: 0, left: [], unsure: [] };
     af.busy = true; af.outcome = null; af.err = null; render();
     repo.archiveDir(fs, tg.updates.join('/') + '/' + APP_VERSION + '/replaced').then(function (d) {
-      return it.staged.reduce(function (q, x) {
+      return list.reduce(function (q, x) {
         return q.then(function () {
           if (!alive()) return;
           return fs.read(x.path, { maxBytes: AF_MAX }).then(function (r) {
@@ -5845,6 +5850,7 @@
     'af-allow': function () { afAllow(); },
     'af-update': function () { afUpdate(); },
     'af-merged': function (id) { afMerged(id); },
+    'af-putaway': function (id) { afMerged(id, true); },
     'af-peek': function (id) { var af = afState(); af.peek = af.peek === id ? null : id; render(); },
     'af-copy': function (id) {
       var f = afFile(id), af = afState(); if (!f) return;

@@ -80,7 +80,9 @@ In `AGENTS.md`, only the part between `<!-- flightdeck:begin -->` and `<!-- flig
 
 **When files need merging:** in the app, **Copy merge request** on **Settings → AI assistant files**, or open your AI assistant in the team folder and give it the prompt in `.flightdeck/updates/<version>/README.md`. It compares each new default with your file, keeps your changes, brings in the new ones, and deletes each copy once merged. Run `flightdeck install <folder> --check` again; 0 means nothing is left.
 
-A copy left in any version's updates folder (`.flightdeck/updates/<version>/<the file's path>`) still counts as waiting, even after a later update and even if the file now matches the default, until someone deletes it or `--force` files it away. If this version changed that file's default again, its new default is staged in this version's folder too, so you merge both; the file counts as waiting until every copy is gone.
+An **old copy** is the exception (2.12.1): a copy that is exactly the default its own version shipped, waiting beside a file that is already a newer default, or in a folder whose record is from a newer version. 2.12.0's app leaves one when it opens a folder a newer version set up. It has nothing to merge, so `--check` and Folder health don't count it and `install` stages nothing for it; both name it, and **Put away** in Settings, AI assistant files files it the same checked way as **I merged it**. Nothing removes it on its own. A copy that differs from every shipped default by even one character is a normal merge.
+
+Otherwise, a copy left in any version's updates folder (`.flightdeck/updates/<version>/<the file's path>`) still counts as waiting, even after a later update and even if the file now matches the default, until someone deletes it or `--force` files it away. If this version changed that file's default again, its new default is staged in this version's folder too, so you merge both; the file counts as waiting until every copy is gone.
 
 **Install always keeps a copy of every file it replaces** (`AGENTS.md`, skill files and `flightdeck.html`, an earlier default too) in a new folder of its own under `.flightdeck/updates/<version>/replaced/`, and says where. Each copy is written in full and read back before the file is replaced; if that fails, the file isn't replaced.
 
@@ -209,7 +211,7 @@ It keeps its record in `.flightdeck-installed.json` and puts new defaults to mer
 
 - **Nothing in runs, versions or other records changes.**
 - **AGENTS.md and the skills can be updated from the app.** **Settings → AI assistant files** applies the same rules as `flightdeck install` and writes the same `.flightdeck/installed.json` (with `"by": "app"`). An older command reads it as its own.
-- **Folder health judges these files by the installer's rules.** A file your team changed on top of an older default is reported as waiting to merge, as `flightdeck install --check` says, where older copies called it current. A record that isn't exactly what Flightdeck writes is reported as one the next update replaces, and a record with any `features` is treated as written by a newer Flightdeck and left alone, by the app and the command alike.
+- **Folder health judges these files by the installer's rules.** A file your team changed on top of an older default is reported as waiting to merge, as `flightdeck install --check` says, where older copies called it current. A record that isn't exactly what Flightdeck writes is reported as one the next update replaces, and a record with any `features` is treated as written by a newer Flightdeck and left alone, by the app and the command alike. From 2.12.1, so is a record whose version is newer than the copy reading it: the command, Settings and Folder health all say ".flightdeck/installed.json was written by a newer Flightdeck (<version>)" and change nothing.
 
 ## Rolling back
 

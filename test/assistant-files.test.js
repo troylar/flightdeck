@@ -921,7 +921,7 @@ for (const name of Object.keys(ASYNC_PATHS)) for (const change of ['folder', 'ta
 
 /* A function in this feature that waits on something, and how it's bound. A new one fails until it's listed here. */
 const AF_ASYNC = { afFinish: 'guard', afKeepFocus: 'moves focus only, and only if it is lost; no state', afPerm: 'a question, no state', afIsTeam: 'a question, no state', afUse: 'turn', afRead: 'reads only, for a caller that checks', afLoad: 'guard', afUpdate: 'guard', afMerged: 'guard', afPick: 'chooses', afRemembered: 'chooses', afAllow: 'chooses', afZip: 'guard' };
-const AF_ACTS = ['ai-files', 'af-load', 'af-where', 'af-pick', 'af-allow', 'af-update', 'af-merged', 'af-peek', 'af-copy', 'af-brief', 'af-start', 'af-zip'];
+const AF_ACTS = ['ai-files', 'af-load', 'af-where', 'af-pick', 'af-allow', 'af-update', 'af-merged', 'af-putaway', 'af-peek', 'af-copy', 'af-brief', 'af-start', 'af-zip'];
 function afAudit(src) {
   const out = [], a = src.indexOf('Settings, AI assistant files: flightdeck install'), b = src.indexOf('Getting started (views/setup.js', a), body = src.slice(a, b), fns = {};
   for (const m of body.matchAll(/\n  function (af\w+)\(/g)) { const next = body.indexOf('\n  function ', m.index + 5); fns[m[1]] = body.slice(m.index, next < 0 ? body.length : next); }

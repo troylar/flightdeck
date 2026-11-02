@@ -190,6 +190,13 @@ function classify(t, files, base, force) {
     const parts = f.rel.split('/'), now = readInside(t.dir, parts), want = hash(managed(f.key, f.text));
     return { key: f.key, rel: f.rel, baseKey: f.baseKey, parts, text: f.text, now, want, have: now === null ? null : hash(managed(f.key, now)), staged: staged(t, f.rel) };
   });
+  /* An old copy an older app left (PF.contract.oldCopy, the app's own rule): named, never merged, counted or removed. */
+  const K = contractRules();
+  items.forEach((i) => {
+    const all = i.staged;
+    i.old = all.filter((x) => K.oldCopy({ key: i.key, baseKey: i.baseKey, want: i.want, have: i.have }, { version: x.version, hash: hash(managed(i.key, x.text)) }, t.record, base, t.version));
+    i.staged = all.filter((x) => !i.old.includes(x));
+  });
   const why = decide(items.map((i) => ({ key: i.key, baseKey: i.baseKey, want: i.want, have: i.have, staged: i.staged.map((x) => ({ version: x.version, hash: hash(managed(i.key, x.text)) })) })), t.record, base, t.version, force);
   return items.map((i, n) => Object.assign(i, why[n], { key: i.key }));
 }
@@ -234,27 +241,26 @@ function merged(item) {
 }
 /* A record written by a newer Flightdeck (flightdeck-installed/2 on, or a must-understand feature): never read for meaning and
    never rewritten. The same verdict as PF.contract.cleanInstalled (test/cli.test.js checks they agree). */
-function installedNewer(r) {
-  if (!r || typeof r !== 'object' || Array.isArray(r)) return '';
-  const m = typeof r.format === 'string' ? /^([a-z][a-z0-9-]{1,59})\/([1-9]\d{0,3})$/.exec(r.format) : null;
-  if ((m && m[1] === 'flightdeck-installed' && m[2] !== '1') || (m && m[1] === 'flightdeck-installed' && (Array.isArray(r.features) ? r.features.length > 0 : r.features != null))) return 'was written by a newer Flightdeck' + (typeof r.version === 'string' && /^\d+\.\d+\.\d+$/.test(r.version) ? ' (' + r.version + ')' : '') + '.';
-  return '';
-}
+function installedNewer(r, mine) { return contractRules().recordNewer(r, mine); }
+/* The app's own contract rules (PF.contract), from this package's app file, so a verdict the app, Folder health and this
+   command all reach is one function, never a copy. */
+let engineRules = null;
+function contractRules() { return (engineRules = engineRules || loadEngine().PF.contract); }
 /* The folder's record, checked field by field. Anyone can edit it, so a record that isn't exactly what this command writes is
    ignored (and said so), and only entries for files this version installs, with a well-formed hash, are read. */
 function readRecord(t, keys) {
   t.recordText = readInside(t.dir, t.recordAt);
-  const r = parseRecord(t.recordText, keys);
-  if (r.newer) fail(path.join(t.dir, ...t.recordAt) + ' ' + r.newer + ' Nothing was changed. Use the newer Flightdeck package.');
+  const r = parseRecord(t.recordText, keys, t.version);
+  if (r.newer) fail(contractRules().outcomeWords({ state: 'newer', newer: r.newer }, { home: t.home, updates: t.updates, recordAt: t.recordAt.join('/'), version: t.version }).text);
   return r;
 }
 /* The record's text as install reads it: the same as PF.contract.readRecord (test/assistant-files.test.js checks they agree). */
-function parseRecord(text, keys) {
+function parseRecord(text, keys, mine) {
   const none = { files: {} };
   if (text === null || text === undefined) return none;
   let r = null;
   try { r = JSON.parse(text); } catch (e) { /* ignored below */ }
-  const newer = installedNewer(r);
+  const newer = installedNewer(r, mine);
   if (newer) return { newer };
   const ok = r && typeof r === 'object' && !Array.isArray(r) && r.format === 'flightdeck-installed/1' && typeof r.version === 'string' && /^(\d+\.\d+\.\d+|dev)$/.test(r.version)
     && typeof r.at === 'string' && (r.by === 'cli' || r.by === 'app') && r.files && typeof r.files === 'object' && !Array.isArray(r.files)
@@ -417,6 +423,7 @@ const LABEL = { current: 'up to date', update: 'updated', new: 'added', missing:
 const CHECK_LABEL = { update: 'update available', new: 'will be added', missing: 'will be added again', merge: 'needs merge', forced: 'will be replaced (--force)', kept: 'kept (your team changed it)' };
 function report(items, check, out) {
   items.filter((i) => i.status !== 'current').forEach((i) => out.push('  ' + (i.changed ? 'changed during install' : (check ? CHECK_LABEL : LABEL)[i.status]).padEnd(28) + i.rel + (i.waiting ? ' (still waiting in updates/' + i.waiting + ')' : '')));
+  items.filter((i) => i.old && i.old.length).forEach((i) => out.push('  ' + 'old copy, nothing to merge'.padEnd(28) + i.rel + ' (left in updates/' + i.old.map((x) => x.version).join(', ') + ' by an older Flightdeck; Settings, AI assistant files can put it away)'));
 }
 /* What install says after the file list: an ignored record, and files left alone because they changed while it ran. */
 function notes(t, out) {
