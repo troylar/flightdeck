@@ -339,7 +339,7 @@ function boot(opts) {
   const ctx = vm.createContext({
     window, document, history, location, localStorage: storage(), sessionStorage, navigator: Object.assign(opts.locks ? { locks: opts.locks } : {}, opts.navigator || {}), BroadcastChannel: opts.Channel, console, Date: opts.Date || Date, Math, JSON, Promise, Blob, fetch, btoa, Uint8Array,
     setTimeout: appSetTimeout, clearTimeout: appClearTimeout, setInterval: fn => { intervals.push(fn); return 0; }, requestAnimationFrame: fn => setTimeout(fn, 0), URL: { createObjectURL: b => { lastBlob = b; return 'blob:x'; }, revokeObjectURL() {} },
-    crypto: globalThis.crypto, TextEncoder, indexedDB: opts.indexedDB, IntersectionObserver: opts.IntersectionObserver,
+    crypto: globalThis.crypto, TextEncoder, TextDecoder, indexedDB: opts.indexedDB, IntersectionObserver: opts.IntersectionObserver,
     // An elapsed-time clock the test moves (performance.now()); left out, the app falls back on Date.now().
     performance: opts.performance,
     getComputedStyle: opts.layout ? () => ({ getPropertyValue: () => '#1D7650', backgroundColor: 'rgba(0, 0, 0, 0)', position: 'static', visibility: 'visible', lineHeight: '20px' }) : undefined
@@ -516,8 +516,9 @@ function folderHandle(name, files) {
   function file(p, n) {
     return {
       kind: 'file', name: n,
-      // slice() as a File has it: the newer-copy check reads only the head of flightdeck.html.
-      getFile: () => Promise.resolve({ size: files[p].length, lastModified: Date.now(), text: () => Promise.resolve(files[p]), slice: (a, b) => new Blob([files[p]]).slice(a, b) }),
+      // slice() as a File has it: the newer-copy check reads only the head of flightdeck.html. text() and arrayBuffer() as a
+      // browser's File: text() drops a leading byte-order mark (Blob.text() decodes as UTF-8 does), the bytes keep it.
+      getFile: () => Promise.resolve({ size: files[p].length, lastModified: Date.now(), text: () => new Blob([files[p]]).text(), arrayBuffer: () => new Blob([files[p]]).arrayBuffer(), slice: (a, b) => new Blob([files[p]]).slice(a, b) }),
       createWritable(o) {
         let buf = o && o.keepExistingData ? files[p] : '';
         return Promise.resolve({ seek: () => Promise.resolve(), write: (d) => Promise.resolve(typeof d === 'string' ? d : d.text()).then(t => { buf += t; }), close: () => { files[p] = buf; return Promise.resolve(); } });

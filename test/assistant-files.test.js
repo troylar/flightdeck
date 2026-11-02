@@ -1364,6 +1364,7 @@ const OUTCOME_CASES = {
   unverified: { facts: UP({ wrote: 1, unverified: ['a.md'], unsure: ['b.md'], error: { why: 'The disk said no.' } }), must: /stopped[^]*The disk said no[^]*Updated 1 file[^]*a\.md was written, but Flightdeck couldn't read it back[^]*b\.md/, never: /Nothing was changed/, kind: 'warn' },
   skipped: { facts: UP({ wrote: 1, skipped: ['AGENTS.md'] }), must: /Updated 1 file[^]*Left as[^]*AGENTS\.md/, never: /Nothing was changed/, kind: 'warn' },
   'merge-done': { facts: ME({ putAway: 2 }), must: /Put away/, never: /left where/, kind: 'good' },
+  'putaway-merge': { facts: ME({ merge: ['2.12.0'] }), must: /2\.12\.0 has something to merge now[^]*left where it is[^]*Copy merge request/, never: /^Put away/, kind: 'warn' },
   'merge-left': { facts: ME({ left: ['2.6.0'] }), must: /2\.6\.0[^]*left where it is/, never: /^Put away/, kind: 'warn' },
   'merge-partial': { facts: ME({ putAway: 1, error: { why: 'The disk said no.' } }), must: /1[^]*put away[^]*The disk said no/i, never: /Nothing was/, kind: 'warn' },
   'merge-unsure': { facts: ME({ putAway: 1, unsure: ['2.6.0'], error: { why: 'The disk said no.' } }), must: /1 copy[^]*put away[^]*2\.6\.0[^]*may or may not[^]*The disk said no/, never: /Nothing was/, kind: 'warn' },

@@ -951,11 +951,8 @@
   /* The fingerprints of AGENTS.md's Flightdeck part and the skills, as flightdeck install takes them: the folder's files
      (hashes), this version's defaults (want) and the copies waiting to be merged (staged), for PF.contract.classify. */
   function contractHashes(scan) {
-    var C = PF.contract, texts = scan.contractTexts || {}, prints = scan.stagedPrints || {}, shapes = scan.stagedShapes || {}, keys = contractKeys();
+    var C = PF.contract, texts = scan.contractTexts || {}, raws = scan.contractRaw || {}, prints = scan.stagedPrints || {}, keys = contractKeys();
     var jobs = Object.keys(texts).map(function (p) { return ['hashes', p, texts[p]]; }).concat(keys.map(function (k) { return ['want', k, EXAMPLES[k]]; }));
-    /* The shape of each default this version ships (PF.contract.shapeOf), to tell a waiting copy that is exactly a shipped default. */
-    var shipped = Object.create(null);
-    keys.forEach(function (k) { shipped[k] = C.shapeOf(k, EXAMPLES[k]); });
     return digests(jobs.map(function (j) { return C.managed(j[1], j[2]); })).then(function (ds) {
       if (!ds) return null;
       var out = { hashes: {}, want: {}, staged: {}, unmatched: [] };
@@ -966,7 +963,14 @@
         var sg = repo.stagedOf(p);
         /* Not a copy of a file this version ships, like a sync tool's AGENTS-PC.md: nothing can clear it, so it stays named. */
         if (!sg || keys.indexOf(sg.key) < 0) { out.unmatched.push(p); return; }
-        (out.staged[sg.key] = out.staged[sg.key] || []).push({ version: sg.version, hash: Object.prototype.hasOwnProperty.call(prints, p) ? prints[p] : null, exact: Object.prototype.hasOwnProperty.call(shapes, p) && shapes[p] !== null && shapes[p] === shipped[sg.key] });
+        var pr = Object.prototype.hasOwnProperty.call(prints, p) && prints[p] ? prints[p] : { hash: null, shape: null };
+        (out.staged[sg.key] = out.staged[sg.key] || []).push({ version: sg.version, hash: pr.hash, print: pr });
+      });
+      /* Which are old copies: PF.contract.classifyCopies, from the files' bytes as the scan read them. */
+      keys.forEach(function (k) {
+        var list = out.staged[k] || [], has = Object.prototype.hasOwnProperty.call(raws, k), active = has && raws[k] != null ? raws[k] : has ? { hash: null } : null;
+        var said = C.classifyCopies({ key: k, shipped: EXAMPLES[k], version: APP_VERSION, base: (C.BASELINES && C.BASELINES.files) || {}, active: active, copies: list });
+        list.forEach(function (x, i) { x.old = said[i] === 'old'; delete x.print; });
       });
       /* A file that's there but couldn't be read isn't a missing file. */
       out.unread = (scan.unreadable || []).map(function (u) { return u.path; }).filter(function (p, i, all) {
@@ -1255,6 +1259,8 @@
   function afRead(tg) {
     var C = PF.contract, fs = repo.lane(tg.fs, 'files'), ud = tg.updates.join('/');
     var read = function (p) { return fs.read(p, { maxBytes: AF_MAX }).then(function (r) { return r ? r.text : null; }); };
+    /* The files PF.contract.classifyCopies looks at are read as bytes too, so a byte-order mark File.text() drops is seen. */
+    var readRaw = function (p) { return repo.readRaw(fs, p, { maxBytes: AF_MAX }); };
     var noPrints = function () { return new Error('This browser can\'t compute file fingerprints, so it can\'t tell a default from your team\'s change. Use the flightdeck command instead.'); };
     var tree = Object.create(null), byRel = Object.create(null);
     var items = tg.files.map(function (f) { return { key: f.key, rel: f.rel, baseKey: f.baseKey, text: f.text, staged: [] }; });
@@ -1272,10 +1278,9 @@
           if (want !== true) return i.kind === 'dir' ? walk(v, p, want, here + '/') : null;
           if (i.kind !== 'file') return null;
           var it = byRel[here];
-          return read(p).then(function (t) {
-            if (t == null) return null;
-            var shape = C.shapeOf(it.key, t), exact = shape !== null && shape === C.shapeOf(it.key, it.text);
-            return digests([C.managed(it.key, t), t]).then(function (ds) { if (!ds) throw noPrints(); it.staged.push({ version: v, path: p, hash: ds[0], full: ds[1], exact: exact }); });
+          return readRaw(p).then(function (r) {
+            if (!r) return null;
+            return digests([C.managed(it.key, r.text), r.text]).then(function (ds) { if (!ds) throw noPrints(); it.staged.push({ version: v, path: p, hash: ds[0], full: ds[1], raw: r.raw }); });
           });
         }));
       });
@@ -1283,7 +1288,8 @@
     return Promise.all([fs.list(ud), read(tg.recordAt)]).then(function (got) {
       var vers = got[0].filter(function (i) { return i.kind === 'dir' && C.VERSION_DIR.test(i.name); }).map(function (i) { return i.name; });
       var recText = got[1];
-      return Promise.all(items.map(function (it) { return read(it.rel).then(function (t) { it.now = t; }); }).concat(vers.map(function (v) { return walk(v, ud + '/' + v, tree, ''); }))).then(function () {
+      /* Each file is read as bytes: it.now is the text File.text() would give, it.raw keeps a byte-order mark for classifyCopies. */
+      return Promise.all(items.map(function (it) { return readRaw(it.rel).then(function (r) { it.now = r ? r.text : null; it.raw = r ? r.raw : null; }); }).concat(vers.map(function (v) { return walk(v, ud + '/' + v, tree, ''); }))).then(function () {
         items.forEach(function (it) { it.staged.sort(function (x, y) { return C.byVersion(x.version, y.version); }); });
         var texts = [];
         items.forEach(function (it) { texts.push(C.managed(it.key, it.text), it.now == null ? '' : C.managed(it.key, it.now)); });
@@ -1292,8 +1298,16 @@
           var n = 0;
           items.forEach(function (it) { it.want = ds[n++]; var h = ds[n++]; it.have = it.now == null ? null : h; });
           var rec = C.readRecord(recText, items.map(function (i) { return i.key; }), APP_VERSION);
-          if (rec.newer) return { items: items, record: rec, recText: recText };
-          C.splitStaged(items, (C.BASELINES && C.BASELINES.files) || {}, APP_VERSION);
+          if (rec.newer) { items.forEach(function (it) { delete it.raw; it.staged.forEach(function (x) { delete x.raw; }); }); return { items: items, record: rec, recText: recText }; }
+          /* Which waiting copies are old copies: PF.contract.classifyCopies, from the bytes just read. */
+          items.forEach(function (it) {
+            var all = it.staged, active = it.now == null ? null : it.raw != null ? it.raw : { hash: null };
+            var said = C.classifyCopies({ key: it.key, baseKey: it.baseKey, shipped: it.text, version: APP_VERSION, base: (C.BASELINES && C.BASELINES.files) || {}, active: active, copies: all.map(function (x) { return { version: x.version, text: x.raw }; }) });
+            all.forEach(function (x) { delete x.raw; });
+            delete it.raw;
+            it.old = all.filter(function (x, i) { return said[i] === 'old'; });
+            it.staged = all.filter(function (x, i) { return said[i] !== 'old'; });
+          });
           C.classify(items, rec, (C.BASELINES && C.BASELINES.files) || {}, APP_VERSION).forEach(function (d, i) { items[i].status = d.status; items[i].waiting = d.waiting || ''; items[i].stage = !!d.stage; });
           return { items: items, record: rec, recText: recText, recordDue: !!C.nextRecord(rec, items, APP_VERSION) };
         });
@@ -1446,30 +1460,44 @@
   function afFilesChanged(tg) { if (!tg.standalone) state.healthScan = null; }
   /* I merged it: each copy of this file waiting in the updates folder is put away beside the replaced files (copied, read
      back), and removed only if it's still exactly what this screen read. */
-  /* I merged it puts away the copies waiting to be merged; Put away (old) the old copies an older app left (PF.contract.oldCopy).
-     The same checked way for both: each copy is read again and must be what this screen read, then filed beside the replaced
-     files and read back before the original is removed. */
+  /* I merged it puts away the copies waiting to be merged; Put away (old) the old copies an older app left. The same checked
+     way for both: each copy is read again and must be what this screen read, then filed beside the replaced files and read back
+     before the original is removed. Put away first reads the file and every copy waiting for it again, as bytes, and asks
+     PF.contract.classifyCopies again: a copy that isn't old any more (the file or a copy changed since this screen read them)
+     is left where it is, and the reload shows it as a merge. */
   function afMerged(key, old) {
     var af = afState(), it = af.load && af.load.items.filter(function (i) { return i.key === key; })[0];
     var list = it && (old ? it.old || [] : it.staged);
     if (!it || !afReady(af) || !list.length) return;
     var tg = afTarget(af); if (afReadOnly(tg, af)) return;
-    var alive = afGuard(af), fs = tg.fs, f = { op: 'merge', putAway: 0, left: [], unsure: [] };
+    var alive = afGuard(af), fs = tg.fs, f = { op: 'merge', putAway: 0, left: [], unsure: [], merge: [] };
     af.busy = true; af.outcome = null; af.err = null; render();
-    repo.archiveDir(fs, tg.updates.join('/') + '/' + APP_VERSION + '/replaced').then(function (d) {
-      return list.reduce(function (q, x) {
-        return q.then(function () {
-          if (!alive()) return;
-          return fs.read(x.path, { maxBytes: AF_MAX }).then(function (r) {
-            if (!alive()) return null;
-            if (!r) { f.left.push(x.version); return null; }
-            return digests([r.text]).then(function (ds) {
-              if (!ds || ds[0] !== x.full) { f.left.push(x.version); return; }
-              return repo.archiveStaged(fs, d, x.path, 'staged/' + x.version + '/' + it.rel, r.text, alive).then(function (done) { if (done.unsure) { f.unsure.push(x.version); throw new Error(done.why); } if (done.changed) f.left.push(x.version); else f.putAway++; });
+    var still = !old ? Promise.resolve(list) : afRead(tg).then(function (l) {
+      var now = l.items.filter(function (i) { return i.key === key; })[0], olds = (now && !l.record.newer && now.old) || [];
+      var there = now ? (now.staged || []).concat(olds) : [];
+      return list.filter(function (x) {
+        if (olds.some(function (y) { return y.path === x.path && y.full === x.full; })) return true;
+        (there.some(function (y) { return y.path === x.path && y.full === x.full; }) ? f.merge : f.left).push(x.version);
+        return false;
+      });
+    });
+    still.then(function (go) {
+      if (!alive() || !go.length) return;
+      return repo.archiveDir(fs, tg.updates.join('/') + '/' + APP_VERSION + '/replaced').then(function (d) {
+        return go.reduce(function (q, x) {
+          return q.then(function () {
+            if (!alive()) return;
+            return fs.read(x.path, { maxBytes: AF_MAX }).then(function (r) {
+              if (!alive()) return null;
+              if (!r) { f.left.push(x.version); return null; }
+              return digests([r.text]).then(function (ds) {
+                if (!ds || ds[0] !== x.full) { f.left.push(x.version); return; }
+                return repo.archiveStaged(fs, d, x.path, 'staged/' + x.version + '/' + it.rel, r.text, alive).then(function (done) { if (done.unsure) { f.unsure.push(x.version); throw new Error(done.why); } if (done.changed) f.left.push(x.version); else f.putAway++; });
+              });
             });
           });
-        });
-      }, Promise.resolve());
+        }, Promise.resolve());
+      });
     }).then(function () { if (alive()) return afFinish(af, tg, f); }, function (e) {
       if (!alive()) return;
       f.error = { why: e && e.message || String(e) };

@@ -415,7 +415,9 @@ PF.health = (function () {
     var text = scan.recordText !== undefined ? scan.recordText : scan.installed && typeof scan.installed === 'object' ? JSON.stringify(scan.installed) : scan.installed === 'bad' ? '' : null;
     var rec = C.readRecord(text, keys, snap.app);
     if (rec.newer) return;
-    var items = C.splitStaged(keys.map(function (k) { return { key: k, want: c.want[k], have: Object.prototype.hasOwnProperty.call(c.hashes, k) ? c.hashes[k] : null, staged: (c.staged || {})[k] || [] }; }), B, snap.app);
+    /* Each waiting copy comes already told old or not (x.old, from PF.contract.classifyCopies over the files as read); this only
+       counts. */
+    var items = keys.map(function (k) { var all = (c.staged || {})[k] || []; return { key: k, want: c.want[k], have: Object.prototype.hasOwnProperty.call(c.hashes, k) ? c.hashes[k] : null, old: all.filter(function (x) { return x.old === true; }), staged: all.filter(function (x) { return x.old !== true; }) }; });
     var leftover = items.reduce(function (n, it) { return n + it.old.length; }, 0);
     var st = C.classify(items, rec, B, snap.app);
     var of = function (list) { return st.filter(function (x) { return list.indexOf(x.status) >= 0; }).map(function (x) { return x.key; }); };
@@ -427,7 +429,7 @@ PF.health = (function () {
     if (merge.length) add({ id: 'contract-merge', severity: 'warn', area: 'AI assistants', title: plural(merge.length, 'file') + ' for AI assistants to merge', detail: 'Your team changed ' + (merge.length === 1 ? 'it' : 'them') + ' and so did Flightdeck. AI assistant files stages the new default for your AI assistant to merge.', paths: merge, action: open, help: HELP.newer });
     if (scan.installed === null && !noAgents) add({ id: 'contract-record', severity: 'info', area: 'AI assistants', title: 'No record of which defaults this folder started from', detail: 'Update writes .flightdeck/installed.json, so later updates can tell a default from your team\'s change.', paths: ['.flightdeck/installed.json'], action: open, help: HELP.newer });
     if (rec.ignored) add({ id: 'contract-record', severity: 'warn', area: 'AI assistants', title: '.flightdeck/installed.json can\'t be read', detail: 'The next update writes it again.', paths: ['.flightdeck/installed.json'], action: open, help: HELP.unreadable });
-    /* An old copy an older app left (PF.contract.oldCopy) is no merge and counts for nothing; it's only named. */
+    /* An old copy an older app left (PF.contract.classifyCopies) is no merge and counts for nothing; it's only named. */
     var olds = leftover ? ' ' + leftover + (leftover === 1 ? ' old copy' : ' old copies') + ' an older Flightdeck left in .flightdeck/updates/ can be put away in AI assistant files.' : '';
     if (!stray.length && !unread.length && !old.length && !missing.length && !merge.length) ok('contract', (custom.length ? 'The files for AI assistants are current; ' + plural(custom.length, 'file has', 'files have') + ' your team\'s own changes, which updates keep.' : 'The files for AI assistants match this version of Flightdeck.') + olds);
   }

@@ -190,14 +190,13 @@ function classify(t, files, base, force) {
     const parts = f.rel.split('/'), now = readInside(t.dir, parts), want = hash(managed(f.key, f.text));
     return { key: f.key, rel: f.rel, baseKey: f.baseKey, parts, text: f.text, now, want, have: now === null ? null : hash(managed(f.key, now)), staged: staged(t, f.rel) };
   });
-  /* An old copy an older app left (PF.contract.oldCopy, the app's own rule): named, never merged, counted or removed. */
+  /* An old copy an older app left (PF.contract.classifyCopies, the app's own rule, from the texts as read: a byte-order mark
+     kept): named, never merged, counted or removed. */
   const K = contractRules();
   items.forEach((i) => {
-    const all = i.staged, shipped = K.shapeOf(i.key, i.text);
-    const prints = all.map((x) => { const shape = K.shapeOf(i.key, x.text); return { version: x.version, hash: hash(managed(i.key, x.text)), exact: shape !== null && shape === shipped }; });
-    const it = { key: i.key, baseKey: i.baseKey, want: i.want, have: i.have, staged: prints };
-    i.old = all.filter((x, n) => K.oldCopy(it, prints[n], base, t.version));
-    i.staged = all.filter((x) => !i.old.includes(x));
+    const all = i.staged, said = JSON.parse(JSON.stringify(K.classifyCopies({ key: i.key, baseKey: i.baseKey, shipped: i.text, version: t.version, base, active: i.now, copies: all.map((x) => ({ version: x.version, text: x.text })) })));
+    i.old = all.filter((x, n) => said[n] === 'old');
+    i.staged = all.filter((x, n) => said[n] !== 'old');
   });
   const why = decide(items.map((i) => ({ key: i.key, baseKey: i.baseKey, want: i.want, have: i.have, staged: i.staged.map((x) => ({ version: x.version, hash: hash(managed(i.key, x.text)) })) })), t.record, base, t.version, force);
   return items.map((i, n) => Object.assign(i, why[n], { key: i.key }));

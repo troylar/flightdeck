@@ -2174,12 +2174,11 @@ rule('Folder health sorts the files for AI assistants by the installer\'s own ru
   assert.ok(merge && merge.paths[0] === 'AGENTS.md' && merge.action.act === 'ai-files', 'a team change on an older default: merge, as the command says');
   const waiting = check({ 'AGENTS.md': BBB, '.flightdeck/skills/s/SKILL.md': CCC }, { staged: { 'AGENTS.md': [{ version: '1.14.0', hash: H64('d') }] } });
   assert.ok(waiting.issues.some(i => i.id === 'contract-merge'), 'a staged copy keeps it at merge');
-  /* 2.12.1: a copy that is exactly its own version's shipped default, whole, beside a file already at a newer default, is an old
-     copy: named, never counted (PF.contract.oldCopy). */
-  const leftOver = check({ 'AGENTS.md': BBB, '.flightdeck/skills/s/SKILL.md': CCC }, { staged: { 'AGENTS.md': [{ version: '1.14.0', hash: AAA, exact: true }] } });
+  /* 2.12.1: a copy the scan's PF.contract.classifyCopies called old is named, never counted; Folder health only counts. */
+  const leftOver = check({ 'AGENTS.md': BBB, '.flightdeck/skills/s/SKILL.md': CCC }, { staged: { 'AGENTS.md': [{ version: '1.14.0', hash: AAA, old: true }] } });
   assert.ok(leftOver.issues.every(i => !/^contract/.test(i.id)) && leftOver.clear.some(c => /1 old copy an older Flightdeck left/.test(c.text)), 'an old copy left by an older app is no merge');
-  const noted = check({ 'AGENTS.md': BBB, '.flightdeck/skills/s/SKILL.md': CCC }, { staged: { 'AGENTS.md': [{ version: '1.14.0', hash: AAA, exact: false }] } });
-  assert.ok(noted.issues.some(i => i.id === 'contract-merge'), 'the same default with a note added outside the markers is a merge');
+  const noted = check({ 'AGENTS.md': BBB, '.flightdeck/skills/s/SKILL.md': CCC }, { staged: { 'AGENTS.md': [{ version: '1.14.0', hash: AAA, old: false }] } });
+  assert.ok(noted.issues.some(i => i.id === 'contract-merge'), 'a copy not called old is a merge');
   const gone = check({ '.flightdeck/skills/s/SKILL.md': CCC });
   assert.ok(gone.issues.some(i => i.id === 'contract-missing' && i.severity === 'warn'));
   const none = check({ 'AGENTS.md': BBB, '.flightdeck/skills/s/SKILL.md': CCC }, { installed: null, recordText: null });

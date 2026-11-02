@@ -2338,14 +2338,28 @@ PF.repo = (function () {
     if (!sub || typeof TextEncoder === 'undefined') return Promise.resolve(null);
     return Promise.all(texts.map(function (t) { return sub.digest('SHA-256', new TextEncoder().encode(t)); })).then(function (ds) { return ds.map(PF.contract.hex); });
   }
-  /* A copy waiting to be merged, read with a limit, as the fingerprint AI assistant files compares. The text goes no further
-     than this, and the caller's pool slot is held until the fingerprint is done. Over the limit it throws, like any read that
-     fails, so the copy is named as unreadable and, still being listed, still waits. */
+  /* A file's text as its bytes say, for PF.contract.classifyCopies: raw keeps a leading byte-order mark, which File.text()
+     drops, and text is what read() gives (the same decoding, without the mark). Read through blob(), so no reader in fs.js
+     changes. Where there's no blob() or TextDecoder, raw is null: nothing can be proved about the bytes. o: { maxBytes }. */
+  function readRaw(fs, p, o) {
+    if (typeof fs.blob !== 'function' || typeof TextDecoder === 'undefined') return fs.read(p, o).then(function (r) { return r && { text: r.text, raw: null, mtime: r.mtime, size: r.size }; });
+    return fs.blob(p, o).then(function (b) {
+      if (!b) return null;
+      return b.arrayBuffer().then(function (buf) {
+        var raw = new TextDecoder('utf-8', { ignoreBOM: true }).decode(buf);
+        return { text: raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw, raw: raw, mtime: b.lastModified, size: buf.byteLength };
+      });
+    });
+  }
+  /* A copy waiting to be merged, read with a limit, as the fingerprints AI assistant files compares (PF.contract.copyPrint, from
+     its bytes). The text goes no further than this. Over the limit it throws, like any read that fails, so the copy is named as
+     unreadable and, still being listed, still waits. Without its bytes it has a hash but no shape, so it's never an old copy. */
   function stagedPrint(fs, p) {
-    return fs.read(p, { maxBytes: PF.contract.MAX_BYTES }).then(function (r) {
+    return readRaw(fs, p, { maxBytes: PF.contract.MAX_BYTES }).then(function (r) {
       if (!r) return null;
-      var key = stagedOf(p).key;
-      return digests([PF.contract.managed(key, r.text)]).then(function (ds) { return { print: ds ? ds[0] : null, shape: PF.contract.shapeOf(key, r.text) }; });
+      var pr = PF.contract.copyPrint(stagedOf(p).key, r.raw != null ? r.raw : r.text);
+      if (r.raw == null) pr.shape = null;
+      return { print: pr };
     });
   }
   /* A contract file's copy waiting to be merged: .flightdeck/updates/<version>/<the file's own path>. */
@@ -2382,14 +2396,14 @@ PF.repo = (function () {
     }).then(function () {
       /* replaced-*.json beside a run (small, and only these) are read to recognize an older copy's placeholder (H10). */
       var want = files.filter(function (f) { return f.p === 'people.json' || f.p === PF.teamValues.FILE || f.p === 'jira/workflows.json' || f.p === '.flightdeck/installed.json' || f.p === PF.contract.AGENTS || stagedOf(f.p) || /^(proposals|validations)\/[^/]+\.json$/i.test(f.p) || /^\.flightdeck\/skills\//.test(f.p) || (/^runs\/[^/]+\/[^/]+\/replaced-[^/]+\.json$/.test(f.p) && f.s != null && f.s <= 65536); });
-      var texts = {}, installed = null, placeholders = [], recordText, stagedPrints = {}, stagedShapes = {};
+      var texts = {}, raws = {}, installed = null, placeholders = [], recordText, stagedPrints = {};
       return Promise.all(want.map(function (f) {
-        return go(function () { if (!alive()) throw stop(); if (stagedOf(f.p)) return stagedPrint(fs, f.p); return f.p === PF.teamValues.FILE ? readTeamValues(fs) : fs.read(f.p); }).then(function (r) {
+        return go(function () { if (!alive()) throw stop(); if (stagedOf(f.p)) return stagedPrint(fs, f.p); return f.p === PF.teamValues.FILE ? readTeamValues(fs) : /^\.flightdeck\/skills\//.test(f.p) || f.p === PF.contract.AGENTS ? readRaw(fs, f.p) : fs.read(f.p); }).then(function (r) {
           if (!r) return;
           /* team-values.json (2.9): through its one bounded reader, so a damaged, newer or oversized file is named here. */
           if (f.p === PF.teamValues.FILE) { if (r.state !== 'ok' && r.state !== 'missing' && r.state !== 'newer') unreadable.push({ path: f.p, why: String(r.why).replace(/^team-values\.json:? ?/, '').replace(/\.$/, '') }); return; }
-          if (stagedOf(f.p)) { if (r.print) { stagedPrints[f.p] = r.print; stagedShapes[f.p] = r.shape; } return; }
-          if (/^\.flightdeck\/skills\//.test(f.p) || f.p === PF.contract.AGENTS) { texts[f.p] = r.text; return; }
+          if (stagedOf(f.p)) { stagedPrints[f.p] = r.print; return; }
+          if (/^\.flightdeck\/skills\//.test(f.p) || f.p === PF.contract.AGENTS) { texts[f.p] = r.text; raws[f.p] = r.raw; return; }
           if (f.p === '.flightdeck/installed.json') recordText = r.text;
           var o = json(r.text);
           if (f.p === '.flightdeck/installed.json') { installed = PF.contract.cleanInstalled(o); return; }
@@ -2420,7 +2434,7 @@ PF.repo = (function () {
           if (m && f.m != null && (pubs[m[1]] == null || f.m > pubs[m[1]])) pubs[m[1]] = f.m;
         });
         return { at: new Date().toISOString(), ms: Date.now() - started, files: files.length, bytes: bytes, longest: longest, areas: areas, pubs: pubs, list: files, unreadable: unreadable, truncated: truncated,
-          contractTexts: texts, stagedPrints: stagedPrints, stagedShapes: stagedShapes, recordText: recordText === undefined ? null : recordText, placeholders: placeholders.sort(), reports: reports, installed: files.some(function (f) { return f.p === '.flightdeck/installed.json'; }) ? installed || 'bad' : null,
+          contractTexts: texts, contractRaw: raws, stagedPrints: stagedPrints, recordText: recordText === undefined ? null : recordText, placeholders: placeholders.sort(), reports: reports, installed: files.some(function (f) { return f.p === '.flightdeck/installed.json'; }) ? installed || 'bad' : null,
           updates: files.filter(function (f) { return /^\.flightdeck\/updates\//.test(f.p) && !/\/README\.md$/i.test(f.p) && !/\/replaced\//.test(f.p) && !/\.base$/.test(f.p); }).map(function (f) { return f.p; }) };
       });
     });
@@ -3261,5 +3275,5 @@ PF.repo = (function () {
   }
 
   return { loadProposed: loadProposed, loadProposedOne: loadProposedOne, loadProposalSet: loadProposalSet, readProposal: readProposal, listRecords: listRecords, writeRecord: writeRecord, loadPresence: loadPresence, writePresence: writePresence, removePresence: removePresence, cleanPresence: cleanPresence,
-    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
+    digests: digests, contractBlocked: contractBlocked, readOnly: readOnlyView, ledger: ledger, fileHash: fileHash, groupPlans: groupPlans, readPlans: readPlans, readProcess: readProcess, loadRegistrations: loadRegistrations, loadLegacySkills: loadLegacySkills, runMismatch: runMismatch, pubProblem: pubProblem, readRunOnly: readRunOnly, decisionTexts: decisionTexts, collectEvidence: collectEvidence, exportEvidence: exportEvidence, poolOf: poolOf, lane: bounded, runSig: runSig, historyDir: historyDir, appendHistory: appendHistory, loadEditHistory: loadEditHistory, config: config, loadStepTypes: loadStepTypes, saveDraft: saveDraft, contractWrite: contractWrite, archiveDir: archiveDir, archiveCopy: archiveCopy, archiveStaged: archiveStaged, stagedOf: stagedOf, readRaw: readRaw, applyCorrection: applyCorrection, decideFollowUp: decideFollowUp, decideReport: decideReport, loadDecisionsOn: loadDecisionsOn, loadRunReports: loadRunReports, loadReportNames: loadReportNames, loadReportDecisions: loadReportDecisions, rereadReport: rereadReport, readReport: readReport, saveStepType: saveStepType, recordValidation: recordValidation, recordStageValidation: recordStageValidation, signOffStage: signOffStage, stageCarried: stageCarried, savePeople: savePeople, readTeamValues: readTeamValues, saveTeamValues: saveTeamValues, writeTest: writeTest, loadAnswers: loadAnswers, loadAll: loadAll, loadRun: loadRun, loadHistory: loadHistory, readCopy: readCopy, removeCopy: removeCopy, keepDisplaced: keepDisplaced, saveRun: saveRun, addNote: addNote, saveAttachment: saveAttachment, saveShot: saveShot, publish: publish, stage: stage, readStage: readStage, loadStaged: loadStaged, promote: promote, decideStage: decideStage, startTestRun: startTestRun, savePlan: savePlan, recordPlanStatus: recordPlanStatus, decidePlan: decidePlan, resumeStart: resumeStart, decideCorrection: decideCorrection, scan: scan, loadConnection: loadConnection, sendProbe: sendProbe, sendAck: sendAck, cleanConnection: cleanConnection };
 })();

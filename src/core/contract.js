@@ -126,30 +126,38 @@ PF.contract = (function () {
     var r = region(t);
     return r.marked ? t.slice(0, r.start) + '\u0000' + t.slice(r.end) : null;
   }
-  /* A copy waiting in the updates folder that an older Flightdeck left, with nothing in it to merge (2.12.1). All three must hold:
-     (a) the whole copy is exactly the default its own version shipped: x.exact (its shape is the shipped one, shapeOf) and its
-         managed hash is in the baselines under that version, so a Team note or merge note added to it keeps it a merge;
-     (b) a newer default of that file has shipped, and it differs from the copy;
-     (c) that newer default is in hand: the file is exactly it, or another copy waiting for the same file holds it.
-     A newer record alone proves nothing. 2.12.0's app, on a folder a newer version installed, stages its own older default this
-     way. An old copy is named and can be put away, never merged, deleted or counted. it: { key, baseKey, want, have, staged:
-     every copy waiting for it }; x: { version, hash, exact }. */
-  function oldCopy(it, x, base, version) {
-    var b = base[it.baseKey || baselineKey(it.key)] || {};
-    if (!x || x.exact !== true || !RELEASE.test(x.version) || !x.hash || !own(b, x.hash) || b[x.hash].indexOf(x.version) < 0) return false;
-    var later = function (v) { return typeof v === 'string' && RELEASE.test(v) && byVersion(v, x.version) > 0; };
-    var newer = function (h) { return !!h && h !== x.hash && ((own(b, h) && b[h].some(later)) || (h === it.want && later(version))); };
-    if (newer(it.have)) return true;
-    return (it.staged || []).some(function (y) { return y !== x && newer(y.hash); });
+  /* A file's fingerprints for classifyCopies, from its raw text: the SHA-256 of its Flightdeck part (as the baselines hold it)
+     and its shape (shapeOf). Raw: decoded from its bytes with a byte-order mark kept (repo.readRaw in the app, readFileSync in
+     the command), never File.text(), which drops one. null text (unread, or not UTF-8) has neither. */
+  function copyPrint(key, raw) {
+    if (typeof raw !== 'string') return { hash: null, shape: null };
+    return { hash: PF.sha256.hex(managed(key, raw)), shape: shapeOf(key, raw) };
   }
-  /* Each item's waiting copies, split: old copies (oldCopy) into it.old, the rest stay in it.staged for classify. */
-  function splitStaged(items, base, version) {
-    items.forEach(function (it) {
-      var all = it.staged || [];
-      it.old = all.filter(function (x) { return oldCopy(it, x, base, version); });
-      it.staged = all.filter(function (x) { return it.old.indexOf(x) < 0; });
+  /* The one rule for which copies waiting in the updates folder are old copies an older Flightdeck left, with nothing in them
+     to merge (2.12.1). The app's scan, Settings, Folder health, Put away (again at the click) and the command all ask this, and
+     nothing else decides. A copy is old when all three hold:
+     (a) the whole copy is exactly the default its own version shipped: its shape is the one this version ships (Flightdeck has
+         shipped one AGENTS.md shape since 1.15; test/assistant-start.test.js checks every release since) and its Flightdeck
+         part's hash is in the baselines under that version. A byte-order mark, Windows line endings, a Team note or a merge
+         note keep it a merge;
+     (b) a newer default of that file has shipped, and it differs from the copy;
+     (c) that newer default is in hand: the file's Flightdeck part is exactly it, or another copy waiting for it holds it.
+     A newer record alone proves nothing. o: { key, baseKey, shipped (this version's default), version (this app's), base (the
+     baselines), active, copies: [{ version, text }] }, where active and each text are raw (see copyPrint), or a print from
+     copyPrint in place of the text ({ version, print }), or null. Returns 'old' or 'merge' for each copy, in order. */
+  function classifyCopies(o) {
+    var key = o.key, base = o.base || {}, b = base[o.baseKey || baselineKey(key)] || {}, list = o.copies || [];
+    if (!list.length) return [];
+    var printOf = function (x) { return x && x.print ? x.print : copyPrint(key, x && typeof x === 'object' ? x.text : x); };
+    var shipped = copyPrint(key, o.shipped), active = o.active && typeof o.active === 'object' ? o.active : copyPrint(key, o.active);
+    var prints = list.map(printOf);
+    return list.map(function (x, n) {
+      var p = prints[n];
+      if (!x || !RELEASE.test(x.version) || !p.hash || p.shape === null || p.shape !== shipped.shape || !own(b, p.hash) || b[p.hash].indexOf(x.version) < 0) return 'merge';
+      var later = function (v) { return typeof v === 'string' && RELEASE.test(v) && byVersion(v, x.version) > 0; };
+      var newer = function (h) { return !!h && h !== p.hash && ((own(b, h) && b[h].some(later)) || (h === shipped.hash && later(o.version))); };
+      return newer(active.hash) || prints.some(function (y, m) { return m !== n && newer(y.hash); }) ? 'old' : 'merge';
     });
-    return items;
   }
   /* The text written for a contract file: AGENTS.md keeps everything outside its markers (the team's notes). */
   function merged(key, now, text) {
@@ -230,13 +238,14 @@ PF.contract = (function () {
     skipped: { kind: 'warn', reload: true, words: wroteWords },
     'merge-done': { kind: 'good', reload: true, words: function () { return 'Put away. The copy is beside the replaced files, in case you need it.'; } },
     'merge-left': { kind: 'warn', reload: true, words: function (o) { return 'A copy waiting in ' + (o.left.length === 1 ? o.left[0] : o.left.length + ' versions') + ' changed since this screen read it, so it was left where it is. Look at it again.'; } },
+    'putaway-merge': { kind: 'warn', reload: true, words: function (o) { return (o.putAway ? count(o.putAway, 'copy').replace('copys', 'copies') + (o.putAway === 1 ? ' was' : ' were') + ' put away. ' : '') + (o.merge.length === 1 ? 'The copy waiting in ' + o.merge[0] + ' has' : 'The copies waiting in ' + shortList(o.merge) + ' have') + ' something to merge now: the files changed since this screen read them. ' + (o.merge.length === 1 ? 'It was' : 'They were') + ' left where ' + (o.merge.length === 1 ? 'it is' : 'they are') + '; Copy merge request hands ' + (o.merge.length === 1 ? 'it' : 'them') + ' to your AI assistant.'; } },
     'merge-partial': { kind: 'warn', reload: true, words: function (o) { return count(o.putAway, 'copy').replace('copys', 'copies') + (o.putAway === 1 ? ' was' : ' were') + ' put away before this stopped: ' + o.error.why; } },
     'merge-unsure': { kind: 'warn', reload: true, words: function (o) { return (o.putAway ? count(o.putAway, 'copy').replace('copys', 'copies') + (o.putAway === 1 ? ' was' : ' were') + ' put away. ' : '') + 'The copy waiting in ' + shortList(o.unsure) + ' may or may not have been put away: removing it failed and Flightdeck couldn\'t check. ' + o.error.why + ' Look at it again.'; } },
     'merge-failed': { kind: 'warn', words: function (o) { return 'Nothing was put away. ' + o.error.why; } }
   };
   function settleState(f) {
     if (f.op === 'merge' && f.unsure && f.unsure.length) return 'merge-unsure';
-    if (f.op === 'merge') return f.error ? (f.putAway ? 'merge-partial' : 'merge-failed') : f.left.length ? 'merge-left' : 'merge-done';
+    if (f.op === 'merge') return f.error ? (f.putAway ? 'merge-partial' : 'merge-failed') : f.left.length ? 'merge-left' : f.merge && f.merge.length ? 'putaway-merge' : 'merge-done';
     if (f.newer) return 'newer';
     if (f.tooBig) return 'too-big';
     if (f.blocked) return 'blocked';
@@ -255,6 +264,6 @@ PF.contract = (function () {
   /* Something in the way of where a file goes. The same words as the command's. */
   function blockedWhy(path, want) { return path + (want === 'file' ? ' is a folder, where Flightdeck needs a file.' : ' is a file, where Flightdeck needs a folder.') + ' Nothing was changed. Move it, then try again.'; }
 
-  return { START_PROMPT: START_PROMPT, OUTCOMES: OUTCOMES, settle: settle, outcomeWords: outcomeWords, MAX_BYTES: MAX_BYTES, cleanInstalled: cleanInstalled, readRecord: readRecord, newerWhy: newerWhy, recordNewer: recordNewer, RELEASE: RELEASE, shapeOf: shapeOf, oldCopy: oldCopy, splitStaged: splitStaged, classify: classify, merged: merged, nextRecord: nextRecord, mergeReadme: mergeReadme, mergePrompt: mergePrompt, byVersion: byVersion, VERSION_DIR: VERSION_DIR,
+  return { START_PROMPT: START_PROMPT, OUTCOMES: OUTCOMES, settle: settle, outcomeWords: outcomeWords, MAX_BYTES: MAX_BYTES, cleanInstalled: cleanInstalled, readRecord: readRecord, newerWhy: newerWhy, recordNewer: recordNewer, RELEASE: RELEASE, shapeOf: shapeOf, copyPrint: copyPrint, classifyCopies: classifyCopies, classify: classify, merged: merged, nextRecord: nextRecord, mergeReadme: mergeReadme, mergePrompt: mergePrompt, byVersion: byVersion, VERSION_DIR: VERSION_DIR,
     BEGIN: BEGIN, END: END, AGENTS: AGENTS, BASELINES: BASELINES, norm: norm, region: region, managed: managed, baselineKey: baselineKey, hex: hex, installed: installed };
 })();
