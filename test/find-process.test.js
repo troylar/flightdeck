@@ -7,12 +7,18 @@ const { rule, run } = require('./harness');
 const fs = require('fs');
 const path = require('path');
 const { boot } = require('./app-harness');
-const { fixture, into } = require('./bounds-fixture');
+const { fixture, into, NOW: FIXTURE_NOW } = require('./bounds-fixture');
 
 const un = v => v.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 let big = null;
-async function fresh() {
-  const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true }); await app.tick(60);
+/* A wall clock that starts at the fixture's own time and runs on from there: what the app decides by age (an ended run is read
+   again on every refresh for 7 days after it ended) is then the same on any day the tests run. */
+function fixtureClock() {
+  const real = Date, offset = FIXTURE_NOW + 3600000 - real.now();
+  return class extends real { constructor(...a) { if (a.length) super(...a); else super(real.now() + offset); } static now() { return real.now() + offset; } };
+}
+async function fresh(o) {
+  const app = boot(Object.assign({ localStore: { 'preflight:builder': 'false' }, domFocus: true }, o && o.pinned ? { Date: fixtureClock() } : {})); await app.tick(60);
   await into(app, fixture());
   return app;
 }
@@ -978,7 +984,7 @@ rule('D10 is tested: the reader finds a notice built in a forEach and an option 
 
 
 rule('Round 5: 170 members with Decline open, Show more to 100, newer members sort in above and push the focused one past the page: one group, one Decline box, and the right count', async () => {
-  const app = await fresh();
+  const app = await fresh({ pinned: true });
   const notes = app.files('runs/versions/').filter(f => /\/notes-corr\.jsonl$/.test(f)).sort();
   for (const f of notes.slice(170)) await app.fs.remove(f);
   await reread(app);
