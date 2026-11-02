@@ -193,8 +193,10 @@ function classify(t, files, base, force) {
   /* An old copy an older app left (PF.contract.oldCopy, the app's own rule): named, never merged, counted or removed. */
   const K = contractRules();
   items.forEach((i) => {
-    const all = i.staged;
-    i.old = all.filter((x) => K.oldCopy({ key: i.key, baseKey: i.baseKey, want: i.want, have: i.have }, { version: x.version, hash: hash(managed(i.key, x.text)) }, t.record, base, t.version));
+    const all = i.staged, shipped = K.shapeOf(i.key, i.text);
+    const prints = all.map((x) => { const shape = K.shapeOf(i.key, x.text); return { version: x.version, hash: hash(managed(i.key, x.text)), exact: shape !== null && shape === shipped }; });
+    const it = { key: i.key, baseKey: i.baseKey, want: i.want, have: i.have, staged: prints };
+    i.old = all.filter((x, n) => K.oldCopy(it, prints[n], base, t.version));
     i.staged = all.filter((x) => !i.old.includes(x));
   });
   const why = decide(items.map((i) => ({ key: i.key, baseKey: i.baseKey, want: i.want, have: i.have, staged: i.staged.map((x) => ({ version: x.version, hash: hash(managed(i.key, x.text)) })) })), t.record, base, t.version, force);
@@ -255,22 +257,9 @@ function readRecord(t, keys) {
   return r;
 }
 /* The record's text as install reads it: the same as PF.contract.readRecord (test/assistant-files.test.js checks they agree). */
-function parseRecord(text, keys, mine) {
-  const none = { files: {} };
-  if (text === null || text === undefined) return none;
-  let r = null;
-  try { r = JSON.parse(text); } catch (e) { /* ignored below */ }
-  const newer = installedNewer(r, mine);
-  if (newer) return { newer };
-  const ok = r && typeof r === 'object' && !Array.isArray(r) && r.format === 'flightdeck-installed/1' && typeof r.version === 'string' && /^(\d+\.\d+\.\d+|dev)$/.test(r.version)
-    && typeof r.at === 'string' && (r.by === 'cli' || r.by === 'app') && r.files && typeof r.files === 'object' && !Array.isArray(r.files)
-    && Object.keys(r.files).every((k) => typeof r.files[k] === 'string' && /^[0-9a-f]{64}$/.test(r.files[k]));
-  if (!ok) return Object.assign(none, { ignored: true });
-  /* files: what this command may consult; all: every entry, kept as it is for files this command doesn't handle. */
-  const files = {};
-  keys.forEach((k) => { if (Object.prototype.hasOwnProperty.call(r.files, k)) files[k] = r.files[k]; });
-  return { version: r.version, files, all: Object.assign({}, r.files) };
-}
+/* The record's text as install reads it: the app's own PF.contract.readRecord, so the app and this command parse it the same way
+   (copied out of the engine's context, so it compares as a plain object here). */
+function parseRecord(text, keys, mine) { return JSON.parse(JSON.stringify(contractRules().readRecord(text === undefined ? null : text, keys, mine))); }
 function stamp(d) { const p = (n) => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + p(d.getMinutes()); }
 function fineStamp(d) { const p = (n, w) => String(n).padStart(w || 2, '0'); return stamp(d).replace(' ', '-') + p(d.getSeconds()) + '-' + p(d.getMilliseconds(), 3); }
 

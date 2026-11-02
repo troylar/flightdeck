@@ -415,7 +415,7 @@ PF.health = (function () {
     var text = scan.recordText !== undefined ? scan.recordText : scan.installed && typeof scan.installed === 'object' ? JSON.stringify(scan.installed) : scan.installed === 'bad' ? '' : null;
     var rec = C.readRecord(text, keys, snap.app);
     if (rec.newer) return;
-    var items = C.splitStaged(keys.map(function (k) { return { key: k, want: c.want[k], have: Object.prototype.hasOwnProperty.call(c.hashes, k) ? c.hashes[k] : null, staged: (c.staged || {})[k] || [] }; }), rec, B, snap.app);
+    var items = C.splitStaged(keys.map(function (k) { return { key: k, want: c.want[k], have: Object.prototype.hasOwnProperty.call(c.hashes, k) ? c.hashes[k] : null, staged: (c.staged || {})[k] || [] }; }), B, snap.app);
     var leftover = items.reduce(function (n, it) { return n + it.old.length; }, 0);
     var st = C.classify(items, rec, B, snap.app);
     var of = function (list) { return st.filter(function (x) { return list.indexOf(x.status) >= 0; }).map(function (x) { return x.key; }); };

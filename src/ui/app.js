@@ -951,8 +951,11 @@
   /* The fingerprints of AGENTS.md's Flightdeck part and the skills, as flightdeck install takes them: the folder's files
      (hashes), this version's defaults (want) and the copies waiting to be merged (staged), for PF.contract.classify. */
   function contractHashes(scan) {
-    var C = PF.contract, texts = scan.contractTexts || {}, prints = scan.stagedPrints || {}, keys = contractKeys();
+    var C = PF.contract, texts = scan.contractTexts || {}, prints = scan.stagedPrints || {}, shapes = scan.stagedShapes || {}, keys = contractKeys();
     var jobs = Object.keys(texts).map(function (p) { return ['hashes', p, texts[p]]; }).concat(keys.map(function (k) { return ['want', k, EXAMPLES[k]]; }));
+    /* The shape of each default this version ships (PF.contract.shapeOf), to tell a waiting copy that is exactly a shipped default. */
+    var shipped = Object.create(null);
+    keys.forEach(function (k) { shipped[k] = C.shapeOf(k, EXAMPLES[k]); });
     return digests(jobs.map(function (j) { return C.managed(j[1], j[2]); })).then(function (ds) {
       if (!ds) return null;
       var out = { hashes: {}, want: {}, staged: {}, unmatched: [] };
@@ -963,7 +966,7 @@
         var sg = repo.stagedOf(p);
         /* Not a copy of a file this version ships, like a sync tool's AGENTS-PC.md: nothing can clear it, so it stays named. */
         if (!sg || keys.indexOf(sg.key) < 0) { out.unmatched.push(p); return; }
-        (out.staged[sg.key] = out.staged[sg.key] || []).push({ version: sg.version, hash: Object.prototype.hasOwnProperty.call(prints, p) ? prints[p] : null });
+        (out.staged[sg.key] = out.staged[sg.key] || []).push({ version: sg.version, hash: Object.prototype.hasOwnProperty.call(prints, p) ? prints[p] : null, exact: Object.prototype.hasOwnProperty.call(shapes, p) && shapes[p] !== null && shapes[p] === shipped[sg.key] });
       });
       /* A file that's there but couldn't be read isn't a missing file. */
       out.unread = (scan.unreadable || []).map(function (u) { return u.path; }).filter(function (p, i, all) {
@@ -1271,7 +1274,8 @@
           var it = byRel[here];
           return read(p).then(function (t) {
             if (t == null) return null;
-            return digests([C.managed(it.key, t), t]).then(function (ds) { if (!ds) throw noPrints(); it.staged.push({ version: v, path: p, hash: ds[0], full: ds[1] }); });
+            var shape = C.shapeOf(it.key, t), exact = shape !== null && shape === C.shapeOf(it.key, it.text);
+            return digests([C.managed(it.key, t), t]).then(function (ds) { if (!ds) throw noPrints(); it.staged.push({ version: v, path: p, hash: ds[0], full: ds[1], exact: exact }); });
           });
         }));
       });
@@ -1289,7 +1293,7 @@
           items.forEach(function (it) { it.want = ds[n++]; var h = ds[n++]; it.have = it.now == null ? null : h; });
           var rec = C.readRecord(recText, items.map(function (i) { return i.key; }), APP_VERSION);
           if (rec.newer) return { items: items, record: rec, recText: recText };
-          C.splitStaged(items, rec, (C.BASELINES && C.BASELINES.files) || {}, APP_VERSION);
+          C.splitStaged(items, (C.BASELINES && C.BASELINES.files) || {}, APP_VERSION);
           C.classify(items, rec, (C.BASELINES && C.BASELINES.files) || {}, APP_VERSION).forEach(function (d, i) { items[i].status = d.status; items[i].waiting = d.waiting || ''; items[i].stage = !!d.stage; });
           return { items: items, record: rec, recText: recText, recordDue: !!C.nextRecord(rec, items, APP_VERSION) };
         });

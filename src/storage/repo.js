@@ -2344,7 +2344,8 @@ PF.repo = (function () {
   function stagedPrint(fs, p) {
     return fs.read(p, { maxBytes: PF.contract.MAX_BYTES }).then(function (r) {
       if (!r) return null;
-      return digests([PF.contract.managed(stagedOf(p).key, r.text)]).then(function (ds) { return { print: ds ? ds[0] : null }; });
+      var key = stagedOf(p).key;
+      return digests([PF.contract.managed(key, r.text)]).then(function (ds) { return { print: ds ? ds[0] : null, shape: PF.contract.shapeOf(key, r.text) }; });
     });
   }
   /* A contract file's copy waiting to be merged: .flightdeck/updates/<version>/<the file's own path>. */
@@ -2381,13 +2382,13 @@ PF.repo = (function () {
     }).then(function () {
       /* replaced-*.json beside a run (small, and only these) are read to recognize an older copy's placeholder (H10). */
       var want = files.filter(function (f) { return f.p === 'people.json' || f.p === PF.teamValues.FILE || f.p === 'jira/workflows.json' || f.p === '.flightdeck/installed.json' || f.p === PF.contract.AGENTS || stagedOf(f.p) || /^(proposals|validations)\/[^/]+\.json$/i.test(f.p) || /^\.flightdeck\/skills\//.test(f.p) || (/^runs\/[^/]+\/[^/]+\/replaced-[^/]+\.json$/.test(f.p) && f.s != null && f.s <= 65536); });
-      var texts = {}, installed = null, placeholders = [], recordText, stagedPrints = {};
+      var texts = {}, installed = null, placeholders = [], recordText, stagedPrints = {}, stagedShapes = {};
       return Promise.all(want.map(function (f) {
         return go(function () { if (!alive()) throw stop(); if (stagedOf(f.p)) return stagedPrint(fs, f.p); return f.p === PF.teamValues.FILE ? readTeamValues(fs) : fs.read(f.p); }).then(function (r) {
           if (!r) return;
           /* team-values.json (2.9): through its one bounded reader, so a damaged, newer or oversized file is named here. */
           if (f.p === PF.teamValues.FILE) { if (r.state !== 'ok' && r.state !== 'missing' && r.state !== 'newer') unreadable.push({ path: f.p, why: String(r.why).replace(/^team-values\.json:? ?/, '').replace(/\.$/, '') }); return; }
-          if (stagedOf(f.p)) { if (r.print) stagedPrints[f.p] = r.print; return; }
+          if (stagedOf(f.p)) { if (r.print) { stagedPrints[f.p] = r.print; stagedShapes[f.p] = r.shape; } return; }
           if (/^\.flightdeck\/skills\//.test(f.p) || f.p === PF.contract.AGENTS) { texts[f.p] = r.text; return; }
           if (f.p === '.flightdeck/installed.json') recordText = r.text;
           var o = json(r.text);
@@ -2419,7 +2420,7 @@ PF.repo = (function () {
           if (m && f.m != null && (pubs[m[1]] == null || f.m > pubs[m[1]])) pubs[m[1]] = f.m;
         });
         return { at: new Date().toISOString(), ms: Date.now() - started, files: files.length, bytes: bytes, longest: longest, areas: areas, pubs: pubs, list: files, unreadable: unreadable, truncated: truncated,
-          contractTexts: texts, stagedPrints: stagedPrints, recordText: recordText === undefined ? null : recordText, placeholders: placeholders.sort(), reports: reports, installed: files.some(function (f) { return f.p === '.flightdeck/installed.json'; }) ? installed || 'bad' : null,
+          contractTexts: texts, stagedPrints: stagedPrints, stagedShapes: stagedShapes, recordText: recordText === undefined ? null : recordText, placeholders: placeholders.sort(), reports: reports, installed: files.some(function (f) { return f.p === '.flightdeck/installed.json'; }) ? installed || 'bad' : null,
           updates: files.filter(function (f) { return /^\.flightdeck\/updates\//.test(f.p) && !/\/README\.md$/i.test(f.p) && !/\/replaced\//.test(f.p) && !/\.base$/.test(f.p); }).map(function (f) { return f.p; }) };
       });
     });

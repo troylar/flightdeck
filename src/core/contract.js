@@ -45,13 +45,17 @@ PF.contract = (function () {
   function recordNewer(r, mine) {
     var nw = newerWhy(r);
     if (nw) return nw;
-    var x = /^\d+\.\d+\.\d+$/;
-    if (r && typeof r === 'object' && !Array.isArray(r) && typeof r.version === 'string' && x.test(r.version) && typeof mine === 'string' && x.test(mine) && byVersion(r.version, mine) > 0) return 'was written by a newer Flightdeck (' + r.version + ').';
+    /* Only a record that reads, with a release number in its one written form, can be newer; anything else is malformed, and
+       ignored as on 2.12.0, so a stray or absurd record never blocks an update. */
+    if (wellFormed(r) && RELEASE.test(r.version) && typeof mine === 'string' && RELEASE.test(mine) && byVersion(r.version, mine) > 0) return 'was written by a newer Flightdeck (' + r.version + ').';
     return '';
   }
+  /* A release number as Flightdeck writes it: three parts, no leading zeros, at most six digits each, so two of them compare by
+     length and then text (byVersion) the same as by number. */
+  var RELEASE = /^(0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})$/;
   /* Exactly what flightdeck install and this app write; anything else is ignored, and the next update writes a new one. */
   function wellFormed(r) {
-    return !!(r && typeof r === 'object' && !Array.isArray(r) && r.format === 'flightdeck-installed/1' && typeof r.version === 'string' && VERSION_DIR.test(r.version)
+    return !!(r && typeof r === 'object' && !Array.isArray(r) && r.format === 'flightdeck-installed/1' && typeof r.version === 'string' && (r.version === 'dev' || RELEASE.test(r.version))
       && typeof r.at === 'string' && (r.by === 'cli' || r.by === 'app') && r.files && typeof r.files === 'object' && !Array.isArray(r.files)
       && Object.keys(r.files).every(function (k) { return typeof r.files[k] === 'string' && HASH.test(r.files[k]); }));
   }
@@ -110,25 +114,39 @@ PF.contract = (function () {
       return out;
     });
   }
-  /* A copy waiting in the updates folder that an older Flightdeck left and that has nothing to bring (2.12.1): its text is the
-     default its own version shipped (the baselines say so), and the file is already a default of a newer version, or the
-     record is from a newer version than the copy. 2.12.0's app, on a folder a newer version installed, stages its own older
-     default this way. It's named and can be put away, never merged, deleted or counted. A copy that isn't exactly a shipped
-     default stays a merge. it: { key, baseKey, want, have }; x: { version, hash }. */
-  function oldCopy(it, x, record, base, version) {
-    var x3 = /^\d+\.\d+\.\d+$/, b = base[it.baseKey || baselineKey(it.key)] || {};
-    if (!x || !x3.test(x.version) || !x.hash || !own(b, x.hash) || b[x.hash].indexOf(x.version) < 0) return false;
-    var newer = function (v) { return typeof v === 'string' && x3.test(v) && byVersion(v, x.version) > 0; };
-    if (record && newer(record.version)) return true;
-    if (it.have == null) return false;
-    if (it.have === it.want && newer(version)) return true;
-    return own(b, it.have) && b[it.have].some(newer);
+  /* What a file is besides Flightdeck's part, exactly as written: '' for a skill (all of it is Flightdeck's), the text before and
+     after the markers for AGENTS.md, or null when it can't be a shipped default byte for byte (a byte-order mark, Windows line
+     endings, or AGENTS.md without both markers). A waiting copy is a shipped default exactly when its managed part's hash is in
+     the baselines and its shape is the shape of the default this version ships, Team notes heading and all: Flightdeck has
+     shipped one AGENTS.md shape since 1.15 (test/assistant-start.test.js checks every release since). */
+  function shapeOf(key, text) {
+    var t = String(text == null ? '' : text);
+    if (norm(t) !== t) return null;
+    if (key !== AGENTS) return '';
+    var r = region(t);
+    return r.marked ? t.slice(0, r.start) + '\u0000' + t.slice(r.end) : null;
+  }
+  /* A copy waiting in the updates folder that an older Flightdeck left, with nothing in it to merge (2.12.1). All three must hold:
+     (a) the whole copy is exactly the default its own version shipped: x.exact (its shape is the shipped one, shapeOf) and its
+         managed hash is in the baselines under that version, so a Team note or merge note added to it keeps it a merge;
+     (b) a newer default of that file has shipped, and it differs from the copy;
+     (c) that newer default is in hand: the file is exactly it, or another copy waiting for the same file holds it.
+     A newer record alone proves nothing. 2.12.0's app, on a folder a newer version installed, stages its own older default this
+     way. An old copy is named and can be put away, never merged, deleted or counted. it: { key, baseKey, want, have, staged:
+     every copy waiting for it }; x: { version, hash, exact }. */
+  function oldCopy(it, x, base, version) {
+    var b = base[it.baseKey || baselineKey(it.key)] || {};
+    if (!x || x.exact !== true || !RELEASE.test(x.version) || !x.hash || !own(b, x.hash) || b[x.hash].indexOf(x.version) < 0) return false;
+    var later = function (v) { return typeof v === 'string' && RELEASE.test(v) && byVersion(v, x.version) > 0; };
+    var newer = function (h) { return !!h && h !== x.hash && ((own(b, h) && b[h].some(later)) || (h === it.want && later(version))); };
+    if (newer(it.have)) return true;
+    return (it.staged || []).some(function (y) { return y !== x && newer(y.hash); });
   }
   /* Each item's waiting copies, split: old copies (oldCopy) into it.old, the rest stay in it.staged for classify. */
-  function splitStaged(items, record, base, version) {
+  function splitStaged(items, base, version) {
     items.forEach(function (it) {
       var all = it.staged || [];
-      it.old = all.filter(function (x) { return oldCopy(it, x, record, base, version); });
+      it.old = all.filter(function (x) { return oldCopy(it, x, base, version); });
       it.staged = all.filter(function (x) { return it.old.indexOf(x) < 0; });
     });
     return items;
@@ -237,6 +255,6 @@ PF.contract = (function () {
   /* Something in the way of where a file goes. The same words as the command's. */
   function blockedWhy(path, want) { return path + (want === 'file' ? ' is a folder, where Flightdeck needs a file.' : ' is a file, where Flightdeck needs a folder.') + ' Nothing was changed. Move it, then try again.'; }
 
-  return { START_PROMPT: START_PROMPT, OUTCOMES: OUTCOMES, settle: settle, outcomeWords: outcomeWords, MAX_BYTES: MAX_BYTES, cleanInstalled: cleanInstalled, readRecord: readRecord, newerWhy: newerWhy, recordNewer: recordNewer, oldCopy: oldCopy, splitStaged: splitStaged, classify: classify, merged: merged, nextRecord: nextRecord, mergeReadme: mergeReadme, mergePrompt: mergePrompt, byVersion: byVersion, VERSION_DIR: VERSION_DIR,
+  return { START_PROMPT: START_PROMPT, OUTCOMES: OUTCOMES, settle: settle, outcomeWords: outcomeWords, MAX_BYTES: MAX_BYTES, cleanInstalled: cleanInstalled, readRecord: readRecord, newerWhy: newerWhy, recordNewer: recordNewer, RELEASE: RELEASE, shapeOf: shapeOf, oldCopy: oldCopy, splitStaged: splitStaged, classify: classify, merged: merged, nextRecord: nextRecord, mergeReadme: mergeReadme, mergePrompt: mergePrompt, byVersion: byVersion, VERSION_DIR: VERSION_DIR,
     BEGIN: BEGIN, END: END, AGENTS: AGENTS, BASELINES: BASELINES, norm: norm, region: region, managed: managed, baselineKey: baselineKey, hex: hex, installed: installed };
 })();

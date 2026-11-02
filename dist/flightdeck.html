@@ -10956,13 +10956,17 @@ PF.contract = (function () {
   function recordNewer(r, mine) {
     var nw = newerWhy(r);
     if (nw) return nw;
-    var x = /^\d+\.\d+\.\d+$/;
-    if (r && typeof r === 'object' && !Array.isArray(r) && typeof r.version === 'string' && x.test(r.version) && typeof mine === 'string' && x.test(mine) && byVersion(r.version, mine) > 0) return 'was written by a newer Flightdeck (' + r.version + ').';
+    /* Only a record that reads, with a release number in its one written form, can be newer; anything else is malformed, and
+       ignored as on 2.12.0, so a stray or absurd record never blocks an update. */
+    if (wellFormed(r) && RELEASE.test(r.version) && typeof mine === 'string' && RELEASE.test(mine) && byVersion(r.version, mine) > 0) return 'was written by a newer Flightdeck (' + r.version + ').';
     return '';
   }
+  /* A release number as Flightdeck writes it: three parts, no leading zeros, at most six digits each, so two of them compare by
+     length and then text (byVersion) the same as by number. */
+  var RELEASE = /^(0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})$/;
   /* Exactly what flightdeck install and this app write; anything else is ignored, and the next update writes a new one. */
   function wellFormed(r) {
-    return !!(r && typeof r === 'object' && !Array.isArray(r) && r.format === 'flightdeck-installed/1' && typeof r.version === 'string' && VERSION_DIR.test(r.version)
+    return !!(r && typeof r === 'object' && !Array.isArray(r) && r.format === 'flightdeck-installed/1' && typeof r.version === 'string' && (r.version === 'dev' || RELEASE.test(r.version))
       && typeof r.at === 'string' && (r.by === 'cli' || r.by === 'app') && r.files && typeof r.files === 'object' && !Array.isArray(r.files)
       && Object.keys(r.files).every(function (k) { return typeof r.files[k] === 'string' && HASH.test(r.files[k]); }));
   }
@@ -11021,25 +11025,39 @@ PF.contract = (function () {
       return out;
     });
   }
-  /* A copy waiting in the updates folder that an older Flightdeck left and that has nothing to bring (2.12.1): its text is the
-     default its own version shipped (the baselines say so), and the file is already a default of a newer version, or the
-     record is from a newer version than the copy. 2.12.0's app, on a folder a newer version installed, stages its own older
-     default this way. It's named and can be put away, never merged, deleted or counted. A copy that isn't exactly a shipped
-     default stays a merge. it: { key, baseKey, want, have }; x: { version, hash }. */
-  function oldCopy(it, x, record, base, version) {
-    var x3 = /^\d+\.\d+\.\d+$/, b = base[it.baseKey || baselineKey(it.key)] || {};
-    if (!x || !x3.test(x.version) || !x.hash || !own(b, x.hash) || b[x.hash].indexOf(x.version) < 0) return false;
-    var newer = function (v) { return typeof v === 'string' && x3.test(v) && byVersion(v, x.version) > 0; };
-    if (record && newer(record.version)) return true;
-    if (it.have == null) return false;
-    if (it.have === it.want && newer(version)) return true;
-    return own(b, it.have) && b[it.have].some(newer);
+  /* What a file is besides Flightdeck's part, exactly as written: '' for a skill (all of it is Flightdeck's), the text before and
+     after the markers for AGENTS.md, or null when it can't be a shipped default byte for byte (a byte-order mark, Windows line
+     endings, or AGENTS.md without both markers). A waiting copy is a shipped default exactly when its managed part's hash is in
+     the baselines and its shape is the shape of the default this version ships, Team notes heading and all: Flightdeck has
+     shipped one AGENTS.md shape since 1.15 (test/assistant-start.test.js checks every release since). */
+  function shapeOf(key, text) {
+    var t = String(text == null ? '' : text);
+    if (norm(t) !== t) return null;
+    if (key !== AGENTS) return '';
+    var r = region(t);
+    return r.marked ? t.slice(0, r.start) + '\u0000' + t.slice(r.end) : null;
+  }
+  /* A copy waiting in the updates folder that an older Flightdeck left, with nothing in it to merge (2.12.1). All three must hold:
+     (a) the whole copy is exactly the default its own version shipped: x.exact (its shape is the shipped one, shapeOf) and its
+         managed hash is in the baselines under that version, so a Team note or merge note added to it keeps it a merge;
+     (b) a newer default of that file has shipped, and it differs from the copy;
+     (c) that newer default is in hand: the file is exactly it, or another copy waiting for the same file holds it.
+     A newer record alone proves nothing. 2.12.0's app, on a folder a newer version installed, stages its own older default this
+     way. An old copy is named and can be put away, never merged, deleted or counted. it: { key, baseKey, want, have, staged:
+     every copy waiting for it }; x: { version, hash, exact }. */
+  function oldCopy(it, x, base, version) {
+    var b = base[it.baseKey || baselineKey(it.key)] || {};
+    if (!x || x.exact !== true || !RELEASE.test(x.version) || !x.hash || !own(b, x.hash) || b[x.hash].indexOf(x.version) < 0) return false;
+    var later = function (v) { return typeof v === 'string' && RELEASE.test(v) && byVersion(v, x.version) > 0; };
+    var newer = function (h) { return !!h && h !== x.hash && ((own(b, h) && b[h].some(later)) || (h === it.want && later(version))); };
+    if (newer(it.have)) return true;
+    return (it.staged || []).some(function (y) { return y !== x && newer(y.hash); });
   }
   /* Each item's waiting copies, split: old copies (oldCopy) into it.old, the rest stay in it.staged for classify. */
-  function splitStaged(items, record, base, version) {
+  function splitStaged(items, base, version) {
     items.forEach(function (it) {
       var all = it.staged || [];
-      it.old = all.filter(function (x) { return oldCopy(it, x, record, base, version); });
+      it.old = all.filter(function (x) { return oldCopy(it, x, base, version); });
       it.staged = all.filter(function (x) { return it.old.indexOf(x) < 0; });
     });
     return items;
@@ -11148,7 +11166,7 @@ PF.contract = (function () {
   /* Something in the way of where a file goes. The same words as the command's. */
   function blockedWhy(path, want) { return path + (want === 'file' ? ' is a folder, where Flightdeck needs a file.' : ' is a file, where Flightdeck needs a folder.') + ' Nothing was changed. Move it, then try again.'; }
 
-  return { START_PROMPT: START_PROMPT, OUTCOMES: OUTCOMES, settle: settle, outcomeWords: outcomeWords, MAX_BYTES: MAX_BYTES, cleanInstalled: cleanInstalled, readRecord: readRecord, newerWhy: newerWhy, recordNewer: recordNewer, oldCopy: oldCopy, splitStaged: splitStaged, classify: classify, merged: merged, nextRecord: nextRecord, mergeReadme: mergeReadme, mergePrompt: mergePrompt, byVersion: byVersion, VERSION_DIR: VERSION_DIR,
+  return { START_PROMPT: START_PROMPT, OUTCOMES: OUTCOMES, settle: settle, outcomeWords: outcomeWords, MAX_BYTES: MAX_BYTES, cleanInstalled: cleanInstalled, readRecord: readRecord, newerWhy: newerWhy, recordNewer: recordNewer, RELEASE: RELEASE, shapeOf: shapeOf, oldCopy: oldCopy, splitStaged: splitStaged, classify: classify, merged: merged, nextRecord: nextRecord, mergeReadme: mergeReadme, mergePrompt: mergePrompt, byVersion: byVersion, VERSION_DIR: VERSION_DIR,
     BEGIN: BEGIN, END: END, AGENTS: AGENTS, BASELINES: BASELINES, norm: norm, region: region, managed: managed, baselineKey: baselineKey, hex: hex, installed: installed };
 })();
 
@@ -11825,7 +11843,7 @@ PF.health = (function () {
     var text = scan.recordText !== undefined ? scan.recordText : scan.installed && typeof scan.installed === 'object' ? JSON.stringify(scan.installed) : scan.installed === 'bad' ? '' : null;
     var rec = C.readRecord(text, keys, snap.app);
     if (rec.newer) return;
-    var items = C.splitStaged(keys.map(function (k) { return { key: k, want: c.want[k], have: Object.prototype.hasOwnProperty.call(c.hashes, k) ? c.hashes[k] : null, staged: (c.staged || {})[k] || [] }; }), rec, B, snap.app);
+    var items = C.splitStaged(keys.map(function (k) { return { key: k, want: c.want[k], have: Object.prototype.hasOwnProperty.call(c.hashes, k) ? c.hashes[k] : null, staged: (c.staged || {})[k] || [] }; }), B, snap.app);
     var leftover = items.reduce(function (n, it) { return n + it.old.length; }, 0);
     var st = C.classify(items, rec, B, snap.app);
     var of = function (list) { return st.filter(function (x) { return list.indexOf(x.status) >= 0; }).map(function (x) { return x.key; }); };
@@ -18013,7 +18031,8 @@ PF.repo = (function () {
   function stagedPrint(fs, p) {
     return fs.read(p, { maxBytes: PF.contract.MAX_BYTES }).then(function (r) {
       if (!r) return null;
-      return digests([PF.contract.managed(stagedOf(p).key, r.text)]).then(function (ds) { return { print: ds ? ds[0] : null }; });
+      var key = stagedOf(p).key;
+      return digests([PF.contract.managed(key, r.text)]).then(function (ds) { return { print: ds ? ds[0] : null, shape: PF.contract.shapeOf(key, r.text) }; });
     });
   }
   /* A contract file's copy waiting to be merged: .flightdeck/updates/<version>/<the file's own path>. */
@@ -18050,13 +18069,13 @@ PF.repo = (function () {
     }).then(function () {
       /* replaced-*.json beside a run (small, and only these) are read to recognize an older copy's placeholder (H10). */
       var want = files.filter(function (f) { return f.p === 'people.json' || f.p === PF.teamValues.FILE || f.p === 'jira/workflows.json' || f.p === '.flightdeck/installed.json' || f.p === PF.contract.AGENTS || stagedOf(f.p) || /^(proposals|validations)\/[^/]+\.json$/i.test(f.p) || /^\.flightdeck\/skills\//.test(f.p) || (/^runs\/[^/]+\/[^/]+\/replaced-[^/]+\.json$/.test(f.p) && f.s != null && f.s <= 65536); });
-      var texts = {}, installed = null, placeholders = [], recordText, stagedPrints = {};
+      var texts = {}, installed = null, placeholders = [], recordText, stagedPrints = {}, stagedShapes = {};
       return Promise.all(want.map(function (f) {
         return go(function () { if (!alive()) throw stop(); if (stagedOf(f.p)) return stagedPrint(fs, f.p); return f.p === PF.teamValues.FILE ? readTeamValues(fs) : fs.read(f.p); }).then(function (r) {
           if (!r) return;
           /* team-values.json (2.9): through its one bounded reader, so a damaged, newer or oversized file is named here. */
           if (f.p === PF.teamValues.FILE) { if (r.state !== 'ok' && r.state !== 'missing' && r.state !== 'newer') unreadable.push({ path: f.p, why: String(r.why).replace(/^team-values\.json:? ?/, '').replace(/\.$/, '') }); return; }
-          if (stagedOf(f.p)) { if (r.print) stagedPrints[f.p] = r.print; return; }
+          if (stagedOf(f.p)) { if (r.print) { stagedPrints[f.p] = r.print; stagedShapes[f.p] = r.shape; } return; }
           if (/^\.flightdeck\/skills\//.test(f.p) || f.p === PF.contract.AGENTS) { texts[f.p] = r.text; return; }
           if (f.p === '.flightdeck/installed.json') recordText = r.text;
           var o = json(r.text);
@@ -18088,7 +18107,7 @@ PF.repo = (function () {
           if (m && f.m != null && (pubs[m[1]] == null || f.m > pubs[m[1]])) pubs[m[1]] = f.m;
         });
         return { at: new Date().toISOString(), ms: Date.now() - started, files: files.length, bytes: bytes, longest: longest, areas: areas, pubs: pubs, list: files, unreadable: unreadable, truncated: truncated,
-          contractTexts: texts, stagedPrints: stagedPrints, recordText: recordText === undefined ? null : recordText, placeholders: placeholders.sort(), reports: reports, installed: files.some(function (f) { return f.p === '.flightdeck/installed.json'; }) ? installed || 'bad' : null,
+          contractTexts: texts, stagedPrints: stagedPrints, stagedShapes: stagedShapes, recordText: recordText === undefined ? null : recordText, placeholders: placeholders.sort(), reports: reports, installed: files.some(function (f) { return f.p === '.flightdeck/installed.json'; }) ? installed || 'bad' : null,
           updates: files.filter(function (f) { return /^\.flightdeck\/updates\//.test(f.p) && !/\/README\.md$/i.test(f.p) && !/\/replaced\//.test(f.p) && !/\.base$/.test(f.p); }).map(function (f) { return f.p; }) };
       });
     });
@@ -26809,8 +26828,11 @@ PF.examples = (function () {
   /* The fingerprints of AGENTS.md's Flightdeck part and the skills, as flightdeck install takes them: the folder's files
      (hashes), this version's defaults (want) and the copies waiting to be merged (staged), for PF.contract.classify. */
   function contractHashes(scan) {
-    var C = PF.contract, texts = scan.contractTexts || {}, prints = scan.stagedPrints || {}, keys = contractKeys();
+    var C = PF.contract, texts = scan.contractTexts || {}, prints = scan.stagedPrints || {}, shapes = scan.stagedShapes || {}, keys = contractKeys();
     var jobs = Object.keys(texts).map(function (p) { return ['hashes', p, texts[p]]; }).concat(keys.map(function (k) { return ['want', k, EXAMPLES[k]]; }));
+    /* The shape of each default this version ships (PF.contract.shapeOf), to tell a waiting copy that is exactly a shipped default. */
+    var shipped = Object.create(null);
+    keys.forEach(function (k) { shipped[k] = C.shapeOf(k, EXAMPLES[k]); });
     return digests(jobs.map(function (j) { return C.managed(j[1], j[2]); })).then(function (ds) {
       if (!ds) return null;
       var out = { hashes: {}, want: {}, staged: {}, unmatched: [] };
@@ -26821,7 +26843,7 @@ PF.examples = (function () {
         var sg = repo.stagedOf(p);
         /* Not a copy of a file this version ships, like a sync tool's AGENTS-PC.md: nothing can clear it, so it stays named. */
         if (!sg || keys.indexOf(sg.key) < 0) { out.unmatched.push(p); return; }
-        (out.staged[sg.key] = out.staged[sg.key] || []).push({ version: sg.version, hash: Object.prototype.hasOwnProperty.call(prints, p) ? prints[p] : null });
+        (out.staged[sg.key] = out.staged[sg.key] || []).push({ version: sg.version, hash: Object.prototype.hasOwnProperty.call(prints, p) ? prints[p] : null, exact: Object.prototype.hasOwnProperty.call(shapes, p) && shapes[p] !== null && shapes[p] === shipped[sg.key] });
       });
       /* A file that's there but couldn't be read isn't a missing file. */
       out.unread = (scan.unreadable || []).map(function (u) { return u.path; }).filter(function (p, i, all) {
@@ -27129,7 +27151,8 @@ PF.examples = (function () {
           var it = byRel[here];
           return read(p).then(function (t) {
             if (t == null) return null;
-            return digests([C.managed(it.key, t), t]).then(function (ds) { if (!ds) throw noPrints(); it.staged.push({ version: v, path: p, hash: ds[0], full: ds[1] }); });
+            var shape = C.shapeOf(it.key, t), exact = shape !== null && shape === C.shapeOf(it.key, it.text);
+            return digests([C.managed(it.key, t), t]).then(function (ds) { if (!ds) throw noPrints(); it.staged.push({ version: v, path: p, hash: ds[0], full: ds[1], exact: exact }); });
           });
         }));
       });
@@ -27147,7 +27170,7 @@ PF.examples = (function () {
           items.forEach(function (it) { it.want = ds[n++]; var h = ds[n++]; it.have = it.now == null ? null : h; });
           var rec = C.readRecord(recText, items.map(function (i) { return i.key; }), APP_VERSION);
           if (rec.newer) return { items: items, record: rec, recText: recText };
-          C.splitStaged(items, rec, (C.BASELINES && C.BASELINES.files) || {}, APP_VERSION);
+          C.splitStaged(items, (C.BASELINES && C.BASELINES.files) || {}, APP_VERSION);
           C.classify(items, rec, (C.BASELINES && C.BASELINES.files) || {}, APP_VERSION).forEach(function (d, i) { items[i].status = d.status; items[i].waiting = d.waiting || ''; items[i].stage = !!d.stage; });
           return { items: items, record: rec, recText: recText, recordDue: !!C.nextRecord(rec, items, APP_VERSION) };
         });

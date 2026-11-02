@@ -334,21 +334,135 @@ function leftBy212(edit) {
 }
 const EDITED = (t) => t.replace('## What you may write', '## What you may write (someone changed this copy)');
 
-rule('Which waiting copies are old copies: a default the baselines record for its own version, with the file or the record already newer', () => {
+/* ---- round 4 data review: an old copy needs proof about the whole waiting file, a newer text in hand, and a record that reads ---- */
+const NOTED = (t) => t + '\nMerge note: keep our deploy rule when you merge this.\n';
+const SKILL = SKILLS + 'flightdeck-edit-checklist/SKILL.md';
+function pendingSkill() {
+  const dir = tmp(); assert.strictEqual(cli('install', dir).code, 0);
+  const up = path.join(dir, '.flightdeck', 'updates', '2.12.0', ...SKILL.split('/'));
+  fs.mkdirSync(path.dirname(up), { recursive: true });
+  fs.writeFileSync(up, EX[SKILL]);
+  fs.writeFileSync(path.join(dir, ...SKILL.split('/')), EX[SKILL] + '\nOur own step: check the change ticket.\n');
+  setRecord(dir, RECORD, r => { r.version = '2.12.0'; });
+  return dir;
+}
+
+rule('Review 4.1: a waiting AGENTS.md with a Team note or merge note added stays a merge, in the command, Settings and Folder health', async () => {
+  const dir = leftBy212(NOTED);
+  const r = cli('install', dir, '--check');
+  assert.ok(r.code === 3 && /needs merge\s+AGENTS\.md \(still waiting in updates\/2\.12\.0\)/.test(r.out) && !/old copy/.test(r.out), 'the command: ' + r.out);
+  const files = text(walk(dir)), app = await opened(files), html = await aiFiles(app);
+  assert.ok(/data-af-row="AGENTS.md" data-af-status="merge"/.test(html) && /data-act="af-merged" data-id="AGENTS.md"/.test(html) && /data-act="af-brief" data-id="AGENTS.md"/.test(html), 'Settings: a merge, with its merge request');
+  assert.ok(!/data-act="af-putaway"/.test(html) && !/Old copy from/.test(plain(html)), 'Settings: never Put away');
+  assert.ok(/1 file for AI assistants to merge/.test(plain(await healthOf(app))), 'Folder health: a merge');
+});
+
+rule('Review 4.1: a waiting copy that differs from its shipped default only in line endings or a byte-order mark stays a merge', () => {
+  for (const [name, edit] of [['CRLF', t => t.replace(/\n/g, '\r\n')], ['BOM', t => '﻿' + t]]) {
+    const r = cli('install', leftBy212(edit), '--check');
+    assert.ok(r.code === 3 && !/old copy/.test(r.out), name + ': ' + r.out);
+  }
+});
+
+rule('Review 4.2: a customized skill whose default didn\'t change since 2.12.0 keeps its pending merge, before and after Update', async () => {
+  const b = require('../tools/old-bundles').get('v2.12.0');
+  if (b) assert.strictEqual(C.examples(b.files['flightdeck.html'])[SKILL], EX[SKILL], 'set-up: this skill\'s default is the same as 2.12.0\'s');
+  const dir = pendingSkill();
+  let r = cli('install', dir, '--check');
+  assert.ok(r.code === 3 && new RegExp('needs merge\\s+' + SKILL.replace(/\./g, '\\.') + ' \\(still waiting in updates/2\\.12\\.0\\)').test(r.out) && !/old copy/.test(r.out), 'the command, before: ' + r.out);
+  const files = text(walk(dir)), app = await opened(files);
+  let html = await aiFiles(app);
+  const row = new RegExp('data-af-row="' + SKILL.replace(/\./g, '\\.') + '" data-af-status="merge"');
+  assert.ok(row.test(html), 'Settings, before: a merge');
+  assert.ok(/data-act="af-update"/.test(html), 'set-up: Update is offered (the record is behind)');
+  app.click('af-update'); await app.tick(800);
+  assert.strictEqual(JSON.parse(files[RECORD]).version, VER, 'set-up: Update wrote the record');
+  html = app.html();
+  assert.ok(row.test(html), 'Settings, after Update: still a merge: ' + (new RegExp('data-af-row="' + SKILL.replace(/\./g, '\\.') + '" data-af-status="[a-z]+"').exec(html) || [''])[0]);
+  assert.ok(!/data-act="af-putaway"/.test(html) && new RegExp('data-act="af-merged" data-id="' + SKILL.replace(/\./g, '\\.') + '"').test(html), 'Settings, after Update: I merged it, never Put away');
+  r = cli('install', toDisk(files), '--check');
+  assert.ok(r.code === 3 && !/old copy/.test(r.out), 'the command, after: ' + r.out);
+  assert.ok(/1 file for AI assistants to merge/.test(plain(await healthOf(app))), 'Folder health, after: a merge');
+});
+
+const GARBAGE = JSON.stringify({ format: 'garbage', version: '999999999999999999999.0.0' });
+rule('Review 4.3: a malformed record with an absurd version is malformed, never newer: the command updates, Settings offers Update, Folder health says it can\'t be read', async () => {
+  const K = PF.contract;
+  assert.strictEqual(K.recordNewer(JSON.parse(GARBAGE), '2.12.1'), '', 'not newer');
+  assert.ok(K.readRecord(GARBAGE, [], '2.12.1').ignored, 'ignored, as on main');
+  const dir = tmp(); assert.strictEqual(cli('install', dir).code, 0);
+  fs.writeFileSync(path.join(dir, ...RECORD.split('/')), GARBAGE);
+  let r = cli('install', dir, '--check');
+  assert.ok(r.code !== 1 && !/newer/.test(r.out), 'the command doesn\'t refuse: ' + r.out);
+  const files = text(walk(dir)), app = await opened(files), html = await aiFiles(app);
+  assert.ok(!/newer Flightdeck/.test(plain(html)) && /data-act="af-update"/.test(html), 'Settings offers Update');
+  const h = plain(await healthOf(app));
+  assert.ok(/\.flightdeck\/installed\.json can't be read/.test(h) && !/newer Flightdeck \(/.test(h), 'Folder health says it can\'t be read: ' + (/[^.]*installed\.json[^.]*\./.exec(h) || [''])[0]);
+  r = cli('install', dir);
+  assert.strictEqual(r.code, 0, 'and install writes a good record again: ' + r.out);
+  assert.strictEqual(JSON.parse(fs.readFileSync(path.join(dir, ...RECORD.split('/')), 'utf8')).version, VER);
+});
+
+rule('Review 4.3: a version with a leading zero, or too long, is malformed, never newer, in the app and the command alike', () => {
+  const K = PF.contract, rec = (v) => JSON.stringify({ format: 'flightdeck-installed/1', version: v, at: '2026-11-02T00:00:00.000Z', by: 'cli', files: {} });
+  for (const v of ['02.0.0', '2.012.0', '2.12.01', '1234567.0.0', '9'.repeat(30) + '.0.0']) {
+    assert.strictEqual(K.recordNewer(JSON.parse(rec(v)), '2.12.1'), '', v + ': not newer');
+    const app = K.readRecord(rec(v), [], '2.12.1'), cmd = C.parseRecord(rec(v), [], '2.12.1');
+    assert.ok(app.ignored && !app.newer, v + ': malformed in the app');
+    assert.strictEqual(JSON.stringify(cmd), JSON.stringify(app), v + ': the command reads it the same');
+    const dir = tmp(); assert.strictEqual(cli('install', dir).code, 0);
+    fs.writeFileSync(path.join(dir, ...RECORD.split('/')), rec(v));
+    const r = cli('install', dir, '--check');
+    assert.ok(r.code !== 1 && !/newer/.test(r.out), v + ': the command doesn\'t refuse: ' + r.out);
+  }
+  for (const v of ['2.12.1', '2.12.0', '0.0.0', '999999.0.0', 'dev']) assert.ok(!K.readRecord(rec(v), [], '2.12.1').ignored, v + ': well formed');
+  assert.ok(K.readRecord(rec('999999.0.0'), [], '2.12.1').newer, 'a long but canonical version is newer');
+  assert.strictEqual(C.parseRecord.toString().includes('readRecord'), true, 'the command parses with the app\'s own readRecord');
+});
+
+rule('Review 4.3: Folder health says a newer record in words, the same as the command', async () => {
+  const dir = tmp(); assert.strictEqual(cli('install', dir).code, 0);
+  setRecord(dir, RECORD, r => { r.version = AHEAD; });
+  const h = plain(await healthOf(await opened(text(walk(dir)))));
+  assert.ok(h.includes('A newer Flightdeck wrote some of these files') && h.includes(NEWER_SAYS(RECORD).replace(/\.$/, '')), h.slice(h.indexOf('newer') - 100, h.indexOf('newer') + 300));
+});
+
+rule('Which waiting copies are old copies: exactly a shipped default of its own version, superseded by a newer default that is in hand', () => {
   const K = PF.contract, B = BASE, h = (t) => C.hash(C.managed('AGENTS.md', t));
   const it = (have) => ({ key: 'AGENTS.md', want: h(AGENTS), have });
-  const x = (version, t) => ({ version, hash: h(t) });
-  const rec = (v, agents) => ({ version: v, files: { 'AGENTS.md': agents } });
+  const x = (version, t, exact) => ({ version, hash: h(t), exact: exact !== false });
   assert.strictEqual(typeof K.oldCopy, 'function');
-  assert.ok(K.oldCopy(it(h(AGENTS)), x('2.12.0', OLD), rec('2.12.0', h(OLD)), B, VER), 'the file is already this version\'s default');
-  assert.ok(K.oldCopy(it(h(EDITED(AGENTS))), x('2.12.0', OLD), rec(VER, h(AGENTS)), B, VER), 'the record is newer than the copy');
-  assert.ok(!K.oldCopy(it(h(EDITED(AGENTS))), x('2.12.0', OLD), rec('2.12.0', h(OLD)), B, VER), 'the team changed the file and nothing newer says otherwise: a merge');
-  assert.ok(!K.oldCopy(it(h(OLD)), x('2.12.0', OLD), rec('2.12.0', h(OLD)), B, VER), 'the file is that same default: not newer');
-  assert.ok(!K.oldCopy(it(h(AGENTS)), x('2.12.0', EDITED(OLD)), rec('2.12.0', h(OLD)), B, VER), 'a copy someone changed is no shipped default');
-  assert.ok(!K.oldCopy(it(h(AGENTS)), x('2.11.2', OLD), rec('2.12.0', h(OLD)), B, VER), 'a default of another version than the folder it waits in');
-  assert.ok(!K.oldCopy(it(h(AGENTS)), x('dev', OLD), rec('2.12.0', h(OLD)), B, VER), 'a dev folder');
-  assert.ok(!K.oldCopy(it(h(AGENTS)), { version: '2.12.0', hash: null }, rec('2.12.0', h(OLD)), B, VER), 'a copy that couldn\'t be read');
-  assert.ok(!K.oldCopy(it(null), x('2.12.0', OLD), rec('2.12.0', h(OLD)), B, VER), 'no file to compare');
+  assert.ok(K.oldCopy(it(h(AGENTS)), x('2.12.0', OLD), B, VER), 'the file is already this version\'s default');
+  assert.ok(!K.oldCopy(it(h(EDITED(AGENTS))), x('2.12.0', OLD), B, VER), 'the team changed the file and nothing newer is in hand: a merge, whatever the record says');
+  assert.ok(!K.oldCopy(it(h(OLD)), x('2.12.0', OLD), B, VER), 'the file is that same default: not newer');
+  assert.ok(!K.oldCopy(it(h(AGENTS)), x('2.12.0', EDITED(OLD)), B, VER), 'a copy someone changed is no shipped default');
+  assert.ok(!K.oldCopy(it(h(AGENTS)), x('2.11.2', OLD), B, VER), 'a default of another version than the folder it waits in');
+  assert.ok(!K.oldCopy(it(h(AGENTS)), x('dev', OLD), B, VER), 'a dev folder');
+  assert.ok(!K.oldCopy(it(h(AGENTS)), { version: '2.12.0', hash: null }, B, VER), 'a copy that couldn\'t be read');
+  assert.ok(!K.oldCopy(it(null), x('2.12.0', OLD), B, VER), 'no file to compare');
+  assert.ok(!K.oldCopy(it(h(AGENTS)), x('2.12.0', OLD, false), B, VER), 'a copy that isn\'t the shipped default byte for byte (a note outside the markers)');
+  const two = Object.assign(it(h(EDITED(AGENTS))), { staged: [x('2.12.0', OLD), x(VER, AGENTS)] });
+  assert.ok(K.oldCopy(two, two.staged[0], B, VER) && !K.oldCopy(two, two.staged[1], B, VER), 'another waiting copy holds the newer default: the older one is old, the newer one a merge');
+  const same = Object.assign(it(h(EDITED(AGENTS))), { staged: [x('2.12.0', OLD), x(VER, OLD)] });
+  assert.ok(!K.oldCopy(same, same.staged[0], B, VER), 'another copy of the same text proves nothing');
+});
+
+rule('Every release since 1.15 shipped AGENTS.md in the shape this one does, so a waiting copy\'s shape proves it is a shipped default whole', () => {
+  const K = PF.contract, bundles = require('../tools/old-bundles'), want = K.shapeOf('AGENTS.md', AGENTS);
+  assert.ok(want !== null && /## Team notes/.test(want), 'this version\'s shape has the Team notes heading');
+  assert.strictEqual(K.shapeOf('AGENTS.md', OLD), want, '2.12.0\'s, from the fixture');
+  const seen = [];
+  for (const t of bundles.tags()) {
+    if (C.cmp(t.version, '1.15.0') < 0) continue;
+    const b = bundles.get(t.tag); if (!b) continue;
+    const ex = C.examples(b.files['flightdeck.html']);
+    if (ex['AGENTS.md'] == null) continue;
+    assert.strictEqual(K.shapeOf('AGENTS.md', ex['AGENTS.md']), want, t.tag + ' shipped another shape: a copy from it can\'t be proved a default whole, so oldCopy must learn that shape first');
+    seen.push(t.tag);
+  }
+  if (process.env.CI) assert.ok(seen.length >= 10, 'checked ' + seen.length + ' releases');
+  assert.strictEqual(K.shapeOf('AGENTS.md', NOTED(OLD)) === want, false, 'a note outside the markers changes the shape');
+  assert.strictEqual(K.shapeOf('AGENTS.md', OLD.replace(/\n/g, '\r\n')), null, 'so do Windows line endings');
 });
 
 rule('An old copy left by an older app is no merge: install --check counts nothing, install stages nothing and never removes it, and both name it', () => {
