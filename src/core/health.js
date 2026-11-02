@@ -418,7 +418,9 @@ PF.health = (function () {
     /* Each waiting copy comes already told old or not (x.old, from PF.contract.classifyCopies over the files as read); this only
        counts. */
     var items = keys.map(function (k) { var all = (c.staged || {})[k] || []; return { key: k, want: c.want[k], have: Object.prototype.hasOwnProperty.call(c.hashes, k) ? c.hashes[k] : null, old: all.filter(function (x) { return x.old === true; }), staged: all.filter(function (x) { return x.old !== true; }) }; });
-    var olds = items.reduce(function (a, it) { return a.concat(it.old.map(function (x) { return x.path; }).filter(Boolean)); }, []), leftover = items.reduce(function (n, it) { return n + it.old.length; }, 0);
+    /* Every copy the scan called old, a file that can't be read included: the copies proved it on their own. */
+    var oldAll = all.reduce(function (a, k) { return a.concat(((c.staged || {})[k] || []).filter(function (x) { return x.old === true; })); }, []);
+    var olds = oldAll.map(function (x) { return x.path; }).filter(Boolean), leftover = oldAll.length;
     var st = C.classify(items, rec, B, snap.app);
     var of = function (list) { return st.filter(function (x) { return list.indexOf(x.status) >= 0; }).map(function (x) { return x.key; }); };
     var old = of(['update']), missing = of(['new', 'missing']), merge = of(['merge']), custom = of(['kept']);

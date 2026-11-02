@@ -618,6 +618,21 @@ rule('Round 7.3: Folder health names an old copy, with its path, even when anoth
   assert.ok(/1 old copy an older Flightdeck left in \.flightdeck\/updates\/ has nothing to merge and is safe to delete by hand: \.flightdeck\/updates\/2\.12\.0\/AGENTS\.md\./.test(h), 'still named');
 });
 
+rule('Round 8.2: Refresh tries the AI assistant files again after a read that failed, and the error goes once they read', async () => {
+  const files = text(walk(leftBy212())), keep = files[COPY];
+  let fail = false;
+  Object.defineProperty(files, COPY, { enumerable: true, configurable: true, get() { if (fail) throw new Error('The disk was busy.'); return keep; }, set(v) { Object.defineProperty(files, COPY, { value: v, enumerable: true, configurable: true, writable: true }); } });
+  const app = await opened(files);
+  fail = true;
+  const before = await aiFiles(app);
+  assert.ok(!/data-af-row="AGENTS.md" data-af-status/.test(before) && /data-act="af-load"/.test(before), 'set-up: the read failed, the files aren\'t shown');
+  fail = false;
+  app.click('refresh'); await app.tick(1200);
+  const html = app.html();
+  assert.ok(/data-af-row="AGENTS.md" data-af-status="current"/.test(html) && OLD_LINE.test(plain(html)), 'read again by Refresh: ' + (/data-af-row="AGENTS.md"[^>]*/.exec(html) || ['not shown'])[0]);
+  assert.ok(!/The disk was busy/.test(html), 'the old error is gone');
+});
+
 rule('Folder health doesn\'t count an old copy, and says, with its path, it is safe to delete by hand', async () => {
   const app = await opened(text(walk(leftBy212())));
   const h = plain(await healthOf(app));

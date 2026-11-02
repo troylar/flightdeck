@@ -5914,9 +5914,9 @@
       state.recBack = null; setView(b.view); state.runKey = b.runKey || null; state.processId = b.processId || null; state.ptab = b.ptab; render(); window.scrollTo(0, 0);
     },
     dismiss: function () { var cp = currentProcess(), ce = cp && editorOf(cp.id); if (ce) ce.incoming = null; say(null); render(); announceRelease(); },
-    /* Settings' AI assistant files are read again too, so what they say about each file (an old copy safe to delete) is never
-       older than the Refresh. */
-    refresh: function () { var af = state.af; load(true, true).then(function () { if (af && afLive(af) && af.load && state.view === 'settings') return afLoad(true, af); }); },
+    /* Settings' AI assistant files are read again too, once they've been looked at, a read that failed included, so what they
+       say about each file (an old copy safe to delete) is never older than the Refresh. */
+    refresh: function () { var af = state.af; load(true, true).then(function () { if (af && afLive(af) && af.looked && state.view === 'settings') return afLoad(true, af); }); },
     connect: function () { connect(); },
     reconnect: function () { var rec = state.needsReconnect, t = ++opening; rec.dir.requestPermission({ mode: 'readwrite' }).then(function (p) { if (p !== 'granted' || t !== opening) return; var had = !!state.overlay; if (!leaveFolderOverlay(headingOf())) return; state.needsReconnect = null; var read = useFs(folderFs(rec)); if (had) read.then(function () { if (t === opening) { state.focus = headingOf(); state.focusWins = true; render(); } }); }); },
     'reset-examples': function () { var mem = new PF.fs.MemoryFS(LS + ':examples', null), t = ++opening; seedExamples(mem).then(function () { if (t !== opening || !leaveFolderOverlay('page-h')) return; home(); return useFs(mem).then(function () { if (t === opening) { say('Examples reset.', 'good'); render(); } }); }, function (e) { if (t === opening) { say(e && e.message || 'The examples couldn\'t be reset.', 'warn'); render(); } }); },
