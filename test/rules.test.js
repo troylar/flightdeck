@@ -2188,6 +2188,10 @@ rule('Folder health sorts the files for AI assistants by the installer\'s own ru
   const unreadable = check({ '.flightdeck/skills/s/SKILL.md': CCC }, { unread: ['AGENTS.md'], staged: { 'AGENTS.md': [{ version: '1.14.0', path: '.flightdeck/updates/1.14.0/AGENTS.md', hash: AAA, old: true }, { version: '1.15.0', path: '.flightdeck/updates/1.15.0/AGENTS.md', hash: BBB, old: false }] } });
   assert.ok(unreadable.issues.some(i => i.id === 'contract-unread'), 'set-up: AGENTS.md can\'t be read');
   assert.ok(/1 old copy[^"]*safe to delete by hand: \.flightdeck\/updates\/1\.14\.0\/AGENTS\.md\./.test(JSON.stringify(unreadable)), 'the old copy is still named: ' + JSON.stringify(unreadable.clear));
+  /* Round 9: the record can't be read, so nothing else is sorted, but the copies proved one of them old on their own. */
+  const noRecord = check({ 'AGENTS.md': BBB, '.flightdeck/skills/s/SKILL.md': CCC }, { unread: ['.flightdeck/installed.json'], staged: { 'AGENTS.md': [{ version: '1.14.0', path: '.flightdeck/updates/1.14.0/AGENTS.md', hash: AAA, old: true }] } });
+  assert.ok(noRecord.issues.some(i => i.id === 'contract-unread'), 'set-up: the record can\'t be read');
+  assert.ok(/1 old copy[^"]*safe to delete by hand: \.flightdeck\/updates\/1\.14\.0\/AGENTS\.md\./.test(JSON.stringify(noRecord)), 'the old copy is still named: ' + JSON.stringify(noRecord.clear));
   const gone = check({ '.flightdeck/skills/s/SKILL.md': CCC });
   assert.ok(gone.issues.some(i => i.id === 'contract-missing' && i.severity === 'warn'));
   const none = check({ 'AGENTS.md': BBB, '.flightdeck/skills/s/SKILL.md': CCC }, { installed: null, recordText: null });
