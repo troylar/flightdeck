@@ -793,7 +793,7 @@ rule('Round 1, 7 and 9: the docs say the race limit the command\'s text has, and
   const at = updating.indexOf('**A file that changes while the app updates.**'), para = updating.slice(at, updating.indexOf('\n', at));
   assert.ok(/instant between/.test(para) && /Close editors on `AGENTS\.md` and the skills/.test(para), 'docs/updating.md, for Update');
   assert.ok(/\*\*I merged it\*\*[^\n]*instant between/.test(updating), 'docs/updating.md, for I merged it');
-  const rel = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'src', 'releases.json'), 'utf8'))[0], first = rel.changes[0].now;
+  const rel = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'src', 'releases.json'), 'utf8')).find(r => r.version === '2.12.0'), first = rel.changes[0].now;
   assert.ok(/instant/.test(first) && /[Cc]lose editors/.test(first), 'the release note');
   const waiver = fs.readFileSync(path.join(__dirname, '..', 'docs', 'rehearsals', '2.12.0-2026-11-01-waiver.md'), 'utf8');
   assert.ok(/fileAway/.test(waiver) && /final comparison/.test(waiver), 'the waiver');
@@ -920,8 +920,8 @@ for (const name of Object.keys(ASYNC_PATHS)) for (const change of ['folder', 'ta
 }
 
 /* A function in this feature that waits on something, and how it's bound. A new one fails until it's listed here. */
-const AF_ASYNC = { afFinish: 'guard', afKeepFocus: 'moves focus only, and only if it is lost; no state', afPerm: 'a question, no state', afIsTeam: 'a question, no state', afUse: 'turn', afRead: 'reads only, for a caller that checks', afLoad: 'guard', afUpdate: 'guard', afMerged: 'guard', afPick: 'chooses', afRemembered: 'chooses', afAllow: 'chooses' };
-const AF_ACTS = ['ai-files', 'af-load', 'af-where', 'af-pick', 'af-allow', 'af-update', 'af-merged', 'af-peek', 'af-copy', 'af-brief'];
+const AF_ASYNC = { afFinish: 'guard', afKeepFocus: 'moves focus only, and only if it is lost; no state', afPerm: 'a question, no state', afIsTeam: 'a question, no state', afUse: 'turn', afRead: 'reads only, for a caller that checks', afLoad: 'guard', afUpdate: 'guard', afMerged: 'guard', afPick: 'chooses', afRemembered: 'chooses', afAllow: 'chooses', afZip: 'guard' };
+const AF_ACTS = ['ai-files', 'af-load', 'af-where', 'af-pick', 'af-allow', 'af-update', 'af-merged', 'af-peek', 'af-copy', 'af-brief', 'af-start', 'af-zip'];
 function afAudit(src) {
   const out = [], a = src.indexOf('Settings, AI assistant files: flightdeck install'), b = src.indexOf('Getting started (views/setup.js', a), body = src.slice(a, b), fns = {};
   for (const m of body.matchAll(/\n  function (af\w+)\(/g)) { const next = body.indexOf('\n  function ', m.index + 5); fns[m[1]] = body.slice(m.index, next < 0 ? body.length : next); }
@@ -1520,11 +1520,11 @@ rule('Round 6, comparison: Settings checks yield to Refresh: its root listing st
 
 /* A thing in the way of a destination, in the command and the app. */
 const OBSTACLES = {
-  'a folder at the merge README': { in: '.flightdeck/updates/2.12.0/README.md/x', says: /README\.md is a folder/ },
+  'a folder at the merge README': { in: '.flightdeck/updates/' + VER + '/README.md/x', says: /README\.md is a folder/ },
   'a folder at a skill': { in: PLAN + '/x', says: /SKILL\.md is a folder/, cliSays: /SKILL\.md isn't a file/ },
-  'a folder at a waiting copy': { in: '.flightdeck/updates/2.12.0/' + STATUS + '/x', says: /SKILL\.md is a folder/, cliSays: /SKILL\.md isn't a file/ },
+  'a folder at a waiting copy': { in: '.flightdeck/updates/' + VER + '/' + STATUS + '/x', says: /SKILL\.md is a folder/, cliSays: /SKILL\.md isn't a file/ },
   'a file where the updates folder goes': { rm: '.flightdeck/updates', file: '.flightdeck/updates', says: /\.flightdeck\/updates is a file/ },
-  'a file where the version folder goes': { file: '.flightdeck/updates/2.12.0', says: /2\.12\.0 is a file/ }
+  'a file where the version folder goes': { file: '.flightdeck/updates/' + VER, says: new RegExp(VER.replace(/\./g, '\\.') + ' is a file') }
 };
 function obstacle(X) {
   const dir = scenario('custom with an older default recorded');
@@ -1555,8 +1555,8 @@ for (const name of Object.keys(OBSTACLES)) rule('Round 6, comparison: ' + name +
 });
 
 rule('Round 6: this release is dated 2026-11-01 in the entry, the waiver and the list', () => {
-  const rel = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'src', 'releases.json'), 'utf8'))[0];
-  assert.strictEqual(rel.version, '2.12.0'); assert.strictEqual(rel.date, '2026-11-01');
+  const rel = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'src', 'releases.json'), 'utf8')).find(r => r.version === '2.12.0');
+  assert.strictEqual(rel.date, '2026-11-01');
   const at = path.join(__dirname, '..', 'docs', 'rehearsals', '2.12.0-2026-11-01-waiver.md');
   assert.ok(fs.existsSync(at) && /Date: 2026-11-01/.test(fs.readFileSync(at, 'utf8')), 'the waiver');
   assert.ok(!fs.existsSync(path.join(__dirname, '..', 'docs', 'rehearsals', '2.12.0-2026-10-31-waiver.md')), 'and only that one');

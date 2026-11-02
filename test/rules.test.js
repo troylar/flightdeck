@@ -2163,7 +2163,7 @@ rule('Folder health sorts the files for AI assistants by the installer\'s own ru
   const PB = load(false, (f, src) => f === 'core/contract.js' ? src.replace('/*@BASELINES@*/{}', JSON.stringify({ files: { 'AGENTS.md#flightdeck': { [AAA]: ['1.14.0'], [BBB]: ['1.15.0'] }, '.flightdeck/skills/s/SKILL.md': { [CCC]: ['1.15.0'] } } })) : src);
   const H64 = (c) => c.repeat(64), want = { 'AGENTS.md': BBB, '.flightdeck/skills/s/SKILL.md': CCC };
   const rec = (files) => JSON.stringify({ format: 'flightdeck-installed/1', version: '1.15.0', at: 'x', by: 'cli', files: files || {} });
-  const check = (hashes, o) => { o = o || {}; const s = Object.assign(healthy(), { contract: { hashes, want, staged: o.staged || {} } }); s.scan.installed = o.installed === undefined ? {} : o.installed; s.scan.recordText = o.recordText === undefined ? rec(o.files) : o.recordText; return PB.health.check(s, HNOW); };
+  const check = (hashes, o) => { o = o || {}; const s = Object.assign(healthy(), { contract: { hashes, want, staged: o.staged || {}, unread: o.unread || [] } }); s.scan.installed = o.installed === undefined ? {} : o.installed; s.scan.recordText = o.recordText === undefined ? rec(o.files) : o.recordText; return PB.health.check(s, HNOW); };
   const cur = check({ 'AGENTS.md': BBB, '.flightdeck/skills/s/SKILL.md': CCC });
   assert.ok(cur.issues.every(i => !/^contract/.test(i.id)) && cur.clear.some(c => /match this version/.test(c.text)), 'current defaults are all clear');
   const old = check({ 'AGENTS.md': AAA, '.flightdeck/skills/s/SKILL.md': CCC }).issues.filter(i => i.id === 'contract-old')[0];
@@ -2172,8 +2172,26 @@ rule('Folder health sorts the files for AI assistants by the installer\'s own ru
   assert.ok(kept.issues.every(i => !/^contract-(old|merge)/.test(i.id)) && kept.clear.some(c => /your team's own changes/.test(c.text)), 'a team\'s change based on this default is fine');
   const merge = check({ 'AGENTS.md': ZZZ, '.flightdeck/skills/s/SKILL.md': CCC }, { files: { 'AGENTS.md': AAA } }).issues.filter(i => i.id === 'contract-merge')[0];
   assert.ok(merge && merge.paths[0] === 'AGENTS.md' && merge.action.act === 'ai-files', 'a team change on an older default: merge, as the command says');
-  const waiting = check({ 'AGENTS.md': BBB, '.flightdeck/skills/s/SKILL.md': CCC }, { staged: { 'AGENTS.md': [{ version: '1.14.0', hash: AAA }] } });
+  const waiting = check({ 'AGENTS.md': BBB, '.flightdeck/skills/s/SKILL.md': CCC }, { staged: { 'AGENTS.md': [{ version: '1.14.0', hash: H64('d') }] } });
   assert.ok(waiting.issues.some(i => i.id === 'contract-merge'), 'a staged copy keeps it at merge');
+  /* 2.12.1: a copy the scan's PF.contract.classifyCopies called old is named, never counted; Folder health only counts. */
+  const leftOver = check({ 'AGENTS.md': BBB, '.flightdeck/skills/s/SKILL.md': CCC }, { staged: { 'AGENTS.md': [{ version: '1.14.0', hash: AAA, old: true }] } });
+  assert.ok(leftOver.issues.every(i => !/^contract/.test(i.id)) && leftOver.clear.some(c => /1 old copy an older Flightdeck left/.test(c.text)), 'an old copy left by an older app is no merge');
+  const noted = check({ 'AGENTS.md': BBB, '.flightdeck/skills/s/SKILL.md': CCC }, { staged: { 'AGENTS.md': [{ version: '1.14.0', hash: AAA, old: false }] } });
+  assert.ok(noted.issues.some(i => i.id === 'contract-merge'), 'a copy not called old is a merge');
+  const many = check({ 'AGENTS.md': BBB, '.flightdeck/skills/s/SKILL.md': CCC }, { staged: { 'AGENTS.md': [1, 2, 3, 4, 5].map(i => ({ version: '1.1' + i + '.0', path: '.flightdeck/updates/1.1' + i + '.0/AGENTS<' + i + '>.md', hash: AAA, old: true })) } });
+  const said = JSON.stringify(many);
+  assert.ok(/5 old copies[^"]*safe to delete by hand: [^"]*AGENTS<1>\.md, [^"]*AGENTS<3>\.md and 2 more\./.test(said) && !/AGENTS<4>/.test(said), 'at most three paths, then a count: ' + said.slice(0, 0));
+  const withIssue = check({ 'AGENTS.md': ZZZ, '.flightdeck/skills/s/SKILL.md': CCC }, { files: { 'AGENTS.md': AAA }, staged: { 'AGENTS.md': [{ version: '1.14.0', path: '.flightdeck/updates/1.14.0/AGENTS.md', hash: AAA, old: true }] } });
+  assert.ok(withIssue.issues.some(i => i.id === 'contract-merge') && /1 old copy[^"]*safe to delete by hand/.test(JSON.stringify(withIssue)), 'named even beside another issue');
+  /* Round 8: the file itself can't be read, but the copies proved one of them old (another waiting copy holds the newer default). */
+  const unreadable = check({ '.flightdeck/skills/s/SKILL.md': CCC }, { unread: ['AGENTS.md'], staged: { 'AGENTS.md': [{ version: '1.14.0', path: '.flightdeck/updates/1.14.0/AGENTS.md', hash: AAA, old: true }, { version: '1.15.0', path: '.flightdeck/updates/1.15.0/AGENTS.md', hash: BBB, old: false }] } });
+  assert.ok(unreadable.issues.some(i => i.id === 'contract-unread'), 'set-up: AGENTS.md can\'t be read');
+  assert.ok(/1 old copy[^"]*safe to delete by hand: \.flightdeck\/updates\/1\.14\.0\/AGENTS\.md\./.test(JSON.stringify(unreadable)), 'the old copy is still named: ' + JSON.stringify(unreadable.clear));
+  /* Round 9: the record can't be read, so nothing else is sorted, but the copies proved one of them old on their own. */
+  const noRecord = check({ 'AGENTS.md': BBB, '.flightdeck/skills/s/SKILL.md': CCC }, { unread: ['.flightdeck/installed.json'], staged: { 'AGENTS.md': [{ version: '1.14.0', path: '.flightdeck/updates/1.14.0/AGENTS.md', hash: AAA, old: true }] } });
+  assert.ok(noRecord.issues.some(i => i.id === 'contract-unread'), 'set-up: the record can\'t be read');
+  assert.ok(/1 old copy[^"]*safe to delete by hand: \.flightdeck\/updates\/1\.14\.0\/AGENTS\.md\./.test(JSON.stringify(noRecord)), 'the old copy is still named: ' + JSON.stringify(noRecord.clear));
   const gone = check({ '.flightdeck/skills/s/SKILL.md': CCC });
   assert.ok(gone.issues.some(i => i.id === 'contract-missing' && i.severity === 'warn'));
   const none = check({ 'AGENTS.md': BBB, '.flightdeck/skills/s/SKILL.md': CCC }, { installed: null, recordText: null });

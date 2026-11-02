@@ -307,7 +307,7 @@ const LOOKUPS_OK = {
   'core/contract.js|all|k': [1, 'a key of installed.json, from Object.keys, with its value checked to be a hash. A key named __proto__ is dropped by this assignment, exactly as the command\'s Object.assign drops it; test/assistant-files.test.js checks they agree'],
   'core/contract.js|rec|k': [1, 'a key from Object.keys of all, above; assigned, never read for a decision'],
   'core/contract.js|rec|i.key': [1, 'a key from this version\'s file list; assigned, never read for a decision'],
-  'core/health.js|(… || {})|k': [1, 'k is a key of want, from this version\'s file list in contractHashes'],
+  'core/health.js|(… || {})|k': [2, 'k is a key of want, from this version\'s file list in contractHashes (both reads: the items and every old copy)'],
   'core/appjson.js|o|k': [3, 'the schema\'s own property names in extend; strMap only reads the keys Object.keys gave it'],
   'core/appjson.js|out|k': [2, 'the fields of a version or process this code\'s reader built'],
   'core/attach.js|out|f': [1, 'an attachment path: both callers keep only paths PF.attach.pathOk allows, which hold a slash'],

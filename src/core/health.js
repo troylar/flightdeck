@@ -272,11 +272,11 @@ PF.health = (function () {
     /* A refused file that isn't a newer Flightdeck's (not in its format) is named on its own below, with the plan page's advice. */
     var badRef = (d.refused || []).filter(function (x) { return x.kind !== 'newer'; });
     var instNewer = scan && scan.installed && scan.installed.newer ? scan.installed : null, refused = (d.refused || []).filter(function (x) { return x.kind === 'newer'; }).concat(scan && scan.reports ? scan.reports.problems.filter(function (x) { return x.kind === 'newer'; }).map(function (x) { return { path: x.path, family: 'flightdeck-report', kind: 'newer', why: x.why, needs: x.needs || '' }; }) : []);
-    var newerInst = inst && typeof inst.version === 'string' && snap.app && snap.app !== 'dev' && semver(inst.version, snap.app) > 0 ? inst.version : null;
+    var newerInst = inst ? C.recordNewer(inst, snap.app) : '';
     if (ro.length || newerPubs.length || snap.newer || newerInst || instNewer || refused.length) {
       var parts = [], needs = function (n) { return n ? 'Flightdeck ' + n : 'a newer Flightdeck'; };
       if (snap.newer) parts.push('Flightdeck ' + snap.newer + ' is in the team folder');
-      if (newerInst) parts.push('flightdeck install ' + newerInst + ' set up the folder');
+      if (newerInst) parts.push(('.flightdeck/installed.json ' + newerInst).replace(/\.$/, ''));
       if (instNewer) parts.push('.flightdeck/installed.json needs ' + needs(instNewer.needs));
       newerVers.forEach(function (x) { parts.push(x.v + ' needs ' + needs(x.needs)); });
       if (newerPubs.length > newerVers.length) parts.push(plural(newerPubs.length - newerVers.length, 'version') + ' can\'t be run here');
@@ -409,13 +409,22 @@ PF.health = (function () {
     var stray = c.unmatched || [];
     if (stray.length) add({ id: 'contract-other', severity: 'warn', area: 'AI assistants', title: plural(stray.length, 'other file') + ' waiting to be merged', detail: 'In .flightdeck/updates/, but not a copy of a file this version ships, such as a copy made by a sync tool. Hand its README.md to your AI assistant, or delete what isn\'t needed.', paths: stray, action: { act: 'health-cmd', id: 'merge', label: 'Copy a request for your AI assistant' }, help: HELP.newer });
     if (unread.length) add({ id: 'contract-unread', severity: 'warn', area: 'AI assistants', title: plural(unread.length, 'file') + ' for AI assistants can\'t be read', detail: 'Flightdeck can\'t tell whether ' + (unread.length === 1 ? 'it is' : 'they are') + ' up to date.', paths: unread, action: open, help: HELP.unreadable });
-    /* Without the record, what the other files are can't be told either. */
-    if (unread.indexOf('.flightdeck/installed.json') >= 0) return;
+    /* Every copy the scan called old, a file that can't be read included: the copies proved it on their own. */
+    var oldAll = all.reduce(function (a, k) { return a.concat(((c.staged || {})[k] || []).filter(function (x) { return x.old === true; })); }, []);
+    var olds = oldAll.map(function (x) { return x.path; }).filter(Boolean), leftover = oldAll.length;
+    /* An old copy an older app left (PF.contract.classifyCopies) is no merge and counts for nothing; it's only named. */
+    var oldWords = leftover ? ' ' + leftover + (leftover === 1 ? ' old copy' : ' old copies') + ' an older Flightdeck left in .flightdeck/updates/ ' + (leftover === 1 ? 'has' : 'have') + ' nothing to merge and ' + (leftover === 1 ? 'is' : 'are') + ' safe to delete by hand' + (olds.length ? ': ' + (olds.length <= 3 ? olds.join(', ') : olds.slice(0, 3).join(', ') + ' and ' + (olds.length - 3) + ' more') : '') + '.' : '';
+    var leftoverNote = function () { if (oldWords) ok('contract-leftover', oldWords.slice(1)); };
+    /* Without the record, what the other files are can't be told either; the old copies proved themselves. */
+    if (unread.indexOf('.flightdeck/installed.json') >= 0) { leftoverNote(); return; }
     var keys = all.filter(function (k) { return unread.indexOf(k) < 0; });
     var text = scan.recordText !== undefined ? scan.recordText : scan.installed && typeof scan.installed === 'object' ? JSON.stringify(scan.installed) : scan.installed === 'bad' ? '' : null;
-    var rec = C.readRecord(text, keys);
+    var rec = C.readRecord(text, keys, snap.app);
     if (rec.newer) return;
-    var st = C.classify(keys.map(function (k) { return { key: k, want: c.want[k], have: Object.prototype.hasOwnProperty.call(c.hashes, k) ? c.hashes[k] : null, staged: (c.staged || {})[k] || [] }; }), rec, B, snap.app);
+    /* Each waiting copy comes already told old or not (x.old, from PF.contract.classifyCopies over the files as read); this only
+       counts. */
+    var items = keys.map(function (k) { var all = (c.staged || {})[k] || []; return { key: k, want: c.want[k], have: Object.prototype.hasOwnProperty.call(c.hashes, k) ? c.hashes[k] : null, old: all.filter(function (x) { return x.old === true; }), staged: all.filter(function (x) { return x.old !== true; }) }; });
+    var st = C.classify(items, rec, B, snap.app);
     var of = function (list) { return st.filter(function (x) { return list.indexOf(x.status) >= 0; }).map(function (x) { return x.key; }); };
     var old = of(['update']), missing = of(['new', 'missing']), merge = of(['merge']), custom = of(['kept']);
     var noAgents = missing.indexOf(C.AGENTS) >= 0;
@@ -426,10 +435,11 @@ PF.health = (function () {
     if (scan.installed === null && !noAgents) add({ id: 'contract-record', severity: 'info', area: 'AI assistants', title: 'No record of which defaults this folder started from', detail: 'Update writes .flightdeck/installed.json, so later updates can tell a default from your team\'s change.', paths: ['.flightdeck/installed.json'], action: open, help: HELP.newer });
     if (rec.ignored) add({ id: 'contract-record', severity: 'warn', area: 'AI assistants', title: '.flightdeck/installed.json can\'t be read', detail: 'The next update writes it again.', paths: ['.flightdeck/installed.json'], action: open, help: HELP.unreadable });
     if (!stray.length && !unread.length && !old.length && !missing.length && !merge.length) ok('contract', custom.length ? 'The files for AI assistants are current; ' + plural(custom.length, 'file has', 'files have') + ' your team\'s own changes, which updates keep.' : 'The files for AI assistants match this version of Flightdeck.');
+    /* Named on its own, whatever else the files need. */
+    leftoverNote();
   }
 
   function dedupe(a) { return a.filter(function (x, i) { return a.indexOf(x) === i; }); }
-  function semver(a, b) { var x = String(a).split('.').map(Number), y = String(b).split('.').map(Number); for (var i = 0; i < 3; i++) { if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0); } return 0; }
 
   /* The command or request an issue's "Copy" action puts on the clipboard. */
   function command(id) {

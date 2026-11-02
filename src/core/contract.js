@@ -40,19 +40,32 @@ PF.contract = (function () {
     if ((m && m[1] === 'flightdeck-installed' && m[2] !== '1') || (m && m[1] === 'flightdeck-installed' && (Array.isArray(r.features) ? r.features.length > 0 : r.features != null))) return 'was written by a newer Flightdeck' + (typeof r.version === 'string' && /^\d+\.\d+\.\d+$/.test(r.version) ? ' (' + r.version + ')' : '') + '.';
     return '';
   }
+  /* The one verdict the command, Settings and Folder health all use (2.12.1): a record from a newer Flightdeck, by its format or
+     by its version against this copy's (mine), is left alone everywhere. A dev build compares no version. */
+  function recordNewer(r, mine) {
+    var nw = newerWhy(r);
+    if (nw) return nw;
+    /* Only a record that reads, with a release number in its one written form, can be newer; anything else is malformed, and
+       ignored as on 2.12.0, so a stray or absurd record never blocks an update. */
+    if (wellFormed(r) && RELEASE.test(r.version) && typeof mine === 'string' && RELEASE.test(mine) && byVersion(r.version, mine) > 0) return 'was written by a newer Flightdeck (' + r.version + ').';
+    return '';
+  }
+  /* A release number as Flightdeck writes it: three parts, no leading zeros, at most six digits each, so two of them compare by
+     length and then text (byVersion) the same as by number. */
+  var RELEASE = /^(0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})\.(0|[1-9]\d{0,5})$/;
   /* Exactly what flightdeck install and this app write; anything else is ignored, and the next update writes a new one. */
   function wellFormed(r) {
-    return !!(r && typeof r === 'object' && !Array.isArray(r) && r.format === 'flightdeck-installed/1' && typeof r.version === 'string' && VERSION_DIR.test(r.version)
+    return !!(r && typeof r === 'object' && !Array.isArray(r) && r.format === 'flightdeck-installed/1' && typeof r.version === 'string' && (r.version === 'dev' || RELEASE.test(r.version))
       && typeof r.at === 'string' && (r.by === 'cli' || r.by === 'app') && r.files && typeof r.files === 'object' && !Array.isArray(r.files)
       && Object.keys(r.files).every(function (k) { return typeof r.files[k] === 'string' && HASH.test(r.files[k]); }));
   }
   /* The record's text (null when there's none) as the installer reads it: { newer: why } (refuse everything), { files: {},
      ignored: true }, { files: {} } when there's none, or { version, files: the entries for keys, all: every entry }. */
-  function readRecord(text, keys) {
+  function readRecord(text, keys, mine) {
     if (text == null) return { files: {} };
     var r = null;
     try { r = JSON.parse(text); } catch (e) { r = null; }
-    var nw = newerWhy(r);
+    var nw = recordNewer(r, mine);
     if (nw) return { newer: nw };
     if (!wellFormed(r)) return { files: {}, ignored: true };
     var files = {}, all = {};
@@ -101,6 +114,52 @@ PF.contract = (function () {
       return out;
     });
   }
+  /* What a file is besides Flightdeck's part, exactly as written: '' for a skill (all of it is Flightdeck's), the text before and
+     after the markers for AGENTS.md, or null when it can't be a shipped default byte for byte (a byte-order mark, Windows line
+     endings, or AGENTS.md without both markers). A waiting copy is a shipped default exactly when its managed part's hash is in
+     the baselines and its shape is the shape of the default this version ships, Team notes heading and all: Flightdeck has
+     shipped one AGENTS.md shape since 1.15 (test/assistant-start.test.js checks every release since). */
+  function shapeOf(key, text) {
+    var t = String(text == null ? '' : text);
+    if (norm(t) !== t) return null;
+    if (key !== AGENTS) return '';
+    var r = region(t);
+    return r.marked ? t.slice(0, r.start) + '\u0000' + t.slice(r.end) : null;
+  }
+  /* A file's fingerprints for classifyCopies, from its raw text: the SHA-256 of its Flightdeck part (as the baselines hold it)
+     and its shape (shapeOf). Raw: decoded from its bytes with a byte-order mark kept (repo.readRaw in the app, readFileSync in
+     the command), never File.text(), which drops one. null text (unread, or not UTF-8) has neither. */
+  function copyPrint(key, raw) {
+    if (typeof raw !== 'string') return { hash: null, shape: null };
+    return { hash: PF.sha256.hex(managed(key, raw)), shape: shapeOf(key, raw) };
+  }
+  /* The one rule for which copies waiting in the updates folder are old copies an older Flightdeck left, with nothing in them
+     to merge (2.12.1). The app's scan, Settings, Folder health and the command all ask this, and nothing else decides. An old copy
+     is named, with its path, as safe to delete by hand; nothing removes or archives it on its own, but I merged it, on a
+     file with another copy to merge, files away every copy of that file, as 2.12.0 did. A copy is old when all three hold:
+     (a) the whole copy is exactly the default its own version shipped: its shape is the one this version ships (Flightdeck has
+         shipped one AGENTS.md shape since 1.15; test/assistant-start.test.js checks every release since) and its Flightdeck
+         part's hash is in the baselines under that version. A byte-order mark, Windows line endings, a Team note or a merge
+         note keep it a merge;
+     (b) a newer default of that file has shipped, and it differs from the copy;
+     (c) that newer default is in hand: the file's Flightdeck part is exactly it, or another copy waiting for it holds it.
+     A newer record alone proves nothing. o: { key, baseKey, shipped (this version's default), version (this app's), base (the
+     baselines), active, copies: [{ version, text }] }, where active and each text are raw (see copyPrint), or a print from
+     copyPrint in place of the text ({ version, print }), or null. Returns 'old' or 'merge' for each copy, in order. */
+  function classifyCopies(o) {
+    var key = o.key, base = o.base || {}, b = base[o.baseKey || baselineKey(key)] || {}, list = o.copies || [];
+    if (!list.length) return [];
+    var printOf = function (x) { return x && x.print ? x.print : copyPrint(key, x && typeof x === 'object' ? x.text : x); };
+    var shipped = copyPrint(key, o.shipped), active = o.active && typeof o.active === 'object' ? o.active : copyPrint(key, o.active);
+    var prints = list.map(printOf);
+    return list.map(function (x, n) {
+      var p = prints[n];
+      if (!x || !RELEASE.test(x.version) || !p.hash || p.shape === null || p.shape !== shipped.shape || !own(b, p.hash) || b[p.hash].indexOf(x.version) < 0) return 'merge';
+      var later = function (v) { return typeof v === 'string' && RELEASE.test(v) && byVersion(v, x.version) > 0; };
+      var newer = function (h) { return !!h && h !== p.hash && ((own(b, h) && b[h].some(later)) || (h === shipped.hash && later(o.version))); };
+      return newer(active.hash) || prints.some(function (y, m) { return m !== n && newer(y.hash); }) ? 'old' : 'merge';
+    });
+  }
   /* The text written for a contract file: AGENTS.md keeps everything outside its markers (the team's notes). */
   function merged(key, now, text) {
     if (key !== AGENTS || now == null) return text;
@@ -135,6 +194,11 @@ PF.contract = (function () {
   function mergePrompt(version, here) {
     return '> Flightdeck ' + version + ' put new default versions of some files in `' + here + '/`; its README.md lists them. For each one, compare the new default with our file at the same path. Keep our own changes, and bring in what the new default adds or changes. In AGENTS.md, change only the part between `<!-- flightdeck:begin -->` and `<!-- flightdeck:end -->`; anything that is ours belongs under Team notes, below the end marker. Show me each change before you save it. When a file is merged, delete its copy here. When only README.md is left, delete this folder.';
   }
+  /* The first thing to paste into an AI assistant opened on the team folder: plain text, naming no tool. Not every tool reads
+     .flightdeck/skills on its own, and one stops reading AGENTS.md partway, so it says both out loud. */
+  var START_PROMPT = 'Read AGENTS.md in this folder, to the end, and follow it. If this folder has no AGENTS.md, stop and tell me to open the team folder itself.\n\n' +
+    'The Flightdeck skills are in .flightdeck/skills/, one folder per skill, each with a SKILL.md. Your tool may not load them on its own, so list that folder yourself. When one fits the job, read its SKILL.md and follow it. A name like /flightdeck-status or $flightdeck-status means .flightdeck/skills/flightdeck-status/SKILL.md.\n\n' +
+    'Don\'t change anything yet. Tell me in a few lines what you can help with here, then ask me what I want done.';
   /* ---------- How a write ended: one outcome, one set of words ----------
      Update and I merged it collect facts as they go; settle says which outcome those facts are, and outcomeWords is the only
      thing that turns one into words, for the Settings screen, for an announcement and for the move to the team folder. An
@@ -200,6 +264,6 @@ PF.contract = (function () {
   /* Something in the way of where a file goes. The same words as the command's. */
   function blockedWhy(path, want) { return path + (want === 'file' ? ' is a folder, where Flightdeck needs a file.' : ' is a file, where Flightdeck needs a folder.') + ' Nothing was changed. Move it, then try again.'; }
 
-  return { OUTCOMES: OUTCOMES, settle: settle, outcomeWords: outcomeWords, MAX_BYTES: MAX_BYTES, cleanInstalled: cleanInstalled, readRecord: readRecord, newerWhy: newerWhy, classify: classify, merged: merged, nextRecord: nextRecord, mergeReadme: mergeReadme, mergePrompt: mergePrompt, byVersion: byVersion, VERSION_DIR: VERSION_DIR,
+  return { START_PROMPT: START_PROMPT, OUTCOMES: OUTCOMES, settle: settle, outcomeWords: outcomeWords, MAX_BYTES: MAX_BYTES, cleanInstalled: cleanInstalled, readRecord: readRecord, newerWhy: newerWhy, recordNewer: recordNewer, RELEASE: RELEASE, shapeOf: shapeOf, copyPrint: copyPrint, classifyCopies: classifyCopies, classify: classify, merged: merged, nextRecord: nextRecord, mergeReadme: mergeReadme, mergePrompt: mergePrompt, byVersion: byVersion, VERSION_DIR: VERSION_DIR,
     BEGIN: BEGIN, END: END, AGENTS: AGENTS, BASELINES: BASELINES, norm: norm, region: region, managed: managed, baselineKey: baselineKey, hex: hex, installed: installed };
 })();

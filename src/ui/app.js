@@ -951,7 +951,7 @@
   /* The fingerprints of AGENTS.md's Flightdeck part and the skills, as flightdeck install takes them: the folder's files
      (hashes), this version's defaults (want) and the copies waiting to be merged (staged), for PF.contract.classify. */
   function contractHashes(scan) {
-    var C = PF.contract, texts = scan.contractTexts || {}, prints = scan.stagedPrints || {}, keys = contractKeys();
+    var C = PF.contract, texts = scan.contractTexts || {}, raws = scan.contractRaw || {}, prints = scan.stagedPrints || {}, keys = contractKeys();
     var jobs = Object.keys(texts).map(function (p) { return ['hashes', p, texts[p]]; }).concat(keys.map(function (k) { return ['want', k, EXAMPLES[k]]; }));
     return digests(jobs.map(function (j) { return C.managed(j[1], j[2]); })).then(function (ds) {
       if (!ds) return null;
@@ -963,7 +963,14 @@
         var sg = repo.stagedOf(p);
         /* Not a copy of a file this version ships, like a sync tool's AGENTS-PC.md: nothing can clear it, so it stays named. */
         if (!sg || keys.indexOf(sg.key) < 0) { out.unmatched.push(p); return; }
-        (out.staged[sg.key] = out.staged[sg.key] || []).push({ version: sg.version, hash: Object.prototype.hasOwnProperty.call(prints, p) ? prints[p] : null });
+        var pr = Object.prototype.hasOwnProperty.call(prints, p) && prints[p] ? prints[p] : { hash: null, shape: null };
+        (out.staged[sg.key] = out.staged[sg.key] || []).push({ version: sg.version, path: p, hash: pr.hash, print: pr });
+      });
+      /* Which are old copies: PF.contract.classifyCopies, from the files' bytes as the scan read them. */
+      keys.forEach(function (k) {
+        var list = out.staged[k] || [], has = Object.prototype.hasOwnProperty.call(raws, k), active = has && raws[k] != null ? raws[k] : has ? { hash: null } : null;
+        var said = C.classifyCopies({ key: k, shipped: EXAMPLES[k], version: APP_VERSION, base: (C.BASELINES && C.BASELINES.files) || {}, active: active, copies: list });
+        list.forEach(function (x, i) { x.old = said[i] === 'old'; delete x.print; });
       });
       /* A file that's there but couldn't be read isn't a missing file. */
       out.unread = (scan.unreadable || []).map(function (u) { return u.path; }).filter(function (p, i, all) {
@@ -1252,6 +1259,8 @@
   function afRead(tg) {
     var C = PF.contract, fs = repo.lane(tg.fs, 'files'), ud = tg.updates.join('/');
     var read = function (p) { return fs.read(p, { maxBytes: AF_MAX }).then(function (r) { return r ? r.text : null; }); };
+    /* The files PF.contract.classifyCopies looks at are read as bytes too, so a byte-order mark File.text() drops is seen. */
+    var readRaw = function (p) { return repo.readRaw(fs, p, { maxBytes: AF_MAX }); };
     var noPrints = function () { return new Error('This browser can\'t compute file fingerprints, so it can\'t tell a default from your team\'s change. Use the flightdeck command instead.'); };
     var tree = Object.create(null), byRel = Object.create(null);
     var items = tg.files.map(function (f) { return { key: f.key, rel: f.rel, baseKey: f.baseKey, text: f.text, staged: [] }; });
@@ -1269,9 +1278,9 @@
           if (want !== true) return i.kind === 'dir' ? walk(v, p, want, here + '/') : null;
           if (i.kind !== 'file') return null;
           var it = byRel[here];
-          return read(p).then(function (t) {
-            if (t == null) return null;
-            return digests([C.managed(it.key, t), t]).then(function (ds) { if (!ds) throw noPrints(); it.staged.push({ version: v, path: p, hash: ds[0], full: ds[1] }); });
+          return readRaw(p).then(function (r) {
+            if (!r) return null;
+            return digests([C.managed(it.key, r.text), r.text]).then(function (ds) { if (!ds) throw noPrints(); it.staged.push({ version: v, path: p, hash: ds[0], full: ds[1], raw: r.raw }); });
           });
         }));
       });
@@ -1279,7 +1288,8 @@
     return Promise.all([fs.list(ud), read(tg.recordAt)]).then(function (got) {
       var vers = got[0].filter(function (i) { return i.kind === 'dir' && C.VERSION_DIR.test(i.name); }).map(function (i) { return i.name; });
       var recText = got[1];
-      return Promise.all(items.map(function (it) { return read(it.rel).then(function (t) { it.now = t; }); }).concat(vers.map(function (v) { return walk(v, ud + '/' + v, tree, ''); }))).then(function () {
+      /* Each file is read as bytes: it.now is the text File.text() would give, it.raw keeps a byte-order mark for classifyCopies. */
+      return Promise.all(items.map(function (it) { return readRaw(it.rel).then(function (r) { it.now = r ? r.text : null; it.raw = r ? r.raw : null; }); }).concat(vers.map(function (v) { return walk(v, ud + '/' + v, tree, ''); }))).then(function () {
         items.forEach(function (it) { it.staged.sort(function (x, y) { return C.byVersion(x.version, y.version); }); });
         var texts = [];
         items.forEach(function (it) { texts.push(C.managed(it.key, it.text), it.now == null ? '' : C.managed(it.key, it.now)); });
@@ -1287,8 +1297,17 @@
           if (!ds) throw noPrints();
           var n = 0;
           items.forEach(function (it) { it.want = ds[n++]; var h = ds[n++]; it.have = it.now == null ? null : h; });
-          var rec = C.readRecord(recText, items.map(function (i) { return i.key; }));
-          if (rec.newer) return { items: items, record: rec, recText: recText };
+          var rec = C.readRecord(recText, items.map(function (i) { return i.key; }), APP_VERSION);
+          if (rec.newer) { items.forEach(function (it) { delete it.raw; it.staged.forEach(function (x) { delete x.raw; }); }); return { items: items, record: rec, recText: recText }; }
+          /* Which waiting copies are old copies: PF.contract.classifyCopies, from the bytes just read. */
+          items.forEach(function (it) {
+            var all = it.staged, active = it.now == null ? null : it.raw != null ? it.raw : { hash: null };
+            var said = C.classifyCopies({ key: it.key, baseKey: it.baseKey, shipped: it.text, version: APP_VERSION, base: (C.BASELINES && C.BASELINES.files) || {}, active: active, copies: all.map(function (x) { return { version: x.version, text: x.raw }; }) });
+            all.forEach(function (x) { delete x.raw; });
+            delete it.raw;
+            it.old = all.filter(function (x, i) { return said[i] === 'old'; });
+            it.staged = all.filter(function (x, i) { return said[i] !== 'old'; });
+          });
           C.classify(items, rec, (C.BASELINES && C.BASELINES.files) || {}, APP_VERSION).forEach(function (d, i) { items[i].status = d.status; items[i].waiting = d.waiting || ''; items[i].stage = !!d.stage; });
           return { items: items, record: rec, recText: recText, recordDue: !!C.nextRecord(rec, items, APP_VERSION) };
         });
@@ -1440,15 +1459,17 @@
   /* What Folder health last found about these files is out of date now: its next look scans again. */
   function afFilesChanged(tg) { if (!tg.standalone) state.healthScan = null; }
   /* I merged it: each copy of this file waiting in the updates folder is put away beside the replaced files (copied, read
-     back), and removed only if it's still exactly what this screen read. */
+     back), and removed only if it's still exactly what this screen read. Every copy, old copies (PF.contract.classifyCopies)
+     included, as 2.12.0 did: the merge covers them all, so none is left waiting to bring the merge back. */
   function afMerged(key) {
     var af = afState(), it = af.load && af.load.items.filter(function (i) { return i.key === key; })[0];
     if (!it || !afReady(af) || !it.staged.length) return;
+    var copies = it.staged.concat(it.old || []).sort(function (x, y) { return PF.contract.byVersion(x.version, y.version); });
     var tg = afTarget(af); if (afReadOnly(tg, af)) return;
     var alive = afGuard(af), fs = tg.fs, f = { op: 'merge', putAway: 0, left: [], unsure: [] };
     af.busy = true; af.outcome = null; af.err = null; render();
     repo.archiveDir(fs, tg.updates.join('/') + '/' + APP_VERSION + '/replaced').then(function (d) {
-      return it.staged.reduce(function (q, x) {
+      return copies.reduce(function (q, x) {
         return q.then(function () {
           if (!alive()) return;
           return fs.read(x.path, { maxBytes: AF_MAX }).then(function (r) {
@@ -1476,8 +1497,26 @@
   function afFile(key) { return afTarget(afState()).files.filter(function (f) { return f.key === key; })[0]; }
   /* A copy belongs to the target it began in. If the clipboard says no, the text is drawn in that target's own box and that
      box, just looked up so it's the one on the page, is selected. After a change of target, it does nothing at all. */
-  function afCopy(af, text, boxId, done, show) {
-    copyText(text, document.getElementById(boxId), done, function () { show(); render(); return document.getElementById(boxId); }, function () { return afLive(af); });
+  function afCopy(af, text, boxId, done, show, tell) {
+    copyText(text, document.getElementById(boxId), done, function () { show(); render(); return document.getElementById(boxId); }, function () { return afLive(af); }, tell);
+  }
+  /* What the two buttons above the target choice said. Kept on the state object and drawn, so a redraw keeps it and a new target
+     drops it, as with a write's outcome. They write nothing to any folder, so they aren't outcomes: outcomeWords is for what a
+     write did. */
+  function afStartSay(af, text) { af.startSaid = text; afKeepFocus(render); }
+  /* The skills as a file, from what's in the page: the same files and paths flightdeck skills --to writes, through the writer
+     evidence packs use. No folder, no network. */
+  function afZip() {
+    var af = afState(), alive = afGuard(af), name = 'flightdeck-skills-' + APP_VERSION + '.zip', parts = [];
+    return Promise.resolve().then(function () {
+      var w = PF.zip.writer({ date: new Date(), sink: function (b) { parts.push(b); } });
+      return afTarget({ where: 'other' }).files.reduce(function (q, f) { return q.then(function () { return w.add(f.rel, PF.sha256.utf8(f.text)); }); }, Promise.resolve()).then(function () { return w.finish(); });
+    }).then(function () {
+      var url = URL.createObjectURL(new Blob(parts, { type: 'application/zip' })), a = document.createElement('a');
+      a.href = url; a.download = name; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
+      if (alive()) afStartSay(af, 'Downloading ' + name + '. Unzip it into the folder your AI assistant reads skills from.');
+    }).catch(function (e) { if (alive()) afStartSay(af, 'Couldn\'t make the ZIP: ' + (e && e.message || String(e)) + ' Use flightdeck skills --to <folder> in a terminal instead.'); });
   }
   /* Another folder for skills: chosen here, remembered where the browser allows, like the team folder. A folder chosen
      makes a new object, so the last folder's rows are gone at once, before this one's read has finished. */
@@ -5832,6 +5871,11 @@
       var f = afFile(id), af = afState(); if (!f) return;
       afCopy(af, f.text, 'af-pre-' + PF.vk.domKey(f.key), 'Copied ' + f.rel + '. Paste it to your AI assistant.', function () { af.peek = id; });
     },
+    'af-start': function () {
+      var af = afState(), t = PF.contract.START_PROMPT;
+      afCopy(af, t, 'af-start-pre', 'Copied. Paste it to your AI assistant.', function () { af.startShown = t; }, function (said) { afStartSay(af, said); });
+    },
+    'af-zip': function () { afZip(); },
     'af-brief': function (id) {
       var t = afBrief(id), af = afState(); if (!t) return;
       afCopy(af, t, 'af-brief-pre', 'Copied. Paste it to your AI assistant in ' + afTarget(af).home + '.', function () { af.briefShown = t; });
@@ -5870,7 +5914,9 @@
       state.recBack = null; setView(b.view); state.runKey = b.runKey || null; state.processId = b.processId || null; state.ptab = b.ptab; render(); window.scrollTo(0, 0);
     },
     dismiss: function () { var cp = currentProcess(), ce = cp && editorOf(cp.id); if (ce) ce.incoming = null; say(null); render(); announceRelease(); },
-    refresh: function () { load(true, true); },
+    /* Settings' AI assistant files are read again too, once they've been looked at, a read that failed included, so what they
+       say about each file (an old copy safe to delete) is never older than the Refresh. */
+    refresh: function () { var af = state.af; load(true, true).then(function () { if (af && afLive(af) && af.looked && state.view === 'settings') return afLoad(true, af); }); },
     connect: function () { connect(); },
     reconnect: function () { var rec = state.needsReconnect, t = ++opening; rec.dir.requestPermission({ mode: 'readwrite' }).then(function (p) { if (p !== 'granted' || t !== opening) return; var had = !!state.overlay; if (!leaveFolderOverlay(headingOf())) return; state.needsReconnect = null; var read = useFs(folderFs(rec)); if (had) read.then(function () { if (t === opening) { state.focus = headingOf(); state.focusWins = true; render(); } }); }); },
     'reset-examples': function () { var mem = new PF.fs.MemoryFS(LS + ':examples', null), t = ++opening; seedExamples(mem).then(function () { if (t !== opening || !leaveFolderOverlay('page-h')) return; home(); return useFs(mem).then(function () { if (t === opening) { say('Examples reset.', 'good'); render(); } }); }, function (e) { if (t === opening) { say(e && e.message || 'The examples couldn\'t be reset.', 'warn'); render(); } }); },
@@ -7728,11 +7774,11 @@
   }
   function openLightbox(list, i) { openOverlay({ list: list, i: i || 0, html: function () { return V.lightbox(ctx, this.list, this.i); } }); }
   /* refused can name the box to select instead (it may have drawn it); still, if given, says whether this copy still counts. */
-  function copyText(text, pre, done, refused, still) {
+  function copyText(text, pre, done, refused, still, tell) {
     var msg = document.getElementById('copy-msg');
-    function fallback() { var box = refused ? refused() : null; if (box) pre = box; if (pre) { pre.hidden = false; var rg = document.createRange(); rg.selectNodeContents(pre); var s = window.getSelection(); s.removeAllRanges(); s.addRange(rg); } var m = document.getElementById('copy-msg'); if (m) m.textContent = 'Selected. Press Ctrl+C.'; }
+    function fallback() { var box = refused ? refused() : null; if (box) pre = box; if (pre) { pre.hidden = false; var rg = document.createRange(); rg.selectNodeContents(pre); var s = window.getSelection(); s.removeAllRanges(); s.addRange(rg); } if (tell) { tell('Selected. Press Ctrl+C.'); return; } var m = document.getElementById('copy-msg'); if (m) m.textContent = 'Selected. Press Ctrl+C.'; }
     var g = gen, view = state.view, key = state.runKey, counts = function () { return g === gen && state.view === view && state.runKey === key && (!still || still()); };
-    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { if (!counts()) return; if (msg && document.contains(msg)) msg.textContent = done || 'Copied. Paste it into the Jira ticket.'; else { say('Copied.', 'good'); render(); } }, function () { if (counts()) fallback(); });
+    if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { if (!counts()) return; if (tell) tell(done); else if (msg && document.contains(msg)) msg.textContent = done || 'Copied. Paste it into the Jira ticket.'; else { say('Copied.', 'good'); render(); } }, function () { if (counts()) fallback(); });
     else fallback();
   }
 

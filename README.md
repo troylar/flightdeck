@@ -25,7 +25,7 @@
 ## Quick start
 
 1. `npx @troylar/flightdeck open` opens the app in your browser (needs Node 18 or later).
-2. No Node? Save [flightdeck.html](https://unpkg.com/@troylar/flightdeck@2.12.0/dist/flightdeck.html) from the npm package as a file (right-click, **Save link as…**) and open that file in Edge or Chrome.
+2. No Node? Save [flightdeck.html](https://unpkg.com/@troylar/flightdeck@2.12.1/dist/flightdeck.html) from the npm package as a file (right-click, **Save link as…**) and open that file in Edge or Chrome.
 3. Choose **Look around the examples** to try it, or **Start your team** to set up your team's folder.
 
 <p align="center"><a href="https://github.com/troylar/flightdeck/blob/main/docs/images/run-light.png" title="Open in GitHub's image viewer"><picture><source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/run-dark.png"><img src="https://raw.githubusercontent.com/troylar/flightdeck/main/docs/images/run-light.png" alt="A release in progress on the run screen: 7/15 answered in the header with Details, Screen share, Receipt and More; a strip saying you're recording, with Pause and Hand off and the run's details; Phases with each gate's state; the checklist with Next up pinned at its top; and the selected step, whose text shows the run's tag (Start the production deploy job v2026.10.16), with the values to copy, Record the result, Done, Done differently and Blocked" width="1000"></picture></a></p>
@@ -373,7 +373,7 @@ Thousands of runs open and refresh without stalling. Long lists show a page at a
 
 ## Skills for your AI assistant
 
-**Settings → AI assistant files** in the app (or `flightdeck install` in a terminal) puts these in the team folder's `.flightdeck/skills/`, with an `AGENTS.md` that any assistant reads. They're plain `SKILL.md` files, so any assistant that supports skills can use them. Open the team folder with your assistant and ask for one by name:
+**Settings → AI assistant files** in the app (or `flightdeck install` in a terminal) puts these in the team folder's `.flightdeck/skills/`, with an `AGENTS.md` that any assistant reads. They're plain `SKILL.md` files, so any assistant that supports skills can use them. Open the team folder itself as the workspace (in Agent mode, for Copilot in VS Code) and start with **Copy instructions for your assistant** on that screen. Then say what you need, or ask for a skill by name. [Skills for your AI assistant](https://github.com/troylar/flightdeck/blob/main/docs/skills.md) lists each one by job, with what to ask for:
 
 | Skill | Does |
 |---|---|
@@ -390,7 +390,7 @@ In `AGENTS.md`, only the part between the `flightdeck:begin` and `flightdeck:end
 
 ### AI assistant files, from the app
 
-**Settings → AI assistant files** installs and updates `AGENTS.md` and the skills without a command line. Each file shows where it stands:
+**Settings → AI assistant files** installs and updates `AGENTS.md` and the skills without a command line. **Copy instructions for your assistant** copies the first prompt to paste, and **Download skills ZIP** gives you the skills as a file, with no folder and no network. Each file shows where it stands:
 
 | Status | Means |
 |---|---|
@@ -477,6 +477,7 @@ Flightdeck was called Preflight before 1.9.0. Team folders, runs and published v
 |---|---|---|
 | [Checklist format](https://github.com/troylar/flightdeck/blob/main/docs/map-format.md) | Anyone writing checklists, and their AI assistant | Every mark, field and step type, and what stops a checklist from publishing |
 | [Flightdeck and OneDrive](https://github.com/troylar/flightdeck/blob/main/docs/onedrive.md) | Whoever sets up the team folder | What keeps runs safe on a synced folder, and what it can't promise |
+| [Skills for your AI assistant](https://github.com/troylar/flightdeck/blob/main/docs/skills.md) | Anyone working with an AI assistant | Starting one, what to ask for, each skill by job |
 | [Updating Flightdeck](https://github.com/troylar/flightdeck/blob/main/docs/updating.md) | Whoever keeps the team's copy current | A step-by-step update, mixed versions and rolling back |
 | [When something goes wrong](https://github.com/troylar/flightdeck/blob/main/docs/recovery.md) | Anyone who sees a warning | What each problem means and what to do, step by step |
 | [Evidence packs](https://github.com/troylar/flightdeck/blob/main/docs/evidence.md) | Anyone who needs proof of a run | What's in a pack and how to check it |

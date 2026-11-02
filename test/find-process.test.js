@@ -7,12 +7,18 @@ const { rule, run } = require('./harness');
 const fs = require('fs');
 const path = require('path');
 const { boot } = require('./app-harness');
-const { fixture, into } = require('./bounds-fixture');
+const { fixture, into, NOW: FIXTURE_NOW } = require('./bounds-fixture');
 
 const un = v => v.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
 let big = null;
-async function fresh() {
-  const app = boot({ localStore: { 'preflight:builder': 'false' }, domFocus: true }); await app.tick(60);
+/* A wall clock that starts at the fixture's own time and runs on from there: what the app decides by age (an ended run is read
+   again on every refresh for 7 days after it ended) is then the same on any day the tests run. */
+function fixtureClock() {
+  const real = Date, offset = FIXTURE_NOW + 3600000 - real.now();
+  return class extends real { constructor(...a) { if (a.length) super(...a); else super(real.now() + offset); } static now() { return real.now() + offset; } };
+}
+async function fresh(o) {
+  const app = boot(Object.assign({ localStore: { 'preflight:builder': 'false' }, domFocus: true }, o && o.pinned ? { Date: fixtureClock() } : {})); await app.tick(60);
   await into(app, fixture());
   return app;
 }
@@ -844,6 +850,7 @@ const FIXED = 'a fixed set of parts, at most a handful';
 const GROUP = 'one group path (Group / Subgroup), as deep as its author wrote it';
 const D10_JOIN_OK = [
   { file: 'manage.js', has: 'list.join(\', \')', why: 'at most 3: afWaiting counts the rest' }, { file: 'manage.js', has: 'list.slice(0, 3).join(', why: 'at most 3: afWaiting counts the rest' },
+  { file: 'manage.js', has: 'paths.slice(0, 3).join(', why: 'at most 3 old copies\' paths: afOld counts the rest' },
   { file: 'app.js', has: 'tg.updates.join(', why: 'a folder\'s parts, a fixed list in the code' }, { file: 'app.js', has: 'tg.updates.concat(v).join', why: 'one prompt per version folder holding this file, copied to the clipboard, never drawn' },
   { file: 'builder.js', has: 'function described(', why: ARIA }, { file: 'builder.js', has: 'function sigOf(', why: NOT_TEXT },
   { file: 'builder.js', has: 'group: T.groupOf(t).join(\' / \')', why: 'a step type\'s group, at most 80 characters, and its tags, at most 10, a type file over either is refused when read (core/types.js)' },
@@ -918,7 +925,8 @@ const D10_JOIN_OK = [
   { file: 'app.js', has: '[gone.name, gone.label, gone.kind]', why: FIXED }, { file: 'app.js', has: 'typeChange(\'option removal\'', why: FORMVAL },
   { file: 'app.js', has: 'typeChange(\'tag removal\'', why: FORMVAL }, { file: 'app.js', has: 'sigN = names.join', why: NOT_TEXT },
   { file: 'app.js', has: 'return { text: out.join', why: FILE },
-  { file: 'app.js', has: 'cx.renamed.concat(rl.renamed)', why: 'names typed in New checklist\'s boxes, each at most 120 characters' }
+  { file: 'app.js', has: 'cx.renamed.concat(rl.renamed)', why: 'names typed in New checklist\'s boxes, each at most 120 characters' },
+  { file: 'manage.js', has: 'return \'Old copy from \' + afWaiting(', why: 'the versions go through afWaiting, which shows the first 3 and "and N more"' }
 ];
 /* Every .join( in the views and app.js whose separator isn't '', with its line number and file. */
 function joins(src) {
@@ -978,7 +986,7 @@ rule('D10 is tested: the reader finds a notice built in a forEach and an option 
 
 
 rule('Round 5: 170 members with Decline open, Show more to 100, newer members sort in above and push the focused one past the page: one group, one Decline box, and the right count', async () => {
-  const app = await fresh();
+  const app = await fresh({ pinned: true });
   const notes = app.files('runs/versions/').filter(f => /\/notes-corr\.jsonl$/.test(f)).sort();
   for (const f of notes.slice(170)) await app.fs.remove(f);
   await reread(app);

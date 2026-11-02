@@ -504,6 +504,12 @@
   /* ---------- Settings, AI assistant files: AGENTS.md and the skills, installed and updated from the app ---------- */
   var AF_WORD = { current: 'Up to date', update: 'Update ready', new: 'Not there yet', missing: 'Deleted, can be added again', kept: 'You changed it', merge: 'Waiting to merge' };
   /* The versions a file waits in, in words: however many folders there are, the row stays one short line. */
+  /* An old copy (PF.contract.classifyCopies): what it is, and where, so it can be deleted by hand. Nothing in Flightdeck removes it. */
+  function afOld(list) {
+    var paths = list.map(function (x) { return x.path; }), one = paths.length === 1;
+    var where = paths.slice(0, 3).join(', ') + (paths.length > 3 ? ' and ' + (paths.length - 3) + ' more' : '');
+    return 'Old copy from ' + afWaiting(list.map(function (x) { return x.version; }).join(', ')).replace(/^ \(in |\)$/g, '') + ': an older shipped default an older Flightdeck left, with nothing to merge. ' + (one ? 'It\'s' : 'They\'re') + ' safe to delete by hand: ' + where + '.';
+  }
   function afWaiting(w) {
     var list = w ? w.split(', ') : [];
     return !list.length ? '' : ' (in ' + (list.length <= 3 ? list.join(', ') : list.slice(0, 3).join(', ') + ' and ' + (list.length - 3) + ' more') + ')';
@@ -518,6 +524,9 @@
     var h = '<section class="panel stack" aria-labelledby="set-ai"><h2 id="set-ai" tabindex="-1">' + I('spark') + 'AI assistant files</h2>' +
       '<p class="small">The instructions and skills your AI assistant reads, as Flightdeck ' + esc(m.version) + ' ships them. Files your team changed are never replaced, and a copy of each replaced file is kept first. The command <code>flightdeck install</code> follows the same rules and the same record.</p>' +
       '<p class="small">This never changes the app file itself: to update <code>flightdeck.html</code>, copy in the new one. <a href="https://github.com/troylar/flightdeck/blob/main/docs/updating.md" target="_blank" rel="noopener noreferrer">How updating works</a></p>' +
+      '<div class="stack af-start"><div class="row"><button type="button" class="btn" data-act="af-start">' + I('copy') + 'Copy instructions for your assistant</button><button type="button" class="btn" data-act="af-zip">Download skills ZIP</button></div><p class="small"><span id="af-start-msg" role="status">' + esc(af.startSaid || '') + '</span></p>' +
+      '<p class="small">Open the team folder itself as the workspace, in Agent mode, then paste the instructions. <a href="https://github.com/troylar/flightdeck/blob/main/docs/skills.md" target="_blank" rel="noopener noreferrer">What each skill does</a></p>' +
+      '<pre id="af-start-pre" class="source" tabindex="0"' + (af.startShown ? '' : ' hidden') + '>' + esc(af.startShown || '') + '</pre></div>' +
       '<div class="seg" role="group" aria-label="Where the files go">' + [['team', 'In the team folder'], ['other', 'In another folder']].map(function (w) { return '<button type="button" data-act="af-where" data-id="' + w[0] + '" aria-pressed="' + ((other ? 'other' : 'team') === w[0]) + '"' + off + '>' + w[1] + '</button>'; }).join('') + '</div>';
     if (other) {
       h += '<p class="small">For an AI assistant that reads skills from its own folder: the skills only, with their own record (<code>.flightdeck-installed.json</code>) and updates folder (<code>.flightdeck-updates</code>), so updates stay safe there too.</p>';
@@ -535,7 +544,9 @@
       var it = byKey[f.key], st = it ? it.status : '', word = st ? AF_WORD[st] + (st === 'merge' ? afWaiting(it.waiting) : '') : '', peek = af.peek === f.key, dk = K.domKey(f.key);
       return '<li class="af-row" id="af-row-' + dk + '"' + (st ? ' data-af-row="' + esc(f.rel) + '" data-af-status="' + esc(st) + '"' : '') + '><div class="row between"><span><code>' + esc(f.rel) + '</code>' + (word ? ' <span class="cat">' + esc(word) + '</span>' : '') + '</span>' +
         '<span class="row"><button type="button" class="mini" data-act="af-peek" data-id="' + esc(f.key) + '" aria-expanded="' + peek + '" aria-controls="af-pre-' + dk + '">' + (peek ? 'Hide' : 'Show') + '</button><button type="button" class="mini" data-act="af-copy" data-id="' + esc(f.key) + '">Copy</button>' +
-        (st === 'merge' && it.staged.length ? '<button type="button" class="mini" data-act="af-brief" data-id="' + esc(f.key) + '"' + wait + '>Copy merge request</button>' + (ro ? '' : '<button type="button" class="mini" data-act="af-merged" data-id="' + esc(f.key) + '"' + wait + '>I merged it</button>') : '') + '</span></div>' +
+        (st === 'merge' && it.staged.length ? '<button type="button" class="mini" data-act="af-brief" data-id="' + esc(f.key) + '"' + wait + '>Copy merge request</button>' + (ro ? '' : '<button type="button" class="mini" data-act="af-merged" data-id="' + esc(f.key) + '"' + wait + '>I merged it</button>') : '') +
+        '</span></div>' +
+        (it && it.old && it.old.length ? '<p class="small">' + esc(afOld(it.old)) + '</p>' : '') +
         '<pre id="af-pre-' + dk + '" class="source" tabindex="0"' + (peek ? '' : ' hidden') + '>' + (peek ? esc(f.text) : '') + '</pre></li>';
     }).join('') + '</ul><pre id="af-brief-pre" class="source" tabindex="0"' + (af.briefShown ? '' : ' hidden') + '>' + esc(af.briefShown || '') + '</pre><p class="small"><span id="copy-msg" role="status"></span></p></section>';
     return h;

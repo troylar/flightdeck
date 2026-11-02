@@ -1,5 +1,41 @@
 [
   {
+    "version": "2.12.1",
+    "date": "2026-11-02",
+    "headline": "Get your AI assistant started, and let it read all its instructions",
+    "changes": [
+      {
+        "kind": "new",
+        "area": "Settings",
+        "title": "Copy instructions for your assistant",
+        "now": "One button copies a first prompt for your assistant. It says to read AGENTS.md to the end, says where the skills are, and asks what you want done. Open the team folder itself as the workspace, in Agent mode, then paste it.",
+        "where": "Settings › AI assistant files"
+      },
+      {
+        "kind": "new",
+        "area": "Settings",
+        "title": "Download skills ZIP",
+        "now": "Download the skills as a ZIP, made from what's already in the app file, with no network and no folder needed. It holds the same files flightdeck skills --to writes. What each skill is for, and what to ask for: docs/skills.md.",
+        "where": "Settings › AI assistant files"
+      },
+      {
+        "kind": "fixed",
+        "area": "AI assistants",
+        "title": "AGENTS.md is short enough to be read to the end",
+        "before": "AGENTS.md had grown past 32 KiB, the point where one assistant stops reading, so that assistant missed the end of the file, a safety rule and all of Team notes.",
+        "now": "AGENTS.md is under 28 KiB, the safety rules come first, and the long formats moved to .flightdeck/skills/_flightdeck/file-formats.md. Every rule stays. Update it with flightdeck install or Settings; Team notes stay as they are. Keep Team notes to about 4 KiB."
+      },
+      {
+        "kind": "fixed",
+        "area": "AI assistants",
+        "title": "A folder set up by a newer version is left alone",
+        "before": "A record from a newer version was read as this copy's own, so 2.12.0's app asked to merge AGENTS.md and left its older default waiting in .flightdeck/updates/2.12.0/.",
+        "now": "flightdeck install, Settings and Folder health leave a folder a newer version set up alone, in the same words. An old default an older app left waiting is named, with its path, never merged or counted; it's safe to delete by hand.",
+        "where": "Settings › AI assistant files"
+      }
+    ]
+  },
+  {
     "version": "2.12.0",
     "date": "2026-11-01",
     "headline": "AI assistant files, from the app",
