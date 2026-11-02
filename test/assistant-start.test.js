@@ -353,7 +353,7 @@ rule('Review 4.1: a waiting AGENTS.md with a Team note or merge note added stays
   assert.ok(r.code === 3 && /needs merge\s+AGENTS\.md \(still waiting in updates\/2\.12\.0\)/.test(r.out) && !/old copy/.test(r.out), 'the command: ' + r.out);
   const files = text(walk(dir)), app = await opened(files), html = await aiFiles(app);
   assert.ok(/data-af-row="AGENTS.md" data-af-status="merge"/.test(html) && /data-act="af-merged" data-id="AGENTS.md"/.test(html) && /data-act="af-brief" data-id="AGENTS.md"/.test(html), 'Settings: a merge, with its merge request');
-  assert.ok(!/data-act="af-putaway"/.test(html) && !/Old copy from/.test(plain(html)), 'Settings: never Put away');
+  assert.ok(!/Old copy from/.test(plain(html)), 'Settings: never an old copy');
   assert.ok(/1 file for AI assistants to merge/.test(plain(await healthOf(app))), 'Folder health: a merge');
 });
 
@@ -379,7 +379,7 @@ rule('Review 4.2: a customized skill whose default didn\'t change since 2.12.0 k
   assert.strictEqual(JSON.parse(files[RECORD]).version, VER, 'set-up: Update wrote the record');
   html = app.html();
   assert.ok(row.test(html), 'Settings, after Update: still a merge: ' + (new RegExp('data-af-row="' + SKILL.replace(/\./g, '\\.') + '" data-af-status="[a-z]+"').exec(html) || [''])[0]);
-  assert.ok(!/data-act="af-putaway"/.test(html) && new RegExp('data-act="af-merged" data-id="' + SKILL.replace(/\./g, '\\.') + '"').test(html), 'Settings, after Update: I merged it, never Put away');
+  assert.ok(!/Old copy from/.test(plain(html)) && new RegExp('data-act="af-merged" data-id="' + SKILL.replace(/\./g, '\\.') + '"').test(html), 'Settings, after Update: I merged it, never Put away');
   r = cli('install', toDisk(files), '--check');
   assert.ok(r.code === 3 && !/old copy/.test(r.out), 'the command, after: ' + r.out);
   assert.ok(/1 file for AI assistants to merge/.test(plain(await healthOf(app))), 'Folder health, after: a merge');
@@ -450,7 +450,7 @@ rule('An old copy left by an older app is no merge: install --check counts nothi
   let r = cli('install', dir, '--check');
   assert.strictEqual(r.code, 0, r.out);
   assert.ok(!/needs merge/.test(r.out), 'no merge: ' + r.out);
-  assert.ok(/old copy, nothing to merge\s+AGENTS\.md \(left in updates\/2\.12\.0 by an older Flightdeck; Settings, AI assistant files can put it away\)/.test(r.out), 'named: ' + r.out);
+  assert.ok(/old copy, nothing to merge\s+AGENTS\.md \(left in updates\/2\.12\.0 by an older Flightdeck; safe to delete by hand\)/.test(r.out), 'named: ' + r.out);
   r = cli('install', dir);
   assert.strictEqual(r.code, 0, r.out);
   assert.ok(!fs.existsSync(path.join(dir, '.flightdeck', 'updates', VER, 'AGENTS.md')) && !fs.existsSync(path.join(dir, '.flightdeck', 'updates', VER, 'README.md')), 'nothing staged');
@@ -476,52 +476,37 @@ rule('A team change with an older default still waiting: install stages the new 
   assert.strictEqual(fs.readFileSync(path.join(dir, '.flightdeck', 'updates', '2.12.0', 'AGENTS.md'), 'utf8'), OLD, 'nothing removed');
 });
 
-rule('Settings names an old copy without asking for a merge, and Put away files it beside the replaced files, checked, as I merged it does', async () => {
+/* ---- round 5 data review: one rule decides an old copy, from the bytes ---- */
+const BOM = '﻿', COPY = '.flightdeck/updates/2.12.0/AGENTS.md';
+const checkOf = (dir) => cli('install', dir, '--check');
+/* The folder on disk as the app's files now are, for the command. */
+function diskOf(files) { return toDisk(Object.fromEntries(Object.entries(files).filter(([, v]) => typeof v === 'string'))); }
+/* An old copy is named, with its path, as safe to delete by hand; nothing in the app or the command removes or archives it.
+   (Put away was cut from 2.12.1: docs/design.md, section 42.) */
+const OLD_LINE = /Old copy from 2\.12\.0: an older shipped default an older Flightdeck left, with nothing to merge\. It's safe to delete by hand: \.flightdeck\/updates\/2\.12\.0\/AGENTS\.md\./;
+const archived = (files) => Object.keys(files).filter(k => /\/replaced\//.test(k));
+rule('Settings names an old copy as an older shipped default with nothing to merge, with its path, safe to delete by hand: no merge request, and no button removes it', async () => {
   const files = text(walk(leftBy212())), app = await opened(files);
   const html = await aiFiles(app), page = plain(html);
   assert.ok(/data-af-row="AGENTS.md" data-af-status="current"/.test(html), 'AGENTS.md is up to date');
   assert.ok(!/data-act="af-merged" data-id="AGENTS.md"|data-act="af-brief" data-id="AGENTS.md"/.test(html) && !/\d+ to merge|Waiting to merge/.test(page), 'no merge, no merge request');
-  assert.ok(/Old copy from 2\.12\.0, nothing to merge/.test(page), 'named: ' + page.slice(page.indexOf('AGENTS.md'), page.indexOf('AGENTS.md') + 200));
-  assert.ok(/data-act="af-putaway" data-id="AGENTS.md"/.test(html), 'Put away is offered');
-  app.node('[data-act="af-putaway"]').focus();
-  app.click('af-putaway', 'AGENTS.md'); await app.tick(800);
-  assert.ok(!('.flightdeck/updates/2.12.0/AGENTS.md' in files), 'it\'s gone from where it waited');
-  assert.ok(/role="status">Put away\. The copy is beside the replaced files/.test(app.html()), 'announced, as a status');
-  assert.strictEqual(app.activeId(), 'set-ai', 'the button is gone, so focus goes to the heading');
-  const kept = Object.keys(files).filter(k => new RegExp('^\\.flightdeck/updates/' + VER.replace(/\./g, '\\.') + '/replaced/[^/]+/staged/2\\.12\\.0/AGENTS\\.md$').test(k));
-  assert.ok(kept.length === 1 && files[kept[0]] === OLD, 'filed beside the replaced files, word for word: ' + kept.join(', '));
-  assert.ok(/Put away\. The copy is beside the replaced files/.test(plain(app.html())), 'the outcome says so');
-  assert.ok(!/data-act="af-putaway"/.test(app.html()), 'nothing left to put away');
-
-  const ed = text(walk(leftBy212(EDITED))), app2 = await opened(ed);
-  const h2 = await aiFiles(app2);
-  assert.ok(/data-af-row="AGENTS.md" data-af-status="merge"/.test(h2) && /data-act="af-merged" data-id="AGENTS.md"/.test(h2) && !/data-act="af-putaway"/.test(h2), 'a changed copy is still a merge');
+  assert.ok(OLD_LINE.test(page), 'named: ' + page.slice(page.indexOf('Old copy'), page.indexOf('Old copy') + 220));
+  assert.ok(!/putaway|Put away/.test(html), 'no Put away');
+  const row = /<li class="af-row"[^>]*data-af-row="AGENTS.md"[^]*?<\/li>/.exec(html)[0];
+  assert.deepStrictEqual((row.match(/data-act="[^"]+"/g) || []).sort(), ['data-act="af-copy"', 'data-act="af-peek"'], 'the row offers only Show and Copy');
+  for (const b of app.html().match(/data-act="af-[a-z]+"(?: data-id="[^"]*")?/g) || []) { const m = /data-act="([^"]+)"(?: data-id="([^"]*)")?/.exec(b); if (['af-zip', 'af-where', 'af-pick'].includes(m[1])) continue; app.click(m[1], m[2] ? unesc(m[2]) : undefined); await app.tick(400); }
+  assert.strictEqual(files[COPY], OLD, 'every button pressed, and the old copy is where it was, byte for byte');
+  assert.deepStrictEqual(archived(files), [], 'and nothing was filed away');
+  const ed = text(walk(leftBy212(EDITED))), h2 = await aiFiles(await opened(ed));
+  assert.ok(/data-af-row="AGENTS.md" data-af-status="merge"/.test(h2) && /data-act="af-merged" data-id="AGENTS.md"/.test(h2) && !/Old copy from/.test(plain(h2)), 'a changed copy is still a merge');
 });
 
-rule('Put away reads the copy again first: one changed since the screen read it is left where it is', async () => {
-  const files = text(walk(leftBy212())), app = await opened(files);
-  await aiFiles(app);
-  files['.flightdeck/updates/2.12.0/AGENTS.md'] = EDITED(OLD);
-  app.click('af-putaway', 'AGENTS.md'); await app.tick(800);
-  assert.strictEqual(files['.flightdeck/updates/2.12.0/AGENTS.md'], EDITED(OLD), 'never removed');
-  assert.ok(/changed since this screen read it, so it was left where it is/.test(plain(app.html())), plain(app.html()).slice(0, 0));
+rule('The old-copy line escapes its path', () => {
+  const src = fs.readFileSync(path.join(ROOT, 'src', 'ui', 'views', 'manage.js'), 'utf8');
+  assert.ok(/esc\(afOld\(it\.old\)\)/.test(src), 'drawn through esc()');
+  const m = /function afOld\(list\) \{[^]*?\n  \}/.exec(src);
+  assert.ok(m && !/innerHTML|'<|>'/.test(m[0]), 'plain text, no markup');
 });
-
-/* ---- round 5 data review: one rule decides an old copy, from the bytes, and Put away asks it again at the click ---- */
-const BOM = '﻿', COPY = '.flightdeck/updates/2.12.0/AGENTS.md';
-const filedAway = (files) => Object.keys(files).filter(k => /\/replaced\/[^/]+\/staged\/2\.12\.0\/AGENTS\.md$/.test(k));
-const checkOf = (dir) => cli('install', dir, '--check');
-/* The folder on disk as the app's files now are, for the command. */
-function diskOf(files) { return toDisk(Object.fromEntries(Object.entries(files).filter(([, v]) => typeof v === 'string'))); }
-/* Settings open on a folder where 2.12.0 left its default, Put away offered; then change(files) as another editor would, and click. */
-async function putAwayAfter(files, change) {
-  const app = await opened(files), html = await aiFiles(app);
-  assert.ok(/data-act="af-putaway" data-id="AGENTS.md"/.test(html), 'Put away is offered when the screen reads the folder');
-  change(files);
-  app.node('[data-act="af-putaway"]').focus();
-  app.click('af-putaway', 'AGENTS.md'); await app.tick(1200);
-  return app;
-}
 
 rule('The test folder reads a byte-order mark as a browser does: File.text() drops it, arrayBuffer() keeps it', async () => {
   const f = await folderHandle('Team', { 'a.md': BOM + 'hi\n' }).getFileHandle('a.md').then(h => h.getFile());
@@ -554,68 +539,50 @@ rule('One function decides old copies, from each file\'s own text, a byte-order 
   for (const [f, re] of [['src/ui/app.js', /classifyCopies/], ['src/core/health.js', /\.old\b/], ['bin/flightdeck.js', /classifyCopies/]]) assert.ok(re.test(fs.readFileSync(path.join(ROOT, f), 'utf8')), f);
 });
 
-rule('Round 5.1: Put away asks again at the click: the file became a customized older version, so the copy is a merge again, kept and said so; the command agrees', async () => {
+rule('Round 5.1: an old copy is decided again on every read: once the file is a customized older version the copy is a merge, with Copy merge request; the command agrees', async () => {
   const files = text(walk(leftBy212()));
-  const app = await putAwayAfter(files, f => { f['AGENTS.md'] = EDITED(OLD) + NOTES; });
+  assert.ok(OLD_LINE.test(plain(await aiFiles(await opened(files)))), 'first an old copy');
+  files['AGENTS.md'] = EDITED(OLD) + NOTES;
+  const html = await aiFiles(await opened(files));
+  assert.ok(/data-af-row="AGENTS.md" data-af-status="merge"/.test(html) && /data-act="af-brief" data-id="AGENTS.md"/.test(html) && !/Old copy from/.test(plain(html)), 'then a merge, with Copy merge request');
   assert.strictEqual(files[COPY], OLD, 'the copy is where it was');
-  assert.deepStrictEqual(filedAway(files), [], 'nothing filed away');
-  const html = app.html(), page = plain(html);
-  assert.ok(/data-af-row="AGENTS.md" data-af-status="merge"/.test(html), 'the row is a merge again: ' + (/data-af-row="AGENTS.md" data-af-status="[^"]*"/.exec(html) || [''])[0]);
-  assert.ok(/data-act="af-brief" data-id="AGENTS.md"/.test(html) && !/data-act="af-putaway"/.test(html), 'it offers Copy merge request, not Put away');
-  assert.ok(/role="alert">The copy waiting in 2\.12\.0 has something to merge now/.test(html), 'said, as an alert: it needs looking at');
-  assert.strictEqual(app.activeId(), 'set-ai', 'the button is gone, so focus goes to the heading');
-  assert.ok(/The copy waiting in 2\.12\.0 has something to merge now: the files changed since this screen read them\. It was left where it is; Copy merge request hands it to your AI assistant\./.test(page), 'in words');
   const r = checkOf(diskOf(files));
   assert.ok(r.code === 3 && /needs merge\s+AGENTS\.md \(still waiting in updates\/2\.12\.0\)/.test(r.out) && !/old copy/.test(r.out), 'the command keeps it pending: ' + r.out);
 });
 
-rule('Round 5.1: the file changed between the read and the click to another text with the newer default in it: still old, put away', async () => {
-  const files = text(walk(leftBy212()));
-  const app = await putAwayAfter(files, f => { f['AGENTS.md'] = AGENTS + NOTES; });
-  assert.ok(!(COPY in files), 'put away');
-  assert.ok(filedAway(files).length === 1 && files[filedAway(files)[0]] === OLD, 'filed beside the replaced files');
-  assert.ok(/role="status">Put away\. The copy is beside the replaced files/.test(app.html()));
-  const d = leftBy212(); fs.writeFileSync(path.join(d, 'AGENTS.md'), AGENTS + NOTES);
-  assert.ok(/old copy, nothing to merge\s+AGENTS\.md/.test(checkOf(d).out), 'the command agrees it is old');
+rule('Round 5.1: the file with another text holding the newer default (Team notes added): still an old copy, in Settings and the command', async () => {
+  const files = text(walk(leftBy212())); files['AGENTS.md'] = AGENTS + NOTES;
+  assert.ok(OLD_LINE.test(plain(await aiFiles(await opened(files)))), 'Settings: old');
+  assert.ok(/old copy, nothing to merge\s+AGENTS\.md/.test(checkOf(diskOf(files)).out), 'the command agrees it is old');
 });
 
-rule('Round 5.2: a waiting 2.12.0 AGENTS.md with a byte-order mark is a merge in Settings, Folder health and the command, and is never offered Put away', async () => {
+rule('Round 5.2: a waiting 2.12.0 AGENTS.md with a byte-order mark is a merge in Settings, Folder health and the command, never an old copy', async () => {
   const dir = leftBy212(t => BOM + t), files = text(walk(dir));
   assert.strictEqual(files[COPY].charCodeAt(0), 0xfeff, 'the copy has the mark');
   const app = await opened(files), html = await aiFiles(app);
   assert.ok(/data-af-row="AGENTS.md" data-af-status="merge"/.test(html) && /data-act="af-brief" data-id="AGENTS.md"/.test(html), 'Settings: a merge');
-  assert.ok(!/data-act="af-putaway"/.test(html) && !/Old copy from/.test(plain(html)), 'Settings: never Put away');
+  assert.ok(!/Old copy from/.test(plain(html)), 'Settings: never an old copy');
   assert.ok(/1 file for AI assistants to merge/.test(plain(await healthOf(app))), 'Folder health: a merge');
   const r = checkOf(dir);
   assert.ok(r.code === 3 && /needs merge\s+AGENTS\.md \(still waiting in updates\/2\.12\.0\)/.test(r.out) && !/old copy/.test(r.out), 'the command: ' + r.out);
 });
 
-rule('Round 5.2: a byte-order mark gained between the read and the click makes the copy a merge: it is left, byte for byte', async () => {
-  const files = text(walk(leftBy212()));
-  const app = await putAwayAfter(files, f => { f[COPY] = BOM + OLD; });
-  assert.strictEqual(files[COPY], BOM + OLD, 'left, mark and all');
-  assert.deepStrictEqual(filedAway(files), []);
-  assert.ok(/data-af-row="AGENTS.md" data-af-status="merge"/.test(app.html()) && !/data-act="af-putaway"/.test(app.html()), 'a merge now');
-});
-
-rule('Round 5: a byte-order mark on the file only (the copy is exact): an old copy in Settings, Folder health and the command alike, and Put away files it', async () => {
+rule('Round 5: a byte-order mark on the file only (the copy is exact): an old copy in Settings, Folder health and the command alike, and left where it is', async () => {
   const dir = leftBy212(); fs.writeFileSync(path.join(dir, 'AGENTS.md'), BOM + fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'));
   const files = text(walk(dir));
   assert.ok(/old copy, nothing to merge\s+AGENTS\.md/.test(checkOf(dir).out), 'the command: old');
   const app = await opened(files);
   assert.ok(/1 old copy an older Flightdeck left/.test(plain(await healthOf(app))), 'Folder health: old');
-  const html = await aiFiles(app);
-  assert.ok(/data-act="af-putaway" data-id="AGENTS.md"/.test(html) && /Old copy from 2\.12\.0, nothing to merge/.test(plain(html)), 'Settings: old');
-  app.click('af-putaway', 'AGENTS.md'); await app.tick(1200);
-  assert.ok(!(COPY in files) && filedAway(files).length === 1, 'put away');
+  assert.ok(OLD_LINE.test(plain(await aiFiles(app))), 'Settings: old');
+  assert.strictEqual(files[COPY], OLD, 'left where it is');
   assert.strictEqual(files['AGENTS.md'].charCodeAt(0), 0xfeff, 'the file itself untouched');
 });
 
-rule('Folder health doesn\'t count an old copy, and says it can be put away', async () => {
+rule('Folder health doesn\'t count an old copy, and says, with its path, it is safe to delete by hand', async () => {
   const app = await opened(text(walk(leftBy212())));
   const h = plain(await healthOf(app));
-  assert.ok(!/to merge|waiting to be merged/.test(h), 'no merge');
-  assert.ok(/1 old copy an older Flightdeck left in \.flightdeck\/updates\/ can be put away in AI assistant files\./.test(h), (/The files for AI assistants[^]*?\./.exec(h) || [''])[0]);
+  assert.ok(!/for AI assistants to merge|waiting to be merged/.test(h), 'no merge');
+  assert.ok(/1 old copy an older Flightdeck left in \.flightdeck\/updates\/ has nothing to merge and is safe to delete by hand: \.flightdeck\/updates\/2\.12\.0\/AGENTS\.md\./.test(h), (/The files for AI assistants[^]*?\./.exec(h) || [''])[0]);
   const app2 = await opened(text(walk(leftBy212(EDITED))));
   assert.ok(/1 file for AI assistants to merge/.test(plain(await healthOf(app2))), 'a changed copy is still a merge');
 });
@@ -639,9 +606,9 @@ rule('The real path: 2.12.1 installs, the real 2.12.0 page "updates", 2.12.1 ope
   const app = await opened(files), html = await aiFiles(app), page = plain(html);
   assert.ok(/data-af-row="AGENTS.md" data-af-status="current"/.test(html), 'Settings: AGENTS.md is up to date');
   assert.ok(!/data-act="af-merged" data-id="AGENTS.md"|data-act="af-brief" data-id="AGENTS.md"/.test(html) && !/\d+ to merge|Waiting to merge/.test(page), 'Settings: no merge, no merge request');
-  assert.ok(/Old copy from 2\.12\.0, nothing to merge/.test(page), 'Settings: named as an old copy');
+  assert.ok(OLD_LINE.test(page), 'Settings: named as an old copy');
   const h = plain(await healthOf(app));
-  assert.ok(!/to merge|waiting to be merged/.test(h) && /1 old copy an older Flightdeck left/.test(h), 'Folder health: no merge, the old copy named');
+  assert.ok(!/for AI assistants to merge|waiting to be merged/.test(h) && /1 old copy an older Flightdeck left/.test(h), 'Folder health: no merge, the old copy named');
   const disk = toDisk(files);
   let r = cli('install', disk, '--check');
   assert.strictEqual(r.code, 0, 'install --check: ' + r.out);

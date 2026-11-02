@@ -850,6 +850,7 @@ const FIXED = 'a fixed set of parts, at most a handful';
 const GROUP = 'one group path (Group / Subgroup), as deep as its author wrote it';
 const D10_JOIN_OK = [
   { file: 'manage.js', has: 'list.join(\', \')', why: 'at most 3: afWaiting counts the rest' }, { file: 'manage.js', has: 'list.slice(0, 3).join(', why: 'at most 3: afWaiting counts the rest' },
+  { file: 'manage.js', has: 'paths.slice(0, 3).join(', why: 'at most 3 old copies\' paths: afOld counts the rest' },
   { file: 'app.js', has: 'tg.updates.join(', why: 'a folder\'s parts, a fixed list in the code' }, { file: 'app.js', has: 'tg.updates.concat(v).join', why: 'one prompt per version folder holding this file, copied to the clipboard, never drawn' },
   { file: 'builder.js', has: 'function described(', why: ARIA }, { file: 'builder.js', has: 'function sigOf(', why: NOT_TEXT },
   { file: 'builder.js', has: 'group: T.groupOf(t).join(\' / \')', why: 'a step type\'s group, at most 80 characters, and its tags, at most 10, a type file over either is refused when read (core/types.js)' },
@@ -925,7 +926,7 @@ const D10_JOIN_OK = [
   { file: 'app.js', has: 'typeChange(\'tag removal\'', why: FORMVAL }, { file: 'app.js', has: 'sigN = names.join', why: NOT_TEXT },
   { file: 'app.js', has: 'return { text: out.join', why: FILE },
   { file: 'app.js', has: 'cx.renamed.concat(rl.renamed)', why: 'names typed in New checklist\'s boxes, each at most 120 characters' },
-  { file: 'manage.js', has: 'esc(\'Old copy from \' + afWaiting(', why: 'the versions go through afWaiting, which shows the first 3 and "and N more"' }
+  { file: 'manage.js', has: 'return \'Old copy from \' + afWaiting(', why: 'the versions go through afWaiting, which shows the first 3 and "and N more"' }
 ];
 /* Every .join( in the views and app.js whose separator isn't '', with its line number and file. */
 function joins(src) {

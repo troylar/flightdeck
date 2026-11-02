@@ -30,7 +30,7 @@
         "area": "AI assistants",
         "title": "A folder set up by a newer version is left alone",
         "before": "A record from a newer version was read as this copy's own, so 2.12.0's app asked to merge AGENTS.md and left its older default waiting in .flightdeck/updates/2.12.0/.",
-        "now": "flightdeck install, Settings and Folder health leave a folder a newer version set up alone, in the same words. An old default an older app left waiting is named, never merged or counted; Put away files it with the replaced files.",
+        "now": "flightdeck install, Settings and Folder health leave a folder a newer version set up alone, in the same words. An old default an older app left waiting is named, with its path, never merged, counted or removed; it's safe to delete by hand.",
         "where": "Settings › AI assistant files"
       }
     ]

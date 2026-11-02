@@ -134,8 +134,8 @@ PF.contract = (function () {
     return { hash: PF.sha256.hex(managed(key, raw)), shape: shapeOf(key, raw) };
   }
   /* The one rule for which copies waiting in the updates folder are old copies an older Flightdeck left, with nothing in them
-     to merge (2.12.1). The app's scan, Settings, Folder health, Put away (again at the click) and the command all ask this, and
-     nothing else decides. A copy is old when all three hold:
+     to merge (2.12.1). The app's scan, Settings, Folder health and the command all ask this, and nothing else decides. An old copy
+     is named, with its path, as safe to delete by hand; nothing removes or archives it. A copy is old when all three hold:
      (a) the whole copy is exactly the default its own version shipped: its shape is the one this version ships (Flightdeck has
          shipped one AGENTS.md shape since 1.15; test/assistant-start.test.js checks every release since) and its Flightdeck
          part's hash is in the baselines under that version. A byte-order mark, Windows line endings, a Team note or a merge
@@ -238,14 +238,13 @@ PF.contract = (function () {
     skipped: { kind: 'warn', reload: true, words: wroteWords },
     'merge-done': { kind: 'good', reload: true, words: function () { return 'Put away. The copy is beside the replaced files, in case you need it.'; } },
     'merge-left': { kind: 'warn', reload: true, words: function (o) { return 'A copy waiting in ' + (o.left.length === 1 ? o.left[0] : o.left.length + ' versions') + ' changed since this screen read it, so it was left where it is. Look at it again.'; } },
-    'putaway-merge': { kind: 'warn', reload: true, words: function (o) { return (o.putAway ? count(o.putAway, 'copy').replace('copys', 'copies') + (o.putAway === 1 ? ' was' : ' were') + ' put away. ' : '') + (o.merge.length === 1 ? 'The copy waiting in ' + o.merge[0] + ' has' : 'The copies waiting in ' + shortList(o.merge) + ' have') + ' something to merge now: the files changed since this screen read them. ' + (o.merge.length === 1 ? 'It was' : 'They were') + ' left where ' + (o.merge.length === 1 ? 'it is' : 'they are') + '; Copy merge request hands ' + (o.merge.length === 1 ? 'it' : 'them') + ' to your AI assistant.'; } },
     'merge-partial': { kind: 'warn', reload: true, words: function (o) { return count(o.putAway, 'copy').replace('copys', 'copies') + (o.putAway === 1 ? ' was' : ' were') + ' put away before this stopped: ' + o.error.why; } },
     'merge-unsure': { kind: 'warn', reload: true, words: function (o) { return (o.putAway ? count(o.putAway, 'copy').replace('copys', 'copies') + (o.putAway === 1 ? ' was' : ' were') + ' put away. ' : '') + 'The copy waiting in ' + shortList(o.unsure) + ' may or may not have been put away: removing it failed and Flightdeck couldn\'t check. ' + o.error.why + ' Look at it again.'; } },
     'merge-failed': { kind: 'warn', words: function (o) { return 'Nothing was put away. ' + o.error.why; } }
   };
   function settleState(f) {
     if (f.op === 'merge' && f.unsure && f.unsure.length) return 'merge-unsure';
-    if (f.op === 'merge') return f.error ? (f.putAway ? 'merge-partial' : 'merge-failed') : f.left.length ? 'merge-left' : f.merge && f.merge.length ? 'putaway-merge' : 'merge-done';
+    if (f.op === 'merge') return f.error ? (f.putAway ? 'merge-partial' : 'merge-failed') : f.left.length ? 'merge-left' : 'merge-done';
     if (f.newer) return 'newer';
     if (f.tooBig) return 'too-big';
     if (f.blocked) return 'blocked';

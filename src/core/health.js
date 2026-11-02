@@ -418,7 +418,7 @@ PF.health = (function () {
     /* Each waiting copy comes already told old or not (x.old, from PF.contract.classifyCopies over the files as read); this only
        counts. */
     var items = keys.map(function (k) { var all = (c.staged || {})[k] || []; return { key: k, want: c.want[k], have: Object.prototype.hasOwnProperty.call(c.hashes, k) ? c.hashes[k] : null, old: all.filter(function (x) { return x.old === true; }), staged: all.filter(function (x) { return x.old !== true; }) }; });
-    var leftover = items.reduce(function (n, it) { return n + it.old.length; }, 0);
+    var olds = items.reduce(function (a, it) { return a.concat(it.old.map(function (x) { return x.path; }).filter(Boolean)); }, []), leftover = items.reduce(function (n, it) { return n + it.old.length; }, 0);
     var st = C.classify(items, rec, B, snap.app);
     var of = function (list) { return st.filter(function (x) { return list.indexOf(x.status) >= 0; }).map(function (x) { return x.key; }); };
     var old = of(['update']), missing = of(['new', 'missing']), merge = of(['merge']), custom = of(['kept']);
@@ -430,8 +430,8 @@ PF.health = (function () {
     if (scan.installed === null && !noAgents) add({ id: 'contract-record', severity: 'info', area: 'AI assistants', title: 'No record of which defaults this folder started from', detail: 'Update writes .flightdeck/installed.json, so later updates can tell a default from your team\'s change.', paths: ['.flightdeck/installed.json'], action: open, help: HELP.newer });
     if (rec.ignored) add({ id: 'contract-record', severity: 'warn', area: 'AI assistants', title: '.flightdeck/installed.json can\'t be read', detail: 'The next update writes it again.', paths: ['.flightdeck/installed.json'], action: open, help: HELP.unreadable });
     /* An old copy an older app left (PF.contract.classifyCopies) is no merge and counts for nothing; it's only named. */
-    var olds = leftover ? ' ' + leftover + (leftover === 1 ? ' old copy' : ' old copies') + ' an older Flightdeck left in .flightdeck/updates/ can be put away in AI assistant files.' : '';
-    if (!stray.length && !unread.length && !old.length && !missing.length && !merge.length) ok('contract', (custom.length ? 'The files for AI assistants are current; ' + plural(custom.length, 'file has', 'files have') + ' your team\'s own changes, which updates keep.' : 'The files for AI assistants match this version of Flightdeck.') + olds);
+    var oldWords = leftover ? ' ' + leftover + (leftover === 1 ? ' old copy' : ' old copies') + ' an older Flightdeck left in .flightdeck/updates/ ' + (leftover === 1 ? 'has' : 'have') + ' nothing to merge and ' + (leftover === 1 ? 'is' : 'are') + ' safe to delete by hand' + (olds.length ? ': ' + (olds.length <= 3 ? olds.join(', ') : olds.slice(0, 3).join(', ') + ' and ' + (olds.length - 3) + ' more') : '') + '.' : '';
+    if (!stray.length && !unread.length && !old.length && !missing.length && !merge.length) ok('contract', (custom.length ? 'The files for AI assistants are current; ' + plural(custom.length, 'file has', 'files have') + ' your team\'s own changes, which updates keep.' : 'The files for AI assistants match this version of Flightdeck.') + oldWords);
   }
 
   function dedupe(a) { return a.filter(function (x, i) { return a.indexOf(x) === i; }); }

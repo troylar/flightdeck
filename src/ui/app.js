@@ -964,7 +964,7 @@
         /* Not a copy of a file this version ships, like a sync tool's AGENTS-PC.md: nothing can clear it, so it stays named. */
         if (!sg || keys.indexOf(sg.key) < 0) { out.unmatched.push(p); return; }
         var pr = Object.prototype.hasOwnProperty.call(prints, p) && prints[p] ? prints[p] : { hash: null, shape: null };
-        (out.staged[sg.key] = out.staged[sg.key] || []).push({ version: sg.version, hash: pr.hash, print: pr });
+        (out.staged[sg.key] = out.staged[sg.key] || []).push({ version: sg.version, path: p, hash: pr.hash, print: pr });
       });
       /* Which are old copies: PF.contract.classifyCopies, from the files' bytes as the scan read them. */
       keys.forEach(function (k) {
@@ -1460,44 +1460,26 @@
   function afFilesChanged(tg) { if (!tg.standalone) state.healthScan = null; }
   /* I merged it: each copy of this file waiting in the updates folder is put away beside the replaced files (copied, read
      back), and removed only if it's still exactly what this screen read. */
-  /* I merged it puts away the copies waiting to be merged; Put away (old) the old copies an older app left. The same checked
-     way for both: each copy is read again and must be what this screen read, then filed beside the replaced files and read back
-     before the original is removed. Put away first reads the file and every copy waiting for it again, as bytes, and asks
-     PF.contract.classifyCopies again: a copy that isn't old any more (the file or a copy changed since this screen read them)
-     is left where it is, and the reload shows it as a merge. */
-  function afMerged(key, old) {
+  function afMerged(key) {
     var af = afState(), it = af.load && af.load.items.filter(function (i) { return i.key === key; })[0];
-    var list = it && (old ? it.old || [] : it.staged);
-    if (!it || !afReady(af) || !list.length) return;
+    if (!it || !afReady(af) || !it.staged.length) return;
     var tg = afTarget(af); if (afReadOnly(tg, af)) return;
-    var alive = afGuard(af), fs = tg.fs, f = { op: 'merge', putAway: 0, left: [], unsure: [], merge: [] };
+    var alive = afGuard(af), fs = tg.fs, f = { op: 'merge', putAway: 0, left: [], unsure: [] };
     af.busy = true; af.outcome = null; af.err = null; render();
-    var still = !old ? Promise.resolve(list) : afRead(tg).then(function (l) {
-      var now = l.items.filter(function (i) { return i.key === key; })[0], olds = (now && !l.record.newer && now.old) || [];
-      var there = now ? (now.staged || []).concat(olds) : [];
-      return list.filter(function (x) {
-        if (olds.some(function (y) { return y.path === x.path && y.full === x.full; })) return true;
-        (there.some(function (y) { return y.path === x.path && y.full === x.full; }) ? f.merge : f.left).push(x.version);
-        return false;
-      });
-    });
-    still.then(function (go) {
-      if (!alive() || !go.length) return;
-      return repo.archiveDir(fs, tg.updates.join('/') + '/' + APP_VERSION + '/replaced').then(function (d) {
-        return go.reduce(function (q, x) {
-          return q.then(function () {
-            if (!alive()) return;
-            return fs.read(x.path, { maxBytes: AF_MAX }).then(function (r) {
-              if (!alive()) return null;
-              if (!r) { f.left.push(x.version); return null; }
-              return digests([r.text]).then(function (ds) {
-                if (!ds || ds[0] !== x.full) { f.left.push(x.version); return; }
-                return repo.archiveStaged(fs, d, x.path, 'staged/' + x.version + '/' + it.rel, r.text, alive).then(function (done) { if (done.unsure) { f.unsure.push(x.version); throw new Error(done.why); } if (done.changed) f.left.push(x.version); else f.putAway++; });
-              });
+    repo.archiveDir(fs, tg.updates.join('/') + '/' + APP_VERSION + '/replaced').then(function (d) {
+      return it.staged.reduce(function (q, x) {
+        return q.then(function () {
+          if (!alive()) return;
+          return fs.read(x.path, { maxBytes: AF_MAX }).then(function (r) {
+            if (!alive()) return null;
+            if (!r) { f.left.push(x.version); return null; }
+            return digests([r.text]).then(function (ds) {
+              if (!ds || ds[0] !== x.full) { f.left.push(x.version); return; }
+              return repo.archiveStaged(fs, d, x.path, 'staged/' + x.version + '/' + it.rel, r.text, alive).then(function (done) { if (done.unsure) { f.unsure.push(x.version); throw new Error(done.why); } if (done.changed) f.left.push(x.version); else f.putAway++; });
             });
           });
-        }, Promise.resolve());
-      });
+        });
+      }, Promise.resolve());
     }).then(function () { if (alive()) return afFinish(af, tg, f); }, function (e) {
       if (!alive()) return;
       f.error = { why: e && e.message || String(e) };
@@ -5882,7 +5864,6 @@
     'af-allow': function () { afAllow(); },
     'af-update': function () { afUpdate(); },
     'af-merged': function (id) { afMerged(id); },
-    'af-putaway': function (id) { afMerged(id, true); },
     'af-peek': function (id) { var af = afState(); af.peek = af.peek === id ? null : id; render(); },
     'af-copy': function (id) {
       var f = afFile(id), af = afState(); if (!f) return;

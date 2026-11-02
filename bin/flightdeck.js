@@ -411,7 +411,7 @@ const LABEL = { current: 'up to date', update: 'updated', new: 'added', missing:
 const CHECK_LABEL = { update: 'update available', new: 'will be added', missing: 'will be added again', merge: 'needs merge', forced: 'will be replaced (--force)', kept: 'kept (your team changed it)' };
 function report(items, check, out) {
   items.filter((i) => i.status !== 'current').forEach((i) => out.push('  ' + (i.changed ? 'changed during install' : (check ? CHECK_LABEL : LABEL)[i.status]).padEnd(28) + i.rel + (i.waiting ? ' (still waiting in updates/' + i.waiting + ')' : '')));
-  items.filter((i) => i.old && i.old.length).forEach((i) => out.push('  ' + 'old copy, nothing to merge'.padEnd(28) + i.rel + ' (left in updates/' + i.old.map((x) => x.version).join(', ') + ' by an older Flightdeck; Settings, AI assistant files can put it away)'));
+  items.filter((i) => i.old && i.old.length).forEach((i) => out.push('  ' + 'old copy, nothing to merge'.padEnd(28) + i.rel + ' (left in updates/' + i.old.map((x) => x.version).join(', ') + ' by an older Flightdeck; safe to delete by hand)'));
 }
 /* What install says after the file list: an ignored record, and files left alone because they changed while it ran. */
 function notes(t, out) {

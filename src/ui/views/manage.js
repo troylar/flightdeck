@@ -504,6 +504,12 @@
   /* ---------- Settings, AI assistant files: AGENTS.md and the skills, installed and updated from the app ---------- */
   var AF_WORD = { current: 'Up to date', update: 'Update ready', new: 'Not there yet', missing: 'Deleted, can be added again', kept: 'You changed it', merge: 'Waiting to merge' };
   /* The versions a file waits in, in words: however many folders there are, the row stays one short line. */
+  /* An old copy (PF.contract.classifyCopies): what it is, and where, so it can be deleted by hand. Nothing in Flightdeck removes it. */
+  function afOld(list) {
+    var paths = list.map(function (x) { return x.path; }), one = paths.length === 1;
+    var where = paths.slice(0, 3).join(', ') + (paths.length > 3 ? ' and ' + (paths.length - 3) + ' more' : '');
+    return 'Old copy from ' + afWaiting(list.map(function (x) { return x.version; }).join(', ')).replace(/^ \(in |\)$/g, '') + ': an older shipped default an older Flightdeck left, with nothing to merge. ' + (one ? 'It\'s' : 'They\'re') + ' safe to delete by hand: ' + where + '.';
+  }
   function afWaiting(w) {
     var list = w ? w.split(', ') : [];
     return !list.length ? '' : ' (in ' + (list.length <= 3 ? list.join(', ') : list.slice(0, 3).join(', ') + ' and ' + (list.length - 3) + ' more') + ')';
@@ -539,8 +545,8 @@
       return '<li class="af-row" id="af-row-' + dk + '"' + (st ? ' data-af-row="' + esc(f.rel) + '" data-af-status="' + esc(st) + '"' : '') + '><div class="row between"><span><code>' + esc(f.rel) + '</code>' + (word ? ' <span class="cat">' + esc(word) + '</span>' : '') + '</span>' +
         '<span class="row"><button type="button" class="mini" data-act="af-peek" data-id="' + esc(f.key) + '" aria-expanded="' + peek + '" aria-controls="af-pre-' + dk + '">' + (peek ? 'Hide' : 'Show') + '</button><button type="button" class="mini" data-act="af-copy" data-id="' + esc(f.key) + '">Copy</button>' +
         (st === 'merge' && it.staged.length ? '<button type="button" class="mini" data-act="af-brief" data-id="' + esc(f.key) + '"' + wait + '>Copy merge request</button>' + (ro ? '' : '<button type="button" class="mini" data-act="af-merged" data-id="' + esc(f.key) + '"' + wait + '>I merged it</button>') : '') +
-        (it && it.old && it.old.length && !ro ? '<button type="button" class="mini" data-act="af-putaway" data-id="' + esc(f.key) + '"' + wait + '>Put away</button>' : '') + '</span></div>' +
-        (it && it.old && it.old.length ? '<p class="small">' + esc('Old copy from ' + afWaiting(it.old.map(function (x) { return x.version; }).join(', ')).replace(/^ \(in |\)$/g, '') + ', nothing to merge. An older Flightdeck left it in ' + tg.updates.join('/') + '/; Put away files it with the replaced files.') + '</p>' : '') +
+        '</span></div>' +
+        (it && it.old && it.old.length ? '<p class="small">' + esc(afOld(it.old)) + '</p>' : '') +
         '<pre id="af-pre-' + dk + '" class="source" tabindex="0"' + (peek ? '' : ' hidden') + '>' + (peek ? esc(f.text) : '') + '</pre></li>';
     }).join('') + '</ul><pre id="af-brief-pre" class="source" tabindex="0"' + (af.briefShown ? '' : ' hidden') + '>' + esc(af.briefShown || '') + '</pre><p class="small"><span id="copy-msg" role="status"></span></p></section>';
     return h;

@@ -921,7 +921,7 @@ for (const name of Object.keys(ASYNC_PATHS)) for (const change of ['folder', 'ta
 
 /* A function in this feature that waits on something, and how it's bound. A new one fails until it's listed here. */
 const AF_ASYNC = { afFinish: 'guard', afKeepFocus: 'moves focus only, and only if it is lost; no state', afPerm: 'a question, no state', afIsTeam: 'a question, no state', afUse: 'turn', afRead: 'reads only, for a caller that checks', afLoad: 'guard', afUpdate: 'guard', afMerged: 'guard', afPick: 'chooses', afRemembered: 'chooses', afAllow: 'chooses', afZip: 'guard' };
-const AF_ACTS = ['ai-files', 'af-load', 'af-where', 'af-pick', 'af-allow', 'af-update', 'af-merged', 'af-putaway', 'af-peek', 'af-copy', 'af-brief', 'af-start', 'af-zip'];
+const AF_ACTS = ['ai-files', 'af-load', 'af-where', 'af-pick', 'af-allow', 'af-update', 'af-merged', 'af-peek', 'af-copy', 'af-brief', 'af-start', 'af-zip'];
 function afAudit(src) {
   const out = [], a = src.indexOf('Settings, AI assistant files: flightdeck install'), b = src.indexOf('Getting started (views/setup.js', a), body = src.slice(a, b), fns = {};
   for (const m of body.matchAll(/\n  function (af\w+)\(/g)) { const next = body.indexOf('\n  function ', m.index + 5); fns[m[1]] = body.slice(m.index, next < 0 ? body.length : next); }
@@ -1364,7 +1364,6 @@ const OUTCOME_CASES = {
   unverified: { facts: UP({ wrote: 1, unverified: ['a.md'], unsure: ['b.md'], error: { why: 'The disk said no.' } }), must: /stopped[^]*The disk said no[^]*Updated 1 file[^]*a\.md was written, but Flightdeck couldn't read it back[^]*b\.md/, never: /Nothing was changed/, kind: 'warn' },
   skipped: { facts: UP({ wrote: 1, skipped: ['AGENTS.md'] }), must: /Updated 1 file[^]*Left as[^]*AGENTS\.md/, never: /Nothing was changed/, kind: 'warn' },
   'merge-done': { facts: ME({ putAway: 2 }), must: /Put away/, never: /left where/, kind: 'good' },
-  'putaway-merge': { facts: ME({ merge: ['2.12.0'] }), must: /2\.12\.0 has something to merge now[^]*left where it is[^]*Copy merge request/, never: /^Put away/, kind: 'warn' },
   'merge-left': { facts: ME({ left: ['2.6.0'] }), must: /2\.6\.0[^]*left where it is/, never: /^Put away/, kind: 'warn' },
   'merge-partial': { facts: ME({ putAway: 1, error: { why: 'The disk said no.' } }), must: /1[^]*put away[^]*The disk said no/i, never: /Nothing was/, kind: 'warn' },
   'merge-unsure': { facts: ME({ putAway: 1, unsure: ['2.6.0'], error: { why: 'The disk said no.' } }), must: /1 copy[^]*put away[^]*2\.6\.0[^]*may or may not[^]*The disk said no/, never: /Nothing was/, kind: 'warn' },

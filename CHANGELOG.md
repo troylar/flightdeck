@@ -14,7 +14,7 @@ Get your AI assistant started, and let it read all its instructions.
 ### Fixed
 
 - **AGENTS.md is short enough to be read to the end** (AI assistants). AGENTS.md is under 28 KiB, the safety rules come first, and the long formats moved to .flightdeck/skills/_flightdeck/file-formats.md. Every rule stays. Update it with flightdeck install or Settings; Team notes stay as they are. Keep Team notes to about 4 KiB.
-- **A folder set up by a newer version is left alone** (AI assistants). flightdeck install, Settings and Folder health leave a folder a newer version set up alone, in the same words. An old default an older app left waiting is named, never merged or counted; Put away files it with the replaced files. *Where:* Settings › AI assistant files
+- **A folder set up by a newer version is left alone** (AI assistants). flightdeck install, Settings and Folder health leave a folder a newer version set up alone, in the same words. An old default an older app left waiting is named, with its path, never merged, counted or removed; it's safe to delete by hand. *Where:* Settings › AI assistant files
 
 ## 2.12.0 · Nov 1, 2026
 
