@@ -142,11 +142,15 @@ test/compat-conditions.test.js -
 test/compat-staging.test.js -
 test/compat-pass.test.js -
 test/compat-teamvalues.test.js -
+test/compat-typesave.test.js -
 test/skills-parity.test.js -
 test/build.test.js -
 test/readers.test.js -
 test/cli.test.js -
 test/cli-parity.test.js -
+test/save.test.js -
+test/type-cli.test.js -
+test/type-guards.test.js -
 test/assistant-files.test.js -
 test/assistant-start.test.js -
 test/old-bundles.test.js -

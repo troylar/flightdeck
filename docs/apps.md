@@ -489,6 +489,66 @@ Exit codes: `0` written or proposed; `1` usage, `missing-base`, `too-big` or `fa
 
 **Known limits.** Who has a draft open is what this computer's copy of the folder shows: another computer's editor may arrive late (seconds to minutes over OneDrive), and a tab in the background may stop saying it's there. A shared folder has no atomic compare-and-swap, so a hand edit, an older copy of Flightdeck or a direct file write that lands between the final compare and the write can still be replaced, exactly as in 1.18. A proposal is never lost. Flightdeck 1.19 doesn't merge: a proposal applies only when it starts from the draft exactly as it is. "Within a few seconds" holds on one computer (the editor looks every 2 seconds); across computers it adds OneDrive's sync time, which has no bound. Two computers with the same draft open can each apply the same proposal once before their files sync (it then shows **Applied twice**); to take back an assistant's change in that case, use **Decline** on the process page rather than Undo in the editor.
 
+## Writing step types (for AI assistants)
+
+Contract `flightdeck-write/1` (2.14) for `type save`; `type list` and `type read` print `flightdeck-read/2`. `type save` **changes the team folder**: it writes `step-types/<id>.json` and one history line, `history/step-types/<id>/agent-<operation>.jsonl`, and nothing else, never through a link and never outside the folder.
+
+```
+flightdeck type list <team folder> --json
+flightdeck type read <team folder> <id> --json
+flightdeck type save <team folder> <id> --expect <rev|none> --from <file|-> [--asked-by <person id>] [--note "<text>"] [--dry-run] --json
+```
+
+**How to use them.** `type read` the type and keep `rev`. Save with `--expect <rev>`, or `--expect none` exactly when `type read` said `missing`. `type save` compares the exact bytes you read (the SHA-256 of the file, byte for byte: a byte-order mark or line endings that changed count as a change), writes a complete temporary file beside the target, checks the folder allows hard links, compares again, then makes one link (a new type, which never replaces a file) or one rename (a change), and reads the file back. That's the same guarantee as Flightdeck's own saves, no stronger. Like two Flightdeck windows in different browsers, two saves at the same instant can replace one another without either being told. The history line is a record of who changed what, not a way to get a save back.
+
+### type read and type list
+
+`type read` gives `data` `{ type }`:
+
+| Field | Means |
+|---|---|
+| `id`, `path` | The type asked for, and `step-types/<id>.json` |
+| `state` | `ok`; `missing` (not there, or no `step-types/` folder, and nothing said it was there); `malformed` (not UTF-8, not JSON, not an object, fails Flightdeck's checks, or the file name isn't the ID); `newer` (a newer Flightdeck wrote it); `unreadable` (including when `step-types/` couldn't be listed and the file wasn't found: "Whether this type exists is unknown"); `oversized` (over 1 MB); `vanished` (listed and then gone, or changed twice, while it was read); `link` (a link or a folder at the path) |
+| `rev` | The SHA-256 of the file's exact bytes; `none` only for `missing`; null when it couldn't be read |
+| `bytes`, `bom`, `lineEndings`, `utf8` | Its size, whether it starts with a byte-order mark, `lf`, `crlf`, `mixed` or `none`, and whether it's valid UTF-8 |
+| `text`, `def` | The text as Flightdeck decodes it, and the definition when the JSON is an object (null otherwise, and for `newer`) |
+| `errors`, `needs` | Why it isn't `ok`, and for `newer` the version it needs |
+| `position`, `selected`, `usable` | Its place among the regular `.json` files in `step-types/` in the order Flightdeck reads them (by name, capitals first); `selected` when it's within the first 100, which is all Flightdeck reads; `usable` when Flightdeck loads it as a type. A file the command calls `malformed` can still be `usable` (an invalid byte Flightdeck decodes, for example). Folders and links take no place: null. |
+
+`type list` gives `data` `{ types, limit, count }`: one row per `.json` entry in `step-types/`, files first in load order, then folders and links. Each row is `{ file, id, state, rev, kind, position, selected, usable, copyOf, errors }`: `kind` is `file`, `folder` or `link`; `copyOf` names the type file it's a copy of (`x-LAPTOP.json`, `x (1).json`, `X.json`), even when that file isn't there. `limit` is 100 and `count` the number of regular `.json` files. Exit codes: `0` complete, `4` partial (`problems` names each file that isn't `ok`), `1` usage or a folder that can't be read. The schemas are `SCHEMA2.stepType` and `SCHEMA2.stepTypes` in `src/core/appjson.js`.
+
+### type save
+
+- **Checked first, nothing read or written if any fails:** the ID; `--expect` (64 lowercase hex characters, or exactly `none`); each value flag said once; `--from` (a regular file, or `-` for standard input; never more than 256 KB plus one byte is read, so a bigger input is refused without being read in full, and a folder, FIFO or device is refused) holding at most 256 KB of UTF-8 (a leading byte-order mark is dropped), one JSON object whose `id` is the ID, no key twice in one object, no `__proto__`, `constructor` or `prototype` key anywhere, passing Flightdeck's own step-type checks word for word, and no `format` or `features` unless it records 2.0 evidence; `--asked-by` (1 to 80 characters, no control characters); `--note` (up to 200). A save that's refused or fails before its commit leaves the folder as it was: a `step-types/` it made for the save is removed again.
+- **What it writes** is exactly what Flightdeck's editor writes for that definition: two-space JSON, UTF-8 without a byte-order mark, LF. Key order is yours.
+- **Refused, whatever `--expect` says:** a copy beside the type (`copies`: a person decides which to keep), a file a newer Flightdeck made (`newer`).
+- **Warnings, never refusals:** keys Flightdeck's editor would drop on its next save; fields or evidence the change removes while a draft step still names them; past the 100-file limit; a 2.0 type without the `typed-evidence` marker; what the history line leaves out.
+
+Prints `{ contract, app, command, path, operation, outcome, written, rev, back, load, existing, appLoads, checks, askedBy, history, cleanup, error, words, readAt, complete, problems }`:
+
+| Field | Means |
+|---|---|
+| `operation` | This command's own ID, `p-<time>-<10 random>`, also the history file's name |
+| `outcome` | `done`, `same` (it already says exactly this), `checked` (`--dry-run`), `refused`, `failed`, `held`, `partial`, `replaced`, `unverified` or `unsure` |
+| `written` | `true` when this command's link or rename returned, `false` when nothing was changed, `null` when it may or may not have been (`unsure`). It's the field that tells "written, read-back failed" from "nothing changed". |
+| `rev` | `expected` (your `--expect`), `before` (what it found), `after` (what it tried to write) and `now` (what it read back whole, or null) |
+| `back` | The read-back: `same`, `other` (another change replaced it), `missing` (removed), `unreadable`, `unstable` (it changed while being read back), or null when nothing was written |
+| `load` | `{ position, limit, selected, from }`: where the type sits among the files Flightdeck reads, as of the save (`from` `C`) or, for `--dry-run`, if it were saved (`R1`) |
+| `existing`, `appLoads` | What was there (`missing`, `ok`, `malformed` or `newer`) and whether Flightdeck loads it; they pick the person's route when the command can't save (the step-type skill has the table) |
+| `checks` | `errors` (why the definition isn't valid), `warnings`, and `omitted` (`before`, `after`): why the history line leaves out a definition (`invalid`, `cap`, `cleaned`, `fallback`, or null) |
+| `askedBy` | `{ id, name }` from `people.json`, or null |
+| `history` | `{ path, written, why }` when a line was attempted (only after a write); `written` can be null when its link's result is unknown |
+| `cleanup` | `{ leftover, why }`: temporary files it couldn't remove (safe to delete), or null |
+| `error` | `{ kind, why }`: `changed`, `copies`, `newer`, `invalid`, `not-allowed`, `no-links`, `usage`, `failed`, `link-check`, `held`, `history`, `cleanup`, `replaced`, `unverified` or `unsure`; null for `done`, `same` and `checked` |
+| `words` | One plain sentence saying what happened, for the person |
+| `complete`, `problems` | Everything this save or its checks met that wasn't clean, from any source (a read that failed, contents rejected, a newer file, a link, a file over the limit): the target (a malformed file this save repairs and a newer one it refuses included), `step-types/`, `people.json` (and the team folder's listing it's looked up in), the drafts read for removed fields (checked against what Flightdeck loads now, so a repair warns too: "Draft release, step approved still uses system, which this change removes. Update that step before calling the change complete."), and the type's history (a line it rejects names its file). What reading drops or changes is named too: bad bytes read as replacement characters, `people.json` entries without a text ID and name, names cut to 60 characters, and a file that replaced this save after its commit but couldn't be read (the outcome stays `replaced`). If the target or `people.json` won't close after it's read, before the commit, the save fails (exit 1). `complete` is `true` only when none of them reported or dropped anything. When `complete` is `false`, a check didn't finish, and `checks.warnings` says which (for example "Couldn't check drafts in maps/drafts/. Check them for uses of the removed fields before calling this change complete."). The exit code still follows `outcome`. Handle both before calling a change complete. |
+
+A `held` save names the next step from the failure: access denied ("Ask the folder owner to check your access"), a file too big to compare ("Ask a person to look at it in Flightdeck"), or a file that changed or vanished as it was read ("Try again once it has synced"). A definition the checks can't read at all (a name that's an object, say) is `refused`, `invalid`, like any other invalid definition.
+
+Exit codes: `0` `done`, `same` or `checked`; `1` `refused` or `failed` (nothing was changed); `4` `held`, `partial`, `replaced`, `unverified` or `unsure` (read the type again before you build on it). The schema is `WRITE1` in `src/core/appjson.js`.
+
+**Known limits.** The final compare and the rename can't be one step on any shared folder: a save whose write and read-back both land between them is replaced, and neither side is told, as between two Flightdeck windows in different browsers today. A copy that appears after the final listing isn't refused; the next save is. An in-place edit that keeps the size and lands within the folder's timestamp granularity can go unseen. Flightdeck 1.10 to 2.0.1 compare a step type by a short fingerprint only, so an old editor can save over a newer type.
+
 ## Registering a skill (for AI assistants)
 
 Flightdeck 2.0 matches a skill to the exact version it was built from. Registrations live in `skill-registrations/<name>/`, one file per revision, and the command below is the only thing that writes them. Never write a file in `skill-registrations/` by hand.

@@ -637,4 +637,263 @@ rule('draft read gets the same complete checks as draft check, and stays flightd
   assert.strictEqual(r.complete, true);
 });
 
+/* ======================= flightdeck type save (2.14, slice A2) against repo.saveStepType ======================= */
+/* Shared rules: the same verdict, the same first error word for word, and the same bytes. Deliberate differences D1 to D8
+   (design section 2.3): each asserts the app's behavior and the command's refusal, by name. */
+const FDB = require(BIN);
+const T2 = PF.types, U2 = PF.util;
+const tdir = (files) => { const d = tmp(); Object.keys(files || {}).forEach((p) => { const f = path.join(d, ...p.split('/')); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, files[p]); }); return d; };
+async function tsave(dir, id, body, expect, extra) {
+  const inF = path.join(tmp(), 'in.json'); fs.writeFileSync(inF, typeof body === 'string' || Buffer.isBuffer(body) ? body : JSON.stringify(body, null, 2));
+  const r = await FDB.main(['type', 'save', dir, id, '--expect', expect, '--from', inF, '--json'].concat(extra || []));
+  const j = JSON.parse(r.out);
+  assert.deepStrictEqual(wrong(j, AJ.WRITE1), [], 'flightdeck-write/1');
+  return j;
+}
+async function appSave(files, d) {
+  const mem = new PF.fs.MemoryFS('tparity:' + Math.random(), null); mem.reset(Object.assign({}, files || {}));
+  try { const r = await PF.repo.saveStepType(mem, JSON.parse(JSON.stringify(d)), null, { expectText: null }); return { ok: !!r.ok, error: null, text: mem.files['step-types/' + d.id + '.json'] ? mem.files['step-types/' + d.id + '.json'].t : null }; }
+  catch (e) { return { ok: false, error: e.message, text: null }; }
+}
+const SHARED = {
+  'valid 1.x type': { id: 'sample.check', label: 'Sample', hint: 'A hint', icon: 'doc', group: 'Releases / Checks', tags: ['cab'], fields: { system: { label: 'System', kind: 'text', required: true }, level: { label: 'Level', kind: 'choice', options: ['Low', 'High'] } }, record: [{ name: 'approval', label: 'Approval', kind: 'text', long: true }] },
+  'valid 2.0 type': { format: 'flightdeck-step-type/2', features: ['typed-evidence'], id: 'sample.count', label: 'Count', record: [{ name: 'rows', label: 'Rows', kind: 'number', min: '0', unit: 'rows' }, { name: 'ok', label: 'OK', kind: 'yes-no' }] },
+  'an unknown top-level key': { id: 'sample.check', label: 'Sample', colour: 'red' },
+  'a bad id': { id: 'Sample', label: 'Sample' },
+  'a built-in id': { id: 'confirm', label: 'Confirm' },
+  'a reserved field name': { id: 'sample.check', label: 'S', fields: { constructor: { label: 'C', kind: 'text' } } },
+  'over 30 fields': (() => { const f = {}; for (let i = 0; i < 31; i++) f['f' + i] = { label: 'F', kind: 'text' }; return { id: 'sample.check', label: 'S', fields: f }; })(),
+  'over 20 evidence': { id: 'sample.check', label: 'S', record: Array.from({ length: 21 }, (x, i) => ({ name: 'r' + i, label: 'R', kind: 'text' })) },
+  'a 2.0 choice whose options clash in capitals': { format: 'flightdeck-step-type/2', features: ['typed-evidence'], id: 'sample.check', label: 'S', record: [{ name: 'n', label: 'N', kind: 'number' }, { name: 'c', label: 'C', kind: 'choice', options: ['Low', 'low'] }] }
+};
+rule('Type parity, shared rules: the command\'s verdict and first error equal repo.saveStepType\'s; saved bytes are equal; a dry run writes nothing', async () => {
+  for (const k of Object.keys(SHARED)) {
+    const d = SHARED[k], dir = tdir({}), app = await appSave({}, d);
+    const id = typeof d.id === 'string' && T2.ID.test(d.id) ? d.id : 'sample.check';
+    const body = Object.assign({}, d); if (id !== d.id) body.id = d.id;
+    const dry = await tsave(dir, id, body, 'none', ['--dry-run']);
+    assert.deepStrictEqual(fs.readdirSync(dir), [], k + ': a dry run writes nothing');
+    const j = await tsave(dir, id, body, 'none');
+    if (!T2.ID.test(String(d.id))) { assert.deepStrictEqual([j.outcome, j.error.kind, app.ok], ['refused', 'usage', false], k); continue; }
+    assert.strictEqual(j.outcome === 'done', app.ok, k + ': same verdict (' + j.words + ' / ' + app.error + ')');
+    assert.strictEqual(dry.outcome === 'checked', app.ok, k + ': dry run verdict');
+    if (app.ok) assert.strictEqual(fs.readFileSync(path.join(dir, 'step-types', d.id + '.json'), 'utf8'), app.text, k + ': same bytes');
+    else assert.strictEqual(j.words, 'Nothing was changed. This isn\'t a step type Flightdeck can use: ' + app.error, k + ': the first error, word for word');
+  }
+});
+rule('Type parity, D1: a /2 envelope with typed-evidence and no typed evidence: the app saves it, the command refuses invalid (formatWhy)', async () => {
+  const d = { format: 'flightdeck-step-type/2', features: ['typed-evidence'], id: 'sample.check', label: 'S' };
+  assert.strictEqual((await appSave({}, d)).ok, true, 'the app saves it');
+  const j = await tsave(tdir({}), 'sample.check', d, 'none');
+  assert.deepStrictEqual([j.outcome, j.error.kind], ['refused', 'invalid']);
+  assert.ok(/doesn't use 2\.0 evidence/.test(j.words), j.words);
+});
+rule('Type parity, D2: a copy beside the target, with or without the target: the app saves anyway and lists the copy as an error; the command refuses copies', async () => {
+  const d = { id: 'sample.check', label: 'S' };
+  for (const files of [{ 'step-types/sample.check-LAPTOP.json': T2.fileText(d) }, { 'step-types/sample.check (1).json': T2.fileText(d), 'step-types/sample.check.json': T2.fileText(d) }]) {
+    const mem = new PF.fs.MemoryFS('d2:' + Math.random(), null); mem.reset(Object.assign({}, files));
+    const was = mem.files['step-types/sample.check.json'];
+    const r = await PF.repo.saveStepType(mem, { id: 'sample.check', label: 'S2' }, was ? U2.hash(was.t) : null, { expectText: was ? was.t : null });
+    assert.ok(r.ok, 'the app saves it');
+    const loaded = await PF.repo.loadStepTypes(mem);
+    assert.ok(loaded.errors.length >= 1, 'and lists the copy as an error');
+    const dir = tdir(files), j = await tsave(dir, 'sample.check', { id: 'sample.check', label: 'S2' }, was ? PF.sha256.hex(was.t) : 'none');
+    assert.deepStrictEqual([j.outcome, j.error.kind], ['refused', 'copies']);
+  }
+});
+rule('Type parity, D3: only a BOM changed since the read: the app sees no conflict (decoded text), the command refuses changed', async () => {
+  const d = { id: 'sample.check', label: 'S' }, t = T2.fileText(d), dir = tdir({ 'step-types/sample.check.json': t });
+  const rev = PF.sha256.hex(t);
+  fs.writeFileSync(path.join(dir, 'step-types', 'sample.check.json'), '﻿' + t);
+  const mem = new PF.fs.MemoryFS('d3:' + Math.random(), null); mem.reset({ 'step-types/sample.check.json': t });
+  const appRead = new TextDecoder('utf-8').decode(fs.readFileSync(path.join(dir, 'step-types', 'sample.check.json')));
+  assert.strictEqual(appRead, t, 'the app reads the same text (File.text() drops the BOM)');
+  assert.ok((await PF.repo.saveStepType(mem, { id: 'sample.check', label: 'S2' }, U2.hash(t), { expectText: appRead })).ok, 'so its save goes ahead');
+  const j = await tsave(dir, 'sample.check', { id: 'sample.check', label: 'S2' }, rev);
+  assert.deepStrictEqual([j.outcome, j.error.kind], ['refused', 'changed']);
+});
+rule('Type parity, D4 and D5: duplicate or odd keys, over 256 KB, or not UTF-8: n/a in the app (the editor builds an object), refused invalid by the command', async () => {
+  const dir = tdir({});
+  for (const body of ['{"id":"sample.check","label":"A","label":"B"}', '{"id":"sample.check","label":"A","__proto__":{"x":1}}', Buffer.from([0x7b, 0xff, 0x7d]), '{"id":"sample.check","label":"' + 'x'.repeat(262200) + '"}']) {
+    const j = await tsave(dir, 'sample.check', body, 'none');
+    assert.deepStrictEqual([j.outcome, j.error.kind], ['refused', 'invalid']);
+  }
+  assert.strictEqual((await appSave({}, JSON.parse('{"id":"sample.check","label":"B"}'))).ok, true, 'the object JSON.parse keeps, the app saves');
+});
+rule('Type parity, D6: links don\'t work in the folder: the app saves, the command refuses no-links', async () => {
+  const d = { id: 'sample.check', label: 'S' };
+  assert.strictEqual((await appSave({}, d)).ok, true);
+  const link = fs.linkSync;
+  fs.linkSync = (a, b) => { if (/\.probe$/.test(b)) { const e = new Error('EPERM'); e.code = 'EPERM'; throw e; } return link(a, b); };
+  try { const j = await tsave(tdir({}), 'sample.check', d, 'none'); assert.deepStrictEqual([j.outcome, j.error.kind], ['refused', 'no-links']); } finally { fs.linkSync = link; }
+});
+rule('Type parity, D8: a JSON array as the definition: checkCustom gives the id and label errors and the app refuses; the command refuses with "must be a JSON object"', async () => {
+  for (const body of ['[]', '[{}]']) {
+    const errs = JSON.parse(JSON.stringify(T2.checkCustom(JSON.parse(body))));
+    assert.ok(/"id"/.test(errs[0]), body);
+    const mem = new PF.fs.MemoryFS('d8:' + Math.random(), null);
+    await assert.rejects(PF.repo.saveStepType(mem, JSON.parse(body), null, { expectText: null }));
+    const j = await tsave(tdir({}), 'sample.check', body, 'none');
+    assert.deepStrictEqual([j.outcome, j.error.kind], ['refused', 'invalid']);
+    assert.ok(/must be a JSON object/.test(j.words), j.words);
+  }
+});
+rule('Type parity, D7 is Option 1 only: with edits allowed (the owner\'s choice) an existing type is replaced, never refused edits-off', async () => {
+  assert.strictEqual(PF.save.MODE, 'edits');
+  const d = { id: 'sample.check', label: 'S' }, dir = tdir({ 'step-types/sample.check.json': T2.fileText(d) });
+  const j = await tsave(dir, 'sample.check', { id: 'sample.check', label: 'S2' }, PF.sha256.hex(T2.fileText(d)));
+  assert.strictEqual(j.outcome, 'done');
+});
+rule('Type parity, typed-evidence marker: a /2 file with number evidence and "features": [] is saved by both (shared rule) with the command\'s warning; without an envelope both refuse with checkCustom\'s words', async () => {
+  const d = { format: 'flightdeck-step-type/2', features: [], id: 'sample.count', label: 'C', record: [{ name: 'n', label: 'N', kind: 'number' }] };
+  const app = await appSave({}, d);
+  assert.strictEqual(app.ok, true);
+  const dir = tdir({}), j = await tsave(dir, 'sample.count', d, 'none');
+  assert.strictEqual(j.outcome, 'done');
+  assert.ok(j.checks.warnings.some((w) => /typed-evidence/.test(w) && /works without it/.test(w)), JSON.stringify(j.checks.warnings));
+  assert.strictEqual(fs.readFileSync(path.join(dir, 'step-types', 'sample.count.json'), 'utf8'), app.text);
+  const bare = { id: 'sample.count', label: 'C', record: [{ name: 'n', label: 'N', kind: 'number' }] };
+  const a2 = await appSave({}, bare), j2 = await tsave(tdir({}), 'sample.count', bare, 'none');
+  assert.ok(!a2.ok && /number evidence needs Flightdeck 2\.0/.test(a2.error));
+  assert.strictEqual(j2.words, 'Nothing was changed. This isn\'t a step type Flightdeck can use: ' + a2.error);
+});
+
+/* ---------- round trips through the app's own screens (the app harness) ---------- */
+async function typesApp(files) {
+  const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick();
+  for (const p of Object.keys(files)) await app.fs.write(p, files[p]);
+  app.click('refresh'); await app.tick(80);
+  app.click('nav', 'types'); await app.tick();
+  return app;
+}
+const diskText = (dir, id) => fs.readFileSync(path.join(dir, 'step-types', id + '.json'), 'utf8');
+rule('Type round trip: loadStepTypes loads the command\'s file; the app opens it with Edit and saves over it; the command saves over the app\'s; type read gives the app\'s definition', async () => {
+  const d = { id: 'sample.check', label: 'Sample', fields: { system: { label: 'System', kind: 'text' } } }, dir = tdir({});
+  assert.strictEqual((await tsave(dir, 'sample.check', d, 'none')).outcome, 'done');
+  const mem = new PF.fs.MemoryFS('rt:' + Math.random(), null); mem.reset({ 'step-types/sample.check.json': diskText(dir, 'sample.check') });
+  const loaded = await PF.repo.loadStepTypes(mem);
+  assert.deepStrictEqual([Object.keys(loaded.types), loaded.errors.length], [['sample.check'], 0]);
+  const app = await typesApp({ 'step-types/sample.check.json': diskText(dir, 'sample.check') });
+  app.click('edit-type', 'sample.check'); await app.tick(40);
+  assert.ok(/<input id="tf-label"[^>]*value="Sample"/.test(app.html()), 'Edit opens it');
+  app.input('tf-label', 'Sample, from the app'); await app.tick(20);
+  app.submit('type-form'); await app.tick(80);
+  const appText = app.fs.files['step-types/sample.check.json'].t;
+  assert.ok(/from the app/.test(appText), 'the app saved over it');
+  fs.writeFileSync(path.join(dir, 'step-types', 'sample.check.json'), appText);
+  const rd = JSON.parse((await FDB.main(['type', 'read', dir, 'sample.check', '--json'])).out);
+  assert.deepStrictEqual(rd.data.type.def, JSON.parse(appText));
+  const j = await tsave(dir, 'sample.check', Object.assign({}, rd.data.type.def, { label: 'Sample, from the command' }), rd.data.type.rev);
+  assert.strictEqual(j.outcome, 'done', 'the command saves over the app\'s');
+});
+rule('Type round trip: the app\'s editor open during a command save, compare after the commit: its Save shows the conflict, and the person\'s text stays', async () => {
+  const d = { id: 'sample.check', label: 'Sample' }, app = await typesApp({ 'step-types/sample.check.json': T2.fileText(d) });
+  app.click('edit-type', 'sample.check'); await app.tick(40);
+  app.input('tf-label', 'The person\'s text'); await app.tick(20);
+  await app.fs.write('step-types/sample.check.json', T2.fileText({ id: 'sample.check', label: 'From the command' }));
+  app.submit('type-form'); await app.tick(80);
+  assert.ok(/From the command/.test(app.fs.files['step-types/sample.check.json'].t), 'nothing written by the app');
+  assert.ok(/type-keep-mine/.test(app.html()), 'the conflict is shown');
+  assert.ok(/<input id="tf-label"[^>]*value="The person&#39;s text"|<input id="tf-label"[^>]*value="The person's text"/.test(app.html()), 'the person\'s text stays');
+});
+rule('Type round trip: a type the app rejects: Edit refuses with "Fix the file, or ask your AI assistant to."; the command\'s repair then makes it open', async () => {
+  const bad = '{"id":"sample.check","label":""}', app = await typesApp({ 'step-types/sample.check.json': bad });
+  app.click('edit-type', 'sample.check'); await app.tick(40);
+  assert.ok(/Fix the file, or ask your AI assistant to\./.test(app.live()), app.live());
+  const dir = tdir({ 'step-types/sample.check.json': bad });
+  const j = await tsave(dir, 'sample.check', { id: 'sample.check', label: 'Fixed' }, PF.sha256.hex(bad));
+  assert.deepStrictEqual([j.outcome, j.existing, j.appLoads], ['done', 'malformed', false]);
+  await app.fs.write('step-types/sample.check.json', diskText(dir, 'sample.check'));
+  app.click('refresh'); await app.tick(80); app.click('nav', 'types'); await app.tick();
+  app.click('edit-type', 'sample.check'); await app.tick(40);
+  assert.ok(/<input id="tf-label"[^>]*value="Fixed"/.test(app.html()), 'it opens now');
+});
+
+/* ---------- the skill's fallback routes, after a real no-links refusal ---------- */
+async function noLinks(dir, id, body, expect) {
+  const link = fs.linkSync;
+  fs.linkSync = (a, b) => { if (/\.probe$/.test(b)) { const e = new Error('EPERM'); e.code = 'EPERM'; throw e; } return link(a, b); };
+  try { return await tsave(dir, id, body, expect); } finally { fs.linkSync = link; }
+}
+const NEWDEF = { id: 'sample.check', label: 'Fixed by a person' };
+rule('Fallback routes: missing: New type, Save creates it', async () => {
+  const j = await noLinks(tdir({}), 'sample.check', NEWDEF, 'none');
+  assert.deepStrictEqual([j.error.kind, j.existing, j.appLoads], ['no-links', 'missing', null]);
+  const app = await typesApp({});
+  app.click('new-type'); await app.tick();
+  app.input('tf-id', 'sample.check'); app.input('tf-label', 'Fixed by a person'); await app.tick(20);
+  app.submit('type-form'); await app.tick(80);
+  assert.ok(app.fs.files['step-types/sample.check.json'], 'created');
+});
+rule('Fallback routes: valid (appLoads true): Edit, Save changes it', async () => {
+  const t = T2.fileText({ id: 'sample.check', label: 'Sample' }), j = await noLinks(tdir({ 'step-types/sample.check.json': t }), 'sample.check', NEWDEF, PF.sha256.hex(t));
+  assert.deepStrictEqual([j.error.kind, j.existing, j.appLoads], ['no-links', 'ok', true]);
+  const app = await typesApp({ 'step-types/sample.check.json': t });
+  app.click('edit-type', 'sample.check'); await app.tick(40);
+  app.input('tf-label', 'Fixed by a person'); await app.tick(20);
+  app.submit('type-form'); await app.tick(80);
+  assert.ok(/Fixed by a person/.test(app.fs.files['step-types/sample.check.json'].t));
+});
+rule('Fallback routes: the 0xFF-label file (existing malformed, appLoads true): the route is Edit, and Edit, Save succeeds; New type with that ID stops at "There\'s already a step type"', async () => {
+  const ff = Buffer.concat([Buffer.from('{"id":"sample.check","label":"Bad '), Buffer.from([0xff]), Buffer.from('"}\n')]);
+  const j = await noLinks(tdir({ 'step-types/sample.check.json': ff }), 'sample.check', NEWDEF, PF.sha256.hex(ff));
+  assert.deepStrictEqual([j.error.kind, j.existing, j.appLoads], ['no-links', 'malformed', true]);
+  const rd = JSON.parse((await FDB.main(['type', 'read', tdir({ 'step-types/sample.check.json': ff }), 'sample.check', '--json'])).out).data.type;
+  assert.deepStrictEqual([rd.state, rd.usable], ['malformed', true]);
+  const asApp = new TextDecoder('utf-8').decode(ff);
+  const app = await typesApp({ 'step-types/sample.check.json': asApp });
+  app.click('new-type'); await app.tick();
+  app.input('tf-id', 'sample.check'); app.input('tf-label', 'Another'); await app.tick(20);
+  app.submit('type-form'); await app.tick(80);
+  assert.ok(/There's already a step type \{sample\.check\}/.test(app.live()), app.live());
+  app.click('type-cancel'); await app.tick();
+  app.click('edit-type', 'sample.check'); await app.tick(40);
+  app.input('tf-label', 'Fixed by a person'); await app.tick(20);
+  app.submit('type-form'); await app.tick(80);
+  assert.ok(/Fixed by a person/.test(app.fs.files['step-types/sample.check.json'].t), 'Edit, Save succeeded');
+});
+rule('Fallback routes: invalid JSON (appLoads false): New type with the same ID, Save, conflict, Keep mine replaces it, with a keep-mine history line', async () => {
+  const bad = '{"id": "sample.check", ', j = await noLinks(tdir({ 'step-types/sample.check.json': bad }), 'sample.check', NEWDEF, PF.sha256.hex(bad));
+  assert.deepStrictEqual([j.error.kind, j.existing, j.appLoads], ['no-links', 'malformed', false]);
+  const app = await typesApp({ 'step-types/sample.check.json': bad });
+  app.click('new-type'); await app.tick();
+  app.input('tf-id', 'sample.check'); app.input('tf-label', 'Fixed by a person'); await app.tick(20);
+  app.submit('type-form'); await app.tick(80);
+  assert.ok(/type-keep-mine/.test(app.html()), 'the new-type save conflicts with the file');
+  app.click('type-keep-mine'); await app.tick(120);
+  const now = JSON.parse(app.fs.files['step-types/sample.check.json'].t);
+  assert.strictEqual(now.label, 'Fixed by a person');
+  for (let i = 0; i < 40 && !Object.keys(app.fs.files).some((p) => /^history\/step-types\/sample\.check\//.test(p)); i++) await app.tick(50);
+  const lines = Object.keys(app.fs.files).filter((p) => /^history\/step-types\/sample\.check\//.test(p)).map((p) => app.fs.files[p].t).join('').trim().split('\n').map((l) => JSON.parse(l));
+  assert.ok(lines.some((l) => l.source === 'keep-mine'), JSON.stringify(lines));
+});
+rule('Fallback routes: past the 100-file limit (appLoads false, not selected), and newer: the output says so and the skill says stop', async () => {
+  const files = {}; for (let i = 0; i < 100; i++) files['step-types/a' + String(i).padStart(3, '0') + '.json'] = T2.fileText({ id: 'a' + String(i).padStart(3, '0'), label: 'A' });
+  const t = T2.fileText({ id: 'zz.check', label: 'Z' }); files['step-types/zz.check.json'] = t;
+  const j = await noLinks(tdir(files), 'zz.check', { id: 'zz.check', label: 'Z2' }, PF.sha256.hex(t));
+  assert.deepStrictEqual([j.error.kind, j.existing, j.appLoads], ['no-links', 'ok', false]);
+  const n = '{"format":"flightdeck-step-type/9","id":"sample.check","label":"X"}', k = await noLinks(tdir({ 'step-types/sample.check.json': n }), 'sample.check', NEWDEF, PF.sha256.hex(n));
+  assert.deepStrictEqual([k.error.kind, k.existing], ['newer', 'newer'], 'newer is refused before any write is tried');
+  const skill = fs.readFileSync(path.join(__dirname, '..', 'example-folder', '.flightdeck', 'skills', 'flightdeck-new-step-type', 'SKILL.md'), 'utf8');
+  assert.ok(/past the 100-file limit[^\n]*Stop/i.test(skill) && /`existing: newer`[^\n]*Stop[^\n]*Never offer New type/i.test(skill), 'the skill says stop for both');
+});
+
+/* ---------- Python: the folder checker agrees on what the command writes (design 6.3) ---------- */
+rule('Type parity, Python team_files: agrees on every command-written file; a BOM and checkCustom-only rejections are the asserted differences', async () => {
+  let py = null; for (const c of ['python3', 'python']) { try { cp.execFileSync(c, ['--version'], { stdio: 'ignore' }); py = c; break; } catch (e) { /* next */ } }
+  if (!py) return;
+  const checker = path.join(__dirname, '..', 'example-folder', '.flightdeck', 'skills', '_flightdeck');
+  const team = (dir) => JSON.parse(cp.execFileSync(py, ['-I', '-c', 'import sys, json; sys.path.insert(0, sys.argv[1]); import check_folder as c; print(json.dumps(c.team_files(sys.argv[2])))', checker, dir], { encoding: 'utf8' }));
+  const dir = tdir({});
+  for (const k of ['valid 1.x type', 'valid 2.0 type']) assert.strictEqual((await tsave(dir, SHARED[k].id, SHARED[k], 'none')).outcome, 'done', k);
+  const out = team(dir);
+  assert.deepStrictEqual([out.stepTypes.sort(), out.problems], [['sample.check', 'sample.count'], []], 'agreement on the command\'s files');
+  const bom = tdir({ 'step-types/a.b.json': '﻿' + T2.fileText({ id: 'a.b', label: 'A' }) });
+  assert.strictEqual(JSON.parse((await FDB.main(['type', 'read', bom, 'a.b', '--json'])).out).data.type.state, 'ok', 'the command accepts a BOM');
+  assert.deepStrictEqual(team(bom).problems.map((p) => p.problem), ['isn\'t valid JSON'], 'Python says it isn\'t valid JSON');
+  const only = tdir({ 'step-types/a.b.json': '{"id":"a.b","label":""}' });
+  assert.deepStrictEqual(team(only).stepTypes, ['a.b'], 'Python lists a type only checkCustom rejects');
+  assert.strictEqual(JSON.parse((await FDB.main(['type', 'read', only, 'a.b', '--json'])).out).data.type.state, 'malformed', 'the command calls it malformed');
+});
+
 run();

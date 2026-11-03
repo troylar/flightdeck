@@ -745,4 +745,53 @@ rule('REQUEST review: two different copies of one request, each started on its o
   }
 });
 
+/* TYPE SAVE (2.14, slice A2): the command on computer A and the app on computer B save the same step type while OneDrive is
+   paused. OneDrive keeps both: x-BLAKE.json. The command's next save refuses copies (D2); the app's succeeds (characterized). */
+rule('TYPE SAVE: the command on one computer and the app on the other save one type: after sync a -BLAKE copy; the command refuses copies, the app saves, both list the copy as an error', async () => {
+  const fsN = require('fs'), os = require('os'), path = require('path'), crypto = require('crypto');
+  const FDC = require('../bin/flightdeck.js'), T = PF.types;
+  const { a, b } = await twoComputers();
+  const orig = T.fileText({ id: 'sample.check', label: 'Sample' });
+  await a.write('step-types/sample.check.json', orig); a.sync(); b.sync();
+  /* Computer A's copy of the folder on disk, where the command runs; then back into A's copy. */
+  const disk = fsN.realpathSync(fsN.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-sync-type-')));
+  const out = () => { Object.keys(a.files).forEach((p) => { const f = path.join(disk, ...p.split('/')); fsN.mkdirSync(path.dirname(f), { recursive: true }); fsN.writeFileSync(f, a.files[p]); }); };
+  const back = () => { (function walk(d) { fsN.readdirSync(d, { withFileTypes: true }).forEach((e) => { const f = path.join(d, e.name); if (e.isDirectory()) walk(f); else a.files[path.relative(disk, f).split(path.sep).join('/')] = fsN.readFileSync(f, 'utf8'); }); })(disk); };
+  const typeSave = async (body, expect) => { const inF = path.join(fsN.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-sync-in-')), 'in.json'); fsN.writeFileSync(inF, JSON.stringify(body)); return JSON.parse((await FDC.main(['type', 'save', disk, 'sample.check', '--expect', expect, '--from', inF, '--json'])).out); };
+  const sha = (t) => crypto.createHash('sha256').update(t).digest('hex');
+  out();
+  const mine = await typeSave({ id: 'sample.check', label: 'From the command' }, sha(orig));
+  assert.strictEqual(mine.outcome, 'done');
+  back();
+  const theirs = await repo.saveStepType(b, { id: 'sample.check', label: 'From the app' }, PF.util.hash(orig), { expectText: orig });
+  assert.ok(theirs.ok);
+  a.sync(); b.sync(); a.sync();
+  const names = Object.keys(a.files).filter((p) => /^step-types\/sample\.check/.test(p)).sort();
+  assert.deepStrictEqual(names, ['step-types/sample.check-BLAKE.json', 'step-types/sample.check.json'], 'OneDrive kept both');
+  out();
+  const again = await typeSave({ id: 'sample.check', label: 'Third' }, sha(a.files['step-types/sample.check.json']));
+  assert.deepStrictEqual([again.outcome, again.error.kind], ['refused', 'copies'], 'the command\'s next save: copies (D2)');
+  const appAgain = await repo.saveStepType(b, { id: 'sample.check', label: 'App again' }, PF.util.hash(b.files['step-types/sample.check.json']), { expectText: b.files['step-types/sample.check.json'] });
+  assert.ok(appAgain.ok, 'the app\'s next save succeeds (characterized: D2)');
+  const loaded = await repo.loadStepTypes(b);
+  assert.ok(loaded.errors.some((e) => e.file === 'sample.check-BLAKE.json'), 'the copy is listed as an error');
+  assert.strictEqual(PF.health.copyOf('sample.check-BLAKE.json', { 'sample.check.json': true }), 'sample.check.json', 'Folder health names it as a copy');
+});
+rule('TYPE SAVE: a stale copy of the folder passes --expect (documented): the command compares with this computer\'s copy, and OneDrive keeps both', async () => {
+  const fsN = require('fs'), os = require('os'), path = require('path'), crypto = require('crypto');
+  const FDC = require('../bin/flightdeck.js'), T = PF.types;
+  const { a, b } = await twoComputers();
+  const orig = T.fileText({ id: 'sample.check', label: 'Sample' });
+  await a.write('step-types/sample.check.json', orig); a.sync(); b.sync();
+  await repo.saveStepType(b, { id: 'sample.check', label: 'Newer on B' }, PF.util.hash(orig), { expectText: orig }); b.sync();
+  const disk = fsN.realpathSync(fsN.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-sync-stale-')));
+  Object.keys(a.files).forEach((p) => { const f = path.join(disk, ...p.split('/')); fsN.mkdirSync(path.dirname(f), { recursive: true }); fsN.writeFileSync(f, a.files[p]); });
+  const inF = path.join(disk, 'in.json'); fsN.writeFileSync(inF, JSON.stringify({ id: 'sample.check', label: 'From stale A' }));
+  const r = JSON.parse((await FDC.main(['type', 'save', disk, 'sample.check', '--expect', crypto.createHash('sha256').update(orig).digest('hex'), '--from', inF, '--json'])).out);
+  assert.strictEqual(r.outcome, 'done', 'A\'s copy is a minute behind; its save passes');
+  a.files['step-types/sample.check.json'] = fsN.readFileSync(path.join(disk, 'step-types', 'sample.check.json'), 'utf8');
+  a.sync();
+  assert.deepStrictEqual(Object.keys(a.files).filter((p) => /^step-types\/sample\.check/.test(p)).sort(), ['step-types/sample.check-CASEY.json', 'step-types/sample.check.json'], 'OneDrive keeps both');
+});
+
 run();

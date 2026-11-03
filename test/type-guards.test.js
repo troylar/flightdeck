@@ -1,0 +1,299 @@
+// flightdeck type list, type read and type save (2.14) when what they read fails: every input each command reads, broken
+// every way a read can fail (a listing that fails, a file or folder that vanished after it was listed, access denied, a
+// file too big, a link), run in this process against real temporary folders with fs shims. A failed or interrupted read
+// is always a problem (complete false), never absence (state missing, rev "none") and never a clean answer: a save
+// stopped by one says the next step that fits it, and a check it couldn't finish is named in its warnings.
+'use strict';
+const assert = require('assert');
+const fs = require('fs'), os = require('os'), path = require('path'), crypto = require('crypto');
+const { rule, run, load } = require('./harness');
+
+const FD = require(path.join(__dirname, '..', 'bin', 'flightdeck.js'));
+const PF = load(), AJ = PF.appjson, T = PF.types;
+const plain = (v) => JSON.parse(JSON.stringify(v));
+const sha = (b) => crypto.createHash('sha256').update(b).digest('hex');
+const tmp = () => fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-guard-')));
+const err = (code) => Object.assign(new Error(code + ': from a test shim'), { code });
+
+const ID = 'sample.check', REL = 'step-types/' + ID + '.json', HD = 'history/step-types/' + ID;
+const DEF = { id: ID, label: 'Sample check', hint: 'Checks a sample.', fields: { system: { label: 'System', kind: 'text' } }, record: [{ name: 'approval', label: 'Approval', kind: 'text' }] };
+const PEOPLE = JSON.stringify([{ id: 'person-avery', name: 'Avery Lee', folderRole: 'owner' }]);
+const DRAFT = ['---', 'process: rel', 'title: Release', 'owner: person-avery', 'roles: lead', '---', '', '## Do · READ-DO {#do}', '- [ ] {sample.check} Check the system @lead {#chk}', '  system: Change board', '  require: approval', ''].join('\n');
+const NO_SYSTEM = (() => { const d = JSON.parse(JSON.stringify(DEF)); delete d.fields.system; return d; })();
+const DRAFTS_UNCHECKED = 'Couldn\'t check drafts in maps/drafts/. Check them for uses of the removed fields before calling this change complete.';
+
+function team(files) {
+  const dir = tmp();
+  Object.keys(files).forEach((p) => { const f = path.join(dir, ...p.split('/')); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, files[p]); });
+  return dir;
+}
+const full = (dir, rel) => path.join(dir, ...rel.split('/'));
+function listing(dir) {
+  const out = [];
+  (function walk(d) { let es; try { es = fs.readdirSync(d, { withFileTypes: true }); } catch (e) { return; } for (const e of es) { const p = path.join(d, e.name), rel = path.relative(dir, p).split(path.sep).join('/'); out.push(rel + (e.isDirectory() ? '/' : '')); if (e.isDirectory()) walk(p); } })(dir);
+  return out.sort();
+}
+async function cmd(...argv) { const r = await FD.main(argv); return { code: r.code, json: JSON.parse(r.out) }; }
+function inputFile(body) { const f = path.join(tmp(), 'in.json'); fs.writeFileSync(f, body); return f; }
+async function save(dir, d, expect, extra) {
+  const before = listing(dir);
+  const r = await cmd('type', 'save', dir, ID, '--expect', expect, '--from', inputFile(typeof d === 'string' ? d : JSON.stringify(d, null, 2)), '--json', ...(extra || []));
+  /* Nothing written: nothing new in the folder (no folder made, no file left) unless a temporary file is named in cleanup. */
+  if (r.json.written === false && !Object.keys(FD._hooks).length && !(r.json.cleanup && r.json.cleanup.leftover.length)) assert.deepStrictEqual(listing(dir).filter((p) => before.indexOf(p) < 0), [], r.json.outcome + ': the folder is as it was');
+  assert.deepStrictEqual(plain(AJ.conforms(r.json, AJ.WRITE1)), [], 'flightdeck-write/1: ' + JSON.stringify(r.json).slice(0, 400));
+  assert.strictEqual(r.code, PF.save.EXIT[r.json.outcome], 'exit code for ' + r.json.outcome);
+  return r;
+}
+async function shims(list, f) {
+  const undo = list.map(([name, make]) => { const was = fs[name]; fs[name] = make(was); return () => { fs[name] = was; }; });
+  try { return await f(); } finally { undo.reverse().forEach((u) => u()); }
+}
+/* A folder with the type saved once (so it has a history line), a draft that uses the field the test save removes, and
+   people.json. */
+async function folder() {
+  const dir = team({ 'people.json': PEOPLE, 'maps/drafts/rel.md': DRAFT });
+  const r = await save(dir, DEF, 'none');
+  assert.strictEqual(r.json.outcome, 'done', r.json.words);
+  const rev = sha(fs.readFileSync(full(dir, REL))), hist = HD + '/' + fs.readdirSync(full(dir, HD))[0];
+  return { dir, rev, hist };
+}
+
+/* One way to break one input: { shims } for the call, after any change to the folder made now. */
+const isDir = (rel) => rel === 'step-types' || rel === 'maps/drafts' || rel === HD;
+function breakIt(dir, rel, way) {
+  const p = full(dir, rel), here = (x) => String(x) === p;
+  if (way === 'listing') return [['readdirSync', (was) => function (x) { if (here(x)) throw err('EACCES'); return was.apply(fs, arguments); }]];
+  if (way === 'vanished') return isDir(rel) ? [['readdirSync', (was) => function (x) { if (here(x)) throw err('ENOENT'); return was.apply(fs, arguments); }]]
+    : [['lstatSync', (was) => function (x) { if (here(x)) throw err('ENOENT'); return was.apply(fs, arguments); }]];
+  if (way === 'denied') return [['openSync', (was) => function (x) { if (here(x)) throw err('EACCES'); return was.apply(fs, arguments); }]];
+  if (way === 'big') { fs.writeFileSync(p, Buffer.alloc((rel.indexOf('history/') === 0 ? 16 : 1) * 1048576 + 1, 0x20)); return []; }
+  if (way === 'link') { const away = path.join(tmp(), 'moved'); fs.renameSync(p, away); fs.symlinkSync(away, p); return []; }
+  throw new Error('no way ' + way);
+}
+const WAYS = (rel) => (isDir(rel) ? ['listing', 'vanished', 'link'] : ['denied', 'vanished', 'big', 'link']);
+const named = (problems, rel) => problems.some((x) => x.path === rel || x.path === rel + '/' || x.path.indexOf(rel + '/') === 0);
+const STATE = { denied: 'unreadable', vanished: 'vanished', big: 'oversized', link: 'link' };
+
+/* ---------------- type list and type read ---------------- */
+for (const rel of ['step-types', REL]) for (const way of WAYS(rel)) {
+  rule('Guard: type list with ' + rel + ' broken (' + way + '): partial, exit 4, the path named, never missing or rev "none"', async () => {
+    const { dir } = await folder(), list = breakIt(dir, rel, way);
+    const r = await shims(list, () => cmd('type', 'list', dir, '--json'));
+    assert.deepStrictEqual(plain(AJ.conforms(r.json.data, AJ.SCHEMA2.stepTypes)), [], 'stepTypes');
+    assert.strictEqual(r.code, 4, JSON.stringify(r.json).slice(0, 400));
+    assert.strictEqual(r.json.complete, false);
+    assert.ok(named(r.json.problems, rel), 'named: ' + JSON.stringify(r.json.problems));
+    r.json.data.types.forEach((t) => { assert.notStrictEqual(t.state, 'missing', t.file); assert.notStrictEqual(t.rev, 'none', t.file); });
+    const row = r.json.data.types.filter((t) => t.file === ID + '.json')[0];
+    if (rel === REL) { assert.ok(row, 'the type is still listed'); assert.strictEqual(row.state, STATE[way]); assert.strictEqual(row.rev, null); }
+  });
+  rule('Guard: type read with ' + rel + ' broken (' + way + '): partial, exit 4, the path named, never missing or rev "none"', async () => {
+    const { dir, rev } = await folder(), list = breakIt(dir, rel, way);
+    const r = await shims(list, () => cmd('type', 'read', dir, ID, '--json'));
+    assert.deepStrictEqual(plain(AJ.conforms(r.json.data, AJ.SCHEMA2.stepType)), [], 'stepType');
+    assert.strictEqual(r.code, 4, JSON.stringify(r.json).slice(0, 400));
+    assert.strictEqual(r.json.complete, false);
+    assert.ok(named(r.json.problems, rel), 'named: ' + JSON.stringify(r.json.problems));
+    const t = r.json.data.type;
+    assert.notStrictEqual(t.state, 'missing'); assert.notStrictEqual(t.rev, 'none');
+    if (rel === REL) { assert.strictEqual(t.state, STATE[way]); assert.strictEqual(t.rev, null); }
+    else if (way !== 'link') { assert.deepStrictEqual([t.state, t.rev, t.position, t.selected], ['ok', rev, null, null], 'read on its own; its place is unknown'); }
+    else assert.strictEqual(t.rev, null);
+  });
+}
+rule('Guard: type read when step-types/ can\'t be listed and the type isn\'t there: unreadable, rev null, "Whether this type exists is unknown"', async () => {
+  const dir = team({ 'step-types/other.check.json': T.fileText({ id: 'other.check', label: 'Other' }) });
+  const r = await shims(breakIt(dir, 'step-types', 'listing'), () => cmd('type', 'read', dir, ID, '--json'));
+  assert.strictEqual(r.code, 4);
+  const t = r.json.data.type;
+  assert.deepStrictEqual([t.state, t.rev], ['unreadable', null]);
+  assert.deepStrictEqual(t.errors, ['Flightdeck couldn\'t list step-types/. Whether this type exists is unknown. Check folder access before trying again.']);
+});
+rule('Guard: with nothing broken, a type that isn\'t there is missing, rev "none", complete', async () => {
+  const dir = team({ 'step-types/other.check.json': T.fileText({ id: 'other.check', label: 'Other' }) });
+  const r = await cmd('type', 'read', dir, ID, '--json');
+  assert.deepStrictEqual([r.code, r.json.complete, r.json.data.type.state, r.json.data.type.rev], [0, true, 'missing', 'none']);
+});
+
+/* ---------------- type save ---------------- */
+rule('Guard: type save with nothing broken: the dry run warns about the draft and is complete', async () => {
+  const { dir, rev } = await folder();
+  const r = await save(dir, NO_SYSTEM, rev, ['--dry-run', '--asked-by', 'person-avery']);
+  assert.deepStrictEqual([r.json.outcome, r.json.complete, r.json.problems.length], ['checked', true, 0], JSON.stringify(r.json.problems));
+  assert.ok(r.json.checks.warnings.some((w) => /Draft rel, step chk/.test(w)), JSON.stringify(r.json.checks.warnings));
+});
+/* What stops a save (the listing, the target, people.json): nothing written, the path named, words that fit the failure. */
+for (const rel of ['step-types', REL, 'people.json']) for (const way of WAYS(rel)) {
+  rule('Guard: type save with ' + rel + ' broken (' + way + '): nothing written, the path named, the next step fits the failure', async () => {
+    const { dir, rev } = await folder(), list = breakIt(dir, rel, way), before = fs.readFileSync(full(dir, REL));
+    const r = await shims(list, () => save(dir, NO_SYSTEM, rev, ['--asked-by', 'person-avery']));
+    assert.ok(['held', 'failed'].indexOf(r.json.outcome) >= 0, r.json.outcome + ': ' + r.json.words);
+    assert.strictEqual(r.json.written, false);
+    assert.ok(fs.readFileSync(full(dir, REL)).equals(before), 'the type is unchanged');
+    if (r.json.outcome === 'held') { assert.strictEqual(r.json.complete, false); assert.ok(named(r.json.problems, rel), 'named: ' + JSON.stringify(r.json.problems)); }
+    const w = r.json.words;
+    if (way === 'denied' || way === 'listing') assert.ok(/Access to .* was denied\. Ask the folder owner to check your access, then try again\./.test(w), w);
+    if (way === 'big') assert.ok(/over the [0-9.]+ MB Flightdeck reads/.test(w) && !/synced/.test(w), w);
+    if (way === 'vanished' && rel !== 'step-types') assert.ok(/synced/.test(w), w);
+    if (way !== 'vanished') assert.ok(!/synced/.test(w), 'only a sync says to wait for one: ' + w);
+  });
+}
+/* What a save only checks (drafts, the type's history): the save goes on, the check is named incomplete. */
+for (const rel of ['maps/drafts', 'maps/drafts/rel.md', HD, 'HIST']) for (const way of WAYS(rel === 'HIST' ? 'x' : rel)) {
+  rule('Guard: type save with ' + (rel === 'HIST' ? 'a history line' : rel) + ' broken (' + way + '): checked, complete false, the path named and the unfinished check said', async () => {
+    const { dir, rev, hist } = await folder(), target = rel === 'HIST' ? hist : rel, list = breakIt(dir, target, way);
+    const r = await shims(list, () => save(dir, NO_SYSTEM, rev, ['--dry-run', '--asked-by', 'person-avery']));
+    assert.strictEqual(r.json.outcome, 'checked', r.json.words);
+    assert.strictEqual(r.json.complete, false, JSON.stringify(r.json.problems));
+    assert.ok(named(r.json.problems, target), 'named: ' + JSON.stringify(r.json.problems));
+    const W = r.json.checks.warnings;
+    if (target.indexOf('maps/drafts') === 0) assert.ok(W.indexOf(DRAFTS_UNCHECKED) >= 0, JSON.stringify(W));
+    else assert.ok(W.some((x) => x.indexOf('Couldn\'t read ' + HD + '/') === 0), JSON.stringify(W));
+  });
+}
+rule('Guard: a real save whose draft listing fails is done, with complete false and the unchecked drafts in its warnings', async () => {
+  const { dir, rev } = await folder();
+  const r = await shims(breakIt(dir, 'maps/drafts', 'listing'), () => save(dir, NO_SYSTEM, rev));
+  assert.deepStrictEqual([r.json.outcome, r.json.written, r.json.complete], ['done', true, false]);
+  assert.ok(r.json.checks.warnings.indexOf(DRAFTS_UNCHECKED) >= 0);
+  assert.ok(named(r.json.problems, 'maps/drafts'));
+});
+
+/* ---------------- what the checks can't read, and exact names ---------------- */
+rule('Guard: a definition the checks can\'t read (a record name {"toString": null}) is refused invalid under --json, never a crash', async () => {
+  const dir = team({});
+  const body = '{"id":"sample.check","label":"Sample","record":[{"name":{"toString":null},"label":"Answer","kind":"text"}]}';
+  const r = await save(dir, body, 'none');
+  assert.deepStrictEqual([r.json.outcome, r.json.error && r.json.error.kind, r.code], ['refused', 'invalid', 1], r.json.words);
+  assert.ok(!fs.existsSync(full(dir, REL)));
+});
+rule('Guard: a case-only evidence rename (Approval to approval) warns about a draft that requires Approval, as its checks will fail', async () => {
+  const old = JSON.parse(JSON.stringify(DEF)); old.record[0].name = 'Approval';
+  const dir = team({ 'people.json': PEOPLE, 'maps/drafts/rel.md': DRAFT.replace('require: approval', 'require: Approval'), [REL]: T.fileText(old) });
+  const r = await save(dir, DEF, sha(fs.readFileSync(full(dir, REL))), ['--dry-run']);
+  assert.ok(r.json.checks.warnings.some((w) => /Draft rel, step chk still requires Approval, which this change removes\. Update that step before calling the change complete\./.test(w)), JSON.stringify(r.json.checks.warnings));
+  assert.deepStrictEqual(plain(T.inUse(old, DEF, [{ process: 'rel', text: DRAFT.replace('require: approval', 'require: Approval') }])).length, 1);
+});
+
+/* ---------------- the class rule: every conclusion against every problem source ---------------- */
+/* Each source of a problem (a read that fails, contents rejected, a newer file, a link, over the limit) for each input a save
+   depends on (the type, people.json, the drafts it checks, the type's history), against every conclusion the command can
+   reach (a dry run and a real save; for the type, type list and type read too): complete is false and the input is named.
+   complete is true only when no source reported anything. */
+const SOURCES = {
+  target: { io: 'denied', link: 'link', over: 'big', rejected: (dir) => fs.writeFileSync(full(dir, REL), '{ "id": "sample.check", '), newer: (dir) => fs.writeFileSync(full(dir, REL), T.fileText(Object.assign({ format: 'flightdeck-step-type/9' }, DEF))) },
+  people: { io: 'denied', listing: 'top', link: 'link', over: 'big', rejected: (dir) => fs.writeFileSync(full(dir, 'people.json'), '[{"id": "person-avery",'), newer: (dir) => fs.writeFileSync(full(dir, 'people.json'), JSON.stringify({ format: 'flightdeck-people/9', people: JSON.parse(PEOPLE) })) },
+  drafts: { io: 'denied', listing: 'listing', link: 'link', over: 'big' },
+  history: { io: 'denied', listing: 'listing', link: 'link', over: 'big',
+    rejected: (dir, hist) => fs.appendFileSync(full(dir, hist), 'not a history line\n'),
+    newer: (dir, hist) => { const l = JSON.parse(fs.readFileSync(full(dir, hist), 'utf8').trim()); fs.appendFileSync(full(dir, hist), JSON.stringify(Object.assign({}, l, { id: l.id.slice(0, -1) + 'z', features: ['from-a-newer-flightdeck'] })) + '\n'); } }
+};
+const INPUT = { target: () => REL, people: () => 'people.json', drafts: (way) => (way === 'listing' ? 'maps/drafts' : 'maps/drafts/rel.md'), history: (way, hist) => (way === 'listing' ? HD : hist) };
+function apply(dir, hist, input, source) {
+  const how = SOURCES[input][source], rel = INPUT[input](how, hist);
+  if (typeof how === 'function') { how(dir, hist); return { rel, list: [] }; }
+  if (how === 'top') return { rel, list: [['readdirSync', (was) => function (x) { if (String(x) === dir) throw err('EACCES'); return was.apply(fs, arguments); }]] };
+  return { rel, list: breakIt(dir, rel, how) };
+}
+for (const input of Object.keys(SOURCES)) for (const source of Object.keys(SOURCES[input])) for (const real of [false, true]) {
+  rule('Class rule: ' + (real ? 'a save' : 'a dry run') + ' with ' + input + ' (' + source + '): complete false and ' + input + ' named, never a clean answer', async () => {
+    const { dir, hist } = await folder(), b = apply(dir, hist, input, source);
+    const rev = fs.existsSync(full(dir, REL)) ? sha(fs.readFileSync(full(dir, REL))) : 'none';
+    const r = await shims(b.list, () => save(dir, NO_SYSTEM, rev, ['--asked-by', 'person-avery'].concat(real ? [] : ['--dry-run'])));
+    assert.strictEqual(r.json.complete, false, r.json.outcome + ': ' + JSON.stringify(r.json.problems) + ' ' + r.json.words);
+    assert.ok(named(r.json.problems, b.rel), b.rel + ' named: ' + JSON.stringify(r.json.problems));
+    if (input === 'people') assert.strictEqual(r.json.outcome, 'held', r.json.words);
+    if (input === 'drafts' || input === 'history') {
+      assert.strictEqual(r.json.outcome, real ? 'done' : 'checked', r.json.words);
+      assert.ok(r.json.checks.warnings.some((w) => /^Couldn't (check drafts|read history)/.test(w)), JSON.stringify(r.json.checks.warnings));
+    }
+    if (input === 'target' && source === 'rejected') assert.strictEqual(r.json.outcome, real ? 'done' : 'checked', 'a repair goes ahead, the bad file named');
+    if (input === 'target' && source === 'newer') assert.deepStrictEqual([r.json.outcome, r.json.error.kind], ['refused', 'newer']);
+  });
+}
+for (const source of Object.keys(SOURCES.target)) for (const sub of ['list', 'read']) {
+  rule('Class rule: type ' + sub + ' with the type (' + source + '): complete false, exit 4, the type named', async () => {
+    const { dir, hist } = await folder(), b = apply(dir, hist, 'target', source);
+    const r = await shims(b.list, () => (sub === 'list' ? cmd('type', 'list', dir, '--json') : cmd('type', 'read', dir, ID, '--json')));
+    assert.deepStrictEqual([r.json.complete, r.code], [false, 4]);
+    assert.ok(named(r.json.problems, REL), JSON.stringify(r.json.problems));
+  });
+}
+for (const real of [false, true]) rule('Class rule: ' + (real ? 'a save' : 'a dry run') + ' with no source reporting anything is complete', async () => {
+  const { dir, rev } = await folder();
+  const r = await save(dir, NO_SYSTEM, rev, ['--asked-by', 'person-avery'].concat(real ? [] : ['--dry-run']));
+  assert.deepStrictEqual([r.json.outcome, r.json.complete, r.json.problems], [real ? 'done' : 'checked', true, []]);
+});
+rule('Class rule: a failure in the final compare (access denied as C reads the type) is named, complete false', async () => {
+  const { dir, rev } = await folder(), p = full(dir, REL);
+  let n = 0;
+  const r = await shims([['openSync', (was) => function (x) { if (String(x) === p && ++n === 2) throw err('EACCES'); return was.apply(fs, arguments); }]], () => save(dir, NO_SYSTEM, rev));
+  assert.deepStrictEqual([r.json.outcome, r.json.written, r.json.complete], ['failed', false, false], r.json.words);
+  assert.ok(named(r.json.problems, REL), JSON.stringify(r.json.problems));
+});
+rule('Class rule: a repair of a malformed type Flightdeck still loads (an invalid UTF-8 byte) checks drafts against what the app loads, and warns about a step that still uses the removed field', async () => {
+  const dir = team({ 'people.json': PEOPLE, 'maps/drafts/rel.md': DRAFT });
+  fs.mkdirSync(full(dir, 'step-types'));
+  fs.writeFileSync(full(dir, REL), Buffer.from(T.fileText(DEF).replace('Sample check', 'Sample \u0001check').replace('\u0001', 'X'), 'utf8'));
+  const bytes = Buffer.from(fs.readFileSync(full(dir, REL))); bytes[bytes.indexOf('X')] = 0xff; fs.writeFileSync(full(dir, REL), bytes);
+  const read = await cmd('type', 'read', dir, ID, '--json');
+  assert.deepStrictEqual([read.json.data.type.state, read.json.data.type.usable], ['malformed', true], 'malformed to the command, loaded by the app');
+  const r = await save(dir, NO_SYSTEM, sha(bytes), ['--dry-run']);
+  assert.ok(r.json.checks.warnings.indexOf('Draft rel, step chk still uses system, which this change removes. Update that step before calling the change complete.') >= 0, JSON.stringify(r.json.checks.warnings));
+  assert.strictEqual(r.json.complete, false, 'the malformed file is named');
+});
+
+/* ---------------- the class rule: every step that transforms or drops input records what it dropped ---------------- */
+const badUtf8 = (t, marker) => { const b = Buffer.from(t, 'utf8'), i = b.indexOf(marker); assert.ok(i >= 0, 'marker'); b[i] = 0xff; return b; };
+const DROPS = {
+  'people.json, an entry without a text name (cleaning)': { rel: 'people.json', make: (dir) => fs.writeFileSync(full(dir, 'people.json'), JSON.stringify(JSON.parse(PEOPLE).concat([{ id: 'person-blake', name: 42 }]))) },
+  'people.json, a name over 60 characters (truncation)': { rel: 'people.json', make: (dir) => fs.writeFileSync(full(dir, 'people.json'), JSON.stringify(JSON.parse(PEOPLE).concat([{ id: 'person-long', name: 'N'.repeat(61) }]))) },
+  'people.json, a bad byte (decoding with replacement)': { rel: 'people.json', make: (dir) => fs.writeFileSync(full(dir, 'people.json'), badUtf8(JSON.stringify(JSON.parse(PEOPLE).concat([{ id: 'person-casey', name: 'Casey Q' }])), 'Q')) },
+  'a draft with a bad byte (decoding with replacement)': { rel: 'maps/drafts/rel.md', make: (dir) => fs.writeFileSync(full(dir, 'maps/drafts/rel.md'), badUtf8(DRAFT.replace('Release', 'ReleaseQ'), 'Q')) },
+  'a history line with a bad byte (decoding with replacement)': { rel: 'HIST', make: (dir, hist) => fs.writeFileSync(full(dir, hist), badUtf8(fs.readFileSync(full(dir, hist), 'utf8').replace('Changed by', 'ChangedQ by'), 'Q')) }
+};
+for (const name of Object.keys(DROPS)) for (const real of [false, true]) {
+  rule('Class rule, dropped input: ' + (real ? 'a save' : 'a dry run') + ' with ' + name + ': named, complete false', async () => {
+    const { dir, rev, hist } = await folder(), d = DROPS[name], rel = d.rel === 'HIST' ? hist : d.rel;
+    d.make(dir, hist);
+    const r = await save(dir, NO_SYSTEM, rev, ['--asked-by', 'person-avery'].concat(real ? [] : ['--dry-run']));
+    assert.strictEqual(r.json.outcome, real ? 'done' : 'checked', r.json.words);
+    assert.strictEqual(r.json.complete, false, JSON.stringify(r.json.problems));
+    assert.ok(named(r.json.problems, rel), rel + ': ' + JSON.stringify(r.json.problems));
+  });
+}
+/* Post-commit observation: what replaced this save is read whole, under the cap; a read of it that fails is named and the
+   outcome stays replaced. */
+for (const how of ['over the cap', 'access denied', 'a link']) {
+  rule('Class rule, observation: the save is replaced after its commit by a file ' + how + ': replaced (unverified for a link), rev.now null, the type named, complete false', async () => {
+    const { dir, rev } = await folder(), p = full(dir, REL);
+    let after = false;
+    const r = await shims([['openSync', (was) => function (x) { if (after && how === 'access denied' && String(x) === p) throw err('EACCES'); return was.apply(fs, arguments); }]], () =>
+      Object.assign(FD._hooks, { afterCommit: () => {
+        const other = path.join(tmp(), 'other.json');
+        fs.writeFileSync(other, how === 'over the cap' ? Buffer.alloc(1048577, 0x20) : T.fileText(Object.assign({}, DEF, { label: 'Someone else' })));
+        if (how === 'a link') { fs.unlinkSync(p); fs.symlinkSync(other, p); } else fs.renameSync(other, p);
+        after = true;
+      } }) && save(dir, NO_SYSTEM, rev).finally(() => { delete FD._hooks.afterCommit; }));
+    /* A link where the file was is never read through: that read-back is unverified, the others replaced. */
+    assert.deepStrictEqual([r.json.outcome, r.json.written, r.json.rev.now, r.json.complete], [how === 'a link' ? 'unverified' : 'replaced', true, null, false], r.json.words);
+    assert.ok(named(r.json.problems, REL), JSON.stringify(r.json.problems));
+  });
+}
+rule('Class rule: a descriptor that won\'t close at R1 fails the save (exit 1), never holds it', async () => {
+  const { dir, rev } = await folder(), p = full(dir, REL), fds = {};
+  let n = 0;
+  const r = await shims([
+    ['openSync', (was) => function (x) { const fd = was.apply(fs, arguments); if (String(x) === p) fds[fd] = true; return fd; }],
+    ['closeSync', (was) => function (fd) { if (fds[fd] && ++n === 1) { was.apply(fs, arguments); throw err('EIO'); } return was.apply(fs, arguments); }]
+  ], () => save(dir, NO_SYSTEM, rev));
+  assert.deepStrictEqual([r.json.outcome, r.code, r.json.written, r.json.complete], ['failed', 1, false, false], r.json.words);
+  assert.ok(named(r.json.problems, REL));
+});
+rule('Class rule: removing a field a draft sets to an empty value still warns', async () => {
+  const dir = team({ 'people.json': PEOPLE, 'maps/drafts/rel.md': DRAFT.replace('  system: Change board', '  system:'), [REL]: T.fileText(DEF) });
+  const r = await save(dir, NO_SYSTEM, sha(fs.readFileSync(full(dir, REL))), ['--dry-run']);
+  assert.ok(r.json.checks.warnings.indexOf('Draft rel, step chk still uses system, which this change removes. Update that step before calling the change complete.') >= 0, JSON.stringify(r.json.checks.warnings));
+});
+
+run();

@@ -733,18 +733,18 @@ rule('A folder installed by 2.12.0\'s own command, with Team notes, upgrades wit
   assert.ok(back.code === 1 && back.out.includes('is a newer version (' + VER + ') than this one (2.12.0)'), '2.12.0\'s own command sees a newer folder: ' + back.out);
 });
 
-rule('This release is dated 2026-11-02 in the entry, the waiver and the list, and each text in the entry is under 400 characters', () => {
+rule('This release is dated 2026-11-03 in the entry, the waiver and the list, and each text in the entry is under 400 characters', () => {
   const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')).find(r => r.version === VER);
-  assert.strictEqual(VER, '2.13.0');
-  assert.strictEqual(rel.date, '2026-11-02');
+  assert.strictEqual(VER, '2.14.0');
+  assert.strictEqual(rel.date, '2026-11-03');
   for (const c of rel.changes) for (const f of ['now', 'before']) if (c[f] != null) assert.ok(c[f].length < 400, c.title + ': ' + f + ' is ' + c[f].length);
-  const at = path.join(ROOT, 'docs', 'rehearsals', '2.13.0-2026-11-02-waiver.md');
-  assert.ok(fs.existsSync(at) && /Version: 2\.13\.0/.test(fs.readFileSync(at, 'utf8')) && /Date: 2026-11-02/.test(fs.readFileSync(at, 'utf8')), 'the waiver');
+  const at = path.join(ROOT, 'docs', 'rehearsals', '2.14.0-2026-11-03-waiver.md');
+  assert.ok(fs.existsSync(at) && /Version: 2\.14\.0/.test(fs.readFileSync(at, 'utf8')) && /Date: 2026-11-03/.test(fs.readFileSync(at, 'utf8')), 'the waiver');
   const list = fs.readFileSync(path.join(ROOT, 'docs', 'rehearsals', 'README.md'), 'utf8');
-  assert.ok(list.includes('[2.13.0, 2026-11-02](2.13.0-2026-11-02-waiver.md)'), 'the list');
+  assert.ok(list.includes('[2.14.0, 2026-11-03](2.14.0-2026-11-03-waiver.md)'), 'the list');
   const n = fs.readdirSync(path.join(ROOT, 'docs', 'rehearsals')).filter(f => /-waiver\.md$/.test(f)).length;
-  assert.strictEqual(n, 14);
-  assert.ok(list.includes('All fourteen are waivers'), 'the count');
+  assert.strictEqual(n, 15);
+  assert.ok(list.includes('All fifteen are waivers'), 'the count');
 });
 
 /* ---------------- the first prompt ---------------- */
