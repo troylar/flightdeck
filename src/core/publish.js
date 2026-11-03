@@ -93,28 +93,50 @@ PF.publish = (function () {
   }
 
   /* ---------- Draft checks (2.13): one set of inputs for the editor's Checks, Review & publish and flightdeck draft check ----------
-     d: { people, types, workflows, processes, procOf, teamValues }, the folder as the app holds it: people.json's list, the
-     team's step types, jira/workflows.json, the processes as the app lists them ({ id, latest, ... }) and a lookup by ID. A
-     process marked unread (the command line couldn't read all of it) is unknown: never suggested as unpublished, never
-     checked as a parent, and a linked step that starts it isn't checked against it. Any input that is null isn't checked at
-     all. The app's own lists never mark anything unread, so for the app this is exactly the inputs it always passed. */
+     d: { people, types, workflows, processes, procOf, teamValues, unknownType }, the folder as the app holds it: people.json's
+     list, the team's step types, jira/workflows.json, the processes as the app lists them ({ id, latest, ... }) and a lookup
+     by ID. A process marked unread (the command line couldn't read all of it) is unknown: never suggested as unpublished,
+     never checked as a parent, and a linked step that starts it isn't checked against it. unknownType(id): a team step type
+     whose file couldn't be read, so a step of that type is neither an unknown type nor scanned field by field. Any input that
+     is null isn't checked at all. The app never marks anything unknown, so for the app these are the inputs it always passed. */
   function checkOptions(d) {
     var procs = d.processes, unread = Object.create(null);
     (procs || []).forEach(function (x) { if (x.unread) unread[x.id] = true; });
-    var kids = d.procOf ? PF.links.childrenFrom(d.procOf) : null;
-    return { people: d.people, types: d.types, workflows: d.workflows,
+    var kids = d.procOf ? PF.links.childrenFrom(d.procOf) : null, o = { people: d.people, types: d.types, workflows: d.workflows,
       processes: procs ? procs.filter(function (x) { return x.latest || x.unread; }).map(function (x) { return x.id; }) : null,
       children: kids ? function (process, version) { return process && unread[process] ? null : kids(process, version); } : null,
       parents: procs ? procs.filter(function (x) { return !x.unread; }) : null,
       teamValues: d.teamValues };
+    if (d.unknownType) o.unknownType = d.unknownType;
+    return o;
+  }
+  /* The one place that decides what's unknown: every problem the read met (the problem ledger's, the folder adapter's, and
+     what the loaders refused, all noted first), mapped to the input it belongs to. Every kind counts (unreadable, newer, a
+     link, vanished, skipped, still syncing, malformed), except a malformed jira/workflows.json or team-values.json: those
+     are findings the app shows too. shots: the screenshot paths the text shows. Returns { people, types (true, or the IDs),
+     workflows, teamValues, publications, processes (IDs), shots (paths) }. */
+  function unknownOf(problems, shots) {
+    var u = { types: [], processes: [], shots: [] }, allTypes = false, add = function (list, v) { if (list.indexOf(v) < 0) list.push(v); };
+    var under = function (p, top) { return p === top || p.indexOf(top + '/') === 0; };
+    (problems || []).forEach(function (x) {
+      var p = String(x.path || '').replace(/\/+$/, ''), k = x.kind, m;
+      if (p === '' || p === '.') { u.people = u.workflows = u.teamValues = u.publications = true; allTypes = true; (shots || []).forEach(function (s) { add(u.shots, s); }); return; }
+      if (p === PF.people.FILE) u.people = true;
+      else if (p === PF.teamValues.FILE) { if (k !== 'malformed') u.teamValues = true; }
+      else if (under(p, 'jira')) { if (!(p === 'jira/workflows.json' && k === 'malformed')) u.workflows = true; }
+      else if (p === 'step-types') allTypes = true;
+      else if ((m = /^step-types\/([^/]+)\.json$/i.exec(p))) add(u.types, m[1]);
+      else if (p === 'publications') u.publications = true;
+      else if ((m = /^publications\/([^/]+)/.exec(p))) add(u.processes, m[1]);
+      (shots || []).forEach(function (s) { if (under(s, p)) add(u.shots, s); });
+    });
+    if (allTypes) u.types = true;
+    return u;
   }
   /* What a read of the folder found, and what it couldn't know. got: { people, types ({ id: type }), workflows, processes
      ([{ id, latest, all, clashes, broken }] in any order), teamValues, missingShots (screenshots the folder doesn't have),
-     unknown }. unknown names every input that wasn't read or that a newer Flightdeck wrote: { people, workflows, teamValues,
-     publications (booleans), types (true for all of step-types/, or the IDs whose file is unknown), processes (the IDs of
-     processes not fully read), shots (screenshots whose bytes couldn't be read) }. Each check that needs an unknown input
-     stays unchecked and adds nothing; the caller says the answer is partial and names why. The processes are put in the
-     order the app lists them, so findings come in the same order. */
+     unknown (from unknownOf) }. Each check that needs an unknown input stays unchecked and adds nothing; the caller says the
+     answer is partial and names why. The processes are put in the order the app lists them, so findings come in that order. */
   function checkContext(got) {
     var u = got.unknown || {}, N = PF.text.natural, by = Object.create(null), gone = Object.create(null);
     (u.processes || []).forEach(function (id) { gone[id] = true; });
@@ -125,29 +147,24 @@ PF.publish = (function () {
       procs.sort(function (a, b) { var x = meta(a), y = meta(b); return N(x.category, y.category) || N(x.title, y.title) || N(a.id, b.id); });
       procs.forEach(function (p) { by[p.id] = p; });
     }
+    var ut = u.types === true ? function () { return true; } : (u.types || []).length ? function (t) { return u.types.indexOf(t) >= 0; } : null;
     return {
       options: checkOptions({ people: u.people ? null : got.people, types: got.types || {}, workflows: u.workflows ? null : got.workflows, processes: procs,
-        procOf: procs ? function (id) { return by[id] || null; } : null, teamValues: u.teamValues ? undefined : got.teamValues }),
+        procOf: procs ? function (id) { return by[id] || null; } : null, teamValues: u.teamValues ? undefined : got.teamValues, unknownType: ut }),
       childProcs: by,
-      unknown: { types: u.types === true ? true : (u.types || []).slice(), process: function (id) { return !procs || !!gone[id]; }, shots: (u.shots || []).slice() },
+      unknownProcess: function (id) { return !procs || !!gone[id]; },
       missingShots: (got.missingShots || []).filter(function (src) { return (u.shots || []).indexOf(src) < 0; })
     };
   }
   /* The verdict for a draft's text, before anything is written: checks, as the editor's Checks and Review & publish show them,
      and publish: { ok, blockers }, what Publish would stop at (the same order: the checks, then version: pins, then
-     screenshots). Who publishes and the change note are left out: only a person gives those. Nothing unknown is a finding:
-     a step whose team type couldn't be read is never an unknown type, and a pin to a process that wasn't read isn't
-     checked. ctx: from checkContext. */
+     screenshots). Who publishes and the change note are left out: only a person gives those. Nothing unknown is a finding
+     (checkContext). ctx: from checkContext. */
   function publishCheck(draftMd, ctx) {
-    var map = M.parse(draftMd), c = M.check(map, ctx.options), un = ctx.unknown, all = un.types === true, unsure = Object.create(null);
-    M.steps(map).forEach(function (x) {
-      var t = x.step.type;
-      if (t && !T.get(t, ctx.options.types) && (all || un.types.indexOf(t) >= 0)) unsure['Step "' + x.step.text.slice(0, 40) + '" has an unknown type {' + t + '}.'] = true;
-    });
-    var blockers = c.blockers.filter(function (b) { return !unsure[b]; });
-    var pub = blockers.length ? blockers : pinCheck(map, ctx.childProcs, un.process).blockers;
+    var map = M.parse(draftMd), c = M.check(map, ctx.options);
+    var pub = c.blockers.length ? c.blockers : pinCheck(map, ctx.childProcs, ctx.unknownProcess).blockers;
     if (!pub.length) pub = ctx.missingShots.map(function (src) { return 'The screenshot ' + src + ' isn\'t in the team folder. Add it, or remove it from the checklist.'; });
-    return { checks: { blockers: blockers, suggestions: c.suggestions }, publish: { ok: !pub.length, blockers: pub.slice() } };
+    return { checks: { blockers: c.blockers, suggestions: c.suggestions }, publish: { ok: !pub.length, blockers: pub.slice() } };
   }
 
   /* Why this copy can't run a checklist, or '' if it can. Only what the version itself holds is checked, never the folder's
@@ -403,5 +420,5 @@ PF.publish = (function () {
     return hit ? out(hit, false) : out(latest, true);
   }
 
-  return { STAGE: STAGE, stageName: stageName, promoteRecord: promoteRecord, FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, canonical: canonical, payloadHash: payloadHash, features: features, payloadFiles: payloadFiles, FEATURE_NAMES: FEATURE_NAMES, needs: needs, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, checkOptions: checkOptions, checkContext: checkContext, publishCheck: publishCheck, verify: verify, exactOf: exactOf, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
+  return { STAGE: STAGE, stageName: stageName, promoteRecord: promoteRecord, FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, canonical: canonical, payloadHash: payloadHash, features: features, payloadFiles: payloadFiles, FEATURE_NAMES: FEATURE_NAMES, needs: needs, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, checkOptions: checkOptions, unknownOf: unknownOf, checkContext: checkContext, publishCheck: publishCheck, verify: verify, exactOf: exactOf, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
 })();

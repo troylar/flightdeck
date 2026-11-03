@@ -315,7 +315,8 @@ PF.map = (function () {
         if (!s.type) blockers.push(label + ' has no type. Every step needs one, like {confirm} or {ui.action}.');
         else {
           var def = T.get(s.type, opts.types);
-          if (!def) blockers.push(label + ' has an unknown type {' + s.type + '}.');
+          /* opts.unknownType(id) (flightdeck draft check): a team type whose file couldn't be read is unknown, never an unknown type. */
+          if (!def) { if (!(opts.unknownType && opts.unknownType(s.type))) blockers.push(label + ' has an unknown type {' + s.type + '}.'); }
           else {
             if (['at', 'due', 'after'].filter(function (f) { return s.fields[f]; }).length > 1) blockers.push(label + ': give one time, "at:", "due:" or "after:", not more than one.');
             var fc = T.checkFields(def, s.fields);
@@ -354,7 +355,7 @@ PF.map = (function () {
        a value yet shows "(name not set)". Advice only; step text and approves are already checked above. */
     if (PF.refs) {
       var said = Object.create(null);
-      PF.refs.scan(map, { types: opts.types }).forEach(function (u) {
+      PF.refs.scan(map, { types: opts.types, unknownType: opts.unknownType }).forEach(function (u) {
         var w = u.where, v = u.verdict, label = w.kind === 'gate' ? 'Gate "' + w.gate.title + '"' : 'Step "' + w.step.text.slice(0, 40) + '"';
         var inBox = w.box.indexOf('field:') === 0 ? ' in "' + w.box.slice(6) + '"' : '', key = label + '|' + w.box + '|' + u.name;
         if (said[key] || (v.v === 'unknown' && !inBox) || v.v === 'ok') return;

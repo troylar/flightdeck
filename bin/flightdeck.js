@@ -500,6 +500,9 @@ function loadEngine() {
    read, and named in skipped. */
 function readAdapter(root, opts) {
   const NOFOLLOW = fs.constants.O_NOFOLLOW || 0, links = [], skipped = [], max = (opts && opts.maxBytes) || 0;
+  /* vanished: a file or folder that was there when its path was walked and gone when it was opened (a sync or another program
+     moved it in between). The read gives nothing, as for a file that isn't there, and the path is named. */
+  const vanished = [], gone = (rel) => { if (vanished.indexOf(rel) < 0) vanished.push(rel); };
   function linkErr(rel) { const e = new Refused('refusing to read through a link: ' + rel); e.link = true; if (links.indexOf(rel) < 0) links.push(rel); return e; }
   function skipErr(rel, bytes, cap, more) {
     const e = new Refused(rel + ' is ' + (more ? 'more than ' : '') + size(bytes) + ', over the ' + size(cap) + ' this command reads');
@@ -562,7 +565,7 @@ function readAdapter(root, opts) {
     const f = fileAt(p);
     if (!f) return null;
     let fd;
-    try { fd = fs.openSync(f.full, fs.constants.O_RDONLY | NOFOLLOW); } catch (e) { if (e.code === 'ELOOP') throw linkErr(p); if (e.code === 'ENOENT') return null; throw e; }
+    try { fd = fs.openSync(f.full, fs.constants.O_RDONLY | NOFOLLOW); } catch (e) { if (e.code === 'ELOOP') throw linkErr(p); if (e.code === 'ENOENT') { gone(p); return null; } throw e; }
     try {
       const st = fs.fstatSync(fd), now = lstatOrNull(path.join(sameWalk(f.a, f.ids, p), f.name));
       if (!st.isFile() || st.ino !== f.st.ino || st.dev !== f.st.dev || !now || now.isSymbolicLink() || now.ino !== st.ino || now.dev !== st.dev) throw linkErr(p);
@@ -570,13 +573,13 @@ function readAdapter(root, opts) {
     } catch (e) { fs.closeSync(fd); throw e; }
   }
   return {
-    links, skipped,
+    links, skipped, vanished,
     list: (p) => new Promise((res) => {
       const a = partsOf(p), dir = dirAt(a);
       /* No such folder: empty, and marked missing, so a reader that saw it listed can tell gone from empty. */
       if (!dir) { const none = []; none.missing = true; return res(none); }
       let entries;
-      try { entries = fs.readdirSync(dir.cur, { withFileTypes: true }); } catch (e) { if (e.code !== 'ENOENT') throw e; const none = []; none.missing = true; return res(none); }
+      try { entries = fs.readdirSync(dir.cur, { withFileTypes: true }); } catch (e) { if (e.code !== 'ENOENT') throw e; gone(p || '.'); const none = []; none.missing = true; return res(none); }
       sameWalk(a, dir.ids, p || '.');
       res(entries.map((e) => {
         const rel = (p ? p + '/' : '') + e.name;
@@ -807,7 +810,8 @@ function folderProblems(PF, d) {
 }
 function adapterProblems(adapter) {
   return (adapter.links || []).map((p) => ({ path: p, kind: 'link', why: 'A link. Flightdeck never reads through links.' }))
-    .concat((adapter.skipped || []).map((x) => ({ path: x.path, kind: 'skipped', why: 'Too large to read here (' + (x.more ? 'more than ' : '') + size(x.size) + '; the limit is ' + size(x.cap) + ').' })));
+    .concat((adapter.skipped || []).map((x) => ({ path: x.path, kind: 'skipped', why: 'Too large to read here (' + (x.more ? 'more than ' : '') + size(x.size) + '; the limit is ' + size(x.cap) + ').' })))
+    .concat((adapter.vanished || []).map((p) => ({ path: p, kind: 'vanished', why: 'It was there a moment ago and was gone when it was read. Try again.' })));
 }
 
 /* What a whole-folder command's output depends on, as folders and files: its data, the publications that say whether a
@@ -1579,56 +1583,42 @@ async function draftInputs(eng, dir, text) {
   const deps = [PF.people.FILE, 'step-types', 'jira/workflows.json', 'publications'];
   const d = await repo.loadAll(dependsOn(rfs, deps), { readOnly: true, explain: true, deep: true });
   const failed = d.failed || {};
-  /* unknown: every input this read couldn't know (PF.publish.checkContext). Each one is named in the ledger, so the answer
-     says it's partial and why, and the checks that need it stay unchecked. */
-  const unknown = { types: [], processes: [], shots: [] };
-  const people = d.people;
-  if ('people' in failed) { unknown.people = true; if (!failedAt(PF.people.FILE)) L.note(PF.people.FILE, /newer/.test(failed.people) ? 'newer' : 'unreadable', failed.people); }
-  else if (people && people.text != null && people.doc == null) { unknown.people = true; L.note(PF.people.FILE, 'malformed', PF.people.FILE + ' isn\'t valid JSON.'); }
-  let types = {};
-  if ('step types' in failed) unknown.types = true;
-  else {
-    types = d.stepTypes.types;
-    d.stepTypes.errors.forEach((x) => { if (failedAt('step-types/' + x.file)) unknown.types.push(x.file.replace(/\.json$/i, '')); });
-    (d.stepTypes.refused || []).forEach((r) => { L.note(r.path, 'newer', r.why); unknown.types.push(r.path.replace(/^step-types\//, '').replace(/\.json$/i, '')); });
-    ra.links.forEach((p) => { const m = /^step-types\/([^/]+)\.json$/i.exec(p); if (m) unknown.types.push(m[1]); });
+  /* First every read, with what each loader refused noted in the ledger; then the adapter's own problems (links, files too
+     big); then PF.publish.unknownOf decides what's unknown from that whole list, and nothing else does. */
+  const PARTS = { people: PF.people.FILE, 'step types': 'step-types', 'Jira workflows': 'jira/workflows.json', publications: 'publications' };
+  Object.keys(PARTS).forEach((k) => { if (k in failed && !failedAt(PARTS[k])) L.note(PARTS[k], /newer/.test(failed[k]) ? 'newer' : 'unreadable', failed[k]); });
+  const people = 'people' in failed ? null : d.people;
+  if (people && people.text != null && people.doc == null) L.note(PF.people.FILE, 'malformed', PF.people.FILE + ' isn\'t valid JSON.');
+  const types = 'step types' in failed ? {} : d.stepTypes.types;
+  if (!('step types' in failed)) {
+    (d.stepTypes.refused || []).forEach((r) => L.note(r.path, 'newer', r.why));
+    /* Over the limit: the files after the first ones loaded, in the order the loader takes them, each named. */
+    if (d.stepTypes.skipped) {
+      const all = (await rfs.list('step-types')).filter((i) => i.kind === 'file' && /\.json$/i.test(i.name)).sort((x, y) => (x.name < y.name ? -1 : 1));
+      const kept = all.length - d.stepTypes.skipped, why = 'step-types: ' + all.length + ' files; Flightdeck loads the first ' + kept + ', so this one isn\'t read.';
+      all.slice(kept).forEach((i) => L.note('step-types/' + i.name, 'skipped', why));
+    }
   }
-  if ('Jira workflows' in failed) unknown.workflows = true;
-  let processes = [];
-  if ('publications' in failed) unknown.publications = true;
-  else {
-    processes = d.processes.map((p) => {
-      const broken = p.pubs.filter((x) => !x.ok);
-      /* A version that read but can't be used is named as READ names one; a failed read the ledger already has. Either way
-         the process isn't fully known: its children and pins aren't checked against an older version. */
-      broken.forEach((x) => { if (!x._readFailed) { const k = PF.appjson.pubProblem(x); L.note('publications/' + p.process + '/' + x.folder + '/', k.kind, k.why); } });
-      if (broken.length) unknown.processes.push(p.process);
-      return { id: p.process, latest: p.index.latest, all: p.index.all, clashes: p.index.clashes, broken };
-    });
-    /* A process whose folder couldn't be listed (or that a read under it failed): unknown, never "not published". */
-    L.problems().forEach((x) => { const m = /^publications\/([^/]+)/.exec(x.path); if (m && PROC_ID.test(m[1])) unknown.processes.push(m[1]); });
-  }
-  /* Team values (2.9), read only for a text that passes one, as publishing reads them. A read that failed or a newer file is
-     unknown; a malformed one is a finding, as the app shows it. */
+  const processes = 'publications' in failed ? [] : d.processes.map((p) => {
+    /* A version that read but can't be used is named as READ names one; a failed read the ledger already has. */
+    p.pubs.filter((x) => !x.ok && !x._readFailed).forEach((x) => { const k = PF.appjson.pubProblem(x); L.note('publications/' + p.process + '/' + x.folder + '/', k.kind, k.why); });
+    return { id: p.process, latest: p.index.latest, all: p.index.all, clashes: p.index.clashes, broken: p.pubs.filter((x) => !x.ok) };
+  });
+  /* Team values (2.9), read only for a text that passes one, as publishing reads them. */
   let teamValues;
   if (M.steps(map).some((x) => x.step.type === 'run.process' && PF.links.teams(x.step).length)) {
     teamValues = await repo.readTeamValues(rfs);
-    if (teamValues.state === 'malformed') L.note(PF.teamValues.FILE, 'malformed', teamValues.why);
-    if (teamValues.state === 'newer' || teamValues.state === 'unreadable') {
-      unknown.teamValues = true;
-      if (!failedAt(PF.teamValues.FILE)) L.note(PF.teamValues.FILE, teamValues.state, teamValues.why || PF.teamValues.FILE + ' couldn\'t be read.');
-    }
+    if (teamValues.state !== 'ok' && teamValues.state !== 'missing' && !failedAt(PF.teamValues.FILE)) L.note(PF.teamValues.FILE, teamValues.state, teamValues.why || PF.teamValues.FILE + ' couldn\'t be read.');
   }
-  /* Screenshots, read to the last byte as publishing reads them: missing is a blocker, a read that failed is unknown. */
-  const missingShots = [];
-  for (const src of M.shotSources(map)) {
-    try { const b = await rfs.blob(src); if (!b) missingShots.push(src); else await b.arrayBuffer(); } catch (e) { unknown.shots.push(src); if (!failedAt(src)) L.note(src, 'unreadable', src + ' couldn\'t be read: ' + (e && e.message || String(e))); }
+  /* Screenshots, read to the last byte as publishing reads them: one that isn't there is a blocker. */
+  const shots = M.shotSources(map), missingShots = [];
+  for (const src of shots) {
+    try { const b = await rfs.blob(src); if (!b) missingShots.push(src); else await b.arrayBuffer(); } catch (e) { if (!failedAt(src)) L.note(src, 'unreadable', src + ' couldn\'t be read: ' + (e && e.message || String(e))); }
   }
-  const ctx = PF.publish.checkContext({ people, types, workflows: d.jira ? d.jira.workflows : null, processes, teamValues, missingShots, unknown });
-  /* A link or a file too big to read, met where the checks read: named too. */
-  const problems = L.problems(), seen = {}, mine = covers(deps.concat([PF.teamValues.FILE], M.shotSources(map)));
+  const problems = L.problems(), seen = {}, mine = covers(deps.concat([PF.teamValues.FILE], shots));
   problems.forEach((x) => { seen[x.path + '\u0000' + x.kind] = true; });
   adapterProblems(ra).forEach((x) => { if (mine(x.path) && !seen[x.path + '\u0000' + x.kind]) problems.push(x); });
+  const ctx = PF.publish.checkContext({ people, types, workflows: d.jira ? d.jira.workflows : null, processes, teamValues, missingShots, unknown: PF.publish.unknownOf(problems, shots) });
   return { verdict: PF.publish.publishCheck(text, ctx), problems };
 }
 /* flightdeck draft check <team folder> <process> [--from <file | ->] --json (2.13): the verdict Review & publish gives the
