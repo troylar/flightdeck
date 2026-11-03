@@ -408,6 +408,17 @@
         "fs.js": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",
         "storage.js": "19535abe93f024e8f7974692795e6dc04923ac086d283b639442593b4bf50841"
       }
+    },
+    "v2.12.2": {
+      "commit": "ac4d57302058bf7d394e0b515db9da802ab5a9d9",
+      "sha256": {
+        "check_folder.py": "f058d647976837fe3294221425d515f295c729e24c1791b3e2aed1ce956443d9",
+        "core.js": "987fff2b96091f8bcb6c3724fed1ae1f634396fb0ca0c94eb216aab0a7de9304",
+        "flightdeck.html": "eef550ea76dee91a6ae9b758cdc566b6d8df853778c2bcae2bff200b71ad04ba",
+        "flightdeck.js": "4c7fdbd1f38410d8259364e3ffb18bd5c9d4d07c77ccf69cf12134210af7c331",
+        "fs.js": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",
+        "storage.js": "19535abe93f024e8f7974692795e6dc04923ac086d283b639442593b4bf50841"
+      }
     }
   }
 }

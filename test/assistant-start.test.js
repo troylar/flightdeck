@@ -342,7 +342,7 @@ const EDITED = (t) => t.replace('## What you may write', '## What you may write 
 
 /* ---- round 4 data review: an old copy needs proof about the whole waiting file, a newer text in hand, and a record that reads ---- */
 const NOTED = (t) => t + '\nMerge note: keep our deploy rule when you merge this.\n';
-const SKILL = SKILLS + 'flightdeck-edit-checklist/SKILL.md';
+const SKILL = SKILLS + 'flightdeck-plan-run/SKILL.md';
 function pendingSkill() {
   const dir = tmp(); assert.strictEqual(cli('install', dir).code, 0);
   const up = path.join(dir, '.flightdeck', 'updates', '2.12.0', ...SKILL.split('/'));
@@ -673,7 +673,7 @@ rule('The real path: this version installs, the real 2.12.0 page "updates", this
   assert.ok(!/data-act="af-merged" data-id="AGENTS.md"|data-act="af-brief" data-id="AGENTS.md"/.test(html) && !/\d+ to merge|Waiting to merge/.test(page), 'Settings: no merge, no merge request');
   assert.ok(OLD_LINE.test(page), 'Settings: named as an old copy');
   const h = plain(await healthOf(app));
-  assert.ok(!/for AI assistants to merge|waiting to be merged/.test(h) && new RegExp(changed.length + ' old cop(y|ies) an older Flightdeck left').test(h) && changed.every(k => h.includes('.flightdeck/updates/2.12.0/' + k)), 'Folder health: no merge, each old copy named');
+assert.ok(!/for AI assistants to merge|waiting to be merged/.test(h) && new RegExp(changed.length + ' old cop(y|ies) an older Flightdeck left').test(h) && changed.filter(k => h.includes('.flightdeck/updates/2.12.0/' + k)).length === Math.min(3, changed.length) && (changed.length <= 3 || h.includes('and ' + (changed.length - 3) + ' more')), 'Folder health: no merge, each old copy named (the first three, then how many more)');
   const disk = toDisk(files);
   let r = cli('install', disk, '--check');
   assert.strictEqual(r.code, 0, 'install --check: ' + r.out);
@@ -735,16 +735,16 @@ rule('A folder installed by 2.12.0\'s own command, with Team notes, upgrades wit
 
 rule('This release is dated 2026-11-02 in the entry, the waiver and the list, and each text in the entry is under 400 characters', () => {
   const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')).find(r => r.version === VER);
-  assert.strictEqual(VER, '2.12.2');
+  assert.strictEqual(VER, '2.13.0');
   assert.strictEqual(rel.date, '2026-11-02');
   for (const c of rel.changes) for (const f of ['now', 'before']) if (c[f] != null) assert.ok(c[f].length < 400, c.title + ': ' + f + ' is ' + c[f].length);
-  const at = path.join(ROOT, 'docs', 'rehearsals', '2.12.2-2026-11-02-waiver.md');
-  assert.ok(fs.existsSync(at) && /Version: 2\.12\.2/.test(fs.readFileSync(at, 'utf8')) && /Date: 2026-11-02/.test(fs.readFileSync(at, 'utf8')), 'the waiver');
+  const at = path.join(ROOT, 'docs', 'rehearsals', '2.13.0-2026-11-02-waiver.md');
+  assert.ok(fs.existsSync(at) && /Version: 2\.13\.0/.test(fs.readFileSync(at, 'utf8')) && /Date: 2026-11-02/.test(fs.readFileSync(at, 'utf8')), 'the waiver');
   const list = fs.readFileSync(path.join(ROOT, 'docs', 'rehearsals', 'README.md'), 'utf8');
-  assert.ok(list.includes('[2.12.2, 2026-11-02](2.12.2-2026-11-02-waiver.md)'), 'the list');
+  assert.ok(list.includes('[2.13.0, 2026-11-02](2.13.0-2026-11-02-waiver.md)'), 'the list');
   const n = fs.readdirSync(path.join(ROOT, 'docs', 'rehearsals')).filter(f => /-waiver\.md$/.test(f)).length;
-  assert.strictEqual(n, 13);
-  assert.ok(list.includes('All thirteen are waivers'), 'the count');
+  assert.strictEqual(n, 14);
+  assert.ok(list.includes('All fourteen are waivers'), 'the count');
 });
 
 /* ---------------- the first prompt ---------------- */
