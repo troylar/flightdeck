@@ -41,9 +41,20 @@ async function cmd(...argv) {
   return { code: r.code, json };
 }
 function inputFile(body) { const f = path.join(tmp(), 'in.json'); fs.writeFileSync(f, body); return f; }
+/* A save that wrote nothing leaves the folder as it was (no folder made, no file left) apart from the temporary files it
+   names in cleanup; checked whenever no hook was acting as another writer. */
+function unchanged(dir, before, r) {
+  if (r.json.written !== false || Object.keys(FD._hooks).length || !fs.existsSync(dir)) return;
+  const left = (r.json.cleanup && r.json.cleanup.leftover) || [];
+  const added = scan(dir).filter((p) => before.indexOf(p) < 0 && left.indexOf(p) < 0 && !(left.length && left.some((l) => l.indexOf(p) === 0)));
+  assert.deepStrictEqual(added, [], r.json.outcome + ': nothing written, so nothing new in the folder');
+}
 async function save(dir, id, d, expect, extra) {
   const body = Buffer.isBuffer(d) ? d : typeof d === 'string' ? d : JSON.stringify(d, null, 2);
+  let before = null;
+  try { before = fs.existsSync(dir) ? scan(dir) : []; } catch (e) { before = null; /* a folder the test made unreadable */ }
   const r = await cmd('type', 'save', dir, id, '--expect', expect, '--from', inputFile(body), '--json', ...(extra || []));
+  if (before) try { scan(dir); unchanged(dir, before, r); } catch (e) { if (e instanceof assert.AssertionError) throw e; }
   assert.deepStrictEqual(plain(AJ.conforms(r.json, WRITE_SCHEMA())), [], 'flightdeck-write/1: ' + JSON.stringify(r.json).slice(0, 400));
   assert.strictEqual(r.json.contract, 'flightdeck-write/1');
   assert.strictEqual(r.code, PF.save.EXIT[r.json.outcome], 'exit code for ' + r.json.outcome);
@@ -1160,6 +1171,76 @@ rule('The read commands print flightdeck-read/2 and never change the folder', as
   const r = await read(dir, 'sample.check'), l = await list(dir);
   assert.deepStrictEqual([r.json.contract, l.json.contract], ['flightdeck-read/2', 'flightdeck-read/2']);
   assert.deepStrictEqual(scan(dir), was);
+});
+
+/* ======================= round 4: nothing on a refusal, a bounded --from, the engine, one value per flag ======================= */
+rule('Nothing on a refusal: links refused, a full disk at T, or a link check that fails leaves no step-types/ behind', async () => {
+  for (const [name, list] of [
+    ['no-links', [['linkSync', (was) => (a, b) => { if (/\.probe$/.test(b)) throw err('EPERM'); return was(a, b); }]]],
+    ['link-check', [['linkSync', (was) => (a, b) => { if (/\.probe$/.test(b)) throw err('EIO'); return was(a, b); }]]],
+    ['ENOSPC', [['writeSync', (was) => function (fd) { if (fs.__tmpFd === fd) throw err('ENOSPC'); return was.apply(fs, arguments); }], ['openSync', (was) => function (p) { const fd = was.apply(fs, arguments); if (/\.tmp$/.test(String(p))) fs.__tmpFd = fd; return fd; }]]]
+  ]) {
+    const dir = team({});
+    const r = await shims(list, () => save(dir, 'sample.check', DEF, 'none'));
+    delete fs.__tmpFd;
+    assert.strictEqual(r.json.written, false, name);
+    assert.ok(['refused', 'failed'].indexOf(r.json.outcome) >= 0, name + ': ' + r.json.outcome);
+    assert.deepStrictEqual(scan(dir), [], name + ': step-types/ isn\'t left behind');
+  }
+});
+rule('Nothing on a refusal: a step-types/ that was already there stays, empty', async () => {
+  const dir = team({}); fs.mkdirSync(path.join(dir, 'step-types'));
+  const r = await shims([['linkSync', (was) => (a, b) => { if (/\.probe$/.test(b)) throw err('EPERM'); return was(a, b); }]], () => save(dir, 'sample.check', DEF, 'none'));
+  assert.strictEqual(r.json.error.kind, 'no-links');
+  assert.deepStrictEqual(scan(dir), ['step-types/']);
+});
+rule('--from is read with a bound: a regular file over 256 KB, even a 4 GB sparse one, is invalid without being read', async () => {
+  const dir = team({}), big = path.join(tmp(), 'big.json');
+  fs.writeFileSync(big, '{}'); fs.truncateSync(big, 4 * 1024 * 1024 * 1024);
+  let read = 0;
+  const r = await shims([['readSync', (was) => function () { const n = was.apply(fs, arguments); read += n; return n; }]], () => cmd('type', 'save', dir, 'sample.check', '--expect', 'none', '--from', big, '--json'));
+  assert.deepStrictEqual([r.json.outcome, r.json.error.kind, r.code], ['refused', 'invalid', 1]);
+  assert.ok(/4294967296 bytes; a step type is at most 262144/.test(r.json.words), r.json.words);
+  assert.strictEqual(read, 0, 'nothing read');
+  assert.deepStrictEqual(scan(dir), []);
+});
+rule('--from - is read with a bound: an endless standard input (a fake that never ends) stops at 256 KB + 1 and is invalid', async () => {
+  const dir = team({});
+  let given = 0;
+  const r = await shims([['readSync', (was) => function (fd, buf, off, len) { if (fd !== 0) return was.apply(fs, arguments); assert.ok(given < 300000, 'read past the bound'); buf.fill(0x20, off, off + len); given += len; return len; }]], () => cmd('type', 'save', dir, 'sample.check', '--expect', 'none', '--from', '-', '--json'));
+  assert.deepStrictEqual([r.json.outcome, r.json.error.kind, r.code], ['refused', 'invalid', 1]);
+  assert.strictEqual(given, 262145, 'exactly the bound plus one byte');
+  assert.ok(/more than 262144 bytes/.test(r.json.words), r.json.words);
+});
+rule('--from must be a regular file or -: a folder or a device is a usage refusal, never read or waited on', async () => {
+  const dir = team({});
+  for (const from of [tmp(), '/dev/null']) {
+    const r = await cmd('type', 'save', dir, 'sample.check', '--expect', 'none', '--from', from, '--json');
+    assert.deepStrictEqual([r.json.outcome, r.json.error.kind, r.code], ['refused', 'usage', 1], from + ': ' + r.json.words);
+    assert.ok(/isn't a regular file/.test(r.json.words), r.json.words);
+  }
+  assert.deepStrictEqual(scan(dir), []);
+});
+rule('An engine that won\'t load: type save still answers flightdeck-write/1, failed, exit 1, nothing changed', async () => {
+  const dir = team({});
+  const r = await hooks({ engine: () => { throw new Error('the page is damaged'); } }, () => cmd('type', 'save', dir, 'sample.check', '--expect', 'none', '--from', inputFile(JSON.stringify(DEF)), '--json'));
+  assert.deepStrictEqual(plain(AJ.conforms(r.json, WRITE_SCHEMA())), [], JSON.stringify(r.json));
+  assert.deepStrictEqual([r.json.contract, r.json.outcome, r.json.written, r.code], ['flightdeck-write/1', 'failed', false, 1]);
+  assert.ok(/^Nothing was changed\. Flightdeck couldn't load: the page is damaged\.$/.test(r.json.words), r.json.words);
+  assert.deepStrictEqual(scan(dir), []);
+});
+rule('A value flag said twice (--from, --expect, --asked-by, --note) is a usage refusal: nothing read or written', async () => {
+  const dir = team({}), f = inputFile(JSON.stringify(DEF));
+  for (const [flag, a, b] of [['--from', f, f], ['--expect', 'none', 'none'], ['--asked-by', 'person-avery', 'person-blake'], ['--note', 'a', 'b']]) {
+    const base = { '--from': f, '--expect': 'none' };
+    const argv = ['type', 'save', dir, 'sample.check'];
+    Object.keys(base).filter((k) => k !== flag).forEach((k) => argv.push(k, base[k]));
+    argv.push(flag, a, flag, b, '--json');
+    const r = await cmd(...argv);
+    assert.deepStrictEqual([r.json.outcome, r.json.error.kind, r.code], ['refused', 'usage', 1], flag + ': ' + r.json.words);
+    assert.strictEqual(r.json.words, 'Nothing was changed. say ' + flag + ' once.');
+  }
+  assert.deepStrictEqual(scan(dir), []);
 });
 
 run();

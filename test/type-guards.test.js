@@ -28,10 +28,18 @@ function team(files) {
   return dir;
 }
 const full = (dir, rel) => path.join(dir, ...rel.split('/'));
+function listing(dir) {
+  const out = [];
+  (function walk(d) { let es; try { es = fs.readdirSync(d, { withFileTypes: true }); } catch (e) { return; } for (const e of es) { const p = path.join(d, e.name), rel = path.relative(dir, p).split(path.sep).join('/'); out.push(rel + (e.isDirectory() ? '/' : '')); if (e.isDirectory()) walk(p); } })(dir);
+  return out.sort();
+}
 async function cmd(...argv) { const r = await FD.main(argv); return { code: r.code, json: JSON.parse(r.out) }; }
 function inputFile(body) { const f = path.join(tmp(), 'in.json'); fs.writeFileSync(f, body); return f; }
 async function save(dir, d, expect, extra) {
+  const before = listing(dir);
   const r = await cmd('type', 'save', dir, ID, '--expect', expect, '--from', inputFile(typeof d === 'string' ? d : JSON.stringify(d, null, 2)), '--json', ...(extra || []));
+  /* Nothing written: nothing new in the folder (no folder made, no file left) unless a temporary file is named in cleanup. */
+  if (r.json.written === false && !Object.keys(FD._hooks).length && !(r.json.cleanup && r.json.cleanup.leftover.length)) assert.deepStrictEqual(listing(dir).filter((p) => before.indexOf(p) < 0), [], r.json.outcome + ': the folder is as it was');
   assert.deepStrictEqual(plain(AJ.conforms(r.json, AJ.WRITE1)), [], 'flightdeck-write/1: ' + JSON.stringify(r.json).slice(0, 400));
   assert.strictEqual(r.code, PF.save.EXIT[r.json.outcome], 'exit code for ' + r.json.outcome);
   return r;

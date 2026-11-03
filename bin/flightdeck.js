@@ -2092,14 +2092,43 @@ function readBack(target, ours, data) {
   if (!stable) return { back: 'unstable', now: null, kind: 'vanished', why: 'it changed while Flightdeck was reading it back' };
   return { back: 'same', now: sha256(data), why: null };
 }
+/* --from's bytes, never more than limit + 1 read (design D5): standard input (-), or a regular file opened without
+   blocking (a FIFO or a device is refused, never waited on or read without end). { bytes, over, size } or { usage }. */
+function boundedInput(file, limit) {
+  let fd = 0, own = false, size = null;
+  try {
+    if (file !== '-') {
+      fd = fs.openSync(expand(file), fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK || 0)); own = true;
+      const st = fs.fstatSync(fd);
+      if (!st.isFile()) return { usage: '--from is a file with the definition, or - for standard input; ' + file + ' isn\'t a regular file.' };
+      if (st.size > limit) return { bytes: null, over: true, size: st.size };
+    }
+    const buf = Buffer.alloc(limit + 1);
+    let total = 0, waits = 0;
+    while (total < buf.length) {
+      let n;
+      try { n = fs.readSync(fd, buf, total, buf.length - total, own ? total : null); } catch (e) {
+        if (e.code === 'EAGAIN' && !own && waits++ < 6000) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10); continue; }
+        if (e.code === 'EOF') break;
+        throw e;
+      }
+      if (!n) break;
+      total += n;
+    }
+    if (total > limit) return { bytes: null, over: true, size };
+    return { bytes: buf.subarray(0, total), over: false, size: total };
+  } catch (e) { return { usage: 'couldn\'t read --from (' + errText(e) + ').' }; }
+  finally { if (own) try { fs.closeSync(fd); } catch (e) { /* only read */ } }
+}
 /* The new definition from --from: at most 256 KB of strict UTF-8 (a leading byte-order mark dropped), no key twice in one
    object, no __proto__, constructor or prototype key, one JSON object, the ID it's saved as, checkCustom, then formatWhy. */
 function typeInput(PF, file, id) {
   const T = PF.types, S = PF.save;
-  let buf;
-  try { buf = file === '-' ? fs.readFileSync(0) : fs.readFileSync(expand(file)); } catch (e) { return { usage: 'couldn\'t read --from (' + errText(e) + ').' }; }
   const bad = (why, errors) => ({ invalid: why, errors: errors || [why] });
-  if (buf.length > TYPE_INPUT_MAX) return bad('the definition is ' + buf.length + ' bytes; a step type is at most ' + TYPE_INPUT_MAX + ' bytes (256 KB) of UTF-8');
+  const got = boundedInput(file, TYPE_INPUT_MAX);
+  if (got.usage) return { usage: got.usage };
+  const buf = got.bytes;
+  if (got.over) return bad('the definition is ' + (got.size != null ? got.size + ' bytes' : 'more than ' + TYPE_INPUT_MAX + ' bytes') + '; a step type is at most ' + TYPE_INPUT_MAX + ' bytes (256 KB) of UTF-8');
   let text;
   try { text = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch (e) { return bad('the definition isn\'t valid UTF-8 text'); }
   let def;
@@ -2123,12 +2152,16 @@ function typeInput(PF, file, id) {
   if (data.length > TYPE_INPUT_MAX) return bad('the saved file would be ' + data.length + ' bytes; a step type is at most ' + TYPE_INPUT_MAX + ' bytes (256 KB)');
   return { def, data };
 }
+/* A flightdeck-write/1 answer with nothing done yet: every field, written false. */
+function writeShell(app, rel, outcome, error, words, now) {
+  return { contract: WRITE_CONTRACT, app, command: 'type save', path: rel, operation: null, outcome, written: false,
+    rev: { expected: null, before: null, after: null, now: null }, back: null, load: null, existing: null, appLoads: null,
+    checks: { errors: [], warnings: [], omitted: { before: null, after: null } }, askedBy: null, history: null, cleanup: null, error, words, readAt: new Date(now || Date.now()).toISOString(), complete: true, problems: [] };
+}
 async function typeSave(eng, argv, args, val) {
   const PF = eng.PF, S = PF.save, T = PF.types, U = PF.util, TL = PF.timeline, now = Date.now();
   const id = args[3], name = id + '.json', rel = 'step-types/' + name, idOk = !!id && T.ID.test(id) && id.length <= T.ID_MAX;
-  const out = { contract: WRITE_CONTRACT, app: eng.version || '', command: 'type save', path: idOk ? rel : null, operation: null, outcome: '', written: false,
-    rev: { expected: null, before: null, after: null, now: null }, back: null, load: null, existing: null, appLoads: null,
-    checks: { errors: [], warnings: [], omitted: { before: null, after: null } }, askedBy: null, history: null, cleanup: null, error: null, words: '', readAt: new Date(now).toISOString(), complete: true, problems: [] };
+  const out = writeShell(eng.version || '', idOk ? rel : null, '', null, '', now);
   const left = [], leftWhy = [];
   let dir = null, L = typeLedger(PF, null);
   /* Every answer goes through PF.save.settle and PF.save.words. */
@@ -2154,6 +2187,7 @@ async function typeSave(eng, argv, args, val) {
   if (!argv.includes('--json')) return usage('flightdeck type save prints JSON. Add --json.');
   if (!idOk) return usage('a step type ID is lowercase letters, numbers, dashes and dots, like deploy.check: flightdeck type save <team folder> <id> --expect <rev|none> --from <file> --json');
   if (args.length > 4) return usage('type save takes a team folder and an ID, nothing else.');
+  for (const f of VAL) if (argv.filter((a) => a === f).length > 1) return usage('say ' + f + ' once.');
   for (const f of VAL) if (argv.indexOf(f) >= 0 && val[f] == null) return usage('say what goes after ' + f + '.');
   const expect = val['--expect'];
   if (expect == null || !(expect === 'none' || /^[0-9a-f]{64}$/.test(expect))) return usage('--expect is the rev type read gave (a SHA-256), or exactly none when type read said missing.');
@@ -2288,10 +2322,14 @@ async function typeSave(eng, argv, args, val) {
     if (v.outcome === 'checked') { loadIf(listing.files, 'R1'); return finish({ refused: { outcome: 'checked', kind: null, why: '' } }); }
     /* T and P. */
     let where, t;
+    /* step-types/ is made only for the save: a refusal or failure before the commit removes it again when this call made
+       it and it's still empty, so nothing is left behind (a temporary file it couldn't remove keeps it, and is named). */
+    const made = !lstatOrNull(path.join(dir, 'step-types'));
     try { where = folders(dir, ['step-types'], true); } catch (e) { L.note('step-types', 'link', e.message); return refuse('failed', 'failed', e.message); }
+    const unmake = () => { if (!made) return; try { if (!fs.readdirSync(where).length) fs.rmdirSync(where); } catch (e) { /* not empty or gone: left as it is */ } };
     const target = path.join(where, name);
-    try { t = tempBeside(where, name, data); } catch (e) { if (e.tmp) { const w = removeOurs(e.tmp, e.ours); if (w) { left.push(e.tmp); leftWhy.push(w); } } return refuse('failed', 'failed', e.message); }
-    const clean = () => { const w = removeOurs(t.tmp, t.ours); if (w) { left.push(t.tmp); leftWhy.push(w); } };
+    try { t = tempBeside(where, name, data); } catch (e) { if (e.tmp) { const w = removeOurs(e.tmp, e.ours); if (w) { left.push(e.tmp); leftWhy.push(w); } } unmake(); return refuse('failed', 'failed', e.message); }
+    const clean = () => { const w = removeOurs(t.tmp, t.ours); if (w) { left.push(t.tmp); leftWhy.push(w); } unmake(); };
     const stop = (outcome, kind, why, more) => { clean(); return refuse(outcome, kind, why, more); };
     /* A read in the final compare that fails: named in the ledger, then failed. */
     const cfail = (at, kind, why) => { L.note(at, kind, why); return stop('failed', 'failed', why); };
@@ -2362,8 +2400,12 @@ async function typeMain(argv) {
   const args = argv.filter((a, i) => !a.startsWith('--') && !(i > 0 && VAL.indexOf(argv[i - 1]) >= 0));
   argv.forEach((a, i) => { if (VAL.indexOf(a) >= 0 && i + 1 < argv.length && !(argv[i + 1].startsWith('--') && argv[i + 1] !== '-')) val[a] = argv[i + 1]; });
   let eng;
-  try { eng = loadEngine(); if (_hooks.engine) _hooks.engine(eng); } catch (e) { return { out: JSON.stringify({ contract: 'flightdeck-read/2', app: '', error: { kind: 'failed', why: e.message }, problems: [] }, null, 2), code: EXIT.error }; }
   const sub = args[1];
+  try { eng = loadEngine(); if (_hooks.engine) _hooks.engine(eng); } catch (e) {
+    /* type save answers in its own contract even without an engine: failed, nothing changed. */
+    if (sub === 'save') return { out: JSON.stringify(writeShell('', null, 'failed', { kind: 'failed', why: errText(e) }, 'Nothing was changed. Flightdeck couldn\'t load: ' + bare(errText(e)) + '.'), null, 2), code: EXIT.error };
+    return { out: JSON.stringify({ contract: 'flightdeck-read/2', app: '', error: { kind: 'failed', why: e.message }, problems: [] }, null, 2), code: EXIT.error };
+  }
   if (sub === 'list' || sub === 'read') return typeRead(eng, argv, args);
   if (sub === 'save') return typeSave(eng, argv, args, val);
   return typeFail(eng, 'usage', 'say list, read or save, for example: flightdeck type read <team folder> <id> --json');
