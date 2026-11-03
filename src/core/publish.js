@@ -143,6 +143,15 @@ PF.publish = (function () {
     if (i.input === 'types') return i.id ? u.types.indexOf(i.id) >= 0 : u.types.length > 0;
     return !!u[i.input];
   }
+  /* What the loaders left out over a limit, from their own reads (loadStepTypes' over: the files past the first 100;
+     loadWorkflows' over: the issue types past 50), as skipped problems naming each excluded input, so the ledger names them
+     and unknownOf leaves their checks unknown. got: { stepTypes, jira } as repo.loadAll gives them. */
+  function excludedOf(got) {
+    var out = [], st = got.stepTypes || {}, j = got.jira || {};
+    (st.over || []).forEach(function (name, i, all) { out.push({ path: 'step-types/' + name, kind: 'skipped', why: 'step-types: ' + (all.length + 100) + ' files; Flightdeck loads the first 100, so this one isn\'t read.' }); });
+    if ((j.over || []).length) out.push({ path: 'jira/workflows.json', kind: 'skipped', why: 'jira/workflows.json lists ' + (j.over.length + 50) + ' issue types; Flightdeck reads the first 50, so these aren\'t read: ' + j.over.slice(0, 10).join(', ') + (j.over.length > 10 ? ' and ' + (j.over.length - 10) + ' more' : '') + '.' });
+    return out;
+  }
   /* The one place that decides what's unknown: every problem the read met (the problem ledger's, the folder adapter's, and
      what the loaders refused, all noted first), each mapped to its input by inputOf. Returns { people, types (true, or the
      IDs), workflows, teamValues, publications, processes (IDs not read at all), versions ([process, version] that weren't
@@ -465,5 +474,5 @@ PF.publish = (function () {
     return hit ? out(hit, false) : out(latest, true);
   }
 
-  return { STAGE: STAGE, stageName: stageName, promoteRecord: promoteRecord, FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, canonical: canonical, payloadHash: payloadHash, features: features, payloadFiles: payloadFiles, FEATURE_NAMES: FEATURE_NAMES, needs: needs, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, checkOptions: checkOptions, unknownOf: unknownOf, usesOf: usesOf, uses: uses, checkContext: checkContext, publishCheck: publishCheck, verify: verify, exactOf: exactOf, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
+  return { STAGE: STAGE, stageName: stageName, promoteRecord: promoteRecord, FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, canonical: canonical, payloadHash: payloadHash, features: features, payloadFiles: payloadFiles, FEATURE_NAMES: FEATURE_NAMES, needs: needs, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, checkOptions: checkOptions, excludedOf: excludedOf, unknownOf: unknownOf, usesOf: usesOf, uses: uses, checkContext: checkContext, publishCheck: publishCheck, verify: verify, exactOf: exactOf, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
 })();

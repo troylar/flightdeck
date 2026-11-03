@@ -3413,7 +3413,7 @@ PF.jira = (function () {
 
   function str(v, max) { return typeof v === 'string' ? v.trim().slice(0, max) : ''; }
 
-  /* Check the file. Returns { workflows, errors }: workflows holds only what passed, so one bad type doesn't hide the rest. */
+  /* Check the file. Returns { workflows, errors, over }: workflows holds only what passed, so one bad type doesn't hide the rest. */
   function check(o) {
     /* Issue types are names in a file: a workflow called __proto__ is kept as any other, so nothing it requires is lost. */
     var out = Object.create(null), errors = [];
@@ -3433,7 +3433,8 @@ PF.jira = (function () {
       checkType(type);
       if (errors.length > e0) out[type] = { invalid: errors.slice(e0).join('; '), statuses: [], transitions: [] };
     });
-    return { workflows: out, errors: errors };
+    /* over: the issue types past the limit, which nothing here reads, so a caller can name them. */
+    return { workflows: out, errors: errors, over: Object.keys(o).slice(50) };
 
     function checkType(type) {
       var w = o[type], where = 'Jira workflow "' + type + '"';
@@ -6216,6 +6217,15 @@ PF.publish = (function () {
     if (i.input === 'types') return i.id ? u.types.indexOf(i.id) >= 0 : u.types.length > 0;
     return !!u[i.input];
   }
+  /* What the loaders left out over a limit, from their own reads (loadStepTypes' over: the files past the first 100;
+     loadWorkflows' over: the issue types past 50), as skipped problems naming each excluded input, so the ledger names them
+     and unknownOf leaves their checks unknown. got: { stepTypes, jira } as repo.loadAll gives them. */
+  function excludedOf(got) {
+    var out = [], st = got.stepTypes || {}, j = got.jira || {};
+    (st.over || []).forEach(function (name, i, all) { out.push({ path: 'step-types/' + name, kind: 'skipped', why: 'step-types: ' + (all.length + 100) + ' files; Flightdeck loads the first 100, so this one isn\'t read.' }); });
+    if ((j.over || []).length) out.push({ path: 'jira/workflows.json', kind: 'skipped', why: 'jira/workflows.json lists ' + (j.over.length + 50) + ' issue types; Flightdeck reads the first 50, so these aren\'t read: ' + j.over.slice(0, 10).join(', ') + (j.over.length > 10 ? ' and ' + (j.over.length - 10) + ' more' : '') + '.' });
+    return out;
+  }
   /* The one place that decides what's unknown: every problem the read met (the problem ledger's, the folder adapter's, and
      what the loaders refused, all noted first), each mapped to its input by inputOf. Returns { people, types (true, or the
      IDs), workflows, teamValues, publications, processes (IDs not read at all), versions ([process, version] that weren't
@@ -6538,7 +6548,7 @@ PF.publish = (function () {
     return hit ? out(hit, false) : out(latest, true);
   }
 
-  return { STAGE: STAGE, stageName: stageName, promoteRecord: promoteRecord, FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, canonical: canonical, payloadHash: payloadHash, features: features, payloadFiles: payloadFiles, FEATURE_NAMES: FEATURE_NAMES, needs: needs, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, checkOptions: checkOptions, unknownOf: unknownOf, usesOf: usesOf, uses: uses, checkContext: checkContext, publishCheck: publishCheck, verify: verify, exactOf: exactOf, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
+  return { STAGE: STAGE, stageName: stageName, promoteRecord: promoteRecord, FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, canonical: canonical, payloadHash: payloadHash, features: features, payloadFiles: payloadFiles, FEATURE_NAMES: FEATURE_NAMES, needs: needs, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, checkOptions: checkOptions, excludedOf: excludedOf, unknownOf: unknownOf, usesOf: usesOf, uses: uses, checkContext: checkContext, publishCheck: publishCheck, verify: verify, exactOf: exactOf, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
 })();
 
 /* Staging (2.1, docs/design.md section 31): a stage is a version only test runs use until someone makes it the default. Pure,
@@ -16917,10 +16927,12 @@ PF.repo = (function () {
   }
   /* Team step types: step-types/<id>.json. Each file is checked; good ones are usable, bad ones are listed with their problems. */
   function loadStepTypes(fs) {
-    var skipped = 0;
+    /* over: the files past MAX_TYPES, from this one listing, so a caller can name each one it didn't read. */
+    var skipped = 0, over = [];
     return fs.list('step-types').then(function (items) {
       var files = items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).sort(function (a, b) { return a.name < b.name ? -1 : 1; });
       skipped = Math.max(0, files.length - MAX_TYPES);
+      over = files.slice(MAX_TYPES).map(function (i) { return i.name; });
       return Promise.all(files.slice(0, MAX_TYPES).map(function (i) {
         /* Each file on its own: one that can't be checked (whatever it holds) is listed with why, and the rest still load. */
         return fs.read('step-types/' + i.name).then(function (f) { var o = f && json(f.text), errs; try { errs = o === undefined ? ['isn\'t valid JSON'] : PF.types.checkCustom(o); } catch (e) { errs = ['couldn\'t be read as a step type']; } return { file: i.name, def: o, errors: errs }; }, function (e) { return { file: i.name, def: null, errors: [why(e)] }; });
@@ -16934,7 +16946,7 @@ PF.repo = (function () {
         if (!x.errors.length) { try { types[x.def.id] = PF.types.customType(x.def); } catch (e) { x.errors.push('couldn\'t be read as a step type'); } }
         if (x.errors.length) errors.push({ file: x.file, errors: x.errors });
       });
-      return { types: types, errors: errors, skipped: skipped, refused: refused };
+      return { types: types, errors: errors, skipped: skipped, refused: refused, over: over };
     });
   }
   /* Past these, the first files by name are read and the rest are counted (Folder health reports them), never silently cut. */
@@ -17016,7 +17028,7 @@ PF.repo = (function () {
       var o = json(f.text);
       if (o === undefined) return { workflows: PF.jira.broken('jira/workflows.json isn\'t valid JSON'), errors: ['jira/workflows.json isn\'t valid JSON'] };
       var c = PF.jira.check(o);
-      return { workflows: Object.keys(c.workflows).length ? c.workflows : null, errors: c.errors };
+      return { workflows: Object.keys(c.workflows).length ? c.workflows : null, errors: c.errors, over: c.over || [] };
     });
   }
   function stripMeta(o) { var c = {}; Object.keys(o).forEach(function (k) { if (k[0] !== '_') c[k] = o[k]; }); return R.testLast ? R.testLast(c) : c; }

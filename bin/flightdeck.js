@@ -1579,15 +1579,18 @@ function writeNew(dir, parts, text) {
    What couldn't be read (or a newer Flightdeck wrote) is a problem, which makes the answer partial, and that part is left
    unchecked: it never becomes a blocker, a missing person or an unpublished process. Returns { verdict, problems }. */
 async function draftInputs(eng, dir, text) {
-  const PF = eng.PF, repo = PF.repo, M = PF.map, ra = readAdapter(dir, { maxBytes: READ_MAX }), L = repo.ledger(repo.readOnly(ra, 'Checking a draft')), rfs = L.fs;
+  const PF = eng.PF, ra = readAdapter(dir, { maxBytes: READ_MAX }), L = PF.repo.ledger(PF.repo.readOnly(ra, 'Checking a draft'));
+  /* The ledger's problems and the adapter's (links, files too big, files that vanished), each once. */
+  const everything = () => { const out = L.problems(), seen = {}; out.forEach((x) => { seen[x.path + '\u0000' + x.kind] = true; }); adapterProblems(ra).forEach((x) => { if (!seen[x.path + '\u0000' + x.kind]) out.push(x); }); return out; };
+  /* A failure that stops the read at any stage (the team folder can't be listed) still names every problem met before it. */
+  try { return await readInputs(eng, text, ra, L, everything); } catch (e) { if (e && typeof e === 'object') e.problems = everything(); throw e; }
+}
+async function readInputs(eng, text, ra, L, everything) {
+  const PF = eng.PF, repo = PF.repo, M = PF.map, rfs = L.fs;
   const map = M.parse(text), failedAt = (p) => L.problems().some((x) => x.path === p || x.path.indexOf(p + '/') === 0);
   /* The app's own loader, limited to these parts: what each part's reader gives, or the part named in failed. */
   const deps = [PF.people.FILE, 'step-types', 'jira/workflows.json', 'publications'];
-  /* The ledger's problems and the adapter's (links, files too big, files that vanished), each once. */
-  const everything = () => { const out = L.problems(), seen = {}; out.forEach((x) => { seen[x.path + '\u0000' + x.kind] = true; }); adapterProblems(ra).forEach((x) => { if (!seen[x.path + '\u0000' + x.kind]) out.push(x); }); return out; };
-  let d;
-  /* A failure that stops the whole read (the team folder can't be listed) still names every problem met before it. */
-  try { d = await repo.loadAll(dependsOn(rfs, deps), { readOnly: true, explain: true, deep: true }); } catch (e) { e.problems = everything(); throw e; }
+  const d = await repo.loadAll(dependsOn(rfs, deps), { readOnly: true, explain: true, deep: true });
   const failed = d.failed || {};
   /* First every read, with what each loader refused noted in the ledger; then the adapter's own problems (links, files too
      big); then PF.publish.unknownOf decides what's unknown from that whole list, and nothing else does. */
@@ -1598,13 +1601,9 @@ async function draftInputs(eng, dir, text) {
   const types = 'step types' in failed ? {} : d.stepTypes.types;
   if (!('step types' in failed)) {
     (d.stepTypes.refused || []).forEach((r) => L.note(r.path, 'newer', r.why));
-    /* Over the limit: the files after the first ones loaded, in the order the loader takes them, each named. */
-    if (d.stepTypes.skipped) {
-      const all = (await rfs.list('step-types')).filter((i) => i.kind === 'file' && /\.json$/i.test(i.name)).sort((x, y) => (x.name < y.name ? -1 : 1));
-      const kept = all.length - d.stepTypes.skipped, why = 'step-types: ' + all.length + ' files; Flightdeck loads the first ' + kept + ', so this one isn\'t read.';
-      all.slice(kept).forEach((i) => L.note('step-types/' + i.name, 'skipped', why));
-    }
   }
+  /* What a loader left out over its limit, from its own read (PF.publish.excludedOf): each named, and unknown below. */
+  PF.publish.excludedOf({ stepTypes: 'step types' in failed ? null : d.stepTypes, jira: 'Jira workflows' in failed ? null : d.jira }).forEach((x) => L.note(x.path, x.kind, x.why));
   const processes = 'publications' in failed ? [] : d.processes.map((p) => {
     /* A version that read but can't be used is named as READ names one; a failed read the ledger already has. */
     p.pubs.filter((x) => !x.ok && !x._readFailed).forEach((x) => { const k = PF.appjson.pubProblem(x); L.note('publications/' + p.process + '/' + x.folder + '/', k.kind, k.why); });

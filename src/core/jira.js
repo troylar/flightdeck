@@ -19,7 +19,7 @@ PF.jira = (function () {
 
   function str(v, max) { return typeof v === 'string' ? v.trim().slice(0, max) : ''; }
 
-  /* Check the file. Returns { workflows, errors }: workflows holds only what passed, so one bad type doesn't hide the rest. */
+  /* Check the file. Returns { workflows, errors, over }: workflows holds only what passed, so one bad type doesn't hide the rest. */
   function check(o) {
     /* Issue types are names in a file: a workflow called __proto__ is kept as any other, so nothing it requires is lost. */
     var out = Object.create(null), errors = [];
@@ -39,7 +39,8 @@ PF.jira = (function () {
       checkType(type);
       if (errors.length > e0) out[type] = { invalid: errors.slice(e0).join('; '), statuses: [], transitions: [] };
     });
-    return { workflows: out, errors: errors };
+    /* over: the issue types past the limit, which nothing here reads, so a caller can name them. */
+    return { workflows: out, errors: errors, over: Object.keys(o).slice(50) };
 
     function checkType(type) {
       var w = o[type], where = 'Jira workflow "' + type + '"';

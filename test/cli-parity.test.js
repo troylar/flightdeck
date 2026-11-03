@@ -512,6 +512,71 @@ rule('Guard, the draft itself: unreadable or vanished is never checked as empty 
   assert.deepStrictEqual(wrongs, []);
 });
 
+/* ---------- loader limits: what a loader leaves out is named from its own read, and is unknown ---------- */
+
+rule('Limits: step-types/ is listed once; a failure after that listing still names every problem; what\'s past 100 is named from that one listing', async () => {
+  const dir = await guardFolder(), FD = require(BIN), readdir = fs.readdirSync, st = path.join(dir, 'step-types');
+  for (let i = 0; i < 100; i++) fs.writeFileSync(path.join(st, 'aa.t' + String(i).padStart(3, '0') + '.json'), JSON.stringify({ id: 'aa.t' + String(i).padStart(3, '0'), label: 'T' + i, icon: 'doc', hint: 'x', fields: {} }));
+  fs.chmodSync(path.join(dir, 'people.json'), 0o000);
+  let lists = 0, r;
+  fs.readdirSync = function (p) { if (path.resolve(String(p)) === st && ++lists > 1) { const e = new Error('EIO: i/o error, scandir'); e.code = 'EIO'; throw e; } return readdir.apply(fs, arguments); };
+  try { r = await FD.main(['draft', 'check', dir, 'deploy', '--json']); } finally { fs.readdirSync = readdir; fs.chmodSync(path.join(dir, 'people.json'), 0o644); }
+  const j = JSON.parse(r.out), all = j.data ? j.data.checks.blockers.concat(j.data.checks.suggestions, j.data.publish.blockers) : [];
+  assert.strictEqual(lists, 1, 'step-types/ listed ' + lists + ' times');
+  assert.deepStrictEqual([r.code, j.complete], [4, false], r.out.slice(0, 600));
+  assert.ok(j.problems.some(p => p.path === 'people.json') && j.problems.some(p => p.path === 'step-types/pick.one.json' && p.kind === 'skipped'), JSON.stringify(j.problems));
+  assert.ok(!all.some(x => /pick\.one|change\.request|\^literal|unknown type/.test(x)), JSON.stringify(all));
+});
+
+rule('Limits: an issue type past Jira\'s 50 is named, and its Jira checks are unknown, never "don\'t describe"', async () => {
+  const wf = JSON.parse(example('jira/workflows.json')), big = {};
+  for (let i = 0; i < 50; i++) big['Type ' + String(i).padStart(2, '0')] = { statuses: ['Open', 'Done'], transitions: [{ from: 'Open', to: 'Done' }] };
+  big.Release = wf.Release;
+  const steps = ['- [ ] {jira.issue} Move it @lead {#j1}', '  action: transition', '  issue: ^ticket', '  issueType: Release', '  status: Nowhere'];
+  const files = await folder({ base: { 'jira/workflows.json': JSON.stringify(big) }, drafts: { deploy: md({ process: 'deploy', steps }) } });
+  const r = cli(RF.toDisk(files, tmp()), 'deploy'), d = r.json.data, all = d.checks.blockers.concat(d.checks.suggestions, d.publish.blockers);
+  assert.deepStrictEqual([r.code, r.json.complete], [4, false], JSON.stringify(r.json));
+  assert.ok(r.json.problems.some(p => p.path === 'jira/workflows.json' && p.kind === 'skipped' && /Release/.test(p.why)), JSON.stringify(r.json.problems));
+  assert.ok(!all.some(x => /Jira|workflow|Release|Nowhere/.test(x)), JSON.stringify(all));
+});
+
+/* Every limit a loader the draft check uses applies, each with how draft check names what it leaves out. A new slice(0, N)
+   or "> N" limit in one of these readers fails here until it's listed, with its reporting. */
+rule('Limits: every cap in the readers draft check uses is listed with how it\'s reported', () => {
+  const src = f => fs.readFileSync(path.join(__dirname, '..', 'src', f), 'utf8');
+  const fn = (text, name) => { const i = text.indexOf('function ' + name + '('); assert.ok(i >= 0, name); let depth = 0, j = text.indexOf('{', i); for (let k = j; k < text.length; k++) { if (text[k] === '{') depth++; else if (text[k] === '}' && --depth === 0) return text.slice(i, k + 1); } return ''; };
+  const READERS = [['storage/repo.js', 'loadPeople'], ['storage/repo.js', 'loadStepTypes'], ['storage/repo.js', 'loadWorkflows'], ['storage/repo.js', 'loadPublications'], ['storage/repo.js', 'readTeamValues'],
+    ['storage/repo.js', 'readVersion'], ['storage/repo.js', 'checkImages'], ['storage/repo.js', 'verifyExact'], ['core/teamvalues.js', 'valueProblem'],
+    ['core/jira.js', 'check'], ['core/teamvalues.js', 'parse'], ['core/teamvalues.js', 'check'], ['core/people.js', 'clean'], ['core/people.js', 'verdict']];
+  const found = [];
+  READERS.forEach(([f, n]) => { const body = fn(src(f), n).replace(/\/\*[\s\S]*?\*\//g, ''); (body.match(/\.slice\(0, [A-Za-z_.0-9]+\)|\.length > [A-Za-z_.0-9]+|maxBytes: [A-Za-z_.0-9]+/g) || []).forEach(m => found.push(f + ' ' + n + ': ' + m)); });
+  const CAPS = {
+    'storage/repo.js loadStepTypes: .slice(0, MAX_TYPES)': 'files past the first 100: the loader returns them (over) from its one listing; each is a skipped problem, its type unknown',
+    'storage/repo.js readTeamValues: maxBytes: T.MAX_BYTES': 'a bigger file fails its read: the ledger names it, team values unknown',
+    'core/jira.js check: .slice(0, 50)': 'issue types past 50: check returns them (over); jira/workflows.json is a skipped problem naming them, workflows unknown',
+    'core/jira.js check: .length > 50': 'the same limit, as the app\'s error',
+    'core/jira.js check: .length > 300': 'too many transitions: that issue type is kept as invalid, a finding the app shows too',
+    'core/jira.js check: .length > 20': 'too many required fields: kept as invalid, a finding the app shows too',
+    'core/jira.js check: .length > 60': 'a status or field name too long: kept as invalid, a finding the app shows too',
+    'core/jira.js check: .length > 40': 'an option name too long: kept as invalid, a finding the app shows too',
+    'core/jira.js check: .length > 30': 'too many field options: kept as invalid, a finding the app shows too',
+    'core/jira.js check: .length > e0': 'not a limit: this issue type added errors',
+    'core/jira.js check: .slice(0, 300)': 'a message cut to length: nothing is left out',
+    'core/jira.js check: .slice(0, 40)': 'a name cut inside a message: nothing is left out',
+    'core/jira.js check: .slice(0, 30)': 'options already checked to be at most 30 above: nothing is left out',
+    'core/teamvalues.js check: .length > MAX': 'too many values: the whole file is malformed, a finding the app shows too',
+    'core/teamvalues.js check: .length > ABOUT_MAX': 'an about too long: malformed, a finding the app shows too',
+    'core/teamvalues.js valueProblem: .length > VALUE_MAX': 'a value too long: malformed, a finding the app shows too',
+    'core/people.js clean: .slice(0, 60)': 'a name cut for display: no person is left out',
+    'core/people.js clean: .slice(0, 3)': 'initials cut for display: no person is left out'
+  };
+  const counted = found.reduce((o, k) => { o[k] = true; return o; }, {});
+  assert.deepStrictEqual(Object.keys(counted).sort(), Object.keys(CAPS).sort(), 'every cap listed, and only those');
+  /* And the readers outside src: the command's own byte limits, each a read failure the ledger names. */
+  const bin = fs.readFileSync(BIN, 'utf8');
+  assert.ok(/readAdapter\(dir, \{ maxBytes: READ_MAX \}\)/.test(fn(bin, 'draftInputs')), 'draftInputs reads under READ_MAX: a bigger file is skipped, named');
+});
+
 /* draft save and propose: what couldn't be read is carried into the result; the skills check the text they wrote. */
 function draftCmd(args) {
   const r = cp.spawnSync(process.execPath, [BIN, 'draft'].concat(args, ['--json']), { encoding: 'utf8' });
