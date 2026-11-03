@@ -394,7 +394,7 @@ rule('Guard: every input the checks use, failed each way the ledger knows (unrea
 
 rule('Guard: PF.publish.unknownOf maps each ledger problem to the input it belongs to (the one place that decides unknown)', () => {
   const U = (problems, shots) => JSON.parse(JSON.stringify(PF.publish.unknownOf(problems, shots || [])));
-  const none = { types: [], processes: [], shots: [] };
+  const none = { types: [], processes: [], versions: [], shots: [] };
   const TABLE = [
     [[], none],
     [[{ path: 'people.json', kind: 'unreadable' }], Object.assign({}, none, { people: true })],
@@ -411,10 +411,12 @@ rule('Guard: PF.publish.unknownOf maps each ledger problem to the input it belon
     [[{ path: 'team-values.json', kind: 'newer' }], Object.assign({}, none, { teamValues: true })],
     [[{ path: 'team-values.json', kind: 'malformed' }], none],
     [[{ path: 'publications', kind: 'unreadable' }], Object.assign({}, none, { publications: true })],
-    [[{ path: 'publications/kid', kind: 'link' }, { path: 'publications/ship/v2-x/publication.json', kind: 'newer' }, { path: 'publications/kid/v1-y/', kind: 'unreadable' }], Object.assign({}, none, { processes: ['kid', 'ship'] })],
+    [[{ path: 'publications/kid', kind: 'link' }, { path: 'publications/kid/v1-y/', kind: 'unreadable' }], Object.assign({}, none, { processes: ['kid'], versions: [['kid', 1]] })],
+    [[{ path: 'publications/ship/v2-x/publication.json', kind: 'newer' }, { path: 'publications/ship/v1-y/', kind: 'unreadable' }], Object.assign({}, none, { versions: [['ship', 2], ['ship', 1]] })],
+    [[{ path: 'publications/ship/notes.txt', kind: 'unreadable' }], Object.assign({}, none, { processes: ['ship'] })],
     [[{ path: 'images/deploy/there.png', kind: 'vanished' }, { path: 'images/other.png', kind: 'unreadable' }], Object.assign({}, none, { shots: ['images/deploy/there.png'] }), ['images/deploy/there.png']],
     [[{ path: 'images', kind: 'unreadable' }], Object.assign({}, none, { shots: ['images/deploy/there.png'] }), ['images/deploy/there.png']],
-    [[{ path: '', kind: 'unreadable' }], { people: true, types: true, workflows: true, teamValues: true, publications: true, processes: [], shots: ['images/a.png'] }, ['images/a.png']],
+    [[{ path: '', kind: 'unreadable' }], { people: true, types: true, workflows: true, teamValues: true, publications: true, processes: [], versions: [], shots: ['images/a.png'] }, ['images/a.png']],
     [[{ path: 'runs/x/y/run.json', kind: 'unreadable' }, { path: 'maps/drafts/deploy.md', kind: 'unreadable' }], none]
   ];
   TABLE.forEach(([problems, want, shots]) => assert.deepStrictEqual(U(problems, shots), want, JSON.stringify(problems)));
@@ -438,6 +440,76 @@ rule('Guard: every read of a check input in the checks is listed with its unknow
     'opts.teamValues': 4 /* team value names and kinds: undefined when team-values.json is unknown */
   };
   assert.deepStrictEqual(reads, LISTED);
+});
+
+rule('Guard, per version: an unreadable older version leaves the latest checked; an unreadable latest is unknown (children, pins, parents)', async () => {
+  const kidOld = md({ process: 'kid', title: 'Kid', context: 'commit, ticket' }), kidNew = md({ process: 'kid', title: 'Kid', context: 'commit' });
+  const ship = c => md({ process: 'ship', title: 'Ship it', steps: STEP.link('run-deploy', 'deploy', ['  carry: ' + c]) });
+  const files = await folder({ publish: [kidOld, kidNew, ship('commit'), ship('commit, ticket')],
+    drafts: { deploy: md({ process: 'deploy', context: 'commit, ticket', steps: STEP.link('a', 'kid', ['  carry: ticket']).concat(STEP.link('b', 'kid', ['  version: 2', '  carry: ticket'])) }) } });
+  const dir = RF.toDisk(files, tmp()), vf = (proc, n) => path.join(dir, 'publications', proc, fs.readdirSync(path.join(dir, 'publications', proc)).filter(x => x.indexOf('v' + n + '-') === 0)[0]);
+  const pins = path.join(tmp(), 'pins.md'), dropped = path.join(tmp(), 'dropped.md');
+  fs.writeFileSync(pins, md({ process: 'deploy', steps: STEP.link('c', 'kid', ['  version: 1']).concat(STEP.link('d', 'kid', ['  version: 2']), STEP.link('e', 'kid', ['  version: 3'])) }));
+  fs.writeFileSync(dropped, md({ process: 'deploy', context: 'commit' }));
+  const ticket = d => d.checks.blockers.filter(b => /no run detail ticket/.test(b)).length;
+  const v3 = d => d.publish.blockers.filter(b => /version: 3 can't be pinned/.test(b)).length, pinBl = d => d.publish.blockers.filter(b => /can't be pinned/.test(b)).length;
+  const parent = d => d.checks.suggestions.filter(x => /^Ship it/.test(x)).length;
+  const base = { a: cli(dir, 'deploy'), p: cli(dir, 'deploy', ['--from', pins]), d: cli(dir, 'deploy', ['--from', dropped]) };
+  assert.deepStrictEqual([base.a.code, ticket(base.a.json.data), base.p.code, pinBl(base.p.json.data), v3(base.p.json.data), parent(base.d.json.data)], [0, 2, 0, 1, 1, 1], JSON.stringify(base));
+  const wrongs = [];
+  const run = (label, want) => { const got = { a: cli(dir, 'deploy'), p: cli(dir, 'deploy', ['--from', pins]), d: cli(dir, 'deploy', ['--from', dropped]) };
+    const seen = [got.a.code, ticket(got.a.json.data), got.p.code, pinBl(got.p.json.data), v3(got.p.json.data), got.d.code, parent(got.d.json.data)];
+    if (JSON.stringify(seen) !== JSON.stringify(want)) wrongs.push(label + ': ' + JSON.stringify(seen) + ' wanted ' + JSON.stringify(want)); };
+  /* [draft exit, ticket blockers, pins exit, pin blockers, v3 blocker, dropped exit, parent tips] */
+  locked(vf('kid', 1), () => run('kid v1 unreadable: v2 still checked, the v1 pin unknown', [4, 2, 4, 1, 1, 4, 1]));
+  locked(vf('kid', 2), () => run('kid v2 (latest) unreadable: latest and v2 unknown, v1 and v3 still checked', [4, 0, 4, 1, 1, 4, 1]));
+  locked(vf('ship', 1), () => run('ship v1 unreadable: its latest still suggests', [4, 2, 4, 1, 1, 4, 1]));
+  locked(vf('ship', 2), () => run('ship v2 (latest) unreadable: unknown, no tip', [4, 2, 4, 1, 1, 4, 0]));
+  assert.deepStrictEqual(wrongs, []);
+});
+
+rule('Guard, unused inputs: a broken input the draft doesn\'t use leaves the answer complete', async () => {
+  const dir = await guardFolder(), plain = path.join(tmp(), 'plain.md');
+  fs.writeFileSync(plain, ['---', 'process: deploy', 'title: Deploy', 'context: commit', 'roles: lead', '---', '', '## Do it · READ-DO {#do}', '- [!] {confirm} Confirm the work is done @lead {#done}', ''].join('\n'));
+  const FD = require(BIN), wrongs = [];
+  const check = async (label, rel, way) => {
+    const full = path.join(dir, rel), keep = path.join(tmp(), 'kept');
+    if (way === 'unreadable') fs.chmodSync(full, 0o000); else { fs.renameSync(full, keep); fs.symlinkSync(keep, full); }
+    try { const r = await FD.main(['draft', 'check', dir, 'deploy', '--from', plain, '--json']), j = JSON.parse(r.out); if (r.code !== 0 || !j.complete) wrongs.push(label + ' ' + way + ': exit ' + r.code + ' ' + JSON.stringify(j.problems)); }
+    finally { if (way === 'unreadable') fs.chmodSync(full, fs.statSync(full).isDirectory() ? 0o755 : 0o644); else { fs.unlinkSync(full); fs.renameSync(keep, full); } }
+  };
+  for (const way of ['unreadable', 'link']) {
+    await check('people.json, no owner or backup', 'people.json', way);
+    await check('team-values.json, no team: value', 'team-values.json', way);
+    await check('jira/workflows.json, no Jira step', 'jira/workflows.json', way);
+    await check('a team step type no step uses', 'step-types/pick.one.json', way);
+    await check('step-types/, only built-in types', 'step-types', way);
+  }
+  for (let i = 0; i < 100; i++) fs.writeFileSync(path.join(dir, 'step-types', 'aa.t' + String(i).padStart(3, '0') + '.json'), JSON.stringify({ id: 'aa.t' + String(i).padStart(3, '0'), label: 'T' + i, icon: 'doc', hint: 'x', fields: {} }));
+  const r = cli(dir, 'deploy', ['--from', plain]);
+  if (r.code !== 0) wrongs.push('step-types over the limit, only built-in types: exit ' + r.code + ' ' + JSON.stringify(r.json.problems));
+  assert.deepStrictEqual(wrongs, []);
+});
+
+rule('Guard, the draft itself: unreadable or vanished is never checked as empty text and never "not found"; a failure that stops the read keeps its problems', async () => {
+  const draft = md({ process: 'deploy' }), dir = RF.toDisk(await folder({ drafts: { deploy: draft } }), tmp()), dp = path.join(dir, 'maps', 'drafts', 'deploy.md');
+  const FD = require(BIN), open = fs.openSync, wrongs = [];
+  const readCmd = () => JSON.parse(cp.spawnSync(process.execPath, [BIN, 'draft', 'read', dir, 'deploy', '--json'], { encoding: 'utf8' }).stdout);
+  locked(dp, () => {
+    const r = readCmd();
+    if (r.complete !== false || !r.problems.some(p => p.path === 'maps/drafts/deploy.md')) wrongs.push('draft read, unreadable: ' + JSON.stringify(r.problems));
+    if (r.checks.blockers.length || r.checks.suggestions.length) wrongs.push('draft read, unreadable: checked as empty text: ' + JSON.stringify(r.checks));
+  });
+  fs.openSync = function (p) { if (path.resolve(String(p)) === dp) { const e = new Error('ENOENT: no such file or directory'); e.code = 'ENOENT'; throw e; } return open.apply(fs, arguments); };
+  let v;
+  try { v = await FD.main(['draft', 'check', dir, 'deploy', '--json']); } finally { fs.openSync = open; }
+  const vj = JSON.parse(v.out);
+  if (v.code === 5 || (vj.error && vj.error.kind === 'not-found') || !(vj.problems || []).some(p => p.path === 'maps/drafts/deploy.md')) wrongs.push('draft check, vanished: exit ' + v.code + ' ' + v.out.slice(0, 300));
+  const f = path.join(tmp(), 'in.md'); fs.writeFileSync(f, draft);
+  const top = locked(dir, () => cp.spawnSync(process.execPath, [BIN, 'draft', 'check', dir, 'deploy', '--from', f, '--json'], { encoding: 'utf8' }));
+  const tj = JSON.parse(top.stdout);
+  if (top.status !== 1 || !(tj.problems || []).length) wrongs.push('draft check --from, team folder unlistable: exit ' + top.status + ' ' + top.stdout.slice(0, 300));
+  assert.deepStrictEqual(wrongs, []);
 });
 
 /* draft save and propose: what couldn't be read is carried into the result; the skills check the text they wrote. */

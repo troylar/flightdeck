@@ -27,7 +27,7 @@ PF.publish = (function () {
     var pins = { children: {}, skills: {} }, pinBlockers = [];
     M.steps(map).forEach(function (x) {
       var s = x.step, label = 'Step "' + s.text.slice(0, 40) + '"';
-      if (s.type === 'run.process' && Object.prototype.hasOwnProperty.call(s.fields, 'version') && !(unknown && unknown(s.fields.process))) {
+      if (s.type === 'run.process' && Object.prototype.hasOwnProperty.call(s.fields, 'version') && !(unknown && unknown(s.fields.process, s.fields.version))) {
         var cp = childProcs && Object.prototype.hasOwnProperty.call(childProcs, s.fields.process) ? childProcs[s.fields.process] : null;
         var got = PF.pins.atVersion(cp, s.fields.process || '?', +s.fields.version);
         if (got.why) pinBlockers.push(label + ': version: ' + s.fields.version + ' can\'t be pinned: ' + got.why + '.'); else pins.children[s.id] = got.pin;
@@ -104,31 +104,63 @@ PF.publish = (function () {
     (procs || []).forEach(function (x) { if (x.unread) unread[x.id] = true; });
     var kids = d.procOf ? PF.links.childrenFrom(d.procOf) : null, o = { people: d.people, types: d.types, workflows: d.workflows,
       processes: procs ? procs.filter(function (x) { return x.latest || x.unread; }).map(function (x) { return x.id; }) : null,
-      children: kids ? function (process, version) { return process && unread[process] ? null : kids(process, version); } : null,
+      children: kids ? function (process, version) { return d.unknownAt ? (d.unknownAt(process, version) ? null : kids(process, version)) : process && unread[process] ? null : kids(process, version); } : null,
       parents: procs ? procs.filter(function (x) { return !x.unread; }) : null,
       teamValues: d.teamValues };
     if (d.unknownType) o.unknownType = d.unknownType;
     return o;
   }
+  /* Which input a problem's path belongs to: { input: 'all' | 'people' | 'types' | 'workflows' | 'teamValues' | 'publications'
+     | 'shot', id (a type or process), version (of a process, from its folder's name), path (a shot's own) }, or null when
+     it's none of them. A malformed jira/workflows.json or team-values.json is marked finding: the app shows it as one, so it's
+     named but never unknown. */
+  function inputOf(x, shots) {
+    var p = String(x.path || '').replace(/\/+$/, ''), k = x.kind, m, under = function (q, top) { return q === top || q.indexOf(top + '/') === 0; };
+    if (p === '' || p === '.') return { input: 'all' };
+    if (p === PF.people.FILE) return { input: 'people' };
+    if (p === PF.teamValues.FILE) return k === 'malformed' ? { input: 'teamValues', finding: true } : { input: 'teamValues' };
+    if (under(p, 'jira')) return p === 'jira/workflows.json' && k === 'malformed' ? { input: 'workflows', finding: true } : { input: 'workflows' };
+    if (p === 'step-types') return { input: 'types' };
+    if ((m = /^step-types\/([^/]+)\.json$/i.exec(p))) return { input: 'types', id: m[1] };
+    if (p === 'publications') return { input: 'publications' };
+    if ((m = /^publications\/([^/]+)(?:\/([^/]+))?/.exec(p))) { var v = m[2] ? versionOf(m[2]) : null; return v ? { input: 'publications', id: m[1], version: v } : { input: 'publications', id: m[1] }; }
+    var hit = (shots || []).filter(function (src) { return under(src, p); });
+    return hit.length ? { input: 'shot', paths: hit } : null;
+  }
+  /* What the text uses, so a problem with an input it doesn't use leaves the answer complete: people for an owner or backup,
+     the team types its steps name (any of step-types/ when one isn't built in), Jira workflows for a Jira step, team values
+     for a team: source, every publication (children, pins, and the parents that start it), the screenshots it shows. */
+  function usesOf(map) {
+    var types = [], has = function (f) { return M.steps(map).some(f); };
+    M.steps(map).forEach(function (x) { var t = x.step.type; if (t && !T.get(t, {}) && types.indexOf(t) < 0) types.push(t); });
+    return { people: !!(map.meta.owner || map.meta.backup), types: types, workflows: has(function (x) { return x.step.type === 'jira.issue'; }),
+      teamValues: has(function (x) { return x.step.type === 'run.process' && PF.links.teams(x.step).length > 0; }), publications: true, shots: M.shotSources(map) };
+  }
+  function uses(u, x, shots) {
+    var i = inputOf(x, shots);
+    if (!i) return false;
+    if (i.input === 'all' || i.input === 'publications' || i.input === 'shot') return true;
+    if (i.input === 'types') return i.id ? u.types.indexOf(i.id) >= 0 : u.types.length > 0;
+    return !!u[i.input];
+  }
   /* The one place that decides what's unknown: every problem the read met (the problem ledger's, the folder adapter's, and
-     what the loaders refused, all noted first), mapped to the input it belongs to. Every kind counts (unreadable, newer, a
-     link, vanished, skipped, still syncing, malformed), except a malformed jira/workflows.json or team-values.json: those
-     are findings the app shows too. shots: the screenshot paths the text shows. Returns { people, types (true, or the IDs),
-     workflows, teamValues, publications, processes (IDs), shots (paths) }. */
+     what the loaders refused, all noted first), each mapped to its input by inputOf. Returns { people, types (true, or the
+     IDs), workflows, teamValues, publications, processes (IDs not read at all), versions ([process, version] that weren't
+     read), shots (paths) }. */
   function unknownOf(problems, shots) {
-    var u = { types: [], processes: [], shots: [] }, allTypes = false, add = function (list, v) { if (list.indexOf(v) < 0) list.push(v); };
-    var under = function (p, top) { return p === top || p.indexOf(top + '/') === 0; };
+    var u = { types: [], processes: [], versions: [], shots: [] }, allTypes = false, add = function (list, v) { if (list.indexOf(v) < 0) list.push(v); };
     (problems || []).forEach(function (x) {
-      var p = String(x.path || '').replace(/\/+$/, ''), k = x.kind, m;
-      if (p === '' || p === '.') { u.people = u.workflows = u.teamValues = u.publications = true; allTypes = true; (shots || []).forEach(function (s) { add(u.shots, s); }); return; }
-      if (p === PF.people.FILE) u.people = true;
-      else if (p === PF.teamValues.FILE) { if (k !== 'malformed') u.teamValues = true; }
-      else if (under(p, 'jira')) { if (!(p === 'jira/workflows.json' && k === 'malformed')) u.workflows = true; }
-      else if (p === 'step-types') allTypes = true;
-      else if ((m = /^step-types\/([^/]+)\.json$/i.exec(p))) add(u.types, m[1]);
-      else if (p === 'publications') u.publications = true;
-      else if ((m = /^publications\/([^/]+)/.exec(p))) add(u.processes, m[1]);
-      (shots || []).forEach(function (s) { if (under(s, p)) add(u.shots, s); });
+      var i = inputOf(x, shots);
+      if (!i || i.finding) return;
+      if (i.input === 'all') { u.people = u.workflows = u.teamValues = u.publications = true; allTypes = true; (shots || []).forEach(function (src) { add(u.shots, src); }); }
+      else if (i.input === 'types') { if (i.id) add(u.types, i.id); else allTypes = true; }
+      else if (i.input === 'publications') {
+        if (!i.id) u.publications = true;
+        else if (i.version) { if (!u.versions.some(function (v) { return v[0] === i.id && v[1] === i.version; })) u.versions.push([i.id, i.version]); }
+        else add(u.processes, i.id);
+      }
+      else if (i.input === 'shot') i.paths.forEach(function (src) { add(u.shots, src); });
+      else u[i.input] = true;
     });
     if (allTypes) u.types = true;
     return u;
@@ -138,8 +170,21 @@ PF.publish = (function () {
      unknown (from unknownOf) }. Each check that needs an unknown input stays unchecked and adds nothing; the caller says the
      answer is partial and names why. The processes are put in the order the app lists them, so findings come in that order. */
   function checkContext(got) {
-    var u = got.unknown || {}, N = PF.text.natural, by = Object.create(null), gone = Object.create(null);
-    (u.processes || []).forEach(function (id) { gone[id] = true; });
+    var u = got.unknown || {}, N = PF.text.natural, by = Object.create(null), whole = Object.create(null), gone = Object.create(null), vers = Object.create(null);
+    (u.processes || []).forEach(function (id) { whole[id] = gone[id] = true; });
+    (u.versions || []).forEach(function (v) { (vers[v[0]] = vers[v[0]] || []).push(v[1]); });
+    /* Unknown at its latest (gone): not read at all, or a version that isn't read is numbered at or above the latest that is.
+       An older version that isn't read leaves the latest, and every other version, checked. */
+    Object.keys(vers).forEach(function (id) {
+      var p = (got.processes || []).filter(function (x) { return x.id === id; })[0], top = p && p.latest && p.latest.info ? +p.latest.info.version : 0;
+      if (vers[id].some(function (n) { return n >= top; })) gone[id] = true;
+    });
+    /* unknownAt(process, version): that version (a version: pin) or, with none, the latest, wasn't read. */
+    var unknownAt = function (id, version) {
+      if (!procs) return true;
+      if (!id) return false;
+      return version !== '' && version != null ? !!whole[id] || (vers[id] || []).indexOf(+version) >= 0 : !!gone[id];
+    };
     var procs = u.publications ? null : (got.processes || []).map(function (p) { return gone[p.id] ? Object.assign({}, p, { unread: true }) : p; });
     var meta = function (p) { var m = p.latest && p.latest.map ? p.latest.map.meta : {}; return { title: m.title || p.id, category: m.category || 'Other' }; };
     if (procs) {
@@ -150,9 +195,9 @@ PF.publish = (function () {
     var ut = u.types === true ? function () { return true; } : (u.types || []).length ? function (t) { return u.types.indexOf(t) >= 0; } : null;
     return {
       options: checkOptions({ people: u.people ? null : got.people, types: got.types || {}, workflows: u.workflows ? null : got.workflows, processes: procs,
-        procOf: procs ? function (id) { return by[id] || null; } : null, teamValues: u.teamValues ? undefined : got.teamValues, unknownType: ut }),
+        procOf: procs ? function (id) { return by[id] || null; } : null, teamValues: u.teamValues ? undefined : got.teamValues, unknownType: ut, unknownAt: procs ? unknownAt : null }),
       childProcs: by,
-      unknownProcess: function (id) { return !procs || !!gone[id]; },
+      unknownProcess: unknownAt,
       missingShots: (got.missingShots || []).filter(function (src) { return (u.shots || []).indexOf(src) < 0; })
     };
   }
@@ -420,5 +465,5 @@ PF.publish = (function () {
     return hit ? out(hit, false) : out(latest, true);
   }
 
-  return { STAGE: STAGE, stageName: stageName, promoteRecord: promoteRecord, FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, canonical: canonical, payloadHash: payloadHash, features: features, payloadFiles: payloadFiles, FEATURE_NAMES: FEATURE_NAMES, needs: needs, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, checkOptions: checkOptions, unknownOf: unknownOf, checkContext: checkContext, publishCheck: publishCheck, verify: verify, exactOf: exactOf, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
+  return { STAGE: STAGE, stageName: stageName, promoteRecord: promoteRecord, FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, canonical: canonical, payloadHash: payloadHash, features: features, payloadFiles: payloadFiles, FEATURE_NAMES: FEATURE_NAMES, needs: needs, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, checkOptions: checkOptions, unknownOf: unknownOf, usesOf: usesOf, uses: uses, checkContext: checkContext, publishCheck: publishCheck, verify: verify, exactOf: exactOf, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
 })();

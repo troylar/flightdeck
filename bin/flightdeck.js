@@ -1518,6 +1518,8 @@ async function draftState(eng, dir, proc, session) {
   try {
     const f = await rfs.read(dpath, { maxBytes: PF.util.DRAFT_BYTES });
     if (f) Object.assign(draft, { exists: true, rev: sha(f.text), text: f.text });
+    /* Gone between seeing it and opening it: there, but unread (named), so nothing takes it as absent. */
+    else if ((ra.vanished || []).indexOf(dpath) >= 0) { draft.exists = true; L.note(dpath, 'vanished', 'It was there a moment ago and was gone when it was read. Try again.'); }
   } catch (e) { draft.exists = true; }
   const copies = [];
   try {
@@ -1581,7 +1583,11 @@ async function draftInputs(eng, dir, text) {
   const map = M.parse(text), failedAt = (p) => L.problems().some((x) => x.path === p || x.path.indexOf(p + '/') === 0);
   /* The app's own loader, limited to these parts: what each part's reader gives, or the part named in failed. */
   const deps = [PF.people.FILE, 'step-types', 'jira/workflows.json', 'publications'];
-  const d = await repo.loadAll(dependsOn(rfs, deps), { readOnly: true, explain: true, deep: true });
+  /* The ledger's problems and the adapter's (links, files too big, files that vanished), each once. */
+  const everything = () => { const out = L.problems(), seen = {}; out.forEach((x) => { seen[x.path + '\u0000' + x.kind] = true; }); adapterProblems(ra).forEach((x) => { if (!seen[x.path + '\u0000' + x.kind]) out.push(x); }); return out; };
+  let d;
+  /* A failure that stops the whole read (the team folder can't be listed) still names every problem met before it. */
+  try { d = await repo.loadAll(dependsOn(rfs, deps), { readOnly: true, explain: true, deep: true }); } catch (e) { e.problems = everything(); throw e; }
   const failed = d.failed || {};
   /* First every read, with what each loader refused noted in the ledger; then the adapter's own problems (links, files too
      big); then PF.publish.unknownOf decides what's unknown from that whole list, and nothing else does. */
@@ -1615,9 +1621,9 @@ async function draftInputs(eng, dir, text) {
   for (const src of shots) {
     try { const b = await rfs.blob(src); if (!b) missingShots.push(src); else await b.arrayBuffer(); } catch (e) { if (!failedAt(src)) L.note(src, 'unreadable', src + ' couldn\'t be read: ' + (e && e.message || String(e))); }
   }
-  const problems = L.problems(), seen = {}, mine = covers(deps.concat([PF.teamValues.FILE], shots));
-  problems.forEach((x) => { seen[x.path + '\u0000' + x.kind] = true; });
-  adapterProblems(ra).forEach((x) => { if (mine(x.path) && !seen[x.path + '\u0000' + x.kind]) problems.push(x); });
+  /* Only what the text uses counts: a problem with an input it doesn't use (a team-values.json link and no team: value)
+     leaves the answer complete. */
+  const used = PF.publish.usesOf(map), problems = everything().filter((x) => PF.publish.uses(used, x, shots));
   const ctx = PF.publish.checkContext({ people, types, workflows: d.jira ? d.jira.workflows : null, processes, teamValues, missingShots, unknown: PF.publish.unknownOf(problems, shots) });
   return { verdict: PF.publish.publishCheck(text, ctx), problems };
 }
@@ -1651,6 +1657,8 @@ async function draftCheck(argv) {
     const ra = readAdapter(dir, { maxBytes: READ_MAX }), L = PF.repo.ledger(PF.repo.readOnly(ra, 'Checking a draft')), dpath = 'maps/drafts/' + proc + '.md';
     let f = null;
     try { f = await L.fs.read(dpath, { maxBytes: PF.util.DRAFT_BYTES }); } catch (e) { return failOut('failed', dpath + ' couldn\'t be read, so nothing was checked. Try again.', L.problems().concat(adapterProblems(ra))); }
+    /* A draft that was there a moment ago and gone when opened is unknown, never "no draft". */
+    if (!f && (ra.vanished || []).indexOf(dpath) >= 0) return failOut('failed', dpath + ' was gone when it was read, so nothing was checked. Try again.', L.problems().concat(adapterProblems(ra)));
     if (!f) return failOut('not-found', 'There\'s no draft for "' + proc + '" in this folder (' + dpath + '). Pass the text to check with --from.', [], EXIT.notFound);
     text = f.text; said = { kind: 'draft', ref: dpath };
   }
@@ -1660,7 +1668,7 @@ async function draftCheck(argv) {
     const e = A.envelope(eng.version, new Date().toISOString(), got.problems, data, C2);
     return { out: JSON.stringify(e, null, 2), code: e.complete ? 0 : EXIT.partial };
   } catch (e) {
-    return failOut('failed', e instanceof Refused ? e.message : 'The team folder couldn\'t be read: ' + (e && e.message || String(e)));
+    return failOut('failed', e instanceof Refused ? e.message : 'The team folder couldn\'t be read: ' + (e && e.message || String(e)), e && e.problems);
   }
 }
 async function draftMain(argv) {
@@ -1696,7 +1704,9 @@ async function draftMain(argv) {
       const cf = pending ? { rev: pending.rev, kind: 'proposal', ref: pending.id, text: pending.text }
         : s.draft.exists && s.draft.text != null ? { rev: s.draft.rev, kind: 'draft', ref: s.draft.path, text: s.draft.text }
           : latest ? { rev: latest.rev, kind: 'version', ref: latest.folder, text: latest.text } : { rev: PP.sha(''), kind: 'none', ref: null, text: '' };
-      const ck = await checksOf(cf.text), problems = merged(s.problems, ck.problems);
+      /* The draft is there but couldn't be read, and nothing else continues it: its text is unknown, so nothing is checked. */
+      const unread = !pending && s.draft.exists && s.draft.text == null;
+      const ck = unread ? { checks: { blockers: [], suggestions: [] }, problems: [] } : await checksOf(cf.text), problems = merged(s.problems, ck.problems);
       const out = draftJson(eng, { process: proc, session, draft: s.draft, openIn: s.presence.openIn, mine: s.mine.map((m) => ({ id: m.id, rev: m.rev, status: m.status, text: m.text })),
         continueFrom: cf, checks: ck.checks, copies: s.copies, readAt: new Date(now).toISOString(), complete: problems.length === 0, problems });
       return { out: JSON.stringify(out, null, 2), code: out.complete ? 0 : EXIT.partial };
@@ -1762,7 +1772,7 @@ async function draftMain(argv) {
     Object.assign(result, { outcome: 'proposed', why });
     return { out: JSON.stringify(draftJson(eng, result), null, 2), code: 0 };
   } catch (e) {
-    return draftFail(eng, 'failed', e instanceof Refused ? e.message : 'The team folder couldn\'t be changed: ' + (e && e.message || String(e)));
+    return draftFail(eng, 'failed', e instanceof Refused ? e.message : 'The team folder couldn\'t be changed: ' + (e && e.message || String(e)), EXIT.error, e && e.problems);
   }
 }
 
