@@ -955,8 +955,10 @@
     var jobs = Object.keys(texts).map(function (p) { return ['hashes', p, texts[p]]; }).concat(keys.map(function (k) { return ['want', k, EXAMPLES[k]]; }));
     return digests(jobs.map(function (j) { return C.managed(j[1], j[2]); })).then(function (ds) {
       if (!ds) return null;
-      var out = { hashes: {}, want: {}, staged: {}, unmatched: [] };
+      var out = { hashes: {}, want: {}, staged: {}, unmatched: [], texts: {}, defaults: {} };
       jobs.forEach(function (j, i) { out[j[0]][j[1]] = ds[i]; });
+      /* The texts themselves too, live and default, for the content rule (PF.contract.hold) and its pointers. */
+      keys.forEach(function (k) { if (Object.prototype.hasOwnProperty.call(texts, k)) out.texts[k] = texts[k]; out.defaults[k] = EXAMPLES[k]; });
       /* A copy listed but not read, over the limit or failing: it's still there, so its file still waits. Its text is
          unknown, never taken to be gone. */
       (scan.updates || []).forEach(function (p) {
@@ -1308,7 +1310,11 @@
             it.old = all.filter(function (x, i) { return said[i] === 'old'; });
             it.staged = all.filter(function (x, i) { return said[i] !== 'old'; });
           });
-          C.classify(items, rec, (C.BASELINES && C.BASELINES.files) || {}, APP_VERSION).forEach(function (d, i) { items[i].status = d.status; items[i].waiting = d.waiting || ''; items[i].stage = !!d.stage; });
+          C.classify(items, rec, (C.BASELINES && C.BASELINES.files) || {}, APP_VERSION).forEach(function (d, i) {
+            items[i].status = d.status; items[i].waiting = d.waiting || ''; items[i].stage = !!d.stage;
+            /* The content rule's facts (PF.contract.hold), for the README's words and the record. */
+            ['lacks', 'restaged', 'held', 'heldFrom', 'onlyCopy', 'waitsFor'].forEach(function (f) { if (d[f] !== undefined) items[i][f] = d[f]; });
+          });
           return { items: items, record: rec, recText: recText, recordDue: !!C.nextRecord(rec, items, APP_VERSION) };
         });
       });
@@ -1398,7 +1404,7 @@
           var merges = l.items.filter(function (i) { return i.status === 'merge' && !i.changed; });
           if (!merges.some(function (i) { return !i.waiting || i.stage; })) return;
           var list = merges.filter(function (i) { return !i.waiting || i.stage || i.staged.some(function (x) { return x.version === ver; }); });
-          var next = C.mergeReadme(ver, list, tg.updates, tg.home);
+          var next = C.mergeReadme(ver, list, tg.updates, tg.home, { base: (C.BASELINES && C.BASELINES.files) || {}, record: l.record, agents: EXAMPLES[C.AGENTS] });
           return (readme != null && readme !== next ? keep('merge-README.md', readme) : Promise.resolve()).then(function () { if (!alive()) throw stop(); return save(readmeAt, readme, next, readmeAt); });
         }).then(function () {
           var rec = C.nextRecord(l.record, l.items, ver);

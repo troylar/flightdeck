@@ -198,7 +198,10 @@ function classify(t, files, base, force) {
     i.old = all.filter((x, n) => said[n] === 'old');
     i.staged = all.filter((x, n) => said[n] !== 'old');
   });
-  const why = decide(items.map((i) => ({ key: i.key, baseKey: i.baseKey, want: i.want, have: i.have, staged: i.staged.map((x) => ({ version: x.version, hash: hash(managed(i.key, x.text)) })) })), t.record, base, t.version, force);
+  const decided = decide(items.map((i) => ({ key: i.key, baseKey: i.baseKey, want: i.want, have: i.have, staged: i.staged.map((x) => ({ version: x.version, hash: hash(managed(i.key, x.text)) })) })), t.record, base, t.version, force);
+  /* The content rule (PF.contract.hold, the app's own): AGENTS.md waits while a file it would cite lacks a cited section. Copied
+     out of the engine's context, so it compares as plain objects here. */
+  const why = JSON.parse(JSON.stringify(K.hold(decided, items.map((i) => ({ key: i.key, text: i.text, now: i.now, have: i.have, want: i.want })), base)));
   return items.map((i, n) => Object.assign(i, why[n], { key: i.key }));
 }
 /* The decision alone, from hashes: the same as PF.contract.classify (test/assistant-files.test.js checks they agree), plus
@@ -262,27 +265,10 @@ function parseRecord(text, keys, mine) { return JSON.parse(JSON.stringify(contra
 function stamp(d) { const p = (n) => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + p(d.getMinutes()); }
 function fineStamp(d) { const p = (n, w) => String(n).padStart(w || 2, '0'); return stamp(d).replace(' ', '-') + p(d.getSeconds()) + '-' + p(d.getMilliseconds(), 3); }
 
-function mergeReadme(version, items, t) { return mergeReadmeText(version, items, t.updates, t.home); }
-/* The same text as PF.contract.mergeReadme (test/assistant-files.test.js checks they agree). */
-function mergeReadmeText(version, items, updates, home) {
-  const here = updates.concat(version).join('/');
-  return `# Flightdeck ${version}: files to merge
-
-Flightdeck ${version} changed these files, and your team changed them too, so the update left your versions in place:
-
-${items.map((i) => '- `' + i.rel + '`' + (i.key === AGENTS ? ' (only the part between the flightdeck markers)' : '')).join('\n')}
-
-The new default of each file is in this folder (\`${here}/\`), at the same path it has in ${home}.
-
-## Ask your AI assistant to merge them
-
-Open your AI assistant in ${home}, and give it this:
-
-> Flightdeck ${version} put new default versions of some files in \`${here}/\`; its README.md lists them. For each one, compare the new default with our file at the same path. Keep our own changes, and bring in what the new default adds or changes. In AGENTS.md, change only the part between \`<!-- flightdeck:begin -->\` and \`<!-- flightdeck:end -->\`; anything that is ours belongs under Team notes, below the end marker. Show me each change before you save it. When a file is merged, delete its copy here. When only README.md is left, delete this folder.
-
-Then run the same flightdeck command with \`--check\`: exit code 0 means nothing is left to merge.
-`;
-}
+function mergeReadme(version, items, t) { return mergeReadmeText(version, items, t.updates, t.home, t.words); }
+/* The app's own PF.contract.mergeReadme, so the README's words (held, re-staged, waiting) are one function, never a copy.
+   ctx: { base, record, agents (this version's default AGENTS.md) }, for the words only. */
+function mergeReadmeText(version, items, updates, home, ctx) { return contractRules().mergeReadme(version, items, updates, home, ctx); }
 
 /* What an install would write has to be something the app can read back (PF.contract.MAX_BYTES): over the limit, nothing is
    touched. The same check and words as Settings, AI assistant files (afRoom). */
@@ -333,6 +319,7 @@ function contract(t, files, opts) {
   if (!opts.check || opts.room) clearFor(t.dir, t.updates.concat(t.version, 'x'));
   inside(t.dir, t.updates.concat(t.version, 'replaced'));
   t.record = readRecord(t, files.map((f) => f.key));
+  t.words = { base, record: t.record, agents: examples(opts.html)[AGENTS] };
   t.changed = [];
   const items = classify(t, files, base, opts.force);
   if (!opts.check || opts.room) { roomFor(t, items); destinationsClear(t, items, opts.more); }
@@ -380,7 +367,8 @@ function contract(t, files, opts) {
 /* The record's files after an update, or null when it would be written unchanged: the same as PF.contract.nextRecord. */
 function nextRecord(record, items, version) {
   const rec = Object.assign({}, record.all || {});
-  items.forEach((i) => { if (!i.changed) rec[i.key] = i.want; });
+  /* A held or onlyCopy AGENTS.md wasn't written, so it keeps its previous entry, as a changed file does. */
+  items.forEach((i) => { if (!i.changed && !(i.key === AGENTS && (i.heldFrom || i.onlyCopy))) rec[i.key] = i.want; });
   if (!record.ignored && record.version === version && JSON.stringify(rec) === JSON.stringify(record.all)) return null;
   return rec;
 }
@@ -412,6 +400,30 @@ const CHECK_LABEL = { update: 'update available', new: 'will be added', missing:
 function report(items, check, out) {
   items.filter((i) => i.status !== 'current').forEach((i) => out.push('  ' + (i.changed ? 'changed during install' : (check ? CHECK_LABEL : LABEL)[i.status]).padEnd(28) + i.rel + (i.waiting ? ' (still waiting in updates/' + i.waiting + ')' : '')));
   items.filter((i) => i.old && i.old.length).forEach((i) => out.push('  ' + 'old copy, nothing to merge'.padEnd(28) + i.rel + ' (left in updates/' + i.old.map((x) => x.version).join(', ') + ' by an older Flightdeck; safe to delete by hand)'));
+}
+/* The line install prints after the list when something waits to be merged. Its first sentence says why when the content
+   rule is at work (AGENTS.md held, or only its copy waiting, or files that lack what AGENTS.md points to); the rest names where
+   the new defaults are: this version's folder, or, when nothing was staged there this run, the folders they wait in. */
+function mergeLine(items, dir, mine) {
+  const a = items.find((i) => i.key === AGENTS), merges = items.filter((i) => i.status === 'merge');
+  const staged = (i) => !i.waiting || i.stage;
+  const folders = (list) => list.reduce((acc, i) => acc.concat(staged(i) ? [mine] : i.waiting.split(', ')), []).filter((v, n, all) => all.indexOf(v) === n).sort(byVersion).map((v) => '.flightdeck/updates/' + v);
+  const inline = (list) => folders(list).map((f) => '`' + f + '`').join(' and ');
+  const waits = a && (a.heldFrom ? a.held : a.onlyCopy && a.waitsFor && a.waitsFor.length ? a.waitsFor : null);
+  let first = 'Your team changed files this version changes too.';
+  if (waits) first = waits.length === 1 ? 'AGENTS.md waits: `' + waits[0].path + '` doesn\'t have the sections it points to.' : 'AGENTS.md waits: these files don\'t have the sections it points to: ' + waits.map((x) => '`' + x.path + '`').join(', ') + '.';
+  else if (a && a.onlyCopy) first = 'AGENTS.md\'s new default is waiting in ' + inline([a]) + '; your team didn\'t change AGENTS.md, so delete AGENTS.md from each version folder in `.flightdeck/updates/` (never anything under `replaced/`) and run install again.';
+  else if (merges.every((i) => i.lacks)) first = merges.length === 1 ? '`' + merges[0].rel + '` doesn\'t have the sections AGENTS.md points to; its new default is waiting in ' + inline(merges) + ' to be merged.'
+    : 'These files don\'t have the sections AGENTS.md points to: ' + merges.map((i) => '`' + i.rel + '`').join(', ') + '; their new defaults are waiting in ' + inline(merges) + ' to be merged.';
+  const where = merges.some(staged) ? path.join(dir, '.flightdeck', 'updates', mine) : folders(merges).map((f) => path.join(dir, ...f.split('/'))).join(' and ');
+  return first + ' The new defaults are in ' + where + '; its README.md has a prompt for your AI assistant to merge them.';
+}
+/* The live AGENTS.md's pointers no merge can satisfy (PF.contract.pointers), in Folder health's words, from the files as this
+   run leaves them. */
+function pointerLines(items, out) {
+  const written = (i) => ['update', 'new', 'missing', 'forced'].includes(i.status) && !i.changed;
+  const live = items.map((i) => ({ key: i.key, text: i.text, now: written(i) ? merged(i) : i.now }));
+  JSON.parse(JSON.stringify(contractRules().pointers(live))).forEach((p) => out.push(p.text));
 }
 /* What install says after the file list: an ignored record, and files left alone because they changed while it ran. */
 function notes(t, out) {
@@ -2542,6 +2554,7 @@ function main(argv) {
       if (appSt !== 'current') out.push('  ' + (appSt === 'new' ? 'will be added' : 'update available').padEnd(28) + NAME);
       if (oldSt !== 'current') out.push('  ' + 'update available'.padEnd(28) + OLD);
       report(items, true, out);
+      pointerLines(items, out);
       notes(t, out);
       const code = exitFor([appSt === 'current' ? 'current' : 'update', oldSt === 'current' ? 'current' : 'update'].concat(items.map((i) => i.status)));
       if (code === EXIT.none) out.push('  Nothing to do.');
@@ -2563,7 +2576,8 @@ function main(argv) {
     if (!appOnly) {
       out.push(items.every((i) => i.status === 'current') ? 'AGENTS.md and the skills are up to date.' : 'AGENTS.md and the skills:');
       report(items, false, out);
-      if (items.some((i) => i.status === 'merge')) out.push('Your team changed files this version changes too. The new defaults are in ' + path.join(dir, '.flightdeck', 'updates', mine) + '; its README.md has a prompt for your AI assistant to merge them.');
+      if (items.some((i) => i.status === 'merge')) out.push(mergeLine(items, dir, mine));
+      pointerLines(items, out);
     }
     if (t.replacedAt) out.push('Copies of the files it replaced are in ' + path.join(dir, ...t.replacedAt));
     notes(t, out);
