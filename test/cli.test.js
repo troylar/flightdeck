@@ -2652,11 +2652,16 @@ rule('2.7.0: an installed.json written by the app is one the release before trus
   if (!old) { console.log('  (skipped: the previous release isn\'t in this clone; git fetch --tags)'); return; }
   const PF = require('./harness').load(), dir = tmp();
   assert.strictEqual(cli('install', dir).code, 0);
-  write(dir, '.flightdeck/installed.json', PF.contract.installed(VER, new Date().toISOString(), 'app', record(dir).files));
+  /* The record's shape, written for the release before's own version: from 2.12.1 on, a record from a newer version is read
+     and the folder left alone, which is trusting it too. */
+  write(dir, '.flightdeck/installed.json', PF.contract.installed(old.version, new Date().toISOString(), 'app', record(dir).files));
   assert.strictEqual(record(dir).by, 'app');
   const r = old.run('skills', dir);
   assert.strictEqual(r.code, 0, r.out);
   assert.ok(!/Ignored \.flightdeck\/installed\.json/.test(r.out), old.tag + ' ignored it: ' + r.out);
+  write(dir, '.flightdeck/installed.json', PF.contract.installed(VER, new Date().toISOString(), 'app', record(dir).files));
+  const n = old.run('skills', dir);
+  assert.ok(!/Ignored \.flightdeck\/installed\.json/.test(n.out) && (n.code === 0 || /written by a newer Flightdeck \(/.test(n.out)), old.tag + ' on this version\'s record: ' + n.out);
   write(dir, '.flightdeck/installed.json', '{"kind":1}');
   assert.ok(/Ignored \.flightdeck\/installed\.json/.test(old.run('skills', dir).out), 'control: a record it can\'t read is ignored');
 });

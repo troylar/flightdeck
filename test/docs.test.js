@@ -119,6 +119,36 @@ rule('Docs: the README says how to start, and the download it names is in the pa
   assert.ok(md.indexOf('npx @troylar/flightdeck open') < 4000, 'on the first screen');
 });
 
+/* Every command the CLI's help lists, as "draft save" or "export": a second word is a subcommand unless it's a placeholder. */
+function helpCommands(help) {
+  const out = [];
+  help.split('\n').forEach(line => {
+    const m = /^ {2}flightdeck ([a-z]+)(?: ([a-z]+)\b(?![^\s]))?/.exec(line);
+    if (m) { const c = m[2] ? m[1] + ' ' + m[2] : m[1]; if (out.indexOf(c) < 0) out.push(c); }
+  });
+  return out;
+}
+/* Commands a person runs to set up or look after the folder. Neither file is for them; the README is. */
+const FOR_PEOPLE = ['open', 'install', 'skills', 'backup', 'path', 'version'];
+function unlisted(md, commands) {
+  const flatMd = md.replace(/\s+/g, ' ');
+  return commands.filter(c => FOR_PEOPLE.indexOf(c) < 0 && !new RegExp('flightdeck ' + c + '(?![a-z-])').test(flatMd));
+}
+rule('Docs: AGENTS.md and docs/apps.md name every command the CLI\'s help lists, and the README every one they leave to people', () => {
+  const help = require('../bin/flightdeck.js').main(['help']).out, commands = helpCommands(help);
+  ['export', 'skill register', 'draft propose', 'report targets', 'plan request', 'open', 'version'].forEach(c => assert.ok(commands.indexOf(c) >= 0, 'the help is read: ' + c));
+  assert.ok(commands.length >= 20 && commands.every(c => /^[a-z]+( [a-z]+)?$/.test(c)), commands.join(', '));
+  FOR_PEOPLE.forEach(c => assert.ok(commands.indexOf(c) >= 0, 'still a command: ' + c));
+  FOR_PEOPLE.forEach(c => assert.ok(new RegExp('flightdeck ' + c + '(?![a-z-])').test(read('README.md')), 'the README names: flightdeck ' + c));
+  assert.deepStrictEqual(unlisted(read('example-folder/AGENTS.md'), commands), [], 'example-folder/AGENTS.md');
+  assert.deepStrictEqual(unlisted(read('docs/apps.md'), commands), [], 'docs/apps.md');
+  /* And the check sees a command left out, a new one in the help, and a word that only starts like a command. */
+  assert.deepStrictEqual(unlisted(read('example-folder/AGENTS.md').split('flightdeck export').join('flightdeck'), commands), ['export']);
+  assert.deepStrictEqual(unlisted(read('docs/apps.md'), helpCommands(help + '\n  flightdeck health <team folder> [--json]\n')), ['health']);
+  assert.deepStrictEqual(unlisted('`flightdeck runsy` and `flightdeck run-x`', ['runs', 'run']), ['runs', 'run']);
+  assert.deepStrictEqual(helpCommands('  flightdeck draft read <team folder>\n  flightdeck open                     open the app\n  flightdeck skills --to <folder>\n'), ['draft read', 'open', 'skills']);
+});
+
 rule('The README\'s manual download is the release being shipped, so it can\'t go stale', () => {
   const version = JSON.parse(read('src/releases.json'))[0].version;
   const links = read('README.md').match(/@troylar\/flightdeck@\d+\.\d+\.\d+\/dist\/flightdeck\.html/g) || [];
