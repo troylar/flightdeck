@@ -152,7 +152,9 @@ test/save.test.js -
 test/type-cli.test.js -
 test/type-guards.test.js -
 test/assistant-files.test.js -
-test/assistant-start.test.js -
+test/assistant-start.test.js 0/2
+test/assistant-start.test.js 1/2
+test/agents-inventory.test.js -
 test/old-bundles.test.js -
 test/clarity-compat.test.js -
 test/evidence.test.js -

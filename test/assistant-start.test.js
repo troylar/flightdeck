@@ -42,6 +42,32 @@ rule('AGENTS.md as shipped is at most 28 KiB, so Team notes have room before a t
   assert.ok(seen.includes('<!-- flightdeck:end -->') && seen.includes('## Team notes') && seen.endsWith('n'), 'a tool that stops at 32 KiB gets everything');
 });
 
+/* 2.15.0: AGENTS.md keeps the rules and points to the how. Its ceiling is the measured text plus a 66-byte margin; a later slice
+   that adds a Commands or Skills row raises it by that row's bytes, with the reason stated. */
+const ROOM_CEILING = 19688, INDEX_ROW = 300;
+/* The rows of the Commands and Skills tables: each names a command or a skill and where its how is, in at most 300 bytes. */
+function indexRows(t) {
+  const out = [];
+  ['## Skills for this folder', '## Commands'].forEach(h => {
+    const at = t.indexOf('\n' + h + '\n'); if (at < 0) { out.push({ missing: h }); return; }
+    const end = t.indexOf('\n## ', at + 2), body = t.slice(at, end < 0 ? undefined : end);
+    body.split('\n').filter(l => /^\| [`/]/.test(l)).forEach(l => out.push({ row: l, bytes: bytes(l) }));
+  });
+  return out;
+}
+rule('AGENTS.md fits under its 2.15.0 ceiling, and every Commands and Skills row is at most 300 bytes', () => {
+  assert.ok(bytes(AGENTS) <= ROOM_CEILING, bytes(AGENTS) + ' bytes, over ' + ROOM_CEILING);
+  const rows = indexRows(AGENTS);
+  assert.ok(rows.every(r => !r.missing), 'both tables are there: ' + JSON.stringify(rows.filter(r => r.missing)));
+  assert.ok(rows.length >= 15, rows.length + ' rows');
+  assert.deepStrictEqual(rows.filter(r => r.bytes > INDEX_ROW).map(r => r.row), []);
+  /* And the checks see a row grown past 300 bytes, and a text past the ceiling. */
+  const row = rows.find(r => /flightdeck export/.test(r.row)).row, long = row.replace(' | An evidence pack', ' | ' + 'x'.repeat(INDEX_ROW) + ' An evidence pack');
+  assert.ok(long !== row, 'set-up: the row grew');
+  assert.deepStrictEqual(indexRows(AGENTS.replace(row, long)).filter(r => r.bytes > INDEX_ROW).map(r => r.row), [long]);
+  assert.ok(bytes(AGENTS.replace('## Commands', 'x'.repeat(ROOM_CEILING - bytes(AGENTS) + 1) + '\n\n## Commands')) > ROOM_CEILING);
+});
+
 const SAFETY = [
   'Never take an irreversible action on the strength of a gate alone; a person confirms.',
   'A passed gate means "passed for those details, by that person, at that time", not "safe right now".',
@@ -73,72 +99,13 @@ function sentences(md) {
   return out.map(s => s.replace(/^\s*(?:[-*]|\d+\.)\s+/, '').replace(/\s+/g, ' ').trim()).filter(s => s.length > 1);
 }
 const fenceless = (md) => md.replace(/^\s*```[^\n]*\n[\s\S]*?^\s*```[^\n]*$/gm, '');
-/* The few pieces of 2.12.0's text that were reworded rather than moved, and the words that say the same now. Read every one. */
-const REWORDED = {
-  'Save the registration to a file outside the team folder:': 'Save the registration to a file outside the team folder (the fields, with an example:',
-  '**A version published before 2.0** (`"format": "preflight-publication/1"`, or no `format`): write `skills/<name>.json`:': '**A version published before 2.0** (`"format": "preflight-publication/1"`, or no `format`): write `skills/<name>.json` (example in the same section).',
-  'It\'s one line in their own `notes-*.jsonl`:': 'It\'s one line in their own `notes-*.jsonl`.',
-  'One JSON object per line:': 'One JSON object per line, in the format in *Saved history lines* in the file formats.',
-  /* 2.13.0: draft checks load what Review & publish loads (2.12.2 had said what they left out), and draft check covers
-     screenshots and version: pins. */
-  'These checks are incomplete: the command doesn\'t load the team\'s people, step types, Jira workflows or other processes.': 'They load what Review & publish loads: people, step types, Jira workflows, published versions and team values.',
-  'So a step that uses one of the team\'s own types in `step-types/` shows as an unknown type (a blocker), Jira transitions aren\'t checked against `jira/workflows.json`, and the suggestions say every linked process is unpublished and every owner is missing from `people.json`.': 'If `complete` is false, what `problems` names wasn\'t read or checked: say so.',
-  'Whether screenshots are in the folder and `version:` pins resolve is checked only when someone publishes.': 'and its `publish.blockers` also cover screenshots and `version:` pins.',
-  'Fix every other blocker.': 'Fix every blocker.'
-};
-const flat = (t) => t.replace(/\s+/g, ' ');
-function lost(oldText, agents, reference) {
-  const here = flat(agents + '\n' + reference);
-  return sentences(oldText).filter(s => !here.includes(s) && !(REWORDED[s] && here.includes(flat(REWORDED[s]))));
-}
-rule('Every sentence of 2.12.0\'s AGENTS.md is still there, in AGENTS.md or the file formats: nothing was dropped to save space', () => {
-  assert.ok(REFERENCE.length > 0, FORMATS + ' ships');
-  assert.deepStrictEqual(lost(OLD, AGENTS, REFERENCE), []);
-  /* And the check sees a dropped rule, in a list, a table or a paragraph. */
-  ['Never take an irreversible action on the strength of a gate alone; a person confirms.', 'Never write a decision or a correction note:', 'Build only from a version that\'s signed off'].forEach(s => {
-    const pruned = lost(OLD, AGENTS.replace(s, ''), REFERENCE.replace(s, ''));
-    assert.ok(pruned.some(x => x.includes(s)), 'it notices losing: ' + s);
-  });
-});
-
-/* Words that tell an assistant what to check or not do, as opposed to how a file is shaped. A sentence holding one stays in
-   AGENTS.md, which is the file every tool reads; the file formats are read only when someone goes looking. */
+/* 2.15.0 replaced the sentence checks against 2.12.0's text with the rule inventory (test/agents-inventory.js): every unit of
+   2.14.0's AGENTS.md is kept, or moved word for word to the command guide or the checklist essentials. */
+/* Words that tell an assistant what to check or not do, as opposed to how a file is shaped. */
 const GUIDANCE = /\b(never|must|don't|do not|check|checks|read|leave out|only|ignore|skip|should|unless|instead|avoid|make sure|was meant|reopens)\b|\bis only\b/i;
-/* Sentences of 2.12.0 that moved, each reviewed by reading it as how a file is shaped. A new move fails until it's listed here, and
-   no listing excuses a guidance word except these, where the word is about the file's shape. */
-const SHAPE_ONLY = [
-  '`followups/`: what became of each run\'s follow-ups (`followups/', '`"corrections": [{', '`wording` (`to`', '`where` is `after`', '`why` says why', '`corrections/<process>/<group>', '`version` and `folder`', 'Flightdeck shows "Published in vN"', '`rev` is one more than', 'It\'s an array of', '`folderRole` is', 'It\'s `{ "format": "flightdeck-team-values/1"', 'A linked step passes one with',
-  'It takes only `name`', 'Exit 0 is registered', '1 is refused or failed', '`change.op` is one of', 'A correction on a phase\'s note', '`happened` is set when', 'its `change.op`', '`files` on any note', 'Matching corrections',
-  'People decide on a group', '`status` is `applied`', 'An `applied` decision with', 'The current decision is the one', 'Older suggested fixes', '**Linked runs:**', 'A 2.0 run\'s `pins.children`', 'A version published by Flightdeck 1.16',
-  '`{ "v": 1, "kind": "draft-edit"', 'A fingerprint is 32-bit', 'the highest `rev` counts', 'the run\'s `steps.'
-];
+/* Sentences of the file formats where a guidance word is about the file's shape. */
 const SHAPE_WORD_OK = [/^It takes only `name`/, /^`rev` is one more/, /^`where` is `after`/];
 const noCode = (t) => t.replace(/`[^`]*`/g, '');
-function movedProblems(oldText, agents) {
-  const here = flat(agents), out = [];
-  sentences(fenceless(oldText)).filter(s => !here.includes(s) && !REWORDED[s]).forEach(s => {
-    if (!SHAPE_ONLY.some(p => s.startsWith(p))) out.push('moved, and not reviewed as format: ' + s);
-    else if (GUIDANCE.test(noCode(s)) && !SHAPE_WORD_OK.some(re => re.test(s))) out.push('moved, but it tells an assistant what to do: ' + s);
-  });
-  return out;
-}
-const SAFEGUARDS = [
-  'if the draft\'s step no longer matches `from`, check whether the correction still applies.',
-  '`text` is a plain summary for older copies of Flightdeck; read `change`.',
-  'A "done differently" answer without a correction note was meant for that run only.',
-  'A correction is in a published version only when that version lists it (or an `included` decision names its folder) and its checklist says it;',
-  '`at` is only shown: computers\' clocks differ.',
-  'A correction that arrives after its group was declined reopens it.',
-  'History orders lines by these fingerprints, never by `at`.',
-  'Leave out `hunks` if you\'re unsure; a line that doesn\'t check out is skipped.'
-];
-rule('A sentence that tells an assistant what to check or not do stays in AGENTS.md: moving it to the file formats doesn\'t count as keeping it', () => {
-  assert.deepStrictEqual(movedProblems(OLD, AGENTS), []);
-  SAFEGUARDS.forEach(s => assert.ok(flat(AGENTS).includes(s), 'in AGENTS.md: ' + s));
-  /* And the check sees each one moved back out. */
-  SAFEGUARDS.forEach(s => assert.ok(movedProblems(OLD, AGENTS.replace(s, '')).length > 0, 'it notices moving: ' + s));
-  assert.ok(movedProblems(OLD, AGENTS.replace('**Candidate files:**', '')).length > 0, 'and a move nobody reviewed');
-});
 
 rule('The file formats tell an assistant nothing to do: every sentence is how a file is shaped', () => {
   const OK = [/^The long formats behind/, /only says what these files look like/, /^Nothing here allows/].concat(SHAPE_WORD_OK);
@@ -196,11 +163,12 @@ rule('Reading the folder needs no second file: AGENTS.md still says which decisi
 function installed212(notes) {
   const dir = tmp();
   assert.strictEqual(cli('install', dir).code, 0);
-  /* The folder as 2.12.0's install left it: its AGENTS.md with Team notes, and no file formats. */
+  /* The folder as 2.12.0's install left it: its AGENTS.md with Team notes, and none of the three references. */
   fs.writeFileSync(path.join(dir, 'AGENTS.md'), OLD.replace(/\n*$/, '\n') + notes);
-  fs.rmSync(path.join(dir, ...FORMATS.split('/')));
+  const NEWER = [FORMATS, SKILLS + '_flightdeck/command-guide.md', SKILLS + '_flightdeck/checklist-essentials.md'];
+  NEWER.forEach(k => fs.rmSync(path.join(dir, ...k.split('/'))));
   const recPath = path.join(dir, '.flightdeck', 'installed.json'), rec = JSON.parse(fs.readFileSync(recPath, 'utf8'));
-  rec.version = '2.12.0'; rec.files['AGENTS.md'] = C.hash(C.managed('AGENTS.md', OLD)); delete rec.files[FORMATS];
+  rec.version = '2.12.0'; rec.files['AGENTS.md'] = C.hash(C.managed('AGENTS.md', OLD)); NEWER.forEach(k => { delete rec.files[k]; });
   fs.writeFileSync(recPath, JSON.stringify(rec));
   return dir;
 }
@@ -667,6 +635,7 @@ rule('The real path: this version installs, the real 2.12.0 page "updates", this
   assert.strictEqual(files['.flightdeck/updates/2.12.0/AGENTS.md'], OLD, 'set-up: its own old default, waiting');
   assert.strictEqual(JSON.parse(files[RECORD]).version, '2.12.0', 'set-up: the record written back to 2.12.0');
   assert.strictEqual(files['AGENTS.md'], was['AGENTS.md'], 'AGENTS.md itself untouched');
+  [SKILLS + '_flightdeck/command-guide.md', SKILLS + '_flightdeck/checklist-essentials.md'].forEach(k => assert.strictEqual(files[k], was[k], 'the references 2.12.0 never shipped are left as they are: ' + k));
   /* This version again. */
   const app = await opened(files), html = await aiFiles(app), page = plain(html);
   assert.ok(/data-af-row="AGENTS.md" data-af-status="current"/.test(html), 'Settings: AGENTS.md is up to date');
@@ -735,16 +704,16 @@ rule('A folder installed by 2.12.0\'s own command, with Team notes, upgrades wit
 
 rule('This release is dated 2026-11-03 in the entry, the waiver and the list, and each text in the entry is under 400 characters', () => {
   const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')).find(r => r.version === VER);
-  assert.strictEqual(VER, '2.14.0');
+  assert.strictEqual(VER, '2.15.0');
   assert.strictEqual(rel.date, '2026-11-03');
   for (const c of rel.changes) for (const f of ['now', 'before']) if (c[f] != null) assert.ok(c[f].length < 400, c.title + ': ' + f + ' is ' + c[f].length);
-  const at = path.join(ROOT, 'docs', 'rehearsals', '2.14.0-2026-11-03-waiver.md');
-  assert.ok(fs.existsSync(at) && /Version: 2\.14\.0/.test(fs.readFileSync(at, 'utf8')) && /Date: 2026-11-03/.test(fs.readFileSync(at, 'utf8')), 'the waiver');
+  const at = path.join(ROOT, 'docs', 'rehearsals', '2.15.0-2026-11-03-waiver.md');
+  assert.ok(fs.existsSync(at) && /Version: 2\.15\.0/.test(fs.readFileSync(at, 'utf8')) && /Date: 2026-11-03/.test(fs.readFileSync(at, 'utf8')), 'the waiver');
   const list = fs.readFileSync(path.join(ROOT, 'docs', 'rehearsals', 'README.md'), 'utf8');
-  assert.ok(list.includes('[2.14.0, 2026-11-03](2.14.0-2026-11-03-waiver.md)'), 'the list');
+  assert.ok(list.includes('[2.15.0, 2026-11-03](2.15.0-2026-11-03-waiver.md)'), 'the list');
   const n = fs.readdirSync(path.join(ROOT, 'docs', 'rehearsals')).filter(f => /-waiver\.md$/.test(f)).length;
-  assert.strictEqual(n, 15);
-  assert.ok(list.includes('All fifteen are waivers'), 'the count');
+  assert.strictEqual(n, 16);
+  assert.ok(list.includes('All sixteen are waivers'), 'the count');
 });
 
 /* ---------------- the first prompt ---------------- */
@@ -914,6 +883,7 @@ rule('Download skills ZIP holds exactly what flightdeck skills --to writes, at t
   assert.deepStrictEqual(Object.keys(got).sort(), Object.keys(want).sort(), 'the same paths');
   assert.ok(want['_flightdeck/map-format.md'].length !== want['_flightdeck/map-format.md'].toString('utf8').length, 'set-up: a file with non-English characters, so sizes must be bytes');
   assert.ok(got['flightdeck-status/SKILL.md'] && got['_flightdeck/check_folder.py'] && got['_flightdeck/file-formats.md'], 'skills and their shared files');
+  assert.ok(got['_flightdeck/command-guide.md'] && got['_flightdeck/checklist-essentials.md'], 'and the two references AGENTS.md points to (2.15.0)');
   Object.keys(want).forEach(k => assert.ok(want[k].equals(got[k]), k + ': the same bytes'));
   const un = tool('unzip', ['-t', file]);
   assert.strictEqual(un.status, 0, un.stdout + un.stderr);
@@ -977,6 +947,658 @@ rule('docs/skills.md lists every skill with its job, input, result and a starter
   assert.ok(/\[[^\]]*\]\(docs\/skills\.md\)|docs\/skills\.md/.test(fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8')), 'the README links it');
   const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')).find(r => r.version === '2.12.1');
   assert.ok(rel && JSON.stringify(rel).includes('docs/skills.md'), '2.12.1\'s release note links it');
+});
+
+
+/* ---------------- the content rule (2.15.0): AGENTS.md waits for the files it points to ----------------
+   Each case runs on a real folder through the command (flightdeck install and --check); the decision it makes is the CLI's own
+   decide plus PF.contract.hold, which must equal the app's PF.contract.classify. Folder health is read from the app's own page,
+   and Settings' Update must leave the folder as the command does. After every install two invariants hold:
+     I1  every section the live AGENTS.md cites (Flightdeck's part) that this version's default of that file has is in the live
+         file, or in a copy of it waiting to be merged (a section no default has can't come from a merge: contract-pointer);
+     I2  an AGENTS.md written from update cites only sections its references have live. */
+const K15 = PF.contract, AG = 'AGENTS.md', REFS = SKILLS + '_flightdeck/';
+const GUIDE = REFS + 'command-guide.md', ESS = REFS + 'checklist-essentials.md', MF = REFS + 'map-format.md';
+const KEYS15 = [AG, ESS, GUIDE, FORMATS, MF], SHORT = { [AG]: 'AGENTS', [ESS]: 'ess', [GUIDE]: 'guide', [FORMATS]: 'ff', [MF]: 'mf' };
+const A214 = fs.readFileSync(path.join(__dirname, 'fixtures', 'agents-2.14.0.md'), 'utf8');
+const A215 = AGENTS, G215 = EX[GUIDE], E215 = EX[ESS], FFT = REFERENCE, MFT = EX[MF];
+const FOREIGN = '# Our notes\n\nsome text\n', TEAMG = G215 + '\nOur own line.\n', TEAM214 = A214.replace('## Safety rules', '## Safety rules\n\nOur rule.');
+const UPD = '.flightdeck/updates/', cp = (k, V) => UPD + (V || VER) + '/' + k;
+const h15 = (k, t) => C.hash(C.managed(k, t));
+const own15 = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+const it15 = (xs) => xs.map(x => '*' + x + '*').join(', ');
+const G7 = it15(['Reading runs', 'Editing drafts', 'Reporting work', 'Skills built from processes', 'Asking for a run', 'Evidence packs', 'Planning a run']);
+const DEL = 'delete AGENTS.md from each version folder in `.flightdeck/updates/` (`.flightdeck/updates/<version>/AGENTS.md`, never anything under `replaced/`), or press I merged it in Settings → AI assistant files, and run install again; Flightdeck writes AGENTS.md itself.';
+
+/* A later release, 2.16.0, stood up as a package of its own: this command and this page, with a guide that adds ## Runner and
+   an AGENTS.md that cites it. */
+const G216 = String(G215).replace('## Asking for a run', '## Runner\n\nHow the runner reads a run.\n\n## Asking for a run');
+const A216 = A215.replace('How: *Reading runs* in the command guide.', 'How: *Reading runs* in the command guide, and *Runner* in the command guide.');
+let PKG16 = null;
+function pkg216() {
+  if (PKG16) return PKG16;
+  assert.ok(G216 !== G215 && A216 !== A215, 'set-up: 2.16.0 changes both');
+  const ex = Object.assign({}, EX, { [AG]: A216, [GUIDE]: G216 }), base = JSON.parse(JSON.stringify(BASE));
+  [[AG, A216], [GUIDE, G216]].forEach(([k, t]) => { const bk = C.baselineKey(k), x = h15(k, t); base[bk] = base[bk] || {}; base[bk][x] = (base[bk][x] || []).concat('2.16.0'); });
+  Object.keys(base).forEach(bk => Object.keys(base[bk]).forEach(x => { if (base[bk][x].includes(VER) && !base[bk][x].includes('2.16.0') && !(bk.startsWith(AG) || bk === GUIDE)) base[bk][x].push('2.16.0'); }));
+  let html = HTML.replace('<meta name="flightdeck-version" content="' + VER + '">', '<meta name="flightdeck-version" content="2.16.0">');
+  const swap = (re, json) => { const m = re.exec(html); assert.ok(m, 'set-up: ' + re); html = html.slice(0, m.index) + m[0].replace(m[1], json) + html.slice(m.index + m[0].length); };
+  swap(/var EXAMPLES = (\{[\s\S]*?\});\n/, JSON.stringify(ex).replace(/<\/script/g, '<\\/script'));
+  const whole = JSON.parse(/var BASELINES = (\{.*\});\n/.exec(html)[1]); whole.files = base; swap(/var BASELINES = (\{.*\});\n/, JSON.stringify(whole));
+  html = html.replace(/var RELEASES = \[/, 'var RELEASES = [' + JSON.stringify({ version: '2.16.0', date: '2026-11-04', headline: 'A later release', changes: [] }) + ',');
+  assert.strictEqual(C.versionOf(html), '2.16.0');
+  const root = tmp(); fs.mkdirSync(path.join(root, 'bin')); fs.mkdirSync(path.join(root, 'dist'));
+  fs.copyFileSync(BIN, path.join(root, 'bin', 'flightdeck.js')); fs.writeFileSync(path.join(root, 'dist', 'flightdeck.html'), html);
+  return (PKG16 = { V: '2.16.0', html, bin: path.join(root, 'bin', 'flightdeck.js'), ex, base });
+}
+const PKG15 = { V: VER, html: HTML, bin: BIN, ex: EX, base: BASE };
+
+/* Folders on disk. */
+const at15 = (dir, rel) => path.join(dir, ...rel.split('/'));
+const get15 = (dir, rel) => fs.existsSync(at15(dir, rel)) ? fs.readFileSync(at15(dir, rel), 'utf8') : null;
+function put15(dir, rel, t) { if (t === null) { fs.rmSync(at15(dir, rel), { force: true }); return; } fs.mkdirSync(path.dirname(at15(dir, rel)), { recursive: true }); fs.writeFileSync(at15(dir, rel), t); }
+function del15(dir, ...rels) { rels.forEach(r => { assert.ok(fs.existsSync(at15(dir, r)), 'set-up: ' + r + ' is there'); fs.rmSync(at15(dir, r)); }); }
+const recOf15 = (dir) => JSON.parse(get15(dir, RECORD)).files;
+/* A folder as 2.14.0's install left it: its AGENTS.md, no command guide or checklist essentials, and its record. */
+function f214(extra) {
+  const dir = tmp(); assert.strictEqual(cli('install', dir).code, 0);
+  put15(dir, AG, A214); put15(dir, GUIDE, null); put15(dir, ESS, null);
+  setRecord(dir, RECORD, r => { r.version = '2.14.0'; r.files[AG] = h15(AG, A214); delete r.files[GUIDE]; delete r.files[ESS]; });
+  Object.keys(extra || {}).forEach(k => put15(dir, k, extra[k]));
+  return dir;
+}
+function f215() { const dir = tmp(); assert.strictEqual(cli('install', dir).code, 0); return dir; }
+function copy15(dir) { const d = tmp(); fs.cpSync(dir, d, { recursive: true }); return d; }
+
+/* The decision on a folder, as the command makes it (its decide, then hold) and as the app does (classify, which holds). */
+function copiesOn(dir, key) {
+  const up = at15(dir, '.flightdeck/updates'); if (!fs.existsSync(up)) return [];
+  return fs.readdirSync(up).filter(v => K15.VERSION_DIR.test(v) && fs.existsSync(path.join(up, v, ...key.split('/')))).map(v => ({ version: v, path: UPD + v + '/' + key, text: fs.readFileSync(path.join(up, v, ...key.split('/')), 'utf8') }));
+}
+function decide15(dir, pkg, force) {
+  pkg = pkg || PKG15;
+  const items = KEYS15.map(k => {
+    const now = get15(dir, k), all = copiesOn(dir, k), text = pkg.ex[k];
+    const said = JSON.parse(JSON.stringify(K15.classifyCopies({ key: k, shipped: text, version: pkg.V, base: pkg.base, active: now, copies: all.map(x => ({ version: x.version, text: x.text })) })));
+    return { key: k, text, now, want: h15(k, text), have: now === null ? null : h15(k, now), old: all.filter((x, n) => said[n] === 'old'), staged: all.filter((x, n) => said[n] !== 'old').map(x => Object.assign(x, { hash: h15(k, x.text) })) };
+  });
+  const rec = JSON.parse(JSON.stringify(K15.readRecord(get15(dir, RECORD), KEYS15, pkg.V)));
+  const hashes = items.map(i => ({ key: i.key, want: i.want, have: i.have, staged: i.staged.map(x => ({ version: x.version, hash: x.hash })) }));
+  const texts = items.map(i => ({ key: i.key, text: i.text, now: i.now, have: i.have, want: i.want }));
+  const st = JSON.parse(JSON.stringify(K15.hold(JSON.parse(JSON.stringify(C.decide(hashes, rec, pkg.base, pkg.V, !!force))), texts, pkg.base)));
+  if (!force) assert.deepStrictEqual(JSON.parse(JSON.stringify(K15.classify(hashes.map((x, n) => Object.assign({}, x, { now: items[n].now, text: items[n].text })), rec, pkg.base, pkg.V))), st, 'the app (classify, with hold) and the command (decide, then hold) agree');
+  return { items, st };
+}
+const CHECK_SAYS = { update: 'update available', new: 'will be added', missing: 'will be added again', merge: 'needs merge', forced: 'will be replaced (--force)', kept: 'kept (your team changed it)' };
+const run15 = (pkg, ...a) => { const r = spawnSync(process.execPath, [(pkg || PKG15).bin, ...a], { encoding: 'utf8' }); return { out: r.stdout + r.stderr, code: r.status }; };
+/* The line install prints after the file list, its first sentence only; and the pointer sentences after it. */
+const FIRSTS = [/^AGENTS\.md waits: /, /^AGENTS\.md's new default is waiting in /, /^`[^`]+` doesn't have the sections AGENTS\.md points to; /, /^These files don't have the sections AGENTS\.md points to: /, /^Your team changed files this version changes too\./];
+function lineOf(out) { const l = out.split('\n').find(x => FIRSTS.some(re => re.test(x))); return l ? l.slice(0, l.indexOf(' The new defaults are in ')) : null; }
+const pointersOf = (out) => out.split('\n').filter(l => /^AGENTS\.md points AI assistants to /.test(l));
+function invariants15(dir, pkg, before, wrote) {
+  const live = get15(dir, AG); if (live == null) return;
+  const c = K15.cites(C.region(live).text).cites;
+  Object.keys(c).forEach(p => {
+    const have = get15(dir, p) == null ? [] : K15.sections(get15(dir, p)), def = pkg.ex[p] == null ? [] : K15.sections(pkg.ex[p]);
+    const miss = c[p].filter(x => have.indexOf(x) < 0 && def.indexOf(x) >= 0);
+    if (!miss.length) return;
+    assert.ok(copiesOn(dir, p).some(x => { const s = K15.sections(x.text); return miss.every(m => s.indexOf(m) >= 0); }), 'I1: the live AGENTS.md cites ' + miss.join(', ') + ' in ' + p + ', which is neither there nor waiting in a copy');
+    const a = before.find(x => x.key === AG);
+    assert.ok(!(wrote.indexOf(AG) >= 0 && a.status === 'update'), 'I2: AGENTS.md was written from update past ' + p);
+  });
+}
+function install15(dir, opts) {
+  opts = opts || {}; const pkg = opts.pkg || PKG15;
+  const { st } = decide15(dir, pkg, opts.force), was = {}; KEYS15.forEach(k => { was[k] = get15(dir, k); }); const recWas = get15(dir, RECORD);
+  const r = run15(pkg, ...(opts.skills ? ['skills', dir] : ['install', dir]), ...(opts.force ? ['--force'] : []));
+  const wrote = KEYS15.filter(k => get15(dir, k) !== was[k]);
+  invariants15(dir, pkg, st, wrote);
+  return { st, code: r.code, out: r.out, wrote, recordWritten: get15(dir, RECORD) !== recWas, line: lineOf(r.out), pointer: pointersOf(r.out) };
+}
+function check15(dir, opts) {
+  opts = opts || {}; const pkg = opts.pkg || PKG15, { st } = decide15(dir, pkg);
+  const r = run15(pkg, ...(opts.skills ? ['skills', dir] : ['install', dir]), '--check');
+  if (!opts.skills) st.filter(x => x.status !== 'current').forEach(x => assert.ok(r.out.split('\n').some(l => l.startsWith('  ' + CHECK_SAYS[x.status].padEnd(28) + x.key)), 'install --check says ' + CHECK_SAYS[x.status] + ' for ' + x.key + ': ' + r.out));
+  return { st, code: r.code, out: r.out };
+}
+/* Folder health, from the app's page: each contract issue's id, paths and words. */
+async function health15(dir, pkg) {
+  const app = await opened(text(walk(dir)), pkg && pkg !== PKG15 ? pkg.html : undefined), page = await healthOf(app);
+  return page.split('<li class="hz-issue ').slice(1).map(chunk => {
+    const id = (/id="hz-i-([^"]+)"/.exec(chunk) || [])[1], main = chunk.slice(0, chunk.indexOf('</div>'));
+    return { id, detail: unesc((/<p class="small">([\s\S]*?)<\/p>/.exec(main) || ['', ''])[1]), paths: [...main.matchAll(/<li><code>([^<]*)<\/code><\/li>/g)].map(m => unesc(m[1])) };
+  }).filter(i => /^contract-/.test(i.id));
+}
+const ids15 = (hs) => hs.map(x => x.id + '[' + x.paths.map(p => SHORT[p] || p).join(',') + ']');
+/* Settings' Update on a copy of the folder as it was, against the command's result: the same files, the same record. Copies the
+   command keeps under replaced/ are compared by what they hold, not by their folder's time stamp. */
+async function settingsAgree(before, after, pkg) {
+  const files = text(walk(before));
+  const app = await opened(files, pkg && pkg !== PKG15 ? pkg.html : undefined); await aiFiles(app);
+  assert.ok(/data-act="af-update"/.test(app.html()), 'Settings offers Update');
+  app.click('af-update'); await app.tick(800);
+  const norm = (o) => { const out = {}; Object.keys(o).filter(k => !/(^|\/)flightdeck\.html$/.test(k) && k !== RECORD).forEach(k => { out[k.replace(/\/replaced\/[^/]+\//, '/replaced/*/')] = o[k]; }); return out; };
+  const cliFiles = text(walk(after));
+  assert.deepStrictEqual(Object.keys(norm(files)).sort(), Object.keys(norm(cliFiles)).sort(), 'Settings writes the same files as the command');
+  Object.keys(norm(cliFiles)).forEach(k => assert.strictEqual(norm(files)[k], norm(cliFiles)[k], 'Settings and the command agree on ' + k));
+  assert.deepStrictEqual(JSON.parse(files[RECORD]).files, JSON.parse(cliFiles[RECORD]).files, 'the same record');
+  return true;
+}
+/* want: { short: { field: value } }; undefined asserts the field is absent; lacks may be its length; held and waitsFor as
+   short-count, like guide-7. */
+function expect15(st, want) {
+  Object.keys(want).forEach(s => {
+    const k = Object.keys(SHORT).find(x => SHORT[x] === s), x = st.find(y => y.key === k);
+    assert.ok(x, 'no status for ' + s);
+    Object.keys(want[s]).forEach(fld => {
+      const v = want[s][fld], got = x[fld];
+      if (fld === 'lacks' && typeof v === 'number') assert.strictEqual((got || []).length, v, s + '.lacks is ' + JSON.stringify(got));
+      else if (fld === 'held' || fld === 'waitsFor') assert.deepStrictEqual((got || []).map(y => SHORT[y.path] + '-' + y.lacks.length), v, s + '.' + fld);
+      else assert.deepStrictEqual(got, v, s + '.' + fld + ' is ' + JSON.stringify(got));
+    });
+  });
+}
+const readmeLine = (dir, V, start) => (get15(dir, cp('README.md', V)) || '').split('\n').find(l => l.startsWith(start));
+const kase15 = (id, title, fn) => rule('Content rule ' + id + ': ' + title, fn);
+
+kase15('1/A1', 'a 2.14.0 folder plus a plain command-guide.md; the first install holds AGENTS.md, in the command, Settings and Folder health', async () => {
+  const dir = f214({ [GUIDE]: FOREIGN }), was = copy15(dir);
+  const hb = await health15(dir);
+  assert.deepStrictEqual(ids15(hb), ['contract-merge[AGENTS,guide]']);
+  assert.strictEqual(hb[0].detail, 'Your team didn\'t change AGENTS.md. It waits because `' + GUIDE + '` doesn\'t have the sections it points to: ' + G7 + '. AI assistant files adds 1 new file AI assistants need and stages the new default of `' + GUIDE + '` for your AI assistant to merge; Flightdeck then writes AGENTS.md itself.', 'the whole detail, the path once, the new file joined to the verb');
+  const r = install15(dir);
+  expect15(r.st, { AGENTS: { status: 'merge', stage: true, heldFrom: 'update', held: ['guide-7'] }, guide: { status: 'merge', waiting: undefined, stage: undefined, lacks: 7, restaged: undefined }, ess: { status: 'new' }, ff: { status: 'current' } });
+  assert.strictEqual(r.code, 0, r.out); assert.strictEqual(get15(dir, AG), A214, 'AGENTS.md left whole'); assert.strictEqual(get15(dir, ESS), E215, 'the essentials written');
+  assert.strictEqual(get15(dir, cp(AG)), A215); assert.strictEqual(get15(dir, cp(GUIDE)), G215);
+  const md = get15(dir, cp('README.md')), agl = readmeLine(dir, VER, '- `AGENTS.md`'), gl = readmeLine(dir, VER, '- `' + GUIDE + '`');
+  assert.strictEqual(agl, '- `AGENTS.md` (only the part between the flightdeck markers) (held: `' + GUIDE + '` (the command guide) doesn\'t have the sections the new AGENTS.md points to: ' + G7 + '. Your team didn\'t change AGENTS.md\'s Flightdeck part. If it is your team\'s own file, move it out of `_flightdeck/`; otherwise merge its new default from this folder into it. Then ' + DEL + ' Until it has those sections, AGENTS.md waits and its new default is staged again.)');
+  assert.strictEqual(agl.split(GUIDE).length - 1, 1, 'the held line names the path once');
+  assert.strictEqual(gl, '- `' + GUIDE + '` (Flightdeck now ships a file at this path. AGENTS.md waits for this file: see its line above. Merge the new default into it, or, if it is your team\'s own file, move it out of `_flightdeck/`.)');
+  assert.ok(md.indexOf('your team changed them too') < 0 && md.indexOf('put a new default of each file below in this folder') >= 0, 'the README header is the held one');
+  assert.ok(md.indexOf('If README.md says Flightdeck writes a file itself, don\'t merge it') >= 0, 'the prompt says so too');
+  assert.strictEqual(r.line, 'AGENTS.md waits: `' + GUIDE + '` doesn\'t have the sections it points to.');
+  await settingsAgree(was, dir);
+  const c = check15(dir); assert.strictEqual(c.code, 3);
+  expect15(c.st, { AGENTS: { status: 'merge', waiting: VER, onlyCopy: true, waitsFor: ['guide-7'], heldFrom: undefined } });
+  const ha = await health15(dir); assert.deepStrictEqual(ids15(ha), ['contract-merge[AGENTS,guide]']); assert.ok(/it also waits for/.test(ha[0].detail), ha[0].detail);
+});
+kase15('2', 'after 1, only the guide\'s copy deleted: AGENTS.md waits on its own copy, then is held again once that is deleted too', async () => {
+  const dir = f214({ [GUIDE]: FOREIGN }); install15(dir); del15(dir, cp(GUIDE));
+  const r = install15(dir);
+  expect15(r.st, { AGENTS: { status: 'merge', waiting: VER, stage: false, onlyCopy: true, waitsFor: ['guide-7'] }, guide: { status: 'kept', lacks: undefined } });
+  assert.strictEqual(r.code, 0); assert.deepStrictEqual(r.wrote, []); assert.strictEqual(get15(dir, AG), A214);
+  assert.strictEqual(get15(dir, cp(GUIDE)), null, 'the live 2.14.0 AGENTS.md cites no guide section, so the guide isn\'t staged again yet');
+  assert.ok(/it also waits for `\.flightdeck\/skills\/_flightdeck\/command-guide\.md`/.test((await health15(dir))[0].detail));
+  del15(dir, cp(AG)); const r2 = install15(dir);
+  expect15(r2.st, { AGENTS: { status: 'merge', heldFrom: 'update', held: ['guide-7'] }, guide: { status: 'merge', restaged: true, lacks: 7 } });
+  assert.strictEqual(get15(dir, cp(GUIDE)), G215, 'staged again once AGENTS.md would be written');
+});
+kase15('3', 'after 1, both copies deleted: held again, both staged again', async () => {
+  const dir = f214({ [GUIDE]: FOREIGN }); install15(dir); del15(dir, cp(GUIDE), cp(AG));
+  const was = copy15(dir), r = install15(dir);
+  expect15(r.st, { AGENTS: { status: 'merge', stage: true, heldFrom: 'update', held: ['guide-7'] }, guide: { status: 'merge', stage: true, restaged: true, lacks: 7 } });
+  assert.strictEqual(r.code, 0); assert.strictEqual(get15(dir, AG), A214); assert.strictEqual(get15(dir, cp(GUIDE)), G215); assert.strictEqual(get15(dir, cp(AG)), A215);
+  assert.ok(get15(dir, cp('README.md')).indexOf('held: `') >= 0);
+  await settingsAgree(was, dir);
+});
+kase15('4', 'flightdeck skills first, then install: the guide copy already waits, and nothing is written twice', () => {
+  const dir = f214({ [GUIDE]: FOREIGN }), s = run15(PKG15, 'skills', dir);
+  assert.strictEqual(s.code, 0, s.out); assert.strictEqual(get15(dir, cp(GUIDE)), G215);
+  const r = install15(dir);
+  expect15(r.st, { AGENTS: { status: 'merge', heldFrom: 'update', held: ['guide-7'] }, guide: { status: 'merge', waiting: VER, stage: false, lacks: 7 } });
+  assert.strictEqual(r.code, 0, r.out); assert.strictEqual(get15(dir, AG), A214);
+});
+kase15('5', 'a 2.15.0 folder whose team edited the guide and kept its sections: kept, nothing to do', async () => {
+  const dir = f215(); put15(dir, GUIDE, TEAMG); const r = install15(dir);
+  expect15(r.st, { AGENTS: { status: 'current' }, guide: { status: 'kept', lacks: undefined } });
+  assert.strictEqual(check15(dir).code, 0); assert.deepStrictEqual(await health15(dir), []);
+});
+kase15('5b', 'the same edit without a cited section: staged again, named under missing sections, and the second run says the same', async () => {
+  const dir = f215(); put15(dir, GUIDE, TEAMG.replace('## Asking for a run', '## Requests')); const was = copy15(dir);
+  assert.deepStrictEqual([check15(was, { skills: true }).code, check15(was).code], [0, 3], 'skills --check reads no AGENTS.md, so it says 0 where install --check says 3 (docs/updating.md)');
+  const r = install15(dir);
+  expect15(r.st, { AGENTS: { status: 'current', heldFrom: undefined }, guide: { status: 'merge', stage: true, restaged: true, lacks: 1 } });
+  const md = get15(dir, cp('README.md'));
+  assert.ok(md.indexOf('staged again: it doesn\'t have *Asking for a run*') >= 0 && md.indexOf('Flightdeck didn\'t change this file') >= 0, md);
+  assert.ok(md.indexOf('your team changed them too') < 0, 'not the plain header');
+  const hh = await health15(dir); assert.deepStrictEqual(ids15(hh), ['contract-reference[guide]'], 'once, under contract-reference only');
+  assert.ok(/points AI assistants to \*Asking for a run\* in `[^`]+`, but that file has no such section\. A new default of it is waiting/.test(hh[0].detail), hh[0].detail);
+  const L5 = '`' + GUIDE + '` doesn\'t have the sections AGENTS.md points to; its new default is waiting in `.flightdeck/updates/' + VER + '` to be merged.';
+  assert.strictEqual(r.line, L5, 'run 1');
+  await settingsAgree(was, dir);
+  const r2 = install15(dir); assert.strictEqual(r2.code, 0, 'run again: no "changed during install": ' + r2.out); assert.ok(!r2.recordWritten);
+  assert.strictEqual(r2.line, L5, 'run 2 is keyed on lacks, not restaged (never "Your team changed files")');
+  assert.strictEqual(check15(dir).code, 3);
+  put15(dir, GUIDE, TEAMG); del15(dir, cp(GUIDE)); assert.strictEqual(check15(dir).code, 0, 'merged and its copy deleted');
+});
+kase15('5c', 'a team-edited 2.15.0 AGENTS.md that no longer cites *Asking for a run*, and a guide without it: the live AGENTS.md is what counts', async () => {
+  const dir = f215(); put15(dir, AG, A215.replace('| *Asking for a run* in the command guide |', '| our own way |')); put15(dir, GUIDE, TEAMG.replace('## Asking for a run', '## Requests'));
+  const r = install15(dir);
+  expect15(r.st, { AGENTS: { status: 'kept' }, guide: { status: 'kept', lacks: undefined } });
+  assert.strictEqual(check15(dir).code, 0); assert.deepStrictEqual(await health15(dir), []);
+});
+const A212 = OLD;
+kase15('6', 'a 2.12.0-default AGENTS.md and a team-edited file-formats.md that keeps the cited sections: the slim AGENTS.md is written', async () => {
+  const dir = f214({ [AG]: A212, [FORMATS]: FFT + '\nOur note.\n' }), was = copy15(dir), r = install15(dir);
+  expect15(r.st, { AGENTS: { status: 'update', heldFrom: undefined }, ff: { status: 'kept', lacks: undefined }, guide: { status: 'new' } });
+  assert.strictEqual(C.region(get15(dir, AG)).text, C.region(A215).text);
+  await settingsAgree(was, dir);
+});
+kase15('6b', 'the same, but the team removed ## Corrections from file-formats.md: held on it', async () => {
+  const dir = f214({ [AG]: A212, [FORMATS]: FFT.replace('## Corrections', '## Fixes') }), was = copy15(dir), r = install15(dir);
+  expect15(r.st, { AGENTS: { status: 'merge', heldFrom: 'update', held: ['ff-1'] }, ff: { status: 'merge', restaged: true, lacks: 1 } });
+  await settingsAgree(was, dir);
+});
+kase15('6c', 'a team-edited 2.14.0 AGENTS.md stays a merge, and file-formats.md is staged again from the live AGENTS.md\'s old alias', async () => {
+  const dir = f214({ [AG]: TEAM214, [FORMATS]: FFT.replace('## Corrections', '## Fixes') }), r = install15(dir);
+  expect15(r.st, { AGENTS: { status: 'merge', heldFrom: undefined }, ff: { status: 'merge', restaged: true, lacks: 1 } });
+  assert.strictEqual(get15(dir, cp(FORMATS)), FFT);
+  assert.deepStrictEqual(ids15(await health15(dir)), ['contract-reference[ff]', 'contract-merge[AGENTS]']);
+});
+kase15('7', '--force on case 1: both replaced, a copy kept, nothing left', () => {
+  const dir = f214({ [GUIDE]: FOREIGN }), r = install15(dir, { force: true });
+  expect15(r.st, { AGENTS: { status: 'update', heldFrom: undefined }, guide: { status: 'forced', lacks: undefined } });
+  assert.strictEqual(get15(dir, GUIDE), G215);
+  assert.ok(Object.entries(text(walk(dir))).some(([p, t]) => /\/replaced\//.test(p) && p.endsWith(GUIDE) && t === FOREIGN), 'a copy is kept');
+  assert.strictEqual(check15(dir).code, 0);
+});
+kase15('A2-A4', 'after 1: the guide merged and its copy deleted, then AGENTS.md\'s copy deleted, then Update: written, and it stays settled', async () => {
+  const dir = f214({ [GUIDE]: FOREIGN }); install15(dir); put15(dir, GUIDE, TEAMG); del15(dir, cp(GUIDE));
+  const c = check15(dir);
+  expect15(c.st, { guide: { status: 'kept', lacks: undefined }, AGENTS: { status: 'merge', onlyCopy: true, waitsFor: [], heldFrom: undefined } });
+  const hh = await health15(dir); assert.deepStrictEqual(ids15(hh), ['contract-merge[AGENTS]']);
+  assert.strictEqual(hh[0].detail, 'Your team didn\'t change AGENTS.md; only its new default is waiting in .flightdeck/updates/. Delete AGENTS.md from each version folder there (never anything under replaced/), or press I merged it, and Update writes it.');
+  assert.strictEqual(lineOf(install15(copy15(dir)).out), 'AGENTS.md\'s new default is waiting in `.flightdeck/updates/' + VER + '`; your team didn\'t change AGENTS.md, so delete AGENTS.md from each version folder in `.flightdeck/updates/` (never anything under `replaced/`) and run install again.');
+  del15(dir, cp(AG)); const was = copy15(dir), r = install15(dir);
+  expect15(r.st, { AGENTS: { status: 'update' }, guide: { status: 'kept' } });
+  assert.strictEqual(C.region(get15(dir, AG)).text, C.region(A215).text); assert.strictEqual(check15(dir).code, 0);
+  await settingsAgree(was, dir);
+  for (let n = 0; n < 2; n++) { const again = install15(dir); assert.ok(!again.recordWritten && again.wrote.length === 0 && again.code === 0, 'settled: run ' + n + ' writes nothing'); }
+});
+kase15('B', 'skills first, then the team edits the guide keeping its sections, then install: AGENTS.md updates', () => {
+  const dir = f214(); assert.strictEqual(run15(PKG15, 'skills', dir).code, 0); put15(dir, GUIDE, TEAMG);
+  expect15(install15(dir).st, { AGENTS: { status: 'update', heldFrom: undefined }, guide: { status: 'kept' } });
+});
+kase15('C', 'a 2.15.0 folder with a team guide, rewound by 2.12.0\'s --force, then the new install: no hold', () => {
+  const dir = f215(); put15(dir, GUIDE, TEAMG); put15(dir, AG, C.merged({ key: AG, now: get15(dir, AG), text: A212 }));
+  setRecord(dir, RECORD, r => { r.version = '2.12.0'; r.files[AG] = h15(AG, A212); });
+  const r = install15(dir);
+  expect15(r.st, { AGENTS: { status: 'update', heldFrom: undefined }, guide: { status: 'kept', lacks: undefined } });
+  assert.strictEqual(C.region(get15(dir, AG)).text, C.region(A215).text);
+});
+kase15('D1', 'a team-edited 2.14.0 AGENTS.md plus a plain guide: two merges, in today\'s words', async () => {
+  const dir = f214({ [AG]: TEAM214, [GUIDE]: FOREIGN }), was = copy15(dir), r = install15(dir);
+  expect15(r.st, { AGENTS: { status: 'merge', waiting: undefined, heldFrom: undefined, held: [], onlyCopy: undefined }, guide: { status: 'merge', waiting: undefined, lacks: undefined } });
+  assert.strictEqual(check15(dir).code, 3);
+  const hh = await health15(dir); assert.deepStrictEqual(ids15(hh), ['contract-merge[AGENTS,guide]']);
+  assert.strictEqual(hh[0].detail, 'Your team changed them and so did Flightdeck. AI assistant files stages the new default for your AI assistant to merge.');
+  await settingsAgree(was, dir);
+});
+kase15('D2-D3', 'D1, then the guide copy deleted; then the team merges AGENTS.md to the slim text: the guide is staged again', async () => {
+  const dir = f214({ [AG]: TEAM214, [GUIDE]: FOREIGN }); install15(dir); del15(dir, cp(GUIDE));
+  expect15(install15(dir).st, { AGENTS: { status: 'merge', waiting: VER, onlyCopy: undefined }, guide: { status: 'kept', lacks: undefined } });
+  put15(dir, AG, C.merged({ key: AG, now: get15(dir, AG), text: A215 }) + '\nOur rule.\n'); del15(dir, cp(AG));
+  assert.deepStrictEqual(ids15(await health15(dir)), ['contract-reference[guide]'], 'before install: missing sections');
+  expect15(install15(dir).st, { AGENTS: { status: 'current' }, guide: { status: 'merge', restaged: true, lacks: 7 } });
+  assert.strictEqual(get15(dir, cp(GUIDE)), G215, 'the moved text is back in the folder');
+});
+kase15('D3\'', 'D1, then the team merges AGENTS.md while the guide copy still waits: the CLI and Folder health say the same', async () => {
+  const dir = f214({ [AG]: TEAM214, [GUIDE]: FOREIGN }); install15(dir); put15(dir, AG, C.merged({ key: AG, now: get15(dir, AG), text: A215 })); del15(dir, cp(AG));
+  const r = install15(dir);
+  expect15(r.st, { AGENTS: { status: 'current' }, guide: { status: 'merge', waiting: VER, stage: false, lacks: 7 } });
+  assert.strictEqual(r.code, 0); const hh = await health15(dir); assert.deepStrictEqual(ids15(hh), ['contract-reference[guide]']); assert.ok(/A new default of it is waiting/.test(hh[0].detail));
+  assert.strictEqual(r.line, '`' + GUIDE + '` doesn\'t have the sections AGENTS.md points to; its new default is waiting in `.flightdeck/updates/' + VER + '` to be merged.');
+});
+kase15('E', 'a missing AGENTS.md plus a plain guide: AGENTS.md is always written, and --check settles after two runs', async () => {
+  const dir = f214({ [GUIDE]: FOREIGN }); put15(dir, AG, null);
+  assert.deepStrictEqual(ids15(await health15(dir)), ['contract-missing[AGENTS,ess]', 'contract-reference[guide]']);
+  const was = copy15(dir), r1 = install15(dir);
+  expect15(r1.st, { AGENTS: { status: 'missing', heldFrom: undefined, stage: undefined }, guide: { status: 'merge', waiting: undefined, lacks: 7 } });
+  assert.strictEqual(get15(dir, cp(GUIDE)), G215); assert.strictEqual(r1.code, 0); assert.strictEqual(get15(dir, AG), A215, 'the safety rules are written');
+  assert.strictEqual(get15(dir, cp(AG)), null, 'no copy of AGENTS.md is staged');
+  await settingsAgree(was, dir);
+  const c1 = check15(dir), r2 = install15(dir);
+  assert.strictEqual(r2.code, 0, r2.out); assert.deepStrictEqual(r2.wrote, []); assert.ok(!r2.recordWritten);
+  const c2 = check15(dir); assert.deepStrictEqual(c2.st, c1.st, '--check is the same after run 1 and run 2'); assert.strictEqual(c2.code, 3);
+  expect15(c2.st, { AGENTS: { status: 'current' }, guide: { status: 'merge', waiting: VER, stage: false, lacks: 7 } });
+  assert.deepStrictEqual(ids15(await health15(dir)), ['contract-reference[guide]']);
+  put15(dir, GUIDE, TEAMG); del15(dir, cp(GUIDE)); assert.strictEqual(check15(dir).code, 0);
+});
+kase15('E-new', 'a new folder holding only a plain guide', () => {
+  const dir = tmp(); put15(dir, GUIDE, FOREIGN); const r = install15(dir);
+  expect15(r.st, { AGENTS: { status: 'new' }, guide: { status: 'merge', waiting: undefined, lacks: 7 } });
+  assert.strictEqual(get15(dir, cp(GUIDE)), G215); assert.strictEqual(get15(dir, AG), A215); assert.strictEqual(install15(dir).code, 0);
+});
+kase15('E-kept', 'a 2.15.0 folder with AGENTS.md deleted and a team guide that dropped a section', () => {
+  const dir = f215(); put15(dir, AG, null); put15(dir, GUIDE, TEAMG.replace('## Evidence packs', '## Packs')); const r = install15(dir);
+  expect15(r.st, { AGENTS: { status: 'missing' }, guide: { status: 'merge', restaged: true, lacks: 1 } });
+  assert.strictEqual(get15(dir, AG), A215); const r2 = install15(dir); assert.strictEqual(r2.code, 0, r2.out); assert.deepStrictEqual(r2.wrote, []);
+});
+kase15('F', 'a later release (2.16.0) cites a new guide section the team\'s kept guide lacks: held, and the guide\'s line points to AGENTS.md\'s', async () => {
+  const P = pkg216(), dir = f215(); put15(dir, GUIDE, TEAMG); const was = copy15(dir), r = install15(dir, { pkg: P });
+  expect15(r.st, { AGENTS: { status: 'merge', heldFrom: 'update', held: ['guide-1'] }, guide: { status: 'merge', restaged: undefined, lacks: 1 } });
+  assert.strictEqual(readmeLine(dir, '2.16.0', '- `' + GUIDE + '`'), '- `' + GUIDE + '` (AGENTS.md waits for this file: see its line above.)');
+  await settingsAgree(was, dir, P);
+  put15(dir, GUIDE, TEAMG.replace('## Asking for a run', '## Runner\n\nOur runner.\n\n## Asking for a run')); del15(dir, cp(GUIDE, '2.16.0'), cp(AG, '2.16.0'));
+  expect15(install15(dir, { pkg: P }).st, { AGENTS: { status: 'update' }, guide: { status: 'kept', lacks: undefined } });
+  assert.strictEqual(check15(dir, { pkg: P }).code, 0);
+});
+kase15('I-merged', 'I merged it on AGENTS.md\'s copy without merging the guide: held again, nothing lost', () => {
+  const dir = f214({ [GUIDE]: FOREIGN }); install15(dir); del15(dir, cp(AG));
+  const r = install15(dir);
+  expect15(r.st, { AGENTS: { status: 'merge', heldFrom: 'update', held: ['guide-7'] }, guide: { status: 'merge', waiting: VER, lacks: 7 } });
+  assert.strictEqual(r.code, 0); assert.strictEqual(get15(dir, cp(AG)), A215);
+});
+kase15('teamnote', 'a Team note citing a section the guide lacks counts for nothing (Flightdeck\'s part only)', async () => {
+  const dir = f215(); put15(dir, AG, get15(dir, AG).replace(/\n*$/, '\n\nFor releases, see *Our flow* in the command guide.\n'));
+  expect15(install15(dir).st, { AGENTS: { status: 'current' }, guide: { status: 'current', lacks: undefined } });
+  assert.deepStrictEqual(await health15(dir), []);
+});
+kase15('two-refs', 'two references lack sections: the held words list both, in the plural', async () => {
+  const mk = () => f214({ [GUIDE]: FOREIGN, [FORMATS]: FFT.replace('## Corrections', '## Fixes') });
+  const hh = await health15(mk()); assert.deepStrictEqual(ids15(hh), ['contract-merge[AGENTS,guide,ff]']);
+  assert.strictEqual(hh[0].detail, 'Your team didn\'t change AGENTS.md. It waits because these files don\'t have the sections it points to: `' + GUIDE + '` (' + G7 + '), `' + FORMATS + '` (*Corrections*). AI assistant files adds 1 new file AI assistants need and stages the new defaults of these files for your AI assistant to merge; Flightdeck then writes AGENTS.md itself.');
+  const dir = mk(), r = install15(dir);
+  expect15(r.st, { AGENTS: { status: 'merge', heldFrom: 'update', held: ['guide-7', 'ff-1'] } });
+  assert.ok(get15(dir, cp('README.md')).indexOf('held: these files don\'t have the sections') >= 0);
+  assert.strictEqual(r.line, 'AGENTS.md waits: these files don\'t have the sections it points to: `' + GUIDE + '`, `' + FORMATS + '`.');
+});
+const REL15 = (t) => t.replace('How: *Reading runs* in the command guide.', 'How: *Reading runs* in the command guide. Releases: *Release flow* in the command guide.');
+const POINTER = 'AGENTS.md points AI assistants to *Release flow* in `' + GUIDE + '`, but that file has no such section and Flightdeck\'s default doesn\'t either. Add it as a ## section there, or change the pointer.';
+kase15('U1', 'a kept AGENTS.md cites *Release flow*, which no default has, and the team guide has it only under ###: nothing staged, and it settles', async () => {
+  const dir = f215(); put15(dir, AG, REL15(A215)); put15(dir, GUIDE, TEAMG + '\n### Release flow\n\nOur steps.\n');
+  const r = install15(dir);
+  expect15(r.st, { AGENTS: { status: 'kept' }, guide: { status: 'kept', lacks: undefined, restaged: undefined } });
+  assert.deepStrictEqual(r.wrote, []); assert.strictEqual(get15(dir, cp(GUIDE)), null, 'nothing is staged that could never supply it');
+  assert.strictEqual(check15(dir).code, 0);
+  assert.deepStrictEqual(ids15(await health15(dir)), ['contract-pointer[guide]']);
+});
+kase15('U1b', 'the same pointer with an untouched guide: Folder health and install print the same sentence', async () => {
+  const dir = f215(); put15(dir, AG, REL15(A215)); const r = install15(dir);
+  expect15(r.st, { AGENTS: { status: 'kept' }, guide: { status: 'current', lacks: undefined } });
+  const hh = await health15(dir); assert.deepStrictEqual(ids15(hh), ['contract-pointer[guide]']);
+  assert.strictEqual(hh[0].detail, POINTER); assert.deepStrictEqual(r.pointer, [POINTER], 'printed after the file list');
+  assert.strictEqual(r.line, null); assert.deepStrictEqual(check15(dir).out.split('\n').filter(l => l === POINTER), [POINTER], 'and by --check');
+});
+kase15('U2', 'case 1 left as it is, then 2.16.0: nothing ever says the team changed AGENTS.md, and the line\'s route works', async () => {
+  const P = pkg216(), dir = f214({ [GUIDE]: FOREIGN }); install15(dir);
+  const hb = await health15(dir, P); assert.ok(!hb.some(x => /Your team changed (it|them) and so did Flightdeck/.test(x.detail)), JSON.stringify(hb));
+  assert.deepStrictEqual(ids15(hb), ['contract-merge[AGENTS,guide]']); assert.ok(/^Your team didn't change AGENTS\.md; its new default is waiting/.test(hb[0].detail), hb[0].detail);
+  const r = install15(dir, { pkg: P });
+  expect15(r.st, { AGENTS: { status: 'merge', waiting: VER, stage: true, onlyCopy: true, waitsFor: ['guide-8'] } });
+  const md = get15(dir, cp('README.md', '2.16.0')); assert.ok(md.indexOf('your team changed them too') < 0, 'not the plain header');
+  assert.strictEqual(readmeLine(dir, '2.16.0', '- `AGENTS.md`'), '- `AGENTS.md` (only the part between the flightdeck markers) (your team didn\'t change AGENTS.md\'s Flightdeck part, so you don\'t need to merge it. It waits for `' + GUIDE + '` (the command guide), which doesn\'t have ' + G7 + ', *Runner*. Merge that file first. Then ' + DEL + ')');
+  assert.strictEqual(r.line, 'AGENTS.md waits: `' + GUIDE + '` doesn\'t have the sections it points to.');
+  assert.ok(!(await health15(dir, P)).some(x => /Your team changed (it|them) and so did Flightdeck/.test(x.detail)));
+  const g = copy15(dir); put15(g, GUIDE, G216); del15(g, cp(GUIDE, '2.16.0'), cp(GUIDE), cp(AG, '2.16.0'));
+  expect15(install15(g, { pkg: P }).st, { AGENTS: { status: 'merge', waiting: VER, stage: true, onlyCopy: true } });
+  put15(dir, GUIDE, G216); del15(dir, cp(GUIDE, '2.16.0'), cp(GUIDE), cp(AG, '2.16.0'), cp(AG));
+  assert.ok(install15(dir, { pkg: P }).wrote.indexOf(AG) >= 0, 'merge the guide, delete every copy of AGENTS.md: it is written'); assert.strictEqual(check15(dir, { pkg: P }).code, 0);
+});
+kase15('U4', '--force after case 1 (both copies waiting) settles', () => {
+  const dir = f214({ [GUIDE]: FOREIGN }); install15(dir); install15(dir, { force: true });
+  assert.strictEqual(C.region(get15(dir, AG)).text, C.region(A215).text); assert.strictEqual(get15(dir, GUIDE), G215); assert.strictEqual(check15(dir).code, 0);
+});
+kase15('DL5-4', 'the held line\'s route: merge the guide, delete every copy of AGENTS.md, install', () => {
+  const dir = f214({ [GUIDE]: FOREIGN }); install15(dir); put15(dir, GUIDE, TEAMG); del15(dir, cp(GUIDE), cp(AG));
+  expect15(install15(dir).st, { AGENTS: { status: 'update' } });
+  assert.strictEqual(C.region(get15(dir, AG)).text, C.region(A215).text); assert.strictEqual(check15(dir).code, 0);
+});
+kase15('words', 'a merge reference with history that lacks, and one with none: "bring those sections in"', () => {
+  const ctx = (rec) => ({ base: BASE, record: rec, agents: A215 });
+  const md = K15.mergeReadme(VER, [{ key: GUIDE, rel: GUIDE, status: 'merge', lacks: ['Runner'], now: TEAMG, have: h15(GUIDE, TEAMG) }], ['.flightdeck', 'updates'], '', ctx({ files: { [GUIDE]: 'x' } }));
+  assert.ok(md.indexOf('- `' + GUIDE + '` (it doesn\'t have *Runner*, which AGENTS.md points to: bring those sections in from the new default when you merge.)') >= 0, md);
+  const nh = K15.mergeReadme(VER, [{ key: GUIDE, rel: GUIDE, status: 'merge', lacks: ['Runner'], now: FOREIGN, have: h15(GUIDE, FOREIGN) }], ['.flightdeck', 'updates'], '', ctx({ files: {} }));
+  assert.ok(nh.indexOf('(Flightdeck now ships a file at this path. It doesn\'t have *Runner*, which AGENTS.md points to: bring those sections in from the new default, or, if it is your team\'s own file, move it out of `_flightdeck/`.)') >= 0, nh);
+  assert.strictEqual(C.mergeReadmeText(VER, [{ key: GUIDE, rel: GUIDE, status: 'merge', lacks: ['Runner'], now: TEAMG, have: h15(GUIDE, TEAMG) }], ['.flightdeck', 'updates'], '', ctx({ files: { [GUIDE]: 'x' } })), md, 'the command writes the same words');
+});
+kase15('UP6-rec', 'a held run keeps AGENTS.md\'s record entry; an edit while it waits, then the held route, ends at merge', async () => {
+  const dir = f214({ [GUIDE]: FOREIGN }); install15(dir);
+  assert.strictEqual(recOf15(dir)[AG], h15(AG, A214), 'the record still says the 2.14.0 default, which is what is live');
+  put15(dir, AG, TEAM214); put15(dir, GUIDE, G215); del15(dir, cp(GUIDE), cp(AG));
+  const r = install15(dir);
+  expect15(r.st, { AGENTS: { status: 'merge', heldFrom: undefined, onlyCopy: undefined } }); assert.strictEqual(get15(dir, cp(AG)), A215, 'the slim default is staged');
+  assert.strictEqual(check15(dir).code, 3);
+  const hh = await health15(dir); assert.deepStrictEqual(ids15(hh), ['contract-merge[AGENTS]']);
+  assert.strictEqual(hh[0].detail, 'Your team changed it and so did Flightdeck. AI assistant files stages the new default for your AI assistant to merge.');
+  expect15(install15(f214({ [AG]: TEAM214 })).st, { AGENTS: { status: 'merge' } });
+  /* An onlyCopy run, through the command and through Settings (a skill removed, so Update has something to write): both keep it. */
+  const k = f214({ [GUIDE]: FOREIGN }); install15(k); put15(k, GUIDE, TEAMG); del15(k, cp(GUIDE), REFS + 'good-checklists.md'); const was = copy15(k);
+  expect15(install15(k).st, { AGENTS: { status: 'merge', onlyCopy: true } });
+  assert.strictEqual(recOf15(k)[AG], h15(AG, A214), 'an onlyCopy run keeps the entry as well');
+  await settingsAgree(was, k);
+});
+kase15('UP6-rec2', 'accepted: the edit lands while AGENTS.md\'s copy waits, then that copy is deleted: kept, as for any merge whose copy is deleted', () => {
+  const dir = f214({ [GUIDE]: FOREIGN }); install15(dir); put15(dir, AG, TEAM214);
+  expect15(install15(dir).st, { AGENTS: { status: 'merge', waiting: VER } });
+  put15(dir, GUIDE, G215); del15(dir, cp(GUIDE), cp(AG));
+  expect15(install15(dir).st, { AGENTS: { status: 'kept' } }); assert.strictEqual(check15(dir).code, 0);
+});
+kase15('UP6-moveout', 'the held line\'s other route: the team moves its own guide out of _flightdeck/', () => {
+  const dir = f214({ [GUIDE]: FOREIGN }); install15(dir); put15(dir, GUIDE, null); put15(dir, 'notes/our-guide.md', FOREIGN);
+  expect15(install15(dir).st, { guide: { status: 'missing' } }); assert.strictEqual(get15(dir, GUIDE), G215, 'the default is written');
+  del15(dir, cp(GUIDE), cp(AG)); expect15(install15(dir).st, { AGENTS: { status: 'update' } }); assert.strictEqual(check15(dir).code, 0);
+});
+kase15('UP6-force-held', '--force on 6b keeps the team\'s file-formats.md under replaced/', () => {
+  const team = FFT.replace('## Corrections', '## Fixes') + '\nOur line.\n', dir = f214({ [AG]: A212, [FORMATS]: team });
+  install15(dir, { force: true });
+  assert.ok(Object.entries(text(walk(dir))).some(([p, t]) => /\/replaced\//.test(p) && p.endsWith(FORMATS) && t === team));
+});
+kase15('UP6-cleanmerged', 'after case 1, AGENTS.md merged exactly to the slim default and the guide too, both copies deleted: current', () => {
+  const dir = f214({ [GUIDE]: FOREIGN }); install15(dir); put15(dir, AG, C.merged({ key: AG, now: A214, text: A215 })); put15(dir, GUIDE, G215); del15(dir, cp(GUIDE), cp(AG));
+  expect15(install15(dir).st, { AGENTS: { status: 'current' } }); assert.strictEqual(check15(dir).code, 0);
+});
+kase15('UP6-cleanmerged-notguide', 'after case 1, AGENTS.md merged to the slim default alone: the guide is named under missing sections', async () => {
+  const dir = f214({ [GUIDE]: FOREIGN }); install15(dir); put15(dir, AG, C.merged({ key: AG, now: A214, text: A215 })); del15(dir, cp(AG));
+  const r = install15(dir); expect15(r.st, { AGENTS: { status: 'current' }, guide: { status: 'merge', lacks: 7 } });
+  assert.ok(/doesn't have the sections AGENTS\.md points to; its new default is waiting/.test(r.line), r.line);
+  assert.deepStrictEqual(ids15(await health15(dir)), ['contract-reference[guide]']);
+});
+kase15('DL6-1', 'the delete words name only version-folder copies: a backup under replaced/ is left alone, and the route still ends at update', () => {
+  const backup = UPD + '2.14.0/replaced/2026-10-01-0900-00-000-abc123/AGENTS.md', dir = f214({ [GUIDE]: FOREIGN, [backup]: A214 + '\nOld team line kept only here.\n' });
+  install15(dir);
+  const all = Object.keys(text(walk(dir))).filter(p => p.startsWith(UPD) && p.endsWith('/AGENTS.md')), named = all.filter(p => /^\.flightdeck\/updates\/[^/]+\/AGENTS\.md$/.test(p));
+  assert.deepStrictEqual(named, copiesOn(dir, AG).map(x => x.path), 'the words (<version>/AGENTS.md, never replaced/) match exactly the waiting copies');
+  assert.ok(readmeLine(dir, VER, '- `AGENTS.md`').indexOf('never anything under `replaced/`') >= 0);
+  put15(dir, GUIDE, TEAMG); del15(dir, cp(GUIDE)); named.forEach(p => del15(dir, p));
+  expect15(install15(dir).st, { AGENTS: { status: 'update' } }); assert.ok(get15(dir, backup) !== null, 'the backup is still there');
+});
+kase15('DL6-2', 'a near-exact hand merge of a held AGENTS.md is a merge, not kept, because the record still says 2.14.0', () => {
+  const dir = f214({ [GUIDE]: FOREIGN }); install15(dir); put15(dir, GUIDE, G215); del15(dir, cp(GUIDE));
+  const live = get15(dir, AG), reg = C.region(A215).text; put15(dir, AG, live.replace(C.region(live).text, reg.replace('## Commands\n', '## Commands \n'))); del15(dir, cp(AG));
+  expect15(install15(dir).st, { AGENTS: { status: 'merge' } });
+});
+kase15('DL6-3', 'onlyCopy alone, in 2.16.0: the README line has no dangling "Then", and the CLI line names the folder', () => {
+  const P = pkg216(), dir = f214({ [GUIDE]: FOREIGN }); install15(dir); install15(dir, { pkg: P });
+  put15(dir, GUIDE, G216); del15(dir, cp(GUIDE, '2.16.0'), cp(GUIDE), cp(AG, '2.16.0'));
+  const r = install15(dir, { pkg: P });
+  assert.strictEqual(readmeLine(dir, '2.16.0', '- `AGENTS.md`'), '- `AGENTS.md` (only the part between the flightdeck markers) (your team didn\'t change AGENTS.md\'s Flightdeck part, so you don\'t need to merge it: ' + DEL + ')');
+  assert.strictEqual(r.line, 'AGENTS.md\'s new default is waiting in `.flightdeck/updates/2.16.0`; your team didn\'t change AGENTS.md, so delete AGENTS.md from each version folder in `.flightdeck/updates/` (never anything under `replaced/`) and run install again.');
+});
+kase15('health-old', 'Folder health before Update on a plain 2.14.0 folder: the two new files are folded into contract-old', async () => {
+  const hh = await health15(f214()); assert.deepStrictEqual(ids15(hh), ['contract-old[AGENTS,ess,guide]']);
+  assert.strictEqual(hh[0].detail, 'AI assistant files updates it to ' + VER + ' and adds 2 new files it needs.');
+});
+kase15('partial', 'a partial install, the slim AGENTS.md naming a guide that isn\'t there: "missing", and install puts it back', async () => {
+  const dir = f215(); del15(dir, GUIDE);
+  expect15(decide15(dir).st, { AGENTS: { status: 'current' }, guide: { status: 'missing', lacks: undefined } });
+  const hh = await health15(dir); assert.deepStrictEqual(ids15(hh), ['contract-reference[guide]']);
+  assert.ok(/AI assistants read it before they use Flightdeck's commands\. If OneDrive is still syncing this folder, wait for it to finish/.test(hh[0].detail), hh[0].detail);
+  del15(dir, ESS); const both = await health15(dir); assert.ok(/AI assistants read them before/.test(both[0].detail), 'plural: ' + both[0].detail);
+  install15(dir); assert.strictEqual(get15(dir, GUIDE), G215); assert.strictEqual(check15(dir).code, 0);
+});
+kase15('ess-gone', 'good-checklists.md removed by the team: today\'s info line, no warning', async () => {
+  const dir = f215(); del15(dir, REFS + 'good-checklists.md');
+  const hh = await health15(dir); assert.deepStrictEqual(ids15(hh), ['contract-missing[' + REFS + 'good-checklists.md]']);
+  assert.ok(/Your team may have removed it on purpose/.test(hh[0].detail), hh[0].detail);
+});
+kase15('chained', 'a 2.15.0 folder with 2.12.0\'s and 2.13.0\'s full defaults waiting: both named old, nothing to merge', () => {
+  const b = require('../tools/old-bundles').get('v2.13.0');
+  if (!b) { if (process.env.CI) throw new Error('2.13.0\'s shipped page is needed'); console.log('  (skipped: v2.13.0 isn\'t cached)'); return; }
+  const dir = f215(); put15(dir, cp(AG, '2.12.0'), A212); put15(dir, cp(AG, '2.13.0'), C.examples(b.files['flightdeck.html'])[AG]);
+  const { items, st } = decide15(dir);
+  assert.deepStrictEqual(items[0].old.map(x => x.version).sort(), ['2.12.0', '2.13.0']);
+  expect15(st, { AGENTS: { status: 'current', onlyCopy: undefined } }); assert.strictEqual(check15(dir).code, 0);
+});
+
+/* Breaks of the rule itself: contract.js loaded with hold changed three ways, each wrong on a case above. */
+function mutant(from, to) {
+  const P = load(false, (f, src) => { if (f !== 'core/contract.js') return src; assert.ok(src.split(from).length === 2, 'set-up: once: ' + from); return src.replace(from, to); });
+  return (dir) => {
+    const { items } = decide15(dir), rec = JSON.parse(JSON.stringify(P.contract.readRecord(get15(dir, RECORD), KEYS15, VER)));
+    return JSON.parse(JSON.stringify(P.contract.classify(items.map(i => ({ key: i.key, want: i.want, have: i.have, now: i.now, text: i.text, staged: i.staged.map(x => ({ version: x.version, hash: x.hash })) })), rec, BASE, VER)));
+  };
+}
+rule('Breaks of the content rule fail the cases: a hold on any kept file, a kept file always staged again, and a held missing AGENTS.md', () => {
+  const st = (list, k) => list.find(x => x.key === k);
+  /* Held on any kept or merging file it cites, whatever its sections: case B's kept guide has them all, yet AGENTS.md waits. */
+  const anyKept = mutant('if (!miss.length) return;', 'if (!miss.length) miss = want.slice(0, 1);');
+  const b = f214(); assert.strictEqual(run15(PKG15, 'skills', b).code, 0); put15(b, GUIDE, TEAMG);
+  assert.strictEqual(st(decide15(b).st, AG).status, 'update'); assert.strictEqual(st(anyKept(b), AG).status, 'merge', 'the break holds case B');
+  /* A kept file always staged again: case A4's settled folder never settles. */
+  const restage = mutant('if (!miss.length) return;', 'if (!miss.length && x.status !== \'kept\') return;');
+  const a4 = f214({ [GUIDE]: FOREIGN }); install15(a4); put15(a4, GUIDE, TEAMG); del15(a4, cp(GUIDE), cp(AG)); install15(a4);
+  assert.strictEqual(st(decide15(a4).st, GUIDE).status, 'kept'); assert.strictEqual(st(restage(a4), GUIDE).status, 'merge', 'the break stages the kept guide again, every run');
+  /* A missing AGENTS.md held: case E would leave the folder with no AGENTS.md. */
+  const holdMissing = mutant("if (waits.length && a.status === 'update')", "if (waits.length && (a.status === 'update' || a.status === 'missing'))");
+  const e = f214({ [GUIDE]: FOREIGN }); put15(e, AG, null);
+  assert.strictEqual(st(decide15(e).st, AG).status, 'missing'); assert.strictEqual(st(holdMissing(e), AG).status, 'merge', 'the break would write no AGENTS.md');
+});
+
+/* The heading reader on team guides: a 2.15.0 folder, AGENTS.md current, the guide changed one way; how many sections it lacks. */
+const VARIANTS = [
+  ['closing #s', g => g.replace('## Reading runs', '## Reading runs ##'), 0],
+  ['one closing #', g => g.replace('## Reading runs', '## Reading runs #'), 0],
+  ['a # with no space before it is text', g => g.replace('## Reading runs', '## Reading runs#'), 1],
+  ['trailing spaces', g => g.replace('## Reading runs', '## Reading runs   '), 0],
+  ['a tab after ##', g => g.replace('## Reading runs', '##\tReading runs'), 0],
+  ['1-3 spaces in', g => g.replace('## Reading runs', '   ## Reading runs'), 0],
+  ['4 spaces in (code, not a heading)', g => g.replace('## Reading runs', '    ## Reading runs'), 1],
+  ['CRLF line endings', g => g.replace(/\n/g, '\r\n'), 0],
+  ['a byte-order mark before a heading on line 1', g => '﻿' + g.replace('# Command guide\n\n', ''), 0],
+  ['a ~~~ fence holding a ``` line, headings after it', g => g.replace('## Editing drafts', '~~~\n```\n## Not a heading\n~~~\n\n## Editing drafts'), 0],
+  ['a ```` fence holding a ``` line', g => g.replace('## Editing drafts', '````\n```\nexample\n```\n````\n\n## Editing drafts'), 0],
+  ['a ``` fence closed by a longer ````', g => g.replace('## Editing drafts', '```\nexample\n`````\n\n## Editing drafts'), 0],
+  ['a ``` line with text after it does not close a fence', g => g.replace('## Editing drafts', '```\nexample\n``` not a close\n## Editing drafts\n```\n\n## Editing drafts'), 0],
+  /* It runs until the plain ``` that ends the plan example in Planning a run, so Asking for a run and Evidence packs count. */
+  ['an unopened fence runs to the next plain ```', g => g.replace('## Editing drafts', '```\nexample\n\n## Editing drafts'), 4],
+  ['an unclosed fence runs to the end', g => g.replace('## Evidence packs', '~~~\nexample\n\n## Evidence packs'), 1],
+  ['every heading only inside a ```` fence (longer than the guide\'s own ```)', g => '# x\n\n````\n' + g + '````\n', 7],
+  ['every heading only inside a ~~~ fence', g => '# x\n\n~~~\n' + g + '~~~\n', 7],
+  ['a setext heading (not read)', g => g.replace('## Reading runs', 'Reading runs\n---'), 1],
+  ['letter case counts', g => g.replace('## Reading runs', '## Reading Runs'), 1],
+  ['a heading in a block quote (not read)', g => g.replace('## Reading runs', '> ## Reading runs'), 1],
+  ['a heading in an HTML comment counts (stated limit)', g => g.replace('## Reading runs', '<!--\n## Reading runs\n-->\n## Reading notes'), 0],
+  ['### instead of ##', g => g.replace('## Reading runs', '### Reading runs'), 1]
+];
+rule('The heading reader on a team-edited guide, 22 ways: each lacks exactly the sections it hides, through the command', () => {
+  assert.strictEqual(VARIANTS.length, 22);
+  const dir = f215();
+  VARIANTS.forEach(([name, edit, n]) => {
+    const g = edit(TEAMG); assert.ok(g !== TEAMG, 'set-up: ' + name); put15(dir, GUIDE, g);
+    const x = decide15(dir).st.find(y => y.key === GUIDE);
+    assert.strictEqual((x.lacks || []).length, n, name + ': lacks ' + JSON.stringify(x.lacks));
+    assert.strictEqual(x.status, n ? 'merge' : 'kept', name);
+    if (n) assert.ok(check15(dir).code === 3, name + ': --check says so');
+  });
+});
+/* Citation forms: what cites() reads from a text that names the guide. */
+const P15 = '`.flightdeck/skills/_flightdeck/command-guide.md` (*the command guide*)';
+const CITES = [
+  ['a table cell', '| x | *A* in the command guide |', ['A']],
+  ['parentheses', '(*A* in the command guide)', ['A']],
+  ['a full stop, comma, semicolon, colon', '*A* in the command guide. *B* in the command guide, *C* in the command guide; *D* in the command guide: x', ['A', 'B', 'C', 'D']],
+  ['end of text', '*A* in the command guide', ['A']],
+  ['"command guides" is another word', '*A* in the command guides', []],
+  ['"Command guide" is not the alias', '*A* in the Command guide', []],
+  ['a line break inside', '*A* in the\ncommand guide', []],
+  ['two spaces inside', '*A* in  the command guide', []],
+  ['bold is not a citation', '**A** in the command guide', []],
+  ['only the italic right before "in the" counts', '*A* and *B* in the command guide', ['B']],
+  ['a ``` fence', '```\n*A* in the command guide\n```', []],
+  ['a ~~~ fence', '~~~\n*A* in the command guide\n~~~', []],
+  ['a ```` fence with a ``` inside', '````\n```\n*A* in the command guide\n````', []],
+  ['the same section twice', '*A* in the command guide; *A* in the command guide', ['A']]
+];
+rule('The citation parser reads 14 forms as stated, escapes an alias, takes the longest alias first, and reads Flightdeck\'s part only', () => {
+  assert.strictEqual(CITES.length, 14);
+  const pl = (x) => JSON.parse(JSON.stringify(x));
+  CITES.forEach(([name, body, want]) => assert.deepStrictEqual(pl(K15.cites(P15 + '\n\n' + body).cites[GUIDE] || []), want, name));
+  assert.deepStrictEqual(pl(K15.cites('x', { 'a.b': GUIDE }).alias), { 'a.b': GUIDE });
+  assert.deepStrictEqual(pl(K15.cites('*A* in the aXb', { 'a.b': GUIDE }).cites), {}, 'an alias is escaped: "." is not any character');
+  assert.deepStrictEqual(pl(K15.cites('*A* in the checklist format, x', { 'checklist format': MF }).cites), { [MF]: ['A'] });
+  assert.deepStrictEqual(pl(K15.cites('`' + REFS + 'a.md` (*the guide*) `' + REFS + 'b.md` (*the guide book*)\n*A* in the guide book', {}).cites), { [REFS + 'b.md']: ['A'] }, 'the longest alias first');
+  const tn = A215.replace(/\n*$/, '\n\nSee *Ours* in the command guide.\n');
+  assert.ok(K15.cites(tn).cites[GUIDE].indexOf('Ours') >= 0 && K15.cites(C.region(tn).text).cites[GUIDE].indexOf('Ours') < 0, 'region() leaves Team notes out');
+  /* The shipped AGENTS.md: four paths, three names, and its citations. */
+  const t = C.region(A215).text, c = K15.cites(t);
+  assert.deepStrictEqual(Object.keys(c.names).sort(), [ESS, GUIDE, FORMATS, MF].sort());
+  assert.deepStrictEqual(pl(c.alias), { 'command guide': GUIDE, 'checklist essentials': ESS, 'file formats': FORMATS });
+  const occ = (alias) => (K15.prose(t).join('\n').match(new RegExp('\\*[^*\\n]+\\* in the ' + alias + '(?![a-z])', 'g')) || []).length;
+  assert.deepStrictEqual([occ('command guide'), c.cites[GUIDE].length, occ('checklist essentials'), c.cites[ESS].length, occ('file formats'), c.cites[FORMATS].length], [11, 7, 1, 1, 6, 5]);
+  c.cites[GUIDE].forEach(x => assert.ok(K15.sections(G215).indexOf(x) >= 0, 'the guide has ' + x));
+  c.cites[ESS].forEach(x => assert.ok(K15.sections(E215).indexOf(x) >= 0, 'the essentials have ' + x));
+  c.cites[FORMATS].forEach(x => assert.ok(K15.sections(FFT).indexOf(x) >= 0, 'the file formats have ' + x));
+  /* 2.14.0's: the alias "file formats" is read from "(*the file formats* below)". */
+  const o = K15.cites(C.region(A214).text), raw = (C.region(A214).text.match(/\*[^*\n]+\* in the file formats/g) || []).length;
+  assert.strictEqual(o.alias['file formats'], FORMATS);
+  assert.deepStrictEqual([raw, o.cites[FORMATS].length], [7, 6]);
+  o.cites[FORMATS].forEach(x => assert.ok(K15.sections(FFT).indexOf(x) >= 0, '2.14.0 cites a section the file formats have: ' + x));
+});
+/* Older copies, as they shipped (tools/old-bundles.js: skipped here when not cached, a failure in CI). */
+function oldPkg(tag) {
+  const b = require('../tools/old-bundles').get(tag);
+  if (!b) { if (process.env.CI) throw new Error(tag + '\'s shipped page is needed: node tools/old-bundles.js'); return null; }
+  const root = tmp(); fs.mkdirSync(path.join(root, 'bin')); fs.mkdirSync(path.join(root, 'dist'));
+  fs.writeFileSync(path.join(root, 'bin', 'flightdeck.js'), b.files['flightdeck.js']); fs.writeFileSync(path.join(root, 'dist', 'flightdeck.html'), b.files['flightdeck.html']);
+  return { html: b.files['flightdeck.html'], run: (...a) => { const r = spawnSync(process.execPath, [path.join(root, 'bin', 'flightdeck.js'), ...a], { encoding: 'utf8' }); return { out: r.stdout + r.stderr, code: r.status }; } };
+}
+rule('Older commands on a 2.15.0 folder refuse to downgrade it, and 2.12.0\'s skills rewinds only the record', () => {
+  const o14 = oldPkg('v2.14.0'), o13 = oldPkg('v2.13.0'), o12 = oldPkg('v2.12.0'), o112 = oldPkg('v2.11.2');
+  if (!o14 || !o13 || !o12 || !o112) { console.log('  (skipped: older releases aren\'t cached)'); return; }
+  for (const [name, o, as] of [['2.14.0', o14, [[], ['--force'], ['--check']]], ['2.13.0', o13, [[], ['--force'], ['--check']]], ['2.12.0', o12, [[]]], ['2.11.2', o112, [[]]]]) for (const a of as) {
+    const dir = f215(), before = JSON.stringify(text(walk(dir))), r = o.run('install', dir, ...a);
+    assert.strictEqual(r.code, 1, name + ' install ' + a.join(' ') + ': ' + r.out); assert.strictEqual(JSON.stringify(text(walk(dir))), before, name + ' changed nothing');
+  }
+  /* 2.12.0's and 2.11.2's --force downgrade the folder (accepted: they don't know a newer one); the new install puts it right. */
+  for (const [name, o] of [['2.12.0', o12], ['2.11.2', o112]]) {
+    const dir = f215(), r = o.run('install', dir, '--force'); assert.strictEqual(r.code, 0, name + ' --force: ' + r.out);
+    const n = install15(dir); assert.strictEqual(n.code, 0, n.out);
+    assert.strictEqual(C.region(get15(dir, AG)).text, C.region(A215).text, name + ': the slim AGENTS.md is back'); assert.strictEqual(check15(dir).code, 0, name + ': settled');
+  }
+  { const dir = f215(), before = JSON.stringify(text(walk(dir))), r = o13.run('skills', dir); assert.strictEqual(r.code, 1, '2.13.0 skills: ' + r.out); assert.strictEqual(JSON.stringify(text(walk(dir))), before); }
+  { const dir = f215(), was = get15(dir, AG), r = o13.run('install', dir, '--app-only', '--force');
+    assert.strictEqual(r.code, 0, r.out); assert.strictEqual(C.versionOf(get15(dir, 'flightdeck.html')), '2.13.0', 'only the app goes back'); assert.strictEqual(get15(dir, AG), was);
+    assert.strictEqual(cli('install', dir).code, 0); assert.strictEqual(check15(dir).code, 0, 'and the new install puts it right'); }
+  for (const a of [[], ['--force']]) {
+    const dir = f215(), was = get15(dir, AG), g = get15(dir, GUIDE), e = get15(dir, ESS), r = o12.run('skills', dir, ...a);
+    assert.strictEqual(r.code, 0, '2.12.0 skills ' + a.join(' ') + ': ' + r.out);
+    assert.strictEqual(JSON.parse(get15(dir, RECORD)).version, '2.12.0', 'the record is rewound');
+    assert.deepStrictEqual([get15(dir, AG), get15(dir, GUIDE), get15(dir, ESS)], [was, g, e], 'AGENTS.md and the references are left alone');
+    const n = install15(dir); assert.strictEqual(n.code, 0, n.out); assert.strictEqual(check15(dir).code, 0, 'the new install settles it');
+  }
+});
+rule('Chained: 2.12.0\'s skills rewinds the record, then 2.13.0\'s page stages its full AGENTS.md; the new install names it old and settles', async () => {
+  const o13 = oldPkg('v2.13.0'), o12 = oldPkg('v2.12.0');
+  if (!o13 || !o12) { console.log('  (skipped: older releases aren\'t cached)'); return; }
+  const dir = f215(), slim = get15(dir, AG); assert.strictEqual(o12.run('skills', dir).code, 0);
+  const files = text(walk(dir)), app = await opened(files, o13.html); await aiFiles(app);
+  if (/data-act="af-update"/.test(app.html())) { app.click('af-update'); await app.tick(800); }
+  const disk = toDisk(files);
+  assert.strictEqual(get15(disk, AG), slim, '2.13.0\'s page leaves the slim AGENTS.md');
+  const r13 = o13.run('install', disk); assert.strictEqual(r13.code, 1, '2.13.0\'s install still refuses the newer app file: ' + r13.out);
+  const before = get15(disk, AG); o13.run('skills', disk); assert.strictEqual(get15(disk, AG), before, '2.13.0\'s skills leaves AGENTS.md as it is');
+  const n = install15(disk); assert.strictEqual(n.code, 0, n.out);
+  const { items } = decide15(disk); assert.ok(items[0].staged.length === 0, 'every older copy of AGENTS.md is old, none waits: ' + JSON.stringify(items[0].staged.map(x => x.version)));
+  assert.strictEqual(check15(disk).code, 0);
+});
+rule('Chained: 2.12.0\'s --force, then 2.13.0\'s install --force, then the new install writes the slim AGENTS.md with no hold', () => {
+  const o13 = oldPkg('v2.13.0'), o12 = oldPkg('v2.12.0');
+  if (!o13 || !o12) { console.log('  (skipped: older releases aren\'t cached)'); return; }
+  const dir = tmp(); assert.strictEqual(o12.run('install', dir).code, 0); assert.strictEqual(o13.run('install', dir, '--force').code, 0);
+  const r = install15(dir); assert.strictEqual(r.code, 0, r.out);
+  expect15(r.st, { AGENTS: { status: 'update', heldFrom: undefined } });
+  assert.strictEqual(C.region(get15(dir, AG)).text, C.region(A215).text); assert.strictEqual(check15(dir).code, 0);
 });
 
 run();

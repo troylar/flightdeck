@@ -3,7 +3,8 @@
 'use strict';
 const assert = require('assert');
 const fs = require('fs'), path = require('path');
-const { rule, run } = require('./harness');
+const { rule, run, load } = require('./harness');
+const PF = load();
 
 const ROOT = path.join(__dirname, '..');
 const REPO = /^https:\/\/(?:github\.com\/troylar\/flightdeck\/(?:blob|tree|raw)\/main\/|raw\.githubusercontent\.com\/troylar\/flightdeck\/main\/)([^?#]*)(#.*)?$/;
@@ -19,12 +20,12 @@ const INSTALLED = ['example-folder/AGENTS.md', ...walk('example-folder/.flightde
 /* Text outside fenced code blocks and inline code, where links and prose live. */
 const unfenced = md => md.replace(/^(```|~~~)[^\n]*\n[\s\S]*?^\1[^\n]*$/gm, '');
 const prose = md => unfenced(md).replace(/`[^`\n]*`/g, '');
-/* GitHub's heading anchors: lowercase, punctuation dropped, each space a dash; a repeated heading gets -1, -2. */
+/* GitHub's heading anchors: lowercase, punctuation dropped, each space a dash; a repeated heading gets -1, -2. The headings are
+   the ones Flightdeck's own heading reader finds (PF.contract.headings), so a section AGENTS.md cites is one this sees. */
 function anchors(md) {
   const seen = {}, out = new Set();
-  unfenced(md).split('\n').forEach(line => {
-    const m = /^#{1,6}\s+(.*?)\s*#*\s*$/.exec(line); if (!m) return;
-    const text = m[1].replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/<[^>]+>/g, '');
+  PF.contract.headings(md).forEach(h => {
+    const text = h.text.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1').replace(/<[^>]+>/g, '');
     const base = text.toLowerCase().replace(/[^\p{L}\p{N}\s_-]/gu, '').replace(/\s/g, '-');
     const n = seen[base] || 0; seen[base] = n + 1;
     out.add(n ? base + '-' + n : base);
@@ -135,18 +136,25 @@ function unlisted(md, commands) {
   const flatMd = md.replace(/\s+/g, ' ');
   return commands.filter(c => FOR_PEOPLE.indexOf(c) < 0 && !new RegExp('flightdeck ' + c + '(?![a-z-])').test(flatMd));
 }
-rule('Docs: AGENTS.md and docs/apps.md name every command the CLI\'s help lists, and the README every one they leave to people', () => {
+rule('Docs: AGENTS.md routes every command the CLI\'s help lists to a place that names it, docs/apps.md names each, and the README every one they leave to people', () => {
   const help = require('../bin/flightdeck.js').main(['help']).out, commands = helpCommands(help);
   ['export', 'skill register', 'draft propose', 'report targets', 'plan request', 'open', 'version'].forEach(c => assert.ok(commands.indexOf(c) >= 0, 'the help is read: ' + c));
   assert.ok(commands.length >= 20 && commands.every(c => /^[a-z]+( [a-z]+)?$/.test(c)), commands.join(', '));
   FOR_PEOPLE.forEach(c => assert.ok(commands.indexOf(c) >= 0, 'still a command: ' + c));
   FOR_PEOPLE.forEach(c => assert.ok(new RegExp('flightdeck ' + c + '(?![a-z-])').test(read('README.md')), 'the README names: flightdeck ' + c));
-  /* A2 (2.14) leaves AGENTS.md byte for byte: the type commands are documented in the step-type skill it routes to. */
-  assert.deepStrictEqual(unlisted(read('example-folder/AGENTS.md'), commands), IN_SKILL, 'example-folder/AGENTS.md');
+  /* AGENTS.md routes: each command has one row in its Commands table, whose last cell is a section of the command guide or a
+     skill, and that place names the command in full (test/agents-inventory.js, docs()). */
+  const I = require('./agents-inventory'), state = I.initial();
+  assert.deepStrictEqual(I.docs(state), [], 'example-folder/AGENTS.md routes every command');
   assert.deepStrictEqual(unlisted(read(STEP_SKILL), IN_SKILL), [], STEP_SKILL);
   assert.deepStrictEqual(unlisted(read('docs/apps.md'), commands), [], 'docs/apps.md');
-  /* And the check sees a command left out, a new one in the help, and a word that only starts like a command. */
-  assert.deepStrictEqual(unlisted(read('example-folder/AGENTS.md').split('flightdeck export').join('flightdeck'), commands), ['export'].concat(IN_SKILL));
+  /* D7a-c: the routed check sees a help line with no row, a guide section that no longer names its command, and a row that
+     routes to a section the guide lacks. */
+  assert.deepStrictEqual(I.docs(Object.assign({}, state, { help: help + '\n  flightdeck health <team folder> [--json]\n' })), ['health: 0 rows'], 'D7a');
+  const files = Object.assign({}, state.files); files[I.GUIDE] = files[I.GUIDE].split('flightdeck export').join('flightdeck exporter');
+  assert.deepStrictEqual(I.docs(Object.assign({}, state, { files })), ['export: *Evidence packs* in the command guide does not name flightdeck export'], 'D7b');
+  assert.deepStrictEqual(I.docs(Object.assign({}, state, { agents: state.agents.replace('| *Evidence packs* in the command guide |', '| *Packs* in the command guide |') })), ['export: routes nowhere: *Packs* in the command guide'], 'D7c');
+  /* And the check sees a word that only starts like a command. */
   assert.deepStrictEqual(unlisted(read('docs/apps.md'), helpCommands(help + '\n  flightdeck health <team folder> [--json]\n')), ['health']);
   assert.deepStrictEqual(unlisted('`flightdeck runsy` and `flightdeck run-x`', ['runs', 'run']), ['runs', 'run']);
   assert.deepStrictEqual(helpCommands('  flightdeck draft read <team folder>\n  flightdeck open                     open the app\n  flightdeck skills --to <folder>\n'), ['draft read', 'open', 'skills']);
@@ -182,13 +190,4 @@ rule('The step-type skill uses the commands: type list, type read and type save 
   assert.ok(lines.length >= 1, 'it says never to write there directly');
   assert.ok(!/Write `step-types\/<id>\.json`/.test(t), 'the old heading is gone');
 });
-rule('A2 leaves example-folder/AGENTS.md byte for byte as 2.13.0 shipped it, within the 28 KiB budget', () => {
-  const now = read('example-folder/AGENTS.md');
-  assert.ok(Buffer.byteLength(now) <= 28672, Buffer.byteLength(now) + ' bytes');
-  let was;
-  try { was = require('child_process').execFileSync('git', ['show', 'v2.13.0:example-folder/AGENTS.md'], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); }
-  catch (e) { if (process.env.CI) throw new Error('v2.13.0 isn\'t in this clone: git fetch --tags'); console.log('  (skipped the 2.13.0 comparison: no tag v2.13.0 here)'); return; }
-  assert.strictEqual(now, was);
-});
-
 run();

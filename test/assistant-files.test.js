@@ -110,6 +110,17 @@ rule('B1: the merge README and the next record are the same text from the app an
   const items = [{ key: 'AGENTS.md', rel: 'AGENTS.md' }, { key: STATUS, rel: STATUS }];
   assert.strictEqual(K.mergeReadme('2.7.0', items, ['.flightdeck', 'updates'], 'the team folder'), C.mergeReadmeText('2.7.0', items, ['.flightdeck', 'updates'], 'the team folder'));
   assert.strictEqual(K.mergeReadme('2.7.0', [{ key: 'x/SKILL.md', rel: 'x/SKILL.md' }], ['.flightdeck-updates'], 'the skills folder'), C.mergeReadmeText('2.7.0', [{ key: 'x/SKILL.md', rel: 'x/SKILL.md' }], ['.flightdeck-updates'], 'the skills folder'));
+  /* 2.15.0: a held AGENTS.md (one file, then two) and a re-staged reference, in both copies, with the words' context. */
+  const G = K.REFS + 'command-guide.md', FF = K.REFS + 'file-formats.md', ctx = { base, record: { files: { [G]: 'x', [FF]: 'x' } }, agents: null };
+  const held = (ws) => [{ key: 'AGENTS.md', rel: 'AGENTS.md', status: 'merge', heldFrom: 'update', held: ws }].concat(ws.map(w => ({ key: w.path, rel: w.path, status: 'merge', lacks: w.lacks, now: 'x', have: 'h' })));
+  const one = [{ path: G, lacks: ['Reading runs'] }], two = one.concat([{ path: FF, lacks: ['Corrections'] }]);
+  const restaged = [{ key: G, rel: G, status: 'merge', lacks: ['Reading runs'], restaged: true, now: 'x', have: 'h' }];
+  [['held on one file', held(one), /\(held: `[^`]+` doesn't have the sections the new AGENTS\.md points to: \*Reading runs\*\./], ['held on two files', held(two), /\(held: these files don't have the sections the new AGENTS\.md points to: /], ['a re-staged reference', restaged, /\(staged again: it doesn't have \*Reading runs\*, which AGENTS\.md points to\. Flightdeck didn't change this file\./]].forEach(([name, list, re]) => {
+    const app = K.mergeReadme('2.15.0', list, ['.flightdeck', 'updates'], 'the team folder', ctx), cli = C.mergeReadmeText('2.15.0', list, ['.flightdeck', 'updates'], 'the team folder', ctx);
+    assert.strictEqual(app, cli, name + ': the same README');
+    assert.ok(re.test(app), name + ': ' + app.split('\n').slice(0, 6).join(' / '));
+    assert.ok(app.indexOf('put a new default of each file below in this folder') >= 0 && app.indexOf('your team changed them too') < 0, name + ': the header for held and re-staged files');
+  });
   const good = K.readRecord(RECORDS[11][1], ['AGENTS.md', STATUS]);
   const cases = [
     ['nothing changed', Object.assign({}, good, { version: '2.7.0' }), [{ key: 'AGENTS.md', want: 'a'.repeat(64) }, { key: STATUS, want: 'b'.repeat(64) }]],
@@ -1210,8 +1221,14 @@ rule('Round 4, 2: without asking, the screen stays where the Update ran', async 
 
 const MAX = 8 * 1048576, SKILL = 'flightdeck-status/SKILL.md';
 /* AGENTS.md from an older default whose merge comes to exactly `size` bytes, with Team notes padding it out. */
+/* 2.15.0's AGENTS.md is shorter than 2.6.0's, so a merge over the limit starts from an older default shorter than this one:
+   1.15.0's, so the file itself can still be read. */
+const SHORT_AGENTS = shipped('AGENTS.md', 'v1.15.0');
 function bigAgents(size, wide) {
-  const dir = scenario('older defaults'), at = path.join(dir, 'AGENTS.md'), base = fs.readFileSync(at, 'utf8');
+  const dir = scenario('older defaults'), at = path.join(dir, 'AGENTS.md');
+  assert.ok(SHORT_AGENTS && C.region(SHORT_AGENTS).text.length < C.region(EX['AGENTS.md']).text.length, 'set-up: an older default shorter than this one');
+  fs.writeFileSync(at, SHORT_AGENTS.replace(/\n*$/, '\n') + '\nOur own team note.\n');
+  const base = fs.readFileSync(at, 'utf8');
   const room = size - Buffer.byteLength(K.merged('AGENTS.md', base, EX['AGENTS.md']));
   const pairs = wide ? Math.floor(room / 2) : 0;
   const text = base + 'é'.repeat(pairs) + 'x'.repeat(room - pairs * 2);
