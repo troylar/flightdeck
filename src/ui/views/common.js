@@ -626,5 +626,8 @@ PF.vk = (function () {
 
   V.undoBar = undoBar;
   V.tabOnly = PF.vk.tabOnly; V.PANES = PANES; V.MAIN_MIN = MAIN_MIN; V.fitPanes = fitPanes; V.paneW = paneW; V.paneStyle = paneStyle; V.paneAttr = paneAttr; V.splitter = splitter;
-  V.top = top; V.nameOf = nameOf; V.freshness = freshness; V.THEMES = THEMES; V.sectionOf = sectionOf;
+  /* What the editor's Checks, Review & publish and a proposal's checks are checked against: the folder as this window holds
+     it, through PF.publish.checkOptions, the one place flightdeck draft check shares. */
+  function checkOptions(ctx) { return PF.publish.checkOptions({ people: ctx.data.people, types: (ctx.data.stepTypes || {}).types, workflows: (ctx.data.jira || {}).workflows, processes: ctx.processes(), procOf: ctx.procOf, teamValues: ctx.data.teamValues }); }
+  V.top = top; V.checkOptions = checkOptions; V.nameOf = nameOf; V.freshness = freshness; V.THEMES = THEMES; V.sectionOf = sectionOf;
 })();

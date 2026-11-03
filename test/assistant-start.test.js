@@ -79,9 +79,12 @@ const REWORDED = {
   '**A version published before 2.0** (`"format": "preflight-publication/1"`, or no `format`): write `skills/<name>.json`:': '**A version published before 2.0** (`"format": "preflight-publication/1"`, or no `format`): write `skills/<name>.json` (example in the same section).',
   'It\'s one line in their own `notes-*.jsonl`:': 'It\'s one line in their own `notes-*.jsonl`.',
   'One JSON object per line:': 'One JSON object per line, in the format in *Saved history lines* in the file formats.',
-  /* 2.12.2: what draft checks load was wrong. Linked processes (2.8) and team values (2.9) are loaded; a Jira transition can get a false suggestion. */
-  'These checks are incomplete: the command doesn\'t load the team\'s people, step types, Jira workflows or other processes.': 'These checks are incomplete: the command loads linked processes and team values, not people, step types, Jira workflows or which processes are published.',
-  'So a step that uses one of the team\'s own types in `step-types/` shows as an unknown type (a blocker), Jira transitions aren\'t checked against `jira/workflows.json`, and the suggestions say every linked process is unpublished and every owner is missing from `people.json`.': 'So a step using a team type shows as an unknown type (a blocker), Jira transitions aren\'t checked against `jira/workflows.json` and may get a false suggestion, and suggestions call every linked process unpublished and every owner missing from `people.json`.'
+  /* 2.13.0: draft checks load what Review & publish loads (2.12.2 had said what they left out), and draft check covers
+     screenshots and version: pins. */
+  'These checks are incomplete: the command doesn\'t load the team\'s people, step types, Jira workflows or other processes.': 'They load what Review & publish loads: people, step types, Jira workflows, published versions and team values.',
+  'So a step that uses one of the team\'s own types in `step-types/` shows as an unknown type (a blocker), Jira transitions aren\'t checked against `jira/workflows.json`, and the suggestions say every linked process is unpublished and every owner is missing from `people.json`.': 'If `complete` is false, what `problems` names wasn\'t read or checked: say so.',
+  'Whether screenshots are in the folder and `version:` pins resolve is checked only when someone publishes.': 'and its `publish.blockers` also cover screenshots and `version:` pins.',
+  'Fix every other blocker.': 'Fix every blocker.'
 };
 const flat = (t) => t.replace(/\s+/g, ' ');
 function lost(oldText, agents, reference) {
@@ -339,7 +342,7 @@ const EDITED = (t) => t.replace('## What you may write', '## What you may write 
 
 /* ---- round 4 data review: an old copy needs proof about the whole waiting file, a newer text in hand, and a record that reads ---- */
 const NOTED = (t) => t + '\nMerge note: keep our deploy rule when you merge this.\n';
-const SKILL = SKILLS + 'flightdeck-edit-checklist/SKILL.md';
+const SKILL = SKILLS + 'flightdeck-plan-run/SKILL.md';
 function pendingSkill() {
   const dir = tmp(); assert.strictEqual(cli('install', dir).code, 0);
   const up = path.join(dir, '.flightdeck', 'updates', '2.12.0', ...SKILL.split('/'));
@@ -670,7 +673,7 @@ rule('The real path: this version installs, the real 2.12.0 page "updates", this
   assert.ok(!/data-act="af-merged" data-id="AGENTS.md"|data-act="af-brief" data-id="AGENTS.md"/.test(html) && !/\d+ to merge|Waiting to merge/.test(page), 'Settings: no merge, no merge request');
   assert.ok(OLD_LINE.test(page), 'Settings: named as an old copy');
   const h = plain(await healthOf(app));
-  assert.ok(!/for AI assistants to merge|waiting to be merged/.test(h) && new RegExp(changed.length + ' old cop(y|ies) an older Flightdeck left').test(h) && changed.every(k => h.includes('.flightdeck/updates/2.12.0/' + k)), 'Folder health: no merge, each old copy named');
+assert.ok(!/for AI assistants to merge|waiting to be merged/.test(h) && new RegExp(changed.length + ' old cop(y|ies) an older Flightdeck left').test(h) && changed.filter(k => h.includes('.flightdeck/updates/2.12.0/' + k)).length === Math.min(3, changed.length) && (changed.length <= 3 || h.includes('and ' + (changed.length - 3) + ' more')), 'Folder health: no merge, each old copy named (the first three, then how many more)');
   const disk = toDisk(files);
   let r = cli('install', disk, '--check');
   assert.strictEqual(r.code, 0, 'install --check: ' + r.out);
@@ -732,16 +735,16 @@ rule('A folder installed by 2.12.0\'s own command, with Team notes, upgrades wit
 
 rule('This release is dated 2026-11-02 in the entry, the waiver and the list, and each text in the entry is under 400 characters', () => {
   const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')).find(r => r.version === VER);
-  assert.strictEqual(VER, '2.12.2');
+  assert.strictEqual(VER, '2.13.0');
   assert.strictEqual(rel.date, '2026-11-02');
   for (const c of rel.changes) for (const f of ['now', 'before']) if (c[f] != null) assert.ok(c[f].length < 400, c.title + ': ' + f + ' is ' + c[f].length);
-  const at = path.join(ROOT, 'docs', 'rehearsals', '2.12.2-2026-11-02-waiver.md');
-  assert.ok(fs.existsSync(at) && /Version: 2\.12\.2/.test(fs.readFileSync(at, 'utf8')) && /Date: 2026-11-02/.test(fs.readFileSync(at, 'utf8')), 'the waiver');
+  const at = path.join(ROOT, 'docs', 'rehearsals', '2.13.0-2026-11-02-waiver.md');
+  assert.ok(fs.existsSync(at) && /Version: 2\.13\.0/.test(fs.readFileSync(at, 'utf8')) && /Date: 2026-11-02/.test(fs.readFileSync(at, 'utf8')), 'the waiver');
   const list = fs.readFileSync(path.join(ROOT, 'docs', 'rehearsals', 'README.md'), 'utf8');
-  assert.ok(list.includes('[2.12.2, 2026-11-02](2.12.2-2026-11-02-waiver.md)'), 'the list');
+  assert.ok(list.includes('[2.13.0, 2026-11-02](2.13.0-2026-11-02-waiver.md)'), 'the list');
   const n = fs.readdirSync(path.join(ROOT, 'docs', 'rehearsals')).filter(f => /-waiver\.md$/.test(f)).length;
-  assert.strictEqual(n, 13);
-  assert.ok(list.includes('All thirteen are waivers'), 'the count');
+  assert.strictEqual(n, 14);
+  assert.ok(list.includes('All fourteen are waivers'), 'the count');
 });
 
 /* ---------------- the first prompt ---------------- */

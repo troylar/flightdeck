@@ -19,7 +19,7 @@ PF.proposals = (function () {
   /* The command line's contract, flightdeck-draft/1: every field and word docs/apps.md must document (test/build.test.js). */
   var CLI = {
     read: ['contract', 'app', 'process', 'session', 'draft', 'exists', 'path', 'rev', 'text', 'openIn', 'by', 'device', 'seenAgo', 'mine', 'id', 'status', 'continueFrom', 'kind', 'ref', 'checks', 'blockers', 'suggestions', 'copies', 'readAt', 'complete', 'problems'],
-    save: ['operation', 'outcome', 'why', 'link', 'file', 'ids', 'added', 'removed', 'renamed', 'warnings', 'history', 'written'],
+    save: ['operation', 'outcome', 'why', 'link', 'file', 'ids', 'added', 'removed', 'renamed', 'warnings', 'history', 'written', 'complete', 'problems'],
     errors: ['usage', 'missing-base', 'too-big', 'not-found', 'failed'],
     outcomes: ['written', 'proposed'], why: ['open', 'changed', 'asked'], links: ['replaces', 'after']
   };

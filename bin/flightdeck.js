@@ -500,6 +500,9 @@ function loadEngine() {
    read, and named in skipped. */
 function readAdapter(root, opts) {
   const NOFOLLOW = fs.constants.O_NOFOLLOW || 0, links = [], skipped = [], max = (opts && opts.maxBytes) || 0;
+  /* vanished: a file or folder that was there when its path was walked and gone when it was opened (a sync or another program
+     moved it in between). The read gives nothing, as for a file that isn't there, and the path is named. */
+  const vanished = [], gone = (rel) => { if (vanished.indexOf(rel) < 0) vanished.push(rel); };
   function linkErr(rel) { const e = new Refused('refusing to read through a link: ' + rel); e.link = true; if (links.indexOf(rel) < 0) links.push(rel); return e; }
   function skipErr(rel, bytes, cap, more) {
     const e = new Refused(rel + ' is ' + (more ? 'more than ' : '') + size(bytes) + ', over the ' + size(cap) + ' this command reads');
@@ -562,7 +565,7 @@ function readAdapter(root, opts) {
     const f = fileAt(p);
     if (!f) return null;
     let fd;
-    try { fd = fs.openSync(f.full, fs.constants.O_RDONLY | NOFOLLOW); } catch (e) { if (e.code === 'ELOOP') throw linkErr(p); if (e.code === 'ENOENT') return null; throw e; }
+    try { fd = fs.openSync(f.full, fs.constants.O_RDONLY | NOFOLLOW); } catch (e) { if (e.code === 'ELOOP') throw linkErr(p); if (e.code === 'ENOENT') { gone(p); return null; } throw e; }
     try {
       const st = fs.fstatSync(fd), now = lstatOrNull(path.join(sameWalk(f.a, f.ids, p), f.name));
       if (!st.isFile() || st.ino !== f.st.ino || st.dev !== f.st.dev || !now || now.isSymbolicLink() || now.ino !== st.ino || now.dev !== st.dev) throw linkErr(p);
@@ -570,13 +573,13 @@ function readAdapter(root, opts) {
     } catch (e) { fs.closeSync(fd); throw e; }
   }
   return {
-    links, skipped,
+    links, skipped, vanished,
     list: (p) => new Promise((res) => {
       const a = partsOf(p), dir = dirAt(a);
       /* No such folder: empty, and marked missing, so a reader that saw it listed can tell gone from empty. */
       if (!dir) { const none = []; none.missing = true; return res(none); }
       let entries;
-      try { entries = fs.readdirSync(dir.cur, { withFileTypes: true }); } catch (e) { if (e.code !== 'ENOENT') throw e; const none = []; none.missing = true; return res(none); }
+      try { entries = fs.readdirSync(dir.cur, { withFileTypes: true }); } catch (e) { if (e.code !== 'ENOENT') throw e; gone(p || '.'); const none = []; none.missing = true; return res(none); }
       sameWalk(a, dir.ids, p || '.');
       res(entries.map((e) => {
         const rel = (p ? p + '/' : '') + e.name;
@@ -807,7 +810,8 @@ function folderProblems(PF, d) {
 }
 function adapterProblems(adapter) {
   return (adapter.links || []).map((p) => ({ path: p, kind: 'link', why: 'A link. Flightdeck never reads through links.' }))
-    .concat((adapter.skipped || []).map((x) => ({ path: x.path, kind: 'skipped', why: 'Too large to read here (' + (x.more ? 'more than ' : '') + size(x.size) + '; the limit is ' + size(x.cap) + ').' })));
+    .concat((adapter.skipped || []).map((x) => ({ path: x.path, kind: 'skipped', why: 'Too large to read here (' + (x.more ? 'more than ' : '') + size(x.size) + '; the limit is ' + size(x.cap) + ').' })))
+    .concat((adapter.vanished || []).map((p) => ({ path: p, kind: 'vanished', why: 'It was there a moment ago and was gone when it was read. Try again.' })));
 }
 
 /* What a whole-folder command's output depends on, as folders and files: its data, the publications that say whether a
@@ -1514,6 +1518,8 @@ async function draftState(eng, dir, proc, session) {
   try {
     const f = await rfs.read(dpath, { maxBytes: PF.util.DRAFT_BYTES });
     if (f) Object.assign(draft, { exists: true, rev: sha(f.text), text: f.text });
+    /* Gone between seeing it and opening it: there, but unread (named), so nothing takes it as absent. */
+    else if ((ra.vanished || []).indexOf(dpath) >= 0) { draft.exists = true; L.note(dpath, 'vanished', 'It was there a moment ago and was gone when it was read. Try again.'); }
   } catch (e) { draft.exists = true; }
   const copies = [];
   try {
@@ -1566,17 +1572,116 @@ function writeNew(dir, parts, text) {
   if (!fs.readFileSync(target).equals(data)) fail(target + ' didn\'t read back as written');
   return parts.join('/');
 }
+/* Everything Review & publish checks a draft's text against, read now through one problem ledger over a read-only view of
+   the folder, with the app's own readers: people.json, the team's step types, jira/workflows.json, every process's published
+   versions (which are published, the children linked steps start, the parents that start this one), the team values a
+   linked step names and the screenshots the text shows. Then PF.publish.checkContext and publishCheck, as the app's checks.
+   What couldn't be read (or a newer Flightdeck wrote) is a problem, which makes the answer partial, and that part is left
+   unchecked: it never becomes a blocker, a missing person or an unpublished process. Returns { verdict, problems }. */
+async function draftInputs(eng, dir, text) {
+  const PF = eng.PF, ra = readAdapter(dir, { maxBytes: READ_MAX }), L = PF.repo.ledger(PF.repo.readOnly(ra, 'Checking a draft'));
+  /* The ledger's problems and the adapter's (links, files too big, files that vanished), each once. */
+  const everything = () => { const out = L.problems(), seen = {}; out.forEach((x) => { seen[x.path + '\u0000' + x.kind] = true; }); adapterProblems(ra).forEach((x) => { if (!seen[x.path + '\u0000' + x.kind]) out.push(x); }); return out; };
+  /* A failure that stops the read at any stage (the team folder can't be listed) still names every problem met before it. */
+  try { return await readInputs(eng, text, ra, L, everything); } catch (e) { if (e && typeof e === 'object') e.problems = everything(); throw e; }
+}
+async function readInputs(eng, text, ra, L, everything) {
+  const PF = eng.PF, repo = PF.repo, M = PF.map, rfs = L.fs;
+  const map = M.parse(text), failedAt = (p) => L.problems().some((x) => x.path === p || x.path.indexOf(p + '/') === 0);
+  /* The app's own loader, limited to these parts: what each part's reader gives, or the part named in failed. */
+  const deps = [PF.people.FILE, 'step-types', 'jira/workflows.json', 'publications'];
+  const d = await repo.loadAll(dependsOn(rfs, deps), { readOnly: true, explain: true, deep: true });
+  const failed = d.failed || {};
+  /* First every read, with what each loader refused noted in the ledger; then the adapter's own problems (links, files too
+     big); then PF.publish.unknownOf decides what's unknown from that whole list, and nothing else does. */
+  const PARTS = { people: PF.people.FILE, 'step types': 'step-types', 'Jira workflows': 'jira/workflows.json', publications: 'publications' };
+  Object.keys(PARTS).forEach((k) => { if (k in failed && !failedAt(PARTS[k])) L.note(PARTS[k], /newer/.test(failed[k]) ? 'newer' : 'unreadable', failed[k]); });
+  const people = 'people' in failed ? null : d.people;
+  if (people && people.text != null && people.doc == null) L.note(PF.people.FILE, 'malformed', PF.people.FILE + ' isn\'t valid JSON.');
+  const types = 'step types' in failed ? {} : d.stepTypes.types;
+  if (!('step types' in failed)) {
+    (d.stepTypes.refused || []).forEach((r) => L.note(r.path, 'newer', r.why));
+  }
+  /* What a loader left out over its limit, from its own read (PF.publish.excludedOf): each named, and unknown below. */
+  PF.publish.excludedOf({ stepTypes: 'step types' in failed ? null : d.stepTypes, jira: 'Jira workflows' in failed ? null : d.jira }).forEach((x) => L.note(x.path, x.kind, x.why));
+  const processes = 'publications' in failed ? [] : d.processes.map((p) => {
+    /* A version that read but can't be used is named as READ names one; a failed read the ledger already has. */
+    p.pubs.filter((x) => !x.ok && !x._readFailed).forEach((x) => { const k = PF.appjson.pubProblem(x); L.note('publications/' + p.process + '/' + x.folder + '/', k.kind, k.why); });
+    return { id: p.process, latest: p.index.latest, all: p.index.all, clashes: p.index.clashes, broken: p.pubs.filter((x) => !x.ok) };
+  });
+  /* Team values (2.9), read only for a text that passes one, as publishing reads them. */
+  let teamValues;
+  if (M.steps(map).some((x) => x.step.type === 'run.process' && PF.links.teams(x.step).length)) {
+    teamValues = await repo.readTeamValues(rfs);
+    if (teamValues.state !== 'ok' && teamValues.state !== 'missing' && !failedAt(PF.teamValues.FILE)) L.note(PF.teamValues.FILE, teamValues.state, teamValues.why || PF.teamValues.FILE + ' couldn\'t be read.');
+  }
+  /* Screenshots, read to the last byte as publishing reads them: one that isn't there is a blocker. */
+  const shots = M.shotSources(map), missingShots = [];
+  for (const src of shots) {
+    try { const b = await rfs.blob(src); if (!b) missingShots.push(src); else await b.arrayBuffer(); } catch (e) { if (!failedAt(src)) L.note(src, 'unreadable', src + ' couldn\'t be read: ' + (e && e.message || String(e))); }
+  }
+  /* Only what the text uses counts: a problem with an input it doesn't use (a team-values.json link and no team: value)
+     leaves the answer complete. */
+  const used = PF.publish.usesOf(map), problems = everything().filter((x) => PF.publish.uses(used, x, shots));
+  const ctx = PF.publish.checkContext({ people, types, workflows: d.jira ? d.jira.workflows : null, processes, teamValues, missingShots, unknown: PF.publish.unknownOf(problems, shots) });
+  return { verdict: PF.publish.publishCheck(text, ctx), problems };
+}
+/* flightdeck draft check <team folder> <process> [--from <file | ->] --json (2.13): the verdict Review & publish gives the
+   draft in maps/drafts/ (or the text given with --from), from the folder as it is now (draftInputs). Read-only; prints
+   flightdeck-read/2 with SCHEMA2.draftCheck: exit 0, 4 when part of the folder couldn't be read, 5 when there's no draft,
+   1 for a usage problem or a draft that can't be read. */
+async function draftCheck(argv) {
+  const VAL = ['--from'], args = argv.filter((a, i) => !a.startsWith('--') && !(i > 0 && VAL.indexOf(argv[i - 1]) >= 0));
+  let eng = null;
+  const C2 = 2, appOf = () => (eng ? eng.version : versionOf(app()) || '');
+  const failOut = (kind, why, problems, code) => { const F = eng ? eng.PF.appjson : null, json = F ? F.failure(appOf(), kind, why, problems || [], C2) : { contract: 'flightdeck-read/2', app: appOf(), error: { kind, why }, problems: [] }; return { out: JSON.stringify(json, null, 2), code: code || EXIT.error }; };
+  const usage = (why) => failOut('usage', why);
+  const fi = argv.indexOf('--from'), from = fi >= 0 ? argv[fi + 1] : null;
+  if (fi >= 0 && (from == null || (from.startsWith('--') && from !== '-'))) return usage('say what goes after --from.');
+  const unknown = argv.filter((a) => a.startsWith('--') && ['--json', '--from'].indexOf(a) < 0);
+  if (unknown.length) return usage('draft check doesn\'t take ' + unknown.join(', ') + '.');
+  if (!argv.includes('--json')) return usage('flightdeck draft prints JSON. Add --json.');
+  const proc = args[3];
+  if (!args[2] || !proc || args[4] || !PROC_ID.test(proc)) return usage('say the team folder and a process ID (lowercase letters, numbers and dashes), for example: flightdeck draft check <team folder> release --json');
+  let dir;
+  try { eng = loadEngine(); dir = folderArg(args[2], 'draft check'); } catch (e) { return failOut('failed', e.message); }
+  const PF = eng.PF, A = PF.appjson;
+  let text, said;
+  if (from != null) {
+    const input = inputText(PF, from, 'the text');
+    if (input.why) return usage(input.why);
+    if (PF.proposals.textProcess(input.text) !== proc) return usage('the text\'s process: line must say ' + proc + '.');
+    text = input.text; said = { kind: 'file', ref: null };
+  } else {
+    const ra = readAdapter(dir, { maxBytes: READ_MAX }), L = PF.repo.ledger(PF.repo.readOnly(ra, 'Checking a draft')), dpath = 'maps/drafts/' + proc + '.md';
+    let f = null;
+    try { f = await L.fs.read(dpath, { maxBytes: PF.util.DRAFT_BYTES }); } catch (e) { return failOut('failed', dpath + ' couldn\'t be read, so nothing was checked. Try again.', L.problems().concat(adapterProblems(ra))); }
+    /* A draft that was there a moment ago and gone when opened is unknown, never "no draft". */
+    if (!f && (ra.vanished || []).indexOf(dpath) >= 0) return failOut('failed', dpath + ' was gone when it was read, so nothing was checked. Try again.', L.problems().concat(adapterProblems(ra)));
+    if (!f) return failOut('not-found', 'There\'s no draft for "' + proc + '" in this folder (' + dpath + '). Pass the text to check with --from.', [], EXIT.notFound);
+    text = f.text; said = { kind: 'draft', ref: dpath };
+  }
+  try {
+    const got = await draftInputs(eng, dir, text);
+    const data = { process: proc, from: { kind: said.kind, ref: said.ref, rev: PF.proposals.sha(text) }, checks: got.verdict.checks, publish: got.verdict.publish };
+    const e = A.envelope(eng.version, new Date().toISOString(), got.problems, data, C2);
+    return { out: JSON.stringify(e, null, 2), code: e.complete ? 0 : EXIT.partial };
+  } catch (e) {
+    return failOut('failed', e instanceof Refused ? e.message : 'The team folder couldn\'t be read: ' + (e && e.message || String(e)), e && e.problems);
+  }
+}
 async function draftMain(argv) {
   const VAL = ['--session', '--expect', '--from', '--base', '--label', '--by', '--note'], val = {};
   const args = argv.filter((a, i) => !a.startsWith('--') && !(i > 0 && VAL.indexOf(argv[i - 1]) >= 0));
   const sub = args[1], usage = (why) => draftFail(null, 'usage', why);
+  if (sub === 'check') return draftCheck(argv);
   for (const f of VAL) {
     const i = argv.indexOf(f);
     if (i < 0) continue;
     if (argv[i + 1] == null || (argv[i + 1].startsWith('--') && argv[i + 1] !== '-')) return usage('say what goes after ' + f + '.');
     val[f] = argv[i + 1];
   }
-  if (['read', 'save', 'propose'].indexOf(sub) < 0) return usage('say read, save or propose, for example: flightdeck draft read <team folder> <process> --json');
+  if (['read', 'save', 'propose'].indexOf(sub) < 0) return usage('say read, save, propose or check, for example: flightdeck draft read <team folder> <process> --json');
   if (!argv.includes('--json')) return usage('flightdeck draft prints JSON. Add --json.');
   const proc = args[3];
   if (!proc || !PROC_ID.test(proc)) return usage('a process ID is lowercase letters, numbers and dashes, for example: flightdeck draft ' + sub + ' <team folder> release --json');
@@ -1585,30 +1690,8 @@ async function draftMain(argv) {
   try { eng = loadEngine(); dir = folderArg(args[2], 'draft ' + sub); } catch (e) { return draftFail(eng, 'failed', e.message); }
   const PF = eng.PF, PP = PF.proposals, U = PF.util, M = PF.map, now = Date.now();
   const session = val['--session'] || 's-' + U.randomId(12);
-  /* The same checks the app shows, with each linked step's child read from publications/ (2.8), so what a step passes is
-     checked against the child as it is in the folder. */
-  const checksOf = async (t) => {
-    const map = M.parse(t), procs = {}, names = [];
-    M.steps(map).forEach((x) => { const f = x.step.fields || {}; if (x.step.type === 'run.process' && f.process && names.indexOf(f.process) < 0) names.push(f.process); });
-    /* The children are read through a problem ledger of their own, so a child that couldn't be read makes the answer partial. */
-    const L = PF.repo.ledger(readAdapter(dir, { maxBytes: READ_MAX })), rfs = L.fs;
-    for (const n of names) {
-      try {
-        const p = await PF.repo.readProcess(rfs, n);
-        if (p) procs[n] = p;
-        /* A version that read but can't be used is named as READ names one; a failed read the ledger already has. */
-        (p ? p.broken : []).forEach((x) => { if (!x._readFailed) { const k = PF.appjson.pubProblem(x); L.note('publications/' + n + '/' + x.folder + '/', k.kind, k.why); } });
-      } catch (e) { procs[n] = { latest: null, all: [], clashes: [], broken: [], unlisted: 'publications/' + n + '/ couldn\'t be read' }; }
-    }
-    /* Team values (2.9), through the same ledger: a failed read is noted by the ledger; damaged or newer content here. */
-    let tv;
-    if (M.steps(map).some((x) => x.step.type === 'run.process' && PF.links.teams(x.step).length)) {
-      tv = await PF.repo.readTeamValues(rfs);
-      if (tv.state === 'malformed' || tv.state === 'newer') L.note(PF.teamValues.FILE, tv.state, tv.why);
-    }
-    const c = M.check(map, { people: [], types: {}, workflows: {}, processes: [], children: PF.links.childrenFrom(procs), teamValues: tv });
-    return { checks: { blockers: c.blockers, suggestions: c.suggestions }, problems: L.problems() };
-  };
+  /* The same checks the app shows, on the folder as it is now (draftInputs), through the same functions. */
+  const checksOf = async (t) => { const got = await draftInputs(eng, dir, t); return { checks: got.verdict.checks, publish: got.verdict.publish, problems: got.problems }; };
   /* Every problem once: the draft's reads, then the children's. */
   const merged = (a, b) => { const seen = {}, out = []; a.concat(b).forEach((p) => { const k = p.path + '\u0000' + p.kind; if (!seen[k]) { seen[k] = true; out.push(p); } }); return out; };
   try {
@@ -1620,7 +1703,9 @@ async function draftMain(argv) {
       const cf = pending ? { rev: pending.rev, kind: 'proposal', ref: pending.id, text: pending.text }
         : s.draft.exists && s.draft.text != null ? { rev: s.draft.rev, kind: 'draft', ref: s.draft.path, text: s.draft.text }
           : latest ? { rev: latest.rev, kind: 'version', ref: latest.folder, text: latest.text } : { rev: PP.sha(''), kind: 'none', ref: null, text: '' };
-      const ck = await checksOf(cf.text), problems = merged(s.problems, ck.problems);
+      /* The draft is there but couldn't be read, and nothing else continues it: its text is unknown, so nothing is checked. */
+      const unread = !pending && s.draft.exists && s.draft.text == null;
+      const ck = unread ? { checks: { blockers: [], suggestions: [] }, problems: [] } : await checksOf(cf.text), problems = merged(s.problems, ck.problems);
       const out = draftJson(eng, { process: proc, session, draft: s.draft, openIn: s.presence.openIn, mine: s.mine.map((m) => ({ id: m.id, rev: m.rev, status: m.status, text: m.text })),
         continueFrom: cf, checks: ck.checks, copies: s.copies, readAt: new Date(now).toISOString(), complete: problems.length === 0, problems });
       return { out: JSON.stringify(out, null, 2), code: out.complete ? 0 : EXIT.partial };
@@ -1641,7 +1726,9 @@ async function draftMain(argv) {
     const base = PP.baseFor({ expect: val['--expect'], draft: s.draft, mine: s.mine, versions: s.versions, baseText, afterEarlier: argv.includes('--after-earlier') });
     if (base.missing) return draftFail(eng, 'missing-base', 'The text you started from isn\'t the draft, one of this session\'s proposals or a published version any more. Pass the text you read with --base, or read the draft again.');
     const operation = PP.newId(now, U.randomId(10)), at = new Date(now).toISOString();
-    const result = { process: proc, session, operation, outcome: null, why: null, link: base.link, rev: PP.sha(text), file: null, ids: PP.ids(base.text, text), checks: (await checksOf(text)).checks, warnings: [], history: null };
+    const result = { process: proc, session, operation, outcome: null, why: null, link: base.link, rev: PP.sha(text), file: null, ids: PP.ids(base.text, text), checks: null, warnings: [], history: null, complete: true, problems: [] };
+    const ck = await checksOf(text), problems = merged(s.problems, ck.problems);
+    Object.assign(result, { checks: ck.checks, complete: problems.length === 0, problems });
     if (result.ids.removed.length) result.warnings.push('This removes step or phase IDs: ' + result.ids.removed.join(', ') + '. Runs and skills that name them will need a look.');
     let why = sub === 'propose' ? 'asked' : s.presence.open ? 'open' : null;
     const draftNow = s.draft.exists ? s.draft.text : null, expectText = base.kind === 'none' || base.kind === 'version' ? null : base.text;
@@ -1684,7 +1771,7 @@ async function draftMain(argv) {
     Object.assign(result, { outcome: 'proposed', why });
     return { out: JSON.stringify(draftJson(eng, result), null, 2), code: 0 };
   } catch (e) {
-    return draftFail(eng, 'failed', e instanceof Refused ? e.message : 'The team folder couldn\'t be changed: ' + (e && e.message || String(e)));
+    return draftFail(eng, 'failed', e instanceof Refused ? e.message : 'The team folder couldn\'t be changed: ' + (e && e.message || String(e)), EXIT.error, e && e.problems);
   }
 }
 
@@ -1735,6 +1822,9 @@ const HELP = `flightdeck: team process checklists, in one HTML file
                                       read; otherwise write a proposal a person applies in Flightdeck
   flightdeck draft propose <same as save>
                                       always write a proposal
+  flightdeck draft check <team folder> <process> [--from <file|->] --json
+                                      the verdict Review & publish gives the draft (or the text in the file): what
+                                      stops publishing and the tips, from the folder as it is now. Only reads
   flightdeck skill register <team folder> --from <file|-> [--json]
                                       for AI assistants: register a skill against the exact version it was built
                                       from (Flightdeck 2.0). The only writer of skill-registrations/

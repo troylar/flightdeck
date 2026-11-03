@@ -73,11 +73,12 @@ PF.refs = (function () {
     return { v: 'maybe-unset', setters: setters };
   }
   function each(map, opts, fn) {
-    var types = opts && opts.types;
+    var types = opts && opts.types, unknown = opts && opts.unknownType;
     M.steps(map).forEach(function (x, order) {
       var at = { phase: x.phaseIndex, order: order, track: x.step.track || '', step: x.step };
       fn({ kind: 'step', step: x.step, phaseIndex: x.phaseIndex, box: 'text', value: (x.step.textParts || []).map(function (p) { return p.t === 'ref' ? '^' + p.k : p.v; }).join('') }, at);
-      Object.keys(x.step.fields).forEach(function (f) { if (fillable(x.step.type, f, types)) fn({ kind: 'step', step: x.step, phaseIndex: x.phaseIndex, box: 'field:' + f, value: x.step.fields[f] }, at); });
+      /* A step whose team type couldn't be read (opts.unknownType): which of its fields hold text is unknown, so none is scanned. */
+      if (!(unknown && x.step.type && !T.get(x.step.type, types) && unknown(x.step.type))) Object.keys(x.step.fields).forEach(function (f) { if (fillable(x.step.type, f, types)) fn({ kind: 'step', step: x.step, phaseIndex: x.phaseIndex, box: 'field:' + f, value: x.step.fields[f] }, at); });
       /* What a linked step passes (2.8): its ^ sources are read when the child starts, so they're references at this step. */
       if (PF.links && PF.links.has(x.step)) { var src = PF.links.parse(x.step.fields.pass).entries.filter(function (e) { return e.source === 'detail'; }).map(function (e) { return '^' + e.from; }).join(' '); if (src) fn({ kind: 'step', step: x.step, phaseIndex: x.phaseIndex, box: 'pass', value: src }, at); }
     });

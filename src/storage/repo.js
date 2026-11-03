@@ -1083,10 +1083,12 @@ PF.repo = (function () {
   }
   /* Team step types: step-types/<id>.json. Each file is checked; good ones are usable, bad ones are listed with their problems. */
   function loadStepTypes(fs) {
-    var skipped = 0;
+    /* over: the files past MAX_TYPES, from this one listing, so a caller can name each one it didn't read. */
+    var skipped = 0, over = [];
     return fs.list('step-types').then(function (items) {
       var files = items.filter(function (i) { return i.kind === 'file' && /\.json$/i.test(i.name); }).sort(function (a, b) { return a.name < b.name ? -1 : 1; });
       skipped = Math.max(0, files.length - MAX_TYPES);
+      over = files.slice(MAX_TYPES).map(function (i) { return i.name; });
       return Promise.all(files.slice(0, MAX_TYPES).map(function (i) {
         /* Each file on its own: one that can't be checked (whatever it holds) is listed with why, and the rest still load. */
         return fs.read('step-types/' + i.name).then(function (f) { var o = f && json(f.text), errs; try { errs = o === undefined ? ['isn\'t valid JSON'] : PF.types.checkCustom(o); } catch (e) { errs = ['couldn\'t be read as a step type']; } return { file: i.name, def: o, errors: errs }; }, function (e) { return { file: i.name, def: null, errors: [why(e)] }; });
@@ -1100,7 +1102,7 @@ PF.repo = (function () {
         if (!x.errors.length) { try { types[x.def.id] = PF.types.customType(x.def); } catch (e) { x.errors.push('couldn\'t be read as a step type'); } }
         if (x.errors.length) errors.push({ file: x.file, errors: x.errors });
       });
-      return { types: types, errors: errors, skipped: skipped, refused: refused };
+      return { types: types, errors: errors, skipped: skipped, refused: refused, over: over };
     });
   }
   /* Past these, the first files by name are read and the rest are counted (Folder health reports them), never silently cut. */
@@ -1182,7 +1184,7 @@ PF.repo = (function () {
       var o = json(f.text);
       if (o === undefined) return { workflows: PF.jira.broken('jira/workflows.json isn\'t valid JSON'), errors: ['jira/workflows.json isn\'t valid JSON'] };
       var c = PF.jira.check(o);
-      return { workflows: Object.keys(c.workflows).length ? c.workflows : null, errors: c.errors };
+      return { workflows: Object.keys(c.workflows).length ? c.workflows : null, errors: c.errors, over: c.over || [] };
     });
   }
   function stripMeta(o) { var c = {}; Object.keys(o).forEach(function (k) { if (k[0] !== '_') c[k] = o[k]; }); return R.testLast ? R.testLast(c) : c; }
