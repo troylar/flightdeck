@@ -1,5 +1,27 @@
 [
   {
+    "version": "2.15.0",
+    "date": "2026-11-03",
+    "headline": "AGENTS.md keeps the rules; two new files say how",
+    "changes": [
+      {
+        "kind": "improved",
+        "area": "AI assistants",
+        "title": "A shorter AGENTS.md, with a Commands table",
+        "before": "AGENTS.md held the rules, every command's options and the checklist syntax in one file, so there was little room left for Team notes.",
+        "now": "AGENTS.md keeps every rule word for word and points to the part that says how: the command guide and the checklist essentials, two new files in .flightdeck/skills/_flightdeck/. A Commands table names each command and where its how is. Update with flightdeck install or Settings; Team notes stay as they are.",
+        "where": "Settings › AI assistant files"
+      },
+      {
+        "kind": "new",
+        "area": "AI assistants",
+        "title": "AGENTS.md waits for the files it points to",
+        "now": "When a file AGENTS.md points to is still waiting to be merged and lacks a section it names, the update stages AGENTS.md with it instead of writing it, so an assistant is never sent to a part that isn't there. README.md in the updates folder, flightdeck install and Folder health say which file and which sections.",
+        "where": "docs/updating.md › Install"
+      }
+    ]
+  },
+  {
     "version": "2.14.0",
     "date": "2026-11-03",
     "headline": "Your AI assistant saves step types through a checked command",
