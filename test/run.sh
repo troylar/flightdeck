@@ -146,6 +146,7 @@ test/skills-parity.test.js -
 test/build.test.js -
 test/readers.test.js -
 test/cli.test.js -
+test/cli-parity.test.js -
 test/assistant-files.test.js -
 test/assistant-start.test.js -
 test/old-bundles.test.js -
