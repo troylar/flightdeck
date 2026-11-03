@@ -121,7 +121,7 @@ PF.contract = (function () {
      text uses without giving them. cites: { path: [section, ...] } for every "*X* in the <name>", the longest name first. Only
      prose() counts. */
   function cites(text, more) {
-    var t = prose(text).join('\n'), names = {}, alias = {}, cited = {};
+    var t = prose(text).join('\n'), names = Object.create(null), alias = Object.create(null), cited = Object.create(null);
     t.replace(/`(\.flightdeck\/skills\/_flightdeck\/[^`\s]+)`(?: \(\*the ([a-z]+(?: [a-z]+)*)\*(?: below)?\))?/g, function (m, p, n) { names[p] = true; if (n) alias[n] = p; return m; });
     Object.keys(more || {}).forEach(function (n) { if (!own(alias, n)) alias[n] = more[n]; });
     var ks = Object.keys(alias).sort(function (a, b) { return b.length - a.length || (a < b ? -1 : 1); });
@@ -291,7 +291,7 @@ PF.contract = (function () {
   var DELETE_AGENTS = 'delete AGENTS.md from each version folder in `.flightdeck/updates/` (`.flightdeck/updates/<version>/AGENTS.md`, never anything under `replaced/`), or press I merged it in Settings → AI assistant files, and run install again; Flightdeck writes AGENTS.md itself.';
   function mergeReadme(version, items, updates, home, ctx) {
     var here = updates.concat(version).join('/'), c = ctx || {}, base = c.base || {}, rf = (c.record && c.record.files) || {};
-    var alias = c.agents == null ? {} : cites(region(c.agents).text).alias, waitsOn = {};
+    var alias = c.agents == null ? {} : cites(region(c.agents).text).alias, waitsOn = Object.create(null);
     var named = function (p) { var n = Object.keys(alias).filter(function (k) { return alias[k] === p; })[0]; return '`' + p + '`' + (n ? ' (the ' + n + ')' : ''); };
     var listN = function (ws) { return ws.map(function (w) { var n = named(w.path); return /\)$/.test(n) ? n.replace(/\)$/, ': ' + italics(w.lacks) + ')') : n + ' (' + italics(w.lacks) + ')'; }).join(', '); };
     /* A file with no shipped history: its live text is no default Flightdeck ever shipped, and the record has no entry for it. */

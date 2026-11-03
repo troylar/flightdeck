@@ -436,7 +436,7 @@ PF.health = (function () {
     var liveNames = liveAgents == null ? {} : C.cites(C.region(liveAgents).text).names, newNames = has(defaults, C.AGENTS) && defaults[C.AGENTS] != null ? C.cites(C.region(defaults[C.AGENTS]).text).names : {};
     /* Files AGENTS.md's issue names instead of their own: the ones it waits for, and new files only this version's AGENTS.md
        names (the live one is older), when AI assistant files updates or stages AGENTS.md. */
-    var folded = {}; (a.held || a.waitsFor || []).forEach(function (x) { folded[x.path] = true; });
+    var folded = Object.create(null); (a.held || a.waitsFor || []).forEach(function (x) { folded[x.path] = true; });
     var namedMissing = missing.filter(function (k) { return k !== C.AGENTS && liveNames[k]; });
     var adds = a.status === 'update' || a.status === 'merge' ? missing.filter(function (k) { return k !== C.AGENTS && !liveNames[k] && newNames[k]; }) : [];
     var otherMissing = missing.filter(function (k) { return namedMissing.indexOf(k) < 0 && adds.indexOf(k) < 0; });
