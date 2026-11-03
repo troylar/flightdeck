@@ -1,5 +1,20 @@
 [
   {
+    "version": "2.12.2",
+    "date": "2026-11-02",
+    "headline": "AGENTS.md says what an assistant's draft checks really cover",
+    "changes": [
+      {
+        "kind": "fixed",
+        "area": "AI assistants",
+        "title": "AGENTS.md says what draft checks load",
+        "before": "AGENTS.md and the review skill said the checks flightdeck draft returns don't load linked checklists or team values, which they have since 2.8 and 2.9, and didn't say a Jira transition can get a false suggestion. The list of what an assistant may do left out evidence packs.",
+        "now": "They say what the checks load and what they don't: people, step types, Jira workflows and which checklists are published. AGENTS.md lists flightdeck export. Update with flightdeck install or Settings; Team notes stay as they are.",
+        "where": "Settings › AI assistant files"
+      }
+    ]
+  },
+  {
     "version": "2.12.1",
     "date": "2026-11-02",
     "headline": "Get your AI assistant started, and let it read all its instructions",

@@ -475,7 +475,7 @@ rule('A team change with an older default still waiting: install stages the new 
   assert.strictEqual(fs.readFileSync(path.join(dir, '.flightdeck', 'updates', VER, 'AGENTS.md'), 'utf8'), AGENTS, 'this version\'s default is staged');
   r = cli('install', dir, '--check');
   assert.strictEqual(r.code, 3, r.out);
-  assert.ok(/needs merge\s+AGENTS\.md \(still waiting in updates\/2\.12\.1\)/.test(r.out) && /old copy, nothing to merge\s+AGENTS\.md \(left in updates\/2\.12\.0/.test(r.out), 'after: the new default to merge, the old one named: ' + r.out);
+  assert.ok(new RegExp('needs merge\\s+AGENTS\\.md \\(still waiting in updates/' + VER.replace(/\./g, '\\.') + '\\)').test(r.out) && /old copy, nothing to merge\s+AGENTS\.md \(left in updates\/2\.12\.0/.test(r.out), 'after: the new default to merge, the old one named: ' + r.out);
   assert.strictEqual(fs.readFileSync(path.join(dir, '.flightdeck', 'updates', '2.12.0', 'AGENTS.md'), 'utf8'), OLD, 'nothing removed');
 });
 
@@ -645,18 +645,22 @@ rule('Folder health doesn\'t count an old copy, and says, with its path, it is s
   assert.ok(/1 file for AI assistants to merge/.test(plain(await healthOf(app2))), 'a changed copy is still a merge');
 });
 
-rule('The real path: 2.12.1 installs, the real 2.12.0 page "updates", 2.12.1 opens it again: the old AGENTS.md is never offered for merging', async () => {
+rule('The real path: this version installs, the real 2.12.0 page "updates", this version opens it again: the old AGENTS.md is never offered for merging', async () => {
   const b = require('../tools/old-bundles').get('v2.12.0');
   if (!b) { if (process.env.CI) throw new Error('2.12.0\'s shipped page is needed'); console.log('  (skipped: v2.12.0 isn\'t cached)'); return; }
   const dir = tmp(); assert.strictEqual(cli('install', dir).code, 0);
   const files = text(walk(dir)), was = Object.assign({}, files);
   /* 2.12.0's own page, from the tag. */
   const old = await opened(files, b.files['flightdeck.html']);
-  assert.ok(/1 file for AI assistants to merge/.test(plain(await healthOf(old))), 'set-up: 2.12.0 asks for a merge');
+  /* The files this version changed from 2.12.0's defaults: 2.12.0 asks for each to be merged, and its Update stages each. */
+  const ex212 = C.examples(b.files['flightdeck.html']), changed = Object.keys(ex212).filter(k => (k === 'AGENTS.md' || k.startsWith(SKILLS)) && EX[k] != null && EX[k] !== ex212[k]).sort();
+  assert.ok(changed.includes('AGENTS.md'), 'set-up: AGENTS.md changed since 2.12.0');
+  assert.ok(new RegExp(changed.length + ' files? for AI assistants to merge').test(plain(await healthOf(old))), 'set-up: 2.12.0 asks for a merge of each: ' + changed.join(', '));
   await aiFiles(old);
   assert.ok(/data-act="af-update"/.test(old.html()), 'set-up: 2.12.0 offers Update');
   old.click('af-update'); await old.tick(800);
-  assert.deepStrictEqual(Object.keys(files).filter(k => files[k] !== was[k]).sort(), ['.flightdeck/installed.json', '.flightdeck/updates/2.12.0/AGENTS.md', '.flightdeck/updates/2.12.0/README.md'], 'set-up: what 2.12.0 wrote');
+  assert.deepStrictEqual(Object.keys(files).filter(k => files[k] !== was[k]).sort(), ['.flightdeck/installed.json', '.flightdeck/updates/2.12.0/README.md'].concat(changed.map(k => '.flightdeck/updates/2.12.0/' + k)).sort(), 'set-up: what 2.12.0 wrote');
+  changed.forEach(k => assert.strictEqual(files['.flightdeck/updates/2.12.0/' + k], ex212[k], 'set-up: its own old default, waiting: ' + k));
   assert.strictEqual(files['.flightdeck/updates/2.12.0/AGENTS.md'], OLD, 'set-up: its own old default, waiting');
   assert.strictEqual(JSON.parse(files[RECORD]).version, '2.12.0', 'set-up: the record written back to 2.12.0');
   assert.strictEqual(files['AGENTS.md'], was['AGENTS.md'], 'AGENTS.md itself untouched');
@@ -666,15 +670,16 @@ rule('The real path: 2.12.1 installs, the real 2.12.0 page "updates", 2.12.1 ope
   assert.ok(!/data-act="af-merged" data-id="AGENTS.md"|data-act="af-brief" data-id="AGENTS.md"/.test(html) && !/\d+ to merge|Waiting to merge/.test(page), 'Settings: no merge, no merge request');
   assert.ok(OLD_LINE.test(page), 'Settings: named as an old copy');
   const h = plain(await healthOf(app));
-  assert.ok(!/for AI assistants to merge|waiting to be merged/.test(h) && /1 old copy an older Flightdeck left/.test(h), 'Folder health: no merge, the old copy named');
+  assert.ok(!/for AI assistants to merge|waiting to be merged/.test(h) && new RegExp(changed.length + ' old cop(y|ies) an older Flightdeck left').test(h) && changed.every(k => h.includes('.flightdeck/updates/2.12.0/' + k)), 'Folder health: no merge, each old copy named');
   const disk = toDisk(files);
   let r = cli('install', disk, '--check');
   assert.strictEqual(r.code, 0, 'install --check: ' + r.out);
   assert.ok(!/needs merge/.test(r.out) && /old copy, nothing to merge\s+AGENTS\.md/.test(r.out), r.out);
   r = cli('install', disk);
   assert.strictEqual(r.code, 0, r.out);
-  assert.ok(!fs.existsSync(path.join(disk, '.flightdeck', 'updates', VER, 'AGENTS.md')), 'install stages nothing');
+  changed.forEach(k => assert.ok(!fs.existsSync(path.join(disk, '.flightdeck', 'updates', VER, ...k.split('/'))), 'install stages nothing: ' + k));
   assert.strictEqual(fs.readFileSync(path.join(disk, '.flightdeck', 'updates', '2.12.0', 'AGENTS.md'), 'utf8'), OLD, 'and removes nothing');
+  changed.forEach(k => assert.strictEqual(fs.readFileSync(path.join(disk, '.flightdeck', 'updates', '2.12.0', ...k.split('/')), 'utf8'), ex212[k], 'and removes nothing: ' + k));
   assert.strictEqual(fs.readFileSync(path.join(disk, 'AGENTS.md'), 'utf8'), was['AGENTS.md'], 'AGENTS.md is this version\'s, as installed');
   assert.strictEqual(cli('install', disk, '--check').code, 0);
 });
@@ -722,21 +727,21 @@ rule('A folder installed by 2.12.0\'s own command, with Team notes, upgrades wit
   assert.deepStrictEqual(recOf(real).files, recOf(stand).files, 'the same record after');
   assert.strictEqual(cli('install', real, '--check').code, 0, 'nothing left to do');
   const back = old.run('install', real, '--check');
-  assert.ok(back.code === 1 && /is a newer version \(2\.12\.1\) than this one \(2\.12\.0\)/.test(back.out), '2.12.0\'s own command sees a newer folder: ' + back.out);
+  assert.ok(back.code === 1 && back.out.includes('is a newer version (' + VER + ') than this one (2.12.0)'), '2.12.0\'s own command sees a newer folder: ' + back.out);
 });
 
 rule('This release is dated 2026-11-02 in the entry, the waiver and the list, and each text in the entry is under 400 characters', () => {
   const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')).find(r => r.version === VER);
-  assert.strictEqual(VER, '2.12.1');
+  assert.strictEqual(VER, '2.12.2');
   assert.strictEqual(rel.date, '2026-11-02');
   for (const c of rel.changes) for (const f of ['now', 'before']) if (c[f] != null) assert.ok(c[f].length < 400, c.title + ': ' + f + ' is ' + c[f].length);
-  const at = path.join(ROOT, 'docs', 'rehearsals', '2.12.1-2026-11-02-waiver.md');
-  assert.ok(fs.existsSync(at) && /Version: 2\.12\.1/.test(fs.readFileSync(at, 'utf8')) && /Date: 2026-11-02/.test(fs.readFileSync(at, 'utf8')), 'the waiver');
+  const at = path.join(ROOT, 'docs', 'rehearsals', '2.12.2-2026-11-02-waiver.md');
+  assert.ok(fs.existsSync(at) && /Version: 2\.12\.2/.test(fs.readFileSync(at, 'utf8')) && /Date: 2026-11-02/.test(fs.readFileSync(at, 'utf8')), 'the waiver');
   const list = fs.readFileSync(path.join(ROOT, 'docs', 'rehearsals', 'README.md'), 'utf8');
-  assert.ok(list.includes('[2.12.1, 2026-11-02](2.12.1-2026-11-02-waiver.md)'), 'the list');
+  assert.ok(list.includes('[2.12.2, 2026-11-02](2.12.2-2026-11-02-waiver.md)'), 'the list');
   const n = fs.readdirSync(path.join(ROOT, 'docs', 'rehearsals')).filter(f => /-waiver\.md$/.test(f)).length;
-  assert.strictEqual(n, 12);
-  assert.ok(list.includes('All twelve are waivers'), 'the count');
+  assert.strictEqual(n, 13);
+  assert.ok(list.includes('All thirteen are waivers'), 'the count');
 });
 
 /* ---------------- the first prompt ---------------- */
@@ -967,9 +972,8 @@ rule('docs/skills.md lists every skill with its job, input, result and a starter
   assert.ok(md.includes(PROMPT().split('\n')[0]), 'the first prompt, as the app copies it');
   PROMPT().split('\n').filter(Boolean).forEach(l => assert.ok(md.includes(l), 'the guide has this line of the prompt: ' + l));
   assert.ok(/\[[^\]]*\]\(docs\/skills\.md\)|docs\/skills\.md/.test(fs.readFileSync(path.join(ROOT, 'README.md'), 'utf8')), 'the README links it');
-  const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8'))[0];
-  assert.strictEqual(rel.version, VER);
-  assert.ok(JSON.stringify(rel).includes('docs/skills.md'), 'the release note links it');
+  const rel = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'releases.json'), 'utf8')).find(r => r.version === '2.12.1');
+  assert.ok(rel && JSON.stringify(rel).includes('docs/skills.md'), '2.12.1\'s release note links it');
 });
 
 run();
