@@ -101,7 +101,7 @@ PF.appjson = (function () {
     load: opt({ position: 'number', limit: 'number', selected: 'boolean', from: 'string' }), existing: opt('string'), appLoads: opt('boolean'),
     checks: { errors: ['string'], warnings: ['string'], omitted: { before: opt('string'), after: opt('string') } }, askedBy: opt({ id: 'string', name: 'string' }),
     history: opt({ path: 'string', written: { $or: ['boolean', 'null'] }, why: opt('string') }), cleanup: opt({ leftover: ['string'], why: 'string' }),
-    error: opt({ kind: 'string', why: 'string' }), words: 'string', readAt: 'string', problems: [{ path: 'string', kind: 'string', why: 'string' }] };
+    error: opt({ kind: 'string', why: 'string' }), words: 'string', readAt: 'string', complete: 'boolean', problems: [{ path: 'string', kind: 'string', why: 'string' }] };
   function extend(a, b) { var o = {}; Object.keys(a).forEach(function (k) { o[k] = a[k]; }); Object.keys(b).forEach(function (k) { o[k] = b[k]; }); return o; }
 
   /* What's wrong with a value against a schema entry: a list of "where: what" lines, empty when it conforms. */

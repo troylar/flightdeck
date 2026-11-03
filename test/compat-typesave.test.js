@@ -1,8 +1,8 @@
 // flightdeck type save (2.14, slice A2) against real older releases (design section 6): every recorded copy loads the
 // command's step-type file as the same normalized definition (1.10.0 refuses group and tags, a characterization), 1.x copies
 // refuse a /2 type by name, the agent-*.jsonl history line is ignored before 1.16.0 and read from it (source '' until 1.19.0,
-// 'agent' after), and the step-type editor's stale-save check: a fingerprint only in 1.13.0 to 2.0.1 (a colliding stale
-// save goes through, characterized), the exact text from 2.1.0 (refused).
+// 'agent' after), and the step-type editor's stale-save check: a fingerprint only before 2.1.0, 1.10.0 included (a colliding
+// stale save goes through, characterized), the exact text from 2.1.0 (refused).
 'use strict';
 const assert = require('assert');
 const fs = require('fs'), os = require('os'), path = require('path');
@@ -89,24 +89,26 @@ rule('The agent history line: no reader before 1.16.0; from 1.16.0 loadEditHisto
     assert.strictEqual(e.entry.before, null, t.version);
   }
 });
-rule('Stale-save check by release: a stale editor whose base collides with the command\'s bytes saves over them in 1.13.0 to 2.0.1 (characterized); 2.1.0 on refuse it', async () => {
+rule('Stale-save check by release: a stale editor whose base collides with the command\'s bytes saves over them in every release before 2.1.0, 1.10.0 and 1.11.1 included (characterized); 2.1.0 on refuse it', async () => {
   const a = { id: 'sample.check', label: 'Verify result 149599' }, b = { id: 'sample.check', label: 'Verify result 312382' };
   assert.strictEqual(U.hash(T.fileText(a)), U.hash(T.fileText(b)), 'the fixtures collide');
   const c = { id: 'sample.check', label: '245ibbb0ckty', fields: {} }, d = { id: 'sample.check', label: 'n02kfd9kdioh', fields: {} };
   assert.strictEqual(U.hash(T.fileText(c)), '554b9c80');
   assert.strictEqual(U.hash(T.fileText(d)), '554b9c80');
-  const stale = { id: 'sample.check', label: 'Stale editor' };
-  let n = 0;
-  for (const t of TAGS.filter((x) => at(x.version, '1.13.0'))) {
-    const P = H.loadCopy(t.tag), m = mem(P, { 'step-types/sample.check.json': T.fileText(b) });
-    /* As that release's editor calls it: the fingerprint alone before 2.1.0, with the exact text from 2.1.0. */
-    const r = await P.repo.saveStepType(m, plain(stale), P.util.hash(T.fileText(a)), at(t.version, '2.1.0') ? { expectText: T.fileText(a) } : {});
-    const now = m.files['step-types/sample.check.json'].t;
-    if (at(t.version, '1.13.0', '2.0.1')) { assert.ok(r && r.ok, t.version + ': ' + JSON.stringify(r)); assert.ok(/Stale editor/.test(now), t.version + ': the command\'s save is gone'); }
-    else { assert.ok(r && r.conflict, t.version + ': ' + JSON.stringify(r)); assert.strictEqual(now, T.fileText(b), t.version + ': the command\'s save stays'); }
-    n++;
+  const stale = { id: 'sample.check', label: 'Stale editor' }, seen = [];
+  for (const t of TAGS) {
+    const P = H.loadCopy(t.tag);
+    for (const [base, cmdDef] of [[a, b], [c, d]]) {
+      const m = mem(P, { 'step-types/sample.check.json': T.fileText(cmdDef) });
+      /* As that release's editor calls it: the fingerprint alone before 2.1.0, with the exact text from 2.1.0. */
+      const r = await P.repo.saveStepType(m, plain(stale), P.util.hash(T.fileText(base)), at(t.version, '2.1.0') ? { expectText: T.fileText(base) } : {});
+      const now = m.files['step-types/sample.check.json'].t;
+      if (!at(t.version, '2.1.0')) { assert.ok(r && r.ok, t.version + ': ' + JSON.stringify(r)); assert.ok(/Stale editor/.test(now), t.version + ': the command\'s save is gone'); }
+      else { assert.ok(r && r.conflict, t.version + ': ' + JSON.stringify(r)); assert.strictEqual(now, T.fileText(cmdDef), t.version + ': the command\'s save stays'); }
+    }
+    seen.push(t.version);
   }
-  assert.ok(n >= 5, 'releases checked: ' + n);
+  for (const v of ['1.10.0', '1.11.1', '1.13.0', '2.0.1', '2.1.0']) assert.ok(seen.indexOf(v) >= 0, v + ' checked: ' + seen.join(', '));
 });
 
 run();

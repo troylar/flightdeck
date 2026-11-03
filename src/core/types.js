@@ -353,14 +353,23 @@ PF.types = (function () {
     return out;
   }
   /* What a change does to drafts: fields and evidence the new definition removes while a draft step of this type still names
-     them. drafts: [{ process, text }]. Published versions froze their types, so only drafts are read. */
+     them, by exact name as a draft's checks compare them (Approval and approval are two names). drafts: [{ process, text }].
+     Published versions froze their types, so only drafts are read. */
+  /* The fields and evidence names oldDef has and newDef doesn't: { fields, evidence }. */
+  function removed(oldDef, newDef) {
+    var out = { fields: [], evidence: [] };
+    if (!oldDef || typeof oldDef !== 'object' || !newDef || typeof newDef !== 'object') return out;
+    var newFields = plainObj(newDef.fields) ? newDef.fields : {}, oldFields = plainObj(oldDef.fields) ? oldDef.fields : {};
+    var names = function (d) { return (Array.isArray(d.record) ? d.record : []).map(function (r) { return r && typeof r.name === 'string' ? r.name : ''; }).filter(Boolean); };
+    var newNames = names(newDef);
+    out.fields = Object.keys(oldFields).filter(function (f) { return !has(newFields, f); });
+    out.evidence = names(oldDef).filter(function (n) { return newNames.indexOf(n) < 0; });
+    return out;
+  }
   function inUse(oldDef, newDef, drafts) {
     var id = newDef && newDef.id, out = [];
     if (!oldDef || typeof oldDef !== 'object' || !id) return out;
-    var newFields = plainObj(newDef.fields) ? newDef.fields : {}, oldFields = plainObj(oldDef.fields) ? oldDef.fields : {};
-    var goneFields = Object.keys(oldFields).filter(function (f) { return !has(newFields, f); });
-    var names = function (d) { return (Array.isArray(d && d.record) ? d.record : []).map(function (r) { return r && typeof r.name === 'string' ? r.name.toLowerCase() : ''; }).filter(Boolean); };
-    var newNames = names(newDef), goneEvidence = names(oldDef).filter(function (n) { return newNames.indexOf(n) < 0; });
+    var gone = removed(oldDef, newDef), goneFields = gone.fields, goneEvidence = gone.evidence;
     if (!goneFields.length && !goneEvidence.length) return out;
     (drafts || []).forEach(function (dr) {
       var map;
@@ -370,7 +379,7 @@ PF.types = (function () {
         var f = st.fields || {}, where = 'Draft ' + dr.process + ', step ' + st.id + ': ';
         var sets = goneFields.filter(function (k) { return has(f, k) && String(f[k]).trim(); });
         if (sets.length) out.push(where + 'it sets ' + sets.join(', ') + ', which this save removes from {' + id + '}.');
-        var req = has(f, 'require') ? list(f.require).map(function (x) { return x.toLowerCase(); }) : [];
+        var req = has(f, 'require') ? list(f.require) : [];
         var named = goneEvidence.filter(function (n) { return req.indexOf(n) >= 0; });
         if (named.length) out.push(where + 'it requires ' + named.join(', ') + ', which this save removes from {' + id + '}.');
         else if (req.indexOf('all') >= 0 && goneEvidence.length) out.push(where + 'it has require: all, so it will require less (' + goneEvidence.join(', ') + ' removed from {' + id + '}).');
@@ -380,5 +389,5 @@ PF.types = (function () {
   }
 
   return { ID: ID, ID_MAX: ID_MAX, VERSION: VERSION, uses2: uses2, LIST: LIST, COMMON: COMMON, applies: applies, EVIDENCE_KINDS: Object.freeze(Object.keys(EVIDENCE)), PINS: PINS, ICONS: ICONS_OK, get: get, fieldDef: fieldDef, options: options, hasOption: hasOption, canonical: canonical, checkFields: checkFields, understood: understood, editable: editable, relevant: relevant, checkCustom: checkCustom, customType: customType, recordFields: recordFields, needsRecord: needsRecord, checkRecord: checkRecord, freeze: freeze, groupOf: groupOf, tagsOf: tagsOf, nameOf: nameOf, aliasOf: aliasOf, groupText: groupText, tagText: tagText,
-    fileText: fileText, formatWhy: formatWhy, markerWhy: markerWhy, unusedKeys: unusedKeys, inUse: inUse };
+    fileText: fileText, formatWhy: formatWhy, markerWhy: markerWhy, unusedKeys: unusedKeys, removed: removed, inUse: inUse };
 })();

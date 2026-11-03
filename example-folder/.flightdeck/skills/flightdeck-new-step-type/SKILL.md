@@ -16,10 +16,12 @@ Read `AGENTS.md` in this team folder first, then *Team step types* in the checkl
 Never write, edit, rename or delete a file in `step-types/` yourself. `flightdeck type save` compares the exact bytes you read, refuses copies, checks the definition and records a history line; a direct write skips all of that.
 
 1. `flightdeck type list <team folder> --json`: the team's types, in the order Flightdeck reads them, with copies marked.
-2. `flightdeck type read <team folder> <id> --json`: one type. Keep `data.type.rev`. `state: "missing"` gives `rev: "none"`; any state that couldn't be read gives `rev: null`, and then you don't save.
+2. `flightdeck type read <team folder> <id> --json`: one type. Keep `data.type.rev`. Only `state: "missing"` gives `rev: "none"`. Any state that couldn't be read (`unreadable`, `vanished`, `link`) gives `rev: null`, and then you don't save: tell the person the error, as printed.
 3. `flightdeck type save <team folder> <id> --expect <rev from type read> --from - --json`, with the definition on standard input (or `--from <file>`). Use `--expect none` exactly when `type read` said `missing`. Add `--dry-run` to check without writing, `--asked-by <person ID>` when a person in `people.json` asked, and `--note "<what changed>"` for the history line.
 
 Like two Flightdeck windows in different browsers, two saves at the same instant can replace one another without either being told. So read again after any outcome that isn't `done` or `same`, and never save twice without reading in between.
+
+Before you tell the person a change is complete, handle every entry in `problems` and every line in `checks.warnings` of the last result. `complete: false` means part of the folder couldn't be read, so a check didn't finish. A warning such as "Couldn't check drafts in maps/drafts/" is your job to finish: look at those drafts yourself, or tell the person what's still unchecked. Never report a change as complete while one is open.
 
 ## The definition
 
@@ -57,7 +59,7 @@ Like two Flightdeck windows in different browsers, two saves at the same instant
 
 | `outcome` | What you do next |
 |---|---|
-| `done` | Tell the person what was saved and the load sentence, as printed. |
+| `done` | Handle `problems` and `checks.warnings` first, then tell the person what was saved and the load sentence, as printed. |
 | `same` | Tell the person nothing needed changing. |
 | `checked` | Show the person the check; save only when they want it. |
 | refused `changed` | `type read` again, redo the change on what's there now, and save once more with the new rev. If it changes again, stop and tell the person. |
@@ -66,7 +68,7 @@ Like two Flightdeck windows in different browsers, two saves at the same instant
 | refused `invalid` | Fix the definition from the error and save again. |
 | refused `not-allowed` | Stop. Tell the person why, as printed. |
 | refused `no-links` / failed `link-check` | Stop. Give the person the route below that matches `existing`. |
-| `failed` / `held` | Tell the person, as printed; try again later only if the words say so. |
+| `failed` / `held` | Tell the person, as printed, and follow the next step the words give (access, a person, or a sync); try again only when they say so. |
 | `partial` | Tell the person the save stands; don't save it again. |
 | `replaced` / `unverified` / `unsure` | `type read` again, compare with what you meant to save, and tell the person. Don't save again without reading. |
 

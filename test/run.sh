@@ -150,6 +150,7 @@ test/cli.test.js -
 test/cli-parity.test.js -
 test/save.test.js -
 test/type-cli.test.js -
+test/type-guards.test.js -
 test/assistant-files.test.js -
 test/assistant-start.test.js -
 test/old-bundles.test.js -

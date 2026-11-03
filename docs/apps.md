@@ -508,7 +508,7 @@ flightdeck type save <team folder> <id> --expect <rev|none> --from <file|-> [--a
 | Field | Means |
 |---|---|
 | `id`, `path` | The type asked for, and `step-types/<id>.json` |
-| `state` | `ok`; `missing` (not there, or no `step-types/` folder); `malformed` (not UTF-8, not JSON, not an object, fails Flightdeck's checks, or the file name isn't the ID); `newer` (a newer Flightdeck wrote it); `unreadable`; `oversized` (over 1 MB); `vanished` (gone, or changed twice, while it was read); `link` (a link or a folder at the path) |
+| `state` | `ok`; `missing` (not there, or no `step-types/` folder, and nothing said it was there); `malformed` (not UTF-8, not JSON, not an object, fails Flightdeck's checks, or the file name isn't the ID); `newer` (a newer Flightdeck wrote it); `unreadable` (including when `step-types/` couldn't be listed and the file wasn't found: "Whether this type exists is unknown"); `oversized` (over 1 MB); `vanished` (listed and then gone, or changed twice, while it was read); `link` (a link or a folder at the path) |
 | `rev` | The SHA-256 of the file's exact bytes; `none` only for `missing`; null when it couldn't be read |
 | `bytes`, `bom`, `lineEndings`, `utf8` | Its size, whether it starts with a byte-order mark, `lf`, `crlf`, `mixed` or `none`, and whether it's valid UTF-8 |
 | `text`, `def` | The text as Flightdeck decodes it, and the definition when the JSON is an object (null otherwise, and for `newer`) |
@@ -524,7 +524,7 @@ flightdeck type save <team folder> <id> --expect <rev|none> --from <file|-> [--a
 - **Refused, whatever `--expect` says:** a copy beside the type (`copies`: a person decides which to keep), a file a newer Flightdeck made (`newer`).
 - **Warnings, never refusals:** keys Flightdeck's editor would drop on its next save; fields or evidence the change removes while a draft step still names them; past the 100-file limit; a 2.0 type without the `typed-evidence` marker; what the history line leaves out.
 
-Prints `{ contract, app, command, path, operation, outcome, written, rev, back, load, existing, appLoads, checks, askedBy, history, cleanup, error, words, readAt, problems }`:
+Prints `{ contract, app, command, path, operation, outcome, written, rev, back, load, existing, appLoads, checks, askedBy, history, cleanup, error, words, readAt, complete, problems }`:
 
 | Field | Means |
 |---|---|
@@ -541,6 +541,9 @@ Prints `{ contract, app, command, path, operation, outcome, written, rev, back, 
 | `cleanup` | `{ leftover, why }`: temporary files it couldn't remove (safe to delete), or null |
 | `error` | `{ kind, why }`: `changed`, `copies`, `newer`, `invalid`, `not-allowed`, `no-links`, `usage`, `failed`, `link-check`, `held`, `history`, `cleanup`, `replaced`, `unverified` or `unsure`; null for `done`, `same` and `checked` |
 | `words` | One plain sentence saying what happened, for the person |
+| `complete`, `problems` | What couldn't be read for this save or its checks: the target, `step-types/`, `people.json`, the drafts read for removed fields, the type's history. When `complete` is `false`, a check didn't finish, and `checks.warnings` says which (for example "Couldn't check drafts in maps/drafts/. Check them for uses of the removed fields before calling this change complete."). The exit code still follows `outcome`. Handle both before calling a change complete. |
+
+A `held` save names the next step from the failure: access denied ("Ask the folder owner to check your access"), a file too big to compare ("Ask a person to look at it in Flightdeck"), or a file that changed or vanished as it was read ("Try again once it has synced"). A definition the checks can't read at all (a name that's an object, say) is `refused`, `invalid`, like any other invalid definition.
 
 Exit codes: `0` `done`, `same` or `checked`; `1` `refused` or `failed` (nothing was changed); `4` `held`, `partial`, `replaced`, `unverified` or `unsure` (read the type again before you build on it). The schema is `WRITE1` in `src/core/appjson.js`.
 

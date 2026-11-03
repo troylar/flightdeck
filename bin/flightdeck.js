@@ -1801,7 +1801,7 @@ function readThrough(full, phase, limit, st, opts) {
   hook('beforeOpen', full, phase);
   let fd;
   try { fd = fs.openSync(full, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0)); }
-  catch (e) { return { fail: e.code === 'ENOENT' ? 'gone' : e.code === 'ELOOP' ? 'link' : 'error', why: errText(e) }; }
+  catch (e) { return { fail: e.code === 'ENOENT' ? 'gone' : e.code === 'ELOOP' ? 'link' : 'error', why: errText(e), code: e.code || null }; }
   let res;
   try {
     const first = fs.fstatSync(fd, BIG);
@@ -1814,35 +1814,62 @@ function readThrough(full, phase, limit, st, opts) {
       while (total < limit) { const n = fs.readSync(fd, buf, total, limit - total, total); if (!n) break; total += n; hook('readChunk', full, phase, total); }
       res = { first, snap: fs.fstatSync(fd, BIG), bytes: buf.subarray(0, total), filled: total >= limit };
     }
-  } catch (e) { res = { fail: 'error', why: errText(e) }; }
+  } catch (e) { res = { fail: 'error', why: errText(e), code: e.code || null }; }
   try { fs.closeSync(fd); } catch (e) { if (!res.fail) res = { fail: 'close', why: 'couldn\'t close ' + full + ' (' + errText(e) + ')' }; }
   return res;
 }
 /* A file read whole, up to the read cap, with the path checked again after the read: { state: 'bytes', bytes } or missing,
    link (a link or non-file at the path), unreadable, oversized or vanished, each with why. retry reads once more when the
-   file was replaced in between. */
-function readWhole(home, name, phase, retry) {
+   file was replaced in between. listed: the name was in the folder's listing, so a file gone before its first lstat
+   vanished; it's missing only when nothing said it was there. unreadable carries the error's code. */
+function readWhole(home, name, phase, retry, listed) {
   const full = path.join(home, name);
   for (let n = 0; n < (retry ? 2 : 1); n++) {
     let st;
-    try { st = lstatBig(full); } catch (e) { return { state: 'unreadable', why: errText(e) }; }
-    if (!st) return n ? { state: 'vanished', why: 'it was removed while Flightdeck was reading it' } : { state: 'missing' };
+    try { st = lstatBig(full); } catch (e) { return { state: 'unreadable', why: errText(e), code: e.code || null }; }
+    if (!st) return n ? { state: 'vanished', why: 'it was removed while Flightdeck was reading it' } : listed ? { state: 'vanished', why: 'It was listed, then gone before it could be read. Try again.' } : { state: 'missing' };
     if (st.isSymbolicLink() || !st.isFile()) return { state: 'link', why: st.isSymbolicLink() ? 'it\'s a link; Flightdeck never reads through one' : 'it isn\'t a file', folder: st.isDirectory() };
     const r = readThrough(full, phase, TYPE_READ_CAP + 1, st, { cap: TYPE_READ_CAP });
     if (r.fail === 'gone') return { state: 'vanished', why: 'It was there a moment ago and was gone when it was read. Try again.' };
     if (r.fail === 'link') return { state: 'link', why: 'it\'s a link; Flightdeck never reads through one' };
     if (r.fail === 'oversized' || (!r.fail && r.filled)) return { state: 'oversized', bytes: r.fail ? r.size : r.bytes.length, why: 'it\'s over the ' + size(TYPE_READ_CAP) + ' Flightdeck reads' };
     if (r.fail === 'moved') continue;
-    if (r.fail) return { state: 'unreadable', why: r.why };
+    if (r.fail) return { state: 'unreadable', why: r.why, code: r.code || null };
     if (!sameMeta(r.first, r.snap)) continue;
     hook('afterSnapshot', full, phase);
     let now;
-    try { now = lstatBig(full); } catch (e) { return { state: 'unreadable', why: errText(e) }; }
+    try { now = lstatBig(full); } catch (e) { return { state: 'unreadable', why: errText(e), code: e.code || null }; }
     if (!now) return { state: 'vanished', why: 'it was removed while Flightdeck was reading it' };
     if (sameMeta(now, r.snap)) return { state: 'bytes', bytes: r.bytes };
   }
   return { state: 'vanished', why: 'it changed while Flightdeck was reading it, twice. Try again.' };
 }
+/* The type commands' problem ledger: PF.repo.ledger over a read-only view of the team folder (PF.repo.readOnly), as the
+   --json commands read. A step type's exact bytes are read through descriptors (readWhole), and what fails there is noted
+   in it by path; drafts and history are read through its fs, so every listing or read that fails lands in it too.
+   problems(): the ledger's and the adapter's (links, files too big, files that vanished), each once. */
+function typeLedger(PF, dir, what) {
+  const ra = dir ? readAdapter(dir, { maxBytes: READ_MAX }) : null, L = PF.repo.ledger(ra ? PF.repo.readOnly(ra, what) : {});
+  const problems = () => {
+    const out = L.problems(), seen = {};
+    out.forEach((x) => { seen[x.path + '\u0000' + x.kind] = true; });
+    if (ra) adapterProblems(ra).forEach((x) => { const k = x.path + '\u0000' + x.kind; if (!seen[k]) { seen[k] = true; out.push(x); } });
+    return out;
+  };
+  return { fs: L.fs, note: L.note, problems };
+}
+const denied = (code) => code === 'EACCES' || code === 'EPERM';
+/* Why a save is held because something couldn't be read, with the next step that fits the failure: access for a denial, a
+   person for a file too big to compare, a sync only for a file that changed or vanished as it was read. */
+function heldWhy(rel, got) {
+  if (denied(got.code)) return 'Access to ' + rel + ' was denied. Ask the folder owner to check your access, then try again.';
+  if (got.state === 'oversized') return rel + ' is over the ' + size(TYPE_READ_CAP) + ' Flightdeck reads, so it\'s too big to check here. Ask a person to look at it in Flightdeck.';
+  if (got.state === 'vanished') return rel + ' changed or vanished while Flightdeck read it, which usually means it\'s syncing. Try again once it has synced.';
+  if (got.state === 'link') return rel + ' isn\'t a file Flightdeck reads: ' + bare(got.why) + '.';
+  return rel + ' couldn\'t be read (' + bare(got.why) + '). Check the folder, then try again.';
+}
+const bare = (t) => String(t || '').trim().replace(/[.!?]+$/, '');
+const UNLISTED = 'Flightdeck couldn\'t list step-types/. Whether this type exists is unknown. Check folder access before trying again.';
 /* step-types/ as listed now: every entry, and the regular .json files in the order the app's loader reads them. */
 function typeListing(home) {
   const entries = fs.readdirSync(home, { withFileTypes: true });
@@ -1889,10 +1916,14 @@ function typeFile(PF, bytes, file) {
   return out;
 }
 const STATE_KIND = { malformed: 'malformed', newer: 'newer', unreadable: 'unreadable', oversized: 'skipped', vanished: 'vanished', link: 'link' };
-/* One file as type read and type list report it, its problem noted in the ledger. */
-function typeEntry(PF, L, home, file, files, phase) {
-  const rel = 'step-types/' + file, got = home ? readWhole(home, file, phase, true) : { state: 'missing' }, pos = files.indexOf(file) >= 0 ? files.indexOf(file) + 1 : null;
+/* One file as type read and type list report it, its problem noted in the ledger. unknown: why step-types/ couldn't be
+   listed (or reached), when it couldn't: the file is still read where it can be, but its position is unknown, and a file
+   not found then is unreadable, never missing. Only absence nothing contradicts gives rev "none". */
+function typeEntry(PF, L, home, file, files, phase, unknown) {
+  const rel = 'step-types/' + file, listed = !unknown && files.indexOf(file) >= 0, pos = listed ? files.indexOf(file) + 1 : null;
+  const got = home ? readWhole(home, file, phase, true, listed) : { state: 'missing' };
   const e = { state: got.state, rev: null, bytes: null, bom: null, lineEndings: null, utf8: null, text: null, def: null, errors: [], needs: null, position: pos, selected: pos == null ? null : pos <= PF.save.LIMIT, usable: pos == null ? null : false };
+  if (got.state === 'missing' && unknown) { L.note(rel, 'unreadable', unknown); return Object.assign(e, { state: 'unreadable', errors: [unknown] }); }
   if (got.state === 'missing') return Object.assign(e, { rev: 'none', position: null, selected: null, usable: null });
   if (got.state !== 'bytes') {
     L.note(rel, STATE_KIND[got.state], got.why);
@@ -1915,18 +1946,18 @@ async function typeRead(eng, argv, args) {
   if (args.length > (sub === 'read' ? 4 : 3)) return typeFail(eng, 'usage', 'type ' + sub + ' takes ' + (sub === 'read' ? 'a team folder and an ID' : 'a team folder') + ', nothing else.');
   let dir;
   try { dir = folderArg(args[2], 'type ' + sub); } catch (e) { return typeFail(eng, 'failed', e.message); }
-  const L = PF.repo.ledger({}), readAt = new Date().toISOString();
-  let home = null, listing = { names: [], files: [], entries: [] };
-  try { home = folders(dir, ['step-types'], false); } catch (e) { L.note('step-types', 'link', e.message); }
-  if (home) { try { listing = typeListing(home); } catch (e) { L.note('step-types', 'unreadable', 'couldn\'t be listed (' + errText(e) + ')'); home = null; } }
+  const L = typeLedger(PF, dir, 'Reading step types'), readAt = new Date().toISOString();
+  let home = null, unknown = null, listing = { names: [], files: [], entries: [] };
+  try { home = folders(dir, ['step-types'], false); } catch (e) { L.note('step-types', 'link', e.message); unknown = bare(e.message) + '. Whether this type exists is unknown.'; }
+  if (home) { try { listing = typeListing(home); } catch (e) { L.note('step-types', 'unreadable', 'couldn\'t be listed (' + errText(e) + ')'); unknown = UNLISTED; } }
   const done = (data) => { const env = AJ.envelope(eng.version, readAt, L.problems(), data, 2); return { out: JSON.stringify(env, null, 2), code: env.complete ? 0 : EXIT.partial }; };
   if (sub === 'read') {
-    const file = id + '.json', e = typeEntry(PF, L, home, file, listing.files, 'read');
+    const file = id + '.json', e = typeEntry(PF, L, home, file, listing.files, 'read', unknown);
     return done({ type: Object.assign({ id, path: 'step-types/' + file }, e) });
   }
   const S = PF.save, rows = [], other = [];
   for (const file of listing.files) {
-    const e = typeEntry(PF, L, home, file, listing.files, 'list');
+    const e = typeEntry(PF, L, home, file, listing.files, 'list', null);
     /* A listed type it's a copy of first, else the name it would be a copy of (the original may be gone). */
     const base = listing.names.filter((n) => n !== file && /\.json$/i.test(n) && S.copiesOf(n, [file]).length)[0] || S.copyBase(file);
     rows.push({ file, id: e.def && typeof e.def.id === 'string' ? e.def.id : null, state: e.state, rev: e.rev, kind: 'file', position: e.position, selected: e.selected, usable: e.usable,
@@ -2047,14 +2078,18 @@ function typeInput(PF, file, id) {
   const dup = S.duplicateKeys(text);
   if (dup !== null) return bad('"' + dup + '" appears twice in one object; JSON keeps only the last, so say it once');
   if (def.id !== id) return { usage: 'the definition\'s "id" must be ' + id + ', the ID it\'s saved as.' };
-  /* checkCustom first, so a reserved name gets the reader's own words (a shared rule); then the keys it doesn't look at. */
-  const errs = T.checkCustom(def).slice();
-  if (errs.length) return bad(errs[0], errs);
-  const odd = S.oddKeys(def);
-  if (odd !== null) return bad('"' + odd + '" can\'t be a key in a step type');
-  const fw = T.formatWhy(def);
-  if (fw) return bad(fw);
-  const data = Buffer.from(T.fileText(def), 'utf8');
+  /* checkCustom first, so a reserved name gets the reader's own words (a shared rule); then the keys it doesn't look at. A
+     value the checks can't even read (a name that's an object with no usable text, say) is invalid too, never a crash. */
+  let data;
+  try {
+    const errs = T.checkCustom(def).slice();
+    if (errs.length) return bad(errs[0], errs);
+    const odd = S.oddKeys(def);
+    if (odd !== null) return bad('"' + odd + '" can\'t be a key in a step type');
+    const fw = T.formatWhy(def);
+    if (fw) return bad(fw);
+    data = Buffer.from(T.fileText(def), 'utf8');
+  } catch (e) { return bad('it couldn\'t be read as a step type: a name, label or option isn\'t plain text or a list where one is expected'); }
   if (data.length > TYPE_INPUT_MAX) return bad('the saved file would be ' + data.length + ' bytes; a step type is at most ' + TYPE_INPUT_MAX + ' bytes (256 KB)');
   return { def, data };
 }
@@ -2063,9 +2098,9 @@ async function typeSave(eng, argv, args, val) {
   const id = args[3], name = id + '.json', rel = 'step-types/' + name, idOk = !!id && T.ID.test(id) && id.length <= T.ID_MAX;
   const out = { contract: WRITE_CONTRACT, app: eng.version || '', command: 'type save', path: idOk ? rel : null, operation: null, outcome: '', written: false,
     rev: { expected: null, before: null, after: null, now: null }, back: null, load: null, existing: null, appLoads: null,
-    checks: { errors: [], warnings: [], omitted: { before: null, after: null } }, askedBy: null, history: null, cleanup: null, error: null, words: '', readAt: new Date(now).toISOString(), problems: [] };
-  const L = PF.repo.ledger({}), left = [], leftWhy = [];
-  let dir = null;
+    checks: { errors: [], warnings: [], omitted: { before: null, after: null } }, askedBy: null, history: null, cleanup: null, error: null, words: '', readAt: new Date(now).toISOString(), complete: true, problems: [] };
+  const left = [], leftWhy = [];
+  let dir = null, L = typeLedger(PF, null);
   /* Every answer goes through PF.save.settle and PF.save.words. */
   const finish = (f) => {
     if (dir && left.length) out.cleanup = { leftover: left.map((p) => relOf(dir, p)), why: leftWhy.join('; ') };
@@ -2075,7 +2110,7 @@ async function typeSave(eng, argv, args, val) {
     const why = f.refused ? f.refused.why || '' : f.why || '';
     out.words = S.words(s.outcome, { kind: s.kind, path: rel, why, copies: f.refused && f.refused.copies, needs: f.refused && f.refused.needs, load: out.load, history: s.history, cleanup: out.cleanup, back: s.back, dryRun: s.outcome === 'checked' });
     out.error = s.kind ? { kind: s.kind, why: why || out.words } : null;
-    out.problems = L.problems();
+    out.problems = L.problems(); out.complete = out.problems.length === 0;
     return { out: JSON.stringify(out, null, 2), code: s.exit };
   };
   const refuse = (outcome, kind, why, more) => finish({ refused: Object.assign({ outcome, kind, why }, more || {}) });
@@ -2103,6 +2138,7 @@ async function typeSave(eng, argv, args, val) {
   const def = input.def, data = input.data, dryRun = argv.includes('--dry-run');
   out.rev.after = sha256(data);
   try { dir = folderArg(args[2], 'type save'); } catch (e) { return refuse('failed', 'failed', e.message); }
+  L = typeLedger(PF, dir, 'Saving a step type');
   out.operation = PF.proposals.newId(now, U.randomId(10));
   const historyPath = 'history/step-types/' + id + '/agent-' + out.operation + '.jsonl';
   try {
@@ -2110,8 +2146,13 @@ async function typeSave(eng, argv, args, val) {
     let home;
     try { home = folders(dir, ['step-types'], false); } catch (e) { return refuse('failed', 'failed', e.message); }
     let listing = { names: [], files: [], entries: [] }, unlisted = null;
-    if (home) { try { listing = typeListing(home); } catch (e) { unlisted = 'step-types/ couldn\'t be listed (' + errText(e) + '), so it isn\'t safe to save. Try again once it has synced.'; L.note('step-types', 'unreadable', 'couldn\'t be listed (' + errText(e) + ')'); } }
-    const got = home ? readWhole(home, name, 'R1', false) : { state: 'missing' };
+    if (home) {
+      try { listing = typeListing(home); } catch (e) {
+        unlisted = denied(e.code) ? heldWhy('step-types/', { code: e.code }) : 'Flightdeck couldn\'t list step-types/ (' + errText(e) + '), so whether this type exists is unknown. Check folder access before trying again.';
+        L.note('step-types', 'unreadable', 'couldn\'t be listed (' + errText(e) + ')');
+      }
+    }
+    const got = home ? readWhole(home, name, 'R1', false, !unlisted && listing.files.indexOf(name) >= 0) : { state: 'missing' };
     let seen, file = null, seenBytes = null;
     if (got.state === 'link') return refuse('failed', 'failed', rel + ' isn\'t a file Flightdeck can save over: ' + got.why + '.');
     if (got.state === 'missing') { seen = { state: 'missing', rev: null }; out.existing = 'missing'; }
@@ -2122,13 +2163,16 @@ async function typeSave(eng, argv, args, val) {
       out.appLoads = pos != null && pos <= S.LIMIT && file.usable;
     } else {
       L.note(rel, STATE_KIND[got.state], got.why);
-      seen = { state: 'unreadable', rev: null, why: rel + ' couldn\'t be read (' + got.why + '), so it isn\'t safe to save. Try again once it has synced.' };
+      seen = { state: 'unreadable', rev: null, why: heldWhy(rel, got) };
     }
     const asked = { required: false, held: '', verdict: '' };
     if (by != null) {
-      const p = readWhole(dir, 'people.json', 'people', false);
+      /* Listed at the top of the folder first, so a people.json gone as it's read is held, never taken as no people. */
+      let top = null;
+      try { top = fs.readdirSync(dir); } catch (e) { top = null; }
+      const p = readWhole(dir, 'people.json', 'people', false, !top || top.indexOf('people.json') >= 0);
       if (p.state === 'missing') asked.verdict = S.asked([], by, 'person');
-      else if (p.state !== 'bytes') { L.note('people.json', STATE_KIND[p.state], p.why); asked.held = 'people.json couldn\'t be read (' + p.why + '), so who asked can\'t be checked. Try again once it has synced.'; }
+      else if (p.state !== 'bytes') { L.note('people.json', STATE_KIND[p.state], p.why); asked.held = 'Who asked can\'t be checked. ' + heldWhy('people.json', p); }
       else {
         let doc;
         try { doc = JSON.parse(new TextDecoder('utf-8').decode(p.bytes)); } catch (e) { doc = undefined; }
@@ -2147,22 +2191,27 @@ async function typeSave(eng, argv, args, val) {
     if (file && file.state === 'malformed') W.push(rel + ' is malformed (' + (file.errors[0] || 'it isn\'t a step type Flightdeck can use') + '); this save repairs it.');
     T.unusedKeys(def).forEach((k) => W.push(k + ' isn\'t part of a step type Flightdeck reads; its editor drops it on its next save.'));
     if (T.markerWhy(def)) W.push(T.markerWhy(def));
-    if (oldDef) {
-      const drafts = [];
-      try {
-        const ra = readAdapter(dir, { maxBytes: U.DRAFT_BYTES });
-        for (const i of await ra.list('maps/drafts')) {
-          if (i.kind !== 'file' || !/\.md$/i.test(i.name)) continue;
-          try { const f = await ra.read('maps/drafts/' + i.name); if (f) drafts.push({ process: i.name.replace(/\.md$/i, ''), text: f.text }); } catch (e) { /* unread: not checked */ }
-        }
-      } catch (e) { /* no drafts read */ }
+    /* Drafts are read only when the change removes a field or evidence, through the ledger: a listing or a draft that
+       fails is a problem, and the warnings say the check is incomplete. */
+    const gone = T.removed(oldDef, def), under = (d) => L.problems().some((x) => x.path === d || x.path.indexOf(d + '/') === 0);
+    if (oldDef && (gone.fields.length || gone.evidence.length)) {
+      const drafts = [], DD = 'maps/drafts';
+      let items = [];
+      try { items = await L.fs.list(DD); } catch (e) { items = []; /* named in the ledger */ }
+      for (const i of items) {
+        if (i.kind !== 'file' || !/\.md$/i.test(i.name)) continue;
+        try { const f = await L.fs.read(DD + '/' + i.name, { maxBytes: U.DRAFT_BYTES }); if (f) drafts.push({ process: i.name.replace(/\.md$/i, ''), text: f.text }); } catch (e) { /* named in the ledger */ }
+      }
       T.inUse(oldDef, def, drafts).forEach((w) => W.push(w));
+      if (under(DD)) W.push('Couldn\'t check drafts in maps/drafts/. Check them for uses of the removed fields before calling this change complete.');
     }
     const omitted = out.checks.omitted, appText = seenBytes ? new TextDecoder('utf-8').decode(seenBytes) : null, from = appText == null ? null : U.hash(appText);
     if (file && file.state !== 'ok') omitted.before = 'invalid';
     let seenId = null;
     if (from) {
-      try { const h = await PF.repo.loadEditHistory(readAdapter(dir, { maxBytes: READ_MAX }), 'history/step-types/' + id, from); const e = h.items.filter((x) => x.entry && x.entry.to === from)[0]; seenId = e ? e.entry.id : null; } catch (e) { seenId = null; }
+      const HD = 'history/step-types/' + id;
+      try { const h = await PF.repo.loadEditHistory(L.fs, HD, from); const e = h.items.filter((x) => x.entry && x.entry.to === from)[0]; seenId = e ? e.entry.id : null; } catch (e) { seenId = null; /* named in the ledger */ }
+      if (under(HD)) W.push('Couldn\'t read ' + HD + '/, so this save\'s history line doesn\'t say which earlier save it follows.');
     }
     const lineOf = (b, a) => TL.histLine({ kind: 'type-edit', id: out.operation, type: id, writer: out.operation, seq: 1, by: by || '', at: new Date(now).toISOString(), from, to: U.hash(T.fileText(def)), seen: seenId,
       before: b, after: a, source: 'agent', units: [val['--note'] || 'Changed by your AI assistant'] });
