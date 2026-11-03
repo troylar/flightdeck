@@ -12,6 +12,7 @@ Flightdeck is a checklist tool for people: a monthly backup check, a quarterly a
 | **Ask for a run**: a planned run that a person reviews and starts in the app ([Asking for a run](#asking-for-a-run)) | `flightdeck plan request` | 1.20 | Writes one file in `proposals/` |
 | **Report** the work it did on a step: a person accepts it (the step is checked with its evidence) or declines it ([Reporting work](#reporting-work)) | `flightdeck report` | 2.0 | Writes one file in `reports/` |
 | **Read and save drafts** of checklists (AI assistants; contract `flightdeck-draft/1`, [at the end of this page](#writing-drafts-for-ai-assistants)) | `flightdeck draft` | 1.19 | Writes the draft or a proposal |
+| **Check a draft** as Review & publish does ([draft check](#draft-check)) | `flightdeck draft check` | 2.13 | Never |
 | **Register a skill** against the exact version it was built from (AI assistants, [Registering a skill](#registering-a-skill-for-ai-assistants)) | `flightdeck skill register` | 2.0 | Writes one file in `skill-registrations/`, and may turn `skills/<name>.json` into a pointer |
 | **Make an evidence pack** of one run, or of the runs started on some days ([Evidence packs](evidence.md)) | `flightdeck export` | 1.17 | Never: the pack goes outside the folder |
 
@@ -415,6 +416,7 @@ Contract `flightdeck-draft/1` (1.19). These commands **change the team folder**,
 flightdeck draft read    <team folder> <process> [--session <id>] [--or-latest] --json
 flightdeck draft save    <team folder> <process> --expect <rev|none> --from <file|-> [--base <file>] [--session <id>] [--label <name>] [--by <person id>] [--note "<text>"] [--after-earlier] --json
 flightdeck draft propose <same as save>
+flightdeck draft check   <team folder> <process> [--from <file|->] --json
 ```
 
 **How to use them.** Read with `flightdeck draft read --json` and keep the text you read (`continueFrom.text`) in a file. Change it. Save with `flightdeck draft save --expect <continueFrom.rev> --from <your new text> --base <the file with the text you read> --session <session>`. If someone has the draft open, or it changed since you read it, your change is saved as a proposal; say so in your report. Pass the same `--session` to every command of one task, so your own pending proposals are found.
@@ -433,12 +435,27 @@ Prints `{ contract, app, process, session, draft, openIn, mine, continueFrom, ch
 | `openIn` | Editors this computer can see right now with the draft open: `{ by, device, seenAgo }` (`by` a people.json ID, `device` the computer and browser, `seenAgo` milliseconds since its last sign of life) |
 | `mine` | This session's proposals for the process: `{ id, rev, status, text }`. `status` is `pending`, `replaced`, `invalid`, or what happened to it (`applied`, `applied-twice`, `declined`, `reopened`, `tried`, `maybe`, `decided-twice`, `unknown`) |
 | `continueFrom` | The text to change next: `{ rev, kind, ref, text }`. Your newest pending proposal (`kind` `proposal`, `ref` its ID), else the draft (`draft`), else with `--or-latest` and no draft the latest published version (`version`, `ref` its folder), else nothing (`none`, empty text) |
-| `checks` | `blockers` and `suggestions` for `continueFrom.text`, as the editor's Checks show them, with the processes its linked steps start (2.8) and the team values they name (2.9). It doesn't load the team's people, step types, Jira workflows or which processes are published, so a team step type is an unknown type (a blocker), a Jira transition isn't checked against `jira/workflows.json` and may get a suggestion that the workflows don't describe its issue type, every linked process is suggested as not published yet, and every owner and backup owner as missing from `people.json`. Screenshots and `version:` pins are checked only when someone publishes. |
+| `checks` | `blockers` and `suggestions` for `continueFrom.text`, as the editor's Checks and Review & publish show them: checked against what the app loads (people, step types, Jira workflows, every published version, the team values the text names), as `draft check` does. A part that couldn't be read is named in `problems` and left unchecked, never turned into a finding. |
 | `copies` | Other files in `maps/drafts/` whose `process:` says this process (OneDrive copies, for example) |
 | `readAt` | When it read the folder |
 | `complete`, `problems` | As for the reading commands: a proposal that can't be read yet (`malformed`), a file too big or that couldn't be read. `complete` is `false` and the exit code is 4 when `problems` has anything. |
 
 Exit codes: `0` complete, `4` partial, `1` usage or error, `5` the process has no draft, no published version and no proposal.
+
+### draft check
+
+`flightdeck draft check <team folder> <process> [--from <file|->] --json` (2.13) gives the verdict Review & publish gives for the draft in `maps/drafts/<process>.md`, or for the text in `--from` (at most 1 MB of UTF-8, its `process:` line saying the process). It only reads, and prints contract `flightdeck-read/2`: the envelope above, with `data`:
+
+| Field | Means |
+|---|---|
+| `process` | The process asked for |
+| `from` | What was checked: `kind` `draft` (`ref` its path) or `file` (`ref` null), and `rev`, the SHA-256 of the text |
+| `checks` | `blockers` and `suggestions`, word for word and in order as the process page's checks show them |
+| `publish` | `ok`, and `blockers`: what Publish would stop at, in its order (the checks' blockers, then `version:` pins that don't resolve, then screenshots not in the folder). Who publishes and the change note are left out: only a person gives them. |
+
+It reads what the app reads, through the app's own readers and checks (`PF.publish.checkOptions`, `checkContext` and `publishCheck`, which the app's screens share): `people.json`, `step-types/`, `jira/workflows.json`, every process's published versions (which processes are published, the children linked steps start, the published parents that start this one) and, for a text that passes one, `team-values.json`. A part that couldn't be read, or that a newer Flightdeck wrote, is named in `problems` (`complete` false, exit 4) and left unchecked: it never becomes an unknown type, a missing owner, an unpublished process or a false Jira suggestion. A linked step that passes details to a child whose versions can't be read still gets the blocker Publish gives, that what it passes can't be checked.
+
+Exit codes: `0` complete, `4` partial, `5` no draft (pass `--from`), `1` usage, or a draft that couldn't be read (named in `problems`). The schema is `SCHEMA2.draftCheck` in `src/core/appjson.js`.
 
 ### draft save and draft propose
 

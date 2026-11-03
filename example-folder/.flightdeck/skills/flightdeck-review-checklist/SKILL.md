@@ -3,7 +3,7 @@ name: flightdeck-review-checklist
 description: "Use when asked to review, check or proofread a Flightdeck checklist (or all of them) before it's published: reports format errors and quality problems, read-only"
 ---
 
-Read-only: don't create, edit or delete files. The only command you may run is `flightdeck draft read`, below, which only reads.
+Read-only: don't create, edit or delete files. The only commands you may run are `flightdeck draft check` and `flightdeck draft read`, below, which only read.
 
 Reference: `../_flightdeck/map-format.md` and `../_flightdeck/good-checklists.md` (relative to this skill's folder). Read them before you start.
 
@@ -15,7 +15,7 @@ Read `AGENTS.md` in this team folder, then the draft from `maps/drafts/` (for "a
 
 This is a careful manual review. **Flightdeck's own checks on the checklist's page are the authority**: if they disagree with you, they win.
 
-When `flightdeck` is installed, also run `flightdeck draft read <team folder> <process> --json` for each draft (add `--or-latest` to review the published version when there's no draft) and read `checks.blockers` and `checks.suggestions`: they come from Flightdeck's own checker. They're incomplete: the command loads the processes linked steps start and the team values they name, but not the team's people, step types, Jira workflows or which processes are published, so a step using one of the team's types in `step-types/` shows as an unknown type, Jira transitions aren't checked (and may get a false suggestion that the workflows don't describe their issue type), every linked process is reported as unpublished, and every owner as missing. Check those yourself against `step-types/`, `jira/workflows.json`, `publications/` and `people.json`, and never call valid use of a team step type an error. Screenshots in the folder and `version:` pins are checked only when someone publishes.
+When `flightdeck` is installed, also run `flightdeck draft check <team folder> <process> --json` for each draft and read `data.checks.blockers`, `data.checks.suggestions` and `data.publish.blockers`: they're Flightdeck's own verdict, the one Review & publish gives, checked against the team's people, step types, Jira workflows, published versions and team values, with screenshots and `version:` pins. To review the published version when there's no draft, run `flightdeck draft read <team folder> <process> --or-latest --json` and read its `checks`. If `complete` is false, the parts named in `problems` weren't read or checked: check those yourself and say so. Never call valid use of a team step type an error. On an older install without `draft check`, `draft read`'s checks don't load people, step types, Jira workflows or which processes are published, so check those yourself.
 
 ## Check, in this order
 
