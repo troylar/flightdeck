@@ -1834,6 +1834,7 @@ function readWhole(home, name, phase, retry, listed) {
     if (r.fail === 'link') return { state: 'link', why: 'it\'s a link; Flightdeck never reads through one' };
     if (r.fail === 'oversized' || (!r.fail && r.filled)) return { state: 'oversized', bytes: r.fail ? r.size : r.bytes.length, why: 'it\'s over the ' + size(TYPE_READ_CAP) + ' Flightdeck reads' };
     if (r.fail === 'moved') continue;
+    if (r.fail === 'close') return { state: 'unreadable', close: true, why: r.why, code: null };
     if (r.fail) return { state: 'unreadable', why: r.why, code: r.code || null };
     if (!sameMeta(r.first, r.snap)) continue;
     hook('afterSnapshot', full, phase);
@@ -1843,6 +1844,17 @@ function readWhole(home, name, phase, retry, listed) {
     if (sameMeta(now, r.snap)) return { state: 'bytes', bytes: r.bytes };
   }
   return { state: 'vanished', why: 'it changed while Flightdeck was reading it, twice. Try again.' };
+}
+const IO_KIND = { unreadable: true, link: true, skipped: true, vanished: true };
+const utf8ok = (b) => { try { new TextDecoder('utf-8', { fatal: true }).decode(b); return true; } catch (e) { return false; } };
+/* A text file read through the ledger as the app reads it (UTF-8, bad bytes replaced, a byte-order mark dropped), with
+   the replacement named: { text, size } or null. */
+async function readText(L, p, max) {
+  const b = await L.fs.blob(p, { maxBytes: max });
+  if (!b) return null;
+  const bytes = Buffer.from(await b.arrayBuffer());
+  if (!utf8ok(bytes)) L.note(p, 'malformed', 'isn\'t valid UTF-8 text; Flightdeck reads it with the bad bytes replaced');
+  return { text: new TextDecoder('utf-8').decode(bytes), size: bytes.length };
 }
 /* How many lines of one history file PF.repo.loadEditHistory rejects, counted as it counts them (the newest TL.HIST.READ
    lines looked at; too long, not JSON, or not an entry cleanEntry keeps). */
@@ -2049,33 +2061,35 @@ function createOnce(dir, parts, data) {
 function observeOther(target) {
   try {
     const st = lstatBig(target);
-    if (!st || st.isSymbolicLink() || !st.isFile()) return { now: null, why: 'it couldn\'t be read whole' };
+    if (!st) return { now: null, kind: 'vanished', why: 'it was gone when Flightdeck looked at what replaced it' };
+    if (st.isSymbolicLink() || !st.isFile()) return { now: null, kind: 'link', why: 'a folder or a link is there now' };
     const r = readThrough(target, 'observe', TYPE_READ_CAP + 1, st, { cap: TYPE_READ_CAP });
-    if (r.fail === 'oversized' || (!r.fail && r.filled)) return { now: null, why: 'it\'s over the ' + size(TYPE_READ_CAP) + ' Flightdeck reads' };
-    if (r.fail) return { now: null, why: r.why };
+    if (r.fail === 'oversized' || (!r.fail && r.filled)) return { now: null, kind: 'skipped', why: 'what replaced it is over the ' + size(TYPE_READ_CAP) + ' Flightdeck reads' };
+    if (r.fail === 'gone' || r.fail === 'moved') return { now: null, kind: 'vanished', why: 'what replaced it changed again as it was read' };
+    if (r.fail) return { now: null, kind: r.fail === 'link' || r.fail === 'notfile' ? 'link' : 'unreadable', why: r.why };
     const fin = lstatBig(target);
-    if (!sameMeta(r.first, r.snap) || !fin || !sameMeta(fin, r.snap)) return { now: null, why: 'it changed while Flightdeck was reading it' };
-    return { now: sha256(r.bytes), why: null };
-  } catch (e) { return { now: null, why: errText(e) }; }
+    if (!sameMeta(r.first, r.snap) || !fin || !sameMeta(fin, r.snap)) return { now: null, kind: 'vanished', why: 'it changed while Flightdeck was reading it' };
+    return { now: sha256(r.bytes), kind: null, why: null };
+  } catch (e) { return { now: null, kind: 'unreadable', why: errText(e) }; }
 }
 function readBack(target, ours, data) {
   let st;
-  try { st = lstatBig(target); } catch (e) { return { back: 'unreadable', now: null, why: errText(e) }; }
+  try { st = lstatBig(target); } catch (e) { return { back: 'unreadable', now: null, kind: 'unreadable', why: errText(e) }; }
   if (!st) return { back: 'missing', now: null, why: null };
-  if (st.isSymbolicLink() || !st.isFile()) return { back: 'unreadable', now: null, why: 'a folder or a link is there now' };
+  if (st.isSymbolicLink() || !st.isFile()) return { back: 'unreadable', now: null, kind: 'link', why: 'a folder or a link is there now' };
   if (!sameNode(st, ours)) return Object.assign({ back: 'other' }, observeOther(target));
   const r = readThrough(target, 'B', data.length + 1, st, null);
   if (r.fail === 'gone') return { back: 'missing', now: null, why: null };
   if (r.fail === 'moved') return Object.assign({ back: 'other' }, observeOther(target));
-  if (r.fail) return { back: 'unreadable', now: null, why: r.why };
+  if (r.fail) return { back: 'unreadable', now: null, kind: 'unreadable', why: r.why };
   hook('afterSnapshot', target, 'B');
   let fin;
-  try { fin = lstatBig(target); } catch (e) { return { back: 'unreadable', now: null, why: errText(e) }; }
+  try { fin = lstatBig(target); } catch (e) { return { back: 'unreadable', now: null, kind: 'unreadable', why: errText(e) }; }
   if (!fin) return { back: 'missing', now: null, why: null };
   if (!sameNode(fin, ours)) return Object.assign({ back: 'other' }, observeOther(target));
   const len = BigInt(data.length), stable = sameMeta(r.first, r.snap) && sameMeta(fin, r.snap);
-  if (r.filled || !r.bytes.equals(data) || r.snap.size !== len || fin.size !== len) return stable ? Object.assign({ back: 'other' }, observeOther(target)) : { back: 'other', now: null, why: 'it changed while Flightdeck was reading it back' };
-  if (!stable) return { back: 'unstable', now: null, why: 'it changed while Flightdeck was reading it back' };
+  if (r.filled || !r.bytes.equals(data) || r.snap.size !== len || fin.size !== len) return stable ? Object.assign({ back: 'other' }, observeOther(target)) : { back: 'other', now: null, kind: 'vanished', why: 'it changed while Flightdeck was reading it back' };
+  if (!stable) return { back: 'unstable', now: null, kind: 'vanished', why: 'it changed while Flightdeck was reading it back' };
   return { back: 'same', now: sha256(data), why: null };
 }
 /* The new definition from --from: at most 256 KB of strict UTF-8 (a leading byte-order mark dropped), no key twice in one
@@ -2171,6 +2185,8 @@ async function typeSave(eng, argv, args, val) {
     const got = home ? readWhole(home, name, 'R1', false, !unlisted && listing.files.indexOf(name) >= 0) : { state: 'missing' };
     let seen, file = null, seenBytes = null;
     if (got.state === 'link') { L.note(rel, 'link', got.why); return refuse('failed', 'failed', rel + ' isn\'t a file Flightdeck can save over: ' + got.why + '.'); }
+    /* A descriptor that won't close before the commit is a failure, never a hold (design 1.4). */
+    if (got.close) { L.note(rel, 'unreadable', got.why); return refuse('failed', 'failed', got.why); }
     if (got.state === 'missing') { seen = { state: 'missing', rev: null }; out.existing = 'missing'; }
     else if (got.state === 'bytes') {
       seenBytes = got.bytes; file = typeFile(PF, got.bytes, name);
@@ -2192,7 +2208,8 @@ async function typeSave(eng, argv, args, val) {
       if (topWhy) {
         L.note('people.json', 'unreadable', 'the team folder couldn\'t be listed (' + errText(topWhy) + '), so whether people.json is there is unknown');
         asked.held = 'Who asked can\'t be checked. ' + (denied(topWhy.code) ? heldWhy('the team folder', { code: topWhy.code }) : 'Flightdeck couldn\'t list the team folder (' + errText(topWhy) + '). Check folder access before trying again.');
-      } else if (p.state === 'missing') asked.verdict = S.asked([], by, 'person');
+      } else if (p.close) { L.note('people.json', 'unreadable', p.why); return refuse('failed', 'failed', p.why); }
+      else if (p.state === 'missing') asked.verdict = S.asked([], by, 'person');
       else if (p.state !== 'bytes') { L.note('people.json', STATE_KIND[p.state], p.why); asked.held = 'Who asked can\'t be checked. ' + heldWhy('people.json', p); }
       else {
         let doc;
@@ -2200,6 +2217,11 @@ async function typeSave(eng, argv, args, val) {
         if (doc === undefined) { L.note('people.json', 'malformed', 'isn\'t valid JSON'); asked.held = 'people.json isn\'t valid JSON, so who asked can\'t be checked.'; }
         else if (!PF.people.verdict(doc).ok) { L.note('people.json', 'newer', PF.people.verdict(doc).why); asked.held = 'people.json was made with a newer Flightdeck, so who asked can\'t be checked.'; }
         else {
+          /* What reading it drops or changes is named as the reading commands name it: bad bytes replaced, entries without
+             a text ID and name, names cut to 60. */
+          if (!utf8ok(p.bytes)) L.note('people.json', 'malformed', 'isn\'t valid UTF-8 text; Flightdeck reads it with the bad bytes replaced');
+          const pw = peopleWhy({ hash: '', doc });
+          if (pw) L.note('people.json', 'malformed', pw);
           const people = PF.people.clean(doc);
           asked.verdict = S.asked(people, by, 'person');
           if (!asked.verdict) { const me = people.filter((x) => x.id === by)[0]; out.askedBy = { id: by, name: me.name }; }
@@ -2224,10 +2246,10 @@ async function typeSave(eng, argv, args, val) {
       try { items = await L.fs.list(DD); } catch (e) { items = []; /* named in the ledger */ }
       for (const i of items) {
         if (i.kind !== 'file' || !/\.md$/i.test(i.name)) continue;
-        try { const f = await L.fs.read(DD + '/' + i.name, { maxBytes: U.DRAFT_BYTES }); if (f) drafts.push({ process: i.name.replace(/\.md$/i, ''), text: f.text }); } catch (e) { /* named in the ledger */ }
+        try { const f = await readText(L, DD + '/' + i.name, U.DRAFT_BYTES); if (f) drafts.push({ process: i.name.replace(/\.md$/i, ''), text: f.text }); } catch (e) { /* named in the ledger */ }
       }
       T.inUse(depDef, def, drafts).forEach((w) => W.push(w));
-      if (under(DD)) W.push('Couldn\'t check drafts in maps/drafts/. Check them for uses of the removed fields before calling this change complete.');
+      if (L.problems().some((x) => IO_KIND[x.kind] && (x.path === DD || x.path.indexOf(DD + '/') === 0))) W.push('Couldn\'t check drafts in maps/drafts/. Check them for uses of the removed fields before calling this change complete.');
     }
     const omitted = out.checks.omitted, appText = seenBytes ? new TextDecoder('utf-8').decode(seenBytes) : null, from = appText == null ? null : U.hash(appText);
     if (file && file.state !== 'ok') omitted.before = 'invalid';
@@ -2235,7 +2257,7 @@ async function typeSave(eng, argv, args, val) {
     if (from) {
       const HD = 'history/step-types/' + id;
       /* Every file the reader reads is kept, so a line it rejects (not JSON, too long, a newer kind) is named by its file. */
-      const texts = {}, hfs = Object.assign({}, L.fs, { read: (p2, o) => L.fs.read(p2, o).then((f) => { if (f) texts[p2] = f.text; return f; }) });
+      const texts = {}, hfs = Object.assign({}, L.fs, { read: (p2, o) => readText(L, p2, (o && o.maxBytes) || READ_MAX).then((f) => { if (f) texts[p2] = f.text; return f; }) });
       try {
         const h = await PF.repo.loadEditHistory(hfs, HD, from); const e = h.items.filter((x) => x.entry && x.entry.to === from)[0]; seenId = e ? e.entry.id : null;
         if (h.bad) Object.keys(texts).sort().forEach((p2) => { const n = historyRejects(TL, texts[p2], path.posix.basename(p2)); if (n) L.note(p2, 'malformed', n + ' line' + (n === 1 ? '' : 's') + ' Flightdeck couldn\'t read (not a history line, too long, or from a newer Flightdeck)'); });
@@ -2322,7 +2344,8 @@ async function typeSave(eng, argv, args, val) {
     if (seenBytes === null || commit === 'unknown') { const w = removeOurs(t.tmp, t.ours, commit === 'yes'); if (w) { left.push(t.tmp); leftWhy.push(w); } }
     /* B: read back, for information only when the commit is unknown. */
     const b = readBack(target, t.ours, data);
-    if (b.back === 'unreadable' || b.back === 'unstable') L.note(rel, b.back === 'unstable' ? 'vanished' : 'unreadable', b.why || 'it couldn\'t be read back');
+    /* What the read-back couldn't read, of this save or of what replaced it, is named; the outcome stays what it is. */
+    if (b.kind) L.note(rel, b.kind, b.why || 'it couldn\'t be read back');
     out.rev.now = b.back === 'same' || b.back === 'other' ? b.now : null;
     if (commit === 'unknown') return finish({ commit: 'unknown', back: b.back, why: commitWhy });
     loadIf(l2.files, 'C');

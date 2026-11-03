@@ -3436,7 +3436,7 @@ PF.types = (function () {
       (map.phases || []).forEach(function (ph) { (ph.steps || []).forEach(function (st) {
         if (st.type !== id) return;
         var f = st.fields || {}, where = 'Draft ' + dr.process + ', step ' + st.id, fix = ' Update that step before calling the change complete.';
-        var sets = goneFields.filter(function (k) { return has(f, k) && String(f[k]).trim(); });
+        var sets = goneFields.filter(function (k) { return has(f, k); });
         if (sets.length) out.push(where + ' still uses ' + sets.join(', ') + ', which this change removes.' + fix);
         var req = has(f, 'require') ? list(f.require) : [];
         var named = goneEvidence.filter(function (n) { return req.indexOf(n) >= 0; });

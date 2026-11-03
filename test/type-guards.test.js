@@ -235,4 +235,57 @@ rule('Class rule: a repair of a malformed type Flightdeck still loads (an invali
   assert.strictEqual(r.json.complete, false, 'the malformed file is named');
 });
 
+/* ---------------- the class rule: every step that transforms or drops input records what it dropped ---------------- */
+const badUtf8 = (t, marker) => { const b = Buffer.from(t, 'utf8'), i = b.indexOf(marker); assert.ok(i >= 0, 'marker'); b[i] = 0xff; return b; };
+const DROPS = {
+  'people.json, an entry without a text name (cleaning)': { rel: 'people.json', make: (dir) => fs.writeFileSync(full(dir, 'people.json'), JSON.stringify(JSON.parse(PEOPLE).concat([{ id: 'person-blake', name: 42 }]))) },
+  'people.json, a name over 60 characters (truncation)': { rel: 'people.json', make: (dir) => fs.writeFileSync(full(dir, 'people.json'), JSON.stringify(JSON.parse(PEOPLE).concat([{ id: 'person-long', name: 'N'.repeat(61) }]))) },
+  'people.json, a bad byte (decoding with replacement)': { rel: 'people.json', make: (dir) => fs.writeFileSync(full(dir, 'people.json'), badUtf8(JSON.stringify(JSON.parse(PEOPLE).concat([{ id: 'person-casey', name: 'Casey Q' }])), 'Q')) },
+  'a draft with a bad byte (decoding with replacement)': { rel: 'maps/drafts/rel.md', make: (dir) => fs.writeFileSync(full(dir, 'maps/drafts/rel.md'), badUtf8(DRAFT.replace('Release', 'ReleaseQ'), 'Q')) },
+  'a history line with a bad byte (decoding with replacement)': { rel: 'HIST', make: (dir, hist) => fs.writeFileSync(full(dir, hist), badUtf8(fs.readFileSync(full(dir, hist), 'utf8').replace('Changed by', 'ChangedQ by'), 'Q')) }
+};
+for (const name of Object.keys(DROPS)) for (const real of [false, true]) {
+  rule('Class rule, dropped input: ' + (real ? 'a save' : 'a dry run') + ' with ' + name + ': named, complete false', async () => {
+    const { dir, rev, hist } = await folder(), d = DROPS[name], rel = d.rel === 'HIST' ? hist : d.rel;
+    d.make(dir, hist);
+    const r = await save(dir, NO_SYSTEM, rev, ['--asked-by', 'person-avery'].concat(real ? [] : ['--dry-run']));
+    assert.strictEqual(r.json.outcome, real ? 'done' : 'checked', r.json.words);
+    assert.strictEqual(r.json.complete, false, JSON.stringify(r.json.problems));
+    assert.ok(named(r.json.problems, rel), rel + ': ' + JSON.stringify(r.json.problems));
+  });
+}
+/* Post-commit observation: what replaced this save is read whole, under the cap; a read of it that fails is named and the
+   outcome stays replaced. */
+for (const how of ['over the cap', 'access denied', 'a link']) {
+  rule('Class rule, observation: the save is replaced after its commit by a file ' + how + ': replaced (unverified for a link), rev.now null, the type named, complete false', async () => {
+    const { dir, rev } = await folder(), p = full(dir, REL);
+    let after = false;
+    const r = await shims([['openSync', (was) => function (x) { if (after && how === 'access denied' && String(x) === p) throw err('EACCES'); return was.apply(fs, arguments); }]], () =>
+      Object.assign(FD._hooks, { afterCommit: () => {
+        const other = path.join(tmp(), 'other.json');
+        fs.writeFileSync(other, how === 'over the cap' ? Buffer.alloc(1048577, 0x20) : T.fileText(Object.assign({}, DEF, { label: 'Someone else' })));
+        if (how === 'a link') { fs.unlinkSync(p); fs.symlinkSync(other, p); } else fs.renameSync(other, p);
+        after = true;
+      } }) && save(dir, NO_SYSTEM, rev).finally(() => { delete FD._hooks.afterCommit; }));
+    /* A link where the file was is never read through: that read-back is unverified, the others replaced. */
+    assert.deepStrictEqual([r.json.outcome, r.json.written, r.json.rev.now, r.json.complete], [how === 'a link' ? 'unverified' : 'replaced', true, null, false], r.json.words);
+    assert.ok(named(r.json.problems, REL), JSON.stringify(r.json.problems));
+  });
+}
+rule('Class rule: a descriptor that won\'t close at R1 fails the save (exit 1), never holds it', async () => {
+  const { dir, rev } = await folder(), p = full(dir, REL), fds = {};
+  let n = 0;
+  const r = await shims([
+    ['openSync', (was) => function (x) { const fd = was.apply(fs, arguments); if (String(x) === p) fds[fd] = true; return fd; }],
+    ['closeSync', (was) => function (fd) { if (fds[fd] && ++n === 1) { was.apply(fs, arguments); throw err('EIO'); } return was.apply(fs, arguments); }]
+  ], () => save(dir, NO_SYSTEM, rev));
+  assert.deepStrictEqual([r.json.outcome, r.code, r.json.written, r.json.complete], ['failed', 1, false, false], r.json.words);
+  assert.ok(named(r.json.problems, REL));
+});
+rule('Class rule: removing a field a draft sets to an empty value still warns', async () => {
+  const dir = team({ 'people.json': PEOPLE, 'maps/drafts/rel.md': DRAFT.replace('  system: Change board', '  system:'), [REL]: T.fileText(DEF) });
+  const r = await save(dir, NO_SYSTEM, sha(fs.readFileSync(full(dir, REL))), ['--dry-run']);
+  assert.ok(r.json.checks.warnings.indexOf('Draft rel, step chk still uses system, which this change removes. Update that step before calling the change complete.') >= 0, JSON.stringify(r.json.checks.warnings));
+});
+
 run();
