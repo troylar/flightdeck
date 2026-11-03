@@ -86,4 +86,4 @@ Use these after `no-links` or `link-check`, and when the command isn't available
 
 ## Then
 
-Tell the person what you saved, and that people can see and edit it in Flightdeck on the Step types page (open it from Checklists, from Settings › Library, or by searching for it). Skills built from checklists that use a changed type will show as needing an update once a new version of those checklists is published.
+Tell the person what was saved. If Flightdeck loads the type, explain where to find it: the Step types page (open it from Checklists, from Settings › Library, or by searching for it). Otherwise, explain the load warning and leave the choice of files to remove to them. Skills built from checklists that use a changed type will show as needing an update once a new version of those checklists is published.

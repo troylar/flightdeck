@@ -163,8 +163,76 @@ rule('Guard: a case-only evidence rename (Approval to approval) warns about a dr
   const old = JSON.parse(JSON.stringify(DEF)); old.record[0].name = 'Approval';
   const dir = team({ 'people.json': PEOPLE, 'maps/drafts/rel.md': DRAFT.replace('require: approval', 'require: Approval'), [REL]: T.fileText(old) });
   const r = await save(dir, DEF, sha(fs.readFileSync(full(dir, REL))), ['--dry-run']);
-  assert.ok(r.json.checks.warnings.some((w) => /Draft rel, step chk: it requires Approval/.test(w)), JSON.stringify(r.json.checks.warnings));
+  assert.ok(r.json.checks.warnings.some((w) => /Draft rel, step chk still requires Approval, which this change removes\. Update that step before calling the change complete\./.test(w)), JSON.stringify(r.json.checks.warnings));
   assert.deepStrictEqual(plain(T.inUse(old, DEF, [{ process: 'rel', text: DRAFT.replace('require: approval', 'require: Approval') }])).length, 1);
+});
+
+/* ---------------- the class rule: every conclusion against every problem source ---------------- */
+/* Each source of a problem (a read that fails, contents rejected, a newer file, a link, over the limit) for each input a save
+   depends on (the type, people.json, the drafts it checks, the type's history), against every conclusion the command can
+   reach (a dry run and a real save; for the type, type list and type read too): complete is false and the input is named.
+   complete is true only when no source reported anything. */
+const SOURCES = {
+  target: { io: 'denied', link: 'link', over: 'big', rejected: (dir) => fs.writeFileSync(full(dir, REL), '{ "id": "sample.check", '), newer: (dir) => fs.writeFileSync(full(dir, REL), T.fileText(Object.assign({ format: 'flightdeck-step-type/9' }, DEF))) },
+  people: { io: 'denied', listing: 'top', link: 'link', over: 'big', rejected: (dir) => fs.writeFileSync(full(dir, 'people.json'), '[{"id": "person-avery",'), newer: (dir) => fs.writeFileSync(full(dir, 'people.json'), JSON.stringify({ format: 'flightdeck-people/9', people: JSON.parse(PEOPLE) })) },
+  drafts: { io: 'denied', listing: 'listing', link: 'link', over: 'big' },
+  history: { io: 'denied', listing: 'listing', link: 'link', over: 'big',
+    rejected: (dir, hist) => fs.appendFileSync(full(dir, hist), 'not a history line\n'),
+    newer: (dir, hist) => { const l = JSON.parse(fs.readFileSync(full(dir, hist), 'utf8').trim()); fs.appendFileSync(full(dir, hist), JSON.stringify(Object.assign({}, l, { id: l.id.slice(0, -1) + 'z', features: ['from-a-newer-flightdeck'] })) + '\n'); } }
+};
+const INPUT = { target: () => REL, people: () => 'people.json', drafts: (way) => (way === 'listing' ? 'maps/drafts' : 'maps/drafts/rel.md'), history: (way, hist) => (way === 'listing' ? HD : hist) };
+function apply(dir, hist, input, source) {
+  const how = SOURCES[input][source], rel = INPUT[input](how, hist);
+  if (typeof how === 'function') { how(dir, hist); return { rel, list: [] }; }
+  if (how === 'top') return { rel, list: [['readdirSync', (was) => function (x) { if (String(x) === dir) throw err('EACCES'); return was.apply(fs, arguments); }]] };
+  return { rel, list: breakIt(dir, rel, how) };
+}
+for (const input of Object.keys(SOURCES)) for (const source of Object.keys(SOURCES[input])) for (const real of [false, true]) {
+  rule('Class rule: ' + (real ? 'a save' : 'a dry run') + ' with ' + input + ' (' + source + '): complete false and ' + input + ' named, never a clean answer', async () => {
+    const { dir, hist } = await folder(), b = apply(dir, hist, input, source);
+    const rev = fs.existsSync(full(dir, REL)) ? sha(fs.readFileSync(full(dir, REL))) : 'none';
+    const r = await shims(b.list, () => save(dir, NO_SYSTEM, rev, ['--asked-by', 'person-avery'].concat(real ? [] : ['--dry-run'])));
+    assert.strictEqual(r.json.complete, false, r.json.outcome + ': ' + JSON.stringify(r.json.problems) + ' ' + r.json.words);
+    assert.ok(named(r.json.problems, b.rel), b.rel + ' named: ' + JSON.stringify(r.json.problems));
+    if (input === 'people') assert.strictEqual(r.json.outcome, 'held', r.json.words);
+    if (input === 'drafts' || input === 'history') {
+      assert.strictEqual(r.json.outcome, real ? 'done' : 'checked', r.json.words);
+      assert.ok(r.json.checks.warnings.some((w) => /^Couldn't (check drafts|read history)/.test(w)), JSON.stringify(r.json.checks.warnings));
+    }
+    if (input === 'target' && source === 'rejected') assert.strictEqual(r.json.outcome, real ? 'done' : 'checked', 'a repair goes ahead, the bad file named');
+    if (input === 'target' && source === 'newer') assert.deepStrictEqual([r.json.outcome, r.json.error.kind], ['refused', 'newer']);
+  });
+}
+for (const source of Object.keys(SOURCES.target)) for (const sub of ['list', 'read']) {
+  rule('Class rule: type ' + sub + ' with the type (' + source + '): complete false, exit 4, the type named', async () => {
+    const { dir, hist } = await folder(), b = apply(dir, hist, 'target', source);
+    const r = await shims(b.list, () => (sub === 'list' ? cmd('type', 'list', dir, '--json') : cmd('type', 'read', dir, ID, '--json')));
+    assert.deepStrictEqual([r.json.complete, r.code], [false, 4]);
+    assert.ok(named(r.json.problems, REL), JSON.stringify(r.json.problems));
+  });
+}
+for (const real of [false, true]) rule('Class rule: ' + (real ? 'a save' : 'a dry run') + ' with no source reporting anything is complete', async () => {
+  const { dir, rev } = await folder();
+  const r = await save(dir, NO_SYSTEM, rev, ['--asked-by', 'person-avery'].concat(real ? [] : ['--dry-run']));
+  assert.deepStrictEqual([r.json.outcome, r.json.complete, r.json.problems], [real ? 'done' : 'checked', true, []]);
+});
+rule('Class rule: a failure in the final compare (access denied as C reads the type) is named, complete false', async () => {
+  const { dir, rev } = await folder(), p = full(dir, REL);
+  let n = 0;
+  const r = await shims([['openSync', (was) => function (x) { if (String(x) === p && ++n === 2) throw err('EACCES'); return was.apply(fs, arguments); }]], () => save(dir, NO_SYSTEM, rev));
+  assert.deepStrictEqual([r.json.outcome, r.json.written, r.json.complete], ['failed', false, false], r.json.words);
+  assert.ok(named(r.json.problems, REL), JSON.stringify(r.json.problems));
+});
+rule('Class rule: a repair of a malformed type Flightdeck still loads (an invalid UTF-8 byte) checks drafts against what the app loads, and warns about a step that still uses the removed field', async () => {
+  const dir = team({ 'people.json': PEOPLE, 'maps/drafts/rel.md': DRAFT });
+  fs.mkdirSync(full(dir, 'step-types'));
+  fs.writeFileSync(full(dir, REL), Buffer.from(T.fileText(DEF).replace('Sample check', 'Sample \u0001check').replace('\u0001', 'X'), 'utf8'));
+  const bytes = Buffer.from(fs.readFileSync(full(dir, REL))); bytes[bytes.indexOf('X')] = 0xff; fs.writeFileSync(full(dir, REL), bytes);
+  const read = await cmd('type', 'read', dir, ID, '--json');
+  assert.deepStrictEqual([read.json.data.type.state, read.json.data.type.usable], ['malformed', true], 'malformed to the command, loaded by the app');
+  const r = await save(dir, NO_SYSTEM, sha(bytes), ['--dry-run']);
+  assert.ok(r.json.checks.warnings.indexOf('Draft rel, step chk still uses system, which this change removes. Update that step before calling the change complete.') >= 0, JSON.stringify(r.json.checks.warnings));
+  assert.strictEqual(r.json.complete, false, 'the malformed file is named');
 });
 
 run();

@@ -376,13 +376,13 @@ PF.types = (function () {
       try { map = PF.map.parse(String(dr.text || '')); } catch (e) { return; }
       (map.phases || []).forEach(function (ph) { (ph.steps || []).forEach(function (st) {
         if (st.type !== id) return;
-        var f = st.fields || {}, where = 'Draft ' + dr.process + ', step ' + st.id + ': ';
+        var f = st.fields || {}, where = 'Draft ' + dr.process + ', step ' + st.id, fix = ' Update that step before calling the change complete.';
         var sets = goneFields.filter(function (k) { return has(f, k) && String(f[k]).trim(); });
-        if (sets.length) out.push(where + 'it sets ' + sets.join(', ') + ', which this save removes from {' + id + '}.');
+        if (sets.length) out.push(where + ' still uses ' + sets.join(', ') + ', which this change removes.' + fix);
         var req = has(f, 'require') ? list(f.require) : [];
         var named = goneEvidence.filter(function (n) { return req.indexOf(n) >= 0; });
-        if (named.length) out.push(where + 'it requires ' + named.join(', ') + ', which this save removes from {' + id + '}.');
-        else if (req.indexOf('all') >= 0 && goneEvidence.length) out.push(where + 'it has require: all, so it will require less (' + goneEvidence.join(', ') + ' removed from {' + id + '}).');
+        if (named.length) out.push(where + ' still requires ' + named.join(', ') + ', which this change removes.' + fix);
+        else if (req.indexOf('all') >= 0 && goneEvidence.length) out.push(where + ' has require: all, so it will require less once this change removes ' + goneEvidence.join(', ') + '. Check that step before calling the change complete.');
       }); });
     });
     return out;
