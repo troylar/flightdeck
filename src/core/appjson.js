@@ -86,8 +86,22 @@ PF.appjson = (function () {
       gates: [extend(SCHEMA.run.run.$or[0].gates[0], { applies: APPLIES })], followUps: [FOLLOWUP2] })) },
     /* flightdeck draft check (2.13): the verdict Review & publish gives the text, from the folder as it is now. from: the draft
        in maps/drafts/ (ref its path) or the file given with --from (ref null); rev: SHA-256 of the text checked. */
-    draftCheck: { process: 'string', from: { kind: 'string', ref: opt('string'), rev: 'string' }, checks: { blockers: ['string'], suggestions: ['string'] }, publish: { ok: 'boolean', blockers: ['string'] } }
+    draftCheck: { process: 'string', from: { kind: 'string', ref: opt('string'), rev: 'string' }, checks: { blockers: ['string'], suggestions: ['string'] }, publish: { ok: 'boolean', blockers: ['string'] } },
+    /* flightdeck type read and type list (2.14): one step-type file as the command reads it (state, the SHA-256 of its exact
+       bytes, what the app makes of it), and every .json entry in step-types/ in the order the app's loader reads them. */
+    stepType: { type: { id: 'string', path: 'string', state: 'string', rev: opt('string'), bytes: opt('number'), bom: opt('boolean'), lineEndings: opt('string'), utf8: opt('boolean'),
+      text: opt('string'), def: { $or: [map('any'), 'null'] }, errors: ['string'], needs: opt('string'), position: opt('number'), selected: opt('boolean'), usable: opt('boolean') } },
+    stepTypes: { types: [{ file: 'string', id: opt('string'), state: 'string', rev: opt('string'), kind: 'string', position: opt('number'), selected: opt('boolean'), usable: opt('boolean'),
+      copyOf: opt('string'), errors: ['string'] }], limit: 'number', count: 'number' }
   };
+  /* flightdeck-write/1 (2.14): what a checked write did. written is true, false or null (it may or may not have been
+     written); back is what the read-back found; history and cleanup are reported on their own (docs/apps.md). */
+  var WRITE1 = { contract: 'string', app: 'string', command: 'string', path: opt('string'), operation: opt('string'), outcome: 'string', written: { $or: ['boolean', 'null'] },
+    rev: { expected: opt('string'), before: opt('string'), after: opt('string'), now: opt('string') }, back: opt('string'),
+    load: opt({ position: 'number', limit: 'number', selected: 'boolean', from: 'string' }), existing: opt('string'), appLoads: opt('boolean'),
+    checks: { errors: ['string'], warnings: ['string'], omitted: { before: opt('string'), after: opt('string') } }, askedBy: opt({ id: 'string', name: 'string' }),
+    history: opt({ path: 'string', written: { $or: ['boolean', 'null'] }, why: opt('string') }), cleanup: opt({ leftover: ['string'], why: 'string' }),
+    error: opt({ kind: 'string', why: 'string' }), words: 'string', readAt: 'string', problems: [{ path: 'string', kind: 'string', why: 'string' }] };
   function extend(a, b) { var o = {}; Object.keys(a).forEach(function (k) { o[k] = a[k]; }); Object.keys(b).forEach(function (k) { o[k] = b[k]; }); return o; }
 
   /* What's wrong with a value against a schema entry: a list of "where: what" lines, empty when it conforms. */
@@ -426,6 +440,6 @@ PF.appjson = (function () {
     }).sort(function (a, b) { return a.key < b.key ? -1 : 1; }) };
   }
 
-  return { CONTRACT: CONTRACT, CONTRACT2: CONTRACT2, reportOut: reportOut, targets: targets, SCHEMA2: SCHEMA2, process2: process2, runs2: runs2, followUps2: followUps2, run2: run2, summary2: summary2, CONTRACT_OF: contractOf, VERSIONS: VERSIONS, NOTE: NOTE, KINDS: KINDS, SCHEMA: SCHEMA, opt: opt, map: map, conforms: conforms, envelope: envelope, failure: failure, names: names,
+  return { CONTRACT: CONTRACT, CONTRACT2: CONTRACT2, WRITE1: WRITE1, reportOut: reportOut, targets: targets, SCHEMA2: SCHEMA2, process2: process2, runs2: runs2, followUps2: followUps2, run2: run2, summary2: summary2, CONTRACT_OF: contractOf, VERSIONS: VERSIONS, NOTE: NOTE, KINDS: KINDS, SCHEMA: SCHEMA, opt: opt, map: map, conforms: conforms, envelope: envelope, failure: failure, names: names,
     v1Pub: v1Pub, v1Processes: v1Processes, v1Run: v1Run, pubProblem: pubProblem, processes: processes, process: process, runs: runs, run: run, next: next, followUps: followUps, summary: summary, request: request };
 })();

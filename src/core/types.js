@@ -330,5 +330,55 @@ PF.types = (function () {
   function nameOf(t) { return named(t) ? NAMES[t.id] : (t && t.label) || ''; }
   function aliasOf(t) { return named(t) ? t.label : ''; }
 
-  return { ID: ID, ID_MAX: ID_MAX, VERSION: VERSION, uses2: uses2, LIST: LIST, COMMON: COMMON, applies: applies, EVIDENCE_KINDS: Object.freeze(Object.keys(EVIDENCE)), PINS: PINS, ICONS: ICONS_OK, get: get, fieldDef: fieldDef, options: options, hasOption: hasOption, canonical: canonical, checkFields: checkFields, understood: understood, editable: editable, relevant: relevant, checkCustom: checkCustom, customType: customType, recordFields: recordFields, needsRecord: needsRecord, checkRecord: checkRecord, freeze: freeze, groupOf: groupOf, tagsOf: tagsOf, nameOf: nameOf, aliasOf: aliasOf, groupText: groupText, tagText: tagText };
+  /* ---- for flightdeck type save (2.14): pure checks the command makes beyond the reader's ---- */
+  /* A type file's bytes: exactly what repo.saveStepType writes (UTF-8, no byte-order mark, LF). */
+  function fileText(def) { return JSON.stringify(def, null, 2) + '\n'; }
+  function enveloped(def) { return !!def && typeof def === 'object' && (def.format != null || def.features != null); }
+  /* An envelope nothing needs is refused, so every Flightdeck reads the type (docs/design.md section 28, rule 2): only 2.0
+     evidence needs "format" and "features". '' when the definition is fine. */
+  function formatWhy(def) { return enveloped(def) && !uses2(def.record) ? 'This doesn\'t use 2.0 evidence. Remove format and features so every Flightdeck reads it.' : ''; }
+  /* The reader enables 2.0 kinds from the envelope's major; Flightdeck's editor also writes the typed-evidence marker. */
+  function markerWhy(def) {
+    var f = def && Array.isArray(def.features) ? def.features : [];
+    return enveloped(def) && uses2(def.record) && f.indexOf('typed-evidence') < 0 ? 'Flightdeck\'s editor writes "features": ["typed-evidence"] here; this file works without it.' : '';
+  }
+  var KEEP_FIELD = { label: 1, kind: 1, required: 1, options: 1 }, KEEP_RECORD = { name: 1, label: 1, kind: 1, options: 1, long: 1, min: 1, max: 1, unit: 1 };
+  /* Nested keys customType drops, so the app's editor would drop them on its next save: "fields.<name>.<key>" and
+     "record.<name>.<key>". */
+  function unusedKeys(def) {
+    var out = [];
+    if (!def || typeof def !== 'object') return out;
+    if (plainObj(def.fields)) Object.keys(def.fields).forEach(function (f) { var d = def.fields[f]; if (plainObj(d)) Object.keys(d).forEach(function (k) { if (!has(KEEP_FIELD, k)) out.push('fields.' + f + '.' + k); }); });
+    if (Array.isArray(def.record)) def.record.forEach(function (d, i) { if (plainObj(d)) Object.keys(d).forEach(function (k) { if (!has(KEEP_RECORD, k)) out.push('record.' + (typeof d.name === 'string' ? d.name : i + 1) + '.' + k); }); });
+    return out;
+  }
+  /* What a change does to drafts: fields and evidence the new definition removes while a draft step of this type still names
+     them. drafts: [{ process, text }]. Published versions froze their types, so only drafts are read. */
+  function inUse(oldDef, newDef, drafts) {
+    var id = newDef && newDef.id, out = [];
+    if (!oldDef || typeof oldDef !== 'object' || !id) return out;
+    var newFields = plainObj(newDef.fields) ? newDef.fields : {}, oldFields = plainObj(oldDef.fields) ? oldDef.fields : {};
+    var goneFields = Object.keys(oldFields).filter(function (f) { return !has(newFields, f); });
+    var names = function (d) { return (Array.isArray(d && d.record) ? d.record : []).map(function (r) { return r && typeof r.name === 'string' ? r.name.toLowerCase() : ''; }).filter(Boolean); };
+    var newNames = names(newDef), goneEvidence = names(oldDef).filter(function (n) { return newNames.indexOf(n) < 0; });
+    if (!goneFields.length && !goneEvidence.length) return out;
+    (drafts || []).forEach(function (dr) {
+      var map;
+      try { map = PF.map.parse(String(dr.text || '')); } catch (e) { return; }
+      (map.phases || []).forEach(function (ph) { (ph.steps || []).forEach(function (st) {
+        if (st.type !== id) return;
+        var f = st.fields || {}, where = 'Draft ' + dr.process + ', step ' + st.id + ': ';
+        var sets = goneFields.filter(function (k) { return has(f, k) && String(f[k]).trim(); });
+        if (sets.length) out.push(where + 'it sets ' + sets.join(', ') + ', which this save removes from {' + id + '}.');
+        var req = has(f, 'require') ? list(f.require).map(function (x) { return x.toLowerCase(); }) : [];
+        var named = goneEvidence.filter(function (n) { return req.indexOf(n) >= 0; });
+        if (named.length) out.push(where + 'it requires ' + named.join(', ') + ', which this save removes from {' + id + '}.');
+        else if (req.indexOf('all') >= 0 && goneEvidence.length) out.push(where + 'it has require: all, so it will require less (' + goneEvidence.join(', ') + ' removed from {' + id + '}).');
+      }); });
+    });
+    return out;
+  }
+
+  return { ID: ID, ID_MAX: ID_MAX, VERSION: VERSION, uses2: uses2, LIST: LIST, COMMON: COMMON, applies: applies, EVIDENCE_KINDS: Object.freeze(Object.keys(EVIDENCE)), PINS: PINS, ICONS: ICONS_OK, get: get, fieldDef: fieldDef, options: options, hasOption: hasOption, canonical: canonical, checkFields: checkFields, understood: understood, editable: editable, relevant: relevant, checkCustom: checkCustom, customType: customType, recordFields: recordFields, needsRecord: needsRecord, checkRecord: checkRecord, freeze: freeze, groupOf: groupOf, tagsOf: tagsOf, nameOf: nameOf, aliasOf: aliasOf, groupText: groupText, tagText: tagText,
+    fileText: fileText, formatWhy: formatWhy, markerWhy: markerWhy, unusedKeys: unusedKeys, inUse: inUse };
 })();

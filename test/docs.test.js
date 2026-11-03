@@ -128,6 +128,7 @@ function helpCommands(help) {
   });
   return out;
 }
+const STEP_SKILL = 'example-folder/.flightdeck/skills/flightdeck-new-step-type/SKILL.md', IN_SKILL = ['type list', 'type read', 'type save'];
 /* Commands a person runs to set up or look after the folder. Neither file is for them; the README is. */
 const FOR_PEOPLE = ['open', 'install', 'skills', 'backup', 'path', 'version'];
 function unlisted(md, commands) {
@@ -140,10 +141,12 @@ rule('Docs: AGENTS.md and docs/apps.md name every command the CLI\'s help lists,
   assert.ok(commands.length >= 20 && commands.every(c => /^[a-z]+( [a-z]+)?$/.test(c)), commands.join(', '));
   FOR_PEOPLE.forEach(c => assert.ok(commands.indexOf(c) >= 0, 'still a command: ' + c));
   FOR_PEOPLE.forEach(c => assert.ok(new RegExp('flightdeck ' + c + '(?![a-z-])').test(read('README.md')), 'the README names: flightdeck ' + c));
-  assert.deepStrictEqual(unlisted(read('example-folder/AGENTS.md'), commands), [], 'example-folder/AGENTS.md');
+  /* A2 (2.14) leaves AGENTS.md byte for byte: the type commands are documented in the step-type skill it routes to. */
+  assert.deepStrictEqual(unlisted(read('example-folder/AGENTS.md'), commands), IN_SKILL, 'example-folder/AGENTS.md');
+  assert.deepStrictEqual(unlisted(read(STEP_SKILL), IN_SKILL), [], STEP_SKILL);
   assert.deepStrictEqual(unlisted(read('docs/apps.md'), commands), [], 'docs/apps.md');
   /* And the check sees a command left out, a new one in the help, and a word that only starts like a command. */
-  assert.deepStrictEqual(unlisted(read('example-folder/AGENTS.md').split('flightdeck export').join('flightdeck'), commands), ['export']);
+  assert.deepStrictEqual(unlisted(read('example-folder/AGENTS.md').split('flightdeck export').join('flightdeck'), commands), ['export'].concat(IN_SKILL));
   assert.deepStrictEqual(unlisted(read('docs/apps.md'), helpCommands(help + '\n  flightdeck health <team folder> [--json]\n')), ['health']);
   assert.deepStrictEqual(unlisted('`flightdeck runsy` and `flightdeck run-x`', ['runs', 'run']), ['runs', 'run']);
   assert.deepStrictEqual(helpCommands('  flightdeck draft read <team folder>\n  flightdeck open                     open the app\n  flightdeck skills --to <folder>\n'), ['draft read', 'open', 'skills']);
@@ -154,6 +157,38 @@ rule('The README\'s manual download is the release being shipped, so it can\'t g
   const links = read('README.md').match(/@troylar\/flightdeck@\d+\.\d+\.\d+\/dist\/flightdeck\.html/g) || [];
   assert.ok(links.length >= 1, 'the README links a download');
   links.forEach(l => assert.strictEqual(l, '@troylar/flightdeck@' + version + '/dist/flightdeck.html'));
+});
+
+/* ---------- flightdeck type save (2.14, slice A2): the wording the owner decided (design section 0.5) ---------- */
+const SAME_INSTANT = 'Like two Flightdeck windows in different browsers, two saves at the same instant can replace one another without either being told.';
+const FORBIDDEN = /can'?t overwrite|cannot overwrite|closed by construction|recoverable from history/i;
+rule('A2 wording: HELP, docs/apps.md and the step-type skill carry the same-instant sentence and none of the forbidden phrases', () => {
+  const help = require('../bin/flightdeck.js').main(['help']).out;
+  for (const [name, t] of [['HELP', help], ['docs/apps.md', read('docs/apps.md')], [STEP_SKILL, read(STEP_SKILL)]]) {
+    assert.ok(t.replace(/\s+/g, ' ').indexOf(SAME_INSTANT) >= 0, name + ' carries: ' + SAME_INSTANT);
+    assert.ok(!FORBIDDEN.test(t), name + ': ' + (FORBIDDEN.exec(t) || [])[0]);
+  }
+  assert.ok(FORBIDDEN.test('a save that can\'t overwrite') && FORBIDDEN.test('Closed by construction'), 'the scan sees them');
+});
+rule('The step-type skill uses the commands: type list, type read and type save --expect, a next action for every outcome, the route table by existing, and no direct writes', () => {
+  const t = read(STEP_SKILL), flat = t.replace(/\s+/g, ' ');
+  ['flightdeck type list', 'flightdeck type read', 'flightdeck type save', '--expect <rev', '--expect none'].forEach(w => assert.ok(flat.indexOf(w) >= 0, 'names ' + w));
+  ['done', 'same', 'checked', 'changed', 'copies', 'newer', 'invalid', 'not-allowed', 'no-links', 'link-check', 'failed', 'held', 'partial', 'replaced', 'unverified', 'unsure'].forEach(o => assert.ok(new RegExp('^\\|[^\\n]*`' + o + '`[^\\n]*\\|', 'm').test(t), 'a table row for ' + o));
+  ['`existing: missing`', '`appLoads: true`', '`appLoads: false`', '`existing: newer`'].forEach(r => assert.ok(t.indexOf(r) >= 0, 'route row ' + r));
+  assert.ok(/New type[^\n]*same ID[^\n]*Keep mine/.test(t), 'the New type, Keep mine route');
+  /* Nothing tells an assistant to write, edit, overwrite, rename or delete a file in step-types/ itself, except to say never. */
+  const lines = unfenced(t).split('\n').filter(l => /step-types\//.test(l) && /\b(write|writes|edit|overwrite|rename|delete|create)\b/i.test(l));
+  lines.forEach(l => assert.ok(/\bnever\b|\bdon't\b|read only/i.test(l), 'a direct-write instruction: ' + l));
+  assert.ok(lines.length >= 1, 'it says never to write there directly');
+  assert.ok(!/Write `step-types\/<id>\.json`/.test(t), 'the old heading is gone');
+});
+rule('A2 leaves example-folder/AGENTS.md byte for byte as 2.13.0 shipped it, within the 28 KiB budget', () => {
+  const now = read('example-folder/AGENTS.md');
+  assert.ok(Buffer.byteLength(now) <= 28672, Buffer.byteLength(now) + ' bytes');
+  let was;
+  try { was = require('child_process').execFileSync('git', ['show', 'v2.13.0:example-folder/AGENTS.md'], { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }); }
+  catch (e) { if (process.env.CI) throw new Error('v2.13.0 isn\'t in this clone: git fetch --tags'); console.log('  (skipped the 2.13.0 comparison: no tag v2.13.0 here)'); return; }
+  assert.strictEqual(now, was);
 });
 
 run();

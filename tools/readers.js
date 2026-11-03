@@ -57,6 +57,10 @@ const RAW = [
   { file: 'src/core/publish.js', has: "types = JSON.parse(files['types.json'])", why: 'P.verify itself: types go through T.understood' },
   { file: 'src/core/evidence.js', has: 'var n = json(l);', why: 'E.notesFile: lines kept as written for the pack page, each note then through cleanNote' },
   { file: 'src/core/evidence.js', has: 'json(types)', why: 'Evidence compares step types as data (canonical), never by meaning' },
+  { file: 'src/core/save.js', has: 'try { k = JSON.parse(s.slice(i, j + 1)); }', why: 'duplicateKeys decodes one key\'s string to compare it with the others; the definition itself goes through PF.types.checkCustom before anything is written' },
+  { file: 'bin/flightdeck.js', has: 'try { o = JSON.parse(text); } catch (e) { parsed = false; }', why: 'type read, list and save: a step-type file through PF.types.checkCustom (as T.checkCustom) and the envelope\'s verdict before any field is read' },
+  { file: 'bin/flightdeck.js', has: 'try { def = JSON.parse(text); }', why: 'type save --from: the input\'s id is compared with the ID argument (usage), then PF.types.checkCustom checks the whole definition before anything is written' },
+  { file: 'bin/flightdeck.js', has: "try { doc = JSON.parse(new TextDecoder('utf-8').decode(p.bytes)); }", why: 'type save --asked-by: people.json through PF.people.verdict, then PF.people.clean, before any field is read' },
   { file: 'src/core/evidence.js', has: 'json(info)', why: 'Evidence compares a run/3 payload and pins as data (P.payloadHash, canonical); the version itself is checked by P.verify in the same pack' }
 ];
 /* Every JavaScript file in src/ and bin/: a new reader anywhere is in scope. */

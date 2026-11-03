@@ -1775,6 +1775,495 @@ async function draftMain(argv) {
   }
 }
 
+/* ---------- flightdeck type list | read | save (2.14): step types through a checked write ----------
+   type save compares the exact bytes it read (SHA-256), writes a complete temporary file beside the target, checks the
+   folder allows hard links, compares again (bytes, then the path still names that file, then a final listing for copies),
+   commits with one link (a new type) or one rename (a change), reads it back and records one history line. Like two
+   Flightdeck windows in different browsers, two saves at the same instant can replace one another without either being
+   told. It writes nothing but step-types/<id>.json, one history line and its own temporary files. */
+const WRITE_CONTRACT = 'flightdeck-write/1';
+const TYPE_INPUT_MAX = 262144, TYPE_READ_CAP = 1048576;
+const NO_LINKS = ['EPERM', 'ENOTSUP', 'EOPNOTSUPP', 'ENOSYS', 'EXDEV'];
+const BIG = { bigint: true };
+/* A test hook (FD._hooks), when one is set; its promise is awaited only where the caller awaits it. */
+function hook(name, ...a) { const h = _hooks[name]; return h ? h(...a) : undefined; }
+const thenable = (p) => !!p && typeof p.then === 'function';
+const errText = (e) => (e && e.code ? e.code + (e.message && e.message.indexOf(e.code) < 0 ? ': ' + e.message : '') : (e && e.message) || String(e));
+function lstatBig(p) { try { return fs.lstatSync(p, BIG); } catch (e) { if (e.code === 'ENOENT') return null; throw e; } }
+const sameNode = (a, b) => a.dev === b.dev && a.ino === b.ino;
+const sameMeta = (a, b) => sameNode(a, b) && a.size === b.size && a.mtimeNs === b.mtimeNs && a.ctimeNs === b.ctimeNs;
+const sha256 = (b) => crypto.createHash('sha256').update(b).digest('hex');
+const relOf = (dir, full) => path.relative(dir, full).split(path.sep).join('/');
+/* One bounded read through a descriptor: opened without following a link or blocking (a FIFO swapped in can't hang it),
+   checked at once to be the regular file lstat saw (st), read in a loop into at most limit bytes, then stat'ed again (the
+   snapshot). opts.cap refuses a bigger file before reading. Every descriptor is closed; a close error is a failure too. */
+function readThrough(full, phase, limit, st, opts) {
+  hook('beforeOpen', full, phase);
+  let fd;
+  try { fd = fs.openSync(full, fs.constants.O_RDONLY | (fs.constants.O_NOFOLLOW || 0) | (fs.constants.O_NONBLOCK || 0)); }
+  catch (e) { return { fail: e.code === 'ENOENT' ? 'gone' : e.code === 'ELOOP' ? 'link' : 'error', why: errText(e) }; }
+  let res;
+  try {
+    const first = fs.fstatSync(fd, BIG);
+    if (!first.isFile()) res = { fail: 'notfile', why: 'it isn\'t a regular file' };
+    else if (!sameNode(first, st)) res = { fail: 'moved', why: 'it was replaced as it was opened' };
+    else if (opts && opts.cap && first.size > BigInt(opts.cap)) res = { fail: 'oversized', size: Number(first.size) };
+    else {
+      const buf = Buffer.alloc(limit);
+      let total = 0;
+      while (total < limit) { const n = fs.readSync(fd, buf, total, limit - total, total); if (!n) break; total += n; hook('readChunk', full, phase, total); }
+      res = { first, snap: fs.fstatSync(fd, BIG), bytes: buf.subarray(0, total), filled: total >= limit };
+    }
+  } catch (e) { res = { fail: 'error', why: errText(e) }; }
+  try { fs.closeSync(fd); } catch (e) { if (!res.fail) res = { fail: 'close', why: 'couldn\'t close ' + full + ' (' + errText(e) + ')' }; }
+  return res;
+}
+/* A file read whole, up to the read cap, with the path checked again after the read: { state: 'bytes', bytes } or missing,
+   link (a link or non-file at the path), unreadable, oversized or vanished, each with why. retry reads once more when the
+   file was replaced in between. */
+function readWhole(home, name, phase, retry) {
+  const full = path.join(home, name);
+  for (let n = 0; n < (retry ? 2 : 1); n++) {
+    let st;
+    try { st = lstatBig(full); } catch (e) { return { state: 'unreadable', why: errText(e) }; }
+    if (!st) return n ? { state: 'vanished', why: 'it was removed while Flightdeck was reading it' } : { state: 'missing' };
+    if (st.isSymbolicLink() || !st.isFile()) return { state: 'link', why: st.isSymbolicLink() ? 'it\'s a link; Flightdeck never reads through one' : 'it isn\'t a file', folder: st.isDirectory() };
+    const r = readThrough(full, phase, TYPE_READ_CAP + 1, st, { cap: TYPE_READ_CAP });
+    if (r.fail === 'gone') return { state: 'vanished', why: 'It was there a moment ago and was gone when it was read. Try again.' };
+    if (r.fail === 'link') return { state: 'link', why: 'it\'s a link; Flightdeck never reads through one' };
+    if (r.fail === 'oversized' || (!r.fail && r.filled)) return { state: 'oversized', bytes: r.fail ? r.size : r.bytes.length, why: 'it\'s over the ' + size(TYPE_READ_CAP) + ' Flightdeck reads' };
+    if (r.fail === 'moved') continue;
+    if (r.fail) return { state: 'unreadable', why: r.why };
+    if (!sameMeta(r.first, r.snap)) continue;
+    hook('afterSnapshot', full, phase);
+    let now;
+    try { now = lstatBig(full); } catch (e) { return { state: 'unreadable', why: errText(e) }; }
+    if (!now) return { state: 'vanished', why: 'it was removed while Flightdeck was reading it' };
+    if (sameMeta(now, r.snap)) return { state: 'bytes', bytes: r.bytes };
+  }
+  return { state: 'vanished', why: 'it changed while Flightdeck was reading it, twice. Try again.' };
+}
+/* step-types/ as listed now: every entry, and the regular .json files in the order the app's loader reads them. */
+function typeListing(home) {
+  const entries = fs.readdirSync(home, { withFileTypes: true });
+  const names = entries.map((e) => e.name), files = entries.filter((e) => e.isFile() && /\.json$/i.test(e.name)).map((e) => e.name).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  return { entries, names, files };
+}
+function loadPosition(files, name) {
+  const all = files.indexOf(name) >= 0 ? files : files.concat([name]).sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  return all.indexOf(name) + 1;
+}
+/* What a step-type file is to the command (state: ok, malformed or newer, on its exact bytes) and to the app (usable: the
+   app's lenient decoding, then checkCustom and name = ID, as repo.loadStepTypes reads it). */
+function typeFile(PF, bytes, file) {
+  const T = PF.types, bom = bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf;
+  const text = new TextDecoder('utf-8').decode(bytes);
+  let utf8 = true;
+  try { new TextDecoder('utf-8', { fatal: true }).decode(bytes); } catch (e) { utf8 = false; }
+  const crlf = (text.match(/\r\n/g) || []).length, lf = (text.match(/\n/g) || []).length - crlf, cr = (text.match(/\r(?!\n)/g) || []).length;
+  const lineEndings = !crlf && !lf && !cr ? 'none' : crlf && !lf && !cr ? 'crlf' : lf && !crlf && !cr ? 'lf' : 'mixed';
+  const out = { bom, utf8, text, lineEndings, state: 'ok', def: null, errors: [], needs: null, usable: false, valid: false };
+  let o, parsed = true;
+  try { o = JSON.parse(text); } catch (e) { parsed = false; }
+  const object = parsed && !!o && typeof o === 'object' && !Array.isArray(o);
+  /* The app's view. */
+  if (parsed) {
+    let errs;
+    try { errs = T.checkCustom(o); } catch (e) { errs = ['couldn\'t be read as a step type']; }
+    if (!errs.length && file === o.id + '.json') { try { T.customType(o); out.usable = true; } catch (e) { out.usable = false; } }
+  }
+  /* The command's view. */
+  if (!parsed) return Object.assign(out, { state: 'malformed', errors: [utf8 ? 'isn\'t valid JSON' : 'isn\'t valid UTF-8 text'] });
+  if (!object) return Object.assign(out, { state: 'malformed', errors: ['must be a JSON object'] });
+  if (o.format != null || o.features != null) {
+    const env = PF.envelope.judge('flightdeck-step-type', o);
+    if (!env.ok && env.kind === 'newer') { let e1; try { e1 = T.checkCustom(o)[0]; } catch (e) { e1 = ''; } return Object.assign(out, { state: 'newer', needs: env.needs || null, errors: [e1 || 'It needs a newer Flightdeck.'] }); }
+  }
+  out.def = o;
+  let errs;
+  try { errs = T.checkCustom(o).slice(); } catch (e) { errs = ['couldn\'t be read as a step type']; }
+  if (!utf8) return Object.assign(out, { state: 'malformed', errors: ['isn\'t valid UTF-8 text'].concat(errs) });
+  if (errs.length) return Object.assign(out, { state: 'malformed', errors: errs });
+  if (file !== o.id + '.json') return Object.assign(out, { state: 'malformed', errors: ['the file name must be ' + o.id + '.json'] });
+  out.valid = true;
+  return out;
+}
+const STATE_KIND = { malformed: 'malformed', newer: 'newer', unreadable: 'unreadable', oversized: 'skipped', vanished: 'vanished', link: 'link' };
+/* One file as type read and type list report it, its problem noted in the ledger. */
+function typeEntry(PF, L, home, file, files, phase) {
+  const rel = 'step-types/' + file, got = home ? readWhole(home, file, phase, true) : { state: 'missing' }, pos = files.indexOf(file) >= 0 ? files.indexOf(file) + 1 : null;
+  const e = { state: got.state, rev: null, bytes: null, bom: null, lineEndings: null, utf8: null, text: null, def: null, errors: [], needs: null, position: pos, selected: pos == null ? null : pos <= PF.save.LIMIT, usable: pos == null ? null : false };
+  if (got.state === 'missing') return Object.assign(e, { rev: 'none', position: null, selected: null, usable: null });
+  if (got.state !== 'bytes') {
+    L.note(rel, STATE_KIND[got.state], got.why);
+    return Object.assign(e, { bytes: got.state === 'oversized' ? got.bytes : null, errors: got.why ? [got.why] : [] });
+  }
+  const f = typeFile(PF, got.bytes, file);
+  Object.assign(e, { state: f.state, rev: sha256(got.bytes), bytes: got.bytes.length, bom: f.bom, lineEndings: f.lineEndings, utf8: f.utf8, text: f.text, def: f.state === 'newer' ? null : f.def, errors: f.errors, needs: f.needs });
+  if (pos != null) e.usable = e.selected && f.usable;
+  if (f.state !== 'ok') L.note(rel, STATE_KIND[f.state], f.errors[0] || '');
+  return e;
+}
+function typeFail(eng, kind, why) { return { out: JSON.stringify(eng.PF.appjson.failure(eng.version, kind, why, [], 2), null, 2), code: EXIT.error }; }
+async function typeRead(eng, argv, args) {
+  const PF = eng.PF, AJ = PF.appjson, T = PF.types, sub = args[1];
+  const extra = argv.filter((a) => a.startsWith('--') && a !== '--json');
+  if (extra.length) return typeFail(eng, 'usage', 'type ' + sub + ' doesn\'t take ' + extra[0] + '.');
+  if (!argv.includes('--json')) return typeFail(eng, 'usage', 'flightdeck type ' + sub + ' prints JSON. Add --json.');
+  const id = args[3];
+  if (sub === 'read' && (!id || !T.ID.test(id) || id.length > T.ID_MAX)) return typeFail(eng, 'usage', 'a step type ID is lowercase letters, numbers, dashes and dots, like deploy.check: flightdeck type read <team folder> <id> --json');
+  if (args.length > (sub === 'read' ? 4 : 3)) return typeFail(eng, 'usage', 'type ' + sub + ' takes ' + (sub === 'read' ? 'a team folder and an ID' : 'a team folder') + ', nothing else.');
+  let dir;
+  try { dir = folderArg(args[2], 'type ' + sub); } catch (e) { return typeFail(eng, 'failed', e.message); }
+  const L = PF.repo.ledger({}), readAt = new Date().toISOString();
+  let home = null, listing = { names: [], files: [], entries: [] };
+  try { home = folders(dir, ['step-types'], false); } catch (e) { L.note('step-types', 'link', e.message); }
+  if (home) { try { listing = typeListing(home); } catch (e) { L.note('step-types', 'unreadable', 'couldn\'t be listed (' + errText(e) + ')'); home = null; } }
+  const done = (data) => { const env = AJ.envelope(eng.version, readAt, L.problems(), data, 2); return { out: JSON.stringify(env, null, 2), code: env.complete ? 0 : EXIT.partial }; };
+  if (sub === 'read') {
+    const file = id + '.json', e = typeEntry(PF, L, home, file, listing.files, 'read');
+    return done({ type: Object.assign({ id, path: 'step-types/' + file }, e) });
+  }
+  const S = PF.save, rows = [], other = [];
+  for (const file of listing.files) {
+    const e = typeEntry(PF, L, home, file, listing.files, 'list');
+    /* A listed type it's a copy of first, else the name it would be a copy of (the original may be gone). */
+    const base = listing.names.filter((n) => n !== file && /\.json$/i.test(n) && S.copiesOf(n, [file]).length)[0] || S.copyBase(file);
+    rows.push({ file, id: e.def && typeof e.def.id === 'string' ? e.def.id : null, state: e.state, rev: e.rev, kind: 'file', position: e.position, selected: e.selected, usable: e.usable,
+      copyOf: base && /\.json$/i.test(base) && T.ID.test(base.slice(0, -5).toLowerCase()) ? base : null, errors: e.errors });
+  }
+  listing.entries.filter((x) => !x.isFile() && /\.json$/i.test(x.name)).sort((a, b) => (a.name < b.name ? -1 : 1)).forEach((x) => {
+    const link = x.isSymbolicLink();
+    L.note('step-types/' + x.name, link ? 'link' : 'unusable', link ? 'it\'s a link; Flightdeck never reads through one' : 'it isn\'t a file');
+    other.push({ file: x.name, id: null, state: 'link', rev: null, kind: link ? 'link' : 'folder', position: null, selected: null, usable: null, copyOf: null, errors: [] });
+  });
+  return done({ types: rows.concat(other), limit: S.LIMIT, count: listing.files.length });
+}
+/* T: the new bytes in an exclusive temporary file beside the target, written in full, flushed, closed and read back. The
+   name never ends in .json, so no loader, copy check or count sees it. */
+function tempBeside(home, name, data) {
+  const tmp = path.join(home, '.' + name + '.' + process.pid + '.' + crypto.randomBytes(6).toString('hex') + '.tmp');
+  let fd = null, ours = null;
+  try {
+    fd = fs.openSync(tmp, 'wx');
+    ours = fs.fstatSync(fd, BIG);
+    for (let off = 0; off < data.length;) { const n = fs.writeSync(fd, data, off, data.length - off); if (!(n > 0)) throw new Error('the disk accepted no more bytes'); off += n; }
+    fs.fsyncSync(fd);
+    const c = fd; fd = null;
+    try { fs.closeSync(c); } catch (e) { throw new Error('couldn\'t close ' + tmp + ' (' + errText(e) + ')'); }
+    const back = readThrough(tmp, 'T', data.length + 1, ours, null);
+    if (back.fail) throw new Error('the temporary file couldn\'t be read back (' + back.why + ')');
+    if (back.filled || !back.bytes.equals(data)) throw new Error('the temporary file didn\'t read back as written');
+    return { tmp, ours };
+  } catch (e) {
+    if (fd !== null) try { fs.closeSync(fd); } catch (err) { /* the write already failed */ }
+    const x = new Error('couldn\'t write the new file (' + errText(e) + ')');
+    x.tmp = ours ? tmp : null; x.ours = ours;
+    throw x;
+  }
+}
+/* Remove a temporary file, only while it's still the one this process made. Returns the error, or null. */
+function removeOurs(full, ours, atUnlink) {
+  try {
+    const st = lstatBig(full);
+    if (!st || st.isSymbolicLink() || !sameNode(st, ours)) return null;
+    if (atUnlink) hook('atUnlink', full);
+    fs.unlinkSync(full);
+    return null;
+  } catch (e) { return errText(e); }
+}
+/* P: link the temporary file to a second name and remove it, before the target is touched. */
+function probeLinks(tmp) {
+  const probe = tmp.replace(/\.tmp$/, '.probe');
+  try { fs.linkSync(tmp, probe); } catch (e) { return NO_LINKS.indexOf(e.code) >= 0 ? { refused: 'no-links', why: errText(e) } : { failed: true, why: errText(e) }; }
+  try { fs.unlinkSync(probe); } catch (e) { return { failed: true, why: 'the check\'s second name couldn\'t be removed (' + errText(e) + ')', left: probe }; }
+  return null;
+}
+/* A new file, created once (the history line): T, P, then one link that never replaces anything. */
+function createOnce(dir, parts, data) {
+  const res = { commit: 'no', why: null, left: [], leftWhy: [] };
+  let home, t;
+  try { home = folders(dir, parts.slice(0, -1), true); } catch (e) { res.why = e.message; return res; }
+  const target = path.join(home, parts[parts.length - 1]);
+  try { t = tempBeside(home, parts[parts.length - 1], data); } catch (e) { res.why = e.message; if (e.tmp) { const w = removeOurs(e.tmp, e.ours); if (w) { res.left.push(e.tmp); res.leftWhy.push(w); } } return res; }
+  const p = probeLinks(t.tmp);
+  if (p) { res.why = p.why; if (p.left) { res.left.push(p.left); res.leftWhy.push(p.why); } }
+  else {
+    try {
+      if (lstatBig(target)) res.why = 'it\'s already there';
+      else { fs.linkSync(t.tmp, target); res.commit = 'yes'; }
+    } catch (e) { if (e.code === 'EEXIST') res.why = 'it\'s already there'; else { res.commit = 'unknown'; res.why = errText(e); } }
+  }
+  const w = removeOurs(t.tmp, t.ours);
+  if (w) { res.left.push(t.tmp); res.leftWhy.push(w); }
+  return res;
+}
+/* B: does the path still name our file, holding our bytes, unchanged while it was read? (design 1.4b) */
+function observeOther(target) {
+  try {
+    const st = lstatBig(target);
+    if (!st || st.isSymbolicLink() || !st.isFile()) return { now: null, why: 'it couldn\'t be read whole' };
+    const r = readThrough(target, 'observe', TYPE_READ_CAP + 1, st, { cap: TYPE_READ_CAP });
+    if (r.fail === 'oversized' || (!r.fail && r.filled)) return { now: null, why: 'it\'s over the ' + size(TYPE_READ_CAP) + ' Flightdeck reads' };
+    if (r.fail) return { now: null, why: r.why };
+    const fin = lstatBig(target);
+    if (!sameMeta(r.first, r.snap) || !fin || !sameMeta(fin, r.snap)) return { now: null, why: 'it changed while Flightdeck was reading it' };
+    return { now: sha256(r.bytes), why: null };
+  } catch (e) { return { now: null, why: errText(e) }; }
+}
+function readBack(target, ours, data) {
+  let st;
+  try { st = lstatBig(target); } catch (e) { return { back: 'unreadable', now: null, why: errText(e) }; }
+  if (!st) return { back: 'missing', now: null, why: null };
+  if (st.isSymbolicLink() || !st.isFile()) return { back: 'unreadable', now: null, why: 'a folder or a link is there now' };
+  if (!sameNode(st, ours)) return Object.assign({ back: 'other' }, observeOther(target));
+  const r = readThrough(target, 'B', data.length + 1, st, null);
+  if (r.fail === 'gone') return { back: 'missing', now: null, why: null };
+  if (r.fail === 'moved') return Object.assign({ back: 'other' }, observeOther(target));
+  if (r.fail) return { back: 'unreadable', now: null, why: r.why };
+  hook('afterSnapshot', target, 'B');
+  let fin;
+  try { fin = lstatBig(target); } catch (e) { return { back: 'unreadable', now: null, why: errText(e) }; }
+  if (!fin) return { back: 'missing', now: null, why: null };
+  if (!sameNode(fin, ours)) return Object.assign({ back: 'other' }, observeOther(target));
+  const len = BigInt(data.length), stable = sameMeta(r.first, r.snap) && sameMeta(fin, r.snap);
+  if (r.filled || !r.bytes.equals(data) || r.snap.size !== len || fin.size !== len) return stable ? Object.assign({ back: 'other' }, observeOther(target)) : { back: 'other', now: null, why: 'it changed while Flightdeck was reading it back' };
+  if (!stable) return { back: 'unstable', now: null, why: 'it changed while Flightdeck was reading it back' };
+  return { back: 'same', now: sha256(data), why: null };
+}
+/* The new definition from --from: at most 256 KB of strict UTF-8 (a leading byte-order mark dropped), no key twice in one
+   object, no __proto__, constructor or prototype key, one JSON object, the ID it's saved as, checkCustom, then formatWhy. */
+function typeInput(PF, file, id) {
+  const T = PF.types, S = PF.save;
+  let buf;
+  try { buf = file === '-' ? fs.readFileSync(0) : fs.readFileSync(expand(file)); } catch (e) { return { usage: 'couldn\'t read --from (' + errText(e) + ').' }; }
+  const bad = (why, errors) => ({ invalid: why, errors: errors || [why] });
+  if (buf.length > TYPE_INPUT_MAX) return bad('the definition is ' + buf.length + ' bytes; a step type is at most ' + TYPE_INPUT_MAX + ' bytes (256 KB) of UTF-8');
+  let text;
+  try { text = new TextDecoder('utf-8', { fatal: true }).decode(buf); } catch (e) { return bad('the definition isn\'t valid UTF-8 text'); }
+  let def;
+  try { def = JSON.parse(text); } catch (e) { return bad('the definition isn\'t valid JSON (' + e.message + ')'); }
+  if (!def || typeof def !== 'object' || Array.isArray(def)) return bad('must be a JSON object');
+  const dup = S.duplicateKeys(text);
+  if (dup !== null) return bad('"' + dup + '" appears twice in one object; JSON keeps only the last, so say it once');
+  if (def.id !== id) return { usage: 'the definition\'s "id" must be ' + id + ', the ID it\'s saved as.' };
+  /* checkCustom first, so a reserved name gets the reader's own words (a shared rule); then the keys it doesn't look at. */
+  const errs = T.checkCustom(def).slice();
+  if (errs.length) return bad(errs[0], errs);
+  const odd = S.oddKeys(def);
+  if (odd !== null) return bad('"' + odd + '" can\'t be a key in a step type');
+  const fw = T.formatWhy(def);
+  if (fw) return bad(fw);
+  const data = Buffer.from(T.fileText(def), 'utf8');
+  if (data.length > TYPE_INPUT_MAX) return bad('the saved file would be ' + data.length + ' bytes; a step type is at most ' + TYPE_INPUT_MAX + ' bytes (256 KB)');
+  return { def, data };
+}
+async function typeSave(eng, argv, args, val) {
+  const PF = eng.PF, S = PF.save, T = PF.types, U = PF.util, TL = PF.timeline, now = Date.now();
+  const id = args[3], name = id + '.json', rel = 'step-types/' + name, idOk = !!id && T.ID.test(id) && id.length <= T.ID_MAX;
+  const out = { contract: WRITE_CONTRACT, app: eng.version || '', command: 'type save', path: idOk ? rel : null, operation: null, outcome: '', written: false,
+    rev: { expected: null, before: null, after: null, now: null }, back: null, load: null, existing: null, appLoads: null,
+    checks: { errors: [], warnings: [], omitted: { before: null, after: null } }, askedBy: null, history: null, cleanup: null, error: null, words: '', readAt: new Date(now).toISOString(), problems: [] };
+  const L = PF.repo.ledger({}), left = [], leftWhy = [];
+  let dir = null;
+  /* Every answer goes through PF.save.settle and PF.save.words. */
+  const finish = (f) => {
+    if (dir && left.length) out.cleanup = { leftover: left.map((p) => relOf(dir, p)), why: leftWhy.join('; ') };
+    const s = S.settle({ refused: f.refused || null, commit: f.commit || 'no', back: f.back || null, history: f.history || null, cleanup: out.cleanup, load: out.load });
+    out.outcome = s.outcome; out.written = s.written; out.back = s.back;
+    if (s.history) out.history = { path: f.historyPath, written: s.history.written, why: s.history.why };
+    const why = f.refused ? f.refused.why || '' : f.why || '';
+    out.words = S.words(s.outcome, { kind: s.kind, path: rel, why, copies: f.refused && f.refused.copies, needs: f.refused && f.refused.needs, load: out.load, history: s.history, cleanup: out.cleanup, back: s.back, dryRun: s.outcome === 'checked' });
+    out.error = s.kind ? { kind: s.kind, why: why || out.words } : null;
+    out.problems = L.problems();
+    return { out: JSON.stringify(out, null, 2), code: s.exit };
+  };
+  const refuse = (outcome, kind, why, more) => finish({ refused: Object.assign({ outcome, kind, why }, more || {}) });
+  const usage = (why) => refuse('refused', 'usage', why);
+  /* Flags first: nothing is read before every one checks out. */
+  const VAL = ['--expect', '--from', '--asked-by', '--note'], FLAGS = ['--json', '--dry-run'];
+  for (let i = 0; i < argv.length; i++) {
+    if (VAL.indexOf(argv[i]) >= 0) { i++; continue; }
+    if (argv[i].startsWith('--') && FLAGS.indexOf(argv[i]) < 0) return usage('type save doesn\'t take ' + argv[i] + '.');
+  }
+  if (!argv.includes('--json')) return usage('flightdeck type save prints JSON. Add --json.');
+  if (!idOk) return usage('a step type ID is lowercase letters, numbers, dashes and dots, like deploy.check: flightdeck type save <team folder> <id> --expect <rev|none> --from <file> --json');
+  if (args.length > 4) return usage('type save takes a team folder and an ID, nothing else.');
+  for (const f of VAL) if (argv.indexOf(f) >= 0 && val[f] == null) return usage('say what goes after ' + f + '.');
+  const expect = val['--expect'];
+  if (expect == null || !(expect === 'none' || /^[0-9a-f]{64}$/.test(expect))) return usage('--expect is the rev type read gave (a SHA-256), or exactly none when type read said missing.');
+  out.rev.expected = expect;
+  if (val['--from'] == null) return usage('say where the definition is: --from <file>, or --from - to read it from standard input.');
+  const by = val['--asked-by'];
+  if (by != null && (by.length < 1 || by.length > 80 || /[\u0000-\u001f\u007f]/.test(by))) return usage('--asked-by is a person ID from people.json, like person-avery: 1 to 80 characters, no control characters.');
+  if (val['--note'] != null && val['--note'].length > 200) return usage('--note is at most 200 characters.');
+  const input = typeInput(PF, val['--from'], id);
+  if (input.usage) return usage(input.usage);
+  if (input.invalid) { out.checks.errors = input.errors; return refuse('refused', 'invalid', input.invalid); }
+  const def = input.def, data = input.data, dryRun = argv.includes('--dry-run');
+  out.rev.after = sha256(data);
+  try { dir = folderArg(args[2], 'type save'); } catch (e) { return refuse('failed', 'failed', e.message); }
+  out.operation = PF.proposals.newId(now, U.randomId(10));
+  const historyPath = 'history/step-types/' + id + '/agent-' + out.operation + '.jsonl';
+  try {
+    /* R1: the listing, the target's exact bytes, and who asked. */
+    let home;
+    try { home = folders(dir, ['step-types'], false); } catch (e) { return refuse('failed', 'failed', e.message); }
+    let listing = { names: [], files: [], entries: [] }, unlisted = null;
+    if (home) { try { listing = typeListing(home); } catch (e) { unlisted = 'step-types/ couldn\'t be listed (' + errText(e) + '), so it isn\'t safe to save. Try again once it has synced.'; L.note('step-types', 'unreadable', 'couldn\'t be listed (' + errText(e) + ')'); } }
+    const got = home ? readWhole(home, name, 'R1', false) : { state: 'missing' };
+    let seen, file = null, seenBytes = null;
+    if (got.state === 'link') return refuse('failed', 'failed', rel + ' isn\'t a file Flightdeck can save over: ' + got.why + '.');
+    if (got.state === 'missing') { seen = { state: 'missing', rev: null }; out.existing = 'missing'; }
+    else if (got.state === 'bytes') {
+      seenBytes = got.bytes; file = typeFile(PF, got.bytes, name);
+      seen = { state: 'bytes', rev: sha256(got.bytes) }; out.rev.before = seen.rev; out.existing = file.state;
+      const pos = listing.files.indexOf(name) >= 0 ? listing.files.indexOf(name) + 1 : null;
+      out.appLoads = pos != null && pos <= S.LIMIT && file.usable;
+    } else {
+      L.note(rel, STATE_KIND[got.state], got.why);
+      seen = { state: 'unreadable', rev: null, why: rel + ' couldn\'t be read (' + got.why + '), so it isn\'t safe to save. Try again once it has synced.' };
+    }
+    const asked = { required: false, held: '', verdict: '' };
+    if (by != null) {
+      const p = readWhole(dir, 'people.json', 'people', false);
+      if (p.state === 'missing') asked.verdict = S.asked([], by, 'person');
+      else if (p.state !== 'bytes') { L.note('people.json', STATE_KIND[p.state], p.why); asked.held = 'people.json couldn\'t be read (' + p.why + '), so who asked can\'t be checked. Try again once it has synced.'; }
+      else {
+        let doc;
+        try { doc = JSON.parse(new TextDecoder('utf-8').decode(p.bytes)); } catch (e) { doc = undefined; }
+        if (doc === undefined) { L.note('people.json', 'malformed', 'isn\'t valid JSON'); asked.held = 'people.json isn\'t valid JSON, so who asked can\'t be checked.'; }
+        else if (!PF.people.verdict(doc).ok) { L.note('people.json', 'newer', PF.people.verdict(doc).why); asked.held = 'people.json was made with a newer Flightdeck, so who asked can\'t be checked.'; }
+        else {
+          const people = PF.people.clean(doc);
+          asked.verdict = S.asked(people, by, 'person');
+          if (!asked.verdict) { const me = people.filter((x) => x.id === by)[0]; out.askedBy = { id: by, name: me.name }; }
+        }
+      }
+    }
+    { const p = hook('afterRead', home ? path.join(home, name) : path.join(dir, 'step-types', name)); if (thenable(p)) await p; }
+    /* Warnings, never refusals; the history line built before any file is made (design 1.6). */
+    const W = out.checks.warnings, oldDef = file && file.state === 'ok' ? file.def : null;
+    if (file && file.state === 'malformed') W.push(rel + ' is malformed (' + (file.errors[0] || 'it isn\'t a step type Flightdeck can use') + '); this save repairs it.');
+    T.unusedKeys(def).forEach((k) => W.push(k + ' isn\'t part of a step type Flightdeck reads; its editor drops it on its next save.'));
+    if (T.markerWhy(def)) W.push(T.markerWhy(def));
+    if (oldDef) {
+      const drafts = [];
+      try {
+        const ra = readAdapter(dir, { maxBytes: U.DRAFT_BYTES });
+        for (const i of await ra.list('maps/drafts')) {
+          if (i.kind !== 'file' || !/\.md$/i.test(i.name)) continue;
+          try { const f = await ra.read('maps/drafts/' + i.name); if (f) drafts.push({ process: i.name.replace(/\.md$/i, ''), text: f.text }); } catch (e) { /* unread: not checked */ }
+        }
+      } catch (e) { /* no drafts read */ }
+      T.inUse(oldDef, def, drafts).forEach((w) => W.push(w));
+    }
+    const omitted = out.checks.omitted, appText = seenBytes ? new TextDecoder('utf-8').decode(seenBytes) : null, from = appText == null ? null : U.hash(appText);
+    if (file && file.state !== 'ok') omitted.before = 'invalid';
+    let seenId = null;
+    if (from) {
+      try { const h = await PF.repo.loadEditHistory(readAdapter(dir, { maxBytes: READ_MAX }), 'history/step-types/' + id, from); const e = h.items.filter((x) => x.entry && x.entry.to === from)[0]; seenId = e ? e.entry.id : null; } catch (e) { seenId = null; }
+    }
+    const lineOf = (b, a) => TL.histLine({ kind: 'type-edit', id: out.operation, type: id, writer: out.operation, seq: 1, by: by || '', at: new Date(now).toISOString(), from, to: U.hash(T.fileText(def)), seen: seenId,
+      before: b, after: a, source: 'agent', units: [val['--note'] || 'Changed by your AI assistant'] });
+    let line = null, lineWhy = null;
+    try {
+      line = lineOf(oldDef, def);
+      if (line.big) { if (oldDef) omitted.before = 'cap'; omitted.after = 'cap'; }
+      else {
+        const c = TL.cleanEntry(JSON.parse(JSON.stringify(line)), 'agent-' + out.operation + '.jsonl');
+        if (oldDef && (!c || c.before == null)) omitted.before = 'cleaned';
+        if (!c || c.after == null) omitted.after = 'cleaned';
+      }
+    } catch (e) {
+      try { line = lineOf(null, null); if (oldDef) omitted.before = 'fallback'; omitted.after = 'fallback'; } catch (e2) { line = null; lineWhy = 'its history line couldn\'t be built (' + errText(e2) + ')'; omitted.after = 'fallback'; }
+    }
+    S.historyWarnings(omitted).forEach((w) => W.push(w));
+    /* J: one verdict. */
+    const v = S.judge({ mode: S.MODE, expect, seen, listing: unlisted ? { unlisted: true, why: unlisted } : listing.names, name, existing: file ? { verdict: file.state, needs: file.needs } : null, asked: { required: false, held: asked.held, verdict: asked.verdict }, newRev: out.rev.after, dryRun });
+    const loadIf = (files, from2) => { const position = loadPosition(files, name); out.load = { position, limit: S.LIMIT, selected: position <= S.LIMIT, from: from2 }; if (position > S.LIMIT) W.push(from2 === 'C' ? 'Flightdeck won\'t load it: it reads only the first ' + S.LIMIT + ' step-type files by name, and this is number ' + position + '.' : 'If saved with these files present, it would be number ' + position + ', and Flightdeck wouldn\'t load it: it reads only the first ' + S.LIMIT + ' by name.'); };
+    if (!v.go && v.outcome !== 'checked') return finish({ refused: { outcome: v.outcome, kind: v.kind, why: v.why, copies: (v.copies || []).map((c) => 'step-types/' + c), needs: v.needs } });
+    if (!line) return refuse('failed', 'failed', lineWhy);
+    if (v.outcome === 'checked') { loadIf(listing.files, 'R1'); return finish({ refused: { outcome: 'checked', kind: null, why: '' } }); }
+    /* T and P. */
+    let where, t;
+    try { where = folders(dir, ['step-types'], true); } catch (e) { return refuse('failed', 'failed', e.message); }
+    const target = path.join(where, name);
+    try { t = tempBeside(where, name, data); } catch (e) { if (e.tmp) { const w = removeOurs(e.tmp, e.ours); if (w) { left.push(e.tmp); leftWhy.push(w); } } return refuse('failed', 'failed', e.message); }
+    const clean = () => { const w = removeOurs(t.tmp, t.ours); if (w) { left.push(t.tmp); leftWhy.push(w); } };
+    const stop = (outcome, kind, why, more) => { clean(); return refuse(outcome, kind, why, more); };
+    const pr = probeLinks(t.tmp);
+    if (pr) { if (pr.left) { left.push(pr.left); leftWhy.push(pr.why); } return pr.refused ? stop('refused', 'no-links', pr.why) : stop('failed', 'link-check', pr.why); }
+    /* C: the final compare. */
+    { const p = hook('beforeCompare', target); if (thenable(p)) await p; }
+    let l1;
+    try { l1 = typeListing(where); } catch (e) { return stop('failed', 'failed', 'step-types/ couldn\'t be listed (' + errText(e) + ')'); }
+    let copies = S.copiesOf(name, l1.names);
+    if (copies.length) return stop('refused', 'copies', '', { copies: copies.map((c) => 'step-types/' + c) });
+    let snap = null;
+    let st0;
+    try { st0 = lstatBig(target); } catch (e) { return stop('failed', 'failed', rel + ' couldn\'t be checked (' + errText(e) + ')'); }
+    if (seenBytes === null) { if (st0) return stop('refused', 'changed', ''); }
+    else {
+      if (!st0) return stop('refused', 'changed', '');
+      if (st0.isSymbolicLink() || !st0.isFile()) return stop('failed', 'failed', rel + ' is a folder or a link now; Flightdeck never saves through one.');
+      const r = readThrough(target, 'C', seenBytes.length + 1, st0, null);
+      if (r.fail === 'gone' || r.fail === 'moved') return stop('refused', 'changed', '');
+      if (r.fail) return stop('failed', 'failed', r.fail === 'close' ? r.why : rel + ' couldn\'t be compared (' + r.why + ')');
+      if (r.filled || !r.bytes.equals(seenBytes) || !sameMeta(r.first, r.snap)) return stop('refused', 'changed', '');
+      snap = r.snap;
+      hook('afterSnapshot', target, 'C');
+    }
+    let l2;
+    try { l2 = typeListing(where); } catch (e) { return stop('failed', 'failed', 'step-types/ couldn\'t be listed (' + errText(e) + ')'); }
+    copies = S.copiesOf(name, l2.names);
+    if (copies.length) return stop('refused', 'copies', '', { copies: copies.map((c) => 'step-types/' + c) });
+    { const p = hook('afterFinalListing', target); if (thenable(p)) await p; }
+    let fin;
+    try { fin = lstatBig(target); } catch (e) { return stop('failed', 'failed', rel + ' couldn\'t be checked (' + errText(e) + ')'); }
+    if (seenBytes === null) { if (fin) return stop('refused', 'changed', ''); }
+    else {
+      if (!fin) return stop('refused', 'changed', '');
+      if (fin.isSymbolicLink() || !fin.isFile()) return stop('failed', 'failed', rel + ' is a folder or a link now; Flightdeck never saves through one.');
+      if (!sameMeta(fin, snap)) return stop('refused', 'changed', '');
+    }
+    { const p = hook('afterCompare', target); if (thenable(p)) await p; }
+    /* W: the commit. Only the link or the rename returning says this command wrote. */
+    let commit = 'yes', commitWhy = null;
+    if (seenBytes === null) {
+      try { fs.linkSync(t.tmp, target); } catch (e) { if (e.code === 'EEXIST') return stop('refused', 'changed', ''); commit = 'unknown'; commitWhy = errText(e); }
+      if (commit === 'yes') try { hook('afterLink', target); } catch (e) { /* a test hook; the commit stands */ }
+    } else {
+      try { fs.renameSync(t.tmp, target); } catch (e) { commit = 'unknown'; commitWhy = errText(e); }
+    }
+    if (commit === 'yes') { try { const p = hook('afterCommit', target); if (thenable(p)) await p; } catch (e) { /* a test hook; the commit stands */ } }
+    /* U: the temporary file after a link (a rename moved it; an uncertain rename may have left it). */
+    if (seenBytes === null || commit === 'unknown') { const w = removeOurs(t.tmp, t.ours, commit === 'yes'); if (w) { left.push(t.tmp); leftWhy.push(w); } }
+    /* B: read back, for information only when the commit is unknown. */
+    const b = readBack(target, t.ours, data);
+    out.rev.now = b.back === 'same' || b.back === 'other' ? b.now : null;
+    if (commit === 'unknown') return finish({ commit: 'unknown', back: b.back, why: commitWhy });
+    loadIf(l2.files, 'C');
+    /* H: the history line, created once. */
+    const h = createOnce(dir, historyPath.split('/'), Buffer.from(JSON.stringify(line) + '\n', 'utf8'));
+    h.left.forEach((p, i) => { left.push(p); leftWhy.push(h.leftWhy[i]); });
+    return finish({ commit: 'yes', back: b.back, why: b.why || '', history: { commit: h.commit, why: h.why }, historyPath });
+  } catch (e) {
+    return refuse('failed', 'failed', e instanceof Refused ? e.message : 'The team folder couldn\'t be changed: ' + errText(e));
+  }
+}
+async function typeMain(argv) {
+  const VAL = ['--expect', '--from', '--asked-by', '--note'], val = {};
+  const args = argv.filter((a, i) => !a.startsWith('--') && !(i > 0 && VAL.indexOf(argv[i - 1]) >= 0));
+  argv.forEach((a, i) => { if (VAL.indexOf(a) >= 0 && i + 1 < argv.length && !(argv[i + 1].startsWith('--') && argv[i + 1] !== '-')) val[a] = argv[i + 1]; });
+  let eng;
+  try { eng = loadEngine(); if (_hooks.engine) _hooks.engine(eng); } catch (e) { return { out: JSON.stringify({ contract: 'flightdeck-read/2', app: '', error: { kind: 'failed', why: e.message }, problems: [] }, null, 2), code: EXIT.error }; }
+  const sub = args[1];
+  if (sub === 'list' || sub === 'read') return typeRead(eng, argv, args);
+  if (sub === 'save') return typeSave(eng, argv, args, val);
+  return typeFail(eng, 'usage', 'say list, read or save, for example: flightdeck type read <team folder> <id> --json');
+}
+
 const HELP = `flightdeck: team process checklists, in one HTML file
 
   flightdeck open                     open the app in this package: the first time, the welcome (start your team, join
@@ -1828,6 +2317,13 @@ const HELP = `flightdeck: team process checklists, in one HTML file
   flightdeck skill register <team folder> --from <file|-> [--json]
                                       for AI assistants: register a skill against the exact version it was built
                                       from (Flightdeck 2.0). The only writer of skill-registrations/
+  flightdeck type list <team folder> --json
+                                      for AI assistants: the team's step types, in the order Flightdeck reads them
+  flightdeck type read <team folder> <id> --json
+                                      one step type: its state, its exact text and rev (none when it isn't there)
+  flightdeck type save <team folder> <id> --expect <rev|none> --from <file|-> [--asked-by <person id>]
+                    [--note "<text>"] [--dry-run] --json
+                                      add or change a step type, only when it's exactly what you read
   flightdeck path                     print where the app file is
   flightdeck version                  print this version
 
@@ -1849,6 +2345,12 @@ or version.
 flightdeck draft changes the team folder (contract flightdeck-draft/1). Exit code 0: written or proposed (read: complete);
 4: read, partial; 1: usage, missing-base, too-big or failed; 5: read, no such process.
 
+flightdeck type save changes the team folder (contract flightdeck-write/1): it writes step-types/<id>.json and one
+history line, never anything else. It compares the exact bytes type read gave and reads its save back. Like two Flightdeck
+windows in different browsers, two saves at the same instant can replace one another without either being told. Exit
+code 0: done, same or checked; 4: held, partial, replaced, unverified or unsure (read the type again); 1: refused or
+failed (nothing was changed).
+
 export never changes the team folder and never writes a pack into it. It prints the pack's SHA-256: keep it somewhere
 separate. Exit code 0: a complete pack; 4: a partial pack (made, with what changed or is missing listed); 1: no pack.
 
@@ -1866,6 +2368,7 @@ function main(argv) {
   if (first === 'plan' && !argv.includes('--help')) return requestMain(argv);
   if (first === 'skill' && !argv.includes('--help')) return skillMain(argv);
   if (first === 'report' && !argv.includes('--help')) return reportMain(argv);
+  if (first === 'type' && !argv.includes('--help')) return typeMain(argv);
   const ti = argv.indexOf('--to'), to = ti >= 0 ? argv[ti + 1] : null;
   if (ti >= 0 && (!to || to.startsWith('--'))) fail('say which folder after --to, for example: flightdeck skills --to ~/skills');
   /* Flags that take a value: the value is never read as a command or a folder. */
