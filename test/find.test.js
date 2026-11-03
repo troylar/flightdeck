@@ -43,7 +43,7 @@ rule('Sorting is for the screen only: the CLI and the outside-app JSON never sor
 const PEOPLE_UNSORTED = [
   [/labeler\(/, 'labels, not a list'],
   [/PP\.roles\(|PF\.people\.roles\(/, 'the owner and backup, not a list'],
-  [/M\.check\(/, 'checking a draft, not drawing'],
+  [/PF\.publish\.checkOptions\(/, 'checking a draft, not drawing'],
   [/skills\.signer\(/, 'who may sign, not a list'],
   [/function personName\(/, 'one name looked up'],
   [/PF\.people\.sorted\(ctx\)/, 'sorted'],
