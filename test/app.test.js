@@ -3133,8 +3133,17 @@ rule('Runs (2.1.1): a note line that can\'t be read is named on the run page and
   assert.ok(!/notes-w-torn\.jsonl \(line/.test(app.html()), 'gone once the line reads');
 });
 
+/* A wall clock that starts at a fixed midday, well away from a clock change, and runs on from there. The example plan is due
+   at the hour 3 hours from now, so "in 2 hours" on most days; on the night the clocks go back, 3 hours after 23:50 is an hour
+   that comes twice, and it fell an hour sooner ("in 1 hour"). On this clock the words are the same on any day. */
+const MIDDAY = '2026-10-14T16:00:00.000Z';
+function clockFrom(iso, extra) {
+  const real = Date, offset = real.parse(iso) - real.now(), more = extra || (() => 0);
+  return class extends real { constructor(...a) { if (a.length) super(...a); else super(real.now() + offset + more()); } static now() { return real.now() + offset + more(); } };
+}
+
 rule('Plans: the example plan with a time shows on Home with one way to review and start it', async () => {
-  const app = boot(); await app.tick(60);
+  const app = boot({ Date: clockFrom(MIDDAY) }); await app.tick(60);
   app.choose('person-casey'); await app.tick();
   assert.ok(/Release 2026\.10\.23 is planned for [^<]* · in \d+ (hours|minutes)/.test(app.html()));
   assert.ok(/data-act="review-plan" data-id="plan-release-example-next">Review and start</.test(app.html()));
@@ -3181,8 +3190,7 @@ rule('Plans: a switch belongs to one folder and one version of the plan', async 
 
 rule('Plans: as time passes, Home picks up a plan entering its last day and the times in words stay current, with no change in the folder', async () => {
   let offset = 0;
-  const RealDate = Date;
-  class Clock extends RealDate { constructor(...a) { if (a.length) super(...a); else super(RealDate.now() + offset); } static now() { return RealDate.now() + offset; } }
+  const RealDate = clockFrom(MIDDAY), Clock = clockFrom(MIDDAY, () => offset);
   const app = boot({ Date: Clock }); await app.tick(60);
   app.choose('person-casey'); await app.tick();
   const when = new RealDate(RealDate.now() + 26 * 3600000); when.setMinutes(0, 0, 0);
