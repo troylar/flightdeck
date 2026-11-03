@@ -1,5 +1,27 @@
 [
   {
+    "version": "2.14.0",
+    "date": "2026-11-03",
+    "headline": "Your AI assistant saves step types through a checked command",
+    "changes": [
+      {
+        "kind": "new",
+        "area": "AI assistants",
+        "title": "flightdeck type list, type read and type save",
+        "now": "An assistant reads a step type with flightdeck type read and saves it with flightdeck type save --expect, which compares the exact bytes it read, refuses copies, checks the definition as Flightdeck does, reads the save back and records who asked in History. Like two Flightdeck windows in different browsers, two saves at the same instant can replace one another without either being told.",
+        "where": "docs/apps.md › Writing step types"
+      },
+      {
+        "kind": "improved",
+        "area": "AI assistants",
+        "title": "The new-step-type skill uses the commands",
+        "before": "The flightdeck-new-step-type skill told an assistant to write step-types/<id>.json itself, with no check that the file was still what it read.",
+        "now": "The skill uses type list, type read and type save, says what to do after each outcome, and gives the route in Flightdeck when the command can't save. AGENTS.md is unchanged. Update with flightdeck install or Settings; Team notes stay as they are.",
+        "where": "Settings › AI assistant files"
+      }
+    ]
+  },
+  {
     "version": "2.13.0",
     "date": "2026-11-02",
     "headline": "Your AI assistant checks a draft exactly as Review & publish does",
