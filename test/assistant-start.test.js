@@ -78,7 +78,10 @@ const REWORDED = {
   'Save the registration to a file outside the team folder:': 'Save the registration to a file outside the team folder (the fields, with an example:',
   '**A version published before 2.0** (`"format": "preflight-publication/1"`, or no `format`): write `skills/<name>.json`:': '**A version published before 2.0** (`"format": "preflight-publication/1"`, or no `format`): write `skills/<name>.json` (example in the same section).',
   'It\'s one line in their own `notes-*.jsonl`:': 'It\'s one line in their own `notes-*.jsonl`.',
-  'One JSON object per line:': 'One JSON object per line, in the format in *Saved history lines* in the file formats.'
+  'One JSON object per line:': 'One JSON object per line, in the format in *Saved history lines* in the file formats.',
+  /* 2.12.2: what draft checks load was wrong. Linked processes (2.8) and team values (2.9) are loaded; a Jira transition can get a false suggestion. */
+  'These checks are incomplete: the command doesn\'t load the team\'s people, step types, Jira workflows or other processes.': 'These checks are incomplete: the command loads linked processes and team values, not people, step types, Jira workflows or which processes are published.',
+  'So a step that uses one of the team\'s own types in `step-types/` shows as an unknown type (a blocker), Jira transitions aren\'t checked against `jira/workflows.json`, and the suggestions say every linked process is unpublished and every owner is missing from `people.json`.': 'So a step using a team type shows as an unknown type (a blocker), Jira transitions aren\'t checked against `jira/workflows.json` and may get a false suggestion, and suggestions call every linked process unpublished and every owner missing from `people.json`.'
 };
 const flat = (t) => t.replace(/\s+/g, ' ');
 function lost(oldText, agents, reference) {

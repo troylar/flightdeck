@@ -12,6 +12,8 @@ Flightdeck is a checklist tool for people: a monthly backup check, a quarterly a
 | **Ask for a run**: a planned run that a person reviews and starts in the app ([Asking for a run](#asking-for-a-run)) | `flightdeck plan request` | 1.20 | Writes one file in `proposals/` |
 | **Report** the work it did on a step: a person accepts it (the step is checked with its evidence) or declines it ([Reporting work](#reporting-work)) | `flightdeck report` | 2.0 | Writes one file in `reports/` |
 | **Read and save drafts** of checklists (AI assistants; contract `flightdeck-draft/1`, [at the end of this page](#writing-drafts-for-ai-assistants)) | `flightdeck draft` | 1.19 | Writes the draft or a proposal |
+| **Register a skill** against the exact version it was built from (AI assistants, [Registering a skill](#registering-a-skill-for-ai-assistants)) | `flightdeck skill register` | 2.0 | Writes one file in `skill-registrations/`, and may turn `skills/<name>.json` into a pointer |
+| **Make an evidence pack** of one run, or of the runs started on some days ([Evidence packs](evidence.md)) | `flightdeck export` | 1.17 | Never: the pack goes outside the folder |
 
 A report never checks a step by itself, and a request never starts a run by itself. A person always decides.
 
@@ -431,7 +433,7 @@ Prints `{ contract, app, process, session, draft, openIn, mine, continueFrom, ch
 | `openIn` | Editors this computer can see right now with the draft open: `{ by, device, seenAgo }` (`by` a people.json ID, `device` the computer and browser, `seenAgo` milliseconds since its last sign of life) |
 | `mine` | This session's proposals for the process: `{ id, rev, status, text }`. `status` is `pending`, `replaced`, `invalid`, or what happened to it (`applied`, `applied-twice`, `declined`, `reopened`, `tried`, `maybe`, `decided-twice`, `unknown`) |
 | `continueFrom` | The text to change next: `{ rev, kind, ref, text }`. Your newest pending proposal (`kind` `proposal`, `ref` its ID), else the draft (`draft`), else with `--or-latest` and no draft the latest published version (`version`, `ref` its folder), else nothing (`none`, empty text) |
-| `checks` | `blockers` and `suggestions` for `continueFrom.text`, as the editor's Checks show them (without the team's people and step types) |
+| `checks` | `blockers` and `suggestions` for `continueFrom.text`, as the editor's Checks show them, with the processes its linked steps start (2.8) and the team values they name (2.9). It doesn't load the team's people, step types, Jira workflows or which processes are published, so a team step type is an unknown type (a blocker), a Jira transition isn't checked against `jira/workflows.json` and may get a suggestion that the workflows don't describe its issue type, every linked process is suggested as not published yet, and every owner and backup owner as missing from `people.json`. Screenshots and `version:` pins are checked only when someone publishes. |
 | `copies` | Other files in `maps/drafts/` whose `process:` says this process (OneDrive copies, for example) |
 | `readAt` | When it read the folder |
 | `complete`, `problems` | As for the reading commands: a proposal that can't be read yet (`malformed`), a file too big or that couldn't be read. `complete` is `false` and the exit code is 4 when `problems` has anything. |
