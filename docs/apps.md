@@ -453,7 +453,7 @@ Exit codes: `0` complete, `4` partial, `1` usage or error, `5` the process has n
 | `checks` | `blockers` and `suggestions`, word for word and in order as the process page's checks show them |
 | `publish` | `ok`, and `blockers`: what Publish would stop at, in its order (the checks' blockers, then `version:` pins that don't resolve, then screenshots not in the folder). Who publishes and the change note are left out: only a person gives them. |
 
-It reads what the app reads, through the app's own readers and checks (`PF.publish.checkOptions`, `checkContext` and `publishCheck`, which the app's screens share): `people.json`, `step-types/`, `jira/workflows.json`, every process's published versions (which processes are published, the children linked steps start, the published parents that start this one) and, for a text that passes one, `team-values.json`. A part that couldn't be read, or that a newer Flightdeck wrote, is named in `problems` (`complete` false, exit 4) and left unchecked: it never becomes an unknown type, a missing owner, an unpublished process or a false Jira suggestion. A linked step that passes details to a child whose versions can't be read still gets the blocker Publish gives, that what it passes can't be checked.
+It reads what the app reads, through the app's own readers and checks (`PF.publish.checkOptions`, `checkContext` and `publishCheck`, which the app's screens share): `people.json`, `step-types/`, `jira/workflows.json`, every process's published versions (which processes are published, the children linked steps start, the published parents that start this one) and, for a text that passes one, `team-values.json`. A part that couldn't be read, or that a newer Flightdeck wrote, is named in `problems` (`complete` false, exit 4) and left unchecked: it never becomes an unknown type, a missing owner, an unpublished process or a false Jira suggestion. A linked step whose child has a version that can't be read isn't checked against an older one, a `version:` pin to it isn't checked, and a screenshot whose bytes can't be read is never called missing.
 
 Exit codes: `0` complete, `4` partial, `5` no draft (pass `--from`), `1` usage, or a draft that couldn't be read (named in `problems`). The schema is `SCHEMA2.draftCheck` in `src/core/appjson.js`.
 
@@ -467,7 +467,7 @@ Exit codes: `0` complete, `4` partial, `5` no draft (pass `--from`), `1` usage, 
 - **A proposal** is one new file, `proposed/<process>/<operation>.json`, created exclusively (never over another file), flushed and read back. It holds the full new text, the exact text it started from and the SHA-256 of both, so it's never lost, even if the draft changes meanwhile. Over 4 MB as a file: exit 1, `too-big`, nothing written.
 - **A direct save** writes `maps/drafts/<process>.md` (through a temporary file and one rename) and one line of saved history in a new file of its own, `history/drafts/<process>/agent-<operation>.jsonl` (`source` `agent`; History says "Changed by your AI assistant"). If that line can't be written, the save still stands and `history` says why.
 
-Prints `{ contract, app, process, session, operation, outcome, why, link, rev, file, ids, checks, warnings, history }`:
+Prints `{ contract, app, process, session, operation, outcome, why, link, rev, file, ids, checks, warnings, history, complete, problems }`:
 
 | Field | Means |
 |---|---|
@@ -481,6 +481,7 @@ Prints `{ contract, app, process, session, operation, outcome, why, link, rev, f
 | `checks` | `blockers` and `suggestions` for your text |
 | `warnings` | Things a person should know, in words (removed IDs, for example) |
 | `history` | For a direct save: `{ written }`, with `why` when it couldn't be written; null for a proposal |
+| `complete`, `problems` | (2.13) What couldn't be read for this save or for its `checks`, as `draft read` names it. When `complete` is `false`, the parts `problems` names weren't checked; the exit code is still `0` for a save that was written or proposed. |
 
 Exit codes: `0` written or proposed; `1` usage, `missing-base`, `too-big` or `failed` (the folder couldn't be changed, a link was refused); the error object is `{ contract, app, error: { kind, why }, problems }`. Codes say what this computer's copy of the folder showed when the command ran.
 

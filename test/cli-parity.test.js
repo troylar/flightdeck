@@ -266,6 +266,89 @@ rule('Read failure: a screenshot that can\'t be read is never called missing fro
   locked(path.join(dir, 'images', 'deploy', 'there.png'), () => { const d = partial(dir, ok, /^images\/deploy\/there\.png$/); assert.strictEqual(d.publish.ok, true); });
 });
 
+rule('Read failure: a child whose latest version can\'t be read isn\'t checked against an older one', async () => {
+  const files = await folder({ publish: [md({ process: 'kid', title: 'Kid', context: 'commit' }), md({ process: 'kid', title: 'Kid' }), md({ process: 'deploy' })],
+    drafts: { deploy: md({ process: 'deploy', steps: STEP.link('k', 'kid', ['  carry: ticket']) }) } });
+  const dir = RF.toDisk(files, tmp()), r = cli(dir, 'deploy');
+  assert.strictEqual(r.code, 0, JSON.stringify(r.json));
+  const ok = r.json.data, v2 = fs.readdirSync(path.join(dir, 'publications', 'kid')).filter(n => /^v2-/.test(n))[0];
+  assert.ok(v2 && !has(ok.checks.blockers, /run detail ticket/), 'the baseline: kid v2 has ticket');
+  locked(path.join(dir, 'publications', 'kid', v2, 'publication.json'), () => partial(dir, ok, /^publications\/kid\//));
+  const pj = path.join(dir, 'publications', 'kid', v2, 'publication.json'), info = JSON.parse(fs.readFileSync(pj, 'utf8'));
+  fs.writeFileSync(pj, JSON.stringify(Object.assign(info, { format: 'preflight-publication/9', features: [] })));
+  partial(dir, ok, /^publications\/kid\//, 'newer');
+});
+
+rule('Read failure: a version: pin to a process that can\'t be read is left unchecked, never "isn\'t published"', async () => {
+  const files = await folder({ publish: [example('maps/drafts/check-in.md')], drafts: { deploy: md({ process: 'deploy', steps: STEP.link('c', 'check-in', ['  version: 1']) }) } });
+  const dir = RF.toDisk(files, tmp()), r = cli(dir, 'deploy');
+  assert.deepStrictEqual([r.code, r.json.data.publish.ok], [0, true], JSON.stringify(r.json));
+  const ok = r.json.data;
+  locked(path.join(dir, 'publications'), () => assert.strictEqual(partial(dir, ok, /^publications/).publish.ok, true));
+  locked(path.join(dir, 'publications', 'check-in'), () => assert.strictEqual(partial(dir, ok, /^publications\/check-in/).publish.ok, true));
+});
+
+rule('Read failure: a screenshot that opens but whose bytes fail is never called missing, and is named', async () => {
+  const FD = require(BIN);
+  const files = await folder({ drafts: { deploy: md({ process: 'deploy', steps: ['- [!] {confirm} Look @lead {#s1}', '  ![The screen](images/deploy/there.png)'] }) }, files: { 'images/deploy/there.png': 'PNG' } });
+  const dir = RF.toDisk(files, tmp()), ok = cli(dir, 'deploy').json.data;
+  const open = fs.openSync, read = fs.readSync, bad = new Set();
+  fs.openSync = function (p) { const fd = open.apply(fs, arguments); if (/there\.png$/.test(String(p))) bad.add(fd); return fd; };
+  fs.readSync = function (fd) { if (bad.has(fd)) { const e = new Error('EIO: i/o error, read'); e.code = 'EIO'; throw e; } return read.apply(fs, arguments); };
+  let r;
+  try { r = await FD.main(['draft', 'check', dir, 'deploy', '--json']); } finally { fs.openSync = open; fs.readSync = read; }
+  const j = JSON.parse(r.out);
+  assert.ok(bad.size > 0, 'the screenshot was opened');
+  assert.deepStrictEqual([r.code, j.complete, j.data.publish], [4, false, ok.publish], r.out);
+  assert.ok(j.problems.some(p => p.path === 'images/deploy/there.png'), r.out);
+});
+
+rule('Read failure: team-values.json unreadable or newer is unknown, never "can\'t be checked"; people.json not valid JSON is unknown', async () => {
+  const tv = JSON.stringify({ format: 'flightdeck-team-values/1', values: { 'main-commit': { value: 'abc123' } } });
+  const files = await folder({ publish: [example('maps/drafts/check-in.md')], base: { 'team-values.json': tv }, drafts: { deploy: md({ process: 'deploy', owner: 'person-zed', steps: STEP.link('k', 'check-in', ['  pass: commit=team:main-commit']) }) } });
+  const dir = RF.toDisk(files, tmp()), r = cli(dir, 'deploy'), ok = r.json.data, f = path.join(dir, 'team-values.json');
+  assert.deepStrictEqual([r.code, ok.checks.blockers], [0, []], JSON.stringify(r.json));
+  assert.ok(has(ok.checks.suggestions, /Owner "person-zed" isn't in people\.json/), 'the baseline has the owner tip');
+  locked(f, () => partial(dir, ok, /^team-values\.json$/));
+  fs.writeFileSync(f, JSON.stringify({ format: 'flightdeck-team-values/9', values: {} }));
+  partial(dir, ok, /^team-values\.json$/, 'newer');
+  fs.writeFileSync(f, tv);
+  fs.writeFileSync(path.join(dir, 'people.json'), '{"people": [');
+  const d = partial(dir, ok, /^people\.json$/, 'malformed');
+  assert.ok(!has(d.checks.suggestions, /people\.json/), JSON.stringify(d.checks));
+});
+
+/* draft save and propose: what couldn't be read is carried into the result; the skills check the text they wrote. */
+function draftCmd(args) {
+  const r = cp.spawnSync(process.execPath, [BIN, 'draft'].concat(args, ['--json']), { encoding: 'utf8' });
+  return { code: r.status, json: JSON.parse(r.stdout) };
+}
+const sha = t => require('crypto').createHash('sha256').update(t, 'utf8').digest('hex');
+
+rule('draft save and propose carry complete and problems: a part that couldn\'t be read is named, never a finding', async () => {
+  const draft = md({ process: 'deploy', steps: STEP.team }), next = md({ process: 'deploy', title: 'Deploy now', steps: STEP.team });
+  const dir = RF.toDisk(await folder({ drafts: { deploy: draft } }), tmp()), f = path.join(tmp(), 'next.md');
+  fs.writeFileSync(f, next);
+  const p = draftCmd(['propose', dir, 'deploy', '--expect', sha(draft), '--from', f]);
+  assert.deepStrictEqual([p.code, p.json.outcome, p.json.complete, p.json.problems, p.json.checks.blockers], [0, 'proposed', true, [], []], JSON.stringify(p.json));
+  const s = locked(path.join(dir, 'step-types', 'change.request.json'), () => draftCmd(['save', dir, 'deploy', '--expect', sha(draft), '--from', f]));
+  assert.deepStrictEqual([s.code, s.json.outcome, s.json.complete], [0, 'written', false], JSON.stringify(s.json));
+  assert.ok(s.json.problems.some(x => x.path === 'step-types/change.request.json'), JSON.stringify(s.json.problems));
+  assert.ok(!has(s.json.checks.blockers, /unknown type/), JSON.stringify(s.json.checks));
+});
+
+rule('The new and edit skills check the text they wrote (draft check --from): a proposal\'s blocker shows, the draft\'s clean check doesn\'t hide it', async () => {
+  const skill = n => fs.readFileSync(path.join(__dirname, '..', 'example-folder', '.flightdeck', 'skills', n, 'SKILL.md'), 'utf8');
+  assert.ok(/flightdeck draft check <team folder> <process> --from <your new text> --json/.test(skill('flightdeck-edit-checklist')));
+  assert.ok(/flightdeck draft check <team folder> <process> --from <your file> --json/.test(skill('flightdeck-new-checklist')));
+  const draft = md({ process: 'deploy' }), dir = RF.toDisk(await folder({ drafts: { deploy: draft } }), tmp()), f = path.join(tmp(), 'mine.md');
+  fs.writeFileSync(f, md({ process: 'deploy', steps: ['- [!] {nope.x} Do it @lead {#x}'] }));
+  const p = draftCmd(['propose', dir, 'deploy', '--expect', sha(draft), '--from', f]);
+  assert.strictEqual(p.json.outcome, 'proposed', JSON.stringify(p.json));
+  assert.deepStrictEqual(cli(dir, 'deploy').json.data.checks.blockers, [], 'the draft itself is clean');
+  assert.ok(has(cli(dir, 'deploy', ['--from', f]).json.data.checks.blockers, /unknown type \{nope\.x\}/), 'the proposed text has the blocker');
+});
+
 rule('draft check: --from checks a file\'s text; usage, no draft and an unreadable draft get the read/2 error shapes', async () => {
   const files = await folder({ drafts: { deploy: md({ process: 'deploy' }) } }), dir = RF.toDisk(files, tmp());
   const f = path.join(tmp(), 'in.md'); fs.writeFileSync(f, md({ process: 'deploy', steps: ['- [!] {nope.x} Do it @lead {#x}'] }));
