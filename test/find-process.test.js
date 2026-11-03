@@ -277,9 +277,11 @@ rule('Finish and Receipt with 300 corrections draw 50 each; Receipt with 300 rep
   } finally { app.PF.reports.lines = lines; }
 });
 
-/* The example release with 51 corrections on its first step, the first and the last sharing an id. */
+/* The example release with 51 corrections on its first step, the first and the last sharing an id. Each boot runs on a clock
+   that starts at the same whole minute (fixtureClock), so the times the examples are made with, which the receipt prints to
+   the minute, are the same for this release and 2.10.0 even when the two boots straddle a minute on the wall clock. */
 async function twinCorrections(html) {
-  const app = boot(Object.assign({ localStore: { 'preflight:builder': 'false' } }, html ? { html } : { domFocus: true })); await app.tick(60);
+  const app = boot(Object.assign({ localStore: { 'preflight:builder': 'false' }, Date: fixtureClock() }, html ? { html } : { domFocus: true })); await app.tick(60);
   app.choose('person-casey'); await app.tick();
   const r = app.run(), dir = r.path.replace(/run\.json$/, ''), map = app.PF.run.mapOf(r.json), Cc = app.PF.corrections, st = map.phases[0].steps[0].id;
   const list = Array.from({ length: 51 }, (x, i) => Cc.build({ id: i === 50 ? 'ctw0' : 'ctw' + i, at: '2026-01-01T10:' + String(i).padStart(2, '0') + ':00.000Z', by: 'person-blake', session: 'other', map, version: +r.json.version, folder: r.json.folder, step: st, op: 'wording', to: 'Worded ' + i, why: 'Reason ' + i }));
