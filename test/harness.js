@@ -2,6 +2,26 @@
 'use strict';
 const fs = require('fs'), os = require('os'), path = require('path'), vm = require('vm');
 const SRC = path.join(__dirname, '..', 'src');
+
+/* Every temp folder a test makes, and every child process it starts, lands in one folder per process, removed when the
+   process exits. A file run by hand used to leave its folders in the system temp folder: tens of GiB over a few weeks.
+   A process killed by a signal leaves its one folder; test/run.sh sweeps those after a day. */
+const TEST_TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-test-'));
+process.env.TMPDIR = process.env.TEMP = process.env.TMP = TEST_TMP;   // TEMP and TMP: Node's temp folder on Windows
+// Some tests lock a folder to test failed reads; one that dies before unlocking it would otherwise block the removal.
+const unlock = dir => {
+  try { fs.chmodSync(dir, 0o700); } catch (e) { /* not ours */ }
+  let kids = [];
+  try { kids = fs.readdirSync(dir, { withFileTypes: true }); } catch (e) { return; }
+  kids.forEach(k => { if (k.isDirectory()) unlock(path.join(dir, k.name)); });
+};
+const removeTestTmp = () => {
+  try { fs.rmSync(TEST_TMP, { recursive: true, force: true }); return; } catch (e) { /* a locked folder: unlock and retry */ }
+  try { unlock(TEST_TMP); fs.rmSync(TEST_TMP, { recursive: true, force: true }); } catch (e) { /* leave it for the sweep */ }
+};
+// No signal handlers on purpose: one would stop a signal from ending the process, and a stopped file could then report a
+// pass. A killed file keeps dying of its signal and leaves its folder for test/run.sh's sweep.
+process.on('exit', removeTestTmp);
 const FILES = ['core/util.js', 'core/nav.js', 'core/envelope.js', 'core/values.js', 'core/conditions.js', 'core/types.js', 'core/jira.js', 'core/map.js', 'core/links.js', 'core/refs.js', 'core/outline.js', 'core/timeline.js', 'core/publish.js', 'core/staging.js', 'core/pins.js', 'core/run.js', 'core/corrections.js', 'core/followups.js', 'core/insights.js', 'core/signature.js', 'core/skills.js', 'core/attach.js', 'core/contract.js', 'core/people.js', 'core/save.js', 'core/teamvalues.js', 'core/health.js', 'core/connection.js', 'core/setup.js', 'core/search.js', 'core/sha256.js', 'core/zip.js', 'core/evidence.js', 'core/plans.js', 'core/requests.js', 'core/reports.js', 'core/appjson.js', 'core/proposals.js', 'core/practice.js', 'storage/fs.js', 'storage/repo.js'];
 
 /* edit(file, source) can change a module before it loads, to stand in for an older copy of Flightdeck. */

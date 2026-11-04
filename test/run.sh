@@ -210,10 +210,17 @@ if [ -n "${LIST:-}" ]; then printf '%s' "$plain"; for f in $budgets; do echo "$f
 now_ms() { if [ -n "${EPOCHREALTIME:-}" ]; then local t="${EPOCHREALTIME/,/.}"; echo "${t%.*}$(printf '%.3s' "${t#*.}")"; else perl -MTime::HiRes=time -e 'printf "%d\n", time * 1000' 2>/dev/null || echo "$(date +%s)000"; fi; }
 started="$(now_ms)"
 if [ -z "${SKIP_BUILD:-}" ]; then if [ -n "$only" ]; then python3 build.py > /dev/null; else python3 build.py; fi; fi
-logs="$(mktemp -d)"
-# Tests make temp folders and leave them behind; give the run one of its own, removed at the end (KEEP_LOGS keeps it).
-tmp="$(mktemp -d)"; export TMPDIR="$tmp"
-if [ -n "${KEEP_LOGS:-}" ]; then echo "logs: $logs, temp files: $tmp"; else trap 'rm -rf "$logs" "$tmp"' EXIT; fi
+# Folders left by runs and test processes that were killed outright (no cleanup can run then), once they are a day old.
+# Nothing still running is that old, and nothing else uses these names.
+# A test that died while it had a folder locked leaves it unremovable until it's unlocked.
+# Never the temp folder itself, never through a symlink, and never fatal: another run may be sweeping the same folders.
+base="$(cd -- "${TMPDIR:-/tmp}" && pwd -P)"
+find "$base" -mindepth 1 -maxdepth 1 -type d \( -name 'flightdeck-run.*' -o -name 'flightdeck-test-*' \) -mtime +0 -print0 2>/dev/null |
+  while IFS= read -r -d '' d; do chmod -R u+rwx "$d" 2>/dev/null || true; rm -rf "$d" 2>/dev/null || true; done || true
+logs="$(mktemp -d "$base/flightdeck-run.XXXXXX")"
+# Tests make temp folders; give the run one of its own, removed at the end, also on Ctrl-C or kill (KEEP_LOGS keeps both).
+tmp="$logs/tmp"; mkdir "$tmp"; export TMPDIR="$tmp" TEMP="$tmp" TMP="$tmp"   # TEMP and TMP: Node's temp folder on Windows
+if [ -n "${KEEP_LOGS:-}" ]; then echo "logs: $logs, temp files: $tmp"; else trap 'rm -rf "$logs"' EXIT; fi
 touch "$logs/status" "$logs/times"
 job() { # file, and its shard i/n, - for the whole file, or budgets for its budget rules alone
   local f="$1" s="$2" name what rc=0 t0 mode=skip sh=
