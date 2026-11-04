@@ -56,27 +56,57 @@ function buildInputs(over) {
   ['CORE', 'STORAGE', 'APP'].forEach((k) => { const m = new RegExp('^' + k + '\\s*=\\s*\\[([^\\]]*)\\]', 'm').exec(py); if (!m) throw new Error('build.py has no ' + k + ' list'); (m[1].match(/"[^"]+"/g) || []).forEach((x) => named.push('src/' + x.slice(1, -1))); });
   return Array.from(new Set(r.walk('src').concat(named, ['docs/recovery.md'], exampleFiles(r)))).sort();
 }
-/* What npm packs, from npm itself: the files list plus what it adds on its own (README*, LICENSE*, LICENCE*, COPYING*,
-   CHANGELOG*, package.json, the bin). Run on a mirror of the tree (empty files; package.json and ignore files with their
-   text) with the overrides applied, so a file that only exists in a test still counts. Cached by the file set. */
 const NOT_TREE = (name) => name === '.git' || name === 'node_modules';
 const IGNORE_FILE = (p) => p === 'package.json' || /(?:^|\/)\.(?:npm|git)ignore$/.test(p);
+/* An override value that stands for a symbolic link, so a test can add one without touching the tree. */
+const LINK = Object.freeze({ link: true });
+
+/* npm's own JavaScript entry, run with this node and no shell (on Windows `npm` is npm.cmd, which execFile can't run).
+   Pure, so both layouts are tested in memory. Order: npm_execpath when it is npm's (not pnpm's or yarn's); next to
+   node (POSIX <prefix>/bin/node -> <prefix>/lib/node_modules/npm, Windows <dir>\node.exe -> <dir>\node_modules\npm);
+   then each PATH folder the same two ways, and an npm there that is a link to npm-cli.js. */
+function npmCli(o) {
+  const P = o.platform === 'win32' ? path.win32 : path.posix, env = o.env || {}, tried = [];
+  const ok = (f) => { tried.push(f); return o.exists(f); };
+  if (env.npm_execpath && /(?:^|[\\/])npm-cli\.js$/.test(env.npm_execpath) && ok(env.npm_execpath)) return env.npm_execpath;
+  const near = (dir) => [P.join(dir, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'), P.join(dir, 'node_modules', 'npm', 'bin', 'npm-cli.js')];
+  const dirs = [P.dirname(o.execPath)].concat(String(env.PATH || env.Path || '').split(o.platform === 'win32' ? ';' : ':').filter(Boolean));
+  for (const d of dirs) {
+    for (const f of near(d)) if (ok(f)) return f;
+    const real = o.realpath && o.realpath(P.join(d, 'npm'));
+    if (real && /(?:^|[\\/])npm-cli\.js$/.test(real) && ok(real)) return real;
+  }
+  throw new Error('test/reviewed-text.js: cannot find npm\'s npm-cli.js to list what npm packs (looked at: ' + tried.join(', ') + '). Set npm_execpath to it.');
+}
+const realOr = (f) => { try { return fs.realpathSync(f); } catch (e) { return null; } };
+const NPM = () => npmCli({ env: process.env, execPath: process.execPath, platform: process.platform, exists: fs.existsSync, realpath: realOr });
+
+/* What npm packs, from npm itself: the files list plus what it adds on its own (README*, LICENSE*, LICENCE*, COPYING*,
+   CHANGELOG*, package.json, the bin). Run on a mirror of the tree with the overrides applied, so a file that only exists in
+   a test still counts. Files are mirrored empty, except package.json and ignore files, which keep their text; symbolic
+   links stay links (to an empty target inside the temp folder, outside the package), since npm leaves links out.
+   Cached by the file set and each entry's type. */
 const packCache = {};
 function packed(over) {
-  const o = over || {}, all = [];
+  const o = over || {}, all = {};
   const go = (d) => fs.readdirSync(path.join(ROOT, d), { withFileTypes: true }).forEach((e) => {
     if (NOT_TREE(e.name)) return;
-    const p = d ? d + '/' + e.name : e.name; if (e.isDirectory()) go(p); else all.push(p);
+    const p = d ? d + '/' + e.name : e.name;
+    if (e.isSymbolicLink()) all[p] = 'link'; else if (e.isDirectory()) go(p); else all[p] = 'file';
   });
   go('');
-  Object.keys(o).forEach((p) => { if (all.indexOf(p) < 0) all.push(p); });
-  const r = reader(over), files = all.filter((p) => !(p in o) || o[p] != null).sort();
-  const key = JSON.stringify(files.concat(files.filter(IGNORE_FILE).map((p) => r.read(p))));
+  Object.keys(o).forEach((p) => { if (o[p] == null) delete all[p]; else all[p] = o[p] === LINK ? 'link' : 'file'; });
+  const r = reader(over), files = Object.keys(all).sort();
+  const key = JSON.stringify(files.map((p) => all[p] + ':' + p).concat(files.filter((p) => all[p] === 'file' && IGNORE_FILE(p)).map((p) => r.read(p))));
   if (packCache[key]) return packCache[key];
-  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-reviewed-'));
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-reviewed-')), pkg = path.join(tmp, 'package'), target = path.join(tmp, 'link-target');
   try {
-    files.forEach((p) => { fs.mkdirSync(path.dirname(path.join(tmp, p)), { recursive: true }); fs.writeFileSync(path.join(tmp, p), IGNORE_FILE(p) ? r.read(p) : ''); });
-    const out = execFileSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts', '--offline'], { cwd: tmp, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    fs.writeFileSync(target, '');
+    files.forEach((p) => {
+      const f = path.join(pkg, p); fs.mkdirSync(path.dirname(f), { recursive: true });
+      if (all[p] === 'link') fs.symlinkSync(target, f); else fs.writeFileSync(f, IGNORE_FILE(p) ? r.read(p) : '');
+    });
+    const out = execFileSync(process.execPath, [NPM(), 'pack', '--dry-run', '--json', '--ignore-scripts', '--offline'], { cwd: pkg, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
     packCache[key] = JSON.parse(out)[0].files.map((f) => f.path).sort();
     return packCache[key];
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
@@ -233,4 +263,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { texts, inventory, packed, buildInputs, stringsOf, parity, sha, snapshot, problems, update };
+module.exports = { texts, inventory, packed, npmCli, LINK, buildInputs, stringsOf, parity, sha, snapshot, problems, update };

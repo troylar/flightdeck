@@ -359,4 +359,25 @@ rule('Round 20: the package part of the inventory is what npm packs: an implicit
   assert.deepStrictEqual(got({ 'test/fixtures/reviewed-extra.md': 'Write reports/x.json by hand.\n' }), [], 'a test fixture');
   assert.deepStrictEqual(RT.packed().filter((f) => !RT.inventory()[f]), [], 'every packed file is in the inventory');
 });
+rule('Round 21: npm is run through its own JavaScript entry with this node and no shell, found on POSIX, Homebrew and Windows layouts or failing with a clear message; a symbolic link npm leaves out needs no entry', () => {
+  const RT = require('./reviewed-text'), snap = RT.snapshot();
+  assert.strictEqual(typeof RT.npmCli, 'function', 'the npm resolver is exported');
+  const find = (platform, execPath, have, env, links) => RT.npmCli({ platform, execPath, env: env || {}, exists: (f) => have.indexOf(f) >= 0, realpath: (f) => (links || {})[f] || null });
+  /* POSIX: <prefix>/bin/node next to <prefix>/lib/node_modules/npm. */
+  assert.strictEqual(find('linux', '/usr/local/bin/node', ['/usr/local/lib/node_modules/npm/bin/npm-cli.js']), '/usr/local/lib/node_modules/npm/bin/npm-cli.js');
+  /* Windows: node.exe next to node_modules\npm. */
+  assert.strictEqual(find('win32', 'C:\\Program Files\\nodejs\\node.exe', ['C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js']), 'C:\\Program Files\\nodejs\\node_modules\\npm\\bin\\npm-cli.js');
+  /* Homebrew: node runs from the Cellar, npm sits under the prefix on PATH; or npm on PATH is a link to npm-cli.js. */
+  assert.strictEqual(find('darwin', '/opt/homebrew/Cellar/node/26/bin/node', ['/opt/homebrew/lib/node_modules/npm/bin/npm-cli.js'], { PATH: '/usr/bin:/opt/homebrew/bin' }), '/opt/homebrew/lib/node_modules/npm/bin/npm-cli.js');
+  assert.strictEqual(find('darwin', '/x/bin/node', ['/y/npm/bin/npm-cli.js'], { PATH: '/z' }, { '/z/npm': '/y/npm/bin/npm-cli.js' }), '/y/npm/bin/npm-cli.js');
+  /* npm_execpath wins when it is npm's; pnpm's is not npm. */
+  assert.strictEqual(find('linux', '/usr/local/bin/node', ['/e/npm-cli.js', '/usr/local/lib/node_modules/npm/bin/npm-cli.js'], { npm_execpath: '/e/npm-cli.js' }), '/e/npm-cli.js');
+  assert.strictEqual(find('linux', '/usr/local/bin/node', ['/p/pnpm.cjs', '/usr/local/lib/node_modules/npm/bin/npm-cli.js'], { npm_execpath: '/p/pnpm.cjs' }), '/usr/local/lib/node_modules/npm/bin/npm-cli.js');
+  /* Nothing found: fail closed, saying what was tried and how to fix it. */
+  assert.throws(() => find('win32', 'C:\\n\\node.exe', [], { Path: 'C:\\w' }), (e) => /npm-cli\.js/.test(e.message) && /npm_execpath/.test(e.message) && /C:\\n\\node_modules/.test(e.message));
+  assert.ok(!/execFileSync\('npm'/.test(fs.readFileSync(path.join(__dirname, 'reviewed-text.js'), 'utf8')), 'no bare npm run');
+  /* A root README.local.md link: npm leaves it out, so no entry; the same name as a file is packed and fails. */
+  assert.deepStrictEqual(RT.problems(RT.texts({ 'README.local.md': RT.LINK }), snap), [], 'a symbolic link');
+  assert.ok(RT.problems(RT.texts({ 'README.local.md': 'x\n' }), snap).some((x) => x.indexOf('new, not reviewed: README.local.md;') >= 0), 'the same name as a file');
+});
 run();
