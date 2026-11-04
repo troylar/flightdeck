@@ -71,10 +71,17 @@
     var prim = wsPrimary(ctx, p, pr);
     var nav = '<nav class="pviews ws-views" aria-label="Checklist views">' +
       '<button type="button" id="ws-edit"' + (pr ? ' data-act="pr-back"' : ' aria-current="page"') + '>' + I('edit') + 'Edit</button>' +
-      '<button type="button"' + (pr ? ' aria-current="page"' : ' data-act="pr-open"') + (got ? ' aria-label="Practice, ' + cnt.done + ' of ' + cnt.total + ' steps answered"' : '') + '>' + I('play') + 'Practice' + got + '</button></nav>';
+      '<button type="button" id="ws-practice"' + (pr ? ' aria-current="page"' : ' data-act="pr-open"') + (got ? ' aria-label="Practice, ' + cnt.done + ' of ' + cnt.total + ' steps answered"' : '') + '>' + I('play') + 'Practice' + got + '</button></nav>';
     return '<header class="fpe-head ws-head" role="region" aria-labelledby="' + o.hid + '"><div class="fpe-id">' + V.backc(pr ? 'pr-leave' : 'ed-done', null, p.title) +
-      '<div class="fpe-title"><h1 id="' + o.hid + '" class="sr" tabindex="-1">' + esc(p.title) + ', ' + (pr ? 'Practice' : 'Edit') + '</h1><span class="small fpe-sub">' + o.sub + prim.sub + '</span></div></div>' +
-      nav + '<div class="ws-right"><div class="fpe-tools">' + o.tools + '</div><div class="fpe-save">' + prim.html + '</div></div></header>' + prim.why;
+      '<div class="fpe-title"><h1 id="' + o.hid + '" class="sr">' + esc(p.title) + ', ' + (pr ? 'Practice' : 'Edit') + '</h1><span class="small fpe-sub">' + o.sub + prim.sub + '</span></div></div>' +
+      nav + '<div class="ws-right"><div class="fpe-tools">' + o.tools + (o.more ? wsMore(ctx, pr, o.more) : '') + '</div><div class="fpe-save">' + prim.html + '</div></div></header>' + prim.why;
+  }
+  /* Row 3 on a phone (2.2): the tools that don't fit sit in More at its end; wider, More's button is hidden and they sit in
+     the row as any other tool (page.html). */
+  function wsMore(ctx, pr, html) {
+    var open = !!ctx.state.wsMore;
+    return '<div class="ws-more"><button type="button" class="mini ws-more-btn" data-act="' + (pr ? 'pr-more' : 'ws-more') + '" aria-expanded="' + open + '" aria-controls="ws-more-list">More</button>' +
+      '<div class="ws-more-list' + (open ? ' open' : '') + '" id="ws-more-list">' + html + '</div></div>';
   }
   /* The stage the saved draft is (rule 4): staged, complete and readable, with this exact text. The newest wins; test runs
      only break a tie. null when none, or when the stage decisions can't be read. */
@@ -124,7 +131,7 @@
     var lock = function (which) { return busy ? ' aria-disabled="true"' : held && which !== 'cancel' ? ' disabled' : ''; };
     var label = function (which, text, doing) { return busy && o.clicked === which ? doing : text; };
     return '<div class="overlay" data-act="close-overlay"><div class="help pub-box" role="dialog" aria-modal="true" aria-labelledby="pub-t"' + (busy ? ' aria-busy="true"' : '') + '><h2 id="pub-t">Publish v' + next + ' of ' + esc(p.title) + '</h2>' +
-      '<label class="field" for="change-note">What changed (one line, required)<input id="change-note" maxlength="200" value="' + esc(o.note) + '" placeholder="e.g. Require the full test gate after the rebase"' + (busy ? ' readonly' : '') + '></label>' +
+      '<label class="field" for="change-note">What changed (one line, required)<input id="change-note" data-draft-kept maxlength="200" value="' + esc(o.note) + '" placeholder="e.g. Require the full test gate after the rebase"' + (busy ? ' readonly' : '') + '></label>' +
       (held ? '<p class="small" id="pub-why">' + (base.dirty || base.conflict ? 'Your edits aren\'t saved, so they wouldn\'t be in this version. Save or discard them in the editor first.' : 'A screenshot is still being added to this draft. Publish when it\'s done.') + '</p>' : '') +
       (p.draft ? V.publishNeeds(ctx, p) + V.publishCorrections(ctx, p) : '') +
       '<p class="small">Anyone can publish. It\'s logged with your name, the time and the change note, and runs already started keep their version.</p>' +
@@ -162,10 +169,12 @@
     /* The workspace's one header (2.16), shared with practice: the way back, Edit | Practice, the editing tools, one primary. */
     var tools = '<div class="seg" role="group" aria-label="Edit with"><button type="button" data-act="ed-mode" data-id="builder" aria-pressed="' + builder + '">Builder</button><button type="button" data-act="ed-mode" data-id="markdown" aria-pressed="' + !builder + '">Markdown</button></div>' +
       /* Undo, Redo and History: the one timeline shared with the Markdown view (and the step-type editor's same controls). */
-      V.undoBar('draft', ed && ed.tl);
+      V.undoBar('draft', ed && ed.tl, { noHistory: true });
+    /* History is the one that doesn't fit on a phone's row 3: it goes in More there (wsMore). */
+    var more = '<button type="button" class="mini" data-act="hist-open" data-id="draft" aria-haspopup="dialog">' + I('clock') + 'History</button>';
     var sub = '<span class="fpe-state' + (dirty ? ' dirty' : '') + (just ? ' just' : '') + '" role="status" title="maps/drafts/' + esc(file) + (size ? ' · ' + size : '') + '">' + (just ? I('check') : '') + 'Draft: ' + status + '</span>' +
       '<button type="button" class="linkish fpe-discard" data-act="revert-draft" data-id="' + esc(p.id) + '"' + (dirty ? '' : ' hidden') + '>Discard my changes</button>';
-    var h = '<div class="fpe" id="fpe">' + wsHead(ctx, p, { practice: false, hid: 'ed-h', sub: sub, tools: tools });
+    var h = '<div class="fpe" id="fpe">' + wsHead(ctx, p, { practice: false, hid: 'ed-h', sub: sub, tools: tools, more: more });
     /* Messages and conflicts stay in view, right under the header. */
     var al = '';
     /* No live role: messages are announced once, through #live (say and announce in app.js). */
@@ -520,7 +529,7 @@
     var st = ctx.state, hit = null, proc = null;
     ctx.processes().forEach(function (p) { p.skills.forEach(function (x) { if ((x.skill.file || x.skill.name) === st.skillFile) { hit = x; proc = p; } }); });
     (ctx.orphanSkills ? ctx.orphanSkills() : []).forEach(function (x) { if ((x.skill.file || x.skill.name) === st.skillFile) hit = x; });
-    if (!hit) return notices(ctx) + V.backRow(V.backc('nav', 'skills', 'Skills', '', ' id="page-back"')) + '<div class="panel" role="alert">That skill isn\'t registered in this folder any more.</div>';
+    if (!hit) return notices(ctx) + V.backRow(V.backc('go-back', PF.nav.format({ view: 'skills' }), 'Skills', '', ' id="page-back"')) + '<div class="panel" role="alert">That skill isn\'t registered in this folder any more.</div>';
     var s = hit.skill, sw = STATUS_WORDS[hit.status.s] || STATUS_WORDS.missing, href = PF.skills.link(s.location), base = hit.status.base, latest = hit.status.latest;
     var stepText = function (id) { var f = (base || latest) && M.findStep((base || latest).map, id); return f ? K.stepPlain(f.step, null) : id; };
     /* Its checklist is linked once, in About this skill (2.16); the way back names whichever screen opened it. */

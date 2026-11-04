@@ -3773,9 +3773,9 @@ rule('App: when a dragged step is dropped or let go, its drop lines go away', as
 });
 
 /* ---------- the full-page editor ---------- */
-rule('App: the editor opens as its own page with focus on its heading; Done returns to Edit and says edits stay', async () => {
+rule('App: the editor opens as its own page with focus on the Edit button (its heading is hidden); Done returns to Edit and says edits stay', async () => {
   const app = await builderOn();
-  assert.strictEqual(app.focused(), 'ed-h');
+  assert.strictEqual(app.focused(), 'ws-edit');
   assert.strictEqual(app.session['preflight:editing'], 'release', 'remembered in this tab');
   app.key('Escape'); await app.tick();
   assert.ok(/id="fpe"/.test(app.html()), 'Escape never closes it');
@@ -3789,8 +3789,8 @@ rule('App: the editor opens as its own page with focus on its heading; Done retu
 
 rule('App: a refresh while editing comes back to the editor', async () => {
   const app = boot({ sessionStore: { 'preflight:editing': 'release' } }); await app.tick(80);
-  assert.ok(/id="fpe"/.test(app.html()) && /<h1 id="ed-h" class="sr" tabindex="-1">Production release, Edit<\/h1>/.test(app.html()));
-  assert.strictEqual(app.focused(), 'ed-h');
+  assert.ok(/id="fpe"/.test(app.html()) && /<h1 id="ed-h" class="sr">Production release, Edit<\/h1>/.test(app.html()));
+  assert.strictEqual(app.focused(), 'ws-edit');
 });
 
 rule('App: the inspector\'s tabs switch by click and arrow keys; Checks and Preview are remembered; selecting shows Selected', async () => {
@@ -7824,7 +7824,7 @@ rule('Back and Forward: step types: a type called new, a new form, and a changed
   app.click('nav', 'types'); await app.tick();
   app.click('edit-type', 'new'); await app.tick(40);
   assert.strictEqual(app.hash(), '#/types/edit/new'); assert.ok(/value="Called new"/.test(app.html()));
-  app.click('type-cancel'); await app.tick();
+  app.click('nav', 'types'); await app.tick(); // the list as a new entry (its ‹ Step types is browser Back since 2.16)
   app.click('new-type'); await app.tick();
   assert.strictEqual(app.hash(), '#/types/new');
   // An unchanged new form: a jump to the type's entry opens that type.
@@ -7850,7 +7850,7 @@ rule('Back and Forward: a slow step-type read from Back never reopens over a lat
   const app = await navBoot();
   app.click('nav', 'types'); await app.tick();
   app.click('edit-type', 'change.request'); await app.tick(40);
-  app.click('type-cancel'); await app.tick();
+  app.click('nav', 'types'); await app.tick(); // the list as a new entry (its ‹ Step types is browser Back since 2.16)
   app.click('nav', 'runs'); await app.tick();
   const read = app.fs.read.bind(app.fs), g = gate();
   app.fs.read = p => p === 'step-types/change.request.json' ? read(p).then(v => g.p.then(() => v)) : read(p);
@@ -7937,7 +7937,7 @@ rule('Back and Forward: text typed in Add a tag on an otherwise unchanged form i
   const app = await navBoot();
   app.click('nav', 'types'); await app.tick();
   app.click('edit-type', 'change.request'); await app.tick(40);
-  app.click('type-cancel'); await app.tick();
+  app.click('nav', 'types'); await app.tick(); // the list as a new entry (its ‹ Step types is browser Back since 2.16)
   app.click('new-type'); await app.tick();
   app.set('tf-tagadd', 'risky');
   app.go(-2); await app.settle(); await app.tick(40);

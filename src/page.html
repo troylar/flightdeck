@@ -2022,6 +2022,19 @@ body { padding-top: var(--keep-h); }
   .ws-head .ws-views button { flex: 1 1 0; }
   .ws-head .backc .backc-t { min-width: 10ch; }
 }
+/* Row 3's More (2.2): wider, its tools sit in the row and its button is hidden; on a phone they go in More at the row's end. */
+.ws-more-btn { display: none; }
+.ws-more, .ws-more-list { display: contents; }
+@media (max-width: 480px) {
+  .ws-head .fpe-tools { flex-wrap: nowrap; gap: 6px; }
+  .ws-head .fpe-tools .undobar { flex-wrap: nowrap; gap: 4px; }
+  .ws-head .fpe-tools .seg button { padding: 6px 8px; }
+  .ws-head .fpe-tools .mini { padding: 3px 7px; gap: 4px; }
+  .ws-more { display: block; position: relative; margin-left: auto; }
+  .ws-more-btn { display: inline-flex; }
+  .ws-more-list { display: none; position: absolute; right: 0; top: calc(100% + 4px); z-index: 12; min-width: 200px; flex-direction: column; align-items: stretch; gap: 4px; padding: 6px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, .18); }
+  .ws-more-list.open { display: flex; }
+}
 </style>
 </head>
 <body>
