@@ -732,22 +732,27 @@
       touched: function (role) { return !!(prev && prev.touched[role]); }
     };
   }
+  /* A form's way back (2.16): ‹ <origin> top left, and Cancel beside its submit button going to the same place. */
+  function formBack(ctx, pid) { var o = ctx.formOrigin ? ctx.formOrigin(pid) : { hash: '#/processes', place: 'Checklists', view: '' }; return { row: V.backRow(V.backc('go-back', o.hash, o.place, o.view)), cancel: '<button class="mini" type="button" data-act="go-back" data-id="' + esc(o.hash) + '">Cancel</button>' }; }
+  /* A form that can't be used says why, with the way back to the checklist's page (or Checklists when there isn't one). */
+  function formGone(ctx, p, why) { return notices(ctx) + V.backRow(p ? V.backc('open-process', p.id, p.title) : V.backc('nav', 'processes', 'Checklists')) + '<div class="panel">' + why + '</div>'; }
   function start(ctx) {
     var st = ctx.state, p = ctx.processes().filter(function (x) { return x.id === st.processId; })[0];
     if (p && st.testStage) return startTest(ctx, p);
     var planning = st.planning && st.planning.process === st.processId ? st.planning : null;
     var plan = !planning && st.planId ? ctx.data.plans.filter(function (x) { return x.id === st.planId; })[0] : null;
-    if (!p || !p.latest) return notices(ctx) + '<div class="panel">There\'s no published version of this checklist to run. <button class="mini" data-act="home">Back</button></div>';
+    if (!p || !p.latest) return formGone(ctx, p, 'There\'s no published version of this checklist to run.');
+    var fb = formBack(ctx, p.id);
     /* A plan starts on the version it was planned on, or the exact one the person switched to; see PF.plans.pick. A plan/2
        whose pinned version can't be used asks, and never starts on another version by itself. */
     /* A plan decided on an earlier version (2.1.1) is never offered to start, decline or switch: it says what was decided. */
-    if (plan && plan._decidedEarlier && !plan._conflicting) return notices(ctx) + '<div class="runhead"><div><div class="eyebrow">' + esc(p.title) + ' · ' + esc(V.plannedBy(ctx, plan)) + '</div><h1 id="page-h" tabindex="-1">' + esc(plan.title || 'Planned run') + '</h1></div></div>' +
-      '<div class="notice warn" role="status"><span>' + esc(planHeldWhy(plan, ctx.data)) + '</span><span class="row"><button class="mini" type="button" data-act="home">Back</button></span></div>';
+    if (plan && plan._decidedEarlier && !plan._conflicting) return notices(ctx) + fb.row + '<div class="runhead"><div><div class="eyebrow">' + esc(p.title) + ' · ' + esc(V.plannedBy(ctx, plan)) + '</div><h1 id="page-h" tabindex="-1">' + esc(plan.title || 'Planned run') + '</h1></div></div>' +
+      '<div class="notice warn" role="status"><span>' + esc(planHeldWhy(plan, ctx.data)) + '</span></div>';
     var chosen = plan ? planChoice(ctx, plan) : null, pick = plan ? PF.plans.pick(p, plan, chosen) : { pub: p.latest };
     if (plan && pick.exact && !pick.pub) return notices(ctx) + exactAsk(ctx, p, plan, pick);
     var pub = pick.pub, latest = p.latest, meta = pub.map.meta, people = PF.people.sorted(ctx).filter(function (x) { return !x.inactive; }), pre = planning || plan || {};
     var defTitle = plan ? plan.title : planning ? planning.title || meta.title : meta.title + ' · ' + U.day(new Date().toISOString());
-    var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">' + esc(meta.title) + ' · v' + pub.info.version + (plan ? ' · ' + esc(V.plannedBy(ctx, plan)) : '') + '</div><h1 id="page-h" tabindex="-1">' + (planning ? 'Plan a run' : 'Start a run') + '</h1>' + (plan && plan.note ? '<div class="small">' + esc(plan.note) + '</div>' : '') + '</div></div>';
+    var h = notices(ctx) + fb.row + '<div class="runhead"><div><div class="eyebrow">' + esc(meta.title) + ' · v' + pub.info.version + (plan ? ' · ' + esc(V.plannedBy(ctx, plan)) : '') + '</div><h1 id="page-h" tabindex="-1">' + (planning ? 'Plan a run' : plan ? 'Review the plan' : 'Start a run') + '</h1>' + (plan && plan.note ? '<div class="small">' + esc(plan.note) + '</div>' : '') + '</div></div>';
     var claim = plan ? PF.requests.claim(plan) : null, copies = plan ? V.planCopies(plan) : '';
     if (claim) h += '<p class="small">Requested by ' + esc(claim.name + ' ' + claim.version) + ', by its own account. Flightdeck can\'t confirm which tool or person wrote this file. Nothing starts until you start it.</p>';
     if (plan && plan._copiesDiffer) h += '<div class="notice bad" role="alert"><span>' + copies + ' The files: ' + K.capJoin(plan._files || [], function (f) { return '<code>proposals/' + esc(f) + '</code>'; }) + '. Compare them, then delete the wrong one (When something goes wrong, A planned run arrived twice).</span></div>';
@@ -843,17 +848,18 @@
       });
       h += '</div>' + roleRows + '<p class="small">Suggestions rotate roles to whoever did them least recently, so everyone gets the experience. Change anything.</p>';
     }
-    if (planning) return h + '<div class="row"><button class="btn go" type="submit" id="start-submit"' + (st.me ? '' : ' disabled') + '>Save the plan</button><span class="small">It waits under Runs until someone starts it.</span><button class="mini" type="button" data-act="cancel-plan">Cancel</button></div></form>';
+    if (planning) return h + '<div class="row"><button class="btn go" type="submit" id="start-submit"' + (st.me ? '' : ' disabled') + '>Save the plan</button><span class="small">It waits under Runs until someone starts it.</span>' + fb.cancel + '</div></form>';
     h += '<div class="row"><button class="btn go" type="submit" id="start-submit"' + (st.me && !(plan && plan._copiesDiffer) ? '' : ' disabled') + '>' + I('play') + 'Start the run</button><span class="small">' + (soloMap ? 'It\'s your run. You can bring someone in at any time.' : 'You\'ll be the recorder. You can hand recording to someone else at any time.') + '</span>' +
-      (plan ? '<button class="mini" type="button" data-act="decline-plan" data-id="' + esc(plan.id) + '">Decline this plan</button>' : '') + '</div></form>';
+      /* Review the plan has no Cancel: Decline is a decision, not a way out. */
+      (plan ? '<button class="mini" type="button" data-act="decline-plan" data-id="' + esc(plan.id) + '">Decline this plan</button>' : fb.cancel) + '</div></form>';
     return h;
   }
 
   function startTest(ctx, p) {
-    var st = ctx.state, ts = testStage(ctx, p), back = '<button class="mini" data-act="open-process" data-id="' + esc(p.id) + '">Back</button>';
-    if (!ts.stage) return notices(ctx) + '<div class="panel">' + esc(ts.why) + ' ' + back + '</div>';
+    var st = ctx.state, ts = testStage(ctx, p), fb = formBack(ctx, p.id);
+    if (!ts.stage) return formGone(ctx, p, esc(ts.why));
     var pub = ts.stage, meta = pub.map.meta, n = pub.info.stage.proposed, people = PF.people.sorted(ctx).filter(function (x) { return !x.inactive; });
-    var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">' + esc(meta.title) + ' · staged v' + esc(n) + '</div><h1 id="page-h" tabindex="-1">Start a test run</h1><div class="small">' + esc(pub.info.changes || '') + '</div></div></div>';
+    var h = notices(ctx) + fb.row + '<div class="runhead"><div><div class="eyebrow">' + esc(meta.title) + ' · staged v' + esc(n) + '</div><h1 id="page-h" tabindex="-1">Start a test run</h1><div class="small">' + esc(pub.info.changes || '') + '</div></div></div>';
     h += '<form class="panel stack" id="start-form" data-scope="' + esc('test:' + p.id + ':' + pub.folder) + '" data-process="' + esc(p.id) + '" data-folder="' + esc(pub.folder) + '" data-test="1"><div class="grid2"><label class="field" for="run-title">Run name<input id="run-title" maxlength="100" value="' + esc(meta.title + ' (test) · ' + U.day(new Date().toISOString())) + '"></label>';
     var setBy = M.setBy(pub.map);
     meta.context.filter(function (f) { return !Object.prototype.hasOwnProperty.call(setBy, f); }).forEach(function (f) {
@@ -876,7 +882,7 @@
         hidden: function (role) { return '<input type="hidden" id="role-' + esc(role) + '" data-role="' + esc(role) + '" value="' + esc(tval(role)) + '" data-was="' + esc(meOn) + '">'; } });
       h += tr.box + '<div class="grid2">' + tr.rows + '</div>' + tr.hidden;
     }
-    return h + '<div class="row"><button class="btn go" type="submit" id="start-submit"' + (st.me ? '' : ' disabled') + '>' + I('play') + 'Start the test run</button><span class="small">A test run tries this staged version. It isn\'t counted in How runs go or toward a skill.</span>' + back + '</div></form>';
+    return h + '<div class="row"><button class="btn go" type="submit" id="start-submit"' + (st.me ? '' : ' disabled') + '>' + I('play') + 'Start the test run</button><span class="small">A test run tries this staged version. It isn\'t counted in How runs go or toward a skill.</span>' + fb.cancel + '</div></form>';
   }
   V.testStage = testStage; V.fxKeys = fxKeys;
   V.stageSign = stageSign; V.publishNeeds = publishNeeds; V.publishCorrections = publishCorrections;

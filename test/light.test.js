@@ -114,17 +114,19 @@ rule('The visible-content counter skips closed details bodies, screen-reader tex
 /* Raised in 2.3.1 on purpose: a step tied to a run detail shows it in its text, ‹name› until it's set (six on the release
    checklist's process page and run), and the builder's Done became Review & publish (2 more words). */
 /* Raised by 2 words and 2 buttons in 2.16 on purpose: the process page's view strip (Overview, Edit, Practice) replaces the
-   owner panel's Edit and the header's How runs go. */
+   owner panel's Edit and the header's How runs go. Also raised in 2.16: the run's header gains Finish the run (1 button, 3 words) and
+   its rail and picker say This run's follow-ups; the skip link says Back to the step list (9 words in all); New checklist gains its
+   way back, ‹ Checklists (1 word, 1 button); Home's plan rows read Review the plan (1 word). */
 const BUDGETS = {
-  home: { words: 139, buttons: 13, chips: 1, target: { words: 120 } },
+  home: { words: 140, buttons: 13, chips: 1, target: { words: 120 } },
   /* Raised by 2 in 2.11 on purpose: the Find a checklist box's label. */
   processes: { words: 97, buttons: 13, chips: 3, target: { chips: 8 } },
   /* The harness also counts the CSS-hidden phone picker and skip links, so its run and process numbers sit above the browser's. */
   'process page as a non-owner': { words: 276, buttons: 15, chips: 3, target: { words: 260, buttons: 16, chips: 12 } },
   'process page as its owner': { words: 423, buttons: 26, chips: 9, target: { words: 430 } },
-  'run, just started': { words: 361, buttons: 39, chips: 5, target: { words: 300, buttons: 36, chips: 6 } },
+  'run, just started': { words: 370, buttons: 40, chips: 5, target: { words: 300, buttons: 36, chips: 6 } },
   finish: { words: 48, buttons: 4, inputs: 0, target: { words: 70, inputs: 0 } },
-  'new process': { words: 33, buttons: 6, inputs: 1, target: { inputs: 1 } },
+  'new process': { words: 34, buttons: 7, inputs: 1, target: { inputs: 1 } },
   /* Raised by 3 on purpose: the builder banner now says the whole path (Save draft, then Done to publish). */
   /* Raised by 1 word and 1 button in 2.2: the editor's Practice button. */
   'builder, a step selected': { words: 282, buttons: 36, target: { words: 350, buttons: 36 } },
@@ -141,7 +143,7 @@ const BUDGETS = {
   'builder, release, a step selected': { words: 645, buttons: 76, inputs: 10 },
   'process page with conditions, its owner': { words: 412, buttons: 26, chips: 9 },
   'process page with conditions, a non-owner': { words: 265, buttons: 15, chips: 3 },
-  'run with conditions, just started': { words: 355, buttons: 37, chips: 5 },
+  'run with conditions, just started': { words: 364, buttons: 38, chips: 5 },
   'builder with conditions, a step selected': { words: 692, buttons: 76, inputs: 11 },
   'builder, a step without conditions selected': { words: 632, buttons: 76, inputs: 10 },
   /* A process with a staged version (2.1): staging lives in the closed All versions disclosure, so the page fits the process
@@ -151,8 +153,8 @@ const BUDGETS = {
   /* A process with a test run on its stage (2.1 slice 5): the test run is one more labeled line in Recent runs and one more
      "you're recording" on Home, as any run being recorded is; its run page is the stage's checklist with its label. The
      budgets above are unchanged. */
-  'run, a test run just started': { words: 326, buttons: 41, chips: 5 },
-  'home with a test run': { words: 159, buttons: 14, chips: 1 },
+  'run, a test run just started': { words: 326, buttons: 42, chips: 5 },
+  'home with a test run': { words: 160, buttons: 14, chips: 1 },
   'process page with a test run, its owner': { words: 430, buttons: 26, chips: 9 },
   'process page with a test run, a non-owner': { words: 283, buttons: 15, chips: 3 },
   /* A version made the default from a stage whose test runs and sign-off count for it (2.1 slice 6): Ready for a skill says

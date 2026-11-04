@@ -628,7 +628,8 @@ PF.vk = (function () {
      accessible name is "Back to <place>", holding the visible text in order. view: the workspace's view word (Edit or
      Practice), kept whole while a long title is cut. */
   function backc(act, id, place, view, extra) {
-    var name = 'Back to ' + place + (view ? ' · ' + view : '');
+    /* "The run" reads as "Back to the run": the visible words, in order, in a sentence. */
+    var name = 'Back to ' + String(place).replace(/^The /, 'the ') + (view ? ' · ' + view : '');
     return '<button type="button" class="btn backc" data-act="' + esc(act) + '"' + (id != null ? ' data-id="' + esc(id) + '"' : '') + ' aria-label="' + esc(name) + '"' + (extra || '') + '>' + I('back') +
       '<span class="backc-t">' + esc(place) + '</span>' + (view ? '<span class="backc-v"> · ' + esc(view) + '</span>' : '') + '</button>';
   }

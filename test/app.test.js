@@ -3152,7 +3152,7 @@ rule('Plans: the example plan with a time shows on Home with one way to review a
   const app = boot({ Date: clockFrom(MIDDAY) }); await app.tick(60);
   app.choose('person-casey'); await app.tick();
   assert.ok(/Release 2026\.10\.23 is planned for [^<]* · in \d+ (hours|minutes)/.test(app.html()));
-  assert.ok(/data-act="review-plan" data-id="plan-release-example-next">Review and start</.test(app.html()));
+  assert.ok(/data-act="review-plan" data-id="plan-release-example-next">Review the plan</.test(app.html()));
 });
 
 rule('Plans: a switch pins the exact version chosen; a version published after the switch is pointed out, never started silently', async () => {
@@ -7361,7 +7361,8 @@ rule('Plans: a decline waiting behind another write is dropped, and says so, if 
 const navBoot = async (o) => { const app = boot(Object.assign({ localStore: { 'preflight:builder': 'false' } }, o || {})); await app.tick(80); if (!(o && o.nobody)) { app.choose('person-casey'); await app.tick(); } return app; };
 const hashes = app => app.entries().map(e => e.hash);
 // Every entry is numbered by its place, as Flightdeck writes them: no two share an n, and none is missing.
-const numbered = app => app.entries().forEach((e, i) => assert.ok(e.state && e.state.fd === 1 && e.state.n === i && Object.keys(e.state).sort().join() === 'f,fd,n', 'entry ' + i + ' ' + JSON.stringify(e)));
+/* Since 2.16 an entry may also keep the one before it (b), as nav.entry reads it back. */
+const numbered = app => app.entries().forEach((e, i) => assert.ok(e.state && e.state.fd === 1 && e.state.n === i && /^b?,?f,fd,n$/.test(Object.keys(e.state).sort().join()) && (!e.state.b || app.PF.nav.entry(e.state).b), 'entry ' + i + ' ' + JSON.stringify(e)));
 const onRun = app => /id="run-h"/.test(app.html());
 const onReceipt = app => /<div class="eyebrow">Receipt ·/.test(app.html());
 const onHome = app => /<div class="eyebrow">Home<\/div>/.test(app.html());
@@ -7460,15 +7461,15 @@ rule('Back and Forward: every screen and tab has a route', async () => {
   }));
 });
 
-rule('Back and Forward: editor Done and the version picker push, so Back returns to the editor and the earlier version', async () => {
+rule('Back and Forward: the editor\'s ‹ is browser Back to the page that opened it (2.16), and the version picker pushes, so Back returns to the earlier version', async () => {
   const app = await navBoot();
   app.click('open-process', 'release'); await app.tick();
   app.click('ptab', 'edit'); await app.tick();
   assert.strictEqual(app.hash(), '#/process/release/edit');
-  app.click('ed-done'); await app.tick();
+  app.click('ed-done'); await app.settle();
   assert.strictEqual(app.hash(), '#/process/release');
-  await back(app);
-  assert.ok(/id="ed-h"/.test(app.html()), 'the editor again'); assert.strictEqual(app.hash(), '#/process/release/edit');
+  await fwd(app);
+  assert.ok(/id="ed-h"/.test(app.html()), 'Forward: the editor again'); assert.strictEqual(app.hash(), '#/process/release/edit');
   await back(app);
   assert.strictEqual(app.hash(), '#/process/release');
   const vers = [...app.html().matchAll(/<option value="(v\d+-[a-z0-9]+)"/g)].map(m => m[1]);
@@ -7505,7 +7506,7 @@ rule('Back and Forward: Back with a builder box typed and not applied refuses, k
   const app = await navBoot({ localStore: {}, domFocus: true });
   app.click('open-process', 'release'); await app.tick();
   app.click('ptab', 'edit'); await app.tick();
-  app.click('ed-done'); await app.tick();
+  app.typeHash('#/process/release'); await app.settle();
   await back(app);
   assert.strictEqual(app.hash(), '#/process/release/edit');
   app.click('ob-sel', 'flags'); await app.tick();
@@ -7753,7 +7754,10 @@ rule('Back and Forward: only route words and IDs reach the address bar and histo
   app.entries().forEach(e => {
     assert.ok(ID_ONLY.test(e.hash), e.hash);
     words.forEach(w => assert.ok(e.hash.toLowerCase().indexOf(String(w).toLowerCase()) < 0, e.hash + ' has ' + w));
-    assert.deepStrictEqual(Object.keys(e.state).sort(), ['f', 'fd', 'n']); assert.ok(/^[0-9a-f]{8}$/.test(e.state.f));
+    const k = Object.keys(e.state).sort();
+    assert.ok(/^(b,)?f,fd,n$/.test(k.join()), k.join()); assert.ok(/^[0-9a-f]{8}$/.test(e.state.f));
+    /* 2.16: b, the entry before, is a route and a folder fingerprint only. */
+    if (e.state.b) { assert.deepStrictEqual(Object.keys(e.state.b).sort(), ['f', 'h']); assert.ok(ID_ONLY.test(e.state.b.h), e.state.b.h); assert.ok(e.state.b.f === null || /^[0-9a-f]{8}$/.test(e.state.b.f)); words.forEach(w => assert.ok(e.state.b.h.toLowerCase().indexOf(String(w).toLowerCase()) < 0)); }
   });
   assert.ok(hashes(app).indexOf('#/skill/' + app.PF.util.hash(sk)) >= 0);
   assert.ok(hashes(app).indexOf('#/plan/' + app.PF.util.hash('plan-release-2026-10-24')) >= 0);
@@ -7970,18 +7974,18 @@ rule('Back and Forward: skill file names the loader accepts round-trip as a fing
   }
 });
 
-rule('Back and Forward: starting a run from a plan or the start form makes one entry, the run\'s, also when the person moves meanwhile', async () => {
+rule('Back and Forward: starting a run from a plan or the start form takes the form\'s entry (2.16), and lands after the screens visited when the person moves meanwhile', async () => {
   const app = await navBoot();
   app.click('nav', 'runs'); await app.tick();
   app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
   const before = hashes(app);
   app.chooseApprovers().submitForm('start-form'); await app.tick(200);
   assert.ok(onRun(app), 'set-up: started');
-  assert.deepStrictEqual(hashes(app).slice(0, -1), before); assert.ok(/^#\/run\/release\//.test(app.hash()));
+  assert.deepStrictEqual(hashes(app).slice(0, -1), before.slice(0, -1)); assert.strictEqual(hashes(app).length, before.length); assert.ok(/^#\/run\/release\//.test(app.hash()));
   app.click('open-process', 'release'); await app.tick(); app.click('start', 'release'); await app.tick();
   const two = hashes(app);
   app.chooseApprovers().submitForm('start-form'); await app.tick(200);
-  assert.deepStrictEqual(hashes(app).slice(0, -1), two); assert.ok(/^#\/run\/release\//.test(app.hash()));
+  assert.deepStrictEqual(hashes(app).slice(0, -1), two.slice(0, -1)); assert.strictEqual(hashes(app).length, two.length); assert.ok(/^#\/run\/release\//.test(app.hash()));
   // Paused in the folder's read: the person visits Runs and Settings, then the run lands after them.
   app.click('start', 'release'); await app.tick();
   const list = app.fs.list.bind(app.fs), g = gate(); let armed = true;
@@ -8007,8 +8011,12 @@ rule('Back and Forward: a decided plan never reopens with Start the run or Decli
   const files = JSON.stringify(Object.keys(app.fs.files).filter(p => /^proposals\//.test(p)).map(p => [p, app.fs.files[p].t]));
   const startOrDecline = h => /id="start-form"/.test(h) || /data-act="decline-plan"/.test(h);
   await back(app); assert.ok(!startOrDecline(app.html()) && /That plan was declined\./.test(app.live()), 'declined: Runs');
-  for (let i = 0; i < 3; i++) await back(app);
-  assert.ok(!startOrDecline(app.html()) && onRun(app) && app.hash() === '#/run/' + key, 'accepted: its run (' + app.hash() + ')');
+  /* 2.16: the accepted plan's entry became its run's, so going back passes the run and never a start form. */
+  const seen = [];
+  while (app.index() > 0) { await back(app); assert.ok(!startOrDecline(app.html()), 'never a start form (' + app.hash() + ')'); seen.push(app.hash()); }
+  assert.ok(seen.indexOf('#/run/' + key) >= 0, 'accepted: its run on the way back (' + seen.join(' ') + ')');
+  app.typeHash('#/plan/' + app.PF.util.hash('plan-release-2026-10-24')); await app.settle();
+  assert.ok(!startOrDecline(app.html()) && onRun(app) && app.hash() === '#/run/' + key, 'accepted: its link opens its run (' + app.hash() + ')');
   const again = await navBoot({ localStore: app.store, hash: '#/plan/' + app.PF.util.hash('plan-release-example-next') });
   assert.ok(!startOrDecline(again.html()) && /That plan was declined\./.test(again.live()), 'a reload too');
   assert.strictEqual(JSON.stringify(Object.keys(app.fs.files).filter(p => /^proposals\//.test(p)).map(p => [p, app.fs.files[p].t])), files);
@@ -8167,7 +8175,9 @@ rule('Back and Forward (2.0): a plan/2 link reopens its review on its exact vers
   app.chooseApprovers().submitForm('start-form'); await app.tick(200);
   const made = releaseRuns(app).filter(p => before.indexOf(p) < 0), run = JSON.parse(app.fs.files[made[0]].t), key = 'release/' + run.id;
   assert.strictEqual(run.folder, v2); assert.strictEqual(app.hash(), '#/run/' + key);
-  await back(app);
+  /* 2.16: the run took the plan's entry, so its link is what opens the run now. */
+  await back(app); assert.ok(!/id="start-form"/.test(app.html()), 'Back passes no start form (' + app.hash() + ')');
+  app.typeHash(fp); await app.settle();
   assert.ok(onRun(app) && app.hash() === '#/run/' + key && !/id="start-form"/.test(app.html()), 'the accepted plan/2 opens its run (' + app.hash() + ')');
   numbered(app); assert.strictEqual(app.reloads(), 0);
 });

@@ -155,6 +155,19 @@
     /* Unsaved edits to a draft that was removed from this folder, so they stay findable. */
     lostDrafts: function () { var k = fsKey() + '\n', ids = processes().map(function (x) { return x.id; }); return Object.keys(state.editors || {}).filter(function (e) { var ed = state.editors[e]; return e.indexOf(k) === 0 && ed.text != null && ids.indexOf(ed.pid) < 0; }).map(function (e) { return state.editors[e].pid; }); },
     findRun: function (key) { return findRun(key); },
+    runOrigin: function (r) { return runOrigin(r); },
+    /* A form's (Start a run, Plan a run, Start a test run, Review the plan): whichever screen opened it, else its checklist's page. */
+    formOrigin: function (pid) { return originOf(function (loc) { return loc.view !== 'plan' && !loc.sub; }, procFind(pid) ? { view: 'process', process: pid } : { view: 'processes' }); },
+    /* Skills and Step types: Checklists or Settings, whichever opened them, else Checklists. A skill: whichever screen opened
+       it, else Skills. */
+    libOrigin: function (kind) {
+      var tf = kind === 'types' ? typeFromOk() : null, tp = tf && procFind(tf.pid);
+      if (tp) return { hash: PF.nav.format({ view: 'process', process: tp.id, tab: 'edit' }), place: tp.title, view: 'Edit', ws: true };
+      if (kind === 'skill') return originOf(function (loc) { return !loc.sub && loc.view !== 'plan'; }, { view: 'skills' });
+      return originOf(function (loc) { return loc.view === 'processes' || loc.view === 'settings'; }, { view: 'processes' });
+    },
+    /* Folder health opened from a run goes back to it, The run; else Settings. */
+    healthOrigin: function () { var loc = navOrigin(); return loc && loc.view === 'run' && !loc.sub && findRun(loc.process + '/' + loc.run) ? { hash: PF.nav.format(loc), place: 'The run' } : null; },
     procOf: function (id) { return procFind(id); },
     /* What other files say about renaming a run detail of this checklist (PF.refs.dependents): the folder's other checklists
        (latest published version and saved draft), the children this one runs, and the Jira workflows. */
@@ -4097,8 +4110,14 @@
   function pubDlg(pid) { var o = state.overlay; return o && o.wsPublish === pid ? o : null; }
   /* The checklist page, from the workspace's ‹ <title>: focus on the strip's button for the view left. */
   function wsLeave(p, fromPractice) {
+    var f = fromPractice ? '[data-act="pv-practice"]' : '[data-act="ptab"][data-id="edit"]', bb = H.cur.b;
+    /* Rule 4: when the entry before is the checklist page, the way back is browser Back (arrive puts focus on the view left). */
+    if (H.on && !H.pending && bb && bb.f === navFp() && bb.h === PF.nav.format({ view: 'process', process: p.id })) {
+      state.typeBack = function () { state.focus = f; };
+      try { HIST.back(); return; } catch (e) { state.typeBack = null; navOff(); }
+    }
     setView('process'); state.processId = p.id; state.ptab = 'overview'; state.mapVer = null; state.sel = null; state.pick = null; state.obPlace = null; state.obAsk = null;
-    state.focus = fromPractice ? '[data-act="pv-practice"]' : '[data-act="ptab"][data-id="edit"]'; render(); window.scrollTo(0, 0);
+    state.focus = f; render(); window.scrollTo(0, 0);
   }
   function wsPublishOpen(pid) {
     var p = currentProcess(); if (!p || p.id !== pid) return;
@@ -4560,6 +4579,20 @@
      undone. */
   var typeTls = {};
   /* text: the exact text of the step type's file the kept form was based on; it's resumed only over that same text. */
+  /* The workspace a step type was opened from (2.16), kept in memory with its folder read: { pid, sel, gen, fsKey }. */
+  function typeFromNow() { var p = state.view === 'process' && state.ptab === 'edit' ? currentProcess() : null; return p ? { pid: p.id, sel: state.obSel ? Object.assign({}, state.obSel) : null, gen: gen, fsKey: fsKey() } : null; }
+  function typeFromOk() { var t = state.typeFrom; return t && t.gen === gen && t.fsKey === fsKey() && procFind(t.pid) ? t : null; }
+  /* Back to the editor, at the part it came from: browser Back when that's the entry before, else a move there. */
+  function typeWsReturn() {
+    var t = typeFromOk(), f = state.typeForm; state.typeFrom = null; if (!t) return;
+    if (f && f.existing && f.tl) keepTypeTl(f, f.existing, f.def, f.baseText);
+    state.typeForm = null;
+    var h = PF.nav.format({ view: 'process', process: t.pid, tab: 'edit' }), b = H.cur.b;
+    var back = function () { if (t.sel && state.view === 'process' && state.ptab === 'edit' && state.processId === t.pid) { state.obSel = t.sel; state.focus = selFocus(t.sel) || 'ed-h'; } };
+    if (H.on && !H.pending && b && b.f === navFp() && b.h === h) { state.typeBack = back; try { HIST.back(); return; } catch (e) { navOff(); state.typeBack = null; } }
+    var res = moveTo({ view: 'process', process: t.pid, tab: 'edit' }); if (res === 'stay') { render(); return; }
+    state.focus = 'ed-h'; back(); render(); window.scrollTo(0, 0);
+  }
   function keepTypeTl(f, id, def, text) { if (f.tl && id) typeTls[f.fsKey + '\n' + id] = { tl: f.tl, def: def ? JSON.parse(JSON.stringify(def)) : null, text: text == null ? null : text, tail: def ? typeTail(f) : null }; }
   function resumeTypeTl(f, id, text) {
     var k = typeTls[fsKey() + '\n' + id]; if (!k) return f;
@@ -5324,7 +5357,7 @@
         keepTypeTl(f, def.id, savedDef, res.text);
       }
       if (!here) return;
-      if (open && f.closeAfterSave) { f.closeAfterSave = false; ACTIONS['type-cancel'](); }
+      if (open && f.closeAfterSave) { f.closeAfterSave = false; if (f.wsReturn && typeFromOk()) typeWsReturn(); else ACTIONS['type-cancel'](); }
       say('Saved {' + def.id + '}. Checklists can use it now.', 'good');
       return load(true);
     }, function (err) { f.saving = false; if (fsKey() !== f.fsKey) return; say('Couldn\'t save the step type {' + def.id + '}: ' + err.message, 'bad'); render(); });
@@ -5428,11 +5461,49 @@
   function navFp() { return state.fs ? U.hash(fsKey()) : null; }
   function navOff() { H.on = false; H.pending = null; H.hold = null; if (H.restoring) { clearTimeout(H.restoring.timer); H.restoring = null; } }
   /* The first refused call (an unusual browser, a sandboxed frame) turns history off for this page. */
-  function histWrite(push, hash, n, f) {
+  /* b: the entry before this one, { h, f } (2.16), written only when it is one parse() accepts, for the ‹ controls' labels. */
+  function histB(c) { return c && typeof c.hash === 'string' && PF.nav.parse(c.hash) && (c.f === null || PF.nav.isHex(c.f)) ? { h: c.hash, f: c.f } : null; }
+  function histWrite(push, hash, n, f, b) {
     var s = { fd: 1, n: n, f: f };
+    if (b && typeof b.h === 'string' && PF.nav.parse(b.h) && (b.f === null || PF.nav.isHex(b.f))) s.b = { h: b.h, f: b.f };
     try { if (push) HIST.pushState(s, '', hash); else if (hash == null) HIST.replaceState(s, ''); else HIST.replaceState(s, '', hash); return true; } catch (e) { navOff(); return false; }
   }
   function navHere() { return PF.nav.format(PF.nav.locate(state)); }
+  /* ---------- where a ‹ control goes (2.16) ---------- */
+  /* The entry before this one (its b), as a location in this team folder, or null. */
+  function navOrigin() {
+    if (!H.on) return null;
+    /* Drawn before the URL is written: a screen that will be pushed has the drawn entry before it, else the entry keeps its b. */
+    var c = H.cur, push = !H.pending && navHere() !== c.hash && H.mode !== 'replace' && !(H.hold && H.hold.replace), b = push ? (c.gone ? null : histB(c)) : c.b;
+    return b && b.f === navFp() ? PF.nav.parse(b.h) : null;
+  }
+  var ORIGIN_PAGES = { runs: 'Runs', followups: 'Follow-ups', processes: 'Checklists', skills: 'Skills', settings: 'Settings' };
+  /* What a ‹ control says for a location: its place and, in the workspace, the view; null when it isn't a screen one names. */
+  function originLabel(loc) {
+    var v = loc && loc.view, p, r;
+    if (v === 'home') return { place: 'Home' };
+    if (Object.prototype.hasOwnProperty.call(ORIGIN_PAGES, v)) return { place: ORIGIN_PAGES[v] };
+    if (v === 'types' && loc.type == null && !loc.sub) return { place: 'Step types' };
+    if (v === 'process' && !loc.sub && (p = procFind(loc.process))) return loc.tab === 'edit' ? { place: p.title, view: 'Edit' } : loc.tab === 'insights' ? { place: p.title, view: 'How runs go' } : { place: p.title };
+    if (v === 'practice' && (p = procFind(loc.process))) return { place: p.title, view: 'Practice' };
+    if (v === 'run' && !loc.sub && (r = findRun(loc.process + '/' + loc.run))) return { place: r.title };
+    return null;
+  }
+  /* The screen before this one when allow() takes it and it can be named, else the fallback. */
+  function originOf(allow, fallback) {
+    var loc = navOrigin(), l = loc && allow(loc) ? originLabel(loc) : null;
+    if (!l) { loc = fallback; l = originLabel(fallback) || { place: 'Home' }; }
+    return { hash: PF.nav.format(loc), place: l.place, view: l.view || '', loc: loc };
+  }
+  /* The run screen's: whichever screen opened it (Home, Runs, Follow-ups, a checklist's page or workspace, its parent run),
+     else Runs. Its own pages (Screen share, Finish, Receipt) aren't an origin. */
+  function runOrigin(r) {
+    var key = r ? r.process + '/' + r.id : '';
+    return originOf(function (loc) {
+      if (loc.view === 'run') return loc.process + '/' + loc.run !== key && !loc.sub;
+      return loc.view === 'home' || loc.view === 'runs' || loc.view === 'followups' || loc.view === 'practice' || (loc.view === 'process' && !loc.sub && loc.version == null && (loc.tab == null || loc.tab === 'edit'));
+    }, { view: 'runs' });
+  }
   function scheduleSync() { if (!H.on || H.queued) return; H.queued = true; Promise.resolve().then(function () { H.queued = false; syncLocation(); }); }
   function syncLocation() {
     if (!H.on || H.restoring) return;
@@ -5448,11 +5519,12 @@
     var hash = navHere(), f = navFp(), c = H.cur;
     if (moved && !replace) {
       if (hash === c.hash && f === c.f && c.n === H.pos && !c.gone) return;
-      if (histWrite(true, hash, H.pos + 1, f)) { H.pos++; H.cur = { n: H.pos, hash: hash, f: f }; }
+      var nb = c.gone ? null : histB(c);
+      if (histWrite(true, hash, H.pos + 1, f, nb)) { H.pos++; H.cur = { n: H.pos, hash: hash, f: f, b: nb }; }
       return;
     }
     if (hash === c.hash && f === c.f && c.n === H.pos) return;
-    if (histWrite(false, hash, H.pos, f)) H.cur = { n: H.pos, hash: hash, f: f };
+    if (histWrite(false, hash, H.pos, f, c.b)) H.cur = { n: H.pos, hash: hash, f: f, b: c.b || null };
   }
   /* A move that spans an await (starting a run, a step type's read) holds the URL; heldOwn marks the operation's own
      in-between changes, releaseNav its landing. replace: the landing replaces the entry (it came from Back or Forward). */
@@ -5466,14 +5538,14 @@
     H.loadedGen = gen;
     /* A run link that couldn't be read opens once a later read finds it, if nothing was moved to since. */
     var rt = H.retry; if (rt && (rt.seq !== navSeq || rt.f !== navFp())) rt = H.retry = null;
-    if (rt && H.on && !H.pending && (!navUnread(rt.loc) || navFound(rt.loc))) { H.retry = null; arrive({ loc: rt.loc, n: H.pos, f: rt.f }); return; }
+    if (rt && H.on && !H.pending && (!navUnread(rt.loc) || navFound(rt.loc))) { H.retry = null; arrive({ loc: rt.loc, n: H.pos, f: rt.f, b: H.cur.b }); return; }
     var t = H.pending; if (!H.on || !t || !readyFor(t)) return;
     H.pending = null; arrive(t);
   }
   function navLoadFailed() {
     if (!H.on || !H.pending || state.needsReconnect) return;
     H.pending = null;
-    arrive({ loc: { view: 'home' }, n: H.pos, f: null, msg: 'The team folder couldn\'t be read, so the linked page wasn\'t opened.' });
+    arrive({ loc: { view: 'home' }, n: H.pos, f: null, b: H.cur.b, msg: 'The team folder couldn\'t be read, so the linked page wasn\'t opened.' });
   }
   function navBoot() {
     if (!H.on) return;
@@ -5481,13 +5553,13 @@
     var es = null, hash = '';
     try { es = PF.nav.entry(HIST.state); hash = String(location.hash || ''); } catch (e) { navOff(); return; }
     var n = es ? es.n : 0;
-    H.pos = n; H.cur = { n: n, hash: '#/', f: es ? es.f : null };
+    H.pos = n; H.cur = { n: n, hash: '#/', f: es ? es.f : null, b: es && es.b || null };
     if (hash && hash !== '#/' && hash !== '#') {
-      H.bootLink = true; H.pending = { loc: PF.nav.parse(hash), n: n, f: es ? es.f : null, typed: !es };
+      H.bootLink = true; H.pending = { loc: PF.nav.parse(hash), n: n, f: es ? es.f : null, typed: !es, b: H.cur.b };
       if (!es) histWrite(false, null, n, null);
       return;
     }
-    histWrite(false, '#/', n, H.cur.f);
+    histWrite(false, '#/', n, H.cur.f, H.cur.b);
   }
   function onPop(ev) {
     uiActs++;
@@ -5502,13 +5574,13 @@
     var hash = String(location.hash || '');
     if (!es) {
       /* Typed or pasted into the address bar: a new entry after the one the browser was on, numbered now. */
-      var n = H.pos + 1;
+      var n = H.pos + 1, tb = H.cur.gone ? null : histB(H.cur);
       if (H.cur.n >= n) H.cur.gone = true;
-      if (!histWrite(false, null, n, null)) return;
-      es = { n: n, f: null, typed: true };
+      if (!histWrite(false, null, n, null, tb)) return;
+      es = { n: n, f: null, typed: true, b: tb };
     }
     H.pos = es.n;
-    var t = { loc: PF.nav.parse(hash), n: es.n, f: es.f, typed: !!es.typed };
+    var t = { loc: PF.nav.parse(hash), n: es.n, f: es.f, typed: !!es.typed, b: es.b || null };
     if (!readyFor(t)) { H.pending = t; render(); return; }
     H.pending = null;
     arrive(t);
@@ -5528,7 +5600,7 @@
       try { HIST.go(c.n - H.pos); } catch (e) { navOff(); }
       return;
     }
-    if (histWrite(false, c.hash, H.pos, c.f)) H.cur = { n: H.pos, hash: c.hash, f: c.f };
+    if (histWrite(false, c.hash, H.pos, c.f, c.b)) H.cur = { n: H.pos, hash: c.hash, f: c.f, b: c.b || null };
   }
   function refuseFor(dirty) {
     say(/^ob-/.test(dirty.id || '') ? 'Apply or clear what you typed in the box first ' + applyHint(dirty.id) + ', then go there.' : 'Finish or cancel this first.', 'warn');
@@ -5740,12 +5812,12 @@
   function headingOf() { var v = state.view; return v === 'run' || v === 'practice' ? 'run-h' : v === 'process' && state.ptab === 'edit' ? 'ed-h' : v === 'types' && state.typeForm ? 'tf-h' : v === 'setup' ? 'su-h' : 'page-h'; }
   /* A target the browser is on: the folder check, layers, guards, then the move, and the entry gets what is drawn. */
   function arrive(t) {
-    var loc = t.loc, msg = t.msg || null; H.retry = null; H.retryLoc = null;
+    var loc = t.loc, msg = t.msg || null, tb = state.typeBack; H.retry = null; H.retryLoc = null; state.typeBack = null;
     if (!loc) { loc = { view: 'home' }; msg = 'That link isn\'t one Flightdeck can open.'; }
     if (t.f != null && t.f !== navFp()) {
       say('That page was in another team folder, so it wasn\'t opened.', 'warn');
       var here = navHere(), f = navFp();
-      if (histWrite(false, here, H.pos, f)) H.cur = { n: H.pos, hash: here, f: f };
+      if (histWrite(false, here, H.pos, f, t.b)) H.cur = { n: H.pos, hash: here, f: f, b: t.b || null };
       render(); return;
     }
     if (navLayer()) { restoreUrl(t); return; }
@@ -5755,15 +5827,16 @@
     if (res === 'stay') { restoreUrl(t); render(); return; }
     if (msg) say(msg, 'warn');
     if (res === 'async') {
-      H.cur = { n: H.pos, hash: String(location.hash || ''), f: navFp() }; H.seen = navSeq; H.mode = null;
+      H.cur = { n: H.pos, hash: String(location.hash || ''), f: navFp(), b: t.b || null }; H.seen = navSeq; H.mode = null;
       if (H.hold) H.hold.seq = navSeq;
       state.focus = 'page-h'; render(); window.scrollTo(0, 0); return;
     }
     var hash = navHere(), fp = navFp();
     H.seen = navSeq; H.mode = null;
-    if (histWrite(false, hash, H.pos, fp)) H.cur = { n: H.pos, hash: hash, f: fp };
+    if (histWrite(false, hash, H.pos, fp, t.b)) H.cur = { n: H.pos, hash: hash, f: fp, b: t.b || null };
     if (H.retryLoc) { H.retry = { loc: H.retryLoc, seq: navSeq, f: fp }; H.retryLoc = null; }
     if (res !== 'focus') state.focus = headingOf();
+    if (tb) tb();
     render(); window.scrollTo(0, 0);
   }
   function navWarn(m) { say(m, 'warn'); }
@@ -5836,6 +5909,11 @@
     /* A test run's form (2.1) comes back as a test run's form, never as an ordinary start. */
     if (loc.sub === 'start' && loc.stage) {
       if (p && state.me) { state.processId = pid; ACTIONS['start-test'](loc.stage); return 'moved'; }
+      loc = { view: 'process', process: pid };
+    }
+    /* Plan a run (2.16): its own route; a plan being made in this window comes back, anything else is a fresh form. */
+    if (loc.sub === 'plan') {
+      if (p && p.latest && state.me) { var pp = state.planning; openPlanForm(pp && pp.fs === fsKey() && pp.process === pid ? pp : { process: pid, from: null }); return 'moved'; }
       loc = { view: 'process', process: pid };
     }
     if (loc.sub === 'start') {
@@ -5949,7 +6027,7 @@
     if (guarded) dispatch(act, id, b); else handler(id, b);
   });
 
-  var BACK = { home: 'Home', runs: 'Runs', run: 'Back to the run', processes: 'Checklists', process: 'Back to the checklist', skills: 'Skills', skill: 'Back to the skill', types: 'Step types', settings: 'Settings', health: 'Folder health', connection: 'Connection check' };
+  var BACK = { home: 'Home', runs: 'Runs', run: 'The run', processes: 'Checklists', process: 'The checklist', skills: 'Skills', skill: 'The skill', types: 'Step types', settings: 'Settings', health: 'Folder health', connection: 'Connection check' };
   var ACTIONS = {
     home: function () { home(); render(); },
     /* ---------- Folder health, the connection check, When something goes wrong ---------- */
@@ -6130,6 +6208,18 @@
     'sel-more': function (id, b) { if (!id) return; selMore(id, b && b.dataset && b.dataset.step); state.focus = id; state.focusWins = true; render(); },
     tag: function (id) { var t = state.tags || []; state.tags = !id ? [] : t.indexOf(id) >= 0 ? t.filter(function (x) { return x !== id; }) : t.concat(id); (state.tagsBy = state.tagsBy || {})[state.view] = state.tags; state.focus = id ? '[data-act="tag"][data-id="' + cssEsc(id) + '"]' : null; render(); },
     'open-process': function (id) { setView('process'); state.processId = id; state.diffOf = null; state.ptab = 'overview'; state.mapVer = null; resetRunUi(); render(); window.scrollTo(0, 0); },
+    /* Home (2.16): Publish vN… opens the checklist page at its What changed box (Home has no workspace to hold the dialog);
+       Skills of <title> opens it with its Skills unfolded. */
+    'runs-start': function () { state.overlayFocus = '#find-which'; openOverlay({ which: true, html: function () { return V.whichDialog(ctx); } }); },
+    /* A row of Which checklist?: its start form; '' (none published yet): Checklists. */
+    'runs-which': function (id) {
+      if (!state.overlay || !state.overlay.which) return;
+      if (id === '' || id == null) { closeOverlay(); ACTIONS.nav('processes'); return; }
+      var p = procFind(id); if (!p || !p.latest || !state.me) return;
+      closeOverlay(); ACTIONS.start(p.id);
+    },
+    'home-publish': function (id) { if (!procFind(id)) return; state.focus = 'change-note'; ACTIONS['open-process'](id); },
+    'home-skills': function (id) { if (!procFind(id)) return; state.disc = Object.assign({}, state.disc); state.disc['sk:' + id] = true; state.focus = 'sk-h'; ACTIONS['open-process'](id); },
     /* ---------- the sections ---------- */
     /* Go straight to a run's step, a process or a section (go()), keeping what's typed. */
     go: function (id, b) { var d = (b && b.dataset) || {}; go({ view: d.view, process: d.process, ptab: d.ptab, mapVer: d.mapVer, run: d.run, step: d.step, note: d.note, filter: d.filter }); },
@@ -6181,6 +6271,21 @@
     },
     /* The checklist page's Practice (2.16): through the Edit checks first (moveToPractice), or, while someone else has the
        draft open, Practice anyway: Edit anyway's own checks (ptab), then practice, in one click. */
+    /* A ‹ control: browser Back when the entry before is exactly where it goes (same folder, nothing pending), so the history
+       stays one deep; otherwise a move there, as any link. The hash is parsed as any other, never trusted. */
+    'go-back': function (hash) {
+      var loc = PF.nav.parse(String(hash == null ? '' : hash)); if (!loc) return;
+      var dirty = pendingBox(); if (dirty) { refuseFor(dirty); return; }
+      /* Leaving a form by its way back or Cancel drops what it was for: a plan being made, a new checklist being named. */
+      if (state.view === 'start') { state.planning = null; state.fieldErr = null; }
+      if (state.view === 'new-process') state.newProc = null;
+      var b = H.cur.b;
+      if (H.on && !H.pending && b && b.f === navFp() && b.h === PF.nav.format(loc)) { try { HIST.back(); return; } catch (e) { navOff(); } }
+      var res = moveTo(loc);
+      if (res === 'stay') { render(); return; }
+      if (res !== 'focus' && res !== 'async') state.focus = headingOf();
+      render(); window.scrollTo(0, 0);
+    },
     'pv-practice': function (id) {
       var p = currentProcess(); if (!p) return;
       if (id === 'anyway') { ACTIONS.ptab('edit'); if (state.view === 'process' && state.ptab === 'edit') prEnter(p); return; }
@@ -6286,6 +6391,7 @@
       var bx = pendingBox(); if (bx) { refuseFor(bx); return; }
       var p = currentProcess(); state.obPlace = null; state.obAsk = null;
       if (p && editorDirty(p)) say('Your changes aren\'t saved yet. They stay in the editor until you save or discard them.', 'warn'); else say(null);
+      if (p) { wsLeave(p, false); return; }
       state.ptab = 'overview'; state.focus = '[data-act="ptab"][data-id="edit"]'; render(); window.scrollTo(0, 0);
     },
     /* An empty checklist: Step offers to add its phase too, as one change. */
@@ -6539,8 +6645,8 @@
     'np-copy': function () { var pre = document.getElementById('np-prompt'); if (pre) copyText(pre.textContent, pre, 'Copied. Paste it to your AI assistant.'); },
     'np-cancel': function () { state.newProc = null; home(); state.focus = '[data-act="nav"][data-id="processes"]'; render(); window.scrollTo(0, 0); },
     /* ---------- step types ---------- */
-    'open-types': function () { partsSheetAway(); ACTIONS.nav('types'); },
-    'new-type': function () { partsSheetAway(); setView('types'); state.typeForm = typeFormFor({ id: '', label: '', hint: '', icon: 'check', group: '', tags: '', fields: [], record: [] }, null, null); state.planFormReset = true; state.focus = 'tf-label'; render(); window.scrollTo(0, 0); },
+    'open-types': function () { var from = typeFromNow(); partsSheetAway(); ACTIONS.nav('types'); state.typeFrom = from; render(); },
+    'new-type': function () { state.typeFrom = typeFromNow(); partsSheetAway(); setView('types'); state.typeForm = typeFormFor({ id: '', label: '', hint: '', icon: 'check', group: '', tags: '', fields: [], record: [] }, null, null); state.planFormReset = true; state.focus = 'tf-label'; render(); window.scrollTo(0, 0); },
     'copy-type': function (id) { var t = T.get(id); if (!t) return; setView('types'); state.typeForm = typeFormFor(V.typeFormOf(t, false), null, null); state.planFormReset = true; state.focus = 'tf-id'; render(); window.scrollTo(0, 0); },
     /* Edit a team type from the file as it is now: its content and its fingerprint come from the same read. */
     'edit-type': function (id, b, fromHistory) {
@@ -6584,9 +6690,14 @@
     /* ---------- the step-type editor's own controls; every change to the type goes through typeChange, so it's undoable ---------- */
     'type-done': function () {
       var f = state.typeForm; if (!f) return; flushAdds(f); f.backLeave = false;
+      /* Opened from the workspace, the way back returns there, at the part it came from; it still asks before discarding. */
+      f.wsReturn = !!typeFromOk();
       if (typeFormChanged(f)) { f.leaving = true; state.focus = '[data-act="type-save"]'; render(); return; }
+      if (f.wsReturn) { typeWsReturn(); return; }
       ACTIONS['type-cancel']();
     },
+    /* The step types list opened from the workspace (View errors): its way back returns there. */
+    'type-ws-back': function () { if (typeFromOk()) typeWsReturn(); else { state.typeFrom = null; render(); } },
     /* On a phone the preview is a sheet over the form, so the place being edited stays where it was. */
     'tf-preview': function () { state.tfPreview = !state.tfPreview; state.focus = state.tfPreview ? '.tf-prevclose' : '.tf-prevbtn'; render(); },
     'type-stay': function () { var f = state.typeForm; if (f) { f.leaving = false; f.backLeave = false; } state.focus = 'tf-h'; render(); },
@@ -6705,7 +6816,8 @@
       if (!k || k.plan !== id || k.fs !== state.fs || k.key !== fsKey() || k.me !== state.me) { say('Only the window that started this plan, for the same person, can save its run again. Nothing was written.', 'warn'); render(); return; }
       if (state.resuming) return;
       state.resuming = true; render();
-      var held = holdNav(false), same = planStill(g, k.fs, k.key, k.me);
+      /* Clicked on the form, the run replaces the form's entry (2.16); anywhere else the screen it was clicked on is the origin. */
+      var held = holdNav(state.view === 'start'), same = planStill(g, k.fs, k.key, k.me);
       /* Who and which folder are asked again under each lock and right before the write, and whether this Try again is still
          the one on offer: a change while it waits writes nothing, even one changed back (that forgot it). */
       var still = function () { return g === gen && state.pendingStarts[k.plan] === k && state.fs === k.fs && fsKey() === k.key && state.me === k.me; };
@@ -7362,7 +7474,12 @@
     },
     mission: function () { if (state.view === 'run') savePanes(); setView('mission'); render(); window.scrollTo(0, 0); },
     receipt: function () { setView('receipt'); render(); window.scrollTo(0, 0); },
-    'exit-mission': function () { reenterRun(); render(); },
+    /* ‹ The run: browser Back when the entry before is the run (it restores the same way, reenterRun), else straight there. */
+    'exit-mission': function () {
+      var b = H.cur.b, k = String(state.runKey || ''), i = k.indexOf('/'), h = i > 0 ? PF.nav.format({ view: 'run', process: k.slice(0, i), run: k.slice(i + 1) }) : null;
+      if (h && H.on && !H.pending && b && b.f === navFp() && b.h === h) { try { HIST.back(); return; } catch (e) { navOff(); } }
+      reenterRun(); render();
+    },
     /* The key other apps use for this run (flightdeck run <folder> <key> --json). */
     'copy-run-key': function (id) { copyText(id, null, 'Copied the run key.'); },
     /* The receipt's text is worked out when it's copied (2.11), with every report and correction, and put in its hidden box for
@@ -8105,7 +8222,8 @@
     var r; try { r = R.create(pub, { title: val('run-title') || p.title, details: details, from: from, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, app: APP_VERSION, pins: pinsAtStart(pub) }); }
     catch (err) { if (err.field) state.focus = 'detail-' + err.field; say(err.message, 'warn'); render(); return; }
     var endBusy = busyStart();
-    var sfs = state.fs, sg = gen, who = state.me, held = holdNav(false), skey = fsKey(), still = planStill(sg, sfs, skey, who);
+    /* The run replaces the form's entry and takes over its origin (2.16): Back never reopens a form just submitted. */
+    var sfs = state.fs, sg = gen, who = state.me, held = holdNav(true), skey = fsKey(), still = planStill(sg, sfs, skey, who);
     /* The write queue waits for this window's identity check, so the recorder is set to the confirmed identity. */
     /* A plan is started only past the write-time gate (repo.decidePlan): every file of the plan read again now, under the
        plan's lock, whatever this page last read. Its decision, naming the run, is written first and the run then (2.1.1):
@@ -8157,7 +8275,7 @@
     /* The form's values are checked now, so a typed detail that doesn't read is said before anything is read again. */
     try { mk(ts.stage); } catch (err) { if (err.field) state.focus = 'detail-' + err.field; say(err.message, 'warn'); render(); return; }
     testBusy = true;
-    var endBusy = busyStart(), held = holdNav(false), done = function () { testBusy = false; endBusy(); };
+    var endBusy = busyStart(), held = holdNav(true), done = function () { testBusy = false; endBusy(); };
     queued(function () {
       return repo.startTestRun(sfs, p.id, folder, { session: SESSION, writer: WRITER, lock: LOCKS ? lock : null,
         still: still, make: function (stage) { made = mk(stage); return made; } });
@@ -8609,7 +8727,7 @@
     });
   }
   /* Every change of screen goes through here: what's typed on the run's selected step is kept first. */
-  function setView(v) { childEpoch++; if (v !== 'runs') state.justPlanned = null; if (state.view === 'start' && v !== 'start') { state.startModeAt = Object.create(null); state.roleCarry = null; } if (state.view === 'practice' && v !== 'practice') prLeave(); leaveContext(); state.view = v; }
+  function setView(v) { childEpoch++; if (v !== 'runs') state.justPlanned = null; if (v !== 'types') state.typeFrom = null; if (state.view === 'start' && v !== 'start') { state.startModeAt = Object.create(null); state.roleCarry = null; } if (state.view === 'practice' && v !== 'practice') prLeave(); leaveContext(); state.view = v; }
   /* Leaving the practice page (any way: Edit, Back, a link): what's typed is kept, and where it was, for coming back. */
   function prLeave() {
     prHarvest(); var p = currentProcess(), e = p && prs[edKey(p.id)];
@@ -8746,6 +8864,16 @@
       return el.selectedIndex !== d;
     }
     return String(el.value == null ? '' : el.value) !== String(el.defaultValue == null ? '' : el.defaultValue);
+  }
+  /* Escape as the ‹ control (2.16), after every layer is closed: Folder health, the connection check and When something goes
+     wrong, and a form none of whose fields differs from how it was drawn. Never the editor, the run or the step-type editor. */
+  function escBack() {
+    var v = state.view;
+    if (v === 'health' || v === 'connection') { var o = v === 'health' && ctx.healthOrigin(); ACTIONS['go-back'](o ? o.hash : '#/settings'); return; }
+    if (v === 'recovery') { ACTIONS['recovery-back'](); return; }
+    if (v !== 'start' && v !== 'new-process') return;
+    if (dirtyControl([app]) || pendingBox()) return;
+    ACTIONS['go-back'](v === 'new-process' ? '#/processes' : ctx.formOrigin(state.processId).hash);
   }
   function dirtyControl(only) {
     var roots = only || (state.overlay ? [app, overlayEl] : [app]);
@@ -8967,7 +9095,7 @@
     }
     /* Find narrows as you type; Enter in its box never submits the form around it (Export evidence, Start a run). */
     if (e.key === 'Enter' && findList(t) && t.closest && t.closest('form')) { e.preventDefault(); return; }
-    if (e.key === 'Escape') { if (state.overlay) { if (!(state.overlay.lock && state.overlay.lock())) closeOverlay(); return; } var om = document.querySelector && document.querySelector('.rw-menu[open]'); if (om) { om.open = false; (state.disc = state.disc || {})[(om.dataset && om.dataset.disc) || 'rw-menu'] = false; var sm = om.querySelector('summary'); if (sm) sm.focus(); return; } if (state.tfPreview && state.view === 'types') { ACTIONS['tf-preview'](); return; } if (state.obAdd && !composing && t && /^ob-new-/.test(t.id || '')) { ACTIONS['ob-add-cancel'](); return; } if (state.obPlace) { cancelPlacing(); return; } if (state.obAsk) { ACTIONS['ob-ask-cancel'](); return; } if (obSheetOpen) { ACTIONS['ob-done'](); return; } if (state.view === 'practice' && state.pick) { PRACTICE.unpick(); return; } if (sheetWasOpen && state.view === 'practice') { PRACTICE['close-ref'](); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.view === 'practice' && !typing) { PRACTICE['pr-back'](); return; } if (state.pick || state.edit) { var pk = state.pick; if (pk && pk.kind === 'fields') { dropDraft(state.runKey, pk.id, ['fields', 'open']); state.fieldsDraft = null; } state.pick = null; state.edit = null; state.fieldErr = null; if (pk && pk.back) state.focus = pk.back; render(); return; } if (state.corrForm) { if (state.corrForm.menu) { state.corrForm.menu = false; state.focus = '[data-act="corr-menu"]'; render(); return; } ACTIONS['corr-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt') { reenterRun(); render(); } return; }
+    if (e.key === 'Escape') { if (state.overlay) { if (!(state.overlay.lock && state.overlay.lock())) closeOverlay(); return; } var om = document.querySelector && document.querySelector('.rw-menu[open]'); if (om) { om.open = false; (state.disc = state.disc || {})[(om.dataset && om.dataset.disc) || 'rw-menu'] = false; var sm = om.querySelector('summary'); if (sm) sm.focus(); return; } if (state.tfPreview && state.view === 'types') { ACTIONS['tf-preview'](); return; } if (state.obAdd && !composing && t && /^ob-new-/.test(t.id || '')) { ACTIONS['ob-add-cancel'](); return; } if (state.obPlace) { cancelPlacing(); return; } if (state.obAsk) { ACTIONS['ob-ask-cancel'](); return; } if (obSheetOpen) { ACTIONS['ob-done'](); return; } if (state.view === 'practice' && state.pick) { PRACTICE.unpick(); return; } if (sheetWasOpen && state.view === 'practice') { PRACTICE['close-ref'](); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.view === 'practice' && !typing) { PRACTICE['pr-back'](); return; } if (state.pick || state.edit) { var pk = state.pick; if (pk && pk.kind === 'fields') { dropDraft(state.runKey, pk.id, ['fields', 'open']); state.fieldsDraft = null; } state.pick = null; state.edit = null; state.fieldErr = null; if (pk && pk.back) state.focus = pk.back; render(); return; } if (state.corrForm) { if (state.corrForm.menu) { state.corrForm.menu = false; state.focus = '[data-act="corr-menu"]'; render(); return; } ACTIONS['corr-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt' || (state.view === 'finish' && !typing)) { ACTIONS['exit-mission'](); return; } escBack(); return; }
     /* A dialog keeps Tab and Shift+Tab inside it, wrapping at the ends, so keyboard focus never falls behind it. */
     var trap = state.overlay ? overlayEl : state.tfPreview && state.view === 'types' ? document.getElementById('tf-preview') : null;
     if (e.key === 'Tab' && trap && !e.altKey && !e.ctrlKey && !e.metaKey) {

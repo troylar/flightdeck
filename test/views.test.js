@@ -240,7 +240,8 @@ rule('Plans: Runs lists them soonest first with the time in words and who planne
   assert.ok(/Later today is planned for [^<]*in 2 hours/.test(home), 'due within a day: on Home');
   assert.ok(!/In three days/.test(home), 'not due yet: only under Runs');
   assert.ok(/planned &quot;No time yet&quot;|planned "No time yet"/.test(home), 'no time: Home as before');
-  assert.strictEqual((home.match(/>Review and start</g) || []).length, 2, 'one Start for each due plan');
+  assert.strictEqual((home.match(/>Review the plan</g) || []).length, 4, 'one Review the plan for each plan on Home, due or with no time (2.16: Review and start is Review the plan)');
+  assert.ok(!/>Review and start</.test(home), 'no Review and start');
 });
 
 rule('Plans: a plan made for an older version starts on it, with the differences and a one-click switch; plan mode saves instead', () => {
@@ -1625,13 +1626,13 @@ rule('Run workspace: a slim header with progress in words, three named panes, an
   playPhase(r, 0);
   const html = V.run(ctx);
   assert.ok(/^<div class="fpe rw" id="rw"><header class="fpe-head rw-head" role="region" aria-labelledby="run-h">/.test(html), 'the run is the page');
-  assert.ok(/data-act="nav" data-id="runs">.*Runs<\/button>/.test(html) && /<h1 id="run-h" tabindex="-1">Release<\/h1><span class="small rw-sub">Production release · v1 · started/.test(html));
+  assert.ok(/class="btn backc" data-act="go-back" data-id="#\/runs" aria-label="Back to Runs">.*Runs<\/span><\/button>/.test(html) && /<h1 id="run-h" tabindex="-1">Release<\/h1><span class="small rw-sub">Production release · v1 · started/.test(html));
   assert.ok(/role="progressbar" aria-label="Steps answered" aria-valuemin="0" aria-valuemax="15" aria-valuenow="6" aria-valuetext="6 of 15 steps answered"><i style="width:40%"><\/i><\/span><b>6\/15<\/b><span class="small">answered<\/span>/.test(html), '6/14 answered, said in full for screen readers');
-  assert.ok(/data-act="run-details" aria-expanded="false"/.test(html) && /data-act="receipt"/.test(html) && /<details class="rw-menu" data-disc="rw-menu"><summary class="mini">More<\/summary>/.test(html) && /data-act="finish">End run…/.test(html) && /You: <b>Casey Nguyen<\/b>/.test(html));
+  assert.ok(/data-act="run-details" aria-expanded="false"/.test(html) && /data-act="receipt"/.test(html) && /<details class="rw-menu" data-disc="rw-menu"><summary class="mini">More<\/summary>/.test(html) && !/End run…/.test(html) && /You: <b>Casey Nguyen<\/b>/.test(html));
   assert.ok(/<nav class="fpe-pane rw-rail" aria-label="Phases">/.test(html) && /<section class="fpe-pane rw-list" id="rw-list" aria-label="Checklist">/.test(html) && /<aside class="fpe-pane rw-ins" id="rw-ins" data-open="false" aria-label="Selected step">/.test(html), 'named regions');
   assert.ok(/data-act="goto" data-id="phase-deploy" data-s="current" aria-current="step">/.test(html) && /class="rw-gate g-passed">.*Ready to deploy · Passed/.test(html) && /class="rw-gate g-open">.*Deployed · Waiting on steps/.test(html) && /class="rw-gate g-locked">/.test(html), 'the rail marks the current phase and each gate\'s state');
   assert.ok(/<select id="rw-phase" data-bound data-kselect data-cur="deploy"><option value="prep">1\. Before production changes · 6\/6 · Ready to deploy: passed<\/option><option value="deploy" selected>/.test(html), 'a compact Phases picker for narrower screens');
-  assert.ok(/data-act="timeline" data-id="rail"/.test(html) && /data-act="timeline" data-id="picker"/.test(html) && /data-act="run-fu" data-id="picker"[^>]*>.*Follow-ups · 0/.test(html), 'timeline and follow-ups at every width');
+  assert.ok(/data-act="timeline" data-id="rail"/.test(html) && /data-act="timeline" data-id="picker"/.test(html) && /data-act="run-fu" data-id="picker"[^>]*>.*This run's follow-ups · 0/.test(html), 'timeline and follow-ups at every width');
   assert.ok(!/class="runhead"/.test(html) && !/class="headline"/.test(html), 'the old header and headline are gone');
   state.runDetails = true;
   assert.ok(/<section class="rw-details" id="rw-details"/.test(V.run(ctx)) && /data-act="edit" data-id="detail:commit"/.test(V.run(ctx)), 'Details holds every detail, editable by the recorder');
@@ -1725,7 +1726,7 @@ rule('Run workspace: on a phone the selected step is a sheet with Close, Previou
   assert.ok(/<aside class="fpe-pane rw-ins" id="rw-ins" data-scope="ref:approved" data-open="false"/.test(V.run(ctx)));
   state.refOpen = true;
   const ins = insOf(V.run(ctx));
-  assert.ok(/data-open="true"/.test(ins) && /<div class="rw-ins-top"><button class="mini close" data-act="close-ref">Close<\/button>/.test(ins) && /data-act="select" data-id="tests" data-nav="1">Next/.test(ins) && /data-act="to-row" data-id="approved">Back to the checklist/.test(ins), 'Close is not Done; Previous / Next; a way back');
+  assert.ok(/data-open="true"/.test(ins) && /<div class="rw-ins-top"><button class="mini close" data-act="close-ref">Close<\/button>/.test(ins) && /data-act="select" data-id="tests" data-nav="1">Next/.test(ins) && /data-act="to-row" data-id="approved">Back to the step list/.test(ins), 'Close is not Done; Previous / Next; a way back');
   assert.ok(/<div class="rw-act" role="group" aria-label="Answer this step">/.test(ins), 'the answer controls in a group kept in reach');
 });
 

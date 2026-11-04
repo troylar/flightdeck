@@ -5,7 +5,11 @@
   var notices = K.notices, nameOf = K.nameOf;
   var SEV = { stop: 'Needs action', warn: 'Worth a look', info: 'For your information' };
 
-  function back(label) { return '<button type="button" class="mini" data-act="nav" data-id="settings">' + I('back') + (label || 'Settings') + '</button>'; }
+  /* The way back, top left (2.16): Settings, or for Folder health opened from a run, The run. */
+  function back(ctx, kind) {
+    var o = kind === 'health' && ctx.healthOrigin ? ctx.healthOrigin() : null;
+    return V.backRow(o ? V.backc('go-back', o.hash, o.place) : V.backc('go-back', '#/settings', 'Settings'));
+  }
   function plural(n, one, many) { return n + ' ' + (n === 1 ? one : (many || one + 's')); }
 
   /* ---------- Folder health ---------- */
@@ -21,7 +25,7 @@
   function health(ctx) {
     var st = ctx.state, hs = st.healthScan, busy = st.healthBusy, fs = st.fs;
     var rep = ctx.health ? ctx.health(true) : null, n = rep ? rep.counts : { stop: 0, warn: 0, info: 0 };
-    var h = notices(ctx) + '<div class="sub-back">' + back() + '</div>';
+    var h = notices(ctx) + back(ctx, 'health');
     h += V.pageHead('Settings', 'Folder health', 'What in the team folder needs a person, and what\'s fine. Flightdeck never fixes files by itself; each problem says what you can do.',
       '<button type="button" class="btn" data-act="health-again"' + (busy ? ' disabled' : '') + '>' + I('swap') + 'Check again</button><button type="button" class="btn" data-act="health-copy"' + (rep && rep.scanned && !busy ? '' : ' disabled') + '>' + I('copy') + 'Copy details</button><span class="small" id="copy-msg" role="status"></span>', 'page-h');
     var kind = busy && !(rep && rep.scanned) ? 'busy' : n.stop ? 'stop' : n.warn ? 'warn' : 'ok';
@@ -67,9 +71,9 @@
   function connection(ctx) {
     var st = ctx.state, me = st.me, list = st.conn || { probes: [], acks: [] }, now = ctx.now(), dev = ctx.device ? ctx.device() : '';
     var rows = CN.results(st.connSent || [], list, st.connSeen || {}, now), title = function (k) { var r = ctx.findRun(k); return r ? r.title : k; };
-    var h = notices(ctx) + '<div class="sub-back">' + back() + '</div>';
+    var h = notices(ctx) + back(ctx, 'connection');
     h += V.pageHead('Settings', 'Connection check', 'Check that files travel between this computer and another one through the team folder, in both directions, and how long it takes.', '', 'page-h');
-    if (st.fs && st.fs.kind !== 'folder') h += '<div class="notice warn"><span><b>You\'re looking at the examples</b>, kept in this browser only, so only another tab of this browser can answer. Open your team folder to check a real connection.</span><button class="btn" data-act="nav" data-id="settings">Open team folder</button></div>';
+    if (st.fs && st.fs.kind !== 'folder') h += '<div class="notice warn"><span><b>You\'re looking at the examples</b>, kept in this browser only, so only another tab of this browser can answer. Open your team folder from Settings to check a real connection.</span></div>';
     h += '<div class="cx-grid"><section class="panel stack" aria-labelledby="cx-how"><h2 id="cx-how">How it works</h2><ol class="howto">' +
       '<li><b>Open this page on the other computer too.</b><span>Settings, then Connection check. While it\'s open there, it answers checks by itself.</span></li>' +
       '<li><b>Send a check from here.</b><span>It\'s a small file in <code>connection/</code>. Nothing else in the folder changes.</span></li>' +
@@ -148,7 +152,7 @@
   function recoveryPage(ctx) {
     var st = ctx.state, doc = H.sections(ctx.recovery || ''), cur = st.recoveryAt || '';
     var backTo = st.recBack && st.recBack.label ? st.recBack.label : 'Settings';
-    var h = notices(ctx) + '<div class="sub-back"><button type="button" class="mini" data-act="recovery-back" id="rv-back">' + I('back') + esc(backTo) + '</button></div>';
+    var h = notices(ctx) + V.backRow(V.backc('recovery-back', null, backTo, '', ' id="rv-back"'));
     h += V.pageHead('Settings', esc(doc.title || 'When something goes wrong'), '', '', 'page-h');
     if (doc.intro) h += '<div class="rv-intro">' + block(doc.intro) + '</div>';
     if (!doc.list.length) return h + '<p class="muted">This copy of Flightdeck doesn\'t include the guide. It\'s in <code>docs/recovery.md</code>.</p>';
