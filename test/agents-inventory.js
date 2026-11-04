@@ -174,8 +174,7 @@ const ENTRIES = [
   E(['68.1'], T('C6', H.checklist)),
   E(['68.2'], T('C6', H.checklist)),
   E(['68.3'], T('C7', G.checklist, { why: 'moved: how, not a rule' })),
-  E(['70.0'], T('C7', G.checklist, { why: 'moved: how, not a rule' })),
-  E(['70.1'], T('C7', G.checklist, { why: 'moved: how, not a rule' })),
+  E(['70.1', '70.0'], T('C7', G.checklist, { now: '`process`, `title`, `category`, `group` (its place in the hierarchy, like `Engineering / Releases`), `tags`, `owner` (a person ID from `people.json`), `backup` (optional: another person ID, who signs off only while the owner is inactive or gone), `context` (run details), `roles`, and `runs: solo` when one person usually runs it alone.', why: 'moved: how, not a rule; round 8 drops the "Front matter:" label, which only repeated the ### Front matter heading above it' })),
   E(['70.2'], T('C6', H.checklist)),
   E(['70.3'], T('C6', H.checklist)),
   E(['71.0'], T('C7', G.checklist, { why: 'moved: how, not a rule' })),
@@ -338,7 +337,7 @@ const ENTRIES = [
   E(['161.1'], T('C15', H.corrections)),
   E(['163.0'], T('C16', H.drafts)),
   E(['165.0'], T('C17', G.drafts, { why: 'moved: how, not a rule' })),
-  E(['165.1'], T('C17', G.drafts, { why: 'moved: how, not a rule' })),
+  E(['165.1'], T('C17', G.drafts, { now: 'Save with `flightdeck draft save <team folder> <process> --session <session> --expect <continueFrom.rev> --from <file with your new text> --base <file with the text you read> --json`, or `--expect none` for a new checklist.', why: 'moved: how, not a rule; round 8 says --from and --base each take a file, as the read line above says to save the text to one', drops: [{ span: '`flightdeck draft save <team folder> <process> --session <session> --expect <continueFrom.rev> --from <your new text> --base <the text you read> --json`', why: 'the same command, its two placeholders now saying they name files' }] })),
   E(['165.2'], T('C16', H.drafts)),
   E(['165.3'], T('C17', G.drafts, { why: 'moved: how, not a rule' })),
   E(['165.4'], T('C17', G.drafts, { why: 'moved: how, not a rule' })),
@@ -410,6 +409,20 @@ const ADDED = [
   { home: H.drafts, text: '*Editing drafts* in the command guide.', class: 'C1', why: 'the section\'s How: line, to the part of a reference that says how' },
   { home: H.drafts, text: 'Use `flightdeck draft read`, then `flightdeck draft save` with `--expect` and `--base`.', class: 'C1', why: 'the two commands, named, since the how moved to the guide' },
 ];
+/* Moved units with never or must outside code, each reviewed apart from MOVED_GUIDANCE: why the word describes how a command or
+   a file works, and is not a rule AGENTS.md must keep (rule 13). A kept rule reclassified as how fails here even when the rest
+   of the inventory is patched to match. */
+const MOVED_RULE_WORDS = {
+  '134.0': '"never change it" says what the read commands do, not what the assistant may do',
+  '136.6': '"never needed" describes a step a run skipped, not a rule',
+  '167.1': '"must come after" is when to pass --replace-own-proposal, an option of draft save',
+  '168.1': '"must name the process" is the draft file\'s format, which draft save checks'
+};
+/* Targets whose class isn't their fixture section's stays or moves class, each reviewed (rule 4). */
+const CLASS_EXCEPTIONS = {
+  '144.2': 'C3 in Reading runs: the evidence row of What you may write now holds it',
+  '144.4': 'C3 in Reading runs: the evidence row of What you may write now holds it'
+};
 /* Moved units that read like guidance (GUIDANCE matches), each reviewed: why it is how a command or a file works, and not a
    rule AGENTS.md must keep (rule 8). */
 const MOVED_GUIDANCE = {
@@ -483,7 +496,7 @@ const REF_ADDED = [
   { home: G.essTop, text: '# Checklist essentials', why: 'the file\'s title' },
   { home: G.essTop, text: 'Nothing here allows you to write a file `AGENTS.md` tells you not to.', why: 'check (a): the file allows nothing AGENTS.md forbids' },
   { home: G.essTop, text: 'This is the syntax most checklists need, from the front matter down;', why: 'says what the file is: the syntax, not the rules' },
-  { home: G.essTop, text: '`docs/map-format.md` in the Flightdeck repository has all of it, and *Writing a checklist* in `AGENTS.md` has the rules every checklist follows.', why: 'says where the rest of the syntax is, and that the rules stay in AGENTS.md' },
+  { home: G.essTop, text: '`map-format.md` beside this file (a copy of `docs/map-format.md` in the Flightdeck repository) has all of it, and *Writing a checklist* in `AGENTS.md` has the rules every checklist follows.', why: 'says where the rest of the syntax is, and that the rules stay in AGENTS.md' },
   { home: G.checklist, text: '## Writing a checklist', why: 'a ## section AGENTS.md cites, by the name of its own section' },
   { home: G.checklist, text: '### Front matter', why: 'a ### subheading, to find a part of the section' },
   { home: G.checklist, text: '### Steps', why: 'a ### subheading, to find a part of the section' },
@@ -559,7 +572,7 @@ function installed() {
 /* The shipped state, a fresh copy each time, for a self-test to break. */
 function initial() {
   return { agents: AGENTS, files: installed(), entries: plain(ENTRIES), added: plain(ADDED), refAdded: plain(REF_ADDED), movedGuidance: plain(MOVED_GUIDANCE),
-    youMay: plain(YOU_MAY), notCites: plain(NOT_CITES), help: null };
+    movedRules: plain(MOVED_RULE_WORDS), classExceptions: plain(CLASS_EXCEPTIONS), youMay: plain(YOU_MAY), notCites: plain(NOT_CITES), help: null };
 }
 
 /* The heading reader's anchors: anchors() of test/docs.test.js with its headings taken from PF.contract.headings. */
@@ -644,6 +657,9 @@ function checks(s) {
     if (STAYS.indexOf(t.class) >= 0 && /#(before|after)$/.test(t.home) && t.class !== 'C18') fail('4', e.id + ' homed outside region()');
     if (STAYS.indexOf(t.class) >= 0 && isA(t.home) && fx[e.old[0]] && t.home !== agentsHome(e.old[0], fx[e.old[0]].line, t.class)) fail('4', e.id + ' ' + t.class + ' homed at ' + t.home + ', not ' + agentsHome(e.old[0], fx[e.old[0]].line, t.class));
     if (t.class === 'C21' && (isA(t.home) || BASE[t.home.split('#')[0]] == null)) fail('4', e.id + ' C21 not in an existing file');
+    /* The class is the stays or moves class of the fixture line's section (SECTIONS), or a reviewed exception. */
+    const sec = fx[e.old[0]] && sectionOf(fx[e.old[0]].line);
+    if (t.class !== 'C21' && sec && t.class !== sec[2] && t.class !== sec[3] && !(s.classExceptions || {})[e.id]) fail('4', e.id + ' ' + t.class + ' is not ' + sec.slice(2).join(' or ') + ', the classes of fixture lines ' + sec[0] + '-' + sec[1]);
   }));
   /* 5: a moved unit goes to a new file, never one 2.14.0 or earlier shipped; C21 is in the file now and as 2.14.0 shipped it. */
   s.entries.forEach((e) => e.to.forEach((t) => {
@@ -677,6 +693,9 @@ function checks(s) {
   s.added.forEach((a) => { if (a.why) allow[HK(a.home, a.text)] = (allow[HK(a.home, a.text)] || 0) + 1; });
   const occ = {}; homedUnits(A, true).filter((u) => !/#(before|after)$/.test(u.home)).forEach((u) => { occ[HK(u.home, u.text)] = (occ[HK(u.home, u.text)] || 0) + 1; });
   Object.keys(occ).forEach((k) => { if (occ[k] > (allow[k] || 0)) fail('10', 'unreviewed at ' + k.split('\u0000')[0] + ': ' + k.split('\u0000')[1].slice(0, 60)); });
+  /* ...and every ADDED unit with a why is still there, as often as it is listed. */
+  const addedNeed = {}; s.added.forEach((a) => { if (a.why) addedNeed[HK(a.home, a.text)] = allow[HK(a.home, a.text)]; });
+  Object.keys(addedNeed).forEach((k) => { if ((occ[k] || 0) < addedNeed[k]) fail('10', 'missing at ' + k.split('\u0000')[0] + ': ' + k.split('\u0000')[1].slice(0, 60)); });
   /* 11 */ if (Buffer.byteLength(A) > ROOM_CEILING) fail('11', Buffer.byteLength(A) + ' bytes, over ' + ROOM_CEILING);
   /* 12: every unit of the two new references is a moved target or in REF_ADDED with why. */
   [GUIDE, ESS].forEach((f) => {
@@ -687,7 +706,11 @@ function checks(s) {
     (s.refAdded || []).forEach((a) => { if (a.home.split('#')[0] === f && a.why) ok[HK(a.home, a.text)] = (ok[HK(a.home, a.text)] || 0) + 1; });
     homedUnits(s.files[f], false).forEach((u) => { const k = HK(f + '#' + u.home, u.text); seen[k] = (seen[k] || 0) + 1; });
     Object.keys(seen).forEach((k) => { if (seen[k] > (ok[k] || 0)) fail('12', 'not moved and not in REF_ADDED at ' + k.split('\u0000')[0] + ': ' + k.split('\u0000')[1].slice(0, 60)); });
+    /* ...and every REF_ADDED unit with a why is still there. */
+    (s.refAdded || []).forEach((a) => { const k = HK(a.home, a.text); if (a.home.split('#')[0] === f && a.why && (seen[k] || 0) < 1) fail('12', 'missing at ' + a.home + ': ' + a.text.slice(0, 60)); });
   });
+  /* 13: a moved unit with never or must (outside code) is in MOVED_RULE_WORDS, reviewed. */
+  s.entries.forEach((e) => e.to.forEach((t) => { if (!isA(t.home) && t.class !== 'C21' && /\b(never|must)\b/i.test(noCode(textOf(e, t))) && !(s.movedRules || {})[e.id]) fail('13', e.id + ' moved with never or must, not in MOVED_RULE_WORDS'); }));
   /* a: both new references say they allow nothing AGENTS.md forbids. */
   [GUIDE, ESS].forEach((f) => { if (s.files[f] == null || s.files[f].indexOf('Nothing here allows') < 0) fail('a', f); });
   /* b: grant phrasing in a reference or an installed skill is listed with why. */
@@ -770,4 +793,4 @@ function docs(s) {
   return out;
 }
 module.exports = { initial, checks, anchors, sectionText, unitsAt, homedUnits, lineHomes, homeText, walk, isA, slug, flat, count, ALIASES, helpCommands, docs,
-  ENTRIES, ADDED, REF_ADDED, MOVED_GUIDANCE, YOU_MAY, NOT_CITES, FIXTURE, AGENTS, ROOM_CEILING, GUIDANCE, WHY_WORDS, GRANT, NOTHING, GUIDE, ESS, FF, MF, STEP, REFS, H, G, PF, R, K };
+  ENTRIES, ADDED, REF_ADDED, MOVED_GUIDANCE, MOVED_RULE_WORDS, CLASS_EXCEPTIONS, YOU_MAY, NOT_CITES, FIXTURE, AGENTS, ROOM_CEILING, GUIDANCE, WHY_WORDS, GRANT, NOTHING, GUIDE, ESS, FF, MF, STEP, REFS, H, G, PF, R, K };

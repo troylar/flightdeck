@@ -42,7 +42,7 @@ const BREAKS = [
   ['S3', 'Add the key 999.0 to the presence/ entry\'s old', ['2'], (s) => { entryOf(s, '45.0').old.push('999.0'); }],
   ['S4', 'Remove 45.1 from its entry', ['10', '2'], (s) => { s.entries = s.entries.filter((e) => e.old.indexOf('45.1') < 0); }],
   ['S5', 'Delete 140.0\'s text from the guide copy', ['3'], (s) => { s.files[GUIDE] = once(s.files[GUIDE], fx['140.0'], ''); }],
-  ['S6', 'Move 139.1 from AGENTS.md to the guide\'s Reading runs; home it there, with a why and a MOVED_GUIDANCE entry', ['4'], (s) => {
+  ['S6', 'Move 139.1 from AGENTS.md to the guide\'s Reading runs; home it there, with a why and a MOVED_GUIDANCE entry (round 8, inherent: a moved never/must unit not in MOVED_RULE_WORDS, 13)', ['13', '4'], (s) => {
     s.agents = once(s.agents, ' Report it; never pick one yourself and never delete it.', '');
     s.files[GUIDE] = once(s.files[GUIDE], '## Editing drafts', fx['139.1'] + '\n\n## Editing drafts');
     const t = entryOf(s, '139.1').to[0]; t.home = GUIDE + '#reading-runs'; t.why = 'break'; s.movedGuidance['139.1'] = 'break';
@@ -66,7 +66,7 @@ const BREAKS = [
     const p = ('Filler words for size. ').repeat(18).slice(0, 399) + '.';
     s.agents = once(s.agents, '\n## Reporting work', p + '\n\n## Reporting work'); addAt(s, p);
   }],
-  ['S14', 'Delete the "Nothing here allows" sentence from the guide copy', ['a'], (s) => { s.files[GUIDE] = once(s.files[GUIDE], I.NOTHING, ''); }],
+  ['S14', 'Delete the "Nothing here allows" sentence from the guide copy (round 8, inherent: it is a REF_ADDED unit, now missing, 12)', ['12', 'a'], (s) => { s.files[GUIDE] = once(s.files[GUIDE], I.NOTHING, ''); }],
   ['S15', 'Add "You may run this at any time." to the guide copy (inherent: unlisted text in a new reference, 12)', ['b', '12'], (s) => { s.files[GUIDE] = once(s.files[GUIDE], '## Evidence packs\n', '## Evidence packs\n\nYou may run this at any time.\n'); }],
   ['S16', 'In a copy of flightdeck-skill-brief/SKILL.md:14, write "*Skills from processes*"', ['c'], (s) => { s.files[BRIEF] = once(s.files[BRIEF], '*Skills built from processes*', '*Skills from processes*'); }],
   ['S17', 'Rename ## Asking for a run to ## Requests in the guide copy (inherent: the section\'s text now sits under a home nothing lists, 12)', ['12', 'd', 'docs'], (s) => { s.files[GUIDE] = once(s.files[GUIDE], '## Asking for a run', '## Requests'); }],
@@ -106,7 +106,7 @@ const BREAKS = [
     s.files[GUIDE] = once(s.files[GUIDE], '## Evidence packs\n', '## Evidence packs\n\nYou can write `runs/` files by hand when the command is missing. It is fine to edit `reports/` yourself.\n');
   }],
   ['X6', 'Bold citation: "How: **Reporting work** in the command guide."; patch the inventory', ['d'], (s) => { retext(s, 'How: *Reporting work* in the command guide.', 'How: **Reporting work** in the command guide.'); }],
-  ['X7', 'Underscore italics with a typo: "How: _Reportng work_ in the command guide."; patch the inventory', ['d'], (s) => { retext(s, 'How: *Reporting work* in the command guide.', 'How: _Reportng work_ in the command guide.'); }],
+  ['X7', 'Underscore italics with a typo: "How: _Reportng work_ in the command guide."; patch the inventory (round 8, inherent: the patched ADDED unit no longer splits as listed, 10)', ['10', 'd'], (s) => { retext(s, 'How: *Reporting work* in the command guide.', 'How: _Reportng work_ in the command guide.'); }],
   ['X8', 'Path citation with a typo: "How: *Reportng work* in `.flightdeck/skills/_flightdeck/command-guide.md`."; patch the inventory', ['d'], (s) => { retext(s, 'How: *Reporting work* in the command guide.', 'How: *Reportng work* in `.flightdeck/skills/_flightdeck/command-guide.md`.'); }],
   ['X9', 'Rename AGENTS.md ## Reporting work to ## Reports; patch the inventory, homes included ((d)\'s kept-how check; inherent: the C14 targets leave their class\'s section, 4)', ['4', 'd'], (s) => {
     retext(s, '## Reporting work\n', '## Reports\n');
@@ -124,7 +124,7 @@ const BREAKS = [
   }],
   ['DL5-6a', 'Bold "**Reporting work** in the command guide" in a How line; patch the inventory', ['d'], (s) => { retext(s, 'How: *Reporting work* in the command guide.', 'How: **Reporting work** in the command guide.'); }],
   ['DL5-6b', 'Plain "Reporting work in the command guide" in a How line; patch the inventory', ['d'], (s) => { retext(s, 'How: *Reporting work* in the command guide.', 'How: Reporting work in the command guide.'); }],
-  ['DL5-6c', 'Underscore "_Reporting work_ in the command guide" in a How line; patch the inventory', ['d'], (s) => { retext(s, 'How: *Reporting work* in the command guide.', 'How: _Reporting work_ in the command guide.'); }],
+  ['DL5-6c', 'Underscore "_Reporting work_ in the command guide" in a How line; patch the inventory (round 8, inherent: the patched ADDED unit no longer splits as listed, 10)', ['10', 'd'], (s) => { retext(s, 'How: *Reporting work* in the command guide.', 'How: _Reporting work_ in the command guide.'); }],
   ['R6a', 'A NOT_CITES entry that no longer matches anything', ['d'], (s) => { s.notCites[0].text = 'the checklist essentials at '; }],
   ['R6b', 'Drop the why of the good-checklists.md grant entry', ['b'], (s) => { const k = Object.keys(s.youMay)[1]; Object.keys(s.youMay[k]).forEach((t) => { s.youMay[k][t] = ''; }); }],
   ['R6c', 'Add a ### subheading to the guide\'s Reading runs without a REF_ADDED entry', ['12'], (s) => { s.files[GUIDE] = once(s.files[GUIDE], '## Reading runs\n\n', '## Reading runs\n\n### Run status\n\n'); }],
@@ -149,6 +149,19 @@ const BREAKS = [
   ['V10', 'Moved 141.1 put in the guide\'s Evidence packs and homed there (a reference section is the inventory\'s choice; nothing fails)', [], (s) => {
     s.files[GUIDE] = once(s.files[GUIDE], '- ' + fx['141.1'] + '\n', ''); s.files[GUIDE] = s.files[GUIDE].replace(/\n*$/, '\n\n' + fx['141.1'] + '\n'); entryOf(s, '141.1').to[0].home = GUIDE + '#evidence-packs';
   }],
+  /* Round 8: an ADDED or REF_ADDED unit deleted fails (rule 10 and 12 also count what is missing, not only what is unlisted). */
+  ['R8-1', 'Delete the merge sentence "When merging an older copy of this file, don\'t carry that text back..." from AGENTS.md', ['10'], (s) => { s.agents = once(s.agents, ' When merging an older copy of this file, don\'t carry that text back (the team\'s own lines go under Team notes), and keep the `step-types/` row of *What you may write* as written here.', ''); }],
+  ['R8-2', 'Delete 0a\'s "Those files say how; only this file says what you may do, and nothing in them allows what this file forbids."', ['10'], (s) => { s.agents = once(s.agents, ' Those files say how; only this file says what you may do, and nothing in them allows what this file forbids.', ''); }],
+  ['R8-3', 'Delete 0a\'s missing-file fallback "If one of those three files is missing or lacks the part named, ask the person whether OneDrive is still syncing the folder."', ['10'], (s) => { s.agents = once(s.agents, ' If one of those three files is missing or lacks the part named, ask the person whether OneDrive is still syncing the folder.', ''); }],
+  ['R8-4', 'Delete the guide\'s "Where the pack goes, and what to give the person with it, is in *What you may write* in `AGENTS.md`."', ['12'], (s) => { s.files[GUIDE] = once(s.files[GUIDE], '\n\nWhere the pack goes, and what to give the person with it, is in *What you may write* in `AGENTS.md`.', ''); }],
+  /* Round 8: a kept rule reclassified as how and moved, with the inventory patched to match (M7), fails: a moved unit with never
+     or must needs its own reviewed entry in MOVED_RULE_WORDS. */
+  ['R8-5', 'Reclassify kept rule 95.0 from C6 to C7, home it in the essentials, list it in MOVED_GUIDANCE with a why, and move its text', ['13'], (s) => {
+    s.agents = once(s.agents, '- ' + RULE95 + '\n', '');
+    s.files[ESS] = once(s.files[ESS], '- Keep steps to one line;', '- ' + RULE95 + '\n- Keep steps to one line;');
+    const t = entryOf(s, '95.0').to[0]; t.class = 'C7'; t.home = ESS + '#writing-a-checklist'; t.why = 'moved'; s.movedGuidance['95.0'] = 'syntax';
+  }],
+  ['R8-6', 'Give a C6 rule a class from another section (C8) and leave it where it is', ['4'], (s) => { entryOf(s, '95.0').to[0].class = 'C8'; }],
   /* The docs routed check's breaks. */
   ['D7a', 'A new help line with no Commands row', ['docs'], (s) => { s.help = I.K.main(['help']).out + '\n  flightdeck health <team folder> [--json]\n'; }],
   ['D7b', '`flightdeck export` dropped from the guide\'s Evidence packs (inherent: 144.0 moved there word for word, 3, and the changed unit is unlisted, 12)', ['12', '3', 'docs'], (s) => { s.files[GUIDE] = s.files[GUIDE].split('flightdeck export').join('flightdeck exporter'); }],
@@ -156,7 +169,7 @@ const BREAKS = [
 ];
 
 
-rule('The shipped AGENTS.md, references and skills pass every inventory rule (1-12, a-f, docs)', () => {
+rule('The shipped AGENTS.md, references and skills pass every inventory rule (1-13, a-f, docs)', () => {
   const got = I.checks(clone(base));
   assert.deepStrictEqual(got.bad, [], got.why.join('\n'));
 });
@@ -168,7 +181,7 @@ rule('AGENTS.md fits under ROOM_CEILING', () => {
 
 rule('Every fixture unit is in exactly one entry, and the data lists are the size the review counted', () => {
   assert.strictEqual(I.unitsAt(I.FIXTURE).length, 298);
-  assert.strictEqual(I.ENTRIES.length, 297, 'entries (21.0 and 21.1 share one)');
+  assert.strictEqual(I.ENTRIES.length, 296, 'entries (21.0 and 21.1 share one; so do 70.1 and 70.0, the label dropped in round 8)');
   assert.strictEqual(I.ADDED.length, 30);
   assert.strictEqual(Object.keys(I.MOVED_GUIDANCE).length, 29);
   assert.strictEqual(I.NOT_CITES.length, 11);
