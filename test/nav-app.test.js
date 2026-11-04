@@ -210,23 +210,23 @@ rule('Workspace: ‹ <title> goes to the checklist page with focus on the strip\
   assert.match(viewBtn(p, 'Practice').text, /^Practice · 1 of \d+$/, 'practice is kept');
 });
 
-rule('Workspace: ‹ <title> is one browser Back when the checklist page opened it, from Edit and from Practice; from a typed link it moves there in the link\'s place', async () => {
+rule('Workspace: ‹ <title> goes to the checklist page in the entry\'s place, from Edit and from Practice, and from a typed link too', async () => {
   for (const pr of [false, true]) {
     const app = await edit({ domFocus: true });
     if (pr) { app.click('pr-open'); await app.tick(60); }
     const n = app.entries().length, i = app.index(), b = backs(head(app))[0];
     app.click(b.act, b.id); await app.settle();
     assert.ok(onOverview(app), pr + ': the checklist page');
-    assert.deepStrictEqual([app.entries().length, app.index()], [n, i - 1], pr + ': by browser Back, not a new entry');
+    assert.deepStrictEqual([app.entries().length, app.index()], [n, i], pr + ': in the entry\'s place, not a new one');
     assert.strictEqual(app.focused(), pr ? '[data-act="pv-practice"]' : '[data-act="ptab"][data-id="edit"]', pr + ': focus on the view left');
-    app.forward(); await app.settle();
-    assert.ok(pr ? onPage(app) : inEditor(app), pr + ': Forward returns to the view');
+    app.back(); await app.settle();
+    assert.ok(!(pr ? onPage(app) : inEditor(app)), pr + ': browser Back never reopens the view left');
   }
   const typed = await start({ hash: '#/process/release/edit' }); await typed.tick(80);
   const n = typed.entries().length, i = typed.index();
   typed.click('ed-done'); await typed.settle();
   assert.ok(onOverview(typed), 'typed: the checklist page');
-  /* No traversal when the entry before isn't where it goes (R5): the move takes the typed link's entry. */
+  /* The move takes the typed link's entry. */
   assert.deepStrictEqual([typed.entries().length, typed.index()], [n, i], 'typed: moved there, in its place');
   assert.strictEqual(typed.hash(), '#/process/release');
 });
@@ -780,10 +780,10 @@ rule('Connection check, Folder health and When something goes wrong: the way bac
     const i = app.index(), n = app.entries().length;
     esc0(app); await app.settle();
     assert.strictEqual(app.hash(), '#/settings', v + ': Escape');
-    assert.deepStrictEqual([app.index(), app.entries().length], [i - 1, n], v + ': Escape is browser Back to Settings');
-    app.forward(); await app.settle();
-    const c = back1(app); app.click(c.act, c.id); await app.settle();
-    assert.deepStrictEqual([app.hash(), app.index(), app.entries().length], ['#/settings', i - 1, n], v + ': ‹ Settings is browser Back');
+    assert.deepStrictEqual([app.index(), app.entries().length], [i, n], v + ': Escape goes to Settings in the entry\'s place');
+    app.click(v); await app.tick(80);
+    const j = app.index(), m = app.entries().length, c = back1(app); app.click(c.act, c.id); await app.settle();
+    assert.deepStrictEqual([app.hash(), app.index(), app.entries().length], ['#/settings', j, m], v + ': ‹ Settings in the entry\'s place');
   }
 });
 
@@ -1084,7 +1084,7 @@ rule('R2 F-P2-2: every way into the workspace focuses something you can see: the
 });
 
 /* Every way back drawn, on every screen reached the usual way: one click, then browser Back, never reopens the screen left. */
-rule('R2 R-P2-1: every ‹ control goes back by browser Back when the entry before is where it goes, so Back never reopens the screen left', async () => {
+rule('R2 R-P2-1 (R6): every ‹ control leaves at once in the entry\'s place: history doesn\'t grow, and browser Back never reopens the screen left', async () => {
   const screens = {
     'run (Runs)': async () => { const app = await start(); await fromRuns(app); return app; },
     'run (checklist page)': async () => { const app = await page(); app.click('open-run', runKey(app)); await app.tick(60); return app; },
@@ -1115,11 +1115,15 @@ rule('R2 R-P2-1: every ‹ control goes back by browser Back when the entry befo
     const b = backs(app.html());
     if (!b.length) { bad.push(name + ': no way back drawn (' + app.hash() + ')'); continue; }
     await app.settle();
-    const left = app.hash(), i = app.index();
-    app.click(b[0].act, b[0].id); await app.settle();
+    const left = app.hash(), i = app.index(), n = app.entries().length;
+    const before = app.html();
+    app.click(b[0].act, b[0].id);
+    /* Drawn at once: nothing waits for the browser. */
+    if (app.html() === before) { bad.push(name + ': ‹ ' + b[0].text + ' wasn\'t drawn at once'); continue; }
+    await app.settle();
     if (app.hash() === left) { bad.push(name + ': ‹ ' + b[0].text + ' stayed'); continue; }
-    /* Back moves down the history; a move there pushes and goes up. */
-    if (app.index() >= i) { bad.push(name + ': ‹ ' + b[0].text + ' added an entry (at ' + i + ' → ' + app.index() + ')'); continue; }
+    if (app.index() !== i || app.entries().length !== n) { bad.push(name + ': ‹ ' + b[0].text + ' changed history (' + i + '/' + n + ' → ' + app.index() + '/' + app.entries().length + ')'); continue; }
+    if (app.entries()[i].hash !== app.hash()) { bad.push(name + ': the entry isn\'t where it went'); continue; }
     app.back(); await app.settle();
     if (app.hash() === left) bad.push(name + ': browser Back reopened ' + left);
   }
@@ -1266,13 +1270,13 @@ rule('R3 1: after a write, code moves focus only through wsFocusNow, which asks 
   }
 });
 
-rule('R3 2: after Edit anyway, the step type\'s way back and a Practice test form\'s way back go back by browser Back, to the workspace with its selection', async () => {
+rule('R3 2 (R6): after Edit anyway, the step type\'s way back and a Practice test form\'s way back go to the workspace in the entry\'s place, with its selection', async () => {
   const a = await twoWindows();
   a.click('ob-sel', 'flags'); await a.tick();
   await typeOpen(a);
-  const i = a.index(), b = back1(a);
+  const i = a.index(), n = a.entries().length, b = back1(a);
   a.click(b.act, b.id); await a.settle();
-  assert.ok(a.index() < i, 'Back, not a new entry (' + i + ' → ' + a.index() + ')');
+  assert.deepStrictEqual([a.index(), a.entries().length], [i, n], 'in the entry\'s place');
   assert.ok(inEditor(a), 'the editor: ' + a.hash());
   assert.ok(!/Choose Edit anyway/.test(a.html() + a.live()), 'not refused');
   assert.match(a.html(), /data-act="ob-sel" data-id="flags" aria-pressed="true"/, 'at the step it came from');
@@ -1284,12 +1288,12 @@ rule('R3 2: after Edit anyway, the step type\'s way back and a Practice test for
   p.click('ptab', 'edit'); await p.tick(); p.click('pr-open'); await p.tick(60);
   assert.ok(onPage(p), 'set-up: practicing after Edit anyway');
   p.click('pr-start-test', folder); await p.tick();
-  const j = p.index(), bk = back1(p);
+  const j = p.index(), m = p.entries().length, left = p.hash(), bk = back1(p);
   p.click(bk.act, bk.id); await p.settle();
-  assert.ok(p.index() < j, 'Back, not a new entry (' + j + ' → ' + p.index() + ')');
+  assert.deepStrictEqual([p.index(), p.entries().length], [j, m], 'in the entry\'s place');
   assert.ok(onPage(p), 'practice: ' + p.hash());
   p.back(); await p.settle();
-  assert.notStrictEqual(p.hash(), '#/practice/release', 'one Back more leaves practice: no second practice entry');
+  assert.notStrictEqual(p.hash(), left, 'browser Back never reopens the test form');
 });
 
 rule('R3 3: More is a layer: browser Back or Escape closes it, focus on More, the URL kept, in Edit and in Practice', async () => {
@@ -1311,40 +1315,6 @@ rule('R3 3: More is a layer: browser Back or Escape closes it, focus on More, th
 /* ---------- Build round 4: review round 3 ---------- */
 /* A ‹ control's browser Back held (a slow browser) while a folder refresh finishes and redraws: no entry is written in
    between, and Back lands where the control goes. */
-async function heldBack(app, go, want) {
-  const n = app.entries().length, i = app.index();
-  app.holdPops();
-  await go();
-  app.click('refresh'); await app.tick(150);
-  assert.strictEqual(app.entries().length, n, want + ': nothing written while Back is on its way (' + JSON.stringify(app.entries().map(e => e.hash)) + ')');
-  app.releasePops(); await app.settle(); await app.tick(40);
-  assert.strictEqual(app.hash(), want, 'landed on ' + want);
-  assert.strictEqual(app.entries().length, n, want + ': history didn\'t grow');
-  assert.ok(app.index() < i, want + ': went back');
-}
-rule('R4 1: a ‹ control\'s Back with a refresh finishing first never writes an entry: the step type\'s return, ‹ Step types, ‹ <title>', async () => {
-  const a = await edit({ localStore: { 'preflight:builder': 'true' } });
-  a.click('ob-sel', 'flags'); await a.tick(); await typeOpen(a);
-  await heldBack(a, async () => { const b = back1(a); a.click(b.act, b.id); await a.tick(); }, '#/process/release/edit');
-  assert.ok(inEditor(a), 'the editor');
-  assert.match(a.html(), /data-act="ob-sel" data-id="flags" aria-pressed="true"/, 'at its step');
-  assert.ok(!/That new step type was closed/.test(a.live()), 'nothing said about a closed form');
-  const t = await start(); t.click('nav', 'settings'); await t.tick(); t.click('open-types'); await t.tick(); await typeOpen(t);
-  await heldBack(t, async () => { const b = back1(t); t.click(b.act, b.id); await t.tick(); }, '#/types');
-  assert.ok(!/id="tf-h"/.test(t.html()), 'the list, the form closed');
-  const w = await edit();
-  await heldBack(w, async () => { w.click('ed-done'); await w.tick(); }, '#/process/release');
-  assert.ok(onOverview(w), 'the checklist page');
-});
-rule('R4 1 (R5): a ‹ control whose Back is held never moves there by itself: it waits for Back to land', async () => {
-  const app = await edit(); const n = app.entries().length;
-  app.holdPops();
-  app.click('ed-done'); await app.tick(1700);
-  assert.ok(inEditor(app), 'still the editor');
-  assert.strictEqual(app.entries().length, n, 'nothing written');
-  app.releasePops(); await app.settle(); await app.tick(40);
-  assert.ok(onOverview(app), 'landed'); assert.strictEqual(app.hash(), '#/process/release');
-});
 
 rule('R4 2: a typed Publish note, its caret too, survives the dialog being rebuilt by a background refresh, in Edit and in Practice', async () => {
   for (const view of ['edit', 'practice']) {
@@ -1383,97 +1353,8 @@ rule('R4 3: browser Back while the Publish dialog writes leaves it as it is: foc
   release(); await app.tick(300);
 });
 
-/* ---------- Build round 5: a ‹ control's Back waits for its popstate, with no timer ---------- */
 const wait = ms => new Promise(res => setTimeout(res, ms));
-rule('R5 1: a ‹ control\'s Back held 0.1 s, 3 s or 10 s lands where it goes once released, and nothing moves or is written before', async () => {
-  for (const ms of [100, 3000, 10000]) {
-    const app = await edit(); const n = app.entries().length, i = app.index();
-    app.holdPops();
-    app.click('ed-done'); await app.tick(); await wait(ms);
-    assert.ok(inEditor(app), ms + ' ms: still the editor while Back is on its way');
-    assert.strictEqual(app.entries().length, n, ms + ' ms: nothing written while waiting (' + JSON.stringify(app.entries().map(e => e.hash)) + ')');
-    app.releasePops(); await app.settle(); await app.tick(40);
-    assert.strictEqual(app.hash(), '#/process/release', ms + ' ms: landed on the checklist page');
-    assert.ok(onOverview(app), ms + ' ms: the checklist page drawn');
-    assert.strictEqual(app.entries().length, n, ms + ' ms: history didn\'t grow');
-    assert.strictEqual(app.index(), i - 1, ms + ' ms: one entry back');
-    await wait(50); await app.settle();
-    assert.strictEqual(app.hash(), '#/process/release', ms + ' ms: and stays there');
-  }
-});
-rule('R5 1: a move to Runs while a ‹ control\'s Back is on its way waits, then lands after it; history doesn\'t grow', async () => {
-  for (const to of ['runs', 'settings']) {
-    const app = await edit(); const n = app.entries().length, i = app.index();
-    app.holdPops();
-    app.click('ed-done'); await app.tick();
-    app.click('nav', to); await app.tick(40);
-    assert.ok(inEditor(app), to + ': nothing moves before Back lands');
-    assert.strictEqual(app.entries().length, n, to + ': nothing written');
-    app.releasePops(); await app.settle(); await app.tick(40); await app.settle();
-    assert.strictEqual(app.hash(), '#/' + to, to + ': the later move wins, after the arrival');
-    assert.strictEqual(app.entries().length, n, to + ': history didn\'t grow (' + JSON.stringify(app.entries().map(e => e.hash)) + ')');
-    assert.strictEqual(app.index(), i, to + ': in the place of the entry left');
-    assert.strictEqual(app.entries()[i - 1].hash, '#/process/release', to + ': the checklist page before it');
-    await wait(1700); await app.settle();
-    assert.strictEqual(app.hash(), '#/' + to, to + ': nothing later overrides it');
-  }
-});
-rule('R5 1: a team folder opened while a ‹ control\'s Back is on its way: Back lands quietly where the browser is, nothing of the old folder opens', async () => {
-  const { example } = require('./harness');
-  const opts = { picker: folderHandle('A', { 'people.json': example('people.json') }), indexedDB: memoryIDB() };
-  const app = await start(opts);
-  app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
-  const n = app.entries().length;
-  assert.strictEqual(app.entries()[n - 2].hash, '#/process/release', 'set-up: ‹ Production release is Back');
-  app.holdPops();
-  app.click('connect'); app.click('ed-done'); await app.tick(200);
-  assert.strictEqual(app.entries().length, n, 'nothing written while waiting');
-  app.releasePops(); await app.settle(); await app.tick(80); await app.settle();
-  assert.ok(!/another team folder/.test(app.live()), 'nothing said about another folder: ' + app.live());
-  assert.ok(!/Production release/.test(app.html().split('id="page-h"')[1] || ''), 'the old folder\'s checklist isn\'t drawn');
-  assert.strictEqual(app.entries().length, n, 'history didn\'t grow');
-  assert.ok(app.entries()[app.index()].state.f !== app.entries()[0].state.f, 'the entry is the new folder\'s now');
-});
-rule('R5 1: no timer writes or moves history: every setTimeout callback in app.js is free of history calls', () => {
-  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
-  const TOUCH = /\bHIST\.|\bhistWrite\(|\bhistBack\(|\bsyncLocation\(|\bscheduleSync\(|\bpopAt\(|\barrive\(|\brestoreUrl\(|\bonPop\(/;
-  const body = at => { const o = src.indexOf('{', at); let d = 0; for (let i = o; i < src.length; i++) { if (src[i] === '{') d++; else if (src[i] === '}' && !--d) return src.slice(o, i + 1); } return ''; };
-  const bad = []; let m; const re = /setTimeout\(\s*(function\b|[A-Za-z_$][\w$]*)/g;
-  while ((m = re.exec(src))) {
-    const b = m[1] === 'function' ? body(m.index) : (() => { const f = new RegExp('function ' + m[1] + '\\s*\\(').exec(src); return f ? body(f.index) : ''; })();
-    if (TOUCH.test(b)) bad.push('line ' + src.slice(0, m.index).split('\n').length + ': ' + b.slice(0, 80));
-  }
-  assert.ok(re.lastIndex === 0 && src.split('setTimeout(').length > 5, 'the check found the timers');
-  assert.deepStrictEqual(bad, []);
-  assert.ok(!/restoreTimedOut|H\.backing\s*=\s*\{\s*timer/.test(src), 'neither Back nor a restore has a timer');
-});
 
-/* ---------- Build round 5: Leave without saving holds for the form as it was ---------- */
-rule('R5 2: Leave without saving, then Keep editing and typing before Back lands: the form and what was typed are kept', async () => {
-  const t = await start(); t.click('nav', 'settings'); await t.tick(); t.click('open-types'); await t.tick(); await typeOpen(t);
-  t.input('tf-label', 'Risk review'); await t.tick(40);
-  const b = back1(t); t.click(b.act, b.id); await t.tick();
-  assert.match(t.html(), /data-act="type-cancel">Leave without saving/, 'set-up: the leave prompt');
-  t.holdPops();
-  t.click('type-cancel'); await t.tick();
-  t.click('type-stay'); await t.tick();
-  t.input('tf-label', 'Risk review board'); await t.tick(40);
-  t.releasePops(); await t.settle(); await t.tick(60); await t.settle();
-  assert.ok(/id="tf-h"/.test(t.html()), 'the form is still open');
-  assert.strictEqual(t.hash(), '#/types/new', 'on its own entry');
-  assert.match(t.html(), /<input id="tf-label"[^>]*value="Risk review board"/, 'with what was typed after Keep editing');
-  t.click('nav', 'home'); await t.tick(); t.click('nav', 'settings'); await t.tick(); t.click('open-types'); await t.tick();
-  assert.match(t.html(), /Risk review board/, 'and it\'s kept, not discarded');
-});
-rule('R5 2: Leave without saving with nothing changed since closes the form as Back lands', async () => {
-  const t = await start(); t.click('nav', 'settings'); await t.tick(); t.click('open-types'); await t.tick(); await typeOpen(t);
-  t.input('tf-label', 'Risk review'); await t.tick(40);
-  const b = back1(t); t.click(b.act, b.id); await t.tick();
-  t.holdPops(); t.click('type-cancel'); await t.tick(); await wait(200);
-  t.releasePops(); await t.settle(); await t.tick(60);
-  assert.strictEqual(t.hash(), '#/types');
-  assert.ok(!/id="tf-h"/.test(t.html()), 'closed');
-});
 
 /* ---------- Build round 5: a step type opened from Edit returns there, saved or not ---------- */
 async function edType(o) {
@@ -1519,6 +1400,149 @@ rule('R5 4: a plan whose pinned version can\'t be used, opened from the checklis
   const b = back1(app);
   assert.strictEqual(b.text, 'Production release', 'the header goes to the checklist page');
   assert.ok(!buttons(app.html()).some(x => x.text === 'Back to the checklist'), 'no second way there');
+});
+
+/* ---------- Build round 6: a ‹ control never traverses history ---------- */
+rule('R6 1: no ‹ control calls browser Back or waits for one: nothing in app.js traverses history but the refused move\'s restore', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
+  assert.ok(!/HIST\.back\(/.test(src), 'no history.back()');
+  assert.strictEqual((src.match(/HIST\.go\(/g) || []).length, 1, 'one history.go(), the restore\'s');
+  assert.match(src, /function restoreUrl\(t\) \{[\s\S]{0,400}HIST\.go\(c\.n - H\.pos\)/, 'and it is restoreUrl\'s');
+  assert.ok(!/H\.backing|navWait|drawnControl|typeBack|wsAnyway/.test(src), 'no pending Back, slot or replay left');
+  /* Every ‹ handler moves through backInPlace (its guard, then the entry replaced). */
+  ['wsLeave', 'typeWsReturn'].forEach(f => assert.match(src, new RegExp('function ' + f + '\\([^)]*\\) \\{[\\s\\S]{0,400}backInPlace\\(\\)'), f));
+  ["'recovery-back'", "'ins-back'", "'go-back'", "'exit-mission'"].forEach(a => assert.match(src, new RegExp(a + ': function \\([^)]*\\) \\{[\\s\\S]{0,300}backInPlace\\(\\)'), a));
+});
+rule('R6 1: a ‹ control draws where it goes at once, and a refresh finishing right after writes no entry: the step type\'s return, ‹ Step types, ‹ <title>', async () => {
+  const cases = [
+    ['step type from Edit', async () => { const a = await edit({ localStore: { 'preflight:builder': 'true' } }); a.click('ob-sel', 'flags'); await a.tick(); await typeOpen(a); return a; }, '#/process/release/edit'],
+    ['‹ Step types', async () => { const t = await start(); t.click('nav', 'settings'); await t.tick(); t.click('open-types'); await t.tick(); await typeOpen(t); return t; }, '#/types'],
+    ['‹ <title>', async () => edit(), '#/process/release']
+  ];
+  for (const [name, go, want] of cases) {
+    const app = await go(); const n = app.entries().length, i = app.index(), left = app.hash(), before = app.html(), b = back1(app);
+    app.click(b.act, b.id);
+    assert.notStrictEqual(app.html(), before, name + ': drawn at once');
+    app.click('refresh'); await app.tick(150); await app.settle();
+    assert.strictEqual(app.hash(), want, name + ': landed');
+    assert.deepStrictEqual([app.entries().length, app.index()], [n, i], name + ': in the entry\'s place, nothing written by the refresh');
+    app.back(); await app.settle();
+    assert.notStrictEqual(app.hash(), left, name + ': browser Back never reopens ' + left);
+  }
+});
+rule('R6 1: a move right after a ‹ control is just the next move: Runs lands, history doesn\'t grow past it, and nothing later overrides it', async () => {
+  const app = await edit(); const n = app.entries().length, i = app.index();
+  app.click('ed-done'); await app.tick(); app.click('nav', 'runs'); await app.settle(); await app.tick(40);
+  assert.strictEqual(app.hash(), '#/runs');
+  assert.deepStrictEqual([app.entries().length, app.index()], [n + 1, i + 1], 'the checklist page in the editor\'s place, Runs after it');
+  assert.strictEqual(app.entries()[i].hash, '#/process/release');
+  /* Both in one task: one write, Runs in the editor's place. */
+  const same = await edit(); const m = same.entries().length, j = same.index();
+  same.click('ed-done'); same.click('nav', 'runs'); await same.settle();
+  assert.strictEqual(same.hash(), '#/runs'); assert.deepStrictEqual([same.entries().length, same.index()], [m, j]);
+  await new Promise(r => setTimeout(r, 1700)); await app.settle();
+  assert.strictEqual(app.hash(), '#/runs', 'nothing later overrides it');
+});
+
+/* ---------- Build round 6: Leave without saving and Keep editing act on the form as it is at the click ---------- */
+async function typePrompt() {
+  const t = await start(); t.click('nav', 'settings'); await t.tick(); t.click('open-types'); await t.tick(); await typeOpen(t);
+  t.input('tf-label', 'Risk review'); await t.tick(40);
+  const b = back1(t); t.click(b.act, b.id); await t.tick();
+  assert.match(t.html(), /data-act="type-cancel">Leave without saving/, 'set-up: the leave prompt');
+  return t;
+}
+rule('R6 3: Keep editing with nothing typed after it keeps the form: the next way back asks again, and so does browser Back', async () => {
+  const t = await typePrompt(); const n = t.entries().length;
+  t.click('type-stay'); await t.settle();
+  assert.ok(/id="tf-h"/.test(t.html()) && !/Leave without saving/.test(t.html()), 'the form, the prompt gone');
+  assert.match(t.html(), /<input id="tf-label"[^>]*value="Risk review"/, 'its text kept');
+  assert.strictEqual(t.hash(), '#/types/new'); assert.strictEqual(t.entries().length, n);
+  const b = back1(t); t.click(b.act, b.id); await t.settle();
+  assert.match(t.html(), /Leave without saving/, 'the way back asks again');
+  t.click('type-stay'); await t.settle();
+  t.back(); await t.settle(); await t.tick(40);
+  assert.match(t.html(), /Leave without saving/, 'browser Back asks too');
+  assert.match(t.html(), /<input id="tf-label"[^>]*value="Risk review"/, 'nothing discarded');
+});
+rule('R6 3: Leave without saving pressed twice closes the form once, on the list, in the entry\'s place; from Edit, back in Edit', async () => {
+  const t = await typePrompt(); const n = t.entries().length, i = t.index();
+  t.click('type-cancel'); t.click('type-cancel'); await t.settle(); await t.tick(40);
+  assert.strictEqual(t.hash(), '#/types'); assert.ok(!/id="tf-h"/.test(t.html()), 'closed');
+  assert.deepStrictEqual([t.entries().length, t.index()], [n, i], 'in the entry\'s place');
+  t.click('nav', 'home'); await t.tick(); t.click('nav', 'settings'); await t.tick(); t.click('open-types'); await t.tick();
+  assert.ok(!/Risk review/.test(t.html()), 'its changes let go of');
+  const a = await edit({ localStore: { 'preflight:builder': 'true' } });
+  a.click('ob-sel', 'flags'); await a.tick(); await typeOpen(a);
+  a.input('tf-label', 'Risk review'); await a.tick(40);
+  const b = back1(a); a.click(b.act, b.id); await a.tick();
+  const m = a.entries().length;
+  a.click('type-cancel'); a.click('type-cancel'); await a.settle(); await a.tick(40);
+  assert.strictEqual(a.hash(), '#/process/release/edit'); assert.ok(inEditor(a), 'the editor');
+  assert.strictEqual(a.entries().length, m, 'history didn\'t grow');
+});
+
+/* ---------- Build round 6: a skill's header way back ---------- */
+rule('R6 4: a skill opened from its checklist goes back to Skills from the header, its checklist linked once in the body; from Skills, Skills', async () => {
+  const app = await page();
+  const m = /data-act="open-skill" data-id="([^"]+)"/.exec(app.html());
+  assert.ok(m, 'set-up: the checklist page links a skill');
+  app.click('open-skill', m[1]); await app.tick();
+  let b = back1(app);
+  assert.strictEqual(b.text, 'Skills', 'from its checklist: the header goes to Skills');
+  const toList = buttons(app.html()).filter(x => (x.act === 'go-back' || x.act === 'open-process') && (x.id === '#/process/release' || x.id === 'release'));
+  assert.deepStrictEqual(toList.map(x => x.act), ['open-process'], 'the checklist once, in About this skill');
+  const s = await start(); s.click('nav', 'processes'); await s.tick(); s.click('nav', 'skills'); await s.tick(); s.click('open-skill', m[1]); await s.tick();
+  b = back1(s);
+  assert.strictEqual(b.text, 'Skills', 'from Skills: Skills');
+});
+
+/* ---------- Build round 6: the reviewers' probes ---------- */
+rule('R6 6: from a linked child run, ‹ draws its parent at once and nothing of the child changes; the URL is the parent\'s', async () => {
+  const app = await start(); await fromRuns(app);
+  const key = runKey(app);
+  const kid = Object.keys(app.fs.files).filter(f => /^runs\/[^/]+\/[^/]+\/run\.json$/.test(f)).find(f => { try { const j = JSON.parse(app.fs.files[f].t); return j.parent && j.parent.process + '/' + j.parent.id === key; } catch (e) { return false; } });
+  assert.ok(kid, 'set-up: the example\'s run has a linked child run');
+  const ckey = kid.split('/').slice(1, 3).join('/');
+  app.click('open-run', ckey); await app.tick(60); await app.settle();
+  assert.strictEqual(app.hash(), '#/run/' + ckey, 'set-up: the child open');
+  const cpath = kid, was = app.fs.files[cpath].t, b = back1(app), before = app.html();
+  app.click(b.act, b.id);
+  assert.notStrictEqual(app.html(), before, 'the parent drawn at once');
+  const step = Object.keys(JSON.parse(was).steps || {})[0];
+  if (step) app.click('toggle', step);
+  await app.settle(); await app.tick(80);
+  assert.strictEqual(app.fs.files[cpath].t, was, 'the child run is untouched');
+  assert.strictEqual(app.hash(), '#/run/' + key, 'the parent\'s URL: ' + app.hash());
+});
+rule('R6 6: a pruned or single-entry history whose b names a checklist page: ‹ moves there, and the next moves go on', async () => {
+  const fp = (await start()).entries()[0].state.f;
+  for (const n of [0, 5]) {
+    const app = await start({ entries: [{ hash: '#/process/release/edit', state: { fd: 1, n, f: fp, b: { h: '#/process/release', f: fp } } }] }); await app.tick(80); await app.settle();
+    assert.ok(inEditor(app), n + ': set-up: the editor');
+    app.click('ed-done'); await app.settle();
+    assert.strictEqual(app.hash(), '#/process/release', n + ': moved there');
+    assert.ok(onOverview(app), n + ': drawn');
+    app.click('nav', 'settings'); await app.settle();
+    assert.strictEqual(app.hash(), '#/settings', n + ': and on');
+    assert.deepStrictEqual(app.entries().map(e => e.hash), ['#/process/release', '#/settings'], n + ': one entry replaced, one pushed');
+  }
+});
+rule('R6 6: refused Backs pressed together, with entries ahead, settle on the editor and its URL', async () => {
+  const app = await edit({ localStore: { 'preflight:builder': 'true' } });
+  app.click('nav', 'runs'); await app.settle(); app.click('nav', 'settings'); await app.settle(); app.click('nav', 'skills'); await app.settle();
+  app.back(); await app.settle(); app.back(); await app.settle(); app.back(); await app.settle();
+  assert.strictEqual(app.hash(), '#/process/release/edit', 'set-up: back on Edit, entries ahead');
+  app.click('ob-sel', 'flags'); await app.tick(); app.input('ob-text', 'Half typed'); await app.tick();
+  const at = app.index(), n = app.entries().length;
+  app.holdPops(); app.back(); app.back(); app.releasePops();
+  await app.settle(); await new Promise(r => setTimeout(r, 1300)); await app.settle(); await app.tick(40);
+  assert.strictEqual(app.hash(), '#/process/release/edit', 'the URL is the editor\'s');
+  assert.ok(/id="ed-h"/.test(app.html()) && app.draft('ob-text') === 'Half typed', 'the editor, its text kept');
+  assert.deepStrictEqual([app.index(), app.entries().length], [at, n], 'on its entry, the entries ahead kept');
+  assert.strictEqual(app.reloads(), 0); assert.strictEqual(app.popMismatch(), 0);
+  const settled = app.entries().length; await new Promise(r => setTimeout(r, 300)); await app.settle();
+  assert.strictEqual(app.hash(), '#/process/release/edit', 'and it stays settled'); assert.strictEqual(app.entries().length, settled);
 });
 
 run();
