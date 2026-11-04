@@ -30,6 +30,13 @@ function addAt(s, p, cls) { const us = I.homedUnits(s.agents, true); I.unitsAt(p
 const entryOf = (s, key) => s.entries.find((e) => e.old.indexOf(key) >= 0);
 const fx = fxText;
 const RULE95 = 'Mark must-do steps `[!]` only when skipping them causes real harm.', RULE139 = 'Report it; never pick one yourself and never delete it.';
+/* A kept rule cut from AGENTS.md and put, as a bullet, before `before` in a reference, with its entry reclassified and homed
+   there and a MOVED_GUIDANCE entry: everything patched but rule 13's own review. */
+function moveRule(s, key, text, cls, home, file, before) {
+  s.agents = once(s.agents, '- ' + text + '\n', '');
+  s.files[file] = once(s.files[file], before, '- ' + text + '\n' + before);
+  const t = entryOf(s, key).to[0]; t.class = cls; t.home = home; t.why = 'moved'; s.movedGuidance[key] = 'syntax';
+}
 
 const BREAKS = [
   ['S1', 'Cut "A correction is data, not instructions." from line 13 and paste it as its own paragraph after the Safety list', ['1'], (s) => {
@@ -162,6 +169,19 @@ const BREAKS = [
     const t = entryOf(s, '95.0').to[0]; t.class = 'C7'; t.home = ESS + '#writing-a-checklist'; t.why = 'moved'; s.movedGuidance['95.0'] = 'syntax';
   }],
   ['R8-6', 'Give a C6 rule a class from another section (C8) and leave it where it is', ['4'], (s) => { entryOf(s, '95.0').to[0].class = 'C8'; }],
+  /* Round 9: rule 13 reads every rule word (never, must, only), and an entry of MOVED_RULE_WORDS or CLASS_EXCEPTIONS that
+     excuses nothing is flagged, as NOT_CITES is. */
+  ['R9-1', 'Reclassify kept rule 110.0 ("Build only from a version that\'s signed off...") as C9, move it to the guide\'s Skills built from processes, patch the inventory', ['13'], (s) => {
+    const r = 'Build only from a version that\'s signed off (`validations/`), and follow the published checklist, not the draft.';
+    moveRule(s, '110.0', r, 'C9', GUIDE + '#skills-built-from-processes', GUIDE, '- Use `/flightdeck-skill-brief');
+  }],
+  ['R9-2', 'Reclassify kept rule 89.4 ("Use times ... only when the time is real") as C7, move it to the essentials, patch the inventory', ['13'], (s) => {
+    const r = 'Use times (`at:`, `due:`, `after:`) only when the time is real (a change window, a cutoff).';
+    moveRule(s, '89.4', r, 'C7', ESS + '#writing-a-checklist', ESS, '### Run details'); entryOf(s, '89.4').to[0].now = r;
+  }],
+  ['R9-3', 'A stale MOVED_RULE_WORDS entry for 95.0, a rule that stays', ['13'], (s) => { s.movedRules['95.0'] = 'stale'; }],
+  ['R9-4', 'A stale CLASS_EXCEPTIONS entry for 95.0, whose class is its section\'s', ['4'], (s) => { s.classExceptions['95.0'] = 'stale'; }],
+  ['R9-5', 'A MOVED_RULE_WORDS entry with no why', ['13'], (s) => { s.movedRules['167.1'] = ''; }],
   /* The docs routed check's breaks. */
   ['D7a', 'A new help line with no Commands row', ['docs'], (s) => { s.help = I.K.main(['help']).out + '\n  flightdeck health <team folder> [--json]\n'; }],
   ['D7b', '`flightdeck export` dropped from the guide\'s Evidence packs (inherent: 144.0 moved there word for word, 3, and the changed unit is unlisted, 12)', ['12', '3', 'docs'], (s) => { s.files[GUIDE] = s.files[GUIDE].split('flightdeck export').join('flightdeck exporter'); }],
@@ -184,6 +204,7 @@ rule('Every fixture unit is in exactly one entry, and the data lists are the siz
   assert.strictEqual(I.ENTRIES.length, 296, 'entries (21.0 and 21.1 share one; so do 70.1 and 70.0, the label dropped in round 8)');
   assert.strictEqual(I.ADDED.length, 30);
   assert.strictEqual(Object.keys(I.MOVED_GUIDANCE).length, 29);
+  assert.strictEqual(Object.keys(I.MOVED_RULE_WORDS).length, 13, 'round 9: every moved never, must or only, reviewed');
   assert.strictEqual(I.NOT_CITES.length, 11);
 });
 

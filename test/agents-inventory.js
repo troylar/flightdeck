@@ -409,13 +409,22 @@ const ADDED = [
   { home: H.drafts, text: '*Editing drafts* in the command guide.', class: 'C1', why: 'the section\'s How: line, to the part of a reference that says how' },
   { home: H.drafts, text: 'Use `flightdeck draft read`, then `flightdeck draft save` with `--expect` and `--base`.', class: 'C1', why: 'the two commands, named, since the how moved to the guide' },
 ];
-/* Moved units with never or must outside code, each reviewed apart from MOVED_GUIDANCE: why the word describes how a command or
-   a file works, and is not a rule AGENTS.md must keep (rule 13). A kept rule reclassified as how fails here even when the rest
-   of the inventory is patched to match. */
+/* Moved units with a rule word (WHY_WORDS: never, must, only) outside code, each reviewed apart from MOVED_GUIDANCE: why the word
+   describes how a command or a file works, and is not a rule AGENTS.md must keep (rule 13). A kept rule reclassified as how fails
+   here even when the rest of the inventory is patched to match, and an entry no moved unit needs fails as stale. */
 const MOVED_RULE_WORDS = {
+  '70.1': '"signs off only while the owner is inactive" is what the backup field means, in the front matter list',
+  '88.0': '"require evidence only where it matters" is when to use the require: syntax; the essentials are read before writing a checklist (its How: line)',
+  '92.0': '"only some runs need" describes the step the only when syntax is for, not a rule',
+  '92.1': '"test only details listed in context" is what only when can test: checklist syntax',
+  '92.2': '"can only be tested with is set" is what the syntax allows for a plain-text detail',
+  '130.3': '"converted only when its meaning is certain" is what the app does to a typed detail in a plan',
   '134.0': '"never change it" says what the read commands do, not what the assistant may do',
+  '134.2': '"work only with --contract 2" says when the read options work; AGENTS.md keeps "Always pass --contract 2"',
+  '134.3': '"has only contract 1" describes an older install',
   '136.6': '"never needed" describes a step a run skipped, not a rule',
-  '167.1': '"must come after" is when to pass --replace-own-proposal, an option of draft save',
+  '144.1': '"it only reads" says what flightdeck export does; AGENTS.md keeps where a pack may go',
+  '167.1': '"must come after" is when to pass --after-earlier, the option of draft save that keeps the earlier proposal',
   '168.1': '"must name the process" is the draft file\'s format, which draft save checks'
 };
 /* Targets whose class isn't their fixture section's stays or moves class, each reviewed (rule 4). */
@@ -652,6 +661,7 @@ function checks(s) {
   s.entries.forEach((e) => e.to.forEach((t) => { const fz = fx[e.old[0]] && fx[e.old[0]].fence ? 'F' : 'P'; const k = t.home + '\u0000' + fz + '\u0000' + textOf(e, t); need[k] = (need[k] || 0) + 1; }));
   Object.keys(need).forEach((k) => { const [home, fz, text] = k.split('\u0000'), h0 = homeText(s, home), h = h0 == null ? null : fz === 'P' && home.indexOf('#') > 0 ? R.prose(h0).join('\n') : h0; const have = h == null ? 0 : count(h, text); if (have < need[k]) fail('3', home + ' has ' + have + ' of ' + need[k] + (fz === 'P' && home.indexOf('#') > 0 ? ' outside fences' : '') + ': ' + text.slice(0, 60)); });
   /* 4: a staying class is homed in AGENTS.md, in its class's section; C21 in a file that already exists. */
+  const classNeed = Object.create(null);
   s.entries.forEach((e) => e.to.forEach((t) => {
     if (STAYS.indexOf(t.class) >= 0 && !isA(t.home)) fail('4', e.id + ' ' + t.class + ' homed in ' + t.home);
     if (STAYS.indexOf(t.class) >= 0 && /#(before|after)$/.test(t.home) && t.class !== 'C18') fail('4', e.id + ' homed outside region()');
@@ -659,8 +669,10 @@ function checks(s) {
     if (t.class === 'C21' && (isA(t.home) || BASE[t.home.split('#')[0]] == null)) fail('4', e.id + ' C21 not in an existing file');
     /* The class is the stays or moves class of the fixture line's section (SECTIONS), or a reviewed exception. */
     const sec = fx[e.old[0]] && sectionOf(fx[e.old[0]].line);
-    if (t.class !== 'C21' && sec && t.class !== sec[2] && t.class !== sec[3] && !(s.classExceptions || {})[e.id]) fail('4', e.id + ' ' + t.class + ' is not ' + sec.slice(2).join(' or ') + ', the classes of fixture lines ' + sec[0] + '-' + sec[1]);
+    if (t.class !== 'C21' && sec && t.class !== sec[2] && t.class !== sec[3]) { classNeed[e.id] = (classNeed[e.id] || 0) + 1; if (!(s.classExceptions || {})[e.id]) fail('4', e.id + ' ' + t.class + ' is not ' + sec.slice(2).join(' or ') + ', the classes of fixture lines ' + sec[0] + '-' + sec[1]); }
   }));
+  /* ...and each CLASS_EXCEPTIONS entry excuses exactly one target that needs it. */
+  Object.keys(s.classExceptions || {}).forEach((id) => { if (classNeed[id] !== 1) fail('4', 'CLASS_EXCEPTIONS entry ' + id + ' excuses ' + (classNeed[id] || 0) + ' targets, not 1'); });
   /* 5: a moved unit goes to a new file, never one 2.14.0 or earlier shipped; C21 is in the file now and as 2.14.0 shipped it. */
   s.entries.forEach((e) => e.to.forEach((t) => {
     if (isA(t.home)) return; const file = t.home.split('#')[0], b = BASE[file];
@@ -709,8 +721,11 @@ function checks(s) {
     /* ...and every REF_ADDED unit with a why is still there. */
     (s.refAdded || []).forEach((a) => { const k = HK(a.home, a.text); if (a.home.split('#')[0] === f && a.why && (seen[k] || 0) < 1) fail('12', 'missing at ' + a.home + ': ' + a.text.slice(0, 60)); });
   });
-  /* 13: a moved unit with never or must (outside code) is in MOVED_RULE_WORDS, reviewed. */
-  s.entries.forEach((e) => e.to.forEach((t) => { if (!isA(t.home) && t.class !== 'C21' && /\b(never|must)\b/i.test(noCode(textOf(e, t))) && !(s.movedRules || {})[e.id]) fail('13', e.id + ' moved with never or must, not in MOVED_RULE_WORDS'); }));
+  /* 13: a moved unit with a rule word (WHY_WORDS: never, must, only), outside code, is in MOVED_RULE_WORDS, reviewed; and each
+     entry there excuses exactly that: an entry no moved rule word needs is stale. */
+  const ruleNeed = new Set();
+  s.entries.forEach((e) => e.to.forEach((t) => { if (!isA(t.home) && t.class !== 'C21' && WHY_WORDS.test(noCode(textOf(e, t)))) { ruleNeed.add(e.id); if (!(s.movedRules || {})[e.id]) fail('13', e.id + ' moved with never, must or only, not in MOVED_RULE_WORDS'); } }));
+  Object.keys(s.movedRules || {}).forEach((id) => { if (!ruleNeed.has(id)) fail('13', 'MOVED_RULE_WORDS entry ' + id + ' excuses nothing: no moved unit of it has never, must or only'); });
   /* a: both new references say they allow nothing AGENTS.md forbids. */
   [GUIDE, ESS].forEach((f) => { if (s.files[f] == null || s.files[f].indexOf('Nothing here allows') < 0) fail('a', f); });
   /* b: grant phrasing in a reference or an installed skill is listed with why. */
