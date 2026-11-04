@@ -332,6 +332,45 @@ budget('The heading reader is linear: a 1 MB heading line takes under 100 ms in 
     assert.ok(ms < 100, 'line ' + n + ': ' + ms + ' ms');
   });
 });
+/* Round 11 (Codex 1): the fence reader backtracked on a line that is a long run of ` or ~ with U+2028 or U+2029 after it
+   (80,000 backticks took 2.6 s). The readers are a hand-written scan now: every adversarial line, 1 MB each, under 100 ms in
+   prose(), sections() and cites(), and each reads as the round 10 reader read it (no fence, no heading). */
+budget('Round 11: the fence and heading readers are linear on adversarial lines: 1 MB runs of ` ~ # spaces and tabs, with U+2028 or U+2029, each under 100 ms', () => {
+  const C = load().contract, M = 1 << 20, LS = '\u2028', PS = '\u2029';
+  const lines = [
+    ['backticks, U+2028, x', '`'.repeat(M) + LS + 'x'], ['backticks, U+2029, x', '`'.repeat(M) + PS + 'x'],
+    ['tildes, U+2028, x', '~'.repeat(M) + LS + 'x'], ['tildes, U+2029, x', '~'.repeat(M) + PS + 'x'],
+    ['3 spaces, backticks, U+2028', '   ' + '`'.repeat(M) + LS], ['``` then spaces, U+2028', '```' + ' '.repeat(M) + LS + 'x'],
+    ['~~~ then tabs, U+2029', '~~~' + '\t'.repeat(M) + PS], ['backticks then a backtick-free run, U+2028', '`'.repeat(M / 2) + 'x'.repeat(M / 2) + LS],
+    ['#s, U+2028', '#'.repeat(M) + LS], ['## then spaces, U+2028', '##' + ' '.repeat(M) + LS + 'x'], ['## then tabs, U+2029', '##' + '\t'.repeat(M) + PS],
+    ['spaces, U+2028', ' '.repeat(M) + LS], ['tabs then #s', '\t'.repeat(M) + '#'.repeat(M)], ['U+2028 run', LS.repeat(M)], ['U+2029 then backticks', PS + '`'.repeat(M)]
+  ];
+  lines.forEach(([name, line]) => {
+    const md = '# t\n\n' + line + '\n\n## z\n';
+    let t = Date.now(); const pr = C.prose(md), prMs = Date.now() - t;
+    t = Date.now(); const got = JSON.parse(JSON.stringify(C.sections(md))), secMs = Date.now() - t;
+    t = Date.now(); C.cites(C.BEGIN + '\n' + md + C.END + '\n'); const citeMs = Date.now() - t;
+    console.log('  ' + name + ' (' + line.length + ' characters): prose ' + prMs + ' ms, sections ' + secMs + ' ms, cites ' + citeMs + ' ms');
+    assert.strictEqual(pr.length, 6, name + ': no fence opens');
+    assert.deepStrictEqual(got, ['z'], name + ': no heading on it');
+    assert.ok(prMs < 100 && secMs < 100 && citeMs < 100, name + ': ' + [prMs, secMs, citeMs].join(', ') + ' ms');
+  });
+});
+/* Round 11: any line, not only the ones above. 64 random long lines built from runs of the characters the readers look at, each
+   256 KB: each under 50 ms in sections() and prose(). */
+budget('Round 11: a fuzz of 64 random 256 KB lines from runs of ` ~ # spaces tabs U+2028 U+2029 and text, each under 50 ms in the readers', () => {
+  const C = load().contract, ALPHA = ['`', '~', '#', ' ', '\t', '\u2028', '\u2029', 'x', '*', '<', '-', '>'];
+  let seed = 11; const rnd = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n; };
+  let worst = 0;
+  for (let n = 0; n < 64; n++) {
+    let line = ' '.repeat(rnd(4));
+    while (line.length < (1 << 18)) { const c = ALPHA[rnd(ALPHA.length)], len = rnd(3) ? 1 + rnd(8) : 1 + rnd(1 << 16); line += c.repeat(len); }
+    const md = line + '\n## z\n' + line + '\n', t = Date.now(); C.sections(md); C.prose(md); const ms = Date.now() - t;
+    worst = Math.max(worst, ms);
+    assert.ok(ms < 50, 'line ' + n + ': ' + ms + ' ms');
+  }
+  console.log('  64 random 256 KB lines, the slowest: ' + worst + ' ms');
+});
 budget('The content rule is linear too: 34,000 cited sections against a guide of 26,000 take under 300 ms in cites, lacks, hold and pointers', () => {
   const C = load(false, process.env.CONTRACT_FROM ? (f, src) => f === 'core/contract.js' ? require('fs').readFileSync(process.env.CONTRACT_FROM, 'utf8') : src : undefined).contract;
   const G = C.REFS + 'command-guide.md', head = '`' + G + '` (*the command guide*)\n';

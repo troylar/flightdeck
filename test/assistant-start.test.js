@@ -1026,8 +1026,8 @@ function decide15(dir, pkg, force) {
     return { key: k, text, now, want: h15(k, text), have: now === null ? null : h15(k, now), old: all.filter((x, n) => said[n] === 'old'), staged: all.filter((x, n) => said[n] !== 'old').map(x => Object.assign(x, { hash: h15(k, x.text) })) };
   });
   const rec = JSON.parse(JSON.stringify(K15.readRecord(get15(dir, RECORD), KEYS15, pkg.V)));
-  const hashes = items.map(i => ({ key: i.key, want: i.want, have: i.have, staged: i.staged.map(x => ({ version: x.version, hash: x.hash })) }));
-  const texts = items.map(i => ({ key: i.key, text: i.text, now: i.now, have: i.have, want: i.want }));
+  const hashes = items.map(i => ({ key: i.key, want: i.want, have: i.have, staged: i.staged.map(x => ({ version: x.version, hash: x.hash, shape: K15.shapeOf(i.key, x.text) })) }));
+  const texts = items.map(i => ({ key: i.key, text: i.text, now: i.now, have: i.have, want: i.want, staged: i.staged.map(x => K15.copyPrint(i.key, x.text)) }));
   const st = JSON.parse(JSON.stringify(K15.hold(JSON.parse(JSON.stringify(C.decide(hashes, rec, pkg.base, pkg.V, !!force))), texts, pkg.base)));
   if (!force) assert.deepStrictEqual(JSON.parse(JSON.stringify(K15.classify(hashes.map((x, n) => Object.assign({}, x, { now: items[n].now, text: items[n].text })), rec, pkg.base, pkg.V))), st, 'the app (classify, with hold) and the command (decide, then hold) agree');
   return { items, st };
@@ -1288,6 +1288,61 @@ const mergeCopies = (dir) => Object.keys(text(walk(dir))).filter(k => /\/replace
   assert.strictEqual(mergeCopies(dir), 1, 'settled: no new copy');
   junk.forEach(j => assert.strictEqual(get15(dir, cp(j)), 'x', 'the stray file is left alone: ' + j));
 }));
+/* Round 11 (Codex 1), 2: "you don't need to merge it: delete AGENTS.md" only when every waiting copy is an untouched shipped
+   default. A team rule added to the staged copy, inside the markers or under Team notes, makes it a merge that keeps the edit. */
+[['a rule inside the markers', t => t.replace('## Safety rules\n', '## Safety rules\n\n- Our staged rule.\n')], ['a Team note', t => t + '\n- Our staged note.\n']].forEach(([id, edit]) => kase15('R11-copy ' + id, 'after 1, a team edit in the staged AGENTS.md, then the guide merged and its copy deleted: install, --check and Folder health never say to delete it', async () => {
+  const dir = f214({ [GUIDE]: FOREIGN }); install15(dir);
+  const copy = get15(dir, cp(AG)), mine = copy == null ? null : edit(copy);
+  assert.ok(copy && mine !== copy, 'set-up: AGENTS.md is staged, and the edit went in');
+  put15(dir, cp(AG), mine); put15(dir, GUIDE, TEAMG); del15(dir, cp(GUIDE));
+  const c = check15(dir);
+  assert.ok(!/delete|only needs its copy/i.test(c.out), '--check: ' + c.out);
+  const r = install15(dir); assert.strictEqual(r.code, 0, r.out);
+  expect15(r.st, { AGENTS: { status: 'merge', waiting: VER, onlyCopy: undefined, heldFrom: undefined } });
+  assert.ok(!/delete AGENTS\.md|only needs its copy deleted/i.test(r.out), 'install: ' + r.out);
+  const line = readmeLine(dir, VER, '- `AGENTS.md`');
+  assert.strictEqual(line, '- `AGENTS.md` (only the part between the flightdeck markers)', 'the README: a merge');
+  assert.ok(get15(dir, cp('README.md')).indexOf(DEL) < 0, 'the README never says to delete it');
+  assert.strictEqual(get15(dir, cp(AG)), mine, 'the edited copy is left as it is');
+  const hs = await health15(dir);
+  assert.ok(!hs.some(x => /Delete AGENTS\.md from each version folder/.test(x.detail)), 'Folder health: ' + JSON.stringify(hs));
+}));
+/* Round 11 (Codex 1), 3: a reference write refused because another writer made the file after the folder was read. AGENTS.md is
+   written after the references, and only if the files it cites have its sections then: otherwise it is staged, and its record
+   entry stays. The 2.14.0 folder: AGENTS.md at update, the guide missing; the other writer's guide has none of its sections. */
+kase15('R11-race command', 'a guide written by someone else while install runs: AGENTS.md is staged, not replaced, and keeps its record entry', async () => {
+  const dir = f214(); expect15(decide15(dir).st, { AGENTS: { status: 'update' }, guide: { status: 'new' } });
+  let raced = 0;
+  C._hooks.contractWrite = (d, rel) => { if (rel === GUIDE && get15(dir, GUIDE) == null) { put15(dir, GUIDE, FOREIGN); raced++; } };
+  let r; try { r = await C.main(['install', dir]); } finally { delete C._hooks.contractWrite; }
+  assert.strictEqual(raced, 1, 'set-up: the other writer ran once, before the guide was written');
+  assert.strictEqual(get15(dir, GUIDE), FOREIGN, 'the other writer\'s guide is kept');
+  assert.strictEqual(get15(dir, AG), A214, 'AGENTS.md is not replaced: ' + r.out);
+  assert.strictEqual(get15(dir, cp(AG)), A215, 'its new default is staged');
+  assert.strictEqual(recOf15(dir)[AG], h15(AG, A214), 'its record entry stays');
+  assert.ok(!own15(recOf15(dir), GUIDE), 'the guide gets no record entry');
+  assert.ok((readmeLine(dir, VER, '- `AGENTS.md`') || '').startsWith(AGL + 'Held: '), 'the README says AGENTS.md is held: ' + readmeLine(dir, VER, '- `AGENTS.md`'));
+  assert.strictEqual(r.code, C.EXIT.error, r.out); assert.ok(r.out.indexOf(GUIDE) >= 0, r.out);
+  /* The next install holds it the ordinary way. */
+  expect15(install15(dir).st, { AGENTS: { status: 'merge', waiting: VER } });
+  assert.strictEqual(get15(dir, AG), A214);
+});
+kase15('R11-race Settings', 'the same race in Settings\' Update: AGENTS.md is staged, not replaced, and its record entry stays', async () => {
+  const files = text(walk(f214())); let racing = false, raced = 0;
+  /* Update reads the folder again (the guide isn't there), then its write of the guide looks first: the other writer goes in between. */
+  let looks = 0;
+  const live = new Proxy(files, { has(t, k) { if (racing && k === GUIDE && !(k in t) && ++looks === 2) { t[k] = FOREIGN; raced++; } return k in t; } });
+  const app = await opened(live); await aiFiles(app);
+  racing = true; app.click('af-update'); await app.tick(800); racing = false;
+  assert.strictEqual(raced, 1, 'set-up: the other writer ran once');
+  assert.strictEqual(files[GUIDE], FOREIGN, 'the other writer\'s guide is kept');
+  assert.strictEqual(files[AG], A214, 'AGENTS.md is not replaced');
+  assert.strictEqual(files[cp(AG)], A215, 'its new default is staged');
+  const rec = JSON.parse(files[RECORD]).files;
+  assert.strictEqual(rec[AG], h15(AG, A214), 'its record entry stays');
+  assert.ok(!own15(rec, GUIDE), 'the guide gets no record entry');
+  assert.ok((files[cp('README.md')] || '').split('\n').some(l => l.startsWith(AGL + 'Held: ')), 'the README says AGENTS.md is held');
+});
 kase15('B', 'skills first, then the team edits the guide keeping its sections, then install: AGENTS.md updates', () => {
   const dir = f214(); assert.strictEqual(run15(PKG15, 'skills', dir).code, 0); put15(dir, GUIDE, TEAMG);
   expect15(install15(dir).st, { AGENTS: { status: 'update', heldFrom: undefined }, guide: { status: 'kept' } });
@@ -1575,6 +1630,57 @@ rule('The heading reader on a team-edited guide, 22 ways: each lacks exactly the
     assert.strictEqual(x.status, n ? 'merge' : 'kept', name);
     if (n) assert.ok(check15(dir).code === 3, name + ': --check says so');
   });
+});
+/* Round 11 (Codex 1): the readers are a hand-written scan, no regular expression. They must read exactly as round 10's did: this
+   is that reader, word for word, the reference. Compared on every tracked .md file, the 22 variants above, and 20,000 random
+   texts of short lines (the reference is only slow on long lines, which the budgets in test/perf.test.js cover). */
+function ref10Prose(md) {
+  const out = []; let fence = null;
+  K15.norm(md).split('\n').forEach(function (l) {
+    const f = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(l);
+    if (fence) { if (f && f[1].charAt(0) === fence.charAt(0) && f[1].length >= fence.length && /^[ \t]*$/.test(f[2])) fence = null; return; }
+    if (f && !(f[1].charAt(0) === '`' && f[2].indexOf('`') >= 0)) { fence = f[1]; return; }
+    out.push(l);
+  });
+  return out;
+}
+function ref10Headings(md) {
+  const out = [], gap = (c) => c === ' ' || c === '\t';
+  ref10Prose(md).forEach(function (l) {
+    const m = /^ {0,3}(#{1,6})(?=[ \t]|$)/.exec(l);
+    if (!m || /[\u2028\u2029]/.test(l)) return;
+    let i = m[0].length, j = l.length, k;
+    while (i < j && gap(l.charAt(i))) i++;
+    while (j > i && gap(l.charAt(j - 1))) j--;
+    for (k = j; k > i && l.charAt(k - 1) === '#'; k--);
+    if (k < j && (k === i || gap(l.charAt(k - 1)))) for (j = k; j > i && gap(l.charAt(j - 1)); j--);
+    out.push({ depth: m[1].length, text: l.slice(i, j).trim() });
+  });
+  return out;
+}
+rule('Round 11: the scanning readers read every tracked .md file, the 22 variants and 20,000 random texts exactly as round 10\'s regular expressions did', () => {
+  const same = (md, what) => {
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(K15.prose(md))), ref10Prose(md), what + ': prose');
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(K15.headings(md))), ref10Headings(md), what + ': headings');
+    assert.deepStrictEqual(JSON.parse(JSON.stringify(K15.sections(md))), ref10Headings(md).filter(h => h.depth === 2).map(h => h.text), what + ': sections');
+  };
+  const tracked = require('child_process').execFileSync('git', ['ls-files', '*.md'], { cwd: ROOT, encoding: 'utf8' }).split('\n').filter(Boolean);
+  assert.ok(tracked.length >= 145, 'set-up: ' + tracked.length + ' tracked .md files');
+  tracked.forEach(f => same(fs.readFileSync(path.join(ROOT, f), 'utf8'), f));
+  VARIANTS.forEach(([name, edit]) => same(edit(TEAMG), 'variant ' + name));
+  const TOKENS = ['`', '``', '```', '````', '~', '~~~', '~~~~', '#', '##', '######', '#######', ' ', '  ', '   ', '    ', '\t', 'x', 'a b', ' # ', '#x',
+    '\u2028', '\u2029', '\n', '\n', '\n', '\r\n', '\r', '\uFEFF', '<!--', '-->', '> ', '- ', '*', '*A* in the command guide', '=', '---',
+    '\n```\n', '\n~~~\n', '\n```` x\n', '\n~~~ y\n', '\n``` `z`\n', '\n## a\n', '\n# b #\n', '\n### c ##\n', '\n## ', '\n# ', '\n   ###### d'];
+  let seed = 2151; const rnd = (n) => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed % n; };
+  let headed = 0, fenced = 0;
+  for (let n = 0; n < 20000; n++) {
+    let md = ''; const len = 1 + rnd(40);
+    for (let i = 0; i < len; i++) md += TOKENS[rnd(TOKENS.length)];
+    same(md, 'random text ' + n + ' ' + JSON.stringify(md));
+    if (ref10Headings(md).length) headed++;
+    if (ref10Prose(md).length < K15.norm(md).split('\n').length) fenced++;
+  }
+  assert.ok(headed > 4000 && fenced > 4000, 'set-up: the corpus has headings (' + headed + ') and fences (' + fenced + ')');
 });
 /* Citation forms: what cites() reads from a text that names the guide. */
 const P15 = '`.flightdeck/skills/_flightdeck/command-guide.md` (*the command guide*)';

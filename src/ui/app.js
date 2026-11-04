@@ -972,7 +972,7 @@
       keys.forEach(function (k) {
         var list = out.staged[k] || [], has = Object.prototype.hasOwnProperty.call(raws, k), active = has && raws[k] != null ? raws[k] : has ? { hash: null } : null;
         var said = C.classifyCopies({ key: k, shipped: EXAMPLES[k], version: APP_VERSION, base: (C.BASELINES && C.BASELINES.files) || {}, active: active, copies: list });
-        list.forEach(function (x, i) { x.old = said[i] === 'old'; delete x.print; });
+        list.forEach(function (x, i) { x.old = said[i] === 'old'; x.shape = x.print.shape; delete x.print; });
       });
       /* A file that's there but couldn't be read isn't a missing file. */
       out.unread = (scan.unreadable || []).map(function (u) { return u.path; }).filter(function (p, i, all) {
@@ -1305,7 +1305,8 @@
           items.forEach(function (it) {
             var all = it.staged, active = it.now == null ? null : it.raw != null ? it.raw : { hash: null };
             var said = C.classifyCopies({ key: it.key, baseKey: it.baseKey, shipped: it.text, version: APP_VERSION, base: (C.BASELINES && C.BASELINES.files) || {}, active: active, copies: all.map(function (x) { return { version: x.version, text: x.raw }; }) });
-            all.forEach(function (x) { delete x.raw; });
+            /* Its shape, for the content rule's untouched (PF.contract.hold): only untouched shipped copies may be deleted unmerged. */
+            all.forEach(function (x) { x.shape = typeof x.raw === 'string' ? C.shapeOf(it.key, x.raw) : null; delete x.raw; });
             delete it.raw;
             it.old = all.filter(function (x, i) { return said[i] === 'old'; });
             it.staged = all.filter(function (x, i) { return said[i] !== 'old'; });
@@ -1392,9 +1393,15 @@
         if (!alive()) throw stop();
         if (blocked) { f.blocked = blocked; return null; }
         /* The merge list as it was before anything is written: the only text it may replace. */
-        var staging = l.items.some(function (i) { return i.status === 'merge'; });
-        return (staging ? fs.read(readmeAt, { maxBytes: AF_MAX }).then(function (r) { readme = r ? r.text : null; }) : Promise.resolve()).then(function () { return l.items.reduce(function (q, it) {
+        /* As the command: AGENTS.md from update goes last, and is written only if the files it cites have what it points to then. */
+        var agent = l.items.filter(function (i) { return i.key === C.AGENTS && i.status === 'update'; })[0];
+        var order = agent ? l.items.filter(function (i) { return i !== agent; }).concat(agent) : l.items;
+        var staging = !!agent || l.items.some(function (i) { return i.status === 'merge'; });
+        return (staging ? fs.read(readmeAt, { maxBytes: AF_MAX }).then(function (r) { readme = r ? r.text : null; }) : Promise.resolve()).then(function () { return order.reduce(function (q, it) {
           return q.then(function () {
+            if (!alive()) throw stop();
+            return it === agent ? afHoldAfter(l.items, fs) : null;
+          }).then(function () {
             if (!alive()) throw stop();
             if (['update', 'new', 'missing'].indexOf(it.status) >= 0) {
               var out = C.merged(it.key, it.now, it.text);
@@ -1422,6 +1429,16 @@
       if (e && e.stale || !alive()) return;
       f.error = { why: e && e.message || String(e), denied: !!(e && e.name === 'NotAllowedError') };
       return afFinish(af, tg, f);
+    });
+  }
+  /* PF.contract.holdAfter, from the text there now of each file whose write was refused: AGENTS.md is held after all when one it
+     cites lacks what it points to. A file that can't be read counts as not there, so AGENTS.md waits. */
+  function afHoldAfter(items, fs) {
+    var C = PF.contract, nowOf = {}, changed = items.filter(function (i) { return i.changed; });
+    if (!changed.length) return Promise.resolve();
+    return Promise.all(changed.map(function (i) { return fs.read(i.rel, { maxBytes: AF_MAX }).then(function (r) { nowOf[i.key] = r ? r.text : null; }, function () { nowOf[i.key] = null; }); })).then(function () {
+      var late = C.holdAfter(items, items, nowOf), a = items.filter(function (i) { return i.key === C.AGENTS; })[0];
+      if (late) { a.status = 'merge'; a.waiting = ''; a.stage = true; a.heldFrom = 'update'; a.held = late.held; }
     });
   }
   /* The result is drawn in Settings. That says nothing to someone on another screen, or under a dialog, where the page behind

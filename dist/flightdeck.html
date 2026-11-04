@@ -11198,35 +11198,55 @@ PF.contract = (function () {
      The command guide, the checklist essentials and the file formats say how; AGENTS.md says what may be done and cites their
      sections. An update of AGENTS.md waits while a file it would cite lacks a cited section its own default has. */
   var REFS = '.flightdeck/skills/_flightdeck/';
+  /* A team writes these files, so they are read by a hand-written scan, one character at a time and never back: a line costs its
+     length. (Round 11: a regular expression with a quantified run, like the fence reader's before it, can cost a long line's
+     square when it fails.) Both readers agree with the CommonMark subset stated below, and the regular expressions they replaced
+     (test/assistant-start.test.js holds those as the reference and compares the two). */
+  /* Where a line's text starts after up to 3 spaces, or -1 when it has 4 or more (indented code). */
+  function indent(l) { var i = 0; while (i < 4 && i < l.length && l.charCodeAt(i) === 32) i++; return i > 3 ? -1 : i; }
+  /* Whether a line holds U+2028 or U+2029 from index i on. Those end a line for a regular expression's `.`, and norm() has
+     already made every carriage return a line break, so such a line is never a fence or a heading, as before. */
+  function separated(l, i) { for (; i < l.length; i++) { var c = l.charCodeAt(i); if (c === 0x2028 || c === 0x2029) return true; } return false; }
+  /* Only spaces or tabs from index i on. */
+  function blank(l, i) { for (; i < l.length; i++) { var c = l.charAt(i); if (c !== ' ' && c !== '\t') return false; } return true; }
+  /* A fence line: up to 3 spaces, then a run of 3 or more ` or ~. { ch, n (the run's length), end (the index after it) }, or null. */
+  function fenceOf(l) {
+    var i = indent(l), c = i < 0 ? '' : l.charAt(i), j = i;
+    if (c !== '`' && c !== '~') return null;
+    while (j < l.length && l.charAt(j) === c) j++;
+    return j - i < 3 || separated(l, j) ? null : { ch: c, n: j - i, end: j };
+  }
   /* The lines of a Markdown text outside fenced code, after norm() (no byte-order mark, no Windows line endings). A fence opens
      on a line of 3 or more ` or ~ (up to 3 spaces in; a ` fence's info string has no `), and closes only on a line of the same
      character, at least as long, with nothing after it but spaces or tabs. An unclosed fence runs to the end. */
   function prose(md) {
     var out = [], fence = null;
     norm(md).split('\n').forEach(function (l) {
-      var f = /^ {0,3}(`{3,}|~{3,})(.*)$/.exec(l);
-      if (fence) { if (f && f[1].charAt(0) === fence.charAt(0) && f[1].length >= fence.length && /^[ \t]*$/.test(f[2])) fence = null; return; }
-      if (f && !(f[1].charAt(0) === '`' && f[2].indexOf('`') >= 0)) { fence = f[1]; return; }
+      var f = fenceOf(l);
+      if (fence) { if (f && f.ch === fence.ch && f.n >= fence.n && blank(l, f.end)) fence = null; return; }
+      if (f && !(f.ch === '`' && l.indexOf('`', f.end) >= 0)) { fence = f; return; }
       out.push(l);
     });
     return out;
   }
   /* The ATX headings outside fenced code: up to 3 spaces, 1-6 #s, then a space, a tab or the line's end; the text is trimmed,
      and a closing run of #s after a space or tab is dropped. Not read: setext headings (a line underlined with = or -), and
-     headings inside block quotes, list items or HTML comments. Letter case counts. A team writes these files, so the text is
-     read by a scan from each end: a long line costs its length, where a regular expression that backtracks costs its square. */
+     headings inside block quotes or list items. A heading inside an HTML comment (<!-- ... -->) is read like any other: the
+     reader doesn't look for comments, so commenting a section out doesn't hide it. Letter case counts. */
   function headings(md) {
     var out = [], gap = function (c) { return c === ' ' || c === '\t'; };
     prose(md).forEach(function (l) {
-      var m = /^ {0,3}(#{1,6})(?=[ \t]|$)/.exec(l);
-      /* Any other line terminator (U+2028, U+2029) on the line: not a heading, as before. */
-      if (!m || /[\u2028\u2029]/.test(l)) return;
-      var i = m[0].length, j = l.length, k;
+      var s = indent(l), e = s, k;
+      if (s < 0) return;
+      while (e < l.length && e - s < 7 && l.charAt(e) === '#') e++;
+      var depth = e - s;
+      if (depth < 1 || depth > 6 || (e < l.length && !gap(l.charAt(e))) || separated(l, 0)) return;
+      var i = e, j = l.length;
       while (i < j && gap(l.charAt(i))) i++;
       while (j > i && gap(l.charAt(j - 1))) j--;
       for (k = j; k > i && l.charAt(k - 1) === '#'; k--);
       if (k < j && (k === i || gap(l.charAt(k - 1)))) for (j = k; j > i && gap(l.charAt(j - 1)); j--);
-      out.push({ depth: m[1].length, text: l.slice(i, j).trim() });
+      out.push({ depth: depth, text: l.slice(i, j).trim() });
     });
     return out;
   }
@@ -11260,7 +11280,7 @@ PF.contract = (function () {
      (a section no default has can't come from a merge, so it never counts); a kept one is staged again (restaged). AGENTS.md
      is held only from update, while any cited file lacks: merge, staged, with heldFrom and held. New, missing and forced
      AGENTS.md are always written. base (the baselines), for words only: an AGENTS.md at merge only because its own new default
-     waits (its live part is a shipped default) gets onlyCopy, and waitsFor lists what its new default would still wait for.
+     waits (its live part is a shipped default, and every waiting copy an untouched shipped default: untouched) gets onlyCopy, and waitsFor lists what its new default would still wait for.
      No status changes for that. */
   function hold(st, items, base) {
     var n = -1;
@@ -11278,7 +11298,7 @@ PF.contract = (function () {
       waits.push({ path: x.key, lacks: miss });
     });
     if (waits.length && a.status === 'update') { a.status = 'merge'; a.waiting = ''; a.stage = true; a.heldFrom = 'update'; a.held = waits; }
-    if (base && a.status === 'merge' && a.waiting && items[n].have !== items[n].want && own(base[baselineKey(AGENTS)] || {}, items[n].have)) {
+    if (base && a.status === 'merge' && a.waiting && items[n].have !== items[n].want && own(base[baselineKey(AGENTS)] || {}, items[n].have) && untouched(items[n], base)) {
       var next = cites(region(items[n].text).text).cites;
       a.onlyCopy = true; a.waitsFor = [];
       st.forEach(function (x, i) {
@@ -11287,6 +11307,33 @@ PF.contract = (function () {
       });
     }
     return st;
+  }
+  /* AGENTS.md from update is written after the files it cites, and only if they have what it points to then (round 11). A cited
+     file whose write was refused (changed: someone else wrote it after the folder was read) keeps the text there now, nowOf[key]
+     (null when it isn't there or can't be read); when that lacks a cited section its own default has, AGENTS.md waits after all.
+     Returns { held } to stage it with, as hold's, or null when it goes ahead. st and items as for hold; st carries changed. */
+  function holdAfter(st, items, nowOf) {
+    var n = -1, waits = [];
+    items.forEach(function (it, i) { if (it.key === AGENTS) n = i; });
+    if (n < 0 || st[n].status !== 'update') return null;
+    var need = cites(region(items[n].text).text).cites;
+    st.forEach(function (x, i) {
+      var want = need[x.key];
+      if (!want || !x.changed) return;
+      var def = items[i].text == null ? {} : setOf(sections(items[i].text)), now = nowOf && own(nowOf, x.key) ? nowOf[x.key] : null;
+      var miss = lacks(now, want).filter(function (s) { return !!def[s]; });
+      if (miss.length) waits.push({ path: x.key, lacks: miss });
+    });
+    return waits.length ? { held: waits } : null;
+  }
+  /* Every copy of AGENTS.md waiting to be merged is a default Flightdeck shipped, untouched (round 11): its Flightdeck part's hash
+     is in the baselines and its shape (shapeOf: everything outside the markers, Team notes included) is this version's default's.
+     Only then may the words say to delete the copies instead of merging them. A team's edit in a copy, inside the markers or
+     under Team notes, makes it a merge that keeps the edit; a copy with no print (not read, not UTF-8) proves nothing. it.staged:
+     [{ hash, shape }], as copyPrint gives them. */
+  function untouched(it, base) {
+    var b = base[baselineKey(AGENTS)] || {}, shape = shapeOf(AGENTS, it.text), st = it.staged || [];
+    return st.length > 0 && st.every(function (x) { return !!x && typeof x.hash === 'string' && own(b, x.hash) && typeof x.shape === 'string' && x.shape === shape; });
   }
   /* Pointers no merge can satisfy: the live AGENTS.md (Flightdeck's part) cites a section that the file and its own default both
      lack. items as for hold: { key, text (this version's default), now (the live text, or null) }. Folder health shows each as
@@ -11517,7 +11564,7 @@ PF.contract = (function () {
   /* Something in the way of where a file goes. The same words as the command's. */
   function blockedWhy(path, want) { return path + (want === 'file' ? ' is a folder, where Flightdeck needs a file.' : ' is a file, where Flightdeck needs a folder.') + ' Nothing was changed. Move it, then try again.'; }
 
-  return { START_PROMPT: START_PROMPT, OUTCOMES: OUTCOMES, settle: settle, outcomeWords: outcomeWords, MAX_BYTES: MAX_BYTES, cleanInstalled: cleanInstalled, readRecord: readRecord, newerWhy: newerWhy, recordNewer: recordNewer, RELEASE: RELEASE, shapeOf: shapeOf, copyPrint: copyPrint, classifyCopies: classifyCopies, classify: classify, REFS: REFS, prose: prose, headings: headings, sections: sections, cites: cites, lacks: lacks, liveCites: liveCites, hold: hold, pointers: pointers, merged: merged, nextRecord: nextRecord, mergeReadme: mergeReadme, mergePrompt: mergePrompt, byVersion: byVersion, VERSION_DIR: VERSION_DIR,
+  return { START_PROMPT: START_PROMPT, OUTCOMES: OUTCOMES, settle: settle, outcomeWords: outcomeWords, MAX_BYTES: MAX_BYTES, cleanInstalled: cleanInstalled, readRecord: readRecord, newerWhy: newerWhy, recordNewer: recordNewer, RELEASE: RELEASE, shapeOf: shapeOf, copyPrint: copyPrint, classifyCopies: classifyCopies, classify: classify, REFS: REFS, prose: prose, headings: headings, sections: sections, cites: cites, lacks: lacks, liveCites: liveCites, hold: hold, holdAfter: holdAfter, pointers: pointers, merged: merged, nextRecord: nextRecord, mergeReadme: mergeReadme, mergePrompt: mergePrompt, byVersion: byVersion, VERSION_DIR: VERSION_DIR,
     BEGIN: BEGIN, END: END, AGENTS: AGENTS, BASELINES: BASELINES, norm: norm, region: region, managed: managed, baselineKey: baselineKey, hex: hex, installed: installed };
 })();
 
@@ -27513,7 +27560,7 @@ PF.examples = (function () {
       keys.forEach(function (k) {
         var list = out.staged[k] || [], has = Object.prototype.hasOwnProperty.call(raws, k), active = has && raws[k] != null ? raws[k] : has ? { hash: null } : null;
         var said = C.classifyCopies({ key: k, shipped: EXAMPLES[k], version: APP_VERSION, base: (C.BASELINES && C.BASELINES.files) || {}, active: active, copies: list });
-        list.forEach(function (x, i) { x.old = said[i] === 'old'; delete x.print; });
+        list.forEach(function (x, i) { x.old = said[i] === 'old'; x.shape = x.print.shape; delete x.print; });
       });
       /* A file that's there but couldn't be read isn't a missing file. */
       out.unread = (scan.unreadable || []).map(function (u) { return u.path; }).filter(function (p, i, all) {
@@ -27846,7 +27893,8 @@ PF.examples = (function () {
           items.forEach(function (it) {
             var all = it.staged, active = it.now == null ? null : it.raw != null ? it.raw : { hash: null };
             var said = C.classifyCopies({ key: it.key, baseKey: it.baseKey, shipped: it.text, version: APP_VERSION, base: (C.BASELINES && C.BASELINES.files) || {}, active: active, copies: all.map(function (x) { return { version: x.version, text: x.raw }; }) });
-            all.forEach(function (x) { delete x.raw; });
+            /* Its shape, for the content rule's untouched (PF.contract.hold): only untouched shipped copies may be deleted unmerged. */
+            all.forEach(function (x) { x.shape = typeof x.raw === 'string' ? C.shapeOf(it.key, x.raw) : null; delete x.raw; });
             delete it.raw;
             it.old = all.filter(function (x, i) { return said[i] === 'old'; });
             it.staged = all.filter(function (x, i) { return said[i] !== 'old'; });
@@ -27933,9 +27981,15 @@ PF.examples = (function () {
         if (!alive()) throw stop();
         if (blocked) { f.blocked = blocked; return null; }
         /* The merge list as it was before anything is written: the only text it may replace. */
-        var staging = l.items.some(function (i) { return i.status === 'merge'; });
-        return (staging ? fs.read(readmeAt, { maxBytes: AF_MAX }).then(function (r) { readme = r ? r.text : null; }) : Promise.resolve()).then(function () { return l.items.reduce(function (q, it) {
+        /* As the command: AGENTS.md from update goes last, and is written only if the files it cites have what it points to then. */
+        var agent = l.items.filter(function (i) { return i.key === C.AGENTS && i.status === 'update'; })[0];
+        var order = agent ? l.items.filter(function (i) { return i !== agent; }).concat(agent) : l.items;
+        var staging = !!agent || l.items.some(function (i) { return i.status === 'merge'; });
+        return (staging ? fs.read(readmeAt, { maxBytes: AF_MAX }).then(function (r) { readme = r ? r.text : null; }) : Promise.resolve()).then(function () { return order.reduce(function (q, it) {
           return q.then(function () {
+            if (!alive()) throw stop();
+            return it === agent ? afHoldAfter(l.items, fs) : null;
+          }).then(function () {
             if (!alive()) throw stop();
             if (['update', 'new', 'missing'].indexOf(it.status) >= 0) {
               var out = C.merged(it.key, it.now, it.text);
@@ -27963,6 +28017,16 @@ PF.examples = (function () {
       if (e && e.stale || !alive()) return;
       f.error = { why: e && e.message || String(e), denied: !!(e && e.name === 'NotAllowedError') };
       return afFinish(af, tg, f);
+    });
+  }
+  /* PF.contract.holdAfter, from the text there now of each file whose write was refused: AGENTS.md is held after all when one it
+     cites lacks what it points to. A file that can't be read counts as not there, so AGENTS.md waits. */
+  function afHoldAfter(items, fs) {
+    var C = PF.contract, nowOf = {}, changed = items.filter(function (i) { return i.changed; });
+    if (!changed.length) return Promise.resolve();
+    return Promise.all(changed.map(function (i) { return fs.read(i.rel, { maxBytes: AF_MAX }).then(function (r) { nowOf[i.key] = r ? r.text : null; }, function () { nowOf[i.key] = null; }); })).then(function () {
+      var late = C.holdAfter(items, items, nowOf), a = items.filter(function (i) { return i.key === C.AGENTS; })[0];
+      if (late) { a.status = 'merge'; a.waiting = ''; a.stage = true; a.heldFrom = 'update'; a.held = late.held; }
     });
   }
   /* The result is drawn in Settings. That says nothing to someone on another screen, or under a dialog, where the page behind

@@ -201,7 +201,7 @@ function classify(t, files, base, force) {
   const decided = decide(items.map((i) => ({ key: i.key, baseKey: i.baseKey, want: i.want, have: i.have, staged: i.staged.map((x) => ({ version: x.version, hash: hash(managed(i.key, x.text)) })) })), t.record, base, t.version, force);
   /* The content rule (PF.contract.hold, the app's own): AGENTS.md waits while a file it would cite lacks a cited section. Copied
      out of the engine's context, so it compares as plain objects here. */
-  const why = JSON.parse(JSON.stringify(K.hold(decided, items.map((i) => ({ key: i.key, text: i.text, now: i.now, have: i.have, want: i.want })), base)));
+  const why = JSON.parse(JSON.stringify(K.hold(decided, items.map((i) => ({ key: i.key, text: i.text, now: i.now, have: i.have, want: i.want, staged: i.staged.map((x) => K.copyPrint(i.key, x.text)) })), base)));
   return items.map((i, n) => Object.assign(i, why[n], { key: i.key }));
 }
 /* The decision alone, from hashes: the same as PF.contract.classify (test/assistant-files.test.js checks they agree), plus
@@ -326,13 +326,23 @@ function contract(t, files, opts) {
   if (!opts.check || opts.room) { roomFor(t, items); destinationsClear(t, items, opts.more); }
   if (opts.check) return items;
   /* The merge list as it was before anything is written: the only text it may replace. */
-  const readmeAt = t.updates.concat(t.version, 'README.md'), readmeWas = items.some((i) => i.status === 'merge') ? readInside(t.dir, readmeAt) : null;
-  for (const i of items) {
+  /* AGENTS.md from update goes last: it is written only if the files it cites have what it points to after their own writes, and
+     otherwise staged, as a held one (PF.contract.holdAfter, round 11). */
+  const agent = items.find((i) => i.key === AGENTS && i.status === 'update');
+  const readmeAt = t.updates.concat(t.version, 'README.md'), readmeWas = agent || items.some((i) => i.status === 'merge') ? readInside(t.dir, readmeAt) : null;
+  for (const i of agent ? items.filter((x) => x !== agent).concat(agent) : items) {
+    if (i === agent && items.some((x) => x.changed)) {
+      const nowOf = {};
+      items.forEach((x) => { if (x.changed) nowOf[x.key] = readInside(t.dir, x.parts); });
+      const late = JSON.parse(JSON.stringify(contractRules().holdAfter(items, items, nowOf)));
+      if (late) Object.assign(i, { status: 'merge', waiting: '', stage: true, heldFrom: 'update', held: late.held });
+    }
     if (['current', 'kept'].includes(i.status) || (i.status === 'merge' && i.waiting && !i.stage)) {
       if (opts.force) i.staged.forEach((x) => fileAway(t, x));
       continue;
     }
     try {
+      hook('contractWrite', t.dir, i.rel);
       if (i.status === 'merge') { safeWrite(t.dir, t.updates.concat(t.version, i.rel.split('/')), i.text, null); continue; }
       const out = merged(i);
       if (i.now !== null && i.now !== out) keepCopy(t, i.parts, i.now);

@@ -933,7 +933,7 @@ for (const name of Object.keys(ASYNC_PATHS)) for (const change of ['folder', 'ta
 }
 
 /* A function in this feature that waits on something, and how it's bound. A new one fails until it's listed here. */
-const AF_ASYNC = { afFinish: 'guard', afKeepFocus: 'moves focus only, and only if it is lost; no state', afPerm: 'a question, no state', afIsTeam: 'a question, no state', afUse: 'turn', afRead: 'reads only, for a caller that checks', afLoad: 'guard', afUpdate: 'guard', afMerged: 'guard', afPick: 'chooses', afRemembered: 'chooses', afAllow: 'chooses', afZip: 'guard' };
+const AF_ASYNC = { afFinish: 'guard', afKeepFocus: 'moves focus only, and only if it is lost; no state', afPerm: 'a question, no state', afIsTeam: 'a question, no state', afUse: 'turn', afRead: 'reads only, for a caller that checks', afHoldAfter: 'reads, then marks the caller\'s own items; afUpdate checks alive() after it', afLoad: 'guard', afUpdate: 'guard', afMerged: 'guard', afPick: 'chooses', afRemembered: 'chooses', afAllow: 'chooses', afZip: 'guard' };
 const AF_ACTS = ['ai-files', 'af-load', 'af-where', 'af-pick', 'af-allow', 'af-update', 'af-merged', 'af-peek', 'af-copy', 'af-brief', 'af-start', 'af-zip'];
 function afAudit(src) {
   const out = [], a = src.indexOf('Settings, AI assistant files: flightdeck install'), b = src.indexOf('Getting started (views/setup.js', a), body = src.slice(a, b), fns = {};
