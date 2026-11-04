@@ -12,7 +12,7 @@ Flightdeck is a checklist tool for people: a monthly backup check, a quarterly a
 | **Ask for a run**: a planned run that a person reviews and starts in the app ([Asking for a run](#asking-for-a-run)) | `flightdeck plan request` | 1.20 | Writes one file in `proposals/` |
 | **Report** the work it did on a step: a person accepts it (the step is checked with its evidence) or declines it ([Reporting work](#reporting-work)) | `flightdeck report` | 2.0 | Writes one file in `reports/` |
 | **Read and save drafts** of checklists (AI assistants; contract `flightdeck-draft/1`, [at the end of this page](#writing-drafts-for-ai-assistants)) | `flightdeck draft` | 1.19 | Writes the draft or a proposal |
-| **Check a draft** as Review & publish does ([draft check](#draft-check)) | `flightdeck draft check` | 2.13 | Never |
+| **Check a draft** as the Publish dialog does ([draft check](#draft-check)) | `flightdeck draft check` | 2.13 | Never |
 | **Register a skill** against the exact version it was built from (AI assistants, [Registering a skill](#registering-a-skill-for-ai-assistants)) | `flightdeck skill register` | 2.0 | Writes one file in `skill-registrations/`, and may turn `skills/<name>.json` into a pointer |
 | **Make an evidence pack** of one run, or of the runs started on some days ([Evidence packs](evidence.md)) | `flightdeck export` | 1.17 | Never: the pack goes outside the folder |
 
@@ -435,7 +435,7 @@ Prints `{ contract, app, process, session, draft, openIn, mine, continueFrom, ch
 | `openIn` | Editors this computer can see right now with the draft open: `{ by, device, seenAgo }` (`by` a people.json ID, `device` the computer and browser, `seenAgo` milliseconds since its last sign of life) |
 | `mine` | This session's proposals for the process: `{ id, rev, status, text }`. `status` is `pending`, `replaced`, `invalid`, or what happened to it (`applied`, `applied-twice`, `declined`, `reopened`, `tried`, `maybe`, `decided-twice`, `unknown`) |
 | `continueFrom` | The text to change next: `{ rev, kind, ref, text }`. Your newest pending proposal (`kind` `proposal`, `ref` its ID), else the draft (`draft`), else with `--or-latest` and no draft the latest published version (`version`, `ref` its folder), else nothing (`none`, empty text) |
-| `checks` | `blockers` and `suggestions` for `continueFrom.text`, as the editor's Checks and Review & publish show them: checked against what the app loads (people, step types, Jira workflows, every published version, the team values the text names), as `draft check` does. A part that couldn't be read is named in `problems` and left unchecked, never turned into a finding. |
+| `checks` | `blockers` and `suggestions` for `continueFrom.text`, as the editor's Checks and the Publish dialog show them: checked against what the app loads (people, step types, Jira workflows, every published version, the team values the text names), as `draft check` does. A part that couldn't be read is named in `problems` and left unchecked, never turned into a finding. |
 | `copies` | Other files in `maps/drafts/` whose `process:` says this process (OneDrive copies, for example) |
 | `readAt` | When it read the folder |
 | `complete`, `problems` | As for the reading commands: a proposal that can't be read yet (`malformed`), a file too big or that couldn't be read. `complete` is `false` and the exit code is 4 when `problems` has anything. |
@@ -444,7 +444,7 @@ Exit codes: `0` complete, `4` partial, `1` usage or error, `5` the process has n
 
 ### draft check
 
-`flightdeck draft check <team folder> <process> [--from <file|->] --json` (2.13) gives the verdict Review & publish gives for the draft in `maps/drafts/<process>.md`, or for the text in `--from` (at most 1 MB of UTF-8, its `process:` line saying the process). It only reads, and prints contract `flightdeck-read/2`: the envelope above, with `data`:
+`flightdeck draft check <team folder> <process> [--from <file|->] --json` (2.13) gives the verdict the Publish dialog gives for the draft in `maps/drafts/<process>.md`, or for the text in `--from` (at most 1 MB of UTF-8, its `process:` line saying the process). It only reads, and prints contract `flightdeck-read/2`: the envelope above, with `data`:
 
 | Field | Means |
 |---|---|
