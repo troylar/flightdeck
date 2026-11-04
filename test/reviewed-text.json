@@ -1,5 +1,13 @@
 {
   "texts": {
+    "README.md": {
+      "sha256": "f9cbc5bcef0e60a11025c3a40d10f1443835a5cae66e4b22baea8bb2d7c4ffa8",
+      "reviewed": "Pinned in round 17 at 6837a9b (unchanged since f2888f5), reviewed: passed the delete guard; check g's reader flags 7 sentences here, each read by hand: what a command or install writes, never a direct write for an assistant."
+    },
+    "bin/flightdeck.js": {
+      "sha256": "9b2d35f2b63a784cdd5961346723f5cf7a964acd6a6af22a42608919d83aebec",
+      "reviewed": "Pinned whole in round 17, reviewed: the hold messages (AGENTS.md waits / will wait, and a reference lacking sections) now name each file's missing sections, as Folder health and the merge README do. DELETE_COPY and every other delete say only if nobody changed the copies (passes the delete guard); no direct write told to an assistant."
+    },
     "docs/apps.md": {
       "sha256": "450eb210e245308606346001e84c2a4c1cbe64a943cc314d54e1e424b2ba2374",
       "reviewed": "Seeded at f2888f5 and reviewed: passed the delete guard as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 21 sentences here, each read by hand: a rule, a prohibition or a description of what a command writes, never a direct write for an assistant."
@@ -107,6 +115,14 @@
     "rendered: the merge prompt": {
       "sha256": "b45a42ad2d6c357abc5557d85096553bf56b69910afb197ecec8f353ff62aec8",
       "reviewed": "Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
+    },
+    "src/core/contract.js": {
+      "sha256": "06284b28d1dcb34b3283cb6280196663a2aa64eb31615aacbabe4b32683d0d76",
+      "reviewed": "Pinned whole in round 17 at 6837a9b (unchanged since f2888f5), reviewed: the merge README in every branch (held, only copy, waiting, reference items, noHistory, re-staged, several references), the merge prompt, the hold and wait messages and START_PROMPT. Every delete says only if nobody changed the copy (passes the delete guard); no direct write to a protected path told to an assistant."
+    },
+    "src/core/health.js": {
+      "sha256": "7783e15071681f914234b9ee4ee37c3b41bf79686a33f571d2a4c610c69d3eb3",
+      "reviewed": "Pinned whole in round 17 at 6837a9b (unchanged since f2888f5), reviewed: the Folder health hold, wait and merge messages and the merge request; every delete says only if nobody changed it or once it is merged (passes the delete guard); no direct write told to an assistant."
     },
     "src/releases.json#1.0.0": {
       "sha256": "58db27e84c0a948982da3e577af381f9ff0bcf854ef7e78a85c88ecc8f990837",
@@ -315,6 +331,10 @@
     "src/releases.json#2.9.0": {
       "sha256": "611dad89af840a944052c1659bdf9715734398f73d2f6168f81b287f2e12b587",
       "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/ui/views/manage.js": {
+      "sha256": "78b7288d7046c50a36f09a936329bac62b7b29812293b0ab0fed91f10bd175e3",
+      "reviewed": "Pinned whole in round 17 at 6837a9b (unchanged since f2888f5), reviewed: Settings, AI assistant files (status words, old-copy text, Copy merge request, I merged it); no delete or direct-write instruction of its own."
     }
   }
 }

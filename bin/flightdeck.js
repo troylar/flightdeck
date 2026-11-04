@@ -426,6 +426,8 @@ function report(items, check, out) {
    sentence says it all. */
 const DELETE_COPY = 'delete AGENTS.md from each version folder in `.flightdeck/updates/` (`.flightdeck/updates/<version>/AGENTS.md`, never anything under `replaced/`) only if nobody changed those copies (merge one someone did)';
 const sectionWord = (xs) => (xs.length === 1 ? 'section' : 'sections');
+/* The missing section names, as Folder health and the merge README give them. */
+const italics = (xs) => xs.map((x) => '*' + x + '*').join(', ');
 /* The first sentence, or null when the content rule isn't at work. future: install --check's words, before anything is written. */
 function mergeWhy(items, mine, future) {
   const a = items.find((i) => i.key === AGENTS), merges = items.filter((i) => i.status === 'merge');
@@ -433,13 +435,13 @@ function mergeWhy(items, mine, future) {
   const folders = (list) => list.reduce((acc, i) => acc.concat(staged(i) ? [mine] : i.waiting.split(', ')), []).filter((v, n, all) => all.indexOf(v) === n).sort(byVersion).map((v) => '.flightdeck/updates/' + v);
   const inline = (list) => folders(list).map((f) => '`' + f + '`').join(' and ');
   const waits = a && (a.heldFrom ? a.held : a.onlyCopy && a.waitsFor && a.waitsFor.length ? a.waitsFor : null), wait = future ? 'AGENTS.md will wait: ' : 'AGENTS.md waits: ';
-  if (waits) return { text: waits.length === 1 ? wait + '`' + waits[0].path + '` doesn\'t have the ' + sectionWord(waits[0].lacks) + ' it points to.' : wait + 'these files don\'t have the sections it points to: ' + waits.map((x) => '`' + x.path + '`').join(', ') + '.' };
+  if (waits) return { text: waits.length === 1 ? wait + '`' + waits[0].path + '` doesn\'t have the ' + sectionWord(waits[0].lacks) + ' it points to: ' + italics(waits[0].lacks) + '.' : wait + 'these files don\'t have the sections it points to: ' + waits.map((x) => '`' + x.path + '` (' + italics(x.lacks) + ')').join(', ') + '.' };
   if (a && a.onlyCopy) return { all: merges.length === 1, text: future ? 'AGENTS.md only needs its copy deleted: your team didn\'t change AGENTS.md, so ' + DELETE_COPY + ' and run install.'
     : 'AGENTS.md\'s new default is waiting in ' + inline([a]) + '; your team didn\'t change AGENTS.md, so ' + DELETE_COPY + ' and run install again.' };
   if (merges.length && merges.every((i) => i.lacks)) {
     const at = future ? ' will wait in ' : ' is waiting in ', ats = future ? ' will wait in ' : ' are waiting in ';
-    return { named: folders(merges).length, n: merges.length, text: merges.length === 1 ? '`' + merges[0].rel + '` doesn\'t have the ' + sectionWord(merges[0].lacks) + ' AGENTS.md points to; its new default' + at + inline(merges) + ' to be merged.'
-      : 'These files don\'t have the sections AGENTS.md points to: ' + merges.map((i) => '`' + i.rel + '`').join(', ') + '; their new defaults' + ats + inline(merges) + ' to be merged.' };
+    return { named: folders(merges).length, n: merges.length, text: merges.length === 1 ? '`' + merges[0].rel + '` doesn\'t have the ' + sectionWord(merges[0].lacks) + ' AGENTS.md points to: ' + italics(merges[0].lacks) + '; its new default' + at + inline(merges) + ' to be merged.'
+      : 'These files don\'t have the sections AGENTS.md points to: ' + merges.map((i) => '`' + i.rel + '` (' + italics(i.lacks) + ')').join(', ') + '; their new defaults' + ats + inline(merges) + ' to be merged.' };
   }
   return null;
 }

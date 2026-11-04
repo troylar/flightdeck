@@ -259,6 +259,19 @@ rule('Round 16: the reviewed-text snapshot: every shipped instruction text match
   const bare = JSON.parse(JSON.stringify(snap)); bare.texts['docs/updating.md'].reviewed = '';
   assert.ok(RT.problems(texts, bare).some((x) => /docs\/updating\.md/.test(x) && /reviewed/.test(x)), 'an entry needs its review note');
 });
+rule('Round 17: the snapshot pins whole the sources that word instructions (merge, hold, delete, the start prompt) and the package README, so no unrendered branch escapes', () => {
+  const RT = require('./reviewed-text'), texts = RT.texts(), snap = RT.snapshot();
+  ['src/core/contract.js', 'bin/flightdeck.js', 'src/core/health.js', 'src/ui/views/manage.js', 'README.md'].forEach((f) => assert.ok(texts[f] != null && snap.texts[f], 'pinned: ' + f));
+  /* Found by their strings, so a new file that words an instruction must be pinned too. */
+  assert.deepStrictEqual(RT.instructionSources().filter((f) => !(f in texts)), [], 'every source with instruction wording is pinned');
+  const mutate = (f, a, b) => { assert.ok(texts[f].indexOf(a) >= 0, 'set-up: ' + f + ' has ' + a.slice(0, 50)); const t = Object.assign({}, texts); t[f] = texts[f].replace(a, b); const got = RT.problems(t, snap); assert.ok(got.length === 1 && got[0].indexOf(f) >= 0, f + ': ' + got.join(' | ')); };
+  /* The two reviewers' in-memory changes: the reference item's replace advice, and the noHistory branch's delete. */
+  mutate('src/core/contract.js', 'in from this folder\\\'s new default, or, if', 'in by replacing your file with this folder\\\'s new default, or, if');
+  mutate('src/core/contract.js', "', or, if it is your team\\'s own file, move it out of `_flightdeck/`", "', or delete the live file if it is your team\\'s own file");
+  mutate('README.md', 'Flightdeck', 'Flightdeck (replace your AGENTS.md with the new default)');
+  mutate('bin/flightdeck.js', 'only if nobody changed those copies', 'once you have read them');
+  mutate('src/core/health.js', 'Delete AGENTS.md from each version folder there', 'Delete the updates folder');
+});
 rule('The README\'s manual download is the release being shipped, so it can\'t go stale', () => {
   const version = JSON.parse(read('src/releases.json'))[0].version;
   const links = read('README.md').match(/@troylar\/flightdeck@\d+\.\d+\.\d+\/dist\/flightdeck\.html/g) || [];

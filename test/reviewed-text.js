@@ -1,7 +1,8 @@
 'use strict';
 /* The reviewed-text snapshot: the guarantee that no shipped instruction text changes unreviewed. Every text an assistant or
-   a person follows (the installed AGENTS.md, every file of the skills pack, docs/*.md, the merge README and prompt as
-   Flightdeck renders them, and each release's notes in src/releases.json) has the SHA-256 of its normalized content in
+   a person follows (the installed AGENTS.md, every file of the skills pack, docs/*.md and the package README.md, the merge
+   README and prompt as Flightdeck renders them, each release's notes in src/releases.json, and, whole, every source file
+   that words an instruction) has the SHA-256 of its normalized content in
    test/reviewed-text.json, with a note on what changed and that it was checked for direct writes and unconditional
    deletes. A changed, new or removed text fails until its entry is updated, so every wording change is a deliberate review.
    Check g and the delete guard stay as aids for that review; they can't be complete, this can.
@@ -28,9 +29,24 @@ function walk(dir) {
   return out;
 }
 
+/* Source files that word instructions are pinned whole, so a branch no rendered sample reaches still can't change unreviewed:
+   the contract (merge README and prompt, hold and wait messages, START_PROMPT), the command's messages, Folder health and
+   Settings, AI assistant files. instructionSources() finds them by their strings, and the test fails if one isn't pinned. */
+const PINNED = ['src/core/contract.js', 'bin/flightdeck.js', 'src/core/health.js', 'src/ui/views/manage.js'];
+const MARKS = /AGENTS\.md waits|AGENTS\.md will wait|I merged it|staged again|only if nobody changed|move it out of|Merge the new|merge request|Held: |[Dd]elete AGENTS\.md|START_PROMPT/;
+const STRING = /'(?:[^'\\\n]|\\.)*'|"(?:[^"\\\n]|\\.)*"|`[^`]*`/g;
+function instructionSources() {
+  const files = [];
+  const go = (d) => fs.readdirSync(path.join(ROOT, d), { withFileTypes: true }).forEach((e) => { const p = d + '/' + e.name; if (e.isDirectory()) go(p); else if (/\.js$/.test(p)) files.push(p); });
+  go('src'); go('bin');
+  return files.filter((f) => (read(f).match(STRING) || []).some((s) => MARKS.test(s))).sort();
+}
+
 /* { name: text } for every reviewed text. */
 function texts() {
   const out = {};
+  PINNED.forEach((f) => { out[f] = read(f); });
+  out['README.md'] = read('README.md');
   out['example-folder/AGENTS.md'] = read('example-folder/AGENTS.md');
   walk('example-folder/.flightdeck/skills').forEach((p) => { out[p] = read(p); });
   fs.readdirSync(path.join(ROOT, 'docs')).filter((f) => /\.md$/.test(f)).sort().forEach((f) => { out['docs/' + f] = read('docs/' + f); });
@@ -94,4 +110,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { texts, normalize, sha, snapshot, problems, update };
+module.exports = { texts, instructionSources, PINNED, normalize, sha, snapshot, problems, update };
