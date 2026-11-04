@@ -94,7 +94,7 @@ function runnerWith(c) {
     'esac\nexec "$SHIM_REAL" "$@"\n';
   fs.writeFileSync(path.join(dir, 'node'), shim, { mode: 0o755 });
   Object.keys(c.codes || {}).forEach(k => fs.writeFileSync(path.join(dir, k), c.codes[k].join('\n') + '\n'));
-  const env = Object.assign({}, process.env, { PATH: dir + path.delimiter + process.env.PATH, SHIM_DIR: dir, SHIM_REAL: process.execPath, SHIM_SAMPLER: c.sampler || '', SKIP_BUILD: '1', ONLY: 'timeline', TIER: '', RULE: '', LIST: '', TIMES: '', KEEP_LOGS: '', BUDGETS: '', SHARD: '', PERF_WAIT: '0', PERF_BUSY: c.busy ? '0' : '100' });
+  const env = Object.assign({}, process.env, { PATH: dir + path.delimiter + process.env.PATH, SHIM_DIR: dir, SHIM_REAL: process.execPath, SHIM_SAMPLER: c.sampler || '', SKIP_BUILD: '1', ONLY: 'timeline', TIER: '', RULE: '', LIST: '', TIMES: '', KEEP_LOGS: '', BUDGETS: '', SHARD: '', PERF_WAIT: '0', PERF_BUSY: c.busy ? '0' : '100' }, c.env || {});
   const ran = (k) => { try { return fs.readFileSync(path.join(dir, k + '.ran'), 'utf8').split('\n').filter(Boolean).length; } catch (e) { return 0; } };
   return new Promise((res) => {
     let out = '';
@@ -139,6 +139,87 @@ rule('test/run.sh: the only failure that can end in exit 0 is a segfault with no
     if (c[5]) assert.ok(c[5].test(got[i].out), c[0] + ': says so\n' + got[i].out);
   });
 });
+
+/* A file that makes temp folders, run by hand in its own empty temp folder. how: "exit" ends normally; "idle" waits to be
+   killed; "busy" reads a file, then is killed in the middle of synchronous work. */
+function tempMaker(how) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-leak-')), f = path.join(dir, 'leak.test.js'), sys = path.join(dir, 'sys');
+  fs.mkdirSync(sys);
+  fs.writeFileSync(f, 'const fs = require("fs"), os = require("os"), path = require("path");\nconst { rule, run } = require(' + JSON.stringify(path.join(__dirname, 'harness')) + ');\n' +
+    'rule("makes temp folders", () => { const d = fs.mkdtempSync(path.join(os.tmpdir(), "flightdeck-af-")); fs.writeFileSync(path.join(d, "f"), "x"); fs.mkdirSync(path.join(d, "locked", "deep"), { recursive: true }); fs.chmodSync(path.join(d, "locked"), 0o311); require("child_process").execFileSync(process.execPath, ["-e", "require(\'fs\').mkdtempSync(require(\'path\').join(require(\'os\').tmpdir(), \'child-\'))"]); });\n' +
+    (how === 'exit' ? '' : how === 'busy' ? 'rule("reads", () => fs.promises.readFile(__filename));\nrule("busy", () => { console.log("ready"); const t = Date.now() + 1500; while (Date.now() < t) { /* synchronous work */ } });\n'
+      : 'rule("waits", () => { console.log("ready"); return new Promise(() => setInterval(() => {}, 1000)); });\n') + 'run();\n');
+  const env = Object.assign({}, process.env, { TMPDIR: sys, TEMP: sys, TMP: sys }); ['ONLY', 'SHARD', 'BUDGETS'].forEach(k => delete env[k]);
+  return { dir, sys, f, env };
+}
+rule('A test file run by hand removes every temp folder it and its child processes made', () => {
+  const t = tempMaker('exit'), r = cp.spawnSync(process.execPath, [t.f], { encoding: 'utf8', env: t.env });
+  const left = fs.readdirSync(t.sys);
+  fs.rmSync(t.dir, { recursive: true, force: true });
+  assert.strictEqual(r.status, 0, r.stdout + r.stderr);
+  assert.deepStrictEqual(left, []);
+});
+['SIGINT', 'SIGTERM', 'SIGHUP'].forEach(sig => ['busy', 'idle'].forEach(how => rule('A test file stopped with ' + sig + ' while ' + how + ' dies of ' + sig + ', never a pass, and leaves only its own folder for the sweep', () => new Promise((res, rej) => {
+  if (process.platform === 'win32') { console.log('  (skipped: no signals on Windows)'); return res(); }
+  const t = tempMaker(how), p = cp.spawn(process.execPath, [t.f], { env: t.env, stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '';
+  p.stdout.on('data', d => { out += d; if (/ready/.test(String(d))) p.kill(sig); });
+  p.on('close', (code, signal) => {
+    const left = fs.readdirSync(t.sys);
+    cp.spawnSync('chmod', ['-R', 'u+rwx', t.dir]);   // the killed file's locked folder is still there
+    fs.rmSync(t.dir, { recursive: true, force: true });
+    try {
+      assert.strictEqual(signal, sig, 'exit ' + code + '\n' + out);
+      assert.ok(!/passed/.test(out), out);
+      assert.strictEqual(left.length, 1, left.join(' '));
+      assert.ok(/^flightdeck-test-/.test(left[0]), left[0]);
+      res();
+    } catch (e) { rej(e); }
+  });
+}))));
+rule('test/run.sh sweeps day-old folders from killed runs and test files, keeps everything else, and leaves nothing of its own', async () => {
+  if (!hasBash) return console.log('  (skipped: no bash)');
+  const sys = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-sweep-')), old = new Date(Date.now() - 2 * 86400e3);
+  ['flightdeck-test-old', 'flightdeck-run.old', 'flightdeck-test-new', 'flightdeck-af-old', 'other-old'].forEach(n => {
+    fs.mkdirSync(path.join(sys, n, 'locked', 'deep'), { recursive: true }); fs.writeFileSync(path.join(sys, n, 'f'), 'x');
+    fs.chmodSync(path.join(sys, n, 'locked'), 0o311);
+    if (/old$/.test(n)) fs.utimesSync(path.join(sys, n), old, old);
+  });
+  const got = await runnerWith({ env: { TMPDIR: sys + '/' } }), left = fs.readdirSync(sys).sort();
+  left.forEach(n => fs.chmodSync(path.join(sys, n, 'locked'), 0o755));
+  fs.rmSync(sys, { recursive: true, force: true });
+  assert.strictEqual(got.code, 0, got.out);
+  assert.deepStrictEqual(left, ['flightdeck-af-old', 'flightdeck-test-new', 'other-old']);
+});
+rule('test/run.sh never sweeps the temp folder itself, even when its name and age match', async () => {
+  if (!hasBash) return console.log('  (skipped: no bash)');
+  const outer = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-self-')), sys = path.join(outer, 'flightdeck-test-shared'), old = new Date(Date.now() - 2 * 86400e3);
+  fs.mkdirSync(path.join(sys, 'keep'), { recursive: true }); fs.utimesSync(sys, old, old);
+  const got = await runnerWith({ env: { TMPDIR: sys } }), left = fs.existsSync(path.join(sys, 'keep'));
+  // TMPDIR=-P once made cd go to HOME, and the sweep with it.
+  const home = path.join(outer, 'home'), mine = path.join(home, 'flightdeck-test-mine');
+  fs.mkdirSync(mine, { recursive: true }); fs.utimesSync(mine, old, old);
+  await runnerWith({ env: { TMPDIR: '-P', HOME: home } });
+  const kept = fs.existsSync(mine);
+  fs.rmSync(outer, { recursive: true, force: true });
+  assert.strictEqual(got.code, 0, got.out);
+  assert.ok(left, 'the temp folder and what was in it are still there');
+  assert.ok(kept, 'TMPDIR=-P is a folder named -P, not an option to cd that sweeps HOME');
+});
+rule('test/run.sh stopped with SIGTERM removes its run folder', () => new Promise((res, rej) => {
+  if (!hasBash || process.platform === 'win32') { console.log('  (skipped: no bash, or no signals on Windows)'); return res(); }
+  const sys = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-runkill-')), shim = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-runkill-shim-'));
+  fs.writeFileSync(path.join(shim, 'node'), '#!/usr/bin/env bash\ncase "$1" in tools/old-bundles.js) echo started > "$SHIM_DIR/started"; exec sleep 30;; esac\nexec "$SHIM_REAL" "$@"\n', { mode: 0o755 });
+  const env = Object.assign({}, process.env, { PATH: shim + path.delimiter + process.env.PATH, SHIM_DIR: shim, SHIM_REAL: process.execPath, TMPDIR: sys, TEMP: sys, TMP: sys, SKIP_BUILD: '1', ONLY: 'timeline', TIER: '', RULE: '', LIST: '', KEEP_LOGS: '' });
+  const p = cp.spawn('bash', [path.join(__dirname, 'run.sh')], { env, stdio: 'ignore' });
+  const poll = setInterval(() => { if (fs.existsSync(path.join(shim, 'started'))) { clearInterval(poll); p.kill('SIGTERM'); } }, 20);
+  p.on('close', (code, signal) => {
+    clearInterval(poll);
+    const left = fs.readdirSync(sys);
+    fs.rmSync(sys, { recursive: true, force: true }); fs.rmSync(shim, { recursive: true, force: true });
+    try { assert.ok(signal === 'SIGTERM' || code === 143, 'stopped by SIGTERM: ' + code + ' ' + signal); assert.deepStrictEqual(left, []); res(); } catch (e) { rej(e); }
+  });
+}));
 
 rule('A rule that never settles fails the file instead of ending it with exit 0', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-hung-')), f = path.join(dir, 'hung.test.js');
