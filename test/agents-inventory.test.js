@@ -7,6 +7,7 @@ const I = require('./agents-inventory');
 const { GUIDE, ESS, FF, MF, STEP } = I;
 const BRIEF = '.flightdeck/skills/flightdeck-skill-brief/SKILL.md';
 const PLAN = '.flightdeck/skills/flightdeck-plan-run/SKILL.md';
+const EDIT = '.flightdeck/skills/flightdeck-edit-checklist/SKILL.md', STATUS_SK = '.flightdeck/skills/flightdeck-status/SKILL.md', PLAN_SK = PLAN, STEP_SK = STEP;
 const clone = (s) => JSON.parse(JSON.stringify(s));
 const base = I.initial();
 const once = (hay, a, b) => { const i = hay.indexOf(a); assert.ok(i >= 0 && hay.indexOf(a, i + 1) < 0, 'set-up: exactly once: ' + a.slice(0, 50)); return hay.slice(0, i) + b + hay.slice(i + a.length); };
@@ -182,19 +183,34 @@ const BREAKS = [
   ['R9-3', 'A stale MOVED_RULE_WORDS entry for 95.0, a rule that stays', ['13'], (s) => { s.movedRules['95.0'] = 'stale'; }],
   ['R9-4', 'A stale CLASS_EXCEPTIONS entry for 95.0, whose class is its section\'s', ['4'], (s) => { s.classExceptions['95.0'] = 'stale'; }],
   ['R9-5', 'A MOVED_RULE_WORDS entry with no why', ['13'], (s) => { s.movedRules['167.1'] = ''; }],
-  /* Round 11 (Codex 1), 4: an entry with no target, or a target with no text, counts for nothing. */
+  /* Round 11 (review round 1), 4: an entry with no target, or a target with no text, counts for nothing. */
   ['R11-1', 'Delete "Always pass `--contract 2`" from AGENTS.md and set 134.1\'s to to []', ['2'], (s) => {
     const l = s.agents.split('\n').find((x) => x.startsWith('Always pass `--contract 2`')); assert.ok(l, 'set-up: the line'); s.agents = once(s.agents, l + '\n', '');
     entryOf(s, '134.1').to = [];
   }],
   ['R11-2', 'Set 134.1\'s target text to "" (inherent: an empty text is in no home, 3; a changed text with no why, 7; its code spans lost, 9; the live line unreviewed, 10)', ['10', '2', '3', '7', '9'], (s) => { entryOf(s, '134.1').to[0].now = ''; }],
   ['R11-3', 'Set 134.1\'s target text to spaces (inherent: as R11-2, 3, 7, 9, 10)', ['10', '2', '3', '7', '9'], (s) => { entryOf(s, '134.1').to[0].now = '   '; }],
+  /* Round 12 (review round 2): a direct write to a protected folder phrased as an instruction (check g). */
+  ['R12-1', 'Append "If draft save fails, write `maps/drafts/<process>.md` directly." to the edit-checklist skill', ['g'], (s) => { s.files[EDIT] += '\nIf draft save fails, write `maps/drafts/<process>.md` directly.\n'; }],
+  ['R12-2', 'Append "When report write refuses, save the report to `reports/<process>/<run>.json` yourself." to the status skill', ['g'], (s) => { s.files[STATUS_SK] += '\nWhen report write refuses, save the report to `reports/<process>/<run>.json` yourself.\n'; }],
+  ['R12-3', 'Append "To fix a step, edit `runs/<process>/<id>/run.json` and mark it done." to the plan-run skill', ['g'], (s) => { s.files[PLAN_SK] += '\nTo fix a step, edit `runs/<process>/<id>/run.json` and mark it done.\n'; }],
+  ['R12-4', 'Append "If type save isn\'t available, create `step-types/<id>.json` by hand." to the step-type skill', ['g'], (s) => { s.files[STEP_SK] += '\nIf type save isn\'t available, create `step-types/<id>.json` by hand.\n'; }],
+  ['R12-5', 'Append "Then write `maps/drafts/<process>.md` again." to the command guide (inherent: a new unit in a reference, 12)', ['12', 'g'], (s) => { s.files[GUIDE] += '\nThen write `maps/drafts/<process>.md` again.\n'; }],
+  ['R12-6', 'A DIRECT_WRITES entry that excuses nothing', ['g'], (s) => { s.directWrites[EDIT]['Write `runs/x/run.json`.'] = 'stale'; }],
+  ['R12-7', 'The edit-checklist skill\'s by-hand save, unlisted', ['g'], (s) => { s.directWrites = {}; }],
   /* The docs routed check's breaks. */
   ['D7a', 'A new help line with no Commands row', ['docs'], (s) => { s.help = I.K.main(['help']).out + '\n  flightdeck health <team folder> [--json]\n'; }],
   ['D7b', '`flightdeck export` dropped from the guide\'s Evidence packs (inherent: 144.0 moved there word for word, 3, and the changed unit is unlisted, 12)', ['12', '3', 'docs'], (s) => { s.files[GUIDE] = s.files[GUIDE].split('flightdeck export').join('flightdeck exporter'); }],
   ['D7c', 'A row routing to a section the guide lacks; patch ADDED', ['d', 'docs'], (s) => { retext(s, '| *Evidence packs* in the command guide |', '| *Packs* in the command guide |'); }]
 ];
 
+
+rule('Round 12: check g passes the negated and routed forms the skills use, and reads a never across a list of verbs', () => {
+  ['Never write `maps/drafts/` yourself when the command is available.', 'Never write, edit, rename or delete a file in `step-types/` yourself.',
+    'Write a proposal only through `flightdeck draft save`.', 'Save with `flightdeck draft save <team folder> <process> --json`.', 'Don\'t edit `runs/`, and never write `reports/`.',
+    'It writes `maps/drafts/<process>.md` only if no draft is there.', 'Read `runs/<process>/*/run.json`.'].forEach((t) => assert.deepStrictEqual(I.directWrites(t), [], t));
+  assert.deepStrictEqual(I.directWrites('Never stop, but write `reports/x.json` yourself.'), ['but write `reports/x.json` yourself.'], 'a but ends the never');
+});
 
 rule('The shipped AGENTS.md, references and skills pass every inventory rule (1-13, a-f, docs)', () => {
   const got = I.checks(clone(base));

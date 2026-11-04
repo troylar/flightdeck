@@ -539,6 +539,30 @@ const YOU_MAY = {
     'The only commands you may run are the folder check below and, when `flightdeck` is installed, its read-only JSON commands named below.': NARROW,
     '**Runs:** running now (title, recorder, current phase if you can tell), and ended in the last 14 days with their outcome and any open follow-ups.': '"if you can tell": not a grant' }
 };
+/* Check g (round 12): a direct write to a protected folder, phrased as an instruction, in a reference or an installed skill.
+   AGENTS.md lets an assistant change drafts, runs, reports and step types only through Flightdeck's commands (a draft by hand
+   only when `flightdeck draft save` isn't available). A clause that starts with a write verb, names one of those paths and isn't
+   under a never, don't or not of its sentence, or a route through `flightdeck`, is listed here with why, or it fails. */
+const PROTECTED = /maps\/drafts\b|(?:^|[^\w/-])runs\/|(?:^|[^\w/-])reports\/|(?:^|[^\w/-])report-decisions\/|step-types\//;
+const IMPERATIVE = /^(?:(?:then|and|or|but|also|just|instead|first|otherwise|simply)\s+)*(?:write|save|create|edit|overwrite|change|update|append|rename|delete|remove|copy|move|put|add|fix|set|mark|replace|patch)\b/i;
+const NEGATED = /\b(?:never|don'?t|do not|not)\b/i, ROUTED = /\b(?:through|with) `flightdeck\b/i, RESETS = /^(?:but|otherwise|then|instead|if|when|unless)\b/i;
+function directWrites(text) {
+  const codes = [], masked = text.replace(/`[^`]*`/g, (c) => { codes.push(c); return '\u0000' + (codes.length - 1) + '\u0000'; }), out = [];
+  const back = (x) => x.replace(/\u0000(\d+)\u0000/g, (m, n) => codes[n]).replace(/^[\s*_(]+/, '').trim();
+  masked.split(/[;:.!?]\s+|\s+—\s+/).forEach((part) => {
+    let neg = false;
+    part.split(/,\s+/).map(back).forEach((cl) => {
+      if (RESETS.test(cl)) neg = false;
+      if (NEGATED.test(cl.replace(/`[^`]*`/g, ''))) neg = true;
+      if (!neg && IMPERATIVE.test(cl) && PROTECTED.test(cl) && !ROUTED.test(cl)) out.push(cl);
+    });
+  });
+  return out;
+}
+const DIRECT_WRITES = {
+  [SKD + 'flightdeck-edit-checklist/SKILL.md']: {
+    'Save the copy to `maps/drafts/<process>.md` first, and say you did.': 'the "Without the command" route: AGENTS.md allows `maps/drafts/<process>.md` by hand only when `flightdeck draft save` isn\'t available, and this is that bullet' }
+};
 /* Mentions of a reference that aren't citations (check d, read in reverse). Each entry excuses exactly one occurrence, in its
    section (home: the anchor, 'top' before the first ##). */
 const CF = 'the shipped skills\' own name for map-format.md, in prose; no section';
@@ -581,7 +605,7 @@ function installed() {
 /* The shipped state, a fresh copy each time, for a self-test to break. */
 function initial() {
   return { agents: AGENTS, files: installed(), entries: plain(ENTRIES), added: plain(ADDED), refAdded: plain(REF_ADDED), movedGuidance: plain(MOVED_GUIDANCE),
-    movedRules: plain(MOVED_RULE_WORDS), classExceptions: plain(CLASS_EXCEPTIONS), youMay: plain(YOU_MAY), notCites: plain(NOT_CITES), help: null };
+    movedRules: plain(MOVED_RULE_WORDS), classExceptions: plain(CLASS_EXCEPTIONS), youMay: plain(YOU_MAY), directWrites: plain(DIRECT_WRITES), notCites: plain(NOT_CITES), help: null };
 }
 
 /* The heading reader's anchors: anchors() of test/docs.test.js with its headings taken from PF.contract.headings. */
@@ -737,6 +761,18 @@ function checks(s) {
   /* b: grant phrasing in a reference or an installed skill is listed with why. */
   Object.keys(s.files).filter((f) => f.startsWith(SKD) && f.endsWith('.md')).forEach((f) => unitsAt(R.prose(s.files[f]).join('\n')).forEach((u) => {
     if (GRANT.test(noCode(u.text)) && !((s.youMay[f] || {})[u.text])) fail('b', f + ': ' + u.text.slice(0, 60)); }));
+  /* g: a direct write to drafts, runs, reports or step types, as an instruction, in a reference or an installed skill, is listed
+     in DIRECT_WRITES with why; an entry that excuses nothing is stale. */
+  const dwUsed = {};
+  Object.keys(s.files).filter((f) => f.startsWith(SKD) && f.endsWith('.md')).forEach((f) => unitsAt(R.prose(s.files[f]).join('\n')).forEach((u) => {
+    if (!directWrites(u.text).length) return;
+    const why = ((s.directWrites || {})[f] || {})[u.text];
+    if (why) dwUsed[f + '\u0000' + u.text] = true; else fail('g', f + ': a direct write: ' + directWrites(u.text).join(' | ').slice(0, 80));
+  }));
+  Object.keys(s.directWrites || {}).forEach((f) => Object.keys(s.directWrites[f]).forEach((t) => {
+    if (!s.directWrites[f][t]) fail('g', f + ': a DIRECT_WRITES entry with no why');
+    else if (!dwUsed[f + '\u0000' + t]) fail('g', f + ': DIRECT_WRITES excuses nothing: ' + t.slice(0, 60));
+  }));
   /* c: an italic name in a skill or reference sentence that mentions AGENTS.md is an AGENTS.md heading. */
   const heads = R.sections(A);
   Object.keys(s.files).filter((f) => f.startsWith(SKD) && f.endsWith('.md')).forEach((f) => {
@@ -813,5 +849,5 @@ function docs(s) {
   });
   return out;
 }
-module.exports = { initial, checks, anchors, sectionText, unitsAt, homedUnits, lineHomes, homeText, walk, isA, slug, flat, count, ALIASES, helpCommands, docs,
+module.exports = { directWrites, initial, checks, anchors, sectionText, unitsAt, homedUnits, lineHomes, homeText, walk, isA, slug, flat, count, ALIASES, helpCommands, docs,
   ENTRIES, ADDED, REF_ADDED, MOVED_GUIDANCE, MOVED_RULE_WORDS, CLASS_EXCEPTIONS, YOU_MAY, NOT_CITES, FIXTURE, AGENTS, ROOM_CEILING, GUIDANCE, WHY_WORDS, GRANT, NOTHING, GUIDE, ESS, FF, MF, STEP, REFS, H, G, PF, R, K };
