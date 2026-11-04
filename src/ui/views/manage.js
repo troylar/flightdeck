@@ -532,8 +532,9 @@
     if (!hit) return notices(ctx) + V.backRow(V.backc('go-back', PF.nav.format({ view: 'skills' }), 'Skills', '', ' id="page-back"')) + '<div class="panel" role="alert">That skill isn\'t registered in this folder any more.</div>';
     var s = hit.skill, sw = STATUS_WORDS[hit.status.s] || STATUS_WORDS.missing, href = PF.skills.link(s.location), base = hit.status.base, latest = hit.status.latest;
     var stepText = function (id) { var f = (base || latest) && M.findStep((base || latest).map, id); return f ? K.stepPlain(f.step, null) : id; };
-    /* Its checklist is linked once, in About this skill (2.16); the way back names whichever screen opened it. */
-    var og = ctx.libOrigin ? ctx.libOrigin('skill') : { hash: '#/skills', place: 'Skills', view: '' };
+    /* Its checklist is linked once, in About this skill (2.16); the way back names whichever screen opened it, but that
+       checklist: from there it's Skills. */
+    var og = ctx.libOrigin ? ctx.libOrigin('skill', proc ? proc.id : null) : { hash: '#/skills', place: 'Skills', view: '' };
     var h = notices(ctx) + V.backRow(V.backc('go-back', og.hash, og.place, og.view)) + '<div class="runhead"><div><div class="eyebrow">Skill' + (s.version ? ' · version ' + esc(s.version) : '') + '</div><h1 id="page-h" tabindex="-1">' + I('spark') + ' ' + esc(s.name) + '</h1>' + (s.description ? '<div class="small">' + esc(s.description) + '</div>' : '') + K.tagChips(s.tags) + '</div></div>';
     h += '<section class="panel status-card" data-s="' + esc(hit.status.s) + '" aria-labelledby="ss-h"><h2 id="ss-h"><span class="pill ' + sw[0] + '">' + sw[1] + '</span></h2><p>' + esc(hit.status.text) + (sw[2] ? ' ' + esc(sw[2]) : '') + '</p>';
     /* What changed, 50 at a time in its own order (2.11); the update brief is built from all of it when copied. */

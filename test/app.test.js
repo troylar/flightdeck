@@ -7467,17 +7467,16 @@ rule('Back and Forward: every screen and tab has a route', async () => {
   }));
 });
 
-rule('Back and Forward: the editor\'s ‹ is browser Back to the page that opened it (2.16), and the version picker pushes, so Back returns to the earlier version', async () => {
+rule('Back and Forward: the editor\'s ‹ goes to the page that opened it in the entry\'s place (2.16), and the version picker pushes, so Back returns to the earlier version', async () => {
   const app = await navBoot();
   app.click('open-process', 'release'); await app.tick();
   app.click('ptab', 'edit'); await app.tick();
   assert.strictEqual(app.hash(), '#/process/release/edit');
+  const n = app.entries().length;
   app.click('ed-done'); await app.settle();
   assert.strictEqual(app.hash(), '#/process/release');
-  await fwd(app);
-  assert.ok(/id="ed-h"/.test(app.html()), 'Forward: the editor again'); assert.strictEqual(app.hash(), '#/process/release/edit');
-  await back(app);
-  assert.strictEqual(app.hash(), '#/process/release');
+  assert.strictEqual(app.entries().length, n, 'in the editor entry\'s place');
+  assert.ok(!app.entries().some(e => e.hash === '#/process/release/edit'), 'Back or Forward never reopens the editor');
   const vers = [...app.html().matchAll(/<option value="(v\d+-[a-z0-9]+)"/g)].map(m => m[1]);
   assert.ok(vers.length >= 2, 'the example has versions: ' + vers.join());
   // v2 is the current version, v1 the first: picking v1 then v2, Back shows v1, Back again the page's default.
@@ -7824,7 +7823,7 @@ rule('Back and Forward: step types: a type called new, a new form, and a changed
   app.click('nav', 'types'); await app.tick();
   app.click('edit-type', 'new'); await app.tick(40);
   assert.strictEqual(app.hash(), '#/types/edit/new'); assert.ok(/value="Called new"/.test(app.html()));
-  app.click('nav', 'types'); await app.tick(); // the list as a new entry (its ‹ Step types is browser Back since 2.16)
+  app.click('nav', 'types'); await app.tick(); // the list as a new entry
   app.click('new-type'); await app.tick();
   assert.strictEqual(app.hash(), '#/types/new');
   // An unchanged new form: a jump to the type's entry opens that type.
@@ -7850,7 +7849,7 @@ rule('Back and Forward: a slow step-type read from Back never reopens over a lat
   const app = await navBoot();
   app.click('nav', 'types'); await app.tick();
   app.click('edit-type', 'change.request'); await app.tick(40);
-  app.click('nav', 'types'); await app.tick(); // the list as a new entry (its ‹ Step types is browser Back since 2.16)
+  app.click('nav', 'types'); await app.tick(); // the list as a new entry
   app.click('nav', 'runs'); await app.tick();
   const read = app.fs.read.bind(app.fs), g = gate();
   app.fs.read = p => p === 'step-types/change.request.json' ? read(p).then(v => g.p.then(() => v)) : read(p);
@@ -7937,7 +7936,7 @@ rule('Back and Forward: text typed in Add a tag on an otherwise unchanged form i
   const app = await navBoot();
   app.click('nav', 'types'); await app.tick();
   app.click('edit-type', 'change.request'); await app.tick(40);
-  app.click('nav', 'types'); await app.tick(); // the list as a new entry (its ‹ Step types is browser Back since 2.16)
+  app.click('nav', 'types'); await app.tick(); // the list as a new entry
   app.click('new-type'); await app.tick();
   app.set('tf-tagadd', 'risky');
   app.go(-2); await app.settle(); await app.tick(40);
