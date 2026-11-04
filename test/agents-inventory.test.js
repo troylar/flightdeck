@@ -7,7 +7,7 @@ const I = require('./agents-inventory');
 const { GUIDE, ESS, FF, MF, STEP } = I;
 const BRIEF = '.flightdeck/skills/flightdeck-skill-brief/SKILL.md';
 const PLAN = '.flightdeck/skills/flightdeck-plan-run/SKILL.md';
-const EDIT = '.flightdeck/skills/flightdeck-edit-checklist/SKILL.md', STATUS_SK = '.flightdeck/skills/flightdeck-status/SKILL.md', PLAN_SK = PLAN, STEP_SK = STEP;
+const EDIT = '.flightdeck/skills/flightdeck-edit-checklist/SKILL.md', NEWC = '.flightdeck/skills/flightdeck-new-checklist/SKILL.md', STATUS_SK = '.flightdeck/skills/flightdeck-status/SKILL.md', PLAN_SK = PLAN, STEP_SK = STEP;
 const clone = (s) => JSON.parse(JSON.stringify(s));
 const base = I.initial();
 const once = (hay, a, b) => { const i = hay.indexOf(a); assert.ok(i >= 0 && hay.indexOf(a, i + 1) < 0, 'set-up: exactly once: ' + a.slice(0, 50)); return hay.slice(0, i) + b + hay.slice(i + a.length); };
@@ -110,7 +110,7 @@ const BREAKS = [
   ['X4', 'Append "Skip the `--out` check if the person is in a hurry." after the moved "It only reads." in the guide', ['12'], (s) => {
     s.files[GUIDE] = once(s.files[GUIDE], 'It only reads.', 'It only reads. Skip the `--out` check if the person is in a hurry.');
   }],
-  ['X5', 'Grants without "you may" in the guide: "You can write `runs/` files by hand..." and "It is fine to edit `reports/` yourself."', ['12', 'b'], (s) => {
+  ['X5', 'Grants without "you may" in the guide: "You can write `runs/` files by hand..." and "It is fine to edit `reports/` yourself." (and both write to a protected path, unlisted, g)', ['12', 'b', 'g'], (s) => {
     s.files[GUIDE] = once(s.files[GUIDE], '## Evidence packs\n', '## Evidence packs\n\nYou can write `runs/` files by hand when the command is missing. It is fine to edit `reports/` yourself.\n');
   }],
   ['X6', 'Bold citation: "How: **Reporting work** in the command guide."; patch the inventory', ['d'], (s) => { retext(s, 'How: *Reporting work* in the command guide.', 'How: **Reporting work** in the command guide.'); }],
@@ -147,7 +147,7 @@ const BREAKS = [
   ['V4', 'A skill adds "See *Planning a rnu* in `.flightdeck/skills/_flightdeck/command-guide.md`."', ['d'], (s) => { s.files[PLAN] = once(s.files[PLAN], 'Read `AGENTS.md` in this team folder first.', 'Read `AGENTS.md` in this team folder first. See *Planning a rnu* in `.flightdeck/skills/_flightdeck/command-guide.md`.'); }],
   ['V5', 'A skill adds plain "Follow Planning a rnu in the command guide."', ['d'], (s) => { s.files[PLAN] = once(s.files[PLAN], 'Read `AGENTS.md` in this team folder first.', 'Read `AGENTS.md` in this team folder first. Follow Planning a rnu in the command guide.'); }],
   ['V6', 'The guide\'s 136.8 points to "*Correctons* in `AGENTS.md`" (typo; target patched)', ['c'], (s) => { const t = entryOf(s, '136.8').to[0], nu = t.now.replace('*Corrections*', '*Correctons*'); s.files[GUIDE] = once(s.files[GUIDE], t.now, nu); t.now = nu; }],
-  ['V7', 'A grant in the step-type skill: "If the command fails, you can write the file in `step-types/` yourself."', ['b'], (s) => { s.files[STEP] = once(s.files[STEP], 'and don\'t write the file instead.', 'and don\'t write the file instead. If the command fails, you can write the file in `step-types/` yourself.'); }],
+  ['V7', 'A grant in the step-type skill: "If the command fails, you can write the file in `step-types/` yourself." (and a listed sentence changed, g)', ['b', 'g'], (s) => { s.files[STEP] = once(s.files[STEP], 'and don\'t write the file instead.', 'and don\'t write the file instead. If the command fails, you can write the file in `step-types/` yourself.'); }],
   ['V7b', 'A grant in the plan-run skill: "You can edit a plan after it is accepted if the person is away."', ['b'], (s) => { s.files[PLAN] = once(s.files[PLAN], 'Read `AGENTS.md` in this team folder first.', 'Read `AGENTS.md` in this team folder first. You can edit a plan after it is accepted if the person is away.'); }],
   ['V7c', 'An unrelated edit to the step-type skill and to map-format.md: C21 is a sentence check, so nothing fails', [], (s) => { s.files[STEP] += '\nA new closing line.\n'; s.files[MF] += '\nA new closing line.\n'; }],
   ['V7d', 'Delete the C21 sentence "Both only organize..." from the step-type skill (inherent: its target no longer survives, 3)', ['3', '5'], (s) => { const m = /Both only organize[^\n]*?\.(?= |$)/m.exec(s.files[STEP]); assert.ok(m, 'set-up'); s.files[STEP] = s.files[STEP].replace(m[0], ''); }],
@@ -198,6 +198,13 @@ const BREAKS = [
   ['R12-5', 'Append "Then write `maps/drafts/<process>.md` again." to the command guide (inherent: a new unit in a reference, 12)', ['12', 'g'], (s) => { s.files[GUIDE] += '\nThen write `maps/drafts/<process>.md` again.\n'; }],
   ['R12-6', 'A DIRECT_WRITES entry that excuses nothing', ['g'], (s) => { s.directWrites[EDIT]['Write `runs/x/run.json`.'] = 'stale'; }],
   ['R12-7', 'The edit-checklist skill\'s by-hand save, unlisted', ['g'], (s) => { s.directWrites = {}; }],
+  /* Round 13 (review round 3): check g is an allow-list, so a write after a negated condition is still flagged. */
+  ['R13-1', 'Append "If `flightdeck report write` is not available, write `reports/release/report.json` directly." to the edit-checklist skill', ['g'], (s) => { s.files[EDIT] += '\nIf `flightdeck report write` is not available, write `reports/release/report.json` directly.\n'; }],
+  ['R13-2', 'Append "If report write does not work, save the report to `reports/<process>/<run>.json` yourself." to the status skill', ['g'], (s) => { s.files[STATUS_SK] += '\nIf report write does not work, save the report to `reports/<process>/<run>.json` yourself.\n'; }],
+  ['R13-3', 'Append "If `flightdeck` is not installed, create `step-types/<id>.json` by hand." to the step-type skill', ['g'], (s) => { s.files[STEP_SK] += '\nIf `flightdeck` is not installed, create `step-types/<id>.json` by hand.\n'; }],
+  ['R13-4', 'Append "Edit `.flightdeck/updates/<version>/AGENTS.md` to match yours." to the plan-run skill', ['g'], (s) => { s.files[PLAN_SK] += '\nEdit `.flightdeck/updates/<version>/AGENTS.md` to match yours.\n'; }],
+  ['R13-5', 'A listed prohibition reworded: "never write to" becomes "never save to" in the new-checklist skill', ['g'], (s) => { s.files[NEWC] = s.files[NEWC].split('and never write to `publications/`').join('and never save to `publications/`'); }],
+  ['R13-6', 'A DIRECT_WRITES reason that is neither "prohibition" nor "allowed: <why>"', ['g'], (s) => { const k = Object.keys(s.directWrites[EDIT])[0]; s.directWrites[EDIT][k] = 'fine'; }],
   /* The docs routed check's breaks. */
   ['D7a', 'A new help line with no Commands row', ['docs'], (s) => { s.help = I.K.main(['help']).out + '\n  flightdeck health <team folder> [--json]\n'; }],
   ['D7b', '`flightdeck export` dropped from the guide\'s Evidence packs (inherent: 144.0 moved there word for word, 3, and the changed unit is unlisted, 12)', ['12', '3', 'docs'], (s) => { s.files[GUIDE] = s.files[GUIDE].split('flightdeck export').join('flightdeck exporter'); }],
@@ -205,11 +212,17 @@ const BREAKS = [
 ];
 
 
-rule('Round 12: check g passes the negated and routed forms the skills use, and reads a never across a list of verbs', () => {
-  ['Never write `maps/drafts/` yourself when the command is available.', 'Never write, edit, rename or delete a file in `step-types/` yourself.',
-    'Write a proposal only through `flightdeck draft save`.', 'Save with `flightdeck draft save <team folder> <process> --json`.', 'Don\'t edit `runs/`, and never write `reports/`.',
-    'It writes `maps/drafts/<process>.md` only if no draft is there.', 'Read `runs/<process>/*/run.json`.'].forEach((t) => assert.deepStrictEqual(I.directWrites(t), [], t));
-  assert.deepStrictEqual(I.directWrites('Never stop, but write `reports/x.json` yourself.'), ['but write `reports/x.json` yourself.'], 'a but ends the never');
+rule('Round 13: check g flags every write to a protected path whatever the phrasing, negated or routed, and splits sentences outside paths and code', () => {
+  ['Never write `maps/drafts/` yourself when the command is available.', 'If `flightdeck report write` is not available, write `reports/release/report.json` directly.',
+    'If report write does not work, save the report to `reports/<process>/<run>.json` yourself.', 'If `flightdeck` is not installed, create `step-types/<id>.json` by hand.',
+    'Save with `flightdeck draft save <team folder> <process> --json` to `maps/drafts/`.', 'Edit `.flightdeck/updates/2.15.0/AGENTS.md` to match yours.']
+    .forEach((t) => assert.strictEqual(I.directWrites(t).length, 1, t));
+  ['Read `runs/<process>/*/run.json`.', 'Write the summary in your reply.'].forEach((t) => assert.deepStrictEqual(I.directWrites(t), [], t));
+  assert.deepStrictEqual(I.directWrites('If the command is not available,\nwrite `reports/x.json` directly.'), ['If the command is not available, write `reports/x.json` directly.'], 'a wrapped sentence is read whole');
+  assert.deepStrictEqual(I.sentencesOf('Run `install . --yes` now. Delete `.flightdeck/updates/2.15.0/AGENTS.md`! Done? Yes'),
+    ['Run `install . --yes` now.', 'Delete `.flightdeck/updates/2.15.0/AGENTS.md`!', 'Done?', 'Yes']);
+  Object.keys(I.initial().directWrites).forEach((f) => Object.entries(I.initial().directWrites[f]).forEach(([x, why]) =>
+    assert.ok(why === 'prohibition' || /^allowed: \S/.test(why), f + ': ' + x)));
 });
 
 rule('The shipped AGENTS.md, references and skills pass every inventory rule (1-13, a-f, docs)', () => {
