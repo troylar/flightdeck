@@ -311,9 +311,9 @@ rule('Process page: one page; the checklist shows in place with its Markdown on 
   state.ptab = 'edit';
   state.editor = { pid: 'release', base: latest.md, baseHash: 'x', text: latest.md.replace('## Deploy', '## Deploy · NOPE') };
   html = V.process(ctx);
-  assert.ok(/class="ob" id="ob"/.test(html) && !/id="draft-editor"/.test(html) && /Unsaved: Save draft before you publish/.test(html) && /Preview/.test(html), 'the builder by default');
+  assert.ok(/class="ob" id="ob"/.test(html) && !/id="draft-editor"/.test(html) && /Draft: not saved\. Save it before you publish\./.test(html) && /Preview/.test(html), 'the builder by default');
   state.builder = false; html = V.process(ctx);
-  assert.ok(/id="draft-editor"/.test(html) && /Unsaved: Save draft before you publish/.test(html) && /Preview/.test(html) && /Changed lines · 1 new or changed, 1 removed/.test(html), 'Markdown on request, with the lines changed');
+  assert.ok(/id="draft-editor"/.test(html) && /Draft: not saved\. Save it before you publish\./.test(html) && /Preview/.test(html) && /Changed lines · 1 new or changed, 1 removed/.test(html), 'Markdown on request, with the lines changed');
   state.editor.text = 'not a map';
   assert.ok(/Won.t publish yet/.test(V.process(ctx)), 'live checks');
   state.editor.conflict = { theirs: 'their text', theirsHash: 'y' };

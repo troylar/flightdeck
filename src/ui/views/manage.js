@@ -70,11 +70,11 @@
     var pr = o.practice, cnt = ctx.practiceCount ? ctx.practiceCount(p.id) : null, got = cnt && cnt.done ? ' · ' + cnt.done + ' of ' + cnt.total : '';
     var prim = wsPrimary(ctx, p, pr);
     var nav = '<nav class="pviews ws-views" aria-label="Checklist views">' +
-      '<button type="button"' + (pr ? ' data-act="pr-back"' : ' aria-current="page"') + '>' + I('edit') + 'Edit</button>' +
+      '<button type="button" id="ws-edit"' + (pr ? ' data-act="pr-back"' : ' aria-current="page"') + '>' + I('edit') + 'Edit</button>' +
       '<button type="button"' + (pr ? ' aria-current="page"' : ' data-act="pr-open"') + (got ? ' aria-label="Practice, ' + cnt.done + ' of ' + cnt.total + ' steps answered"' : '') + '>' + I('play') + 'Practice' + got + '</button></nav>';
     return '<header class="fpe-head ws-head" role="region" aria-labelledby="' + o.hid + '"><div class="fpe-id">' + V.backc(pr ? 'pr-leave' : 'ed-done', null, p.title) +
       '<div class="fpe-title"><h1 id="' + o.hid + '" class="sr" tabindex="-1">' + esc(p.title) + ', ' + (pr ? 'Practice' : 'Edit') + '</h1><span class="small fpe-sub">' + o.sub + prim.sub + '</span></div></div>' +
-      nav + '<div class="fpe-tools">' + o.tools + '</div><div class="fpe-save">' + prim.html + '</div></header>' + prim.why;
+      nav + '<div class="ws-right"><div class="fpe-tools">' + o.tools + '</div><div class="fpe-save">' + prim.html + '</div></div></header>' + prim.why;
   }
   /* The stage the saved draft is (rule 4): staged, complete and readable, with this exact text. The newest wins; test runs
      only break a tie. null when none, or when the stage decisions can't be read. */
@@ -102,8 +102,11 @@
     if (sg) {
       var open = sg.tests.filter(function (r) { return !r.ended; }).sort(function (a, b) { return String(b.created || '').localeCompare(String(a.created || '')); });
       if (open.length) { out.kind = 'testing'; out.sub = '<span class="ws-test"> · <button type="button" class="linkish" data-act="' + act('open-run', 'pr-test-run') + '" data-id="' + esc(open[0].process + '/' + open[0].id) + '">Test run in progress ›</button></span>'; return out; }
-      if (!sg.tests.length) { out.kind = 'test'; out.html = btn(act('start-test', 'pr-start-test'), sg.s.folder, 'Start a test run'); return out; }
-      out.kind = 'promote'; out.html = btn(act('promote-open', 'pr-promote-open'), sg.s.folder, 'Make v' + next + ' the default…'); return out;
+      var text = !sg.tests.length ? 'Start a test run' : 'Make v' + next + ' the default…';
+      out.kind = !sg.tests.length ? 'test' : 'promote';
+      /* Nobody chosen in You are: held, as Publish vN… is, with the reason; the click only takes focus to it. */
+      if (!st.me) { out.html = btn(act('ws-held', 'pr-held'), sg.s.folder, text, ' aria-disabled="true" aria-describedby="ws-why"'); out.why = '<p class="small ws-why" id="ws-why" tabindex="-1">Choose who you are first. You are is at the top of the checklist page.</p>'; return out; }
+      out.html = btn(!sg.tests.length ? act('start-test', 'pr-start-test') : act('promote-open', 'pr-promote-open'), sg.s.folder, text); return out;
     }
     if (!p.draftChanged) return out;
     out.kind = 'publish';
@@ -127,9 +130,9 @@
       '<p class="small">Anyone can publish. It\'s logged with your name, the time and the change note, and runs already started keep their version.</p>' +
       '<p class="err small" role="alert" id="pub-err">' + esc(o.err || '') + '</p>' +
       '<div class="row"><button type="button" class="btn go" data-act="publish" data-id="' + esc(p.id) + '"' + lock('publish') + '>' + label('publish', 'Publish v' + next, 'Publishing…') + '</button>' +
-      '<button type="button" class="btn" data-act="stage-draft" data-id="' + esc(p.id) + '"' + lock('stage') + '>' + label('stage', 'Stage for testing instead', 'Staging…') + '</button>' +
-      '<button type="button" class="mini" data-act="close-overlay"' + lock('cancel') + '>Cancel</button></div>' +
-      '<p class="small">Only test runs use it until someone makes it the default.</p></div></div>';
+      '<div class="pub-stage">' + '<button type="button" class="btn" data-act="stage-draft" data-id="' + esc(p.id) + '" aria-describedby="pub-stage-why"' + lock('stage') + '>' + label('stage', 'Stage for testing instead', 'Staging…') + '</button>' +
+      '<p class="small pub-stage-why" id="pub-stage-why">Only test runs use it until someone makes it the default.</p></div>' +
+      '<button type="button" class="mini" data-act="close-overlay"' + lock('cancel') + '>Cancel</button></div></div></div>';
   }
   /* Make vN the default… asks first, with the stage row's own line: clean test runs out of those needed, and sign-off. */
   function promoteDialog(ctx, p, folder, o) {
@@ -200,7 +203,7 @@
   /* The draft's save state in words, shared by the editor's header and the practice run screen. */
   function draftStatus(ctx, p, ed, text) {
     var st = ctx.state, dirty = ed && ed.text != null && ed.text !== ed.base || st.obPending === p.id, saving = (st.draftSaving || {})[ctx.fsKey + '\n' + p.id];
-    return saving === 'restore' ? 'Restoring…' : saving ? 'Saving…' : ed && ed.conflict ? 'Not saved: someone else changed it' : dirty ? 'Unsaved: Save draft before you publish' : p.draft ? (st.fs && st.fs.volatile ? 'Saved in this tab only' : 'Saved') : 'New draft, from ' + (p.latest ? 'v' + p.latest.info.version : 'scratch');
+    return saving === 'restore' ? 'Restoring…' : saving ? 'Saving…' : ed && ed.conflict ? 'Not saved: someone else changed it' : dirty ? 'not saved. Save it before you publish.' : p.draft ? (st.fs && st.fs.volatile ? 'Saved in this tab only' : 'Saved') : 'New draft, from ' + (p.latest ? 'v' + p.latest.info.version : 'scratch');
   }
   /* Open corrections, listed above the Markdown with the line each step starts on (the builder marks its rows instead). */
   function mdCorrections(ctx, p, text) {

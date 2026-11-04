@@ -2375,6 +2375,9 @@
   function runPage() {
     var on = (state.view === 'run' && !!ctx.run()) || state.view === 'practice', de = document.documentElement;
     if (de && de.classList) { if (on) de.classList.add('rw-on'); else de.classList.remove('rw-on'); }
+    /* The run's own pages (2.16 section 2.4): no top bar either; their way back is The run. */
+    var sub = (state.view === 'mission' || state.view === 'finish' || state.view === 'receipt') && !!ctx.run();
+    if (de && de.classList) { if (sub) de.classList.add('rw-page'); else de.classList.remove('rw-page'); }
     var head = on && app.querySelector && app.querySelector('.rw-head');
     if (head && head.offsetHeight && de.style) de.style.setProperty('--rw-head-h', head.offsetHeight + 'px');
     /* Steps and phases brought into view stop below the sticky Next up (and the picker beside it on laptops). */
@@ -3983,7 +3986,8 @@
       /* The editor shows the step being practiced, so coming straight back lands where you were. */
       var key = state.sel ? prBuilderKey(p, state.sel) : '';
       prToEditor(p, function () {
-        state.focus = id === 'compare' ? '[data-act="draft-keep-mine"]' : 'ed-h';
+        /* Focus goes to what's in view: the selected step in the builder, else the view control's Edit (never the hidden h1). */
+        state.focus = id === 'compare' ? '[data-act="draft-keep-mine"]' : key && state.builder !== false ? '[data-act="ob-sel"][data-id="' + cssEsc(key) + '"]' : 'ws-edit';
         if (!key) return;
         state.obSel = { pid: p.id, kind: 'step', key: key }; prTarget(p, 'step', key);
         if (state.builder === false) { var os = PF.outline.parse(edText(p)).steps.filter(function (x) { return x.key === key; })[0]; state.mdLine = os ? os.line : null; }
@@ -4048,6 +4052,7 @@
     'pr-promote-open': function (folder) { if (prNow()) wsPromoteOpen(folder); },
     'pr-start-test': function (folder) { var p = prNow(); if (!p) return; var e = prEntry(p.id); prHarvest(); prTripOut(e); prTouch(e); ACTIONS['start-test'](folder); },
     'pr-test-run': function (key) { var p = prNow(); if (!p || !ctx.findRun(key)) return; var e = prEntry(p.id); prHarvest(); prTripOut(e); prTouch(e); ACTIONS['open-run'](key); },
+    'pr-held': function () { if (prNow()) { state.focus = 'ws-why'; render(); } },
     'pr-problems': function () {
       var p = prNow(); if (!p) return; var e = prEntry(p.id);
       prHarvest(); prTripOut(e); e.trip.target = null; prTouch(e);
@@ -4163,10 +4168,12 @@
     if (state.overlay !== dlg) return load(true);
     dlg.sent = true;
     var practice = state.view === 'practice', had = !!prs[k] || !!state.practicing[k], pubd = r.kind === 'publish';
+    /* The guard is asked once; practice is left first (leaving it keeps its typing), then cleared, so nothing of it is left. */
     var end = function () {
-      var ended = practice ? !!guard && prEnded(pid, r.text, guard) : prEnded(pid, r.text), p = procFind(pid);
-      if (ended && practice && p) prToEditor(p);
-      return ended;
+      var e = prs[k], p = procFind(pid);
+      if (!e || !e.good || e.good.text !== r.text || (practice && !(guard && guard()))) return false;
+      if (practice && p) prToEditor(p);
+      return prEnded(pid, r.text);
     };
     var said = function (ended) {
       var kept = had && !ended;
@@ -4582,6 +4589,15 @@
   /* The workspace a step type was opened from (2.16), kept in memory with its folder read: { pid, sel, gen, fsKey }. */
   function typeFromNow() { var p = state.view === 'process' && state.ptab === 'edit' ? currentProcess() : null; return p ? { pid: p.id, sel: state.obSel ? Object.assign({}, state.obSel) : null, gen: gen, fsKey: fsKey() } : null; }
   function typeFromOk() { var t = state.typeFrom; return t && t.gen === gen && t.fsKey === fsKey() && procFind(t.pid) ? t : null; }
+  /* Back into the workspace while someone else has the draft open (2.16): the person was already editing, so they skip the
+     Edit anyway choice a move there would ask for again. true when it went there this way. */
+  function wsDirect(loc) {
+    var ws = loc && ((loc.view === 'process' && loc.tab === 'edit') || loc.view === 'practice'), p = ws && procFind(loc.process);
+    if (!p || !(p.editing || []).length) return false;
+    ACTIONS['open-process'](p.id); ACTIONS.ptab('edit');
+    if (loc.view === 'practice' && state.view === 'process' && state.ptab === 'edit' && currentProcess()) prEnter(currentProcess(), 'replace');
+    return true;
+  }
   /* Back to the editor, at the part it came from: browser Back when that's the entry before, else a move there. */
   function typeWsReturn() {
     var t = typeFromOk(), f = state.typeForm; state.typeFrom = null; if (!t) return;
@@ -4589,6 +4605,7 @@
     state.typeForm = null;
     var h = PF.nav.format({ view: 'process', process: t.pid, tab: 'edit' }), b = H.cur.b;
     var back = function () { if (t.sel && state.view === 'process' && state.ptab === 'edit' && state.processId === t.pid) { state.obSel = t.sel; state.focus = selFocus(t.sel) || 'ed-h'; } };
+    if (wsDirect({ view: 'process', process: t.pid, tab: 'edit' })) { back(); render(); return; }
     if (H.on && !H.pending && b && b.f === navFp() && b.h === h) { state.typeBack = back; try { HIST.back(); return; } catch (e) { navOff(); state.typeBack = null; } }
     var res = moveTo({ view: 'process', process: t.pid, tab: 'edit' }); if (res === 'stay') { render(); return; }
     state.focus = 'ed-h'; back(); render(); window.scrollTo(0, 0);
@@ -6279,6 +6296,7 @@
       /* Leaving a form by its way back or Cancel drops what it was for: a plan being made, a new checklist being named. */
       if (state.view === 'start') { state.planning = null; state.fieldErr = null; }
       if (state.view === 'new-process') state.newProc = null;
+      if (wsDirect(loc)) return;
       var b = H.cur.b;
       if (H.on && !H.pending && b && b.f === navFp() && b.h === PF.nav.format(loc)) { try { HIST.back(); return; } catch (e) { navOff(); } }
       var res = moveTo(loc);
@@ -6908,6 +6926,8 @@
     },
     'publish-open': function (id) { wsPublishOpen(id); },
     'promote-open': function (folder) { wsPromoteOpen(folder); },
+    /* A held primary (nobody chosen in You are): focus goes to the reason under the header. */
+    'ws-held': function () { if (state.view === 'process' && state.ptab === 'edit') { state.focus = 'ws-why'; render(); } },
     /* Show problems: the inspector's Checks tab. */
     'ws-problems': function () { if (!(state.view === 'process' && state.ptab === 'edit')) return; state.insTab = 'checks'; state.focus = '#ins-t-checks'; render(); },
     'retire-stage': function (folder) { stageAct(folder, 'retired'); },

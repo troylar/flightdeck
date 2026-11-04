@@ -791,4 +791,197 @@ rule('Escape never leaves the editor or the run screen', async () => {
   assert.ok(onRun(app), 'the run');
 });
 
+/* ---------- Build round 1: review findings ---------- */
+rule('R1 E-P2-1: Screen share, Finish and Receipt hide the top bar, as the run screen does; other pages show it', async () => {
+  const app = await start(); await fromRuns(app);
+  app.click('pickup'); await app.tick(40);
+  for (const sub of ['mission', 'finish', 'receipt']) {
+    app.click(sub); await app.tick(40);
+    assert.ok(app.rootClasses().indexOf('rw-page') >= 0, sub + ': the page hides the top bar');
+    app.click('exit-mission'); await app.settle();
+  }
+  app.click('go-back', '#/runs'); await app.settle();
+  assert.ok(app.rootClasses().indexOf('rw-page') < 0, 'Runs: the top bar shows');
+  const css = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'page.html'), 'utf8');
+  assert.match(css, /html\.rw-page \.top \{ display: none; \}/, 'the rule that hides it');
+});
+
+rule('R1 E-P2-2: switching to Edit (the view control or Escape) focuses the selected step, or the Edit button when none is', async () => {
+  const app = await edit({ domFocus: true, localStore: { 'preflight:builder': 'true' } });
+  app.click('pr-open'); await app.tick(60);
+  app.click('select', 'flags'); await app.tick();
+  app.click('pr-back'); await app.tick();
+  assert.ok(inEditor(app), 'set-up: Edit');
+  assert.strictEqual(app.focused(), '[data-act="ob-sel"][data-id="flags"]', 'the selected step');
+  const md = await edit({ domFocus: true });
+  md.click('pr-open'); await md.tick(60);
+  md.keyOn('Escape', {}, { tagName: 'BUTTON', dataset: {}, closest: () => null }); await md.tick();
+  assert.ok(inEditor(md), 'set-up: Escape switched to Edit');
+  assert.strictEqual(md.activeId(), 'ws-edit', 'the Edit button, never the hidden heading');
+  assert.match(md.html(), /<button type="button" id="ws-edit" aria-current="page">/);
+});
+
+rule('R1 E-P3-5: the strip never counts Practice · 0 of N', async () => {
+  const app = await edit();
+  app.click('pr-open'); await app.tick(60);
+  app.click('pr-leave'); await app.settle();
+  assert.ok(onOverview(app), 'set-up: the checklist page');
+  assert.strictEqual(viewBtn(app, 'Practice').text, 'Practice');
+  assert.ok(!viewBtn(app, 'Practice').label, 'no count in its name either');
+});
+
+rule('R1 E-P3-6: the dialog\'s staging note sits under Stage for testing instead, which points at it', async () => {
+  const app = await changed(); await into(app, 'edit');
+  const b = primary(app); app.click(b[0].act, b[0].id); await app.tick();
+  const ov = app.overlay(), st = buttons(ov).filter(x => x.act === 'stage-draft')[0];
+  assert.match(st.attrs, /aria-describedby="pub-stage-why"/);
+  assert.match(ov, /Stage for testing instead<\/button><p class="small pub-stage-why" id="pub-stage-why">Only test runs use it until someone makes it the default\.<\/p>/);
+  assert.ok(ov.indexOf('id="pub-stage-why"') < ov.indexOf('>Cancel<'), 'above Cancel');
+});
+
+rule('R1 E-P3-7: unsaved edits read Draft: not saved. Save it before you publish.', async () => {
+  const app = await edit();
+  app.input('draft-editor', app.draft('draft-editor') + '\nmore'); await app.tick(300);
+  assert.match(app.html(), /Draft: not saved\. Save it before you publish\.</);
+});
+
+/* Two windows on one folder: b holds the draft open, so a's Edit reads Edit anyway. */
+async function twoWindows() {
+  const files = {}, L = locks(), Channel = bus();
+  const a = await page({ sharedFiles: files, locks: L, Channel, domFocus: true, localStore: { 'preflight:builder': 'true' } });
+  const b = await page({ sharedFiles: files, locks: L, Channel, me: 'person-avery' });
+  b.click('ptab', 'edit'); await b.tick(); b.every(); await b.tick(40);
+  a.click('refresh'); await a.tick(120);
+  assert.strictEqual(viewBtn(a, 'Edit').text, 'Edit anyway', 'set-up: someone else has it open');
+  a.click('ptab', 'edit'); await a.tick();
+  assert.ok(inEditor(a), 'set-up: a edits anyway');
+  return a;
+}
+rule('R1 C-P2-1: with someone else in the draft, the step-type editor\'s way back still returns to the editor at its step, not the overview', async () => {
+  const a = await twoWindows();
+  a.click('ob-sel', 'flags'); await a.tick();
+  a.click('new-type'); await a.tick();
+  const b = back1(a);
+  assert.strictEqual(b.text, 'Production release · Edit');
+  a.click(b.act, b.id); await a.settle();
+  assert.ok(inEditor(a), 'back in the editor: ' + a.hash());
+  assert.ok(!/Choose Edit anyway/.test(a.html() + a.live()), 'not refused');
+  assert.match(a.html(), /data-act="ob-sel" data-id="flags" aria-pressed="true"/, 'at the step it came from');
+});
+rule('R1 C-P2-1: with someone else in the draft, a test-run form opened from Practice goes back to Practice', async () => {
+  const files = {}, L = locks(), Channel = bus();
+  const { app: a, folder } = await staged({ sharedFiles: files, locks: L, Channel });
+  const b = await page({ sharedFiles: files, locks: L, Channel, me: 'person-avery' });
+  b.click('ptab', 'edit'); await b.tick(); b.every(); await b.tick(40);
+  a.click('refresh'); await a.tick(120);
+  a.click('ptab', 'edit'); await a.tick(); a.click('pr-open'); await a.tick(60);
+  assert.ok(onPage(a), 'set-up: practicing');
+  a.click('pr-start-test', folder); await a.tick();
+  const bk = back1(a);
+  assert.strictEqual(bk.text, 'Production release · Practice');
+  a.click(bk.act, bk.id); await a.settle();
+  assert.ok(onPage(a), 'back in practice: ' + a.hash());
+  assert.ok(!/Choose Edit anyway/.test(a.html() + a.live()), 'not refused');
+});
+
+rule('R1 C-P3-1: publishing what was practiced clears its typed evidence from this tab too', async () => {
+  const session = {};
+  const app = await changed({ sessionStore: session }); await into(app, 'practice');
+  app.click('toggle', 'approved'); await app.tick();
+  app.input('rec-number', 'CHG-77'); await app.tick();
+  assert.ok(Object.keys(session).some(k => /:practice:.*:typed$/.test(k)), 'set-up: typed evidence kept');
+  const b = primary(app); app.click(b[0].act, b[0].id); await app.tick();
+  app.set('change-note', 'Tell on-call'); ovClick(app, 'publish', 'release'); await app.tick(300);
+  assert.match(app.html() + app.live(), /Your practice was cleared/, 'set-up: cleared');
+  assert.deepStrictEqual(Object.keys(session).filter(k => /:practice:/.test(k)), [], 'nothing of it left');
+});
+
+rule('R1 C-P3-2: staged, with nobody chosen, Start a test run and Make vN the default… are held with the reason, from Edit and from Practice', async () => {
+  for (const view of ['edit', 'practice']) {
+    const { app } = await staged(); await into(app, view);
+    app.choose(''); await app.tick();
+    const b = primary(app);
+    assert.ok(b.length === 1 && b[0].text === 'Start a test run' && /aria-disabled="true"/.test(b[0].attrs) && /aria-describedby="ws-why"/.test(b[0].attrs), view + ': held ' + JSON.stringify(b));
+    assert.match(app.html(), /id="ws-why"[^>]*>Choose who you are first\. You are is at the top of the checklist page\./);
+    app.click(b[0].act, b[0].id); await app.tick();
+    assert.ok(!/Start a test run<\/h1>/.test(app.html()), view + ': no form');
+    assert.strictEqual(app.focused(), 'ws-why', view + ': focus goes to the reason');
+  }
+  for (const view of ['edit', 'practice']) {
+    const { app, folder } = await staged();
+    await testRun(app, folder, 'Stopped early'); await into(app, view);
+    app.choose(''); await app.tick();
+    const b = primary(app);
+    assert.ok(b.length === 1 && /^Make v3 the default…$/.test(b[0].text) && /aria-disabled="true"/.test(b[0].attrs), view + ': held ' + JSON.stringify(b));
+    app.click(b[0].act, b[0].id); await app.tick();
+    assert.strictEqual(app.overlay(), '', view + ': no dialog');
+  }
+});
+
+rule('R1 T-P2-1: two complete stages of the same text: the newest stage is the one Start a test run starts, from Edit and from Practice', async () => {
+  for (const view of ['edit', 'practice']) {
+    const { app, folder } = await staged();
+    const pub = stageFiles(app)[0], info = JSON.parse(app.fs.files[pub].t), dir = pub.replace(/publication\.json$/, '');
+    const newer = 'stage-zzzzzzzz', at = new Date(Date.parse(info.stagedAt) + 60000).toISOString();
+    app.files(dir).forEach(f => { app.fs.files[f.replace(dir, 'staged/release/' + newer + '/')] = { t: f === pub ? JSON.stringify(Object.assign({}, info, { folder: newer, stagedAt: at })) : app.fs.files[f].t, m: Date.now() }; });
+    app.click('refresh'); await app.tick(120); app.click('open-process', 'release'); await app.tick();
+    assert.strictEqual(stageFiles(app).length, 2, 'set-up: two stages');
+    await into(app, view);
+    assert.deepStrictEqual(primary(app).map(x => [x.text, x.id]), [['Start a test run', newer]], view + ' (older ' + folder + ')');
+  }
+});
+
+rule('R1 T-P2-1: while a screenshot is being added the header has no primary', async () => {
+  const app = await changed({ localStore: { 'preflight:builder': 'true' } }); await into(app, 'edit');
+  assert.deepStrictEqual(primary(app).map(x => x.text), ['Publish v3…'], 'set-up: a primary to lose');
+  app.click('ob-sel', 'flags'); await app.tick();
+  let go; const gate = new Promise(r => { go = r; }); const orig = app.fs.write.bind(app.fs);
+  app.fs.write = (x, d) => /^images\//.test(x) ? gate.then(() => orig(x, d)) : orig(x, d);
+  app.setScoped('ob-shot-new', 'The flags page');
+  app.change('ob-shot-file', [Object.assign(new Blob([new Uint8Array([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 1, 2, 3, 4])], { type: 'image/png' }), { name: 'shot.png' })]); await app.tick(20);
+  assert.deepStrictEqual(primary(app), [], 'busy: none');
+  go(); await app.tick(120); app.fs.write = orig;
+  assert.deepStrictEqual(primary(app).map(x => x.text), ['Save draft'], 'after: Save draft');
+});
+
+rule('R1 T-P2-1: staging from the checklist page and publishing leave no primary in the workspace while they write, from Edit and from Practice', async () => {
+  for (const act of ['stage-draft', 'publish']) {
+    for (const view of ['edit', 'practice']) {
+      const app = await changed();
+      const release = holdWrites(app);
+      app.set('change-note', 'Tell on-call first'); ovClick(app, act, 'release'); await app.tick(20);
+      await into(app, view);
+      assert.deepStrictEqual(primary(app), [], act + ' ' + view + ': none while writing');
+      release(); await app.tick(300);
+    }
+  }
+});
+
+rule('R1 T-P2-1: a checklist with only a proposal, reached by a typed /edit link, has no primary', async () => {
+  const app = await start();
+  const md = '---\nprocess: onboard\ntitle: Onboarding\ncategory: People\nowner: person-casey\n---\n\n## First · READ-DO {#first}\n- [ ] {confirm} Say hello {#hello}\n';
+  const p = app.PF.proposals.make({ id: 'p-b1-aaaaaaaaaa', process: 'onboard', session: 's-k3m9p2q8x7w1', label: 'assistant', by: 'person-avery', at: new Date().toISOString(), app: '1.19.0', base: { kind: 'none', ref: null, text: '' }, text: md, replaces: null, after: null, note: '' });
+  app.fs.files['proposed/onboard/' + p.id + '.json'] = { t: JSON.stringify(p), m: 1 };
+  app.click('refresh'); await app.tick(120);
+  app.typeHash('#/process/onboard/edit'); await app.settle();
+  assert.deepStrictEqual(primary(app), [], app.hash());
+  assert.ok(!/data-act="(save-draft|publish-open|start-test|promote-open)"/.test(app.html()), 'nothing to do from a proposal alone');
+});
+
+rule('R1 T-P3-1: ‹ <title> with a builder box typed and not applied refuses, stays in the editor and keeps the typing', async () => {
+  /* From the checklist page (‹ is browser Back) and from a typed link (‹ moves there). */
+  for (const how of ['page', 'typed']) {
+    const app = how === 'page' ? await edit({ domFocus: true, localStore: { 'preflight:builder': 'true' } }) : await start({ domFocus: true, localStore: { 'preflight:builder': 'true' }, hash: '#/process/release/edit' });
+    if (how === 'typed') await app.tick(80);
+    app.click('ob-sel', 'flags'); await app.tick();
+    app.input('ob-text', 'Half typed'); await app.tick();
+    const n = app.entries().length, i = app.index();
+    app.click('ed-done'); await app.settle();
+    assert.ok(inEditor(app), how + ': still the editor');
+    assert.match(app.live(), /Apply or clear what you typed in the box first/, how);
+    assert.strictEqual(app.draft('ob-text'), 'Half typed', how);
+    assert.deepStrictEqual([app.entries().length, app.index()], [n, i], how + ': history untouched');
+  }
+});
+
 run();

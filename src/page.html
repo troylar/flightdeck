@@ -464,11 +464,15 @@ table.grid td.cold { color: var(--muted); }
 .lvl.bad { background: var(--stop-soft); color: var(--stop); } .lvl.tip { background: var(--plan-soft); color: var(--plan); } .lvl.ok { background: var(--go-soft); color: var(--go); }
 
 /* Receipt */
+.pub-stage { display: flex; flex-direction: column; gap: 4px; max-width: 22em; }
+.pub-stage .pub-stage-why { margin: 0; }
 .receipt { width: min(800px, 100%); background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 22px 24px; display: flex; flex-direction: column; gap: 14px; }
 .receipt .head { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; border-bottom: 2px solid var(--ink); padding-bottom: 10px; }
 .receipt .rt { font-family: var(--display); font-weight: 700; font-size: 28px; line-height: 1.05; }
 .receipt h4 { margin: 4px 0; font-family: var(--display); font-size: 17px; display: flex; justify-content: space-between; gap: 10px; }
 .rrow { display: grid; grid-template-columns: 34px minmax(0, 1fr) auto; gap: 8px; font-size: 14px; padding: 3px 0; border-top: 1px solid var(--line); }
+/* A long link in a row's evidence wraps instead of widening the receipt (no sideways scroll on a phone). */
+.rrow > *, .rrow .small { min-width: 0; overflow-wrap: anywhere; }
 .ric { font-family: var(--label); font-weight: 600; text-align: center; }
 .ric.done { color: var(--go); } .ric.na { color: var(--muted); } .ric.blocked { color: var(--stop); } .ric.recheck { color: var(--amber); }
 
@@ -1394,6 +1398,7 @@ p.pv-when { margin: 0 0 4px; }
 }
 /* ---------- The run workspace: a page of its own, like the draft editor ---------- */
 html.rw-on .top { display: none; }
+html.rw-page .top { display: none; }
 html.rw-on #app { padding: 0; max-width: none; }
 @media (min-width: 801px) { html.rw-on, html.rw-on body { overflow: hidden; } }
 .fpe.rw { grid-template-rows: auto auto auto minmax(0, 1fr); }
@@ -1700,6 +1705,15 @@ button.att:hover { border-color: var(--ink); }
   .rw-head .btn, .rw-head .mini, .rw-menu summary { min-height: 44px; }
   .rw-back { padding: 6px 10px; }
   .rw-tools [data-act="run-details"], .rw-tools [data-act="mission"], .rw-tools > [data-act="receipt"]:not(.go) { display: none; }
+}
+/* Small phones: the run's title gets a row of its own under the way back, Finish the run and More, so it isn't cut short. */
+@media (max-width: 480px) {
+  .fpe-head.rw-head:not(.ws-head) { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "back tools" "title title" "prog prog"; }
+  .rw-head:not(.ws-head) .fpe-id { display: contents; }
+  .rw-head:not(.ws-head) .fpe-id > .backc { grid-area: back; justify-self: start; }
+  .rw-head:not(.ws-head) .fpe-title { grid-area: title; min-width: 0; }
+}
+@media (max-width: 800px) {
   .fpe-head.rw-head.pr-head { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-areas: "id" "prog" "tools"; }
   .pr-head .fpe-title { flex: 1 1 0; }
   .pr-head .rw-tools { justify-content: flex-start; }
@@ -1983,7 +1997,9 @@ body { padding-top: var(--keep-h); }
   .rw .step, .rw .gate, .rw .phase { scroll-margin-top: calc(var(--keep-h) + var(--rw-head-h, 0px) + var(--rw-next-h, 72px) + 12px); }
 }
 /* 2.16: the workspace's one header (editor and practice): back | views | tools | the primary. */
-.fpe-head.ws-head, .fpe-head.ws-head.rw-head { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; grid-template-areas: "id views tools save"; align-items: center; gap: 8px 12px; }
+/* Wide: three columns, the view control centered, so it stays put whether or not a primary shows; tools and primary on the right. */
+.fpe-head.ws-head, .fpe-head.ws-head.rw-head { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-areas: "id views right"; align-items: center; gap: 8px 12px; }
+.ws-head .ws-right { grid-area: right; display: flex; justify-content: flex-end; align-items: center; gap: 8px 12px; min-width: 0; flex-wrap: wrap; }
 .ws-head .fpe-id { grid-area: id; min-width: 0; }
 .ws-head .fpe-id .backc { max-width: 100%; }
 .ws-head .fpe-title { flex: 0 1 auto; min-width: 0; }
@@ -1994,7 +2010,7 @@ body { padding-top: var(--keep-h); }
 .ws-head .btn.go[aria-disabled="true"] { background: var(--chip); color: var(--muted); border-color: var(--line); }
 .ws-why { margin: 4px 16px; }
 .ws-head .fpe-state { width: auto; justify-content: flex-start; text-align: left; }
-@media (max-width: 1240px) { .fpe-head.ws-head, .fpe-head.ws-head.rw-head { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "id save" "views views" "tools tools"; } }
+@media (max-width: 1240px) { .fpe-head.ws-head, .fpe-head.ws-head.rw-head { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "id save" "views views" "tools tools"; } .ws-head .ws-right { display: contents; } }
 @media (max-width: 800px) {
   .fpe-head.ws-head, .fpe-head.ws-head.rw-head, .fpe-head.rw-head.pr-head.ws-head { grid-template-columns: minmax(0, 1fr) minmax(0, max-content); grid-template-areas: "id save" "views views" "tools tools"; }
   .ws-head .fpe-save { max-width: 50vw; }
