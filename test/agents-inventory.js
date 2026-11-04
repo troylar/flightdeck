@@ -7,7 +7,7 @@
 'use strict';
 const fs = require('fs'), path = require('path'), crypto = require('crypto');
 const { load } = require('./harness');
-const PF = load(), C = PF.contract, R = PF.contract;
+const PF = load(), C = PF.contract, R = PF.contract, PR = require('./prose-reader');
 const K = require('../bin/flightdeck.js');
 const ROOT = path.join(__dirname, '..'), EX = path.join(ROOT, 'example-folder');
 const read = (p) => fs.readFileSync(path.join(EX, p), 'utf8');
@@ -539,68 +539,65 @@ const YOU_MAY = {
     'The only commands you may run are the folder check below and, when `flightdeck` is installed, its read-only JSON commands named below.': NARROW,
     '**Runs:** running now (title, recorder, current phase if you can tell), and ended in the last 14 days with their outcome and any open follow-ups.': '"if you can tell": not a grant' }
 };
-/* Check g (round 13): an allow-list, so no phrasing beats it. Every sentence in a reference or an installed skill that has a
-   write, save, edit, create or delete verb (or copy, move, rename, overwrite and the like) and names a protected path (drafts, runs, reports, report decisions, step types, a
-   staged AGENTS.md copy) is listed in DIRECT_WRITES by its exact normalized text, with "prohibition" or "allowed: <why>". An
-   unlisted or changed sentence fails, and so does an entry that matches nothing. Each entry was reviewed by hand. */
+/* Check g (round 14): an allow-list, so no phrasing beats it. Every sentence in a reference or an installed skill, as the
+   shared prose reader (test/prose-reader.js) reads it, that has a write verb and names a protected path after normalizing
+   (drafts, runs, reports, report decisions, step types, a staged AGENTS.md copy; `./` and backticks stripped, a root with or
+   without its slash) is listed in DIRECT_WRITES by its heading path, its paragraph's bold lead-in and its exact text, with
+   how many times it occurs and "prohibition" or "allowed: <why>". An unlisted sentence fails, and so does one moved under
+   another heading or lead-in, a renamed lead-in, a changed count and an entry that matches nothing. Each entry was reviewed
+   by hand. */
 const WRITE_VERB = /\b(?:writ(?:e|es|ten|ing)|wrote|sav(?:e|es|ed|ing)|edit(?:s|ed|ing)?|creat(?:e|es|ed|ing)|delet(?:e|es|ed|ing)|overwrit(?:e|es|ten|ing)|cop(?:y|ies|ied|ying)|mov(?:e|es|ed|ing)|renam(?:e|es|ed|ing)|append(?:s|ed|ing)?|remov(?:e|es|ed|ing)|replac(?:e|es|ed|ing)|puts?|putting|chang(?:e|es|ed|ing)|updat(?:e|es|ed|ing)|modif(?:y|ies|ied|ying)|fix(?:es|ed|ing)?|patch(?:es|ed|ing)?|add(?:s|ed|ing)?)\b/i;
-const PROTECTED = /maps\/drafts\b|(?:^|[^\w/-])runs\/|(?:^|[^\w/-])reports\/|(?:^|[^\w/-])report-decisions\/|step-types\/|\.flightdeck[-/]updates\b|updates\/(?:<version>|\d+\.\d+\.\d+)\/AGENTS\.md/;
-/* A sentence ends at ., ! or ? followed by whitespace or the end of the text, outside backticks: a period inside a path
-   (`.flightdeck`, `2.15.0`) or a code span never ends one. */
-function sentencesOf(text) {
-  const out = []; let cur = '', tick = false;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i]; cur += c;
-    if (c === '`') tick = !tick;
-    else if (!tick && (c === '.' || c === '!' || c === '?') && (i + 1 === text.length || /\s/.test(text[i + 1]))) { out.push(cur); cur = ''; }
-  }
-  out.push(cur);
-  return out.map((x) => x.replace(/^\s*(?:[-*+]|\d+\.)\s+/, '').replace(/\s+/g, ' ').trim()).filter(Boolean);
-}
-/* Prose lines into paragraphs: a blank line, a list item or a heading starts a new one, so a sentence wrapped over lines is
-   read whole. */
-function paragraphs(lines) {
-  const out = [];
-  lines.forEach((l) => {
-    if (!l.trim()) { out.push(''); return; }
-    if (!out.length || out[out.length - 1] === '' || /^\s*(?:[-*+]|\d+\.|#{1,6})\s/.test(l)) out.push(l); else out[out.length - 1] += '\n' + l;
-  });
-  return out.filter(Boolean);
-}
-const directWrites = (md) => paragraphs(R.prose(md)).flatMap(sentencesOf).filter((x) => WRITE_VERB.test(x) && PROTECTED.test(x));
+const directWrites = (md) => PR.proseSentences(md).filter((x) => WRITE_VERB.test(x.text) && PR.pathsOf(x.text).length > 0);
+const dwKey = (x) => x.at + '\u0000' + x.lead + '\u0000' + x.text;
 const DIRECT_WRITES = {
-  [SKD + "_flightdeck/map-format.md"]: {
-    "A team can add its own types as `step-types/<id>.json` in the team folder.":
-      "allowed: describes the step-type file format; who writes the file is the step-type skill's rule (the command, or the person in Flightdeck)"
-  },
-  [SKD + "flightdeck-edit-checklist/SKILL.md"]: {
-    "Never copy a version into `maps/drafts/` yourself.":
-      "prohibition",
-    "Save the copy to `maps/drafts/<process>.md` first, and say you did.":
-      "allowed: the \"Without the command\" route; AGENTS.md allows `maps/drafts/<process>.md` by hand only when `flightdeck draft save` isn't available, and this is that bullet",
-    "Never write `maps/drafts/` yourself when the command is available, and never edit `publications/`, `staged/`, `runs/`, `proposed/` or `presence/`.":
-      "prohibition"
-  },
-  [SKD + "flightdeck-new-checklist/SKILL.md"]: {
-    "Check `maps/drafts/` and `publications/` (list the files): if a checklist for this process already exists, stop and suggest `/flightdeck-edit-checklist` instead.":
-      "allowed: reads only (list the files); the write verb is the skill name `/flightdeck-edit-checklist`",
-    "It writes `maps/drafts/<process>.md` only if no draft is there and nobody has one open; otherwise your checklist is a proposal: it appears in the person's open editor if they have it open with nothing unsaved, or waits for them on the checklist's page (say which in your report).":
-      "allowed: says what `flightdeck draft save` writes, not a write by the assistant",
-    "Never write `maps/drafts/` yourself when the command is available, and never write to `publications/`, `staged/`, `runs/`, `proposed/` or `presence/`.":
-      "prohibition"
-  },
-  [SKD + "flightdeck-new-step-type/SKILL.md"]: {
-    "Never write, edit, rename or delete a file in `step-types/` yourself.":
-      "prohibition",
-    "Then look in `step-types/` read only to see what's there, and don't write the file instead.":
-      "prohibition"
-  },
-  [SKD + "flightdeck-status/SKILL.md"]: {
-    "It prints, as JSON and exactly as Flightdeck judges them: every published version's status, the current version and any clash per process (`publications`), each plan's status (`plans`: pending, decided or ambiguous; `refused` and `unreadablePlans`), runs with conflict copies (`conflicts`) or many leftover save receipts (`receipts`), problems in the team's `step-types/` and `jira/workflows.json` files (`teamFiles`), and every registered skill as Flightdeck matches it (`skills`).":
-      "allowed: lists what the read-only status command prints; \"save receipts\" is a noun",
-    "conflict copies: any `runs/*/*/run*.json` other than `run.json` (two versions of one run)":
-      "allowed: names files the read-only status report flags; \"copies\" is a noun"
-  }
+  [SKD + "_flightdeck/command-guide.md"]: [
+    { at: "Command guide > Reading runs > Through the command", lead: "", n: 1,
+      text: "With contract 2, `runs` leaves test runs out (it says how many in `testRunsLeftOut`) unless you add `--tests`, and `process … --stage stage-<id>` reads a staged version; both work only with `--contract 2`.",
+      why: "allowed: `runs` is the read-only command, and the verb is \"add `--tests`\", a flag" }
+  ],
+  [SKD + "_flightdeck/map-format.md"]: [
+    { at: "Checklist format > Team step types", lead: "", n: 1,
+      text: "A team can add its own types as `step-types/<id>.json` in the team folder.",
+      why: "allowed: describes the step-type file format; who writes the file is the step-type skill's rule (the command, or the person in Flightdeck)" }
+  ],
+  [SKD + "flightdeck-edit-checklist/SKILL.md"]: [
+    { at: "Steps", lead: "With the command:", n: 1,
+      text: "Never copy a version into `maps/drafts/` yourself.",
+      why: "prohibition" },
+    { at: "Steps", lead: "Without the command:", n: 1,
+      text: "Save the copy to `maps/drafts/<process>.md` first, and say you did.",
+      why: "allowed: the \"Without the command\" route; AGENTS.md allows `maps/drafts/<process>.md` by hand only when `flightdeck draft save` isn't available, and this is that bullet" },
+    { at: "Steps", lead: "Save", n: 1,
+      text: "Never write `maps/drafts/` yourself when the command is available, and never edit `publications/`, `staged/`, `runs/`, `proposed/` or `presence/`.",
+      why: "prohibition" }
+  ],
+  [SKD + "flightdeck-new-checklist/SKILL.md"]: [
+    { at: "Steps", lead: "Find the sources.", n: 1,
+      text: "Check `maps/drafts/` and `publications/` (list the files): if a checklist for this process already exists, stop and suggest `/flightdeck-edit-checklist` instead.",
+      why: "allowed: reads only (list the files); the write verb is the skill name `/flightdeck-edit-checklist`" },
+    { at: "Steps", lead: "Save", n: 1,
+      text: "It writes `maps/drafts/<process>.md` only if no draft is there and nobody has one open; otherwise your checklist is a proposal: it appears in the person's open editor if they have it open with nothing unsaved, or waits for them on the checklist's page (say which in your report).",
+      why: "allowed: says what `flightdeck draft save` writes, not a write by the assistant" },
+    { at: "Steps", lead: "Save", n: 1,
+      text: "Never write `maps/drafts/` yourself when the command is available, and never write to `publications/`, `staged/`, `runs/`, `proposed/` or `presence/`.",
+      why: "prohibition" }
+  ],
+  [SKD + "flightdeck-new-step-type/SKILL.md"]: [
+    { at: "Use the commands, never the files", lead: "", n: 1,
+      text: "Never write, edit, rename or delete a file in `step-types/` yourself.",
+      why: "prohibition" },
+    { at: "When the command can't save: the person's route in Flightdeck", lead: "", n: 1,
+      text: "Then look in `step-types/` read only to see what's there, and don't write the file instead.",
+      why: "prohibition" }
+  ],
+  [SKD + "flightdeck-status/SKILL.md"]: [
+    { at: "", lead: "", n: 1,
+      text: "It prints, as JSON and exactly as Flightdeck judges them: every published version's status, the current version and any clash per process (`publications`), each plan's status (`plans`: pending, decided or ambiguous; `refused` and `unreadablePlans`), runs with conflict copies (`conflicts`) or many leftover save receipts (`receipts`), problems in the team's `step-types/` and `jira/workflows.json` files (`teamFiles`), and every registered skill as Flightdeck matches it (`skills`).",
+      why: "allowed: lists what the read-only status command prints; \"save receipts\" is a noun" },
+    { at: "Report, in this order", lead: "", n: 1,
+      text: "conflict copies: any `runs/*/*/run*.json` other than `run.json` (two versions of one run)",
+      why: "allowed: names files the read-only status report flags; \"copies\" is a noun" }
+  ]
 };
 /* Mentions of a reference that aren't citations (check d, read in reverse). Each entry excuses exactly one occurrence, in its
    section (home: the anchor, 'top' before the first ##). */
@@ -800,18 +797,23 @@ function checks(s) {
   /* b: grant phrasing in a reference or an installed skill is listed with why. */
   Object.keys(s.files).filter((f) => f.startsWith(SKD) && f.endsWith('.md')).forEach((f) => unitsAt(R.prose(s.files[f]).join('\n')).forEach((u) => {
     if (GRANT.test(noCode(u.text)) && !((s.youMay[f] || {})[u.text])) fail('b', f + ': ' + u.text.slice(0, 60)); }));
-  /* g: every sentence that writes to a protected path is listed in DIRECT_WRITES, with "prohibition" or "allowed: <why>";
-     an entry that matches no sentence is stale. */
-  const dwUsed = {};
+  /* g: every sentence that writes to a protected path is listed in DIRECT_WRITES under its heading path and lead-in, with its
+     count and "prohibition" or "allowed: <why>"; an entry that matches nothing is stale. */
+  const dwHave = {};
   Object.keys(s.files).filter((f) => f.startsWith(SKD) && f.endsWith('.md')).sort().forEach((f) => directWrites(s.files[f]).forEach((x) => {
-    if (((s.directWrites || {})[f] || {})[x] == null) fail('g', f + ': a write to a protected path, unlisted: ' + x.slice(0, 80));
-    else dwUsed[f + '\u0000' + x] = true;
+    const k = f + '\u0000' + dwKey(x); dwHave[k] = dwHave[k] || { f, x, n: 0 }; dwHave[k].n++;
   }));
-  Object.keys(s.directWrites || {}).forEach((f) => Object.keys(s.directWrites[f]).forEach((x) => {
-    const why = s.directWrites[f][x];
-    if (why !== 'prohibition' && !/^allowed: \S/.test(why || '')) fail('g', f + ': a DIRECT_WRITES reason must be "prohibition" or "allowed: <why>": ' + x.slice(0, 60));
-    if (!dwUsed[f + '\u0000' + x]) fail('g', f + ': DIRECT_WRITES matches no sentence: ' + x.slice(0, 60));
+  const dwListed = {};
+  Object.keys(s.directWrites || {}).forEach((f) => (s.directWrites[f] || []).forEach((e) => {
+    const k = f + '\u0000' + dwKey(e), at = ' (' + (e.at || '-') + (e.lead ? ' / ' + e.lead : '') + ')';
+    if (dwListed[k]) fail('g', f + ': DIRECT_WRITES lists one sentence twice: ' + String(e.text).slice(0, 60));
+    dwListed[k] = true;
+    if (e.why !== 'prohibition' && !/^allowed: \S/.test(e.why || '')) fail('g', f + ': a DIRECT_WRITES reason must be "prohibition" or "allowed: <why>": ' + String(e.text).slice(0, 60));
+    const have = dwHave[k] ? dwHave[k].n : 0;
+    if (!have) fail('g', f + ': DIRECT_WRITES matches no sentence' + at + ': ' + String(e.text).slice(0, 60));
+    else if (have !== e.n) fail('g', f + ': occurs ' + have + ' times, DIRECT_WRITES says ' + e.n + at + ': ' + String(e.text).slice(0, 60));
   }));
+  Object.keys(dwHave).forEach((k) => { if (!dwListed[k]) { const { f, x } = dwHave[k]; fail('g', f + ': a write to a protected path, unlisted (' + (x.at || '-') + (x.lead ? ' / ' + x.lead : '') + '): ' + x.text.slice(0, 80)); } });
   /* c: an italic name in a skill or reference sentence that mentions AGENTS.md is an AGENTS.md heading. */
   const heads = R.sections(A);
   Object.keys(s.files).filter((f) => f.startsWith(SKD) && f.endsWith('.md')).forEach((f) => {
@@ -888,5 +890,5 @@ function docs(s) {
   });
   return out;
 }
-module.exports = { directWrites, sentencesOf, initial, checks, anchors, sectionText, unitsAt, homedUnits, lineHomes, homeText, walk, isA, slug, flat, count, ALIASES, helpCommands, docs,
+module.exports = { directWrites, initial, checks, anchors, sectionText, unitsAt, homedUnits, lineHomes, homeText, walk, isA, slug, flat, count, ALIASES, helpCommands, docs,
   ENTRIES, ADDED, REF_ADDED, MOVED_GUIDANCE, MOVED_RULE_WORDS, CLASS_EXCEPTIONS, YOU_MAY, NOT_CITES, FIXTURE, AGENTS, ROOM_CEILING, GUIDANCE, WHY_WORDS, GRANT, NOTHING, GUIDE, ESS, FF, MF, STEP, REFS, H, G, PF, R, K };

@@ -169,22 +169,12 @@ const DELETE_WORD = /\bdelet(?:e|es|ing)\b[^\n]{0,120}?(?:AGENTS\.md|\bits copy\
 const ABOUT_COPIES = /AGENTS\.md|\.flightdeck[-/]updates|version folder|updates\/|staged cop|waiting cop/i;
 /* "once the other files are merged" is no condition on the copy itself: only its own merge, or nobody having changed it, is. */
 const CONDITION = /\bonly if\b|\bunless\b|\bnobody changed\b|\b(?:when|once) (?:it'?s|it is|a file is|each (?:file|copy) is|that file is|its edits are) merged\b/i;
-/* A sentence ends at ., ! or ? followed by whitespace or the end of a line, outside backticks: a period inside a path
-   (`.flightdeck`, `2.15.0`) or a code span never ends one. A line end ends one too, since code strings run one per line. */
-function sentencesOf(text) {
-  const out = []; let cur = '', tick = false;
-  for (let i = 0; i < text.length; i++) {
-    const c = text[i];
-    if (c === '\n') { out.push(cur); cur = ''; tick = false; continue; }
-    cur += c;
-    if (c === '`') tick = !tick;
-    else if (!tick && (c === '.' || c === '!' || c === '?') && (i + 1 === text.length || /\s/.test(text[i + 1]))) { out.push(cur); cur = ''; }
-  }
-  out.push(cur);
-  return out.map(x => x.trim()).filter(Boolean);
-}
-function unconditionalDeletes(text, where) {
-  return sentencesOf(text).filter(x => DELETE_WORD.test(x) && ABOUT_COPIES.test(x) && !CONDITION.test(x)).map(x => where + ': ' + x.trim().slice(0, 200));
+/* Markdown is read through the shared prose reader (test/prose-reader.js: soft wraps joined, a sentence split only outside
+   paths and code spans); source code keeps its own lines, each split the same way, since its strings run one per line. */
+const PROSE = require('./prose-reader');
+const sentencesIn = (text, code) => code ? text.split('\n').flatMap(PROSE.sentencesOf) : PROSE.proseSentences(text).map(x => x.text);
+function unconditionalDeletes(text, where, code) {
+  return sentencesIn(text, code).filter(x => DELETE_WORD.test(x) && ABOUT_COPIES.test(x) && !CONDITION.test(x)).map(x => where + ': ' + x.trim().slice(0, 200));
 }
 const shippedText = () => {
   const files = [...REPO_DOCS, ...INSTALLED, 'CHANGELOG.md', 'src/releases.json', 'bin/flightdeck.js', 'dist/flightdeck.html', ...list('src/core', /\.js$/), ...list('src/ui', /\.js$/), ...list('src/ui/views', /\.js$/)];
@@ -192,7 +182,7 @@ const shippedText = () => {
 };
 rule('Round 12: no shipped text says to delete AGENTS.md or a staged copy without saying when (only if nobody changed it, or once it is merged)', () => {
   const bad = [];
-  shippedText().forEach(([f, t]) => bad.push(...unconditionalDeletes(t, f)));
+  shippedText().forEach(([f, t]) => bad.push(...unconditionalDeletes(t, f, !/\.md$/.test(f))));
   /* The words as they render: the merge README for a held AGENTS.md and for one only its copy waits on, and the merge prompt. */
   const C = PF.contract, G = C.REFS + 'command-guide.md', ups = ['.flightdeck', 'updates'];
   const held = { key: 'AGENTS.md', rel: 'AGENTS.md', status: 'merge', heldFrom: 'update', held: [{ path: G, lacks: ['Reading runs'] }] };
@@ -212,7 +202,15 @@ rule('Round 13: a period inside a path or a code span never ends a sentence, so 
     'Delete .flightdeck/updates/2.15.0/AGENTS.md and run install again.', 'Run `flightdeck install . --yes`, then delete `.flightdeck/updates/2.15.0/AGENTS.md`.']
     .forEach((t) => assert.strictEqual(unconditionalDeletes(t, 'x').length, 1, t));
   assert.strictEqual(unconditionalDeletes('Delete `.flightdeck/updates/2.15.0/AGENTS.md` only if nobody changed it.', 'x').length, 0);
-  assert.deepStrictEqual(sentencesOf('Run `a. b` now. Then `c`! Done? Yes'), ['Run `a. b` now.', 'Then `c`!', 'Done?', 'Yes']);
+  assert.deepStrictEqual(PROSE.sentencesOf('Run `a. b` now. Then `c`! Done? Yes'), ['Run `a. b` now.', 'Then `c`!', 'Done?', 'Yes']);
+  assert.strictEqual(unconditionalDeletes('const A = \'Delete `.flightdeck/updates/2.15.0/AGENTS.md`\';\nconst B = \'only if nobody changed it\';', 'x', true).length, 1, 'source lines stay apart');
+});
+rule('Round 14: the delete guard reads Markdown through the shared prose reader, so a soft-wrapped delete is read whole', () => {
+  ['Delete\n`.flightdeck/updates/<version>/AGENTS.md` and run install again.', 'Delete\n`.flightdeck/updates/2.15.0/AGENTS.md` and run install again.',
+    'Then delete `AGENTS.md`\nfrom each version folder, and run install again.']
+    .forEach((t) => assert.strictEqual(unconditionalDeletes(t, 'x').length, 1, t));
+  assert.strictEqual(unconditionalDeletes('Delete `.flightdeck/updates/2.15.0/AGENTS.md`\nonly if nobody changed it.', 'x').length, 0, 'a wrapped condition counts');
+  assert.strictEqual(unconditionalDeletes('- Delete `.flightdeck/updates/2.15.0/AGENTS.md`.\n- Only if nobody changed it, run install.', 'x').length, 1, 'a new list item is a new paragraph');
 });
 rule('The README\'s manual download is the release being shipped, so it can\'t go stale', () => {
   const version = JSON.parse(read('src/releases.json'))[0].version;
