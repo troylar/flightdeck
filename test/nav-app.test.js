@@ -1625,4 +1625,95 @@ rule('R7 2: Settings › Step types › New step type › ‹ Step types: the li
   assert.strictEqual(t.hash(), '#/settings');
 });
 
+/* ---------- Build round 8: a stale restore never draws; one place makes a write a replace ---------- */
+/* Help open in Edit, browser Back closes it, the restore's own traversal held, ‹ checklist drawn. */
+async function restoreHeld() {
+  const app = await edit({ localStore: { 'preflight:builder': 'true' } }); await app.settle();
+  const n = app.entries().length, i = app.index();
+  app.key('?'); await app.tick(); assert.ok(app.overlay(), 'set-up: Help open');
+  await refusedBack(app, () => !app.overlay());
+  app.click('ed-done'); await app.tick();
+  assert.ok(onOverview(app), 'set-up: ‹ checklist drawn');
+  return { app, n, i };
+}
+const noEdit = (app, what) => { assert.ok(!inEditor(app), what + ': not the editor'); assert.ok(!app.entries().some(e => e.hash === '#/process/release/edit'), what + ': no editor entry (' + JSON.stringify(app.entries().map(e => e.hash)) + ')'); };
+rule('R8 1: the restore\'s traversal released after 1,150 ms: the checklist stays, its URL, no editor entry', async () => {
+  const { app, n } = await restoreHeld();
+  await new Promise(r => setTimeout(r, 1150));
+  assert.ok(onOverview(app), 'still the checklist when the watchdog runs');
+  app.releasePops(); await app.settle(); await app.tick(40); await app.settle();
+  assert.ok(onOverview(app), 'the checklist'); assert.strictEqual(app.hash(), '#/process/release');
+  assert.strictEqual(app.entries().length, n, 'history didn\'t grow');
+  noEdit(app, 'late');
+  app.back(); await app.settle(); assert.ok(!inEditor(app), 'browser Back never reopens Edit');
+});
+rule('R8 1: the restore\'s traversal never released: the checklist stays and its URL is written, and the next moves go on', async () => {
+  const { app, n } = await restoreHeld();
+  await new Promise(r => setTimeout(r, 1200)); await app.tick(20);
+  assert.ok(onOverview(app), 'the checklist'); assert.strictEqual(app.hash(), '#/process/release');
+  assert.ok(app.entries().length <= n, 'history didn\'t grow');
+  app.click('nav', 'settings'); await app.tick(20);
+  assert.strictEqual(app.hash(), '#/settings', 'the next move goes on');
+  assert.ok(/Settings/.test(app.html()));
+});
+rule('R8 1: navigating on to Runs before the late restore: Runs stays through the watchdog and the late arrival', async () => {
+  const { app, n } = await restoreHeld();
+  app.click('nav', 'runs'); await app.tick();
+  await new Promise(r => setTimeout(r, 1150));
+  assert.ok(/<div class="eyebrow">Runs|id="rf-h"|Runs<\/h1>/.test(app.html()) || app.hash() === '#/runs', 'Runs through the watchdog: ' + app.hash());
+  assert.strictEqual(app.hash(), '#/runs', 'the watchdog didn\'t replace Runs');
+  app.releasePops(); await app.settle(); await app.tick(40); await app.settle();
+  assert.strictEqual(app.hash(), '#/runs', 'Runs after the late arrival');
+  assert.ok(app.entries().length <= n + 1, 'history grew by Runs at most');
+  noEdit(app, 'Runs');
+});
+rule('R8 1: two refused Backs, one after the other, each restore lands: the editor, its URL and its entry', async () => {
+  const app = await edit({ localStore: { 'preflight:builder': 'true' } }); await app.settle();
+  app.click('ob-sel', 'flags'); await app.tick(); app.input('ob-text', 'Half typed'); await app.tick();
+  const n = app.entries().length, i = app.index();
+  for (const k of [1, 2]) {
+    app.back(); await app.settle(); await app.tick(40); await app.settle();
+    assert.strictEqual(app.hash(), '#/process/release/edit', k + ': the URL'); assert.ok(/id="ed-h"/.test(app.html()) && app.draft('ob-text') === 'Half typed', k + ': the editor, its text');
+    assert.deepStrictEqual([app.index(), app.entries().length], [i, n], k + ': its entry');
+  }
+  await new Promise(r => setTimeout(r, 1200)); await app.settle();
+  assert.strictEqual(app.hash(), '#/process/release/edit', 'still, after the watchdog would have run');
+});
+rule('R8 2: only backMode makes a write a replace', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
+  const sets = [...src.matchAll(/H\.mode\s*=(?!=)\s*([^;]+);/g)].map(m => m[1].trim());
+  assert.deepStrictEqual(sets.filter(v => v !== 'null'), ["'replace'", "'replace'", "'replace'"], 'three writes of replace: ' + JSON.stringify(sets));
+  const fn = name => { const at = src.indexOf('function ' + name + '('); assert.ok(at > 0, name); return src.slice(at, src.indexOf('\n  }\n', at)); };
+  assert.strictEqual((fn('backMode').match(/H\.mode = 'replace'/g) || []).length, 2, 'two inside backMode');
+  /* Opening a folder is the one other: useFs's body is frozen by the release gate, and that line is backMode(true) written out. */
+  assert.strictEqual((fn('useFs').match(/H\.mode = 'replace'/g) || []).length, 1, 'and the folder open in useFs');
+});
+rule('R8 2: the step type\'s prompt from browser Back, Leave without saving or Save: Step types still goes back to Settings', async () => {
+  for (const choice of ['type-cancel', 'type-save']) {
+    const t = await start(); t.click('nav', 'settings'); await t.tick(); t.click('open-types'); await t.tick(); await typeOpen(t);
+    t.input('tf-label', 'Risk review ' + choice); await t.tick(40);
+    t.back(); await t.settle(); await t.tick(40); await t.settle();
+    assert.match(t.html(), /Leave without saving/, choice + ': set-up: the prompt Back brought');
+    t.click(choice); await t.tick(200); await t.settle(); await t.tick(40);
+    assert.strictEqual(t.hash(), '#/types', choice + ': the list');
+    const b = back1(t);
+    assert.strictEqual(b.text, 'Settings', choice + ': the list\'s way back names Settings');
+    t.click(b.act, b.id); await t.settle();
+    assert.strictEqual(t.hash(), '#/settings', choice + ': and opens it');
+  }
+});
+rule('R8 3: Home names the version publishing takes: past an incomplete higher-numbered folder, and the page it opens agrees', async () => {
+  const app = await changed();
+  await app.fs.write('publications/release/v3-zzzz9999/map.md', '# still syncing\n');
+  app.click('refresh'); await app.tick(80);
+  app.click('nav', 'home'); await app.tick();
+  const b = buttons(app.html()).filter(x => x.act === 'home-publish')[0];
+  assert.ok(b, 'set-up: Home offers to publish');
+  assert.strictEqual(b.text, 'Publish v4…', 'the label');
+  assert.match(app.html(), /Publish it as v4 when it(&#39;|')s ready\./, 'the text');
+  app.click(b.act, b.id); await app.tick(40); await app.settle();
+  assert.match(app.html(), /Publish v4/, 'the page it opens publishes the same number');
+  assert.doesNotMatch(app.html(), /Publish v3/, 'and never offers the taken one');
+});
+
 run();

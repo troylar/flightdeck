@@ -8150,9 +8150,9 @@ rule('Back and Forward: every promise callback in the app that changes a route f
     return src.slice(i);
   };
   const ROUTE = /state\.(view|processId|runKey|ptab|mapVer|planId|skillFile|recoveryAt|typeForm)\s*=[^=]|setView\(|openRun\(|\bhome\(\)/;
-  // Held (holdNav), replacing (H.mode), opening a folder (useFs replaces), or the person's own save, start or decline
+  // Held (holdNav), replacing (H.mode, set only through backMode), opening a folder (useFs replaces), or the person's own save, start or decline
   // landing, which pushes like the click it finishes (docs/design.md section 29); Stage from Practice's too (2.3).
-  const OK = ['releaseNav(held)', 'heldOwn(held', 'H.mode = \'replace\'', 'useFs(', 'Plan declined', 'Created the draft for', 'Planned \' + plan.title', 'savedDraft(file', 'Published \' + f.title', 'Staged. Start a test run from it'];
+  const OK = ['releaseNav(held)', 'heldOwn(held', 'H.mode = \'replace\'', 'backMode(', 'useFs(', 'Plan declined', 'Created the draft for', 'Planned \' + plan.title', 'savedDraft(file', 'Published \' + f.title', 'Staged. Start a test run from it'];
   const re = /\.then\(function\s*\([^)]*\)\s*\{/g; let m; const found = [];
   while ((m = re.exec(src))) { const b = bodyAt(m.index + m[0].length - 1); if (ROUTE.test(b)) found.push(b); }
   assert.ok(found.length >= 10, 'the scan finds the callbacks: ' + found.length);

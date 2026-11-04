@@ -3848,7 +3848,7 @@
   }
   /* To the editor: a move inside the workspace, so it replaces the history entry (2.16): one Back leaves the workspace. */
   function prToEditor(p, then) {
-    H.mode = 'replace';
+    backMode(true);
     setView('process'); state.processId = p.id; state.ptab = 'edit'; state.mapVer = null; openEditor(p);
     state.sel = null; state.pick = null; state.refOpen = false; state.fieldErr = null;
     if (then) then();
@@ -3888,7 +3888,7 @@
     if (same && t.pick && state.pick) state.focus = '#rw-ins input, #rw-ins select, #rw-ins textarea';
     if (same && t.box) state.focus = t.box.id;
     state.prArrive = { anchor: same && t.top != null ? { id: dest.id, top: t.top } : null, reveal: dest ? (dest.kind === 'gate' ? '#gate-' + cssEsc(dest.id) : '#step-' + cssEsc(dest.id)) : null, box: same ? t.box : null };
-    if (how) H.mode = how;
+    if (how === 'replace') backMode(true);
     e.trip = null;
     render();
     return true;
@@ -5564,7 +5564,7 @@
   function histWrite(push, hash, n, f, b) {
     var s = { fd: 1, n: n, f: f };
     var vb = PF.nav.origin(b); if (vb) s.b = vb;
-    try { if (push) HIST.pushState(s, '', hash); else if (hash == null) HIST.replaceState(s, ''); else HIST.replaceState(s, '', hash); return true; } catch (e) { navOff(); return false; }
+    try { if (push) HIST.pushState(s, '', hash); else if (hash == null) HIST.replaceState(s, ''); else HIST.replaceState(s, '', hash); H.writes = (H.writes || 0) + 1; return true; } catch (e) { navOff(); return false; }
   }
   function navHere() { return PF.nav.format(PF.nav.locate(state)); }
   /* Rule 4 (2.16): a ‹ control never traverses history. It runs its own guards and moves there itself, as one step, and
@@ -5578,7 +5578,13 @@
     backMode();
     return true;
   }
-  function backMode() { if (H.on && !H.pending) { H.mode = 'replace'; H.backIn = true; } }
+  /* The one place the next write is made a replace (a source rule checks). backMode(): a ‹ control's, whose entry takes the
+     destination's own origin; backMode(true): any other move that replaces (inside the workspace, a folder opened, a
+     move held across an await), keeping the entry's b. */
+  function backMode(plain) {
+    if (plain) { H.mode = 'replace'; return; }
+    if (H.on && !H.pending) { H.mode = 'replace'; H.backIn = true; }
+  }
   /* ---------- where a ‹ control goes (2.16) ---------- */
   /* The entry before this one (its b), as a location in this team folder, or null. */
   function navOrigin() {
@@ -5641,7 +5647,7 @@
      in-between changes, releaseNav its landing. replace: the landing replaces the entry (it came from Back or Forward). */
   function holdNav(replace) { var t = { seq: navSeq, replace: !!replace }; if (H.on) H.hold = t; return t; }
   function heldOwn(t, fn) { fn(); if (H.hold === t) t.seq = navSeq; }
-  function releaseNav(t) { if (!t || H.hold !== t) return; H.hold = null; if (t.replace) H.mode = 'replace'; scheduleSync(); }
+  function releaseNav(t) { if (!t || H.hold !== t) return; H.hold = null; if (t.replace) backMode(true); scheduleSync(); }
   /* Links wait for the folder's first complete read; while the examples stand in for a folder that needs Reconnect, only
      entries made in the examples open (a typed link or one from the team folder waits for Reconnect). */
   function readyFor(t) { return H.loadedGen === gen && (!state.needsReconnect || (t.f != null && t.f === navFp())); }
@@ -5677,10 +5683,19 @@
     if (!H.on) return;
     harvest();
     var es = PF.nav.entry(ev ? ev.state : null);
-    /* A restore in progress: every move is swallowed until the browser is back on the drawn entry. */
+    /* A restore in progress: every move is swallowed until the browser is back on the drawn entry. Landing there draws
+       nothing: the sync writes what's drawn now, a move made meanwhile (a ‹, a link) in that entry's place. */
     if (H.restoring) { if (es) H.pos = es.n; if (es && es.n === H.restoring.n) { clearTimeout(H.restoring.timer); H.restoring = null; scheduleSync(); } return; }
+    /* A restore landing after its watchdog ran is stale: consumed without a draw, the entry it lands on shows what's drawn. */
+    var lt = H.late; H.late = null;
+    if (lt && es && es.n === lt.n) { H.pos = es.n; reassert(); return; }
     popAt(es);
   }
+  /* The navigation epoch: every move of the app's (a location field changing: a ‹, a link, any click that moves) and every
+     history write advance it. A restore acts only in the epoch it was started in: a stale one never draws. */
+  function navEpoch() { return navSeq + ':' + (H.writes || 0); }
+  /* The entry the browser is on shows what's drawn: no draw, no new entry. */
+  function reassert() { var here = navHere(), f = navFp(), c = H.cur; if (histWrite(false, here, H.pos, f, c.b)) H.cur = { n: H.pos, hash: here, f: f, b: c.b || null }; }
   function popAt(es) {
     var hash = String(location.hash || '');
     if (!es) {
@@ -5699,15 +5714,20 @@
   /* After a refusal the screen never moved: put the browser back on the drawn entry without touching the entries after it,
      or, when that entry is gone or this one was typed, write the drawn location where the browser is. */
   function restoreTimedOut() {
-    H.restoring = null;
+    var R0 = H.restoring; H.restoring = null; if (!R0) return;
     var es = null; try { es = PF.nav.entry(HIST.state); } catch (e) { es = null; }
     if (es && es.n === H.cur.n) { H.pos = es.n; scheduleSync(); return; }
+    /* It hasn't landed: if it does later, that arrival is stale (onPop). */
+    H.late = { n: R0.n };
+    /* A move since it started: the watchdog never draws over it; what's drawn is written where the browser is. */
+    if (navEpoch() !== R0.at) { if (es) H.pos = es.n; scheduleSync(); return; }
     popAt(es);
   }
   function restoreUrl(t) {
     var c = H.cur;
     if (!t.typed && !c.gone && c.n !== H.pos) {
-      H.restoring = { n: c.n, timer: setTimeout(restoreTimedOut, 1000) };
+      H.late = null;
+      H.restoring = { n: c.n, at: navEpoch(), timer: setTimeout(restoreTimedOut, 1000) };
       try { HIST.go(c.n - H.pos); } catch (e) { navOff(); }
       return;
     }
@@ -6093,8 +6113,8 @@
     var f = state.typeForm;
     /* Closing without saving: unsaved changes are dropped, so they can't be undone over the file when it's opened again. */
     if (f && f.existing && f.tl) { if (typeFormChanged(f)) { TL.barrier(f.tl, 'You closed it without saving here. Earlier changes can\'t be undone.'); keepTypeTl(f, f.existing, null, null); } else keepTypeTl(f, f.existing, f.def, f.baseText); }
-    /* Leaving from the prompt Back showed lands on the list in that entry's place. */
-    if (f && f.backLeave) H.mode = 'replace';
+    /* Leaving from the prompt Back showed lands on the list in that entry's place, as a ‹ does (its own origin). */
+    if (f && f.backLeave) backMode();
     state.typeForm = null;
   }
   /* Step types (docs/design.md section 29, Kept work): a kept form is never discarded by Back, and the URL always matches what is drawn. */
@@ -6866,7 +6886,7 @@
       if (f) flushAdds(f);
       /* Opened from the workspace (Done), leaving without saving returns there, as saving does. */
       if (f && f.wsReturn && typeFromOk()) { typeWsReturn(true); return; }
-      if (!(f && f.backLeave)) backMode();
+      backMode();
       typeClose(); state.focus = '[data-act="new-type"]'; render();
     },
     'type-keep-mine': function () { var f = state.typeForm; if (f && f.conflict && !f.saving) { var o = null; try { o = JSON.parse(f.conflict.theirs || 'null'); } catch (e) { o = null; } f.baseHash = f.conflict.theirsHash; f.baseText = f.conflict.theirs == null ? null : f.conflict.theirs; f.baseDef = o; f.keepMine = true; f.conflict = null; saveType(); } },
@@ -7179,7 +7199,7 @@
     pickup: function () { if (runBusy(ctx.run())) return; fresh().then(function (t) { if (t) mutateRun(t.key, t.g, function (r, map, me, now) { R.pickUp(r, me, SESSION, now, R.legacyLinks(r, ctx.findRun)); }, { any: true }); }); },
     takeover: function () { if (runBusy(ctx.run())) return; fresh().then(function (t) { if (t) mutateRun(t.key, t.g, function (r, map, me, now) { R.takeOver(r, me, SESSION, now, R.legacyLinks(r, ctx.findRun)); }, { any: true, takeover: true }); }); },
     /* The receipt opens only once the ending is really in the team folder; a failed save keeps you here with Try again. */
-    end: function (id) { var g = gen, key = state.runKey; mutate(function (r, map, me, now) { R.end(r, map, id, me, V.nameOf(ctx, me), now); }).then(function (ok) { if (ok && g === gen && state.runKey === key && ctx.run() && ctx.run().ended) { H.mode = 'replace'; setView('receipt'); render(); window.scrollTo(0, 0); } }); },
+    end: function (id) { var g = gen, key = state.runKey; mutate(function (r, map, me, now) { R.end(r, map, id, me, V.nameOf(ctx, me), now); }).then(function (ok) { if (ok && g === gen && state.runKey === key && ctx.run() && ctx.run().ended) { backMode(true); setView('receipt'); render(); window.scrollTo(0, 0); } }); },
     /* Finishing: outcome, follow-ups and suggested map changes, then the receipt. */
     finish: function () { setView('finish'); state.pick = null; render(); window.scrollTo(0, 0); },
     'add-followup': function (id, b) {
@@ -7388,7 +7408,7 @@
     /* A quick way between the checklist and the selected step, for keyboards and screen readers. */
     'to-ins': function () { state.refOpen = true; state.focus = 'ins-h'; render(); },
     'to-row': function (id) { if (narrow()) state.refOpen = false; state.focus = '[data-act="select"][data-id="' + cssEsc(id) + '"]'; render(); },
-    'retry-save': function () { var cur = ctx.run(), r = cur && state.unsaved[cur.id], g = gen, key = state.runKey; if (r) save(r, (state.saveOpts || {})[r.id]).then(function (ok) { if (ok && g === gen && state.runKey === key && r.ended && state.view === 'finish') { H.mode = 'replace'; setView('receipt'); render(); } }); },
+    'retry-save': function () { var cur = ctx.run(), r = cur && state.unsaved[cur.id], g = gen, key = state.runKey; if (r) save(r, (state.saveOpts || {})[r.id]).then(function (ok) { if (ok && g === gen && state.runKey === key && r.ended && state.view === 'finish') { backMode(true); setView('receipt'); render(); } }); },
     'discard-unsaved': function () {
       var r = ctx.run(); if (!r || runBusy(r)) return;
       /* Put back the last version this window saved or read, at once: a run whose file is gone can't be reread to undo it. */
@@ -9363,7 +9383,7 @@
     /* A link decides where a reload lands; the editor comes back only without one. */
     if (H.bootLink) return;
     var p = id && procFind(id); if (!p) return;
-    setView('process'); state.processId = id; state.ptab = 'edit'; state.mapVer = null; openEditor(p); state.focus = 'ed-h'; H.mode = 'replace'; render();
+    setView('process'); state.processId = id; state.ptab = 'edit'; state.mapVer = null; openEditor(p); state.focus = 'ed-h'; backMode(true); render();
   }
   window.addEventListener('beforeunload', function (e) {
     var any = !!state.obPending || Object.keys(state.shotBusy).length > 0 || Object.keys(state.editors || {}).some(function (k) { return dirty(state.editors[k]); });
