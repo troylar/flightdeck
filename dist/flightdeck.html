@@ -27170,7 +27170,7 @@ PF.examples = (function () {
     if (sxOpen()) { state.overlayFocus = '#sx-q'; render(); return; }
     if (state.overlay) {
       var held = (state.overlay.held && state.overlay.held()) || dirtyControl([overlayEl]);
-      if (held) { say('Finish or cancel this first.', 'warn'); render(); focusOverlay(); return; }
+      if (held) { overlayRefuse(); return; }
       closeOverlay();
     }
     state.sx = { q: '', active: null, pos: 0, res: null, flat: [], err: '' };
@@ -28906,12 +28906,15 @@ PF.examples = (function () {
     PF.vk.focusAt = null;
     if (ov !== lastOverlay) {
       /* Typing in a dialog's search redraws it; focus and the caret go back to the same control. */
-      var oa = document.activeElement, osel = oa && overlayEl.contains(oa) ? selectorOf(oa) : null, os = oa && oa.selectionStart;
+      var oa = document.activeElement, osel = oa && overlayEl.contains(oa) ? selectorOf(oa) : null, os = oa && oa.selectionStart, oe = oa && oa.selectionEnd;
+      var oid = oa && oa.id && overlayEl.contains(oa) ? oa.id : oa && oa.id && String(lastOverlay).indexOf('id="' + oa.id + '"') >= 0 ? oa.id : null;
+      if (oid) ovKeep(oa);
       overlayEl.innerHTML = ov; lastOverlay = ov;
+      ovRestore(oid);
       /* A text attachment is put in as text, never as markup. */
       var tp = state.overlay && state.overlay.text != null && document.getElementById('att-text'); if (tp) tp.textContent = state.overlay.text;
       var want = state.overlayFocus || osel; state.overlayFocus = null;
-      var back = want && overlayEl.querySelector(want); if (back) { back.focus(); if (os != null && back.setSelectionRange && !state.overlayFocus) try { back.setSelectionRange(os, os); } catch (e) { /* not a text field */ } }
+      var back = want && overlayEl.querySelector(want); if (back) { back.focus(); if (os != null && back.setSelectionRange && !state.overlayFocus) try { back.setSelectionRange(os, oe != null ? oe : os); } catch (e) { /* not a text field */ } }
     } else if (state.overlayFocus) {
       /* Focus asked for on a dialog whose content didn't change still goes there. */
       var to = overlayEl.querySelector(state.overlayFocus); state.overlayFocus = null; if (to && document.activeElement !== to) to.focus();
@@ -30860,9 +30863,12 @@ PF.examples = (function () {
   function wsLeave(p, fromPractice) {
     var f = fromPractice ? '[data-act="pv-practice"]' : '[data-act="ptab"][data-id="edit"]';
     /* Rule 4: when the entry before is the checklist page, the way back is browser Back (focus on the view left). */
-    if (histBack(PF.nav.format({ view: 'process', process: p.id }), function () { state.focus = f; })) return;
-    setView('process'); state.processId = p.id; state.ptab = 'overview'; state.mapVer = null; state.sel = null; state.pick = null; state.obPlace = null; state.obAsk = null;
-    state.focus = f; render(); window.scrollTo(0, 0);
+    var direct = function () {
+      setView('process'); state.processId = p.id; state.ptab = 'overview'; state.mapVer = null; state.sel = null; state.pick = null; state.obPlace = null; state.obAsk = null;
+      state.focus = f; render(); window.scrollTo(0, 0);
+    };
+    if (histBack(PF.nav.format({ view: 'process', process: p.id }), function () { state.focus = f; }, null, direct)) return;
+    direct();
   }
   function wsPublishOpen(pid) {
     var p = currentProcess(); if (!p || p.id !== pid) return;
@@ -30909,6 +30915,24 @@ PF.examples = (function () {
     state.focus = b.focus || 'ins-h'; state.focusWins = true; render();
     if (b.list && b.focus && !app.querySelector(b.focus)) { state.focus = b.head || 'ins-h'; render(); }
     setTimeout(function () { window.scrollTo(0, b.scrollY || 0); }, 0);
+  }
+  /* Text typed in a dialog (2.16): every box in any dialog writes what it holds to that dialog's state as it's typed
+     (ovKeep), so a rebuild (a background refresh redrawing it) puts it back (ovRestore), with the caret, unless the dialog
+     itself drew that box with something else since. */
+  function ovKeep(el) {
+    var o = state.overlay; if (!o || !el || !el.id || (el.tagName && !/^(INPUT|TEXTAREA)$/.test(el.tagName)) || /^(checkbox|radio|file|button|submit|hidden)$/.test(el.type || '')) return;
+    if (String(lastOverlay || '').indexOf('id="' + el.id + '"') < 0) return;
+    (o.vals = o.vals || Object.create(null))[el.id] = { v: String(el.value == null ? '' : el.value), d: el.defaultValue, s: el.selectionStart, e: el.selectionEnd };
+  }
+  function ovRestore(focused) {
+    var o = state.overlay, vals = o && o.vals; if (!vals) return;
+    Object.keys(vals).forEach(function (id) {
+      var k = vals[id], el = String(lastOverlay || '').indexOf('id="' + id + '"') >= 0 ? document.getElementById(id) : null;
+      if (!el || (k.d != null && el.defaultValue != null && el.defaultValue !== k.d)) { delete vals[id]; return; }
+      if (el.value !== k.v) el.value = k.v;
+      /* The box being typed in gets focus and its caret back, as before the rebuild. */
+      if (id === focused && !state.overlayFocus) { if (document.activeElement !== el && el.focus) el.focus(); if (el.setSelectionRange && k.s != null) try { el.setSelectionRange(k.s, k.e); } catch (e) { /* not a text field */ } }
+    });
   }
   /* The workspace's More on a phone (2.2): opening it focuses its first tool; closing it, More again. */
   function wsMoreToggle() { state.wsMore = !state.wsMore; state.focus = state.wsMore ? '#ws-more-list button:not([disabled])' : 'ws-more-btn'; render(); }
@@ -31388,15 +31412,20 @@ PF.examples = (function () {
   }
   /* Back to the editor, at the part it came from: browser Back when that's the entry before, else a move there. */
   function typeWsReturn() {
-    var t = typeFromOk(), f = state.typeForm; state.typeFrom = null; if (!t) return;
+    var t = typeFromOk(), f = state.typeForm; if (!t) { state.typeFrom = null; return; }
     if (f && f.existing && f.tl) keepTypeTl(f, f.existing, f.def, f.baseText);
-    state.typeForm = null;
     var h = PF.nav.format({ view: 'process', process: t.pid, tab: 'edit' });
-    var back = function () { if (t.sel && state.view === 'process' && state.ptab === 'edit' && state.processId === t.pid) { state.obSel = t.sel; state.focus = 'ed-h'; } };
-    if (histBack(h, back, wsAnywayFor({ view: 'process', process: t.pid, tab: 'edit' }))) return;
-    if (wsDirect({ view: 'process', process: t.pid, tab: 'edit' })) { back(); render(); return; }
-    var res = moveTo({ view: 'process', process: t.pid, tab: 'edit' }); if (res === 'stay') { render(); return; }
-    state.focus = 'ed-h'; back(); render(); window.scrollTo(0, 0);
+    /* The form and where it came from are let go of as it lands, or by the move there: never before (histBack). */
+    var gone = function () { state.typeFrom = null; if (state.typeForm === f) state.typeForm = null; };
+    var back = function () { gone(); if (t.sel && state.view === 'process' && state.ptab === 'edit' && state.processId === t.pid) { state.obSel = t.sel; state.focus = 'ed-h'; } };
+    var direct = function () {
+      gone();
+      if (wsDirect({ view: 'process', process: t.pid, tab: 'edit' })) { back(); render(); return; }
+      var res = moveTo({ view: 'process', process: t.pid, tab: 'edit' }); if (res === 'stay') { render(); return; }
+      state.focus = 'ed-h'; back(); render(); window.scrollTo(0, 0);
+    };
+    if (histBack(h, back, wsAnywayFor({ view: 'process', process: t.pid, tab: 'edit' }), direct)) return;
+    direct();
   }
   function keepTypeTl(f, id, def, text) { if (f.tl && id) typeTls[f.fsKey + '\n' + id] = { tl: f.tl, def: def ? JSON.parse(JSON.stringify(def)) : null, text: text == null ? null : text, tail: def ? typeTail(f) : null }; }
   function resumeTypeTl(f, id, text) {
@@ -32269,6 +32298,9 @@ PF.examples = (function () {
   /* b: the entry before this one, { h, f } (2.16), written only when it is one parse() accepts, for the ‹ controls' labels. */
   function histB(c) { return c && typeof c.hash === 'string' && PF.nav.parse(c.hash) && (c.f === null || PF.nav.isHex(c.f)) ? { h: c.hash, f: c.f } : null; }
   function histWrite(push, hash, n, f, b) {
+    /* A ‹ control's browser Back is on its way (histBack): no draw writes history until it lands, so what's drawn
+       meanwhile (a read finishing, say) never pushes or replaces an entry in between. */
+    if (H.backing) return false;
     var s = { fd: 1, n: n, f: f };
     if (b && typeof b.h === 'string' && PF.nav.parse(b.h) && (b.f === null || PF.nav.isHex(b.f))) s.b = { h: b.h, f: b.f };
     try { if (push) HIST.pushState(s, '', hash); else if (hash == null) HIST.replaceState(s, ''); else HIST.replaceState(s, '', hash); return true; } catch (e) { navOff(); return false; }
@@ -32278,11 +32310,19 @@ PF.examples = (function () {
      the same team folder, b.h one of the routes it may be), so history stays one deep; then() runs once Back lands (arrive),
      to put focus or a selection back. false: it isn't, and the control moves there itself, as any link. */
   var navAnyway = null;
-  function histBack(hashes, then, anyway) {
+  /* direct: the move there instead, run if Back never lands (a browser that ignores it): state the control leaves behind is
+     cleared on arrival (then) or by direct, never before, and history waits for one of them (H.backing, histWrite). */
+  function histBack(hashes, then, anyway, direct) {
     var b = H.cur.b, list = [].concat(hashes);
-    if (!(H.on && !H.pending && b && b.f === navFp() && typeof b.h === 'string' && list.indexOf(b.h) >= 0)) return false;
+    if (!(H.on && !H.pending && !H.backing && b && b.f === navFp() && typeof b.h === 'string' && list.indexOf(b.h) >= 0)) return false;
     state.typeBack = then || null; state.wsAnyway = anyway ? { pid: anyway, h: b.h } : null;
-    try { HIST.back(); return true; } catch (e) { state.typeBack = null; state.wsAnyway = null; navOff(); return false; }
+    var tok = H.backing = { timer: setTimeout(function () {
+      if (H.backing !== tok) return;
+      H.backing = null; state.typeBack = null; state.wsAnyway = null;
+      if (direct) direct(); else render();
+      scheduleSync();
+    }, 1500) };
+    try { HIST.back(); return true; } catch (e) { clearTimeout(tok.timer); H.backing = null; state.typeBack = null; state.wsAnyway = null; navOff(); return false; }
   }
   /* The checklist a ‹ back into the workspace returns to after Edit anyway (someone else has its draft open): arriving there
      keeps that choice instead of asking again. null: not the workspace, or nobody else has it open. */
@@ -32384,6 +32424,7 @@ PF.examples = (function () {
   }
   function onPop(ev) {
     uiActs++;
+    if (H.backing) { clearTimeout(H.backing.timer); H.backing = null; }
     if (!H.on) return;
     harvest();
     var es = PF.nav.entry(ev ? ev.state : null);
@@ -32613,7 +32654,7 @@ PF.examples = (function () {
      does, and stays; one holding typing or choices isn't closed. Returns whether there was one. */
   function navLayer() {
     if (state.overlay) {
-      if ((state.overlay.held && state.overlay.held()) || dirtyControl([overlayEl])) { say('Finish or cancel this first.', 'warn'); render(); focusOverlay(); }
+      if ((state.overlay.held && state.overlay.held()) || dirtyControl([overlayEl])) overlayRefuse();
       else closeOverlay();
       return true;
     }
@@ -32817,7 +32858,7 @@ PF.examples = (function () {
     var wantNew = loc.sub === 'new', wantId = loc.type != null ? loc.type : null;
     if (F) {
       if (wantNew ? !F.existing : wantId != null && F.existing === wantId) { navTypes(); return 'moved'; }
-      if (typeFormChanged(F)) {
+      if (typeFormChanged(F) && !F.discard) {
         navTypes(); F.leaving = true;
         if (!wantNew && wantId == null) F.backLeave = true; else say('Save or leave this step type first, then go back again.', 'warn');
         state.focus = '[data-act="type-save"]'; return onForm ? 'stay' : 'focus';
@@ -32939,10 +32980,11 @@ PF.examples = (function () {
       if (el && el.scrollIntoView) el.scrollIntoView({ block: 'start' }); else window.scrollTo(0, 0);
     },
     'recovery-back': function () {
-      var b = state.recBack || { view: 'settings' };
-      state.recBack = null;
-      if (histBack(b.h || PF.nav.format({ view: b.view }))) return;
-      setView(b.view); state.runKey = b.runKey || null; state.processId = b.processId || null; state.ptab = b.ptab; render(); window.scrollTo(0, 0);
+      var b = state.recBack || { view: 'settings' }, kept = state.recBack;
+      var gone = function () { if (state.recBack === kept) state.recBack = null; };
+      var direct = function () { gone(); setView(b.view); state.runKey = b.runKey || null; state.processId = b.processId || null; state.ptab = b.ptab; render(); window.scrollTo(0, 0); };
+      if (histBack(b.h || PF.nav.format({ view: b.view }), gone, null, direct)) return;
+      direct();
     },
     dismiss: function () { var cp = currentProcess(), ce = cp && editorOf(cp.id); if (ce) ce.incoming = null; say(null); render(); announceRelease(); },
     /* Settings' AI assistant files are read again too, once they've been looked at, a read that failed included, so what they
@@ -32958,7 +33000,7 @@ PF.examples = (function () {
        on the page put back. A row a newer read took away focuses its list's heading instead. */
     'ins-back': function () {
       var f = state.runFilter, b = f && f.back; if (!b) return;
-      if (histBack(PF.nav.format({ view: 'process', process: b.process, tab: 'insights' }))) return;
+      if (histBack(PF.nav.format({ view: 'process', process: b.process, tab: 'insights' }), null, null, insBack)) return;
       insBack();
     },
     /* The same number, worked out again from what's loaded now: the cohort is replaced, Back still goes where it went. */
@@ -33112,15 +33154,20 @@ PF.examples = (function () {
       var loc = PF.nav.parse(String(hash == null ? '' : hash)); if (!loc) return;
       var dirty = pendingBox(); if (dirty) { refuseFor(dirty); return; }
       /* Leaving a form by its way back or Cancel drops what it was for: a plan being made, a new checklist being named. */
-      if (state.view === 'start') { state.planning = null; state.fieldErr = null; }
-      if (state.view === 'new-process') state.newProc = null;
+      /* Leaving drops it as it lands, or with the move there (histBack): never before. */
+      var v0 = state.view, pl = state.planning, np = state.newProc;
+      var gone = function () { if (v0 === 'start' && state.planning === pl) { state.planning = null; state.fieldErr = null; } if (v0 === 'new-process' && state.newProc === np) state.newProc = null; };
+      var direct = function () {
+        gone();
+        if (wsDirect(loc)) return;
+        var res = moveTo(loc);
+        if (res === 'stay') { render(); return; }
+        if (res !== 'focus' && res !== 'async') state.focus = headingOf();
+        render(); window.scrollTo(0, 0);
+      };
       /* Rule 4 first: browser Back when the entry before is where it goes, the workspace included; only then a move. */
-      if (histBack(PF.nav.format(loc), null, wsAnywayFor(loc))) return;
-      if (wsDirect(loc)) return;
-      var res = moveTo(loc);
-      if (res === 'stay') { render(); return; }
-      if (res !== 'focus' && res !== 'async') state.focus = headingOf();
-      render(); window.scrollTo(0, 0);
+      if (histBack(PF.nav.format(loc), gone, wsAnywayFor(loc), direct)) return;
+      direct();
     },
     'pv-practice': function (id) {
       var p = currentProcess(); if (!p) return;
@@ -33130,9 +33177,9 @@ PF.examples = (function () {
     'view-version': function (id) { state.ptab = 'overview'; state.mapVer = id; state.pick = null; state.focus = 'cl-h'; render(); window.scrollTo(0, 0); },
     'back-current': function () {
       /* Browser Back lands on the page as that entry showed it (the draft or the current version), focus on the version box. */
-      var p = currentProcess();
-      if (p && state.view === 'process' && histBack([PF.nav.format({ view: 'process', process: p.id }), PF.nav.format({ view: 'process', process: p.id, version: 'current' })], function () { state.pick = null; state.focus = 'map-ver'; })) return;
-      state.mapVer = 'current'; state.pick = null; state.focus = 'map-ver'; render();
+      var p = currentProcess(), direct = function () { state.mapVer = 'current'; state.pick = null; state.focus = 'map-ver'; render(); };
+      if (p && state.view === 'process' && histBack([PF.nav.format({ view: 'process', process: p.id }), PF.nav.format({ view: 'process', process: p.id, version: 'current' })], function () { state.pick = null; state.focus = 'map-ver'; }, null, direct)) return;
+      direct();
     },
     /* Checklist or flight plan: the same version either way. A phase in the flight plan opens it in the checklist. */
     /* Checklist, Flight plan or Markdown: the same version three ways. The choice stays while you move around. */
@@ -33576,10 +33623,13 @@ PF.examples = (function () {
     },
     /* The step type editor's way back: browser Back when the list is the entry before (rule 4), focus on New step type. */
     'type-cancel': function () {
-      var f = state.typeForm, at = function () { state.focus = '[data-act="new-type"]'; };
-      typeClose();
-      if (!(f && f.backLeave) && histBack(PF.nav.format({ view: 'types' }), at)) return;
-      at(); render(); },
+      /* The form closes as Back lands on the list (moveToTypes closes it there; discard marks one left without saving), or
+         with the move there: never before (histBack). */
+      var f = state.typeForm, at = function () { if (state.typeForm === f) typeClose(); state.focus = '[data-act="new-type"]'; };
+      var direct = function () { at(); render(); };
+      if (f) f.discard = true;
+      if (!(f && f.backLeave) && histBack(PF.nav.format({ view: 'types' }), at, null, direct)) return;
+      direct(); },
     'type-keep-mine': function () { var f = state.typeForm; if (f && f.conflict && !f.saving) { var o = null; try { o = JSON.parse(f.conflict.theirs || 'null'); } catch (e) { o = null; } f.baseHash = f.conflict.theirsHash; f.baseText = f.conflict.theirs == null ? null : f.conflict.theirs; f.baseDef = o; f.keepMine = true; f.conflict = null; saveType(); } },
     'type-take-theirs': function () {
       var f = state.typeForm; if (!f || !f.conflict || f.saving) return;
@@ -34319,8 +34369,9 @@ PF.examples = (function () {
     /* ‹ The run: browser Back when the entry before is the run (it restores the same way, reenterRun), else straight there. */
     'exit-mission': function () {
       var k = String(state.runKey || ''), i = k.indexOf('/'), h = i > 0 ? PF.nav.format({ view: 'run', process: k.slice(0, i), run: k.slice(i + 1) }) : null;
-      if (h && histBack(h)) return;
-      reenterRun(); render();
+      var direct = function () { reenterRun(); render(); };
+      if (h && histBack(h, null, null, direct)) return;
+      direct();
     },
     /* The key other apps use for this run (flightdeck run <folder> <key> --json). */
     'copy-run-key': function (id) { copyText(id, null, 'Copied the run key.'); },
@@ -35268,6 +35319,7 @@ PF.examples = (function () {
     /* A long dropdown's "Show 50 more…" is handled when it changes (below), never as a choice: only on a K.select (any other
        control's "#more" is a value like any other). */
     if (PF.vk.isSelMore(e.target)) return;
+    ovKeep(e.target);
     prActivity(e.target);
     if (e.target && e.target.dataset && e.target.dataset.prSample) { var tpx = currentProcess(); if (tpx) { var tpe = prEntry(tpx.id); tpe.typed[e.target.dataset.prSample] = e.target.value; } return; }
     /* Evidence, Fill in and a waiver's reason on the practice page reach this tab's storage as they're typed (a reload keeps them). */
@@ -35602,7 +35654,7 @@ PF.examples = (function () {
   function go(t) {
     t = t || {};
     var dirty = pendingBox();
-    if (!dirty && state.overlay && state.overlay.held && state.overlay.held()) { say('Finish or cancel this first.', 'warn'); render(); focusOverlay(); return false; }
+    if (!dirty && state.overlay && state.overlay.held && state.overlay.held()) { overlayRefuse(); return false; }
     if (dirty) {
       say(/^ob-/.test(dirty.id || '') ? 'Apply or clear what you typed in the box first ' + applyHint(dirty.id) + ', then go there.' : 'Finish or cancel this first.', 'warn');
       holdAt(state.processId, dirty.id);
@@ -35730,6 +35782,13 @@ PF.examples = (function () {
       }
     }
     return null;
+  }
+  /* A dialog that can't close now. One that is writing (lock) is left exactly as it is, focus on the busy button: there is
+     nothing to finish or cancel. Otherwise it says so and focus goes back into it. */
+  function overlayRefuse() {
+    var o = state.overlay;
+    if (o && o.lock && o.lock()) return;
+    say('Finish or cancel this first.', 'warn'); render(); focusOverlay();
   }
   function focusOverlay() {
     var el = overlayEl && overlayEl.querySelector && overlayEl.querySelector('input, textarea, select, button');
