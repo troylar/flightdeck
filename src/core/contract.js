@@ -105,32 +105,42 @@ PF.contract = (function () {
   }
   /* The ATX headings outside fenced code: up to 3 spaces, 1-6 #s, then a space, a tab or the line's end; the text is trimmed,
      and a closing run of #s after a space or tab is dropped. Not read: setext headings (a line underlined with = or -), and
-     headings inside block quotes, list items or HTML comments. Letter case counts. */
+     headings inside block quotes, list items or HTML comments. Letter case counts. A team writes these files, so the text is
+     read by a scan from each end: a long line costs its length, where a regular expression that backtracks costs its square. */
   function headings(md) {
-    var out = [];
+    var out = [], gap = function (c) { return c === ' ' || c === '\t'; };
     prose(md).forEach(function (l) {
-      var m = /^ {0,3}(#{1,6})(?:[ \t]+(.*?))?[ \t]*$/.exec(l);
-      if (m) out.push({ depth: m[1].length, text: (m[2] || '').replace(/(?:^|[ \t]+)#+$/, '').trim() });
+      var m = /^ {0,3}(#{1,6})(?=[ \t]|$)/.exec(l);
+      /* Any other line terminator (U+2028, U+2029) on the line: not a heading, as before. */
+      if (!m || /[\u2028\u2029]/.test(l)) return;
+      var i = m[0].length, j = l.length, k;
+      while (i < j && gap(l.charAt(i))) i++;
+      while (j > i && gap(l.charAt(j - 1))) j--;
+      for (k = j; k > i && l.charAt(k - 1) === '#'; k--);
+      if (k < j && (k === i || gap(l.charAt(k - 1)))) for (j = k; j > i && gap(l.charAt(j - 1)); j--);
+      out.push({ depth: m[1].length, text: l.slice(i, j).trim() });
     });
     return out;
   }
   function sections(md) { return headings(md).filter(function (h) { return h.depth === 2; }).map(function (h) { return h.text; }); }
+  /* A list as a lookup, so checking thousands of names against thousands of sections costs their sum, not their product. */
+  function setOf(xs) { var o = Object.create(null); xs.forEach(function (x) { o[x] = true; }); return o; }
   function esc(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
   /* What a text points to. names: { path: true } for every backticked path under REFS. alias: { name: path } for the italic name
      right after a path, "`<path>` (*the command guide*)", or "(*the file formats* below)" as before 2.15.0; more adds names a
      text uses without giving them. cites: { path: [section, ...] } for every "*X* in the <name>", the longest name first. Only
      prose() counts. */
   function cites(text, more) {
-    var t = prose(text).join('\n'), names = Object.create(null), alias = Object.create(null), cited = Object.create(null);
+    var t = prose(text).join('\n'), names = Object.create(null), alias = Object.create(null), cited = Object.create(null), seen = Object.create(null);
     t.replace(/`(\.flightdeck\/skills\/_flightdeck\/[^`\s]+)`(?: \(\*the ([a-z]+(?: [a-z]+)*)\*(?: below)?\))?/g, function (m, p, n) { names[p] = true; if (n) alias[n] = p; return m; });
     Object.keys(more || {}).forEach(function (n) { if (!own(alias, n)) alias[n] = more[n]; });
     var ks = Object.keys(alias).sort(function (a, b) { return b.length - a.length || (a < b ? -1 : 1); });
     if (ks.length) t.replace(new RegExp('\\*([^*\\n]+)\\* in the (' + ks.map(esc).join('|') + ')(?![a-z])', 'g'), function (m, x, n) {
-      var p = alias[n]; cited[p] = cited[p] || []; if (cited[p].indexOf(x) < 0) cited[p].push(x); return m;
+      var p = alias[n], k = p + '\u0000' + x; cited[p] = cited[p] || []; if (!seen[k]) { seen[k] = true; cited[p].push(x); } return m;
     });
     return { names: names, alias: alias, cites: cited };
   }
-  function lacks(text, want) { if (text == null) return want.slice(); var have = sections(text); return want.filter(function (x) { return have.indexOf(x) < 0; }); }
+  function lacks(text, want) { if (text == null) return want.slice(); var have = setOf(sections(text)); return want.filter(function (x) { return !have[x]; }); }
   /* The citations of the AGENTS.md that is live after this run, Flightdeck's part only (never Team notes): the live file's when it
      stays (current, kept, merge), this version's default when it is written (update, new, missing, forced). */
   function liveCites(a, it) {
@@ -152,7 +162,8 @@ PF.contract = (function () {
     st.forEach(function (x, i) {
       var want = need[x.key];
       if (!want || (x.status !== 'kept' && x.status !== 'merge')) return;       /* any other status writes the default, or is it */
-      var miss = lacks(items[i].now, want).filter(function (s) { return items[i].text != null && sections(items[i].text).indexOf(s) >= 0; });
+      var def = items[i].text == null ? null : setOf(sections(items[i].text));
+      var miss = lacks(items[i].now, want).filter(function (s) { return def !== null && !!def[s]; });
       if (!miss.length) return;
       x.lacks = miss;
       if (x.status === 'kept') { x.status = 'merge'; x.waiting = ''; x.stage = true; x.restaged = true; }
@@ -179,8 +190,8 @@ PF.contract = (function () {
     var lc = cites(region(a.now).text).cites;
     items.forEach(function (it) {
       if (it.key === AGENTS || !lc[it.key] || it.now == null) return;
-      var have = sections(it.now), def = it.text == null ? [] : sections(it.text);
-      var none = lc[it.key].filter(function (x) { return have.indexOf(x) < 0 && def.indexOf(x) < 0; });
+      var have = setOf(sections(it.now)), def = setOf(it.text == null ? [] : sections(it.text));
+      var none = lc[it.key].filter(function (x) { return !have[x] && !def[x]; });
       if (none.length) out.push({ path: it.key, sections: none, text: 'AGENTS.md points AI assistants to ' + italics(none) + ' in `' + it.key + '`, but that file has no such section and Flightdeck\'s default doesn\'t either. Add it as a ## section there, or change the pointer.' });
     });
     return out;
@@ -300,27 +311,32 @@ PF.contract = (function () {
     var special = items.some(function (i) { return i.heldFrom || i.restaged || i.onlyCopy || noHistory(i); });
     var head = special ? 'Flightdeck ' + version + ' put a new default of each file below in this folder, and left your versions in place. Unless its line says otherwise, Flightdeck changed the file and your team changed it too:'
       : 'Flightdeck ' + version + ' changed these files, and your team changed them too, so the update left your versions in place:';
+    /* One section named, or more: "the section", "that section". */
+    var those = function (xs) { return xs.length === 1 ? 'that section' : 'those sections'; };
     var line = function (i) {
-      var s = '- `' + i.rel + '`' + (i.key === AGENTS ? ' (only the part between the flightdeck markers)' : '');
-      if (i.heldFrom) s += i.held.length === 1
-        ? ' (held: ' + named(i.held[0].path) + ' doesn\'t have the sections the new AGENTS.md points to: ' + italics(i.held[0].lacks) + '. Your team didn\'t change AGENTS.md\'s Flightdeck part. If it is your team\'s own file, move it out of `_flightdeck/`; otherwise merge its new default from this folder into it. Then ' + DELETE_AGENTS + ' Until it has those sections, AGENTS.md waits and its new default is staged again.)'
-        : ' (held: these files don\'t have the sections the new AGENTS.md points to: ' + listN(i.held) + '. Your team didn\'t change AGENTS.md\'s Flightdeck part. If one is your team\'s own file, move it out of `_flightdeck/`; otherwise merge its new default from this folder into it. Then ' + DELETE_AGENTS + ' Until they have those sections, AGENTS.md waits and their new defaults are staged again.)';
-      else if (i.onlyCopy && i.waitsFor && i.waitsFor.length) s += ' (your team didn\'t change AGENTS.md\'s Flightdeck part, so you don\'t need to merge it. It waits for ' + (i.waitsFor.length === 1 ? named(i.waitsFor[0].path) + ', which doesn\'t have ' + italics(i.waitsFor[0].lacks) + '. Merge that file first. ' : 'these files, which don\'t have the sections it points to: ' + listN(i.waitsFor) + '. Merge those files first. ') + 'Then ' + DELETE_AGENTS + ')';
-      else if (i.onlyCopy) s += ' (your team didn\'t change AGENTS.md\'s Flightdeck part, so you don\'t need to merge it: ' + DELETE_AGENTS + ')';
-      else if (noHistory(i)) s += ' (Flightdeck now ships a file at this path. ' + (waitsOn[i.key] ? 'AGENTS.md waits for this file: see its line above. Merge the new default into it' : i.lacks ? 'It doesn\'t have ' + italics(i.lacks) + ', which AGENTS.md points to: bring those sections in from the new default' : 'Merge the new default into it') + ', or, if it is your team\'s own file, move it out of `_flightdeck/`.)';
-      else if (waitsOn[i.key]) s += ' (AGENTS.md waits for this file: see its line above.)';
-      else if (i.restaged) s += ' (staged again: it doesn\'t have ' + italics(i.lacks) + ', which AGENTS.md points to. Flightdeck didn\'t change this file. Merge those sections in from this folder\'s new default, or, if it is your team\'s own file, move it out of `_flightdeck/`.)';
-      else if (i.lacks) s += ' (it doesn\'t have ' + italics(i.lacks) + ', which AGENTS.md points to: bring those sections in from the new default when you merge.)';
+      var s = '- `' + i.rel + '`', p = i.heldFrom && i.held.length === 1 ? '`' + i.held[0].path + '`' : '';
+      /* AGENTS.md's own note follows its marker words as sentences, never a second pair of parentheses. */
+      var mine = i.key === AGENTS ? ' — only the part between the flightdeck markers. ' : null;
+      if (i.heldFrom) s += mine + (i.held.length === 1
+        ? 'Held: ' + named(i.held[0].path) + ' doesn\'t have the ' + (i.held[0].lacks.length === 1 ? 'section' : 'sections') + ' the new AGENTS.md points to: ' + italics(i.held[0].lacks) + '. Your team didn\'t change AGENTS.md\'s Flightdeck part. If ' + p + ' is your team\'s own file, move it out of `_flightdeck/`; otherwise merge its new default from this folder into it. Then ' + DELETE_AGENTS + ' Until ' + p + ' has ' + those(i.held[0].lacks) + ', AGENTS.md waits and its new default is staged again.'
+        : 'Held: these files don\'t have the sections the new AGENTS.md points to: ' + listN(i.held) + '. Your team didn\'t change AGENTS.md\'s Flightdeck part. If one is your team\'s own file, move it out of `_flightdeck/`; otherwise merge its new default from this folder into it. Then ' + DELETE_AGENTS + ' Until they have those sections, AGENTS.md waits and their new defaults are staged again.');
+      else if (i.onlyCopy && i.waitsFor && i.waitsFor.length) s += mine + 'Your team didn\'t change AGENTS.md\'s Flightdeck part, so you don\'t need to merge it. It waits for ' + (i.waitsFor.length === 1 ? named(i.waitsFor[0].path) + ', which doesn\'t have ' + italics(i.waitsFor[0].lacks) + '. Merge that file first. ' : 'these files, which don\'t have the sections it points to: ' + listN(i.waitsFor) + '. Merge those files first. ') + 'Then ' + DELETE_AGENTS;
+      else if (i.onlyCopy) s += mine + 'Your team didn\'t change AGENTS.md\'s Flightdeck part, so you don\'t need to merge it: ' + DELETE_AGENTS;
+      else if (mine) s += ' (only the part between the flightdeck markers)';
+      else if (noHistory(i)) s += ' (Flightdeck now ships a file at this path. ' + (waitsOn[i.key] ? 'AGENTS.md waits for this file: see its line above. Merge the new default into it' : i.lacks ? 'It doesn\'t have ' + italics(i.lacks) + ', which AGENTS.md points to: bring ' + those(i.lacks) + ' in from the new default' : 'Merge the new default into it') + ', or, if it is your team\'s own file, move it out of `_flightdeck/`.)';
+      else if (waitsOn[i.key]) s += ' (AGENTS.md waits for this file: see its line above.' + (i.restaged ? ' Flightdeck didn\'t change this file.' : '') + ')';
+      else if (i.restaged) s += ' (staged again: it doesn\'t have ' + italics(i.lacks) + ', which AGENTS.md points to. Flightdeck didn\'t change this file. Merge ' + those(i.lacks) + ' in from this folder\'s new default, or, if it is your team\'s own file, move it out of `_flightdeck/`.)';
+      else if (i.lacks) s += ' (it doesn\'t have ' + italics(i.lacks) + ', which AGENTS.md points to: bring ' + those(i.lacks) + ' in from the new default when you merge.)';
       return s;
     };
     return '# Flightdeck ' + version + ': files to merge\n\n' + head + '\n\n' + items.map(line).join('\n') +
       '\n\nThe new default of each file is in this folder (`' + here + '/`), at the same path it has in ' + home + '.\n\n## Ask your AI assistant to merge them\n\nOpen your AI assistant in ' + home + ', and give it this:\n\n' +
-      mergePrompt(version, here) + '\n\nThen run the same flightdeck command with `--check`: exit code 0 means nothing is left to merge.\n';
+      mergePrompt(version, here) + '\n\nThen run the same flightdeck command with `--check`: exit code 0 means nothing is left to merge; 2 means install still has files to write, so run install again.\n';
   }
   /* The request a person hands their AI assistant, quoted in the README and copied by the app's Copy merge request. */
   function mergePrompt(version, here) {
     return '> Flightdeck ' + version + ' put new default versions of some files in `' + here + '/`; its README.md lists them. For each one, compare the new default with our file at the same path. Keep our own changes, and bring in what the new default adds or changes. In AGENTS.md, change only the part between `<!-- flightdeck:begin -->` and `<!-- flightdeck:end -->`; anything that is ours belongs under Team notes, below the end marker. ' +
-      'If our file has Flightdeck text the new default leaves out, look for it in `_flightdeck/` (`.flightdeck/skills/_flightdeck/` in a team folder), or in the new default here of any `_flightdeck/` file README.md lists. Text found there has moved, so don\'t copy it back. Where our version of it differs, that difference is ours: put it under Team notes and tell me. If it is in neither place, keep it under Team notes and tell me. Merge the `_flightdeck/` files before AGENTS.md, and check that each has every section the new AGENTS.md (the default here) points to. If README.md says Flightdeck writes a file itself, don\'t merge it: delete it from each version folder in `.flightdeck/updates/` (never anything under `replaced/`) once the other files are merged. ' +
+      'If our file has Flightdeck text the new default leaves out, look for it in `_flightdeck/` (`.flightdeck/skills/_flightdeck/` in a team folder), or in the new default here of any `_flightdeck/` file README.md lists. Text found there has moved, so don\'t copy it back. Where our version of it differs, that difference is ours: put it under Team notes and tell me. If it is in neither place, keep it under Team notes and tell me. Merge the `_flightdeck/` files before AGENTS.md, and check that each has every section the new AGENTS.md (the default here) points to. If README.md says Flightdeck writes a file itself, don\'t merge it: delete it from each version folder in `.flightdeck/updates/` (`.flightdeck/updates/<version>/AGENTS.md`, never anything under `replaced/`) once the other files are merged. ' +
       'Show me each change before you save it. When a file is merged, delete its copy here. When only README.md is left, delete this folder.';
   }
   /* The first thing to paste into an AI assistant opened on the team folder: plain text, naming no tool. Not every tool reads

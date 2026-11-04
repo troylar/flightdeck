@@ -1345,6 +1345,8 @@
         out.push(it.rel);
         if (it.now != null && it.now !== C.merged(it.key, it.now, it.text)) out.push(ud + '/replaced/x');
       } else if (it.status === 'merge' && (!it.waiting || it.stage)) { out.push(ud + '/' + it.rel); out.push(ud + '/README.md'); out.push(ud + '/replaced/x'); }
+      /* A copy already waiting here: the README beside it may be rewritten, its old text kept. */
+      else if (it.status === 'merge' && it.staged.some(function (x) { return x.version === ver; })) { out.push(ud + '/README.md'); out.push(ud + '/replaced/x'); }
     });
     if (C.nextRecord(l.record, l.items, ver)) out.push(tg.recordAt);
     return out;
@@ -1390,7 +1392,7 @@
         if (!alive()) throw stop();
         if (blocked) { f.blocked = blocked; return null; }
         /* The merge list as it was before anything is written: the only text it may replace. */
-        var staging = l.items.some(function (i) { return i.status === 'merge' && (!i.waiting || i.stage); });
+        var staging = l.items.some(function (i) { return i.status === 'merge'; });
         return (staging ? fs.read(readmeAt, { maxBytes: AF_MAX }).then(function (r) { readme = r ? r.text : null; }) : Promise.resolve()).then(function () { return l.items.reduce(function (q, it) {
           return q.then(function () {
             if (!alive()) throw stop();
@@ -1402,9 +1404,10 @@
           });
         }, Promise.resolve()); }).then(function () {
           var merges = l.items.filter(function (i) { return i.status === 'merge' && !i.changed; });
-          if (!merges.some(function (i) { return !i.waiting || i.stage; })) return;
           var list = merges.filter(function (i) { return !i.waiting || i.stage || i.staged.some(function (x) { return x.version === ver; }); });
-          var next = C.mergeReadme(ver, list, tg.updates, tg.home, { base: (C.BASELINES && C.BASELINES.files) || {}, record: l.record, agents: EXAMPLES[C.AGENTS] });
+          var next = list.length ? C.mergeReadme(ver, list, tg.updates, tg.home, { base: (C.BASELINES && C.BASELINES.files) || {}, record: l.record, agents: EXAMPLES[C.AGENTS] }) : null;
+          /* As the command: also when the README there says what is no longer true (its words depend on the state). */
+          if (!merges.some(function (i) { return !i.waiting || i.stage; }) && !(readme != null && next != null && next !== readme)) return;
           return (readme != null && readme !== next ? keep('merge-README.md', readme) : Promise.resolve()).then(function () { if (!alive()) throw stop(); return save(readmeAt, readme, next, readmeAt); });
         }).then(function () {
           var rec = C.nextRecord(l.record, l.items, ver);

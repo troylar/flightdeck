@@ -41,7 +41,7 @@ A test run has `"test": true` (see *Reading runs* in `AGENTS.md`).
 
 Read with `flightdeck draft read <team folder> <process> --or-latest --json` and keep `session`, `continueFrom.rev` and `continueFrom.text` (save the text to a file: it's what you started from; with `--or-latest` and no draft, it's the latest published version).
 
-Save with `flightdeck draft save <team folder> <process> --session <session> --expect <continueFrom.rev> --from <your new text> --base <the text you read> --json`, or `--expect none` for a new checklist.
+Save with `flightdeck draft save <team folder> <process> --session <session> --expect <continueFrom.rev> --from <file with your new text> --base <file with the text you read> --json`, or `--expect none` for a new checklist.
 
 `flightdeck draft propose` takes the same options as `flightdeck draft save`, and always saves your change as a proposal.
 

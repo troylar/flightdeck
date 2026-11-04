@@ -454,7 +454,7 @@ PF.health = (function () {
     }
     if (lacking.length) {
       refPaths = refPaths.concat(lacking.map(function (x) { return x.key; }));
-      refTitles.push(lacking.length + (lacking.length === 1 ? ' file AI assistants need is missing sections' : ' files AI assistants need are missing sections'));
+      refTitles.push(lacking.length + (lacking.length === 1 ? ' file AI assistants need is missing ' + (lacking[0].lacks.length === 1 ? 'a section' : 'sections') : ' files AI assistants need are missing sections'));
       refParts.push(lacking.length === 1
         ? 'AGENTS.md points AI assistants to ' + italic(lacking[0].lacks) + ' in `' + lacking[0].key + '`, but that file has no such section. ' + (lacking[0].waiting && !lacking[0].stage ? 'A new default of it is waiting in .flightdeck/updates/ for your AI assistant to merge.' : 'AI assistant files stages the new default for your AI assistant to merge.')
         : 'AGENTS.md points AI assistants to sections these files don\'t have: ' + list(lacking.map(function (x) { return { path: x.key, lacks: x.lacks }; })) + '. AI assistant files stages their new defaults for your AI assistant to merge.');
@@ -468,10 +468,10 @@ PF.health = (function () {
       var addsVerb = nAdd ? 'adds ' + newFiles + ' and ' : '', addsAlso = nAdd ? ' AI assistant files also adds ' + newFiles + '.' : '';
       var others = merge.filter(function (k) { return k !== C.AGENTS; }), parts = [];
       if (a.heldFrom) parts.push(a.held.length === 1
-        ? 'Your team didn\'t change AGENTS.md. It waits because `' + a.held[0].path + '` doesn\'t have the sections it points to: ' + italic(a.held[0].lacks) + '. AI assistant files ' + addsVerb + 'stages the new default of `' + a.held[0].path + '` for your AI assistant to merge; Flightdeck then writes AGENTS.md itself.'
+        ? 'Your team didn\'t change AGENTS.md. It waits because `' + a.held[0].path + '` doesn\'t have the ' + (a.held[0].lacks.length === 1 ? 'section' : 'sections') + ' it points to: ' + italic(a.held[0].lacks) + '. AI assistant files ' + addsVerb + 'stages the new default of `' + a.held[0].path + '` for your AI assistant to merge; Flightdeck then writes AGENTS.md itself.'
         : 'Your team didn\'t change AGENTS.md. It waits because these files don\'t have the sections it points to: ' + list(a.held) + '. AI assistant files ' + addsVerb + 'stages the new defaults of these files for your AI assistant to merge; Flightdeck then writes AGENTS.md itself.');
-      else if (a.onlyCopy && a.waitsFor && a.waitsFor.length) parts.push('Your team didn\'t change AGENTS.md; its new default is waiting in .flightdeck/updates/, and it also waits for ' + list(a.waitsFor) + ', which ' + (a.waitsFor.length === 1 ? 'doesn\'t' : 'don\'t') + ' have the sections it points to. Merge ' + (a.waitsFor.length === 1 ? 'that file' : 'those files') + ' first.' + addsAlso);
-      else if (a.onlyCopy) parts.push('Your team didn\'t change AGENTS.md; only its new default is waiting in .flightdeck/updates/. Delete AGENTS.md from each version folder there (never anything under replaced/), or press I merged it, and Update writes it.' + addsAlso);
+      else if (a.onlyCopy && a.waitsFor && a.waitsFor.length) parts.push('Your team didn\'t change AGENTS.md; its new default is waiting in .flightdeck/updates/, and it also waits for ' + list(a.waitsFor) + ', which ' + (a.waitsFor.length === 1 ? 'doesn\'t have the ' + (a.waitsFor[0].lacks.length === 1 ? 'section' : 'sections') : 'don\'t have the sections') + ' it points to. Merge ' + (a.waitsFor.length === 1 ? 'that file' : 'those files') + ' first.' + addsAlso);
+      else if (a.onlyCopy) parts.push('Your team didn\'t change AGENTS.md; only its new default is waiting in .flightdeck/updates/. Delete AGENTS.md from each version folder there (.flightdeck/updates/<version>/AGENTS.md, never anything under replaced/), or press I merged it, and Update writes it.' + addsAlso);
       if (parts.length && others.length) parts.push('Your team changed the other ' + (others.length === 1 ? 'file' : 'files') + ' and so did Flightdeck.');
       if (!parts.length) parts.push('Your team changed ' + (merge.length === 1 ? 'it' : 'them') + ' and so did Flightdeck. AI assistant files ' + addsVerb + 'stages the new default for your AI assistant to merge.');
       var mPaths = merge.concat(Object.keys(folded));

@@ -1,6 +1,6 @@
 # Checklist essentials
 
-Nothing here allows you to write a file `AGENTS.md` tells you not to. This is the syntax most checklists need, from the front matter down; `docs/map-format.md` in the Flightdeck repository has all of it, and *Writing a checklist* in `AGENTS.md` has the rules every checklist follows.
+Nothing here allows you to write a file `AGENTS.md` tells you not to. This is the syntax most checklists need, from the front matter down; `map-format.md` beside this file (a copy of `docs/map-format.md` in the Flightdeck repository) has all of it, and *Writing a checklist* in `AGENTS.md` has the rules every checklist follows.
 
 ## Writing a checklist
 
@@ -8,7 +8,7 @@ The essentials:
 
 ### Front matter
 
-- Front matter: `process`, `title`, `category`, `group` (its place in the hierarchy, like `Engineering / Releases`), `tags`, `owner` (a person ID from `people.json`), `backup` (optional: another person ID, who signs off only while the owner is inactive or gone), `context` (run details), `roles`, and `runs: solo` when one person usually runs it alone.
+- `process`, `title`, `category`, `group` (its place in the hierarchy, like `Engineering / Releases`), `tags`, `owner` (a person ID from `people.json`), `backup` (optional: another person ID, who signs off only while the owner is inactive or gone), `context` (run details), `roles`, and `runs: solo` when one person usually runs it alone.
 - **Many processes are solo**: a developer's check-in, a product owner's weekly Jira cleanup. Write those for one person: `runs: solo`, one role or none, no "together" steps. Example:
 
   ```markdown

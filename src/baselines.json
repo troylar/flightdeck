@@ -69,12 +69,12 @@
       ]
     },
     ".flightdeck/skills/_flightdeck/checklist-essentials.md": {
-      "021c1d7c03691fd7b7cf7f3f29eb70d47afb00264810da7d5a4d85ef61d01c3b": [
+      "af3d38272a045f53f160b5698d7913871d524f1da6e77f7f19c96d531fd9bb08": [
         "2.15.0"
       ]
     },
     ".flightdeck/skills/_flightdeck/command-guide.md": {
-      "a1b126272b643b549c8df0748c7a129a53d6b2b5ce8e739c3890ef4c32b74d2c": [
+      "e4fdf46ddc691b50593105bb9d4ca1bf189a39c785f844a465a87e0dc92df12d": [
         "2.15.0"
       ]
     },
@@ -251,7 +251,9 @@
       ],
       "a21b290ff89b5e2d770645c99dc5ca5c82fb7911b86a7790185153119b9e9655": [
         "2.13.0",
-        "2.14.0",
+        "2.14.0"
+      ],
+      "1f4722361e27c4131dbd716036b17d36cf506461ae26aa9c742d9a5684c2418c": [
         "2.15.0"
       ]
     },

@@ -115,12 +115,14 @@ rule('B1: the merge README and the next record are the same text from the app an
   const held = (ws) => [{ key: 'AGENTS.md', rel: 'AGENTS.md', status: 'merge', heldFrom: 'update', held: ws }].concat(ws.map(w => ({ key: w.path, rel: w.path, status: 'merge', lacks: w.lacks, now: 'x', have: 'h' })));
   const one = [{ path: G, lacks: ['Reading runs'] }], two = one.concat([{ path: FF, lacks: ['Corrections'] }]);
   const restaged = [{ key: G, rel: G, status: 'merge', lacks: ['Reading runs'], restaged: true, now: 'x', have: 'h' }];
-  [['held on one file', held(one), /\(held: `[^`]+` doesn't have the sections the new AGENTS\.md points to: \*Reading runs\*\./], ['held on two files', held(two), /\(held: these files don't have the sections the new AGENTS\.md points to: /], ['a re-staged reference', restaged, /\(staged again: it doesn't have \*Reading runs\*, which AGENTS\.md points to\. Flightdeck didn't change this file\./]].forEach(([name, list, re]) => {
+  [['held on one file', held(one), /— only the part between the flightdeck markers\. Held: `[^`]+` doesn't have the section the new AGENTS\.md points to: \*Reading runs\*\./], ['held on two files', held(two), /— only the part between the flightdeck markers\. Held: these files don't have the sections the new AGENTS\.md points to: /], ['a re-staged reference', restaged, /\(staged again: it doesn't have \*Reading runs\*, which AGENTS\.md points to\. Flightdeck didn't change this file\./]].forEach(([name, list, re]) => {
     const app = K.mergeReadme('2.15.0', list, ['.flightdeck', 'updates'], 'the team folder', ctx), cli = C.mergeReadmeText('2.15.0', list, ['.flightdeck', 'updates'], 'the team folder', ctx);
     assert.strictEqual(app, cli, name + ': the same README');
     assert.ok(re.test(app), name + ': ' + app.split('\n').slice(0, 6).join(' / '));
     assert.ok(app.indexOf('put a new default of each file below in this folder') >= 0 && app.indexOf('your team changed them too') < 0, name + ': the header for held and re-staged files');
   });
+  /* Round 8: the prompt's delete words name only the copies that wait, as the README line does. */
+  assert.ok(K.mergePrompt('2.15.0', '.flightdeck/updates/2.15.0').indexOf('don\'t merge it: delete it from each version folder in `.flightdeck/updates/` (`.flightdeck/updates/<version>/AGENTS.md`, never anything under `replaced/`) once the other files are merged.') >= 0, 'the merge prompt names .flightdeck/updates/<version>/AGENTS.md');
   const good = K.readRecord(RECORDS[11][1], ['AGENTS.md', STATUS]);
   const cases = [
     ['nothing changed', Object.assign({}, good, { version: '2.7.0' }), [{ key: 'AGENTS.md', want: 'a'.repeat(64) }, { key: STATUS, want: 'b'.repeat(64) }]],

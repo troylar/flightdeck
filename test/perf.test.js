@@ -321,4 +321,30 @@ budget('Review\'s comparison is capped: thousands of identical lines with a few 
   assert.ok(manyMs < 1500, 'all changed: ' + manyMs + ' ms');
 });
 
+/* The heading reader reads a team's own files (2.15.0's content rule): a long line costs its length, never its square. Before
+   round 8 one 100,000-space heading line took 11.8 s. */
+budget('The heading reader is linear: a 1 MB heading line takes under 100 ms in sections()', () => {
+  const C = load().contract, sp = ' '.repeat(1 << 20);
+  [['## a' + sp + 'b', ['a' + sp + 'b']], ['## a' + sp + '#b', ['a' + sp + '#b']], ['## a' + sp + '##' + sp, ['a']], ['##' + sp, ['']], ['## a' + '\t'.repeat(1 << 20) + '#', ['a']]].forEach(([line, want], n) => {
+    const md = '# t\n\n' + line + '\n\n## z\n', t = Date.now(), got = JSON.parse(JSON.stringify(C.sections(md))), ms = Date.now() - t;
+    console.log('  heading line ' + n + ' (' + line.length + ' characters): ' + ms + ' ms');
+    assert.deepStrictEqual(got, want.concat('z'), 'line ' + n + ' reads the same');
+    assert.ok(ms < 100, 'line ' + n + ': ' + ms + ' ms');
+  });
+});
+budget('The content rule is linear too: 34,000 cited sections against a guide of 26,000 take under 300 ms in cites, lacks, hold and pointers', () => {
+  const C = load(false, process.env.CONTRACT_FROM ? (f, src) => f === 'core/contract.js' ? require('fs').readFileSync(process.env.CONTRACT_FROM, 'utf8') : src : undefined).contract;
+  const G = C.REFS + 'command-guide.md', head = '`' + G + '` (*the command guide*)\n';
+  let cited = '', secs = '';
+  for (let i = 0; cited.length < (1 << 20); i++) cited += '*s' + i + '* in the command guide. ';
+  for (let i = 0; secs.length < (1 << 20); i++) secs += '## s' + (i * 2) + '\n';
+  const agents = C.BEGIN + '\n' + head + cited + '\n' + C.END + '\n', t = Date.now();
+  const n = C.cites(agents).cites[G].length, miss = C.lacks(secs, C.cites(agents).cites[G]).length;
+  const st = C.hold([{ key: 'AGENTS.md', status: 'current' }, { key: G, status: 'kept' }], [{ key: 'AGENTS.md', now: agents, text: agents }, { key: G, now: secs, text: cited.replace(/\*(s\d+)\* in the command guide\. /g, '## $1\n') }]);
+  const pts = C.pointers([{ key: 'AGENTS.md', now: agents, text: agents }, { key: G, now: secs, text: '## x\n' }]), ms = Date.now() - t;
+  console.log('  ' + n + ' citations, ' + miss + ' lacking: ' + ms + ' ms');
+  assert.ok(n > 30000 && miss > 10000 && st[1].lacks.length === miss && pts[0].sections.length === miss, 'set-up');
+  assert.ok(ms < 300, ms + ' ms');
+});
+
 run();

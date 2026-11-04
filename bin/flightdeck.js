@@ -303,7 +303,8 @@ function destinationsClear(t, items, more) {
   for (const i of items) {
     if (['current', 'kept'].includes(i.status)) continue;
     if (i.status === 'merge') {
-      if (i.waiting && !i.stage) continue;
+      /* A copy already waiting here: the README beside it may be rewritten, its old text kept. */
+      if (i.waiting && !i.stage) { if (i.staged.some((x) => x.version === t.version)) dests.push(t.updates.concat(t.version, 'README.md'), t.updates.concat(t.version, 'replaced', 'x')); continue; }
       dests.push(t.updates.concat(t.version, i.rel.split('/')), t.updates.concat(t.version, 'README.md'), t.updates.concat(t.version, 'replaced', 'x'));
       continue;
     }
@@ -325,7 +326,7 @@ function contract(t, files, opts) {
   if (!opts.check || opts.room) { roomFor(t, items); destinationsClear(t, items, opts.more); }
   if (opts.check) return items;
   /* The merge list as it was before anything is written: the only text it may replace. */
-  const readmeAt = t.updates.concat(t.version, 'README.md'), readmeWas = items.some((i) => i.status === 'merge' && (!i.waiting || i.stage)) ? readInside(t.dir, readmeAt) : null;
+  const readmeAt = t.updates.concat(t.version, 'README.md'), readmeWas = items.some((i) => i.status === 'merge') ? readInside(t.dir, readmeAt) : null;
   for (const i of items) {
     if (['current', 'kept'].includes(i.status) || (i.status === 'merge' && i.waiting && !i.stage)) {
       if (opts.force) i.staged.forEach((x) => fileAway(t, x));
@@ -343,8 +344,11 @@ function contract(t, files, opts) {
     }
   }
   const merges = items.filter((i) => i.status === 'merge' && !i.changed);
-  if (merges.some((i) => !i.waiting || i.stage)) {
-    const next = mergeReadme(t.version, merges.filter((i) => !i.waiting || i.stage || i.staged.some((x) => x.version === t.version)), t);
+  const listed = merges.filter((i) => !i.waiting || i.stage || i.staged.some((x) => x.version === t.version));
+  const next = listed.length ? mergeReadme(t.version, listed, t) : null;
+  /* Written when something new is staged, and also when the README there says what is no longer true: its words depend on
+     the state (held, waiting, lacking), not only on what is staged. */
+  if (merges.some((i) => !i.waiting || i.stage) || (readmeWas !== null && next !== null && next !== readmeWas)) {
     try {
       if (readmeWas !== null && readmeWas !== next) keepCopy(t, ['merge-README.md'], readmeWas);
       safeWrite(t.dir, readmeAt, next, readmeWas);
@@ -403,20 +407,35 @@ function report(items, check, out) {
 }
 /* The line install prints after the list when something waits to be merged. Its first sentence says why when the content
    rule is at work (AGENTS.md held, or only its copy waiting, or files that lack what AGENTS.md points to); the rest names where
-   the new defaults are: this version's folder, or, when nothing was staged there this run, the folders they wait in. */
-function mergeLine(items, dir, mine) {
+   the new defaults are: this version's folder, or, when nothing was staged there this run, the folders they wait in. When the
+   first sentence already names the folder, the rest only points to its README.md; when only AGENTS.md's copy waits, the first
+   sentence says it all. */
+const DELETE_COPY = 'delete AGENTS.md from each version folder in `.flightdeck/updates/` (`.flightdeck/updates/<version>/AGENTS.md`, never anything under `replaced/`)';
+const sectionWord = (xs) => (xs.length === 1 ? 'section' : 'sections');
+/* The first sentence, or null when the content rule isn't at work. future: install --check's words, before anything is written. */
+function mergeWhy(items, mine, future) {
   const a = items.find((i) => i.key === AGENTS), merges = items.filter((i) => i.status === 'merge');
   const staged = (i) => !i.waiting || i.stage;
   const folders = (list) => list.reduce((acc, i) => acc.concat(staged(i) ? [mine] : i.waiting.split(', ')), []).filter((v, n, all) => all.indexOf(v) === n).sort(byVersion).map((v) => '.flightdeck/updates/' + v);
   const inline = (list) => folders(list).map((f) => '`' + f + '`').join(' and ');
-  const waits = a && (a.heldFrom ? a.held : a.onlyCopy && a.waitsFor && a.waitsFor.length ? a.waitsFor : null);
-  let first = 'Your team changed files this version changes too.';
-  if (waits) first = waits.length === 1 ? 'AGENTS.md waits: `' + waits[0].path + '` doesn\'t have the sections it points to.' : 'AGENTS.md waits: these files don\'t have the sections it points to: ' + waits.map((x) => '`' + x.path + '`').join(', ') + '.';
-  else if (a && a.onlyCopy) first = 'AGENTS.md\'s new default is waiting in ' + inline([a]) + '; your team didn\'t change AGENTS.md, so delete AGENTS.md from each version folder in `.flightdeck/updates/` (never anything under `replaced/`) and run install again.';
-  else if (merges.every((i) => i.lacks)) first = merges.length === 1 ? '`' + merges[0].rel + '` doesn\'t have the sections AGENTS.md points to; its new default is waiting in ' + inline(merges) + ' to be merged.'
-    : 'These files don\'t have the sections AGENTS.md points to: ' + merges.map((i) => '`' + i.rel + '`').join(', ') + '; their new defaults are waiting in ' + inline(merges) + ' to be merged.';
-  const where = merges.some(staged) ? path.join(dir, '.flightdeck', 'updates', mine) : folders(merges).map((f) => path.join(dir, ...f.split('/'))).join(' and ');
-  return first + ' The new defaults are in ' + where + '; its README.md has a prompt for your AI assistant to merge them.';
+  const waits = a && (a.heldFrom ? a.held : a.onlyCopy && a.waitsFor && a.waitsFor.length ? a.waitsFor : null), wait = future ? 'AGENTS.md will wait: ' : 'AGENTS.md waits: ';
+  if (waits) return { text: waits.length === 1 ? wait + '`' + waits[0].path + '` doesn\'t have the ' + sectionWord(waits[0].lacks) + ' it points to.' : wait + 'these files don\'t have the sections it points to: ' + waits.map((x) => '`' + x.path + '`').join(', ') + '.' };
+  if (a && a.onlyCopy) return { all: merges.length === 1, text: future ? 'AGENTS.md only needs its copy deleted: your team didn\'t change AGENTS.md, so ' + DELETE_COPY + ' and run install.'
+    : 'AGENTS.md\'s new default is waiting in ' + inline([a]) + '; your team didn\'t change AGENTS.md, so ' + DELETE_COPY + ' and run install again.' };
+  if (merges.length && merges.every((i) => i.lacks)) {
+    const at = future ? ' will wait in ' : ' is waiting in ', ats = future ? ' will wait in ' : ' are waiting in ';
+    return { named: folders(merges).length, n: merges.length, text: merges.length === 1 ? '`' + merges[0].rel + '` doesn\'t have the ' + sectionWord(merges[0].lacks) + ' AGENTS.md points to; its new default' + at + inline(merges) + ' to be merged.'
+      : 'These files don\'t have the sections AGENTS.md points to: ' + merges.map((i) => '`' + i.rel + '`').join(', ') + '; their new defaults' + ats + inline(merges) + ' to be merged.' };
+  }
+  return null;
+}
+function mergeLine(items, dir, mine) {
+  const merges = items.filter((i) => i.status === 'merge'), staged = (i) => !i.waiting || i.stage, why = mergeWhy(items, mine, false);
+  if (why && why.all) return why.text;
+  if (why && why.named) return why.text + (why.named === 1 ? ' Its README.md has' : ' Each folder\'s README.md has') + ' a prompt for your AI assistant to merge ' + (why.n === 1 ? 'it' : 'them') + '.';
+  const folders = merges.reduce((acc, i) => acc.concat(staged(i) ? [mine] : i.waiting.split(', ')), []).filter((v, n, all) => all.indexOf(v) === n).sort(byVersion);
+  const where = merges.some(staged) ? path.join(dir, '.flightdeck', 'updates', mine) : folders.map((v) => path.join(dir, '.flightdeck', 'updates', v)).join(' and ');
+  return (why ? why.text : 'Your team changed files this version changes too.') + ' The new defaults are in ' + where + '; its README.md has a prompt for your AI assistant to merge them.';
 }
 /* The live AGENTS.md's pointers no merge can satisfy (PF.contract.pointers), in Folder health's words, from the files as this
    run leaves them. */
@@ -2558,6 +2577,8 @@ function main(argv) {
       notes(t, out);
       const code = exitFor([appSt === 'current' ? 'current' : 'update', oldSt === 'current' ? 'current' : 'update'].concat(items.map((i) => i.status)));
       if (code === EXIT.none) out.push('  Nothing to do.');
+      const why = code === EXIT.merge ? mergeWhy(items, mine, true) : null;
+      if (why) out.push(why.text);
       if (code === EXIT.merge) out.push('Files marked "needs merge" go to .flightdeck/updates/' + mine + '/ when you install.');
       return { out: out.join('\n'), code };
     }

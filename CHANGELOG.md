@@ -8,7 +8,7 @@ AGENTS.md keeps the rules; two new files say how.
 
 ### New
 
-- **AGENTS.md waits for the files it points to** (AI assistants). When a file AGENTS.md points to is still waiting to be merged and lacks a section it names, the update stages AGENTS.md with it instead of writing it, so an assistant is never sent to a part that isn't there. README.md in the updates folder, flightdeck install and Folder health say which file and which sections. *Where:* docs/updating.md › Install
+- **AGENTS.md waits for the files it points to** (AI assistants). When your team's version of a file AGENTS.md points to lacks a section it names, the update stages AGENTS.md with that file's new default instead of writing it, so an assistant is never sent to a part that isn't there. README.md in the updates folder, flightdeck install and Folder health say which file and which sections. *Where:* docs/updating.md › Install
 
 ### Improved
 

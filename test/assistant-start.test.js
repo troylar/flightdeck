@@ -968,6 +968,9 @@ const h15 = (k, t) => C.hash(C.managed(k, t));
 const own15 = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 const it15 = (xs) => xs.map(x => '*' + x + '*').join(', ');
 const G7 = it15(['Reading runs', 'Editing drafts', 'Reporting work', 'Skills built from processes', 'Asking for a run', 'Evidence packs', 'Planning a run']);
+const AGL = '- `AGENTS.md` — only the part between the flightdeck markers. ';
+/* The --check reason line: printed before "Files marked..." (round 8). */
+const reasonOf = (out) => { const ls = out.split('\n'), n = ls.findIndex(l => l.startsWith('Files marked "needs merge"')); return n > 0 && !ls[n - 1].startsWith('  ') ? ls[n - 1] : null; };
 const DEL = 'delete AGENTS.md from each version folder in `.flightdeck/updates/` (`.flightdeck/updates/<version>/AGENTS.md`, never anything under `replaced/`), or press I merged it in Settings → AI assistant files, and run install again; Flightdeck writes AGENTS.md itself.';
 
 /* A later release, 2.16.0, stood up as a package of its own: this command and this page, with a guide that adds ## Runner and
@@ -1032,8 +1035,12 @@ function decide15(dir, pkg, force) {
 const CHECK_SAYS = { update: 'update available', new: 'will be added', missing: 'will be added again', merge: 'needs merge', forced: 'will be replaced (--force)', kept: 'kept (your team changed it)' };
 const run15 = (pkg, ...a) => { const r = spawnSync(process.execPath, [(pkg || PKG15).bin, ...a], { encoding: 'utf8' }); return { out: r.stdout + r.stderr, code: r.status }; };
 /* The line install prints after the file list, its first sentence only; and the pointer sentences after it. */
-const FIRSTS = [/^AGENTS\.md waits: /, /^AGENTS\.md's new default is waiting in /, /^`[^`]+` doesn't have the sections AGENTS\.md points to; /, /^These files don't have the sections AGENTS\.md points to: /, /^Your team changed files this version changes too\./];
-function lineOf(out) { const l = out.split('\n').find(x => FIRSTS.some(re => re.test(x))); return l ? l.slice(0, l.indexOf(' The new defaults are in ')) : null; }
+const FIRSTS = [/^AGENTS\.md waits: /, /^AGENTS\.md's new default is waiting in /, /^`[^`]+` doesn't have the sections? AGENTS\.md points to; /, /^These files don't have the sections AGENTS\.md points to: /, /^Your team changed files this version changes too\./];
+/* Round 8: the line ends "The new defaults are in <folder>; ...", or "Its README.md has ..." when its first sentence names the folder,
+   or nothing more when only AGENTS.md's copy waits. */
+const TAILS = [' The new defaults are in ', ' Its README.md has ', ' Each folder\'s README.md has '];
+function fullLineOf(out) { return out.split('\n').find(x => FIRSTS.some(re => re.test(x))) || null; }
+function lineOf(out) { const l = fullLineOf(out); if (!l) return null; const at = TAILS.map(t => l.indexOf(t)).filter(n => n >= 0); return at.length ? l.slice(0, Math.min(...at)) : l; }
 const pointersOf = (out) => out.split('\n').filter(l => /^AGENTS\.md points AI assistants to /.test(l));
 function invariants15(dir, pkg, before, wrote) {
   const live = get15(dir, AG); if (live == null) return;
@@ -1053,7 +1060,7 @@ function install15(dir, opts) {
   const r = run15(pkg, ...(opts.skills ? ['skills', dir] : ['install', dir]), ...(opts.force ? ['--force'] : []));
   const wrote = KEYS15.filter(k => get15(dir, k) !== was[k]);
   invariants15(dir, pkg, st, wrote);
-  return { st, code: r.code, out: r.out, wrote, recordWritten: get15(dir, RECORD) !== recWas, line: lineOf(r.out), pointer: pointersOf(r.out) };
+  return { st, code: r.code, out: r.out, wrote, recordWritten: get15(dir, RECORD) !== recWas, line: lineOf(r.out), full: fullLineOf(r.out), pointer: pointersOf(r.out) };
 }
 function check15(dir, opts) {
   opts = opts || {}; const pkg = opts.pkg || PKG15, { st } = decide15(dir, pkg);
@@ -1066,7 +1073,7 @@ async function health15(dir, pkg) {
   const app = await opened(text(walk(dir)), pkg && pkg !== PKG15 ? pkg.html : undefined), page = await healthOf(app);
   return page.split('<li class="hz-issue ').slice(1).map(chunk => {
     const id = (/id="hz-i-([^"]+)"/.exec(chunk) || [])[1], main = chunk.slice(0, chunk.indexOf('</div>'));
-    return { id, detail: unesc((/<p class="small">([\s\S]*?)<\/p>/.exec(main) || ['', ''])[1]), paths: [...main.matchAll(/<li><code>([^<]*)<\/code><\/li>/g)].map(m => unesc(m[1])) };
+    return { id, title: unesc((/tabindex="-1">([\s\S]*?)<\/b>/.exec(main) || ['', ''])[1]), detail: unesc((/<p class="small">([\s\S]*?)<\/p>/.exec(main) || ['', ''])[1]), paths: [...main.matchAll(/<li><code>([^<]*)<\/code><\/li>/g)].map(m => unesc(m[1])) };
   }).filter(i => /^contract-/.test(i.id));
 }
 const ids15 = (hs) => hs.map(x => x.id + '[' + x.paths.map(p => SHORT[p] || p).join(',') + ']');
@@ -1098,11 +1105,13 @@ function expect15(st, want) {
     });
   });
 }
+const ONLYCOPY = (V) => 'AGENTS.md\'s new default is waiting in `.flightdeck/updates/' + V + '`; your team didn\'t change AGENTS.md, so delete AGENTS.md from each version folder in `.flightdeck/updates/` (`.flightdeck/updates/<version>/AGENTS.md`, never anything under `replaced/`) and run install again.';
 const readmeLine = (dir, V, start) => (get15(dir, cp('README.md', V)) || '').split('\n').find(l => l.startsWith(start));
 const kase15 = (id, title, fn) => rule('Content rule ' + id + ': ' + title, fn);
 
 kase15('1/A1', 'a 2.14.0 folder plus a plain command-guide.md; the first install holds AGENTS.md, in the command, Settings and Folder health', async () => {
   const dir = f214({ [GUIDE]: FOREIGN }), was = copy15(dir);
+  assert.strictEqual(reasonOf(check15(dir).out), 'AGENTS.md will wait: `' + GUIDE + '` doesn\'t have the sections it points to.', 'round 8: --check says why AGENTS.md needs merge');
   const hb = await health15(dir);
   assert.deepStrictEqual(ids15(hb), ['contract-merge[AGENTS,guide]']);
   assert.strictEqual(hb[0].detail, 'Your team didn\'t change AGENTS.md. It waits because `' + GUIDE + '` doesn\'t have the sections it points to: ' + G7 + '. AI assistant files adds 1 new file AI assistants need and stages the new default of `' + GUIDE + '` for your AI assistant to merge; Flightdeck then writes AGENTS.md itself.', 'the whole detail, the path once, the new file joined to the verb');
@@ -1110,9 +1119,11 @@ kase15('1/A1', 'a 2.14.0 folder plus a plain command-guide.md; the first install
   expect15(r.st, { AGENTS: { status: 'merge', stage: true, heldFrom: 'update', held: ['guide-7'] }, guide: { status: 'merge', waiting: undefined, stage: undefined, lacks: 7, restaged: undefined }, ess: { status: 'new' }, ff: { status: 'current' } });
   assert.strictEqual(r.code, 0, r.out); assert.strictEqual(get15(dir, AG), A214, 'AGENTS.md left whole'); assert.strictEqual(get15(dir, ESS), E215, 'the essentials written');
   assert.strictEqual(get15(dir, cp(AG)), A215); assert.strictEqual(get15(dir, cp(GUIDE)), G215);
+  assert.ok(get15(dir, cp(AG)).indexOf('When merging an older copy of this file, don\'t carry that text back (the team\'s own lines go under Team notes), and keep the `step-types/` row of *What you may write* as written here.') >= 0, 'round 8: the staged default the assistant merges from carries the merge sentence');
   const md = get15(dir, cp('README.md')), agl = readmeLine(dir, VER, '- `AGENTS.md`'), gl = readmeLine(dir, VER, '- `' + GUIDE + '`');
-  assert.strictEqual(agl, '- `AGENTS.md` (only the part between the flightdeck markers) (held: `' + GUIDE + '` (the command guide) doesn\'t have the sections the new AGENTS.md points to: ' + G7 + '. Your team didn\'t change AGENTS.md\'s Flightdeck part. If it is your team\'s own file, move it out of `_flightdeck/`; otherwise merge its new default from this folder into it. Then ' + DEL + ' Until it has those sections, AGENTS.md waits and its new default is staged again.)');
-  assert.strictEqual(agl.split(GUIDE).length - 1, 1, 'the held line names the path once');
+  assert.strictEqual(agl, AGL + 'Held: `' + GUIDE + '` (the command guide) doesn\'t have the sections the new AGENTS.md points to: ' + G7 + '. Your team didn\'t change AGENTS.md\'s Flightdeck part. If `' + GUIDE + '` is your team\'s own file, move it out of `_flightdeck/`; otherwise merge its new default from this folder into it. Then ' + DEL + ' Until `' + GUIDE + '` has those sections, AGENTS.md waits and its new default is staged again.');
+  assert.strictEqual(agl.split(GUIDE).length - 1, 3, 'round 8: the held line names the path wherever it means it, so no "it" is ambiguous');
+  assert.ok(md.trimEnd().endsWith('exit code 0 means nothing is left to merge; 2 means install still has files to write, so run install again.'), 'the README\'s last line says what 2 means');
   assert.strictEqual(gl, '- `' + GUIDE + '` (Flightdeck now ships a file at this path. AGENTS.md waits for this file: see its line above. Merge the new default into it, or, if it is your team\'s own file, move it out of `_flightdeck/`.)');
   assert.ok(md.indexOf('your team changed them too') < 0 && md.indexOf('put a new default of each file below in this folder') >= 0, 'the README header is the held one');
   assert.ok(md.indexOf('If README.md says Flightdeck writes a file itself, don\'t merge it') >= 0, 'the prompt says so too');
@@ -1138,7 +1149,7 @@ kase15('3', 'after 1, both copies deleted: held again, both staged again', async
   const was = copy15(dir), r = install15(dir);
   expect15(r.st, { AGENTS: { status: 'merge', stage: true, heldFrom: 'update', held: ['guide-7'] }, guide: { status: 'merge', stage: true, restaged: true, lacks: 7 } });
   assert.strictEqual(r.code, 0); assert.strictEqual(get15(dir, AG), A214); assert.strictEqual(get15(dir, cp(GUIDE)), G215); assert.strictEqual(get15(dir, cp(AG)), A215);
-  assert.ok(get15(dir, cp('README.md')).indexOf('held: `') >= 0);
+  assert.ok(get15(dir, cp('README.md')).indexOf('Held: `') >= 0);
   await settingsAgree(was, dir);
 });
 kase15('4', 'flightdeck skills first, then install: the guide copy already waits, and nothing is written twice', () => {
@@ -1162,9 +1173,13 @@ kase15('5b', 'the same edit without a cited section: staged again, named under m
   assert.ok(md.indexOf('staged again: it doesn\'t have *Asking for a run*') >= 0 && md.indexOf('Flightdeck didn\'t change this file') >= 0, md);
   assert.ok(md.indexOf('your team changed them too') < 0, 'not the plain header');
   const hh = await health15(dir); assert.deepStrictEqual(ids15(hh), ['contract-reference[guide]'], 'once, under contract-reference only');
+  assert.strictEqual(hh[0].title, '1 file AI assistants need is missing a section', 'round 8: singular title');
   assert.ok(/points AI assistants to \*Asking for a run\* in `[^`]+`, but that file has no such section\. A new default of it is waiting/.test(hh[0].detail), hh[0].detail);
-  const L5 = '`' + GUIDE + '` doesn\'t have the sections AGENTS.md points to; its new default is waiting in `.flightdeck/updates/' + VER + '` to be merged.';
+  const L5 = '`' + GUIDE + '` doesn\'t have the section AGENTS.md points to; its new default is waiting in `.flightdeck/updates/' + VER + '` to be merged.';
   assert.strictEqual(r.line, L5, 'run 1');
+  assert.strictEqual(r.full, L5 + ' Its README.md has a prompt for your AI assistant to merge it.', 'round 8: the folder is named once');
+  assert.strictEqual(readmeLine(dir, VER, '- `' + GUIDE + '`'), '- `' + GUIDE + '` (staged again: it doesn\'t have *Asking for a run*, which AGENTS.md points to. Flightdeck didn\'t change this file. Merge that section in from this folder\'s new default, or, if it is your team\'s own file, move it out of `_flightdeck/`.)', 'round 8: one section, singular');
+  assert.strictEqual(reasonOf(check15(was).out), '`' + GUIDE + '` doesn\'t have the section AGENTS.md points to; its new default will wait in `.flightdeck/updates/' + VER + '` to be merged.');
   await settingsAgree(was, dir);
   const r2 = install15(dir); assert.strictEqual(r2.code, 0, 'run again: no "changed during install": ' + r2.out); assert.ok(!r2.recordWritten);
   assert.strictEqual(r2.line, L5, 'run 2 is keyed on lacks, not restaged (never "Your team changed files")');
@@ -1187,6 +1202,11 @@ kase15('6', 'a 2.12.0-default AGENTS.md and a team-edited file-formats.md that k
 kase15('6b', 'the same, but the team removed ## Corrections from file-formats.md: held on it', async () => {
   const dir = f214({ [AG]: A212, [FORMATS]: FFT.replace('## Corrections', '## Fixes') }), was = copy15(dir), r = install15(dir);
   expect15(r.st, { AGENTS: { status: 'merge', heldFrom: 'update', held: ['ff-1'] }, ff: { status: 'merge', restaged: true, lacks: 1 } });
+  assert.strictEqual(readmeLine(dir, VER, '- `' + FORMATS + '`'), '- `' + FORMATS + '` (AGENTS.md waits for this file: see its line above. Flightdeck didn\'t change this file.)', 'round 8: re-staged and waited for');
+  const agl = readmeLine(dir, VER, '- `AGENTS.md`');
+  assert.ok(agl.indexOf('doesn\'t have the section the new AGENTS.md points to: *Corrections*.') >= 0 && agl.indexOf('Until `' + FORMATS + '` has that section, AGENTS.md waits') >= 0, 'round 8: singular: ' + agl);
+  assert.strictEqual(r.line, 'AGENTS.md waits: `' + FORMATS + '` doesn\'t have the section it points to.');
+  const hh = await health15(copy15(was)); assert.ok(hh[0].detail.indexOf('It waits because `' + FORMATS + '` doesn\'t have the section it points to: *Corrections*.') >= 0, hh[0].detail);
   await settingsAgree(was, dir);
 });
 kase15('6c', 'a team-edited 2.14.0 AGENTS.md stays a merge, and file-formats.md is staged again from the live AGENTS.md\'s old alias', async () => {
@@ -1207,13 +1227,30 @@ kase15('A2-A4', 'after 1: the guide merged and its copy deleted, then AGENTS.md\
   const c = check15(dir);
   expect15(c.st, { guide: { status: 'kept', lacks: undefined }, AGENTS: { status: 'merge', onlyCopy: true, waitsFor: [], heldFrom: undefined } });
   const hh = await health15(dir); assert.deepStrictEqual(ids15(hh), ['contract-merge[AGENTS]']);
-  assert.strictEqual(hh[0].detail, 'Your team didn\'t change AGENTS.md; only its new default is waiting in .flightdeck/updates/. Delete AGENTS.md from each version folder there (never anything under replaced/), or press I merged it, and Update writes it.');
-  assert.strictEqual(lineOf(install15(copy15(dir)).out), 'AGENTS.md\'s new default is waiting in `.flightdeck/updates/' + VER + '`; your team didn\'t change AGENTS.md, so delete AGENTS.md from each version folder in `.flightdeck/updates/` (never anything under `replaced/`) and run install again.');
+  assert.strictEqual(hh[0].detail, 'Your team didn\'t change AGENTS.md; only its new default is waiting in .flightdeck/updates/. Delete AGENTS.md from each version folder there (.flightdeck/updates/<version>/AGENTS.md, never anything under replaced/), or press I merged it, and Update writes it.');
+  assert.strictEqual(fullLineOf(install15(copy15(dir)).out), ONLYCOPY(VER), 'round 8: the whole line; no "new defaults are in" for a copy that only needs deleting');
+  assert.strictEqual(reasonOf(c.out), 'AGENTS.md only needs its copy deleted: your team didn\'t change AGENTS.md, so delete AGENTS.md from each version folder in `.flightdeck/updates/` (`.flightdeck/updates/<version>/AGENTS.md`, never anything under `replaced/`) and run install.');
   del15(dir, cp(AG)); const was = copy15(dir), r = install15(dir);
   expect15(r.st, { AGENTS: { status: 'update' }, guide: { status: 'kept' } });
   assert.strictEqual(C.region(get15(dir, AG)).text, C.region(A215).text); assert.strictEqual(check15(dir).code, 0);
   await settingsAgree(was, dir);
   for (let n = 0; n < 2; n++) { const again = install15(dir); assert.ok(!again.recordWritten && again.wrote.length === 0 && again.code === 0, 'settled: run ' + n + ' writes nothing'); }
+});
+kase15('R8-readme', 'after 1: the guide merged and its copy deleted, then install: README.md is rewritten to the onlyCopy line, the old one kept', async () => {
+  const dir = f214({ [GUIDE]: FOREIGN }); install15(dir); const old = get15(dir, cp('README.md'));
+  assert.ok(/\bheld: `/i.test(old), 'set-up: the held README');
+  put15(dir, GUIDE, TEAMG); del15(dir, cp(GUIDE));
+  /* Settings' Update runs only when it has something to write: a copy with a skill removed. */
+  const was = copy15(dir), r = install15(dir), w2 = copy15(was); del15(w2, REFS + 'good-checklists.md'); const d2 = copy15(w2); install15(d2);
+  assert.strictEqual(readmeLine(d2, VER, '- `AGENTS.md`'), readmeLine(dir, VER, '- `AGENTS.md`'), 'the same README with the skill put back');
+  await settingsAgree(w2, d2);
+  expect15(r.st, { AGENTS: { status: 'merge', waiting: VER, stage: false, onlyCopy: true, waitsFor: [] } });
+  assert.strictEqual(readmeLine(dir, VER, '- `AGENTS.md`'), AGL + 'Your team didn\'t change AGENTS.md\'s Flightdeck part, so you don\'t need to merge it: ' + DEL, 'the README says what is true now');
+  assert.ok(!/\bheld: `/i.test(get15(dir, cp('README.md'))), 'not the held line');
+  const kept = Object.keys(text(walk(dir))).filter(k => /\/replaced\/[^/]+\/merge-README\.md$/.test(k));
+  assert.strictEqual(kept.length, 1, 'the old README kept'); assert.strictEqual(get15(dir, kept[0]), old);
+  const again = install15(dir); assert.strictEqual(again.code, 0);
+  assert.strictEqual(Object.keys(text(walk(dir))).filter(k => /\/replaced\/[^/]+\/merge-README\.md$/.test(k)).length, 1, 'unchanged text: nothing written or kept again');
 });
 kase15('B', 'skills first, then the team edits the guide keeping its sections, then install: AGENTS.md updates', () => {
   const dir = f214(); assert.strictEqual(run15(PKG15, 'skills', dir).code, 0); put15(dir, GUIDE, TEAMG);
@@ -1248,6 +1285,7 @@ kase15('D3\'', 'D1, then the team merges AGENTS.md while the guide copy still wa
   expect15(r.st, { AGENTS: { status: 'current' }, guide: { status: 'merge', waiting: VER, stage: false, lacks: 7 } });
   assert.strictEqual(r.code, 0); const hh = await health15(dir); assert.deepStrictEqual(ids15(hh), ['contract-reference[guide]']); assert.ok(/A new default of it is waiting/.test(hh[0].detail));
   assert.strictEqual(r.line, '`' + GUIDE + '` doesn\'t have the sections AGENTS.md points to; its new default is waiting in `.flightdeck/updates/' + VER + '` to be merged.');
+  assert.strictEqual(r.full, r.line + ' Its README.md has a prompt for your AI assistant to merge it.');
 });
 kase15('E', 'a missing AGENTS.md plus a plain guide: AGENTS.md is always written, and --check settles after two runs', async () => {
   const dir = f214({ [GUIDE]: FOREIGN }); put15(dir, AG, null);
@@ -1300,7 +1338,7 @@ kase15('two-refs', 'two references lack sections: the held words list both, in t
   assert.strictEqual(hh[0].detail, 'Your team didn\'t change AGENTS.md. It waits because these files don\'t have the sections it points to: `' + GUIDE + '` (' + G7 + '), `' + FORMATS + '` (*Corrections*). AI assistant files adds 1 new file AI assistants need and stages the new defaults of these files for your AI assistant to merge; Flightdeck then writes AGENTS.md itself.');
   const dir = mk(), r = install15(dir);
   expect15(r.st, { AGENTS: { status: 'merge', heldFrom: 'update', held: ['guide-7', 'ff-1'] } });
-  assert.ok(get15(dir, cp('README.md')).indexOf('held: these files don\'t have the sections') >= 0);
+  assert.ok(get15(dir, cp('README.md')).indexOf('Held: these files don\'t have the sections') >= 0);
   assert.strictEqual(r.line, 'AGENTS.md waits: these files don\'t have the sections it points to: `' + GUIDE + '`, `' + FORMATS + '`.');
 });
 const REL15 = (t) => t.replace('How: *Reading runs* in the command guide.', 'How: *Reading runs* in the command guide. Releases: *Release flow* in the command guide.');
@@ -1327,7 +1365,7 @@ kase15('U2', 'case 1 left as it is, then 2.16.0: nothing ever says the team chan
   const r = install15(dir, { pkg: P });
   expect15(r.st, { AGENTS: { status: 'merge', waiting: VER, stage: true, onlyCopy: true, waitsFor: ['guide-8'] } });
   const md = get15(dir, cp('README.md', '2.16.0')); assert.ok(md.indexOf('your team changed them too') < 0, 'not the plain header');
-  assert.strictEqual(readmeLine(dir, '2.16.0', '- `AGENTS.md`'), '- `AGENTS.md` (only the part between the flightdeck markers) (your team didn\'t change AGENTS.md\'s Flightdeck part, so you don\'t need to merge it. It waits for `' + GUIDE + '` (the command guide), which doesn\'t have ' + G7 + ', *Runner*. Merge that file first. Then ' + DEL + ')');
+  assert.strictEqual(readmeLine(dir, '2.16.0', '- `AGENTS.md`'), AGL + 'Your team didn\'t change AGENTS.md\'s Flightdeck part, so you don\'t need to merge it. It waits for `' + GUIDE + '` (the command guide), which doesn\'t have ' + G7 + ', *Runner*. Merge that file first. Then ' + DEL);
   assert.strictEqual(r.line, 'AGENTS.md waits: `' + GUIDE + '` doesn\'t have the sections it points to.');
   assert.ok(!(await health15(dir, P)).some(x => /Your team changed (it|them) and so did Flightdeck/.test(x.detail)));
   const g = copy15(dir); put15(g, GUIDE, G216); del15(g, cp(GUIDE, '2.16.0'), cp(GUIDE), cp(AG, '2.16.0'));
@@ -1347,9 +1385,9 @@ kase15('DL5-4', 'the held line\'s route: merge the guide, delete every copy of A
 kase15('words', 'a merge reference with history that lacks, and one with none: "bring those sections in"', () => {
   const ctx = (rec) => ({ base: BASE, record: rec, agents: A215 });
   const md = K15.mergeReadme(VER, [{ key: GUIDE, rel: GUIDE, status: 'merge', lacks: ['Runner'], now: TEAMG, have: h15(GUIDE, TEAMG) }], ['.flightdeck', 'updates'], '', ctx({ files: { [GUIDE]: 'x' } }));
-  assert.ok(md.indexOf('- `' + GUIDE + '` (it doesn\'t have *Runner*, which AGENTS.md points to: bring those sections in from the new default when you merge.)') >= 0, md);
+  assert.ok(md.indexOf('- `' + GUIDE + '` (it doesn\'t have *Runner*, which AGENTS.md points to: bring that section in from the new default when you merge.)') >= 0, md);
   const nh = K15.mergeReadme(VER, [{ key: GUIDE, rel: GUIDE, status: 'merge', lacks: ['Runner'], now: FOREIGN, have: h15(GUIDE, FOREIGN) }], ['.flightdeck', 'updates'], '', ctx({ files: {} }));
-  assert.ok(nh.indexOf('(Flightdeck now ships a file at this path. It doesn\'t have *Runner*, which AGENTS.md points to: bring those sections in from the new default, or, if it is your team\'s own file, move it out of `_flightdeck/`.)') >= 0, nh);
+  assert.ok(nh.indexOf('(Flightdeck now ships a file at this path. It doesn\'t have *Runner*, which AGENTS.md points to: bring that section in from the new default, or, if it is your team\'s own file, move it out of `_flightdeck/`.)') >= 0, nh);
   assert.strictEqual(C.mergeReadmeText(VER, [{ key: GUIDE, rel: GUIDE, status: 'merge', lacks: ['Runner'], now: TEAMG, have: h15(GUIDE, TEAMG) }], ['.flightdeck', 'updates'], '', ctx({ files: { [GUIDE]: 'x' } })), md, 'the command writes the same words');
 });
 kase15('UP6-rec', 'a held run keeps AGENTS.md\'s record entry; an edit while it waits, then the held route, ends at merge', async () => {
@@ -1412,8 +1450,8 @@ kase15('DL6-3', 'onlyCopy alone, in 2.16.0: the README line has no dangling "The
   const P = pkg216(), dir = f214({ [GUIDE]: FOREIGN }); install15(dir); install15(dir, { pkg: P });
   put15(dir, GUIDE, G216); del15(dir, cp(GUIDE, '2.16.0'), cp(GUIDE), cp(AG, '2.16.0'));
   const r = install15(dir, { pkg: P });
-  assert.strictEqual(readmeLine(dir, '2.16.0', '- `AGENTS.md`'), '- `AGENTS.md` (only the part between the flightdeck markers) (your team didn\'t change AGENTS.md\'s Flightdeck part, so you don\'t need to merge it: ' + DEL + ')');
-  assert.strictEqual(r.line, 'AGENTS.md\'s new default is waiting in `.flightdeck/updates/2.16.0`; your team didn\'t change AGENTS.md, so delete AGENTS.md from each version folder in `.flightdeck/updates/` (never anything under `replaced/`) and run install again.');
+  assert.strictEqual(readmeLine(dir, '2.16.0', '- `AGENTS.md`'), AGL + 'Your team didn\'t change AGENTS.md\'s Flightdeck part, so you don\'t need to merge it: ' + DEL);
+  assert.strictEqual(r.full, ONLYCOPY('2.16.0'));
 });
 kase15('health-old', 'Folder health before Update on a plain 2.14.0 folder: the two new files are folded into contract-old', async () => {
   const hh = await health15(f214()); assert.deepStrictEqual(ids15(hh), ['contract-old[AGENTS,ess,guide]']);
