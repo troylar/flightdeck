@@ -164,14 +164,14 @@ A staged version and its test runs are only for copies on 2.1. Older copies neve
 ### What to know when moving to 2.2
 
 - **Nothing in the team folder changes.** Practice lives in your browser tab only: it's never written to the folder and never counted as a run, so computers on 2.1 and 2.2 can share a folder.
-- **Staging from Practice is the same stage.** **Stage it for a test run** in Practice writes exactly what **Stage the draft for testing** writes, so copies on 2.1 see it and can test it.
+- **Staging from Practice is the same stage.** **Stage it for a test run** in Practice writes exactly what **Stage the draft for testing** writes, so copies on 2.1 see it and can test it. (Since 2.16 it's **Stage for testing instead** in the Publish dialog, the same stage.)
 - **A blank new process starts with no steps (2.2.1).** It can't be published or staged until it has one; earlier versions started with a placeholder step to delete.
 
 ### What to know when moving to 2.3
 
 - **Nothing in the team folder changes.** Practice now opens the real run screen, marked **Practice · not recorded**, but it still lives in your browser tab only: a `#/practice` link or a reload brings it back in that tab, and it's never written to the folder. Computers on 2.2 and 2.3 can share a folder.
 - **Save draft from practice.** While there are unsaved edits, **Save draft** is in the practice header. It saves the draft to the folder as the editor does; a conflict offers Compare in the editor.
-- **The editor's button is Review & publish (2.3.1).** It said Done before.
+- **The editor's button is Review & publish (2.3.1).** It said Done before. Since 2.16 the way back reads `‹ <checklist>` and **Publish vN…** sits at the top right.
 - **Step text shows the run's details (2.3.1).** A step tied to a run detail shows its value on the run screen, Next up, the receipt and reports ("Start the production deploy job v2026.10.16"), and `‹tag›` until it's set. Only what's shown changed: the run file and the checklist stay as they were.
 
 ### What to know when moving to 2.4
@@ -218,6 +218,15 @@ It keeps its record in `.flightdeck-installed.json` and puts new defaults to mer
 - **Nothing in runs, versions or other records changes.**
 - **AGENTS.md and the skills can be updated from the app.** **Settings → AI assistant files** applies the same rules as `flightdeck install` and writes the same `.flightdeck/installed.json` (with `"by": "app"`). An older command reads it as its own.
 - **Folder health judges these files by the installer's rules.** A file your team changed on top of an older default is reported as waiting to merge, as `flightdeck install --check` says, where older copies called it current. A record that isn't exactly what Flightdeck writes is reported as one the next update replaces, and a record with any `features` is treated as written by a newer Flightdeck and left alone, by the app and the command alike. From 2.12.1, so is a well-formed record whose version (three numbers, no leading zeros) is newer than the copy reading it; a record that isn't well formed is ignored, never taken as newer: the command, Settings and Folder health all say ".flightdeck/installed.json was written by a newer Flightdeck (<version>)" and change nothing.
+
+### What to know when moving to 2.16
+
+- **Nothing in the team folder changes.** Only the screens moved. Computers on 2.15 and 2.16 can share a folder.
+- **One way back, top left.** Every screen with a way back has one `‹` control naming where it goes: `‹ Runs`, `‹ Production release`, `‹ The run`. It goes back along the browser's history when it can, so Back and the app agree.
+- **Edit and Practice are two views of one checklist.** The checklist page has a view strip, **Overview · Edit · Practice · How runs go**, and the editor and practice share one header with `Edit | Practice`. Moving between them never adds a history entry: one Back leaves.
+- **One next step, top right.** The workspace's primary is Save draft, Publish vN…, Start a test run or Make vN the default…, whichever applies. **Publish vN…** opens one dialog that publishes, or stages with **Stage for testing instead**. Review & publish, Done practicing and practice's own Stage are gone.
+- **On a run, Finish the run is in the header** for whoever records it, muted until the run is complete. **End run…** left More; the Finish page still offers Stopped early and Canceled.
+- **Plan a run has its own link,** `#/process/<checklist>/plan`. Older `#/practice`, `/start`, `/start/<stage>` and `/edit` links keep working.
 
 ## Rolling back
 
