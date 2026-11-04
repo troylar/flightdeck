@@ -1,0 +1,320 @@
+{
+  "texts": {
+    "docs/apps.md": {
+      "sha256": "450eb210e245308606346001e84c2a4c1cbe64a943cc314d54e1e424b2ba2374",
+      "reviewed": "Seeded at f2888f5 and reviewed: passed the delete guard as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 21 sentences here, each read by hand: a rule, a prohibition or a description of what a command writes, never a direct write for an assistant."
+    },
+    "docs/design.md": {
+      "sha256": "45683b92d2ce6ef92b35b8e1a8be5f48f9b29038fff2d6dcd2fb85943078b46f",
+      "reviewed": "Seeded at f2888f5 and reviewed: passed the delete guard as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 12 sentences here, each read by hand: a rule, a prohibition or a description of what a command writes, never a direct write for an assistant."
+    },
+    "docs/evidence.md": {
+      "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
+      "reviewed": "Seeded at f2888f5 and reviewed: passed the delete guard as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 0 sentences here, each read by hand: none."
+    },
+    "docs/map-format.md": {
+      "sha256": "8614148d1b9efbf8fd5c4b360a5244b2bdfcc5d80d36b7091daf474dfbb567b2",
+      "reviewed": "Seeded at f2888f5 and reviewed: passed the delete guard as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 1 sentence here, each read by hand: a rule, a prohibition or a description of what a command writes, never a direct write for an assistant."
+    },
+    "docs/onedrive.md": {
+      "sha256": "e11b0fc58b4abf3ba2057f922a35599951384be2c68674f55432c0bfaaf232c5",
+      "reviewed": "Seeded at f2888f5 and reviewed: passed the delete guard as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 8 sentences here, each read by hand: a rule, a prohibition or a description of what a command writes, never a direct write for an assistant."
+    },
+    "docs/recovery.md": {
+      "sha256": "83c18f2a62000876f25d5cbe69a8d05c1ff3c1b34ee5271a6f3e59f3b4939283",
+      "reviewed": "Seeded at f2888f5 and reviewed: passed the delete guard as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 1 sentence here, each read by hand: a rule, a prohibition or a description of what a command writes, never a direct write for an assistant."
+    },
+    "docs/skills.md": {
+      "sha256": "9a8b33f3b04f127eba83138171bb9f45e3871014c3c8b944d7af22e0c706a920",
+      "reviewed": "Seeded at f2888f5 and reviewed: passed the delete guard as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 1 sentence here, each read by hand: a rule, a prohibition or a description of what a command writes, never a direct write for an assistant."
+    },
+    "docs/updating.md": {
+      "sha256": "30f1b75dfc74f6c57fbf2d84c7d5231ce5f9ee47278e3d058b3aa850ff242a63",
+      "reviewed": "Seeded at f2888f5 and reviewed: passed the delete guard as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 12 sentences here, each read by hand: a rule, a prohibition or a description of what a command writes, never a direct write for an assistant."
+    },
+    "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
+      "sha256": "f058d647976837fe3294221425d515f295c729e24c1791b3e2aed1ce956443d9",
+      "reviewed": "Seeded at f2888f5 and reviewed: the read-only folder checker; passed the delete guard (read as source lines) as of f2888f5; check g reads Markdown only."
+    },
+    "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
+      "sha256": "af3d38272a045f53f160b5698d7913871d524f1da6e77f7f19c96d531fd9bb08",
+      "reviewed": "Seeded at f2888f5 and reviewed: passed check g (every write to a protected path listed in DIRECT_WRITES as a prohibition or allowed with why) and the delete guard (no unconditional delete of AGENTS.md or a staged copy) as of f2888f5."
+    },
+    "example-folder/.flightdeck/skills/_flightdeck/command-guide.md": {
+      "sha256": "e4fdf46ddc691b50593105bb9d4ca1bf189a39c785f844a465a87e0dc92df12d",
+      "reviewed": "Seeded at f2888f5 and reviewed: passed check g (every write to a protected path listed in DIRECT_WRITES as a prohibition or allowed with why) and the delete guard (no unconditional delete of AGENTS.md or a staged copy) as of f2888f5."
+    },
+    "example-folder/.flightdeck/skills/_flightdeck/file-formats.md": {
+      "sha256": "3e696299bc5971a578831ad4c25330bcb87a4036c10666469e39b794a9a1bba3",
+      "reviewed": "Seeded at f2888f5 and reviewed: passed check g (every write to a protected path listed in DIRECT_WRITES as a prohibition or allowed with why) and the delete guard (no unconditional delete of AGENTS.md or a staged copy) as of f2888f5."
+    },
+    "example-folder/.flightdeck/skills/_flightdeck/good-checklists.md": {
+      "sha256": "7fb972be7038e09429e68bccbdc38bc446042e760f4f790ff1fa7c72305fab83",
+      "reviewed": "Seeded at f2888f5 and reviewed: passed check g (every write to a protected path listed in DIRECT_WRITES as a prohibition or allowed with why) and the delete guard (no unconditional delete of AGENTS.md or a staged copy) as of f2888f5."
+    },
+    "example-folder/.flightdeck/skills/_flightdeck/map-format.md": {
+      "sha256": "8614148d1b9efbf8fd5c4b360a5244b2bdfcc5d80d36b7091daf474dfbb567b2",
+      "reviewed": "Seeded at f2888f5 and reviewed: passed check g (every write to a protected path listed in DIRECT_WRITES as a prohibition or allowed with why) and the delete guard (no unconditional delete of AGENTS.md or a staged copy) as of f2888f5."
+    },
+    "example-folder/.flightdeck/skills/flightdeck-edit-checklist/SKILL.md": {
+      "sha256": "1f4722361e27c4131dbd716036b17d36cf506461ae26aa9c742d9a5684c2418c",
+      "reviewed": "Seeded at f2888f5 and reviewed: passed check g (every write to a protected path listed in DIRECT_WRITES as a prohibition or allowed with why) and the delete guard (no unconditional delete of AGENTS.md or a staged copy) as of f2888f5."
+    },
+    "example-folder/.flightdeck/skills/flightdeck-learn-from-runs/SKILL.md": {
+      "sha256": "513e618b1f870fd970d1c5d067aea0c3e9d4c515a3fb29402476c0387c740da4",
+      "reviewed": "Seeded at f2888f5 and reviewed: passed check g (every write to a protected path listed in DIRECT_WRITES as a prohibition or allowed with why) and the delete guard (no unconditional delete of AGENTS.md or a staged copy) as of f2888f5."
+    },
+    "example-folder/.flightdeck/skills/flightdeck-new-checklist/SKILL.md": {
+      "sha256": "5d3a7c417330301e025aab578358c991542b7d8e023cca85e38cbba53149e6ce",
+      "reviewed": "Seeded at f2888f5 and reviewed: passed check g (every write to a protected path listed in DIRECT_WRITES as a prohibition or allowed with why) and the delete guard (no unconditional delete of AGENTS.md or a staged copy) as of f2888f5."
+    },
+    "example-folder/.flightdeck/skills/flightdeck-new-step-type/SKILL.md": {
+      "sha256": "ebc4c1ec9435236eea4e59744940ab403cb9446fdaa90fce67b15915099a9c25",
+      "reviewed": "Seeded at f2888f5 and reviewed: passed check g (every write to a protected path listed in DIRECT_WRITES as a prohibition or allowed with why) and the delete guard (no unconditional delete of AGENTS.md or a staged copy) as of f2888f5."
+    },
+    "example-folder/.flightdeck/skills/flightdeck-plan-run/SKILL.md": {
+      "sha256": "624fe547667068aa127a1a51ebb07eca85fb37f77f17fd14258c8e05f68227e6",
+      "reviewed": "Seeded at f2888f5 and reviewed: passed check g (every write to a protected path listed in DIRECT_WRITES as a prohibition or allowed with why) and the delete guard (no unconditional delete of AGENTS.md or a staged copy) as of f2888f5."
+    },
+    "example-folder/.flightdeck/skills/flightdeck-review-checklist/SKILL.md": {
+      "sha256": "5ff2a2a75a468d5f66e06845447b31c9882aedd1392606c081093ee6174601ea",
+      "reviewed": "Seeded at f2888f5 and reviewed: passed check g (every write to a protected path listed in DIRECT_WRITES as a prohibition or allowed with why) and the delete guard (no unconditional delete of AGENTS.md or a staged copy) as of f2888f5."
+    },
+    "example-folder/.flightdeck/skills/flightdeck-skill-brief/SKILL.md": {
+      "sha256": "0230a7f082c1d9ff4bcbefab69ab19502ec125b2bd2dee502d29983a49fb1727",
+      "reviewed": "Seeded at f2888f5 and reviewed: passed check g (every write to a protected path listed in DIRECT_WRITES as a prohibition or allowed with why) and the delete guard (no unconditional delete of AGENTS.md or a staged copy) as of f2888f5."
+    },
+    "example-folder/.flightdeck/skills/flightdeck-status/SKILL.md": {
+      "sha256": "0da69b1478df6ae90abe10e8142cf228ecd8f31c3af1714297f1a21f031bf2b6",
+      "reviewed": "Seeded at f2888f5 and reviewed: passed check g (every write to a protected path listed in DIRECT_WRITES as a prohibition or allowed with why) and the delete guard (no unconditional delete of AGENTS.md or a staged copy) as of f2888f5."
+    },
+    "example-folder/AGENTS.md": {
+      "sha256": "1c760dba659e5c023c63b727d80bd208743700e7955a9fd2b1f8703f290eb51e",
+      "reviewed": "Seeded at f2888f5 and reviewed: passed the delete guard as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 14 sentences here, each read by hand: a rule, a prohibition or a description of what a command writes, never a direct write for an assistant."
+    },
+    "rendered: the merge README, AGENTS.md held": {
+      "sha256": "587c6fe0a4080614f1661c880aa058e9dd8180b5595d72bfaaf90b9f297f8d95",
+      "reviewed": "Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 4 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
+    },
+    "rendered: the merge README, AGENTS.md the only copy": {
+      "sha256": "717e2ca7271b0d0614d8cb3844c461b9370e9ab7defca807034e2316e3b8b22e",
+      "reviewed": "Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 4 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
+    },
+    "rendered: the merge README, the only copy waiting on a reference": {
+      "sha256": "62d158e81be55e409520cf73bb6fd9cd4034650d6ee489e9b3403c8412608584",
+      "reviewed": "Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 4 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
+    },
+    "rendered: the merge prompt": {
+      "sha256": "b45a42ad2d6c357abc5557d85096553bf56b69910afb197ecec8f353ff62aec8",
+      "reviewed": "Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
+    },
+    "src/releases.json#1.0.0": {
+      "sha256": "58db27e84c0a948982da3e577af381f9ff0bcf854ef7e78a85c88ecc8f990837",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#1.1.0": {
+      "sha256": "5fead0ac26d4a9df11943c2cad85f4ed2e74fb748587b7ba44a00c37b664f0f2",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#1.10.0": {
+      "sha256": "5af21dbd4b2428ee41a95dc38913b0ff143db0ab4ef29fa81b40bf5e6eeddbf2",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#1.11.0": {
+      "sha256": "4d099a7c753d45174f94555bf1ceeeb2f4832bbb7c8dc42085ce4f5904b97455",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#1.11.1": {
+      "sha256": "852ba1291e167e935cac9d73bc8c0741f5805157db93ddfb91ea015b74ed7398",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#1.12.0": {
+      "sha256": "dc55b8981ff480e0e5d2e7daba2cd168535647cc1c00cd188caa79574623c3d0",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#1.13.0": {
+      "sha256": "47031656d26e499a6cb21d4b772a5611d4d3130db0347086579e56822e7aa596",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#1.13.1": {
+      "sha256": "7c251366874ef8539ae30fd12837c8cff271f943d5cc4251750427e3d96d2413",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#1.14.0": {
+      "sha256": "d49b370e0d49f4898bd9bef84c6c6b494c518de504f80831e4d5e75adcfd9529",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#1.15.0": {
+      "sha256": "30edd6862f7e7cc26d8ab3e4681e73710ef2d74a67aef57d162f44531b0696fb",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#1.16.0": {
+      "sha256": "7b7da72c25ef4090bcf1a0d984b6140407a7fa2eead1bfb801257f848f03e2ec",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#1.16.1": {
+      "sha256": "ee82a352ab10a1375f4d330e40ce2cb60e95d55d5d332d05811250fc6b3195c0",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#1.17.0": {
+      "sha256": "805ea1f39b79d110f8e3f5d36919d0cba1e3406d266331de0d4657cea89e000a",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#1.18.0": {
+      "sha256": "3792ef073511a5514e9245ef280932d99b939bafbf55b9da8dc0219e02fc5de7",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#1.19.0": {
+      "sha256": "648d823a3bbbc377b0198a385fbe9488999ad9d8cd54bbed1b14b66fa4b69b69",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#1.2.0": {
+      "sha256": "ce369a935bda43cc935b255fcf2e2c4dce8eb4f617b4bf407fb601615e8051dd",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#1.20.0": {
+      "sha256": "1704f385941d01e3285c789fe1dacdf9b1d30912236a220a60b89487461c4300",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#1.21.0": {
+      "sha256": "9074988e3b46d67f66f5ed282794cfc009c9a6c95d9b43e59596dbfed68474c0",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#1.22.0": {
+      "sha256": "76e1a0b893e3fe43d15f7fd911c9f670863a2633f35c9b359b7e07784992b8c7",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#1.3.0": {
+      "sha256": "7b20db744b0b3c86f83b8e966a6eb17fc46245f0ae362ca843fc43fe3aefa7b2",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#1.4.0": {
+      "sha256": "17e17cb790f161817347feaa123b2e20b2a3b0596fb5ef1ce7942cc032b755c7",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#1.5.0": {
+      "sha256": "a44c5451990bb8440a1cdb88c46136f1c4731fa35d89a2eb838253a841fa1722",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#1.6.0": {
+      "sha256": "50ff91942c3051e346ba83edd163716dab068eea5cbc6fb23df3fde06a297807",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#1.7.0": {
+      "sha256": "ec77c6bec7ef70cb815d5b6a47af7d6637f73ff454305a541a42b07c67168e0b",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#1.8.0": {
+      "sha256": "5eba703eceab2ecacb2974caafa1feb699ddadd4debb3575e43f8d7c592135f2",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#1.9.0": {
+      "sha256": "def384634eb6839d8d141162afd6d711cd4286aab6426acc4f96070c96609681",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#1.9.1": {
+      "sha256": "ac5f7a087556f323bfc04bc678984e57b26eadd1b17e7d0c9e162bceccbdd79f",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#2.0.0": {
+      "sha256": "2c71d5a4a70a012681f10c98904f75c1c6adb696319762fab0ff642887fee473",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#2.0.1": {
+      "sha256": "f9637914c616f0de04c369147f616d74964a9495f0b65777b5b0afcc3acba73d",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#2.1.0": {
+      "sha256": "21e5dcaaa2d911b9804cb8dc46c9455426a383e0d0d9dd5baaf3ba861faf7fb1",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#2.1.1": {
+      "sha256": "a278c64e23d08774a7b8ce2742fc97b28965bde5d165cd8ef870d7b5489e72f3",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#2.10.0": {
+      "sha256": "694790ec17f49d285984c34abb60a02a327f9c6d3282022639894e856afdb244",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#2.11.0": {
+      "sha256": "53779074bbb9d4ad935041a7f3bd25bd731135a4eb4a68d0eb35bc0bc94683d4",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#2.11.1": {
+      "sha256": "2785a45de729e37c0a0d89fc42940d85bd63ed6d8ce35d5a2f1b9ef8c15510fe",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#2.11.2": {
+      "sha256": "0dcc88483f4a0ee134df692b020e56f41030a33ae68030c81de9bb5e1138b2a2",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#2.12.0": {
+      "sha256": "909fc166c427f57d9ea33f7027f77e39e384ff43f2a96afbeb224f7e5b5639ce",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#2.12.1": {
+      "sha256": "799e5799db4e065610e344421d92dd0c6b712cf6afa5c1d0bd90e06650b64f82",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#2.12.2": {
+      "sha256": "e81144129b0a26231af639ae8e1f9a852c24e264de17dfb861244fe2890bddc8",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#2.13.0": {
+      "sha256": "7bab66cc644b1f99e0823780b78fd1b5c68eb8cb1a2e9a9de65ea67f0278c4ee",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#2.14.0": {
+      "sha256": "5da9b5a4584fe5da7b695d8b7047391beb7e2cfc64a18ff244e455eb2bb21220",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#2.15.0": {
+      "sha256": "a323fa31ef308987087e3e613b40db48333ed265d955de1933e73e6579ca0310",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#2.2.0": {
+      "sha256": "9a21995fcee16ba764022846deeb414c590441c669b663bf53ee72a68dad6958",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#2.2.1": {
+      "sha256": "3d56bd0bc84c83b023ed1798b781dc4d745879ba8887a0e1fd1015bb0312d6f2",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#2.3.0": {
+      "sha256": "4bb129d38044195ff53666819e73048f5c14f9e29d5523b64557e876e90fc003",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#2.3.1": {
+      "sha256": "aff504f1132e35785749036a27a4c6690418a487c66494bba1e2b3aa3f8feba4",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#2.4.0": {
+      "sha256": "153106e45a50038c346f5ca793605f09243c561fce60f82b7e13cab23549e2de",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#2.5.0": {
+      "sha256": "5fe1d6f8e593834017bad55ee666f030ebaa89beaac53b1a332420c183a68b42",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#2.6.0": {
+      "sha256": "a14b67df6d7926dfea6fa71cd644cbc07a5a51e1f6044546683be819ce8552fc",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#2.6.1": {
+      "sha256": "4155fb36f1de33d7dacb0947523dfa2f2c77842ffe4f19b9fb002c4120dfeb1b",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#2.7.0": {
+      "sha256": "711c6dd8f1b4dfe851766fff7f5cdd36ab036975487819b98216b27614426c87",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#2.8.0": {
+      "sha256": "ef2e997d41da60fdd9db16aa82a3038c074f3d0ad486c2ad9d57eb44263a2e28",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    },
+    "src/releases.json#2.9.0": {
+      "sha256": "611dad89af840a944052c1659bdf9715734398f73d2f6168f81b287f2e12b587",
+      "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
+    }
+  }
+}

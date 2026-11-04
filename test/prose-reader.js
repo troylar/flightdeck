@@ -22,7 +22,14 @@ const ROW = /^\s*\|/, DELIM = /^\s*\|?(?:\s*:?-+:?\s*\|)+\s*(?::?-+:?\s*)?$/;
 /* A bold or italic lead-in: **...**, __...__, *...* or _..._ at the start of the paragraph. */
 const LEAD = /^(?:\*\*(.+?)\*\*|__(.+?)__|\*(?!\*)(.+?)\*|_(?!_)(.+?)_)/;
 /* Link text and its target are both read: [text](target "title") becomes "text (target)". */
-const LINK = /!?\[([^\]]*)\]\(\s*<?([^)\s>]*)>?(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)/g;
+const LINK = /!?\[([^\]]*)\]\(\s*(?:<([^>\n]*)>|([^)\s]*))(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)/g;
+/* A reference definition, [label]: target "title", and a reference use: full [text][label], collapsed [text][] and shortcut
+   [text], resolved against the definitions; a label matches without regard to case or runs of spaces. */
+const REF_DEF = /^ {0,3}\[([^\]]+)\]:\s*(?:<([^>]*)>|(\S+))(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?\s*$/;
+const REF_USE = /!?\[([^\]]*)\]\[([^\]]*)\]|!?\[([^\]]+)\](?![(\[:])/g;
+const label = (x) => x.trim().replace(/\s+/g, ' ').toLowerCase();
+/* A link target is a path even when bare: it is read as a code span. */
+const target = (text, to) => text + (to ? ' (`' + to + '`)' : '');
 
 function sentencesOf(text) {
   const out = []; let cur = '', tick = false;
@@ -49,8 +56,8 @@ function cellsOf(row) {
    and under their own path), list items, blockquotes (markers stripped), table cells and link text and targets. Only
    fenced code stays out. */
 function proseSentences(md) {
-  const lines = R.norm(md).split('\n'), kept = [], paras = [], path = [];
-  let fence = null, cur = null;
+  const lines = R.norm(md).split('\n'), kept = [], paras = [], path = [], defs = Object.create(null);
+  let fence = null, cur = null, table = null;
   const close = () => { if (cur) paras.push(cur); cur = null; };
   const here = () => path.filter((x) => x != null).join(' > ');
   lines.forEach((l, i) => {
@@ -59,6 +66,9 @@ function proseSentences(md) {
     if (f && !(f.ch === '`' && l.indexOf('`', f.end) >= 0)) { fence = f; close(); return; }
     kept.push(l);
     const quote = QUOTE.test(l), body = quote ? l.replace(QUOTE, '') : l;
+    if (!ROW.test(body)) table = null;
+    const d = REF_DEF.exec(body);
+    if (d) { close(); if (!(label(d[1]) in defs)) defs[label(d[1])] = d[2] != null ? d[2] : d[3]; return; }
     if (!body.trim()) { close(); return; }
     const h = HEADING.exec(body);
     if (h && !/[\u2028\u2029]/.test(body)) {
@@ -67,16 +77,26 @@ function proseSentences(md) {
       if ((h[2] || '').trim()) paras.push({ text: h[2].trim(), at: here(), line: i + 1, heading: true });
       return;
     }
-    if (ROW.test(body)) { close(); if (!DELIM.test(body)) cellsOf(body).forEach((c) => paras.push({ text: c, at: here(), line: i + 1 })); return; }
+    if (ROW.test(body)) {
+      close();
+      if (DELIM.test(body)) { if (table) table.body = true; return; }
+      const cells = cellsOf(body);
+      cells.forEach((c) => paras.push({ text: c, at: here(), line: i + 1 }));
+      /* A body row is also read whole, each cell after its column's header, so an action and its destination meet. */
+      if (table && table.body) paras.push({ text: cells.map((c, k) => (table.head[k] ? table.head[k] + ': ' : '') + c).join('; '), at: here(), line: i + 1, whole: true });
+      else if (!table) table = { head: cells, body: false };
+      return;
+    }
     if (!cur || ITEM.test(body) || cur.quote !== quote) { close(); cur = { text: body, at: here(), line: i + 1, quote }; } else cur.text += '\n' + body;
   });
   close();
   const want = R.prose(md);
   if (kept.length !== want.length || kept.some((l, i) => l !== want[i])) throw new Error('prose-reader: fences disagree with the contract\'s prose()');
   return paras.flatMap((p) => {
-    const body = p.text.replace(ITEM, '').replace(LINK, (m, text, target) => text + (target ? ' (' + target + ')' : ''));
+    const body = p.text.replace(ITEM, '').replace(LINK, (m, text, a, b) => target(text, a != null ? a : b))
+      .replace(REF_USE, (m, text, lab, short) => { const k = label(short != null ? short : (lab || text)), to = defs[k]; return to == null ? m : target(short != null ? short : text, to); });
     const m = LEAD.exec(body.trim()), lead = m ? (m[1] || m[2] || m[3] || m[4]).trim() : '';
-    return sentencesOf(body).map((text) => Object.assign({ text, at: p.at, lead, line: p.line }, p.heading ? { heading: true } : {}));
+    return (p.whole ? [body.replace(/\s+/g, ' ').trim()] : sentencesOf(body)).map((text) => Object.assign({ text, at: p.at, lead, line: p.line }, p.heading ? { heading: true } : {}));
   });
 }
 
@@ -98,6 +118,9 @@ function pathsOf(sentence) {
     if (!whole && !quoted && !dot && p.indexOf('/') < 0) return;
     if (ROOT.test(p) || STAGED.test(p)) out.push(p);
   };
+  /* "the reports folder", "the runs directory": a root named as a folder is that folder. */
+  plain.replace(/\bthe\s+(drafts|runs|reports|report[- ]decisions|step[- ]types|(?:staged\s+)?updates)\s+(?:folder|directory)\b/gi, (m, r) => {
+    out.push({ drafts: 'maps/drafts', updates: '.flightdeck/updates' }[r.toLowerCase().replace(/^staged\s+/, '')] || r.toLowerCase().replace(' ', '-')); return m; });
   codes.forEach((c) => { const ts = c.trim().split(/\s+/); ts.forEach((t) => norm(t, ts.length === 1, true)); });
   plain.split(/\s+/).forEach((t) => norm(t, false, false));
   return out;

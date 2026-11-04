@@ -238,6 +238,27 @@ rule('Round 15: the spelling matrix: an unconditional delete of a staged copy in
   assert.strictEqual(unconditionalDeletes('## Delete `.flightdeck/updates/<version>/AGENTS.md`\n\nThen run install again.', 'x').length, 1, 'a heading');
   assert.strictEqual(unconditionalDeletes('## Delete `.flightdeck/updates/<version>/AGENTS.md` only if nobody changed it', 'x').length, 0, 'a conditional heading');
 });
+rule('Round 16: the delete guard reads a File | Action row whole, "the updates folder" and reference links', () => {
+  [ '| File | Action |\n|---|---|\n| `.flightdeck/updates/<version>/AGENTS.md` | Delete |', 'Delete the updates folder and run install again.',
+    'Delete [the staged copy][s] and run install again.\n\n[s]: .flightdeck/updates/2.15.0/AGENTS.md', 'Delete [the staged copy] and run install again.\n\n[the staged copy]: .flightdeck/updates/2.15.0/AGENTS.md']
+    .forEach((t) => assert.strictEqual(unconditionalDeletes(t, 'x').length, 1, t));
+  assert.strictEqual(unconditionalDeletes('| File | Action |\n|---|---|\n| `.flightdeck/updates/<version>/AGENTS.md` | Delete only if nobody changed it |', 'x').length, 0, 'the conditional row');
+});
+rule('Round 16: the reviewed-text snapshot: every shipped instruction text matches its reviewed hash, and a changed byte fails naming the file', () => {
+  const RT = require('./reviewed-text'), texts = RT.texts(), snap = RT.snapshot();
+  assert.deepStrictEqual(RT.problems(texts, snap), [], 'update an entry with: node test/reviewed-text.js --update "<what changed; checked for direct writes and unconditional deletes>"');
+  ['example-folder/AGENTS.md', 'example-folder/.flightdeck/skills/flightdeck-status/SKILL.md', 'docs/updating.md', 'rendered: the merge prompt'].forEach((name) => {
+    assert.ok(texts[name] != null, 'set-up: ' + name);
+    const t = Object.assign({}, texts); t[name] = texts[name].replace(/e/, 'E');
+    const got = RT.problems(t, snap);
+    assert.ok(got.length === 1 && got[0].indexOf(name) >= 0 && /changed/.test(got[0]), name + ': ' + got.join(' | '));
+  });
+  const t = Object.assign({}, texts); t['docs/new.md'] = 'x'; delete t['docs/updating.md'];
+  const got = RT.problems(t, snap).join(' | ');
+  assert.ok(/new.*docs\/new\.md/.test(got) && /removed.*docs\/updating\.md/.test(got), got);
+  const bare = JSON.parse(JSON.stringify(snap)); bare.texts['docs/updating.md'].reviewed = '';
+  assert.ok(RT.problems(texts, bare).some((x) => /docs\/updating\.md/.test(x) && /reviewed/.test(x)), 'an entry needs its review note');
+});
 rule('The README\'s manual download is the release being shipped, so it can\'t go stale', () => {
   const version = JSON.parse(read('src/releases.json'))[0].version;
   const links = read('README.md').match(/@troylar\/flightdeck@\d+\.\d+\.\d+\/dist\/flightdeck\.html/g) || [];

@@ -221,6 +221,11 @@ const BREAKS = [
   ['R15-1', 'Append "Run `cp new.md \\"maps/drafts/release.md\\"` to save it." to the edit-checklist skill', ['g'], (s) => { s.files[EDIT] += '\nRun `cp new.md "maps/drafts/release.md"` to save it.\n'; }],
   ['R15-2', 'Append "Save it to `maps\\\\drafts\\\\release.md` by hand." to the edit-checklist skill', ['g'], (s) => { s.files[EDIT] += '\nSave it to `maps\\drafts\\release.md` by hand.\n'; }],
   ['R15-3', 'Append the heading "## Write reports to `reports/<process>/<run>.json`" to the status skill', ['g'], (s) => { s.files[STATUS_SK] += '\n## Write reports to `reports/<process>/<run>.json`\n\nThen say you did.\n'; }],
+  /* Round 16 (review round 6): a table row read whole, "the reports folder", a reference link and a bare link target. */
+  ['R16-1', 'Append an Action | Destination table with "| Write the report | `reports/<process>/<run>.json` |" to the status skill', ['g'], (s) => { s.files[STATUS_SK] += '\n| Action | Destination |\n|---|---|\n| Write the report | `reports/<process>/<run>.json` |\n'; }],
+  ['R16-2', 'Append "If report write refuses, save the report directly in the reports folder." to the status skill', ['g'], (s) => { s.files[STATUS_SK] += '\nIf report write refuses, save the report directly in the reports folder.\n'; }],
+  ['R16-3', 'Append a reference link: "If report write refuses, save it to [the report file][rep]." with "[rep]: reports/release/report.json"', ['g'], (s) => { s.files[STATUS_SK] += '\nIf report write refuses, save it to [the report file][rep].\n\n[rep]: reports/release/report.json\n'; }],
+  ['R16-4', 'Append a bare link target: "If report write refuses, save it in [the folder](reports)."', ['g'], (s) => { s.files[STATUS_SK] += '\nIf report write refuses, save it in [the folder](reports).\n'; }],
   /* The docs routed check's breaks. */
   ['D7a', 'A new help line with no Commands row', ['docs'], (s) => { s.help = I.K.main(['help']).out + '\n  flightdeck health <team folder> [--json]\n'; }],
   ['D7b', '`flightdeck export` dropped from the guide\'s Evidence packs (inherent: 144.0 moved there word for word, 3, and the changed unit is unlisted, 12)', ['12', '3', 'docs'], (s) => { s.files[GUIDE] = s.files[GUIDE].split('flightdeck export').join('flightdeck exporter'); }],
@@ -252,7 +257,7 @@ rule('Round 14: the shared prose reader joins soft wraps, splits outside paths a
   /* Round 15: a blockquote's markers go, a link's text and target are both read, an italic lead-in is a lead-in, and a table
      cell is split outside code spans (its delimiter row is no text). */
   assert.deepStrictEqual(PR.proseSentences('> **Note:** save\n> it to [the file](./reports/x.json).\n\n*Without it:* go.\n\n| h | i |\n|---|:-:|\n| `a|b` | c |').map((x) => [x.lead, x.text]),
-    [['Note:', '**Note:** save it to the file (./reports/x.json).'], ['Without it:', '*Without it:* go.'], ['', 'h'], ['', 'i'], ['', '`a|b`'], ['', 'c']]);
+    [['Note:', '**Note:** save it to the file (`./reports/x.json`).'], ['Without it:', '*Without it:* go.'], ['', 'h'], ['', 'i'], ['', '`a|b`'], ['', 'c'], ['', 'h: `a|b`; i: c']]);
   [['`cp new.md "maps/drafts/release.md"`', ['maps/drafts/release.md']], ['`maps\\drafts\\release.md`', ['maps/drafts/release.md']], ['.\\runs\\a\\run.json', ['runs/a/run.json']],
     ['"reports"', ['reports']], ['**reports/x.json**', ['reports/x.json']], ['`\'step-types/x.json\'`', ['step-types/x.json']]]
     .forEach(([t, want]) => assert.deepStrictEqual(PR.pathsOf(t), want, t));
