@@ -5546,7 +5546,7 @@
   function histWrite(push, hash, n, f, b) {
     var s = { fd: 1, n: n, f: f };
     var vb = PF.nav.origin(b); if (vb) s.b = vb;
-    try { if (push) HIST.pushState(s, '', hash); else if (hash == null) HIST.replaceState(s, ''); else HIST.replaceState(s, '', hash); H.writes = (H.writes || 0) + 1; return true; } catch (e) { navOff(); return false; }
+    try { if (push) HIST.pushState(s, '', hash); else if (hash == null) HIST.replaceState(s, ''); else HIST.replaceState(s, '', hash); return true; } catch (e) { navOff(); return false; }
   }
   function navHere() { return PF.nav.format(PF.nav.locate(state)); }
   /* Rule 4 (2.16): a ‹ control never traverses history. It runs its own guards and moves there itself, as one step, and
@@ -5604,7 +5604,7 @@
   }
   function scheduleSync() { if (!H.on || H.queued) return; H.queued = true; Promise.resolve().then(function () { H.queued = false; syncLocation(); }); }
   function syncLocation() {
-    if (!H.on || H.restoring) return;
+    if (!H.on || (H.restoring && !H.restoring.lost)) return;
     /* A move that spans an await writes nothing until it lands, unless the person moves meanwhile. */
     if (H.hold) { if (navSeq === H.hold.seq) return; H.hold = null; }
     var moved = navSeq !== H.seen, replace = H.mode === 'replace', backIn = !!H.backIn;
@@ -5618,7 +5618,7 @@
     if (moved && !replace) {
       if (hash === c.hash && f === c.f && c.n === H.pos && !c.gone) return;
       var nb = c.gone ? null : histB(c);
-      if (histWrite(true, hash, H.pos + 1, f, nb)) { H.pos++; H.cur = { n: H.pos, hash: hash, f: f, b: nb }; }
+      if (histWrite(true, hash, H.pos + 1, f, nb)) { H.pos++; H.cur = { n: H.pos, hash: hash, f: f, b: nb }; if (H.restoring) H.restoring.n = H.pos + H.restoring.d; }
       return;
     }
     if (hash === c.hash && f === c.f && c.n === H.pos) return;
@@ -5665,19 +5665,25 @@
     if (!H.on) return;
     harvest();
     var es = PF.nav.entry(ev ? ev.state : null);
-    /* A restore in progress: every move is swallowed until the browser is back on the drawn entry. Landing there draws
-       nothing: the sync writes what's drawn now, a move made meanwhile (a ‹, a link) in that entry's place. */
-    if (H.restoring) { if (es) H.pos = es.n; if (es && es.n === H.restoring.n) { clearTimeout(H.restoring.timer); H.restoring = null; scheduleSync(); } return; }
-    /* A restore landing after its watchdog ran is stale: consumed without a draw, the entry it lands on shows what's drawn. */
-    var lt = H.late; H.late = null;
-    if (lt && es && es.n === lt.n) { H.pos = es.n; reassert(); return; }
+    /* A refused move's restore is outstanding: this handler alone settles it, and nothing ever draws from it. Traversals
+       complete in order, so the restore lands d entries from wherever the browser is when it runs. Its arrival is
+       consumed and what's drawn now (a ‹ or a link made meanwhile included) is written in that entry's place. An arrival
+       before it (a Back pressed with it) is consumed too and moves where it lands. Once it's lost (the watchdog), the
+       next arrival anywhere else is the person's own move. */
+    var R0 = H.restoring;
+    if (R0) {
+      if (es && es.n === R0.n) {
+        H.pos = es.n; clearTimeout(R0.timer); H.restoring = null;
+        /* Short of the drawn entry (a Back pressed with it moved the browser first) and nothing moved or was written since:
+           a new restore. Otherwise what's drawn is written here. */
+        if (H.cur === R0.cur && navSeq === H.seen && !H.mode && !H.cur.gone && H.cur.n !== H.pos) { restoreUrl({}); return; }
+        scheduleSync(); return;
+      }
+      if (!R0.lost) { if (es) { H.pos = es.n; R0.n = es.n + R0.d; } return; }
+      H.restoring = null;
+    }
     popAt(es);
   }
-  /* The navigation epoch: every move of the app's (a location field changing: a ‹, a link, any click that moves) and every
-     history write advance it. A restore acts only in the epoch it was started in: a stale one never draws. */
-  function navEpoch() { return navSeq + ':' + (H.writes || 0); }
-  /* The entry the browser is on shows what's drawn: no draw, no new entry. */
-  function reassert() { var here = navHere(), f = navFp(), c = H.cur; if (histWrite(false, here, H.pos, f, c.b)) H.cur = { n: H.pos, hash: here, f: f, b: c.b || null }; }
   function popAt(es) {
     var hash = String(location.hash || '');
     if (!es) {
@@ -5695,21 +5701,15 @@
   }
   /* After a refusal the screen never moved: put the browser back on the drawn entry without touching the entries after it,
      or, when that entry is gone or this one was typed, write the drawn location where the browser is. */
-  function restoreTimedOut() {
-    var R0 = H.restoring; H.restoring = null; if (!R0) return;
-    var es = null; try { es = PF.nav.entry(HIST.state); } catch (e) { es = null; }
-    if (es && es.n === H.cur.n) { H.pos = es.n; scheduleSync(); return; }
-    /* It hasn't landed: if it does later, that arrival is stale (onPop). */
-    H.late = { n: R0.n };
-    /* A move since it started: the watchdog never draws over it; what's drawn is written where the browser is. */
-    if (navEpoch() !== R0.at) { if (es) H.pos = es.n; scheduleSync(); return; }
-    popAt(es);
-  }
+  /* The watchdog only marks the restore lost: the person's next moves are written where the browser is, and the
+     next arrival elsewhere is theirs. It never draws, writes or traverses. */
+  function restoreTimedOut() { if (H.restoring) H.restoring.lost = true; }
   function restoreUrl(t) {
     var c = H.cur;
+    /* One restore at a time: a refusal while one is outstanding shares it. */
+    if (H.restoring) return;
     if (!t.typed && !c.gone && c.n !== H.pos) {
-      H.late = null;
-      H.restoring = { n: c.n, at: navEpoch(), timer: setTimeout(restoreTimedOut, 1000) };
+      H.restoring = { n: c.n, d: c.n - H.pos, cur: c, lost: false, timer: setTimeout(restoreTimedOut, 1000) };
       try { HIST.go(c.n - H.pos); } catch (e) { navOff(); }
       return;
     }
@@ -8415,7 +8415,7 @@
     }).then(function (res) {
       done(); if (res && res.dropped) { releaseNav(held); say('The test run wasn\'t started. ' + nothingWritten(sg, sfs, skey, who), 'warn'); render(); return null; }
       if (!still()) { releaseNav(held); return load(true).then(function () { return null; }); }
-      state.testStage = null;
+      heldOwn(held, function () { state.testStage = null; });
       return load(true).then(function () { return true; });
     }).then(function (ok) { if (!ok) return; releaseNav(held); if (!still()) { render(); return; } openRun(made.process + '/' + made.id); say('Test run started. It isn\'t counted with the real runs.', 'good'); state.msg.quiet = true; render(); },
       function (err) { done(); releaseNav(held); say(aboutWhat(still, sg, sfs, skey, who) + (err && err.maybeWritten ? 'Flightdeck couldn\'t confirm whether the test run started (' + err.message + '). Check Runs before starting another.' : 'Couldn\'t start the test run: ' + err.message), 'bad'); if (err && err.maybeWritten) load(true).then(render); else render(); });

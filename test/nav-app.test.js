@@ -1660,8 +1660,9 @@ rule('R8 1: navigating on to Runs before the late restore: Runs stays through th
   const { app, n } = await restoreHeld();
   app.click('nav', 'runs'); await app.tick();
   await new Promise(r => setTimeout(r, 1150));
-  assert.ok(/<div class="eyebrow">Runs|id="rf-h"|Runs<\/h1>/.test(app.html()) || app.hash() === '#/runs', 'Runs through the watchdog: ' + app.hash());
-  assert.strictEqual(app.hash(), '#/runs', 'the watchdog didn\'t replace Runs');
+  /* The watchdog writes nothing (round 9): Runs stays drawn, and its URL is written when the restore lands. */
+  assert.ok(/<div class="eyebrow">Runs|id="rf-h"|Runs<\/h1>/.test(app.html()), 'Runs drawn through the watchdog');
+  assert.ok(!inEditor(app), 'nothing drew over it');
   app.releasePops(); await app.settle(); await app.tick(40); await app.settle();
   assert.strictEqual(app.hash(), '#/runs', 'Runs after the late arrival');
   assert.ok(app.entries().length <= n + 1, 'history grew by Runs at most');
@@ -1714,6 +1715,99 @@ rule('R8 3: Home names the version publishing takes: past an incomplete higher-n
   app.click(b.act, b.id); await app.tick(40); await app.settle();
   assert.match(app.html(), /Publish v4/, 'the page it opens publishes the same number');
   assert.doesNotMatch(app.html(), /Publish v3/, 'and never offers the taken one');
+});
+
+/* ---------- Build round 9: one owner for a refused move's restore, and a test run's start ---------- */
+rule('R9 A: overlapping restores: Edit, Runs, Settings, Back twice, typing, Back held past 1,150 ms, discard, ‹ checklist, release: the checklist and its URL', async () => {
+  const app = await edit({ localStore: { 'preflight:builder': 'true' } }); await app.settle();
+  app.click('nav', 'runs'); await app.settle(); app.click('nav', 'settings'); await app.settle();
+  app.back(); await app.settle(); app.back(); await app.settle();
+  assert.strictEqual(app.hash(), '#/process/release/edit', 'set-up: back on Edit, entries ahead');
+  app.click('ob-sel', 'flags'); await app.tick(); app.input('ob-text', 'Half typed'); await app.tick();
+  const n = app.entries().length;
+  await refusedBack(app, () => /Apply or clear what you typed/.test(app.live()));
+  await wait(1150); await app.tick(20);
+  app.click('ob-hold-discard'); await app.tick();
+  app.click('ed-done'); await app.tick();
+  assert.ok(onOverview(app), 'set-up: ‹ checklist drawn');
+  app.releasePops(); await app.settle(); await app.tick(40); await app.settle(); await wait(50); await app.settle();
+  assert.ok(onOverview(app), 'the checklist stays: ' + app.hash());
+  assert.strictEqual(app.hash(), '#/process/release', 'its URL');
+  assert.strictEqual(app.entries().length, n, 'history didn\'t grow');
+  assert.strictEqual(app.popMismatch(), 0);
+  noEdit(app, 'overlap');
+});
+rule('R9 A: a Back refused while Publish writes, its restore held past 1 s, Publish lands: Edit stays, and after the late arrival too', async () => {
+  const app = await changed(); await into(app, 'edit'); await app.settle();
+  const n = app.entries().length, i = app.index();
+  const b = primary(app); app.click(b[0].act, b[0].id); await app.tick();
+  app.set('change-note', 'Tell on-call');
+  const release = holdWrites(app);
+  ovClick(app, 'publish', 'release'); await app.tick(20);
+  assert.match(app.overlay(), /aria-busy="true"/, 'set-up: locked');
+  const before = app.index();
+  app.back();
+  for (let k = 0; k < 200 && app.index() === before; k++) await wait(0);
+  app.holdPops(); await app.tick();
+  assert.strictEqual(app.index(), before - 1, 'set-up: the restore is held');
+  assert.match(app.overlay(), /aria-busy="true"/, 'set-up: still locked, the Back refused');
+  await wait(1150); await app.tick(20);
+  release(); await app.tick(300); await app.settle();
+  assert.ok(inEditor(app), 'Publish landed: Edit stays');
+  await wait(1100); await app.tick(20);
+  assert.ok(inEditor(app), 'Edit through the watchdog');
+  app.releasePops(); await app.settle(); await app.tick(40); await app.settle();
+  assert.ok(inEditor(app), 'Edit after the late arrival');
+  assert.strictEqual(app.hash(), '#/process/release/edit', 'its URL');
+  assert.deepStrictEqual([app.index(), app.entries().length], [i, n], 'on its entry: ' + JSON.stringify([app.index(), app.entries().map(e => e.hash)]) + ' was ' + JSON.stringify([i, n]));
+});
+rule('R9 A: a restore that never arrives: nothing draws, the next moves go on, and a normal Back afterwards works', async () => {
+  const app = await edit({ localStore: { 'preflight:builder': 'true' } }); await app.settle();
+  app.click('ob-sel', 'flags'); await app.tick(); app.input('ob-text', 'Half typed'); await app.tick();
+  await refusedBack(app, () => /Apply or clear what you typed/.test(app.live()));
+  await wait(1200); await app.tick(20);
+  assert.ok(/id="ed-h"/.test(app.html()) && app.draft('ob-text') === 'Half typed', 'the editor, its text: nothing drew');
+  app.click('ob-hold-discard'); await app.tick();
+  app.click('nav', 'settings'); await app.tick(20);
+  assert.strictEqual(app.hash(), '#/settings', 'the next move goes on');
+  app.click('nav', 'runs'); await app.tick(20);
+  assert.strictEqual(app.hash(), '#/runs');
+  app.dropPops(); app.releasePops();
+  app.back(); await app.settle(); await app.tick(40); await app.settle();
+  assert.strictEqual(app.hash(), '#/settings', 'a normal Back');
+  assert.ok(/Settings/.test(app.html()), 'draws Settings');
+});
+rule('R9 A: a restore that lands at once, then a normal Back still goes back', async () => {
+  const app = await edit({ localStore: { 'preflight:builder': 'true' } }); await app.settle();
+  app.click('ob-sel', 'flags'); await app.tick(); app.input('ob-text', 'Half typed'); await app.tick();
+  app.back(); await app.settle(); await app.tick(40); await app.settle();
+  assert.strictEqual(app.hash(), '#/process/release/edit', 'refused, restored');
+  await wait(1100); await app.settle();
+  app.click('ob-hold-discard'); await app.tick();
+  app.back(); await app.settle(); await app.tick(40); await app.settle();
+  assert.ok(onOverview(app), 'a normal Back opens the checklist'); assert.strictEqual(app.hash(), '#/process/release');
+});
+rule('R9 A: source: the restore watchdog only marks the restore lost; it never draws, writes or traverses', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
+  const at = src.indexOf('function restoreTimedOut('); assert.ok(at > 0);
+  let d = 0, j = src.indexOf('{', at);
+  for (; j < src.length; j++) { if (src[j] === '{') d++; else if (src[j] === '}' && !--d) break; }
+  const body = src.slice(at, j + 1);
+  assert.doesNotMatch(body, /popAt|arrive|render|histWrite|scheduleSync|syncLocation|reassert|HIST\.|restoreUrl/, body);
+});
+rule('R9 B: starting a test run from Start a test run: history doesn\'t grow by a form, the run names its checklist, Back returns there', async () => {
+  const { app, folder } = await staged();
+  app.click('open-process', 'release'); await app.settle();
+  const n = app.entries().length;
+  app.click('start-test', folder); await app.settle();
+  assert.strictEqual(app.entries().length, n + 1, 'set-up: the form pushed');
+  app.chooseApprovers().submitForm('start-form', {}); await app.tick(200); await app.settle();
+  assert.ok(onRun(app), 'the run');
+  assert.strictEqual(app.entries().length, n + 1, 'the run in the form\'s place: ' + JSON.stringify(app.entries().map(e => e.hash)));
+  assert.ok(!app.entries().some(e => /^#\/start/.test(e.hash)), 'no start form left');
+  assert.strictEqual(back1(app).text, 'Production release', 'the run names its checklist');
+  app.back(); await app.settle(); await app.tick(40); await app.settle();
+  assert.strictEqual(app.hash(), '#/process/release', 'Back returns there'); assert.ok(onOverview(app));
 });
 
 run();

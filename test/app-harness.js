@@ -486,6 +486,8 @@ function boot(opts) {
     back() { history.go(-1); }, forward() { history.go(1); }, go(n) { history.go(n); },
     typeHash(h) { traverse({ typed: h }); },
     holdPops() { hist.held = true; }, releasePops() { hist.held = false; pump(); },
+    /* The held traversals are lost: the browser never completes them, so no popstate ever fires for them. */
+    dropPops() { hist.queue.length = 0; },
     // A typed box taking focus with the caret at s..e (opts.replace), and where its caret is.
     focusBox(id, st, en) { const el = get(id); el.focus(); el.selectionStart = st; el.selectionEnd = en == null ? st : en; return this; },
     caret: id => (els[id] ? [els[id].selectionStart, els[id].selectionEnd] : null),
