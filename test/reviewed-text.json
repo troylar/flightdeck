@@ -1,12 +1,16 @@
 {
   "texts": {
+    "LICENSE": {
+      "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
+      "reviewed": "Seeded in round 18 at 6da3ad1: a license text, shipped unchanged; no instruction."
+    },
     "README.md": {
       "sha256": "f9cbc5bcef0e60a11025c3a40d10f1443835a5cae66e4b22baea8bb2d7c4ffa8",
       "reviewed": "Pinned in round 17 at 6837a9b (unchanged since f2888f5), reviewed: passed the delete guard; check g's reader flags 7 sentences here, each read by hand: what a command or install writes, never a direct write for an assistant."
     },
     "bin/flightdeck.js": {
-      "sha256": "9b2d35f2b63a784cdd5961346723f5cf7a964acd6a6af22a42608919d83aebec",
-      "reviewed": "Pinned whole in round 17, reviewed: the hold messages (AGENTS.md waits / will wait, and a reference lacking sections) now name each file's missing sections, as Folder health and the merge README do. DELETE_COPY and every other delete say only if nobody changed the copies (passes the delete guard); no direct write told to an assistant."
+      "sha256": "68f96b7525e626e14eff0e712422480a06fc63475c25b1ab161d221ef859b5ce",
+      "reviewed": "Round 18: now pinned by its string and template literals instead of the whole file, so code-only edits need no review. The strings are the ones reviewed whole in round 17 (6da3ad1), unchanged; check g's reader flags 7 of them, each read by hand: a conditional delete, a description of what a command writes, or a status message, never a direct write for an assistant."
     },
     "docs/apps.md": {
       "sha256": "450eb210e245308606346001e84c2a4c1cbe64a943cc314d54e1e424b2ba2374",
@@ -100,6 +104,62 @@
       "sha256": "1c760dba659e5c023c63b727d80bd208743700e7955a9fd2b1f8703f290eb51e",
       "reviewed": "Seeded at f2888f5 and reviewed: passed the delete guard as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 14 sentences here, each read by hand: a rule, a prohibition or a description of what a command writes, never a direct write for an assistant."
     },
+    "example-folder/jira/workflows.json": {
+      "sha256": "b5a29ccf5b1a5e5c9b0e464d1d3b380a4e4dac04eea81608e90d5ae142f9eb99",
+      "reviewed": "Seeded in round 18 at 6da3ad1: example data the build embeds (a checklist, a plan, a skill record, a step type or people); reviewed, no instruction to an assistant in it."
+    },
+    "example-folder/maps/drafts/check-in.md": {
+      "sha256": "149bd77a884d8ce16d465dab065c606c2a030c26099845c810cc436c2e1260e5",
+      "reviewed": "Seeded in round 18 at 6da3ad1: example data the build embeds (a checklist, a plan, a skill record, a step type or people); reviewed, no instruction to an assistant in it."
+    },
+    "example-folder/maps/drafts/github-pr.md": {
+      "sha256": "7ff97bd49aba8bdb3f21f890c9dc3c95125bfbd6f21162e6e5a223f9d495efae",
+      "reviewed": "Seeded in round 18 at 6da3ad1: an example checklist the build embeds; reviewed: its steps are the team's own work (one deletes the merged git branch), never a write to a protected path or a delete of a staged copy."
+    },
+    "example-folder/maps/drafts/incident.md": {
+      "sha256": "77f71f3a781f579565be6c610db1be89474051c5bac901bfbb26d9f9b1551c45",
+      "reviewed": "Seeded in round 18 at 6da3ad1: example data the build embeds (a checklist, a plan, a skill record, a step type or people); reviewed, no instruction to an assistant in it."
+    },
+    "example-folder/maps/drafts/jira-cleanup.md": {
+      "sha256": "dfb19dbb6055439c0f1a3dad499717604429ba8b5d34f90101fd935ca0cb6c57",
+      "reviewed": "Seeded in round 18 at 6da3ad1: example data the build embeds (a checklist, a plan, a skill record, a step type or people); reviewed, no instruction to an assistant in it."
+    },
+    "example-folder/maps/drafts/new-skill.md": {
+      "sha256": "b178986df4d25c3a08be8aec2255c4b786d968d3a18b97573dea3a87ea9c918e",
+      "reviewed": "Seeded in round 18 at 6da3ad1: example data the build embeds (a checklist, a plan, a skill record, a step type or people); reviewed, no instruction to an assistant in it."
+    },
+    "example-folder/maps/drafts/release.md": {
+      "sha256": "bc34807bfcf6ccce064462e8c4a80a95f9452a4f9cdd3033e162d46a0ca83409",
+      "reviewed": "Seeded in round 18 at 6da3ad1: example data the build embeds (a checklist, a plan, a skill record, a step type or people); reviewed, no instruction to an assistant in it."
+    },
+    "example-folder/maps/drafts/sprint-start.md": {
+      "sha256": "bccc94f843d2383960f397f931dda9badaedc2cd2de87bde1868c80e3c607e26",
+      "reviewed": "Seeded in round 18 at 6da3ad1: example data the build embeds (a checklist, a plan, a skill record, a step type or people); reviewed, no instruction to an assistant in it."
+    },
+    "example-folder/people.json": {
+      "sha256": "977dd416e9d174cd3f5295cfddb73efeee20d03d05dc45f224c75a7d789359fb",
+      "reviewed": "Seeded in round 18 at 6da3ad1: example data the build embeds (a checklist, a plan, a skill record, a step type or people); reviewed, no instruction to an assistant in it."
+    },
+    "example-folder/proposals/plan-release-2026-10-24.json": {
+      "sha256": "f1523421fa6eb45d0ccbb003619f29eec5feb1c0d09f8666a713d2faa8d4215d",
+      "reviewed": "Seeded in round 18 at 6da3ad1: example data the build embeds (a checklist, a plan, a skill record, a step type or people); reviewed, no instruction to an assistant in it."
+    },
+    "example-folder/skills/pr-opener.json": {
+      "sha256": "c307e9525e19587d4746258caa451e512e25fa8b9441c959d93c0857283ddeb2",
+      "reviewed": "Seeded in round 18 at 6da3ad1: example data the build embeds (a checklist, a plan, a skill record, a step type or people); reviewed, no instruction to an assistant in it."
+    },
+    "example-folder/skills/release-deploy.json": {
+      "sha256": "5a70540b6de0dbb13ade4ad4797381c412231ac574b1a6e2467320328ca6e556",
+      "reviewed": "Seeded in round 18 at 6da3ad1: example data the build embeds (a checklist, a plan, a skill record, a step type or people); reviewed, no instruction to an assistant in it."
+    },
+    "example-folder/skills/release-notes.json": {
+      "sha256": "c3d4d972859cea03cf1f6923b25025a283d6a4e5e5941925ad2ef074945f9269",
+      "reviewed": "Seeded in round 18 at 6da3ad1: example data the build embeds (a checklist, a plan, a skill record, a step type or people); reviewed, no instruction to an assistant in it."
+    },
+    "example-folder/step-types/change.request.json": {
+      "sha256": "1f98cd0a6977fc860e2ac9aa157b5cc10c9bdb47efb829852bc35319cde2afae",
+      "reviewed": "Seeded in round 18 at 6da3ad1: example data the build embeds (a checklist, a plan, a skill record, a step type or people); reviewed, no instruction to an assistant in it."
+    },
     "rendered: the merge README, AGENTS.md held": {
       "sha256": "587c6fe0a4080614f1661c880aa058e9dd8180b5595d72bfaaf90b9f297f8d95",
       "reviewed": "Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 4 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
@@ -116,13 +176,189 @@
       "sha256": "b45a42ad2d6c357abc5557d85096553bf56b69910afb197ecec8f353ff62aec8",
       "reviewed": "Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
+    "src/baselines.json": {
+      "sha256": "6f7ce4301bde106404fa7b37374e24a6411a06ef48a2cdf254cd64d9feb305ab",
+      "reviewed": "Seeded in round 18 at 6da3ad1: content hashes of every shipped AGENTS.md and skill file, written by tools/baselines.js; no wording."
+    },
+    "src/core/appjson.js": {
+      "sha256": "9b1d5f175d93a8c31932f95b260a8e71718aaffae263084ba8f7a77d8b2f775a",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/attach.js": {
+      "sha256": "dbe010a3cd34f2969ac4166f3a5d9460140347568bed1466f4ae5e032e2382bf",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/conditions.js": {
+      "sha256": "e163af5de8f15d49cab6175fc8f3d214688f85be84ff9a9d7818a84d204a1e95",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/connection.js": {
+      "sha256": "555db17721da190107ad9e95274400bce8c32167baa36d295465a587723e624d",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
     "src/core/contract.js": {
-      "sha256": "06284b28d1dcb34b3283cb6280196663a2aa64eb31615aacbabe4b32683d0d76",
-      "reviewed": "Pinned whole in round 17 at 6837a9b (unchanged since f2888f5), reviewed: the merge README in every branch (held, only copy, waiting, reference items, noHistory, re-staged, several references), the merge prompt, the hold and wait messages and START_PROMPT. Every delete says only if nobody changed the copy (passes the delete guard); no direct write to a protected path told to an assistant."
+      "sha256": "3c47d7ed041cec9bd11b71af5088725ec0aa9f9cdcf8cecdc30482b2b7e14d77",
+      "reviewed": "Round 18: now pinned by its string and template literals instead of the whole file, so code-only edits need no review. The strings are the ones reviewed whole in round 17 (6da3ad1), unchanged; check g's reader flags 2 of them, each read by hand: a conditional delete, a description of what a command writes, or a status message, never a direct write for an assistant."
+    },
+    "src/core/corrections.js": {
+      "sha256": "c3ebf70f00b019913d0bf6bc40d297f10ae00cd059acd6521627fb2d57e7d227",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/envelope.js": {
+      "sha256": "22ab20c8a9c62b4e2103bfa2727bce3656014ba7e99b60bade80d3a442166f84",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1, and check g's reader flags 1, read by hand: a label naming the run file and its copies. Every later wording change is reviewed as it lands."
+    },
+    "src/core/evidence.js": {
+      "sha256": "fba9a2af249c72d8bd4a7b16ee486c7f4216cea2b72a32ae823925cea35999c0",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/followups.js": {
+      "sha256": "337ad334fc736a77dac5f599d05ef4fa86abc3934f646ec95144e5b7e0a57421",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
     },
     "src/core/health.js": {
-      "sha256": "7783e15071681f914234b9ee4ee37c3b41bf79686a33f571d2a4c610c69d3eb3",
-      "reviewed": "Pinned whole in round 17 at 6837a9b (unchanged since f2888f5), reviewed: the Folder health hold, wait and merge messages and the merge request; every delete says only if nobody changed it or once it is merged (passes the delete guard); no direct write told to an assistant."
+      "sha256": "3a48fa63a843dcbb701dda8c3b46b1e13df40dcfa316c776f475f1d9fd097c2d",
+      "reviewed": "Round 18: now pinned by its string and template literals instead of the whole file, so code-only edits need no review. The strings are the ones reviewed whole in round 17 (6da3ad1), unchanged; check g's reader flags 8 of them, each read by hand: a conditional delete, a description of what a command writes, or a status message, never a direct write for an assistant."
+    },
+    "src/core/insights.js": {
+      "sha256": "1d86c8b16b6f7698cd2f63cc58b6c0f8a7bd5d60178d8d437b9094c8bbb5007f",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/jira.js": {
+      "sha256": "b4b2f30431e2a632bb49eba0150caf714a1855c71eba9af3753c241c43c2b26e",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/links.js": {
+      "sha256": "6e9d0880d310cf12a5df716b02067ce7383e73ac89b9e76add75759fc07a26c9",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/map.js": {
+      "sha256": "660b9903e7812b6c8009e7506f019e2507502c1693a25058aea93e27f9d6ae78",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/nav.js": {
+      "sha256": "e2ae52817cbedf75ea1784b2a0e579a67aaea42282b9d67ca67b0d8eb6bd56bb",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/outline.js": {
+      "sha256": "b7316beb8a5d6b990ac7986f7bc574a988ae3415fb78915ed3cf037be21884f6",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/people.js": {
+      "sha256": "389e8df5c59cb95e741e6244a1e709c9c773d2462b6705e64ae72229ef83d09f",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/pins.js": {
+      "sha256": "c1f873951d68bee8f56dff0f9dcc8bdcd68c6b9ee0b8834b7a7498bb0c273e56",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/plans.js": {
+      "sha256": "c2c3951fc33331b15a55cf835cfb74e2476019764d998ecdac60371728174121",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/practice.js": {
+      "sha256": "5765790730b5e1d2d0fcaa6705ad61752ce6f6654bb002bbf59658062de02fc1",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/proposals.js": {
+      "sha256": "4f8f7b540e234bc84296ef9fb561c0c91f501995cbfc1591199777177b22b91c",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/publish.js": {
+      "sha256": "478f95888bb22a738079ba539f4838c1099854b2f6394d7b0e250fba214ce749",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/refs.js": {
+      "sha256": "275ffc260706435aa5481af08f6713bf2421ce2fe6a2ca0de2ab9f1883821c78",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/reports.js": {
+      "sha256": "5a7a513f4dda3899bc90b585159be2f4fd9616b7cce7f6dc97df7292936696b8",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/requests.js": {
+      "sha256": "fdf139ea4a068b722abbf1ffd711d44b66ecd8df31dbf78ad0badf65dcaea80b",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/run.js": {
+      "sha256": "09b8dfa9fb7d95ba6c4fb56ad8291c93a7833319f89118b5a64deaaaf7a11667",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/save.js": {
+      "sha256": "65269af9b02a77c4d3b6d77f96c2a0104a0655269e8a6f7bcf05269f61015f9d",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/search.js": {
+      "sha256": "3bb513a876a7ae74205aeff04be68b78d51145b42d848a61cd1ca0cc985d3b5b",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/setup.js": {
+      "sha256": "78dc772485a2fa81b7072ac8c876601534dc863e02992c29d696c2698e534e58",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/sha256.js": {
+      "sha256": "9da2164e53fbcefa967a73ce09042c81ba6ab14e69b452783ae5f4c08402399a",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/signature.js": {
+      "sha256": "4991f13435f2e8a5b850c38ba764cdfc61366002c02336436a95c7ae1b335004",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/skills.js": {
+      "sha256": "c25f4a17ceb1b6fdfcd17dc076ab9b7ee53c08543156e93f4c4c72252ff0364d",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/staging.js": {
+      "sha256": "141f763ef73a29a02f1ce762f4cef039d383d7a600529bfa0e559485398617f2",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/teamvalues.js": {
+      "sha256": "df1c195c1ec8e0a1aecfe4357afcb0afcd3cff8dbf4c14938c4bbe8e1ce66886",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/timeline.js": {
+      "sha256": "bf93ffb85b915b92b51dde194bcd264b0a90c552316ccfc9065552ac765c18da",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/types.js": {
+      "sha256": "0486db6c8ac08f8a3172985d388d7bc7b0346ccf5953d979474c3e4ca5d970da",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/util.js": {
+      "sha256": "8ca921ecbeb4200fc5ff37b431a80c858bc6aba3df26cec50d513956025350d3",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/values.js": {
+      "sha256": "9e35753cebd0cfdeeee0fa74049bc41363e407de4bb9ce47df13e4c945d761b9",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/core/zip.js": {
+      "sha256": "01a3f07d12bbdd5c5774cbaf576db57e47c4a21067b4a453739ffee34ee69cde",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/fonts/OFL-instrument-sans.txt": {
+      "sha256": "67a91a3d8f6a9d122f010d4630d7025a19040301bba7784131099aa1e644a32e",
+      "reviewed": "Seeded in round 18 at 6da3ad1: a license text, shipped unchanged; no instruction."
+    },
+    "src/fonts/OFL.txt": {
+      "sha256": "10b0e6bb43166a50fbe7cde2895bd7f703738a5da843acb5c97c95dc9ea26817",
+      "reviewed": "Seeded in round 18 at 6da3ad1: a license text, shipped unchanged; no instruction."
+    },
+    "src/fonts/barlow-condensed-600.woff2": {
+      "sha256": "051e422320db361229803212d3de3100dab9ac797cdaca568ca4895fcf78c1f7",
+      "reviewed": "Seeded in round 18 at 6da3ad1: an embedded font file, binary; no text."
+    },
+    "src/fonts/barlow-condensed-700.woff2": {
+      "sha256": "6ef62ce3487daf0f722c9f756286b6e91ad3e18e2f68f682029bfb01219c2986",
+      "reviewed": "Seeded in round 18 at 6da3ad1: an embedded font file, binary; no text."
+    },
+    "src/fonts/instrument-sans-latin-wght.woff2": {
+      "sha256": "d5a54105e8e74cabcab1cb316d477c38338a1a1631269ede07f70cb3c6601c5d",
+      "reviewed": "Seeded in round 18 at 6da3ad1: an embedded font file, binary; no text."
+    },
+    "src/page.html": {
+      "sha256": "f43660a71e01dc40ef34ff8d6925384405d22657c62a4f2a21136e037c8afb40",
+      "reviewed": "Seeded in round 18 at 6da3ad1: the page shell build.py fills in (placeholders, styles, meta); reviewed, no instruction wording."
     },
     "src/releases.json#1.0.0": {
       "sha256": "58db27e84c0a948982da3e577af381f9ff0bcf854ef7e78a85c88ecc8f990837",
@@ -332,9 +568,97 @@
       "sha256": "611dad89af840a944052c1659bdf9715734398f73d2f6168f81b287f2e12b587",
       "reviewed": "Seeded at f2888f5 and reviewed: release notes; passed the delete guard (read as source lines) as of f2888f5. Check g does not run here; its reader flags 6 sentences across all releases, each read by hand: past behavior or what a command writes, never a direct write for an assistant."
     },
+    "src/storage/fs.js": {
+      "sha256": "52622d7aba8265019add30b3e34ddb3a2b0a471a3ab2e0a1b32b1446b1a98122",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/storage/repo.js": {
+      "sha256": "c5db5c53fa90cf9c6a10d4ee2b8783b5e5f527fe3ac75b11d0dc0710250917dc",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/ui/app.js": {
+      "sha256": "b23e76318a69ecfccb6205fdb538fc48e0c565565b368547757f4f0dc17a3e61",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1, and check g's reader flags 1, read by hand: the empty-folder tip telling a person to ask their AI assistant for a checklist in maps/drafts, which the assistant writes through the command as AGENTS.md says. Every later wording change is reviewed as it lands."
+    },
+    "src/ui/examples.js": {
+      "sha256": "61dbfb1aaec4ee39b1fa23d800949538c9325b1f0a41d335fb045675fc80678a",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/ui/exporter.js": {
+      "sha256": "4bb516be49f23680ac395e334dbab212ddc40c0b20f3da30ba03fba14a709c01",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/ui/guide.js": {
+      "sha256": "acd1f7777c30fd4a4d1adfdc8568364ac1404b1b43039ad831a77a216d5dbeac",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/ui/icons.js": {
+      "sha256": "5119b874e5434270ed068bee43155442793504f18f3d95256dc8774dd79e9ceb",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/ui/views/builder.js": {
+      "sha256": "fbc8f67579ce70fcf05018dc666de836d3955f7fe9305eba5dd6dada4af9681e",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/ui/views/common.js": {
+      "sha256": "055b17c0e0d8160164a2490bb5226bca96d179bd47563c98d17156a73b1bcd3a",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/ui/views/detailbox.js": {
+      "sha256": "9a979488be04eabb7897d83d1f914160350964c9033f2f9d71ee28564ff207e2",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/ui/views/evidence.js": {
+      "sha256": "808000c2f61a7bf4e50dda77f336d27e5279eaaeed04869823f25d4d86663a1d",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/ui/views/flight.js": {
+      "sha256": "54d6aadcba041780f8f59fd8b9b07bf22c9412c00d726a162e2c5e736611acc3",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/ui/views/health.js": {
+      "sha256": "8853f104987eb9b97a810790d7edc56df6747b768d75364069d64c7da4a7781a",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/ui/views/home.js": {
+      "sha256": "eb6e43a89406a06addeeddcf99603e609b1794c0a44eccb5778038bf9355e58f",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/ui/views/insights.js": {
+      "sha256": "310d79d055a2ab9c729813b8baeac852c0039ba60b3f1bcdfc6dd29598310a52",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
     "src/ui/views/manage.js": {
-      "sha256": "78b7288d7046c50a36f09a936329bac62b7b29812293b0ab0fed91f10bd175e3",
-      "reviewed": "Pinned whole in round 17 at 6837a9b (unchanged since f2888f5), reviewed: Settings, AI assistant files (status words, old-copy text, Copy merge request, I merged it); no delete or direct-write instruction of its own."
+      "sha256": "fc6a69ab68c0404ee63e89afd0aa4e7303a07dbeca7f6fdb49f8abffe1a1ed7c",
+      "reviewed": "Round 18: now pinned by its string and template literals instead of the whole file, so code-only edits need no review. The strings are the ones reviewed whole in round 17 (6da3ad1), unchanged; check g's reader flags 0 of them, each read by hand: a conditional delete, a description of what a command writes, or a status message, never a direct write for an assistant."
+    },
+    "src/ui/views/overlays.js": {
+      "sha256": "960a48dc956790afbd1ff778d9d9310b3b71894de7419295d99e622227d0c489",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/ui/views/pages.js": {
+      "sha256": "14c1abd3a1b8a6daeab8d1a51272cd85cf746088d57a6f78cfda3b56cebfefe2",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/ui/views/practice.js": {
+      "sha256": "31a42ed00fec1b0863ebcaa7f9bf7590930de5ee3555eb931303b97bb267edce",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/ui/views/process.js": {
+      "sha256": "aae3843b7a9450b0d007967dedd2451d1791268effe4144188886a02a4873b3e",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/ui/views/reports.js": {
+      "sha256": "a0932c19c24c894a9455b2aff9c19d95fabc1caef98fcc72844cfe9eb45c1125",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/ui/views/run.js": {
+      "sha256": "ed3cac1801d5ed6fc12f65f7a53061e9100799a916291529c0b85a94906d54e6",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
+    },
+    "src/ui/views/setup.js": {
+      "sha256": "011713cab235cf8f6d5c7a1ded71fbd37c984c53664d07cbfa117940a404ca38",
+      "reviewed": "Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. Every later wording change is reviewed as it lands."
     }
   }
 }

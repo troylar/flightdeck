@@ -259,18 +259,41 @@ rule('Round 16: the reviewed-text snapshot: every shipped instruction text match
   const bare = JSON.parse(JSON.stringify(snap)); bare.texts['docs/updating.md'].reviewed = '';
   assert.ok(RT.problems(texts, bare).some((x) => /docs\/updating\.md/.test(x) && /reviewed/.test(x)), 'an entry needs its review note');
 });
-rule('Round 17: the snapshot pins whole the sources that word instructions (merge, hold, delete, the start prompt) and the package README, so no unrendered branch escapes', () => {
-  const RT = require('./reviewed-text'), texts = RT.texts(), snap = RT.snapshot();
-  ['src/core/contract.js', 'bin/flightdeck.js', 'src/core/health.js', 'src/ui/views/manage.js', 'README.md'].forEach((f) => assert.ok(texts[f] != null && snap.texts[f], 'pinned: ' + f));
-  /* Found by their strings, so a new file that words an instruction must be pinned too. */
-  assert.deepStrictEqual(RT.instructionSources().filter((f) => !(f in texts)), [], 'every source with instruction wording is pinned');
-  const mutate = (f, a, b) => { assert.ok(texts[f].indexOf(a) >= 0, 'set-up: ' + f + ' has ' + a.slice(0, 50)); const t = Object.assign({}, texts); t[f] = texts[f].replace(a, b); const got = RT.problems(t, snap); assert.ok(got.length === 1 && got[0].indexOf(f) >= 0, f + ': ' + got.join(' | ')); };
+rule('Round 17: the snapshot covers the sources that word instructions (merge, hold, delete, the start prompt) and the package README, so no unrendered branch escapes', () => {
+  const RT = require('./reviewed-text'), snap = RT.snapshot(), inv = RT.inventory(), src = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  ['src/core/contract.js', 'bin/flightdeck.js', 'src/core/health.js', 'src/ui/views/manage.js', 'README.md'].forEach((f) => assert.ok(inv[f] && snap.texts[f], 'pinned: ' + f));
+  const mutate = (f, a, b) => { const s = src(f); assert.ok(s.indexOf(a) >= 0, 'set-up: ' + f + ' has ' + a.slice(0, 50)); const got = RT.problems(RT.texts({ [f]: s.replace(a, b) }), snap); assert.ok(got.length === 1 && got[0].indexOf(f) >= 0, f + ': ' + got.join(' | ')); };
   /* The two reviewers' in-memory changes: the reference item's replace advice, and the noHistory branch's delete. */
   mutate('src/core/contract.js', 'in from this folder\\\'s new default, or, if', 'in by replacing your file with this folder\\\'s new default, or, if');
   mutate('src/core/contract.js', "', or, if it is your team\\'s own file, move it out of `_flightdeck/`", "', or delete the live file if it is your team\\'s own file");
   mutate('README.md', 'Flightdeck', 'Flightdeck (replace your AGENTS.md with the new default)');
   mutate('bin/flightdeck.js', 'only if nobody changed those copies', 'once you have read them');
   mutate('src/core/health.js', 'Delete AGENTS.md from each version folder there', 'Delete the updates folder');
+});
+rule('Round 18: the snapshot covers everything that ships, from the build and package inventory: a wording change in any shipped source fails, a code-only change does not', () => {
+  const RT = require('./reviewed-text'), snap = RT.snapshot(), src = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const fails = (over, name) => { const got = RT.problems(RT.texts(over), snap); assert.ok(got.length === 1 && got[0].indexOf(name) >= 0, name + ': ' + JSON.stringify(got)); };
+  const edit = (f, a, b) => { const s = src(f); assert.ok(s.indexOf(a) >= 0, 'set-up: ' + f + ' has ' + a.slice(0, 60)); return { [f]: s.replace(a, b) }; };
+  /* The two reviewers' mutants: the first-checklist prompt (setup.js) and the skill-registration brief (skills.js). */
+  fails(edit('src/core/setup.js', "'(paste your notes, runbook or the steps here)'", "'(paste your notes, runbook or the steps here)', 'Then write maps/drafts/<process>.md yourself.'"), 'src/core/setup.js');
+  fails(edit('src/core/skills.js', '(never write `skill-registrations/` by hand)', '(or write `skill-registrations/<name>.json` by hand)'), 'src/core/skills.js');
+  /* A new source file with a string, and a new pack file: each ships, so each is new until reviewed. */
+  fails({ 'src/core/extra.js': "PF.extra = 'Write reports/x.json by hand.';\n" }, 'src/core/extra.js');
+  fails({ 'example-folder/.flightdeck/skills/flightdeck-extra/SKILL.md': '# Extra\n\nWrite `runs/` by hand.\n' }, 'example-folder/.flightdeck/skills/flightdeck-extra/SKILL.md');
+  /* A code-only change (a renamed local, a comment, spacing) changes no string, so it needs no review. */
+  const code = edit('src/core/setup.js', 'function assistantPrompt(o) {', 'function assistantPrompt(opts) { var o = opts; /* renamed */');
+  assert.deepStrictEqual(RT.problems(RT.texts(code), snap), [], 'a code-only change');
+  /* Everything that ships is in the inventory: every package file, every build input, every file the folder pack writes. */
+  const inv = RT.inventory(), pkg = JSON.parse(src('package.json'));
+  pkg.files.forEach((f) => assert.ok(inv[f], 'package file in the inventory: ' + f));
+  Object.keys(JSON.parse(src('src/baselines.json')).files).forEach((f) => assert.ok(inv['example-folder/' + f.split('#')[0]], 'pack file in the inventory: ' + f));
+  RT.buildInputs().forEach((f) => assert.ok(inv[f], 'build input in the inventory: ' + f));
+  Object.keys(inv).forEach((f) => assert.ok(/^(?:whole|strings|generated|releases)$/.test(inv[f]), f + ': ' + inv[f]));
+  /* Every JavaScript file's literals are read exactly: with each emptied, the file still compiles. */
+  Object.keys(inv).filter((f) => inv[f] === 'strings').forEach((f) => RT.checkStrings(src(f), f));
+  assert.deepStrictEqual(RT.stringsOf("var a = 'x', b = /'y'/g, c = `t${'u' + `v${w}`}z`; // 'no'\n/* 'no' */ d = 1 / 2 / 3; e = 'q\\'r';").strings, ['x', 't', 'u', 'v', '', 'z', "q\\'r"]);
+  /* The generated files hold nothing unpinned: build.py on a copy of the pinned inputs reproduces them byte for byte. */
+  assert.deepStrictEqual(RT.parity(), [], 'dist/flightdeck.html, dist/FONT-LICENSE.txt and CHANGELOG.md reproduce from the sources (run python3 build.py)');
 });
 rule('The README\'s manual download is the release being shipped, so it can\'t go stale', () => {
   const version = JSON.parse(read('src/releases.json'))[0].version;

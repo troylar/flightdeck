@@ -50,10 +50,11 @@ const WRITE = {
   before: 'Write the report to', after: 'directly',
   forms: { path: 'reports/release/report.json', './': './reports/release/report.json', '<team folder>/': '<team folder>/reports/release/report.json',
     'Windows': 'reports\\release\\report.json', '.\\ Windows': '.\\reports\\release\\report.json', 'root/': 'reports/', 'root': 'reports', 'root\\ Windows': 'reports\\',
-    'the folder': 'the reports folder', 'the directory': 'the reports directory' },
+    'the folder': 'the reports folder', 'the directory': 'the reports directory', 'your folder': 'your reports folder', 'its folder': 'its reports folder',
+    'their directory': 'their reports directory', 'this folder': 'this reports folder' },
   /* A bare "reports" in plain prose is the English word, not the folder: it is a path in a code span, quoted, as a link
      target, with ./, a slash or a backslash, or named as "the reports folder". Those words take no quotes or backticks. */
-  skip: (form, wrap, place) => (form === 'root' && wrap === 'bare' && !LINKY(place)) || (/^the /.test(form) && wrap !== 'bare')
+  skip: (form, wrap, place) => (form === 'root' && wrap === 'bare' && !LINKY(place)) || (/^(?:the|your|its|their|this) /.test(form) && wrap !== 'bare')
 };
 const PROHIBIT = { at: 'start', words: 'Never' };
 const DELETE = {
@@ -61,8 +62,8 @@ const DELETE = {
   forms: { '<version>': '.flightdeck/updates/<version>/AGENTS.md', 'concrete': '.flightdeck/updates/2.15.0/AGENTS.md', './': './.flightdeck/updates/2.15.0/AGENTS.md',
     '<team folder>/': '<team folder>/.flightdeck/updates/2.15.0/AGENTS.md', 'Windows': '.flightdeck\\updates\\2.15.0\\AGENTS.md',
     'folder/': '.flightdeck/updates/2.15.0/', 'folder': '.flightdeck/updates/2.15.0', 'folder\\ Windows': '.flightdeck\\updates\\2.15.0\\',
-    'the folder': 'the updates folder', 'the directory': 'the updates directory' },
-  skip: (form, wrap) => /^the /.test(form) && wrap !== 'bare'
+    'the folder': 'the updates folder', 'the directory': 'the updates directory', 'your folder': 'your updates folder', 'its directory': 'its updates directory' },
+  skip: (form, wrap) => /^(?:the|your|its|their|this) /.test(form) && wrap !== 'bare'
 };
 const CONDITION = { at: 'end', words: 'only if nobody changed it' };
 

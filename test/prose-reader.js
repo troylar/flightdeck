@@ -118,8 +118,8 @@ function pathsOf(sentence) {
     if (!whole && !quoted && !dot && p.indexOf('/') < 0) return;
     if (ROOT.test(p) || STAGED.test(p)) out.push(p);
   };
-  /* "the reports folder", "the runs directory": a root named as a folder is that folder. */
-  plain.replace(/\bthe\s+(drafts|runs|reports|report[- ]decisions|step[- ]types|(?:staged\s+)?updates)\s+(?:folder|directory)\b/gi, (m, r) => {
+  /* "the reports folder", "your runs directory", "its updates folder": a root named as a folder is that folder. */
+  plain.replace(/\b(?:the|your|our|its|their|this|that|my)\s+(drafts|runs|reports|report[- ]decisions|step[- ]types|(?:staged\s+)?updates)\s+(?:folder|directory)\b/gi, (m, r) => {
     out.push({ drafts: 'maps/drafts', updates: '.flightdeck/updates' }[r.toLowerCase().replace(/^staged\s+/, '')] || r.toLowerCase().replace(' ', '-')); return m; });
   codes.forEach((c) => { const ts = c.trim().split(/\s+/); ts.forEach((t) => norm(t, ts.length === 1, true)); });
   plain.split(/\s+/).forEach((t) => norm(t, false, false));
