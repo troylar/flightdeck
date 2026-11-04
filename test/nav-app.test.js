@@ -180,7 +180,7 @@ rule('Workspace: one header on both views: ‹ <title> top left, Edit | Practice
     const h = head(app);
     assert.ok(h, view + ': the shared header');
     assert.deepStrictEqual(backs(h).map(b => [b.text, b.label]), [['Production release', 'Back to Production release']], view);
-    assert.ok(new RegExp('<h1 id="(ed-h|run-h)" class="sr" tabindex="-1">Production release, ' + (view === 'edit' ? 'Edit' : 'Practice') + '</h1>').test(h), view + ': the h1 is visually hidden and names the view');
+    assert.ok(new RegExp('<h1 id="(ed-h|run-h)" class="sr">Production release, ' + (view === 'edit' ? 'Edit' : 'Practice') + '</h1>').test(h), view + ': the h1 is visually hidden and names the view');
     assert.strictEqual(strips(app.html()), 1, view + ': one view control');
     assert.deepStrictEqual(buttons(strip(h)).map(b => [b.text.split(' · ')[0], b.current]), [['Edit', view === 'edit'], ['Practice', view === 'practice']], view);
     assert.ok(!/Review &amp; publish|Review & publish|Done practicing|Back to the draft|Back to practice/.test(app.html()), view + ': no old way out');
@@ -641,7 +641,7 @@ rule('Start a test run: ‹ <the view it came from> and Cancel; a stage that can
   const app = await page();
   app.click('start-test', 'stage-nopenope'); await app.tick();
   const b = back1(app);
-  assert.deepStrictEqual([b.text, b.act, b.id], ['Production release', 'open-process', 'release'], JSON.stringify(b));
+  assert.deepStrictEqual([b.text, b.act, b.id], ['Production release', 'go-back', '#/process/release'], JSON.stringify(b));
   assert.ok(!/data-act="home"/.test(app.html().replace(/<header[\s\S]*?<\/header>/g, '').replace(/<nav class="top[\s\S]*?<\/nav>/g, '')) || true);
 });
 
@@ -982,6 +982,247 @@ rule('R1 T-P3-1: ‹ <title> with a builder box typed and not applied refuses, s
     assert.strictEqual(app.draft('ob-text'), 'Half typed', how);
     assert.deepStrictEqual([app.entries().length, app.index()], [n, i], how + ': history untouched');
   }
+});
+
+/* ---------- Build round 2: Codex round 1 ---------- */
+/* The folder read after a write waits while armed and the dialog is closed (so the write itself, inside the dialog, runs). */
+const holdReads = app => {
+  let go; const gate = new Promise(r => { go = r; }); const fs0 = app.fs, list = fs0.list.bind(fs0);
+  fs0.list = p => app.overlay() === '' ? gate.then(() => list(p)) : list(p);
+  return () => { go(); delete fs0.list; };
+};
+const prKeys = session => Object.keys(session).filter(k => /:practice:/.test(k)).sort();
+async function stageFrom(view, o) {
+  const app = await changed(o); await into(app, view);
+  const b = primary(app); app.click(b[0].act, b[0].id); await app.tick();
+  assert.ok(/id="change-note"/.test(app.overlay()), 'set-up: the dialog');
+  const release = holdReads(app);
+  app.set('change-note', 'Tell on-call first'); ovClick(app, 'stage-draft', 'release'); await app.tick(80);
+  assert.strictEqual(app.overlay(), '', 'set-up: written, the dialog closed');
+  assert.strictEqual(stageFiles(app).length, 1, 'set-up: staged');
+  return { app, release };
+}
+rule('R2 D-P1: staged from Edit, practice started and answered while the folder is read again is kept, Undo and all', async () => {
+  const session = {};
+  const { app, release } = await stageFrom('edit', { sessionStore: session });
+  app.click('pr-open'); await app.tick(60);
+  assert.ok(onPage(app), 'set-up: practicing');
+  await check(app, 'approved');
+  const kept = prKeys(session);
+  assert.ok(kept.length, 'set-up: practice kept in this tab');
+  release(); await app.tick(300);
+  assert.ok(onPage(app), 'still practicing: ' + app.hash());
+  assert.deepStrictEqual(prKeys(session), kept, 'practice started after the click is never cleared');
+  assert.ok(!/Your practice was cleared/.test(app.html() + app.live()), 'and not said to be');
+});
+rule('R2 F-P2-1: staged from Practice, typing in Things to fix while the folder is read again keeps focus there', async () => {
+  const { app, release } = await stageFrom('practice', { domFocus: true });
+  app.click('pr-found-open'); await app.tick();
+  app.node('#pr-found').focus(); app.set('pr-found', 'The rollback link'); app.input('pr-found', 'The rollback link'); await app.tick();
+  assert.strictEqual(app.activeId(), 'pr-found', 'set-up: typing');
+  release(); await app.tick(300);
+  assert.strictEqual(app.activeId(), 'pr-found', 'focus stays where the typing is');
+  assert.ok(onPage(app), 'still practicing');
+  assert.match(app.html() + app.live(), /Staged\./, 'the result is still said');
+});
+rule('R2 A: staged from Edit, then off to the checklist page while the folder is read again: it stays there and focus isn\'t moved', async () => {
+  const { app, release } = await stageFrom('edit', { domFocus: true });
+  app.click('ed-done'); await app.settle();
+  assert.ok(onOverview(app), 'set-up: the checklist page');
+  const at = app.activeId(), h = app.hash();
+  release(); await app.tick(300);
+  assert.ok(onOverview(app), 'still the checklist page');
+  assert.strictEqual(app.hash(), h);
+  assert.strictEqual(app.activeId(), at, 'focus isn\'t moved to Start a test run');
+  assert.ok(!/start-test/.test(app.focused() || ''), 'never asked for');
+});
+
+/* Focus is on something drawn and seen: never the page, nor the visually hidden heading. */
+function seen(app, tag) {
+  const id = app.activeId(), h = app.html();
+  assert.ok(id && id !== 'body', tag + ': focus is on something (' + id + ')');
+  const tagm = /^\[/.test(id) ? null : new RegExp('<[a-z0-9]+\\b[^>]*\\bid="' + id + '"[^>]*>').exec(h);
+  assert.ok(!tagm || !/class="[^"]*\bsr\b|\bhidden\b/.test(tagm[0]), tag + ': ' + id + ' is visible, not ' + (tagm && tagm[0]));
+  return id;
+}
+const SEL = '[data-act="ob-sel"][data-id="flags"]';
+rule('R2 F-P2-2: every way into the workspace focuses something you can see: the selected step, the Edit button, or practice\'s own', async () => {
+  const builder = { domFocus: true, localStore: { 'preflight:builder': 'true' } };
+  const paths = {
+    'Start a test run, its back': async () => { const { app, folder } = await staged(builder); await into(app, 'edit'); app.click('ob-sel', 'flags'); await app.tick(); app.click('start-test', folder); await app.tick(); const b = back1(app); app.click(b.act, b.id); await app.settle(); return [app, SEL]; },
+    'Start a test run, its Cancel': async () => { const { app, folder } = await staged(builder); await into(app, 'edit'); app.click('ob-sel', 'flags'); await app.tick(); app.click('start-test', folder); await app.tick(); const c = formCancel(app)[0]; app.click(c.act, c.id); await app.settle(); return [app, SEL]; },
+    'Start a test run, browser Back': async () => { const { app, folder } = await staged(builder); await into(app, 'edit'); app.click('ob-sel', 'flags'); await app.tick(); app.click('start-test', folder); await app.tick(); app.back(); await app.settle(); return [app, SEL]; },
+    'a step type, its back': async () => { const app = await edit(builder); app.click('ob-sel', 'flags'); await app.tick(); app.click('new-type'); await app.tick(); const b = back1(app); app.click(b.act, b.id); await app.settle(); return [app, SEL]; },
+    'a step type, browser Back': async () => { const app = await edit(builder); app.click('ob-sel', 'flags'); await app.tick(); app.click('new-type'); await app.tick(); app.back(); await app.settle(); return [app, SEL]; },
+    'Runs, browser Back': async () => { const app = await edit(builder); app.click('nav', 'runs'); await app.tick(); app.back(); await app.settle(); return [app, 'ws-edit']; },
+    'Runs, browser Back, a step selected': async () => { const app = await edit(builder); app.click('ob-sel', 'flags'); await app.tick(); app.click('nav', 'runs'); await app.tick(); app.back(); await app.settle(); return [app, null]; },
+    'Practice, then Edit': async () => { const app = await edit(builder); app.click('pr-open'); await app.tick(60); app.click('pr-back'); await app.tick(); return [app, null]; },
+    'Practice, then Escape': async () => { const app = await edit(builder); app.click('pr-open'); await app.tick(60); esc0(app); await app.tick(); return [app, null]; },
+    'a reload in the editor': async () => { const app = boot(Object.assign({ sessionStore: { 'preflight:editing': 'release' } }, builder)); await app.tick(80); return [app, 'ws-edit']; },
+    'a typed link': async () => { const app = await start(Object.assign({ hash: '#/process/release/edit' }, builder)); await app.tick(80); return [app, 'ws-edit']; },
+    'the side form closed, nothing selected after': async () => { const app = await edit(builder); app.click('ob-sel', 'flags'); await app.tick(); app.click('ob-done'); await app.tick(); return [app, null]; },
+    'Practice: a test run form, its back': async () => { const { app, folder } = await staged(builder); await into(app, 'practice'); app.click('pr-start-test', folder); await app.tick(); const b = back1(app); app.click(b.act, b.id); await app.settle(); assert.ok(onPage(app), 'practice'); return [app, null]; },
+    'Practice: Checklists, browser Back': async () => { const app = await practiced(builder); app.click('nav', 'processes'); await app.tick(); app.back(); await app.settle(); assert.ok(onPage(app), 'practice'); return [app, null]; }
+  };
+  const bad = [];
+  for (const [name, go] of Object.entries(paths)) {
+    try {
+      const [app, want] = await go();
+      assert.ok(inEditor(app) || onPage(app), name + ': in the workspace (' + app.hash() + ')');
+      const id = seen(app, name);
+      if (want) assert.strictEqual(id, want, name);
+      assert.ok(!/id="ed-h"[^>]*tabindex/.test(app.html()), name + ': the hidden heading takes no focus');
+    } catch (e) { bad.push(name + ': ' + e.message.split('\n')[0]); }
+  }
+  assert.deepStrictEqual(bad, []);
+});
+
+/* Every way back drawn, on every screen reached the usual way: one click, then browser Back, never reopens the screen left. */
+rule('R2 R-P2-1: every ‹ control goes back by browser Back when the entry before is where it goes, so Back never reopens the screen left', async () => {
+  const screens = {
+    'run (Runs)': async () => { const app = await start(); await fromRuns(app); return app; },
+    'run (checklist page)': async () => { const app = await page(); app.click('open-run', runKey(app)); await app.tick(60); return app; },
+    'Screen share': async () => { const app = await start(); await fromRuns(app); app.click('mission'); await app.tick(40); return app; },
+    'Receipt': async () => { const app = await start(); await fromRuns(app); app.click('receipt'); await app.tick(40); return app; },
+    'Recovery from a run': async () => { const app = await start(); await fromRuns(app); app.click('recovery', 'onedrive-isnt-syncing'); await app.tick(); return app; },
+    'Recovery from Settings': async () => { const app = await start(); app.click('nav', 'settings'); await app.tick(); app.click('recovery', 'onedrive-isnt-syncing'); await app.tick(); return app; },
+    'Folder health from a run': async () => { const app = await start(); await fromRuns(app); app.click('health'); await app.tick(80); return app; },
+    'Folder health from Settings': async () => { const app = await start(); app.click('nav', 'settings'); await app.tick(); app.click('health'); await app.tick(80); return app; },
+    'Connection check': async () => { const app = await start(); app.click('nav', 'settings'); await app.tick(); app.click('connection'); await app.tick(80); return app; },
+    'an older version': async () => { const app = await page(); const vers = [...app.html().matchAll(/<option value="(v\d+-[a-z0-9]+)"/g)].map(m => m[1]); app.select('map-ver', vers[vers.length - 1]); await app.tick(); app.gone('map-ver'); return app; },
+    'Runs behind a number': async () => { const app = await page(); app.click('ptab', 'insights'); await app.tick(); const m = /data-act="ins-runs" data-id="([^"]+)"/.exec(app.html()); app.click('ins-runs', m[1]); await app.tick(); return app; },
+    'Start a run': async () => { const app = await page(); app.click('start', 'release'); await app.tick(); return app; },
+    'New checklist': async () => { const app = await start(); app.click('nav', 'processes'); await app.tick(); app.click('new-process'); await app.tick(); return app; },
+    'Skills': async () => { const app = await start(); app.click('nav', 'processes'); await app.tick(); app.click('nav', 'skills'); await app.tick(); return app; },
+    'Step types': async () => { const app = await start(); app.click('nav', 'settings'); await app.tick(); app.click('open-types'); await app.tick(); return app; },
+    'a step type': async () => { const app = await start(); app.click('nav', 'settings'); await app.tick(); app.click('open-types'); await app.tick(); app.click('new-type'); await app.settle(); await app.tick(40); return app; },
+    'Edit': async () => edit(),
+    'Practice': async () => practiced(),
+    'a step type from Edit': async () => { const app = await edit({ localStore: { 'preflight:builder': 'true' } }); app.click('ob-sel', 'flags'); await app.tick(); app.click('new-type'); await app.settle(); await app.tick(40); return app; }
+  };
+  const bad = [];
+  for (const [name, go] of Object.entries(screens)) {
+    let app;
+    try { app = await go(); } catch (e) { bad.push(name + ': set-up ' + e.message.split('\n')[0]); continue; }
+    const b = backs(app.html());
+    if (!b.length) { bad.push(name + ': no way back drawn (' + app.hash() + ')'); continue; }
+    await app.settle();
+    const left = app.hash(), i = app.index();
+    app.click(b[0].act, b[0].id); await app.settle();
+    if (app.hash() === left) { bad.push(name + ': ‹ ' + b[0].text + ' stayed'); continue; }
+    /* Back moves down the history; a move there pushes and goes up. */
+    if (app.index() >= i) { bad.push(name + ': ‹ ' + b[0].text + ' added an entry (at ' + i + ' → ' + app.index() + ')'); continue; }
+    app.back(); await app.settle();
+    if (app.hash() === left) bad.push(name + ': browser Back reopened ' + left);
+  }
+  assert.deepStrictEqual(bad, []);
+});
+rule('R2 R-P2-1: the ‹ controls that go back by browser Back keep their restore: ‹ How runs go its count focused, ‹ Current version the version box, ‹ The run the run', async () => {
+  const a = await page({ domFocus: true });
+  a.click('ptab', 'insights'); await a.tick();
+  const m = /data-act="ins-runs" data-id="([^"]+)"/.exec(a.html());
+  a.click('ins-runs', m[1]); await a.tick();
+  a.click('ins-back'); await a.settle();
+  assert.match(a.hash(), /\/insights$/);
+  assert.match(a.activeId(), /ins-runs/, 'the count it came from');
+  const v = await page({ domFocus: true });
+  const vers = [...v.html().matchAll(/<option value="(v\d+-[a-z0-9]+)"/g)].map(x => x[1]);
+  v.select('map-ver', vers[vers.length - 1]); await v.tick(); v.gone('map-ver');
+  v.click('back-current'); await v.settle();
+  assert.ok(!/an older version/.test(v.html()), 'the current version');
+  assert.strictEqual(v.activeId(), 'map-ver');
+  const r = await start({ domFocus: true }); await fromRuns(r);
+  r.click('recovery', 'onedrive-isnt-syncing'); await r.tick();
+  r.click('recovery-back'); await r.settle();
+  assert.ok(onRun(r), 'the run');
+});
+
+rule('R2 F-P2-3: a changed Publish note doesn\'t hold browser Back while nothing is writing; the note is kept for next time', async () => {
+  const app = await changed(); await into(app, 'edit');
+  const b = primary(app); app.click(b[0].act, b[0].id); await app.tick();
+  app.set('change-note', 'Half a thought'); app.input('change-note', 'Half a thought'); await app.tick();
+  assert.match(app.overlay(), /id="change-note"[^>]*data-draft-kept|data-draft-kept[^>]*id="change-note"|data-draft-kept[\s\S]*id="change-note"/, 'the note is marked kept');
+  app.back(); await app.settle();
+  assert.strictEqual(app.overlay(), '', 'Back closes it');
+  assert.ok(!/Finish or cancel this first/.test(app.live()), 'not refused');
+  app.click(b[0].act, b[0].id); await app.tick();
+  assert.strictEqual(app.draft('change-note'), 'Half a thought', 'the note is still there');
+});
+
+rule('R2 F-P3-4: Escape on Finish goes back to the run from an unchanged field too, and stays from a changed one', async () => {
+  for (const changedIt of [false, true]) {
+    const app = await start({ domFocus: true }); await fromRuns(app);
+    app.click('pickup'); await app.tick(40);
+    app.click('finish'); await app.tick(40);
+    assert.match(app.html(), /id="fu-text"/, 'set-up: Finish');
+    const el = app.node('#fu-text'); el.focus();
+    if (changedIt) { app.set('fu-text', 'Call the vendor'); app.input('fu-text', 'Call the vendor'); await app.tick(); }
+    app.keyOn('Escape', {}, app.node('#fu-text'));
+    await app.settle();
+    if (changedIt) assert.ok(/id="fu-text"/.test(app.html()), 'changed: stays on Finish');
+    else assert.ok(onRun(app) && !/id="fu-text"/.test(app.html()), 'unchanged: the run');
+  }
+});
+
+rule('R2 R-P2-2: a run opened from a checklist page showing a version (current or older) goes back to it as ‹ <checklist title>, and the duplicate checklist link is plain', async () => {
+  for (const which of ['current', 'older']) {
+    const app = await start();
+    if (which === 'current') { app.typeHash('#/process/release/current'); await app.settle(); }
+    else { app.click('open-process', 'release'); await app.tick(); const vers = [...app.html().matchAll(/<option value="(v\d+-[a-z0-9]+)"/g)].map(m => m[1]); app.select('map-ver', vers[vers.length - 1]); await app.tick(); app.gone('map-ver'); }
+    const from = app.hash();
+    assert.match(from, which === 'current' ? /\/current$/ : /\/v\//, 'set-up: ' + from);
+    app.click('open-run', runKey(app)); await app.tick(60);
+    assert.ok(onRun(app), which + ': the run');
+    const b = back1(app);
+    assert.strictEqual(b.text, 'Production release', which);
+    assert.ok(!/<a\b[^>]*class="[^"]*\brw-cl\b|data-act="open-process" data-id="release"/.test(rhead(app).replace(/<button\b[^>]*\bbackc\b[\s\S]*?<\/button>/, '')), which + ': no second link to the checklist');
+    app.click(b.act, b.id); await app.settle();
+    assert.strictEqual(app.hash(), from, which + ': back where it was');
+  }
+});
+
+rule('R2 R-P2-3: a plan whose pinned version can\'t be used is titled Review the plan, has ‹ <origin> top left, and its Back goes to the checklist page', async () => {
+  const app = await start();
+  const d = await app.PF.repo.loadAll(app.fs), v1 = d.processes.find(p => p.process === 'release').index.all.find(p => p.info.version === 1);
+  const plan = app.PF.plans.make(v1, { id: 'plan-release-exact', process: 'release', title: 'Release exact', details: {}, roles: {}, by: 'person-avery', created: new Date().toISOString() }, true, '2.0.0');
+  await app.fs.write('proposals/plan-release-exact.json', JSON.stringify(plan, null, 2));
+  app.files('publications/release/' + v1.info.folder + '/').forEach(f => { delete app.fs.files[f]; });
+  app.click('refresh'); await app.tick(120);
+  app.click('nav', 'home'); await app.tick();
+  app.click('review-plan', 'plan-release-exact'); await app.tick();
+  assert.match(app.html(), /won(&#39;|')t start on another version by itself/, 'set-up: the plan asks');
+  assert.match(app.html(), /<h1 id="page-h" tabindex="-1">Review the plan<\/h1>/);
+  assert.ok(!/<h1[^>]*>Start a run<\/h1>/.test(app.html()));
+  const b = back1(app);
+  assert.strictEqual(b.text, 'Home', 'the way back names where it came from');
+  assert.ok(app.html().indexOf('class="backrow"') < app.html().indexOf('id="page-h"'), 'top left');
+  const inline = buttons(app.html()).filter(x => x.text === 'Back to the checklist')[0];
+  assert.ok(inline && inline.act !== 'home', 'the inline Back isn\'t Home: ' + JSON.stringify(inline));
+  app.click(inline.act, inline.id); await app.settle();
+  assert.ok(onOverview(app), 'the error state goes back to the checklist page: ' + app.hash());
+});
+
+rule('R2 R-P3-4: on a phone the workspace tools that don\'t fit go in More at the end of row 3', async () => {
+  const app = await practiced();
+  const h = head(app), more = /<div class="ws-more"[\s\S]*?<\/div><\/div>/.exec(h);
+  assert.ok(more, 'a More group in the tools');
+  const btn = buttons(more[0]).filter(x => x.text === 'More')[0];
+  assert.ok(btn && btn.act === 'pr-more' && /aria-expanded="false"/.test(btn.attrs) && /aria-controls="ws-more-list"/.test(btn.attrs), 'More is a pr-* act that says whether it\'s open: ' + JSON.stringify(btn));
+  assert.deepStrictEqual(buttons(more[0]).filter(x => x !== btn && x.text !== 'More').map(x => x.text), ['Start over', 'Sample details', 'Things to fix'].filter(t => t !== 'Sample details' || /pr-samples/.test(h)), 'the tools after Redo');
+  app.click('pr-more'); await app.tick();
+  assert.match(head(app), /data-act="pr-more"[^>]*aria-expanded="true"/, 'opens');
+  app.click('pr-more'); await app.tick();
+  assert.match(head(app), /data-act="pr-more"[^>]*aria-expanded="false"/, 'closes');
+  const css = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'page.html'), 'utf8');
+  assert.match(css, /\.ws-more-btn \{ display: none; \}/, 'More shows only on a phone');
+  const ed = await edit(), em = /<div class="ws-more"[\s\S]*?<\/div><\/div>/.exec(head(ed));
+  assert.ok(em, 'Edit: More too');
+  assert.deepStrictEqual(buttons(em[0]).map(x => [x.text, x.act]), [['More', 'ws-more'], ['History', 'hist-open']], 'Edit: History is the one that doesn\'t fit');
+});
+
+rule('R2 R-P3-5: the README says Finish the run, not End run…', () => {
+  const md = require('fs').readFileSync(require('path').join(__dirname, '..', 'README.md'), 'utf8');
+  assert.ok(!/End run…/.test(md), 'no End run…');
 });
 
 run();

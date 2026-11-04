@@ -668,10 +668,10 @@
   /* A plan/2 whose version can't be used: say which and why, and offer only an explicit switch to the latest. */
   function exactAsk(ctx, p, plan, pick) {
     var title = p.latest && p.latest.map ? p.latest.map.meta.title : p.title, to = plan._retarget ? plan._retarget.to : plan.pin;
-    var h = '<div class="runhead"><div><div class="eyebrow">' + esc(title) + ' · ' + esc(V.plannedBy(ctx, plan)) + '</div><h1>Start a run</h1></div></div>';
+    var h = formBack(ctx, p.id).row + '<div class="runhead"><div><div class="eyebrow">' + esc(title) + ' · ' + esc(V.plannedBy(ctx, plan)) + '</div><h1 id="page-h" tabindex="-1">Review the plan</h1></div></div>';
     h += '<div class="notice bad" role="alert"><span>This plan starts on ' + esc(title) + ' v' + esc(to.version) + ' (' + esc(to.folder) + '), which can\'t be used here: ' + esc(pick.ask) + '. It won\'t start on another version by itself.</span>' +
       '<span class="row">' + (p.latest ? '<button class="btn" type="button" data-act="plan-retarget" data-id="' + esc(plan.id) + '" data-folder="' + esc(p.latest.info.folder) + '">Start on v' + esc(p.latest.info.version) + ' instead</button>' : '') +
-      '<button class="mini" type="button" data-act="decline-plan" data-id="' + esc(plan.id) + '">Decline this plan</button><button class="mini" type="button" data-act="home">Back</button></span></div>';
+      '<button class="mini" type="button" data-act="decline-plan" data-id="' + esc(plan.id) + '">Decline this plan</button><button class="mini" type="button" data-act="go-back" data-id="' + esc(PF.nav.format({ view: 'process', process: p.id })) + '">Back to the checklist</button></span></div>';
     return h;
   }
   /* Why a plan can't be started, declined or switched now, and what an earlier decision said: PF.plans, shared with reading for other apps. */
@@ -735,7 +735,7 @@
   /* A form's way back (2.16): ‹ <origin> top left, and Cancel beside its submit button going to the same place. */
   function formBack(ctx, pid) { var o = ctx.formOrigin ? ctx.formOrigin(pid) : { hash: '#/processes', place: 'Checklists', view: '' }; return { row: V.backRow(V.backc('go-back', o.hash, o.place, o.view)), cancel: '<button class="mini" type="button" data-act="go-back" data-id="' + esc(o.hash) + '">Cancel</button>' }; }
   /* A form that can't be used says why, with the way back to the checklist's page (or Checklists when there isn't one). */
-  function formGone(ctx, p, why) { return notices(ctx) + V.backRow(p ? V.backc('open-process', p.id, p.title) : V.backc('nav', 'processes', 'Checklists')) + '<div class="panel">' + why + '</div>'; }
+  function formGone(ctx, p, why) { return notices(ctx) + V.backRow(V.backc('go-back', PF.nav.format(p ? { view: 'process', process: p.id } : { view: 'processes' }), p ? p.title : 'Checklists')) + '<div class="panel">' + why + '</div>'; }
   function start(ctx) {
     var st = ctx.state, p = ctx.processes().filter(function (x) { return x.id === st.processId; })[0];
     if (p && st.testStage) return startTest(ctx, p);

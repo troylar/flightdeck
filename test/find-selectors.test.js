@@ -273,7 +273,7 @@ const LOOKUPS_OK = {
   'app.js|histPending|k': [2, 'a key this code builds holding a newline (the folder, a newline and the rest)'],
   'app.js|histSeen|k': [2, 'a key this code builds holding a newline (the folder, a newline and the rest)'],
   'app.js|histSeen|histKey(key, dir)': [1, 'a key this code builds holding a newline (the folder, a newline and the rest)'],
-  'app.js|prs|k': [7, 'a key this code builds holding a newline (the folder, a newline and the rest)'],
+  'app.js|prs|k': [8, 'a key this code builds holding a newline (the folder, a newline and the rest)'],
   'app.js|prs|edKey(pid)': [5, 'a key this code builds holding a newline (the folder, a newline and the rest)'],
   'app.js|prs|edKey(p.id)': [4, 'a key this code builds holding a newline (the folder, a newline and the rest)'],
   'app.js|add|from': [1, 'a string is written: under __proto__ that is ignored, under any other name it is the object\'s own; read back by Object.keys or an own-property test'],

@@ -389,7 +389,8 @@ rule('Every editor shows Undo (naming what it undoes), Redo and History, with th
   const tl = TL.create(), moved = md.replace('- [ ] {confirm} Two {#two}\n', '').replace('## One · READ-DO {#one}\n', '## One · READ-DO {#one}\n- [ ] {confirm} Two {#two}\n');
   TL.record(tl, md, moved, { kind: 'op', label: 'move', subject: '<b>Smoke</b> tests' });
   state.editor = { pid: 'x', base: md, baseHash: 'x', text: moved, tl };
-  const bar = html => { const m = /<div class="undobar" role="toolbar" aria-label="Undo and history">([\s\S]*?)<\/div>/.exec(html); assert.ok(m, 'a toolbar'); return m[1]; };
+  /* The toolbar, then History: since 2.16 the workspace puts it in row 3's More (shown inline when it fits). */
+  const bar = html => { const m = /<div class="undobar" role="toolbar" aria-label="Undo and history">([\s\S]*?)<\/div>/.exec(html); assert.ok(m, 'a toolbar'); const w = /<div class="ws-more-list[^"]*" id="ws-more-list">([\s\S]*?)<\/div>/.exec(html); return m[1] + (w ? w[1] : ''); };
   const names = h => [...h.matchAll(/<button[^>]*data-act="([\w-]+)"[^>]*>([\s\S]*?)<\/button>/g)].map(m => m[1] + ':' + m[2].replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<[^>]+>/g, ''));
   const keys = h => [...h.matchAll(/aria-keyshortcuts="([^"]*)"/g)].map(m => m[1]);
   state.builder = true; const b = bar(V.process(ctx));
@@ -1477,7 +1478,7 @@ rule('Draft editor: a page of its own, with a header landmark, and an inspector 
   let html = V.process(ctx);
   assert.ok(/^<div class="fpe" id="fpe"><header class="fpe-head ws-head" role="region" aria-labelledby="ed-h"><div class="fpe-id"><button type="button" class="btn backc" data-act="ed-done" aria-label="Back to Production release">/.test(html), 'only the editor, its header first, the way back first in it');
   assert.ok(!/class="runhead"/.test(html), 'not the process page around it');
-  assert.ok(/<h1 id="ed-h" class="sr" tabindex="-1">Production release, Edit<\/h1>/.test(html) && /data-act="tl-undo" data-id="draft" aria-disabled="true"/.test(html) && /data-act="tl-redo" data-id="draft" aria-disabled="true"/.test(html) && /data-act="hist-open" data-id="draft"/.test(html) && /<div class="fpe-save">/.test(html));
+  assert.ok(/<h1 id="ed-h" class="sr">Production release, Edit<\/h1>/.test(html) && /data-act="tl-undo" data-id="draft" aria-disabled="true"/.test(html) && /data-act="tl-redo" data-id="draft" aria-disabled="true"/.test(html) && /data-act="hist-open" data-id="draft"/.test(html) && /<div class="fpe-save">/.test(html));
   assert.ok(!/fpe-checks|fpe-practice/.test(html), 'no Checks or Practice chip: the inspector has Checks, the view control has Practice');
   assert.ok(/<div class="fpe-tabs" role="tablist" aria-label="Inspector">/.test(html) && /role="tab" id="ins-t-selected" aria-selected="false" aria-controls="ins-p-selected" tabindex="-1"/.test(html), 'a tablist');
   assert.ok(/id="ins-t-preview" aria-selected="true"[^>]*tabindex="0"/.test(html) && /role="tabpanel" id="ins-p-checks" aria-labelledby="ins-t-checks" tabindex="0" hidden/.test(html), 'nothing selected, nothing blocking: Preview');

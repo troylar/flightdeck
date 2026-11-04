@@ -164,7 +164,7 @@ The run screen fills the window:
 
 Check the step Next up points at and the next one is selected, ready for **Space**. Typed evidence and unsent notes stay with their step while you move around. Notes and corrections take files (drop, paste or **Attach**): images, PDF, text and logs, CSV, JSON, YAML and .zip, up to 10 MB each. On a phone the checklist scrolls and a step opens as a full-screen sheet.
 
-Every answer keeps who and when, and a re-check keeps the earlier answer as history. A gate remembers what it approved: change the commit mid-run, and the gate and every step tied to `^commit` come back for a re-check. A run can be paused with a reason (paused time never counts) and ends with **End run…** as Completed, Stopped early or Canceled.
+Every answer keeps who and when, and a re-check keeps the earlier answer as history. A gate remembers what it approved: change the commit mid-run, and the gate and every step tied to `^commit` come back for a re-check. A run can be paused with a reason (paused time never counts) and ends with **Finish the run**, in its header, as Completed, Stopped early or Canceled.
 
 ### 5. Learn from runs
 
