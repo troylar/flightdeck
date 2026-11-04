@@ -28022,7 +28022,7 @@ PF.examples = (function () {
   /* PF.contract.holdAfter, from the text there now of each file whose write was refused: AGENTS.md is held after all when one it
      cites lacks what it points to. A file that can't be read counts as not there, so AGENTS.md waits. */
   function afHoldAfter(items, fs) {
-    var C = PF.contract, nowOf = {}, changed = items.filter(function (i) { return i.changed; });
+    var C = PF.contract, nowOf = Object.create(null), changed = items.filter(function (i) { return i.changed; });
     if (!changed.length) return Promise.resolve();
     return Promise.all(changed.map(function (i) { return fs.read(i.rel, { maxBytes: AF_MAX }).then(function (r) { nowOf[i.key] = r ? r.text : null; }, function () { nowOf[i.key] = null; }); })).then(function () {
       var late = C.holdAfter(items, items, nowOf), a = items.filter(function (i) { return i.key === C.AGENTS; })[0];

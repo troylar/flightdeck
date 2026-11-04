@@ -332,7 +332,7 @@ function contract(t, files, opts) {
   const readmeAt = t.updates.concat(t.version, 'README.md'), readmeWas = agent || items.some((i) => i.status === 'merge') ? readInside(t.dir, readmeAt) : null;
   for (const i of agent ? items.filter((x) => x !== agent).concat(agent) : items) {
     if (i === agent && items.some((x) => x.changed)) {
-      const nowOf = {};
+      const nowOf = Object.create(null);
       items.forEach((x) => { if (x.changed) nowOf[x.key] = readInside(t.dir, x.parts); });
       const late = JSON.parse(JSON.stringify(contractRules().holdAfter(items, items, nowOf)));
       if (late) Object.assign(i, { status: 'merge', waiting: '', stage: true, heldFrom: 'update', held: late.held });
