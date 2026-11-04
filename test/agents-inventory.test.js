@@ -217,6 +217,10 @@ const BREAKS = [
   ['R14-7', 'Duplicate the by-hand draft save in its own bullet', ['g'], (s) => { s.files[EDIT] = once(s.files[EDIT], 'Save the copy to `maps/drafts/<process>.md` first, and say you did.', 'Save the copy to `maps/drafts/<process>.md` first, and say you did. Save the copy to `maps/drafts/<process>.md` first, and say you did.'); }],
   ['R14-8', 'A DIRECT_WRITES count of 2 for a sentence that occurs once', ['g'], (s) => { s.directWrites[EDIT][0].n = 2; }],
   ['R14-9', 'One DIRECT_WRITES entry listed twice', ['g'], (s) => { s.directWrites[EDIT].push(Object.assign({}, s.directWrites[EDIT][0])); }],
+  /* Round 15 (review round 5): a path quoted inside a code span, Windows separators, and a heading. */
+  ['R15-1', 'Append "Run `cp new.md \\"maps/drafts/release.md\\"` to save it." to the edit-checklist skill', ['g'], (s) => { s.files[EDIT] += '\nRun `cp new.md "maps/drafts/release.md"` to save it.\n'; }],
+  ['R15-2', 'Append "Save it to `maps\\\\drafts\\\\release.md` by hand." to the edit-checklist skill', ['g'], (s) => { s.files[EDIT] += '\nSave it to `maps\\drafts\\release.md` by hand.\n'; }],
+  ['R15-3', 'Append the heading "## Write reports to `reports/<process>/<run>.json`" to the status skill', ['g'], (s) => { s.files[STATUS_SK] += '\n## Write reports to `reports/<process>/<run>.json`\n\nThen say you did.\n'; }],
   /* The docs routed check's breaks. */
   ['D7a', 'A new help line with no Commands row', ['docs'], (s) => { s.help = I.K.main(['help']).out + '\n  flightdeck health <team folder> [--json]\n'; }],
   ['D7b', '`flightdeck export` dropped from the guide\'s Evidence packs (inherent: 144.0 moved there word for word, 3, and the changed unit is unlisted, 12)', ['12', '3', 'docs'], (s) => { s.files[GUIDE] = s.files[GUIDE].split('flightdeck export').join('flightdeck exporter'); }],
@@ -239,15 +243,47 @@ rule('Round 13: check g flags every write to a protected path whatever the phras
 rule('Round 14: the shared prose reader joins soft wraps, splits outside paths and code, and keys each sentence by heading path and lead-in', () => {
   const md = '# Top\n\n## Steps\n\n1. **Find it.**\n   - **Without the command:** open the draft. Save it to\n     `maps/drafts/<p>.md` first.\n\n```\nwrite `reports/x.json` here.\n```\nRun `install . --yes` now. Delete `.flightdeck/updates/2.15.0/AGENTS.md`! Done? Yes\n| a | write `runs/x` |\n### Deep\nText.';
   assert.deepStrictEqual(PR.proseSentences(md).map((x) => [x.at, x.lead, x.text]), [
+    ['Top', '', 'Top'], ['Top > Steps', '', 'Steps'],
     ['Top > Steps', 'Find it.', '**Find it.**'],
     ['Top > Steps', 'Without the command:', '**Without the command:** open the draft.'],
     ['Top > Steps', 'Without the command:', 'Save it to `maps/drafts/<p>.md` first.'],
     ['Top > Steps', '', 'Run `install . --yes` now.'], ['Top > Steps', '', 'Delete `.flightdeck/updates/2.15.0/AGENTS.md`!'], ['Top > Steps', '', 'Done?'], ['Top > Steps', '', 'Yes'],
-    ['Top > Steps', '', '| a | write `runs/x` |'], ['Top > Steps > Deep', '', 'Text.']]);
+    ['Top > Steps', '', 'a'], ['Top > Steps', '', 'write `runs/x`'], ['Top > Steps > Deep', '', 'Deep'], ['Top > Steps > Deep', '', 'Text.']]);
+  /* Round 15: a blockquote's markers go, a link's text and target are both read, an italic lead-in is a lead-in, and a table
+     cell is split outside code spans (its delimiter row is no text). */
+  assert.deepStrictEqual(PR.proseSentences('> **Note:** save\n> it to [the file](./reports/x.json).\n\n*Without it:* go.\n\n| h | i |\n|---|:-:|\n| `a|b` | c |').map((x) => [x.lead, x.text]),
+    [['Note:', '**Note:** save it to the file (./reports/x.json).'], ['Without it:', '*Without it:* go.'], ['', 'h'], ['', 'i'], ['', '`a|b`'], ['', 'c']]);
+  [['`cp new.md "maps/drafts/release.md"`', ['maps/drafts/release.md']], ['`maps\\drafts\\release.md`', ['maps/drafts/release.md']], ['.\\runs\\a\\run.json', ['runs/a/run.json']],
+    ['"reports"', ['reports']], ['**reports/x.json**', ['reports/x.json']], ['`\'step-types/x.json\'`', ['step-types/x.json']]]
+    .forEach(([t, want]) => assert.deepStrictEqual(PR.pathsOf(t), want, t));
   [['write `./reports/release/report.json`', ['reports/release/report.json']], ['edit ./runs/a/run.json', ['runs/a/run.json']], ['directly in `reports`.', ['reports']],
     ['in `<team folder>/step-types/x.json`', ['step-types/x.json']], ['`./report-decisions`', ['report-decisions']], ['`maps/drafts`', ['maps/drafts']],
     ['the `.flightdeck/updates` folder', ['.flightdeck/updates']], ['`runs:` and `flightdeck runs <t>` and reports', []]]
     .forEach(([t, want]) => assert.deepStrictEqual(PR.pathsOf(t), want, t));
+});
+
+rule('Round 15: the spelling matrix: a forbidden write in every place and every path spelling is flagged, and its prohibited twin passes once listed', () => {
+  const M = require('./spelling-matrix'), bad = [], places = Object.keys(M.PLACES), wraps = Object.keys(M.WRAPS), forms = Object.keys(M.WRITE.forms);
+  const forbidden = M.variants(M.WRITE), allowed = M.variants(M.WRITE, M.PROHIBIT);
+  assert.strictEqual(forbidden.length, allowed.length, 'set-up: twins');
+  forbidden.forEach((v, i) => [v, allowed[i]].forEach((w) => { if (!I.directWrites(w.md).length) bad.push(w.place + ' / ' + w.form + ' / ' + w.wrap + ': ' + JSON.stringify(w.md)); }));
+  assert.deepStrictEqual(bad, [], 'every variant is seen');
+  /* Through the whole inventory, a rotating sample covering every place, form and wrap: the forbidden one fails g; the
+     prohibited twin, listed as a prohibition under its heading and lead-in, passes. */
+  const key = (x) => x.at + '\u0000' + x.lead + '\u0000' + x.text;
+  forbidden.forEach((v, i) => {
+    if (wraps.indexOf(v.wrap) !== (places.indexOf(v.place) + forms.indexOf(v.form)) % wraps.length && !(v.place === 'link target' && v.wrap === 'bare')) return;
+    const s = clone(base); s.files[STATUS_SK] += '\n' + v.md + '\n';
+    if (I.checks(s).bad.indexOf('g') < 0) bad.push('not g: ' + v.place + ' / ' + v.form + ' / ' + v.wrap);
+    const a = clone(base); a.files[STATUS_SK] += '\n' + allowed[i].md + '\n';
+    const listed = new Set(a.directWrites[STATUS_SK].map(key)), seen = {};
+    I.directWrites(a.files[STATUS_SK]).forEach((x) => { if (!listed.has(key(x))) { const k = key(x); seen[k] = seen[k] || Object.assign({}, x, { n: 0, why: 'prohibition' }); seen[k].n++; } });
+    a.directWrites[STATUS_SK] = a.directWrites[STATUS_SK].concat(Object.values(seen).map(({ at, lead, n, text, why }) => ({ at, lead, n, text, why })));
+    const got = I.checks(a);
+    if (got.bad.indexOf('g') >= 0) bad.push('g on the prohibited twin: ' + allowed[i].place + ' / ' + v.form + ' / ' + v.wrap + ': ' + got.why.filter((w) => /^g:/.test(w)).join(' | ').slice(0, 200));
+  });
+  assert.deepStrictEqual(bad, []);
+  assert.deepStrictEqual(I.directWrites('Write the reports in plain words, and say which runs you read.'), [], 'the English words are not the folders');
 });
 
 rule('The shipped AGENTS.md, references and skills pass every inventory rule (1-13, a-f, docs)', () => {

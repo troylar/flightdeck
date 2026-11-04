@@ -173,8 +173,21 @@ const CONDITION = /\bonly if\b|\bunless\b|\bnobody changed\b|\b(?:when|once) (?:
    paths and code spans); source code keeps its own lines, each split the same way, since its strings run one per line. */
 const PROSE = require('./prose-reader');
 const sentencesIn = (text, code) => code ? text.split('\n').flatMap(PROSE.sentencesOf) : PROSE.proseSentences(text).map(x => x.text);
+/* A delete aimed at the staged folder itself or a copy in it, whatever its spelling (the shared reader's path normalizing:
+   Windows separators, quotes, ./ and <team folder>/). */
+const DELETE_VERB = /\bdelet(?:e|es|ing)\b/i;
+const stagedPath = (x) => PROSE.pathsOf(x).some(p => /^\.flightdeck[-/]updates(?:\/|$)|(?:^|\/)updates\/(?:<version>|\d+\.\d+\.\d+)\/AGENTS\.md$/.test(p));
+/* Sentences the guard flags that aren't instructions, by file and exact normalized text, each reviewed by hand; an entry
+   that matches nothing fails. */
+const NOT_DELETE_ORDERS = {
+  'docs/updating.md': {
+    'Otherwise, a copy left in any version\'s updates folder (`.flightdeck/updates/<version>/<the file\'s path>`) still counts as waiting, even after a later update and even if the file now matches the default, until someone deletes it or `--force` files it away.':
+      'describes when a copy stops counting as waiting; it tells nobody to delete it'
+  }
+};
+const deleteUsed = {};
 function unconditionalDeletes(text, where, code) {
-  return sentencesIn(text, code).filter(x => DELETE_WORD.test(x) && ABOUT_COPIES.test(x) && !CONDITION.test(x)).map(x => where + ': ' + x.trim().slice(0, 200));
+  return sentencesIn(text, code).filter(x => !((NOT_DELETE_ORDERS[where] || {})[x] && (deleteUsed[where + '\u0000' + x] = true))).filter(x => (DELETE_WORD.test(x) && ABOUT_COPIES.test(x) || DELETE_VERB.test(x) && stagedPath(x)) && !CONDITION.test(x)).map(x => where + ': ' + x.trim().slice(0, 200));
 }
 const shippedText = () => {
   const files = [...REPO_DOCS, ...INSTALLED, 'CHANGELOG.md', 'src/releases.json', 'bin/flightdeck.js', 'dist/flightdeck.html', ...list('src/core', /\.js$/), ...list('src/ui', /\.js$/), ...list('src/ui/views', /\.js$/)];
@@ -191,6 +204,7 @@ rule('Round 12: no shipped text says to delete AGENTS.md or a staged copy withou
   [held, only, wait].forEach((i, n) => bad.push(...unconditionalDeletes(C.mergeReadme('2.15.0', [i], ups, 'the team folder', {}), 'the merge README ' + n)));
   bad.push(...unconditionalDeletes(C.mergePrompt('2.15.0', '.flightdeck/updates/2.15.0'), 'the merge prompt'));
   assert.deepStrictEqual(bad, []);
+  Object.keys(NOT_DELETE_ORDERS).forEach(f => Object.keys(NOT_DELETE_ORDERS[f]).forEach(x => assert.ok(deleteUsed[f + '\u0000' + x], 'NOT_DELETE_ORDERS matches nothing: ' + f + ': ' + x.slice(0, 60))));
   /* The check itself: it catches the round 11 paragraph, and passes the conditional forms. */
   assert.strictEqual(unconditionalDeletes('Then delete `AGENTS.md` from each version folder in `.flightdeck/updates/`, and run install again.', 'x').length, 1);
   assert.strictEqual(unconditionalDeletes('Delete AGENTS.md from each version folder there.', 'x').length, 1);
@@ -211,6 +225,18 @@ rule('Round 14: the delete guard reads Markdown through the shared prose reader,
     .forEach((t) => assert.strictEqual(unconditionalDeletes(t, 'x').length, 1, t));
   assert.strictEqual(unconditionalDeletes('Delete `.flightdeck/updates/2.15.0/AGENTS.md`\nonly if nobody changed it.', 'x').length, 0, 'a wrapped condition counts');
   assert.strictEqual(unconditionalDeletes('- Delete `.flightdeck/updates/2.15.0/AGENTS.md`.\n- Only if nobody changed it, run install.', 'x').length, 1, 'a new list item is a new paragraph');
+});
+rule('Round 15: the spelling matrix: an unconditional delete of a staged copy in every place and every path spelling is caught, and its conditional twin passes', () => {
+  const M = require('./spelling-matrix'), bad = [];
+  const forbidden = M.variants(M.DELETE), allowed = M.variants(M.DELETE, M.CONDITION);
+  assert.strictEqual(forbidden.length, allowed.length, 'set-up: twins');
+  forbidden.forEach((v, i) => {
+    if (unconditionalDeletes(v.md, 'x').length < 1) bad.push('missed: ' + v.place + ' / ' + v.form + ' / ' + v.wrap + ': ' + JSON.stringify(v.md));
+    if (unconditionalDeletes(allowed[i].md, 'x').length) bad.push('flagged the conditional twin: ' + v.place + ' / ' + v.form + ' / ' + v.wrap);
+  });
+  assert.deepStrictEqual(bad, []);
+  assert.strictEqual(unconditionalDeletes('## Delete `.flightdeck/updates/<version>/AGENTS.md`\n\nThen run install again.', 'x').length, 1, 'a heading');
+  assert.strictEqual(unconditionalDeletes('## Delete `.flightdeck/updates/<version>/AGENTS.md` only if nobody changed it', 'x').length, 0, 'a conditional heading');
 });
 rule('The README\'s manual download is the release being shipped, so it can\'t go stale', () => {
   const version = JSON.parse(read('src/releases.json'))[0].version;
