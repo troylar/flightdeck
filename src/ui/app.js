@@ -1406,7 +1406,8 @@
           var merges = l.items.filter(function (i) { return i.status === 'merge' && !i.changed; });
           var list = merges.filter(function (i) { return !i.waiting || i.stage || i.staged.some(function (x) { return x.version === ver; }); });
           var next = list.length ? C.mergeReadme(ver, list, tg.updates, tg.home, { base: (C.BASELINES && C.BASELINES.files) || {}, record: l.record, agents: EXAMPLES[C.AGENTS] }) : null;
-          /* As the command: also when the README there says what is no longer true (its words depend on the state). */
+          /* As the command: the team folder is install's and the skills folder is skills --to's; both classify every contract
+             file there, so both also rewrite a README whose words are no longer true (they depend on the state). */
           if (!merges.some(function (i) { return !i.waiting || i.stage; }) && !(readme != null && next != null && next !== readme)) return;
           return (readme != null && readme !== next ? keep('merge-README.md', readme) : Promise.resolve()).then(function () { if (!alive()) throw stop(); return save(readmeAt, readme, next, readmeAt); });
         }).then(function () {

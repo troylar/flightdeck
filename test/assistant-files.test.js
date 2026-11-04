@@ -1812,4 +1812,59 @@ rule('Round 8, comparison: I merged it never says "Nothing was put away" when it
   assert.ok(!/Nothing was put away/.test(w) && /2\.6\.0[^]*may or may not/.test(w), w);
 });
 
+
+
+/* Round 10: who writes the merge README is the command's. A skills folder (skills --to, Settings' skills-folder target)
+   classifies every file there, so, as install in a team folder, it writes the README when something new is staged and
+   rewrites one there to say what is true now, keeping the old one once; a file staged by a later run shows up in it. In a
+   team folder only install rewrites (the cases in test/assistant-start.test.js; R9-skills: skills <team> never does). */
+rule('Round 10: a skills folder\'s merge README is written and rewritten to the state, and a file staged later shows up in it, in the app and the command', async () => {
+  const KEY = 'flightdeck-status/SKILL.md', KEY2 = 'flightdeck-plan-run/SKILL.md', REC = '.flightdeck-installed.json';
+  const RM = '.flightdeck-updates/' + VER + '/README.md', cp = (k) => '.flightdeck-updates/' + VER + '/' + k;
+  const kept = (o) => Object.keys(o).filter((k) => /\/replaced\/[^/]+\/merge-README\.md$/.test(k)).length;
+  const unrecord = (text, k) => { const r = JSON.parse(text); delete r.files[k]; return JSON.stringify(r, null, 2) + '\n'; };
+  for (const readme of [null, 'Our merge notes\n']) {
+    const cover = readme ? 'a README there' : 'no README';
+    const start = { [KEY]: 'ours\n' }; if (readme) start[RM] = readme;
+    const team = folderHandle('Team', asFiles(scenario('settled'))); let pick = team;
+    const app = boot({ picker: () => pick, indexedDB: memoryIDB() }); await app.tick(60);
+    app.click('connect'); await app.tick(200);
+    app.click('ai-files'); await wait(app);
+    app.click('af-where', 'other'); await app.tick(50);
+    const files = Object.assign({}, start), skills = folderHandle('Skills', files); pick = skills; app.click('af-pick'); await wait(app);
+    app.click('af-update'); await wait(app);
+    const dir = tmp(); Object.keys(start).forEach((k) => { fs.mkdirSync(path.dirname(path.join(dir, k)), { recursive: true }); fs.writeFileSync(path.join(dir, k), start[k]); });
+    let r = cli('skills', '--to', dir); assert.strictEqual(r.code, 0, r.out);
+    assert.strictEqual(files[cp(KEY)], EX['.flightdeck/skills/' + KEY], cover + ', app: the new default staged');
+    assert.strictEqual(readText(dir, cp(KEY)), EX['.flightdeck/skills/' + KEY], cover + ', command: the new default staged: ' + r.out);
+    assert.ok(files[RM] && files[RM] !== readme && files[RM].indexOf(KEY) >= 0, cover + ', app: the README says what waits: ' + files[RM]);
+    assert.strictEqual(readText(dir, RM), files[RM], cover + ', command: the same README');
+    assert.strictEqual(kept(files), readme ? 1 : 0, cover + ', app: the old README kept once');
+    assert.strictEqual(kept(asFiles(dir)), readme ? 1 : 0, cover + ', command: the old README kept once');
+    const first = files[RM];
+    assert.ok(first.indexOf(KEY2) < 0, cover + ': set-up, the second skill not in it yet');
+    /* A later run stages a second skill: the team's own copy of it, with no record of it. */
+    files[KEY2] = 'ours too\n'; files[REC] = unrecord(files[REC], KEY2);
+    fs.writeFileSync(path.join(dir, KEY2), 'ours too\n'); fs.writeFileSync(path.join(dir, REC), unrecord(readText(dir, REC), KEY2));
+    app.click('af-pick'); await wait(app); app.click('af-update'); await wait(app);
+    r = cli('skills', '--to', dir); assert.strictEqual(r.code, 0, r.out);
+    assert.strictEqual(files[cp(KEY2)], EX['.flightdeck/skills/' + KEY2], cover + ', app: the second default staged');
+    assert.strictEqual(readText(dir, cp(KEY2)), EX['.flightdeck/skills/' + KEY2], cover + ', command: the second default staged: ' + r.out);
+    assert.ok(files[RM].indexOf(KEY) >= 0 && files[RM].indexOf(KEY2) >= 0, cover + ', app: the README names both: ' + files[RM]);
+    assert.strictEqual(readText(dir, RM), files[RM], cover + ', command: the same README');
+    /* The next run may restate once (the record now has the second skill, so its "now ships a file at this path" words go),
+       the same in both; then it settles: a further run changes nothing and keeps no new copy. */
+    app.click('af-pick'); await wait(app); app.click('af-update'); await wait(app);
+    assert.strictEqual(cli('skills', '--to', dir).code, 0);
+    assert.strictEqual(readText(dir, RM), files[RM], cover + ', the next run: the same README in both');
+    assert.ok(files[RM].indexOf(KEY) >= 0 && files[RM].indexOf(KEY2) >= 0, cover + ', the next run: both still named');
+    const now = files[RM], keptNow = kept(files);
+    assert.strictEqual(kept(asFiles(dir)), keptNow, cover + ', the same copies kept in both');
+    app.click('af-pick'); await wait(app); app.click('af-update'); await wait(app);
+    assert.strictEqual(cli('skills', '--to', dir).code, 0);
+    assert.strictEqual(files[RM], now, cover + ', app: settled'); assert.strictEqual(readText(dir, RM), now, cover + ', command: settled');
+    assert.strictEqual(kept(files), keptNow, cover + ', app: no new copy'); assert.strictEqual(kept(asFiles(dir)), keptNow, cover + ', command: no new copy');
+  }
+});
+
 run();

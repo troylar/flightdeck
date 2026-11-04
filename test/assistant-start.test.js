@@ -1272,6 +1272,22 @@ const replacedOf = (dir) => { const at = at15(dir, UPD + VER + '/replaced'); ret
   }
   assert.deepStrictEqual(replacedOf(dir), repsFixed, 'alternating install and skills makes no replaced/ folder');
 }));
+/* Round 10: the rewrite is tied to the command, not to which files are in the version folder. A file Finder or Windows leaves
+   there (.DS_Store, Thumbs.db, desktop.ini), or any stray file, never stops install from saying what is true now, and install
+   settles: a second run keeps no new copy. */
+const mergeCopies = (dir) => Object.keys(text(walk(dir))).filter(k => /\/replaced\/[^/]+\/merge-README\.md$/.test(k)).length;
+[['system files', ['.DS_Store', 'Thumbs.db', 'desktop.ini']], ['a stray file', ['our-notes/merge-plan.md']]].forEach(([id, junk]) => kase15('R10-readme ' + id, 'after 1: the guide merged and its copy deleted, with ' + junk.join(', ') + ' in the version folder: install rewrites the README to the onlyCopy line, then settles', () => {
+  const dir = f214({ [GUIDE]: FOREIGN }); install15(dir); const old = get15(dir, cp('README.md'));
+  assert.ok(/\bheld: `/i.test(old), 'set-up: the held README');
+  put15(dir, GUIDE, TEAMG); del15(dir, cp(GUIDE)); junk.forEach(j => put15(dir, cp(j), 'x'));
+  const r = install15(dir); assert.strictEqual(r.code, 0, r.out);
+  assert.strictEqual(readmeLine(dir, VER, '- `AGENTS.md`'), AGL + 'Your team didn\'t change AGENTS.md\'s Flightdeck part, so you don\'t need to merge it: ' + DEL, 'the README says only AGENTS.md\'s copy waits');
+  assert.strictEqual(mergeCopies(dir), 1, 'the old README kept once');
+  const fixed = get15(dir, cp('README.md'));
+  for (let n = 0; n < 2; n++) { assert.strictEqual(install15(dir).code, 0); assert.strictEqual(get15(dir, cp('README.md')), fixed, 'run ' + n + ': the same README'); }
+  assert.strictEqual(mergeCopies(dir), 1, 'settled: no new copy');
+  junk.forEach(j => assert.strictEqual(get15(dir, cp(j)), 'x', 'the stray file is left alone: ' + j));
+}));
 kase15('B', 'skills first, then the team edits the guide keeping its sections, then install: AGENTS.md updates', () => {
   const dir = f214(); assert.strictEqual(run15(PKG15, 'skills', dir).code, 0); put15(dir, GUIDE, TEAMG);
   expect15(install15(dir).st, { AGENTS: { status: 'update', heldFrom: undefined }, guide: { status: 'kept' } });

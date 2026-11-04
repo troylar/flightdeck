@@ -346,11 +346,13 @@ function contract(t, files, opts) {
   const merges = items.filter((i) => i.status === 'merge' && !i.changed);
   const listed = merges.filter((i) => !i.waiting || i.stage || i.staged.some((x) => x.version === t.version));
   const next = listed.length ? mergeReadme(t.version, listed, t) : null;
-  /* Written when something new is staged, and also when the README there says what is no longer true: its words depend on
-     the state (held, waiting, lacking), not only on what is staged. That second rewrite needs this run to know every file
-     with a copy there: flightdeck skills doesn't know AGENTS.md, so its README would drop AGENTS.md's line. */
-  const knowsAll = () => copiesIn(t).every((rel) => items.some((i) => i.rel === rel));
-  if (merges.some((i) => !i.waiting || i.stage) || (readmeWas !== null && next !== null && next !== readmeWas && knowsAll())) {
+  /* Who writes the README is the command's, not the folder's. A run that classifies every contract file in its folder
+     (opts.restate: install, and skills --to, whose folder holds only skills) writes the README when something new is staged
+     and rewrites one whose words are no longer true (they depend on the state: held, waiting, lacking). flightdeck skills into
+     a team folder doesn't know AGENTS.md, so it never rewrites a README there; it writes one only when it stages something new
+     and there is none, and the next install says the rest. */
+  const fresh = merges.some((i) => !i.waiting || i.stage);
+  if (opts.restate ? fresh || (readmeWas !== null && next !== null && next !== readmeWas) : fresh && readmeWas === null) {
     try {
       if (readmeWas !== null && readmeWas !== next) keepCopy(t, ['merge-README.md'], readmeWas);
       safeWrite(t.dir, readmeAt, next, readmeWas);
@@ -369,20 +371,6 @@ function contract(t, files, opts) {
     t.changed.push(t.recordAt.join('/'));
   }
   return items;
-}
-/* Every file with a copy in this version's updates folder, relative to it, its README.md and replaced/ aside. A link is
-   listed as a file, so a run never counts it as known. */
-function copiesIn(t) {
-  const home = folders(t.dir, t.updates.concat(t.version), false), out = [];
-  if (!home) return out;
-  (function go(at, rel) {
-    for (const e of fs.readdirSync(at, { withFileTypes: true })) {
-      if (!rel && (e.name === 'README.md' || e.name === 'replaced')) continue;
-      const r = rel ? rel + '/' + e.name : e.name;
-      if (e.isDirectory()) go(path.join(at, e.name), r); else out.push(r);
-    }
-  })(home, '');
-  return out;
 }
 /* The record's files after an update, or null when it would be written unchanged: the same as PF.contract.nextRecord. */
 function nextRecord(record, items, version) {
@@ -2607,7 +2595,7 @@ function main(argv) {
       try { safeWrite(dir, [file], html, st.text); } catch (e) { if (!(e instanceof Changed)) throw e; t.changed.push(file); }
     });
     const appChanged = t.changed.slice();
-    const items = appOnly ? [] : contract(t, files, { html, force });
+    const items = appOnly ? [] : contract(t, files, { html, force, restate: true });
     t.changed = appChanged.concat(t.changed || []);
     out.push('Installed Flightdeck ' + mine + ' at ' + path.join(dir, NAME) + (keepOld ? '\nAlso updated ' + path.join(dir, OLD) + ' (the same app under its old name)' : ''));
     if (!appOnly) {
@@ -2639,7 +2627,7 @@ function main(argv) {
     }
     /* Records and the updates folder name files relative to the folder they're in; the baselines always use the team folder's names. */
     const files = skillFiles(html).map((f) => ({ key: to ? f.path : SKILLS + '/' + f.path, rel: to ? f.path : SKILLS + '/' + f.path, baseKey: SKILLS + '/' + f.path, text: f.text }));
-    const items = contract(t, files, { html, force, check });
+    const items = contract(t, files, { html, force, check, restate: !!to });
     const where = to ? t.dir : path.join(t.dir, ...SKILLS.split('/'));
     if (check) {
       out.push('Skills in ' + where + ':');
