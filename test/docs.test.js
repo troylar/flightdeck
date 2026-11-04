@@ -344,4 +344,19 @@ rule('The step-type skill uses the commands: type list, type read and type save 
   assert.ok(lines.length >= 1, 'it says never to write there directly');
   assert.ok(!/Write `step-types\/<id>\.json`/.test(t), 'the old heading is gone');
 });
+rule('Round 20: the package part of the inventory is what npm packs: an implicit README, LICENSE or COPYING file fails until reviewed, a file npm stops packing fails, and a file npm does not pack needs no entry', () => {
+  const RT = require('./reviewed-text'), snap = RT.snapshot(), src = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const got = (over) => RT.problems(RT.texts(over), snap);
+  /* The reviewers' mutants: files npm packs on its own, whatever package.json files says. */
+  ['README.txt', 'README.windows.md', 'COPYING', 'LICENSE.extra'].forEach((f) => {
+    const p = got({ [f]: 'Write reports/x.json by hand.\n' });
+    assert.ok(p.some((x) => x.indexOf('new, not reviewed: ' + f + ';') >= 0 && x.indexOf('node test/reviewed-text.js --update') >= 0), f + ': ' + JSON.stringify(p));
+  });
+  /* A file npm stops packing (dropped from package.json files) fails as a change to the packed list, not only to package.json. */
+  const p = got({ 'package.json': src('package.json').replace(/\s*"dist\/FONT-LICENSE\.txt",/, '') });
+  assert.ok(p.some((x) => x.indexOf('changed since its review: npm pack (the file list)') >= 0), JSON.stringify(p));
+  /* Not packed, so no entry needed: a test fixture. */
+  assert.deepStrictEqual(got({ 'test/fixtures/reviewed-extra.md': 'Write reports/x.json by hand.\n' }), [], 'a test fixture');
+  assert.deepStrictEqual(RT.packed().filter((f) => !RT.inventory()[f]), [], 'every packed file is in the inventory');
+});
 run();

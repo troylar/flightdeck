@@ -168,6 +168,10 @@
       "sha256": "1f98cd0a6977fc860e2ac9aa157b5cc10c9bdb47efb829852bc35319cde2afae",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1: example data the build embeds (a checklist, a plan, a skill record, a step type or people); reviewed, no instruction to an assistant in it."
     },
+    "npm pack (the file list)": {
+      "sha256": "58396b6691f43c02a4fcf157f2f50eaa7be4b0a26b11ec7930fdb87de4e7cd32",
+      "reviewed": "Round 20, at 64e1c01: the file list npm packs (npm pack --dry-run on a mirror of the tree), read in full: CHANGELOG.md, LICENSE, README.md, bin/flightdeck.js, the two dist files, package.json. Each is pinned whole or checked by parity. No new text."
+    },
     "package.json": {
       "sha256": "5ebdd3244f77e6f4088d40b229faddc5f426e344ca476dc533b8336a292a479f",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Read in full: name, version, description, bin, files, engines, scripts. No instruction to an assistant."

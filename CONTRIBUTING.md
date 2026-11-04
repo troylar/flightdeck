@@ -65,7 +65,7 @@ Every test file runs its rules through `test/harness.js`, so these work in any f
 
 ## Common changes
 
-- **Change any shipped or generating file** (anything in `src/` or `bin/`, `build.py`, `tools/`, `package.json`, README.md, LICENSE, CHANGELOG.md, AGENTS.md, a skill or reference, an example file, `docs/*.md`; every byte counts, code and spacing included): every change needs a reviewed-text note. Read the change for direct writes and unconditional deletes, then record it with `node test/reviewed-text.js --update "<what changed; checked for direct writes and unconditional deletes>"`. `test/docs.test.js` fails, naming the file, until you do.
+- **Change any shipped or generating file** (anything in `src/` or `bin/`, `build.py`, `tools/`, `package.json`, anything npm packs (README*, LICENSE*, COPYING* and CHANGELOG* included), AGENTS.md, a skill or reference, an example file, `docs/*.md`; every byte counts, code and spacing included): every change needs a reviewed-text note. Read the change for direct writes and unconditional deletes, then record it with `node test/reviewed-text.js --update "<what changed; checked for direct writes and unconditional deletes>"`. `test/docs.test.js` fails, naming the file, until you do.
 - **Add a step type:**
   1. Add it to `LIST` in `src/core/types.js` (id, label, icon, hint, `fields`, `record`) and to `GROUPS` there.
   2. Mirror it in `BUILTIN` in `example-folder/.flightdeck/skills/_flightdeck/check_folder.py` (`test/checker.test.js` compares them).

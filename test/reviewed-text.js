@@ -56,11 +56,37 @@ function buildInputs(over) {
   ['CORE', 'STORAGE', 'APP'].forEach((k) => { const m = new RegExp('^' + k + '\\s*=\\s*\\[([^\\]]*)\\]', 'm').exec(py); if (!m) throw new Error('build.py has no ' + k + ' list'); (m[1].match(/"[^"]+"/g) || []).forEach((x) => named.push('src/' + x.slice(1, -1))); });
   return Array.from(new Set(r.walk('src').concat(named, ['docs/recovery.md'], exampleFiles(r)))).sort();
 }
+/* What npm packs, from npm itself: the files list plus what it adds on its own (README*, LICENSE*, LICENCE*, COPYING*,
+   CHANGELOG*, package.json, the bin). Run on a mirror of the tree (empty files; package.json and ignore files with their
+   text) with the overrides applied, so a file that only exists in a test still counts. Cached by the file set. */
+const NOT_TREE = (name) => name === '.git' || name === 'node_modules';
+const IGNORE_FILE = (p) => p === 'package.json' || /(?:^|\/)\.(?:npm|git)ignore$/.test(p);
+const packCache = {};
+function packed(over) {
+  const o = over || {}, all = [];
+  const go = (d) => fs.readdirSync(path.join(ROOT, d), { withFileTypes: true }).forEach((e) => {
+    if (NOT_TREE(e.name)) return;
+    const p = d ? d + '/' + e.name : e.name; if (e.isDirectory()) go(p); else all.push(p);
+  });
+  go('');
+  Object.keys(o).forEach((p) => { if (all.indexOf(p) < 0) all.push(p); });
+  const r = reader(over), files = all.filter((p) => !(p in o) || o[p] != null).sort();
+  const key = JSON.stringify(files.concat(files.filter(IGNORE_FILE).map((p) => r.read(p))));
+  if (packCache[key]) return packCache[key];
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-reviewed-'));
+  try {
+    files.forEach((p) => { fs.mkdirSync(path.dirname(path.join(tmp, p)), { recursive: true }); fs.writeFileSync(path.join(tmp, p), IGNORE_FILE(p) ? r.read(p) : ''); });
+    const out = execFileSync('npm', ['pack', '--dry-run', '--json', '--ignore-scripts', '--offline'], { cwd: tmp, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    packCache[key] = JSON.parse(out)[0].files.map((f) => f.path).sort();
+    return packCache[key];
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
+}
+
 const GENERATED = ['dist/flightdeck.html', 'dist/FONT-LICENSE.txt'];
 /* { path: kind }: whole, or generated (checked by parity). */
 function inventory(over) {
-  const r = reader(over), pkg = JSON.parse(r.read('package.json')), base = JSON.parse(r.read('src/baselines.json')).files;
-  const files = buildInputs(over).concat(r.walk('bin'), r.walk('tools'), ['build.py', 'package.json', 'README.md', 'LICENSE', 'CHANGELOG.md'], pkg.files,
+  const r = reader(over), base = JSON.parse(r.read('src/baselines.json')).files;
+  const files = buildInputs(over).concat(r.walk('bin'), r.walk('tools'), ['build.py', 'package.json'], packed(over),
     Object.keys(base).map((f) => 'example-folder/' + f.split('#')[0]), r.walk('docs').filter((p) => /^docs\/[^/]+\.md$/.test(p)));
   const out = {};
   files.forEach((f) => { out[f] = GENERATED.indexOf(f) >= 0 ? 'generated' : 'whole'; });
@@ -136,6 +162,8 @@ function rendered() {
 function texts(over) {
   const r = reader(over), inv = inventory(over), out = {};
   Object.keys(inv).sort().forEach((f) => { if (inv[f] === 'whole') out[f] = /\.(?:woff2|png|jpe?g|gif|ico)$/i.test(f) ? 'base64:' + r.bytes(f).toString('base64') : r.read(f); });
+  /* The packed file list itself, so a file npm stops packing fails too. */
+  out['npm pack (the file list)'] = packed(over).join('\n') + '\n';
   return Object.assign(out, rendered());
 }
 
@@ -205,4 +233,4 @@ if (require.main === module) {
   }
 }
 
-module.exports = { texts, inventory, buildInputs, stringsOf, parity, sha, snapshot, problems, update };
+module.exports = { texts, inventory, packed, buildInputs, stringsOf, parity, sha, snapshot, problems, update };
