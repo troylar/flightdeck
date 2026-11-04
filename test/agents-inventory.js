@@ -655,6 +655,12 @@ function checks(s) {
   const seenKeys = {}; s.entries.forEach((e) => e.old.forEach((k) => { if (!fx[k]) fail('2', 'stale key ' + k); seenKeys[k] = (seenKeys[k] || 0) + 1; }));
   F.forEach((u) => { if (seenKeys[u.at] !== 1) fail('2', 'key ' + u.at + ' in ' + (seenKeys[u.at] || 0) + ' entries'); });
   const textOf = (e, t) => t.now == null ? e.old.filter((k) => fx[k]).map((k) => fx[k].text).join(' ') : t.now;
+  /* ...and every entry has a target with text (round 11): an entry with none, or a target with no text, would count its keys as
+     covered while no check below looks at anything. */
+  s.entries.forEach((e) => {
+    if (!Array.isArray(e.to) || !e.to.length) { fail('2', e.id + ' has no target'); return; }
+    e.to.forEach((t, n) => { if (typeof textOf(e, t) !== 'string' || !flat(textOf(e, t)).trim()) fail('2', e.id + ' target ' + (n + 1) + ' has no text'); });
+  });
   /* 3: each target's text is in its home as often as the entries say. A target that wasn't fenced in the fixture counts only
      outside fences; a fenced one anywhere in its section. */
   const need = {};

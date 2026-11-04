@@ -182,6 +182,13 @@ const BREAKS = [
   ['R9-3', 'A stale MOVED_RULE_WORDS entry for 95.0, a rule that stays', ['13'], (s) => { s.movedRules['95.0'] = 'stale'; }],
   ['R9-4', 'A stale CLASS_EXCEPTIONS entry for 95.0, whose class is its section\'s', ['4'], (s) => { s.classExceptions['95.0'] = 'stale'; }],
   ['R9-5', 'A MOVED_RULE_WORDS entry with no why', ['13'], (s) => { s.movedRules['167.1'] = ''; }],
+  /* Round 11 (Codex 1), 4: an entry with no target, or a target with no text, counts for nothing. */
+  ['R11-1', 'Delete "Always pass `--contract 2`" from AGENTS.md and set 134.1\'s to to []', ['2'], (s) => {
+    const l = s.agents.split('\n').find((x) => x.startsWith('Always pass `--contract 2`')); assert.ok(l, 'set-up: the line'); s.agents = once(s.agents, l + '\n', '');
+    entryOf(s, '134.1').to = [];
+  }],
+  ['R11-2', 'Set 134.1\'s target text to "" (inherent: an empty text is in no home, 3; a changed text with no why, 7; its code spans lost, 9; the live line unreviewed, 10)', ['10', '2', '3', '7', '9'], (s) => { entryOf(s, '134.1').to[0].now = ''; }],
+  ['R11-3', 'Set 134.1\'s target text to spaces (inherent: as R11-2, 3, 7, 9, 10)', ['10', '2', '3', '7', '9'], (s) => { entryOf(s, '134.1').to[0].now = '   '; }],
   /* The docs routed check's breaks. */
   ['D7a', 'A new help line with no Commands row', ['docs'], (s) => { s.help = I.K.main(['help']).out + '\n  flightdeck health <team folder> [--json]\n'; }],
   ['D7b', '`flightdeck export` dropped from the guide\'s Evidence packs (inherent: 144.0 moved there word for word, 3, and the changed unit is unlisted, 12)', ['12', '3', 'docs'], (s) => { s.files[GUIDE] = s.files[GUIDE].split('flightdeck export').join('flightdeck exporter'); }],
