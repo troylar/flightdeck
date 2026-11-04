@@ -80,7 +80,7 @@
      the row as any other tool (page.html). */
   function wsMore(ctx, pr, html) {
     var open = !!ctx.state.wsMore;
-    return '<div class="ws-more"><button type="button" class="mini ws-more-btn" data-act="' + (pr ? 'pr-more' : 'ws-more') + '" aria-expanded="' + open + '" aria-controls="ws-more-list">More</button>' +
+    return '<div class="ws-more"><button type="button" class="mini ws-more-btn" id="ws-more-btn" data-act="' + (pr ? 'pr-more' : 'ws-more') + '" aria-expanded="' + open + '" aria-controls="ws-more-list">More</button>' +
       '<div class="ws-more-list' + (open ? ' open' : '') + '" id="ws-more-list">' + html + '</div></div>';
   }
   /* The stage the saved draft is (rule 4): staged, complete and readable, with this exact text. The newest wins; test runs

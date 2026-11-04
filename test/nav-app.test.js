@@ -33,6 +33,10 @@ async function check(app, id) {
 const stepCount = app => app.PF.map.steps(app.PF.map.parse(app.fs.files['maps/drafts/release.md'].t)).length;
 const viewBtn = (app, word) => buttons(strip(app.html())).filter(b => b.text.split(' · ')[0].split(' ')[0] === word || b.text === word)[0] || null;
 
+/* A step type's form is open when it's drawn and its entry is written: waited on, not timed. */
+async function until(app, cond, what) { for (let i = 0; i < 600; i++) { if (cond()) return; await app.tick(5); } assert.fail('never happened: ' + what); }
+async function typeOpen(app) { app.click('new-type'); await until(app, () => /id="tf-h"/.test(app.html()) && app.hash() === '#/types/new', 'the new step type form, at #/types/new (' + app.hash() + ')'); await app.settle(); }
+
 /* ---------- 2.1 the checklist page ---------- */
 rule('Checklist page: one view strip under the title, Overview · Edit · Practice · How runs go, the current one marked; no second Edit or How runs go', async () => {
   const app = await page();
@@ -749,13 +753,13 @@ rule('Skill page: its checklist is linked once, in About this skill', async () =
 
 rule('Step-type editor: ‹ Step types; opened from the workspace, ‹ Production release · Edit back to the editor at the part it came from', async () => {
   const app = await start();
-  app.click('nav', 'settings'); await app.tick(); app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick();
+  app.click('nav', 'settings'); await app.tick(); app.click('nav', 'types'); await app.tick(); await typeOpen(app);
   assert.strictEqual(back1(app).text, 'Step types');
   const ws = await start({ localStore: { 'preflight:builder': 'true' } });
   ws.click('open-process', 'release'); await ws.tick(); ws.click('ptab', 'edit'); await ws.tick();
   ws.click('ob-sel', 'flags'); await ws.tick();
   const n = ws.entries().length;
-  ws.click('new-type'); await ws.tick();
+  await typeOpen(ws);
   const b = back1(ws);
   assert.deepStrictEqual([b.text, b.label], ['Production release · Edit', 'Back to Production release · Edit']);
   ws.click(b.act, b.id); await ws.settle();
@@ -860,7 +864,7 @@ async function twoWindows() {
 rule('R1 C-P2-1: with someone else in the draft, the step-type editor\'s way back still returns to the editor at its step, not the overview', async () => {
   const a = await twoWindows();
   a.click('ob-sel', 'flags'); await a.tick();
-  a.click('new-type'); await a.tick();
+  await typeOpen(a);
   const b = back1(a);
   assert.strictEqual(b.text, 'Production release · Edit');
   a.click(b.act, b.id); await a.settle();
@@ -1052,8 +1056,8 @@ rule('R2 F-P2-2: every way into the workspace focuses something you can see: the
     'Start a test run, its back': async () => { const { app, folder } = await staged(builder); await into(app, 'edit'); app.click('ob-sel', 'flags'); await app.tick(); app.click('start-test', folder); await app.tick(); const b = back1(app); app.click(b.act, b.id); await app.settle(); return [app, SEL]; },
     'Start a test run, its Cancel': async () => { const { app, folder } = await staged(builder); await into(app, 'edit'); app.click('ob-sel', 'flags'); await app.tick(); app.click('start-test', folder); await app.tick(); const c = formCancel(app)[0]; app.click(c.act, c.id); await app.settle(); return [app, SEL]; },
     'Start a test run, browser Back': async () => { const { app, folder } = await staged(builder); await into(app, 'edit'); app.click('ob-sel', 'flags'); await app.tick(); app.click('start-test', folder); await app.tick(); app.back(); await app.settle(); return [app, SEL]; },
-    'a step type, its back': async () => { const app = await edit(builder); app.click('ob-sel', 'flags'); await app.tick(); app.click('new-type'); await app.tick(); const b = back1(app); app.click(b.act, b.id); await app.settle(); return [app, SEL]; },
-    'a step type, browser Back': async () => { const app = await edit(builder); app.click('ob-sel', 'flags'); await app.tick(); app.click('new-type'); await app.tick(); app.back(); await app.settle(); return [app, SEL]; },
+    'a step type, its back': async () => { const app = await edit(builder); app.click('ob-sel', 'flags'); await app.tick(); await typeOpen(app); const b = back1(app); app.click(b.act, b.id); await app.settle(); return [app, SEL]; },
+    'a step type, browser Back': async () => { const app = await edit(builder); app.click('ob-sel', 'flags'); await app.tick(); await typeOpen(app); app.back(); await app.settle(); return [app, SEL]; },
     'Runs, browser Back': async () => { const app = await edit(builder); app.click('nav', 'runs'); await app.tick(); app.back(); await app.settle(); return [app, 'ws-edit']; },
     'Runs, browser Back, a step selected': async () => { const app = await edit(builder); app.click('ob-sel', 'flags'); await app.tick(); app.click('nav', 'runs'); await app.tick(); app.back(); await app.settle(); return [app, null]; },
     'Practice, then Edit': async () => { const app = await edit(builder); app.click('pr-open'); await app.tick(60); app.click('pr-back'); await app.tick(); return [app, null]; },
@@ -1095,10 +1099,12 @@ rule('R2 R-P2-1: every ‹ control goes back by browser Back when the entry befo
     'New checklist': async () => { const app = await start(); app.click('nav', 'processes'); await app.tick(); app.click('new-process'); await app.tick(); return app; },
     'Skills': async () => { const app = await start(); app.click('nav', 'processes'); await app.tick(); app.click('nav', 'skills'); await app.tick(); return app; },
     'Step types': async () => { const app = await start(); app.click('nav', 'settings'); await app.tick(); app.click('open-types'); await app.tick(); return app; },
-    'a step type': async () => { const app = await start(); app.click('nav', 'settings'); await app.tick(); app.click('open-types'); await app.tick(); app.click('new-type'); await app.settle(); await app.tick(40); return app; },
+    'a step type': async () => { const app = await start(); app.click('nav', 'settings'); await app.tick(); app.click('open-types'); await app.tick(); await typeOpen(app); return app; },
     'Edit': async () => edit(),
     'Practice': async () => practiced(),
-    'a step type from Edit': async () => { const app = await edit({ localStore: { 'preflight:builder': 'true' } }); app.click('ob-sel', 'flags'); await app.tick(); app.click('new-type'); await app.settle(); await app.tick(40); return app; }
+    'a step type from Edit anyway': async () => { const a = await twoWindows(); a.click('ob-sel', 'flags'); await a.tick(); await typeOpen(a); return a; },
+    'a Practice test form after Edit anyway': async () => { const files = {}, L = locks(), Channel = bus(); const { app, folder } = await staged({ sharedFiles: files, locks: L, Channel }); const o = await page({ sharedFiles: files, locks: L, Channel, me: 'person-avery' }); o.click('ptab', 'edit'); await o.tick(); o.every(); await o.tick(40); app.click('refresh'); await app.tick(120); app.click('ptab', 'edit'); await app.tick(); app.click('pr-open'); await app.tick(60); app.click('pr-start-test', folder); await app.tick(); return app; },
+    'a step type from Edit': async () => { const app = await edit({ localStore: { 'preflight:builder': 'true' } }); app.click('ob-sel', 'flags'); await app.tick(); await typeOpen(app); return app; }
   };
   const bad = [];
   for (const [name, go] of Object.entries(screens)) {
@@ -1223,6 +1229,81 @@ rule('R2 R-P3-4: on a phone the workspace tools that don\'t fit go in More at th
 rule('R2 R-P3-5: the README says Finish the run, not End run…', () => {
   const md = require('fs').readFileSync(require('path').join(__dirname, '..', 'README.md'), 'utf8');
   assert.ok(!/End run…/.test(md), 'no End run…');
+});
+
+/* ---------- Build round 3: review round 2 ---------- */
+rule('R3 1: Publish or Stage from Edit, the folder read held, then typing in the Markdown: focus stays in the Markdown when the read ends', async () => {
+  for (const act of ['publish', 'stage-draft']) {
+    const app = await changed({ domFocus: true }); await into(app, 'edit');
+    const b = primary(app); app.click(b[0].act, b[0].id); await app.tick();
+    const release = holdReads(app);
+    app.set('change-note', 'Tell on-call first'); ovClick(app, act, 'release'); await app.tick(80);
+    assert.strictEqual(app.overlay(), '', act + ': set-up, written and closed');
+    app.node('#draft-editor').focus();
+    app.set('draft-editor', app.draft('draft-editor') + '\nmore'); app.input('draft-editor', app.draft('draft-editor')); await app.tick();
+    assert.strictEqual(app.activeId(), 'draft-editor', act + ': set-up, typing');
+    release(); await app.tick(300);
+    assert.strictEqual(app.activeId(), 'draft-editor', act + ': focus stays where the typing is');
+    assert.match(app.html() + app.live(), act === 'publish' ? /Published v3\./ : /Staged\./, act + ': the result is still said');
+  }
+});
+rule('R3 1: after a write, code moves focus only through wsFocusNow, which asks the ticket as it fires', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
+  const body = name => { const i = src.indexOf(name); assert.ok(i >= 0, 'found ' + name); let d = 0, j = src.indexOf('{', i); for (let k = j; k < src.length; k++) { if (src[k] === '{') d++; else if (src[k] === '}' && --d === 0) return src.slice(i, k + 1); } return ''; };
+  const now = body('function wsFocusNow(');
+  assert.match(now, /t\.still\(\)/, 'it asks the ticket');
+  assert.match(now, /render\(\)/, 'and draws at once');
+  const after = {
+    wsWritten: body('function wsWritten('),
+    'stageDraft, after the write': body('function stageDraft(').split('}).then(function (res) {')[1] || '',
+    'promote from the dialog': body("'promote-stage': function")
+  };
+  for (const [name, code] of Object.entries(after)) {
+    assert.ok(code, name + ': found');
+    assert.ok(!/state\.focus\s*=|\.focus\(|focus:\s/.test(code.replace(/wsFocusNow\([^;]*;/g, '')), name + ': no focus but wsFocusNow: ' + (code.match(/.{0,60}(state\.focus\s*=|\.focus\(|focus:\s).{0,40}/) || [''])[0]);
+  }
+});
+
+rule('R3 2: after Edit anyway, the step type\'s way back and a Practice test form\'s way back go back by browser Back, to the workspace with its selection', async () => {
+  const a = await twoWindows();
+  a.click('ob-sel', 'flags'); await a.tick();
+  await typeOpen(a);
+  const i = a.index(), b = back1(a);
+  a.click(b.act, b.id); await a.settle();
+  assert.ok(a.index() < i, 'Back, not a new entry (' + i + ' → ' + a.index() + ')');
+  assert.ok(inEditor(a), 'the editor: ' + a.hash());
+  assert.ok(!/Choose Edit anyway/.test(a.html() + a.live()), 'not refused');
+  assert.match(a.html(), /data-act="ob-sel" data-id="flags" aria-pressed="true"/, 'at the step it came from');
+  const files = {}, L = locks(), Channel = bus();
+  const { app: p, folder } = await staged({ sharedFiles: files, locks: L, Channel });
+  const o = await page({ sharedFiles: files, locks: L, Channel, me: 'person-avery' });
+  o.click('ptab', 'edit'); await o.tick(); o.every(); await o.tick(40);
+  p.click('refresh'); await p.tick(120);
+  p.click('ptab', 'edit'); await p.tick(); p.click('pr-open'); await p.tick(60);
+  assert.ok(onPage(p), 'set-up: practicing after Edit anyway');
+  p.click('pr-start-test', folder); await p.tick();
+  const j = p.index(), bk = back1(p);
+  p.click(bk.act, bk.id); await p.settle();
+  assert.ok(p.index() < j, 'Back, not a new entry (' + j + ' → ' + p.index() + ')');
+  assert.ok(onPage(p), 'practice: ' + p.hash());
+  p.back(); await p.settle();
+  assert.notStrictEqual(p.hash(), '#/practice/release', 'one Back more leaves practice: no second practice entry');
+});
+
+rule('R3 3: More is a layer: browser Back or Escape closes it, focus on More, the URL kept, in Edit and in Practice', async () => {
+  for (const view of ['edit', 'practice']) for (const how of ['back', 'escape']) {
+    const app = view === 'edit' ? await edit({ domFocus: true }) : await practiced({ domFocus: true });
+    const act = view === 'edit' ? 'ws-more' : 'pr-more', h = app.hash(), n = app.entries().length;
+    app.click(act); await app.tick();
+    assert.match(head(app), /aria-expanded="true" aria-controls="ws-more-list"/, view + ' ' + how + ': set-up, open');
+    if (how === 'back') app.back(); else esc0(app);
+    await app.settle();
+    assert.strictEqual(app.hash(), h, view + ' ' + how + ': the URL kept');
+    assert.strictEqual(app.entries().length, n, view + ' ' + how + ': no entry');
+    assert.match(head(app), /id="ws-more-btn"[^>]*aria-expanded="false"/, view + ' ' + how + ': closed');
+    assert.strictEqual(app.activeId(), 'ws-more-btn', view + ' ' + how + ': focus on More');
+    assert.ok(view === 'edit' ? inEditor(app) : onPage(app), view + ' ' + how + ': still there');
+  }
 });
 
 run();
