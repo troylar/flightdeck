@@ -7761,8 +7761,13 @@ rule('Back and Forward: only route words and IDs reach the address bar and histo
     words.forEach(w => assert.ok(e.hash.toLowerCase().indexOf(String(w).toLowerCase()) < 0, e.hash + ' has ' + w));
     const k = Object.keys(e.state).sort();
     assert.ok(/^(b,)?f,fd,n$/.test(k.join()), k.join()); assert.ok(/^[0-9a-f]{8}$/.test(e.state.f));
-    /* 2.16: b, the entry before, is a route and a folder fingerprint only. */
-    if (e.state.b) { assert.deepStrictEqual(Object.keys(e.state.b).sort(), ['f', 'h']); assert.ok(ID_ONLY.test(e.state.b.h), e.state.b.h); assert.ok(e.state.b.f === null || /^[0-9a-f]{8}$/.test(e.state.b.f)); words.forEach(w => assert.ok(e.state.b.h.toLowerCase().indexOf(String(w).toLowerCase()) < 0)); }
+    /* 2.16: b, the entry before, is a route and a folder fingerprint only, with that entry's own b (its origins, at most 4). */
+    let depth = 0;
+    for (let o = e.state.b; o; o = o.b) {
+      depth++; assert.ok(depth <= 4, 'at most four origins');
+      assert.deepStrictEqual(Object.keys(o).filter(x => x !== 'b').sort(), ['f', 'h']); assert.ok(ID_ONLY.test(o.h), o.h); assert.ok(o.f === null || /^[0-9a-f]{8}$/.test(o.f));
+      words.forEach(w => assert.ok(o.h.toLowerCase().indexOf(String(w).toLowerCase()) < 0, o.h + ' has ' + w));
+    }
   });
   assert.ok(hashes(app).indexOf('#/skill/' + app.PF.util.hash(sk)) >= 0);
   assert.ok(hashes(app).indexOf('#/plan/' + app.PF.util.hash('plan-release-2026-10-24')) >= 0);

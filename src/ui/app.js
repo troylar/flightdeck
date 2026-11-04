@@ -4148,7 +4148,7 @@
     var id = pr ? 'ws-practice' : 'ws-edit';
     return { sel: s || id, id: id };
   }
-  /* Back from the runs behind a number, as it lands (the ‹ control's browser Back arrives here too): the row it was in is
+  /* Back from the runs behind a number (its ‹, or browser Back landing there): the row it was in is
      drawn whatever the page (2.11), its count focused and the place on the page put back. */
   function insBack() {
     var f = state.runFilter, b = f && f.back; if (!b) return;
@@ -4662,7 +4662,7 @@
     state.typeFrom = null;
     if (state.typeForm === f) { if (discard) { f.backLeave = false; typeClose(); } else state.typeForm = null; }
     var back = function () { if (t.sel && state.view === 'process' && state.ptab === 'edit' && state.processId === t.pid) { state.obSel = t.sel; state.focus = 'ed-h'; } };
-    if (discard && H.on && !H.pending && !H.restoring) H.mode = 'replace';
+    if (discard) backMode();
     if (wsDirect({ view: 'process', process: t.pid, tab: 'edit' })) { back(); render(); return; }
     var res = moveTo({ view: 'process', process: t.pid, tab: 'edit' }); if (res === 'stay') { render(); return; }
     state.focus = 'ed-h'; back(); render(); window.scrollTo(0, 0);
@@ -5536,10 +5536,16 @@
   function navOff() { H.on = false; H.pending = null; H.hold = null; if (H.restoring) { clearTimeout(H.restoring.timer); H.restoring = null; } }
   /* The first refused call (an unusual browser, a sandboxed frame) turns history off for this page. */
   /* b: the entry before this one, { h, f } (2.16), written only when it is one parse() accepts, for the ‹ controls' labels. */
-  function histB(c) { return c && typeof c.hash === 'string' && PF.nav.parse(c.hash) && (c.f === null || PF.nav.isHex(c.f)) ? { h: c.hash, f: c.f } : null; }
+  function histB(c) { return c ? PF.nav.origin({ h: c.hash, f: c.f, b: c.gone ? null : c.b }) : null; }
+  /* Where a ‹ that replaces lands came from: the origin chain kept in b, from the level that is that place (the same route
+     in the same folder); not in the chain, the entry keeps the b it had. */
+  function backOrigin(b, hash, f) {
+    for (var o = b; o; o = o.b) if (o.h === hash && o.f === f) return o.b || null;
+    return b || null;
+  }
   function histWrite(push, hash, n, f, b) {
     var s = { fd: 1, n: n, f: f };
-    if (b && typeof b.h === 'string' && PF.nav.parse(b.h) && (b.f === null || PF.nav.isHex(b.f))) s.b = { h: b.h, f: b.f };
+    var vb = PF.nav.origin(b); if (vb) s.b = vb;
     try { if (push) HIST.pushState(s, '', hash); else if (hash == null) HIST.replaceState(s, ''); else HIST.replaceState(s, '', hash); return true; } catch (e) { navOff(); return false; }
   }
   function navHere() { return PF.nav.format(PF.nav.locate(state)); }
@@ -5549,15 +5555,18 @@
      the earlier entry for the same place. The leave guard first, as for any move: false when unapplied text refuses it. */
   function backInPlace() {
     var dirty = pendingBox(); if (dirty) { refuseFor(dirty); return false; }
-    if (H.on && !H.pending && !H.restoring) H.mode = 'replace';
+    /* While a refused move's restore is on its way the intent waits with it: the sync after it lands writes this move in the
+       drawn entry's place (syncLocation doesn't write while restoring). backIn: the entry takes the destination's own origin. */
+    backMode();
     return true;
   }
+  function backMode() { if (H.on && !H.pending) { H.mode = 'replace'; H.backIn = true; } }
   /* ---------- where a ‹ control goes (2.16) ---------- */
   /* The entry before this one (its b), as a location in this team folder, or null. */
   function navOrigin() {
     if (!H.on) return null;
     /* Drawn before the URL is written: a screen that will be pushed has the drawn entry before it, else the entry keeps its b. */
-    var c = H.cur, push = !H.pending && navHere() !== c.hash && H.mode !== 'replace' && !(H.hold && H.hold.replace), b = push ? (c.gone ? null : histB(c)) : c.b;
+    var c = H.cur, push = !H.pending && navHere() !== c.hash && H.mode !== 'replace' && !(H.hold && H.hold.replace), b = push ? (c.gone ? null : histB(c)) : H.backIn ? backOrigin(c.b, navHere(), navFp()) : c.b;
     return b && b.f === navFp() ? PF.nav.parse(b.h) : null;
   }
   var ORIGIN_PAGES = { runs: 'Runs', followups: 'Follow-ups', processes: 'Checklists', skills: 'Skills', settings: 'Settings' };
@@ -5592,8 +5601,8 @@
     if (!H.on || H.restoring) return;
     /* A move that spans an await writes nothing until it lands, unless the person moves meanwhile. */
     if (H.hold) { if (navSeq === H.hold.seq) return; H.hold = null; }
-    var moved = navSeq !== H.seen, replace = H.mode === 'replace';
-    H.seen = navSeq; H.mode = null;
+    var moved = navSeq !== H.seen, replace = H.mode === 'replace', backIn = !!H.backIn;
+    H.seen = navSeq; H.mode = null; H.backIn = false;
     if (H.pending) {
       if (!moved || replace) return;
       var waited = !!state.needsReconnect; H.pending = null;
@@ -5607,7 +5616,8 @@
       return;
     }
     if (hash === c.hash && f === c.f && c.n === H.pos) return;
-    if (histWrite(false, hash, H.pos, f, c.b)) H.cur = { n: H.pos, hash: hash, f: f, b: c.b || null };
+    var rb = backIn && moved ? backOrigin(c.b, hash, f) : c.b;
+    if (histWrite(false, hash, H.pos, f, rb)) H.cur = { n: H.pos, hash: hash, f: f, b: rb || null };
   }
   /* A move that spans an await (starting a run, a step type's read) holds the URL; heldOwn marks the operation's own
      in-between changes, releaseNav its landing. replace: the landing replaces the entry (it came from Back or Forward). */
@@ -5912,12 +5922,12 @@
     if (res === 'stay') { restoreUrl(t); render(); return; }
     if (msg) say(msg, 'warn');
     if (res === 'async') {
-      H.cur = { n: H.pos, hash: String(location.hash || ''), f: navFp(), b: t.b || null }; H.seen = navSeq; H.mode = null;
+      H.cur = { n: H.pos, hash: String(location.hash || ''), f: navFp(), b: t.b || null }; H.seen = navSeq; H.mode = null; H.backIn = false;
       if (H.hold) H.hold.seq = navSeq;
       state.focus = 'page-h'; render(); window.scrollTo(0, 0); return;
     }
     var hash = navHere(), fp = navFp();
-    H.seen = navSeq; H.mode = null;
+    H.seen = navSeq; H.mode = null; H.backIn = false;
     if (histWrite(false, hash, H.pos, fp, t.b)) H.cur = { n: H.pos, hash: hash, f: fp, b: t.b || null };
     if (H.retryLoc) { H.retry = { loc: H.retryLoc, seq: navSeq, f: fp }; H.retryLoc = null; }
     if (res !== 'focus') state.focus = headingOf();
@@ -6838,7 +6848,7 @@
       if (f) flushAdds(f);
       /* Opened from the workspace (Done), leaving without saving returns there, as saving does. */
       if (f && f.wsReturn && typeFromOk()) { typeWsReturn(true); return; }
-      if (!(f && f.backLeave) && H.on && !H.pending && !H.restoring) H.mode = 'replace';
+      if (!(f && f.backLeave)) backMode();
       typeClose(); state.focus = '[data-act="new-type"]'; render();
     },
     'type-keep-mine': function () { var f = state.typeForm; if (f && f.conflict && !f.saving) { var o = null; try { o = JSON.parse(f.conflict.theirs || 'null'); } catch (e) { o = null; } f.baseHash = f.conflict.theirsHash; f.baseText = f.conflict.theirs == null ? null : f.conflict.theirs; f.baseDef = o; f.keepMine = true; f.conflict = null; saveType(); } },

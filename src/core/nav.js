@@ -135,10 +135,20 @@ PF.nav = (function () {
     var n = s.n, f = s.f;
     if (typeof n !== 'number' || !isFinite(n) || n < 0 || Math.floor(n) !== n || n > 1e9) return null;
     if (f !== null && !isHex(f)) return null;
-    var e = { n: n, f: f }, b = Object.prototype.hasOwnProperty.call(s, 'b') ? s.b : null;
-    if (b && typeof b === 'object' && typeof b.h === 'string' && parse(b.h) && (b.f === null || isHex(b.f))) e.b = { h: b.h, f: b.f };
+    var e = { n: n, f: f }, b = origin(Object.prototype.hasOwnProperty.call(s, 'b') ? s.b : null);
+    if (b) e.b = b;
     return e;
   }
+  /* An entry's b, checked: { h, f } and, kept from that entry, its own b (so a ‹ replacing back to it can write where it
+     came from), at most ORIGINS deep. Anything not exactly that is cut off there. */
+  var ORIGINS = 4;
+  function origin(b, depth) {
+    depth = depth == null ? ORIGINS : depth;
+    if (depth <= 0 || !b || typeof b !== 'object' || typeof b.h !== 'string' || !parse(b.h) || !(b.f === null || isHex(b.f))) return null;
+    var o = { h: b.h, f: b.f }, up = Object.prototype.hasOwnProperty.call(b, 'b') ? origin(b.b, depth - 1) : null;
+    if (up) o.b = up;
+    return o;
+  }
 
-  return { MAX: MAX, locate: locate, format: format, parse: parse, entry: entry, isHex: isHex, skillKey: skillKey };
+  return { MAX: MAX, locate: locate, format: format, parse: parse, entry: entry, origin: origin, isHex: isHex, skillKey: skillKey };
 })();
