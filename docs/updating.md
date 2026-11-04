@@ -222,7 +222,7 @@ It keeps its record in `.flightdeck-installed.json` and puts new defaults to mer
 ### What to know when moving to 2.16
 
 - **Nothing in the team folder changes.** Only the screens moved. Computers on 2.15 and 2.16 can share a folder.
-- **One way back, top left.** Every screen with a way back has one `‹` control naming where it goes: `‹ Runs`, `‹ Production release`, `‹ The run`. It goes back along the browser's history when it can, so Back and the app agree.
+- **One way back, top left.** Every screen with a way back has one `‹` control naming where it goes: `‹ Runs`, `‹ Production release`, `‹ The run`. It goes there at once and takes the current history entry's place, so the browser's Back never reopens the screen you left; right after it, one Back can land on the same place again. Current version on a checklist page is the exception: from the draft it's a place of its own.
 - **Edit and Practice are two views of one checklist.** The checklist page has a view strip, **Overview · Edit · Practice · How runs go**, and the editor and practice share one header with `Edit | Practice`. Moving between them never adds a history entry: one Back leaves.
 - **One next step, top right.** The workspace's primary is Save draft, Publish vN…, Start a test run or Make vN the default…, whichever applies. **Publish vN…** opens one dialog that publishes, or stages with **Stage for testing instead**. Review & publish, Done practicing and practice's own Stage are gone.
 - **On a run, Finish the run is in the header** for whoever records it, muted until the run is complete. **End run…** left More; the Finish page still offers Stopped early and Canceled.

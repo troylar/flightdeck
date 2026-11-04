@@ -594,7 +594,15 @@ rule('History: each entry keeps the one before it as b, valid for nav.entry; old
   const app = await page();
   app.click('open-run', runKey(app)); await app.tick(60);
   const es = app.entries(), last = es[es.length - 1].state;
-  assert.deepStrictEqual(JSON.parse(JSON.stringify(app.PF.nav.entry(last).b)), { h: '#/process/release', f: last.b.f }, 'b is the checklist page');
+  const eb = JSON.parse(JSON.stringify(app.PF.nav.entry(last).b));
+  assert.deepStrictEqual({ h: eb.h, f: eb.f }, { h: '#/process/release', f: last.b.f }, 'b is the checklist page');
+  assert.deepStrictEqual(eb.b && eb.b.h, '#/', 'with the checklist page\'s own origin, Home');
+  /* Each level is checked: a bad one is cut off there, and nothing but h, f and b is kept. */
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(app.PF.nav.entry({ fd: 1, n: 1, f: null, b: { h: '#/runs', f: null, x: 1, b: { h: 'javascript:alert(1)', f: null } } }).b)), { h: '#/runs', f: null });
+  assert.strictEqual(app.PF.nav.entry({ fd: 1, n: 1, f: null, b: { h: '#/runs', f: 'nothex!!' } }).b, undefined);
+  let deep = null; for (let i = 0; i < 9; i++) deep = { h: '#/runs', f: null, b: deep };
+  let d = 0; for (let o = app.PF.nav.entry({ fd: 1, n: 1, f: null, b: deep }).b; o; o = o.b) d++;
+  assert.strictEqual(d, 4, 'at most four deep');
   assert.ok(last.b.f === null || /^[0-9a-f]{8}$/.test(last.b.f));
   const files = {}, app1 = await start({ sharedFiles: files }), [pid, id] = runKey(app1).split('/');
   const old = boot({ sharedFiles: files, hash: '#/run/' + pid + '/' + id, historyState: { fd: 1, n: 0, f: null } }); await old.tick(120);
@@ -1543,6 +1551,78 @@ rule('R6 6: refused Backs pressed together, with entries ahead, settle on the ed
   assert.strictEqual(app.reloads(), 0); assert.strictEqual(app.popMismatch(), 0);
   const settled = app.entries().length; await new Promise(r => setTimeout(r, 300)); await app.settle();
   assert.strictEqual(app.hash(), '#/process/release/edit', 'and it stays settled'); assert.strictEqual(app.entries().length, settled);
+});
+
+/* ---------- Build round 7: a ‹ during a refused move's restore, and the destination's own origin ---------- */
+/* Browser Back that a layer or a guard refuses: the pop is handled, and the restore's own traversal is held. */
+async function refusedBack(app, done) {
+  app.back();
+  for (let i = 0; i < 200 && !done(); i++) await new Promise(r => setTimeout(r, 0));
+  app.holdPops();
+  assert.ok(done(), 'set-up: the refused Back was handled');
+}
+rule('R7 1: ‹ while a refused Back\'s restore is on its way writes the destination in the entry\'s place: history doesn\'t grow, Back never reopens Edit', async () => {
+  for (const how of ['help', 'unapplied text']) {
+    const app = await edit({ localStore: { 'preflight:builder': 'true' } }); await app.settle();
+    const n = app.entries().length, i = app.index();
+    if (how === 'help') { app.key('?'); await app.tick(); assert.ok(app.overlay(), 'set-up: Help open'); await refusedBack(app, () => !app.overlay()); }
+    else {
+      app.click('ob-sel', 'flags'); await app.tick(); app.input('ob-text', 'Half typed'); await app.tick();
+      await refusedBack(app, () => /Apply or clear what you typed/.test(app.live()));
+      app.click('ob-hold-discard'); await app.tick();
+    }
+    app.click('ed-done'); await app.tick();
+    assert.ok(onOverview(app), how + ': the checklist page drawn at once');
+    app.releasePops(); await app.settle(); await app.tick(40); await app.settle();
+    assert.strictEqual(app.hash(), '#/process/release', how + ': its URL');
+    assert.deepStrictEqual([app.entries().length, app.index()], [n, i], how + ': in the editor entry\'s place (' + JSON.stringify(app.entries().map(e => e.hash)) + ')');
+    assert.ok(!app.entries().some(e => e.hash === '#/process/release/edit'), how + ': no editor entry left');
+    app.back(); await app.settle();
+    assert.ok(!inEditor(app), how + ': browser Back never reopens Edit');
+  }
+});
+rule('R7 2: back to a run from its own pages, the run\'s way back still names where the run was opened from, after a refresh too', async () => {
+  const pages = {
+    'Screen share': async a => { a.click('mission'); await a.tick(40); },
+    'Receipt': async a => { a.click('receipt'); await a.tick(40); },
+    'Finish': async a => { a.click('pickup'); await a.tick(40); a.click('finish'); await a.tick(40); },
+    'Folder health': async a => { a.click('health'); await a.tick(80); },
+    'Recovery': async a => { a.click('recovery', 'onedrive-isnt-syncing'); await a.tick(); }
+  };
+  const froms = {
+    Home: [async a => { a.click('nav', 'home'); await a.tick(); a.click('open-run', runKey(a)); await a.tick(60); }, '#/'],
+    'Production release': [async a => { a.click('open-process', 'release'); await a.tick(); a.click('open-run', runKey(a)); await a.tick(60); }, '#/process/release']
+  };
+  const bad = [];
+  for (const [from, [open, want]] of Object.entries(froms)) for (const [name, go] of Object.entries(pages)) {
+    const app = await start(); await open(app); await app.settle();
+    const was = back1(app);
+    if (was.text !== from) { bad.push(from + ' › ' + name + ': set-up: the run says ‹ ' + was.text); continue; }
+    await go(app); await app.settle();
+    const b = backs(app.html())[0];
+    if (!b) { bad.push(from + ' › ' + name + ': no way back'); continue; }
+    app.click(b.act, b.id); await app.settle();
+    if (!/^#\/run\//.test(app.hash())) { bad.push(from + ' › ' + name + ': ‹ went to ' + app.hash()); continue; }
+    let now = backs(app.html())[0];
+    if (!now || now.text !== from) { bad.push(from + ' › ' + name + ': the run now says ‹ ' + (now && now.text)); continue; }
+    app.click('refresh'); await app.tick(120); await app.settle();
+    now = backs(app.html())[0];
+    if (!now || now.text !== from) { bad.push(from + ' › ' + name + ': after a refresh ‹ ' + (now && now.text)); continue; }
+    app.click(now.act, now.id); await app.settle();
+    if (app.hash() !== want) bad.push(from + ' › ' + name + ': ‹ ' + from + ' went to ' + app.hash());
+  }
+  assert.deepStrictEqual(bad, []);
+});
+rule('R7 2: Settings › Step types › New step type › ‹ Step types: the list still goes back to Settings', async () => {
+  const t = await start(); t.click('nav', 'settings'); await t.tick(); t.click('open-types'); await t.tick();
+  assert.strictEqual(back1(t).text, 'Settings', 'set-up');
+  await typeOpen(t);
+  const b = back1(t); t.click(b.act, b.id); await t.settle();
+  assert.strictEqual(t.hash(), '#/types');
+  const now = back1(t);
+  assert.strictEqual(now.text, 'Settings', 'the list\'s way back');
+  t.click(now.act, now.id); await t.settle();
+  assert.strictEqual(t.hash(), '#/settings');
 });
 
 run();
