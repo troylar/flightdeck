@@ -52,9 +52,9 @@ If the person has the draft open in Flightdeck's main editor with nothing unsave
 
 ### Checks
 
-`draft read` returns `checks` for the text you continue from, and `draft save` and `draft propose` return them for the text you saved: `blockers` (would stop publishing) and `suggestions`. They load what Review & publish loads: people, step types, Jira workflows, published versions and team values.
+`draft read` returns `checks` for the text you continue from, and `draft save` and `draft propose` return them for the text you saved: `blockers` (would stop publishing) and `suggestions`. They load what the Publish dialog loads: people, step types, Jira workflows, published versions and team values.
 
-`flightdeck draft check <team folder> <process> [--from <file>] --json` gives Review & publish's verdict (`flightdeck-read/2`), and its `publish.blockers` also cover screenshots and `version:` pins.
+`flightdeck draft check <team folder> <process> [--from <file>] --json` gives the Publish dialog's verdict (`flightdeck-read/2`), and its `publish.blockers` also cover screenshots and `version:` pins.
 
 ### Exit codes
 

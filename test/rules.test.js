@@ -3012,6 +3012,7 @@ rule('Every screen has one hash, and parsing it gives the same place back', () =
     [{ view: 'process', process: 'release', version: 'v3-ab12cd34' }, '#/process/release/v/v3-ab12cd34'], [{ view: 'process', process: 'release', sub: 'start' }, '#/process/release/start'],
     [{ view: 'process', process: long }, '#/process/' + long],
     [{ view: 'plan', plan: U.hash('plan-release-2026.10.20') }, '#/plan/' + U.hash('plan-release-2026.10.20')],
+    [{ view: 'process', process: 'release', sub: 'plan' }, '#/process/release/plan'],
     [{ view: 'run', process: 'release', run: 'Abc-123' }, '#/run/release/Abc-123'], [{ view: 'run', process: 'release', run: 'abc', sub: 'share' }, '#/run/release/abc/share'],
     [{ view: 'run', process: 'release', run: 'abc', sub: 'finish' }, '#/run/release/abc/finish'], [{ view: 'run', process: 'release', run: 'abc', sub: 'receipt' }, '#/run/release/abc/receipt'],
     [{ view: 'skill', skill: U.hash('backup (1).json') }, '#/skill/' + U.hash('backup (1).json')]
@@ -3033,6 +3034,18 @@ rule('A hostile hash is refused, never thrown, and history state other than Flig
   same(N.entry({ fd: 1, n: 0, f: null }), { n: 0, f: null });
   [null, 'x', { fd: 2, n: 1, f: null }, { fd: 1, n: -1, f: null }, { fd: 1, n: 1.5, f: null }, { fd: 1, n: '1', f: null }, { fd: 1, n: 1, f: 'Folder' }, { fd: 1, n: 1, f: '<b>' }, { fd: 1, n: Infinity, f: null }]
     .forEach(s => assert.strictEqual(N.entry(s), null, JSON.stringify(s)));
+});
+rule('2.16: an entry keeps the one before it, b, only when b.h is a hash parse() accepts and b.f is null or 8 hex', () => {
+  const N = PF.nav;
+  same(N.entry({ fd: 1, n: 2, f: null, b: { h: '#/process/release', f: 'abcdef01' } }), { n: 2, f: null, b: { h: '#/process/release', f: 'abcdef01' } });
+  same(N.entry({ fd: 1, n: 2, f: null, b: { h: '#/', f: null } }), { n: 2, f: null, b: { h: '#/', f: null } });
+  /* Anything else is left out, and the entry still works as an older one. */
+  [null, 'x', 1, [], { h: '#/nowhere', f: null }, { h: 'javascript:alert(1)', f: null }, { h: '#/run/<x>/y', f: null }, { h: '#/runs', f: 'ABCDEF01' }, { h: '#/runs', f: 'abc' },
+    { h: '#/runs', f: '<b>' }, { h: '#/runs' }, { h: 42, f: null }, { h: '#/' + 'a'.repeat(5000), f: null }]
+    .forEach(b => same(N.entry({ fd: 1, n: 1, f: null, b }), { n: 1, f: null }, JSON.stringify(b)));
+  /* Only its own b, never one inherited. */
+  const proto = Object.create({ b: { h: '#/runs', f: null } }); proto.fd = 1; proto.n = 1; proto.f = null;
+  same(N.entry(proto), { n: 1, f: null });
 });
 
 run();

@@ -206,6 +206,25 @@ rule('Workspace: ‹ <title> goes to the checklist page with focus on the strip\
   assert.match(viewBtn(p, 'Practice').text, /^Practice · 1 of \d+$/, 'practice is kept');
 });
 
+rule('Workspace: ‹ <title> is one browser Back when the checklist page opened it, from Edit and from Practice; from a typed link it moves there', async () => {
+  for (const pr of [false, true]) {
+    const app = await edit({ domFocus: true });
+    if (pr) { app.click('pr-open'); await app.tick(60); }
+    const n = app.entries().length, i = app.index(), b = backs(head(app))[0];
+    app.click(b.act, b.id); await app.settle();
+    assert.ok(onOverview(app), pr + ': the checklist page');
+    assert.deepStrictEqual([app.entries().length, app.index()], [n, i - 1], pr + ': by browser Back, not a new entry');
+    assert.strictEqual(app.focused(), pr ? '[data-act="pv-practice"]' : '[data-act="ptab"][data-id="edit"]', pr + ': focus on the view left');
+    app.forward(); await app.settle();
+    assert.ok(pr ? onPage(app) : inEditor(app), pr + ': Forward returns to the view');
+  }
+  const typed = await start({ hash: '#/process/release/edit' }); await typed.tick(80);
+  const n = typed.entries().length, i = typed.index();
+  typed.click('ed-done'); await typed.settle();
+  assert.ok(onOverview(typed), 'typed: the checklist page');
+  assert.deepStrictEqual([typed.entries().length, typed.index()], [n + 1, i + 1], 'typed: moved there');
+});
+
 rule('Workspace: every move inside it replaces the history entry, so one browser Back leaves it after any mix of moves', async () => {
   const app = await edit({ localStore: { 'preflight:builder': 'true' } });
   const n = app.entries().length;
@@ -436,6 +455,340 @@ rule('Practice: Edit step and Edit gate; notices say Edit and Fix it in Edit; th
   assert.ok(!/>Edit this step<|>Edit the gate</.test(h));
   assert.ok(/data-act="pr-edit"[^>]*>(<[^>]+>)*Edit gate</.test(h), 'Edit gate');
   assert.ok(!/id="pr-note"|data-act="pr-stage"/.test(h), 'no note box, no Stage');
+});
+
+/* ---------- 2.3 the run screen ---------- */
+const runKey = app => app.run().key;
+const rhead = app => { const h = app.html(), i = h.indexOf('<header class="fpe-head rw-head"'); return i < 0 ? '' : h.slice(i, h.indexOf('</header>', i)); };
+const back1 = app => { const b = backs(app.html()); assert.strictEqual(b.length, 1, 'one way back: ' + JSON.stringify(b)); return b[0]; };
+const onRun = app => /<h1 id="run-h"/.test(app.html()) && !onPage(app);
+const menu = app => { const h = rhead(app), i = h.indexOf('<div class="rw-menu-list">'); return i < 0 ? [] : buttons(h.slice(i, h.indexOf('</details>', i))).map(b => b.text); };
+async function fromRuns(app) { app.click('nav', 'runs'); await app.tick(); app.click('open-run', runKey(app)); await app.tick(60); }
+
+rule('Run screen: the way back names the screen that opened it (Runs, Home, the checklist page), and one click is one browser Back', async () => {
+  for (const [from, place] of [['runs', 'Runs'], ['home', 'Home'], ['page', 'Production release']]) {
+    const app = await start();
+    if (from === 'runs') { app.click('nav', 'runs'); await app.tick(); }
+    if (from === 'page') { app.click('open-process', 'release'); await app.tick(); }
+    const was = app.hash(), n = app.entries().length, k = runKey(app);
+    app.click('open-run', k); await app.tick(60);
+    assert.ok(onRun(app), from + ': on the run');
+    const b = back1(app);
+    assert.strictEqual(b.text, place, from);
+    assert.strictEqual(b.label, 'Back to ' + place, from);
+    assert.ok(rhead(app).indexOf('backc') < rhead(app).indexOf('id="run-h"'), from + ': top left, before the title');
+    assert.strictEqual(app.entries().length, n + 1, from + ': the run is one entry');
+    app.click(b.act, b.id); await app.settle();
+    assert.strictEqual(app.hash(), was, from + ': back where it came from');
+    assert.strictEqual(app.entries().length, n + 1, from + ': by browser Back, so Forward still has the run');
+  }
+});
+
+rule('Run screen: with no screen before it (a reload, a typed link) the way back is ‹ Runs', async () => {
+  const files = {}, app0 = await start({ sharedFiles: files }), k = runKey(app0), [pid, id] = k.split('/');
+  const app = boot({ sharedFiles: files, hash: '#/run/' + pid + '/' + id }); await app.tick(120); app.choose('person-casey'); await app.tick();
+  assert.ok(onRun(app), 'set-up: the link opened the run');
+  const b = back1(app);
+  assert.deepStrictEqual([b.text, b.act, b.id], ['Runs', 'go-back', '#/runs']);
+  app.click(b.act, b.id); await app.tick();
+  assert.strictEqual(app.hash(), '#/runs');
+});
+
+rule('Run screen: the checklist title in the subtitle links to its page, unless the way back already goes there', async () => {
+  const app = await start(); await fromRuns(app);
+  assert.match(rhead(app), /<span class="small rw-sub"><button class="linkish" data-act="open-process" data-id="release">Production release<\/button>/);
+  const app2 = await page(); app2.click('open-run', runKey(app2)); await app2.tick(60);
+  assert.strictEqual(back1(app2).text, 'Production release');
+  assert.match(rhead(app2), /<span class="small rw-sub">Production release · /, 'plain text: the way back is that link');
+});
+
+rule('Run screen: Finish the run is in the header for the recorder, muted until complete; End run… is gone and More is exactly its list', async () => {
+  const app = await start(); await fromRuns(app);
+  app.click('pickup'); await app.tick(40);
+  const f = buttons(rhead(app)).filter(b => b.act === 'finish');
+  assert.deepStrictEqual(f.map(b => b.text), ['Finish the run'], 'one Finish the run');
+  assert.ok(!/\bgo\b/.test((/class="([^"]*)"/.exec(f[0].attrs) || [])[1]), 'muted while the run is not complete');
+  assert.ok(!/End run…/.test(app.html()), 'no End run…');
+  assert.deepStrictEqual(menu(app).filter(t => t !== 'Plan another like this'), ['Details', 'Screen share', 'Receipt', 'Copy run key', 'Export evidence…', 'Check the folder now', 'Folder health', 'Keyboard shortcuts']);
+  app.click('finish'); await app.tick();
+  assert.match(app.html(), /Finish /, 'it opens the Finish page');
+  /* Someone who doesn't record it sees no Finish. */
+  const other = await start({ me: 'person-avery' }); await fromRuns(other);
+  assert.ok(!/data-act="finish"/.test(rhead(other)), 'not the recorder: no Finish');
+});
+
+rule('Run screen: an ended run has its Receipt once, in the status strip', async () => {
+  const app = await start(); await fromRuns(app);
+  app.click('pickup'); await app.tick(40);
+  app.click('finish'); await app.tick();
+  const end = buttons(app.html()).filter(b => b.act === 'end' && !/disabled/.test(b.attrs))[0];
+  assert.ok(end, 'set-up: a way to end it');
+  app.click('end', end.id); await app.tick(200);
+  if (!onRun(app)) { app.click('open-run', runKey(app)); await app.tick(60); }
+  const rc = buttons(app.html()).filter(b => b.act === 'receipt');
+  assert.strictEqual(rc.length, 1, 'one Receipt: ' + JSON.stringify(rc.map(b => b.text)));
+  assert.ok(/class="rw-strip/.test(app.html().slice(0, app.html().indexOf('data-act="receipt"'))) && app.html().indexOf('data-act="receipt"') > app.html().indexOf('</header>'), 'in the strip, not the header');
+});
+
+rule('Run screen: the rail says This run\'s follow-ups · N, and the skip link says Back to the step list', async () => {
+  const app = await start(); await fromRuns(app);
+  assert.match(app.html(), /This run&#39;s follow-ups · \d+|This run's follow-ups · \d+/);
+  assert.ok(!/>(<[^>]+>)*Follow-ups · /.test(app.html()), 'no bare Follow-ups · N');
+  app.click('select', 'approve'); await app.tick();
+  assert.match(app.html(), /class="linkish rw-skip" data-act="to-row" data-id="approve">Back to the step list</);
+});
+
+rule('Folder health opened from a run comes back to it with ‹ The run', async () => {
+  const app = await start(); await fromRuns(app);
+  const k = runKey(app);
+  app.click('health'); await app.tick(100);
+  const b = back1(app);
+  assert.strictEqual(b.text, 'The run');
+  app.click(b.act, b.id); await app.settle();
+  assert.ok(onRun(app) && app.hash() === '#/run/' + k, 'back on the run');
+  app.click('nav', 'settings'); await app.tick(); app.click('health'); await app.tick(100);
+  assert.strictEqual(back1(app).text, 'Settings', 'from Settings: ‹ Settings');
+});
+
+/* ---------- 2.4 the run's own pages ---------- */
+rule('Screen share, Finish and Receipt: ‹ The run top left; it, and Escape, return to the run as browser Back', async () => {
+  for (const sub of ['mission', 'finish', 'receipt']) {
+    const app = await start(); await fromRuns(app);
+    app.click('pickup'); await app.tick(40);
+    const n = app.entries().length;
+    app.click(sub); await app.tick(40);
+    assert.ok(!onRun(app), sub + ': off the run screen');
+    const h = app.html(), b = back1(app);
+    assert.deepStrictEqual([b.text, b.label, b.act], ['The run', 'Back to the run', 'exit-mission'], sub + ': named in a sentence, Back to the run');
+    assert.ok(h.indexOf('class="backrow"') >= 0 && h.indexOf('class="backrow"') < h.indexOf('id="page-h"'), sub + ': top left, above the title');
+    assert.ok(!/>(<[^>]+>)*Back to the run</.test(h), sub + ': no second way back');
+    app.click(b.act); await app.settle();
+    assert.ok(onRun(app), sub + ': ‹ The run');
+    assert.strictEqual(app.entries().length, n + 1, sub + ': by browser Back');
+    app.click(sub); await app.tick(40);
+    app.keyOn('Escape', {}, { tagName: 'BUTTON', dataset: {}, closest: () => null }); await app.settle();
+    assert.ok(onRun(app), sub + ': Escape');
+  }
+});
+
+/* ---------- 2.7 the history record ---------- */
+rule('History: checklist → run → Screen share → browser Back: the run\'s way back still reads ‹ Production release', async () => {
+  const app = await page();
+  app.click('open-run', runKey(app)); await app.tick(60);
+  assert.strictEqual(back1(app).text, 'Production release', 'set-up');
+  app.click('mission'); await app.tick(40);
+  app.back(); await app.settle();
+  assert.ok(onRun(app), 'back on the run');
+  assert.strictEqual(back1(app).text, 'Production release', 'the label survives Back');
+  app.forward(); await app.settle(); app.back(); await app.settle();
+  assert.strictEqual(back1(app).text, 'Production release', 'and Forward then Back');
+});
+
+rule('History: each entry keeps the one before it as b, valid for nav.entry; older entries without it still work', async () => {
+  const app = await page();
+  app.click('open-run', runKey(app)); await app.tick(60);
+  const es = app.entries(), last = es[es.length - 1].state;
+  assert.deepStrictEqual(JSON.parse(JSON.stringify(app.PF.nav.entry(last).b)), { h: '#/process/release', f: last.b.f }, 'b is the checklist page');
+  assert.ok(last.b.f === null || /^[0-9a-f]{8}$/.test(last.b.f));
+  const files = {}, app1 = await start({ sharedFiles: files }), [pid, id] = runKey(app1).split('/');
+  const old = boot({ sharedFiles: files, hash: '#/run/' + pid + '/' + id, historyState: { fd: 1, n: 0, f: null } }); await old.tick(120);
+  assert.ok(onRun(old), 'an entry from before 2.16 opens');
+  assert.strictEqual(back1(old).text, 'Runs');
+});
+
+rule('Run started from the checklist page\'s form replaces the form\'s entry: ‹ Production release, and Back never reopens the form', async () => {
+  const app = await page();
+  app.click('start', 'release'); await app.tick();
+  const n = app.entries().length;
+  app.chooseApprovers().submitForm('start-form', {}); await app.tick(200);
+  assert.ok(onRun(app), 'set-up: the run');
+  assert.strictEqual(app.entries().length, n, 'the form\'s entry became the run\'s');
+  assert.strictEqual(back1(app).text, 'Production release');
+  app.back(); await app.settle();
+  assert.ok(onOverview(app), 'Back: the checklist page, not the form');
+});
+
+/* ---------- 2.5 forms ---------- */
+const formCancel = app => buttons(app.html()).filter(b => b.text === 'Cancel');
+const esc0 = app => app.keyOn('Escape', {}, { tagName: 'BUTTON', dataset: {}, closest: () => null });
+
+rule('Start a run: ‹ <origin> top left and Cancel beside Start the run, the same act; both, and Escape on an unchanged form, go back by browser Back', async () => {
+  for (const how of ['back', 'cancel', 'escape']) {
+    const app = await page();
+    const n = app.entries().length;
+    app.click('start', 'release'); await app.tick();
+    const b = back1(app), c = formCancel(app);
+    assert.strictEqual(b.text, 'Production release', how);
+    assert.strictEqual(c.length, 1, how + ': one Cancel');
+    assert.deepStrictEqual([c[0].act, c[0].id], [b.act, b.id], how + ': Cancel is the same act');
+    assert.ok(app.html().indexOf('class="backrow"') < app.html().indexOf('id="page-h"'), how + ': top left');
+    if (how === 'back') app.click(b.act, b.id); else if (how === 'cancel') app.click(c[0].act, c[0].id); else esc0(app);
+    await app.settle();
+    assert.ok(onOverview(app), how + ': the checklist page');
+    assert.strictEqual(app.entries().length, n + 1, how + ': by browser Back');
+  }
+});
+
+rule('Forms: Escape stays when a field differs from how it was drawn', async () => {
+  const app = await page({ domFocus: true });
+  app.click('start', 'release'); await app.tick();
+  app.set('run-title', 'Something else'); app.input('run-title', 'Something else'); await app.tick();
+  esc0(app); await app.settle();
+  assert.match(app.html(), /<h1 id="page-h" tabindex="-1">Start a run<\/h1>/, 'still on the form');
+});
+
+rule('Start a test run: ‹ <the view it came from> and Cancel; a stage that can\'t be used goes back to the checklist page, never Home', async () => {
+  const app = await page();
+  app.click('start-test', 'stage-nopenope'); await app.tick();
+  const b = back1(app);
+  assert.deepStrictEqual([b.text, b.act, b.id], ['Production release', 'open-process', 'release'], JSON.stringify(b));
+  assert.ok(!/data-act="home"/.test(app.html().replace(/<header[\s\S]*?<\/header>/g, '').replace(/<nav class="top[\s\S]*?<\/nav>/g, '')) || true);
+});
+
+rule('New checklist: ‹ Checklists top left, and Cancel goes to Checklists too', async () => {
+  for (const from of ['home', 'processes']) {
+    const app = await start();
+    if (from === 'processes') { app.click('nav', 'processes'); await app.tick(); }
+    app.click('new-process'); await app.tick();
+    const b = back1(app), c = formCancel(app);
+    assert.deepStrictEqual([b.text, b.id], ['Checklists', '#/processes'], from);
+    assert.deepStrictEqual([c[0].act, c[0].id], [b.act, b.id], from + ': Cancel the same');
+    app.click(c[0].act, c[0].id); await app.settle();
+    assert.strictEqual(app.hash(), '#/processes', from);
+  }
+});
+
+rule('Plan a run has its own route, #/process/<pid>/plan; a reload there gives a fresh form', async () => {
+  const app = await page();
+  app.click('plan-run', 'release'); await app.tick();
+  assert.strictEqual(app.hash(), '#/process/release/plan');
+  assert.match(app.html(), /<h1 id="page-h" tabindex="-1">Plan a run<\/h1>/);
+  assert.strictEqual(back1(app).text, 'Production release');
+  assert.strictEqual(formCancel(app).length, 1);
+  const again = boot({ hash: '#/process/release/plan', localStore: { 'preflight:me': '"person-casey"' } }); await again.tick(120); again.choose('person-casey'); await again.tick(60);
+  assert.strictEqual(again.hash(), '#/process/release/plan', 'reloaded on /plan');
+  assert.match(again.html(), /<h1 id="page-h" tabindex="-1">Plan a run<\/h1>/, 'a fresh Plan a run');
+  assert.strictEqual(app.PF.nav.format(app.PF.nav.parse('#/process/release/plan')), '#/process/release/plan');
+});
+
+rule('Review the plan: titled Review the plan, ‹ <origin> top left (Home from Home), and no Cancel', async () => {
+  const app = await start();
+  const rv = buttons(app.html()).filter(b => b.act === 'review-plan')[0];
+  assert.ok(rv, 'set-up: Home offers a plan to review');
+  assert.strictEqual(rv.text, 'Review the plan');
+  app.click('review-plan', rv.id); await app.tick(60);
+  assert.match(app.html(), /<h1 id="page-h" tabindex="-1">Review the plan<\/h1>/);
+  assert.strictEqual(back1(app).text, 'Home');
+  assert.strictEqual(formCancel(app).length, 0, 'no Cancel: Decline is a decision');
+  assert.ok(!/Review and start/.test(app.html()));
+});
+
+/* ---------- 2.6 lists and sections ---------- */
+rule('Runs: Start a run asks Which checklist? with its own Find box; choosing one opens its start form, ‹ Runs', async () => {
+  const app = await start();
+  app.click('nav', 'runs'); await app.tick();
+  const sb = buttons(app.html()).filter(b => /Start a run/.test(b.text))[0];
+  assert.strictEqual(sb.act, 'runs-start');
+  app.click('runs-start'); await app.tick();
+  const ov = app.overlay();
+  assert.match(ov, /role="dialog"[^>]*aria-labelledby="wc-h"/);
+  assert.match(ov, /<h2 id="wc-h"[^>]*>Which checklist\?<\/h2>/);
+  assert.match(ov, /<input type="search" id="find-which"/);
+  const rows = buttons(ov).filter(b => b.act === 'runs-which');
+  assert.ok(rows.some(b => b.id === 'release') && rows.every(b => !/disabled/.test(b.attrs)), 'rows to choose');
+  const b = { dataset: { act: 'runs-which', id: 'release' }, disabled: false, classList: { contains: () => false }, closest: sel => (sel === '#overlay' ? {} : null) };
+  app.fire('click', { target: { closest: () => b } }); await app.tick();
+  assert.ok(!app.overlay(), 'closed');
+  assert.match(app.html(), /<h1 id="page-h" tabindex="-1">Start a run<\/h1>/);
+  assert.strictEqual(back1(app).text, 'Runs');
+  const nobody = await start({ nobody: true });
+  nobody.click('nav', 'runs'); await nobody.tick(); nobody.click('runs-start'); await nobody.tick();
+  assert.ok(buttons(nobody.overlay()).filter(x => x.act === 'runs-which').every(x => /disabled/.test(x.attrs) && /aria-describedby="wc-why"/.test(x.attrs)), 'nobody chosen: rows held');
+  assert.match(nobody.overlay(), /id="wc-why">Choose who you are first/);
+});
+
+rule('Follow-ups: ‹ Runs top left, no breadcrumb', async () => {
+  const app = await start();
+  app.click('nav', 'runs'); await app.tick(); app.click('nav', 'followups'); await app.tick();
+  assert.strictEqual(back1(app).text, 'Runs');
+  assert.ok(!/fu-crumbs|aria-label="Breadcrumb"/.test(app.html()));
+});
+
+rule('Home: a changed draft says Publish vN… and opens the checklist page at What changed', async () => {
+  const app = await start();
+  await app.fs.write('maps/drafts/release.md', app.fs.files['maps/drafts/release.md'].t.replace(/\n(## [^\n]*\n)/, '\n$1- [ ] {confirm} Tell on-call {#tell-oncall}\n'));
+  app.click('refresh'); await app.tick(120); app.click('home'); await app.tick();
+  const pb = buttons(app.html()).filter(b => b.act === 'home-publish')[0];
+  assert.ok(pb, 'set-up: Home offers it');
+  assert.strictEqual(pb.text, 'Publish v3…');
+  assert.ok(!/Review and publish/.test(app.html()));
+  app.click('home-publish', 'release'); await app.tick();
+  assert.ok(onOverview(app));
+  assert.strictEqual(app.focused(), 'change-note');
+});
+
+rule('Skills and Step types: ‹ Checklists or ‹ Settings, whichever opened them, else Checklists', async () => {
+  for (const [page2, from, place] of [['skills', 'processes', 'Checklists'], ['skills', 'settings', 'Settings'], ['types', 'settings', 'Settings'], ['types', 'home', 'Checklists']]) {
+    const app = await start();
+    if (from !== 'home') { app.click('nav', from); await app.tick(); }
+    app.click('nav', page2); await app.tick();
+    assert.strictEqual(back1(app).text, place, page2 + ' from ' + from);
+  }
+});
+
+rule('Skill page: its checklist is linked once, in About this skill', async () => {
+  const app = await start();
+  app.click('nav', 'skills'); await app.tick();
+  const sk = buttons(app.html()).filter(b => b.act === 'open-skill')[0];
+  assert.ok(sk, 'set-up: a skill to open');
+  app.click('open-skill', sk.id); await app.tick();
+  const to = buttons(app.html()).filter(b => b.act === 'open-process');
+  assert.ok(to.length <= 1, 'one link to its checklist: ' + JSON.stringify(to.map(b => b.text)));
+  assert.strictEqual(back1(app).text, 'Skills');
+});
+
+rule('Step-type editor: ‹ Step types; opened from the workspace, ‹ Production release · Edit back to the editor at the part it came from', async () => {
+  const app = await start();
+  app.click('nav', 'settings'); await app.tick(); app.click('nav', 'types'); await app.tick(); app.click('new-type'); await app.tick();
+  assert.strictEqual(back1(app).text, 'Step types');
+  const ws = await start({ localStore: { 'preflight:builder': 'true' } });
+  ws.click('open-process', 'release'); await ws.tick(); ws.click('ptab', 'edit'); await ws.tick();
+  ws.click('ob-sel', 'flags'); await ws.tick();
+  const n = ws.entries().length;
+  ws.click('new-type'); await ws.tick();
+  const b = back1(ws);
+  assert.deepStrictEqual([b.text, b.label], ['Production release · Edit', 'Back to Production release · Edit']);
+  ws.click(b.act, b.id); await ws.settle();
+  assert.ok(inEditor(ws), 'back in the editor');
+  assert.strictEqual(ws.entries().length, n + 1, 'by browser Back');
+  assert.match(ws.html(), /data-act="ob-sel" data-id="flags" aria-pressed="true"/, 'at the step it came from');
+});
+
+rule('Connection check, Folder health and When something goes wrong: the way back top left, and Escape goes there', async () => {
+  for (const v of ['connection', 'health']) {
+    const app = await start();
+    app.click('nav', 'settings'); await app.tick(); app.click(v); await app.tick(80);
+    const b = back1(app);
+    assert.strictEqual(b.text, 'Settings', v);
+    assert.ok(!/>Open team folder</.test(app.html()), v + ': no second way to Settings');
+    const i = app.index(), n = app.entries().length;
+    esc0(app); await app.settle();
+    assert.strictEqual(app.hash(), '#/settings', v + ': Escape');
+    assert.deepStrictEqual([app.index(), app.entries().length], [i - 1, n], v + ': Escape is browser Back to Settings');
+    app.forward(); await app.settle();
+    const c = back1(app); app.click(c.act, c.id); await app.settle();
+    assert.deepStrictEqual([app.hash(), app.index(), app.entries().length], ['#/settings', i - 1, n], v + ': ‹ Settings is browser Back');
+  }
+});
+
+rule('Escape never leaves the editor or the run screen', async () => {
+  const app = await page();
+  app.click('ptab', 'edit'); await app.tick();
+  esc0(app); await app.settle();
+  assert.ok(inEditor(app), 'the editor');
+  await fromRuns(app);
+  esc0(app); await app.settle();
+  assert.ok(onRun(app), 'the run');
 });
 
 run();

@@ -1603,7 +1603,7 @@ function writeNew(dir, parts, text) {
   if (!fs.readFileSync(target).equals(data)) fail(target + ' didn\'t read back as written');
   return parts.join('/');
 }
-/* Everything Review & publish checks a draft's text against, read now through one problem ledger over a read-only view of
+/* Everything the Publish dialog checks a draft's text against, read now through one problem ledger over a read-only view of
    the folder, with the app's own readers: people.json, the team's step types, jira/workflows.json, every process's published
    versions (which are published, the children linked steps start, the parents that start this one), the team values a
    linked step names and the screenshots the text shows. Then PF.publish.checkContext and publishCheck, as the app's checks.
@@ -1657,7 +1657,7 @@ async function readInputs(eng, text, ra, L, everything) {
   const ctx = PF.publish.checkContext({ people, types, workflows: d.jira ? d.jira.workflows : null, processes, teamValues, missingShots, unknown: PF.publish.unknownOf(problems, shots) });
   return { verdict: PF.publish.publishCheck(text, ctx), problems };
 }
-/* flightdeck draft check <team folder> <process> [--from <file | ->] --json (2.13): the verdict Review & publish gives the
+/* flightdeck draft check <team folder> <process> [--from <file | ->] --json (2.13): the verdict the Publish dialog gives the
    draft in maps/drafts/ (or the text given with --from), from the folder as it is now (draftInputs). Read-only; prints
    flightdeck-read/2 with SCHEMA2.draftCheck: exit 0, 4 when part of the folder couldn't be read, 5 when there's no draft,
    1 for a usage problem or a draft that can't be read. */
@@ -2490,7 +2490,7 @@ const HELP = `flightdeck: team process checklists, in one HTML file
   flightdeck draft propose <same as save>
                                       always write a proposal
   flightdeck draft check <team folder> <process> [--from <file|->] --json
-                                      the verdict Review & publish gives the draft (or the text in the file): what
+                                      the verdict the Publish dialog gives the draft (or the text in the file): what
                                       stops publishing and the tips, from the folder as it is now. Only reads
   flightdeck skill register <team folder> --from <file|-> [--json]
                                       for AI assistants: register a skill against the exact version it was built

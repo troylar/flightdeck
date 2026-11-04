@@ -1647,6 +1647,10 @@ button.att:hover { border-color: var(--ink); }
 .att-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .att-list .att { display: flex; background: var(--card); }
 .att-list .att .mini { margin-left: auto; }
+.wc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.wc-row { width: 100%; text-align: left; border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 8px; padding: 10px 12px; min-height: 44px; cursor: pointer; }
+.wc-row:hover:not([disabled]) { border-color: var(--amber); }
+.wc-row[disabled] { color: var(--muted); cursor: not-allowed; }
 .ev-box { background: var(--card); color: var(--ink); border-radius: 12px; padding: 18px 20px; width: min(560px, 100%); max-height: calc(100vh - var(--keep-h) - 32px); overflow: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 10px; box-sizing: border-box; }
 .ev-box p { margin: 0; }
 .ev-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }

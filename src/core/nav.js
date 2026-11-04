@@ -35,6 +35,7 @@ PF.nav = (function () {
       if (!isProcess(loc.process)) return join(['processes']);
       var p = ['process', loc.process];
       if (loc.sub === 'start') { p.push('start'); if (isStage(loc.stage)) p.push(loc.stage); }
+      else if (loc.sub === 'plan') p.push('plan');
       else if (typeof loc.tab === 'string' && TABS[loc.tab] === true) p.push(loc.tab);
       else if (loc.version === 'current') p.push('current');
       else if (isVersion(loc.version)) p.push('v', loc.version);
@@ -67,7 +68,7 @@ PF.nav = (function () {
       return loc;
     }
     if (v === 'practice') return { view: 'practice', process: s.processId };
-    if (v === 'start') return s.planId != null ? { view: 'plan', plan: H(s.planId) } : isStage(s.testStage) ? { view: 'process', process: s.processId, sub: 'start', stage: s.testStage } : { view: 'process', process: s.processId, sub: 'start' };
+    if (v === 'start') return s.planId != null ? { view: 'plan', plan: H(s.planId) } : s.planning && s.planning.process === s.processId ? { view: 'process', process: s.processId, sub: 'plan' } : isStage(s.testStage) ? { view: 'process', process: s.processId, sub: 'start', stage: s.testStage } : { view: 'process', process: s.processId, sub: 'start' };
     if (Object.prototype.hasOwnProperty.call(RUN_VIEWS, v)) {
       var k = String(s.runKey || ''), i = k.indexOf('/'), r = { view: 'run', process: k.slice(0, i), run: k.slice(i + 1) };
       if (RUN_VIEWS[v]) r.sub = RUN_VIEWS[v];
@@ -108,6 +109,7 @@ PF.nav = (function () {
       if (n === 3 && TABS[s[2]] === true) { loc.tab = s[2]; return loc; }
       if (n === 3 && s[2] === 'current') { loc.version = 'current'; return loc; }
       if (n === 3 && s[2] === 'start') { loc.sub = 'start'; return loc; }
+      if (n === 3 && s[2] === 'plan') { loc.sub = 'plan'; return loc; }
       if (n === 4 && s[2] === 'start' && isStage(s[3])) { loc.sub = 'start'; loc.stage = s[3]; return loc; }
       if (n === 4 && s[2] === 'v' && isVersion(s[3])) { loc.version = s[3]; return loc; }
       return null;
@@ -125,13 +127,17 @@ PF.nav = (function () {
   }
   function parse(hash) { try { return parseNow(hash); } catch (e) { return null; } }
 
-  /* history.state as Flightdeck writes it, { fd: 1, n, f }, or null for anything else (a typed hash, another page's). */
+  /* history.state as Flightdeck writes it, { fd: 1, n, f } and since 2.16 an optional b, the entry before it ({ h, f }: a hash
+     parse() accepts and its folder's fingerprint or null), or null for anything else (a typed hash, another page's). A b that
+     isn't exactly that is left out, so the entry still works as an older one. */
   function entry(s) {
     if (!s || typeof s !== 'object' || s.fd !== 1) return null;
     var n = s.n, f = s.f;
     if (typeof n !== 'number' || !isFinite(n) || n < 0 || Math.floor(n) !== n || n > 1e9) return null;
     if (f !== null && !isHex(f)) return null;
-    return { n: n, f: f };
+    var e = { n: n, f: f }, b = Object.prototype.hasOwnProperty.call(s, 'b') ? s.b : null;
+    if (b && typeof b === 'object' && typeof b.h === 'string' && parse(b.h) && (b.f === null || isHex(b.f))) e.b = { h: b.h, f: b.f };
+    return e;
   }
 
   return { MAX: MAX, locate: locate, format: format, parse: parse, entry: entry, isHex: isHex, skillKey: skillKey };

@@ -125,7 +125,7 @@ Always pass `--contract 2`: without it you get what Flightdeck 1.x read, and eve
 - **Conflict copies:** any other `run*.json` next to `run.json` (for example `run.conflict-<session>-<time>.json` or OneDrive's `run-<COMPUTER>.json`) is a competing version that a person hasn't resolved yet. Report it; never pick one yourself and never delete it.
 - **Test runs:** a run with `"test": true` tried a staged version before anyone made it the default. Leave test runs out of every count and statistic, as Flightdeck's How runs go and rotation do, and call them test runs whenever you report them, never published work. Their corrections and follow-ups are real: report and use them like any run's. A test run never starts linked runs.
 - **Publications:** a version folder without `publication.json` is still syncing; ignore it. A version whose checklist uses syntax or step types Flightdeck doesn't know is unusable: the app never runs it, so never hand-edit a published version.
-- **Improving a checklist after a run:** use the run's corrections, its "done differently" answers and its follow-ups to edit the draft (see *Editing drafts*), then tell the person the next step in Flightdeck: open the draft, **Practice** it, then **Save draft** and **Review & publish**, or stage it for a test run first.
+- **Improving a checklist after a run:** use the run's corrections, its "done differently" answers and its follow-ups to edit the draft (see *Editing drafts*), then tell the person the next step in Flightdeck: open the draft, **Practice** it, then **Save draft** and **Publish vN…**, or stage it for a test run first.
 
 ## Reporting work
 

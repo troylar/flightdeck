@@ -660,7 +660,7 @@
     var h = '<aside class="fpe-pane rw-ins" id="rw-ins" data-scope="ref:' + esc(st.id) + '" data-open="' + open + '" aria-label="Selected step">';
     h += '<div class="rw-ins-top"><button class="mini close" data-act="close-ref">Close</button>' + (P && P.canEdit(st.id) ? '<button class="mini rw-ins-edit" data-act="pr-edit" data-id="' + esc(st.id) + '">' + I('edit') + 'Edit step</button>' : '') + '<nav class="row rw-steps" aria-label="Other steps">' +
       (prev ? '<button class="mini" data-act="select" data-id="' + esc(prev.step.id) + '" data-nav="1">' + I('back') + 'Previous</button>' : '') + (next ? '<button class="mini" data-act="select" data-id="' + esc(next.step.id) + '" data-nav="1">Next</button>' : '') + '</nav>' +
-      '<button class="linkish rw-skip" data-act="to-row" data-id="' + esc(st.id) + '">Back to the checklist</button></div>';
+      '<button class="linkish rw-skip" data-act="to-row" data-id="' + esc(st.id) + '">Back to the step list</button></div>';
     h += '<div class="rw-ins-body">';
     h += '<nav aria-label="Where it is"><ol class="ob-crumbs"><li>' + esc(ph.title) + '</li>' + (track ? '<li>' + esc(track.title) + '</li>' : '') + '<li>Step ' + inPhase + ' of ' + ph.steps.length + '</li></ol></nav>';
     h += '<h2 id="ins-h" class="rw-ins-h" tabindex="-1">' + K.stepHtml(st, K.refValue(r, map)) + '</h2>';
@@ -848,7 +848,7 @@
   function utilities(ctx, r, schedN, lateN, where) {
     var s = ctx.state, fus = (r.followUps || []).length, h = '<div class="rw-utils">';
     if (schedN) h += '<button class="mini" data-act="timeline" data-id="' + where + '" aria-expanded="' + !!s.timeline + '" aria-controls="rw-timeline">' + I('timeline') + 'Day timeline · ' + schedN + (lateN ? ' · ' + lateN + ' late' : '') + '</button>';
-    h += '<button class="mini" data-act="run-fu" data-id="' + where + '" aria-expanded="' + !!s.fuOpen + '" aria-controls="rw-fu">' + I('flag') + 'Follow-ups · ' + fus + '</button>';
+    h += '<button class="mini" data-act="run-fu" data-id="' + where + '" aria-expanded="' + !!s.fuOpen + '" aria-controls="rw-fu">' + I('flag') + 'This run\'s follow-ups · ' + fus + '</button>';
     if (V.reportButton) h += V.reportButton(ctx, r, where);
     return h + '</div>';
   }
@@ -1054,20 +1054,28 @@
     items.forEach(function (it) { schedBy[it.what + ':' + it.id] = it; });
     var pct = t.total ? Math.round(t.done / t.total * 100) : 0, alone = R.solo(r);
     if (P) return practiceRun(ctx, r, map, P, t, nx, items, schedBy, pct);
-    /* The header: who it is, how far, and the tools. Three groups that never trade places. */
+    /* The header: who it is, how far, and the tools. Three groups that never trade places. The way back names the screen that
+       opened the run (2.16); a link it already goes to is plain text here. */
+    var og = ctx.runOrigin ? ctx.runOrigin(r) : { hash: '#/runs', place: 'Runs', view: '', loc: { view: 'runs' } };
+    var pkey = r.parent ? r.parent.process + '/' + r.parent.id : '', ptitle = r.parent ? (ctx.findRun(pkey) || {}).title || r.parent.process : '';
+    var toParent = !!pkey && og.loc.view === 'run' && og.loc.process + '/' + og.loc.run === pkey;
+    var toList = og.loc.view === 'process' && og.loc.process === r.process && og.loc.tab == null;
     var h = '<div class="fpe rw" id="rw"><header class="fpe-head rw-head" role="region" aria-labelledby="run-h"><div class="fpe-id">' +
-      '<button type="button" class="btn rw-back" data-act="nav" data-id="runs">' + I('back') + 'Runs</button>' +
-      '<div class="fpe-title"><h1 id="run-h" tabindex="-1">' + esc(r.title) + K.testTag(r) + '</h1><span class="small rw-sub">' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) + ' · started ' + esc(U.when(r.created)) +
-      (r.parent ? ' · part of <button class="linkish" data-act="open-run" data-id="' + esc(r.parent.process + '/' + r.parent.id) + '">' + esc((ctx.findRun(r.parent.process + '/' + r.parent.id) || {}).title || r.parent.process) + '</button>' : '') + '</span></div></div>' +
+      V.backc('go-back', og.hash, og.place, og.view) +
+      '<div class="fpe-title"><h1 id="run-h" tabindex="-1">' + esc(r.title) + K.testTag(r) + '</h1><span class="small rw-sub">' +
+      (toList || !(ctx.procOf ? ctx.procOf(r.process) : ctx.latestPub && ctx.latestPub(r.process)) ? esc(map.meta.title) : '<button class="linkish" data-act="open-process" data-id="' + esc(r.process) + '">' + esc(map.meta.title) + '</button>') + ' · ' + esc(K.verWord(r)) + ' · started ' + esc(U.when(r.created)) +
+      (r.parent ? ' · part of ' + (toParent ? esc(ptitle) : '<button class="linkish" data-act="open-run" data-id="' + esc(pkey) + '">' + esc(ptitle) + '</button>') : '') + '</span></div></div>' +
       '<div class="rw-prog"><span class="rw-bar" role="progressbar" aria-label="Steps answered" aria-valuemin="0" aria-valuemax="' + t.total + '" aria-valuenow="' + t.done + '" aria-valuetext="' + t.done + ' of ' + t.total + ' steps answered"><i style="width:' + pct + '%"></i></span><b>' + t.done + '/' + t.total + '</b><span class="small">answered</span></div>' +
       '<div class="rw-tools"><button type="button" class="mini" data-act="run-details" aria-expanded="' + !!s.runDetails + '" aria-controls="rw-details">Details</button>' +
       (alone ? '' : '<button type="button" class="mini" data-act="mission">' + I('screen') + 'Screen share</button>') +
-      '<button type="button" class="mini" data-act="receipt">' + I('receipt') + 'Receipt</button>' +
-      (rec && hl.s === 'complete' ? '<button type="button" class="btn go" data-act="finish">Finish the run</button>' : '') +
+      /* An ended run's Receipt is in the strip, once. */
+      (r.ended ? '' : '<button type="button" class="mini" data-act="receipt">' + I('receipt') + 'Receipt</button>') +
+      /* Finish the run, for whoever records it, at every width: muted until the run is complete, then the primary. */
+      (rec ? '<button type="button" class="btn rw-finish' + (hl.s === 'complete' ? ' go' : '') + '" data-act="finish">Finish the run</button>' : '') +
       '<details class="rw-menu" data-disc="rw-menu"' + (s.disc && s.disc['rw-menu'] ? ' open' : '') + '><summary class="mini">More</summary><div class="rw-menu-list">' +
-      /* On a phone the header keeps only Runs and More, so Details and Screen share are here too. */
-      '<button type="button" class="mini rw-m-phone" data-act="run-details" aria-expanded="' + !!s.runDetails + '">Details</button>' + (alone ? '' : '<button type="button" class="mini rw-m-phone" data-act="mission">' + I('screen') + 'Screen share</button>') + '<button type="button" class="mini rw-m-phone" data-act="receipt">' + I('receipt') + 'Receipt</button>' +
-      (rec && hl.s !== 'complete' ? '<button type="button" class="mini" data-act="finish">End run…</button>' : '') + planAgain(ctx, r, 'mini') +
+      /* On a phone the header keeps only the way back, Finish the run and More, so Details, Screen share and Receipt are here. */
+      '<button type="button" class="mini rw-m-phone" data-act="run-details" aria-expanded="' + !!s.runDetails + '">Details</button>' + (alone ? '' : '<button type="button" class="mini rw-m-phone" data-act="mission">' + I('screen') + 'Screen share</button>') + (r.ended ? '' : '<button type="button" class="mini rw-m-phone" data-act="receipt">' + I('receipt') + 'Receipt</button>') +
+      planAgain(ctx, r, 'mini') +
       '<button type="button" class="mini" data-act="copy-run-key" data-id="' + esc(r.process + '/' + r.id) + '">Copy run key</button>' +
       '<button type="button" class="mini" data-act="ev-open" data-id="' + esc(r.process + '/' + r.id) + '">Export evidence…</button><button type="button" class="mini" data-act="refresh">Check the folder now</button><button type="button" class="mini" data-act="health">Folder health</button><button type="button" class="mini" data-act="help">Keyboard shortcuts</button></div></details>' +
       (s.me ? '<span class="rw-me" title="Everything you do here is stamped with your name">You: <b>' + esc(nameOf(ctx, s.me)) + '</b></span>' : '') + '</div></header>';

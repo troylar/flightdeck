@@ -190,7 +190,7 @@
     var tabs = (builder ? [['selected', 'Selected']] : []).concat([['checks', 'Checks'], ['preview', 'Preview']]);
     var ins = V.splitter(ctx, 'ins') + '<aside class="fpe-pane fpe-ins" id="fpe-ins" aria-label="Inspector"><div class="fpe-tabs" role="tablist" aria-label="Inspector">' + tabs.map(function (t) {
       var on = t[0] === tab;
-      return '<button type="button" role="tab" id="ins-t-' + t[0] + '" aria-selected="' + on + '" aria-controls="ins-p-' + t[0] + '" tabindex="' + (on ? 0 : -1) + '" data-act="ins-tab" data-id="' + t[0] + '">' + t[1] + (t[0] === 'checks' && count ? ' <span class="cnt' + (nb ? ' bad' : '') + '">' + count + '</span>' : '') + '</button>';
+      return '<button type="button" role="tab" id="ins-t-' + t[0] + '" aria-selected="' + on + '" aria-controls="ins-p-' + t[0] + '" tabindex="' + (on ? 0 : -1) + '" data-act="ins-tab" data-id="' + t[0] + '"' + (t[0] === 'checks' ? ' aria-label="Checks: ' + esc(checksLabel) + '"' : '') + '>' + t[1] + (t[0] === 'checks' && count ? ' <span class="cnt' + (nb ? ' bad' : '') + '">' + count + '</span>' : '') + '</button>';
     }).join('') + '</div>' + tabs.map(function (t) { return '<div class="fpe-tabpanel" role="tabpanel" id="ins-p-' + t[0] + '" aria-labelledby="ins-t-' + t[0] + '" tabindex="0"' + (t[0] === tab ? '' : ' hidden') + '>' + panes[t[0]] + '</div>'; }).join('') + '</aside>';
     if (builder) h += '<div class="fpe-panes' + (st.partsRail ? ' rail' : '') + '"' + V.paneAttr(ctx, ['parts', 'ins']) + '>' + V.obPartsPane(ctx, p) + V.splitter(ctx, 'parts') + '<section class="fpe-pane fpe-outline" id="ob-outline" aria-label="Outline">' + V.obHoldIn(ctx, p, V.builder(ctx, p, text)) + '</section>' + ins + '</div>';
     else h += '<div class="fpe-panes md"' + V.paneAttr(ctx, ['ins']) + '><section class="fpe-pane fpe-md" aria-label="Markdown">' + mdCorrections(ctx, p, text) + '<label class="sr" for="draft-editor">Checklist Markdown</label><textarea id="draft-editor" data-draft-kept class="code-editor" spellcheck="false" data-bound>\n' + esc(text) + '</textarea></section>' + ins + '</div>';
@@ -231,7 +231,8 @@
     };
     var people = PF.people.sorted(ctx).filter(function (p) { return !p.inactive; });
     var title = typed.title != null ? typed.title : f.title || '', ownId = typed.id != null ? typed.id : f.id || '', file = String(ownId).trim().toLowerCase() || fileIdOf(title);
-    var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">New checklist</div><h1 id="page-h" tabindex="-1">Write down how something is done</h1></div></div>' +
+    /* ‹ Checklists top left, and Cancel goes there too (2.16). */
+    var h = notices(ctx) + V.backRow(V.backc('go-back', '#/processes', 'Checklists')) + '<div class="runhead"><div><div class="eyebrow">New checklist</div><h1 id="page-h" tabindex="-1">Write down how something is done</h1></div></div>' +
       '<form class="panel stack" id="new-process-form" data-scope="new-process">' +
       '<div class="np-tpls" role="group" aria-label="Start from">' + PF.setup.TEMPLATES.slice().sort(function (a, b) { return (a.id === 'blank' ? 0 : 1) - (b.id === 'blank' ? 0 : 1); }).map(function (t) { return '<button type="button" class="chipbtn" data-act="np-tpl" data-id="' + t.id + '" aria-pressed="' + (tpl === t.id) + '">' + esc(t.id === 'assistant' ? 'Ask your AI assistant' : t.title) + '</button>'; }).join('') + '</div>';
     if (tpl === 'assistant') {
@@ -249,7 +250,7 @@
       '<div class="grid2">' + field('context', 'Run details', 'filled in when a run starts, like ticket, commit', f.context) + field('roles', 'Roles', 'who does what, like lead, reviewer', f.roles) + '</div>' +
       '<label class="field" for="np-owner">Owner <span class="small">keeps this checklist up to date</span><select id="np-owner">' + people.map(function (p) { return '<option value="' + esc(p.id) + '"' + ((f.owner || st.me) === p.id ? ' selected' : '') + '>' + esc(nmOwn(p)) + '</option>'; }).join('') + '</select></label>' +
       '<label class="row"><input type="checkbox" id="np-solo"' + (f.solo ? ' checked' : '') + '> Usually run by one person</label></details>';
-    return h + '<div class="row"><button class="btn go" type="submit">' + I('edit') + 'Create the draft</button>' + (tpl !== 'blank' ? '<button class="btn" type="button" data-act="np-publish">' + I('play') + 'Publish v1 as it is</button>' : '') + '<button class="mini" type="button" data-act="np-cancel">Cancel</button></div></form>';
+    return h + '<div class="row"><button class="btn go" type="submit">' + I('edit') + 'Create the draft</button>' + (tpl !== 'blank' ? '<button class="btn" type="button" data-act="np-publish">' + I('play') + 'Publish v1 as it is</button>' : '') + '<button class="mini" type="button" data-act="go-back" data-id="#/processes">Cancel</button></div></form>';
   }
   /* The starting Markdown for a new process: front matter plus one phase to fill in. */
   function starterMap(f) {
@@ -276,7 +277,8 @@
     var st = ctx.state, team = (ctx.data.stepTypes || {}).types || {}, errs = (ctx.data.stepTypes || {}).errors || [];
     var uses = function (id) { return ctx.processes().filter(function (p) { return p.latest && M.usedTypes(p.latest.map).indexOf(id) >= 0; }).length; };
     if (st.typeForm && st.typeForm.fsKey === ctx.fsKey) return typeForm(ctx);
-    var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">Library</div><h1 id="page-h" tabindex="-1">Step types</h1><div class="small">A step\'s type decides what it asks for. Add your own for tools the built-ins don\'t cover.</div></div><div class="row"><button class="btn go" data-act="new-type">' + I('edit') + 'New step type</button></div></div>';
+    var tog = ctx.libOrigin ? ctx.libOrigin('types') : { hash: '#/processes', place: 'Checklists', view: '' };
+    var h = notices(ctx) + V.backRow(tog.ws ? V.backc('type-ws-back', null, tog.place, tog.view) : V.backc('go-back', tog.hash, tog.place)) + '<div class="runhead"><div><div class="eyebrow">Library</div><h1 id="page-h" tabindex="-1">Step types</h1><div class="small">A step\'s type decides what it asks for. Add your own for tools the built-ins don\'t cover.</div></div><div class="row"><button class="btn go" data-act="new-type">' + I('edit') + 'New step type</button></div></div>';
     if (errs.length) h += '<div class="notice warn"><span>' + errs.map(function (e) { return 'step-types/' + esc(e.file) + ': ' + esc(K.capJoin(e.errors, null, '; ', 'type-errs')); }).join('<br>') + '</span></div>';
     var skipped = (ctx.data.stepTypes || {}).skipped || 0;
     if (skipped) h += '<div class="notice warn" role="status"><span><b>' + skipped + ' more step-type file' + (skipped === 1 ? ' wasn\'t' : 's weren\'t') + ' read.</b> Flightdeck reads the first 100 in <code>step-types/</code>, by name. Remove types nobody uses.</span><button class="mini" data-act="health">Folder health</button></div>';
@@ -351,7 +353,8 @@
     /* On a phone the preview opens as a dialog over the form: everything behind it is inert until it closes. */
     var modal = !!st.tfPreview, behind = modal ? ' inert' : '';
     var h = '<div class="fpe fpe-type" id="tfe"><header class="fpe-head" role="region" aria-labelledby="tf-h"' + behind + '>' +
-      '<div class="fpe-id"><button type="button" class="btn fpe-done" data-act="type-done">' + I('back') + 'Done</button><div class="fpe-title"><h1 id="tf-h" tabindex="-1">' + esc(name) + ' <span class="cat">Step type</span></h1></div></div>' +
+      /* ‹ Step types, or ‹ <checklist> · Edit when opened from the workspace (2.16); it asks before discarding changes. */
+      '<div class="fpe-id">' + (function () { var o = ctx.libOrigin ? ctx.libOrigin('types') : null; return o && o.ws ? V.backc('type-done', null, o.place, o.view) : V.backc('type-done', null, 'Step types'); })() + '<div class="fpe-title"><h1 id="tf-h" tabindex="-1">' + esc(name) + ' <span class="cat">Step type</span></h1></div></div>' +
       '<div class="fpe-tools">' + V.undoBar('type', f.tl) + '<button type="button" class="mini tf-prevbtn" data-act="tf-preview" aria-expanded="' + !!st.tfPreview + '" aria-controls="tf-preview">' + I('screen') + 'Preview</button></div>' +
       '<div class="fpe-save"><span class="fpe-state' + (changed ? ' dirty' : '') + (just ? ' just' : '') + '" role="status">' + (f.existing && !changed && !f.saving ? I('check') : '') + status + '</span>' +
       '<button class="btn go" type="submit" form="type-form"' + (f.saving ? ' disabled' : '') + (why ? ' aria-describedby="tf-save-why"' : '') + '>' + (f.saving ? 'Saving…' : 'Save step type') + '</button></div></header>';
@@ -514,11 +517,12 @@
     var st = ctx.state, hit = null, proc = null;
     ctx.processes().forEach(function (p) { p.skills.forEach(function (x) { if ((x.skill.file || x.skill.name) === st.skillFile) { hit = x; proc = p; } }); });
     (ctx.orphanSkills ? ctx.orphanSkills() : []).forEach(function (x) { if ((x.skill.file || x.skill.name) === st.skillFile) hit = x; });
-    if (!hit) return notices(ctx) + '<div class="panel" role="alert">That skill isn\'t registered in this folder any more. <button class="mini" id="page-back" data-act="nav" data-id="skills">Back to Skills</button></div>';
+    if (!hit) return notices(ctx) + V.backRow(V.backc('nav', 'skills', 'Skills', '', ' id="page-back"')) + '<div class="panel" role="alert">That skill isn\'t registered in this folder any more.</div>';
     var s = hit.skill, sw = STATUS_WORDS[hit.status.s] || STATUS_WORDS.missing, href = PF.skills.link(s.location), base = hit.status.base, latest = hit.status.latest;
     var stepText = function (id) { var f = (base || latest) && M.findStep((base || latest).map, id); return f ? K.stepPlain(f.step, null) : id; };
-    var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">Skill' + (s.version ? ' · version ' + esc(s.version) : '') + '</div><h1 id="page-h" tabindex="-1">' + I('spark') + ' ' + esc(s.name) + '</h1>' + (s.description ? '<div class="small">' + esc(s.description) + '</div>' : '') + K.tagChips(s.tags) + '</div>' +
-      '<div class="row">' + (proc ? '<button class="btn" data-act="open-process" data-id="' + esc(proc.id) + '">Open ' + esc(proc.title) + '</button>' : '') + '</div></div>';
+    /* Its checklist is linked once, in About this skill (2.16); the way back names whichever screen opened it. */
+    var og = ctx.libOrigin ? ctx.libOrigin('skill') : { hash: '#/skills', place: 'Skills', view: '' };
+    var h = notices(ctx) + V.backRow(V.backc('go-back', og.hash, og.place, og.view)) + '<div class="runhead"><div><div class="eyebrow">Skill' + (s.version ? ' · version ' + esc(s.version) : '') + '</div><h1 id="page-h" tabindex="-1">' + I('spark') + ' ' + esc(s.name) + '</h1>' + (s.description ? '<div class="small">' + esc(s.description) + '</div>' : '') + K.tagChips(s.tags) + '</div></div>';
     h += '<section class="panel status-card" data-s="' + esc(hit.status.s) + '" aria-labelledby="ss-h"><h2 id="ss-h"><span class="pill ' + sw[0] + '">' + sw[1] + '</span></h2><p>' + esc(hit.status.text) + (sw[2] ? ' ' + esc(sw[2]) : '') + '</p>';
     /* What changed, 50 at a time in its own order (2.11); the update brief is built from all of it when copied. */
     if (hit.status.s === 'update' && hit.status.changes) h += K.list(st, 'sk-changes', K.uniqKeys(hit.status.changes, function (c) { return c.change + '\n' + c.id; }).map(function (k, i) { return { c: hit.status.changes[i], k: 'skc-' + K.domKey(k) }; }), { draw: function (shown) { return '<ul class="changes">' + shown.map(function (r) {
