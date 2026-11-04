@@ -466,12 +466,12 @@ rule('Builder: the new-draft banner names Save draft, the header says what unsav
   app.set('np-title', 'Onboard'); app.submit('new-process-form'); await app.tick(150);
   firstStep(app, 'Say hello'); await app.tick();
   let html = app.html();
-  assert.ok(/choose Save draft, then Review &(amp;)? publish/.test(html + app.live()), 'the banner');
-  const head = between(html, 'class="fpe-head"', '</header>');
-  assert.ok(!/class="cnt/.test(head) && /aria-label="Checks: \d+ tips?"/.test(head), 'tips only: no number');
+  assert.ok(/choose Save draft, then Publish at the top right/.test(html + app.live()), 'the banner');
+  const head = between(html, 'class="fpe-head', '</header>');
+  assert.ok(!/class="cnt/.test(head) && !/id="ins-t-checks"[^>]*>Checks <span class="cnt/.test(html), 'tips only: no number');
   assert.ok(/<span class="lvl tip">Tip<\/span>/.test(html), 'the tips are still listed');
   app.input('draft-editor', app.fs.files['maps/drafts/onboard.md'].t + '- [ ] {confirm} Another {#another}\n'); await app.tick(300);
-  assert.ok(/Unsaved: Save draft before you publish/.test(between(app.html(), 'class="fpe-head"', '</header>')), 'unsaved, said in the header');
+  assert.ok(/Unsaved: Save draft before you publish/.test(between(app.html(), 'class="fpe-head', '</header>')), 'unsaved, said in the header');
 });
 
 rule('Publish: the first version\'s change note is filled in, First version, and can be changed', async () => {

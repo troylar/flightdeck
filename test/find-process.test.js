@@ -585,7 +585,7 @@ rule('Versions: Show changes on a 400-step checklist draws 50 changes, with Show
   assert.ok(app.doc.activeElement === app.node(d.focus), 'focus on the first added change');
 });
 
-rule('Stages: a stage made from the overview, and one from Practice, landing past row 50, is drawn, its fold open, with Start a test run focused', async () => {
+rule('Stages: a stage made from the overview landing past row 50 is drawn, its fold open, with Start a test run focused; one from Practice shows it top right in Edit', async () => {
   const app = await fresh(), U = app.PF.util, rid = U.randomId;
   const latest = Object.keys(app.fs.files).filter(k => /^publications\/versions\/v300-[^/]+\/map\.md$/.test(k))[0];
   const md = app.fs.files[latest].t.replace(/\nversion: [^\n]*/, '').replace('Step 0 of version 300', 'Step 0, staged from the overview');
@@ -617,13 +617,15 @@ rule('Stages: a stage made from the overview, and one from Practice, landing pas
       app.click('pass', String(pi)); await app.tick();
     }
     assert.ok(/You got through the whole checklist\./.test(app.html()), 'set-up: practiced to the end');
-    app.set('pr-note', 'Staged from Practice'); app.fire('input', { target: { id: 'pr-note', value: 'Staged from Practice', tagName: 'INPUT', dataset: {}, closest: () => null } });
-    app.click('pr-stage'); await app.tick(300);
+    app.click('pr-publish-open', 'versions'); await app.tick();
+    app.set('change-note', 'Staged from Practice');
+    const b = { dataset: { act: 'stage-draft', id: 'versions' }, disabled: false, classList: { contains: () => false }, closest: sel => (sel === '#overlay' ? {} : null) };
+    app.fire('click', { target: { closest: () => b } }); await app.tick(300);
     const stg2 = Object.keys(app.fs.files).filter(k => /^staged\/versions\/stage-zzzzzz\d\d\/map\.md$/.test(k)).map(k => k.split('/')[2]).filter(f => f !== stg[0]);
     assert.strictEqual(stg2.length, 1, 'set-up: staged from Practice');
+    /* Practice matched what was staged, so it was cleared and Edit shows the new stage's Start a test run, top right. */
     const h2 = app.html();
-    assert.ok(new RegExp('id="stg-' + stg2[0] + '"').test(h2) && /data-disc="vers:versions" open/.test(h2), 'drawn, its fold open');
-    assert.ok(count(h2, /<li class="stg[^"]*" id="stg-/g) <= 51);
+    assert.ok(/<h1 id="ed-h"/.test(h2) && new RegExp('<div class="fpe-save"><button[^>]*data-act="start-test" data-id="' + stg2[0] + '"').test(h2), 'Edit, the new stage\'s Start a test run the primary');
     assert.strictEqual(app.activeId(), '[data-act="start-test"][data-id="' + stg2[0] + '"]', 'Start a test run focused');
   } finally { U.randomId = rid; }
 });

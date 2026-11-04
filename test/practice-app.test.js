@@ -46,6 +46,11 @@ async function edit(app, fn) {
 /* A sample box typed in, then committed (Enter or leaving it), as the browser sends them. */
 const sample = (app, name, v, commit) => { const target = { id: 'pr-s-' + name, value: v, tagName: 'INPUT', dataset: { prSample: name }, closest: () => null }; app.fire('input', { target }); if (commit) app.fire('change', { target }); };
 const btn = () => ({ tagName: 'BUTTON', dataset: {}, closest: () => null });
+/* A click inside the dialog layer, which practice lets through as it does any dialog. */
+const ovClick = (app, act, id) => { const b = { dataset: { act, id }, disabled: false, classList: { contains: () => false }, closest: s => (s === '#overlay' ? {} : null) }; app.fire('click', { target: { closest: () => b } }); };
+const onOverview = app => /<nav class="pviews" aria-label="Checklist views">/.test(app.html()) && !onPage(app) && !inEditor(app);
+/* The view control's Practice button, as drawn in the editor. */
+const PRACTICE_BTN = /data-act="pr-open"[^>]*>(<span[^>]*>.*?<\/span>)?Practice/;
 const DROP_APPROVED = t => t.replace(/\n- \[!\] \{change\.request\}[^\n]*\{#approved\}\n(  [^\n]*\n)*/, '\n');
 
 /* ---------- the page ---------- */
@@ -157,8 +162,9 @@ rule('Publishing exactly the practiced text ends the practice', async () => {
   const app = await editor();
   await practice(app);
   await check(app, 'rollback');
-  app.click('pr-close'); await app.tick();
-  assert.ok(inEditor(app), 'Done practicing goes back to the editor');
+  app.click('pr-back'); await app.tick();
+  assert.ok(inEditor(app), 'Edit goes back to the editor');
+  app.click('publish-open', 'release'); await app.tick();
   app.set('change-note', 'Practiced'); app.click('publish', 'release'); await app.tick(120);
   assert.match(app.html() + app.live(), /Published v/);
   app.click('ptab', 'edit'); await app.tick();
@@ -183,7 +189,7 @@ rule('Editing a checked step makes it "Try it again", and the folder sees only t
   assert.deepEqual(prac.writes, plain.writes);
 });
 
-rule('Edit opens the builder on that step; Back to practice returns to it, renamed or not, selected', async () => {
+rule('Edit step opens the builder on that step; Practice returns to it, renamed or not, selected', async () => {
   const app = await editor({ localStore: { 'preflight:builder': 'true' } });
   await practice(app);
   await check(app, 'rollback');
@@ -191,7 +197,8 @@ rule('Edit opens the builder on that step; Back to practice returns to it, renam
   app.click('pr-edit', 'flags'); await app.tick();
   assert.ok(inEditor(app), 'in the editor');
   assert.strictEqual(app.focused(), 'ob-text', 'its text box focused');
-  assert.match(app.html(), /data-act="pr-open">Back to practice</, 'the builder offers Back to practice');
+  assert.match(app.html(), PRACTICE_BTN, 'the view control offers Practice');
+  assert.doesNotMatch(app.html(), /Back to practice/, 'and nothing else does');
   app.input('ob-text', 'Feature flags set in the deploy values file'); await app.tick();
   app.click('ob-done'); await app.tick(300);
   app.click('pr-open'); await app.tick(60);
@@ -235,17 +242,18 @@ rule('A step added in the editor is there to practice, and nothing else changes'
   assert.equal(row(app, 'rollback'), 'done');
 });
 
-rule('Browser Back from the editor returns to practice, and Forward goes back to the editor', async () => {
+rule('Edit step replaces the history entry: browser Back from the editor leaves the workspace, and Forward comes back to the editor', async () => {
   const app = await editor();
   await practice(app);
   await check(app, 'rollback');
   app.click('pr-edit', 'flags'); await app.tick();
   assert.ok(inEditor(app));
   app.back(); await app.settle();
-  assert.ok(onPage(app), 'Back: practice');
-  assert.equal(row(app, 'rollback'), 'done');
+  assert.ok(onOverview(app), 'Back: the checklist page, not practice');
   app.forward(); await app.settle();
   assert.ok(inEditor(app), 'Forward: the editor');
+  await practice(app);
+  assert.equal(row(app, 'rollback'), 'done', 'practice kept');
 });
 
 rule('Escape on the practice page goes back to the draft and keeps practicing', async () => {
@@ -255,7 +263,7 @@ rule('Escape on the practice page goes back to the draft and keeps practicing', 
   app.click('close-ref'); await app.tick();
   app.keyOn('Escape', {}, btn()); await app.tick();
   assert.ok(inEditor(app), 'back in the editor');
-  assert.match(app.html(), /data-act="pr-open"[^>]*>(<span[^>]*>.*?<\/span>)?Back to practice/);
+  assert.match(app.html(), PRACTICE_BTN);
   await practice(app);
   assert.equal(row(app, 'rollback'), 'done');
 });
@@ -276,7 +284,7 @@ rule('A refused draft keeps practicing the last version that worked and says wha
   await edit(app, t => t.replace('{#tests}', '{#approved}'));
   assert.match(app.html(), /The draft has a problem:/);
   assert.match(app.html(), /Practicing the last version that worked/);
-  assert.match(app.html(), /data-act="pr-back"[^>]*>Back to the draft to fix it/);
+  assert.match(app.html(), /data-act="pr-back"[^>]*>Fix it in Edit/);
   assert.equal(row(app, 'rollback'), 'done');
 });
 
@@ -474,21 +482,30 @@ async function finished(opts) {
   return app;
 }
 const stageFiles = app => Object.keys(app.fs.files).filter(k => /^staged\/release\/stage-[^/]+\/map\.md$/.test(k));
-const note = (app, v) => { app.set('pr-note', v); app.fire('input', { target: { id: 'pr-note', value: v, tagName: 'INPUT', dataset: {}, closest: () => null } }); };
+/* The Publish dialog opened from the practice header, with What changed typed in. */
+async function dialog(app, v) {
+  app.click('pr-publish-open', 'release'); await app.tick();
+  assert.match(app.overlay(), /id="change-note"/, 'set-up: the Publish dialog');
+  if (v != null) app.set('change-note', v);
+}
 const held = app => { let go; const gate = new Promise(r => { go = r; }); const orig = app.fs.write.bind(app.fs); app.fs.write = (x, d) => /^staged\//.test(x) ? gate.then(() => orig(x, d)) : orig(x, d); return () => { go(); return orig; }; };
+const primary = app => { const m = /<div class="fpe-save">([\s\S]*?)<\/div><\/header>/.exec(app.html()); return m ? m[1] : ''; };
 
-rule('Finishing with unsaved edits offers Save draft, not staging; Save draft on the page saves it, then Stage is offered', async () => {
+rule('Finishing with unsaved edits: the header offers Save draft, the end notice names nothing to stage; once saved, Publish v3… is the primary', async () => {
   const app = await editor();
   app.input('draft-editor', SMALL); await app.tick(300);
   await practice(app);
   await check(app, 'one'); await pass(app, 0); await check(app, 'ship-it');
   if (canPass(app, 1)) await pass(app, 1);
-  assert.match(app.html(), /You got through the whole checklist\. Save it, then stage it for a test run\./);
-  assert.ok(!/data-act="pr-stage"/.test(app.html()), 'no Stage yet');
+  assert.match(app.html(), /You got through the whole checklist\./);
+  assert.doesNotMatch(app.html(), /at the top right publishes it/, 'nothing to publish yet');
+  assert.match(primary(app), /data-act="pr-save"[^>]*>Save draft</);
+  assert.ok(!/data-act="pr-stage"|id="pr-note"/.test(app.html()), 'no Stage or note on the page');
   app.click('pr-save'); await app.tick(200);
   assert.strictEqual(app.fs.files[DRAFT].t, SMALL, 'saved');
   assert.ok(onPage(app), 'still practicing');
-  assert.match(app.html(), /data-act="pr-stage"/);
+  assert.match(primary(app), /data-act="pr-publish-open"[^>]*>Publish v3…</);
+  assert.match(app.html(), /Publish v3… at the top right publishes it, or stages it for a test run\./);
 });
 
 rule('Save draft on the practice page: a conflict says so and offers Compare in the editor; a failure offers Try again', async () => {
@@ -507,64 +524,65 @@ rule('Save draft on the practice page: a conflict says so and offers Compare in 
   }
 });
 
-rule('Stage from Practice stages for real: one stage written, the stage shown with Start a test run focused', async () => {
+rule('Stage from the Publish dialog in Practice stages for real: one stage written, practice cleared, Edit with Start a test run focused', async () => {
   const app = await finished();
-  assert.match(app.html(), /<input id="pr-note"/);
-  note(app, 'Tried the short version');
-  app.click('pr-stage'); await app.tick(300);
+  await dialog(app, 'Tried the short version');
+  ovClick(app, 'stage-draft', 'release'); await app.tick(300);
   assert.strictEqual(stageFiles(app).length, 1, 'one stage');
-  assert.ok(!onPage(app), 'left the practice page');
-  assert.match(app.live(), /Staged\. Start a test run from it/);
-  assert.match(app.html(), /data-act="start-test"/);
+  assert.ok(inEditor(app), 'Edit, since the practice was cleared');
+  assert.ok(!app.overlay(), 'the dialog closed');
+  assert.match(app.live(), /Staged\. Your practice was cleared because it matched what you staged\. Start a test run from it\./, app.live());
+  assert.match(primary(app), /data-act="start-test"/);
   assert.match(app.focused() || '', /start-test/);
 });
 
-rule('Stage from Practice: an empty What changed is refused beside its box, nothing staged', async () => {
+rule('Stage from the Publish dialog: an empty What changed is refused in the dialog, nothing staged', async () => {
   const app = await finished();
-  note(app, '  ');
-  app.click('pr-stage'); await app.tick(200);
+  await dialog(app, '  ');
+  ovClick(app, 'stage-draft', 'release'); await app.tick(200);
   assert.strictEqual(stageFiles(app).length, 0);
-  assert.match(app.html(), /<p class="ferr" id="ferr-pr-note" role="alert">Write what changed/);
+  assert.match(app.overlay(), /id="change-note"/, 'the dialog stays open');
+  assert.match(app.overlay() + app.live(), /what changed/i);
   assert.ok(onPage(app), 'practice still open');
 });
 
-rule('Stage from Practice: what was typed in What changed survives reopening a phase and passing again', async () => {
+rule('Stage from the Publish dialog: what was typed in What changed survives Cancel, reopening a phase and passing again', async () => {
   const app = await finished();
-  note(app, 'Tried the short version');
+  await dialog(app, 'Tried the short version');
+  ovClick(app, 'close-overlay'); await app.tick();
   app.click('reopen', '1'); await app.tick();
-  assert.ok(!/<input id="pr-note"/.test(app.html()), 'set-up: not complete, so no box');
   await pass(app, 1);
-  assert.match(app.html(), /<input id="pr-note"[^>]*value="Tried the short version"/);
+  await dialog(app);
+  assert.match(app.overlay(), /<input id="change-note"[^>]*value="Tried the short version"/);
 });
 
-rule('Stage from Practice: practicing on while the stage saves keeps practice; the stage is still made', async () => {
-  for (const meanwhile of ['select', 'reopen', 'note']) {
+rule('Stage from the Publish dialog: practicing on while the stage saves keeps practice; the stage is still made', async () => {
+  for (const meanwhile of ['select', 'reopen']) {
     const app = await finished(), release = held(app);
-    note(app, 'Tried it'); app.click('pr-stage'); await app.tick(30);
-    if (meanwhile === 'select') app.click('select', 'one'); else if (meanwhile === 'reopen') app.click('reopen', '1'); else note(app, 'Next: shorter gate');
+    await dialog(app, 'Tried it'); ovClick(app, 'stage-draft', 'release'); await app.tick(30);
+    if (meanwhile === 'select') app.click('select', 'one'); else app.click('reopen', '1');
     await app.tick();
     app.fs.write = release(); await app.tick(300);
     assert.strictEqual(stageFiles(app).length, 1, meanwhile + ': staged');
     assert.ok(onPage(app), meanwhile + ': practice kept');
-    assert.match(app.live(), /Staged\. Your practice is still open\./, meanwhile + ': ' + app.live());
-    if (meanwhile === 'note') assert.match(app.html(), /<input id="pr-note"[^>]*value="Next: shorter gate"/);
+    assert.match(app.live(), /Staged\. Your practice is still open\. Start a test run from it\./, meanwhile + ': ' + app.live());
   }
 });
 
-rule('Stage from Practice: going back to the draft, or Back and Forward, while the stage saves keeps practice', async () => {
+rule('Stage from the Publish dialog: Edit, or Back and Forward, while the stage saves keeps practice', async () => {
   for (const meanwhile of ['draft', 'history']) {
     const app = await finished(), release = held(app);
-    note(app, 'Tried it'); app.click('pr-stage'); await app.tick(30);
+    await dialog(app, 'Tried it'); ovClick(app, 'stage-draft', 'release'); await app.tick(30);
     if (meanwhile === 'draft') app.click('pr-back'); else { app.back(); await app.settle(); app.forward(); await app.settle(); }
     await app.tick();
     app.fs.write = release(); await app.tick(300);
     assert.strictEqual(stageFiles(app).length, 1, meanwhile + ': staged');
-    if (meanwhile === 'draft') { assert.ok(inEditor(app), 'draft: still in the editor'); await practice(app); }
+    if (inEditor(app)) await practice(app);
     assert.ok(onPage(app), meanwhile + ': practice kept');
   }
 });
 
-rule('Stage from Practice: a refresh that read the folder before the stage was written never hides the new stage', async () => {
+rule('Stage from the Publish dialog: a refresh that read the folder before the stage was written never hides the new stage', async () => {
   const app = await finished();
   let go, first = true; const gate = new Promise(r => { go = r; });
   const orig = app.fs.list.bind(app.fs);
@@ -572,41 +590,41 @@ rule('Stage from Practice: a refresh that read the folder before the stage was w
   topClick(app, 'refresh');
   for (let i = 0; i < 100 && first; i++) await app.tick(5);
   assert.ok(!first, 'set-up: the refresh read the folder before the stage was written');
-  note(app, 'Tried it'); app.click('pr-stage'); await app.tick(100);
+  await dialog(app, 'Tried it'); ovClick(app, 'stage-draft', 'release'); await app.tick(100);
   go(); await app.tick(60); app.fs.list = orig;
   assert.strictEqual(stageFiles(app).length, 1);
   assert.match(app.html(), /data-act="start-test"/, 'the new stage is shown at once');
 });
 
-rule('Stage from Practice: when the folder can\'t be read after staging, practice stays open and says the stage isn\'t shown yet', async () => {
+rule('Stage from the Publish dialog: when the folder can\'t be read after staging, practice stays open and says the stage isn\'t shown yet', async () => {
   const app = await finished();
   const orig = app.fs.write.bind(app.fs), list = app.fs.list.bind(app.fs);
   let staged = false;
   app.fs.write = (x, d) => { if (/^staged\//.test(x)) staged = true; return orig(x, d); };
   app.fs.list = x => staged ? Promise.reject(new Error('offline')) : list(x);
-  note(app, 'Tried it'); app.click('pr-stage'); await app.tick(300);
+  await dialog(app, 'Tried it'); ovClick(app, 'stage-draft', 'release'); await app.tick(300);
   app.fs.write = orig; app.fs.list = list;
   assert.strictEqual(stageFiles(app).length, 1, 'staged');
   assert.ok(onPage(app), 'practice kept');
   assert.match(app.live(), /a test run can't start from it yet: part of the folder couldn't be read just now\. Your practice is still open\./, app.live());
 });
 
-rule('Stage from Practice: a stage decision that can\'t be read keeps practice open, since no test run can start from it yet', async () => {
+rule('Stage from the Publish dialog: a stage decision that can\'t be read keeps practice open, since no test run can start from it yet', async () => {
   const app = await finished();
   await app.fs.write('staged/release/decisions/stage-x.w-other.1.json', '{ not json');
-  note(app, 'Tried it'); app.click('pr-stage'); await app.tick(300);
+  await dialog(app, 'Tried it'); ovClick(app, 'stage-draft', 'release'); await app.tick(300);
   assert.strictEqual(stageFiles(app).length, 1, 'staged');
   assert.ok(onPage(app), 'practice kept');
   assert.match(app.live(), /a test run can't start from it yet/, app.live());
 });
 
 /* ---------- following the draft ---------- */
-rule('A change someone else saves while practicing is noticed on the page, and Back to the draft shows it', async () => {
+rule('A change someone else saves while practicing is noticed on the page, and Edit shows it', async () => {
   const app = await editor();
   await practice(app);
   await app.fs.write(DRAFT, app.fs.files[DRAFT].t.replace('Rollback commit written', 'Rollback commit noted'));
   app.focus(); await app.tick(300); app.every(); await app.tick(300);
-  assert.match(app.html(), /Someone changed the draft\. Back to the draft to see it\./);
+  assert.match(app.html(), /Someone changed the draft\. Choose Edit to see it\./);
   assert.ok(onPage(app), 'still practicing: nothing adopted under you');
 });
 
@@ -648,7 +666,7 @@ rule('A waiver reason being typed is kept across Edit and Back to practice', asy
   assert.match(app.html(), /id="pick-input"[^>]*value="Covered by the release ticket"|id="pick-input"[^>]*>Covered by the release ticket/);
 });
 
-rule('On a phone, Back from a step opened from practice closes the builder sheet first, then returns to practice', async () => {
+rule('On a phone, Back from a step opened from practice closes the builder sheet first, then leaves the workspace', async () => {
   const app = await editor({ narrow: true, localStore: { 'preflight:builder': 'true' } });
   await practice(app);
   await check(app, 'rollback');
@@ -659,8 +677,9 @@ rule('On a phone, Back from a step opened from practice closes the builder sheet
   assert.ok(!open(), 'the sheet closed');
   assert.ok(inEditor(app), 'still in the editor');
   app.back(); await app.settle();
-  assert.ok(onPage(app), 'then practice');
-  assert.equal(row(app, 'rollback'), 'done');
+  assert.ok(onOverview(app), 'then the checklist page');
+  app.click('pv-practice'); await app.tick(60);
+  assert.equal(row(app, 'rollback'), 'done', 'practice kept');
 });
 
 budget('A 300-step draft: the practice run screen draws and answers well under budget', async () => {
@@ -899,7 +918,7 @@ rule('An open Fill in stays open across a reload, and across a Waive form opened
   assert.match(app.html(), /id="fld-channel"[^>]*value="#release-room"/, 'Waive and back: Fill in open again');
 });
 
-rule('Back to the draft shows the step being practiced, and Back to practice returns to it', async () => {
+rule('Edit shows the step being practiced, and Practice returns to it', async () => {
   const app = await editor({ localStore: { 'preflight:builder': 'true' } });
   app.click('ob-sel', 'flags'); await app.tick();
   app.click('pr-open'); await app.tick(60);
@@ -922,20 +941,24 @@ rule('On a phone, Escape in Fill in closes Fill in first, then the step sheet', 
 });
 
 /* ---------- code review round 5 ---------- */
-rule('Done practicing or browser Back, then Practice, returns to the step being practiced', async () => {
-  for (const how of ['done', 'back']) {
+rule('Edit, the way back or browser Back, then Practice, returns to the step being practiced', async () => {
+  for (const how of ['edit', 'leave', 'back']) {
     const app = await editor({ localStore: { 'preflight:builder': 'true' } });
     app.click('ob-sel', 'flags'); await app.tick();
     app.click('pr-open'); await app.tick(60);
     app.click('select', 'rollback'); await app.tick();
-    if (how === 'done') { app.click('pr-close'); await app.tick(); } else { app.back(); await app.settle(); }
-    assert.ok(inEditor(app), how + ': in the editor');
-    app.click('pr-open'); await app.tick(60);
+    if (how === 'edit') { app.click('pr-back'); await app.tick(); assert.ok(inEditor(app), how + ': in the editor'); app.click('pr-open'); await app.tick(60); }
+    else {
+      if (how === 'leave') { app.click('pr-leave'); await app.tick(); } else { app.back(); await app.settle(); }
+      assert.ok(onOverview(app), how + ': on the checklist page');
+      app.click('pv-practice'); await app.tick(60);
+    }
+    assert.ok(onPage(app), how + ': practicing');
     assert.strictEqual(app.selected(), 'rollback', how);
   }
 });
 
-rule('Edit on an approval opens its own form; Back to practice returns to it (2.10)', async () => {
+rule('Edit gate on an approval opens its own form; Practice returns to it (2.10)', async () => {
   const app = await editor({ localStore: { 'preflight:builder': 'true' } });
   await practice(app);
   app.click('pr-edit', 'ready'); await app.tick();
@@ -943,7 +966,7 @@ rule('Edit on an approval opens its own form; Back to practice returns to it (2.
   assert.match(app.html(), /<input id="ob-g-title"[^>]*value="Ready to deploy"/);
   assert.match(app.html(), /for="ob-g-owner">Who approves\?/, 'the approval form, not the phase form');
   assert.doesNotMatch(app.html(), /id="ob-ph-title"/);
-  assert.match(app.html(), /data-act="pr-open">Back to practice</);
+  assert.match(app.html(), PRACTICE_BTN);
   app.click('pr-open'); await app.tick(60);
   assert.ok(onPage(app), 'back on the practice page');
 });

@@ -1713,7 +1713,7 @@
     if (!su || su.busy || !md || !state.fs || !state.me) return;
     var pid = M.parse(md).meta.process, sfs = state.fs, g = gen, by = state.me;
     su.busy = true; render();
-    var open = function () { setView('process'); state.processId = pid; state.ptab = 'edit'; state.mapVer = null; resetRunUi(); dropEditor(pid); var p = currentProcess(); if (p) openEditor(p); state.focus = 'draft-editor'; say('This is your first checklist. Change what you like, choose Save draft, then Review & publish.', 'good'); render(); window.scrollTo(0, 0); };
+    var open = function () { setView('process'); state.processId = pid; state.ptab = 'edit'; state.mapVer = null; resetRunUi(); dropEditor(pid); var p = currentProcess(); if (p) openEditor(p); state.focus = 'draft-editor'; say('This is your first checklist. Change what you like, choose Save draft, then Publish at the top right.', 'good'); render(); window.scrollTo(0, 0); };
     queued(function () { return repo.saveDraft(sfs, pid + '.md', md, null, { lock: LOCKS ? lock : null, expectText: null }); }).then(function (res) {
       if (g !== gen) return null;
       if (res.conflict && res.theirs !== md) { su.busy = false; say('A draft called ' + pid + '.md is already in the folder, so nothing was replaced. Open it from Checklists.', 'warn'); render(); return null; }
@@ -1817,9 +1817,9 @@
   /* act: an optional button on the message, like { act: 'tl-undo', id: 'draft', label: 'Undo' }. */
   /* Promote, retire or reopen the stage named on the open process page: worked out again from the folder in the queue, so
      what it does is what the folder says now, never what this page last drew. */
-  function stageAct(folder, what) {
+  function stageAct(folder, what, done) {
     var pid = state.processId, sfs = state.fs, pg = gen, by = state.me;
-    if (!pid || !by || state.stageBusy) return;
+    if (!pid || !by || state.stageBusy || state.publishBusy) return;
     state.stageBusy = pid; render();
     queued(function () {
       var still = function () { return pg === gen && state.fs === sfs && state.me === by; };
@@ -1832,9 +1832,10 @@
       if (res && res.dropped) { if (pg === gen) { say('Nothing was changed: another folder was opened, or the person using this window changed, before it could be saved.', 'warn'); render(); } return; }
       if (pg !== gen) return;
       if (res && res.dropped) { say('Nothing was changed: another folder was opened, or the person using this window changed, before it could be saved.', 'warn'); render(); return; }
+      if (done) return done(res);
       say(what === 'promote' ? 'Published as v' + res.version + (res.renumbered ? ': someone published v' + res.proposed + ' while it was staged' : '') + '. New runs use it; runs already started keep their version.' : what === 'retired' ? 'Retired. It stays in the folder; reopen it any time.' : 'Reopened.', 'good');
       return load(true);
-    }, function (e) { state.stageBusy = null; if (pg !== gen) return; say('Couldn\'t ' + (what === 'promote' ? 'make it the default' : what === 'retired' ? 'retire it' : 'reopen it') + ': ' + e.message, 'bad'); load(true); });
+    }, function (e) { state.stageBusy = null; if (pg !== gen) return; if (done && done.fail) { done.fail('Couldn\'t make it the default: ' + e.message); return; } say('Couldn\'t ' + (what === 'promote' ? 'make it the default' : what === 'retired' ? 'retire it' : 'reopen it') + ': ' + e.message, 'bad'); load(true); });
   }
   /* Try again belongs to the person who started the plan, in the folder it was started in (2.1.1): another person, or another
      folder, forgets it, so switching back never brings it back. */
@@ -2432,7 +2433,8 @@
   function liveSplit(key) { return app.querySelector ? app.querySelector('.pane-split[data-split="' + key + '"]') : null; }
   function paneCapture(sp, id) { try { sp.setPointerCapture(id); return true; } catch (x) { return false; } }
   /* A press anywhere (a divider dragged, a box clicked into) is activity too, for Stage from Practice. */
-  document.addEventListener('pointerdown', function () { uiActs++; }, true);
+  function heldPress(t) { return !!(state.overlay && state.overlay.lock && state.overlay.lock() && t && t.closest && t.closest('#overlay')); }
+  document.addEventListener('pointerdown', function (e) { if (!heldPress(e && e.target)) uiActs++; }, true);
   document.addEventListener('pointerdown', function (e) {
     var sp = e.target && e.target.closest && e.target.closest('.pane-split'), spec = sp && V.PANES[sp.getAttribute('data-split')];
     if (!spec || e.button !== 0) return;
@@ -3520,6 +3522,7 @@
      is PF.practice's (which reads PF.run's). Its own Undo, separate from the draft's. */
   var PR = PF.practice;
   state.practicing = {};
+  state.pubNotes = {};
   var prs = {};
   function prStoreKey(pid) { return LS + ':practice:' + fsKey() + ':' + pid; }
   function prEntry(pid) {
@@ -3620,7 +3623,6 @@
       canUndo: e.undo.length > 0, canRedo: e.redo.length > 0, undoLabel: e.undo.length ? e.undo[e.undo.length - 1].label : '',
       hasAnswers: Object.keys(e.st.answers).length > 0 || Object.keys(e.st.gates).length > 0 || Object.keys(e.st.fields || {}).length > 0 || !!e.st.from,
       dirty: !!(ed && editorDirty(p)) || state.obPending === p.id, saving: !!saving, saveState: V.draftStatus(ctx, p, ed, text), saveErr: e.saveErr || null, incoming: prIncoming(p),
-      stageNote: e.stageNote != null ? e.stageNote : p.latest ? '' : 'First version', noteErr: e.noteErr || '', staging: state.stageBusy === p.id,
       canEdit: function (id) { return !!prBuilderKey(p, id); },
       waiveText: function (gid) { var dr = draftOf(key, 'gate:' + gid, false); return dr && dr.record['pick-input'] != null ? dr.record['pick-input'] : ''; } };
     return { P: P, r: r, map: d ? d.map : null };
@@ -3649,8 +3651,8 @@
   /* A change to the draft that waits while practicing (the editor adopts it, with its own checks, when you go back). */
   function prIncoming(p) {
     var ed = editorOf(p.id), w = ((p.proposed || {}).list || []).filter(function (x) { return x.fit === 'ready' || x.fit === 'older' || x.fit === 'already' || x.fit === 'review'; })[0];
-    if (w) return 'Your assistant changed the draft. Back to the draft to see it.';
-    if (ed && !ed.conflict && p.draft && ed.baseHash != null && U.hash(p.draft.md) !== ed.baseHash && p.draft.md !== ed.base) return 'Someone changed the draft. Back to the draft to see it.';
+    if (w) return 'Your assistant changed the draft. Choose Edit to see it.';
+    if (ed && !ed.conflict && p.draft && ed.baseHash != null && U.hash(p.draft.md) !== ed.baseHash && p.draft.md !== ed.base) return 'Someone changed the draft. Choose Edit to see it.';
     return '';
   }
 
@@ -3680,12 +3682,14 @@
     say((back ? 'Undid: ' : 'Redid: ') + x.label + '.', 'good'); state.msg.quiet = true; render();
   }
   /* A successful publish or stage of exactly the practiced text ends the practice; anything else keeps it. */
-  function prEnded(pid, text) {
+  /* Whether it cleared a practice (2.16); guard: in Practice, only while nobody moved on since the click. */
+  function prEnded(pid, text, guard) {
     var k = edKey(pid), e = prs[k];
-    if (!e || !e.good || e.good.text !== text) return;
+    if (!e || !e.good || e.good.text !== text || (guard && !guard())) return false;
     delete prs[k]; delete state.practicing[k];
     Object.keys(state.stepDrafts).forEach(function (dk) { if (dk.indexOf(draftKey(prKey(pid), '')) === 0) delete state.stepDrafts[dk]; });
     try { sessionStorage.removeItem(prStoreKey(pid)); sessionStorage.removeItem(prStoreKey(pid) + ':typed'); } catch (err) { /* this tab only */ }
+    return true;
   }
   /* How far a practice kept in this tab got, for the checklist page and the view control (2.16): its answers whose step is
      still in the current text, out of that text's steps. Read from the kept state (this tab's entry, else its sessionStorage
@@ -3801,7 +3805,7 @@
   function prEdit(id) {
     var p = prNow(); if (!p) return;
     var e = prEntry(p.id), c = prMap(e, prText(p));
-    if (c.problem) { e.refusal = { at: null, msg: 'The draft has a problem: ' + c.problem + ' Back to the draft to fix it.' }; render(); return; }
+    if (c.problem) { e.refusal = { at: null, msg: 'The draft has a problem: ' + c.problem + ' Fix it in Edit.' }; render(); return; }
     var key = prBuilderKey(p, id); if (!key) return;
     var isStep = !!(c.map && M.findStep(c.map, id));
     prHarvest(); prTripOut(e); prTouch(e);
@@ -3818,8 +3822,9 @@
       }
     });
   }
-  /* To the editor (a history entry, so Back returns to practice). */
+  /* To the editor: a move inside the workspace, so it replaces the history entry (2.16): one Back leaves the workspace. */
   function prToEditor(p, then) {
+    H.mode = 'replace';
     setView('process'); state.processId = p.id; state.ptab = 'edit'; state.mapVer = null; openEditor(p);
     state.sel = null; state.pick = null; state.refOpen = false; state.fieldErr = null;
     if (then) then();
@@ -3828,10 +3833,10 @@
   }
   /* Into the practice page for the open draft, from the editor or a link: the editor's typing is applied first (refused with
      the usual hint); the run that was open is put away (its typing kept, as leaving it does), never restored from here. */
-  function prEnter(p, how) {
+  function prEnter(p, how, notEd) {
     var pend = prPending(p.id) || (state.obPending === p.id ? 'Apply or clear what you typed in the box first, then practice it.' : '');
-    if (pend && state.view === 'process') { say(pend, 'warn'); render(); return false; }
-    var e = prEntry(p.id), was = state.view === 'process' && state.ptab === 'edit' && state.processId === p.id;
+    if (pend && state.view === 'process') { say(pend, 'warn'); state.focus = '[data-act="pr-open"]'; render(); return false; }
+    var e = prEntry(p.id), was = !notEd && state.view === 'process' && state.ptab === 'edit' && state.processId === p.id;
     if (was) { if (!e.trip) e.trip = { sel: null, top: null, insOpen: !narrow(), pick: null, target: null }; prTargetNow(p); }
     /* A change that arrived while away is adopted first, with the editor's own checks, so practice follows it. */
     followDrafts();
@@ -3971,13 +3976,12 @@
         if (state.builder === false) { var os = PF.outline.parse(edText(p)).steps.filter(function (x) { return x.key === key; })[0]; state.mdLine = os ? os.line : null; }
       });
     },
-    'pr-close': function () { var p = prNow(); if (!p) return; prHarvest(); prTouch(prEntry(p.id)); prToEditor(p, function () { state.focus = '[data-act="pr-open"]'; say('Practice is kept in this tab. Choose Practice to pick it up again.', 'good'); state.msg.quiet = true; }); },
     'pr-samples': function () { state.prSamples = !state.prSamples; state.focus = state.prSamples ? 'pr-sample-h' : '[data-act="pr-samples"]'; render(); },
     'pr-found-open': function () { state.prFound = !state.prFound; state.focus = state.prFound ? 'pr-found' : '[data-act="pr-found-open"]'; render(); },
     'pr-save': function () {
       var p = prNow(); if (!p) return; var e = prEntry(p.id), pend = prPending(p.id); if (pend) { say(pend, 'warn'); render(); return; }
       prHarvest(); e.saveErr = null;
-      var ed = openEditor(p), ae = document.activeElement, from = ae && ae.dataset ? ae.dataset.act : null, back = from === 'pr-save' ? '[data-act="pr-save"], [data-act="pr-close"]' : null;
+      var ed = openEditor(p), ae = document.activeElement, from = ae && ae.dataset ? ae.dataset.act : null, back = from === 'pr-save' ? '[data-act="pr-save"], [data-act="pr-back"]' : null;
       saveDraftText(p, ed.text != null ? ed.text : ed.base, ed.baseHash, 'Draft saved.', { expectText: ed.baseHash == null ? null : ed.base, done: function (how) {
         e.saveErr = how === 'conflict' ? { conflict: true, msg: 'Not saved: someone else changed this draft since you opened it. Compare them in the editor, then keep yours or take theirs.' } : how === 'failed' ? { conflict: false, msg: 'The draft couldn\'t be saved. Your edits are still here.' } : null;
         /* A save that finishes after you moved on only updates the save state and its message. */
@@ -4022,8 +4026,20 @@
     handler(id, el); return true;
   }
   var prActs = {
-    /* The editor's Practice (and Back to practice): the practice run screen for what's on screen. */
-    'pr-open': function () { var p = currentProcess(); if (!p) return; prEnter(p); },
+    /* The view control's Practice in Edit: the practice run screen for what's on screen, in place of the editor's entry. */
+    'pr-open': function () { var p = currentProcess(); if (!p) return; prEnter(p, 'replace'); },
+    /* The workspace header's own controls in Practice (2.16): each the shared handler Edit's copy calls. */
+    /* The way back: leaving goes through prLeave, as browser Back does, so Practice from the checklist page lands on the same step. */
+    'pr-leave': function () { var p = prNow(); if (!p) return; prTouch(prEntry(p.id)); wsLeave(p, true); },
+    'pr-publish-open': function (id) { var p = prNow(); if (p && p.id === id) wsPublishOpen(id); },
+    'pr-promote-open': function (folder) { if (prNow()) wsPromoteOpen(folder); },
+    'pr-start-test': function (folder) { var p = prNow(); if (!p) return; var e = prEntry(p.id); prHarvest(); prTripOut(e); prTouch(e); ACTIONS['start-test'](folder); },
+    'pr-test-run': function (key) { var p = prNow(); if (!p || !ctx.findRun(key)) return; var e = prEntry(p.id); prHarvest(); prTripOut(e); prTouch(e); ACTIONS['open-run'](key); },
+    'pr-problems': function () {
+      var p = prNow(); if (!p) return; var e = prEntry(p.id);
+      prHarvest(); prTripOut(e); e.trip.target = null; prTouch(e);
+      prToEditor(p, function () { state.insTab = 'checks'; state.focus = '#ins-t-checks'; });
+    },
     'pr-undo': function () { var p = prNow(); if (p) prMove(p.id, true); },
     'pr-redo': function () { var p = prNow(); if (p) prMove(p.id, false); },
     'pr-reset': function () { var p = prNow(); if (!p) return; var re = prEntry(p.id); if (!prDo(p.id, 'Reset', function (st) { re.typed = {}; re.sampleErr = {}; return PR.reset(st); }, 'run-h')) return; say('Practice reset. Undo brings it back.', 'good', { act: 'pr-undo', label: 'Undo' }); render(); },
@@ -4037,30 +4053,23 @@
       if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(function () { say1('Copied. Paste it wherever you keep notes, or to your AI assistant.'); }, hand);
       else hand();
     },
-    /* From the success notice: unsaved edits are saved first (the notice offers Save draft then); a saved draft goes to its
-       process page with All versions open on the change note, where Stage the draft for testing is. */
-    'pr-stage': function () {
-      var p = currentProcess(); if (!p) return;
-      if (state.obPending === p.id && state.obPendingField) { say('Apply or clear what you typed in the box first ' + applyHint(state.obPendingField) + ', then save the draft and stage it.', 'warn'); render(); return; }
-      if (editorDirty(p)) { say('Save the draft first, then stage it.', 'warn'); state.focus = '[data-act="pr-save"]'; render(); return; }
-      var e = prEntry(p.id), note = String(e.stageNote != null ? e.stageNote : p.latest ? '' : 'First version').trim();
-      if (!note) { e.noteErr = 'Write what changed (one line), then stage it.'; state.focus = 'pr-note'; render(); return; }
-      stageDraft(p.id, note, { e: e, act: e.act || 0, text: edText(p), note: e.stageNote, ui: uiActs });
-    }
   };
   /* Every click on a control, key pressed, or box typed in or changed counts here: anything done after Stage is someone
      moving on, even when it ends where it began. */
   var uiActs = 0;
-  /* Stage the saved draft for test runs (the overview's Stage button, or Practice's: origin). Same checks and write either way. */
-  function stageDraft(id, note, origin) {
+  /* Stage the saved draft for test runs: the overview's Stage button (origin null, as always), or the workspace's Publish
+     dialog (done: called with the result and the text staged, to close the dialog and say what happened; done.fail with
+     the words when nothing was staged). Same checks and write either way. */
+  function stageDraft(id, note, origin, done) {
       var p = procFind(id);
-      if (!p || !p.draft || stillSaving(p) || state.stageBusy) return;
+      if (!p || !p.draft || stillSaving(p) || state.stageBusy || state.publishBusy) return;
       var ed = editorOf(p.id);
       if (dirty(ed) || (ed && ed.conflict) || state.obPending === p.id || shotBusy(p.id)) { say('Your edits to this draft aren\'t saved yet, so nothing was staged. Save them first.', 'warn'); render(); return; }
       var shown = p.draft.md, sfs = state.fs, pg = gen, by = state.me, people = data.people, wfs = data.jira.workflows, pids = processes().filter(function (x) { return x.latest; }).map(function (x) { return x.id; });
       state.stageBusy = id; render();
       /* Bound to the folder it was asked in: another folder opened meanwhile drops it, before any read and before the write. */
       var stale = function () { return pg !== gen || state.fs !== sfs || state.me !== by; };
+      var fail = function (m, kind) { if (done && done.fail) done.fail(m); else { say(m, kind || 'warn'); render(); } };
       queued(function () {
         if (stale()) return { dropped: true };
         return Promise.all([sfs.read('maps/drafts/' + p.draft.file), repo.loadStepTypes(sfs)]).then(function (got) {
@@ -4072,44 +4081,101 @@
         });
       }).then(function (res) {
         state.stageBusy = null; if (pg !== gen) return;
-        if (res.dropped) { say('Nothing was staged: the person using this window changed before it could be saved.', 'warn'); render(); return; }
-        if (res.changed) { say('The draft changed since this page was drawn, so nothing was staged. Here is the newest draft.', 'warn'); return load(true); }
-        if (res.blockers) { say(res.blockers[0], 'warn'); render(); return; }
-        if (!origin) {
-          prEnded(id, shown); state.clearInputs = 'change-note'; state.disc = Object.assign({}, state.disc); state.disc['vers:' + id] = true;
-          say('Staged. Only test runs use it until someone makes it the default.', 'good');
-          /* The new stage is shown whatever the page of Stages (2.11), with Start a test run focused and in view. */
-          return loadAfterWrite().then(function () { if (pg !== gen || state.processId !== id || state.view !== 'process') return; ensureListItemVisible('stages:' + id, res.folder, { focus: '[data-act="start-test"][data-id="' + cssEsc(res.folder) + '"]', word: 'staged' }); render(); });
-        }
-        /* From Practice: the stage's page opens, and practice ends, only if nobody moved on meanwhile (same folder, person and
-           process, the editor's text as it was, no unapplied typing, no practice activity since the click). */
-        var calm = function () {
-          var cp = currentProcess(), oe = prs[edKey(id)], ae = document.activeElement;
-          return pg === gen && state.fs === sfs && state.me === by && cp && cp.id === id && state.view === 'practice' &&
-            oe === origin.e && (oe.act || 0) === origin.act && edText(cp) === origin.text && uiActs === origin.ui && !(state.obPending === id && state.obPendingField) &&
-            !(ae && ae.id !== 'pr-note' && /INPUT|TEXTAREA|SELECT/.test(ae.tagName || ''));
-        };
-        /* A note typed since the click is the person's next one: only the note that was staged is cleared. */
-        /* Cleared now, before the folder is read again, so nothing typed after this point is touched; '' (not the "First
-           version" prefill) so an empty box is refused like any other. */
-        if (origin.e.stageNote === origin.note) { origin.e.stageNote = ''; origin.e.noteErr = null; var nb = document.getElementById('pr-note'), np = currentProcess(); if (nb && np && np.id === id && prs[edKey(id)] === origin.e) nb.value = ''; }
-        /* The stage must be in what the folder read says, ready to start a test run from, before practice ends for it. */
-        var shown1 = function () {
-          var procs = (data.stages || {}).procs || {}, sp = Object.prototype.hasOwnProperty.call(procs, id) ? procs[id] : null, cp = procFind(id);
-          var s = sp && cp ? sp.stages.filter(function (x) { return x.folder === res.folder; })[0] : null;
-          if (state.folderErr || (data.failed || {}).stages || !s || !s.ok || s.newer || sp.unlisted || sp.unread.length || sp.refused.some(function (r) { return /\/decisions\//.test(r.path); })) return false;
-          return PF.staging.status(s, sp.decisions, cp.all).status === 'staged';
-        };
-        return loadAfterWrite().then(function () {
-          if (pg !== gen) return;
-          if (!shown1()) { say('Staged as ' + res.folder + ', but a test run can\'t start from it yet: part of the folder couldn\'t be read just now. Your practice is still open.', 'warn'); render(); return; }
-          if (!calm()) { say('Staged. Your practice is still open.', 'good'); render(); return; }
-          prEnded(id, shown); setView('process'); state.processId = id; state.ptab = 'overview'; state.mapVer = null; state.disc = Object.assign({}, state.disc); state.disc['vers:' + id] = true;
-          ensureListItemVisible('stages:' + id, res.folder, { focus: '[data-act="start-test"][data-id="' + cssEsc(res.folder) + '"]', word: 'staged' });
-          say('Staged. Start a test run from it; only test runs use it until someone makes it the default.', 'good'); render();
-        });
-      }, function (e) { state.stageBusy = null; if (pg !== gen) return; say('Couldn\'t stage it: ' + e.message, 'bad'); load(true); });
-
+        if (res.dropped) { fail('Nothing was staged: the person using this window changed before it could be saved.'); return; }
+        if (res.changed) { fail('The draft changed since this page was drawn, so nothing was staged. Here is the newest draft.'); return load(true); }
+        if (res.blockers) { fail(res.blockers[0]); return; }
+        if (done) return done(res, shown);
+        void origin;
+        prEnded(id, shown); state.clearInputs = 'change-note'; state.disc = Object.assign({}, state.disc); state.disc['vers:' + id] = true;
+        say('Staged. Only test runs use it until someone makes it the default.', 'good');
+        /* The new stage is shown whatever the page of Stages (2.11), with Start a test run focused and in view. */
+        return loadAfterWrite().then(function () { if (pg !== gen || state.processId !== id || state.view !== 'process') return; ensureListItemVisible('stages:' + id, res.folder, { focus: '[data-act="start-test"][data-id="' + cssEsc(res.folder) + '"]', word: 'staged' }); render(); });
+      }, function (e) { state.stageBusy = null; if (pg !== gen) return; if (done && done.fail) { done.fail('Couldn\'t stage it: ' + e.message); return; } say('Couldn\'t stage it: ' + e.message, 'bad'); load(true); });
+  }
+  /* ---------- the workspace's primary and its Publish dialog (2.16) ----------
+     One handler per move, called by Edit's act and by Practice's pr-* copy. */
+  function pubDlg(pid) { var o = state.overlay; return o && o.wsPublish === pid ? o : null; }
+  /* The checklist page, from the workspace's ‹ <title>: focus on the strip's button for the view left. */
+  function wsLeave(p, fromPractice) {
+    setView('process'); state.processId = p.id; state.ptab = 'overview'; state.mapVer = null; state.sel = null; state.pick = null; state.obPlace = null; state.obAsk = null;
+    state.focus = fromPractice ? '[data-act="pv-practice"]' : '[data-act="ptab"][data-id="edit"]'; render(); window.scrollTo(0, 0);
+  }
+  function wsPublishOpen(pid) {
+    var p = currentProcess(); if (!p || p.id !== pid) return;
+    var pm = V.wsPrimary(ctx, p, state.view === 'practice'); if (pm.kind !== 'publish') return;
+    /* Held (nobody chosen, or checks block it): the click only takes focus to the reason. */
+    if (pm.why) { state.focus = 'ws-why'; render(); return; }
+    var kept = state.pubNotes[edKey(pid)], note = kept && kept.gen === gen && kept.fsKey === fsKey() ? kept.text : p.latest ? '' : 'First version';
+    var o = { wsPublish: pid, note: note, clicked: null, err: '', sent: false };
+    /* lock: writing, so nothing closes it (Escape, Cancel, Back); held alone only keeps Back from closing a dialog. */
+    o.held = o.lock = function () { return state.publishBusy === pid || state.stageBusy === pid; };
+    o.html = function () { var cp = procFind(pid); return cp ? V.publishDialog(ctx, cp, o) : ''; };
+    /* Closed without writing: the note is kept for the next time, in this folder and read only. */
+    o.onClose = function () { if (o.sent) { delete state.pubNotes[edKey(pid)]; return; } var el = document.getElementById('change-note'); state.pubNotes[edKey(pid)] = { gen: gen, fsKey: fsKey(), text: el ? String(el.value || '') : o.note }; };
+    state.overlayFocus = '#change-note';
+    openOverlay(o);
+  }
+  function wsPromoteOpen(folder) {
+    var p = currentProcess(); if (!p) return;
+    var pm = V.wsPrimary(ctx, p, state.view === 'practice'); if (pm.kind !== 'promote') return;
+    var pid = p.id, o = { wsPromote: folder, err: '', sent: false };
+    /* lock: writing, so nothing closes it (Escape, Cancel, Back); held alone only keeps Back from closing a dialog. */
+    o.held = o.lock = function () { return state.publishBusy === pid || state.stageBusy === pid; };
+    o.html = function () { var cp = procFind(pid); return cp ? V.promoteDialog(ctx, cp, folder, o) : ''; };
+    state.overlayFocus = '[data-act="promote-stage"]';
+    openOverlay(o);
+  }
+  /* In Practice, the switch to Edit and clearing practice after a write happen only if nobody moved on since the click: the
+     same view, practice entry and activity, editor text, folder, person and read, no click or typing since, no typing focus. */
+  function wsGuard(pid) {
+    if (state.view !== 'practice') return null;
+    var p = currentProcess(), e = prs[edKey(pid)], c = { e: e, act: e ? e.act || 0 : 0, text: p ? edText(p) : null, fs: state.fs, me: state.me, gen: gen, ui: uiActs };
+    return function () {
+      var cp = currentProcess(), ae = document.activeElement;
+      return state.view === 'practice' && !!cp && cp.id === pid && !!c.e && prs[edKey(pid)] === c.e && (c.e.act || 0) === c.act && edText(cp) === c.text && state.fs === c.fs && state.me === c.me && gen === c.gen && uiActs === c.ui &&
+        !(state.obPending === pid && state.obPendingField) && !(ae && /INPUT|TEXTAREA|SELECT/.test(ae.tagName || ''));
+    };
+  }
+  /* After a publish or stage from the dialog: it closes, practice that matched is cleared (in Practice only under the guard,
+     and then the view goes to Edit), the notice says which, and focus goes to the status line or the new Start a test run.
+     A stage clears practice only once the folder read shows it, ready to start a test run from. */
+  function wsWritten(dlg, guard, r) {
+    var pid = dlg.wsPublish, k = edKey(pid), pg = gen;
+    if (state.overlay !== dlg) return load(true);
+    dlg.sent = true;
+    var practice = state.view === 'practice', had = !!prs[k] || !!state.practicing[k], pubd = r.kind === 'publish';
+    var end = function () {
+      var ended = practice ? !!guard && prEnded(pid, r.text, guard) : prEnded(pid, r.text), p = procFind(pid);
+      if (ended && practice && p) prToEditor(p);
+      return ended;
+    };
+    var said = function (ended) {
+      var kept = had && !ended;
+      return pubd ? 'Published v' + r.version + '.' + (ended ? ' Your practice was cleared because it matched what you published.' : kept ? ' Your practice is still open.' : '') + (r.included ? ' It includes ' + r.included + ' correction' + (r.included === 1 ? '' : 's') + '.' : '')
+        : 'Staged.' + (ended ? ' Your practice was cleared because it matched what you staged.' : kept ? ' Your practice is still open.' : '') + ' Start a test run from it.';
+    };
+    if (pubd) { var ended = end(); closeOverlay(); say(said(ended), 'good'); state.msg.line = true; state.focus = 'ws-said'; return load(true); }
+    closeOverlay(); render();
+    return loadAfterWrite().then(function () {
+      if (pg !== gen) return;
+      if (!wsShown(pid, r.folder)) { say('Staged as ' + r.folder + ', but a test run can\'t start from it yet: part of the folder couldn\'t be read just now.' + (had ? ' Your practice is still open.' : ''), 'warn'); state.msg.line = true; state.focus = 'ws-said'; render(); return; }
+      say(said(end()), 'good'); state.msg.line = true;
+      if (state.processId !== pid) { render(); return; }
+      state.focus = (state.view === 'practice' ? '[data-act="pr-start-test"]' : '[data-act="start-test"]') + '[data-id="' + cssEsc(r.folder) + '"]'; render();
+    });
+  }
+  /* The new stage is in what the folder read says and nothing hides it, so a test run can start from it. */
+  function wsShown(pid, folder) {
+    var procs = (data.stages || {}).procs || {}, sp = Object.prototype.hasOwnProperty.call(procs, pid) ? procs[pid] : null, cp = procFind(pid);
+    var s = sp && cp ? sp.stages.filter(function (x) { return x.folder === folder; })[0] : null;
+    if (state.folderErr || (data.failed || {}).stages || !s || !s.ok || s.newer || sp.unlisted || sp.unread.length || sp.refused.some(function (x) { return /\/decisions\//.test(x.path); })) return false;
+    return PF.staging.status(s, sp.decisions, cp.all).status === 'staged';
+  }
+  function wsFailed(dlg, sel) {
+    return function (m) {
+      if (state.overlay !== dlg) { say(m, 'warn'); render(); return; }
+      dlg.err = m; dlg.clicked = null; state.overlayFocus = sel; render();
+    };
   }
   /* ---------- applying a correction to the draft (docs/design.md section 19, slice 2) ---------- */
   function caOv() { return state.overlay && state.overlay.corrApply ? state.overlay : null; }
@@ -5802,7 +5868,8 @@
     if (state.view === 'practice' && state.processId === loc.process) return 'moved';
     var res = moveToProcess({ view: 'process', process: loc.process, tab: 'edit' });
     var p = currentProcess();
-    if (p && p.id === loc.process && state.view === 'process' && state.ptab === 'edit') { prEnter(p); return 'focus'; }
+    /* Arriving from outside the editor (the checklist page, a link): the editor's last-touched part isn't the place to return to. */
+    if (p && p.id === loc.process && state.view === 'process' && state.ptab === 'edit') { prEnter(p, null, true); return 'focus'; }
     return res;
   }
   function moveToPlan(loc) {
@@ -5876,7 +5943,8 @@
     var handler = ACTIONS[act], guarded = onPracticePage(b);
     if (!handler && !guarded) return;
     e.preventDefault();
-    uiActs++;
+    /* A press on a dialog locked while it writes isn't someone moving on (2.16): it does nothing there. */
+    if (!heldPress(b)) uiActs++;
     harvest();
     if (guarded) dispatch(act, id, b); else handler(id, b);
   });
@@ -6213,7 +6281,9 @@
     'renamed-ok': function () { state.renamed = true; lsSet('renamed-checklists', true); state.focus = 'page-h'; render(); },
     'ob-rail': function () { state.partsRail = !state.partsRail; lsSet('partsRail', state.partsRail); state.focus = '[data-act="ob-rail"]'; render(); },
     /* Done leaves the editor; edits not saved stay in it, and the process page says so. */
+    /* ‹ <title>: the checklist page. Typing in a builder box that isn't applied refuses it, as browser Back does (2.16). */
     'ed-done': function () {
+      var bx = pendingBox(); if (bx) { refuseFor(bx); return; }
       var p = currentProcess(); state.obPlace = null; state.obAsk = null;
       if (p && editorDirty(p)) say('Your changes aren\'t saved yet. They stay in the editor until you save or discard them.', 'warn'); else say(null);
       state.ptab = 'overview'; state.focus = '[data-act="ptab"][data-id="edit"]'; render(); window.scrollTo(0, 0);
@@ -6663,7 +6733,9 @@
     'decline-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0], g = gen; if (!p) return; if (planHeld(p)) { say(planHeld(p), 'warn'); render(); return; } var dfs = state.fs, dkey = fsKey(), who = state.me, still = planStill(g, dfs, dkey, who); queued(function () { if (!still()) return { dropped: true }; return repo.decidePlan(dfs, p, { action: 'declined', sha: p._sha, lock: LOCKS ? lock : null, still: still, write: function () { return repo.recordPlanStatus(dfs, p, WRITER, 'declined', null, who, null, APP_VERSION); } }); }).then(function (res) { if (res && res.dropped) { say('The plan wasn\'t declined. ' + nothingWritten(g, dfs, dkey, who), 'warn'); render(); return; } if (g !== gen) return; if (!still()) return load(true); home(); say('Plan declined. It stays in the folder for reference.'); return load(true); }, function (e) { say(aboutWhat(still, g, dfs, dkey, who) + 'Couldn\'t decline it: ' + e.message, 'bad'); render(); }); },
     diff: function (id) { state.diffOf = state.diffOf === id ? null : id; render(); },
     publish: function (id) {
-      var p = procFind(id), note = (document.getElementById('change-note') || {}).value || '';
+      /* One write at a time (2.16): a second click, or the dialog's other button while this one writes, does nothing. */
+      if (state.publishBusy === id || state.stageBusy === id) return;
+      var p = procFind(id), note = (document.getElementById('change-note') || {}).value || '', dlg = pubDlg(id);
       if (!p || !p.draft || stillSaving(p)) return;
       /* Publishing takes the draft in the folder, so edits waiting unsaved in the editor would be left out: never publish then. */
       var ed = editorOf(p.id);
@@ -6674,6 +6746,9 @@
       var shown = p.draft.md, draftPath = 'maps/drafts/' + p.draft.file;
       /* Everything the publication is checked against comes from this folder now, before the queue waits on anything. */
       var pfs = state.fs, pg = gen, by = state.me, people = data.people, wfs = data.jira.workflows, pids = processes().filter(function (x) { return x.latest; }).map(function (x) { return x.id; });
+      var guard = dlg ? wsGuard(id) : null, fail = dlg ? wsFailed(dlg, '[data-act="publish"]') : null;
+      if (dlg) { dlg.note = note; dlg.clicked = 'publish'; dlg.err = ''; state.overlayFocus = '[data-act="publish"]'; }
+      state.publishBusy = id; render();
       queued(function () {
         /* Step types too are read again here, after any save of one ahead in the queue, so a version never freezes a
            type's earlier rules; publishing re-checks the checklist against them. */
@@ -6685,20 +6760,44 @@
           return repo.publish(pfs, f.text, { people: people, customTypes: got[1].types, workflows: wfs, processes: pids, by: by, changes: note, existing: p.taken, now: new Date().toISOString(), corrections: inc, app: APP_VERSION }).then(function (res) { if (res && !res.blockers) res.included = inc.length; return res; });
         });
       }).then(function (res) {
+        state.publishBusy = null;
         if (pg !== gen) return;
-        if (res.changed) { say('The draft changed since this page was drawn, so nothing was published. Here is the newest draft: check it, then publish.', 'warn'); return load(true); }
-        if (res.blockers) { say(res.blockers[0], 'warn'); render(); return; }
+        if (res.changed) { state.publishBusy = null; if (fail) fail('The draft changed since this page was drawn, so nothing was published. Here is the newest draft: check it, then publish.'); else say('The draft changed since this page was drawn, so nothing was published. Here is the newest draft: check it, then publish.', 'warn'); return load(true); }
+        if (res.blockers) { state.publishBusy = null; if (fail) fail(res.blockers[0]); else { say(res.blockers[0], 'warn'); render(); } return; }
+        if (dlg) return wsWritten(dlg, guard, { kind: 'publish', version: res.version, text: shown, included: res.included });
         prEnded(id, shown); state.clearInputs = 'change-note'; say('Published v' + res.version + '. New runs use it; runs already started keep their version.' + (res.included ? ' It includes ' + res.included + ' correction' + (res.included === 1 ? '' : 's') + '.' : ''), 'good');
         return load(true);
-      }, function (e) { if (pg !== gen) return; say('Couldn\'t publish: ' + e.message, 'bad'); render(); });
+      }, function (e) { state.publishBusy = null; if (pg !== gen) return; if (fail) { fail('Couldn\'t publish: ' + e.message); return; } say('Couldn\'t publish: ' + e.message, 'bad'); render(); });
     },
     /* Staging (2.1): stage the draft as shown, make a stage the default, retire or reopen one. Anyone may; each is logged. */
     'stage-draft': function (id) {
-      var note = ((document.getElementById('change-note') || {}).value || '').trim();
+      if (state.publishBusy === id || state.stageBusy === id) return;
+      var raw = (document.getElementById('change-note') || {}).value || '', note = raw.trim(), dlg = pubDlg(id);
+      if (dlg) {
+        dlg.note = raw;
+        if (!note) { dlg.err = 'Write what changed (one line), then stage it.'; state.overlayFocus = '#change-note'; render(); return; }
+        var guard = wsGuard(id), done = function (res, shown) { return wsWritten(dlg, guard, { kind: 'stage', folder: res.folder, text: shown }); };
+        done.fail = wsFailed(dlg, '[data-act="stage-draft"]'); dlg.clicked = 'stage'; dlg.err = ''; state.overlayFocus = '[data-act="stage-draft"]';
+        stageDraft(id, note, null, done); return;
+      }
       if (!note) { say('Write what changed (one line) above, then stage it.', 'warn'); state.focus = 'change-note'; render(); return; }
       stageDraft(id, note, null);
     },
-    'promote-stage': function (folder) { stageAct(folder, 'promote'); },
+    'promote-stage': function (folder) {
+      var dlg = state.overlay && state.overlay.wsPromote === folder ? state.overlay : null;
+      if (!dlg) { stageAct(folder, 'promote'); return; }
+      var done = function (res) {
+        if (state.overlay === dlg) { dlg.sent = true; closeOverlay(); }
+        say('Published as v' + res.version + (res.renumbered ? ': someone published v' + res.proposed + ' while it was staged' : '') + '. New runs use it; runs already started keep their version.', 'good');
+        state.msg.line = true; state.focus = 'ws-said'; return load(true);
+      };
+      done.fail = wsFailed(dlg, '[data-act="promote-stage"]'); state.overlayFocus = '[data-act="promote-stage"]';
+      stageAct(folder, 'promote', done);
+    },
+    'publish-open': function (id) { wsPublishOpen(id); },
+    'promote-open': function (folder) { wsPromoteOpen(folder); },
+    /* Show problems: the inspector's Checks tab. */
+    'ws-problems': function () { if (!(state.view === 'process' && state.ptab === 'edit')) return; state.insTab = 'checks'; state.focus = '#ins-t-checks'; render(); },
     'retire-stage': function (folder) { stageAct(folder, 'retired'); },
     /* Sign off a staged version (2.1 slice 6): its owner, once enough of its test runs are clean; the person is checked again
        right before the write. */
@@ -7304,7 +7403,7 @@
       }, function (e) { if (g === gen) { say('Couldn\'t save "' + name + '": ' + e.message, 'bad'); render(); } });
     },
     'lb-step': function (d) { if (state.overlay && state.overlay.list) { var L = state.overlay.list.length; state.overlay.i = (state.overlay.i + (+d) + L) % L; render(); } },
-    'close-overlay': function () { closeOverlay(); }
+    'close-overlay': function () { if (state.overlay && state.overlay.lock && state.overlay.lock()) return; closeOverlay(); }
   };
   /* Export evidence: the dialog's actions live in src/ui/exporter.js. */
   var exporter = PF.exporter({ ctx: ctx, state: state, gen: function () { return gen; }, open: openOverlay, render: render, version: APP_VERSION });
@@ -7900,7 +7999,7 @@
         if (!here() || !processes().some(function (x) { return x.id === f.id; })) { say('Created the draft for "' + f.title + '". Open it from Checklists.', 'good'); render(); return; }
         if (!publish) {
           setView('process'); state.processId = f.id; state.ptab = 'edit'; dropEditor(f.id); var np = currentProcess(); if (np) openEditor(np); state.newProc = null;
-          var msg = 'Draft created. Fill in the steps, choose Save draft, then Review & publish.'; state.focus = 'draft-editor';
+          var msg = 'Draft created. Fill in the steps, choose Save draft, then Publish at the top right.'; state.focus = 'draft-editor';
           /* A blank one opens ready to type its steps; Practice in the header runs it on the run screen. */
           if (np && (f.tpl === 'blank' || !f.tpl)) {
             var ph0 = PF.outline.parse(edText(np)).phases[0];
@@ -8195,7 +8294,7 @@
   });
 
   /* Anything typed or chosen on the practice page counts as practice activity (Stage from Practice ends it only if none). */
-  function prActivity(t) { uiActs++; var cp = state.view === 'practice' && t && t.id !== 'pr-note' && currentProcess(); if (cp) prTouch(prEntry(cp.id)); }
+  function prActivity(t) { uiActs++; var cp = state.view === 'practice' && t && t.id !== 'change-note' && currentProcess(); if (cp) prTouch(prEntry(cp.id)); }
   /* A box on the practice page whose typing is kept: evidence, Fill in (a radio by its name) and a waiver's reason. */
   function prTypedBox(t) { return state.view === 'practice' && !!t && (/^(opt-)?(rec|fld)-|^pick-input$/.test(t.id || '') || /^(rec|fld)-/.test(t.name || '')); }
   document.addEventListener('change', function (e) { prActivity(e.target); if (prTypedBox(e.target)) prHarvest(); }, true);
@@ -8210,10 +8309,8 @@
     if (PF.vk.isSelMore(e.target)) return;
     prActivity(e.target);
     if (e.target && e.target.dataset && e.target.dataset.prSample) { var tpx = currentProcess(); if (tpx) { var tpe = prEntry(tpx.id); tpe.typed[e.target.dataset.prSample] = e.target.value; } return; }
-    /* What changed, for Stage it for a test run: kept on the practice entry, so a redraw or a reopened phase never loses it. */
     /* Evidence, Fill in and a waiver's reason on the practice page reach this tab's storage as they're typed (a reload keeps them). */
     if (prTypedBox(e.target)) { prHarvest(); return; }
-    if (e.target && e.target.id === 'pr-note') { var npx = currentProcess(); if (npx) { var ne = prEntry(npx.id); ne.stageNote = e.target.value; ne.noteErr = null; } return; }
     if (e.target && e.target.id === 'pr-found') { var fpx = currentProcess(); if (fpx) { var fe = prEntry(fpx.id); fe.st = PF.practice.setFound(fe.st, e.target.value).state; prSave(fe); var cm = e.target.closest('.field'); var cnt = cm && cm.querySelector('.small'); if (cnt) cnt.textContent = fe.st.found.length + ' of ' + PF.practice.FOUND_MAX; var cb = document.querySelector('[data-act="pr-copy"]'); if (cb) cb.disabled = !fe.st.found; } return; }
     if (e.target.id === 'rel-search') { state.rel.q = e.target.value; render(); }
     var fl = findList(e.target); if (fl) { selBoxKept(fl); setFind(fl, e.target.value); render(); return; }
@@ -8870,7 +8967,7 @@
     }
     /* Find narrows as you type; Enter in its box never submits the form around it (Export evidence, Start a run). */
     if (e.key === 'Enter' && findList(t) && t.closest && t.closest('form')) { e.preventDefault(); return; }
-    if (e.key === 'Escape') { if (state.overlay) { closeOverlay(); return; } var om = document.querySelector && document.querySelector('.rw-menu[open]'); if (om) { om.open = false; (state.disc = state.disc || {})[(om.dataset && om.dataset.disc) || 'rw-menu'] = false; var sm = om.querySelector('summary'); if (sm) sm.focus(); return; } if (state.tfPreview && state.view === 'types') { ACTIONS['tf-preview'](); return; } if (state.obAdd && !composing && t && /^ob-new-/.test(t.id || '')) { ACTIONS['ob-add-cancel'](); return; } if (state.obPlace) { cancelPlacing(); return; } if (state.obAsk) { ACTIONS['ob-ask-cancel'](); return; } if (obSheetOpen) { ACTIONS['ob-done'](); return; } if (state.view === 'practice' && state.pick) { PRACTICE.unpick(); return; } if (sheetWasOpen && state.view === 'practice') { PRACTICE['close-ref'](); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.view === 'practice' && !typing) { PRACTICE['pr-back'](); return; } if (state.pick || state.edit) { var pk = state.pick; if (pk && pk.kind === 'fields') { dropDraft(state.runKey, pk.id, ['fields', 'open']); state.fieldsDraft = null; } state.pick = null; state.edit = null; state.fieldErr = null; if (pk && pk.back) state.focus = pk.back; render(); return; } if (state.corrForm) { if (state.corrForm.menu) { state.corrForm.menu = false; state.focus = '[data-act="corr-menu"]'; render(); return; } ACTIONS['corr-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt') { reenterRun(); render(); } return; }
+    if (e.key === 'Escape') { if (state.overlay) { if (!(state.overlay.lock && state.overlay.lock())) closeOverlay(); return; } var om = document.querySelector && document.querySelector('.rw-menu[open]'); if (om) { om.open = false; (state.disc = state.disc || {})[(om.dataset && om.dataset.disc) || 'rw-menu'] = false; var sm = om.querySelector('summary'); if (sm) sm.focus(); return; } if (state.tfPreview && state.view === 'types') { ACTIONS['tf-preview'](); return; } if (state.obAdd && !composing && t && /^ob-new-/.test(t.id || '')) { ACTIONS['ob-add-cancel'](); return; } if (state.obPlace) { cancelPlacing(); return; } if (state.obAsk) { ACTIONS['ob-ask-cancel'](); return; } if (obSheetOpen) { ACTIONS['ob-done'](); return; } if (state.view === 'practice' && state.pick) { PRACTICE.unpick(); return; } if (sheetWasOpen && state.view === 'practice') { PRACTICE['close-ref'](); return; } if (sheetWasOpen) { state.refOpen = false; render(); return; } if (state.view === 'practice' && !typing) { PRACTICE['pr-back'](); return; } if (state.pick || state.edit) { var pk = state.pick; if (pk && pk.kind === 'fields') { dropDraft(state.runKey, pk.id, ['fields', 'open']); state.fieldsDraft = null; } state.pick = null; state.edit = null; state.fieldErr = null; if (pk && pk.back) state.focus = pk.back; render(); return; } if (state.corrForm) { if (state.corrForm.menu) { state.corrForm.menu = false; state.focus = '[data-act="corr-menu"]'; render(); return; } ACTIONS['corr-cancel'](); return; } if (state.view === 'mission' || state.view === 'receipt') { reenterRun(); render(); } return; }
     /* A dialog keeps Tab and Shift+Tab inside it, wrapping at the ends, so keyboard focus never falls behind it. */
     var trap = state.overlay ? overlayEl : state.tfPreview && state.view === 'types' ? document.getElementById('tf-preview') : null;
     if (e.key === 'Tab' && trap && !e.altKey && !e.ctrlKey && !e.metaKey) {

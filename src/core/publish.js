@@ -92,7 +92,7 @@ PF.publish = (function () {
     return { folder: folder, version: version, files: { 'map.md': draftMd, 'types.json': typesJson, 'publication.json': JSON.stringify(info, null, 2) } };
   }
 
-  /* ---------- Draft checks (2.13): one set of inputs for the editor's Checks, Review & publish and flightdeck draft check ----------
+  /* ---------- Draft checks (2.13): one set of inputs for the editor's Checks, the Publish dialog and flightdeck draft check ----------
      d: { people, types, workflows, processes, procOf, teamValues, unknownType }, the folder as the app holds it: people.json's
      list, the team's step types, jira/workflows.json, the processes as the app lists them ({ id, latest, ... }) and a lookup
      by ID. A process marked unread (the command line couldn't read all of it) is unknown: never suggested as unpublished,
@@ -210,7 +210,7 @@ PF.publish = (function () {
       missingShots: (got.missingShots || []).filter(function (src) { return (u.shots || []).indexOf(src) < 0; })
     };
   }
-  /* The verdict for a draft's text, before anything is written: checks, as the editor's Checks and Review & publish show them,
+  /* The verdict for a draft's text, before anything is written: checks, as the editor's Checks and the Publish dialog show them,
      and publish: { ok, blockers }, what Publish would stop at (the same order: the checks, then version: pins, then
      screenshots). Who publishes and the change note are left out: only a person gives those. Nothing unknown is a finding
      (checkContext). ctx: from checkContext. */

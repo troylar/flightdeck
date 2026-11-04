@@ -63,6 +63,86 @@
     var empty = map.phases.map(function (ph) { return 'Phase "' + ph.title + '" has no steps.'; });
     return blockers.every(function (b) { return empty.indexOf(b) >= 0; });
   }
+  /* ---------- the workspace (2.16, docs/design.md section 34): the editor and practice share one header ----------
+     ‹ <title> to the checklist page, Edit | Practice (the same nav as the page's strip), the view's tools, and one primary
+     worked out from the state there is (wsPrimary). Every control in practice's copy is a pr-* act (the practice guard). */
+  function wsHead(ctx, p, o) {
+    var pr = o.practice, cnt = ctx.practiceCount ? ctx.practiceCount(p.id) : null, got = cnt && cnt.done ? ' · ' + cnt.done + ' of ' + cnt.total : '';
+    var prim = wsPrimary(ctx, p, pr);
+    var nav = '<nav class="pviews ws-views" aria-label="Checklist views">' +
+      '<button type="button"' + (pr ? ' data-act="pr-back"' : ' aria-current="page"') + '>' + I('edit') + 'Edit</button>' +
+      '<button type="button"' + (pr ? ' aria-current="page"' : ' data-act="pr-open"') + (got ? ' aria-label="Practice, ' + cnt.done + ' of ' + cnt.total + ' steps answered"' : '') + '>' + I('play') + 'Practice' + got + '</button></nav>';
+    return '<header class="fpe-head ws-head" role="region" aria-labelledby="' + o.hid + '"><div class="fpe-id">' + V.backc(pr ? 'pr-leave' : 'ed-done', null, p.title) +
+      '<div class="fpe-title"><h1 id="' + o.hid + '" class="sr" tabindex="-1">' + esc(p.title) + ', ' + (pr ? 'Practice' : 'Edit') + '</h1><span class="small fpe-sub">' + o.sub + prim.sub + '</span></div></div>' +
+      nav + '<div class="fpe-tools">' + o.tools + '</div><div class="fpe-save">' + prim.html + '</div></header>' + prim.why;
+  }
+  /* The stage the saved draft is (rule 4): staged, complete and readable, with this exact text. The newest wins; test runs
+     only break a tie. null when none, or when the stage decisions can't be read. */
+  function wsStage(ctx, p) {
+    var procs = (ctx.data.stages || {}).procs || {}, sp = Object.prototype.hasOwnProperty.call(procs, p.id) ? procs[p.id] : null;
+    if (!sp || !p.draft) return null;
+    if ((ctx.data.failed || {}).stages || sp.unlisted || sp.unread.length || sp.refused.some(function (r) { return /\/decisions\//.test(r.path); })) return null;
+    var hash = U.hash(p.draft.md), runs = ctx.data.runs || [];
+    var c = sp.stages.filter(function (s) { return s.ok && !s.newer && s.info && s.info.mapHash === hash && PF.staging.status(s, sp.decisions, p.all).status === 'staged'; })
+      .map(function (s) { return { s: s, tests: runs.filter(function (r) { return r.process === p.id && r.folder === s.folder && PF.run.isTest(r); }) }; });
+    if (!c.length) return null;
+    c.sort(function (a, b) { var t = String(b.s.info.stagedAt || '').localeCompare(String(a.s.info.stagedAt || '')); return t || (b.tests.length ? 1 : 0) - (a.tests.length ? 1 : 0); });
+    return c[0];
+  }
+  /* The one primary (2.16): the first rule that applies wins. { kind, html, why (the reason line under the header), sub (the
+     subtitle's link) }. */
+  function wsPrimary(ctx, p, pr) {
+    var st = ctx.state, ed = st.editor && st.editor.pid === p.id && st.editor.fsKey === ctx.fsKey ? st.editor : null, out = { kind: 'none', html: '', why: '', sub: '' };
+    var act = function (edit, prac) { return pr ? prac : edit; }, btn = function (a, id, text, extra) { return '<button type="button" class="btn go" data-act="' + a + '" data-id="' + esc(id) + '"' + (extra || '') + '>' + text + '</button>'; };
+    if (p.proposedOnly) return out;
+    if ((st.draftSaving || {})[ctx.fsKey + '\n' + p.id] || (ed && ed.conflict) || (ctx.shotBusy && ctx.shotBusy(p.id)) || st.publishBusy || st.stageBusy) { out.kind = 'busy'; return out; }
+    if ((ed && ed.text != null && ed.text !== ed.base) || st.obPending === p.id || !p.draft) { out.kind = 'save'; out.html = btn(act('save-draft', 'pr-save'), p.id, 'Save draft', ' title="Saving never publishes."'); return out; }
+    var next = PF.publish.nextVersion(p.taken || (p.all || []).map(function (x) { return x.info; }));
+    var sg = wsStage(ctx, p);
+    if (sg) {
+      var open = sg.tests.filter(function (r) { return !r.ended; }).sort(function (a, b) { return String(b.created || '').localeCompare(String(a.created || '')); });
+      if (open.length) { out.kind = 'testing'; out.sub = '<span class="ws-test"> · <button type="button" class="linkish" data-act="' + act('open-run', 'pr-test-run') + '" data-id="' + esc(open[0].process + '/' + open[0].id) + '">Test run in progress ›</button></span>'; return out; }
+      if (!sg.tests.length) { out.kind = 'test'; out.html = btn(act('start-test', 'pr-start-test'), sg.s.folder, 'Start a test run'); return out; }
+      out.kind = 'promote'; out.html = btn(act('promote-open', 'pr-promote-open'), sg.s.folder, 'Make v' + next + ' the default…'); return out;
+    }
+    if (!p.draftChanged) return out;
+    out.kind = 'publish';
+    var nb = M.check(M.parse(p.draft.md), V.checkOptions(ctx)).blockers.length;
+    var why = !st.me ? 'Choose who you are first. You are is at the top of the checklist page.' : nb ? nb + (nb === 1 ? ' problem blocks' : ' problems block') + ' publishing.' : '';
+    out.html = btn(act('publish-open', 'pr-publish-open'), p.id, 'Publish v' + next + '…', why ? ' aria-disabled="true" aria-describedby="ws-why"' : '');
+    if (why) out.why = '<p class="small ws-why" id="ws-why" tabindex="-1">' + esc(why) + (st.me && nb ? ' <button type="button" class="mini" data-act="' + act('ws-problems', 'pr-problems') + '">Show problems</button>' : '') + '</p>';
+    return out;
+  }
+  /* The Publish dialog (2.16): the only place to publish or stage from the workspace. One What changed box, the needs and
+     the reasons it's held, Publish vN, Stage for testing instead, Cancel. Locked while either writes. */
+  function publishDialog(ctx, p, o) {
+    var st = ctx.state, next = PF.publish.nextVersion(p.taken || (p.all || []).map(function (x) { return x.info; })), busy = st.publishBusy === p.id || st.stageBusy === p.id;
+    var base = V.corrBase(ctx, p), shots = ctx.shotBusy ? ctx.shotBusy(p.id) : 0, held = !p.draft || base.dirty || base.conflict || shots;
+    var lock = function (which) { return busy ? ' aria-disabled="true"' : held && which !== 'cancel' ? ' disabled' : ''; };
+    var label = function (which, text, doing) { return busy && o.clicked === which ? doing : text; };
+    return '<div class="overlay" data-act="close-overlay"><div class="help pub-box" role="dialog" aria-modal="true" aria-labelledby="pub-t"' + (busy ? ' aria-busy="true"' : '') + '><h2 id="pub-t">Publish v' + next + ' of ' + esc(p.title) + '</h2>' +
+      '<label class="field" for="change-note">What changed (one line, required)<input id="change-note" maxlength="200" value="' + esc(o.note) + '" placeholder="e.g. Require the full test gate after the rebase"' + (busy ? ' readonly' : '') + '></label>' +
+      (held ? '<p class="small" id="pub-why">' + (base.dirty || base.conflict ? 'Your edits aren\'t saved, so they wouldn\'t be in this version. Save or discard them in the editor first.' : 'A screenshot is still being added to this draft. Publish when it\'s done.') + '</p>' : '') +
+      (p.draft ? V.publishNeeds(ctx, p) + V.publishCorrections(ctx, p) : '') +
+      '<p class="small">Anyone can publish. It\'s logged with your name, the time and the change note, and runs already started keep their version.</p>' +
+      '<p class="err small" role="alert" id="pub-err">' + esc(o.err || '') + '</p>' +
+      '<div class="row"><button type="button" class="btn go" data-act="publish" data-id="' + esc(p.id) + '"' + lock('publish') + '>' + label('publish', 'Publish v' + next, 'Publishing…') + '</button>' +
+      '<button type="button" class="btn" data-act="stage-draft" data-id="' + esc(p.id) + '"' + lock('stage') + '>' + label('stage', 'Stage for testing instead', 'Staging…') + '</button>' +
+      '<button type="button" class="mini" data-act="close-overlay"' + lock('cancel') + '>Cancel</button></div>' +
+      '<p class="small">Only test runs use it until someone makes it the default.</p></div></div>';
+  }
+  /* Make vN the default… asks first, with the stage row's own line: clean test runs out of those needed, and sign-off. */
+  function promoteDialog(ctx, p, folder, o) {
+    var st = ctx.state, next = PF.publish.nextVersion(p.taken || (p.all || []).map(function (x) { return x.info; })), busy = st.stageBusy === p.id || st.publishBusy === p.id;
+    var sg = V.stageSign(ctx, p, folder), line = sg.ready ? sg.ready.clean + ' of ' + sg.ready.needed + ' clean test runs' + (sg.signs && sg.signs.length ? ' · Signed off by ' + K.nameOf(ctx, sg.signs[0].by) : ' · Not signed off') : sg.why || '';
+    return '<div class="overlay" data-act="close-overlay"><div class="help pub-box" role="dialog" aria-modal="true" aria-labelledby="prm-t"' + (busy ? ' aria-busy="true"' : '') + '><h2 id="prm-t">Make v' + next + ' the default?</h2>' +
+      '<p>New runs of ' + esc(p.title) + ' use it; runs already started keep their version.</p><p class="small">' + esc(line) + '</p>' +
+      '<p class="err small" role="alert" id="pub-err">' + esc(o.err || '') + '</p>' +
+      '<div class="row"><button type="button" class="btn go" data-act="promote-stage" data-id="' + esc(folder) + '"' + (busy ? ' aria-disabled="true"' : '') + '>' + (busy ? 'Publishing…' : 'Make v' + next + ' the default') + '</button>' +
+      '<button type="button" class="mini" data-act="close-overlay"' + (busy ? ' aria-disabled="true"' : '') + '>Cancel</button></div></div></div>';
+  }
+  V.wsHead = wsHead; V.wsPrimary = wsPrimary; V.wsStage = wsStage; V.publishDialog = publishDialog; V.promoteDialog = promoteDialog;
+
   /* The draft editor takes the whole page: its own header (Done, the name, save state, Builder | Markdown, Undo / Redo,
      Checks and Save), the messages and conflicts right under it, then panes that each scroll on their own: Parts, the
      outline and the inspector in the builder, or the Markdown and the inspector. */
@@ -72,29 +152,21 @@
     var map = M.parse(text), c = M.check(map, V.checkOptions(ctx));
     var dirty = ed && ed.text != null && ed.text !== ed.base || st.obPending === p.id, file = p.draft ? p.draft.file : p.id + '.md', saving = (st.draftSaving || {})[ctx.fsKey + '\n' + p.id];
     var builder = st.builder !== false, o = PF.outline.parse(text), sel = builder && !o.unsupported && st.obSel && st.obSel.pid === p.id ? st.obSel : null;
-    var practicing = !!(st.practicing || {})[ctx.fsKey + '\n' + p.id];
-    var nb = c.blockers.length, nt = c.suggestions.length, tab = insTabOf(st, !!sel, nb, builder, freshDraft(map, c.blockers));
+    var nb = c.blockers.length, nt = c.suggestions.length, count = nb, checksLabel = nb ? nb + ' thing' + (nb === 1 ? '' : 's') + ' to fix before publishing' : nt ? nt + ' tip' + (nt === 1 ? '' : 's') : 'ready to publish', tab = insTabOf(st, !!sel, nb, builder, freshDraft(map, c.blockers));
     var status = draftStatus(ctx, p, ed, text);
-    /* Only problems make a number; tips are listed under Checks without one. */
-    var count = nb, checksLabel = nb ? nb + ' thing' + (nb === 1 ? '' : 's') + ' to fix before publishing' : nt ? nt + ' tip' + (nt === 1 ? '' : 's') : 'ready to publish';
     /* Three groups that never trade places: who it is, the editing tools, and saving. Discard keeps its place when hidden. */
     var just = !dirty && !saving && st.justSaved && st.justSaved.pid === p.id, size = U.draftSize(text);
-    var h = '<div class="fpe" id="fpe"><header class="fpe-head" role="region" aria-labelledby="ed-h"><div class="fpe-id">' +
-      '<button type="button" class="btn fpe-done" data-act="ed-done">' + I('back') + 'Review &amp; publish</button>' +
-      '<div class="fpe-title"><h1 id="ed-h" tabindex="-1">' + esc(p.title) + ' <span class="cat">Draft</span></h1><span class="small fpe-file">maps/drafts/' + esc(file) + (size ? ' · ' + size : '') + '</span></div></div>' +
-      '<div class="fpe-tools"><div class="seg" role="group" aria-label="Edit with"><button type="button" data-act="ed-mode" data-id="builder" aria-pressed="' + builder + '">Builder</button><button type="button" data-act="ed-mode" data-id="markdown" aria-pressed="' + !builder + '">Markdown</button></div>' +
+    /* The workspace's one header (2.16), shared with practice: the way back, Edit | Practice, the editing tools, one primary. */
+    var tools = '<div class="seg" role="group" aria-label="Edit with"><button type="button" data-act="ed-mode" data-id="builder" aria-pressed="' + builder + '">Builder</button><button type="button" data-act="ed-mode" data-id="markdown" aria-pressed="' + !builder + '">Markdown</button></div>' +
       /* Undo, Redo and History: the one timeline shared with the Markdown view (and the step-type editor's same controls). */
-      V.undoBar('draft', ed && ed.tl) +
-      /* Practice opens the run screen for what's on screen; while one is open for this draft, it goes back to it. */
-      '<button type="button" class="chipbtn fpe-practice" data-act="pr-open" title="Run what\'s on screen, in this window only. Nothing is recorded.">' + I('play') + (practicing ? 'Back to practice' : 'Practice') + '</button>' +
-      '<button type="button" class="chipbtn fpe-checks' + (nb ? ' bad' : '') + '" data-act="ins-tab" data-id="checks" aria-label="Checks: ' + checksLabel + '">' + (count ? '<span class="fpe-checks-t">Checks </span><span class="cnt' + (nb ? ' bad' : '') + '">' + count + '</span>' : I('check') + '<span class="fpe-checks-t">Checks</span>') + '</button></div>' +
-      '<div class="fpe-save"><span class="fpe-savestate"><span class="fpe-state' + (dirty ? ' dirty' : '') + (just ? ' just' : '') + '" role="status">' + (just ? I('check') : '') + status + '</span>' +
-      '<button type="button" class="linkish fpe-discard" data-act="revert-draft" data-id="' + esc(p.id) + '"' + (dirty ? '' : ' hidden') + '>Discard my changes</button></span>' +
-      '<button type="button" class="btn go" data-act="save-draft" data-id="' + esc(p.id) + '" title="Saving never publishes. Choose Save draft, then Review &amp; publish."' + ((dirty || !p.draft) && !saving ? '' : ' disabled') + '>' + (saving && saving !== 'restore' ? 'Saving…' : 'Save draft') + '</button></div></header>';
+      V.undoBar('draft', ed && ed.tl);
+    var sub = '<span class="fpe-state' + (dirty ? ' dirty' : '') + (just ? ' just' : '') + '" role="status" title="maps/drafts/' + esc(file) + (size ? ' · ' + size : '') + '">' + (just ? I('check') : '') + 'Draft: ' + status + '</span>' +
+      '<button type="button" class="linkish fpe-discard" data-act="revert-draft" data-id="' + esc(p.id) + '"' + (dirty ? '' : ' hidden') + '>Discard my changes</button>';
+    var h = '<div class="fpe" id="fpe">' + wsHead(ctx, p, { practice: false, hid: 'ed-h', sub: sub, tools: tools });
     /* Messages and conflicts stay in view, right under the header. */
     var al = '';
     /* No live role: messages are announced once, through #live (say and announce in app.js). */
-    if (st.msg && !st.msg.quiet) al += '<div class="notice ' + (st.msg.kind || '') + '"><span>' + esc(st.msg.text) + '</span><span class="row">' + (st.msg.act ? '<button type="button" class="btn" data-act="' + esc(st.msg.act) + '"' + (st.msg.id ? ' data-id="' + esc(st.msg.id) + '"' : '') + '>' + esc(st.msg.label) + '</button>' : '') + '<button type="button" class="mini" data-act="dismiss">Dismiss</button></span></div>';
+    if (st.msg && !st.msg.quiet) al += '<div class="notice ' + (st.msg.kind || '') + '"><span' + (st.msg.line ? ' id="ws-said" tabindex="-1" role="status"' : '') + '>' + esc(st.msg.text) + '</span><span class="row">' + (st.msg.act ? '<button type="button" class="btn" data-act="' + esc(st.msg.act) + '"' + (st.msg.id ? ' data-id="' + esc(st.msg.id) + '"' : '') + '>' + esc(st.msg.label) + '</button>' : '') + '<button type="button" class="mini" data-act="dismiss">Dismiss</button></span></div>';
     if (st.folderErr) al += '<div class="notice bad" role="alert"><span><b>Can\'t read the team folder.</b> ' + esc(st.folderErr) + '</span><button type="button" class="btn" data-act="refresh">Try again</button></div>';
     if (ed && ed.conflict) al += '<div class="notice bad" role="alert"><span>' + (ed.conflict.afterWrite ? '<b>Your save was written, then replaced by another change.</b> Compare them below, then keep yours or take theirs.' : '<b>Someone else changed this draft</b> since you opened it (a teammate, or your AI assistant). Nothing was saved. Compare below, then keep yours or take theirs.') + '</span>' + (saving ? '<span class="small" role="status">Saving…</span>' : '<button class="btn stop" data-act="draft-keep-mine">Keep mine</button><button class="mini" data-act="draft-take-theirs">Take theirs</button>') + '</div>' +
       '<details open class="fpe-theirs"><summary class="small">Their version</summary><pre class="source">' + esc(ed.conflict.theirs || '(the draft was deleted)') + '</pre></details>';
@@ -112,7 +184,7 @@
       selected: form || '<div class="ob-nosel"><p><b>Nothing selected.</b> Choose a step, lane, phase or gate in the outline, or Checklist details, to change it here.</p>' +
         '<ul class="ob-sample" aria-hidden="true"><li class="s-ph">Phase</li><li class="s-st on">' + I('check') + 'A step, selected</li><li class="s-st">' + I('check') + 'Another step</li><li class="s-gt">Gate</li></ul></div>',
       checks: (dirty && !builder ? V.changedLines(ed.base, text) : '') + '<h2 class="fpe-ph">' + (nb ? 'Won\'t publish yet' : 'Checks') + '</h2>' + V.checkList(c, ctx.state, 'checks-ed') +
-        '<p class="small">Saving never publishes. When it\'s ready, choose Save draft, then Review &amp; publish.</p><p class="small">The full format, every step type and its fields: <button class="link" data-act="open-types">Step types</button>. Or ask your AI assistant: <code>/flightdeck-edit-checklist</code>.</p>',
+        '<p class="small">Saving never publishes. When it\'s ready, choose Save draft, then Publish at the top right.</p><p class="small">The full format, every step type and its fields: <button class="link" data-act="open-types">Step types</button>. Or ask your AI assistant: <code>/flightdeck-edit-checklist</code>.</p>',
       preview: map.phases.length ? '<div class="mapview">' + V.mapPreview(map, (ctx.data.stepTypes || {}).types, p.skills, null, PF.corrections.openCounts(V.fixesOf(ctx, p)), hl) + '</div>' : '<p class="small">Add a phase to see it here.</p>'
     };
     var tabs = (builder ? [['selected', 'Selected']] : []).concat([['checks', 'Checks'], ['preview', 'Preview']]);

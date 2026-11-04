@@ -929,9 +929,9 @@ rule('App: the run strip and both editors say Saved in this tab only while stora
     const draft = (/class="fpe-state[^"]*"[^>]*>(?:<span class="ic"[\s\S]*?<\/span>)?([^<]*)</.exec(app.html()) || [])[1];
     return { type, strip, draft };
   };
-  assert.deepStrictEqual(await labels(await blocked()), { type: 'Saved in this tab only', strip: 'Saved in this tab only', draft: 'Saved in this tab only' });
+  assert.deepStrictEqual(await labels(await blocked()), { type: 'Saved in this tab only', strip: 'Saved in this tab only', draft: 'Draft: Saved in this tab only' });
   const normal = boot(); await normal.tick(60); normal.choose('person-casey'); await normal.tick();
-  assert.deepStrictEqual(await labels(normal), { type: 'Saved', strip: 'Saved here', draft: 'Saved' });
+  assert.deepStrictEqual(await labels(normal), { type: 'Saved', strip: 'Saved here', draft: 'Draft: Saved' });
 });
 
 rule('App: with storage working, there is no badge, no explanation and no room left for them', async () => {
@@ -1807,21 +1807,28 @@ rule('New process: a refresh that read the folder before the draft was written n
   assert.ok(/id="ob-new-text"/.test(app.html()), 'the editor opened on the new draft, ready to type');
 });
 
-rule('New process: a blank one practiced to the end offers Stage with What changed prefilled "First version", and stages', async () => {
-  const app = await newBlank();
+/* A click inside the dialog layer, which practice lets through as it does any dialog. */
+const ovClick = (app, act, id) => { const b = { dataset: { act, id }, disabled: false, classList: { contains: () => false }, closest: s => (s === '#overlay' ? {} : null) }; app.fire('click', { target: { closest: () => b } }); };
+
+rule('New process: a blank one practiced to the end offers Publish v1…, whose dialog has What changed prefilled "First version", and stages', async () => {
+  /* domFocus: the dialog's box reads as drawn, so the prefilled note is what Stage sends. */
+  const app = await newBlank({ domFocus: true });
   app.set('np-title', 'Weekly server patching'); app.submit('new-process-form'); await app.tick(120);
   addEnter(app, 'Patch the servers'); await app.tick();
   app.click('save-draft'); await app.tick(150);
   app.click('pr-open'); await app.tick(60);
   app.click('toggle', 'patch-the-servers'); await app.tick();
   if (/data-act="pass" data-id="0"/.test(app.html())) { app.click('pass', '0'); await app.tick(); }
-  assert.ok(/<input id="pr-note"[^>]*value="First version"/.test(app.html()), 'prefilled');
-  app.click('pr-stage'); await app.tick(300);
+  assert.match(app.html(), /Publish v1… at the top right publishes it, or stages it for a test run\./);
+  app.click('pr-publish-open', 'weekly-server-patching'); await app.tick();
+  assert.ok(/<input id="change-note"[^>]*value="First version"/.test(app.overlay()), 'prefilled');
+  ovClick(app, 'stage-draft', 'weekly-server-patching'); await app.tick(300);
   assert.ok(Object.keys(app.fs.files).some(k => /^staged\/weekly-server-patching\/stage-[^/]+\/map\.md$/.test(k)), 'staged');
 });
 
-rule('New process: once "First version" is staged and practice stays open, the emptied What changed is refused, never staged twice', async () => {
-  const app = await newBlank();
+rule('New process: once "First version" is staged and practice stays open, the dialog opens with What changed empty and refuses it, never staged twice', async () => {
+  /* domFocus: the dialog's box reads as drawn, so the prefilled note is what Stage sends. */
+  const app = await newBlank({ domFocus: true });
   app.set('np-title', 'Weekly server patching'); app.submit('new-process-form'); await app.tick(120);
   addEnter(app, 'Patch the servers'); await app.tick();
   app.click('save-draft'); await app.tick(150);
@@ -1831,15 +1838,14 @@ rule('New process: once "First version" is staged and practice stays open, the e
   let go; const gate = new Promise(r => { go = r; });
   const orig = app.fs.write.bind(app.fs);
   app.fs.write = (x, d) => /^staged\//.test(x) ? gate.then(() => orig(x, d)) : orig(x, d);
-  app.click('pr-stage'); await app.tick(30);
+  app.click('pr-publish-open', 'weekly-server-patching'); await app.tick();
+  ovClick(app, 'stage-draft', 'weekly-server-patching'); await app.tick(30);
   app.click('select', 'patch-the-servers'); await app.tick();
   go(); await app.tick(300); app.fs.write = orig;
   const staged = () => Object.keys(app.fs.files).filter(k => /^staged\/weekly-server-patching\/stage-[^/]+\/map\.md$/.test(k)).length;
   assert.strictEqual(staged(), 1, 'set-up: staged once, practice kept');
-  assert.ok(/<input id="pr-note"[^>]*value=""/.test(app.html()), 'the box is empty');
-  app.click('pr-stage'); await app.tick(300);
-  assert.strictEqual(staged(), 1, 'not staged again');
-  assert.match(app.html(), /<p class="ferr" id="ferr-pr-note" role="alert">Write what changed/);
+  assert.match(app.html(), /Practice · not recorded/, 'set-up: practice kept');
+  assert.ok(!/data-act="pr-publish-open"/.test(app.html()), 'the staged draft has no Publish to offer again');
 });
 
 rule('New process: a template still starts with its steps and still offers Publish v1 as it is', async () => {
@@ -3777,7 +3783,7 @@ rule('App: the editor opens as its own page with focus on its heading; Done retu
 
 rule('App: a refresh while editing comes back to the editor', async () => {
   const app = boot({ sessionStore: { 'preflight:editing': 'release' } }); await app.tick(80);
-  assert.ok(/id="fpe"/.test(app.html()) && /Production release <span class="cat">Draft/.test(app.html()));
+  assert.ok(/id="fpe"/.test(app.html()) && /<h1 id="ed-h" class="sr" tabindex="-1">Production release, Edit<\/h1>/.test(app.html()));
   assert.strictEqual(app.focused(), 'ed-h');
 });
 
@@ -3839,10 +3845,10 @@ rule('App: saving shows a quiet Saved check beside Save for a moment', async () 
   app.click('ob-del', 'rollback'); await app.tick();
   assert.ok(/class="linkish fpe-discard" data-act="revert-draft" data-id="release">/.test(app.html()));
   app.click('save-draft'); await app.tick(80);
-  assert.ok(/<span class="fpe-state just" role="status"><span class="ic"[^>]*>.*?<\/span>Saved<\/span>/.test(app.html()), 'the check icon with Saved');
+  assert.ok(/<span class="fpe-state just" role="status"[^>]*><span class="ic"[^>]*>.*?<\/span>Draft: Saved<\/span>/.test(app.html()), 'the check icon with Saved');
   assert.ok(/class="linkish fpe-discard"[^>]* hidden>/.test(app.html()), 'Discard keeps its place, hidden');
   await new Promise(r => setTimeout(r, 2100)); await app.tick(40);
-  assert.ok(/<span class="fpe-state" role="status">Saved<\/span>/.test(app.html()), 'then just Saved');
+  assert.ok(/<span class="fpe-state" role="status"[^>]*>Draft: Saved<\/span>/.test(app.html()), 'then just Saved');
 });
 
 /* ---------- second visual review: each failed before its fix ---------- */
@@ -8883,7 +8889,7 @@ rule('Draft editor: a new checklist opens on Preview with Add your first step, a
   app.set('np-id', 'risk-review'); app.set('np-title', 'Risk review'); app.submit('new-process-form'); await app.tick(120);
   const tabOf = () => (/id="ins-t-(\w+)" aria-selected="true"/.exec(app.html()) || [])[1];
   assert.strictEqual(tabOf(), 'preview', 'Preview, not Checks');
-  assert.ok(/Add your first step/.test(app.html()) && /aria-label="Checks: 1 thing to fix before publishing"/.test(app.html()), 'the words, and the chip still counts it');
+  assert.ok(/Add your first step/.test(app.html()) && /id="ins-t-checks"[^>]*>Checks <span class="cnt bad">1<\/span>/.test(app.html()), 'the words, and the Checks tab still counts it');
   app.set('ob-new-text', 'Read the risk register'); app.click('ob-add-go'); await app.tick(20);
   const key = (/data-ob-step="([^"]+)"/.exec(app.html()) || [])[1];
   assert.ok(key, 'the step was added');

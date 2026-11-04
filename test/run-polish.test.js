@@ -140,9 +140,11 @@ rule('A run detail not set yet reads "Set <name>"', () => {
 
 /* ---------- 4. editor words ---------- */
 
-rule('Editor: Review & publish replaces Done, and the 2.0 hint is gone', () => {
+rule('Editor: the way back names the checklist (2.16, not Review & publish or Done), and the 2.0 hint is gone', () => {
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'dist', 'flightdeck.html'), 'utf8');
-  assert.ok(/data-act="ed-done"[^>]*>Review &amp; publish/.test(src) || /Review &amp; publish/.test(src), 'the button');
+  const ui = ['src/ui/app.js', 'src/ui/views/manage.js', 'src/ui/views/practice.js', 'src/ui/views/process.js', 'src/ui/views/builder.js', 'src/ui/views/home.js'].map(f => require('fs').readFileSync(require('path').join(__dirname, '..', f), 'utf8')).join('\n');
+  assert.ok(!/Review &amp; publish|Review & publish/.test(ui), 'no Review & publish in the app (the release notes keep it)');
+  assert.ok(/V\.backc\(pr \? 'pr-leave' : 'ed-done'/.test(src), 'the way back is the editor\'s ed-done');
   assert.ok(!/Needs Flightdeck 2\.0 to run\./.test(src), 'no 2.0 hint');
 });
 
