@@ -383,7 +383,7 @@
     var b = function (act, id, text, cur, label) { return '<button type="button" class="pv-b" data-act="' + act + '"' + (id != null ? ' data-id="' + esc(id) + '"' : '') + (cur ? ' aria-current="page"' : '') + (label ? ' aria-label="' + esc(label) + '"' : '') + '>' + text + '</button>'; };
     var h = b('ptab', 'overview', 'Overview', tab === 'overview');
     if (canEdit) h += b('ptab', 'edit', I('edit') + (others ? 'Edit anyway' : 'Edit'), false);
-    if (canEdit) { var w = others ? 'Practice anyway' : 'Practice'; h += b('pv-practice', others ? 'anyway' : null, I('play') + w + (cnt ? ' · ' + cnt.done + ' of ' + cnt.total : ''), false, cnt ? w + ', ' + cnt.done + ' of ' + cnt.total + ' steps answered' : null); }
+    if (canEdit) { var w = others ? 'Practice anyway' : 'Practice'; h += b('pv-practice', others ? 'anyway' : null, I('play') + w + (cnt && cnt.done ? ' · ' + cnt.done + ' of ' + cnt.total : ''), false, cnt && cnt.done ? w + ', ' + cnt.done + ' of ' + cnt.total + ' steps answered' : null); }
     if ((p.all || []).length) h += b('ptab', 'insights', I('chart') + 'How runs go', tab === 'insights');
     return '<nav class="pviews" aria-label="Checklist views">' + h + '</nav>';
   }

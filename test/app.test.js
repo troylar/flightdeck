@@ -274,7 +274,7 @@ rule('App: the draft builder moves, edits, adds and deletes steps and adds a pha
   app.set('ob-new-title', 'Watch the metrics'); app.click('ob-choice', 'ob-new-mode', { val: 'DO-CONFIRM' }); app.click('ob-add-go'); await app.tick();
   assert.ok(/id="ob-new-text"/.test(app.html()), 'a new phase opens with its add-a-step box');
   app.set('ob-new-text', 'Error rate is flat'); app.click('ob-add-go'); await app.tick();
-  assert.ok(/Unsaved: Save draft before you publish/.test(app.html()), 'builder edits are unsaved, like typing');
+  assert.ok(/Draft: not saved\. Save it before you publish\./.test(app.html()), 'builder edits are unsaved, like typing');
   assert.strictEqual(app.fs.files[path].t, original, 'nothing written yet');
   app.click('save-draft'); await app.tick(80);
   const saved = app.fs.files[path].t;
@@ -286,7 +286,7 @@ rule('App: the draft builder moves, edits, adds and deletes steps and adds a pha
   const was = idsOf(PF, original), now = idsOf(PF, saved);
   assert.deepStrictEqual(now.slice(0, 5), ['approved', 'flags', 'check-the-dashboards', 'rollback', 'tests'], 'moved by button and by Alt+Up, and not by a bare arrow');
   assert.deepStrictEqual(now.filter(x => was.includes(x)).sort(), was.filter(x => x !== 'announce').sort(), 'every other ID kept');
-  assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()), 'saved');
+  assert.ok(!/Draft: not saved\. Save it before you publish\./.test(app.html()), 'saved');
 });
 
 rule('App: the builder\'s Undo puts back the last change, and the Markdown view lists the lines changed', async () => {
@@ -295,7 +295,7 @@ rule('App: the builder\'s Undo puts back the last change, and the Markdown view 
   app.click('ob-del', 'rollback'); await app.tick();
   assert.ok(!/data-ob-step="rollback"/.test(app.html()) && /Deleted the step\./.test(app.html()));
   app.click('tl-undo', 'draft'); await app.tick();
-  assert.ok(/data-ob-step="rollback"/.test(app.html()) && !/Unsaved: Save draft before you publish/.test(app.html()), 'back, and nothing left unsaved');
+  assert.ok(/data-ob-step="rollback"/.test(app.html()) && !/Draft: not saved\. Save it before you publish\./.test(app.html()), 'back, and nothing left unsaved');
   app.click('ob-sel-phase', 'verify'); await app.tick();
   app.set('ob-ph-title', 'Verify it'); app.keyOn('Enter', {}, { tagName: 'INPUT', id: 'ob-ph-title', value: 'Verify it', dataset: { enter: 'ob-commit' }, closest: () => null }); await app.tick();
   app.click('ed-mode', 'markdown'); await app.tick();
@@ -317,16 +317,16 @@ rule('App: once the editor follows a newer draft from the folder, Undo takes it 
   app.click('ob-sel', 'flags'); await app.tick();
   app.check('ob-must', false); await app.tick();
   app.check('ob-must', true); await app.tick();
-  assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()), 'set-up: back to the saved text, with two Undo steps');
+  assert.ok(!/Draft: not saved\. Save it before you publish\./.test(app.html()), 'set-up: back to the saved text, with two Undo steps');
   const theirs = original.replace('title: Production release', 'title: Theirs');
   await app.fs.write(path, theirs);
   app.focus(); await app.tick(80);
-  assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()), 'followed');
+  assert.ok(!/Draft: not saved\. Save it before you publish\./.test(app.html()), 'followed');
   app.click('tl-undo', 'draft'); await app.tick();
-  assert.ok(/Unsaved: Save draft before you publish/.test(app.html()), 'their change, taken back in the editor, is an unsaved edit');
+  assert.ok(/Draft: not saved\. Save it before you publish\./.test(app.html()), 'their change, taken back in the editor, is an unsaved edit');
   assert.strictEqual(app.fs.files[path].t, theirs, 'Undo never writes the draft');
   app.click('tl-redo', 'draft'); await app.tick();
-  assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()), 'Redo: their text again, nothing unsaved');
+  assert.ok(!/Draft: not saved\. Save it before you publish\./.test(app.html()), 'Redo: their text again, nothing unsaved');
   assert.strictEqual(app.fs.files[path].t, theirs);
 });
 
@@ -394,7 +394,7 @@ rule('App: typing in the Markdown keeps the builder\'s Undo, and switching views
   app.click('tl-undo', 'draft'); await app.tick();
   assert.strictEqual(undoLabel(app), 'Undo step deletion', 'the typing went first, and the builder change is still there to undo');
   app.click('tl-undo', 'draft'); await app.tick();
-  assert.ok(/data-ob-step="rollback"/.test(app.html()) && !/Unsaved: Save draft before you publish/.test(app.html()), 'both undone, back to the saved draft');
+  assert.ok(/data-ob-step="rollback"/.test(app.html()) && !/Draft: not saved\. Save it before you publish\./.test(app.html()), 'both undone, back to the saved draft');
   app.click('tl-redo', 'draft'); await app.tick(); app.click('tl-redo', 'draft'); await app.tick();
   app.click('ed-mode', 'markdown'); await app.tick();
   assert.ok(!/\{#rollback\}/.test(mdOf(app)) && /@backend now \{#flags\}/.test(mdOf(app)), 'Redo brought both back');
@@ -406,9 +406,9 @@ rule('App: Undo after Save makes the draft unsaved again, and saving it is check
   app.click('ob-del', 'rollback'); await app.tick();
   app.click('save-draft'); await app.tick(80);
   const saved = app.fs.files[path].t;
-  assert.ok(!/\{#rollback\}/.test(saved) && !/Unsaved: Save draft before you publish/.test(app.html()), 'set-up: saved without Rollback');
+  assert.ok(!/\{#rollback\}/.test(saved) && !/Draft: not saved\. Save it before you publish\./.test(app.html()), 'set-up: saved without Rollback');
   app.click('tl-undo', 'draft'); await app.tick();
-  assert.ok(/Unsaved: Save draft before you publish/.test(app.html()) && /data-ob-step="rollback"/.test(app.html()), 'undoing a saved change makes the draft unsaved');
+  assert.ok(/Draft: not saved\. Save it before you publish\./.test(app.html()) && /data-ob-step="rollback"/.test(app.html()), 'undoing a saved change makes the draft unsaved');
   app.click('save-draft'); await app.tick(80);
   assert.strictEqual(app.fs.files[path].t, original, 'saved back to the original');
   app.click('tl-redo', 'draft'); await app.tick();
@@ -429,11 +429,11 @@ rule('App: following a newer draft from the folder is one undoable change: Undo 
   const theirs = app.fs.files[path].t.replace('title: Production release', 'title: Theirs');
   await app.fs.write(path, theirs);
   app.focus(); await app.tick(80);
-  assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()), 'the editor follows it, with nothing unsaved');
+  assert.ok(!/Draft: not saved\. Save it before you publish\./.test(app.html()), 'the editor follows it, with nothing unsaved');
   assert.ok(!/data-act="tl-undo" data-id="draft" aria-disabled="true"/.test(app.html()), 'Undo is available');
   assert.ok(/This draft changed in the team folder\. Undo available\./.test(app.live()), 'and says so once');
   app.click('tl-undo', 'draft'); await app.tick();
-  assert.ok(/Unsaved: Save draft before you publish/.test(app.html()) && !/data-ob-step="rollback"/.test(app.html()), 'one Undo takes their change back, as an unsaved edit');
+  assert.ok(/Draft: not saved\. Save it before you publish\./.test(app.html()) && !/data-ob-step="rollback"/.test(app.html()), 'one Undo takes their change back, as an unsaved edit');
   app.click('tl-undo', 'draft'); await app.tick();
   assert.ok(/data-ob-step="rollback"/.test(app.html()), 'and the change before it can still be undone');
   app.click('hist-open', 'draft'); await app.tick();
@@ -493,14 +493,14 @@ rule('App: Cmd+Z in a builder box with typing not yet applied leaves that box\'s
   const app = await builderOn();
   app.click('ob-sel', 'flags'); await app.tick();
   app.check('ob-must', false); await app.tick();
-  assert.ok(/Unsaved: Save draft before you publish/.test(app.html()), 'set-up: one change to undo');
+  assert.ok(/Draft: not saved\. Save it before you publish\./.test(app.html()), 'set-up: one change to undo');
   const box = v => ({ tagName: 'INPUT', id: 'ob-text', value: v, defaultValue: 'Feature flags set in the deploy values', dataset: { enter: 'ob-commit' }, closest: () => null });
   assert.ok(!cmdKey(app, 'z', box('Feature flags, half typed')), 'the browser undoes the typing in the box');
   await app.tick();
-  assert.ok(/Unsaved: Save draft before you publish/.test(app.html()), 'and the draft is left alone');
+  assert.ok(/Draft: not saved\. Save it before you publish\./.test(app.html()), 'and the draft is left alone');
   assert.ok(cmdKey(app, 'z', box('Feature flags set in the deploy values')), 'with nothing typed, the draft\'s Undo');
   await app.tick();
-  assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()), 'undone');
+  assert.ok(!/Draft: not saved\. Save it before you publish\./.test(app.html()), 'undone');
   assert.ok(!cmdKey(app, 'z', { tagName: 'SELECT', id: 'me', value: '', dataset: {}, closest: () => null }), 'the name at the top keeps the browser\'s');
 });
 
@@ -978,7 +978,7 @@ rule('App: while a save of the draft is still finishing, a refresh never replace
   assert.ok(/data-ob-step="rollback"/.test(app.html()), 'the refresh leaves the Undo alone');
   g.open(); await app.tick(80); app.fs.write = write;
   app.focus(); await app.tick(80);
-  assert.ok(/data-ob-step="rollback"/.test(app.html()) && /Unsaved: Save draft before you publish/.test(app.html()), 'after the save lands, the Undo is still there, unsaved');
+  assert.ok(/data-ob-step="rollback"/.test(app.html()) && /Draft: not saved\. Save it before you publish\./.test(app.html()), 'after the save lands, the Undo is still there, unsaved');
   assert.ok(!/data-act="tl-redo" data-id="draft" aria-disabled/.test(app.html()), 'and Redo still can put the deletion back');
   app.click('save-draft'); await app.tick(80);
   assert.strictEqual(app.fs.files[path].t, original);
@@ -1826,7 +1826,7 @@ rule('New process: a blank one practiced to the end offers Publish v1…, whose 
   assert.ok(Object.keys(app.fs.files).some(k => /^staged\/weekly-server-patching\/stage-[^/]+\/map\.md$/.test(k)), 'staged');
 });
 
-rule('New process: once "First version" is staged and practice stays open, the dialog opens with What changed empty and refuses it, never staged twice', async () => {
+rule('New process: once "First version" is staged and practice stays open, neither Practice nor Edit offers Publish again, and opening the dialog from Edit is refused, so it is never staged twice', async () => {
   /* domFocus: the dialog's box reads as drawn, so the prefilled note is what Stage sends. */
   const app = await newBlank({ domFocus: true });
   app.set('np-title', 'Weekly server patching'); app.submit('new-process-form'); await app.tick(120);
@@ -1846,6 +1846,12 @@ rule('New process: once "First version" is staged and practice stays open, the d
   assert.strictEqual(staged(), 1, 'set-up: staged once, practice kept');
   assert.match(app.html(), /Practice · not recorded/, 'set-up: practice kept');
   assert.ok(!/data-act="pr-publish-open"/.test(app.html()), 'the staged draft has no Publish to offer again');
+  app.click('pr-back'); await app.tick();
+  assert.ok(/id="ed-h"/.test(app.html()) && !/data-act="publish-open"/.test(app.html()), 'Edit has none either');
+  app.click('publish-open', 'weekly-server-patching'); await app.tick();
+  assert.strictEqual(app.overlay(), '', 'opening the dialog from Edit is refused');
+  ovClick(app, 'stage-draft', 'weekly-server-patching'); await app.tick(300);
+  assert.strictEqual(staged(), 1, 'never staged twice');
 });
 
 rule('New process: a template still starts with its steps and still offers Publish v1 as it is', async () => {
@@ -3340,7 +3346,7 @@ rule('App: Apply to draft compares three ways, saves the draft as one undoable c
   assert.ok(/Corrections · 1 open/.test(app.html()));
   // One entry on the draft editor's timeline, named for what it did; Undo takes it back as an unsaved change in the editor.
   app.click('tl-undo', 'draft'); await app.tick();
-  assert.ok(/Undid the applied correction to &quot;New pods stay up with no restarts&quot;\./.test(app.html()) && /Unsaved: Save draft before you publish/.test(app.html()), 'undone in the editor, not saved');
+  assert.ok(/Undid the applied correction to &quot;New pods stay up with no restarts&quot;\./.test(app.html()) && /Draft: not saved\. Save it before you publish\./.test(app.html()), 'undone in the editor, not saved');
   assert.strictEqual(app.fs.files[path].t, after, 'Undo never writes by itself');
   app.click('save-draft'); await app.tick(80);
   assert.strictEqual(app.fs.files[path].t, before);
@@ -3434,7 +3440,7 @@ rule('App: when the draft can\'t be saved, the applied correction is shown in th
   app.click('corr-review', id); await app.tick();
   app.click('corr-apply', id); await app.tick(80);
   app.PF.repo.applyCorrection = orig;
-  assert.ok(/class="fpe" id="fpe"/.test(app.html()) && /Unsaved: Save draft before you publish/.test(app.html()), 'the editor is open with the unsaved change');
+  assert.ok(/class="fpe" id="fpe"/.test(app.html()) && /Draft: not saved\. Save it before you publish\./.test(app.html()), 'the editor is open with the unsaved change');
   assert.ok(/Couldn&#39;t save the draft|Couldn't save the draft/.test(app.html()));
 });
 
@@ -3581,12 +3587,12 @@ rule('App: a part dragged onto a line in the outline is added there, selected, w
 rule('App: a dragged part dropped where it can\'t go is refused and nothing changes', async () => {
   const app = await builderOn();
   dragPart(app, 'gate', 'before:flags', 'gate'); await app.tick();
-  assert.ok(/Approval can.t go there/.test(app.live()) && !/Unsaved: Save draft before you publish/.test(app.html()), 'refused');
+  assert.ok(/Approval can.t go there/.test(app.live()) && !/Draft: not saved\. Save it before you publish\./.test(app.html()), 'refused');
   dragPart(app, 'lanes', 'lane:deploy:0', 'lanes'); await app.tick();
-  assert.ok(/Parallel lanes can.t go there/.test(app.live()) && !/Unsaved: Save draft before you publish/.test(app.html()), 'a lane that isn\'t there');
+  assert.ok(/Parallel lanes can.t go there/.test(app.live()) && !/Draft: not saved\. Save it before you publish\./.test(app.html()), 'a lane that isn\'t there');
   app.click('ob-part', 'step'); await app.tick();
   app.click('ob-place-at', 'gate:verify'); await app.tick();
-  assert.ok(/Step can.t go there/.test(app.live()) && !/Unsaved: Save draft before you publish/.test(app.html()) && /class="ob placing for-step"/.test(app.html()), 'by click too, and still placing');
+  assert.ok(/Step can.t go there/.test(app.live()) && !/Draft: not saved\. Save it before you publish\./.test(app.html()) && /class="ob placing for-step"/.test(app.html()), 'by click too, and still placing');
 });
 
 rule('App: placing a part by keyboard announces it, moves among legal places with full names, and Escape returns to the part', async () => {
@@ -3629,9 +3635,9 @@ rule('App: every new kind of builder change can be undone, back to the saved tex
   const app = await builderOn();
   const undone = async (what, act) => {
     await act(); await app.tick();
-    assert.ok(/Unsaved: Save draft before you publish/.test(app.html()), what + ': changed');
+    assert.ok(/Draft: not saved\. Save it before you publish\./.test(app.html()), what + ': changed');
     app.click('tl-undo', 'draft'); await app.tick();
-    assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()), what + ': undone exactly');
+    assert.ok(!/Draft: not saved\. Save it before you publish\./.test(app.html()), what + ': undone exactly');
   };
   await undone('a lane added', async () => dragPart(app, 'lanes', 'lane:deploy:end', 'lanes'));
   await undone('a phase added first', async () => dragPart(app, 'phase', 'phase:^', 'phase'));
@@ -3837,7 +3843,7 @@ rule('App: Step in an empty checklist adds a phase with the step in it, as one c
   app.click('ob-phase-with'); await app.tick();
   assert.ok(/<li class="ob-step sel ob-new"[^>]*data-ob-step="new-step">/.test(app.html()) && app.focused() === 'ob-text');
   app.click('tl-undo', 'draft'); await app.tick();
-  assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()), 'one Undo takes both back');
+  assert.ok(!/Draft: not saved\. Save it before you publish\./.test(app.html()), 'one Undo takes both back');
 });
 
 rule('App: saving shows a quiet Saved check beside Save for a moment', async () => {
@@ -3858,9 +3864,9 @@ rule('App: text typed into the builder\'s form and not yet applied counts as uns
   assert.ok(!app.leaveWarns(), 'set-up: nothing unsaved');
   app.input('ob-text', 'Flags half typed'); await new Promise(r => setTimeout(r, 300)); await app.tick();
   assert.ok(app.leaveWarns(), 'leaving asks first');
-  assert.ok(/Unsaved: Save draft before you publish/.test(app.html()), 'the header says so');
+  assert.ok(/Draft: not saved\. Save it before you publish\./.test(app.html()), 'the header says so');
   enter(app, 'ob-text', 'Flags half typed'); await app.tick();
-  assert.ok(app.leaveWarns() && /Unsaved: Save draft before you publish/.test(app.html()), 'once applied, it is an ordinary unsaved change');
+  assert.ok(app.leaveWarns() && /Draft: not saved\. Save it before you publish\./.test(app.html()), 'once applied, it is an ordinary unsaved change');
   app.click('save-draft'); await app.tick(80);
   assert.ok(!app.leaveWarns(), 'saved');
 });
@@ -3890,7 +3896,7 @@ rule('App: text typed and not yet applied keeps the editor from following a newe
   await app.fs.write(path, original.replace('Feature flags set in the deploy values', 'Flags set by them'));
   app.focus(); await app.tick(80);
   assert.strictEqual(app.draft('ob-text'), 'Typed words', 'the typed text is still there');
-  assert.ok(app.leaveWarns() && /Unsaved: Save draft before you publish/.test(app.html()));
+  assert.ok(app.leaveWarns() && /Draft: not saved\. Save it before you publish\./.test(app.html()));
   enter(app, 'ob-text', 'Typed words'); await app.tick();
   app.click('save-draft'); await app.tick(80);
   assert.ok(/Someone else changed this draft/.test(app.html()) && /Flags set by them/.test(app.fs.files[path].t), 'a conflict, theirs kept');
@@ -3929,7 +3935,7 @@ rule('App: Discard my changes also drops typed text that was refused, and the ed
   app.setScoped('ob-text', 'Ask @qa'); app.input('ob-text', 'Ask @qa'); enter(app, 'ob-text', 'Ask @qa'); await app.tick();
   assert.ok(/id="ferr-ob-text"/.test(app.html()) && app.leaveWarns(), 'set-up: refused, still pending');
   app.click('revert-draft', 'release'); await app.tick();
-  assert.ok(!app.leaveWarns() && !/Unsaved: Save draft before you publish/.test(app.html()), 'nothing unsaved');
+  assert.ok(!app.leaveWarns() && !/Draft: not saved\. Save it before you publish\./.test(app.html()), 'nothing unsaved');
   await app.fs.write(path, original.replace('Rollback commit written in the release ticket', 'Rollback written by them'));
   app.focus(); await app.tick(80);
   assert.ok(/Rollback written by them/.test(app.html()), 'follows the newer draft');
@@ -4203,9 +4209,9 @@ rule('App: undoing an applied wording change back to the saved text leaves nothi
   app.click('ob-sel', 'flags'); await app.tick();
   app.input('ob-text', 'Flags reworded'); await app.tick();
   enter(app, 'ob-text', 'Flags reworded'); await app.tick();
-  assert.ok(/Unsaved: Save draft before you publish/.test(app.html()), 'set-up: changed');
+  assert.ok(/Draft: not saved\. Save it before you publish\./.test(app.html()), 'set-up: changed');
   app.click('tl-undo', 'draft'); await app.tick();
-  assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()), 'back to saved, with no typing left pending');
+  assert.ok(!/Draft: not saved\. Save it before you publish\./.test(app.html()), 'back to saved, with no typing left pending');
 });
 
 rule('App: a part saved once keeps its ID even when Undo goes back past changes made before the save', async () => {
@@ -5328,7 +5334,7 @@ rule('App: a history line that couldn\'t be written is kept and written ahead of
   app.fs.append = function (p, t) { return fail && /^history\//.test(p) ? Promise.reject(new Error('OneDrive is busy')) : orig.call(this, p, t); };
   app.click('ob-del', 'rollback'); await app.tick();
   app.click('save-draft'); await app.tick(80);
-  assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()) && !app.files(dir + '/').length, 'the draft saved; its history line didn\'t');
+  assert.ok(!/Draft: not saved\. Save it before you publish\./.test(app.html()) && !app.files(dir + '/').length, 'the draft saved; its history line didn\'t');
   fail = false;
   app.click('ob-del', 'flags'); await app.tick();
   app.click('save-draft'); await app.tick(80);
@@ -5374,7 +5380,7 @@ rule('App: Reverse this change undoes a saved change in the editor only when its
   app.click('hist-mode', 'saved'); await app.tick(40);
   const id = /data-act="hist-reverse" data-id="([\w-]+)"/.exec(app.overlay())[1];
   app.click('hist-reverse', id); await app.tick();
-  assert.ok(/Reversed that change in the editor/.test(app.html()) && /Unsaved: Save draft before you publish/.test(app.html()), 'reversed, not saved');
+  assert.ok(/Reversed that change in the editor/.test(app.html()) && /Draft: not saved\. Save it before you publish\./.test(app.html()), 'reversed, not saved');
   assert.strictEqual(app.fs.files[path].t, saved, 'nothing written');
   app.key('Escape'); await app.tick();
   app.click('save-draft'); await app.tick(80);
@@ -8925,7 +8931,7 @@ rule('Approval: nothing is written when it is closed, left or escaped before it 
   app.click('ob-sel-gate', 'verify'); await app.tick(); app.click('ob-done'); await app.tick();
   app.click('ob-sel-gate', 'verify'); await app.tick(); app.click('ob-sel', 'flags'); await app.tick();
   app.click('ob-sel-gate', 'verify'); await app.tick(); app.key('Escape'); await app.tick();
-  assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()), 'nothing changed');
+  assert.ok(!/Draft: not saved\. Save it before you publish\./.test(app.html()), 'nothing changed');
   app.click('save-draft'); await app.tick(120);
   assert.strictEqual(releaseText(app), before);
 });
@@ -8955,7 +8961,7 @@ rule('Approval: pasting an image while it is open adds nothing and raises nothin
   app.click('ob-sel-gate', 'prep'); await app.tick();
   const html = app.html();
   app.fire('paste', { target: { closest: () => null }, clipboardData: { items: [{ kind: 'file', getAsFile: () => png('x.png') }] } }); await app.tick(40);
-  assert.ok(!/role="alert"/.test(app.html()) && !/Unsaved: Save draft/.test(app.html()), 'no error, no change');
+  assert.ok(!/role="alert"/.test(app.html()) && !/Draft: not saved\./.test(app.html()), 'no error, no change');
   assert.ok(/for="ob-g-owner">Who approves\?/.test(app.html()) && html.length > 0, 'still the approval form');
 });
 
@@ -8965,7 +8971,7 @@ rule('Approval: + Add role adds the role and makes it the approver in one change
   app.click('ob-role-add', 'gate'); await app.tick();
   assert.strictEqual(app.focused(), 'ob-new-role');
   app.set('ob-new-role', 'two words!'); app.click('ob-role-add-go'); await app.tick();
-  assert.ok(/id="ferr-ob-new-role"/.test(app.html()) && !/Unsaved: Save draft/.test(app.html()), 'refused in place, nothing written');
+  assert.ok(/id="ferr-ob-new-role"/.test(app.html()) && !/Draft: not saved\./.test(app.html()), 'refused in place, nothing written');
   app.set('ob-new-role', 'change approver'); app.click('ob-role-add-go'); await app.tick();
   assert.ok(/<option value="change-approver" selected>@change-approver/.test(app.html()), 'normalized and assigned');
   assert.strictEqual(app.focused(), 'ob-g-owner', 'focus back on the chooser');
@@ -9023,7 +9029,7 @@ rule('Builder: More options, opened once, stays open on every step and after a r
   app.fire('toggle', { target: { dataset: { disc: 'ob-more' }, open: true } }); await app.tick();
   app.click('ob-sel', 'rollback'); await app.tick();
   assert.ok(/<details class="ob-more-opts" data-disc="ob-more" open>/.test(app.html()), 'open on the next step');
-  assert.ok(!/Unsaved: Save draft/.test(app.html()) && /data-act="tl-undo" data-id="draft" aria-disabled="true"/.test(app.html()), 'no change, no Undo');
+  assert.ok(!/Draft: not saved\./.test(app.html()) && /data-act="tl-undo" data-id="draft" aria-disabled="true"/.test(app.html()), 'no change, no Undo');
   const again = boot({ localStore: { 'preflight:obMore': app.store['preflight:obMore'] } }); await again.tick(60); again.choose('person-casey'); await again.tick();
   again.click('open-process', 'release'); await again.tick(); again.click('ptab', 'edit'); await again.tick();
   again.click('ob-sel', 'flags'); await again.tick();
@@ -9057,7 +9063,7 @@ rule('Builder: + Add instructions opens the note; typed text survives a redraw; 
   assert.strictEqual(app.focused(), '[data-act="ob-note-open"]', 'focus on + Add instructions');
   app.click('ob-note-open'); await app.tick();
   leave(app, 'ob-note', 'Paste the commit'); await app.tick();
-  assert.ok(/Unsaved: Save draft/.test(app.html()), 'applied');
+  assert.ok(/Draft: not saved\./.test(app.html()), 'applied');
   app.click('ob-sel', 'flags'); await app.tick(); app.click('ob-sel', 'rollback'); await app.tick();
   assert.ok(/<textarea id="ob-note"[^>]*>\nPaste the commit<\/textarea>/.test(app.html()), 'a note with text is shown');
   app.click('tl-undo', 'draft'); await app.tick();
