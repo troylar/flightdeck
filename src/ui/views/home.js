@@ -97,7 +97,9 @@
     ctx.processes().forEach(function (p) {
       var owner = p.latest && p.latest.map.meta.owner, mine = K.keeps(ctx, p);
       /* A draft and skills that need attention go to whoever looks after the checklist (K.keepers); to everyone when nobody does. */
-      if (p.draft && p.draftChanged && mine) add('draft', function () { return [esc(p.title) + ': the draft has unpublished changes', p.latest ? 'Publish it as v' + (p.latest.info.version + 1) + ' when it\'s ready.' : 'Not published yet.']; }, 'home-publish', p.id, 'Publish v' + (p.latest ? p.latest.info.version + 1 : 1) + '…');
+      /* The number publishing would take: one past every number used, an unusable or still-syncing folder's too (as the dialog says). */
+      var nextV = PF.publish.nextVersion(p.taken || (p.all || []).map(function (x) { return x.info; }));
+      if (p.draft && p.draftChanged && mine) add('draft', function () { return [esc(p.title) + ': the draft has unpublished changes', p.latest ? 'Publish it as v' + nextV + ' when it\'s ready.' : 'Not published yet.']; }, 'home-publish', p.id, 'Publish v' + nextV + '…');
       if (p.staleSkills && mine) add('skill', function () { return [esc(p.title) + ': ' + p.staleSkills + ' skill' + (p.staleSkills === 1 ? ' needs' : 's need') + ' attention', 'The checklist changed since they were built.']; }, 'home-skills', p.id, 'Skills of ' + p.title);
       var signer = p.latest && owner ? PF.skills.signer(p.latest, d.people, me, !!(d.failed || {}).people) : '';
       if (signer && !PF.skills.signoffs(d.validations, p.latest).length && !PF.skills.signUnknown(d, p.latest) && PF.skills.readiness(ctx.countedRuns ? ctx.countedRuns(p.latest.map.meta.process) : d.runs, p.latest, null).enough) add('sign', function () { return [esc(p.title) + ' v' + p.latest.info.version + ' is ready for a skill', signer === 'backup' ? 'Enough clean runs. Its owner is away, so as backup owner, you sign it off.' : 'Enough clean runs. As its owner, you sign it off.']; }, 'open-process', p.id, 'Sign it off');
