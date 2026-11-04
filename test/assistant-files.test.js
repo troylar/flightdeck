@@ -122,7 +122,7 @@ rule('B1: the merge README and the next record are the same text from the app an
     assert.ok(app.indexOf('put a new default of each file below in this folder') >= 0 && app.indexOf('your team changed them too') < 0, name + ': the header for held and re-staged files');
   });
   /* Round 8: the prompt's delete words name only the copies that wait, as the README line does. */
-  assert.ok(K.mergePrompt('2.15.0', '.flightdeck/updates/2.15.0').indexOf('don\'t merge it: delete it from each version folder in `.flightdeck/updates/` (`.flightdeck/updates/<version>/AGENTS.md`, never anything under `replaced/`) once the other files are merged.') >= 0, 'the merge prompt names .flightdeck/updates/<version>/AGENTS.md');
+  assert.ok(K.mergePrompt('2.15.0', '.flightdeck/updates/2.15.0').indexOf('only if it still says so, and that file\'s copies hold nothing of ours, delete it from each version folder in `.flightdeck/updates/` (`.flightdeck/updates/<version>/AGENTS.md`, never anything under `replaced/`).') >= 0, 'the merge prompt names .flightdeck/updates/<version>/AGENTS.md');
   const good = K.readRecord(RECORDS[11][1], ['AGENTS.md', STATUS]);
   const cases = [
     ['nothing changed', Object.assign({}, good, { version: '2.7.0' }), [{ key: 'AGENTS.md', want: 'a'.repeat(64) }, { key: STATUS, want: 'b'.repeat(64) }]],

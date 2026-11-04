@@ -971,7 +971,7 @@ const G7 = it15(['Reading runs', 'Editing drafts', 'Reporting work', 'Skills bui
 const AGL = '- `AGENTS.md` — only the part between the flightdeck markers. ';
 /* The --check reason line: printed before "Files marked..." (round 8). */
 const reasonOf = (out) => { const ls = out.split('\n'), n = ls.findIndex(l => l.startsWith('Files marked "needs merge"')); return n > 0 && !ls[n - 1].startsWith('  ') ? ls[n - 1] : null; };
-const DEL = 'delete AGENTS.md from each version folder in `.flightdeck/updates/` (`.flightdeck/updates/<version>/AGENTS.md`, never anything under `replaced/`), or press I merged it in Settings → AI assistant files, and run install again; Flightdeck writes AGENTS.md itself.';
+const DEL = 'press I merged it in Settings → AI assistant files, which keeps each copy under `replaced/`, or delete AGENTS.md from each version folder in `.flightdeck/updates/` (`.flightdeck/updates/<version>/AGENTS.md`, never anything under `replaced/`) only if nobody changed those copies. A copy someone changed is a merge: merge what it adds into AGENTS.md first. Then run install again; Flightdeck writes AGENTS.md itself.';
 
 /* A later release, 2.16.0, stood up as a package of its own: this command and this page, with a guide that adds ## Runner and
    an AGENTS.md that cites it. */
@@ -1105,7 +1105,7 @@ function expect15(st, want) {
     });
   });
 }
-const ONLYCOPY = (V) => 'AGENTS.md\'s new default is waiting in `.flightdeck/updates/' + V + '`; your team didn\'t change AGENTS.md, so delete AGENTS.md from each version folder in `.flightdeck/updates/` (`.flightdeck/updates/<version>/AGENTS.md`, never anything under `replaced/`) and run install again.';
+const ONLYCOPY = (V) => 'AGENTS.md\'s new default is waiting in `.flightdeck/updates/' + V + '`; your team didn\'t change AGENTS.md, so delete AGENTS.md from each version folder in `.flightdeck/updates/` (`.flightdeck/updates/<version>/AGENTS.md`, never anything under `replaced/`) only if nobody changed those copies (merge one someone did) and run install again.';
 const readmeLine = (dir, V, start) => (get15(dir, cp('README.md', V)) || '').split('\n').find(l => l.startsWith(start));
 const kase15 = (id, title, fn) => rule('Content rule ' + id + ': ' + title, fn);
 
@@ -1126,7 +1126,7 @@ kase15('1/A1', 'a 2.14.0 folder plus a plain command-guide.md; the first install
   assert.ok(md.trimEnd().endsWith('exit code 0 means nothing is left to merge; 2 means install still has files to write, so run install again.'), 'the README\'s last line says what 2 means');
   assert.strictEqual(gl, '- `' + GUIDE + '` (Flightdeck now ships a file at this path. AGENTS.md waits for this file: see its line above. Merge the new default into it, or, if it is your team\'s own file, move it out of `_flightdeck/`.)');
   assert.ok(md.indexOf('your team changed them too') < 0 && md.indexOf('put a new default of each file below in this folder') >= 0, 'the README header is the held one');
-  assert.ok(md.indexOf('If README.md says Flightdeck writes a file itself, don\'t merge it') >= 0, 'the prompt says so too');
+  assert.ok(md.indexOf('If README.md says Flightdeck writes a file itself, merge the other files first, then run the same flightdeck command with `--check`: only if it still says so') >= 0, 'the prompt says so too, and checks again before any delete');
   assert.strictEqual(r.line, 'AGENTS.md waits: `' + GUIDE + '` doesn\'t have the sections it points to.');
   await settingsAgree(was, dir);
   const c = check15(dir); assert.strictEqual(c.code, 3);
@@ -1227,9 +1227,9 @@ kase15('A2-A4', 'after 1: the guide merged and its copy deleted, then AGENTS.md\
   const c = check15(dir);
   expect15(c.st, { guide: { status: 'kept', lacks: undefined }, AGENTS: { status: 'merge', onlyCopy: true, waitsFor: [], heldFrom: undefined } });
   const hh = await health15(dir); assert.deepStrictEqual(ids15(hh), ['contract-merge[AGENTS]']);
-  assert.strictEqual(hh[0].detail, 'Your team didn\'t change AGENTS.md; only its new default is waiting in .flightdeck/updates/. Delete AGENTS.md from each version folder there (.flightdeck/updates/<version>/AGENTS.md, never anything under replaced/), or press I merged it, and Update writes it.');
+  assert.strictEqual(hh[0].detail, 'Your team didn\'t change AGENTS.md; only its new default is waiting in .flightdeck/updates/. Delete AGENTS.md from each version folder there (.flightdeck/updates/<version>/AGENTS.md, never anything under replaced/) only if nobody changed those copies (merge one someone did), or press I merged it, and Update writes it.');
   assert.strictEqual(fullLineOf(install15(copy15(dir)).out), ONLYCOPY(VER), 'round 8: the whole line; no "new defaults are in" for a copy that only needs deleting');
-  assert.strictEqual(reasonOf(c.out), 'AGENTS.md only needs its copy deleted: your team didn\'t change AGENTS.md, so delete AGENTS.md from each version folder in `.flightdeck/updates/` (`.flightdeck/updates/<version>/AGENTS.md`, never anything under `replaced/`) and run install.');
+  assert.strictEqual(reasonOf(c.out), 'AGENTS.md only needs its copy deleted: your team didn\'t change AGENTS.md, so delete AGENTS.md from each version folder in `.flightdeck/updates/` (`.flightdeck/updates/<version>/AGENTS.md`, never anything under `replaced/`) only if nobody changed those copies (merge one someone did) and run install.');
   del15(dir, cp(AG)); const was = copy15(dir), r = install15(dir);
   expect15(r.st, { AGENTS: { status: 'update' }, guide: { status: 'kept' } });
   assert.strictEqual(C.region(get15(dir, AG)).text, C.region(A215).text); assert.strictEqual(check15(dir).code, 0);
@@ -1288,7 +1288,7 @@ const mergeCopies = (dir) => Object.keys(text(walk(dir))).filter(k => /\/replace
   assert.strictEqual(mergeCopies(dir), 1, 'settled: no new copy');
   junk.forEach(j => assert.strictEqual(get15(dir, cp(j)), 'x', 'the stray file is left alone: ' + j));
 }));
-/* Round 11 (Codex 1), 2: "you don't need to merge it: delete AGENTS.md" only when every waiting copy is an untouched shipped
+/* Round 11 (review round 1), 2: "you don't need to merge it: delete AGENTS.md" only when every waiting copy is an untouched shipped
    default. A team rule added to the staged copy, inside the markers or under Team notes, makes it a merge that keeps the edit. */
 [['a rule inside the markers', t => t.replace('## Safety rules\n', '## Safety rules\n\n- Our staged rule.\n')], ['a Team note', t => t + '\n- Our staged note.\n']].forEach(([id, edit]) => kase15('R11-copy ' + id, 'after 1, a team edit in the staged AGENTS.md, then the guide merged and its copy deleted: install, --check and Folder health never say to delete it', async () => {
   const dir = f214({ [GUIDE]: FOREIGN }); install15(dir);
@@ -1307,7 +1307,7 @@ const mergeCopies = (dir) => Object.keys(text(walk(dir))).filter(k => /\/replace
   const hs = await health15(dir);
   assert.ok(!hs.some(x => /Delete AGENTS\.md from each version folder/.test(x.detail)), 'Folder health: ' + JSON.stringify(hs));
 }));
-/* Round 11 (Codex 1), 3: a reference write refused because another writer made the file after the folder was read. AGENTS.md is
+/* Round 11 (review round 1), 3: a reference write refused because another writer made the file after the folder was read. AGENTS.md is
    written after the references, and only if the files it cites have its sections then: otherwise it is staged, and its record
    entry stays. The 2.14.0 folder: AGENTS.md at update, the guide missing; the other writer's guide has none of its sections. */
 kase15('R11-race command', 'a guide written by someone else while install runs: AGENTS.md is staged, not replaced, and keeps its record entry', async () => {
@@ -1631,7 +1631,7 @@ rule('The heading reader on a team-edited guide, 22 ways: each lacks exactly the
     if (n) assert.ok(check15(dir).code === 3, name + ': --check says so');
   });
 });
-/* Round 11 (Codex 1): the readers are a hand-written scan, no regular expression. They must read exactly as round 10's did: this
+/* Round 11 (review round 1): the readers are a hand-written scan, no regular expression. They must read exactly as round 10's did: this
    is that reader, word for word, the reference. Compared on every tracked .md file, the 22 variants above, and 20,000 random
    texts of short lines (the reference is only slow on long lines, which the budgets in test/perf.test.js cover). */
 function ref10Prose(md) {

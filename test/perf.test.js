@@ -332,7 +332,7 @@ budget('The heading reader is linear: a 1 MB heading line takes under 100 ms in 
     assert.ok(ms < 100, 'line ' + n + ': ' + ms + ' ms');
   });
 });
-/* Round 11 (Codex 1): the fence reader backtracked on a line that is a long run of ` or ~ with U+2028 or U+2029 after it
+/* Round 11 (review round 1): the fence reader backtracked on a line that is a long run of ` or ~ with U+2028 or U+2029 after it
    (80,000 backticks took 2.6 s). The readers are a hand-written scan now: every adversarial line, 1 MB each, under 100 ms in
    prose(), sections() and cites(), and each reads as the round 10 reader read it (no fence, no heading). */
 budget('Round 11: the fence and heading readers are linear on adversarial lines: 1 MB runs of ` ~ # spaces and tabs, with U+2028 or U+2029, each under 100 ms', () => {

@@ -183,7 +183,7 @@ function appStatus(dir, file, html, mine, force) {
      new         not there yet: written
      missing     installed before, since deleted: written again
    The folder's record only ever makes install more careful (kept rather than merge), never lets it replace a file.
-   A copy still waiting in .flightdeck/updates/<any version>/ keeps a file at merge until someone deletes the copy.
+   A copy still waiting in .flightdeck/updates/<any version>/ keeps a file at merge until the copy is merged and gone.
    With --force, kept and merge files are replaced too, after a copy is saved. */
 function classify(t, files, base, force) {
   const items = files.map((f) => {
@@ -424,7 +424,7 @@ function report(items, check, out) {
    the new defaults are: this version's folder, or, when nothing was staged there this run, the folders they wait in. When the
    first sentence already names the folder, the rest only points to its README.md; when only AGENTS.md's copy waits, the first
    sentence says it all. */
-const DELETE_COPY = 'delete AGENTS.md from each version folder in `.flightdeck/updates/` (`.flightdeck/updates/<version>/AGENTS.md`, never anything under `replaced/`)';
+const DELETE_COPY = 'delete AGENTS.md from each version folder in `.flightdeck/updates/` (`.flightdeck/updates/<version>/AGENTS.md`, never anything under `replaced/`) only if nobody changed those copies (merge one someone did)';
 const sectionWord = (xs) => (xs.length === 1 ? 'section' : 'sections');
 /* The first sentence, or null when the content rule isn't at work. future: install --check's words, before anything is written. */
 function mergeWhy(items, mine, future) {

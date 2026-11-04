@@ -160,6 +160,39 @@ rule('Docs: AGENTS.md routes every command the CLI\'s help lists to a place that
   assert.deepStrictEqual(helpCommands('  flightdeck draft read <team folder>\n  flightdeck open                     open the app\n  flightdeck skills --to <folder>\n'), ['draft read', 'open', 'skills']);
 });
 
+/* Round 12 (review round 2): a delete instruction for AGENTS.md or a staged copy is never unconditional. Someone may have added a
+   team rule to a waiting copy, and deleting it would lose the rule's only copy. Every such sentence, anywhere Flightdeck ships
+   text (docs, the README, the changelog and release notes, the installed AGENTS.md, skills and references, and the words the
+   app and the command build, in their source and as the merge README renders them), says when: only if nobody changed the
+   copies, unless one was changed, or once it is merged. */
+const DELETE_WORD = /\bdelet(?:e|es|ing)\b[^.\n]{0,80}?(?:AGENTS\.md|\bits copy\b|\beach copy\b|\bthe cop(?:y|ies)\b|\bthose copies\b|\bthat copy\b|\bit from each version folder\b)/i;
+const ABOUT_COPIES = /AGENTS\.md|\.flightdeck[-/]updates|version folder|updates\/|staged cop|waiting cop/i;
+/* "once the other files are merged" is no condition on the copy itself: only its own merge, or nobody having changed it, is. */
+const CONDITION = /\bonly if\b|\bunless\b|\bnobody changed\b|\b(?:when|once) (?:it'?s|it is|a file is|each (?:file|copy) is|that file is|its edits are) merged\b/i;
+function unconditionalDeletes(text, where) {
+  return text.split(/\n|(?<=[.!?])\s+/).filter(x => DELETE_WORD.test(x) && ABOUT_COPIES.test(x) && !CONDITION.test(x)).map(x => where + ': ' + x.trim().slice(0, 200));
+}
+const shippedText = () => {
+  const files = [...REPO_DOCS, ...INSTALLED, 'CHANGELOG.md', 'src/releases.json', 'bin/flightdeck.js', 'dist/flightdeck.html', ...list('src/core', /\.js$/), ...list('src/ui', /\.js$/), ...list('src/ui/views', /\.js$/)];
+  return files.filter(f => !/^docs\/rehearsals\//.test(f)).map(f => [f, read(f)]);
+};
+rule('Round 12: no shipped text says to delete AGENTS.md or a staged copy without saying when (only if nobody changed it, or once it is merged)', () => {
+  const bad = [];
+  shippedText().forEach(([f, t]) => bad.push(...unconditionalDeletes(t, f)));
+  /* The words as they render: the merge README for a held AGENTS.md and for one only its copy waits on, and the merge prompt. */
+  const C = PF.contract, G = C.REFS + 'command-guide.md', ups = ['.flightdeck', 'updates'];
+  const held = { key: 'AGENTS.md', rel: 'AGENTS.md', status: 'merge', heldFrom: 'update', held: [{ path: G, lacks: ['Reading runs'] }] };
+  const only = { key: 'AGENTS.md', rel: 'AGENTS.md', status: 'merge', waiting: '2.15.0', onlyCopy: true, waitsFor: [] };
+  const wait = { key: 'AGENTS.md', rel: 'AGENTS.md', status: 'merge', waiting: '2.15.0', onlyCopy: true, waitsFor: [{ path: G, lacks: ['Reading runs'] }] };
+  [held, only, wait].forEach((i, n) => bad.push(...unconditionalDeletes(C.mergeReadme('2.15.0', [i], ups, 'the team folder', {}), 'the merge README ' + n)));
+  bad.push(...unconditionalDeletes(C.mergePrompt('2.15.0', '.flightdeck/updates/2.15.0'), 'the merge prompt'));
+  assert.deepStrictEqual(bad, []);
+  /* The check itself: it catches the round 11 paragraph, and passes the conditional forms. */
+  assert.strictEqual(unconditionalDeletes('Then delete `AGENTS.md` from each version folder in `.flightdeck/updates/`, and run install again.', 'x').length, 1);
+  assert.strictEqual(unconditionalDeletes('Delete AGENTS.md from each version folder there.', 'x').length, 1);
+  assert.strictEqual(unconditionalDeletes('Delete AGENTS.md from each version folder in `.flightdeck/updates/` only if nobody changed those copies.', 'x').length, 0);
+  assert.strictEqual(unconditionalDeletes('Keep our changes, and delete each copy in .flightdeck/updates/ once it\'s merged.', 'x').length, 0);
+});
 rule('The README\'s manual download is the release being shipped, so it can\'t go stale', () => {
   const version = JSON.parse(read('src/releases.json'))[0].version;
   const links = read('README.md').match(/@troylar\/flightdeck@\d+\.\d+\.\d+\/dist\/flightdeck\.html/g) || [];
