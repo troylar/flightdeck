@@ -104,7 +104,7 @@
     if (dr && (dr.open || String(dr.note || '').trim() || Object.keys(dr.record).length || Object.keys(dr.fields).length)) badges += '<span class="s-draft">Draft</span><span class="sr"> (typed, not saved yet)</span>';
     if (V.reportBadge && !P) badges += V.reportBadge(ctx, r, map, s.id);
     if (notes) badges += '<span class="s-notes">' + I('note') + notes + '<span class="sr"> note' + (notes === 1 ? '' : 's') + '</span></span>';
-    var stamp = P ? (pm.status === 'assumed' || !P.canEdit(s.id) ? '' : '<button class="mini s-edit" data-act="pr-edit" data-id="' + esc(s.id) + '" aria-label="Edit: ' + esc(K.stepPlain(s, K.refValue(r, map))) + '">' + I('edit') + 'Edit</button>')
+    var stamp = P ? (pm.status === 'assumed' || !P.canEdit(s.id) ? '' : '<button class="mini s-edit" data-act="pr-edit" data-id="' + esc(s.id) + '" aria-label="Edit step: ' + esc(K.stepPlain(s, K.refValue(r, map))) + '">' + I('edit') + 'Edit step</button>')
       : a && (a.s === 'done' || a.s === 'na') ? '<span class="stamp">' + avatar(ctx, a.by) + ' ' + U.hm(a.at) + '</span>' : '';
     var flash = st.flash && st.flash.ids && st.flash.ids.indexOf(s.id) >= 0;
     var canCheck = rec && open && (t.id !== 'run.process' || !!P) && !heldWhy && !(P && (P.paused || pm.status === 'assumed'));
@@ -216,7 +216,7 @@
     if (approves) h += '<div class="q">Approves ' + U.mdInline(approves) + '</div>';
     if (owner) h += '<div class="small">Owner: ' + esc(nameOf(ctx, owner)) + '</div>';
     if (sched) h += '<div class="badges">' + schedBadge(sched) + '</div>';
-    if (P) h += V.prGateNote(P, g.id, pi) + (P.canEdit(g.id) ? '<div class="row"><button class="mini" data-act="pr-edit" data-id="' + esc(g.id) + '">' + I('edit') + 'Edit the gate</button></div>' : '');
+    if (P) h += V.prGateNote(P, g.id, pi) + (P.canEdit(g.id) ? '<div class="row"><button class="mini" data-act="pr-edit" data-id="' + esc(g.id) + '">' + I('edit') + 'Edit gate</button></div>' : '');
     else if (rec2 && rec2.by && (st === 'passed' || st === 'waived' || st === 'failed' || st === 'review')) h += '<div class="small g-rec">' + gateReceipt(ctx, rec2, st) + '</div>';
     /* The gate's note, for every version (every copy since 1.10 publishes it), and its screenshots (2.0), above Pass the gate. */
     if (g.note) h += '<div class="note g-note">' + U.mdBlock(g.note) + '</div>' + (g.implicit || P ? '' : noteCorr(ctx, 'gate', g.id, g.note));
@@ -397,7 +397,7 @@
       }
       main = nx.step;
       btn = here ? '<span class="small rw-here">Selected' + (rec && s.keys ? '<span class="rw-kbd"> · Space checks it</span>' : '') + '</span>' : '<button class="btn" data-act="goto" data-id="step-' + esc(nx.step.id) + '">' + (selOf(ctx) ? 'Back to it' : 'Go to step') + '</button>';
-      if (ctx.practice && ctx.practice.canEdit(nx.step.id)) btn += '<button class="mini" data-act="pr-edit" data-id="' + esc(nx.step.id) + '">' + I('edit') + 'Edit</button>';
+      if (ctx.practice && ctx.practice.canEdit(nx.step.id)) btn += '<button class="mini" data-act="pr-edit" data-id="' + esc(nx.step.id) + '">' + I('edit') + 'Edit step</button>';
       var others = (nx.tracks || []).filter(function (t) { return t.step && (!nx.track || t.track.id !== nx.track.id); });
       var tail = K.capJoin(others, function (t) { return esc(t.track.title) + ': ' + t.left + ' left'; }, ' · ', 'rw-next-lanes');
       return '<div class="rw-next" data-k="step" role="region" aria-label="Next up"><div class="rw-next-t"><div class="small">Next up · ' + hint + '</div><b>' + mainHtml(r, map, main) + '</b>' + (tail ? '<div class="small">Also open: ' + tail + '</div>' : '') + '</div>' + btn + '</div>';
@@ -658,7 +658,7 @@
     var who = K.capJoin(st.roles, function (ro) { return !P && r.roles[ro] ? avatar(ctx, r.roles[ro]) + esc(nameOf(ctx, r.roles[ro])) : '@' + esc(ro); }, ', ', 'rw-ins-roles');
     var cf = s.corrForm && s.corrForm.key === runKey(r) && s.corrForm.step === st.id ? s.corrForm : null, corrOpen = !!cf;
     var h = '<aside class="fpe-pane rw-ins" id="rw-ins" data-scope="ref:' + esc(st.id) + '" data-open="' + open + '" aria-label="Selected step">';
-    h += '<div class="rw-ins-top"><button class="mini close" data-act="close-ref">Close</button>' + (P && P.canEdit(st.id) ? '<button class="mini rw-ins-edit" data-act="pr-edit" data-id="' + esc(st.id) + '">' + I('edit') + 'Edit this step</button>' : '') + '<nav class="row rw-steps" aria-label="Other steps">' +
+    h += '<div class="rw-ins-top"><button class="mini close" data-act="close-ref">Close</button>' + (P && P.canEdit(st.id) ? '<button class="mini rw-ins-edit" data-act="pr-edit" data-id="' + esc(st.id) + '">' + I('edit') + 'Edit step</button>' : '') + '<nav class="row rw-steps" aria-label="Other steps">' +
       (prev ? '<button class="mini" data-act="select" data-id="' + esc(prev.step.id) + '" data-nav="1">' + I('back') + 'Previous</button>' : '') + (next ? '<button class="mini" data-act="select" data-id="' + esc(next.step.id) + '" data-nav="1">Next</button>' : '') + '</nav>' +
       '<button class="linkish rw-skip" data-act="to-row" data-id="' + esc(st.id) + '">Back to the checklist</button></div>';
     h += '<div class="rw-ins-body">';

@@ -521,7 +521,7 @@ rule('Editor (2.9): "A team value" lists team-values.json with what each is for;
 rule('Editor (2.9): Checks name a team value the folder doesn\'t have as a thing to fix, as publishing would', async () => {
   const app = await editorOn(md(step('run.process', 's', 'process: check-in', 'pass: commit=team:gone')), 's');
   const h = app.html();
-  assert.ok(/\d+ things? to fix before publishing/.test(h), 'counted as a thing to fix');
+  assert.ok(/id="ins-t-checks"[^>]*>Checks <span class="cnt bad">\d+<\/span>/.test(h), 'counted as a thing to fix');
   assert.ok(/&quot;gone&quot; isn&#39;t a team value in this folder|"gone" isn't a team value in this folder/.test(h), 'and named in Checks');
 });
 

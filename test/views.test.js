@@ -1474,9 +1474,10 @@ rule('Draft builder: lanes sit side by side under "Do all lanes", and a lane ope
 rule('Draft editor: a page of its own, with a header landmark, and an inspector of Selected, Checks and Preview tabs', () => {
   const { ctx, state } = partsSetup();
   let html = V.process(ctx);
-  assert.ok(/^<div class="fpe" id="fpe"><header class="fpe-head" role="region" aria-labelledby="ed-h"><div class="fpe-id"><button type="button" class="btn fpe-done" data-act="ed-done">/.test(html), 'only the editor, its header first');
+  assert.ok(/^<div class="fpe" id="fpe"><header class="fpe-head ws-head" role="region" aria-labelledby="ed-h"><div class="fpe-id"><button type="button" class="btn backc" data-act="ed-done" aria-label="Back to Production release">/.test(html), 'only the editor, its header first, the way back first in it');
   assert.ok(!/class="runhead"/.test(html), 'not the process page around it');
-  assert.ok(/<h1 id="ed-h" tabindex="-1">Production release <span class="cat">Draft<\/span><\/h1>/.test(html) && /data-act="tl-undo" data-id="draft" aria-disabled="true"/.test(html) && /data-act="tl-redo" data-id="draft" aria-disabled="true"/.test(html) && /data-act="hist-open" data-id="draft"/.test(html) && /data-act="save-draft"/.test(html));
+  assert.ok(/<h1 id="ed-h" class="sr" tabindex="-1">Production release, Edit<\/h1>/.test(html) && /data-act="tl-undo" data-id="draft" aria-disabled="true"/.test(html) && /data-act="tl-redo" data-id="draft" aria-disabled="true"/.test(html) && /data-act="hist-open" data-id="draft"/.test(html) && /<div class="fpe-save">/.test(html));
+  assert.ok(!/fpe-checks|fpe-practice/.test(html), 'no Checks or Practice chip: the inspector has Checks, the view control has Practice');
   assert.ok(/<div class="fpe-tabs" role="tablist" aria-label="Inspector">/.test(html) && /role="tab" id="ins-t-selected" aria-selected="false" aria-controls="ins-p-selected" tabindex="-1"/.test(html), 'a tablist');
   assert.ok(/id="ins-t-preview" aria-selected="true"[^>]*tabindex="0"/.test(html) && /role="tabpanel" id="ins-p-checks" aria-labelledby="ins-t-checks" tabindex="0" hidden/.test(html), 'nothing selected, nothing blocking: Preview');
   state.obSel = { pid: 'release', kind: 'step', key: 'pods' };
@@ -1501,7 +1502,7 @@ rule('Draft editor: which inspector tab shows, and the Checks count', () => {
   const { ctx, state } = partsSetup();
   state.editor.text = state.editor.base.replace('{#flags}', '');
   const html = V.process(ctx);
-  assert.ok(/class="chipbtn fpe-checks bad"[^>]*aria-label="Checks: 1 thing to fix before publishing"><span class="fpe-checks-t">Checks <\/span><span class="cnt bad">1<\/span>/.test(html), 'red with a count when something blocks');
+  assert.ok(/id="ins-t-checks"[^>]*>Checks <span class="cnt bad">1<\/span>/.test(html), 'red with a count on the Checks tab when something blocks');
   assert.ok(/id="ins-t-checks" aria-selected="true"/.test(html));
 });
 
@@ -2830,7 +2831,7 @@ rule('Draft editor: a draft with no steps opens on Preview with Add your first s
   let html = V.process(ctx);
   assert.strictEqual(tabOf(html), 'preview', 'a new draft opens on Preview');
   assert.ok(/<p class="ob-first"[^>]*>Add your first step<\/p>/.test(html), 'the outline says what to do first');
-  assert.ok(/aria-label="Checks: 1 thing to fix before publishing"/.test(html), 'the chip still counts the empty phase');
+  assert.ok(/id="ins-t-checks"[^>]*>Checks <span class="cnt bad">1<\/span>/.test(html), 'the Checks tab still counts the empty phase');
   state.obAdd = null;
   state.editor.text = front + '\n## First phase · READ-DO {#first}\n\n## Second phase · READ-DO {#second}\n';
   html = V.process(ctx);

@@ -879,7 +879,7 @@
     return h + '<div class="row"><button class="btn go" type="submit" id="start-submit"' + (st.me ? '' : ' disabled') + '>' + I('play') + 'Start the test run</button><span class="small">A test run tries this staged version. It isn\'t counted in How runs go or toward a skill.</span>' + back + '</div></form>';
   }
   V.testStage = testStage; V.fxKeys = fxKeys;
-  V.stageSign = stageSign;
+  V.stageSign = stageSign; V.publishNeeds = publishNeeds; V.publishCorrections = publishCorrections;
   /* The approvals a version names a role for (2.10): who approves is chosen when it starts. */
   function approvals(map) { return (map.phases || []).filter(function (ph) { return ph.gate && !ph.gate.implicit && ph.gate.owner && map.meta.roles.indexOf(ph.gate.owner) >= 0; }).map(function (ph) { return { role: ph.gate.owner, title: ph.gate.title }; }); }
   V.approvals = approvals;

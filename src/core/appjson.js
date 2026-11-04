@@ -84,7 +84,7 @@ PF.appjson = (function () {
     run: { run: opt(extend(SUMMARY2, { roles: [ROLE], pins: map(PIN), migrations: [MIGRATION],
       steps: [extend(SCHEMA.run.run.$or[0].steps[0], { values: map(VALUE), evidence: [EVIDENCE2], applies: APPLIES, held: opt('string') })],
       gates: [extend(SCHEMA.run.run.$or[0].gates[0], { applies: APPLIES })], followUps: [FOLLOWUP2] })) },
-    /* flightdeck draft check (2.13): the verdict Review & publish gives the text, from the folder as it is now. from: the draft
+    /* flightdeck draft check (2.13): the verdict the Publish dialog gives the text, from the folder as it is now. from: the draft
        in maps/drafts/ (ref its path) or the file given with --from (ref null); rev: SHA-256 of the text checked. */
     draftCheck: { process: 'string', from: { kind: 'string', ref: opt('string'), rev: 'string' }, checks: { blockers: ['string'], suggestions: ['string'] }, publish: { ok: 'boolean', blockers: ['string'] } },
     /* flightdeck type read and type list (2.14): one step-type file as the command reads it (state, the SHA-256 of its exact

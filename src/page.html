@@ -1978,6 +1978,30 @@ body { padding-top: var(--keep-h); }
   .rw-next { top: calc(var(--keep-h) + var(--rw-head-h, 0px)); }
   .rw .step, .rw .gate, .rw .phase { scroll-margin-top: calc(var(--keep-h) + var(--rw-head-h, 0px) + var(--rw-next-h, 72px) + 12px); }
 }
+/* 2.16: the workspace's one header (editor and practice): back | views | tools | the primary. */
+.fpe-head.ws-head, .fpe-head.ws-head.rw-head { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; grid-template-areas: "id views tools save"; align-items: center; gap: 8px 12px; }
+.ws-head .fpe-id { grid-area: id; min-width: 0; }
+.ws-head .fpe-id .backc { max-width: 100%; }
+.ws-head .fpe-title { flex: 0 1 auto; min-width: 0; }
+.ws-head .ws-views { grid-area: views; margin: 0; border-bottom: 0; }
+.ws-head .ws-views button { min-height: 36px; padding: 6px 12px; }
+.ws-head .fpe-tools { grid-area: tools; }
+.ws-head .fpe-save { grid-area: save; }
+.ws-head .btn.go[aria-disabled="true"] { background: var(--chip); color: var(--muted); border-color: var(--line); }
+.ws-why { margin: 4px 16px; }
+.ws-head .fpe-state { width: auto; justify-content: flex-start; text-align: left; }
+@media (max-width: 1240px) { .fpe-head.ws-head, .fpe-head.ws-head.rw-head { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "id save" "views views" "tools tools"; } }
+@media (max-width: 800px) {
+  .fpe-head.ws-head, .fpe-head.ws-head.rw-head, .fpe-head.rw-head.pr-head.ws-head { grid-template-columns: minmax(0, 1fr) minmax(0, max-content); grid-template-areas: "id save" "views views" "tools tools"; }
+  .ws-head .fpe-save { max-width: 50vw; }
+  .ws-head .fpe-save .btn { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .ws-head .fpe-id { flex-wrap: wrap; gap: 2px 8px; }
+  .ws-head .fpe-id .fpe-title { flex: 1 1 100%; }
+  .ws-head .ws-test { display: block; }
+  .ws-head .ws-views { display: flex; }
+  .ws-head .ws-views button { flex: 1 1 0; }
+  .ws-head .backc .backc-t { min-width: 10ch; }
+}
 </style>
 </head>
 <body>
