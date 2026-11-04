@@ -270,7 +270,7 @@ rule('Round 17: the snapshot covers the sources that word instructions (merge, h
   mutate('bin/flightdeck.js', 'only if nobody changed those copies', 'once you have read them');
   mutate('src/core/health.js', 'Delete AGENTS.md from each version folder there', 'Delete the updates folder');
 });
-rule('Round 18: the snapshot covers everything that ships, from the build and package inventory: a wording change in any shipped source fails, a code-only change does not', () => {
+rule('Round 18: the snapshot covers everything that ships, from the build and package inventory: a wording change in any shipped source fails', () => {
   const RT = require('./reviewed-text'), snap = RT.snapshot(), src = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
   const fails = (over, name) => { const got = RT.problems(RT.texts(over), snap); assert.ok(got.length === 1 && got[0].indexOf(name) >= 0, name + ': ' + JSON.stringify(got)); };
   const edit = (f, a, b) => { const s = src(f); assert.ok(s.indexOf(a) >= 0, 'set-up: ' + f + ' has ' + a.slice(0, 60)); return { [f]: s.replace(a, b) }; };
@@ -280,20 +280,39 @@ rule('Round 18: the snapshot covers everything that ships, from the build and pa
   /* A new source file with a string, and a new pack file: each ships, so each is new until reviewed. */
   fails({ 'src/core/extra.js': "PF.extra = 'Write reports/x.json by hand.';\n" }, 'src/core/extra.js');
   fails({ 'example-folder/.flightdeck/skills/flightdeck-extra/SKILL.md': '# Extra\n\nWrite `runs/` by hand.\n' }, 'example-folder/.flightdeck/skills/flightdeck-extra/SKILL.md');
-  /* A code-only change (a renamed local, a comment, spacing) changes no string, so it needs no review. */
-  const code = edit('src/core/setup.js', 'function assistantPrompt(o) {', 'function assistantPrompt(opts) { var o = opts; /* renamed */');
-  assert.deepStrictEqual(RT.problems(RT.texts(code), snap), [], 'a code-only change');
+  /* Since round 19 a code-only change fails too: the whole file is pinned. */
+  fails(edit('src/core/setup.js', 'function assistantPrompt(o) {', 'function assistantPrompt(opts) { var o = opts; /* renamed */'), 'src/core/setup.js');
   /* Everything that ships is in the inventory: every package file, every build input, every file the folder pack writes. */
   const inv = RT.inventory(), pkg = JSON.parse(src('package.json'));
   pkg.files.forEach((f) => assert.ok(inv[f], 'package file in the inventory: ' + f));
   Object.keys(JSON.parse(src('src/baselines.json')).files).forEach((f) => assert.ok(inv['example-folder/' + f.split('#')[0]], 'pack file in the inventory: ' + f));
   RT.buildInputs().forEach((f) => assert.ok(inv[f], 'build input in the inventory: ' + f));
-  Object.keys(inv).forEach((f) => assert.ok(/^(?:whole|strings|generated|releases)$/.test(inv[f]), f + ': ' + inv[f]));
-  /* Every JavaScript file's literals are read exactly: with each emptied, the file still compiles. */
-  Object.keys(inv).filter((f) => inv[f] === 'strings').forEach((f) => RT.checkStrings(src(f), f));
+  Object.keys(inv).forEach((f) => assert.ok(/^(?:whole|generated)$/.test(inv[f]), f + ': ' + inv[f]));
+  /* The literal list is a reviewer aid in the failure output, not the rule; it still reads literals exactly. */
   assert.deepStrictEqual(RT.stringsOf("var a = 'x', b = /'y'/g, c = `t${'u' + `v${w}`}z`; // 'no'\n/* 'no' */ d = 1 / 2 / 3; e = 'q\\'r';").strings, ['x', 't', 'u', 'v', '', 'z', "q\\'r"]);
   /* The generated files hold nothing unpinned: build.py on a copy of the pinned inputs reproduces them byte for byte. */
   assert.deepStrictEqual(RT.parity(), [], 'dist/flightdeck.html, dist/FONT-LICENSE.txt and CHANGELOG.md reproduce from the sources (run python3 build.py)');
+});
+rule('Round 19: every shipped or generating file is pinned whole: computed text, a misread literal, build.py, package.json and even whitespace fail until reviewed, naming the file and the update command', () => {
+  const RT = require('./reviewed-text'), snap = RT.snapshot(), src = (f) => fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+  const edit = (f, a, b) => { const s = src(f); assert.ok(s.indexOf(a) >= 0, 'set-up: ' + f + ' has ' + a.slice(0, 60)); return { [f]: s.replace(a, b) }; };
+  const fails = (over, name) => {
+    const got = RT.problems(RT.texts(over), snap);
+    assert.ok(got.length === 1 && got[0].indexOf(name) >= 0 && got[0].indexOf('node test/reviewed-text.js --update') >= 0, name + ': ' + JSON.stringify(got));
+  };
+  /* The reviewers' computed-text cases: the literals stay the same, the shipped words don't. */
+  fails(edit('src/core/skills.js', "It records the exact version (' + meta.process", "It records the exact version ('.replace(/never /, String()) + meta.process"), 'src/core/skills.js');
+  fails(edit('src/core/skills.js', "'\\n```';", "'\\n```' + /Then write reports by hand./.source;"), 'src/core/skills.js');
+  /* A literal a tokenizer misreads after n++ / … */
+  fails(edit('src/core/setup.js', '  function assistantPrompt(o) {', "  var n = 1; n++ / (console.log('Delete AGENTS.md.')) / 1;\n  function assistantPrompt(o) {"), 'src/core/setup.js');
+  /* The generator's own words, and the package's. */
+  fails(edit('build.py', '"fixed": "Fixed"', '"fixed": "Fixed (write reports/ by hand)"'), 'build.py');
+  fails(edit('package.json', 'Offline team process checklists', 'Offline team process checklists (edit runs/ by hand)'), 'package.json');
+  /* Whitespace alone now fails too: the review is of bytes. */
+  fails(edit('src/core/setup.js', '  function assistantPrompt(o) {', '  function assistantPrompt(o) { '), 'src/core/setup.js');
+  /* Generators and tools are in the inventory, pinned whole. */
+  const inv = RT.inventory();
+  ['build.py', 'package.json', 'tools/baselines.js', 'tools/type-table.js', 'CHANGELOG.md', 'LICENSE', 'README.md'].forEach((f) => assert.strictEqual(inv[f], 'whole', f));
 });
 rule('The README\'s manual download is the release being shipped, so it can\'t go stale', () => {
   const version = JSON.parse(read('src/releases.json'))[0].version;
