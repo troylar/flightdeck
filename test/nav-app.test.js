@@ -3,7 +3,7 @@
 'use strict';
 const assert = require('assert');
 const { rule, run } = require('./harness');
-const { boot, bus, locks } = require('./app-harness');
+const { boot, bus, locks, folderHandle, memoryIDB } = require('./app-harness');
 
 async function start(o) {
   o = o || {};
@@ -210,7 +210,7 @@ rule('Workspace: ‹ <title> goes to the checklist page with focus on the strip\
   assert.match(viewBtn(p, 'Practice').text, /^Practice · 1 of \d+$/, 'practice is kept');
 });
 
-rule('Workspace: ‹ <title> is one browser Back when the checklist page opened it, from Edit and from Practice; from a typed link it moves there', async () => {
+rule('Workspace: ‹ <title> is one browser Back when the checklist page opened it, from Edit and from Practice; from a typed link it moves there in the link\'s place', async () => {
   for (const pr of [false, true]) {
     const app = await edit({ domFocus: true });
     if (pr) { app.click('pr-open'); await app.tick(60); }
@@ -226,7 +226,9 @@ rule('Workspace: ‹ <title> is one browser Back when the checklist page opened 
   const n = typed.entries().length, i = typed.index();
   typed.click('ed-done'); await typed.settle();
   assert.ok(onOverview(typed), 'typed: the checklist page');
-  assert.deepStrictEqual([typed.entries().length, typed.index()], [n + 1, i + 1], 'typed: moved there');
+  /* No traversal when the entry before isn't where it goes (R5): the move takes the typed link's entry. */
+  assert.deepStrictEqual([typed.entries().length, typed.index()], [n, i], 'typed: moved there, in its place');
+  assert.strictEqual(typed.hash(), '#/process/release');
 });
 
 rule('Workspace: every move inside it replaces the history entry, so one browser Back leaves it after any mix of moves', async () => {
@@ -1334,12 +1336,14 @@ rule('R4 1: a ‹ control\'s Back with a refresh finishing first never writes an
   await heldBack(w, async () => { w.click('ed-done'); await w.tick(); }, '#/process/release');
   assert.ok(onOverview(w), 'the checklist page');
 });
-rule('R4 1: a ‹ control whose Back never lands moves there itself after a while, and history is written again', async () => {
-  const app = await edit();
+rule('R4 1 (R5): a ‹ control whose Back is held never moves there by itself: it waits for Back to land', async () => {
+  const app = await edit(); const n = app.entries().length;
   app.holdPops();
   app.click('ed-done'); await app.tick(1700);
-  assert.ok(onOverview(app), 'moved there itself');
-  assert.strictEqual(app.hash(), '#/process/release');
+  assert.ok(inEditor(app), 'still the editor');
+  assert.strictEqual(app.entries().length, n, 'nothing written');
+  app.releasePops(); await app.settle(); await app.tick(40);
+  assert.ok(onOverview(app), 'landed'); assert.strictEqual(app.hash(), '#/process/release');
 });
 
 rule('R4 2: a typed Publish note, its caret too, survives the dialog being rebuilt by a background refresh, in Edit and in Practice', async () => {
@@ -1377,6 +1381,144 @@ rule('R4 3: browser Back while the Publish dialog writes leaves it as it is: foc
   assert.ok(!/Finish or cancel this first/.test(app.html() + app.live()), 'nothing to finish or cancel');
   assert.strictEqual(app.hash(), h, 'the URL kept');
   release(); await app.tick(300);
+});
+
+/* ---------- Build round 5: a ‹ control's Back waits for its popstate, with no timer ---------- */
+const wait = ms => new Promise(res => setTimeout(res, ms));
+rule('R5 1: a ‹ control\'s Back held 0.1 s, 3 s or 10 s lands where it goes once released, and nothing moves or is written before', async () => {
+  for (const ms of [100, 3000, 10000]) {
+    const app = await edit(); const n = app.entries().length, i = app.index();
+    app.holdPops();
+    app.click('ed-done'); await app.tick(); await wait(ms);
+    assert.ok(inEditor(app), ms + ' ms: still the editor while Back is on its way');
+    assert.strictEqual(app.entries().length, n, ms + ' ms: nothing written while waiting (' + JSON.stringify(app.entries().map(e => e.hash)) + ')');
+    app.releasePops(); await app.settle(); await app.tick(40);
+    assert.strictEqual(app.hash(), '#/process/release', ms + ' ms: landed on the checklist page');
+    assert.ok(onOverview(app), ms + ' ms: the checklist page drawn');
+    assert.strictEqual(app.entries().length, n, ms + ' ms: history didn\'t grow');
+    assert.strictEqual(app.index(), i - 1, ms + ' ms: one entry back');
+    await wait(50); await app.settle();
+    assert.strictEqual(app.hash(), '#/process/release', ms + ' ms: and stays there');
+  }
+});
+rule('R5 1: a move to Runs while a ‹ control\'s Back is on its way waits, then lands after it; history doesn\'t grow', async () => {
+  for (const to of ['runs', 'settings']) {
+    const app = await edit(); const n = app.entries().length, i = app.index();
+    app.holdPops();
+    app.click('ed-done'); await app.tick();
+    app.click('nav', to); await app.tick(40);
+    assert.ok(inEditor(app), to + ': nothing moves before Back lands');
+    assert.strictEqual(app.entries().length, n, to + ': nothing written');
+    app.releasePops(); await app.settle(); await app.tick(40); await app.settle();
+    assert.strictEqual(app.hash(), '#/' + to, to + ': the later move wins, after the arrival');
+    assert.strictEqual(app.entries().length, n, to + ': history didn\'t grow (' + JSON.stringify(app.entries().map(e => e.hash)) + ')');
+    assert.strictEqual(app.index(), i, to + ': in the place of the entry left');
+    assert.strictEqual(app.entries()[i - 1].hash, '#/process/release', to + ': the checklist page before it');
+    await wait(1700); await app.settle();
+    assert.strictEqual(app.hash(), '#/' + to, to + ': nothing later overrides it');
+  }
+});
+rule('R5 1: a team folder opened while a ‹ control\'s Back is on its way: Back lands quietly where the browser is, nothing of the old folder opens', async () => {
+  const { example } = require('./harness');
+  const opts = { picker: folderHandle('A', { 'people.json': example('people.json') }), indexedDB: memoryIDB() };
+  const app = await start(opts);
+  app.click('open-process', 'release'); await app.tick(); app.click('ptab', 'edit'); await app.tick();
+  const n = app.entries().length;
+  assert.strictEqual(app.entries()[n - 2].hash, '#/process/release', 'set-up: ‹ Production release is Back');
+  app.holdPops();
+  app.click('connect'); app.click('ed-done'); await app.tick(200);
+  assert.strictEqual(app.entries().length, n, 'nothing written while waiting');
+  app.releasePops(); await app.settle(); await app.tick(80); await app.settle();
+  assert.ok(!/another team folder/.test(app.live()), 'nothing said about another folder: ' + app.live());
+  assert.ok(!/Production release/.test(app.html().split('id="page-h"')[1] || ''), 'the old folder\'s checklist isn\'t drawn');
+  assert.strictEqual(app.entries().length, n, 'history didn\'t grow');
+  assert.ok(app.entries()[app.index()].state.f !== app.entries()[0].state.f, 'the entry is the new folder\'s now');
+});
+rule('R5 1: no timer writes or moves history: every setTimeout callback in app.js is free of history calls', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
+  const TOUCH = /\bHIST\.|\bhistWrite\(|\bhistBack\(|\bsyncLocation\(|\bscheduleSync\(|\bpopAt\(|\barrive\(|\brestoreUrl\(|\bonPop\(/;
+  const body = at => { const o = src.indexOf('{', at); let d = 0; for (let i = o; i < src.length; i++) { if (src[i] === '{') d++; else if (src[i] === '}' && !--d) return src.slice(o, i + 1); } return ''; };
+  const bad = []; let m; const re = /setTimeout\(\s*(function\b|[A-Za-z_$][\w$]*)/g;
+  while ((m = re.exec(src))) {
+    const b = m[1] === 'function' ? body(m.index) : (() => { const f = new RegExp('function ' + m[1] + '\\s*\\(').exec(src); return f ? body(f.index) : ''; })();
+    if (TOUCH.test(b)) bad.push('line ' + src.slice(0, m.index).split('\n').length + ': ' + b.slice(0, 80));
+  }
+  assert.ok(re.lastIndex === 0 && src.split('setTimeout(').length > 5, 'the check found the timers');
+  assert.deepStrictEqual(bad, []);
+  assert.ok(!/restoreTimedOut|H\.backing\s*=\s*\{\s*timer/.test(src), 'neither Back nor a restore has a timer');
+});
+
+/* ---------- Build round 5: Leave without saving holds for the form as it was ---------- */
+rule('R5 2: Leave without saving, then Keep editing and typing before Back lands: the form and what was typed are kept', async () => {
+  const t = await start(); t.click('nav', 'settings'); await t.tick(); t.click('open-types'); await t.tick(); await typeOpen(t);
+  t.input('tf-label', 'Risk review'); await t.tick(40);
+  const b = back1(t); t.click(b.act, b.id); await t.tick();
+  assert.match(t.html(), /data-act="type-cancel">Leave without saving/, 'set-up: the leave prompt');
+  t.holdPops();
+  t.click('type-cancel'); await t.tick();
+  t.click('type-stay'); await t.tick();
+  t.input('tf-label', 'Risk review board'); await t.tick(40);
+  t.releasePops(); await t.settle(); await t.tick(60); await t.settle();
+  assert.ok(/id="tf-h"/.test(t.html()), 'the form is still open');
+  assert.strictEqual(t.hash(), '#/types/new', 'on its own entry');
+  assert.match(t.html(), /<input id="tf-label"[^>]*value="Risk review board"/, 'with what was typed after Keep editing');
+  t.click('nav', 'home'); await t.tick(); t.click('nav', 'settings'); await t.tick(); t.click('open-types'); await t.tick();
+  assert.match(t.html(), /Risk review board/, 'and it\'s kept, not discarded');
+});
+rule('R5 2: Leave without saving with nothing changed since closes the form as Back lands', async () => {
+  const t = await start(); t.click('nav', 'settings'); await t.tick(); t.click('open-types'); await t.tick(); await typeOpen(t);
+  t.input('tf-label', 'Risk review'); await t.tick(40);
+  const b = back1(t); t.click(b.act, b.id); await t.tick();
+  t.holdPops(); t.click('type-cancel'); await t.tick(); await wait(200);
+  t.releasePops(); await t.settle(); await t.tick(60);
+  assert.strictEqual(t.hash(), '#/types');
+  assert.ok(!/id="tf-h"/.test(t.html()), 'closed');
+});
+
+/* ---------- Build round 5: a step type opened from Edit returns there, saved or not ---------- */
+async function edType(o) {
+  const a = await edit(Object.assign({ localStore: { 'preflight:builder': 'true' } }, o));
+  a.click('ob-sel', 'flags'); await a.tick(); await typeOpen(a);
+  a.input('tf-label', 'Risk review'); await a.tick(40);
+  const b = back1(a); assert.match(b.text, /Production release/, 'set-up: the way back names the checklist: ' + b.text);
+  a.click(b.act, b.id); await a.tick();
+  assert.match(a.html(), /data-act="type-cancel">Leave without saving/, 'set-up: the leave prompt');
+  return a;
+}
+rule('R5 3: a changed step type opened from Edit: Leave without saving returns to Edit at its step, the form closed', async () => {
+  const a = await edType(); const n = a.entries().length;
+  a.click('type-cancel'); await a.settle(); await a.tick(60); await a.settle();
+  assert.strictEqual(a.hash(), '#/process/release/edit', 'back to Edit: ' + a.hash());
+  assert.ok(inEditor(a), 'the editor');
+  assert.match(a.html(), /data-act="ob-sel" data-id="flags" aria-pressed="true"/, 'at its step');
+  assert.ok(a.entries().length <= n, 'history didn\'t grow');
+  a.click('nav', 'settings'); await a.tick(); a.click('open-types'); await a.tick();
+  assert.ok(!/Risk review/.test(a.html()), 'the changes were let go of');
+});
+rule('R5 3: a changed step type opened from Edit: Save step type from the prompt saves it and returns to Edit at its step', async () => {
+  const a = await edType();
+  a.click('type-save'); await a.tick(200); await a.settle(); await a.tick(60);
+  assert.strictEqual(a.hash(), '#/process/release/edit', 'back to Edit: ' + a.hash());
+  assert.match(a.html(), /data-act="ob-sel" data-id="flags" aria-pressed="true"/, 'at its step');
+  assert.ok(Object.keys(a.fs.files).some(f => /^step-types\//.test(f) && /Risk review/.test(a.fs.files[f].t)), 'saved');
+});
+
+/* ---------- Build round 5: one way back on an unavailable pinned plan ---------- */
+rule('R5 4: a plan whose pinned version can\'t be used, opened from the checklist page, has only the header\'s way back to it', async () => {
+  const app = await start();
+  const d = await app.PF.repo.loadAll(app.fs), v1 = d.processes.find(p => p.process === 'release').index.all.find(p => p.info.version === 1);
+  const plan = app.PF.plans.make(v1, { id: 'plan-release-exact', process: 'release', title: 'Release exact', details: {}, roles: {}, by: 'person-avery', created: new Date().toISOString() }, true, '2.0.0');
+  await app.fs.write('proposals/plan-release-exact.json', JSON.stringify(plan, null, 2));
+  app.files('publications/release/' + v1.info.folder + '/').forEach(f => { delete app.fs.files[f]; });
+  app.click('refresh'); await app.tick(120);
+  app.click('nav', 'home'); await app.tick(); app.click('review-plan', 'plan-release-exact'); await app.tick();
+  const h = app.hash();
+  app.click('open-process', 'release'); await app.tick();
+  app.typeHash(h); await app.settle(); await app.tick(40);
+  assert.match(app.html(), /won(&#39;|')t start on another version by itself/, 'set-up: the plan asks');
+  const b = back1(app);
+  assert.strictEqual(b.text, 'Production release', 'the header goes to the checklist page');
+  assert.ok(!buttons(app.html()).some(x => x.text === 'Back to the checklist'), 'no second way there');
 });
 
 run();

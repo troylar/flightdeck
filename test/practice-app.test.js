@@ -542,7 +542,7 @@ rule('Stage from the Publish dialog: an empty What changed is refused in the dia
   ovClick(app, 'stage-draft', 'release'); await app.tick(200);
   assert.strictEqual(stageFiles(app).length, 0);
   assert.match(app.overlay(), /id="change-note"/, 'the dialog stays open');
-  assert.match(app.overlay() + app.live(), /what changed/i);
+  assert.match(app.overlay(), /<p class="err small" role="alert" id="pub-err">Write what changed \(one line\), then stage it\.<\/p>/, 'the dialog\'s alert says what to do');
   assert.ok(onPage(app), 'practice still open');
 });
 

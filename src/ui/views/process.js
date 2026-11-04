@@ -668,10 +668,12 @@
   /* A plan/2 whose version can't be used: say which and why, and offer only an explicit switch to the latest. */
   function exactAsk(ctx, p, plan, pick) {
     var title = p.latest && p.latest.map ? p.latest.map.meta.title : p.title, to = plan._retarget ? plan._retarget.to : plan.pin;
+    /* The way back to the checklist is the header's ‹ when it goes there; only otherwise is it offered here too (rule 1). */
+    var o = ctx.formOrigin ? ctx.formOrigin(p.id) : null, page = PF.nav.format({ view: 'process', process: p.id });
     var h = formBack(ctx, p.id).row + '<div class="runhead"><div><div class="eyebrow">' + esc(title) + ' · ' + esc(V.plannedBy(ctx, plan)) + '</div><h1 id="page-h" tabindex="-1">Review the plan</h1></div></div>';
     h += '<div class="notice bad" role="alert"><span>This plan starts on ' + esc(title) + ' v' + esc(to.version) + ' (' + esc(to.folder) + '), which can\'t be used here: ' + esc(pick.ask) + '. It won\'t start on another version by itself.</span>' +
       '<span class="row">' + (p.latest ? '<button class="btn" type="button" data-act="plan-retarget" data-id="' + esc(plan.id) + '" data-folder="' + esc(p.latest.info.folder) + '">Start on v' + esc(p.latest.info.version) + ' instead</button>' : '') +
-      '<button class="mini" type="button" data-act="decline-plan" data-id="' + esc(plan.id) + '">Decline this plan</button><button class="mini" type="button" data-act="go-back" data-id="' + esc(PF.nav.format({ view: 'process', process: p.id })) + '">Back to the checklist</button></span></div>';
+      '<button class="mini" type="button" data-act="decline-plan" data-id="' + esc(plan.id) + '">Decline this plan</button>' + (o && o.hash === page ? '' : '<button class="mini" type="button" data-act="go-back" data-id="' + esc(page) + '">Back to the checklist</button>') + '</span></div>';
     return h;
   }
   /* Why a plan can't be started, declined or switched now, and what an earlier decision said: PF.plans, shared with reading for other apps. */
