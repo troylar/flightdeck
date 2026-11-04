@@ -301,10 +301,11 @@ rule('Process page: one page; the checklist shows in place with its Markdown on 
   state.clView = 'list';
   const v0 = Object.assign({}, latest, { folder: 'v0-old', info: Object.assign({}, latest.info, { version: 0 }) });
   p.all = [latest, v0]; state.mapVer = 'v0-old'; html = V.process(ctx);
-  assert.ok(/an older version/.test(html) && /data-act="back-current"/.test(html) && /data-act="restore-draft" data-id="v0-old"/.test(html) && !/data-act="ptab" data-id="edit"/.test(html), 'an older version has a way back and Restore, not Edit');
+  assert.ok(/an older version/.test(html) && /class="btn backc" data-act="back-current" aria-label="Back to Current version"/.test(html) && /data-act="restore-draft" data-id="v0-old"/.test(html), 'an older version has a way back, top left, and Restore');
+  assert.strictEqual((html.match(/data-act="ptab" data-id="edit"/g) || []).length, 1, 'Edit only in the strip, where it opens the current draft');
   p.all = [latest]; state.mapVer = null;
   state.editor = { pid: 'release', base: latest.md, baseHash: 'x', text: latest.md + '\nmore' };
-  assert.ok(/edits in the draft that aren.+t saved/.test(V.process(ctx)) && /Continue editing/.test(V.process(ctx)), 'unsaved edits are mentioned on the page');
+  assert.ok(/edits in the draft that aren.+t saved/.test(V.process(ctx)) && !/Continue editing/.test(V.process(ctx)), 'unsaved edits are mentioned on the page; the strip\'s Edit is the way in');
   state.editor = null;
   state.ptab = 'edit';
   state.editor = { pid: 'release', base: latest.md, baseHash: 'x', text: latest.md.replace('## Deploy', '## Deploy · NOPE') };
@@ -664,7 +665,7 @@ rule('Runs: the runs behind a number are exactly the ones clicked, with Back to 
   state.view = 'runs'; state.filter = 'all'; state.runFilter = Object.assign(PF.insights.spec(res, 'step:approved:differently', runs), { cohort: true, back: { process: 'release', folder: runs[0].folder, scrollY: 0 } });
   ctx.processTitle = id => id; ctx.data.plans = [];
   let html = V.runs(ctx);
-  assert.ok(/data-act="ins-back"[^>]*>.*Back to How runs go/.test(html), 'Back');
+  assert.ok(/<div class="backrow"><button type="button" class="btn backc" data-act="ins-back" aria-label="Back to How runs go">/.test(html) && html.indexOf('class="backrow"') < html.indexOf('id="page-h"'), 'Back, top left');
   assert.deepStrictEqual((html.match(/data-act="open-run" data-id="([^"]+)"/g) || []).map(x => x.split('"')[3]), ['release/in0', 'release/in2']);
   assert.ok(!/changed since/.test(html));
   runs[2].rev = 9;
@@ -1236,7 +1237,7 @@ rule('Applying a correction: the dialog compares the run\'s version, the draft n
   assert.ok(/This is already in the draft\./.test(ov) && /data-act="corr-link"[^>]*>Link this correction</.test(ov) && !/data-act="corr-apply"/.test(ov));
   // A described problem: made by hand.
   ov = V.corrApply(ctx, { pid: 'release', gid: d1.id });
-  assert.ok(/Flightdeck can&#39;t apply this one for you\./.test(ov) && />Open in the editor</.test(ov) && />Mark as applied</.test(ov) && !/data-act="corr-apply"/.test(ov));
+  assert.ok(/Flightdeck can&#39;t apply this one for you\./.test(ov) && /data-act="corr-open-editor"[^>]*>Edit</.test(ov) && !/Open in the editor/.test(ov) && />Mark as applied</.test(ov) && !/data-act="corr-apply"/.test(ov));
   // Editing: the result in a labeled box, with its error next to it.
   p.draft.md = latest.md;
   ov = V.corrApply(ctx, { pid: 'release', gid: w1.id, edit: { text: 'A <i>' }, err: { field: 'ca-edit', msg: 'Leave out @roles' } });

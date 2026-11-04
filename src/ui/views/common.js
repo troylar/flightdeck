@@ -624,6 +624,17 @@ PF.vk = (function () {
     return '<div class="pane-split" role="separator" aria-orientation="vertical" aria-label="' + spec.label + '" aria-controls="' + spec.controls + '" aria-valuenow="' + w.w + '" aria-valuemin="' + w.min + '" aria-valuemax="' + w.max + '" tabindex="0" data-split="' + key + '" data-act="pane-split" data-id="' + key + '" title="Drag to resize. Arrow keys move it; Enter or a double-click puts it back."></div>';
   }
 
+  /* The way back (2.16, docs/design.md section 29): one control, top left, named for where it goes, never an action. Its
+     accessible name is "Back to <place>", holding the visible text in order. view: the workspace's view word (Edit or
+     Practice), kept whole while a long title is cut. */
+  function backc(act, id, place, view, extra) {
+    var name = 'Back to ' + place + (view ? ' · ' + view : '');
+    return '<button type="button" class="btn backc" data-act="' + esc(act) + '"' + (id != null ? ' data-id="' + esc(id) + '"' : '') + ' aria-label="' + esc(name) + '"' + (extra || '') + '>' + I('back') +
+      '<span class="backc-t">' + esc(place) + '</span>' + (view ? '<span class="backc-v"> · ' + esc(view) + '</span>' : '') + '</button>';
+  }
+  /* On a page under the top bar, the way back has its own row above the page's header. */
+  function backRow(html) { return html ? '<div class="backrow">' + html + '</div>' : ''; }
+  V.backc = backc; V.backRow = backRow;
   V.undoBar = undoBar;
   V.tabOnly = PF.vk.tabOnly; V.PANES = PANES; V.MAIN_MIN = MAIN_MIN; V.fitPanes = fitPanes; V.paneW = paneW; V.paneStyle = paneStyle; V.paneAttr = paneAttr; V.splitter = splitter;
   /* What the editor's Checks, Review & publish and a proposal's checks are checked against: the folder as this window holds

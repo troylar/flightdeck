@@ -162,6 +162,7 @@ test/light.test.js -
 test/wrong-record.test.js -
 test/practice.test.js -
 test/practice-app.test.js -
+test/nav-app.test.js -
 test/timeline.test.js -
 test/views.test.js -
 JOBS_LIST

@@ -709,6 +709,15 @@ input[type="checkbox"] { accent-color: var(--go); width: 16px; height: 16px; }
 .seg button[aria-checked="true"] { background: var(--ink); color: var(--card); }
 .seg button[aria-pressed="true"] { background: var(--ink); color: var(--card); }
 .seg.tabs { margin: 0 0 14px; }
+/* 2.16: the way back, top left, named for where it goes; the checklist's views (the page's strip, the workspace's control). */
+.backrow { margin: 0 0 8px; }
+.backc { display: inline-flex; align-items: center; gap: 2px; max-width: 100%; min-width: 0; white-space: nowrap; }
+.backc .backc-t { overflow: hidden; text-overflow: ellipsis; min-width: 10ch; }
+.backc .backc-v { flex: none; }
+.pviews { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 14px; border-bottom: 1px solid var(--line); }
+.pviews button { border: 0; background: none; padding: 8px 12px; font-weight: 600; color: var(--muted); border-bottom: 3px solid transparent; margin-bottom: -1px; }
+.pviews button[aria-current="page"] { color: var(--ink); border-bottom-color: var(--ink); }
+.pviews button .ic { margin-right: 6px; vertical-align: -3px; }
 .af-list { list-style: none; margin: 0; padding: 0; }
 .af-row { padding: 8px 0; border-top: 1px solid var(--line); }
 .af-row code { overflow-wrap: anywhere; }
@@ -20666,6 +20675,17 @@ PF.vk = (function () {
     return '<div class="pane-split" role="separator" aria-orientation="vertical" aria-label="' + spec.label + '" aria-controls="' + spec.controls + '" aria-valuenow="' + w.w + '" aria-valuemin="' + w.min + '" aria-valuemax="' + w.max + '" tabindex="0" data-split="' + key + '" data-act="pane-split" data-id="' + key + '" title="Drag to resize. Arrow keys move it; Enter or a double-click puts it back."></div>';
   }
 
+  /* The way back (2.16, docs/design.md section 29): one control, top left, named for where it goes, never an action. Its
+     accessible name is "Back to <place>", holding the visible text in order. view: the workspace's view word (Edit or
+     Practice), kept whole while a long title is cut. */
+  function backc(act, id, place, view, extra) {
+    var name = 'Back to ' + place + (view ? ' · ' + view : '');
+    return '<button type="button" class="btn backc" data-act="' + esc(act) + '"' + (id != null ? ' data-id="' + esc(id) + '"' : '') + ' aria-label="' + esc(name) + '"' + (extra || '') + '>' + I('back') +
+      '<span class="backc-t">' + esc(place) + '</span>' + (view ? '<span class="backc-v"> · ' + esc(view) + '</span>' : '') + '</button>';
+  }
+  /* On a page under the top bar, the way back has its own row above the page's header. */
+  function backRow(html) { return html ? '<div class="backrow">' + html + '</div>' : ''; }
+  V.backc = backc; V.backRow = backRow;
   V.undoBar = undoBar;
   V.tabOnly = PF.vk.tabOnly; V.PANES = PANES; V.MAIN_MIN = MAIN_MIN; V.fitPanes = fitPanes; V.paneW = paneW; V.paneStyle = paneStyle; V.paneAttr = paneAttr; V.splitter = splitter;
   /* What the editor's Checks, Review & publish and a proposal's checks are checked against: the folder as this window holds
@@ -20855,7 +20875,8 @@ PF.vk = (function () {
     var running = d.runs.filter(function (r) { return r.state === 'running' && (st.filter === 'all' || (!!st.me && (r.recorder.person === st.me || Object.keys(r.roles).some(function (k) { return r.roles[k] === st.me; })))); });
     var ended = d.runs.filter(function (r) { return r.state !== 'running'; }).sort(function (a, b) { return (b.ended && b.ended.at || '') < (a.ended && a.ended.at || '') ? -1 : 1; });
     var plans = byWhen(d.plans.filter(function (p) { return !p._status; })), now = ctx.now();
-    var h = notices(ctx) + pageHead('Runs', 'Runs', 'Every run of every checklist.', (function () { var n = V.fuList(ctx).filter(PF.followups.isOpen).length; return '<button class="btn" data-act="nav" data-id="followups">' + I('flag') + 'Follow-ups' + (n ? ' · ' + n + ' open' : '') + '</button>'; })() +
+    /* The runs behind a number in How runs go: the way back to it, top left (2.16). */
+    var h = notices(ctx) + (st.runFilter && st.runFilter.back ? V.backRow(V.backc('ins-back', null, 'How runs go')) : '') + pageHead('Runs', 'Runs', 'Every run of every checklist.', (function () { var n = V.fuList(ctx).filter(PF.followups.isOpen).length; return '<button class="btn" data-act="nav" data-id="followups">' + I('flag') + 'Follow-ups' + (n ? ' · ' + n + ' open' : '') + '</button>'; })() +
       '<details class="rw-menu" data-disc="runs-more"' + ((st.disc || {})['runs-more'] ? ' open' : '') + '><summary class="mini">More</summary><div class="rw-menu-list"><button class="mini" data-act="ev-range">' + I('doc') + 'Export evidence…</button></div></details><button class="btn go" data-act="nav" data-id="processes">' + I('play') + 'Start a run</button>');
     /* A run file that can't be read is listed, never left out: it may still be arriving, or need restoring. */
     h += stillReading(ctx, false);
@@ -21307,7 +21328,7 @@ PF.vk = (function () {
       caCol('ca-h-res', 'Proposed result', result, ch.op, rv.removed ? 'Removed from the checklist.' : rv.state === 'manual' ? 'Made by hand in the editor.' : rv.state === 'gone' ? 'Nothing to change.' : 'Nothing to change.') + '</div>';
     var err = ov.err ? '<p class="ferr" id="ferr-' + esc(ov.err.field) + '" role="alert">' + esc(ov.err.msg) + '</p>' : '';
     if (base.conflict) h += '<div class="notice bad" role="alert"><span>Someone else changed this draft while you were editing it. Settle that in the editor first.</span></div>';
-    else if (base.dirty) h += '<div class="notice warn" role="alert"><span>You have unsaved changes to this draft. Save or discard them in the editor first, so applying can\'t mix with them.</span><button type="button" class="mini" data-act="corr-open-editor" data-id="' + esc(g.id) + '">Open the editor</button></div>';
+    else if (base.dirty) h += '<div class="notice warn" role="alert"><span>You have unsaved changes to this draft. Save or discard them in the editor first, so applying can\'t mix with them.</span><button type="button" class="mini" data-act="corr-open-editor" data-id="' + esc(g.id) + '">Edit</button></div>';
     else if (base.saving) h += '<p class="small" role="status">Saving the draft…</p>';
     var blocked = base.conflict || base.dirty || !!base.saving || !st.me, dis = blocked ? ' disabled' : '';
     var alts = C.alternatives(gs, g), combine = alts.length > 1 && alts.every(function (x) { return x.change.op === 'wording'; });
@@ -21332,7 +21353,7 @@ PF.vk = (function () {
     else if (rv.state === 'already') acts = '<button type="button" class="btn go" data-act="corr-link" data-id="' + esc(g.id) + '"' + (st.me ? '' : ' disabled') + '>Link this correction</button>';
     else if (rv.state === 'changed') acts = '<button type="button" class="btn go" data-act="corr-edit" data-id="' + esc(g.id) + '"' + dis + '>Edit proposed result</button>' + addressed;
     else if (rv.state === 'gone') acts = addressed + '<button type="button" class="btn" data-act="corr-ca-declining" data-id="' + esc(g.id) + '"' + (st.me ? '' : ' disabled') + '>Decline</button>';
-    else acts = '<button type="button" class="btn go" data-act="corr-open-editor" data-id="' + esc(g.id) + '">Open in the editor</button><button type="button" class="btn" data-act="corr-addressed" data-id="' + esc(g.id) + '"' + (st.me ? '' : ' disabled') + '>Mark as applied</button>';
+    else acts = '<button type="button" class="btn go" data-act="corr-open-editor" data-id="' + esc(g.id) + '">Edit</button><button type="button" class="btn" data-act="corr-addressed" data-id="' + esc(g.id) + '"' + (st.me ? '' : ' disabled') + '>Mark as applied</button>';
     if (alts.length > 1 && rv.state === 'clean') h += '<p class="small">' + (alts.length === 2 ? 'Two' : alts.length) + ' proposed changes to this step. Use one, or combine them into your own wording.</p>';
     return box(h + err + '<div class="row ca-acts">' + acts + '</div>');
   }
@@ -21345,6 +21366,19 @@ PF.vk = (function () {
     var need = n.needs || '2.0', nm = need.split('.'), before = +nm[1] > 0 ? nm[0] + '.' + (+nm[1] - 1) : '1.22';
     return '<p class="small pub-needs" role="note"><b>Needs Flightdeck ' + esc(need) + ':</b> ' + esc(list) + '. Teammates on Flightdeck ' + esc(before) + ' or earlier see this version but can\'t run it until they update. Leave ' + (n.names.length === 1 ? 'it' : 'these') + ' out if they need to run it now.</p>';
   }
+  /* The checklist's views (2.16): one strip under the title, the same nav the workspace's view control is. Edit keeps its
+     conditions (Edit anyway while someone else has the draft open; not during a restore, nor for a proposal only), and
+     Practice has the same ones and counts the practice kept in this tab. */
+  function viewStrip(ctx, p) {
+    var st = ctx.state, tab = V.tabOf(ctx), restoring = (st.draftSaving || {})[ctx.fsKey + '\n' + p.id] === 'restore', others = (p.editing || []).length > 0;
+    var canEdit = !restoring && !p.proposedOnly, cnt = canEdit && ctx.practiceCount ? ctx.practiceCount(p.id) : null;
+    var b = function (act, id, text, cur, label) { return '<button type="button" class="pv-b" data-act="' + act + '"' + (id != null ? ' data-id="' + esc(id) + '"' : '') + (cur ? ' aria-current="page"' : '') + (label ? ' aria-label="' + esc(label) + '"' : '') + '>' + text + '</button>'; };
+    var h = b('ptab', 'overview', 'Overview', tab === 'overview');
+    if (canEdit) h += b('ptab', 'edit', I('edit') + (others ? 'Edit anyway' : 'Edit'), false);
+    if (canEdit) { var w = others ? 'Practice anyway' : 'Practice'; h += b('pv-practice', others ? 'anyway' : null, I('play') + w + (cnt ? ' · ' + cnt.done + ' of ' + cnt.total : ''), false, cnt ? w + ', ' + cnt.done + ' of ' + cnt.total + ' steps answered' : null); }
+    if ((p.all || []).length) h += b('ptab', 'insights', I('chart') + 'How runs go', tab === 'insights');
+    return '<nav class="pviews" aria-label="Checklist views">' + h + '</nav>';
+  }
   function process(ctx) {
     var st = ctx.state, p = ctx.processes().filter(function (x) { return x.id === st.processId; })[0];
     if (!p) {
@@ -21356,10 +21390,12 @@ PF.vk = (function () {
     }
     /* Editing a draft takes the whole page (manage.js). */
     if (V.tabOf(ctx) === 'edit') return V.editTab(ctx, p);
-    var pub = p.latest, h = notices(ctx);
+    var pub = p.latest, h = notices(ctx), shown = V.shownOf(p, st);
+    /* An older version: the way back to the current one, top left (2.16). */
+    if (V.tabOf(ctx) === 'overview' && shown && !shown.current) h += V.backRow(V.backc('back-current', null, 'Current version'));
     h += '<div class="runhead"><div><div class="eyebrow">' + esc(p.category) + (pub ? ' · owner ' + esc(nameOf(ctx, pub.map.meta.owner)) : '') + '</div><h1 id="page-h" tabindex="-1">' + esc(p.title) + '</h1>' +
       (pub ? '<div class="small">v' + pub.info.version + ' · published ' + esc(U.day(pub.info.publishedAt)) + ' by ' + esc(nameOf(ctx, pub.info.publishedBy)) + '</div>' : '<div class="small">Not published yet.</div>') + '</div>' +
-      '<div class="row">' + (V.tabOf(ctx) === 'overview' && p.all.length ? '<button class="mini" data-act="ptab" data-id="insights">' + I('chart') + 'How runs go</button>' : '') + (pub ? '<button class="btn primary" data-act="start" data-id="' + esc(p.id) + '"' + (st.me ? '' : ' disabled') + '>' + I('play') + 'Start a run</button><button class="btn" data-act="plan-run" data-id="' + esc(p.id) + '"' + (st.me ? '' : ' disabled') + '>Plan a run</button>' : '') + '</div></div>';
+      '<div class="row">' + (pub ? '<button class="btn primary" data-act="start" data-id="' + esc(p.id) + '"' + (st.me ? '' : ' disabled') + '>' + I('play') + 'Start a run</button><button class="btn" data-act="plan-run" data-id="' + esc(p.id) + '"' + (st.me ? '' : ' disabled') + '>Plan a run</button>' : '') + '</div></div>' + viewStrip(ctx, p);
     var dWhy = p.draft && ((st.unread || {}).drafts || {})[p.draft.file];
     if (dWhy) h += '<div class="notice bad" role="alert"><span><b>' + esc(p.draft.file) + ' couldn\'t be read on the last check</b> (' + esc(dWhy) + '). This is the version read before. It isn\'t edited or saved over until it reads again.</span><span class="row"><button class="btn" data-act="refresh">Try again</button><button class="mini" data-act="recovery" data-id="a-file-cant-be-read">What to do</button></span></div>';
     /* Drafts sharing this process: named in the line when there are a few; past 3, one summary line and a fold naming them
@@ -21391,7 +21427,7 @@ PF.vk = (function () {
           draw: function (shown) { return '<ul class="small">' + shown.map(function (b) { return '<li id="' + esc('lb-' + p.id + '-' + b.step.id) + '" tabindex="-1">' + lbText(b) + '</li>'; }).join('') + '</ul>'; } }) + '</details></div></div>';
     }
     /* One page: the checklist in the middle, edited in place; how runs go opens on its own with a way back. */
-    if (V.tabOf(ctx) === 'insights') return h + '<div class="row"><button class="mini" data-act="ptab" data-id="overview">' + I('back') + 'Back to the checklist</button></div>' + (insights(ctx, p) || '<section class="panel"><p class="small">No runs yet. This fills in after the first run.</p></section>');
+    if (V.tabOf(ctx) === 'insights') return h + (insights(ctx, p) || '<section class="panel"><p class="small">No runs yet. This fills in after the first run.</p></section>');
     h += '<div class="pgrid"><div class="stack">';
     if (p.draft && p.draftChanged) {
       var c = M.check(M.parse(p.draft.md), V.checkOptions(ctx));
@@ -24645,11 +24681,12 @@ PF.vk = (function () {
       '<div class="row">' + (K.findOn(st, 'map-ver', all.length + (hasDraft ? 1 : 0) + gone.length > 1) ? verSel.box + '<label class="sr" for="map-ver">Version to show</label>' + verSel.select + verSel.more : '<span class="small">' + (shown.draft ? 'Draft' : 'v' + shown.pub.info.version) + '</span>') +
       /* One switch for the three ways to see the same version: the checklist, its flight plan, or its Markdown source. */
       '<div class="seg" role="group" aria-label="Show as">' + [['list', 'Checklist'], ['plan', 'Flight plan'], ['md', 'Markdown']].map(function (x) { return '<button type="button" data-act="flight" data-id="' + x[0] + '" aria-pressed="' + (view === x[0]) + '">' + x[1] + '</button>'; }).join('') + '</div>' +
-      (restoring ? '<span class="small" role="status">Restoring…</span>' : shown.current ? '<button class="btn" data-act="ptab" data-id="edit">' + I('edit') + ((p.editing || []).length ? 'Edit anyway' : 'Edit') + '</button>' : '<button class="btn" data-act="restore-draft" data-id="' + esc(shown.pub.folder) + '">Restore as draft</button>') + '</div></div>';
+      /* Edit is the page's view strip (2.16); an older version keeps Restore as draft here. */
+      (restoring ? '<span class="small" role="status">Restoring…</span>' : shown.current ? '' : '<button class="btn" data-act="restore-draft" data-id="' + esc(shown.pub.folder) + '">Restore as draft</button>') + '</div></div>';
     /* Edits made and not saved stay in the editor; say so here, where the saved version is showing. */
     var ed = st.editor && st.editor.pid === p.id ? st.editor : null;
-    if (!restoring && ed && ed.text != null && ed.text !== ed.base) h += '<div class="notice"><span>You have edits in the draft that aren\'t saved.</span><button class="mini" data-act="ptab" data-id="edit">Continue editing</button></div>';
-    if (!shown.current) h += '<div class="notice warn"><span>You\'re looking at v' + shown.pub.info.version + ', an older version. Runs that used it keep it.</span><button class="mini" data-act="back-current">Back to current</button></div>';
+    if (!restoring && ed && ed.text != null && ed.text !== ed.base) h += '<div class="notice"><span>You have edits in the draft that aren\'t saved.</span></div>';
+    if (!shown.current) h += '<div class="notice warn"><span>You\'re looking at v' + shown.pub.info.version + ', an older version. Runs that used it keep it.</span></div>';
     if (st.pick && st.pick.kind === 'restore' && shown.pub && st.pick.id === shown.pub.folder) h += '<div class="notice warn"><span>' + (st.pick.dirty ? 'You have unsaved edits in the draft, and they\'ll be lost. ' : '') + 'The draft has changes that aren\'t published. Replace it with v' + shown.pub.info.version + '?</span><button class="btn stop" data-act="restore-draft" data-id="' + esc(shown.pub.folder) + '" data-sure="1">Replace the draft</button><button class="mini" data-act="unpick">Cancel</button></div>';
     if (view === 'md') return h + '<div class="row"><p class="small" style="margin:0">The ' + (shown.draft ? 'draft' : 'v' + shown.pub.info.version) + ' as written, read-only. Edit changes it.</p><button class="mini" data-act="copy-map">' + I('copy') + 'Copy</button><span id="copy-msg" class="small" role="status"></span></div><pre class="source" id="map-source" tabindex="0" aria-label="Markdown of this version">' + esc(shown.md) + '</pre></section>';
     var map = shown.draft ? M.parse(shown.md) : shown.pub.map, types = shown.draft ? (ctx.data.stepTypes || {}).types : shown.pub.types;
@@ -25716,7 +25753,7 @@ PF.vk = (function () {
       var vn = f.version != null ? f.version : fl && fl.version ? fl.version : null;
       var ver = vn != null ? 'v' + vn + (fl && fl.clash ? ' (folder ' + f.folder + ')' : '') : 'folder ' + f.folder;
       var h = '<div class="notice ins-banner" role="status" id="ins-banner"><span><b>The runs behind a number in How runs go:</b> ' + esc(f.label) + ' · ' + esc(ctx.processTitle(f.process)) + ' ' + esc(ver) + ' · as of ' + esc(hms(f.asOf)) + '.</span>' +
-        '<span class="row"><button class="btn" data-act="ins-back">' + IC('back') + 'Back to How runs go</button><button class="mini" data-act="rf-clear" data-id="all">Show all runs</button></span></div>';
+        '<span class="row"><button class="mini" data-act="rf-clear" data-id="all">Show all runs</button></span></div>';
       if (ch) h += '<div class="notice warn" role="status"><span>' + esc(ch === 1 ? '1 of these runs changed since.' : ch + ' of these runs changed since.') + '</span><button class="btn" data-act="ins-refresh">Show current numbers</button></div>';
       h += '<section class="panel"><h2 id="rf-h" tabindex="-1">' + esc(plural(f.keys.length, 'run')) + '</h2>' + (gone ? '<p class="small">' + esc(gone === 1 ? '1 of them is no longer in the folder.' : gone + ' of them are no longer in the folder.') + '</p>' : '') +
         (shown.length ? K.paged(st, 'runs-cohort', shown, cards, K.runKey) : '<p class="small">None of these runs is in the folder now.</p>') + '</section>';
@@ -26783,6 +26820,8 @@ PF.examples = (function () {
     get releases() { var seen = state.relShownSeen || relSeen(); return { list: RELEASES, version: APP_VERSION, lastSeen: seen, fresh: APP_VERSION !== 'dev' && V.semverCmp(APP_VERSION, relSeen()) > 0, newer: state.newer }; },
     /* How many images this window is adding to a draft's step right now (the builder's Screenshots section says so). */
     shotBusy: function (pid) { return shotBusy(pid); },
+    /* The checklist page's Practice · 4 of 12 (2.16): what's kept for it in this tab, or null. */
+    practiceCount: function (pid) { return prCount(pid); },
     localCopy: function (r) { var c = lsGet(localKey(r.id), null); return c && c.id === r.id ? c : null; },
     /* Folder health from what's loaded (full: with this folder's last scan of every file). Worked out once per change. */
     health: function (full) { return healthReport(full); },
@@ -30275,6 +30314,24 @@ PF.examples = (function () {
     Object.keys(state.stepDrafts).forEach(function (dk) { if (dk.indexOf(draftKey(prKey(pid), '')) === 0) delete state.stepDrafts[dk]; });
     try { sessionStorage.removeItem(prStoreKey(pid)); sessionStorage.removeItem(prStoreKey(pid) + ':typed'); } catch (err) { /* this tab only */ }
   }
+  /* How far a practice kept in this tab got, for the checklist page and the view control (2.16): its answers whose step is
+     still in the current text, out of that text's steps. Read from the kept state (this tab's entry, else its sessionStorage
+     key), never by following the practice again; the text's steps are worked out once per text. null: nothing kept. */
+  var prCounts = Object.create(null);
+  function prCount(pid) {
+    var p = procFind(pid); if (!p) return null;
+    var k = edKey(pid), e = prs[k], memo = prCounts[k] || (prCounts[k] = { raw: null, st: null, text: null, ids: null, total: 0 }), st = e ? e.st : null;
+    if (!e) {
+      var raw = null; try { raw = sessionStorage.getItem(prStoreKey(pid)); } catch (err) { raw = null; }
+      if (!raw) return null;
+      if (memo.raw !== raw) { var c = null; try { c = PR.check(JSON.parse(raw), pid); } catch (err) { c = null; } memo.raw = raw; memo.st = c; }
+      st = memo.st; if (!st) return null;
+    }
+    var text = prText(p);
+    if (memo.text !== text) { var ids = Object.create(null), steps = M.steps(M.parse(text)); steps.forEach(function (x) { if (x.step.id) ids[x.step.id] = true; }); memo.text = text; memo.ids = ids; memo.total = steps.length; }
+    var done = 0; Object.keys(st.answers || {}).forEach(function (id) { if (memo.ids[id] === true) done++; });
+    return { done: Math.min(done, memo.total), total: memo.total };
+  }
   /* Any practice action, selection, form or typing (not the stage note): a stage that finishes later leaves practice as it is. */
   function prTouch(e) { e.act = (e.act || 0) + 1; }
   /* The team's step types and Jira workflows, as practice reads them (a run copies the same when it starts). */
@@ -32680,6 +32737,13 @@ PF.examples = (function () {
       if (state.ptab === 'edit') { var dirty = pendingBox(); if (dirty) { refuseFor(dirty); return; } }
       state.ptab = 'overview'; state.pick = null; state.disc = Object.assign({}, state.disc); state.disc['sk:' + p.id] = true;
       state.focus = 'sk-h'; revealAt('#sk-h'); render();
+    },
+    /* The checklist page's Practice (2.16): through the Edit checks first (moveToPractice), or, while someone else has the
+       draft open, Practice anyway: Edit anyway's own checks (ptab), then practice, in one click. */
+    'pv-practice': function (id) {
+      var p = currentProcess(); if (!p) return;
+      if (id === 'anyway') { ACTIONS.ptab('edit'); if (state.view === 'process' && state.ptab === 'edit') prEnter(p); return; }
+      if (moveToPractice({ view: 'practice', process: p.id }) !== 'focus') render();
     },
     'view-version': function (id) { state.ptab = 'overview'; state.mapVer = id; state.pick = null; state.focus = 'cl-h'; render(); window.scrollTo(0, 0); },
     'back-current': function () { state.mapVer = 'current'; state.pick = null; state.focus = 'map-ver'; render(); },
