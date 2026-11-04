@@ -165,12 +165,26 @@ rule('Docs: AGENTS.md routes every command the CLI\'s help lists to a place that
    text (docs, the README, the changelog and release notes, the installed AGENTS.md, skills and references, and the words the
    app and the command build, in their source and as the merge README renders them), says when: only if nobody changed the
    copies, unless one was changed, or once it is merged. */
-const DELETE_WORD = /\bdelet(?:e|es|ing)\b[^.\n]{0,80}?(?:AGENTS\.md|\bits copy\b|\beach copy\b|\bthe cop(?:y|ies)\b|\bthose copies\b|\bthat copy\b|\bit from each version folder\b)/i;
+const DELETE_WORD = /\bdelet(?:e|es|ing)\b[^\n]{0,120}?(?:AGENTS\.md|\bits copy\b|\beach copy\b|\bthe cop(?:y|ies)\b|\bthose copies\b|\bthat copy\b|\bit from each version folder\b)/i;
 const ABOUT_COPIES = /AGENTS\.md|\.flightdeck[-/]updates|version folder|updates\/|staged cop|waiting cop/i;
 /* "once the other files are merged" is no condition on the copy itself: only its own merge, or nobody having changed it, is. */
 const CONDITION = /\bonly if\b|\bunless\b|\bnobody changed\b|\b(?:when|once) (?:it'?s|it is|a file is|each (?:file|copy) is|that file is|its edits are) merged\b/i;
+/* A sentence ends at ., ! or ? followed by whitespace or the end of a line, outside backticks: a period inside a path
+   (`.flightdeck`, `2.15.0`) or a code span never ends one. A line end ends one too, since code strings run one per line. */
+function sentencesOf(text) {
+  const out = []; let cur = '', tick = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (c === '\n') { out.push(cur); cur = ''; tick = false; continue; }
+    cur += c;
+    if (c === '`') tick = !tick;
+    else if (!tick && (c === '.' || c === '!' || c === '?') && (i + 1 === text.length || /\s/.test(text[i + 1]))) { out.push(cur); cur = ''; }
+  }
+  out.push(cur);
+  return out.map(x => x.trim()).filter(Boolean);
+}
 function unconditionalDeletes(text, where) {
-  return text.split(/\n|(?<=[.!?])\s+/).filter(x => DELETE_WORD.test(x) && ABOUT_COPIES.test(x) && !CONDITION.test(x)).map(x => where + ': ' + x.trim().slice(0, 200));
+  return sentencesOf(text).filter(x => DELETE_WORD.test(x) && ABOUT_COPIES.test(x) && !CONDITION.test(x)).map(x => where + ': ' + x.trim().slice(0, 200));
 }
 const shippedText = () => {
   const files = [...REPO_DOCS, ...INSTALLED, 'CHANGELOG.md', 'src/releases.json', 'bin/flightdeck.js', 'dist/flightdeck.html', ...list('src/core', /\.js$/), ...list('src/ui', /\.js$/), ...list('src/ui/views', /\.js$/)];
@@ -192,6 +206,13 @@ rule('Round 12: no shipped text says to delete AGENTS.md or a staged copy withou
   assert.strictEqual(unconditionalDeletes('Delete AGENTS.md from each version folder there.', 'x').length, 1);
   assert.strictEqual(unconditionalDeletes('Delete AGENTS.md from each version folder in `.flightdeck/updates/` only if nobody changed those copies.', 'x').length, 0);
   assert.strictEqual(unconditionalDeletes('Keep our changes, and delete each copy in .flightdeck/updates/ once it\'s merged.', 'x').length, 0);
+});
+rule('Round 13: a period inside a path or a code span never ends a sentence, so the delete guard finds full staged paths', () => {
+  ['Delete `.flightdeck/updates/<version>/AGENTS.md` and run install again.', 'Delete `.flightdeck/updates/2.15.0/AGENTS.md` and run install again.',
+    'Delete .flightdeck/updates/2.15.0/AGENTS.md and run install again.', 'Run `flightdeck install . --yes`, then delete `.flightdeck/updates/2.15.0/AGENTS.md`.']
+    .forEach((t) => assert.strictEqual(unconditionalDeletes(t, 'x').length, 1, t));
+  assert.strictEqual(unconditionalDeletes('Delete `.flightdeck/updates/2.15.0/AGENTS.md` only if nobody changed it.', 'x').length, 0);
+  assert.deepStrictEqual(sentencesOf('Run `a. b` now. Then `c`! Done? Yes'), ['Run `a. b` now.', 'Then `c`!', 'Done?', 'Yes']);
 });
 rule('The README\'s manual download is the release being shipped, so it can\'t go stale', () => {
   const version = JSON.parse(read('src/releases.json'))[0].version;
