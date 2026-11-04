@@ -1864,7 +1864,7 @@
   function renderTop() {
     renderBadge();
     var meVal = document.activeElement && document.activeElement.id === 'me' ? null : true;
-    if (meVal) patch(topEl, V.top(ctx));
+    if (meVal) { topDrawn = V.top(ctx); patch(topEl, topDrawn); }
     pinOffsets();
     /* A refresh that redraws only the top bar still reaches an open search palette, so new data shows without typing. */
     if (!rendering && sxOpen()) later();
@@ -2087,7 +2087,7 @@
     /* A run's panes keep their scroll when a redraw replaces one showing the same step (on a phone the inspector is a sheet
        that scrolls on its own, and a note brought into view in it must stay in view; 2.11). */
     var panes = ['rw-list', 'rw-ins'].map(function (id) { var el = document.getElementById(id); return el ? { id: id, el: el, scope: el.getAttribute('data-scope'), top: el.scrollTop } : null; }).filter(Boolean);
-    patch(app, page);
+    patch(app, page); pageDrawn = page;
     panes.forEach(function (w) { var el = document.getElementById(w.id); if (el && el !== w.el && w.top && el.getAttribute('data-scope') === w.scope && el.scrollTop !== w.top) el.scrollTop = w.top; });
     noteDrawn(page);
     repNoteDrawn(page);
@@ -2344,7 +2344,14 @@
     var off = oneOffAt(was, id);
     return off ? { gen: gen, run: state.runKey, step: off.step, oneOff: off.a } : null;
   }
-  var lastOverlay = '', lastPick = '';
+  var lastOverlay = '', lastPick = '', pageDrawn = '', topDrawn = '';
+  /* Whether a control (its act and id) is drawn and enabled now, anywhere: the page, the top bar or a dialog. */
+  function drawnControl(act, id) {
+    var a = 'data-act="' + U.esc(act) + '"', i = id == null ? null : 'data-id="' + U.esc(id) + '"';
+    return [pageDrawn, topDrawn, lastOverlay].some(function (h) {
+      return String(h || '').split('<').some(function (tag) { var at = tag.split('>')[0]; return at.indexOf(a) >= 0 && (i == null || at.indexOf(i) >= 0) && !/\sdisabled(?=[\s=>\/]|$)/.test(at); });
+    });
+  }
   /* The draft editor is a page of its own: the app's top bar hides and the page stops scrolling (each pane scrolls). The
      selected item and its line in the preview are brought into view when the selection or the inspector tab changes. */
   var lastShown = '';
@@ -4656,12 +4663,19 @@
     return true;
   }
   /* Back to the editor, at the part it came from: browser Back when that's the entry before, else a move there. */
-  function typeWsReturn() {
+  function typeWsReturn(discard) {
     var t = typeFromOk(), f = state.typeForm; if (!t) { state.typeFrom = null; return; }
-    if (f && f.existing && f.tl) keepTypeTl(f, f.existing, f.def, f.baseText);
+    if (!discard && f && f.existing && f.tl) keepTypeTl(f, f.existing, f.def, f.baseText);
     var h = PF.nav.format({ view: 'process', process: t.pid, tab: 'edit' });
-    /* The form and where it came from are let go of as it lands, or by the move there: never before (histBack). */
-    var gone = function () { state.typeFrom = null; if (state.typeForm === f) state.typeForm = null; };
+    /* The form and where it came from are let go of as it lands, or by the move there: never before (histBack). Left
+       without saving, the form closes only as it was when that was chosen; edited since, it's kept for when you go back. */
+    var gone = function () {
+      state.typeFrom = null; if (state.typeForm !== f) return;
+      if (!discard) { state.typeForm = null; return; }
+      if (!typeFormChanged(f) || typeDiscardOk(f)) { f.backLeave = false; typeClose(); return; }
+      f.leaving = false; f.discard = null;
+      say('Your step type has changes made after you chose to leave it. They\'re kept: open Step types to save them.', 'warn');
+    };
     var back = function () { gone(); if (t.sel && state.view === 'process' && state.ptab === 'edit' && state.processId === t.pid) { state.obSel = t.sel; state.focus = 'ed-h'; } };
     var direct = function () {
       gone();
@@ -4682,7 +4696,7 @@
   }
   /* A change in the step-type form: its whole definition before and after, rows with their keys, so undoing a removal puts
      the row back in place with everything it had. */
-  function recordTypeForm(f, before, meta) { var e = TL.record(typeTl(f), before, typeSnap(f), meta); if (e) f.flash = { items: meta.items || [], at: Date.now() }; return e; }
+  function recordTypeForm(f, before, meta) { f.discard = null; var e = TL.record(typeTl(f), before, typeSnap(f), meta); if (e) f.flash = { items: meta.items || [], at: Date.now() }; return e; }
   /* What the timeline records of a step type: everything a person set, and nothing made from it. A name or ID still made
      from its label isn't stored (so typing a label is one change, not two far apart), and a saved type's ID isn't stored at
      all (so no Undo can move it to another file). A typed ID goes last, apart from the rest. */
@@ -4715,6 +4729,8 @@
   }
   function typeFormInput(e, typing) {
     var f = state.typeForm, id = e.target.id;
+    /* Any edit takes back a Leave without saving still on its way (discard: the form as it was when that was chosen). */
+    if (f) f.discard = null;
     if (!typing && /-kind$/.test(id)) flushAdds(f, true);
     var cur = typeSnap(f);
     if (typing && imeStep(e, id, { json: cur, val: tfControl(f.def, id) })) { readTypeForm(); return; }
@@ -5390,6 +5406,8 @@
   /* baseText: the exact text of the file the form started from (saved only over that); baseHash its FNV, for the history. */
   function typeFormFor(def, existing, baseHash, baseText) { typeOpens++; return { fsKey: fsKey(), def: def, existing: existing, baseHash: baseHash, baseText: baseText == null ? null : baseText, initial: V.typeFormSnapshot(def) }; }
   function typeFormChanged(f) { return V.typeFormSnapshot(f.def) !== f.initial; }
+  /* Leave without saving holds for the form exactly as it was when it was chosen: Keep editing or any edit since takes it back. */
+  function typeDiscardOk(f) { return !!f && f.discard != null && f.discard === V.typeFormSnapshot(f.def); }
   function saveType() {
     var f = state.typeForm; if (!f) return;
     flushAdds(f);
@@ -5538,7 +5556,7 @@
      while a link waits (H.pending). The URL is written only by syncLocation(), once after a render; Back and Forward come in
      through onPop(), with go()'s guards and the click's own functions. history.go(0) is never called (it would reload). */
   function navFp() { return state.fs ? U.hash(fsKey()) : null; }
-  function navOff() { H.on = false; H.pending = null; H.hold = null; if (H.restoring) { clearTimeout(H.restoring.timer); H.restoring = null; } }
+  function navOff() { H.on = false; H.pending = null; H.hold = null; H.restoring = null; H.backing = null; }
   /* The first refused call (an unusual browser, a sandboxed frame) turns history off for this page. */
   /* b: the entry before this one, { h, f } (2.16), written only when it is one parse() accepts, for the ‹ controls' labels. */
   function histB(c) { return c && typeof c.hash === 'string' && PF.nav.parse(c.hash) && (c.f === null || PF.nav.isHex(c.f)) ? { h: c.hash, f: c.f } : null; }
@@ -5555,20 +5573,21 @@
      the same team folder, b.h one of the routes it may be), so history stays one deep; then() runs once Back lands (arrive),
      to put focus or a selection back. false: it isn't, and the control moves there itself, as any link. */
   var navAnyway = null;
-  /* direct: the move there instead, run if Back never lands (a browser that ignores it): state the control leaves behind is
-     cleared on arrival (then) or by direct, never before, and history waits for one of them (H.backing, histWrite). */
-  function histBack(hashes, then, anyway, direct) {
+  /* A ‹ control's Back is a token (H.backing) that waits for its popstate however long it takes: a same-document entry always
+     fires one, so there is no timer and no move of its own to race it. then and anyway belong to the token and are used on
+     its arrival only in the team folder it was asked in. Meanwhile nothing writes history (histWrite), and a click or key
+     that would act waits in its one slot (navWait), the last one winning, to run right after arrival. When the entry before
+     isn't where the control goes there is no traversal: false, and the control moves there itself in this entry's place
+     (push: a new entry instead, for Current version on the checklist's page, a place of its own as in section 29). */
+  function histBack(hashes, then, anyway, direct, push) {
     var b = H.cur.b, list = [].concat(hashes);
-    if (!(H.on && !H.pending && !H.backing && b && b.f === navFp() && typeof b.h === 'string' && list.indexOf(b.h) >= 0)) return false;
-    state.typeBack = then || null; state.wsAnyway = anyway ? { pid: anyway, h: b.h } : null;
-    var tok = H.backing = { timer: setTimeout(function () {
-      if (H.backing !== tok) return;
-      H.backing = null; state.typeBack = null; state.wsAnyway = null;
-      if (direct) direct(); else render();
-      scheduleSync();
-    }, 1500) };
-    try { HIST.back(); return true; } catch (e) { clearTimeout(tok.timer); H.backing = null; state.typeBack = null; state.wsAnyway = null; navOff(); return false; }
+    if (H.backing) { navWait(function () { if (!histBack(hashes, then, anyway, direct, push) && direct) direct(); }); return true; }
+    if (!(H.on && !H.pending && !H.restoring && b && b.f === navFp() && typeof b.h === 'string' && list.indexOf(b.h) >= 0)) { if (H.on && !H.pending && !H.restoring && !push) H.mode = 'replace'; return false; }
+    var tok = H.backing = { then: then || null, anyway: anyway ? { pid: anyway, h: b.h } : null, fp: navFp(), next: null };
+    try { HIST.back(); return true; } catch (e) { if (H.backing === tok) H.backing = null; navOff(); return false; }
   }
+  /* The one slot a request waits in while a ‹ control's Back is on its way: true when it waits (the newest replaces it). */
+  function navWait(fn) { if (!H.backing) return false; H.backing.next = fn; return true; }
   /* The checklist a ‹ back into the workspace returns to after Edit anyway (someone else has its draft open): arriving there
      keeps that choice instead of asking again. null: not the workspace, or nobody else has it open. */
   function wsAnywayFor(loc) {
@@ -5669,15 +5688,25 @@
   }
   function onPop(ev) {
     uiActs++;
-    if (H.backing) { clearTimeout(H.backing.timer); H.backing = null; }
+    /* A ‹ control's Back landing: its hooks apply here only in the folder it was asked in; then what waited runs. */
+    var tok = H.backing; H.backing = null;
     if (!H.on) return;
     harvest();
-    var es = PF.nav.entry(ev ? ev.state : null);
-    /* A restore in progress: every move is swallowed until the browser is back on the drawn entry. */
-    if (H.restoring) { if (es) H.pos = es.n; if (es && es.n === H.restoring.n) { clearTimeout(H.restoring.timer); H.restoring = null; scheduleSync(); } return; }
-    popAt(es);
+    var es = PF.nav.entry(ev ? ev.state : null), live = !!tok && tok.fp === navFp();
+    state.typeBack = live ? tok.then : null; state.wsAnyway = live ? tok.anyway : null;
+    /* A restore in progress ends on the drawn entry. Another entry (a Back or Forward pressed before the restore's own came
+       in) is a move like any: it's checked as one, and a refusal restores again from there, so the last pop always heads
+       for the drawn entry and the restore needs no timer. */
+    if (H.restoring) {
+      var rn = H.restoring.n; H.restoring = null;
+      if (es && es.n === rn) { H.pos = es.n; scheduleSync(); }
+      else popAt(es, !!tok && !live);
+    }
+    else popAt(es, !!tok && !live);
+    if (tok && tok.next) tok.next();
   }
-  function popAt(es) {
+  /* quiet: a ‹ control's Back asked in another team folder lands where the browser is without a word (the person moved on). */
+  function popAt(es, quiet) {
     var hash = String(location.hash || '');
     if (!es) {
       /* Typed or pasted into the address bar: a new entry after the one the browser was on, numbered now. */
@@ -5687,23 +5716,18 @@
       es = { n: n, f: null, typed: true, b: tb };
     }
     H.pos = es.n;
-    var t = { loc: PF.nav.parse(hash), n: es.n, f: es.f, typed: !!es.typed, b: es.b || null };
+    var t = { loc: PF.nav.parse(hash), n: es.n, f: es.f, typed: !!es.typed, b: es.b || null, quiet: !!quiet };
     if (!readyFor(t)) { H.pending = t; render(); return; }
     H.pending = null;
     arrive(t);
-  }
-  function restoreTimedOut() {
-    H.restoring = null;
-    var es = null; try { es = PF.nav.entry(HIST.state); } catch (e) { es = null; }
-    if (es && es.n === H.cur.n) { H.pos = es.n; scheduleSync(); return; }
-    popAt(es);
   }
   /* After a refusal the screen never moved: put the browser back on the drawn entry without touching the entries after it,
      or, when that entry is gone or this one was typed, write the drawn location where the browser is. */
   function restoreUrl(t) {
     var c = H.cur;
     if (!t.typed && !c.gone && c.n !== H.pos) {
-      H.restoring = { n: c.n, timer: setTimeout(restoreTimedOut, 1000) };
+      /* A same-document traversal always fires its popstate: the restore waits for it, with no timer. */
+      H.restoring = { n: c.n };
       try { HIST.go(c.n - H.pos); } catch (e) { navOff(); }
       return;
     }
@@ -5926,7 +5950,7 @@
     var wa = state.wsAnyway; state.wsAnyway = null;
     if (!loc) { loc = { view: 'home' }; msg = 'That link isn\'t one Flightdeck can open.'; }
     if (t.f != null && t.f !== navFp()) {
-      say('That page was in another team folder, so it wasn\'t opened.', 'warn');
+      if (!t.quiet) say('That page was in another team folder, so it wasn\'t opened.', 'warn');
       var here = navHere(), f = navFp();
       if (histWrite(false, here, H.pos, f, t.b)) H.cur = { n: H.pos, hash: here, f: f, b: t.b || null };
       render(); return;
@@ -6103,9 +6127,9 @@
     var wantNew = loc.sub === 'new', wantId = loc.type != null ? loc.type : null;
     if (F) {
       if (wantNew ? !F.existing : wantId != null && F.existing === wantId) { navTypes(); return 'moved'; }
-      if (typeFormChanged(F) && !F.discard) {
+      if (typeFormChanged(F) && !typeDiscardOk(F)) {
         navTypes(); F.leaving = true;
-        if (!wantNew && wantId == null) F.backLeave = true; else say('Save or leave this step type first, then go back again.', 'warn');
+        if (!wantNew && wantId == null) { F.backLeave = true; F.wsReturn = false; } else say('Save or leave this step type first, then go back again.', 'warn');
         state.focus = '[data-act="type-save"]'; return onForm ? 'stay' : 'focus';
       }
       typeClose(); state.focus = '[data-act="new-type"]'; render();
@@ -6143,11 +6167,16 @@
     var handler = ACTIONS[act], guarded = onPracticePage(b);
     if (!handler && !guarded) return;
     e.preventDefault();
+    /* While a ‹ control's Back is on its way, the press waits (navWait) and runs as Back lands, if its control is drawn then. */
+    if (navWait(function () { if (drawnControl(act, id)) press(b, act, id); })) return;
+    press(b, act, id);
+  });
+  function press(b, act, id) {
     /* A press on a dialog locked while it writes isn't someone moving on (2.16): it does nothing there. */
     if (!heldPress(b)) uiActs++;
     harvest();
-    if (guarded) dispatch(act, id, b); else handler(id, b);
-  });
+    if (onPracticePage(b)) dispatch(act, id, b); else if (ACTIONS[act]) ACTIONS[act](id, b);
+  }
 
   var BACK = { home: 'Home', runs: 'Runs', run: 'The run', processes: 'Checklists', process: 'The checklist', skills: 'Skills', skill: 'The skill', types: 'Step types', settings: 'Settings', health: 'Folder health', connection: 'Connection check' };
   var ACTIONS = {
@@ -6423,7 +6452,7 @@
     'back-current': function () {
       /* Browser Back lands on the page as that entry showed it (the draft or the current version), focus on the version box. */
       var p = currentProcess(), direct = function () { state.mapVer = 'current'; state.pick = null; state.focus = 'map-ver'; render(); };
-      if (p && state.view === 'process' && histBack([PF.nav.format({ view: 'process', process: p.id }), PF.nav.format({ view: 'process', process: p.id, version: 'current' })], function () { state.pick = null; state.focus = 'map-ver'; }, null, direct)) return;
+      if (p && state.view === 'process' && histBack([PF.nav.format({ view: 'process', process: p.id }), PF.nav.format({ view: 'process', process: p.id, version: 'current' })], function () { state.pick = null; state.focus = 'map-ver'; }, null, direct, true)) return;
       direct();
     },
     /* Checklist or flight plan: the same version either way. A phase in the flight plan opens it in the checklist. */
@@ -6833,7 +6862,7 @@
     'type-ws-back': function () { if (typeFromOk()) typeWsReturn(); else { state.typeFrom = null; render(); } },
     /* On a phone the preview is a sheet over the form, so the place being edited stays where it was. */
     'tf-preview': function () { state.tfPreview = !state.tfPreview; state.focus = state.tfPreview ? '.tf-prevclose' : '.tf-prevbtn'; render(); },
-    'type-stay': function () { var f = state.typeForm; if (f) { f.leaving = false; f.backLeave = false; } state.focus = 'tf-h'; render(); },
+    'type-stay': function () { var f = state.typeForm; if (f) { f.leaving = false; f.backLeave = false; f.discard = null; f.wsReturn = false; } state.focus = 'tf-h'; render(); },
     /* Save from the leave prompt saves, then goes back to the list. */
     'type-save': function () { var f = state.typeForm; if (f && f.leaving) f.closeAfterSave = true; readTypeForm(); saveType(); },
     'tf-id-edit': function () { var f = state.typeForm; if (!f || f.existing) return; f.idEdit = true; state.focus = 'tf-id'; render(); },
@@ -6872,7 +6901,9 @@
          with the move there: never before (histBack). */
       var f = state.typeForm, at = function () { if (state.typeForm === f) typeClose(); state.focus = '[data-act="new-type"]'; };
       var direct = function () { at(); render(); };
-      if (f) f.discard = true;
+      if (f) { flushAdds(f); f.discard = V.typeFormSnapshot(f.def); }
+      /* Opened from the workspace (Done), leaving without saving returns there, as saving does. */
+      if (f && f.wsReturn && typeFromOk()) { typeWsReturn(true); return; }
       if (!(f && f.backLeave) && histBack(PF.nav.format({ view: 'types' }), at, null, direct)) return;
       direct(); },
     'type-keep-mine': function () { var f = state.typeForm; if (f && f.conflict && !f.saving) { var o = null; try { o = JSON.parse(f.conflict.theirs || 'null'); } catch (e) { o = null; } f.baseHash = f.conflict.theirsHash; f.baseText = f.conflict.theirs == null ? null : f.conflict.theirs; f.baseDef = o; f.keepMine = true; f.conflict = null; saveType(); } },
@@ -9217,12 +9248,20 @@
     addFiles(e.dataTransfer.files, z.getAttribute('data-drop') === 'corr' && state.corrForm ? corrFileKey() : z.getAttribute('data-id') || state.sel);
   });
 
-  document.addEventListener('keydown', function (e) {
+  document.addEventListener('keydown', function onKey(e) {
     uiActs++;
     if (!/^(Shift|Control|Alt|Meta|CapsLock)$/.test(String(e.key || ''))) childEpoch++;
     /* While an input method is composing, every key is its own (Escape cancels the composition, letters build it). */
     if (e.isComposing || e.keyCode === 229) return;
     var t = e.target, typing = t && /INPUT|TEXTAREA|SELECT/.test(t.tagName);
+    /* A key that acts (Escape, search, a box's Enter) while a ‹ control's Back is on its way waits for it, as a press does. */
+    var kk = String(e.key || '');
+    if (H.backing && (kk === 'Escape' || (kk === 'Enter' && t && t.dataset && t.dataset.enter) || ((e.ctrlKey || e.metaKey) && kk.toLowerCase() === 'k'))) {
+      e.preventDefault();
+      var tid = t && t.id, ke = { key: e.key, keyCode: e.keyCode, ctrlKey: e.ctrlKey, metaKey: e.metaKey, altKey: e.altKey, shiftKey: e.shiftKey };
+      navWait(function () { var nt = tid ? document.getElementById(tid) : null; onKey(Object.assign({}, ke, { target: nt || document.body, preventDefault: function () {}, stopPropagation: function () {} })); });
+      return;
+    }
     if (dbxAc && t && t.id === dbxAc.id && dbxKey(e)) return;
     /* Ctrl+K (Cmd+K on a Mac) opens search from anywhere on the page, also while typing. */
     /* On a Mac it's Cmd+K, and Ctrl+K stays the text box's own (it deletes to the end of the line there). */
