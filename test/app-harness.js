@@ -154,6 +154,12 @@ function boot(opts) {
     return out;
   };
   els.overlay.querySelectorAll = sel => sel === 'input, textarea, select' ? controls(els.overlay) : [];
+  /* opts.replace in a dialog too: a rebuilt dialog draws its boxes anew, with what the markup says, focus gone and the caret
+     at the start, so only the app's own code puts back what was typed (2.16). */
+  if (opts.replace) Object.defineProperty(els.overlay, 'innerHTML', { get() { return this._html; }, set(v) {
+    this._html = String(v);
+    inputs.forEach(id => { if (this._html.indexOf('id="' + id + '"') < 0) return; const d = drawnValue(this._html, id); if (d === null) return; els[id].value = d; els[id].selectionStart = els[id].selectionEnd = 0; if (document.activeElement === els[id]) document.activeElement = document.body; });
+  } });
   appEl.querySelectorAll = sel => {
     if (sel === 'input, textarea, select') return controls(appEl);
     if (sel === '[data-thumb]') { const now = drawnThumbs(); [...thumbs.keys()].forEach(k => { if (now.indexOf(k) < 0) thumbs.delete(k); }); return now.map(k => { if (!thumbs.has(k)) thumbs.set(k, { nodeType: 1, dataset: { thumb: k } }); return thumbs.get(k); }); }
@@ -480,6 +486,9 @@ function boot(opts) {
     back() { history.go(-1); }, forward() { history.go(1); }, go(n) { history.go(n); },
     typeHash(h) { traverse({ typed: h }); },
     holdPops() { hist.held = true; }, releasePops() { hist.held = false; pump(); },
+    // A typed box taking focus with the caret at s..e (opts.replace), and where its caret is.
+    focusBox(id, st, en) { const el = get(id); el.focus(); el.selectionStart = st; el.selectionEnd = en == null ? st : en; return this; },
+    caret: id => (els[id] ? [els[id].selectionStart, els[id].selectionEnd] : null),
     async settle() { for (let i = 0; i < 200 && (hist.queue.length || hist.busy); i++) await tick(2); await tick(); },
     url: () => hist.entries[hist.index].url, hash: () => location.hash,
     entries: () => hist.entries.map(e => ({ hash: hashOf(e.url), state: copyState(e.state) })), index: () => hist.index,

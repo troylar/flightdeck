@@ -1306,4 +1306,77 @@ rule('R3 3: More is a layer: browser Back or Escape closes it, focus on More, th
   }
 });
 
+/* ---------- Build round 4: review round 3 ---------- */
+/* A ‹ control's browser Back held (a slow browser) while a folder refresh finishes and redraws: no entry is written in
+   between, and Back lands where the control goes. */
+async function heldBack(app, go, want) {
+  const n = app.entries().length, i = app.index();
+  app.holdPops();
+  await go();
+  app.click('refresh'); await app.tick(150);
+  assert.strictEqual(app.entries().length, n, want + ': nothing written while Back is on its way (' + JSON.stringify(app.entries().map(e => e.hash)) + ')');
+  app.releasePops(); await app.settle(); await app.tick(40);
+  assert.strictEqual(app.hash(), want, 'landed on ' + want);
+  assert.strictEqual(app.entries().length, n, want + ': history didn\'t grow');
+  assert.ok(app.index() < i, want + ': went back');
+}
+rule('R4 1: a ‹ control\'s Back with a refresh finishing first never writes an entry: the step type\'s return, ‹ Step types, ‹ <title>', async () => {
+  const a = await edit({ localStore: { 'preflight:builder': 'true' } });
+  a.click('ob-sel', 'flags'); await a.tick(); await typeOpen(a);
+  await heldBack(a, async () => { const b = back1(a); a.click(b.act, b.id); await a.tick(); }, '#/process/release/edit');
+  assert.ok(inEditor(a), 'the editor');
+  assert.match(a.html(), /data-act="ob-sel" data-id="flags" aria-pressed="true"/, 'at its step');
+  assert.ok(!/That new step type was closed/.test(a.live()), 'nothing said about a closed form');
+  const t = await start(); t.click('nav', 'settings'); await t.tick(); t.click('open-types'); await t.tick(); await typeOpen(t);
+  await heldBack(t, async () => { const b = back1(t); t.click(b.act, b.id); await t.tick(); }, '#/types');
+  assert.ok(!/id="tf-h"/.test(t.html()), 'the list, the form closed');
+  const w = await edit();
+  await heldBack(w, async () => { w.click('ed-done'); await w.tick(); }, '#/process/release');
+  assert.ok(onOverview(w), 'the checklist page');
+});
+rule('R4 1: a ‹ control whose Back never lands moves there itself after a while, and history is written again', async () => {
+  const app = await edit();
+  app.holdPops();
+  app.click('ed-done'); await app.tick(1700);
+  assert.ok(onOverview(app), 'moved there itself');
+  assert.strictEqual(app.hash(), '#/process/release');
+});
+
+rule('R4 2: a typed Publish note, its caret too, survives the dialog being rebuilt by a background refresh, in Edit and in Practice', async () => {
+  for (const view of ['edit', 'practice']) {
+    const files = {}, L = locks(), Channel = bus();
+    const a = await changed({ sharedFiles: files, locks: L, Channel, replace: true }); await into(a, view);
+    const b = primary(a); a.click(b[0].act, b[0].id); await a.tick();
+    assert.match(a.overlay(), /Publish v3/, view + ': set-up, the dialog');
+    a.set('change-note', 'Tell on-call first'); a.input('change-note', 'Tell on-call first'); a.focusBox('change-note', 5, 12); await a.tick();
+    const o = await page({ sharedFiles: files, locks: L, Channel, me: 'person-avery' });
+    o.set('change-note', 'From the other window'); o.click('publish', 'release'); await o.tick(300);
+    a.every(); await a.tick(200);
+    assert.match(a.overlay(), /Publish v4/, view + ': the dialog was rebuilt by the refresh');
+    assert.strictEqual(a.draft('change-note'), 'Tell on-call first', view + ': the note kept');
+    assert.deepStrictEqual(a.caret('change-note'), [5, 12], view + ': the caret kept');
+  }
+});
+rule('R4 2: every dialog is drawn in one place, which puts typed text back, and every box in a dialog writes what it holds as it\'s typed', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
+  assert.strictEqual((src.match(/overlayEl\.innerHTML\s*=/g) || []).length, 1, 'one place draws a dialog');
+  assert.match(src, /overlayEl\.innerHTML = ov; lastOverlay = ov;\s*ovRestore\(/, 'and it puts typed text back');
+  assert.match(src, /document\.addEventListener\('input', function \(e\) \{[\s\S]{0,300}ovKeep\(e\.target\)/, 'every input in a dialog is kept as typed');
+});
+
+rule('R4 3: browser Back while the Publish dialog writes leaves it as it is: focus on the busy button, no finish-or-cancel', async () => {
+  const app = await changed({ domFocus: true }); await into(app, 'edit');
+  const b = primary(app); app.click(b[0].act, b[0].id); await app.tick();
+  const release = holdWrites(app);
+  app.set('change-note', 'Tell on-call first'); ovClick(app, 'stage-draft', 'release'); await app.tick(20);
+  app.node('[data-act="stage-draft"]').focus();
+  const at = app.activeId(), h = app.hash();
+  app.back(); await app.settle();
+  assert.ok(/id="change-note"/.test(app.overlay()), 'still open');
+  assert.strictEqual(app.activeId(), at, 'focus stays on the busy button');
+  assert.ok(!/Finish or cancel this first/.test(app.html() + app.live()), 'nothing to finish or cancel');
+  assert.strictEqual(app.hash(), h, 'the URL kept');
+  release(); await app.tick(300);
+});
+
 run();
