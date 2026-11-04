@@ -336,7 +336,7 @@
       caCol('ca-h-res', 'Proposed result', result, ch.op, rv.removed ? 'Removed from the checklist.' : rv.state === 'manual' ? 'Made by hand in the editor.' : rv.state === 'gone' ? 'Nothing to change.' : 'Nothing to change.') + '</div>';
     var err = ov.err ? '<p class="ferr" id="ferr-' + esc(ov.err.field) + '" role="alert">' + esc(ov.err.msg) + '</p>' : '';
     if (base.conflict) h += '<div class="notice bad" role="alert"><span>Someone else changed this draft while you were editing it. Settle that in the editor first.</span></div>';
-    else if (base.dirty) h += '<div class="notice warn" role="alert"><span>You have unsaved changes to this draft. Save or discard them in the editor first, so applying can\'t mix with them.</span><button type="button" class="mini" data-act="corr-open-editor" data-id="' + esc(g.id) + '">Open the editor</button></div>';
+    else if (base.dirty) h += '<div class="notice warn" role="alert"><span>You have unsaved changes to this draft. Save or discard them in the editor first, so applying can\'t mix with them.</span><button type="button" class="mini" data-act="corr-open-editor" data-id="' + esc(g.id) + '">Edit</button></div>';
     else if (base.saving) h += '<p class="small" role="status">Saving the draft…</p>';
     var blocked = base.conflict || base.dirty || !!base.saving || !st.me, dis = blocked ? ' disabled' : '';
     var alts = C.alternatives(gs, g), combine = alts.length > 1 && alts.every(function (x) { return x.change.op === 'wording'; });
@@ -361,7 +361,7 @@
     else if (rv.state === 'already') acts = '<button type="button" class="btn go" data-act="corr-link" data-id="' + esc(g.id) + '"' + (st.me ? '' : ' disabled') + '>Link this correction</button>';
     else if (rv.state === 'changed') acts = '<button type="button" class="btn go" data-act="corr-edit" data-id="' + esc(g.id) + '"' + dis + '>Edit proposed result</button>' + addressed;
     else if (rv.state === 'gone') acts = addressed + '<button type="button" class="btn" data-act="corr-ca-declining" data-id="' + esc(g.id) + '"' + (st.me ? '' : ' disabled') + '>Decline</button>';
-    else acts = '<button type="button" class="btn go" data-act="corr-open-editor" data-id="' + esc(g.id) + '">Open in the editor</button><button type="button" class="btn" data-act="corr-addressed" data-id="' + esc(g.id) + '"' + (st.me ? '' : ' disabled') + '>Mark as applied</button>';
+    else acts = '<button type="button" class="btn go" data-act="corr-open-editor" data-id="' + esc(g.id) + '">Edit</button><button type="button" class="btn" data-act="corr-addressed" data-id="' + esc(g.id) + '"' + (st.me ? '' : ' disabled') + '>Mark as applied</button>';
     if (alts.length > 1 && rv.state === 'clean') h += '<p class="small">' + (alts.length === 2 ? 'Two' : alts.length) + ' proposed changes to this step. Use one, or combine them into your own wording.</p>';
     return box(h + err + '<div class="row ca-acts">' + acts + '</div>');
   }
@@ -374,6 +374,19 @@
     var need = n.needs || '2.0', nm = need.split('.'), before = +nm[1] > 0 ? nm[0] + '.' + (+nm[1] - 1) : '1.22';
     return '<p class="small pub-needs" role="note"><b>Needs Flightdeck ' + esc(need) + ':</b> ' + esc(list) + '. Teammates on Flightdeck ' + esc(before) + ' or earlier see this version but can\'t run it until they update. Leave ' + (n.names.length === 1 ? 'it' : 'these') + ' out if they need to run it now.</p>';
   }
+  /* The checklist's views (2.16): one strip under the title, the same nav the workspace's view control is. Edit keeps its
+     conditions (Edit anyway while someone else has the draft open; not during a restore, nor for a proposal only), and
+     Practice has the same ones and counts the practice kept in this tab. */
+  function viewStrip(ctx, p) {
+    var st = ctx.state, tab = V.tabOf(ctx), restoring = (st.draftSaving || {})[ctx.fsKey + '\n' + p.id] === 'restore', others = (p.editing || []).length > 0;
+    var canEdit = !restoring && !p.proposedOnly, cnt = canEdit && ctx.practiceCount ? ctx.practiceCount(p.id) : null;
+    var b = function (act, id, text, cur, label) { return '<button type="button" class="pv-b" data-act="' + act + '"' + (id != null ? ' data-id="' + esc(id) + '"' : '') + (cur ? ' aria-current="page"' : '') + (label ? ' aria-label="' + esc(label) + '"' : '') + '>' + text + '</button>'; };
+    var h = b('ptab', 'overview', 'Overview', tab === 'overview');
+    if (canEdit) h += b('ptab', 'edit', I('edit') + (others ? 'Edit anyway' : 'Edit'), false);
+    if (canEdit) { var w = others ? 'Practice anyway' : 'Practice'; h += b('pv-practice', others ? 'anyway' : null, I('play') + w + (cnt ? ' · ' + cnt.done + ' of ' + cnt.total : ''), false, cnt ? w + ', ' + cnt.done + ' of ' + cnt.total + ' steps answered' : null); }
+    if ((p.all || []).length) h += b('ptab', 'insights', I('chart') + 'How runs go', tab === 'insights');
+    return '<nav class="pviews" aria-label="Checklist views">' + h + '</nav>';
+  }
   function process(ctx) {
     var st = ctx.state, p = ctx.processes().filter(function (x) { return x.id === st.processId; })[0];
     if (!p) {
@@ -385,10 +398,12 @@
     }
     /* Editing a draft takes the whole page (manage.js). */
     if (V.tabOf(ctx) === 'edit') return V.editTab(ctx, p);
-    var pub = p.latest, h = notices(ctx);
+    var pub = p.latest, h = notices(ctx), shown = V.shownOf(p, st);
+    /* An older version: the way back to the current one, top left (2.16). */
+    if (V.tabOf(ctx) === 'overview' && shown && !shown.current) h += V.backRow(V.backc('back-current', null, 'Current version'));
     h += '<div class="runhead"><div><div class="eyebrow">' + esc(p.category) + (pub ? ' · owner ' + esc(nameOf(ctx, pub.map.meta.owner)) : '') + '</div><h1 id="page-h" tabindex="-1">' + esc(p.title) + '</h1>' +
       (pub ? '<div class="small">v' + pub.info.version + ' · published ' + esc(U.day(pub.info.publishedAt)) + ' by ' + esc(nameOf(ctx, pub.info.publishedBy)) + '</div>' : '<div class="small">Not published yet.</div>') + '</div>' +
-      '<div class="row">' + (V.tabOf(ctx) === 'overview' && p.all.length ? '<button class="mini" data-act="ptab" data-id="insights">' + I('chart') + 'How runs go</button>' : '') + (pub ? '<button class="btn primary" data-act="start" data-id="' + esc(p.id) + '"' + (st.me ? '' : ' disabled') + '>' + I('play') + 'Start a run</button><button class="btn" data-act="plan-run" data-id="' + esc(p.id) + '"' + (st.me ? '' : ' disabled') + '>Plan a run</button>' : '') + '</div></div>';
+      '<div class="row">' + (pub ? '<button class="btn primary" data-act="start" data-id="' + esc(p.id) + '"' + (st.me ? '' : ' disabled') + '>' + I('play') + 'Start a run</button><button class="btn" data-act="plan-run" data-id="' + esc(p.id) + '"' + (st.me ? '' : ' disabled') + '>Plan a run</button>' : '') + '</div></div>' + viewStrip(ctx, p);
     var dWhy = p.draft && ((st.unread || {}).drafts || {})[p.draft.file];
     if (dWhy) h += '<div class="notice bad" role="alert"><span><b>' + esc(p.draft.file) + ' couldn\'t be read on the last check</b> (' + esc(dWhy) + '). This is the version read before. It isn\'t edited or saved over until it reads again.</span><span class="row"><button class="btn" data-act="refresh">Try again</button><button class="mini" data-act="recovery" data-id="a-file-cant-be-read">What to do</button></span></div>';
     /* Drafts sharing this process: named in the line when there are a few; past 3, one summary line and a fold naming them
@@ -420,7 +435,7 @@
           draw: function (shown) { return '<ul class="small">' + shown.map(function (b) { return '<li id="' + esc('lb-' + p.id + '-' + b.step.id) + '" tabindex="-1">' + lbText(b) + '</li>'; }).join('') + '</ul>'; } }) + '</details></div></div>';
     }
     /* One page: the checklist in the middle, edited in place; how runs go opens on its own with a way back. */
-    if (V.tabOf(ctx) === 'insights') return h + '<div class="row"><button class="mini" data-act="ptab" data-id="overview">' + I('back') + 'Back to the checklist</button></div>' + (insights(ctx, p) || '<section class="panel"><p class="small">No runs yet. This fills in after the first run.</p></section>');
+    if (V.tabOf(ctx) === 'insights') return h + (insights(ctx, p) || '<section class="panel"><p class="small">No runs yet. This fills in after the first run.</p></section>');
     h += '<div class="pgrid"><div class="stack">';
     if (p.draft && p.draftChanged) {
       var c = M.check(M.parse(p.draft.md), V.checkOptions(ctx));

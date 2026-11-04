@@ -193,6 +193,8 @@
     get releases() { var seen = state.relShownSeen || relSeen(); return { list: RELEASES, version: APP_VERSION, lastSeen: seen, fresh: APP_VERSION !== 'dev' && V.semverCmp(APP_VERSION, relSeen()) > 0, newer: state.newer }; },
     /* How many images this window is adding to a draft's step right now (the builder's Screenshots section says so). */
     shotBusy: function (pid) { return shotBusy(pid); },
+    /* The checklist page's Practice · 4 of 12 (2.16): what's kept for it in this tab, or null. */
+    practiceCount: function (pid) { return prCount(pid); },
     localCopy: function (r) { var c = lsGet(localKey(r.id), null); return c && c.id === r.id ? c : null; },
     /* Folder health from what's loaded (full: with this folder's last scan of every file). Worked out once per change. */
     health: function (full) { return healthReport(full); },
@@ -3667,6 +3669,24 @@
     Object.keys(state.stepDrafts).forEach(function (dk) { if (dk.indexOf(draftKey(prKey(pid), '')) === 0) delete state.stepDrafts[dk]; });
     try { sessionStorage.removeItem(prStoreKey(pid)); sessionStorage.removeItem(prStoreKey(pid) + ':typed'); } catch (err) { /* this tab only */ }
   }
+  /* How far a practice kept in this tab got, for the checklist page and the view control (2.16): its answers whose step is
+     still in the current text, out of that text's steps. Read from the kept state (this tab's entry, else its sessionStorage
+     key), never by following the practice again; the text's steps are worked out once per text. null: nothing kept. */
+  var prCounts = Object.create(null);
+  function prCount(pid) {
+    var p = procFind(pid); if (!p) return null;
+    var k = edKey(pid), e = prs[k], memo = prCounts[k] || (prCounts[k] = { raw: null, st: null, text: null, ids: null, total: 0 }), st = e ? e.st : null;
+    if (!e) {
+      var raw = null; try { raw = sessionStorage.getItem(prStoreKey(pid)); } catch (err) { raw = null; }
+      if (!raw) return null;
+      if (memo.raw !== raw) { var c = null; try { c = PR.check(JSON.parse(raw), pid); } catch (err) { c = null; } memo.raw = raw; memo.st = c; }
+      st = memo.st; if (!st) return null;
+    }
+    var text = prText(p);
+    if (memo.text !== text) { var ids = Object.create(null), steps = M.steps(M.parse(text)); steps.forEach(function (x) { if (x.step.id) ids[x.step.id] = true; }); memo.text = text; memo.ids = ids; memo.total = steps.length; }
+    var done = 0; Object.keys(st.answers || {}).forEach(function (id) { if (memo.ids[id] === true) done++; });
+    return { done: Math.min(done, memo.total), total: memo.total };
+  }
   /* Any practice action, selection, form or typing (not the stage note): a stage that finishes later leaves practice as it is. */
   function prTouch(e) { e.act = (e.act || 0) + 1; }
   /* The team's step types and Jira workflows, as practice reads them (a run copies the same when it starts). */
@@ -6072,6 +6092,13 @@
       if (state.ptab === 'edit') { var dirty = pendingBox(); if (dirty) { refuseFor(dirty); return; } }
       state.ptab = 'overview'; state.pick = null; state.disc = Object.assign({}, state.disc); state.disc['sk:' + p.id] = true;
       state.focus = 'sk-h'; revealAt('#sk-h'); render();
+    },
+    /* The checklist page's Practice (2.16): through the Edit checks first (moveToPractice), or, while someone else has the
+       draft open, Practice anyway: Edit anyway's own checks (ptab), then practice, in one click. */
+    'pv-practice': function (id) {
+      var p = currentProcess(); if (!p) return;
+      if (id === 'anyway') { ACTIONS.ptab('edit'); if (state.view === 'process' && state.ptab === 'edit') prEnter(p); return; }
+      if (moveToPractice({ view: 'practice', process: p.id }) !== 'focus') render();
     },
     'view-version': function (id) { state.ptab = 'overview'; state.mapVer = id; state.pick = null; state.focus = 'cl-h'; render(); window.scrollTo(0, 0); },
     'back-current': function () { state.mapVer = 'current'; state.pick = null; state.focus = 'map-ver'; render(); },

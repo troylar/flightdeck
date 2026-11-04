@@ -517,6 +517,15 @@ input[type="checkbox"] { accent-color: var(--go); width: 16px; height: 16px; }
 .seg button[aria-checked="true"] { background: var(--ink); color: var(--card); }
 .seg button[aria-pressed="true"] { background: var(--ink); color: var(--card); }
 .seg.tabs { margin: 0 0 14px; }
+/* 2.16: the way back, top left, named for where it goes; the checklist's views (the page's strip, the workspace's control). */
+.backrow { margin: 0 0 8px; }
+.backc { display: inline-flex; align-items: center; gap: 2px; max-width: 100%; min-width: 0; white-space: nowrap; }
+.backc .backc-t { overflow: hidden; text-overflow: ellipsis; min-width: 10ch; }
+.backc .backc-v { flex: none; }
+.pviews { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 14px; border-bottom: 1px solid var(--line); }
+.pviews button { border: 0; background: none; padding: 8px 12px; font-weight: 600; color: var(--muted); border-bottom: 3px solid transparent; margin-bottom: -1px; }
+.pviews button[aria-current="page"] { color: var(--ink); border-bottom-color: var(--ink); }
+.pviews button .ic { margin-right: 6px; vertical-align: -3px; }
 .af-list { list-style: none; margin: 0; padding: 0; }
 .af-row { padding: 8px 0; border-top: 1px solid var(--line); }
 .af-row code { overflow-wrap: anywhere; }
