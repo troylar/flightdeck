@@ -872,7 +872,7 @@ const D10_JOIN_OK = [
   { file: 'flight.js', has: 'esc(marks.join(\' and \'))', why: FIXED }, { file: 'flight.js', has: '<b>Gate note</b>', why: FIXED },
   { file: 'health.js', has: 'function flushP()', why: 'a paragraph of the recovery guide, bundled with the app' },
   { file: 'home.js', has: 'K.uniqKeys(items', why: NOT_TEXT }, { file: 'home.js', has: 'bad.slice(0, 3)', why: 'the first 3 and "and N more"' },
-  { file: 'home.js', has: 'var found = q ? tagged.filter(function (p)', why: SEARCH }, { file: 'home.js', has: 'var found = q ? tagged.filter(function (k)', why: SEARCH },
+  { file: 'home.js', has: 'var found = q ? tagged.filter(function (p)', why: SEARCH }, { file: 'home.js', has: 'var found = q ? pubs.filter(function (p)', why: SEARCH + ' (2.16: the Which checklist? dialog\'s Find box)' }, { file: 'home.js', has: 'var found = q ? tagged.filter(function (k)', why: SEARCH },
   { file: 'home.js', has: 'esc(flags.join(\' · \'))', why: 'a checklist\'s warning flags, a fixed set' },
   { file: 'insights.js', has: 'STATUS_WORDS[k]', why: 'correction statuses, a fixed set' }, { file: 'insights.js', has: 'var m = x.gate[k[0]]', why: FIXED },
   { file: 'manage.js', has: 'esc(K.capJoin(e.errors', why: 'the type files the reader couldn\'t use, at most the 100 it reads (storage/repo.js), each one\'s problems capped by K.capJoin' },
