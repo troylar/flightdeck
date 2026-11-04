@@ -380,4 +380,21 @@ rule('Round 21: npm is run through its own JavaScript entry with this node and n
   assert.deepStrictEqual(RT.problems(RT.texts({ 'README.local.md': RT.LINK }), snap), [], 'a symbolic link');
   assert.ok(RT.problems(RT.texts({ 'README.local.md': 'x\n' }), snap).some((x) => x.indexOf('new, not reviewed: README.local.md;') >= 0), 'the same name as a file');
 });
+rule('Round 22: the npm path is absolute against the caller\'s folder, and a link the system won\'t create (EPERM) is left out as npm leaves it', () => {
+  const RT = require('./reviewed-text');
+  const find = (platform, cwd, have, env) => RT.npmCli({ platform, cwd, execPath: platform === 'win32' ? 'C:\\n\\node.exe' : '/n/bin/node', env, exists: (f) => have.indexOf(f) >= 0, realpath: () => null });
+  /* A relative npm_execpath or PATH entry, resolved against the folder the caller started in, not the temp folder. */
+  assert.strictEqual(find('linux', '/repo', ['/repo/tools/npm/bin/npm-cli.js'], { npm_execpath: 'tools/npm/bin/npm-cli.js' }), '/repo/tools/npm/bin/npm-cli.js');
+  assert.strictEqual(find('linux', '/repo', ['/repo/lib/node_modules/npm/bin/npm-cli.js'], { PATH: 'bin' }), '/repo/lib/node_modules/npm/bin/npm-cli.js');
+  assert.strictEqual(find('win32', 'D:\\repo', ['D:\\repo\\node\\node_modules\\npm\\bin\\npm-cli.js'], { Path: 'node' }), 'D:\\repo\\node\\node_modules\\npm\\bin\\npm-cli.js');
+  /* On this machine: npm_execpath given relative to the working folder comes back absolute and real. */
+  const real = (env) => RT.npmCli({ env, execPath: process.execPath, platform: process.platform, cwd: process.cwd(), exists: fs.existsSync, realpath: (f) => { try { return fs.realpathSync(f); } catch (e) { return null; } } });
+  const cli = real(process.env), got = real({ npm_execpath: path.relative(process.cwd(), cli) });
+  assert.ok(path.isAbsolute(got) && fs.existsSync(got) && got === cli, got);
+  /* No symlink privilege: the link is left out and the list matches npm's on the real tree. */
+  const eperm = () => { const e = new Error('EPERM: operation not permitted, symlink'); e.code = 'EPERM'; throw e; };
+  assert.deepStrictEqual(RT.packed({ 'README.local.md': RT.LINK }, { symlink: eperm }), RT.packed(), 'EPERM: link left out');
+  /* Any other error still fails. */
+  assert.throws(() => RT.packed({ 'README.other.md': RT.LINK }, { symlink: () => { const e = new Error('EIO'); e.code = 'EIO'; throw e; } }), /EIO/);
+});
 run();

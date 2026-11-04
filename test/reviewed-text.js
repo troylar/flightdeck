@@ -64,30 +64,34 @@ const LINK = Object.freeze({ link: true });
 /* npm's own JavaScript entry, run with this node and no shell (on Windows `npm` is npm.cmd, which execFile can't run).
    Pure, so both layouts are tested in memory. Order: npm_execpath when it is npm's (not pnpm's or yarn's); next to
    node (POSIX <prefix>/bin/node -> <prefix>/lib/node_modules/npm, Windows <dir>\node.exe -> <dir>\node_modules\npm);
-   then each PATH folder the same two ways, and an npm there that is a link to npm-cli.js. */
+   then each PATH folder the same two ways, and an npm there that is a link to npm-cli.js. Every candidate is made absolute
+   against o.cwd (the caller's working directory, passed in), since packed() runs npm from a temp folder. */
 function npmCli(o) {
   const P = o.platform === 'win32' ? path.win32 : path.posix, env = o.env || {}, tried = [];
+  const abs = (f) => P.resolve(o.cwd, f);
   const ok = (f) => { tried.push(f); return o.exists(f); };
-  if (env.npm_execpath && /(?:^|[\\/])npm-cli\.js$/.test(env.npm_execpath) && ok(env.npm_execpath)) return env.npm_execpath;
+  if (env.npm_execpath && /(?:^|[\\/])npm-cli\.js$/.test(env.npm_execpath) && ok(abs(env.npm_execpath))) return abs(env.npm_execpath);
   const near = (dir) => [P.join(dir, '..', 'lib', 'node_modules', 'npm', 'bin', 'npm-cli.js'), P.join(dir, 'node_modules', 'npm', 'bin', 'npm-cli.js')];
-  const dirs = [P.dirname(o.execPath)].concat(String(env.PATH || env.Path || '').split(o.platform === 'win32' ? ';' : ':').filter(Boolean));
+  const dirs = [P.dirname(abs(o.execPath))].concat(String(env.PATH || env.Path || '').split(o.platform === 'win32' ? ';' : ':').filter(Boolean));
   for (const d of dirs) {
-    for (const f of near(d)) if (ok(f)) return f;
-    const real = o.realpath && o.realpath(P.join(d, 'npm'));
-    if (real && /(?:^|[\\/])npm-cli\.js$/.test(real) && ok(real)) return real;
+    for (const f of near(abs(d))) if (ok(f)) return f;
+    const real = o.realpath && o.realpath(P.join(abs(d), 'npm'));
+    if (real && /(?:^|[\\/])npm-cli\.js$/.test(real) && ok(abs(real))) return abs(real);
   }
   throw new Error('test/reviewed-text.js: cannot find npm\'s npm-cli.js to list what npm packs (looked at: ' + tried.join(', ') + '). Set npm_execpath to it.');
 }
 const realOr = (f) => { try { return fs.realpathSync(f); } catch (e) { return null; } };
-const NPM = () => npmCli({ env: process.env, execPath: process.execPath, platform: process.platform, exists: fs.existsSync, realpath: realOr });
+const NPM = () => npmCli({ env: process.env, execPath: process.execPath, platform: process.platform, cwd: process.cwd(), exists: fs.existsSync, realpath: realOr });
 
 /* What npm packs, from npm itself: the files list plus what it adds on its own (README*, LICENSE*, LICENCE*, COPYING*,
    CHANGELOG*, package.json, the bin). Run on a mirror of the tree with the overrides applied, so a file that only exists in
    a test still counts. Files are mirrored empty, except package.json and ignore files, which keep their text; symbolic
    links stay links (to an empty target inside the temp folder, outside the package), since npm leaves links out.
-   Cached by the file set and each entry's type. */
+   Where links can't be made (Windows without the symlink privilege: EPERM), a link is left out of the mirror, which is
+   what npm does with it anyway. io.symlink is injectable so that path is tested. Cached by the file set and each entry's type. */
 const packCache = {};
-function packed(over) {
+function packed(over, io) {
+  const symlink = (io && io.symlink) || fs.symlinkSync;
   const o = over || {}, all = {};
   const go = (d) => fs.readdirSync(path.join(ROOT, d), { withFileTypes: true }).forEach((e) => {
     if (NOT_TREE(e.name)) return;
@@ -104,7 +108,7 @@ function packed(over) {
     fs.writeFileSync(target, '');
     files.forEach((p) => {
       const f = path.join(pkg, p); fs.mkdirSync(path.dirname(f), { recursive: true });
-      if (all[p] === 'link') fs.symlinkSync(target, f); else fs.writeFileSync(f, IGNORE_FILE(p) ? r.read(p) : '');
+      if (all[p] === 'link') { try { symlink(target, f); } catch (e) { if (e.code !== 'EPERM' && e.code !== 'EACCES') throw e; } } else fs.writeFileSync(f, IGNORE_FILE(p) ? r.read(p) : '');
     });
     const out = execFileSync(process.execPath, [NPM(), 'pack', '--dry-run', '--json', '--ignore-scripts', '--offline'], { cwd: pkg, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
     packCache[key] = JSON.parse(out)[0].files.map((f) => f.path).sort();
