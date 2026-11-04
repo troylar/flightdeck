@@ -1252,6 +1252,26 @@ kase15('R8-readme', 'after 1: the guide merged and its copy deleted, then instal
   const again = install15(dir); assert.strictEqual(again.code, 0);
   assert.strictEqual(Object.keys(text(walk(dir))).filter(k => /\/replaced\/[^/]+\/merge-README\.md$/.test(k)).length, 1, 'unchanged text: nothing written or kept again');
 });
+/* Round 9: flightdeck skills classifies only the skills, so the README it would write never has AGENTS.md's line. It leaves the
+   README install wrote alone, and install and skills run one after the other settle: no README rewritten back and forth, no
+   replaced/ folder made for it. */
+const replacedOf = (dir) => { const at = at15(dir, UPD + VER + '/replaced'); return fs.existsSync(at) ? fs.readdirSync(at).sort() : []; };
+[['held', { [GUIDE]: FOREIGN }], ['two merges', { [AG]: TEAM214, [GUIDE]: FOREIGN }]].forEach(([id, extra]) => kase15('R9-skills ' + id, 'install, then flightdeck skills: the README keeps AGENTS.md\'s line, byte for byte, and no replaced/ folder is made', () => {
+  const dir = f214(extra); assert.strictEqual(install15(dir).code, 0);
+  const md = get15(dir, cp('README.md')), reps = replacedOf(dir);
+  assert.ok(md && md.indexOf('- `AGENTS.md`') >= 0 && get15(dir, cp(AG)) !== null, 'set-up: AGENTS.md\'s copy waits and is listed');
+  const s = install15(dir, { skills: true }); assert.ok(s.code === 0 || s.code === 3, s.out);
+  assert.strictEqual(get15(dir, cp('README.md')), md, 'skills leaves the README byte for byte');
+  assert.deepStrictEqual(replacedOf(dir), reps, 'skills makes no replaced/ folder');
+  /* The second install's README says the copies now wait (round 8); from there it is the fixed point. */
+  install15(dir); const fixed = get15(dir, cp('README.md')), repsFixed = replacedOf(dir);
+  assert.ok(fixed.indexOf('- `AGENTS.md`') >= 0, 'the fixed point lists AGENTS.md');
+  for (let n = 0; n < 2; n++) {
+    install15(dir, { skills: true }); assert.strictEqual(get15(dir, cp('README.md')), fixed, 'skills ' + n + ': the same README');
+    install15(dir); assert.strictEqual(get15(dir, cp('README.md')), fixed, 'install ' + n + ': the same README');
+  }
+  assert.deepStrictEqual(replacedOf(dir), repsFixed, 'alternating install and skills makes no replaced/ folder');
+}));
 kase15('B', 'skills first, then the team edits the guide keeping its sections, then install: AGENTS.md updates', () => {
   const dir = f214(); assert.strictEqual(run15(PKG15, 'skills', dir).code, 0); put15(dir, GUIDE, TEAMG);
   expect15(install15(dir).st, { AGENTS: { status: 'update', heldFrom: undefined }, guide: { status: 'kept' } });
