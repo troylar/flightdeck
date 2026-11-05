@@ -399,11 +399,13 @@
     /* Editing a draft takes the whole page (manage.js). */
     if (V.tabOf(ctx) === 'edit') return V.editTab(ctx, p);
     var pub = p.latest, h = notices(ctx), shown = V.shownOf(p, st);
-    /* An older version: the way back to the current one, top left (2.16). */
-    if (V.tabOf(ctx) === 'overview' && shown && !shown.current) h += V.backRow(V.backc('back-current', null, 'Current version'));
-    h += '<div class="runhead"><div><div class="eyebrow">' + esc(p.category) + (pub ? ' · owner ' + esc(nameOf(ctx, pub.map.meta.owner)) : '') + '</div><h1 id="page-h" tabindex="-1">' + esc(p.title) + '</h1>' +
-      (pub ? '<div class="small">v' + pub.info.version + ' · published ' + esc(U.day(pub.info.publishedAt)) + ' by ' + esc(nameOf(ctx, pub.info.publishedBy)) + '</div>' : '<div class="small">Not published yet.</div>') + '</div>' +
-      '<div class="row">' + (pub ? '<button class="btn primary" data-act="start" data-id="' + esc(p.id) + '"' + (st.me ? '' : ' disabled') + '>' + I('play') + 'Start a run</button><button class="btn" data-act="plan-run" data-id="' + esc(p.id) + '"' + (st.me ? '' : ' disabled') + '>Plan a run</button>' : '') + '</div></div>' + viewStrip(ctx, p);
+    /* The place frame's row 1 (2.16, docs/design.md section 34): ‹ Current version (an older version only) and the title with
+       its status in LEFT, the view strip in CENTER, then Plan a run and Start a run (the one primary, green) on the right. */
+    var older = V.tabOf(ctx) === 'overview' && shown && !shown.current;
+    h += V.workHead({ hid: 'page-h', h1attrs: ' tabindex="-1"', cls: 'phd', h1: esc(p.title), back: older ? V.backc('back-current', null, 'Current version') : '',
+      status: [{ kind: 'd', html: (pub ? 'v' + pub.info.version + ' · published ' + esc(U.day(pub.info.publishedAt)) + ' by ' + esc(nameOf(ctx, pub.info.publishedBy)) : 'Not published yet') }, { kind: 'd', html: esc(p.category) + (pub ? ' · owner ' + esc(nameOf(ctx, pub.map.meta.owner)) : '') }],
+      views: viewStrip(ctx, p),
+      acts: pub ? '<button class="btn" data-act="plan-run" data-id="' + esc(p.id) + '"' + (st.me ? '' : ' disabled') + '>Plan a run</button><button class="btn go" data-act="start" data-id="' + esc(p.id) + '"' + (st.me ? '' : ' disabled') + '>' + I('play') + 'Start a run</button>' : '' });
     var dWhy = p.draft && ((st.unread || {}).drafts || {})[p.draft.file];
     if (dWhy) h += '<div class="notice bad" role="alert"><span><b>' + esc(p.draft.file) + ' couldn\'t be read on the last check</b> (' + esc(dWhy) + '). This is the version read before. It isn\'t edited or saved over until it reads again.</span><span class="row"><button class="btn" data-act="refresh">Try again</button><button class="mini" data-act="recovery" data-id="a-file-cant-be-read">What to do</button></span></div>';
     /* Drafts sharing this process: named in the line when there are a few; past 3, one summary line and a fold naming them

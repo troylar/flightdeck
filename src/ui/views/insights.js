@@ -107,7 +107,7 @@
       while (row < 2 && rows[row] != null && cx - rows[row] < 2 * R0 + 1) row++;
       rows[row] = cx;
       var r = ctx.findRun ? ctx.findRun(v.key) : null, name = (r ? r.title : v.key) + ', ' + about(v.ms);
-      dots += '<a href="#" class="ins-dot-a" tabindex="-1" data-act="go" data-view="run" data-run="' + esc(v.key) + '" aria-label="' + esc(name) + '"><title>' + esc(name) + '</title><circle class="ins-dot" cx="' + cx.toFixed(1) + '" cy="' + (38 - row * 13) + '" r="' + R0 + '"/></a>';
+      dots += '<a href="#" class="ins-dot-a" tabindex="-1" data-act="go" data-view="run" data-run="' + esc(v.key) + '" aria-label="' + esc(name) + '"><title>' + esc(name) + '</title><circle class="ins-hit" cx="' + cx.toFixed(1) + '" cy="' + (38 - row * 13) + '" r="12"/><circle class="ins-dot" cx="' + cx.toFixed(1) + '" cy="' + (38 - row * 13) + '" r="' + R0 + '"/></a>';
     });
     var mx = x(median);
     return '<div class="ins-chart"><svg class="ins-strip" viewBox="0 0 ' + W + ' 48" role="group" aria-label="Completed runs by active time, from 0 to ' + esc(about(max)) + '">' +

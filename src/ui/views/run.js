@@ -254,12 +254,14 @@
     var ask = s.pick && s.pick.kind === 'takeover' ? '<span class="row rw-ask"><b>Take over from ' + esc(nameOf(ctx, rp)) + '? Only if they can\'t continue. ' + risk + '</b><button class="btn stop" data-act="takeover">Take over</button><button class="mini" data-act="unpick">Cancel</button></span>' : (me ? '<button class="mini" data-act="pick" data-kind="takeover" data-id="recorder">Take over recording</button>' : '');
     return { text: avatar(ctx, rp) + ' <b>' + esc(nameOf(ctx, rp)) + ' is recording.</b>' + (me ? ' You can add notes.' : ''), ctl: ask };
   }
-  /* The strip under the header: whose recording this is, with the control that goes with it, and on the right what this
-     window saved and when it last checked the folder (separate facts; neither proves another computer has the change). */
+  /* The tool row (2.16, docs/design.md section 34): who you are first, on its own, whenever someone is chosen; then the state
+     sentence that names the other people by role, and its controls; then Details and Screen share; then, pushed right, what
+     this window saved and when it last checked the folder (separate facts; neither proves another computer has the change).
+     A filled control here would be a second primary: Receipt, Pick up recording, Record here and Resume are runPrimary's. */
   function strip(ctx, r) {
     var s = ctx.state, rec = ctx.recording(r), solo = R.solo(r), kind = 'follow', text = '', ctl = '';
-    if (r._unrunnable) { kind = 'ro'; text = '<b>Read-only in this copy.</b> ' + esc(r._unrunnable) + ' This copy shows the parts it understands, and can\'t record it or save over it.'; }
-    else if (r.ended) { kind = 'ended'; text = '<b>Ended: ' + esc(K.outcomeWord(r.ended.outcome)) + '</b>' + (r.ended.byName || r.ended.by ? ' by ' + esc(r.ended.byName || nameOf(ctx, r.ended.by)) : '') + (r.ended.at ? ' at ' + U.hm(r.ended.at) : '') + '.'; ctl = '<button class="btn go" data-act="receipt">' + I('receipt') + 'Receipt</button>'; }
+    if (r._unrunnable) { kind = 'ro'; text = '<b>Read-only in this copy.</b> ' + esc(r._unrunnable) + ' This copy shows the parts it understands, and can\'t record it or save over it.' + (r.ended ? ' <b>Ended: ' + esc(K.outcomeWord(r.ended.outcome)) + '</b>' + (r.ended.byName || r.ended.by ? ' by ' + esc(r.ended.byName || nameOf(ctx, r.ended.by)) : '') + '.' : ''); }
+    else if (r.ended) { kind = 'ended'; text = '<b>Ended: ' + esc(K.outcomeWord(r.ended.outcome)) + '</b>' + (r.ended.byName || r.ended.by ? ' by ' + esc(r.ended.byName || nameOf(ctx, r.ended.by)) : '') + (r.ended.at ? ' at ' + U.hm(r.ended.at) : '') + '.'; }
     else if (!s.me) {
       kind = 'who'; text = '<b>Choose who you are</b> to record or add notes. Everything you do here is stamped with your name.';
       var people = PF.people.sorted(ctx).filter(function (p) { return !p.inactive; });
@@ -268,11 +270,9 @@
     } else if (r.paused) {
       kind = 'paused';
       text = I('pause') + ' <b>Paused</b> by ' + esc(nameOf(ctx, r.paused.by)) + ' at ' + U.hm(r.paused.at) + ': ' + esc(r.paused.reason) + '. Steps, gates and timers wait until it\'s resumed; deadlines from other tools keep counting.';
-      if (rec) ctl = '<button class="btn go" data-act="resume">Resume</button>';
-      else { var o = ownership(ctx, r); text += ' ' + o.text; ctl = o.ctl; }
+      if (!rec) { var o = ownership(ctx, r); text += ' ' + o.text; ctl = o.ctl; }
     } else if (rec) {
       kind = 'rec';
-      text = solo ? '<b>Your run</b>' : '<b>You\'re recording</b>';
       var pause = s.pick && s.pick.kind === 'pause' ? '<span class="row rw-ask" data-scope="pause"><label class="sr" for="pick-input">Why pause?</label><input id="pick-input" class="rw-in" placeholder="Why pause? (what are we waiting for)" maxlength="120" data-enter="pause" data-id="run"><button class="mini" data-act="pause">Pause</button><button class="mini" data-act="unpick">Cancel</button></span>'
         : '<button class="mini" data-act="pick" data-kind="pause" data-id="run">' + I('pause') + 'Pause</button>';
       var people2 = PF.people.sorted(ctx).filter(function (p) { return !p.inactive && p.id !== s.me; });
@@ -281,15 +281,39 @@
         : '<button class="mini" data-act="pick" data-kind="handoff" data-id="recorder">' + I('swap') + (solo ? 'Hand to someone' : 'Hand off') + '</button>';
       ctl = pause + hand;
     } else { var w = ownership(ctx, r); text = w.text; ctl = w.ctl; kind = /data-act="pickup"/.test(w.ctl) ? 'ready' : 'follow'; }
+    /* The filled ownership controls (Pick up recording, Record here) are the primary slot's, not the tool row's. */
+    if (/class="btn go"/.test(ctl)) ctl = '';
+    var me = s.me ? '<span class="me-id">' + (rec ? 'Recording as' : 'You:') + ' <b>' + esc(nameOf(ctx, s.me)) + '</b></span>' : '';
     /* The save side: Saving…, a failed save with its way out, or when this window saved and checked the folder. */
     var save;
-    if (s.unsaved[r.id]) save = '<span class="rw-unsaved"><b>Your last change isn\'t saved.</b></span><button class="btn" data-act="retry-save">Try again</button><button class="mini" data-act="discard-unsaved">Discard my change</button>';
+    if (s.unsaved[r.id]) save = '<span class="rw-unsaved"><b>Your last change isn\'t saved.</b></span><button class="mini" data-act="retry-save">Try again</button><button class="mini" data-act="discard-unsaved">Discard my change</button>';
     else save = ((s.pendingSaves || {})[r.id] ? '<span class="rw-saving">Saving…</span>' : '') + '<span id="fresh" data-k="strip">' + freshness(ctx, r, true) + '</span>';
     var copies = (r._conflicts || []).length + (ctx.localCopy(r) ? 1 : 0);
     if (copies) save += '<button class="mini rw-copies" data-act="goto" data-id="rec-t">' + copies + ' other version' + (copies === 1 ? '' : 's') + ' · Compare copies</button>';
-    return '<div class="rw-strip" data-k="' + kind + '" role="region" aria-label="Recording and saving"><div class="rw-who"><span class="rw-say">' + text + '</span>' + (ctl ? '<span class="row rw-ctl">' + ctl + '</span>' : '') + '</div>' +
-      chipsLine(ctx, r) + '<div class="rw-save">' + save + '</div></div>';
+    var who = me + (text ? '<span class="rw-say">' + text + '</span>' : '') + (ctl ? '<span class="row rw-ctl">' + ctl + '</span>' : '');
+    var panels = '<button type="button" class="mini wd-only" data-act="run-details" aria-expanded="' + !!s.runDetails + '" aria-controls="rw-details">Details</button>' +
+      (solo ? '' : '<button type="button" class="mini wd-only" data-act="mission">' + I('screen') + 'Screen share</button>');
+    return V.toolRow(['<div class="rw-who">' + who + '</div>', panels], chipsLine(ctx, r) + '<div class="rw-save">' + save + '</div>', { cls: 'rw-strip', k: kind, label: 'Recording and saving' });
   }
+  /* The run's primary slot (2.16, docs/design.md section 34, amendment A). Exclusions first (E1 read-only in this copy, ended
+     or not; E2 nobody chosen on an open run), then the first row that applies: A1 ended, Receipt; A2 the recorder and the run
+     complete, paused or not, Finish the run (Resume beside it when paused); A3 the recorder, paused and not complete, Resume
+     with Finish beside it; A4 the recorder otherwise, Finish outlined; A5 Pick up recording or Record here as ownership()
+     offers them; A6 nothing. Complete is R.allGatesOk, never the headline, which says paused first. { primary, also }. */
+  function runPrimary(ctx, r, map) {
+    var s = ctx.state, rec = ctx.recording(r), none = { primary: '', also: '' };
+    var fin = function (go) { return '<button type="button" class="btn rw-finish' + (go ? ' go' : '') + '" data-act="finish">Finish the run</button>'; };
+    var resume = function (go) { return '<button type="button" class="btn' + (go ? ' go' : '') + '" data-act="resume">Resume</button>'; };
+    if (r._unrunnable) return none;
+    if (r.ended) return { primary: '<button type="button" class="btn go" data-act="receipt">' + I('receipt') + 'Receipt</button>', also: '' };
+    if (!s.me) return none;
+    if (rec && R.allGatesOk(r, map)) return { primary: fin(true), also: r.paused ? resume(false) : '' };
+    if (rec && r.paused) return { primary: resume(true), also: fin(false) };
+    if (rec) return { primary: '', also: fin(false) };
+    var o = ownership(ctx, r), m = /<button class="btn go" data-act="(pickup|takeover)">[^<]*<\/button>/.exec(o.ctl);
+    return m ? { primary: m[0], also: '' } : none;
+  }
+  V.runPrimary = runPrimary;
   /* The run's details, read-only, beside the strip; they're edited in Details. */
   function chipsLine(ctx, r) {
     var map = mapOf(ctx, r), waiting = R.openMigrations(r).map(function (m) { return m.path; }), flag = function (f) { return (r._invalid && Object.prototype.hasOwnProperty.call(r._invalid, 'details.' + f)) || waiting.indexOf('details.' + f) >= 0; };
@@ -1060,25 +1084,16 @@
     var pkey = r.parent ? r.parent.process + '/' + r.parent.id : '', ptitle = r.parent ? (ctx.findRun(pkey) || {}).title || r.parent.process : '';
     var toParent = !!pkey && og.loc.view === 'run' && og.loc.process + '/' + og.loc.run === pkey;
     var toList = og.loc.view === 'process' && og.loc.process === r.process && og.loc.tab == null;
-    var h = '<div class="fpe rw" id="rw"><header class="fpe-head rw-head" role="region" aria-labelledby="run-h"><div class="fpe-id">' +
-      V.backc('go-back', og.hash, og.place, og.view) +
-      '<div class="fpe-title"><h1 id="run-h" tabindex="-1">' + esc(r.title) + K.testTag(r) + '</h1><span class="small rw-sub">' +
-      (toList || !(ctx.procOf ? ctx.procOf(r.process) : ctx.latestPub && ctx.latestPub(r.process)) ? esc(map.meta.title) : '<button class="linkish" data-act="open-process" data-id="' + esc(r.process) + '">' + esc(map.meta.title) + '</button>') + ' · ' + esc(K.verWord(r)) + ' · started ' + esc(U.when(r.created)) +
-      (r.parent ? ' · part of ' + (toParent ? esc(ptitle) : '<button class="linkish" data-act="open-run" data-id="' + esc(pkey) + '">' + esc(ptitle) + '</button>') : '') + '</span></div></div>' +
-      '<div class="rw-prog"><span class="rw-bar" role="progressbar" aria-label="Steps answered" aria-valuemin="0" aria-valuemax="' + t.total + '" aria-valuenow="' + t.done + '" aria-valuetext="' + t.done + ' of ' + t.total + ' steps answered"><i style="width:' + pct + '%"></i></span><b>' + t.done + '/' + t.total + '</b><span class="small">answered</span></div>' +
-      '<div class="rw-tools"><button type="button" class="mini" data-act="run-details" aria-expanded="' + !!s.runDetails + '" aria-controls="rw-details">Details</button>' +
-      (alone ? '' : '<button type="button" class="mini" data-act="mission">' + I('screen') + 'Screen share</button>') +
-      /* An ended run's Receipt is in the strip, once. */
-      (r.ended ? '' : '<button type="button" class="mini" data-act="receipt">' + I('receipt') + 'Receipt</button>') +
-      /* Finish the run, for whoever records it, at every width: muted until the run is complete, then the primary. */
-      (rec ? '<button type="button" class="btn rw-finish' + (hl.s === 'complete' ? ' go' : '') + '" data-act="finish">Finish the run</button>' : '') +
-      '<details class="rw-menu" data-disc="rw-menu"' + (s.disc && s.disc['rw-menu'] ? ' open' : '') + '><summary class="mini">More</summary><div class="rw-menu-list">' +
-      /* On a phone the header keeps only the way back, Finish the run and More, so Details, Screen share and Receipt are here. */
-      '<button type="button" class="mini rw-m-phone" data-act="run-details" aria-expanded="' + !!s.runDetails + '">Details</button>' + (alone ? '' : '<button type="button" class="mini rw-m-phone" data-act="mission">' + I('screen') + 'Screen share</button>') + (r.ended ? '' : '<button type="button" class="mini rw-m-phone" data-act="receipt">' + I('receipt') + 'Receipt</button>') +
-      planAgain(ctx, r, 'mini') +
-      '<button type="button" class="mini" data-act="copy-run-key" data-id="' + esc(r.process + '/' + r.id) + '">Copy run key</button>' +
-      '<button type="button" class="mini" data-act="ev-open" data-id="' + esc(r.process + '/' + r.id) + '">Export evidence…</button><button type="button" class="mini" data-act="refresh">Check the folder now</button><button type="button" class="mini" data-act="health">Folder health</button><button type="button" class="mini" data-act="help">Keyboard shortcuts</button></div></details>' +
-      (s.me ? '<span class="rw-me" title="Everything you do here is stamped with your name">You: <b>' + esc(nameOf(ctx, s.me)) + '</b></span>' : '') + '</div></header>';
+    var sub = [{ kind: (toList || !(ctx.procOf ? ctx.procOf(r.process) : ctx.latestPub && ctx.latestPub(r.process))) ? 'd' : 'act', html: (toList || !(ctx.procOf ? ctx.procOf(r.process) : ctx.latestPub && ctx.latestPub(r.process)) ? esc(map.meta.title) : '<button class="linkish" data-act="open-process" data-id="' + esc(r.process) + '">' + esc(map.meta.title) + '</button>') },
+      { kind: 'd', cls: 'rw-sub', html: esc(K.verWord(r)) + ' · started ' + esc(U.when(r.created)) },
+      r.parent ? { kind: toParent ? 'd' : 'act', html: 'part of ' + (toParent ? esc(ptitle) : '<button class="linkish" data-act="open-run" data-id="' + esc(pkey) + '">' + esc(ptitle) + '</button>') } : null];
+    var slot = runPrimary(ctx, r, map), key = esc(r.process + '/' + r.id);
+    /* More: the phone-only copies of Details and Screen share, this run's extras, then You and this app (who you are is text). */
+    var more = V.moreGroup('On this screen', '<button type="button" class="mini ph-only" data-act="run-details" aria-expanded="' + !!s.runDetails + '">Details</button>' + (alone ? '' : '<button type="button" class="mini ph-only" data-act="mission">' + I('screen') + 'Screen share</button>') +
+      (r.ended || slot.primary.indexOf('data-act="receipt"') >= 0 ? '' : '<button type="button" class="mini" data-act="receipt">' + I('receipt') + 'Receipt</button>') + planAgain(ctx, r, 'mini') +
+      '<button type="button" class="mini" data-act="copy-run-key" data-id="' + key + '">Copy run key</button><button type="button" class="mini" data-act="ev-open" data-id="' + key + '">Export evidence…</button><button type="button" class="mini" data-act="health">Folder health</button>') + V.appGroup(ctx, { readOnlyMe: true });
+    var h = '<div class="fpe rw" id="rw">' + V.workHead({ hid: 'run-h', h1attrs: ' tabindex="-1"', cls: 'rw-head', h1: esc(r.title) + K.testTag(r), back: V.backc('go-back', og.hash, og.place, og.view),
+      status: sub, prog: V.progress(t.done, t.total), acts: slot.also + slot.primary, more: V.moreMenu(ctx, more) });
     h += strip(ctx, r);
     /* Messages, a failed save, folder trouble, conflicts and Details stay in view, right under the strip. */
     var al = '';

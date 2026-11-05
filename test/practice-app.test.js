@@ -19,7 +19,7 @@ async function editor(opts) {
   return app;
 }
 const text = app => app.draft('draft-editor') || app.fs.files[DRAFT].t;
-const onPage = app => /Practice · not recorded/.test(app.html());
+const onPage = app => /Practice<\/span> not recorded/.test(app.html());
 const inEditor = app => /id="draft-editor"|id="ob-plist"|data-act="ob-sel"/.test(app.html()) && !onPage(app);
 async function practice(app) { app.click('pr-open'); await app.tick(60); assert.ok(onPage(app), 'set-up: on the practice page'); }
 /* A step's row as drawn: open, done, again (Try it again), skipped (Not needed); null when it isn't drawn. */
@@ -489,7 +489,7 @@ async function dialog(app, v) {
   if (v != null) app.set('change-note', v);
 }
 const held = app => { let go; const gate = new Promise(r => { go = r; }); const orig = app.fs.write.bind(app.fs); app.fs.write = (x, d) => /^staged\//.test(x) ? gate.then(() => orig(x, d)) : orig(x, d); return () => { go(); return orig; }; };
-const primary = app => { const m = /<div class="fpe-save">([\s\S]*?)<\/div><\/header>/.exec(app.html()); return m ? m[1] : ''; };
+const primary = app => { const m = /<div class="hd-acts" data-slot="primary">([\s\S]*?)<\/div><div class="more/.exec(app.html()); return m ? m[1] : ''; };
 
 rule('Finishing with unsaved edits: the header offers Save draft, the end notice names nothing to stage; once saved, Publish v3… is the primary', async () => {
   const app = await editor();

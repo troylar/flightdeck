@@ -256,8 +256,8 @@
   function personName(ctx, id) { var x = (ctx.data.people || []).filter(function (q) { return q.id === id; })[0]; return x ? x.name : id; }
   function detailsCard(ctx, map, sel) {
     var m = map.meta, on = !!sel && sel.kind === 'details';
-    return '<div class="ob-details' + (on ? ' sel' : '') + '"><button type="button" class="ob-det" data-act="ob-sel-details" aria-pressed="' + on + '">' + I('people') +
-      '<span class="ob-row"><span class="ob-txt">Checklist details</span><span class="ob-meta"><span class="small">' + (m.owner ? 'Owner ' + esc(personName(ctx, m.owner)) : 'No owner yet') + (m.backup ? ' · backup ' + esc(personName(ctx, m.backup)) : '') + '</span>' +
+    return '<div class="ob-details' + (on ? ' sel' : '') + '"><button type="button" class="ob-det" data-act="ob-sel-details" aria-pressed="' + on + '">' + I('edit') +
+      '<span class="ob-row"><span class="ob-txt">Edit checklist details</span><span class="ob-meta"><span class="small">' + (m.owner ? 'Owner ' + esc(personName(ctx, m.owner)) : 'No owner yet') + (m.backup ? ' · backup ' + esc(personName(ctx, m.backup)) : '') + '</span>' +
       (m.roles.length ? '<span class="ob-role">' + esc(K.capJoin(m.roles, function (r) { return '@' + r; }, ' ', 'ob-det-roles', function (n) { return ' and ' + n.toLocaleString('en-US') + ' more'; })) + '</span>' : '<span class="small">No roles</span>') +
       /* The card names 50 roles and 50 run details and how many more (code review round 10); Checklist details lists them all. */
       (m.context.length ? m.context.slice(0, PF.vk.PAGE_OFF === 'ob-det-context' ? m.context.length : K.PAGE).map(function (c) { return '<span class="ob-chip">^' + esc(c) + '</span>'; }).join('') + (m.context.length > K.PAGE && PF.vk.PAGE_OFF !== 'ob-det-context' ? '<span class="small">and ' + (m.context.length - K.PAGE).toLocaleString('en-US') + ' more</span>' : '') : '<span class="small">No run details</span>') + '</span></span></button></div>';

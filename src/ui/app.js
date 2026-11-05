@@ -1880,8 +1880,8 @@
   }
   /* Crossing the phone breakpoint redraws, so the properties sheet's modal state follows the layout. */
   var wasNarrow = null;
-  /* The phone More menu is a layer only while its button shows (480 px and under): widening closes it. */
-  window.addEventListener('resize', function () { pinOffsets(); fitPanes(); var n = !!(window.matchMedia && window.matchMedia('(max-width: 800px)').matches), more = state.wsMore && !(window.matchMedia && window.matchMedia('(max-width: 480px)').matches); if (more) state.wsMore = false; if (more || (wasNarrow !== null && n !== wasNarrow)) render(); wasNarrow = n; });
+  /* More is on every work screen at every width (2.16), so resizing never closes it; it is refitted to the window. */
+  window.addEventListener('resize', function () { pinOffsets(); fitPanes(); hdOffset(); moreFit(); var n = !!(window.matchMedia && window.matchMedia('(max-width: 800px)').matches); if (wasNarrow !== null && n !== wasNarrow) render(); wasNarrow = n; });
   /* Redraw only what changed: unchanged regions keep their nodes, so focus, the caret, typed text and scroll inside them stay.
      Nodes that differ are compared a few levels down (screen → run → deck → phase → steps → step) and replaced there. */
   function patch(el, html) {
@@ -2360,6 +2360,45 @@
     reveal(s.kind === 'step' ? '[data-ob-step="' + cssEsc(s.key) + '"]' : s.kind === 'track' ? '.ob-lane.sel' : s.kind === 'details' ? '.ob-details' : s.kind === 'questions' ? '#ob-q-note' : '[data-ob-phase="' + cssEsc(s.key) + '"]');
     reveal('#pv-sel', 'center');
   }
+  /* --hd-h: the current work screen's sticky row 1 (header.hd), measured after every render and whenever it or the window
+     resizes; 0 when it isn't sticky. A row 1 taller than 40% of the room under the banner doesn't stick (hd-free): it scrolls
+     with the page, so a short phone or 400% zoom never hides every control under it. */
+  var hdSeen = null, hdRO = window.ResizeObserver ? new ResizeObserver(function () { hdOffset(); moreFit(); }) : null;
+  function hdOffset() {
+    var de = document.documentElement, hd = document.querySelector ? document.querySelector('#app header.hd') : null, work = de && de.classList && de.classList.contains('work-on');
+    if (hdRO && hd !== hdSeen) { if (hdSeen) hdRO.unobserve(hdSeen); if (hd) hdRO.observe(hd); hdSeen = hd; }
+    var v = 0;
+    if (work && hd && hd.getBoundingClientRect) {
+      var keep = parseFloat(getComputedStyle(de).getPropertyValue('--keep-h')) || 0, hgt = hd.getBoundingClientRect().height;
+      var free = narrowNow() && hgt > 0.4 * Math.max(1, window.innerHeight - keep);
+      if (hd.classList.contains('hd-free') !== free) hd.classList[free ? 'add' : 'remove']('hd-free');
+      if (!free && getComputedStyle(hd).position === 'sticky') v = Math.round(hd.getBoundingClientRect().height);
+    }
+    if (de && de.style && de.style.getPropertyValue('--hd-h') !== v + 'px') de.style.setProperty('--hd-h', v + 'px');
+  }
+  /* More never runs off the screen: its height is the room left below its opener; with less than two items' room, or the
+     opener scrolled up under the banner, it is contained in the viewport instead. Refit on open, resize and scroll. */
+  function moreFit() {
+    var list = document.getElementById('ws-more-list'), btn = document.getElementById('ws-more-btn');
+    if (!list || !btn || !state.wsMore || !btn.getBoundingClientRect) return;
+    var keep = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--keep-h')) || 0, b = btn.getBoundingClientRect(), room = window.innerHeight - b.bottom - 6 - 8;
+    var contain = room < 104 || b.top < keep;
+    list.classList[contain ? 'add' : 'remove']('contained');
+    list.style.maxHeight = (contain ? window.innerHeight - keep - 16 : room) + 'px';
+  }
+  window.addEventListener('scroll', function () { if (state.wsMore) moreFit(); }, { passive: true });
+  /* Focus leaving an open More closes it, so Tab past its last item never lands on a control it covers. */
+  var moreDown = false;
+  document.addEventListener('pointerdown', function (e) { moreDown = !!(e.target && e.target.closest && e.target.closest('.more')); }, true);
+  document.addEventListener('keydown', function () { moreDown = false; }, true);
+  document.addEventListener('focusout', function (e) {
+    if (!state.wsMore || !e.target || !e.target.closest || !e.target.closest('.more')) return;
+    var to = e.relatedTarget; if (to && to.closest && to.closest('.more')) return;
+    /* Nothing took focus: Tab ran off the end of the page (close), or another window took it (keep More for coming back), or
+       a press inside More on a browser that doesn't focus buttons (keep it, so the press lands on what was drawn). */
+    if (!to && (moreDown || !(document.hasFocus && document.hasFocus()))) return;
+    state.wsMore = false; render();
+  });
   /* The run screen is a page of its own too: the top bar hides and, on a wider screen, each pane scrolls on its own. Next up
      sticks under the header on a phone, whatever height the header wraps to. Pane positions saved on the way to screen share
      come back on the way out. */
@@ -2369,8 +2408,10 @@
     /* The run's own pages (2.16 section 2.4): no top bar either; their way back is The run. */
     var sub = (state.view === 'mission' || state.view === 'finish' || state.view === 'receipt') && !!ctx.run();
     if (de && de.classList) { if (sub) de.classList.add('rw-page'); else de.classList.remove('rw-page'); }
-    var head = on && app.querySelector && app.querySelector('.rw-head');
-    if (head && head.offsetHeight && de.style) de.style.setProperty('--rw-head-h', head.offsetHeight + 'px');
+    /* One class hides the top bar on every work screen (docs/design.md section 34). */
+    var work = on || sub || (state.view === 'process' && state.ptab === 'edit' && !!currentProcess()) || (state.view === 'types' && !!state.typeForm && state.typeForm.fsKey === fsKey());
+    if (de && de.classList) { if (work) de.classList.add('work-on'); else de.classList.remove('work-on'); }
+    hdOffset();
     /* Steps and phases brought into view stop below the sticky Next up (and the picker beside it on laptops). */
     var dock = on && app.querySelector && app.querySelector('.rw-dock');
     if (dock && dock.offsetHeight && de.style) de.style.setProperty('--rw-dock-h', dock.offsetHeight + 'px');
@@ -2450,7 +2491,7 @@
     if (paneDrag) paneDragEnd();
     sp.focus({ preventScroll: true });
     paneCapture(sp, e.pointerId);
-    paneDrag = { sp: sp, key: sp.getAttribute('data-split'), id: e.pointerId, x: e.clientX, w: pane.getBoundingClientRect().width };
+    paneDrag = { sp: sp, key: sp.getAttribute('data-split'), id: e.pointerId, x: e.clientX, w: pane.getBoundingClientRect().width, moved: 0 };
     rootClass('pane-drag', true);
   });
   document.addEventListener('pointermove', function (e) {
@@ -2459,6 +2500,8 @@
     if (!sp) { paneDragEnd(); return; }
     if (sp !== paneDrag.sp) { paneDrag.sp = sp; paneCapture(sp, paneDrag.id); }
     var dx = e.clientX - paneDrag.x;
+    paneDrag.moved = Math.max(paneDrag.moved, Math.abs(dx));
+    if (paneDrag.moved < 3) return;
     paneSet(paneDrag.key, paneDrag.w + (V.PANES[paneDrag.key].end ? -dx : dx));
     paneLive(sp);
   });
@@ -2470,7 +2513,16 @@
     if (sp) try { sp.releasePointerCapture(d.id); } catch (x) { /* already released */ }
     paneDone(d.key);
   }
-  function paneDragStop(e) { if (paneDrag && e.pointerId === paneDrag.id) paneDragEnd(); }
+  /* A click (down and up with under 3px of movement) moves the separator one keyboard step toward the half of the strip it
+     landed on: a pointer path that isn't a drag (WCAG 2.5.7). */
+  function paneDragStop(e) {
+    if (!paneDrag || e.pointerId !== paneDrag.id) return;
+    if (e.type === 'pointerup' && paneDrag.moved < 3 && paneDrag.sp.getBoundingClientRect) {
+      var r = paneDrag.sp.getBoundingClientRect(), left = e.clientX < r.left + r.width / 2, spec = V.PANES[paneDrag.key], lim = V.paneW(ctx, paneDrag.key), dir = spec.end ? -1 : 1;
+      paneSet(paneDrag.key, lim.w + (left ? -1 : 1) * dir * 16);
+    }
+    paneDragEnd();
+  }
   document.addEventListener('pointerup', paneDragStop);
   document.addEventListener('pointercancel', paneDragStop);
   /* Capture moves to the new separator when a redraw replaced the old one mid-drag; otherwise losing it ends the drag. */
@@ -3992,6 +4044,11 @@
     },
     'pr-samples': function () { state.prSamples = !state.prSamples; state.focus = state.prSamples ? 'pr-sample-h' : '[data-act="pr-samples"]'; render(); },
     'pr-more': function () { wsMoreToggle(); },
+    /* More's last group in practice (docs/design.md section 34): who you are, search, appearance, the folder check. */
+    'pr-me': function (id, b) { meOpen(b, id); },
+    'pr-search': function () { state.wsMore = false; ACTIONS.search(); },
+    'pr-theme': function (id, b) { ACTIONS.theme(id, b); },
+    'pr-folder': function () { state.wsMore = false; ACTIONS.refresh(); },
     'pr-found-open': function () { state.prFound = !state.prFound; state.focus = state.prFound ? 'pr-found' : '[data-act="pr-found-open"]'; render(); },
     'pr-save': function () {
       var p = prNow(); if (!p) return; var e = prEntry(p.id), pend = prPending(p.id); if (pend) { say(pend, 'warn'); render(); return; }
@@ -4185,7 +4242,21 @@
     });
   }
   /* The workspace's More on a phone (2.2): opening it focuses its first tool; closing it, More again. */
-  function wsMoreToggle() { state.wsMore = !state.wsMore; state.focus = state.wsMore ? '#ws-more-list button:not([disabled])' : 'ws-more-btn'; render(); }
+  function wsMoreToggle() { state.wsMore = !state.wsMore; state.focus = state.wsMore ? '#ws-more-list button:not([disabled])' : 'ws-more-btn'; render(); moreFit(); }
+  /* Who are you? (docs/design.md section 34): opened from More (focus comes back to More) or from a held primary's reason line
+     (focus goes to the primary that was held). Choosing sets state.me the same way the top bar's You are does. */
+  function meOpen(b, id) {
+    var fromWhy = id === 'why';
+    state.wsMore = false; state.overlayFocus = '#me-pick';
+    openOverlay({ me: true, html: function () { return V.meDialog(ctx); } });
+    if (state.overlay) state.overlay.back = fromWhy ? '[data-slot="primary"] .btn' : '#ws-more-btn';
+  }
+  function meUse() {
+    var el = document.getElementById('me-pick'), v = el ? String(el.value || '').trim().slice(0, 60) : '';
+    if (!v) { if (el) el.focus(); return; }
+    state.me = v; lsSet('me', state.me); forgetStartIfNotMine();
+    closeOverlay(); sxSay('You are ' + V.nameOf(ctx, v) + '.');
+  }
   /* A control inside the phone's closed More can't take focus (it isn't drawn): More itself takes it (2.2). */
   function seenTarget(el) {
     if (!el || state.wsMore || !el.closest || !el.closest('#ws-more-list')) return el;
@@ -6427,6 +6498,9 @@
     /* A ‹ control: a move there in this entry's place (rule 4, backInPlace), so the history stays one deep. The hash is
        parsed as any other, never trusted. */
     'ws-more': function () { wsMoreToggle(); },
+    me: function (id, b) { meOpen(b, id); },
+    'ws-me': function (id, b) { meOpen(b, id); },
+    'me-use': function () { meUse(); },
     'go-back': function (hash) {
       var loc = PF.nav.parse(String(hash == null ? '' : hash)); if (!loc) return;
       /* Rule 4: the leave guard, then a move there in this entry's place (backInPlace), the workspace included. */
@@ -7389,7 +7463,7 @@
       var f = !m ? el : m[1] === 'step' ? el.querySelector('.check:not([disabled])') || el.querySelector('.s-pick') : m[1] === 'phase' ? el.querySelector('h2') : el.querySelector('.btn.go') || el.querySelector('button:not([disabled])');
       if (f && f.focus) f.focus({ preventScroll: true });
     },
-    'run-details': function () { state.runDetails = !state.runDetails; state.focus = state.runDetails ? 'rw-det-h' : narrow() ? '.rw-menu > summary' : '.rw-tools > [data-act="run-details"]'; render(); },
+    'run-details': function () { state.runDetails = !state.runDetails; state.focus = state.runDetails ? 'rw-det-h' : narrow() ? 'ws-more-btn' : '.tr [data-act="run-details"]'; render(); },
     'run-fu': function (id) { state.fuOpen = !state.fuOpen; state.focus = '[data-act="run-fu"][data-id="' + cssEsc(id || 'rail') + '"]'; render(); },
     'run-reports': function (id) { state.repOpen = !state.repOpen; state.focus = '[data-act="run-reports"][data-id="' + cssEsc(id || 'rail') + '"]'; render(); },
     /* Reports: Accept asks first, in the card; Decline asks why. Nothing has a single-key shortcut. */

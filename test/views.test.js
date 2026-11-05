@@ -529,11 +529,12 @@ rule('Editor sidebars fit the window together, from the widths chosen, never fro
     W <= 1100 ? { key: 'parts', fixed: true, measured: 72 } : { key: 'parts', pref: prefs.parts, measured: measured.parts },
     { key: 'ins', pref: prefs.ins, measured: measured.ins }
   ];
-  const mainOf = (W, items, fit) => W - items.reduce((n, it) => n + (it.fixed ? it.measured : fit[it.key].w), 0);
+  // The main pane as drawn: each resizable sidebar's separator takes its own gutter column (V.GUT), a rail's none (2.16).
+  const G = V.GUT, mainOf = (W, items, fit) => W - items.reduce((n, it) => n + (it.fixed ? it.measured : fit[it.key].w + G), 0);
   // The case that swung back and forth: 1101px with {parts: 400, ins: 720} kept.
   let items = builder(1101, { parts: 400, ins: 720 }, { parts: 160, ins: 341 });
   const a = V.fitPanes(1101, items);
-  assert.deepStrictEqual([a.parts.w, a.ins.w], [400, 341], 'the inspector gives way first');
+  assert.deepStrictEqual([a.parts.w, a.ins.w], [385, 300], 'the inspector gives way first, then Parts');
   assert.strictEqual(mainOf(1101, items, a), MAIN, 'the outline keeps its 360px');
   const b = V.fitPanes(1101, builder(1101, { parts: 400, ins: 720 }, { parts: 400, ins: 581 }));
   assert.deepStrictEqual(J(b), J(a), 'what was drawn last makes no difference');
@@ -542,7 +543,7 @@ rule('Editor sidebars fit the window together, from the widths chosen, never fro
   for (let W = 800; W <= 2000; W++) kept.forEach(prefs => {
     const defaults = { parts: 208, ins: Math.round(Math.max(320, Math.min(0.27 * W, 400))) };
     const its = builder(W, prefs, defaults), fit = V.fitPanes(W, its);
-    const mins = its.reduce((n, it) => n + (it.fixed ? it.measured : prefs[it.key] == null ? it.measured : P[it.key].min), 0);
+    const mins = its.reduce((n, it) => n + (it.fixed ? it.measured : (prefs[it.key] == null ? it.measured : P[it.key].min) + G), 0);
     if (W - mins >= MAIN) assert.ok(mainOf(W, its, fit) >= MAIN, W + 'px ' + JSON.stringify(prefs) + ': main ' + mainOf(W, its, fit));
     // Drawing the result and fitting again: chosen widths are read from what was chosen, unset ones measure the same default.
     const again = V.fitPanes(W, builder(W, prefs, { parts: fit.parts ? fit.parts.w : 72, ins: fit.ins.w }));
@@ -551,7 +552,7 @@ rule('Editor sidebars fit the window together, from the widths chosen, never fro
   });
   // The step-type preview alone.
   const tf = V.fitPanes(1024, [{ key: 'tf', pref: 720, measured: 328 }]);
-  assert.deepStrictEqual(J(tf), { tf: { w: 1024 - MAIN, max: 1024 - MAIN } });
+  assert.deepStrictEqual(J(tf), { tf: { w: 1024 - MAIN - G, max: 1024 - MAIN - G } });
 });
 
 rule('Every built-in type can start a team type that passes the checks', () => {
@@ -1476,9 +1477,9 @@ rule('Draft builder: lanes sit side by side under "Do all lanes", and a lane ope
 rule('Draft editor: a page of its own, with a header landmark, and an inspector of Selected, Checks and Preview tabs', () => {
   const { ctx, state } = partsSetup();
   let html = V.process(ctx);
-  assert.ok(/^<div class="fpe" id="fpe"><header class="fpe-head ws-head" role="region" aria-labelledby="ed-h"><div class="fpe-id"><button type="button" class="btn backc" data-act="ed-done" aria-label="Back to Production release">/.test(html), 'only the editor, its header first, the way back first in it');
+  assert.ok(/^<div class="fpe" id="fpe"><header class="hd" role="region" aria-labelledby="ed-h"><div class="hd-l"><button type="button" class="btn backc" data-act="ed-done" aria-label="Back to Overview of Production release">/.test(html), 'only the editor, its header first, the way back first in it');
   assert.ok(!/class="runhead"/.test(html), 'not the process page around it');
-  assert.ok(/<h1 id="ed-h" class="sr">Production release, Edit<\/h1>/.test(html) && /data-act="tl-undo" data-id="draft" aria-disabled="true"/.test(html) && /data-act="tl-redo" data-id="draft" aria-disabled="true"/.test(html) && /data-act="hist-open" data-id="draft"/.test(html) && /<div class="fpe-save">/.test(html));
+  assert.ok(/<h1 id="ed-h">Production release<span class="sr">, Edit<\/span><\/h1>/.test(html) && /data-act="tl-undo" data-id="draft" aria-disabled="true"/.test(html) && /data-act="tl-redo" data-id="draft" aria-disabled="true"/.test(html) && /data-act="hist-open" data-id="draft"/.test(html) && /<div class="hd-r">/.test(html));
   assert.ok(!/fpe-checks|fpe-practice/.test(html), 'no Checks or Practice chip: the inspector has Checks, the view control has Practice');
   assert.ok(/<div class="fpe-tabs" role="tablist" aria-label="Inspector">/.test(html) && /role="tab" id="ins-t-selected" aria-selected="false" aria-controls="ins-p-selected" tabindex="-1"/.test(html), 'a tablist');
   assert.ok(/id="ins-t-preview" aria-selected="true"[^>]*tabindex="0"/.test(html) && /role="tabpanel" id="ins-p-checks" aria-labelledby="ins-t-checks" tabindex="0" hidden/.test(html), 'nothing selected, nothing blocking: Preview');
@@ -1566,7 +1567,7 @@ rule('Draft editor: empty and nothing-selected states say what to do next', () =
 });
 
 /* ---------- The run workspace (1.13) ---------- */
-const stripOf = html => html.slice(html.indexOf('<div class="rw-strip"'), html.indexOf('<div class="fpe-alerts'));
+const stripOf = html => html.slice(html.indexOf('<div class="tr rw-strip"'), html.indexOf('<div class="fpe-alerts'));
 const nextOf = html => { const a = html.indexOf('<div class="rw-next"'); return html.slice(a, html.indexOf('<div class="rw-picker"', a)); };
 const insOf = html => html.slice(html.indexOf('<aside class="fpe-pane rw-ins"'));
 const rowOf = (html, id) => { const a = html.indexOf(' id="step-' + id + '"'); return html.slice(html.lastIndexOf('<li', a), html.indexOf('</li>', a)); };
@@ -1575,7 +1576,7 @@ function playPhase(r, pi) { const map = R.mapOf(r), dn = sampleDone(PF); map.pha
 rule('Run workspace: the strip says who records, with the control that goes with it, and what this window saved, in every state', () => {
   const { r, ctx, state } = setup(r => { r.roles.qa = 'person-blake'; });
   let h = stripOf(V.run(ctx));
-  assert.ok(/data-k="rec"/.test(h) && /<b>You're recording<\/b>/.test(h) && !/revision 0/.test(h) && /data-act="pick" data-kind="pause"/.test(h) && /data-act="pick" data-kind="handoff"[^>]*>.*Hand off/.test(h), 'recording here: Pause and Hand off beside it');
+  assert.ok(/data-k="rec"/.test(h) && /<span class="me-id">Recording as <b>Casey Nguyen<\/b><\/span>/.test(h) && !/revision 0/.test(h) && /data-act="pick" data-kind="pause"/.test(h) && /data-act="pick" data-kind="handoff"[^>]*>.*Hand off/.test(h), 'recording here: Pause and Hand off beside it');
   assert.ok(/<span id="fresh" data-k="strip"><span class="small">Folder checked /.test(h), 'when the folder was checked');
   r.savedAt = NOW; assert.ok(/Saved here \d+:\d\d [AP]M · Folder checked/.test(stripOf(V.run(ctx))), 'saved here and folder checked are separate facts');
   state.pendingSaves = { [r.id]: 1 }; assert.ok(/<span class="rw-saving">Saving…<\/span>/.test(stripOf(V.run(ctx))), 'saving');
@@ -1593,13 +1594,13 @@ rule('Run workspace: the strip says who records, with the control that goes with
   assert.ok(/Take over from Casey Nguyen\? Only if they can't continue\./.test(stripOf(V.run(ctx))) && /data-act="takeover">Take over/.test(stripOf(V.run(ctx))), 'with the emergency confirmation');
   state.pick = null; state.me = 'person-casey'; r.recorder.session = 'other';
   h = stripOf(V.run(ctx));
-  assert.ok(/You're recording in another window\.<\/b> This window is following\./.test(h) && /data-act="takeover">Record here/.test(h), 'the same person in another window');
+  assert.ok(/You're recording in another window\.<\/b> This window is following\./.test(h) && /class="btn go" data-act="takeover">Record here/.test(V.run(ctx).slice(0, V.run(ctx).indexOf('<div class="tr '))), 'the same person in another window: Record here is the primary');
   r.recorder.session = 'me'; R.handOff(r, 'person-blake', 'person-casey', NOW); state.me = 'person-blake';
   h = stripOf(V.run(ctx));
   assert.ok(/handed recording to you\.<\/b> Their last change hasn't reached this computer yet/.test(h) && !/data-act="pickup"/.test(h), 'a handoff still syncing can\'t be picked up');
   r.rev = r.recorder.handoff.rev;
   h = stripOf(V.run(ctx));
-  assert.ok(/data-k="ready"/.test(h) && /Recording is waiting for you<\/b>/.test(h) && !/revision 1/.test(h) && /data-act="pickup">Pick up recording/.test(h), 'then it can');
+  assert.ok(/data-k="ready"/.test(h) && /Recording is waiting for you<\/b>/.test(h) && !/revision 1/.test(h) && /class="btn go" data-act="pickup">Pick up recording/.test(V.run(ctx).slice(0, V.run(ctx).indexOf('<div class="tr '))), 'then it can: Pick up recording is the primary');
 });
 
 rule('Run workspace: paused, ended, read-only and no-identity strips', () => {
@@ -1607,12 +1608,12 @@ rule('Run workspace: paused, ended, read-only and no-identity strips', () => {
   const map = R.mapOf(r);
   R.pause(r, 'Waiting for the change board', 'person-casey', NOW);
   let h = stripOf(V.run(ctx));
-  assert.ok(/data-k="paused"/.test(h) && /Paused<\/b> by Casey Nguyen at .*: Waiting for the change board\. Steps, gates and timers wait until it's resumed; deadlines from other tools keep counting\./.test(h) && /data-act="resume"/.test(h), 'reason, who, when, and Resume for the recorder');
+  assert.ok(/data-k="paused"/.test(h) && /Paused<\/b> by Casey Nguyen at .*: Waiting for the change board\. Steps, gates and timers wait until it's resumed; deadlines from other tools keep counting\./.test(h) && /data-act="resume"/.test(V.run(ctx).slice(0, V.run(ctx).indexOf('<div class="tr '))), 'reason, who, when, and Resume for the recorder (in the primary slot)');
   state.me = 'person-blake'; h = stripOf(V.run(ctx));
   assert.ok(!/data-act="resume"/.test(h) && /data-act="pick" data-kind="takeover"/.test(h), 'others keep their way to take over');
   state.me = 'person-casey'; R.resume(r, 'person-casey', NOW); R.end(r, map, 'Cancelled', 'person-casey', 'Casey Nguyen', NOW);
   h = V.run(ctx);
-  assert.ok(/data-k="ended"/.test(stripOf(h)) && /<b>Ended: Canceled<\/b> by Casey Nguyen at/.test(h) && /class="btn go" data-act="receipt"/.test(stripOf(h)), 'ended: who, when, and the Receipt');
+  assert.ok(/data-k="ended"/.test(stripOf(h)) && /<b>Ended: Canceled<\/b> by Casey Nguyen at/.test(h) && /class="btn go" data-act="receipt"/.test(h.slice(0, h.indexOf('<div class="tr '))), 'ended: who, when, and the Receipt as the primary');
   assert.ok(!/data-act="(toggle|record)" data-id="[^"]+">/.test(h) && !/data-act="pick" data-kind="(pause|handoff|block)"/.test(h), 'no recording or completion controls');
   const ro = setup().ctx; ro.run()._unrunnable = 'This version uses checklist features this copy of Flightdeck doesn\'t understand. Update Flightdeck to run it.';
   h = V.run(ro);
@@ -1626,10 +1627,10 @@ rule('Run workspace: a slim header with progress in words, three named panes, an
   const { r, ctx, state } = setup();
   playPhase(r, 0);
   const html = V.run(ctx);
-  assert.ok(/^<div class="fpe rw" id="rw"><header class="fpe-head rw-head" role="region" aria-labelledby="run-h">/.test(html), 'the run is the page');
-  assert.ok(/class="btn backc" data-act="go-back" data-id="#\/runs" aria-label="Back to Runs">.*Runs<\/span><\/button>/.test(html) && /<h1 id="run-h" tabindex="-1">Release<\/h1><span class="small rw-sub">Production release · v1 · started/.test(html));
-  assert.ok(/role="progressbar" aria-label="Steps answered" aria-valuemin="0" aria-valuemax="15" aria-valuenow="6" aria-valuetext="6 of 15 steps answered"><i style="width:40%"><\/i><\/span><b>6\/15<\/b><span class="small">answered<\/span>/.test(html), '6/14 answered, said in full for screen readers');
-  assert.ok(/data-act="run-details" aria-expanded="false"/.test(html) && /data-act="receipt"/.test(html) && /<details class="rw-menu" data-disc="rw-menu"><summary class="mini">More<\/summary>/.test(html) && !/End run…/.test(html) && /You: <b>Casey Nguyen<\/b>/.test(html));
+  assert.ok(/^<div class="fpe rw" id="rw"><header class="hd rw-head" role="region" aria-labelledby="run-h">/.test(html), 'the run is the page');
+  assert.ok(/class="btn backc" data-act="go-back" data-id="#\/runs" aria-label="Back to Runs">.*Runs<\/span><\/button>/.test(html) && /<h1 id="run-h" tabindex="-1">Release<\/h1><p class="hd-st"><span class="d">Production release<\/span><span class="d rw-sub">v1 · started/.test(html));
+  assert.ok(/role="progressbar" aria-label="Steps answered" aria-valuemin="0" aria-valuemax="15" aria-valuenow="6" aria-valuetext="6 of 15 steps answered"><i style="width:40%"><\/i><\/span><b aria-hidden="true">6\/15<\/b><span class="small w" aria-hidden="true">answered<\/span>/.test(html), '6/14 answered, said in full for screen readers');
+  assert.ok(/data-act="run-details" aria-expanded="false"/.test(html) && /data-act="receipt"/.test(html) && /<button type="button" class="mini more-btn ws-more-btn" id="ws-more-btn" data-act="ws-more"[^>]*>More<\/button>/.test(html) && !/End run…/.test(html) && /<div class="ro">You: <b>Casey Nguyen<\/b><\/div>/.test(html));
   assert.ok(/<nav class="fpe-pane rw-rail" aria-label="Phases">/.test(html) && /<section class="fpe-pane rw-list" id="rw-list" aria-label="Checklist">/.test(html) && /<aside class="fpe-pane rw-ins" id="rw-ins" data-open="false" aria-label="Selected step">/.test(html), 'named regions');
   assert.ok(/data-act="goto" data-id="phase-deploy" data-s="current" aria-current="step">/.test(html) && /class="rw-gate g-passed">.*Ready to deploy · Passed/.test(html) && /class="rw-gate g-open">.*Deployed · Waiting on steps/.test(html) && /class="rw-gate g-locked">/.test(html), 'the rail marks the current phase and each gate\'s state');
   assert.ok(/<select id="rw-phase" data-bound data-kselect data-cur="deploy"><option value="prep">1\. Before production changes · 6\/6 · Ready to deploy: passed<\/option><option value="deploy" selected>/.test(html), 'a compact Phases picker for narrower screens');
@@ -1755,7 +1756,7 @@ rule('Screen share keeps who records, a pause, and each blocked or re-check reas
   R.block(r, R.mapOf(r), 'jenkins', 'Waiting on someone', 'person-casey', NOW);
   state.view = 'mission';
   let m = V.mission(ctx);
-  assert.ok(/<div class="m-rec">Casey Nguyen is recording \(you, in this window\)<\/div>/.test(m) && /<li data-a="blocked">.*<span class="m-why">Blocked: Waiting on someone<\/span>/.test(m) && /data-act="exit-mission"/.test(m));
+  assert.ok(/<span class="m-rec">Casey Nguyen is recording \(you, in this window\)<\/span>/.test(m) && /<li data-a="blocked">.*<span class="m-why">Blocked: Waiting on someone<\/span>/.test(m) && /data-act="exit-mission"/.test(m));
   R.clear(r, R.mapOf(r), 'jenkins', 'person-casey', NOW); R.pause(r, 'Lunch', 'person-casey', NOW);
   assert.ok(/Paused by Casey Nguyen: Lunch/.test(V.mission(ctx)));
 });
@@ -1771,7 +1772,7 @@ rule('Run workspace: on a phone the More menu has Receipt too, Details can take 
   const { ctx, state } = setup();
   state.runDetails = true;
   const html = V.run(ctx);
-  assert.ok(/class="mini rw-m-phone" data-act="receipt">/.test(html), 'Receipt in More');
+  assert.ok(/<div class="more-list ws-more-list" id="ws-more-list" hidden>[\s\S]*data-act="receipt"/.test(html) && /class="mini ph-only" data-act="run-details"/.test(html), 'Receipt and a phone copy of Details in More');
   assert.ok(/<h2 id="rw-det-h" class="rw-h2" tabindex="-1">Details<\/h2>/.test(html));
   assert.ok(/<div class="rw-dock"><div class="rw-next"/.test(html), 'Next up and the picker share one pinned bar');
 });
@@ -2968,6 +2969,122 @@ rule('Type chooser: Everyday work, Software tools and commands, Your team\'s; th
 rule('Folder health: a checklist\'s problem links to "Open the checklist" (2.10)', () => {
   const { ctx } = healthCtx(c => { c.data.processes[0].index.clashes = ['3']; });
   assert.ok(/data-act="open-process" data-id="release">Open the checklist</.test(V.health(ctx)));
+});
+
+/* ---------- one header (docs/design.md section 34): row 1, the tool row and the run's primary slot ---------- */
+const hdOf = html => (/<header class="hd\b[\s\S]*?<\/header>/.exec(html) || [''])[0];
+const trOf = html => (/<div class="tr\b[\s\S]*?(?=<div class="fpe-alerts)/.exec(html) || [''])[0];
+const btnsOf = s => [...String(s).matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)].map(m => ({ cls: (/class="([^"]*)"/.exec(m[1]) || [])[1] || '', act: (/data-act="([^"]+)"/.exec(m[1]) || [])[1], text: m[2].replace(/<[^>]+>/g, '').trim(), attrs: m[1] }));
+const filled = s => btnsOf(s).filter(b => /\bbtn\b/.test(b.cls) && /\b(go|stop|primary)\b/.test(b.cls));
+const slotOf = html => (/<div class="hd-acts" data-slot="primary">([\s\S]*?)<\/div>/.exec(hdOf(html)) || [])[1] || '';
+rule('One header: row 1 is back, title and status, then the view switch, then progress, actions and More, in that DOM order', () => {
+  const { ctx } = setup();
+  const hd = hdOf(V.run(ctx));
+  assert.ok(hd, 'the run draws header.hd');
+  const at = k => hd.indexOf(k);
+  assert.ok(at('class="hd-l"') >= 0 && at('class="hd-l"') < at('class="hd-c"') && at('class="hd-c"') < at('class="hd-r"'), 'LEFT, CENTER, RIGHT');
+  assert.ok(at('backc') < at('id="run-h"') && at('id="run-h"') < at('class="hd-st"'), 'back, then the title, then the status line');
+  assert.ok(at('class="hd-prog') > at('class="hd-r"') && at('id="ws-more-btn"') > at('class="hd-prog'), 'progress, then More');
+  assert.ok(/class="hd-bar rw-bar" role="progressbar"[^>]*aria-valuetext="0 of \d+ steps answered"/.test(hd), 'one progress bar, keeping rw-bar');
+  assert.ok(/<b aria-hidden="true">0\/\d+<\/b>/.test(hd), 'the count is announced once');
+  assert.ok(!/class="rw-me"/.test(V.run(ctx)), 'row 1 no longer says You:');
+});
+rule('One header: the run tool row starts with who you are, on its own, then the state sentence and its controls', () => {
+  const { ctx, state, r } = setup();
+  let tr = trOf(V.run(ctx));
+  assert.ok(/class="tr rw-strip"/.test(tr), 'the tool row keeps rw-strip');
+  assert.ok(/<span class="me-id">Recording as <b>Casey Nguyen<\/b><\/span>/.test(tr), 'Recording as the recorder');
+  assert.ok(tr.indexOf('me-id') < tr.indexOf('data-act="pick" data-kind="pause"'), 'identity before Pause');
+  assert.ok(btnsOf(tr).some(b => b.act === 'run-details') && (R.solo(r) || btnsOf(tr).some(b => b.act === 'mission')), 'Details and Screen share are in the tool row');
+  state.me = 'person-avery';
+  tr = trOf(V.run(ctx));
+  assert.ok(/<span class="me-id">You: <b>Avery Lee<\/b><\/span>/.test(tr), 'You: for a viewer');
+  assert.ok(/Casey Nguyen is recording/.test(tr), 'the sentence names the recorder');
+});
+rule('One header: the run primary slot follows the ladder, exclusions first, completion from allGatesOk not the headline', () => {
+  const done = sampleDone(PF);
+  const complete = r => { const map = R.mapOf(r); map.phases.forEach((p, pi) => { p.steps.forEach(st => done(r, map, st.id, 'person-casey', NOW)); R.pass(r, map, pi, 'person-casey', NOW); }); return r; };
+  const look = (mut, extra) => { const { ctx, state } = setup(mut); Object.assign(state, extra || {}); const h = V.run(ctx); return { h, hd: hdOf(h), tr: trOf(h), slot: slotOf(h) }; };
+  const fills = x => filled(x.hd + x.tr).map(b => b.act);
+  // A4: the recorder, open and not complete: no fill, Finish outlined.
+  let x = look();
+  assert.deepStrictEqual(fills(x), [], 'A4 has no filled control');
+  assert.ok(btnsOf(x.slot).some(b => b.act === 'finish' && !/\bgo\b/.test(b.cls)), 'A4 shows Finish the run outlined');
+  // A3: paused, not complete: Resume filled, Finish outlined before it.
+  x = look(r => { R.pause(r, 'Waiting on QA', 'person-casey', NOW); });
+  assert.deepStrictEqual(fills(x), ['resume'], 'A3 fills Resume');
+  assert.ok(x.slot.indexOf('data-act="finish"') >= 0 && x.slot.indexOf('data-act="finish"') < x.slot.indexOf('data-act="resume"'), 'A3 Finish sits left of Resume');
+  // A2: complete and paused: Finish filled, Resume outlined, while the headline still reads paused.
+  let held;
+  x = look(r => { complete(r); R.pause(r, 'Waiting on QA', 'person-casey', NOW); held = r; });
+  assert.strictEqual(R.headline(held, R.mapOf(held)).s, 'paused', 'the headline reads paused');
+  assert.deepStrictEqual(fills(x), ['finish'], 'A2 fills Finish');
+  assert.ok(btnsOf(x.slot).some(b => b.act === 'resume' && !/\bgo\b/.test(b.cls)), 'A2 keeps Resume outlined');
+  x = look(r => { complete(r); });
+  assert.deepStrictEqual(fills(x), ['finish'], 'A2 unpaused: Finish alone');
+  // A1: ended: Receipt is the primary, once, and Finish is gone.
+  x = look(r => { complete(r); r.ended = { outcome: 'Completed', at: NOW, by: 'person-casey' }; });
+  assert.deepStrictEqual(fills(x), ['receipt'], 'A1 fills Receipt');
+  assert.strictEqual((x.h.match(/data-act="receipt"/g) || []).length, 1, 'Receipt appears once');
+  assert.ok(!/data-act="finish"/.test(x.hd), 'no Finish once ended');
+  // E1: read-only in this copy, open or ended: no primary, no Finish, and once ended no Receipt anywhere.
+  x = look(r => { r._unrunnable = 'It needs a newer Flightdeck.'; });
+  assert.deepStrictEqual(fills(x), [], 'E1 open'); assert.ok(!/data-act="(finish|resume)"/.test(x.hd), 'E1 has no Finish or Resume');
+  x = look(r => { r._unrunnable = 'It needs a newer Flightdeck.'; r.ended = { outcome: 'Completed', at: NOW }; });
+  assert.deepStrictEqual(fills(x), [], 'E1 ended'); assert.ok(!/data-act="receipt"/.test(x.h), 'E1 ended: no Receipt anywhere');
+  // E2: nobody chosen: none, and the tool row asks.
+  x = look(null, { me: '' });
+  assert.deepStrictEqual(fills(x), [], 'E2'); assert.ok(/id="me-run"/.test(x.tr), 'E2 asks who you are in the tool row');
+  // A5: waiting for you: Pick up recording is the primary.
+  x = look(r => { r.recorder.session = null; });
+  assert.deepStrictEqual(fills(x), ['pickup'], 'A5 Pick up recording');
+  // A6: a viewer; with Take over's confirmation open the tool row holds the one fill, its stop.
+  x = look(null, { me: 'person-avery' });
+  assert.deepStrictEqual(fills(x), [], 'A6 viewer');
+  x = look(null, { me: 'person-avery', pick: { kind: 'takeover', id: 'recorder' } });
+  assert.deepStrictEqual(filled(x.hd).map(b => b.act), [], 'A6 confirming: row 1 holds no fill');
+  assert.deepStrictEqual(filled(x.tr).map(b => b.cls), ['btn stop'], 'A6 confirming: the tool row holds only the stop');
+});
+rule('One header: Edit and Practice share row 1 (‹ Overview, a visible title) and the tool row starts with Undo', () => {
+  const { ctx } = partsSetup();
+  const h = V.process(ctx);
+  const hd = hdOf(h), tr = trOf(h);
+  assert.ok(/aria-label="Back to Overview of [^"]+"/.test(hd) && /<span class="backc-t">Overview<\/span>/.test(hd), 'the way back reads ‹ Overview');
+  assert.ok(/<h1 id="ed-h">[^<]+<span class="sr">, Edit<\/span><\/h1>/.test(hd), 'the title is visible');
+  assert.ok(/<nav class="pviews ws-views" aria-label="Checklist views">/.test((/<div class="hd-c">([\s\S]*?)<\/div>/.exec(hd) || [])[1] || ''), 'Edit | Practice is the CENTER');
+  const acts = btnsOf(tr).map(b => b.act);
+  assert.strictEqual(acts[0], 'tl-undo', 'Undo is first'); assert.ok(acts.indexOf('hist-open') > acts.indexOf('tl-redo'), 'then Redo, then History');
+  assert.ok(acts.indexOf('ed-mode') > acts.indexOf('hist-open'), 'Builder | Markdown after the timeline');
+  assert.ok(filled(tr).length === 0, 'the tool row holds no fill');
+});
+
+rule('Editor sidebars leave room for the separator gutters: the main pane keeps 360px as drawn (V.GUT per resizable separator)', () => {
+  const G = V.GUT, MAIN = V.MAIN_MIN;
+  assert.strictEqual(G, 28, 'the gutter is 28px');
+  const css = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'page.html'), 'utf8');
+  assert.ok(new RegExp('--gut:\\s*' + G + 'px').test(css), 'page.html\'s --gut equals V.GUT');
+  const drawn = (W, items, fit) => W - items.reduce((n, it) => n + (it.fixed ? it.measured : fit[it.key].w + G), 0);
+  // The builder at 1280 with Parts 400 and the inspector 520 or 720; 1101; the rail at 1100 (one gutter); Markdown; the step-type editor.
+  [[1280, [{ key: 'parts', pref: 400, measured: 208 }, { key: 'ins', pref: 520, measured: 400 }]],
+   [1280, [{ key: 'parts', pref: 400, measured: 208 }, { key: 'ins', pref: 720, measured: 400 }]],
+   [1101, [{ key: 'parts', pref: 400, measured: 208 }, { key: 'ins', pref: 720, measured: 400 }]],
+   [1100, [{ key: 'parts', fixed: true, measured: 72 }, { key: 'ins', pref: 720, measured: 400 }]],
+   [1280, [{ key: 'ins', pref: 720, measured: 400 }]],
+   [1280, [{ key: 'tf', pref: 720, measured: 400 }]],
+   [1024, [{ key: 'tf', pref: 720, measured: 400 }]]].forEach(([W, items]) => {
+    const fit = V.fitPanes(W, items);
+    assert.ok(drawn(W, items, fit) >= MAIN, W + 'px ' + items.map(i => i.key + (i.fixed ? '(rail)' : '')).join('+') + ': main ' + drawn(W, items, fit));
+  });
+});
+
+rule('Affordance: the details card says what it does, with one pencil, and chart dots have a 24px hit circle', () => {
+  const { ctx } = partsSetup();
+  const html = V.process(ctx);
+  const card = (/<button type="button" class="ob-det"[\s\S]*?<\/button>/.exec(html) || [''])[0];
+  assert.ok(/<span class="ob-txt">Edit checklist details<\/span>/.test(card), 'the verb is in the label');
+  assert.ok(card.indexOf(PF.icons.icon('edit')) >= 0 && card.indexOf(PF.icons.icon('people')) < 0, 'one pencil, not the people icon');
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'views', 'insights.js'), 'utf8');
+  assert.ok(/<circle class="ins-hit" cx="' \+ cx\.toFixed\(1\) \+ '" cy="' \+ \(38 - row \* 13\) \+ '" r="12"\/><circle class="ins-dot"/.test(src), 'a 24px hit circle under each dot');
 });
 
 run();

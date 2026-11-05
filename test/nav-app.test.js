@@ -23,7 +23,7 @@ const buttons = s => [...String(s || '').matchAll(/<button\b([^>]*)>([\s\S]*?)<\
 const outside = html => html.replace(/<nav\b[^>]*aria-label="Checklist views"[^>]*>[\s\S]*?<\/nav>/g, '');
 /* The way back on screen: every control drawn with the back class, as { text, label, act, id }. */
 const backs = html => buttons((html.match(/<button\b[^>]*class="[^"]*\bbackc\b[^"]*"[^>]*>[\s\S]*?<\/button>/g) || []).join(''));
-const onPage = app => /Practice · not recorded/.test(app.html());
+const onPage = app => /Practice<\/span> not recorded/.test(app.html());
 const inEditor = app => /id="draft-editor"|id="ob-plist"/.test(app.html()) && !onPage(app);
 const onOverview = app => /<h1 id="page-h" tabindex="-1">Production release<\/h1>/.test(app.html()) && !inEditor(app) && !onPage(app);
 async function check(app, id) {
@@ -140,9 +140,12 @@ rule('Checklist page: Practice anyway shows with Edit anyway, and is one click i
 });
 
 /* ---------- 2.2 the workspace: the editor and practice share one header ---------- */
-const head = app => (/<header class="fpe-head[^"]*\bws-head\b[\s\S]*?<\/header>/.exec(app.html()) || [''])[0];
-/* The header's primary: the buttons in its last group, as drawn. */
-const primary = app => buttons((/<div class="fpe-save">([\s\S]*?)<\/div><\/header>/.exec(head(app)) || ['', ''])[1]);
+/* One balanced element from index i: the tag at i through its matching close. */
+const elAt = (h, i) => { if (i < 0) return ''; const tag = /^<(\w+)/.exec(h.slice(i))[1], re = new RegExp('<(/?)' + tag + '\\b[^>]*>', 'g'); re.lastIndex = i; let d = 0, m; while ((m = re.exec(h))) { d += m[1] ? -1 : 1; if (!d) return h.slice(i, re.lastIndex); } return h.slice(i); };
+/* The workspace header (row 1) and the tool row under it. */
+const head = app => { const h = app.html(), m = /<header class="hd[ "]/.exec(h); if (!m) return ''; const hd = elAt(h, m.index), j = m.index + hd.length; return hd + (h.startsWith('<div class="tr', j) ? elAt(h, j) : ''); };
+/* The header's primary: the buttons in its primary slot, as drawn. */
+const primary = app => { const h = head(app), i = h.indexOf('<div class="hd-acts" data-slot="primary">'); return i < 0 ? [] : buttons(elAt(h, i)); };
 const STAGED = 'maps/drafts/release.md';
 async function edit(o) { const app = await page(o); app.click('ptab', 'edit'); await app.tick(); return app; }
 async function practiced(o) { const app = await edit(o); app.click('pr-open'); await app.tick(60); assert.ok(onPage(app), 'set-up: practicing'); return app; }
@@ -183,8 +186,8 @@ rule('Workspace: one header on both views: ‹ <title> top left, Edit | Practice
     const app = view === 'edit' ? await edit() : await practiced();
     const h = head(app);
     assert.ok(h, view + ': the shared header');
-    assert.deepStrictEqual(backs(h).map(b => [b.text, b.label]), [['Production release', 'Back to Production release']], view);
-    assert.ok(new RegExp('<h1 id="(ed-h|run-h)" class="sr">Production release, ' + (view === 'edit' ? 'Edit' : 'Practice') + '</h1>').test(h), view + ': the h1 is visually hidden and names the view');
+    assert.deepStrictEqual(backs(h).map(b => [b.text, b.label]), [['Overview', 'Back to Overview of Production release']], view);
+    assert.ok(new RegExp('<h1 id="(ed-h|run-h)">Production release<span class="sr">, ' + (view === 'edit' ? 'Edit' : 'Practice') + '</span></h1>').test(h), view + ': the h1 is the visible title and names the view');
     assert.strictEqual(strips(app.html()), 1, view + ': one view control');
     assert.deepStrictEqual(buttons(strip(h)).map(b => [b.text.split(' · ')[0], b.current]), [['Edit', view === 'edit'], ['Practice', view === 'practice']], view);
     assert.ok(!/Review &amp; publish|Review & publish|Done practicing|Back to the draft|Back to practice/.test(app.html()), view + ': no old way out');
@@ -192,8 +195,8 @@ rule('Workspace: one header on both views: ‹ <title> top left, Edit | Practice
     assert.ok(primary(app).length <= 1, view + ': one primary at most');
   }
   const app = await practiced();
-  assert.deepStrictEqual(buttons(head(app)).filter(b => /^pr-(undo|redo|reset|samples|found-open)$/.test(b.act)).map(b => b.text), ['Undo', 'Redo', 'Start over', 'Sample details', 'Things to fix'].filter(t => t !== 'Sample details' || /pr-samples/.test(head(app))));
-  assert.match(head(app), /Practice · not recorded · kept in this tab/);
+  assert.deepStrictEqual(buttons(head(app).slice(head(app).indexOf('<div class="tr'))).filter(b => /^pr-(undo|redo|reset|samples|found-open)$/.test(b.act)).map(b => b.text), ['Undo', 'Redo', 'Start over', 'Sample details', 'Things to fix'].filter(t => t !== 'Sample details' || /pr-samples/.test(head(app))));
+  assert.match(head(app), /Practice<\/span> not recorded · kept in this tab/);
 });
 
 rule('Workspace: ‹ <title> goes to the checklist page with focus on the strip\'s button for the view you left, and practice is kept', async () => {
@@ -331,7 +334,7 @@ rule('Primary: nobody chosen in You are holds Publish vN… with the reason, fro
     app.choose(''); await app.tick();
     const b = primary(app);
     assert.ok(b.length === 1 && /aria-disabled="true"/.test(b[0].attrs), view + ': held');
-    assert.match(app.html(), /Choose who you are first\. You are is at the top of the checklist page\./);
+    assert.match(app.html(), /id="ws-why"[^>]*>Choose who you are first\. <button type="button" class="mini" data-act="(ws|pr)-me" data-id="why" aria-haspopup="dialog">Choose who you are<\/button>/);
   }
 });
 
@@ -465,10 +468,10 @@ rule('Practice: Edit step and Edit gate; notices say Edit and Fix it in Edit; th
 
 /* ---------- 2.3 the run screen ---------- */
 const runKey = app => app.run().key;
-const rhead = app => { const h = app.html(), i = h.indexOf('<header class="fpe-head rw-head"'); return i < 0 ? '' : h.slice(i, h.indexOf('</header>', i)); };
+const rhead = app => { const h = app.html(), i = h.indexOf('<header class="hd rw-head"'); return elAt(h, i); };
 const back1 = app => { const b = backs(app.html()); assert.strictEqual(b.length, 1, 'one way back: ' + JSON.stringify(b)); return b[0]; };
 const onRun = app => /<h1 id="run-h"/.test(app.html()) && !onPage(app);
-const menu = app => { const h = rhead(app), i = h.indexOf('<div class="rw-menu-list">'); return i < 0 ? [] : buttons(h.slice(i, h.indexOf('</details>', i))).map(b => b.text); };
+const menu = app => { const h = rhead(app), i = h.indexOf('<div class="more-list'); return i < 0 ? [] : buttons(elAt(h, i)).map(b => b.text); };
 async function fromRuns(app) { app.click('nav', 'runs'); await app.tick(); app.click('open-run', runKey(app)); await app.tick(60); }
 
 rule('Run screen: the way back names the screen that opened it (Runs, Home, the checklist page), and one click is one browser Back', async () => {
@@ -502,10 +505,10 @@ rule('Run screen: with no screen before it (a reload, a typed link) the way back
 
 rule('Run screen: the checklist title in the subtitle links to its page, unless the way back already goes there', async () => {
   const app = await start(); await fromRuns(app);
-  assert.match(rhead(app), /<span class="small rw-sub"><button class="linkish" data-act="open-process" data-id="release">Production release<\/button>/);
+  assert.match(rhead(app), /<p class="hd-st"><span class="act"><button class="linkish" data-act="open-process" data-id="release">Production release<\/button><\/span><span class="d rw-sub">/);
   const app2 = await page(); app2.click('open-run', runKey(app2)); await app2.tick(60);
   assert.strictEqual(back1(app2).text, 'Production release');
-  assert.match(rhead(app2), /<span class="small rw-sub">Production release · /, 'plain text: the way back is that link');
+  assert.match(rhead(app2), /<p class="hd-st"><span class="d">Production release<\/span><span class="d rw-sub">/, 'plain text: the way back is that link');
 });
 
 rule('Run screen: Finish the run is in the header for the recorder, muted until complete; End run… is gone and More is exactly its list', async () => {
@@ -515,7 +518,8 @@ rule('Run screen: Finish the run is in the header for the recorder, muted until 
   assert.deepStrictEqual(f.map(b => b.text), ['Finish the run'], 'one Finish the run');
   assert.ok(!/\bgo\b/.test((/class="([^"]*)"/.exec(f[0].attrs) || [])[1]), 'muted while the run is not complete');
   assert.ok(!/End run…/.test(app.html()), 'no End run…');
-  assert.deepStrictEqual(menu(app).filter(t => t !== 'Plan another like this'), ['Details', 'Screen share', 'Receipt', 'Copy run key', 'Export evidence…', 'Check the folder now', 'Folder health', 'Keyboard shortcuts']);
+  assert.deepStrictEqual(menu(app).filter(t => t !== 'Plan another like this').map(t => t.split(' ')[0]), ['Details', 'Screen', 'Receipt', 'Copy', 'Export', 'Folder', 'Search', 'Appearance', 'Check', 'Keyboard']);
+  assert.match(rhead(app), /<div class="ro">You: <b>/, 'who you are is text in More, not a control');
   app.click('finish'); await app.tick();
   assert.match(app.html(), /Finish /, 'it opens the Finish page');
   /* Someone who doesn't record it sees no Finish. */
@@ -523,7 +527,7 @@ rule('Run screen: Finish the run is in the header for the recorder, muted until 
   assert.ok(!/data-act="finish"/.test(rhead(other)), 'not the recorder: no Finish');
 });
 
-rule('Run screen: an ended run has its Receipt once, in the status strip', async () => {
+rule('Run screen: an ended run has its Receipt once, as the header\'s primary', async () => {
   const app = await start(); await fromRuns(app);
   app.click('pickup'); await app.tick(40);
   app.click('finish'); await app.tick();
@@ -533,7 +537,7 @@ rule('Run screen: an ended run has its Receipt once, in the status strip', async
   if (!onRun(app)) { app.click('open-run', runKey(app)); await app.tick(60); }
   const rc = buttons(app.html()).filter(b => b.act === 'receipt');
   assert.strictEqual(rc.length, 1, 'one Receipt: ' + JSON.stringify(rc.map(b => b.text)));
-  assert.ok(/class="rw-strip/.test(app.html().slice(0, app.html().indexOf('data-act="receipt"'))) && app.html().indexOf('data-act="receipt"') > app.html().indexOf('</header>'), 'in the strip, not the header');
+  assert.deepStrictEqual(buttons((/<div class="hd-acts" data-slot="primary">[\s\S]*?<\/div>/.exec(rhead(app)) || [''])[0]).map(b => [b.act, b.text]), [['receipt', 'Receipt']], 'the header\'s primary, not the strip');
 });
 
 rule('Run screen: the rail says This run\'s follow-ups · N, and the skip link says Back to the step list', async () => {
@@ -566,7 +570,7 @@ rule('Screen share, Finish and Receipt: ‹ The run top left; it, and Escape, re
     assert.ok(!onRun(app), sub + ': off the run screen');
     const h = app.html(), b = back1(app);
     assert.deepStrictEqual([b.text, b.label, b.act], ['The run', 'Back to the run', 'exit-mission'], sub + ': named in a sentence, Back to the run');
-    assert.ok(h.indexOf('class="backrow"') >= 0 && h.indexOf('class="backrow"') < h.indexOf('id="page-h"'), sub + ': top left, above the title');
+    assert.ok(h.indexOf('<div class="hd-l"><button') >= 0 && h.indexOf('data-act="exit-mission"') < h.indexOf('id="page-h"'), sub + ': top left, before the title');
     assert.ok(!/>(<[^>]+>)*Back to the run</.test(h), sub + ': no second way back');
     app.click(b.act); await app.settle();
     assert.ok(onRun(app), sub + ': ‹ The run');
@@ -635,7 +639,7 @@ rule('Start a run: ‹ <origin> top left and Cancel beside Start the run, the sa
     assert.strictEqual(b.text, 'Production release', how);
     assert.strictEqual(c.length, 1, how + ': one Cancel');
     assert.deepStrictEqual([c[0].act, c[0].id], [b.act, b.id], how + ': Cancel is the same act');
-    assert.ok(app.html().indexOf('class="backrow"') < app.html().indexOf('id="page-h"'), how + ': top left');
+    assert.ok(app.html().indexOf('class="backrow"') >= 0 && app.html().indexOf('class="backrow"') < app.html().indexOf('id="page-h"'), how + ': top left');
     if (how === 'back') app.click(b.act, b.id); else if (how === 'cancel') app.click(c[0].act, c[0].id); else esc0(app);
     await app.settle();
     assert.ok(onOverview(app), how + ': the checklist page');
@@ -817,7 +821,8 @@ rule('R1 E-P2-1: Screen share, Finish and Receipt hide the top bar, as the run s
   app.click('go-back', '#/runs'); await app.settle();
   assert.ok(app.rootClasses().indexOf('rw-page') < 0, 'Runs: the top bar shows');
   const css = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'page.html'), 'utf8');
-  assert.match(css, /html\.rw-page \.top \{ display: none; \}/, 'the rule that hides it');
+  assert.match(css, /html\.work-on \.top \{ display: none; \}/, 'the rule that hides it');
+  assert.ok(app.rootClasses().indexOf('work-on') < 0, 'Runs: no work-on');
 });
 
 rule('R1 E-P2-2: switching to Edit (the view control or Escape) focuses the selected step, or the Edit button when none is', async () => {
@@ -916,7 +921,7 @@ rule('R1 C-P3-2: staged, with nobody chosen, Start a test run and Make vN the de
     app.choose(''); await app.tick();
     const b = primary(app);
     assert.ok(b.length === 1 && b[0].text === 'Start a test run' && /aria-disabled="true"/.test(b[0].attrs) && /aria-describedby="ws-why"/.test(b[0].attrs), view + ': held ' + JSON.stringify(b));
-    assert.match(app.html(), /id="ws-why"[^>]*>Choose who you are first\. You are is at the top of the checklist page\./);
+    assert.match(app.html(), /id="ws-why"[^>]*>Choose who you are first\. <button type="button" class="mini" data-act="(ws|pr)-me"/);
     app.click(b[0].act, b[0].id); await app.tick();
     assert.ok(!/Start a test run<\/h1>/.test(app.html()), view + ': no form');
     assert.strictEqual(app.focused(), 'ws-why', view + ': focus goes to the reason');
@@ -1215,29 +1220,56 @@ rule('R2 R-P2-3: a plan whose pinned version can\'t be used is titled Review the
   assert.ok(!/<h1[^>]*>Start a run<\/h1>/.test(app.html()));
   const b = back1(app);
   assert.strictEqual(b.text, 'Home', 'the way back names where it came from');
-  assert.ok(app.html().indexOf('class="backrow"') < app.html().indexOf('id="page-h"'), 'top left');
+  assert.ok(app.html().indexOf('class="backrow"') >= 0 && app.html().indexOf('class="backrow"') < app.html().indexOf('id="page-h"'), 'top left');
   const inline = buttons(app.html()).filter(x => x.text === 'Back to the checklist')[0];
   assert.ok(inline && inline.act !== 'home', 'the inline Back isn\'t Home: ' + JSON.stringify(inline));
   app.click(inline.act, inline.id); await app.settle();
   assert.ok(onOverview(app), 'the error state goes back to the checklist page: ' + app.hash());
 });
 
-rule('R2 R-P3-4: on a phone the workspace tools that don\'t fit go in More at the end of row 3', async () => {
+rule('R2 R-P3-4: More is top right on every work screen; on a phone it also holds the panels the tool row drops, then You and this app', async () => {
   const app = await practiced();
-  const h = head(app), more = /<div class="ws-more"[\s\S]*?<\/div><\/div>/.exec(h);
-  assert.ok(more, 'a More group in the tools');
-  const btn = buttons(more[0]).filter(x => x.text === 'More')[0];
+  const h = head(app), hr = elAt(h, h.indexOf('<div class="hd-r">')), more = elAt(hr, hr.indexOf('<div class="more ws-more">'));
+  assert.ok(more, 'More is in the header\'s right group');
+  const btn = buttons(more).filter(x => x.text === 'More')[0];
   assert.ok(btn && btn.act === 'pr-more' && /aria-expanded="false"/.test(btn.attrs) && /aria-controls="ws-more-list"/.test(btn.attrs), 'More is a pr-* act that says whether it\'s open: ' + JSON.stringify(btn));
-  assert.deepStrictEqual(buttons(more[0]).filter(x => x !== btn && x.text !== 'More').map(x => x.text), ['Start over', 'Sample details', 'Things to fix'].filter(t => t !== 'Sample details' || /pr-samples/.test(h)), 'the tools after Redo');
+  const items = buttons(more).filter(x => x.act !== 'pr-more');
+  const phone = items.filter(x => /\bph-only\b/.test(x.attrs)).map(x => x.text);
+  assert.deepStrictEqual(phone, ['Sample details', 'Things to fix'].filter(t => t !== 'Sample details' || /pr-samples/.test(h)), 'the panels a phone drops from the tool row');
+  assert.deepStrictEqual(items.filter(x => !/\bph-only\b/.test(x.attrs)).map(x => x.act), ['pr-me', 'pr-search', 'pr-theme', 'pr-folder', 'help'], 'then You and this app');
+  const tr = h.slice(h.indexOf('<div class="tr'));
+  assert.deepStrictEqual(buttons(tr).filter(x => /\bwd-only\b/.test(x.attrs)).map(x => x.text), phone, 'the tool row\'s copies hide on a phone');
   app.click('pr-more'); await app.tick();
   assert.match(head(app), /data-act="pr-more"[^>]*aria-expanded="true"/, 'opens');
   app.click('pr-more'); await app.tick();
   assert.match(head(app), /data-act="pr-more"[^>]*aria-expanded="false"/, 'closes');
   const css = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'page.html'), 'utf8');
-  assert.match(css, /\.ws-more-btn \{ display: none; \}/, 'More shows only on a phone');
-  const ed = await edit(), em = /<div class="ws-more"[\s\S]*?<\/div><\/div>/.exec(head(ed));
+  assert.match(css, /\.ph-only \{ display: none !important; \}/, 'phone copies hide on a wide screen');
+  assert.match(css, /\.wd-only \{ display: none !important; \}/, 'wide copies hide on a phone');
+  const ed = await edit(), eh = head(ed), em = elAt(eh, eh.indexOf('<div class="more ws-more">'));
   assert.ok(em, 'Edit: More too');
-  assert.deepStrictEqual(buttons(em[0]).map(x => [x.text, x.act]), [['More', 'ws-more'], ['History', 'hist-open']], 'Edit: History is the one that doesn\'t fit');
+  assert.deepStrictEqual(buttons(em).map(x => [x.text, x.act]).slice(0, 2), [['More', 'ws-more'], ['History', 'hist-open']], 'Edit: History is the one a phone drops');
+  assert.deepStrictEqual(buttons(em).slice(2).map(x => x.act), ['me', 'search', 'theme', 'refresh', 'help'], 'Edit: then You and this app');
+});
+
+rule('One header: You are in More opens Who are you?; Use this name sets you, says so and gives focus back to More; from the held primary\'s reason it goes back to the primary', async () => {
+  const app = await edit({ domFocus: true });
+  app.click('ws-more'); await app.tick();
+  app.click('me'); await app.tick();
+  assert.match(app.overlay(), /role="dialog" aria-modal="true" aria-labelledby="me-t"><h2 id="me-t">Who are you\?<\/h2>/, 'the dialog');
+  assert.match(app.overlay(), /<select id="me-pick">/, 'a person picker');
+  assert.match(head(app), /data-act="ws-more"[^>]*aria-expanded="false"/, 'More closed behind it');
+  app.set('me-pick', 'person-avery'); app.click('me-use'); await app.tick();
+  assert.ok(!/Who are you/.test(app.overlay()), 'closed');
+  assert.match(app.live(), /You are Avery/, 'says so');
+  assert.strictEqual(app.activeId(), 'ws-more-btn', 'focus back on More');
+  assert.match(head(app), /data-act="me"[^>]*>You are <b>Avery/, 'More says who you are');
+  const held = await changed({ domFocus: true }); await into(held, 'edit');
+  held.choose(''); await held.tick();
+  held.click('ws-me', 'why'); await held.tick();
+  assert.match(held.overlay(), /Who are you\?/, 'the reason\'s button opens it too');
+  held.set('me-pick', 'person-casey'); held.click('me-use'); await held.tick();
+  assert.match(held.activeId(), /^\[data-act="publish-open"\]/, 'focus goes to the primary, now Publish');
 });
 
 rule('R2 R-P3-5: the README says Finish the run, not End run…', () => {
@@ -1302,6 +1334,22 @@ rule('R3 2 (R6): after Edit anyway, the step type\'s way back and a Practice tes
   assert.ok(onPage(p), 'practice: ' + p.hash());
   p.back(); await p.settle();
   assert.notStrictEqual(p.hash(), left, 'browser Back never reopens the test form');
+});
+
+rule('One header: More closes when Tab leaves it for the end of the page (nothing after it takes focus), and stays open when the window loses focus', async () => {
+  const app = await edit({ domFocus: true });
+  const inMore = { closest: s => (s === '.more' ? {} : null) };
+  app.click('ws-more'); await app.tick();
+  app.doc.hasFocus = () => false; app.doc.activeElement = app.doc.body;
+  app.fire('focusout', { target: inMore, relatedTarget: null }); await app.tick(20);
+  assert.match(head(app), /id="ws-more-btn"[^>]*aria-expanded="true"/, 'another window took focus: More stays open');
+  app.doc.hasFocus = () => true;
+  app.fire('focusout', { target: inMore, relatedTarget: null }); await app.tick(20);
+  assert.match(head(app), /id="ws-more-btn"[^>]*aria-expanded="false"/, 'focus went to the page itself: More closes');
+  app.click('ws-more'); await app.tick();
+  app.fire('pointerdown', { target: inMore });
+  app.fire('focusout', { target: inMore, relatedTarget: null }); await app.tick(20);
+  assert.match(head(app), /id="ws-more-btn"[^>]*aria-expanded="true"/, 'a press inside More where buttons take no focus: it stays open for the click');
 });
 
 rule('R3 3: More is a layer: browser Back or Escape closes it, focus on More, the URL kept, in Edit and in Practice', async () => {
