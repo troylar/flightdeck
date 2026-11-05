@@ -266,4 +266,19 @@ rule('R5 source: no code trims, cleans or compares a patterned value except thro
   same(bad, [], bad.join('\n'));
 });
 
+rule('R6-2: a request (CLI) takes 61 emoji for [😀]{61}: a patterned detail\'s limit is its code points; other details keep 120 UTF-16 units', () => {
+  const RQ = PF.requests, proc = { pubs: [{ ok: true }], index: { latest: { map: M.parse(MD), info: { version: 1 } }, all: [] } };
+  const ask = details => { const c = RQ.clean({ process: 'rel', producer: { name: 'ci-check', version: '1.0.0' }, details }, '2026-11'); return { c, ck: c.errors.length ? null : RQ.check(c.intent, proc) }; };
+  const e61 = '😀'.repeat(61), ok = ask({ mood: e61 });
+  assert.strictEqual(ok.c.errors.length, 0, JSON.stringify(ok.c.errors));
+  assert.ok(ok.ck && !ok.ck.errors, JSON.stringify(ok.ck));
+  assert.strictEqual(ok.c.intent.supplied.details.mood, e61, 'kept whole');
+  const over = ask({ mood: '😀'.repeat(62) });
+  assert.ok((over.c.errors.concat(over.ck && over.ck.errors || [])).some(e => /mood/.test(e)), '62 emoji are refused: ' + JSON.stringify(over));
+  const text = ask({ version: 'x'.repeat(121) });
+  assert.ok((text.c.errors.concat(text.ck && text.ck.errors || [])).some(e => /"version" is 121 characters; the most is 120\./.test(e)), 'a text detail keeps its legacy limit: ' + JSON.stringify(text));
+  const wide = ask({ version: '😀'.repeat(61) });
+  assert.ok((wide.c.errors.concat(wide.ck && wide.ck.errors || [])).some(e => /"version" is 122 characters; the most is 120\./.test(e)), 'counted in UTF-16 units there: ' + JSON.stringify(wide));
+});
+
 run();

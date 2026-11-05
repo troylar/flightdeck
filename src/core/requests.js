@@ -72,6 +72,8 @@ PF.requests = (function () {
       else supplied.when = new Date(at).toISOString();
     }
     if (given('note')) { var n = text('note', v.note, LIMITS.note, '"note"'); if (n !== null) supplied.note = n; }
+    var long = Object.create(null);
+    Object.defineProperty(out, 'long', { value: long, enumerable: false });
     ['details', 'roles'].forEach(function (k) {
       if (!given(k)) return;
       if (!isMap(v[k])) { errors.push(q(k) + ' is an object of names and ' + (k === 'details' ? 'text' : 'people IDs') + '.'); return; }
@@ -80,7 +82,9 @@ PF.requests = (function () {
       keys.forEach(function (name) {
         var x = v[k][name];
         if (!NAME.test(name) || reserved(name)) { errors.push(q(k) + ' has ' + q(name) + ', which can\'t be a ' + (k === 'details' ? 'run detail' : 'role') + '\'s name.'); return; }
-        if (k === 'details') { var d = text(name, x, LIMITS.detail, 'Run detail ' + q(name)); if (d !== null) m[name] = d; }
+        /* A detail's limit depends on its kind, known only once the checklist is (check): a patterned one counts code points
+           (up to 2 UTF-16 units each), any other keeps 120 UTF-16 units. Longer than the legacy limit waits in long for check. */
+        if (k === 'details') { var d = text(name, x, LIMITS.detail * 2, 'Run detail ' + q(name)); if (d !== null) { m[name] = d; if (d.length > LIMITS.detail) long[name] = d.length; } }
         else if (typeof x !== 'string' || !PERSON.test(x) || reserved(x)) errors.push('Role ' + q(name) + ' is a person\'s ID from people.json, like person-casey.');
         else m[name] = x;
       });
@@ -153,6 +157,7 @@ PF.requests = (function () {
       /* A pattern's value is checked as given, untrimmed, as the run will check it when it starts (Appendix A.5). */
       var dt = meta.detailTypes && Object.prototype.hasOwnProperty.call(meta.detailTypes, k) ? meta.detailTypes[k] : null;
       if (dt && dt.kind === 'pattern') { var pv = PF.values.patternIn({ kind: 'pattern', label: k, pattern: dt.pattern }, s.details[k], { max: PF.values.DETAIL_MAX }); if (!pv.ok) errors.push('Run detail ' + q(k) + ': ' + pv.why); }
+      else if (intent.long && intent.long[k]) errors.push('Run detail ' + q(k) + ' is ' + intent.long[k] + ' characters; the most is ' + LIMITS.detail + '.');
     });
     Object.keys(s.roles || {}).forEach(function (k) { if (meta.roles.indexOf(k) < 0) errors.push(q(k) + ' isn\'t a role in ' + title + '. It has: ' + (meta.roles.join(', ') || 'none') + '.'); });
     return errors.length ? { errors: errors } : { pub: pub };

@@ -738,7 +738,13 @@ PF.run = (function () {
       var rBad = ss.some(function (x) { return !(r.searchRec && JS.genOk(r.searchRec[x.step.id])); });
       if (gBad || rBad) {
         var gen = Object.assign({}, r.searchGen || {}), rec = {}, was = { searchGen: JSON.stringify(r.searchGen), searchRec: JSON.stringify(r.searchRec) };
-        ss.forEach(function (x) { searchUses(map, x.step).forEach(function (d) { gen[d] = JS.token(JS.genOk(gen[d]) ? gen[d] : null); }); rec[x.step.id] = JS.token(r.searchRec && JS.genOk(r.searchRec[x.step.id]) ? r.searchRec[x.step.id] : null); });
+        /* Derived from the run as read (its frozen definition included), never drawn at random: rereading the same bytes
+           (a refresh) repairs them the same way, so results typed for the repaired search still count; changed bytes, or a
+           save that writes the repair, give the next one. Each still moves on from what was there, so no earlier result
+           matches. */
+        var seed = PF.sha256.create().update(JSON.stringify(o === undefined ? null : o)).digest();
+        var next = function (prev, k) { return JS.tokenFrom(JS.genOk(prev) ? prev : null, seed + '|' + k); };
+        ss.forEach(function (x) { searchUses(map, x.step).forEach(function (d) { gen[d] = next(gen[d], 'gen:' + d); }); rec[x.step.id] = next(r.searchRec && r.searchRec[x.step.id], 'rec:' + x.step.id); });
         r.searchGen = gen; r.searchRec = rec;
         /* Both maps move on (so no earlier result matches), so each one that changed is named, damaged or not. */
         ['searchGen', 'searchRec'].forEach(function (k) { if (JSON.stringify(r[k]) !== was[k]) rebuilt.push(k); });
