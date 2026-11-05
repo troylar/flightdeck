@@ -2,7 +2,7 @@
   {
     "version": "2.16.0",
     "date": "2026-11-05",
-    "headline": "Search Jira from a step, one header everywhere, and a workspace per checklist",
+    "headline": "Search Jira from a step, one header everywhere, and Edit and Practice side by side",
     "changes": [
       {
         "kind": "new",
@@ -29,9 +29,9 @@
       {
         "kind": "improved",
         "area": "Navigation",
-        "title": "A workspace per checklist, and Back that goes where it says",
-        "before": "Edit, Practice and Runs were separate screens, and Back could land somewhere unexpected.",
-        "now": "Each checklist has one workspace with Edit, Practice, Runs and Settings, and ‹ Overview to leave it. Every ‹ names where it goes. Back closes Help and sheets first. When Back can't leave, for example while you're typing or publishing, you stay where you are.",
+        "title": "Edit and Practice in one workspace, and Back that goes where it says",
+        "before": "Edit, Practice and How runs go were reached from different places, and Back could land somewhere unexpected.",
+        "now": "A checklist's page has Overview, Edit, Practice and How runs go under its title, and Practice can start from there. Edit and Practice share one header, with ‹ and the checklist's name to leave. Every ‹ names where it goes. Back closes Help and sheets first. When Back can't leave, for example while you're typing or publishing, you stay where you are.",
         "where": "Any checklist"
       },
       {
