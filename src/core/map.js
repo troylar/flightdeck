@@ -345,6 +345,13 @@ PF.map = (function () {
             var fc = T.checkFields(def, s.fields, { context: meta.context, teamValues: opts.teamValues });
             fc.errors.forEach(function (m) { blockers.push(label + ' ' + m); });
             fc.tips.forEach(function (m) { suggestions.push(label + ' ' + m); });
+            /* Link fields (2.16, Appendix B): a run detail may sit only where it can't change the link's structure. */
+            Object.keys(s.fields).forEach(function (f) {
+              var fd = T.fieldDef(def, f); if (!fd || fd.kind !== 'url' || !s.fields[f]) return;
+              var lc = PF.urls.classify(s.fields[f], meta.context);
+              if (PF.urls.refused(lc)) blockers.push(label + ', field "' + f + '", ' + lc.why);
+              else if (lc.code === 'hint') suggestions.push(label + ', field "' + f + '": ' + lc.hint);
+            });
           }
         }
         if (s.fields.expect && PF.util.duration(s.fields.expect) == null) blockers.push(label + ': "expect" should look like 20m or 1h30m.');
