@@ -82,7 +82,7 @@
         "kind": "new",
         "area": "AI assistants",
         "title": "AGENTS.md waits for the files it points to",
-        "now": "If your team's version of a file AGENTS.md points to lacks a section it names, the update stages AGENTS.md instead of writing it, so an assistant is never sent to a part that isn't there. The updates folder's README.md, flightdeck install and Folder health name the file and sections.",
+        "now": "When an update would replace an older default AGENTS.md and your team's version of a file it points to lacks a section it names, the update stages the new AGENTS.md instead and leaves yours. A missing AGENTS.md is still written. The updates folder's README.md, flightdeck install and Folder health name the file and sections.",
         "where": "docs/updating.md › Install"
       }
     ]
