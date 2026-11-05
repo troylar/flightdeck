@@ -208,7 +208,7 @@ function boot(opts) {
   const copyState = v => v === undefined ? null : JSON.parse(JSON.stringify(v));
   // opts.hash and opts.historyState: the entry the page loads on (a reload, a bookmark); opts.entries (and opts.index): the
   // whole session history it loads into, as { hash, state } (entries made before a reload).
-  const hist = { entries: (opts.entries || [{ hash: opts.hash || '', state: opts.historyState }]).map(e => ({ url: BASE + (e.hash || ''), state: copyState(e.state) })), queue: [], held: false, busy: false, reloads: 0, mismatch: 0 };
+  const hist = { entries: (opts.entries || [{ hash: opts.hash || '', state: opts.historyState }]).map(e => ({ url: BASE + (e.hash || ''), state: copyState(e.state) })), queue: [], appGo: 0, held: false, busy: false, reloads: 0, mismatch: 0 };
   hist.index = opts.index != null ? opts.index : hist.entries.length - 1;
   const secErr = m => Object.assign(new Error(m), { name: 'SecurityError' });
   const hashOf = u => { const i = u.indexOf('#'); return i < 0 || i === u.length - 1 ? '' : u.slice(i); };
@@ -219,7 +219,7 @@ function boot(opts) {
     get state() { return copyState(hist.entries[hist.index].state); },
     pushState(st, t, u) { blocked(); const url = urlOf(u); hist.entries.splice(hist.index + 1); hist.entries.push({ url, state: copyState(st) }); hist.index++; },
     replaceState(st, t, u) { blocked(); const url = urlOf(u); hist.entries[hist.index] = { url, state: copyState(st) }; },
-    go(n) { blocked(); n = Number(n) || 0; if (!n) { hist.reloads++; return; } traverse({ delta: n }); },
+    go(n) { blocked(); n = Number(n) || 0; if (!n) { hist.reloads++; return; } hist.appGo++; traverse({ delta: n }); },
     back() { this.go(-1); }, forward() { this.go(1); }
   };
   const location = { protocol: 'file:', get href() { return hist.entries[hist.index].url; }, get hash() { return hashOf(hist.entries[hist.index].url); }, reload() { hist.reloads++; } };
@@ -483,11 +483,12 @@ function boot(opts) {
     files(prefix) { return Object.keys(app.fs.files).filter(p => p.indexOf(prefix) === 0); },
     // The browser's Back and Forward (a button, Alt+Left, a mouse button), a jump from the Back menu, and a hash typed or
     // pasted into the address bar. Each lands on a later tick; settle() waits until every one has.
-    back() { history.go(-1); }, forward() { history.go(1); }, go(n) { history.go(n); },
+    /* The person's own Back and Forward (the toolbar, a key): not counted as the app's traversals. */
+    back() { this.go(-1); }, forward() { this.go(1); }, go(n) { n = Number(n) || 0; if (!n) { history.go(0); return; } traverse({ delta: n }); },
+    /* How many times the app itself called history.go, back or forward. */
+    appTraversals() { return hist.appGo; },
     typeHash(h) { traverse({ typed: h }); },
     holdPops() { hist.held = true; }, releasePops() { hist.held = false; pump(); },
-    /* The held traversals are lost: the browser never completes them, so no popstate ever fires for them. */
-    dropPops() { hist.queue.length = 0; },
     // A typed box taking focus with the caret at s..e (opts.replace), and where its caret is.
     focusBox(id, st, en) { const el = get(id); el.focus(); el.selectionStart = st; el.selectionEnd = en == null ? st : en; return this; },
     caret: id => (els[id] ? [els[id].selectionStart, els[id].selectionEnd] : null),

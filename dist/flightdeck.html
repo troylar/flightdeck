@@ -24952,7 +24952,7 @@ PF.vk = (function () {
     if (tpl === 'assistant') {
       var text = PF.setup.assistantPrompt({ folder: st.fs ? st.fs.name : '', owner: st.me || '', backup: '' });
       return h + '<p class="small">Paste this to your AI assistant, opened in the team folder, with your notes or runbook. Its draft shows up in Checklists, where you publish it.</p><pre class="source" id="np-prompt" tabindex="0">' + esc(text) + '</pre>' +
-        '<div class="row"><button class="btn" type="button" data-act="np-copy">' + I('copy') + 'Copy the prompt</button><span class="small" id="copy-msg" role="status"></span><button class="mini" type="button" data-act="np-cancel">Cancel</button></div></form>';
+        '<div class="row"><button class="btn" type="button" data-act="np-copy">' + I('copy') + 'Copy the prompt</button><span class="small" id="copy-msg" role="status"></span><button class="mini" type="button" data-act="go-back" data-id="#/processes">Cancel</button></div></form>';
     }
     var nmOwn = PF.people.labeler(people);
     var more = (st.disc || {})['np-more'];
@@ -28650,7 +28650,8 @@ PF.examples = (function () {
   }
   /* Crossing the phone breakpoint redraws, so the properties sheet's modal state follows the layout. */
   var wasNarrow = null;
-  window.addEventListener('resize', function () { pinOffsets(); fitPanes(); var n = !!(window.matchMedia && window.matchMedia('(max-width: 800px)').matches); if (wasNarrow !== null && n !== wasNarrow) render(); wasNarrow = n; });
+  /* The phone More menu is a layer only while its button shows (480 px and under): widening closes it. */
+  window.addEventListener('resize', function () { pinOffsets(); fitPanes(); var n = !!(window.matchMedia && window.matchMedia('(max-width: 800px)').matches), more = state.wsMore && !(window.matchMedia && window.matchMedia('(max-width: 480px)').matches); if (more) state.wsMore = false; if (more || (wasNarrow !== null && n !== wasNarrow)) render(); wasNarrow = n; });
   /* Redraw only what changed: unchanged regions keep their nodes, so focus, the caret, typed text and scroll inside them stay.
      Nodes that differ are compared a few levels down (screen → run → deck → phase → steps → step) and replaced there. */
   function patch(el, html) {
@@ -32301,9 +32302,9 @@ PF.examples = (function () {
   /* Each entry's history.state is { fd: 1, n, f }: n numbers it (a push is pos + 1, no two entries share one), f is a
      fingerprint of its team folder. pos is the entry the browser is on, cur the entry whose screen is drawn; they differ only
      while a link waits (H.pending). The URL is written only by syncLocation(), once after a render; Back and Forward come in
-     through onPop(), with go()'s guards and the click's own functions. history.go(0) is never called (it would reload). */
+     through onPop(), with go()'s guards and the click's own functions. The app never traverses history itself. */
   function navFp() { return state.fs ? U.hash(fsKey()) : null; }
-  function navOff() { H.on = false; H.pending = null; H.hold = null; if (H.restoring) { clearTimeout(H.restoring.timer); H.restoring = null; } }
+  function navOff() { H.on = false; H.pending = null; H.hold = null; }
   /* The first refused call (an unusual browser, a sandboxed frame) turns history off for this page. */
   /* b: the entry before this one, { h, f } (2.16), written only when it is one parse() accepts, for the ‹ controls' labels. */
   function histB(c) { return c ? PF.nav.origin({ h: c.hash, f: c.f, b: c.gone ? null : c.b }) : null; }
@@ -32374,7 +32375,7 @@ PF.examples = (function () {
   }
   function scheduleSync() { if (!H.on || H.queued) return; H.queued = true; Promise.resolve().then(function () { H.queued = false; syncLocation(); }); }
   function syncLocation() {
-    if (!H.on || (H.restoring && !H.restoring.lost)) return;
+    if (!H.on) return;
     /* A move that spans an await writes nothing until it lands, unless the person moves meanwhile. */
     if (H.hold) { if (navSeq === H.hold.seq) return; H.hold = null; }
     var moved = navSeq !== H.seen, replace = H.mode === 'replace', backIn = !!H.backIn;
@@ -32388,7 +32389,7 @@ PF.examples = (function () {
     if (moved && !replace) {
       if (hash === c.hash && f === c.f && c.n === H.pos && !c.gone) return;
       var nb = c.gone ? null : histB(c);
-      if (histWrite(true, hash, H.pos + 1, f, nb)) { H.pos++; H.cur = { n: H.pos, hash: hash, f: f, b: nb }; if (H.restoring) H.restoring.n = H.pos + H.restoring.d; }
+      if (histWrite(true, hash, H.pos + 1, f, nb)) { H.pos++; H.cur = { n: H.pos, hash: hash, f: f, b: nb }; }
       return;
     }
     if (hash === c.hash && f === c.f && c.n === H.pos) return;
@@ -32435,23 +32436,6 @@ PF.examples = (function () {
     if (!H.on) return;
     harvest();
     var es = PF.nav.entry(ev ? ev.state : null);
-    /* A refused move's restore is outstanding: this handler alone settles it, and nothing ever draws from it. Traversals
-       complete in order, so the restore lands d entries from wherever the browser is when it runs. Its arrival is
-       consumed and what's drawn now (a ‹ or a link made meanwhile included) is written in that entry's place. An arrival
-       before it (a Back pressed with it) is consumed too and moves where it lands. Once it's lost (the watchdog), the
-       next arrival anywhere else is the person's own move. */
-    var R0 = H.restoring;
-    if (R0) {
-      if (es && es.n === R0.n) {
-        H.pos = es.n; clearTimeout(R0.timer); H.restoring = null;
-        /* Short of the drawn entry (a Back pressed with it moved the browser first) and nothing moved or was written since:
-           a new restore. Otherwise what's drawn is written here. */
-        if (H.cur === R0.cur && navSeq === H.seen && !H.mode && !H.cur.gone && H.cur.n !== H.pos) { restoreUrl({}); return; }
-        scheduleSync(); return;
-      }
-      if (!R0.lost) { if (es) { H.pos = es.n; R0.n = es.n + R0.d; } return; }
-      H.restoring = null;
-    }
     popAt(es);
   }
   function popAt(es) {
@@ -32469,20 +32453,11 @@ PF.examples = (function () {
     H.pending = null;
     arrive(t);
   }
-  /* After a refusal the screen never moved: put the browser back on the drawn entry without touching the entries after it,
-     or, when that entry is gone or this one was typed, write the drawn location where the browser is. */
-  /* The watchdog only marks the restore lost: the person's next moves are written where the browser is, and the
-     next arrival elsewhere is theirs. It never draws, writes or traverses. */
-  function restoreTimedOut() { if (H.restoring) H.restoring.lost = true; }
-  function restoreUrl(t) {
+  /* A refused Back or Forward is settled in place, in the popstate that brought it: the entry the browser landed on is
+     given what's drawn (its URL and origin), and nothing traverses back. The entry it tried to open is lost, so one step
+     of history goes and the drawn place may appear twice; the same trade as ‹ replacing (docs/design.md section 29). */
+  function restoreUrl() {
     var c = H.cur;
-    /* One restore at a time: a refusal while one is outstanding shares it. */
-    if (H.restoring) return;
-    if (!t.typed && !c.gone && c.n !== H.pos) {
-      H.restoring = { n: c.n, d: c.n - H.pos, cur: c, lost: false, timer: setTimeout(restoreTimedOut, 1000) };
-      try { HIST.go(c.n - H.pos); } catch (e) { navOff(); }
-      return;
-    }
     if (histWrite(false, c.hash, H.pos, c.f, c.b)) H.cur = { n: H.pos, hash: c.hash, f: c.f, b: c.b || null };
   }
   function refuseFor(dirty) {
@@ -32705,11 +32680,11 @@ PF.examples = (function () {
       if (histWrite(false, here, H.pos, f, t.b)) H.cur = { n: H.pos, hash: here, f: f, b: t.b || null };
       render(); return;
     }
-    if (navLayer()) { restoreUrl(t); return; }
+    if (navLayer()) { restoreUrl(); return; }
     var dirty = pendingBox();
-    if (dirty) { refuseFor(dirty); restoreUrl(t); return; }
+    if (dirty) { refuseFor(dirty); restoreUrl(); return; }
     var res = moveTo(loc);
-    if (res === 'stay') { restoreUrl(t); render(); return; }
+    if (res === 'stay') { restoreUrl(); render(); return; }
     if (msg) say(msg, 'warn');
     if (res === 'async') {
       H.cur = { n: H.pos, hash: String(location.hash || ''), f: navFp(), b: t.b || null }; H.seen = navSeq; H.mode = null; H.backIn = false;

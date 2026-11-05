@@ -7366,6 +7366,9 @@ rule('Plans: a decline waiting behind another write is dropped, and says so, if 
 /* ---------- Back and Forward (docs/design.md section 29) ---------- */
 const navBoot = async (o) => { const app = boot(Object.assign({ localStore: { 'preflight:builder': 'false' } }, o || {})); await app.tick(80); if (!(o && o.nobody)) { app.choose('person-casey'); await app.tick(); } return app; };
 const hashes = app => app.entries().map(e => e.hash);
+/* A refused Back or Forward settled in place (2.16): the same entries, the one the browser landed on now showing what's
+   drawn, and the app never traversed. list: JSON of the entries before. */
+const inPlace = (app, list) => { const was = JSON.parse(list), now = app.entries(), i = app.index(); return now.length === was.length && now[i].hash === app.hash() && now.every((e, k) => k === i || JSON.stringify(e) === JSON.stringify(was[k])) && app.appTraversals() === 0; };
 // Every entry is numbered by its place, as Flightdeck writes them: no two share an n, and none is missing.
 /* Since 2.16 an entry may also keep the one before it (b), as nav.entry reads it back. */
 const numbered = app => app.entries().forEach((e, i) => assert.ok(e.state && e.state.fd === 1 && e.state.n === i && /^b?,?f,fd,n$/.test(Object.keys(e.state).sort().join()) && (!e.state.b || app.PF.nav.entry(e.state).b), 'entry ' + i + ' ' + JSON.stringify(e)));
@@ -7507,7 +7510,7 @@ rule('Back and Forward: a move within one screen kind pushes: run to its child r
   numbered(app);
 });
 
-rule('Back and Forward: Back with a builder box typed and not applied refuses, keeps the typing and focus, and leaves the entries alone', async () => {
+rule('Back and Forward: Back with a builder box typed and not applied refuses in place, keeps the typing and focus, and the entries after it', async () => {
   const app = await navBoot({ localStore: {}, domFocus: true });
   app.click('open-process', 'release'); await app.tick();
   app.click('ptab', 'edit'); await app.tick();
@@ -7517,15 +7520,18 @@ rule('Back and Forward: Back with a builder box typed and not applied refuses, k
   app.click('ob-sel', 'flags'); await app.tick();
   const was = /<textarea id="ob-text"[^>]*>([^<]*)</.exec(app.html())[1];
   app.input('ob-text', 'Half typed'); await app.tick();
-  const list = JSON.stringify(app.entries());
+  const list = hashes(app);
   await back(app);
   assert.ok(/Apply or clear what you typed in the box first/.test(app.live()), app.live());
   assert.ok(/id="ed-h"/.test(app.html()), 'still the editor');
-  assert.strictEqual(app.hash(), '#/process/release/edit'); assert.strictEqual(app.index(), 2);
-  assert.strictEqual(JSON.stringify(app.entries()), list, 'the entry after it is still there');
+  /* Refused in place (2.16): the entry Back landed on shows the editor; the ones after it stay. */
+  assert.strictEqual(app.hash(), '#/process/release/edit'); assert.strictEqual(app.index(), 1);
+  assert.deepStrictEqual(hashes(app), [list[0], '#/process/release/edit'].concat(list.slice(2)), 'the entries after it are still there');
+  assert.strictEqual(app.appTraversals(), 0, 'nothing traversed');
   assert.strictEqual(app.draft('ob-text'), 'Half typed'); assert.strictEqual(app.activeId(), 'ob-text');
-  // Cleared, Forward goes where it went before.
+  // Cleared, Forward goes on: the editor's own entry, then where it went before.
   app.input('ob-text', was); await app.tick();
+  await fwd(app); assert.ok(/id="ed-h"/.test(app.html()), 'the editor\'s entry');
   await fwd(app);
   assert.strictEqual(app.hash(), '#/process/release'); assert.ok(!/id="ed-h"/.test(app.html()));
   assert.strictEqual(app.reloads(), 0); numbered(app);
@@ -7539,11 +7545,11 @@ rule('Back and Forward: Back from a step type with changes shows the leave promp
   app.input('tf-label', 'Changed by me'); await app.tick();
   await back(app); await app.tick(40);
   assert.ok(/This step type has changes that aren.t saved/.test(app.html()), 'the prompt');
-  assert.strictEqual(app.hash(), '#/types/edit/change.request'); assert.strictEqual(app.index(), 2);
+  assert.strictEqual(app.hash(), '#/types/edit/change.request'); assert.strictEqual(app.index(), 1, 'refused in place');
   assert.strictEqual(app.activeId(), '[data-act="type-save"]');
   app.click('type-cancel'); await app.tick();
   assert.ok(!/id="type-form"/.test(app.html()), 'the list');
-  assert.deepStrictEqual(hashes(app), ['#/', '#/types', '#/types']); assert.strictEqual(app.index(), 2);
+  assert.deepStrictEqual(hashes(app), ['#/', '#/types', '#/types/edit/change.request']); assert.strictEqual(app.index(), 1);
   numbered(app);
 });
 
@@ -7588,7 +7594,9 @@ rule('Back and Forward: Back closes an open dialog and stays, focus back on its 
   assert.ok(/id="help-t"/.test(app.overlay()), 'set-up: help is open');
   await back(app);
   assert.strictEqual(app.overlay(), '', 'closed'); assert.ok(onRun(app), 'still the run');
-  assert.strictEqual(JSON.stringify(app.entries()), list); assert.strictEqual(app.index(), 1);
+  /* Settled in place (2.16): the entry Back landed on now shows the run, the run's own entry stays after it. */
+  assert.deepStrictEqual(hashes(app), ['#/run/' + app.run().key, '#/run/' + app.run().key]); assert.strictEqual(app.index(), 0);
+  assert.strictEqual(app.entries()[0].state.b.h, '#/', 'with the run\'s own origin'); assert.strictEqual(app.appTraversals(), 0);
   assert.strictEqual(app.activeId(), '[data-act="help"]');
   const b = await navBoot({ nobody: true }); b.choose('person-morgan'); await b.tick();
   b.click('open-process', 'release'); await b.tick(20);
@@ -7598,7 +7606,7 @@ rule('Back and Forward: Back closes an open dialog and stays, focus back on its 
   await back(b);
   assert.ok(/id="ca-reason"/.test(b.overlay()), 'not closed'); assert.strictEqual(b.draft('ca-reason'), 'Not this time');
   assert.ok(/Finish or cancel this first\./.test(b.live()));
-  assert.strictEqual(b.hash(), '#/process/release'); assert.strictEqual(b.index(), 1); assert.strictEqual(b.reloads(), 0);
+  assert.strictEqual(b.hash(), '#/process/release'); assert.strictEqual(b.index(), 0); assert.strictEqual(b.reloads(), 0);
 });
 
 rule('Back and Forward: on a phone, Back closes the step sheet first and stays on the run; one holding a typed reason stays open', async () => {
@@ -7610,7 +7618,8 @@ rule('Back and Forward: on a phone, Back closes the step sheet first and stays o
   assert.ok(sheet && sheet.getAttribute('role') === 'dialog' && sheet.getAttribute('aria-modal') === 'true' && app.topInert(), 'set-up: the sheet is open and modal');
   await back(app);
   assert.ok(!app.node('.rw-ins[data-open="true"]'), 'closed'); assert.ok(onRun(app));
-  assert.strictEqual(app.hash(), '#/run/' + app.run().key); assert.strictEqual(app.index(), 1);
+  assert.strictEqual(app.hash(), '#/run/' + app.run().key); assert.strictEqual(app.index(), 0, 'settled in place');
+  await fwd(app); assert.ok(onRun(app), 'Forward: the run\'s own entry'); assert.strictEqual(app.index(), 1);
   app.click('select', step); await app.tick();
   app.click('pick', step, { kind: 'block' }); await app.tick();
   assert.ok(/id="pick-input"/.test(app.html()), 'set-up: the Block reason box');
@@ -7842,7 +7851,8 @@ rule('Back and Forward: step types: a type called new, a new form, and a changed
   app.go(-3); await app.settle(); await app.tick(40); await app.settle();
   assert.ok(/Form B/.test(app.html()) && /This step type has changes that aren.t saved/.test(app.html()), 'B kept, with the prompt');
   assert.ok(/Save or leave this step type first, then go back again\./.test(app.live()), app.live() + JSON.stringify(app.entries()));
-  assert.strictEqual(app.index(), at); assert.strictEqual(app.hash(), '#/types/new');
+  /* Settled in place (2.16): the entry the jump landed on shows B's place. */
+  assert.strictEqual(app.index(), at - 3); assert.strictEqual(app.hash(), '#/types/new');
   // From another screen, a #/types entry while B is kept shows B's prompt under B's own location.
   app.click('nav', 'runs'); await app.tick();
   await back(app);
@@ -7908,7 +7918,8 @@ rule('Back and Forward: a click while Back puts the address bar back after closi
   app.click('nav', 'skills'); await app.tick();
   app.releasePops(); await app.settle();
   assert.strictEqual(app.hash(), '#/skills');
-  assert.deepStrictEqual(hashes(app), ['#/', '#/runs', '#/settings', '#/skills']);
+  /* Back that closed the dialog settled in place: its entry shows Settings, and the click pushed after it. */
+  assert.deepStrictEqual(hashes(app), ['#/', '#/settings', '#/skills']);
   await back(app);
   assert.strictEqual(app.hash(), '#/settings'); numbered(app); assert.strictEqual(app.reloads(), 0);
 });
@@ -7921,9 +7932,10 @@ rule('Back and Forward: overlapping moves never reload, never reuse a number, an
   app.input('ob-text', 'Half typed'); await app.tick();
   app.holdPops(); app.back(); app.back(); app.releasePops();
   await app.settle(); await new Promise(r => setTimeout(r, 1200)); await app.settle();
-  assert.strictEqual(app.hash(), '#/process/release/edit'); assert.strictEqual(app.index(), 2);
-  assert.deepStrictEqual(hashes(app), ['#/', '#/process/release', '#/process/release/edit']);
-  assert.ok(/id="ed-h"/.test(app.html()) && app.draft('ob-text') === 'Half typed');
+  /* Each refused Back is settled in place where it landed (2.16): the editor's URL on both. */
+  assert.strictEqual(app.hash(), '#/process/release/edit'); assert.strictEqual(app.index(), 0);
+  assert.deepStrictEqual(hashes(app), ['#/process/release/edit', '#/process/release/edit', '#/process/release/edit']);
+  assert.ok(/id="ed-h"/.test(app.html()) && app.draft('ob-text') === 'Half typed'); assert.strictEqual(app.appTraversals(), 0);
   // A typed hash refused while a dialog is open, then the dialog again and Back.
   const b = await navBoot();
   b.click('open-process', 'release'); await b.tick();
@@ -8118,7 +8130,7 @@ rule('Back and Forward: the browser\'s place and the drawn entry stay right thro
   b.click('ob-sel', 'flags'); await b.tick(); b.input('ob-text', 'typed'); await b.tick();
   await back(b);
   assert.ok(/Apply or clear what you typed/.test(b.live()));
-  assert.strictEqual(b.index(), 2); assert.strictEqual(b.hash(), '#/process/release/edit'); numbered(b); assert.strictEqual(b.reloads(), 0);
+  assert.strictEqual(b.index(), 1, 'settled in place'); assert.strictEqual(b.hash(), '#/process/release/edit'); numbered(b); assert.strictEqual(b.reloads(), 0);
 });
 
 rule('Back and Forward: End the run lands on the receipt in Finish\'s place, so Back never reopens Finish of an ended run', async () => {
@@ -8249,7 +8261,7 @@ rule('Back and Forward (2.0): a phase\'s note typed and not applied holds Back l
   app.input('ob-ph-note', 'Half a phase note'); await app.tick();
   await back(app);
   assert.ok(/Apply or clear what you typed in the box first \(leaving the box applies it\)/.test(app.live()), app.live());
-  assert.ok(/id="ed-h"/.test(app.html()) && JSON.stringify(app.entries()) === list, 'still the editor, entries untouched');
+  assert.ok(/id="ed-h"/.test(app.html()) && inPlace(app, list), 'still the editor, settled in place: ' + JSON.stringify(hashes(app)));
   assert.strictEqual(app.draft('ob-ph-note'), 'Half a phase note'); assert.strictEqual(app.activeId(), 'ob-ph-note');
   app.click('tl-undo', 'draft'); await app.tick();
   assert.ok(/Apply or clear what you typed in the box first \(leaving the box applies it\), then Undo/.test(app.live()), 'Undo waits: ' + app.live());
@@ -8549,7 +8561,7 @@ rule('Builder: typing in the note, Questions or an Add box and not applying it h
   app.input('ob-note', 'Half a note'); await app.tick();
   await back(app);
   assert.ok(/Apply or clear what you typed in the box first \(leaving the box applies it\)/.test(app.live()), app.live());
-  assert.ok(/id="ed-h"/.test(app.html()) && JSON.stringify(app.entries()) === list, 'still the editor, entries untouched');
+  assert.ok(/id="ed-h"/.test(app.html()) && inPlace(app, list), 'still the editor, settled in place: ' + JSON.stringify(hashes(app)));
   assert.strictEqual(app.draft('ob-note'), 'Half a note'); assert.strictEqual(app.activeId(), 'ob-note');
   app.click('tl-undo', 'draft'); await app.tick();
   assert.ok(/Apply or clear what you typed in the box first \(leaving the box applies it\), then Undo/.test(app.live()), 'Undo waits: ' + app.live());
