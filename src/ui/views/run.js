@@ -98,7 +98,7 @@
     /* Conditions (2.1): a step whose condition waits for a detail says why, as a bound step does. */
     var heldWhy = s.when || x.phase.when ? R.held(r, map, s) : '';
     if (heldWhy) badges += '<span class="badge b-warn">Waiting · ' + esc(heldWhy) + '</span>';
-    if (!P && a && a.reopened) badges += '<span class="badge b-warn">Reopened when read</span>';
+    if (!P && a && a.reopened) badges += '<span class="badge b-warn" title="' + esc(reopenNotice(r, a)) + '">' + (a.reopened === 'stuck' ? 'Reopened when read: start a new run' : 'Reopened when read') + '</span>';
     /* Practice says what a run never needs to: assumed, checked without its evidence, simulated. */
     if (P) badges += pm.status === 'assumed' ? '<span class="badge b-ref">Assumed for practice</span>' : pm.skipped ? '<span class="badge b-ref">Checked without evidence</span>' : pm.simulated === 'linked' && pm.status !== 'done' ? '<span class="badge b-ref">Simulated</span>' : '';
     var notes = (r._notes || []).filter(function (n) { return n.step === s.id && n.kind !== 'correction' && n.kind !== 'fix' && n.kind !== 'map'; }).length, dr = ctx.stepDraft && ctx.stepDraft(s.id);
@@ -635,14 +635,22 @@
     if (!ss.ok) h += '<p class="small rw-why-off">' + esc(ss.why) + '</p>';
     var v = a && a.values;
     if (v && v.count != null && v.count !== '') {
-      var meets = JS.meets(rule, +v.count), when = v.ranAt ? ' · searched ' + U.when(v.ranAt) : '';
+      var meets = JS.meets(rule, +v.count), when = v.ranAt ? ' · searched ' + U.full(v.ranAt) : '';
       h += '<p class="search-res ' + (meets ? 'good' : 'bad') + '" role="status">Found ' + esc(v.count) + (v.keys ? ' · ' + esc(v.keys) : '') + esc(when) + (a.at ? ' · checked ' + esc(U.hm(a.at)) : '') + '</p>';
     }
-    if (a && a.reopened) h += '<span class="badge b-warn">Reopened when read</span>';
+    if (a && a.reopened) h += '<div class="note warn" role="status"><span class="badge b-warn">Reopened when read</span> ' + esc(reopenNotice(r, a)) + '</div>';
     var dm = R.genDamaged ? R.genDamaged(r, map, s) : null;
     if (dm && (dm.details.length || dm.rec) && r.state === 'running' && ctx.recording && ctx.recording(r)) h += '<div class="row"><button class="mini" data-act="refresh-search" data-id="' + esc(s.id) + '">Refresh search</button></div>';
     return '<div class="search-box">' + h + '</div>';
   }
+  /* What a reopened search says (section 5.9 R14-3, R14-7): its reason, then what to do next. */
+  function reopenNotice(r, a) {
+    var why = String(a.reason || 'Reopened when read').replace(/\.$/, '') + '.';
+    if (a.reopened === 'stuck') return why + ' Start a new run of this checklist; this run stays as recorded.';
+    if (r.state === 'completed') return why + ' The run stays Completed; answer this step again with Done. Every other step stays closed.';
+    return why + ' Refresh the search, search again, then choose Done.';
+  }
+  V.reopenNotice = reopenNotice;
   function fieldsBlock(ctx, r, map, s, t, sched) {
     if (R.isSearchStep(s)) return searchBlock(ctx, r, map, s);
     var st = ctx.state, eff = R.fieldsOf(r, s), own = (r.fields || {})[s.id] || {}, chips = '', code = '';

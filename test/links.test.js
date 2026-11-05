@@ -306,9 +306,11 @@ rule('Run time: a pass: name the child lacks is refused before anything starts',
   assert.ok(/no run detail stage/.test(R.childProblem(x.parent, x.st, x.cmap.meta.context)));
 });
 
+/* A completed child stands only with every gate passed (5.7): the fixtures record that. */
+const gatesPassed = kid => { const m = R.mapOf(kid); m.phases.forEach((p, pi) => { p.steps.forEach(st => R.na(kid, m, st.id, 'person-avery', NOW)); R.pass(kid, m, pi, 'person-avery', NOW); }); };
 function judged(fields, inputs, childDetails, outcome) {
   const x = linked(fields), kid = startRun(x.dv, childDetails, 'run-k');
-  kid.ended = { outcome: outcome || 'Completed' };
+  kid.ended = { outcome: outcome || 'Completed' }; gatesPassed(kid);
   x.parent.steps.dep = { s: 'open', child: { process: 'deploy', id: 'run-k', inputs } };
   return R.childVerdict(x.parent, x.st, x.parent.steps.dep, kid, () => null);
 }
@@ -337,7 +339,7 @@ rule('Run time: a child stops being current when a pass: source isn\'t in what i
 
 rule('Run time: a migration waiting in the child on a renamed source holds the step; resolved to the same value it counts', () => {
   const x = linked(['  pass: environment=^env']), kid = startRun(x.dv, { environment: 'Prod', region: 'eu', ticket: 'T-1', notify: '' }, 'run-k');
-  kid.ended = { outcome: 'Completed' };
+  kid.ended = { outcome: 'Completed' }; gatesPassed(kid);
   kid.migrations = [{ path: 'details.environment', from: 'prod', verdict: 'ambiguous', resolved: null }];
   x.parent.steps.dep = { s: 'open', child: { process: 'deploy', id: 'run-k', inputs: { env: 'prod', ticket: 'T-1', region: 'eu' } } };
   assert.strictEqual(R.childVerdict(x.parent, x.st, x.parent.steps.dep, kid, () => null), null, 'held');

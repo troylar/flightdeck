@@ -101,7 +101,7 @@
         var ap = R.applies(r, map, pi, s);
         if (ap.applies === false) { notNeeded.push(K.stepPlain(s, rv) + ': ' + ap.why); return ''; }
         var a = r.steps[s.id], st = a && a.s !== 'open' ? a.s : 'open';
-        var ev = a && a.s === 'done' && a.values ? R.evidenceFor(r, s).list.filter(function (d) { return a.values[d.name]; }).map(function (d) { return esc(d.label) + ': ' + esc(R.shown(r, map, 'steps.' + s.id + '.values.' + d.name, a.values[d.name])); }).join(' · ') : '';
+        var ev = a && a.s === 'done' && a.values ? R.evidenceFor(r, s).list.filter(function (d) { return a.values[d.name]; }).map(function (d) { return d.system && d.name === 'searchId' ? 'Search: ' + esc(String(a.values[d.name]).replace(/^sha256:/, '').slice(0, 8)) : esc(d.label) + ': ' + esc(R.shown(r, map, 'steps.' + s.id + '.values.' + d.name, a.values[d.name])); }).join(' · ') : '';
         var from = a && a.s === 'done' ? reportOf(s.id) : '';
         return '<div class="rrow"><span class="ric ' + st + '">' + ICON[st] + '<span class="sr"> ' + st + '</span></span><span>' + K.stepHtml(s, rv) + (a && a.differently ? ' <span class="badge b-diff">differently</span>' : '') + (ev ? '<span class="small" style="display:block">' + ev + '</span>' : '') + (from ? '<span class="small" style="display:block">' + esc(from[0].toUpperCase() + from.slice(1)) + '</span>' : '') + '</span><span class="small">' + esc(ap.applies === null ? ap.why : a && (a.s === 'blocked' || a.s === 'recheck') ? a.reason : '') + '</span></div>';
       }).join('') + '</div>';

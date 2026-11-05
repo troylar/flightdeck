@@ -544,6 +544,9 @@ PF.run = (function () {
     var base = e && typeof e.base === 'string' ? e.base : '', out = { rule: rule, base: base, site: n, siteEntry: e };
     var q = f.query != null && String(f.query).trim(), filter = !q && f.filter != null && String(f.filter).trim() ? String(f.filter).trim() : '';
     var sub = null;
+    /* A consumed detail whose typed value isn't valid (a pattern it breaks, a value kept as written) builds no search. */
+    var badD = searchUses(map, step).filter(function (d) { var dd = detailValueDef(map, d), v = r.details && r.details[d]; return dd && v && !V.valid(dd, v); })[0];
+    if (badD) return Object.assign(out, { ok: false, invalid: true, why: 'The run detail ' + badD + ' isn\'t a valid value (' + String(V.invalidWhy(detailValueDef(map, badD), r.details[badD])).replace(/\.$/, '') + '), so this search can\'t be built.' });
     if (!filter) {
       sub = JS.substitute(String(f.query || ''), r.details, map.meta.context);
       if (!sub.ok) return Object.assign(out, { ok: false, waiting: !!(sub.missing && sub.missing.length), why: sub.why });
@@ -642,7 +645,22 @@ PF.run = (function () {
     map.meta.context.forEach(function (d) { gen[d] = used[d] ? JS.token(JS.genOk(old[d]) ? old[d] : null) : (JS.genOk(old[d]) ? old[d] : JS.token(null)); });
     ss.forEach(function (x) { rec[x.step.id] = JS.token(cur.searchRec && JS.genOk(cur.searchRec[x.step.id]) ? cur.searchRec[x.step.id] : null); });
     afterJira(cur, { searchSites: cleanSites(cur.searchSites).sites, searchGen: gen, searchRec: rec });
-    var n = 0; ss.forEach(function (x) { if (searchStale(cur, map, x, 'Recovered a copy: Jira searches need fresh results', who, now)) n++; });
+    /* A completed copy keeps Completed: its done searches take the read-reopened path (history and outcome kept), so Done
+       answers them again (R14-4); a running one sends them to re-check. */
+    var n = 0; ss.forEach(function (x) {
+      if (cur.state !== 'completed') { if (searchStale(cur, map, x, 'Recovered a copy: Jira searches need fresh results', who, now)) n++; return; }
+      var a = cur.steps[x.step.id];
+      if (!a || a.s !== 'done' || applies(cur, map, x.phaseIndex, x.step).applies === false) return;
+      var st = cur.state;
+      answer(cur, x.step.id, { s: 'open', reason: (SEARCH_PREFIX + 'a copy was recovered, so its results are for an earlier search').slice(0, 120) }, true);
+      delete cur.steps[x.step.id].values;
+      cur.state = st;
+      cur.steps[x.step.id].reopened = searchState(cur, map, x.step).ok ? true : 'stuck';
+      if (cur.steps[x.step.id].reopened === 'stuck') cur.steps[x.step.id].reason = (SEARCH_PREFIX + 'this run\'s record is damaged and can\'t be repaired here; start a new run').slice(0, 120);
+      var g = cur.gates[x.phase.gate.id];
+      if (g && (g.s === 'passed' || g.s === 'waived')) cur.gates[x.phase.gate.id] = { s: 'review', was: g.s, by: g.by, at: g.at, reason: REOPEN_GATE, approved: g.approved };
+      n++;
+    });
     if (n) addLog(cur, who, now, 'Recovered a copy: Jira searches need fresh results.');
   }
   /* The reader's containers (section 5.6): fresh plain objects with only valid entries for known names, and what was damaged. */
@@ -680,7 +698,7 @@ PF.run = (function () {
     var v = a.values || {};
     if (v.searchId !== st.id) return 'refresh the search: the results are for an earlier search';
     var chk = searchCheck(r, map, step, v, a.at || r.savedAt || new Date().toISOString(), {});
-    if (chk.error) return 'its results ' + chk.error.charAt(0).toLowerCase() + chk.error.slice(1).replace(/\.$/, '');
+    if (chk.error) return 'its results can\'t check this search';
     if (!chk.meets) return 'its results don\'t meet the rule';
     var same = JS.SEARCH_FIELDS.every(function (k) { return (v[k] == null ? '' : String(v[k])) === (chk.values[k] == null ? '' : String(chk.values[k])); });
     return same ? '' : 'its results aren\'t in the form Done records';
@@ -710,7 +728,8 @@ PF.run = (function () {
       if (!a) return;
       /* A step this run doesn't need (only when) counts for nothing, so its record is left as it is. */
       if (applies(r, map, x.phaseIndex, x.step).applies === false) return;
-      var stuck = function () { var s = searchState(r, map, x.step); return !s.ok && (s.damaged || s.waiting) && r.state === 'completed'; };
+      /* A completed run's details can't change, so a search it can't build (any reason) can't be answered again here. */
+      var stuck = function () { return r.state === 'completed' && !searchState(r, map, x.step).ok; };
       if (a.s === 'done') {
         var why = searchStands(r, map, x.step, a);
         if (!why) return;
@@ -1332,11 +1351,10 @@ PF.run = (function () {
   var CHILD_HEIGHT = 16, CHILD_LINKS = 5000;
   function stepApplies(r, map, id) { var x = M.findStep(map, id); return !!x && applies(r, map, x.phaseIndex, x.step).applies !== false; }
   /* A Completed child stands only when every gate that applies is gateOk as read: '' or why its completion doesn't stand. */
+  /* Every gate is asked for a new settlement; the folder pass (childMarks) asks only children with Jira searches, the only
+     ones a read can reopen, so recorded parent answers stay as they were. */
   function childCheck(child) {
     if (!child || !child.ended || child.ended.outcome !== 'Completed') return '';
-    /* Only a child whose version has Jira searches can be reopened when read, so only such a child is asked (a departure
-       recorded in the build notes: older fixtures complete children without passing their gates). */
-    if (!searchIn(child)) return '';
     var cmap; try { cmap = mapOf(child); } catch (e) { return ''; }
     for (var pi = 0; pi < cmap.phases.length; pi++) {
       var gs = gateStatus(child, cmap, pi);
@@ -1352,7 +1370,7 @@ PF.run = (function () {
     var ids = Object.keys(child.steps || {}).filter(function (k) { return child.steps[k] && child.steps[k].reopened; });
     if (!ids.length) return null;
     var x = M.findStep(cmap, ids[0]);
-    return x ? { id: ids[0], text: M.shownText(x.step, function (n) { return (child.details || {})[n] || ''; }), stuck: child.steps[ids[0]].reopened === 'stuck' } : null;
+    return x ? { id: ids[0], text: M.shownText(x.step, M.valuesOf(child)), stuck: child.steps[ids[0]].reopened === 'stuck' } : null;
   }
   /* The folder pass (R.childMarks): a parent's done linked step whose loaded child says Completed but doesn't stand as read.
      It never changes a run; one level, by design. */
@@ -1366,7 +1384,7 @@ PF.run = (function () {
         var a = r.steps[id];
         if (!a || a.s !== 'done' || !a.child || a.child.retired || !stepApplies(r, map, id)) return;
         var c = by[a.child.process + '/' + a.child.id];
-        if (!c || !c.ended || c.ended.outcome !== 'Completed') return;
+        if (!c || !c.ended || c.ended.outcome !== 'Completed' || !searchIn(c)) return;
         var why = childCheck(c);
         if (!why) return;
         var cmap; try { cmap = mapOf(c); } catch (e) { return; }
@@ -1404,30 +1422,38 @@ PF.run = (function () {
       if (up.indexOf(key(p)) >= 0) break;
       up.push(key(p)); at = p;
     }
-    var level = [child], seen = Object.create(null), depth = 1;
-    seen[ck] = 1;
-    while (level.length) {
-      var next = [];
-      for (var i = 0; i < level.length; i++) {
-        var c = level[i], cmap = null;
-        if (!c || !c.steps || !c.snapshot) continue;
-        try { cmap = mapOf(c); } catch (e) { continue; }
-        var ids = Object.keys(c.steps);
-        for (var j = 0; j < ids.length; j++) {
-          var a = c.steps[ids[j]];
-          if (!a || !a.child || a.child.retired || !stepApplies(c, cmap, ids[j])) continue;
-          if (++reads > CHILD_LINKS) return 'That run has more than 5,000 links below it, more than Flightdeck reads when linking. Link or start a different run.';
-          var k = a.child.process + '/' + a.child.id;
-          if (up.indexOf(k) >= 0) return 'Linking that run would make a loop: its linked runs lead back to the ' + (r.title || r.process) + ' run. Link or start a different run.';
-          var g = findRun(k);
-          if (g && !seen[k]) { seen[k] = 1; next.push(g); }
-        }
+    /* Below the child: a depth-first walk that remembers each run's longest chain, so a cycle anywhere below is found
+       (a run met again while still on the path) and the longest chain is measured, not the first one found. Each link is
+       read once, within the 5,000-link budget; the walk stops as soon as a chain can't fit in 16. */
+    var room = CHILD_HEIGHT - up.length, memo = Object.create(null), onPath = Object.create(null), why = '';
+    var LONG = 'Linking that run would put more than 16 linked runs in one chain, or its linked runs loop. Link or start a run with fewer linked runs below it.';
+    function height(c, k, d) {
+      if (memo[k] != null) return memo[k];
+      if (d > room) { why = LONG; return -1; }
+      var h = 1, cmap = null;
+      if (!c || !c.steps || !c.snapshot) { memo[k] = h; return h; }
+      try { cmap = mapOf(c); } catch (e) { memo[k] = h; return h; }
+      onPath[k] = 1;
+      var ids = Object.keys(c.steps);
+      for (var j = 0; j < ids.length; j++) {
+        var a = c.steps[ids[j]];
+        if (!a || !a.child || a.child.retired || !stepApplies(c, cmap, ids[j])) continue;
+        if (++reads > CHILD_LINKS) { why = 'That run has more than 5,000 links below it, more than Flightdeck reads when linking. Link or start a different run.'; return -1; }
+        var kk = a.child.process + '/' + a.child.id;
+        if (up.indexOf(kk) >= 0) { why = 'Linking that run would make a loop: its linked runs lead back to the ' + (r.title || r.process) + ' run. Link or start a different run.'; return -1; }
+        if (onPath[kk]) { why = 'Linking that run would make a loop: its linked runs lead back to each other below it. Link or start a different run.'; return -1; }
+        var g = findRun(kk);
+        if (!g) continue;
+        var hh = height(g, kk, d + 1);
+        if (hh < 0) return -1;
+        if (hh + 1 > h) h = hh + 1;
+        if (h > room) { why = LONG; return -1; }
       }
-      if (next.length) depth++;
-      if (up.length + depth > CHILD_HEIGHT) return 'Linking that run would put more than 16 linked runs in one chain, or its linked runs loop. Link or start a run with fewer linked runs below it.';
-      level = next;
+      onPath[k] = 0; memo[k] = h; return h;
     }
-    return '';
+    var hc = height(child, ck, 1);
+    if (hc < 0) return why;
+    return hc > room ? LONG : '';
   }
   function linkChild(r, map, stepId, child, who, now, opts) {
     /* Linking records a run that already exists, so it's allowed while paused; starting one (in the app) isn't. */
@@ -1447,7 +1473,8 @@ PF.run = (function () {
     /* A run/2 parent never adopts a child made with Flightdeck 2.0 (review #1): offer a 2.0 run instead. */
     if (r.format !== FORMAT3 && isTwo(child)) throw new Error(LEGACY_CHILD);
     /* Loops and depth are decided when linking (5.7.4), for every checklist; existing links keep their settlement. */
-    var shape = linkShape(r, child, o.findRun);
+    /* The walk reads the loaded child (its own links), not the link's descriptor. */
+    var shape = linkShape(r, o.run || (typeof o.findRun === 'function' && o.findRun(child.process + '/' + child.id)) || child, o.findRun);
     if (shape) throw new Error(shape);
     /* A run/3 adopts only a run of the exact version its step is pinned to (folder and fingerprints), however it was found. */
     /* With no pin yet (the child process wasn't published when the run started), the step is pinned to the adopted run's

@@ -216,6 +216,8 @@ function teamLinked(pass) {
 }
 function verdict(x, teamPassed, kidDetails, opts) {
   const kid = mkRun(x.dv, kidDetails, 'run-k');
+  /* A completed child has its steps done and its gates passed (2.16: a completion stands only when its gates still hold). */
+  const m = R.mapOf(kid); m.phases.forEach((p, pi) => { p.steps.forEach(st => R.na(kid, m, st.id, 'person-avery', NOW)); R.pass(kid, m, pi, 'person-avery', NOW); });
   kid.ended = { outcome: 'Completed' };
   if (opts && opts.migrations) kid.migrations = opts.migrations;
   x.parent.steps.dep = { s: 'open', child: Object.assign({ process: 'deploy', id: 'run-k', inputs: { env: 'prod' } }, teamPassed !== undefined ? { teamPassed } : {}) };

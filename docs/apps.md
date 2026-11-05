@@ -98,6 +98,7 @@ An error object (exit 1 or 5) has `contract`, `app`, `error` and `problems`, and
 | `link` | A link the command didn't follow |
 | `skipped` | A file too large to read (over 16 MB). The bytes are counted as they're read, so a file that grows while it's read is refused too. |
 | `vanished` | A file or folder that was listed and then gone before it could be read or listed itself (OneDrive replacing it, or someone deleting it). A folder gone like that is never read as empty, so a decided follow-up never looks open because its folder went missing mid-read. |
+| `child-mark` | From 2.16, at a parent run's `run.json`: a linked step recorded as done whose child run says Completed but doesn't stand as read (one of its Jira searches was reopened when read, or a gate there doesn't pass). `why` names the step, the child run, and what to do: answer the child's reopened step again with Done, or, when the child's record can't be repaired, start a new run. The parent's answer is left as recorded and is still in the data. |
 
 #### `malformed` in detail
 
@@ -209,7 +210,7 @@ A plan made with Flightdeck 2.0 for one exact version (`flightdeck-plan/2`: `for
 - **Migrations.** When a typed value came from older text (a plan, a carried value, a report), the run keeps a record of what it was and what it became. Each record has `path` (like `details.due` or `steps.count.values.rows`), `at`, `from` (the text before), `source` (`plan`, `switch`, `carry`, `request` or `report`), `verdict` (`converted`, `ambiguous` or `invalid`), `result` (what it converted to, or `null`), `resolved` (`by`, `at` and `value` when a person filled it in, or `null`) and `open` (`true` while a person still has to fill it in).
 - **`run`** adds `format`, `features` (what the run needs from Flightdeck, in order), `pins` (each linked step's pinned version: `process`, `version`, `folder`, `mapHash`, `typesHash`) and `migrations` (every record, archived ones first). Each step's `evidence` entry adds its `type`: how its values are checked and reported, the same `type` as each of its values. Evidence a 1.x step type records as a choice or a link (`kind` `choice` or `url`) is `text`: its values were never checked as typed values.
 - **`runs`** adds `format` and `features` to each run, and each planned run's `format` and `pin` (`folder` and `version` of the exact version a 2.0 plan starts on, or `null`). A 2.0 plan never falls back to the latest version: when its version can't be used, `startsOn` is `null` and `versionMissing` is `true`.
-- **`process`** adds `format`, `features` and `details` (each run detail's `name`, `type` and `options`), and each step's `evidence` entry adds `type`, `min`, `max` and `unit` (a number's limits, as text, or `null`).
+- **`process`** adds `format`, `features` and `details` (each run detail's `name`, `type` and `options`, and from 2.16 `pattern` on a detail that must match one: the pattern as the checklist writes it, inside `pattern(...)`; other details have no `pattern` key), and each step's `evidence` entry adds `type`, `min`, `max` and `unit` (a number's limits, as text, or `null`).
 - **Conditions (`only when`).** From Flightdeck 2.1, in `process`, each phase and each step adds `when`: its `only when` tests in their canonical spelling (`^risk is high`), `[]` when it has none. In `run`, each step adds `applies` (`true`, `false` when it's Not needed in this run, `null` when it can't tell yet) and `held` (why it's waiting, while `applies` is `null`; else `null`), and each gate adds `applies` (`false` when its phase is Not needed). A gate whose phase is Not needed has `status` `skipped`: it needs no pass, and it's never permission for anything. `applies` is read from the run's details as they are now, so it can change when a detail does.
 - **Test runs.** From Flightdeck 2.1, a test run tries a staged version before it's the default, and is never counted as a real run. `runs` leaves test runs out unless you add `--tests`, and adds `testRunsLeftOut`: how many test runs matched but weren't listed. Each run in `runs` and `run` adds `test` (`true` for a test run) and `stage` (`{ "folder": "stage-..." }` for a test run, else `null`); a test run's `version` is the number its stage proposes, and its `folder` is the stage's. Each follow-up in `followups` and `run` adds `test`. `process <process> --stage stage-...` reads a staged version, with `stage` (`folder`, `proposed`, `stagedBy`, `stagedAt`; `null` for a version). `--tests` and `--stage` work with `--contract 2` only.
 
@@ -381,7 +382,21 @@ Running runs and their steps: `data` is `{ "runs": [...] }`, each with `key`, `t
 
 ### Jira searches
 
-A `{jira.search}` step (2.16) also has `search`, in `report targets`, `run --json` and `next`: `{ query, filter, results, what, site, uses, jql, link, searchId, ready, why }`, resolved from the run's details and the Jira address it copied when it started. `jql` and `link` are `null` until `ready`, and `link` is `null` over 8,000 characters. `searchId` is `null` when the run's record of a detail or of the step's recovery is damaged. `process --json` has the template only: `{ query, filter, results, what, site, uses }`. Other steps have no `search` key.
+A `{jira.search}` step (2.16) also has `search`, in `report targets`, `run --json` and `next`, resolved from the run's details and the Jira address it copied when it started. `process --json` has the template fields only (the first six below). Other steps have no `search` key.
+
+| Field | What it holds |
+|---|---|
+| `query` | The step's JQL as the checklist writes it, with `^detail` placeholders; `null` for a saved filter |
+| `filter` | The saved filter's number, as text; `null` for a query |
+| `results` | The rule the results must meet: `none`, `any`, `exactly N`, `at least N` or `at most N` (`any` when the checklist says nothing) |
+| `what` | What the search finds, in the checklist's words; `""` when it says nothing |
+| `site` | The team value holding the Jira address, like `jira-base-url`; `null` when the step's `site:` isn't one |
+| `uses` | The run details the query uses, in order of first use; `[]` for a filter |
+| `jql` | The query with the run's details filled in, each quoted; `null` until `ready` |
+| `link` | The Jira search address; `null` until `ready`, with no Jira address, or over 8,000 characters |
+| `searchId` | The current search's identity, to copy into a report's evidence; `null` when the run's record of a detail or of the step's recovery is damaged |
+| `ready` | `true` when the search can be run now |
+| `why` | Why it can't (a detail it waits for, a damaged record); `null` when `ready` |
 
 The report carries the results as evidence: `searchId` (copied from `report targets`, never computed), `count` (an exact total), `keys` when the count breaks the rule and isn't 0, and optionally `resultsLink` and `ranAt`. The JQL and the link are never sent. Accepting it is checked against the run at that moment:
 

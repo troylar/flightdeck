@@ -476,7 +476,12 @@ PF.practice = (function () {
       }
       /* A checked search whose kept results don't meet its rule is dropped, as cut evidence is, and with it the gates. */
       var sx = k.s === 'done' && !k.skipped ? M.findStep(map, id) : null;
-      if (sx && R.isSearchStep(sx.step)) { var rr = JS_RULE(sx.step), c0 = k.values && k.values.count; if (!rr.ok || c0 == null || !/^\d{1,7}$/.test(c0) || !PF.jsearch.meets(rr, +c0)) { cut = true; return; } }
+      /* The shared check Done uses in practice (count, keys against the count, the rule); without evidence and assumed
+         answers aren't asked. */
+      if (sx && R.isSearchStep(sx.step)) {
+        var rr = JS_RULE(sx.step), sc = rr.ok ? PF.jsearch.checkEvidence(rr, k.values || {}, null, Date.now(), { practice: true }) : null;
+        if (!sc || sc.error || !sc.meets) { cut = true; return; }
+      }
       st.answers[id] = k;
     });
     if (cut) st.gates = {};

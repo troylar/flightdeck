@@ -48,7 +48,8 @@ rule('App: a run-another-process step starts a linked child run, and the parent 
   assert.strictEqual(child.parent.inputs.commit, 'f00d123', 'the child records the details it was started for');
   assert.strictEqual(link.inputs.commit, 'f00d123');
   assert.strictEqual(child.details.commit, parent.details.commit, 'carried detail');
-  // The child is finished elsewhere.
+  // The child is finished elsewhere: its steps done and its gates passed.
+  finishedKid(app.PF, child);
   child.ended = { outcome: 'Completed', by: 'person-avery', at: new Date().toISOString() }; child.state = 'completed'; child.rev = (child.rev || 0) + 1;
   await app.fs.write(cpath, JSON.stringify(child));
   app.click('refresh'); await app.tick(80);
@@ -8720,12 +8721,20 @@ rule('Conditions (2.1): a child run is never started for a step that isn\'t need
   assert.strictEqual(children(), before + 1, 'needed again, it starts');
 });
 
+/* A child run finished as a person would: every step answered and every gate passed, so its completion stands (5.7). */
+function finishedKid(PF, child) {
+  const R = PF.run, r = R.sanitize(JSON.parse(JSON.stringify(child))), m = R.mapOf(r), at = new Date().toISOString();
+  m.phases.forEach(p => { p.steps.forEach(st => { const a = child.steps[st.id]; if (!(a && (a.s === 'done' || a.s === 'na'))) child.steps[st.id] = { s: 'done', by: 'person-avery', at }; }); });
+  const rr = R.sanitize(JSON.parse(JSON.stringify(child))), mm = R.mapOf(rr);
+  mm.phases.forEach(p => { child.gates[p.gate.id] = { s: 'passed', by: 'person-avery', at, approved: R.gateInputs(rr, mm, p.gate) }; });
+  return child;
+}
 rule('Conditions (2.1): a child-run step whose condition tests a carried detail changed A to B to A stays in re-check after Refresh, and a new child replaces the retired link', async () => {
   const app = await conditionalRelease('^commit is set');
   app.click('start-child', 'notes'); await app.tick(120);
   let j = app.run().json, link = j.steps.notes.child;
   assert.ok(link && link.inputs.commit === 'f00d123', 'set-up: a child for commit f00d123');
-  const cpath = 'runs/check-in/' + link.id + '/run.json', child = JSON.parse(app.fs.files[cpath].t);
+  const cpath = 'runs/check-in/' + link.id + '/run.json', child = finishedKid(app.PF, JSON.parse(app.fs.files[cpath].t));
   child.ended = { outcome: 'Completed', by: 'person-avery', at: new Date().toISOString() }; child.state = 'completed'; child.rev = (child.rev || 0) + 1;
   await app.fs.write(cpath, JSON.stringify(child));
   app.click('refresh'); await app.tick(120);
@@ -8778,7 +8787,7 @@ rule('2.8: a pass: step with a detail to ask opens the child\'s start dialog; th
   assert.deepStrictEqual(kids[0].parent.inputs, { env: 'prod', ticket: 'T-1' }, 'the snapshot is by the parent\'s names');
   const link = shipRun(app).steps.dep.child;
   assert.ok(link && link.id === kids[0].id && link.inputs.env === 'prod' && !('environment' in link.inputs), 'linked with the same snapshot');
-  const path = app.files('runs/deploy/').find(p => /run\.json$/.test(p)), kid = kids[0];
+  const path = app.files('runs/deploy/').find(p => /run\.json$/.test(p)), kid = finishedKid(app.PF, kids[0]);
   kid.ended = { outcome: 'Completed', by: 'person-avery', at: new Date().toISOString() }; kid.state = 'completed'; kid.rev = (kid.rev || 0) + 1;
   await app.fs.write(path, JSON.stringify(kid));
   app.click('refresh'); await app.tick(100);

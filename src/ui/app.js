@@ -1978,7 +1978,7 @@
     /* Revealed boxes belong to one checklist's editor: leaving it (another checklist, folder or screen) forgets them. */
     if (state.obShown && (state.view !== 'process' || state.ptab !== 'edit' || state.obShown.key.indexOf(fsKey() + '\n' + state.processId + '\n') !== 0)) state.obShown = null;
     var fill = fillShown();
-    try { renderNow(); } finally { rendering = false; }
+    try { harvest(); dropStaleSearches(); renderNow(); } finally { rendering = false; }
     fillAfter(fill);
     dbxAfter();
     scheduleSync();
@@ -4922,6 +4922,7 @@
     if (id === 'ob-ph-title') return ph ? ph.title : '';
     if (id === 'ob-ph-mode') return ph ? ph.mode : '';
     if (id === 'ob-type') return st ? st.type || '' : '';
+    if (id === 'ob-jres-n') { var rn = st && /^(?:exactly|at least|at most) (\d+)$/i.exec(String(st.fields.results || '').trim().replace(/\s+/g, ' ')); return rn ? rn[1] : ''; }
     if (id === 'ob-ph-note') return ph ? ph.note : '';
     if (id === 'ob-when') return st ? st.when.join('\n') : '';
     if (id === 'ob-ph-when') return ph ? ph.when.join('\n') : '';
@@ -5149,6 +5150,20 @@
     var w = PF.links.write(rows, st, map.meta.context, kid.map);
     return { carry: w.carry, pass: w.pass };
   }
+  /* The step selected in the builder, as the draft has it. */
+  function obStep() {
+    var s = state.obSel, cp = currentProcess(); if (!s || !cp || s.kind !== 'step' || s.pid !== cp.id) return null;
+    return PF.outline.parse(edText(cp)).steps.filter(function (x) { return x.key === s.key; })[0] || null;
+  }
+  /* What do you do in Jira? (2.16): Search for issues makes the step {jira.search}; an action makes it {jira.issue} with that
+     action. One change each way, every value kept, so one Undo reverses it. */
+  function jiraSwitch(val) {
+    var st = obStep(), s = state.obSel; if (!st || !/^(create|update|transition|assign|link|search)$/.test(val)) return;
+    var set = val === 'search' ? (st.type === 'jira.search' ? null : { type: 'jira.search' }) :
+      st.type === 'jira.search' ? { type: 'jira.issue', field: 'action', value: val } : String(st.fields.action || '').toLowerCase() === val ? null : { field: 'action', value: val };
+    if (set && builderEdit({ op: 'edit', step: s.key, set: set }, 'ob-jira') === null) return;
+    state.focus = '#ob-jira'; render();
+  }
   function builderField(id, value, focus) {
     var s = state.obSel, cp = currentProcess(); if (!s || !cp || s.pid !== cp.id) return;
     if (s.kind === 'step' && /^ob-fld-[\w-]+$/.test(id)) obShow(id.slice(7), true);
@@ -5178,6 +5193,12 @@
       if (!lset) { render(); return; }
       if (lset.error) { state.fieldErr = { id: 'ob', msg: lset.error, field: id }; state.focus = '#' + id; say(null); render(); return; }
       return obApplied(builderEdit({ op: 'editLink', key: s.key, set: lset }, id), id);
+    }
+    if (s.kind === 'step' && id === 'ob-jres-n') {
+      var sr = o.steps.filter(function (x) { return x.key === s.key; })[0], n = String(value == null ? '' : value).trim(), op = /^(exactly|at least|at most)\b/i.exec(String(sr && sr.fields.results || '').trim());
+      if (!sr || !op) return;
+      if (!/^(0|[1-9]\d{0,5})$/.test(n)) { state.fieldErr = { id: 'ob', msg: 'Type a whole number, 0 to 999999.', field: id }; state.focus = '#ob-jres-n'; say(null); render(); return; }
+      return obApplied(builderEdit({ op: 'edit', step: s.key, set: { field: 'results', value: op[1].toLowerCase() + ' ' + n } }, id), id);
     }
     if (s.kind === 'step' && id === 'ob-note') return obApplied(builderEdit({ op: 'note', step: s.key, text: value }, id), id, null);
     if (s.kind === 'step' && id === 'ob-when') return obApplied(builderEdit({ op: 'when', step: s.key, text: value }, id), id, null);
@@ -5232,10 +5253,10 @@
   /* Text typed in a builder box and not applied (refused, or not left yet) would be dropped by choosing something else or
      opening an Add box: that waits until it's applied or cleared, as Back does. */
   /* The builder boxes a change event applies. */
-  var OB_CHANGE = /^ob-(text|type|fld-[\w-]+|ph-title|ph-note|ph-mode|g-title|g-owner|g-approves|tr-title|tr-role|shot-cap-\d+|note|q-text|owner|backup|add-role|add-ctx|when|ph-when)$/;
+  var OB_CHANGE = /^ob-(text|type|jres-n|fld-[\w-]+|ph-title|ph-note|ph-mode|g-title|g-owner|g-approves|tr-title|tr-role|shot-cap-\d+|note|q-text|owner|backup|add-role|add-ctx|when|ph-when)$/;
   /* The Add step and Add phase boxes, whose typing Undo, Redo and closing the form keep (a new role's name isn't kept). */
   var OB_KEPT = /^ob-new-(text|title)$/;
-  var OB_TYPED = /^ob-(ren-ctx|new-role|text|ph-title|ph-note|tr-title|g-title|g-approves|fld-[\w-]+|new-text|new-title|shot-cap-\d+|note|q-text|add-role|add-ctx|when|ph-when|link-proc-other|link-val-[\w-]+)$/;
+  var OB_TYPED = /^ob-(ren-ctx|jres-n|new-role|text|ph-title|ph-note|tr-title|g-title|g-approves|fld-[\w-]+|new-text|new-title|shot-cap-\d+|note|q-text|add-role|add-ctx|when|ph-when|link-proc-other|link-val-[\w-]+)$/;
   /* A builder box on the page, other than except, whose text differs from what the draft says (an Add box: holds anything).
      Several can hold typing at once (one refused, another being typed in), so every box is looked at, not just the last. */
   function obTyped(except, skipNew) {
@@ -6719,13 +6740,45 @@
     /* A choice button applies its value through the control's own path; the checked one does nothing. */
     'ob-choice': function (id, b) {
       var val = b && b.dataset ? String(b.dataset.val == null ? '' : b.dataset.val) : '';
-      if (!/^ob-(fld-[\w-]+|ph-mode|host|new-mode)$/.test(id || '')) return;
+      if (!/^ob-(fld-[\w-]+|ph-mode|host|new-mode|jira|jfind|jres)$/.test(id || '')) return;
+      /* 2.16 (section 7): What do you do in Jira?, How do you find them? and What should it find? */
+      if (id === 'ob-jira') { jiraSwitch(val); return; }
+      if (id === 'ob-jfind') { var sj = state.obSel, pj = currentProcess(); if (!sj || !pj || !/^(jql|filter)$/.test(val)) return; state.obJFind = { key: pj.id + '\n' + sj.key, v: val }; state.obJqlBad = null; state.focus = '#ob-jfind'; render(); return; }
+      if (id === 'ob-jres') { var stj = obStep(); if (!stj || !/^(none|any|exactly|at least|at most)$/.test(val)) return; var rn = /^(?:exactly|at least|at most) (\d+)$/i.exec(String(stj.fields.results || '').trim().replace(/\s+/g, ' ')); builderField('ob-fld-results', /^(none|any)$/.test(val) ? val : val + ' ' + (rn ? rn[1] : '1'), '#ob-jres'); return; }
       /* The new phase's mode is the add form's own, applied with it. */
       if (id === 'ob-new-mode') { if (state.obAdd && state.obAdd.kind === 'phase' && /^(READ-DO|DO-CONFIRM)$/.test(val)) state.obAdd.mode = val; state.focus = '#ob-new-mode'; render(); return; }
       /* The pull request host buttons change the step's type. */
       var to = id === 'ob-host' ? 'ob-type' : id;
       if (String(fieldApplied(to) || '').toLowerCase() === val.toLowerCase()) { state.focus = '#' + id; render(); return; }
       builderField(to, val, '#' + id);
+    },
+    /* 2.16: a ^detail chip goes into the query only where a single value goes; refused, the place is underlined and nothing changes. */
+    'ob-jql-ins': function (name) {
+      var st = obStep(), cp = currentProcess(), sl = state.obSel; if (!st || !cp || st.type !== 'jira.search') return;
+      var ctxs = PF.map.parse(edText(cp)).meta.context; if (ctxs.indexOf(name) < 0) return;
+      var el = document.getElementById('ob-fld-query'), cur = el ? String(el.value == null ? '' : el.value) : String(st.fields.query || '');
+      var at = el && typeof el.selectionStart === 'number' && (el.selectionStart > 0 || el.selectionEnd > 0) ? el.selectionEnd : cur.length;
+      var r = PF.jsearch.insertAt(cur, at, name, ctxs);
+      if (!r.ok) { state.obJqlBad = { key: cp.id + '\n' + sl.key, text: r.text, s: r.s, e: r.e, why: r.why }; say(r.why, 'warn'); state.focus = '[data-act="ob-jql-ins"][data-id="' + cssEsc(name) + '"]'; render(); return; }
+      state.obJqlBad = null;
+      if (el) el.value = r.text;
+      builderField('ob-fld-query', r.text, '#ob-fld-query');
+    },
+    'ob-jsite': function () { var cp = currentProcess(); if (!cp || obHeld(cp, 'then go to Settings')) return; ACTIONS.nav('settings'); },
+    'ob-jpreview': function () { state.obJPreview = !state.obJPreview; state.focus = '#ob-jpreview summary'; render(); },
+    /* 2.16 (Appendix A.3): Text that matches a pattern. Check tries it; Add writes name:pattern(...) only when it can be read. */
+    'ob-pat-check': function () { state.obPat = { name: val('ob-pat-name'), src: val('ob-pat-src'), test: val('ob-pat-test') }; state.focus = '[data-act="ob-pat-check"]'; render(); },
+    'ob-pat-add': function () {
+      var pv = { name: String(val('ob-pat-name') || '').trim(), src: String(val('ob-pat-src') || ''), test: val('ob-pat-test') }; state.obPat = pv;
+      if (!pv.name) { state.fieldErr = { id: 'ob', field: 'ob-pat-name', msg: 'Type a name first.' }; state.focus = '#ob-pat-name'; render(); return; }
+      if (!pv.src) { state.fieldErr = { id: 'ob', field: 'ob-pat-src', msg: 'Type the pattern first.' }; state.focus = '#ob-pat-src'; render(); return; }
+      var pc = PF.values.compilePattern(pv.src);
+      if (!pc.ok) { state.fieldErr = { id: 'ob', field: 'ob-pat-src', msg: 'The pattern can\'t be used: ' + pc.why }; state.focus = '#ob-pat-src'; render(); return; }
+      var res = builderEdit({ op: 'meta', key: 'context', set: { add: pv.name, pattern: pv.src } }, 'ob-pat-name');
+      if (!res) return;
+      state.obPat = null;
+      if (!res.same) say('Added ^' + pv.name + ', which must match ' + pv.src + '. Undo available.', 'good', { act: 'tl-undo', id: 'draft', label: 'Undo' });
+      state.focus = '#ob-pat-name'; render();
     },
     /* A requirement chip: adds or removes its name in require:, in the order written. */
     'ob-req': function (id, b) { chipToggle('require', 'ob-req', id, b); },
@@ -7137,6 +7190,14 @@
       /* Evidence is collected and checked against the fields as they'll be after this save, not as they were. */
       var merged = Object.assign({}, R.fieldsOf(r, x.step), fields);
       R.evidenceFor(r, x.step, merged).list.forEach(function (d) { var el = document.getElementById('rec-' + d.name); if (el) values[d.name] = inputValue(el); });
+      /* A search's results carry the search the form was drawn for (its draft's, else the form's), never one current later. */
+      if (R.isSearchStep(x.step)) {
+        if (dropStaleSearch(state.runKey, id)) { render(); return; }
+        var bd = draftOf(state.runKey, id, false), bf = bd && bd.searchFor && Object.keys(bd.record).length ? bd.searchFor : drawn && drawn.key === state.runKey && drawn.sel === id ? drawn.searchFor : null;
+        var cur = searchFor(state.runKey, id);
+        if (bf && cur && bf.id !== cur.id) { say('Your unsaved results were for ' + (bf.about || 'an earlier search') + '. Search again.', 'warn'); render(); return; }
+        values.searchId = (bf || cur || {}).id || '';
+      }
       var chk = R.checkEvidence(r, x.step, merged, values, true);
       if (chk.error) { state.fieldErr = { id: id, msg: chk.error, field: chk.field ? 'rec-' + chk.field : '' }; state.focus = chk.field ? '#' + cssEsc('rec-' + chk.field) : '[aria-invalid="true"]'; render(); return; }
       /* The draft is dropped only once the values are in the run, and only the evidence this form saved: evidence typed for
@@ -8085,9 +8146,16 @@
     var g = o.it.g, r = o.r, map = r && R.mapOf(r);
     var el = PF.reports.eligible(g, r, map, { recording: ctx.recording(r), readOnly: r ? repReadOnly(r) : '', held: repHeld(g), fillOpen: fillOpenOn(r.process + '/' + r.id, g.step) });
     if (!el.block) { say(el.why, 'warn'); render(); return; }
-    var stepId = g.step;
-    mutate(function (r2, map2, me, now) { R.block(r2, map2, stepId, '', me, now, el.block.values); });
-    decideOnReport(id, 'declined', 'Blocked with its results');
+    /* The decline is written only once the block is saved, and only for the same folder, run and report. */
+    var stepId = g.step, rk = r.process + '/' + r.id, fk = fsKey(), gk = g.key, gg = gen;
+    mutateRun(rk, gg, function (r2, map2, me, now) { R.block(r2, map2, stepId, '', me, now, el.block.values); }).then(function (ok) {
+      if (!ok || gg !== gen || fk !== fsKey()) return;
+      var o2 = repItem(id);
+      if (!o2.it || !o2.r || o2.it.g.key !== gk || o2.r.process + '/' + o2.r.id !== rk) return;
+      var a = o2.r.steps[stepId];
+      if (!a || a.s !== 'blocked') return;
+      decideOnReport(id, 'declined', 'Blocked with its results');
+    });
   }
   function decideOnReport(id, status, fixed) {
     var o = repItem(id);
@@ -8902,7 +8970,41 @@
       /* A box emptied on purpose is a draft too: it stays empty when the step comes back. */
       part[id] = inputValue(el);
     });
+    /* Results typed on a search are bound to the search their form was drawn for (section 5.3), never the one current later. */
+    if (drawn.searchFor) { if (!Object.keys(d.record).length) delete d.searchFor; else if (!d.searchFor) d.searchFor = drawn.searchFor; }
     if (!hasDraft(d)) delete state.stepDrafts[draftKey(drawn.key, drawn.sel, drawn.fs)];
+  }
+  /* The search a step's form is for, as the run stands now: { id, about } ("version 2026.11.0"), or null for other steps. */
+  function searchFor(key, id) {
+    var r = key && id ? ctx.findRun(key) : null, map = null, x = null;
+    try { map = r && !r.practice ? R.mapOf(r) : null; x = map && M.findStep(map, id); } catch (e) { return null; }
+    if (!x || !R.isSearchStep(x.step)) return null;
+    var st = R.searchState(r, map, x.step), used = st.used || {};
+    return { id: st.ok ? st.id : '', about: PF.vk.capJoin(Object.keys(used), function (n) { return n + ' ' + used[n]; }, ', ') };
+  }
+  /* Unsaved results whose search is no longer the current one are dropped, with the notice (section 5.3). true when it did. */
+  function dropStaleSearch(key, id) {
+    var d = draftOf(key, id, false);
+    if (!d || !d.searchFor || !Object.keys(d.record).length) return false;
+    var now = searchFor(key, id);
+    if (!now || now.id === d.searchFor.id) return false;
+    var about = d.searchFor.about, boxes = Object.keys(d.record);
+    dropDraft(key, id, ['record']); if (d) delete d.searchFor;
+    /* A box still on screen with those results is emptied too, so they aren't read back as new typing. */
+    if (drawn && drawn.key === key && drawn.sel === id) boxes.forEach(function (b) { var el = document.getElementById(b); if (el) setInput(el, ''); });
+    var note = 'Your unsaved results were for ' + (about || 'an earlier search') + '. Search again.';
+    /* Beside what the change itself said (the steps it sent to re-check), not instead of it. */
+    if (state.msg && state.msg.text && state.msg.text.indexOf(note) < 0 && !state.msg.act) state.msg = { text: state.msg.text + ' ' + note, kind: 'warn' }; else say(note, 'warn');
+    return true;
+  }
+  /* Every unsaved search draft in this folder, checked whenever the screen is drawn. */
+  function dropStaleSearches() {
+    var pre = fsKey() + '\n';
+    Object.keys(state.stepDrafts).forEach(function (k) {
+      if (k.indexOf(pre) !== 0 || !state.stepDrafts[k] || !state.stepDrafts[k].searchFor) return;
+      var rest = k.slice(pre.length), bar = rest.lastIndexOf('|');
+      if (bar > 0) dropStaleSearch(rest.slice(0, bar), rest.slice(bar + 1));
+    });
   }
   function noteDrawn(html) {
     var sel = V.runSel(ctx), ids = [], m, re = /id="((?:rec|fld)-[\w-]+|note-text)"/g;
@@ -8916,7 +9018,7 @@
       else { var tg = html.slice(at, html.indexOf('>', at)), vm2 = /\svalue="([^"]*)"/.exec(tg); v = vm2 ? vm2[1] : ''; }
       ids.push(id); base[id] = unesc(v);
     }
-    drawn = { fs: fsKey(), key: draftScope(), sel: sel, kind: state.pick && state.pick.kind === 'fields' && state.pick.id === sel ? 'fields' : 'record', ids: ids, base: base, skip: {} };
+    drawn = { fs: fsKey(), key: draftScope(), sel: sel, kind: state.pick && state.pick.kind === 'fields' && state.pick.id === sel ? 'fields' : 'record', ids: ids, base: base, skip: {}, searchFor: searchFor(draftScope(), sel) };
   }
   /* After a redraw the boxes show their step's draft, else what was drawn. On a new step or form every box is set, since a
      redraw can keep an old node (same markup) that still holds another step's typing; on the same one, typing stays. */
@@ -9155,6 +9257,7 @@
     harvest();
     var r = ctx.findRun(key), map = r && R.mapOf(r), x = map && M.findStep(map, id);
     if (!x) return { why: '' };
+    if (dropStaleSearch(key, id)) return { why: state.msg ? state.msg.text : 'Search again.', focus: '[data-act="search-copy"], #rec-count', field: 'rec-count' };
     var a = r.steps[id], d = draftOf(key, id, false);
     if ((state.pick && state.pick.kind === 'fields' && state.pick.id === id && state.runKey === key) || (d && (d.open || Object.keys(d.fields).length))) return { why: 'Save or cancel Fill in first.', fill: true, focus: '[data-act="pick"][data-kind="fields"][data-id="' + cssEsc(id) + '"], [data-act="save-fields"][data-id="' + cssEsc(id) + '"]' };
     var values = null;
@@ -9165,7 +9268,8 @@
         values[ev.name] = d && Object.prototype.hasOwnProperty.call(d.record, k) ? d.record[k] : V.evidenceDefault(ctx, r, x.step, ev);
       });
       /* A search's searchId is Flightdeck's own: the search as the run stands now, never typed (design section 2). */
-      if (R.isSearchStep(x.step)) values.searchId = R.searchId(r, map, x.step) || '';
+      /* Typed results keep the search they were typed for; only results the form shows from the run get the current one. */
+      if (R.isSearchStep(x.step)) values.searchId = d && d.searchFor && Object.keys(d.record).length ? d.searchFor.id : R.searchId(r, map, x.step) || '';
       var chk = R.checkEvidence(r, x.step, null, Object.assign({}, (a && a.s !== 'recheck' && a.values) || {}, values));
       if (chk.error) return { why: chk.error, focus: chk.field ? 'rec-' + chk.field : '[aria-invalid="true"]', field: chk.field ? 'rec-' + chk.field : '' };
       var seen; try { seen = skillSeen(r, x.step); } catch (e) { return { why: e.message, focus: '[data-act="refresh"]' }; }
