@@ -126,7 +126,7 @@ async function teamStart(passLine, kidCtx, values, kidRoles) {
   app.click('refresh'); await app.tick(80);
   app.click('start', 'ship'); await app.settle();
   app.set('detail-env', 'prod'); app.chooseApprovers().submitForm('start-form'); await app.tick(120);
-  assert.ok(/<h1 id="run-h"[^>]*>Ship/.test(app.html()), 'set-up: the parent run is open');
+  assert.ok(/<h1 id="run-h"[^>]*><span class="hd-t"[^>]*>Ship/.test(app.html()), 'set-up: the parent run is open');
   return app;
 }
 const setTeam = (app, values) => { app.fs.files['team-values.json'] = { t: typeof values === 'string' ? values : doc(values), m: Date.now() }; };

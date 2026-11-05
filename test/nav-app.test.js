@@ -25,7 +25,7 @@ const outside = html => html.replace(/<nav\b[^>]*aria-label="Checklist views"[^>
 const backs = html => buttons((html.match(/<button\b[^>]*class="[^"]*\bbackc\b[^"]*"[^>]*>[\s\S]*?<\/button>/g) || []).join(''));
 const onPage = app => /Practice<\/span> not recorded/.test(app.html());
 const inEditor = app => /id="draft-editor"|id="ob-plist"/.test(app.html()) && !onPage(app);
-const onOverview = app => /<h1 id="page-h" tabindex="-1">Production release<\/h1>/.test(app.html()) && !inEditor(app) && !onPage(app);
+const onOverview = app => /<h1 id="page-h" tabindex="-1"><span class="hd-t" title="Production release">Production release<\/span><\/h1>/.test(app.html()) && !inEditor(app) && !onPage(app);
 async function check(app, id) {
   app.click('toggle', id); await app.tick();
   if (new RegExp('data-act="pr-ev-skip" data-id="' + id + '"').test(app.html())) { app.click('pr-ev-skip', id); await app.tick(); }
@@ -187,7 +187,7 @@ rule('Workspace: one header on both views: ‹ <title> top left, Edit | Practice
     const h = head(app);
     assert.ok(h, view + ': the shared header');
     assert.deepStrictEqual(backs(h).map(b => [b.text, b.label]), [['Overview', 'Back to Overview of Production release']], view);
-    assert.ok(new RegExp('<h1 id="(ed-h|run-h)">Production release<span class="sr">, ' + (view === 'edit' ? 'Edit' : 'Practice') + '</span></h1>').test(h), view + ': the h1 is the visible title and names the view');
+    assert.ok(new RegExp('<h1 id="(ed-h|run-h)"><span class="hd-t" title="Production release">Production release</span><span class="sr">, ' + (view === 'edit' ? 'Edit' : 'Practice') + '</span></h1>').test(h), view + ': the h1 is the visible title and names the view');
     assert.strictEqual(strips(app.html()), 1, view + ': one view control');
     assert.deepStrictEqual(buttons(strip(h)).map(b => [b.text.split(' · ')[0], b.current]), [['Edit', view === 'edit'], ['Practice', view === 'practice']], view);
     assert.ok(!/Review &amp; publish|Review & publish|Done practicing|Back to the draft|Back to practice/.test(app.html()), view + ': no old way out');

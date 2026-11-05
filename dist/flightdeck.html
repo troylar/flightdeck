@@ -2110,6 +2110,9 @@ html.work-on .top { display: none; }
 .hd-id { display: flex; flex-direction: column; min-width: 0; flex: 1 1 12rem; }
 .hd-id h1 { margin: 0; font-size: 22px; line-height: 1.15; display: flex; gap: 4px 8px; align-items: baseline; min-width: 0; overflow-wrap: anywhere; }
 .hd-id h1:focus, .hd-id h1:focus-visible { outline: none; }
+/* The title's text shrinks and ends in an ellipsis (its span's title has it in full); a tag after it stays whole. */
+.hd-id h1 .hd-t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
+.hd-id h1 > :not(.hd-t) { flex: none; }
 .hd-st { margin: 0; font-size: 12.5px; color: var(--muted); display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; }
 .hd-st .d { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
 .hd-st .d + .d::before, .hd-st .act + .d::before, .hd-st .d + .act::before { content: "·" / ""; margin-right: 6px; color: var(--muted); }
@@ -2175,6 +2178,8 @@ html.work-on .top { display: none; }
   .hd-bar { width: 64px; }
   .hd-prog { margin-right: auto; }
   .phd .hd-id h1 { font-size: 26px; }
+  /* The checklist page's title wraps on a phone: it is the page's heading, not a toolbar's. */
+  .phd .hd-id h1 .hd-t { white-space: normal; overflow-wrap: anywhere; }
   .hd-st .act { flex-basis: 100%; }
   .hd-why { text-align: left; justify-content: flex-start; }
   .tr { padding: 6px max(12px, env(safe-area-inset-right, 0px)) 6px max(12px, env(safe-area-inset-left, 0px)); }
@@ -20852,11 +20857,12 @@ PF.vk = (function () {
      Every work screen draws row 1 with workHead and its tools with toolRow; nothing else writes header markup. The markup is in
      the visual order at every width: LEFT (the way back, the title, the status line), CENTER (the view switch), RIGHT
      (progress, the actions, More), then the reason line for a held primary, inside the header. o: { hid, h1, h1attrs, back,
-     status: [{ kind: 'd' | 'act', html, cls, attrs }], views, prog, acts, more, why, cls, attrs }. */
+     status: [{ kind: 'd' | 'act', html, cls, attrs }], views, prog, acts, more, why, cls, attrs }. h1 is the title, escaped text
+     only (it is also the span's title, so a cut title can be read in full); h1tail is markup after it (a tag, a hidden word). */
   function workHead(o) {
     var st = (o.status || []).filter(function (x) { return x && x.html; }).map(function (x) { return '<span class="' + (x.kind === 'act' ? 'act' : 'd') + (x.cls ? ' ' + x.cls : '') + '"' + (x.attrs || '') + '>' + x.html + '</span>'; }).join('');
     return '<header class="hd' + (o.cls ? ' ' + o.cls : '') + '" role="region" aria-labelledby="' + o.hid + '"' + (o.attrs || '') + '>' +
-      '<div class="hd-l">' + (o.back || '') + '<div class="hd-id"><h1 id="' + o.hid + '"' + (o.h1attrs || '') + '>' + o.h1 + '</h1>' + (st ? '<p class="hd-st">' + st + '</p>' : '') + '</div></div>' +
+      '<div class="hd-l">' + (o.back || '') + '<div class="hd-id"><h1 id="' + o.hid + '"' + (o.h1attrs || '') + '><span class="hd-t" title="' + o.h1 + '">' + o.h1 + '</span>' + (o.h1tail || '') + '</h1>' + (st ? '<p class="hd-st">' + st + '</p>' : '') + '</div></div>' +
       '<div class="hd-c">' + (o.views || '') + '</div>' +
       '<div class="hd-r">' + (o.prog || '') + (o.acts ? '<div class="hd-acts" data-slot="primary">' + o.acts + '</div>' : '') + (o.more || '') + '</div>' + (o.why || '') + '</header>';
   }
@@ -23219,7 +23225,7 @@ PF.vk = (function () {
     var more = V.moreGroup('On this screen', '<button type="button" class="mini ph-only" data-act="run-details" aria-expanded="' + !!s.runDetails + '">Details</button>' + (alone ? '' : '<button type="button" class="mini ph-only" data-act="mission">' + I('screen') + 'Screen share</button>') +
       (r.ended || slot.primary.indexOf('data-act="receipt"') >= 0 ? '' : '<button type="button" class="mini" data-act="receipt">' + I('receipt') + 'Receipt</button>') + planAgain(ctx, r, 'mini') +
       '<button type="button" class="mini" data-act="copy-run-key" data-id="' + key + '">Copy run key</button><button type="button" class="mini" data-act="ev-open" data-id="' + key + '">Export evidence…</button><button type="button" class="mini" data-act="health">Folder health</button>') + V.appGroup(ctx, { readOnlyMe: true });
-    var h = '<div class="fpe rw" id="rw">' + V.workHead({ hid: 'run-h', h1attrs: ' tabindex="-1"', cls: 'rw-head', h1: esc(r.title) + K.testTag(r), back: V.backc('go-back', og.hash, og.place, og.view),
+    var h = '<div class="fpe rw" id="rw">' + V.workHead({ hid: 'run-h', h1attrs: ' tabindex="-1"', cls: 'rw-head', h1: esc(r.title), h1tail: K.testTag(r), back: V.backc('go-back', og.hash, og.place, og.view),
       status: sub, prog: V.progress(t.done, t.total), acts: slot.also + slot.primary, more: V.moreMenu(ctx, more) });
     h += strip(ctx, r);
     /* Messages, a failed save, folder trouble, conflicts and Details stay in view, right under the strip. */
@@ -25002,7 +25008,7 @@ PF.vk = (function () {
       '<button type="button" id="ws-practice"' + (pr ? ' aria-current="page"' : ' data-act="pr-open"') + (got ? ' aria-label="Practice, ' + cnt.done + ' of ' + cnt.total + ' steps answered"' : '') + '>' + I('play') + 'Practice' + got + '</button></nav>';
     /* ‹ Overview always replaces (nav §1.4): wsLeave, through its guards. The title beside it is the visible h1. */
     var back = V.backc(pr ? 'pr-leave' : 'ed-done', null, 'Overview', null, '', 'Back to Overview of ' + p.title);
-    return V.workHead({ hid: o.hid, cls: o.cls, h1: esc(p.title) + '<span class="sr">, ' + (pr ? 'Practice' : 'Edit') + '</span>', back: back,
+    return V.workHead({ hid: o.hid, cls: o.cls, h1: esc(p.title), h1tail: '<span class="sr">, ' + (pr ? 'Practice' : 'Edit') + '</span>', back: back,
       status: o.status.concat(prim.sub ? [{ kind: 'act', cls: 'ws-test', html: prim.sub }] : []), views: nav, prog: o.prog,
       acts: prim.html, more: V.moreMenu(ctx, V.moreGroup('On this screen', o.phone || '') + V.appGroup(ctx, { pr: pr }), pr), why: prim.why });
   }
@@ -25291,7 +25297,7 @@ PF.vk = (function () {
     /* ‹ Step types, or ‹ <checklist> · Edit when opened from the workspace (2.16); it asks before discarding changes. The
        status moves into LEFT, Save step type is the primary, its reason line sits inside the header. Row 1, the tool row and
        the form all go inert behind the phone's Preview. */
-    var h = '<div class="fpe fpe-type" id="tfe">' + V.workHead({ hid: 'tf-h', h1attrs: ' tabindex="-1"', attrs: behind, h1: esc(name) + ' <span class="cat">Step type</span>',
+    var h = '<div class="fpe fpe-type" id="tfe">' + V.workHead({ hid: 'tf-h', h1attrs: ' tabindex="-1"', attrs: behind, h1: esc(name), h1tail: ' <span class="cat">Step type</span>',
       back: o && o.ws ? V.backc('type-done', null, o.place, o.view) : V.backc('type-done', null, 'Step types'),
       status: [{ kind: 'd', html: '<span class="fpe-state' + (changed ? ' dirty' : '') + (just ? ' just' : '') + '" role="status">' + (f.existing && !changed && !f.saving ? I('check') : '') + status + '</span>' }],
       acts: '<button class="btn go" type="submit" form="type-form"' + (f.saving ? ' disabled' : '') + (why ? ' aria-describedby="tf-save-why"' : '') + '>' + (f.saving ? 'Saving…' : 'Save step type') + '</button>',
