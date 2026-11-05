@@ -71,7 +71,7 @@
     var prim = wsPrimary(ctx, p, pr);
     var nav = '<nav class="pviews ws-views" aria-label="Checklist views">' +
       '<button type="button" id="ws-edit"' + (pr ? ' data-act="pr-back"' : ' aria-current="page"') + '>' + I('edit') + 'Edit</button>' +
-      '<button type="button" id="ws-practice"' + (pr ? ' aria-current="page"' : ' data-act="pr-open"') + (got ? ' aria-label="Practice, ' + cnt.done + ' of ' + cnt.total + ' steps answered"' : '') + '>' + I('play') + 'Practice' + got + '</button></nav>';
+      '<button type="button" id="ws-practice"' + (pr ? ' aria-current="page"' : ' data-act="pr-open"') + (got ? ' aria-label="Practice, ' + cnt.done + ' of ' + cnt.total + ' steps answered"' : '') + '>' + I('play') + 'Practice' + (got ? '<span class="ws-cnt">' + got + '</span>' : '') + '</button></nav>';
     /* ‹ Overview always replaces (nav §1.4): wsLeave, through its guards. The title beside it is the visible h1. */
     var back = V.backc(pr ? 'pr-leave' : 'ed-done', null, 'Overview', null, '', 'Back to Overview of ' + p.title);
     return V.workHead({ hid: o.hid, cls: o.cls, h1: esc(p.title), h1tail: '<span class="sr">, ' + (pr ? 'Practice' : 'Edit') + '</span>', back: back,

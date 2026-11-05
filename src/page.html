@@ -1940,7 +1940,10 @@ html.work-on .top { display: none; }
    by no-break spaces, widened by --sep-ws to the same --sep-w. */
 .hd-st { grid-column: 1 / -1; margin: var(--sp-h) 0 0; margin-left: calc(-1 * var(--sep-w)); clip-path: inset(-12px -12px -12px calc(var(--sep-w) - 4px)); font-size: 13px; line-height: 20px; min-height: 24px; color: var(--muted); display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0; min-width: 0; }
 .hd-st .d { min-width: 0; flex: 0 1 auto; overflow-wrap: anywhere; }
-.hd-st > :is(.d, .act)::before { content: "·" / ""; display: inline-block; width: var(--sep-w); text-align: center; color: var(--muted); }
+/* The inset is the piece's own, on every line it wraps to, so no line of it starts inside the clipped strip. */
+.hd-st > :is(.d, .act) { position: relative; padding-left: var(--sep-w); }
+.hd-st > :is(.d, .act)::before { content: "·" / ""; position: absolute; left: 0; top: 0; width: var(--sep-w); height: 20px; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+.hd-st > .act::before { height: 100%; }
 .hd-st .hd-dot { word-spacing: var(--sep-ws); }
 .hd-st .act { flex: none; display: inline-flex; align-items: center; }
 /* Discard my changes lives in row 1's right column, before Save draft (workHead's o.sa slot, drawn only while there are
@@ -1950,6 +1953,10 @@ html.work-on .top { display: none; }
 /* 801-859: Discard, Save draft and More fit on row 1 beside the view switch only without its icons, so its labels stand alone
    there and Edit's row 1 stays one line, like Practice's. */
 @media (min-width: 801px) and (max-width: 859px) { .ws-views .ic { display: none; } }
+/* Practice's kept count gives way at 801-899, in both views alike; its name (aria-label) still says it. */
+@media (min-width: 801px) and (max-width: 899px) { .ws-views .ws-cnt { display: none; } }
+/* The checklist page's four tabs and its two run buttons don't share row 1 below 960: the buttons take a row of their own. */
+@media (min-width: 801px) and (max-width: 959px) { .hd.phd { grid-template-columns: minmax(0, 1fr) auto; } .phd > .hd-r { grid-column: 1 / -1; } }
 .hd-st .linkish { white-space: normal; text-align: left; overflow-wrap: anywhere; }
 .hd-st .fpe-state.dirty { color: var(--ink); font-weight: 600; }
 /* The save state is never cut: it reads whole, and wraps when the line is short. */

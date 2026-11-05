@@ -637,7 +637,9 @@ rule('Polish: the status line spans the left column under the way back and the t
 rule('Polish: a status separator never begins or ends a line: each piece leads with one the same width on both sides, and the line is pulled left and clipped so the one leading a line never shows', () => {
   assert.ok(!RULES.some(r => r.sel.some(x => /\.hd-st\b/.test(x) && /::after/.test(x)) && /"·"/.test(decl(r.body, 'content') || '')), 'no separator hangs after a piece');
   const sep = RULES.filter(r => r.sel.join(', ') === '.hd-st > :is(.d, .act)::before');
-  assert.ok(sep.length === 1 && /^"·" \/ ""$/.test(decl(sep[0].body, 'content') || '') && decl(sep[0].body, 'display') === 'inline-block' && decl(sep[0].body, 'width') === 'var(--sep-w)' && decl(sep[0].body, 'text-align') === 'center' && decl(sep[0].body, 'margin') === null, 'one centered separator of a fixed width, no margin to make one side wider');
+  assert.ok(sep.length === 1 && /^"·" \/ ""$/.test(decl(sep[0].body, 'content') || '') && decl(sep[0].body, 'position') === 'absolute' && decl(sep[0].body, 'left') === '0' && decl(sep[0].body, 'width') === 'var(--sep-w)' && decl(sep[0].body, 'justify-content') === 'center' && decl(sep[0].body, 'margin') === null, 'one centered separator of a fixed width, no margin to make one side wider');
+  // A piece that wraps inside itself keeps every line out of the clipped strip: the inset is the piece's own, on every line.
+  assert.ok(RULES.some(r => r.sel.join(', ') === '.hd-st > :is(.d, .act)' && decl(r.body, 'padding-left') === 'var(--sep-w)' && decl(r.body, 'position') === 'relative'), 'each piece is inset by the separator width on every line');
   const st = R('.hd-st')[0].body;
   assert.strictEqual(decl(st, 'margin-left'), 'calc(-1 * var(--sep-w))', 'the line starts a separator to the left of the column');
   assert.ok(/^inset\(-\d+px -\d+px -\d+px calc\(var\(--sep-w\) - [3-5]px\)\)$/.test(decl(st, 'clip-path') || ''), 'and clips it away, leaving room for a focus ring: ' + decl(st, 'clip-path'));
@@ -662,6 +664,15 @@ rule('Polish: a run detail\'s Rename and Remove stay on its row; only the "used 
 rule('Polish: the inspector\'s top row wraps, and where the step is takes the room left of Previous and Next', () => {
   assert.ok(R('.rw-ins-top').some(r => decl(r.body, 'flex-wrap') === 'wrap'));
   assert.ok(R('.rw-where').some(r => decl(r.body, 'margin-right') === 'auto' && decl(r.body, 'min-width') === '0'));
+});
+
+rule('Polish: at 801-899 the view switch shows Practice without its kept count in Edit and Practice alike (its name still says it), so Edit\'s Discard, Save draft and More stay on row 1', () => {
+  assert.ok(R('.ws-views .ws-cnt', /min-width: 801px\) and \(max-width: 899px/).some(r => decl(r.body, 'display') === 'none'));
+});
+
+rule('Polish: at 801-959 the checklist page\'s Plan a run and Start a run take a row of their own, so they never cover its tabs', () => {
+  assert.ok(R('.hd.phd', /min-width: 801px\) and \(max-width: 959px/).some(r => decl(r.body, 'grid-template-columns') === 'minmax(0, 1fr) auto'), 'title and tabs on row 1');
+  assert.ok(R('.phd > .hd-r', /min-width: 801px\) and \(max-width: 959px/).some(r => decl(r.body, 'grid-column') === '1 / -1'), 'the actions below, full width');
 });
 
 rule('Styles: every comment in the page\'s CSS closes before the next one opens, so no rule is swallowed', () => {

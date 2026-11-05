@@ -13,7 +13,7 @@ Edit and Practice share one header, and every work screen has room to breathe.
 ### Fixed
 
 - **Edit and Practice headers match** (Screens). Edit and Practice draw the same header at every width: switching moves nothing they share. Discard my changes shows only while there are changes, in its own place beside the main action, 44 px on phones. *Where:* Edit and Practice
-- **Header status lines wrap cleanly** (Screens). Status lines use the header's full width and wrap between pieces, with even spacing and no dot at the start or end of a line. The Flight plan puts a space before Not counted. *Where:* Every work screen header
+- **Header status lines wrap cleanly** (Screens). Status lines run under the title and the way back and wrap between pieces, with even spacing and no dot at the start or end of a line. The Flight plan puts a space before Not counted. *Where:* Every work screen header
 
 ## 2.16.0 · Nov 5, 2026
 

@@ -3116,6 +3116,13 @@ rule('Run list: after a step is brought into view, a card cut by the pinned Next
   assert.strictEqual(V.clearEdge(v, [{ top: 100, bottom: 231 }, { top: 235, bottom: 300 }], { top: 500, bottom: 623 }), 0, 'nothing is cut: nothing moves');
 });
 
+rule('One header: the workspace\'s view switch keeps Practice\'s count in its own span, the same in Edit and Practice', () => {
+  const { ctx, state } = partsSetup();
+  ctx.practiceCount = () => ({ done: 2, total: 15 });
+  const ed = V.process(ctx);
+  assert.ok(/id="ws-practice"[^>]*aria-label="Practice, 2 of 15 steps answered">.*?Practice<span class="ws-cnt"> · 2 of 15<\/span><\/button>/.test(ed), ed.slice(ed.indexOf('ws-practice') - 20, ed.indexOf('ws-practice') + 400));
+});
+
 rule('One header: workHead draws an action slot (.hd-sa) first in row 1\'s right column only when it is given one', () => {
   const sa = '<button type="button" class="linkish">Go</button>';
   const h = V.workHead({ hid: 'x-h', h1: 'T', sa: sa, prog: '<div class="hd-prog"></div>', acts: '<button>P</button>', more: '<div class="more"></div>' });
