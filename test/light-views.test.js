@@ -109,7 +109,7 @@ rule('Process page: one version line with the rest folded, three recent runs wit
   assert.ok(n <= 3, 'three runs at most: ' + n);
   const all = /data-act="runs-of" data-id="release">All (\d+) runs of this checklist<\/button>/.exec(runs);
   assert.ok(all && +all[1] > 3, 'a way to the rest');
-  assert.ok(/<span class="d">v2 · published [A-Z][a-z]{2}, [A-Z][a-z]{2} \d{1,2} by [A-Z][a-z]+ [A-Z][a-z]+<\/span>/.test(html) && !/Published by/.test(html), 'v2 · published <day> by <name>');
+  assert.ok(/<span class="d">v2&nbsp;· published [A-Z][a-z]{2}, [A-Z][a-z]{2} \d{1,2} by [A-Z][a-z]+ [A-Z][a-z]+<\/span>/.test(html) && !/Published by/.test(html), 'v2 · published <day> by <name>');
   app.click('runs-of', 'release'); await app.tick();
   assert.ok(/aria-current="page">Runs</.test(app.top()) && /Matching runs · \d+/.test(app.html()) && /<option value="release" selected>/.test(app.html()), 'Runs, filtered to this process');
   assert.strictEqual((app.html().match(/data-act="open-run"/g) || []).length, +all[1], 'every run of it');

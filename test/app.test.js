@@ -7374,7 +7374,7 @@ const inPlace = (app, list) => { const was = JSON.parse(list), now = app.entries
 /* Since 2.16 an entry may also keep the one before it (b), as nav.entry reads it back. */
 const numbered = app => app.entries().forEach((e, i) => assert.ok(e.state && e.state.fd === 1 && e.state.n === i && /^b?,?f,fd,n$/.test(Object.keys(e.state).sort().join()) && (!e.state.b || app.PF.nav.entry(e.state).b), 'entry ' + i + ' ' + JSON.stringify(e)));
 const onRun = app => /id="run-h"/.test(app.html());
-const onReceipt = app => /<span class="d">Receipt · Copy it into your ticket/.test(app.html());
+const onReceipt = app => /<span class="d">Receipt&nbsp;· Copy it into your ticket/.test(app.html());
 const onHome = app => /<div class="eyebrow">Home<\/div>/.test(app.html());
 const onProcess = (app, title) => /<h1 id="page-h" tabindex="-1">/.test(app.html()) && app.html().indexOf('data-act="ptab"') >= 0 && (!title || app.html().indexOf('>' + title + '</span></h1>') >= 0);
 const back = async app => { app.back(); await app.settle(); };

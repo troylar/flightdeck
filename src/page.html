@@ -13,7 +13,7 @@
 :root {
   /* Spacing (2.16 polish): a 4 px scale and the roles that use it. --sp-h (2 px) is only for hairline stack gaps. */
   --sp-h: 2px; --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 20px; --sp-6: 24px; --sp-8: 32px; --sp-12: 48px;
-  --hd-py: var(--sp-3); --hd-px: var(--sp-5); --tr-py: var(--sp-2); --hd-id-h: 52px;
+  --hd-py: var(--sp-3); --hd-px: var(--sp-5); --tr-py: var(--sp-2);
   --pane-pt: var(--sp-4); --pane-px: var(--sp-5); --pane-pb: var(--sp-12); --rail-px: var(--sp-3);
   --row-py: var(--sp-3); --row-px: var(--sp-4); --row-gap: var(--sp-3); --stack: var(--sp-1);
   --card-py: var(--sp-3); --card-px: var(--sp-5); --stripe-pad: var(--sp-8); --lh-meta: 18px;
@@ -1237,6 +1237,8 @@ p.pv-when { margin: 0 0 4px; }
 .ob-metalist .ob-role, .ob-metalist .ob-chip { overflow-wrap: anywhere; }
 .ob-metalist li { flex-wrap: wrap; }
 .ob-metalist li > .ob-chip, .ob-metalist li > .ob-role { flex: 0 0 auto; max-width: 100%; }
+/* A run detail's row: its name, the "used in" note, Rename and Remove on one row; only the note wraps when the inspector is narrow. */
+.ob-metalist li:has(> [data-act="ob-ren"]) { display: grid; grid-template-columns: minmax(0, max-content) minmax(min-content, 1fr) auto auto; gap: 4px; align-items: center; width: 100%; }
 .ob-metalist li.ob-ren { display: flex; flex-direction: column; align-items: stretch; flex-basis: 100%; gap: 6px; text-align: left; }
 .ob-ren .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .ob-ren .row input { flex: 1 1 10em; min-width: 0; }
@@ -1918,29 +1920,32 @@ body { padding-top: var(--keep-h); }
    timeline, how you work, panels and the facts. Sizes and states are the affordance recipes' (below). */
 html.work-on .top { display: none; }
 .hd { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 8px 16px; padding: var(--hd-py) max(var(--hd-px), env(safe-area-inset-right, 0px)) var(--hd-py) max(var(--hd-px), env(safe-area-inset-left, 0px)); background: var(--card); border-bottom: 1px solid var(--line); min-width: 0; }
-.hd-l { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px 12px; min-width: 0; flex: 1 1 320px; }
-.hd-l > .backc { max-width: min(30ch, 100%); flex: 0 1 auto; }
-/* Row 1 is pinned to its first --hd-id-h (title 26 + 2 + one 24 px status line): a status that wraps grows the row downward and
-   moves none of the way back, the view switch, the primary or More. */
-.hd-l > .backc, .hd-c, .hd-r { margin-top: calc((var(--hd-id-h) - 36px) / 2); }
-.hd-id { display: flex; flex-direction: column; min-width: 0; flex: 1 1 8rem; }
+/* LEFT is two lines: the way back and the title on row 1, then the status line under both, across the whole column, so a
+   status has the column's width before it wraps. Row 1 is the way back's own line: the view switch, the primary and More sit
+   on it, and a status that wraps grows the header downward without moving any of them. */
+.hd-l { display: grid; grid-template-columns: minmax(0, max-content) minmax(8rem, 1fr); align-items: center; column-gap: 12px; min-width: 0; flex: 1 1 320px; }
+.hd-l:not(:has(> .backc)) { grid-template-columns: minmax(0, 1fr); }
+.hd-l > .backc { max-width: min(30ch, 100%); }
+.hd-id { display: contents; }
 .hd-id h1 { margin: 0; font-size: 22px; line-height: 26px; display: flex; gap: 4px 8px; align-items: baseline; min-width: 0; overflow-wrap: anywhere; }
 .hd-id h1:focus, .hd-id h1:focus-visible { outline: none; }
 /* The title's text shrinks and ends in an ellipsis (its span's title has it in full); a tag after it stays whole. */
 .hd-id h1 .hd-t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
 .hd-id h1 > :not(.hd-t) { flex: none; }
 /* The status line owns its type: 13/20, muted; nested state text (Edit's .fpe-state) inherits it. One 24 px line at least. */
-.hd-st { margin: var(--sp-h) 0 0; font-size: 13px; line-height: 20px; min-height: 24px; color: var(--muted); display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; }
-.hd-st .d { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
-.hd-st .d + .d::before, .hd-st .act + .d::before, .hd-st .d + .act::before { content: "·" / ""; margin-right: 6px; color: var(--muted); }
+.hd-st { grid-column: 1 / -1; margin: var(--sp-h) 0 0; font-size: 13px; line-height: 20px; min-height: 24px; color: var(--muted); display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; }
+/* A piece wraps rather than being cut. Its separator hangs at the end of the piece before it, so a line never starts with
+   one (workHead binds a "·" inside a piece to the word before it the same way). */
+.hd-st .d { min-width: 0; flex: 0 1 auto; overflow-wrap: anywhere; }
+.hd-st > :is(.d, .act):has(+ :is(.d, .act))::after { content: "·" / ""; margin-left: 6px; color: var(--muted); }
 .hd-st .act { flex: none; display: inline-flex; align-items: center; }
 /* Discard my changes lives in row 1's right column, before Save draft (workHead's o.sa slot, drawn only while there are
    changes): the status line never holds or reserves it. The column is end-aligned, so its appearing moves neither the primary
-   nor More, except at 801-859 (below). */
+   nor More. */
 .hd-sa { display: flex; align-items: center; gap: var(--sp-2); }
-/* 801-859: too narrow for Discard, Save draft and More on one line. Discard takes its own line first, in DOM order, and the
-   primary and More wrap under it: the header grows rather than reorder. */
-@media (min-width: 801px) and (max-width: 859px) { .hd-sa { flex-basis: 100%; justify-content: flex-end; } }
+/* 801-859: Discard, Save draft and More fit on row 1 beside the view switch only without its icons, so its labels stand alone
+   there and Edit's row 1 stays one line, like Practice's. */
+@media (min-width: 801px) and (max-width: 859px) { .ws-views .ic { display: none; } }
 .hd-st .linkish { white-space: normal; text-align: left; overflow-wrap: anywhere; }
 .hd-st .fpe-state.dirty { color: var(--ink); font-weight: 600; }
 /* The save state is never cut: it reads whole, and wraps when the line is short. */
@@ -1957,16 +1962,19 @@ html.work-on .top { display: none; }
 .hd-why.tf-why { color: var(--stop); font-weight: 600; }
 /* The checklist page's heading is the one larger variant of the work-header title. */
 .phd .hd-id h1 { font-size: 30px; line-height: 1.15; }
-.phd { --hd-id-h: 61px; }
 @media (min-width: 801px) {
   .hd { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
   .hd-r { justify-self: end; }
   .hd-why { grid-column: 1 / -1; }
+  /* No view switch (a run and its pages): the title takes the room a centered empty column would. */
+  .hd:has(> .hd-c:empty) { grid-template-columns: minmax(0, 1fr) auto; }
+  .hd-c:empty { display: none; }
 }
 /* The progress gives way before More does, so the longest primary (Make vN the default…) keeps More on row 1 beside a centered
-   view switch: its word up to 1279, its bar up to 1099, and in the workspace at 801-859 all of it (the Practice button says
+   view switch: in the workspace its word up to 1279 (a run keeps 2.16.0's 1179), its bar up to 1099, and in the workspace at 801-859 all of it (the Practice button says
    the count there) and on a phone its bar. Visually only: the bar keeps role=progressbar and its values in the accessibility tree. */
-@media (max-width: 1279px) { .hd-prog .w { display: none; } }
+@media (max-width: 1179px) { .hd-prog .w { display: none; } }
+@media (max-width: 1279px) { .hd:has(.ws-views) .hd-prog .w { display: none; } }
 @media (min-width: 801px) and (max-width: 1099px) { .hd-bar { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } }
 @media (min-width: 801px) and (max-width: 859px) { .hd:has(.ws-views) .hd-prog { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } }
 @media (max-width: 800px) { .hd:has(.ws-views) .hd-bar { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; } }
@@ -2002,8 +2010,6 @@ html.work-on .top { display: none; }
 @media (max-width: 800px) {
   :root { --hd-px: var(--sp-4); --pane-px: var(--sp-4); --card-px: var(--sp-4); --stripe-pad: 28px; --pane-pb: var(--sp-8); }
   .hd { padding: var(--hd-py) max(var(--hd-px), env(safe-area-inset-right, 0px)) var(--hd-py) max(var(--hd-px), env(safe-area-inset-left, 0px)); gap: var(--sp-3) var(--sp-2); }
-  .hd-l > .backc { margin-top: calc((var(--hd-id-h) - 44px) / 2); }
-  .hd-c, .hd-r { margin-top: 0; }
   .hd-l { flex: 1 1 100%; }
   .hd-l > .backc { max-width: 100%; }
   .hd-id h1 { font-size: 19px; }

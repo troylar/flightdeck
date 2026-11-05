@@ -646,7 +646,8 @@ PF.vk = (function () {
      for .hd-sa, before the primary, drawn only when given (Edit's Discard my changes). h1 is the title, escaped text
      only (it is also the span's title, so a cut title can be read in full); h1tail is markup after it (a tag, a hidden word). */
   function workHead(o) {
-    var st = (o.status || []).filter(function (x) { return x && x.html; }).map(function (x) { return '<span class="' + (x.kind === 'act' ? 'act' : 'd') + (x.cls ? ' ' + x.cls : '') + '"' + (x.attrs || '') + '>' + x.html + '</span>'; }).join('');
+    /* A "·" inside a piece is bound to the word before it, so a wrapped status never starts a line with one. */
+    var st = (o.status || []).filter(function (x) { return x && x.html; }).map(function (x) { return '<span class="' + (x.kind === 'act' ? 'act' : 'd') + (x.cls ? ' ' + x.cls : '') + '"' + (x.attrs || '') + '>' + (x.kind === 'act' ? x.html : x.html.replace(/ · /g, '&nbsp;· ')) + '</span>'; }).join('');
     return '<header class="hd' + (o.cls ? ' ' + o.cls : '') + '" role="region" aria-labelledby="' + o.hid + '"' + (o.attrs || '') + '>' +
       '<div class="hd-l">' + (o.back || '') + '<div class="hd-id"><h1 id="' + o.hid + '"' + (o.h1attrs || '') + '><span class="hd-t" title="' + o.h1 + '">' + o.h1 + '</span>' + (o.h1tail || '') + '</h1>' + (st ? '<p class="hd-st">' + st + '</p>' : '') + '</div></div>' +
       '<div class="hd-c">' + (o.views || '') + '</div>' +

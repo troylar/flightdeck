@@ -751,8 +751,10 @@ rule('Compare versions and the flight plan say what each number left out, throug
   assert.ok(/<th scope="row"[^>]*>v0<\/th><td>1<\/td><td>0<\/td><td>—<\/td><td><span class="small ins-q">Not counted: 1 run, a time is later than now, by the recorder&#39;s clock\./.test(cmp), cmp.slice(0, 1200));
   state.ptab = 'checklist';
   const fp = V.checklistPanel(ctx, p);
-  assert.ok(/A completed run typically takes [^<]+<\/span><span class="small ins-q">Not counted: 1 run, a time is later than now, by the recorder&#39;s clock\./.test(fp), 'the landed time says what it left out');
-  assert.ok(/went off-script in 1 of 2 runs<span class="small ins-q">Not counted: 1 run, history incomplete\./.test(fp), fp.slice(fp.indexOf('Turbulence'), fp.indexOf('Turbulence') + 400));
+  assert.ok(/A completed run typically takes [^<]+<\/span> <span class="small ins-q">Not counted: 1 run, a time is later than now, by the recorder&#39;s clock\./.test(fp), 'the landed time says what it left out');
+  assert.ok(/went off-script in 1 of 2 runs <span class="small ins-q">Not counted: 1 run, history incomplete\./.test(fp), fp.slice(fp.indexOf('Turbulence'), fp.indexOf('Turbulence') + 400));
+  const joined = fp.match(/.{0,40}[^ ]<span class="small ins-q">/g) || [];
+  assert.deepStrictEqual(joined, [], 'a Not counted line inside a sentence is a word apart from it, never "(3 of 5 runs)Not counted"');
 });
 rule('Runs: Show current numbers can come back with no runs, and then says nothing changed', () => {
   const { ctx, state, runs } = insightsSetup(2);
@@ -1631,7 +1633,7 @@ rule('Run workspace: a slim header with progress in words, three named panes, an
   playPhase(r, 0);
   const html = V.run(ctx);
   assert.ok(/^<div class="fpe rw" id="rw"><header class="hd rw-head" role="region" aria-labelledby="run-h">/.test(html), 'the run is the page');
-  assert.ok(/class="btn backc" data-act="go-back" data-id="#\/runs" aria-label="Back to Runs">.*Runs<\/span><\/button>/.test(html) && /<h1 id="run-h" tabindex="-1"><span class="hd-t" title="Release">Release<\/span><\/h1><p class="hd-st"><span class="d">Production release<\/span><span class="d rw-sub">v1 · started/.test(html));
+  assert.ok(/class="btn backc" data-act="go-back" data-id="#\/runs" aria-label="Back to Runs">.*Runs<\/span><\/button>/.test(html) && /<h1 id="run-h" tabindex="-1"><span class="hd-t" title="Release">Release<\/span><\/h1><p class="hd-st"><span class="d">Production release<\/span><span class="d rw-sub">v1&nbsp;· started/.test(html));
   assert.ok(/role="progressbar" aria-label="Steps answered" aria-valuemin="0" aria-valuemax="15" aria-valuenow="6" aria-valuetext="6 of 15 steps answered"><i style="width:40%"><\/i><\/span><b aria-hidden="true">6\/15<\/b><span class="small w" aria-hidden="true">answered<\/span>/.test(html), '6/14 answered, said in full for screen readers');
   assert.ok(/data-act="run-details" aria-expanded="false"/.test(html) && /data-act="receipt"/.test(html) && /<button type="button" class="mini more-btn ws-more-btn" id="ws-more-btn" data-act="ws-more"[^>]*>More<\/button>/.test(html) && !/End run…/.test(html) && /<div class="ro">You: <b>Casey Nguyen<\/b><\/div>/.test(html));
   assert.ok(/<nav class="fpe-pane rw-rail" aria-label="Phases">/.test(html) && /<section class="fpe-pane rw-list" id="rw-list" aria-label="Checklist">/.test(html) && /<aside class="fpe-pane rw-ins" id="rw-ins" data-open="false" aria-label="Selected step">/.test(html), 'named regions');
@@ -3088,6 +3090,12 @@ rule('Affordance: the details card says what it does, with one pencil, and chart
   assert.ok(card.indexOf(PF.icons.icon('edit')) >= 0 && card.indexOf(PF.icons.icon('people')) < 0, 'one pencil, not the people icon');
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'views', 'insights.js'), 'utf8');
   assert.ok(/<circle class="ins-hit" cx="' \+ cx\.toFixed\(1\) \+ '" cy="' \+ \(38 - row \* 13\) \+ '" r="12"\/><circle class="ins-dot"/.test(src), 'a 24px hit circle under each dot');
+});
+
+rule('One header: a "·" inside a status piece is bound to the word before it, so a wrapped status never starts a line with it', () => {
+  const h = V.workHead({ hid: 'x-h', h1: 'T', status: [{ kind: 'd', html: 'v2 · published by Casey' }, { kind: 'd', html: 'Releases · owner Casey' }] });
+  const st = /<p class="hd-st">([\s\S]*?)<\/p>/.exec(h)[1];
+  assert.ok(st.indexOf(' · ') < 0 && /v2&nbsp;· published by Casey/.test(st) && /Releases&nbsp;· owner Casey/.test(st), st);
 });
 
 rule('One header: workHead draws an action slot (.hd-sa) first in row 1\'s right column only when it is given one', () => {
