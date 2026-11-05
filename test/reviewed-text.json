@@ -1,16 +1,16 @@
 {
   "texts": {
     "CHANGELOG.md": {
-      "sha256": "11108406daef6da30e78499aa479a323f8ab4933718a5bffd63b233e1cc84ef7",
-      "reviewed": "Phones: header and tool-row link buttons are 44 px; the navigation note says the views are in the checklist page's header. Checked for direct writes and unconditional deletes."
+      "sha256": "4c0946064ce3e59eae9498ac8395eb7bda334b016e19c7a9da1bad4f5c6577eb",
+      "reviewed": "2.16.1 release entry, waiver, roles comparison pinned to 2.16.0, baselines for 2.16.1. Checked for direct writes and unconditional deletes."
     },
     "LICENSE": {
       "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1: a license text, shipped unchanged; no instruction."
     },
     "README.md": {
-      "sha256": "ae48e83fced8bc98bf38d30bab5bf20d50e5ab38a18830dfe1583b405c3b9633",
-      "reviewed": "README: the screenshots' descriptions match the 2.16 screens (header, view strip, tool row). Checked for direct writes and unconditional deletes."
+      "sha256": "c6efcc316c50182cd04df4d69da60d2d9fc740e8225e579a0c25d82337aebd6d",
+      "reviewed": "2.16.1 release entry, waiver, roles comparison pinned to 2.16.0, baselines for 2.16.1. Checked for direct writes and unconditional deletes."
     },
     "bin/flightdeck.js": {
       "sha256": "1a96a0536ad22d29b082d5441096b42df45dabdaf2f7d6c01e5e60dd2aa43e5e",
@@ -173,8 +173,8 @@
       "reviewed": "Round 20, at 64e1c01: the file list npm packs (npm pack --dry-run on a mirror of the tree), read in full: CHANGELOG.md, LICENSE, README.md, bin/flightdeck.js, the two dist files, package.json. Each is pinned whole or checked by parity. No new text."
     },
     "package.json": {
-      "sha256": "4791ddf0dbba3985201fca085b545a8be213bfe7ecfc11de81cefbd84e048fa0",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "8aaa7974f01e7223d7ab8e95ab097bdc019dc4545db25e094de1bfa1a0c606e3",
+      "reviewed": "2.16.1 release entry, waiver, roles comparison pinned to 2.16.0, baselines for 2.16.1. Checked for direct writes and unconditional deletes."
     },
     "rendered: the merge README, AGENTS.md held": {
       "sha256": "587c6fe0a4080614f1661c880aa058e9dd8180b5595d72bfaaf90b9f297f8d95",
@@ -193,8 +193,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "ca23cdd5912ceab7f6f73c780bef799b433a1f028c19bd9aeab230121ac8dfe0",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "1d96c563fa3e27e1af6060526e41d20c3fda033ee7f05c592339f28ea6865c3b",
+      "reviewed": "2.16.1 release entry, waiver, roles comparison pinned to 2.16.0, baselines for 2.16.1. Checked for direct writes and unconditional deletes."
     },
     "src/core/appjson.js": {
       "sha256": "86b915c32b324bbd05f1d35f96933a90cd79a10713ca84f4cf373dc78d63bc9f",
@@ -377,8 +377,8 @@
       "reviewed": "2.16.1 polish: the workspace's progress bar gives way to its count on a phone"
     },
     "src/releases.json": {
-      "sha256": "47fd94eb42eeee45efcc7ae27f727bf9d9e2a5a2a5dea067e595fc0914751baa",
-      "reviewed": "Phones: header and tool-row link buttons are 44 px; the navigation note says the views are in the checklist page's header. Checked for direct writes and unconditional deletes."
+      "sha256": "322455e3fdd5dfe0e4c4159ac87901201e8b8565b6e2b972f6fada82136bb4c9",
+      "reviewed": "2.16.1 release entry, waiver, roles comparison pinned to 2.16.0, baselines for 2.16.1. Checked for direct writes and unconditional deletes."
     },
     "src/storage/fs.js": {
       "sha256": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",
