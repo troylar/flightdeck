@@ -561,6 +561,121 @@ rule('One header: at 800px and narrower a link-styled button in a header or tool
   ['.hd', '.tr'].forEach(w => assert.ok(heads.some(h => h.indexOf(w + ' :is(button.link, button.linkish)') >= 0), w + ': button.link and button.linkish 44px on a phone'));
 });
 
+/* 2.16.1 polish: one header for real, and a spacing system (the design's section 11). */
+const R = (sel, at) => RULES.filter(r => r.sel.join(', ') === sel && (at === undefined ? !r.at.length : r.at.some(a => at.test(a))));
+rule('Polish: the spacing scale and its roles are tokens on the first :root', () => {
+  const root = RULES.find(r => r.sel.join(', ') === ':root' && !r.at.length);
+  [['--sp-h', '2px'], ['--sp-1', '4px'], ['--sp-2', '8px'], ['--sp-3', '12px'], ['--sp-4', '16px'], ['--sp-5', '20px'], ['--sp-6', '24px'], ['--sp-8', '32px'], ['--sp-12', '48px'], ['--lh-meta', '18px']]
+    .forEach(([k, v]) => assert.strictEqual(decl(root.body, k), v, k));
+  ['--hd-py', '--hd-px', '--tr-py', '--pane-pt', '--pane-px', '--pane-pb', '--rail-px', '--card-py', '--card-px', '--stripe-pad'].forEach(k => assert.ok(/^var\(--sp-/.test(decl(root.body, k) || ''), k + ' on the scale'));
+});
+rule('Polish: the header, the tool row and the alerts pad with tokens inside their safe-area formulas', () => {
+  const pad = sel => decl(R(sel)[0].body, 'padding') || '';
+  assert.strictEqual(pad('.hd'), 'var(--hd-py) max(var(--hd-px), env(safe-area-inset-right, 0px)) var(--hd-py) max(var(--hd-px), env(safe-area-inset-left, 0px))');
+  assert.strictEqual(pad('.tr'), 'var(--tr-py) max(var(--hd-px), env(safe-area-inset-right, 0px)) var(--tr-py) max(var(--hd-px), env(safe-area-inset-left, 0px))');
+  const ins = R('.rw-ins-body', /max-width: 800px/).map(r => decl(r.body, 'padding')).filter(Boolean);
+  assert.ok(ins.some(v => /env\(safe-area-inset-bottom, 0px\)/.test(v)), 'the phone inspector keeps its bottom safe area: ' + ins);
+});
+rule('Polish: the header is a grid from 801px, and row 1 is pinned to the first line, not centered on what wraps', () => {
+  assert.ok(R('.hd', /^@media \(min-width: 801px\)$/).some(r => decl(r.body, 'display') === 'grid'), 'grid from 801');
+  assert.ok(!RULES.some(r => r.sel.join(', ') === '.hd' && r.at.some(a => /min-width: 1180px/.test(a)) && decl(r.body, 'display') === 'grid'), 'not from 1180');
+  assert.strictEqual(decl(R('.hd')[0].body, 'align-items'), 'flex-start');
+  assert.ok(!RULES.some(r => r.sel.some(x => /\.hd-l > \.backc/.test(x)) && /--hd-id-h/.test(decl(r.body, 'margin-top') || '')), 'no offset to keep in step with a status height: row 1 is the way back\'s own line');
+});
+rule('Polish: one owner for header type: .hd-st sets it, the nested save state inherits, and the checklist page is the one larger variant', () => {
+  const st = R('.hd-st')[0].body;
+  assert.strictEqual(decl(st, 'font-size'), '13px'); assert.strictEqual(decl(st, 'line-height'), '20px'); assert.strictEqual(decl(st, 'min-height'), '24px');
+  RULES.filter(r => r.sel.some(x => /\.fpe-state\b/.test(x) && !/\.fpe-state \.ic\b/.test(x))).forEach(r =>
+    ['font-size', 'line-height'].forEach(p => assert.strictEqual(decl(r.body, p), null, r.sel.join(', ') + ' sets its own ' + p)));
+  assert.strictEqual(decl(R('.phd .hd-id h1')[0].body, 'font-size'), '30px');
+});
+rule('Polish: Discard has a slot before the primary, never a reserved place or a reordered one; it is 44px on a phone', () => {
+  assert.ok(R('.hd-sa').some(r => decl(r.body, 'display') === 'flex'), '.hd-sa');
+  assert.ok(!RULES.some(r => r.sel.some(x => /\.fpe-discard\[hidden\]/.test(x))), 'no reservation for a hidden Discard');
+  assert.ok(!RULES.some(r => r.sel.some(x => /\.hd-sa\b/.test(x)) && decl(r.body, 'order') !== null), 'visual order is DOM order');
+  assert.ok(R('.hd-sa > button', /max-width: 800px/).some(r => decl(r.body, 'min-height') === '44px'), '44px on a phone');
+});
+rule('Polish: the progress bar gives way at 801-999 visually only: it is never display:none, so its progressbar role and values stay', () => {
+  RULES.filter(r => r.sel.some(x => /\.hd-bar\b/.test(x))).forEach(r => assert.notStrictEqual(decl(r.body, 'display'), 'none', r.sel.join(', ') + ' in ' + r.at.join(' ')));
+  assert.ok(R('.hd-bar', /min-width: 801px\) and \(max-width: 1099px/).some(r => decl(r.body, 'clip-path') === 'inset(50%)' && decl(r.body, 'position') === 'absolute'), 'visually hidden up to 1099');
+});
+rule('Polish: the progress gives way before More does: its word up to 1279, its bar up to 1099, and in the workspace at 801-859 all of it, visually only', () => {
+  assert.ok(R('.hd:has(.ws-views) .hd-prog .w', /^@media \(max-width: 1279px\)$/).some(r => decl(r.body, 'display') === 'none'), 'in the workspace, answered hides up to 1279');
+  const w = RULES.filter(r => r.sel.join(', ') === '.hd-prog .w'); 
+  assert.ok(w.length === 1 && w[0].at.length === 1 && w[0].at[0] === '@media (max-width: 1179px)' && decl(w[0].body, 'display') === 'none', 'every run follows one rule, 2.16.0\'s: answered hides up to 1179, well clear of the 1280 the screenshots use');
+  const ws = R('.hd:has(.ws-views) .hd-prog', /min-width: 801px\) and \(max-width: 859px/);
+  assert.ok(ws.some(r => decl(r.body, 'clip-path') === 'inset(50%)' && decl(r.body, 'position') === 'absolute'), 'the workspace\'s progress, whose count the Practice button also says, is visually hidden at 801-859');
+  assert.ok(R('.hd:has(.ws-views) .hd-bar', /^@media \(max-width: 800px\)$/).some(r => decl(r.body, 'clip-path') === 'inset(50%)' && decl(r.body, 'position') === 'absolute'), 'and on a phone the workspace\'s bar gives way to its count, so More stays beside the primary');
+});
+rule('Polish: Practice\'s real-systems warning wraps: nothing truncates it', () => {
+  RULES.filter(r => r.sel.some(x => /\.rw-say\b/.test(x))).forEach(r => {
+    assert.notStrictEqual(decl(r.body, 'white-space'), 'nowrap', r.sel.join(', ')); assert.strictEqual(decl(r.body, 'text-overflow'), null, r.sel.join(', '));
+  });
+});
+rule('Polish: the run screen\'s overrides no longer shrink the base spacing, and keep their layout', () => {
+  assert.strictEqual(RULES.filter(r => r.sel.join(', ') === '.rw-list .deck').length, 0, 'no 14px deck override');
+  const step = R('.rw .step')[0].body;
+  assert.strictEqual(decl(step, 'padding'), null); assert.strictEqual(decl(step, 'gap'), null); assert.ok(decl(step, 'grid-template-columns') && decl(step, 'border-top') === '0' && decl(step, 'align-items') === 'center', 'keeps its grid, border and alignment');
+  assert.ok(R('.rw .phase .placard').length && R('.rw .phase .placard').every(r => decl(r.body, 'padding') === null), 'the run placard pads like the base');
+  assert.strictEqual(decl(R('.rw .steps .step + .step')[0].body, 'margin-top'), 'var(--sp-1)');
+  assert.ok(/^248px /.test(decl(R('.fpe-panes.rw-panes')[0].body, 'grid-template-columns')), 'the rail is 248 in its own rule');
+  assert.strictEqual(decl(R('.s-meta')[0].body, 'line-height'), 'var(--lh-meta)');
+});
+rule('Polish: the builder\'s phase gap, phase body and tool-group divider are on the scale, with the slot that sits in the gap', () => {
+  assert.strictEqual(decl(R('.ob-phases')[0].body, 'gap'), 'var(--sp-4)');
+  assert.strictEqual(decl(R('.ob-phases > .ob-slot')[0].body, 'margin-top'), 'calc(-1 * var(--sp-4))');
+  assert.strictEqual(decl(R('.ob-body')[0].body, 'padding'), 'var(--sp-1) var(--sp-3) var(--sp-2)');
+  const tg = R('.tg + .tg')[0].body; assert.strictEqual(decl(tg, 'padding-left'), 'var(--sp-3)'); assert.strictEqual(decl(tg, 'margin-left'), 'var(--sp-1)');
+});
+
+rule('Polish: the status line spans the left column under the way back and the title, so a status has room before it wraps', () => {
+  assert.strictEqual(decl(R('.hd-l')[0].body, 'display'), 'grid');
+  assert.strictEqual(decl(R('.hd-id')[0].body, 'display'), 'contents');
+  assert.strictEqual(decl(R('.hd-st')[0].body, 'grid-column'), '1 / -1');
+  assert.ok(RULES.some(r => r.sel.join(', ') === '.hd-l:not(:has(> .backc))' && /^minmax\(0, 1fr\)$/.test(decl(r.body, 'grid-template-columns') || '')), 'with no way back, the title has the whole width');
+});
+rule('Polish: a status separator never begins or ends a line: each piece leads with one the same width on both sides, and the line is pulled left and clipped so the one leading a line never shows', () => {
+  assert.ok(!RULES.some(r => r.sel.some(x => /\.hd-st\b/.test(x) && /::after/.test(x)) && /"·"/.test(decl(r.body, 'content') || '')), 'no separator hangs after a piece');
+  const sep = RULES.filter(r => r.sel.join(', ') === '.hd-st > :is(.d, .act)::before');
+  assert.ok(sep.length === 1 && /^"·" \/ ""$/.test(decl(sep[0].body, 'content') || '') && decl(sep[0].body, 'position') === 'absolute' && decl(sep[0].body, 'left') === '0' && decl(sep[0].body, 'width') === 'var(--sep-w)' && decl(sep[0].body, 'justify-content') === 'center' && decl(sep[0].body, 'margin') === null, 'one centered separator of a fixed width, no margin to make one side wider');
+  // A piece that wraps inside itself keeps every line out of the clipped strip: the inset is the piece's own, on every line.
+  assert.ok(RULES.some(r => r.sel.join(', ') === '.hd-st > :is(.d, .act)' && decl(r.body, 'padding-left') === 'var(--sep-w)' && decl(r.body, 'position') === 'relative'), 'each piece is inset by the separator width on every line');
+  const st = R('.hd-st')[0].body;
+  assert.strictEqual(decl(st, 'margin-left'), 'calc(-1 * var(--sep-w))', 'the line starts a separator to the left of the column');
+  assert.ok(/^inset\(-\d+px -\d+px -\d+px calc\(var\(--sep-w\) - [3-5]px\)\)$/.test(decl(st, 'clip-path') || ''), 'and clips it away, leaving room for a focus ring: ' + decl(st, 'clip-path'));
+  assert.ok(/^\d+px 0$/.test(decl(st, 'gap') || ''), 'the separator is the only space between pieces: ' + decl(st, 'gap'));
+  assert.ok(/--sep-w: 14px/.test(R(':root')[0].body), 'the separator width is a token');
+  assert.ok(R('.hd-st .hd-dot').some(r => decl(r.body, 'word-spacing') === 'var(--sep-ws)') && /--sep-ws: [\d.]+px/.test(R(':root')[0].body), 'a "·" inside a piece is widened to the same width');
+  RULES.filter(r => r.sel.some(x => /^\.hd-st \.d$/.test(x))).forEach(r => { assert.strictEqual(decl(r.body, 'text-overflow'), null); assert.notStrictEqual(decl(r.body, 'white-space'), 'nowrap'); });
+});
+rule('Polish: at 801-859 Edit\'s unsaved row 1 fits on one line like Practice\'s: the view switch drops its icons there, and Discard never takes a line of its own', () => {
+  assert.ok(R('.ws-views .ic', /min-width: 801px\) and \(max-width: 859px/).some(r => decl(r.body, 'display') === 'none'), 'the labels stay, the icons go');
+  assert.ok(!RULES.some(r => r.sel.join(', ') === '.hd-sa' && decl(r.body, 'flex-basis') === '100%'), 'no line of its own');
+});
+rule('Polish: a header with no view switch gives its title the room: two columns, not a centered empty one', () => {
+  assert.ok(R('.hd:has(> .hd-c:empty)', /^@media \(min-width: 801px\)$/).some(r => decl(r.body, 'grid-template-columns') === 'minmax(0, 1fr) auto'));
+  assert.ok(R('.hd-c:empty', /^@media \(min-width: 801px\)$/).some(r => decl(r.body, 'display') === 'none'));
+});
+rule('Polish: a run detail\'s Rename and Remove stay on its row; only the "used in" note wraps when the inspector is narrow', () => {
+  const g = R('.ob-metalist li:has(> [data-act="ob-ren"])');
+  assert.ok(g.some(r => decl(r.body, 'display') === 'grid' && decl(r.body, 'grid-template-columns') === 'minmax(0, max-content) minmax(min-content, 1fr) auto auto'), 'one row: name, note, Rename, Remove');
+});
+
+rule('Polish: the inspector\'s top row wraps, and where the step is takes the room left of Previous and Next', () => {
+  assert.ok(R('.rw-ins-top').some(r => decl(r.body, 'flex-wrap') === 'wrap'));
+  assert.ok(R('.rw-where').some(r => decl(r.body, 'margin-right') === 'auto' && decl(r.body, 'min-width') === '0'));
+});
+
+rule('Polish: at 801-899 the view switch shows Practice without its kept count in Edit and Practice alike (its name still says it), so Edit\'s Discard, Save draft and More stay on row 1', () => {
+  assert.ok(R('.ws-views .ws-cnt', /min-width: 801px\) and \(max-width: 899px/).some(r => decl(r.body, 'display') === 'none'));
+});
+
+rule('Polish: the checklist page\'s run buttons keep their own width, and wrap inside their column, so they never cover its tabs at any width', () => {
+  assert.ok(R('.hd.phd', /^@media \(min-width: 801px\)$/).some(r => decl(r.body, 'grid-template-columns') === 'minmax(0, 1fr) auto minmax(min-content, 1fr)'), 'the right column is never narrower than its widest button');
+  assert.ok(R('.phd .hd-acts', /^@media \(min-width: 801px\)$/).some(r => decl(r.body, 'flex-wrap') === 'wrap'), 'and the buttons wrap inside it');
+  assert.ok(!RULES.some(r => r.sel.join(', ') === '.phd > .hd-r' && decl(r.body, 'grid-column') === '1 / -1'), 'no breakpoint guess sends them to a row of their own');
+});
+
 rule('Styles: every comment in the page\'s CSS closes before the next one opens, so no rule is swallowed', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'page.html'), 'utf8'), css = src.slice(src.indexOf('<style>'), src.indexOf('</style>'));
   const bad = []; let i = 0;

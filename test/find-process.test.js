@@ -1190,7 +1190,7 @@ rule('Round 10: a checklist with 300 approvals one role owns names 50 in that ro
   app.click('nav', 'processes'); await app.tick(5); app.click('open-process', 'gates300'); await app.tick(10);
   app.click('start', 'gates300'); await app.tick(10);
   let h = app.html();
-  const label = (/· approves ([^<]*)<\/span>/.exec(h) || [])[1] || '';
+  const label = (/<span class="small">approves ([^<]*)<\/span>/.exec(h) || [])[1] || '';
   assert.strictEqual((label.match(/Approval \d+/g) || []).length, 50, 'the role\'s label names 50');
   assert.ok(/Approval 50&quot; and 250 more$/.test(label), 'and says how many more: ' + label.slice(-40));
   app.click('start-mode', 'solo', { process: 'gates300' }); await app.tick(10);

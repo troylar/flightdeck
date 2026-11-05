@@ -64,7 +64,7 @@ rule('Stage the draft, retire it, reopen it and make it the default: files only,
   let html = app.html();
   assert.ok(/<details data-disc="vers:release" open>/.test(html), 'the disclosure stays open after staging');
   assert.ok(new RegExp('data-act="promote-stage" data-id="' + folder + '"[^>]*>Make v3 the default<').test(html), 'Make v3 the default');
-  assert.ok(/data-act="start" data-id="release"/.test(html) && /v2 · published/.test(html), 'v2 stays the default');
+  assert.ok(/data-act="start" data-id="release"/.test(html) && /v2<span class="hd-dot">&nbsp;·&nbsp;<\/span>published/.test(html), 'v2 stays the default');
 
   app.choose('person-morgan'); await app.tick(); app.click('open-process', 'release'); await app.tick();
   app.click('retire-stage', folder); await app.tick(200);
@@ -86,7 +86,7 @@ rule('Stage the draft, retire it, reopen it and make it the default: files only,
   const p3 = JSON.parse(app.fs.files[v3[0]].t);
   assert.ok(p3.publishedBy === 'person-morgan' && p3.stagedFrom.folder === folder, JSON.stringify(p3));
   html = app.html();
-  assert.ok(/v3 · published/.test(html), 'v3 is the default now');
+  assert.ok(/v3<span class="hd-dot">&nbsp;·&nbsp;<\/span>published/.test(html), 'v3 is the default now');
   assert.ok(/Published as v3/.test(html) && !/data-act="promote-stage"/.test(html), 'a promoted stage offers nothing more');
 });
 

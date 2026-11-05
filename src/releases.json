@@ -1,5 +1,36 @@
 [
   {
+    "version": "2.16.1",
+    "date": "2026-11-05",
+    "headline": "Edit and Practice share one header, and every work screen has room to breathe",
+    "changes": [
+      {
+        "kind": "fixed",
+        "area": "Screens",
+        "title": "Edit and Practice headers match",
+        "before": "Edit's header was taller than Practice's, so the way back, the view control and More moved when you switched, and a stray dot followed Draft: saved.",
+        "now": "Edit and Practice draw the same header at every width: switching moves nothing they share. Discard my changes shows only while there are changes, in its own place beside the main action, 44 px on phones.",
+        "where": "Edit and Practice"
+      },
+      {
+        "kind": "fixed",
+        "area": "Screens",
+        "title": "Header status lines wrap cleanly",
+        "before": "A header's status line could start a line with a dot or end in …, the spacing around dots varied, and the Flight plan read (3 of 5 runs)Not counted.",
+        "now": "Status lines run under the title and the way back and wrap between pieces, with even spacing and no dot at the start or end of a line. The Flight plan puts a space before Not counted.",
+        "where": "Every work screen header"
+      },
+      {
+        "kind": "improved",
+        "area": "Screens",
+        "title": "More room on every work screen",
+        "before": "Phases, phase headers and steps on the run screen and in Practice were tighter than elsewhere, and panes used different edges.",
+        "now": "One spacing scale across the work screens: roomier phase cards and step rows, a wider phase list, and the same edge on every pane. Practice's note that links and commands still act on real systems wraps instead of being cut off.",
+        "where": "Run screen, Practice, Edit"
+      }
+    ]
+  },
+  {
     "version": "2.16.0",
     "date": "2026-11-05",
     "headline": "Search Jira from a step, one header everywhere, and Edit and Practice side by side",

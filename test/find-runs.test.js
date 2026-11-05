@@ -1276,7 +1276,7 @@ rule('Round 9: Plan on 300 roles keeps what every role started as through a refr
   await into(app, fixture());
   app.click('nav', 'processes'); await app.tick(5); app.click('open-process', 'roles'); await app.tick(10); app.click('plan-run', 'roles'); await app.tick(20);
   const selOf = (h, role) => { const m = new RegExp('<select id="role-' + role + '"[^>]*>([\\s\\S]*?)</select>').exec(h); return m && (/<option value="([^"]+)" selected>/.exec(m[1]) || [])[1]; };
-  const sugOf = (h, role) => (new RegExp('for="role-' + role + '">' + role + ' <span class="small">· suggestion: ([^<(]*)').exec(h) || [])[1];
+  const sugOf = (h, role) => (new RegExp('for="role-' + role + '">' + role + ' <span class="small">suggestion: ([^<(]*)').exec(h) || [])[1];
   const wasOf = (h, role) => (new RegExp('id="role-' + role + '" data-role="[^"]*"[^>]*data-was="([^"]*)"').exec(h) || [])[1];
   let h = app.html();
   const r250 = hiddenOfAt(h, 'r250'), r2 = selOf(h, 'r2'), sug2 = sugOf(h, 'r2');

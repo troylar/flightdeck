@@ -71,11 +71,11 @@
     var prim = wsPrimary(ctx, p, pr);
     var nav = '<nav class="pviews ws-views" aria-label="Checklist views">' +
       '<button type="button" id="ws-edit"' + (pr ? ' data-act="pr-back"' : ' aria-current="page"') + '>' + I('edit') + 'Edit</button>' +
-      '<button type="button" id="ws-practice"' + (pr ? ' aria-current="page"' : ' data-act="pr-open"') + (got ? ' aria-label="Practice, ' + cnt.done + ' of ' + cnt.total + ' steps answered"' : '') + '>' + I('play') + 'Practice' + got + '</button></nav>';
+      '<button type="button" id="ws-practice"' + (pr ? ' aria-current="page"' : ' data-act="pr-open"') + (got ? ' aria-label="Practice, ' + cnt.done + ' of ' + cnt.total + ' steps answered"' : '') + '>' + I('play') + 'Practice' + (got ? '<span class="ws-cnt">' + got + '</span>' : '') + '</button></nav>';
     /* ‹ Overview always replaces (nav §1.4): wsLeave, through its guards. The title beside it is the visible h1. */
     var back = V.backc(pr ? 'pr-leave' : 'ed-done', null, 'Overview', null, '', 'Back to Overview of ' + p.title);
     return V.workHead({ hid: o.hid, cls: o.cls, h1: esc(p.title), h1tail: '<span class="sr">, ' + (pr ? 'Practice' : 'Edit') + '</span>', back: back,
-      status: o.status.concat(prim.sub ? [{ kind: 'act', cls: 'ws-test', html: prim.sub }] : []), views: nav, prog: o.prog,
+      status: o.status.concat(prim.sub ? [{ kind: 'act', cls: 'ws-test', html: prim.sub }] : []), views: nav, prog: o.prog, sa: o.sa,
       acts: prim.html, more: V.moreMenu(ctx, V.moreGroup('On this screen', o.phone || '') + V.appGroup(ctx, { pr: pr }), pr), why: prim.why });
   }
   /* The held primary's reason line, inside the header; nobody chosen offers the Who are you? dialog. */
@@ -161,15 +161,16 @@
     var builder = st.builder !== false, o = PF.outline.parse(text), sel = builder && !o.unsupported && st.obSel && st.obSel.pid === p.id ? st.obSel : null;
     var nb = c.blockers.length, nt = c.suggestions.length, count = nb, checksLabel = nb ? nb + ' thing' + (nb === 1 ? '' : 's') + ' to fix before publishing' : nt ? nt + ' tip' + (nt === 1 ? '' : 's') : 'ready to publish', tab = insTabOf(st, !!sel, nb, builder, freshDraft(map, c.blockers));
     var status = draftStatus(ctx, p, ed, text);
-    /* Three groups that never trade places: who it is, the editing tools, and saving. Discard keeps its place when hidden. */
+    /* Three groups that never trade places: who it is, the editing tools, and saving. Discard my changes is drawn only while
+       there are changes, first in row 1's right column (workHead's sa slot), never in the status line. */
     var just = !dirty && !saving && st.justSaved && st.justSaved.pid === p.id, size = U.draftSize(text);
     /* The workspace's one header (2.16), shared with practice: the way back, the title, Edit | Practice, one primary, More;
        then the tool row: Undo, Redo, History | Builder | Markdown. History is a phone-only copy in More too. */
     var seg = '<div class="seg" role="group" aria-label="Edit with"><button type="button" data-act="ed-mode" data-id="builder" aria-pressed="' + builder + '">Builder</button><button type="button" data-act="ed-mode" data-id="markdown" aria-pressed="' + !builder + '">Markdown</button></div>';
     var phone = '<button type="button" class="mini ph-only" data-act="hist-open" data-id="draft" aria-haspopup="dialog">' + I('clock') + 'History</button>';
-    var parts = [{ kind: 'd', cls: 'sv', html: '<span class="fpe-state' + (dirty ? ' dirty' : '') + (just ? ' just' : '') + '" role="status" title="maps/drafts/' + esc(file) + (size ? ' · ' + size : '') + '">' + (just ? I('check') : '') + 'Draft: ' + status + '</span>' },
-      { kind: 'act', html: '<button type="button" class="linkish fpe-discard" data-act="revert-draft" data-id="' + esc(p.id) + '"' + (dirty ? '' : ' hidden') + '>Discard my changes</button>' }];
-    var h = '<div class="fpe" id="fpe">' + wsHead(ctx, p, { practice: false, hid: 'ed-h', status: parts, phone: phone }) + V.toolRow([V.undoBar('draft', ed && ed.tl), seg], '', { label: 'Editing tools' });
+    var parts = [{ kind: 'd', cls: 'sv', html: '<span class="fpe-state' + (dirty ? ' dirty' : '') + (just ? ' just' : '') + '" role="status" title="maps/drafts/' + esc(file) + (size ? ' · ' + size : '') + '">' + (just ? I('check') : '') + 'Draft: ' + status + '</span>' }];
+    var sa = dirty ? '<button type="button" class="linkish fpe-discard" data-act="revert-draft" data-id="' + esc(p.id) + '">Discard my changes</button>' : '';
+    var h = '<div class="fpe" id="fpe">' + wsHead(ctx, p, { practice: false, hid: 'ed-h', status: parts, sa: sa, phone: phone }) + V.toolRow([V.undoBar('draft', ed && ed.tl), seg], '', { label: 'Editing tools' });
     /* Messages and conflicts stay in view, right under the header. */
     var al = '';
     /* No live role: messages are announced once, through #live (say and announce in app.js). */

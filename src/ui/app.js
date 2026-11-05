@@ -2445,7 +2445,7 @@
     var keep = on && state.paneScroll && state.paneScroll.key === state.runKey ? state.paneScroll : null;
     if (keep) { state.paneScroll = null; ['rw-list', 'rw-ins'].forEach(function (id) { var el = document.getElementById(id); if (el && keep[id] != null) el.scrollTop = keep[id]; }); }
     /* A run opens with its selected step in view beside the inspector. */
-    if (on && state.revealSel) { state.revealSel = false; if (!narrow() && state.sel) reveal('#step-' + cssEsc(state.sel), 'center'); }
+    if (on && state.revealSel) { state.revealSel = false; if (!narrow() && state.sel) revealRun('#step-' + cssEsc(state.sel), 'center'); }
   }
   /* Resizable sidebars (V.splitter). After each redraw and on a window resize, each panes container on screen is fitted as a
      whole (V.fitPanes) from its width and the widths chosen; a sidebar left at the layout's width is measured. A change redraws
@@ -4023,7 +4023,7 @@
       var m = prModel(), x = m && m.map && M.findStep(m.map, id); if (!x) return;
       state.unfold[x.phase.id] = true; prPickStep(id); state.refOpen = true;
       if (b && b.dataset && b.dataset.nav) state.focus = 'ins-h';
-      render(); if (b && b.dataset && b.dataset.nav) reveal('#step-' + cssEsc(id));
+      render(); if (b && b.dataset && b.dataset.nav) revealRun('#step-' + cssEsc(id));
     },
     goto: function (id) {
       var m = prModel(), map = m && m.map, mm = /^(step|gate|phase)-(.+)$/.exec(id || ''), x = mm && mm[1] === 'step' && map ? M.findStep(map, mm[2]) : null;
@@ -5081,7 +5081,17 @@
   function narrow() { return !!(window.matchMedia && window.matchMedia('(max-width: 800px)').matches); }
   function edText(p) { var ed = openEditor(p); return ed.text != null ? ed.text : ed.base; }
   /* The new item is shown: the page scrolls just enough to bring it into view (renders keep the scroll where it was). */
-  function reveal(sel, block) { var el = sel && document.querySelector(sel); if (el && el.scrollIntoView) el.scrollIntoView({ block: block || 'nearest' }); }
+  function reveal(sel, block) { var el = sel && document.querySelector(sel); if (el && el.scrollIntoView) el.scrollIntoView({ block: block || 'nearest' }); return el; }
+  /* A step or gate brought into view in a run list that scrolls on its own: no card is left cut by the pinned Next up
+     (V.clearEdge), when the list can move without losing it. */
+  function revealRun(sel, block) {
+    var el = reveal(sel, block), list = el && el.closest ? el.closest('.rw-list') : null;
+    if (!list || !list.getBoundingClientRect || !(list.scrollHeight > list.clientHeight) || narrow()) return;
+    var box = function (e) { var b = e.getBoundingClientRect(); return { top: b.top, bottom: b.bottom }; }, lr = list.getBoundingClientRect(), dock = list.querySelector('.rw-dock');
+    var d = V.clearEdge({ under: dock ? dock.getBoundingClientRect().bottom : lr.top, edge: lr.top + (parseFloat(getComputedStyle(list).scrollPaddingTop) || 0), bottom: lr.bottom },
+      Array.prototype.map.call(list.querySelectorAll('.placard, .folded, .gate, .step'), box), box(el));
+    if (d) list.scrollTop += d;
+  }
   /* Brought into view after the next draw (revealNow), on any screen or dialog, for the folder it was asked in. open: folds the
      person closed above it are opened first (Show more, a just-shown row). */
   function revealAt(sel, open) { state.revealTarget = sel; state.revealOpen = !!open; state.revealGen = gen; }
@@ -7577,7 +7587,7 @@
       state.unfold[x.phase.id] = true;
       selectStep(id); state.refOpen = true;
       if (b && b.dataset && b.dataset.nav) state.focus = 'ins-h';
-      render(); if (b && b.dataset && b.dataset.nav) reveal('#step-' + cssEsc(id));
+      render(); if (b && b.dataset && b.dataset.nav) revealRun('#step-' + cssEsc(id));
     },
     'close-ref': function () { state.refOpen = false; render(); },
     unfold: function (id) { state.unfold[id] = true; state.focus = '[data-act="fold"][data-id="' + cssEsc(id) + '"]'; render(); },
@@ -9503,13 +9513,13 @@
       /* A step that starts a child run has no check to focus; its title in the inspector takes focus instead. */
       selectStep(nxt.id); state.focus = (narrow() && state.refOpen) || nxt.type === 'run.process' ? 'ins-h' : '[data-act="toggle"][data-id="' + cssEsc(nxt.id) + '"]';
       if (nxt.type === 'run.process') state.refOpen = true;
-      say(title + ' Next: "' + M.shownText(nxt, rv) + '".', ''); state.msg.quiet = true; render(); reveal('#step-' + cssEsc(nxt.id));
+      say(title + ' Next: "' + M.shownText(nxt, rv) + '".', ''); state.msg.quiet = true; render(); revealRun('#step-' + cssEsc(nxt.id));
       return;
     }
     /* On a phone the step sheet closes first, so the gate can take focus. */
     if (narrow()) state.refOpen = false;
     state.focus = '#gate-' + cssEsc(g.id) + ' .btn.go';
-    say(title + ' Next: ' + (g.implicit ? 'confirm the phase.' : 'the "' + g.title + '" gate.'), ''); state.msg.quiet = true; render(); reveal('#gate-' + cssEsc(g.id));
+    say(title + ' Next: ' + (g.implicit ? 'confirm the phase.' : 'the "' + g.title + '" gate.'), ''); state.msg.quiet = true; render(); revealRun('#gate-' + cssEsc(g.id));
   }
   var NOTE_MAX = 2000;
   /* Where a pasted or dropped file goes: a suggestion when it's dropped or pasted in that form (or the form asks for the

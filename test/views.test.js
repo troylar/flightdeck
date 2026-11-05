@@ -751,8 +751,10 @@ rule('Compare versions and the flight plan say what each number left out, throug
   assert.ok(/<th scope="row"[^>]*>v0<\/th><td>1<\/td><td>0<\/td><td>—<\/td><td><span class="small ins-q">Not counted: 1 run, a time is later than now, by the recorder&#39;s clock\./.test(cmp), cmp.slice(0, 1200));
   state.ptab = 'checklist';
   const fp = V.checklistPanel(ctx, p);
-  assert.ok(/A completed run typically takes [^<]+<\/span><span class="small ins-q">Not counted: 1 run, a time is later than now, by the recorder&#39;s clock\./.test(fp), 'the landed time says what it left out');
-  assert.ok(/went off-script in 1 of 2 runs<span class="small ins-q">Not counted: 1 run, history incomplete\./.test(fp), fp.slice(fp.indexOf('Turbulence'), fp.indexOf('Turbulence') + 400));
+  assert.ok(/A completed run typically takes [^<]+<\/span> <span class="small ins-q">Not counted: 1 run, a time is later than now, by the recorder&#39;s clock\./.test(fp), 'the landed time says what it left out');
+  assert.ok(/went off-script in 1 of 2 runs <span class="small ins-q">Not counted: 1 run, history incomplete\./.test(fp), fp.slice(fp.indexOf('Turbulence'), fp.indexOf('Turbulence') + 400));
+  const joined = fp.match(/.{0,40}[^ ]<span class="small ins-q">/g) || [];
+  assert.deepStrictEqual(joined, [], 'a Not counted line inside a sentence is a word apart from it, never "(3 of 5 runs)Not counted"');
 });
 rule('Runs: Show current numbers can come back with no runs, and then says nothing changed', () => {
   const { ctx, state, runs } = insightsSetup(2);
@@ -1564,7 +1566,9 @@ rule('Draft editor: empty and nothing-selected states say what to do next', () =
   html = V.process(ctx);
   assert.ok(/<div class="ob-empty"><p><b>This checklist is empty\.<\/b>/.test(html) && /data-act="ob-add-phase">.*Add your first phase<\/button>/.test(html));
   assert.ok(/<details class="ob-help"><summary>Editing help<\/summary><p id="ob-kbd"/.test(html), 'keyboard help folded away');
-  assert.ok(/class="linkish fpe-discard" data-act="revert-draft" data-id="release">Discard my changes/.test(html) && !/fpe-discard"[^>]* hidden/.test(html), 'Discard shows when there are changes');
+  assert.ok(/<div class="hd-r"><div class="hd-sa"><button type="button" class="linkish fpe-discard" data-act="revert-draft" data-id="release">Discard my changes<\/button><\/div>/.test(html), 'Discard shows when there are changes, first in row 1\'s right column');
+  const st = /<p class="hd-st">[\s\S]*?<\/p>/.exec(html)[0];
+  assert.ok(st.indexOf('fpe-discard') < 0, 'the status line no longer holds Discard');
 });
 
 /* ---------- The run workspace (1.13) ---------- */
@@ -1629,7 +1633,7 @@ rule('Run workspace: a slim header with progress in words, three named panes, an
   playPhase(r, 0);
   const html = V.run(ctx);
   assert.ok(/^<div class="fpe rw" id="rw"><header class="hd rw-head" role="region" aria-labelledby="run-h">/.test(html), 'the run is the page');
-  assert.ok(/class="btn backc" data-act="go-back" data-id="#\/runs" aria-label="Back to Runs">.*Runs<\/span><\/button>/.test(html) && /<h1 id="run-h" tabindex="-1"><span class="hd-t" title="Release">Release<\/span><\/h1><p class="hd-st"><span class="d">Production release<\/span><span class="d rw-sub">v1 · started/.test(html));
+  assert.ok(/class="btn backc" data-act="go-back" data-id="#\/runs" aria-label="Back to Runs">.*Runs<\/span><\/button>/.test(html) && /<h1 id="run-h" tabindex="-1"><span class="hd-t" title="Release">Release<\/span><\/h1><p class="hd-st"><span class="d">Production release<\/span><span class="d rw-sub">v1<span class="hd-dot">&nbsp;·&nbsp;<\/span>started/.test(html));
   assert.ok(/role="progressbar" aria-label="Steps answered" aria-valuemin="0" aria-valuemax="15" aria-valuenow="6" aria-valuetext="6 of 15 steps answered"><i style="width:40%"><\/i><\/span><b aria-hidden="true">6\/15<\/b><span class="small w" aria-hidden="true">answered<\/span>/.test(html), '6/14 answered, said in full for screen readers');
   assert.ok(/data-act="run-details" aria-expanded="false"/.test(html) && /data-act="receipt"/.test(html) && /<button type="button" class="mini more-btn ws-more-btn" id="ws-more-btn" data-act="ws-more"[^>]*>More<\/button>/.test(html) && !/End run…/.test(html) && /<div class="ro">You: <b>Casey Nguyen<\/b><\/div>/.test(html));
   assert.ok(/<nav class="fpe-pane rw-rail" aria-label="Phases">/.test(html) && /<section class="fpe-pane rw-list" id="rw-list" aria-label="Checklist">/.test(html) && /<aside class="fpe-pane rw-ins" id="rw-ins" data-open="false" aria-label="Selected step">/.test(html), 'named regions');
@@ -1731,6 +1735,13 @@ rule('Run workspace: on a phone the selected step is a sheet with Close, Previou
   const ins = insOf(V.run(ctx));
   assert.ok(/data-open="true"/.test(ins) && /<div class="rw-ins-top"><button class="mini close" data-act="close-ref">Close<\/button>/.test(ins) && /data-act="select" data-id="tests" data-nav="1">Next/.test(ins) && /data-act="to-row" data-id="approved">Back to the step list/.test(ins), 'Close is not Done; Previous / Next; a way back');
   assert.ok(/<div class="rw-act" role="group" aria-label="Answer this step">/.test(ins), 'the answer controls in a group kept in reach');
+});
+
+rule('Run workspace: where the step is (its phase, Step N of M) sits in the inspector\'s top row beside Previous and Next, so the step\'s own sections start higher', () => {
+  const { ctx } = setup(null, { sel: 'approved', refOpen: true });
+  const ins = insOf(V.run(ctx)), top = ins.slice(ins.indexOf('<div class="rw-ins-top">'), ins.indexOf('<div class="rw-ins-body">'));
+  assert.ok(/<nav class="rw-where" aria-label="Where it is"><ol class="ob-crumbs"><li>[^<]+<\/li>(<li>[^<]+<\/li>)?<li>Step \d+ of \d+<\/li><\/ol><\/nav>(<button class="mini rw-ins-edit"[^>]*>.*?<\/button>)?<nav class="row rw-steps" aria-label="Other steps">/.test(top), top);
+  assert.strictEqual((ins.match(/aria-label="Where it is"/g) || []).length, 1, 'once');
 });
 
 rule('Run workspace: attachments show as thumbnails or named files with sizes, never as markup; waiting files list with Remove', () => {
@@ -3086,6 +3097,47 @@ rule('Affordance: the details card says what it does, with one pencil, and chart
   assert.ok(card.indexOf(PF.icons.icon('edit')) >= 0 && card.indexOf(PF.icons.icon('people')) < 0, 'one pencil, not the people icon');
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'views', 'insights.js'), 'utf8');
   assert.ok(/<circle class="ins-hit" cx="' \+ cx\.toFixed\(1\) \+ '" cy="' \+ \(38 - row \* 13\) \+ '" r="12"\/><circle class="ins-dot"/.test(src), 'a 24px hit circle under each dot');
+});
+
+rule('One header: a "·" in a status piece\'s text is held to the words on both sides and spaced like the line\'s own separators; one in a tag is left alone', () => {
+  const dot = '<span class="hd-dot">&nbsp;·&nbsp;</span>';
+  const h = V.workHead({ hid: 'x-h', h1: 'T', status: [{ kind: 'd', html: 'v2 · published by Casey' }, { kind: 'd', cls: 'rw-sub', html: 'Releases · owner Casey' },
+    { kind: 'd', cls: 'sv', html: '<span class="fpe-state" title="maps/drafts/a.md · 2 KB">Draft: saved · 2 changes<svg><path d="M1"/></svg></span>' }] });
+  const st = /<p class="hd-st">([\s\S]*?)<\/p>/.exec(h)[1];
+  assert.strictEqual(st, '<span class="d">v2' + dot + 'published by Casey</span><span class="d rw-sub">Releases' + dot + 'owner Casey</span>' +
+    '<span class="d sv"><span class="fpe-state" title="maps/drafts/a.md · 2 KB">Draft: saved' + dot + '2 changes<svg><path d="M1"/></svg></span></span>');
+});
+rule('Run list: after a step is brought into view, a card cut by the pinned Next up is shown whole, or tucked away, as long as the step stays in view', () => {
+  // under: Next up's bottom edge; edge: where scroll-padding puts the first card; bottom: the list's bottom edge.
+  const v = { under: 231, edge: 243, bottom: 800 };
+  assert.strictEqual(V.clearEdge(v, [{ top: 150, bottom: 277 }, { top: 300, bottom: 360 }], { top: 500, bottom: 623 }), -93, 'the gate comes down whole under Next up');
+  assert.strictEqual(V.clearEdge(v, [{ top: 150, bottom: 277 }], { top: 600, bottom: 760 }), 46, 'no room to show it whole: scrolled away under Next up');
+  assert.strictEqual(V.clearEdge(v, [{ top: 150, bottom: 277 }], { top: 250, bottom: 790 }), 0, 'neither keeps the step in view: left as it is');
+  assert.strictEqual(V.clearEdge(v, [{ top: 100, bottom: 231 }, { top: 235, bottom: 300 }], { top: 500, bottom: 623 }), 0, 'nothing is cut: nothing moves');
+});
+
+rule('One header: the workspace\'s view switch keeps Practice\'s count in its own span, the same in Edit and Practice', () => {
+  const { ctx, state } = partsSetup();
+  ctx.practiceCount = () => ({ done: 2, total: 15 });
+  const ed = V.process(ctx);
+  assert.ok(/id="ws-practice"[^>]*aria-label="Practice, 2 of 15 steps answered">.*?Practice<span class="ws-cnt"> · 2 of 15<\/span><\/button>/.test(ed), ed.slice(ed.indexOf('ws-practice') - 20, ed.indexOf('ws-practice') + 400));
+});
+
+rule('One header: workHead draws an action slot (.hd-sa) first in row 1\'s right column only when it is given one', () => {
+  const sa = '<button type="button" class="linkish">Go</button>';
+  const h = V.workHead({ hid: 'x-h', h1: 'T', sa: sa, prog: '<div class="hd-prog"></div>', acts: '<button>P</button>', more: '<div class="more"></div>' });
+  assert.ok(h.indexOf('<div class="hd-r"><div class="hd-sa">' + sa + '</div><div class="hd-prog"></div><div class="hd-acts" data-slot="primary">') >= 0, 'before progress and the primary: ' + h);
+  ['', null, undefined].forEach(x => assert.ok(V.workHead({ hid: 'x-h', h1: 'T', sa: x, prog: '<div class="hd-prog"></div>' }).indexOf('hd-sa') < 0, 'no empty slot for ' + x));
+});
+
+rule('One header: Edit gives Discard my changes to the action slot only while there are changes; Practice has no slot', () => {
+  const { ctx, state } = partsSetup();
+  let html = V.process(ctx);
+  assert.ok(html.indexOf('hd-sa') < 0 && html.indexOf('fpe-discard') < 0, 'a clean draft: no Discard, hidden or not, and no slot');
+  state.editor.text = state.editor.base + '\nchanged';
+  html = V.process(ctx);
+  assert.ok(/<div class="hd-sa"><button type="button" class="linkish fpe-discard" data-act="revert-draft" data-id="release">Discard my changes<\/button><\/div>/.test(html), 'a changed draft: Discard in the slot');
+  assert.ok(/<p class="hd-st">[\s\S]*?<\/p>/.exec(html)[0].indexOf('fpe-discard') < 0, 'and not in the status line');
 });
 
 rule('One header: a work screen\'s title ends in an ellipsis: its text is a shrinking span that keeps the full title, with any tag after it', () => {
