@@ -250,6 +250,7 @@ PF.values = (function () {
           } else chars.push(cpOf(a.v));
         }
         if (j >= s.length) return { ok: false, why: 'a [ is never closed.' };
+        if (!ranges.length && !chars.length) return { ok: false, why: 'an empty class [] matches nothing; list what is allowed.' };
         set = { ranges: ranges, chars: chars }; i = j + 1;
       }
       else if ('()|'.indexOf(c) >= 0) return { ok: false, why: '"' + c + '" (groups and alternatives) isn\'t supported; write one sequence. For the character itself, ' + HINT };

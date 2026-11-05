@@ -145,6 +145,121 @@ rule('R14-2: Restore it at the history cap keeps every record: a refused save ke
   const back = JSON.parse(app.fs.files[path].t);
   assert.strictEqual(back.title, 'Kept here', 'restored');
 });
+/* ---- Round 3: one stamp on the step's draft, checked by one function at every read, save and render ---- */
+const NOTE = 'Your unsaved results were for version 2026.11.0. Search again.';
+const stepOf = (app, id) => runJson(app).steps[id] || null;
+rule('5.3 (round 3): the inspector: results typed before a detail change are dropped with the notice, never saved', async () => {
+  const app = await searching();
+  app.click('select', 'scope'); await app.tick(40);
+  app.set('rec-count', '2'); app.set('rec-keys', 'PAY-1, PAY-2');
+  app.click('select', 'blockers'); await app.tick(40);
+  await setDetail(app, 'version', '2026.12.0');
+  assert.ok(app.html().indexOf(NOTE) >= 0, 'the notice');
+  app.click('select', 'scope'); await app.tick(40);
+  assert.deepStrictEqual([app.draft('rec-count'), app.draft('rec-keys')], ['', ''], 'the boxes are empty');
+  app.click('record', 'scope'); await app.tick(80);
+  assert.ok(!(stepOf(app, 'scope') && stepOf(app, 'scope').s === 'done'), JSON.stringify(stepOf(app, 'scope')));
+});
+rule('5.3 (round 3): Fill in: results typed in Fill in before a detail change are dropped, whether it stays open or is reopened', async () => {
+  for (const reopen of [false, true]) {
+    const app = await searching();
+    app.click('select', 'scope'); await app.tick(40);
+    app.click('pick', 'scope', { kind: 'fields' }); await app.tick(40);
+    app.set('rec-count', '3'); app.set('rec-keys', 'PAY-1, PAY-2, PAY-3');
+    await setDetail(app, 'version', '2026.12.0');
+    assert.ok(app.html().indexOf(NOTE) >= 0, reopen + ': the notice');
+    app.click('select', 'scope'); await app.tick(40);
+    if (reopen || !/data-act="save-fields" data-id="scope"/.test(app.html())) { app.click('pick', 'scope', { kind: 'fields' }); await app.tick(40); }
+    assert.strictEqual(app.draft('rec-count'), '', reopen + ': the box is empty');
+    app.click('save-fields', 'scope'); await app.tick(80);
+    const a = stepOf(app, 'scope');
+    assert.ok(!(a && a.values && a.values.count === '3'), reopen + ': the stale count isn\'t saved: ' + JSON.stringify(a));
+    app.click('record', 'scope'); await app.tick(80);
+    assert.ok(!(stepOf(app, 'scope') && stepOf(app, 'scope').s === 'done'), reopen + ': not done');
+  }
+});
+rule('5.3 (round 3): Done differently: results typed before a detail change are dropped, never saved with the new search (without the change, it answers)', async () => {
+  for (const change of [false, true]) {
+    const app = await searching();
+    app.click('select', 'blockers'); await app.tick(40);
+    app.set('rec-count', '0');
+    app.click('corr-open', 'blockers', { mode: 'differently' }); await app.tick(40);
+    app.set('corr-happened', 'Checked by hand'); app.input('corr-happened', 'Checked by hand');
+    if (change) {
+      await setDetail(app, 'version', '2026.12.0');
+      assert.ok(app.html().indexOf(NOTE) >= 0, 'the notice');
+      app.click('select', 'blockers'); await app.tick(40);
+      app.click('corr-open', 'blockers', { mode: 'differently' }); await app.tick(40);
+    }
+    app.click('corr-done'); await app.tick(150);
+    const a = stepOf(app, 'blockers');
+    if (change) assert.ok(!(a && a.s === 'done'), JSON.stringify(a));
+    else assert.ok(a && a.s === 'done' && a.differently && a.values.searchId === sidNow(app, 'blockers'), 'control: ' + JSON.stringify(a));
+  }
+});
+rule('5.3 (round 3): Block with these: results typed before a detail change are dropped, and nothing is blocked (without the change, it blocks)', async () => {
+  for (const change of [false, true]) {
+    const app = await searching();
+    app.click('select', 'blockers'); await app.tick(40);
+    app.set('rec-count', '1'); app.set('rec-keys', 'PAY-9');
+    if (change) {
+      await setDetail(app, 'version', '2026.12.0');
+      assert.ok(app.html().indexOf(NOTE) >= 0, 'the notice');
+      app.click('select', 'blockers'); await app.tick(40);
+    }
+    app.click('search-block', 'blockers'); await app.tick(100);
+    const a = stepOf(app, 'blockers');
+    if (change) assert.ok(!(a && a.s === 'blocked'), JSON.stringify(a));
+    else assert.ok(a && a.s === 'blocked' && a.values.keys === 'PAY-9' && a.values.searchId === sidNow(app, 'blockers'), 'control: ' + JSON.stringify(a));
+  }
+});
+rule('6.3 (round 3): a refused Block with these keeps what was typed; a block that applies clears it', async () => {
+  const app = await searching();
+  app.click('select', 'blockers'); await app.tick(40);
+  app.set('rec-count', '1');
+  app.click('search-block', 'blockers'); await app.tick(80);
+  assert.ok(!(stepOf(app, 'blockers') && stepOf(app, 'blockers').s === 'blocked'), 'set-up: refused without keys');
+  app.click('select', 'scope'); await app.tick(40); app.click('select', 'blockers'); await app.tick(40);
+  assert.strictEqual(app.draft('rec-count'), '1', 'the count is still there');
+  app.set('rec-keys', 'PAY-9'); app.click('search-block', 'blockers'); await app.tick(120);
+  assert.strictEqual(stepOf(app, 'blockers').s, 'blocked');
+});
+
+/* R14-8 (round 3): Done on a search reopened in a completed run saves from this window even when the run was recorded in
+   another browser session, for its recorder and for whoever ended it; the file's fingerprint is still checked. */
+function endedElsewhere(recorder, ender) {
+  return (r, PF) => {
+    const R = PF.run, map = R.mapOf(r), sid = id => R.searchId(r, map, PF.map.findStep(map, id).step);
+    R.done(r, map, 'blockers', recorder, NOW, { count: '0', searchId: sid('blockers') });
+    R.done(r, map, 'scope', recorder, NOW, { count: '1', keys: 'PAY-1', searchId: sid('scope') });
+    R.pass(r, map, 0, recorder, NOW);
+    r.recorder = { person: recorder, session: 'w-other' };
+    r.state = 'completed'; r.ended = { outcome: 'Completed', by: ender, byName: 'Ender', at: NOW };
+    r.steps.blockers.values.count = '9';
+  };
+}
+rule('R14-8 (round 3): the recorder and the ender, in another browser session, answer a reopened search with Done; it lands in run.json, no conflict copy', async () => {
+  for (const [rec, end] of [['person-casey', 'person-casey'], ['person-avery', 'person-casey']]) {
+    const app = await searching({ edit: endedElsewhere(rec, end), noPickup: true });
+    const before = runJson(app);
+    assert.strictEqual(before.state, 'completed', 'set-up');
+    app.click('select', 'blockers'); await app.tick(40);
+    assert.ok(/data-act="record" data-id="blockers"/.test(app.html()), rec + ': Done is offered');
+    app.set('rec-count', '0'); app.click('record', 'blockers'); await app.tick(150);
+    const after = runJson(app);
+    assert.deepStrictEqual([after.state, after.steps.blockers.s, after.steps.blockers.values.count, after.steps.blockers.values.searchId], ['completed', 'done', '0', sidNow(app, 'blockers')], rec + ': saved: ' + JSON.stringify(after.steps.blockers));
+    assert.deepStrictEqual(app.files('runs/rel/run-s1/').filter(p => /conflict/.test(p)), [], rec + ': no conflict copy');
+    assert.strictEqual(after.recorder.session, 'w-other', rec + ': the recorder stays as it was');
+  }
+  /* The fingerprint still holds: the file changed on disk since it was read, so the change is kept as a conflict copy. */
+  const app = await searching({ edit: endedElsewhere('person-casey', 'person-casey'), noPickup: true });
+  app.click('select', 'blockers'); await app.tick(40);
+  const j = runJson(app); j.title = 'Changed elsewhere'; j.rev = (j.rev || 0) + 1; await app.fs.write('runs/rel/run-s1/run.json', JSON.stringify(j));
+  app.set('rec-count', '0'); app.click('record', 'blockers'); await app.tick(150);
+  assert.strictEqual(runJson(app).title, 'Changed elsewhere', 'not written over');
+  assert.ok(app.files('runs/rel/run-s1/').some(p => /conflict/.test(p)), 'kept as a conflict copy');
+});
+
 /* ---- Section 7 and Appendix A.3: the editor ---- */
 const HEAD = '---\nprocess: release\ntitle: Production release\nowner: person-casey\nroles: lead\ncontext: tag, environment\n---\n\n';
 const jmd = (...steps) => HEAD + '## Build · READ-DO {#build}\n' + steps.join('') + '\n';
@@ -277,4 +392,59 @@ rule('A.3: Text that matches a pattern: Check tries a value; an unescaped ( ) or
   assert.strictEqual(await textOf(app), before, 'Undo removes it');
 });
 
+rule('R3-7: typing in Text that matches a pattern is pending input: choosing a step waits, nothing is lost, Discard puts the boxes back', async () => {
+  const before = jmd(jstep('confirm', 'c'), jstep('confirm', 'd'));
+  const app = await editorOn(before, null);
+  app.click('ob-sel-details'); await app.tick();
+  for (const [id, v] of [['ob-pat-name', 'rel'], ['ob-pat-src', 'v\\d+'], ['ob-pat-test', 'v12']]) { app.set(id, v); app.input(id, v); }
+  await app.tick();
+  app.click('ob-sel', 'd'); await app.tick();
+  assert.ok(/Apply or clear what you typed in the box first/.test(app.live()), 'choosing a step waits: ' + app.live());
+  assert.ok(/<span id="ob-pat-l">/.test(formOf(app)), 'still on the checklist details');
+  assert.deepStrictEqual([app.draft('ob-pat-name'), app.draft('ob-pat-src'), app.draft('ob-pat-test')], ['rel', 'v\\d+', 'v12'], 'nothing typed is lost');
+  app.click('ob-pat-check'); await app.tick();
+  assert.deepStrictEqual([app.draft('ob-pat-name'), app.draft('ob-pat-src'), app.draft('ob-pat-test')], ['rel', 'v\\d+', 'v12'], 'and it survives a redraw');
+  for (let i = 0; i < 3; i++) { app.click('ob-sel', 'd'); await app.tick(); if (!/Apply or clear/.test(app.live())) break; app.click('ob-hold-discard'); await app.tick(); }
+  app.click('ob-sel', 'd'); await app.tick();
+  assert.ok(!/<span id="ob-pat-l">/.test(formOf(app)), 'after Discard, the step opens');
+  app.click('ob-sel-details'); await app.tick();
+  assert.deepStrictEqual([app.draft('ob-pat-name'), app.draft('ob-pat-src'), app.draft('ob-pat-test')], ['', '', ''], 'Discard cleared what was typed');
+  assert.strictEqual(await textOf(app), before, 'nothing written');
+});
+rule('R3-7: every typed box the builder draws is pending input (OB_TYPED) or listed as exempt, so a new authoring box can\'t lose typing unnoticed', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
+  const typed = new RegExp(/var OB_TYPED = \/(.*)\/;/.exec(src)[1]);
+  const b = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'views', 'builder.js'), 'utf8');
+  const ids = new Set();
+  for (const m of b.matchAll(/(?:formBox\(ctx, |<input[^>]*?id=")'?(ob-[\w-]+)/g)) ids.add(m[1]);
+  for (const m of b.matchAll(/<(?:input|textarea)\b[^>]*?id="(ob-[\w-]+)/g)) ids.add(m[1]);
+  /* Not typed authoring text: checkboxes, radios, the file picker, the outline filter. */
+  const EXEMPT = ['ob-must', 'ob-planned', 'ob-link-ver-latest', 'ob-link-ver-pin', 'ob-shot-file', 'ob-shot-new', 'ob-part-q'];
+  assert.ok(ids.has('ob-pat-name') && ids.has('ob-g-title') && ids.has('ob-note'), 'the scan finds the boxes: ' + [...ids].join(' '));
+  const missing = [...ids].map(id => /-$/.test(id) ? id + 'x' : id).filter(id => !typed.test(id) && EXEMPT.indexOf(id) < 0);
+  assert.deepStrictEqual(missing, [], 'boxes not kept as pending input');
+});
+rule('R3 P1: one binding for every search draft: no save path builds evidence from a step draft without searchBound (source check)', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
+  assert.ok(/function searchBound\(key, id\)/.test(src), 'the one checking function');
+  assert.ok(/function stampDraft\(/.test(src), 'the one stamp, at the draft root');
+  assert.deepStrictEqual(src.match(/\.searchFor\b|dropStaleSearch\(/g), null, 'no per-compartment binding left');
+  /* Each function declaration or ACTIONS entry, as a chunk of text up to the next one. */
+  const heads = [...src.matchAll(/^\s*(?:function (\w+)\(|'([\w-]+)': function \(|(\w+): function \()/gm)];
+  const chunks = heads.map((m, i) => ({ name: m[1] || m[2] || m[3], text: src.slice(m.index, i + 1 < heads.length ? heads[i + 1].index : src.length) }));
+  const MACHINERY = ['draftKey', 'draftOf', 'hasDraft', 'dropDraft', 'harvest', 'stampDraft', 'searchBound', 'searchBoundAll', 'restoreDrafts', 'noteDrawn', 'searchNow'];
+  const bad = [];
+  chunks.forEach(c => {
+    if (MACHINERY.indexOf(c.name) >= 0) return;
+    const draft = /draftOf\(/.test(c.text), saves = /R\.checkEvidence\(|R\.setFields\(|R\.block\(|R\.done\(|R\.doneDifferently\(|PR\.answer\(|values\[/.test(c.text);
+    if (/searchId =/.test(c.text) && !/searchBound\(/.test(c.text)) bad.push(c.name + ': sets a searchId');
+    if (/R\.checkEvidence\(/.test(c.text) && !/searchBound\(/.test(c.text)) bad.push(c.name + ': checks evidence');
+    if (draft && saves && /\.(record|fields)\b/.test(c.text) && !/searchBound\(/.test(c.text)) bad.push(c.name + ': reads a step draft to save');
+  });
+  assert.deepStrictEqual(bad, [], 'save paths outside the binding');
+  const users = chunks.filter(c => /searchBound\(/.test(c.text) && MACHINERY.indexOf(c.name) < 0).map(c => c.name);
+  ['answerCheck', 'save-fields', 'prAnswer'].forEach(n => assert.ok(users.indexOf(n) >= 0, n + ' checks it: ' + users.join(' ')));
+  /* Done, Done differently and Block with these build their evidence only in answerCheck. */
+  ['search-block', 'answerStep'].forEach(n => { const c = chunks.find(x => x.name === n); const t = c ? c.text.replace(/dropDraft\(/g, '') : '', at = t.indexOf('answerCheck('), dr = t.indexOf('draftOf('); assert.ok(at >= 0 && (dr < 0 || dr > at), n + ': its draft is read only after answerCheck'); });
+});
 run();

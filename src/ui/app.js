@@ -1996,7 +1996,7 @@
     /* Revealed boxes belong to one checklist's editor: leaving it (another checklist, folder or screen) forgets them. */
     if (state.obShown && (state.view !== 'process' || state.ptab !== 'edit' || state.obShown.key.indexOf(fsKey() + '\n' + state.processId + '\n') !== 0)) state.obShown = null;
     var fill = fillShown(), had = moreHas();
-    try { harvest(); dropStaleSearches(); renderNow(); } finally { rendering = false; }
+    try { harvest(); searchBoundAll(); renderNow(); } finally { rendering = false; }
     moreSync(had);
     fillAfter(fill);
     dbxAfter();
@@ -3616,7 +3616,7 @@
     try { raw = sessionStorage.getItem(prStoreKey(pid)); } catch (err) { raw = null; }
     /* R14-1: a kept practice is read only with the draft as admitted; while the text doesn't admit, it's held, never shown or
        written over, and prMap reads it on the first text that admits. */
-    if (raw) { map = prAdmitted(pid); if (!map) held = raw; else { try { st = PR.check(JSON.parse(raw), pid, map); } catch (err) { st = null; } lost = !st; } }
+    if (raw) { map = prAdmitted(pid); if (!map) held = raw; else { try { st = PR.check(JSON.parse(raw), pid, map, prEnv()); } catch (err) { st = null; } lost = !st; } }
     prLoadTyped(pid);
     return (prs[k] = { pid: pid, held: held, st: st || PR.fresh(pid), undo: [], redo: [], renames: {}, moved: {}, cache: null, good: null, mem: false, sampleErr: {}, typed: {}, gateErr: null, refusal: null, saveErr: null, trip: null,
       note: lost ? 'The practice kept in this tab couldn\'t be read, so it starts fresh. The draft isn\'t affected.' : '' });
@@ -3645,7 +3645,7 @@
     if (e.cache && e.cache.key === key) return e.cache;
     var a = PR.admit(text, prEnv());
     if (a.ok && e.held) {
-      var kept = null; try { kept = PR.check(JSON.parse(e.held), e.pid, a.map); } catch (err) { kept = null; }
+      var kept = null; try { kept = PR.check(JSON.parse(e.held), e.pid, a.map, prEnv()); } catch (err) { kept = null; }
       e.held = null; e.cache = null;
       if (kept) e.st = kept; else e.note = 'The practice kept in this tab couldn\'t be read, so it starts fresh. The draft isn\'t affected.';
     }
@@ -3795,7 +3795,7 @@
       if (!raw) return null;
       /* Memoized on the kept text, the step types and the draft text, since the admitted draft decides how it reads. */
       var mk = raw + '\n' + typesRev() + '\n' + prText(p);
-      if (memo.raw !== mk) { var c = null, am = prAdmitted(pid); if (am) { try { c = PR.check(JSON.parse(raw), pid, am); } catch (err) { c = null; } } memo.raw = mk; memo.st = c; }
+      if (memo.raw !== mk) { var c = null, am = prAdmitted(pid); if (am) { try { c = PR.check(JSON.parse(raw), pid, am, prEnv()); } catch (err) { c = null; } } memo.raw = mk; memo.st = c; }
       st = memo.st; if (!st) return null;
     } else if (e.held) return null;
     var text = prText(p);
@@ -3998,6 +3998,8 @@
   function prAnswer(id, how) {
     var p = prNow(); if (!p) return; var e = prEntry(p.id), m = prModel(), s = m && m.P.steps[id]; if (!s) return;
     harvest();
+    /* A practice search has no identity, so nothing is ever stale here; the check is the same one every save path makes. */
+    if (!searchBound(prKey(p.id), id)) { render(); return; }
     var d = draftOf(prKey(p.id), id, false);
     if (how !== 'skip' && s.status !== 'done' && (state.pick && state.pick.kind === 'fields' && state.pick.id === id || (d && d.open))) { say('Save or cancel Fill in first.', 'warn'); state.focus = '[data-act="save-fields"][data-id="' + cssEsc(id) + '"]'; render(); return; }
     var values = null, x = M.findStep(m.map, id);
@@ -5376,7 +5378,9 @@
   var OB_CHANGE = /^ob-(text|type|jres-n|fld-[\w-]+|ph-title|ph-note|ph-mode|g-title|g-owner|g-approves|tr-title|tr-role|shot-cap-\d+|note|q-text|owner|backup|add-role|add-ctx|when|ph-when)$/;
   /* The Add step and Add phase boxes, whose typing Undo, Redo and closing the form keep (a new role's name isn't kept). */
   var OB_KEPT = /^ob-new-(text|title)$/;
-  var OB_TYPED = /^ob-(ren-ctx|jres-n|new-role|text|ph-title|ph-note|tr-title|g-title|g-approves|fld-[\w-]+|new-text|new-title|shot-cap-\d+|note|q-text|add-role|add-ctx|when|ph-when|link-proc-other|link-val-[\w-]+)$/;
+  var OB_TYPED = /^ob-(ren-ctx|jres-n|pat-name|pat-src|pat-test|new-role|text|ph-title|ph-note|tr-title|g-title|g-approves|fld-[\w-]+|new-text|new-title|shot-cap-\d+|note|q-text|add-role|add-ctx|when|ph-when|link-proc-other|link-val-[\w-]+)$/;
+  /* The pattern form's boxes as typed, for the folder and checklist they're typed in (V.patternField draws them only there). */
+  function patTyped() { return { fk: fsKey(), pid: state.processId, name: val('ob-pat-name'), src: val('ob-pat-src'), test: val('ob-pat-test') }; }
   /* A builder box on the page, other than except, whose text differs from what the draft says (an Add box: holds anything).
      Several can hold typing at once (one refused, another being typed in), so every box is looked at, not just the last. */
   function obTyped(except, skipNew) {
@@ -5384,7 +5388,7 @@
     for (var i = 0; i < list.length; i++) {
       var el = list[i], id = el.id || '';
       if (id === except || !OB_TYPED.test(id) || (skipNew && OB_KEPT.test(id))) continue;
-      if (boxNorm(id, el.value) !== boxNorm(id, /^ob-(new|add)-/.test(id) ? '' : fieldApplied(id))) return id;
+      if (boxNorm(id, el.value) !== boxNorm(id, /^ob-(new|add|pat)-/.test(id) ? '' : fieldApplied(id))) return id;
     }
     return null;
   }
@@ -5400,7 +5404,7 @@
     if (!pid || !/^ob-/.test(pf || '') || !document.getElementById(pf) || state.view !== 'process' || state.ptab !== 'edit') return;
     if (state.msg) state.msg.quiet = true;
     state.obPending = pid; state.obPendingField = pf;
-    state.obHold = { pid: pid, field: pf, text: state.msg ? state.msg.text : '', apply: OB_CHANGE.test(pf) && !/^ob-add-(role|ctx)$/.test(pf) || /^ob-new-(text|title|role)$/.test(pf) };
+    state.obHold = { pid: pid, field: pf, text: state.msg ? state.msg.text : '', apply: OB_CHANGE.test(pf) && !/^ob-add-(role|ctx)$/.test(pf) || /^ob-new-(text|title|role)$/.test(pf) || /^ob-pat-/.test(pf) };
   }
   function obHeld(p, then, except, skipNew) {
     var pf = state.obPending === p.id && state.obPendingField !== except && state.obPendingField && !(skipNew && OB_KEPT.test(state.obPendingField)) && document.getElementById(state.obPendingField) ? state.obPendingField : obTyped(except, skipNew);
@@ -6841,11 +6845,13 @@
       var h = state.obHold, el = h && document.getElementById(h.field); if (!h || !el) return;
       if (h.field === 'ob-new-text' || h.field === 'ob-new-title') return ACTIONS['ob-add-go'](null, el);
       if (h.field === 'ob-new-role') return ACTIONS['ob-role-add-go']();
+      if (/^ob-pat-/.test(h.field)) return ACTIONS['ob-pat-add']();
       builderField(h.field, el.value);
     },
     'ob-hold-discard': function () {
       var h = state.obHold, el = h && document.getElementById(h.field); if (!h) return;
-      if (el) el.value = /^ob-(new|add)-/.test(h.field) ? '' : fieldApplied(h.field);
+      if (el) el.value = /^ob-(new|add|pat)-/.test(h.field) ? '' : fieldApplied(h.field);
+      if (/^ob-pat-/.test(h.field) && state.obPat) { state.obPat = Object.assign({}, state.obPat); state.obPat[h.field.slice(7)] = ''; }
       if (state.fieldErr && state.fieldErr.id === 'ob' && state.fieldErr.field === h.field) state.fieldErr = null;
       dropPending(); obRepend();
       say('Put back what the draft says in that box.', 'good'); state.msg.quiet = true;
@@ -6890,15 +6896,18 @@
     'ob-jsite': function () { var cp = currentProcess(); if (!cp || obHeld(cp, 'then go to Settings')) return; ACTIONS.nav('settings'); },
     'ob-jpreview': function () { state.obJPreview = !state.obJPreview; state.focus = '#ob-jpreview summary'; render(); },
     /* 2.16 (Appendix A.3): Text that matches a pattern. Check tries it; Add writes name:pattern(...) only when it can be read. */
-    'ob-pat-check': function () { state.obPat = { name: val('ob-pat-name'), src: val('ob-pat-src'), test: val('ob-pat-test') }; state.focus = '[data-act="ob-pat-check"]'; render(); },
+    'ob-pat-check': function () { state.obPat = patTyped(); state.focus = '[data-act="ob-pat-check"]'; render(); },
     'ob-pat-add': function () {
-      var pv = { name: String(val('ob-pat-name') || '').trim(), src: String(val('ob-pat-src') || ''), test: val('ob-pat-test') }; state.obPat = pv;
+      var pv = patTyped(); pv.name = String(pv.name || '').trim(); state.obPat = pv;
       if (!pv.name) { state.fieldErr = { id: 'ob', field: 'ob-pat-name', msg: 'Type a name first.' }; state.focus = '#ob-pat-name'; render(); return; }
       if (!pv.src) { state.fieldErr = { id: 'ob', field: 'ob-pat-src', msg: 'Type the pattern first.' }; state.focus = '#ob-pat-src'; render(); return; }
       var pc = PF.values.compilePattern(pv.src);
       if (!pc.ok) { state.fieldErr = { id: 'ob', field: 'ob-pat-src', msg: 'The pattern can\'t be used: ' + pc.why }; state.focus = '#ob-pat-src'; render(); return; }
+      /* The form's own boxes are what's being applied, so only typing elsewhere holds this change; if it's held they're put back. */
+      var pats = ['ob-pat-name', 'ob-pat-src', 'ob-pat-test'], was = pats.map(function (b) { var el = document.getElementById(b); var v = el ? el.value : null; if (el) el.value = ''; return v; });
+      if (/^ob-pat-/.test(state.obPendingField || '')) dropPending();
       var res = builderEdit({ op: 'meta', key: 'context', set: { add: pv.name, pattern: pv.src } }, 'ob-pat-name');
-      if (!res) return;
+      if (!res) { pats.forEach(function (b, i) { var el = document.getElementById(b); if (el && was[i] != null) el.value = was[i]; }); obRepend(); return; }
       state.obPat = null;
       if (!res.same) say('Added ^' + pv.name + ', which must match ' + pv.src + '. Undo available.', 'good', { act: 'tl-undo', id: 'draft', label: 'Undo' });
       state.focus = '#ob-pat-name'; render();
@@ -7313,13 +7322,11 @@
       /* Evidence is collected and checked against the fields as they'll be after this save, not as they were. */
       var merged = Object.assign({}, R.fieldsOf(r, x.step), fields);
       R.evidenceFor(r, x.step, merged).list.forEach(function (d) { var el = document.getElementById('rec-' + d.name); if (el) values[d.name] = inputValue(el); });
-      /* A search's results carry the search the form was drawn for (its draft's, else the form's), never one current later. */
+      /* A search's results: what's on screen goes into the step's draft first, stamped, and searchBound is the one check. */
       if (R.isSearchStep(x.step)) {
-        if (dropStaleSearch(state.runKey, id)) { render(); return; }
-        var bd = draftOf(state.runKey, id, false), bf = bd && bd.searchFor && Object.keys(bd.record).length ? bd.searchFor : drawn && drawn.key === state.runKey && drawn.sel === id ? drawn.searchFor : null;
-        var cur = searchFor(state.runKey, id);
-        if (bf && cur && bf.id !== cur.id) { say('Your unsaved results were for ' + (bf.about || 'an earlier search') + '. Search again.', 'warn'); render(); return; }
-        values.searchId = (bf || cur || {}).id || '';
+        harvest();
+        if (!searchBound(state.runKey, id)) { render(); return; }
+        values.searchId = R.searchId(r, R.mapOf(r), x.step) || '';
       }
       var chk = R.checkEvidence(r, x.step, merged, values, true);
       if (chk.error) { state.fieldErr = { id: id, msg: chk.error, field: chk.field ? 'rec-' + chk.field : '' }; state.focus = chk.field ? '#' + cssEsc('rec-' + chk.field) : '[aria-invalid="true"]'; render(); return; }
@@ -7332,7 +7339,7 @@
         var d = draftOf(key, id, false), keep = {};
         if (d) Object.keys(d.record).forEach(function (k) { if (!Object.prototype.hasOwnProperty.call(values, k.slice(4))) keep[k] = d.record[k]; });
         dropDraft(key, id, ['record', 'fields', 'open']);
-        if (Object.keys(keep).length) draftOf(key, id, true).record = keep;
+        if (Object.keys(keep).length) { var kd = draftOf(key, id, true); kd.record = keep; stampDraft(kd, key, id, null); }
       }, { fieldsFor: id });
     },
     record: function (id) { answerStep(state.runKey, id, { how: 'done' }); },
@@ -7618,9 +7625,10 @@
     'search-block': function (id) {
       var c = answerCheck(state.runKey, id);
       if (!c.r) { if (c.why) { state.fieldErr = { id: id, msg: c.why, field: c.field }; state.focus = c.focus; render(); } return; }
-      var vals = Object.assign({}, c.values); delete vals._skill;
-      mutate(function (r, map, me, now) { R.block(r, map, id, '', me, now, vals); });
-      dropDraft(state.runKey, id, ['record']);
+      var vals = Object.assign({}, c.values), key = state.runKey, fk = fsKey(), applied = false; delete vals._skill;
+      mutate(function (r, map, me, now) { R.block(r, map, id, '', me, now, vals); applied = true; });
+      /* Only a block that applied uses what was typed: a refused one keeps it, for that folder, run and step. */
+      if (applied && fsKey() === fk) dropDraft(key, id, ['record']);
     },
     'refresh-search': function (id) { mutate(function (r, map, me, now) { R.refreshSearch(r, map, id, me, now); }); },
     'rep-reopen': function (id) { decideOnReport(id, 'open'); },
@@ -8842,9 +8850,11 @@
     /* Text typed into the builder's form counts as unsaved at once, before it's applied on leaving the box or Enter. */
     if (state.obJustAdded && state.obJustAdded.id === e.target.id) state.obJustAdded = null;
     if (e.target.classList && e.target.classList.contains('dbx-in')) dbxTyped(e.target, e);
+    /* What's typed in Text that matches a pattern is kept as it's typed, for this folder and checklist only. */
+    if (/^ob-pat-(name|src|test)$/.test(e.target.id || '') && state.processId) state.obPat = patTyped();
     if (OB_TYPED.test(e.target.id || '') && state.processId) {
       /* Pending only while the box differs from what the draft says (or, for a new item, holds anything). */
-      var differs = boxNorm(e.target.id, e.target.value) !== boxNorm(e.target.id, fieldApplied(e.target.id)), was = !!state.obPending;
+      var differs = boxNorm(e.target.id, e.target.value) !== boxNorm(e.target.id, /^ob-pat-/.test(e.target.id) ? '' : fieldApplied(e.target.id)), was = !!state.obPending;
       markUnapplied(e.target.id, differs);
       if (differs) { state.obPending = state.processId; state.obPendingField = e.target.id; } else if (state.obPendingField === e.target.id) { dropPending(); obRepend(); }
       if (was !== !!state.obPending) scheduleRender();
@@ -8983,6 +8993,7 @@
       state.fieldsDraft = { fs: fsKey(), key: draftScope(), id: state.pick.id, values: vals };
       /* The step's draft holds the same choices, so the action shown and the fields drawn for it always agree. */
       var sd = draftOf(draftScope(), state.pick.id, true); Object.keys(vals).forEach(function (k) { sd.fields['fld-' + k] = vals[k]; });
+      stampDraft(sd, draftScope(), state.pick.id, drawn && drawn.key === draftScope() && drawn.sel === state.pick.id ? drawn.search : null);
       render();
     }
     if (e.target.id === 'note-file') { addFiles(e.target.files, state.sel); e.target.value = ''; }
@@ -9072,6 +9083,7 @@
   function dropDraft(key, id, parts) {
     var d = draftOf(key, id, false); if (!d) return;
     (parts || ['record', 'fields', 'note', 'open']).forEach(function (p) { if (p === 'note') d.note = ''; else if (p === 'open') { d.open = false; d.fd = null; } else d[p] = {}; });
+    if (!Object.keys(d.record).length && !Object.keys(d.fields).length) delete d.stamp;
     /* What's on screen was just used: it isn't read back into the draft before the next redraw. */
     if (drawn && drawn.fs === fsKey() && drawn.key === key && drawn.sel === id) (parts || ['record', 'fields', 'note']).forEach(function (p) { drawn.skip[p === 'note' ? 'note' : 'box'] = true; });
     if (!hasDraft(d)) delete state.stepDrafts[draftKey(key, id)];
@@ -9094,40 +9106,52 @@
       /* A box emptied on purpose is a draft too: it stays empty when the step comes back. */
       part[id] = inputValue(el);
     });
-    /* Results typed on a search are bound to the search their form was drawn for (section 5.3), never the one current later. */
-    if (drawn.searchFor) { if (!Object.keys(d.record).length) delete d.searchFor; else if (!d.searchFor) d.searchFor = drawn.searchFor; }
+    /* Typing on a search is stamped with the search its form was drawn for (section 5.3), never the one current later. */
+    stampDraft(d, drawn.key, drawn.sel, drawn.search);
     if (!hasDraft(d)) delete state.stepDrafts[draftKey(drawn.key, drawn.sel, drawn.fs)];
   }
   /* The search a step's form is for, as the run stands now: { id, about } ("version 2026.11.0"), or null for other steps. */
-  function searchFor(key, id) {
+  function searchNow(key, id) {
     var r = key && id ? ctx.findRun(key) : null, map = null, x = null;
     try { map = r && !r.practice ? R.mapOf(r) : null; x = map && M.findStep(map, id); } catch (e) { return null; }
     if (!x || !R.isSearchStep(x.step)) return null;
     var st = R.searchState(r, map, x.step), used = st.used || {};
     return { id: st.ok ? st.id : '', about: PF.vk.capJoin(Object.keys(used), function (n) { return n + ' ' + used[n]; }, ', ') };
   }
-  /* Unsaved results whose search is no longer the current one are dropped, with the notice (section 5.3). true when it did. */
-  function dropStaleSearch(key, id) {
+  /* Section 5.3, at the draft's root: a search step's draft carries one stamp, the search current when its first value was
+     typed, whichever part holds it (the inspector's boxes, Done differently and Block with these read those; Fill in keeps
+     its own). at: the search the form was drawn for, when the typing came from the screen. Nothing typed, no stamp. */
+  function stampDraft(d, key, id, at) {
+    if (!d) return;
+    if (!Object.keys(d.record).length && !Object.keys(d.fields).length) { delete d.stamp; return; }
+    if (d.stamp) return;
+    var s = at || searchNow(key, id); if (s) d.stamp = s;
+  }
+  /* The one check, made before any part of a step's draft is read, saved or drawn: a stamp that isn't the search as the run
+     stands now invalidates the whole draft (every part, and an open Fill in), with the notice. false when it did. */
+  function searchBound(key, id) {
     var d = draftOf(key, id, false);
-    if (!d || !d.searchFor || !Object.keys(d.record).length) return false;
-    var now = searchFor(key, id);
-    if (!now || now.id === d.searchFor.id) return false;
-    var about = d.searchFor.about, boxes = Object.keys(d.record);
-    dropDraft(key, id, ['record']); if (d) delete d.searchFor;
-    /* A box still on screen with those results is emptied too, so they aren't read back as new typing. */
-    if (drawn && drawn.key === key && drawn.sel === id) boxes.forEach(function (b) { var el = document.getElementById(b); if (el) setInput(el, ''); });
+    if (!d || !d.stamp) return true;
+    var now = searchNow(key, id);
+    if (!now || now.id === d.stamp.id) return true;
+    var about = d.stamp.about, boxes = Object.keys(d.record).concat(Object.keys(d.fields)), here = drawn && drawn.fs === fsKey() && drawn.key === key && drawn.sel === id;
+    dropDraft(key, id, ['record', 'fields', 'open']); delete d.stamp;
+    if (state.pick && state.pick.kind === 'fields' && state.pick.id === id && draftScope() === key) state.pick = null;
+    if (state.fieldsDraft && state.fieldsDraft.key === key && state.fieldsDraft.id === id) state.fieldsDraft = null;
+    /* A box still on screen with that typing is emptied too (dropDraft keeps it from being read back before the redraw). */
+    if (here) boxes.forEach(function (b) { var el = document.getElementById(b); if (el) setInput(el, ''); });
     var note = 'Your unsaved results were for ' + (about || 'an earlier search') + '. Search again.';
     /* Beside what the change itself said (the steps it sent to re-check), not instead of it. */
     if (state.msg && state.msg.text && state.msg.text.indexOf(note) < 0 && !state.msg.act) state.msg = { text: state.msg.text + ' ' + note, kind: 'warn' }; else say(note, 'warn');
-    return true;
+    return false;
   }
-  /* Every unsaved search draft in this folder, checked whenever the screen is drawn. */
-  function dropStaleSearches() {
+  /* Every stamped draft in this folder, checked whenever the screen is drawn. */
+  function searchBoundAll() {
     var pre = fsKey() + '\n';
     Object.keys(state.stepDrafts).forEach(function (k) {
-      if (k.indexOf(pre) !== 0 || !state.stepDrafts[k] || !state.stepDrafts[k].searchFor) return;
+      if (k.indexOf(pre) !== 0 || !state.stepDrafts[k] || !state.stepDrafts[k].stamp) return;
       var rest = k.slice(pre.length), bar = rest.lastIndexOf('|');
-      if (bar > 0) dropStaleSearch(rest.slice(0, bar), rest.slice(bar + 1));
+      if (bar > 0) searchBound(rest.slice(0, bar), rest.slice(bar + 1));
     });
   }
   function noteDrawn(html) {
@@ -9142,7 +9166,7 @@
       else { var tg = html.slice(at, html.indexOf('>', at)), vm2 = /\svalue="([^"]*)"/.exec(tg); v = vm2 ? vm2[1] : ''; }
       ids.push(id); base[id] = unesc(v);
     }
-    drawn = { fs: fsKey(), key: draftScope(), sel: sel, kind: state.pick && state.pick.kind === 'fields' && state.pick.id === sel ? 'fields' : 'record', ids: ids, base: base, skip: {}, searchFor: searchFor(draftScope(), sel) };
+    drawn = { fs: fsKey(), key: draftScope(), sel: sel, kind: state.pick && state.pick.kind === 'fields' && state.pick.id === sel ? 'fields' : 'record', ids: ids, base: base, skip: {}, search: searchNow(draftScope(), sel) };
   }
   /* After a redraw the boxes show their step's draft, else what was drawn. On a new step or form every box is set, since a
      redraw can keep an old node (same markup) that still holds another step's typing; on the same one, typing stays. */
@@ -9381,7 +9405,7 @@
     harvest();
     var r = ctx.findRun(key), map = r && R.mapOf(r), x = map && M.findStep(map, id);
     if (!x) return { why: '' };
-    if (dropStaleSearch(key, id)) return { why: state.msg ? state.msg.text : 'Search again.', focus: '[data-act="search-copy"], #rec-count', field: 'rec-count' };
+    if (!searchBound(key, id)) return { why: state.msg ? state.msg.text : 'Search again.', focus: '[data-act="search-copy"], #rec-count', field: 'rec-count' };
     var a = r.steps[id], d = draftOf(key, id, false);
     if ((state.pick && state.pick.kind === 'fields' && state.pick.id === id && state.runKey === key) || (d && (d.open || Object.keys(d.fields).length))) return { why: 'Save or cancel Fill in first.', fill: true, focus: '[data-act="pick"][data-kind="fields"][data-id="' + cssEsc(id) + '"], [data-act="save-fields"][data-id="' + cssEsc(id) + '"]' };
     var values = null;
@@ -9392,8 +9416,8 @@
         values[ev.name] = d && Object.prototype.hasOwnProperty.call(d.record, k) ? d.record[k] : V.evidenceDefault(ctx, r, x.step, ev);
       });
       /* A search's searchId is Flightdeck's own: the search as the run stands now, never typed (design section 2). */
-      /* Typed results keep the search they were typed for; only results the form shows from the run get the current one. */
-      if (R.isSearchStep(x.step)) values.searchId = d && d.searchFor && Object.keys(d.record).length ? d.searchFor.id : R.searchId(r, map, x.step) || '';
+      /* searchBound held: whatever was typed was typed for the search as it is now. */
+      if (R.isSearchStep(x.step)) values.searchId = R.searchId(r, map, x.step) || '';
       var chk = R.checkEvidence(r, x.step, null, Object.assign({}, (a && a.s !== 'recheck' && a.values) || {}, values));
       if (chk.error) return { why: chk.error, focus: chk.field ? 'rec-' + chk.field : '[aria-invalid="true"]', field: chk.field ? 'rec-' + chk.field : '' };
       var seen; try { seen = skillSeen(r, x.step); } catch (e) { return { why: e.message, focus: '[data-act="refresh"]' }; }
@@ -9440,7 +9464,7 @@
       else if (o.how === 'report') intent = acceptInto(r2, map2, id, me, now, o.report);
       else R.done(r2, map2, id, me, now, c.values);
       applied = true;
-    }, Object.assign(quiet ? { only: id, background: true } : { only: id }, R.rereadable(c.r, id) && V.rereader(ctx, c.r) ? { any: true } : {}));
+    }, Object.assign(quiet ? { only: id, background: true } : { only: id }, R.rereadable(c.r, id) && V.rereader(ctx, c.r) ? (o.how === 'done' ? { any: true, endedReread: true } : { any: true }) : {}));
     /* An accepted report leaves the step's own drafts (evidence typed, a note) as they are. */
     if (intent) { hintsOf(o.report.fk)[intent.gkey] = intent; state.repPick = null; }
     if (applied && o.how !== 'report') dropDraft(key, id, ['record']);

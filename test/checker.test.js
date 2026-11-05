@@ -959,4 +959,21 @@ rule('Jira searches: the checker\'s search checks match PF.jsearch.checkFields a
   mds.forEach((t, i) => assert.strictEqual(out.md[i], PF.publish.unrunnable(t, {}), t.split('\n').slice(7, 9).join(' | ')));
   assert.ok(js.filter(e => e.length).length >= 30 && out.md.filter(Boolean).length === 6, 'the matrix refuses what it should');
 });
+rule('Round 3: frozen search definitions and patterns: the checker refuses what the app refuses (notAt shapes, empty classes)', () => {
+  const py = python(); if (!py) return;
+  const base = JSON.parse(JSON.stringify(PF.types.freeze ? PF.types.get('jira.search') : PF.types.get('jira.search')));
+  const keysAt = (v) => { const d = JSON.parse(JSON.stringify(base)); const k = d.record.find(r => r.name === 'keys'); if (v === undefined) delete k.notAt; else k.notAt = v; return d; };
+  const defs = [base, keysAt([]), keysAt(null), keysAt({ count: 0 }), keysAt({ constructor: '0' }), keysAt({}), keysAt('0'), keysAt({ count: '0', n: '1' }), keysAt(undefined)];
+  const pats = ['[]', '[]+', '[]?', '[]{2}', 'a[]b', '[a]', '[\\d]', '[a-z]+'];
+  const src = "import json,sys,importlib.util\nspec=importlib.util.spec_from_file_location('cf',sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)\n" +
+    "d=json.load(sys.stdin)\nprint(json.dumps({'defs':[m.understood(x) for x in d['defs']],'pats':[m.compile_pattern(p).get('ok', False) for p in d['pats']]}))";
+  const out = JSON.parse(cp.execFileSync(py, ['-I', '-c', src, CHECKER], { input: JSON.stringify({ defs, pats }), encoding: 'utf8' }));
+  const js = defs.map(d => PF.types.understood(JSON.parse(JSON.stringify(d))));
+  assert.deepStrictEqual(js, [true, false, false, false, false, false, false, true, true], 'set-up: the app');
+  assert.deepStrictEqual(out.defs, js, 'notAt: py ' + JSON.stringify(out.defs));
+  const jp = pats.map(p => PF.values.compilePattern(p).ok);
+  assert.deepStrictEqual(jp, [false, false, false, false, false, true, true, true], 'empty classes are refused by the app');
+  assert.deepStrictEqual(out.pats, jp, 'and by the checker: ' + JSON.stringify(out.pats));
+});
+
 run();

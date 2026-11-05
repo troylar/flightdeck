@@ -175,6 +175,19 @@ rule('R14-7: a completed run\'s damaged generation is rebuilt from the published
     assert.strictEqual(R.sanitize(JSON.parse(JSON.stringify(c))).steps.done.s, 'done', 'saved and read again, it stands');
   });
 });
+rule('R3-8: a rebuild names every map it changed, and nothing it changed is left unexplained (only searchRec damaged, only searchGen damaged)', () => {
+  const r = start(), map = R.mapOf(r);
+  ['done', 'scope', 'saved'].forEach(id => R.done(r, map, id, 'person-avery', LATER, good(r, id, id === 'scope' ? 1 : 0))); note(r, map);
+  R.pass(r, map, 0, 'person-avery', LATER); r.state = 'completed';
+  ['searchGen', 'searchRec'].forEach(kind => {
+    const o = JSON.parse(JSON.stringify(r)); if (kind === 'searchGen') o.searchGen.version = 'bad'; else delete o.searchRec.done;
+    const c = JSON.parse(JSON.stringify(R.sanitize(JSON.parse(JSON.stringify(o)))));
+    const changed = ['searchGen', 'searchRec'].filter(k => JSON.stringify(c[k]) !== JSON.stringify(o[k]));
+    const named = R.repairs(JSON.parse(JSON.stringify(o))).filter(x => /rebuilt from the published version/.test(x.what)).map(x => x.at);
+    same(named, changed, kind + ' damaged: the maps named are the maps changed');
+    same(R.unexplained(JSON.parse(JSON.stringify(o))), [], kind + ' damaged: nothing unexplained');
+  });
+});
 rule('R14-2: mergeOverflow keeps the browser copy\'s records first, each once by id', () => {
   same(R.mergeOverflow([{ id: 'a' }, { id: 'b' }], [{ id: 'b' }, { id: 'c' }]).map(x => x.id), ['a', 'b', 'c']);
   same(R.mergeOverflow(null, [{ id: 'c' }]).map(x => x.id), ['c']);

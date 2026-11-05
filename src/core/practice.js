@@ -455,7 +455,7 @@ PF.practice = (function () {
   /* Practice measures as a run of its draft would (2.16, A.5). */
   function unitOf(map) { return map ? PF.values.unitOf(PF.map.features(map)) : 'utf16'; }
   function cutAll(o, unit) { var out = {}; Object.keys(o || {}).slice(0, 40).forEach(function (k) { if (typeof o[k] === 'string' && k.length <= 60 && !(k in Object.prototype)) out[k] = PF.values.cut(null, o[k], PF.values.DETAIL_MAX, unit).value; }); return out; }
-  function check(o, process, map) {
+  function check(o, process, map, types) {
     /* R14-1: the admitted draft decides the unit and which steps are searches, so it's required. */
     if (!map || !map.meta || !map.phases) throw new Error('Reading a kept practice needs the draft it was kept for.');
     var unit = unitOf(map);
@@ -484,16 +484,33 @@ PF.practice = (function () {
       }
       st.answers[id] = k;
     });
-    if (cut) st.gates = {};
-    Object.keys(o.gates).slice(0, 500).forEach(function (id) { var g = o.gates[id]; if (!cut && g && typeof g === 'object' && is(GREC, g.s) && is(HEX, g.base) && id.length <= 80) st.gates[id] = { s: g.s, reason: str(g.reason, 200), at: str(g.at, 40), approved: g.approved && typeof g.approved === 'object' ? cutAll(g.approved, unit) : {}, base: g.base }; });
     st.sample = cutAll(o.sample, unit);
     /* Slice 1 kept none of these; each is optional and anything malformed is dropped. */
     if (o.fields && typeof o.fields === 'object') Object.keys(o.fields).slice(0, 2000).forEach(function (id) { var f = o.fields[id]; if (id.length <= 80 && f && typeof f === 'object' && !(id in Object.prototype)) { var c = clean(f, 300); if (Object.keys(c).length) st.fields[id] = c; } });
+    /* Then the whole check Done makes (R.checkEvidence: require:, the kinds, what a setter sets), for every checked answer
+       whose step is still as it was checked (a changed one is tried again, not trusted): one Done would refuse is dropped,
+       and with it every gate. */
+    if (validated(st, map, types)) cut = true;
+    if (cut) st.gates = {};
+    Object.keys(o.gates).slice(0, 500).forEach(function (id) { var g = o.gates[id]; if (!cut && g && typeof g === 'object' && is(GREC, g.s) && is(HEX, g.base) && id.length <= 80) st.gates[id] = { s: g.s, reason: str(g.reason, 200), at: str(g.at, 40), approved: g.approved && typeof g.approved === 'object' ? cutAll(g.approved, unit) : {}, base: g.base }; });
     if (o.setBy && typeof o.setBy === 'object') Object.keys(o.setBy).slice(0, 40).forEach(function (n) { var id = o.setBy[n]; if (typeof id === 'string' && own(st.sample, n) && own(st.answers, id)) st.setBy[n] = id; });
     st.from = typeof o.from === 'string' && o.from.length <= 80 ? o.from : '';
     st.found = typeof o.found === 'string' ? o.found.slice(0, FOUND_MAX) : '';
     st.rev = typeof o.rev === 'number' && isFinite(o.rev) ? o.rev : 0;
     return st;
+  }
+  /* Drops each checked answer (not skipped, its step unchanged) whose evidence Done would refuse; true when any went. */
+  function validated(st, map, types) {
+    var now = prints(map, st.sample, types, st.fields), r = asRun({ sample: st.sample, steps: {}, gates: {}, fields: st.fields }, map, null, false, types), any = false;
+    Object.keys(st.answers).forEach(function (id) {
+      var k = st.answers[id], x = k.s === 'done' && !k.skipped ? M.findStep(map, id) : null;
+      if (!x || !own(now, id) || k.own !== now[id].own || simulated(x.step, envOf(types).types) === 'linked') return;
+      if (!R.evidenceFor(r, x.step, null, map).list.length) return;
+      var v = k.values || {}, chk = R.jiraProblem(r, x.step) ? { error: 'jira' } : R.checkEvidence(r, x.step, null, v, false, map);
+      if (!chk.error && R.isSearchStep(x.step)) { var sc = R.searchCheck(r, map, x.step, v, k.at || new Date().toISOString(), { practice: true }); if (sc.error || !sc.meets) chk = { error: 'search' }; }
+      if (chk.error) { delete st.answers[id]; any = true; }
+    });
+    return any;
   }
   /* Only text is read from a kept record: anything else is dropped, never converted (it could throw). */
   function is(re, x) { return typeof x === 'string' && re.test(x); }

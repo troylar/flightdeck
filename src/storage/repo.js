@@ -1249,7 +1249,11 @@ PF.repo = (function () {
         /* SHA-256 of the exact text this window read or wrote (fileHash): an older copy's 8-character FNV never matches, so
            a run kept in this browser from before 2.1 keeps its change as a conflict copy rather than risk writing over one. */
         var changed = fileHash(f.text) !== run._fileHash;
-        var otherWriter = !opts.takeover && disk.recorder.session && disk.recorder.session !== session;
+        /* opts.endedReread (R14-8): Done on a step a completed run's reader reopened, by its recorder or ender from any
+           session. The run has ended, so no window records it: only the session check is set aside, for a run that has
+           ended on disk and here; the fingerprint check (changed) still holds. */
+        var reread = opts.endedReread === true && disk.state === 'completed' && !!disk.ended && run.state === 'completed' && !!run.ended;
+        var otherWriter = !opts.takeover && !reread && disk.recorder.session && disk.recorder.session !== session;
         if (changed || otherWriter) {
           /* Keep this window's version next to the run as a conflict copy, so nothing is lost and the team can review it. */
           e = new Error('changed'); e.disk = disk;

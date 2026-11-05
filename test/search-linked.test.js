@@ -138,10 +138,10 @@ rule('the walk below the child finds a loop wholly below it, and measures the lo
   all = [T].concat(e.slice(0, 15));
   assert.strictEqual(R.linkShape(T, e[0], find), '', '16 in the chain: linked');
 });
-const PLAIN = publish(['---', 'process: plain', 'title: Plain', 'context: version', '---', '', '## Check · DO-CONFIRM {#check}',
-  '- [ ] {confirm} Look {#look}', '', '## Gate: Ready {#ready}', ''].join('\n'));
-const PPAR = publish(['---', 'process: ppar', 'title: PParent', 'context: version', '---', '', '## Build · DO-CONFIRM {#build}',
-  '- [!] {run.process} Run the plain checks {#kid}', '  process: plain', '', '## Gate: Built {#built}', ''].join('\n'));
+const PLAIN_MD = ['---', 'process: plain', 'title: Plain', 'context: version', '---', '', '## Check · DO-CONFIRM {#check}',
+  '- [ ] {confirm} Look {#look}', '', '## Gate: Ready {#ready}', ''].join('\n'), PLAIN = publish(PLAIN_MD);
+const PPAR_MD = ['---', 'process: ppar', 'title: PParent', 'context: version', '---', '', '## Build · DO-CONFIRM {#build}',
+  '- [!] {run.process} Run the plain checks {#kid}', '  process: plain', '', '## Gate: Built {#built}', ''].join('\n'), PPAR = publish(PPAR_MD);
 rule('a new settlement asks every gate of a child without searches: Completed with a gate still open doesn\'t settle the step', () => {
   const k = mk(PLAIN, 'run-pl', { parent: { process: 'ppar', id: 'run-pp', step: 'kid' } });
   k.state = 'completed'; k.ended = { outcome: 'Completed', by: 'person-avery', byName: 'Avery', at: LATER };
@@ -156,7 +156,27 @@ rule('a new settlement asks every gate of a child without searches: Completed wi
   ok.state = 'completed'; ok.ended = { outcome: 'Completed', by: 'person-avery', byName: 'Avery', at: LATER };
   assert.strictEqual(R.childCheck(ok), '');
   p.steps.kid.s = 'done'; p.steps.kid.by = 'person-avery'; p.steps.kid.at = LATER;
-  same(R.childMarks([R.sanitize(JSON.parse(JSON.stringify(p))), R.sanitize(JSON.parse(JSON.stringify(k)))]), [], 'a recorded parent answer isn\'t marked for a child without searches');
+  /* Round 3: a recorded parent answer is marked for a child without searches too, in Folder health and the CLI. */
+  const runs = [R.sanitize(JSON.parse(JSON.stringify(p))), R.sanitize(JSON.parse(JSON.stringify(k)))], marks = R.childMarks(runs);
+  same(marks.map(m => [m.process, m.run, m.step, m.child, m.childStep, m.stuck]), [['ppar', 'run-pp', 'kid', 'plain/run-pl', null, false]]);
+  assert.match(marks[0].text, /^settled by the Plain run \(run-pl\), which says Completed, but its gate "Ready" reads open there, so its completion doesn't stand\. Open that run to check it$/);
+  const h = PF.health.check({ data: { runs, people: [{ id: 'person-avery', name: 'Avery' }], processes: [] } }, Date.parse(LATER));
+  const hi = h.issues.filter(i => /^child-mark:/.test(i.id));
+  same(hi.map(i => [i.id, i.title]), [['child-mark:ppar/run-pp/kid', '"PParent": a linked step\'s run doesn\'t stand']], JSON.stringify(h.issues.map(i => i.id)));
+  const fs = require('fs'), os = require('os'), path = require('path'), cp = require('child_process');
+  const BIN = path.join(__dirname, '..', 'bin', 'flightdeck.js'), dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-plain-'));
+  const put = (rel, text) => { const f = path.join(dir, ...rel.split('/')); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, text); };
+  [['plain', PLAIN_MD], ['ppar', PPAR_MD]].forEach(([proc, md]) => {
+    const b = P.build(md, { people: [], customTypes: {}, by: 'person-avery', changes: 'First', existing: [], now: NOW, rand: 'abcd1234', app: '2.16.0' });
+    Object.keys(b.files).forEach(n => put('publications/' + proc + '/' + b.folder + '/' + n, b.files[n]));
+  });
+  put('people.json', JSON.stringify({ format: 'flightdeck-people/1', people: [{ id: 'person-avery', name: 'Avery' }] }));
+  put('runs/plain/run-pl/run.json', JSON.stringify(k, null, 2)); put('runs/ppar/run-pp/run.json', JSON.stringify(p, null, 2));
+  const r = cp.spawnSync(process.execPath, [BIN, 'runs', dir, '--contract', '2', '--json'], { encoding: 'utf8' });
+  let j = null; try { j = JSON.parse(r.stdout); } catch (e) { /* named below */ }
+  assert.ok(j && !j.error, r.stdout + r.stderr);
+  assert.strictEqual(r.status, 4, 'exit ' + r.status);
+  same(j.problems.filter(x => x.kind === 'child-mark').map(x => x.path), ['runs/ppar/run-pp/run.json'], JSON.stringify(j.problems));
 });
 rule('the CLI names a linked-run mark as child-mark: runs and followups read partial, exit 4, with the data still printed', () => {
   const fs = require('fs'), os = require('os'), path = require('path'), cp = require('child_process');

@@ -146,7 +146,13 @@ rule('practice: a 61-emoji sample is kept whole and comes back whole on reload w
   assert.strictEqual(back.sample.mood, '😀'.repeat(61));
   assert.throws(() => PR.check(JSON.parse(JSON.stringify(s1.state)), 'rel'), /needs the draft/, 'R14-1: the admitted draft is required');
   const src = ['src/ui/app.js', 'src/core/practice.js'].map(f => require('fs').readFileSync(require('path').join(__dirname, '..', f), 'utf8')).join('\n');
-  (src.match(/PR\.check\([^;]*/g) || []).forEach(c => assert.ok(/PR\.check\([^,]+,[^,]+,[^,]+\)/.test(c), 'every PR.check( passes three arguments: ' + c));
+  (src.match(/PR\.check\([^;]*/g) || []).forEach(c => assert.ok(/PR\.check\([^,]+,[^,]+,[^,]+,\s*prEnv\(\)\)/.test(c), 'every PR.check( passes the admitted draft and the step types: ' + c));
+});
+
+rule('round 3: an empty class [] is refused, with or without a repeat, and says why', () => {
+  for (const p of ['[]', '[]+', '[]?', '[]*', '[]{3}', 'v[]1']) assert.ok(/empty class \[\] matches nothing/.test(why(p)), p + ' -> ' + why(p));
+  assert.ok(ok('[a]', 'a') && ok('[\\]]', ']'), 'a class with one character still works');
+  same(M.parse('---\nprocess: p\ntitle: P\ncontext: tag:pattern([]+)\n---\n\n## A {#a}\n- [ ] x {#x}\n').errors.map(e => e.msg), ['Run detail "tag": its pattern can\'t be read: an empty class [] matches nothing; list what is allowed.']);
 });
 
 run();

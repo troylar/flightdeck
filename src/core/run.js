@@ -716,10 +716,11 @@ PF.run = (function () {
       var gBad = map.meta.context.some(function (d) { return ss.some(function (x) { return searchUses(map, x.step).indexOf(d) >= 0; }) && !(r.searchGen && JS.genOk(r.searchGen[d])); });
       var rBad = ss.some(function (x) { return !(r.searchRec && JS.genOk(r.searchRec[x.step.id])); });
       if (gBad || rBad) {
-        var gen = Object.assign({}, r.searchGen || {}), rec = {};
+        var gen = Object.assign({}, r.searchGen || {}), rec = {}, was = { searchGen: JSON.stringify(r.searchGen), searchRec: JSON.stringify(r.searchRec) };
         ss.forEach(function (x) { searchUses(map, x.step).forEach(function (d) { gen[d] = JS.token(JS.genOk(gen[d]) ? gen[d] : null); }); rec[x.step.id] = JS.token(r.searchRec && JS.genOk(r.searchRec[x.step.id]) ? r.searchRec[x.step.id] : null); });
         r.searchGen = gen; r.searchRec = rec;
-        if (gBad) rebuilt.push('searchGen'); if (rBad) rebuilt.push('searchRec');
+        /* Both maps move on (so no earlier result matches), so each one that changed is named, damaged or not. */
+        ['searchGen', 'searchRec'].forEach(function (k) { if (JSON.stringify(r[k]) !== was[k]) rebuilt.push(k); });
       }
     }
     var reopened = [];
@@ -1384,7 +1385,7 @@ PF.run = (function () {
         var a = r.steps[id];
         if (!a || a.s !== 'done' || !a.child || a.child.retired || !stepApplies(r, map, id)) return;
         var c = by[a.child.process + '/' + a.child.id];
-        if (!c || !c.ended || c.ended.outcome !== 'Completed' || !searchIn(c)) return;
+        if (!c || !c.ended || c.ended.outcome !== 'Completed') return;
         var why = childCheck(c);
         if (!why) return;
         var cmap; try { cmap = mapOf(c); } catch (e) { return; }

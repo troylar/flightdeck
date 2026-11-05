@@ -454,7 +454,8 @@ PF.jsearch = (function () {
     if (k === 'url' || k === 'link') return 'https://example.com/' + name;
     if (k === 'pattern') {
       var pc = PF.values.compilePattern(def.pattern); if (!pc.ok) return '';
-      return pc.atoms.map(function (a) { var c = a.set.chars.length ? a.set.chars[0] : a.set.ranges[0][0]; return new Array(a.min + 1).join(String.fromCodePoint(c)); }).join('');
+      var made = pc.atoms.map(function (a) { var c = a.set.chars.length ? a.set.chars[0] : a.set.ranges.length ? a.set.ranges[0][0] : null; return c == null ? null : new Array(a.min + 1).join(String.fromCodePoint(c)); });
+      return made.indexOf(null) >= 0 ? '' : made.join('');
     }
     return 'sample-' + name;
   }
@@ -468,7 +469,12 @@ PF.jsearch = (function () {
     if (hasF && !q.trim()) { out.check = 'A saved filter: nothing is filled in.'; link({ filter: f.filter }); return out; }
     if (!q.trim()) { out.why = 'No query yet.'; return out; }
     var P = placeholders(q, ctx); if (P.errors.length) { out.why = P.errors[0]; return out; }
-    P.uses.forEach(function (n) { out.samples[n] = sample(n, o.detailTypes && Object.prototype.hasOwnProperty.call(o.detailTypes, n) ? o.detailTypes[n] : null); });
+    var dt = function (n) { return o.detailTypes && Object.prototype.hasOwnProperty.call(o.detailTypes, n) ? o.detailTypes[n] : null; };
+    for (var u = 0; u < P.uses.length; u++) {
+      var d = dt(P.uses[u]), pc = d && d.kind === 'pattern' ? PF.values.compilePattern(d.pattern) : null;
+      if (pc && !pc.ok) { out.samples = {}; out.why = 'No sample value can be made for ^' + P.uses[u] + ': its pattern can\'t be read (' + pc.why + ').'; return out; }
+      out.samples[P.uses[u]] = sample(P.uses[u], d);
+    }
     var sub = substitute(q, out.samples, ctx);
     if (!sub.ok) { out.why = sub.why; return out; }
     out.jql = sub.jql;

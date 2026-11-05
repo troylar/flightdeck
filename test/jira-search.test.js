@@ -241,4 +241,11 @@ rule('7: insertAt puts ^detail only where a value goes; refusedSpans marks each 
   assert.ok(/inside quotes/.test(S.preview({ query: 'x = "^version"' }, { context: ['version'] }).why));
 });
 
+rule('round 3: a sample that can\'t be made says why instead of crashing the preview', () => {
+  assert.strictEqual(S.sample('tag', { kind: 'pattern', pattern: '[]+' }), '');
+  const pv = S.preview({ query: 'fixVersion = ^tag' }, { context: ['tag'], detailTypes: { tag: { kind: 'pattern', pattern: '[]' } } });
+  assert.strictEqual(pv.why, 'No sample value can be made for ^tag: its pattern can\'t be read (an empty class [] matches nothing; list what is allowed.).');
+  assert.strictEqual(pv.jql, '');
+});
+
 run();
