@@ -518,6 +518,12 @@ rule('One header: above 800px every row 1 control is exactly 36px: the way back,
   assert.strictEqual(decl(r1[0].body, 'min-height'), '36px');
   assert.strictEqual(decl(r1[0].body, 'box-sizing'), 'border-box');
 });
+rule('One header: a status line\'s links are 24px targets: the inline-sentence exception leaves .hd-st alone', () => {
+  const ex = RULES.filter(r => r.sel.some(x => /^p\b[^,]*button\.linkish/.test(x)) && decl(r.body, 'display') === 'inline');
+  assert.ok(ex.length >= 1, 'the inline-sentence exception exists');
+  ex.forEach(r => r.sel.forEach(x => assert.match(x, /^p:not\(\.hd-st\) /, 'the exception skips the status line: ' + x)));
+  assert.ok(RULES.some(r => r.sel.indexOf('button.linkish') >= 0 && decl(r.body, 'min-height') === '24px' && decl(r.body, 'display') === 'inline-flex'), 'the 24px link recipe');
+});
 rule('One header: a long way back shrinks with an ellipsis and keeps its view suffix whole', () => {
   const t = RULES.filter(r => r.sel.some(x => /\.backc-t\b/.test(x)));
   assert.ok(t.some(r => decl(r.body, 'min-width') === '0' && decl(r.body, 'overflow') === 'hidden' && decl(r.body, 'text-overflow') === 'ellipsis'), 'the label truncates: ' + t.map(r => r.body).join(' | '));

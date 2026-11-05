@@ -1423,6 +1423,50 @@ rule('One header: in More, Up and Down move through the items shown (wrapping), 
   assert.strictEqual(app.scrolled().length, n, 'More closed: Down on its opener does nothing');
 });
 
+/* ---------- Build round 3 of the one header (review round 2): More stays consistent after any redraw or resize ---------- */
+rule('One header: a redraw while More is open refits it (its height cap is set again, whatever the redraw replaced)', async () => {
+  /* A background read of the folder redraws the screen: render() is the one path, on every work screen. */
+  for (const view of ['edit', 'practice']) {
+    const app = view === 'edit' ? await edit({ domFocus: true, layout: true }) : await practiced({ domFocus: true, layout: true });
+    app.click(view === 'practice' ? 'pr-more' : 'ws-more'); await app.tick();
+    const list = () => app.doc.getElementById('ws-more-list');
+    assert.match(String(list().style.maxHeight || ''), /^\d+(\.\d+)?px$/, view + ': fitted on open: ' + list().style.maxHeight);
+    /* What a redraw does on a page: the list comes back as its markup draws it, with no cap. */
+    list().style = {};
+    app.every(); app.winFire('focus'); await app.tick(120);
+    assert.match(head(app) + rhead(app), /id="ws-more-btn"[^>]*aria-expanded="true"/, view + ': still open');
+    assert.match(String(list().style.maxHeight || ''), /^\d+(\.\d+)?px$/, view + ': fitted again after the redraw: ' + JSON.stringify(list().style));
+  }
+});
+rule('One header: More open across 800 px, its focused copy hidden by the new width: focus goes to the first item shown, More stays open, in Edit and in Practice', async () => {
+  for (const view of ['edit', 'practice']) for (const from of [true, false]) {
+    const app = view === 'edit' ? await edit({ domFocus: true, narrow: from }) : await practiced({ domFocus: true, narrow: from });
+    app.click(view === 'edit' ? 'ws-more' : 'pr-more'); await app.tick();
+    const tag = view + (from ? ' phone to wide' : ' wide to phone'), at = () => app.doc.activeElement;
+    if (!from) { const ph = moreAt(app, view === 'edit' ? 'hist-open' : 'pr-samples'); assert.ok(ph, tag + ': the wide copy'); }
+    /* On a phone the first item is the phone copy; wide, focus a wide-only copy if there is one, else the first item. */
+    const first = at() && at().dataset.act;
+    assert.ok(first, tag + ': set-up, focus in More');
+    app.setNarrow(!from); await app.tick();
+    assert.match(head(app), /id="ws-more-btn"[^>]*aria-expanded="true"/, tag + ': More stays open');
+    const a = at();
+    assert.ok(a && a.getClientRects().length > 0 && shown(app).indexOf(a.dataset.act) >= 0, tag + ': focus on an item shown, not ' + (a && a.dataset.act));
+    if (from) assert.strictEqual(a.dataset.act, shown(app)[0], tag + ': the first one shown');
+    else assert.strictEqual(a.dataset.act, first, tag + ': an item still shown keeps focus');
+  }
+});
+
+rule('One header: a redraw that replaces More\'s focused item (focus out to nothing, the item gone from the page) keeps More open and focus on that item', async () => {
+  const app = await edit({ domFocus: true });
+  app.click('ws-more'); await app.tick();
+  const was = app.doc.activeElement; assert.ok(was && was.dataset.act, 'set-up: focus on an item');
+  app.doc.hasFocus = () => true; app.doc.activeElement = app.doc.body;
+  const gone = { closest: s => (s === '.more' ? {} : null), isConnected: false, dataset: was.dataset, getClientRects: () => [] };
+  app.fire('focusout', { target: gone, relatedTarget: null }); await app.tick(20);
+  assert.match(head(app), /id="ws-more-btn"[^>]*aria-expanded="true"/, 'More stays open');
+  assert.strictEqual(app.doc.activeElement && app.doc.activeElement.dataset.act, was.dataset.act, 'focus back on the same item');
+});
+
 /* ---------- Build round 4: review round 3 ---------- */
 /* A ‹ control's browser Back held (a slow browser) while a folder refresh finishes and redraws: no entry is written in
    between, and Back lands where the control goes. */
@@ -2091,22 +2135,22 @@ rule('R11 1: the same screen and origin is still the silent no-op (a closed Help
   await onePop(app, a => a.back());
   assert.strictEqual(app.html(), html, 'nothing redrawn'); assert.strictEqual(back1(app).text, 'Runs');
 });
-const nativeToggle = (app, open) => app.fire('toggle', { target: { dataset: { disc: 'rw-menu' }, open, classList: { contains: c => c === 'rw-menu' } } });
-rule('R11 2: the run\'s More opened natively, the checklist link, Back: More stays closed and Forward is still there', async () => {
-  const app = await start(); app.click('nav', 'runs'); await app.settle();
+rule('R11 2: the run\'s More open, the checklist link, Back: More stays closed and Forward is still there', async () => {
+  const app = await start({ domFocus: true }); app.click('nav', 'runs'); await app.settle();
   const key = runKey(app); app.click('open-run', key); await app.settle();
-  nativeToggle(app, true); await app.settle();
-  const n = app.entries().length;
+  app.click('ws-more'); await app.settle();
+  assert.match(rhead(app), /id="ws-more-btn"[^>]*aria-expanded="true"/, 'set-up: the run\'s More is open');
+  assert.doesNotMatch(app.html(), /<details class="rw-menu"/, 'the old menu is gone');
   app.click('open-process', app.run().process || 'release'); await app.settle();
-  assert.ok(onOverview(app) || /#\/process\//.test(app.hash()), 'set-up: the checklist page: ' + app.hash());
+  assert.ok(onOverview(app) || /#\/process\//.test(app.hash()), 'the checklist page: ' + app.hash());
   const after = app.entries().length;
   await onePop(app, a => a.back());
   assert.strictEqual(app.hash(), '#/run/' + key, 'back on the run');
-  assert.doesNotMatch(app.html(), /<details class="rw-menu" data-disc="rw-menu" open/, 'More stays closed');
+  assert.match(rhead(app), /id="ws-more-btn"[^>]*aria-expanded="false"/, 'More stays closed');
+  assert.match(rhead(app), /id="ws-more-list"[^>]* hidden/, 'its list hidden');
   assert.strictEqual(app.entries().length, after, 'Forward kept: ' + JSON.stringify(app.entries().map(e => e.hash)));
   await onePop(app, a => a.forward());
   assert.match(app.hash(), /^#\/process\//, 'Forward still opens the checklist');
-  assert.ok(n <= after);
 });
 rule('R11 3: practice counts a step written without an ID, and after a reload', async () => {
   const session = {};

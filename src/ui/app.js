@@ -1881,7 +1881,7 @@
   /* Crossing the phone breakpoint redraws, so the properties sheet's modal state follows the layout. */
   var wasNarrow = null;
   /* More is on every work screen at every width (2.16), so resizing never closes it; it is refitted to the window. */
-  window.addEventListener('resize', function () { pinOffsets(); fitPanes(); hdOffset(); moreFit(); var n = !!(window.matchMedia && window.matchMedia('(max-width: 800px)').matches); if (wasNarrow !== null && n !== wasNarrow) render(); wasNarrow = n; });
+  window.addEventListener('resize', function () { var had = moreHas(); pinOffsets(); fitPanes(); hdOffset(); moreSync(had); var n = !!(window.matchMedia && window.matchMedia('(max-width: 800px)').matches); if (wasNarrow !== null && n !== wasNarrow) render(); wasNarrow = n; });
   /* Redraw only what changed: unchanged regions keep their nodes, so focus, the caret, typed text and scroll inside them stay.
      Nodes that differ are compared a few levels down (screen → run → deck → phase → steps → step) and replaced there. */
   function patch(el, html) {
@@ -1977,8 +1977,9 @@
     if (fsig !== formSig) { formSig = fsig; childEpoch++; }
     /* Revealed boxes belong to one checklist's editor: leaving it (another checklist, folder or screen) forgets them. */
     if (state.obShown && (state.view !== 'process' || state.ptab !== 'edit' || state.obShown.key.indexOf(fsKey() + '\n' + state.processId + '\n') !== 0)) state.obShown = null;
-    var fill = fillShown();
+    var fill = fillShown(), had = moreHas();
     try { renderNow(); } finally { rendering = false; }
+    moreSync(had);
     fillAfter(fill);
     dbxAfter();
     scheduleSync();
@@ -2400,6 +2401,9 @@
     /* Nothing took focus: Tab ran off the end of the page (close), or another window took it (keep More for coming back), or
        a press inside More on a browser that doesn't focus buttons (keep it, so the press lands on what was drawn). */
     if (!to && (moreDown || !(document.hasFocus && document.hasFocus()))) return;
+    /* Or a redraw replaced the focused item, or the browser blurred an item the new width hides: More stays open and focus
+       goes back to that item, or else the first one shown (moreSync). */
+    if (!to && (rendering || e.target.isConnected === false || (e.target.getClientRects && !e.target.getClientRects().length))) { var k = moreKeyOf(e.target) || true; setTimeout(function () { moreSync(k); }, 0); return; }
     state.wsMore = false; render();
   });
   /* The run screen is a page of its own too: the top bar hides and, on a wider screen, each pane scrolls on its own. Next up
@@ -4256,8 +4260,20 @@
     var it = moreItems(), n = it.length, i = it.indexOf(document.activeElement); if (!n) return;
     moreGo(it[k === 'Home' ? 0 : k === 'End' ? n - 1 : k === 'ArrowDown' ? (i + 1) % n : i < 0 ? n - 1 : (i - 1 + n) % n]);
   }
+  /* More stays consistent after every render and resize (one step for both): while it is open it is refitted (a redraw
+     can replace the list and drop its cap), and focus that was in it and is no longer on an item shown (a copy the new
+     width hides, or the page after the browser blurred it) goes to the first item shown. */
+  var moreKeyOf = function (e) { return e && e.dataset ? (e.dataset.act || '') + '|' + (e.dataset.id || '') : ''; };
+  function moreHas() { var a = document.activeElement, l = document.getElementById('ws-more-list'); return state.wsMore && a && l && l.contains && l.contains(a) ? moreKeyOf(a) || true : false; }
+  function moreSync(had) {
+    if (!state.wsMore) return;
+    moreFit();
+    var it = moreItems(); if (!had || it.indexOf(document.activeElement) >= 0) return;
+    /* The same item redrawn, if it is still shown; else the first. */
+    moreGo(it.filter(function (e) { return moreKeyOf(e) === had; })[0] || it[0]);
+  }
   /* More (2.16): opening it focuses its first item shown; closing it, More again. */
-  function wsMoreToggle() { state.wsMore = !state.wsMore; state.focus = state.wsMore ? null : 'ws-more-btn'; render(); moreFit(); if (state.wsMore) moreGo(moreItems()[0]); }
+  function wsMoreToggle() { state.wsMore = !state.wsMore; state.focus = state.wsMore ? null : 'ws-more-btn'; render(); if (state.wsMore) moreGo(moreItems()[0]); }
   /* Who are you? (docs/design.md section 34): opened from More (focus comes back to More) or from a held primary's reason line
      (focus goes to the primary that was held). Choosing sets state.me the same way the top bar's You are does. */
   function meOpen(b, id) {
