@@ -65,8 +65,11 @@ context: ticket, rows:number, due:date, approved:yes-no, env:choice(dev|test|pro
 | `date` | `YYYY-MM-DD`, a real calendar day | The browser's date box |
 | `choice(a\|b)` | The option as written | Up to five options as choices, more as a list. A different capitalization of an option is accepted and stored as written here. 2 to 20 options, each up to 40 characters, with no `, \| ( ) :`, and no two that differ only in capitals. |
 | `link` | A link that starts with `http://` or `https://` | A box that says so |
+| `pattern(...)` | The text as typed | A box that says what it must match. At most 120 characters. The pattern is one sequence of letters, `[...]` classes (ranges like `a-z`, and `\d`), and repeats `?`, `*`, `+`, `{n}`, `{n,}`, `{n,m}` (up to 100). No groups, alternatives, `.` or negated classes, at most 40 parts and 200 characters. Inside `pattern(...)`, write `(`, `)` and `,` as `\(`, `\)` and `\,` everywhere, even inside `[...]`. The whole value must match. Flightdeck 2.16. |
 
 Steps and gates still use the bare name (`^rows`). Writing `name:text` is an error (just write `name`), so is an unknown kind or a name listed twice with a kind. A checklist with a typed detail, or with `number`, `yes-no` or `date` evidence, is published as a 2.0 version: an older Flightdeck names it and can't run it. A checklist without any stays exactly as before.
+
+`tag:pattern(\d{4}\.\d{1,2}\.\d{1,2}-rc\d{1,3})` accepts `2026.11.0-rc3` and refuses `2026.11.0 rc3`. A checklist with a `pattern(...)` detail is published as a 2.16 version (`detail-patterns`): an older Flightdeck names it and can't run it. In such a version, detail lengths count characters as people see them (code points), so an emoji counts once.
 
 When a run starts from text (a plan, or a detail carried from a parent run), each typed detail is converted only when that's certain: `1234.50` becomes `1234.5`, `Y` becomes `yes`, `Prod` becomes `prod`. Anything else (`03/04/2026`, `1,234`) starts empty, with what it was shown beside it, until a person fills it in, and nothing that uses it (a step bound to it, a gate that approves it, a linked run that carries it) can go ahead before then. The run keeps a record of each conversion.
 
@@ -219,6 +222,7 @@ During a run, the recorder can **Fill in** any step's checklist fields and evide
 | `verify.health` | Watch a dashboard or metric for a while and say whether it stayed healthy. | **`dashboard`**, **`metric`**, `threshold`, `watch` | `result`, `observed`, `snapshot` |
 | `github.pr` | Open, review, approve or merge a GitHub pull request. | **`action`** (`open`, `review`, `approve`, `merge`), **`repo`**, `pull` (unless open), `from`, `to` | `pr`, `checks`, `mergeCommit` (for merge) |
 | `measure` | Record a number with its unit, like velocity or points carried over. | **`metric`**, `unit`, `where` | `value`, `unit` |
+| `jira.search` | Search Jira with a query or a saved filter, and record what it found. | `query`, `filter`, `results`, `site`, `what` | `searchId`, `count`, `keys`, `resultsLink`, `ranAt` |
 <!-- types:end -->
 
 `version` on `{run.process}` and `skillVersion` on `{run.skill}` aren't in the table: they're pins (Needs Flightdeck 2.0), described under [Nested processes](#nested-processes) and [Skill versions](#skill-versions). No other type takes them.
@@ -367,6 +371,37 @@ A `{jira.issue}` step with `action: transition` must move to a status the workfl
 - A file that isn't valid, or is larger than 256 KB, is listed in Folder health, and nothing that uses a team value starts or publishes until it's fixed.
 
 A linked step passes one to its child with `team:` (see [Nested processes](#nested-processes)). Folder health flags a published step whose team value was removed later.
+
+## Jira searches
+
+A `{jira.search}` step (Flightdeck 2.16) says what a Jira search must find, and records what it found. Flightdeck never calls Jira: a person, or the assistant through a report, runs the search and records the results.
+
+```markdown
+- [!] {jira.search} Every story in ^version has story points @release-lead {#points}
+  query: project = ^project AND issuetype = Story AND fixVersion = ^version AND "Story Points" is EMPTY
+  results: none
+  what: Stories in the release with no story points
+```
+
+- **`query:`** one line of JQL, or **`filter:`** a saved filter's number. Exactly one of the two. Neither can be filled in during a run.
+- **`results:`** `none`, `any`, `exactly N`, `at least N` or `at most N` (N from 0 to 999999). Left out, it means `any`, with a tip.
+- **`site:`** `team:<name>`, a team value holding the Jira address (`https://host[/path]`, https only). Left out, it means `team:jira-base-url`. A run copies the address when it starts; without one, the step shows the query with Copy and can still be checked.
+- **`what:`** plain words for what the results are. Use it with `filter:`, since a saved filter can change in Jira without the checklist changing.
+- **Evidence:** `count` (always), `keys` (the issue keys, `PAY-1, PAY-2`, optionally ending `+N more`; needed when the count breaks the rule and isn't 0, never at zero), `resultsLink` and `ranAt` (optional), and `searchId`, which Flightdeck fills in.
+
+**Where a run detail can go.** `^name` only where a single value goes: right after `=`, `!=`, `<`, `>`, `<=` or `>=`, or as a member of an `IN (...)` / `NOT IN (...)` list. Anywhere else (after `IS`, `~` or `!~`, inside a function's arguments, on the field side, joined to other text, or inside a quoted string) stops publishing. Each value is filled in as one quoted JQL string; a value with a line break, a control or direction character, or more than 300 characters is refused, never cleaned, and an empty detail means the step waits for it.
+
+**Which search the results belong to.** Results are tied to the exact search they answer (`searchId`). When a detail the query uses changes, the step's results go to history and it must be searched again, even if the detail changes back. A step can't `sets:` a detail its own query uses. Each time a run is read, a checked search whose record no longer stands (results that fail the rule, or for an earlier search) is reopened, says "Reopened when read", and its gate goes to review.
+
+**Start with a scope search.** Put a search with `results: at least 1` first (the release's stories), so an empty or misspelled release can't pass every `none` check. It doesn't prove the account sees every issue: Jira shows each account only what that account may see.
+
+**Without an attachment-name function.** Teams whose Jira can't search attachment names check that step with a `{confirm}` step instead.
+
+## Run details in link fields
+
+A run detail in a link field (`url:`, `link:` and the like) stays inside its part of the address. It can be a whole link (`page: ^runbook`, checked as a link), a path segment, a query value (`?tag=^tag`) or the fragment, and each is encoded for its part. A detail in the host, as a parameter's name or in a query part with no `=` stops publishing, as do invisible characters in a link field. In versions published before 2.16, such a link is shown as text, with the reason, instead of a link.
+
+Link fields keep a run detail inside its part of the address. They don't check what the site does with it. To build a Jira query from run details, use a Jira search step.
 
 ## What stops a checklist from publishing
 

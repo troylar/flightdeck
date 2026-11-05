@@ -465,6 +465,8 @@ PF.vk = (function () {
     if (k === 'date') return lab + '<input type="date" id="' + esc(id) + '" min="0001-01-01" max="9999-12-31" value="' + esc(Vv.isDate(v) ? v : '') + '"' + a + '></label>';
     if (k === 'number') return lab + (def.unit ? ' <span class="small">(' + esc(def.unit) + ')</span>' : '') + '<input id="' + esc(id) + '" inputmode="decimal" maxlength="30" value="' + esc(v) + '"' + a + '></label>';
     if (k === 'url') return lab + ' <span class="small">Starts with https://</span><input type="url" id="' + esc(id) + '" maxlength="120" placeholder="https://" value="' + esc(v) + '"' + a + '></label>';
+    /* A pattern detail (2.16): 120 code points can take 240 UTF-16 units; the code-point check gives the message. */
+    if (k === 'pattern') return lab + ' <span class="small">Matches ' + esc(String(def.pattern || '').slice(0, 80)) + '</span><input id="' + esc(id) + '" maxlength="240" value="' + esc(v) + '"' + a + '></label>';
     return lab + '<input id="' + esc(id) + '" maxlength="120" value="' + esc(v) + '"' + a + '></label>';
   }
   /* A typed value as people read it, with the stored text in brackets where they differ; text as it is. */
@@ -597,9 +599,11 @@ PF.vk = (function () {
      width is read from the choice, never from what was drawn, and a sidebar left at the layout's width keeps it, so fitting
      what was drawn gives the same answer (no back and forth). Chosen widths give way in SHRINK order (the inspector first)
      until the main pane has MAIN_MIN. Returns { key: { w, max } } for the resizable ones. */
-  var MAIN_MIN = 360, SHRINK = ['ins', 'tf', 'parts'];
+  /* GUT: each separator's own grid column (page.html's --gut), outside both panes. Every separator that is shown and not fixed
+     takes one, so the room for sidebars is the window less the main pane and those gutters. */
+  var MAIN_MIN = 360, GUT = 28, SHRINK = ['ins', 'tf', 'parts'];
   function fitPanes(W, items) {
-    var w = {}, chosen = {}, total = 0, room = W - MAIN_MIN, out = {};
+    var w = {}, chosen = {}, total = 0, room = W - MAIN_MIN - GUT * items.filter(function (it) { return !it.fixed; }).length, out = {};
     items.forEach(function (it) {
       var spec = PANES[it.key];
       chosen[it.key] = !it.fixed && typeof it.pref === 'number' && isFinite(it.pref);
@@ -621,12 +625,82 @@ PF.vk = (function () {
   function paneAttr(ctx, keys) { var s = paneStyle(ctx, keys); return s ? ' style="' + s + '"' : ''; }
   function splitter(ctx, key) {
     var spec = PANES[key], w = paneW(ctx, key);
-    return '<div class="pane-split" role="separator" aria-orientation="vertical" aria-label="' + spec.label + '" aria-controls="' + spec.controls + '" aria-valuenow="' + w.w + '" aria-valuemin="' + w.min + '" aria-valuemax="' + w.max + '" tabindex="0" data-split="' + key + '" data-act="pane-split" data-id="' + key + '" title="Drag to resize. Arrow keys move it; Enter or a double-click puts it back."></div>';
+    return '<div class="pane-split" role="separator" aria-orientation="vertical" aria-label="' + spec.label + '" aria-controls="' + spec.controls + '" aria-valuenow="' + w.w + '" aria-valuemin="' + w.min + '" aria-valuemax="' + w.max + '" tabindex="0" data-split="' + key + '" data-act="pane-split" data-id="' + key + '" title="Drag, or click either side to move it. Arrow keys move it; Enter or a double-click puts it back."></div>';
   }
 
+  /* The way back (2.16, docs/design.md section 29): one control, top left, named for where it goes, never an action. Its
+     accessible name is "Back to <place>", holding the visible text in order. view: the workspace's view word (Edit or
+     Practice), kept whole while a long title is cut. */
+  function backc(act, id, place, view, extra, label) {
+    /* "The run" reads as "Back to the run": the visible words, in order, in a sentence. label: a fuller name that still
+       starts with the visible words ("Back to Overview of <title>"). */
+    var name = label || 'Back to ' + String(place).replace(/^The /, 'the ') + (view ? ' · ' + view : '');
+    return '<button type="button" class="btn backc" data-act="' + esc(act) + '"' + (id != null ? ' data-id="' + esc(id) + '"' : '') + ' aria-label="' + esc(name) + '"' + (extra || '') + '>' + I('back') +
+      '<span class="backc-t">' + esc(place) + '</span>' + (view ? '<span class="backc-v"> · ' + esc(view) + '</span>' : '') + '</button>';
+  }
+  /* ---------- one header (2.16, docs/design.md section 34) ----------
+     Every work screen draws row 1 with workHead and its tools with toolRow; nothing else writes header markup. The markup is in
+     the visual order at every width: LEFT (the way back, the title, the status line), CENTER (the view switch), RIGHT
+     (progress, the actions, More), then the reason line for a held primary, inside the header. o: { hid, h1, h1attrs, back,
+     status: [{ kind: 'd' | 'act', html, cls, attrs }], views, prog, acts, more, why, cls, attrs }. h1 is the title, escaped text
+     only (it is also the span's title, so a cut title can be read in full); h1tail is markup after it (a tag, a hidden word). */
+  function workHead(o) {
+    var st = (o.status || []).filter(function (x) { return x && x.html; }).map(function (x) { return '<span class="' + (x.kind === 'act' ? 'act' : 'd') + (x.cls ? ' ' + x.cls : '') + '"' + (x.attrs || '') + '>' + x.html + '</span>'; }).join('');
+    return '<header class="hd' + (o.cls ? ' ' + o.cls : '') + '" role="region" aria-labelledby="' + o.hid + '"' + (o.attrs || '') + '>' +
+      '<div class="hd-l">' + (o.back || '') + '<div class="hd-id"><h1 id="' + o.hid + '"' + (o.h1attrs || '') + '><span class="hd-t" title="' + o.h1 + '">' + o.h1 + '</span>' + (o.h1tail || '') + '</h1>' + (st ? '<p class="hd-st">' + st + '</p>' : '') + '</div></div>' +
+      '<div class="hd-c">' + (o.views || '') + '</div>' +
+      '<div class="hd-r">' + (o.prog || '') + (o.acts ? '<div class="hd-acts" data-slot="primary">' + o.acts + '</div>' : '') + (o.more || '') + '</div>' + (o.why || '') + '</header>';
+  }
+  /* The tool row: timeline | how you work | panels, then the facts pushed right. groups are HTML strings; empty ones are left
+     out. o: { cls, k (the state tint), label, attrs }. */
+  function toolRow(groups, facts, o) {
+    o = o || {};
+    var g = (groups || []).filter(Boolean).map(function (x) { return '<div class="tg">' + x + '</div>'; }).join('');
+    return '<div class="tr' + (o.cls ? ' ' + o.cls : '') + '"' + (o.k ? ' data-k="' + esc(o.k) + '"' : '') + ' role="region" aria-label="' + esc(o.label || 'Tools') + '"' + (o.attrs || '') + '>' + g + (facts ? '<div class="facts">' + facts + '</div>' : '') + '</div>';
+  }
+  /* One progress component for a run and for Practice: the bar keeps rw-bar (app.js animates it) and says the count once. */
+  function progress(done, total) {
+    var pct = total ? Math.round(done / total * 100) : 0;
+    return '<div class="hd-prog"><span class="hd-bar rw-bar" role="progressbar" aria-label="Steps answered" aria-valuemin="0" aria-valuemax="' + total + '" aria-valuenow="' + done + '" aria-valuetext="' + done + ' of ' + total + ' steps answered"><i style="width:' + pct + '%"></i></span><b aria-hidden="true">' + done + '/' + total + '</b><span class="small w" aria-hidden="true">answered</span></div>';
+  }
+  /* More: one layer on every work screen, top right. Its groups: the phone-only copies of tool-row controls, this screen's
+     extras, then You and this app (appGroup). pr: Practice's copy, whose opener is a pr-* act. */
+  function moreMenu(ctx, html, pr) {
+    var open = !!ctx.state.wsMore;
+    return '<div class="more ws-more"><button type="button" class="mini more-btn ws-more-btn" id="ws-more-btn" data-act="' + (pr ? 'pr-more' : 'ws-more') + '" aria-expanded="' + open + '" aria-controls="ws-more-list">More</button>' +
+      '<div class="more-list ws-more-list' + (open ? ' open' : '') + '" id="ws-more-list"' + (open ? '' : ' hidden') + '>' + html + '</div></div>';
+  }
+  function moreGroup(title, html) { return html ? '<div class="grp" aria-hidden="true">' + esc(title) + '</div>' + html : ''; }
+  /* You and this app, the same last group everywhere: who you are (a button in the workspace and the step-type editor, plain
+     text on a run and its pages), Search, Appearance, Check the folder now and Keyboard shortcuts. o: { readOnlyMe, pr }. */
+  function appGroup(ctx, o) {
+    o = o || {};
+    var st = ctx.state, a = function (x) { return o.pr ? 'pr-' + x : x; }, th = THEMES[st.theme] ? st.theme : 'system', nx = THEMES[th].next;
+    var who = st.me ? nameOf(ctx, st.me) : '';
+    var me = o.readOnlyMe ? (who ? '<div class="ro">You: <b>' + esc(who) + '</b></div>' : '')
+      : '<button type="button" class="mini" data-act="' + a('me') + '" aria-haspopup="dialog">' + (who ? 'You are <b>' + esc(who) + '</b> · Change…' : 'Choose who you are…') + '</button>';
+    return moreGroup('You and this app', me +
+      '<button type="button" class="mini" data-act="' + a('search') + '" aria-keyshortcuts="' + (ctx.mac ? 'Meta+K' : 'Control+K') + '">' + I('search') + 'Search <span class="val">' + (ctx.mac ? '⌘K' : 'Ctrl+K') + '</span></button>' +
+      '<button type="button" class="mini" data-act="' + a('theme') + '" data-id="' + nx + '">' + I(THEMES[th].icon) + 'Appearance <span class="val">' + esc(THEMES[th].label) + '</span></button>' +
+      '<button type="button" class="mini" data-act="' + (o.pr ? 'pr-folder' : 'refresh') + '">Check the folder now' + (st.lastCheck ? ' <span class="val">' + esc(U.hm(st.lastCheck)) + '</span>' : '') + '</button>' +
+      '<button type="button" class="mini" data-act="help">Keyboard shortcuts</button>');
+  }
+  /* Who are you? The one dialog that changes who you are from a work screen, drawn through openOverlay. */
+  function meDialog(ctx) {
+    var st = ctx.state, people = PF.people.sorted(ctx).filter(function (p) { return !p.inactive; }), nmMe = PF.people.labeler(ctx.data.people);
+    var field = people.length ? '<select id="me-pick"><option value="">Choose…</option>' + people.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === st.me ? ' selected' : '') + '>' + esc(nmMe(p)) + '</option>'; }).join('') + '</select>'
+      : '<input id="me-pick" maxlength="40" placeholder="Your name" value="' + esc(st.me || '') + '">';
+    return '<div class="overlay" data-act="close-overlay"><div class="help me-box" role="dialog" aria-modal="true" aria-labelledby="me-t"><h2 id="me-t">Who are you?</h2>' +
+      '<p class="small">Everything you do is stamped with this name.</p><label class="field" for="me-pick">' + (people.length ? 'You are' : 'Your name') + field + '</label>' +
+      '<div class="row"><button type="button" class="btn go" data-act="me-use">Use this name</button><button type="button" class="mini" data-act="close-overlay">Cancel</button></div></div></div>';
+  }
+  V.workHead = workHead; V.toolRow = toolRow; V.progress = progress; V.moreMenu = moreMenu; V.moreGroup = moreGroup; V.appGroup = appGroup; V.meDialog = meDialog;
+  /* On a page under the top bar, the way back has its own row above the page's header. */
+  function backRow(html) { return html ? '<div class="backrow">' + html + '</div>' : ''; }
+  V.backc = backc; V.backRow = backRow;
   V.undoBar = undoBar;
-  V.tabOnly = PF.vk.tabOnly; V.PANES = PANES; V.MAIN_MIN = MAIN_MIN; V.fitPanes = fitPanes; V.paneW = paneW; V.paneStyle = paneStyle; V.paneAttr = paneAttr; V.splitter = splitter;
-  /* What the editor's Checks, Review & publish and a proposal's checks are checked against: the folder as this window holds
+  V.tabOnly = PF.vk.tabOnly; V.PANES = PANES; V.MAIN_MIN = MAIN_MIN; V.GUT = GUT; V.fitPanes = fitPanes; V.paneW = paneW; V.paneStyle = paneStyle; V.paneAttr = paneAttr; V.splitter = splitter;
+  /* What the editor's Checks, its Publish and a proposal's checks are checked against: the folder as this window holds
      it, through PF.publish.checkOptions, the one place flightdeck draft check shares. */
   function checkOptions(ctx) { return PF.publish.checkOptions({ people: ctx.data.people, types: (ctx.data.stepTypes || {}).types, workflows: (ctx.data.jira || {}).workflows, processes: ctx.processes(), procOf: ctx.procOf, teamValues: ctx.data.teamValues }); }
   V.top = top; V.checkOptions = checkOptions; V.nameOf = nameOf; V.freshness = freshness; V.THEMES = THEMES; V.sectionOf = sectionOf;

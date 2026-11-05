@@ -323,8 +323,15 @@ PF.practice = (function () {
       else if (ev.list.length) {
         var chk = R.checkEvidence(r, x.step, null, (o && o.values) || {}, false, map);
         if (chk.error) return { error: chk.error, field: chk.field || '' };
+        /* A search in practice: no identity; its results must meet the rule (section 5.2). */
+        if (R.isSearchStep(x.step)) {
+          var sc = R.searchCheck(r, map, x.step, (o && o.values) || {}, now || new Date().toISOString(), { practice: true });
+          if (sc.error) return { error: sc.error, field: sc.field ? sc.field : '' };
+          if (!sc.meets) return { error: 'These results can\'t check this search: its results don\'t meet the rule.', field: 'count' };
+          chk = { values: sc.values };
+        }
         if (Object.keys(chk.values).length) rec.values = chk.values;
-        ev.list.forEach(function (e) { if (e.detail && chk.values[e.name]) { st.sample[e.detail] = String(chk.values[e.name]).slice(0, 120); st.setBy[e.detail] = id; } });
+        ev.list.forEach(function (e) { if (e.detail && chk.values[e.name]) { st.sample[e.detail] = PF.values.cut(null, String(chk.values[e.name]), PF.values.DETAIL_MAX, unitOf(map)).value; st.setBy[e.detail] = id; } });
       }
     }
     var p = prints(map, st.sample, types, st.fields)[id];
@@ -374,10 +381,13 @@ PF.practice = (function () {
   /* A sample run detail, checked as a run checks it (empty clears it). */
   function setSample(state, map, name, value, types) {
     if ((map.meta.context || []).indexOf(name) < 0) return { error: 'That run detail isn\'t in the draft.' };
-    var v = String(value == null ? '' : value).trim(), def = R.detailValueDef(map, name);
-    if (v && def) { var p = PF.values.parse(def, v, { max: 120 }); if (!p.ok) return { error: p.why }; v = p.canonical; }
+    /* A pattern's value is checked as typed, untrimmed (Appendix A.5), by PF.values.patternIn. */
+    var def = R.detailValueDef(map, name), pat = def && def.kind === 'pattern' ? PF.values.patternIn(def, value, { max: PF.values.DETAIL_MAX }) : null;
+    if (pat && !pat.ok) return { error: pat.why };
+    var v = pat ? pat.canonical : String(value == null ? '' : value).trim();
+    if (v && def && !pat) { var p = PF.values.parse(def, v, { max: PF.values.DETAIL_MAX }); if (!p.ok) return { error: p.why }; v = p.canonical; }
     var st = copy(state);
-    if (v) st.sample[name] = v.slice(0, 120); else delete st.sample[name];
+    if (v) { var c = PF.values.cut(def, v, PF.values.DETAIL_MAX, unitOf(map)); if (c.why) return { error: c.why }; st.sample[name] = c.value; } else delete st.sample[name];
     var moved = pin(st, map, types);
     return moved ? { state: bump(st), moved: moved } : { state: bump(st) };
   }
@@ -444,7 +454,14 @@ PF.practice = (function () {
 
   /* ---------- keeping it: sessionStorage, checked when read back, within CAP ---------- */
   var REC = /^(done|na)$/, GREC = /^(passed|waived)$/, HEX = /^[0-9a-f]{1,8}$/;
-  function check(o, process) {
+  function JS_RULE(step) { return PF.jsearch.parseResults(step.fields.results); }
+  /* Practice measures as a run of its draft would (2.16, A.5). */
+  function unitOf(map) { return map ? PF.values.unitOf(PF.map.features(map)) : 'utf16'; }
+  function cutAll(o, unit) { var out = {}; Object.keys(o || {}).slice(0, 40).forEach(function (k) { if (typeof o[k] === 'string' && k.length <= 60 && !(k in Object.prototype)) out[k] = PF.values.cut(null, o[k], PF.values.DETAIL_MAX, unit).value; }); return out; }
+  function check(o, process, map, types) {
+    /* R14-1: the admitted draft decides the unit and which steps are searches, so it's required. */
+    if (!map || !map.meta || !map.phases) throw new Error('Reading a kept practice needs the draft it was kept for.');
+    var unit = unitOf(map);
     if (!o || typeof o !== 'object' || o.v !== V || o.process !== process || typeof o.answers !== 'object' || typeof o.gates !== 'object' || typeof o.sample !== 'object' || !o.answers || !o.gates || !o.sample) return null;
     var st = fresh(process), cut = false;
     Object.keys(o.answers).slice(0, 2000).forEach(function (id) {
@@ -460,23 +477,48 @@ PF.practice = (function () {
         if (vk.length > VALUES_MAX || vk.some(function (n) { return typeof a.values[n] !== 'string' || a.values[n].length > VALUE_MAX; })) { cut = true; return; }
         if (Object.keys(vs).length) k.values = vs;
       }
+      /* A checked search whose kept results don't meet its rule is dropped, as cut evidence is, and with it the gates. */
+      var sx = k.s === 'done' && !k.skipped ? M.findStep(map, id) : null;
+      /* The shared check Done uses in practice (count, keys against the count, the rule); without evidence and assumed
+         answers aren't asked. */
+      if (sx && R.isSearchStep(sx.step)) {
+        var rr = JS_RULE(sx.step), sc = rr.ok ? PF.jsearch.checkEvidence(rr, k.values || {}, null, Date.now(), { practice: true }) : null;
+        if (!sc || sc.error || !sc.meets) { cut = true; return; }
+      }
       st.answers[id] = k;
     });
-    if (cut) st.gates = {};
-    Object.keys(o.gates).slice(0, 500).forEach(function (id) { var g = o.gates[id]; if (!cut && g && typeof g === 'object' && is(GREC, g.s) && is(HEX, g.base) && id.length <= 80) st.gates[id] = { s: g.s, reason: str(g.reason, 200), at: str(g.at, 40), approved: g.approved && typeof g.approved === 'object' ? clean(g.approved) : {}, base: g.base }; });
-    st.sample = clean(o.sample);
+    st.sample = cutAll(o.sample, unit);
     /* Slice 1 kept none of these; each is optional and anything malformed is dropped. */
     if (o.fields && typeof o.fields === 'object') Object.keys(o.fields).slice(0, 2000).forEach(function (id) { var f = o.fields[id]; if (id.length <= 80 && f && typeof f === 'object' && !(id in Object.prototype)) { var c = clean(f, 300); if (Object.keys(c).length) st.fields[id] = c; } });
+    /* Then the whole check Done makes (R.checkEvidence: require:, the kinds, what a setter sets), for every checked answer
+       whose step is still as it was checked (a changed one is tried again, not trusted): one Done would refuse is dropped,
+       and with it every gate. */
+    if (validated(st, map, types)) cut = true;
+    if (cut) st.gates = {};
+    Object.keys(o.gates).slice(0, 500).forEach(function (id) { var g = o.gates[id]; if (!cut && g && typeof g === 'object' && is(GREC, g.s) && is(HEX, g.base) && id.length <= 80) st.gates[id] = { s: g.s, reason: str(g.reason, 200), at: str(g.at, 40), approved: g.approved && typeof g.approved === 'object' ? cutAll(g.approved, unit) : {}, base: g.base }; });
     if (o.setBy && typeof o.setBy === 'object') Object.keys(o.setBy).slice(0, 40).forEach(function (n) { var id = o.setBy[n]; if (typeof id === 'string' && own(st.sample, n) && own(st.answers, id)) st.setBy[n] = id; });
     st.from = typeof o.from === 'string' && o.from.length <= 80 ? o.from : '';
     st.found = typeof o.found === 'string' ? o.found.slice(0, FOUND_MAX) : '';
     st.rev = typeof o.rev === 'number' && isFinite(o.rev) ? o.rev : 0;
     return st;
   }
+  /* Drops each checked answer (not skipped, its step unchanged) whose evidence Done would refuse; true when any went. */
+  function validated(st, map, types) {
+    var now = prints(map, st.sample, types, st.fields), r = asRun({ sample: st.sample, steps: {}, gates: {}, fields: st.fields }, map, null, false, types), any = false;
+    Object.keys(st.answers).forEach(function (id) {
+      var k = st.answers[id], x = k.s === 'done' && !k.skipped ? M.findStep(map, id) : null;
+      if (!x || !own(now, id) || k.own !== now[id].own || simulated(x.step, envOf(types).types) === 'linked') return;
+      if (!R.evidenceFor(r, x.step, null, map).list.length) return;
+      var v = k.values || {}, chk = R.jiraProblem(r, x.step) ? { error: 'jira' } : R.checkEvidence(r, x.step, null, v, false, map);
+      if (!chk.error && R.isSearchStep(x.step)) { var sc = R.searchCheck(r, map, x.step, v, k.at || new Date().toISOString(), { practice: true }); if (sc.error || !sc.meets) chk = { error: 'search' }; }
+      if (chk.error) { delete st.answers[id]; any = true; }
+    });
+    return any;
+  }
   /* Only text is read from a kept record: anything else is dropped, never converted (it could throw). */
   function is(re, x) { return typeof x === 'string' && re.test(x); }
   function str(x, n) { return typeof x === 'string' ? x.slice(0, n) : ''; }
-  function clean(o, max, keys) { var out = {}; Object.keys(o || {}).slice(0, keys || 40).forEach(function (k) { if (typeof o[k] === 'string' && k.length <= 60 && !(k in Object.prototype)) out[k] = o[k].slice(0, max || 120); }); return out; }
+  function clean(o, max, keys) { var out = {}; Object.keys(o || {}).slice(0, keys || 40).forEach(function (k) { if (typeof o[k] === 'string' && k.length <= 60 && !(k in Object.prototype)) out[k] = o[k].slice(0, max); }); return out; }
   /* The text to keep, within CAP: answers for parts no longer in the draft go first, then the oldest; null when even
      an empty practice with its findings doesn't fit (it stays in memory only). present: IDs in the draft now; map: the
      admitted draft. An answer goes as a unit with its evidence and Fill in, so a kept answer always keeps what made it

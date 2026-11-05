@@ -142,6 +142,7 @@
       h += '<div class="rep-confirm" role="group" aria-labelledby="' + id + '-cf"><h4 id="' + id + '-cf" tabindex="-1">Accept this report?</h4>' +
         '<p>Checks "' + esc(K.stepPlain(el.step, K.refValue(r, R.mapOf(r)))) + '"' + (vals.length ? ' with: ' + esc(vals.join(', ')) : ' with no evidence') + '.</p>' +
         el.replaces.map(function (x) { return '<p class="small">Replaces ' + esc(x.label) + ' ' + esc(x.was) + '.</p>'; }).join('') +
+        (el.sets || []).map(function (x) { return '<p class="small">' + esc(x.text) + '.</p>'; }).join('') +
         (el.applies.result === 'unknown' ? '<p class="small">Flightdeck can\'t compare these inputs.</p>' : '') +
         (el.applies.untied.length ? '<p class="small">' + esc(X.appliesText(el.applies)) + '</p>' : '') +
         '<div class="row"><button class="btn go" data-act="rep-accept-go" data-id="' + esc(g.key) + '"' + (busy ? ' disabled' : '') + '>Accept and check the step</button><button class="btn" data-act="rep-cancel" data-id="' + esc(g.key) + '">Cancel</button></div></div>';
@@ -150,6 +151,8 @@
     var acts = '';
     if (dec.state !== 'accepted') acts += el.ok ? '<button class="btn go" data-act="rep-accept" data-id="' + esc(g.key) + '"' + (busy ? ' disabled' : '') + '>Accept</button>'
       : '<button class="btn" disabled aria-describedby="' + id + '-why">Accept</button><span class="small rw-why-off" id="' + id + '-why">' + esc(el.why === g.reason ? reasonText(g) : el.why) + '</span>';
+    /* Design section 6.3: a fail or blocked report for the current search blocks the step with its results, and is declined. */
+    if (dec.state !== 'accepted' && !el.ok && el.block && g.sha256) acts += '<button class="btn" data-act="rep-block" data-id="' + esc(g.key) + '"' + (busy ? ' disabled' : '') + '>Block with these</button>';
     if (dec.state !== 'declined' && g.sha256) acts += '<button class="btn" data-act="rep-decline" data-id="' + esc(g.key) + '"' + (busy ? ' disabled' : '') + '>Decline</button>';
     if (dec.state !== 'none' && dec.state !== 'open' && g.sha256) acts += '<button class="mini" data-act="rep-reopen" data-id="' + esc(g.key) + '"' + (busy ? ' disabled' : '') + '>Reopen</button>';
     return acts ? '<div class="row rep-acts" role="group" aria-label="Decide on this report">' + acts + '</div>' : '';

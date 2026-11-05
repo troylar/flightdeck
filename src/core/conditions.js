@@ -20,7 +20,8 @@ PF.conditions = (function () {
   /* A run detail's value definition from a checklist's detailTypes ({ kind, options }), or text. */
   function defOf(detailTypes, name) {
     var d = own(detailTypes, name) ? detailTypes[name] : null;
-    return d ? { kind: d.kind, label: name, options: d.options } : { kind: 'text', label: name };
+    if (!d) return { kind: 'text', label: name };
+    var def = { kind: d.kind, label: name, options: d.options }; if (d.kind === 'pattern') def.pattern = d.pattern; return def;
   }
   function kindWord(def) { return V.label(def); }
 

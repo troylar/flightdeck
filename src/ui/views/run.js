@@ -48,7 +48,10 @@
   function stateOf(r, s) { var a = r.steps[s.id]; return a && a.s !== 'open' ? a.s : 'open'; }
   /* The step the inspector shows: the selected one, or the one a form is open on. */
   function selOf(ctx) { var s = ctx.state; return s.sel || (s.pick && /^(record|fields|block|deadline|differently)$/.test(s.pick.kind) ? s.pick.id : null); }
-  function canWork(ctx, r, map, x) { return ctx.recording(r) && !r.paused && R.phaseOpen(r, map, x.phaseIndex); }
+  /* R14-8: in a completed run, a search reopened when read is answered again with Done, by whoever recorded or ended the run. */
+  function rereader(ctx, r) { var me = ctx.state && ctx.state.me; return !!me && !!r.ended && !r._unrunnable && (r.recorder.person === me || r.ended.by === me); }
+  function canWork(ctx, r, map, x) { return (ctx.recording(r) && !r.paused && R.phaseOpen(r, map, x.phaseIndex)) || (R.rereadable(r, x.step.id) && rereader(ctx, r)); }
+  V.rereader = rereader;
   /* Whether the selected step shows its evidence boxes, so Done collects what was typed there. The app asks the same. */
   function recordShown(ctx, r, map, id) {
     var x = M.findStep(map, id), a = r.steps[id], st = ctx.state;
@@ -95,6 +98,7 @@
     /* Conditions (2.1): a step whose condition waits for a detail says why, as a bound step does. */
     var heldWhy = s.when || x.phase.when ? R.held(r, map, s) : '';
     if (heldWhy) badges += '<span class="badge b-warn">Waiting · ' + esc(heldWhy) + '</span>';
+    if (!P && a && a.reopened) badges += '<span class="badge b-warn" title="' + esc(reopenNotice(r, a)) + '">' + (a.reopened === 'stuck' ? 'Reopened when read: start a new run' : 'Reopened when read') + '</span>';
     /* Practice says what a run never needs to: assumed, checked without its evidence, simulated. */
     if (P) badges += pm.status === 'assumed' ? '<span class="badge b-ref">Assumed for practice</span>' : pm.skipped ? '<span class="badge b-ref">Checked without evidence</span>' : pm.simulated === 'linked' && pm.status !== 'done' ? '<span class="badge b-ref">Simulated</span>' : '';
     var notes = (r._notes || []).filter(function (n) { return n.step === s.id && n.kind !== 'correction' && n.kind !== 'fix' && n.kind !== 'map'; }).length, dr = ctx.stepDraft && ctx.stepDraft(s.id);
@@ -104,10 +108,10 @@
     if (dr && (dr.open || String(dr.note || '').trim() || Object.keys(dr.record).length || Object.keys(dr.fields).length)) badges += '<span class="s-draft">Draft</span><span class="sr"> (typed, not saved yet)</span>';
     if (V.reportBadge && !P) badges += V.reportBadge(ctx, r, map, s.id);
     if (notes) badges += '<span class="s-notes">' + I('note') + notes + '<span class="sr"> note' + (notes === 1 ? '' : 's') + '</span></span>';
-    var stamp = P ? (pm.status === 'assumed' || !P.canEdit(s.id) ? '' : '<button class="mini s-edit" data-act="pr-edit" data-id="' + esc(s.id) + '" aria-label="Edit: ' + esc(K.stepPlain(s, K.refValue(r, map))) + '">' + I('edit') + 'Edit</button>')
+    var stamp = P ? (pm.status === 'assumed' || !P.canEdit(s.id) ? '' : '<button class="mini s-edit" data-act="pr-edit" data-id="' + esc(s.id) + '" aria-label="Edit step: ' + esc(K.stepPlain(s, K.refValue(r, map))) + '">' + I('edit') + 'Edit step</button>')
       : a && (a.s === 'done' || a.s === 'na') ? '<span class="stamp">' + avatar(ctx, a.by) + ' ' + U.hm(a.at) + '</span>' : '';
     var flash = st.flash && st.flash.ids && st.flash.ids.indexOf(s.id) >= 0;
-    var canCheck = rec && open && (t.id !== 'run.process' || !!P) && !heldWhy && !(P && (P.paused || pm.status === 'assumed'));
+    var canCheck = ((rec && open) || (!P && R.rereadable(r, s.id) && rereader(ctx, r))) && (t.id !== 'run.process' || !!P) && !heldWhy && !(P && (P.paused || pm.status === 'assumed'));
     return '<li class="step' + (sel ? ' sel' : '') + (isNext ? ' next' : '') + (flash ? ' flash' : '') + '" data-a="' + esc(aState) + '" id="step-' + esc(s.id) + '">' +
       '<button class="check" role="checkbox" aria-checked="' + (aState === 'done') + '" aria-label="' + esc(K.stepPlain(s, K.refValue(r, map))) + ', ' + esc(P && aState === 'recheck' ? 'try it again' : P && pm.status === 'assumed' ? 'assumed for practice' : STATE_WORD[aState] || aState) + (s.must ? ', must do' : '') + '" data-act="toggle" data-id="' + esc(s.id) + '"' + (canCheck ? '' : ' disabled') + (t.id === 'run.process' && !P ? ' title="Checked when its linked run completes"' : '') + '>' + I('check') + '</button>' +
       '<button class="s-pick" data-act="select" data-id="' + esc(s.id) + '" aria-pressed="' + sel + '" aria-controls="rw-ins">' + (isNext ? '<span class="s-next">Next</span>' : '') + '<span class="s-text">' + K.stepHtml(s, K.refValue(r, map), false) + '</span><span class="s-meta">' + meta + '</span>' + (badges ? '<span class="badges">' + badges + '</span>' : '') + '</button>' +
@@ -216,7 +220,7 @@
     if (approves) h += '<div class="q">Approves ' + U.mdInline(approves) + '</div>';
     if (owner) h += '<div class="small">Owner: ' + esc(nameOf(ctx, owner)) + '</div>';
     if (sched) h += '<div class="badges">' + schedBadge(sched) + '</div>';
-    if (P) h += V.prGateNote(P, g.id, pi) + (P.canEdit(g.id) ? '<div class="row"><button class="mini" data-act="pr-edit" data-id="' + esc(g.id) + '">' + I('edit') + 'Edit the gate</button></div>' : '');
+    if (P) h += V.prGateNote(P, g.id, pi) + (P.canEdit(g.id) ? '<div class="row"><button class="mini" data-act="pr-edit" data-id="' + esc(g.id) + '">' + I('edit') + 'Edit gate</button></div>' : '');
     else if (rec2 && rec2.by && (st === 'passed' || st === 'waived' || st === 'failed' || st === 'review')) h += '<div class="small g-rec">' + gateReceipt(ctx, rec2, st) + '</div>';
     /* The gate's note, for every version (every copy since 1.10 publishes it), and its screenshots (2.0), above Pass the gate. */
     if (g.note) h += '<div class="note g-note">' + U.mdBlock(g.note) + '</div>' + (g.implicit || P ? '' : noteCorr(ctx, 'gate', g.id, g.note));
@@ -254,12 +258,14 @@
     var ask = s.pick && s.pick.kind === 'takeover' ? '<span class="row rw-ask"><b>Take over from ' + esc(nameOf(ctx, rp)) + '? Only if they can\'t continue. ' + risk + '</b><button class="btn stop" data-act="takeover">Take over</button><button class="mini" data-act="unpick">Cancel</button></span>' : (me ? '<button class="mini" data-act="pick" data-kind="takeover" data-id="recorder">Take over recording</button>' : '');
     return { text: avatar(ctx, rp) + ' <b>' + esc(nameOf(ctx, rp)) + ' is recording.</b>' + (me ? ' You can add notes.' : ''), ctl: ask };
   }
-  /* The strip under the header: whose recording this is, with the control that goes with it, and on the right what this
-     window saved and when it last checked the folder (separate facts; neither proves another computer has the change). */
+  /* The tool row (2.16, docs/design.md section 34): who you are first, on its own, whenever someone is chosen; then the state
+     sentence that names the other people by role, and its controls; then Details and Screen share; then, pushed right, what
+     this window saved and when it last checked the folder (separate facts; neither proves another computer has the change).
+     A filled control here would be a second primary: Receipt, Pick up recording, Record here and Resume are runPrimary's. */
   function strip(ctx, r) {
     var s = ctx.state, rec = ctx.recording(r), solo = R.solo(r), kind = 'follow', text = '', ctl = '';
-    if (r._unrunnable) { kind = 'ro'; text = '<b>Read-only in this copy.</b> ' + esc(r._unrunnable) + ' This copy shows the parts it understands, and can\'t record it or save over it.'; }
-    else if (r.ended) { kind = 'ended'; text = '<b>Ended: ' + esc(K.outcomeWord(r.ended.outcome)) + '</b>' + (r.ended.byName || r.ended.by ? ' by ' + esc(r.ended.byName || nameOf(ctx, r.ended.by)) : '') + (r.ended.at ? ' at ' + U.hm(r.ended.at) : '') + '.'; ctl = '<button class="btn go" data-act="receipt">' + I('receipt') + 'Receipt</button>'; }
+    if (r._unrunnable) { kind = 'ro'; text = '<b>Read-only in this copy.</b> ' + esc(r._unrunnable) + ' This copy shows the parts it understands, and can\'t record it or save over it.' + (r.ended ? ' <b>Ended: ' + esc(K.outcomeWord(r.ended.outcome)) + '</b>' + (r.ended.byName || r.ended.by ? ' by ' + esc(r.ended.byName || nameOf(ctx, r.ended.by)) : '') + '.' : ''); }
+    else if (r.ended) { kind = 'ended'; text = '<b>Ended: ' + esc(K.outcomeWord(r.ended.outcome)) + '</b>' + (r.ended.byName || r.ended.by ? ' by ' + esc(r.ended.byName || nameOf(ctx, r.ended.by)) : '') + (r.ended.at ? ' at ' + U.hm(r.ended.at) : '') + '.'; }
     else if (!s.me) {
       kind = 'who'; text = '<b>Choose who you are</b> to record or add notes. Everything you do here is stamped with your name.';
       var people = PF.people.sorted(ctx).filter(function (p) { return !p.inactive; });
@@ -268,11 +274,9 @@
     } else if (r.paused) {
       kind = 'paused';
       text = I('pause') + ' <b>Paused</b> by ' + esc(nameOf(ctx, r.paused.by)) + ' at ' + U.hm(r.paused.at) + ': ' + esc(r.paused.reason) + '. Steps, gates and timers wait until it\'s resumed; deadlines from other tools keep counting.';
-      if (rec) ctl = '<button class="btn go" data-act="resume">Resume</button>';
-      else { var o = ownership(ctx, r); text += ' ' + o.text; ctl = o.ctl; }
+      if (!rec) { var o = ownership(ctx, r); text += ' ' + o.text; ctl = o.ctl; }
     } else if (rec) {
       kind = 'rec';
-      text = solo ? '<b>Your run</b>' : '<b>You\'re recording</b>';
       var pause = s.pick && s.pick.kind === 'pause' ? '<span class="row rw-ask" data-scope="pause"><label class="sr" for="pick-input">Why pause?</label><input id="pick-input" class="rw-in" placeholder="Why pause? (what are we waiting for)" maxlength="120" data-enter="pause" data-id="run"><button class="mini" data-act="pause">Pause</button><button class="mini" data-act="unpick">Cancel</button></span>'
         : '<button class="mini" data-act="pick" data-kind="pause" data-id="run">' + I('pause') + 'Pause</button>';
       var people2 = PF.people.sorted(ctx).filter(function (p) { return !p.inactive && p.id !== s.me; });
@@ -281,15 +285,39 @@
         : '<button class="mini" data-act="pick" data-kind="handoff" data-id="recorder">' + I('swap') + (solo ? 'Hand to someone' : 'Hand off') + '</button>';
       ctl = pause + hand;
     } else { var w = ownership(ctx, r); text = w.text; ctl = w.ctl; kind = /data-act="pickup"/.test(w.ctl) ? 'ready' : 'follow'; }
+    /* The filled ownership controls (Pick up recording, Record here) are the primary slot's, not the tool row's. */
+    if (/class="btn go"/.test(ctl)) ctl = '';
+    var me = s.me ? '<span class="me-id">' + (rec ? 'Recording as' : 'You:') + ' <b>' + esc(nameOf(ctx, s.me)) + '</b></span>' : '';
     /* The save side: Saving…, a failed save with its way out, or when this window saved and checked the folder. */
     var save;
-    if (s.unsaved[r.id]) save = '<span class="rw-unsaved"><b>Your last change isn\'t saved.</b></span><button class="btn" data-act="retry-save">Try again</button><button class="mini" data-act="discard-unsaved">Discard my change</button>';
+    if (s.unsaved[r.id]) save = '<span class="rw-unsaved"><b>Your last change isn\'t saved.</b></span><button class="mini" data-act="retry-save">Try again</button><button class="mini" data-act="discard-unsaved">Discard my change</button>';
     else save = ((s.pendingSaves || {})[r.id] ? '<span class="rw-saving">Saving…</span>' : '') + '<span id="fresh" data-k="strip">' + freshness(ctx, r, true) + '</span>';
     var copies = (r._conflicts || []).length + (ctx.localCopy(r) ? 1 : 0);
     if (copies) save += '<button class="mini rw-copies" data-act="goto" data-id="rec-t">' + copies + ' other version' + (copies === 1 ? '' : 's') + ' · Compare copies</button>';
-    return '<div class="rw-strip" data-k="' + kind + '" role="region" aria-label="Recording and saving"><div class="rw-who"><span class="rw-say">' + text + '</span>' + (ctl ? '<span class="row rw-ctl">' + ctl + '</span>' : '') + '</div>' +
-      chipsLine(ctx, r) + '<div class="rw-save">' + save + '</div></div>';
+    var who = me + (text ? '<span class="rw-say">' + text + '</span>' : '') + (ctl ? '<span class="row rw-ctl">' + ctl + '</span>' : '');
+    var panels = '<button type="button" class="mini wd-only" data-act="run-details" aria-expanded="' + !!s.runDetails + '" aria-controls="rw-details">Details</button>' +
+      (solo ? '' : '<button type="button" class="mini wd-only" data-act="mission">' + I('screen') + 'Screen share</button>');
+    return V.toolRow(['<div class="rw-who">' + who + '</div>', panels], chipsLine(ctx, r) + '<div class="rw-save">' + save + '</div>', { cls: 'rw-strip', k: kind, label: 'Recording and saving' });
   }
+  /* The run's primary slot (2.16, docs/design.md section 34, amendment A). Exclusions first (E1 read-only in this copy, ended
+     or not; E2 nobody chosen on an open run), then the first row that applies: A1 ended, Receipt; A2 the recorder and the run
+     complete, paused or not, Finish the run (Resume beside it when paused); A3 the recorder, paused and not complete, Resume
+     with Finish beside it; A4 the recorder otherwise, Finish outlined; A5 Pick up recording or Record here as ownership()
+     offers them; A6 nothing. Complete is R.allGatesOk, never the headline, which says paused first. { primary, also }. */
+  function runPrimary(ctx, r, map) {
+    var s = ctx.state, rec = ctx.recording(r), none = { primary: '', also: '' };
+    var fin = function (go) { return '<button type="button" class="btn rw-finish' + (go ? ' go' : '') + '" data-act="finish">Finish the run</button>'; };
+    var resume = function (go) { return '<button type="button" class="btn' + (go ? ' go' : '') + '" data-act="resume">Resume</button>'; };
+    if (r._unrunnable) return none;
+    if (r.ended) return { primary: '<button type="button" class="btn go" data-act="receipt">' + I('receipt') + 'Receipt</button>', also: '' };
+    if (!s.me) return none;
+    if (rec && R.allGatesOk(r, map)) return { primary: fin(true), also: r.paused ? resume(false) : '' };
+    if (rec && r.paused) return { primary: resume(true), also: fin(false) };
+    if (rec) return { primary: '', also: fin(false) };
+    var o = ownership(ctx, r), m = /<button class="btn go" data-act="(pickup|takeover)">[^<]*<\/button>/.exec(o.ctl);
+    return m ? { primary: m[0], also: '' } : none;
+  }
+  V.runPrimary = runPrimary;
   /* The run's details, read-only, beside the strip; they're edited in Details. */
   function chipsLine(ctx, r) {
     var map = mapOf(ctx, r), waiting = R.openMigrations(r).map(function (m) { return m.path; }), flag = function (f) { return (r._invalid && Object.prototype.hasOwnProperty.call(r._invalid, 'details.' + f)) || waiting.indexOf('details.' + f) >= 0; };
@@ -397,7 +425,7 @@
       }
       main = nx.step;
       btn = here ? '<span class="small rw-here">Selected' + (rec && s.keys ? '<span class="rw-kbd"> · Space checks it</span>' : '') + '</span>' : '<button class="btn" data-act="goto" data-id="step-' + esc(nx.step.id) + '">' + (selOf(ctx) ? 'Back to it' : 'Go to step') + '</button>';
-      if (ctx.practice && ctx.practice.canEdit(nx.step.id)) btn += '<button class="mini" data-act="pr-edit" data-id="' + esc(nx.step.id) + '">' + I('edit') + 'Edit</button>';
+      if (ctx.practice && ctx.practice.canEdit(nx.step.id)) btn += '<button class="mini" data-act="pr-edit" data-id="' + esc(nx.step.id) + '">' + I('edit') + 'Edit step</button>';
       var others = (nx.tracks || []).filter(function (t) { return t.step && (!nx.track || t.track.id !== nx.track.id); });
       var tail = K.capJoin(others, function (t) { return esc(t.track.title) + ': ' + t.left + ' left'; }, ' · ', 'rw-next-lanes');
       return '<div class="rw-next" data-k="step" role="region" aria-label="Next up"><div class="rw-next-t"><div class="small">Next up · ' + hint + '</div><b>' + mainHtml(r, map, main) + '</b>' + (tail ? '<div class="small">Also open: ' + tail + '</div>' : '') + '</div>' + btn + '</div>';
@@ -617,7 +645,33 @@
     return h + '<p class="small corr-conseq" id="corr-conseq">' + conseq + '</p><div class="row"><button class="btn ' + (answer ? 'go' : 'primary') + '" data-act="' + (answer ? 'corr-done' : 'corr-save') + '" data-id="' + esc(s.id) + '"' + (off ? ' aria-disabled="true"' : '') + ' aria-describedby="corr-conseq' + (fix && same ? ' corr-same' : '') + '">' + (f.sending ? 'Saving…' : answer ? 'Mark done differently' : 'Save correction') + '</button><button class="mini" data-act="corr-cancel">Cancel</button></div></div>';
   }
   /* A step's checklist fields as the run sees them: commands and messages with Copy, links with Open, the rest as labels. */
+  /* A Jira search step (2.16, design section 7): what it finds, the filled-in query with Copy, the rule, Open in Jira or why
+     there's no link, the result line, and Refresh search when a generation is damaged. Flightdeck never calls Jira. */
+  function searchBlock(ctx, r, map, s) {
+    var JS = PF.jsearch, f = s.fields, st = ctx.state, ss = R.searchState(r, map, s), rule = JS.parseResults(f.results), a = r.steps[s.id], h = '';
+    if (f.what) h += '<p>' + esc(f.what) + '</p>';
+    var text = ss.ok ? (ss.filter ? 'filter = ' + ss.filter : ss.jql) : '';
+    if (text) { var on = st.copied === text; h += '<div class="cmd"><code>' + esc(text) + '</code><button class="mini" data-act="copy" data-text="' + esc(text) + '" aria-label="Copy the query">' + I(on ? 'check' : 'copy') + (on ? 'Copied' : 'Copy') + '</button></div>'; }
+    var chips = '<span class="fchip"><b>Should find:</b> ' + esc(JS.ruleLabel(rule.ok ? rule : null) || String(f.results || '')) + '</span>';
+    if (ss.ok && ss.link && U.safeUrl(ss.link)) chips += '<a class="fchip" href="' + esc(U.safeUrl(ss.link)) + '" target="_blank" rel="noopener noreferrer"><b>Open in Jira</b></a>';
+    else if (ss.ok) chips += '<span class="fchip"><span class="small">' + esc(ss.linkWhy || (ss.siteEntry && ss.siteEntry.invalid ? 'No link: the Jira address ' + ss.siteEntry.invalid : 'No link: the run has no Jira address (Settings › Team values › ' + (ss.site || 'jira-base-url') + ' when it started). Copy the query.')) + '</span></span>';
+    h += '<div class="fields">' + chips + '</div>';
+    if (!ss.ok) h += '<p class="small rw-why-off">' + esc(ss.why) + '</p>';
+    var v = a && a.values;
+    if (v && v.count != null && v.count !== '') {
+      var meets = JS.meets(rule, +v.count), when = v.ranAt ? ' · searched ' + U.full(v.ranAt) : '';
+      h += '<p class="search-res ' + (meets ? 'good' : 'bad') + '" role="status">Found ' + esc(v.count) + (v.keys ? ' · ' + esc(v.keys) : '') + esc(when) + (a.at ? ' · checked ' + esc(U.hm(a.at)) : '') + '</p>';
+    }
+    if (a && a.reopened) h += '<div class="note warn" role="status"><span class="badge b-warn">Reopened when read</span> ' + esc(reopenNotice(r, a)) + '</div>';
+    var dm = R.genDamaged ? R.genDamaged(r, map, s) : null;
+    if (dm && (dm.details.length || dm.rec) && r.state === 'running' && ctx.recording && ctx.recording(r)) h += '<div class="row"><button class="mini" data-act="refresh-search" data-id="' + esc(s.id) + '">Refresh search</button></div>';
+    return '<div class="search-box">' + h + '</div>';
+  }
+  /* What a reopened search says: PF.run.reopenNotice, the same words Folder health uses. */
+  function reopenNotice(r, a) { return R.reopenNotice(r, a); }
+  V.reopenNotice = reopenNotice;
   function fieldsBlock(ctx, r, map, s, t, sched) {
+    if (R.isSearchStep(s)) return searchBlock(ctx, r, map, s);
     var st = ctx.state, eff = R.fieldsOf(r, s), own = (r.fields || {})[s.id] || {}, chips = '', code = '';
     Object.keys(eff).forEach(function (f) {
       if (f === 'expect' || f === 'deadline' || f === 'require' || !eff[f] || (sched && (f === 'at' || f === 'due' || f === 'after'))) return;
@@ -627,7 +681,12 @@
       if (def.kind === 'message') { code += '<div class="cmd msg' + mark + '"><span>' + esc(val) + '</span>' + copy() + '</div>'; return; }
       if (def.kind === 'list') { chips += '<span class="fchip' + mark + '"><b>' + esc(def.label) + ':</b> ' + esc(val.split(',').map(function (x) { return x.trim(); }).filter(Boolean).join(' / ')) + '</span>'; return; }
       if (def.kind === 'code') code += '<div class="cmd' + mark + '"><code>' + esc(val) + '</code>' + copy() + '</div>';
-      else if (def.kind === 'url' && U.safeUrl(val)) chips += '<a class="fchip' + mark + '" href="' + esc(U.safeUrl(val)) + '" target="_blank" rel="noopener noreferrer"><b>' + esc(def.label) + '</b> open</a>';
+      else if (def.kind === 'url') {
+        /* A link field (2.16): each run detail encoded for its part of the address; otherwise no link, with the reason. */
+        var lk = PF.urls.fillLink(eff[f], r.details, map.meta.context);
+        if (lk.ok && U.safeUrl(lk.href)) chips += '<a class="fchip' + mark + '" href="' + esc(U.safeUrl(lk.href)) + '" target="_blank" rel="noopener noreferrer"><b>' + esc(def.label) + '</b> open</a>';
+        else chips += '<span class="fchip' + mark + '"><b>' + esc(def.label) + ':</b> ' + esc(lk.plain || lk.code ? PF.urls.marked(eff[f]) : val) + (lk.code === 'static' ? '' : ' <span class="small">' + esc(lk.why) + '</span>') + '</span>';
+      }
       else chips += '<span class="fchip' + mark + '"><b>' + esc(def.label) + ':</b> ' + esc(val) + '</span>';
     });
     return (chips ? '<div class="fields">' + chips + '</div>' : '') + code;
@@ -658,9 +717,9 @@
     var who = K.capJoin(st.roles, function (ro) { return !P && r.roles[ro] ? avatar(ctx, r.roles[ro]) + esc(nameOf(ctx, r.roles[ro])) : '@' + esc(ro); }, ', ', 'rw-ins-roles');
     var cf = s.corrForm && s.corrForm.key === runKey(r) && s.corrForm.step === st.id ? s.corrForm : null, corrOpen = !!cf;
     var h = '<aside class="fpe-pane rw-ins" id="rw-ins" data-scope="ref:' + esc(st.id) + '" data-open="' + open + '" aria-label="Selected step">';
-    h += '<div class="rw-ins-top"><button class="mini close" data-act="close-ref">Close</button>' + (P && P.canEdit(st.id) ? '<button class="mini rw-ins-edit" data-act="pr-edit" data-id="' + esc(st.id) + '">' + I('edit') + 'Edit this step</button>' : '') + '<nav class="row rw-steps" aria-label="Other steps">' +
+    h += '<div class="rw-ins-top"><button class="mini close" data-act="close-ref">Close</button>' + (P && P.canEdit(st.id) ? '<button class="mini rw-ins-edit" data-act="pr-edit" data-id="' + esc(st.id) + '">' + I('edit') + 'Edit step</button>' : '') + '<nav class="row rw-steps" aria-label="Other steps">' +
       (prev ? '<button class="mini" data-act="select" data-id="' + esc(prev.step.id) + '" data-nav="1">' + I('back') + 'Previous</button>' : '') + (next ? '<button class="mini" data-act="select" data-id="' + esc(next.step.id) + '" data-nav="1">Next</button>' : '') + '</nav>' +
-      '<button class="linkish rw-skip" data-act="to-row" data-id="' + esc(st.id) + '">Back to the checklist</button></div>';
+      '<button class="linkish rw-skip" data-act="to-row" data-id="' + esc(st.id) + '">Back to the step list</button></div>';
     h += '<div class="rw-ins-body">';
     h += '<nav aria-label="Where it is"><ol class="ob-crumbs"><li>' + esc(ph.title) + '</li>' + (track ? '<li>' + esc(track.title) + '</li>' : '') + '<li>Step ' + inPhase + ' of ' + ph.steps.length + '</li></ol></nav>';
     h += '<h2 id="ins-h" class="rw-ins-h" tabindex="-1">' + K.stepHtml(st, K.refValue(r, map)) + '</h2>';
@@ -709,20 +768,21 @@
          choices for this folder and run, over what the run says. */
       var fd = s.fieldsDraft && s.fieldsDraft.id === st.id && s.fieldsDraft.key === draftKeyOf(ctx) && s.fieldsDraft.fs === ctx.fsKey ? s.fieldsDraft.values : {}, draft = Object.assign({}, fd);
       Object.keys(dr.fields || {}).forEach(function (k) { if (/^fld-/.test(k)) draft[k.slice(4)] = dr.fields[k]; });
-      var eff = R.fieldsOf(r, st), own = (r.fields || {})[st.id] || {}, eff2 = Object.assign({}, eff, draft), recFields2 = P ? [] : R.evidenceFor(r, st, eff2, map).list;
+      var eff = R.fieldsOf(r, st), own = (r.fields || {})[st.id] || {}, eff2 = Object.assign({}, eff, draft), recFields2 = P ? [] : R.evidenceFor(r, st, eff2, map).list.filter(function (d) { return !d.system; });
       /* A Jira issue type or status the team's workflows don't have says why beside its box, as soon as it's chosen. */
       var jf = V.jiraFill && !P ? V.jiraFill(r, st, eff2) : null, jid = 'jwhy-' + st.id;
-      recBody = '<div class="pick record" data-scope="fields:' + esc(st.id) + '"><span class="small">Fill in or correct this step\'s values for ' + (P ? 'practice' : 'this run') + '. Leave anything you don\'t know yet.</span>' + ferr(s, st.id) +
+      recBody = '<div class="pick record" data-scope="fields:' + esc(st.id) + '">' + (P ? '' : staleNote(r, st)) + '<span class="small">Fill in or correct this step\'s values for ' + (P ? 'practice' : 'this run') + '. Leave anything you don\'t know yet.</span>' + ferr(s, st.id) +
         T.relevant(t, eff2).concat(jf && T.relevant(t, eff2).indexOf(jf.field) < 0 && T.editable(t).indexOf(jf.field) >= 0 ? [jf.field] : []).filter(function (f) { return !(f === 'carry' && PF.links.has(st)); }).map(function (f) { var d = T.fieldDef(t, f), mine = jf && jf.field === f; return fieldInput('fld-' + f, d, dr.fields['fld-' + f] != null ? dr.fields['fld-' + f] : eff2[f] || '', 'save-fields', st.id, st.fields[f] && own[f] != null ? ' (checklist says: ' + st.fields[f] + ')' : '', mine ? jid : errFor(s, st.id, 'fld-' + f), gField(t, f, eff2)) + (mine ? '<p class="ferr" id="' + esc(jid) + '">' + esc(jf.why) + '</p>' : ''); }).join('') +
         (recFields2.length ? '<span class="small" style="margin-top:4px">Evidence</span>' + recFields2.map(function (d) { return fieldInput('rec-' + d.name, d, dr.fields['rec-' + d.name] != null ? dr.fields['rec-' + d.name] : dr.record['rec-' + d.name] != null ? dr.record['rec-' + d.name] : valueOf(d), 'save-fields', st.id, d.required ? ' (required to check it)' : '', errFor(s, st.id, 'rec-' + d.name), gRecord(t, d, eff2)); }).join('') : '') +
         '<span class="row"><button class="btn" data-act="save-fields" data-id="' + esc(st.id) + '">Save</button><button class="mini" data-act="unpick">Cancel</button></span></div>';
     } else if (showRec) {
-      recBody = '<div class="pick record" data-scope="record:' + esc(st.id) + '"><span class="small">' + (recFields.some(function (d) { return d.required; }) ? 'To check this step, record:' : 'You can record:') + '</span>' + ferr(s, st.id) + recFields.map(function (d) {
+      var search = R.isSearchStep(st) && !P;
+      recBody = '<div class="pick record" data-scope="record:' + esc(st.id) + '">' + (search ? staleNote(r, st) : '') + '<span class="small">' + (recFields.some(function (d) { return d.required; }) ? 'To check this step, record:' : 'You can record:') + '</span>' + ferr(s, st.id) + recFields.filter(function (d) { return !d.system; }).map(function (d) {
         return fieldInput('rec-' + d.name, d, dr.record['rec-' + d.name] != null ? dr.record['rec-' + d.name] : valueOf(d), 'record', st.id, d.required ? '' : ' (optional)', errFor(s, st.id, 'rec-' + d.name), gRecord(t, d, R.fieldsOf(r, st)));
-      }).join('') + '</div>';
+      }).join('') + (search && rec && r.state === 'running' ? '<div class="row"><button class="mini" data-act="search-block" data-id="' + esc(st.id) + '">Block with these</button><span class="small">When the results break the rule: blocks the step with them.</span></div>' : '') + '</div>';
     } else if (a && a.values) {
       var vals = '';
-      recFields.forEach(function (d) { var v = a.values[d.name]; if (!v) return; vals += d.kind === 'url' && U.safeUrl(v) ? '<a class="fchip rec" href="' + esc(U.safeUrl(v)) + '" target="_blank" rel="noopener noreferrer"><b>' + esc(d.label) + '</b> open</a>' : '<span class="fchip rec"><b>' + esc(d.label) + ':</b> ' + esc(typedOf(d) ? K.valueText(d, v) : v) + (r._invalid && r._invalid['steps.' + st.id + '.values.' + d.name] ? ' <span class="small">' + esc(r._invalid['steps.' + st.id + '.values.' + d.name].why) + '</span>' : '') + '</span>'; });
+      recFields.forEach(function (d) { var v = a.values[d.name]; if (!v) return; if (d.system) { vals += '<span class="fchip rec"><b>' + esc(d.label) + ':</b> ' + esc(String(v).replace(/^sha256:/, '').slice(0, 8)) + '</span>'; return; } vals += d.kind === 'url' && U.safeUrl(v) ? '<a class="fchip rec" href="' + esc(U.safeUrl(v)) + '" target="_blank" rel="noopener noreferrer"><b>' + esc(d.label) + '</b> open</a>' : '<span class="fchip rec"><b>' + esc(d.label) + ':</b> ' + esc(typedOf(d) ? K.valueText(d, v) : v) + (r._invalid && r._invalid['steps.' + st.id + '.values.' + d.name] ? ' <span class="small">' + esc(r._invalid['steps.' + st.id + '.values.' + d.name].why) + '</span>' : '') + '</span>'; });
       if (vals) recBody = '<div class="fields">' + vals + '</div>';
     }
     var finishing = !P && s.answering && s.answering.key === runKey(r) && s.answering.step === st.id;
@@ -750,14 +810,15 @@
       if (acts) h += '<div class="rw-act" role="group" aria-label="Answer this step for practice"><div class="row">' + acts + '</div></div>';
       return h + '</div></aside>';
     }
-    if (rec && work) {
+    var reread = !rec && work && R.rereadable(r, st.id);
+    if ((rec || reread) && work) {
       if (!a || a.s === 'open' || a.s === 'recheck') {
         var filling = s.pick && s.pick.id === st.id && s.pick.kind === 'fields';
         if (t.id !== 'run.process' && filling) acts += '<button class="btn go" disabled aria-describedby="donewhy-' + esc(st.id) + '">' + I('check') + 'Done</button><span class="small rw-why-off" id="donewhy-' + esc(st.id) + '">Save or cancel Fill in first.</span>';
         else if (t.id !== 'run.process') acts += showRec ? '<button class="btn go" data-act="record" data-id="' + esc(st.id) + '">' + I('check') + 'Done</button>' : '<button class="btn go" data-act="toggle" data-id="' + esc(st.id) + '">' + I('check') + 'Done</button>';
-        if (t.id !== 'run.process' && !filling) acts += '<button class="btn" data-act="corr-open" data-mode="differently" data-id="' + esc(st.id) + '"' + (cf && cf.mode === 'differently' ? ' aria-expanded="true"' : '') + '>Done differently</button>';
-        acts += '<button class="btn" data-act="pick" data-kind="block" data-id="' + esc(st.id) + '">Blocked</button>';
-        if (!st.must) acts += '<button class="mini" data-act="na" data-id="' + esc(st.id) + '">N/A</button>';
+        if (t.id !== 'run.process' && !filling && !reread) acts += '<button class="btn" data-act="corr-open" data-mode="differently" data-id="' + esc(st.id) + '"' + (cf && cf.mode === 'differently' ? ' aria-expanded="true"' : '') + '>Done differently</button>';
+        if (!reread) acts += '<button class="btn" data-act="pick" data-kind="block" data-id="' + esc(st.id) + '">Blocked</button>';
+        if (!st.must && !reread) acts += '<button class="mini" data-act="na" data-id="' + esc(st.id) + '">N/A</button>';
       } else if (a.s === 'blocked') acts += '<button class="btn" data-act="clear" data-id="' + esc(st.id) + '">Unblock</button>';
       else if (a.s === 'na') acts += '<button class="btn" data-act="clear" data-id="' + esc(st.id) + '">Undo N/A</button>';
       else if (a.s === 'done' && t.id !== 'run.process') acts += '<button class="mini" data-act="toggle" data-id="' + esc(st.id) + '">Uncheck</button>';
@@ -848,7 +909,7 @@
   function utilities(ctx, r, schedN, lateN, where) {
     var s = ctx.state, fus = (r.followUps || []).length, h = '<div class="rw-utils">';
     if (schedN) h += '<button class="mini" data-act="timeline" data-id="' + where + '" aria-expanded="' + !!s.timeline + '" aria-controls="rw-timeline">' + I('timeline') + 'Day timeline · ' + schedN + (lateN ? ' · ' + lateN + ' late' : '') + '</button>';
-    h += '<button class="mini" data-act="run-fu" data-id="' + where + '" aria-expanded="' + !!s.fuOpen + '" aria-controls="rw-fu">' + I('flag') + 'Follow-ups · ' + fus + '</button>';
+    h += '<button class="mini" data-act="run-fu" data-id="' + where + '" aria-expanded="' + !!s.fuOpen + '" aria-controls="rw-fu">' + I('flag') + 'This run\'s follow-ups · ' + fus + '</button>';
     if (V.reportButton) h += V.reportButton(ctx, r, where);
     return h + '</div>';
   }
@@ -1054,23 +1115,22 @@
     items.forEach(function (it) { schedBy[it.what + ':' + it.id] = it; });
     var pct = t.total ? Math.round(t.done / t.total * 100) : 0, alone = R.solo(r);
     if (P) return practiceRun(ctx, r, map, P, t, nx, items, schedBy, pct);
-    /* The header: who it is, how far, and the tools. Three groups that never trade places. */
-    var h = '<div class="fpe rw" id="rw"><header class="fpe-head rw-head" role="region" aria-labelledby="run-h"><div class="fpe-id">' +
-      '<button type="button" class="btn rw-back" data-act="nav" data-id="runs">' + I('back') + 'Runs</button>' +
-      '<div class="fpe-title"><h1 id="run-h" tabindex="-1">' + esc(r.title) + K.testTag(r) + '</h1><span class="small rw-sub">' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) + ' · started ' + esc(U.when(r.created)) +
-      (r.parent ? ' · part of <button class="linkish" data-act="open-run" data-id="' + esc(r.parent.process + '/' + r.parent.id) + '">' + esc((ctx.findRun(r.parent.process + '/' + r.parent.id) || {}).title || r.parent.process) + '</button>' : '') + '</span></div></div>' +
-      '<div class="rw-prog"><span class="rw-bar" role="progressbar" aria-label="Steps answered" aria-valuemin="0" aria-valuemax="' + t.total + '" aria-valuenow="' + t.done + '" aria-valuetext="' + t.done + ' of ' + t.total + ' steps answered"><i style="width:' + pct + '%"></i></span><b>' + t.done + '/' + t.total + '</b><span class="small">answered</span></div>' +
-      '<div class="rw-tools"><button type="button" class="mini" data-act="run-details" aria-expanded="' + !!s.runDetails + '" aria-controls="rw-details">Details</button>' +
-      (alone ? '' : '<button type="button" class="mini" data-act="mission">' + I('screen') + 'Screen share</button>') +
-      '<button type="button" class="mini" data-act="receipt">' + I('receipt') + 'Receipt</button>' +
-      (rec && hl.s === 'complete' ? '<button type="button" class="btn go" data-act="finish">Finish the run</button>' : '') +
-      '<details class="rw-menu" data-disc="rw-menu"' + (s.disc && s.disc['rw-menu'] ? ' open' : '') + '><summary class="mini">More</summary><div class="rw-menu-list">' +
-      /* On a phone the header keeps only Runs and More, so Details and Screen share are here too. */
-      '<button type="button" class="mini rw-m-phone" data-act="run-details" aria-expanded="' + !!s.runDetails + '">Details</button>' + (alone ? '' : '<button type="button" class="mini rw-m-phone" data-act="mission">' + I('screen') + 'Screen share</button>') + '<button type="button" class="mini rw-m-phone" data-act="receipt">' + I('receipt') + 'Receipt</button>' +
-      (rec && hl.s !== 'complete' ? '<button type="button" class="mini" data-act="finish">End run…</button>' : '') + planAgain(ctx, r, 'mini') +
-      '<button type="button" class="mini" data-act="copy-run-key" data-id="' + esc(r.process + '/' + r.id) + '">Copy run key</button>' +
-      '<button type="button" class="mini" data-act="ev-open" data-id="' + esc(r.process + '/' + r.id) + '">Export evidence…</button><button type="button" class="mini" data-act="refresh">Check the folder now</button><button type="button" class="mini" data-act="health">Folder health</button><button type="button" class="mini" data-act="help">Keyboard shortcuts</button></div></details>' +
-      (s.me ? '<span class="rw-me" title="Everything you do here is stamped with your name">You: <b>' + esc(nameOf(ctx, s.me)) + '</b></span>' : '') + '</div></header>';
+    /* The header: who it is, how far, and the tools. Three groups that never trade places. The way back names the screen that
+       opened the run (2.16); a link it already goes to is plain text here. */
+    var og = ctx.runOrigin ? ctx.runOrigin(r) : { hash: '#/runs', place: 'Runs', view: '', loc: { view: 'runs' } };
+    var pkey = r.parent ? r.parent.process + '/' + r.parent.id : '', ptitle = r.parent ? (ctx.findRun(pkey) || {}).title || r.parent.process : '';
+    var toParent = !!pkey && og.loc.view === 'run' && og.loc.process + '/' + og.loc.run === pkey;
+    var toList = og.loc.view === 'process' && og.loc.process === r.process && og.loc.tab == null;
+    var sub = [{ kind: (toList || !(ctx.procOf ? ctx.procOf(r.process) : ctx.latestPub && ctx.latestPub(r.process))) ? 'd' : 'act', html: (toList || !(ctx.procOf ? ctx.procOf(r.process) : ctx.latestPub && ctx.latestPub(r.process)) ? esc(map.meta.title) : '<button class="linkish" data-act="open-process" data-id="' + esc(r.process) + '">' + esc(map.meta.title) + '</button>') },
+      { kind: 'd', cls: 'rw-sub', html: esc(K.verWord(r)) + ' · started ' + esc(U.when(r.created)) },
+      r.parent ? { kind: toParent ? 'd' : 'act', html: 'part of ' + (toParent ? esc(ptitle) : '<button class="linkish" data-act="open-run" data-id="' + esc(pkey) + '">' + esc(ptitle) + '</button>') } : null];
+    var slot = runPrimary(ctx, r, map), key = esc(r.process + '/' + r.id);
+    /* More: the phone-only copies of Details and Screen share, this run's extras, then You and this app (who you are is text). */
+    var more = V.moreGroup('On this screen', '<button type="button" class="mini ph-only" data-act="run-details" aria-expanded="' + !!s.runDetails + '">Details</button>' + (alone ? '' : '<button type="button" class="mini ph-only" data-act="mission">' + I('screen') + 'Screen share</button>') +
+      (r.ended || slot.primary.indexOf('data-act="receipt"') >= 0 ? '' : '<button type="button" class="mini" data-act="receipt">' + I('receipt') + 'Receipt</button>') + planAgain(ctx, r, 'mini') +
+      '<button type="button" class="mini" data-act="copy-run-key" data-id="' + key + '">Copy run key</button><button type="button" class="mini" data-act="ev-open" data-id="' + key + '">Export evidence…</button><button type="button" class="mini" data-act="health">Folder health</button>') + V.appGroup(ctx, { readOnlyMe: true });
+    var h = '<div class="fpe rw" id="rw">' + V.workHead({ hid: 'run-h', h1attrs: ' tabindex="-1"', cls: 'rw-head', h1: esc(r.title), h1tail: K.testTag(r), back: V.backc('go-back', og.hash, og.place, og.view),
+      status: sub, prog: V.progress(t.done, t.total), acts: slot.also + slot.primary, more: V.moreMenu(ctx, more) });
     h += strip(ctx, r);
     /* Messages, a failed save, folder trouble, conflicts and Details stay in view, right under the strip. */
     var al = '';
@@ -1105,9 +1165,25 @@
   /* What an evidence box shows before anything is typed: the saved value, else one a Jira workflow fills in from the run. */
   function evidenceDefault(ctx, r, s, d) {
     var a = r.steps[s.id], saved = a && a.values && a.values[d.name];
+    /* A search's saved results belong to the search they were recorded for (round 4): results for an earlier one are
+       previous results, never offered again, so nothing reads them as evidence for the search as it is now. */
+    if (savedStale(r, s)) return '';
     if (saved) return saved;
     return d.source ? PF.jira.resolve(d.source, r.details, function (ro) { return r.roles[ro] ? nameOf(ctx, r.roles[ro]) : ''; }) : '';
   }
-  V.evidenceDefault = evidenceDefault;
+  /* A search step's saved results when they're for an earlier search than the run's now (practice has no identity). */
+  function savedStale(r, s) {
+    var a = r && !r.practice && r.steps[s.id];
+    if (!a || !a.values || !R.isSearchStep(s)) return null;
+    var cur; try { cur = R.searchId(r, R.mapOf(r), s); } catch (e) { cur = null; }
+    return a.values.searchId && a.values.searchId === cur ? null : a.values;
+  }
+  /* Saved results for an earlier search, shown as previous results with the section 5.3 notice. */
+  function staleNote(r, s) {
+    var v = savedStale(r, s); if (!v) return '';
+    var what = v.count != null && v.count !== '' ? String(v.count) + ' found' + (v.keys ? ' (' + String(v.keys).slice(0, 120) + ')' : '') : 'results';
+    return '<p class="small rw-why" role="status">Previous results: ' + esc(what) + '. Your saved results were for an earlier search. Search again.</p>';
+  }
+  V.evidenceDefault = evidenceDefault; V.savedStale = savedStale;
   V.run = run; V.recordShown = recordShown; V.runSel = selOf; K.ferr = ferr; K.fieldInput = fieldInput;
 })();

@@ -110,6 +110,19 @@ rule('B1: the merge README and the next record are the same text from the app an
   const items = [{ key: 'AGENTS.md', rel: 'AGENTS.md' }, { key: STATUS, rel: STATUS }];
   assert.strictEqual(K.mergeReadme('2.7.0', items, ['.flightdeck', 'updates'], 'the team folder'), C.mergeReadmeText('2.7.0', items, ['.flightdeck', 'updates'], 'the team folder'));
   assert.strictEqual(K.mergeReadme('2.7.0', [{ key: 'x/SKILL.md', rel: 'x/SKILL.md' }], ['.flightdeck-updates'], 'the skills folder'), C.mergeReadmeText('2.7.0', [{ key: 'x/SKILL.md', rel: 'x/SKILL.md' }], ['.flightdeck-updates'], 'the skills folder'));
+  /* 2.15.0: a held AGENTS.md (one file, then two) and a re-staged reference, in both copies, with the words' context. */
+  const G = K.REFS + 'command-guide.md', FF = K.REFS + 'file-formats.md', ctx = { base, record: { files: { [G]: 'x', [FF]: 'x' } }, agents: null };
+  const held = (ws) => [{ key: 'AGENTS.md', rel: 'AGENTS.md', status: 'merge', heldFrom: 'update', held: ws }].concat(ws.map(w => ({ key: w.path, rel: w.path, status: 'merge', lacks: w.lacks, now: 'x', have: 'h' })));
+  const one = [{ path: G, lacks: ['Reading runs'] }], two = one.concat([{ path: FF, lacks: ['Corrections'] }]);
+  const restaged = [{ key: G, rel: G, status: 'merge', lacks: ['Reading runs'], restaged: true, now: 'x', have: 'h' }];
+  [['held on one file', held(one), /— only the part between the flightdeck markers\. Held: `[^`]+` doesn't have the section the new AGENTS\.md points to: \*Reading runs\*\./], ['held on two files', held(two), /— only the part between the flightdeck markers\. Held: these files don't have the sections the new AGENTS\.md points to: /], ['a re-staged reference', restaged, /\(staged again: it doesn't have \*Reading runs\*, which AGENTS\.md points to\. Flightdeck didn't change this file\./]].forEach(([name, list, re]) => {
+    const app = K.mergeReadme('2.15.0', list, ['.flightdeck', 'updates'], 'the team folder', ctx), cli = C.mergeReadmeText('2.15.0', list, ['.flightdeck', 'updates'], 'the team folder', ctx);
+    assert.strictEqual(app, cli, name + ': the same README');
+    assert.ok(re.test(app), name + ': ' + app.split('\n').slice(0, 6).join(' / '));
+    assert.ok(app.indexOf('put a new default of each file below in this folder') >= 0 && app.indexOf('your team changed them too') < 0, name + ': the header for held and re-staged files');
+  });
+  /* Round 8: the prompt's delete words name only the copies that wait, as the README line does. */
+  assert.ok(K.mergePrompt('2.15.0', '.flightdeck/updates/2.15.0').indexOf('only if it still says so, and that file\'s copies hold nothing of ours, delete it from each version folder in `.flightdeck/updates/` (`.flightdeck/updates/<version>/AGENTS.md`, never anything under `replaced/`).') >= 0, 'the merge prompt names .flightdeck/updates/<version>/AGENTS.md');
   const good = K.readRecord(RECORDS[11][1], ['AGENTS.md', STATUS]);
   const cases = [
     ['nothing changed', Object.assign({}, good, { version: '2.7.0' }), [{ key: 'AGENTS.md', want: 'a'.repeat(64) }, { key: STATUS, want: 'b'.repeat(64) }]],
@@ -920,7 +933,7 @@ for (const name of Object.keys(ASYNC_PATHS)) for (const change of ['folder', 'ta
 }
 
 /* A function in this feature that waits on something, and how it's bound. A new one fails until it's listed here. */
-const AF_ASYNC = { afFinish: 'guard', afKeepFocus: 'moves focus only, and only if it is lost; no state', afPerm: 'a question, no state', afIsTeam: 'a question, no state', afUse: 'turn', afRead: 'reads only, for a caller that checks', afLoad: 'guard', afUpdate: 'guard', afMerged: 'guard', afPick: 'chooses', afRemembered: 'chooses', afAllow: 'chooses', afZip: 'guard' };
+const AF_ASYNC = { afFinish: 'guard', afKeepFocus: 'moves focus only, and only if it is lost; no state', afPerm: 'a question, no state', afIsTeam: 'a question, no state', afUse: 'turn', afRead: 'reads only, for a caller that checks', afHoldAfter: 'reads, then marks the caller\'s own items; afUpdate checks alive() after it', afLoad: 'guard', afUpdate: 'guard', afMerged: 'guard', afPick: 'chooses', afRemembered: 'chooses', afAllow: 'chooses', afZip: 'guard' };
 const AF_ACTS = ['ai-files', 'af-load', 'af-where', 'af-pick', 'af-allow', 'af-update', 'af-merged', 'af-peek', 'af-copy', 'af-brief', 'af-start', 'af-zip'];
 function afAudit(src) {
   const out = [], a = src.indexOf('Settings, AI assistant files: flightdeck install'), b = src.indexOf('Getting started (views/setup.js', a), body = src.slice(a, b), fns = {};
@@ -1210,8 +1223,14 @@ rule('Round 4, 2: without asking, the screen stays where the Update ran', async 
 
 const MAX = 8 * 1048576, SKILL = 'flightdeck-status/SKILL.md';
 /* AGENTS.md from an older default whose merge comes to exactly `size` bytes, with Team notes padding it out. */
+/* 2.15.0's AGENTS.md is shorter than 2.6.0's, so a merge over the limit starts from an older default shorter than this one:
+   1.15.0's, so the file itself can still be read. */
+const SHORT_AGENTS = shipped('AGENTS.md', 'v1.15.0');
 function bigAgents(size, wide) {
-  const dir = scenario('older defaults'), at = path.join(dir, 'AGENTS.md'), base = fs.readFileSync(at, 'utf8');
+  const dir = scenario('older defaults'), at = path.join(dir, 'AGENTS.md');
+  assert.ok(SHORT_AGENTS && C.region(SHORT_AGENTS).text.length < C.region(EX['AGENTS.md']).text.length, 'set-up: an older default shorter than this one');
+  fs.writeFileSync(at, SHORT_AGENTS.replace(/\n*$/, '\n') + '\nOur own team note.\n');
+  const base = fs.readFileSync(at, 'utf8');
   const room = size - Buffer.byteLength(K.merged('AGENTS.md', base, EX['AGENTS.md']));
   const pairs = wide ? Math.floor(room / 2) : 0;
   const text = base + 'é'.repeat(pairs) + 'x'.repeat(room - pairs * 2);
@@ -1791,6 +1810,61 @@ rule('Round 8, comparison: I merged it never says "Nothing was put away" when it
   const o = K.settle(ME({ putAway: 1, unsure: ['2.6.0'], error: { why: 'The disk said no.' } })), w = K.outcomeWords(o, WHERE).text;
   assert.strictEqual(o.state, 'merge-unsure');
   assert.ok(!/Nothing was put away/.test(w) && /2\.6\.0[^]*may or may not/.test(w), w);
+});
+
+
+
+/* Round 10: who writes the merge README is the command's. A skills folder (skills --to, Settings' skills-folder target)
+   classifies every file there, so, as install in a team folder, it writes the README when something new is staged and
+   rewrites one there to say what is true now, keeping the old one once; a file staged by a later run shows up in it. In a
+   team folder only install rewrites (the cases in test/assistant-start.test.js; R9-skills: skills <team> never does). */
+rule('Round 10: a skills folder\'s merge README is written and rewritten to the state, and a file staged later shows up in it, in the app and the command', async () => {
+  const KEY = 'flightdeck-status/SKILL.md', KEY2 = 'flightdeck-plan-run/SKILL.md', REC = '.flightdeck-installed.json';
+  const RM = '.flightdeck-updates/' + VER + '/README.md', cp = (k) => '.flightdeck-updates/' + VER + '/' + k;
+  const kept = (o) => Object.keys(o).filter((k) => /\/replaced\/[^/]+\/merge-README\.md$/.test(k)).length;
+  const unrecord = (text, k) => { const r = JSON.parse(text); delete r.files[k]; return JSON.stringify(r, null, 2) + '\n'; };
+  for (const readme of [null, 'Our merge notes\n']) {
+    const cover = readme ? 'a README there' : 'no README';
+    const start = { [KEY]: 'ours\n' }; if (readme) start[RM] = readme;
+    const team = folderHandle('Team', asFiles(scenario('settled'))); let pick = team;
+    const app = boot({ picker: () => pick, indexedDB: memoryIDB() }); await app.tick(60);
+    app.click('connect'); await app.tick(200);
+    app.click('ai-files'); await wait(app);
+    app.click('af-where', 'other'); await app.tick(50);
+    const files = Object.assign({}, start), skills = folderHandle('Skills', files); pick = skills; app.click('af-pick'); await wait(app);
+    app.click('af-update'); await wait(app);
+    const dir = tmp(); Object.keys(start).forEach((k) => { fs.mkdirSync(path.dirname(path.join(dir, k)), { recursive: true }); fs.writeFileSync(path.join(dir, k), start[k]); });
+    let r = cli('skills', '--to', dir); assert.strictEqual(r.code, 0, r.out);
+    assert.strictEqual(files[cp(KEY)], EX['.flightdeck/skills/' + KEY], cover + ', app: the new default staged');
+    assert.strictEqual(readText(dir, cp(KEY)), EX['.flightdeck/skills/' + KEY], cover + ', command: the new default staged: ' + r.out);
+    assert.ok(files[RM] && files[RM] !== readme && files[RM].indexOf(KEY) >= 0, cover + ', app: the README says what waits: ' + files[RM]);
+    assert.strictEqual(readText(dir, RM), files[RM], cover + ', command: the same README');
+    assert.strictEqual(kept(files), readme ? 1 : 0, cover + ', app: the old README kept once');
+    assert.strictEqual(kept(asFiles(dir)), readme ? 1 : 0, cover + ', command: the old README kept once');
+    const first = files[RM];
+    assert.ok(first.indexOf(KEY2) < 0, cover + ': set-up, the second skill not in it yet');
+    /* A later run stages a second skill: the team's own copy of it, with no record of it. */
+    files[KEY2] = 'ours too\n'; files[REC] = unrecord(files[REC], KEY2);
+    fs.writeFileSync(path.join(dir, KEY2), 'ours too\n'); fs.writeFileSync(path.join(dir, REC), unrecord(readText(dir, REC), KEY2));
+    app.click('af-pick'); await wait(app); app.click('af-update'); await wait(app);
+    r = cli('skills', '--to', dir); assert.strictEqual(r.code, 0, r.out);
+    assert.strictEqual(files[cp(KEY2)], EX['.flightdeck/skills/' + KEY2], cover + ', app: the second default staged');
+    assert.strictEqual(readText(dir, cp(KEY2)), EX['.flightdeck/skills/' + KEY2], cover + ', command: the second default staged: ' + r.out);
+    assert.ok(files[RM].indexOf(KEY) >= 0 && files[RM].indexOf(KEY2) >= 0, cover + ', app: the README names both: ' + files[RM]);
+    assert.strictEqual(readText(dir, RM), files[RM], cover + ', command: the same README');
+    /* The next run may restate once (the record now has the second skill, so its "now ships a file at this path" words go),
+       the same in both; then it settles: a further run changes nothing and keeps no new copy. */
+    app.click('af-pick'); await wait(app); app.click('af-update'); await wait(app);
+    assert.strictEqual(cli('skills', '--to', dir).code, 0);
+    assert.strictEqual(readText(dir, RM), files[RM], cover + ', the next run: the same README in both');
+    assert.ok(files[RM].indexOf(KEY) >= 0 && files[RM].indexOf(KEY2) >= 0, cover + ', the next run: both still named');
+    const now = files[RM], keptNow = kept(files);
+    assert.strictEqual(kept(asFiles(dir)), keptNow, cover + ', the same copies kept in both');
+    app.click('af-pick'); await wait(app); app.click('af-update'); await wait(app);
+    assert.strictEqual(cli('skills', '--to', dir).code, 0);
+    assert.strictEqual(files[RM], now, cover + ', app: settled'); assert.strictEqual(readText(dir, RM), now, cover + ', command: settled');
+    assert.strictEqual(kept(files), keptNow, cover + ', app: no new copy'); assert.strictEqual(kept(asFiles(dir)), keptNow, cover + ', command: no new copy');
+  }
 });
 
 run();

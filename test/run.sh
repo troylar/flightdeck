@@ -115,6 +115,16 @@ test/insights.test.js -
 test/outline.test.js -
 test/refs.test.js -
 test/links.test.js -
+test/jira-search.test.js -
+test/patterns.test.js -
+test/link-fields.test.js -
+test/search-runs.test.js -
+test/search-linked.test.js -
+test/search-reports.test.js -
+test/search-screen.test.js -
+test/search-consumers.test.js -
+test/search-practice.test.js -
+test/search-app.test.js -
 test/teamvalues.test.js -
 test/search.test.js -
 test/folder.test.js -
@@ -152,7 +162,9 @@ test/save.test.js -
 test/type-cli.test.js -
 test/type-guards.test.js -
 test/assistant-files.test.js -
-test/assistant-start.test.js -
+test/assistant-start.test.js 0/2
+test/assistant-start.test.js 1/2
+test/agents-inventory.test.js -
 test/old-bundles.test.js -
 test/clarity-compat.test.js -
 test/evidence.test.js -
@@ -160,6 +172,7 @@ test/light.test.js -
 test/wrong-record.test.js -
 test/practice.test.js -
 test/practice-app.test.js -
+test/nav-app.test.js -
 test/timeline.test.js -
 test/views.test.js -
 JOBS_LIST

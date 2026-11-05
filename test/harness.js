@@ -28,7 +28,7 @@ const FILES = ['core/util.js', 'core/nav.js', 'core/envelope.js', 'core/values.j
 function load(withViews, edit) {
   const store = {};
   const sandbox = {
-    PF: {}, console, Date, Math, JSON, Promise, setTimeout, Blob, fetch, btoa, Uint8Array,
+    PF: {}, console, Date, Math, JSON, Promise, setTimeout, Blob, fetch, btoa, Uint8Array, URL, crypto: require('crypto').webcrypto,
     localStorage: { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: k => { delete store[k]; } }
   };
   vm.createContext(sandbox);

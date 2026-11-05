@@ -57,7 +57,7 @@ PF.map = (function () {
       i++;
     }
     /* Run details: a bare name is text; name:kind types it (2.0, typed-details). meta.context stays the names. */
-    var typed = details(list(meta.context));
+    var typed = details(contextEntries(meta.context));
     meta.context = typed.names;
     typed.errors.forEach(function (m) { err(ctxLine < 0 ? 0 : ctxLine, m); });
     meta.roles = list(meta.roles);
@@ -160,6 +160,23 @@ PF.map = (function () {
   }
 
   function list(s) { return String(s || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean); }
+  /* The one context splitter (2.16, Appendix A.1): commas split entries, except inside pattern(...), where each escaped
+     character is skipped and the first unescaped ) ends it. Entries come back as written (trimmed); writers rejoin them
+     with ', ' between entries only. Every valid older line splits exactly as list() did. */
+  function contextEntries(line) {
+    var s = String(line || ''), out = [], buf = '', inPat = false;
+    for (var i = 0; i < s.length; i++) {
+      var c = s.charAt(i);
+      if (!inPat && /:\s*pattern\($/.test(buf + c)) { inPat = true; buf += c; continue; }
+      if (inPat && c === '\\') { buf += c + s.charAt(i + 1); i++; continue; }
+      if (inPat && c === ')') { inPat = false; buf += c; continue; }
+      if (!inPat && c === ',') { if (buf.trim()) out.push(buf.trim()); buf = ''; continue; }
+      buf += c;
+    }
+    if (buf.trim()) out.push(buf.trim());
+    return out;
+  }
+  function sameDetail(a, b) { a = a || {}; b = b || {}; return PF.values.kindOf(a) === PF.values.kindOf(b) && (PF.values.kindOf(a) !== 'pattern' || a.pattern === b.pattern); }
   /* The kinds a run detail can have after its name (name:kind), as checklists spell them. */
   var DETAIL_KINDS = { number: 1, 'yes-no': 1, date: 1, link: 1 }, OPTIONS_MAX = 20, OPTION_MAX = 40;
   /* context: entries as names, the typed ones' kinds (prototype-free), and what's wrong with any declaration. Only the first
@@ -174,8 +191,14 @@ PF.map = (function () {
       names.push(name);
       if (spec === 'text') { errors.push(what + ' is text already; write just ' + name.slice(0, 60) + '.'); return; }
       if (Object.prototype.hasOwnProperty.call(DETAIL_KINDS, spec)) { types[name] = { kind: spec }; return; }
+      var pm = /^pattern\(([\s\S]*)\)$/.exec(spec);
+      if (pm) {
+        var pc = PF.values.compilePattern(pm[1]);
+        if (!pc.ok) { errors.push(what + ': its pattern can\'t be read: ' + pc.why); return; }
+        types[name] = { kind: 'pattern', pattern: pm[1] }; return;
+      }
       var c = /^choice\((.*)\)$/.exec(spec);
-      if (!c) { errors.push(what + ': "' + spec.slice(0, 60) + '" isn\'t a kind. Use number, yes-no, date, link or choice(a|b).'); return; }
+      if (!c) { errors.push(what + ': "' + spec.slice(0, 60) + '" isn\'t a kind. Use number, yes-no, date, link, choice(a|b) or pattern(...).'); return; }
       var opts = c[1].split('|'), bad = '';
       opts.forEach(function (o) {
         if (bad) return;
@@ -275,15 +298,15 @@ PF.map = (function () {
       if (got.unreadable) { if (L.has(s)) blockers.push(label + ': ' + got.unreadable + ' So what it passes to "' + s.fields.process + '" can\'t be checked.'); return; }
       if (got.unpublished || !got.map) { if (L.has(s)) suggestions.push(label + ': "' + s.fields.process + '" isn\'t published yet, so what it needs can\'t be checked.'); return; }
       var who = got.latest ? (got.title || s.fields.process) + '\'s latest version (v' + got.version + ')' : (got.title || s.fields.process) + ' v' + got.version;
-      var A = { text: 'text', number: 'a number', 'yes-no': 'yes or no', choice: 'a choice', date: 'a date', url: 'a link' }, kw = function (d) { return A[PF.values.kindOf(d)] || 'text'; };
+      var A = { text: 'text', number: 'a number', 'yes-no': 'yes or no', choice: 'a choice', date: 'a date', url: 'a link', pattern: 'a pattern' }, kw = function (d) { return A[PF.values.kindOf(d)] || 'text'; };
       var r = L.rows(s, meta.context, got.map), kinds = got.map.meta.detailTypes || {}, mine = meta.detailTypes || {};
       r.stale.forEach(function (x) { blockers.push(who + ' has no run detail ' + x.name + ', so ' + label.charAt(0).toLowerCase() + label.slice(1) + ' can\'t pass it. Choose one it has, or remove it from ' + x.where + ':.'); });
       r.rows.forEach(function (x) {
         var def = Object.prototype.hasOwnProperty.call(kinds, x.name) ? kinds[x.name] : null;
-        if (x.source === 'value' && def) { var v = PF.values.parse(def, x.value, { max: 120 }); if (!v.ok) blockers.push(label + ': ' + who + '\'s ^' + x.name + ' is ' + kw(def) + '; "' + x.value + '" isn\'t one. ' + v.why); }
+        if (x.source === 'value' && def) { var v = PF.values.parse(def, x.value, { max: PF.values.DETAIL_MAX }); if (!v.ok) blockers.push(label + ': ' + who + '\'s ^' + x.name + ' is ' + kw(def) + '; "' + x.value + '" isn\'t one. ' + v.why); }
         if (x.source === 'detail' && def && PF.values.kindOf(def) !== 'text') {
           var from = Object.prototype.hasOwnProperty.call(mine, x.from) ? mine[x.from] : null;
-          if (!from || PF.values.kindOf(from) !== PF.values.kindOf(def)) suggestions.push(label + ': ^' + x.from + ' goes into ' + who + '\'s ^' + x.name + ', which is ' + kw(def) + '. Converted when it starts; a value that doesn\'t fit is asked there.');
+          if (!from || !sameDetail(from, def)) suggestions.push(label + ': ^' + x.from + ' goes into ' + who + '\'s ^' + x.name + ', which is ' + kw(def) + '. Converted when it starts; a value that doesn\'t fit is asked there.');
         }
         if (x.source === 'team' && def && PF.values.kindOf(def) !== 'text' && opts.teamValues) {
           var tl = PF.teamValues.lookup(opts.teamValues, x.team), tm = Object.prototype.hasOwnProperty.call(tl, 'value') ? PF.values.migrate(def, tl.value) : null;
@@ -319,9 +342,16 @@ PF.map = (function () {
           if (!def) { if (!(opts.unknownType && opts.unknownType(s.type))) blockers.push(label + ' has an unknown type {' + s.type + '}.'); }
           else {
             if (['at', 'due', 'after'].filter(function (f) { return s.fields[f]; }).length > 1) blockers.push(label + ': give one time, "at:", "due:" or "after:", not more than one.');
-            var fc = T.checkFields(def, s.fields);
+            var fc = T.checkFields(def, s.fields, { context: meta.context, teamValues: opts.teamValues });
             fc.errors.forEach(function (m) { blockers.push(label + ' ' + m); });
             fc.tips.forEach(function (m) { suggestions.push(label + ' ' + m); });
+            /* Link fields (2.16, Appendix B): a run detail may sit only where it can't change the link's structure. */
+            Object.keys(s.fields).forEach(function (f) {
+              var fd = T.fieldDef(def, f); if (!fd || fd.kind !== 'url' || !s.fields[f]) return;
+              var lc = PF.urls.classify(s.fields[f], meta.context);
+              if (PF.urls.refused(lc)) blockers.push(label + ', field "' + f + '", ' + lc.why);
+              else if (lc.code === 'hint') suggestions.push(label + ', field "' + f + '": ' + lc.hint);
+            });
           }
         }
         if (s.fields.expect && PF.util.duration(s.fields.expect) == null) blockers.push(label + ': "expect" should look like 20m or 1h30m.');
@@ -383,9 +413,11 @@ PF.map = (function () {
      note isn't one (every copy since 1.10 publishes it). A version: or skillVersion: line on another step type is an error,
      not a feature. */
   function features(map) {
-    var has = { 'team-values': false, 'passed-details': false, conditions: false, 'typed-details': false, 'typed-evidence': false, 'phase-notes': false, 'phase-shots': false, 'gate-shots': false, 'pinned-children': false, 'pinned-skills': false };
+    var has = { 'jira-search': false, 'detail-patterns': false, 'team-values': false, 'passed-details': false, conditions: false, 'typed-details': false, 'typed-evidence': false, 'phase-notes': false, 'phase-shots': false, 'gate-shots': false, 'pinned-children': false, 'pinned-skills': false };
     /* Typed data (2.0): a run detail with a kind, or a plain step asking for a number, yes/no or date as its evidence. */
     if (map.meta && map.meta.detailTypes && Object.keys(map.meta.detailTypes).length) has['typed-details'] = true;
+    /* A run detail with a pattern (2.16, Appendix A). Older copies refuse the kind. */
+    if (map.meta && map.meta.detailTypes && Object.keys(map.meta.detailTypes).some(function (k) { return map.meta.detailTypes[k].kind === 'pattern'; })) has['detail-patterns'] = true;
     (map.phases || []).forEach(function (p) {
       p.steps.forEach(function (s) { if (PF.values.isNew(String(s.fields.evidence || '').trim().toLowerCase())) has['typed-evidence'] = true; });
       /* Pins (2.0): version: on a linked step, skillVersion: on a skill step. Older copies refuse both lines. */
@@ -396,6 +428,8 @@ PF.map = (function () {
         /* A team value passed to the child (2.9): pass: name=team:<value>. Older copies would read team: as an error. */
         if (s.type === 'run.process' && PF.links.teams(s).length) has['team-values'] = true;
         if (s.type === 'run.skill' && Object.prototype.hasOwnProperty.call(s.fields, 'skillVersion')) has['pinned-skills'] = true;
+        /* A Jira search step (2.16). Older copies refuse the type, frozen as version 4, and its new field kinds. */
+        if (s.type === 'jira.search') has['jira-search'] = true;
       });
       if (p.note || p.noted) has['phase-notes'] = true;
       /* Conditions (2.1): an "only when" line on the phase or a step. */
@@ -434,5 +468,5 @@ PF.map = (function () {
     return text.slice(0, at) + head + text.slice(at + m[2].length);
   }
 
-  return { PROCESS_ID: PROCESS_ID, MARK: MARK, marked: marked, shownText: shownText, valuesOf: valuesOf, parse: parse, check: check, features: features, shotSources: shotSources, steps: steps, setBy: setBy, findStep: findStep, usedTypes: usedTypes, withMeta: withMeta };
+  return { PROCESS_ID: PROCESS_ID, MARK: MARK, contextEntries: contextEntries, sameDetail: sameDetail, marked: marked, shownText: shownText, valuesOf: valuesOf, parse: parse, check: check, features: features, shotSources: shotSources, steps: steps, setBy: setBy, findStep: findStep, usedTypes: usedTypes, withMeta: withMeta };
 })();

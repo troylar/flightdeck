@@ -107,7 +107,7 @@
       while (row < 2 && rows[row] != null && cx - rows[row] < 2 * R0 + 1) row++;
       rows[row] = cx;
       var r = ctx.findRun ? ctx.findRun(v.key) : null, name = (r ? r.title : v.key) + ', ' + about(v.ms);
-      dots += '<a href="#" class="ins-dot-a" tabindex="-1" data-act="go" data-view="run" data-run="' + esc(v.key) + '" aria-label="' + esc(name) + '"><title>' + esc(name) + '</title><circle class="ins-dot" cx="' + cx.toFixed(1) + '" cy="' + (38 - row * 13) + '" r="' + R0 + '"/></a>';
+      dots += '<a href="#" class="ins-dot-a" tabindex="-1" data-act="go" data-view="run" data-run="' + esc(v.key) + '" aria-label="' + esc(name) + '"><title>' + esc(name) + '</title><circle class="ins-hit" cx="' + cx.toFixed(1) + '" cy="' + (38 - row * 13) + '" r="12"/><circle class="ins-dot" cx="' + cx.toFixed(1) + '" cy="' + (38 - row * 13) + '" r="' + R0 + '"/></a>';
     });
     var mx = x(median);
     return '<div class="ins-chart"><svg class="ins-strip" viewBox="0 0 ' + W + ' 48" role="group" aria-label="Completed runs by active time, from 0 to ' + esc(about(max)) + '">' +
@@ -273,7 +273,7 @@
       var vn = f.version != null ? f.version : fl && fl.version ? fl.version : null;
       var ver = vn != null ? 'v' + vn + (fl && fl.clash ? ' (folder ' + f.folder + ')' : '') : 'folder ' + f.folder;
       var h = '<div class="notice ins-banner" role="status" id="ins-banner"><span><b>The runs behind a number in How runs go:</b> ' + esc(f.label) + ' · ' + esc(ctx.processTitle(f.process)) + ' ' + esc(ver) + ' · as of ' + esc(hms(f.asOf)) + '.</span>' +
-        '<span class="row"><button class="btn" data-act="ins-back">' + IC('back') + 'Back to How runs go</button><button class="mini" data-act="rf-clear" data-id="all">Show all runs</button></span></div>';
+        '<span class="row"><button class="mini" data-act="rf-clear" data-id="all">Show all runs</button></span></div>';
       if (ch) h += '<div class="notice warn" role="status"><span>' + esc(ch === 1 ? '1 of these runs changed since.' : ch + ' of these runs changed since.') + '</span><button class="btn" data-act="ins-refresh">Show current numbers</button></div>';
       h += '<section class="panel"><h2 id="rf-h" tabindex="-1">' + esc(plural(f.keys.length, 'run')) + '</h2>' + (gone ? '<p class="small">' + esc(gone === 1 ? '1 of them is no longer in the folder.' : gone + ' of them are no longer in the folder.') + '</p>' : '') +
         (shown.length ? K.paged(st, 'runs-cohort', shown, cards, K.runKey) : '<p class="small">None of these runs is in the folder now.</p>') + '</section>';

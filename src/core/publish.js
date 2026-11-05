@@ -92,7 +92,7 @@ PF.publish = (function () {
     return { folder: folder, version: version, files: { 'map.md': draftMd, 'types.json': typesJson, 'publication.json': JSON.stringify(info, null, 2) } };
   }
 
-  /* ---------- Draft checks (2.13): one set of inputs for the editor's Checks, Review & publish and flightdeck draft check ----------
+  /* ---------- Draft checks (2.13): one set of inputs for the editor's Checks, the Publish dialog and flightdeck draft check ----------
      d: { people, types, workflows, processes, procOf, teamValues, unknownType }, the folder as the app holds it: people.json's
      list, the team's step types, jira/workflows.json, the processes as the app lists them ({ id, latest, ... }) and a lookup
      by ID. A process marked unread (the command line couldn't read all of it) is unknown: never suggested as unpublished,
@@ -134,8 +134,11 @@ PF.publish = (function () {
     var types = [], has = function (f) { return M.steps(map).some(f); };
     M.steps(map).forEach(function (x) { var t = x.step.type; if (t && !T.get(t, {}) && types.indexOf(t) < 0) types.push(t); });
     return { people: !!(map.meta.owner || map.meta.backup), types: types, workflows: has(function (x) { return x.step.type === 'jira.issue'; }),
-      teamValues: has(function (x) { return x.step.type === 'run.process' && PF.links.teams(x.step).length > 0; }), publications: true, shots: M.shotSources(map) };
+      teamValues: teamValuesUsed(map), publications: true, shots: M.shotSources(map) };
   }
+  /* Whether a text reads team-values.json: a linked step that passes a team value (2.9), or a Jira search, whose address is
+     one (2.16, site: team:<name>). Draft check, publish and stage all read the file for exactly these. */
+  function teamValuesUsed(map) { return M.steps(map).some(function (x) { return (x.step.type === 'run.process' && PF.links.teams(x.step).length > 0) || x.step.type === PF.types.SEARCH; }); }
   function uses(u, x, shots) {
     var i = inputOf(x, shots);
     if (!i) return false;
@@ -210,7 +213,7 @@ PF.publish = (function () {
       missingShots: (got.missingShots || []).filter(function (src) { return (u.shots || []).indexOf(src) < 0; })
     };
   }
-  /* The verdict for a draft's text, before anything is written: checks, as the editor's Checks and Review & publish show them,
+  /* The verdict for a draft's text, before anything is written: checks, as the editor's Checks and the Publish dialog show them,
      and publish: { ok, blockers }, what Publish would stop at (the same order: the checks, then version: pins, then
      screenshots). Who publishes and the change note are left out: only a person gives those. Nothing unknown is a finding
      (checkContext). ctx: from checkContext. */
@@ -244,7 +247,7 @@ PF.publish = (function () {
       if (!def) return label + ' uses the step type {' + s.type + '}, which this copy of Flightdeck doesn\'t have and this version doesn\'t include. Update Flightdeck, or publish the checklist again.';
       /* A hand-written or newer types.json can hold anything; a type this copy can't fully read is reported, never thrown. */
       if (!T.understood(def)) return NEWER + ' ' + label + ' has a step type this copy can\'t read.';
-      var bad; try { bad = T.checkFields(def, s.fields).errors[0]; } catch (err) { return NEWER + ' ' + label + ' has a step type this copy can\'t read.'; }
+      var bad; try { bad = T.checkFields(def, s.fields, { context: map.meta.context }).errors[0]; } catch (err) { return NEWER + ' ' + label + ' has a step type this copy can\'t read.'; }
       if (bad) return NEWER + ' ' + label + ' ' + bad;
     }
     return '';
@@ -255,12 +258,12 @@ PF.publish = (function () {
      team's own; built-in types never are. */
   function features(map, types) {
     var f = M.features(map);
-    if (f.indexOf('typed-evidence') < 0 && M.usedTypes(map).some(function (id) { var d = types && typeof types === 'object' && Object.prototype.hasOwnProperty.call(types, id) ? types[id] : null; return !!d && typeof d === 'object' && (d.version === 3 || T.uses2(d.record)); }))
+    if (f.indexOf('typed-evidence') < 0 && M.usedTypes(map).some(function (id) { var d = types && typeof types === 'object' && Object.prototype.hasOwnProperty.call(types, id) ? types[id] : null; return !!d && typeof d === 'object' && d.version !== T.SEARCH_VERSION && (d.version === 3 || T.uses2(d.record)); }))
       f = PF.envelope.FROZEN.filter(function (x) { return x === 'typed-evidence' || f.indexOf(x) >= 0; });
     return f;
   }
   /* What each 2.0 feature is, in words, for the publish panel. */
-  var FEATURE_NAMES = { 'typed-details': 'typed run details', 'typed-evidence': 'typed evidence (a number, yes/no or date)', 'phase-notes': 'a note on a phase', 'phase-shots': 'screenshots on a phase', 'gate-shots': 'screenshots on a gate', 'pinned-children': 'a linked run pinned to a version (version:)', 'pinned-skills': 'a skill version a step expects (skillVersion:)', conditions: 'conditions (only when)', 'passed-details': 'a linked step that passes details under other names, fixed values or asks (pass:)', 'team-values': 'a linked step that passes a team value (pass: name=team:…)' };
+  var FEATURE_NAMES = { 'typed-details': 'typed run details', 'typed-evidence': 'typed evidence (a number, yes/no or date)', 'phase-notes': 'a note on a phase', 'phase-shots': 'screenshots on a phase', 'gate-shots': 'screenshots on a gate', 'pinned-children': 'a linked run pinned to a version (version:)', 'pinned-skills': 'a skill version a step expects (skillVersion:)', conditions: 'conditions (only when)', 'passed-details': 'a linked step that passes details under other names, fixed values or asks (pass:)', 'team-values': 'a linked step that passes a team value (pass: name=team:…)' , 'jira-search': 'a Jira search step', 'detail-patterns': 'a run detail with a pattern' };
   function needs(map, types) {
     var f = features(map, types); if (!f.length) return null;
     var typed = Object.keys((map.meta && map.meta.detailTypes) || {});
@@ -474,5 +477,5 @@ PF.publish = (function () {
     return hit ? out(hit, false) : out(latest, true);
   }
 
-  return { STAGE: STAGE, stageName: stageName, promoteRecord: promoteRecord, FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, canonical: canonical, payloadHash: payloadHash, features: features, payloadFiles: payloadFiles, FEATURE_NAMES: FEATURE_NAMES, needs: needs, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, checkOptions: checkOptions, excludedOf: excludedOf, unknownOf: unknownOf, usesOf: usesOf, uses: uses, checkContext: checkContext, publishCheck: publishCheck, verify: verify, exactOf: exactOf, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
+  return { STAGE: STAGE, stageName: stageName, promoteRecord: promoteRecord, FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, canonical: canonical, payloadHash: payloadHash, features: features, payloadFiles: payloadFiles, FEATURE_NAMES: FEATURE_NAMES, needs: needs, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, checkOptions: checkOptions, excludedOf: excludedOf, unknownOf: unknownOf, usesOf: usesOf, teamValuesUsed: teamValuesUsed, uses: uses, checkContext: checkContext, publishCheck: publishCheck, verify: verify, exactOf: exactOf, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
 })();

@@ -18,6 +18,7 @@ PF.health = (function () {
   function semverOf(v) { var m = typeof v === 'string' ? /^(\d{1,4})\.(\d{1,4})\.(\d{1,4})$/.exec(v) : null; return m ? [+m[1], +m[2], +m[3]] : null; }
   function cmpV(a, b) { for (var i = 0; i < 3; i++) if (a[i] !== b[i]) return a[i] - b[i]; return 0; }
   function listOf(xs) { return xs.length <= 1 ? xs.join('') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1]; }
+  function italic(xs) { return xs.map(function (x) { return '*' + x + '*'; }).join(', '); }
   function plural(n, one, many) { return n + ' ' + (n === 1 ? one : (many || one + 's')); }
   function ms(iso) { var t = typeof iso === 'string' ? Date.parse(iso) : NaN; return isNaN(t) ? null : t; }
   function span(d) {
@@ -173,6 +174,21 @@ PF.health = (function () {
     (d.unreadable || []).forEach(function (u) { if (u.key) unreadKeys[u.key] = true; });
     /* A run kept from an earlier read whose file can't be read now: its copies are found by name below, not from that read. */
     var conflicted = runs.filter(function (r) { return r._conflicts && r._conflicts.length && !(scan && unreadKeys[r.process + '/' + r.id]); });
+    /* 2.16 (R14-3): a step the reader reopened, and a parent whose linked step's child doesn't stand as read. */
+    runs.forEach(function (r) {
+      if (!r || !r.steps) return;
+      Object.keys(r.steps).forEach(function (sid) {
+        var a = r.steps[sid];
+        if (!a || !a.reopened) return;
+        add({ id: 'reopened:' + r.process + '/' + r.id + '/' + sid, severity: 'warn', area: 'Runs', title: '"' + r.title + '" has a step reopened when read',
+          detail: PF.run.reopenNotice(r, a), paths: ['runs/' + r.process + '/' + r.id + '/run.json'], action: { act: 'open-run', id: r.process + '/' + r.id, label: 'Open the run' } });
+      });
+    });
+    PF.run.childMarks(runs).forEach(function (m) {
+      var r = runs.filter(function (x) { return x && x.process === m.process && x.id === m.run; })[0];
+      add({ id: 'child-mark:' + m.process + '/' + m.run + '/' + m.step, severity: 'warn', area: 'Runs', title: '"' + (r ? r.title : m.run) + '": a linked step\'s run doesn\'t stand',
+        detail: 'Its step was ' + m.text + '.', paths: ['runs/' + m.process + '/' + m.run + '/run.json', 'runs/' + m.child + '/run.json'], action: { act: 'open-run', id: m.child, label: 'Open the linked run' } });
+    });
     conflicted.forEach(function (r) { add({ id: 'conflicts:' + r.process + '/' + r.id, severity: 'stop', area: 'Runs', title: '"' + r.title + '" has ' + plural(r._conflicts.length, 'other version'), detail: 'Two windows saved it without seeing each other. Compare the copies and keep the right one; nothing is merged for you.', paths: r._conflicts.map(function (n) { return 'runs/' + r.process + '/' + r.id + '/' + n; }), action: { act: 'open-run', id: r.process + '/' + r.id, label: 'Compare copies' }, help: HELP.conflicts }); });
     /* Conflict copies in a run folder whose run.json is missing or couldn't be read: no run page lists them, so they're
        found by name. */
@@ -423,18 +439,62 @@ PF.health = (function () {
     if (rec.newer) return;
     /* Each waiting copy comes already told old or not (x.old, from PF.contract.classifyCopies over the files as read); this only
        counts. */
-    var items = keys.map(function (k) { var all = (c.staged || {})[k] || []; return { key: k, want: c.want[k], have: Object.prototype.hasOwnProperty.call(c.hashes, k) ? c.hashes[k] : null, old: all.filter(function (x) { return x.old === true; }), staged: all.filter(function (x) { return x.old !== true; }) }; });
+    /* Each item carries its live text (now) and this version's default (text), so PF.contract.classify applies the content rule
+       (PF.contract.hold) here exactly as the command and Settings do. */
+    var texts = c.texts || {}, defaults = c.defaults || {}, has = function (o, k) { return Object.prototype.hasOwnProperty.call(o, k); };
+    var items = keys.map(function (k) { var all = (c.staged || {})[k] || []; return { key: k, want: c.want[k], have: has(c.hashes, k) ? c.hashes[k] : null, now: has(texts, k) ? texts[k] : null, text: has(defaults, k) ? defaults[k] : null, old: all.filter(function (x) { return x.old === true; }), staged: all.filter(function (x) { return x.old !== true; }) }; });
     var st = C.classify(items, rec, B, snap.app);
     var of = function (list) { return st.filter(function (x) { return list.indexOf(x.status) >= 0; }).map(function (x) { return x.key; }); };
-    var old = of(['update']), missing = of(['new', 'missing']), merge = of(['merge']), custom = of(['kept']);
+    var old = of(['update']), missing = of(['new', 'missing']), custom = of(['kept']);
     var noAgents = missing.indexOf(C.AGENTS) >= 0;
+    var a = st.filter(function (x) { return x.key === C.AGENTS; })[0] || { status: '' }, liveAgents = has(texts, C.AGENTS) ? texts[C.AGENTS] : null;
+    var liveNames = liveAgents == null ? {} : C.cites(C.region(liveAgents).text).names, newNames = has(defaults, C.AGENTS) && defaults[C.AGENTS] != null ? C.cites(C.region(defaults[C.AGENTS]).text).names : {};
+    /* Files AGENTS.md's issue names instead of their own: the ones it waits for, and new files only this version's AGENTS.md
+       names (the live one is older), when AI assistant files updates or stages AGENTS.md. */
+    var folded = Object.create(null); (a.held || a.waitsFor || []).forEach(function (x) { folded[x.path] = true; });
+    var namedMissing = missing.filter(function (k) { return k !== C.AGENTS && liveNames[k]; });
+    var adds = a.status === 'update' || a.status === 'merge' ? missing.filter(function (k) { return k !== C.AGENTS && !liveNames[k] && newNames[k]; }) : [];
+    var otherMissing = missing.filter(function (k) { return namedMissing.indexOf(k) < 0 && adds.indexOf(k) < 0; });
+    var lacking = st.filter(function (x) { return x.lacks && !folded[x.key]; });
+    var merge = st.filter(function (x) { return x.status === 'merge' && !folded[x.key] && !(x.lacks && !folded[x.key]); }).map(function (x) { return x.key; });
+    var list = function (ws) { return ws.map(function (w) { return '`' + w.path + '` (' + italic(w.lacks) + ')'; }).join(', '); };
     if (noAgents || (keys.length && missing.length === keys.length)) add({ id: 'contract-missing', severity: 'warn', area: 'AI assistants', title: noAgents ? 'AGENTS.md isn\'t in the team folder' : 'The skills for AI assistants aren\'t in the team folder', detail: 'AI assistants in the folder need it to know the rules. AI assistant files adds what\'s missing and keeps your team\'s changes.', paths: missing, action: open, help: HELP.newer });
-    else if (missing.length) add({ id: 'contract-missing', severity: 'info', area: 'AI assistants', title: plural(missing.length, 'Flightdeck skill') + ' missing', detail: 'Your team may have removed ' + (missing.length === 1 ? 'it' : 'them') + ' on purpose. AI assistant files puts back what\'s missing.', paths: missing, action: open, help: HELP.newer });
-    if (old.length) add({ id: 'contract-old', severity: 'warn', area: 'AI assistants', title: plural(old.length, 'file') + ' for AI assistants ' + (old.length === 1 ? 'is' : 'are') + ' from an older Flightdeck', detail: 'AI assistant files updates ' + (old.length === 1 ? 'it' : 'them') + ' to ' + snap.app + '.', paths: old, action: open, help: HELP.newer });
-    if (merge.length) add({ id: 'contract-merge', severity: 'warn', area: 'AI assistants', title: plural(merge.length, 'file') + ' for AI assistants to merge', detail: 'Your team changed ' + (merge.length === 1 ? 'it' : 'them') + ' and so did Flightdeck. AI assistant files stages the new default for your AI assistant to merge.', paths: merge, action: open, help: HELP.newer });
+    else if (otherMissing.length) add({ id: 'contract-missing', severity: 'info', area: 'AI assistants', title: plural(otherMissing.length, 'Flightdeck skill') + ' missing', detail: 'Your team may have removed ' + (otherMissing.length === 1 ? 'it' : 'them') + ' on purpose. AI assistant files puts back what\'s missing.', paths: otherMissing, action: open, help: HELP.newer });
+    /* The files AI assistants need, by AGENTS.md's own words: one issue, so its id is its own. */
+    var refParts = [], refPaths = [], refTitles = [];
+    if (namedMissing.length && !noAgents) {
+      refPaths = refPaths.concat(namedMissing);
+      refTitles.push(namedMissing.length + (namedMissing.length === 1 ? ' file AI assistants need is missing' : ' files AI assistants need are missing'));
+      refParts.push('AI assistants read ' + (namedMissing.length === 1 ? 'it' : 'them') + ' before they use Flightdeck\'s commands. If OneDrive is still syncing this folder, wait for it to finish; otherwise AI assistant files (Flightdeck 2.16.0 or later) adds what\'s missing.');
+    }
+    if (lacking.length) {
+      refPaths = refPaths.concat(lacking.map(function (x) { return x.key; }));
+      refTitles.push(lacking.length + (lacking.length === 1 ? ' file AI assistants need is missing ' + (lacking[0].lacks.length === 1 ? 'a section' : 'sections') : ' files AI assistants need are missing sections'));
+      refParts.push(lacking.length === 1
+        ? 'AGENTS.md points AI assistants to ' + italic(lacking[0].lacks) + ' in `' + lacking[0].key + '`, but that file has no such section. ' + (lacking[0].waiting && !lacking[0].stage ? 'A new default of it is waiting in .flightdeck/updates/ for your AI assistant to merge.' : 'AI assistant files stages the new default for your AI assistant to merge.')
+        : 'AGENTS.md points AI assistants to sections these files don\'t have: ' + list(lacking.map(function (x) { return { path: x.key, lacks: x.lacks }; })) + '. AI assistant files stages their new defaults for your AI assistant to merge.');
+    }
+    if (refParts.length) add({ id: 'contract-reference', severity: 'warn', area: 'AI assistants', title: refTitles.join('; '), detail: refParts.join(' '), paths: refPaths, action: open, help: HELP.newer });
+    var pts = C.pointers(items);
+    if (pts.length) add({ id: 'contract-pointer', severity: 'info', area: 'AI assistants', title: plural(pts.length, 'pointer') + ' in AGENTS.md ' + (pts.length === 1 ? 'leads' : 'lead') + ' to no section', detail: pts.map(function (p) { return p.text; }).join(' '), paths: pts.map(function (p) { return p.path; }), action: open, help: HELP.newer });
+    if (old.length) add({ id: 'contract-old', severity: 'warn', area: 'AI assistants', title: plural(old.length, 'file') + ' for AI assistants ' + (old.length === 1 ? 'is' : 'are') + ' from an older Flightdeck', detail: 'AI assistant files updates ' + (old.length === 1 ? 'it' : 'them') + ' to ' + snap.app + (a.status === 'update' && adds.length ? ' and adds ' + adds.length + (adds.length === 1 ? ' new file it needs' : ' new files it needs') : '') + '.', paths: old.concat(a.status === 'update' ? adds : []), action: open, help: HELP.newer });
+    if (merge.length) {
+      var nAdd = a.status === 'merge' ? adds.length : 0, newFiles = nAdd + (nAdd === 1 ? ' new file' : ' new files') + ' AI assistants need';
+      var addsVerb = nAdd ? 'adds ' + newFiles + ' and ' : '', addsAlso = nAdd ? ' AI assistant files also adds ' + newFiles + '.' : '';
+      var others = merge.filter(function (k) { return k !== C.AGENTS; }), parts = [];
+      if (a.heldFrom) parts.push(a.held.length === 1
+        ? 'Your team didn\'t change AGENTS.md. It waits because `' + a.held[0].path + '` doesn\'t have the ' + (a.held[0].lacks.length === 1 ? 'section' : 'sections') + ' it points to: ' + italic(a.held[0].lacks) + '. AI assistant files ' + addsVerb + 'stages the new default of `' + a.held[0].path + '` for your AI assistant to merge; Flightdeck then writes AGENTS.md itself.'
+        : 'Your team didn\'t change AGENTS.md. It waits because these files don\'t have the sections it points to: ' + list(a.held) + '. AI assistant files ' + addsVerb + 'stages the new defaults of these files for your AI assistant to merge; Flightdeck then writes AGENTS.md itself.');
+      else if (a.onlyCopy && a.waitsFor && a.waitsFor.length) parts.push('Your team didn\'t change AGENTS.md; its new default is waiting in .flightdeck/updates/, and it also waits for ' + list(a.waitsFor) + ', which ' + (a.waitsFor.length === 1 ? 'doesn\'t have the ' + (a.waitsFor[0].lacks.length === 1 ? 'section' : 'sections') : 'don\'t have the sections') + ' it points to. Merge ' + (a.waitsFor.length === 1 ? 'that file' : 'those files') + ' first.' + addsAlso);
+      else if (a.onlyCopy) parts.push('Your team didn\'t change AGENTS.md; only its new default is waiting in .flightdeck/updates/. Delete AGENTS.md from each version folder there (.flightdeck/updates/<version>/AGENTS.md, never anything under replaced/) only if nobody changed those copies (merge one someone did), or press I merged it, and Update writes it.' + addsAlso);
+      if (parts.length && others.length) parts.push('Your team changed the other ' + (others.length === 1 ? 'file' : 'files') + ' and so did Flightdeck.');
+      if (!parts.length) parts.push('Your team changed ' + (merge.length === 1 ? 'it' : 'them') + ' and so did Flightdeck. AI assistant files ' + addsVerb + 'stages the new default for your AI assistant to merge.');
+      var mPaths = merge.concat(Object.keys(folded));
+      add({ id: 'contract-merge', severity: 'warn', area: 'AI assistants', title: plural(mPaths.length, 'file') + ' for AI assistants to merge', detail: parts.join(' '), paths: mPaths, action: open, help: HELP.newer });
+    }
     if (scan.installed === null && !noAgents) add({ id: 'contract-record', severity: 'info', area: 'AI assistants', title: 'No record of which defaults this folder started from', detail: 'Update writes .flightdeck/installed.json, so later updates can tell a default from your team\'s change.', paths: ['.flightdeck/installed.json'], action: open, help: HELP.newer });
     if (rec.ignored) add({ id: 'contract-record', severity: 'warn', area: 'AI assistants', title: '.flightdeck/installed.json can\'t be read', detail: 'The next update writes it again.', paths: ['.flightdeck/installed.json'], action: open, help: HELP.unreadable });
-    if (!stray.length && !unread.length && !old.length && !missing.length && !merge.length) ok('contract', custom.length ? 'The files for AI assistants are current; ' + plural(custom.length, 'file has', 'files have') + ' your team\'s own changes, which updates keep.' : 'The files for AI assistants match this version of Flightdeck.');
+    if (!stray.length && !unread.length && !old.length && !missing.length && !merge.length && !lacking.length) ok('contract', custom.length ? 'The files for AI assistants are current; ' + plural(custom.length, 'file has', 'files have') + ' your team\'s own changes, which updates keep.' : 'The files for AI assistants match this version of Flightdeck.');
     /* Named on its own, whatever else the files need. */
     leftoverNote();
   }

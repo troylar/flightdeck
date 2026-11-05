@@ -109,7 +109,7 @@ rule('Process page: one version line with the rest folded, three recent runs wit
   assert.ok(n <= 3, 'three runs at most: ' + n);
   const all = /data-act="runs-of" data-id="release">All (\d+) runs of this checklist<\/button>/.exec(runs);
   assert.ok(all && +all[1] > 3, 'a way to the rest');
-  assert.ok(/<div class="small">v2 · published [A-Z][a-z]{2}, [A-Z][a-z]{2} \d{1,2} by [A-Z][a-z]+ [A-Z][a-z]+<\/div>/.test(html) && !/Published by/.test(html), 'v2 · published <day> by <name>');
+  assert.ok(/<span class="d">v2 · published [A-Z][a-z]{2}, [A-Z][a-z]{2} \d{1,2} by [A-Z][a-z]+ [A-Z][a-z]+<\/span>/.test(html) && !/Published by/.test(html), 'v2 · published <day> by <name>');
   app.click('runs-of', 'release'); await app.tick();
   assert.ok(/aria-current="page">Runs</.test(app.top()) && /Matching runs · \d+/.test(app.html()) && /<option value="release" selected>/.test(app.html()), 'Runs, filtered to this process');
   assert.strictEqual((app.html().match(/data-act="open-run"/g) || []).length, +all[1], 'every run of it');
@@ -262,14 +262,14 @@ rule('Run: the start is announced, not drawn as a notice; the keyboard is mentio
   assert.strictEqual((visible(html).match(/Space checks it/g) || []).length, 1, 'one keyboard hint, in Next up');
   assert.ok(!/Space: check · N: note · B: blocked/.test(html), 'not again in the step');
   assert.ok(!shown(html, /data-act="help"/), 'no Keyboard shortcuts button outside More');
-  assert.ok(/<details class="rw-menu"[\s\S]*?data-act="help">Keyboard shortcuts<\/button>/.test(html), 'More keeps it');
+  assert.ok(/id="ws-more-list"[\s\S]*?data-act="help">Keyboard shortcuts<\/button>/.test(html), 'More keeps it');
   app.key('?'); await app.tick();
   assert.ok(/Space or X/.test(app.overlay()), '? opens them');
 });
 
 rule('Run: the strip keeps who records, Pause, Hand off and what\'s saved; the revision moves to Details', async () => {
-  const app = await startRelease(), strip = between(app.html(), 'class="rw-strip"', 'class="fpe-alerts');
-  assert.ok(/You.re recording/.test(strip) && /data-kind="pause"/.test(strip) && /data-kind="handoff"/.test(strip) && /id="fresh"/.test(strip), 'the strip as before');
+  const app = await startRelease(), strip = between(app.html(), 'class="tr rw-strip"', 'class="fpe-alerts');
+  assert.ok(/Recording as <b>/.test(strip) && /data-kind="pause"/.test(strip) && /data-kind="handoff"/.test(strip) && /id="fresh"/.test(strip), 'the strip as before');
   assert.ok(!/revision/.test(strip), 'no revision in the strip');
   app.click('run-details'); await app.tick();
   assert.ok(/revision \d+/.test(visible(between(app.html(), 'id="rw-details"', '</section>'))), 'in Details');
@@ -466,12 +466,12 @@ rule('Builder: the new-draft banner names Save draft, the header says what unsav
   app.set('np-title', 'Onboard'); app.submit('new-process-form'); await app.tick(150);
   firstStep(app, 'Say hello'); await app.tick();
   let html = app.html();
-  assert.ok(/choose Save draft, then Review &(amp;)? publish/.test(html + app.live()), 'the banner');
-  const head = between(html, 'class="fpe-head"', '</header>');
-  assert.ok(!/class="cnt/.test(head) && /aria-label="Checks: \d+ tips?"/.test(head), 'tips only: no number');
+  assert.ok(/choose Save draft, then Publish at the top right/.test(html + app.live()), 'the banner');
+  const head = between(html, '<header class="hd', '</header>');
+  assert.ok(!/class="cnt/.test(head) && !/id="ins-t-checks"[^>]*>Checks <span class="cnt/.test(html), 'tips only: no number');
   assert.ok(/<span class="lvl tip">Tip<\/span>/.test(html), 'the tips are still listed');
   app.input('draft-editor', app.fs.files['maps/drafts/onboard.md'].t + '- [ ] {confirm} Another {#another}\n'); await app.tick(300);
-  assert.ok(/Unsaved: Save draft before you publish/.test(between(app.html(), 'class="fpe-head"', '</header>')), 'unsaved, said in the header');
+  assert.ok(/Draft: not saved\. Save it before you publish\./.test(between(app.html(), 'class="hd"', '</header>')), 'unsaved, said in the header');
 });
 
 rule('Publish: the first version\'s change note is filled in, First version, and can be changed', async () => {

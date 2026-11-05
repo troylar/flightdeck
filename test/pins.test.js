@@ -522,7 +522,9 @@ rule('A run/3 pinned to a child version never adopts or settles from a run on an
   const r = R.create(parent, { by: 'person-avery', session: 'w', now: AT, app: '2.0.0', details: { ticket: 'ABC-1' }, pins: PF.pins.atStart(parent.map, parent.info.payload.pins, procOf) });
   const map = R.mapOf(r), step = M.findStep(map, 'verify').step, inputs = { ticket: 'ABC-1' };
   assert.strictEqual(r.pins.children.verify.folder, kids[0].info.folder, 'set-up: pinned to v1');
-  const kid = (pub, id) => Object.assign(R.create(pub, { id, by: 'a', session: 'w', now: AT, details: { ticket: 'ABC-1' }, parent: { process: 'backup', id: r.id, step: 'verify', inputs, folder: r.folder } }), { ended: { outcome: 'Completed', by: 'a', at: AT } });
+  /* A completed child: its steps done and its gates passed (2.16: a completion stands only while its gates hold). */
+  const done = (c) => { const m = R.mapOf(c); m.phases.forEach((p, pi) => { p.steps.forEach(st => R.na(c, m, st.id, 'a', AT)); if (p.gate) R.pass(c, m, pi, 'a', AT); }); return c; };
+  const kid = (pub, id) => Object.assign(done(R.create(pub, { id, by: 'a', session: 'w', now: AT, details: { ticket: 'ABC-1' }, parent: { process: 'backup', id: r.id, step: 'verify', inputs, folder: r.folder } })), { ended: { outcome: 'Completed', by: 'a', at: AT } });
   const v2 = kid(kids[1], 'kid2'), v1 = kid(kids[0], 'kid1');
   const linkOf = (c) => ({ process: c.process, id: c.id, inputs, folder: c.folder, mapHash: c.mapHash, typesHash: c.typesHash });
   const opts = (c) => ({ run: c, procOf, findRun: () => null });
@@ -718,8 +720,8 @@ rule('A registration with any revision this copy can\'t read (newer, malformed o
   assert.ok(named(list, 'other-skill').length === 1 && !named(list, 'other-skill')[0].unmatched);
 });
 
-rule('Slice 2 part 2 registers pinned-children and pinned-skills (checklist/2, publication/2, run/3), plan/2 and its status, and skill/2; slice 3 adds typed data; 2.1 adds conditions, staged versions and test runs; 2.8 adds passed details; 2.9 adds team values; every later feature stays refused', () => {
-  const want = ['phase-notes', 'phase-shots', 'gate-shots', 'pinned-children', 'pinned-skills', 'typed-details', 'typed-evidence', 'conditions', 'passed-details', 'team-values'];
+rule('Slice 2 part 2 registers pinned-children and pinned-skills (checklist/2, publication/2, run/3), plan/2 and its status, and skill/2; slice 3 adds typed data; 2.1 adds conditions, staged versions and test runs; 2.8 adds passed details; 2.9 adds team values; 2.16 adds Jira searches and detail patterns; every later feature stays refused', () => {
+  const want = ['phase-notes', 'phase-shots', 'gate-shots', 'pinned-children', 'pinned-skills', 'typed-details', 'typed-evidence', 'conditions', 'passed-details', 'team-values', 'jira-search', 'detail-patterns'];
   assert.deepStrictEqual(plain(E.FAMILIES['flightdeck-checklist'].majors[2]), want);
   assert.deepStrictEqual(plain(E.FAMILIES['preflight-publication'].majors[2]), want.concat(['staged']));
   assert.deepStrictEqual(plain(E.FAMILIES['preflight-run'].majors[3]), want.concat(['staged', 'test-run']));

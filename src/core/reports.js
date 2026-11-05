@@ -274,12 +274,15 @@ PF.reports = (function () {
     (rep.inputs || []).forEach(function (x) {
       var dm = /^detail:([\w-]{1,60})$/.exec(x.source);
       if (!dm || x.secret) { rows.push({ name: x.name, source: x.source, result: 'unknown' }); return; }
-      var d = dm[1], known = ctxNames.indexOf(d) >= 0, have = known && r && r.details && own(r.details, d) && typeof r.details[d] === 'string' ? r.details[d].trim() : '';
-      var row = { name: x.name, source: x.source, detail: d, want: x.value, have: have, tied: binds.indexOf(d) >= 0 };
-      /* A typed run detail (2.0) is stored canonical: the report's value is compared as that kind reads it ("1234.50" is 1234.5). */
-      var def = known ? R.typedDef(r, map, 'details.' + d) : null, want = String(x.value).trim(), p = def && def.kind && def.kind !== 'text' ? PF.values.parse(def, want, {}) : null;
+      var d = dm[1], known = ctxNames.indexOf(d) >= 0, stored = known && r && r.details && own(r.details, d) && typeof r.details[d] === 'string' ? r.details[d] : '';
+      /* A typed run detail (2.0) is stored canonical: the report's value is compared as that kind reads it ("1234.50" is 1234.5).
+         A patterned one goes through PF.values.patternIn: neither side is trimmed, and a value that doesn't parse is a mismatch. */
+      var def = known ? R.typedDef(r, map, 'details.' + d) : null, pat = !!def && def.kind === 'pattern' ? PF.values.patternIn(def, x.value, {}) : null;
+      var have = pat ? stored : stored.trim(), want = pat ? (pat.ok ? pat.canonical : null) : String(x.value).trim();
+      var p = !pat && def && def.kind && def.kind !== 'text' ? PF.values.parse(def, want, {}) : null;
       if (p && p.ok && p.canonical) want = p.canonical;
-      row.result = !known ? 'mismatch' : !have ? 'mismatch' : have === want ? 'match' : 'mismatch';
+      var row = { name: x.name, source: x.source, detail: d, want: x.value, have: have, tied: binds.indexOf(d) >= 0 };
+      row.result = !known ? 'mismatch' : !have ? 'mismatch' : want !== null && have === want ? 'match' : 'mismatch';
       row.why = !known ? d + ' isn\'t a run detail of this checklist' : !have ? 'the run has no ' + d + ' yet' : '';
       rows.push(row);
     });
@@ -419,11 +422,16 @@ PF.reports = (function () {
     if (o.readOnly) return no(o.readOnly);
     if (o.held) return no(o.held);
     if (!o.recording) return no('Only the recorder can accept a report.');
-    if (rep.verdict !== 'pass') return no('This report says ' + rep.verdict + '. Accepting checks the step, so only a pass can be accepted.');
+    var search = !!x && R.isSearchStep(x.step);
+    /* A search that sets its own input is refused before anything else (design section 5.4). */
+    if (search && /^This step sets /.test(R.searchProblem(r, map, x.step))) return no(R.searchProblem(r, map, x.step));
+    if (rep.verdict !== 'pass' && !search) return no('This report says ' + rep.verdict + '. Accepting checks the step, so only a pass can be accepted.');
     if (!r || r.folder !== rep.publication.folder) return no('This report is for ' + rep.publication.folder + ', but the run is on ' + (r ? r.folder : 'another version') + '.');
     if (!x) return no('This step isn\'t in the run\'s version.');
     if (x.step.type === 'run.process') return no('This step is checked by its linked run, never by a report.');
-    if (String(R.fieldsOf(r, x.step).sets || '').trim()) return no('This step sets run details. Check it yourself; reports can\'t set details yet.');
+    /* Appendix A.4: a report may supply a sets: detail's value, checked as a typed value; it can't name that detail as an input. */
+    var sets = setsOf(r, x.step), selfIn = (rep.inputs || []).filter(function (i) { return i && sets.indexOf(String(i.source || '').replace(/^detail:/, '')) >= 0 && /^detail:/.test(String(i.source || '')); })[0];
+    if (selfIn) return no('This report names ' + selfIn.source.replace(/^detail:/, '^') + ' as an input, but this step sets it. A report can\'t examine the detail it sets.');
     if (r.ended || r.state !== 'running') return no('The run has ended.');
     if (r.paused) return no('The run is paused. Resume it first.');
     /* Conditions (2.1): a step that isn't needed, or whose condition waits for a detail, takes no report. */
@@ -436,15 +444,36 @@ PF.reports = (function () {
     if (o.fillOpen) return no('Save or cancel Fill in first.');
     var ap = applies(rep, r, map, x.step);
     if (ap.result === 'mismatch') return no(appliesText(ap));
-    var vu = valuesFor(rep, r, x.step), chk = R.checkEvidence(r, x.step, null, vu.values);
+    var vu = valuesFor(rep, r, x.step), chk;
+    if (search) {
+      /* Design section 6.3, against the run at the moment of acceptance. */
+      var st = R.searchState(r, map, x.step), have = rep.evidence && typeof rep.evidence.searchId === 'string' ? rep.evidence.searchId : '';
+      if (!st.ok) return no(st.why);
+      if (!have) return no('This report doesn\'t say which search it ran.');
+      if (have !== st.id) return no('This report is for an earlier search: a run detail it used has changed, or the run was recovered from a copy, since.');
+      if (rep.verdict !== 'pass') {
+        var bl = R.searchCheck(r, map, x.step, vu.values, o.now || new Date().toISOString(), { partial: true });
+        var bv = bl.error ? null : Object.assign({}, bl.values), bwhy = '';
+        /* Offered only when R.block itself takes these results: tried on a copy, so what's offered is what's saved. */
+        if (bv) { try { var tr = JSON.parse(JSON.stringify(r)); R.block(tr, R.mapOf(tr), x.step.id, '', o.me || 'report', o.now || new Date().toISOString(), bv); } catch (e) { bwhy = e.message; bv = null; } }
+        return { ok: false, why: 'This report says ' + rep.verdict + '. Accepting checks the step, so only a pass can be accepted.' + (bv ? ' Block with these blocks the step with its results.' : bwhy ? ' Its results can\'t block the step: ' + bwhy.charAt(0).toLowerCase() + bwhy.slice(1) : ''), block: bv ? { values: bv } : null };
+      }
+      chk = R.searchCheck(r, map, x.step, vu.values, o.now || new Date().toISOString());
+      if (!chk.error && !chk.meets) chk = { error: 'These results don\'t meet the step\'s rule' + (chk.why ? ': ' + chk.why : '') + '. Block with these, or search again.', field: 'count' };
+    } else chk = R.checkEvidence(r, x.step, null, vu.values);
     if (chk.error) {
       var d = R.evidenceFor(r, x.step).list.filter(function (y) { return y.name === chk.field; })[0];
       return no(d && !vu.values[d.name] ? 'This report doesn\'t have ' + d.label + ', which this step requires.' : chk.error);
     }
     var a = own(r.steps, g.step) ? r.steps[g.step] : null, replaces = [];
     if (a && a.values) R.evidenceFor(r, x.step).list.forEach(function (y) { if (a.values[y.name] && a.values[y.name] !== chk.values[y.name]) replaces.push({ name: y.name, label: y.label, was: a.values[y.name] }); });
-    return { ok: true, why: '', values: chk.values, unused: vu.unused, applies: ap, replaces: replaces, step: x.step, schema: schemaOf(r, x.step) };
+    var setting = R.evidenceFor(r, x.step).list.filter(function (y) { return y.detail && chk.values[y.name] != null && chk.values[y.name] !== ''; }).map(function (y) {
+      var was = own(r.details, y.detail) ? String(r.details[y.detail] || '') : '';
+      return { detail: y.detail, value: chk.values[y.name], was: was, text: (was ? 'Replaces ' + y.detail + ' (' + was + ') with ' : 'Sets ' + y.detail + ' to ') + chk.values[y.name] };
+    });
+    return { ok: true, why: '', values: chk.values, unused: vu.unused, applies: ap, replaces: replaces, sets: setting, step: x.step, schema: schemaOf(r, x.step) };
   }
+  function setsOf(r, step) { return String(R.fieldsOf(r, step).sets || '').split(',').map(function (d) { return d.trim(); }).filter(Boolean); }
   /* The run's log line for an acceptance: names the report and the SHA-256 of the bytes accepted, so the run alone says what
      was accepted, in every copy. */
   function logLine(g, sha, stepText) {
@@ -542,7 +571,17 @@ PF.reports = (function () {
     if (!x) errors.push('Step ' + rep.step + ' isn\'t in the run\'s version (' + r.folder + ').');
     if (errors.length) return { errors: errors, warnings: warnings, applies: 'no' };
     if (x.step.type === 'run.process') warnings.push('Step ' + rep.step + ' is checked by its linked run; a person can\'t accept a report on it.');
-    if (String(R.fieldsOf(r, x.step).sets || '').trim()) warnings.push('Step ' + rep.step + ' sets run details; a person checks it, and can\'t accept a report on it yet.');
+    if (R.isSearchStep(x.step)) {
+      var st = R.searchState(r, map, x.step), have = rep.evidence && typeof rep.evidence.searchId === 'string' ? rep.evidence.searchId : '';
+      if (!st.ok) warnings.push('Step ' + rep.step + ': ' + st.why);
+      else if (!have) warnings.push('The report doesn\'t say which search it ran (evidence searchId, from report targets); it can\'t be accepted.');
+      else if (have !== st.id) warnings.push('The report is for an earlier search: a run detail it used has changed, or the run was recovered from a copy, since. Run report targets again.');
+      else if (rep.verdict === 'pass') {
+        var sc = R.searchCheck(r, map, x.step, valuesFor(rep, r, x.step).values, new Date().toISOString());
+        if (sc.error) warnings.push('Step ' + rep.step + ': ' + sc.error);
+        else if (!sc.meets) warnings.push('Step ' + rep.step + ': these results don\'t meet the step\'s rule' + (sc.why ? ' (' + sc.why + ')' : '') + '; report fail with the keys.');
+      }
+    }
     var vu = valuesFor(rep, r, x.step);
     vu.unused.forEach(function (k) { warnings.push('Evidence ' + k + ' isn\'t something step ' + rep.step + ' records; it won\'t be used.'); });
     var ap = applies(rep, r, map, x.step);

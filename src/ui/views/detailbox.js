@@ -52,7 +52,8 @@
     if (r) { try { rmap = R.mapOf(r); } catch (e) { rmap = null; } }
     var kind = function (m, n) { var d = m && m.meta.detailTypes && Object.prototype.hasOwnProperty.call(m.meta.detailTypes, n) ? m.meta.detailTypes[n] : null; return d ? d.kind : 'text'; };
     var rv = r && rmap ? K.refValue(r, rmap) : null;
-    var same = function (n) { return rv && rmap.meta.context.indexOf(n) >= 0 && map.meta.context.indexOf(n) >= 0 && kind(rmap, n) === kind(map, n); };
+    var def = function (m, n) { return m && m.meta.detailTypes && Object.prototype.hasOwnProperty.call(m.meta.detailTypes, n) ? m.meta.detailTypes[n] : null; };
+    var same = function (n) { return rv && rmap.meta.context.indexOf(n) >= 0 && map.meta.context.indexOf(n) >= 0 && kind(rmap, n) === kind(map, n) && PF.map.sameDetail(def(rmap, n), def(map, n)); };
     var get = function (n) { return same(n) ? rv(n) : ''; };
     /* Fields and approves fill in the stored value, as the run screen does (fill reads r.details), not its display text. */
     var raw = function (n) { var v = same(n) && Object.prototype.hasOwnProperty.call(r.details, n) ? r.details[n] : ''; return v == null ? '' : String(v); };
@@ -86,7 +87,7 @@
       var l = n.toLowerCase(), rank = !low ? 1 : l.indexOf(low) === 0 ? 0 : l.indexOf(low) > 0 ? 1 : -1;
       if (rank < 0) return;
       var v = X.verdict(map, src, n, place), t = Object.prototype.hasOwnProperty.call(types, n) ? types[n] : null;
-      out.push({ name: n, rank: rank + (v.v === 'maybe-unset' ? 2 : 0), kind: t ? PF.values.label({ kind: t.kind, options: t.options }) : 'text', from: X.where(src, n), late: v.v === 'maybe-unset' });
+      out.push({ name: n, rank: rank + (v.v === 'maybe-unset' ? 2 : 0), kind: t ? PF.values.label({ kind: t.kind, options: t.options }) + (t.kind === 'pattern' ? ' ' + t.pattern : '') : 'text', from: X.where(src, n), late: v.v === 'maybe-unset' });
     });
     out.sort(function (a, b) { return a.rank - b.rank || map.meta.context.indexOf(a.name) - map.meta.context.indexOf(b.name); });
     if (low && map.meta.context.indexOf(q) < 0 && /^[\w-]+$/.test(q)) out.push({ name: q, add: true });

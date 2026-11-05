@@ -193,20 +193,20 @@ rule('A checklist without typed details parses and checks exactly as before: no 
 rule('A typed run detail declaration that isn\'t right is an error on the context line, naming what to fix', () => {
   const errs = (ctx) => M.parse(HEAD(ctx)).errors.map(e => e.line + ': ' + e.msg);
   same(errs('ticket:text'), ['4: Run detail "ticket" is text already; write just ticket.']);
-  same(errs('amount:numbr'), ['4: Run detail "amount": "numbr" isn\'t a kind. Use number, yes-no, date, link or choice(a|b).']);
+  same(errs('amount:numbr'), ['4: Run detail "amount": "numbr" isn\'t a kind. Use number, yes-no, date, link, choice(a|b) or pattern(...).']);
   same(errs('env:choice(dev)'), ['4: Run detail "env": a choice needs at least two options, like choice(dev|prod).']);
   same(errs('env:choice(dev|DEV)'), ['4: Run detail "env": dev and DEV differ only in capitals; keep one.']);
   same(errs('env:choice(dev| test)'), ['4: Run detail "env": the option " test" starts or ends with a space; remove it.']);
   same(errs('env:choice(a:b|c)'), ['4: Run detail "env": the option "a:b" has ":", which an option can\'t hold.']);
   same(errs('env:choice(dev|)'), ['4: Run detail "env": an option is empty.']);
-  same(errs('env:choice(dev|prod'), ['4: Run detail "env": "choice(dev|prod" isn\'t a kind. Use number, yes-no, date, link or choice(a|b).']);
+  same(errs('env:choice(dev|prod'), ['4: Run detail "env": "choice(dev|prod" isn\'t a kind. Use number, yes-no, date, link, choice(a|b) or pattern(...).']);
   assert.ok(errs('env:choice(' + Array.from({ length: 21 }, (_, i) => 'o' + i).join('|') + ')')[0].indexOf('at most 20 options') > 0);
   assert.ok(errs('env:choice(' + 'x'.repeat(41) + '|b)')[0].indexOf('at most 40 characters') > 0);
   same(errs('amount:number, amount:date'), ['4: Run detail "amount" is listed twice; list it once.']);
   same(errs('amount, amount:number'), ['4: Run detail "amount" is listed twice; list it once.']);
   same(errs('amount:number, amount'), ['4: Run detail "amount" is listed twice; list it once.']);
   same(errs('amount, amount'), [], 'two bare duplicates stay allowed, as before');
-  same(errs('amount:number:number'), ['4: Run detail "amount": "number:number" isn\'t a kind. Use number, yes-no, date, link or choice(a|b).']);
+  same(errs('amount:number:number'), ['4: Run detail "amount": "number:number" isn\'t a kind. Use number, yes-no, date, link, choice(a|b) or pattern(...).']);
   assert.ok(M.check(M.parse(HEAD('__proto__:number'))).blockers.some(b => /keeps for itself/.test(b)));
   assert.ok(M.check(M.parse(HEAD('constructor:yes-no'))).blockers.some(b => /keeps for itself/.test(b)));
 });
@@ -269,7 +269,7 @@ rule('A frozen definition may use the 2.0 kinds and keys only at version 3, with
   const base = { id: 'team.count', label: 'Count', fields: {}, version: 3, record: [{ name: 'rows', label: 'Rows', kind: 'number', min: '0', max: '9', unit: 'rows' }] };
   assert.ok(T.understood(base));
   assert.ok(!T.understood(Object.assign(plain(base), { version: 2 })), '2.0 kinds at version 2');
-  assert.ok(!T.understood(Object.assign(plain(base), { version: 4 })));
+  assert.ok(!T.understood(Object.assign(plain(base), { version: 5 })));
   assert.ok(T.understood(Object.assign(plain(base), { record: [{ name: 'x', label: 'X', kind: 'text' }] })), 'version 3 with nothing new is still read');
   [{ min: 0 }, { min: '1e3' }, { min: 'NaN' }, { max: '-0' }, { min: '5', max: '1' }, { unit: 7 }, { unit: '' }].forEach(bad => {
     const d = plain(base); Object.assign(d.record[0], bad);

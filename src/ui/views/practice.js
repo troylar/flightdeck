@@ -40,36 +40,35 @@
     return h;
   };
 
-  /* The header: the way back to the draft, Practice · not recorded, how far, and practice's own tools. */
+  /* The header (2.16): the workspace's own row 1 (V.wsHead, shared with the editor) with practice's progress, then the tool
+     row: Undo, Redo, Start over | Sample details, Things to fix | the fact that nothing here is saved. */
   V.practiceHead = function (ctx, P, t, pct) {
-    var s = ctx.state;
-    var h = '<header class="fpe-head rw-head pr-head" role="region" aria-labelledby="run-h"><div class="fpe-id">' +
-      '<button type="button" class="btn rw-back" data-act="pr-back">' + I('back') + 'Back to the draft</button>' +
-      '<div class="fpe-title"><h1 id="run-h" tabindex="-1">' + esc(P.title) + '</h1><span class="small rw-sub"><span class="pr-badge">Practice · not recorded</span> · Draft: ' + esc(P.saveState) + '</span></div></div>' +
-      '<div class="rw-prog"><span class="rw-bar" role="progressbar" aria-label="Steps answered" aria-valuemin="0" aria-valuemax="' + t.total + '" aria-valuenow="' + t.done + '" aria-valuetext="' + t.done + ' of ' + t.total + ' steps answered"><i style="width:' + pct + '%"></i></span><b>' + t.done + '/' + t.total + '</b><span class="small">answered</span></div>' +
-      '<div class="rw-tools">' +
-      '<button type="button" class="mini" data-act="pr-undo"' + (P.canUndo ? '' : ' disabled') + ' aria-label="Undo in practice' + (P.undoLabel ? ': ' + esc(P.undoLabel) : '') + '">' + I('undo') + 'Undo</button>' +
+    var s = ctx.state, p = ctx.procOf(P.pid) || { id: P.pid, title: P.title, all: [] };
+    void pct;
+    var timeline = '<button type="button" class="mini" data-act="pr-undo"' + (P.canUndo ? '' : ' disabled') + ' aria-label="Undo in practice' + (P.undoLabel ? ': ' + esc(P.undoLabel) : '') + '">' + I('undo') + 'Undo</button>' +
       '<button type="button" class="mini" data-act="pr-redo"' + (P.canRedo ? '' : ' disabled') + ' aria-label="Redo in practice">' + I('redo') + 'Redo</button>' +
-      '<button type="button" class="mini" data-act="pr-reset"' + (P.hasAnswers ? '' : ' disabled') + '>Reset</button>' +
-      (P.details.length ? '<button type="button" class="mini" data-act="pr-samples" aria-expanded="' + !!s.prSamples + '" aria-controls="pr-sample">Sample details</button>' : '') +
-      '<button type="button" class="mini" data-act="pr-found-open" aria-expanded="' + !!s.prFound + '" aria-controls="pr-found-box">Things to fix' + (P.found ? ' ·' : '') + '</button>' +
-      (P.dirty ? '<button type="button" class="mini" data-act="pr-save"' + (P.saving ? ' disabled' : '') + '>' + (P.saving ? 'Saving…' : 'Save draft') + '</button>' : '') +
-      '<button type="button" class="btn" data-act="pr-close">Done practicing</button></div></header>';
-    return h + '<div class="rw-strip pr-strip" data-k="practice" role="region" aria-label="Practice"><div class="rw-who"><span class="rw-say">Nothing here is saved to the team folder. Links and commands you follow still act on real systems.</span></div></div>';
+      '<button type="button" class="mini" data-act="pr-reset"' + (P.hasAnswers ? '' : ' disabled') + '>Start over</button>';
+    var panel = function (cls) {
+      return (P.details.length ? '<button type="button" class="mini' + cls + '" data-act="pr-samples" aria-expanded="' + !!s.prSamples + '" aria-controls="pr-sample">Sample details</button>' : '') +
+        '<button type="button" class="mini' + cls + '" data-act="pr-found-open" aria-expanded="' + !!s.prFound + '" aria-controls="pr-found-box">Things to fix' + (P.found ? ' ·' : '') + '</button>';
+    };
+    var status = [{ kind: 'd', html: '<span class="tag pr">Practice</span> not recorded · kept in this tab' }];
+    return V.wsHead(ctx, p, { practice: true, hid: 'run-h', cls: 'rw-head pr-head', status: status, prog: V.progress(t.done, t.total), phone: panel(' ph-only') }) +
+      V.toolRow([timeline, panel(' wd-only')], '<span class="rw-say">Nothing here is saved to the team folder. Links and commands you follow still act on real systems.</span>', { cls: 'rw-strip pr-strip', k: 'practice', label: 'Practice' });
   };
 
-  /* One line at the end: what changed, and Stage it for a test run. */
-  function stageLine(P) {
-    return '<span class="row pr-stage"><label class="sr" for="pr-note">What changed</label><input id="pr-note" maxlength="200" placeholder="What changed" value="' + esc(P.stageNote) + '" data-enter="pr-stage"' + (P.noteErr ? ' aria-invalid="true" aria-describedby="ferr-pr-note"' : '') + '>' +
-      '<button type="button" class="btn" data-act="pr-stage"' + (P.staging ? ' disabled' : '') + '>Stage it for a test run</button></span>' + (P.noteErr ? '<p class="ferr" id="ferr-pr-note" role="alert">' + esc(P.noteErr) + '</p>' : '');
+  /* The version Publish vN… would publish, when it's the header's primary (rule 5); else ''. */
+  function publishNext(ctx, P) {
+    var p = ctx.procOf(P.pid); if (!p || V.wsPrimary(ctx, p, true).kind !== 'publish') return '';
+    return String(PF.publish.nextVersion(p.taken || (p.all || []).map(function (x) { return x.info; })));
   }
   /* Under the header: messages, what's paused or refused, what changed while away, the end, sample details and Things to fix. */
   V.practiceAlerts = function (ctx, P) {
     var s = ctx.state, m = P.model, h = '';
-    if (s.msg && !s.msg.quiet) h += '<div class="notice ' + (s.msg.kind || '') + '" role="status"><span>' + esc(s.msg.text) + '</span><span class="row">' + (s.msg.act ? '<button class="btn" data-act="' + esc(s.msg.act) + '">' + esc(s.msg.label) + '</button>' : '') + '<button class="mini" data-act="dismiss">Dismiss</button></span></div>';
+    if (s.msg && !s.msg.quiet) h += '<div class="notice ' + (s.msg.kind || '') + '" role="status"><span' + (s.msg.line ? ' id="ws-said" tabindex="-1"' : '') + '>' + esc(s.msg.text) + '</span><span class="row">' + (s.msg.act ? '<button class="btn" data-act="' + esc(s.msg.act) + '">' + esc(s.msg.label) + '</button>' : '') + '<button class="mini" data-act="dismiss">Dismiss</button></span></div>';
     if (P.saveErr) h += '<div class="notice bad" role="alert"><span>' + esc(P.saveErr.msg) + '</span>' + (P.saveErr.conflict ? '<button type="button" class="btn" data-act="pr-back" data-id="compare">Compare in the editor</button>' : '<button type="button" class="btn" data-act="pr-save">Try saving again</button>') + '</div>';
-    if (P.incoming) h += '<div class="notice warn" role="status"><span>' + esc(P.incoming) + '</span><button type="button" class="btn" data-act="pr-back">Back to the draft</button></div>';
-    if (P.problem) h += '<div class="notice warn pr-note"><span>The draft has a problem: ' + esc(P.problem) + ' Practicing the last version that worked.</span><button type="button" class="btn" data-act="pr-back">Back to the draft to fix it</button></div>';
+    if (P.incoming) h += '<div class="notice warn" role="status"><span>' + esc(P.incoming) + '</span><button type="button" class="btn" data-act="pr-back">Edit</button></div>';
+    if (P.problem) h += '<div class="notice warn pr-note"><span>The draft has a problem: ' + esc(P.problem) + ' Practicing the last version that worked.</span><button type="button" class="btn" data-act="pr-back">Fix it in Edit</button></div>';
     if (P.note) h += '<div class="notice warn pr-note"><span>' + esc(P.note) + '</span></div>';
     if (P.refusal && P.refusal.at == null) h += '<div class="notice warn pr-note" role="alert"><span>' + esc(P.refusal.msg) + '</span></div>';
     if (P.paused) h += '<div class="notice pr-note"><span>' + esc(P.paused) + '</span></div>';
@@ -78,8 +77,8 @@
     var need = m.from ? m.from.needed : [];
     if (m.from) h += '<p class="small pr-from">' + (m.from.assumed ? m.from.assumed + (m.from.assumed === 1 ? ' earlier step' : ' earlier steps') + ' assumed for practice · ' : 'Practicing from "' + esc(m.from.shown || m.from.text) + '" · ') + '<button type="button" class="linkish" data-act="pr-from-clear">Start from the beginning</button></p>';
     if (m.from && m.from.through) h += '<div class="notice good pr-done" tabindex="-1"><span>You got through from "' + esc(m.from.shown || m.from.text) + '".</span><button type="button" class="btn" data-act="pr-from-clear">Start from the beginning</button></div>';
-    else if (m.complete) h += '<div class="notice good pr-done" tabindex="-1"><span>You got through the whole checklist.' + (P.dirty ? ' Save it, then stage it for a test run.' : '') + '</span>' +
-      (P.dirty ? '<button type="button" class="btn" data-act="pr-save"' + (P.saving ? ' disabled' : '') + '>Save draft</button>' : stageLine(P)) + '</div>';
+    /* The end (2.16): Publish vN… at the top right is the one place to publish or stage it from here. */
+    else if (m.complete) h += '<div class="notice good pr-done" tabindex="-1"><span>You got through the whole checklist.' + (publishNext(ctx, P) ? ' Publish v' + esc(publishNext(ctx, P)) + '… at the top right publishes it, or stages it for a test run.' : '') + '</span></div>';
     /* Shown while asked for or needed, and while its Find has text or focus (K.findOn, code review round 20). */
     if (P.details.length && (s.prSamples || need.length) || K.findOn(s, 'pr-samples', false)) h += '<section class="rw-details pr-sample" id="pr-sample" aria-labelledby="pr-sample-h"><h2 id="pr-sample-h" class="rw-h2" tabindex="-1">Sample details' + (need.length ? ' <span class="pill warn">' + need.length + ' needed from here</span>' : '') + '</h2><p class="small">Values to practice with, as a run would have them. Used only here.</p>' + prSamples(s, P, need) + '</section>';
     /* 20 sample details at a time with Find past 20 (code review round 10): a draft can list hundreds of run details. Each
@@ -93,7 +92,7 @@
     function sampleRow(d) {
       var se = P.sampleErr && Object.prototype.hasOwnProperty.call(P.sampleErr, d.name) ? P.sampleErr[d.name] : null, err = se ? se.msg : '';
       var note = need.indexOf(d.name) >= 0 ? 'Needed from here' : d.setBy ? 'Set by "' + d.setBy + '"' : '';
-      return '<label class="field" for="pr-s-' + esc(d.name) + '">' + esc(d.name) + (d.hint ? ' <span class="small">' + esc(d.hint) + '</span>' : '') + (note ? ' <span class="small pr-set">' + esc(note) + '</span>' : '') + '<input id="pr-s-' + esc(d.name) + '" data-pr-sample="' + esc(d.name) + '" value="' + esc(P.typed && Object.prototype.hasOwnProperty.call(P.typed, d.name) ? P.typed[d.name] : se ? se.value : d.value) + '" data-bound data-draft-kept maxlength="120"' + (err ? ' aria-invalid="true" aria-describedby="pr-s-e-' + esc(d.name) + '"' : '') + '></label>' + (err ? '<span class="err small" id="pr-s-e-' + esc(d.name) + '">' + esc(err) + '</span>' : '');
+      return '<label class="field" for="pr-s-' + esc(d.name) + '">' + esc(d.name) + (d.hint ? ' <span class="small">' + esc(d.hint) + '</span>' : '') + (note ? ' <span class="small pr-set">' + esc(note) + '</span>' : '') + '<input id="pr-s-' + esc(d.name) + '" data-pr-sample="' + esc(d.name) + '" value="' + esc(P.typed && Object.prototype.hasOwnProperty.call(P.typed, d.name) ? P.typed[d.name] : se ? se.value : d.value) + '" data-bound data-draft-kept maxlength="' + (d.kind === 'pattern' ? 240 : 120) + '"' + (err ? ' aria-invalid="true" aria-describedby="pr-s-e-' + esc(d.name) + '"' : '') + '></label>' + (err ? '<span class="err small" id="pr-s-e-' + esc(d.name) + '">' + esc(err) + '</span>' : '');
     }
     if (s.prFound) h += '<section class="rw-details pr-foot" id="pr-found-box" aria-labelledby="pr-found-h"><h2 id="pr-found-h" class="rw-h2" tabindex="-1">Things to fix</h2>' +
       '<label class="field" for="pr-found">What you noticed while practicing <span class="small">' + P.found.length + ' of ' + PF.practice.FOUND_MAX + '</span><textarea id="pr-found" data-draft-kept rows="3" maxlength="' + PF.practice.FOUND_MAX + '">' + esc(P.found) + '</textarea></label>' +

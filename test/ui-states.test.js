@@ -33,6 +33,9 @@ function parse(src) {
 const RULES = parse(css);
 const decl = (body, prop) => { const m = new RegExp('(?:^|;)\\s*' + prop + '\\s*:\\s*([^;]+)', 'i').exec(body); return m ? m[1].trim() : null; };
 const screenOnly = r => r.at.some(a => /@media screen/.test(a));
+/* The 2.3.1 base layer's own hover rules moved in place into "@media screen and (hover: hover)" (2.16): they were never a
+   fresh-coat state, so the fresh-coat checks read only rules written for screen (a hover nested in @media screen). */
+const freshOnly = r => screenOnly(r) && !(r.at.length === 1 && r.at[0] === '@media screen and (hover: hover)');
 const STATE_PROPS = ['background', 'background-color', 'background-image', 'border-color', 'color', 'box-shadow', 'transform', 'outline', 'outline-color', 'text-decoration-color', 'border-bottom-color', 'opacity', 'filter'];
 const setsState = body => STATE_PROPS.some(p => decl(body, p) !== null);
 /* Rules in @media screen whose selector list has one starting with base and carrying state (":hover"…). */
@@ -85,15 +88,20 @@ rule('Fresh coat: press and lift never apply to a disabled control, native or ar
   assert.deepStrictEqual(bad, [], 'press or lift without the disabled guard: ' + bad.join(' | '));
 });
 rule('Fresh coat: filled buttons keep their own color and border on hover and press (a tint over the fill, no gray ring)', () => {
+  /* R1 (2.16): one black overlay for every filled primary, 8% on hover and 12% pressed; the hover excludes :active and the
+     pressed rule comes after it, so pressed always wins. */
   ['.btn.primary', '.btn.go', '.btn.stop', '.hero .btn'].forEach(b => {
     const rs = stateRules(b, ':hover').concat(stateRules(b, ':active'));
-    assert.ok(rs.length && rs.every(r => /var\(--((hov|prs)-fill|deep-(hov|prs))\)/.test(decl(r.body, 'background-image') || '')), b + ' tints with the fill or deep tints');
+    assert.ok(rs.length && rs.every(r => /var\(--r1-(hov|prs)\)/.test(decl(r.body, 'background-image') || '')), b + ' tints with the R1 overlays');
+    const hov = RULES.findIndex(r => stateRules(b, ':hover').indexOf(r) >= 0), prs = RULES.findIndex(r => screenOnly(r) && r.sel.some(x => x.indexOf(b + ':active') === 0));
+    assert.ok(stateRules(b, ':hover').every(r => r.sel.filter(x => x.indexOf(b) === 0 && /:hover/.test(x)).every(x => /:not\(:active\)/.test(x))), b + ' hover leaves :active out');
+    assert.ok(prs > hov, b + ' pressed comes after hover');
     rs.forEach(r => ['background', 'background-color', 'border-color'].forEach(p => assert.strictEqual(decl(r.body, p), null, b + ' sets ' + p)));
   });
 });
 rule('Fresh coat: hover and press tint over a control instead of replacing its color, so selected and warning colors survive', () => {
   const bad = []; let seen = 0, tinted = 0;
-  RULES.filter(screenOnly).forEach(r => r.sel.forEach(x => {
+  RULES.filter(freshOnly).forEach(r => r.sel.forEach(x => {
     if (!/:hover|:active/.test(x) || !/^(\.btn(?!\.)|\.btn:|\.mini|\.fpe \.mini|\.plist \.tcard button\.mini|\.chipbtn|button\.ob-chip|\.mainnav button|\.rw \.step|\.rw-ph)/.test(x)) return;
     seen++; if (/:hover/.test(x) && /var\(--(hov|prs)(-fill)?\)/.test(decl(r.body, 'background-image') || '')) tinted++;
     ['background', 'background-color'].forEach(p => { if (decl(r.body, p) !== null) bad.push(x + ' sets ' + p); });
@@ -105,7 +113,7 @@ rule('Fresh coat: hover and press tint over a control instead of replacing its c
 /* ---------- 3. combined states keep their marks ---------- */
 
 rule('Fresh coat: a hovered run row keeps its Next up bar, selection outline and blocked or re-check color', () => {
-  const rs = RULES.filter(r => screenOnly(r) && r.sel.some(x => /^\.rw \.step\b.*:hover/.test(x)));
+  const rs = RULES.filter(r => freshOnly(r) && r.sel.some(x => /^\.rw \.step\b.*:hover/.test(x)));
   assert.ok(rs.length, 'run rows hover');
   rs.forEach(r => {
     assert.ok(/var\(--hov\)/.test(decl(r.body, 'background-image') || ''), 'a tint: ' + r.sel.join(', '));
@@ -244,7 +252,7 @@ async function practicing(o) {
   app.click('open-process', 'release'); await app.tick();
   app.click('ptab', 'edit'); await app.tick();
   app.click('pr-open'); await app.tick(60);
-  assert.ok(/Practice · not recorded/.test(app.html()), 'set-up: practicing');
+  assert.ok(/Practice<\/span> not recorded/.test(app.html()), 'set-up: practicing');
   return app;
 }
 /* What the app animated (the harness records animate() instead of playing it): the row glow, the check's spring, the fill. */
@@ -341,7 +349,7 @@ rule('Fresh coat: opening another run never animates its bar from the last run\'
 /* ---------- 10. what the review found missing ---------- */
 
 rule('Fresh coat: printing keeps 2.3.1\'s look: no rule outside @media screen uses a fresh-coat token, and the base toggles, switches, gate stripe and eyebrow are 2.3.1\'s', () => {
-  const NEW = ['--hov', '--prs', '--hov-fill', '--prs-fill', '--track', '--edge', '--edge-strong', '--lift', '--lift-hi', '--ring', '--thumb', '--thumb-on', '--track-off', '--track-on', '--hero-eyebrow', '--spring'];
+  const NEW = ['--sel-bg', '--sel-ring', '--ctl-edge', '--ctl-edge-hi', '--link', '--r1-hov', '--r1-prs', '--hov', '--prs', '--hov-fill', '--prs-fill', '--track', '--edge', '--edge-strong', '--lift', '--lift-hi', '--ring', '--thumb', '--thumb-on', '--track-off', '--track-on', '--hero-eyebrow', '--spring'];
   const leaks = RULES.filter(r => !screenOnly(r) && !r.atRule && !r.sel.some(x => /^:root/.test(x)) && !r.at.some(a => /prefers-reduced-motion|forced-colors/.test(a)))
     .filter(r => NEW.some(t => new RegExp('var\\(' + t.replace(/-/g, '\\-') + '\\)').test(r.body))).map(r => r.sel.join(', '));
   assert.deepStrictEqual(leaks, [], 'fresh-coat tokens outside @media screen: ' + leaks.join(' | '));
@@ -449,4 +457,135 @@ rule('Fresh coat: emphasis never asks the body face for a weight it doesn\'t hav
   assert.ok(RULES.some(r => !r.at.length && r.sel.indexOf('b') >= 0 && r.sel.indexOf('strong') >= 0 && /font-weight:\s*700/.test(r.body)), 'b and strong are 700, never the browser\'s bolder');
 });
 
+/* ---------- one header and the affordance recipes (docs/design.md section 34) ---------- */
+rule('Affordance: every :hover rule sits inside @media screen and (hover: hover), so a tap never leaves a hover look stuck', () => {
+  const bad = RULES.filter(r => r.sel.some(x => /:hover/.test(x)) && !r.at.some(a => /hover:\s*hover/.test(a)));
+  assert.deepStrictEqual(bad.map(r => r.sel.join(', ')).slice(0, 8), [], bad.length + ' hover rules outside (hover: hover)');
+});
+rule('Affordance: the recipe tokens are on :root, --link is redefined for both dark blocks, and none leaks into print', () => {
+  const b = rootBlocks();
+  ['--ctl-edge', '--ctl-edge-hi', '--sel-bg', '--sel-ring', '--link', '--gut', '--r1-hov', '--r1-prs'].forEach(t => assert.ok(token(b.bare, t) !== null, t + ' on :root'));
+  assert.ok(token(b.sys, '--link') && token(b.pick, '--link'), '--link in both dark blocks');
+  const leak = RULES.filter(r => !r.atRule && !screenOnly(r) && !(r.sel.length && /^:root/.test(r.sel[0])) && /var\(--(sel-bg|sel-ring|ctl-edge|link|r1-hov|r1-prs)\)/.test(r.body));
+  assert.deepStrictEqual(leak.map(r => r.sel.join(', ')), [], 'recipe tokens used outside @media screen');
+});
+rule('Affordance: R1 hover is a black 8% overlay that excludes :active, and the 12% pressed rule comes after it', () => {
+  ['.btn.primary', '.btn.go', '.btn.stop'].forEach(b => {
+    const hi = RULES.findIndex(r => r.at.some(a => /hover:\s*hover/.test(a)) && r.sel.some(x => x.indexOf(b + ':hover:not(:active)') === 0) && /var\(--r1-hov\)/.test(decl(r.body, 'background-image') || ''));
+    const pi = RULES.findIndex(r => screenOnly(r) && r.sel.some(x => x.indexOf(b + ':active') === 0) && /var\(--r1-prs\)/.test(decl(r.body, 'background-image') || ''));
+    assert.ok(hi >= 0, b + ' hover uses --r1-hov and excludes :active'); assert.ok(pi > hi, b + ' pressed comes after hover');
+  });
+  const b = rootBlocks();
+  assert.strictEqual(token(b.bare, '--r1-hov').replace(/\s/g, ''), 'rgba(0,0,0,.08)'); assert.strictEqual(token(b.bare, '--r1-prs').replace(/\s/g, ''), 'rgba(0,0,0,.12)');
+});
+rule('Affordance: selection never uses an action fill, and every selected recipe keeps a Highlight border under forced colors', () => {
+  const SEL = ['.mainnav button[aria-current="page"]', 'button.tag.on', '.filter .chipbtn[aria-pressed="true"]', 'button.ob-chip[aria-pressed="true"]', '.ob-form .chipbtn[aria-pressed="true"]', '.tf-icon:has(input:checked)', '.rn-kinds .chipbtn[aria-pressed="true"]', '.rw-ph[data-s="current"]', '.sx-opt[aria-selected="true"]', '.dbx-o.on'];
+  SEL.forEach(x => {
+    const rs = RULES.filter(r => screenOnly(r) && !r.at.some(a => /forced-colors/.test(a)) && r.sel.indexOf(x) >= 0 && /var\(--sel-bg\)/.test(r.body));
+    assert.ok(rs.length, x + ' uses the selected recipe');
+    assert.ok(RULES.some(r => r.at.some(a => /forced-colors:\s*active/.test(a)) && r.sel.indexOf(x) >= 0 && /Highlight/.test(r.body)), x + ' under forced colors');
+  });
+});
+rule('Affordance: the Markdown editor keeps the global focus outline (the field-focus rule leaves .code-editor out)', () => {
+  const r = RULES.filter(r => r.sel.some(x => /textarea:not\(\[readonly\]\):not\(:disabled\)/.test(x) && /:focus/.test(x)));
+  assert.ok(r.length && r.every(x => x.sel.filter(y => /^textarea:not/.test(y)).every(y => /:not\(\.code-editor\)/.test(y))), 'amended with :not(.code-editor)');
+  assert.ok(RULES.some(r => r.sel.indexOf('.fpe-md .code-editor:focus-visible') >= 0 && /solid var\(--focus\)/.test(decl(r.body, 'outline') || '')), 'a solid inset outline');
+});
+rule('Affordance: separators sit in a 28px gutter column; only the 24px strip takes the pointer', () => {
+  const cols = RULES.filter(r => r.sel.some(x => /fpe-panes/.test(x)) && decl(r.body, 'grid-template-columns'));
+  assert.ok(cols.length >= 4, 'pane grids'); assert.ok(cols.some(r => /var\(--gut\)/.test(decl(r.body, 'grid-template-columns'))), 'gutter columns');
+  assert.ok(!cols.some(r => /(^|\s)0(\s|$)/.test(decl(r.body, 'grid-template-columns')) && !/rail|max-width: 1100px/.test(r.sel.join(' ') + r.at.join(' '))), 'no 0 separator column but the rail\'s');
+  assert.ok(RULES.some(r => r.sel.indexOf('.pane-split') >= 0 && decl(r.body, 'pointer-events') === 'none'), 'the separator itself takes no pointer');
+  assert.ok(RULES.some(r => r.sel.indexOf('.pane-split::before') >= 0 && decl(r.body, 'width') === '24px' && decl(r.body, 'pointer-events') === 'auto'), 'its 24px strip does');
+});
+rule('One header: one rule hides the top bar on every work screen, and the old header layouts are gone', () => {
+  assert.ok(RULES.some(r => r.sel.indexOf('html.work-on .top') >= 0 && decl(r.body, 'display') === 'none'), 'html.work-on .top');
+  const old = RULES.filter(r => r.sel.some(x => /\.(fpe-head|ws-head|ws-right|fpe-tools|fpe-save|fpe-id|fpe-title|rw-tools|rw-me|pr-badge)\b/.test(x)) && !/min-width:\s*10ch/.test('') );
+  assert.deepStrictEqual(old.map(r => r.sel.join(', ')).slice(0, 6), [], old.length + ' rules for the old header');
+  assert.ok(!RULES.some(r => r.sel.some(x => /html\.(fpe-on|rw-on|tfe-on|rw-page) \.top/.test(x))), 'no per-screen top-bar rules');
+  ['.hd', '.hd-l', '.hd-c', '.hd-r', '.hd-acts', '.tr', '.tg', '.facts', '.more-list'].forEach(x => assert.ok(RULES.some(r => r.sel.indexOf(x) >= 0), x + ' styled'));
+  assert.ok(RULES.some(r => r.at.some(a => /max-width: 800px/.test(a)) && r.sel.indexOf('html.work-on .hd') >= 0 && decl(r.body, 'position') === 'sticky' && /var\(--keep-h\)/.test(decl(r.body, 'top') || '')), 'row 1 sticks under the banner on a phone');
+  assert.ok(RULES.some(r => r.sel.indexOf('[role="tabpanel"]') >= 0 && /var\(--keep-h[^)]*\)\s*\+\s*var\(--hd-h/.test(decl(r.body, 'scroll-margin-top') || '')), 'tab panels land below the header');
+});
+rule('One header: above 800px every row 1 control is exactly 36px: the way back, the view switch, the primary and More', () => {
+  const wide = RULES.filter(r => r.at.some(a => /min-width: 801px/.test(a)));
+  const r1 = wide.filter(r => r.sel.some(x => /^\.hd :is\(/.test(x)) && decl(r.body, 'height') === '36px');
+  assert.strictEqual(r1.length, 1, 'one shared row 1 sizing rule');
+  const sel = r1[0].sel.join(', ');
+  /* Exactly these four: row 1's way back, the view switch, the primary's slot and More's opener. Nothing in More's list (its
+     items keep R8), and the status line's links keep their link recipe. */
+  assert.strictEqual(sel, '.hd :is(.hd-l > .backc, .hd-c button, .hd-acts :is(.btn, .mini), .more-btn):not(.linkish)');
+  assert.strictEqual(decl(r1[0].body, 'min-height'), '36px');
+  assert.strictEqual(decl(r1[0].body, 'box-sizing'), 'border-box');
+});
+rule('One header: a status line\'s links are 24px targets: the inline-sentence exception leaves .hd-st alone', () => {
+  const ex = RULES.filter(r => r.sel.some(x => /^p\b[^,]*button\.linkish/.test(x)) && decl(r.body, 'display') === 'inline');
+  assert.ok(ex.length >= 1, 'the inline-sentence exception exists');
+  ex.forEach(r => r.sel.forEach(x => assert.match(x, /^p:not\(\.hd-st\) /, 'the exception skips the status line: ' + x)));
+  assert.ok(RULES.some(r => r.sel.indexOf('button.linkish') >= 0 && decl(r.body, 'min-height') === '24px' && decl(r.body, 'display') === 'inline-flex'), 'the 24px link recipe');
+});
+rule('One header: native fields in a tool row (Pause\'s box, Hand off\'s select) and the reason line\'s controls are sized: 32px above 800, 44px at 800 and less', () => {
+  const wide = RULES.filter(r => r.at.some(a => /min-width: 801px/.test(a))), phone = RULES.filter(r => r.at.some(a => /max-width: 800px/.test(a)));
+  const fields = '.tr :is(input:not([type="checkbox"]):not([type="radio"]), select)';
+  assert.ok(wide.some(r => r.sel.join(', ') === fields && decl(r.body, 'height') === '32px' && decl(r.body, 'box-sizing') === 'border-box'), 'tool-row fields 32px above 800');
+  assert.ok(phone.some(r => r.sel.join(', ') === fields && decl(r.body, 'min-height') === '44px'), 'tool-row fields 44px on a phone');
+  assert.ok(wide.some(r => r.sel.join(', ') === '.hd-why :is(.btn, .mini)' && decl(r.body, 'height') === '32px'), 'reason-line controls 32px above 800');
+});
+rule('One header: a long way back shrinks with an ellipsis and keeps its view suffix whole', () => {
+  const t = RULES.filter(r => r.sel.some(x => /\.backc-t\b/.test(x)));
+  assert.ok(t.some(r => decl(r.body, 'min-width') === '0' && decl(r.body, 'overflow') === 'hidden' && decl(r.body, 'text-overflow') === 'ellipsis'), 'the label truncates: ' + t.map(r => r.body).join(' | '));
+  assert.ok(RULES.some(r => r.sel.indexOf('.backc .backc-v') >= 0 && decl(r.body, 'flex') === 'none'), 'the view suffix never shrinks');
+  assert.ok(RULES.some(r => r.sel.indexOf('.backc') >= 0 && decl(r.body, 'min-width') === '0'), 'the button itself can shrink');
+});
+rule('One header: nothing hides the step-type editor\'s status on a phone, and the old header pieces have no styles left', () => {
+  const st = RULES.filter(r => r.sel.some(x => /\.fpe-type \.fpe-state/.test(x)) && (decl(r.body, 'display') === 'none' || /rect\(/.test(decl(r.body, 'clip') || '') || decl(r.body, 'width') === '1px'));
+  assert.deepStrictEqual(st.map(r => r.sel.join(', ') + ' { ' + r.body.trim() + ' }'), [], 'the status line shows');
+  const gone = RULES.filter(r => r.sel.some(x => /\.(fpe-checks|fpe-done|fpe-practice|rw-back)\b/.test(x)));
+  assert.deepStrictEqual(gone.map(r => r.sel.join(', ')), [], 'unused');
+});
+rule('One header: above 800px every tool-row control is exactly 32px, the Builder | Markdown group too', () => {
+  const wide = RULES.filter(r => r.at.some(a => /min-width: 801px/.test(a)));
+  assert.ok(wide.some(r => r.sel.some(x => /^\.tr :is\(/.test(x)) && decl(r.body, 'height') === '32px'), '.tr controls 32px');
+  assert.ok(wide.some(r => r.sel.indexOf('.tr .seg') >= 0 && decl(r.body, 'height') === '32px'), 'the group 32px');
+});
+
+rule('One header: at 800px and narrower every header and tool-row control is 44px tall, on every work screen', () => {
+  const phone = RULES.filter(r => r.at.some(a => /max-width: 800px/.test(a)) && /^44px$/.test(decl(r.body, 'min-height') || ''));
+  const has = s => phone.some(r => r.sel.some(x => x.startsWith(s)));
+  ['.hd :is(', '.tr :is(', '.tr .seg button'].forEach(s => assert.ok(has(s), s + ' 44px on a phone'));
+});
+
+rule('One header: at 800px and narrower a link-styled button in a header or tool row (Discard my changes) is 44px tall too', () => {
+  const phone = RULES.filter(r => r.at.some(a => /max-width: 800px/.test(a)) && /^44px$/.test(decl(r.body, 'min-height') || ''));
+  const heads = phone.map(r => r.sel.join(', '));
+  ['.hd', '.tr'].forEach(w => assert.ok(heads.some(h => h.indexOf(w + ' :is(button.link, button.linkish)') >= 0), w + ': button.link and button.linkish 44px on a phone'));
+});
+
+rule('Styles: every comment in the page\'s CSS closes before the next one opens, so no rule is swallowed', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'page.html'), 'utf8'), css = src.slice(src.indexOf('<style>'), src.indexOf('</style>'));
+  const bad = []; let i = 0;
+  for (;;) { const j = css.indexOf('/*', i); if (j < 0) break; const k = css.indexOf('*/', j + 2); if (k < 0) { bad.push('unclosed: ' + css.slice(j, j + 60)); break; } if (css.slice(j + 2, k).indexOf('/*') >= 0) bad.push(css.slice(j, j + 60)); i = k + 2; }
+  assert.deepStrictEqual(bad, [], 'a comment holds another comment\'s start: rules between them are dead');
+});
+
+rule('One header: the tool row\'s facts rules are scoped to the tool row, so the skill page\'s dl.facts keeps its grid', () => {
+  const facts = RULES.filter(r => !r.atRule && r.sel.some(x => /(^|[\s>+~])\.facts\b/.test(x) || /^\.facts\b/.test(x)));
+  const bare = facts.filter(r => r.sel.some(x => /^\.facts(\s|$)/.test(x)));
+  bare.forEach(r => { const d = decl(r.body, 'display'); assert.ok(d === null || d === 'grid', 'a bare .facts rule changes the grid: ' + r.sel.join(', ') + ' { ' + r.body.trim() + ' }'); ['flex-basis', 'margin-left', 'justify-content', 'flex-wrap'].forEach(pr => assert.strictEqual(decl(r.body, pr), null, 'a bare .facts rule sets ' + pr + ': ' + r.sel.join(', '))); });
+  assert.ok(RULES.some(r => !r.at.length && r.sel.join(', ') === '.tr > .facts' && decl(r.body, 'display') === 'flex' && decl(r.body, 'margin-left') === 'auto'), 'the tool row\'s facts: flex, pushed right');
+  assert.ok(RULES.some(r => r.at.some(a => /max-width: 800px/.test(a)) && r.sel.join(', ') === '.tr > .facts' && decl(r.body, 'flex-basis') === '100%'), 'the tool row\'s facts on a phone: their own line');
+  const grid = RULES.filter(r => !r.at.length && r.sel.join(', ') === '.facts' && decl(r.body, 'display') === 'grid');
+  assert.strictEqual(grid.length, 1, 'the dl.facts grid');
+});
+rule('One header: the save state in a status line reads whole: no fixed width or end-justified box clips its start, and it wraps on a phone', () => {
+  const st = RULES.filter(r => !r.atRule && r.sel.some(x => /\.fpe-state\b/.test(x) && !/\.fpe-state\.(dirty|just)\b|\.fpe-state \.ic\b/.test(x)));
+  st.forEach(r => {
+    const w = decl(r.body, 'width'); assert.ok(w === null || w === 'auto', 'a fixed width on the save state: ' + r.sel.join(', ') + ' width: ' + w);
+    assert.notStrictEqual(decl(r.body, 'justify-content'), 'flex-end', 'an end-justified save state overflows at its start: ' + r.sel.join(', '));
+  });
+  const sv = RULES.filter(r => !r.at.length && r.sel.join(', ') === '.hd-st .d.sv');
+  assert.strictEqual(sv.length, 1, 'the status line\'s save-state piece has its own rule');
+  assert.strictEqual(decl(sv[0].body, 'white-space'), 'normal', 'it wraps');
+  assert.strictEqual(decl(sv[0].body, 'overflow'), 'visible', 'it clips nothing');
+});
 run();

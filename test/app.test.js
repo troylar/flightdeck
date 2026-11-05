@@ -48,7 +48,8 @@ rule('App: a run-another-process step starts a linked child run, and the parent 
   assert.strictEqual(child.parent.inputs.commit, 'f00d123', 'the child records the details it was started for');
   assert.strictEqual(link.inputs.commit, 'f00d123');
   assert.strictEqual(child.details.commit, parent.details.commit, 'carried detail');
-  // The child is finished elsewhere.
+  // The child is finished elsewhere: its steps done and its gates passed.
+  finishedKid(app.PF, child);
   child.ended = { outcome: 'Completed', by: 'person-avery', at: new Date().toISOString() }; child.state = 'completed'; child.rev = (child.rev || 0) + 1;
   await app.fs.write(cpath, JSON.stringify(child));
   app.click('refresh'); await app.tick(80);
@@ -274,7 +275,7 @@ rule('App: the draft builder moves, edits, adds and deletes steps and adds a pha
   app.set('ob-new-title', 'Watch the metrics'); app.click('ob-choice', 'ob-new-mode', { val: 'DO-CONFIRM' }); app.click('ob-add-go'); await app.tick();
   assert.ok(/id="ob-new-text"/.test(app.html()), 'a new phase opens with its add-a-step box');
   app.set('ob-new-text', 'Error rate is flat'); app.click('ob-add-go'); await app.tick();
-  assert.ok(/Unsaved: Save draft before you publish/.test(app.html()), 'builder edits are unsaved, like typing');
+  assert.ok(/Draft: not saved\. Save it before you publish\./.test(app.html()), 'builder edits are unsaved, like typing');
   assert.strictEqual(app.fs.files[path].t, original, 'nothing written yet');
   app.click('save-draft'); await app.tick(80);
   const saved = app.fs.files[path].t;
@@ -286,7 +287,7 @@ rule('App: the draft builder moves, edits, adds and deletes steps and adds a pha
   const was = idsOf(PF, original), now = idsOf(PF, saved);
   assert.deepStrictEqual(now.slice(0, 5), ['approved', 'flags', 'check-the-dashboards', 'rollback', 'tests'], 'moved by button and by Alt+Up, and not by a bare arrow');
   assert.deepStrictEqual(now.filter(x => was.includes(x)).sort(), was.filter(x => x !== 'announce').sort(), 'every other ID kept');
-  assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()), 'saved');
+  assert.ok(!/Draft: not saved\. Save it before you publish\./.test(app.html()), 'saved');
 });
 
 rule('App: the builder\'s Undo puts back the last change, and the Markdown view lists the lines changed', async () => {
@@ -295,7 +296,7 @@ rule('App: the builder\'s Undo puts back the last change, and the Markdown view 
   app.click('ob-del', 'rollback'); await app.tick();
   assert.ok(!/data-ob-step="rollback"/.test(app.html()) && /Deleted the step\./.test(app.html()));
   app.click('tl-undo', 'draft'); await app.tick();
-  assert.ok(/data-ob-step="rollback"/.test(app.html()) && !/Unsaved: Save draft before you publish/.test(app.html()), 'back, and nothing left unsaved');
+  assert.ok(/data-ob-step="rollback"/.test(app.html()) && !/Draft: not saved\. Save it before you publish\./.test(app.html()), 'back, and nothing left unsaved');
   app.click('ob-sel-phase', 'verify'); await app.tick();
   app.set('ob-ph-title', 'Verify it'); app.keyOn('Enter', {}, { tagName: 'INPUT', id: 'ob-ph-title', value: 'Verify it', dataset: { enter: 'ob-commit' }, closest: () => null }); await app.tick();
   app.click('ed-mode', 'markdown'); await app.tick();
@@ -317,16 +318,16 @@ rule('App: once the editor follows a newer draft from the folder, Undo takes it 
   app.click('ob-sel', 'flags'); await app.tick();
   app.check('ob-must', false); await app.tick();
   app.check('ob-must', true); await app.tick();
-  assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()), 'set-up: back to the saved text, with two Undo steps');
+  assert.ok(!/Draft: not saved\. Save it before you publish\./.test(app.html()), 'set-up: back to the saved text, with two Undo steps');
   const theirs = original.replace('title: Production release', 'title: Theirs');
   await app.fs.write(path, theirs);
   app.focus(); await app.tick(80);
-  assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()), 'followed');
+  assert.ok(!/Draft: not saved\. Save it before you publish\./.test(app.html()), 'followed');
   app.click('tl-undo', 'draft'); await app.tick();
-  assert.ok(/Unsaved: Save draft before you publish/.test(app.html()), 'their change, taken back in the editor, is an unsaved edit');
+  assert.ok(/Draft: not saved\. Save it before you publish\./.test(app.html()), 'their change, taken back in the editor, is an unsaved edit');
   assert.strictEqual(app.fs.files[path].t, theirs, 'Undo never writes the draft');
   app.click('tl-redo', 'draft'); await app.tick();
-  assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()), 'Redo: their text again, nothing unsaved');
+  assert.ok(!/Draft: not saved\. Save it before you publish\./.test(app.html()), 'Redo: their text again, nothing unsaved');
   assert.strictEqual(app.fs.files[path].t, theirs);
 });
 
@@ -394,7 +395,7 @@ rule('App: typing in the Markdown keeps the builder\'s Undo, and switching views
   app.click('tl-undo', 'draft'); await app.tick();
   assert.strictEqual(undoLabel(app), 'Undo step deletion', 'the typing went first, and the builder change is still there to undo');
   app.click('tl-undo', 'draft'); await app.tick();
-  assert.ok(/data-ob-step="rollback"/.test(app.html()) && !/Unsaved: Save draft before you publish/.test(app.html()), 'both undone, back to the saved draft');
+  assert.ok(/data-ob-step="rollback"/.test(app.html()) && !/Draft: not saved\. Save it before you publish\./.test(app.html()), 'both undone, back to the saved draft');
   app.click('tl-redo', 'draft'); await app.tick(); app.click('tl-redo', 'draft'); await app.tick();
   app.click('ed-mode', 'markdown'); await app.tick();
   assert.ok(!/\{#rollback\}/.test(mdOf(app)) && /@backend now \{#flags\}/.test(mdOf(app)), 'Redo brought both back');
@@ -406,9 +407,9 @@ rule('App: Undo after Save makes the draft unsaved again, and saving it is check
   app.click('ob-del', 'rollback'); await app.tick();
   app.click('save-draft'); await app.tick(80);
   const saved = app.fs.files[path].t;
-  assert.ok(!/\{#rollback\}/.test(saved) && !/Unsaved: Save draft before you publish/.test(app.html()), 'set-up: saved without Rollback');
+  assert.ok(!/\{#rollback\}/.test(saved) && !/Draft: not saved\. Save it before you publish\./.test(app.html()), 'set-up: saved without Rollback');
   app.click('tl-undo', 'draft'); await app.tick();
-  assert.ok(/Unsaved: Save draft before you publish/.test(app.html()) && /data-ob-step="rollback"/.test(app.html()), 'undoing a saved change makes the draft unsaved');
+  assert.ok(/Draft: not saved\. Save it before you publish\./.test(app.html()) && /data-ob-step="rollback"/.test(app.html()), 'undoing a saved change makes the draft unsaved');
   app.click('save-draft'); await app.tick(80);
   assert.strictEqual(app.fs.files[path].t, original, 'saved back to the original');
   app.click('tl-redo', 'draft'); await app.tick();
@@ -429,11 +430,11 @@ rule('App: following a newer draft from the folder is one undoable change: Undo 
   const theirs = app.fs.files[path].t.replace('title: Production release', 'title: Theirs');
   await app.fs.write(path, theirs);
   app.focus(); await app.tick(80);
-  assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()), 'the editor follows it, with nothing unsaved');
+  assert.ok(!/Draft: not saved\. Save it before you publish\./.test(app.html()), 'the editor follows it, with nothing unsaved');
   assert.ok(!/data-act="tl-undo" data-id="draft" aria-disabled="true"/.test(app.html()), 'Undo is available');
   assert.ok(/This draft changed in the team folder\. Undo available\./.test(app.live()), 'and says so once');
   app.click('tl-undo', 'draft'); await app.tick();
-  assert.ok(/Unsaved: Save draft before you publish/.test(app.html()) && !/data-ob-step="rollback"/.test(app.html()), 'one Undo takes their change back, as an unsaved edit');
+  assert.ok(/Draft: not saved\. Save it before you publish\./.test(app.html()) && !/data-ob-step="rollback"/.test(app.html()), 'one Undo takes their change back, as an unsaved edit');
   app.click('tl-undo', 'draft'); await app.tick();
   assert.ok(/data-ob-step="rollback"/.test(app.html()), 'and the change before it can still be undone');
   app.click('hist-open', 'draft'); await app.tick();
@@ -493,14 +494,14 @@ rule('App: Cmd+Z in a builder box with typing not yet applied leaves that box\'s
   const app = await builderOn();
   app.click('ob-sel', 'flags'); await app.tick();
   app.check('ob-must', false); await app.tick();
-  assert.ok(/Unsaved: Save draft before you publish/.test(app.html()), 'set-up: one change to undo');
+  assert.ok(/Draft: not saved\. Save it before you publish\./.test(app.html()), 'set-up: one change to undo');
   const box = v => ({ tagName: 'INPUT', id: 'ob-text', value: v, defaultValue: 'Feature flags set in the deploy values', dataset: { enter: 'ob-commit' }, closest: () => null });
   assert.ok(!cmdKey(app, 'z', box('Feature flags, half typed')), 'the browser undoes the typing in the box');
   await app.tick();
-  assert.ok(/Unsaved: Save draft before you publish/.test(app.html()), 'and the draft is left alone');
+  assert.ok(/Draft: not saved\. Save it before you publish\./.test(app.html()), 'and the draft is left alone');
   assert.ok(cmdKey(app, 'z', box('Feature flags set in the deploy values')), 'with nothing typed, the draft\'s Undo');
   await app.tick();
-  assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()), 'undone');
+  assert.ok(!/Draft: not saved\. Save it before you publish\./.test(app.html()), 'undone');
   assert.ok(!cmdKey(app, 'z', { tagName: 'SELECT', id: 'me', value: '', dataset: {}, closest: () => null }), 'the name at the top keeps the browser\'s');
 });
 
@@ -872,7 +873,7 @@ rule('Page: the Tab only badge is fixed above every layer, safe-area aware, and 
   const others = (html.match(/z-index:\s*\d+/g) || []).map(x => +x.replace(/\D/g, '')).filter(n => n !== z);
   assert.ok(others.length > 5 && others.every(n => n < z), 'every sheet, overlay, dialog and menu sits below it: ' + Math.max(...others) + ' < ' + z);
   assert.ok(!/\btabindex=|<button|<a\s/.test(html.slice(html.indexOf('<div id="tab-badge"'), html.indexOf('</div>', html.indexOf('<div id="tab-badge"')))), 'the shell holds nothing focusable');
-  for (const sel of ['.overlay', '.rw-ins[data-open="true"]', '.fpe', '.top', '.fpe-head.rw-head', 'body']) {
+  for (const sel of ['.overlay', '.rw-ins[data-open="true"]', '.fpe', '.top', 'html.work-on .hd', 'body']) {
     assert.ok(rules.some(r => r.sel.split(',').map(s => s.trim()).includes(sel) && /var\(--keep-h/.test(r.body)), sel + ' starts below the badge');
   }
 });
@@ -929,9 +930,9 @@ rule('App: the run strip and both editors say Saved in this tab only while stora
     const draft = (/class="fpe-state[^"]*"[^>]*>(?:<span class="ic"[\s\S]*?<\/span>)?([^<]*)</.exec(app.html()) || [])[1];
     return { type, strip, draft };
   };
-  assert.deepStrictEqual(await labels(await blocked()), { type: 'Saved in this tab only', strip: 'Saved in this tab only', draft: 'Saved in this tab only' });
+  assert.deepStrictEqual(await labels(await blocked()), { type: 'Saved in this tab only', strip: 'Saved in this tab only', draft: 'Draft: Saved in this tab only' });
   const normal = boot(); await normal.tick(60); normal.choose('person-casey'); await normal.tick();
-  assert.deepStrictEqual(await labels(normal), { type: 'Saved', strip: 'Saved here', draft: 'Saved' });
+  assert.deepStrictEqual(await labels(normal), { type: 'Saved', strip: 'Saved here', draft: 'Draft: Saved' });
 });
 
 rule('App: with storage working, there is no badge, no explanation and no room left for them', async () => {
@@ -978,7 +979,7 @@ rule('App: while a save of the draft is still finishing, a refresh never replace
   assert.ok(/data-ob-step="rollback"/.test(app.html()), 'the refresh leaves the Undo alone');
   g.open(); await app.tick(80); app.fs.write = write;
   app.focus(); await app.tick(80);
-  assert.ok(/data-ob-step="rollback"/.test(app.html()) && /Unsaved: Save draft before you publish/.test(app.html()), 'after the save lands, the Undo is still there, unsaved');
+  assert.ok(/data-ob-step="rollback"/.test(app.html()) && /Draft: not saved\. Save it before you publish\./.test(app.html()), 'after the save lands, the Undo is still there, unsaved');
   assert.ok(!/data-act="tl-redo" data-id="draft" aria-disabled/.test(app.html()), 'and Redo still can put the deletion back');
   app.click('save-draft'); await app.tick(80);
   assert.strictEqual(app.fs.files[path].t, original);
@@ -1239,7 +1240,7 @@ rule('App: on a phone, the step-type Preview is a dialog: focus goes in, Tab sta
   app.click('tf-preview'); await app.tick();
   const h = app.html();
   assert.ok(/<aside class="fpe-pane tf-preview open" id="tf-preview" role="dialog" aria-modal="true" aria-labelledby="tf-prev-h"/.test(h), 'a modal dialog');
-  assert.ok(/<header class="fpe-head" role="region" aria-labelledby="tf-h" inert/.test(h) && /<section class="fpe-pane tf-formpane" aria-label="Step type" inert/.test(h), 'what\'s behind it can\'t be used');
+  assert.ok(/<header class="hd" role="region" aria-labelledby="tf-h" inert/.test(h) && /<section class="fpe-pane tf-formpane" aria-label="Step type" inert/.test(h), 'what\'s behind it can\'t be used');
   assert.ok(app.asked().includes('.tf-prevclose'), 'focus goes to Close');
   const doc = app.doc, btn = n => ({ id: n, dataset: {}, focus() { doc.activeElement = this; }, closest: () => null, getClientRects: () => [{}] });
   const ctl = [btn('close'), btn('last')], pv = app.el('tf-preview');
@@ -1779,7 +1780,7 @@ rule('New process: a blank one starts with no placeholder step, the Add a step b
   assert.ok(/^## First phase · READ-DO \{#first\}$/m.test(md) && !/first-step|The first thing to do/.test(md), md);
   assert.ok(/id="ob-new-text"/.test(app.html()), 'the add box is open');
   assert.strictEqual(app.focused(), 'ob-new-text');
-  assert.ok(/data-act="pr-open"/.test(app.html()) && !/Practice · not recorded/.test(app.html()), 'Practice offered, not opened');
+  assert.ok(/data-act="pr-open"/.test(app.html()) && !/Practice<\/span> not recorded/.test(app.html()), 'Practice offered, not opened');
   assert.ok(/Type a step and press Enter for the next one/.test(app.live()) && /Choose Practice to run it as you go/.test(app.live()), app.live());
   addEnter(app, 'Patch the servers'); await app.tick();
   app.click('pr-open'); await app.tick(60);
@@ -1789,7 +1790,7 @@ rule('New process: a blank one starts with no placeholder step, the Add a step b
 rule('New process: on a phone the blank one opens with the add box only; in Markdown mode the editor, Practice one press away', async () => {
   const phone = await newBlank({ narrow: true });
   phone.set('np-title', 'Weekly server patching'); phone.submit('new-process-form'); await phone.tick(120);
-  assert.ok(/id="ob-new-text"/.test(phone.html()) && !/Practice · not recorded/.test(phone.html()), 'no practice on its own');
+  assert.ok(/id="ob-new-text"/.test(phone.html()) && !/Practice<\/span> not recorded/.test(phone.html()), 'no practice on its own');
   const md = await newBlank({ localStore: { 'preflight:builder': 'false' } });
   md.set('np-title', 'Weekly server patching'); md.submit('new-process-form'); await md.tick(120);
   assert.ok(/id="draft-editor"/.test(md.html()) && /data-act="pr-open"/.test(md.html()), 'the Markdown editor, with Practice');
@@ -1807,21 +1808,28 @@ rule('New process: a refresh that read the folder before the draft was written n
   assert.ok(/id="ob-new-text"/.test(app.html()), 'the editor opened on the new draft, ready to type');
 });
 
-rule('New process: a blank one practiced to the end offers Stage with What changed prefilled "First version", and stages', async () => {
-  const app = await newBlank();
+/* A click inside the dialog layer, which practice lets through as it does any dialog. */
+const ovClick = (app, act, id) => { const b = { dataset: { act, id }, disabled: false, classList: { contains: () => false }, closest: s => (s === '#overlay' ? {} : null) }; app.fire('click', { target: { closest: () => b } }); };
+
+rule('New process: a blank one practiced to the end offers Publish v1…, whose dialog has What changed prefilled "First version", and stages', async () => {
+  /* domFocus: the dialog's box reads as drawn, so the prefilled note is what Stage sends. */
+  const app = await newBlank({ domFocus: true });
   app.set('np-title', 'Weekly server patching'); app.submit('new-process-form'); await app.tick(120);
   addEnter(app, 'Patch the servers'); await app.tick();
   app.click('save-draft'); await app.tick(150);
   app.click('pr-open'); await app.tick(60);
   app.click('toggle', 'patch-the-servers'); await app.tick();
   if (/data-act="pass" data-id="0"/.test(app.html())) { app.click('pass', '0'); await app.tick(); }
-  assert.ok(/<input id="pr-note"[^>]*value="First version"/.test(app.html()), 'prefilled');
-  app.click('pr-stage'); await app.tick(300);
+  assert.match(app.html(), /Publish v1… at the top right publishes it, or stages it for a test run\./);
+  app.click('pr-publish-open', 'weekly-server-patching'); await app.tick();
+  assert.ok(/<input id="change-note"[^>]*value="First version"/.test(app.overlay()), 'prefilled');
+  ovClick(app, 'stage-draft', 'weekly-server-patching'); await app.tick(300);
   assert.ok(Object.keys(app.fs.files).some(k => /^staged\/weekly-server-patching\/stage-[^/]+\/map\.md$/.test(k)), 'staged');
 });
 
-rule('New process: once "First version" is staged and practice stays open, the emptied What changed is refused, never staged twice', async () => {
-  const app = await newBlank();
+rule('New process: once "First version" is staged and practice stays open, neither Practice nor Edit offers Publish again, and opening the dialog from Edit is refused, so it is never staged twice', async () => {
+  /* domFocus: the dialog's box reads as drawn, so the prefilled note is what Stage sends. */
+  const app = await newBlank({ domFocus: true });
   app.set('np-title', 'Weekly server patching'); app.submit('new-process-form'); await app.tick(120);
   addEnter(app, 'Patch the servers'); await app.tick();
   app.click('save-draft'); await app.tick(150);
@@ -1831,15 +1839,20 @@ rule('New process: once "First version" is staged and practice stays open, the e
   let go; const gate = new Promise(r => { go = r; });
   const orig = app.fs.write.bind(app.fs);
   app.fs.write = (x, d) => /^staged\//.test(x) ? gate.then(() => orig(x, d)) : orig(x, d);
-  app.click('pr-stage'); await app.tick(30);
+  app.click('pr-publish-open', 'weekly-server-patching'); await app.tick();
+  ovClick(app, 'stage-draft', 'weekly-server-patching'); await app.tick(30);
   app.click('select', 'patch-the-servers'); await app.tick();
   go(); await app.tick(300); app.fs.write = orig;
   const staged = () => Object.keys(app.fs.files).filter(k => /^staged\/weekly-server-patching\/stage-[^/]+\/map\.md$/.test(k)).length;
   assert.strictEqual(staged(), 1, 'set-up: staged once, practice kept');
-  assert.ok(/<input id="pr-note"[^>]*value=""/.test(app.html()), 'the box is empty');
-  app.click('pr-stage'); await app.tick(300);
-  assert.strictEqual(staged(), 1, 'not staged again');
-  assert.match(app.html(), /<p class="ferr" id="ferr-pr-note" role="alert">Write what changed/);
+  assert.match(app.html(), /Practice<\/span> not recorded/, 'set-up: practice kept');
+  assert.ok(!/data-act="pr-publish-open"/.test(app.html()), 'the staged draft has no Publish to offer again');
+  app.click('pr-back'); await app.tick();
+  assert.ok(/id="ed-h"/.test(app.html()) && !/data-act="publish-open"/.test(app.html()), 'Edit has none either');
+  app.click('publish-open', 'weekly-server-patching'); await app.tick();
+  assert.strictEqual(app.overlay(), '', 'opening the dialog from Edit is refused');
+  ovClick(app, 'stage-draft', 'weekly-server-patching'); await app.tick(300);
+  assert.strictEqual(staged(), 1, 'never staged twice');
 });
 
 rule('New process: a template still starts with its steps and still offers Publish v1 as it is', async () => {
@@ -2283,8 +2296,8 @@ rule('R13: with locks, two duplicated recording windows save one at a time; the 
 
 rule('R13: without locks, a duplicated window can\'t record at all, so it can\'t overwrite the recorder', async () => {
   const { a, b } = await twoWindows(false);
-  assert.ok(/You're recording|Your run/.test(a.html()));
-  assert.ok(!/You're recording\.|Your run\./.test(b.html()), 'the duplicate is view-only');
+  assert.ok(/You're recording|Your run|Recording as <b>/.test(a.html()));
+  assert.ok(!/You're recording\.|Your run\.|Recording as <b>/.test(b.html()), 'the duplicate is view-only');
 });
 
 rule('R14: without a shared lock, a save overwritten by Record here comes back as a conflict copy', async () => {
@@ -3146,7 +3159,7 @@ rule('Plans: the example plan with a time shows on Home with one way to review a
   const app = boot({ Date: clockFrom(MIDDAY) }); await app.tick(60);
   app.choose('person-casey'); await app.tick();
   assert.ok(/Release 2026\.10\.23 is planned for [^<]* · in \d+ (hours|minutes)/.test(app.html()));
-  assert.ok(/data-act="review-plan" data-id="plan-release-example-next">Review and start</.test(app.html()));
+  assert.ok(/data-act="review-plan" data-id="plan-release-example-next">Review the plan</.test(app.html()));
 });
 
 rule('Plans: a switch pins the exact version chosen; a version published after the switch is pointed out, never started silently', async () => {
@@ -3334,7 +3347,7 @@ rule('App: Apply to draft compares three ways, saves the draft as one undoable c
   assert.ok(/Corrections · 1 open/.test(app.html()));
   // One entry on the draft editor's timeline, named for what it did; Undo takes it back as an unsaved change in the editor.
   app.click('tl-undo', 'draft'); await app.tick();
-  assert.ok(/Undid the applied correction to &quot;New pods stay up with no restarts&quot;\./.test(app.html()) && /Unsaved: Save draft before you publish/.test(app.html()), 'undone in the editor, not saved');
+  assert.ok(/Undid the applied correction to &quot;New pods stay up with no restarts&quot;\./.test(app.html()) && /Draft: not saved\. Save it before you publish\./.test(app.html()), 'undone in the editor, not saved');
   assert.strictEqual(app.fs.files[path].t, after, 'Undo never writes by itself');
   app.click('save-draft'); await app.tick(80);
   assert.strictEqual(app.fs.files[path].t, before);
@@ -3428,7 +3441,7 @@ rule('App: when the draft can\'t be saved, the applied correction is shown in th
   app.click('corr-review', id); await app.tick();
   app.click('corr-apply', id); await app.tick(80);
   app.PF.repo.applyCorrection = orig;
-  assert.ok(/class="fpe" id="fpe"/.test(app.html()) && /Unsaved: Save draft before you publish/.test(app.html()), 'the editor is open with the unsaved change');
+  assert.ok(/class="fpe" id="fpe"/.test(app.html()) && /Draft: not saved\. Save it before you publish\./.test(app.html()), 'the editor is open with the unsaved change');
   assert.ok(/Couldn&#39;t save the draft|Couldn't save the draft/.test(app.html()));
 });
 
@@ -3575,12 +3588,12 @@ rule('App: a part dragged onto a line in the outline is added there, selected, w
 rule('App: a dragged part dropped where it can\'t go is refused and nothing changes', async () => {
   const app = await builderOn();
   dragPart(app, 'gate', 'before:flags', 'gate'); await app.tick();
-  assert.ok(/Approval can.t go there/.test(app.live()) && !/Unsaved: Save draft before you publish/.test(app.html()), 'refused');
+  assert.ok(/Approval can.t go there/.test(app.live()) && !/Draft: not saved\. Save it before you publish\./.test(app.html()), 'refused');
   dragPart(app, 'lanes', 'lane:deploy:0', 'lanes'); await app.tick();
-  assert.ok(/Parallel lanes can.t go there/.test(app.live()) && !/Unsaved: Save draft before you publish/.test(app.html()), 'a lane that isn\'t there');
+  assert.ok(/Parallel lanes can.t go there/.test(app.live()) && !/Draft: not saved\. Save it before you publish\./.test(app.html()), 'a lane that isn\'t there');
   app.click('ob-part', 'step'); await app.tick();
   app.click('ob-place-at', 'gate:verify'); await app.tick();
-  assert.ok(/Step can.t go there/.test(app.live()) && !/Unsaved: Save draft before you publish/.test(app.html()) && /class="ob placing for-step"/.test(app.html()), 'by click too, and still placing');
+  assert.ok(/Step can.t go there/.test(app.live()) && !/Draft: not saved\. Save it before you publish\./.test(app.html()) && /class="ob placing for-step"/.test(app.html()), 'by click too, and still placing');
 });
 
 rule('App: placing a part by keyboard announces it, moves among legal places with full names, and Escape returns to the part', async () => {
@@ -3623,9 +3636,9 @@ rule('App: every new kind of builder change can be undone, back to the saved tex
   const app = await builderOn();
   const undone = async (what, act) => {
     await act(); await app.tick();
-    assert.ok(/Unsaved: Save draft before you publish/.test(app.html()), what + ': changed');
+    assert.ok(/Draft: not saved\. Save it before you publish\./.test(app.html()), what + ': changed');
     app.click('tl-undo', 'draft'); await app.tick();
-    assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()), what + ': undone exactly');
+    assert.ok(!/Draft: not saved\. Save it before you publish\./.test(app.html()), what + ': undone exactly');
   };
   await undone('a lane added', async () => dragPart(app, 'lanes', 'lane:deploy:end', 'lanes'));
   await undone('a phase added first', async () => dragPart(app, 'phase', 'phase:^', 'phase'));
@@ -3761,9 +3774,9 @@ rule('App: when a dragged step is dropped or let go, its drop lines go away', as
 });
 
 /* ---------- the full-page editor ---------- */
-rule('App: the editor opens as its own page with focus on its heading; Done returns to Edit and says edits stay', async () => {
+rule('App: the editor opens as its own page with focus on the Edit button (its heading is hidden); Done returns to Edit and says edits stay', async () => {
   const app = await builderOn();
-  assert.strictEqual(app.focused(), 'ed-h');
+  assert.strictEqual(app.focused(), 'ws-edit');
   assert.strictEqual(app.session['preflight:editing'], 'release', 'remembered in this tab');
   app.key('Escape'); await app.tick();
   assert.ok(/id="fpe"/.test(app.html()), 'Escape never closes it');
@@ -3777,8 +3790,8 @@ rule('App: the editor opens as its own page with focus on its heading; Done retu
 
 rule('App: a refresh while editing comes back to the editor', async () => {
   const app = boot({ sessionStore: { 'preflight:editing': 'release' } }); await app.tick(80);
-  assert.ok(/id="fpe"/.test(app.html()) && /Production release <span class="cat">Draft/.test(app.html()));
-  assert.strictEqual(app.focused(), 'ed-h');
+  assert.ok(/id="fpe"/.test(app.html()) && /<h1 id="ed-h"><span class="hd-t" title="Production release">Production release<\/span><span class="sr">, Edit<\/span><\/h1>/.test(app.html()));
+  assert.strictEqual(app.focused(), 'ws-edit');
 });
 
 rule('App: the inspector\'s tabs switch by click and arrow keys; Checks and Preview are remembered; selecting shows Selected', async () => {
@@ -3831,7 +3844,7 @@ rule('App: Step in an empty checklist adds a phase with the step in it, as one c
   app.click('ob-phase-with'); await app.tick();
   assert.ok(/<li class="ob-step sel ob-new"[^>]*data-ob-step="new-step">/.test(app.html()) && app.focused() === 'ob-text');
   app.click('tl-undo', 'draft'); await app.tick();
-  assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()), 'one Undo takes both back');
+  assert.ok(!/Draft: not saved\. Save it before you publish\./.test(app.html()), 'one Undo takes both back');
 });
 
 rule('App: saving shows a quiet Saved check beside Save for a moment', async () => {
@@ -3839,10 +3852,10 @@ rule('App: saving shows a quiet Saved check beside Save for a moment', async () 
   app.click('ob-del', 'rollback'); await app.tick();
   assert.ok(/class="linkish fpe-discard" data-act="revert-draft" data-id="release">/.test(app.html()));
   app.click('save-draft'); await app.tick(80);
-  assert.ok(/<span class="fpe-state just" role="status"><span class="ic"[^>]*>.*?<\/span>Saved<\/span>/.test(app.html()), 'the check icon with Saved');
+  assert.ok(/<span class="fpe-state just" role="status"[^>]*><span class="ic"[^>]*>.*?<\/span>Draft: Saved<\/span>/.test(app.html()), 'the check icon with Saved');
   assert.ok(/class="linkish fpe-discard"[^>]* hidden>/.test(app.html()), 'Discard keeps its place, hidden');
   await new Promise(r => setTimeout(r, 2100)); await app.tick(40);
-  assert.ok(/<span class="fpe-state" role="status">Saved<\/span>/.test(app.html()), 'then just Saved');
+  assert.ok(/<span class="fpe-state" role="status"[^>]*>Draft: Saved<\/span>/.test(app.html()), 'then just Saved');
 });
 
 /* ---------- second visual review: each failed before its fix ---------- */
@@ -3852,9 +3865,9 @@ rule('App: text typed into the builder\'s form and not yet applied counts as uns
   assert.ok(!app.leaveWarns(), 'set-up: nothing unsaved');
   app.input('ob-text', 'Flags half typed'); await new Promise(r => setTimeout(r, 300)); await app.tick();
   assert.ok(app.leaveWarns(), 'leaving asks first');
-  assert.ok(/Unsaved: Save draft before you publish/.test(app.html()), 'the header says so');
+  assert.ok(/Draft: not saved\. Save it before you publish\./.test(app.html()), 'the header says so');
   enter(app, 'ob-text', 'Flags half typed'); await app.tick();
-  assert.ok(app.leaveWarns() && /Unsaved: Save draft before you publish/.test(app.html()), 'once applied, it is an ordinary unsaved change');
+  assert.ok(app.leaveWarns() && /Draft: not saved\. Save it before you publish\./.test(app.html()), 'once applied, it is an ordinary unsaved change');
   app.click('save-draft'); await app.tick(80);
   assert.ok(!app.leaveWarns(), 'saved');
 });
@@ -3884,7 +3897,7 @@ rule('App: text typed and not yet applied keeps the editor from following a newe
   await app.fs.write(path, original.replace('Feature flags set in the deploy values', 'Flags set by them'));
   app.focus(); await app.tick(80);
   assert.strictEqual(app.draft('ob-text'), 'Typed words', 'the typed text is still there');
-  assert.ok(app.leaveWarns() && /Unsaved: Save draft before you publish/.test(app.html()));
+  assert.ok(app.leaveWarns() && /Draft: not saved\. Save it before you publish\./.test(app.html()));
   enter(app, 'ob-text', 'Typed words'); await app.tick();
   app.click('save-draft'); await app.tick(80);
   assert.ok(/Someone else changed this draft/.test(app.html()) && /Flags set by them/.test(app.fs.files[path].t), 'a conflict, theirs kept');
@@ -3923,7 +3936,7 @@ rule('App: Discard my changes also drops typed text that was refused, and the ed
   app.setScoped('ob-text', 'Ask @qa'); app.input('ob-text', 'Ask @qa'); enter(app, 'ob-text', 'Ask @qa'); await app.tick();
   assert.ok(/id="ferr-ob-text"/.test(app.html()) && app.leaveWarns(), 'set-up: refused, still pending');
   app.click('revert-draft', 'release'); await app.tick();
-  assert.ok(!app.leaveWarns() && !/Unsaved: Save draft before you publish/.test(app.html()), 'nothing unsaved');
+  assert.ok(!app.leaveWarns() && !/Draft: not saved\. Save it before you publish\./.test(app.html()), 'nothing unsaved');
   await app.fs.write(path, original.replace('Rollback commit written in the release ticket', 'Rollback written by them'));
   app.focus(); await app.tick(80);
   assert.ok(/Rollback written by them/.test(app.html()), 'follows the newer draft');
@@ -4197,9 +4210,9 @@ rule('App: undoing an applied wording change back to the saved text leaves nothi
   app.click('ob-sel', 'flags'); await app.tick();
   app.input('ob-text', 'Flags reworded'); await app.tick();
   enter(app, 'ob-text', 'Flags reworded'); await app.tick();
-  assert.ok(/Unsaved: Save draft before you publish/.test(app.html()), 'set-up: changed');
+  assert.ok(/Draft: not saved\. Save it before you publish\./.test(app.html()), 'set-up: changed');
   app.click('tl-undo', 'draft'); await app.tick();
-  assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()), 'back to saved, with no typing left pending');
+  assert.ok(!/Draft: not saved\. Save it before you publish\./.test(app.html()), 'back to saved, with no typing left pending');
 });
 
 rule('App: a part saved once keeps its ID even when Undo goes back past changes made before the save', async () => {
@@ -5322,7 +5335,7 @@ rule('App: a history line that couldn\'t be written is kept and written ahead of
   app.fs.append = function (p, t) { return fail && /^history\//.test(p) ? Promise.reject(new Error('OneDrive is busy')) : orig.call(this, p, t); };
   app.click('ob-del', 'rollback'); await app.tick();
   app.click('save-draft'); await app.tick(80);
-  assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()) && !app.files(dir + '/').length, 'the draft saved; its history line didn\'t');
+  assert.ok(!/Draft: not saved\. Save it before you publish\./.test(app.html()) && !app.files(dir + '/').length, 'the draft saved; its history line didn\'t');
   fail = false;
   app.click('ob-del', 'flags'); await app.tick();
   app.click('save-draft'); await app.tick(80);
@@ -5368,7 +5381,7 @@ rule('App: Reverse this change undoes a saved change in the editor only when its
   app.click('hist-mode', 'saved'); await app.tick(40);
   const id = /data-act="hist-reverse" data-id="([\w-]+)"/.exec(app.overlay())[1];
   app.click('hist-reverse', id); await app.tick();
-  assert.ok(/Reversed that change in the editor/.test(app.html()) && /Unsaved: Save draft before you publish/.test(app.html()), 'reversed, not saved');
+  assert.ok(/Reversed that change in the editor/.test(app.html()) && /Draft: not saved\. Save it before you publish\./.test(app.html()), 'reversed, not saved');
   assert.strictEqual(app.fs.files[path].t, saved, 'nothing written');
   app.key('Escape'); await app.tick();
   app.click('save-draft'); await app.tick(80);
@@ -6681,7 +6694,7 @@ rule('Search: opening a process moves focus to its heading', async () => {
   await sxType(app, 'production release');
   const proc = sxIds(app).find(id => /^pub:release\//.test(id));
   app.click('sx-open', proc); await app.tick(40);
-  assert.ok(/<h1 id="page-h" tabindex="-1">Production release<\/h1>/.test(app.html()), 'the heading can take focus');
+  assert.ok(/<h1 id="page-h" tabindex="-1"><span class="hd-t" title="Production release">Production release<\/span><\/h1>/.test(app.html()), 'the heading can take focus');
   assert.strictEqual(app.focused(), 'page-h');
 });
 
@@ -7354,12 +7367,16 @@ rule('Plans: a decline waiting behind another write is dropped, and says so, if 
 /* ---------- Back and Forward (docs/design.md section 29) ---------- */
 const navBoot = async (o) => { const app = boot(Object.assign({ localStore: { 'preflight:builder': 'false' } }, o || {})); await app.tick(80); if (!(o && o.nobody)) { app.choose('person-casey'); await app.tick(); } return app; };
 const hashes = app => app.entries().map(e => e.hash);
+/* A refused Back or Forward settled in place (2.16): the same entries, the one the browser landed on now showing what's
+   drawn, and the app never traversed. list: JSON of the entries before. */
+const inPlace = (app, list) => { const was = JSON.parse(list), now = app.entries(), i = app.index(); return now.length === was.length && now[i].hash === app.hash() && now.every((e, k) => k === i || JSON.stringify(e) === JSON.stringify(was[k])) && app.appTraversals() === 0; };
 // Every entry is numbered by its place, as Flightdeck writes them: no two share an n, and none is missing.
-const numbered = app => app.entries().forEach((e, i) => assert.ok(e.state && e.state.fd === 1 && e.state.n === i && Object.keys(e.state).sort().join() === 'f,fd,n', 'entry ' + i + ' ' + JSON.stringify(e)));
+/* Since 2.16 an entry may also keep the one before it (b), as nav.entry reads it back. */
+const numbered = app => app.entries().forEach((e, i) => assert.ok(e.state && e.state.fd === 1 && e.state.n === i && /^b?,?f,fd,n$/.test(Object.keys(e.state).sort().join()) && (!e.state.b || app.PF.nav.entry(e.state).b), 'entry ' + i + ' ' + JSON.stringify(e)));
 const onRun = app => /id="run-h"/.test(app.html());
-const onReceipt = app => /<div class="eyebrow">Receipt ·/.test(app.html());
+const onReceipt = app => /<span class="d">Receipt · Copy it into your ticket/.test(app.html());
 const onHome = app => /<div class="eyebrow">Home<\/div>/.test(app.html());
-const onProcess = (app, title) => /<h1 id="page-h" tabindex="-1">/.test(app.html()) && app.html().indexOf('data-act="ptab"') >= 0 && (!title || app.html().indexOf('>' + title + '</h1>') >= 0);
+const onProcess = (app, title) => /<h1 id="page-h" tabindex="-1">/.test(app.html()) && app.html().indexOf('data-act="ptab"') >= 0 && (!title || app.html().indexOf('>' + title + '</span></h1>') >= 0);
 const back = async app => { app.back(); await app.settle(); };
 const fwd = async app => { app.forward(); await app.settle(); };
 // Every hash ever written: route words and IDs only.
@@ -7384,7 +7401,7 @@ rule('Back and Forward: Home, a process, a run and its receipt, back and forth, 
   numbered(app); assert.strictEqual(app.reloads(), 0); assert.strictEqual(app.popMismatch(), 0);
 });
 
-rule('Back and Forward: typing, filters, selecting steps, the checklist views, dialogs, refreshes and folder reads add no entry', async () => {
+rule('Back and Forward: typing, filters, selecting steps, the checklist views, dialogs, refreshes and folder reads add no entry (a dialog\'s own entry aside)', async () => {
   const app = await navBoot();
   const key = app.run().key;
   app.click('open-run', key); await app.tick();
@@ -7394,7 +7411,9 @@ rule('Back and Forward: typing, filters, selecting steps, the checklist views, d
   app.key('?'); await app.tick(); app.key('Escape'); await app.tick();
   app.click('refresh'); await app.tick(60);
   app.every(); await app.tick(40); app.every(); await app.tick(40);
-  assert.strictEqual(JSON.stringify(hashes(app)), before); assert.strictEqual(app.index(), at);
+  /* Help is a layer with an entry of its own (2.16); closed with Escape, that entry stays as the same screen (the one
+     documented cost: a later Back there does nothing). Nothing else added one. */
+  assert.strictEqual(JSON.stringify(hashes(app)), JSON.stringify(JSON.parse(before).concat(['#/run/' + key]))); assert.strictEqual(app.index(), at + 1);
   app.click('open-process', 'release'); await app.tick();
   const two = JSON.stringify(hashes(app));
   app.click('flight', 'plan'); await app.tick(); app.click('flight', 'md'); await app.tick(); app.click('flight', 'list'); await app.tick();
@@ -7454,17 +7473,16 @@ rule('Back and Forward: every screen and tab has a route', async () => {
   }));
 });
 
-rule('Back and Forward: editor Done and the version picker push, so Back returns to the editor and the earlier version', async () => {
+rule('Back and Forward: the editor\'s ‹ goes to the page that opened it in the entry\'s place (2.16), and the version picker pushes, so Back returns to the earlier version', async () => {
   const app = await navBoot();
   app.click('open-process', 'release'); await app.tick();
   app.click('ptab', 'edit'); await app.tick();
   assert.strictEqual(app.hash(), '#/process/release/edit');
-  app.click('ed-done'); await app.tick();
+  const n = app.entries().length;
+  app.click('ed-done'); await app.settle();
   assert.strictEqual(app.hash(), '#/process/release');
-  await back(app);
-  assert.ok(/id="ed-h"/.test(app.html()), 'the editor again'); assert.strictEqual(app.hash(), '#/process/release/edit');
-  await back(app);
-  assert.strictEqual(app.hash(), '#/process/release');
+  assert.strictEqual(app.entries().length, n, 'in the editor entry\'s place');
+  assert.ok(!app.entries().some(e => e.hash === '#/process/release/edit'), 'Back or Forward never reopens the editor');
   const vers = [...app.html().matchAll(/<option value="(v\d+-[a-z0-9]+)"/g)].map(m => m[1]);
   assert.ok(vers.length >= 2, 'the example has versions: ' + vers.join());
   // v2 is the current version, v1 the first: picking v1 then v2, Back shows v1, Back again the page's default.
@@ -7495,25 +7513,28 @@ rule('Back and Forward: a move within one screen kind pushes: run to its child r
   numbered(app);
 });
 
-rule('Back and Forward: Back with a builder box typed and not applied refuses, keeps the typing and focus, and leaves the entries alone', async () => {
+rule('Back and Forward: Back with a builder box typed and not applied refuses in place, keeps the typing and focus, and the entries after it', async () => {
   const app = await navBoot({ localStore: {}, domFocus: true });
   app.click('open-process', 'release'); await app.tick();
   app.click('ptab', 'edit'); await app.tick();
-  app.click('ed-done'); await app.tick();
+  app.typeHash('#/process/release'); await app.settle();
   await back(app);
   assert.strictEqual(app.hash(), '#/process/release/edit');
   app.click('ob-sel', 'flags'); await app.tick();
   const was = /<textarea id="ob-text"[^>]*>([^<]*)</.exec(app.html())[1];
   app.input('ob-text', 'Half typed'); await app.tick();
-  const list = JSON.stringify(app.entries());
+  const list = hashes(app);
   await back(app);
   assert.ok(/Apply or clear what you typed in the box first/.test(app.live()), app.live());
   assert.ok(/id="ed-h"/.test(app.html()), 'still the editor');
-  assert.strictEqual(app.hash(), '#/process/release/edit'); assert.strictEqual(app.index(), 2);
-  assert.strictEqual(JSON.stringify(app.entries()), list, 'the entry after it is still there');
+  /* Refused in place (2.16): the entry Back landed on shows the editor; the ones after it stay. */
+  assert.strictEqual(app.hash(), '#/process/release/edit'); assert.strictEqual(app.index(), 1);
+  assert.deepStrictEqual(hashes(app), [list[0], '#/process/release/edit'].concat(list.slice(2)), 'the entries after it are still there');
+  assert.strictEqual(app.appTraversals(), 0, 'nothing traversed');
   assert.strictEqual(app.draft('ob-text'), 'Half typed'); assert.strictEqual(app.activeId(), 'ob-text');
-  // Cleared, Forward goes where it went before.
+  // Cleared, Forward goes on: the editor's own entry, then where it went before.
   app.input('ob-text', was); await app.tick();
+  await fwd(app); assert.ok(/id="ed-h"/.test(app.html()), 'the editor\'s entry');
   await fwd(app);
   assert.strictEqual(app.hash(), '#/process/release'); assert.ok(!/id="ed-h"/.test(app.html()));
   assert.strictEqual(app.reloads(), 0); numbered(app);
@@ -7527,11 +7548,11 @@ rule('Back and Forward: Back from a step type with changes shows the leave promp
   app.input('tf-label', 'Changed by me'); await app.tick();
   await back(app); await app.tick(40);
   assert.ok(/This step type has changes that aren.t saved/.test(app.html()), 'the prompt');
-  assert.strictEqual(app.hash(), '#/types/edit/change.request'); assert.strictEqual(app.index(), 2);
+  assert.strictEqual(app.hash(), '#/types/edit/change.request'); assert.strictEqual(app.index(), 1, 'refused in place');
   assert.strictEqual(app.activeId(), '[data-act="type-save"]');
   app.click('type-cancel'); await app.tick();
   assert.ok(!/id="type-form"/.test(app.html()), 'the list');
-  assert.deepStrictEqual(hashes(app), ['#/', '#/types', '#/types']); assert.strictEqual(app.index(), 2);
+  assert.deepStrictEqual(hashes(app), ['#/', '#/types', '#/types/edit/change.request']); assert.strictEqual(app.index(), 1);
   numbered(app);
 });
 
@@ -7576,7 +7597,9 @@ rule('Back and Forward: Back closes an open dialog and stays, focus back on its 
   assert.ok(/id="help-t"/.test(app.overlay()), 'set-up: help is open');
   await back(app);
   assert.strictEqual(app.overlay(), '', 'closed'); assert.ok(onRun(app), 'still the run');
-  assert.strictEqual(JSON.stringify(app.entries()), list); assert.strictEqual(app.index(), 1);
+  /* Help had its own entry (2.16): Back closed it onto the run's, and nothing was overwritten. */
+  assert.deepStrictEqual(hashes(app), JSON.parse(list).map(e => e.hash).concat(['#/run/' + app.run().key])); assert.strictEqual(app.index(), 1);
+  assert.strictEqual(JSON.stringify(app.entries().slice(0, 2)), list, 'the entries before are untouched'); assert.strictEqual(app.appTraversals(), 0);
   assert.strictEqual(app.activeId(), '[data-act="help"]');
   const b = await navBoot({ nobody: true }); b.choose('person-morgan'); await b.tick();
   b.click('open-process', 'release'); await b.tick(20);
@@ -7586,6 +7609,7 @@ rule('Back and Forward: Back closes an open dialog and stays, focus back on its 
   await back(b);
   assert.ok(/id="ca-reason"/.test(b.overlay()), 'not closed'); assert.strictEqual(b.draft('ca-reason'), 'Not this time');
   assert.ok(/Finish or cancel this first\./.test(b.live()));
+  /* The dialog's own entry (2.16): Back landed on the page's, refused in place, so that entry is the dialog's now. */
   assert.strictEqual(b.hash(), '#/process/release'); assert.strictEqual(b.index(), 1); assert.strictEqual(b.reloads(), 0);
 });
 
@@ -7598,7 +7622,8 @@ rule('Back and Forward: on a phone, Back closes the step sheet first and stays o
   assert.ok(sheet && sheet.getAttribute('role') === 'dialog' && sheet.getAttribute('aria-modal') === 'true' && app.topInert(), 'set-up: the sheet is open and modal');
   await back(app);
   assert.ok(!app.node('.rw-ins[data-open="true"]'), 'closed'); assert.ok(onRun(app));
-  assert.strictEqual(app.hash(), '#/run/' + app.run().key); assert.strictEqual(app.index(), 1);
+  assert.strictEqual(app.hash(), '#/run/' + app.run().key); assert.strictEqual(app.index(), 1, 'on the run\'s own entry');
+  await fwd(app); assert.ok(onRun(app) && !app.node('.rw-ins[data-open="true"]'), 'Forward onto the sheet\'s old entry: the run, no sheet'); assert.strictEqual(app.index(), 2);
   app.click('select', step); await app.tick();
   app.click('pick', step, { kind: 'block' }); await app.tick();
   assert.ok(/id="pick-input"/.test(app.html()), 'set-up: the Block reason box');
@@ -7747,7 +7772,15 @@ rule('Back and Forward: only route words and IDs reach the address bar and histo
   app.entries().forEach(e => {
     assert.ok(ID_ONLY.test(e.hash), e.hash);
     words.forEach(w => assert.ok(e.hash.toLowerCase().indexOf(String(w).toLowerCase()) < 0, e.hash + ' has ' + w));
-    assert.deepStrictEqual(Object.keys(e.state).sort(), ['f', 'fd', 'n']); assert.ok(/^[0-9a-f]{8}$/.test(e.state.f));
+    const k = Object.keys(e.state).sort();
+    assert.ok(/^(b,)?f,fd,n$/.test(k.join()), k.join()); assert.ok(/^[0-9a-f]{8}$/.test(e.state.f));
+    /* 2.16: b, the entry before, is a route and a folder fingerprint only, with that entry's own b (its origins, at most 4). */
+    let depth = 0;
+    for (let o = e.state.b; o; o = o.b) {
+      depth++; assert.ok(depth <= 4, 'at most four origins');
+      assert.deepStrictEqual(Object.keys(o).filter(x => x !== 'b').sort(), ['f', 'h']); assert.ok(ID_ONLY.test(o.h), o.h); assert.ok(o.f === null || /^[0-9a-f]{8}$/.test(o.f));
+      words.forEach(w => assert.ok(o.h.toLowerCase().indexOf(String(w).toLowerCase()) < 0, o.h + ' has ' + w));
+    }
   });
   assert.ok(hashes(app).indexOf('#/skill/' + app.PF.util.hash(sk)) >= 0);
   assert.ok(hashes(app).indexOf('#/plan/' + app.PF.util.hash('plan-release-2026-10-24')) >= 0);
@@ -7808,7 +7841,7 @@ rule('Back and Forward: step types: a type called new, a new form, and a changed
   app.click('nav', 'types'); await app.tick();
   app.click('edit-type', 'new'); await app.tick(40);
   assert.strictEqual(app.hash(), '#/types/edit/new'); assert.ok(/value="Called new"/.test(app.html()));
-  app.click('type-cancel'); await app.tick();
+  app.click('nav', 'types'); await app.tick(); // the list as a new entry
   app.click('new-type'); await app.tick();
   assert.strictEqual(app.hash(), '#/types/new');
   // An unchanged new form: a jump to the type's entry opens that type.
@@ -7822,7 +7855,8 @@ rule('Back and Forward: step types: a type called new, a new form, and a changed
   app.go(-3); await app.settle(); await app.tick(40); await app.settle();
   assert.ok(/Form B/.test(app.html()) && /This step type has changes that aren.t saved/.test(app.html()), 'B kept, with the prompt');
   assert.ok(/Save or leave this step type first, then go back again\./.test(app.live()), app.live() + JSON.stringify(app.entries()));
-  assert.strictEqual(app.index(), at); assert.strictEqual(app.hash(), '#/types/new');
+  /* Settled in place (2.16): the entry the jump landed on shows B's place. */
+  assert.strictEqual(app.index(), at - 3); assert.strictEqual(app.hash(), '#/types/new');
   // From another screen, a #/types entry while B is kept shows B's prompt under B's own location.
   app.click('nav', 'runs'); await app.tick();
   await back(app);
@@ -7834,7 +7868,7 @@ rule('Back and Forward: a slow step-type read from Back never reopens over a lat
   const app = await navBoot();
   app.click('nav', 'types'); await app.tick();
   app.click('edit-type', 'change.request'); await app.tick(40);
-  app.click('type-cancel'); await app.tick();
+  app.click('nav', 'types'); await app.tick(); // the list as a new entry
   app.click('nav', 'runs'); await app.tick();
   const read = app.fs.read.bind(app.fs), g = gate();
   app.fs.read = p => p === 'step-types/change.request.json' ? read(p).then(v => g.p.then(() => v)) : read(p);
@@ -7888,6 +7922,7 @@ rule('Back and Forward: a click while Back puts the address bar back after closi
   app.click('nav', 'skills'); await app.tick();
   app.releasePops(); await app.settle();
   assert.strictEqual(app.hash(), '#/skills');
+  /* Back closed the dialog onto Settings' own entry (2.16), and the click pushed after it. */
   assert.deepStrictEqual(hashes(app), ['#/', '#/runs', '#/settings', '#/skills']);
   await back(app);
   assert.strictEqual(app.hash(), '#/settings'); numbered(app); assert.strictEqual(app.reloads(), 0);
@@ -7901,9 +7936,10 @@ rule('Back and Forward: overlapping moves never reload, never reuse a number, an
   app.input('ob-text', 'Half typed'); await app.tick();
   app.holdPops(); app.back(); app.back(); app.releasePops();
   await app.settle(); await new Promise(r => setTimeout(r, 1200)); await app.settle();
-  assert.strictEqual(app.hash(), '#/process/release/edit'); assert.strictEqual(app.index(), 2);
-  assert.deepStrictEqual(hashes(app), ['#/', '#/process/release', '#/process/release/edit']);
-  assert.ok(/id="ed-h"/.test(app.html()) && app.draft('ob-text') === 'Half typed');
+  /* Each refused Back is settled in place where it landed (2.16): the editor's URL on both. */
+  assert.strictEqual(app.hash(), '#/process/release/edit'); assert.strictEqual(app.index(), 0);
+  assert.deepStrictEqual(hashes(app), ['#/process/release/edit', '#/process/release/edit', '#/process/release/edit']);
+  assert.ok(/id="ed-h"/.test(app.html()) && app.draft('ob-text') === 'Half typed'); assert.strictEqual(app.appTraversals(), 0);
   // A typed hash refused while a dialog is open, then the dialog again and Back.
   const b = await navBoot();
   b.click('open-process', 'release'); await b.tick();
@@ -7921,7 +7957,7 @@ rule('Back and Forward: text typed in Add a tag on an otherwise unchanged form i
   const app = await navBoot();
   app.click('nav', 'types'); await app.tick();
   app.click('edit-type', 'change.request'); await app.tick(40);
-  app.click('type-cancel'); await app.tick();
+  app.click('nav', 'types'); await app.tick(); // the list as a new entry
   app.click('new-type'); await app.tick();
   app.set('tf-tagadd', 'risky');
   app.go(-2); await app.settle(); await app.tick(40);
@@ -7964,18 +8000,18 @@ rule('Back and Forward: skill file names the loader accepts round-trip as a fing
   }
 });
 
-rule('Back and Forward: starting a run from a plan or the start form makes one entry, the run\'s, also when the person moves meanwhile', async () => {
+rule('Back and Forward: starting a run from a plan or the start form takes the form\'s entry (2.16), and lands after the screens visited when the person moves meanwhile', async () => {
   const app = await navBoot();
   app.click('nav', 'runs'); await app.tick();
   app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
   const before = hashes(app);
   app.chooseApprovers().submitForm('start-form'); await app.tick(200);
   assert.ok(onRun(app), 'set-up: started');
-  assert.deepStrictEqual(hashes(app).slice(0, -1), before); assert.ok(/^#\/run\/release\//.test(app.hash()));
+  assert.deepStrictEqual(hashes(app).slice(0, -1), before.slice(0, -1)); assert.strictEqual(hashes(app).length, before.length); assert.ok(/^#\/run\/release\//.test(app.hash()));
   app.click('open-process', 'release'); await app.tick(); app.click('start', 'release'); await app.tick();
   const two = hashes(app);
   app.chooseApprovers().submitForm('start-form'); await app.tick(200);
-  assert.deepStrictEqual(hashes(app).slice(0, -1), two); assert.ok(/^#\/run\/release\//.test(app.hash()));
+  assert.deepStrictEqual(hashes(app).slice(0, -1), two.slice(0, -1)); assert.strictEqual(hashes(app).length, two.length); assert.ok(/^#\/run\/release\//.test(app.hash()));
   // Paused in the folder's read: the person visits Runs and Settings, then the run lands after them.
   app.click('start', 'release'); await app.tick();
   const list = app.fs.list.bind(app.fs), g = gate(); let armed = true;
@@ -8001,8 +8037,12 @@ rule('Back and Forward: a decided plan never reopens with Start the run or Decli
   const files = JSON.stringify(Object.keys(app.fs.files).filter(p => /^proposals\//.test(p)).map(p => [p, app.fs.files[p].t]));
   const startOrDecline = h => /id="start-form"/.test(h) || /data-act="decline-plan"/.test(h);
   await back(app); assert.ok(!startOrDecline(app.html()) && /That plan was declined\./.test(app.live()), 'declined: Runs');
-  for (let i = 0; i < 3; i++) await back(app);
-  assert.ok(!startOrDecline(app.html()) && onRun(app) && app.hash() === '#/run/' + key, 'accepted: its run (' + app.hash() + ')');
+  /* 2.16: the accepted plan's entry became its run's, so going back passes the run and never a start form. */
+  const seen = [];
+  while (app.index() > 0) { await back(app); assert.ok(!startOrDecline(app.html()), 'never a start form (' + app.hash() + ')'); seen.push(app.hash()); }
+  assert.ok(seen.indexOf('#/run/' + key) >= 0, 'accepted: its run on the way back (' + seen.join(' ') + ')');
+  app.typeHash('#/plan/' + app.PF.util.hash('plan-release-2026-10-24')); await app.settle();
+  assert.ok(!startOrDecline(app.html()) && onRun(app) && app.hash() === '#/run/' + key, 'accepted: its link opens its run (' + app.hash() + ')');
   const again = await navBoot({ localStore: app.store, hash: '#/plan/' + app.PF.util.hash('plan-release-example-next') });
   assert.ok(!startOrDecline(again.html()) && /That plan was declined\./.test(again.live()), 'a reload too');
   assert.strictEqual(JSON.stringify(Object.keys(app.fs.files).filter(p => /^proposals\//.test(p)).map(p => [p, app.fs.files[p].t])), files);
@@ -8094,7 +8134,7 @@ rule('Back and Forward: the browser\'s place and the drawn entry stay right thro
   b.click('ob-sel', 'flags'); await b.tick(); b.input('ob-text', 'typed'); await b.tick();
   await back(b);
   assert.ok(/Apply or clear what you typed/.test(b.live()));
-  assert.strictEqual(b.index(), 2); assert.strictEqual(b.hash(), '#/process/release/edit'); numbered(b); assert.strictEqual(b.reloads(), 0);
+  assert.strictEqual(b.index(), 1, 'settled in place'); assert.strictEqual(b.hash(), '#/process/release/edit'); numbered(b); assert.strictEqual(b.reloads(), 0);
 });
 
 rule('Back and Forward: End the run lands on the receipt in Finish\'s place, so Back never reopens Finish of an ended run', async () => {
@@ -8126,9 +8166,9 @@ rule('Back and Forward: every promise callback in the app that changes a route f
     return src.slice(i);
   };
   const ROUTE = /state\.(view|processId|runKey|ptab|mapVer|planId|skillFile|recoveryAt|typeForm)\s*=[^=]|setView\(|openRun\(|\bhome\(\)/;
-  // Held (holdNav), replacing (H.mode), opening a folder (useFs replaces), or the person's own save, start or decline
+  // Held (holdNav), replacing (H.mode, set only through backMode), opening a folder (useFs replaces), or the person's own save, start or decline
   // landing, which pushes like the click it finishes (docs/design.md section 29); Stage from Practice's too (2.3).
-  const OK = ['releaseNav(held)', 'heldOwn(held', 'H.mode = \'replace\'', 'useFs(', 'Plan declined', 'Created the draft for', 'Planned \' + plan.title', 'savedDraft(file', 'Published \' + f.title', 'Staged. Start a test run from it'];
+  const OK = ['releaseNav(held)', 'heldOwn(held', 'H.mode = \'replace\'', 'backMode(', 'useFs(', 'Plan declined', 'Created the draft for', 'Planned \' + plan.title', 'savedDraft(file', 'Published \' + f.title', 'Staged. Start a test run from it'];
   const re = /\.then\(function\s*\([^)]*\)\s*\{/g; let m; const found = [];
   while ((m = re.exec(src))) { const b = bodyAt(m.index + m[0].length - 1); if (ROUTE.test(b)) found.push(b); }
   assert.ok(found.length >= 10, 'the scan finds the callbacks: ' + found.length);
@@ -8161,7 +8201,9 @@ rule('Back and Forward (2.0): a plan/2 link reopens its review on its exact vers
   app.chooseApprovers().submitForm('start-form'); await app.tick(200);
   const made = releaseRuns(app).filter(p => before.indexOf(p) < 0), run = JSON.parse(app.fs.files[made[0]].t), key = 'release/' + run.id;
   assert.strictEqual(run.folder, v2); assert.strictEqual(app.hash(), '#/run/' + key);
-  await back(app);
+  /* 2.16: the run took the plan's entry, so its link is what opens the run now. */
+  await back(app); assert.ok(!/id="start-form"/.test(app.html()), 'Back passes no start form (' + app.hash() + ')');
+  app.typeHash(fp); await app.settle();
   assert.ok(onRun(app) && app.hash() === '#/run/' + key && !/id="start-form"/.test(app.html()), 'the accepted plan/2 opens its run (' + app.hash() + ')');
   numbered(app); assert.strictEqual(app.reloads(), 0);
 });
@@ -8223,7 +8265,7 @@ rule('Back and Forward (2.0): a phase\'s note typed and not applied holds Back l
   app.input('ob-ph-note', 'Half a phase note'); await app.tick();
   await back(app);
   assert.ok(/Apply or clear what you typed in the box first \(leaving the box applies it\)/.test(app.live()), app.live());
-  assert.ok(/id="ed-h"/.test(app.html()) && JSON.stringify(app.entries()) === list, 'still the editor, entries untouched');
+  assert.ok(/id="ed-h"/.test(app.html()) && inPlace(app, list), 'still the editor, settled in place: ' + JSON.stringify(hashes(app)));
   assert.strictEqual(app.draft('ob-ph-note'), 'Half a phase note'); assert.strictEqual(app.activeId(), 'ob-ph-note');
   app.click('tl-undo', 'draft'); await app.tick();
   assert.ok(/Apply or clear what you typed in the box first \(leaving the box applies it\), then Undo/.test(app.live()), 'Undo waits: ' + app.live());
@@ -8523,7 +8565,7 @@ rule('Builder: typing in the note, Questions or an Add box and not applying it h
   app.input('ob-note', 'Half a note'); await app.tick();
   await back(app);
   assert.ok(/Apply or clear what you typed in the box first \(leaving the box applies it\)/.test(app.live()), app.live());
-  assert.ok(/id="ed-h"/.test(app.html()) && JSON.stringify(app.entries()) === list, 'still the editor, entries untouched');
+  assert.ok(/id="ed-h"/.test(app.html()) && inPlace(app, list), 'still the editor, settled in place: ' + JSON.stringify(hashes(app)));
   assert.strictEqual(app.draft('ob-note'), 'Half a note'); assert.strictEqual(app.activeId(), 'ob-note');
   app.click('tl-undo', 'draft'); await app.tick();
   assert.ok(/Apply or clear what you typed in the box first \(leaving the box applies it\), then Undo/.test(app.live()), 'Undo waits: ' + app.live());
@@ -8679,12 +8721,20 @@ rule('Conditions (2.1): a child run is never started for a step that isn\'t need
   assert.strictEqual(children(), before + 1, 'needed again, it starts');
 });
 
+/* A child run finished as a person would: every step answered and every gate passed, so its completion stands (5.7). */
+function finishedKid(PF, child) {
+  const R = PF.run, r = R.sanitize(JSON.parse(JSON.stringify(child))), m = R.mapOf(r), at = new Date().toISOString();
+  m.phases.forEach(p => { p.steps.forEach(st => { const a = child.steps[st.id]; if (!(a && (a.s === 'done' || a.s === 'na'))) child.steps[st.id] = { s: 'done', by: 'person-avery', at }; }); });
+  const rr = R.sanitize(JSON.parse(JSON.stringify(child))), mm = R.mapOf(rr);
+  mm.phases.forEach(p => { child.gates[p.gate.id] = { s: 'passed', by: 'person-avery', at, approved: R.gateInputs(rr, mm, p.gate) }; });
+  return child;
+}
 rule('Conditions (2.1): a child-run step whose condition tests a carried detail changed A to B to A stays in re-check after Refresh, and a new child replaces the retired link', async () => {
   const app = await conditionalRelease('^commit is set');
   app.click('start-child', 'notes'); await app.tick(120);
   let j = app.run().json, link = j.steps.notes.child;
   assert.ok(link && link.inputs.commit === 'f00d123', 'set-up: a child for commit f00d123');
-  const cpath = 'runs/check-in/' + link.id + '/run.json', child = JSON.parse(app.fs.files[cpath].t);
+  const cpath = 'runs/check-in/' + link.id + '/run.json', child = finishedKid(app.PF, JSON.parse(app.fs.files[cpath].t));
   child.ended = { outcome: 'Completed', by: 'person-avery', at: new Date().toISOString() }; child.state = 'completed'; child.rev = (child.rev || 0) + 1;
   await app.fs.write(cpath, JSON.stringify(child));
   app.click('refresh'); await app.tick(120);
@@ -8716,7 +8766,7 @@ async function passStart(passLine, kidCtx) {
   app.click('refresh'); await app.tick(80);
   app.click('start', 'ship'); await app.settle();
   app.set('detail-env', 'prod'); app.set('detail-ticket', 'T-1'); app.chooseApprovers().submitForm('start-form'); await app.tick(120);
-  assert.ok(/<h1 id="run-h"[^>]*>Ship/.test(app.html()), 'set-up: the parent run is open');
+  assert.ok(/<h1 id="run-h"[^>]*><span class="hd-t"[^>]*>Ship/.test(app.html()), 'set-up: the parent run is open');
   return app;
 }
 const shipRun = (app) => JSON.parse(app.fs.files[app.files('runs/ship/').find(p => /run\.json$/.test(p))].t);
@@ -8737,7 +8787,7 @@ rule('2.8: a pass: step with a detail to ask opens the child\'s start dialog; th
   assert.deepStrictEqual(kids[0].parent.inputs, { env: 'prod', ticket: 'T-1' }, 'the snapshot is by the parent\'s names');
   const link = shipRun(app).steps.dep.child;
   assert.ok(link && link.id === kids[0].id && link.inputs.env === 'prod' && !('environment' in link.inputs), 'linked with the same snapshot');
-  const path = app.files('runs/deploy/').find(p => /run\.json$/.test(p)), kid = kids[0];
+  const path = app.files('runs/deploy/').find(p => /run\.json$/.test(p)), kid = finishedKid(app.PF, kids[0]);
   kid.ended = { outcome: 'Completed', by: 'person-avery', at: new Date().toISOString() }; kid.state = 'completed'; kid.rev = (kid.rev || 0) + 1;
   await app.fs.write(path, JSON.stringify(kid));
   app.click('refresh'); await app.tick(100);
@@ -8883,7 +8933,7 @@ rule('Draft editor: a new checklist opens on Preview with Add your first step, a
   app.set('np-id', 'risk-review'); app.set('np-title', 'Risk review'); app.submit('new-process-form'); await app.tick(120);
   const tabOf = () => (/id="ins-t-(\w+)" aria-selected="true"/.exec(app.html()) || [])[1];
   assert.strictEqual(tabOf(), 'preview', 'Preview, not Checks');
-  assert.ok(/Add your first step/.test(app.html()) && /aria-label="Checks: 1 thing to fix before publishing"/.test(app.html()), 'the words, and the chip still counts it');
+  assert.ok(/Add your first step/.test(app.html()) && /id="ins-t-checks"[^>]*>Checks <span class="cnt bad">1<\/span>/.test(app.html()), 'the words, and the Checks tab still counts it');
   app.set('ob-new-text', 'Read the risk register'); app.click('ob-add-go'); await app.tick(20);
   const key = (/data-ob-step="([^"]+)"/.exec(app.html()) || [])[1];
   assert.ok(key, 'the step was added');
@@ -8909,7 +8959,7 @@ rule('Approval: nothing is written when it is closed, left or escaped before it 
   app.click('ob-sel-gate', 'verify'); await app.tick(); app.click('ob-done'); await app.tick();
   app.click('ob-sel-gate', 'verify'); await app.tick(); app.click('ob-sel', 'flags'); await app.tick();
   app.click('ob-sel-gate', 'verify'); await app.tick(); app.key('Escape'); await app.tick();
-  assert.ok(!/Unsaved: Save draft before you publish/.test(app.html()), 'nothing changed');
+  assert.ok(!/Draft: not saved\. Save it before you publish\./.test(app.html()), 'nothing changed');
   app.click('save-draft'); await app.tick(120);
   assert.strictEqual(releaseText(app), before);
 });
@@ -8939,7 +8989,7 @@ rule('Approval: pasting an image while it is open adds nothing and raises nothin
   app.click('ob-sel-gate', 'prep'); await app.tick();
   const html = app.html();
   app.fire('paste', { target: { closest: () => null }, clipboardData: { items: [{ kind: 'file', getAsFile: () => png('x.png') }] } }); await app.tick(40);
-  assert.ok(!/role="alert"/.test(app.html()) && !/Unsaved: Save draft/.test(app.html()), 'no error, no change');
+  assert.ok(!/role="alert"/.test(app.html()) && !/Draft: not saved\./.test(app.html()), 'no error, no change');
   assert.ok(/for="ob-g-owner">Who approves\?/.test(app.html()) && html.length > 0, 'still the approval form');
 });
 
@@ -8949,7 +8999,7 @@ rule('Approval: + Add role adds the role and makes it the approver in one change
   app.click('ob-role-add', 'gate'); await app.tick();
   assert.strictEqual(app.focused(), 'ob-new-role');
   app.set('ob-new-role', 'two words!'); app.click('ob-role-add-go'); await app.tick();
-  assert.ok(/id="ferr-ob-new-role"/.test(app.html()) && !/Unsaved: Save draft/.test(app.html()), 'refused in place, nothing written');
+  assert.ok(/id="ferr-ob-new-role"/.test(app.html()) && !/Draft: not saved\./.test(app.html()), 'refused in place, nothing written');
   app.set('ob-new-role', 'change approver'); app.click('ob-role-add-go'); await app.tick();
   assert.ok(/<option value="change-approver" selected>@change-approver/.test(app.html()), 'normalized and assigned');
   assert.strictEqual(app.focused(), 'ob-g-owner', 'focus back on the chooser');
@@ -9007,7 +9057,7 @@ rule('Builder: More options, opened once, stays open on every step and after a r
   app.fire('toggle', { target: { dataset: { disc: 'ob-more' }, open: true } }); await app.tick();
   app.click('ob-sel', 'rollback'); await app.tick();
   assert.ok(/<details class="ob-more-opts" data-disc="ob-more" open>/.test(app.html()), 'open on the next step');
-  assert.ok(!/Unsaved: Save draft/.test(app.html()) && /data-act="tl-undo" data-id="draft" aria-disabled="true"/.test(app.html()), 'no change, no Undo');
+  assert.ok(!/Draft: not saved\./.test(app.html()) && /data-act="tl-undo" data-id="draft" aria-disabled="true"/.test(app.html()), 'no change, no Undo');
   const again = boot({ localStore: { 'preflight:obMore': app.store['preflight:obMore'] } }); await again.tick(60); again.choose('person-casey'); await again.tick();
   again.click('open-process', 'release'); await again.tick(); again.click('ptab', 'edit'); await again.tick();
   again.click('ob-sel', 'flags'); await again.tick();
@@ -9041,7 +9091,7 @@ rule('Builder: + Add instructions opens the note; typed text survives a redraw; 
   assert.strictEqual(app.focused(), '[data-act="ob-note-open"]', 'focus on + Add instructions');
   app.click('ob-note-open'); await app.tick();
   leave(app, 'ob-note', 'Paste the commit'); await app.tick();
-  assert.ok(/Unsaved: Save draft/.test(app.html()), 'applied');
+  assert.ok(/Draft: not saved\./.test(app.html()), 'applied');
   app.click('ob-sel', 'flags'); await app.tick(); app.click('ob-sel', 'rollback'); await app.tick();
   assert.ok(/<textarea id="ob-note"[^>]*>\nPaste the commit<\/textarea>/.test(app.html()), 'a note with text is shown');
   app.click('tl-undo', 'draft'); await app.tick();

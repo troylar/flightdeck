@@ -91,14 +91,16 @@
     byWhen(d.plans.filter(function (p) { return !p._status && !p._decidedEarlier; })).forEach(function (p) {
       var t = whenOf(p), c = PF.requests.claim(p), flag = p._conflicting ? clash : p._copiesDiffer ? copiesLine(p) : null;
       if (t == null) add('plan', function () { return [c ? esc(c.name) + ' requested "' + esc(p.title) + '" (by its own account)' : esc(p.by ? nameOf(ctx, p.by) : 'Your AI assistant') + ' planned "' + esc(p.title) + '"', flag || 'Review it before it starts.']; }, 'review-plan', p.id, 'Review the plan');
-      else if (t - now <= 86400000) add('plan', function () { return [esc(p.title) + ' is planned for ' + esc(U.dueWords(p.when, now)), flag || (c ? 'Requested by ' + esc(c.name) + ', by its own account.' : 'Planned by ' + esc(p.by ? nameOf(ctx, p.by) : 'an AI assistant') + '.')]; }, 'review-plan', p.id, 'Review and start');
+      else if (t - now <= 86400000) add('plan', function () { return [esc(p.title) + ' is planned for ' + esc(U.dueWords(p.when, now)), flag || (c ? 'Requested by ' + esc(c.name) + ', by its own account.' : 'Planned by ' + esc(p.by ? nameOf(ctx, p.by) : 'an AI assistant') + '.')]; }, 'review-plan', p.id, 'Review the plan');
     });
     (ctx.lostDrafts ? ctx.lostDrafts() : []).forEach(function (id) { add('draft', function () { return ['Unsaved edits to "' + esc(id) + '"', 'Its draft was removed from the folder. Save it again or copy it.']; }, 'open-process', id, 'Open it'); });
     ctx.processes().forEach(function (p) {
       var owner = p.latest && p.latest.map.meta.owner, mine = K.keeps(ctx, p);
       /* A draft and skills that need attention go to whoever looks after the checklist (K.keepers); to everyone when nobody does. */
-      if (p.draft && p.draftChanged && mine) add('draft', function () { return [esc(p.title) + ': the draft has unpublished changes', p.latest ? 'Publish it as v' + (p.latest.info.version + 1) + ' when it\'s ready.' : 'Not published yet.']; }, 'open-process', p.id, 'Review and publish');
-      if (p.staleSkills && mine) add('skill', function () { return [esc(p.title) + ': ' + p.staleSkills + ' skill' + (p.staleSkills === 1 ? ' needs' : 's need') + ' attention', 'The checklist changed since they were built.']; }, 'open-process', p.id, 'See the skills');
+      /* The number publishing would take: one past every number used, an unusable or still-syncing folder's too (as the dialog says). */
+      var nextV = PF.publish.nextVersion(p.taken || (p.all || []).map(function (x) { return x.info; }));
+      if (p.draft && p.draftChanged && mine) add('draft', function () { return [esc(p.title) + ': the draft has unpublished changes', p.latest ? 'Publish it as v' + nextV + ' when it\'s ready.' : 'Not published yet.']; }, 'home-publish', p.id, 'Publish v' + nextV + '…');
+      if (p.staleSkills && mine) add('skill', function () { return [esc(p.title) + ': ' + p.staleSkills + ' skill' + (p.staleSkills === 1 ? ' needs' : 's need') + ' attention', 'The checklist changed since they were built.']; }, 'home-skills', p.id, 'Skills of ' + p.title);
       var signer = p.latest && owner ? PF.skills.signer(p.latest, d.people, me, !!(d.failed || {}).people) : '';
       if (signer && !PF.skills.signoffs(d.validations, p.latest).length && !PF.skills.signUnknown(d, p.latest) && PF.skills.readiness(ctx.countedRuns ? ctx.countedRuns(p.latest.map.meta.process) : d.runs, p.latest, null).enough) add('sign', function () { return [esc(p.title) + ' v' + p.latest.info.version + ' is ready for a skill', signer === 'backup' ? 'Enough clean runs. Its owner is away, so as backup owner, you sign it off.' : 'Enough clean runs. As its owner, you sign it off.']; }, 'open-process', p.id, 'Sign it off');
     });
@@ -158,7 +160,7 @@
     var open = all.filter(F.isOpen), mine = F.mine(all, me);
     /* Oldest open first: what's waited longest is what most needs a decision. Everything else newest first. */
     var shown = filter === 'all' ? all.slice().reverse() : filter === 'mine' ? mine : open;
-    var h = notices(ctx) + '<nav class="small fu-crumbs" aria-label="Breadcrumb"><button class="linkish" data-act="nav" data-id="runs">Runs</button> › Follow-ups</nav>' +
+    var h = notices(ctx) + V.backRow(V.backc('go-back', '#/runs', 'Runs')) +
       pageHead('Runs', 'Follow-ups', 'Work runs turned up that outlives them. Anyone on the team can say what became of one: done, moved to a ticket or another run, or won\'t do.', '', 'page-h');
     h += '<section class="panel"><div class="row between" style="margin-bottom:10px"><h2 id="fu-list-h" tabindex="-1" style="margin:0">' + (filter === 'all' ? 'Every follow-up · ' + all.length : filter === 'mine' ? 'Open and yours · ' + mine.length : 'Open · ' + open.length) + '</h2>' +
       '<div class="filter" role="group" aria-label="Show follow-ups">' + [['open', 'Open'], ['mine', 'Yours'], ['all', 'All']].map(function (f) { return '<button class="chipbtn" data-act="fu-filter" data-id="' + f[0] + '" aria-pressed="' + (filter === f[0]) + '">' + f[1] + '</button>'; }).join('') + '</div></div>';
@@ -173,14 +175,28 @@
     return h + '</section>';
   }
 
+  /* ---------- Which checklist? (2.16): Runs' Start a run asks which, then opens that checklist's start form ---------- */
+  function whichDialog(ctx) {
+    var st = ctx.state, pubs = ctx.processes().filter(function (p) { return !!p.latest; }), q = K.findQ(st, 'which'), hit = K.finds(q);
+    var found = q ? pubs.filter(function (p) { return hit([p.title, p.id, (p.group || []).join(' / '), p.category]); }) : pubs;
+    var h = '<div class="overlay" data-act="close-overlay"><div class="ev-box wc-box" role="dialog" aria-modal="true" aria-labelledby="wc-h"><div class="ev-bar"><h2 id="wc-h" tabindex="-1">Which checklist?</h2><button type="button" class="mini" data-act="close-overlay">Close</button></div>';
+    if (!pubs.length) return h + '<p>No published checklists yet.</p><div class="row">' + V.backc('runs-which', '', 'Checklists') + '</div></div></div>';
+    var who = st.me ? '' : '<p class="small" id="wc-why">Choose who you are first. You are is at the top of the page.</p>';
+    h += who + K.findBox(st, 'which', 'Find a checklist', found.length, pubs.length, 'checklist');
+    h += K.list(st, 'which', found, { keyOf: function (p) { return p.id; }, focusOf: function (k) { return K.byAct('runs-which', k); }, empty: '',
+      draw: function (shown) { return '<ul class="wc-list">' + shown.map(function (p) { return '<li><button type="button" class="wc-row" data-act="runs-which" data-id="' + esc(p.id) + '"' + (st.me ? '' : ' disabled aria-describedby="wc-why"') + '><b>' + esc(p.title) + '</b> <span class="small">v' + esc(p.latest.info.version) + '</span></button></li>'; }).join('') + '</ul>'; } });
+    return h + '</div></div>';
+  }
+  V.whichDialog = whichDialog;
   /* ---------- Runs: everything running, planned and finished ---------- */
   function runs(ctx) {
     var st = ctx.state, d = ctx.data;
     var running = d.runs.filter(function (r) { return r.state === 'running' && (st.filter === 'all' || (!!st.me && (r.recorder.person === st.me || Object.keys(r.roles).some(function (k) { return r.roles[k] === st.me; })))); });
     var ended = d.runs.filter(function (r) { return r.state !== 'running'; }).sort(function (a, b) { return (b.ended && b.ended.at || '') < (a.ended && a.ended.at || '') ? -1 : 1; });
     var plans = byWhen(d.plans.filter(function (p) { return !p._status; })), now = ctx.now();
-    var h = notices(ctx) + pageHead('Runs', 'Runs', 'Every run of every checklist.', (function () { var n = V.fuList(ctx).filter(PF.followups.isOpen).length; return '<button class="btn" data-act="nav" data-id="followups">' + I('flag') + 'Follow-ups' + (n ? ' · ' + n + ' open' : '') + '</button>'; })() +
-      '<details class="rw-menu" data-disc="runs-more"' + ((st.disc || {})['runs-more'] ? ' open' : '') + '><summary class="mini">More</summary><div class="rw-menu-list"><button class="mini" data-act="ev-range">' + I('doc') + 'Export evidence…</button></div></details><button class="btn go" data-act="nav" data-id="processes">' + I('play') + 'Start a run</button>');
+    /* The runs behind a number in How runs go: the way back to it, top left (2.16). */
+    var h = notices(ctx) + (st.runFilter && st.runFilter.back ? V.backRow(V.backc('ins-back', null, 'How runs go')) : '') + pageHead('Runs', 'Runs', 'Every run of every checklist.', (function () { var n = V.fuList(ctx).filter(PF.followups.isOpen).length; return '<button class="btn" data-act="nav" data-id="followups">' + I('flag') + 'Follow-ups' + (n ? ' · ' + n + ' open' : '') + '</button>'; })() +
+      '<details class="rw-menu" data-disc="runs-more"' + ((st.disc || {})['runs-more'] ? ' open' : '') + '><summary class="mini">More</summary><div class="rw-menu-list"><button class="mini" data-act="ev-range">' + I('doc') + 'Export evidence…</button></div></details><button class="btn go" data-act="runs-start" aria-haspopup="dialog">' + I('play') + 'Start a run</button>');
     /* A run file that can't be read is listed, never left out: it may still be arriving, or need restoring. */
     h += stillReading(ctx, false);
     var bad = (d.unreadable || []).filter(function (u) { return /^runs\//.test(u.path); });
@@ -263,7 +279,8 @@
     orphans.forEach(function (x) { if (!x.skill.name && x.skill.file) x.skill.name = x.skill.file; skills.push({ x: x, p: { id: '', title: 'No matching checklist', group: ['Not matched'], category: 'Not matched' } }); });
     var attention = skills.filter(function (k) { return k.x.status.s === 'update' || k.x.status.s === 'missing'; });
     var ready = ctx.processes().filter(function (p) { return p.latest && !p.skills.length && PF.skills.signoffs(d.validations, p.latest).length; });
-    var h = notices(ctx) + pageHead('Skills', 'Skills', 'AI automations built from your checklists.');
+    var og = ctx.libOrigin ? ctx.libOrigin('skills') : { hash: '#/processes', place: 'Checklists', view: '' };
+    var h = notices(ctx) + V.backRow(V.backc('go-back', og.hash, og.place)) + pageHead('Skills', 'Skills', 'AI automations built from your checklists.');
     if (d.skillsSkipped) h += '<div class="notice warn" role="status"><span><b>' + d.skillsSkipped + ' more skill registration' + (d.skillsSkipped === 1 ? ' wasn\'t' : 's weren\'t') + ' read.</b> Flightdeck reads the first 500 in <code>skills/</code>, by name.</span><button class="mini" data-act="health">Folder health</button></div>';
     /* The how-to is the page's job when there are no skills yet; after that it's a closed reference. */
     h += '<details class="panel"' + (skills.length ? '' : ' open') + '><summary><h2 style="display:inline">How a checklist becomes a skill</h2></summary><ol class="howto">' +

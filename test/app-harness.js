@@ -154,6 +154,12 @@ function boot(opts) {
     return out;
   };
   els.overlay.querySelectorAll = sel => sel === 'input, textarea, select' ? controls(els.overlay) : [];
+  /* opts.replace in a dialog too: a rebuilt dialog draws its boxes anew, with what the markup says, focus gone and the caret
+     at the start, so only the app's own code puts back what was typed (2.16). */
+  if (opts.replace) Object.defineProperty(els.overlay, 'innerHTML', { get() { return this._html; }, set(v) {
+    this._html = String(v);
+    inputs.forEach(id => { if (this._html.indexOf('id="' + id + '"') < 0) return; const d = drawnValue(this._html, id); if (d === null) return; els[id].value = d; els[id].selectionStart = els[id].selectionEnd = 0; if (document.activeElement === els[id]) document.activeElement = document.body; });
+  } });
   appEl.querySelectorAll = sel => {
     if (sel === 'input, textarea, select') return controls(appEl);
     if (sel === '[data-thumb]') { const now = drawnThumbs(); [...thumbs.keys()].forEach(k => { if (now.indexOf(k) < 0) thumbs.delete(k); }); return now.map(k => { if (!thumbs.has(k)) thumbs.set(k, { nodeType: 1, dataset: { thumb: k } }); return thumbs.get(k); }); }
@@ -163,6 +169,8 @@ function boot(opts) {
   appEl.contains = el => !!el && (el.dataset && el.dataset.thumb != null && !el.id ? drawnThumbs().indexOf(el.dataset.thumb) >= 0 && thumbs.get(el.dataset.thumb) === el : inputs.has(el.id) && onScreen(el.id));
   /* Where the app asked focus to go: renders look up their focus target with querySelector. */
   const asked = [];
+  /* The drawn elements the app scrolled into view, in order. */
+  const scrolled = [];
   /* Animations the app started (opts.layout): which node, its keyframes, and whether it was canceled. */
   const animations = [];
   /* How far a moving fill has got (0 to 1); 1, finished, unless a test holds it partway. */
@@ -190,7 +198,7 @@ function boot(opts) {
   const bodyClasses = new Set();
   document.body.classList = { add: (...c) => c.forEach(x => bodyClasses.add(x)), remove: (...c) => c.forEach(x => bodyClasses.delete(x)), contains: c => bodyClasses.has(c) };
   const window = {
-    innerWidth: opts.narrow ? 375 : 1400, scrollY: 0, scrollTo() {}, matchMedia: q => ({ matches: (!!opts.narrow && /max-width/.test(q)) || (!!opts.reducedMotion && /prefers-reduced-motion: reduce/.test(q)) }), getSelection: () => ({ removeAllRanges() {}, addRange() { if (opts.onSelect) opts.onSelect(); } }),
+    innerWidth: opts.narrow ? 375 : 1400, innerHeight: opts.narrow ? 667 : 900, scrollY: 0, scrollTo() {}, matchMedia: q => ({ matches: (!!opts.narrow && /max-width/.test(q)) || (!!opts.reducedMotion && /prefers-reduced-motion: reduce/.test(q)) }), getSelection: () => ({ removeAllRanges() {}, addRange() { if (opts.onSelect) opts.onSelect(); } }),
     addEventListener: (t, fn) => { (winListeners[t] = winListeners[t] || []).push(fn); }
   };
   /* The address bar and session history of a file:// page: a list of entries and an index. back(), forward() and go(n)
@@ -202,7 +210,7 @@ function boot(opts) {
   const copyState = v => v === undefined ? null : JSON.parse(JSON.stringify(v));
   // opts.hash and opts.historyState: the entry the page loads on (a reload, a bookmark); opts.entries (and opts.index): the
   // whole session history it loads into, as { hash, state } (entries made before a reload).
-  const hist = { entries: (opts.entries || [{ hash: opts.hash || '', state: opts.historyState }]).map(e => ({ url: BASE + (e.hash || ''), state: copyState(e.state) })), queue: [], held: false, busy: false, reloads: 0, mismatch: 0 };
+  const hist = { entries: (opts.entries || [{ hash: opts.hash || '', state: opts.historyState }]).map(e => ({ url: BASE + (e.hash || ''), state: copyState(e.state) })), queue: [], appGo: 0, held: false, busy: false, reloads: 0, mismatch: 0 };
   hist.index = opts.index != null ? opts.index : hist.entries.length - 1;
   const secErr = m => Object.assign(new Error(m), { name: 'SecurityError' });
   const hashOf = u => { const i = u.indexOf('#'); return i < 0 || i === u.length - 1 ? '' : u.slice(i); };
@@ -213,7 +221,7 @@ function boot(opts) {
     get state() { return copyState(hist.entries[hist.index].state); },
     pushState(st, t, u) { blocked(); const url = urlOf(u); hist.entries.splice(hist.index + 1); hist.entries.push({ url, state: copyState(st) }); hist.index++; },
     replaceState(st, t, u) { blocked(); const url = urlOf(u); hist.entries[hist.index] = { url, state: copyState(st) }; },
-    go(n) { blocked(); n = Number(n) || 0; if (!n) { hist.reloads++; return; } traverse({ delta: n }); },
+    go(n) { blocked(); n = Number(n) || 0; if (!n) { hist.reloads++; return; } hist.appGo++; traverse({ delta: n }); },
     back() { this.go(-1); }, forward() { this.go(1); }
   };
   const location = { protocol: 'file:', get href() { return hist.entries[hist.index].url; }, get hash() { return hashOf(hist.entries[hist.index].url); }, reload() { hist.reloads++; } };
@@ -296,7 +304,9 @@ function boot(opts) {
       get attributes() { return Object.keys(attrs).map(name => ({ name, value: attrs[name] })); },
       getAttribute: k => (k in attrs ? attrs[k] : null), hasAttribute: k => k in attrs, setAttribute(k, v) { attrs[k] = String(v); }, removeAttribute(k) { delete attrs[k]; },
       classList: { contains: c => (attrs.class || '').split(/\s+/).indexOf(c) >= 0, add() {}, remove() {} },
-      focus() { document.activeElement = n; }, scrollIntoView() {}, getClientRects: () => [1], select() {}, setSelectionRange() {},
+      focus() { document.activeElement = n; }, scrollIntoView() { scrolled.push(n); },
+      /* Drawn unless the page's width classes hide it, as page.html does: .ph-only above 800 px, .wd-only at 800 and less. */
+      getClientRects: () => { for (let x = n; x; x = x._parent) { const c = ' ' + (x._attrs.class || '') + ' '; if (c.indexOf(opts.narrow ? ' wd-only ' : ' ph-only ') >= 0) return []; } return [1]; }, select() {}, setSelectionRange() {},
       // A typed box (an element the test made) is inside when its drawn node is.
       contains: o => { if (o && o._src === undefined && o.id) o = nodesOf(region).filter(x => x.id === o.id)[0]; return !!o && o._src === n._src && o._region === n._region && o._at >= n._at && o._at < n._end; },
       closest: sel => { for (let x = n; x; x = x._parent) if (matches(x, sel)) return x; return null; },
@@ -304,7 +314,7 @@ function boot(opts) {
       querySelectorAll: sel => { const all = nodesOf(region), out = []; if (all[n._i] !== n) return all.filter(x => x !== n && n.contains(x) && matches(x, sel)); for (let i = n._i + 1; i < all.length && all[i]._at < n._end; i++) if (matches(all[i], sel)) out.push(all[i]); return out; },
       // opts.layout: a 1,000-pixel-wide page where a drawn width:N% is N% of its box, and animate() is recorded, not played.
       ...(opts.layout ? {
-        clientWidth: 1000,
+        clientWidth: 1000, style: {},
         getBoundingClientRect: () => {
           const m = /width:\s*([\d.]+)%/.exec(attrs.style || ''); let w = m ? +m[1] * 10 : 1000;
           // A progress fill that's still moving shows where its animation is (app.paintAt), not its target.
@@ -333,12 +343,13 @@ function boot(opts) {
   if (opts.picker) window.showDirectoryPicker = () => Promise.resolve(typeof opts.picker === 'function' ? opts.picker() : opts.picker);
   /* opts.timers: the app's delayed timers (any delay over 0) wait in a queue the test moves with advanceTimers(ms); none
      fires on its own. Zero-delay timers still run as usual, so promise chains and redraws on the next turn aren't held. */
+  /* opts.urlParser: the stand-in browser gets a real URL parser (Node's), as a browser has, so a Jira address can be checked. */
   const timerQ = [], clock = { now: 0, id: 1 };
   const appSetTimeout = !opts.timers ? setTimeout : (fn, ms) => { if (!(ms > 0)) return setTimeout(fn, 0); const t = { id: 'm' + clock.id++, at: clock.now + ms, fn }; timerQ.push(t); return t.id; };
   const appClearTimeout = !opts.timers ? clearTimeout : id => { const i = timerQ.findIndex(t => t.id === id); if (i >= 0) timerQ.splice(i, 1); else clearTimeout(id); };
   const ctx = vm.createContext({
     window, document, history, location, localStorage: storage(), sessionStorage, navigator: Object.assign(opts.locks ? { locks: opts.locks } : {}, opts.navigator || {}), BroadcastChannel: opts.Channel, console, Date: opts.Date || Date, Math, JSON, Promise, Blob, fetch, btoa, Uint8Array,
-    setTimeout: appSetTimeout, clearTimeout: appClearTimeout, setInterval: fn => { intervals.push(fn); return 0; }, requestAnimationFrame: fn => setTimeout(fn, 0), URL: { createObjectURL: b => { lastBlob = b; return 'blob:x'; }, revokeObjectURL() {} },
+    setTimeout: appSetTimeout, clearTimeout: appClearTimeout, setInterval: fn => { intervals.push(fn); return 0; }, requestAnimationFrame: fn => setTimeout(fn, 0), URL: opts.urlParser ? Object.assign(class extends URL {}, { createObjectURL: b => { lastBlob = b; return 'blob:x'; }, revokeObjectURL() {} }) : { createObjectURL: b => { lastBlob = b; return 'blob:x'; }, revokeObjectURL() {} },
     crypto: globalThis.crypto, TextEncoder, TextDecoder, indexedDB: opts.indexedDB, IntersectionObserver: opts.IntersectionObserver,
     // An elapsed-time clock the test moves (performance.now()); left out, the app falls back on Date.now().
     performance: opts.performance,
@@ -434,6 +445,7 @@ function boot(opts) {
     // Every typed box not drawn now is gone, as after a new folder's screen replaced the page.
     goneUndrawn() { Object.keys(els).forEach(id => { if (['app', 'top', 'overlay', 'live', 'body'].indexOf(id) < 0 && !onScreen(id) && (els.overlay._html || '').indexOf('id="' + id + '"') < 0) { delete els[id]; inputs.delete(id); } }); },
     asked: () => asked.slice(),
+    scrolled: () => scrolled.map(x => x.dataset && x.dataset.act || x.id || x.tagName),
     animations: () => animations.slice(),
     paintAt(t) { paint.t = t; },
     set(id, value) { const el = get(id); el.value = value; el.type = 'text'; inputs.add(id); return this; },
@@ -448,7 +460,7 @@ function boot(opts) {
         const q = v => String(v).replace(/[\\"]/g, '\\$&'), sel = '[data-act="' + q(act) + '"]' + (id != null ? '[data-id="' + q(id) + '"]' : '');
         /* The one with what the test pressed drawn on it, when it says: two can share an action and an id. */
         const n = (data && drawnAnywhere(sel + Object.keys(data).map(k => '[data-' + k.replace(/[A-Z]/g, c => '-' + c.toLowerCase()) + '="' + q(data[k]) + '"]').join(''))) || drawnAnywhere(sel);
-        if (n) document.activeElement = n;
+        if (n) { document.activeElement = n; /* and where it is drawn, as a page's control knows (inside More, a dialog…) */ btn.closest = sel => n.closest(sel); }
       }
       (listeners.click || []).forEach(fn => fn({ target: { closest: () => btn }, preventDefault() {} }));
     },
@@ -477,9 +489,15 @@ function boot(opts) {
     files(prefix) { return Object.keys(app.fs.files).filter(p => p.indexOf(prefix) === 0); },
     // The browser's Back and Forward (a button, Alt+Left, a mouse button), a jump from the Back menu, and a hash typed or
     // pasted into the address bar. Each lands on a later tick; settle() waits until every one has.
-    back() { history.go(-1); }, forward() { history.go(1); }, go(n) { history.go(n); },
+    /* The person's own Back and Forward (the toolbar, a key): not counted as the app's traversals. */
+    back() { this.go(-1); }, forward() { this.go(1); }, go(n) { n = Number(n) || 0; if (!n) { history.go(0); return; } traverse({ delta: n }); },
+    /* How many times the app itself called history.go, back or forward. */
+    appTraversals() { return hist.appGo; },
     typeHash(h) { traverse({ typed: h }); },
     holdPops() { hist.held = true; }, releasePops() { hist.held = false; pump(); },
+    // A typed box taking focus with the caret at s..e (opts.replace), and where its caret is.
+    focusBox(id, st, en) { const el = get(id); el.focus(); el.selectionStart = st; el.selectionEnd = en == null ? st : en; return this; },
+    caret: id => (els[id] ? [els[id].selectionStart, els[id].selectionEnd] : null),
     async settle() { for (let i = 0; i < 200 && (hist.queue.length || hist.busy); i++) await tick(2); await tick(); },
     url: () => hist.entries[hist.index].url, hash: () => location.hash,
     entries: () => hist.entries.map(e => ({ hash: hashOf(e.url), state: copyState(e.state) })), index: () => hist.index,

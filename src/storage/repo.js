@@ -779,6 +779,9 @@ PF.repo = (function () {
       Object.defineProperty(out, 'runs', { enumerable: true, configurable: true,
         get: function () { if (!runs) runs = keys.map(function (k) { var x = reads[k]; return !x ? null : x.kind === 'fresh' ? x.run : x.kind === 'cached' ? x.build() : null; }).filter(Boolean); return runs; },
         set: function (v) { runs = v; } });
+      /* 2.16 (section 5.7.4): the folder pass over the runs as read, built on first use. It never changes a run. */
+      var marks = null;
+      Object.defineProperty(out, 'childMarks', { enumerable: false, configurable: true, get: function () { if (!marks) marks = R.childMarks(out.runs); return marks; } });
       return stagesDone.then(function () { return out; });
     });
   }
@@ -1246,7 +1249,11 @@ PF.repo = (function () {
         /* SHA-256 of the exact text this window read or wrote (fileHash): an older copy's 8-character FNV never matches, so
            a run kept in this browser from before 2.1 keeps its change as a conflict copy rather than risk writing over one. */
         var changed = fileHash(f.text) !== run._fileHash;
-        var otherWriter = !opts.takeover && disk.recorder.session && disk.recorder.session !== session;
+        /* opts.endedReread (R14-8): Done on a step a completed run's reader reopened, by its recorder or ender from any
+           session. The run has ended, so no window records it: only the session check is set aside, for a run that has
+           ended on disk and here; the fingerprint check (changed) still holds. */
+        var reread = opts.endedReread === true && disk.state === 'completed' && !!disk.ended && run.state === 'completed' && !!run.ended;
+        var otherWriter = !opts.takeover && !reread && disk.recorder.session && disk.recorder.session !== session;
         if (changed || otherWriter) {
           /* Keep this window's version next to the run as a conflict copy, so nothing is lost and the team can review it. */
           e = new Error('changed'); e.disk = disk;
@@ -1437,9 +1444,9 @@ PF.repo = (function () {
       return { latest: i.latest, all: i.all, clashes: i.clashes, broken: pubs.filter(function (x) { return !x.ok; }) };
     });
   }
-  /* team-values.json read now (2.9), for a draft that passes a team value; otherwise nothing is read. */
+  /* team-values.json read now (2.9), for a draft that passes a team value or has a Jira search; otherwise nothing is read. */
   function teamValuesFor(fs, parsed) {
-    var uses = PF.map.steps(parsed).some(function (x) { return x.step.type === 'run.process' && PF.links.teams(x.step).length; });
+    var uses = PF.publish.teamValuesUsed(parsed);
     return uses ? readTeamValues(fs) : Promise.resolve(null);
   }
   function publish(fs, draftMd, opts) {

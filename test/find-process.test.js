@@ -26,7 +26,9 @@ async function bigApp() { return big || (big = await fresh()); }
 /* A newer read of the folder, as the app's own Check the folder now does it. */
 async function reread(app) {
   const was = app.PF.perf.n['load.done'] || 0;
-  app.click('refresh');
+  /* A background read: the folder is read again without anything being pressed, so focus stays where it was (Check the
+     folder now is in More on a work screen, and a press there would take focus). */
+  const f = app.doc.activeElement; app.click('refresh'); app.doc.activeElement = f;
   for (let i = 0; i < 4000 && (app.PF.perf.n['load.done'] || 0) <= was; i++) await app.tick(5);
   await app.tick(5);
 }
@@ -585,7 +587,7 @@ rule('Versions: Show changes on a 400-step checklist draws 50 changes, with Show
   assert.ok(app.doc.activeElement === app.node(d.focus), 'focus on the first added change');
 });
 
-rule('Stages: a stage made from the overview, and one from Practice, landing past row 50, is drawn, its fold open, with Start a test run focused', async () => {
+rule('Stages: a stage made from the overview landing past row 50 is drawn, its fold open, with Start a test run focused; one from Practice shows it top right in Edit', async () => {
   const app = await fresh(), U = app.PF.util, rid = U.randomId;
   const latest = Object.keys(app.fs.files).filter(k => /^publications\/versions\/v300-[^/]+\/map\.md$/.test(k))[0];
   const md = app.fs.files[latest].t.replace(/\nversion: [^\n]*/, '').replace('Step 0 of version 300', 'Step 0, staged from the overview');
@@ -610,20 +612,22 @@ rule('Stages: a stage made from the overview, and one from Practice, landing pas
     await reread(app);
     await openProc(app, 'versions', 'edit');
     app.click('pr-open'); await app.tick(60);
-    assert.ok(/Practice · not recorded/.test(app.html()), 'set-up: practicing');
+    assert.ok(/Practice<\/span> not recorded/.test(app.html()), 'set-up: practicing');
     for (let pi = 0; pi < 2; pi++) {
       for (let k = 0; k < 3; k++) { app.click('toggle', 's' + (pi * 3 + k)); await app.tick(); }
       if (!new RegExp('data-act="pass" data-id="' + pi + '"').test(app.html())) { const g = [...app.html().matchAll(/<div class="gate" data-scope="gate:([^"]+)"/g)].map(m => m[1])[pi]; app.click('pick', g, { kind: 'pass' }); await app.tick(); }
       app.click('pass', String(pi)); await app.tick();
     }
     assert.ok(/You got through the whole checklist\./.test(app.html()), 'set-up: practiced to the end');
-    app.set('pr-note', 'Staged from Practice'); app.fire('input', { target: { id: 'pr-note', value: 'Staged from Practice', tagName: 'INPUT', dataset: {}, closest: () => null } });
-    app.click('pr-stage'); await app.tick(300);
+    app.click('pr-publish-open', 'versions'); await app.tick();
+    app.set('change-note', 'Staged from Practice');
+    const b = { dataset: { act: 'stage-draft', id: 'versions' }, disabled: false, classList: { contains: () => false }, closest: sel => (sel === '#overlay' ? {} : null) };
+    app.fire('click', { target: { closest: () => b } }); await app.tick(300);
     const stg2 = Object.keys(app.fs.files).filter(k => /^staged\/versions\/stage-zzzzzz\d\d\/map\.md$/.test(k)).map(k => k.split('/')[2]).filter(f => f !== stg[0]);
     assert.strictEqual(stg2.length, 1, 'set-up: staged from Practice');
+    /* Practice matched what was staged, so it was cleared and Edit shows the new stage's Start a test run, top right. */
     const h2 = app.html();
-    assert.ok(new RegExp('id="stg-' + stg2[0] + '"').test(h2) && /data-disc="vers:versions" open/.test(h2), 'drawn, its fold open');
-    assert.ok(count(h2, /<li class="stg[^"]*" id="stg-/g) <= 51);
+    assert.ok(/<h1 id="ed-h"/.test(h2) && new RegExp('<div class="hd-acts" data-slot="primary"><button[^>]*data-act="start-test" data-id="' + stg2[0] + '"').test(h2), 'Edit, the new stage\'s Start a test run the primary');
     assert.strictEqual(app.activeId(), '[data-act="start-test"][data-id="' + stg2[0] + '"]', 'Start a test run focused');
   } finally { U.randomId = rid; }
 });
@@ -870,7 +874,7 @@ const D10_JOIN_OK = [
   { file: 'flight.js', has: 'esc(marks.join(\' and \'))', why: FIXED }, { file: 'flight.js', has: '<b>Gate note</b>', why: FIXED },
   { file: 'health.js', has: 'function flushP()', why: 'a paragraph of the recovery guide, bundled with the app' },
   { file: 'home.js', has: 'K.uniqKeys(items', why: NOT_TEXT }, { file: 'home.js', has: 'bad.slice(0, 3)', why: 'the first 3 and "and N more"' },
-  { file: 'home.js', has: 'var found = q ? tagged.filter(function (p)', why: SEARCH }, { file: 'home.js', has: 'var found = q ? tagged.filter(function (k)', why: SEARCH },
+  { file: 'home.js', has: 'var found = q ? tagged.filter(function (p)', why: SEARCH }, { file: 'home.js', has: 'var found = q ? pubs.filter(function (p)', why: SEARCH + ' (2.16: the Which checklist? dialog\'s Find box)' }, { file: 'home.js', has: 'var found = q ? tagged.filter(function (k)', why: SEARCH },
   { file: 'home.js', has: 'esc(flags.join(\' · \'))', why: 'a checklist\'s warning flags, a fixed set' },
   { file: 'insights.js', has: 'STATUS_WORDS[k]', why: 'correction statuses, a fixed set' }, { file: 'insights.js', has: 'var m = x.gate[k[0]]', why: FIXED },
   { file: 'manage.js', has: 'esc(K.capJoin(e.errors', why: 'the type files the reader couldn\'t use, at most the 100 it reads (storage/repo.js), each one\'s problems capped by K.capJoin' },

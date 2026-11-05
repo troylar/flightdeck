@@ -58,6 +58,7 @@ PF.run = (function () {
       if (Object.keys(kids).length) { r.pins = { children: kids }; addFeature(r, 'pinned-children'); r = withPins(r); }
     }
     if (migs.length) { r.migrations = migs; r = withPins(r); }
+    if (two) r = startSearch(r, map, o);
     /* A linked run started from a test run (2.1) names no parent folder: a stage's isn't a version, and 2.0.0 would read the
        child read-only for it. */
     if (o.parent && o.parent.process && o.parent.id && o.parent.step) { r.parent = { process: String(o.parent.process), id: String(o.parent.id), step: String(o.parent.step) }; if (o.parent.inputs) r.parent.inputs = Object.assign({}, o.parent.inputs); if ((two || explicit) && folderOk(o.parent.folder)) r.parent.folder = o.parent.folder; }
@@ -98,7 +99,7 @@ PF.run = (function () {
   /* ---------- Typed values (2.0, typed-details and typed-evidence) ---------- */
   var V = PF.values;
   var MIG_SOURCES = { plan: 1, 'switch': 1, carry: 1, request: 1, report: 1 }, MIG_VERDICTS = { converted: 1, ambiguous: 1, invalid: 1 }, MIG_MAX = 200, MIG_TEXT = 300;
-  var KIND_WORD = { number: 'a number', 'yes-no': 'a yes or no', date: 'a date', choice: 'a choice', url: 'a link' };
+  var KIND_WORD = { number: 'a number', 'yes-no': 'a yes or no', date: 'a date', choice: 'a choice', url: 'a link', pattern: 'a value that matches its pattern' };
   var SOURCE_WORD = { plan: 'in the plan', 'switch': 'in the plan', carry: 'in the parent run', request: 'in the request', report: 'in the report' };
   function own(o, k) { return !!o && typeof o === 'object' && Object.prototype.hasOwnProperty.call(o, k); }
   function badValue(msg, field) { var e = new Error(msg); e.field = field; return e; }
@@ -106,7 +107,7 @@ PF.run = (function () {
      isn't one, so it waits for a person like any other that didn't convert. */
   function migrateDetail(def, src) {
     var m = V.migrate(def, src);
-    return (m.verdict === 'exact' || m.verdict === 'converted') && !V.parse(def, m.result, { max: 120 }).ok ? { verdict: 'invalid', result: null } : m;
+    return (m.verdict === 'exact' || m.verdict === 'converted') && !V.parse(def, m.result, { max: V.DETAIL_MAX }).ok ? { verdict: 'invalid', result: null } : m;
   }
   function startDetails(map, details, o) {
     var from = o.from && typeof o.from === 'object' && typeof o.from.source === 'string' && own(MIG_SOURCES, o.from.source) && o.from.source !== 'report' ? o.from : null, out = [];
@@ -122,7 +123,7 @@ PF.run = (function () {
       if (untouched) {
         details[f] = open ? '' : m.result;
       } else {
-        var p = V.parse(def, mine, { max: 120 });
+        var p = V.parse(def, mine, { max: V.DETAIL_MAX });
         if (!p.ok) throw badValue(p.why, f);
         details[f] = p.canonical;
       }
@@ -262,8 +263,8 @@ PF.run = (function () {
     }
     String(f.sets || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean).forEach(function (d) {
       /* A typed run detail (2.0) is asked for with its kind, so the step stores it canonical. */
-      var dt = detailDef(map || mapOf(r), d), e = { name: detailKey(d), label: d, kind: 'text', required: true, cap: 120, hint: 'A run detail: later steps use it as ^' + d + '.', source: 'detail:' + d, detail: d };
-      if (dt) { e.kind = dt.kind === 'link' ? 'url' : dt.kind; e.detailKind = dt.kind; if (dt.options) e.options = dt.options.slice(); }
+      var dt = detailDef(map || mapOf(r), d), e = { name: detailKey(d), label: d, kind: 'text', required: true, cap: V.DETAIL_MAX, hint: 'A run detail: later steps use it as ^' + d + '.', source: 'detail:' + d, detail: d };
+      if (dt) { e.kind = dt.kind === 'link' ? 'url' : dt.kind; e.detailKind = dt.kind; if (dt.options) e.options = dt.options.slice(); if (dt.kind === 'pattern') e.pattern = dt.pattern; }
       extra.push(e);
     });
     return { type: t, fields: f, extra: extra, list: PF.types.recordFields(t, f, extra) };
@@ -271,7 +272,14 @@ PF.run = (function () {
   /* A run detail's kind (2.0, typed-details): { kind, options? } from the run's own checklist, or null for text. */
   function detailDef(map, name) { var t = map && map.meta && map.meta.detailTypes; return t && Object.prototype.hasOwnProperty.call(t, name) ? t[name] : null; }
   /* The same as a value definition PF.values reads ({ kind, label, options }), or null. */
-  function detailValueDef(map, name) { var d = detailDef(map, name); return d ? { kind: d.kind, label: name, options: d.options } : null; }
+  function detailValueDef(map, name) { var d = detailDef(map, name); if (!d) return null; var v = { kind: d.kind, label: name, options: d.options }; if (d.kind === 'pattern') v.pattern = d.pattern; return v; }
+  /* How a run's details and gate approvals are measured (2.16, Appendix A.5): by the features of the published version it was
+     started from (its snapshot), never its own features list. 'cp' with detail-patterns, 'utf16' (exactly as before) otherwise. */
+  function detailUnit(o) {
+    if (!o || o.format !== FORMAT3 || typeof o.snapshot !== 'string' || o.snapshot.indexOf('pattern(') < 0) return 'utf16';
+    var map = mapOf({ folder: o.folder, mapHash: o.mapHash, snapshot: o.snapshot });
+    return V.unitOf(M.features(map));
+  }
   /* The evidence key a step stores a run detail it sets under: short and safe as a run-file key. */
   function detailKey(d) { return 'rd-' + U.slug(String(d), 20) + '-' + U.hash(String(d)); }
   /* After a step that sets run details is checked or corrected, its values become the run's details, re-checking later
@@ -294,7 +302,20 @@ PF.run = (function () {
     if (w.workflow.statuses.indexOf(f.status) < 0 || !PF.jira.into(w.workflow, f.status).length) return 'Jira\'s ' + w.type + ' workflow has no transition to "' + f.status + '". Statuses: ' + w.workflow.statuses.join(', ') + '.';
     return null;
   }
-  function checkEvidence(r, step, fields, values, partial, map) { var e = evidenceFor(r, step, fields, map); return PF.types.checkRecord(e.type, e.fields, values, partial, e.extra); }
+  function checkEvidence(r, step, fields, values, partial, map) {
+    var e = evidenceFor(r, step, fields, map), chk = PF.types.checkRecord(e.type, e.fields, values, partial, e.extra);
+    if (chk.error || !r || r.practice || !isSearchStep(step)) return chk;
+    /* Round 4 (settled): a search's results carry the searchId they were entered for, and only results for the search as
+       the run stands now count, whichever path brings them (typed, saved, reported, carried). */
+    var v = values || {}, any = JS.SEARCH_FIELDS.some(function (k) { return k !== 'searchId' && own(v, k) && v[k] != null && String(v[k]).trim() !== ''; });
+    if (!any) return chk;
+    var st; try { st = searchState(r, map || mapOf(r), step); } catch (err) { st = { ok: false, why: 'This search can\'t be built.' }; }
+    if (!st.ok) return { error: st.why, field: '' };
+    var have = own(v, 'searchId') && v.searchId != null ? String(v.searchId) : '';
+    if (!have) return { error: 'These results don\'t say which search they are for. Search again.', field: 'searchId' };
+    if (have !== st.id) return { error: 'These results are for an earlier search (a run detail it used has changed). Search again.', field: 'searchId' };
+    return chk;
+  }
   /* run.json keeps the latest LOG_MAX log entries and HISTORY_MAX earlier answers per step, so it stays small to read and save.
      Older ones aren't dropped: they go to r._overflow, which the save appends to the run's history file (see repo.saveRun). */
   function archive(r, rec) { rec.id = rec.id || U.randomId(10); (r._overflow = r._overflow || []).push(rec); }
@@ -490,6 +511,289 @@ PF.run = (function () {
      one of them (grep ^ERROR) stays as written. Without names, every ^word is a detail, as before 2.7. */
   function fill(text, details, names) { return String(text || '').replace(/\^([\w-]+)/g, function (all, f) { return names && names.indexOf(f) < 0 ? all : (own(details, f) && details[f]) || ('(' + f + ' not set)'); }); }
 
+  /* ---------- Jira searches (2.16, design section 5) ----------
+     Flightdeck never calls Jira. A search step's results are tied to the exact search they answer by its searchId: the
+     address copied at start (searchSites), the JQL with its run details filled in, each detail's generation (searchGen)
+     and the step's recovery generation (searchRec). Every write that changes what a search would find writes new
+     generations and moves its results to history; the reader reopens a done search whose record no longer counts. */
+  var JS = PF.jsearch, SEARCH_PREFIX = 'Reopened when read: ', REOPEN_GATE = 'A search was reopened when read', SITES_MAX = 20, GEN_MAX = 40, REC_MAX = 200;
+  function isSearchStep(step) { return !!step && step.type === PF.types.SEARCH; }
+  function searchSteps(map) { return M.steps(map).filter(function (x) { return isSearchStep(x.step); }); }
+  function searchUses(map, step) { return JS.uses(step.fields, map.meta.context); }
+  function searchIn(o) { return !!o && typeof o.snapshot === 'string' && o.snapshot.indexOf('{' + PF.types.SEARCH + '}') >= 0; }
+  function hasSearch(r) { return own(r, 'searchGen') || own(r, 'searchRec') || own(r, 'searchSites'); }
+  /* searchSites, searchGen and searchRec sit right after jira in the run's key order. */
+  function afterJira(r, add) {
+    var out = {}, put = false;
+    Object.keys(r).forEach(function (k) {
+      if (k === 'searchSites' || k === 'searchGen' || k === 'searchRec') return;
+      out[k] = r[k];
+      if (k === 'jira') { put = true; Object.keys(add).forEach(function (a) { out[a] = add[a]; }); }
+    });
+    if (!put) Object.keys(add).forEach(function (a) { out[a] = add[a]; });
+    Object.keys(r).forEach(function (k) { delete r[k]; }); Object.keys(out).forEach(function (k) { r[k] = out[k]; });
+    return r;
+  }
+  function siteOf(teamValues, name) {
+    var tl = teamValues ? PF.teamValues.lookup(teamValues, name) : {};
+    if (!own(tl, 'value')) return { missing: true };
+    var b = JS.checkBase(tl.value);
+    return b.ok ? { base: b.base } : { invalid: String(b.why || 'isn\'t a Jira address').slice(0, 200) };
+  }
+  /* At start: the addresses (team values, read once), a generation for every context detail and every search step. */
+  function startSearch(r, map, o) {
+    var ss = searchSteps(map);
+    if (!ss.length) return r;
+    var sites = {}, gen = {}, rec = {};
+    ss.forEach(function (x) { var n = JS.siteName(x.step.fields); if (n && !own(sites, n)) sites[n] = siteOf(o.teamValues, n); });
+    map.meta.context.forEach(function (d) { gen[d] = JS.token(null); });
+    ss.forEach(function (x) { rec[x.step.id] = JS.token(null); });
+    addFeature(r, 'jira-search');
+    return afterJira(r, { searchSites: sites, searchGen: gen, searchRec: rec });
+  }
+  /* The search as the run stands: { ok, id, jql, filter, base, link, rule } or { ok: false, why, waiting, damaged }. */
+  function searchState(r, map, step) {
+    var f = step.fields, rule = JS.parseResults(f.results), n = JS.siteName(f), e = n && r.searchSites && own(r.searchSites, n) ? r.searchSites[n] : null;
+    var base = e && typeof e.base === 'string' ? e.base : '', out = { rule: rule, base: base, site: n, siteEntry: e };
+    var q = f.query != null && String(f.query).trim(), filter = !q && f.filter != null && String(f.filter).trim() ? String(f.filter).trim() : '';
+    var sub = null;
+    /* A consumed detail whose typed value isn't valid (a pattern it breaks, a value kept as written) builds no search. */
+    var badD = searchUses(map, step).filter(function (d) { var dd = detailValueDef(map, d), v = r.details && r.details[d]; return dd && v && !V.valid(dd, v); })[0];
+    if (badD) return Object.assign(out, { ok: false, invalid: true, why: 'The run detail ' + badD + ' isn\'t a valid value (' + String(V.invalidWhy(detailValueDef(map, badD), r.details[badD])).replace(/\.$/, '') + '), so this search can\'t be built.' });
+    if (!filter) {
+      sub = JS.substitute(String(f.query || ''), r.details, map.meta.context);
+      if (!sub.ok) return Object.assign(out, { ok: false, waiting: !!(sub.missing && sub.missing.length), why: sub.why });
+      var c = JS.contained(sub.template, sub);
+      if (!c.ok) return Object.assign(out, { ok: false, why: 'This search can\'t be built safely (' + c.why + ').' });
+    }
+    var sets = list(f.sets).filter(function (d) { return searchUses(map, step).indexOf(d) >= 0; });
+    if (sets.length) return Object.assign(out, { ok: false, why: 'This step ' + JS.setsWhy(sets) });
+    var idn = JS.identity(base, f, sub || {}, r.searchGen || {}, r.searchRec ? r.searchRec[step.id] : null);
+    if (!idn) return Object.assign(out, { ok: false, damaged: true, why: 'This search\'s record of a run detail or of its recovery is damaged, so it has no current search. Refresh the search, then search again.' });
+    var link = base ? JS.buildLink(base, filter ? { filter: filter } : { jql: sub.jql }) : null;
+    return Object.assign(out, { ok: true, id: JS.fingerprint(idn), jql: sub ? sub.jql : '', filter: filter, link: link && link.ok ? link.href : '', linkWhy: link && !link.ok ? link.why : '', used: sub ? sub.used : {} });
+  }
+  function list(s) { return String(s || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean); }
+  /* Why the search can't be answered now, or ''. */
+  /* What a step reopened when read says (section 5.9 R14-3, R14-7): its reason, then what to do next, the same on the run
+     screen and in Folder health. A completed run's step is answered again with Done; it has no Refresh search. */
+  function reopenNotice(r, a) {
+    var why = String(a && a.reason || 'Reopened when read').replace(/\.$/, '') + '.';
+    if (a && a.reopened === 'stuck') return why + ' Start a new run of this checklist; this run stays as recorded.';
+    if (r && r.state === 'completed') return why + ' The run stays Completed; answer this step again with Done. Every other step stays closed.';
+    return why + ' Refresh the search, search again, then choose Done.';
+  }
+  function searchProblem(r, map, step) { var s = searchState(r, map, step); return s.ok ? '' : s.why; }
+  function searchId(r, map, step) { var s = searchState(r, map, step); return s.ok ? s.id : null; }
+  /* The record-time check (section 5.7): the step's complete evidence, checked as Done checks it, with the search fields in
+     their canonical form for the current search, meeting the rule. { values } or { error, field }. o.partial: recording on an
+     open or blocked step (shape and searchId only); o.practice: no identity. */
+  function searchCheck(r, map, step, values, now, o) {
+    o = o || {};
+    var st = o.practice ? { ok: true, rule: JS.parseResults(step.fields.results), id: null } : searchState(r, map, step);
+    if (!st.ok) return { error: st.why, field: '' };
+    if (!st.rule.ok) return { error: st.rule.why, field: '' };
+    var all = checkEvidence(r, step, null, values || {}, !!o.partial, map);
+    if (all.error) return all;
+    var e = evidenceFor(r, step, null, map), names = e.list.map(function (d) { return d.name; });
+    var extra = Object.keys(values || {}).filter(function (k) { return names.indexOf(k) < 0 && values[k] != null && String(values[k]) !== ''; });
+    if (extra.length) return { error: '"' + extra[0] + '" isn\'t something this step records.', field: extra[0] };
+    if (o.partial && !(values && values.count != null && String(values.count).trim())) {
+      if (!o.practice && values && values.searchId != null && String(values.searchId) !== '' && String(values.searchId) !== st.id) return { error: 'These results are for an earlier search (a run detail it used has changed). Search again.', field: 'searchId' };
+      return { values: all.values, meets: false };
+    }
+    var ms = typeof now === 'number' ? now : Date.parse(now);
+    /* Recording on an open or blocked step checks the shape only: failing results may be recorded (section 5.2). */
+    var sc = JS.checkEvidence(o.partial ? { ok: true, op: 'any', n: null, text: 'any' } : st.rule, values, st.id, isNaN(ms) ? Date.now() : ms, { practice: !!o.practice });
+    if (sc.error) return sc;
+    if (o.partial) sc.meets = JS.meets(st.rule, +sc.values.count);
+    var out = Object.assign({}, all.values);
+    JS.SEARCH_FIELDS.forEach(function (k) { delete out[k]; if (own(sc.values, k)) out[k] = sc.values[k]; });
+    return { values: out, meets: sc.meets, why: sc.why };
+  }
+  /* Results stop counting: the answer goes to history, done, N/A and blocked go to re-check, an open step stays open (its
+     values cleared), and gates that approved the phase go to review. */
+  function searchStale(r, map, x, reason, who, now) {
+    var a = r.steps[x.step.id];
+    if (!a) return false;
+    if (a.s === 'done' || a.s === 'na' || a.s === 'blocked') answer(r, x.step.id, { s: 'recheck', reason: String(reason).slice(0, 120), by: who, at: now });
+    else if (a.values) {
+      var h = (a.history || []).slice(); h.push({ s: a.s, by: a.by, at: a.at, reason: a.reason, values: a.values });
+      if (h.length > HISTORY_MAX) h.splice(0, h.length - HISTORY_MAX).forEach(function (o) { archive(r, Object.assign({ kind: 'answer', step: x.step.id }, o)); });
+      a.history = h; delete a.values;
+    }
+    else return false;
+    var g = r.gates[x.phase.gate.id];
+    if (g && (g.s === 'passed' || g.s === 'waived')) r.gates[x.phase.gate.id] = { s: 'review', was: g.s, by: g.by, at: g.at, reason: String(reason).slice(0, 120), approved: g.approved };
+    return true;
+  }
+  /* A detail was written: a new generation, and every search that uses it loses its results (section 5.3). */
+  function searchDetailWritten(r, map, field, who, now) {
+    if (!hasSearch(r)) return;
+    r.searchGen = r.searchGen && typeof r.searchGen === 'object' && !Array.isArray(r.searchGen) ? r.searchGen : {};
+    r.searchGen[field] = JS.token(r.searchGen[field]);
+    searchSteps(map).forEach(function (x) { if (searchUses(map, x.step).indexOf(field) >= 0) searchStale(r, map, x, field + ' changed', who, now); });
+  }
+  function genDamaged(r, map, step) {
+    var used = searchUses(map, step), g = r.searchGen, out = [];
+    used.forEach(function (d) { if (!(g && own(g, d) && JS.genOk(g[d]))) out.push(d); });
+    return { details: out, rec: !(r.searchRec && own(r.searchRec, step.id) && JS.genOk(r.searchRec[step.id])) };
+  }
+  /* Refresh search (section 5.6): fresh generations for what's damaged, and the affected searches' results to history. */
+  function refreshSearch(r, map, id, who, now) {
+    var x = M.findStep(map, id);
+    if (!x || !isSearchStep(x.step)) throw new Error('That isn\'t a Jira search step.');
+    if (r.state !== 'running') throw new Error('This run has ended.');
+    notPaused(r);
+    var dmg = genDamaged(r, map, x.step);
+    if (!dmg.details.length && !dmg.rec) return 0;
+    r.searchGen = r.searchGen && typeof r.searchGen === 'object' && !Array.isArray(r.searchGen) ? r.searchGen : {};
+    r.searchRec = r.searchRec && typeof r.searchRec === 'object' && !Array.isArray(r.searchRec) ? r.searchRec : {};
+    dmg.details.forEach(function (d) { r.searchGen[d] = JS.token(null); });
+    if (dmg.rec) r.searchRec[x.step.id] = JS.token(null);
+    var n = 0;
+    searchSteps(map).forEach(function (y) { if (y.step.id === x.step.id || searchUses(map, y.step).some(function (d) { return dmg.details.indexOf(d) >= 0; })) { if (searchStale(r, map, y, 'The search was refreshed', who, now)) n++; } });
+    addLog(r, who, now, 'Refreshed the search "' + x.step.text + '"');
+    return n;
+  }
+  /* Recovery (section 5.5): both maps from scratch, every search step a fresh recovery generation, every consumed detail a
+     fresh one, every search's results to history. */
+  function searchRecover(cur, map, who, now) {
+    var ss = searchSteps(map);
+    if (!ss.length) return;
+    var gen = {}, rec = {}, old = cur.searchGen && typeof cur.searchGen === 'object' && !Array.isArray(cur.searchGen) ? cur.searchGen : {}, used = {};
+    ss.forEach(function (x) { searchUses(map, x.step).forEach(function (d) { used[d] = 1; }); });
+    map.meta.context.forEach(function (d) { gen[d] = used[d] ? JS.token(JS.genOk(old[d]) ? old[d] : null) : (JS.genOk(old[d]) ? old[d] : JS.token(null)); });
+    ss.forEach(function (x) { rec[x.step.id] = JS.token(cur.searchRec && JS.genOk(cur.searchRec[x.step.id]) ? cur.searchRec[x.step.id] : null); });
+    afterJira(cur, { searchSites: cleanSites(cur.searchSites).sites, searchGen: gen, searchRec: rec });
+    /* A completed copy keeps Completed: its done searches take the read-reopened path (history and outcome kept), so Done
+       answers them again (R14-4); a running one sends them to re-check. */
+    var n = 0; ss.forEach(function (x) {
+      if (cur.state !== 'completed') { if (searchStale(cur, map, x, 'Recovered a copy: Jira searches need fresh results', who, now)) n++; return; }
+      var a = cur.steps[x.step.id];
+      if (!a || a.s !== 'done' || applies(cur, map, x.phaseIndex, x.step).applies === false) return;
+      var st = cur.state;
+      answer(cur, x.step.id, { s: 'open', reason: (SEARCH_PREFIX + 'a copy was recovered, so its results are for an earlier search').slice(0, 120) }, true);
+      delete cur.steps[x.step.id].values;
+      cur.state = st;
+      cur.steps[x.step.id].reopened = searchState(cur, map, x.step).ok ? true : 'stuck';
+      if (cur.steps[x.step.id].reopened === 'stuck') cur.steps[x.step.id].reason = (SEARCH_PREFIX + 'this run\'s record is damaged and can\'t be repaired here; start a new run').slice(0, 120);
+      var g = cur.gates[x.phase.gate.id];
+      if (g && (g.s === 'passed' || g.s === 'waived')) cur.gates[x.phase.gate.id] = { s: 'review', was: g.s, by: g.by, at: g.at, reason: REOPEN_GATE, approved: g.approved };
+      n++;
+    });
+    if (n) addLog(cur, who, now, 'Recovered a copy: Jira searches need fresh results.');
+  }
+  /* The reader's containers (section 5.6): fresh plain objects with only valid entries for known names, and what was damaged. */
+  function cleanSites(o) {
+    var sites = {}, bad = [];
+    if (o == null) return { sites: sites, bad: o === undefined ? [] : ['searchSites container'] };
+    if (typeof o !== 'object' || Array.isArray(o)) return { sites: sites, bad: ['searchSites container'] };
+    Object.keys(o).slice(0, SITES_MAX).forEach(function (k) {
+      var v = o[k], ok = /^[a-z0-9][a-z0-9-]{0,39}$/.test(k) && !(k in Object.prototype) && v && typeof v === 'object' && !Array.isArray(v);
+      var ks = ok ? Object.keys(v).join(' ') : '';
+      if (ok && ks === 'base' && typeof v.base === 'string' && v.base.length <= 120 && JS.checkBase(v.base).ok && JS.checkBase(v.base).base === v.base) sites[k] = { base: v.base };
+      else if (ok && ks === 'missing' && v.missing === true) sites[k] = { missing: true };
+      else if (ok && ks === 'invalid' && typeof v.invalid === 'string' && v.invalid.length <= 200) sites[k] = { invalid: v.invalid };
+      else bad.push('searchSites.' + String(k).slice(0, 40) + ' dropped');
+    });
+    if (Object.keys(o).length > SITES_MAX) bad.push('searchSites cut to ' + SITES_MAX + ' entries');
+    return { sites: sites, bad: bad };
+  }
+  function cleanGens(o, names, what, most) {
+    var out = {}, bad = [];
+    if (o === undefined) return { gens: out, bad: [what + ' missing'] };
+    if (!o || typeof o !== 'object' || Array.isArray(o)) return { gens: out, bad: [what + ' container'] };
+    Object.keys(o).forEach(function (k) {
+      if (names.indexOf(k) < 0 || k in Object.prototype) { bad.push(what + '.' + String(k).slice(0, 40) + ' dropped'); return; }
+      if (JS.genOk(o[k])) out[k] = o[k]; else bad.push(what + '.' + k + ' damaged');
+    });
+    names.forEach(function (n) { if (!own(o, n)) bad.push(what + '.' + n + ' damaged'); });
+    if (Object.keys(out).length > most) bad.push(what + ' too many entries');
+    return { gens: out, bad: bad };
+  }
+  /* Whether a stored done search still counts as read (section 5.7): '' or the reason it doesn't. */
+  function searchStands(r, map, step, a) {
+    var st = searchState(r, map, step);
+    if (!st.ok) return st.damaged ? 'refresh the search: its record is damaged' : st.waiting ? 'it waits for a run detail' : st.why;
+    var v = a.values || {};
+    if (v.searchId !== st.id) return 'refresh the search: the results are for an earlier search';
+    var chk = searchCheck(r, map, step, v, a.at || r.savedAt || new Date().toISOString(), {});
+    if (chk.error) return 'its results can\'t check this search';
+    if (!chk.meets) return 'its results don\'t meet the rule';
+    var same = JS.SEARCH_FIELDS.every(function (k) { return (v[k] == null ? '' : String(v[k])) === (chk.values[k] == null ? '' : String(chk.values[k])); });
+    return same ? '' : 'its results aren\'t in the form Done records';
+  }
+  /* The end of the reader (sections 5.7, 5.9): a done search whose record doesn't count is reopened through answer(); an open
+     one the reader reopened before is marked again; a completed run's damaged generations are rebuilt (R14-7). */
+  function reopenAtRead(r, o) {
+    if (!r || r._unrunnable || !r.snapshot) return r;
+    var map; try { map = mapOf(r); } catch (e) { return r; }
+    var ss = searchSteps(map);
+    Object.keys(r.steps || {}).forEach(function (k) { if (r.steps[k] && own(r.steps[k], 'reopened')) delete r.steps[k].reopened; });
+    if (!ss.length) return r;
+    var rebuilt = [];
+    if (r.state === 'completed') {
+      var gBad = map.meta.context.some(function (d) { return ss.some(function (x) { return searchUses(map, x.step).indexOf(d) >= 0; }) && !(r.searchGen && JS.genOk(r.searchGen[d])); });
+      var rBad = ss.some(function (x) { return !(r.searchRec && JS.genOk(r.searchRec[x.step.id])); });
+      if (gBad || rBad) {
+        var gen = Object.assign({}, r.searchGen || {}), rec = {}, was = { searchGen: JSON.stringify(r.searchGen), searchRec: JSON.stringify(r.searchRec) };
+        /* Derived from the run as read (its frozen definition included), never drawn at random: rereading the same bytes
+           (a refresh) repairs them the same way, so results typed for the repaired search still count; changed bytes, or a
+           save that writes the repair, give the next one. Each still moves on from what was there, so no earlier result
+           matches. */
+        var seed = PF.sha256.create().update(JSON.stringify(o === undefined ? null : o)).digest();
+        var next = function (prev, k) { return JS.tokenFrom(JS.genOk(prev) ? prev : null, seed + '|' + k); };
+        ss.forEach(function (x) { searchUses(map, x.step).forEach(function (d) { gen[d] = next(gen[d], 'gen:' + d); }); rec[x.step.id] = next(r.searchRec && r.searchRec[x.step.id], 'rec:' + x.step.id); });
+        r.searchGen = gen; r.searchRec = rec;
+        /* Both maps move on (so no earlier result matches), so each one that changed is named, damaged or not. */
+        ['searchGen', 'searchRec'].forEach(function (k) { if (JSON.stringify(r[k]) !== was[k]) rebuilt.push(k); });
+      }
+    }
+    var reopened = [];
+    ss.forEach(function (x) {
+      var a = r.steps[x.step.id];
+      if (!a) return;
+      /* A step this run doesn't need (only when) counts for nothing, so its record is left as it is. */
+      if (applies(r, map, x.phaseIndex, x.step).applies === false) return;
+      /* A completed run's details can't change, so a search it can't build (any reason) can't be answered again here. */
+      var stuck = function () { return r.state === 'completed' && !searchState(r, map, x.step).ok; };
+      if (a.s === 'done') {
+        var why = searchStands(r, map, x.step, a);
+        if (!why) return;
+        var s = r.state;
+        answer(r, x.step.id, { s: 'open', reason: (SEARCH_PREFIX + why).slice(0, 120) }, true);
+        delete r.steps[x.step.id].values;
+        r.steps[x.step.id].reopened = stuck() ? 'stuck' : true;
+        if (r.steps[x.step.id].reopened === 'stuck') r.steps[x.step.id].reason = (SEARCH_PREFIX + 'this run\'s record is damaged and can\'t be repaired here; start a new run').slice(0, 120);
+        r.state = s;
+        reopened.push({ id: x.step.id, why: why });
+        var g = r.gates[x.phase.gate.id];
+        if (g && (g.s === 'passed' || g.s === 'waived')) r.gates[x.phase.gate.id] = { s: 'review', was: g.s, by: g.by, at: g.at, reason: REOPEN_GATE, approved: g.approved };
+      } else if (a.s === 'open' && typeof a.reason === 'string' && a.reason.indexOf(SEARCH_PREFIX) === 0) {
+        var h = (a.history || [])[(a.history || []).length - 1];
+        if (h && h.s === 'done' && searchStands(r, map, x.step, h)) r.steps[x.step.id].reopened = stuck() ? 'stuck' : true;
+      }
+    });
+    if (reopened.length || rebuilt.length) { Object.defineProperty(r, '_searchRepairs', { value: { reopened: reopened, rebuilt: rebuilt }, enumerable: false, configurable: true, writable: true }); }
+    return r;
+  }
+  /* R14-4: a completed run's step the reader reopened, on a search step by the frozen definition, takes Done again. */
+  function rereadable(r, id) {
+    if (!r || r.state !== 'completed' || r._unrunnable) return false;
+    var a = r.steps && r.steps[id];
+    if (!a || a.s !== 'open' || a.reopened !== true) return false;
+    var map; try { map = mapOf(r); } catch (e) { return false; }
+    var x = M.findStep(map, id);
+    return !!x && isSearchStep(x.step);
+  }
+  /* R14-2: the browser copy's own overflow first, then the records its reading moved out, each once by id. */
+  function mergeOverflow(older, newer) {
+    var out = [], seen = Object.create(null);
+    [older, newer].forEach(function (l) { (Array.isArray(l) ? l : []).forEach(function (x) { if (!x || typeof x !== 'object') return; var k = typeof x.id === 'string' ? x.id : JSON.stringify(x); if (seen[k]) return; seen[k] = 1; out.push(x); }); });
+    return out;
+  }
+
   /* ---------- Changing state (the recorder's window only) ---------- */
   /* Why a step can't be answered now (how: 'done', 'na' or 'open'), or ''. The general refusals only: child runs, evidence
      and Jira are checked by done() itself. Every answer goes through it; practice (docs/design.md, Practice) asks it too. */
@@ -498,6 +802,9 @@ PF.run = (function () {
     if (!x) return 'Unknown step.';
     var nw = stepNeeded(r, map, id);
     if (nw) return nw;
+    /* R14-4: in a completed run, only Done on a search step the reader reopened. */
+    if (r.state === 'completed' && rereadable(r, id)) return how === 'reread' ? '' : 'This run has ended. Only Done can answer a step reopened when read.';
+    if (how === 'reread') return 'That phase isn\'t open.';
     if (!phaseOpen(r, map, x.phaseIndex)) return 'That phase isn\'t open.';
     if (r.paused) return 'The run is paused. Resume it to change steps.';
     if (how === 'na' && x.step.must) return 'Must-do steps can\'t be N/A.';
@@ -546,7 +853,8 @@ PF.run = (function () {
   /* Evidence the map requires (require: build) is checked here, so a step can't be done without it. Values noted earlier count,
      except with o.exact (an accepted report): then the step records exactly these values and nothing earlier. */
   function done(r, map, id, who, now, values, o) {
-    var x = guardStep(r, map, id), t = PF.types.get(x.step.type, r.types), rec = { s: 'done', by: who, at: now }, exact = !!(o && o.exact);
+    var again = r.state === 'completed' && rereadable(r, id);
+    var x = guardStep(r, map, id, again ? 'reread' : 'done'), t = PF.types.get(x.step.type, r.types), rec = { s: 'done', by: who, at: now }, exact = !!(o && o.exact);
     var waiting = consumption(r, x.step.binds || []);
     if (waiting) throw new Error(waiting);
     var prev = r.steps[id] && r.steps[id].s !== 'recheck' && !exact ? r.steps[id].values : null;
@@ -565,9 +873,28 @@ PF.run = (function () {
     if (values && '_skill' in values) { values = Object.assign({}, values); delete values._skill; }
     var chk = checkEvidence(r, x.step, null, Object.assign({}, prev || {}, values || {}));
     if (chk.error) throw new Error(chk.error);
+    /* A search counts only when it was accepted when recorded (section 5.7). */
+    if (isSearchStep(x.step)) {
+      var sc = searchCheck(r, map, x.step, Object.assign({}, prev || {}, values || {}), now);
+      if (sc.error) { var se = new Error('These results can\'t check this search: ' + sc.error.charAt(0).toLowerCase() + sc.error.slice(1)); se.field = sc.field ? 'rec-' + sc.field : ''; throw se; }
+      if (!sc.meets) throw new Error('These results can\'t check this search: ' + (sc.why || 'its results don\'t meet the rule.'));
+      chk = { values: sc.values };
+      if (again) {
+        var moved = evidenceFor(r, x.step, null, map).list.filter(function (d) { return d.detail && chk.values[d.name] != null && String(chk.values[d.name]) !== String(r.details[d.detail] || ''); })[0];
+        if (moved) throw new Error('This run has ended, so this Done can\'t change ^' + moved.detail + '. Search with the details the run ended with.');
+      }
+    }
     if (Object.keys(chk.values).length) rec.values = chk.values;
     if (seen && r.format === FORMAT3 && x.step.type === 'run.skill' && cleanSkill(seen)) { rec.skill = cleanSkill(seen); addFeature(r, 'pinned-skills'); }
     answer(r, id, rec, exact);
+    if (again) {
+      addLog(r, who, now, 'Answered again after it was reopened when read: ' + x.step.text);
+      /* The gates re-derive: one the reopen sent to review is as it was once nothing in its phase is reopened. */
+      var gid = map.phases[x.phaseIndex].gate.id, gg = r.gates[gid];
+      var still = map.phases[x.phaseIndex].steps.some(function (st) { var sa = r.steps[st.id]; return sa && sa.s === 'open' && sa.reopened; });
+      if (gg && gg.s === 'review' && gg.reason === REOPEN_GATE && !still) r.gates[gid] = gg.was === 'waived' ? { s: 'waived', reason: 'Waived before a search was reopened when read', by: gg.by, at: gg.at, approved: gg.approved } : { s: gg.was || 'passed', by: gg.by, at: gg.at, approved: gg.approved };
+      return x;
+    }
     applySets(r, map, x.step, who, now);
     return x;
   }
@@ -651,8 +978,17 @@ PF.run = (function () {
       if (g && (g.s === 'passed' || g.s === 'waived')) r.gates[map.phases[x.phaseIndex].gate.id] = { s: 'review', was: g.s, by: g.by, at: g.at, reason: 'A child-run step changed', approved: g.approved };
     }
     if (values) {
-      var chk = checkEvidence(r, x.step, null, values, true);
+      /* A search's correction is checked with the results it corrects, so the searchId they were recorded with goes with it. */
+      var chk = checkEvidence(r, x.step, null, isSearchStep(x.step) ? Object.assign({}, (r.steps[id] && r.steps[id].values) || {}, values) : values, true);
       if (chk.error) { undo(); throw fail(chk.error, chk.field ? 'rec-' + chk.field : ''); }
+      /* A search's results (section 5.2): the shape and the searchId always; a checked one must still meet the rule. */
+      if (isSearchStep(x.step)) {
+        var sv = Object.assign({}, (r.steps[id] && r.steps[id].values) || {}, values);
+        var sc = searchCheck(r, map, x.step, sv, now, { partial: !checked });
+        if (sc.error) { undo(); throw fail(sc.error, sc.field ? 'rec-' + sc.field : ''); }
+        if (checked && !sc.meets) { undo(); throw fail('This would make a checked search fail. Uncheck the step first, then record the new results.', 'rec-count'); }
+        chk = { values: Object.assign({}, chk.values, sc.values) };
+      }
       var a = r.steps[id] = r.steps[id] || { s: 'open' }, old = a.values || {}, merged = {};
       evidenceFor(r, x.step).list.forEach(function (d) {
         var v = Object.prototype.hasOwnProperty.call(values, d.name) ? chk.values[d.name] || '' : old[d.name] || '';
@@ -664,7 +1000,8 @@ PF.run = (function () {
     }
     /* A checked step keeps the evidence its map requires: a correction can change it, never remove it. */
     if (checked) {
-      var missing = evidenceFor(r, x.step, Object.assign({}, x.step.fields, own)).list.filter(function (d) { return d.required && !((r.steps[id].values || {})[d.name]); })[0];
+      /* The shared check, with what applies (a field's notAt: keys at zero results), on the values as they'll be. */
+      var ek = evidenceFor(r, x.step, Object.assign({}, x.step.fields, own), map), missing = PF.types.missingRequired(ek.type, ek.fields, r.steps[id].values || {}, ek.extra);
       if (missing) { undo(); throw fail(missing.label + ' is required for this step, so it can\'t be removed while the step is checked. Undo the check first if it really wasn\'t done.', 'rec-' + missing.name); }
     }
     /* Correcting a checked step keeps the full earlier record in its history, including evidence the new values no longer use. */
@@ -709,7 +1046,17 @@ PF.run = (function () {
     return { own: own, changed: changed };
   }
   function na(r, map, id, who, now) { var x = guardStep(r, map, id, 'na'); answer(r, id, { s: 'na', by: who, at: now }); return x; }
-  function block(r, map, id, reason, who, now) { var x = guardStep(r, map, id); answer(r, id, { s: 'blocked', reason: String(reason || 'Blocked').slice(0, 120), by: who, at: now }); addLog(r, who, now, 'Blocked "' + x.step.text + '": ' + r.steps[id].reason); return x; }
+  function block(r, map, id, reason, who, now, values) {
+    var x = guardStep(r, map, id), rec = { s: 'blocked', reason: String(reason || 'Blocked').slice(0, 120), by: who, at: now };
+    /* Block with these (2.16): a search step's shape-valid results for the current search stay on the blocked answer. */
+    if (values) {
+      if (!isSearchStep(x.step)) throw new Error('Only a Jira search step can be blocked with its results.');
+      var sc = searchCheck(r, map, x.step, values, now);
+      if (sc.error) { var e = new Error(sc.error); e.field = sc.field ? 'rec-' + sc.field : ''; throw e; }
+      rec.values = sc.values; rec.reason = JS.foundWords(sc.values);
+    }
+    answer(r, id, rec, !!values); addLog(r, who, now, 'Blocked "' + x.step.text + '": ' + r.steps[id].reason); return x;
+  }
   function clear(r, map, id, who, now) {
     var x = guardStep(r, map, id), prev = r.steps[id];
     if (!prev || prev.s === 'open') return x;
@@ -731,6 +1078,7 @@ PF.run = (function () {
   /* Done differently answers the step: every rule of Done applies first (required evidence, a child run, a pause, must-do),
      so it's never a way around them. What happened is required. A step already done just gains the note. */
   function doneDifferently(r, map, id, happened, who, now, values) {
+    if (r.state === 'completed' && rereadable(r, id)) throw new Error('This run has ended. Only Done can answer a step reopened when read.');
     var nw = stepNeeded(r, map, id);
     if (nw) throw new Error(nw);
     var note = String(happened || '').replace(/\s+/g, ' ').trim();
@@ -781,15 +1129,18 @@ PF.run = (function () {
   function setDetail(r, map, field, value, who, now, except) {
     notPaused(r);
     if (map.meta.context.indexOf(field) < 0) throw new Error('Unknown run detail.');
-    var old = String(r.details[field] || '').trim(), v = String(value || '').trim().slice(0, 120), def = r.format === FORMAT3 ? detailValueDef(map, field) : null;
-    if (def) { var p = V.parse(def, value == null ? '' : value, { max: 120 }); if (!p.ok) throw badValue(p.why, field); v = p.canonical; old = String(r.details[field] || ''); }
+    var old = String(r.details[field] || '').trim(), v = V.cut(null, String(value || '').trim(), V.DETAIL_MAX, detailUnit(r)).value, def = r.format === FORMAT3 ? detailValueDef(map, field) : null;
+    if (def) { var p = V.parse(def, value == null ? '' : value, { max: V.DETAIL_MAX }); if (!p.ok) throw badValue(p.why, field); v = p.canonical; old = String(r.details[field] || ''); }
     /* Conditions (2.1) that test this detail: what applies before the change (a held step included), for the log line. */
     var tested = M.steps(map).filter(function (x) { return condUses(x.phase, x.step, field); }), before = tested.map(function (x) { return applies(r, map, x.phaseIndex, x.step).applies; });
     /* Filling in a value that didn't migrate resolves its record, once; later changes change the value only. */
     var waiting = def && v ? openMigrations(r).filter(function (m) { return m.path === 'details.' + field; })[0] : null;
     if (waiting) waiting.resolved = { by: who, at: now, value: v };
+    /* A search's damaged generation for this detail is repaired by its next write, even with the same value (5.6). */
+    if (old === v && hasSearch(r) && !(r.searchGen && typeof r.searchGen === 'object' && JS.genOk(r.searchGen[field])) && searchSteps(map).some(function (x) { return searchUses(map, x.step).indexOf(field) >= 0; })) { searchDetailWritten(r, map, field, who, now); addLog(r, who, now, 'Refreshed the generation of ' + field); return 0; }
     if (old === v) return 0;
     r.details[field] = v;
+    searchDetailWritten(r, map, field, who, now);
     var n = 0, viaChildren = [];
     M.steps(map).forEach(function (x) {
       var a = r.steps[x.step.id];
@@ -941,6 +1292,7 @@ PF.run = (function () {
     cur.log = [];
     merged.forEach(function (l) { addLog(cur, l.by, l.at, l.what); });
     addLog(cur, who, now, 'Kept a conflict copy as the current version');
+    if (hasSearch(cur) || hasSearch(copy)) { var amap = mapOf(cur); if (searchSteps(amap).length) searchRecover(cur, amap, who, now); }
   }
 
   /* ---------- Follow-ups: work a run turns up that outlives it ---------- */
@@ -1025,6 +1377,114 @@ PF.run = (function () {
 
   /* ---------- Nested processes: a run.process step starts a linked child run ---------- */
   /* opts (run/3): { run: the child run itself, procOf, findRun }, so the pin is judged by PF.pins.childMatch. */
+  /* ---------- Linked runs: decided when settled, marked when read (2.16, section 5.7.4) ---------- */
+  var CHILD_HEIGHT = 16, CHILD_LINKS = 5000;
+  function stepApplies(r, map, id) { var x = M.findStep(map, id); return !!x && applies(r, map, x.phaseIndex, x.step).applies !== false; }
+  /* A Completed child stands only when every gate that applies is gateOk as read: '' or why its completion doesn't stand. */
+  /* Every gate is asked for a new settlement; the folder pass (childMarks) asks only children with Jira searches, the only
+     ones a read can reopen, so recorded parent answers stay as they were. */
+  function childCheck(child) {
+    if (!child || !child.ended || child.ended.outcome !== 'Completed') return '';
+    var cmap; try { cmap = mapOf(child); } catch (e) { return ''; }
+    for (var pi = 0; pi < cmap.phases.length; pi++) {
+      var gs = gateStatus(child, cmap, pi);
+      if (!gateOk(gs)) {
+        var g = cmap.phases[pi].gate, reo = reopenedIn(child, cmap);
+        if (reo) return 'its step "' + reo.text + '" was reopened when read' + (reo.stuck ? ' and that run\'s record is damaged' : '') + ', so its completion doesn\'t stand';
+        return 'its gate "' + g.title + '" reads ' + gs + ' there, so its completion doesn\'t stand';
+      }
+    }
+    return '';
+  }
+  function reopenedIn(child, cmap) {
+    var ids = Object.keys(child.steps || {}).filter(function (k) { return child.steps[k] && child.steps[k].reopened; });
+    if (!ids.length) return null;
+    var x = M.findStep(cmap, ids[0]);
+    return x ? { id: ids[0], text: M.shownText(x.step, M.valuesOf(child)), stuck: child.steps[ids[0]].reopened === 'stuck' } : null;
+  }
+  /* The folder pass (R.childMarks): a parent's done linked step whose loaded child says Completed but doesn't stand as read.
+     It never changes a run; one level, by design. */
+  function childMarks(runs) {
+    var by = Object.create(null), out = [];
+    (runs || []).forEach(function (r) { if (r && r.process && r.id) by[r.process + '/' + r.id] = r; });
+    (runs || []).forEach(function (r) {
+      if (!r || r._unrunnable || !r.snapshot) return;
+      var map; try { map = mapOf(r); } catch (e) { return; }
+      Object.keys(r.steps || {}).forEach(function (id) {
+        var a = r.steps[id];
+        if (!a || a.s !== 'done' || !a.child || a.child.retired || !stepApplies(r, map, id)) return;
+        var c = by[a.child.process + '/' + a.child.id];
+        if (!c || !c.ended || c.ended.outcome !== 'Completed') return;
+        var why = childCheck(c);
+        if (!why) return;
+        var cmap; try { cmap = mapOf(c); } catch (e) { return; }
+        var reo = reopenedIn(c, cmap), title = c.title || c.process;
+        var text = 'settled by the ' + title + ' run (' + c.id + '), which says Completed, but ' + why + '. ' +
+          (reo && reo.stuck ? 'That run can\'t be repaired here; start a new ' + c.process + ' run; this step stays as recorded' :
+            reo ? 'Open that run and answer its step "' + reo.text + '" again with Done; this run then stands as recorded' : 'Open that run to check it');
+        out.push({ process: r.process, run: r.id, step: id, child: c.process + '/' + c.id, childStep: reo ? reo.id : null, stuck: !!(reo && reo.stuck), text: text });
+      });
+    });
+    return out;
+  }
+  /* R14-5: an upward edge from run at to its recorded parent p counts only when p's step still links exactly at, unretired,
+     and applies. */
+  function edgeHolds(at, p) {
+    if (!at || !at.parent || !p || p._unrunnable || !p.snapshot) return false;
+    var map; try { map = mapOf(p); } catch (e) { return false; }
+    var x = M.findStep(map, at.parent.step);
+    if (!x || x.step.type !== 'run.process') return false;
+    var a = p.steps && p.steps[at.parent.step];
+    if (!a || !a.child || a.child.retired || a.child.process !== at.process || a.child.id !== at.id) return false;
+    return stepApplies(p, map, at.parent.step);
+  }
+  /* The link-time walk: up the new parent's own parent records, and level by level below the child through the loaded runs.
+     '' or why linking would make a loop, too long a chain, or more links than Flightdeck reads. */
+  function linkShape(r, child, findRun) {
+    if (typeof findRun !== 'function') return '';
+    var key = function (x) { return x.process + '/' + x.id; }, ck = key(child), up = [key(r)], at = r, reads = 0;
+    if (ck === key(r)) return 'Linking that run would make a loop: it is this run. Link or start a different run.';
+    while (at && at.parent && reads < CHILD_LINKS) {
+      reads++;
+      var p = findRun(at.parent.process + '/' + at.parent.id);
+      if (!p || !edgeHolds(at, p)) break;
+      if (key(p) === ck) return 'Linking that run would make a loop: the ' + (p.title || p.process) + ' run (' + p.id + ') is already above this one. Link or start a different run.';
+      if (up.indexOf(key(p)) >= 0) break;
+      up.push(key(p)); at = p;
+    }
+    /* Below the child: a depth-first walk that remembers each run's longest chain, so a cycle anywhere below is found
+       (a run met again while still on the path) and the longest chain is measured, not the first one found. Each link is
+       read once, within the 5,000-link budget; the walk stops as soon as a chain can't fit in 16. */
+    var room = CHILD_HEIGHT - up.length, memo = Object.create(null), onPath = Object.create(null), why = '';
+    var LONG = 'Linking that run would put more than 16 linked runs in one chain, or its linked runs loop. Link or start a run with fewer linked runs below it.';
+    function height(c, k, d) {
+      if (memo[k] != null) return memo[k];
+      if (d > room) { why = LONG; return -1; }
+      var h = 1, cmap = null;
+      if (!c || !c.steps || !c.snapshot) { memo[k] = h; return h; }
+      try { cmap = mapOf(c); } catch (e) { memo[k] = h; return h; }
+      onPath[k] = 1;
+      var ids = Object.keys(c.steps);
+      for (var j = 0; j < ids.length; j++) {
+        var a = c.steps[ids[j]];
+        if (!a || !a.child || a.child.retired || !stepApplies(c, cmap, ids[j])) continue;
+        if (++reads > CHILD_LINKS) { why = 'That run has more than 5,000 links below it, more than Flightdeck reads when linking. Link or start a different run.'; return -1; }
+        var kk = a.child.process + '/' + a.child.id;
+        if (up.indexOf(kk) >= 0) { why = 'Linking that run would make a loop: its linked runs lead back to the ' + (r.title || r.process) + ' run. Link or start a different run.'; return -1; }
+        if (onPath[kk]) { why = 'Linking that run would make a loop: its linked runs lead back to each other below it. Link or start a different run.'; return -1; }
+        var g = findRun(kk);
+        if (!g) continue;
+        var hh = height(g, kk, d + 1);
+        if (hh < 0) return -1;
+        if (hh + 1 > h) h = hh + 1;
+        if (h > room) { why = LONG; return -1; }
+      }
+      onPath[k] = 0; memo[k] = h; return h;
+    }
+    var hc = height(child, ck, 1);
+    if (hc < 0) return why;
+    return hc > room ? LONG : '';
+  }
   function linkChild(r, map, stepId, child, who, now, opts) {
     /* Linking records a run that already exists, so it's allowed while paused; starting one (in the app) isn't. */
     var x = M.findStep(map, stepId);
@@ -1042,6 +1502,10 @@ PF.run = (function () {
     if (a.child && a.child.retired && a.child.process === child.process && a.child.id === child.id) throw new Error(RETIRED);
     /* A run/2 parent never adopts a child made with Flightdeck 2.0 (review #1): offer a 2.0 run instead. */
     if (r.format !== FORMAT3 && isTwo(child)) throw new Error(LEGACY_CHILD);
+    /* Loops and depth are decided when linking (5.7.4), for every checklist; existing links keep their settlement. */
+    /* The walk reads the loaded child (its own links), not the link's descriptor. */
+    var shape = linkShape(r, o.run || (typeof o.findRun === 'function' && o.findRun(child.process + '/' + child.id)) || child, o.findRun);
+    if (shape) throw new Error(shape);
     /* A run/3 adopts only a run of the exact version its step is pinned to (folder and fingerprints), however it was found. */
     /* With no pin yet (the child process wasn't published when the run started), the step is pinned to the adopted run's
        verified version (PF.pins.pinOfRun); one that can't be verified is refused. */
@@ -1160,6 +1624,7 @@ PF.run = (function () {
     if (held) return null;
     if (changed.length) return { s: 'blocked', reason: 'The ' + child.process + ' run ended with ' + changed.map(function (k) { return k + ' "' + child.details[k] + '"'; }).join(', ') + ', not the ' + changed.join(', ') + ' it was started for' };
     if (child.ended.outcome !== 'Completed') return { s: 'blocked', reason: 'The ' + child.process + ' run ended: ' + child.ended.outcome };
+    var cc = childCheck(child); if (cc) return { s: 'review', reason: 'The ' + (child.title || child.process) + ' run completed, but ' + cc + '. Open that run to check it. This step wasn\'t settled.' };
     return { s: 'done' };
   }
   /* childVerdict for a step with a pass: line (2.8): each child detail is compared with what it was started from, through the
@@ -1188,6 +1653,7 @@ PF.run = (function () {
     if (held) return null;
     if (changed.length) return { s: 'blocked', reason: 'The ' + child.process + ' run ended with ' + changed.map(function (k) { return k + ' "' + ((child.details || {})[k] || '') + '"'; }).join(', ') + ', not the ' + changed.join(', ') + ' it was started for' };
     if (child.ended.outcome !== 'Completed') return { s: 'blocked', reason: 'The ' + child.process + ' run ended: ' + child.ended.outcome };
+    var cc = childCheck(child); if (cc) return { s: 'review', reason: 'The ' + (child.title || child.process) + ' run completed, but ' + cc + '. Open that run to check it. This step wasn\'t settled.' };
     return { s: 'done' };
   }
   /* The only way a step with a linked child is checked or blocked: by that exact child, current, once it has ended. */
@@ -1201,6 +1667,7 @@ PF.run = (function () {
     if (!childCurrent(r, x.step, a)) throw new Error('The linked run was for different details.');
     var v = childVerdict(r, x.step, a, child, procOf);
     if (!v) throw new Error('The linked run hasn\'t ended yet.');
+    if (v.s === 'review') throw new Error(v.reason);
     if (v.s === 'done') done(r, map, id, who, now, { _child: child.id });
     else if (a.s === 'blocked') { a.child.failed = true; addLog(r, who, now, v.reason + '; a new run can replace it'); }
     else { block(r, map, id, v.reason, who, now); r.steps[id].child.failed = true; }
@@ -1215,7 +1682,7 @@ PF.run = (function () {
   /* What a parent's step should become, given its child run: done when the child completed, blocked if it ended otherwise. */
   function childOutcome(child) {
     if (!child || !child.ended) return null;
-    return child.ended.outcome === 'Completed' ? 'done' : 'blocked';
+    return child.ended.outcome === 'Completed' ? (childCheck(child) ? 'review' : 'done') : 'blocked';
   }
 
   /* The pin a run/3's {run.process} step follows, or null. */
@@ -1367,7 +1834,7 @@ PF.run = (function () {
         var a = r.steps[s.id], word = ap.applies === null ? 'WAITING - ' + ap.why : !a ? 'NOT CHECKED' : a.s === 'done' ? 'DONE' : a.s === 'na' ? 'N/A' : a.s === 'blocked' ? 'BLOCKED - ' + a.reason : a.s === 'recheck' ? 'RE-CHECK - ' + a.reason : 'NOT CHECKED';
         var from = reportOf && a && a.s === 'done' ? reportOf(s.id) : '';
         lines.push('  [' + word + '] ' + M.shownText(s, M.valuesOf(r)) + (from ? ' (' + from + ')' : '') + (a && a.differently ? ' (done differently: ' + a.differently.note + ')' : ''));
-        if (a && a.s === 'done' && a.values) { evidenceFor(r, s).list.forEach(function (d) { if (a.values[d.name]) lines.push('      ' + d.label + ': ' + shown(r, map, 'steps.' + s.id + '.values.' + d.name, a.values[d.name])); }); }
+        if (a && a.s === 'done' && a.values) { evidenceFor(r, s).list.forEach(function (d) { if (!a.values[d.name]) return; lines.push('      ' + (d.system && d.name === 'searchId' ? 'Search: ' + String(a.values[d.name]).replace(/^sha256:/, '').slice(0, 8) : d.label + ': ' + shown(r, map, 'steps.' + s.id + '.values.' + d.name, a.values[d.name]))); }); }
       });
       var gw = st === 'passed' ? 'PASSED' : st === 'waived' ? 'WAIVED - ' + gr.reason : st === 'failed' ? 'FAILED - ' + gr.reason : st === 'review' ? 'NEEDS REVIEW' : 'NOT PASSED';
       lines.push('  Gate: ' + g.title + ' [' + gw + ']' + (gr && gr.by && (st === 'passed' || st === 'waived') ? ' by ' + nameOf(gr.by) + ' ' + U.hm(gr.at) : ''), '');
@@ -1424,12 +1891,12 @@ PF.run = (function () {
   var NEWER = 'This run uses checklist features this copy of Flightdeck doesn\'t understand. Update Flightdeck to run it.';
   var KNOWN = {
     run: 'format id process version folder mapHash title category snapshot types details roles recorder followUps shotsFrozen jira pauses paused lineage state created createdBy tz steps gates fields log ended rev savedAt savedBy marksFrom marks parent',
-    recorder: 'person session handoff', handoff: 'from rev at', step: 's by at reason started deadline differently values child history', history: 's by at reason differently values fields',
+    recorder: 'person session handoff', handoff: 'from rev at', step: 's by at reason started deadline differently values child history reopened', history: 's by at reason differently values fields',
     gate: 's by at reason was approved', ended: 'outcome by byName at', paused: 'by at reason', pause: 'from to by reason', child: 'process id inputs failed', parent: 'process id step inputs',
     followUp: 'id text owner ticket step from by at', log: 'at by what', deadline: 'at by set', differently: 'note by at', started: 'by at',
     workflow: 'statuses transitions invalid', transition: 'from to fields', jiraField: 'name hint source options'
   };
-  KNOWN.run3 = KNOWN.run + ' features app typesHash payload pins migrations test stage';
+  KNOWN.run3 = KNOWN.run + ' features app typesHash payload pins migrations test stage searchSites searchGen searchRec';
   KNOWN.step3 = KNOWN.step + ' skill'; KNOWN.history3 = KNOWN.history + ' skill'; KNOWN.child3 = KNOWN.child + ' folder retired teamPassed'; KNOWN.parent3 = KNOWN.parent + ' folder';
   KNOWN.pins = 'children'; KNOWN.skillSeen = 'id rev sha snapshot';
   Object.keys(KNOWN).forEach(function (k) { var o = {}; KNOWN[k].split(' ').forEach(function (f) { o[f] = 1; }); KNOWN[k] = o; });
@@ -1470,15 +1937,15 @@ PF.run = (function () {
     function each(list, kind, where) { if (Array.isArray(list)) list.forEach(function (v) { look(v, kind, where); }); }
     /* run/3: null isn't text either (sanitize would save it as empty, rewriting what the file holds). */
     /* run/3: nor is text longer than this copy keeps (sanitize would cut it, and a typed value cut short can still look valid). */
-    function text(v, where, max) {
+    function text(v, where, max, unit) {
       if (why || !obj(v)) return;
       var k = Object.keys(v).filter(function (f) { return (three ? v[f] !== undefined : v[f] != null) && typeof v[f] !== 'string'; })[0];
       if (k != null) { why = where + ' "' + k.slice(0, 40) + '" isn\'t text.'; return; }
-      var l = three && max ? Object.keys(v).filter(function (f) { return typeof v[f] === 'string' && v[f].length > max; })[0] : null;
-      if (l != null) why = where + ' "' + l.slice(0, 40) + '" is longer than ' + max + ' characters.';
+      var l = three && max ? Object.keys(v).filter(function (f) { return typeof v[f] === 'string' && V.len(v[f], unit || 'utf16') > max; })[0] : null;
+      if (l != null) why = where + ' "' + l.slice(0, 40) + '" is longer than ' + max + (unit === 'cp' ? ' code points.' : ' characters.');
     }
     function state(ok, v, where) { if (!why && v != null && !Object.prototype.hasOwnProperty.call(ok, v)) why = where + ' is "' + String(v).slice(0, 40) + '".'; }
-    var three = o.format === FORMAT3;
+    var three = o.format === FORMAT3, unit = three ? detailUnit(o) : 'utf16';
     look(o, three ? 'run3' : 'run', 'The run');
     state(RUN_STATES, o.state, 'Its state');
     look(o.recorder, 'recorder', 'Its recorder'); look(o.recorder && o.recorder.handoff, 'handoff', 'Its hand-off');
@@ -1496,7 +1963,7 @@ PF.run = (function () {
     }
     if (three && obj(o.pins)) look(o.pins, 'pins', 'Its pins'); if (obj(o.parent)) text(o.parent.inputs, 'Its parent run\'s details', 300);
     /* Maps of text (details, roles, answers, approvals): anything else in them is dropped on load. */
-    text(o.details, 'A run detail', 120); text(o.roles, 'A role', 80);
+    text(o.details, 'A run detail', V.DETAIL_MAX, unit); text(o.roles, 'A role', 80);
     if (obj(o.fields)) Object.keys(o.fields).forEach(function (k) { text(o.fields[k], 'A filled-in value on step "' + k.slice(0, 60) + '"', 300); });
     if (Array.isArray(o.lineage) && o.lineage.some(function (t) { return typeof t !== 'string'; })) why = why || 'A save receipt in it isn\'t a name.';
     /* The run's copy of the Jira workflows, as PF.jira.check writes it (an issue type, its transitions, their required fields). */
@@ -1521,7 +1988,7 @@ PF.run = (function () {
     if (obj(o.gates)) Object.keys(o.gates).forEach(function (k) {
       var g = o.gates[k], w = 'Gate "' + k.slice(0, 60) + '"';
       if (!obj(g)) return;
-      look(g, 'gate', w); state(GATE_STATES, g.s, w + '\'s state'); state(GATE_STATES, g.was, w + '\'s earlier state'); text(g.approved, w + '\'s approval of', 120);
+      look(g, 'gate', w); state(GATE_STATES, g.s, w + '\'s state'); state(GATE_STATES, g.was, w + '\'s earlier state'); text(g.approved, w + '\'s approval of', V.DETAIL_MAX, unit);
     });
     return why ? NEWER + ' ' + why : '';
   }
@@ -1624,6 +2091,13 @@ PF.run = (function () {
   function repairs(o) {
     var out = [];
     if (!valid(o)) return out;
+    var unit = detailUnit(o);
+    /* Details and gate approvals: the reader's own cut decides, so the report and what's read can't disagree. */
+    function cutMap(v, at) {
+      if (v == null) return;
+      if (!obj(v)) { add(at, 'dropped: not a list of names and values'); return; }
+      Object.keys(v).forEach(function (k) { if (typeof v[k] !== 'string') add(at + '.' + k, 'dropped: not text'); else if (V.cut(null, v[k], V.DETAIL_MAX, unit).cut) add(at + '.' + k, 'cut to ' + V.DETAIL_MAX + (unit === 'cp' ? ' code points' : ' characters')); });
+    }
     function add(at, what) { out.push({ at: at, what: what }); }
     function obj(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
     function text(v, max, at) { if (v == null) return; if (typeof v !== 'string') add(at, 'dropped: not text'); else if (v.length > max) add(at, 'cut to ' + max + ' characters'); }
@@ -1645,7 +2119,7 @@ PF.run = (function () {
     [['process', 60], ['folder', 60], ['mapHash', 16], ['title', 100], ['category', 60], ['createdBy', 80], ['tz', 60], ['savedBy', 40]].forEach(function (f) { text(o[f[0]], f[1], f[0]); });
     count(o.version, 'version'); count(o.rev, 'rev'); time(o.savedAt, 'savedAt');
     if (o.types != null && (typeof o.types !== 'object' || Array.isArray(o.types))) add('types', 'dropped: not step types');
-    textMap(o.details, 120, 'details'); textMap(o.roles, 80, 'roles');
+    cutMap(o.details, 'details'); textMap(o.roles, 80, 'roles');
     var rec = o.recorder;
     if (!obj(rec)) add('recorder', 'replaced: not a recorder');
     else {
@@ -1726,7 +2200,7 @@ PF.run = (function () {
       if (!obj(g) || !GATE_STATES[g.s]) { add(at, 'dropped: no state this copy knows'); return; }
       text(g.by, 80, at + '.by'); time(g.at, at + '.at'); text(g.reason, 200, at + '.reason');
       if (g.was != null && !GATE_STATES[g.was]) add(at + '.was', 'dropped: not a state this copy knows');
-      textMap(g.approved, 120, at + '.approved');
+      cutMap(g.approved, at + '.approved');
     });
     var logs = list(o.log, 'log', LOG_MAX), from = Math.max(0, logs.length - LOG_MAX);
     logs.slice(from).forEach(function (l, i) {
@@ -1740,6 +2214,16 @@ PF.run = (function () {
     }
     /* A typed value (run/3) that isn't exactly canonical is kept as written and named here, never changed. */
     if (o.format === FORMAT3) { var sr = sanitize(o); if (sr && sr._invalid) Object.keys(sr._invalid).forEach(function (k) { add(k, 'malformed: ' + sr._invalid[k].why); }); }
+    /* Jira searches (2.16): damaged or dropped container entries, steps the reader reopened, and maps it rebuilt. */
+    if (o.format === FORMAT3 && searchIn(o)) {
+      var sr = searchRead(o);
+      if (sr) sr.bad.forEach(function (b) { var m = /^(\S+) (.*)$/.exec(b); add(m[1], m[2]); });
+      var rr = sanitize(o), sx = rr && rr._searchRepairs;
+      if (sx) {
+        sx.rebuilt.forEach(function (k) { add(k, 'rebuilt from the published version (earlier reports no longer match)'); });
+        sx.reopened.forEach(function (x) { add('steps.' + x.id, 'reopened: ' + x.why); });
+      }
+    }
     return out;
   }
   /* What sanitize may add where a run file says nothing (older copies didn't write these, and a missing value gets this
@@ -1757,13 +2241,18 @@ PF.run = (function () {
   function unexplained(o) {
     var r = sanitize(o);
     if (!r) return null;
-    return U.drift(o, JSON.parse(JSON.stringify(r)), DRIFT_ALLOW);
+    var d = U.drift(o, JSON.parse(JSON.stringify(r)), DRIFT_ALLOW), sx = r._searchRepairs;
+    if (!sx) return d;
+    /* What the search repairs changed is named by repairs(): the reopened steps, their gates and the rebuilt maps. */
+    var map = mapOf(r), pre = sx.rebuilt.slice();
+    sx.reopened.forEach(function (x) { pre.push('steps.' + x.id); var f = M.findStep(map, x.id); if (f) pre.push('gates.' + f.phase.gate.id); });
+    return d.filter(function (p) { return !pre.some(function (q) { return p === q || p.indexOf(q + '.') === 0 || p.indexOf(q + '[') === 0; }); });
   }
   function sanitize(o) {
     if (!valid(o)) return newerFormat(o);
     /* A run/2 with a must-understand feature this copy doesn't know is listed by name only, never read for meaning. */
     if (o.features != null || o.format === FORMAT3) { var env = PF.envelope.judge('preflight-run', o); if (!env.ok) return env.kind === 'newer' ? nameOnly(o, env.needs || '') : null; }
-    var three = o.format === FORMAT3;
+    var three = o.format === FORMAT3, unit = detailUnit(o);
     if (three && unknown3(o)) return nameOnly(o, needs3(o));
     var r = {
       format: FORMAT, id: o.id, process: str(o.process, 60), version: Math.max(0, parseInt(o.version, 10) || 0), folder: str(o.folder, 60), mapHash: str(o.mapHash, 16),
@@ -1789,7 +2278,7 @@ PF.run = (function () {
     });
     /* Step IDs are what a map accepts (letters, numbers and dashes, up to 60), so every correction survives a reload. */
     Object.keys(o.fields || {}).forEach(function (k) { if (/^[a-z0-9][a-z0-9-]{0,59}$/i.test(k)) { var v = values(o.fields[k]); if (Object.keys(v).length) r.fields[k] = v; } });
-    Object.keys(o.details || {}).forEach(function (k) { r.details[k] = str(o.details[k], 120); });
+    Object.keys(o.details || {}).forEach(function (k) { r.details[k] = typeof o.details[k] === 'string' ? V.cut(null, o.details[k], V.DETAIL_MAX, unit).value : ''; });
     Object.keys(o.roles || {}).forEach(function (k) { r.roles[k] = str(o.roles[k], 80); });
     Object.keys(o.steps).forEach(function (k) {
       var a = o.steps[k];
@@ -1808,7 +2297,7 @@ PF.run = (function () {
       var g = o.gates[k];
       if (!g || !GATE_STATES[g.s] || k === '__proto__') return;
       var c = { s: g.s, by: str(g.by, 80), at: isoOrNull(g.at), reason: str(g.reason, 200) || undefined, was: GATE_STATES[g.was] ? g.was : undefined, approved: {} };
-      Object.keys(g.approved || {}).forEach(function (f) { c.approved[f] = str(g.approved[f], 120); });
+      Object.keys(g.approved || {}).forEach(function (f) { c.approved[f] = typeof g.approved[f] === 'string' ? V.cut(null, g.approved[f], V.DETAIL_MAX, unit).value : ''; });
       r.gates[k] = c;
     });
     (Array.isArray(o.log) ? o.log.slice(-LOG_MAX) : []).forEach(function (l) { if (l && isoOrNull(l.at)) r.log.push({ at: l.at, by: str(l.by, 80), what: str(l.what, 300) }); });
@@ -1818,6 +2307,8 @@ PF.run = (function () {
        shown but never recorded or saved here: sanitizing just dropped what this copy doesn't know, so saving would erase it.
        Not saved itself ("_"). */
     var bad = PF.publish.unrunnable(r.snapshot, r.types) || newer(o) || longIds(o);
+    /* The one feature that decides how details are measured must be in the run's own list (A.5). */
+    if (!bad && three && unit === 'cp' && !(Array.isArray(o.features) && o.features.indexOf('detail-patterns') >= 0)) bad = 'This run\'s features leave out detail-patterns, which its version uses, so it\'s shown read-only.';
     if (bad) r._unrunnable = bad;
     if (three) {
       r.format = FORMAT3;
@@ -1828,6 +2319,8 @@ PF.run = (function () {
       if (o.pins && o.pins.children && Object.keys(o.pins.children).length) r.pins = { children: JSON.parse(JSON.stringify(o.pins.children)) };
       if (Array.isArray(o.migrations)) r.migrations = JSON.parse(JSON.stringify(o.migrations));
       r = withPins(order3(r));
+      /* Jira searches (2.16): the containers read into fresh plain objects with only valid entries (section 5.6). */
+      if (searchIn(o)) { var sc3 = searchRead(o); if (sc3) afterJira(r, sc3.add); }
       /* Typed values are checked against the run's own checklist and types; one that isn't canonical stays as written and is
          named (this load only), and migration records not in their frozen shape make the run name-only. */
       var tmap = r.snapshot && !r._unrunnable ? mapOf(r) : null;
@@ -1841,10 +2334,18 @@ PF.run = (function () {
       if (tp) { if (!r._unrunnable) r._unrunnable = 'This test run\'s record isn\'t one Flightdeck writes (' + tp + '), so it\'s shown read-only.'; r._test = true; }
       else if (o.test === true) { r.test = true; r.stage = { folder: o.stage.folder }; }
     }
-    return r;
+    return three ? reopenAtRead(r, o) : r;
+  }
+  /* The reader's view of a run file's search containers: { add, bad } with the names it damaged or dropped, or null. */
+  function searchRead(o) {
+    var map; try { map = mapOf({ folder: o.folder, mapHash: o.mapHash, snapshot: o.snapshot }); } catch (e) { return null; }
+    var ids = searchSteps(map).map(function (x) { return x.step.id; });
+    var a = cleanSites(o.searchSites), g = cleanGens(o.searchGen, map.meta.context, 'searchGen', GEN_MAX), c = cleanGens(o.searchRec, ids, 'searchRec', REC_MAX);
+    return { add: { searchSites: a.sites, searchGen: g.gens, searchRec: c.gens }, bad: a.bad.concat(g.bad, c.bad) };
   }
 
-  return { answerable: answerable, reopenIds: reopenIds, gateInputs: gateInputs, detailValueDef: detailValueDef,
+  return { answerable: answerable, reopenIds: reopenIds, gateInputs: gateInputs, detailValueDef: detailValueDef, detailUnit: detailUnit,
+    childCheck: childCheck, childMarks: childMarks, edgeHolds: edgeHolds, linkShape: linkShape, CHILD_HEIGHT: CHILD_HEIGHT, CHILD_LINKS: CHILD_LINKS, isSearchStep: isSearchStep, searchSteps: searchSteps, searchState: searchState, searchProblem: searchProblem, reopenNotice: reopenNotice, searchId: searchId, searchCheck: searchCheck, genDamaged: genDamaged, refreshSearch: refreshSearch, rereadable: rereadable, mergeOverflow: mergeOverflow, SEARCH_PREFIX: SEARCH_PREFIX,
     RUN_ID: RUN_ID, isTest: isTest, pubDir: pubDir, testProblem: testProblem, testLast: testLast,
     FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, applies: applies, held: held, stepNeeded: stepNeeded, canStartChild: canStartChild, phaseSkipped: phaseSkipped, condFields: condFields, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, fillOffered: fillOffered, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence, checkFill: checkFill,

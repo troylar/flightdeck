@@ -16,6 +16,15 @@ async function settingsAs(person, files) {
   return app;
 }
 
+/* A completed child has its steps done and its gates passed (2.16: a completion stands only while its gates hold). */
+function finishedKid(PF, child) {
+  const R = PF.run, r = R.sanitize(JSON.parse(JSON.stringify(child))), m = R.mapOf(r), at = new Date().toISOString();
+  m.phases.forEach(p => { p.steps.forEach(st => { const a = child.steps[st.id]; if (!(a && (a.s === 'done' || a.s === 'na'))) child.steps[st.id] = { s: 'done', by: 'person-avery', at }; }); });
+  const rr = R.sanitize(JSON.parse(JSON.stringify(child))), mm = R.mapOf(rr);
+  mm.phases.forEach(p => { if (p.gate) child.gates[p.gate.id] = { s: 'passed', by: 'person-avery', at, approved: R.gateInputs(rr, mm, p.gate) }; });
+  return child;
+}
+
 rule('App: Settings › Team values: the owner adds one (trimmed), edits and removes it; the warning is always shown', async () => {
   const files = { 'people.json': example('people.json') }, app = await settingsAs('person-avery', files);
   let html = app.html();
@@ -126,7 +135,7 @@ async function teamStart(passLine, kidCtx, values, kidRoles) {
   app.click('refresh'); await app.tick(80);
   app.click('start', 'ship'); await app.settle();
   app.set('detail-env', 'prod'); app.chooseApprovers().submitForm('start-form'); await app.tick(120);
-  assert.ok(/<h1 id="run-h"[^>]*>Ship/.test(app.html()), 'set-up: the parent run is open');
+  assert.ok(/<h1 id="run-h"[^>]*><span class="hd-t"[^>]*>Ship/.test(app.html()), 'set-up: the parent run is open');
   return app;
 }
 const setTeam = (app, values) => { app.fs.files['team-values.json'] = { t: typeof values === 'string' ? values : doc(values), m: Date.now() }; };
@@ -135,7 +144,7 @@ const deployRuns = (app) => app.files('runs/deploy/').filter(p => /run\.json$/.t
 async function endKid(app, edit) {
   const path = app.files('runs/deploy/').find(p => /run\.json$/.test(p)), kid = JSON.parse(app.fs.files[path].t);
   if (edit) Object.assign(kid.details, edit);
-  kid.ended = { outcome: 'Completed', by: 'person-avery', at: new Date().toISOString() }; kid.state = 'completed'; kid.rev = (kid.rev || 0) + 1;
+  finishedKid(app.PF, kid); kid.ended = { outcome: 'Completed', by: 'person-avery', at: new Date().toISOString() }; kid.state = 'completed'; kid.rev = (kid.rev || 0) + 1;
   await app.fs.write(path, JSON.stringify(kid));
   app.click('refresh'); await app.tick(100);
 }
@@ -263,7 +272,7 @@ async function lostLink(kidEdit, end) {
   await app.fs.write(sp, JSON.stringify(ship));
   const kp = app.files('runs/deploy/').find(p => /run\.json$/.test(p)), kid = JSON.parse(app.fs.files[kp].t);
   if (kidEdit) Object.assign(kid.details, kidEdit);
-  if (end) { kid.ended = { outcome: 'Completed', by: 'person-avery', at: new Date().toISOString() }; kid.state = 'completed'; }
+  if (end) { finishedKid(app.PF, kid); kid.ended = { outcome: 'Completed', by: 'person-avery', at: new Date().toISOString() }; kid.state = 'completed'; }
   kid.rev = (kid.rev || 0) + 1;
   await app.fs.write(kp, JSON.stringify(kid));
   app.click('refresh'); await app.tick(120);
@@ -310,7 +319,7 @@ rule('App: confirmed while the child runs, then the child changes the value and 
   app.click('link-child-confirm'); await app.tick(150);
   assert.strictEqual(shipRun(app).steps.dep.child.teamPassed.base.text, URL);
   const kid = JSON.parse(app.fs.files[kp].t); kid.details.base = 'https://edited.example.com';
-  kid.ended = { outcome: 'Completed', by: 'person-avery', at: new Date().toISOString() }; kid.state = 'completed'; kid.rev = (kid.rev || 0) + 1;
+  finishedKid(app.PF, kid); kid.ended = { outcome: 'Completed', by: 'person-avery', at: new Date().toISOString() }; kid.state = 'completed'; kid.rev = (kid.rev || 0) + 1;
   await app.fs.write(kp, JSON.stringify(kid));
   app.click('refresh'); await app.tick(150);
   assert.strictEqual(shipRun(app).steps.dep.s, 'blocked');

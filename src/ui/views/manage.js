@@ -34,11 +34,12 @@
       '<div class="row">' + (K.findOn(st, 'map-ver', all.length + (hasDraft ? 1 : 0) + gone.length > 1) ? verSel.box + '<label class="sr" for="map-ver">Version to show</label>' + verSel.select + verSel.more : '<span class="small">' + (shown.draft ? 'Draft' : 'v' + shown.pub.info.version) + '</span>') +
       /* One switch for the three ways to see the same version: the checklist, its flight plan, or its Markdown source. */
       '<div class="seg" role="group" aria-label="Show as">' + [['list', 'Checklist'], ['plan', 'Flight plan'], ['md', 'Markdown']].map(function (x) { return '<button type="button" data-act="flight" data-id="' + x[0] + '" aria-pressed="' + (view === x[0]) + '">' + x[1] + '</button>'; }).join('') + '</div>' +
-      (restoring ? '<span class="small" role="status">Restoring…</span>' : shown.current ? '<button class="btn" data-act="ptab" data-id="edit">' + I('edit') + ((p.editing || []).length ? 'Edit anyway' : 'Edit') + '</button>' : '<button class="btn" data-act="restore-draft" data-id="' + esc(shown.pub.folder) + '">Restore as draft</button>') + '</div></div>';
+      /* Edit is the page's view strip (2.16); an older version keeps Restore as draft here. */
+      (restoring ? '<span class="small" role="status">Restoring…</span>' : shown.current ? '' : '<button class="btn" data-act="restore-draft" data-id="' + esc(shown.pub.folder) + '">Restore as draft</button>') + '</div></div>';
     /* Edits made and not saved stay in the editor; say so here, where the saved version is showing. */
     var ed = st.editor && st.editor.pid === p.id ? st.editor : null;
-    if (!restoring && ed && ed.text != null && ed.text !== ed.base) h += '<div class="notice"><span>You have edits in the draft that aren\'t saved.</span><button class="mini" data-act="ptab" data-id="edit">Continue editing</button></div>';
-    if (!shown.current) h += '<div class="notice warn"><span>You\'re looking at v' + shown.pub.info.version + ', an older version. Runs that used it keep it.</span><button class="mini" data-act="back-current">Back to current</button></div>';
+    if (!restoring && ed && ed.text != null && ed.text !== ed.base) h += '<div class="notice"><span>You have edits in the draft that aren\'t saved.</span></div>';
+    if (!shown.current) h += '<div class="notice warn"><span>You\'re looking at v' + shown.pub.info.version + ', an older version. Runs that used it keep it.</span></div>';
     if (st.pick && st.pick.kind === 'restore' && shown.pub && st.pick.id === shown.pub.folder) h += '<div class="notice warn"><span>' + (st.pick.dirty ? 'You have unsaved edits in the draft, and they\'ll be lost. ' : '') + 'The draft has changes that aren\'t published. Replace it with v' + shown.pub.info.version + '?</span><button class="btn stop" data-act="restore-draft" data-id="' + esc(shown.pub.folder) + '" data-sure="1">Replace the draft</button><button class="mini" data-act="unpick">Cancel</button></div>';
     if (view === 'md') return h + '<div class="row"><p class="small" style="margin:0">The ' + (shown.draft ? 'draft' : 'v' + shown.pub.info.version) + ' as written, read-only. Edit changes it.</p><button class="mini" data-act="copy-map">' + I('copy') + 'Copy</button><span id="copy-msg" class="small" role="status"></span></div><pre class="source" id="map-source" tabindex="0" aria-label="Markdown of this version">' + esc(shown.md) + '</pre></section>';
     var map = shown.draft ? M.parse(shown.md) : shown.pub.map, types = shown.draft ? (ctx.data.stepTypes || {}).types : shown.pub.types;
@@ -62,6 +63,93 @@
     var empty = map.phases.map(function (ph) { return 'Phase "' + ph.title + '" has no steps.'; });
     return blockers.every(function (b) { return empty.indexOf(b) >= 0; });
   }
+  /* ---------- the workspace (2.16, docs/design.md section 34): the editor and practice share one header ----------
+     ‹ <title> to the checklist page, Edit | Practice (the same nav as the page's strip), the view's tools, and one primary
+     worked out from the state there is (wsPrimary). Every control in practice's copy is a pr-* act (the practice guard). */
+  function wsHead(ctx, p, o) {
+    var pr = o.practice, cnt = ctx.practiceCount ? ctx.practiceCount(p.id) : null, got = cnt && cnt.done ? ' · ' + cnt.done + ' of ' + cnt.total : '';
+    var prim = wsPrimary(ctx, p, pr);
+    var nav = '<nav class="pviews ws-views" aria-label="Checklist views">' +
+      '<button type="button" id="ws-edit"' + (pr ? ' data-act="pr-back"' : ' aria-current="page"') + '>' + I('edit') + 'Edit</button>' +
+      '<button type="button" id="ws-practice"' + (pr ? ' aria-current="page"' : ' data-act="pr-open"') + (got ? ' aria-label="Practice, ' + cnt.done + ' of ' + cnt.total + ' steps answered"' : '') + '>' + I('play') + 'Practice' + got + '</button></nav>';
+    /* ‹ Overview always replaces (nav §1.4): wsLeave, through its guards. The title beside it is the visible h1. */
+    var back = V.backc(pr ? 'pr-leave' : 'ed-done', null, 'Overview', null, '', 'Back to Overview of ' + p.title);
+    return V.workHead({ hid: o.hid, cls: o.cls, h1: esc(p.title), h1tail: '<span class="sr">, ' + (pr ? 'Practice' : 'Edit') + '</span>', back: back,
+      status: o.status.concat(prim.sub ? [{ kind: 'act', cls: 'ws-test', html: prim.sub }] : []), views: nav, prog: o.prog,
+      acts: prim.html, more: V.moreMenu(ctx, V.moreGroup('On this screen', o.phone || '') + V.appGroup(ctx, { pr: pr }), pr), why: prim.why });
+  }
+  /* The held primary's reason line, inside the header; nobody chosen offers the Who are you? dialog. */
+  function wsWhy(text, extra) { return '<p class="small hd-why ws-why" id="ws-why" tabindex="-1">' + esc(text) + (extra || '') + '</p>'; }
+  /* The stage the saved draft is (rule 4): staged, complete and readable, with this exact text. The newest wins; test runs
+     only break a tie. null when none, or when the stage decisions can't be read. */
+  function wsStage(ctx, p) {
+    var procs = (ctx.data.stages || {}).procs || {}, sp = Object.prototype.hasOwnProperty.call(procs, p.id) ? procs[p.id] : null;
+    if (!sp || !p.draft) return null;
+    if ((ctx.data.failed || {}).stages || sp.unlisted || sp.unread.length || sp.refused.some(function (r) { return /\/decisions\//.test(r.path); })) return null;
+    var hash = U.hash(p.draft.md), runs = ctx.data.runs || [];
+    var c = sp.stages.filter(function (s) { return s.ok && !s.newer && s.info && s.info.mapHash === hash && PF.staging.status(s, sp.decisions, p.all).status === 'staged'; })
+      .map(function (s) { return { s: s, tests: runs.filter(function (r) { return r.process === p.id && r.folder === s.folder && PF.run.isTest(r); }) }; });
+    if (!c.length) return null;
+    c.sort(function (a, b) { var t = String(b.s.info.stagedAt || '').localeCompare(String(a.s.info.stagedAt || '')); return t || (b.tests.length ? 1 : 0) - (a.tests.length ? 1 : 0); });
+    return c[0];
+  }
+  /* The one primary (2.16): the first rule that applies wins. { kind, html, why (the reason line under the header), sub (the
+     subtitle's link) }. */
+  function wsPrimary(ctx, p, pr) {
+    var st = ctx.state, ed = st.editor && st.editor.pid === p.id && st.editor.fsKey === ctx.fsKey ? st.editor : null, out = { kind: 'none', html: '', why: '', sub: '' };
+    var act = function (edit, prac) { return pr ? prac : edit; }, btn = function (a, id, text, extra) { return '<button type="button" class="btn go" data-act="' + a + '" data-id="' + esc(id) + '"' + (extra || '') + '>' + text + '</button>'; };
+    if (p.proposedOnly) return out;
+    if ((st.draftSaving || {})[ctx.fsKey + '\n' + p.id] || (ed && ed.conflict) || (ctx.shotBusy && ctx.shotBusy(p.id)) || st.publishBusy || st.stageBusy) { out.kind = 'busy'; return out; }
+    if ((ed && ed.text != null && ed.text !== ed.base) || st.obPending === p.id || !p.draft) { out.kind = 'save'; out.html = btn(act('save-draft', 'pr-save'), p.id, 'Save draft', ' title="Saving never publishes."'); return out; }
+    var next = PF.publish.nextVersion(p.taken || (p.all || []).map(function (x) { return x.info; }));
+    var sg = wsStage(ctx, p);
+    if (sg) {
+      var open = sg.tests.filter(function (r) { return !r.ended; }).sort(function (a, b) { return String(b.created || '').localeCompare(String(a.created || '')); });
+      if (open.length) { out.kind = 'testing'; out.sub = '<button type="button" class="linkish" data-act="' + act('open-run', 'pr-test-run') + '" data-id="' + esc(open[0].process + '/' + open[0].id) + '">Test run in progress ›</button>'; return out; }
+      var text = !sg.tests.length ? 'Start a test run' : 'Make v' + next + ' the default…';
+      out.kind = !sg.tests.length ? 'test' : 'promote';
+      /* Nobody chosen in You are: held, as Publish vN… is, with the reason; the click only takes focus to it. */
+      if (!st.me) { out.html = btn(act('ws-held', 'pr-held'), sg.s.folder, text, ' aria-disabled="true" aria-describedby="ws-why"'); out.why = wsWhy('Choose who you are first.', ' <button type="button" class="mini" data-act="' + act('ws-me', 'pr-me') + '" data-id="why" aria-haspopup="dialog">Choose who you are</button>'); return out; }
+      out.html = btn(!sg.tests.length ? act('start-test', 'pr-start-test') : act('promote-open', 'pr-promote-open'), sg.s.folder, text); return out;
+    }
+    if (!p.draftChanged) return out;
+    out.kind = 'publish';
+    var nb = M.check(M.parse(p.draft.md), V.checkOptions(ctx)).blockers.length;
+    var why = !st.me ? 'Choose who you are first.' : nb ? nb + (nb === 1 ? ' problem blocks' : ' problems block') + ' publishing.' : '';
+    out.html = btn(act('publish-open', 'pr-publish-open'), p.id, 'Publish v' + next + '…', why ? ' aria-disabled="true" aria-describedby="ws-why"' : '');
+    if (why) out.why = wsWhy(why, !st.me ? ' <button type="button" class="mini" data-act="' + act('ws-me', 'pr-me') + '" data-id="why" aria-haspopup="dialog">Choose who you are</button>' : nb ? ' <button type="button" class="mini" data-act="' + act('ws-problems', 'pr-problems') + '">Show problems</button>' : '');
+    return out;
+  }
+  /* The Publish dialog (2.16): the only place to publish or stage from the workspace. One What changed box, the needs and
+     the reasons it's held, Publish vN, Stage for testing instead, Cancel. Locked while either writes. */
+  function publishDialog(ctx, p, o) {
+    var st = ctx.state, next = PF.publish.nextVersion(p.taken || (p.all || []).map(function (x) { return x.info; })), busy = st.publishBusy === p.id || st.stageBusy === p.id;
+    var base = V.corrBase(ctx, p), shots = ctx.shotBusy ? ctx.shotBusy(p.id) : 0, held = !p.draft || base.dirty || base.conflict || shots;
+    var lock = function (which) { return busy ? ' aria-disabled="true"' : held && which !== 'cancel' ? ' disabled' : ''; };
+    var label = function (which, text, doing) { return busy && o.clicked === which ? doing : text; };
+    return '<div class="overlay" data-act="close-overlay"><div class="help pub-box" role="dialog" aria-modal="true" aria-labelledby="pub-t"' + (busy ? ' aria-busy="true"' : '') + '><h2 id="pub-t">Publish v' + next + ' of ' + esc(p.title) + '</h2>' +
+      '<label class="field" for="change-note">What changed (one line, required)<input id="change-note" data-draft-kept maxlength="200" value="' + esc(o.note) + '" placeholder="e.g. Require the full test gate after the rebase"' + (busy ? ' readonly' : '') + '></label>' +
+      (held ? '<p class="small" id="pub-why">' + (base.dirty || base.conflict ? 'Your edits aren\'t saved, so they wouldn\'t be in this version. Save or discard them in the editor first.' : 'A screenshot is still being added to this draft. Publish when it\'s done.') + '</p>' : '') +
+      (p.draft ? V.publishNeeds(ctx, p) + V.publishCorrections(ctx, p) : '') +
+      '<p class="small">Anyone can publish. It\'s logged with your name, the time and the change note, and runs already started keep their version.</p>' +
+      '<p class="err small" role="alert" id="pub-err">' + esc(o.err || '') + '</p>' +
+      '<div class="row"><button type="button" class="btn go" data-act="publish" data-id="' + esc(p.id) + '"' + lock('publish') + '>' + label('publish', 'Publish v' + next, 'Publishing…') + '</button>' +
+      '<div class="pub-stage">' + '<button type="button" class="btn" data-act="stage-draft" data-id="' + esc(p.id) + '" aria-describedby="pub-stage-why"' + lock('stage') + '>' + label('stage', 'Stage for testing instead', 'Staging…') + '</button>' +
+      '<p class="small pub-stage-why" id="pub-stage-why">Only test runs use it until someone makes it the default.</p></div>' +
+      '<button type="button" class="mini" data-act="close-overlay"' + lock('cancel') + '>Cancel</button></div></div></div>';
+  }
+  /* Make vN the default… asks first, with the stage row's own line: clean test runs out of those needed, and sign-off. */
+  function promoteDialog(ctx, p, folder, o) {
+    var st = ctx.state, next = PF.publish.nextVersion(p.taken || (p.all || []).map(function (x) { return x.info; })), busy = st.stageBusy === p.id || st.publishBusy === p.id;
+    var sg = V.stageSign(ctx, p, folder), line = sg.ready ? sg.ready.clean + ' of ' + sg.ready.needed + ' clean test runs' + (sg.signs && sg.signs.length ? ' · Signed off by ' + K.nameOf(ctx, sg.signs[0].by) : ' · Not signed off') : sg.why || '';
+    return '<div class="overlay" data-act="close-overlay"><div class="help pub-box" role="dialog" aria-modal="true" aria-labelledby="prm-t"' + (busy ? ' aria-busy="true"' : '') + '><h2 id="prm-t">Make v' + next + ' the default?</h2>' +
+      '<p>New runs of ' + esc(p.title) + ' use it; runs already started keep their version.</p><p class="small">' + esc(line) + '</p>' +
+      '<p class="err small" role="alert" id="pub-err">' + esc(o.err || '') + '</p>' +
+      '<div class="row"><button type="button" class="btn go" data-act="promote-stage" data-id="' + esc(folder) + '"' + (busy ? ' aria-disabled="true"' : '') + '>' + (busy ? 'Publishing…' : 'Make v' + next + ' the default') + '</button>' +
+      '<button type="button" class="mini" data-act="close-overlay"' + (busy ? ' aria-disabled="true"' : '') + '>Cancel</button></div></div></div>';
+  }
+  V.wsHead = wsHead; V.wsPrimary = wsPrimary; V.wsStage = wsStage; V.publishDialog = publishDialog; V.promoteDialog = promoteDialog;
+
   /* The draft editor takes the whole page: its own header (Done, the name, save state, Builder | Markdown, Undo / Redo,
      Checks and Save), the messages and conflicts right under it, then panes that each scroll on their own: Parts, the
      outline and the inspector in the builder, or the Markdown and the inspector. */
@@ -71,29 +159,21 @@
     var map = M.parse(text), c = M.check(map, V.checkOptions(ctx));
     var dirty = ed && ed.text != null && ed.text !== ed.base || st.obPending === p.id, file = p.draft ? p.draft.file : p.id + '.md', saving = (st.draftSaving || {})[ctx.fsKey + '\n' + p.id];
     var builder = st.builder !== false, o = PF.outline.parse(text), sel = builder && !o.unsupported && st.obSel && st.obSel.pid === p.id ? st.obSel : null;
-    var practicing = !!(st.practicing || {})[ctx.fsKey + '\n' + p.id];
-    var nb = c.blockers.length, nt = c.suggestions.length, tab = insTabOf(st, !!sel, nb, builder, freshDraft(map, c.blockers));
+    var nb = c.blockers.length, nt = c.suggestions.length, count = nb, checksLabel = nb ? nb + ' thing' + (nb === 1 ? '' : 's') + ' to fix before publishing' : nt ? nt + ' tip' + (nt === 1 ? '' : 's') : 'ready to publish', tab = insTabOf(st, !!sel, nb, builder, freshDraft(map, c.blockers));
     var status = draftStatus(ctx, p, ed, text);
-    /* Only problems make a number; tips are listed under Checks without one. */
-    var count = nb, checksLabel = nb ? nb + ' thing' + (nb === 1 ? '' : 's') + ' to fix before publishing' : nt ? nt + ' tip' + (nt === 1 ? '' : 's') : 'ready to publish';
     /* Three groups that never trade places: who it is, the editing tools, and saving. Discard keeps its place when hidden. */
     var just = !dirty && !saving && st.justSaved && st.justSaved.pid === p.id, size = U.draftSize(text);
-    var h = '<div class="fpe" id="fpe"><header class="fpe-head" role="region" aria-labelledby="ed-h"><div class="fpe-id">' +
-      '<button type="button" class="btn fpe-done" data-act="ed-done">' + I('back') + 'Review &amp; publish</button>' +
-      '<div class="fpe-title"><h1 id="ed-h" tabindex="-1">' + esc(p.title) + ' <span class="cat">Draft</span></h1><span class="small fpe-file">maps/drafts/' + esc(file) + (size ? ' · ' + size : '') + '</span></div></div>' +
-      '<div class="fpe-tools"><div class="seg" role="group" aria-label="Edit with"><button type="button" data-act="ed-mode" data-id="builder" aria-pressed="' + builder + '">Builder</button><button type="button" data-act="ed-mode" data-id="markdown" aria-pressed="' + !builder + '">Markdown</button></div>' +
-      /* Undo, Redo and History: the one timeline shared with the Markdown view (and the step-type editor's same controls). */
-      V.undoBar('draft', ed && ed.tl) +
-      /* Practice opens the run screen for what's on screen; while one is open for this draft, it goes back to it. */
-      '<button type="button" class="chipbtn fpe-practice" data-act="pr-open" title="Run what\'s on screen, in this window only. Nothing is recorded.">' + I('play') + (practicing ? 'Back to practice' : 'Practice') + '</button>' +
-      '<button type="button" class="chipbtn fpe-checks' + (nb ? ' bad' : '') + '" data-act="ins-tab" data-id="checks" aria-label="Checks: ' + checksLabel + '">' + (count ? '<span class="fpe-checks-t">Checks </span><span class="cnt' + (nb ? ' bad' : '') + '">' + count + '</span>' : I('check') + '<span class="fpe-checks-t">Checks</span>') + '</button></div>' +
-      '<div class="fpe-save"><span class="fpe-savestate"><span class="fpe-state' + (dirty ? ' dirty' : '') + (just ? ' just' : '') + '" role="status">' + (just ? I('check') : '') + status + '</span>' +
-      '<button type="button" class="linkish fpe-discard" data-act="revert-draft" data-id="' + esc(p.id) + '"' + (dirty ? '' : ' hidden') + '>Discard my changes</button></span>' +
-      '<button type="button" class="btn go" data-act="save-draft" data-id="' + esc(p.id) + '" title="Saving never publishes. Choose Save draft, then Review &amp; publish."' + ((dirty || !p.draft) && !saving ? '' : ' disabled') + '>' + (saving && saving !== 'restore' ? 'Saving…' : 'Save draft') + '</button></div></header>';
+    /* The workspace's one header (2.16), shared with practice: the way back, the title, Edit | Practice, one primary, More;
+       then the tool row: Undo, Redo, History | Builder | Markdown. History is a phone-only copy in More too. */
+    var seg = '<div class="seg" role="group" aria-label="Edit with"><button type="button" data-act="ed-mode" data-id="builder" aria-pressed="' + builder + '">Builder</button><button type="button" data-act="ed-mode" data-id="markdown" aria-pressed="' + !builder + '">Markdown</button></div>';
+    var phone = '<button type="button" class="mini ph-only" data-act="hist-open" data-id="draft" aria-haspopup="dialog">' + I('clock') + 'History</button>';
+    var parts = [{ kind: 'd', cls: 'sv', html: '<span class="fpe-state' + (dirty ? ' dirty' : '') + (just ? ' just' : '') + '" role="status" title="maps/drafts/' + esc(file) + (size ? ' · ' + size : '') + '">' + (just ? I('check') : '') + 'Draft: ' + status + '</span>' },
+      { kind: 'act', html: '<button type="button" class="linkish fpe-discard" data-act="revert-draft" data-id="' + esc(p.id) + '"' + (dirty ? '' : ' hidden') + '>Discard my changes</button>' }];
+    var h = '<div class="fpe" id="fpe">' + wsHead(ctx, p, { practice: false, hid: 'ed-h', status: parts, phone: phone }) + V.toolRow([V.undoBar('draft', ed && ed.tl), seg], '', { label: 'Editing tools' });
     /* Messages and conflicts stay in view, right under the header. */
     var al = '';
     /* No live role: messages are announced once, through #live (say and announce in app.js). */
-    if (st.msg && !st.msg.quiet) al += '<div class="notice ' + (st.msg.kind || '') + '"><span>' + esc(st.msg.text) + '</span><span class="row">' + (st.msg.act ? '<button type="button" class="btn" data-act="' + esc(st.msg.act) + '"' + (st.msg.id ? ' data-id="' + esc(st.msg.id) + '"' : '') + '>' + esc(st.msg.label) + '</button>' : '') + '<button type="button" class="mini" data-act="dismiss">Dismiss</button></span></div>';
+    if (st.msg && !st.msg.quiet) al += '<div class="notice ' + (st.msg.kind || '') + '"><span' + (st.msg.line ? ' id="ws-said" tabindex="-1" role="status"' : '') + '>' + esc(st.msg.text) + '</span><span class="row">' + (st.msg.act ? '<button type="button" class="btn" data-act="' + esc(st.msg.act) + '"' + (st.msg.id ? ' data-id="' + esc(st.msg.id) + '"' : '') + '>' + esc(st.msg.label) + '</button>' : '') + '<button type="button" class="mini" data-act="dismiss">Dismiss</button></span></div>';
     if (st.folderErr) al += '<div class="notice bad" role="alert"><span><b>Can\'t read the team folder.</b> ' + esc(st.folderErr) + '</span><button type="button" class="btn" data-act="refresh">Try again</button></div>';
     if (ed && ed.conflict) al += '<div class="notice bad" role="alert"><span>' + (ed.conflict.afterWrite ? '<b>Your save was written, then replaced by another change.</b> Compare them below, then keep yours or take theirs.' : '<b>Someone else changed this draft</b> since you opened it (a teammate, or your AI assistant). Nothing was saved. Compare below, then keep yours or take theirs.') + '</span>' + (saving ? '<span class="small" role="status">Saving…</span>' : '<button class="btn stop" data-act="draft-keep-mine">Keep mine</button><button class="mini" data-act="draft-take-theirs">Take theirs</button>') + '</div>' +
       '<details open class="fpe-theirs"><summary class="small">Their version</summary><pre class="source">' + esc(ed.conflict.theirs || '(the draft was deleted)') + '</pre></details>';
@@ -111,13 +191,13 @@
       selected: form || '<div class="ob-nosel"><p><b>Nothing selected.</b> Choose a step, lane, phase or gate in the outline, or Checklist details, to change it here.</p>' +
         '<ul class="ob-sample" aria-hidden="true"><li class="s-ph">Phase</li><li class="s-st on">' + I('check') + 'A step, selected</li><li class="s-st">' + I('check') + 'Another step</li><li class="s-gt">Gate</li></ul></div>',
       checks: (dirty && !builder ? V.changedLines(ed.base, text) : '') + '<h2 class="fpe-ph">' + (nb ? 'Won\'t publish yet' : 'Checks') + '</h2>' + V.checkList(c, ctx.state, 'checks-ed') +
-        '<p class="small">Saving never publishes. When it\'s ready, choose Save draft, then Review &amp; publish.</p><p class="small">The full format, every step type and its fields: <button class="link" data-act="open-types">Step types</button>. Or ask your AI assistant: <code>/flightdeck-edit-checklist</code>.</p>',
+        '<p class="small">Saving never publishes. When it\'s ready, choose Save draft, then Publish at the top right.</p><p class="small">The full format, every step type and its fields: <button class="link" data-act="open-types">Step types</button>. Or ask your AI assistant: <code>/flightdeck-edit-checklist</code>.</p>',
       preview: map.phases.length ? '<div class="mapview">' + V.mapPreview(map, (ctx.data.stepTypes || {}).types, p.skills, null, PF.corrections.openCounts(V.fixesOf(ctx, p)), hl) + '</div>' : '<p class="small">Add a phase to see it here.</p>'
     };
     var tabs = (builder ? [['selected', 'Selected']] : []).concat([['checks', 'Checks'], ['preview', 'Preview']]);
     var ins = V.splitter(ctx, 'ins') + '<aside class="fpe-pane fpe-ins" id="fpe-ins" aria-label="Inspector"><div class="fpe-tabs" role="tablist" aria-label="Inspector">' + tabs.map(function (t) {
       var on = t[0] === tab;
-      return '<button type="button" role="tab" id="ins-t-' + t[0] + '" aria-selected="' + on + '" aria-controls="ins-p-' + t[0] + '" tabindex="' + (on ? 0 : -1) + '" data-act="ins-tab" data-id="' + t[0] + '">' + t[1] + (t[0] === 'checks' && count ? ' <span class="cnt' + (nb ? ' bad' : '') + '">' + count + '</span>' : '') + '</button>';
+      return '<button type="button" role="tab" id="ins-t-' + t[0] + '" aria-selected="' + on + '" aria-controls="ins-p-' + t[0] + '" tabindex="' + (on ? 0 : -1) + '" data-act="ins-tab" data-id="' + t[0] + '"' + (t[0] === 'checks' ? ' aria-label="Checks: ' + esc(checksLabel) + '"' : '') + '>' + t[1] + (t[0] === 'checks' && count ? ' <span class="cnt' + (nb ? ' bad' : '') + '">' + count + '</span>' : '') + '</button>';
     }).join('') + '</div>' + tabs.map(function (t) { return '<div class="fpe-tabpanel" role="tabpanel" id="ins-p-' + t[0] + '" aria-labelledby="ins-t-' + t[0] + '" tabindex="0"' + (t[0] === tab ? '' : ' hidden') + '>' + panes[t[0]] + '</div>'; }).join('') + '</aside>';
     if (builder) h += '<div class="fpe-panes' + (st.partsRail ? ' rail' : '') + '"' + V.paneAttr(ctx, ['parts', 'ins']) + '>' + V.obPartsPane(ctx, p) + V.splitter(ctx, 'parts') + '<section class="fpe-pane fpe-outline" id="ob-outline" aria-label="Outline">' + V.obHoldIn(ctx, p, V.builder(ctx, p, text)) + '</section>' + ins + '</div>';
     else h += '<div class="fpe-panes md"' + V.paneAttr(ctx, ['ins']) + '><section class="fpe-pane fpe-md" aria-label="Markdown">' + mdCorrections(ctx, p, text) + '<label class="sr" for="draft-editor">Checklist Markdown</label><textarea id="draft-editor" data-draft-kept class="code-editor" spellcheck="false" data-bound>\n' + esc(text) + '</textarea></section>' + ins + '</div>';
@@ -127,7 +207,7 @@
   /* The draft's save state in words, shared by the editor's header and the practice run screen. */
   function draftStatus(ctx, p, ed, text) {
     var st = ctx.state, dirty = ed && ed.text != null && ed.text !== ed.base || st.obPending === p.id, saving = (st.draftSaving || {})[ctx.fsKey + '\n' + p.id];
-    return saving === 'restore' ? 'Restoring…' : saving ? 'Saving…' : ed && ed.conflict ? 'Not saved: someone else changed it' : dirty ? 'Unsaved: Save draft before you publish' : p.draft ? (st.fs && st.fs.volatile ? 'Saved in this tab only' : 'Saved') : 'New draft, from ' + (p.latest ? 'v' + p.latest.info.version : 'scratch');
+    return saving === 'restore' ? 'Restoring…' : saving ? 'Saving…' : ed && ed.conflict ? 'Not saved: someone else changed it' : dirty ? 'not saved. Save it before you publish.' : p.draft ? (st.fs && st.fs.volatile ? 'Saved in this tab only' : 'Saved') : 'New draft, from ' + (p.latest ? 'v' + p.latest.info.version : 'scratch');
   }
   /* Open corrections, listed above the Markdown with the line each step starts on (the builder marks its rows instead). */
   function mdCorrections(ctx, p, text) {
@@ -158,13 +238,14 @@
     };
     var people = PF.people.sorted(ctx).filter(function (p) { return !p.inactive; });
     var title = typed.title != null ? typed.title : f.title || '', ownId = typed.id != null ? typed.id : f.id || '', file = String(ownId).trim().toLowerCase() || fileIdOf(title);
-    var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">New checklist</div><h1 id="page-h" tabindex="-1">Write down how something is done</h1></div></div>' +
+    /* ‹ Checklists top left, and Cancel goes there too (2.16). */
+    var h = notices(ctx) + V.backRow(V.backc('go-back', '#/processes', 'Checklists')) + '<div class="runhead"><div><div class="eyebrow">New checklist</div><h1 id="page-h" tabindex="-1">Write down how something is done</h1></div></div>' +
       '<form class="panel stack" id="new-process-form" data-scope="new-process">' +
       '<div class="np-tpls" role="group" aria-label="Start from">' + PF.setup.TEMPLATES.slice().sort(function (a, b) { return (a.id === 'blank' ? 0 : 1) - (b.id === 'blank' ? 0 : 1); }).map(function (t) { return '<button type="button" class="chipbtn" data-act="np-tpl" data-id="' + t.id + '" aria-pressed="' + (tpl === t.id) + '">' + esc(t.id === 'assistant' ? 'Ask your AI assistant' : t.title) + '</button>'; }).join('') + '</div>';
     if (tpl === 'assistant') {
       var text = PF.setup.assistantPrompt({ folder: st.fs ? st.fs.name : '', owner: st.me || '', backup: '' });
       return h + '<p class="small">Paste this to your AI assistant, opened in the team folder, with your notes or runbook. Its draft shows up in Checklists, where you publish it.</p><pre class="source" id="np-prompt" tabindex="0">' + esc(text) + '</pre>' +
-        '<div class="row"><button class="btn" type="button" data-act="np-copy">' + I('copy') + 'Copy the prompt</button><span class="small" id="copy-msg" role="status"></span><button class="mini" type="button" data-act="np-cancel">Cancel</button></div></form>';
+        '<div class="row"><button class="btn" type="button" data-act="np-copy">' + I('copy') + 'Copy the prompt</button><span class="small" id="copy-msg" role="status"></span><button class="mini" type="button" data-act="go-back" data-id="#/processes">Cancel</button></div></form>';
     }
     var nmOwn = PF.people.labeler(people);
     var more = (st.disc || {})['np-more'];
@@ -176,7 +257,7 @@
       '<div class="grid2">' + field('context', 'Run details', 'filled in when a run starts, like ticket, commit', f.context) + field('roles', 'Roles', 'who does what, like lead, reviewer', f.roles) + '</div>' +
       '<label class="field" for="np-owner">Owner <span class="small">keeps this checklist up to date</span><select id="np-owner">' + people.map(function (p) { return '<option value="' + esc(p.id) + '"' + ((f.owner || st.me) === p.id ? ' selected' : '') + '>' + esc(nmOwn(p)) + '</option>'; }).join('') + '</select></label>' +
       '<label class="row"><input type="checkbox" id="np-solo"' + (f.solo ? ' checked' : '') + '> Usually run by one person</label></details>';
-    return h + '<div class="row"><button class="btn go" type="submit">' + I('edit') + 'Create the draft</button>' + (tpl !== 'blank' ? '<button class="btn" type="button" data-act="np-publish">' + I('play') + 'Publish v1 as it is</button>' : '') + '<button class="mini" type="button" data-act="np-cancel">Cancel</button></div></form>';
+    return h + '<div class="row"><button class="btn go" type="submit">' + I('edit') + 'Create the draft</button>' + (tpl !== 'blank' ? '<button class="btn" type="button" data-act="np-publish">' + I('play') + 'Publish v1 as it is</button>' : '') + '<button class="mini" type="button" data-act="go-back" data-id="#/processes">Cancel</button></div></form>';
   }
   /* The starting Markdown for a new process: front matter plus one phase to fill in. */
   function starterMap(f) {
@@ -193,7 +274,7 @@
     var open = st.disc && st.disc[key];
     var list = function (items) { return items.length ? '<ul class="small">' + items.join('') + '</ul>' : '<div class="small">Nothing.</div>'; };
     return '<li class="tcard"><div class="row between"><span>' + I(t.icon || 'check') + ' <b>' + esc(T.nameOf(t)) + '</b>' + (team ? ' <span class="pill open">team</span>' : '') + K.tagChips(T.tagsOf(t)) + '</span>' +
-      '<span class="row"><span class="small">' + (uses ? 'in ' + uses + ' checklist' + (uses === 1 ? '' : 's') : 'not used yet') + '</span>' + (team ? '<button class="mini" data-act="edit-type" data-id="' + esc(t.id) + '">' + I('edit') + 'Edit</button>' : '<button class="mini" data-act="copy-type" data-id="' + esc(t.id) + '">Copy to a team type</button>') + '</span></div>' +
+      '<span class="row"><span class="small">' + (uses ? 'in ' + uses + ' checklist' + (uses === 1 ? '' : 's') : 'not used yet') + '</span>' + (team ? '<button class="mini" data-act="edit-type" data-id="' + esc(t.id) + '">' + I('edit') + 'Edit</button>' : PF.types.isSearch(t) ? '' : '<button class="mini" data-act="copy-type" data-id="' + esc(t.id) + '">Copy to a team type</button>') + '</span></div>' +
       (t.hint ? '<div class="small">' + esc(t.hint) + '</div>' : '') +
       '<details data-disc="' + esc(key) + '"' + (open ? ' open' : '') + '><summary class="small">What it asks for</summary><p class="small">In a checklist: <code>{' + esc(t.id) + '}</code></p><div class="tcols">' +
       '<div><div class="small"><b>In the checklist</b></div>' + list(fields.map(function (f) { var d = t.fields[f]; return '<li><code>' + esc(f) + '</code> ' + esc(d.label) + ' · ' + esc(d.kind) + (d.required ? ', usually filled in' : '') + (d.requiredWhen ? ', when ' + esc(JSON.stringify(d.requiredWhen).replace(/[{}"]/g, '')) : '') + (d.options ? ': ' + esc(K.capJoin(d.options, null, ' / ', 'type-opts')) : '') + '</li>'; })) + '</div>' +
@@ -203,7 +284,8 @@
     var st = ctx.state, team = (ctx.data.stepTypes || {}).types || {}, errs = (ctx.data.stepTypes || {}).errors || [];
     var uses = function (id) { return ctx.processes().filter(function (p) { return p.latest && M.usedTypes(p.latest.map).indexOf(id) >= 0; }).length; };
     if (st.typeForm && st.typeForm.fsKey === ctx.fsKey) return typeForm(ctx);
-    var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">Library</div><h1 id="page-h" tabindex="-1">Step types</h1><div class="small">A step\'s type decides what it asks for. Add your own for tools the built-ins don\'t cover.</div></div><div class="row"><button class="btn go" data-act="new-type">' + I('edit') + 'New step type</button></div></div>';
+    var tog = ctx.libOrigin ? ctx.libOrigin('types') : { hash: '#/processes', place: 'Checklists', view: '' };
+    var h = notices(ctx) + V.backRow(tog.ws ? V.backc('type-ws-back', null, tog.place, tog.view) : V.backc('go-back', tog.hash, tog.place)) + '<div class="runhead"><div><div class="eyebrow">Library</div><h1 id="page-h" tabindex="-1">Step types</h1><div class="small">A step\'s type decides what it asks for. Add your own for tools the built-ins don\'t cover.</div></div><div class="row"><button class="btn go" data-act="new-type">' + I('edit') + 'New step type</button></div></div>';
     if (errs.length) h += '<div class="notice warn"><span>' + errs.map(function (e) { return 'step-types/' + esc(e.file) + ': ' + esc(K.capJoin(e.errors, null, '; ', 'type-errs')); }).join('<br>') + '</span></div>';
     var skipped = (ctx.data.stepTypes || {}).skipped || 0;
     if (skipped) h += '<div class="notice warn" role="status"><span><b>' + skipped + ' more step-type file' + (skipped === 1 ? ' wasn\'t' : 's weren\'t') + ' read.</b> Flightdeck reads the first 100 in <code>step-types/</code>, by name. Remove types nobody uses.</span><button class="mini" data-act="health">Folder health</button></div>';
@@ -277,13 +359,19 @@
     var status = f.saving ? 'Saving…' : changed ? 'Unsaved changes' : f.existing ? (st.fs && st.fs.volatile ? 'Saved in this tab only' : 'Saved') : 'Not saved yet';
     /* On a phone the preview opens as a dialog over the form: everything behind it is inert until it closes. */
     var modal = !!st.tfPreview, behind = modal ? ' inert' : '';
-    var h = '<div class="fpe fpe-type" id="tfe"><header class="fpe-head" role="region" aria-labelledby="tf-h"' + behind + '>' +
-      '<div class="fpe-id"><button type="button" class="btn fpe-done" data-act="type-done">' + I('back') + 'Done</button><div class="fpe-title"><h1 id="tf-h" tabindex="-1">' + esc(name) + ' <span class="cat">Step type</span></h1></div></div>' +
-      '<div class="fpe-tools">' + V.undoBar('type', f.tl) + '<button type="button" class="mini tf-prevbtn" data-act="tf-preview" aria-expanded="' + !!st.tfPreview + '" aria-controls="tf-preview">' + I('screen') + 'Preview</button></div>' +
-      '<div class="fpe-save"><span class="fpe-state' + (changed ? ' dirty' : '') + (just ? ' just' : '') + '" role="status">' + (f.existing && !changed && !f.saving ? I('check') : '') + status + '</span>' +
-      '<button class="btn go" type="submit" form="type-form"' + (f.saving ? ' disabled' : '') + (why ? ' aria-describedby="tf-save-why"' : '') + '>' + (f.saving ? 'Saving…' : 'Save step type') + '</button></div></header>';
+    var o = ctx.libOrigin ? ctx.libOrigin('types') : null;
+    /* ‹ Step types, or ‹ <checklist> · Edit when opened from the workspace (2.16); it asks before discarding changes. The
+       status moves into LEFT, Save step type is the primary, its reason line sits inside the header. Row 1, the tool row and
+       the form all go inert behind the phone's Preview. */
+    var h = '<div class="fpe fpe-type" id="tfe">' + V.workHead({ hid: 'tf-h', h1attrs: ' tabindex="-1"', attrs: behind, h1: esc(name), h1tail: ' <span class="cat">Step type</span>',
+      back: o && o.ws ? V.backc('type-done', null, o.place, o.view) : V.backc('type-done', null, 'Step types'),
+      status: [{ kind: 'd', cls: 'sv', html: '<span class="fpe-state' + (changed ? ' dirty' : '') + (just ? ' just' : '') + '" role="status">' + (f.existing && !changed && !f.saving ? I('check') : '') + status + '</span>' }],
+      acts: '<button class="btn go" type="submit" form="type-form"' + (f.saving ? ' disabled' : '') + (why ? ' aria-describedby="tf-save-why"' : '') + '>' + (f.saving ? 'Saving…' : 'Save step type') + '</button>',
+      more: V.moreMenu(ctx, V.moreGroup('On this screen', '<button type="button" class="mini ph-only" data-act="hist-open" data-id="type" aria-haspopup="dialog">' + I('clock') + 'History</button>') + V.appGroup(ctx)),
+      why: why ? '<p class="small hd-why tf-why" id="tf-save-why">' + esc(why) + '</p>' : '' }) +
+      V.toolRow([V.undoBar('type', f.tl), '<button type="button" class="mini tf-prevbtn" data-act="tf-preview" aria-expanded="' + !!st.tfPreview + '" aria-controls="tf-preview">' + I('screen') + 'Preview</button>'], '', { label: 'Step type tools', attrs: behind });
     /* Messages stay in view under the header. The top bar is hidden here, so its "choose who you are" note isn't shown. */
-    var al = (why ? '<p class="tf-why" id="tf-save-why">' + esc(why) + '</p>' : '');
+    var al = '';
     if (st.msg) al += '<div class="notice ' + (st.msg.kind || '') + '" role="status"><span>' + esc(st.msg.text) + '</span><span class="row">' + (st.msg.act ? '<button type="button" class="btn" data-act="' + esc(st.msg.act) + '"' + (st.msg.id ? ' data-id="' + esc(st.msg.id) + '"' : '') + '>' + esc(st.msg.label) + '</button>' : '') + '<button type="button" class="mini" data-act="dismiss">Dismiss</button></span></div>';
     if (st.folderErr) al += '<div class="notice bad" role="alert"><span><b>Can\'t read the team folder.</b> ' + esc(st.folderErr) + '</span><button type="button" class="btn" data-act="refresh">Try again</button></div>';
     if (f.leaving) al += '<div class="notice warn" role="alert" aria-labelledby="tf-leave-h"><span id="tf-leave-h"><b>This step type has changes that aren\'t saved.</b> Save them, or leave without them.</span><span class="row"><button type="button" class="btn go" data-act="type-save">Save step type</button><button type="button" class="mini" data-act="type-cancel">Leave without saving</button><button type="button" class="mini" data-act="type-stay">Keep editing</button></span></div>';
@@ -441,11 +529,13 @@
     var st = ctx.state, hit = null, proc = null;
     ctx.processes().forEach(function (p) { p.skills.forEach(function (x) { if ((x.skill.file || x.skill.name) === st.skillFile) { hit = x; proc = p; } }); });
     (ctx.orphanSkills ? ctx.orphanSkills() : []).forEach(function (x) { if ((x.skill.file || x.skill.name) === st.skillFile) hit = x; });
-    if (!hit) return notices(ctx) + '<div class="panel" role="alert">That skill isn\'t registered in this folder any more. <button class="mini" id="page-back" data-act="nav" data-id="skills">Back to Skills</button></div>';
+    if (!hit) return notices(ctx) + V.backRow(V.backc('go-back', PF.nav.format({ view: 'skills' }), 'Skills', '', ' id="page-back"')) + '<div class="panel" role="alert">That skill isn\'t registered in this folder any more.</div>';
     var s = hit.skill, sw = STATUS_WORDS[hit.status.s] || STATUS_WORDS.missing, href = PF.skills.link(s.location), base = hit.status.base, latest = hit.status.latest;
     var stepText = function (id) { var f = (base || latest) && M.findStep((base || latest).map, id); return f ? K.stepPlain(f.step, null) : id; };
-    var h = notices(ctx) + '<div class="runhead"><div><div class="eyebrow">Skill' + (s.version ? ' · version ' + esc(s.version) : '') + '</div><h1 id="page-h" tabindex="-1">' + I('spark') + ' ' + esc(s.name) + '</h1>' + (s.description ? '<div class="small">' + esc(s.description) + '</div>' : '') + K.tagChips(s.tags) + '</div>' +
-      '<div class="row">' + (proc ? '<button class="btn" data-act="open-process" data-id="' + esc(proc.id) + '">Open ' + esc(proc.title) + '</button>' : '') + '</div></div>';
+    /* Its checklist is linked once, in About this skill (2.16); the way back names whichever screen opened it, but that
+       checklist: from there it's Skills. */
+    var og = ctx.libOrigin ? ctx.libOrigin('skill', proc ? proc.id : null) : { hash: '#/skills', place: 'Skills', view: '' };
+    var h = notices(ctx) + V.backRow(V.backc('go-back', og.hash, og.place, og.view)) + '<div class="runhead"><div><div class="eyebrow">Skill' + (s.version ? ' · version ' + esc(s.version) : '') + '</div><h1 id="page-h" tabindex="-1">' + I('spark') + ' ' + esc(s.name) + '</h1>' + (s.description ? '<div class="small">' + esc(s.description) + '</div>' : '') + K.tagChips(s.tags) + '</div></div>';
     h += '<section class="panel status-card" data-s="' + esc(hit.status.s) + '" aria-labelledby="ss-h"><h2 id="ss-h"><span class="pill ' + sw[0] + '">' + sw[1] + '</span></h2><p>' + esc(hit.status.text) + (sw[2] ? ' ' + esc(sw[2]) : '') + '</p>';
     /* What changed, 50 at a time in its own order (2.11); the update brief is built from all of it when copied. */
     if (hit.status.s === 'update' && hit.status.changes) h += K.list(st, 'sk-changes', K.uniqKeys(hit.status.changes, function (c) { return c.change + '\n' + c.id; }).map(function (k, i) { return { c: hit.status.changes[i], k: 'skc-' + K.domKey(k) }; }), { draw: function (shown) { return '<ul class="changes">' + shown.map(function (r) {

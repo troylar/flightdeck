@@ -183,7 +183,7 @@ function appStatus(dir, file, html, mine, force) {
      new         not there yet: written
      missing     installed before, since deleted: written again
    The folder's record only ever makes install more careful (kept rather than merge), never lets it replace a file.
-   A copy still waiting in .flightdeck/updates/<any version>/ keeps a file at merge until someone deletes the copy.
+   A copy still waiting in .flightdeck/updates/<any version>/ keeps a file at merge until the copy is merged and gone.
    With --force, kept and merge files are replaced too, after a copy is saved. */
 function classify(t, files, base, force) {
   const items = files.map((f) => {
@@ -198,7 +198,10 @@ function classify(t, files, base, force) {
     i.old = all.filter((x, n) => said[n] === 'old');
     i.staged = all.filter((x, n) => said[n] !== 'old');
   });
-  const why = decide(items.map((i) => ({ key: i.key, baseKey: i.baseKey, want: i.want, have: i.have, staged: i.staged.map((x) => ({ version: x.version, hash: hash(managed(i.key, x.text)) })) })), t.record, base, t.version, force);
+  const decided = decide(items.map((i) => ({ key: i.key, baseKey: i.baseKey, want: i.want, have: i.have, staged: i.staged.map((x) => ({ version: x.version, hash: hash(managed(i.key, x.text)) })) })), t.record, base, t.version, force);
+  /* The content rule (PF.contract.hold, the app's own): AGENTS.md waits while a file it would cite lacks a cited section. Copied
+     out of the engine's context, so it compares as plain objects here. */
+  const why = JSON.parse(JSON.stringify(K.hold(decided, items.map((i) => ({ key: i.key, text: i.text, now: i.now, have: i.have, want: i.want, staged: i.staged.map((x) => K.copyPrint(i.key, x.text)) })), base)));
   return items.map((i, n) => Object.assign(i, why[n], { key: i.key }));
 }
 /* The decision alone, from hashes: the same as PF.contract.classify (test/assistant-files.test.js checks they agree), plus
@@ -262,27 +265,10 @@ function parseRecord(text, keys, mine) { return JSON.parse(JSON.stringify(contra
 function stamp(d) { const p = (n) => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + ' ' + p(d.getHours()) + p(d.getMinutes()); }
 function fineStamp(d) { const p = (n, w) => String(n).padStart(w || 2, '0'); return stamp(d).replace(' ', '-') + p(d.getSeconds()) + '-' + p(d.getMilliseconds(), 3); }
 
-function mergeReadme(version, items, t) { return mergeReadmeText(version, items, t.updates, t.home); }
-/* The same text as PF.contract.mergeReadme (test/assistant-files.test.js checks they agree). */
-function mergeReadmeText(version, items, updates, home) {
-  const here = updates.concat(version).join('/');
-  return `# Flightdeck ${version}: files to merge
-
-Flightdeck ${version} changed these files, and your team changed them too, so the update left your versions in place:
-
-${items.map((i) => '- `' + i.rel + '`' + (i.key === AGENTS ? ' (only the part between the flightdeck markers)' : '')).join('\n')}
-
-The new default of each file is in this folder (\`${here}/\`), at the same path it has in ${home}.
-
-## Ask your AI assistant to merge them
-
-Open your AI assistant in ${home}, and give it this:
-
-> Flightdeck ${version} put new default versions of some files in \`${here}/\`; its README.md lists them. For each one, compare the new default with our file at the same path. Keep our own changes, and bring in what the new default adds or changes. In AGENTS.md, change only the part between \`<!-- flightdeck:begin -->\` and \`<!-- flightdeck:end -->\`; anything that is ours belongs under Team notes, below the end marker. Show me each change before you save it. When a file is merged, delete its copy here. When only README.md is left, delete this folder.
-
-Then run the same flightdeck command with \`--check\`: exit code 0 means nothing is left to merge.
-`;
-}
+function mergeReadme(version, items, t) { return mergeReadmeText(version, items, t.updates, t.home, t.words); }
+/* The app's own PF.contract.mergeReadme, so the README's words (held, re-staged, waiting) are one function, never a copy.
+   ctx: { base, record, agents (this version's default AGENTS.md) }, for the words only. */
+function mergeReadmeText(version, items, updates, home, ctx) { return contractRules().mergeReadme(version, items, updates, home, ctx); }
 
 /* What an install would write has to be something the app can read back (PF.contract.MAX_BYTES): over the limit, nothing is
    touched. The same check and words as Settings, AI assistant files (afRoom). */
@@ -317,7 +303,8 @@ function destinationsClear(t, items, more) {
   for (const i of items) {
     if (['current', 'kept'].includes(i.status)) continue;
     if (i.status === 'merge') {
-      if (i.waiting && !i.stage) continue;
+      /* A copy already waiting here: the README beside it may be rewritten, its old text kept. */
+      if (i.waiting && !i.stage) { if (i.staged.some((x) => x.version === t.version)) dests.push(t.updates.concat(t.version, 'README.md'), t.updates.concat(t.version, 'replaced', 'x')); continue; }
       dests.push(t.updates.concat(t.version, i.rel.split('/')), t.updates.concat(t.version, 'README.md'), t.updates.concat(t.version, 'replaced', 'x'));
       continue;
     }
@@ -333,18 +320,29 @@ function contract(t, files, opts) {
   if (!opts.check || opts.room) clearFor(t.dir, t.updates.concat(t.version, 'x'));
   inside(t.dir, t.updates.concat(t.version, 'replaced'));
   t.record = readRecord(t, files.map((f) => f.key));
+  t.words = { base, record: t.record, agents: examples(opts.html)[AGENTS] };
   t.changed = [];
   const items = classify(t, files, base, opts.force);
   if (!opts.check || opts.room) { roomFor(t, items); destinationsClear(t, items, opts.more); }
   if (opts.check) return items;
   /* The merge list as it was before anything is written: the only text it may replace. */
-  const readmeAt = t.updates.concat(t.version, 'README.md'), readmeWas = items.some((i) => i.status === 'merge' && (!i.waiting || i.stage)) ? readInside(t.dir, readmeAt) : null;
-  for (const i of items) {
+  /* AGENTS.md from update goes last: it is written only if the files it cites have what it points to after their own writes, and
+     otherwise staged, as a held one (PF.contract.holdAfter, round 11). */
+  const agent = items.find((i) => i.key === AGENTS && i.status === 'update');
+  const readmeAt = t.updates.concat(t.version, 'README.md'), readmeWas = agent || items.some((i) => i.status === 'merge') ? readInside(t.dir, readmeAt) : null;
+  for (const i of agent ? items.filter((x) => x !== agent).concat(agent) : items) {
+    if (i === agent && items.some((x) => x.changed)) {
+      const nowOf = Object.create(null);
+      items.forEach((x) => { if (x.changed) nowOf[x.key] = readInside(t.dir, x.parts); });
+      const late = JSON.parse(JSON.stringify(contractRules().holdAfter(items, items, nowOf)));
+      if (late) Object.assign(i, { status: 'merge', waiting: '', stage: true, heldFrom: 'update', held: late.held });
+    }
     if (['current', 'kept'].includes(i.status) || (i.status === 'merge' && i.waiting && !i.stage)) {
       if (opts.force) i.staged.forEach((x) => fileAway(t, x));
       continue;
     }
     try {
+      hook('contractWrite', t.dir, i.rel);
       if (i.status === 'merge') { safeWrite(t.dir, t.updates.concat(t.version, i.rel.split('/')), i.text, null); continue; }
       const out = merged(i);
       if (i.now !== null && i.now !== out) keepCopy(t, i.parts, i.now);
@@ -356,8 +354,15 @@ function contract(t, files, opts) {
     }
   }
   const merges = items.filter((i) => i.status === 'merge' && !i.changed);
-  if (merges.some((i) => !i.waiting || i.stage)) {
-    const next = mergeReadme(t.version, merges.filter((i) => !i.waiting || i.stage || i.staged.some((x) => x.version === t.version)), t);
+  const listed = merges.filter((i) => !i.waiting || i.stage || i.staged.some((x) => x.version === t.version));
+  const next = listed.length ? mergeReadme(t.version, listed, t) : null;
+  /* Who writes the README is the command's, not the folder's. A run that classifies every contract file in its folder
+     (opts.restate: install, and skills --to, whose folder holds only skills) writes the README when something new is staged
+     and rewrites one whose words are no longer true (they depend on the state: held, waiting, lacking). flightdeck skills into
+     a team folder doesn't know AGENTS.md, so it never rewrites a README there; it writes one only when it stages something new
+     and there is none, and the next install says the rest. */
+  const fresh = merges.some((i) => !i.waiting || i.stage);
+  if (opts.restate ? fresh || (readmeWas !== null && next !== null && next !== readmeWas) : fresh && readmeWas === null) {
     try {
       if (readmeWas !== null && readmeWas !== next) keepCopy(t, ['merge-README.md'], readmeWas);
       safeWrite(t.dir, readmeAt, next, readmeWas);
@@ -380,7 +385,8 @@ function contract(t, files, opts) {
 /* The record's files after an update, or null when it would be written unchanged: the same as PF.contract.nextRecord. */
 function nextRecord(record, items, version) {
   const rec = Object.assign({}, record.all || {});
-  items.forEach((i) => { if (!i.changed) rec[i.key] = i.want; });
+  /* A held or onlyCopy AGENTS.md wasn't written, so it keeps its previous entry, as a changed file does. */
+  items.forEach((i) => { if (!i.changed && !(i.key === AGENTS && (i.heldFrom || i.onlyCopy))) rec[i.key] = i.want; });
   if (!record.ignored && record.version === version && JSON.stringify(rec) === JSON.stringify(record.all)) return null;
   return rec;
 }
@@ -412,6 +418,47 @@ const CHECK_LABEL = { update: 'update available', new: 'will be added', missing:
 function report(items, check, out) {
   items.filter((i) => i.status !== 'current').forEach((i) => out.push('  ' + (i.changed ? 'changed during install' : (check ? CHECK_LABEL : LABEL)[i.status]).padEnd(28) + i.rel + (i.waiting ? ' (still waiting in updates/' + i.waiting + ')' : '')));
   items.filter((i) => i.old && i.old.length).forEach((i) => out.push('  ' + 'old copy, nothing to merge'.padEnd(28) + i.rel + ' (left in updates/' + i.old.map((x) => x.version).join(', ') + ' by an older Flightdeck; safe to delete by hand)'));
+}
+/* The line install prints after the list when something waits to be merged. Its first sentence says why when the content
+   rule is at work (AGENTS.md held, or only its copy waiting, or files that lack what AGENTS.md points to); the rest names where
+   the new defaults are: this version's folder, or, when nothing was staged there this run, the folders they wait in. When the
+   first sentence already names the folder, the rest only points to its README.md; when only AGENTS.md's copy waits, the first
+   sentence says it all. */
+const DELETE_COPY = 'delete AGENTS.md from each version folder in `.flightdeck/updates/` (`.flightdeck/updates/<version>/AGENTS.md`, never anything under `replaced/`) only if nobody changed those copies (merge one someone did)';
+const sectionWord = (xs) => (xs.length === 1 ? 'section' : 'sections');
+/* The missing section names, as Folder health and the merge README give them. */
+const italics = (xs) => xs.map((x) => '*' + x + '*').join(', ');
+/* The first sentence, or null when the content rule isn't at work. future: install --check's words, before anything is written. */
+function mergeWhy(items, mine, future) {
+  const a = items.find((i) => i.key === AGENTS), merges = items.filter((i) => i.status === 'merge');
+  const staged = (i) => !i.waiting || i.stage;
+  const folders = (list) => list.reduce((acc, i) => acc.concat(staged(i) ? [mine] : i.waiting.split(', ')), []).filter((v, n, all) => all.indexOf(v) === n).sort(byVersion).map((v) => '.flightdeck/updates/' + v);
+  const inline = (list) => folders(list).map((f) => '`' + f + '`').join(' and ');
+  const waits = a && (a.heldFrom ? a.held : a.onlyCopy && a.waitsFor && a.waitsFor.length ? a.waitsFor : null), wait = future ? 'AGENTS.md will wait: ' : 'AGENTS.md waits: ';
+  if (waits) return { text: waits.length === 1 ? wait + '`' + waits[0].path + '` doesn\'t have the ' + sectionWord(waits[0].lacks) + ' it points to: ' + italics(waits[0].lacks) + '.' : wait + 'these files don\'t have the sections it points to: ' + waits.map((x) => '`' + x.path + '` (' + italics(x.lacks) + ')').join(', ') + '.' };
+  if (a && a.onlyCopy) return { all: merges.length === 1, text: future ? 'AGENTS.md only needs its copy deleted: your team didn\'t change AGENTS.md, so ' + DELETE_COPY + ' and run install.'
+    : 'AGENTS.md\'s new default is waiting in ' + inline([a]) + '; your team didn\'t change AGENTS.md, so ' + DELETE_COPY + ' and run install again.' };
+  if (merges.length && merges.every((i) => i.lacks)) {
+    const at = future ? ' will wait in ' : ' is waiting in ', ats = future ? ' will wait in ' : ' are waiting in ';
+    return { named: folders(merges).length, n: merges.length, text: merges.length === 1 ? '`' + merges[0].rel + '` doesn\'t have the ' + sectionWord(merges[0].lacks) + ' AGENTS.md points to: ' + italics(merges[0].lacks) + '; its new default' + at + inline(merges) + ' to be merged.'
+      : 'These files don\'t have the sections AGENTS.md points to: ' + merges.map((i) => '`' + i.rel + '` (' + italics(i.lacks) + ')').join(', ') + '; their new defaults' + ats + inline(merges) + ' to be merged.' };
+  }
+  return null;
+}
+function mergeLine(items, dir, mine) {
+  const merges = items.filter((i) => i.status === 'merge'), staged = (i) => !i.waiting || i.stage, why = mergeWhy(items, mine, false);
+  if (why && why.all) return why.text;
+  if (why && why.named) return why.text + (why.named === 1 ? ' Its README.md has' : ' Each folder\'s README.md has') + ' a prompt for your AI assistant to merge ' + (why.n === 1 ? 'it' : 'them') + '.';
+  const folders = merges.reduce((acc, i) => acc.concat(staged(i) ? [mine] : i.waiting.split(', ')), []).filter((v, n, all) => all.indexOf(v) === n).sort(byVersion);
+  const where = merges.some(staged) ? path.join(dir, '.flightdeck', 'updates', mine) : folders.map((v) => path.join(dir, '.flightdeck', 'updates', v)).join(' and ');
+  return (why ? why.text : 'Your team changed files this version changes too.') + ' The new defaults are in ' + where + '; its README.md has a prompt for your AI assistant to merge them.';
+}
+/* The live AGENTS.md's pointers no merge can satisfy (PF.contract.pointers), in Folder health's words, from the files as this
+   run leaves them. */
+function pointerLines(items, out) {
+  const written = (i) => ['update', 'new', 'missing', 'forced'].includes(i.status) && !i.changed;
+  const live = items.map((i) => ({ key: i.key, text: i.text, now: written(i) ? merged(i) : i.now }));
+  JSON.parse(JSON.stringify(contractRules().pointers(live))).forEach((p) => out.push(p.text));
 }
 /* What install says after the file list: an ignored record, and files left alone because they changed while it ran. */
 function notes(t, out) {
@@ -487,7 +534,7 @@ function loadEngine() {
     if (!m) fail('the app file in this install has no ' + id + ' block (' + APP + '). Reinstall the package.');
     return m[1];
   };
-  const ctx = vm.createContext({ console, setTimeout, clearTimeout, Blob, TextEncoder, TextDecoder, performance: { now: () => performance.now() } });
+  const ctx = vm.createContext({ console, setTimeout, clearTimeout, Blob, TextEncoder, TextDecoder, URL, crypto: require('crypto').webcrypto, performance: { now: () => performance.now() } });
   vm.runInContext(block('pf-core'), ctx, { filename: 'flightdeck.html#pf-core' });
   vm.runInContext(block('pf-storage'), ctx, { filename: 'flightdeck.html#pf-storage' });
   return { PF: ctx.PF, version: versionOf(html) };
@@ -806,6 +853,8 @@ function folderProblems(PF, d) {
   (d.fuDecisions || []).forEach((x) => { const p = decisionDrift(x); if (p) out.push(p); });
   const pw = peopleWhy(d.people);
   if (pw) out.push({ path: 'people.json', kind: 'malformed', why: pw });
+  /* 2.16: a parent's linked step whose child says Completed but doesn't stand as read (section 5.7.4). */
+  (d.childMarks || []).forEach((m) => out.push({ path: 'runs/' + m.process + '/' + m.run + '/run.json', kind: 'child-mark', why: 'Step "' + m.step + '" was ' + m.text + '.' }));
   return out;
 }
 function adapterProblems(adapter) {
@@ -1572,7 +1621,7 @@ function writeNew(dir, parts, text) {
   if (!fs.readFileSync(target).equals(data)) fail(target + ' didn\'t read back as written');
   return parts.join('/');
 }
-/* Everything Review & publish checks a draft's text against, read now through one problem ledger over a read-only view of
+/* Everything the Publish dialog checks a draft's text against, read now through one problem ledger over a read-only view of
    the folder, with the app's own readers: people.json, the team's step types, jira/workflows.json, every process's published
    versions (which are published, the children linked steps start, the parents that start this one), the team values a
    linked step names and the screenshots the text shows. Then PF.publish.checkContext and publishCheck, as the app's checks.
@@ -1609,9 +1658,9 @@ async function readInputs(eng, text, ra, L, everything) {
     p.pubs.filter((x) => !x.ok && !x._readFailed).forEach((x) => { const k = PF.appjson.pubProblem(x); L.note('publications/' + p.process + '/' + x.folder + '/', k.kind, k.why); });
     return { id: p.process, latest: p.index.latest, all: p.index.all, clashes: p.index.clashes, broken: p.pubs.filter((x) => !x.ok) };
   });
-  /* Team values (2.9), read only for a text that passes one, as publishing reads them. */
+  /* Team values (2.9), read only for a text that passes one or has a Jira search (its address), as publishing reads them. */
   let teamValues;
-  if (M.steps(map).some((x) => x.step.type === 'run.process' && PF.links.teams(x.step).length)) {
+  if (PF.publish.teamValuesUsed(map)) {
     teamValues = await repo.readTeamValues(rfs);
     if (teamValues.state !== 'ok' && teamValues.state !== 'missing' && !failedAt(PF.teamValues.FILE)) L.note(PF.teamValues.FILE, teamValues.state, teamValues.why || PF.teamValues.FILE + ' couldn\'t be read.');
   }
@@ -1626,7 +1675,7 @@ async function readInputs(eng, text, ra, L, everything) {
   const ctx = PF.publish.checkContext({ people, types, workflows: d.jira ? d.jira.workflows : null, processes, teamValues, missingShots, unknown: PF.publish.unknownOf(problems, shots) });
   return { verdict: PF.publish.publishCheck(text, ctx), problems };
 }
-/* flightdeck draft check <team folder> <process> [--from <file | ->] --json (2.13): the verdict Review & publish gives the
+/* flightdeck draft check <team folder> <process> [--from <file | ->] --json (2.13): the verdict the Publish dialog gives the
    draft in maps/drafts/ (or the text given with --from), from the folder as it is now (draftInputs). Read-only; prints
    flightdeck-read/2 with SCHEMA2.draftCheck: exit 0, 4 when part of the folder couldn't be read, 5 when there's no draft,
    1 for a usage problem or a draft that can't be read. */
@@ -2459,7 +2508,7 @@ const HELP = `flightdeck: team process checklists, in one HTML file
   flightdeck draft propose <same as save>
                                       always write a proposal
   flightdeck draft check <team folder> <process> [--from <file|->] --json
-                                      the verdict Review & publish gives the draft (or the text in the file): what
+                                      the verdict the Publish dialog gives the draft (or the text in the file): what
                                       stops publishing and the tips, from the folder as it is now. Only reads
   flightdeck skill register <team folder> --from <file|-> [--json]
                                       for AI assistants: register a skill against the exact version it was built
@@ -2542,9 +2591,12 @@ function main(argv) {
       if (appSt !== 'current') out.push('  ' + (appSt === 'new' ? 'will be added' : 'update available').padEnd(28) + NAME);
       if (oldSt !== 'current') out.push('  ' + 'update available'.padEnd(28) + OLD);
       report(items, true, out);
+      pointerLines(items, out);
       notes(t, out);
       const code = exitFor([appSt === 'current' ? 'current' : 'update', oldSt === 'current' ? 'current' : 'update'].concat(items.map((i) => i.status)));
       if (code === EXIT.none) out.push('  Nothing to do.');
+      const why = code === EXIT.merge ? mergeWhy(items, mine, true) : null;
+      if (why) out.push(why.text);
       if (code === EXIT.merge) out.push('Files marked "needs merge" go to .flightdeck/updates/' + mine + '/ when you install.');
       return { out: out.join('\n'), code };
     }
@@ -2557,13 +2609,14 @@ function main(argv) {
       try { safeWrite(dir, [file], html, st.text); } catch (e) { if (!(e instanceof Changed)) throw e; t.changed.push(file); }
     });
     const appChanged = t.changed.slice();
-    const items = appOnly ? [] : contract(t, files, { html, force });
+    const items = appOnly ? [] : contract(t, files, { html, force, restate: true });
     t.changed = appChanged.concat(t.changed || []);
     out.push('Installed Flightdeck ' + mine + ' at ' + path.join(dir, NAME) + (keepOld ? '\nAlso updated ' + path.join(dir, OLD) + ' (the same app under its old name)' : ''));
     if (!appOnly) {
       out.push(items.every((i) => i.status === 'current') ? 'AGENTS.md and the skills are up to date.' : 'AGENTS.md and the skills:');
       report(items, false, out);
-      if (items.some((i) => i.status === 'merge')) out.push('Your team changed files this version changes too. The new defaults are in ' + path.join(dir, '.flightdeck', 'updates', mine) + '; its README.md has a prompt for your AI assistant to merge them.');
+      if (items.some((i) => i.status === 'merge')) out.push(mergeLine(items, dir, mine));
+      pointerLines(items, out);
     }
     if (t.replacedAt) out.push('Copies of the files it replaced are in ' + path.join(dir, ...t.replacedAt));
     notes(t, out);
@@ -2588,7 +2641,7 @@ function main(argv) {
     }
     /* Records and the updates folder name files relative to the folder they're in; the baselines always use the team folder's names. */
     const files = skillFiles(html).map((f) => ({ key: to ? f.path : SKILLS + '/' + f.path, rel: to ? f.path : SKILLS + '/' + f.path, baseKey: SKILLS + '/' + f.path, text: f.text }));
-    const items = contract(t, files, { html, force, check });
+    const items = contract(t, files, { html, force, check, restate: !!to });
     const where = to ? t.dir : path.join(t.dir, ...SKILLS.split('/'));
     if (check) {
       out.push('Skills in ' + where + ':');
