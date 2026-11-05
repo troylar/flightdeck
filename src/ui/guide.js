@@ -142,6 +142,14 @@ PF.guide = (function () {
     'link-src': e('Where does this detail come from?', '', 'This run\'s detail (even under another name), a fixed value, or asked when the other checklist starts.', true),
     'link-val': e('Which fixed value?', 'us-east-1', 'Every run passes exactly this. At most 120 characters, no commas.', true),
     'pr-host': e('Where is the pull request?', '', 'Changes the step between a GitHub and a Bitbucket pull request. Every value is kept; what the other one doesn\'t use is flagged.', true),
+    /* 2.16 (jira-search, section 7): the Jira part's first question, and the search form's own controls. */
+    'jira-action': e('What do you do in Jira?', '', 'Decides which other questions apply. Search for issues makes it a Jira search step and back; every value is kept, and what the other doesn\'t use is flagged.', true),
+    'jira-find': e('How do you find them?', '', 'A JQL query, written here, or a saved filter\'s number. A search uses one, not both.', true),
+    'jira-results': e('What should it find?', '', 'The step passes when the count found matches. Any number, including zero, always passes.', true),
+    'jira-results-n': e('How many?', '0', 'A whole number, 0 to 999999.', true),
+    'pat-name': e('Name of the run detail', 'tag', 'Asked when a run starts, like any run detail; the value typed must match the pattern.', true),
+    'pat-src': e('The pattern', '\\d{4}\\.\\d{1,2}\\.\\d{1,2}', 'Letters, [...] classes, \\d, and repeats ? * + {n} {n,} {n,m}. Write ( ) and , as \\( \\) \\, everywhere. Nothing is written until it can be read.', true),
+    'pat-test': e('Try a value', '2026.11.0', 'Only checked here, never saved.', true),
     questions: e('What\'s still to be answered?', 'Who approves a hotfix?', 'Questions for the owner, written while drafting. Left in, the checklist can\'t be published; answer them in the steps, then remove the section.', true)
   };
 

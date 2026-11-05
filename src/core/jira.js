@@ -424,13 +424,68 @@ PF.jsearch = (function () {
     if (!ok && +out.count > 0 && !out.keys) return { error: 'This search should find ' + ruleWords(rule) + ' and found ' + out.count + '. Record at least one key it found, then block the step.', field: 'keys', meets: false };
     return { values: out, meets: ok, why: ok ? '' : 'This search should find ' + ruleWords(rule) + ' and found ' + out.count + (out.keys ? ' (' + out.keys + ')' : '') + '. Fix Jira and search again, or block the step.' };
   }
+  /* ---- 11. Editor help (section 7): where a ^detail may go, what's refused and where, and a preview with sample details. ---- */
+  /* Each ^name the query can't use, with its place, so the editor underlines it. */
+  function refusedSpans(q, context) {
+    var L = lex(q); if (!L.ok) return [{ s: 0, e: String(q).length, why: '"query": ' + L.why + '.' }];
+    var P = placeholders(q, context), out = [], k = 0;
+    P.tokens.forEach(function (tk) {
+      var bad = (tk.t === 'ph' && !tk.slot) || (tk.t === 'word' && /\^[\w-]/.test(tk.v)) || (tk.t === 'str' && /\^[\w-]/.test(tk.v) && (tk.v.match(/\^([\w-]+)/g) || []).some(function (m) { return (context || []).indexOf(m.slice(1)) >= 0; }));
+      if (bad) out.push({ s: tk.s, e: tk.e, why: P.errors[k++] || '' });
+    });
+    return out;
+  }
+  /* Putting ^name at a caret: only where a value goes. Refused, nothing changes and the place is said. */
+  function insertAt(q, at, name, context) {
+    q = String(q == null ? '' : q); at = Math.max(0, Math.min(+at || 0, q.length));
+    var pre = q.slice(0, at), post = q.slice(at), lead = pre && !/\s$/.test(pre) && !/[(,]$/.test(pre) ? ' ' : '', tail = post && !/^\s/.test(post) && !/^[),]/.test(post) ? ' ' : '';
+    var text = pre + lead + '^' + name + tail + post, s = pre.length + lead.length, e = s + 1 + String(name).length;
+    var P = placeholders(text, context), tk = P.tokens.filter(function (t) { return t.t === 'ph' && t.s === s; })[0];
+    if (!tk || !tk.slot) return { ok: false, text: text, s: s, e: e, why: '^' + name + ' can\'t go there: a run detail goes only where a single value goes, after =, !=, <, >, <= or >=, or in an IN (...) list.' };
+    return { ok: true, text: text, caret: e };
+  }
+  /* A sample for each kind of detail; a pattern's is the shortest value it matches. */
+  function sample(name, def) {
+    var k = def && def.kind;
+    if (k === 'choice' && def.options && def.options.length) return def.options[0];
+    if (k === 'number') return '3';
+    if (k === 'yes-no') return 'yes';
+    if (k === 'date') return '2026-11-04';
+    if (k === 'url' || k === 'link') return 'https://example.com/' + name;
+    if (k === 'pattern') {
+      var pc = PF.values.compilePattern(def.pattern); if (!pc.ok) return '';
+      return pc.atoms.map(function (a) { var c = a.set.chars.length ? a.set.chars[0] : a.set.ranges[0][0]; return new Array(a.min + 1).join(String.fromCodePoint(c)); }).join('');
+    }
+    return 'sample-' + name;
+  }
+  /* o: { context, detailTypes, teamValues }. The filled-in query, the positional check and the link, or why each isn't there. */
+  function preview(f, o) {
+    o = o || {}; f = f || {};
+    var out = { samples: {}, jql: '', check: '', link: '', why: '', linkWhy: '' }, name = siteName(f), ctx = o.context || [];
+    var site = name && o.teamValues ? PF.teamValues.lookup(o.teamValues, name) : null, base = site && own(site, 'value') ? site.value : null;
+    var link = function (x) { var r = base != null ? buildLink(base, x) : { ok: false, why: name ? 'The Jira address team:' + name + ' isn\'t set.' : 'The Jira address isn\'t a team value.' }; if (r.ok) out.link = r.href; else out.linkWhy = r.why; };
+    var q = f.query == null ? '' : String(f.query), hasF = f.filter != null && String(f.filter).trim() !== '';
+    if (hasF && !q.trim()) { out.check = 'A saved filter: nothing is filled in.'; link({ filter: f.filter }); return out; }
+    if (!q.trim()) { out.why = 'No query yet.'; return out; }
+    var P = placeholders(q, ctx); if (P.errors.length) { out.why = P.errors[0]; return out; }
+    P.uses.forEach(function (n) { out.samples[n] = sample(n, o.detailTypes && Object.prototype.hasOwnProperty.call(o.detailTypes, n) ? o.detailTypes[n] : null); });
+    var sub = substitute(q, out.samples, ctx);
+    if (!sub.ok) { out.why = sub.why; return out; }
+    out.jql = sub.jql;
+    var ct = contained(sub.template, sub);
+    out.check = ct.ok ? 'Positional check passed: ' + ct.values + ' value' + (ct.values === 1 ? '' : 's') + ', each one quoted string in its own place.' : 'Positional check failed: ' + ct.why + '.';
+    link({ jql: sub.jql });
+    return out;
+  }
+
   /* "Found 3: PAY-101, PAY-102, PAY-103", the reason Block with these gives, cut to 120 characters. */
   function foundWords(values) { return ('Found ' + values.count + (values.keys ? ': ' + values.keys : '')).slice(0, 120); }
 
   return { QUERY_MAX: QUERY_MAX, LINK_MAX: LINK_MAX, VALUE_MAX: VALUE_MAX, FIELDS: FIELDS, SEARCH_FIELDS: SEARCH_FIELDS, FORMULA: FORMULA, SITE_DEFAULT: SITE_DEFAULT, GEN: GEN, ID: ID,
     badText: badText, cpLen: cpLen, lex: lex, placeholders: placeholders, parseResults: parseResults, ruleLabel: ruleLabel, ruleWords: ruleWords, meets: meets, zeroOnly: zeroOnly,
     checkBase: checkBase, siteName: siteName, checkFields: checkFields, uses: uses, setsWhy: setsWhy, quoteJql: quoteJql, substitute: substitute, contained: contained, strictEncode: strictEncode,
-    buildLink: buildLink, randomHex: randomHex, token: token, genOk: genOk, identity: identity, fingerprint: fingerprint, realTime: realTime, checkEvidence: checkEvidence, foundWords: foundWords };
+    buildLink: buildLink, randomHex: randomHex, token: token, genOk: genOk, identity: identity, fingerprint: fingerprint, realTime: realTime, checkEvidence: checkEvidence, foundWords: foundWords,
+    refusedSpans: refusedSpans, insertAt: insertAt, sample: sample, preview: preview };
 })();
 
 /* Run details in link fields (2.16, Appendix B): a link field's template is classified before anything is filled in, each run

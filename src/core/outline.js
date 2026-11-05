@@ -323,6 +323,20 @@ PF.outline = (function () {
     var p = s.parts, lines = o.lines.slice(), cr = crOf(o, s.line), first = function (q) { lines[s.line] = q.pre + q.typePart + q.rest + q.idSuffix + cr; };
     var q = { pre: p.pre, typePart: p.typePart, rest: p.rest, idSuffix: p.idSuffix }, at = s.line, reid = '';
     var expect = function () { /* changes the "before" signature of the step */ };
+    function fieldSet(f0, value) {
+      var f = String(f0), v = lineValue(value), fl = s.fieldLines[f];
+      if (!/^[\w-]+$/.test(f)) return { error: ERR.gone };
+      if (v === (s.fields[f] || '')) return { same: true };
+      if (fl != null) {
+        if (!v) lines.splice(fl, 1);
+        else { var fm = /^(\s{2,}[\w-]+:)(\s*)/.exec(bare(lines[fl])); lines[fl] = fm[1] + (fm[2] || ' ') + v + crOf(o, fl); }
+      } else if (v) {
+        var last = Object.keys(s.fieldLines).reduce(function (mx, k) { return Math.max(mx, s.fieldLines[k]); }, -1);
+        var indent = last >= 0 ? /^\s*/.exec(bare(lines[last]))[0] : '  ';
+        lines.splice((last >= 0 ? last : s.line) + 1, 0, indent + f + ': ' + v + cr);
+      }
+      return { expect: function (st) { if (v) st.fields[f] = v; else delete st.fields[f]; } };
+    }
     if ('text' in set) {
       var t = lineValue(set.text);
       if (!t) return { error: 'A step needs some text.' };
@@ -346,7 +360,10 @@ PF.outline = (function () {
       if (!/^[a-z][\w.-]*$/i.test(ty)) return { error: 'Choose a step type.' };
       q.typePart = p.typePart ? p.typePart.replace(/^\{[^}]*\}/, '{' + ty + '}') : '{' + ty + '} ';
       first(q);
-      expect = function (st) { st.type = ty; };
+      /* 2.16: a type switch that also sets one field (Jira's action) is one change, so one Undo reverses it. */
+      var also = 'field' in set ? fieldSet(set.field, set.value) : null;
+      if (also && also.error) return also;
+      expect = function (st) { st.type = ty; if (also && also.expect) also.expect(st); };
     } else if ('role' in set || 'bind' in set) {
       var isRole = 'role' in set, name = String(isRole ? set.role : set.bind), ch = isRole ? '@' : '^', have = (isRole ? p.roles : p.binds).indexOf(name) >= 0;
       if (!/^[\w-]+$/.test(name)) return { error: ERR.gone };
@@ -361,18 +378,10 @@ PF.outline = (function () {
         st.roles = own.length ? own : trackRoles.slice();
       };
     } else if ('field' in set) {
-      var f = String(set.field), v = lineValue(set.value), fl = s.fieldLines[f];
-      if (!/^[\w-]+$/.test(f)) return { error: ERR.gone };
-      if (v === (s.fields[f] || '')) return { text: text, at: at, same: true };
-      if (fl != null) {
-        if (!v) lines.splice(fl, 1);
-        else { var fm = /^(\s{2,}[\w-]+:)(\s*)/.exec(bare(lines[fl])); lines[fl] = fm[1] + (fm[2] || ' ') + v + crOf(o, fl); }
-      } else if (v) {
-        var last = Object.keys(s.fieldLines).reduce(function (mx, k) { return Math.max(mx, s.fieldLines[k]); }, -1);
-        var indent = last >= 0 ? /^\s*/.exec(bare(lines[last]))[0] : '  ';
-        lines.splice((last >= 0 ? last : s.line) + 1, 0, indent + f + ': ' + v + cr);
-      }
-      expect = function (st) { if (v) st.fields[f] = v; else delete st.fields[f]; };
+      var fs = fieldSet(set.field, set.value);
+      if (fs.error) return fs;
+      if (fs.same) return { text: text, at: at, same: true };
+      expect = fs.expect;
     } else return { error: ERR.gone };
     var line = s.line + 1;
     var res = done(o, text, lines, function (A) {
@@ -1053,24 +1062,31 @@ PF.outline = (function () {
     var meta = M.parse(text).meta, str, next;
     if (kind === 'list') {
       var cur = meta[key].slice(), adding = own_(set, 'add'), name = adding ? set.add : set.remove;
+      var entry = name;
       if (!adding && !own_(set, 'remove')) return { error: ERR.gone };
       if (typeof name !== 'string' || !name.trim()) return { error: 'Type a name for the ' + what + ' first.' };
       if (adding) {
         var bad = checkName(name, key); if (bad) return { error: bad };
         if (cur.indexOf(name) >= 0) return { error: mark + name + ' is already a ' + what + '.' };
         if (key === 'context' && cur.length >= 40) return { error: 'A checklist can have at most 40 run details.' };
-        next = cur.concat([name]);
+        /* 2.16: a run detail that must match a pattern, written name:pattern(source); a pattern that can't be read writes nothing. */
+        if (key === 'context' && own_(set, 'pattern')) {
+          var pc = PF.values.compilePattern(set.pattern);
+          if (!pc.ok) return { error: 'The pattern can\'t be used: ' + pc.why };
+          entry = name + ':pattern(' + set.pattern + ')';
+        }
+        next = cur.concat([entry]);
       } else {
         if (cur.indexOf(name) < 0) return { error: mark + name + ' isn\'t listed anymore. It may have just changed.' };
         var used = usesOf(o, key, name);
         if (used.length) return { error: mark + name + ' is still used by ' + used[0] + (used.length > 1 ? ' and ' + (used.length - 1) + ' more' : '') + '. Take it out there first.' };
         next = cur.filter(function (x) { return x !== name; });
       }
-      var names = next;
+      var names = adding ? cur.concat([name]) : next;
       /* Run details keep each entry as written (rows:number keeps its kind); only the added or removed name changes. */
       if (key === 'context' && hits.length) {
         var raw = M.contextEntries(/^[\w-]+:\s*(.*)$/.exec(bare(lines[hits[hits.length - 1]]))[1]);
-        next = adding ? raw.concat([name]) : raw.filter(function (e) { var at = e.indexOf(':'); return (at < 0 ? e : e.slice(0, at).trim()) !== name; });
+        next = adding ? raw.concat([entry]) : raw.filter(function (e) { var at = e.indexOf(':'); return (at < 0 ? e : e.slice(0, at).trim()) !== name; });
       }
       str = next.join(', ');
     } else {
@@ -1097,6 +1113,7 @@ PF.outline = (function () {
       if (kind === 'list') {
         A.meta[key] = names;
         if (key === 'context' && !adding && A.meta.detailTypes) delete A.meta.detailTypes[name];
+        if (key === 'context' && adding && entry !== name) { if (!A.meta.detailTypes) A.meta.detailTypes = {}; A.meta.detailTypes[name] = { kind: 'pattern', pattern: set.pattern }; }
       } else if (str) A.meta[key] = str;
       else if (kept) A.meta[key] = '';
       else delete A.meta[key];
