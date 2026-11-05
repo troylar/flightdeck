@@ -80,20 +80,10 @@ PF.values = (function () {
   /* A value as a person typed it, for a definition { kind, label, options, min, max }: { ok, canonical, why }. Empty is ok
      (canonical ''); whether a value is required is the caller's rule. max: the most characters the record keeps. */
   function parse(def, raw, opts) {
-    var t = trim(raw), k = kindOf(def), max = opts && opts.max;
+    var k = kindOf(def);
+    if (k === 'pattern') return patternIn(def, raw, opts);
+    var t = trim(raw), max = opts && opts.max;
     function no(why) { return { ok: false, canonical: '', why: why }; }
-    /* 2.16 (detail-patterns): the whole value must match, by Flightdeck's own linear matcher, never RegExp; counted in code
-       points. It's checked exactly as entered (Appendix A.5): a line break, U+0085 or a space around it is refused, never
-       trimmed away. A value that doesn't parse is refused with the pattern shown. */
-    if (k === 'pattern') {
-      t = raw == null ? '' : typeof raw === 'string' ? raw : trim(raw);
-      if (t === '') return { ok: true, canonical: '' };
-      var pc = compilePattern(def.pattern);
-      if (!pc.ok) return no(cap(name(def)) + '\'s pattern can\'t be read (' + pc.why.replace(/\.$/, '') + ').');
-      var bt = badText(t); if (bt) return no(cap(name(def)) + ' has ' + bt + '.');
-      if (max && Array.from(t).length > max) return no(cap(name(def)) + ' can be at most ' + max + ' characters.');
-      return matchPattern(pc, t).ok ? { ok: true, canonical: t } : no(cap(name(def)) + ' should match ' + String(def.pattern).slice(0, 80) + '.');
-    }
     if (!t) return { ok: true, canonical: '' };
     var out = t;
     if (k === 'number') {
@@ -118,6 +108,21 @@ PF.values = (function () {
     if (max && out.length > max) return no(cap(name(def)) + ' can be at most ' + max + ' characters.');
     return { ok: true, canonical: out };
   }
+  /* 2.16 (detail-patterns): the one way a value for a patterned run detail enters or is compared, on every path (start,
+     setDetail, Done, practice, plans, carried values, migrations, reports, requests). The whole value must match, by
+     Flightdeck's own linear matcher, never RegExp, counted in code points. It's checked exactly as given (Appendix A.5): a
+     line break, U+0085 or a space around it is refused, never trimmed away. null or '' is empty (ok, canonical '').
+     opts.max: the most code points the record keeps. */
+  function patternIn(def, raw, opts) {
+    var t = raw == null ? '' : String(raw), max = opts && opts.max;
+    function no(why) { return { ok: false, canonical: '', why: why }; }
+    if (t === '') return { ok: true, canonical: '' };
+    var pc = compilePattern(def && def.pattern);
+    if (!pc.ok) return no(cap(name(def)) + '\'s pattern can\'t be read (' + pc.why.replace(/\.$/, '') + ').');
+    var bt = badText(t); if (bt) return no(cap(name(def)) + ' has ' + bt + '.');
+    if (max && Array.from(t).length > max) return no(cap(name(def)) + ' can be at most ' + max + ' characters.');
+    return matchPattern(pc, t).ok ? { ok: true, canonical: t } : no(cap(name(def)) + ' should match ' + String(def.pattern).slice(0, 80) + '.');
+  }
   /* Whether a stored value is exactly canonical for its definition. Empty is valid (not answered). */
   function valid(def, stored) {
     if (typeof stored !== 'string') return false;
@@ -134,9 +139,12 @@ PF.values = (function () {
   /* An untyped text meeting a typed definition (a plan's details, a parent's carried text): exact (already canonical),
      converted (an unambiguous spelling), ambiguous (could mean more than one thing) or invalid (can't be one). Never guessed. */
   function migrate(def, oldText) {
-    var t = trim(oldText), k = kindOf(def);
+    var k = kindOf(def);
     function v(verdict, result) { return { verdict: verdict, result: result == null ? null : result }; }
     if (typeof oldText === 'string' && oldText === '') return v('exact', '');
+    /* A pattern's source text is checked as it is, before anything else: one that doesn't match stays open, never cleaned. */
+    if (k === 'pattern') return patternIn(def, oldText, { max: DETAIL_MAX }).ok ? v('exact', oldText) : v('invalid');
+    var t = trim(oldText);
     if (k === 'text') return v(t === oldText ? 'exact' : 'converted', t);
     if (valid(def, oldText)) return v('exact', oldText);
     if (k === 'number') {
@@ -156,7 +164,6 @@ PF.values = (function () {
       return hit.length === 1 ? v('converted', hit[0]) : hit.length ? v('ambiguous') : v('invalid');
     }
     if (k === 'url') return linkOk(t) ? v('converted', t) : v('invalid');
-    if (k === 'pattern') return parse(def, t, { max: DETAIL_MAX }).ok ? v('converted', t) : v('invalid');
     return v('invalid');
   }
   /* What a person is asked about an old value that didn't convert. */
@@ -314,6 +321,6 @@ PF.values = (function () {
     return { value: out, cut: out !== v, why: p && !p.ok ? p.why : '' };
   }
 
-  return { KINDS: KINDS, DETAIL_MAX: DETAIL_MAX, PAT_MAX: PAT_MAX, compilePattern: compilePattern, matchPattern: matchPattern, badText: badText, unitOf: unitOf, len: len, cut: cut, LABELS: LABELS, NEW: NEW, NUMBER_MAX: NUMBER_MAX, kindOf: kindOf, label: label, isNew: isNew, trim: trim, parse: parse, valid: valid, invalidWhy: invalidWhy,
+  return { KINDS: KINDS, DETAIL_MAX: DETAIL_MAX, PAT_MAX: PAT_MAX, compilePattern: compilePattern, matchPattern: matchPattern, badText: badText, unitOf: unitOf, len: len, cut: cut, LABELS: LABELS, NEW: NEW, NUMBER_MAX: NUMBER_MAX, kindOf: kindOf, label: label, isNew: isNew, trim: trim, parse: parse, patternIn: patternIn, valid: valid, invalidWhy: invalidWhy,
     compare: compare, isNumber: isNumber, isDate: isDate, foldClash: foldClash, migrate: migrate, ask: ask, show: show, both: both, json: json, numberDefProblems: numberDefProblems };
 })();

@@ -3089,20 +3089,10 @@ PF.values = (function () {
   /* A value as a person typed it, for a definition { kind, label, options, min, max }: { ok, canonical, why }. Empty is ok
      (canonical ''); whether a value is required is the caller's rule. max: the most characters the record keeps. */
   function parse(def, raw, opts) {
-    var t = trim(raw), k = kindOf(def), max = opts && opts.max;
+    var k = kindOf(def);
+    if (k === 'pattern') return patternIn(def, raw, opts);
+    var t = trim(raw), max = opts && opts.max;
     function no(why) { return { ok: false, canonical: '', why: why }; }
-    /* 2.16 (detail-patterns): the whole value must match, by Flightdeck's own linear matcher, never RegExp; counted in code
-       points. It's checked exactly as entered (Appendix A.5): a line break, U+0085 or a space around it is refused, never
-       trimmed away. A value that doesn't parse is refused with the pattern shown. */
-    if (k === 'pattern') {
-      t = raw == null ? '' : typeof raw === 'string' ? raw : trim(raw);
-      if (t === '') return { ok: true, canonical: '' };
-      var pc = compilePattern(def.pattern);
-      if (!pc.ok) return no(cap(name(def)) + '\'s pattern can\'t be read (' + pc.why.replace(/\.$/, '') + ').');
-      var bt = badText(t); if (bt) return no(cap(name(def)) + ' has ' + bt + '.');
-      if (max && Array.from(t).length > max) return no(cap(name(def)) + ' can be at most ' + max + ' characters.');
-      return matchPattern(pc, t).ok ? { ok: true, canonical: t } : no(cap(name(def)) + ' should match ' + String(def.pattern).slice(0, 80) + '.');
-    }
     if (!t) return { ok: true, canonical: '' };
     var out = t;
     if (k === 'number') {
@@ -3127,6 +3117,21 @@ PF.values = (function () {
     if (max && out.length > max) return no(cap(name(def)) + ' can be at most ' + max + ' characters.');
     return { ok: true, canonical: out };
   }
+  /* 2.16 (detail-patterns): the one way a value for a patterned run detail enters or is compared, on every path (start,
+     setDetail, Done, practice, plans, carried values, migrations, reports, requests). The whole value must match, by
+     Flightdeck's own linear matcher, never RegExp, counted in code points. It's checked exactly as given (Appendix A.5): a
+     line break, U+0085 or a space around it is refused, never trimmed away. null or '' is empty (ok, canonical '').
+     opts.max: the most code points the record keeps. */
+  function patternIn(def, raw, opts) {
+    var t = raw == null ? '' : String(raw), max = opts && opts.max;
+    function no(why) { return { ok: false, canonical: '', why: why }; }
+    if (t === '') return { ok: true, canonical: '' };
+    var pc = compilePattern(def && def.pattern);
+    if (!pc.ok) return no(cap(name(def)) + '\'s pattern can\'t be read (' + pc.why.replace(/\.$/, '') + ').');
+    var bt = badText(t); if (bt) return no(cap(name(def)) + ' has ' + bt + '.');
+    if (max && Array.from(t).length > max) return no(cap(name(def)) + ' can be at most ' + max + ' characters.');
+    return matchPattern(pc, t).ok ? { ok: true, canonical: t } : no(cap(name(def)) + ' should match ' + String(def.pattern).slice(0, 80) + '.');
+  }
   /* Whether a stored value is exactly canonical for its definition. Empty is valid (not answered). */
   function valid(def, stored) {
     if (typeof stored !== 'string') return false;
@@ -3143,9 +3148,12 @@ PF.values = (function () {
   /* An untyped text meeting a typed definition (a plan's details, a parent's carried text): exact (already canonical),
      converted (an unambiguous spelling), ambiguous (could mean more than one thing) or invalid (can't be one). Never guessed. */
   function migrate(def, oldText) {
-    var t = trim(oldText), k = kindOf(def);
+    var k = kindOf(def);
     function v(verdict, result) { return { verdict: verdict, result: result == null ? null : result }; }
     if (typeof oldText === 'string' && oldText === '') return v('exact', '');
+    /* A pattern's source text is checked as it is, before anything else: one that doesn't match stays open, never cleaned. */
+    if (k === 'pattern') return patternIn(def, oldText, { max: DETAIL_MAX }).ok ? v('exact', oldText) : v('invalid');
+    var t = trim(oldText);
     if (k === 'text') return v(t === oldText ? 'exact' : 'converted', t);
     if (valid(def, oldText)) return v('exact', oldText);
     if (k === 'number') {
@@ -3165,7 +3173,6 @@ PF.values = (function () {
       return hit.length === 1 ? v('converted', hit[0]) : hit.length ? v('ambiguous') : v('invalid');
     }
     if (k === 'url') return linkOk(t) ? v('converted', t) : v('invalid');
-    if (k === 'pattern') return parse(def, t, { max: DETAIL_MAX }).ok ? v('converted', t) : v('invalid');
     return v('invalid');
   }
   /* What a person is asked about an old value that didn't convert. */
@@ -3323,7 +3330,7 @@ PF.values = (function () {
     return { value: out, cut: out !== v, why: p && !p.ok ? p.why : '' };
   }
 
-  return { KINDS: KINDS, DETAIL_MAX: DETAIL_MAX, PAT_MAX: PAT_MAX, compilePattern: compilePattern, matchPattern: matchPattern, badText: badText, unitOf: unitOf, len: len, cut: cut, LABELS: LABELS, NEW: NEW, NUMBER_MAX: NUMBER_MAX, kindOf: kindOf, label: label, isNew: isNew, trim: trim, parse: parse, valid: valid, invalidWhy: invalidWhy,
+  return { KINDS: KINDS, DETAIL_MAX: DETAIL_MAX, PAT_MAX: PAT_MAX, compilePattern: compilePattern, matchPattern: matchPattern, badText: badText, unitOf: unitOf, len: len, cut: cut, LABELS: LABELS, NEW: NEW, NUMBER_MAX: NUMBER_MAX, kindOf: kindOf, label: label, isNew: isNew, trim: trim, parse: parse, patternIn: patternIn, valid: valid, invalidWhy: invalidWhy,
     compare: compare, isNumber: isNumber, isDate: isDate, foldClash: foldClash, migrate: migrate, ask: ask, show: show, both: both, json: json, numberDefProblems: numberDefProblems };
 })();
 
@@ -8327,6 +8334,14 @@ PF.run = (function () {
   }
   function list(s) { return String(s || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean); }
   /* Why the search can't be answered now, or ''. */
+  /* What a step reopened when read says (section 5.9 R14-3, R14-7): its reason, then what to do next, the same on the run
+     screen and in Folder health. A completed run's step is answered again with Done; it has no Refresh search. */
+  function reopenNotice(r, a) {
+    var why = String(a && a.reason || 'Reopened when read').replace(/\.$/, '') + '.';
+    if (a && a.reopened === 'stuck') return why + ' Start a new run of this checklist; this run stays as recorded.';
+    if (r && r.state === 'completed') return why + ' The run stays Completed; answer this step again with Done. Every other step stays closed.';
+    return why + ' Refresh the search, search again, then choose Done.';
+  }
   function searchProblem(r, map, step) { var s = searchState(r, map, step); return s.ok ? '' : s.why; }
   function searchId(r, map, step) { var s = searchState(r, map, step); return s.ok ? s.id : null; }
   /* The record-time check (section 5.7): the step's complete evidence, checked as Done checks it, with the search fields in
@@ -10083,7 +10098,7 @@ PF.run = (function () {
   }
 
   return { answerable: answerable, reopenIds: reopenIds, gateInputs: gateInputs, detailValueDef: detailValueDef, detailUnit: detailUnit,
-    childCheck: childCheck, childMarks: childMarks, edgeHolds: edgeHolds, linkShape: linkShape, CHILD_HEIGHT: CHILD_HEIGHT, CHILD_LINKS: CHILD_LINKS, isSearchStep: isSearchStep, searchSteps: searchSteps, searchState: searchState, searchProblem: searchProblem, searchId: searchId, searchCheck: searchCheck, genDamaged: genDamaged, refreshSearch: refreshSearch, rereadable: rereadable, mergeOverflow: mergeOverflow, SEARCH_PREFIX: SEARCH_PREFIX,
+    childCheck: childCheck, childMarks: childMarks, edgeHolds: edgeHolds, linkShape: linkShape, CHILD_HEIGHT: CHILD_HEIGHT, CHILD_LINKS: CHILD_LINKS, isSearchStep: isSearchStep, searchSteps: searchSteps, searchState: searchState, searchProblem: searchProblem, reopenNotice: reopenNotice, searchId: searchId, searchCheck: searchCheck, genDamaged: genDamaged, refreshSearch: refreshSearch, rereadable: rereadable, mergeOverflow: mergeOverflow, SEARCH_PREFIX: SEARCH_PREFIX,
     RUN_ID: RUN_ID, isTest: isTest, pubDir: pubDir, testProblem: testProblem, testLast: testLast,
     FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, applies: applies, held: held, stepNeeded: stepNeeded, canStartChild: canStartChild, phaseSkipped: phaseSkipped, condFields: condFields, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, fillOffered: fillOffered, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence, checkFill: checkFill,
@@ -13625,7 +13640,7 @@ PF.health = (function () {
         var a = r.steps[sid];
         if (!a || !a.reopened) return;
         add({ id: 'reopened:' + r.process + '/' + r.id + '/' + sid, severity: 'warn', area: 'Runs', title: '"' + r.title + '" has a step reopened when read',
-          detail: String(a.reason || '') + (a.reopened === 'stuck' ? '' : ' Refresh the search, search again, then choose Done.'), paths: ['runs/' + r.process + '/' + r.id + '/run.json'], action: { act: 'open-run', id: r.process + '/' + r.id, label: 'Open the run' } });
+          detail: PF.run.reopenNotice(r, a), paths: ['runs/' + r.process + '/' + r.id + '/run.json'], action: { act: 'open-run', id: r.process + '/' + r.id, label: 'Open the run' } });
       });
     });
     PF.run.childMarks(runs).forEach(function (m) {
@@ -15772,7 +15787,7 @@ PF.requests = (function () {
       if (meta.context.indexOf(k) < 0) { errors.push(q(k) + ' isn\'t a run detail of ' + title + '. It has: ' + (meta.context.join(', ') || 'none') + '.'); return; }
       /* A pattern's value is checked as given, untrimmed, as the run will check it when it starts (Appendix A.5). */
       var dt = meta.detailTypes && Object.prototype.hasOwnProperty.call(meta.detailTypes, k) ? meta.detailTypes[k] : null;
-      if (dt && dt.kind === 'pattern') { var pv = PF.values.parse({ kind: 'pattern', label: k, pattern: dt.pattern }, s.details[k], { max: PF.values.DETAIL_MAX }); if (!pv.ok) errors.push('Run detail ' + q(k) + ': ' + pv.why); }
+      if (dt && dt.kind === 'pattern') { var pv = PF.values.patternIn({ kind: 'pattern', label: k, pattern: dt.pattern }, s.details[k], { max: PF.values.DETAIL_MAX }); if (!pv.ok) errors.push('Run detail ' + q(k) + ': ' + pv.why); }
     });
     Object.keys(s.roles || {}).forEach(function (k) { if (meta.roles.indexOf(k) < 0) errors.push(q(k) + ' isn\'t a role in ' + title + '. It has: ' + (meta.roles.join(', ') || 'none') + '.'); });
     return errors.length ? { errors: errors } : { pub: pub };
@@ -16101,12 +16116,15 @@ PF.reports = (function () {
     (rep.inputs || []).forEach(function (x) {
       var dm = /^detail:([\w-]{1,60})$/.exec(x.source);
       if (!dm || x.secret) { rows.push({ name: x.name, source: x.source, result: 'unknown' }); return; }
-      var d = dm[1], known = ctxNames.indexOf(d) >= 0, have = known && r && r.details && own(r.details, d) && typeof r.details[d] === 'string' ? r.details[d].trim() : '';
-      var row = { name: x.name, source: x.source, detail: d, want: x.value, have: have, tied: binds.indexOf(d) >= 0 };
-      /* A typed run detail (2.0) is stored canonical: the report's value is compared as that kind reads it ("1234.50" is 1234.5). */
-      var def = known ? R.typedDef(r, map, 'details.' + d) : null, want = String(x.value).trim(), p = def && def.kind && def.kind !== 'text' ? PF.values.parse(def, def.kind === 'pattern' ? String(x.value) : want, {}) : null;
+      var d = dm[1], known = ctxNames.indexOf(d) >= 0, stored = known && r && r.details && own(r.details, d) && typeof r.details[d] === 'string' ? r.details[d] : '';
+      /* A typed run detail (2.0) is stored canonical: the report's value is compared as that kind reads it ("1234.50" is 1234.5).
+         A patterned one goes through PF.values.patternIn: neither side is trimmed, and a value that doesn't parse is a mismatch. */
+      var def = known ? R.typedDef(r, map, 'details.' + d) : null, pat = !!def && def.kind === 'pattern' ? PF.values.patternIn(def, x.value, {}) : null;
+      var have = pat ? stored : stored.trim(), want = pat ? (pat.ok ? pat.canonical : null) : String(x.value).trim();
+      var p = !pat && def && def.kind && def.kind !== 'text' ? PF.values.parse(def, want, {}) : null;
       if (p && p.ok && p.canonical) want = p.canonical;
-      row.result = !known ? 'mismatch' : !have ? 'mismatch' : have === want ? 'match' : 'mismatch';
+      var row = { name: x.name, source: x.source, detail: d, want: x.value, have: have, tied: binds.indexOf(d) >= 0 };
+      row.result = !known ? 'mismatch' : !have ? 'mismatch' : want !== null && have === want ? 'match' : 'mismatch';
       row.why = !known ? d + ' isn\'t a run detail of this checklist' : !have ? 'the run has no ' + d + ' yet' : '';
       rows.push(row);
     });
@@ -17682,10 +17700,11 @@ PF.practice = (function () {
   /* A sample run detail, checked as a run checks it (empty clears it). */
   function setSample(state, map, name, value, types) {
     if ((map.meta.context || []).indexOf(name) < 0) return { error: 'That run detail isn\'t in the draft.' };
-    var v = String(value == null ? '' : value).trim(), def = R.detailValueDef(map, name);
-    /* A pattern's value is checked as typed, untrimmed (Appendix A.5). */
-    if (def && def.kind === 'pattern') v = String(value == null ? '' : value);
-    if (v && def) { var p = PF.values.parse(def, v, { max: PF.values.DETAIL_MAX }); if (!p.ok) return { error: p.why }; v = p.canonical; }
+    /* A pattern's value is checked as typed, untrimmed (Appendix A.5), by PF.values.patternIn. */
+    var def = R.detailValueDef(map, name), pat = def && def.kind === 'pattern' ? PF.values.patternIn(def, value, { max: PF.values.DETAIL_MAX }) : null;
+    if (pat && !pat.ok) return { error: pat.why };
+    var v = pat ? pat.canonical : String(value == null ? '' : value).trim();
+    if (v && def && !pat) { var p = PF.values.parse(def, v, { max: PF.values.DETAIL_MAX }); if (!p.ok) return { error: p.why }; v = p.canonical; }
     var st = copy(state);
     if (v) { var c = PF.values.cut(def, v, PF.values.DETAIL_MAX, unitOf(map)); if (c.why) return { error: c.why }; st.sample[name] = c.value; } else delete st.sample[name];
     var moved = pin(st, map, types);
@@ -24171,13 +24190,8 @@ PF.vk = (function () {
     if (dm && (dm.details.length || dm.rec) && r.state === 'running' && ctx.recording && ctx.recording(r)) h += '<div class="row"><button class="mini" data-act="refresh-search" data-id="' + esc(s.id) + '">Refresh search</button></div>';
     return '<div class="search-box">' + h + '</div>';
   }
-  /* What a reopened search says (section 5.9 R14-3, R14-7): its reason, then what to do next. */
-  function reopenNotice(r, a) {
-    var why = String(a.reason || 'Reopened when read').replace(/\.$/, '') + '.';
-    if (a.reopened === 'stuck') return why + ' Start a new run of this checklist; this run stays as recorded.';
-    if (r.state === 'completed') return why + ' The run stays Completed; answer this step again with Done. Every other step stays closed.';
-    return why + ' Refresh the search, search again, then choose Done.';
-  }
+  /* What a reopened search says: PF.run.reopenNotice, the same words Folder health uses. */
+  function reopenNotice(r, a) { return R.reopenNotice(r, a); }
   V.reopenNotice = reopenNotice;
   function fieldsBlock(ctx, r, map, s, t, sched) {
     if (R.isSearchStep(s)) return searchBlock(ctx, r, map, s);
@@ -26386,13 +26400,13 @@ PF.vk = (function () {
     if (pv.src) {
       var pc = PF.values.compilePattern(pv.src);
       if (!pc.ok) msg = 'The pattern can\'t be used: ' + pc.why;
-      else if (pv.test) msg = PF.values.matchPattern(pc, pv.test).ok ? '"' + pv.test + '" matches.' : '"' + pv.test + '" doesn\'t match.';
+      else if (pv.test) msg = PF.values.patternIn({ kind: 'pattern', label: 'the value', pattern: pv.src }, pv.test, { max: PF.values.DETAIL_MAX }).ok ? '"' + pv.test + '" matches.' : '"' + pv.test + '" doesn\'t match.';
       else msg = 'The pattern can be read.';
     }
     return '<div class="field ob-pat" role="group" aria-labelledby="ob-pat-l"><span id="ob-pat-l">Text that matches a pattern</span><span class="small">A run detail whose value must match, like a release tag. Needs Flightdeck 2.16.</span>' +
       formBox(ctx, 'ob-pat-name', 'pat-name', 'input', ' maxlength="60" autocomplete="off" value="' + esc(pv.name) + '"', '') +
-      formBox(ctx, 'ob-pat-src', 'pat-src', 'input', ' maxlength="200" autocomplete="off" spellcheck="false" value="' + esc(pv.src) + '"', '') +
-      formBox(ctx, 'ob-pat-test', 'pat-test', 'input', ' maxlength="120" autocomplete="off" value="' + esc(pv.test) + '"', '') +
+      formBox(ctx, 'ob-pat-src', 'pat-src', 'input', ' maxlength="400" autocomplete="off" spellcheck="false" value="' + esc(pv.src) + '"', '') +
+      formBox(ctx, 'ob-pat-test', 'pat-test', 'input', ' maxlength="240" autocomplete="off" value="' + esc(pv.test) + '"', '') +
       '<p class="small" id="ob-pat-check" role="status">' + esc(msg) + '</p>' +
       '<div class="row"><button type="button" class="mini" data-act="ob-pat-check">Check</button><button type="button" class="mini" data-act="ob-pat-add">' + I('plus') + 'Add</button></div></div>';
   }
@@ -31435,7 +31449,7 @@ PF.examples = (function () {
     if (!roles) { roles = {}; pub.map.meta.roles.forEach(function (ro) { roles[ro] = parent.roles[ro] || ''; }); }
     var tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (err) { tz = ''; }
     var inputs = prep.inputs;
-    var child; try { child = R.create(pub, { title: pub.map.meta.title + ' for ' + parent.title, details: details, from: { source: 'carry', details: Object.assign({}, prep.details, teamSrc) }, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, parent: { process: parent.process, id: parent.id, step: stepId, inputs: inputs, folder: parent.folder }, app: APP_VERSION, pins: pinsAtStart(pub) }); }
+    var child; try { child = R.create(pub, { title: pub.map.meta.title + ' for ' + parent.title, details: details, from: { source: 'carry', details: Object.assign({}, prep.details, teamSrc) }, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, teamValues: data.teamValues, parent: { process: parent.process, id: parent.id, step: stepId, inputs: inputs, folder: parent.folder }, app: APP_VERSION, pins: pinsAtStart(pub) }); }
     catch (err) { if (invalid) { invalid(err); return; } say(err.message, 'warn'); render(); return; }
     /* Whatever stops this start, what it was given is kept with where each value came from (childKeep). */
     var keep = childKeep(prep, asked, roles);
@@ -37138,7 +37152,7 @@ PF.examples = (function () {
     /* R.create refuses a version this copy can't fully read; verified versions never get here, but the refusal is shown. */
     /* A plan's details are text: typed ones are migrated from it (PF.run.create), never guessed. */
     var from = plan && plan.details && typeof plan.details === 'object' ? { source: pick.chosen ? 'switch' : 'plan', details: plan.details } : null;
-    var r; try { r = R.create(pub, { title: val('run-title') || p.title, details: details, from: from, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, app: APP_VERSION, pins: pinsAtStart(pub) }); }
+    var r; try { r = R.create(pub, { title: val('run-title') || p.title, details: details, from: from, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, teamValues: data.teamValues, app: APP_VERSION, pins: pinsAtStart(pub) }); }
     catch (err) { if (err.field) state.focus = 'detail-' + err.field; say(err.message, 'warn'); render(); return; }
     var endBusy = busyStart();
     /* The run replaces the form's entry and takes over its origin (2.16): Back never reopens a form just submitted. */
@@ -37190,7 +37204,7 @@ PF.examples = (function () {
     form.querySelectorAll('[data-role]').forEach(function (el) { roles[el.dataset.role] = el.value; });
     var title = val('run-title') || p.title, tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (err) { tz = ''; }
     var sfs = state.fs, skey = fsKey(), sg = gen, who = state.me, made = null, still = planStill(sg, sfs, skey, who);
-    var mk = function (stage) { return R.create(stage, { test: true, title: title, details: details, roles: roles, by: who, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, app: APP_VERSION, pins: pinsAtStart(stage) }); };
+    var mk = function (stage) { return R.create(stage, { test: true, title: title, details: details, roles: roles, by: who, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, teamValues: data.teamValues, app: APP_VERSION, pins: pinsAtStart(stage) }); };
     /* The form's values are checked now, so a typed detail that doesn't read is said before anything is read again. */
     try { mk(ts.stage); } catch (err) { if (err.field) state.focus = 'detail-' + err.field; say(err.message, 'warn'); render(); return; }
     testBusy = true;
@@ -37305,7 +37319,7 @@ PF.examples = (function () {
     e.target.querySelectorAll('[data-detail]').forEach(function (el) {
       var raw = String(inputValue(el) || ''), v = raw.trim(), pd = R.detailValueDef(planMap, el.dataset.detail);
       /* A pattern's value is checked as typed, untrimmed (Appendix A.5): refused, never cleaned. */
-      if (pd && pd.kind === 'pattern' && raw !== '') { var pp = PF.values.parse(pd, raw, { max: PF.values.DETAIL_MAX }); if (!pp.ok) { patBad = patBad || { id: el.id, why: pp.why }; return; } v = pp.canonical; }
+      if (pd && pd.kind === 'pattern' && raw !== '') { var pp = PF.values.patternIn(pd, raw, { max: PF.values.DETAIL_MAX }); if (!pp.ok) { patBad = patBad || { id: el.id, why: pp.why }; return; } v = pp.canonical; }
       if (v) details[el.dataset.detail] = PF.values.cut(null, v, PF.values.DETAIL_MAX, planUnit).value;
     });
     if (patBad) { say(patBad.why, 'warn'); state.focus = patBad.id ? '#' + cssEsc(patBad.id) : null; render(); return; }

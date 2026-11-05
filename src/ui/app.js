@@ -2915,7 +2915,7 @@
     if (!roles) { roles = {}; pub.map.meta.roles.forEach(function (ro) { roles[ro] = parent.roles[ro] || ''; }); }
     var tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (err) { tz = ''; }
     var inputs = prep.inputs;
-    var child; try { child = R.create(pub, { title: pub.map.meta.title + ' for ' + parent.title, details: details, from: { source: 'carry', details: Object.assign({}, prep.details, teamSrc) }, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, parent: { process: parent.process, id: parent.id, step: stepId, inputs: inputs, folder: parent.folder }, app: APP_VERSION, pins: pinsAtStart(pub) }); }
+    var child; try { child = R.create(pub, { title: pub.map.meta.title + ' for ' + parent.title, details: details, from: { source: 'carry', details: Object.assign({}, prep.details, teamSrc) }, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, teamValues: data.teamValues, parent: { process: parent.process, id: parent.id, step: stepId, inputs: inputs, folder: parent.folder }, app: APP_VERSION, pins: pinsAtStart(pub) }); }
     catch (err) { if (invalid) { invalid(err); return; } say(err.message, 'warn'); render(); return; }
     /* Whatever stops this start, what it was given is kept with where each value came from (childKeep). */
     var keep = childKeep(prep, asked, roles);
@@ -8618,7 +8618,7 @@
     /* R.create refuses a version this copy can't fully read; verified versions never get here, but the refusal is shown. */
     /* A plan's details are text: typed ones are migrated from it (PF.run.create), never guessed. */
     var from = plan && plan.details && typeof plan.details === 'object' ? { source: pick.chosen ? 'switch' : 'plan', details: plan.details } : null;
-    var r; try { r = R.create(pub, { title: val('run-title') || p.title, details: details, from: from, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, app: APP_VERSION, pins: pinsAtStart(pub) }); }
+    var r; try { r = R.create(pub, { title: val('run-title') || p.title, details: details, from: from, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, teamValues: data.teamValues, app: APP_VERSION, pins: pinsAtStart(pub) }); }
     catch (err) { if (err.field) state.focus = 'detail-' + err.field; say(err.message, 'warn'); render(); return; }
     var endBusy = busyStart();
     /* The run replaces the form's entry and takes over its origin (2.16): Back never reopens a form just submitted. */
@@ -8670,7 +8670,7 @@
     form.querySelectorAll('[data-role]').forEach(function (el) { roles[el.dataset.role] = el.value; });
     var title = val('run-title') || p.title, tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (err) { tz = ''; }
     var sfs = state.fs, skey = fsKey(), sg = gen, who = state.me, made = null, still = planStill(sg, sfs, skey, who);
-    var mk = function (stage) { return R.create(stage, { test: true, title: title, details: details, roles: roles, by: who, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, app: APP_VERSION, pins: pinsAtStart(stage) }); };
+    var mk = function (stage) { return R.create(stage, { test: true, title: title, details: details, roles: roles, by: who, session: SESSION, now: new Date().toISOString(), tz: tz, workflows: data.jira.workflows, teamValues: data.teamValues, app: APP_VERSION, pins: pinsAtStart(stage) }); };
     /* The form's values are checked now, so a typed detail that doesn't read is said before anything is read again. */
     try { mk(ts.stage); } catch (err) { if (err.field) state.focus = 'detail-' + err.field; say(err.message, 'warn'); render(); return; }
     testBusy = true;
@@ -8785,7 +8785,7 @@
     e.target.querySelectorAll('[data-detail]').forEach(function (el) {
       var raw = String(inputValue(el) || ''), v = raw.trim(), pd = R.detailValueDef(planMap, el.dataset.detail);
       /* A pattern's value is checked as typed, untrimmed (Appendix A.5): refused, never cleaned. */
-      if (pd && pd.kind === 'pattern' && raw !== '') { var pp = PF.values.parse(pd, raw, { max: PF.values.DETAIL_MAX }); if (!pp.ok) { patBad = patBad || { id: el.id, why: pp.why }; return; } v = pp.canonical; }
+      if (pd && pd.kind === 'pattern' && raw !== '') { var pp = PF.values.patternIn(pd, raw, { max: PF.values.DETAIL_MAX }); if (!pp.ok) { patBad = patBad || { id: el.id, why: pp.why }; return; } v = pp.canonical; }
       if (v) details[el.dataset.detail] = PF.values.cut(null, v, PF.values.DETAIL_MAX, planUnit).value;
     });
     if (patBad) { say(patBad.why, 'warn'); state.focus = patBad.id ? '#' + cssEsc(patBad.id) : null; render(); return; }

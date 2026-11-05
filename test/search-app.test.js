@@ -515,4 +515,95 @@ rule('R4 P1: the searchId is written only where evidence is stamped (source chec
   assert.ok(/function stampEvidence\(/.test(app), 'the one stamping function');
   assert.ok(!/R\.searchId\(/.test(app), 'the app never reads the current searchId to put on evidence');
 });
+/* Round 5, item 1: every start in the app passes the team values it loaded, so a search step keeps its Jira address. */
+const TVDOC = JSON.stringify({ format: 'flightdeck-team-values/1', values: { 'jira-base-url': { value: 'https://jira.example.com/jira' } } }, null, 2) + '\n';
+const SRCH = ['---', 'process: srch', 'title: Search check', 'context: version', '---', '', '## Stories · DO-CONFIRM {#stories}',
+  '- [!] {jira.search} No open blockers in ^version {#blockers}', '  query: fixVersion = ^version AND priority = Blocker', '  results: none', ''].join('\n');
+async function teamApp() {
+  const app = boot({ localStore: { 'preflight:builder': 'false' }, urlParser: true }); await app.tick(60);
+  app.choose('person-casey'); await app.tick();
+  const PF = require('./harness').load(), tv = PF.teamValues.parse(TVDOC), now = new Date().toISOString();
+  await app.fs.write('team-values.json', TVDOC);
+  const put = async (md, id, rand) => {
+    const b = PF.publish.build(md, { people: JSON.parse(app.fs.files['people.json'].t), ...require('./harness').exampleSetup(PF), by: 'person-avery', changes: 'First', existing: [], now, rand, app: '2.16.0', teamValues: tv });
+    assert.ok(!b.blockers, JSON.stringify(b.blockers));
+    for (const n of Object.keys(b.files)) await app.fs.write('publications/' + id + '/' + b.folder + '/' + n, b.files[n]);
+  };
+  await put(SRCH.replace('title: Search check', 'title: Search check\nowner: person-avery'), 'srch', 'sr000001');
+  await put(['---', 'process: par', 'title: Parent', 'owner: person-avery', 'context: version', '---', '', '## Go · READ-DO {#go}', '- [ ] {run.process} Check the search {#dep}', '  process: srch', '  pass: version=^version', ''].join('\n'), 'par', 'pa000001');
+  app.click('refresh'); await app.tick(80);
+  return app;
+}
+const runsOf = (app, proc) => app.files('runs/' + proc + '/').filter(p => /run\.json$/.test(p)).map(p => JSON.parse(app.fs.files[p].t));
+async function hasAddress(app, r, what) {
+  assert.deepStrictEqual(r.searchSites, { 'jira-base-url': { base: 'https://jira.example.com/jira' } }, what + ': the address is copied at start, ' + JSON.stringify(r.searchSites));
+  app.click('open-run', r.process + '/' + r.id); await app.tick(60);
+  app.click('select', 'blockers'); await app.tick(40);
+  assert.ok(/<b>Open in Jira<\/b>/.test(app.html()), what + ': Open in Jira is shown');
+}
+rule('R5-1: an ordinary start passes the loaded team values: the search keeps its Jira address and Open in Jira shows', async () => {
+  const app = await teamApp();
+  app.click('start', 'srch'); await app.settle();
+  app.set('detail-version', '2026.11.0'); app.chooseApprovers().submitForm('start-form'); await app.tick(150);
+  const rs = runsOf(app, 'srch'); assert.strictEqual(rs.length, 1, 'one run');
+  await hasAddress(app, rs[0], 'ordinary');
+});
+rule('R5-1: a planned start passes the loaded team values', async () => {
+  const app = await teamApp();
+  app.click('plan-run', 'srch'); await app.tick();
+  app.set('run-title', 'Planned').set('detail-version', '2026.11.0'); app.chooseApprovers().submitForm('plan-form'); await app.tick(100);
+  const plan = app.files('proposals/').filter(p => /plan-srch-/.test(p)).map(p => JSON.parse(app.fs.files[p].t))[0];
+  assert.ok(plan, 'set-up: the plan is saved');
+  app.click('review-plan', plan.id); await app.settle();
+  app.chooseApprovers().submitForm('start-form'); await app.tick(150);
+  const rs = runsOf(app, 'srch'); assert.strictEqual(rs.length, 1, 'one run from the plan');
+  await hasAddress(app, rs[0], 'planned');
+});
+rule('R5-1: a linked child\'s start passes the loaded team values', async () => {
+  const app = await teamApp();
+  app.click('start', 'par'); await app.settle();
+  app.set('detail-version', '2026.11.0'); app.chooseApprovers().submitForm('start-form'); await app.tick(150);
+  app.click('start-child', 'dep'); await app.tick(150);
+  const rs = runsOf(app, 'srch'); assert.strictEqual(rs.length, 1, 'one child run');
+  await hasAddress(app, rs[0], 'linked child');
+});
+rule('R5-1: a test run on a stage passes the loaded team values', async () => {
+  const app = await teamApp();
+  await app.fs.write('maps/drafts/srch.md', SRCH.replace('title: Search check', 'title: Search check\nowner: person-avery').replace('{#blockers}', '{#blockers}').replace('  results: none', '  results: none\n- [ ] {confirm} Tell the team {#tell}'));
+  app.click('refresh'); await app.tick(80);
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'srch'); await app.tick();
+  app.set('change-note', 'Tell the team'); app.click('stage-draft', 'srch'); await app.tick(200);
+  const sf = app.files('staged/srch/').filter(f => /publication\.json$/.test(f));
+  assert.strictEqual(sf.length, 1, 'set-up: staged');
+  const folder = JSON.parse(app.fs.files[sf[0]].t).folder;
+  app.click('start-test', folder); await app.tick();
+  app.set('detail-version', '2026.11.0'); app.chooseApprovers().submitForm('start-form', {}); await app.tick(200);
+  const rs = runsOf(app, 'srch').filter(r => r.test === true); assert.strictEqual(rs.length, 1, 'one test run');
+  await hasAddress(app, rs[0], 'test run');
+});
+rule('R5-1 (source): every R.create in the app passes teamValues: data.teamValues', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
+  const calls = src.split('\n').filter(l => /\bR\.create\(/.test(l));
+  assert.strictEqual(calls.length, 3, 'three starts: ordinary and planned, test, linked child');
+  calls.forEach(l => assert.ok(/teamValues: data\.teamValues\b/.test(l), l.trim().slice(0, 120)));
+});
+
+rule('R5-2: the pattern form\'s boxes allow 400 and 240 UTF-16 units; the code-point limits stay in core', async () => {
+  const app = await editorOn(jmd(jstep('confirm', 'c')), null);
+  app.click('ob-sel-details'); await app.tick();
+  const h = formOf(app);
+  assert.ok(/id="ob-pat-src"[^>]*maxlength="400"|maxlength="400"[^>]*id="ob-pat-src"/.test(h), 'the pattern box: 400 units');
+  assert.ok(/id="ob-pat-test"[^>]*maxlength="240"|maxlength="240"[^>]*id="ob-pat-test"/.test(h), 'the sample box: 240 units');
+  const emoji = '😀'.repeat(61), cls = '[' + Array.from({ length: 100 }, (_, i) => String.fromCodePoint(0x1F400 + i)).join('') + ']';
+  assert.ok(emoji.length > 120 && cls.length > 200 && Array.from(cls).length === 102, 'set-up: over the old unit limits, within the code-point ones');
+  app.set('ob-pat-name', 'mood'); app.set('ob-pat-src', '[😀]{61}'); app.set('ob-pat-test', emoji); app.click('ob-pat-check'); await app.tick();
+  assert.ok(/role="status">&quot;(😀)+&quot; matches\.</u.test(formOf(app)), '61 emoji match: ' + (formOf(app).match(/id="ob-pat-check"[^<]*/) || [''])[0]);
+  app.set('ob-pat-src', cls + '+'); app.set('ob-pat-test', ''); app.click('ob-pat-check'); await app.tick();
+  assert.ok(/role="status">The pattern can be read\.</.test(formOf(app)), 'a 102-code-point class is read');
+  app.set('ob-pat-src', 'a'.repeat(201)); app.click('ob-pat-check'); await app.tick();
+  assert.ok(/The pattern can&#39;t be used: a pattern is 1 to 200 characters/.test(formOf(app)), 'core still counts 200 code points');
+  app.set('ob-pat-src', '[😀]+'); app.set('ob-pat-test', '😀'.repeat(121)); app.click('ob-pat-check'); await app.tick();
+  assert.ok(/doesn&#39;t match\./.test(formOf(app)), 'a sample over 120 code points is refused by core');
+});
+
 run();

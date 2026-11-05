@@ -877,13 +877,13 @@
     if (pv.src) {
       var pc = PF.values.compilePattern(pv.src);
       if (!pc.ok) msg = 'The pattern can\'t be used: ' + pc.why;
-      else if (pv.test) msg = PF.values.matchPattern(pc, pv.test).ok ? '"' + pv.test + '" matches.' : '"' + pv.test + '" doesn\'t match.';
+      else if (pv.test) msg = PF.values.patternIn({ kind: 'pattern', label: 'the value', pattern: pv.src }, pv.test, { max: PF.values.DETAIL_MAX }).ok ? '"' + pv.test + '" matches.' : '"' + pv.test + '" doesn\'t match.';
       else msg = 'The pattern can be read.';
     }
     return '<div class="field ob-pat" role="group" aria-labelledby="ob-pat-l"><span id="ob-pat-l">Text that matches a pattern</span><span class="small">A run detail whose value must match, like a release tag. Needs Flightdeck 2.16.</span>' +
       formBox(ctx, 'ob-pat-name', 'pat-name', 'input', ' maxlength="60" autocomplete="off" value="' + esc(pv.name) + '"', '') +
-      formBox(ctx, 'ob-pat-src', 'pat-src', 'input', ' maxlength="200" autocomplete="off" spellcheck="false" value="' + esc(pv.src) + '"', '') +
-      formBox(ctx, 'ob-pat-test', 'pat-test', 'input', ' maxlength="120" autocomplete="off" value="' + esc(pv.test) + '"', '') +
+      formBox(ctx, 'ob-pat-src', 'pat-src', 'input', ' maxlength="400" autocomplete="off" spellcheck="false" value="' + esc(pv.src) + '"', '') +
+      formBox(ctx, 'ob-pat-test', 'pat-test', 'input', ' maxlength="240" autocomplete="off" value="' + esc(pv.test) + '"', '') +
       '<p class="small" id="ob-pat-check" role="status">' + esc(msg) + '</p>' +
       '<div class="row"><button type="button" class="mini" data-act="ob-pat-check">Check</button><button type="button" class="mini" data-act="ob-pat-add">' + I('plus') + 'Add</button></div></div>';
   }

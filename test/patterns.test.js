@@ -174,4 +174,96 @@ rule('round 3: an empty class [] is refused, with or without a repeat, and says 
   same(M.parse('---\nprocess: p\ntitle: P\ncontext: tag:pattern([]+)\n---\n\n## A {#a}\n- [ ] x {#x}\n').errors.map(e => e.msg), ['Run detail "tag": its pattern can\'t be read: an empty class [] matches nothing; list what is allowed.']);
 });
 
+/* Round 5: one entry point for a patterned detail's value. PF.values.patternIn is the only way one enters or is compared:
+   never trimmed, on every path (start, setDetail, Done, practice, plans, carried values, migrations, reports, requests). */
+const TAGV = '2026.11.0-rc3-7f3a9c1', R5BAD = [TAGV + '\n', '\u0085' + TAGV, ' ' + TAGV, TAGV + ' '];
+const TDEF = { kind: 'pattern', label: 'tag', pattern: TAG };
+const MD5 = ['---', 'process: rel', 'title: Release', 'context: version, tag:pattern(' + TAG + ')', 'roles: lead', '---', '',
+  '## Prepare · READ-DO {#prep}', '- [ ] {confirm} Ship ^tag {#ship-it}', ''].join('\n');
+rule('R5: patternIn never trims; migrate validates the source text as it is, and a bad one is invalid, never cleaned', () => {
+  assert.strictEqual(typeof V.patternIn, 'function');
+  same(V.patternIn(TDEF, TAGV), { ok: true, canonical: TAGV });
+  same(V.patternIn(TDEF, ''), { ok: true, canonical: '' });
+  R5BAD.forEach(v => {
+    assert.ok(!V.patternIn(TDEF, v).ok, 'patternIn refuses ' + JSON.stringify(v));
+    same(V.migrate(TDEF, v), { verdict: 'invalid', result: null }, 'migrate leaves ' + JSON.stringify(v) + ' open');
+  });
+  same(V.migrate(TDEF, TAGV), { verdict: 'exact', result: TAGV });
+});
+rule('R5: a plan or a parent run carrying a bad value leaves the detail empty with its migration open', () => {
+  const pub = publish(MD).v;
+  ['plan', 'carry'].forEach(source => R5BAD.forEach(v => {
+    const r = R.create(pub, { title: 'R', details: { tag: v }, from: { source, details: { tag: v } }, roles: { lead: 'person-avery' }, by: 'person-avery', session: 'w-a', now: NOW, id: 'run-p5', app: '2.16.0' });
+    assert.strictEqual(r.details.tag, '', source + ': ' + JSON.stringify(v) + ' is not stored');
+    const m = (r.migrations || []).filter(x => x.path === 'details.tag');
+    same(m.map(x => [x.source, x.verdict, x.from, x.result, x.resolved]), [[source, 'invalid', v, null, null]], source + ' ' + JSON.stringify(v));
+    assert.strictEqual(R.openMigrations(r).length, 1, 'the migration is open');
+  }));
+  const r = R.create(pub, { title: 'R', details: { tag: TAGV }, from: { source: 'carry', details: { tag: TAGV } }, roles: { lead: 'person-avery' }, by: 'person-avery', session: 'w-a', now: NOW, id: 'run-p6', app: '2.16.0' });
+  assert.ok(r.details.tag === TAGV && !(r.migrations || []).length, 'a matching carried value is kept exactly');
+});
+function r5Group(r, inputs) {
+  const rep = { format: 'flightdeck-report/1', process: 'rel', run: r.id, publication: { folder: r.folder }, step: 'ship-it', verdict: 'pass', blockers: [], evidence: {}, links: [], inputs,
+    producer: { name: 'release-check', version: '1.0.0' }, created: NOW, id: 'abcd1234' };
+  return { key: 'rel/' + r.id + '/ship-it/release-check/abcd1234', process: 'rel', run: r.id, step: 'ship-it', producer: 'release-check', id: 'abcd1234', copies: [{ ok: true, sha256: 'a'.repeat(64) }], report: rep, sha256: 'a'.repeat(64), differ: false, unreadable: [] };
+}
+rule('R5: a report claiming a bad pattern value is a mismatch, never matched by trimming; neither side is trimmed', () => {
+  const pub = publish(MD5).v, X = PF.reports;
+  const r = R.create(pub, { title: 'R', details: { tag: TAGV }, roles: { lead: 'person-avery' }, by: 'person-avery', session: 'w-a', now: NOW, id: 'run-p7', app: '2.16.0' }), map = R.mapOf(r);
+  const elig = g => X.eligible(g, r, map, { recording: true, now: NOW });
+  const good = r5Group(r, [{ name: 'Tag', value: TAGV, source: 'detail:tag' }]);
+  assert.strictEqual(X.applies(good.report, r, map, M.findStep(map, 'ship-it').step).result, 'match');
+  assert.ok(elig(good).ok, elig(good).why);
+  R5BAD.forEach(v => {
+    const g = r5Group(r, [{ name: 'Tag', value: v, source: 'detail:tag' }]);
+    assert.strictEqual(X.applies(g.report, r, map, M.findStep(map, 'ship-it').step).result, 'mismatch', JSON.stringify(v));
+    assert.ok(!elig(g).ok && /Doesn't match/.test(elig(g).why), JSON.stringify(v) + ': ' + elig(g).why);
+    assert.strictEqual(X.target(g.report, r, map).applies, 'no', 'target: ' + JSON.stringify(v));
+  });
+  const stored = JSON.parse(JSON.stringify(r)); stored.details.tag = ' ' + TAGV;
+  assert.strictEqual(X.applies(good.report, stored, map, M.findStep(map, 'ship-it').step).result, 'mismatch', 'a stored value is not trimmed either');
+});
+rule('R5: the CLI report check --folder and report write --strict say applies no for a bad pattern value', () => {
+  const fs = require('fs'), os = require('os'), path = require('path'), cp = require('child_process');
+  const BIN = path.join(__dirname, '..', 'bin', 'flightdeck.js'), dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-pat-'));
+  const put = (rel, text) => { const f = path.join(dir, ...rel.split('/')); fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, text); return f; };
+  const { b, v } = publish(MD5);
+  Object.keys(b.files).forEach(n => put('publications/rel/' + b.folder + '/' + n, b.files[n]));
+  put('people.json', JSON.stringify({ format: 'flightdeck-people/1', people: [{ id: 'person-avery', name: 'Avery' }] }));
+  const r = R.create(v, { title: 'R', details: { tag: TAGV }, roles: { lead: 'person-avery' }, by: 'person-avery', session: 'w-a', now: NOW, id: 'run-p8', app: '2.16.0' });
+  put('runs/rel/run-p8/run.json', JSON.stringify(r, null, 2));
+  const cli = (args) => { const o = cp.spawnSync(process.execPath, [BIN, 'report'].concat(args, ['--json']), { encoding: 'utf8' }); let j = null; try { j = JSON.parse(o.stdout); } catch (e) { /* named below */ } return { code: o.status, j, out: o.stdout + o.stderr }; };
+  const fileOf = (val, i) => put('in/r' + i + '.json', JSON.stringify({ format: 'flightdeck-report/1', run: 'rel/run-p8', publication: { folder: r.folder }, step: 'ship-it', verdict: 'pass', evidence: {},
+    inputs: [{ name: 'Tag', value: val, source: 'detail:tag' }], producer: { name: 'ci-check', version: '1.0.0' }, created: '2026-11-04T15:00:00Z', id: 'k3m9p2q8x' + i }));
+  const ok1 = cli(['check', fileOf(TAGV, 0), '--folder', dir]);
+  assert.ok(ok1.j && ok1.j.data && ok1.j.data.report.applies === 'yes', ok1.out);
+  R5BAD.forEach((val, i) => {
+    const f = fileOf(val, i + 1);
+    const c = cli(['check', f, '--folder', dir]);
+    assert.ok(c.j && c.j.data && c.j.data.report.applies === 'no', JSON.stringify(val) + ' check: ' + c.out);
+    const w = cli(['write', dir, f, '--dry-run', '--strict']);
+    assert.ok(w.j && (w.j.error || w.j.data.report.applies === 'no'), JSON.stringify(val) + ' write --strict: ' + w.out);
+  });
+});
+rule('R5 source: no code trims, cleans or compares a patterned value except through PF.values.patternIn', () => {
+  const fs = require('fs'), path = require('path'), root = path.join(__dirname, '..');
+  const vs = fs.readFileSync(path.join(root, 'src/core/values.js'), 'utf8');
+  const body = vs.slice(vs.indexOf('function patternIn('), vs.indexOf('\n  }\n', vs.indexOf('function patternIn(')));
+  assert.ok(body.length > 30 && !/\btrim\b|strip|\b(?:t|raw)\.replace\(/.test(body), 'patternIn never trims:\n' + body);
+  assert.ok(/if \(k === 'pattern'\) return patternIn\(def, raw, opts\);/.test(vs), 'parse delegates its pattern branch');
+  assert.ok(/if \(k === 'pattern'\) return patternIn\(def, oldText[,)]/.test(vs), 'migrate checks the source text as it is');
+  assert.ok((vs.match(/\bmatchPattern\(/g) || []).length === 2 && /\bmatchPattern\(/.test(body), 'values.js: matchPattern is defined and called once, by patternIn');
+  const files = [];
+  const walk = d => fs.readdirSync(d).forEach(n => { const f = path.join(d, n); if (fs.statSync(f).isDirectory()) { if (n !== 'vendor') walk(f); } else if (/\.js$/.test(n)) files.push(f); });
+  walk(path.join(root, 'src')); files.push(path.join(root, 'bin', 'flightdeck.js'));
+  const bad = [];
+  files.filter(f => !/core[\\/]values\.js$/.test(f)).forEach(f => fs.readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
+    const at = path.relative(root, f) + ':' + (i + 1);
+    if (/\bmatchPattern\(/.test(line)) bad.push(at + ' calls matchPattern');
+    if (/['"]pattern['"]/.test(line) && /\.trim\(|\btrim\(|\.parse\(|\bmigrate\(|\.replace\(/.test(line) && !/\bpatternIn\(/.test(line)) bad.push(at + ' handles a pattern value without patternIn');
+    if (/\b(?:V|values|PF\.values)\.(?:parse|migrate|valid)\([^,()]+,[^;]*?\.trim\(\)/.test(line)) bad.push(at + ' trims a typed value before parsing it');
+  }));
+  same(bad, [], bad.join('\n'));
+});
+
 run();

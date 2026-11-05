@@ -181,7 +181,7 @@ PF.health = (function () {
         var a = r.steps[sid];
         if (!a || !a.reopened) return;
         add({ id: 'reopened:' + r.process + '/' + r.id + '/' + sid, severity: 'warn', area: 'Runs', title: '"' + r.title + '" has a step reopened when read',
-          detail: String(a.reason || '') + (a.reopened === 'stuck' ? '' : ' Refresh the search, search again, then choose Done.'), paths: ['runs/' + r.process + '/' + r.id + '/run.json'], action: { act: 'open-run', id: r.process + '/' + r.id, label: 'Open the run' } });
+          detail: PF.run.reopenNotice(r, a), paths: ['runs/' + r.process + '/' + r.id + '/run.json'], action: { act: 'open-run', id: r.process + '/' + r.id, label: 'Open the run' } });
       });
     });
     PF.run.childMarks(runs).forEach(function (m) {

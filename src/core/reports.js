@@ -274,12 +274,15 @@ PF.reports = (function () {
     (rep.inputs || []).forEach(function (x) {
       var dm = /^detail:([\w-]{1,60})$/.exec(x.source);
       if (!dm || x.secret) { rows.push({ name: x.name, source: x.source, result: 'unknown' }); return; }
-      var d = dm[1], known = ctxNames.indexOf(d) >= 0, have = known && r && r.details && own(r.details, d) && typeof r.details[d] === 'string' ? r.details[d].trim() : '';
-      var row = { name: x.name, source: x.source, detail: d, want: x.value, have: have, tied: binds.indexOf(d) >= 0 };
-      /* A typed run detail (2.0) is stored canonical: the report's value is compared as that kind reads it ("1234.50" is 1234.5). */
-      var def = known ? R.typedDef(r, map, 'details.' + d) : null, want = String(x.value).trim(), p = def && def.kind && def.kind !== 'text' ? PF.values.parse(def, def.kind === 'pattern' ? String(x.value) : want, {}) : null;
+      var d = dm[1], known = ctxNames.indexOf(d) >= 0, stored = known && r && r.details && own(r.details, d) && typeof r.details[d] === 'string' ? r.details[d] : '';
+      /* A typed run detail (2.0) is stored canonical: the report's value is compared as that kind reads it ("1234.50" is 1234.5).
+         A patterned one goes through PF.values.patternIn: neither side is trimmed, and a value that doesn't parse is a mismatch. */
+      var def = known ? R.typedDef(r, map, 'details.' + d) : null, pat = !!def && def.kind === 'pattern' ? PF.values.patternIn(def, x.value, {}) : null;
+      var have = pat ? stored : stored.trim(), want = pat ? (pat.ok ? pat.canonical : null) : String(x.value).trim();
+      var p = !pat && def && def.kind && def.kind !== 'text' ? PF.values.parse(def, want, {}) : null;
       if (p && p.ok && p.canonical) want = p.canonical;
-      row.result = !known ? 'mismatch' : !have ? 'mismatch' : have === want ? 'match' : 'mismatch';
+      var row = { name: x.name, source: x.source, detail: d, want: x.value, have: have, tied: binds.indexOf(d) >= 0 };
+      row.result = !known ? 'mismatch' : !have ? 'mismatch' : want !== null && have === want ? 'match' : 'mismatch';
       row.why = !known ? d + ' isn\'t a run detail of this checklist' : !have ? 'the run has no ' + d + ' yet' : '';
       rows.push(row);
     });
