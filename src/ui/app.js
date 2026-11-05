@@ -107,7 +107,7 @@
     Object.defineProperty(state, name, { enumerable: true, get: function () { return v; }, set: function (x) { if (x !== v) navSeq++; v = x; } });
   });
   var HIST = (function () { try { return typeof history !== 'undefined' && history && typeof history.replaceState === 'function' && typeof location !== 'undefined' ? history : null; } catch (e) { return null; } })();
-  var H = { on: !!HIST, pos: 0, cur: { n: 0, hash: '#/', f: null }, seen: 0, queued: false, restoring: null, pending: null, hold: null, mode: null, loadedGen: -1, bootLink: false, retry: null, retryLoc: null };
+  var H = { on: !!HIST, pos: 0, cur: { n: 0, hash: '#/', f: null }, seen: 0, queued: false, layer: null, pending: null, hold: null, mode: null, loadedGen: -1, bootLink: false, retry: null, retryLoc: null };
   applyTheme();
   /* Runs by key (2.5.0): one look, not a scan of every run (PF.util.keyIndex). */
   var runIdx = U.keyIndex(function (r) { return r.process + '/' + r.id; }, 'runs');
@@ -3549,6 +3549,8 @@
   state.practicing = {};
   state.pubNotes = {};
   var prs = {};
+  /* Practices cleared in this tab (publishing or staging exactly their text): an old Practice entry never starts one again. */
+  var prGone = Object.create(null);
   function prStoreKey(pid) { return LS + ':practice:' + fsKey() + ':' + pid; }
   function prEntry(pid) {
     var k = edKey(pid), e = prs[k];
@@ -3711,7 +3713,7 @@
   function prEnded(pid, text, guard) {
     var k = edKey(pid), e = prs[k];
     if (!e || !e.good || e.good.text !== text || (guard && !guard())) return false;
-    delete prs[k]; delete state.practicing[k];
+    delete prs[k]; delete state.practicing[k]; prGone[k] = true;
     Object.keys(state.stepDrafts).forEach(function (dk) { if (dk.indexOf(draftKey(prKey(pid), '')) === 0) delete state.stepDrafts[dk]; });
     try { sessionStorage.removeItem(prStoreKey(pid)); sessionStorage.removeItem(prStoreKey(pid) + ':typed'); } catch (err) { /* this tab only */ }
     return true;
@@ -3860,6 +3862,7 @@
   /* Into the practice page for the open draft, from the editor or a link: the editor's typing is applied first (refused with
      the usual hint); the run that was open is put away (its typing kept, as leaving it does), never restored from here. */
   function prEnter(p, how, notEd) {
+    delete prGone[edKey(p.id)];
     var pend = prPending(p.id) || (state.obPending === p.id ? 'Apply or clear what you typed in the box first, then practice it.' : '');
     if (pend && state.view === 'process') { say(pend, 'warn'); state.focus = '[data-act="pr-open"]'; render(); return false; }
     var e = prEntry(p.id), was = !notEd && state.view === 'process' && state.ptab === 'edit' && state.processId === p.id;
@@ -5575,8 +5578,8 @@
      the earlier entry for the same place. The leave guard first, as for any move: false when unapplied text refuses it. */
   function backInPlace() {
     var dirty = pendingBox(); if (dirty) { refuseFor(dirty); return false; }
-    /* While a refused move's restore is on its way the intent waits with it: the sync after it lands writes this move in the
-       drawn entry's place (syncLocation doesn't write while restoring). backIn: the entry takes the destination's own origin. */
+    /* A replace, after a refusal too (that was settled in place in its popstate). backIn: the entry takes the destination's
+       own origin. */
     backMode();
     return true;
   }
@@ -5635,6 +5638,8 @@
   }
   /* Native menus (<details>) left open are transient: leaving a screen, or arriving on a layer's old entry, shuts them. */
   function menusShut() { if (state.disc) { state.disc['rw-menu'] = false; state.disc['runs-more'] = false; } }
+  /* The workspace an entry's URL is in (a checklist's Edit or Practice), else null. */
+  function wsOf(hash) { var l = PF.nav.parse(hash || ''); return l && (l.view === 'practice' || (l.view === 'process' && l.tab === 'edit')) ? l.process : null; }
   function layerB(c) { return PF.nav.origin({ h: c.hash, f: c.f, b: c.b || undefined, l: 1 }); }
   function syncLayer() {
     if (!H.on || H.pending || H.hold) return;
@@ -5721,12 +5726,14 @@
     /* A layer's entry is the screen's, with its origin one level down; a layer is never reopened from history, nor a menu
        left open there. */
     if (es && es.b && es.b.l) { es = { n: es.n, f: es.f, typed: es.typed, b: es.b.b || null }; menusShut(); }
-    /* The same screen with the same origin, no layer open (the entry a closed layer left, a duplicate a ‹ left): nothing to
+    /* The same screen (or another view of the same workspace: Edit and Practice are one place) with the same origin, no layer open (the entry a closed layer left, a duplicate a ‹ left): nothing to
        do, nothing redrawn; a mark there is dropped. A different origin is an ordinary arrival, so the way back follows it. */
-    if (es && !H.pending && here === c.hash && es.f === c.f && JSON.stringify(es.b || null) === JSON.stringify(c.b || null) && !layerUp() && !pendingBox()) {
+    var same = here === c.hash || (wsOf(here) !== null && wsOf(here) === wsOf(c.hash));
+    if (es && !H.pending && same && es.f === c.f && JSON.stringify(es.b || null) === JSON.stringify(c.b || null) && !layerUp() && !pendingBox()) {
       var marked = ev && ev.state && ev.state.b && ev.state.b.l;
       H.pos = es.n; H.cur = { n: es.n, hash: c.hash, f: c.f, b: c.b || null }; H.layer = null;
-      if (marked) histWrite(false, c.hash, es.n, c.f, c.b);
+      /* Another view of the same workspace is the same place: the view drawn now stays, and the entry is given it. */
+      if (marked || here !== c.hash) histWrite(false, c.hash, es.n, c.f, c.b);
       return;
     }
     popAt(es);
@@ -6098,6 +6105,8 @@
     if (state.view === 'practice' && state.processId === loc.process) return 'moved';
     var res = moveToProcess({ view: 'process', process: loc.process, tab: 'edit' });
     var p = currentProcess();
+    /* A practice cleared in this tab isn't revived from history: Edit is where clearing it left you. */
+    if (p && p.id === loc.process && prGone[edKey(p.id)] && prCount(p.id) == null) return res;
     /* Arriving from outside the editor (the checklist page, a link): the editor's last-touched part isn't the place to return to. */
     if (p && p.id === loc.process && state.view === 'process' && state.ptab === 'edit') { prEnter(p, null, true); return 'focus'; }
     return res;

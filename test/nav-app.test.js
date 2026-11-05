@@ -2030,4 +2030,48 @@ rule('R11 3: practice counts a step written without an ID, and after a reload', 
   assert.strictEqual(viewBtn(again, 'Practice').text, 'Practice · 1 of ' + n, 'counted after a reload');
 });
 
+/* ---------- Build round 12: a workspace is one history place ---------- */
+const viewDrawn = h => h === '#/process/release/edit' ? inEditor : h === '#/practice/release' ? onPage : () => false;
+rule('R12: Publish or Stage from Practice, then Back: the view now drawn stays (never Practice again), the next Back is the checklist, Forward the workspace', async () => {
+  for (const how of ['publish', 'stage-draft']) {
+    const app = await changed(); await into(app, 'practice'); await app.settle();
+    const b = primary(app); app.click(b[0].act, b[0].id); await app.settle();
+    app.set('change-note', 'Tell on-call'); ovClick(app, how, 'release'); await app.tick(300); await app.settle();
+    assert.strictEqual(app.overlay(), '', how + ': set-up: done');
+    const cur = app.hash(), n = app.entries().length;
+    assert.ok(viewDrawn(cur)(app), how + ': set-up: a workspace view: ' + cur);
+    await onePop(app, a => a.back());
+    atRest(app, how + ': Back', { hash: cur, drawn: viewDrawn(cur), n, b: '#/process/release' });
+    if (how === 'publish') assert.ok(!onPage(app), how + ': practice, cleared, isn\'t started again');
+    await onePop(app, a => a.back());
+    assert.strictEqual(app.hash(), '#/process/release', how + ': the next Back is the checklist'); assert.ok(onOverview(app));
+    await onePop(app, a => a.forward());
+    assert.strictEqual(app.hash(), cur, how + ': Forward: the workspace, as it was left'); assert.ok(viewDrawn(cur)(app));
+    if (how === 'publish') assert.ok(!onPage(app), how + ': not Practice');
+  }
+});
+rule('R12: Edit, Help, close, Practice, Back: Practice stays, its URL; the next Back is the checklist', async () => {
+  const app = await edit({ domFocus: true }); await app.settle();
+  app.key('?'); await app.settle(); ovClick(app, 'close-overlay', undefined); await app.settle();
+  app.click('pr-open'); await app.tick(60); await app.settle();
+  assert.ok(onPage(app) && app.hash() === '#/practice/release', 'set-up: Practice');
+  const n = app.entries().length;
+  await onePop(app, a => a.back());
+  atRest(app, 'Back', { hash: '#/practice/release', drawn: onPage, n, b: '#/process/release' });
+  await onePop(app, a => a.back());
+  assert.strictEqual(app.hash(), '#/process/release', 'the checklist'); assert.ok(onOverview(app));
+});
+rule('R12: a cleared Practice entry reached from elsewhere draws Edit, never a new practice', async () => {
+  const app = await changed(); await into(app, 'practice'); await app.settle();
+  const b = primary(app); app.click(b[0].act, b[0].id); await app.settle();
+  app.set('change-note', 'Tell on-call'); ovClick(app, 'publish', 'release'); await app.tick(300); await app.settle();
+  assert.ok(inEditor(app), 'set-up: Edit after publishing');
+  app.click('ed-done'); await app.settle();
+  assert.ok(onOverview(app), 'set-up: the checklist page');
+  const n = app.entries().length;
+  await onePop(app, a => a.back());
+  atRest(app, 'Back onto the cleared Practice entry', { hash: '#/process/release/edit', drawn: inEditor, n, b: '#/process/release' });
+  assert.ok(!onPage(app), 'not practice');
+});
+
 run();
