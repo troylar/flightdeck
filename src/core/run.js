@@ -708,6 +708,8 @@ PF.run = (function () {
     ss.forEach(function (x) {
       var a = r.steps[x.step.id];
       if (!a) return;
+      /* A step this run doesn't need (only when) counts for nothing, so its record is left as it is. */
+      if (applies(r, map, x.phaseIndex, x.step).applies === false) return;
       var stuck = function () { var s = searchState(r, map, x.step); return !s.ok && (s.damaged || s.waiting) && r.state === 'completed'; };
       if (a.s === 'done') {
         var why = searchStands(r, map, x.step, a);
@@ -1775,7 +1777,7 @@ PF.run = (function () {
         var a = r.steps[s.id], word = ap.applies === null ? 'WAITING - ' + ap.why : !a ? 'NOT CHECKED' : a.s === 'done' ? 'DONE' : a.s === 'na' ? 'N/A' : a.s === 'blocked' ? 'BLOCKED - ' + a.reason : a.s === 'recheck' ? 'RE-CHECK - ' + a.reason : 'NOT CHECKED';
         var from = reportOf && a && a.s === 'done' ? reportOf(s.id) : '';
         lines.push('  [' + word + '] ' + M.shownText(s, M.valuesOf(r)) + (from ? ' (' + from + ')' : '') + (a && a.differently ? ' (done differently: ' + a.differently.note + ')' : ''));
-        if (a && a.s === 'done' && a.values) { evidenceFor(r, s).list.forEach(function (d) { if (a.values[d.name]) lines.push('      ' + d.label + ': ' + shown(r, map, 'steps.' + s.id + '.values.' + d.name, a.values[d.name])); }); }
+        if (a && a.s === 'done' && a.values) { evidenceFor(r, s).list.forEach(function (d) { if (!a.values[d.name]) return; lines.push('      ' + (d.system && d.name === 'searchId' ? 'Search: ' + String(a.values[d.name]).replace(/^sha256:/, '').slice(0, 8) : d.label + ': ' + shown(r, map, 'steps.' + s.id + '.values.' + d.name, a.values[d.name]))); }); }
       });
       var gw = st === 'passed' ? 'PASSED' : st === 'waived' ? 'WAIVED - ' + gr.reason : st === 'failed' ? 'FAILED - ' + gr.reason : st === 'review' ? 'NEEDS REVIEW' : 'NOT PASSED';
       lines.push('  Gate: ' + g.title + ' [' + gw + ']' + (gr && gr.by && (st === 'passed' || st === 'waived') ? ' by ' + nameOf(gr.by) + ' ' + U.hm(gr.at) : ''), '');

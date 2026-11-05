@@ -143,6 +143,28 @@ rule('Practice is kept for this tab across a reload, in session storage only, an
   assert.equal(row(other, 'rollback'), 'open', 'another tab starts fresh');
 });
 
+rule('R14-1: while the draft doesn\'t admit, a kept practice is held: nothing shown and nothing written over it; fixed, it reads again', async () => {
+  const session = {}, files = {};
+  const first = await editor({ sessionStore: session, sharedFiles: files });
+  await practice(first);
+  await check(first, 'rollback');
+  const key = Object.keys(session).filter(k => /:practice:/.test(k) && !/:typed$/.test(k))[0], kept = session[key], good = files[DRAFT].t;
+  assert.ok(kept && /rollback/.test(kept), 'set-up: the practice is kept');
+  files[DRAFT] = Object.assign({}, files[DRAFT], { t: good.replace(/\n## /, '\n- [ ] {nope.kind} Not a type here {#nope}\n\n## ') });
+  const held = boot({ localStore: { 'preflight:builder': 'false' }, sessionStore: session, sharedFiles: files, hash: '#/practice/release' });
+  await held.tick(60); held.choose('person-casey'); await held.tick(60);
+  assert.notEqual(row(held, 'rollback'), 'done', 'nothing kept is shown');
+  held.click('open-process', 'release'); await held.tick(60);
+  assert.strictEqual(session[key], kept, 'the tab\'s copy is unchanged');
+  files[DRAFT] = Object.assign({}, files[DRAFT], { t: good });
+  held.click('ptab', 'edit'); await held.tick(60); await practice(held);
+  await edit(held, () => good);
+  assert.equal(row(held, 'rollback'), 'done', 'in the same tab, read on the first text that admits');
+  const fixed = boot({ localStore: { 'preflight:builder': 'false' }, sessionStore: session, sharedFiles: files, hash: '#/practice/release' });
+  await fixed.tick(60); fixed.choose('person-casey'); await fixed.tick(60);
+  assert.equal(row(fixed, 'rollback'), 'done', 'read again once the draft admits');
+});
+
 rule('A practice kept in this tab that can\'t be read starts fresh and says so once', async () => {
   const session = {};
   const first = await editor({ sessionStore: session });

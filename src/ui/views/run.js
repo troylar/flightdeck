@@ -48,7 +48,10 @@
   function stateOf(r, s) { var a = r.steps[s.id]; return a && a.s !== 'open' ? a.s : 'open'; }
   /* The step the inspector shows: the selected one, or the one a form is open on. */
   function selOf(ctx) { var s = ctx.state; return s.sel || (s.pick && /^(record|fields|block|deadline|differently)$/.test(s.pick.kind) ? s.pick.id : null); }
-  function canWork(ctx, r, map, x) { return ctx.recording(r) && !r.paused && R.phaseOpen(r, map, x.phaseIndex); }
+  /* R14-8: in a completed run, a search reopened when read is answered again with Done, by whoever recorded or ended the run. */
+  function rereader(ctx, r) { var me = ctx.state && ctx.state.me; return !!me && !!r.ended && !r._unrunnable && (r.recorder.person === me || r.ended.by === me); }
+  function canWork(ctx, r, map, x) { return (ctx.recording(r) && !r.paused && R.phaseOpen(r, map, x.phaseIndex)) || (R.rereadable(r, x.step.id) && rereader(ctx, r)); }
+  V.rereader = rereader;
   /* Whether the selected step shows its evidence boxes, so Done collects what was typed there. The app asks the same. */
   function recordShown(ctx, r, map, id) {
     var x = M.findStep(map, id), a = r.steps[id], st = ctx.state;
@@ -95,6 +98,7 @@
     /* Conditions (2.1): a step whose condition waits for a detail says why, as a bound step does. */
     var heldWhy = s.when || x.phase.when ? R.held(r, map, s) : '';
     if (heldWhy) badges += '<span class="badge b-warn">Waiting · ' + esc(heldWhy) + '</span>';
+    if (!P && a && a.reopened) badges += '<span class="badge b-warn">Reopened when read</span>';
     /* Practice says what a run never needs to: assumed, checked without its evidence, simulated. */
     if (P) badges += pm.status === 'assumed' ? '<span class="badge b-ref">Assumed for practice</span>' : pm.skipped ? '<span class="badge b-ref">Checked without evidence</span>' : pm.simulated === 'linked' && pm.status !== 'done' ? '<span class="badge b-ref">Simulated</span>' : '';
     var notes = (r._notes || []).filter(function (n) { return n.step === s.id && n.kind !== 'correction' && n.kind !== 'fix' && n.kind !== 'map'; }).length, dr = ctx.stepDraft && ctx.stepDraft(s.id);
@@ -107,7 +111,7 @@
     var stamp = P ? (pm.status === 'assumed' || !P.canEdit(s.id) ? '' : '<button class="mini s-edit" data-act="pr-edit" data-id="' + esc(s.id) + '" aria-label="Edit step: ' + esc(K.stepPlain(s, K.refValue(r, map))) + '">' + I('edit') + 'Edit step</button>')
       : a && (a.s === 'done' || a.s === 'na') ? '<span class="stamp">' + avatar(ctx, a.by) + ' ' + U.hm(a.at) + '</span>' : '';
     var flash = st.flash && st.flash.ids && st.flash.ids.indexOf(s.id) >= 0;
-    var canCheck = rec && open && (t.id !== 'run.process' || !!P) && !heldWhy && !(P && (P.paused || pm.status === 'assumed'));
+    var canCheck = ((rec && open) || (!P && R.rereadable(r, s.id) && rereader(ctx, r))) && (t.id !== 'run.process' || !!P) && !heldWhy && !(P && (P.paused || pm.status === 'assumed'));
     return '<li class="step' + (sel ? ' sel' : '') + (isNext ? ' next' : '') + (flash ? ' flash' : '') + '" data-a="' + esc(aState) + '" id="step-' + esc(s.id) + '">' +
       '<button class="check" role="checkbox" aria-checked="' + (aState === 'done') + '" aria-label="' + esc(K.stepPlain(s, K.refValue(r, map))) + ', ' + esc(P && aState === 'recheck' ? 'try it again' : P && pm.status === 'assumed' ? 'assumed for practice' : STATE_WORD[aState] || aState) + (s.must ? ', must do' : '') + '" data-act="toggle" data-id="' + esc(s.id) + '"' + (canCheck ? '' : ' disabled') + (t.id === 'run.process' && !P ? ' title="Checked when its linked run completes"' : '') + '>' + I('check') + '</button>' +
       '<button class="s-pick" data-act="select" data-id="' + esc(s.id) + '" aria-pressed="' + sel + '" aria-controls="rw-ins">' + (isNext ? '<span class="s-next">Next</span>' : '') + '<span class="s-text">' + K.stepHtml(s, K.refValue(r, map), false) + '</span><span class="s-meta">' + meta + '</span>' + (badges ? '<span class="badges">' + badges + '</span>' : '') + '</button>' +
@@ -779,14 +783,15 @@
       if (acts) h += '<div class="rw-act" role="group" aria-label="Answer this step for practice"><div class="row">' + acts + '</div></div>';
       return h + '</div></aside>';
     }
-    if (rec && work) {
+    var reread = !rec && work && R.rereadable(r, st.id);
+    if ((rec || reread) && work) {
       if (!a || a.s === 'open' || a.s === 'recheck') {
         var filling = s.pick && s.pick.id === st.id && s.pick.kind === 'fields';
         if (t.id !== 'run.process' && filling) acts += '<button class="btn go" disabled aria-describedby="donewhy-' + esc(st.id) + '">' + I('check') + 'Done</button><span class="small rw-why-off" id="donewhy-' + esc(st.id) + '">Save or cancel Fill in first.</span>';
         else if (t.id !== 'run.process') acts += showRec ? '<button class="btn go" data-act="record" data-id="' + esc(st.id) + '">' + I('check') + 'Done</button>' : '<button class="btn go" data-act="toggle" data-id="' + esc(st.id) + '">' + I('check') + 'Done</button>';
-        if (t.id !== 'run.process' && !filling) acts += '<button class="btn" data-act="corr-open" data-mode="differently" data-id="' + esc(st.id) + '"' + (cf && cf.mode === 'differently' ? ' aria-expanded="true"' : '') + '>Done differently</button>';
-        acts += '<button class="btn" data-act="pick" data-kind="block" data-id="' + esc(st.id) + '">Blocked</button>';
-        if (!st.must) acts += '<button class="mini" data-act="na" data-id="' + esc(st.id) + '">N/A</button>';
+        if (t.id !== 'run.process' && !filling && !reread) acts += '<button class="btn" data-act="corr-open" data-mode="differently" data-id="' + esc(st.id) + '"' + (cf && cf.mode === 'differently' ? ' aria-expanded="true"' : '') + '>Done differently</button>';
+        if (!reread) acts += '<button class="btn" data-act="pick" data-kind="block" data-id="' + esc(st.id) + '">Blocked</button>';
+        if (!st.must && !reread) acts += '<button class="mini" data-act="na" data-id="' + esc(st.id) + '">N/A</button>';
       } else if (a.s === 'blocked') acts += '<button class="btn" data-act="clear" data-id="' + esc(st.id) + '">Unblock</button>';
       else if (a.s === 'na') acts += '<button class="btn" data-act="clear" data-id="' + esc(st.id) + '">Undo N/A</button>';
       else if (a.s === 'done' && t.id !== 'run.process') acts += '<button class="mini" data-act="toggle" data-id="' + esc(st.id) + '">Uncheck</button>';

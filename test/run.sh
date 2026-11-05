@@ -122,6 +122,8 @@ test/search-runs.test.js -
 test/search-linked.test.js -
 test/search-reports.test.js -
 test/search-screen.test.js -
+test/search-consumers.test.js -
+test/search-practice.test.js -
 test/teamvalues.test.js -
 test/search.test.js -
 test/folder.test.js -
