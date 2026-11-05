@@ -2074,4 +2074,54 @@ rule('R12: a cleared Practice entry reached from elsewhere draws Edit, never a n
   assert.ok(!onPage(app), 'not practice');
 });
 
+/* ---------- Build round 13: history never starts a practice ---------- */
+const row = (app, id) => (new RegExp('<li class="step[^"]*" data-a="([a-z]*)" id="step-' + id + '"').exec(app.html()) || [])[1] || null;
+async function publishedFromPractice(session) {
+  const app = await changed({ sessionStore: session }); await into(app, 'practice'); await app.settle();
+  const b = primary(app); app.click(b[0].act, b[0].id); await app.settle();
+  app.set('change-note', 'Tell on-call'); ovClick(app, 'publish', 'release'); await app.tick(300); await app.settle();
+  assert.ok(inEditor(app), 'set-up: Edit after publishing');
+  app.click('ed-done'); await app.settle();
+  assert.ok(onOverview(app), 'set-up: the checklist page');
+  return app;
+}
+rule('R13: after Publish cleared practice, the checklist\'s Practice starts a new one', async () => {
+  const app = await publishedFromPractice({});
+  const pr = viewBtn(app, 'Practice'); app.click(pr.act, pr.id); await app.tick(60); await app.settle();
+  assert.ok(onPage(app), 'practice starts'); assert.strictEqual(app.hash(), '#/practice/release');
+});
+rule('R13: after Publish cleared practice, reload, then Back: Edit, its URL in that entry; Forward the checklist', async () => {
+  const session = {};
+  const was = await publishedFromPractice(session);
+  const app = await start({ sessionStore: session, entries: was.entries().map(e => ({ hash: e.hash, state: e.state })), index: was.index() });
+  await app.settle();
+  assert.ok(onOverview(app), 'set-up: reloaded on the checklist page');
+  const n = app.entries().length;
+  await onePop(app, a => a.back());
+  atRest(app, 'Back onto the old Practice entry', { hash: '#/process/release/edit', drawn: inEditor, n, b: '#/process/release' });
+  assert.ok(!onPage(app), 'no practice started');
+  await onePop(app, a => a.forward());
+  atRest(app, 'Forward', { hash: '#/process/release', drawn: onOverview, n, b: '#/' });
+});
+rule('R13: a Practice entry with practice kept in this tab resumes it, before and after a reload', async () => {
+  const session = {};
+  const app = await changed({ sessionStore: session }); await into(app, 'practice'); await app.settle();
+  await check(app, 'rollback');
+  app.click('nav', 'processes'); await app.settle();
+  const n = app.entries().length;
+  await onePop(app, a => a.back());
+  atRest(app, 'Back', { hash: '#/practice/release', drawn: onPage, n, b: '#/process/release' });
+  assert.strictEqual(row(app, 'rollback'), 'done', 'resumed');
+  app.click('nav', 'processes'); await app.settle();
+  const again = await start({ sessionStore: session, entries: app.entries().map(e => ({ hash: e.hash, state: e.state })), index: app.index() }); await again.settle();
+  await onePop(again, a => a.back());
+  atRest(again, 'Back after a reload', { hash: '#/practice/release', drawn: onPage, n: again.entries().length, b: '#/process/release' });
+  assert.ok(['done', 'recheck'].includes(row(again, 'rollback')), 'resumed after a reload, the answer kept');
+});
+rule('R13: a fresh tab opening a Practice link draws Edit and gives the entry Edit\'s URL', async () => {
+  const app = await start({ hash: '#/practice/release' }); await app.settle(); await app.tick(80); await app.settle();
+  assert.ok(inEditor(app) && !onPage(app), 'Edit, no practice started');
+  assert.strictEqual(app.hash(), '#/process/release/edit', 'its URL');
+});
+
 run();
