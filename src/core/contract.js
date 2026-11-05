@@ -86,7 +86,7 @@ PF.contract = (function () {
     return j.ok ? o : 'bad';
   }
 
-  /* ---------- What AGENTS.md points to, and the content rule (2.15.0) ----------
+  /* ---------- What AGENTS.md points to, and the content rule (2.16.0) ----------
      The command guide, the checklist essentials and the file formats say how; AGENTS.md says what may be done and cites their
      sections. An update of AGENTS.md waits while a file it would cite lacks a cited section its own default has. */
   var REFS = '.flightdeck/skills/_flightdeck/';
@@ -147,7 +147,7 @@ PF.contract = (function () {
   function setOf(xs) { var o = Object.create(null); xs.forEach(function (x) { o[x] = true; }); return o; }
   function esc(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
   /* What a text points to. names: { path: true } for every backticked path under REFS. alias: { name: path } for the italic name
-     right after a path, "`<path>` (*the command guide*)", or "(*the file formats* below)" as before 2.15.0; more adds names a
+     right after a path, "`<path>` (*the command guide*)", or "(*the file formats* below)" as before 2.16.0; more adds names a
      text uses without giving them. cites: { path: [section, ...] } for every "*X* in the <name>", the longest name first. Only
      prose() counts. */
   function cites(text, more) {

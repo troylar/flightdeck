@@ -465,7 +465,7 @@ PF.health = (function () {
     if (namedMissing.length && !noAgents) {
       refPaths = refPaths.concat(namedMissing);
       refTitles.push(namedMissing.length + (namedMissing.length === 1 ? ' file AI assistants need is missing' : ' files AI assistants need are missing'));
-      refParts.push('AI assistants read ' + (namedMissing.length === 1 ? 'it' : 'them') + ' before they use Flightdeck\'s commands. If OneDrive is still syncing this folder, wait for it to finish; otherwise AI assistant files (Flightdeck 2.15.0 or later) adds what\'s missing.');
+      refParts.push('AI assistants read ' + (namedMissing.length === 1 ? 'it' : 'them') + ' before they use Flightdeck\'s commands. If OneDrive is still syncing this folder, wait for it to finish; otherwise AI assistant files (Flightdeck 2.16.0 or later) adds what\'s missing.');
     }
     if (lacking.length) {
       refPaths = refPaths.concat(lacking.map(function (x) { return x.key; }));

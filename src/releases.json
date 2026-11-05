@@ -1,22 +1,88 @@
 [
   {
-    "version": "2.15.0",
-    "date": "2026-11-03",
-    "headline": "AGENTS.md keeps the rules; two new files say how",
+    "version": "2.16.0",
+    "date": "2026-11-05",
+    "headline": "Search Jira from a step, one header everywhere, and a workspace per checklist",
     "changes": [
+      {
+        "kind": "new",
+        "area": "Steps",
+        "title": "A Jira search step",
+        "now": "A step can name a Jira search, written in JQL or as a saved filter, and say what it should find. The person running it searches Jira, enters the count and issue keys, and Flightdeck checks them against the rule. Flightdeck never calls Jira. Results stay with the search they were entered for, so changing a run detail asks for a fresh search.",
+        "where": "Checklist editor › What do you do in Jira?"
+      },
+      {
+        "kind": "new",
+        "area": "Run details",
+        "title": "Run details that must match a pattern",
+        "now": "A run detail can require a pattern, such as a version tag. Values are checked exactly as typed, nothing is trimmed, and a value that doesn't match is refused wherever it is entered: starting a run, Settings, a report or a carried value.",
+        "where": "Checklist editor › Checklist details"
+      },
+      {
+        "kind": "improved",
+        "area": "Links",
+        "title": "Run details in link fields keep the link's shape",
+        "before": "A run detail placed in a link could change more of the address than the part it filled.",
+        "now": "A run detail only fills its own part of a link's address. This protects the link's structure, not what a site does with a query; for a Jira query use a Jira search step.",
+        "where": "docs/map-format.md › Links"
+      },
+      {
+        "kind": "improved",
+        "area": "Navigation",
+        "title": "A workspace per checklist, and Back that goes where it says",
+        "before": "Edit, Practice and Runs were separate screens, and Back could land somewhere unexpected.",
+        "now": "Each checklist has one workspace with Edit, Practice, Runs and Settings, and ‹ Overview to leave it. Every ‹ names where it goes. Back closes Help and sheets first. When Back can't leave, for example while you're typing or publishing, you stay where you are.",
+        "where": "Any checklist"
+      },
+      {
+        "kind": "improved",
+        "area": "Runs",
+        "title": "A damaged search answer reopens when the run is read",
+        "now": "Each time a run is read, a checked Jira search whose stored results no longer stand is reopened, says why, and its gate goes to review. The earlier answer stays in history. In a completed run, that step alone can be answered again with Done.",
+        "where": "Run screen › Reopened when read"
+      },
+      {
+        "kind": "improved",
+        "area": "Linked runs",
+        "title": "Linking a run checks the chain",
+        "before": "A linked run could form a loop or a very long chain of runs.",
+        "now": "Linking refuses a loop, more than 16 runs in one chain, or more than 5,000 links, in every checklist, with or without searches. Existing links keep their settlement; a settled parent whose child no longer stands is listed in Folder health.",
+        "where": "Folder health"
+      },
+      {
+        "kind": "improved",
+        "area": "Links",
+        "title": "Some older links now show as text",
+        "now": "In checklists published before 2.16, a link that puts a run detail in the host, as a parameter's name, in a query part with no =, or with invisible characters, shows as text with the reason instead of a link. Change the link and publish again; new versions with those forms are refused.",
+        "where": "Run screen"
+      },
+      {
+        "kind": "new",
+        "area": "Reports",
+        "title": "A report can set a step's run details",
+        "now": "A step report may now set the run details that step sets. Older copies of Flightdeck refuse such a report. Practice also refuses Jira search results that break the step's rule.",
+        "where": "docs/map-format.md › Reports"
+      },
+      {
+        "kind": "improved",
+        "area": "Screens",
+        "title": "One header on every work screen",
+        "now": "Every work screen has the same header: the way back, the view, the main action, and More for everything else, at every width. Buttons look pressable, show when they're pressed, and are at least 44 px on phones.",
+        "where": "Every work screen"
+      },
       {
         "kind": "improved",
         "area": "AI assistants",
         "title": "A shorter AGENTS.md, with a Commands table",
         "before": "AGENTS.md held the rules, every command's options and the checklist syntax in one file, so there was little room left for Team notes.",
-        "now": "AGENTS.md keeps every rule word for word and points to the part that says how: the command guide and the checklist essentials, two new files in .flightdeck/skills/_flightdeck/. A Commands table names each command and where its how is. Update with flightdeck install or Settings; Team notes stay as they are.",
+        "now": "AGENTS.md keeps every rule word for word and points to two new files, the command guide and the checklist essentials, in .flightdeck/skills/_flightdeck/. A Commands table says where each command's how is. Update with flightdeck install or Settings; Team notes stay as they are.",
         "where": "Settings › AI assistant files"
       },
       {
         "kind": "new",
         "area": "AI assistants",
         "title": "AGENTS.md waits for the files it points to",
-        "now": "When your team's version of a file AGENTS.md points to lacks a section it names, the update stages AGENTS.md with that file's new default instead of writing it, so an assistant is never sent to a part that isn't there. README.md in the updates folder, flightdeck install and Folder health say which file and which sections.",
+        "now": "If your team's version of a file AGENTS.md points to lacks a section it names, the update stages AGENTS.md instead of writing it, so an assistant is never sent to a part that isn't there. The updates folder's README.md, flightdeck install and Folder health name the file and sections.",
         "where": "docs/updating.md › Install"
       }
     ]

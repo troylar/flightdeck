@@ -64,18 +64,20 @@
         "2.12.1",
         "2.12.2",
         "2.13.0",
-        "2.14.0",
-        "2.15.0"
+        "2.14.0"
+      ],
+      "c52714f31711ad4e0087a0170b722cf870fc4725a3dadb25da2e7e684f7228a3": [
+        "2.16.0"
       ]
     },
     ".flightdeck/skills/_flightdeck/checklist-essentials.md": {
-      "af3d38272a045f53f160b5698d7913871d524f1da6e77f7f19c96d531fd9bb08": [
-        "2.15.0"
+      "ab4dfea4d5e61c15525b881ca575e04dc7e16da674a12abc5ea895a388ef898a": [
+        "2.16.0"
       ]
     },
     ".flightdeck/skills/_flightdeck/command-guide.md": {
-      "e4fdf46ddc691b50593105bb9d4ca1bf189a39c785f844a465a87e0dc92df12d": [
-        "2.15.0"
+      "0643b69e9714ee4e7d7f74b4bbfe660f52cf9cf552ed0882a5b47f744f6842f1": [
+        "2.16.0"
       ]
     },
     ".flightdeck/skills/_flightdeck/file-formats.md": {
@@ -84,7 +86,7 @@
         "2.12.2",
         "2.13.0",
         "2.14.0",
-        "2.15.0"
+        "2.16.0"
       ]
     },
     ".flightdeck/skills/_flightdeck/good-checklists.md": {
@@ -131,8 +133,10 @@
         "2.12.1",
         "2.12.2",
         "2.13.0",
-        "2.14.0",
-        "2.15.0"
+        "2.14.0"
+      ],
+      "79b0f8053e8a315cd17d7d79b26861325265a3e165e3d3229a60577d4734876e": [
+        "2.16.0"
       ]
     },
     ".flightdeck/skills/_flightdeck/map-format.md": {
@@ -201,8 +205,10 @@
         "2.12.1",
         "2.12.2",
         "2.13.0",
-        "2.14.0",
-        "2.15.0"
+        "2.14.0"
+      ],
+      "76c997818f7109f172927ed47c6b75871c5a39b227b6c3a7e8a053c3bbad35ce": [
+        "2.16.0"
       ]
     },
     ".flightdeck/skills/flightdeck-edit-checklist/SKILL.md": {
@@ -253,8 +259,8 @@
         "2.13.0",
         "2.14.0"
       ],
-      "1f4722361e27c4131dbd716036b17d36cf506461ae26aa9c742d9a5684c2418c": [
-        "2.15.0"
+      "981ae1af10b4a519dff513c75539379658e422ba16b4221342cff1d1147a2a57": [
+        "2.16.0"
       ]
     },
     ".flightdeck/skills/flightdeck-learn-from-runs/SKILL.md": {
@@ -309,8 +315,10 @@
         "2.12.1",
         "2.12.2",
         "2.13.0",
-        "2.14.0",
-        "2.15.0"
+        "2.14.0"
+      ],
+      "2a47e763da23c3bcc8d198fef351366f5e5383eecf4550e96eca0f32ecb946e2": [
+        "2.16.0"
       ]
     },
     ".flightdeck/skills/flightdeck-new-checklist/SKILL.md": {
@@ -361,8 +369,10 @@
       ],
       "5d3a7c417330301e025aab578358c991542b7d8e023cca85e38cbba53149e6ce": [
         "2.13.0",
-        "2.14.0",
-        "2.15.0"
+        "2.14.0"
+      ],
+      "8a5e1b3601480954433458343d6278e08902c8291cedd64a4067dbfb03404f2c": [
+        "2.16.0"
       ]
     },
     ".flightdeck/skills/flightdeck-new-step-type/SKILL.md": {
@@ -414,7 +424,7 @@
       ],
       "ebc4c1ec9435236eea4e59744940ab403cb9446fdaa90fce67b15915099a9c25": [
         "2.14.0",
-        "2.15.0"
+        "2.16.0"
       ]
     },
     ".flightdeck/skills/flightdeck-plan-run/SKILL.md": {
@@ -464,7 +474,7 @@
         "2.12.2",
         "2.13.0",
         "2.14.0",
-        "2.15.0"
+        "2.16.0"
       ]
     },
     ".flightdeck/skills/flightdeck-review-checklist/SKILL.md": {
@@ -519,8 +529,10 @@
       ],
       "5ff2a2a75a468d5f66e06845447b31c9882aedd1392606c081093ee6174601ea": [
         "2.13.0",
-        "2.14.0",
-        "2.15.0"
+        "2.14.0"
+      ],
+      "9340c4002852af26936abc374e248faa2751e612363deac5b46367a187ffd07c": [
+        "2.16.0"
       ]
     },
     ".flightdeck/skills/flightdeck-skill-brief/SKILL.md": {
@@ -572,7 +584,7 @@
         "2.12.2",
         "2.13.0",
         "2.14.0",
-        "2.15.0"
+        "2.16.0"
       ]
     },
     ".flightdeck/skills/flightdeck-status/SKILL.md": {
@@ -624,7 +636,7 @@
         "2.12.2",
         "2.13.0",
         "2.14.0",
-        "2.15.0"
+        "2.16.0"
       ]
     },
     "AGENTS.md#flightdeck": {
@@ -707,8 +719,8 @@
         "2.13.0",
         "2.14.0"
       ],
-      "88e9b67232ea123db1f15f4a089decad6ecea0edb6511b1970767b47905fd7c1": [
-        "2.15.0"
+      "61a4c279e0b64183aacdc9a14ed997dbda8807c9f374ffbd42fe22b5c3125b79": [
+        "2.16.0"
       ]
     }
   }

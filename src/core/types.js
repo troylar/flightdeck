@@ -111,7 +111,7 @@ PF.types = (function () {
         { name: 'keys', label: 'Issue keys', kind: 'text', long: true, notAt: { count: '0' } }, { name: 'resultsLink', label: 'Results link', kind: 'url' },
         { name: 'ranAt', label: 'When it ran', kind: 'text' }] }
   ];
-  /* The search type freezes as version 4, which 2.0 to 2.15 refuse; every other built-in stays at VERSION. */
+  /* The search type freezes as version 4, which 2.0 to 2.14 refuse; every other built-in stays at VERSION. */
   var SEARCH = 'jira.search', SEARCH_VERSION = 4, SEARCH_FIXED = { query: 1, filter: 1, results: 1, site: 1, what: 1 };
   function isSearch(type) { return !!type && type.id === SEARCH && !type.custom; }
 
