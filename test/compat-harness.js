@@ -24,7 +24,7 @@ function sandbox(opts) {
     MathO = Object.create(Math); MathO.random = seeded(opts.seed || 1);
   }
   const box = {
-    PF: {}, console, Date: DateC, Math: MathO, JSON, Promise, setTimeout, Blob, fetch, btoa, Uint8Array,
+    PF: {}, console, Date: DateC, Math: MathO, JSON, Promise, setTimeout, Blob, fetch, btoa, Uint8Array, URL,
     localStorage: { getItem: k => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: k => { delete store[k]; } }
   };
   vm.createContext(box);

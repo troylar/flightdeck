@@ -71,7 +71,9 @@ function specimens16() {
   const run = () => R.create(v, { title: 'R', details: { version: '2026.11.0' }, roles: {}, by: 'person-avery', session: 'w-a', now: AT16, id: 'run-s1', app: '2.16.0', teamValues: tv });
   const started = run(), blocked = run(), map = R.mapOf(blocked);
   R.block(blocked, map, 'blockers', '', 'person-avery', AT16, { searchId: R.searchId(blocked, map, BPF.map.findStep(map, 'blockers').step), count: '2', keys: 'PAY-1, PAY-2' });
-  made16 = { jira, pattern, started: JSON.stringify(started), blocked: JSON.stringify(blocked) };
+  const startedId = R.searchId(started, R.mapOf(started), BPF.map.findStep(R.mapOf(started), 'blockers').step);
+  if (!startedId || ['searchSites', 'searchGen', 'searchRec'].some(k => !started[k] || !Object.keys(started[k]).length)) throw new Error('2.16 specimen: the started run has no search state');
+  made16 = { jira, pattern, started: JSON.stringify(started), startedId, blocked: JSON.stringify(blocked) };
   return made16;
 }
 const verify16 = (PF, b) => { try { return PF.publish.verify(b.folder, b.files, H.exact2(b.files['map.md'], b.files['types.json'])); } catch (e) { return { ok: false }; } };
@@ -87,19 +89,29 @@ function readsPatternDetail(PF) {
 }
 /* Set aside as unusable, saying it needs 2.16 (the bridge and 2.0 to 2.14). */
 const refuses16 = (which) => (PF) => { const v = verify16(PF, specimens16()[which]); return !v.ok && !!v.unusable && /2\.16/.test(String(v.why || '') + ' ' + String(v.needs || '')); };
-/* A run of a search step, read in full with the containers it keeps (searchSites, searchGen, searchRec). */
+/* A run of a search step, read in full: the containers it keeps (searchSites, searchGen, searchRec) come back with the
+   contents 2.16 wrote, and the step's search identity is the one the results were entered for. */
 function readsSearchRun(PF) {
-  try { const r = PF.run.sanitize(JSON.parse(specimens16().started)); return !!r && !r._unrunnable && ['searchSites', 'searchGen', 'searchRec'].every(k => Object.prototype.hasOwnProperty.call(r, k)); } catch (e) { return false; }
+  if (!fn(PF.run, 'searchId')) return false;
+  try {
+    const m = specimens16(), was = JSON.parse(m.started), r = PF.run.sanitize(JSON.parse(m.started));
+    if (!r || r._unrunnable || !['searchSites', 'searchGen', 'searchRec'].every(k => JSON.stringify(r[k]) === JSON.stringify(was[k]))) return false;
+    const map = PF.run.mapOf(r);
+    return PF.run.searchId(r, map, PF.map.findStep(map, 'blockers').step) === m.startedId;
+  } catch (e) { return false; }
 }
 /* A search step blocked with its results (Block with these): read in full, the results kept on the blocked step. */
 function readsBlockedResults(PF) {
   try { const r = PF.run.sanitize(JSON.parse(specimens16().blocked)), a = r && r.steps && r.steps.blockers; return !!r && !r._unrunnable && !!a && a.s === 'blocked' && !!a.values && a.values.keys === 'PAY-1, PAY-2' && a.values.count === '2'; } catch (e) { return false; }
 }
-/* Publish refuses a run detail in a link's host (Appendix B), by the check every publish runs. */
+/* Publish refuses a run detail in a link's host, in a parameter name and in a parameter with no "=" (Appendix B), by the
+   check every publish runs, and still allows one as a parameter's value. */
 function refusesLinkForms(PF) {
   try {
-    const md = ['---', 'process: rel', 'title: Release', 'context: tag, host', '---', '', '## Ship · READ-DO {#ship}', '- [ ] {ui.action} Open it {#open}', '  page: https://^host.example.com/x', ''].join('\n');
-    return (PF.map.check(PF.map.parse(md), {}).blockers || []).some(b => /field "page", has a run detail in the address/.test(b));
+    const page = (p) => (PF.map.check(PF.map.parse(['---', 'process: rel', 'title: Release', 'context: tag, host', '---', '', '## Ship · READ-DO {#ship}', '- [ ] {ui.action} Open it {#open}', '  page: ' + p, ''].join('\n')), {}).blockers || []).filter(b => /field "page"/.test(b));
+    const refused = (p, why) => { const b = page(p); return b.length === 1 && why.test(b[0]); };
+    return refused('https://^host.example.com/x', /has a run detail in the address/) && refused('https://example.com/x?^tag=x', /has a run detail in a parameter name/) &&
+      refused('https://example.com/x?^tag', /has a run detail in a parameter with no "="/) && page('https://example.com/x?tag=^tag').length === 0;
   } catch (e) { return false; }
 }
 /* A report on a step that sets a run detail (Appendix A.4) is accepted with the value it sets; the same report shape on a
