@@ -824,7 +824,7 @@ html.pane-drag, html.pane-drag * { cursor: col-resize !important; -webkit-user-s
 html.tfe-on #app { padding: 0; max-width: none; }
 @media (min-width: 801px) { html.tfe-on, html.tfe-on body { overflow: hidden; } }
 .fpe-type.fpe { position: fixed; inset: 0; z-index: 4; display: grid; grid-template-rows: auto auto auto minmax(0, 1fr); background: var(--paper); }
-.fpe-type .fpe-state { width: 9.5em; display: inline-flex; gap: 4px; align-items: center; justify-content: flex-end; text-align: right; line-height: 1.25; font-size: 13px; color: var(--muted); }
+.fpe-type .fpe-state { display: inline-flex; gap: 4px; align-items: center; line-height: 1.25; font-size: 13px; color: var(--muted); }
 .fpe-type .fpe-state.dirty { color: var(--ink); font-weight: 600; }
 .fpe-type .fpe-state.just { color: var(--go); font-weight: 600; }
 .fpe-type .fpe-state .ic { width: 16px; height: 16px; }
@@ -1044,7 +1044,6 @@ html.tfe-on #app { padding: 0; max-width: none; }
 /* Phones: the shell scrolls as one page, 16px text so nothing zooms, and 44px targets. */
 @media (max-width: 800px) {
   .fpe-type.fpe { position: static; display: block; min-height: 100vh; }
-  .fpe-type .fpe-state { width: auto; }
   .fpe-type .fpe-alerts:not(:empty) { padding: 8px 12px; }
   .fpe-type .fpe-pane { overflow: visible; }
   .fpe-panes.tf-panes { display: block; }
@@ -1299,7 +1298,7 @@ p.pv-when { margin: 0 0 4px; }
 .ob-sample .s-ph { background: none; border: 0; padding: 0 2px; font-family: var(--display); font-size: 16px; color: var(--ink); }
 .ob-sample .s-st.on { border-color: var(--ink); box-shadow: inset 3px 0 0 var(--amber); color: var(--ink); }
 .ob-sample .s-gt { background: var(--amber-soft); border-color: var(--amber); }/* The header: identity | tools | save, which never trade places. */
-.fpe-state { width: 9.5em; display: inline-flex; gap: 4px; align-items: center; justify-content: flex-end; text-align: right; line-height: 1.25; }
+.fpe-state { display: inline-flex; gap: 4px; align-items: center; line-height: 1.25; }
 .fpe-state.just { color: var(--go); font-weight: 600; }
 .fpe-discard[hidden] { display: inline !important; visibility: hidden; }
 #ob-text { min-height: 64px; line-height: 1.45; resize: vertical; font: inherit; }
@@ -1329,7 +1328,6 @@ p.pv-when { margin: 0 0 4px; }
   .fpe-parts .ob-part:focus-visible::after { content: attr(data-tip); position: fixed; margin-left: 52px; z-index: 30; padding: 6px 8px; border-radius: 6px; background: var(--ink); color: var(--card); font-size: 13px; font-weight: 600; white-space: nowrap; pointer-events: none; } @media screen and (hover: hover) { .fpe-parts .ob-part:hover::after { content: attr(data-tip); position: fixed; margin-left: 52px; z-index: 30; padding: 6px 8px; border-radius: 6px; background: var(--ink); color: var(--card); font-size: 13px; font-weight: 600; white-space: nowrap; pointer-events: none; } }
 }
 @media (max-width: 800px) {/* Phone: who it is and Save, then the tools, then the save state and Discard on their own row. */
-  .fpe-state { width: auto; }
   .fpe input, .fpe select, .fpe textarea { font-size: 16px; }
   .ob.placing .ob-dest, .ob.placing .ob-slot.v .ob-dest { min-height: 44px; }
   /* The properties sheet: a scrim behind it, its heading and Done always in reach. */
@@ -1931,6 +1929,8 @@ html.work-on .top { display: none; }
 .hd-st .act { flex: none; display: inline-flex; align-items: center; }
 .hd-st .linkish { white-space: normal; text-align: left; overflow-wrap: anywhere; }
 .hd-st .fpe-state.dirty { color: var(--ink); font-weight: 600; }
+/* The save state is never cut: it reads whole, and wraps when the line is short. */
+.hd-st .d.sv { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
 .hd-c { flex: 0 0 auto; }
 .hd-c .pviews { margin: 0; }
 .hd-r { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; margin-left: auto; min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
@@ -1960,7 +1960,7 @@ html.work-on .top { display: none; }
 .tr .rw-who { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
 .me-id { white-space: nowrap; }
 .me-id b { font-weight: 600; }
-.facts { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12.5px; color: var(--muted); min-width: 0; justify-content: flex-end; }
+.tr > .facts { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12.5px; color: var(--muted); min-width: 0; justify-content: flex-end; }
 .tag.pr { font: 600 11px/1.3 var(--body); letter-spacing: .04em; text-transform: uppercase; padding: 2px 7px; border-radius: 4px; background: var(--go-soft); color: var(--go); }
 /* More: one layer on every work screen. It opens under its opener, capped at the room left in the viewport (app.js moreFit);
    with too little room it is contained in the viewport, under the banner. */
@@ -1996,7 +1996,7 @@ html.work-on .top { display: none; }
   .hd-why { text-align: left; justify-content: flex-start; }
   .tr { padding: 6px max(12px, env(safe-area-inset-right, 0px)) 6px max(12px, env(safe-area-inset-left, 0px)); }
   .tr .rw-chips { display: none; }
-  .facts { flex-basis: 100%; margin-left: 0; justify-content: flex-start; }
+  .tr > .facts { flex-basis: 100%; margin-left: 0; justify-content: flex-start; }
   .wd-only { display: none !important; }
   .ph-only { display: flex !important; }
   /* Row 1 sticks under the tab-only banner; the tool row scrolls away with the page. */

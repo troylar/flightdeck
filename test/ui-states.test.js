@@ -562,4 +562,24 @@ rule('Styles: every comment in the page\'s CSS closes before the next one opens,
   assert.deepStrictEqual(bad, [], 'a comment holds another comment\'s start: rules between them are dead');
 });
 
+rule('One header: the tool row\'s facts rules are scoped to the tool row, so the skill page\'s dl.facts keeps its grid', () => {
+  const facts = RULES.filter(r => !r.atRule && r.sel.some(x => /(^|[\s>+~])\.facts\b/.test(x) || /^\.facts\b/.test(x)));
+  const bare = facts.filter(r => r.sel.some(x => /^\.facts(\s|$)/.test(x)));
+  bare.forEach(r => { const d = decl(r.body, 'display'); assert.ok(d === null || d === 'grid', 'a bare .facts rule changes the grid: ' + r.sel.join(', ') + ' { ' + r.body.trim() + ' }'); ['flex-basis', 'margin-left', 'justify-content', 'flex-wrap'].forEach(pr => assert.strictEqual(decl(r.body, pr), null, 'a bare .facts rule sets ' + pr + ': ' + r.sel.join(', '))); });
+  assert.ok(RULES.some(r => !r.at.length && r.sel.join(', ') === '.tr > .facts' && decl(r.body, 'display') === 'flex' && decl(r.body, 'margin-left') === 'auto'), 'the tool row\'s facts: flex, pushed right');
+  assert.ok(RULES.some(r => r.at.some(a => /max-width: 800px/.test(a)) && r.sel.join(', ') === '.tr > .facts' && decl(r.body, 'flex-basis') === '100%'), 'the tool row\'s facts on a phone: their own line');
+  const grid = RULES.filter(r => !r.at.length && r.sel.join(', ') === '.facts' && decl(r.body, 'display') === 'grid');
+  assert.strictEqual(grid.length, 1, 'the dl.facts grid');
+});
+rule('One header: the save state in a status line reads whole: no fixed width or end-justified box clips its start, and it wraps on a phone', () => {
+  const st = RULES.filter(r => !r.atRule && r.sel.some(x => /\.fpe-state\b/.test(x) && !/\.fpe-state\.(dirty|just)\b|\.fpe-state \.ic\b/.test(x)));
+  st.forEach(r => {
+    const w = decl(r.body, 'width'); assert.ok(w === null || w === 'auto', 'a fixed width on the save state: ' + r.sel.join(', ') + ' width: ' + w);
+    assert.notStrictEqual(decl(r.body, 'justify-content'), 'flex-end', 'an end-justified save state overflows at its start: ' + r.sel.join(', '));
+  });
+  const sv = RULES.filter(r => !r.at.length && r.sel.join(', ') === '.hd-st .d.sv');
+  assert.strictEqual(sv.length, 1, 'the status line\'s save-state piece has its own rule');
+  assert.strictEqual(decl(sv[0].body, 'white-space'), 'normal', 'it wraps');
+  assert.strictEqual(decl(sv[0].body, 'overflow'), 'visible', 'it clips nothing');
+});
 run();

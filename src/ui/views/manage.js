@@ -167,7 +167,7 @@
        then the tool row: Undo, Redo, History | Builder | Markdown. History is a phone-only copy in More too. */
     var seg = '<div class="seg" role="group" aria-label="Edit with"><button type="button" data-act="ed-mode" data-id="builder" aria-pressed="' + builder + '">Builder</button><button type="button" data-act="ed-mode" data-id="markdown" aria-pressed="' + !builder + '">Markdown</button></div>';
     var phone = '<button type="button" class="mini ph-only" data-act="hist-open" data-id="draft" aria-haspopup="dialog">' + I('clock') + 'History</button>';
-    var parts = [{ kind: 'd', html: '<span class="fpe-state' + (dirty ? ' dirty' : '') + (just ? ' just' : '') + '" role="status" title="maps/drafts/' + esc(file) + (size ? ' · ' + size : '') + '">' + (just ? I('check') : '') + 'Draft: ' + status + '</span>' },
+    var parts = [{ kind: 'd', cls: 'sv', html: '<span class="fpe-state' + (dirty ? ' dirty' : '') + (just ? ' just' : '') + '" role="status" title="maps/drafts/' + esc(file) + (size ? ' · ' + size : '') + '">' + (just ? I('check') : '') + 'Draft: ' + status + '</span>' },
       { kind: 'act', html: '<button type="button" class="linkish fpe-discard" data-act="revert-draft" data-id="' + esc(p.id) + '"' + (dirty ? '' : ' hidden') + '>Discard my changes</button>' }];
     var h = '<div class="fpe" id="fpe">' + wsHead(ctx, p, { practice: false, hid: 'ed-h', status: parts, phone: phone }) + V.toolRow([V.undoBar('draft', ed && ed.tl), seg], '', { label: 'Editing tools' });
     /* Messages and conflicts stay in view, right under the header. */
@@ -365,7 +365,7 @@
        the form all go inert behind the phone's Preview. */
     var h = '<div class="fpe fpe-type" id="tfe">' + V.workHead({ hid: 'tf-h', h1attrs: ' tabindex="-1"', attrs: behind, h1: esc(name), h1tail: ' <span class="cat">Step type</span>',
       back: o && o.ws ? V.backc('type-done', null, o.place, o.view) : V.backc('type-done', null, 'Step types'),
-      status: [{ kind: 'd', html: '<span class="fpe-state' + (changed ? ' dirty' : '') + (just ? ' just' : '') + '" role="status">' + (f.existing && !changed && !f.saving ? I('check') : '') + status + '</span>' }],
+      status: [{ kind: 'd', cls: 'sv', html: '<span class="fpe-state' + (changed ? ' dirty' : '') + (just ? ' just' : '') + '" role="status">' + (f.existing && !changed && !f.saving ? I('check') : '') + status + '</span>' }],
       acts: '<button class="btn go" type="submit" form="type-form"' + (f.saving ? ' disabled' : '') + (why ? ' aria-describedby="tf-save-why"' : '') + '>' + (f.saving ? 'Saving…' : 'Save step type') + '</button>',
       more: V.moreMenu(ctx, V.moreGroup('On this screen', '<button type="button" class="mini ph-only" data-act="hist-open" data-id="type" aria-haspopup="dialog">' + I('clock') + 'History</button>') + V.appGroup(ctx)),
       why: why ? '<p class="small hd-why tf-why" id="tf-save-why">' + esc(why) + '</p>' : '' }) +

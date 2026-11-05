@@ -188,6 +188,7 @@ rule('Workspace: one header on both views: ‹ <title> top left, Edit | Practice
     assert.ok(h, view + ': the shared header');
     assert.deepStrictEqual(backs(h).map(b => [b.text, b.label]), [['Overview', 'Back to Overview of Production release']], view);
     assert.ok(new RegExp('<h1 id="(ed-h|run-h)"><span class="hd-t" title="Production release">Production release</span><span class="sr">, ' + (view === 'edit' ? 'Edit' : 'Practice') + '</span></h1>').test(h), view + ': the h1 is the visible title and names the view');
+    if (view === 'edit') assert.ok(/<p class="hd-st"><span class="d sv"><span class="fpe-state[^"]*" role="status"/.test(h), 'edit: the save state is the status line\'s whole-reading piece');
     assert.strictEqual(strips(app.html()), 1, view + ': one view control');
     assert.deepStrictEqual(buttons(strip(h)).map(b => [b.text.split(' · ')[0], b.current]), [['Edit', view === 'edit'], ['Practice', view === 'practice']], view);
     assert.ok(!/Review &amp; publish|Review & publish|Done practicing|Back to the draft|Back to practice/.test(app.html()), view + ': no old way out');
