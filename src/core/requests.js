@@ -148,7 +148,12 @@ PF.requests = (function () {
       if (!pub) return { errors: ['None of the versions of ' + intent.process + ' can be used here, so it can\'t be requested.'] };
     }
     var meta = pub.map.meta, errors = [], title = (meta.title || intent.process) + ' v' + pub.info.version;
-    Object.keys(s.details || {}).forEach(function (k) { if (meta.context.indexOf(k) < 0) errors.push(q(k) + ' isn\'t a run detail of ' + title + '. It has: ' + (meta.context.join(', ') || 'none') + '.'); });
+    Object.keys(s.details || {}).forEach(function (k) {
+      if (meta.context.indexOf(k) < 0) { errors.push(q(k) + ' isn\'t a run detail of ' + title + '. It has: ' + (meta.context.join(', ') || 'none') + '.'); return; }
+      /* A pattern's value is checked as given, untrimmed, as the run will check it when it starts (Appendix A.5). */
+      var dt = meta.detailTypes && Object.prototype.hasOwnProperty.call(meta.detailTypes, k) ? meta.detailTypes[k] : null;
+      if (dt && dt.kind === 'pattern') { var pv = PF.values.parse({ kind: 'pattern', label: k, pattern: dt.pattern }, s.details[k], { max: PF.values.DETAIL_MAX }); if (!pv.ok) errors.push('Run detail ' + q(k) + ': ' + pv.why); }
+    });
     Object.keys(s.roles || {}).forEach(function (k) { if (meta.roles.indexOf(k) < 0) errors.push(q(k) + ' isn\'t a role in ' + title + '. It has: ' + (meta.roles.join(', ') || 'none') + '.'); });
     return errors.length ? { errors: errors } : { pub: pub };
   }

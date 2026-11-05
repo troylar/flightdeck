@@ -352,6 +352,8 @@ PF.jsearch = (function () {
   function buildLink(base, o) {
     var b = checkBase(base); if (!b.ok) return { ok: false, why: 'The Jira address ' + b.why };
     if (o.jql != null && badText(o.jql)) return { ok: false, why: 'The query has ' + badText(o.jql) + '.' };
+    /* A saved filter is a number and nothing else (as publishing checks it), so it can never add a parameter or a fragment. */
+    if (o.filter && !/^[1-9]\d{0,9}$/.test(String(o.filter).trim())) return { ok: false, why: 'The filter should be a saved filter\'s number, like 12345.' };
     var href = o.filter ? b.base + '/issues/?filter=' + String(o.filter).trim() : b.base + '/issues/?jql=' + strictEncode(o.jql);
     if (href.length > LINK_MAX) return { ok: false, why: 'The link would be ' + href.length + ' characters, over ' + LINK_MAX + '; copy the query instead, or save it as a Jira filter.' };
     if (!PF.util.safeUrl(href)) return { ok: false, why: 'The link failed Flightdeck\'s link check.' };
@@ -396,7 +398,8 @@ PF.jsearch = (function () {
     if (!practice) {
       if (!curId) return { error: 'This search has no current search, so results can\'t be recorded for it. Refresh the search, then search again.', field: 'searchId' };
       if (str('searchId') !== curId) return { error: str('searchId') ? 'These results are for an earlier search (a run detail it used has changed). Search again.' : 'These results don\'t say which search they are for.', field: 'searchId' };
-      out.searchId = curId;
+      /* The evidence keeps the searchId it was entered with (just checked to be the current one); it's never replaced. */
+      out.searchId = str('searchId');
     }
     var c = str('count');
     if (!c) return { error: 'The number of results is needed to check this step.', field: 'count' };

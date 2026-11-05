@@ -1444,9 +1444,9 @@ PF.repo = (function () {
       return { latest: i.latest, all: i.all, clashes: i.clashes, broken: pubs.filter(function (x) { return !x.ok; }) };
     });
   }
-  /* team-values.json read now (2.9), for a draft that passes a team value; otherwise nothing is read. */
+  /* team-values.json read now (2.9), for a draft that passes a team value or has a Jira search; otherwise nothing is read. */
   function teamValuesFor(fs, parsed) {
-    var uses = PF.map.steps(parsed).some(function (x) { return x.step.type === 'run.process' && PF.links.teams(x.step).length; });
+    var uses = PF.publish.teamValuesUsed(parsed);
     return uses ? readTeamValues(fs) : Promise.resolve(null);
   }
   function publish(fs, draftMd, opts) {

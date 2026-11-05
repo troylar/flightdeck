@@ -1658,9 +1658,9 @@ async function readInputs(eng, text, ra, L, everything) {
     p.pubs.filter((x) => !x.ok && !x._readFailed).forEach((x) => { const k = PF.appjson.pubProblem(x); L.note('publications/' + p.process + '/' + x.folder + '/', k.kind, k.why); });
     return { id: p.process, latest: p.index.latest, all: p.index.all, clashes: p.index.clashes, broken: p.pubs.filter((x) => !x.ok) };
   });
-  /* Team values (2.9), read only for a text that passes one, as publishing reads them. */
+  /* Team values (2.9), read only for a text that passes one or has a Jira search (its address), as publishing reads them. */
   let teamValues;
-  if (M.steps(map).some((x) => x.step.type === 'run.process' && PF.links.teams(x.step).length)) {
+  if (PF.publish.teamValuesUsed(map)) {
     teamValues = await repo.readTeamValues(rfs);
     if (teamValues.state !== 'ok' && teamValues.state !== 'missing' && !failedAt(PF.teamValues.FILE)) L.note(PF.teamValues.FILE, teamValues.state, teamValues.why || PF.teamValues.FILE + ' couldn\'t be read.');
   }

@@ -302,7 +302,20 @@ PF.run = (function () {
     if (w.workflow.statuses.indexOf(f.status) < 0 || !PF.jira.into(w.workflow, f.status).length) return 'Jira\'s ' + w.type + ' workflow has no transition to "' + f.status + '". Statuses: ' + w.workflow.statuses.join(', ') + '.';
     return null;
   }
-  function checkEvidence(r, step, fields, values, partial, map) { var e = evidenceFor(r, step, fields, map); return PF.types.checkRecord(e.type, e.fields, values, partial, e.extra); }
+  function checkEvidence(r, step, fields, values, partial, map) {
+    var e = evidenceFor(r, step, fields, map), chk = PF.types.checkRecord(e.type, e.fields, values, partial, e.extra);
+    if (chk.error || !r || r.practice || !isSearchStep(step)) return chk;
+    /* Round 4 (settled): a search's results carry the searchId they were entered for, and only results for the search as
+       the run stands now count, whichever path brings them (typed, saved, reported, carried). */
+    var v = values || {}, any = JS.SEARCH_FIELDS.some(function (k) { return k !== 'searchId' && own(v, k) && v[k] != null && String(v[k]).trim() !== ''; });
+    if (!any) return chk;
+    var st; try { st = searchState(r, map || mapOf(r), step); } catch (err) { st = { ok: false, why: 'This search can\'t be built.' }; }
+    if (!st.ok) return { error: st.why, field: '' };
+    var have = own(v, 'searchId') && v.searchId != null ? String(v.searchId) : '';
+    if (!have) return { error: 'These results don\'t say which search they are for. Search again.', field: 'searchId' };
+    if (have !== st.id) return { error: 'These results are for an earlier search (a run detail it used has changed). Search again.', field: 'searchId' };
+    return chk;
+  }
   /* run.json keeps the latest LOG_MAX log entries and HISTORY_MAX earlier answers per step, so it stays small to read and save.
      Older ones aren't dropped: they go to r._overflow, which the save appends to the run's history file (see repo.saveRun). */
   function archive(r, rec) { rec.id = rec.id || U.randomId(10); (r._overflow = r._overflow || []).push(rec); }
@@ -578,7 +591,7 @@ PF.run = (function () {
     var extra = Object.keys(values || {}).filter(function (k) { return names.indexOf(k) < 0 && values[k] != null && String(values[k]) !== ''; });
     if (extra.length) return { error: '"' + extra[0] + '" isn\'t something this step records.', field: extra[0] };
     if (o.partial && !(values && values.count != null && String(values.count).trim())) {
-      if (!o.practice && values && values.searchId != null && String(values.searchId) !== st.id) return { error: 'These results are for an earlier search (a run detail it used has changed). Search again.', field: 'searchId' };
+      if (!o.practice && values && values.searchId != null && String(values.searchId) !== '' && String(values.searchId) !== st.id) return { error: 'These results are for an earlier search (a run detail it used has changed). Search again.', field: 'searchId' };
       return { values: all.values, meets: false };
     }
     var ms = typeof now === 'number' ? now : Date.parse(now);
@@ -951,7 +964,8 @@ PF.run = (function () {
       if (g && (g.s === 'passed' || g.s === 'waived')) r.gates[map.phases[x.phaseIndex].gate.id] = { s: 'review', was: g.s, by: g.by, at: g.at, reason: 'A child-run step changed', approved: g.approved };
     }
     if (values) {
-      var chk = checkEvidence(r, x.step, null, values, true);
+      /* A search's correction is checked with the results it corrects, so the searchId they were recorded with goes with it. */
+      var chk = checkEvidence(r, x.step, null, isSearchStep(x.step) ? Object.assign({}, (r.steps[id] && r.steps[id].values) || {}, values) : values, true);
       if (chk.error) { undo(); throw fail(chk.error, chk.field ? 'rec-' + chk.field : ''); }
       /* A search's results (section 5.2): the shape and the searchId always; a checked one must still meet the rule. */
       if (isSearchStep(x.step)) {
@@ -972,7 +986,8 @@ PF.run = (function () {
     }
     /* A checked step keeps the evidence its map requires: a correction can change it, never remove it. */
     if (checked) {
-      var missing = evidenceFor(r, x.step, Object.assign({}, x.step.fields, own)).list.filter(function (d) { return d.required && !((r.steps[id].values || {})[d.name]); })[0];
+      /* The shared check, with what applies (a field's notAt: keys at zero results), on the values as they'll be. */
+      var ek = evidenceFor(r, x.step, Object.assign({}, x.step.fields, own), map), missing = PF.types.missingRequired(ek.type, ek.fields, r.steps[id].values || {}, ek.extra);
       if (missing) { undo(); throw fail(missing.label + ' is required for this step, so it can\'t be removed while the step is checked. Undo the check first if it really wasn\'t done.', 'rec-' + missing.name); }
     }
     /* Correcting a checked step keeps the full earlier record in its history, including evidence the new values no longer use. */

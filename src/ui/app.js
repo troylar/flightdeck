@@ -7321,12 +7321,12 @@
       T.editable(t).forEach(function (f) { var el = document.getElementById('fld-' + f); if (el) fields[f] = inputValue(el); });
       /* Evidence is collected and checked against the fields as they'll be after this save, not as they were. */
       var merged = Object.assign({}, R.fieldsOf(r, x.step), fields);
-      R.evidenceFor(r, x.step, merged).list.forEach(function (d) { var el = document.getElementById('rec-' + d.name); if (el) values[d.name] = inputValue(el); });
+      R.evidenceFor(r, x.step, merged).list.forEach(function (d) { var el = document.getElementById('rec-' + d.name), v = el ? inputValue(el) : d.system ? V.evidenceDefault(ctx, r, x.step, d) : null; if (v != null) values[d.name] = v; });
       /* A search's results: what's on screen goes into the step's draft first, stamped, and searchBound is the one check. */
       if (R.isSearchStep(x.step)) {
         harvest();
         if (!searchBound(state.runKey, id)) { render(); return; }
-        values.searchId = R.searchId(r, R.mapOf(r), x.step) || '';
+        stampEvidence(values, draftOf(state.runKey, id, false));
       }
       var chk = R.checkEvidence(r, x.step, merged, values, true);
       if (chk.error) { state.fieldErr = { id: id, msg: chk.error, field: chk.field ? 'rec-' + chk.field : '' }; state.focus = chk.field ? '#' + cssEsc('rec-' + chk.field) : '[aria-invalid="true"]'; render(); return; }
@@ -8781,7 +8781,14 @@
     var pub = p.latest, details = {}, roles = {};
     if (e.target.dataset.folder !== pub.info.folder) { say('A new version was published while you were filling this in. Check the form, then save again.', 'warn'); render(); return; }
     var planMap = R.mapOf(pub.info && pub.md ? { folder: pub.info.folder, mapHash: pub.info.mapHash, snapshot: pub.md } : { snapshot: '' }), planUnit = PF.values.unitOf(M.features(planMap));
-    e.target.querySelectorAll('[data-detail]').forEach(function (el) { var v = String(inputValue(el) || '').trim(); if (v) details[el.dataset.detail] = PF.values.cut(null, v, PF.values.DETAIL_MAX, planUnit).value; });
+    var patBad = null;
+    e.target.querySelectorAll('[data-detail]').forEach(function (el) {
+      var raw = String(inputValue(el) || ''), v = raw.trim(), pd = R.detailValueDef(planMap, el.dataset.detail);
+      /* A pattern's value is checked as typed, untrimmed (Appendix A.5): refused, never cleaned. */
+      if (pd && pd.kind === 'pattern' && raw !== '') { var pp = PF.values.parse(pd, raw, { max: PF.values.DETAIL_MAX }); if (!pp.ok) { patBad = patBad || { id: el.id, why: pp.why }; return; } v = pp.canonical; }
+      if (v) details[el.dataset.detail] = PF.values.cut(null, v, PF.values.DETAIL_MAX, planUnit).value;
+    });
+    if (patBad) { say(patBad.why, 'warn'); state.focus = patBad.id ? '#' + cssEsc(patBad.id) : null; render(); return; }
     e.target.querySelectorAll('[data-role]').forEach(function (el) { if (el.value) roles[el.dataset.role] = el.value; });
     if (val('start-mode') === 'solo') pub.map.meta.roles.forEach(function (ro) { roles[ro] = state.me; });
     if (approverMissing(pub, roles)) return;
@@ -9145,6 +9152,14 @@
     if (state.msg && state.msg.text && state.msg.text.indexOf(note) < 0 && !state.msg.act) state.msg = { text: state.msg.text + ' ' + note, kind: 'warn' }; else say(note, 'warn');
     return false;
   }
+  /* The one place evidence gets its searchId (round 4, settled): results typed into a draft take the draft's stamp (the
+     search current at the first keystroke, which searchBound has just held to the run's search); anything else keeps the
+     searchId it was recorded with, copied with the value by V.evidenceDefault, which offers saved results only for the
+     search they were recorded for. The current search is never put on evidence that wasn't entered for it. */
+  function stampEvidence(values, d) {
+    if (d && d.stamp && (Object.keys(d.record).length || Object.keys(d.fields).length)) values.searchId = d.stamp.id;
+    return values;
+  }
   /* Every stamped draft in this folder, checked whenever the screen is drawn. */
   function searchBoundAll() {
     var pre = fsKey() + '\n';
@@ -9415,9 +9430,8 @@
         var k = 'rec-' + ev.name;
         values[ev.name] = d && Object.prototype.hasOwnProperty.call(d.record, k) ? d.record[k] : V.evidenceDefault(ctx, r, x.step, ev);
       });
-      /* A search's searchId is Flightdeck's own: the search as the run stands now, never typed (design section 2). */
-      /* searchBound held: whatever was typed was typed for the search as it is now. */
-      if (R.isSearchStep(x.step)) values.searchId = R.searchId(r, map, x.step) || '';
+      /* A search's searchId belongs to its evidence: what was typed takes its draft's stamp, saved results keep theirs. */
+      if (R.isSearchStep(x.step)) stampEvidence(values, d);
       var chk = R.checkEvidence(r, x.step, null, Object.assign({}, (a && a.s !== 'recheck' && a.values) || {}, values));
       if (chk.error) return { why: chk.error, focus: chk.field ? 'rec-' + chk.field : '[aria-invalid="true"]', field: chk.field ? 'rec-' + chk.field : '' };
       var seen; try { seen = skillSeen(r, x.step); } catch (e) { return { why: e.message, focus: '[data-act="refresh"]' }; }

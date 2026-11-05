@@ -3091,17 +3091,20 @@ PF.values = (function () {
   function parse(def, raw, opts) {
     var t = trim(raw), k = kindOf(def), max = opts && opts.max;
     function no(why) { return { ok: false, canonical: '', why: why }; }
-    if (!t) return { ok: true, canonical: '' };
-    var out = t;
     /* 2.16 (detail-patterns): the whole value must match, by Flightdeck's own linear matcher, never RegExp; counted in code
-       points. A value that doesn't parse is refused with the pattern shown. */
+       points. It's checked exactly as entered (Appendix A.5): a line break, U+0085 or a space around it is refused, never
+       trimmed away. A value that doesn't parse is refused with the pattern shown. */
     if (k === 'pattern') {
+      t = raw == null ? '' : typeof raw === 'string' ? raw : trim(raw);
+      if (t === '') return { ok: true, canonical: '' };
       var pc = compilePattern(def.pattern);
       if (!pc.ok) return no(cap(name(def)) + '\'s pattern can\'t be read (' + pc.why.replace(/\.$/, '') + ').');
       var bt = badText(t); if (bt) return no(cap(name(def)) + ' has ' + bt + '.');
       if (max && Array.from(t).length > max) return no(cap(name(def)) + ' can be at most ' + max + ' characters.');
       return matchPattern(pc, t).ok ? { ok: true, canonical: t } : no(cap(name(def)) + ' should match ' + String(def.pattern).slice(0, 80) + '.');
     }
+    if (!t) return { ok: true, canonical: '' };
+    var out = t;
     if (k === 'number') {
       out = INNER_WS.test(t) ? null : toNumber(t);
       if (out == null) return no('Type a number, like 12 or 3.5.');
@@ -3724,7 +3727,9 @@ PF.types = (function () {
   /* Only required evidence interrupts the check; optional fields ride along when the form opens. */
   function needsRecord(type, fields, extra) { return recordFields(type, fields, extra).some(function (d) { return d.required; }); }
   /* Check recorded values; returns { values } or { error }. partial: saving values before the step is checked, so nothing is required yet. */
-  function checkRecord(type, fields, values, partial, extra) {
+  /* The first required field that applies (notAt honored) and has no value, as a record definition, or null. */
+  function missingRequired(type, fields, values, extra) { var info = {}; checkRecord(type, fields, values, false, extra, info); return info.missing || null; }
+  function checkRecord(type, fields, values, partial, extra, info) {
     var out = {}, list = recordFields(type, fields, extra);
     values = values || {};
     for (var i = 0; i < list.length; i++) {
@@ -3737,12 +3742,12 @@ PF.types = (function () {
       if (PF.values.isNew(d.kind) || (d.detailKind && d.detailKind !== 'text')) {
         var p = PF.values.parse(d, raw == null ? '' : raw, { max: d.cap || 300 });
         if (!p.ok) return { error: p.why, field: d.name };
-        if (!p.canonical) { if (d.required && !partial) return { error: d.label + ' is needed to check this step.', field: d.name }; continue; }
+        if (!p.canonical) { if (d.required && !partial) { if (info) info.missing = d; return { error: d.label + ' is needed to check this step.', field: d.name }; } continue; }
         out[d.name] = p.canonical;
         continue;
       }
       if (v.length > (d.cap || 300)) return { error: d.label + ' can be at most ' + (d.cap || 300) + ' characters.', field: d.name };
-      if (!v) { if (d.required && !partial) return { error: d.label + ' is needed to check this step.', field: d.name }; continue; }
+      if (!v) { if (d.required && !partial) { if (info) info.missing = d; return { error: d.label + ' is needed to check this step.', field: d.name }; } continue; }
       if (d.kind === 'url' && !/^https?:\/\/\S+$/i.test(v)) return { error: d.label + ' should be a web link (https://…).', field: d.name };
       if (d.kind === 'choice' && !hasOption(d, fields, v)) return { error: d.label + ' should be one of: ' + d.options.join(', ') + '.', field: d.name };
       out[d.name] = d.kind === 'choice' ? canonical(d, fields, v) : v;
@@ -3828,7 +3833,7 @@ PF.types = (function () {
     return out;
   }
 
-  return { ID: ID, ID_MAX: ID_MAX, VERSION: VERSION, SEARCH: SEARCH, SEARCH_VERSION: SEARCH_VERSION, isSearch: isSearch, uses2: uses2, LIST: LIST, COMMON: COMMON, applies: applies, EVIDENCE_KINDS: Object.freeze(Object.keys(EVIDENCE)), PINS: PINS, ICONS: ICONS_OK, get: get, fieldDef: fieldDef, options: options, hasOption: hasOption, canonical: canonical, checkFields: checkFields, understood: understood, editable: editable, relevant: relevant, checkCustom: checkCustom, customType: customType, recordFields: recordFields, needsRecord: needsRecord, checkRecord: checkRecord, freeze: freeze, groupOf: groupOf, tagsOf: tagsOf, nameOf: nameOf, aliasOf: aliasOf, groupText: groupText, tagText: tagText,
+  return { ID: ID, ID_MAX: ID_MAX, VERSION: VERSION, SEARCH: SEARCH, SEARCH_VERSION: SEARCH_VERSION, isSearch: isSearch, uses2: uses2, LIST: LIST, COMMON: COMMON, applies: applies, EVIDENCE_KINDS: Object.freeze(Object.keys(EVIDENCE)), PINS: PINS, ICONS: ICONS_OK, get: get, fieldDef: fieldDef, options: options, hasOption: hasOption, canonical: canonical, checkFields: checkFields, understood: understood, editable: editable, relevant: relevant, checkCustom: checkCustom, customType: customType, recordFields: recordFields, needsRecord: needsRecord, checkRecord: checkRecord, missingRequired: missingRequired, freeze: freeze, groupOf: groupOf, tagsOf: tagsOf, nameOf: nameOf, aliasOf: aliasOf, groupText: groupText, tagText: tagText,
     fileText: fileText, formatWhy: formatWhy, markerWhy: markerWhy, unusedKeys: unusedKeys, removed: removed, inUse: inUse };
 })();
 
@@ -4186,6 +4191,8 @@ PF.jsearch = (function () {
   function buildLink(base, o) {
     var b = checkBase(base); if (!b.ok) return { ok: false, why: 'The Jira address ' + b.why };
     if (o.jql != null && badText(o.jql)) return { ok: false, why: 'The query has ' + badText(o.jql) + '.' };
+    /* A saved filter is a number and nothing else (as publishing checks it), so it can never add a parameter or a fragment. */
+    if (o.filter && !/^[1-9]\d{0,9}$/.test(String(o.filter).trim())) return { ok: false, why: 'The filter should be a saved filter\'s number, like 12345.' };
     var href = o.filter ? b.base + '/issues/?filter=' + String(o.filter).trim() : b.base + '/issues/?jql=' + strictEncode(o.jql);
     if (href.length > LINK_MAX) return { ok: false, why: 'The link would be ' + href.length + ' characters, over ' + LINK_MAX + '; copy the query instead, or save it as a Jira filter.' };
     if (!PF.util.safeUrl(href)) return { ok: false, why: 'The link failed Flightdeck\'s link check.' };
@@ -4230,7 +4237,8 @@ PF.jsearch = (function () {
     if (!practice) {
       if (!curId) return { error: 'This search has no current search, so results can\'t be recorded for it. Refresh the search, then search again.', field: 'searchId' };
       if (str('searchId') !== curId) return { error: str('searchId') ? 'These results are for an earlier search (a run detail it used has changed). Search again.' : 'These results don\'t say which search they are for.', field: 'searchId' };
-      out.searchId = curId;
+      /* The evidence keeps the searchId it was entered with (just checked to be the current one); it's never replaced. */
+      out.searchId = str('searchId');
     }
     var c = str('count');
     if (!c) return { error: 'The number of results is needed to check this step.', field: 'count' };
@@ -7166,8 +7174,11 @@ PF.publish = (function () {
     var types = [], has = function (f) { return M.steps(map).some(f); };
     M.steps(map).forEach(function (x) { var t = x.step.type; if (t && !T.get(t, {}) && types.indexOf(t) < 0) types.push(t); });
     return { people: !!(map.meta.owner || map.meta.backup), types: types, workflows: has(function (x) { return x.step.type === 'jira.issue'; }),
-      teamValues: has(function (x) { return x.step.type === 'run.process' && PF.links.teams(x.step).length > 0; }), publications: true, shots: M.shotSources(map) };
+      teamValues: teamValuesUsed(map), publications: true, shots: M.shotSources(map) };
   }
+  /* Whether a text reads team-values.json: a linked step that passes a team value (2.9), or a Jira search, whose address is
+     one (2.16, site: team:<name>). Draft check, publish and stage all read the file for exactly these. */
+  function teamValuesUsed(map) { return M.steps(map).some(function (x) { return (x.step.type === 'run.process' && PF.links.teams(x.step).length > 0) || x.step.type === PF.types.SEARCH; }); }
   function uses(u, x, shots) {
     var i = inputOf(x, shots);
     if (!i) return false;
@@ -7506,7 +7517,7 @@ PF.publish = (function () {
     return hit ? out(hit, false) : out(latest, true);
   }
 
-  return { STAGE: STAGE, stageName: stageName, promoteRecord: promoteRecord, FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, canonical: canonical, payloadHash: payloadHash, features: features, payloadFiles: payloadFiles, FEATURE_NAMES: FEATURE_NAMES, needs: needs, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, checkOptions: checkOptions, excludedOf: excludedOf, unknownOf: unknownOf, usesOf: usesOf, uses: uses, checkContext: checkContext, publishCheck: publishCheck, verify: verify, exactOf: exactOf, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
+  return { STAGE: STAGE, stageName: stageName, promoteRecord: promoteRecord, FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, canonical: canonical, payloadHash: payloadHash, features: features, payloadFiles: payloadFiles, FEATURE_NAMES: FEATURE_NAMES, needs: needs, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, checkOptions: checkOptions, excludedOf: excludedOf, unknownOf: unknownOf, usesOf: usesOf, teamValuesUsed: teamValuesUsed, uses: uses, checkContext: checkContext, publishCheck: publishCheck, verify: verify, exactOf: exactOf, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
 })();
 
 /* Staging (2.1, docs/design.md section 31): a stage is a version only test runs use until someone makes it the default. Pure,
@@ -8043,7 +8054,20 @@ PF.run = (function () {
     if (w.workflow.statuses.indexOf(f.status) < 0 || !PF.jira.into(w.workflow, f.status).length) return 'Jira\'s ' + w.type + ' workflow has no transition to "' + f.status + '". Statuses: ' + w.workflow.statuses.join(', ') + '.';
     return null;
   }
-  function checkEvidence(r, step, fields, values, partial, map) { var e = evidenceFor(r, step, fields, map); return PF.types.checkRecord(e.type, e.fields, values, partial, e.extra); }
+  function checkEvidence(r, step, fields, values, partial, map) {
+    var e = evidenceFor(r, step, fields, map), chk = PF.types.checkRecord(e.type, e.fields, values, partial, e.extra);
+    if (chk.error || !r || r.practice || !isSearchStep(step)) return chk;
+    /* Round 4 (settled): a search's results carry the searchId they were entered for, and only results for the search as
+       the run stands now count, whichever path brings them (typed, saved, reported, carried). */
+    var v = values || {}, any = JS.SEARCH_FIELDS.some(function (k) { return k !== 'searchId' && own(v, k) && v[k] != null && String(v[k]).trim() !== ''; });
+    if (!any) return chk;
+    var st; try { st = searchState(r, map || mapOf(r), step); } catch (err) { st = { ok: false, why: 'This search can\'t be built.' }; }
+    if (!st.ok) return { error: st.why, field: '' };
+    var have = own(v, 'searchId') && v.searchId != null ? String(v.searchId) : '';
+    if (!have) return { error: 'These results don\'t say which search they are for. Search again.', field: 'searchId' };
+    if (have !== st.id) return { error: 'These results are for an earlier search (a run detail it used has changed). Search again.', field: 'searchId' };
+    return chk;
+  }
   /* run.json keeps the latest LOG_MAX log entries and HISTORY_MAX earlier answers per step, so it stays small to read and save.
      Older ones aren't dropped: they go to r._overflow, which the save appends to the run's history file (see repo.saveRun). */
   function archive(r, rec) { rec.id = rec.id || U.randomId(10); (r._overflow = r._overflow || []).push(rec); }
@@ -8319,7 +8343,7 @@ PF.run = (function () {
     var extra = Object.keys(values || {}).filter(function (k) { return names.indexOf(k) < 0 && values[k] != null && String(values[k]) !== ''; });
     if (extra.length) return { error: '"' + extra[0] + '" isn\'t something this step records.', field: extra[0] };
     if (o.partial && !(values && values.count != null && String(values.count).trim())) {
-      if (!o.practice && values && values.searchId != null && String(values.searchId) !== st.id) return { error: 'These results are for an earlier search (a run detail it used has changed). Search again.', field: 'searchId' };
+      if (!o.practice && values && values.searchId != null && String(values.searchId) !== '' && String(values.searchId) !== st.id) return { error: 'These results are for an earlier search (a run detail it used has changed). Search again.', field: 'searchId' };
       return { values: all.values, meets: false };
     }
     var ms = typeof now === 'number' ? now : Date.parse(now);
@@ -8692,7 +8716,8 @@ PF.run = (function () {
       if (g && (g.s === 'passed' || g.s === 'waived')) r.gates[map.phases[x.phaseIndex].gate.id] = { s: 'review', was: g.s, by: g.by, at: g.at, reason: 'A child-run step changed', approved: g.approved };
     }
     if (values) {
-      var chk = checkEvidence(r, x.step, null, values, true);
+      /* A search's correction is checked with the results it corrects, so the searchId they were recorded with goes with it. */
+      var chk = checkEvidence(r, x.step, null, isSearchStep(x.step) ? Object.assign({}, (r.steps[id] && r.steps[id].values) || {}, values) : values, true);
       if (chk.error) { undo(); throw fail(chk.error, chk.field ? 'rec-' + chk.field : ''); }
       /* A search's results (section 5.2): the shape and the searchId always; a checked one must still meet the rule. */
       if (isSearchStep(x.step)) {
@@ -8713,7 +8738,8 @@ PF.run = (function () {
     }
     /* A checked step keeps the evidence its map requires: a correction can change it, never remove it. */
     if (checked) {
-      var missing = evidenceFor(r, x.step, Object.assign({}, x.step.fields, own)).list.filter(function (d) { return d.required && !((r.steps[id].values || {})[d.name]); })[0];
+      /* The shared check, with what applies (a field's notAt: keys at zero results), on the values as they'll be. */
+      var ek = evidenceFor(r, x.step, Object.assign({}, x.step.fields, own), map), missing = PF.types.missingRequired(ek.type, ek.fields, r.steps[id].values || {}, ek.extra);
       if (missing) { undo(); throw fail(missing.label + ' is required for this step, so it can\'t be removed while the step is checked. Undo the check first if it really wasn\'t done.', 'rec-' + missing.name); }
     }
     /* Correcting a checked step keeps the full earlier record in its history, including evidence the new values no longer use. */
@@ -15742,7 +15768,12 @@ PF.requests = (function () {
       if (!pub) return { errors: ['None of the versions of ' + intent.process + ' can be used here, so it can\'t be requested.'] };
     }
     var meta = pub.map.meta, errors = [], title = (meta.title || intent.process) + ' v' + pub.info.version;
-    Object.keys(s.details || {}).forEach(function (k) { if (meta.context.indexOf(k) < 0) errors.push(q(k) + ' isn\'t a run detail of ' + title + '. It has: ' + (meta.context.join(', ') || 'none') + '.'); });
+    Object.keys(s.details || {}).forEach(function (k) {
+      if (meta.context.indexOf(k) < 0) { errors.push(q(k) + ' isn\'t a run detail of ' + title + '. It has: ' + (meta.context.join(', ') || 'none') + '.'); return; }
+      /* A pattern's value is checked as given, untrimmed, as the run will check it when it starts (Appendix A.5). */
+      var dt = meta.detailTypes && Object.prototype.hasOwnProperty.call(meta.detailTypes, k) ? meta.detailTypes[k] : null;
+      if (dt && dt.kind === 'pattern') { var pv = PF.values.parse({ kind: 'pattern', label: k, pattern: dt.pattern }, s.details[k], { max: PF.values.DETAIL_MAX }); if (!pv.ok) errors.push('Run detail ' + q(k) + ': ' + pv.why); }
+    });
     Object.keys(s.roles || {}).forEach(function (k) { if (meta.roles.indexOf(k) < 0) errors.push(q(k) + ' isn\'t a role in ' + title + '. It has: ' + (meta.roles.join(', ') || 'none') + '.'); });
     return errors.length ? { errors: errors } : { pub: pub };
   }
@@ -16073,7 +16104,7 @@ PF.reports = (function () {
       var d = dm[1], known = ctxNames.indexOf(d) >= 0, have = known && r && r.details && own(r.details, d) && typeof r.details[d] === 'string' ? r.details[d].trim() : '';
       var row = { name: x.name, source: x.source, detail: d, want: x.value, have: have, tied: binds.indexOf(d) >= 0 };
       /* A typed run detail (2.0) is stored canonical: the report's value is compared as that kind reads it ("1234.50" is 1234.5). */
-      var def = known ? R.typedDef(r, map, 'details.' + d) : null, want = String(x.value).trim(), p = def && def.kind && def.kind !== 'text' ? PF.values.parse(def, want, {}) : null;
+      var def = known ? R.typedDef(r, map, 'details.' + d) : null, want = String(x.value).trim(), p = def && def.kind && def.kind !== 'text' ? PF.values.parse(def, def.kind === 'pattern' ? String(x.value) : want, {}) : null;
       if (p && p.ok && p.canonical) want = p.canonical;
       row.result = !known ? 'mismatch' : !have ? 'mismatch' : have === want ? 'match' : 'mismatch';
       row.why = !known ? d + ' isn\'t a run detail of this checklist' : !have ? 'the run has no ' + d + ' yet' : '';
@@ -17652,6 +17683,8 @@ PF.practice = (function () {
   function setSample(state, map, name, value, types) {
     if ((map.meta.context || []).indexOf(name) < 0) return { error: 'That run detail isn\'t in the draft.' };
     var v = String(value == null ? '' : value).trim(), def = R.detailValueDef(map, name);
+    /* A pattern's value is checked as typed, untrimmed (Appendix A.5). */
+    if (def && def.kind === 'pattern') v = String(value == null ? '' : value);
     if (v && def) { var p = PF.values.parse(def, v, { max: PF.values.DETAIL_MAX }); if (!p.ok) return { error: p.why }; v = p.canonical; }
     var st = copy(state);
     if (v) { var c = PF.values.cut(def, v, PF.values.DETAIL_MAX, unitOf(map)); if (c.why) return { error: c.why }; st.sample[name] = c.value; } else delete st.sample[name];
@@ -19304,9 +19337,9 @@ PF.repo = (function () {
       return { latest: i.latest, all: i.all, clashes: i.clashes, broken: pubs.filter(function (x) { return !x.ok; }) };
     });
   }
-  /* team-values.json read now (2.9), for a draft that passes a team value; otherwise nothing is read. */
+  /* team-values.json read now (2.9), for a draft that passes a team value or has a Jira search; otherwise nothing is read. */
   function teamValuesFor(fs, parsed) {
-    var uses = PF.map.steps(parsed).some(function (x) { return x.step.type === 'run.process' && PF.links.teams(x.step).length; });
+    var uses = PF.publish.teamValuesUsed(parsed);
     return uses ? readTeamValues(fs) : Promise.resolve(null);
   }
   function publish(fs, draftMd, opts) {
@@ -24247,13 +24280,13 @@ PF.vk = (function () {
       var eff = R.fieldsOf(r, st), own = (r.fields || {})[st.id] || {}, eff2 = Object.assign({}, eff, draft), recFields2 = P ? [] : R.evidenceFor(r, st, eff2, map).list.filter(function (d) { return !d.system; });
       /* A Jira issue type or status the team's workflows don't have says why beside its box, as soon as it's chosen. */
       var jf = V.jiraFill && !P ? V.jiraFill(r, st, eff2) : null, jid = 'jwhy-' + st.id;
-      recBody = '<div class="pick record" data-scope="fields:' + esc(st.id) + '"><span class="small">Fill in or correct this step\'s values for ' + (P ? 'practice' : 'this run') + '. Leave anything you don\'t know yet.</span>' + ferr(s, st.id) +
+      recBody = '<div class="pick record" data-scope="fields:' + esc(st.id) + '">' + (P ? '' : staleNote(r, st)) + '<span class="small">Fill in or correct this step\'s values for ' + (P ? 'practice' : 'this run') + '. Leave anything you don\'t know yet.</span>' + ferr(s, st.id) +
         T.relevant(t, eff2).concat(jf && T.relevant(t, eff2).indexOf(jf.field) < 0 && T.editable(t).indexOf(jf.field) >= 0 ? [jf.field] : []).filter(function (f) { return !(f === 'carry' && PF.links.has(st)); }).map(function (f) { var d = T.fieldDef(t, f), mine = jf && jf.field === f; return fieldInput('fld-' + f, d, dr.fields['fld-' + f] != null ? dr.fields['fld-' + f] : eff2[f] || '', 'save-fields', st.id, st.fields[f] && own[f] != null ? ' (checklist says: ' + st.fields[f] + ')' : '', mine ? jid : errFor(s, st.id, 'fld-' + f), gField(t, f, eff2)) + (mine ? '<p class="ferr" id="' + esc(jid) + '">' + esc(jf.why) + '</p>' : ''); }).join('') +
         (recFields2.length ? '<span class="small" style="margin-top:4px">Evidence</span>' + recFields2.map(function (d) { return fieldInput('rec-' + d.name, d, dr.fields['rec-' + d.name] != null ? dr.fields['rec-' + d.name] : dr.record['rec-' + d.name] != null ? dr.record['rec-' + d.name] : valueOf(d), 'save-fields', st.id, d.required ? ' (required to check it)' : '', errFor(s, st.id, 'rec-' + d.name), gRecord(t, d, eff2)); }).join('') : '') +
         '<span class="row"><button class="btn" data-act="save-fields" data-id="' + esc(st.id) + '">Save</button><button class="mini" data-act="unpick">Cancel</button></span></div>';
     } else if (showRec) {
       var search = R.isSearchStep(st) && !P;
-      recBody = '<div class="pick record" data-scope="record:' + esc(st.id) + '"><span class="small">' + (recFields.some(function (d) { return d.required; }) ? 'To check this step, record:' : 'You can record:') + '</span>' + ferr(s, st.id) + recFields.filter(function (d) { return !d.system; }).map(function (d) {
+      recBody = '<div class="pick record" data-scope="record:' + esc(st.id) + '">' + (search ? staleNote(r, st) : '') + '<span class="small">' + (recFields.some(function (d) { return d.required; }) ? 'To check this step, record:' : 'You can record:') + '</span>' + ferr(s, st.id) + recFields.filter(function (d) { return !d.system; }).map(function (d) {
         return fieldInput('rec-' + d.name, d, dr.record['rec-' + d.name] != null ? dr.record['rec-' + d.name] : valueOf(d), 'record', st.id, d.required ? '' : ' (optional)', errFor(s, st.id, 'rec-' + d.name), gRecord(t, d, R.fieldsOf(r, st)));
       }).join('') + (search && rec && r.state === 'running' ? '<div class="row"><button class="mini" data-act="search-block" data-id="' + esc(st.id) + '">Block with these</button><span class="small">When the results break the rule: blocks the step with them.</span></div>' : '') + '</div>';
     } else if (a && a.values) {
@@ -24641,10 +24674,26 @@ PF.vk = (function () {
   /* What an evidence box shows before anything is typed: the saved value, else one a Jira workflow fills in from the run. */
   function evidenceDefault(ctx, r, s, d) {
     var a = r.steps[s.id], saved = a && a.values && a.values[d.name];
+    /* A search's saved results belong to the search they were recorded for (round 4): results for an earlier one are
+       previous results, never offered again, so nothing reads them as evidence for the search as it is now. */
+    if (savedStale(r, s)) return '';
     if (saved) return saved;
     return d.source ? PF.jira.resolve(d.source, r.details, function (ro) { return r.roles[ro] ? nameOf(ctx, r.roles[ro]) : ''; }) : '';
   }
-  V.evidenceDefault = evidenceDefault;
+  /* A search step's saved results when they're for an earlier search than the run's now (practice has no identity). */
+  function savedStale(r, s) {
+    var a = r && !r.practice && r.steps[s.id];
+    if (!a || !a.values || !R.isSearchStep(s)) return null;
+    var cur; try { cur = R.searchId(r, R.mapOf(r), s); } catch (e) { cur = null; }
+    return a.values.searchId && a.values.searchId === cur ? null : a.values;
+  }
+  /* Saved results for an earlier search, shown as previous results with the section 5.3 notice. */
+  function staleNote(r, s) {
+    var v = savedStale(r, s); if (!v) return '';
+    var what = v.count != null && v.count !== '' ? String(v.count) + ' found' + (v.keys ? ' (' + String(v.keys).slice(0, 120) + ')' : '') : 'results';
+    return '<p class="small rw-why" role="status">Previous results: ' + esc(what) + '. Your saved results were for an earlier search. Search again.</p>';
+  }
+  V.evidenceDefault = evidenceDefault; V.savedStale = savedStale;
   V.run = run; V.recordShown = recordShown; V.runSel = selOf; K.ferr = ferr; K.fieldInput = fieldInput;
 })();
 
@@ -35792,12 +35841,12 @@ PF.examples = (function () {
       T.editable(t).forEach(function (f) { var el = document.getElementById('fld-' + f); if (el) fields[f] = inputValue(el); });
       /* Evidence is collected and checked against the fields as they'll be after this save, not as they were. */
       var merged = Object.assign({}, R.fieldsOf(r, x.step), fields);
-      R.evidenceFor(r, x.step, merged).list.forEach(function (d) { var el = document.getElementById('rec-' + d.name); if (el) values[d.name] = inputValue(el); });
+      R.evidenceFor(r, x.step, merged).list.forEach(function (d) { var el = document.getElementById('rec-' + d.name), v = el ? inputValue(el) : d.system ? V.evidenceDefault(ctx, r, x.step, d) : null; if (v != null) values[d.name] = v; });
       /* A search's results: what's on screen goes into the step's draft first, stamped, and searchBound is the one check. */
       if (R.isSearchStep(x.step)) {
         harvest();
         if (!searchBound(state.runKey, id)) { render(); return; }
-        values.searchId = R.searchId(r, R.mapOf(r), x.step) || '';
+        stampEvidence(values, draftOf(state.runKey, id, false));
       }
       var chk = R.checkEvidence(r, x.step, merged, values, true);
       if (chk.error) { state.fieldErr = { id: id, msg: chk.error, field: chk.field ? 'rec-' + chk.field : '' }; state.focus = chk.field ? '#' + cssEsc('rec-' + chk.field) : '[aria-invalid="true"]'; render(); return; }
@@ -37252,7 +37301,14 @@ PF.examples = (function () {
     var pub = p.latest, details = {}, roles = {};
     if (e.target.dataset.folder !== pub.info.folder) { say('A new version was published while you were filling this in. Check the form, then save again.', 'warn'); render(); return; }
     var planMap = R.mapOf(pub.info && pub.md ? { folder: pub.info.folder, mapHash: pub.info.mapHash, snapshot: pub.md } : { snapshot: '' }), planUnit = PF.values.unitOf(M.features(planMap));
-    e.target.querySelectorAll('[data-detail]').forEach(function (el) { var v = String(inputValue(el) || '').trim(); if (v) details[el.dataset.detail] = PF.values.cut(null, v, PF.values.DETAIL_MAX, planUnit).value; });
+    var patBad = null;
+    e.target.querySelectorAll('[data-detail]').forEach(function (el) {
+      var raw = String(inputValue(el) || ''), v = raw.trim(), pd = R.detailValueDef(planMap, el.dataset.detail);
+      /* A pattern's value is checked as typed, untrimmed (Appendix A.5): refused, never cleaned. */
+      if (pd && pd.kind === 'pattern' && raw !== '') { var pp = PF.values.parse(pd, raw, { max: PF.values.DETAIL_MAX }); if (!pp.ok) { patBad = patBad || { id: el.id, why: pp.why }; return; } v = pp.canonical; }
+      if (v) details[el.dataset.detail] = PF.values.cut(null, v, PF.values.DETAIL_MAX, planUnit).value;
+    });
+    if (patBad) { say(patBad.why, 'warn'); state.focus = patBad.id ? '#' + cssEsc(patBad.id) : null; render(); return; }
     e.target.querySelectorAll('[data-role]').forEach(function (el) { if (el.value) roles[el.dataset.role] = el.value; });
     if (val('start-mode') === 'solo') pub.map.meta.roles.forEach(function (ro) { roles[ro] = state.me; });
     if (approverMissing(pub, roles)) return;
@@ -37616,6 +37672,14 @@ PF.examples = (function () {
     if (state.msg && state.msg.text && state.msg.text.indexOf(note) < 0 && !state.msg.act) state.msg = { text: state.msg.text + ' ' + note, kind: 'warn' }; else say(note, 'warn');
     return false;
   }
+  /* The one place evidence gets its searchId (round 4, settled): results typed into a draft take the draft's stamp (the
+     search current at the first keystroke, which searchBound has just held to the run's search); anything else keeps the
+     searchId it was recorded with, copied with the value by V.evidenceDefault, which offers saved results only for the
+     search they were recorded for. The current search is never put on evidence that wasn't entered for it. */
+  function stampEvidence(values, d) {
+    if (d && d.stamp && (Object.keys(d.record).length || Object.keys(d.fields).length)) values.searchId = d.stamp.id;
+    return values;
+  }
   /* Every stamped draft in this folder, checked whenever the screen is drawn. */
   function searchBoundAll() {
     var pre = fsKey() + '\n';
@@ -37886,9 +37950,8 @@ PF.examples = (function () {
         var k = 'rec-' + ev.name;
         values[ev.name] = d && Object.prototype.hasOwnProperty.call(d.record, k) ? d.record[k] : V.evidenceDefault(ctx, r, x.step, ev);
       });
-      /* A search's searchId is Flightdeck's own: the search as the run stands now, never typed (design section 2). */
-      /* searchBound held: whatever was typed was typed for the search as it is now. */
-      if (R.isSearchStep(x.step)) values.searchId = R.searchId(r, map, x.step) || '';
+      /* A search's searchId belongs to its evidence: what was typed takes its draft's stamp, saved results keep theirs. */
+      if (R.isSearchStep(x.step)) stampEvidence(values, d);
       var chk = R.checkEvidence(r, x.step, null, Object.assign({}, (a && a.s !== 'recheck' && a.values) || {}, values));
       if (chk.error) return { why: chk.error, focus: chk.field ? 'rec-' + chk.field : '[aria-invalid="true"]', field: chk.field ? 'rec-' + chk.field : '' };
       var seen; try { seen = skillSeen(r, x.step); } catch (e) { return { why: e.message, focus: '[data-act="refresh"]' }; }

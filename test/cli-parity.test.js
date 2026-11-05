@@ -318,6 +318,47 @@ rule('Read failure: team-values.json unreadable or newer is unknown, never "can\
   assert.ok(!has(d.checks.suggestions, /people\.json/), JSON.stringify(d.checks));
 });
 
+/* Round 4 (item 3): a Jira search's address is a team value, checked wherever a draft is: draft check, publish and stage
+   read team-values.json for it as they do for a passed team value, and an unreadable file leaves the check unknown. */
+rule('R4-3: a draft with only a Jira search: an invalid, missing or unset address is a blocker in draft check, publish and stage; an unreadable team-values.json is unknown', async () => {
+  const search = ['- [ ] {jira.search} Stories are done @lead {#s}', '  query: project = PAY', '  results: none'];
+  const draft = md({ process: 'deploy', steps: search });
+  const tvOf = v => JSON.stringify({ format: 'flightdeck-team-values/1', values: v });
+  const cases = [
+    ['valid', tvOf({ 'jira-base-url': { value: 'https://jira.example.com' } }), null],
+    ['invalid', tvOf({ 'jira-base-url': { value: 'not a Jira address' } }), /isn't a Jira address Flightdeck can link to/],
+    ['not set', tvOf({ other: { value: 'x' } }), /"jira-base-url" isn't in team-values\.json/],
+    ['no file', null, /"jira-base-url" isn't in team-values\.json/]
+  ];
+  let okData = null;
+  for (const [what, tv, re] of cases) {
+    const files = await folder({ base: { 'team-values.json': tv }, drafts: { deploy: draft } });
+    const dir = RF.toDisk(files, tmp()), r = cli(dir, 'deploy'), d = r.json.data;
+    assert.strictEqual(r.code, 0, what + ': complete: ' + JSON.stringify(r.json.problems));
+    const bl = d.checks.blockers.concat(d.publish.blockers);
+    if (re) assert.ok(has(bl, re), what + ': draft check blocks: ' + JSON.stringify(bl));
+    else { assert.deepStrictEqual(bl.filter(b => /Jira address|jira-base-url/.test(b)), [], what + ': no address blocker'); okData = d; }
+    /* Publish and stage, fresh, as the app does them. */
+    const mem = new PF.fs.MemoryFS('r4:' + what + Math.random(), null); const base = {}; Object.keys(files).forEach(k => { base[k] = files[k]; }); mem.reset(base);
+    const d2 = await PF.repo.loadStepTypes(mem);
+    const opts = { people: JSON.parse(PEOPLE), customTypes: d2.types, workflows: EX.workflows, by: 'person-avery', changes: 'First', existing: [], now: NOW, rand: 'r4' + what.replace(/\W/g, '') };
+    const pub = await PF.repo.publish(mem, draft, opts);
+    if (re) assert.ok(pub.blockers && has(pub.blockers, re), what + ': publish refuses: ' + JSON.stringify(pub.blockers));
+    else assert.ok(!pub.blockers, what + ': publishes: ' + JSON.stringify(pub.blockers));
+    if (PF.repo.stage) {
+      const mem2 = new PF.fs.MemoryFS('r4s:' + what + Math.random(), null); mem2.reset(base);
+      const st = await PF.repo.stage(mem2, draft, Object.assign({}, opts, { rand: opts.rand + 's' })).catch(e => ({ blockers: [String(e && e.message)] }));
+      if (re) assert.ok(st.blockers && has(st.blockers, re), what + ': stage refuses: ' + JSON.stringify(st.blockers));
+    }
+  }
+  const files = await folder({ base: { 'team-values.json': cases[0][1] }, drafts: { deploy: draft } });
+  const dir = RF.toDisk(files, tmp());
+  locked(path.join(dir, 'team-values.json'), () => {
+    const d = partial(dir, okData, /^team-values\.json$/);
+    assert.ok(!has(d.checks.blockers.concat(d.publish.blockers), /Jira address|jira-base-url/), 'unknown, never a finding');
+  });
+});
+
 /* ---------- the guard: every input, failed every way the ledger knows, is unknown: never a finding, always named ---------- */
 
 const PICK = JSON.stringify({ id: 'pick.one', label: 'Pick one', icon: 'doc', hint: 'One of two ways.', fields: { mode: { label: 'Mode', kind: 'choice', options: ['^literal', 'other'], required: true } } });
@@ -437,7 +478,7 @@ rule('Guard: every read of a check input in the checks is listed with its unknow
     'opts.processes': 2, /* "isn't published yet": an unread process is listed as there; null when publications/ is unknown */
     'opts.children': 2, /* child details and team value kinds: null for an unread process, so nothing is checked against an older version */
     'opts.parents': 2, /* parents passing a dropped detail: unread processes left out; null when publications/ is unknown */
-    'opts.teamValues': 4 /* team value names and kinds: undefined when team-values.json is unknown */
+    'opts.teamValues': 5 /* team value names and kinds, and a Jira search's address (site:): undefined when team-values.json is unknown, so none is checked (R4-3) */
   };
   assert.deepStrictEqual(reads, LISTED);
 });

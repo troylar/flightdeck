@@ -188,6 +188,16 @@ rule('R3-8: a rebuild names every map it changed, and nothing it changed is left
     same(R.unexplained(JSON.parse(JSON.stringify(o))), [], kind + ' damaged: nothing unexplained');
   });
 });
+rule('R4-1: correcting a checked zero-result search asks only for what applies: keys aren\'t needed (or allowed) at zero', () => {
+  const pub = publish(MD.replace('  query: project = ^project AND fixVersion = ^version AND status != Done\n  results: none\n', '  query: project = ^project AND fixVersion = ^version AND status != Done\n  results: none\n  require: all\n'));
+  assert.ok(/require: all/.test(pub.files ? pub.files['map.md'] : JSON.stringify(pub)), 'set-up: require: all');
+  const r = R.create(pub, { title: 'R', details: { project: 'PAY', version: '2026.11.0' }, roles: { lead: 'person-avery' }, by: 'person-avery', session: 'w-a', now: NOW, id: 'run-z1', app: '2.16.0', teamValues: TV }), map = R.mapOf(r);
+  R.done(r, map, 'done', 'person-avery', LATER, Object.assign(good(r, 'done', 0), { resultsLink: 'https://jira.example.com/jira/issues/?jql=a', ranAt: '2026-11-04T15:05Z' }));
+  assert.strictEqual(r.steps.done.s, 'done', 'set-up: checked with no keys');
+  R.setFields(r, map, 'done', {}, { resultsLink: 'https://jira.example.com/jira/issues/?jql=b' }, 'person-avery', LATER);
+  assert.strictEqual(r.steps.done.values.resultsLink, 'https://jira.example.com/jira/issues/?jql=b', 'the link is corrected');
+  unchanged(r, () => R.setFields(r, map, 'done', {}, { resultsLink: '' }, 'person-avery', LATER), /Results link is (required|needed)/);
+});
 rule('R14-2: mergeOverflow keeps the browser copy\'s records first, each once by id', () => {
   same(R.mergeOverflow([{ id: 'a' }, { id: 'b' }], [{ id: 'b' }, { id: 'c' }]).map(x => x.id), ['a', 'b', 'c']);
   same(R.mergeOverflow(null, [{ id: 'c' }]).map(x => x.id), ['c']);
