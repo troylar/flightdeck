@@ -1,0 +1,42 @@
+{
+  "confirm": {
+    "id": "confirm",
+    "label": "Confirm",
+    "icon": "check",
+    "hint": "Check that something is true.",
+    "fields": {
+      "where": {
+        "label": "Where to check",
+        "kind": "text"
+      },
+      "looks": {
+        "label": "True when",
+        "kind": "text"
+      }
+    },
+    "record": [],
+    "version": 2
+  },
+  "team.restore": {
+    "id": "team.restore",
+    "label": "Restore a backup",
+    "icon": "doc",
+    "hint": "Restores a backup into a scratch copy.",
+    "fields": {
+      "system": {
+        "label": "System",
+        "kind": "text",
+        "required": true
+      }
+    },
+    "version": 2,
+    "custom": true,
+    "record": [
+      {
+        "name": "copy",
+        "label": "Restored copy",
+        "kind": "text"
+      }
+    ]
+  }
+}
