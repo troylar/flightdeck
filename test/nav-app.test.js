@@ -1912,14 +1912,14 @@ rule('R10 B: the assistant template\'s Cancel goes to Checklists, like the ordin
   assert.strictEqual(app.hash(), '#/processes', 'Checklists');
   assert.strictEqual(app.entries().length, n, 'history didn\'t grow');
 });
-rule('R10 C: the phone More menu open, widened past 480 px: closed, its entry the editor\'s, and Back leaves the workspace', async () => {
+rule('R10 C: More open, widened past 480 px: it stays open (More is on every screen at every width), Back closes it, and the next Back leaves the workspace', async () => {
   const app = await edit({ narrow: true }); await app.settle();
   app.click('ws-more'); await app.tick();
   assert.match(head(app), /aria-expanded="true"/, 'set-up: More open');
   app.setNarrow(false); await app.tick();
-  assert.doesNotMatch(head(app), /id="ws-more-list"[^>]*aria-hidden="false"|aria-expanded="true"/, 'More closed on a wide window');
-  /* Closed by the resize, not by Back: its entry is the editor's now, so one Back stays (silently), the next leaves. */
-  await onePop(app, a => a.back()); assert.ok(inEditor(app), 'the closed More\'s entry: the same screen');
+  assert.match(head(app), /id="ws-more-btn"[^>]*aria-expanded="true"/, 'still open on a wide window');
+  await onePop(app, a => a.back()); assert.ok(inEditor(app), 'Back closes More: the same screen');
+  assert.match(head(app), /id="ws-more-btn"[^>]*aria-expanded="false"/, 'closed');
   await onePop(app, a => a.back());
   assert.ok(!inEditor(app), 'then Back leaves the workspace: ' + app.hash());
 });
