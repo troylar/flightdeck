@@ -13,6 +13,14 @@
         "where": "Edit and Practice"
       },
       {
+        "kind": "fixed",
+        "area": "Screens",
+        "title": "Header status lines wrap cleanly",
+        "before": "A header's status line could start a line with a dot or end in …, the spacing around dots varied, and the Flight plan read (3 of 5 runs)Not counted.",
+        "now": "Status lines use the header's full width and wrap between pieces, with even spacing and no dot at the start or end of a line. The Flight plan puts a space before Not counted.",
+        "where": "Every work screen header"
+      },
+      {
         "kind": "improved",
         "area": "Screens",
         "title": "More room on every work screen",

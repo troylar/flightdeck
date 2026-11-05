@@ -1,8 +1,8 @@
 {
   "texts": {
     "CHANGELOG.md": {
-      "sha256": "4c0946064ce3e59eae9498ac8395eb7bda334b016e19c7a9da1bad4f5c6577eb",
-      "reviewed": "2.16.1 release entry, waiver, roles comparison pinned to 2.16.0, baselines for 2.16.1. Checked for direct writes and unconditional deletes."
+      "sha256": "f6826af3fdff011562b8f4e78c04e202b1aba2dd1c3029d60a102e9cbd083cdf",
+      "reviewed": "2.16.1 release note: header status lines; checked for direct writes and unconditional deletes"
     },
     "LICENSE": {
       "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
@@ -377,8 +377,8 @@
       "reviewed": "inspector: where the step is moves into the top row beside Previous and Next; no writes, no deletes"
     },
     "src/releases.json": {
-      "sha256": "322455e3fdd5dfe0e4c4159ac87901201e8b8565b6e2b972f6fada82136bb4c9",
-      "reviewed": "2.16.1 release entry, waiver, roles comparison pinned to 2.16.0, baselines for 2.16.1. Checked for direct writes and unconditional deletes."
+      "sha256": "c96b2dfe4c1a11794df77f33354d78596bd4a57ba7387385067de73eb5252ee3",
+      "reviewed": "2.16.1 release note: header status lines; checked for direct writes and unconditional deletes"
     },
     "src/storage/fs.js": {
       "sha256": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",
