@@ -245,7 +245,8 @@ rule('T.applies: no condition applies; requiredWhen only when it matches; requir
 });
 rule('Guide: the type definitions, the fields every type accepts and the pins are exactly 2.4.0\'s', () => {
   const was = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'entry-boxes', 'types-2.4.0.json'), 'utf8'));
-  same(T.LIST, was.LIST, 'T.LIST'); same(T.COMMON, was.COMMON, 'T.COMMON');
+  /* 2.16 adds one type, {jira.search}; every other type is 2.4.0's. */
+  same(T.LIST.filter(t => t.id !== 'jira.search'), was.LIST, 'T.LIST'); same(T.COMMON, was.COMMON, 'T.COMMON');
   /* 2.8 adds one pin, pass: on {run.process}; every other pin is 2.4.0's. */
   const pins = JSON.parse(JSON.stringify(T.PINS)); same(pins['run.process'].pass, { label: 'Passes', kind: 'pass' }, 'the 2.8 pin'); delete pins['run.process'].pass;
   same(pins, was.PINS, 'pins');

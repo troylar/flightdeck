@@ -120,6 +120,8 @@ test/patterns.test.js -
 test/link-fields.test.js -
 test/search-runs.test.js -
 test/search-linked.test.js -
+test/search-reports.test.js -
+test/search-screen.test.js -
 test/teamvalues.test.js -
 test/search.test.js -
 test/folder.test.js -

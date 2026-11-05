@@ -8,6 +8,8 @@ PF.guide = (function () {
   var S = 'Shown with the step to whoever does it, and to an assistant doing it.';
   var R = 'Saved in the run and on its receipt.';
   var OPENS = 'Opens from the step.';
+  /* Appendix B.4: what a link field guarantees, and what it doesn't. */
+  var LINKS = 'Link fields keep a run detail inside its part of the address. They don\'t check what the site does with it. To build a Jira query from run details, use a Jira search step.';
   var COPY = 'Shown with a Copy button. ^details are filled in.';
 
   /* A row: question, example (none for choices and chips), the why's body. Each why gets its empty-box sentence added (own
@@ -61,7 +63,12 @@ PF.guide = (function () {
       tool: e('Link to the deploy tool', 'https://deploy.acme.com', OPENS), rollback: e('What do you roll back to if it goes wrong?', 'the previous release', S) },
     'verify.health': { dashboard: e('Link to the dashboard', 'https://grafana.acme.com/d/api', OPENS), metric: e('What do you watch?', 'p95 latency', S),
       threshold: e('Healthy when?', 'under 300 ms for 10 minutes', S + ' It\'s what they check against.'), watch: e('What warning signs?', '5xx spikes', S) },
-    measure: { metric: e('What do you measure?', 'checkout time', S), unit: e('In what unit?', 'seconds', S), where: e('Where do you read it?', 'the Grafana checkout board', S) }
+    measure: { metric: e('What do you measure?', 'checkout time', S), unit: e('In what unit?', 'seconds', S), where: e('Where do you read it?', 'the Grafana checkout board', S) },
+    'jira.search': { query: e('The query (JQL)', 'project = PAY AND fixVersion = 2026.11.0 AND status != Done', 'One line of JQL. A ^detail goes only where a single value goes: after =, !=, <, >, <= or >=, or in an IN (...) list. Fixed for the run. Use this or a saved filter.'),
+      filter: e('Or a saved filter\'s number', '12345', 'A saved filter can change in Jira without the checklist changing, so say in plain words what it finds. Fixed for the run.'),
+      results: e('What should it find?', 'none', 'none, any, exactly N, at least N or at most N.'),
+      site: e('Which Jira address?', 'team:jira-base-url', 'A team value holding the Jira address. Left empty, it\'s team:jira-base-url.', true),
+      what: e('In plain words', 'Stories in the release with no story points', S) }
   };
   var RECORD = {
     communicate: { sent: e('Link to the message you posted', 'https://acme.slack.com/archives/C01/p17', R) },
@@ -82,10 +89,14 @@ PF.guide = (function () {
       dates: e('What are its dates?', 'Oct 27 – Nov 7', R), carriedOver: e('Which issues carried over?', 'PAY-12, PAY-15', R), moved: e('Which issues moved?', 'PAY-12, PAY-15', R) },
     deploy: { deployed: e('Which version went out?', '2026.10.16', R), deployLink: e('Link to the deploy', 'https://deploy.acme.com/runs/88', R), finished: e('When did it finish?', '14:32', R) },
     'verify.health': { result: e('Did it pass?', '', R), observed: e('What did you see?', '240 ms', R), snapshot: e('Screenshot or link', 'https://grafana.acme.com/d/api?from=now-1h', R) },
-    measure: { value: e('What did you measure?', '3.2', R), unit: e('In what unit?', 'seconds', R) }
+    measure: { value: e('What did you measure?', '3.2', R), unit: e('In what unit?', 'seconds', R) },
+    'jira.search': { searchId: e('Which search', 'search 95526c95', 'Flightdeck fills it in: the search as the run stands when the results are recorded.', true),
+      count: e('How many did it find?', '3', 'The exact total from a search that finished. ' + R),
+      keys: e('Which issues?', 'PAY-101, PAY-102, PAY-103', 'Needed when the count breaks the rule and isn\'t 0; never at 0. List them, or end with +N more. ' + R),
+      resultsLink: e('Link to the results', 'https://jira.acme.com/issues/?filter=12345', R), ranAt: e('When did it run?', '2026-11-04T14:05Z', 'A time with its zone. ' + R) }
   };
   var COMMON = {
-    link: e('A link they may need', 'https://wiki.acme.com/runbook', OPENS),
+    link: e('A link they may need', 'https://wiki.acme.com/runbook', OPENS + ' ' + LINKS),
     expect: e('How long does it usually take?', '25m', 'Shown on the step, so people can plan.'),
     deadline: e('Is there a deadline?', 'external', 'With external, whoever runs it copies the deadline in from the real tool (Set deadline).'),
     evidence: e('Ask for proof?', '', 'Whoever checks the step has to give it.'),

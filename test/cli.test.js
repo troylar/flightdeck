@@ -2528,7 +2528,7 @@ rule('REPORT: targets lists running runs and the steps a report can be written f
   assert.deepStrictEqual(by('tests').binds, ['commit']);
   assert.ok(by('tests').accepts && by('tests').why === null);
   assert.ok(!by('notes').accepts && /linked run/.test(by('notes').why));
-  assert.ok(!by('merge').accepts && /Sets run details/.test(by('merge').why));
+  assert.ok(by('merge').accepts && by('merge').why === null, 'Appendix A.4 (2.16): a step that sets run details accepts reports');
   assert.strictEqual(repAgree(readCli('report', 'targets', dir, '--run', 'release/nope', '--json')).code, 5);
   assert.strictEqual(repAgree(readCli('report', 'targets', dir, '--process', 'release', '--run', 'release/run1', '--json'), 'targets').json.data.runs.length, 1);
   assert.strictEqual(readCli('report', 'targets', dir, '--json', '--strict').code, 1, 'an unknown flag is refused');
