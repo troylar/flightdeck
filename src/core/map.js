@@ -319,7 +319,7 @@ PF.map = (function () {
           if (!def) { if (!(opts.unknownType && opts.unknownType(s.type))) blockers.push(label + ' has an unknown type {' + s.type + '}.'); }
           else {
             if (['at', 'due', 'after'].filter(function (f) { return s.fields[f]; }).length > 1) blockers.push(label + ': give one time, "at:", "due:" or "after:", not more than one.');
-            var fc = T.checkFields(def, s.fields);
+            var fc = T.checkFields(def, s.fields, { context: meta.context, teamValues: opts.teamValues });
             fc.errors.forEach(function (m) { blockers.push(label + ' ' + m); });
             fc.tips.forEach(function (m) { suggestions.push(label + ' ' + m); });
           }
@@ -383,7 +383,7 @@ PF.map = (function () {
      note isn't one (every copy since 1.10 publishes it). A version: or skillVersion: line on another step type is an error,
      not a feature. */
   function features(map) {
-    var has = { 'team-values': false, 'passed-details': false, conditions: false, 'typed-details': false, 'typed-evidence': false, 'phase-notes': false, 'phase-shots': false, 'gate-shots': false, 'pinned-children': false, 'pinned-skills': false };
+    var has = { 'jira-search': false, 'detail-patterns': false, 'team-values': false, 'passed-details': false, conditions: false, 'typed-details': false, 'typed-evidence': false, 'phase-notes': false, 'phase-shots': false, 'gate-shots': false, 'pinned-children': false, 'pinned-skills': false };
     /* Typed data (2.0): a run detail with a kind, or a plain step asking for a number, yes/no or date as its evidence. */
     if (map.meta && map.meta.detailTypes && Object.keys(map.meta.detailTypes).length) has['typed-details'] = true;
     (map.phases || []).forEach(function (p) {
@@ -396,6 +396,8 @@ PF.map = (function () {
         /* A team value passed to the child (2.9): pass: name=team:<value>. Older copies would read team: as an error. */
         if (s.type === 'run.process' && PF.links.teams(s).length) has['team-values'] = true;
         if (s.type === 'run.skill' && Object.prototype.hasOwnProperty.call(s.fields, 'skillVersion')) has['pinned-skills'] = true;
+        /* A Jira search step (2.16). Older copies refuse the type, frozen as version 4, and its new field kinds. */
+        if (s.type === 'jira.search') has['jira-search'] = true;
       });
       if (p.note || p.noted) has['phase-notes'] = true;
       /* Conditions (2.1): an "only when" line on the phase or a step. */

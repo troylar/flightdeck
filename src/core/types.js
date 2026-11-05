@@ -101,11 +101,22 @@ PF.types = (function () {
       record: [{ name: 'pr', label: 'Pull request link', kind: 'url' }, { name: 'checks', label: 'Checks', kind: 'choice', options: ['Passing', 'Failing', 'Pending'] }, { name: 'mergeCommit', label: 'Merge commit', kind: 'text', when: { action: 'merge' } }] },
     { id: 'measure', label: 'Measure', icon: 'chart', hint: 'Record a number with its unit, like velocity or points carried over.',
       fields: { metric: { label: 'What to measure', kind: 'text', required: true }, unit: { label: 'Unit', kind: 'text' }, where: { label: 'Where to read it', kind: 'text' } },
-      record: [{ name: 'value', label: 'Value', kind: 'text' }, { name: 'unit', label: 'Unit', kind: 'text' }] }
+      record: [{ name: 'value', label: 'Value', kind: 'text' }, { name: 'unit', label: 'Unit', kind: 'text' }] },
+    /* 2.16 (jira-search): a search, about a set of issues rather than one key, so its own type (docs/map-format.md). Its four
+       search fields are fixed for a run; searchId is Flightdeck's own (system), and keys don't apply at zero results (notAt). */
+    { id: 'jira.search', label: 'Jira search', icon: 'ticket', hint: 'Search Jira with a query or a saved filter, and record what it found.',
+      fields: { query: { label: 'Query (JQL)', kind: 'jql' }, filter: { label: 'Saved filter', kind: 'jira-filter' }, results: { label: 'Should find', kind: 'results' },
+        site: { label: 'Jira address', kind: 'team-ref' }, what: { label: 'In plain words', kind: 'text' } },
+      record: [{ name: 'searchId', label: 'Search', kind: 'text', system: true }, { name: 'count', label: 'Results found', kind: 'number', min: '0' },
+        { name: 'keys', label: 'Issue keys', kind: 'text', long: true, notAt: { count: '0' } }, { name: 'resultsLink', label: 'Results link', kind: 'url' },
+        { name: 'ranAt', label: 'When it ran', kind: 'text' }] }
   ];
+  /* The search type freezes as version 4, which 2.0 to 2.15 refuse; every other built-in stays at VERSION. */
+  var SEARCH = 'jira.search', SEARCH_VERSION = 4, SEARCH_FIXED = { query: 1, filter: 1, results: 1, site: 1, what: 1 };
+  function isSearch(type) { return !!type && type.id === SEARCH && !type.custom; }
 
   var BY = Object.create(null);
-  LIST.forEach(function (t) { t.version = VERSION; BY[t.id] = t; });
+  LIST.forEach(function (t) { t.version = t.id === SEARCH ? SEARCH_VERSION : VERSION; BY[t.id] = t; });
 
   /* Own entries only: a step typed {constructor} or {toString} must not find something every object inherits. */
   function own(o, k) { return !!o && typeof o === 'object' && Object.prototype.hasOwnProperty.call(o, k) && o[k] && typeof o[k] === 'object' ? o[k] : null; }
@@ -215,7 +226,8 @@ PF.types = (function () {
   function list(s) { return String(s || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean); }
   /* Problems with one step's map fields. errors stop publishing (a field the type doesn't have, a value it can't take);
      tips only point out a field that's usually filled in, because a map may describe a step without every value. */
-  function checkFields(type, fields) {
+  /* ctx (2.16, for {jira.search}): { context, teamValues }, the checklist's run detail names and team-values.json as parsed. */
+  function checkFields(type, fields, ctx) {
     var errors = [], tips = [];
     Object.keys(type.fields || {}).forEach(function (f) {
       var d = type.fields[f], usual = d.required || (d.requiredWhen && matches(d.requiredWhen, fields)) || (d.requiredUnless && !matches(d.requiredUnless, fields));
@@ -237,13 +249,16 @@ PF.types = (function () {
         list(fields[f]).forEach(function (n) { if (n !== 'all' && names.indexOf(n) < 0) errors.push('"require" names "' + n + '", which {' + type.id + '} doesn\'t record. It records: ' + (names.join(', ') || 'nothing (use "evidence:" instead)') + '.'); });
       }
     });
+    if (isSearch(type)) { var sc = PF.jsearch.checkFields(fields, ctx); errors = errors.concat(sc.errors); tips = tips.concat(sc.tips); }
     return { errors: errors, tips: tips };
   }
   /* Whether a step type frozen into a version uses only what this copy knows: a newer type version, or a property, field
      kind or evidence kind it doesn't know, could change how the step works, so such a version isn't run here. */
   var TYPE_KEYS = { id: 1, label: 1, icon: 1, hint: 1, fields: 1, record: 1, version: 1, custom: 1, group: 1, tags: 1 };
-  var FIELD_KEYS = { label: 1, kind: 1, required: 1, requiredWhen: 1, requiredUnless: 1, options: 1 }, RECORD_KEYS = { name: 1, label: 1, kind: 1, long: 1, optionsFrom: 1, options: 1, when: 1, min: 1, max: 1, unit: 1 };
-  var KNOWN_KINDS = { text: 1, url: 1, code: 1, message: 1, list: 1, choice: 1, duration: 1, deadline: 1, require: 1, time: 1, sets: 1 };
+  var FIELD_KEYS = { label: 1, kind: 1, required: 1, requiredWhen: 1, requiredUnless: 1, options: 1 }, RECORD_KEYS = { name: 1, label: 1, kind: 1, long: 1, optionsFrom: 1, options: 1, when: 1, min: 1, max: 1, unit: 1, system: 1, notAt: 1 };
+  var KNOWN_KINDS = { text: 1, url: 1, code: 1, message: 1, list: 1, choice: 1, duration: 1, deadline: 1, require: 1, time: 1, sets: 1, jql: 1, 'jira-filter': 1, results: 1, 'team-ref': 1 };
+  /* notAt (2.16): the canonical values at which a field doesn't apply, { count: '0' }; system (2.16): Flightdeck fills it in. */
+  function notAtOk(n) { return n === undefined || (plainObj(n) && Object.keys(n).length > 0 && Object.keys(n).every(function (k) { return !inherited(k) && typeof n[k] === 'string'; })); }
   function plainObj(o) { return !!o && typeof o === 'object' && !Array.isArray(o); }
   function only(o, keys) { return Object.keys(o).every(function (k) { return Object.prototype.hasOwnProperty.call(keys, k); }); }
   /* A name every plain object already has, or one that isn't text. Looked up in a step's fields or answers it reads what's
@@ -255,13 +270,16 @@ PF.types = (function () {
     if (!plainObj(def) || !only(def, TYPE_KEYS)) return false;
     /* Version 3 (2.0): a definition with typed evidence. The 2.0 kinds and keys are read only there, and only with values
        this copy can check (a min that isn't an exact decimal could never be compared). */
-    if (def.version != null && !(typeof def.version === 'number' && (def.version <= VERSION || def.version === 3))) return false;
+    if (def.version != null && !(typeof def.version === 'number' && (def.version <= VERSION || def.version === 3 || def.version === SEARCH_VERSION))) return false;
     if (def.fields != null && (!plainObj(def.fields) || !Object.keys(def.fields).every(function (f) { var d = def.fields[f]; return !inherited(f) && plainObj(d) && only(d, FIELD_KEYS) && has(KNOWN_KINDS, d.kind) && condOk(d.requiredWhen) && condOk(d.requiredUnless); }))) return false;
-    if (def.record != null && (!Array.isArray(def.record) || !def.record.every(function (d) { return plainObj(d) && only(d, RECORD_KEYS) && has(RECORD_KINDS2, d.kind) && !inherited(d.name) && !inherited(d.optionsFrom) && condOk(d.when) && (!numberKeys(d).length || (d.kind === 'number' && !PF.values.numberDefProblems(d, '').length)); }))) return false;
-    if (uses2(def.record) && def.version !== 3) return false;
+    if (def.record != null && (!Array.isArray(def.record) || !def.record.every(function (d) { return plainObj(d) && only(d, RECORD_KEYS) && has(RECORD_KINDS2, d.kind) && !inherited(d.name) && !inherited(d.optionsFrom) && condOk(d.when) && (d.system === undefined || d.system === true) && notAtOk(d.notAt) && (!numberKeys(d).length || (d.kind === 'number' && !PF.values.numberDefProblems(d, '').length)); }))) return false;
+    if (uses2(def.record) && !(def.version >= 3)) return false;
+    /* The 2.16 kinds and keys are read only in a version 4 definition. */
+    var v4 = Object.keys(def.fields || {}).some(function (f) { return ['jql', 'jira-filter', 'results', 'team-ref'].indexOf(def.fields[f].kind) >= 0; }) || (def.record || []).some(function (d) { return d.system !== undefined || d.notAt !== undefined; });
+    if (v4 && def.version !== SEARCH_VERSION) return false;
     return true;
   }
-  function editable(type) { return Object.keys((type && type.fields) || {}).concat(['link']).filter(function (f) { return !FIXED[f]; }); }
+  function editable(type) { var lock = isSearch(type) ? SEARCH_FIXED : {}; return Object.keys((type && type.fields) || {}).concat(['link']).filter(function (f) { return !FIXED[f] && !lock[f]; }); }
   /* The editable fields worth showing for this step: skip ones that only apply to another action, unless they already have a value. */
   function relevant(type, fields) {
     return editable(type).filter(function (f) { var d = fieldDef(type, f); return fields[f] || !d.requiredWhen || matches(d.requiredWhen, fields); });
@@ -278,7 +296,7 @@ PF.types = (function () {
   function recordFields(type, fields, extra) {
     var req = list(fields.require), all = req.indexOf('all') >= 0;
     var out = ((type && type.record) || []).filter(function (d) { return !d.when || matches(d.when, fields); }).map(function (d) {
-      var c = JSON.parse(JSON.stringify(d)); if (d.optionsFrom) c.options = options(d, fields); c.required = all || req.indexOf(d.name) >= 0; return c;
+      var c = JSON.parse(JSON.stringify(d)); if (d.optionsFrom) c.options = options(d, fields); c.required = (all && !d.system) || req.indexOf(d.name) >= 0; return c;
     });
     var ev = EVIDENCE[String(fields.evidence || '').toLowerCase()];
     if (ev) out.push(JSON.parse(JSON.stringify(ev)));
@@ -293,6 +311,9 @@ PF.types = (function () {
     for (var i = 0; i < list.length; i++) {
       /* Only the value's own property: a name like "constructor" must never read something inherited. */
       var d = list[i], raw = Object.prototype.hasOwnProperty.call(values, d.name) ? values[d.name] : null, v = String(raw == null ? '' : raw).trim();
+      /* 2.16: a field that doesn't apply at the canonical values already checked (keys at zero results) is neither required
+         nor allowed. */
+      if (d.notAt && plainObj(d.notAt) && Object.keys(d.notAt).every(function (k) { return Object.prototype.hasOwnProperty.call(out, k) && out[k] === d.notAt[k]; })) { if (v) return { error: d.label + ' doesn\'t apply when there are no results.', field: d.name }; continue; }
       /* A typed value (2.0: number, yes/no, date, or a run detail with a kind) goes through PF.values; its canonical text is stored. */
       if (PF.values.isNew(d.kind) || (d.detailKind && d.detailKind !== 'text')) {
         var p = PF.values.parse(d, raw == null ? '' : raw, { max: d.cap || 300 });
@@ -319,7 +340,7 @@ PF.types = (function () {
   }
   var GROUPS = { confirm: 'General', communicate: 'General', meeting: 'General', decide: 'General', review: 'General', wait: 'General',
     'ui.action': 'Tools', 'jenkins.job': 'Tools', 'bitbucket.pr': 'Tools', 'jira.issue': 'Tools', 'ci.gate': 'Tools',
-    'jira.sprint': 'Tools', deploy: 'Tools', 'verify.health': 'Tools', 'github.pr': 'Tools', measure: 'General',
+    'jira.sprint': 'Tools', 'jira.search': 'Tools', deploy: 'Tools', 'verify.health': 'Tools', 'github.pr': 'Tools', measure: 'General',
     'run.process': 'Automation', 'run.command': 'Automation', 'run.script': 'Automation', 'run.skill': 'Automation' };
   function groupOf(t) { return t && t.custom ? (t.group && t.group.length ? t.group : ['Team']) : [GROUPS[t && t.id] || 'General']; }
   function tagsOf(t) { return (t && t.tags) || []; }
@@ -388,6 +409,6 @@ PF.types = (function () {
     return out;
   }
 
-  return { ID: ID, ID_MAX: ID_MAX, VERSION: VERSION, uses2: uses2, LIST: LIST, COMMON: COMMON, applies: applies, EVIDENCE_KINDS: Object.freeze(Object.keys(EVIDENCE)), PINS: PINS, ICONS: ICONS_OK, get: get, fieldDef: fieldDef, options: options, hasOption: hasOption, canonical: canonical, checkFields: checkFields, understood: understood, editable: editable, relevant: relevant, checkCustom: checkCustom, customType: customType, recordFields: recordFields, needsRecord: needsRecord, checkRecord: checkRecord, freeze: freeze, groupOf: groupOf, tagsOf: tagsOf, nameOf: nameOf, aliasOf: aliasOf, groupText: groupText, tagText: tagText,
+  return { ID: ID, ID_MAX: ID_MAX, VERSION: VERSION, SEARCH: SEARCH, SEARCH_VERSION: SEARCH_VERSION, isSearch: isSearch, uses2: uses2, LIST: LIST, COMMON: COMMON, applies: applies, EVIDENCE_KINDS: Object.freeze(Object.keys(EVIDENCE)), PINS: PINS, ICONS: ICONS_OK, get: get, fieldDef: fieldDef, options: options, hasOption: hasOption, canonical: canonical, checkFields: checkFields, understood: understood, editable: editable, relevant: relevant, checkCustom: checkCustom, customType: customType, recordFields: recordFields, needsRecord: needsRecord, checkRecord: checkRecord, freeze: freeze, groupOf: groupOf, tagsOf: tagsOf, nameOf: nameOf, aliasOf: aliasOf, groupText: groupText, tagText: tagText,
     fileText: fileText, formatWhy: formatWhy, markerWhy: markerWhy, unusedKeys: unusedKeys, removed: removed, inUse: inUse };
 })();

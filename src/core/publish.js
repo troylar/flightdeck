@@ -244,7 +244,7 @@ PF.publish = (function () {
       if (!def) return label + ' uses the step type {' + s.type + '}, which this copy of Flightdeck doesn\'t have and this version doesn\'t include. Update Flightdeck, or publish the checklist again.';
       /* A hand-written or newer types.json can hold anything; a type this copy can't fully read is reported, never thrown. */
       if (!T.understood(def)) return NEWER + ' ' + label + ' has a step type this copy can\'t read.';
-      var bad; try { bad = T.checkFields(def, s.fields).errors[0]; } catch (err) { return NEWER + ' ' + label + ' has a step type this copy can\'t read.'; }
+      var bad; try { bad = T.checkFields(def, s.fields, { context: map.meta.context }).errors[0]; } catch (err) { return NEWER + ' ' + label + ' has a step type this copy can\'t read.'; }
       if (bad) return NEWER + ' ' + label + ' ' + bad;
     }
     return '';
@@ -255,12 +255,12 @@ PF.publish = (function () {
      team's own; built-in types never are. */
   function features(map, types) {
     var f = M.features(map);
-    if (f.indexOf('typed-evidence') < 0 && M.usedTypes(map).some(function (id) { var d = types && typeof types === 'object' && Object.prototype.hasOwnProperty.call(types, id) ? types[id] : null; return !!d && typeof d === 'object' && (d.version === 3 || T.uses2(d.record)); }))
+    if (f.indexOf('typed-evidence') < 0 && M.usedTypes(map).some(function (id) { var d = types && typeof types === 'object' && Object.prototype.hasOwnProperty.call(types, id) ? types[id] : null; return !!d && typeof d === 'object' && d.version !== T.SEARCH_VERSION && (d.version === 3 || T.uses2(d.record)); }))
       f = PF.envelope.FROZEN.filter(function (x) { return x === 'typed-evidence' || f.indexOf(x) >= 0; });
     return f;
   }
   /* What each 2.0 feature is, in words, for the publish panel. */
-  var FEATURE_NAMES = { 'typed-details': 'typed run details', 'typed-evidence': 'typed evidence (a number, yes/no or date)', 'phase-notes': 'a note on a phase', 'phase-shots': 'screenshots on a phase', 'gate-shots': 'screenshots on a gate', 'pinned-children': 'a linked run pinned to a version (version:)', 'pinned-skills': 'a skill version a step expects (skillVersion:)', conditions: 'conditions (only when)', 'passed-details': 'a linked step that passes details under other names, fixed values or asks (pass:)', 'team-values': 'a linked step that passes a team value (pass: name=team:…)' };
+  var FEATURE_NAMES = { 'typed-details': 'typed run details', 'typed-evidence': 'typed evidence (a number, yes/no or date)', 'phase-notes': 'a note on a phase', 'phase-shots': 'screenshots on a phase', 'gate-shots': 'screenshots on a gate', 'pinned-children': 'a linked run pinned to a version (version:)', 'pinned-skills': 'a skill version a step expects (skillVersion:)', conditions: 'conditions (only when)', 'passed-details': 'a linked step that passes details under other names, fixed values or asks (pass:)', 'team-values': 'a linked step that passes a team value (pass: name=team:…)' , 'jira-search': 'a Jira search step', 'detail-patterns': 'a run detail with a pattern' };
   function needs(map, types) {
     var f = features(map, types); if (!f.length) return null;
     var typed = Object.keys((map.meta && map.meta.detailTypes) || {});

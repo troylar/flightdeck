@@ -534,7 +534,7 @@ function loadEngine() {
     if (!m) fail('the app file in this install has no ' + id + ' block (' + APP + '). Reinstall the package.');
     return m[1];
   };
-  const ctx = vm.createContext({ console, setTimeout, clearTimeout, Blob, TextEncoder, TextDecoder, performance: { now: () => performance.now() } });
+  const ctx = vm.createContext({ console, setTimeout, clearTimeout, Blob, TextEncoder, TextDecoder, URL, crypto: require('crypto').webcrypto, performance: { now: () => performance.now() } });
   vm.runInContext(block('pf-core'), ctx, { filename: 'flightdeck.html#pf-core' });
   vm.runInContext(block('pf-storage'), ctx, { filename: 'flightdeck.html#pf-storage' });
   return { PF: ctx.PF, version: versionOf(html) };
