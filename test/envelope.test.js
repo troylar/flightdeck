@@ -23,7 +23,8 @@ rule('Every family in the 2.0 plan is in PF.envelope.FAMILIES, and every frozen 
     'flightdeck-validation', 'flightdeck-followup-decision', 'flightdeck-correction-decision', 'flightdeck-fix-decision', 'flightdeck-proposal', 'flightdeck-presence', 'flightdeck-connection',
     'flightdeck-people', 'flightdeck-skill', 'flightdeck-editor-history', 'flightdeck-installed', 'flightdeck-stage-decision', 'flightdeck-extension', 'flightdeck-report', 'flightdeck-report-decision', 'flightdeck-team-values']
     .forEach(f => assert.ok(E.FAMILIES[f], f));
-  assert.deepStrictEqual(plain(E.FROZEN), ['typed-details', 'typed-evidence', 'phase-notes', 'phase-shots', 'gate-shots', 'pinned-children', 'pinned-skills', 'staged', 'test-run', 'extensions', 'conditions', 'passed-details', 'team-values']);
+  assert.deepStrictEqual(plain(E.FROZEN), ['typed-details', 'typed-evidence', 'phase-notes', 'phase-shots', 'gate-shots', 'pinned-children', 'pinned-skills', 'staged', 'test-run', 'extensions', 'conditions', 'passed-details', 'team-values', 'jira-search', 'detail-patterns']);
+  assert.strictEqual(E.SINCE['jira-search'], '2.16'); assert.strictEqual(E.SINCE['detail-patterns'], '2.16'); assert.strictEqual(E.minimum(['team-values', 'jira-search']), '2.16');
   assert.strictEqual(E.SINCE['passed-details'], '2.8'); assert.strictEqual(E.minimum(['conditions', 'passed-details']), '2.8');
   assert.strictEqual(E.SINCE['team-values'], '2.9'); assert.strictEqual(E.minimum(['passed-details', 'team-values']), '2.9');
   E.FROZEN.forEach(f => assert.ok(E.FEATURE.test(f)));
@@ -31,9 +32,9 @@ rule('Every family in the 2.0 plan is in PF.envelope.FAMILIES, and every frozen 
 
 /* Slice 2, part 1: phase and gate notes and screenshots; part 2: pins; slice 3: typed data. Only these are registered; every
    other 2.0 feature stays refused (review #12). */
-const PART1 = ['phase-notes', 'phase-shots', 'gate-shots'], PART2 = PART1.concat(['pinned-children', 'pinned-skills']), PART3 = PART2.concat(['typed-details', 'typed-evidence']), PART4 = PART3.concat(['conditions']), PART5 = PART4.concat(['passed-details']), PART6 = PART5.concat(['team-values']), STAGED = PART6.concat(['staged']), TESTRUN = STAGED.concat(['test-run']);
+const PART1 = ['phase-notes', 'phase-shots', 'gate-shots'], PART2 = PART1.concat(['pinned-children', 'pinned-skills']), PART3 = PART2.concat(['typed-details', 'typed-evidence']), PART4 = PART3.concat(['conditions']), PART5 = PART4.concat(['passed-details']), PART6 = PART5.concat(['team-values']), PART7 = PART6.concat(['jira-search', 'detail-patterns']), STAGED = PART7.concat(['staged']), TESTRUN = STAGED.concat(['test-run']);
 rule('Each slice registers only the features it builds: checklist/2, publication/2 and run/3 know the notes, screenshots, pins, typed-data, conditions, passed-details (2.8) and team-values (2.9) features, publication/2 staged too (2.1), run/3 staged and test-run (2.1), step-type/2 typed evidence, nothing else does', () => {
-  const want = { 'flightdeck-checklist': { 2: PART6 }, 'flightdeck-team-values': { 1: [] }, 'preflight-publication': { 2: STAGED }, 'preflight-run': { 3: TESTRUN }, 'flightdeck-step-type': { 2: ['typed-evidence'] } };
+  const want = { 'flightdeck-checklist': { 2: PART7 }, 'flightdeck-team-values': { 1: [] }, 'preflight-publication': { 2: STAGED }, 'preflight-run': { 3: TESTRUN }, 'flightdeck-step-type': { 2: ['typed-evidence'] } };
   Object.keys(E.FAMILIES).forEach(f => Object.keys(E.FAMILIES[f].majors).forEach(m => assert.deepStrictEqual(plain(E.FAMILIES[f].majors[m]), (want[f] || {})[m] || [], f + '/' + m)));
   no('preflight-publication', { format: 'preflight-publication/2', features: ['test-run'] }, 'newer', '2.1');
   no('preflight-publication', { format: 'preflight-publication/2', features: ['extensions'] }, 'newer', '2.0');
@@ -79,7 +80,8 @@ rule('An unknown major is refused as newer, naming the version the 2.0 contract 
   ok('flightdeck-validation', { format: 'flightdeck-validation/2' });
   no('flightdeck-validation', { format: 'flightdeck-validation/3' }, 'newer', '');
   no('flightdeck-step-type', { format: 'flightdeck-step-type/3' }, 'newer', '');
-  no('flightdeck-types', { version: 4 }, 'newer', '');
+  ok('flightdeck-types', { version: 4 });
+  no('flightdeck-types', { version: 5 }, 'newer', '');
   no('flightdeck-skill', { format: 'flightdeck-skill/3' }, 'newer', '');
   no('flightdeck-extension', { format: 'flightdeck-extension/1' }, 'newer', '2.0');
   ok('flightdeck-stage-decision', { format: 'flightdeck-stage-decision/1' });
@@ -228,7 +230,8 @@ rule('Every 2.0 sample this slice doesn\'t build is refused by its family\'s ver
   const types = JSON.parse(t['publications/backup/' + S.PUB2 + '/types.json']);
   assert.ok(E.judge('flightdeck-types', types['team.count']).ok && E.judge('flightdeck-types', types['team.count']).major === 3, 'a frozen type with 2.0 kinds is version 3, read here');
   assert.ok(PF.types.understood(types['team.count']));
-  assert.ok(!E.judge('flightdeck-types', Object.assign({}, types['team.count'], { version: 4 })).ok, 'version 4 is newer');
+  assert.ok(!E.judge('flightdeck-types', Object.assign({}, types['team.count'], { version: 5 })).ok, 'version 5 is newer');
+  assert.ok(PF.types.understood(Object.assign({}, types['team.count'], { version: 4 })), 'version 4 reads the 2.0 kinds too (uses2 needs version 3 or later)');
   assert.ok(E.judge('flightdeck-types', types.confirm).ok, 'a built-in stays version 2');
 });
 
