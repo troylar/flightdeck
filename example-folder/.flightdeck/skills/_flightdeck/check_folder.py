@@ -1074,6 +1074,8 @@ def compile_pattern(src):
                     chars.append(ord(a["v"]))
             if j >= len(s):
                 return {"ok": False, "why": "a [ is never closed."}
+            if not ranges and not chars:
+                return {"ok": False, "why": "an empty class [] matches nothing; list what is allowed."}
             st, i = {"ranges": ranges, "chars": chars}, j + 1
         elif c in "()|":
             return {"ok": False, "why": "\"%s\" (groups and alternatives) isn't supported; write one sequence. For the character itself, %s" % (c, PAT_HINT)}
@@ -1249,6 +1251,14 @@ def inherited(n):
     return n in JS_PROTO if isinstance(n, str) else n is not None
 
 
+def not_at_ok(r):
+    """The app's notAtOk: absent, or a non-empty object of text values under names no JavaScript object already has."""
+    if "notAt" not in r:
+        return True
+    n = r["notAt"]
+    return isinstance(n, dict) and len(n) > 0 and all(not inherited(k) and isinstance(v, str) for k, v in n.items())
+
+
 def cond_ok(c):
     return not isinstance(c, dict) or not any(inherited(k) for k in c)
 
@@ -1270,7 +1280,7 @@ def understood(d):
     record = d.get("record")
     if record is not None and (not isinstance(record, list) or not all(
             isinstance(r, dict) and set(r) <= RECORD_KEYS and isinstance(r.get("kind"), str) and r.get("kind") in RECORD_KINDS
-            and not inherited(r.get("name")) and not inherited(r.get("optionsFrom")) and cond_ok(r.get("when"))
+            and not inherited(r.get("name")) and not inherited(r.get("optionsFrom")) and cond_ok(r.get("when")) and not_at_ok(r)
             and (not any(k in r for k in NUMBER_KEYS) or (r.get("kind") == "number" and number_def_ok(r))) for r in record)):
         return False
     if uses2(record) and not (isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 3):

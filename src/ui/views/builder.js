@@ -873,7 +873,7 @@
   /* Text that matches a pattern (2.16, Appendix A.3): a name, the pattern and a value to try; Add writes name:pattern(...) only
      when the pattern can be read, so an unescaped ( ) or , is refused before anything is written. */
   function patternField(ctx) {
-    var st = ctx.state, pv = st.obPat || { name: '', src: '', test: '' }, msg = '';
+    var st = ctx.state, o = st.obPat, pv = o && o.fk === ctx.fsKey && o.pid === st.processId ? o : { name: '', src: '', test: '' }, msg = '';
     if (pv.src) {
       var pc = PF.values.compilePattern(pv.src);
       if (!pc.ok) msg = 'The pattern can\'t be used: ' + pc.why;

@@ -57,4 +57,33 @@ rule('kept practice: invalid evidence is dropped on reload as Done refuses it (k
   assert.ok(skipped && skipped.answers.done.skipped, sk.error);
   assert.ok(P.check(JSON.parse(JSON.stringify(skipped)), 'rel', map).answers.done, 'checked without evidence stays');
 });
+rule('kept practice: reload runs the whole shared evidence check (require:, setter values); an invalid answer goes, with every gate', () => {
+  const md = ['---', 'process: req', 'title: Req', 'context: project, tag:pattern(v[0-9]+)', '---', '', '## One · DO-CONFIRM {#one}',
+    '- [ ] {jira.search} The release has stories {#find}', '  query: project = ^project', '  results: at least 1', '  require: resultsLink',
+    '- [ ] {confirm} Note the tag {#note}', '  sets: tag', '', '## Gate: Ready {#ready}', ''].join('\n');
+  const a = P.admit(md, {});
+  assert.ok(a.ok, a.why);
+  const m = a.map, go = (st, id, values) => { const r = P.answer(st, m, id, 'done', {}, NOW, { values }); assert.ok(r.state, r.error); return r.state; };
+  assert.ok(P.answer(P.fresh('req'), m, 'find', 'done', {}, NOW, { values: { count: '1', keys: 'PAY-1' } }).error, 'set-up: Done refuses it without the link');
+  let st = go(P.fresh('req'), 'find', { count: '1', keys: 'PAY-1', resultsLink: 'https://j.example.com/issues/?jql=x' });
+  const noteKey = P.answer(P.fresh('req'), m, 'note', 'done', {}, NOW, { values: {} }).field;
+  assert.ok(noteKey, 'set-up: the setter asks for its value');
+  st = go(st, 'note', { [noteKey]: 'v12' });
+  const kept = JSON.parse(JSON.stringify(st));
+  kept.gates = { ready: { s: 'passed', reason: '', at: NOW, approved: {}, base: 'abcd1234' } };
+  assert.deepStrictEqual(Object.keys(P.check(JSON.parse(JSON.stringify(kept)), 'req', m, {}).gates), ['ready'], 'set-up: a good kept practice keeps its gate');
+  const noLink = JSON.parse(JSON.stringify(kept)); delete noLink.answers.find.values.resultsLink;
+  let read = P.check(noLink, 'req', m, {});
+  assert.ok(!read.answers.find, 'a search missing what require: asks for is dropped');
+  assert.ok(read.answers.note, 'the good one stays');
+  assert.deepStrictEqual(Object.keys(read.gates), [], 'and every gate with it');
+  const badTag = JSON.parse(JSON.stringify(kept)); badTag.answers.note.values[noteKey] = 'nope';
+  read = P.check(badTag, 'req', m, {});
+  assert.ok(!read.answers.note, 'a setter whose value breaks its detail\'s pattern is dropped');
+  assert.ok(read.answers.find, 'the good one stays');
+  assert.deepStrictEqual(Object.keys(read.gates), [], 'and every gate with it');
+  assert.ok(!read.setBy || !Object.values(read.setBy).includes('note'), 'and what it set no longer names it');
+  const gone = JSON.parse(JSON.stringify(kept)); delete gone.answers.note.values;
+  assert.ok(!P.check(gone, 'req', m, {}).answers.note, 'a setter checked without its value (and not skipped) is dropped');
+});
 run();
