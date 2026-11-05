@@ -676,8 +676,10 @@ rule('On a phone, Back from a step opened from practice closes the builder sheet
   app.back(); await app.settle();
   assert.ok(!open(), 'the sheet closed');
   assert.ok(inEditor(app), 'still in the editor');
+  /* The sheet's Back settled in place (2.16), so the checklist page's entry shows the editor: the next Back leaves the workspace. */
   app.back(); await app.settle();
-  assert.ok(onOverview(app), 'then the checklist page');
+  assert.ok(!inEditor(app) && !/id="run-h"/.test(app.html()), 'then out of the workspace: ' + app.hash());
+  app.click('open-process', 'release'); await app.tick();
   app.click('pv-practice'); await app.tick(60);
   assert.equal(row(app, 'rollback'), 'done', 'practice kept');
 });
