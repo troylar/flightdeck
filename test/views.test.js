@@ -556,7 +556,8 @@ rule('Editor sidebars fit the window together, from the widths chosen, never fro
 });
 
 rule('Every built-in type can start a team type that passes the checks', () => {
-  PF.types.LIST.forEach(t => {
+  /* The Jira search step (2.16) uses field kinds of its own, so it isn't offered as a starting point. */
+  PF.types.LIST.filter(t => !PF.types.isSearch(t)).forEach(t => {
     const def = V.typeDefOf(Object.assign(V.typeFormOf(t, false), { id: 'team.' + t.id.replace(/\./g, '-'), label: 'Team ' + t.label.slice(0, 30) }));
     const errs = PF.types.checkCustom(def); assert.strictEqual(errs.length, 0, t.id + ': ' + errs.join('; '));
   });
@@ -2958,7 +2959,7 @@ rule('Type chooser: Everyday work, Software tools and commands, Your team\'s; th
   assert.deepStrictEqual([...sel.matchAll(/<optgroup label="([^"]+)">/g)].map(m => m[1]), ['Everyday work', 'Software tools and commands', 'Your team\'s'], 'three groups');
   const groups = sel.split('<optgroup').slice(1).map(g => [...g.matchAll(/<option value="([^"]+)"/g)].map(m => m[1]));
   assert.deepStrictEqual(groups[0].slice(0, 4), ['confirm', 'communicate', 'ui.action', 'run.process'], 'the ones it uses first: ' + groups[0]);
-  assert.deepStrictEqual(groups[1].slice(-3).sort(), ['jira.sprint', 'run.script', 'run.skill'], 'tools it doesn\'t use come last: ' + groups[1]);
+  assert.deepStrictEqual(groups[1].slice(-4).sort(), ['jira.search', 'jira.sprint', 'run.script', 'run.skill'], 'tools it doesn\'t use come last: ' + groups[1]);
   assert.deepStrictEqual(groups[2], ['change.request'], 'the team\'s');
   ['meeting', 'decide', 'review', 'wait', 'measure', 'ui.action'].forEach(t => assert.ok(groups[0].includes(t), t + ' is everyday'));
   state.obAdd = { pid: 'release', kind: 'step', phase: 'deploy', track: -1 };

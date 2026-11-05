@@ -174,6 +174,21 @@ PF.health = (function () {
     (d.unreadable || []).forEach(function (u) { if (u.key) unreadKeys[u.key] = true; });
     /* A run kept from an earlier read whose file can't be read now: its copies are found by name below, not from that read. */
     var conflicted = runs.filter(function (r) { return r._conflicts && r._conflicts.length && !(scan && unreadKeys[r.process + '/' + r.id]); });
+    /* 2.16 (R14-3): a step the reader reopened, and a parent whose linked step's child doesn't stand as read. */
+    runs.forEach(function (r) {
+      if (!r || !r.steps) return;
+      Object.keys(r.steps).forEach(function (sid) {
+        var a = r.steps[sid];
+        if (!a || !a.reopened) return;
+        add({ id: 'reopened:' + r.process + '/' + r.id + '/' + sid, severity: 'warn', area: 'Runs', title: '"' + r.title + '" has a step reopened when read',
+          detail: String(a.reason || '') + (a.reopened === 'stuck' ? '' : ' Refresh the search, search again, then choose Done.'), paths: ['runs/' + r.process + '/' + r.id + '/run.json'], action: { act: 'open-run', id: r.process + '/' + r.id, label: 'Open the run' } });
+      });
+    });
+    PF.run.childMarks(runs).forEach(function (m) {
+      var r = runs.filter(function (x) { return x && x.process === m.process && x.id === m.run; })[0];
+      add({ id: 'child-mark:' + m.process + '/' + m.run + '/' + m.step, severity: 'warn', area: 'Runs', title: '"' + (r ? r.title : m.run) + '": a linked step\'s run doesn\'t stand',
+        detail: 'Its step was ' + m.text + '.', paths: ['runs/' + m.process + '/' + m.run + '/run.json', 'runs/' + m.child + '/run.json'], action: { act: 'open-run', id: m.child, label: 'Open the linked run' } });
+    });
     conflicted.forEach(function (r) { add({ id: 'conflicts:' + r.process + '/' + r.id, severity: 'stop', area: 'Runs', title: '"' + r.title + '" has ' + plural(r._conflicts.length, 'other version'), detail: 'Two windows saved it without seeing each other. Compare the copies and keep the right one; nothing is merged for you.', paths: r._conflicts.map(function (n) { return 'runs/' + r.process + '/' + r.id + '/' + n; }), action: { act: 'open-run', id: r.process + '/' + r.id, label: 'Compare copies' }, help: HELP.conflicts }); });
     /* Conflict copies in a run folder whose run.json is missing or couldn't be read: no run page lists them, so they're
        found by name. */

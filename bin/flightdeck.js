@@ -853,6 +853,8 @@ function folderProblems(PF, d) {
   (d.fuDecisions || []).forEach((x) => { const p = decisionDrift(x); if (p) out.push(p); });
   const pw = peopleWhy(d.people);
   if (pw) out.push({ path: 'people.json', kind: 'malformed', why: pw });
+  /* 2.16: a parent's linked step whose child says Completed but doesn't stand as read (section 5.7.4). */
+  (d.childMarks || []).forEach((m) => out.push({ path: 'runs/' + m.process + '/' + m.run + '/run.json', kind: 'child-mark', why: 'Step "' + m.step + '" was ' + m.text + '.' }));
   return out;
 }
 function adapterProblems(adapter) {

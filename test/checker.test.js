@@ -402,7 +402,7 @@ rule('The checker reports the same versions as unusable as the app, with the sam
     await forge(8, md.replace(/^## Before the pull request/m, '## Questions\n- Which branch?\n\n## Before the pull request')),
     await forge(9, md, t => { t.confirm = { id: 'confirm', fields: { where: null } }; }),
     await forge(10, md.replace(first, '$1\n  where: Your repository\n  require: build')),
-    await forge(12, md, t => { t.confirm.version = 4; }), // 3 is 2.0 typed evidence; 4 is newer than any this copy reads
+    await forge(12, md, t => { t.confirm.version = 5; }), // 3 is 2.0 typed evidence, 4 the 2.16 Jira search; 5 is newer than any this copy reads
     await forge(13, md, t => { t.confirm.futureBehavior = 'conditional'; }),
     await forge(14, md, t => { t.confirm.fields.where.when = 'x'; }),
     await forge(15, md, t => { t.confirm.fields.where.kind = 'condition'; }),
@@ -763,7 +763,7 @@ rule('The checker agrees with the app on typed run details and typed evidence: d
       await forge(10, md, (t) => { t['team.count'].record[0].min = 'abc'; }),
       await forge(11, md, (t) => { t['team.count'].record[0].min = '5'; t['team.count'].record[0].max = '1'; }),
       await forge(12, md, (t) => { t['team.count'].record[1].unit = 'rows'; }),
-      await forge(13, md, (t) => { t['team.count'].version = 4; })
+      await forge(13, md, (t) => { t['team.count'].version = 5; })
     ];
     const good = [await forge(14, md)];
     const app = await repo.loadAll(d, { deep: true }), pubs = app.processes.find(p => p.process === 'x').pubs;

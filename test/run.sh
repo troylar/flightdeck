@@ -115,6 +115,11 @@ test/insights.test.js -
 test/outline.test.js -
 test/refs.test.js -
 test/links.test.js -
+test/jira-search.test.js -
+test/patterns.test.js -
+test/link-fields.test.js -
+test/search-runs.test.js -
+test/search-linked.test.js -
 test/teamvalues.test.js -
 test/search.test.js -
 test/folder.test.js -

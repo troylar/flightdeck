@@ -3614,7 +3614,7 @@
     if (e) return e;
     var st = null, raw = null, lost = false;
     try { raw = sessionStorage.getItem(prStoreKey(pid)); } catch (err) { raw = null; }
-    if (raw) { try { st = PR.check(JSON.parse(raw), pid, prDraftMap(pid)); } catch (err) { st = null; } lost = !st; }
+    if (raw) { try { st = PR.check(JSON.parse(raw), pid, prAdmitted(pid)); } catch (err) { st = null; } lost = !st; }
     prLoadTyped(pid);
     return (prs[k] = { pid: pid, st: st || PR.fresh(pid), undo: [], redo: [], renames: {}, moved: {}, cache: null, good: null, mem: false, sampleErr: {}, typed: {}, gateErr: null, refusal: null, saveErr: null, trip: null,
       note: lost ? 'The practice kept in this tab couldn\'t be read, so it starts fresh. The draft isn\'t affected.' : '' });
@@ -3785,7 +3785,7 @@
     if (!e) {
       var raw = null; try { raw = sessionStorage.getItem(prStoreKey(pid)); } catch (err) { raw = null; }
       if (!raw) return null;
-      if (memo.raw !== raw) { var c = null; try { c = PR.check(JSON.parse(raw), pid, prDraftMap(pid)); } catch (err) { c = null; } memo.raw = raw; memo.st = c; }
+      if (memo.raw !== raw) { var c = null; try { c = PR.check(JSON.parse(raw), pid, prAdmitted(pid)); } catch (err) { c = null; } memo.raw = raw; memo.st = c; }
       st = memo.st; if (!st) return null;
     }
     var text = prText(p);
@@ -3798,8 +3798,8 @@
   function prTouch(e) { e.act = (e.act || 0) + 1; }
   /* The team's step types and Jira workflows, as practice reads them (a run copies the same when it starts). */
   function prEnv() { return PR.env((data.stepTypes || {}).types || {}, data.jira && data.jira.workflows); }
-  /* The draft practice measures by (2.16, A.5): its own map's features decide code points or UTF-16. */
-  function prDraftMap(pid) { var p = procFind(pid); if (!p) return null; try { return M.parse(prText(p)); } catch (err) { return null; } }
+  /* R14-1: the draft as admitted, which decides the unit (A.5) and which steps are searches; null when it doesn't admit. */
+  function prAdmitted(pid) { var p = procFind(pid); if (!p) return null; try { var a = PR.admit(prText(p), prEnv()); return a && a.ok ? a.map : null; } catch (err) { return null; } }
   function prText(p) { var ed = editorOf(p.id); return ed ? (ed.text != null ? ed.text : ed.base) : p.draft ? p.draft.md : p.latest ? p.latest.md : ''; }
   function prNow() { var p = currentProcess(); return p && state.view === 'practice' ? p : null; }
   function prStepOf(id) { var m = prModel(); return m && m.P.steps[id] || null; }
@@ -6932,7 +6932,7 @@
     /* ---------- step types ---------- */
     'open-types': function () { var from = typeFromNow(); partsSheetAway(); ACTIONS.nav('types'); state.typeFrom = from; render(); },
     'new-type': function () { state.typeFrom = typeFromNow(); partsSheetAway(); setView('types'); state.typeForm = typeFormFor({ id: '', label: '', hint: '', icon: 'check', group: '', tags: '', fields: [], record: [] }, null, null); state.planFormReset = true; state.focus = 'tf-label'; render(); window.scrollTo(0, 0); },
-    'copy-type': function (id) { var t = T.get(id); if (!t) return; setView('types'); state.typeForm = typeFormFor(V.typeFormOf(t, false), null, null); state.planFormReset = true; state.focus = 'tf-id'; render(); window.scrollTo(0, 0); },
+    'copy-type': function (id) { var t = T.get(id); if (!t || T.isSearch(t)) return; setView('types'); state.typeForm = typeFormFor(V.typeFormOf(t, false), null, null); state.planFormReset = true; state.focus = 'tf-id'; render(); window.scrollTo(0, 0); },
     /* Edit a team type from the file as it is now: its content and its fingerprint come from the same read. */
     'edit-type': function (id, b, fromHistory) {
       /* Only the latest open request lands: one that finishes after another form was opened, or after leaving, does nothing. */

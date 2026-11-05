@@ -262,12 +262,12 @@ rule('Reset keeps samples and findings; Undo puts back exactly what an action ch
 });
 
 rule('kept state: checked when read back, foreign or broken state starts fresh, within 64 KB', () => {
-  const map = admit(MD), st = prep(map), back = P.check(JSON.parse(P.keep(st)), 'rel');
+  const map = admit(MD), st = prep(map), back = P.check(JSON.parse(P.keep(st)), 'rel', admit(MD));
   same(back.answers, st.answers);
-  assert.strictEqual(P.check(JSON.parse(P.keep(st)), 'other'), null);
-  assert.strictEqual(P.check({ v: 2, process: 'rel', answers: {}, gates: {}, sample: {} }, 'rel'), null);
+  assert.strictEqual(P.check(JSON.parse(P.keep(st)), 'other', admit(MD)), null);
+  assert.strictEqual(P.check({ v: 2, process: 'rel', answers: {}, gates: {}, sample: {} }, 'rel', admit(MD)), null);
   const junk = Object.assign(P.fresh('rel'), { answers: { x: { s: 'evil', own: '1', ctx: '1' }, y: { s: 'done', own: 'zz', ctx: '1' } } });
-  same(P.check(junk, 'rel').answers, {});
+  same(P.check(junk, 'rel', admit(MD)).answers, {});
   // 300 answered steps fit; a huge practice drops answers, oldest first.
   const big = P.fresh('rel');
   for (let i = 0; i < 300; i++) big.answers['step-number-' + i] = { s: 'done', at: NOW, own: 'abcdef12', ctx: '12345678' };
@@ -366,7 +366,7 @@ rule('an approved detail whose kind or options change needs the gate passed agai
 
 rule('a kept practice with values that aren\'t text is read without throwing, keeping what is readable', () => {
   const o = { v: 1, process: 'rel', answers: { a: { s: 'done', own: 'abcdef12', ctx: '12345678', at: { toString: null } }, b: { s: { toString: null }, own: 'abcdef12', ctx: '12345678' } }, gates: { g: { s: 'passed', base: 'abcdef12', reason: { toString: null }, at: 5 } }, sample: { x: { toString: null } }, found: 1 };
-  const st = P.check(o, 'rel');
+  const st = P.check(o, 'rel', admit(MD));
   assert.ok(st);
   same(Object.keys(st.answers), ['a']);
   assert.strictEqual(st.answers.a.at, '');
@@ -487,12 +487,12 @@ rule('slice 2 state round-trips through check: evidence values, skipped, Fill in
     sample: { commit: 'abc123' },
     answers: { tag: { s: 'done', at: 't1', own: 'a1', ctx: 'b2', values: { link: 'https://x.example/1' } }, notes: { s: 'done', at: 't2', own: 'a2', ctx: 'b3', skipped: true } },
     fields: { tag: { status: 'Done' } }, setBy: { commit: 'tag' }, from: 'deploy' });
-  same(P.check(JSON.parse(JSON.stringify(st)), 'rel'), st);
+  same(P.check(JSON.parse(JSON.stringify(st)), 'rel', admit(MD)), st);
 });
 
 rule('a slice 1 practice loads with the new fields empty', () => {
   const old = { v: 1, process: 'rel', sample: { env: 'prod' }, answers: { tag: { s: 'done', at: 't', own: 'a1', ctx: 'b2' } }, gates: {}, found: '', rev: 3 };
-  const st = P.check(old, 'rel');
+  const st = P.check(old, 'rel', admit(MD));
   same(st.fields, {}); same(st.setBy, {}); assert.strictEqual(st.from, '');
   same(st.answers.tag, { s: 'done', at: 't', own: 'a1', ctx: 'b2' });
 });
@@ -503,14 +503,14 @@ rule('malformed slice 2 fields are dropped, never thrown or converted', () => {
     fields: { tag: { status: 7, issue: 'ABC-1' }, constructor: { a: 'b' }, bad: 'string', ['x'.repeat(90)]: { a: 'b' } },
     setBy: { commit: 'missing-step', nosample: 'tag', env: 5 }, from: { toString: 1 } };
   let st;
-  assert.doesNotThrow(() => { st = P.check(bad, 'rel'); });
+  assert.doesNotThrow(() => { st = P.check(bad, 'rel', admit(MD)); });
   assert.ok(!st.answers.tag, 'evidence that can\'t come back whole drops its answer');
   assert.ok(!st.answers.other, 'evidence that isn\'t a record drops its answer too');
   same(st.fields, { tag: { issue: 'ABC-1' } });
   same(st.setBy, {}); assert.strictEqual(st.from, '');
   const good = Object.assign({}, bad, { setBy: { commit: 'tag' } });
   good.answers = Object.assign({}, bad.answers, { tag: { s: 'done', at: 't', own: 'a1', ctx: 'b2', skipped: 'yes' } });
-  const g = P.check(good, 'rel');
+  const g = P.check(good, 'rel', admit(MD));
   same(g.setBy, { commit: 'tag' }); assert.ok(!('skipped' in g.answers.tag));
 });
 
@@ -531,7 +531,7 @@ rule('keep: over the cap an answer goes with its evidence and Fill in, and takes
   same(k.gates, {}, 'an evicted phase 1 answer drops its gate and the later one');
   Object.keys(k.setBy).forEach(n => assert.ok(k.answers[k.setBy[n]]));
   if (!k.answers.notes) same(k.setBy, {});
-  const round = P.check(k, 'rel'), v = P.follow(round, map, {});
+  const round = P.check(k, 'rel', admit(MD)), v = P.follow(round, map, {});
   assert.strictEqual(v.complete, false);
 });
 
@@ -788,12 +788,12 @@ rule('a Jira transition the workflow stops allowing goes back, its gate to revie
 rule('evidence comes back whole: 41 values survive a reload; a record past the limit drops its answer and every gate', () => {
   const vals = {}; for (let i = 0; i < 41; i++) vals['v' + i] = 'x' + i;
   const st = Object.assign(P.fresh('rel'), { answers: { tag: { s: 'done', at: 't', own: 'a1', ctx: 'b2', values: vals } }, gates: { ready: { s: 'passed', reason: '', at: 't', approved: {}, base: 'ab' } } });
-  const back = P.check(JSON.parse(JSON.stringify(st)), 'rel');
+  const back = P.check(JSON.parse(JSON.stringify(st)), 'rel', admit(MD));
   same(Object.keys(back.answers.tag.values).length, 41); assert.ok(back.gates.ready);
   const many = {}; for (let i = 0; i <= P.VALUES_MAX; i++) many['v' + i] = 'x';
-  const over = P.check(Object.assign(JSON.parse(JSON.stringify(st)), { answers: { tag: { s: 'done', at: 't', own: 'a1', ctx: 'b2', values: many }, other: { s: 'done', at: 't', own: 'a1', ctx: 'b2' } } }), 'rel');
+  const over = P.check(Object.assign(JSON.parse(JSON.stringify(st)), { answers: { tag: { s: 'done', at: 't', own: 'a1', ctx: 'b2', values: many }, other: { s: 'done', at: 't', own: 'a1', ctx: 'b2' } } }), 'rel', admit(MD));
   assert.ok(!over.answers.tag && over.answers.other); same(over.gates, {});
-  const long = P.check(Object.assign(JSON.parse(JSON.stringify(st)), { answers: { tag: { s: 'done', at: 't', own: 'a1', ctx: 'b2', values: { a: 'y'.repeat(P.VALUE_MAX + 1) } } } }), 'rel');
+  const long = P.check(Object.assign(JSON.parse(JSON.stringify(st)), { answers: { tag: { s: 'done', at: 't', own: 'a1', ctx: 'b2', values: { a: 'y'.repeat(P.VALUE_MAX + 1) } } } }), 'rel', admit(MD));
   assert.ok(!long.answers.tag); same(long.gates, {});
 });
 
@@ -881,7 +881,7 @@ rule('Run from here: a from step that stops applying hands over for good, said, 
   assert.ok(!back.moved); assert.strictEqual(back.state.from, 'a1', 'it never moves back on its own');
   const u = P.applyEntry(r.state, P.undoEntry(st0, r.state, 'Sample env'));
   assert.strictEqual(u.state.from, 'a2', 'Undo brings the old from step back');
-  assert.strictEqual(P.check(JSON.parse(P.keep(r.state)), 'f').from, 'a1', 'kept');
+  assert.strictEqual(P.check(JSON.parse(P.keep(r.state)), 'f', map).from, 'a1', 'kept');
   const e = P.repin(Object.assign({}, st0, { sample: { env: 'dev' } }), map, {});
   assert.strictEqual(e.moved, 'next', 'a draft edit or reload hands over the same way');
 });
@@ -890,7 +890,7 @@ rule('kept evidence that is not a record drops its answer and every gate', () =>
   const map = admit(MD), st = gate(prep(map), map, 0);
   for (const bad of [null, 3, 'x', ['a']]) {
     const o = JSON.parse(JSON.stringify(st)); o.answers.notes.values = bad;
-    const back = P.check(o, 'rel');
+    const back = P.check(o, 'rel', admit(MD));
     assert.ok(!back.answers.notes, JSON.stringify(bad) + ': answer dropped'); same(back.gates, {});
   }
 });
