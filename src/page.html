@@ -16,7 +16,7 @@
   --hd-py: var(--sp-3); --hd-px: var(--sp-5); --tr-py: var(--sp-2);
   --pane-pt: var(--sp-4); --pane-px: var(--sp-5); --pane-pb: var(--sp-12); --rail-px: var(--sp-3);
   --row-py: var(--sp-3); --row-px: var(--sp-4); --row-gap: var(--sp-3); --stack: var(--sp-1);
-  --card-py: var(--sp-3); --card-px: var(--sp-5); --stripe-pad: var(--sp-8); --lh-meta: 18px;
+  --card-py: var(--sp-3); --card-px: var(--sp-5); --stripe-pad: var(--sp-8); --lh-meta: 18px; --sep-w: 14px; --sep-ws: 3.7px;
   --paper: #F3F5F1; --card: #FFFFFF; --ink: #16202A; --muted: #59646E; --line: #D6DCD4; --field: #7D877F; --chip: #E8ECE6;
   --amber: #E7A300; --on-amber: #241A00; --stripe: #16202A; --amber-soft: #FBF0D2;
   --go: #1D7650; --go-soft: #E1F0E8; --stop: #B0261E; --stop-soft: #F7E3E1; --plan: #5A55A8; --plan-soft: #ECEBF8;
@@ -1547,8 +1547,9 @@ h3.fixgroup { font-family: var(--body); font-size: 14px; letter-spacing: 0; }
 .g-rec { color: var(--ink); }
 /* The inspector: what to do, recording the result, the answer, then notes. */
 .rw-ins { display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--card); }
-.rw-ins-top { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 8px; padding: var(--sp-3) var(--pane-px); background: var(--card); border-bottom: 1px solid var(--line); }
+.rw-ins-top { position: sticky; top: 0; z-index: 3; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: var(--sp-3) var(--pane-px); background: var(--card); border-bottom: 1px solid var(--line); }
 .rw-ins-top .close { display: none; }
+.rw-where { margin-right: auto; min-width: 0; }
 .rw-steps { margin-left: auto; gap: 4px; }
 .rw-steps .mini { min-height: 32px; }
 .rw-ins-body { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--pane-pt) var(--pane-px) var(--sp-6); }
@@ -1933,11 +1934,14 @@ html.work-on .top { display: none; }
 .hd-id h1 .hd-t { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
 .hd-id h1 > :not(.hd-t) { flex: none; }
 /* The status line owns its type: 13/20, muted; nested state text (Edit's .fpe-state) inherits it. One 24 px line at least. */
-.hd-st { grid-column: 1 / -1; margin: var(--sp-h) 0 0; font-size: 13px; line-height: 20px; min-height: 24px; color: var(--muted); display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; }
-/* A piece wraps rather than being cut. Its separator hangs at the end of the piece before it, so a line never starts with
-   one (workHead binds a "·" inside a piece to the word before it the same way). */
+/* A piece wraps rather than being cut. Every piece leads with its separator, centered in --sep-w so both sides match; the line
+   starts one --sep-w left of the column and is clipped there, so the separator leading each line never shows and none is
+   left at a line's end. The clip leaves 4 px for a focus ring. A "·" inside a piece (.hd-dot, workHead) is held to its words
+   by no-break spaces, widened by --sep-ws to the same --sep-w. */
+.hd-st { grid-column: 1 / -1; margin: var(--sp-h) 0 0; margin-left: calc(-1 * var(--sep-w)); clip-path: inset(-12px -12px -12px calc(var(--sep-w) - 4px)); font-size: 13px; line-height: 20px; min-height: 24px; color: var(--muted); display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0; min-width: 0; }
 .hd-st .d { min-width: 0; flex: 0 1 auto; overflow-wrap: anywhere; }
-.hd-st > :is(.d, .act):has(+ :is(.d, .act))::after { content: "·" / ""; margin-left: 6px; color: var(--muted); }
+.hd-st > :is(.d, .act)::before { content: "·" / ""; display: inline-block; width: var(--sep-w); text-align: center; color: var(--muted); }
+.hd-st .hd-dot { word-spacing: var(--sep-ws); }
 .hd-st .act { flex: none; display: inline-flex; align-items: center; }
 /* Discard my changes lives in row 1's right column, before Save draft (workHead's o.sa slot, drawn only while there are
    changes): the status line never holds or reserves it. The column is end-aligned, so its appearing moves neither the primary

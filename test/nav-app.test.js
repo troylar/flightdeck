@@ -197,7 +197,7 @@ rule('Workspace: one header on both views: ‹ <title> top left, Edit | Practice
   }
   const app = await practiced();
   assert.deepStrictEqual(buttons(head(app).slice(head(app).indexOf('<div class="tr'))).filter(b => /^pr-(undo|redo|reset|samples|found-open)$/.test(b.act)).map(b => b.text), ['Undo', 'Redo', 'Start over', 'Sample details', 'Things to fix'].filter(t => t !== 'Sample details' || /pr-samples/.test(head(app))));
-  assert.match(head(app), /Practice<\/span> not recorded&nbsp;· kept in this tab/);
+  assert.match(head(app), /Practice<\/span> not recorded<span class="hd-dot">&nbsp;·&nbsp;<\/span>kept in this tab/);
 });
 
 rule('Workspace: ‹ <title> goes to the checklist page with focus on the strip\'s button for the view you left, and practice is kept', async () => {

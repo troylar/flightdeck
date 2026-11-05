@@ -46,7 +46,7 @@ rule('Start a test run from the stage\'s line: run/3 on the stage, test and stag
   assert.deepStrictEqual(Object.keys(r).slice(-2), ['test', 'stage']);
   assert.deepStrictEqual(r.stage, { folder });
   const html = app.html();
-  assert.ok(/class="badge b-test">Test run</.test(html) && /Test run · staged v3/.test(html), 'the run says it\'s a test run, on staged v3');
+  assert.ok(/class="badge b-test">Test run</.test(html) && /Test run<span class="hd-dot">&nbsp;·&nbsp;<\/span>staged v3/.test(html), 'the run says it\'s a test run, on staged v3');
 });
 
 rule('A test run is labeled in Runs, Home, the process page, the receipt and search, and never counted in Home\'s tally', async () => {

@@ -2318,7 +2318,7 @@ rule('R14: without a shared lock, a save overwritten by Record here comes back a
 
 rule('Releases: someone new sees no dot; someone who used an older version sees a dot and a one-time notice', async () => {
   const fresh = boot(); await fresh.tick(60);
-  assert.ok(/What's new<span class="ver"> · v\d+\.\d+\.\d+/.test(fresh.top()) && !/wn-dot/.test(fresh.top()), 'a first visit is not a changelog');
+  assert.ok(/<span class="wn-l">What's new<span class="ver">&nbsp;·&nbsp;v\d+\.\d+\.\d+<\/span><\/span>/.test(fresh.top()) && !/wn-dot/.test(fresh.top()), 'a first visit is not a changelog');
   const old = boot({ localStore: { 'preflight:seen-release': '"1.0.0"', 'preflight:me': '"person-casey"' } }); await old.tick(60);
   assert.ok(/wn-dot/.test(old.top()), 'the dot shows');
   assert.ok(/Flightdeck was updated to \d+\.\d+\.\d+/.test(old.html()) && /data-act="whats-new"/.test(old.html()), 'a one-time notice offers What\'s new');
@@ -7374,7 +7374,7 @@ const inPlace = (app, list) => { const was = JSON.parse(list), now = app.entries
 /* Since 2.16 an entry may also keep the one before it (b), as nav.entry reads it back. */
 const numbered = app => app.entries().forEach((e, i) => assert.ok(e.state && e.state.fd === 1 && e.state.n === i && /^b?,?f,fd,n$/.test(Object.keys(e.state).sort().join()) && (!e.state.b || app.PF.nav.entry(e.state).b), 'entry ' + i + ' ' + JSON.stringify(e)));
 const onRun = app => /id="run-h"/.test(app.html());
-const onReceipt = app => /<span class="d">Receipt&nbsp;· Copy it into your ticket/.test(app.html());
+const onReceipt = app => /<span class="d">Receipt<span class="hd-dot">&nbsp;·&nbsp;<\/span>Copy it into your ticket/.test(app.html());
 const onHome = app => /<div class="eyebrow">Home<\/div>/.test(app.html());
 const onProcess = (app, title) => /<h1 id="page-h" tabindex="-1">/.test(app.html()) && app.html().indexOf('data-act="ptab"') >= 0 && (!title || app.html().indexOf('>' + title + '</span></h1>') >= 0);
 const back = async app => { app.back(); await app.settle(); };
@@ -9236,7 +9236,7 @@ rule('Start: a version with an approval role opens With others and asks who appr
   assert.ok(/aria-checked="true" data-act="start-mode" data-id="team"/.test(app.html()), 'With others, even after On my own was chosen on an earlier form');
   assert.ok(/<select id="role-release-lead" data-role="release-lead"[^>]*><option value="">Choose a person<\/option>/.test(app.html()) && !/<select id="role-release-lead"[^]*?<option value="person-[^"]+" selected>[^]*?<\/select>/.test(app.html().slice(app.html().indexOf('id="role-release-lead"'), app.html().indexOf('</select>', app.html().indexOf('id="role-release-lead"')) + 9)), 'nobody preselected');
   assert.ok(/Just me \(every role, including who approves\)/.test(app.html()), 'Just me says it includes who approves');
-  const hint = /Suggested: [^<]+ · (last had this role on [^<]+|hasn.t had this role yet)<\/p>/.exec(app.html());
+  const hint = /Suggested: [^<]+&nbsp;·&nbsp;(last had this role on [^<]+|hasn.t had this role yet)<\/p>/.exec(app.html());
   assert.ok(hint && !/approved/.test(hint[0]), 'a suggestion is a hint, in what it knows: ' + (hint && hint[0]));
   app.set('run-title', 'Kept title');
   app.submitForm('start-form'); await app.tick(80);

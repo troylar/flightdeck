@@ -1633,7 +1633,7 @@ rule('Run workspace: a slim header with progress in words, three named panes, an
   playPhase(r, 0);
   const html = V.run(ctx);
   assert.ok(/^<div class="fpe rw" id="rw"><header class="hd rw-head" role="region" aria-labelledby="run-h">/.test(html), 'the run is the page');
-  assert.ok(/class="btn backc" data-act="go-back" data-id="#\/runs" aria-label="Back to Runs">.*Runs<\/span><\/button>/.test(html) && /<h1 id="run-h" tabindex="-1"><span class="hd-t" title="Release">Release<\/span><\/h1><p class="hd-st"><span class="d">Production release<\/span><span class="d rw-sub">v1&nbsp;· started/.test(html));
+  assert.ok(/class="btn backc" data-act="go-back" data-id="#\/runs" aria-label="Back to Runs">.*Runs<\/span><\/button>/.test(html) && /<h1 id="run-h" tabindex="-1"><span class="hd-t" title="Release">Release<\/span><\/h1><p class="hd-st"><span class="d">Production release<\/span><span class="d rw-sub">v1<span class="hd-dot">&nbsp;·&nbsp;<\/span>started/.test(html));
   assert.ok(/role="progressbar" aria-label="Steps answered" aria-valuemin="0" aria-valuemax="15" aria-valuenow="6" aria-valuetext="6 of 15 steps answered"><i style="width:40%"><\/i><\/span><b aria-hidden="true">6\/15<\/b><span class="small w" aria-hidden="true">answered<\/span>/.test(html), '6/14 answered, said in full for screen readers');
   assert.ok(/data-act="run-details" aria-expanded="false"/.test(html) && /data-act="receipt"/.test(html) && /<button type="button" class="mini more-btn ws-more-btn" id="ws-more-btn" data-act="ws-more"[^>]*>More<\/button>/.test(html) && !/End run…/.test(html) && /<div class="ro">You: <b>Casey Nguyen<\/b><\/div>/.test(html));
   assert.ok(/<nav class="fpe-pane rw-rail" aria-label="Phases">/.test(html) && /<section class="fpe-pane rw-list" id="rw-list" aria-label="Checklist">/.test(html) && /<aside class="fpe-pane rw-ins" id="rw-ins" data-open="false" aria-label="Selected step">/.test(html), 'named regions');
@@ -1735,6 +1735,13 @@ rule('Run workspace: on a phone the selected step is a sheet with Close, Previou
   const ins = insOf(V.run(ctx));
   assert.ok(/data-open="true"/.test(ins) && /<div class="rw-ins-top"><button class="mini close" data-act="close-ref">Close<\/button>/.test(ins) && /data-act="select" data-id="tests" data-nav="1">Next/.test(ins) && /data-act="to-row" data-id="approved">Back to the step list/.test(ins), 'Close is not Done; Previous / Next; a way back');
   assert.ok(/<div class="rw-act" role="group" aria-label="Answer this step">/.test(ins), 'the answer controls in a group kept in reach');
+});
+
+rule('Run workspace: where the step is (its phase, Step N of M) sits in the inspector\'s top row beside Previous and Next, so the step\'s own sections start higher', () => {
+  const { ctx } = setup(null, { sel: 'approved', refOpen: true });
+  const ins = insOf(V.run(ctx)), top = ins.slice(ins.indexOf('<div class="rw-ins-top">'), ins.indexOf('<div class="rw-ins-body">'));
+  assert.ok(/<nav class="rw-where" aria-label="Where it is"><ol class="ob-crumbs"><li>[^<]+<\/li>(<li>[^<]+<\/li>)?<li>Step \d+ of \d+<\/li><\/ol><\/nav>(<button class="mini rw-ins-edit"[^>]*>.*?<\/button>)?<nav class="row rw-steps" aria-label="Other steps">/.test(top), top);
+  assert.strictEqual((ins.match(/aria-label="Where it is"/g) || []).length, 1, 'once');
 });
 
 rule('Run workspace: attachments show as thumbnails or named files with sizes, never as markup; waiting files list with Remove', () => {
@@ -3092,10 +3099,21 @@ rule('Affordance: the details card says what it does, with one pencil, and chart
   assert.ok(/<circle class="ins-hit" cx="' \+ cx\.toFixed\(1\) \+ '" cy="' \+ \(38 - row \* 13\) \+ '" r="12"\/><circle class="ins-dot"/.test(src), 'a 24px hit circle under each dot');
 });
 
-rule('One header: a "·" inside a status piece is bound to the word before it, so a wrapped status never starts a line with it', () => {
-  const h = V.workHead({ hid: 'x-h', h1: 'T', status: [{ kind: 'd', html: 'v2 · published by Casey' }, { kind: 'd', html: 'Releases · owner Casey' }] });
+rule('One header: a "·" in a status piece\'s text is held to the words on both sides and spaced like the line\'s own separators; one in a tag is left alone', () => {
+  const dot = '<span class="hd-dot">&nbsp;·&nbsp;</span>';
+  const h = V.workHead({ hid: 'x-h', h1: 'T', status: [{ kind: 'd', html: 'v2 · published by Casey' }, { kind: 'd', cls: 'rw-sub', html: 'Releases · owner Casey' },
+    { kind: 'd', cls: 'sv', html: '<span class="fpe-state" title="maps/drafts/a.md · 2 KB">Draft: saved · 2 changes<svg><path d="M1"/></svg></span>' }] });
   const st = /<p class="hd-st">([\s\S]*?)<\/p>/.exec(h)[1];
-  assert.ok(st.indexOf(' · ') < 0 && /v2&nbsp;· published by Casey/.test(st) && /Releases&nbsp;· owner Casey/.test(st), st);
+  assert.strictEqual(st, '<span class="d">v2' + dot + 'published by Casey</span><span class="d rw-sub">Releases' + dot + 'owner Casey</span>' +
+    '<span class="d sv"><span class="fpe-state" title="maps/drafts/a.md · 2 KB">Draft: saved' + dot + '2 changes<svg><path d="M1"/></svg></span></span>');
+});
+rule('Run list: after a step is brought into view, a card cut by the pinned Next up is shown whole, or tucked away, as long as the step stays in view', () => {
+  // under: Next up's bottom edge; edge: where scroll-padding puts the first card; bottom: the list's bottom edge.
+  const v = { under: 231, edge: 243, bottom: 800 };
+  assert.strictEqual(V.clearEdge(v, [{ top: 150, bottom: 277 }, { top: 300, bottom: 360 }], { top: 500, bottom: 623 }), -93, 'the gate comes down whole under Next up');
+  assert.strictEqual(V.clearEdge(v, [{ top: 150, bottom: 277 }], { top: 600, bottom: 760 }), 46, 'no room to show it whole: scrolled away under Next up');
+  assert.strictEqual(V.clearEdge(v, [{ top: 150, bottom: 277 }], { top: 250, bottom: 790 }), 0, 'neither keeps the step in view: left as it is');
+  assert.strictEqual(V.clearEdge(v, [{ top: 100, bottom: 231 }, { top: 235, bottom: 300 }], { top: 500, bottom: 623 }), 0, 'nothing is cut: nothing moves');
 });
 
 rule('One header: workHead draws an action slot (.hd-sa) first in row 1\'s right column only when it is given one', () => {

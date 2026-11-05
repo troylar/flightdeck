@@ -152,7 +152,7 @@ const REGISTRY = [
   { name: 'practice, Sample details (pr-samples), 20 and the ones not accepted', rows: n => n.tag === 'label' && n.parent && cls(n.parent, 'pr-fields'), bound: 20 },
   { name: 'the builder outline\'s Checklist details card, its run details (ob-det-context), 50 names', count: joinedIn('class="ob-details', '</button>', /class="ob-chip"/g), bound: 50 },
   { name: 'the builder outline\'s Checklist details card, its roles (ob-det-roles), 50 names', count: joinedIn('class="ob-details', '</button>', /@r\d+/g), bound: 50 },
-  { name: 'Start and Plan, the approvals in a role\'s label (start-approves), 50 names', count: joinedIn('· approves ', '</span>', /Approval \d+/g), bound: 50 },
+  { name: 'Start and Plan, the approvals in a role\'s label (start-approves), 50 names', count: joinedIn('<span class="small">approves ', '</span>', /Approval \d+/g), bound: 50 },
   { name: 'Start and Plan, On my own\'s who approves (start-approvals), 50 names', count: joinedIn('including who approves ', '</p>', /Approval \d+/g), bound: 50 },
   /* Found in code review round 11: a step's or a lane's roles, joined into one line in the builder, the previews and a run, drew
      every role its author gave it; and a linked step's run details its child doesn't have drew a notice each. */

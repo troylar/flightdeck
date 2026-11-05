@@ -634,9 +634,16 @@ rule('Polish: the status line spans the left column under the way back and the t
   assert.strictEqual(decl(R('.hd-st')[0].body, 'grid-column'), '1 / -1');
   assert.ok(RULES.some(r => r.sel.join(', ') === '.hd-l:not(:has(> .backc))' && /^minmax\(0, 1fr\)$/.test(decl(r.body, 'grid-template-columns') || '')), 'with no way back, the title has the whole width');
 });
-rule('Polish: a status separator never begins a line: it hangs at the end of the piece before it, and no piece is cut with an ellipsis', () => {
-  RULES.filter(r => r.sel.some(x => /\.hd-st\b/.test(x) && /::before/.test(x))).forEach(r => assert.ok(!/"·"/.test(decl(r.body, 'content') || ''), 'a separator before a piece: ' + r.sel.join(', ')));
-  assert.ok(RULES.some(r => r.sel.join(', ') === '.hd-st > :is(.d, .act):has(+ :is(.d, .act))::after' && /"·"/.test(decl(r.body, 'content') || '')), 'after the piece before');
+rule('Polish: a status separator never begins or ends a line: each piece leads with one the same width on both sides, and the line is pulled left and clipped so the one leading a line never shows', () => {
+  assert.ok(!RULES.some(r => r.sel.some(x => /\.hd-st\b/.test(x) && /::after/.test(x)) && /"·"/.test(decl(r.body, 'content') || '')), 'no separator hangs after a piece');
+  const sep = RULES.filter(r => r.sel.join(', ') === '.hd-st > :is(.d, .act)::before');
+  assert.ok(sep.length === 1 && /^"·" \/ ""$/.test(decl(sep[0].body, 'content') || '') && decl(sep[0].body, 'display') === 'inline-block' && decl(sep[0].body, 'width') === 'var(--sep-w)' && decl(sep[0].body, 'text-align') === 'center' && decl(sep[0].body, 'margin') === null, 'one centered separator of a fixed width, no margin to make one side wider');
+  const st = R('.hd-st')[0].body;
+  assert.strictEqual(decl(st, 'margin-left'), 'calc(-1 * var(--sep-w))', 'the line starts a separator to the left of the column');
+  assert.ok(/^inset\(-\d+px -\d+px -\d+px calc\(var\(--sep-w\) - [3-5]px\)\)$/.test(decl(st, 'clip-path') || ''), 'and clips it away, leaving room for a focus ring: ' + decl(st, 'clip-path'));
+  assert.ok(/^\d+px 0$/.test(decl(st, 'gap') || ''), 'the separator is the only space between pieces: ' + decl(st, 'gap'));
+  assert.ok(/--sep-w: 14px/.test(R(':root')[0].body), 'the separator width is a token');
+  assert.ok(R('.hd-st .hd-dot').some(r => decl(r.body, 'word-spacing') === 'var(--sep-ws)') && /--sep-ws: [\d.]+px/.test(R(':root')[0].body), 'a "·" inside a piece is widened to the same width');
   RULES.filter(r => r.sel.some(x => /^\.hd-st \.d$/.test(x))).forEach(r => { assert.strictEqual(decl(r.body, 'text-overflow'), null); assert.notStrictEqual(decl(r.body, 'white-space'), 'nowrap'); });
 });
 rule('Polish: at 801-859 Edit\'s unsaved row 1 fits on one line like Practice\'s: the view switch drops its icons there, and Discard never takes a line of its own', () => {
@@ -650,6 +657,11 @@ rule('Polish: a header with no view switch gives its title the room: two columns
 rule('Polish: a run detail\'s Rename and Remove stay on its row; only the "used in" note wraps when the inspector is narrow', () => {
   const g = R('.ob-metalist li:has(> [data-act="ob-ren"])');
   assert.ok(g.some(r => decl(r.body, 'display') === 'grid' && decl(r.body, 'grid-template-columns') === 'minmax(0, max-content) minmax(min-content, 1fr) auto auto'), 'one row: name, note, Rename, Remove');
+});
+
+rule('Polish: the inspector\'s top row wraps, and where the step is takes the room left of Previous and Next', () => {
+  assert.ok(R('.rw-ins-top').some(r => decl(r.body, 'flex-wrap') === 'wrap'));
+  assert.ok(R('.rw-where').some(r => decl(r.body, 'margin-right') === 'auto' && decl(r.body, 'min-width') === '0'));
 });
 
 rule('Styles: every comment in the page\'s CSS closes before the next one opens, so no rule is swallowed', () => {

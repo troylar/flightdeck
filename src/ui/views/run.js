@@ -318,6 +318,19 @@
     return m ? { primary: m[0], also: '' } : none;
   }
   V.runPrimary = runPrimary;
+  /* After a step is brought into view in the run list: the first card that Next up cuts (top above its bottom edge, under, and
+     bottom below it) is shown whole at the scroll-padding edge, or else tucked away under Next up, whichever keeps the step
+     (at) in view; otherwise nothing moves. Returns how far to scroll the list. v: { under, edge, bottom }; cards and at are
+     viewport rects. */
+  function clearEdge(v, cards, at) {
+    var c = (cards || []).filter(function (x) { return x.top < v.under && x.bottom > v.under; })[0];
+    if (!c || !at) return 0;
+    var up = c.top - v.edge, down = c.bottom - v.under;
+    if (at.bottom - up <= v.bottom) return up;
+    if (at.top - down >= v.edge) return down;
+    return 0;
+  }
+  V.clearEdge = clearEdge;
   /* The run's details, read-only, beside the strip; they're edited in Details. */
   function chipsLine(ctx, r) {
     var map = mapOf(ctx, r), waiting = R.openMigrations(r).map(function (m) { return m.path; }), flag = function (f) { return (r._invalid && Object.prototype.hasOwnProperty.call(r._invalid, 'details.' + f)) || waiting.indexOf('details.' + f) >= 0; };
@@ -717,11 +730,14 @@
     var who = K.capJoin(st.roles, function (ro) { return !P && r.roles[ro] ? avatar(ctx, r.roles[ro]) + esc(nameOf(ctx, r.roles[ro])) : '@' + esc(ro); }, ', ', 'rw-ins-roles');
     var cf = s.corrForm && s.corrForm.key === runKey(r) && s.corrForm.step === st.id ? s.corrForm : null, corrOpen = !!cf;
     var h = '<aside class="fpe-pane rw-ins" id="rw-ins" data-scope="ref:' + esc(st.id) + '" data-open="' + open + '" aria-label="Selected step">';
-    h += '<div class="rw-ins-top"><button class="mini close" data-act="close-ref">Close</button>' + (P && P.canEdit(st.id) ? '<button class="mini rw-ins-edit" data-act="pr-edit" data-id="' + esc(st.id) + '">' + I('edit') + 'Edit step</button>' : '') + '<nav class="row rw-steps" aria-label="Other steps">' +
+    /* Where the step is shares the top row with Previous and Next, so the step's own sections start higher (2.16.1). */
+    h += '<div class="rw-ins-top"><button class="mini close" data-act="close-ref">Close</button>' +
+      '<nav class="rw-where" aria-label="Where it is"><ol class="ob-crumbs"><li>' + esc(ph.title) + '</li>' + (track ? '<li>' + esc(track.title) + '</li>' : '') + '<li>Step ' + inPhase + ' of ' + ph.steps.length + '</li></ol></nav>' +
+      (P && P.canEdit(st.id) ? '<button class="mini rw-ins-edit" data-act="pr-edit" data-id="' + esc(st.id) + '">' + I('edit') + 'Edit step</button>' : '') +
+      '<nav class="row rw-steps" aria-label="Other steps">' +
       (prev ? '<button class="mini" data-act="select" data-id="' + esc(prev.step.id) + '" data-nav="1">' + I('back') + 'Previous</button>' : '') + (next ? '<button class="mini" data-act="select" data-id="' + esc(next.step.id) + '" data-nav="1">Next</button>' : '') + '</nav>' +
       '<button class="linkish rw-skip" data-act="to-row" data-id="' + esc(st.id) + '">Back to the step list</button></div>';
     h += '<div class="rw-ins-body">';
-    h += '<nav aria-label="Where it is"><ol class="ob-crumbs"><li>' + esc(ph.title) + '</li>' + (track ? '<li>' + esc(track.title) + '</li>' : '') + '<li>Step ' + inPhase + ' of ' + ph.steps.length + '</li></ol></nav>';
     h += '<h2 id="ins-h" class="rw-ins-h" tabindex="-1">' + K.stepHtml(st, K.refValue(r, map)) + '</h2>';
     h += '<div class="rw-ins-meta">' + (t.id === 'confirm' ? '' : '<span class="type">' + I(t.icon) + esc(T.nameOf(t)) + '</span>') + (who ? '<span class="small">' + who + '</span>' : '') + (st.must ? '<span class="badge b-must">Must do</span>' : '') +
       '<span class="badge rw-st s-' + esc(aState) + '">' + esc(P && pm.status === 'assumed' ? 'Assumed for practice' : aState === 'open' ? 'Not checked' : aState === 'done' ? 'Done' : aState === 'na' ? (P ? 'Not needed' : 'N/A') : aState === 'blocked' ? 'Blocked' : P ? 'Try it again' : 'Re-check') + '</span>' +
