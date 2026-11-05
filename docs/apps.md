@@ -377,7 +377,19 @@ The file is `reports/<process>/<run id>.<step>.<tool>.<id>.json`, written once. 
 
 ### targets
 
-Running runs and their steps: `data` is `{ "runs": [...] }`, each with `key`, `title`, `folder`, `version`, `recorder`, `details` and `steps`. Each step has `id`, `phase`, `text`, `type`, `state`, `binds` (the details it's tied to), `evidence` (what it records, as in `run --json`), `accepts` (whether a person could accept a report on it) and `why` (why not, or `null`). A step that starts another process, or one that sets run details, takes no report.
+Running runs and their steps: `data` is `{ "runs": [...] }`, each with `key`, `title`, `folder`, `version`, `recorder`, `details` and `steps`. Each step has `id`, `phase`, `text`, `type`, `state`, `binds` (the details it's tied to), `evidence` (what it records, as in `run --json`), `accepts` (whether a person could accept a report on it) and `why` (why not, or `null`). A step that starts another process takes no report. A step that sets run details takes one since Flightdeck 2.16: the report's value for the detail (evidence under the name `targets` lists, `rd-<detail>-<hash>`) is checked as a typed value would be, the person sees "Sets tag to …" or "Replaces …", and it can't name that detail as a `detail:` input. Older copies refuse such a report, which is safe.
+
+### Jira searches
+
+A `{jira.search}` step (2.16) also has `search`, in `report targets`, `run --json` and `next`: `{ query, filter, results, what, site, uses, jql, link, searchId, ready, why }`, resolved from the run's details and the Jira address it copied when it started. `jql` and `link` are `null` until `ready`, and `link` is `null` over 8,000 characters. `searchId` is `null` when the run's record of a detail or of the step's recovery is damaged. `process --json` has the template only: `{ query, filter, results, what, site, uses }`. Other steps have no `search` key.
+
+The report carries the results as evidence: `searchId` (copied from `report targets`, never computed), `count` (an exact total), `keys` when the count breaks the rule and isn't 0, and optionally `resultsLink` and `ranAt`. The JQL and the link are never sent. Accepting it is checked against the run at that moment:
+
+- No `searchId`, or one for an earlier search (a detail it used changed, even back to its old value, or the run was recovered from a copy): refused.
+- A `pass` must meet the step's rule.
+- A `fail` or `blocked` report for the current search can't be accepted, but **Block with these** blocks the step with its results and declines the report with "Blocked with its results".
+
+`report check --folder` and `report write` warn about each of these; `--strict` refuses.
 
 ### check and write
 

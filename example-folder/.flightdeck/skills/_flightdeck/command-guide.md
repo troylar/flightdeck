@@ -68,6 +68,15 @@ Three commands, in the order a report needs them:
 
 The report's fields are in docs/apps.md of the Flightdeck repository.
 
+### Reporting a Jira search
+
+- Copy `search.jql` and `search.searchId` from `report targets` exactly as given. If `ready` is false, don't search: say why, and stop.
+- Report an **exact total** from a search that finished: go through every page, or use a total the API documents as exact. Never use a page's length or an approximate count.
+- If a search errors, times out, stops partway or gives an uncertain total, report `blocked` and name the problem. Never report 0.
+- Record who you searched as in an `external` input. Never include a credential.
+- When the rule is broken, use `fail` with the keys. Never `pass` to get it accepted.
+- The scope search catches an empty or misspelled release. It doesn't prove the account sees every issue it should: Jira shows each account only what that account may see.
+
 ## Skills built from processes
 
 A skill can live anywhere (a repo, a shared folder, a local path). `location` is its source path or link.
