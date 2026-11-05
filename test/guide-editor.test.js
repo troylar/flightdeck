@@ -463,7 +463,7 @@ rule('Editor round trips: for every built-in type and each of its actions, revea
       app.click('ob-sets', 'environment'); await app.tick(); want.sets = 'environment';
       const got = await textOf(app), hand = md(step(t.id, 's', ...Object.keys(want).map(k => k + ': ' + want[k])));
       assert.strictEqual(got, hand, label);
-      assert.deepStrictEqual(plain(app.PF.types.LIST), was.LIST, label + ': T.LIST unchanged in the app');
+      assert.deepStrictEqual(plain(app.PF.types.LIST).filter(x => x.id !== 'jira.search'), was.LIST, label + ': T.LIST unchanged in the app, less 2.16\'s {jira.search}');
       assert.deepStrictEqual(plain(app.PF.types.COMMON), was.COMMON, label + ': T.COMMON');
       const pinsNow = plain(app.PF.types.PINS); delete pinsNow['run.process'].pass;
       assert.deepStrictEqual(pinsNow, was.PINS, label + ': pins, less 2.8\'s pass:');

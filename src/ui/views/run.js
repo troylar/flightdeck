@@ -617,7 +617,30 @@
     return h + '<p class="small corr-conseq" id="corr-conseq">' + conseq + '</p><div class="row"><button class="btn ' + (answer ? 'go' : 'primary') + '" data-act="' + (answer ? 'corr-done' : 'corr-save') + '" data-id="' + esc(s.id) + '"' + (off ? ' aria-disabled="true"' : '') + ' aria-describedby="corr-conseq' + (fix && same ? ' corr-same' : '') + '">' + (f.sending ? 'Saving…' : answer ? 'Mark done differently' : 'Save correction') + '</button><button class="mini" data-act="corr-cancel">Cancel</button></div></div>';
   }
   /* A step's checklist fields as the run sees them: commands and messages with Copy, links with Open, the rest as labels. */
+  /* A Jira search step (2.16, design section 7): what it finds, the filled-in query with Copy, the rule, Open in Jira or why
+     there's no link, the result line, and Refresh search when a generation is damaged. Flightdeck never calls Jira. */
+  function searchBlock(ctx, r, map, s) {
+    var JS = PF.jsearch, f = s.fields, st = ctx.state, ss = R.searchState(r, map, s), rule = JS.parseResults(f.results), a = r.steps[s.id], h = '';
+    if (f.what) h += '<p>' + esc(f.what) + '</p>';
+    var text = ss.ok ? (ss.filter ? 'filter = ' + ss.filter : ss.jql) : '';
+    if (text) { var on = st.copied === text; h += '<div class="cmd"><code>' + esc(text) + '</code><button class="mini" data-act="copy" data-text="' + esc(text) + '" aria-label="Copy the query">' + I(on ? 'check' : 'copy') + (on ? 'Copied' : 'Copy') + '</button></div>'; }
+    var chips = '<span class="fchip"><b>Should find:</b> ' + esc(JS.ruleLabel(rule.ok ? rule : null) || String(f.results || '')) + '</span>';
+    if (ss.ok && ss.link && U.safeUrl(ss.link)) chips += '<a class="fchip" href="' + esc(U.safeUrl(ss.link)) + '" target="_blank" rel="noopener noreferrer"><b>Open in Jira</b></a>';
+    else if (ss.ok) chips += '<span class="fchip"><span class="small">' + esc(ss.linkWhy || (ss.siteEntry && ss.siteEntry.invalid ? 'No link: the Jira address ' + ss.siteEntry.invalid : 'No link: the run has no Jira address (Settings › Team values › ' + (ss.site || 'jira-base-url') + ' when it started). Copy the query.')) + '</span></span>';
+    h += '<div class="fields">' + chips + '</div>';
+    if (!ss.ok) h += '<p class="small rw-why-off">' + esc(ss.why) + '</p>';
+    var v = a && a.values;
+    if (v && v.count != null && v.count !== '') {
+      var meets = JS.meets(rule, +v.count), when = v.ranAt ? ' · searched ' + U.when(v.ranAt) : '';
+      h += '<p class="search-res ' + (meets ? 'good' : 'bad') + '" role="status">Found ' + esc(v.count) + (v.keys ? ' · ' + esc(v.keys) : '') + esc(when) + (a.at ? ' · checked ' + esc(U.hm(a.at)) : '') + '</p>';
+    }
+    if (a && a.reopened) h += '<span class="badge b-warn">Reopened when read</span>';
+    var dm = R.genDamaged ? R.genDamaged(r, map, s) : null;
+    if (dm && (dm.details.length || dm.rec) && r.state === 'running' && ctx.recording && ctx.recording(r)) h += '<div class="row"><button class="mini" data-act="refresh-search" data-id="' + esc(s.id) + '">Refresh search</button></div>';
+    return '<div class="search-box">' + h + '</div>';
+  }
   function fieldsBlock(ctx, r, map, s, t, sched) {
+    if (R.isSearchStep(s)) return searchBlock(ctx, r, map, s);
     var st = ctx.state, eff = R.fieldsOf(r, s), own = (r.fields || {})[s.id] || {}, chips = '', code = '';
     Object.keys(eff).forEach(function (f) {
       if (f === 'expect' || f === 'deadline' || f === 'require' || !eff[f] || (sched && (f === 'at' || f === 'due' || f === 'after'))) return;
@@ -714,7 +737,7 @@
          choices for this folder and run, over what the run says. */
       var fd = s.fieldsDraft && s.fieldsDraft.id === st.id && s.fieldsDraft.key === draftKeyOf(ctx) && s.fieldsDraft.fs === ctx.fsKey ? s.fieldsDraft.values : {}, draft = Object.assign({}, fd);
       Object.keys(dr.fields || {}).forEach(function (k) { if (/^fld-/.test(k)) draft[k.slice(4)] = dr.fields[k]; });
-      var eff = R.fieldsOf(r, st), own = (r.fields || {})[st.id] || {}, eff2 = Object.assign({}, eff, draft), recFields2 = P ? [] : R.evidenceFor(r, st, eff2, map).list;
+      var eff = R.fieldsOf(r, st), own = (r.fields || {})[st.id] || {}, eff2 = Object.assign({}, eff, draft), recFields2 = P ? [] : R.evidenceFor(r, st, eff2, map).list.filter(function (d) { return !d.system; });
       /* A Jira issue type or status the team's workflows don't have says why beside its box, as soon as it's chosen. */
       var jf = V.jiraFill && !P ? V.jiraFill(r, st, eff2) : null, jid = 'jwhy-' + st.id;
       recBody = '<div class="pick record" data-scope="fields:' + esc(st.id) + '"><span class="small">Fill in or correct this step\'s values for ' + (P ? 'practice' : 'this run') + '. Leave anything you don\'t know yet.</span>' + ferr(s, st.id) +
@@ -722,12 +745,13 @@
         (recFields2.length ? '<span class="small" style="margin-top:4px">Evidence</span>' + recFields2.map(function (d) { return fieldInput('rec-' + d.name, d, dr.fields['rec-' + d.name] != null ? dr.fields['rec-' + d.name] : dr.record['rec-' + d.name] != null ? dr.record['rec-' + d.name] : valueOf(d), 'save-fields', st.id, d.required ? ' (required to check it)' : '', errFor(s, st.id, 'rec-' + d.name), gRecord(t, d, eff2)); }).join('') : '') +
         '<span class="row"><button class="btn" data-act="save-fields" data-id="' + esc(st.id) + '">Save</button><button class="mini" data-act="unpick">Cancel</button></span></div>';
     } else if (showRec) {
-      recBody = '<div class="pick record" data-scope="record:' + esc(st.id) + '"><span class="small">' + (recFields.some(function (d) { return d.required; }) ? 'To check this step, record:' : 'You can record:') + '</span>' + ferr(s, st.id) + recFields.map(function (d) {
+      var search = R.isSearchStep(st) && !P;
+      recBody = '<div class="pick record" data-scope="record:' + esc(st.id) + '"><span class="small">' + (recFields.some(function (d) { return d.required; }) ? 'To check this step, record:' : 'You can record:') + '</span>' + ferr(s, st.id) + recFields.filter(function (d) { return !d.system; }).map(function (d) {
         return fieldInput('rec-' + d.name, d, dr.record['rec-' + d.name] != null ? dr.record['rec-' + d.name] : valueOf(d), 'record', st.id, d.required ? '' : ' (optional)', errFor(s, st.id, 'rec-' + d.name), gRecord(t, d, R.fieldsOf(r, st)));
-      }).join('') + '</div>';
+      }).join('') + (search && rec && r.state === 'running' ? '<div class="row"><button class="mini" data-act="search-block" data-id="' + esc(st.id) + '">Block with these</button><span class="small">When the results break the rule: blocks the step with them.</span></div>' : '') + '</div>';
     } else if (a && a.values) {
       var vals = '';
-      recFields.forEach(function (d) { var v = a.values[d.name]; if (!v) return; vals += d.kind === 'url' && U.safeUrl(v) ? '<a class="fchip rec" href="' + esc(U.safeUrl(v)) + '" target="_blank" rel="noopener noreferrer"><b>' + esc(d.label) + '</b> open</a>' : '<span class="fchip rec"><b>' + esc(d.label) + ':</b> ' + esc(typedOf(d) ? K.valueText(d, v) : v) + (r._invalid && r._invalid['steps.' + st.id + '.values.' + d.name] ? ' <span class="small">' + esc(r._invalid['steps.' + st.id + '.values.' + d.name].why) + '</span>' : '') + '</span>'; });
+      recFields.forEach(function (d) { var v = a.values[d.name]; if (!v) return; if (d.system) { vals += '<span class="fchip rec"><b>' + esc(d.label) + ':</b> ' + esc(String(v).replace(/^sha256:/, '').slice(0, 8)) + '</span>'; return; } vals += d.kind === 'url' && U.safeUrl(v) ? '<a class="fchip rec" href="' + esc(U.safeUrl(v)) + '" target="_blank" rel="noopener noreferrer"><b>' + esc(d.label) + '</b> open</a>' : '<span class="fchip rec"><b>' + esc(d.label) + ':</b> ' + esc(typedOf(d) ? K.valueText(d, v) : v) + (r._invalid && r._invalid['steps.' + st.id + '.values.' + d.name] ? ' <span class="small">' + esc(r._invalid['steps.' + st.id + '.values.' + d.name].why) + '</span>' : '') + '</span>'; });
       if (vals) recBody = '<div class="fields">' + vals + '</div>';
     }
     var finishing = !P && s.answering && s.answering.key === runKey(r) && s.answering.step === st.id;

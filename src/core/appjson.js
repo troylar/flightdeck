@@ -30,6 +30,11 @@ PF.appjson = (function () {
   var FOLLOWUP = { key: 'string', process: 'string', run: 'string', runTitle: 'string', runEnded: 'boolean', id: 'string', text: 'string', owner: opt(PERSON),
     ticket: 'string', step: 'string', at: 'string', status: 'string', label: 'string', tie: 'boolean', decision: opt(DECISION) };
   var ROLE = { role: 'string', person: opt(PERSON) };
+  /* A {jira.search} step (2.16, design section 6.1) carries search: the template in a version, resolved from the run's details
+     and its copied address in a run. Every other step is exactly as before, without the key. */
+  var SEARCH_TPL = { query: opt('string'), filter: opt('string'), results: 'string', what: 'string', site: opt('string'), uses: ['string'] };
+  var SEARCH_RUN = extend(SEARCH_TPL, { jql: opt('string'), link: opt('string'), searchId: opt('string'), ready: 'boolean', why: opt('string') });
+  function orSearch(base, kind) { return { $or: [base, extend(base, { search: kind === 'run' ? SEARCH_RUN : SEARCH_TPL })] }; }
   var SCHEMA = {
     envelope: { contract: 'string', app: 'string', readAt: 'string', complete: 'boolean', problems: [{ path: 'string', kind: 'string', why: 'string' }], note: 'string', data: map('any') },
     error: { contract: 'string', app: 'string', error: { kind: 'string', why: 'string' }, problems: [{ path: 'string', kind: 'string', why: 'string' }] },
@@ -47,7 +52,7 @@ PF.appjson = (function () {
       gates: [{ id: 'string', phase: 'string', title: 'string', status: 'string', by: opt(PERSON), at: opt('string'), reason: opt('string'), approved: map('string') }],
       followUps: [FOLLOWUP] })) },
     next: { run: 'string', person: opt(PERSON),
-      next: opt({ kind: 'string', headline: HEADLINE, phase: opt({ index: 'number', id: 'string', title: 'string' }), step: opt({ id: 'string', text: 'string', roles: [ROLE] }),
+      next: opt({ kind: 'string', headline: HEADLINE, phase: opt({ index: 'number', id: 'string', title: 'string' }), step: opt(orSearch({ id: 'string', text: 'string', roles: [ROLE] }, 'run')),
         gate: opt({ id: 'string', title: 'string', status: 'string', owner: opt('string') }),
         tracks: [{ id: 'string', title: 'string', left: 'number', step: opt({ id: 'string', text: 'string' }), people: [PERSON] }] }),
       mine: opt({ phase: { index: 'number', id: 'string', title: 'string' }, step: { id: 'string', text: 'string' } }) },
@@ -60,7 +65,7 @@ PF.appjson = (function () {
       created: 'string', applies: opt('string'), warnings: ['string'] } },
     /* flightdeck report targets (2.0, flightdeck-read/2): running runs and the steps a report can be written for. */
     targets: { runs: [{ key: 'string', title: 'string', folder: 'string', version: 'number', recorder: opt(PERSON), details: map('string'),
-      steps: [{ id: 'string', phase: 'string', text: 'string', type: 'string', state: 'string', binds: ['string'], evidence: [EVIDENCE], accepts: 'boolean', why: opt('string') }] }] }
+      steps: [orSearch({ id: 'string', phase: 'string', text: 'string', type: 'string', state: 'string', binds: ['string'], evidence: [EVIDENCE], accepts: 'boolean', why: opt('string') }, 'run')] }] }
   };
   /* ---- contract 2 (Flightdeck 2.0): the same commands; 2.0 versions and run/3 runs are data, and values are typed ----
      A detail or evidence value: its kind, the stored text, the value (a string for numbers, a boolean for yes/no, null when
@@ -74,15 +79,17 @@ PF.appjson = (function () {
   /* Test runs (2.1): test says a run is one; stage names its stage folder (null for any other run). */
   var SUMMARY2 = extend(SUMMARY, { format: 'string', features: ['string'], details: map(VALUE), test: 'boolean', stage: opt({ folder: 'string' }) });
   var FOLLOWUP2 = extend(FOLLOWUP, { test: 'boolean' });
+  /* A detail that must match a pattern (2.16, Appendix A) carries pattern; every other detail is exactly as before. */
+  var DETAIL = { name: 'string', type: 'string', options: ['string'] };
   var SCHEMA2 = {
     envelope: SCHEMA.envelope, error: SCHEMA.error, processes: SCHEMA.processes, next: SCHEMA.next, followups: { followUps: [FOLLOWUP2] }, request: SCHEMA.request,
     /* stage: the staged version shown (process --stage), else null. */
-    process: extend(SCHEMA.process, { format: 'string', features: ['string'], stage: opt({ folder: 'string', proposed: 'number', stagedBy: 'string', stagedAt: 'string' }), details: [{ name: 'string', type: 'string', options: ['string'], pattern: opt('string') }],
-      phases: [extend(SCHEMA.process.phases[0], { when: ['string'], steps: [extend(SCHEMA.process.phases[0].steps[0], { when: ['string'], evidence: [extend(EVIDENCE2, { min: opt('string'), max: opt('string'), unit: opt('string') })] })] })] }),
+    process: extend(SCHEMA.process, { format: 'string', features: ['string'], stage: opt({ folder: 'string', proposed: 'number', stagedBy: 'string', stagedAt: 'string' }), details: [{ $or: [DETAIL, extend(DETAIL, { pattern: 'string' })] }],
+      phases: [extend(SCHEMA.process.phases[0], { when: ['string'], steps: [orSearch(extend(SCHEMA.process.phases[0].steps[0], { when: ['string'], evidence: [extend(EVIDENCE2, { min: opt('string'), max: opt('string'), unit: opt('string') })] }), 'template')] })] }),
     /* testRunsLeftOut: test runs that match but aren't listed (D3: left out unless asked for with --tests). */
     runs: { runs: [SUMMARY2], planned: [extend(SCHEMA.runs.planned[0], { format: 'string', pin: opt({ folder: 'string', version: 'number' }) })], testRunsLeftOut: 'number' },
     run: { run: opt(extend(SUMMARY2, { roles: [ROLE], pins: map(PIN), migrations: [MIGRATION],
-      steps: [extend(SCHEMA.run.run.$or[0].steps[0], { values: map(VALUE), evidence: [EVIDENCE2], applies: APPLIES, held: opt('string') })],
+      steps: [orSearch(extend(SCHEMA.run.run.$or[0].steps[0], { values: map(VALUE), evidence: [EVIDENCE2], applies: APPLIES, held: opt('string') }), 'run')],
       gates: [extend(SCHEMA.run.run.$or[0].gates[0], { applies: APPLIES })], followUps: [FOLLOWUP2] })) },
     /* flightdeck draft check (2.13): the verdict the Publish dialog gives the text, from the folder as it is now. from: the draft
        in maps/drafts/ (ref its path) or the file given with --from (ref null); rev: SHA-256 of the text checked. */
@@ -327,6 +334,7 @@ PF.appjson = (function () {
       step: nu.step ? { id: s(nu.step.id), text: s(nu.step.text), roles: rolePeople(r, nu.step.roles, nameOf) } : null,
       gate: nu.gate ? { id: s(nu.gate.id), title: s(nu.gate.title), status: s(nu.status), owner: orNull(nu.gate.owner) } : null,
       tracks: (nu.tracks || []).map(function (t) { return { id: s(t.track.id), title: s(t.track.title), left: t.left, step: t.step ? { id: s(t.step.id), text: s(t.step.text) } : null, people: t.people.map(nameOf).filter(Boolean) }; }) };
+    if (nu.step && R.isSearchStep(nu.step)) out.step.search = searchRun(r, mp, nu.step);
     var my = personId ? R.myNext(r, mp, personId) : null, mph = my ? mp.phases[my.phaseIndex] : null;
     return { run: r.process + '/' + r.id, person: personId ? nameOf(personId) : null, next: out,
       mine: my ? { phase: { index: my.phaseIndex, id: s(mph.id), title: s(mph.title) }, step: { id: s(my.step.id), text: s(my.step.text) } } : null };
@@ -355,6 +363,18 @@ PF.appjson = (function () {
       return e;
     });
   }
+  var JS = PF.jsearch;
+  function searchTpl(step, mp) {
+    var f = step.fields || {}, rule = JS.parseResults(f.results), q = f.query != null && String(f.query).trim() ? String(f.query) : null;
+    return { query: q, filter: !q && f.filter != null && String(f.filter).trim() ? String(f.filter).trim() : null, results: s(rule.ok ? rule.text : f.results), what: s(f.what),
+      site: JS.siteName(f), uses: JS.uses(f, mp.meta.context).map(s) };
+  }
+  /* Resolved from the run alone (R.searchState): jql and link only when ready, searchId null when a generation is damaged. */
+  function searchRun(r, mp, step) {
+    var out = searchTpl(step, mp), st = R.searchState(r, mp, step), link = st.ok && st.link && st.link.length <= 8000 ? st.link : null;
+    out.jql = st.ok && !st.filter ? s(st.jql) : null; out.link = link; out.searchId = st.ok ? s(st.id) : null; out.ready = !!st.ok; out.why = st.ok ? null : s(st.why);
+    return out;
+  }
   function process2(proc, pub) {
     var out = process(proc, pub), si = pub.info || {};
     out.format = s(si.format); out.features = Array.isArray(si.features) ? si.features.map(s) : [];
@@ -362,13 +382,14 @@ PF.appjson = (function () {
     out.details = [];
     if (!pub.ok) return out;
     var mp = pub.map, types = pub.types || {}, dt = mp.meta.detailTypes || {};
-    out.details = mp.meta.context.map(function (n) { var d = Object.prototype.hasOwnProperty.call(dt, n) ? dt[n] : null; return { name: s(n), type: d ? typeOf(d) : 'text', options: d && d.options ? d.options.map(s) : [], pattern: d && d.kind === 'pattern' ? s(d.pattern) : null }; });
+    out.details = mp.meta.context.map(function (n) { var d = Object.prototype.hasOwnProperty.call(dt, n) ? dt[n] : null; var o = { name: s(n), type: d ? typeOf(d) : 'text', options: d && d.options ? d.options.map(s) : [] }; if (d && d.kind === 'pattern') o.pattern = s(d.pattern); return o; });
     out.phases.forEach(function (ph, pi) {
       var when = function (o) { return (o.when || []).map(function (w) { return s(w.text); }); };
       ph.when = when(mp.phases[pi]);
       ph.steps.forEach(function (st, si) {
         st.when = when(mp.phases[pi].steps[si]);
         var x = mp.phases[pi].steps[si], t = T.get(x.type, types), list = t ? T.recordFields(t, x.fields) : [];
+        if (R.isSearchStep(x)) st.search = searchTpl(x, mp);
         st.evidence = evidence2(list).map(function (e, i) { var d = list[i]; e.min = d.kind === 'number' && d.min != null ? s(d.min) : null; e.max = d.kind === 'number' && d.max != null ? s(d.max) : null; e.unit = d.kind === 'number' && d.unit != null ? s(d.unit) : null; return e; });
       });
     });
@@ -407,6 +428,7 @@ PF.appjson = (function () {
       st.values = vals; st.evidence = evidence2(x ? R.evidenceFor(r, x.step).list : []);
       var ap = x ? R.applies(r, mp, x.phaseIndex, x.step) : { applies: true };
       st.applies = ap.applies; st.held = ap.applies === null ? s(ap.why) : null;
+      if (x && R.isSearchStep(x.step)) st.search = searchRun(r, mp, x.step);
     });
     out.gates.forEach(function (g, pi) { g.applies = R.applies(r, mp, pi).applies; });
     return { run: out };
@@ -433,8 +455,10 @@ PF.appjson = (function () {
       var mp = R.mapOf(r), steps = [];
       mp.phases.forEach(function (ph) { ph.steps.forEach(function (st) {
         var a = r.steps && Object.prototype.hasOwnProperty.call(r.steps, st.id) ? r.steps[st.id] : null;
-        var why = st.type === 'run.process' ? 'Checked by its linked run, never by a report.' : String(R.fieldsOf(r, st).sets || '').trim() ? 'Sets run details; a person checks it.' : !PF.reports.parseName(r.id + '.' + st.id + '.x.aaaaaaaa.json') ? 'Its step ID can\'t be part of a report\'s file name.' : null;
-        steps.push({ id: s(st.id), phase: s(ph.id), text: s(st.text), type: s(st.type), state: s(a && a.s || 'open'), binds: (st.binds || []).map(s), evidence: evidence(R.evidenceFor(r, st).list), accepts: !why, why: why });
+        var why = st.type === 'run.process' ? 'Checked by its linked run, never by a report.' : R.isSearchStep(st) && /^This step sets /.test(R.searchProblem(r, mp, st)) ? s(R.searchProblem(r, mp, st)) : !PF.reports.parseName(r.id + '.' + st.id + '.x.aaaaaaaa.json') ? 'Its step ID can\'t be part of a report\'s file name.' : null;
+        var o = { id: s(st.id), phase: s(ph.id), text: s(st.text), type: s(st.type), state: s(a && a.s || 'open'), binds: (st.binds || []).map(s), evidence: evidence(R.evidenceFor(r, st).list), accepts: !why, why: why };
+        if (R.isSearchStep(st)) o.search = searchRun(r, mp, st);
+        steps.push(o);
       }); });
       return { key: r.process + '/' + r.id, title: s(r.title), folder: s(r.folder), version: +r.version || 0, recorder: r.recorder && r.recorder.person ? nameOf(r.recorder.person) : null, details: strMap(r.details || {}), steps: steps };
     }).sort(function (a, b) { return a.key < b.key ? -1 : 1; }) };

@@ -1792,6 +1792,10 @@ h3.fixgroup { font-family: var(--body); font-size: 14px; letter-spacing: 0; }
 .r-corr .corrlist { margin-top: 4px; }
 .s-draft { font-size: 10.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--plan); border: 1px dashed var(--plan); border-radius: 4px; padding: 0 5px; }
 .rw-why-off { color: var(--muted); }
+.search-box { display: flex; flex-direction: column; gap: 6px; }
+.search-res { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.search-res.good { color: var(--go); }
+.search-res.bad { color: var(--stop); }
 .rw-ins .fchip { white-space: normal; overflow: visible; overflow-wrap: anywhere; }
 .s-notes { display: inline-flex; gap: 3px; align-items: center; font-size: 12px; color: var(--muted); }
 .s-notes .ic { width: 13px; height: 13px; }
@@ -9801,7 +9805,7 @@ PF.run = (function () {
   }
 
   return { answerable: answerable, reopenIds: reopenIds, gateInputs: gateInputs, detailValueDef: detailValueDef, detailUnit: detailUnit,
-    childCheck: childCheck, childMarks: childMarks, edgeHolds: edgeHolds, linkShape: linkShape, CHILD_HEIGHT: CHILD_HEIGHT, CHILD_LINKS: CHILD_LINKS, isSearchStep: isSearchStep, searchSteps: searchSteps, searchState: searchState, searchProblem: searchProblem, searchId: searchId, searchCheck: searchCheck, refreshSearch: refreshSearch, rereadable: rereadable, mergeOverflow: mergeOverflow, SEARCH_PREFIX: SEARCH_PREFIX,
+    childCheck: childCheck, childMarks: childMarks, edgeHolds: edgeHolds, linkShape: linkShape, CHILD_HEIGHT: CHILD_HEIGHT, CHILD_LINKS: CHILD_LINKS, isSearchStep: isSearchStep, searchSteps: searchSteps, searchState: searchState, searchProblem: searchProblem, searchId: searchId, searchCheck: searchCheck, genDamaged: genDamaged, refreshSearch: refreshSearch, rereadable: rereadable, mergeOverflow: mergeOverflow, SEARCH_PREFIX: SEARCH_PREFIX,
     RUN_ID: RUN_ID, isTest: isTest, pubDir: pubDir, testProblem: testProblem, testLast: testLast,
     FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, applies: applies, held: held, stepNeeded: stepNeeded, canStartChild: canStartChild, phaseSkipped: phaseSkipped, condFields: condFields, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, fillOffered: fillOffered, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence, checkFill: checkFill,
@@ -15910,11 +15914,16 @@ PF.reports = (function () {
     if (o.readOnly) return no(o.readOnly);
     if (o.held) return no(o.held);
     if (!o.recording) return no('Only the recorder can accept a report.');
-    if (rep.verdict !== 'pass') return no('This report says ' + rep.verdict + '. Accepting checks the step, so only a pass can be accepted.');
+    var search = !!x && R.isSearchStep(x.step);
+    /* A search that sets its own input is refused before anything else (design section 5.4). */
+    if (search && /^This step sets /.test(R.searchProblem(r, map, x.step))) return no(R.searchProblem(r, map, x.step));
+    if (rep.verdict !== 'pass' && !search) return no('This report says ' + rep.verdict + '. Accepting checks the step, so only a pass can be accepted.');
     if (!r || r.folder !== rep.publication.folder) return no('This report is for ' + rep.publication.folder + ', but the run is on ' + (r ? r.folder : 'another version') + '.');
     if (!x) return no('This step isn\'t in the run\'s version.');
     if (x.step.type === 'run.process') return no('This step is checked by its linked run, never by a report.');
-    if (String(R.fieldsOf(r, x.step).sets || '').trim()) return no('This step sets run details. Check it yourself; reports can\'t set details yet.');
+    /* Appendix A.4: a report may supply a sets: detail's value, checked as a typed value; it can't name that detail as an input. */
+    var sets = setsOf(r, x.step), selfIn = (rep.inputs || []).filter(function (i) { return i && sets.indexOf(String(i.source || '').replace(/^detail:/, '')) >= 0 && /^detail:/.test(String(i.source || '')); })[0];
+    if (selfIn) return no('This report names ' + selfIn.source.replace(/^detail:/, '^') + ' as an input, but this step sets it. A report can\'t examine the detail it sets.');
     if (r.ended || r.state !== 'running') return no('The run has ended.');
     if (r.paused) return no('The run is paused. Resume it first.');
     /* Conditions (2.1): a step that isn't needed, or whose condition waits for a detail, takes no report. */
@@ -15927,15 +15936,34 @@ PF.reports = (function () {
     if (o.fillOpen) return no('Save or cancel Fill in first.');
     var ap = applies(rep, r, map, x.step);
     if (ap.result === 'mismatch') return no(appliesText(ap));
-    var vu = valuesFor(rep, r, x.step), chk = R.checkEvidence(r, x.step, null, vu.values);
+    var vu = valuesFor(rep, r, x.step), chk;
+    if (search) {
+      /* Design section 6.3, against the run at the moment of acceptance. */
+      var st = R.searchState(r, map, x.step), have = rep.evidence && typeof rep.evidence.searchId === 'string' ? rep.evidence.searchId : '';
+      if (!st.ok) return no(st.why);
+      if (!have) return no('This report doesn\'t say which search it ran.');
+      if (have !== st.id) return no('This report is for an earlier search: a run detail it used has changed, or the run was recovered from a copy, since.');
+      if (rep.verdict !== 'pass') {
+        var bl = R.searchCheck(r, map, x.step, vu.values, o.now || new Date().toISOString(), { partial: true });
+        var bv = bl.error ? null : Object.assign({}, bl.values);
+        return { ok: false, why: 'This report says ' + rep.verdict + '. Accepting checks the step, so only a pass can be accepted.' + (bv ? ' Block with these blocks the step with its results.' : ''), block: bv ? { values: bv } : null };
+      }
+      chk = R.searchCheck(r, map, x.step, vu.values, o.now || new Date().toISOString());
+      if (!chk.error && !chk.meets) chk = { error: 'These results don\'t meet the step\'s rule' + (chk.why ? ': ' + chk.why : '') + '. Block with these, or search again.', field: 'count' };
+    } else chk = R.checkEvidence(r, x.step, null, vu.values);
     if (chk.error) {
       var d = R.evidenceFor(r, x.step).list.filter(function (y) { return y.name === chk.field; })[0];
       return no(d && !vu.values[d.name] ? 'This report doesn\'t have ' + d.label + ', which this step requires.' : chk.error);
     }
     var a = own(r.steps, g.step) ? r.steps[g.step] : null, replaces = [];
     if (a && a.values) R.evidenceFor(r, x.step).list.forEach(function (y) { if (a.values[y.name] && a.values[y.name] !== chk.values[y.name]) replaces.push({ name: y.name, label: y.label, was: a.values[y.name] }); });
-    return { ok: true, why: '', values: chk.values, unused: vu.unused, applies: ap, replaces: replaces, step: x.step, schema: schemaOf(r, x.step) };
+    var setting = R.evidenceFor(r, x.step).list.filter(function (y) { return y.detail && chk.values[y.name] != null && chk.values[y.name] !== ''; }).map(function (y) {
+      var was = own(r.details, y.detail) ? String(r.details[y.detail] || '') : '';
+      return { detail: y.detail, value: chk.values[y.name], was: was, text: (was ? 'Replaces ' + y.detail + ' (' + was + ') with ' : 'Sets ' + y.detail + ' to ') + chk.values[y.name] };
+    });
+    return { ok: true, why: '', values: chk.values, unused: vu.unused, applies: ap, replaces: replaces, sets: setting, step: x.step, schema: schemaOf(r, x.step) };
   }
+  function setsOf(r, step) { return String(R.fieldsOf(r, step).sets || '').split(',').map(function (d) { return d.trim(); }).filter(Boolean); }
   /* The run's log line for an acceptance: names the report and the SHA-256 of the bytes accepted, so the run alone says what
      was accepted, in every copy. */
   function logLine(g, sha, stepText) {
@@ -16033,7 +16061,17 @@ PF.reports = (function () {
     if (!x) errors.push('Step ' + rep.step + ' isn\'t in the run\'s version (' + r.folder + ').');
     if (errors.length) return { errors: errors, warnings: warnings, applies: 'no' };
     if (x.step.type === 'run.process') warnings.push('Step ' + rep.step + ' is checked by its linked run; a person can\'t accept a report on it.');
-    if (String(R.fieldsOf(r, x.step).sets || '').trim()) warnings.push('Step ' + rep.step + ' sets run details; a person checks it, and can\'t accept a report on it yet.');
+    if (R.isSearchStep(x.step)) {
+      var st = R.searchState(r, map, x.step), have = rep.evidence && typeof rep.evidence.searchId === 'string' ? rep.evidence.searchId : '';
+      if (!st.ok) warnings.push('Step ' + rep.step + ': ' + st.why);
+      else if (!have) warnings.push('The report doesn\'t say which search it ran (evidence searchId, from report targets); it can\'t be accepted.');
+      else if (have !== st.id) warnings.push('The report is for an earlier search: a run detail it used has changed, or the run was recovered from a copy, since. Run report targets again.');
+      else if (rep.verdict === 'pass') {
+        var sc = R.searchCheck(r, map, x.step, valuesFor(rep, r, x.step).values, new Date().toISOString());
+        if (sc.error) warnings.push('Step ' + rep.step + ': ' + sc.error);
+        else if (!sc.meets) warnings.push('Step ' + rep.step + ': these results don\'t meet the step\'s rule' + (sc.why ? ' (' + sc.why + ')' : '') + '; report fail with the keys.');
+      }
+    }
     var vu = valuesFor(rep, r, x.step);
     vu.unused.forEach(function (k) { warnings.push('Evidence ' + k + ' isn\'t something step ' + rep.step + ' records; it won\'t be used.'); });
     var ap = applies(rep, r, map, x.step);
@@ -16106,6 +16144,11 @@ PF.appjson = (function () {
   var FOLLOWUP = { key: 'string', process: 'string', run: 'string', runTitle: 'string', runEnded: 'boolean', id: 'string', text: 'string', owner: opt(PERSON),
     ticket: 'string', step: 'string', at: 'string', status: 'string', label: 'string', tie: 'boolean', decision: opt(DECISION) };
   var ROLE = { role: 'string', person: opt(PERSON) };
+  /* A {jira.search} step (2.16, design section 6.1) carries search: the template in a version, resolved from the run's details
+     and its copied address in a run. Every other step is exactly as before, without the key. */
+  var SEARCH_TPL = { query: opt('string'), filter: opt('string'), results: 'string', what: 'string', site: opt('string'), uses: ['string'] };
+  var SEARCH_RUN = extend(SEARCH_TPL, { jql: opt('string'), link: opt('string'), searchId: opt('string'), ready: 'boolean', why: opt('string') });
+  function orSearch(base, kind) { return { $or: [base, extend(base, { search: kind === 'run' ? SEARCH_RUN : SEARCH_TPL })] }; }
   var SCHEMA = {
     envelope: { contract: 'string', app: 'string', readAt: 'string', complete: 'boolean', problems: [{ path: 'string', kind: 'string', why: 'string' }], note: 'string', data: map('any') },
     error: { contract: 'string', app: 'string', error: { kind: 'string', why: 'string' }, problems: [{ path: 'string', kind: 'string', why: 'string' }] },
@@ -16123,7 +16166,7 @@ PF.appjson = (function () {
       gates: [{ id: 'string', phase: 'string', title: 'string', status: 'string', by: opt(PERSON), at: opt('string'), reason: opt('string'), approved: map('string') }],
       followUps: [FOLLOWUP] })) },
     next: { run: 'string', person: opt(PERSON),
-      next: opt({ kind: 'string', headline: HEADLINE, phase: opt({ index: 'number', id: 'string', title: 'string' }), step: opt({ id: 'string', text: 'string', roles: [ROLE] }),
+      next: opt({ kind: 'string', headline: HEADLINE, phase: opt({ index: 'number', id: 'string', title: 'string' }), step: opt(orSearch({ id: 'string', text: 'string', roles: [ROLE] }, 'run')),
         gate: opt({ id: 'string', title: 'string', status: 'string', owner: opt('string') }),
         tracks: [{ id: 'string', title: 'string', left: 'number', step: opt({ id: 'string', text: 'string' }), people: [PERSON] }] }),
       mine: opt({ phase: { index: 'number', id: 'string', title: 'string' }, step: { id: 'string', text: 'string' } }) },
@@ -16136,7 +16179,7 @@ PF.appjson = (function () {
       created: 'string', applies: opt('string'), warnings: ['string'] } },
     /* flightdeck report targets (2.0, flightdeck-read/2): running runs and the steps a report can be written for. */
     targets: { runs: [{ key: 'string', title: 'string', folder: 'string', version: 'number', recorder: opt(PERSON), details: map('string'),
-      steps: [{ id: 'string', phase: 'string', text: 'string', type: 'string', state: 'string', binds: ['string'], evidence: [EVIDENCE], accepts: 'boolean', why: opt('string') }] }] }
+      steps: [orSearch({ id: 'string', phase: 'string', text: 'string', type: 'string', state: 'string', binds: ['string'], evidence: [EVIDENCE], accepts: 'boolean', why: opt('string') }, 'run')] }] }
   };
   /* ---- contract 2 (Flightdeck 2.0): the same commands; 2.0 versions and run/3 runs are data, and values are typed ----
      A detail or evidence value: its kind, the stored text, the value (a string for numbers, a boolean for yes/no, null when
@@ -16150,15 +16193,17 @@ PF.appjson = (function () {
   /* Test runs (2.1): test says a run is one; stage names its stage folder (null for any other run). */
   var SUMMARY2 = extend(SUMMARY, { format: 'string', features: ['string'], details: map(VALUE), test: 'boolean', stage: opt({ folder: 'string' }) });
   var FOLLOWUP2 = extend(FOLLOWUP, { test: 'boolean' });
+  /* A detail that must match a pattern (2.16, Appendix A) carries pattern; every other detail is exactly as before. */
+  var DETAIL = { name: 'string', type: 'string', options: ['string'] };
   var SCHEMA2 = {
     envelope: SCHEMA.envelope, error: SCHEMA.error, processes: SCHEMA.processes, next: SCHEMA.next, followups: { followUps: [FOLLOWUP2] }, request: SCHEMA.request,
     /* stage: the staged version shown (process --stage), else null. */
-    process: extend(SCHEMA.process, { format: 'string', features: ['string'], stage: opt({ folder: 'string', proposed: 'number', stagedBy: 'string', stagedAt: 'string' }), details: [{ name: 'string', type: 'string', options: ['string'], pattern: opt('string') }],
-      phases: [extend(SCHEMA.process.phases[0], { when: ['string'], steps: [extend(SCHEMA.process.phases[0].steps[0], { when: ['string'], evidence: [extend(EVIDENCE2, { min: opt('string'), max: opt('string'), unit: opt('string') })] })] })] }),
+    process: extend(SCHEMA.process, { format: 'string', features: ['string'], stage: opt({ folder: 'string', proposed: 'number', stagedBy: 'string', stagedAt: 'string' }), details: [{ $or: [DETAIL, extend(DETAIL, { pattern: 'string' })] }],
+      phases: [extend(SCHEMA.process.phases[0], { when: ['string'], steps: [orSearch(extend(SCHEMA.process.phases[0].steps[0], { when: ['string'], evidence: [extend(EVIDENCE2, { min: opt('string'), max: opt('string'), unit: opt('string') })] }), 'template')] })] }),
     /* testRunsLeftOut: test runs that match but aren't listed (D3: left out unless asked for with --tests). */
     runs: { runs: [SUMMARY2], planned: [extend(SCHEMA.runs.planned[0], { format: 'string', pin: opt({ folder: 'string', version: 'number' }) })], testRunsLeftOut: 'number' },
     run: { run: opt(extend(SUMMARY2, { roles: [ROLE], pins: map(PIN), migrations: [MIGRATION],
-      steps: [extend(SCHEMA.run.run.$or[0].steps[0], { values: map(VALUE), evidence: [EVIDENCE2], applies: APPLIES, held: opt('string') })],
+      steps: [orSearch(extend(SCHEMA.run.run.$or[0].steps[0], { values: map(VALUE), evidence: [EVIDENCE2], applies: APPLIES, held: opt('string') }), 'run')],
       gates: [extend(SCHEMA.run.run.$or[0].gates[0], { applies: APPLIES })], followUps: [FOLLOWUP2] })) },
     /* flightdeck draft check (2.13): the verdict the Publish dialog gives the text, from the folder as it is now. from: the draft
        in maps/drafts/ (ref its path) or the file given with --from (ref null); rev: SHA-256 of the text checked. */
@@ -16403,6 +16448,7 @@ PF.appjson = (function () {
       step: nu.step ? { id: s(nu.step.id), text: s(nu.step.text), roles: rolePeople(r, nu.step.roles, nameOf) } : null,
       gate: nu.gate ? { id: s(nu.gate.id), title: s(nu.gate.title), status: s(nu.status), owner: orNull(nu.gate.owner) } : null,
       tracks: (nu.tracks || []).map(function (t) { return { id: s(t.track.id), title: s(t.track.title), left: t.left, step: t.step ? { id: s(t.step.id), text: s(t.step.text) } : null, people: t.people.map(nameOf).filter(Boolean) }; }) };
+    if (nu.step && R.isSearchStep(nu.step)) out.step.search = searchRun(r, mp, nu.step);
     var my = personId ? R.myNext(r, mp, personId) : null, mph = my ? mp.phases[my.phaseIndex] : null;
     return { run: r.process + '/' + r.id, person: personId ? nameOf(personId) : null, next: out,
       mine: my ? { phase: { index: my.phaseIndex, id: s(mph.id), title: s(mph.title) }, step: { id: s(my.step.id), text: s(my.step.text) } } : null };
@@ -16431,6 +16477,18 @@ PF.appjson = (function () {
       return e;
     });
   }
+  var JS = PF.jsearch;
+  function searchTpl(step, mp) {
+    var f = step.fields || {}, rule = JS.parseResults(f.results), q = f.query != null && String(f.query).trim() ? String(f.query) : null;
+    return { query: q, filter: !q && f.filter != null && String(f.filter).trim() ? String(f.filter).trim() : null, results: s(rule.ok ? rule.text : f.results), what: s(f.what),
+      site: JS.siteName(f), uses: JS.uses(f, mp.meta.context).map(s) };
+  }
+  /* Resolved from the run alone (R.searchState): jql and link only when ready, searchId null when a generation is damaged. */
+  function searchRun(r, mp, step) {
+    var out = searchTpl(step, mp), st = R.searchState(r, mp, step), link = st.ok && st.link && st.link.length <= 8000 ? st.link : null;
+    out.jql = st.ok && !st.filter ? s(st.jql) : null; out.link = link; out.searchId = st.ok ? s(st.id) : null; out.ready = !!st.ok; out.why = st.ok ? null : s(st.why);
+    return out;
+  }
   function process2(proc, pub) {
     var out = process(proc, pub), si = pub.info || {};
     out.format = s(si.format); out.features = Array.isArray(si.features) ? si.features.map(s) : [];
@@ -16438,13 +16496,14 @@ PF.appjson = (function () {
     out.details = [];
     if (!pub.ok) return out;
     var mp = pub.map, types = pub.types || {}, dt = mp.meta.detailTypes || {};
-    out.details = mp.meta.context.map(function (n) { var d = Object.prototype.hasOwnProperty.call(dt, n) ? dt[n] : null; return { name: s(n), type: d ? typeOf(d) : 'text', options: d && d.options ? d.options.map(s) : [], pattern: d && d.kind === 'pattern' ? s(d.pattern) : null }; });
+    out.details = mp.meta.context.map(function (n) { var d = Object.prototype.hasOwnProperty.call(dt, n) ? dt[n] : null; var o = { name: s(n), type: d ? typeOf(d) : 'text', options: d && d.options ? d.options.map(s) : [] }; if (d && d.kind === 'pattern') o.pattern = s(d.pattern); return o; });
     out.phases.forEach(function (ph, pi) {
       var when = function (o) { return (o.when || []).map(function (w) { return s(w.text); }); };
       ph.when = when(mp.phases[pi]);
       ph.steps.forEach(function (st, si) {
         st.when = when(mp.phases[pi].steps[si]);
         var x = mp.phases[pi].steps[si], t = T.get(x.type, types), list = t ? T.recordFields(t, x.fields) : [];
+        if (R.isSearchStep(x)) st.search = searchTpl(x, mp);
         st.evidence = evidence2(list).map(function (e, i) { var d = list[i]; e.min = d.kind === 'number' && d.min != null ? s(d.min) : null; e.max = d.kind === 'number' && d.max != null ? s(d.max) : null; e.unit = d.kind === 'number' && d.unit != null ? s(d.unit) : null; return e; });
       });
     });
@@ -16483,6 +16542,7 @@ PF.appjson = (function () {
       st.values = vals; st.evidence = evidence2(x ? R.evidenceFor(r, x.step).list : []);
       var ap = x ? R.applies(r, mp, x.phaseIndex, x.step) : { applies: true };
       st.applies = ap.applies; st.held = ap.applies === null ? s(ap.why) : null;
+      if (x && R.isSearchStep(x.step)) st.search = searchRun(r, mp, x.step);
     });
     out.gates.forEach(function (g, pi) { g.applies = R.applies(r, mp, pi).applies; });
     return { run: out };
@@ -16509,8 +16569,10 @@ PF.appjson = (function () {
       var mp = R.mapOf(r), steps = [];
       mp.phases.forEach(function (ph) { ph.steps.forEach(function (st) {
         var a = r.steps && Object.prototype.hasOwnProperty.call(r.steps, st.id) ? r.steps[st.id] : null;
-        var why = st.type === 'run.process' ? 'Checked by its linked run, never by a report.' : String(R.fieldsOf(r, st).sets || '').trim() ? 'Sets run details; a person checks it.' : !PF.reports.parseName(r.id + '.' + st.id + '.x.aaaaaaaa.json') ? 'Its step ID can\'t be part of a report\'s file name.' : null;
-        steps.push({ id: s(st.id), phase: s(ph.id), text: s(st.text), type: s(st.type), state: s(a && a.s || 'open'), binds: (st.binds || []).map(s), evidence: evidence(R.evidenceFor(r, st).list), accepts: !why, why: why });
+        var why = st.type === 'run.process' ? 'Checked by its linked run, never by a report.' : R.isSearchStep(st) && /^This step sets /.test(R.searchProblem(r, mp, st)) ? s(R.searchProblem(r, mp, st)) : !PF.reports.parseName(r.id + '.' + st.id + '.x.aaaaaaaa.json') ? 'Its step ID can\'t be part of a report\'s file name.' : null;
+        var o = { id: s(st.id), phase: s(ph.id), text: s(st.text), type: s(st.type), state: s(a && a.s || 'open'), binds: (st.binds || []).map(s), evidence: evidence(R.evidenceFor(r, st).list), accepts: !why, why: why };
+        if (R.isSearchStep(st)) o.search = searchRun(r, mp, st);
+        steps.push(o);
       }); });
       return { key: r.process + '/' + r.id, title: s(r.title), folder: s(r.folder), version: +r.version || 0, recorder: r.recorder && r.recorder.person ? nameOf(r.recorder.person) : null, details: strMap(r.details || {}), steps: steps };
     }).sort(function (a, b) { return a.key < b.key ? -1 : 1; }) };
@@ -20971,6 +21033,8 @@ PF.guide = (function () {
   var S = 'Shown with the step to whoever does it, and to an assistant doing it.';
   var R = 'Saved in the run and on its receipt.';
   var OPENS = 'Opens from the step.';
+  /* Appendix B.4: what a link field guarantees, and what it doesn't. */
+  var LINKS = 'Link fields keep a run detail inside its part of the address. They don\'t check what the site does with it. To build a Jira query from run details, use a Jira search step.';
   var COPY = 'Shown with a Copy button. ^details are filled in.';
 
   /* A row: question, example (none for choices and chips), the why's body. Each why gets its empty-box sentence added (own
@@ -21024,7 +21088,12 @@ PF.guide = (function () {
       tool: e('Link to the deploy tool', 'https://deploy.acme.com', OPENS), rollback: e('What do you roll back to if it goes wrong?', 'the previous release', S) },
     'verify.health': { dashboard: e('Link to the dashboard', 'https://grafana.acme.com/d/api', OPENS), metric: e('What do you watch?', 'p95 latency', S),
       threshold: e('Healthy when?', 'under 300 ms for 10 minutes', S + ' It\'s what they check against.'), watch: e('What warning signs?', '5xx spikes', S) },
-    measure: { metric: e('What do you measure?', 'checkout time', S), unit: e('In what unit?', 'seconds', S), where: e('Where do you read it?', 'the Grafana checkout board', S) }
+    measure: { metric: e('What do you measure?', 'checkout time', S), unit: e('In what unit?', 'seconds', S), where: e('Where do you read it?', 'the Grafana checkout board', S) },
+    'jira.search': { query: e('The query (JQL)', 'project = PAY AND fixVersion = 2026.11.0 AND status != Done', 'One line of JQL. A ^detail goes only where a single value goes: after =, !=, <, >, <= or >=, or in an IN (...) list. Fixed for the run. Use this or a saved filter.'),
+      filter: e('Or a saved filter\'s number', '12345', 'A saved filter can change in Jira without the checklist changing, so say in plain words what it finds. Fixed for the run.'),
+      results: e('What should it find?', 'none', 'none, any, exactly N, at least N or at most N.'),
+      site: e('Which Jira address?', 'team:jira-base-url', 'A team value holding the Jira address. Left empty, it\'s team:jira-base-url.', true),
+      what: e('In plain words', 'Stories in the release with no story points', S) }
   };
   var RECORD = {
     communicate: { sent: e('Link to the message you posted', 'https://acme.slack.com/archives/C01/p17', R) },
@@ -21045,10 +21114,14 @@ PF.guide = (function () {
       dates: e('What are its dates?', 'Oct 27 – Nov 7', R), carriedOver: e('Which issues carried over?', 'PAY-12, PAY-15', R), moved: e('Which issues moved?', 'PAY-12, PAY-15', R) },
     deploy: { deployed: e('Which version went out?', '2026.10.16', R), deployLink: e('Link to the deploy', 'https://deploy.acme.com/runs/88', R), finished: e('When did it finish?', '14:32', R) },
     'verify.health': { result: e('Did it pass?', '', R), observed: e('What did you see?', '240 ms', R), snapshot: e('Screenshot or link', 'https://grafana.acme.com/d/api?from=now-1h', R) },
-    measure: { value: e('What did you measure?', '3.2', R), unit: e('In what unit?', 'seconds', R) }
+    measure: { value: e('What did you measure?', '3.2', R), unit: e('In what unit?', 'seconds', R) },
+    'jira.search': { searchId: e('Which search', 'search 95526c95', 'Flightdeck fills it in: the search as the run stands when the results are recorded.', true),
+      count: e('How many did it find?', '3', 'The exact total from a search that finished. ' + R),
+      keys: e('Which issues?', 'PAY-101, PAY-102, PAY-103', 'Needed when the count breaks the rule and isn\'t 0; never at 0. List them, or end with +N more. ' + R),
+      resultsLink: e('Link to the results', 'https://jira.acme.com/issues/?filter=12345', R), ranAt: e('When did it run?', '2026-11-04T14:05Z', 'A time with its zone. ' + R) }
   };
   var COMMON = {
-    link: e('A link they may need', 'https://wiki.acme.com/runbook', OPENS),
+    link: e('A link they may need', 'https://wiki.acme.com/runbook', OPENS + ' ' + LINKS),
     expect: e('How long does it usually take?', '25m', 'Shown on the step, so people can plan.'),
     deadline: e('Is there a deadline?', 'external', 'With external, whoever runs it copies the deadline in from the real tool (Set deadline).'),
     evidence: e('Ask for proof?', '', 'Whoever checks the step has to give it.'),
@@ -23616,7 +23689,30 @@ PF.vk = (function () {
     return h + '<p class="small corr-conseq" id="corr-conseq">' + conseq + '</p><div class="row"><button class="btn ' + (answer ? 'go' : 'primary') + '" data-act="' + (answer ? 'corr-done' : 'corr-save') + '" data-id="' + esc(s.id) + '"' + (off ? ' aria-disabled="true"' : '') + ' aria-describedby="corr-conseq' + (fix && same ? ' corr-same' : '') + '">' + (f.sending ? 'Saving…' : answer ? 'Mark done differently' : 'Save correction') + '</button><button class="mini" data-act="corr-cancel">Cancel</button></div></div>';
   }
   /* A step's checklist fields as the run sees them: commands and messages with Copy, links with Open, the rest as labels. */
+  /* A Jira search step (2.16, design section 7): what it finds, the filled-in query with Copy, the rule, Open in Jira or why
+     there's no link, the result line, and Refresh search when a generation is damaged. Flightdeck never calls Jira. */
+  function searchBlock(ctx, r, map, s) {
+    var JS = PF.jsearch, f = s.fields, st = ctx.state, ss = R.searchState(r, map, s), rule = JS.parseResults(f.results), a = r.steps[s.id], h = '';
+    if (f.what) h += '<p>' + esc(f.what) + '</p>';
+    var text = ss.ok ? (ss.filter ? 'filter = ' + ss.filter : ss.jql) : '';
+    if (text) { var on = st.copied === text; h += '<div class="cmd"><code>' + esc(text) + '</code><button class="mini" data-act="copy" data-text="' + esc(text) + '" aria-label="Copy the query">' + I(on ? 'check' : 'copy') + (on ? 'Copied' : 'Copy') + '</button></div>'; }
+    var chips = '<span class="fchip"><b>Should find:</b> ' + esc(JS.ruleLabel(rule.ok ? rule : null) || String(f.results || '')) + '</span>';
+    if (ss.ok && ss.link && U.safeUrl(ss.link)) chips += '<a class="fchip" href="' + esc(U.safeUrl(ss.link)) + '" target="_blank" rel="noopener noreferrer"><b>Open in Jira</b></a>';
+    else if (ss.ok) chips += '<span class="fchip"><span class="small">' + esc(ss.linkWhy || (ss.siteEntry && ss.siteEntry.invalid ? 'No link: the Jira address ' + ss.siteEntry.invalid : 'No link: the run has no Jira address (Settings › Team values › ' + (ss.site || 'jira-base-url') + ' when it started). Copy the query.')) + '</span></span>';
+    h += '<div class="fields">' + chips + '</div>';
+    if (!ss.ok) h += '<p class="small rw-why-off">' + esc(ss.why) + '</p>';
+    var v = a && a.values;
+    if (v && v.count != null && v.count !== '') {
+      var meets = JS.meets(rule, +v.count), when = v.ranAt ? ' · searched ' + U.when(v.ranAt) : '';
+      h += '<p class="search-res ' + (meets ? 'good' : 'bad') + '" role="status">Found ' + esc(v.count) + (v.keys ? ' · ' + esc(v.keys) : '') + esc(when) + (a.at ? ' · checked ' + esc(U.hm(a.at)) : '') + '</p>';
+    }
+    if (a && a.reopened) h += '<span class="badge b-warn">Reopened when read</span>';
+    var dm = R.genDamaged ? R.genDamaged(r, map, s) : null;
+    if (dm && (dm.details.length || dm.rec) && r.state === 'running' && ctx.recording && ctx.recording(r)) h += '<div class="row"><button class="mini" data-act="refresh-search" data-id="' + esc(s.id) + '">Refresh search</button></div>';
+    return '<div class="search-box">' + h + '</div>';
+  }
   function fieldsBlock(ctx, r, map, s, t, sched) {
+    if (R.isSearchStep(s)) return searchBlock(ctx, r, map, s);
     var st = ctx.state, eff = R.fieldsOf(r, s), own = (r.fields || {})[s.id] || {}, chips = '', code = '';
     Object.keys(eff).forEach(function (f) {
       if (f === 'expect' || f === 'deadline' || f === 'require' || !eff[f] || (sched && (f === 'at' || f === 'due' || f === 'after'))) return;
@@ -23713,7 +23809,7 @@ PF.vk = (function () {
          choices for this folder and run, over what the run says. */
       var fd = s.fieldsDraft && s.fieldsDraft.id === st.id && s.fieldsDraft.key === draftKeyOf(ctx) && s.fieldsDraft.fs === ctx.fsKey ? s.fieldsDraft.values : {}, draft = Object.assign({}, fd);
       Object.keys(dr.fields || {}).forEach(function (k) { if (/^fld-/.test(k)) draft[k.slice(4)] = dr.fields[k]; });
-      var eff = R.fieldsOf(r, st), own = (r.fields || {})[st.id] || {}, eff2 = Object.assign({}, eff, draft), recFields2 = P ? [] : R.evidenceFor(r, st, eff2, map).list;
+      var eff = R.fieldsOf(r, st), own = (r.fields || {})[st.id] || {}, eff2 = Object.assign({}, eff, draft), recFields2 = P ? [] : R.evidenceFor(r, st, eff2, map).list.filter(function (d) { return !d.system; });
       /* A Jira issue type or status the team's workflows don't have says why beside its box, as soon as it's chosen. */
       var jf = V.jiraFill && !P ? V.jiraFill(r, st, eff2) : null, jid = 'jwhy-' + st.id;
       recBody = '<div class="pick record" data-scope="fields:' + esc(st.id) + '"><span class="small">Fill in or correct this step\'s values for ' + (P ? 'practice' : 'this run') + '. Leave anything you don\'t know yet.</span>' + ferr(s, st.id) +
@@ -23721,12 +23817,13 @@ PF.vk = (function () {
         (recFields2.length ? '<span class="small" style="margin-top:4px">Evidence</span>' + recFields2.map(function (d) { return fieldInput('rec-' + d.name, d, dr.fields['rec-' + d.name] != null ? dr.fields['rec-' + d.name] : dr.record['rec-' + d.name] != null ? dr.record['rec-' + d.name] : valueOf(d), 'save-fields', st.id, d.required ? ' (required to check it)' : '', errFor(s, st.id, 'rec-' + d.name), gRecord(t, d, eff2)); }).join('') : '') +
         '<span class="row"><button class="btn" data-act="save-fields" data-id="' + esc(st.id) + '">Save</button><button class="mini" data-act="unpick">Cancel</button></span></div>';
     } else if (showRec) {
-      recBody = '<div class="pick record" data-scope="record:' + esc(st.id) + '"><span class="small">' + (recFields.some(function (d) { return d.required; }) ? 'To check this step, record:' : 'You can record:') + '</span>' + ferr(s, st.id) + recFields.map(function (d) {
+      var search = R.isSearchStep(st) && !P;
+      recBody = '<div class="pick record" data-scope="record:' + esc(st.id) + '"><span class="small">' + (recFields.some(function (d) { return d.required; }) ? 'To check this step, record:' : 'You can record:') + '</span>' + ferr(s, st.id) + recFields.filter(function (d) { return !d.system; }).map(function (d) {
         return fieldInput('rec-' + d.name, d, dr.record['rec-' + d.name] != null ? dr.record['rec-' + d.name] : valueOf(d), 'record', st.id, d.required ? '' : ' (optional)', errFor(s, st.id, 'rec-' + d.name), gRecord(t, d, R.fieldsOf(r, st)));
-      }).join('') + '</div>';
+      }).join('') + (search && rec && r.state === 'running' ? '<div class="row"><button class="mini" data-act="search-block" data-id="' + esc(st.id) + '">Block with these</button><span class="small">When the results break the rule: blocks the step with them.</span></div>' : '') + '</div>';
     } else if (a && a.values) {
       var vals = '';
-      recFields.forEach(function (d) { var v = a.values[d.name]; if (!v) return; vals += d.kind === 'url' && U.safeUrl(v) ? '<a class="fchip rec" href="' + esc(U.safeUrl(v)) + '" target="_blank" rel="noopener noreferrer"><b>' + esc(d.label) + '</b> open</a>' : '<span class="fchip rec"><b>' + esc(d.label) + ':</b> ' + esc(typedOf(d) ? K.valueText(d, v) : v) + (r._invalid && r._invalid['steps.' + st.id + '.values.' + d.name] ? ' <span class="small">' + esc(r._invalid['steps.' + st.id + '.values.' + d.name].why) + '</span>' : '') + '</span>'; });
+      recFields.forEach(function (d) { var v = a.values[d.name]; if (!v) return; if (d.system) { vals += '<span class="fchip rec"><b>' + esc(d.label) + ':</b> ' + esc(String(v).replace(/^sha256:/, '').slice(0, 8)) + '</span>'; return; } vals += d.kind === 'url' && U.safeUrl(v) ? '<a class="fchip rec" href="' + esc(U.safeUrl(v)) + '" target="_blank" rel="noopener noreferrer"><b>' + esc(d.label) + '</b> open</a>' : '<span class="fchip rec"><b>' + esc(d.label) + ':</b> ' + esc(typedOf(d) ? K.valueText(d, v) : v) + (r._invalid && r._invalid['steps.' + st.id + '.values.' + d.name] ? ' <span class="small">' + esc(r._invalid['steps.' + st.id + '.values.' + d.name].why) + '</span>' : '') + '</span>'; });
       if (vals) recBody = '<div class="fields">' + vals + '</div>';
     }
     var finishing = !P && s.answering && s.answering.key === runKey(r) && s.answering.step === st.id;
@@ -24268,6 +24365,7 @@ PF.vk = (function () {
       h += '<div class="rep-confirm" role="group" aria-labelledby="' + id + '-cf"><h4 id="' + id + '-cf" tabindex="-1">Accept this report?</h4>' +
         '<p>Checks "' + esc(K.stepPlain(el.step, K.refValue(r, R.mapOf(r)))) + '"' + (vals.length ? ' with: ' + esc(vals.join(', ')) : ' with no evidence') + '.</p>' +
         el.replaces.map(function (x) { return '<p class="small">Replaces ' + esc(x.label) + ' ' + esc(x.was) + '.</p>'; }).join('') +
+        (el.sets || []).map(function (x) { return '<p class="small">' + esc(x.text) + '.</p>'; }).join('') +
         (el.applies.result === 'unknown' ? '<p class="small">Flightdeck can\'t compare these inputs.</p>' : '') +
         (el.applies.untied.length ? '<p class="small">' + esc(X.appliesText(el.applies)) + '</p>' : '') +
         '<div class="row"><button class="btn go" data-act="rep-accept-go" data-id="' + esc(g.key) + '"' + (busy ? ' disabled' : '') + '>Accept and check the step</button><button class="btn" data-act="rep-cancel" data-id="' + esc(g.key) + '">Cancel</button></div></div>';
@@ -24276,6 +24374,8 @@ PF.vk = (function () {
     var acts = '';
     if (dec.state !== 'accepted') acts += el.ok ? '<button class="btn go" data-act="rep-accept" data-id="' + esc(g.key) + '"' + (busy ? ' disabled' : '') + '>Accept</button>'
       : '<button class="btn" disabled aria-describedby="' + id + '-why">Accept</button><span class="small rw-why-off" id="' + id + '-why">' + esc(el.why === g.reason ? reasonText(g) : el.why) + '</span>';
+    /* Design section 6.3: a fail or blocked report for the current search blocks the step with its results, and is declined. */
+    if (dec.state !== 'accepted' && !el.ok && el.block && g.sha256) acts += '<button class="btn" data-act="rep-block" data-id="' + esc(g.key) + '"' + (busy ? ' disabled' : '') + '>Block with these</button>';
     if (dec.state !== 'declined' && g.sha256) acts += '<button class="btn" data-act="rep-decline" data-id="' + esc(g.key) + '"' + (busy ? ' disabled' : '') + '>Decline</button>';
     if (dec.state !== 'none' && dec.state !== 'open' && g.sha256) acts += '<button class="mini" data-act="rep-reopen" data-id="' + esc(g.key) + '"' + (busy ? ' disabled' : '') + '>Reopen</button>';
     return acts ? '<div class="row rep-acts" role="group" aria-label="Decide on this report">' + acts + '</div>' : '';
@@ -35264,6 +35364,16 @@ PF.examples = (function () {
     'rep-cancel': function (id) { delete repDrafts()[id]; delete repSnaps()[id]; repBoxes = repBoxes.filter(function (x) { return x.key !== id; }); state.repPick = null; if (state.fieldErr && /^rep-reason-/.test(state.fieldErr.id)) state.fieldErr = null; state.focus = '[data-act="rep-accept"][data-id="' + cssEsc(id) + '"], [data-act="rep-decline"][data-id="' + cssEsc(id) + '"]'; render(); },
     'rep-accept-go': function (id) { acceptReport(id); },
     'rep-decline-go': function (id) { decideOnReport(id, 'declined'); },
+    'rep-block': function (id) { blockWithReport(id); },
+    /* Block with these (2.16): the typed results for the current search stay on the blocked answer. */
+    'search-block': function (id) {
+      var c = answerCheck(state.runKey, id);
+      if (!c.r) { if (c.why) { state.fieldErr = { id: id, msg: c.why, field: c.field }; state.focus = c.focus; render(); } return; }
+      var vals = Object.assign({}, c.values); delete vals._skill;
+      mutate(function (r, map, me, now) { R.block(r, map, id, '', me, now, vals); });
+      dropDraft(state.runKey, id, ['record']);
+    },
+    'refresh-search': function (id) { mutate(function (r, map, me, now) { R.refreshSearch(r, map, id, me, now); }); },
     'rep-reopen': function (id) { decideOnReport(id, 'open'); },
     'rep-record': function (id) { recordAccept(id); },
     help: function () { openOverlay({ html: function () { return V.help(ctx); } }); },
@@ -35903,12 +36013,24 @@ PF.examples = (function () {
     });
   }
   /* Decline (with a reason) and Reopen write a decision file only; run.json never changes. */
-  function decideOnReport(id, status) {
+  /* Block with these (design section 6.3): the step is blocked with the report's results for the current search, then the
+     report is declined with "Blocked with its results". */
+  function blockWithReport(id) {
+    var o = repItem(id);
+    if (!o.it || state.repSaving || !o.it.g.report) return;
+    var g = o.it.g, r = o.r, map = r && R.mapOf(r);
+    var el = PF.reports.eligible(g, r, map, { recording: ctx.recording(r), readOnly: r ? repReadOnly(r) : '', held: repHeld(g), fillOpen: fillOpenOn(r.process + '/' + r.id, g.step) });
+    if (!el.block) { say(el.why, 'warn'); render(); return; }
+    var stepId = g.step;
+    mutate(function (r2, map2, me, now) { R.block(r2, map2, stepId, '', me, now, el.block.values); });
+    decideOnReport(id, 'declined', 'Blocked with its results');
+  }
+  function decideOnReport(id, status, fixed) {
     var o = repItem(id);
     if (!o.it || state.repSaving) return;
     if (!ctx.recording(o.r)) { say('Only the recorder can decide on a report.', 'warn'); render(); return; }
     if (repHeld(o.it.g)) { say(repHeld(o.it.g), 'warn'); render(); return; }
-    var X = PF.reports, g = o.it.g, cur = repCur()[g.key], rid = X.reasonId(g.key), reason = status === 'declined' ? val(rid) : '', rec;
+    var X = PF.reports, g = o.it.g, cur = repCur()[g.key], rid = X.reasonId(g.key), reason = status === 'declined' ? (fixed || val(rid)) : '', rec;
     try { rec = X.decision(g, g.sha256 || (cur ? cur.d.sha256 : ''), status, state.me, new Date().toISOString(), cur ? cur.d : null, { reason: reason }); }
     catch (e) { if (e.field) { var fid = e.field === 'rep-reason' ? rid : e.field; repDrafts()[g.key] = reason; state.fieldErr = { id: fid, msg: e.message }; state.focus = fid; } else say(e.message, 'warn'); render(); return; }
     var dfs = state.fs, gg = gen, fk = fsKey();
@@ -36978,6 +37100,8 @@ PF.examples = (function () {
         var k = 'rec-' + ev.name;
         values[ev.name] = d && Object.prototype.hasOwnProperty.call(d.record, k) ? d.record[k] : V.evidenceDefault(ctx, r, x.step, ev);
       });
+      /* A search's searchId is Flightdeck's own: the search as the run stands now, never typed (design section 2). */
+      if (R.isSearchStep(x.step)) values.searchId = R.searchId(r, map, x.step) || '';
       var chk = R.checkEvidence(r, x.step, null, Object.assign({}, (a && a.s !== 'recheck' && a.values) || {}, values));
       if (chk.error) return { why: chk.error, focus: chk.field ? 'rec-' + chk.field : '[aria-invalid="true"]', field: chk.field ? 'rec-' + chk.field : '' };
       var seen; try { seen = skillSeen(r, x.step); } catch (e) { return { why: e.message, focus: '[data-act="refresh"]' }; }

@@ -7418,6 +7418,16 @@
     'rep-cancel': function (id) { delete repDrafts()[id]; delete repSnaps()[id]; repBoxes = repBoxes.filter(function (x) { return x.key !== id; }); state.repPick = null; if (state.fieldErr && /^rep-reason-/.test(state.fieldErr.id)) state.fieldErr = null; state.focus = '[data-act="rep-accept"][data-id="' + cssEsc(id) + '"], [data-act="rep-decline"][data-id="' + cssEsc(id) + '"]'; render(); },
     'rep-accept-go': function (id) { acceptReport(id); },
     'rep-decline-go': function (id) { decideOnReport(id, 'declined'); },
+    'rep-block': function (id) { blockWithReport(id); },
+    /* Block with these (2.16): the typed results for the current search stay on the blocked answer. */
+    'search-block': function (id) {
+      var c = answerCheck(state.runKey, id);
+      if (!c.r) { if (c.why) { state.fieldErr = { id: id, msg: c.why, field: c.field }; state.focus = c.focus; render(); } return; }
+      var vals = Object.assign({}, c.values); delete vals._skill;
+      mutate(function (r, map, me, now) { R.block(r, map, id, '', me, now, vals); });
+      dropDraft(state.runKey, id, ['record']);
+    },
+    'refresh-search': function (id) { mutate(function (r, map, me, now) { R.refreshSearch(r, map, id, me, now); }); },
     'rep-reopen': function (id) { decideOnReport(id, 'open'); },
     'rep-record': function (id) { recordAccept(id); },
     help: function () { openOverlay({ html: function () { return V.help(ctx); } }); },
@@ -8057,12 +8067,24 @@
     });
   }
   /* Decline (with a reason) and Reopen write a decision file only; run.json never changes. */
-  function decideOnReport(id, status) {
+  /* Block with these (design section 6.3): the step is blocked with the report's results for the current search, then the
+     report is declined with "Blocked with its results". */
+  function blockWithReport(id) {
+    var o = repItem(id);
+    if (!o.it || state.repSaving || !o.it.g.report) return;
+    var g = o.it.g, r = o.r, map = r && R.mapOf(r);
+    var el = PF.reports.eligible(g, r, map, { recording: ctx.recording(r), readOnly: r ? repReadOnly(r) : '', held: repHeld(g), fillOpen: fillOpenOn(r.process + '/' + r.id, g.step) });
+    if (!el.block) { say(el.why, 'warn'); render(); return; }
+    var stepId = g.step;
+    mutate(function (r2, map2, me, now) { R.block(r2, map2, stepId, '', me, now, el.block.values); });
+    decideOnReport(id, 'declined', 'Blocked with its results');
+  }
+  function decideOnReport(id, status, fixed) {
     var o = repItem(id);
     if (!o.it || state.repSaving) return;
     if (!ctx.recording(o.r)) { say('Only the recorder can decide on a report.', 'warn'); render(); return; }
     if (repHeld(o.it.g)) { say(repHeld(o.it.g), 'warn'); render(); return; }
-    var X = PF.reports, g = o.it.g, cur = repCur()[g.key], rid = X.reasonId(g.key), reason = status === 'declined' ? val(rid) : '', rec;
+    var X = PF.reports, g = o.it.g, cur = repCur()[g.key], rid = X.reasonId(g.key), reason = status === 'declined' ? (fixed || val(rid)) : '', rec;
     try { rec = X.decision(g, g.sha256 || (cur ? cur.d.sha256 : ''), status, state.me, new Date().toISOString(), cur ? cur.d : null, { reason: reason }); }
     catch (e) { if (e.field) { var fid = e.field === 'rep-reason' ? rid : e.field; repDrafts()[g.key] = reason; state.fieldErr = { id: fid, msg: e.message }; state.focus = fid; } else say(e.message, 'warn'); render(); return; }
     var dfs = state.fs, gg = gen, fk = fsKey();
@@ -9132,6 +9154,8 @@
         var k = 'rec-' + ev.name;
         values[ev.name] = d && Object.prototype.hasOwnProperty.call(d.record, k) ? d.record[k] : V.evidenceDefault(ctx, r, x.step, ev);
       });
+      /* A search's searchId is Flightdeck's own: the search as the run stands now, never typed (design section 2). */
+      if (R.isSearchStep(x.step)) values.searchId = R.searchId(r, map, x.step) || '';
       var chk = R.checkEvidence(r, x.step, null, Object.assign({}, (a && a.s !== 'recheck' && a.values) || {}, values));
       if (chk.error) return { why: chk.error, focus: chk.field ? 'rec-' + chk.field : '[aria-invalid="true"]', field: chk.field ? 'rec-' + chk.field : '' };
       var seen; try { seen = skillSeen(r, x.step); } catch (e) { return { why: e.message, focus: '[data-act="refresh"]' }; }
