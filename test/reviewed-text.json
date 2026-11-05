@@ -1,8 +1,8 @@
 {
   "texts": {
     "CHANGELOG.md": {
-      "sha256": "a3fc211f360f0648966e5ad4ae29790f79064f178be46ae7220aef4ba46578c1",
-      "reviewed": "Release note: the workspace's way back is ‹ Overview. Checked for direct writes and unconditional deletes."
+      "sha256": "11108406daef6da30e78499aa479a323f8ab4933718a5bffd63b233e1cc84ef7",
+      "reviewed": "Phones: header and tool-row link buttons are 44 px; the navigation note says the views are in the checklist page's header. Checked for direct writes and unconditional deletes."
     },
     "LICENSE": {
       "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
@@ -373,12 +373,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1: an embedded font file, binary; no text."
     },
     "src/page.html": {
-      "sha256": "3b027741195b460adbb744c7d436ea8b4930225b7aa6aeac19888f0bff6e137d",
-      "reviewed": "header: tool-row facts rules scoped to .tr > .facts; the save state's fixed end-justified box removed and its status piece wraps; checked for direct writes and unconditional deletes"
+      "sha256": "7d18c7b9ed63492b3a7968920483b73c3fa1a82ac0a8bf5cb72016499ae5792e",
+      "reviewed": "Phones: header and tool-row link buttons are 44 px; the navigation note says the views are in the checklist page's header. Checked for direct writes and unconditional deletes."
     },
     "src/releases.json": {
-      "sha256": "e65f5c74e67379e96caa52d0651ab02e0e40c680626e878604f947cf66a632aa",
-      "reviewed": "Release note: the workspace's way back is ‹ Overview. Checked for direct writes and unconditional deletes."
+      "sha256": "47fd94eb42eeee45efcc7ae27f727bf9d9e2a5a2a5dea067e595fc0914751baa",
+      "reviewed": "Phones: header and tool-row link buttons are 44 px; the navigation note says the views are in the checklist page's header. Checked for direct writes and unconditional deletes."
     },
     "src/storage/fs.js": {
       "sha256": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",

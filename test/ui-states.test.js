@@ -555,6 +555,12 @@ rule('One header: at 800px and narrower every header and tool-row control is 44p
   ['.hd :is(', '.tr :is(', '.tr .seg button'].forEach(s => assert.ok(has(s), s + ' 44px on a phone'));
 });
 
+rule('One header: at 800px and narrower a link-styled button in a header or tool row (Discard my changes) is 44px tall too', () => {
+  const phone = RULES.filter(r => r.at.some(a => /max-width: 800px/.test(a)) && /^44px$/.test(decl(r.body, 'min-height') || ''));
+  const heads = phone.map(r => r.sel.join(', '));
+  ['.hd', '.tr'].forEach(w => assert.ok(heads.some(h => h.indexOf(w + ' :is(button.link, button.linkish)') >= 0), w + ': button.link and button.linkish 44px on a phone'));
+});
+
 rule('Styles: every comment in the page\'s CSS closes before the next one opens, so no rule is swallowed', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'page.html'), 'utf8'), css = src.slice(src.indexOf('<style>'), src.indexOf('</style>'));
   const bad = []; let i = 0;
