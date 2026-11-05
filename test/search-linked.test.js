@@ -79,4 +79,23 @@ rule('R14-5: linking walks each upward edge only while it holds; over 16 in a ch
   assert.match(R.linkShape(chain[3], down, find), /its linked runs lead back/);
 });
 
+rule('conditional child: a reopened search on a step the child doesn\'t need leaves its completion standing; on one it needs, it doesn\'t', () => {
+  const CK = publish(['---', 'process: ck', 'title: Ck', 'context: version, risk:choice(low|high)', '---', '', '## Check · DO-CONFIRM {#check}',
+    '- [ ] {confirm} Look {#look}', '- [!] {jira.search} No open blockers in ^version {#blockers}', '  only when ^risk is high', '  query: fixVersion = ^version AND priority = Blocker', '  results: none', '', '## Gate: Ready {#ready}', ''].join('\n'));
+  const kid = (risk) => {
+    const k = mk(CK, 'run-c' + risk, { details: { version: '2026.11.0', risk } }), map = R.mapOf(k);
+    R.done(k, map, 'look', 'person-avery', LATER);
+    if (risk === 'high') R.done(k, map, 'blockers', 'person-avery', LATER, { searchId: R.searchId(k, map, M.findStep(map, 'blockers').step), count: '0' });
+    R.pass(k, map, 0, 'person-avery', LATER);
+    k.state = 'completed'; k.ended = { outcome: 'Completed', by: 'person-avery', byName: 'Avery', at: LATER };
+    const o = JSON.parse(JSON.stringify(k));
+    o.steps.blockers = { s: 'done', by: 'person-avery', at: LATER, values: { searchId: 'sha256:' + '0'.repeat(64), count: '2' } };
+    return R.sanitize(o);
+  };
+  const low = kid('low'), high = kid('high');
+  assert.strictEqual(R.childCheck(low), '', 'not needed: its record doesn\'t decide the completion');
+  assert.strictEqual(R.childOutcome(low), 'done');
+  assert.match(R.childCheck(high), /was reopened when read, so its completion doesn't stand/);
+  assert.strictEqual(R.childOutcome(high), 'review');
+});
 run();

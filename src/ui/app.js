@@ -3612,14 +3612,17 @@
   function prEntry(pid) {
     var k = edKey(pid), e = prs[k];
     if (e) return e;
-    var st = null, raw = null, lost = false;
+    var st = null, raw = null, lost = false, held = null, map = null;
     try { raw = sessionStorage.getItem(prStoreKey(pid)); } catch (err) { raw = null; }
-    if (raw) { try { st = PR.check(JSON.parse(raw), pid, prAdmitted(pid)); } catch (err) { st = null; } lost = !st; }
+    /* R14-1: a kept practice is read only with the draft as admitted; while the text doesn't admit, it's held, never shown or
+       written over, and prMap reads it on the first text that admits. */
+    if (raw) { map = prAdmitted(pid); if (!map) held = raw; else { try { st = PR.check(JSON.parse(raw), pid, map); } catch (err) { st = null; } lost = !st; } }
     prLoadTyped(pid);
-    return (prs[k] = { pid: pid, st: st || PR.fresh(pid), undo: [], redo: [], renames: {}, moved: {}, cache: null, good: null, mem: false, sampleErr: {}, typed: {}, gateErr: null, refusal: null, saveErr: null, trip: null,
+    return (prs[k] = { pid: pid, held: held, st: st || PR.fresh(pid), undo: [], redo: [], renames: {}, moved: {}, cache: null, good: null, mem: false, sampleErr: {}, typed: {}, gateErr: null, refusal: null, saveErr: null, trip: null,
       note: lost ? 'The practice kept in this tab couldn\'t be read, so it starts fresh. The draft isn\'t affected.' : '' });
   }
   function prSave(e) {
+    if (e.held) return;
     var present = Object.create(null);
     if (e.good) e.good.map.phases.forEach(function (ph) { present[ph.id] = present[ph.gate.id] = true; ph.steps.forEach(function (s) { present[s.id] = true; }); });
     var text = PR.keep(e.st, present, e.good ? e.good.map : null);
@@ -3641,6 +3644,11 @@
     var key = typesRev() + '\n' + text;
     if (e.cache && e.cache.key === key) return e.cache;
     var a = PR.admit(text, prEnv());
+    if (a.ok && e.held) {
+      var kept = null; try { kept = PR.check(JSON.parse(e.held), e.pid, a.map); } catch (err) { kept = null; }
+      e.held = null; e.cache = null;
+      if (kept) e.st = kept; else e.note = 'The practice kept in this tab couldn\'t be read, so it starts fresh. The draft isn\'t affected.';
+    }
     if (a.ok) {
       var was = e.st, wasFrom = e.st.from || '', rn = e.renames;
       e.st = PR.settle(e.st, a.map, e.renames, e.good ? e.good.map : null); e.renames = {};
@@ -3785,9 +3793,11 @@
     if (!e) {
       var raw = null; try { raw = sessionStorage.getItem(prStoreKey(pid)); } catch (err) { raw = null; }
       if (!raw) return null;
-      if (memo.raw !== raw) { var c = null; try { c = PR.check(JSON.parse(raw), pid, prAdmitted(pid)); } catch (err) { c = null; } memo.raw = raw; memo.st = c; }
+      /* Memoized on the kept text, the step types and the draft text, since the admitted draft decides how it reads. */
+      var mk = raw + '\n' + typesRev() + '\n' + prText(p);
+      if (memo.raw !== mk) { var c = null, am = prAdmitted(pid); if (am) { try { c = PR.check(JSON.parse(raw), pid, am); } catch (err) { c = null; } } memo.raw = mk; memo.st = c; }
       st = memo.st; if (!st) return null;
-    }
+    } else if (e.held) return null;
     var text = prText(p);
     /* Practice's own IDs: a step written without one has its temporary ID (PR.normalize), as its answer does. */
     if (memo.text !== text) { var ids = Object.create(null), steps = M.steps(PR.normalize(M.parse(text))); steps.forEach(function (x) { if (x.step.id) ids[x.step.id] = true; }); memo.text = text; memo.ids = ids; memo.total = steps.length; }
@@ -7397,7 +7407,7 @@
     'restore-local': function () {
       var r = ctx.run(); if (!r || runBusy(r)) return;
       var lkey = localKey(r.id), local = lsGet(lkey, null); if (!local) return;
-      recover(function () { var own = {}; Object.keys(local).forEach(function (k) { if (k[0] !== '_') own[k] = local[k]; }); var c = R.sanitize(R.testLast(own)); if (c) c._overflow = local._overflow || []; return Promise.resolve(c); }, 'Restored the copy kept in this browser; the version it replaced is kept as ', function () { lsSet(lkey, null); return Promise.resolve(); });
+      recover(function () { var own = {}; Object.keys(local).forEach(function (k) { if (k[0] !== '_') own[k] = local[k]; }); var c = R.sanitize(R.testLast(own)); if (c) c._overflow = R.mergeOverflow(local._overflow, c._overflow); return Promise.resolve(c); }, 'Restored the copy kept in this browser; the version it replaced is kept as ', function () { lsSet(lkey, null); return Promise.resolve(); });
     },
     'discard-local': function () { var r = ctx.run(); if (r) { lsSet(localKey(r.id), null); say('The copy kept in this browser was discarded.'); render(); } },
     'load-history': function () {
@@ -9326,7 +9336,7 @@
       else if (o.how === 'report') intent = acceptInto(r2, map2, id, me, now, o.report);
       else R.done(r2, map2, id, me, now, c.values);
       applied = true;
-    }, quiet ? { only: id, background: true } : { only: id });
+    }, Object.assign(quiet ? { only: id, background: true } : { only: id }, R.rereadable(c.r, id) && V.rereader(ctx, c.r) ? { any: true } : {}));
     /* An accepted report leaves the step's own drafts (evidence typed, a note) as they are. */
     if (intent) { hintsOf(o.report.fk)[intent.gkey] = intent; state.repPick = null; }
     if (applied && o.how !== 'report') dropDraft(key, id, ['record']);

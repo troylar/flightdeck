@@ -63,4 +63,24 @@ rule('5.6 and 5.9: a damaged generation offers Refresh search; a reopened search
   assert.ok(back.steps.done.reopened, JSON.stringify(back.steps.done)); back._notes = []; back._conflicts = []; t.ctx.run = () => back; t.ctx.data.runs = [back];
   const hh = t.html(); assert.ok(/Reopened when read/.test(hh), (hh.match(/search-box.{0,600}/) || [''])[0]);
 });
+rule('R14-8 and R14-3: in a completed run, the reopened search has a badge, its evidence boxes and Done, and nothing else', () => {
+  const t = setup(), map = R.mapOf(t.r);
+  R.done(t.r, map, 'done', 'person-casey', LATER, { searchId: sid(t.r), count: '0' }); R.done(t.r, map, 'tell', 'person-casey', LATER); R.pass(t.r, map, 0, 'person-casey', LATER);
+  t.r.state = 'completed'; t.r.ended = { outcome: 'Completed', by: 'person-casey', byName: 'Casey', at: LATER };
+  const o = JSON.parse(JSON.stringify(t.r, (k, v) => k === '_notes' || k === '_conflicts' ? undefined : v)); o.steps.done.values.count = '5';
+  const c = R.sanitize(o); c._notes = []; c._conflicts = []; t.ctx.run = () => c; t.ctx.data.runs = [c];
+  const h = t.html();
+  assert.ok(/class="badge b-warn">Reopened when read/.test(h), 'the row badge');
+  assert.ok(/id="rec-count"/.test(h) && !/id="rec-count"[^>]*disabled/.test(h), 'the evidence box, enabled');
+  assert.ok(/data-act="record" data-id="done">/.test(h), 'Done');
+  assert.ok(!/data-kind="block" data-id="done"/.test(h) && !/data-act="na" data-id="done"/.test(h) && !/data-mode="differently" data-id="done"/.test(h), 'nothing else');
+  t.state.sel = 'tell';
+  assert.ok(!/data-act="record" data-id="tell"|data-act="toggle" data-id="tell">Uncheck/.test(t.html()), 'no other step can be answered');
+});
+rule('R14-2: Restore it keeps both copies\' history records (R.mergeOverflow), never only the browser copy\'s', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
+  const at = src.indexOf("'restore-local': function"), body = src.slice(at, src.indexOf("'discard-local'", at));
+  assert.ok(at > 0 && /c\._overflow = R\.mergeOverflow\(local\._overflow, c\._overflow\)/.test(body), body);
+  assert.ok(!/local\._overflow \|\| \[\]/.test(body));
+});
 run();
