@@ -78,6 +78,11 @@ PF.util = (function () {
     var d = dateOf(iso);
     return d ? d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : UNKNOWN;
   }
+  /* A time in full, with the year and the zone it's shown in (search results, 2.16 section 7): "Nov 4, 2026, 10:05 AM EST". */
+  function full(iso) {
+    var d = dateOf(iso);
+    return d ? d.toLocaleString('en-US', { year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }) : UNKNOWN;
+  }
   function day(iso) {
     var d = dateOf(iso);
     return d ? d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' }) : UNKNOWN;
@@ -201,7 +206,7 @@ PF.util = (function () {
   }
 
   return { DRAFT_BYTES: DRAFT_BYTES, utf8Bytes: utf8Bytes, draftTooBig: draftTooBig, draftSize: draftSize, drift: drift, esc: esc, timeOnDayIn: timeOnDayIn, safeUrl: safeUrl, mdInline: mdInline, mdBlock: mdBlock, slug: slug, randomId: randomId, hash: hash, nthKey: nthKey, nthOf: nthOf,
-    hm: hm, when: when, day: day, dueWords: dueWords, localDateTime: localDateTime, clock: clock, duration: duration, timeToday: timeToday };
+    hm: hm, when: when, full: full, day: day, dueWords: dueWords, localDateTime: localDateTime, clock: clock, duration: duration, timeToday: timeToday };
 })();
 /* Name order for the lists people scan by name (2.11): numbers in a name compare as numbers, so Process 2 comes before
    Process 10, and case and accents don't count. Names that still compare equal fall back to their exact text, so equal-looking

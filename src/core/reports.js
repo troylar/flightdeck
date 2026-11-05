@@ -450,8 +450,10 @@ PF.reports = (function () {
       if (have !== st.id) return no('This report is for an earlier search: a run detail it used has changed, or the run was recovered from a copy, since.');
       if (rep.verdict !== 'pass') {
         var bl = R.searchCheck(r, map, x.step, vu.values, o.now || new Date().toISOString(), { partial: true });
-        var bv = bl.error ? null : Object.assign({}, bl.values);
-        return { ok: false, why: 'This report says ' + rep.verdict + '. Accepting checks the step, so only a pass can be accepted.' + (bv ? ' Block with these blocks the step with its results.' : ''), block: bv ? { values: bv } : null };
+        var bv = bl.error ? null : Object.assign({}, bl.values), bwhy = '';
+        /* Offered only when R.block itself takes these results: tried on a copy, so what's offered is what's saved. */
+        if (bv) { try { var tr = JSON.parse(JSON.stringify(r)); R.block(tr, R.mapOf(tr), x.step.id, '', o.me || 'report', o.now || new Date().toISOString(), bv); } catch (e) { bwhy = e.message; bv = null; } }
+        return { ok: false, why: 'This report says ' + rep.verdict + '. Accepting checks the step, so only a pass can be accepted.' + (bv ? ' Block with these blocks the step with its results.' : bwhy ? ' Its results can\'t block the step: ' + bwhy.charAt(0).toLowerCase() + bwhy.slice(1) : ''), block: bv ? { values: bv } : null };
       }
       chk = R.searchCheck(r, map, x.step, vu.values, o.now || new Date().toISOString());
       if (!chk.error && !chk.meets) chk = { error: 'These results don\'t meet the step\'s rule' + (chk.why ? ': ' + chk.why : '') + '. Block with these, or search again.', field: 'count' };

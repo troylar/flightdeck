@@ -185,4 +185,43 @@ rule('runs without searches are unchanged: no search fields at start or on read'
   assert.ok(!('searchGen' in r) && !('searchSites' in r)); assert.ok(!('searchGen' in R.sanitize(JSON.parse(JSON.stringify(r)))));
 });
 
+const completedRun = () => {
+  const r = start(), map = R.mapOf(r);
+  ['done', 'scope', 'saved'].forEach(id => R.done(r, map, id, 'person-avery', LATER, good(r, id, id === 'scope' ? 1 : 0))); note(r, map);
+  R.pass(r, map, 0, 'person-avery', LATER); r.state = 'completed'; r.ended = { outcome: 'Completed', by: 'person-avery', byName: 'Avery', at: LATER };
+  return r;
+};
+rule('recovering a completed copy keeps Completed and takes its searches down the read-reopened path: Done answers them again', () => {
+  const cur = completedRun(), copy = R.sanitize(JSON.parse(JSON.stringify(cur))), old = sid(cur, 'done');
+  R.adopt(cur, copy, 'person-avery', LATER);
+  same([cur.state, cur.ended.outcome, cur.steps.done.s, cur.steps.done.reopened, cur.gates.ready.s], ['completed', 'Completed', 'open', true, 'review']);
+  assert.ok(cur.steps.done.history.some(h => h.s === 'done' && h.values.count === '0'), 'the earlier answer is kept in history');
+  assert.ok(/^Reopened when read: /.test(cur.steps.done.reason), cur.steps.done.reason);
+  assert.notStrictEqual(sid(cur, 'done'), old);
+  [cur, R.sanitize(JSON.parse(JSON.stringify(cur)))].forEach((c, i) => {
+    assert.ok(R.rereadable(c, 'done'), 'rereadable ' + (i ? 'after a reload' : 'at once'));
+    R.done(c, R.mapOf(c), 'done', 'person-avery', LATER, good(c, 'done', 0));
+    same([c.state, c.steps.done.s], ['completed', 'done']);
+  });
+});
+const PAT = publish(['---', 'process: pat', 'title: Pat', 'context: version:pattern([0-9]+)', '---', '', '## Check · DO-CONFIRM {#check}',
+  '- [!] {jira.search} No blockers in ^version {#b}', '  query: fixVersion = ^version AND priority = Blocker', '  results: none', '', '## Gate: Ready {#ready}', ''].join('\n'));
+rule('a consumed detail that isn\'t valid builds no search: a completed run marks the search stuck, and Done is refused', () => {
+  const r = R.create(PAT, { title: 'P', details: { version: '12' }, roles: {}, by: 'person-avery', session: 'w-a', now: NOW, id: 'run-pt', app: '2.16.0', teamValues: TV }), map = R.mapOf(r);
+  R.done(r, map, 'b', 'person-avery', LATER, { searchId: sid(r, 'b'), count: '0' }); R.pass(r, map, 0, 'person-avery', LATER);
+  r.state = 'completed'; r.ended = { outcome: 'Completed', by: 'person-avery', byName: 'Avery', at: LATER };
+  const o = JSON.parse(JSON.stringify(r)); o.details.version = 'oops'; o.searchGen.version = 'bad';
+  const c = R.sanitize(o), cm = R.mapOf(c);
+  assert.ok(c._invalid && c._invalid['details.version'], 'the value is named');
+  assert.strictEqual(R.searchId(c, cm, st(c, 'b')), null);
+  assert.match(R.searchProblem(c, cm, st(c, 'b')), /The run detail version isn't a valid value/);
+  same([c.steps.b.s, c.steps.b.reopened], ['open', 'stuck']);
+  assert.match(c.steps.b.reason, /can't be repaired here; start a new run/);
+  assert.ok(!R.rereadable(c, 'b'));
+  unchanged(c, () => R.done(c, cm, 'b', 'person-avery', LATER, { searchId: 'sha256:' + '0'.repeat(64), count: '0' }), /./);
+  const u = JSON.parse(JSON.stringify(r)); u.details.version = '1‮2';
+  const cu = R.sanitize(u);
+  same([cu.steps.b.s, cu.steps.b.reopened], ['open', 'stuck'], 'a value with a direction override can\'t be searched: stuck, not rereadable');
+  assert.ok(!R.rereadable(cu, 'b'));
+});
 run();

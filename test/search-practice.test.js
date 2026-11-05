@@ -40,4 +40,21 @@ rule('kept practice: read only with its draft (R14-1); a checked search whose ke
   assert.ok(read.answers.scope, 'the good one stays');
   assert.deepStrictEqual(Object.keys(read.gates), [], 'and every gate with it');
 });
+rule('kept practice: invalid evidence is dropped on reload as Done refuses it (keys at 0, keys against the count); without evidence stays', () => {
+  let st = ans(P.fresh('rel'), 'done', { count: '0' }).state;
+  st = ans(st, 'scope', { count: '1', keys: 'PAY-1' }).state;
+  const kept = JSON.parse(JSON.stringify(st));
+  kept.gates = { ready: { s: 'passed', reason: '', at: NOW, approved: {}, base: 'abcd1234' } };
+  assert.deepStrictEqual(Object.keys(P.check(JSON.parse(JSON.stringify(kept)), 'rel', map).gates), ['ready'], 'set-up: a good kept practice keeps its gate');
+  [['done', { count: '0', keys: 'PAY-1' }], ['scope', { count: '1', keys: 'PAY-1, PAY-2' }], ['scope', { count: '1', keys: 'nope' }]].forEach(([id, v]) => {
+    const f = JSON.parse(JSON.stringify(kept)); f.answers[id].values = v;
+    const read = P.check(f, 'rel', map);
+    assert.ok(!read.answers[id], id + ' ' + JSON.stringify(v) + ' is dropped');
+    assert.deepStrictEqual(Object.keys(read.gates), [], 'and every gate with it');
+  });
+  const sk = ans(P.fresh('rel'), 'done', null);
+  const skipped = P.answer(P.fresh('rel'), map, 'done', 'done', {}, NOW, { skipped: true }).state;
+  assert.ok(skipped && skipped.answers.done.skipped, sk.error);
+  assert.ok(P.check(JSON.parse(JSON.stringify(skipped)), 'rel', map).answers.done, 'checked without evidence stays');
+});
 run();

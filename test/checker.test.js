@@ -936,4 +936,27 @@ rule('The checker reads team-values.json (2.9) like the app: the same state and 
   } finally { fs.rmSync(root, { recursive: true, force: true }); }
 });
 
+/* 2.16: the checker refuses exactly the Jira searches the app refuses, in the same words: each step's fields one by one, and
+   whole checklists through unrunnable (a version the app wouldn't run is one the checker names). */
+rule('Jira searches: the checker\'s search checks match PF.jsearch.checkFields and PF.publish.unrunnable, case for case', () => {
+  const py = python(); if (!py) return;
+  const ctx = ['project', 'version', 'ticket'];
+  const cases = [{}, { query: 'project = ^project' }, { filter: '12345' }, { query: 'a = 1', filter: '1' }, { filter: '1&jql=project=OTHER' }, { filter: '0' }, { filter: ' 42 ' },
+    { query: 'summary ~ ^version' }, { query: 'summary !~ ^version' }, { query: 'fixVersion = "^version"' }, { query: "fixVersion = '^version'" }, { query: 'fixVersion = ^version' },
+    { query: 'fixVersion = ^version AND status = Done' }, { query: 'fixVersion = ^version x' }, { query: 'fixVersion = ^nope' }, { query: 'fixVersion = x^version' },
+    { query: 'fixVersion IN (^version, "1.0")' }, { query: 'fixVersion IN (^version x)' }, { query: 'issue in linkedIssues(^ticket)' }, { query: 'assignee IS ^ticket' }, { query: 'assignee IS NOT ^ticket' },
+    { query: '^project = PAY' }, { query: 'project = ^project ORDER BY rank' }, { query: 'project = "PAY' }, { query: "project = 'a\\" }, { query: 'a ! b' }, { query: 'a = (^project)' },
+    { query: 'project = ^project', sets: 'project' }, { query: 'project = ^project', sets: 'ticket' }, { query: 'a = 1', results: 'some' }, { query: 'a = 1', results: 'exactly 0', require: 'keys' },
+    { query: 'a = 1', results: 'at most 0', require: 'keys, count' }, { query: 'a = 1', results: 'At  Least 3' }, { query: 'a = 1', site: 'jira' }, { query: 'a = 1', site: 'team:Jira' }, { query: 'a = 1', site: 'team:jira-2' },
+    { query: 'a = 1', what: 'x'.repeat(201) }, { query: 'a = 1', what: 'x'.repeat(200) }, { query: 'a = "‮"' }, { query: 'a = 1\nb = 2' }, { query: 'x'.repeat(2001) }, { query: 'a = ^version)' }];
+  const js = JSON.parse(JSON.stringify(cases.map(f => PF.jsearch.checkFields(f, { context: ctx }).errors)));
+  const src = "import json,sys,importlib.util\nspec=importlib.util.spec_from_file_location('cf',sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)\n" +
+    "d=json.load(sys.stdin)\nprint(json.dumps({'fields':[m.search_errors(f,d['ctx']) for f in d['cases']],'md':[m.unrunnable(t,{}) for t in d['mds']]}))";
+  const MD = q => ['---', 'process: x', 'title: X', 'context: version', '---', '', '## S · DO-CONFIRM {#s}', '- [ ] {jira.search} Look {#look}'].concat(q).concat(['', '## Gate: G {#g}', '']).join('\n');
+  const mds = [[], ['  query: fixVersion = ^version'], ['  filter: 1&jql=project=OTHER'], ['  query: summary ~ ^version'], ['  query: fixVersion = "^version"'], ['  query: fixVersion = ^version', '  sets: version'], ['  query: a = 1', '  results: lots']].map(MD);
+  const out = JSON.parse(cp.execFileSync(py, ['-I', '-c', src, CHECKER], { input: JSON.stringify({ cases, ctx, mds }), encoding: 'utf8' }));
+  cases.forEach((f, i) => assert.deepStrictEqual(out.fields[i], js[i], JSON.stringify(f) + ' py ' + JSON.stringify(out.fields[i]) + ' js ' + JSON.stringify(js[i])));
+  mds.forEach((t, i) => assert.strictEqual(out.md[i], PF.publish.unrunnable(t, {}), t.split('\n').slice(7, 9).join(' | ')));
+  assert.ok(js.filter(e => e.length).length >= 30 && out.md.filter(Boolean).length === 6, 'the matrix refuses what it should');
+});
 run();

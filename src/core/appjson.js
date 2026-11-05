@@ -10,7 +10,7 @@ PF.appjson = (function () {
   var CONTRACT = 'flightdeck-read/1', CONTRACT2 = 'flightdeck-read/2', VERSIONS = [1, 2];
   var NOTE = 'Read from the team folder just now; another computer may be a minute ahead. A passed gate means passed for those details, by that person, at that time. People-directory email fields are omitted.';
   /* Every problem is one file or folder and one of these. */
-  var KINDS = ['unreadable', 'nofile', 'malformed', 'newer', 'unusable', 'conflict', 'still-syncing', 'link', 'skipped', 'vanished'];
+  var KINDS = ['unreadable', 'nofile', 'malformed', 'newer', 'unusable', 'conflict', 'still-syncing', 'link', 'skipped', 'vanished', 'child-mark'];
 
   /* ---- the schema: what each command's data holds, checked by conforms() and documented in docs/apps.md ----
      'string', 'number', 'boolean'; [x] a list of x; { k: x } an object with exactly these keys; opt(x) x or null;

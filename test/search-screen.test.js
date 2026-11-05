@@ -70,7 +70,7 @@ rule('R14-8 and R14-3: in a completed run, the reopened search has a badge, its 
   const o = JSON.parse(JSON.stringify(t.r, (k, v) => k === '_notes' || k === '_conflicts' ? undefined : v)); o.steps.done.values.count = '5';
   const c = R.sanitize(o); c._notes = []; c._conflicts = []; t.ctx.run = () => c; t.ctx.data.runs = [c];
   const h = t.html();
-  assert.ok(/class="badge b-warn">Reopened when read/.test(h), 'the row badge');
+  assert.ok(/class="badge b-warn" title="[^"]*">Reopened when read</.test(h), 'the row badge');
   assert.ok(/id="rec-count"/.test(h) && !/id="rec-count"[^>]*disabled/.test(h), 'the evidence box, enabled');
   assert.ok(/data-act="record" data-id="done">/.test(h), 'Done');
   assert.ok(!/data-kind="block" data-id="done"/.test(h) && !/data-act="na" data-id="done"/.test(h) && !/data-mode="differently" data-id="done"/.test(h), 'nothing else');
@@ -82,5 +82,38 @@ rule('R14-2: Restore it keeps both copies\' history records (R.mergeOverflow), n
   const at = src.indexOf("'restore-local': function"), body = src.slice(at, src.indexOf("'discard-local'", at));
   assert.ok(at > 0 && /c\._overflow = R\.mergeOverflow\(local\._overflow, c\._overflow\)/.test(body), body);
   assert.ok(!/local\._overflow \|\| \[\]/.test(body));
+});
+const ins = h => h.slice(h.indexOf('id="rw-ins"'));
+rule('R14-3/R14-7: a reopened search\'s notice gives its reason, escaped, and the exact next action: running, completed, stuck', () => {
+  const t = setup(), map = R.mapOf(t.r);
+  R.done(t.r, map, 'done', 'person-casey', LATER, { searchId: sid(t.r), count: '0' });
+  const o = JSON.parse(JSON.stringify(t.r, (k, v) => k === '_notes' || k === '_conflicts' ? undefined : v)); o.steps.done.values.count = '3';
+  const back = R.sanitize(o); back._notes = []; back._conflicts = []; t.ctx.run = () => back; t.ctx.data.runs = [back];
+  assert.ok(ins(t.html()).indexOf('Reopened when read: its results can&#39;t check this search. Refresh the search, search again, then choose Done.') >= 0, ins(t.html()).match(/note warn.{0,300}/));
+  back.steps.done.reason = 'Reopened when read: <b>x</b>';
+  assert.ok(ins(t.html()).indexOf('Reopened when read: &lt;b&gt;x&lt;/b&gt;.') >= 0, 'the reason is escaped');
+  const c = setup(), cm = R.mapOf(c.r);
+  R.done(c.r, cm, 'done', 'person-casey', LATER, { searchId: sid(c.r), count: '0' }); R.done(c.r, cm, 'tell', 'person-casey', LATER); R.pass(c.r, cm, 0, 'person-casey', LATER);
+  c.r.state = 'completed'; c.r.ended = { outcome: 'Completed', by: 'person-casey', byName: 'Casey', at: LATER };
+  const co = JSON.parse(JSON.stringify(c.r, (k, v) => k === '_notes' || k === '_conflicts' ? undefined : v)); co.steps.done.values.count = '5';
+  const cr = R.sanitize(JSON.parse(JSON.stringify(co))); cr._notes = []; cr._conflicts = []; c.ctx.run = () => cr; c.ctx.data.runs = [cr];
+  assert.ok(ins(c.html()).indexOf('The run stays Completed; answer this step again with Done. Every other step stays closed.') >= 0, 'completed');
+  const so = JSON.parse(JSON.stringify(co)); so.details.version = '1‮2';
+  const sr = R.sanitize(so); sr._notes = []; sr._conflicts = []; c.ctx.run = () => sr; c.ctx.data.runs = [sr];
+  assert.strictEqual(sr.steps.done.reopened, 'stuck');
+  const h = c.html();
+  assert.ok(ins(h).indexOf('Reopened when read: this run&#39;s record is damaged and can&#39;t be repaired here; start a new run. Start a new run of this checklist; this run stays as recorded.') >= 0, ins(h).match(/note warn.{0,400}/));
+  assert.ok(/>Reopened when read: start a new run</.test(h), 'the row says so');
+  assert.ok(!/data-act="record" data-id="done">/.test(h), 'no Done');
+});
+rule('7: search times show the year and the zone; the HTML receipt shows the search as 8 hex, as the text receipt does', () => {
+  const { r, ctx, html } = setup(), map = R.mapOf(r);
+  R.done(r, map, 'done', 'person-casey', LATER, { searchId: sid(r), count: '0', ranAt: '2026-11-04T15:05Z' });
+  const line = (html().match(/search-res good" role="status">[^<]*/) || [''])[0];
+  assert.ok(/searched Nov 4, 2026, \d{1,2}:\d{2} [AP]M [A-Z]{2,5}[+-]?[\d:]*/.test(line) && /checked \d{1,2}:\d{2} [AP]M</.test(line + '<'), line);
+  R.done(r, map, 'tell', 'person-casey', LATER); R.pass(r, map, 0, 'person-casey', LATER); R.end(r, map, 'Completed', 'person-casey', 'Casey', LATER);
+  const rh = V.receipt(ctx);
+  const short = sid(r).replace(/^sha256:/, '').slice(0, 8);
+  assert.ok(rh && rh.indexOf('Search: ' + short) >= 0 && rh.indexOf(sid(r)) < 0, 'the receipt abbreviates it');
 });
 run();
