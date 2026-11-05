@@ -524,6 +524,13 @@ rule('One header: a status line\'s links are 24px targets: the inline-sentence e
   ex.forEach(r => r.sel.forEach(x => assert.match(x, /^p:not\(\.hd-st\) /, 'the exception skips the status line: ' + x)));
   assert.ok(RULES.some(r => r.sel.indexOf('button.linkish') >= 0 && decl(r.body, 'min-height') === '24px' && decl(r.body, 'display') === 'inline-flex'), 'the 24px link recipe');
 });
+rule('One header: native fields in a tool row (Pause\'s box, Hand off\'s select) and the reason line\'s controls are sized: 32px above 800, 44px at 800 and less', () => {
+  const wide = RULES.filter(r => r.at.some(a => /min-width: 801px/.test(a))), phone = RULES.filter(r => r.at.some(a => /max-width: 800px/.test(a)));
+  const fields = '.tr :is(input:not([type="checkbox"]):not([type="radio"]), select)';
+  assert.ok(wide.some(r => r.sel.join(', ') === fields && decl(r.body, 'height') === '32px' && decl(r.body, 'box-sizing') === 'border-box'), 'tool-row fields 32px above 800');
+  assert.ok(phone.some(r => r.sel.join(', ') === fields && decl(r.body, 'min-height') === '44px'), 'tool-row fields 44px on a phone');
+  assert.ok(wide.some(r => r.sel.join(', ') === '.hd-why :is(.btn, .mini)' && decl(r.body, 'height') === '32px'), 'reason-line controls 32px above 800');
+});
 rule('One header: a long way back shrinks with an ellipsis and keeps its view suffix whole', () => {
   const t = RULES.filter(r => r.sel.some(x => /\.backc-t\b/.test(x)));
   assert.ok(t.some(r => decl(r.body, 'min-width') === '0' && decl(r.body, 'overflow') === 'hidden' && decl(r.body, 'text-overflow') === 'ellipsis'), 'the label truncates: ' + t.map(r => r.body).join(' | '));

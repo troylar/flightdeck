@@ -2107,6 +2107,9 @@ html.work-on .top { display: none; }
   @media (min-width: 801px) {
     .hd :is(.hd-l > .backc, .hd-c button, .hd-acts :is(.btn, .mini), .more-btn):not(.linkish) { height: 36px; min-height: 36px; padding-block: 0; box-sizing: border-box; }
     .tr :is(.mini, .btn, summary.mini, .more-btn, .backc) { height: 32px; min-height: 32px; padding-block: 0; box-sizing: border-box; }
+    /* Its native fields (Pause's box, Hand off's select) too; and the reason line's controls, a secondary line under row 1. */
+    .tr :is(input:not([type="checkbox"]):not([type="radio"]), select) { height: 32px; min-height: 32px; padding-block: 0; box-sizing: border-box; }
+    .hd-why :is(.btn, .mini) { height: 32px; min-height: 32px; padding-block: 0; box-sizing: border-box; }
     .tr .seg { height: 32px; box-sizing: border-box; }
     .tr .seg button { height: 100%; min-height: 0; padding-block: 0; }
   }
@@ -2119,6 +2122,7 @@ html.work-on .top { display: none; }
   .pviews button, .ws-views button, .fpe-tabs [role="tab"] { min-height: 44px; }
   /* Every work screen's header and tool row (the editor, the step-type editor, the run and its pages, Practice): 44 px. */
   .hd :is(.btn, .mini, .more-btn), .tr :is(.btn, .mini, summary.mini), .tr .seg button { min-height: 44px; }
+  .tr :is(input:not([type="checkbox"]):not([type="radio"]), select) { min-height: 44px; box-sizing: border-box; }
   /* Popover menu items keep the phone's 44 px (R8's 40 is the desktop size). */
   :is(.rw-menu-list, .tf-menu-list, .corr-menu-list, .more-list) :is(button, .mini) { min-height: 44px; }
   /* R7 place, phone form (the full-width "Put it here" boxes): a 3:1 dashed edge at rest; the current place is
