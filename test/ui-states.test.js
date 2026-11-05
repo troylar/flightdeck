@@ -500,12 +500,35 @@ rule('Affordance: separators sit in a 28px gutter column; only the 24px strip ta
 });
 rule('One header: one rule hides the top bar on every work screen, and the old header layouts are gone', () => {
   assert.ok(RULES.some(r => r.sel.indexOf('html.work-on .top') >= 0 && decl(r.body, 'display') === 'none'), 'html.work-on .top');
-  const old = RULES.filter(r => r.sel.some(x => /\.(fpe-head|ws-head|ws-right|fpe-tools|fpe-save|fpe-id|fpe-title|rw-tools|rw-me|pr-badge|backc-t)\b/.test(x)) && !/min-width:\s*10ch/.test('') );
+  const old = RULES.filter(r => r.sel.some(x => /\.(fpe-head|ws-head|ws-right|fpe-tools|fpe-save|fpe-id|fpe-title|rw-tools|rw-me|pr-badge)\b/.test(x)) && !/min-width:\s*10ch/.test('') );
   assert.deepStrictEqual(old.map(r => r.sel.join(', ')).slice(0, 6), [], old.length + ' rules for the old header');
   assert.ok(!RULES.some(r => r.sel.some(x => /html\.(fpe-on|rw-on|tfe-on|rw-page) \.top/.test(x))), 'no per-screen top-bar rules');
   ['.hd', '.hd-l', '.hd-c', '.hd-r', '.hd-acts', '.tr', '.tg', '.facts', '.more-list'].forEach(x => assert.ok(RULES.some(r => r.sel.indexOf(x) >= 0), x + ' styled'));
   assert.ok(RULES.some(r => r.at.some(a => /max-width: 800px/.test(a)) && r.sel.indexOf('html.work-on .hd') >= 0 && decl(r.body, 'position') === 'sticky' && /var\(--keep-h\)/.test(decl(r.body, 'top') || '')), 'row 1 sticks under the banner on a phone');
   assert.ok(RULES.some(r => r.sel.indexOf('[role="tabpanel"]') >= 0 && /var\(--keep-h[^)]*\)\s*\+\s*var\(--hd-h/.test(decl(r.body, 'scroll-margin-top') || '')), 'tab panels land below the header');
+});
+rule('One header: above 800px every row 1 control is exactly 36px: the way back, the view switch, the primary and More', () => {
+  const wide = RULES.filter(r => r.at.some(a => /min-width: 801px/.test(a)));
+  const r1 = wide.filter(r => r.sel.some(x => /^\.hd :is\(/.test(x)) && decl(r.body, 'height') === '36px');
+  assert.strictEqual(r1.length, 1, 'one shared row 1 sizing rule');
+  const sel = r1[0].sel.join(', ');
+  /* Exactly these four: row 1's way back, the view switch, the primary's slot and More's opener. Nothing in More's list (its
+     items keep R8), and the status line's links keep their link recipe. */
+  assert.strictEqual(sel, '.hd :is(.hd-l > .backc, .hd-c button, .hd-acts :is(.btn, .mini), .more-btn):not(.linkish)');
+  assert.strictEqual(decl(r1[0].body, 'min-height'), '36px');
+  assert.strictEqual(decl(r1[0].body, 'box-sizing'), 'border-box');
+});
+rule('One header: a long way back shrinks with an ellipsis and keeps its view suffix whole', () => {
+  const t = RULES.filter(r => r.sel.some(x => /\.backc-t\b/.test(x)));
+  assert.ok(t.some(r => decl(r.body, 'min-width') === '0' && decl(r.body, 'overflow') === 'hidden' && decl(r.body, 'text-overflow') === 'ellipsis'), 'the label truncates: ' + t.map(r => r.body).join(' | '));
+  assert.ok(RULES.some(r => r.sel.indexOf('.backc .backc-v') >= 0 && decl(r.body, 'flex') === 'none'), 'the view suffix never shrinks');
+  assert.ok(RULES.some(r => r.sel.indexOf('.backc') >= 0 && decl(r.body, 'min-width') === '0'), 'the button itself can shrink');
+});
+rule('One header: nothing hides the step-type editor\'s status on a phone, and the old header pieces have no styles left', () => {
+  const st = RULES.filter(r => r.sel.some(x => /\.fpe-type \.fpe-state/.test(x)) && (decl(r.body, 'display') === 'none' || /rect\(/.test(decl(r.body, 'clip') || '') || decl(r.body, 'width') === '1px'));
+  assert.deepStrictEqual(st.map(r => r.sel.join(', ') + ' { ' + r.body.trim() + ' }'), [], 'the status line shows');
+  const gone = RULES.filter(r => r.sel.some(x => /\.(fpe-checks|fpe-done|fpe-practice|rw-back)\b/.test(x)));
+  assert.deepStrictEqual(gone.map(r => r.sel.join(', ')), [], 'unused');
 });
 rule('One header: above 800px every tool-row control is exactly 32px, the Builder | Markdown group too', () => {
   const wide = RULES.filter(r => r.at.some(a => /min-width: 801px/.test(a)));

@@ -2382,12 +2382,15 @@
      resizes; 0 when it isn't sticky. A row 1 taller than 40% of the room under the banner doesn't stick (hd-free): it scrolls
      with the page, so a short phone or 400% zoom never hides every control under it. */
   var hdSeen = null, hdRO = window.ResizeObserver ? new ResizeObserver(function () { hdOffset(); moreFit(); }) : null;
+  /* The tab-only banner's height as drawn. --keep-h is a calc() (the safe area added), and a custom property is read back
+     unresolved, so row 1's 40% rule and More's fit both measure the banner itself. 0 when it isn't showing. */
+  function bannerH() { return badgeEl && badgeEl.getBoundingClientRect ? badgeEl.getBoundingClientRect().height || 0 : 0; }
   function hdOffset() {
     var de = document.documentElement, hd = document.querySelector ? document.querySelector('#app header.hd') : null, work = de && de.classList && de.classList.contains('work-on');
     if (hdRO && hd !== hdSeen) { if (hdSeen) hdRO.unobserve(hdSeen); if (hd) hdRO.observe(hd); hdSeen = hd; }
     var v = 0;
     if (work && hd && hd.getBoundingClientRect) {
-      var keep = parseFloat(getComputedStyle(de).getPropertyValue('--keep-h')) || 0, hgt = hd.getBoundingClientRect().height;
+      var keep = bannerH(), hgt = hd.getBoundingClientRect().height;
       var free = narrowNow() && hgt > 0.4 * Math.max(1, window.innerHeight - keep);
       if (hd.classList.contains('hd-free') !== free) hd.classList[free ? 'add' : 'remove']('hd-free');
       if (!free && getComputedStyle(hd).position === 'sticky') v = Math.round(hd.getBoundingClientRect().height);
@@ -2399,7 +2402,7 @@
   function moreFit() {
     var list = document.getElementById('ws-more-list'), btn = document.getElementById('ws-more-btn');
     if (!list || !btn || !state.wsMore || !btn.getBoundingClientRect) return;
-    var keep = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--keep-h')) || 0, b = btn.getBoundingClientRect(), room = window.innerHeight - b.bottom - 6 - 8;
+    var keep = bannerH(), b = btn.getBoundingClientRect(), room = window.innerHeight - b.bottom - 6 - 8;
     var contain = room < 104 || b.top < keep;
     list.classList[contain ? 'add' : 'remove']('contained');
     list.style.maxHeight = (contain ? window.innerHeight - keep - 16 : room) + 'px';
@@ -4259,8 +4262,20 @@
       if (id === focused && !state.overlayFocus) { if (document.activeElement !== el && el.focus) el.focus(); if (el.setSelectionRange && k.s != null) try { el.setSelectionRange(k.s, k.e); } catch (e) { /* not a text field */ } }
     });
   }
-  /* The workspace's More on a phone (2.2): opening it focuses its first tool; closing it, More again. */
-  function wsMoreToggle() { state.wsMore = !state.wsMore; state.focus = state.wsMore ? '#ws-more-list button:not([disabled])' : 'ws-more-btn'; render(); moreFit(); }
+  /* More's items a person can reach: drawn at this width (a .ph-only copy isn't above 800 px, a .wd-only one isn't at 800
+     and less) and enabled. */
+  function moreItems() {
+    var l = document.getElementById('ws-more-list'); if (!l || !l.querySelectorAll) return [];
+    return [].filter.call(l.querySelectorAll('button, select, input'), function (e) { return !(e.disabled || (e.hasAttribute && e.hasAttribute('disabled'))) && e.getClientRects && e.getClientRects().length > 0; });
+  }
+  function moreGo(el) { if (!el) return; el.focus(); if (el.scrollIntoView) el.scrollIntoView({ block: 'nearest' }); }
+  /* Up and Down move through them, wrapping; Home and End go to the first and the last (one-header 2.6). */
+  function moreKey(k) {
+    var it = moreItems(), n = it.length, i = it.indexOf(document.activeElement); if (!n) return;
+    moreGo(it[k === 'Home' ? 0 : k === 'End' ? n - 1 : k === 'ArrowDown' ? (i + 1) % n : i < 0 ? n - 1 : (i - 1 + n) % n]);
+  }
+  /* More (2.16): opening it focuses its first item shown; closing it, More again. */
+  function wsMoreToggle() { state.wsMore = !state.wsMore; state.focus = state.wsMore ? null : 'ws-more-btn'; render(); moreFit(); if (state.wsMore) moreGo(moreItems()[0]); }
   /* Who are you? (docs/design.md section 34): opened from More (focus comes back to More) or from a held primary's reason line
      (focus goes to the primary that was held). Choosing sets state.me the same way the top bar's You are does. */
   function meOpen(b, id) {
@@ -7383,7 +7398,8 @@
     'rel-back': function () { state.rel.detail = false; state.overlayFocus = '.rn-item[aria-current="true"]'; render(); },
     'rel-clear': function () { state.rel.q = ''; state.rel.kind = ''; state.rel.area = ''; state.overlayFocus = '#rel-detail-title'; render(); },
     /* Appearance is per browser: system follows the computer; light and dark set data-theme, which the colors key off. */
-    theme: function (id, b) { if (['system', 'light', 'dark'].indexOf(id) < 0) return; state.theme = id; lsSet('theme', id); applyTheme(); state.focus = b && b.classList && b.classList.contains('icon-btn') ? '.icon-btn[data-act="theme"]' : '[data-act="theme"][data-id="' + id + '"]'; render(); },
+    /* Chosen in More, which closes, focus goes back to More; elsewhere it stays on the control. */
+    theme: function (id, b) { if (['system', 'light', 'dark'].indexOf(id) < 0) return; state.theme = id; lsSet('theme', id); applyTheme(); state.focus = b && b.closest && b.closest('#ws-more-list') ? 'ws-more-btn' : b && b.classList && b.classList.contains('icon-btn') ? '.icon-btn[data-act="theme"]' : '[data-act="theme"][data-id="' + id + '"]'; render(); },
     search: function () { openSearch(); },
     'sx-open': function (id) { sxOpenResult(id); },
     'toggle-keys': function () { state.keys = !state.keys; lsSet('keys', state.keys); render(); },
@@ -9344,6 +9360,7 @@
     if (e.isComposing || e.keyCode === 229) return;
     var t = e.target, typing = t && /INPUT|TEXTAREA|SELECT/.test(t.tagName);
     if (dbxAc && t && t.id === dbxAc.id && dbxKey(e)) return;
+    if (state.wsMore && !typing && !e.altKey && !e.ctrlKey && !e.metaKey && /^(ArrowUp|ArrowDown|Home|End)$/.test(String(e.key || '')) && t && t.closest && t.closest('#ws-more-list')) { e.preventDefault(); moreKey(e.key); return; }
     /* Ctrl+K (Cmd+K on a Mac) opens search from anywhere on the page, also while typing. */
     /* On a Mac it's Cmd+K, and Ctrl+K stays the text box's own (it deletes to the end of the line there). */
     if ((ctx.mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey) && !e.altKey && !e.shiftKey && String(e.key || '').toLowerCase() === 'k') { e.preventDefault(); openSearch(); return; }

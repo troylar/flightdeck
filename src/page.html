@@ -524,6 +524,7 @@ input[type="checkbox"] { accent-color: var(--go); width: 16px; height: 16px; }
 /* 2.16: the way back, top left, named for where it goes; the checklist's views (the page's strip, the workspace's control). */
 .backrow { margin: 0 0 8px; }
 .backc { display: inline-flex; align-items: center; gap: 2px; max-width: 100%; min-width: 0; white-space: nowrap; }
+.backc .backc-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
 .backc .backc-v { flex: none; }
 .pviews { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 14px; border-bottom: 1px solid var(--line); }
 .pviews button { border: 0; background: none; padding: 8px 12px; font-weight: 600; color: var(--muted); border-bottom: 3px solid transparent; margin-bottom: -1px; }
@@ -648,8 +649,6 @@ html.fpe-on #app { padding: 0; max-width: none; }
 .fpe-state { font-size: 13px; color: var(--muted); }
 .fpe-state.dirty { color: var(--ink); font-weight: 600; }
 .fpe-undo { gap: 4px; }
-.fpe-checks { display: inline-flex; gap: 6px; align-items: center; font-weight: 600; }
-.fpe-checks.bad { border-color: var(--stop); }
 .cnt { display: inline-block; min-width: 20px; padding: 0 6px; border-radius: 99px; background: var(--chip); color: var(--ink); font-size: 12px; font-weight: 700; text-align: center; line-height: 18px; }
 .cnt.bad { background: var(--stop); color: var(--card); }
 .fpe-alerts { display: flex; flex-direction: column; gap: 6px; max-height: 40vh; overflow: auto; }
@@ -1046,7 +1045,6 @@ html.tfe-on #app { padding: 0; max-width: none; }
 @media (max-width: 800px) {
   .fpe-type.fpe { position: static; display: block; min-height: 100vh; }
   .fpe-type .fpe-state { width: auto; }
-  .fpe-type .fpe-state:not(.dirty):not(.just) { display: none; }
   .fpe-type .fpe-alerts:not(:empty) { padding: 8px 12px; }
   .fpe-type .fpe-pane { overflow: visible; }
   .fpe-panes.tf-panes { display: block; }
@@ -1064,7 +1062,6 @@ html.tfe-on #app { padding: 0; max-width: none; }
   .tf-icon { height: 48px; }
   .tf-addbtn { min-height: 44px; }
   .tf-help { font-size: 13px; }
-  /* The header keeps to two short rows: Done, the name (two lines at most) and Save; then Undo, Redo, History, Preview. */ .fpe-type .fpe-state { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .tf-org > summary, .tf-where > summary, .tf-switch, .tf-idrow .linkish { min-height: 44px; }
   .tf-idrow .linkish { display: inline-flex; align-items: center; }
   .tf-field .tf-chipbox input { min-height: 34px; }
@@ -1307,10 +1304,6 @@ p.pv-when { margin: 0 0 4px; }
 .fpe-discard[hidden] { display: inline !important; visibility: hidden; }
 #ob-text { min-height: 64px; line-height: 1.45; resize: vertical; font: inherit; }
 .fpe .mini:not(:disabled) { color: var(--ink); border-color: var(--field); }
-.fpe-checks .ic { width: 16px; height: 16px; }
-/* The draft editor's tools (with Practice) need about 1,600px beside its name and Save draft; narrower, they take their own row. */
-
-.fpe-done { white-space: nowrap; }
 /* Panes: room for the outline at 1280; a narrower inspector. */
 .fpe-panes { grid-template-columns: var(--pane-parts, 208px) var(--gut) minmax(0, 1fr) var(--gut) var(--pane-ins, clamp(320px, 27vw, 400px)); }
 .fpe-panes.rail { grid-template-columns: 72px 0 minmax(0, 1fr) var(--gut) var(--pane-ins, clamp(320px, 27vw, 400px)); }
@@ -1636,7 +1629,6 @@ h3.fixgroup { font-family: var(--body); font-size: 14px; letter-spacing: 0; }
 @media (max-width: 800px) {
   .fpe.rw { position: static; display: block; min-height: 100vh; }
   .rw-head .btn, .rw-head .mini, .rw-menu summary { min-height: 44px; }
-  .rw-back { padding: 6px 10px; }
 }
 /* Small phones: the run's title gets a row of its own under the way back, Finish the run and More, so it isn't cut short. */
 
@@ -1782,8 +1774,6 @@ h3.fixgroup { font-family: var(--body); font-size: 14px; letter-spacing: 0; }
   .rv-toc .chipbtn, .cx-ask .btn, .cx-ask .mini { min-height: 44px; }
 }
 /* Practice (2.2): calm, never alarming. "Try it again" is soft amber, not an error. */
-.fpe-practice { display: inline-flex; gap: 6px; align-items: center; font-weight: 600; }
-.fpe-practice[aria-pressed="true"] { background: var(--go-soft); border-color: var(--go); }
 .pr-note { margin: 0; }
 .pr-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 6px; }
 .pr-from { margin: 0; padding: 6px 8px; border-radius: 8px; background: var(--chip); }
@@ -2114,6 +2104,7 @@ html.work-on .top { display: none; }
      At 800 px and narrower every tappable control, each segment included, is 44 px (page.html). History in a tool row is
      content width x 32.  */
   @media (min-width: 801px) {
+    .hd :is(.hd-l > .backc, .hd-c button, .hd-acts :is(.btn, .mini), .more-btn):not(.linkish) { height: 36px; min-height: 36px; padding-block: 0; box-sizing: border-box; }
     .tr :is(.mini, .btn, summary.mini, .more-btn, .backc) { height: 32px; min-height: 32px; padding-block: 0; box-sizing: border-box; }
     .tr .seg { height: 32px; box-sizing: border-box; }
     .tr .seg button { height: 100%; min-height: 0; padding-block: 0; }
