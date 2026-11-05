@@ -169,6 +169,8 @@ function boot(opts) {
   appEl.contains = el => !!el && (el.dataset && el.dataset.thumb != null && !el.id ? drawnThumbs().indexOf(el.dataset.thumb) >= 0 && thumbs.get(el.dataset.thumb) === el : inputs.has(el.id) && onScreen(el.id));
   /* Where the app asked focus to go: renders look up their focus target with querySelector. */
   const asked = [];
+  /* The drawn elements the app scrolled into view, in order. */
+  const scrolled = [];
   /* Animations the app started (opts.layout): which node, its keyframes, and whether it was canceled. */
   const animations = [];
   /* How far a moving fill has got (0 to 1); 1, finished, unless a test holds it partway. */
@@ -302,7 +304,9 @@ function boot(opts) {
       get attributes() { return Object.keys(attrs).map(name => ({ name, value: attrs[name] })); },
       getAttribute: k => (k in attrs ? attrs[k] : null), hasAttribute: k => k in attrs, setAttribute(k, v) { attrs[k] = String(v); }, removeAttribute(k) { delete attrs[k]; },
       classList: { contains: c => (attrs.class || '').split(/\s+/).indexOf(c) >= 0, add() {}, remove() {} },
-      focus() { document.activeElement = n; }, scrollIntoView() {}, getClientRects: () => [1], select() {}, setSelectionRange() {},
+      focus() { document.activeElement = n; }, scrollIntoView() { scrolled.push(n); },
+      /* Drawn unless the page's width classes hide it, as page.html does: .ph-only above 800 px, .wd-only at 800 and less. */
+      getClientRects: () => { for (let x = n; x; x = x._parent) { const c = ' ' + (x._attrs.class || '') + ' '; if (c.indexOf(opts.narrow ? ' wd-only ' : ' ph-only ') >= 0) return []; } return [1]; }, select() {}, setSelectionRange() {},
       // A typed box (an element the test made) is inside when its drawn node is.
       contains: o => { if (o && o._src === undefined && o.id) o = nodesOf(region).filter(x => x.id === o.id)[0]; return !!o && o._src === n._src && o._region === n._region && o._at >= n._at && o._at < n._end; },
       closest: sel => { for (let x = n; x; x = x._parent) if (matches(x, sel)) return x; return null; },
@@ -440,6 +444,7 @@ function boot(opts) {
     // Every typed box not drawn now is gone, as after a new folder's screen replaced the page.
     goneUndrawn() { Object.keys(els).forEach(id => { if (['app', 'top', 'overlay', 'live', 'body'].indexOf(id) < 0 && !onScreen(id) && (els.overlay._html || '').indexOf('id="' + id + '"') < 0) { delete els[id]; inputs.delete(id); } }); },
     asked: () => asked.slice(),
+    scrolled: () => scrolled.map(x => x.dataset && x.dataset.act || x.id || x.tagName),
     animations: () => animations.slice(),
     paintAt(t) { paint.t = t; },
     set(id, value) { const el = get(id); el.value = value; el.type = 'text'; inputs.add(id); return this; },
@@ -454,7 +459,7 @@ function boot(opts) {
         const q = v => String(v).replace(/[\\"]/g, '\\$&'), sel = '[data-act="' + q(act) + '"]' + (id != null ? '[data-id="' + q(id) + '"]' : '');
         /* The one with what the test pressed drawn on it, when it says: two can share an action and an id. */
         const n = (data && drawnAnywhere(sel + Object.keys(data).map(k => '[data-' + k.replace(/[A-Z]/g, c => '-' + c.toLowerCase()) + '="' + q(data[k]) + '"]').join(''))) || drawnAnywhere(sel);
-        if (n) document.activeElement = n;
+        if (n) { document.activeElement = n; /* and where it is drawn, as a page's control knows (inside More, a dialog…) */ btn.closest = sel => n.closest(sel); }
       }
       (listeners.click || []).forEach(fn => fn({ target: { closest: () => btn }, preventDefault() {} }));
     },

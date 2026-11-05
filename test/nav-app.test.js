@@ -518,7 +518,10 @@ rule('Run screen: Finish the run is in the header for the recorder, muted until 
   assert.deepStrictEqual(f.map(b => b.text), ['Finish the run'], 'one Finish the run');
   assert.ok(!/\bgo\b/.test((/class="([^"]*)"/.exec(f[0].attrs) || [])[1]), 'muted while the run is not complete');
   assert.ok(!/End run…/.test(app.html()), 'no End run…');
-  assert.deepStrictEqual(menu(app).filter(t => t !== 'Plan another like this').map(t => t.split(' ')[0]), ['Details', 'Screen', 'Receipt', 'Copy', 'Export', 'Folder', 'Search', 'Appearance', 'Check', 'Keyboard']);
+  const items = menu(app).filter(t => t !== 'Plan another like this');
+  assert.deepStrictEqual(items.filter(t => !/^(Search|Appearance) /.test(t)), ['Details', 'Screen share', 'Receipt', 'Copy run key', 'Export evidence…', 'Folder health', 'Check the folder now', 'Keyboard shortcuts'], 'the static items, exactly');
+  assert.deepStrictEqual(items.filter(t => /^(Search|Appearance) /.test(t)), ['Search Ctrl+K', 'Appearance Match this computer'], 'Search and Appearance with their current values');
+  assert.strictEqual(items.length, 10, 'and nothing else: ' + JSON.stringify(items));
   assert.match(rhead(app), /<div class="ro">You: <b>/, 'who you are is text in More, not a control');
   app.click('finish'); await app.tick();
   assert.match(app.html(), /Finish /, 'it opens the Finish page');
@@ -1369,6 +1372,55 @@ rule('R3 3: More is a layer: browser Back or Escape closes it, focus on More, th
     assert.strictEqual(app.activeId(), 'ws-more-btn', view + ' ' + how + ': focus on More');
     assert.ok(view === 'edit' ? inEditor(app) : onPage(app), view + ' ' + how + ': still there');
   }
+});
+
+/* ---------- Build round 2 of the one header (review round 1) ---------- */
+const moreAt = (app, act) => { const n = app.doc.getElementById('ws-more-list'); return n ? n.querySelectorAll('button').filter(b => b.dataset.act === act)[0] : null; };
+const shown = app => { const n = app.doc.getElementById('ws-more-list'); return n.querySelectorAll('button, select, input').filter(b => !b.hasAttribute('disabled') && b.getClientRects().length).map(b => b.dataset.act); };
+const arrow = (app, k) => app.keyOn(k, {}, app.doc.activeElement);
+rule('One header: More opens on its first item a person can see: above 800 px past the phone-only copies (History in Edit, Sample details in Practice), at 800 and less on them', async () => {
+  for (const narrow of [false, true]) for (const view of ['edit', 'practice']) {
+    const app = view === 'edit' ? await edit({ domFocus: true, narrow }) : await practiced({ domFocus: true, narrow });
+    app.click(view === 'edit' ? 'ws-more' : 'pr-more'); await app.tick();
+    const want = narrow ? (view === 'edit' ? 'hist-open' : 'pr-samples') : (view === 'edit' ? 'me' : 'pr-me');
+    assert.strictEqual(shown(app)[0], want, view + (narrow ? ' phone' : ' wide') + ': the first one shown is ' + want + ' ' + JSON.stringify(shown(app)));
+    assert.strictEqual(app.doc.activeElement && app.doc.activeElement.dataset.act, want, view + (narrow ? ' phone' : ' wide') + ': focus on ' + want + ', not ' + app.activeId());
+  }
+});
+rule('One header: Appearance chosen in More gives focus back to More, in Edit, in Practice and on a run', async () => {
+  const cases = [['edit', 'ws-more', 'theme'], ['practice', 'pr-more', 'pr-theme'], ['run', 'ws-more', 'theme']];
+  for (const [where, opener, act] of cases) {
+    const app = where === 'edit' ? await edit({ domFocus: true }) : where === 'practice' ? await practiced({ domFocus: true }) : await start({ domFocus: true });
+    if (where === 'run') { await fromRuns(app); }
+    app.click(opener); await app.tick();
+    const b = moreAt(app, act); assert.ok(b, where + ': Appearance in More');
+    const was = app.store['preflight:theme'];
+    app.click(act, b.dataset.id); await app.tick();
+    assert.notStrictEqual(app.store['preflight:theme'], was, where + ': the appearance changed');
+    assert.match(app.html(), /id="ws-more-btn"[^>]*aria-expanded="false"/, where + ': More closed');
+    assert.strictEqual(app.activeId(), 'ws-more-btn', where + ': focus on More, not ' + app.activeId());
+  }
+});
+rule('One header: in More, Up and Down move through the items shown (wrapping), Home and End go to the first and last, each scrolled into view; other keys and other places are left alone', async () => {
+  for (const narrow of [false, true]) {
+    const app = await edit({ domFocus: true, narrow });
+    app.click('ws-more'); await app.tick();
+    const list = shown(app), at = () => app.doc.activeElement && app.doc.activeElement.dataset.act, tag = narrow ? 'phone' : 'wide';
+    assert.ok(list.length >= 5, tag + ': items ' + JSON.stringify(list));
+    assert.strictEqual(at(), list[0], tag + ': starts on the first');
+    arrow(app, 'ArrowDown'); assert.strictEqual(at(), list[1], tag + ': Down');
+    assert.strictEqual(app.scrolled().pop(), list[1], tag + ': scrolled into view');
+    arrow(app, 'End'); assert.strictEqual(at(), list[list.length - 1], tag + ': End');
+    arrow(app, 'ArrowDown'); assert.strictEqual(at(), list[0], tag + ': Down from the last wraps to the first');
+    arrow(app, 'ArrowUp'); assert.strictEqual(at(), list[list.length - 1], tag + ': Up from the first wraps to the last');
+    arrow(app, 'Home'); assert.strictEqual(at(), list[0], tag + ': Home');
+    assert.match(head(app), /id="ws-more-btn"[^>]*aria-expanded="true"/, tag + ': More stays open');
+    if (!narrow) assert.ok(list.indexOf('hist-open') < 0, 'wide: History, a phone-only copy, is never a stop');
+  }
+  const app = await edit({ domFocus: true });
+  const n = app.scrolled().length; app.click('ptab', 'edit'); await app.tick();
+  app.keyOn('ArrowDown', {}, app.doc.getElementById('ws-more-btn'));
+  assert.strictEqual(app.scrolled().length, n, 'More closed: Down on its opener does nothing');
 });
 
 /* ---------- Build round 4: review round 3 ---------- */
