@@ -82,17 +82,20 @@ PF.values = (function () {
   function parse(def, raw, opts) {
     var t = trim(raw), k = kindOf(def), max = opts && opts.max;
     function no(why) { return { ok: false, canonical: '', why: why }; }
-    if (!t) return { ok: true, canonical: '' };
-    var out = t;
     /* 2.16 (detail-patterns): the whole value must match, by Flightdeck's own linear matcher, never RegExp; counted in code
-       points. A value that doesn't parse is refused with the pattern shown. */
+       points. It's checked exactly as entered (Appendix A.5): a line break, U+0085 or a space around it is refused, never
+       trimmed away. A value that doesn't parse is refused with the pattern shown. */
     if (k === 'pattern') {
+      t = raw == null ? '' : typeof raw === 'string' ? raw : trim(raw);
+      if (t === '') return { ok: true, canonical: '' };
       var pc = compilePattern(def.pattern);
       if (!pc.ok) return no(cap(name(def)) + '\'s pattern can\'t be read (' + pc.why.replace(/\.$/, '') + ').');
       var bt = badText(t); if (bt) return no(cap(name(def)) + ' has ' + bt + '.');
       if (max && Array.from(t).length > max) return no(cap(name(def)) + ' can be at most ' + max + ' characters.');
       return matchPattern(pc, t).ok ? { ok: true, canonical: t } : no(cap(name(def)) + ' should match ' + String(def.pattern).slice(0, 80) + '.');
     }
+    if (!t) return { ok: true, canonical: '' };
+    var out = t;
     if (k === 'number') {
       out = INNER_WS.test(t) ? null : toNumber(t);
       if (out == null) return no('Type a number, like 12 or 3.5.');

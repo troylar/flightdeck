@@ -752,13 +752,13 @@
       var eff = R.fieldsOf(r, st), own = (r.fields || {})[st.id] || {}, eff2 = Object.assign({}, eff, draft), recFields2 = P ? [] : R.evidenceFor(r, st, eff2, map).list.filter(function (d) { return !d.system; });
       /* A Jira issue type or status the team's workflows don't have says why beside its box, as soon as it's chosen. */
       var jf = V.jiraFill && !P ? V.jiraFill(r, st, eff2) : null, jid = 'jwhy-' + st.id;
-      recBody = '<div class="pick record" data-scope="fields:' + esc(st.id) + '"><span class="small">Fill in or correct this step\'s values for ' + (P ? 'practice' : 'this run') + '. Leave anything you don\'t know yet.</span>' + ferr(s, st.id) +
+      recBody = '<div class="pick record" data-scope="fields:' + esc(st.id) + '">' + (P ? '' : staleNote(r, st)) + '<span class="small">Fill in or correct this step\'s values for ' + (P ? 'practice' : 'this run') + '. Leave anything you don\'t know yet.</span>' + ferr(s, st.id) +
         T.relevant(t, eff2).concat(jf && T.relevant(t, eff2).indexOf(jf.field) < 0 && T.editable(t).indexOf(jf.field) >= 0 ? [jf.field] : []).filter(function (f) { return !(f === 'carry' && PF.links.has(st)); }).map(function (f) { var d = T.fieldDef(t, f), mine = jf && jf.field === f; return fieldInput('fld-' + f, d, dr.fields['fld-' + f] != null ? dr.fields['fld-' + f] : eff2[f] || '', 'save-fields', st.id, st.fields[f] && own[f] != null ? ' (checklist says: ' + st.fields[f] + ')' : '', mine ? jid : errFor(s, st.id, 'fld-' + f), gField(t, f, eff2)) + (mine ? '<p class="ferr" id="' + esc(jid) + '">' + esc(jf.why) + '</p>' : ''); }).join('') +
         (recFields2.length ? '<span class="small" style="margin-top:4px">Evidence</span>' + recFields2.map(function (d) { return fieldInput('rec-' + d.name, d, dr.fields['rec-' + d.name] != null ? dr.fields['rec-' + d.name] : dr.record['rec-' + d.name] != null ? dr.record['rec-' + d.name] : valueOf(d), 'save-fields', st.id, d.required ? ' (required to check it)' : '', errFor(s, st.id, 'rec-' + d.name), gRecord(t, d, eff2)); }).join('') : '') +
         '<span class="row"><button class="btn" data-act="save-fields" data-id="' + esc(st.id) + '">Save</button><button class="mini" data-act="unpick">Cancel</button></span></div>';
     } else if (showRec) {
       var search = R.isSearchStep(st) && !P;
-      recBody = '<div class="pick record" data-scope="record:' + esc(st.id) + '"><span class="small">' + (recFields.some(function (d) { return d.required; }) ? 'To check this step, record:' : 'You can record:') + '</span>' + ferr(s, st.id) + recFields.filter(function (d) { return !d.system; }).map(function (d) {
+      recBody = '<div class="pick record" data-scope="record:' + esc(st.id) + '">' + (search ? staleNote(r, st) : '') + '<span class="small">' + (recFields.some(function (d) { return d.required; }) ? 'To check this step, record:' : 'You can record:') + '</span>' + ferr(s, st.id) + recFields.filter(function (d) { return !d.system; }).map(function (d) {
         return fieldInput('rec-' + d.name, d, dr.record['rec-' + d.name] != null ? dr.record['rec-' + d.name] : valueOf(d), 'record', st.id, d.required ? '' : ' (optional)', errFor(s, st.id, 'rec-' + d.name), gRecord(t, d, R.fieldsOf(r, st)));
       }).join('') + (search && rec && r.state === 'running' ? '<div class="row"><button class="mini" data-act="search-block" data-id="' + esc(st.id) + '">Block with these</button><span class="small">When the results break the rule: blocks the step with them.</span></div>' : '') + '</div>';
     } else if (a && a.values) {
@@ -1155,9 +1155,25 @@
   /* What an evidence box shows before anything is typed: the saved value, else one a Jira workflow fills in from the run. */
   function evidenceDefault(ctx, r, s, d) {
     var a = r.steps[s.id], saved = a && a.values && a.values[d.name];
+    /* A search's saved results belong to the search they were recorded for (round 4): results for an earlier one are
+       previous results, never offered again, so nothing reads them as evidence for the search as it is now. */
+    if (savedStale(r, s)) return '';
     if (saved) return saved;
     return d.source ? PF.jira.resolve(d.source, r.details, function (ro) { return r.roles[ro] ? nameOf(ctx, r.roles[ro]) : ''; }) : '';
   }
-  V.evidenceDefault = evidenceDefault;
+  /* A search step's saved results when they're for an earlier search than the run's now (practice has no identity). */
+  function savedStale(r, s) {
+    var a = r && !r.practice && r.steps[s.id];
+    if (!a || !a.values || !R.isSearchStep(s)) return null;
+    var cur; try { cur = R.searchId(r, R.mapOf(r), s); } catch (e) { cur = null; }
+    return a.values.searchId && a.values.searchId === cur ? null : a.values;
+  }
+  /* Saved results for an earlier search, shown as previous results with the section 5.3 notice. */
+  function staleNote(r, s) {
+    var v = savedStale(r, s); if (!v) return '';
+    var what = v.count != null && v.count !== '' ? String(v.count) + ' found' + (v.keys ? ' (' + String(v.keys).slice(0, 120) + ')' : '') : 'results';
+    return '<p class="small rw-why" role="status">Previous results: ' + esc(what) + '. Your saved results were for an earlier search. Search again.</p>';
+  }
+  V.evidenceDefault = evidenceDefault; V.savedStale = savedStale;
   V.run = run; V.recordShown = recordShown; V.runSel = selOf; K.ferr = ferr; K.fieldInput = fieldInput;
 })();

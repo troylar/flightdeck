@@ -277,7 +277,7 @@ PF.reports = (function () {
       var d = dm[1], known = ctxNames.indexOf(d) >= 0, have = known && r && r.details && own(r.details, d) && typeof r.details[d] === 'string' ? r.details[d].trim() : '';
       var row = { name: x.name, source: x.source, detail: d, want: x.value, have: have, tied: binds.indexOf(d) >= 0 };
       /* A typed run detail (2.0) is stored canonical: the report's value is compared as that kind reads it ("1234.50" is 1234.5). */
-      var def = known ? R.typedDef(r, map, 'details.' + d) : null, want = String(x.value).trim(), p = def && def.kind && def.kind !== 'text' ? PF.values.parse(def, want, {}) : null;
+      var def = known ? R.typedDef(r, map, 'details.' + d) : null, want = String(x.value).trim(), p = def && def.kind && def.kind !== 'text' ? PF.values.parse(def, def.kind === 'pattern' ? String(x.value) : want, {}) : null;
       if (p && p.ok && p.canonical) want = p.canonical;
       row.result = !known ? 'mismatch' : !have ? 'mismatch' : have === want ? 'match' : 'mismatch';
       row.why = !known ? d + ' isn\'t a run detail of this checklist' : !have ? 'the run has no ' + d + ' yet' : '';

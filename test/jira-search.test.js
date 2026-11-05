@@ -248,4 +248,15 @@ rule('round 3: a sample that can\'t be made says why instead of crashing the pre
   assert.strictEqual(pv.jql, '');
 });
 
+rule('R4-4: a link to a saved filter takes only a filter number; Preview shows the refusal (1&jql=..., 1#x)', () => {
+  const tv = PF.teamValues.parse(JSON.stringify({ format: 'flightdeck-team-values/1', values: { 'jira-base-url': { value: 'https://jira.example.com' } } }));
+  ['1&jql=project%3DOTHER', '1#x', '0', '12a', '1 2'].forEach(f => {
+    const b = S.buildLink('https://jira.example.com', { filter: f });
+    assert.ok(!b.ok && /saved filter's number/.test(b.why), JSON.stringify(f) + ': ' + JSON.stringify(b));
+    const pv = S.preview({ filter: f, site: 'team:jira-base-url' }, { context: [], teamValues: tv });
+    assert.ok(!pv.link && /saved filter's number/.test(pv.linkWhy), JSON.stringify(f) + ' preview: ' + JSON.stringify(pv));
+  });
+  const ok = S.buildLink('https://jira.example.com', { filter: '12345' });
+  assert.ok(ok.ok && ok.href === 'https://jira.example.com/issues/?filter=12345', JSON.stringify(ok));
+});
 run();

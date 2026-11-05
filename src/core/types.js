@@ -305,7 +305,9 @@ PF.types = (function () {
   /* Only required evidence interrupts the check; optional fields ride along when the form opens. */
   function needsRecord(type, fields, extra) { return recordFields(type, fields, extra).some(function (d) { return d.required; }); }
   /* Check recorded values; returns { values } or { error }. partial: saving values before the step is checked, so nothing is required yet. */
-  function checkRecord(type, fields, values, partial, extra) {
+  /* The first required field that applies (notAt honored) and has no value, as a record definition, or null. */
+  function missingRequired(type, fields, values, extra) { var info = {}; checkRecord(type, fields, values, false, extra, info); return info.missing || null; }
+  function checkRecord(type, fields, values, partial, extra, info) {
     var out = {}, list = recordFields(type, fields, extra);
     values = values || {};
     for (var i = 0; i < list.length; i++) {
@@ -318,12 +320,12 @@ PF.types = (function () {
       if (PF.values.isNew(d.kind) || (d.detailKind && d.detailKind !== 'text')) {
         var p = PF.values.parse(d, raw == null ? '' : raw, { max: d.cap || 300 });
         if (!p.ok) return { error: p.why, field: d.name };
-        if (!p.canonical) { if (d.required && !partial) return { error: d.label + ' is needed to check this step.', field: d.name }; continue; }
+        if (!p.canonical) { if (d.required && !partial) { if (info) info.missing = d; return { error: d.label + ' is needed to check this step.', field: d.name }; } continue; }
         out[d.name] = p.canonical;
         continue;
       }
       if (v.length > (d.cap || 300)) return { error: d.label + ' can be at most ' + (d.cap || 300) + ' characters.', field: d.name };
-      if (!v) { if (d.required && !partial) return { error: d.label + ' is needed to check this step.', field: d.name }; continue; }
+      if (!v) { if (d.required && !partial) { if (info) info.missing = d; return { error: d.label + ' is needed to check this step.', field: d.name }; } continue; }
       if (d.kind === 'url' && !/^https?:\/\/\S+$/i.test(v)) return { error: d.label + ' should be a web link (https://…).', field: d.name };
       if (d.kind === 'choice' && !hasOption(d, fields, v)) return { error: d.label + ' should be one of: ' + d.options.join(', ') + '.', field: d.name };
       out[d.name] = d.kind === 'choice' ? canonical(d, fields, v) : v;
@@ -409,6 +411,6 @@ PF.types = (function () {
     return out;
   }
 
-  return { ID: ID, ID_MAX: ID_MAX, VERSION: VERSION, SEARCH: SEARCH, SEARCH_VERSION: SEARCH_VERSION, isSearch: isSearch, uses2: uses2, LIST: LIST, COMMON: COMMON, applies: applies, EVIDENCE_KINDS: Object.freeze(Object.keys(EVIDENCE)), PINS: PINS, ICONS: ICONS_OK, get: get, fieldDef: fieldDef, options: options, hasOption: hasOption, canonical: canonical, checkFields: checkFields, understood: understood, editable: editable, relevant: relevant, checkCustom: checkCustom, customType: customType, recordFields: recordFields, needsRecord: needsRecord, checkRecord: checkRecord, freeze: freeze, groupOf: groupOf, tagsOf: tagsOf, nameOf: nameOf, aliasOf: aliasOf, groupText: groupText, tagText: tagText,
+  return { ID: ID, ID_MAX: ID_MAX, VERSION: VERSION, SEARCH: SEARCH, SEARCH_VERSION: SEARCH_VERSION, isSearch: isSearch, uses2: uses2, LIST: LIST, COMMON: COMMON, applies: applies, EVIDENCE_KINDS: Object.freeze(Object.keys(EVIDENCE)), PINS: PINS, ICONS: ICONS_OK, get: get, fieldDef: fieldDef, options: options, hasOption: hasOption, canonical: canonical, checkFields: checkFields, understood: understood, editable: editable, relevant: relevant, checkCustom: checkCustom, customType: customType, recordFields: recordFields, needsRecord: needsRecord, checkRecord: checkRecord, missingRequired: missingRequired, freeze: freeze, groupOf: groupOf, tagsOf: tagsOf, nameOf: nameOf, aliasOf: aliasOf, groupText: groupText, tagText: tagText,
     fileText: fileText, formatWhy: formatWhy, markerWhy: markerWhy, unusedKeys: unusedKeys, removed: removed, inUse: inUse };
 })();

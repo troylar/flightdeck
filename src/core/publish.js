@@ -134,8 +134,11 @@ PF.publish = (function () {
     var types = [], has = function (f) { return M.steps(map).some(f); };
     M.steps(map).forEach(function (x) { var t = x.step.type; if (t && !T.get(t, {}) && types.indexOf(t) < 0) types.push(t); });
     return { people: !!(map.meta.owner || map.meta.backup), types: types, workflows: has(function (x) { return x.step.type === 'jira.issue'; }),
-      teamValues: has(function (x) { return x.step.type === 'run.process' && PF.links.teams(x.step).length > 0; }), publications: true, shots: M.shotSources(map) };
+      teamValues: teamValuesUsed(map), publications: true, shots: M.shotSources(map) };
   }
+  /* Whether a text reads team-values.json: a linked step that passes a team value (2.9), or a Jira search, whose address is
+     one (2.16, site: team:<name>). Draft check, publish and stage all read the file for exactly these. */
+  function teamValuesUsed(map) { return M.steps(map).some(function (x) { return (x.step.type === 'run.process' && PF.links.teams(x.step).length > 0) || x.step.type === PF.types.SEARCH; }); }
   function uses(u, x, shots) {
     var i = inputOf(x, shots);
     if (!i) return false;
@@ -474,5 +477,5 @@ PF.publish = (function () {
     return hit ? out(hit, false) : out(latest, true);
   }
 
-  return { STAGE: STAGE, stageName: stageName, promoteRecord: promoteRecord, FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, canonical: canonical, payloadHash: payloadHash, features: features, payloadFiles: payloadFiles, FEATURE_NAMES: FEATURE_NAMES, needs: needs, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, checkOptions: checkOptions, excludedOf: excludedOf, unknownOf: unknownOf, usesOf: usesOf, uses: uses, checkContext: checkContext, publishCheck: publishCheck, verify: verify, exactOf: exactOf, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
+  return { STAGE: STAGE, stageName: stageName, promoteRecord: promoteRecord, FORMAT: FORMAT, FORMAT2: FORMAT2, NEWER: NEWER, canonical: canonical, payloadHash: payloadHash, features: features, payloadFiles: payloadFiles, FEATURE_NAMES: FEATURE_NAMES, needs: needs, payload: payload, payloadOf: payloadOf, newerOf: newerOf, build: build, checkOptions: checkOptions, excludedOf: excludedOf, unknownOf: unknownOf, usesOf: usesOf, teamValuesUsed: teamValuesUsed, uses: uses, checkContext: checkContext, publishCheck: publishCheck, verify: verify, exactOf: exactOf, unrunnable: unrunnable, index: index, diff: diff, forPlan: forPlan, folderName: folderName, versionOf: versionOf, nextVersion: nextVersion };
 })();

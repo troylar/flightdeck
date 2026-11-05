@@ -432,7 +432,7 @@ rule('R3 P1: one binding for every search draft: no save path builds evidence fr
   /* Each function declaration or ACTIONS entry, as a chunk of text up to the next one. */
   const heads = [...src.matchAll(/^\s*(?:function (\w+)\(|'([\w-]+)': function \(|(\w+): function \()/gm)];
   const chunks = heads.map((m, i) => ({ name: m[1] || m[2] || m[3], text: src.slice(m.index, i + 1 < heads.length ? heads[i + 1].index : src.length) }));
-  const MACHINERY = ['draftKey', 'draftOf', 'hasDraft', 'dropDraft', 'harvest', 'stampDraft', 'searchBound', 'searchBoundAll', 'restoreDrafts', 'noteDrawn', 'searchNow'];
+  const MACHINERY = ['draftKey', 'draftOf', 'hasDraft', 'dropDraft', 'harvest', 'stampDraft', 'stampEvidence', 'searchBound', 'searchBoundAll', 'restoreDrafts', 'noteDrawn', 'searchNow'];
   const bad = [];
   chunks.forEach(c => {
     if (MACHINERY.indexOf(c.name) >= 0) return;
@@ -446,5 +446,73 @@ rule('R3 P1: one binding for every search draft: no save path builds evidence fr
   ['answerCheck', 'save-fields', 'prAnswer'].forEach(n => assert.ok(users.indexOf(n) >= 0, n + ' checks it: ' + users.join(' ')));
   /* Done, Done differently and Block with these build their evidence only in answerCheck. */
   ['search-block', 'answerStep'].forEach(n => { const c = chunks.find(x => x.name === n); const t = c ? c.text.replace(/dropDraft\(/g, '') : '', at = t.indexOf('answerCheck('), dr = t.indexOf('draftOf('); assert.ok(at >= 0 && (dr < 0 || dr > at), n + ': its draft is read only after answerCheck'); });
+});
+/* Round 4 (P1, settled): a search's identity belongs to its evidence, set once when it's entered. Saved results keep the
+   searchId they were recorded with; when the run's search has moved on (the stored detail or generation changed), they're
+   shown as previous results with the notice and never offered to Done, Done differently, Fill in or Block with these. */
+const SAVED_NOTE = 'Your saved results were for an earlier search. Search again.';
+function savedThenMoved(id, values) {
+  return (r, PF) => {
+    const R = PF.run, map = R.mapOf(r), sid = R.searchId(r, map, PF.map.findStep(map, id).step);
+    R.setFields(r, map, id, {}, Object.assign({ searchId: sid }, values), 'person-casey', NOW);
+    assert.strictEqual(r.steps[id].values.searchId, sid, 'set-up: saved with its search');
+    r.details.version = '2026.12.0'; r.searchGen.version = '7-0badc0de';
+    assert.notStrictEqual(R.searchId(r, map, PF.map.findStep(map, id).step), sid, 'set-up: the search moved on');
+  };
+}
+rule('R4 P1: saved results for an earlier search are previous results: Done, Done differently, Fill in and Block with these each refuse them, with the notice', async () => {
+  const cases = [
+    ['Done', 'scope', { count: '3', keys: 'PAY-1, PAY-2, PAY-3' }, async app => { app.click('record', 'scope'); await app.tick(120); }],
+    ['Done differently', 'scope', { count: '3', keys: 'PAY-1, PAY-2, PAY-3' }, async app => {
+      app.click('corr-open', 'scope', { mode: 'differently' }); await app.tick(40);
+      app.set('corr-happened', 'Checked by hand'); app.input('corr-happened', 'Checked by hand'); app.click('corr-done'); await app.tick(150); }],
+    ['Fill in', 'scope', { count: '3', keys: 'PAY-1, PAY-2, PAY-3' }, async app => {
+      app.click('pick', 'scope', { kind: 'fields' }); await app.tick(40); app.click('save-fields', 'scope'); await app.tick(120);
+      app.click('record', 'scope'); await app.tick(120); }],
+    ['Block with these', 'blockers', { count: '1', keys: 'PAY-9' }, async app => { app.click('search-block', 'blockers'); await app.tick(120); }]
+  ];
+  for (const [what, id, values, act] of cases) {
+    const app = await searching({ edit: savedThenMoved(id, values) });
+    const old = runJson(app).steps[id].values.searchId;
+    app.click('select', id); await app.tick(40);
+    assert.ok(app.html().indexOf(SAVED_NOTE) >= 0, what + ': the notice');
+    assert.strictEqual(app.draft('rec-count'), '', what + ': not offered in the form');
+    await act(app);
+    const a = runJson(app).steps[id];
+    assert.ok(a.s !== 'done' && a.s !== 'blocked', what + ': refused: ' + JSON.stringify(a));
+    assert.ok(!a.values || a.values.searchId === old, what + ': the saved results keep the search they were recorded for: ' + JSON.stringify(a.values));
+    assert.ok(!JSON.stringify(a).includes(sidNow(app, id)), what + ': never relabeled as the new search');
+  }
+});
+rule('R4 P1 (control): saved results for the current search are offered and Done saves them with the searchId they were recorded with', async () => {
+  const app = await searching({ edit: (r, PF) => { const R = PF.run, map = R.mapOf(r); R.setFields(r, map, 'scope', {}, { searchId: R.searchId(r, map, PF.map.findStep(map, 'scope').step), count: '2', keys: 'PAY-1, PAY-2' }, 'person-casey', NOW); } });
+  app.click('select', 'scope'); await app.tick(40);
+  assert.ok(app.html().indexOf(SAVED_NOTE) < 0, 'no notice');
+  app.click('record', 'scope'); await app.tick(120);
+  const a = runJson(app).steps.scope;
+  assert.deepStrictEqual([a.s, a.values.count, a.values.searchId], ['done', '2', sidNow(app, 'scope')]);
+});
+rule('R4 P1: the searchId is written only where evidence is stamped (source check)', () => {
+  const fs = require('fs'), path = require('path');
+  const files = ['src/ui/app.js', 'src/ui/views/run.js', 'src/ui/views/pages.js', 'src/core/run.js', 'src/core/practice.js', 'src/core/reports.js'];
+  /* jira.js checkEvidence copies the evidence's own searchId into its canonical form, after checking it is the current one:
+     its one write, and never the current identity. */
+  const js = fs.readFileSync(path.join(__dirname, '..', 'src/core/jira.js'), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  assert.deepStrictEqual(js.match(/\bsearchId\s*=(?!=)|[{,]\s*searchId\s*:/g), ['searchId ='], 'jira.js writes a searchId once');
+  assert.ok(/out\.searchId = str\('searchId'\);/.test(js) && !/searchId = curId/.test(js), 'and copies the evidence\'s own');
+  const bad = [];
+  files.forEach(f => {
+    const src = fs.readFileSync(path.join(__dirname, '..', f), 'utf8');
+    const heads = [...src.matchAll(/^\s*(?:function (\w+)\(|'([\w-]+)': function \(|(\w+): function \()/gm)];
+    heads.forEach((m, i) => {
+      const name = m[1] || m[2] || m[3], text = src.slice(m.index, i + 1 < heads.length ? heads[i + 1].index : src.length);
+      const code = text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/'[^'\n]*'/g, "''").replace(/\bsearchId: searchId\b/g, '');
+      if (/\bsearchId\s*=(?!=)|[{,]\s*searchId\s*:/.test(code) && !(f === 'src/ui/app.js' && name === 'stampEvidence')) bad.push(f + ' ' + name);
+    });
+  });
+  assert.deepStrictEqual(bad, [], 'searchId written outside stampEvidence');
+  const app = fs.readFileSync(path.join(__dirname, '..', 'src/ui/app.js'), 'utf8');
+  assert.ok(/function stampEvidence\(/.test(app), 'the one stamping function');
+  assert.ok(!/R\.searchId\(/.test(app), 'the app never reads the current searchId to put on evidence');
 });
 run();

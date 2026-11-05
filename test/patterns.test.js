@@ -130,6 +130,25 @@ rule('runs: a pattern detail is enforced at start and setDetail, and 61 emoji su
   const legacy = JSON.parse(JSON.stringify(saved)); legacy.features = legacy.features.filter(f => f !== 'detail-patterns');
   assert.ok(/leave out detail-patterns/.test(R.sanitize(legacy)._unrunnable || ''), 'a damaged features list can\'t change the unit');
 });
+rule('R4-2: a pattern value is checked as entered, before any trimming, on every path: "v\\n" and U+0085 are refused, never cleaned', () => {
+  const TAGV = '2026.11.0-rc3-7f3a9c1', bad = [TAGV + '\n', '\u0085' + TAGV, ' ' + TAGV, TAGV + ' '];
+  const def = { kind: 'pattern', label: 'tag', pattern: TAG };
+  bad.forEach(v => assert.ok(!V.parse(def, v).ok, 'parse refuses ' + JSON.stringify(v)));
+  assert.ok(V.parse(def, TAGV).ok && V.parse(def, '').ok, 'a matching value and empty are fine');
+  const pub = publish(MD).v, start = o => R.create(pub, Object.assign({ title: 'R', details: {}, roles: { lead: 'person-avery' }, by: 'person-avery', session: 'w-a', now: NOW, id: 'run-p2', app: '2.16.0' }, o || {}));
+  bad.forEach(v => assert.throws(() => start({ details: { tag: v } }), /tag/i, 'start refuses ' + JSON.stringify(v)));
+  const r = start(), map = R.mapOf(r), key = R.evidenceFor(r, M.findStep(map, 'note').step, null, map).list.filter(e => e.detail === 'tag')[0].name;
+  bad.forEach(v => {
+    assert.throws(() => R.setDetail(r, map, 'tag', v, 'person-avery', NOW), /tag/i, 'setDetail refuses ' + JSON.stringify(v));
+    assert.throws(() => R.done(r, map, 'note', 'person-avery', NOW, { [key]: v }), /tag/i, 'a setter\'s Done refuses ' + JSON.stringify(v));
+  });
+  assert.ok(!r.details.tag && !(r.steps.note && r.steps.note.s === 'done'), 'nothing was written');
+  const PR = PF.practice, st = PR.fresh('rel');
+  bad.forEach(v => assert.ok(PR.setSample(st, M.parse(MD), 'tag', v, {}).error, 'practice refuses ' + JSON.stringify(v)));
+  const proc = { pubs: [{ ok: true }], index: { latest: { map: M.parse(MD), info: { version: 1 } }, all: [] } };
+  bad.forEach(v => { const ck = PF.requests.check({ process: 'rel', supplied: { details: { tag: v } } }, proc); assert.ok(ck.errors && ck.errors.some(e => /tag/.test(e)), 'a request (CLI) refuses ' + JSON.stringify(v) + ': ' + JSON.stringify(ck)); });
+  assert.ok(!PF.requests.check({ process: 'rel', supplied: { details: { tag: TAGV } } }, proc).errors, 'and takes a matching one');
+});
 rule('runs without detail-patterns keep today\'s UTF-16 cut exactly', () => {
   const o = { format: 'preflight-run/3', snapshot: '---\nprocess: x\n---\n' };
   assert.strictEqual(R.detailUnit(o), 'utf16');
