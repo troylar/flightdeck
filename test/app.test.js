@@ -7400,7 +7400,7 @@ rule('Back and Forward: Home, a process, a run and its receipt, back and forth, 
   numbered(app); assert.strictEqual(app.reloads(), 0); assert.strictEqual(app.popMismatch(), 0);
 });
 
-rule('Back and Forward: typing, filters, selecting steps, the checklist views, dialogs, refreshes and folder reads add no entry', async () => {
+rule('Back and Forward: typing, filters, selecting steps, the checklist views, dialogs, refreshes and folder reads add no entry (a dialog\'s own entry aside)', async () => {
   const app = await navBoot();
   const key = app.run().key;
   app.click('open-run', key); await app.tick();
@@ -7410,7 +7410,9 @@ rule('Back and Forward: typing, filters, selecting steps, the checklist views, d
   app.key('?'); await app.tick(); app.key('Escape'); await app.tick();
   app.click('refresh'); await app.tick(60);
   app.every(); await app.tick(40); app.every(); await app.tick(40);
-  assert.strictEqual(JSON.stringify(hashes(app)), before); assert.strictEqual(app.index(), at);
+  /* Help is a layer with an entry of its own (2.16); closed with Escape, that entry stays as the same screen (the one
+     documented cost: a later Back there does nothing). Nothing else added one. */
+  assert.strictEqual(JSON.stringify(hashes(app)), JSON.stringify(JSON.parse(before).concat(['#/run/' + key]))); assert.strictEqual(app.index(), at + 1);
   app.click('open-process', 'release'); await app.tick();
   const two = JSON.stringify(hashes(app));
   app.click('flight', 'plan'); await app.tick(); app.click('flight', 'md'); await app.tick(); app.click('flight', 'list'); await app.tick();
@@ -7594,9 +7596,9 @@ rule('Back and Forward: Back closes an open dialog and stays, focus back on its 
   assert.ok(/id="help-t"/.test(app.overlay()), 'set-up: help is open');
   await back(app);
   assert.strictEqual(app.overlay(), '', 'closed'); assert.ok(onRun(app), 'still the run');
-  /* Settled in place (2.16): the entry Back landed on now shows the run, the run's own entry stays after it. */
-  assert.deepStrictEqual(hashes(app), ['#/run/' + app.run().key, '#/run/' + app.run().key]); assert.strictEqual(app.index(), 0);
-  assert.strictEqual(app.entries()[0].state.b.h, '#/', 'with the run\'s own origin'); assert.strictEqual(app.appTraversals(), 0);
+  /* Help had its own entry (2.16): Back closed it onto the run's, and nothing was overwritten. */
+  assert.deepStrictEqual(hashes(app), JSON.parse(list).map(e => e.hash).concat(['#/run/' + app.run().key])); assert.strictEqual(app.index(), 1);
+  assert.strictEqual(JSON.stringify(app.entries().slice(0, 2)), list, 'the entries before are untouched'); assert.strictEqual(app.appTraversals(), 0);
   assert.strictEqual(app.activeId(), '[data-act="help"]');
   const b = await navBoot({ nobody: true }); b.choose('person-morgan'); await b.tick();
   b.click('open-process', 'release'); await b.tick(20);
@@ -7606,7 +7608,8 @@ rule('Back and Forward: Back closes an open dialog and stays, focus back on its 
   await back(b);
   assert.ok(/id="ca-reason"/.test(b.overlay()), 'not closed'); assert.strictEqual(b.draft('ca-reason'), 'Not this time');
   assert.ok(/Finish or cancel this first\./.test(b.live()));
-  assert.strictEqual(b.hash(), '#/process/release'); assert.strictEqual(b.index(), 0); assert.strictEqual(b.reloads(), 0);
+  /* The dialog's own entry (2.16): Back landed on the page's, refused in place, so that entry is the dialog's now. */
+  assert.strictEqual(b.hash(), '#/process/release'); assert.strictEqual(b.index(), 1); assert.strictEqual(b.reloads(), 0);
 });
 
 rule('Back and Forward: on a phone, Back closes the step sheet first and stays on the run; one holding a typed reason stays open', async () => {
@@ -7618,8 +7621,8 @@ rule('Back and Forward: on a phone, Back closes the step sheet first and stays o
   assert.ok(sheet && sheet.getAttribute('role') === 'dialog' && sheet.getAttribute('aria-modal') === 'true' && app.topInert(), 'set-up: the sheet is open and modal');
   await back(app);
   assert.ok(!app.node('.rw-ins[data-open="true"]'), 'closed'); assert.ok(onRun(app));
-  assert.strictEqual(app.hash(), '#/run/' + app.run().key); assert.strictEqual(app.index(), 0, 'settled in place');
-  await fwd(app); assert.ok(onRun(app), 'Forward: the run\'s own entry'); assert.strictEqual(app.index(), 1);
+  assert.strictEqual(app.hash(), '#/run/' + app.run().key); assert.strictEqual(app.index(), 1, 'on the run\'s own entry');
+  await fwd(app); assert.ok(onRun(app) && !app.node('.rw-ins[data-open="true"]'), 'Forward onto the sheet\'s old entry: the run, no sheet'); assert.strictEqual(app.index(), 2);
   app.click('select', step); await app.tick();
   app.click('pick', step, { kind: 'block' }); await app.tick();
   assert.ok(/id="pick-input"/.test(app.html()), 'set-up: the Block reason box');
@@ -7918,8 +7921,8 @@ rule('Back and Forward: a click while Back puts the address bar back after closi
   app.click('nav', 'skills'); await app.tick();
   app.releasePops(); await app.settle();
   assert.strictEqual(app.hash(), '#/skills');
-  /* Back that closed the dialog settled in place: its entry shows Settings, and the click pushed after it. */
-  assert.deepStrictEqual(hashes(app), ['#/', '#/settings', '#/skills']);
+  /* Back closed the dialog onto Settings' own entry (2.16), and the click pushed after it. */
+  assert.deepStrictEqual(hashes(app), ['#/', '#/runs', '#/settings', '#/skills']);
   await back(app);
   assert.strictEqual(app.hash(), '#/settings'); numbered(app); assert.strictEqual(app.reloads(), 0);
 });
