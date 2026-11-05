@@ -116,12 +116,22 @@ function packed(over, io) {
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 }
 
+/* The paths git ignores (local notes such as docs/.*.md are never committed, built or packed). Outside a git checkout
+   nothing is dropped, so the inventory only ever errs toward reviewing more. */
+function gitIgnored(paths) {
+  if (!paths.length) return [];
+  try {
+    return execFileSync('git', ['check-ignore', '--stdin'], { cwd: ROOT, input: paths.join('\n') + '\n', encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] }).split('\n').filter(Boolean);
+  } catch (e) { return []; }
+}
+const docsFiles = (r) => { const all = r.walk('docs').filter((p) => /^docs\/[^/]+\.md$/.test(p)), skip = gitIgnored(all); return all.filter((p) => skip.indexOf(p) < 0); };
+
 const GENERATED = ['dist/flightdeck.html', 'dist/FONT-LICENSE.txt'];
 /* { path: kind }: whole, or generated (checked by parity). */
 function inventory(over) {
   const r = reader(over), base = JSON.parse(r.read('src/baselines.json')).files;
   const files = buildInputs(over).concat(r.walk('bin'), r.walk('tools'), ['build.py', 'package.json'], packed(over),
-    Object.keys(base).map((f) => 'example-folder/' + f.split('#')[0]), r.walk('docs').filter((p) => /^docs\/[^/]+\.md$/.test(p)));
+    Object.keys(base).map((f) => 'example-folder/' + f.split('#')[0]), docsFiles(r));
   const out = {};
   files.forEach((f) => { out[f] = GENERATED.indexOf(f) >= 0 ? 'generated' : 'whole'; });
   return out;
