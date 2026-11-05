@@ -1003,7 +1003,7 @@ rule('R1 T-P3-1: ‹ <title> with a builder box typed and not applied refuses, s
   }
 });
 
-/* ---------- Build round 2: Codex round 1 ---------- */
+/* ---------- Build round 2: review round 1 ---------- */
 /* The folder read after a write waits while armed and the dialog is closed (so the write itself, inside the dialog, runs). */
 const holdReads = app => {
   let go; const gate = new Promise(r => { go = r; }); const fs0 = app.fs, list = fs0.list.bind(fs0);
