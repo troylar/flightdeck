@@ -627,7 +627,12 @@
       if (def.kind === 'message') { code += '<div class="cmd msg' + mark + '"><span>' + esc(val) + '</span>' + copy() + '</div>'; return; }
       if (def.kind === 'list') { chips += '<span class="fchip' + mark + '"><b>' + esc(def.label) + ':</b> ' + esc(val.split(',').map(function (x) { return x.trim(); }).filter(Boolean).join(' / ')) + '</span>'; return; }
       if (def.kind === 'code') code += '<div class="cmd' + mark + '"><code>' + esc(val) + '</code>' + copy() + '</div>';
-      else if (def.kind === 'url' && U.safeUrl(val)) chips += '<a class="fchip' + mark + '" href="' + esc(U.safeUrl(val)) + '" target="_blank" rel="noopener noreferrer"><b>' + esc(def.label) + '</b> open</a>';
+      else if (def.kind === 'url') {
+        /* A link field (2.16): each run detail encoded for its part of the address; otherwise no link, with the reason. */
+        var lk = PF.urls.fillLink(eff[f], r.details, map.meta.context);
+        if (lk.ok && U.safeUrl(lk.href)) chips += '<a class="fchip' + mark + '" href="' + esc(U.safeUrl(lk.href)) + '" target="_blank" rel="noopener noreferrer"><b>' + esc(def.label) + '</b> open</a>';
+        else chips += '<span class="fchip' + mark + '"><b>' + esc(def.label) + ':</b> ' + esc(lk.plain || lk.code ? PF.urls.marked(eff[f]) : val) + (lk.code === 'static' ? '' : ' <span class="small">' + esc(lk.why) + '</span>') + '</span>';
+      }
       else chips += '<span class="fchip' + mark + '"><b>' + esc(def.label) + ':</b> ' + esc(val) + '</span>';
     });
     return (chips ? '<div class="fields">' + chips + '</div>' : '') + code;

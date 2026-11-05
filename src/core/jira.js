@@ -430,5 +430,114 @@ PF.jsearch = (function () {
   return { QUERY_MAX: QUERY_MAX, LINK_MAX: LINK_MAX, VALUE_MAX: VALUE_MAX, FIELDS: FIELDS, SEARCH_FIELDS: SEARCH_FIELDS, FORMULA: FORMULA, SITE_DEFAULT: SITE_DEFAULT, GEN: GEN, ID: ID,
     badText: badText, cpLen: cpLen, lex: lex, placeholders: placeholders, parseResults: parseResults, ruleLabel: ruleLabel, ruleWords: ruleWords, meets: meets, zeroOnly: zeroOnly,
     checkBase: checkBase, siteName: siteName, checkFields: checkFields, uses: uses, setsWhy: setsWhy, quoteJql: quoteJql, substitute: substitute, contained: contained, strictEncode: strictEncode,
-    buildLink: buildLink, token: token, genOk: genOk, identity: identity, fingerprint: fingerprint, realTime: realTime, checkEvidence: checkEvidence, foundWords: foundWords };
+    buildLink: buildLink, randomHex: randomHex, token: token, genOk: genOk, identity: identity, fingerprint: fingerprint, realTime: realTime, checkEvidence: checkEvidence, foundWords: foundWords };
+})();
+
+/* Run details in link fields (2.16, Appendix B): a link field's template is classified before anything is filled in, each run
+   detail becomes an opaque slot, the fixed text is canonicalized by the URL parser, and each value is strictly encoded for the
+   part of the URL it sits in. Every parse is caught; the built link is parsed again and must say exactly what was built. */
+PF.urls = (function () {
+  'use strict';
+  // SECURITY-REVIEW: generic link fields guarantee URL structure only; {jira.search} is the only dynamic-query path with an injection guarantee
+  var FORBIDDEN = new RegExp('[\\u0000-\\u0020\\u007f-\\u009f\\u00a0\\u00ad\\u1680\\u180e\\u2000-\\u200f\\u2028-\\u202f\\u205f-\\u206f\\u3000\\ufeff]');
+  var LONE = /[\ud800-\udbff](?![\udc00-\udfff])|(?:^|[^\ud800-\udbff])[\udc00-\udfff]/;
+  var DOT = /^(\.|%2e){1,2}$/i, LABEL = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$/;
+  var QUERY_NAME = /^(jql|jqlquery|cql|query|q|filter|search)$/i, QUERY_HINT = 'Use a Jira search step to build this query safely.';
+  var NAME_RULE = 'A run detail can only be a parameter\'s value, never its name: a value mustn\'t choose which parameter it fills.';
+  var ADDRESS = 'has a run detail in the address (scheme, host, port or mail address). Make the whole link a run detail instead: context: runbook:link, then page: ^runbook.';
+  var INVISIBLE = 'has a space, tab, line break or other control or invisible character in its text. Remove it (write a space as %20).';
+  function strictEncode(s) { return encodeURIComponent(s).replace(/[!'()*]/g, function (c) { return '%' + c.charCodeAt(0).toString(16).toUpperCase(); }); }
+  function namesIn(t, context) { return (String(t).match(/\^([\w-]+)/g) || []).map(function (x) { return x.slice(1); }).filter(function (n) { return context.indexOf(n) >= 0; }); }
+  function partsOf(q) { return String(q || '').replace(/^\?/, '').split(/[&;]/).filter(function (p) { return p !== ''; }); }
+  function nonce(t) { for (;;) { var n = PF.jsearch.randomHex(12); if (t.indexOf('fdslot' + n) < 0) return n; } }
+  /* One authority grammar, before any parse (both checkers): host, optional port; no user name, password or specials. */
+  function authorityProblem(auth) {
+    if (!auth) return 'has no host.';
+    if (auth.indexOf('@') >= 0) return 'has a user name or password before the host. Remove it.';
+    var host = auth, port = null;
+    if (auth.charAt(0) === '[') {
+      var e = auth.indexOf(']'); if (e < 0) return 'has an IPv6 address with no closing "]".';
+      host = auth.slice(0, e + 1); var rest = auth.slice(e + 1);
+      if (rest) { if (rest.charAt(0) !== ':') return 'has something after the IPv6 address other than a port.'; port = rest.slice(1); }
+      if (!/^\[[0-9A-Fa-f:.]+\]$/.test(host)) return 'has an IPv6 address with characters it can\'t hold.';
+    } else {
+      var c = auth.lastIndexOf(':'); if (c >= 0) { host = auth.slice(0, c); port = auth.slice(c + 1); }
+      var h = host.charAt(host.length - 1) === '.' ? host.slice(0, -1) : host, labels = h.split('.');
+      if (!h || h.length > 253 || labels.some(function (l) { return !LABEL.test(l); })) return 'has a host that isn\'t letters, digits, dots and inner hyphens (write an international name in its xn-- form).';
+      var last = labels[labels.length - 1];
+      if (/^\d+$/.test(last) || /^0x/i.test(last)) { if (!(labels.length === 4 && labels.every(function (l) { return /^(0|[1-9]\d{0,2})$/.test(l) && +l <= 255; }))) return 'has a host that looks like an IPv4 address but isn\'t a plain one (like 10.0.0.1).'; }
+    }
+    if (port !== null && !(/^\d{1,5}$/.test(port) && +port >= 1 && +port <= 65535)) return 'has a port that isn\'t a number from 1 to 65535.';
+    return '';
+  }
+  function queryProblem(q, isSlot) {
+    var ps = partsOf(q);
+    for (var i = 0; i < ps.length; i++) {
+      var p = ps[i]; if (!isSlot(p)) continue;
+      var at = p.indexOf('='), name = at < 0 ? p : p.slice(0, at);
+      if (at < 0) return { code: 'name', why: 'has a run detail in a parameter with no "=". ' + NAME_RULE };
+      if (isSlot(name)) return { code: 'name', why: 'has a run detail in a parameter name. ' + NAME_RULE };
+    }
+    return null;
+  }
+  function queryHint(q, isSlot) {
+    var ps = partsOf(q);
+    for (var i = 0; i < ps.length; i++) { var p = ps[i]; if (!isSlot(p)) continue; var name = p.slice(0, Math.max(0, p.indexOf('='))); if (QUERY_NAME.test(name)) return name; }
+    return '';
+  }
+  /* The publish-time verdict (the same as the Python checker's): static, whole, ok, hint, or a refusal code with why. */
+  function classify(template, context) {
+    var t = String(template == null ? '' : template); context = context || [];
+    if (FORBIDDEN.test(t) || LONE.test(t)) return { code: 'forbidden', why: INVISIBLE };
+    if (!namesIn(t, context).length) return { code: 'static' };
+    if (/^\^([\w-]+)$/.test(t)) return { code: 'whole' };
+    var mm = /^(mailto:[^?#]*)(\?[^#]*)?$/i.exec(t), hm = /^(https?:\/\/[^\/?#]*)([^?#]*)(\?[^#]*)?(#.*)?$/i.exec(t);
+    if (!mm && !hm) return { code: 'malformed', why: 'isn\'t a web or mailto: link before details are filled in.' };
+    if (namesIn(mm ? mm[1] : hm[1], context).length) return { code: 'address', why: ADDRESS };
+    if (hm) { var ap = authorityProblem(hm[1].replace(/^https?:\/\//i, '')); if (ap) return { code: 'malformed', why: ap + ' There\'s no link; fix the address in the checklist.' }; }
+    var n = nonce(t), withSlots = t.replace(/\^([\w-]+)/g, function (all, x) { return context.indexOf(x) < 0 ? all : 'fdslot' + n + 'x'; });
+    var isSlot = function (x) { return x.indexOf('fdslot' + n) >= 0; }, q = '';
+    if (mm) q = (/^mailto:[^?#]*(\?[^#]*)?$/i.exec(withSlots) || [])[1] || '';
+    else { var u; try { u = new URL(withSlots); } catch (e) { return { code: 'malformed', why: 'isn\'t a valid web address (' + String(e && e.message || e).slice(0, 60) + '), so there\'s no link. Fix the address in the checklist.' }; } q = u.search; }
+    var qp = queryProblem(q, isSlot); if (qp) return qp;
+    var hint = queryHint(q, isSlot);
+    return { code: hint ? 'hint' : 'ok', hint: hint ? 'a run detail sits in "' + hint + '", which looks like a query. ' + QUERY_HINT + ' (A hint: Flightdeck doesn\'t check what the server does with the value.)' : '',
+      names: partsOf(q).map(function (p) { return p.split('=')[0].split('fdslot' + n + 'x').join('\u0000'); }) };
+  }
+  /* Publish refuses these forms for new versions; a published one shows its text with the reason. */
+  function refused(c) { return c.code === 'forbidden' || c.code === 'address' || c.code === 'malformed' || c.code === 'name'; }
+  function sameNames(after, before) { return after.length === before.length && !after.some(function (x, i) { return before[i] !== '\u0000' && x !== before[i]; }); }
+  /* A link field filled in: { ok, href } or { ok: false, why, plain } (plain: show the field as written, as text). */
+  function fillLink(template, details, context) {
+    var t = String(template == null ? '' : template); context = context || []; details = details || {};
+    var safe = PF.util.safeUrl, c = classify(t, context), val = function (x) { return Object.prototype.hasOwnProperty.call(details, x) && details[x] != null ? String(details[x]) : ''; };
+    if (c.code === 'forbidden' || c.code === 'name') return { ok: false, plain: true, code: c.code, why: 'Shown as text, not a link: it ' + c.why };
+    if (c.code === 'static') return safe(t) ? { ok: true, href: t, how: 'static' } : { ok: false, plain: true, code: 'static', why: 'isn\'t a link.' };
+    if (c.code === 'whole') { var w = t.slice(1), wv = val(w); if (!wv) return { ok: false, why: 'Waiting for ^' + w + '.' }; return safe(wv) && !FORBIDDEN.test(wv) ? { ok: true, href: wv, how: 'whole' } : { ok: false, why: '^' + w + ' isn\'t a web or mailto: link.' }; }
+    if (c.code !== 'ok' && c.code !== 'hint') return { ok: false, code: c.code, why: 'No link: it ' + c.why };
+    var names = namesIn(t, context), waiting = names.filter(function (x, i) { return !val(x) && names.indexOf(x) === i; }), bad = names.filter(function (x) { return val(x) && PF.values.badText(val(x)); });
+    if (waiting.length) return { ok: false, why: 'Waiting for ' + waiting.map(function (x) { return '^' + x; }).join(', ') + '.' };
+    if (bad.length) return { ok: false, why: bad.map(function (x) { return '^' + x; }).join(', ') + ' has a character a link can\'t hold.' };
+    var vals = [], n = nonce(t), slot = function (i) { return 'fdslot' + n + 'n' + i + 'x'; };
+    var withSlots = t.replace(/\^([\w-]+)/g, function (all, x) { if (context.indexOf(x) < 0) return all; vals.push(strictEncode(val(x))); return slot(vals.length - 1); });
+    var put = function (x) { return vals.reduce(function (acc, v, i) { return acc.split(slot(i)).join(v); }, x); };
+    if (/^mailto:/i.test(t)) {
+      var mh = put(withSlots); if (!safe(mh)) return { ok: false, why: 'isn\'t a valid link once filled in.' };
+      if (!sameNames(partsOf((/\?([^#]*)$/.exec(mh) || [])[1] || '').map(function (p) { return p.split('=')[0]; }), c.names)) return { ok: false, why: 'filling in changed the link\'s parameters, so there\'s no link.' };
+      return { ok: true, href: mh, how: 'mailto', hint: c.hint };
+    }
+    var U; try { U = new URL(withSlots); } catch (e) { return { ok: false, why: 'isn\'t a valid web address.' }; }
+    var tail = U.pathname + U.search + U.hash, prefix = U.href.slice(0, U.href.length - tail.length);
+    if (vals.some(function (v, i) { return tail.split(slot(i)).length !== 2; })) return { ok: false, why: 'the address changes where a run detail sits, so there\'s no link.' };
+    if (U.pathname.split('/').some(function (seg) { return seg.indexOf('fdslot' + n) >= 0 && DOT.test(put(seg)); })) return { ok: false, why: 'a run detail would make a "." or ".." path segment, which changes where the link goes.' };
+    var path = put(U.pathname), search = put(U.search), hash = put(U.hash), href = prefix + path + search + hash;
+    if (!safe(href)) return { ok: false, why: 'isn\'t a valid link once filled in.' };
+    var W; try { W = new URL(href); } catch (e2) { return { ok: false, why: 'isn\'t a valid web address once filled in.' }; }
+    if (W.pathname !== path || W.search !== search || W.hash !== hash) return { ok: false, why: 'the browser would read the link differently, so there\'s no link.' };
+    if (!sameNames(partsOf(W.search).map(function (p) { return p.split('=')[0]; }), c.names)) return { ok: false, why: 'filling in changed the link\'s parameters, so there\'s no link.' };
+    return { ok: true, href: href, how: 'template', hint: c.hint };
+  }
+  /* The field as written, with invisible characters marked (\u0009), for a refused one shown as text. */
+  function marked(t) { return String(t == null ? '' : t).replace(new RegExp(FORBIDDEN.source + '|' + LONE.source, 'g'), function (c) { return '\\u' + ('000' + c.charCodeAt(c.length - 1).toString(16)).slice(-4); }); }
+  return { classify: classify, refused: refused, fillLink: fillLink, authorityProblem: authorityProblem, strictEncode: strictEncode, marked: marked, QUERY_HINT: QUERY_HINT };
 })();
