@@ -272,7 +272,7 @@ img { max-width: 100%; }
 .brand-mark { width: 26px; height: 26px; border-radius: 5px; background: repeating-linear-gradient(-45deg, var(--amber) 0 5px, var(--stripe) 5px 10px); }
 .mainnav { display: flex; gap: 2px; flex-wrap: wrap; }
 .mainnav button { border: 0; background: none; padding: 8px 12px; border-radius: 8px; font-weight: 600; color: var(--muted); }
-.mainnav button:hover { background: var(--paper); color: var(--ink); }
+@media screen and (hover: hover) { .mainnav button:hover { background: var(--paper); color: var(--ink); } }
 .mainnav button[aria-current="page"] { background: var(--ink); color: var(--card); }
 .crumbs { display: flex; gap: 6px; align-items: center; color: var(--muted); font-size: 14px; min-width: 0; }
 .crumbs button { border: 0; background: none; padding: 2px 4px; color: var(--muted); }
@@ -300,7 +300,7 @@ h3 { font-family: var(--display); font-size: 18px; margin: 0 0 8px; }
 .btn.stop { background: var(--stop); color: var(--card); border-color: var(--stop); }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
 .mini { border: 1px solid var(--line); background: var(--card); border-radius: 6px; padding: 3px 9px; font-size: 13px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
-.mini:hover:not(:disabled) { color: var(--ink); border-color: var(--ink); }
+@media screen and (hover: hover) { .mini:hover:not(:disabled) { color: var(--ink); border-color: var(--ink); } }
 /* Step-type cards sit in a tree list; their own buttons keep the small-button look, not the list-row look. */
 .plist .tcard button.mini { width: auto; display: inline-flex; text-align: center; border: 1px solid var(--line); background: var(--card); border-radius: 6px; padding: 3px 9px; font-size: 13px; }
 .plist > li.tcard { list-style: none; }
@@ -342,20 +342,20 @@ h3 { font-family: var(--display); font-size: 18px; margin: 0 0 8px; }
 .cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; margin-bottom: 28px; }
 .paged { margin: -14px 0 28px; align-items: center; flex-wrap: wrap; }
 .card { text-align: left; background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; display: flex; flex-direction: column; gap: 8px; box-shadow: var(--shadow); }
-button.card:hover { border-color: var(--ink); }
+@media screen and (hover: hover) { button.card:hover { border-color: var(--ink); } }
 .card.plan { border-style: dashed; border-color: var(--plan); }
 .card-title { font-family: var(--display); font-weight: 700; font-size: 22px; line-height: 1.1; }
 .state { font-size: 13.5px; font-weight: 600; }
 .state.ready, .state.complete { color: var(--go); } .state.stopped { color: var(--stop); }
 .plist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .plist button { width: 100%; text-align: left; border: 0; background: none; padding: 10px; border-radius: 8px; display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; }
-.plist button:hover { background: var(--card); }
+@media screen and (hover: hover) { .plist button:hover { background: var(--card); } }
 .plist .t { font-weight: 600; }
 .plist.tree, .plist.tree .plist { gap: 2px; }
 .pskills { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 0 10px 10px; }
 .pskills > .small { display: inline-flex; align-items: center; gap: 4px; }
 .plist .pskills button.skillchip { width: auto; display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px; border: 1px solid var(--line); border-radius: 999px; background: var(--card); font-size: 13px; }
-.plist .pskills button.skillchip:hover { border-color: var(--ink); }
+@media screen and (hover: hover) { .plist .pskills button.skillchip:hover { border-color: var(--ink); } }
 .rlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .rlist .row { justify-content: space-between; align-items: center; }
 .rlist .t { font-weight: 600; }
@@ -454,7 +454,7 @@ b.dname { font-weight: 600; }
 .dbx-ac { position: absolute; z-index: 30; margin: 4px 0 0; padding: 4px; list-style: none; min-width: 220px; max-width: min(420px, 100%); max-height: 240px; overflow-y: auto; background: var(--card); color: var(--ink); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 18px rgba(0,0,0,.18); }
 .dbx-o { padding: 6px 8px; border-radius: 6px; cursor: pointer; display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; }
 .dbx-o b { font-family: var(--mono, ui-monospace, Menlo, monospace); font-weight: 600; }
-.dbx-o.on, .dbx-o:hover { background: var(--plan-soft); }
+.dbx-o.on { background: var(--plan-soft); } @media screen and (hover: hover) { .dbx-o:hover { background: var(--plan-soft); } }
 .dbx-o.add { color: var(--plan); }
 .dbx-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
 .dbx-iss { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
@@ -526,7 +526,7 @@ table.grid td.cold { color: var(--muted); }
 .ins-chart { margin: 8px 0; max-width: 720px; }
 .ins-strip { display: block; width: 100%; height: auto; overflow: visible; }
 .ins-dot { fill: var(--chart-mark); fill-opacity: .75; stroke: var(--card); stroke-width: 1.5; }
-.ins-dot-a:hover .ins-dot, .ins-dot-a:focus .ins-dot { fill-opacity: 1; stroke: var(--focus); stroke-width: 3; }
+.ins-dot-a:focus .ins-dot { fill-opacity: 1; stroke: var(--focus); stroke-width: 3; } @media screen and (hover: hover) { .ins-dot-a:hover .ins-dot { fill-opacity: 1; stroke: var(--focus); stroke-width: 3; } }
 .ins-dot-a:focus { outline: none; }
 .ins-axis { stroke: var(--chart-axis); stroke-width: 1; }
 .ins-mid { stroke: var(--chart-mid); stroke-width: 2; stroke-dasharray: 3 3; }
@@ -579,7 +579,7 @@ table.grid td.cold { color: var(--muted); }
 .thumbs { display: flex; gap: 8px; flex-wrap: wrap; }
 .thumb { width: 92px; height: 60px; padding: 0; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; background: var(--paper); }
 .thumb img { display: block; width: 100%; height: 100%; object-fit: cover; }
-.thumb:hover { border-color: var(--ink); }
+@media screen and (hover: hover) { .thumb:hover { border-color: var(--ink); } }
 .tnotes { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
 .tnotes li { display: grid; grid-template-columns: 22px 1fr; gap: 8px; font-size: 14px; }
 .tnotes .meta { font-size: 12px; color: var(--muted); }
@@ -611,7 +611,7 @@ table.grid td.cold { color: var(--muted); }
 .mapview .fp > .fp-end::before { background: var(--ink); }
 .fp-tag { font-family: var(--display); font-weight: 700; font-size: 18px; letter-spacing: .08em; text-transform: uppercase; }
 .fp-card { position: relative; background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--amber); border-bottom: 0; border-radius: 10px 10px 0 0; padding: 10px 14px; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); gap: 6px 18px; min-width: 0; }
-.fp-card:hover, .fp-card:focus-within { border-color: var(--ink); border-left-color: var(--amber); }
+.fp-card:focus-within { border-color: var(--ink); border-left-color: var(--amber); } @media screen and (hover: hover) { .fp-card:hover { border-color: var(--ink); border-left-color: var(--amber); } }
 .fp-head, .fp-lines { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
 .fp-eye { font-family: var(--label); font-size: 11px; font-weight: 600; color: var(--muted); letter-spacing: .06em; text-transform: uppercase; }
 .fp-name { margin: 0; font-family: var(--display); font-size: 20px; line-height: 1.1; overflow-wrap: anywhere; }
@@ -633,12 +633,12 @@ table.grid td.cold { color: var(--muted); }
 /* A phase's steps: a native disclosure across the card, above the card-wide phase button so it gets its own clicks. */
 .fp-steps { grid-column: 1 / -1; position: relative; z-index: 1; min-width: 0; border-top: 1px solid var(--line); padding-top: 6px; }
 .fp-steps > summary { cursor: pointer; width: fit-content; max-width: 100%; padding: 2px 0; font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
-.fp-steps > summary:hover { color: var(--ink); }
+@media screen and (hover: hover) { .fp-steps > summary:hover { color: var(--ink); } }
 .fp-sbody { display: flex; flex-direction: column; gap: 10px; margin: 8px 0 4px; min-width: 0; }
 .mapview .fp-sl { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .mapview .fp-sl > li { font-size: 14px; min-width: 0; }
 .fp-step { border: 0; background: none; padding: 0; font: inherit; color: inherit; text-align: left; line-height: 1.45; overflow-wrap: anywhere; max-width: 100%; cursor: pointer; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 2px; }
-.fp-step:hover { text-decoration-color: currentColor; }
+@media screen and (hover: hover) { .fp-step:hover { text-decoration-color: currentColor; } }
 .fp-slanes { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr)); gap: 8px; min-width: 0; }
 .fp-slane { padding: 6px 8px; border-radius: 6px; background: var(--paper); border-top: 2px solid var(--field); min-width: 0; overflow-wrap: anywhere; }
 .fp-slane-h { margin: 0 0 6px; font-size: 13px; overflow-wrap: anywhere; }
@@ -716,7 +716,6 @@ input[type="checkbox"] { accent-color: var(--go); width: 16px; height: 16px; }
 /* 2.16: the way back, top left, named for where it goes; the checklist's views (the page's strip, the workspace's control). */
 .backrow { margin: 0 0 8px; }
 .backc { display: inline-flex; align-items: center; gap: 2px; max-width: 100%; min-width: 0; white-space: nowrap; }
-.backc .backc-t { overflow: hidden; text-overflow: ellipsis; min-width: 10ch; }
 .backc .backc-v { flex: none; }
 .pviews { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 14px; border-bottom: 1px solid var(--line); }
 .pviews button { border: 0; background: none; padding: 8px 12px; font-weight: 600; color: var(--muted); border-bottom: 3px solid transparent; margin-bottom: -1px; }
@@ -736,7 +735,7 @@ input[type="checkbox"] { accent-color: var(--go); width: 16px; height: 16px; }
 .todo.plan { border-left-color: var(--plan); } .todo.skill, .todo.sign { border-left-color: var(--go); } .todo.draft { border-left-color: var(--muted); }
 .glance { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 10px; }
 .tile { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); text-align: left; }
-.tile:hover { border-color: var(--ink); }
+@media screen and (hover: hover) { .tile:hover { border-color: var(--ink); } }
 /* A staged version's line: its buttons go under its words, so the words keep the column's width. */
 .vlist li.stg { grid-template-columns: auto minmax(0, 1fr); }
 .vlist li.stg > .row { grid-column: 2; }
@@ -822,10 +821,10 @@ button.ob-chip[aria-pressed="true"] { background: var(--amber); color: var(--on-
 .ob-dest::before { content: ''; position: absolute; left: 0; right: 0; top: 6px; height: 2px; border-radius: 2px; background: var(--amber); opacity: .5; }
 .ob-slot.v .ob-dest { left: -6px; right: auto; top: 0; bottom: 0; width: 16px; height: auto; }
 .ob-slot.v .ob-dest::before { left: 7px; right: auto; top: 0; bottom: 0; width: 2px; height: auto; }
-.ob-slot.on .ob-dest::before, .ob-dest:hover::before, .ob-dest:focus-visible::before { opacity: 1; box-shadow: 0 0 0 3px var(--amber-soft); }
+.ob-slot.on .ob-dest::before, .ob-dest:focus-visible::before { opacity: 1; box-shadow: 0 0 0 3px var(--amber-soft); } @media screen and (hover: hover) { .ob-dest:hover::before { opacity: 1; box-shadow: 0 0 0 3px var(--amber-soft); } }
 .ob-dest > span { display: none; position: absolute; right: 6px; top: -5px; padding: 2px 10px; border-radius: 99px; background: var(--amber); color: var(--on-amber); font-size: 12px; font-weight: 700; white-space: nowrap; }
 .ob-slot.v .ob-dest > span { right: auto; left: 10px; top: 6px; }
-.ob-slot.on .ob-dest > span, .ob-dest:hover > span, .ob-dest:focus-visible > span { display: inline-block; }
+.ob-slot.on .ob-dest > span, .ob-dest:focus-visible > span { display: inline-block; } @media screen and (hover: hover) { .ob-dest:hover > span { display: inline-block; } }
 .ob-dest:focus-visible { outline: none; }
 .ob-dest:focus-visible > span { outline: 2px solid var(--focus); outline-offset: 2px; }
 @keyframes ob-new { from { box-shadow: 0 0 0 4px var(--amber); } to { box-shadow: 0 0 0 0 transparent; } }
@@ -834,17 +833,10 @@ button.ob-chip[aria-pressed="true"] { background: var(--amber); color: var(--on-
 .ob-step.ob-inc { box-shadow: inset 4px 0 0 var(--incoming); }
 .ob-step.ob-inc.sel { box-shadow: inset 4px 0 0 var(--incoming), inset 7px 0 0 var(--amber); }
 .ob-phase.ob-inc > .ob-ph-head { box-shadow: inset 4px 0 0 var(--incoming); padding-left: 8px; }
-.ob-inc-t { display: inline-block; font-size: 12px; font-weight: 600; color: var(--on-incoming); overflow-wrap: anywhere; }
-/* The draft editor is a page of its own: a header, messages, then panes that each scroll on their own. */
-html.fpe-on .top { display: none; }
+.ob-inc-t { display: inline-block; font-size: 12px; font-weight: 600; color: var(--on-incoming); overflow-wrap: anywhere; }/* The draft editor is a page of its own: a header, messages, then panes that each scroll on their own. */
 html.fpe-on #app { padding: 0; max-width: none; }
 @media (min-width: 801px) { html.fpe-on, html.fpe-on body { overflow: hidden; } }
-.fpe { position: fixed; inset: 0; z-index: 4; display: grid; grid-template-rows: auto auto minmax(0, 1fr); background: var(--paper); }
-.fpe-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 16px; background: var(--card); border-bottom: 1px solid var(--line); min-width: 0; }
-.fpe-title { display: flex; flex-direction: column; min-width: 0; flex: 1 1 220px; }
-.fpe-title h1 { margin: 0; font-size: 22px; line-height: 1.15; overflow-wrap: anywhere; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
-.fpe-title h1:focus { outline: none; }
-.fpe-title h1:focus-visible { outline: none; }
+.fpe { position: fixed; inset: 0; z-index: 4; display: grid; grid-template-rows: auto auto auto minmax(0, 1fr); background: var(--paper); }
 .fpe-state { font-size: 13px; color: var(--muted); }
 .fpe-state.dirty { color: var(--ink); font-weight: 600; }
 .fpe-undo { gap: 4px; }
@@ -856,9 +848,9 @@ html.fpe-on #app { padding: 0; max-width: none; }
 .fpe-alerts:not(:empty) { padding: 8px 16px; border-bottom: 1px solid var(--line); }
 .fpe-alerts .notice { margin: 0; }
 .fpe-theirs .source { max-height: 30vh; overflow: auto; }
-.fpe-panes { display: grid; grid-template-columns: var(--pane-parts, 220px) 0 minmax(0, 1fr) 0 var(--pane-ins, minmax(320px, 420px)); min-height: 0; }
-.fpe-panes.rail { grid-template-columns: 60px 0 minmax(0, 1fr) 0 var(--pane-ins, minmax(320px, 420px)); }
-.fpe-panes.md { grid-template-columns: minmax(0, 1fr) 0 var(--pane-ins, minmax(320px, 460px)); }
+.fpe-panes { display: grid; grid-template-columns: var(--pane-parts, 220px) var(--gut) minmax(0, 1fr) var(--gut) var(--pane-ins, minmax(320px, 420px)); min-height: 0; }
+.fpe-panes.rail { grid-template-columns: 60px 0 minmax(0, 1fr) var(--gut) var(--pane-ins, minmax(320px, 420px)); }
+.fpe-panes.md { grid-template-columns: minmax(0, 1fr) var(--gut) var(--pane-ins, minmax(320px, 460px)); }
 /* The separators between an editor's panes (V.splitter): a zero-width column whose 10px grab area lies over the border and
    the start of the pane after it, clear of the scroll bar before it. A bar shows on hover and focus. The width chosen is a
    variable on the panes (--pane-<key>), so a redraw keeps it. */
@@ -866,7 +858,7 @@ html.fpe-on #app { padding: 0; max-width: none; }
 .pane-split:focus-visible { outline: none; }
 .pane-split::before { content: ""; position: absolute; top: 0; bottom: 0; left: -2px; width: 10px; }
 .pane-split::after { content: ""; position: absolute; top: 0; bottom: 0; left: -2px; width: 4px; border-radius: 2px; background: transparent; pointer-events: none; transition: background-color .12s; }
-.pane-split:hover::after { background: var(--field); }
+@media screen and (hover: hover) { .pane-split:hover::after { background: var(--field); } }
 .pane-split:focus-visible::after, html.pane-drag .pane-split:focus::after { background: var(--focus); }
 html.pane-drag, html.pane-drag * { cursor: col-resize !important; -webkit-user-select: none !important; user-select: none !important; }
 .fpe-panes.rail > .pane-split[data-split="parts"] { visibility: hidden; }
@@ -902,7 +894,7 @@ html.pane-drag, html.pane-drag * { cursor: col-resize !important; -webkit-user-s
 .fpe-panes.rail .ob-part { justify-content: center; padding: 6px 0; }
 .fpe-panes.rail .ob-pt { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 @media (min-width: 801px) and (max-width: 1100px) {
-  .fpe-panes, .fpe-panes.rail { grid-template-columns: 60px 0 minmax(0, 1fr) 0 var(--pane-ins, minmax(300px, 360px)); }
+  .fpe-panes, .fpe-panes.rail { grid-template-columns: 60px 0 minmax(0, 1fr) var(--gut) var(--pane-ins, minmax(300px, 360px)); }
   .fpe-panes > .pane-split[data-split="parts"] { visibility: hidden; }
   .ob-railbtn, .ob-blurb, .fpe-parts .ob-q, .fpe-parts h4, .fpe-parts .ob-none, .fpe-parts .ob-pgroup > p, .fpe-parts .ob-broken .small { display: none; }
   .fpe-parts-head h2 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
@@ -965,12 +957,7 @@ html.pane-drag, html.pane-drag * { cursor: col-resize !important; -webkit-user-s
 .ob-grp4 { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
 .ob-more-opts .ob-grp4 + .ob-grp4, .ob-grp4 + .ob-grp4 { margin-top: 6px; }
 @media (max-width: 800px) {
-  html.fpe-on .top { display: none; }
   .fpe { position: static; display: block; min-height: 100vh; }
-  .fpe-head { position: sticky; top: 0; z-index: 5; padding: 8px 12px; gap: 6px 8px; }
-  .fpe-title { flex-basis: 140px; }
-  .fpe-title h1 { font-size: 18px; }
-  .fpe-head .btn { padding: 6px 10px; }
   .fpe-file { display: none; }
   .fpe-panes, .fpe-panes.rail, .fpe-panes.md { display: block; }
   .pane-split { display: none; }
@@ -1006,7 +993,7 @@ html.pane-drag, html.pane-drag * { cursor: col-resize !important; -webkit-user-s
 .undobar { display: inline-flex; flex-wrap: wrap; gap: 6px; align-items: center; }
 .ed-tools { gap: 8px; }
 .mini[aria-disabled="true"] { opacity: .45; cursor: not-allowed; }
-.mini[aria-disabled="true"]:hover { color: var(--muted); border-color: var(--line); }
+@media screen and (hover: hover) { .mini[aria-disabled="true"]:hover { color: var(--muted); border-color: var(--line); } }
 .help.hist { width: min(680px, 100%); max-height: calc(100vh - var(--keep-h) - 32px); overflow: auto; display: flex; flex-direction: column; gap: 10px; }
 .hist h3 { margin: 4px 0 0; }
 .hist-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 6px; }
@@ -1025,22 +1012,11 @@ html.pane-drag, html.pane-drag * { cursor: col-resize !important; -webkit-user-s
 .hist-cmp { margin-top: 6px; }
 .hist-cmp .diff { max-height: 260px; margin: 4px 0 0; }
 .hist-cmp .notice { margin: 0; }
-@media (max-width: 600px) { .hist-ba { grid-template-columns: minmax(0, 1fr); } }
-/* The step-type editor: a page of its own, on the same shell as the draft editor (fpe-* names), scoped to .fpe-type so the
+@media (max-width: 600px) { .hist-ba { grid-template-columns: minmax(0, 1fr); } }/* The step-type editor: a page of its own, on the same shell as the draft editor (fpe-* names), scoped to .fpe-type so the
    two never fight over each other's rules. The app's top bar hides while it's open. */
-html.tfe-on .top { display: none; }
 html.tfe-on #app { padding: 0; max-width: none; }
 @media (min-width: 801px) { html.tfe-on, html.tfe-on body { overflow: hidden; } }
-.fpe-type.fpe { position: fixed; inset: 0; z-index: 4; display: grid; grid-template-rows: auto auto minmax(0, 1fr); background: var(--paper); }
-.fpe-type .fpe-head { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; grid-template-areas: "id tools save"; align-items: center; gap: 8px 12px; padding: 8px 16px; background: var(--card); border-bottom: 1px solid var(--line); min-width: 0; }
-.fpe-type .fpe-id { grid-area: id; display: flex; align-items: center; gap: 12px; min-width: 0; }
-.fpe-type .fpe-tools { grid-area: tools; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.fpe-type .fpe-save { grid-area: save; display: flex; align-items: center; gap: 10px; justify-content: flex-end; }
-.fpe-type .fpe-title { display: flex; flex-direction: column; min-width: 0; }
-.fpe-type .fpe-title h1 { margin: 0; font-size: 22px; line-height: 1.15; overflow-wrap: anywhere; display: flex; flex-wrap: wrap; gap: 4px 8px; align-items: baseline; }
-.fpe-type .fpe-title h1:focus { outline: none; }
-.fpe-type .fpe-head .btn, .fpe-type .fpe-head .mini { min-height: 36px; }
-.fpe-type .fpe-head .mini[aria-disabled="true"] { opacity: .55; background: var(--chip); color: var(--muted); }
+.fpe-type.fpe { position: fixed; inset: 0; z-index: 4; display: grid; grid-template-rows: auto auto auto minmax(0, 1fr); background: var(--paper); }
 .fpe-type .fpe-state { width: 9.5em; display: inline-flex; gap: 4px; align-items: center; justify-content: flex-end; text-align: right; line-height: 1.25; font-size: 13px; color: var(--muted); }
 .fpe-type .fpe-state.dirty { color: var(--ink); font-weight: 600; }
 .fpe-type .fpe-state.just { color: var(--go); font-weight: 600; }
@@ -1052,7 +1028,7 @@ html.tfe-on #app { padding: 0; max-width: none; }
 .fpe-type .fpe-pane { min-height: 0; min-width: 0; overflow: auto; overscroll-behavior: contain; }
 .tf-why { margin: 0; align-self: flex-end; font-size: 13px; color: var(--stop); font-weight: 600; }
 /* The form gets the room; the preview is a narrower column beside it. */
-.fpe-panes.tf-panes { display: grid; grid-template-columns: minmax(0, 1fr) 0 var(--pane-tf, clamp(320px, 32vw, 440px)); min-height: 0; }
+.fpe-panes.tf-panes { display: grid; grid-template-columns: minmax(0, 1fr) var(--gut) var(--pane-tf, clamp(320px, 32vw, 440px)); min-height: 0; }
 .tf-formpane { padding: 16px 16px 64px; }
 .tf-form { max-width: 760px; margin: 0 auto; }
 .tf-preview { display: flex; flex-direction: column; gap: 10px; padding: 16px 16px 48px; border-left: 1px solid var(--line); background: var(--card); }
@@ -1061,7 +1037,7 @@ html.tfe-on #app { padding: 0; max-width: none; }
 .tf-prevclose, .tf-prevbtn { display: none; }
 .tf-prevsub { margin: 10px 0 0; font-size: 15px; }
 .tf-preview .source { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
-@media (max-width: 1240px) { .fpe-type .fpe-head { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "id save" "tools tools"; } }
+
 .tf-card { display: flex; flex-direction: column; gap: 16px; }
 .tf-card h2 { margin: 0; }
 .tf-card > .tf-help { margin-top: -10px; }
@@ -1079,11 +1055,11 @@ html.tfe-on #app { padding: 0; max-width: none; }
 .tf-chips { display: flex; flex-wrap: wrap; gap: 6px; list-style: none; margin: 0; padding: 0; }
 .tf-chip { display: inline-flex; align-items: center; gap: 2px; background: var(--chip); border-radius: 99px; padding: 2px 3px 2px 10px; font-size: 13px; color: var(--ink); }
 .tf-chip button { border: 0; background: none; width: 24px; height: 24px; border-radius: 99px; color: var(--muted); font-size: 16px; line-height: 1; padding: 0; }
-.tf-chip button:hover { background: var(--line); color: var(--ink); }
+@media screen and (hover: hover) { .tf-chip button:hover { background: var(--line); color: var(--ink); } }
 .tf-icons { border: 0; padding: 0; margin: 0; min-width: 0; }
 .tf-icongrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(42px, 1fr)); gap: 6px; margin-top: 6px; }
 .tf-icon { position: relative; display: grid; place-items: center; height: 42px; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; background: var(--card); color: var(--muted); }
-.tf-icon:hover { color: var(--ink); border-color: var(--field); }
+@media screen and (hover: hover) { .tf-icon:hover { color: var(--ink); border-color: var(--field); } }
 .tf-icon input { position: absolute; inset: 0; opacity: 0; margin: 0; width: 100%; height: 100%; cursor: pointer; }
 .tf-icon:has(input:checked) { background: var(--ink); color: var(--card); border-color: var(--ink); }
 .tf-icon:has(input:focus-visible) { outline: 2px solid var(--focus); outline-offset: 2px; }
@@ -1106,7 +1082,7 @@ html.tfe-on #app { padding: 0; max-width: none; }
 .tf-org[open] > summary .tf-chev { transform: none; }
 .tf-org-t { font-weight: 600; font-size: 14px; }
 .tf-org[open] > summary { margin-bottom: 12px; }
-.tf-item-main:hover { background: var(--chip); }
+@media screen and (hover: hover) { .tf-item-main:hover { background: var(--chip); } }
 .tf-item-t { font-weight: 600; overflow-wrap: anywhere; }
 .tf-item-sub code { font-family: var(--mono); font-size: 12px; }
 .tf-item-tools { display: flex; gap: 4px; align-items: center; flex: none; }
@@ -1118,12 +1094,12 @@ html.tfe-on #app { padding: 0; max-width: none; }
 .tf-menu > summary::-webkit-details-marker, .tf-addmenu > summary::-webkit-details-marker { display: none; }
 .tf-menu-list { position: absolute; right: 0; top: calc(100% + 4px); z-index: 4; background: var(--card); border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 6px 20px rgba(0,0,0,.15); padding: 4px; display: flex; flex-direction: column; min-width: 170px; }
 .tf-menu-list button { border: 0; background: none; text-align: left; padding: 8px 10px; border-radius: 6px; font: inherit; font-size: 14px; color: var(--ink); display: flex; gap: 6px; align-items: center; }
-.tf-menu-list button:hover { background: var(--chip); }
+@media screen and (hover: hover) { .tf-menu-list button:hover { background: var(--chip); } }
 .tf-addbtn { display: flex; align-items: center; justify-content: center; gap: 6px; border: 1.5px dashed var(--field); border-radius: 10px; padding: 10px; color: var(--ink); font-weight: 600; }
-.tf-addbtn:hover { background: var(--chip); }
+@media screen and (hover: hover) { .tf-addbtn:hover { background: var(--chip); } }
 .tf-addlist { list-style: none; margin: 6px 0 0; padding: 4px; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 4px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
 .tf-addlist button { width: 100%; text-align: left; border: 0; background: none; padding: 8px 10px; border-radius: 7px; display: flex; flex-direction: column; gap: 2px; font: inherit; color: var(--ink); }
-.tf-addlist button:hover { background: var(--chip); }
+@media screen and (hover: hover) { .tf-addlist button:hover { background: var(--chip); } }
 .tf-switch { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--ink); cursor: pointer; }
 .tf-switch input[type="checkbox"] { appearance: none; -webkit-appearance: none; width: 36px; height: 20px; border-radius: 99px; background: var(--line); position: relative; margin: 0; flex: none; cursor: pointer; border: 1px solid var(--field); }
 .tf-switch input[type="checkbox"]::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--card); }
@@ -1156,7 +1132,7 @@ html.tfe-on #app { padding: 0; max-width: none; }
 .su-hero p { max-width: 58ch; margin: 12px 0 0; color: color-mix(in srgb, var(--paper) 78%, transparent); font-size: 16px; }
 .su-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(250px, 100%), 1fr)); gap: 14px; }
 .su-choice { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; text-align: left; padding: 20px; min-height: 210px; border: 1px solid var(--line); border-radius: 14px; background: var(--card); box-shadow: var(--shadow); }
-.su-choice:hover:not(:disabled) { border-color: var(--ink); }
+@media screen and (hover: hover) { .su-choice:hover:not(:disabled) { border-color: var(--ink); } }
 .su-choice:disabled { opacity: .5; cursor: not-allowed; }
 .su-choice b { font-family: var(--display); font-size: 26px; line-height: 1.05; }
 .su-choice .su-txt { color: var(--muted); font-size: 14px; }
@@ -1169,7 +1145,7 @@ html.tfe-on #app { padding: 0; max-width: none; }
 .su-steps { list-style: none; margin: 0 0 16px; padding: 0; display: flex; gap: 6px; }
 .su-steps li { flex: 1 1 0; min-width: 0; }
 .su-steps li > span, .su-steps li > button { display: flex; align-items: center; gap: 8px; width: 100%; height: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); text-align: left; font-size: 13px; font-weight: 600; color: var(--muted); }
-.su-steps li > button:hover { border-color: var(--ink); color: var(--ink); }
+@media screen and (hover: hover) { .su-steps li > button:hover { border-color: var(--ink); color: var(--ink); } }
 .su-steps .su-l { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .su-n { width: 24px; height: 24px; flex: none; border-radius: 50%; display: grid; place-items: center; background: var(--chip); color: var(--ink); font-family: var(--display); font-size: 15px; }
 .su-n .ic { width: 14px; height: 14px; }
@@ -1198,7 +1174,7 @@ html.tfe-on #app { padding: 0; max-width: none; }
 .su-tpls { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr)); gap: 10px; margin-top: 16px; }
 .su-tpl { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; text-align: left; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); }
 .su-tpl b { font-family: var(--display); font-size: 20px; }
-.su-tpl:hover { border-color: var(--ink); }
+@media screen and (hover: hover) { .su-tpl:hover { border-color: var(--ink); } }
 .su-tpl[aria-pressed="true"] { border-color: var(--ink); box-shadow: inset 0 0 0 1px var(--ink); background: var(--amber-soft); }
 .su-pick { margin-top: 14px; padding: 16px; border: 1px solid var(--line); border-radius: 12px; background: var(--paper); }
 .su-phases { margin: 10px 0 0; padding-left: 22px; display: flex; flex-direction: column; gap: 4px; }
@@ -1219,7 +1195,7 @@ html.tfe-on #app { padding: 0; max-width: none; }
 .su-who { list-style: none; margin: 12px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(260px, 100%), 1fr)); gap: 10px; }
 .su-pers { width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--card); text-align: left; }
 .su-pers > .su-pt { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow-wrap: anywhere; }
-.su-pers:hover { border-color: var(--ink); }
+@media screen and (hover: hover) { .su-pers:hover { border-color: var(--ink); } }
 .su-pers[aria-current="true"] { border-color: var(--go); }
 .su-notme { margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--line); }
 .su-notme > summary { cursor: pointer; font-weight: 600; }
@@ -1261,13 +1237,8 @@ html.tfe-on #app { padding: 0; max-width: none; }
 /* Phones: the shell scrolls as one page, 16px text so nothing zooms, and 44px targets. */
 @media (max-width: 800px) {
   .fpe-type.fpe { position: static; display: block; min-height: 100vh; }
-  .fpe-type .fpe-head { position: sticky; top: 0; z-index: 5; padding: 8px 12px; gap: 6px 8px; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "id save" "tools tools"; }
-  .fpe-type .fpe-title h1 { font-size: 18px; }
-  .fpe-type .fpe-head .btn, .fpe-type .fpe-head .mini { min-height: 44px; }
-  .fpe-type .fpe-head .btn { padding: 6px 10px; }
   .fpe-type .fpe-state { width: auto; }
   .fpe-type .fpe-state:not(.dirty):not(.just) { display: none; }
-  .fpe-type .fpe-tools { gap: 6px; }
   .fpe-type .fpe-alerts:not(:empty) { padding: 8px 12px; }
   .fpe-type .fpe-pane { overflow: visible; }
   .fpe-panes.tf-panes { display: block; }
@@ -1285,14 +1256,10 @@ html.tfe-on #app { padding: 0; max-width: none; }
   .tf-icon { height: 48px; }
   .tf-addbtn { min-height: 44px; }
   .tf-help { font-size: 13px; }
-  /* The header keeps to two short rows: Done, the name (two lines at most) and Save; then Undo, Redo, History, Preview. */
-  .fpe-type .fpe-state, .fpe-type .fpe-title .cat { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-  .fpe-type .fpe-id { gap: 8px; }
-  .fpe-type .fpe-title h1 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  /* The header keeps to two short rows: Done, the name (two lines at most) and Save; then Undo, Redo, History, Preview. */ .fpe-type .fpe-state { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .tf-org > summary, .tf-where > summary, .tf-switch, .tf-idrow .linkish { min-height: 44px; }
   .tf-idrow .linkish { display: inline-flex; align-items: center; }
   .tf-field .tf-chipbox input { min-height: 34px; }
-  .fpe-head .tl-what { display: none; }
   .fpe-type .tf-field .mono { font-size: 16px; }
 }
 .ob-lines { margin: 6px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; font-size: 13px; }
@@ -1342,7 +1309,7 @@ pre.source { white-space: pre-wrap; word-break: break-word; max-height: 70vh; ov
 .rn-list { list-style: none; margin: 0; padding: 0 8px 12px; overflow: auto; flex: 1; min-height: 0; }
 .rn-month { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 12px 8px 4px; }
 .rn-item { display: flex; flex-direction: column; gap: 3px; width: 100%; text-align: left; border: 0; background: transparent; color: var(--ink); padding: 9px 10px; border-radius: 8px; }
-.rn-item:hover, .rn-item[aria-current="true"] { background: var(--card); }
+.rn-item[aria-current="true"] { background: var(--card); } @media screen and (hover: hover) { .rn-item:hover { background: var(--card); } }
 .rn-item[aria-current="true"] { box-shadow: inset 3px 0 0 var(--amber); }
 .rn-item .l1 { display: flex; align-items: center; gap: 6px; font-size: 14px; }
 .rn-item .d { margin-left: auto; font-size: 12px; color: var(--muted); }
@@ -1395,7 +1362,7 @@ mark { background: var(--mark); color: var(--on-mark); border-radius: 3px; paddi
 .sx-gh { font-family: var(--label); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); padding: 12px 10px 4px; }
 .sx-gh span { font-family: var(--mono); font-weight: 500; margin-left: 4px; }
 .sx-opt { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 10px; align-items: start; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
-.sx-opt:hover { background: var(--paper); }
+@media screen and (hover: hover) { .sx-opt:hover { background: var(--paper); } }
 .sx-opt[aria-selected="true"] { background: var(--paper); box-shadow: inset 3px 0 0 var(--amber); }
 .sx-ic svg { width: 18px; height: 18px; margin-top: 2px; color: var(--muted); display: block; }
 .sx-tx { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
@@ -1468,7 +1435,7 @@ p.pv-when { margin: 0 0 4px; }
 .ob-ren-deps .bad { color: var(--stop); }
 #ob-note, #ob-q-text { width: 100%; font: inherit; resize: vertical; }
 .ob-grip { height: 21px; align-self: flex-start; margin: 10px 0 0 6px; }
-.ob-step:hover:not(.sel) { border-color: var(--field); }
+@media screen and (hover: hover) { .ob-step:hover:not(.sel) { border-color: var(--field); } }
 /* Lanes: one quiet border, purple only when selected. Gates: the copy, then Edit at the right. */
 .ob-lanes { gap: 8px; }
 .ob-lane { border: 1px solid var(--line); }
@@ -1501,7 +1468,7 @@ p.pv-when { margin: 0 0 4px; }
 .ob-shots { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
 .ob-shot { display: grid; grid-template-columns: 120px minmax(0, 1fr); gap: 10px; align-items: start; }
 .ob-shot-pic { width: 120px; height: 76px; }
-.ob-shot-pic:hover { border-color: var(--line); }
+@media screen and (hover: hover) { .ob-shot-pic:hover { border-color: var(--line); } }
 .ob-shot-body { display: grid; gap: 6px; min-width: 0; }
 .ob-shot-acts { flex-wrap: wrap; gap: 6px; }
 .ob-shot-src { margin: 0; overflow-wrap: anywhere; color: var(--muted); }
@@ -1526,29 +1493,20 @@ p.pv-when { margin: 0 0 4px; }
 .ob-sample li { display: flex; gap: 6px; align-items: center; padding: 6px 8px; border-radius: 6px; background: var(--card); border: 1px solid var(--line); }
 .ob-sample .s-ph { background: none; border: 0; padding: 0 2px; font-family: var(--display); font-size: 16px; color: var(--ink); }
 .ob-sample .s-st.on { border-color: var(--ink); box-shadow: inset 3px 0 0 var(--amber); color: var(--ink); }
-.ob-sample .s-gt { background: var(--amber-soft); border-color: var(--amber); }
-/* The header: identity | tools | save, which never trade places. */
-.fpe-head { display: grid; grid-template-columns: minmax(180px, 1fr) auto auto; grid-template-areas: "id tools save"; align-items: center; gap: 8px 12px; }
-.fpe-id { grid-area: id; display: flex; align-items: center; gap: 12px; min-width: 0; }
-.fpe-tools { grid-area: tools; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-.fpe-save { grid-area: save; display: flex; align-items: center; gap: 10px; justify-content: flex-end; }
-.fpe-head .btn, .fpe-head .mini, .fpe-head .seg button, .fpe-head .chipbtn { min-height: 36px; }
-.fpe-head .btn.go:disabled { opacity: 1; background: var(--chip); color: var(--muted); border-color: var(--line); }
-.fpe-head .mini:disabled { opacity: 1; background: var(--chip); color: var(--muted); }
+.ob-sample .s-gt { background: var(--amber-soft); border-color: var(--amber); }/* The header: identity | tools | save, which never trade places. */
 .fpe-state { width: 9.5em; display: inline-flex; gap: 4px; align-items: center; justify-content: flex-end; text-align: right; line-height: 1.25; }
 .fpe-state.just { color: var(--go); font-weight: 600; }
 .fpe-discard[hidden] { display: inline !important; visibility: hidden; }
-.fpe-savestate { display: inline-flex; align-items: center; gap: 10px; }
 #ob-text { min-height: 64px; line-height: 1.45; resize: vertical; font: inherit; }
 .fpe .mini:not(:disabled) { color: var(--ink); border-color: var(--field); }
 .fpe-checks .ic { width: 16px; height: 16px; }
 /* The draft editor's tools (with Practice) need about 1,600px beside its name and Save draft; narrower, they take their own row. */
-@media (max-width: 1600px) { .fpe-head { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "id save" "tools tools"; } }
+
 .fpe-done { white-space: nowrap; }
 /* Panes: room for the outline at 1280; a narrower inspector. */
-.fpe-panes { grid-template-columns: var(--pane-parts, 208px) 0 minmax(0, 1fr) 0 var(--pane-ins, clamp(320px, 27vw, 400px)); }
-.fpe-panes.rail { grid-template-columns: 72px 0 minmax(0, 1fr) 0 var(--pane-ins, clamp(320px, 27vw, 400px)); }
-.fpe-panes.md { grid-template-columns: minmax(0, 1fr) 0 var(--pane-ins, clamp(320px, 30vw, 460px)); }
+.fpe-panes { grid-template-columns: var(--pane-parts, 208px) var(--gut) minmax(0, 1fr) var(--gut) var(--pane-ins, clamp(320px, 27vw, 400px)); }
+.fpe-panes.rail { grid-template-columns: 72px 0 minmax(0, 1fr) var(--gut) var(--pane-ins, clamp(320px, 27vw, 400px)); }
+.fpe-panes.md { grid-template-columns: minmax(0, 1fr) var(--gut) var(--pane-ins, clamp(320px, 30vw, 460px)); }
 .fpe-tabpanel { padding: 16px 16px 48px; }
 .fpe-alerts .notice { padding: 6px 10px; font-size: 13px; }
 .fpe-alerts .notice .btn { padding: 4px 10px; }
@@ -1563,23 +1521,14 @@ p.pv-when { margin: 0 0 4px; }
 .ob-findparts { display: none; }
 /* The rail keeps a way to the names: Find parts, and each part's name on hover or focus. */
 .fpe-panes.rail .ob-findparts { display: inline-flex; flex-direction: column; gap: 2px; font-size: 11px; line-height: 1.1; padding: 6px 4px; text-align: center; }
-.fpe-panes.rail .ob-part:hover::after, .fpe-panes.rail .ob-part:focus-visible::after { content: attr(data-tip); position: fixed; margin-left: 52px; z-index: 30; padding: 6px 8px; border-radius: 6px; background: var(--ink); color: var(--card); font-size: 13px; font-weight: 600; white-space: nowrap; pointer-events: none; }
+.fpe-panes.rail .ob-part:focus-visible::after { content: attr(data-tip); position: fixed; margin-left: 52px; z-index: 30; padding: 6px 8px; border-radius: 6px; background: var(--ink); color: var(--card); font-size: 13px; font-weight: 600; white-space: nowrap; pointer-events: none; } @media screen and (hover: hover) { .fpe-panes.rail .ob-part:hover::after { content: attr(data-tip); position: fixed; margin-left: 52px; z-index: 30; padding: 6px 8px; border-radius: 6px; background: var(--ink); color: var(--card); font-size: 13px; font-weight: 600; white-space: nowrap; pointer-events: none; } }
 @media (min-width: 801px) and (max-width: 1100px) {
-  .fpe-panes, .fpe-panes.rail { grid-template-columns: 72px 0 minmax(0, 1fr) 0 var(--pane-ins, clamp(300px, 34vw, 360px)); }
+  .fpe-panes, .fpe-panes.rail { grid-template-columns: 72px 0 minmax(0, 1fr) var(--gut) var(--pane-ins, clamp(300px, 34vw, 360px)); }
   .ob-findparts { display: inline-flex; flex-direction: column; gap: 2px; font-size: 11px; line-height: 1.1; padding: 6px 4px; text-align: center; }
-  .fpe-parts .ob-part:hover::after, .fpe-parts .ob-part:focus-visible::after { content: attr(data-tip); position: fixed; margin-left: 52px; z-index: 30; padding: 6px 8px; border-radius: 6px; background: var(--ink); color: var(--card); font-size: 13px; font-weight: 600; white-space: nowrap; pointer-events: none; }
+  .fpe-parts .ob-part:focus-visible::after { content: attr(data-tip); position: fixed; margin-left: 52px; z-index: 30; padding: 6px 8px; border-radius: 6px; background: var(--ink); color: var(--card); font-size: 13px; font-weight: 600; white-space: nowrap; pointer-events: none; } @media screen and (hover: hover) { .fpe-parts .ob-part:hover::after { content: attr(data-tip); position: fixed; margin-left: 52px; z-index: 30; padding: 6px 8px; border-radius: 6px; background: var(--ink); color: var(--card); font-size: 13px; font-weight: 600; white-space: nowrap; pointer-events: none; } }
 }
-@media (max-width: 800px) {
-  /* Phone: who it is and Save, then the tools, then the save state and Discard on their own row. */
-  .fpe-head { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "id save" "tools tools" "state state"; }
-  .fpe-save { display: contents; }
-  .fpe-save > .btn { grid-area: save; }
-  .fpe-savestate { grid-area: state; justify-content: space-between; }
-  .fpe-savestate:not(:has(.dirty)):not(:has(.just)) { display: none; }
-  .fpe-head .btn, .fpe-head .mini, .fpe-head .seg button, .fpe-head .chipbtn { min-height: 44px; }
+@media (max-width: 800px) {/* Phone: who it is and Save, then the tools, then the save state and Discard on their own row. */
   .fpe-state { width: auto; }
-  .fpe-head .seg button { padding: 7px 10px; }
-  .fpe-tools { gap: 6px; }
   .fpe input, .fpe select, .fpe textarea { font-size: 16px; }
   .ob.placing .ob-dest, .ob.placing .ob-slot.v .ob-dest { min-height: 44px; }
   /* The properties sheet: a scrim behind it, its heading and Done always in reach. */
@@ -1587,33 +1536,21 @@ p.pv-when { margin: 0 0 4px; }
   .ob-form-top { position: sticky; top: 0; z-index: 1; margin: 0 -16px; padding: 12px 16px 10px; background: var(--card); border-bottom: 1px solid var(--line); }
   .ob-form-top .mini { min-height: 44px; padding: 6px 14px; }
   .ob-help { display: block; }
-}
-/* ---------- The run workspace: a page of its own, like the draft editor ---------- */
-html.rw-on .top { display: none; }
-html.rw-page .top { display: none; }
+}/* ---------- The run workspace: a page of its own, like the draft editor ---------- */
 html.rw-on #app { padding: 0; max-width: none; }
 @media (min-width: 801px) { html.rw-on, html.rw-on body { overflow: hidden; } }
 .fpe.rw { grid-template-rows: auto auto auto minmax(0, 1fr); }
-.fpe-head.rw-head { grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "id prog tools"; padding: 8px 16px; }
-.rw-head .fpe-id { grid-area: id; }
-.rw-head .fpe-title h1 { font-size: 22px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
 .rw-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .rw-sub .linkish { font-size: inherit; }
-.rw-prog { grid-area: prog; display: flex; align-items: center; gap: 8px; }
 .rw-bar { width: 150px; height: 8px; border-radius: 99px; background: var(--chip); overflow: hidden; box-shadow: inset 0 0 0 1px var(--line); }
 .rw-bar i { display: block; height: 100%; background: var(--go); border-radius: 99px; transform-origin: left; }
-.rw-prog b { font-family: var(--display); font-size: 19px; font-variant-numeric: tabular-nums; }
-.rw-tools { grid-area: tools; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .rw-head .btn, .rw-head .mini, .rw-menu summary { min-height: 36px; }
-.rw-me { font-size: 13px; color: var(--muted); padding-left: 6px; border-left: 1px solid var(--line); white-space: nowrap; }
-.rw-me b { color: var(--ink); }
 .rw-menu { position: relative; }
 .rw-menu summary { list-style: none; cursor: pointer; }
 .rw-menu summary::-webkit-details-marker { display: none; }
 .rw-menu[open] summary { color: var(--ink); border-color: var(--ink); }
 .rw-menu-list { position: absolute; right: 0; top: calc(100% + 4px); z-index: 12; min-width: 220px; display: flex; flex-direction: column; gap: 4px; padding: 6px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, .18); }
 .rw-menu-list .mini { justify-content: flex-start; min-height: 40px; width: 100%; }
-.rw-menu-list .rw-m-phone { display: none; }
 /* The strip: who records with its control, the run's key details, then what's saved. */
 .rw-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 6px 16px; border-bottom: 1px solid var(--line); background: var(--chip); font-size: 13.5px; min-width: 0; }
 .rw-strip[data-k="who"] { background: var(--amber-soft); }
@@ -1645,7 +1582,7 @@ html.rw-on #app { padding: 0; max-width: none; }
 .rw-rail { border-right: 1px solid var(--line); padding: 14px 10px 32px; display: flex; flex-direction: column; gap: 8px; }
 .rw-phases { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .rw-ph { display: grid; grid-template-columns: 26px minmax(0, 1fr) auto; gap: 8px; align-items: center; width: 100%; text-align: left; border: 1px solid transparent; background: none; border-radius: 8px; padding: 7px 8px; min-height: 44px; }
-.rw-ph:hover { background: var(--card); border-color: var(--line); }
+@media screen and (hover: hover) { .rw-ph:hover { background: var(--card); border-color: var(--line); } }
 .rw-ph .num { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-family: var(--mono); font-size: 12px; border: 1.5px solid var(--field); }
 .rw-ph[data-s="done"] .num { background: var(--go); border-color: var(--go); color: var(--card); }
 .rw-ph[data-s="current"] { background: var(--card); border-color: var(--line); box-shadow: inset 3px 0 0 var(--amber); }
@@ -1692,7 +1629,7 @@ html.rw-on #app { padding: 0; max-width: none; }
 .rw .steps { padding: 4px; }
 .rw .step { grid-template-columns: 32px minmax(0, 1fr) auto; gap: 8px; padding: 4px 8px; border-top: 0; border-radius: 8px; align-items: center; }
 .rw .steps .step + .step { margin-top: 2px; }
-.rw .step:hover { background: var(--paper); }
+@media screen and (hover: hover) { .rw .step:hover { background: var(--paper); } }
 .rw .step.next { box-shadow: inset 4px 0 0 var(--amber); background: var(--amber-soft); }
 .rw .step.sel { background: var(--card); box-shadow: inset 0 0 0 2px var(--focus); }
 .rw .step.sel.next { box-shadow: inset 4px 0 0 var(--amber), inset 0 0 0 2px var(--focus); }
@@ -1840,13 +1777,13 @@ h3.fixgroup { font-family: var(--body); font-size: 14px; letter-spacing: 0; }
 .att { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; min-height: 36px; padding: 4px 10px; border: 1px solid var(--field); border-radius: 8px; background: var(--paper); color: var(--ink); font-size: 13px; text-align: left; }
 .att .att-n { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 200px; font-weight: 600; }
 .att .att-do { color: var(--focus); text-decoration: underline; }
-button.att:hover { border-color: var(--ink); }
+@media screen and (hover: hover) { button.att:hover { border-color: var(--ink); } }
 .att-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .att-list .att { display: flex; background: var(--card); }
 .att-list .att .mini { margin-left: auto; }
 .wc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .wc-row { width: 100%; text-align: left; border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 8px; padding: 10px 12px; min-height: 44px; cursor: pointer; }
-.wc-row:hover:not([disabled]) { border-color: var(--amber); }
+@media screen and (hover: hover) { .wc-row:hover:not([disabled]) { border-color: var(--amber); } }
 .wc-row[disabled] { color: var(--muted); cursor: not-allowed; }
 .ev-box { background: var(--card); color: var(--ink); border-radius: 12px; padding: 18px 20px; width: min(560px, 100%); max-height: calc(100vh - var(--keep-h) - 32px); overflow: auto; overscroll-behavior: contain; display: flex; flex-direction: column; gap: 10px; box-sizing: border-box; }
 .ev-box p { margin: 0; }
@@ -1885,33 +1822,19 @@ button.att:hover { border-color: var(--ink); }
   .rw-rail { display: none; }
   .rw-picker { display: flex; }
   .rw-bar { width: 80px; }
-  .rw-me { display: none; }
 }
-@media (max-width: 1240px) { .fpe-head.rw-head { grid-template-columns: minmax(0, 1fr) auto auto; grid-template-areas: "id prog tools"; } }
+
 /* Phones: one scrolling checklist; the selected step is a full-screen sheet with Close, Previous and Next. */
 @media (max-width: 800px) {
-  html.rw-on .top { display: none; }
   .fpe.rw { position: static; display: block; min-height: 100vh; }
-  .fpe-head.rw-head { position: sticky; top: 0; z-index: 6; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "id tools" "prog prog"; padding: 6px 12px; gap: 4px 8px; }
-  .rw-head .fpe-title h1 { font-size: 18px; }
   .rw-head .btn, .rw-head .mini, .rw-menu summary { min-height: 44px; }
   .rw-back { padding: 6px 10px; }
-  .rw-tools [data-act="run-details"], .rw-tools [data-act="mission"], .rw-tools > [data-act="receipt"]:not(.go) { display: none; }
 }
 /* Small phones: the run's title gets a row of its own under the way back, Finish the run and More, so it isn't cut short. */
-@media (max-width: 480px) {
-  .fpe-head.rw-head:not(.ws-head) { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "back tools" "title title" "prog prog"; }
-  .rw-head:not(.ws-head) .fpe-id { display: contents; }
-  .rw-head:not(.ws-head) .fpe-id > .backc { grid-area: back; justify-self: start; }
-  .rw-head:not(.ws-head) .fpe-title { grid-area: title; min-width: 0; }
-}
+
 @media (max-width: 800px) {
-  .fpe-head.rw-head.pr-head { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-areas: "id" "prog" "tools"; }
-  .pr-head .fpe-title { flex: 1 1 0; }
-  .pr-head .rw-tools { justify-content: flex-start; }
   .rw-menu-list { position: fixed; left: 12px; right: 12px; top: auto; min-width: 0; }
   .rw-menu-list .mini { min-height: 44px; }
-  .rw-menu-list .rw-m-phone { display: inline-flex; }
   .rw-strip .rw-chips { display: none; }
   .rw-bar { flex: 1; width: auto; }
   .rw-strip { padding: 6px 12px; }
@@ -1921,9 +1844,9 @@ button.att:hover { border-color: var(--ink); }
   .rw-list { padding: 0 12px 32px; overflow: visible; }
   /* On a phone only Next up stays pinned; the picker scrolls away with the checklist. */
   .rw-dock { display: contents; }
-  .rw-next { position: sticky; top: var(--rw-head-h, 0px); z-index: 4; margin: 0 -12px; padding: 8px 12px; }
+  .rw-next { position: sticky; top: var(--hd-h, 0px); z-index: 4; margin: 0 -12px; padding: 8px 12px; }
   .rw-picker { margin: 0 -12px 12px; padding: 6px 12px; }
-  .rw .step, .rw .gate, .rw .phase { scroll-margin-top: calc(var(--rw-head-h, 0px) + var(--rw-next-h, 72px) + 12px); }
+  .rw .step, .rw .gate, .rw .phase { scroll-margin-top: calc(var(--hd-h, 0px) + var(--rw-next-h, 72px) + 12px); }
   /* A finished phase takes little room: its title, the tally and a short approval line. */
   .rw .phase[data-s="done"] .placard { padding: 6px 12px 6px 22px; }
   .rw .phase[data-s="done"] .p-title { font-size: 17px; }
@@ -2053,7 +1976,6 @@ button.att:hover { border-color: var(--ink); }
 /* Practice (2.2): calm, never alarming. "Try it again" is soft amber, not an error. */
 .fpe-practice { display: inline-flex; gap: 6px; align-items: center; font-weight: 600; }
 .fpe-practice[aria-pressed="true"] { background: var(--go-soft); border-color: var(--go); }
-.pr-badge { margin: 0; font: 600 13px var(--body); letter-spacing: .02em; color: var(--go); background: var(--go-soft); border-radius: 99px; padding: 3px 10px; }
 .pr-note { margin: 0; }
 .pr-fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; margin-top: 6px; }
 .pr-from { margin: 0; padding: 6px 8px; border-radius: 8px; background: var(--chip); }
@@ -2068,53 +1990,47 @@ b, strong { font-weight: 700; }
    filled colors stay theirs; filled buttons use the fill tints. Press and lift skip disabled controls, native or aria. Only
    color, shadow, opacity and transform move. Screen only: printing is unchanged. */
 @media screen {
-  .btn, .mini, .chipbtn, .seg button, .mainnav button, [role="tab"], .check, .card, .tile, .ob-chip, .su-choice, .su-tpl, summary, .rw .step, .ob-part, .ob-step,
-  input:not([type="checkbox"]):not([type="file"]):not([type="hidden"]), select, textarea {
+  .btn, .mini, .chipbtn, .seg button, .mainnav button, [role="tab"], .check, .card, .tile, .ob-chip, .su-choice, .su-tpl, summary, .rw .step, .ob-part, .ob-step, input:not([type="checkbox"]):not([type="file"]):not([type="hidden"]), select, textarea {
     transition: background-color var(--t) var(--ease), border-color var(--t) var(--ease), color var(--t) var(--ease), box-shadow var(--t) var(--ease), opacity var(--t) var(--ease), transform var(--t-fast) var(--ease);
   }
   .btn { border-radius: 9px; box-shadow: 0 1px 2px rgba(22,32,42,.06); }
   .btn.primary, .btn.go, .btn.stop, .hero .btn { box-shadow: inset 0 1px 0 rgba(255,255,255,.14), 0 1px 2px rgba(0,0,0,.18), 0 4px 12px -4px rgba(0,0,0,.25); }
-  .btn:hover:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--hov), var(--hov)); box-shadow: var(--lift); }
-  .btn.primary:hover:not(:disabled):not([aria-disabled="true"]), .btn.go:hover:not(:disabled):not([aria-disabled="true"]), .btn.stop:hover:not(:disabled):not([aria-disabled="true"]), .hero .btn:hover:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--hov-fill), var(--hov-fill)); }
-  /* Green and red move away from their text: darker under white text, lighter under dark text, so hover never costs contrast. */
-  .btn.go:hover:not(:disabled):not([aria-disabled="true"]), .btn.stop:hover:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--deep-hov), var(--deep-hov)); }
+  @media (hover: hover) { .btn:hover:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--hov), var(--hov)); box-shadow: var(--lift); } }
   .btn:active:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--prs), var(--prs)); transform: translateY(1px) scale(.98); box-shadow: none; }
-  .btn.primary:active:not(:disabled):not([aria-disabled="true"]), .btn.go:active:not(:disabled):not([aria-disabled="true"]), .btn.stop:active:not(:disabled):not([aria-disabled="true"]), .hero .btn:active:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--prs-fill), var(--prs-fill)); }
-  .btn.go:active:not(:disabled):not([aria-disabled="true"]), .btn.stop:active:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--deep-prs), var(--deep-prs)); }
 
   .mini { border-radius: 7px; }
-  .mini:hover:not(:disabled):not([aria-disabled="true"]), .fpe .mini:hover:not(:disabled):not([aria-disabled="true"]), .plist .tcard button.mini:hover:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--hov), var(--hov)); color: var(--ink); border-color: var(--edge-strong); }
+  @media (hover: hover) { .mini:hover:not(:disabled):not([aria-disabled="true"]), .fpe .mini:hover:not(:disabled):not([aria-disabled="true"]), .plist .tcard button.mini:hover:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--hov), var(--hov)); color: var(--ink); border-color: var(--edge-strong); } }
   .mini:active:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--prs), var(--prs)); transform: translateY(1px) scale(.97); }
 
-  .chipbtn:hover:not(:disabled):not([aria-disabled="true"]), button.ob-chip:hover:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--hov), var(--hov)); }
-  .chipbtn[aria-pressed="true"]:hover:not(:disabled):not([aria-disabled="true"]), button.ob-chip[aria-pressed="true"]:hover:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--hov-fill), var(--hov-fill)); }
+  @media (hover: hover) { .chipbtn:hover:not(:disabled):not([aria-disabled="true"]), button.ob-chip:hover:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--hov), var(--hov)); } }
+  @media (hover: hover) { .chipbtn[aria-pressed="true"]:hover:not(:disabled):not([aria-disabled="true"]), button.ob-chip[aria-pressed="true"]:hover:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--hov-fill), var(--hov-fill)); } }
   .chipbtn:active:not(:disabled):not([aria-disabled="true"]), button.ob-chip:active:not(:disabled):not([aria-disabled="true"]) { transform: scale(.96); }
 
   .mainnav button { border-radius: 99px; }
-  .mainnav button:hover:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--hov), var(--hov)); }
-  .mainnav button[aria-current="page"]:hover:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--hov-fill), var(--hov-fill)); }
+  @media (hover: hover) { .mainnav button:hover:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--hov), var(--hov)); } }
+  @media (hover: hover) { .mainnav button[aria-current="page"]:hover:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--hov-fill), var(--hov-fill)); } }
   .mainnav button:active:not(:disabled):not([aria-disabled="true"]) { transform: scale(.96); }
 
-  .seg button:hover:not([aria-checked="true"]):not([aria-pressed="true"]):not(:disabled) { background-color: var(--hov); color: var(--ink); }
+  @media (hover: hover) { .seg button:hover:not([aria-checked="true"]):not([aria-pressed="true"]):not(:disabled) { background-color: var(--hov); color: var(--ink); } }
   .seg button:active:not(:disabled):not([aria-disabled="true"]) { transform: scale(.97); }
   .seg button:focus-visible { outline-offset: 1px; }
 
-  .fpe-tabs [role="tab"]:hover:not([aria-selected="true"]) { color: var(--ink); border-bottom-color: color-mix(in srgb, var(--amber) 40%, transparent); }
+  @media (hover: hover) { .fpe-tabs [role="tab"]:hover:not([aria-selected="true"]) { color: var(--ink); border-bottom-color: color-mix(in srgb, var(--amber) 40%, transparent); } }
   [role="tab"]:active:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--prs), var(--prs)); }
 
   summary { border-radius: 6px; }
-  summary:hover { color: var(--ink); background-image: linear-gradient(var(--hov), var(--hov)); }
+  @media (hover: hover) { summary:hover { color: var(--ink); background-image: linear-gradient(var(--hov), var(--hov)); } }
   summary:active { background-image: linear-gradient(var(--prs), var(--prs)); }
 
-  button.card:hover:not(:disabled):not([aria-disabled="true"]), .tile:hover:not(:disabled):not([aria-disabled="true"]), .su-choice:hover:not(:disabled):not([aria-disabled="true"]), .su-tpl:hover:not(:disabled):not([aria-disabled="true"]) { transform: translateY(-2px); box-shadow: var(--lift-hi); }
-  .tile.warn:hover:not(:disabled):not([aria-disabled="true"]) { box-shadow: var(--lift-hi); }
-  button.card.plan:hover { border-color: var(--plan); }
+  @media (hover: hover) { button.card:hover:not(:disabled):not([aria-disabled="true"]), .tile:hover:not(:disabled):not([aria-disabled="true"]), .su-choice:hover:not(:disabled):not([aria-disabled="true"]), .su-tpl:hover:not(:disabled):not([aria-disabled="true"]) { transform: translateY(-2px); box-shadow: var(--lift-hi); } }
+  @media (hover: hover) { .tile.warn:hover:not(:disabled):not([aria-disabled="true"]) { box-shadow: var(--lift-hi); } }
+  @media (hover: hover) { button.card.plan:hover { border-color: var(--plan); } }
   button.card:active:not(:disabled):not([aria-disabled="true"]), .tile:active:not(:disabled):not([aria-disabled="true"]), .su-choice:active:not(:disabled):not([aria-disabled="true"]), .su-tpl:active:not(:disabled):not([aria-disabled="true"]) { transform: translateY(0); box-shadow: var(--lift); }
 
   /* Run rows: a tint over the row's own color; the Next up bar, the selection outline and red or amber stay. */
-  .rw .step:hover { background-image: linear-gradient(var(--hov), var(--hov)); }
-  .check:hover:not(:disabled):not([aria-disabled="true"]) { box-shadow: 0 0 0 4px color-mix(in srgb, var(--go) 18%, transparent); }
-  .step:not([data-a="blocked"]):not([data-a="done"]) .check:hover:not(:disabled):not([aria-disabled="true"]) { border-color: var(--go); }
+  @media (hover: hover) { .rw .step:hover { background-image: linear-gradient(var(--hov), var(--hov)); } }
+  @media (hover: hover) { .check:hover:not(:disabled):not([aria-disabled="true"]) { box-shadow: 0 0 0 4px color-mix(in srgb, var(--go) 18%, transparent); } }
+  @media (hover: hover) { .step:not([data-a="blocked"]):not([data-a="done"]) .check:hover:not(:disabled):not([aria-disabled="true"]) { border-color: var(--go); } }
   .check:active:not(:disabled):not([aria-disabled="true"]) { transform: scale(.9); }
   .step[data-a="done"] .check { box-shadow: 0 2px 8px -2px color-mix(in srgb, var(--go) 60%, transparent); }
   .check:disabled { border-color: var(--edge-strong); }
@@ -2123,26 +2039,26 @@ b, strong { font-weight: 700; }
   .check svg { transition: opacity var(--t) var(--ease), transform 320ms var(--spring); }
 
   /* Builder rows: the whole row strengthens and lifts; selected and incoming insets stay. */
-  .ob-step:hover:not(.sel) { border-color: var(--edge-strong); box-shadow: var(--lift); }
-  .ob-step.sel:hover { box-shadow: inset 3px 0 0 var(--amber), var(--lift); }
-  .ob-step.ob-inc:hover:not(.sel) { box-shadow: inset 4px 0 0 var(--incoming), var(--lift); }
-  .ob-step.ob-inc.sel:hover { box-shadow: inset 4px 0 0 var(--incoming), inset 7px 0 0 var(--amber), var(--lift); }
-  .ob-step.lifted, .ob-step.lifted:hover { box-shadow: 0 10px 22px rgba(0, 0, 0, .22); }
-  .ob-part:hover { border-color: var(--edge-strong); background-color: var(--paper); box-shadow: var(--lift); }
-  .ob-part[aria-pressed="true"]:hover { border-color: var(--focus); box-shadow: 0 0 0 2px var(--focus), var(--lift); }
+  @media (hover: hover) { .ob-step:hover:not(.sel) { border-color: var(--edge-strong); box-shadow: var(--lift); } }
+  @media (hover: hover) { .ob-step.sel:hover { box-shadow: inset 3px 0 0 var(--amber), var(--lift); } }
+  @media (hover: hover) { .ob-step.ob-inc:hover:not(.sel) { box-shadow: inset 4px 0 0 var(--incoming), var(--lift); } }
+  @media (hover: hover) { .ob-step.ob-inc.sel:hover { box-shadow: inset 4px 0 0 var(--incoming), inset 7px 0 0 var(--amber), var(--lift); } }
+  .ob-step.lifted { box-shadow: 0 10px 22px rgba(0, 0, 0, .22); } @media (hover: hover) { .ob-step.lifted:hover { box-shadow: 0 10px 22px rgba(0, 0, 0, .22); } }
+  @media (hover: hover) { .ob-part:hover { border-color: var(--edge-strong); background-color: var(--paper); box-shadow: var(--lift); } }
+  @media (hover: hover) { .ob-part[aria-pressed="true"]:hover { border-color: var(--focus); box-shadow: 0 0 0 2px var(--focus), var(--lift); } }
 
   /* Switches: a halo on hover; disabled reads as disabled. */
-  .tf-switch input[type="checkbox"]:hover:not(:disabled) { background-image: linear-gradient(var(--prs-fill), var(--prs-fill)); box-shadow: 0 0 0 4px var(--hov); }
+  @media (hover: hover) { .tf-switch input[type="checkbox"]:hover:not(:disabled) { background-image: linear-gradient(var(--prs-fill), var(--prs-fill)); box-shadow: 0 0 0 4px var(--hov); } }
   .tf-switch input[type="checkbox"]:disabled { opacity: .5; cursor: not-allowed; }
-  .ev-switch:hover:not(:disabled):not([aria-disabled="true"]) .ev-knob { background-image: linear-gradient(var(--prs-fill), var(--prs-fill)); box-shadow: 0 0 0 4px var(--hov); }
+  @media (hover: hover) { .ev-switch:hover:not(:disabled):not([aria-disabled="true"]) .ev-knob { background-image: linear-gradient(var(--prs-fill), var(--prs-fill)); box-shadow: 0 0 0 4px var(--hov); } }
   .ev-switch:active:not(:disabled):not([aria-disabled="true"]) .ev-knob { transform: scale(.94); }
   .ev-switch:disabled { opacity: .5; cursor: not-allowed; }
   .ev-knob { transition: background-color var(--t) var(--ease), border-color var(--t) var(--ease), box-shadow var(--t) var(--ease), transform var(--t-fast) var(--ease); }
 
   /* Fields: the edge darkens on hover and turns the focus color with a soft ring while typing; invalid stays red. */
-  input:not([type="checkbox"]):not([type="file"]):not([type="hidden"]):not([aria-invalid="true"]):not([readonly]):not(:disabled):hover, select:not([aria-invalid="true"]):not([readonly]):not(:disabled):hover, textarea:not([aria-invalid="true"]):not([readonly]):not(:disabled):hover { --field-edge: var(--muted); }
+  @media (hover: hover) { input:not([type="checkbox"]):not([type="file"]):not([type="hidden"]):not([aria-invalid="true"]):not([readonly]):not(:disabled):hover, select:not([aria-invalid="true"]):not([readonly]):not(:disabled):hover, textarea:not([aria-invalid="true"]):not([readonly]):not(:disabled):hover { --field-edge: var(--muted); } }
   input:not([type="checkbox"]):not([type="file"]):not([type="hidden"]):not([aria-invalid="true"]):not([readonly]):not(:disabled):focus-visible, select:not([aria-invalid="true"]):not([readonly]):not(:disabled):focus-visible, textarea:not([aria-invalid="true"]):not([readonly]):not(:disabled):focus, input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]):not([aria-invalid="true"]):not([readonly]):not(:disabled):focus { --field-edge: var(--focus); }
-  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]):not([readonly]):not(:disabled):focus, select:not([readonly]):not(:disabled):focus-visible, textarea:not([readonly]):not(:disabled):focus { outline-color: transparent; box-shadow: var(--ring); }
+  input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]):not([readonly]):not(:disabled):focus, select:not([readonly]):not(:disabled):focus-visible, textarea:not([readonly]):not(:disabled):not(.code-editor):focus { outline-color: transparent; box-shadow: var(--ring); }
   input[readonly]:not([type="checkbox"]):not([type="file"]):not([type="hidden"]), textarea[readonly], input:disabled:not([type="checkbox"]):not([type="file"]):not([type="hidden"]), select:disabled, textarea:disabled { background-color: var(--paper); color: var(--muted); }
 
   .fp-gate:not(.implicit)::before { border-bottom-left-radius: 6px; }
@@ -2184,48 +2100,269 @@ body { padding-top: var(--keep-h); }
 @media (max-width: 800px) {
   html.tab-only { --keep-h: calc(26px + env(safe-area-inset-top, 0px)); }
   .tab-badge { font-size: 13px; }
-  .fpe-head, .fpe-type .fpe-head, .fpe-head.rw-head, .rw-ins[data-open="true"] { top: var(--keep-h); }
-  .rw-next { top: calc(var(--keep-h) + var(--rw-head-h, 0px)); }
-  .rw .step, .rw .gate, .rw .phase { scroll-margin-top: calc(var(--keep-h) + var(--rw-head-h, 0px) + var(--rw-next-h, 72px) + 12px); }
-}
-/* 2.16: the workspace's one header (editor and practice): back | views | tools | the primary. */
-/* Wide: three columns, the view control centered, so it stays put whether or not a primary shows; tools and primary on the right. */
-.fpe-head.ws-head, .fpe-head.ws-head.rw-head { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); grid-template-areas: "id views right"; align-items: center; gap: 8px 12px; }
-.ws-head .ws-right { grid-area: right; display: flex; justify-content: flex-end; align-items: center; gap: 8px 12px; min-width: 0; flex-wrap: wrap; }
-.ws-head .fpe-id { grid-area: id; min-width: 0; }
-.ws-head .fpe-id .backc { max-width: 100%; }
-.ws-head .fpe-title { flex: 0 1 auto; min-width: 0; }
-.ws-head .ws-views { grid-area: views; margin: 0; border-bottom: 0; }
-.ws-head .ws-views button { min-height: 36px; padding: 6px 12px; }
-.ws-head .fpe-tools { grid-area: tools; }
-.ws-head .fpe-save { grid-area: save; }
-.ws-head .btn.go[aria-disabled="true"] { background: var(--chip); color: var(--muted); border-color: var(--line); }
+  .rw-ins[data-open="true"] { top: var(--keep-h); }
+  .rw-next { top: calc(var(--keep-h) + var(--hd-h, 0px)); }
+  .rw .step, .rw .gate, .rw .phase { scroll-margin-top: calc(var(--keep-h) + var(--hd-h, 0px) + var(--rw-next-h, 72px) + 12px); }
+}/* 2.16: the workspace's one header (editor and practice): back | views | tools | the primary. */ /* Wide: three columns, the view control centered, so it stays put whether or not a primary shows; tools and primary on the right. */
 .ws-why { margin: 4px 16px; }
-.ws-head .fpe-state { width: auto; justify-content: flex-start; text-align: left; }
-@media (max-width: 1240px) { .fpe-head.ws-head, .fpe-head.ws-head.rw-head { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "id save" "views views" "tools tools"; } .ws-head .ws-right { display: contents; } }
-@media (max-width: 800px) {
-  .fpe-head.ws-head, .fpe-head.ws-head.rw-head, .fpe-head.rw-head.pr-head.ws-head { grid-template-columns: minmax(0, 1fr) minmax(0, max-content); grid-template-areas: "id save" "views views" "tools tools"; }
-  .ws-head .fpe-save { max-width: 50vw; }
-  .ws-head .fpe-save .btn { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
-  .ws-head .fpe-id { flex-wrap: wrap; gap: 2px 8px; }
-  .ws-head .fpe-id .fpe-title { flex: 1 1 100%; }
-  .ws-head .ws-test { display: block; }
-  .ws-head .ws-views { display: flex; }
-  .ws-head .ws-views button { flex: 1 1 0; }
-  .ws-head .backc .backc-t { min-width: 10ch; }
-}
+
 /* Row 3's More (2.2): wider, its tools sit in the row and its button is hidden; on a phone they go in More at the row's end. */
-.ws-more-btn { display: none; }
-.ws-more, .ws-more-list { display: contents; }
-@media (max-width: 480px) {
-  .ws-head .fpe-tools { flex-wrap: nowrap; gap: 6px; }
-  .ws-head .fpe-tools .undobar { flex-wrap: nowrap; gap: 4px; }
-  .ws-head .fpe-tools .seg button { padding: 6px 8px; }
-  .ws-head .fpe-tools .mini { padding: 3px 7px; gap: 4px; }
-  .ws-more { display: block; position: relative; margin-left: auto; }
-  .ws-more-btn { display: inline-flex; }
-  .ws-more-list { display: none; position: absolute; right: 0; top: calc(100% + 4px); z-index: 12; min-width: 200px; flex-direction: column; align-items: stretch; gap: 4px; padding: 6px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 10px 30px rgba(0, 0, 0, .18); }
-  .ws-more-list.open { display: flex; }
+
+/* ---------- one header (2.16, docs/design.md section 34) ----------
+   Row 1 (header.hd) is the same on every work screen and the checklist page: LEFT the way back, the title and the status line;
+   CENTER the view switch; RIGHT progress, the actions and More; then the reason line for a held primary. The markup is in that
+   order at every width and nothing reorders it: each breakpoint only decides where the boxes wrap. The tool row (.tr) holds the
+   timeline, how you work, panels and the facts. Sizes and states are the affordance recipes' (below). */
+html.work-on .top { display: none; }
+.hd { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 8px max(16px, env(safe-area-inset-right, 0px)) 8px max(16px, env(safe-area-inset-left, 0px)); background: var(--card); border-bottom: 1px solid var(--line); min-width: 0; }
+.hd-l { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 12px; min-width: 0; flex: 1 1 320px; }
+.hd-l > .backc { max-width: min(30ch, 100%); flex: 0 1 auto; }
+.hd-id { display: flex; flex-direction: column; min-width: 0; flex: 1 1 12rem; }
+.hd-id h1 { margin: 0; font-size: 22px; line-height: 1.15; display: flex; gap: 4px 8px; align-items: baseline; min-width: 0; overflow-wrap: anywhere; }
+.hd-id h1:focus, .hd-id h1:focus-visible { outline: none; }
+.hd-st { margin: 0; font-size: 12.5px; color: var(--muted); display: flex; flex-wrap: wrap; align-items: center; gap: 2px 6px; min-width: 0; }
+.hd-st .d { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex: 0 1 auto; }
+.hd-st .d + .d::before, .hd-st .act + .d::before, .hd-st .d + .act::before { content: "·" / ""; margin-right: 6px; color: var(--muted); }
+.hd-st .act { flex: none; display: inline-flex; align-items: center; }
+.hd-st .linkish { white-space: normal; text-align: left; overflow-wrap: anywhere; }
+.hd-st .fpe-state.dirty { color: var(--ink); font-weight: 600; }
+.hd-c { flex: 0 0 auto; }
+.hd-c .pviews { margin: 0; }
+.hd-r { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; margin-left: auto; min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
+.hd-prog { display: flex; align-items: center; gap: 8px; }
+.hd-bar { width: 120px; flex: none; }
+.hd-prog b { font-family: var(--display); font-size: 19px; font-variant-numeric: tabular-nums; }
+.hd-acts { display: flex; align-items: center; gap: 8px; flex: none; }
+.hd-acts .btn.go[aria-disabled="true"] { background: var(--chip); color: var(--muted); border-color: var(--line); }
+.hd-why { flex: 1 1 100%; margin: 0; font-size: 12.5px; color: var(--muted); text-align: right; display: flex; gap: 8px; justify-content: flex-end; align-items: center; flex-wrap: wrap; }
+.hd-why.tf-why { color: var(--stop); font-weight: 600; }
+.phd .hd-id h1 { font-size: 30px; }
+@media (min-width: 1180px) {
+  .hd { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+  .hd-r { justify-self: end; }
+  .hd-why { grid-column: 1 / -1; }
+}
+@media (max-width: 1179px) { .hd-prog .w { display: none; } .hd-c:empty { display: none; } }
+/* The tool row: timeline | how you work | panels ....... facts. Never sticky. */
+.tr { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 6px max(16px, env(safe-area-inset-right, 0px)) 6px max(16px, env(safe-area-inset-left, 0px)); background: var(--chip); border-bottom: 1px solid var(--line); font-size: 13.5px; min-width: 0; }
+.tr[data-k="who"] { background: var(--amber-soft); }
+.tr[data-k="paused"] { background: var(--plan-soft); }
+.tr[data-k="ended"], .tr[data-k="ready"] { background: var(--go-soft); }
+.tr[data-k="ro"] { background: var(--stop-soft); }
+.tg { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.tg + .tg { padding-left: 10px; margin-left: 2px; border-left: 1px solid var(--line); }
+.tg:empty { display: none; }
+.tr .rw-who { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; min-width: 0; }
+.me-id { white-space: nowrap; }
+.me-id b { font-weight: 600; }
+.facts { margin-left: auto; display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 12.5px; color: var(--muted); min-width: 0; justify-content: flex-end; }
+.tag.pr { font: 600 11px/1.3 var(--body); letter-spacing: .04em; text-transform: uppercase; padding: 2px 7px; border-radius: 4px; background: var(--go-soft); color: var(--go); }
+/* More: one layer on every work screen. It opens under its opener, capped at the room left in the viewport (app.js moreFit);
+   with too little room it is contained in the viewport, under the banner. */
+.more { position: relative; flex: none; }
+.more-list { position: absolute; right: 0; top: calc(100% + 6px); z-index: 12; width: min(290px, calc(100vw - 24px)); display: flex; flex-direction: column; gap: 2px; overflow-y: auto; overscroll-behavior: contain; padding: 6px; background: var(--card); border: 1px solid var(--field); border-radius: 10px; }
+@media screen { .more-list { box-shadow: var(--lift); } }
+.more-list[hidden] { display: none; }
+.more-list.contained { position: fixed; top: calc(var(--keep-h) + 8px); right: 12px; bottom: auto; }
+.more-list > :is(button, .mini) { flex: none; display: flex; align-items: center; gap: 8px; width: 100%; text-align: left; }
+.more-list .grp { font: 600 11px var(--body); letter-spacing: .06em; text-transform: uppercase; color: var(--muted); padding: 8px 10px 2px; border-top: 1px solid var(--line); margin-top: 4px; }
+.more-list .grp:first-child { border-top: 0; margin-top: 0; }
+.more-list .val { margin-left: auto; color: var(--muted); font-size: 13px; font-weight: 400; }
+.more-list .ro { padding: 8px 10px; font-size: 14px; color: var(--ink); }
+.ph-only { display: none !important; }
+/* The editors are four rows: row 1, the tool row, the alerts and the panes, placed explicitly so no notices leaves row 3 at 0. */
+.fpe > .hd { grid-row: 1; } .fpe > .tr { grid-row: 2; } .fpe > .fpe-alerts { grid-row: 3; } .fpe > .fpe-panes, .fpe > .fpe-body { grid-row: 4; min-height: 0; }
+@media (max-width: 800px) {
+  .hd { padding: 8px max(12px, env(safe-area-inset-right, 0px)) 8px max(12px, env(safe-area-inset-left, 0px)); gap: 8px; }
+  .hd-l { flex: 1 1 100%; }
+  .hd-l > .backc { max-width: 100%; }
+  .hd-id h1 { font-size: 19px; }
+  .hd-c { flex: 1 1 100%; }
+  .hd-c .pviews { flex-wrap: wrap; }
+  .hd-c .pviews button { flex: 1 1 0; }
+  .phd .hd-c .pviews button { flex: 1 1 45%; }
+  .hd-r { flex: 1 1 100%; justify-content: flex-end; }
+  .hd-bar { width: 64px; }
+  .hd-prog { margin-right: auto; }
+  .phd .hd-id h1 { font-size: 26px; }
+  .hd-st .act { flex-basis: 100%; }
+  .hd-why { text-align: left; justify-content: flex-start; }
+  .tr { padding: 6px max(12px, env(safe-area-inset-right, 0px)) 6px max(12px, env(safe-area-inset-left, 0px)); }
+  .tr .rw-chips { display: none; }
+  .facts { flex-basis: 100%; margin-left: 0; justify-content: flex-start; }
+  .wd-only { display: none !important; }
+  .ph-only { display: flex !important; }
+  /* Row 1 sticks under the tab-only banner; the tool row scrolls away with the page. */
+  html.work-on .hd { position: sticky; top: var(--keep-h); z-index: 6; }
+  html.work-on .hd.hd-free { position: relative; top: auto; }
+  html.work-on { scroll-padding-top: calc(var(--keep-h) + var(--hd-h, 0px) + 8px); }
+}
+/* ---------- what looks clickable: the affordance recipes R1-R9 (2.16, docs/design.md section 34) ----------
+   Every control shows one identifying cue at rest; hover only adds (every hover rule is inside "@media screen and (hover:
+   hover)"); one filled primary per header and per dialog; selection never uses an action fill. Tokens sit on :root, every
+   recipe is inside @media screen, so print keeps its own look. */
+:root { --ctl-edge: var(--field); --ctl-edge-hi: var(--ink); --sel-bg: var(--amber-soft); --sel-ring: var(--ink); --link: #2659B8; --gut: 28px; --r1-hov: rgba(0,0,0,.08); --r1-prs: rgba(0,0,0,.12);
+  --i-pencil: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 20h4L19 9l-4-4L4 16z'/%3E%3C/svg%3E"); }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --link: #86B4FF; } }
+:root[data-theme="dark"] { --link: #86B4FF; }
+
+@media screen {
+  /* R2 Secondary button: a 3:1 edge. */
+  .btn:not(.primary):not(.go):not(.stop), .mini, .plist .tcard button.mini, .backc, label.btn, .ob-part, .ob-all > summary { border-color: var(--ctl-edge); }
+
+  /* R3 Text link: one color that passes 4.5:1 on card, paper, chip, amber-soft, plan-soft, go-soft and stop-soft. */
+  a[href], .link, .linkish { color: var(--link); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; cursor: pointer; }
+  button.link, button.linkish { min-height: 24px; display: inline-flex; align-items: center; }
+  p button.link, p button.linkish, p a[href] { min-height: 0; display: inline; }
+  button.linkish[data-act="ins-runs"] { min-width: 24px; min-height: 24px; justify-content: center; padding-inline: 4px; }
+  /* R3, quiet: text that jumps to its place in the checklist (Flight plan steps and phase names) keeps ink text and shows a
+     muted underline at rest; hover thickens it. */
+  .fp-step, .fp-go { text-decoration: underline; text-decoration-color: var(--muted); text-decoration-thickness: 1px; text-underline-offset: 3px; cursor: pointer; }
+  .fp-step { min-height: 24px; }
+
+  /* R4 Open: a soft frame and one persistent cue, the chevron. */
+  .plist { gap: 6px; }
+  .plist > li > button:not(.skillchip):not(.mini):not(.link):not(.linkish), .wc-row {
+    position: relative; border: 1px solid var(--line); background: var(--card); border-radius: 10px; padding: 10px 40px 10px 12px; min-height: 44px; cursor: pointer; }
+  .plist > li > button:not(.skillchip):not(.mini):not(.link):not(.linkish)::after, .wc-row:not(:disabled)::after, button.card::after, button.tile::after {
+    content: ""; position: absolute; right: 16px; top: 50%; width: 8px; height: 8px; border-right: 2px solid var(--muted); border-top: 2px solid var(--muted); transform: translateY(-50%) rotate(45deg); }
+  button.card, button.tile { position: relative; padding-right: 40px; }
+  button.card::after, button.tile::after { top: 22px; }
+  .plist .pskills button.skillchip::after { content: "›" / ""; color: var(--muted); font-size: 15px; line-height: 1; margin-left: 2px; }
+  .rw .s-pick { position: relative; padding-right: 22px; }
+  .rw .s-pick::after { content: ""; position: absolute; right: 6px; top: 50%; width: 7px; height: 7px; border-right: 2px solid var(--muted); border-top: 2px solid var(--muted); transform: translateY(-50%) rotate(45deg); }
+
+  /* R5 Pick: opens its settings in place. One pencil, at rest. */
+  .ob-det { border-color: var(--ctl-edge); }
+  .ob-det .ob-txt { font-weight: 600; }
+  .ob-det > .ic { color: var(--ink); }
+  .ob-ph-name, .ob-lane-name { cursor: pointer; min-height: 24px; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 4px; }
+  .ob-ph-name::after, .ob-lane-name::after, button.chip:not(:disabled)::after {
+    content: ""; display: inline-block; width: 15px; height: 15px; margin-left: 8px; vertical-align: -1px; background: var(--muted);
+    -webkit-mask: var(--i-pencil) center / contain no-repeat; mask: var(--i-pencil) center / contain no-repeat; }
+  /* Run Details values : a value you can change is an R5 pick: a 3:1 edge and the pencil; an empty one keeps its dashes. */
+  button.chip { border-color: var(--ctl-edge); cursor: pointer; min-height: 24px; }
+  button.chip::after { width: 13px; height: 13px; margin-left: 2px; }
+  button.chip:disabled { cursor: default; }
+
+  /* R6 Tab: a 3:1 baseline, the workspace's too; the chosen one in ink; 44 px tall on a phone. */
+  .pviews, .ws-views, .fpe-tabs { border-bottom: 1px solid var(--ctl-edge); }
+  .pviews button[aria-current="page"], .fpe-tabs [role="tab"][aria-selected="true"] { color: var(--ink); border-bottom-color: var(--ink); }
+
+  /* R7 Choice: unchosen chips have a 3:1 edge; chosen is the selected recipe, never an action fill. */
+  .chipbtn:not(.ob-anyone), button.ob-chip, button.tag { border: 1px solid var(--ctl-edge); }
+  button.ob-chip[aria-pressed="false"], button.tag:not(.on) { background: var(--card); color: var(--ink); }
+  .seg, .filter { box-shadow: inset 0 0 0 1px var(--ctl-edge); }
+  .mainnav button[aria-current="page"], .seg button[aria-checked="true"], .seg button[aria-pressed="true"], .filter .chipbtn[aria-pressed="true"],
+  .ob-form .chipbtn[aria-pressed="true"], button.ob-chip[aria-pressed="true"], .rn-kinds .chipbtn[aria-pressed="true"], button.tag.on, .tf-icon:has(input:checked),
+  .rn-item[aria-current="true"], .rw-ph[data-s="current"] {
+    background: var(--sel-bg); color: var(--ink); border-color: var(--sel-ring); box-shadow: inset 0 0 0 1px var(--sel-ring); font-weight: 600; }
+  .ob-form .chipbtn[aria-pressed="true"]::before, button.ob-chip[aria-pressed="true"]::before, .rn-kinds .chipbtn[aria-pressed="true"]::before, button.tag.on::before { content: "✓" / ""; margin-right: 4px; }
+  /* R7, listbox option: the active option of search results (.sx-opt) and the ^ autocomplete (.dbx-o) is the selected
+     recipe as a 2 px ink inset ring, so the state is 3:1 against the option itself and its list. */
+  .sx-opt[aria-selected="true"], .dbx-o.on, .dbx-o[aria-selected="true"] { background: var(--sel-bg); box-shadow: inset 0 0 0 2px var(--sel-ring); color: var(--ink); }
+  /* R7, a place to put a part (.ob-dest, builder.js:188): each legal place is a 3:1 bar at rest; the current one is a 3 px ink bar with its label. */
+  .ob.placing .ob-dest { height: 24px; top: -11px; }
+  .ob.placing .ob-slot.v .ob-dest { width: 24px; left: -11px; height: auto; top: 0; }
+  .ob.placing .ob-dest::before { opacity: 1; top: 11px; background: var(--ctl-edge); }
+  .ob.placing .ob-slot.v .ob-dest::before { top: 0; left: 11px; }
+  .ob.placing .ob-slot.on .ob-dest::before { background: var(--ink); height: 3px; box-shadow: none; }
+  .ob.placing .ob-slot.v.on .ob-dest::before { width: 3px; height: auto; }
+  /* Static labels that shared the chip shape: no edge, no pill, no pointer. */
+  .ob-anyone { background: none; border-color: transparent; padding-inline: 0; color: var(--muted); font-style: italic; cursor: default; }
+  span.ob-chip { background: none; border: 0; border-radius: 0; padding: 0; color: var(--muted); }
+  .ob-det .ob-chip { font-size: 13px; }
+  .mode { border-color: transparent; background: var(--chip); }
+
+  /* R8 Menu item: only inside a real popover. More (.more-list) is always one. */
+  :is(.rw-menu-list, .tf-menu-list, .corr-menu-list, .more-list) :is(button, .mini) { border-color: transparent; justify-content: flex-start; width: 100%; min-height: 40px; }
+  :is(.rw-menu-list, .tf-menu-list, .corr-menu-list, .more-list) :is(button, .mini):focus-visible { outline-offset: -2px; }
+
+  /* R9 Disclosure: a pointer and a marker on every summary, buttons too. */
+  summary { cursor: pointer; }
+  .ob-more-opts > summary::before { content: "▸" / ""; color: var(--muted); font-size: .85em; margin-right: 2px; }
+  .ob-more-opts[open] > summary::before { content: "▾" / ""; }
+  .corr-runs > summary { list-style: none; }
+  .corr-runs > summary::-webkit-details-marker { display: none; }
+  .corr-runs > summary::before { content: "▸" / ""; color: var(--muted); font-size: .85em; margin-right: 4px; }
+  .corr-runs[open] > summary::before { content: "▾" / ""; }
+  summary.btn::after, .rw-menu > summary::after, .tf-menu > summary::after { content: "▾" / ""; margin-left: 6px; font-size: .8em; color: var(--muted); }
+  details[open] > summary.btn::after, .rw-menu[open] > summary::after, .tf-menu[open] > summary::after { content: "▴" / ""; }
+
+  /* Pane separators: a dedicated 28 px gutter column (each separator's grid column is var(--gut)). The 24 px hit
+     strip sits inside it with 2 px clear on each side, so it never takes the pane's scroll bar, even when 1fr columns put the gutter on a fractional x.
+     The 4 px bar sits in the middle. */
+  .pane-split { width: var(--gut); pointer-events: none; }
+  .pane-split::before { left: 2px; width: 24px; pointer-events: auto; }
+  .pane-split::after { left: 12px; }
+  .fpe-panes.rail > .pane-split[data-split="parts"] { width: 0; }
+  @media (min-width: 801px) and (max-width: 1100px) { .fpe-panes > .pane-split[data-split="parts"] { width: 0; } }
+
+  .fpe-md .code-editor:focus-visible { outline: 2px solid var(--focus); outline-offset: -2px; }
+  .ins-dot-a .ins-hit { fill: transparent; }
+  .ob-check input[type="checkbox"] { cursor: pointer; }
+  /* Sizes: header row 1 controls 36 px. Above 800 px every tool-row control is exactly 32 px tall, with no exceptions: the
+     filled takeover confirmation (.btn.stop) too, and the Builder | Markdown group's outer box, whose segments fill it.
+     At 800 px and narrower every tappable control, each segment included, is 44 px (page.html). History in a tool row is
+     content width x 32.  */
+  @media (min-width: 801px) {
+    .tr :is(.mini, .btn, summary.mini, .more-btn, .backc) { height: 32px; min-height: 32px; padding-block: 0; box-sizing: border-box; }
+    .tr .seg { height: 32px; box-sizing: border-box; }
+    .tr .seg button { height: 100%; min-height: 0; padding-block: 0; }
+  }
+  /* A focused tab panel lands below the tab-only banner and the sticky header (WCAG 2.4.11): the same two numbers as the
+     header's scroll-padding (--keep-h, and --hd-h measured on every work screen after render and resize). */
+  [role="tabpanel"] { scroll-margin-top: calc(var(--keep-h, 0px) + var(--hd-h, 0px) + 8px); }
+}
+
+@media screen and (max-width: 800px) {
+  .pviews button, .ws-views button, .fpe-tabs [role="tab"] { min-height: 44px; }
+  /* Every work screen's header and tool row (the editor, the step-type editor, the run and its pages, Practice): 44 px. */
+  .hd :is(.btn, .mini, .more-btn), .tr :is(.btn, .mini, summary.mini), .tr .seg button { min-height: 44px; }
+  /* Popover menu items keep the phone's 44 px (R8's 40 is the desktop size). */
+  :is(.rw-menu-list, .tf-menu-list, .corr-menu-list, .more-list) :is(button, .mini) { min-height: 44px; }
+  /* R7 place, phone form (the full-width "Put it here" boxes): a 3:1 dashed edge at rest; the current place is
+     the selected recipe (ink border on --sel-bg), not an amber fill; the focus ring is on the box itself. */
+  .ob.placing .ob-dest, .ob.placing .ob-slot.v .ob-dest { height: auto; top: auto; left: auto; border: 2px dashed var(--ctl-edge); background: var(--card); }
+  .ob.placing .ob-slot.on .ob-dest { border: 2px solid var(--sel-ring); background: var(--sel-bg); color: var(--ink); }
+  .ob.placing .ob-dest:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  .ob.placing .ob-dest:focus-visible > span { outline: none; }
+}
+@media screen and (max-width: 800px) and (forced-colors: active) {
+  .ob.placing .ob-dest { border-color: CanvasText; }
+  .ob.placing .ob-slot.on .ob-dest { border-color: Highlight; }
+}
+/* Forced colors drop fills and box shadows: every selected state keeps a 2 px system-color border, and the ✓ stays. */
+@media screen and (forced-colors: active) {
+  .mainnav button[aria-current="page"], .seg button[aria-checked="true"], .seg button[aria-pressed="true"], .filter .chipbtn[aria-pressed="true"],
+  .ob-form .chipbtn[aria-pressed="true"], button.ob-chip[aria-pressed="true"], .rn-kinds .chipbtn[aria-pressed="true"], button.tag.on,
+  .tf-icon:has(input:checked), .rn-item[aria-current="true"], .rw-ph[data-s="current"] { border: 2px solid Highlight; }
+  .sx-opt[aria-selected="true"], .dbx-o.on, .dbx-o[aria-selected="true"] { outline: 2px solid Highlight; outline-offset: -2px; }
+  .ob.placing .ob-slot.on .ob-dest::before { background: Highlight; }
+  .ob.placing .ob-dest::before { background: CanvasText; }
+}
+
+@media screen and (hover: hover) {
+  .btn:not(.primary):not(.go):not(.stop):hover:not(:disabled):not([aria-disabled="true"]), .mini:hover:not(:disabled):not([aria-disabled="true"]),
+  .chipbtn:not(.ob-anyone):hover:not(:disabled), button.ob-chip:hover:not(:disabled), button.tag:hover, button.chip:hover:not(:disabled) { border-color: var(--ctl-edge-hi); }
+  /* R1 hover: one 8 % black overlay on every filled primary, both themes. Text stays 4.5:1 or better in every state. */
+  .btn.primary:hover:not(:active):not(:disabled):not([aria-disabled="true"]), .btn.go:hover:not(:active):not(:disabled):not([aria-disabled="true"]), .btn.stop:hover:not(:active):not(:disabled):not([aria-disabled="true"]),
+  .hero .btn:hover:not(:active):not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--r1-hov), var(--r1-hov)); }
+  a[href]:hover, .link:hover, .linkish:hover { color: var(--ink); text-decoration-thickness: 2px; }
+  .fp-step:hover, .fp-go:hover { text-decoration-color: currentColor; text-decoration-thickness: 2px; }
+  .plist > li > button:not(.skillchip):not(.mini):not(.link):not(.linkish):hover, .wc-row:hover:not(:disabled) { background-image: linear-gradient(var(--hov), var(--hov)); }
+  .brand:hover { background-image: linear-gradient(var(--hov), var(--hov)); border-radius: 8px; }
+  .ob-det:hover { background-image: linear-gradient(var(--hov), var(--hov)); box-shadow: var(--lift); }
+  .ob-ph-name:hover, .ob-lane-name:hover { text-decoration-color: currentColor; }
+  .pviews button:not([aria-current="page"]):hover, .fpe-tabs [role="tab"]:not([aria-selected="true"]):hover { color: var(--ink); background-image: linear-gradient(var(--hov), var(--hov)); border-bottom-color: var(--edge-strong); }
+  :is(.rw-menu-list, .tf-menu-list, .corr-menu-list, .more-list) :is(button, .mini):hover:not(:disabled) { background-image: linear-gradient(var(--hov), var(--hov)); }
+  .ob.placing .ob-dest:hover::before { background: var(--ink); }
+}
+/* R1 pressed outranks hover, explicitly: hover above excludes :active, and this rule comes last. A 12 % black overlay for
+   pointer-down (hovered or not), keyboard activation and touch, so it sits outside the hover media. Focus never changes the fill. */
+@media screen {
+  .btn.primary:active:not(:disabled):not([aria-disabled="true"]), .btn.go:active:not(:disabled):not([aria-disabled="true"]), .btn.stop:active:not(:disabled):not([aria-disabled="true"]),
+  .hero .btn:active:not(:disabled):not([aria-disabled="true"]) { background-image: linear-gradient(var(--r1-prs), var(--r1-prs)); }
 }
 </style>
 </head>
@@ -20725,9 +20862,11 @@ PF.vk = (function () {
      width is read from the choice, never from what was drawn, and a sidebar left at the layout's width keeps it, so fitting
      what was drawn gives the same answer (no back and forth). Chosen widths give way in SHRINK order (the inspector first)
      until the main pane has MAIN_MIN. Returns { key: { w, max } } for the resizable ones. */
-  var MAIN_MIN = 360, SHRINK = ['ins', 'tf', 'parts'];
+  /* GUT: each separator's own grid column (page.html's --gut), outside both panes. Every separator that is shown and not fixed
+     takes one, so the room for sidebars is the window less the main pane and those gutters. */
+  var MAIN_MIN = 360, GUT = 28, SHRINK = ['ins', 'tf', 'parts'];
   function fitPanes(W, items) {
-    var w = {}, chosen = {}, total = 0, room = W - MAIN_MIN, out = {};
+    var w = {}, chosen = {}, total = 0, room = W - MAIN_MIN - GUT * items.filter(function (it) { return !it.fixed; }).length, out = {};
     items.forEach(function (it) {
       var spec = PANES[it.key];
       chosen[it.key] = !it.fixed && typeof it.pref === 'number' && isFinite(it.pref);
@@ -20749,23 +20888,80 @@ PF.vk = (function () {
   function paneAttr(ctx, keys) { var s = paneStyle(ctx, keys); return s ? ' style="' + s + '"' : ''; }
   function splitter(ctx, key) {
     var spec = PANES[key], w = paneW(ctx, key);
-    return '<div class="pane-split" role="separator" aria-orientation="vertical" aria-label="' + spec.label + '" aria-controls="' + spec.controls + '" aria-valuenow="' + w.w + '" aria-valuemin="' + w.min + '" aria-valuemax="' + w.max + '" tabindex="0" data-split="' + key + '" data-act="pane-split" data-id="' + key + '" title="Drag to resize. Arrow keys move it; Enter or a double-click puts it back."></div>';
+    return '<div class="pane-split" role="separator" aria-orientation="vertical" aria-label="' + spec.label + '" aria-controls="' + spec.controls + '" aria-valuenow="' + w.w + '" aria-valuemin="' + w.min + '" aria-valuemax="' + w.max + '" tabindex="0" data-split="' + key + '" data-act="pane-split" data-id="' + key + '" title="Drag, or click either side to move it. Arrow keys move it; Enter or a double-click puts it back."></div>';
   }
 
   /* The way back (2.16, docs/design.md section 29): one control, top left, named for where it goes, never an action. Its
      accessible name is "Back to <place>", holding the visible text in order. view: the workspace's view word (Edit or
      Practice), kept whole while a long title is cut. */
-  function backc(act, id, place, view, extra) {
-    /* "The run" reads as "Back to the run": the visible words, in order, in a sentence. */
-    var name = 'Back to ' + String(place).replace(/^The /, 'the ') + (view ? ' · ' + view : '');
+  function backc(act, id, place, view, extra, label) {
+    /* "The run" reads as "Back to the run": the visible words, in order, in a sentence. label: a fuller name that still
+       starts with the visible words ("Back to Overview of <title>"). */
+    var name = label || 'Back to ' + String(place).replace(/^The /, 'the ') + (view ? ' · ' + view : '');
     return '<button type="button" class="btn backc" data-act="' + esc(act) + '"' + (id != null ? ' data-id="' + esc(id) + '"' : '') + ' aria-label="' + esc(name) + '"' + (extra || '') + '>' + I('back') +
       '<span class="backc-t">' + esc(place) + '</span>' + (view ? '<span class="backc-v"> · ' + esc(view) + '</span>' : '') + '</button>';
   }
+  /* ---------- one header (2.16, docs/design.md section 34) ----------
+     Every work screen draws row 1 with workHead and its tools with toolRow; nothing else writes header markup. The markup is in
+     the visual order at every width: LEFT (the way back, the title, the status line), CENTER (the view switch), RIGHT
+     (progress, the actions, More), then the reason line for a held primary, inside the header. o: { hid, h1, h1attrs, back,
+     status: [{ kind: 'd' | 'act', html, cls, attrs }], views, prog, acts, more, why, cls, attrs }. */
+  function workHead(o) {
+    var st = (o.status || []).filter(function (x) { return x && x.html; }).map(function (x) { return '<span class="' + (x.kind === 'act' ? 'act' : 'd') + (x.cls ? ' ' + x.cls : '') + '"' + (x.attrs || '') + '>' + x.html + '</span>'; }).join('');
+    return '<header class="hd' + (o.cls ? ' ' + o.cls : '') + '" role="region" aria-labelledby="' + o.hid + '"' + (o.attrs || '') + '>' +
+      '<div class="hd-l">' + (o.back || '') + '<div class="hd-id"><h1 id="' + o.hid + '"' + (o.h1attrs || '') + '>' + o.h1 + '</h1>' + (st ? '<p class="hd-st">' + st + '</p>' : '') + '</div></div>' +
+      '<div class="hd-c">' + (o.views || '') + '</div>' +
+      '<div class="hd-r">' + (o.prog || '') + (o.acts ? '<div class="hd-acts" data-slot="primary">' + o.acts + '</div>' : '') + (o.more || '') + '</div>' + (o.why || '') + '</header>';
+  }
+  /* The tool row: timeline | how you work | panels, then the facts pushed right. groups are HTML strings; empty ones are left
+     out. o: { cls, k (the state tint), label, attrs }. */
+  function toolRow(groups, facts, o) {
+    o = o || {};
+    var g = (groups || []).filter(Boolean).map(function (x) { return '<div class="tg">' + x + '</div>'; }).join('');
+    return '<div class="tr' + (o.cls ? ' ' + o.cls : '') + '"' + (o.k ? ' data-k="' + esc(o.k) + '"' : '') + ' role="region" aria-label="' + esc(o.label || 'Tools') + '"' + (o.attrs || '') + '>' + g + (facts ? '<div class="facts">' + facts + '</div>' : '') + '</div>';
+  }
+  /* One progress component for a run and for Practice: the bar keeps rw-bar (app.js animates it) and says the count once. */
+  function progress(done, total) {
+    var pct = total ? Math.round(done / total * 100) : 0;
+    return '<div class="hd-prog"><span class="hd-bar rw-bar" role="progressbar" aria-label="Steps answered" aria-valuemin="0" aria-valuemax="' + total + '" aria-valuenow="' + done + '" aria-valuetext="' + done + ' of ' + total + ' steps answered"><i style="width:' + pct + '%"></i></span><b aria-hidden="true">' + done + '/' + total + '</b><span class="small w" aria-hidden="true">answered</span></div>';
+  }
+  /* More: one layer on every work screen, top right. Its groups: the phone-only copies of tool-row controls, this screen's
+     extras, then You and this app (appGroup). pr: Practice's copy, whose opener is a pr-* act. */
+  function moreMenu(ctx, html, pr) {
+    var open = !!ctx.state.wsMore;
+    return '<div class="more ws-more"><button type="button" class="mini more-btn ws-more-btn" id="ws-more-btn" data-act="' + (pr ? 'pr-more' : 'ws-more') + '" aria-expanded="' + open + '" aria-controls="ws-more-list">More</button>' +
+      '<div class="more-list ws-more-list' + (open ? ' open' : '') + '" id="ws-more-list"' + (open ? '' : ' hidden') + '>' + html + '</div></div>';
+  }
+  function moreGroup(title, html) { return html ? '<div class="grp" aria-hidden="true">' + esc(title) + '</div>' + html : ''; }
+  /* You and this app, the same last group everywhere: who you are (a button in the workspace and the step-type editor, plain
+     text on a run and its pages), Search, Appearance, Check the folder now and Keyboard shortcuts. o: { readOnlyMe, pr }. */
+  function appGroup(ctx, o) {
+    o = o || {};
+    var st = ctx.state, a = function (x) { return o.pr ? 'pr-' + x : x; }, th = THEMES[st.theme] ? st.theme : 'system', nx = THEMES[th].next;
+    var who = st.me ? nameOf(ctx, st.me) : '';
+    var me = o.readOnlyMe ? (who ? '<div class="ro">You: <b>' + esc(who) + '</b></div>' : '')
+      : '<button type="button" class="mini" data-act="' + a('me') + '" aria-haspopup="dialog">' + (who ? 'You are <b>' + esc(who) + '</b> · Change…' : 'Choose who you are…') + '</button>';
+    return moreGroup('You and this app', me +
+      '<button type="button" class="mini" data-act="' + a('search') + '" aria-keyshortcuts="' + (ctx.mac ? 'Meta+K' : 'Control+K') + '">' + I('search') + 'Search <span class="val">' + (ctx.mac ? '⌘K' : 'Ctrl+K') + '</span></button>' +
+      '<button type="button" class="mini" data-act="' + a('theme') + '" data-id="' + nx + '">' + I(THEMES[th].icon) + 'Appearance <span class="val">' + esc(THEMES[th].label) + '</span></button>' +
+      '<button type="button" class="mini" data-act="' + (o.pr ? 'pr-folder' : 'refresh') + '">Check the folder now' + (st.lastCheck ? ' <span class="val">' + esc(U.hm(st.lastCheck)) + '</span>' : '') + '</button>' +
+      '<button type="button" class="mini" data-act="help">Keyboard shortcuts</button>');
+  }
+  /* Who are you? The one dialog that changes who you are from a work screen, drawn through openOverlay. */
+  function meDialog(ctx) {
+    var st = ctx.state, people = PF.people.sorted(ctx).filter(function (p) { return !p.inactive; }), nmMe = PF.people.labeler(ctx.data.people);
+    var field = people.length ? '<select id="me-pick"><option value="">Choose…</option>' + people.map(function (p) { return '<option value="' + esc(p.id) + '"' + (p.id === st.me ? ' selected' : '') + '>' + esc(nmMe(p)) + '</option>'; }).join('') + '</select>'
+      : '<input id="me-pick" maxlength="40" placeholder="Your name" value="' + esc(st.me || '') + '">';
+    return '<div class="overlay" data-act="close-overlay"><div class="help me-box" role="dialog" aria-modal="true" aria-labelledby="me-t"><h2 id="me-t">Who are you?</h2>' +
+      '<p class="small">Everything you do is stamped with this name.</p><label class="field" for="me-pick">' + (people.length ? 'You are' : 'Your name') + field + '</label>' +
+      '<div class="row"><button type="button" class="btn go" data-act="me-use">Use this name</button><button type="button" class="mini" data-act="close-overlay">Cancel</button></div></div></div>';
+  }
+  V.workHead = workHead; V.toolRow = toolRow; V.progress = progress; V.moreMenu = moreMenu; V.moreGroup = moreGroup; V.appGroup = appGroup; V.meDialog = meDialog;
   /* On a page under the top bar, the way back has its own row above the page's header. */
   function backRow(html) { return html ? '<div class="backrow">' + html + '</div>' : ''; }
   V.backc = backc; V.backRow = backRow;
   V.undoBar = undoBar;
-  V.tabOnly = PF.vk.tabOnly; V.PANES = PANES; V.MAIN_MIN = MAIN_MIN; V.fitPanes = fitPanes; V.paneW = paneW; V.paneStyle = paneStyle; V.paneAttr = paneAttr; V.splitter = splitter;
+  V.tabOnly = PF.vk.tabOnly; V.PANES = PANES; V.MAIN_MIN = MAIN_MIN; V.GUT = GUT; V.fitPanes = fitPanes; V.paneW = paneW; V.paneStyle = paneStyle; V.paneAttr = paneAttr; V.splitter = splitter;
   /* What the editor's Checks, its Publish and a proposal's checks are checked against: the folder as this window holds
      it, through PF.publish.checkOptions, the one place flightdeck draft check shares. */
   function checkOptions(ctx) { return PF.publish.checkOptions({ people: ctx.data.people, types: (ctx.data.stepTypes || {}).types, workflows: (ctx.data.jira || {}).workflows, processes: ctx.processes(), procOf: ctx.procOf, teamValues: ctx.data.teamValues }); }
@@ -21485,11 +21681,13 @@ PF.vk = (function () {
     /* Editing a draft takes the whole page (manage.js). */
     if (V.tabOf(ctx) === 'edit') return V.editTab(ctx, p);
     var pub = p.latest, h = notices(ctx), shown = V.shownOf(p, st);
-    /* An older version: the way back to the current one, top left (2.16). */
-    if (V.tabOf(ctx) === 'overview' && shown && !shown.current) h += V.backRow(V.backc('back-current', null, 'Current version'));
-    h += '<div class="runhead"><div><div class="eyebrow">' + esc(p.category) + (pub ? ' · owner ' + esc(nameOf(ctx, pub.map.meta.owner)) : '') + '</div><h1 id="page-h" tabindex="-1">' + esc(p.title) + '</h1>' +
-      (pub ? '<div class="small">v' + pub.info.version + ' · published ' + esc(U.day(pub.info.publishedAt)) + ' by ' + esc(nameOf(ctx, pub.info.publishedBy)) + '</div>' : '<div class="small">Not published yet.</div>') + '</div>' +
-      '<div class="row">' + (pub ? '<button class="btn primary" data-act="start" data-id="' + esc(p.id) + '"' + (st.me ? '' : ' disabled') + '>' + I('play') + 'Start a run</button><button class="btn" data-act="plan-run" data-id="' + esc(p.id) + '"' + (st.me ? '' : ' disabled') + '>Plan a run</button>' : '') + '</div></div>' + viewStrip(ctx, p);
+    /* The place frame's row 1 (2.16, docs/design.md section 34): ‹ Current version (an older version only) and the title with
+       its status in LEFT, the view strip in CENTER, then Plan a run and Start a run (the one primary, green) on the right. */
+    var older = V.tabOf(ctx) === 'overview' && shown && !shown.current;
+    h += V.workHead({ hid: 'page-h', h1attrs: ' tabindex="-1"', cls: 'phd', h1: esc(p.title), back: older ? V.backc('back-current', null, 'Current version') : '',
+      status: [{ kind: 'd', html: (pub ? 'v' + pub.info.version + ' · published ' + esc(U.day(pub.info.publishedAt)) + ' by ' + esc(nameOf(ctx, pub.info.publishedBy)) : 'Not published yet') }, { kind: 'd', html: esc(p.category) + (pub ? ' · owner ' + esc(nameOf(ctx, pub.map.meta.owner)) : '') }],
+      views: viewStrip(ctx, p),
+      acts: pub ? '<button class="btn" data-act="plan-run" data-id="' + esc(p.id) + '"' + (st.me ? '' : ' disabled') + '>Plan a run</button><button class="btn go" data-act="start" data-id="' + esc(p.id) + '"' + (st.me ? '' : ' disabled') + '>' + I('play') + 'Start a run</button>' : '' });
     var dWhy = p.draft && ((st.unread || {}).drafts || {})[p.draft.file];
     if (dWhy) h += '<div class="notice bad" role="alert"><span><b>' + esc(p.draft.file) + ' couldn\'t be read on the last check</b> (' + esc(dWhy) + '). This is the version read before. It isn\'t edited or saved over until it reads again.</span><span class="row"><button class="btn" data-act="refresh">Try again</button><button class="mini" data-act="recovery" data-id="a-file-cant-be-read">What to do</button></span></div>';
     /* Drafts sharing this process: named in the line when there are a few; past 3, one summary line and a fold naming them
@@ -22236,12 +22434,14 @@ PF.vk = (function () {
     var ask = s.pick && s.pick.kind === 'takeover' ? '<span class="row rw-ask"><b>Take over from ' + esc(nameOf(ctx, rp)) + '? Only if they can\'t continue. ' + risk + '</b><button class="btn stop" data-act="takeover">Take over</button><button class="mini" data-act="unpick">Cancel</button></span>' : (me ? '<button class="mini" data-act="pick" data-kind="takeover" data-id="recorder">Take over recording</button>' : '');
     return { text: avatar(ctx, rp) + ' <b>' + esc(nameOf(ctx, rp)) + ' is recording.</b>' + (me ? ' You can add notes.' : ''), ctl: ask };
   }
-  /* The strip under the header: whose recording this is, with the control that goes with it, and on the right what this
-     window saved and when it last checked the folder (separate facts; neither proves another computer has the change). */
+  /* The tool row (2.16, docs/design.md section 34): who you are first, on its own, whenever someone is chosen; then the state
+     sentence that names the other people by role, and its controls; then Details and Screen share; then, pushed right, what
+     this window saved and when it last checked the folder (separate facts; neither proves another computer has the change).
+     A filled control here would be a second primary: Receipt, Pick up recording, Record here and Resume are runPrimary's. */
   function strip(ctx, r) {
     var s = ctx.state, rec = ctx.recording(r), solo = R.solo(r), kind = 'follow', text = '', ctl = '';
-    if (r._unrunnable) { kind = 'ro'; text = '<b>Read-only in this copy.</b> ' + esc(r._unrunnable) + ' This copy shows the parts it understands, and can\'t record it or save over it.'; }
-    else if (r.ended) { kind = 'ended'; text = '<b>Ended: ' + esc(K.outcomeWord(r.ended.outcome)) + '</b>' + (r.ended.byName || r.ended.by ? ' by ' + esc(r.ended.byName || nameOf(ctx, r.ended.by)) : '') + (r.ended.at ? ' at ' + U.hm(r.ended.at) : '') + '.'; ctl = '<button class="btn go" data-act="receipt">' + I('receipt') + 'Receipt</button>'; }
+    if (r._unrunnable) { kind = 'ro'; text = '<b>Read-only in this copy.</b> ' + esc(r._unrunnable) + ' This copy shows the parts it understands, and can\'t record it or save over it.' + (r.ended ? ' <b>Ended: ' + esc(K.outcomeWord(r.ended.outcome)) + '</b>' + (r.ended.byName || r.ended.by ? ' by ' + esc(r.ended.byName || nameOf(ctx, r.ended.by)) : '') + '.' : ''); }
+    else if (r.ended) { kind = 'ended'; text = '<b>Ended: ' + esc(K.outcomeWord(r.ended.outcome)) + '</b>' + (r.ended.byName || r.ended.by ? ' by ' + esc(r.ended.byName || nameOf(ctx, r.ended.by)) : '') + (r.ended.at ? ' at ' + U.hm(r.ended.at) : '') + '.'; }
     else if (!s.me) {
       kind = 'who'; text = '<b>Choose who you are</b> to record or add notes. Everything you do here is stamped with your name.';
       var people = PF.people.sorted(ctx).filter(function (p) { return !p.inactive; });
@@ -22250,11 +22450,9 @@ PF.vk = (function () {
     } else if (r.paused) {
       kind = 'paused';
       text = I('pause') + ' <b>Paused</b> by ' + esc(nameOf(ctx, r.paused.by)) + ' at ' + U.hm(r.paused.at) + ': ' + esc(r.paused.reason) + '. Steps, gates and timers wait until it\'s resumed; deadlines from other tools keep counting.';
-      if (rec) ctl = '<button class="btn go" data-act="resume">Resume</button>';
-      else { var o = ownership(ctx, r); text += ' ' + o.text; ctl = o.ctl; }
+      if (!rec) { var o = ownership(ctx, r); text += ' ' + o.text; ctl = o.ctl; }
     } else if (rec) {
       kind = 'rec';
-      text = solo ? '<b>Your run</b>' : '<b>You\'re recording</b>';
       var pause = s.pick && s.pick.kind === 'pause' ? '<span class="row rw-ask" data-scope="pause"><label class="sr" for="pick-input">Why pause?</label><input id="pick-input" class="rw-in" placeholder="Why pause? (what are we waiting for)" maxlength="120" data-enter="pause" data-id="run"><button class="mini" data-act="pause">Pause</button><button class="mini" data-act="unpick">Cancel</button></span>'
         : '<button class="mini" data-act="pick" data-kind="pause" data-id="run">' + I('pause') + 'Pause</button>';
       var people2 = PF.people.sorted(ctx).filter(function (p) { return !p.inactive && p.id !== s.me; });
@@ -22263,15 +22461,39 @@ PF.vk = (function () {
         : '<button class="mini" data-act="pick" data-kind="handoff" data-id="recorder">' + I('swap') + (solo ? 'Hand to someone' : 'Hand off') + '</button>';
       ctl = pause + hand;
     } else { var w = ownership(ctx, r); text = w.text; ctl = w.ctl; kind = /data-act="pickup"/.test(w.ctl) ? 'ready' : 'follow'; }
+    /* The filled ownership controls (Pick up recording, Record here) are the primary slot's, not the tool row's. */
+    if (/class="btn go"/.test(ctl)) ctl = '';
+    var me = s.me ? '<span class="me-id">' + (rec ? 'Recording as' : 'You:') + ' <b>' + esc(nameOf(ctx, s.me)) + '</b></span>' : '';
     /* The save side: Saving…, a failed save with its way out, or when this window saved and checked the folder. */
     var save;
-    if (s.unsaved[r.id]) save = '<span class="rw-unsaved"><b>Your last change isn\'t saved.</b></span><button class="btn" data-act="retry-save">Try again</button><button class="mini" data-act="discard-unsaved">Discard my change</button>';
+    if (s.unsaved[r.id]) save = '<span class="rw-unsaved"><b>Your last change isn\'t saved.</b></span><button class="mini" data-act="retry-save">Try again</button><button class="mini" data-act="discard-unsaved">Discard my change</button>';
     else save = ((s.pendingSaves || {})[r.id] ? '<span class="rw-saving">Saving…</span>' : '') + '<span id="fresh" data-k="strip">' + freshness(ctx, r, true) + '</span>';
     var copies = (r._conflicts || []).length + (ctx.localCopy(r) ? 1 : 0);
     if (copies) save += '<button class="mini rw-copies" data-act="goto" data-id="rec-t">' + copies + ' other version' + (copies === 1 ? '' : 's') + ' · Compare copies</button>';
-    return '<div class="rw-strip" data-k="' + kind + '" role="region" aria-label="Recording and saving"><div class="rw-who"><span class="rw-say">' + text + '</span>' + (ctl ? '<span class="row rw-ctl">' + ctl + '</span>' : '') + '</div>' +
-      chipsLine(ctx, r) + '<div class="rw-save">' + save + '</div></div>';
+    var who = me + (text ? '<span class="rw-say">' + text + '</span>' : '') + (ctl ? '<span class="row rw-ctl">' + ctl + '</span>' : '');
+    var panels = '<button type="button" class="mini wd-only" data-act="run-details" aria-expanded="' + !!s.runDetails + '" aria-controls="rw-details">Details</button>' +
+      (solo ? '' : '<button type="button" class="mini wd-only" data-act="mission">' + I('screen') + 'Screen share</button>');
+    return V.toolRow(['<div class="rw-who">' + who + '</div>', panels], chipsLine(ctx, r) + '<div class="rw-save">' + save + '</div>', { cls: 'rw-strip', k: kind, label: 'Recording and saving' });
   }
+  /* The run's primary slot (2.16, docs/design.md section 34, amendment A). Exclusions first (E1 read-only in this copy, ended
+     or not; E2 nobody chosen on an open run), then the first row that applies: A1 ended, Receipt; A2 the recorder and the run
+     complete, paused or not, Finish the run (Resume beside it when paused); A3 the recorder, paused and not complete, Resume
+     with Finish beside it; A4 the recorder otherwise, Finish outlined; A5 Pick up recording or Record here as ownership()
+     offers them; A6 nothing. Complete is R.allGatesOk, never the headline, which says paused first. { primary, also }. */
+  function runPrimary(ctx, r, map) {
+    var s = ctx.state, rec = ctx.recording(r), none = { primary: '', also: '' };
+    var fin = function (go) { return '<button type="button" class="btn rw-finish' + (go ? ' go' : '') + '" data-act="finish">Finish the run</button>'; };
+    var resume = function (go) { return '<button type="button" class="btn' + (go ? ' go' : '') + '" data-act="resume">Resume</button>'; };
+    if (r._unrunnable) return none;
+    if (r.ended) return { primary: '<button type="button" class="btn go" data-act="receipt">' + I('receipt') + 'Receipt</button>', also: '' };
+    if (!s.me) return none;
+    if (rec && R.allGatesOk(r, map)) return { primary: fin(true), also: r.paused ? resume(false) : '' };
+    if (rec && r.paused) return { primary: resume(true), also: fin(false) };
+    if (rec) return { primary: '', also: fin(false) };
+    var o = ownership(ctx, r), m = /<button class="btn go" data-act="(pickup|takeover)">[^<]*<\/button>/.exec(o.ctl);
+    return m ? { primary: m[0], also: '' } : none;
+  }
+  V.runPrimary = runPrimary;
   /* The run's details, read-only, beside the strip; they're edited in Details. */
   function chipsLine(ctx, r) {
     var map = mapOf(ctx, r), waiting = R.openMigrations(r).map(function (m) { return m.path; }), flag = function (f) { return (r._invalid && Object.prototype.hasOwnProperty.call(r._invalid, 'details.' + f)) || waiting.indexOf('details.' + f) >= 0; };
@@ -23042,25 +23264,16 @@ PF.vk = (function () {
     var pkey = r.parent ? r.parent.process + '/' + r.parent.id : '', ptitle = r.parent ? (ctx.findRun(pkey) || {}).title || r.parent.process : '';
     var toParent = !!pkey && og.loc.view === 'run' && og.loc.process + '/' + og.loc.run === pkey;
     var toList = og.loc.view === 'process' && og.loc.process === r.process && og.loc.tab == null;
-    var h = '<div class="fpe rw" id="rw"><header class="fpe-head rw-head" role="region" aria-labelledby="run-h"><div class="fpe-id">' +
-      V.backc('go-back', og.hash, og.place, og.view) +
-      '<div class="fpe-title"><h1 id="run-h" tabindex="-1">' + esc(r.title) + K.testTag(r) + '</h1><span class="small rw-sub">' +
-      (toList || !(ctx.procOf ? ctx.procOf(r.process) : ctx.latestPub && ctx.latestPub(r.process)) ? esc(map.meta.title) : '<button class="linkish" data-act="open-process" data-id="' + esc(r.process) + '">' + esc(map.meta.title) + '</button>') + ' · ' + esc(K.verWord(r)) + ' · started ' + esc(U.when(r.created)) +
-      (r.parent ? ' · part of ' + (toParent ? esc(ptitle) : '<button class="linkish" data-act="open-run" data-id="' + esc(pkey) + '">' + esc(ptitle) + '</button>') : '') + '</span></div></div>' +
-      '<div class="rw-prog"><span class="rw-bar" role="progressbar" aria-label="Steps answered" aria-valuemin="0" aria-valuemax="' + t.total + '" aria-valuenow="' + t.done + '" aria-valuetext="' + t.done + ' of ' + t.total + ' steps answered"><i style="width:' + pct + '%"></i></span><b>' + t.done + '/' + t.total + '</b><span class="small">answered</span></div>' +
-      '<div class="rw-tools"><button type="button" class="mini" data-act="run-details" aria-expanded="' + !!s.runDetails + '" aria-controls="rw-details">Details</button>' +
-      (alone ? '' : '<button type="button" class="mini" data-act="mission">' + I('screen') + 'Screen share</button>') +
-      /* An ended run's Receipt is in the strip, once. */
-      (r.ended ? '' : '<button type="button" class="mini" data-act="receipt">' + I('receipt') + 'Receipt</button>') +
-      /* Finish the run, for whoever records it, at every width: muted until the run is complete, then the primary. */
-      (rec ? '<button type="button" class="btn rw-finish' + (hl.s === 'complete' ? ' go' : '') + '" data-act="finish">Finish the run</button>' : '') +
-      '<details class="rw-menu" data-disc="rw-menu"' + (s.disc && s.disc['rw-menu'] ? ' open' : '') + '><summary class="mini">More</summary><div class="rw-menu-list">' +
-      /* On a phone the header keeps only the way back, Finish the run and More, so Details, Screen share and Receipt are here. */
-      '<button type="button" class="mini rw-m-phone" data-act="run-details" aria-expanded="' + !!s.runDetails + '">Details</button>' + (alone ? '' : '<button type="button" class="mini rw-m-phone" data-act="mission">' + I('screen') + 'Screen share</button>') + (r.ended ? '' : '<button type="button" class="mini rw-m-phone" data-act="receipt">' + I('receipt') + 'Receipt</button>') +
-      planAgain(ctx, r, 'mini') +
-      '<button type="button" class="mini" data-act="copy-run-key" data-id="' + esc(r.process + '/' + r.id) + '">Copy run key</button>' +
-      '<button type="button" class="mini" data-act="ev-open" data-id="' + esc(r.process + '/' + r.id) + '">Export evidence…</button><button type="button" class="mini" data-act="refresh">Check the folder now</button><button type="button" class="mini" data-act="health">Folder health</button><button type="button" class="mini" data-act="help">Keyboard shortcuts</button></div></details>' +
-      (s.me ? '<span class="rw-me" title="Everything you do here is stamped with your name">You: <b>' + esc(nameOf(ctx, s.me)) + '</b></span>' : '') + '</div></header>';
+    var sub = [{ kind: (toList || !(ctx.procOf ? ctx.procOf(r.process) : ctx.latestPub && ctx.latestPub(r.process))) ? 'd' : 'act', html: (toList || !(ctx.procOf ? ctx.procOf(r.process) : ctx.latestPub && ctx.latestPub(r.process)) ? esc(map.meta.title) : '<button class="linkish" data-act="open-process" data-id="' + esc(r.process) + '">' + esc(map.meta.title) + '</button>') },
+      { kind: 'd', cls: 'rw-sub', html: esc(K.verWord(r)) + ' · started ' + esc(U.when(r.created)) },
+      r.parent ? { kind: toParent ? 'd' : 'act', html: 'part of ' + (toParent ? esc(ptitle) : '<button class="linkish" data-act="open-run" data-id="' + esc(pkey) + '">' + esc(ptitle) + '</button>') } : null];
+    var slot = runPrimary(ctx, r, map), key = esc(r.process + '/' + r.id);
+    /* More: the phone-only copies of Details and Screen share, this run's extras, then You and this app (who you are is text). */
+    var more = V.moreGroup('On this screen', '<button type="button" class="mini ph-only" data-act="run-details" aria-expanded="' + !!s.runDetails + '">Details</button>' + (alone ? '' : '<button type="button" class="mini ph-only" data-act="mission">' + I('screen') + 'Screen share</button>') +
+      (r.ended || slot.primary.indexOf('data-act="receipt"') >= 0 ? '' : '<button type="button" class="mini" data-act="receipt">' + I('receipt') + 'Receipt</button>') + planAgain(ctx, r, 'mini') +
+      '<button type="button" class="mini" data-act="copy-run-key" data-id="' + key + '">Copy run key</button><button type="button" class="mini" data-act="ev-open" data-id="' + key + '">Export evidence…</button><button type="button" class="mini" data-act="health">Folder health</button>') + V.appGroup(ctx, { readOnlyMe: true });
+    var h = '<div class="fpe rw" id="rw">' + V.workHead({ hid: 'run-h', h1attrs: ' tabindex="-1"', cls: 'rw-head', h1: esc(r.title) + K.testTag(r), back: V.backc('go-back', og.hash, og.place, og.view),
+      status: sub, prog: V.progress(t.done, t.total), acts: slot.also + slot.primary, more: V.moreMenu(ctx, more) });
     h += strip(ctx, r);
     /* Messages, a failed save, folder trouble, conflicts and Details stay in view, right under the strip. */
     var al = '';
@@ -23321,6 +23534,14 @@ PF.vk = (function () {
   var K = PF.vk, V = PF.views, U = PF.util, R = PF.run, M = PF.map, T = PF.types, I = PF.icons.icon, esc = U.esc;
   var person = K.person, nameOf = K.nameOf, avatar = K.avatar, notices = K.notices, ago = K.ago, runKey = K.runKey, freshness = K.freshness;
   var ferr = function (s, id) { return K.ferr(s, id); };
+  /* The run's own pages share the work header (2.16, docs/design.md section 34): ‹ The run, the title, the page's status,
+     its one action and More; then a tool row that starts with who you are. o: { title, status, prog, acts, how, panels, facts }. */
+  function pageHead(ctx, r, o) {
+    var s = ctx.state, me = s.me ? '<span class="me-id">' + (ctx.recording(r) ? 'Recording as' : 'You:') + ' <b>' + esc(nameOf(ctx, s.me)) + '</b></span>' : '';
+    return V.workHead({ hid: 'page-h', h1attrs: ' tabindex="-1"', h1: o.title, back: V.backc('exit-mission', null, 'The run'), status: o.status, prog: o.prog, acts: o.acts,
+      more: V.moreMenu(ctx, V.appGroup(ctx, { readOnlyMe: true })) }) +
+      V.toolRow([me + (o.how || ''), o.panels], o.facts, { cls: 'rw-strip', k: o.k, label: 'This run' });
+  }
   /* ---------- mission control ---------- */
   function mission(ctx) {
     var r = ctx.run(); if (!r) return V.run(ctx);
@@ -23329,7 +23550,9 @@ PF.vk = (function () {
     /* Who records and whether it's paused stay visible during a call, with save and folder problems (notices) above. */
     var who = r.ended ? 'Ended' : r.paused ? 'Paused by ' + nameOf(ctx, r.paused.by) + ': ' + r.paused.reason : !r.recorder.session ? 'Waiting for ' + nameOf(ctx, r.recorder.person) + ' to pick up recording' : nameOf(ctx, r.recorder.person) + ' is recording' + (ctx.recording(r) ? ' (you, in this window)' : '');
     /* ‹ The run sits top left on the run's own pages (2.16), as on every screen with a way back. */
-    var h = notices(ctx) + V.backRow(V.backc('exit-mission', null, 'The run')) + '<div class="runhead"><div><div class="eyebrow">' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) + '</div><h1 id="page-h" tabindex="-1">' + esc(r.title) + '</h1><div class="m-rec">' + esc(who) + '</div><span id="fresh">' + freshness(ctx, r) + '</span></div></div>';
+    var t = R.totals(r, map);
+    var h = notices(ctx) + pageHead(ctx, r, { title: esc(r.title), status: [{ kind: 'd', html: 'Screen share · ' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) }], prog: V.progress(t.done, t.total),
+      how: ' <span class="m-rec">' + esc(who) + '</span>', facts: '<span id="fresh">' + freshness(ctx, r) + '</span>', k: r.paused ? 'paused' : '' });
     h += '<div class="mission"><div class="stack"><div class="headline" data-s="' + hl.s + '"><div><div class="now">' + esc(K.hlText(r, hl)) + '</div><div>' + esc(hl.sub) + '</div></div></div>';
     if (cur != null) {
       var p = map.phases[cur];
@@ -23363,7 +23586,7 @@ PF.vk = (function () {
     var r = ctx.run(); if (!r) return V.run(ctx);
     var s = ctx.state, map = R.mapOf(r), rec = ctx.recording(r), ok = R.allGatesOk(r, map), fus = r.followUps || [], cor = PF.corrections.forRun(r, map, { at: true }), idx = cor.length ? V.corrByNote(ctx, r.process) : {};
     var people = PF.people.sorted(ctx).filter(function (p) { return !p.inactive; });
-    var h = notices(ctx) + V.backRow(V.backc('exit-mission', null, 'The run')) + '<div class="runhead"><div><div class="eyebrow">' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) + '</div><h1 id="page-h" tabindex="-1">Finish ' + esc(r.title) + '</h1></div></div>';
+    var h = notices(ctx) + pageHead(ctx, r, { title: 'Finish ' + esc(r.title), status: [{ kind: 'd', html: esc(map.meta.title) + ' · ' + esc(K.verWord(r)) }] });
     if (!rec) return h + '<div class="notice warn"><span>Only the recorder can finish the run.</span></div>';
     /* Only what has something in it: the follow-up form waits under Add a follow-up (opened by an error, or once opened). */
     var fuOpen = (s.disc || {})['fu-add'] || (s.fieldErr && s.fieldErr.id === 'followup');
@@ -23443,7 +23666,10 @@ PF.vk = (function () {
     var rcItems = cor.length ? V.corrItems(PF.corrections.forRun(r, map, { at: true })) : [];
     if (cor.length) body += '<div class="r-corr"><h4><span>Corrections · ' + cor.length + '</span></h4>' + K.list(st, 'rcpt-corr:' + rkey, rcItems, { hold: false, keep: heldCorr(st, r, rcItems), keptLabel: 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: corrFocus,
       draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) { return V.corrRow(ctx, x.c, idx[x.c.id], { step: true, run: r, domId: x.dom }); }).join('') + '</ul>'; } }) + '</div>';
-    return notices(ctx) + V.backRow(V.backc('exit-mission', null, 'The run')) + '<div class="runhead"><div><div class="eyebrow">Receipt · Copy it into your ticket, or take a screenshot</div><h1 id="page-h" tabindex="-1">' + esc(r.title) + '</h1></div><div class="row"><button class="btn primary" data-act="copy-receipt">' + I('copy') + 'Copy for Jira</button><button class="btn" data-act="ev-open" data-id="' + esc(r.process + '/' + r.id) + '">' + I('doc') + 'Export evidence</button>' + V.planAgain(ctx, r) + '<span class="small" id="copy-msg" aria-live="polite"></span></div></div>' +
+    return notices(ctx) + pageHead(ctx, r, { title: esc(r.title), status: [{ kind: 'd', html: 'Receipt · Copy it into your ticket, or take a screenshot' }],
+      acts: '<button type="button" class="btn go" data-act="copy-receipt">' + I('copy') + 'Copy for Jira</button>',
+      panels: '<button type="button" class="mini" data-act="ev-open" data-id="' + esc(r.process + '/' + r.id) + '">' + I('doc') + 'Export evidence</button>' + V.planAgain(ctx, r, 'mini'),
+      facts: '<span class="small" id="copy-msg" aria-live="polite"></span>' }) +
       '<div class="receipt"><div class="head"><div><div class="eyebrow">' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) + '</div><div class="rt">' + esc(r.title) + '</div>' + (det ? '<div class="small">' + esc(det) + '</div>' : '') + '</div><div style="text-align:right"><div class="pill ' + hl.s + '">' + esc(r.ended ? K.hlText(r, hl) : 'In progress') + '</div><div class="small">started ' + esc(U.when(r.created)) + '<br>run ' + esc(r.id) + '</div></div></div>' + body +
       '<div class="small">✓ done · N/A not applicable · ■ blocked · ↻ re-check · ○ not checked</div></div><pre id="receipt-text" hidden></pre>';
   }
@@ -24153,8 +24379,8 @@ PF.vk = (function () {
   function personName(ctx, id) { var x = (ctx.data.people || []).filter(function (q) { return q.id === id; })[0]; return x ? x.name : id; }
   function detailsCard(ctx, map, sel) {
     var m = map.meta, on = !!sel && sel.kind === 'details';
-    return '<div class="ob-details' + (on ? ' sel' : '') + '"><button type="button" class="ob-det" data-act="ob-sel-details" aria-pressed="' + on + '">' + I('people') +
-      '<span class="ob-row"><span class="ob-txt">Checklist details</span><span class="ob-meta"><span class="small">' + (m.owner ? 'Owner ' + esc(personName(ctx, m.owner)) : 'No owner yet') + (m.backup ? ' · backup ' + esc(personName(ctx, m.backup)) : '') + '</span>' +
+    return '<div class="ob-details' + (on ? ' sel' : '') + '"><button type="button" class="ob-det" data-act="ob-sel-details" aria-pressed="' + on + '">' + I('edit') +
+      '<span class="ob-row"><span class="ob-txt">Edit checklist details</span><span class="ob-meta"><span class="small">' + (m.owner ? 'Owner ' + esc(personName(ctx, m.owner)) : 'No owner yet') + (m.backup ? ' · backup ' + esc(personName(ctx, m.backup)) : '') + '</span>' +
       (m.roles.length ? '<span class="ob-role">' + esc(K.capJoin(m.roles, function (r) { return '@' + r; }, ' ', 'ob-det-roles', function (n) { return ' and ' + n.toLocaleString('en-US') + ' more'; })) + '</span>' : '<span class="small">No roles</span>') +
       /* The card names 50 roles and 50 run details and how many more (code review round 10); Checklist details lists them all. */
       (m.context.length ? m.context.slice(0, PF.vk.PAGE_OFF === 'ob-det-context' ? m.context.length : K.PAGE).map(function (c) { return '<span class="ob-chip">^' + esc(c) + '</span>'; }).join('') + (m.context.length > K.PAGE && PF.vk.PAGE_OFF !== 'ob-det-context' ? '<span class="small">and ' + (m.context.length - K.PAGE).toLocaleString('en-US') + ' more</span>' : '') : '<span class="small">No run details</span>') + '</span></span></button></div>';
@@ -24827,17 +25053,14 @@ PF.vk = (function () {
     var nav = '<nav class="pviews ws-views" aria-label="Checklist views">' +
       '<button type="button" id="ws-edit"' + (pr ? ' data-act="pr-back"' : ' aria-current="page"') + '>' + I('edit') + 'Edit</button>' +
       '<button type="button" id="ws-practice"' + (pr ? ' aria-current="page"' : ' data-act="pr-open"') + (got ? ' aria-label="Practice, ' + cnt.done + ' of ' + cnt.total + ' steps answered"' : '') + '>' + I('play') + 'Practice' + got + '</button></nav>';
-    return '<header class="fpe-head ws-head" role="region" aria-labelledby="' + o.hid + '"><div class="fpe-id">' + V.backc(pr ? 'pr-leave' : 'ed-done', null, p.title) +
-      '<div class="fpe-title"><h1 id="' + o.hid + '" class="sr">' + esc(p.title) + ', ' + (pr ? 'Practice' : 'Edit') + '</h1><span class="small fpe-sub">' + o.sub + prim.sub + '</span></div></div>' +
-      nav + '<div class="ws-right"><div class="fpe-tools">' + o.tools + (o.more ? wsMore(ctx, pr, o.more) : '') + '</div><div class="fpe-save">' + prim.html + '</div></div></header>' + prim.why;
+    /* ‹ Overview always replaces (nav §1.4): wsLeave, through its guards. The title beside it is the visible h1. */
+    var back = V.backc(pr ? 'pr-leave' : 'ed-done', null, 'Overview', null, '', 'Back to Overview of ' + p.title);
+    return V.workHead({ hid: o.hid, cls: o.cls, h1: esc(p.title) + '<span class="sr">, ' + (pr ? 'Practice' : 'Edit') + '</span>', back: back,
+      status: o.status.concat(prim.sub ? [{ kind: 'act', cls: 'ws-test', html: prim.sub }] : []), views: nav, prog: o.prog,
+      acts: prim.html, more: V.moreMenu(ctx, V.moreGroup('On this screen', o.phone || '') + V.appGroup(ctx, { pr: pr }), pr), why: prim.why });
   }
-  /* Row 3 on a phone (2.2): the tools that don't fit sit in More at its end; wider, More's button is hidden and they sit in
-     the row as any other tool (page.html). */
-  function wsMore(ctx, pr, html) {
-    var open = !!ctx.state.wsMore;
-    return '<div class="ws-more"><button type="button" class="mini ws-more-btn" id="ws-more-btn" data-act="' + (pr ? 'pr-more' : 'ws-more') + '" aria-expanded="' + open + '" aria-controls="ws-more-list">More</button>' +
-      '<div class="ws-more-list' + (open ? ' open' : '') + '" id="ws-more-list">' + html + '</div></div>';
-  }
+  /* The held primary's reason line, inside the header; nobody chosen offers the Who are you? dialog. */
+  function wsWhy(text, extra) { return '<p class="small hd-why ws-why" id="ws-why" tabindex="-1">' + esc(text) + (extra || '') + '</p>'; }
   /* The stage the saved draft is (rule 4): staged, complete and readable, with this exact text. The newest wins; test runs
      only break a tie. null when none, or when the stage decisions can't be read. */
   function wsStage(ctx, p) {
@@ -24863,19 +25086,19 @@ PF.vk = (function () {
     var sg = wsStage(ctx, p);
     if (sg) {
       var open = sg.tests.filter(function (r) { return !r.ended; }).sort(function (a, b) { return String(b.created || '').localeCompare(String(a.created || '')); });
-      if (open.length) { out.kind = 'testing'; out.sub = '<span class="ws-test"> · <button type="button" class="linkish" data-act="' + act('open-run', 'pr-test-run') + '" data-id="' + esc(open[0].process + '/' + open[0].id) + '">Test run in progress ›</button></span>'; return out; }
+      if (open.length) { out.kind = 'testing'; out.sub = '<button type="button" class="linkish" data-act="' + act('open-run', 'pr-test-run') + '" data-id="' + esc(open[0].process + '/' + open[0].id) + '">Test run in progress ›</button>'; return out; }
       var text = !sg.tests.length ? 'Start a test run' : 'Make v' + next + ' the default…';
       out.kind = !sg.tests.length ? 'test' : 'promote';
       /* Nobody chosen in You are: held, as Publish vN… is, with the reason; the click only takes focus to it. */
-      if (!st.me) { out.html = btn(act('ws-held', 'pr-held'), sg.s.folder, text, ' aria-disabled="true" aria-describedby="ws-why"'); out.why = '<p class="small ws-why" id="ws-why" tabindex="-1">Choose who you are first. You are is at the top of the checklist page.</p>'; return out; }
+      if (!st.me) { out.html = btn(act('ws-held', 'pr-held'), sg.s.folder, text, ' aria-disabled="true" aria-describedby="ws-why"'); out.why = wsWhy('Choose who you are first.', ' <button type="button" class="mini" data-act="' + act('ws-me', 'pr-me') + '" data-id="why" aria-haspopup="dialog">Choose who you are</button>'); return out; }
       out.html = btn(!sg.tests.length ? act('start-test', 'pr-start-test') : act('promote-open', 'pr-promote-open'), sg.s.folder, text); return out;
     }
     if (!p.draftChanged) return out;
     out.kind = 'publish';
     var nb = M.check(M.parse(p.draft.md), V.checkOptions(ctx)).blockers.length;
-    var why = !st.me ? 'Choose who you are first. You are is at the top of the checklist page.' : nb ? nb + (nb === 1 ? ' problem blocks' : ' problems block') + ' publishing.' : '';
+    var why = !st.me ? 'Choose who you are first.' : nb ? nb + (nb === 1 ? ' problem blocks' : ' problems block') + ' publishing.' : '';
     out.html = btn(act('publish-open', 'pr-publish-open'), p.id, 'Publish v' + next + '…', why ? ' aria-disabled="true" aria-describedby="ws-why"' : '');
-    if (why) out.why = '<p class="small ws-why" id="ws-why" tabindex="-1">' + esc(why) + (st.me && nb ? ' <button type="button" class="mini" data-act="' + act('ws-problems', 'pr-problems') + '">Show problems</button>' : '') + '</p>';
+    if (why) out.why = wsWhy(why, !st.me ? ' <button type="button" class="mini" data-act="' + act('ws-me', 'pr-me') + '" data-id="why" aria-haspopup="dialog">Choose who you are</button>' : nb ? ' <button type="button" class="mini" data-act="' + act('ws-problems', 'pr-problems') + '">Show problems</button>' : '');
     return out;
   }
   /* The Publish dialog (2.16): the only place to publish or stage from the workspace. One What changed box, the needs and
@@ -24921,15 +25144,13 @@ PF.vk = (function () {
     var status = draftStatus(ctx, p, ed, text);
     /* Three groups that never trade places: who it is, the editing tools, and saving. Discard keeps its place when hidden. */
     var just = !dirty && !saving && st.justSaved && st.justSaved.pid === p.id, size = U.draftSize(text);
-    /* The workspace's one header (2.16), shared with practice: the way back, Edit | Practice, the editing tools, one primary. */
-    var tools = '<div class="seg" role="group" aria-label="Edit with"><button type="button" data-act="ed-mode" data-id="builder" aria-pressed="' + builder + '">Builder</button><button type="button" data-act="ed-mode" data-id="markdown" aria-pressed="' + !builder + '">Markdown</button></div>' +
-      /* Undo, Redo and History: the one timeline shared with the Markdown view (and the step-type editor's same controls). */
-      V.undoBar('draft', ed && ed.tl, { noHistory: true });
-    /* History is the one that doesn't fit on a phone's row 3: it goes in More there (wsMore). */
-    var more = '<button type="button" class="mini" data-act="hist-open" data-id="draft" aria-haspopup="dialog">' + I('clock') + 'History</button>';
-    var sub = '<span class="fpe-state' + (dirty ? ' dirty' : '') + (just ? ' just' : '') + '" role="status" title="maps/drafts/' + esc(file) + (size ? ' · ' + size : '') + '">' + (just ? I('check') : '') + 'Draft: ' + status + '</span>' +
-      '<button type="button" class="linkish fpe-discard" data-act="revert-draft" data-id="' + esc(p.id) + '"' + (dirty ? '' : ' hidden') + '>Discard my changes</button>';
-    var h = '<div class="fpe" id="fpe">' + wsHead(ctx, p, { practice: false, hid: 'ed-h', sub: sub, tools: tools, more: more });
+    /* The workspace's one header (2.16), shared with practice: the way back, the title, Edit | Practice, one primary, More;
+       then the tool row: Undo, Redo, History | Builder | Markdown. History is a phone-only copy in More too. */
+    var seg = '<div class="seg" role="group" aria-label="Edit with"><button type="button" data-act="ed-mode" data-id="builder" aria-pressed="' + builder + '">Builder</button><button type="button" data-act="ed-mode" data-id="markdown" aria-pressed="' + !builder + '">Markdown</button></div>';
+    var phone = '<button type="button" class="mini ph-only" data-act="hist-open" data-id="draft" aria-haspopup="dialog">' + I('clock') + 'History</button>';
+    var parts = [{ kind: 'd', html: '<span class="fpe-state' + (dirty ? ' dirty' : '') + (just ? ' just' : '') + '" role="status" title="maps/drafts/' + esc(file) + (size ? ' · ' + size : '') + '">' + (just ? I('check') : '') + 'Draft: ' + status + '</span>' },
+      { kind: 'act', html: '<button type="button" class="linkish fpe-discard" data-act="revert-draft" data-id="' + esc(p.id) + '"' + (dirty ? '' : ' hidden') + '>Discard my changes</button>' }];
+    var h = '<div class="fpe" id="fpe">' + wsHead(ctx, p, { practice: false, hid: 'ed-h', status: parts, phone: phone }) + V.toolRow([V.undoBar('draft', ed && ed.tl), seg], '', { label: 'Editing tools' });
     /* Messages and conflicts stay in view, right under the header. */
     var al = '';
     /* No live role: messages are announced once, through #live (say and announce in app.js). */
@@ -25119,14 +25340,19 @@ PF.vk = (function () {
     var status = f.saving ? 'Saving…' : changed ? 'Unsaved changes' : f.existing ? (st.fs && st.fs.volatile ? 'Saved in this tab only' : 'Saved') : 'Not saved yet';
     /* On a phone the preview opens as a dialog over the form: everything behind it is inert until it closes. */
     var modal = !!st.tfPreview, behind = modal ? ' inert' : '';
-    var h = '<div class="fpe fpe-type" id="tfe"><header class="fpe-head" role="region" aria-labelledby="tf-h"' + behind + '>' +
-      /* ‹ Step types, or ‹ <checklist> · Edit when opened from the workspace (2.16); it asks before discarding changes. */
-      '<div class="fpe-id">' + (function () { var o = ctx.libOrigin ? ctx.libOrigin('types') : null; return o && o.ws ? V.backc('type-done', null, o.place, o.view) : V.backc('type-done', null, 'Step types'); })() + '<div class="fpe-title"><h1 id="tf-h" tabindex="-1">' + esc(name) + ' <span class="cat">Step type</span></h1></div></div>' +
-      '<div class="fpe-tools">' + V.undoBar('type', f.tl) + '<button type="button" class="mini tf-prevbtn" data-act="tf-preview" aria-expanded="' + !!st.tfPreview + '" aria-controls="tf-preview">' + I('screen') + 'Preview</button></div>' +
-      '<div class="fpe-save"><span class="fpe-state' + (changed ? ' dirty' : '') + (just ? ' just' : '') + '" role="status">' + (f.existing && !changed && !f.saving ? I('check') : '') + status + '</span>' +
-      '<button class="btn go" type="submit" form="type-form"' + (f.saving ? ' disabled' : '') + (why ? ' aria-describedby="tf-save-why"' : '') + '>' + (f.saving ? 'Saving…' : 'Save step type') + '</button></div></header>';
+    var o = ctx.libOrigin ? ctx.libOrigin('types') : null;
+    /* ‹ Step types, or ‹ <checklist> · Edit when opened from the workspace (2.16); it asks before discarding changes. The
+       status moves into LEFT, Save step type is the primary, its reason line sits inside the header. Row 1, the tool row and
+       the form all go inert behind the phone's Preview. */
+    var h = '<div class="fpe fpe-type" id="tfe">' + V.workHead({ hid: 'tf-h', h1attrs: ' tabindex="-1"', attrs: behind, h1: esc(name) + ' <span class="cat">Step type</span>',
+      back: o && o.ws ? V.backc('type-done', null, o.place, o.view) : V.backc('type-done', null, 'Step types'),
+      status: [{ kind: 'd', html: '<span class="fpe-state' + (changed ? ' dirty' : '') + (just ? ' just' : '') + '" role="status">' + (f.existing && !changed && !f.saving ? I('check') : '') + status + '</span>' }],
+      acts: '<button class="btn go" type="submit" form="type-form"' + (f.saving ? ' disabled' : '') + (why ? ' aria-describedby="tf-save-why"' : '') + '>' + (f.saving ? 'Saving…' : 'Save step type') + '</button>',
+      more: V.moreMenu(ctx, V.moreGroup('On this screen', '<button type="button" class="mini ph-only" data-act="hist-open" data-id="type" aria-haspopup="dialog">' + I('clock') + 'History</button>') + V.appGroup(ctx)),
+      why: why ? '<p class="small hd-why tf-why" id="tf-save-why">' + esc(why) + '</p>' : '' }) +
+      V.toolRow([V.undoBar('type', f.tl), '<button type="button" class="mini tf-prevbtn" data-act="tf-preview" aria-expanded="' + !!st.tfPreview + '" aria-controls="tf-preview">' + I('screen') + 'Preview</button>'], '', { label: 'Step type tools', attrs: behind });
     /* Messages stay in view under the header. The top bar is hidden here, so its "choose who you are" note isn't shown. */
-    var al = (why ? '<p class="tf-why" id="tf-save-why">' + esc(why) + '</p>' : '');
+    var al = '';
     if (st.msg) al += '<div class="notice ' + (st.msg.kind || '') + '" role="status"><span>' + esc(st.msg.text) + '</span><span class="row">' + (st.msg.act ? '<button type="button" class="btn" data-act="' + esc(st.msg.act) + '"' + (st.msg.id ? ' data-id="' + esc(st.msg.id) + '"' : '') + '>' + esc(st.msg.label) + '</button>' : '') + '<button type="button" class="mini" data-act="dismiss">Dismiss</button></span></div>';
     if (st.folderErr) al += '<div class="notice bad" role="alert"><span><b>Can\'t read the team folder.</b> ' + esc(st.folderErr) + '</span><button type="button" class="btn" data-act="refresh">Try again</button></div>';
     if (f.leaving) al += '<div class="notice warn" role="alert" aria-labelledby="tf-leave-h"><span id="tf-leave-h"><b>This step type has changes that aren\'t saved.</b> Save them, or leave without them.</span><span class="row"><button type="button" class="btn go" data-act="type-save">Save step type</button><button type="button" class="mini" data-act="type-cancel">Leave without saving</button><button type="button" class="mini" data-act="type-stay">Keep editing</button></span></div>';
@@ -25454,17 +25680,21 @@ PF.vk = (function () {
     return h;
   };
 
-  /* The header (2.16): the workspace's own (V.wsHead, shared with the editor) with practice's tools, then the strip. */
+  /* The header (2.16): the workspace's own row 1 (V.wsHead, shared with the editor) with practice's progress, then the tool
+     row: Undo, Redo, Start over | Sample details, Things to fix | the fact that nothing here is saved. */
   V.practiceHead = function (ctx, P, t, pct) {
     var s = ctx.state, p = ctx.procOf(P.pid) || { id: P.pid, title: P.title, all: [] };
-    void t; void pct;
-    var tools = '<button type="button" class="mini" data-act="pr-undo"' + (P.canUndo ? '' : ' disabled') + ' aria-label="Undo in practice' + (P.undoLabel ? ': ' + esc(P.undoLabel) : '') + '">' + I('undo') + 'Undo</button>' +
-      '<button type="button" class="mini" data-act="pr-redo"' + (P.canRedo ? '' : ' disabled') + ' aria-label="Redo in practice">' + I('redo') + 'Redo</button>';
-    var more = '<button type="button" class="mini" data-act="pr-reset"' + (P.hasAnswers ? '' : ' disabled') + '>Start over</button>' +
-      (P.details.length ? '<button type="button" class="mini" data-act="pr-samples" aria-expanded="' + !!s.prSamples + '" aria-controls="pr-sample">Sample details</button>' : '') +
-      '<button type="button" class="mini" data-act="pr-found-open" aria-expanded="' + !!s.prFound + '" aria-controls="pr-found-box">Things to fix' + (P.found ? ' ·' : '') + '</button>';
-    var h = V.wsHead(ctx, p, { practice: true, hid: 'run-h', sub: '<span class="pr-badge">Practice · not recorded · kept in this tab</span>', tools: tools, more: more });
-    return h.replace('<header class="fpe-head ws-head"', '<header class="fpe-head ws-head rw-head pr-head"') + '<div class="rw-strip pr-strip" data-k="practice" role="region" aria-label="Practice"><div class="rw-who"><span class="rw-say">Nothing here is saved to the team folder. Links and commands you follow still act on real systems.</span></div></div>';
+    void pct;
+    var timeline = '<button type="button" class="mini" data-act="pr-undo"' + (P.canUndo ? '' : ' disabled') + ' aria-label="Undo in practice' + (P.undoLabel ? ': ' + esc(P.undoLabel) : '') + '">' + I('undo') + 'Undo</button>' +
+      '<button type="button" class="mini" data-act="pr-redo"' + (P.canRedo ? '' : ' disabled') + ' aria-label="Redo in practice">' + I('redo') + 'Redo</button>' +
+      '<button type="button" class="mini" data-act="pr-reset"' + (P.hasAnswers ? '' : ' disabled') + '>Start over</button>';
+    var panel = function (cls) {
+      return (P.details.length ? '<button type="button" class="mini' + cls + '" data-act="pr-samples" aria-expanded="' + !!s.prSamples + '" aria-controls="pr-sample">Sample details</button>' : '') +
+        '<button type="button" class="mini' + cls + '" data-act="pr-found-open" aria-expanded="' + !!s.prFound + '" aria-controls="pr-found-box">Things to fix' + (P.found ? ' ·' : '') + '</button>';
+    };
+    var status = [{ kind: 'd', html: '<span class="tag pr">Practice</span> not recorded · kept in this tab' }];
+    return V.wsHead(ctx, p, { practice: true, hid: 'run-h', cls: 'rw-head pr-head', status: status, prog: V.progress(t.done, t.total), phone: panel(' ph-only') }) +
+      V.toolRow([timeline, panel(' wd-only')], '<span class="rw-say">Nothing here is saved to the team folder. Links and commands you follow still act on real systems.</span>', { cls: 'rw-strip pr-strip', k: 'practice', label: 'Practice' });
   };
 
   /* The version Publish vN… would publish, when it's the header's primary (rule 5); else ''. */
@@ -25779,7 +26009,7 @@ PF.vk = (function () {
       while (row < 2 && rows[row] != null && cx - rows[row] < 2 * R0 + 1) row++;
       rows[row] = cx;
       var r = ctx.findRun ? ctx.findRun(v.key) : null, name = (r ? r.title : v.key) + ', ' + about(v.ms);
-      dots += '<a href="#" class="ins-dot-a" tabindex="-1" data-act="go" data-view="run" data-run="' + esc(v.key) + '" aria-label="' + esc(name) + '"><title>' + esc(name) + '</title><circle class="ins-dot" cx="' + cx.toFixed(1) + '" cy="' + (38 - row * 13) + '" r="' + R0 + '"/></a>';
+      dots += '<a href="#" class="ins-dot-a" tabindex="-1" data-act="go" data-view="run" data-run="' + esc(v.key) + '" aria-label="' + esc(name) + '"><title>' + esc(name) + '</title><circle class="ins-hit" cx="' + cx.toFixed(1) + '" cy="' + (38 - row * 13) + '" r="12"/><circle class="ins-dot" cx="' + cx.toFixed(1) + '" cy="' + (38 - row * 13) + '" r="' + R0 + '"/></a>';
     });
     var mx = x(median);
     return '<div class="ins-chart"><svg class="ins-strip" viewBox="0 0 ' + W + ' 48" role="group" aria-label="Completed runs by active time, from 0 to ' + esc(about(max)) + '">' +
@@ -28721,8 +28951,8 @@ PF.examples = (function () {
   }
   /* Crossing the phone breakpoint redraws, so the properties sheet's modal state follows the layout. */
   var wasNarrow = null;
-  /* The phone More menu is a layer only while its button shows (480 px and under): widening closes it. */
-  window.addEventListener('resize', function () { pinOffsets(); fitPanes(); var n = !!(window.matchMedia && window.matchMedia('(max-width: 800px)').matches), more = state.wsMore && !(window.matchMedia && window.matchMedia('(max-width: 480px)').matches); if (more) state.wsMore = false; if (more || (wasNarrow !== null && n !== wasNarrow)) render(); wasNarrow = n; });
+  /* More is on every work screen at every width (2.16), so resizing never closes it; it is refitted to the window. */
+  window.addEventListener('resize', function () { pinOffsets(); fitPanes(); hdOffset(); moreFit(); var n = !!(window.matchMedia && window.matchMedia('(max-width: 800px)').matches); if (wasNarrow !== null && n !== wasNarrow) render(); wasNarrow = n; });
   /* Redraw only what changed: unchanged regions keep their nodes, so focus, the caret, typed text and scroll inside them stay.
      Nodes that differ are compared a few levels down (screen → run → deck → phase → steps → step) and replaced there. */
   function patch(el, html) {
@@ -29201,6 +29431,45 @@ PF.examples = (function () {
     reveal(s.kind === 'step' ? '[data-ob-step="' + cssEsc(s.key) + '"]' : s.kind === 'track' ? '.ob-lane.sel' : s.kind === 'details' ? '.ob-details' : s.kind === 'questions' ? '#ob-q-note' : '[data-ob-phase="' + cssEsc(s.key) + '"]');
     reveal('#pv-sel', 'center');
   }
+  /* --hd-h: the current work screen's sticky row 1 (header.hd), measured after every render and whenever it or the window
+     resizes; 0 when it isn't sticky. A row 1 taller than 40% of the room under the banner doesn't stick (hd-free): it scrolls
+     with the page, so a short phone or 400% zoom never hides every control under it. */
+  var hdSeen = null, hdRO = window.ResizeObserver ? new ResizeObserver(function () { hdOffset(); moreFit(); }) : null;
+  function hdOffset() {
+    var de = document.documentElement, hd = document.querySelector ? document.querySelector('#app header.hd') : null, work = de && de.classList && de.classList.contains('work-on');
+    if (hdRO && hd !== hdSeen) { if (hdSeen) hdRO.unobserve(hdSeen); if (hd) hdRO.observe(hd); hdSeen = hd; }
+    var v = 0;
+    if (work && hd && hd.getBoundingClientRect) {
+      var keep = parseFloat(getComputedStyle(de).getPropertyValue('--keep-h')) || 0, hgt = hd.getBoundingClientRect().height;
+      var free = narrowNow() && hgt > 0.4 * Math.max(1, window.innerHeight - keep);
+      if (hd.classList.contains('hd-free') !== free) hd.classList[free ? 'add' : 'remove']('hd-free');
+      if (!free && getComputedStyle(hd).position === 'sticky') v = Math.round(hd.getBoundingClientRect().height);
+    }
+    if (de && de.style && de.style.getPropertyValue('--hd-h') !== v + 'px') de.style.setProperty('--hd-h', v + 'px');
+  }
+  /* More never runs off the screen: its height is the room left below its opener; with less than two items' room, or the
+     opener scrolled up under the banner, it is contained in the viewport instead. Refit on open, resize and scroll. */
+  function moreFit() {
+    var list = document.getElementById('ws-more-list'), btn = document.getElementById('ws-more-btn');
+    if (!list || !btn || !state.wsMore || !btn.getBoundingClientRect) return;
+    var keep = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--keep-h')) || 0, b = btn.getBoundingClientRect(), room = window.innerHeight - b.bottom - 6 - 8;
+    var contain = room < 104 || b.top < keep;
+    list.classList[contain ? 'add' : 'remove']('contained');
+    list.style.maxHeight = (contain ? window.innerHeight - keep - 16 : room) + 'px';
+  }
+  window.addEventListener('scroll', function () { if (state.wsMore) moreFit(); }, { passive: true });
+  /* Focus leaving an open More closes it, so Tab past its last item never lands on a control it covers. */
+  var moreDown = false;
+  document.addEventListener('pointerdown', function (e) { moreDown = !!(e.target && e.target.closest && e.target.closest('.more')); }, true);
+  document.addEventListener('keydown', function () { moreDown = false; }, true);
+  document.addEventListener('focusout', function (e) {
+    if (!state.wsMore || !e.target || !e.target.closest || !e.target.closest('.more')) return;
+    var to = e.relatedTarget; if (to && to.closest && to.closest('.more')) return;
+    /* Nothing took focus: Tab ran off the end of the page (close), or another window took it (keep More for coming back), or
+       a press inside More on a browser that doesn't focus buttons (keep it, so the press lands on what was drawn). */
+    if (!to && (moreDown || !(document.hasFocus && document.hasFocus()))) return;
+    state.wsMore = false; render();
+  });
   /* The run screen is a page of its own too: the top bar hides and, on a wider screen, each pane scrolls on its own. Next up
      sticks under the header on a phone, whatever height the header wraps to. Pane positions saved on the way to screen share
      come back on the way out. */
@@ -29210,8 +29479,10 @@ PF.examples = (function () {
     /* The run's own pages (2.16 section 2.4): no top bar either; their way back is The run. */
     var sub = (state.view === 'mission' || state.view === 'finish' || state.view === 'receipt') && !!ctx.run();
     if (de && de.classList) { if (sub) de.classList.add('rw-page'); else de.classList.remove('rw-page'); }
-    var head = on && app.querySelector && app.querySelector('.rw-head');
-    if (head && head.offsetHeight && de.style) de.style.setProperty('--rw-head-h', head.offsetHeight + 'px');
+    /* One class hides the top bar on every work screen (docs/design.md section 34). */
+    var work = on || sub || (state.view === 'process' && state.ptab === 'edit' && !!currentProcess()) || (state.view === 'types' && !!state.typeForm && state.typeForm.fsKey === fsKey());
+    if (de && de.classList) { if (work) de.classList.add('work-on'); else de.classList.remove('work-on'); }
+    hdOffset();
     /* Steps and phases brought into view stop below the sticky Next up (and the picker beside it on laptops). */
     var dock = on && app.querySelector && app.querySelector('.rw-dock');
     if (dock && dock.offsetHeight && de.style) de.style.setProperty('--rw-dock-h', dock.offsetHeight + 'px');
@@ -29291,7 +29562,7 @@ PF.examples = (function () {
     if (paneDrag) paneDragEnd();
     sp.focus({ preventScroll: true });
     paneCapture(sp, e.pointerId);
-    paneDrag = { sp: sp, key: sp.getAttribute('data-split'), id: e.pointerId, x: e.clientX, w: pane.getBoundingClientRect().width };
+    paneDrag = { sp: sp, key: sp.getAttribute('data-split'), id: e.pointerId, x: e.clientX, w: pane.getBoundingClientRect().width, moved: 0 };
     rootClass('pane-drag', true);
   });
   document.addEventListener('pointermove', function (e) {
@@ -29300,6 +29571,8 @@ PF.examples = (function () {
     if (!sp) { paneDragEnd(); return; }
     if (sp !== paneDrag.sp) { paneDrag.sp = sp; paneCapture(sp, paneDrag.id); }
     var dx = e.clientX - paneDrag.x;
+    paneDrag.moved = Math.max(paneDrag.moved, Math.abs(dx));
+    if (paneDrag.moved < 3) return;
     paneSet(paneDrag.key, paneDrag.w + (V.PANES[paneDrag.key].end ? -dx : dx));
     paneLive(sp);
   });
@@ -29311,7 +29584,16 @@ PF.examples = (function () {
     if (sp) try { sp.releasePointerCapture(d.id); } catch (x) { /* already released */ }
     paneDone(d.key);
   }
-  function paneDragStop(e) { if (paneDrag && e.pointerId === paneDrag.id) paneDragEnd(); }
+  /* A click (down and up with under 3px of movement) moves the separator one keyboard step toward the half of the strip it
+     landed on: a pointer path that isn't a drag (WCAG 2.5.7). */
+  function paneDragStop(e) {
+    if (!paneDrag || e.pointerId !== paneDrag.id) return;
+    if (e.type === 'pointerup' && paneDrag.moved < 3 && paneDrag.sp.getBoundingClientRect) {
+      var r = paneDrag.sp.getBoundingClientRect(), left = e.clientX < r.left + r.width / 2, spec = V.PANES[paneDrag.key], lim = V.paneW(ctx, paneDrag.key), dir = spec.end ? -1 : 1;
+      paneSet(paneDrag.key, lim.w + (left ? -1 : 1) * dir * 16);
+    }
+    paneDragEnd();
+  }
   document.addEventListener('pointerup', paneDragStop);
   document.addEventListener('pointercancel', paneDragStop);
   /* Capture moves to the new separator when a redraw replaced the old one mid-drag; otherwise losing it ends the drag. */
@@ -30833,6 +31115,11 @@ PF.examples = (function () {
     },
     'pr-samples': function () { state.prSamples = !state.prSamples; state.focus = state.prSamples ? 'pr-sample-h' : '[data-act="pr-samples"]'; render(); },
     'pr-more': function () { wsMoreToggle(); },
+    /* More's last group in practice (docs/design.md section 34): who you are, search, appearance, the folder check. */
+    'pr-me': function (id, b) { meOpen(b, id); },
+    'pr-search': function () { state.wsMore = false; ACTIONS.search(); },
+    'pr-theme': function (id, b) { ACTIONS.theme(id, b); },
+    'pr-folder': function () { state.wsMore = false; ACTIONS.refresh(); },
     'pr-found-open': function () { state.prFound = !state.prFound; state.focus = state.prFound ? 'pr-found' : '[data-act="pr-found-open"]'; render(); },
     'pr-save': function () {
       var p = prNow(); if (!p) return; var e = prEntry(p.id), pend = prPending(p.id); if (pend) { say(pend, 'warn'); render(); return; }
@@ -31026,7 +31313,21 @@ PF.examples = (function () {
     });
   }
   /* The workspace's More on a phone (2.2): opening it focuses its first tool; closing it, More again. */
-  function wsMoreToggle() { state.wsMore = !state.wsMore; state.focus = state.wsMore ? '#ws-more-list button:not([disabled])' : 'ws-more-btn'; render(); }
+  function wsMoreToggle() { state.wsMore = !state.wsMore; state.focus = state.wsMore ? '#ws-more-list button:not([disabled])' : 'ws-more-btn'; render(); moreFit(); }
+  /* Who are you? (docs/design.md section 34): opened from More (focus comes back to More) or from a held primary's reason line
+     (focus goes to the primary that was held). Choosing sets state.me the same way the top bar's You are does. */
+  function meOpen(b, id) {
+    var fromWhy = id === 'why';
+    state.wsMore = false; state.overlayFocus = '#me-pick';
+    openOverlay({ me: true, html: function () { return V.meDialog(ctx); } });
+    if (state.overlay) state.overlay.back = fromWhy ? '[data-slot="primary"] .btn' : '#ws-more-btn';
+  }
+  function meUse() {
+    var el = document.getElementById('me-pick'), v = el ? String(el.value || '').trim().slice(0, 60) : '';
+    if (!v) { if (el) el.focus(); return; }
+    state.me = v; lsSet('me', state.me); forgetStartIfNotMine();
+    closeOverlay(); sxSay('You are ' + V.nameOf(ctx, v) + '.');
+  }
   /* A control inside the phone's closed More can't take focus (it isn't drawn): More itself takes it (2.2). */
   function seenTarget(el) {
     if (!el || state.wsMore || !el.closest || !el.closest('#ws-more-list')) return el;
@@ -33268,6 +33569,9 @@ PF.examples = (function () {
     /* A ‹ control: a move there in this entry's place (rule 4, backInPlace), so the history stays one deep. The hash is
        parsed as any other, never trusted. */
     'ws-more': function () { wsMoreToggle(); },
+    me: function (id, b) { meOpen(b, id); },
+    'ws-me': function (id, b) { meOpen(b, id); },
+    'me-use': function () { meUse(); },
     'go-back': function (hash) {
       var loc = PF.nav.parse(String(hash == null ? '' : hash)); if (!loc) return;
       /* Rule 4: the leave guard, then a move there in this entry's place (backInPlace), the workspace included. */
@@ -34230,7 +34534,7 @@ PF.examples = (function () {
       var f = !m ? el : m[1] === 'step' ? el.querySelector('.check:not([disabled])') || el.querySelector('.s-pick') : m[1] === 'phase' ? el.querySelector('h2') : el.querySelector('.btn.go') || el.querySelector('button:not([disabled])');
       if (f && f.focus) f.focus({ preventScroll: true });
     },
-    'run-details': function () { state.runDetails = !state.runDetails; state.focus = state.runDetails ? 'rw-det-h' : narrow() ? '.rw-menu > summary' : '.rw-tools > [data-act="run-details"]'; render(); },
+    'run-details': function () { state.runDetails = !state.runDetails; state.focus = state.runDetails ? 'rw-det-h' : narrow() ? 'ws-more-btn' : '.tr [data-act="run-details"]'; render(); },
     'run-fu': function (id) { state.fuOpen = !state.fuOpen; state.focus = '[data-act="run-fu"][data-id="' + cssEsc(id || 'rail') + '"]'; render(); },
     'run-reports': function (id) { state.repOpen = !state.repOpen; state.focus = '[data-act="run-reports"][data-id="' + cssEsc(id || 'rail') + '"]'; render(); },
     /* Reports: Accept asks first, in the card; Decline asks why. Nothing has a single-key shortcut. */

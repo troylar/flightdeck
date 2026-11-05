@@ -40,17 +40,21 @@
     return h;
   };
 
-  /* The header (2.16): the workspace's own (V.wsHead, shared with the editor) with practice's tools, then the strip. */
+  /* The header (2.16): the workspace's own row 1 (V.wsHead, shared with the editor) with practice's progress, then the tool
+     row: Undo, Redo, Start over | Sample details, Things to fix | the fact that nothing here is saved. */
   V.practiceHead = function (ctx, P, t, pct) {
     var s = ctx.state, p = ctx.procOf(P.pid) || { id: P.pid, title: P.title, all: [] };
-    void t; void pct;
-    var tools = '<button type="button" class="mini" data-act="pr-undo"' + (P.canUndo ? '' : ' disabled') + ' aria-label="Undo in practice' + (P.undoLabel ? ': ' + esc(P.undoLabel) : '') + '">' + I('undo') + 'Undo</button>' +
-      '<button type="button" class="mini" data-act="pr-redo"' + (P.canRedo ? '' : ' disabled') + ' aria-label="Redo in practice">' + I('redo') + 'Redo</button>';
-    var more = '<button type="button" class="mini" data-act="pr-reset"' + (P.hasAnswers ? '' : ' disabled') + '>Start over</button>' +
-      (P.details.length ? '<button type="button" class="mini" data-act="pr-samples" aria-expanded="' + !!s.prSamples + '" aria-controls="pr-sample">Sample details</button>' : '') +
-      '<button type="button" class="mini" data-act="pr-found-open" aria-expanded="' + !!s.prFound + '" aria-controls="pr-found-box">Things to fix' + (P.found ? ' ·' : '') + '</button>';
-    var h = V.wsHead(ctx, p, { practice: true, hid: 'run-h', sub: '<span class="pr-badge">Practice · not recorded · kept in this tab</span>', tools: tools, more: more });
-    return h.replace('<header class="fpe-head ws-head"', '<header class="fpe-head ws-head rw-head pr-head"') + '<div class="rw-strip pr-strip" data-k="practice" role="region" aria-label="Practice"><div class="rw-who"><span class="rw-say">Nothing here is saved to the team folder. Links and commands you follow still act on real systems.</span></div></div>';
+    void pct;
+    var timeline = '<button type="button" class="mini" data-act="pr-undo"' + (P.canUndo ? '' : ' disabled') + ' aria-label="Undo in practice' + (P.undoLabel ? ': ' + esc(P.undoLabel) : '') + '">' + I('undo') + 'Undo</button>' +
+      '<button type="button" class="mini" data-act="pr-redo"' + (P.canRedo ? '' : ' disabled') + ' aria-label="Redo in practice">' + I('redo') + 'Redo</button>' +
+      '<button type="button" class="mini" data-act="pr-reset"' + (P.hasAnswers ? '' : ' disabled') + '>Start over</button>';
+    var panel = function (cls) {
+      return (P.details.length ? '<button type="button" class="mini' + cls + '" data-act="pr-samples" aria-expanded="' + !!s.prSamples + '" aria-controls="pr-sample">Sample details</button>' : '') +
+        '<button type="button" class="mini' + cls + '" data-act="pr-found-open" aria-expanded="' + !!s.prFound + '" aria-controls="pr-found-box">Things to fix' + (P.found ? ' ·' : '') + '</button>';
+    };
+    var status = [{ kind: 'd', html: '<span class="tag pr">Practice</span> not recorded · kept in this tab' }];
+    return V.wsHead(ctx, p, { practice: true, hid: 'run-h', cls: 'rw-head pr-head', status: status, prog: V.progress(t.done, t.total), phone: panel(' ph-only') }) +
+      V.toolRow([timeline, panel(' wd-only')], '<span class="rw-say">Nothing here is saved to the team folder. Links and commands you follow still act on real systems.</span>', { cls: 'rw-strip pr-strip', k: 'practice', label: 'Practice' });
   };
 
   /* The version Publish vN… would publish, when it's the header's primary (rule 5); else ''. */

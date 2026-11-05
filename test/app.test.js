@@ -872,7 +872,7 @@ rule('Page: the Tab only badge is fixed above every layer, safe-area aware, and 
   const others = (html.match(/z-index:\s*\d+/g) || []).map(x => +x.replace(/\D/g, '')).filter(n => n !== z);
   assert.ok(others.length > 5 && others.every(n => n < z), 'every sheet, overlay, dialog and menu sits below it: ' + Math.max(...others) + ' < ' + z);
   assert.ok(!/\btabindex=|<button|<a\s/.test(html.slice(html.indexOf('<div id="tab-badge"'), html.indexOf('</div>', html.indexOf('<div id="tab-badge"')))), 'the shell holds nothing focusable');
-  for (const sel of ['.overlay', '.rw-ins[data-open="true"]', '.fpe', '.top', '.fpe-head.rw-head', 'body']) {
+  for (const sel of ['.overlay', '.rw-ins[data-open="true"]', '.fpe', '.top', 'html.work-on .hd', 'body']) {
     assert.ok(rules.some(r => r.sel.split(',').map(s => s.trim()).includes(sel) && /var\(--keep-h/.test(r.body)), sel + ' starts below the badge');
   }
 });
@@ -1239,7 +1239,7 @@ rule('App: on a phone, the step-type Preview is a dialog: focus goes in, Tab sta
   app.click('tf-preview'); await app.tick();
   const h = app.html();
   assert.ok(/<aside class="fpe-pane tf-preview open" id="tf-preview" role="dialog" aria-modal="true" aria-labelledby="tf-prev-h"/.test(h), 'a modal dialog');
-  assert.ok(/<header class="fpe-head" role="region" aria-labelledby="tf-h" inert/.test(h) && /<section class="fpe-pane tf-formpane" aria-label="Step type" inert/.test(h), 'what\'s behind it can\'t be used');
+  assert.ok(/<header class="hd" role="region" aria-labelledby="tf-h" inert/.test(h) && /<section class="fpe-pane tf-formpane" aria-label="Step type" inert/.test(h), 'what\'s behind it can\'t be used');
   assert.ok(app.asked().includes('.tf-prevclose'), 'focus goes to Close');
   const doc = app.doc, btn = n => ({ id: n, dataset: {}, focus() { doc.activeElement = this; }, closest: () => null, getClientRects: () => [{}] });
   const ctl = [btn('close'), btn('last')], pv = app.el('tf-preview');
@@ -1779,7 +1779,7 @@ rule('New process: a blank one starts with no placeholder step, the Add a step b
   assert.ok(/^## First phase · READ-DO \{#first\}$/m.test(md) && !/first-step|The first thing to do/.test(md), md);
   assert.ok(/id="ob-new-text"/.test(app.html()), 'the add box is open');
   assert.strictEqual(app.focused(), 'ob-new-text');
-  assert.ok(/data-act="pr-open"/.test(app.html()) && !/Practice · not recorded/.test(app.html()), 'Practice offered, not opened');
+  assert.ok(/data-act="pr-open"/.test(app.html()) && !/Practice<\/span> not recorded/.test(app.html()), 'Practice offered, not opened');
   assert.ok(/Type a step and press Enter for the next one/.test(app.live()) && /Choose Practice to run it as you go/.test(app.live()), app.live());
   addEnter(app, 'Patch the servers'); await app.tick();
   app.click('pr-open'); await app.tick(60);
@@ -1789,7 +1789,7 @@ rule('New process: a blank one starts with no placeholder step, the Add a step b
 rule('New process: on a phone the blank one opens with the add box only; in Markdown mode the editor, Practice one press away', async () => {
   const phone = await newBlank({ narrow: true });
   phone.set('np-title', 'Weekly server patching'); phone.submit('new-process-form'); await phone.tick(120);
-  assert.ok(/id="ob-new-text"/.test(phone.html()) && !/Practice · not recorded/.test(phone.html()), 'no practice on its own');
+  assert.ok(/id="ob-new-text"/.test(phone.html()) && !/Practice<\/span> not recorded/.test(phone.html()), 'no practice on its own');
   const md = await newBlank({ localStore: { 'preflight:builder': 'false' } });
   md.set('np-title', 'Weekly server patching'); md.submit('new-process-form'); await md.tick(120);
   assert.ok(/id="draft-editor"/.test(md.html()) && /data-act="pr-open"/.test(md.html()), 'the Markdown editor, with Practice');
@@ -1844,7 +1844,7 @@ rule('New process: once "First version" is staged and practice stays open, neith
   go(); await app.tick(300); app.fs.write = orig;
   const staged = () => Object.keys(app.fs.files).filter(k => /^staged\/weekly-server-patching\/stage-[^/]+\/map\.md$/.test(k)).length;
   assert.strictEqual(staged(), 1, 'set-up: staged once, practice kept');
-  assert.match(app.html(), /Practice · not recorded/, 'set-up: practice kept');
+  assert.match(app.html(), /Practice<\/span> not recorded/, 'set-up: practice kept');
   assert.ok(!/data-act="pr-publish-open"/.test(app.html()), 'the staged draft has no Publish to offer again');
   app.click('pr-back'); await app.tick();
   assert.ok(/id="ed-h"/.test(app.html()) && !/data-act="publish-open"/.test(app.html()), 'Edit has none either');
@@ -2295,8 +2295,8 @@ rule('R13: with locks, two duplicated recording windows save one at a time; the 
 
 rule('R13: without locks, a duplicated window can\'t record at all, so it can\'t overwrite the recorder', async () => {
   const { a, b } = await twoWindows(false);
-  assert.ok(/You're recording|Your run/.test(a.html()));
-  assert.ok(!/You're recording\.|Your run\./.test(b.html()), 'the duplicate is view-only');
+  assert.ok(/You're recording|Your run|Recording as <b>/.test(a.html()));
+  assert.ok(!/You're recording\.|Your run\.|Recording as <b>/.test(b.html()), 'the duplicate is view-only');
 });
 
 rule('R14: without a shared lock, a save overwritten by Record here comes back as a conflict copy', async () => {
@@ -3789,7 +3789,7 @@ rule('App: the editor opens as its own page with focus on the Edit button (its h
 
 rule('App: a refresh while editing comes back to the editor', async () => {
   const app = boot({ sessionStore: { 'preflight:editing': 'release' } }); await app.tick(80);
-  assert.ok(/id="fpe"/.test(app.html()) && /<h1 id="ed-h" class="sr">Production release, Edit<\/h1>/.test(app.html()));
+  assert.ok(/id="fpe"/.test(app.html()) && /<h1 id="ed-h">Production release<span class="sr">, Edit<\/span><\/h1>/.test(app.html()));
   assert.strictEqual(app.focused(), 'ws-edit');
 });
 
@@ -7373,7 +7373,7 @@ const inPlace = (app, list) => { const was = JSON.parse(list), now = app.entries
 /* Since 2.16 an entry may also keep the one before it (b), as nav.entry reads it back. */
 const numbered = app => app.entries().forEach((e, i) => assert.ok(e.state && e.state.fd === 1 && e.state.n === i && /^b?,?f,fd,n$/.test(Object.keys(e.state).sort().join()) && (!e.state.b || app.PF.nav.entry(e.state).b), 'entry ' + i + ' ' + JSON.stringify(e)));
 const onRun = app => /id="run-h"/.test(app.html());
-const onReceipt = app => /<div class="eyebrow">Receipt ·/.test(app.html());
+const onReceipt = app => /<span class="d">Receipt · Copy it into your ticket/.test(app.html());
 const onHome = app => /<div class="eyebrow">Home<\/div>/.test(app.html());
 const onProcess = (app, title) => /<h1 id="page-h" tabindex="-1">/.test(app.html()) && app.html().indexOf('data-act="ptab"') >= 0 && (!title || app.html().indexOf('>' + title + '</h1>') >= 0);
 const back = async app => { app.back(); await app.settle(); };

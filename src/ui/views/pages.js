@@ -4,6 +4,14 @@
   var K = PF.vk, V = PF.views, U = PF.util, R = PF.run, M = PF.map, T = PF.types, I = PF.icons.icon, esc = U.esc;
   var person = K.person, nameOf = K.nameOf, avatar = K.avatar, notices = K.notices, ago = K.ago, runKey = K.runKey, freshness = K.freshness;
   var ferr = function (s, id) { return K.ferr(s, id); };
+  /* The run's own pages share the work header (2.16, docs/design.md section 34): ‹ The run, the title, the page's status,
+     its one action and More; then a tool row that starts with who you are. o: { title, status, prog, acts, how, panels, facts }. */
+  function pageHead(ctx, r, o) {
+    var s = ctx.state, me = s.me ? '<span class="me-id">' + (ctx.recording(r) ? 'Recording as' : 'You:') + ' <b>' + esc(nameOf(ctx, s.me)) + '</b></span>' : '';
+    return V.workHead({ hid: 'page-h', h1attrs: ' tabindex="-1"', h1: o.title, back: V.backc('exit-mission', null, 'The run'), status: o.status, prog: o.prog, acts: o.acts,
+      more: V.moreMenu(ctx, V.appGroup(ctx, { readOnlyMe: true })) }) +
+      V.toolRow([me + (o.how || ''), o.panels], o.facts, { cls: 'rw-strip', k: o.k, label: 'This run' });
+  }
   /* ---------- mission control ---------- */
   function mission(ctx) {
     var r = ctx.run(); if (!r) return V.run(ctx);
@@ -12,7 +20,9 @@
     /* Who records and whether it's paused stay visible during a call, with save and folder problems (notices) above. */
     var who = r.ended ? 'Ended' : r.paused ? 'Paused by ' + nameOf(ctx, r.paused.by) + ': ' + r.paused.reason : !r.recorder.session ? 'Waiting for ' + nameOf(ctx, r.recorder.person) + ' to pick up recording' : nameOf(ctx, r.recorder.person) + ' is recording' + (ctx.recording(r) ? ' (you, in this window)' : '');
     /* ‹ The run sits top left on the run's own pages (2.16), as on every screen with a way back. */
-    var h = notices(ctx) + V.backRow(V.backc('exit-mission', null, 'The run')) + '<div class="runhead"><div><div class="eyebrow">' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) + '</div><h1 id="page-h" tabindex="-1">' + esc(r.title) + '</h1><div class="m-rec">' + esc(who) + '</div><span id="fresh">' + freshness(ctx, r) + '</span></div></div>';
+    var t = R.totals(r, map);
+    var h = notices(ctx) + pageHead(ctx, r, { title: esc(r.title), status: [{ kind: 'd', html: 'Screen share · ' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) }], prog: V.progress(t.done, t.total),
+      how: ' <span class="m-rec">' + esc(who) + '</span>', facts: '<span id="fresh">' + freshness(ctx, r) + '</span>', k: r.paused ? 'paused' : '' });
     h += '<div class="mission"><div class="stack"><div class="headline" data-s="' + hl.s + '"><div><div class="now">' + esc(K.hlText(r, hl)) + '</div><div>' + esc(hl.sub) + '</div></div></div>';
     if (cur != null) {
       var p = map.phases[cur];
@@ -46,7 +56,7 @@
     var r = ctx.run(); if (!r) return V.run(ctx);
     var s = ctx.state, map = R.mapOf(r), rec = ctx.recording(r), ok = R.allGatesOk(r, map), fus = r.followUps || [], cor = PF.corrections.forRun(r, map, { at: true }), idx = cor.length ? V.corrByNote(ctx, r.process) : {};
     var people = PF.people.sorted(ctx).filter(function (p) { return !p.inactive; });
-    var h = notices(ctx) + V.backRow(V.backc('exit-mission', null, 'The run')) + '<div class="runhead"><div><div class="eyebrow">' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) + '</div><h1 id="page-h" tabindex="-1">Finish ' + esc(r.title) + '</h1></div></div>';
+    var h = notices(ctx) + pageHead(ctx, r, { title: 'Finish ' + esc(r.title), status: [{ kind: 'd', html: esc(map.meta.title) + ' · ' + esc(K.verWord(r)) }] });
     if (!rec) return h + '<div class="notice warn"><span>Only the recorder can finish the run.</span></div>';
     /* Only what has something in it: the follow-up form waits under Add a follow-up (opened by an error, or once opened). */
     var fuOpen = (s.disc || {})['fu-add'] || (s.fieldErr && s.fieldErr.id === 'followup');
@@ -126,7 +136,10 @@
     var rcItems = cor.length ? V.corrItems(PF.corrections.forRun(r, map, { at: true })) : [];
     if (cor.length) body += '<div class="r-corr"><h4><span>Corrections · ' + cor.length + '</span></h4>' + K.list(st, 'rcpt-corr:' + rkey, rcItems, { hold: false, keep: heldCorr(st, r, rcItems), keptLabel: 'You\'re on this one', keyOf: function (x) { return x.k; }, focusOf: corrFocus,
       draw: function (shown) { return '<ul class="corrlist">' + shown.map(function (x) { return V.corrRow(ctx, x.c, idx[x.c.id], { step: true, run: r, domId: x.dom }); }).join('') + '</ul>'; } }) + '</div>';
-    return notices(ctx) + V.backRow(V.backc('exit-mission', null, 'The run')) + '<div class="runhead"><div><div class="eyebrow">Receipt · Copy it into your ticket, or take a screenshot</div><h1 id="page-h" tabindex="-1">' + esc(r.title) + '</h1></div><div class="row"><button class="btn primary" data-act="copy-receipt">' + I('copy') + 'Copy for Jira</button><button class="btn" data-act="ev-open" data-id="' + esc(r.process + '/' + r.id) + '">' + I('doc') + 'Export evidence</button>' + V.planAgain(ctx, r) + '<span class="small" id="copy-msg" aria-live="polite"></span></div></div>' +
+    return notices(ctx) + pageHead(ctx, r, { title: esc(r.title), status: [{ kind: 'd', html: 'Receipt · Copy it into your ticket, or take a screenshot' }],
+      acts: '<button type="button" class="btn go" data-act="copy-receipt">' + I('copy') + 'Copy for Jira</button>',
+      panels: '<button type="button" class="mini" data-act="ev-open" data-id="' + esc(r.process + '/' + r.id) + '">' + I('doc') + 'Export evidence</button>' + V.planAgain(ctx, r, 'mini'),
+      facts: '<span class="small" id="copy-msg" aria-live="polite"></span>' }) +
       '<div class="receipt"><div class="head"><div><div class="eyebrow">' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) + '</div><div class="rt">' + esc(r.title) + '</div>' + (det ? '<div class="small">' + esc(det) + '</div>' : '') + '</div><div style="text-align:right"><div class="pill ' + hl.s + '">' + esc(r.ended ? K.hlText(r, hl) : 'In progress') + '</div><div class="small">started ' + esc(U.when(r.created)) + '<br>run ' + esc(r.id) + '</div></div></div>' + body +
       '<div class="small">✓ done · N/A not applicable · ■ blocked · ↻ re-check · ○ not checked</div></div><pre id="receipt-text" hidden></pre>';
   }

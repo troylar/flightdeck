@@ -125,7 +125,9 @@ const BUDGETS = {
   'process page as a non-owner': { words: 276, buttons: 15, chips: 3, target: { words: 260, buttons: 16, chips: 12 } },
   'process page as its owner': { words: 423, buttons: 26, chips: 9, target: { words: 430 } },
   'run, just started': { words: 370, buttons: 40, chips: 5, target: { words: 300, buttons: 36, chips: 6 } },
-  finish: { words: 48, buttons: 4, inputs: 0, target: { words: 70, inputs: 0 } },
+  /* Raised by 3 words and 1 button in 2.16 on purpose (one header): the Finish page gains More (1 button) and its tool row
+     says who is recording (Recording as <name>). */
+  finish: { words: 51, buttons: 5, inputs: 0, target: { words: 70, inputs: 0 } },
   'new process': { words: 34, buttons: 7, inputs: 1, target: { inputs: 1 } },
   /* Raised by 3 on purpose: the builder banner now says the whole path (Save draft, then Done to publish). */
   /* Raised by 1 word and 1 button in 2.2: the editor's Practice button. */
@@ -162,6 +164,8 @@ const BUDGETS = {
   'process page made from a signed-off stage, its owner': { words: 467, buttons: 28, chips: 9 },
   'process page made from a signed-off stage, a non-owner': { words: 307, buttons: 16, chips: 3 }
 };
+/* One balanced element from index i: the tag at i through its matching close. */
+const elAt = (h, i) => { const tag = /^<(\w+)/.exec(h.slice(i))[1], re = new RegExp('<(/?)' + tag + '\\b[^>]*>', 'g'); re.lastIndex = i; let d = 0, m; while ((m = re.exec(h))) { d += m[1] ? -1 : 1; if (!d) return h.slice(i, re.lastIndex); } return h.slice(i); };
 async function screens() {
   const app = boot(), out = {}; await app.tick(60);
   const take = name => { out[name] = measure(app.html()); };
@@ -297,7 +301,7 @@ rule('Practice: the header is at most 60 words and 12 controls; each step row at
     app.choose('person-casey'); await app.tick();
     app.click('open-process', pid); await app.tick(); app.click('ptab', 'edit'); await app.tick();
     app.click('pr-open'); await app.tick(60);
-    const html = app.html(), i = html.indexOf('<header class="fpe-head ws-head rw-head pr-head"'), j = html.indexOf('</div></div>', html.indexOf('class="rw-strip pr-strip"'));
+    const html = app.html(), i = html.indexOf('<header class="hd rw-head pr-head"'), k = html.indexOf('<div class="tr rw-strip pr-strip"'), j = k < 0 ? -1 : k + elAt(html, k).length;
     assert.ok(i >= 0 && j > i, pid + ': the practice header is drawn');
     const head = measure(html.slice(i, j));
     assert.ok(head.words <= 60, pid + ': header words ' + head.words);

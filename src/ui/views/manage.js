@@ -72,17 +72,14 @@
     var nav = '<nav class="pviews ws-views" aria-label="Checklist views">' +
       '<button type="button" id="ws-edit"' + (pr ? ' data-act="pr-back"' : ' aria-current="page"') + '>' + I('edit') + 'Edit</button>' +
       '<button type="button" id="ws-practice"' + (pr ? ' aria-current="page"' : ' data-act="pr-open"') + (got ? ' aria-label="Practice, ' + cnt.done + ' of ' + cnt.total + ' steps answered"' : '') + '>' + I('play') + 'Practice' + got + '</button></nav>';
-    return '<header class="fpe-head ws-head" role="region" aria-labelledby="' + o.hid + '"><div class="fpe-id">' + V.backc(pr ? 'pr-leave' : 'ed-done', null, p.title) +
-      '<div class="fpe-title"><h1 id="' + o.hid + '" class="sr">' + esc(p.title) + ', ' + (pr ? 'Practice' : 'Edit') + '</h1><span class="small fpe-sub">' + o.sub + prim.sub + '</span></div></div>' +
-      nav + '<div class="ws-right"><div class="fpe-tools">' + o.tools + (o.more ? wsMore(ctx, pr, o.more) : '') + '</div><div class="fpe-save">' + prim.html + '</div></div></header>' + prim.why;
+    /* ‹ Overview always replaces (nav §1.4): wsLeave, through its guards. The title beside it is the visible h1. */
+    var back = V.backc(pr ? 'pr-leave' : 'ed-done', null, 'Overview', null, '', 'Back to Overview of ' + p.title);
+    return V.workHead({ hid: o.hid, cls: o.cls, h1: esc(p.title) + '<span class="sr">, ' + (pr ? 'Practice' : 'Edit') + '</span>', back: back,
+      status: o.status.concat(prim.sub ? [{ kind: 'act', cls: 'ws-test', html: prim.sub }] : []), views: nav, prog: o.prog,
+      acts: prim.html, more: V.moreMenu(ctx, V.moreGroup('On this screen', o.phone || '') + V.appGroup(ctx, { pr: pr }), pr), why: prim.why });
   }
-  /* Row 3 on a phone (2.2): the tools that don't fit sit in More at its end; wider, More's button is hidden and they sit in
-     the row as any other tool (page.html). */
-  function wsMore(ctx, pr, html) {
-    var open = !!ctx.state.wsMore;
-    return '<div class="ws-more"><button type="button" class="mini ws-more-btn" id="ws-more-btn" data-act="' + (pr ? 'pr-more' : 'ws-more') + '" aria-expanded="' + open + '" aria-controls="ws-more-list">More</button>' +
-      '<div class="ws-more-list' + (open ? ' open' : '') + '" id="ws-more-list">' + html + '</div></div>';
-  }
+  /* The held primary's reason line, inside the header; nobody chosen offers the Who are you? dialog. */
+  function wsWhy(text, extra) { return '<p class="small hd-why ws-why" id="ws-why" tabindex="-1">' + esc(text) + (extra || '') + '</p>'; }
   /* The stage the saved draft is (rule 4): staged, complete and readable, with this exact text. The newest wins; test runs
      only break a tie. null when none, or when the stage decisions can't be read. */
   function wsStage(ctx, p) {
@@ -108,19 +105,19 @@
     var sg = wsStage(ctx, p);
     if (sg) {
       var open = sg.tests.filter(function (r) { return !r.ended; }).sort(function (a, b) { return String(b.created || '').localeCompare(String(a.created || '')); });
-      if (open.length) { out.kind = 'testing'; out.sub = '<span class="ws-test"> · <button type="button" class="linkish" data-act="' + act('open-run', 'pr-test-run') + '" data-id="' + esc(open[0].process + '/' + open[0].id) + '">Test run in progress ›</button></span>'; return out; }
+      if (open.length) { out.kind = 'testing'; out.sub = '<button type="button" class="linkish" data-act="' + act('open-run', 'pr-test-run') + '" data-id="' + esc(open[0].process + '/' + open[0].id) + '">Test run in progress ›</button>'; return out; }
       var text = !sg.tests.length ? 'Start a test run' : 'Make v' + next + ' the default…';
       out.kind = !sg.tests.length ? 'test' : 'promote';
       /* Nobody chosen in You are: held, as Publish vN… is, with the reason; the click only takes focus to it. */
-      if (!st.me) { out.html = btn(act('ws-held', 'pr-held'), sg.s.folder, text, ' aria-disabled="true" aria-describedby="ws-why"'); out.why = '<p class="small ws-why" id="ws-why" tabindex="-1">Choose who you are first. You are is at the top of the checklist page.</p>'; return out; }
+      if (!st.me) { out.html = btn(act('ws-held', 'pr-held'), sg.s.folder, text, ' aria-disabled="true" aria-describedby="ws-why"'); out.why = wsWhy('Choose who you are first.', ' <button type="button" class="mini" data-act="' + act('ws-me', 'pr-me') + '" data-id="why" aria-haspopup="dialog">Choose who you are</button>'); return out; }
       out.html = btn(!sg.tests.length ? act('start-test', 'pr-start-test') : act('promote-open', 'pr-promote-open'), sg.s.folder, text); return out;
     }
     if (!p.draftChanged) return out;
     out.kind = 'publish';
     var nb = M.check(M.parse(p.draft.md), V.checkOptions(ctx)).blockers.length;
-    var why = !st.me ? 'Choose who you are first. You are is at the top of the checklist page.' : nb ? nb + (nb === 1 ? ' problem blocks' : ' problems block') + ' publishing.' : '';
+    var why = !st.me ? 'Choose who you are first.' : nb ? nb + (nb === 1 ? ' problem blocks' : ' problems block') + ' publishing.' : '';
     out.html = btn(act('publish-open', 'pr-publish-open'), p.id, 'Publish v' + next + '…', why ? ' aria-disabled="true" aria-describedby="ws-why"' : '');
-    if (why) out.why = '<p class="small ws-why" id="ws-why" tabindex="-1">' + esc(why) + (st.me && nb ? ' <button type="button" class="mini" data-act="' + act('ws-problems', 'pr-problems') + '">Show problems</button>' : '') + '</p>';
+    if (why) out.why = wsWhy(why, !st.me ? ' <button type="button" class="mini" data-act="' + act('ws-me', 'pr-me') + '" data-id="why" aria-haspopup="dialog">Choose who you are</button>' : nb ? ' <button type="button" class="mini" data-act="' + act('ws-problems', 'pr-problems') + '">Show problems</button>' : '');
     return out;
   }
   /* The Publish dialog (2.16): the only place to publish or stage from the workspace. One What changed box, the needs and
@@ -166,15 +163,13 @@
     var status = draftStatus(ctx, p, ed, text);
     /* Three groups that never trade places: who it is, the editing tools, and saving. Discard keeps its place when hidden. */
     var just = !dirty && !saving && st.justSaved && st.justSaved.pid === p.id, size = U.draftSize(text);
-    /* The workspace's one header (2.16), shared with practice: the way back, Edit | Practice, the editing tools, one primary. */
-    var tools = '<div class="seg" role="group" aria-label="Edit with"><button type="button" data-act="ed-mode" data-id="builder" aria-pressed="' + builder + '">Builder</button><button type="button" data-act="ed-mode" data-id="markdown" aria-pressed="' + !builder + '">Markdown</button></div>' +
-      /* Undo, Redo and History: the one timeline shared with the Markdown view (and the step-type editor's same controls). */
-      V.undoBar('draft', ed && ed.tl, { noHistory: true });
-    /* History is the one that doesn't fit on a phone's row 3: it goes in More there (wsMore). */
-    var more = '<button type="button" class="mini" data-act="hist-open" data-id="draft" aria-haspopup="dialog">' + I('clock') + 'History</button>';
-    var sub = '<span class="fpe-state' + (dirty ? ' dirty' : '') + (just ? ' just' : '') + '" role="status" title="maps/drafts/' + esc(file) + (size ? ' · ' + size : '') + '">' + (just ? I('check') : '') + 'Draft: ' + status + '</span>' +
-      '<button type="button" class="linkish fpe-discard" data-act="revert-draft" data-id="' + esc(p.id) + '"' + (dirty ? '' : ' hidden') + '>Discard my changes</button>';
-    var h = '<div class="fpe" id="fpe">' + wsHead(ctx, p, { practice: false, hid: 'ed-h', sub: sub, tools: tools, more: more });
+    /* The workspace's one header (2.16), shared with practice: the way back, the title, Edit | Practice, one primary, More;
+       then the tool row: Undo, Redo, History | Builder | Markdown. History is a phone-only copy in More too. */
+    var seg = '<div class="seg" role="group" aria-label="Edit with"><button type="button" data-act="ed-mode" data-id="builder" aria-pressed="' + builder + '">Builder</button><button type="button" data-act="ed-mode" data-id="markdown" aria-pressed="' + !builder + '">Markdown</button></div>';
+    var phone = '<button type="button" class="mini ph-only" data-act="hist-open" data-id="draft" aria-haspopup="dialog">' + I('clock') + 'History</button>';
+    var parts = [{ kind: 'd', html: '<span class="fpe-state' + (dirty ? ' dirty' : '') + (just ? ' just' : '') + '" role="status" title="maps/drafts/' + esc(file) + (size ? ' · ' + size : '') + '">' + (just ? I('check') : '') + 'Draft: ' + status + '</span>' },
+      { kind: 'act', html: '<button type="button" class="linkish fpe-discard" data-act="revert-draft" data-id="' + esc(p.id) + '"' + (dirty ? '' : ' hidden') + '>Discard my changes</button>' }];
+    var h = '<div class="fpe" id="fpe">' + wsHead(ctx, p, { practice: false, hid: 'ed-h', status: parts, phone: phone }) + V.toolRow([V.undoBar('draft', ed && ed.tl), seg], '', { label: 'Editing tools' });
     /* Messages and conflicts stay in view, right under the header. */
     var al = '';
     /* No live role: messages are announced once, through #live (say and announce in app.js). */
@@ -364,14 +359,19 @@
     var status = f.saving ? 'Saving…' : changed ? 'Unsaved changes' : f.existing ? (st.fs && st.fs.volatile ? 'Saved in this tab only' : 'Saved') : 'Not saved yet';
     /* On a phone the preview opens as a dialog over the form: everything behind it is inert until it closes. */
     var modal = !!st.tfPreview, behind = modal ? ' inert' : '';
-    var h = '<div class="fpe fpe-type" id="tfe"><header class="fpe-head" role="region" aria-labelledby="tf-h"' + behind + '>' +
-      /* ‹ Step types, or ‹ <checklist> · Edit when opened from the workspace (2.16); it asks before discarding changes. */
-      '<div class="fpe-id">' + (function () { var o = ctx.libOrigin ? ctx.libOrigin('types') : null; return o && o.ws ? V.backc('type-done', null, o.place, o.view) : V.backc('type-done', null, 'Step types'); })() + '<div class="fpe-title"><h1 id="tf-h" tabindex="-1">' + esc(name) + ' <span class="cat">Step type</span></h1></div></div>' +
-      '<div class="fpe-tools">' + V.undoBar('type', f.tl) + '<button type="button" class="mini tf-prevbtn" data-act="tf-preview" aria-expanded="' + !!st.tfPreview + '" aria-controls="tf-preview">' + I('screen') + 'Preview</button></div>' +
-      '<div class="fpe-save"><span class="fpe-state' + (changed ? ' dirty' : '') + (just ? ' just' : '') + '" role="status">' + (f.existing && !changed && !f.saving ? I('check') : '') + status + '</span>' +
-      '<button class="btn go" type="submit" form="type-form"' + (f.saving ? ' disabled' : '') + (why ? ' aria-describedby="tf-save-why"' : '') + '>' + (f.saving ? 'Saving…' : 'Save step type') + '</button></div></header>';
+    var o = ctx.libOrigin ? ctx.libOrigin('types') : null;
+    /* ‹ Step types, or ‹ <checklist> · Edit when opened from the workspace (2.16); it asks before discarding changes. The
+       status moves into LEFT, Save step type is the primary, its reason line sits inside the header. Row 1, the tool row and
+       the form all go inert behind the phone's Preview. */
+    var h = '<div class="fpe fpe-type" id="tfe">' + V.workHead({ hid: 'tf-h', h1attrs: ' tabindex="-1"', attrs: behind, h1: esc(name) + ' <span class="cat">Step type</span>',
+      back: o && o.ws ? V.backc('type-done', null, o.place, o.view) : V.backc('type-done', null, 'Step types'),
+      status: [{ kind: 'd', html: '<span class="fpe-state' + (changed ? ' dirty' : '') + (just ? ' just' : '') + '" role="status">' + (f.existing && !changed && !f.saving ? I('check') : '') + status + '</span>' }],
+      acts: '<button class="btn go" type="submit" form="type-form"' + (f.saving ? ' disabled' : '') + (why ? ' aria-describedby="tf-save-why"' : '') + '>' + (f.saving ? 'Saving…' : 'Save step type') + '</button>',
+      more: V.moreMenu(ctx, V.moreGroup('On this screen', '<button type="button" class="mini ph-only" data-act="hist-open" data-id="type" aria-haspopup="dialog">' + I('clock') + 'History</button>') + V.appGroup(ctx)),
+      why: why ? '<p class="small hd-why tf-why" id="tf-save-why">' + esc(why) + '</p>' : '' }) +
+      V.toolRow([V.undoBar('type', f.tl), '<button type="button" class="mini tf-prevbtn" data-act="tf-preview" aria-expanded="' + !!st.tfPreview + '" aria-controls="tf-preview">' + I('screen') + 'Preview</button>'], '', { label: 'Step type tools', attrs: behind });
     /* Messages stay in view under the header. The top bar is hidden here, so its "choose who you are" note isn't shown. */
-    var al = (why ? '<p class="tf-why" id="tf-save-why">' + esc(why) + '</p>' : '');
+    var al = '';
     if (st.msg) al += '<div class="notice ' + (st.msg.kind || '') + '" role="status"><span>' + esc(st.msg.text) + '</span><span class="row">' + (st.msg.act ? '<button type="button" class="btn" data-act="' + esc(st.msg.act) + '"' + (st.msg.id ? ' data-id="' + esc(st.msg.id) + '"' : '') + '>' + esc(st.msg.label) + '</button>' : '') + '<button type="button" class="mini" data-act="dismiss">Dismiss</button></span></div>';
     if (st.folderErr) al += '<div class="notice bad" role="alert"><span><b>Can\'t read the team folder.</b> ' + esc(st.folderErr) + '</span><button type="button" class="btn" data-act="refresh">Try again</button></div>';
     if (f.leaving) al += '<div class="notice warn" role="alert" aria-labelledby="tf-leave-h"><span id="tf-leave-h"><b>This step type has changes that aren\'t saved.</b> Save them, or leave without them.</span><span class="row"><button type="button" class="btn go" data-act="type-save">Save step type</button><button type="button" class="mini" data-act="type-cancel">Leave without saving</button><button type="button" class="mini" data-act="type-stay">Keep editing</button></span></div>';

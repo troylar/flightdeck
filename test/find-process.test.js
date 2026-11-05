@@ -26,7 +26,9 @@ async function bigApp() { return big || (big = await fresh()); }
 /* A newer read of the folder, as the app's own Check the folder now does it. */
 async function reread(app) {
   const was = app.PF.perf.n['load.done'] || 0;
-  app.click('refresh');
+  /* A background read: the folder is read again without anything being pressed, so focus stays where it was (Check the
+     folder now is in More on a work screen, and a press there would take focus). */
+  const f = app.doc.activeElement; app.click('refresh'); app.doc.activeElement = f;
   for (let i = 0; i < 4000 && (app.PF.perf.n['load.done'] || 0) <= was; i++) await app.tick(5);
   await app.tick(5);
 }
@@ -610,7 +612,7 @@ rule('Stages: a stage made from the overview landing past row 50 is drawn, its f
     await reread(app);
     await openProc(app, 'versions', 'edit');
     app.click('pr-open'); await app.tick(60);
-    assert.ok(/Practice · not recorded/.test(app.html()), 'set-up: practicing');
+    assert.ok(/Practice<\/span> not recorded/.test(app.html()), 'set-up: practicing');
     for (let pi = 0; pi < 2; pi++) {
       for (let k = 0; k < 3; k++) { app.click('toggle', 's' + (pi * 3 + k)); await app.tick(); }
       if (!new RegExp('data-act="pass" data-id="' + pi + '"').test(app.html())) { const g = [...app.html().matchAll(/<div class="gate" data-scope="gate:([^"]+)"/g)].map(m => m[1])[pi]; app.click('pick', g, { kind: 'pass' }); await app.tick(); }
@@ -625,7 +627,7 @@ rule('Stages: a stage made from the overview landing past row 50 is drawn, its f
     assert.strictEqual(stg2.length, 1, 'set-up: staged from Practice');
     /* Practice matched what was staged, so it was cleared and Edit shows the new stage's Start a test run, top right. */
     const h2 = app.html();
-    assert.ok(/<h1 id="ed-h"/.test(h2) && new RegExp('<div class="fpe-save"><button[^>]*data-act="start-test" data-id="' + stg2[0] + '"').test(h2), 'Edit, the new stage\'s Start a test run the primary');
+    assert.ok(/<h1 id="ed-h"/.test(h2) && new RegExp('<div class="hd-acts" data-slot="primary"><button[^>]*data-act="start-test" data-id="' + stg2[0] + '"').test(h2), 'Edit, the new stage\'s Start a test run the primary');
     assert.strictEqual(app.activeId(), '[data-act="start-test"][data-id="' + stg2[0] + '"]', 'Start a test run focused');
   } finally { U.randomId = rid; }
 });

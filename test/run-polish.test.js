@@ -215,7 +215,7 @@ async function practiceSmall() {
   app.click('open-process', 'release'); await app.tick();
   app.click('ptab', 'edit'); await app.tick();
   app.click('pr-open'); await app.tick(60);
-  assert.ok(/Practice · not recorded/.test(app.html()), 'set-up: practicing');
+  assert.ok(/Practice<\/span> not recorded/.test(app.html()), 'set-up: practicing');
   return app;
 }
 
