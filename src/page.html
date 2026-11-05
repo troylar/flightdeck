@@ -2011,7 +2011,8 @@ html.work-on .top { display: none; }
   /* R3 Text link: one color that passes 4.5:1 on card, paper, chip, amber-soft, plan-soft, go-soft and stop-soft. */
   a[href], .link, .linkish { color: var(--link); text-decoration: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; cursor: pointer; }
   button.link, button.linkish { min-height: 24px; display: inline-flex; align-items: center; }
-  p button.link, p button.linkish, p a[href] { min-height: 0; display: inline; }
+  /* A link inside a sentence stays inline; a work screen's status line is a row of targets, so its links keep 24 px. */
+  p:not(.hd-st) button.link, p:not(.hd-st) button.linkish, p:not(.hd-st) a[href] { min-height: 0; display: inline; }
   button.linkish[data-act="ins-runs"] { min-width: 24px; min-height: 24px; justify-content: center; padding-inline: 4px; }
   /* R3, quiet: text that jumps to its place in the checklist (Flight plan steps and phase names) keeps ink text and shows a
      muted underline at rest; hover thickens it. */

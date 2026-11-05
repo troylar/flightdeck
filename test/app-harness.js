@@ -198,7 +198,7 @@ function boot(opts) {
   const bodyClasses = new Set();
   document.body.classList = { add: (...c) => c.forEach(x => bodyClasses.add(x)), remove: (...c) => c.forEach(x => bodyClasses.delete(x)), contains: c => bodyClasses.has(c) };
   const window = {
-    innerWidth: opts.narrow ? 375 : 1400, scrollY: 0, scrollTo() {}, matchMedia: q => ({ matches: (!!opts.narrow && /max-width/.test(q)) || (!!opts.reducedMotion && /prefers-reduced-motion: reduce/.test(q)) }), getSelection: () => ({ removeAllRanges() {}, addRange() { if (opts.onSelect) opts.onSelect(); } }),
+    innerWidth: opts.narrow ? 375 : 1400, innerHeight: opts.narrow ? 667 : 900, scrollY: 0, scrollTo() {}, matchMedia: q => ({ matches: (!!opts.narrow && /max-width/.test(q)) || (!!opts.reducedMotion && /prefers-reduced-motion: reduce/.test(q)) }), getSelection: () => ({ removeAllRanges() {}, addRange() { if (opts.onSelect) opts.onSelect(); } }),
     addEventListener: (t, fn) => { (winListeners[t] = winListeners[t] || []).push(fn); }
   };
   /* The address bar and session history of a file:// page: a list of entries and an index. back(), forward() and go(n)
@@ -314,7 +314,7 @@ function boot(opts) {
       querySelectorAll: sel => { const all = nodesOf(region), out = []; if (all[n._i] !== n) return all.filter(x => x !== n && n.contains(x) && matches(x, sel)); for (let i = n._i + 1; i < all.length && all[i]._at < n._end; i++) if (matches(all[i], sel)) out.push(all[i]); return out; },
       // opts.layout: a 1,000-pixel-wide page where a drawn width:N% is N% of its box, and animate() is recorded, not played.
       ...(opts.layout ? {
-        clientWidth: 1000,
+        clientWidth: 1000, style: {},
         getBoundingClientRect: () => {
           const m = /width:\s*([\d.]+)%/.exec(attrs.style || ''); let w = m ? +m[1] * 10 : 1000;
           // A progress fill that's still moving shows where its animation is (app.paintAt), not its target.
