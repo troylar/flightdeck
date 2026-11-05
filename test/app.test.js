@@ -3850,10 +3850,10 @@ rule('App: Step in an empty checklist adds a phase with the step in it, as one c
 rule('App: saving shows a quiet Saved check beside Save for a moment', async () => {
   const app = await builderOn();
   app.click('ob-del', 'rollback'); await app.tick();
-  assert.ok(/class="linkish fpe-discard" data-act="revert-draft" data-id="release">/.test(app.html()));
+  assert.ok(/<div class="hd-sa"><button type="button" class="linkish fpe-discard" data-act="revert-draft" data-id="release">/.test(app.html()), 'Discard in row 1\'s action slot');
   app.click('save-draft'); await app.tick(80);
   assert.ok(/<span class="fpe-state just" role="status"[^>]*><span class="ic"[^>]*>.*?<\/span>Draft: Saved<\/span>/.test(app.html()), 'the check icon with Saved');
-  assert.ok(/class="linkish fpe-discard"[^>]* hidden>/.test(app.html()), 'Discard keeps its place, hidden');
+  assert.ok(!/fpe-discard/.test(app.html()) && !/class="hd-sa"/.test(app.html()), 'saved: no Discard and no slot, so nothing is reserved');
   await new Promise(r => setTimeout(r, 2100)); await app.tick(40);
   assert.ok(/<span class="fpe-state" role="status"[^>]*>Draft: Saved<\/span>/.test(app.html()), 'then just Saved');
 });

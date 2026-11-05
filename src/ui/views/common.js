@@ -641,15 +641,16 @@ PF.vk = (function () {
   /* ---------- one header (2.16, docs/design.md section 34) ----------
      Every work screen draws row 1 with workHead and its tools with toolRow; nothing else writes header markup. The markup is in
      the visual order at every width: LEFT (the way back, the title, the status line), CENTER (the view switch), RIGHT
-     (progress, the actions, More), then the reason line for a held primary, inside the header. o: { hid, h1, h1attrs, back,
-     status: [{ kind: 'd' | 'act', html, cls, attrs }], views, prog, acts, more, why, cls, attrs }. h1 is the title, escaped text
+     (an action slot, progress, the actions, More), then the reason line for a held primary, inside the header. o: { hid, h1,
+     h1attrs, back, status: [{ kind: 'd' | 'act', html, cls, attrs }], views, sa, prog, acts, more, why, cls, attrs }. sa: markup
+     for .hd-sa, before the primary, drawn only when given (Edit's Discard my changes). h1 is the title, escaped text
      only (it is also the span's title, so a cut title can be read in full); h1tail is markup after it (a tag, a hidden word). */
   function workHead(o) {
     var st = (o.status || []).filter(function (x) { return x && x.html; }).map(function (x) { return '<span class="' + (x.kind === 'act' ? 'act' : 'd') + (x.cls ? ' ' + x.cls : '') + '"' + (x.attrs || '') + '>' + x.html + '</span>'; }).join('');
     return '<header class="hd' + (o.cls ? ' ' + o.cls : '') + '" role="region" aria-labelledby="' + o.hid + '"' + (o.attrs || '') + '>' +
       '<div class="hd-l">' + (o.back || '') + '<div class="hd-id"><h1 id="' + o.hid + '"' + (o.h1attrs || '') + '><span class="hd-t" title="' + o.h1 + '">' + o.h1 + '</span>' + (o.h1tail || '') + '</h1>' + (st ? '<p class="hd-st">' + st + '</p>' : '') + '</div></div>' +
       '<div class="hd-c">' + (o.views || '') + '</div>' +
-      '<div class="hd-r">' + (o.prog || '') + (o.acts ? '<div class="hd-acts" data-slot="primary">' + o.acts + '</div>' : '') + (o.more || '') + '</div>' + (o.why || '') + '</header>';
+      '<div class="hd-r">' + (o.sa ? '<div class="hd-sa">' + o.sa + '</div>' : '') + (o.prog || '') + (o.acts ? '<div class="hd-acts" data-slot="primary">' + o.acts + '</div>' : '') + (o.more || '') + '</div>' + (o.why || '') + '</header>';
   }
   /* The tool row: timeline | how you work | panels, then the facts pushed right. groups are HTML strings; empty ones are left
      out. o: { cls, k (the state tint), label, attrs }. */

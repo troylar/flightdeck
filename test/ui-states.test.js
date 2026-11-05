@@ -561,6 +561,73 @@ rule('One header: at 800px and narrower a link-styled button in a header or tool
   ['.hd', '.tr'].forEach(w => assert.ok(heads.some(h => h.indexOf(w + ' :is(button.link, button.linkish)') >= 0), w + ': button.link and button.linkish 44px on a phone'));
 });
 
+/* 2.16.1 polish: one header for real, and a spacing system (the design's section 11). */
+const R = (sel, at) => RULES.filter(r => r.sel.join(', ') === sel && (at === undefined ? !r.at.length : r.at.some(a => at.test(a))));
+rule('Polish: the spacing scale and its roles are tokens on the first :root', () => {
+  const root = RULES.find(r => r.sel.join(', ') === ':root' && !r.at.length);
+  [['--sp-h', '2px'], ['--sp-1', '4px'], ['--sp-2', '8px'], ['--sp-3', '12px'], ['--sp-4', '16px'], ['--sp-5', '20px'], ['--sp-6', '24px'], ['--sp-8', '32px'], ['--sp-12', '48px'], ['--lh-meta', '18px'], ['--hd-id-h', '52px']]
+    .forEach(([k, v]) => assert.strictEqual(decl(root.body, k), v, k));
+  ['--hd-py', '--hd-px', '--tr-py', '--pane-pt', '--pane-px', '--pane-pb', '--rail-px', '--card-py', '--card-px', '--stripe-pad'].forEach(k => assert.ok(/^var\(--sp-/.test(decl(root.body, k) || ''), k + ' on the scale'));
+});
+rule('Polish: the header, the tool row and the alerts pad with tokens inside their safe-area formulas', () => {
+  const pad = sel => decl(R(sel)[0].body, 'padding') || '';
+  assert.strictEqual(pad('.hd'), 'var(--hd-py) max(var(--hd-px), env(safe-area-inset-right, 0px)) var(--hd-py) max(var(--hd-px), env(safe-area-inset-left, 0px))');
+  assert.strictEqual(pad('.tr'), 'var(--tr-py) max(var(--hd-px), env(safe-area-inset-right, 0px)) var(--tr-py) max(var(--hd-px), env(safe-area-inset-left, 0px))');
+  const ins = R('.rw-ins-body', /max-width: 800px/).map(r => decl(r.body, 'padding')).filter(Boolean);
+  assert.ok(ins.some(v => /env\(safe-area-inset-bottom, 0px\)/.test(v)), 'the phone inspector keeps its bottom safe area: ' + ins);
+});
+rule('Polish: the header is a grid from 801px, and row 1 is pinned to the first line, not centered on what wraps', () => {
+  assert.ok(R('.hd', /^@media \(min-width: 801px\)$/).some(r => decl(r.body, 'display') === 'grid'), 'grid from 801');
+  assert.ok(!RULES.some(r => r.sel.join(', ') === '.hd' && r.at.some(a => /min-width: 1180px/.test(a)) && decl(r.body, 'display') === 'grid'), 'not from 1180');
+  assert.strictEqual(decl(R('.hd-l > .backc, .hd-c, .hd-r')[0].body, 'margin-top'), 'calc((var(--hd-id-h) - 36px) / 2)');
+  assert.strictEqual(decl(R('.hd')[0].body, 'align-items'), 'flex-start');
+});
+rule('Polish: one owner for header type: .hd-st sets it, the nested save state inherits, and the checklist page is the one larger variant', () => {
+  const st = R('.hd-st')[0].body;
+  assert.strictEqual(decl(st, 'font-size'), '13px'); assert.strictEqual(decl(st, 'line-height'), '20px'); assert.strictEqual(decl(st, 'min-height'), '24px');
+  RULES.filter(r => r.sel.some(x => /\.fpe-state\b/.test(x) && !/\.fpe-state \.ic\b/.test(x))).forEach(r =>
+    ['font-size', 'line-height'].forEach(p => assert.strictEqual(decl(r.body, p), null, r.sel.join(', ') + ' sets its own ' + p)));
+  assert.strictEqual(decl(R('.phd .hd-id h1')[0].body, 'font-size'), '30px');
+  assert.ok(RULES.some(r => r.sel.join(', ') === '.phd' && decl(r.body, '--hd-id-h')), 'the variant pins its controls to its taller title');
+});
+rule('Polish: Discard has a slot before the primary, never a reserved place or a reordered one; it is 44px on a phone', () => {
+  assert.ok(R('.hd-sa').some(r => decl(r.body, 'display') === 'flex'), '.hd-sa');
+  assert.ok(!RULES.some(r => r.sel.some(x => /\.fpe-discard\[hidden\]/.test(x))), 'no reservation for a hidden Discard');
+  assert.ok(!RULES.some(r => r.sel.some(x => /\.hd-sa\b/.test(x)) && decl(r.body, 'order') !== null), 'visual order is DOM order');
+  assert.ok(R('.hd-sa > button', /max-width: 800px/).some(r => decl(r.body, 'min-height') === '44px'), '44px on a phone');
+});
+rule('Polish: the progress bar gives way at 801-999 visually only: it is never display:none, so its progressbar role and values stay', () => {
+  RULES.filter(r => r.sel.some(x => /\.hd-bar\b/.test(x))).forEach(r => assert.notStrictEqual(decl(r.body, 'display'), 'none', r.sel.join(', ') + ' in ' + r.at.join(' ')));
+  assert.ok(R('.hd-bar', /min-width: 801px\) and \(max-width: 1099px/).some(r => decl(r.body, 'clip-path') === 'inset(50%)' && decl(r.body, 'position') === 'absolute'), 'visually hidden up to 1099');
+});
+rule('Polish: the progress gives way before More does: its word up to 1279, its bar up to 1099, and in the workspace at 801-859 all of it, visually only', () => {
+  assert.ok(R('.hd-prog .w', /^@media \(max-width: 1279px\)$/).some(r => decl(r.body, 'display') === 'none'), 'answered hides up to 1279');
+  assert.ok(!RULES.some(r => r.sel.join(', ') === '.hd-prog .w' && r.at.some(a => /max-width: 1179px/.test(a))), 'not the old 1179');
+  const ws = R('.hd:has(.ws-views) .hd-prog', /min-width: 801px\) and \(max-width: 859px/);
+  assert.ok(ws.some(r => decl(r.body, 'clip-path') === 'inset(50%)' && decl(r.body, 'position') === 'absolute'), 'the workspace\'s progress, whose count the Practice button also says, is visually hidden at 801-859');
+  assert.ok(R('.hd:has(.ws-views) .hd-bar', /^@media \(max-width: 800px\)$/).some(r => decl(r.body, 'clip-path') === 'inset(50%)' && decl(r.body, 'position') === 'absolute'), 'and on a phone the workspace\'s bar gives way to its count, so More stays beside the primary');
+});
+rule('Polish: Practice\'s real-systems warning wraps: nothing truncates it', () => {
+  RULES.filter(r => r.sel.some(x => /\.rw-say\b/.test(x))).forEach(r => {
+    assert.notStrictEqual(decl(r.body, 'white-space'), 'nowrap', r.sel.join(', ')); assert.strictEqual(decl(r.body, 'text-overflow'), null, r.sel.join(', '));
+  });
+});
+rule('Polish: the run screen\'s overrides no longer shrink the base spacing, and keep their layout', () => {
+  assert.strictEqual(RULES.filter(r => r.sel.join(', ') === '.rw-list .deck').length, 0, 'no 14px deck override');
+  const step = R('.rw .step')[0].body;
+  assert.strictEqual(decl(step, 'padding'), null); assert.strictEqual(decl(step, 'gap'), null); assert.ok(decl(step, 'grid-template-columns') && decl(step, 'border-top') === '0' && decl(step, 'align-items') === 'center', 'keeps its grid, border and alignment');
+  assert.ok(R('.rw .phase .placard').length && R('.rw .phase .placard').every(r => decl(r.body, 'padding') === null), 'the run placard pads like the base');
+  assert.strictEqual(decl(R('.rw .steps .step + .step')[0].body, 'margin-top'), 'var(--sp-1)');
+  assert.ok(/^248px /.test(decl(R('.fpe-panes.rw-panes')[0].body, 'grid-template-columns')), 'the rail is 248 in its own rule');
+  assert.strictEqual(decl(R('.s-meta')[0].body, 'line-height'), 'var(--lh-meta)');
+});
+rule('Polish: the builder\'s phase gap, phase body and tool-group divider are on the scale, with the slot that sits in the gap', () => {
+  assert.strictEqual(decl(R('.ob-phases')[0].body, 'gap'), 'var(--sp-4)');
+  assert.strictEqual(decl(R('.ob-phases > .ob-slot')[0].body, 'margin-top'), 'calc(-1 * var(--sp-4))');
+  assert.strictEqual(decl(R('.ob-body')[0].body, 'padding'), 'var(--sp-1) var(--sp-3) var(--sp-2)');
+  const tg = R('.tg + .tg')[0].body; assert.strictEqual(decl(tg, 'padding-left'), 'var(--sp-3)'); assert.strictEqual(decl(tg, 'margin-left'), 'var(--sp-1)');
+});
+
 rule('Styles: every comment in the page\'s CSS closes before the next one opens, so no rule is swallowed', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'page.html'), 'utf8'), css = src.slice(src.indexOf('<style>'), src.indexOf('</style>'));
   const bad = []; let i = 0;

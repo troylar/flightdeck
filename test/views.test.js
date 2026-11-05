@@ -1564,7 +1564,9 @@ rule('Draft editor: empty and nothing-selected states say what to do next', () =
   html = V.process(ctx);
   assert.ok(/<div class="ob-empty"><p><b>This checklist is empty\.<\/b>/.test(html) && /data-act="ob-add-phase">.*Add your first phase<\/button>/.test(html));
   assert.ok(/<details class="ob-help"><summary>Editing help<\/summary><p id="ob-kbd"/.test(html), 'keyboard help folded away');
-  assert.ok(/class="linkish fpe-discard" data-act="revert-draft" data-id="release">Discard my changes/.test(html) && !/fpe-discard"[^>]* hidden/.test(html), 'Discard shows when there are changes');
+  assert.ok(/<div class="hd-r"><div class="hd-sa"><button type="button" class="linkish fpe-discard" data-act="revert-draft" data-id="release">Discard my changes<\/button><\/div>/.test(html), 'Discard shows when there are changes, first in row 1\'s right column');
+  const st = /<p class="hd-st">[\s\S]*?<\/p>/.exec(html)[0];
+  assert.ok(st.indexOf('fpe-discard') < 0, 'the status line no longer holds Discard');
 });
 
 /* ---------- The run workspace (1.13) ---------- */
@@ -3086,6 +3088,23 @@ rule('Affordance: the details card says what it does, with one pencil, and chart
   assert.ok(card.indexOf(PF.icons.icon('edit')) >= 0 && card.indexOf(PF.icons.icon('people')) < 0, 'one pencil, not the people icon');
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'views', 'insights.js'), 'utf8');
   assert.ok(/<circle class="ins-hit" cx="' \+ cx\.toFixed\(1\) \+ '" cy="' \+ \(38 - row \* 13\) \+ '" r="12"\/><circle class="ins-dot"/.test(src), 'a 24px hit circle under each dot');
+});
+
+rule('One header: workHead draws an action slot (.hd-sa) first in row 1\'s right column only when it is given one', () => {
+  const sa = '<button type="button" class="linkish">Go</button>';
+  const h = V.workHead({ hid: 'x-h', h1: 'T', sa: sa, prog: '<div class="hd-prog"></div>', acts: '<button>P</button>', more: '<div class="more"></div>' });
+  assert.ok(h.indexOf('<div class="hd-r"><div class="hd-sa">' + sa + '</div><div class="hd-prog"></div><div class="hd-acts" data-slot="primary">') >= 0, 'before progress and the primary: ' + h);
+  ['', null, undefined].forEach(x => assert.ok(V.workHead({ hid: 'x-h', h1: 'T', sa: x, prog: '<div class="hd-prog"></div>' }).indexOf('hd-sa') < 0, 'no empty slot for ' + x));
+});
+
+rule('One header: Edit gives Discard my changes to the action slot only while there are changes; Practice has no slot', () => {
+  const { ctx, state } = partsSetup();
+  let html = V.process(ctx);
+  assert.ok(html.indexOf('hd-sa') < 0 && html.indexOf('fpe-discard') < 0, 'a clean draft: no Discard, hidden or not, and no slot');
+  state.editor.text = state.editor.base + '\nchanged';
+  html = V.process(ctx);
+  assert.ok(/<div class="hd-sa"><button type="button" class="linkish fpe-discard" data-act="revert-draft" data-id="release">Discard my changes<\/button><\/div>/.test(html), 'a changed draft: Discard in the slot');
+  assert.ok(/<p class="hd-st">[\s\S]*?<\/p>/.exec(html)[0].indexOf('fpe-discard') < 0, 'and not in the status line');
 });
 
 rule('One header: a work screen\'s title ends in an ellipsis: its text is a shrinking span that keeps the full title, with any tag after it', () => {
