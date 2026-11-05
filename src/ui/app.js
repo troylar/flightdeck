@@ -5552,7 +5552,7 @@
      while a link waits (H.pending). The URL is written only by syncLocation(), once after a render; Back and Forward come in
      through onPop(), with go()'s guards and the click's own functions. The app never traverses history itself. */
   function navFp() { return state.fs ? U.hash(fsKey()) : null; }
-  function navOff() { H.on = false; H.pending = null; H.hold = null; }
+  function navOff() { H.on = false; H.pending = null; H.hold = null; H.layer = null; }
   /* The first refused call (an unusual browser, a sandboxed frame) turns history off for this page. */
   /* b: the entry before this one, { h, f } (2.16), written only when it is one parse() accepts, for the ‹ controls' labels. */
   function histB(c) { return c ? PF.nav.origin({ h: c.hash, f: c.f, b: c.gone ? null : c.b }) : null; }
@@ -5622,7 +5622,28 @@
     }, { view: 'runs' });
   }
   function scheduleSync() { if (!H.on || H.queued) return; H.queued = true; Promise.resolve().then(function () { H.queued = false; syncLocation(); }); }
-  function syncLocation() {
+  function syncLocation() { syncNav(); syncLayer(); }
+  /* A layer (Help, a dialog, a menu or sheet that Back closes) has one history entry of its own, pushed as it opens: the
+     screen's URL, with b marking it. Back onto the screen's own entry then closes it (onPop), so closing it never eats an
+     entry. Closed by its own control, its entry is replaced in place with the screen's plain one (nothing traverses); the
+     next Back lands on the same screen and does nothing. A layer opened over a layer adds nothing. */
+  function layerUp() {
+    return !!(state.overlay || state.wsMore || (state.tfPreview && state.view === 'types') || state.obPlace || state.obAsk || obSheetOpen ||
+      (sheetWasOpen && (state.view === 'run' || state.view === 'practice')) || (document.querySelector && document.querySelector('.rw-menu[open]')));
+  }
+  function layerB(c) { return PF.nav.origin({ h: c.hash, f: c.f, b: c.b || undefined, l: 1 }); }
+  function syncLayer() {
+    if (!H.on || H.pending || H.hold) return;
+    var up = layerUp(), L = H.layer, c = H.cur;
+    if (up && !L) {
+      if (c.n !== H.pos || c.gone || String(location.hash || '') !== c.hash) return;
+      if (histWrite(true, c.hash, H.pos + 1, c.f, layerB(c))) { H.pos++; H.cur = { n: H.pos, hash: c.hash, f: c.f, b: c.b || null }; H.layer = { n: H.pos }; }
+    } else if (!up && L) {
+      H.layer = null;
+      if (H.pos === L.n && c.n === L.n) histWrite(false, c.hash, H.pos, c.f, c.b);
+    }
+  }
+  function syncNav() {
     if (!H.on) return;
     /* A move that spans an await writes nothing until it lands, unless the person moves meanwhile. */
     if (H.hold) { if (navSeq === H.hold.seq) return; H.hold = null; }
@@ -5671,6 +5692,7 @@
     var es = null, hash = '';
     try { es = PF.nav.entry(HIST.state); hash = String(location.hash || ''); } catch (e) { navOff(); return; }
     var n = es ? es.n : 0;
+    if (es && es.b && es.b.l) es = { n: es.n, f: es.f, b: es.b.b || null };
     H.pos = n; H.cur = { n: n, hash: '#/', f: es ? es.f : null, b: es && es.b || null };
     if (hash && hash !== '#/' && hash !== '#') {
       H.bootLink = true; H.pending = { loc: PF.nav.parse(hash), n: n, f: es ? es.f : null, typed: !es, b: H.cur.b };
@@ -5683,7 +5705,23 @@
     uiActs++;
     if (!H.on) return;
     harvest();
-    var es = PF.nav.entry(ev ? ev.state : null);
+    var es = PF.nav.entry(ev ? ev.state : null), here = String(location.hash || ''), c = H.cur, L = H.layer;
+    /* Back onto the screen's own entry while its layer is open: the top layer closes, an ordinary arrival; nothing is
+       written. A layer that won't close (a locked or changed dialog, typing in a sheet) is refused in place, as any refusal. */
+    if (L && es && es.n === L.n - 1 && here === c.hash && es.f === c.f && layerUp()) {
+      H.pos = es.n;
+      if (navLayer() === 'refused') { restoreUrl(); return; }
+      /* One layer under another stays open: it gets an entry of its own again (syncLayer). */
+      H.layer = null; H.cur = { n: es.n, hash: c.hash, f: c.f, b: c.b || null }; scheduleSync(); return;
+    }
+    /* The same screen, no layer open (the entry a closed layer left, a duplicate a ‹ left): nothing to do, nothing redrawn.
+       A layer's entry it lands on loses its mark; a layer is never reopened from history. */
+    if (es && !H.pending && here === c.hash && es.f === c.f && !layerUp() && !pendingBox()) {
+      H.pos = es.n; H.cur = { n: es.n, hash: c.hash, f: c.f, b: c.b || null }; H.layer = null;
+      if (es.b && es.b.l) histWrite(false, c.hash, es.n, c.f, c.b);
+      return;
+    }
+    if (es && es.b && es.b.l) es = { n: es.n, f: es.f, typed: es.typed, b: es.b.b || null, layer: true };
     popAt(es);
   }
   function popAt(es) {
@@ -5705,8 +5743,8 @@
      given what's drawn (its URL and origin), and nothing traverses back. The entry it tried to open is lost, so one step
      of history goes and the drawn place may appear twice; the same trade as ‹ replacing (docs/design.md section 29). */
   function restoreUrl() {
-    var c = H.cur;
-    if (histWrite(false, c.hash, H.pos, c.f, c.b)) H.cur = { n: H.pos, hash: c.hash, f: c.f, b: c.b || null };
+    var c = H.cur, up = layerUp();
+    if (histWrite(false, c.hash, H.pos, c.f, up ? layerB(c) : c.b)) { H.cur = { n: H.pos, hash: c.hash, f: c.f, b: c.b || null }; H.layer = up ? { n: H.pos } : null; }
   }
   function refuseFor(dirty) {
     say(/^ob-/.test(dirty.id || '') ? 'Apply or clear what you typed in the box first ' + applyHint(dirty.id) + ', then go there.' : 'Finish or cancel this first.', 'warn');
@@ -5898,8 +5936,8 @@
      does, and stays; one holding typing or choices isn't closed. Returns whether there was one. */
   function navLayer() {
     if (state.overlay) {
-      if ((state.overlay.held && state.overlay.held()) || dirtyControl([overlayEl])) overlayRefuse();
-      else closeOverlay();
+      if ((state.overlay.held && state.overlay.held()) || dirtyControl([overlayEl])) { overlayRefuse(); return 'refused'; }
+      closeOverlay();
       return true;
     }
     var om = document.querySelector && document.querySelector('.rw-menu[open]');
@@ -5909,7 +5947,7 @@
     var tf = state.tfPreview && state.view === 'types';
     if (!tf && !state.obPlace && !state.obAsk && !obSheetOpen && !(sheetWasOpen && (state.view === 'run' || state.view === 'practice'))) return false;
     var dirty = pendingBox();
-    if (dirty) { refuseFor(dirty); return true; }
+    if (dirty) { refuseFor(dirty); return 'refused'; }
     if (tf) ACTIONS['tf-preview']();
     else if (state.obPlace) cancelPlacing();
     else if (state.obAsk) ACTIONS['ob-ask-cancel']();
@@ -8649,6 +8687,8 @@
   /* Folded groups and opened or closed details (a brief, a list of deviations) stay as the person left them across redraws. */
   document.addEventListener('toggle', function (e) {
     var d = e.target; if (!d || !d.dataset) return;
+    /* The run's More menu opens without a redraw: its layer entry is written now. */
+    if (d.classList && d.classList.contains('rw-menu')) scheduleSync();
     prActivity(d);
     if (d.dataset.group) (state.groupsOpen = state.groupsOpen || Object.create(null))[d.dataset.group] = d.open;
     /* More options (2.10): one setting for the whole editor, kept in this browser; it can't close over typing not applied. */

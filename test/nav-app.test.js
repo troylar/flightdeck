@@ -1310,10 +1310,13 @@ rule('R3 3: More is a layer: browser Back or Escape closes it, focus on More, th
     const act = view === 'edit' ? 'ws-more' : 'pr-more', h = app.hash(), n = app.entries().length;
     app.click(act); await app.tick();
     assert.match(head(app), /aria-expanded="true" aria-controls="ws-more-list"/, view + ' ' + how + ': set-up, open');
+    /* Its own entry (2.16, round 10b): Back closes it onto the screen's entry; Escape drops the mark in place. */
+    assert.strictEqual(app.entries().length, n + 1, view + ' ' + how + ': More has its entry');
     if (how === 'back') app.back(); else esc0(app);
     await app.settle();
     assert.strictEqual(app.hash(), h, view + ' ' + how + ': the URL kept');
-    assert.strictEqual(app.entries().length, n, view + ' ' + how + ': no entry');
+    assert.strictEqual(app.entries().length, n + 1, view + ' ' + how + ': no further entry');
+    assert.strictEqual(app.index(), how === 'back' ? n - 1 : n, view + ' ' + how + ': ' + (how === 'back' ? 'on the screen\'s own entry' : 'the entry kept, unmarked'));
     assert.match(head(app), /id="ws-more-btn"[^>]*aria-expanded="false"/, view + ' ' + how + ': closed');
     assert.strictEqual(app.activeId(), 'ws-more-btn', view + ' ' + how + ': focus on More');
     assert.ok(view === 'edit' ? inEditor(app) : onPage(app), view + ' ' + how + ': still there');
@@ -1414,7 +1417,7 @@ rule('R5 4: a plan whose pinned version can\'t be used, opened from the checklis
 rule('R6 1: no ‹ control calls browser Back or waits for one: nothing in app.js traverses history (a refusal is settled in place, round 10)', () => {
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
   assert.ok(!/HIST\.(back|forward|go)\(/.test(src), 'no history.back(), forward() or go()');
-  assert.match(src, /function restoreUrl\(\) \{[^}]*histWrite\(false, c\.hash, H\.pos, c\.f, c\.b\)/, 'a refusal replaces the entry the browser is on');
+  assert.match(src, /function restoreUrl\(\) \{[^}]*histWrite\(false, c\.hash, H\.pos, c\.f, up \? layerB\(c\) : c\.b\)/, 'a refusal replaces the entry the browser is on');
   assert.ok(!/H\.backing|navWait|drawnControl|typeBack|wsAnyway/.test(src), 'no pending Back, slot or replay left');
   /* Every ‹ handler moves through backInPlace (its guard, then the entry replaced). */
   ['wsLeave', 'typeWsReturn'].forEach(f => assert.match(src, new RegExp('function ' + f + '\\([^)]*\\) \\{[\\s\\S]{0,400}backInPlace\\(\\)'), f));
@@ -1553,8 +1556,8 @@ rule('R6 6: refused Backs pressed together, with entries ahead: each pop settles
 rule('R7 1: ‹ after a refused Back: the destination in the entry\'s place at once, history doesn\'t grow, Back never reopens Edit', async () => {
   for (const how of ['help', 'unapplied text']) {
     const app = await edit({ localStore: { 'preflight:builder': 'true' } }); await app.settle();
-    const n = app.entries().length;
-    if (how === 'help') { app.key('?'); await app.tick(); assert.ok(app.overlay(), 'set-up: Help open'); await onePop(app, a => a.back()); assert.ok(!app.overlay(), how + ': Help closed'); }
+    let n = app.entries().length;
+    if (how === 'help') { app.key('?'); await app.settle(); assert.ok(app.overlay(), 'set-up: Help open'); n++; await onePop(app, a => a.back()); assert.ok(!app.overlay(), how + ': Help closed'); }
     else {
       app.click('ob-sel', 'flags'); await app.tick(); app.input('ob-text', 'Half typed'); await app.tick();
       await onePop(app, a => a.back());
@@ -1616,8 +1619,8 @@ rule('R7 2: Settings › Step types › New step type › ‹ Step types: the li
 /* Help open in Edit, browser Back closes it, the restore's own traversal held, ‹ checklist drawn. */
 async function helpRefused() {
   const app = await edit({ localStore: { 'preflight:builder': 'true' } }); await app.settle();
+  app.key('?'); await app.settle(); assert.ok(app.overlay(), 'set-up: Help open');
   const n = app.entries().length;
-  app.key('?'); await app.tick(); assert.ok(app.overlay(), 'set-up: Help open');
   await onePop(app, a => a.back());
   atRest(app, 'Back closed Help', { hash: '#/process/release/edit', drawn: inEditor, n, b: '#/process/release' });
   app.click('ed-done'); await app.settle();
@@ -1715,9 +1718,11 @@ rule('R9 A: a Back refused while Publish writes: Edit and its URL at the pop, wh
   const release = holdWrites(app);
   ovClick(app, 'publish', 'release'); await app.tick(20);
   assert.match(app.overlay(), /aria-busy="true"/, 'set-up: locked');
-  const want = { hash: '#/process/release/edit', drawn: inEditor, n, b: '#/process/release' };
+  /* The dialog has its own entry (round 10b): refused in place while locked, the entry keeps the dialog's mark (b.h the
+     editor); once Publish lands and the dialog closes, the mark is dropped. */
+  const lockedW = { hash: '#/process/release/edit', drawn: inEditor, n: n + 1, b: '#/process/release/edit' }, want = { hash: '#/process/release/edit', drawn: inEditor, n: n + 1, b: '#/process/release' };
   await onePop(app, a => a.back());
-  assert.match(app.overlay(), /aria-busy="true"/, 'still locked'); atRest(app, 'the pop', want);
+  assert.match(app.overlay(), /aria-busy="true"/, 'still locked'); atRest(app, 'the pop', lockedW);
   release(); await app.tick(300); await app.settle();
   atRest(app, 'Publish landed', want);
   await wait(1100); await app.settle();
@@ -1814,15 +1819,18 @@ rule('R10 A: locked Publish, Back and Forward together: Edit at rest through eac
   app.click('nav', 'runs'); await app.settle(); app.click('nav', 'settings'); await app.settle();
   app.back(); await app.settle(); app.back(); await app.settle();
   assert.ok(inEditor(app), 'set-up: Edit, entries ahead');
-  const n = app.entries().length;
-  const b = primary(app); app.click(b[0].act, b[0].id); await app.tick();
+  const b = primary(app); app.click(b[0].act, b[0].id); await app.settle();
+  /* The dialog's own entry is a push: the entries ahead go, as with any move. */
+  const n = app.entries().length - 1;
   app.set('change-note', 'Tell on-call');
   const release = holdWrites(app);
   ovClick(app, 'publish', 'release'); await app.tick(20);
   assert.match(app.overlay(), /aria-busy="true"/, 'set-up: locked');
-  const want = { hash: '#/process/release/edit', drawn: inEditor, n, b: '#/process/release' };
-  await onePop(app, a => a.back()); atRest(app, 'Back during the lock', want);
-  await onePop(app, a => a.forward()); atRest(app, 'Forward during the lock', want);
+  /* The dialog has its own entry (round 10b): refused in place while locked, the entry keeps the dialog's mark (b.h the
+     editor); once Publish lands and the dialog closes, the mark is dropped. */
+  const lockedW = { hash: '#/process/release/edit', drawn: inEditor, n: n + 1, b: '#/process/release/edit' }, want = { hash: '#/process/release/edit', drawn: inEditor, n: n + 1, b: '#/process/release' };
+  await onePop(app, a => a.back()); atRest(app, 'Back during the lock', lockedW);
+  await onePop(app, a => a.forward()); atRest(app, 'Forward during the lock', lockedW);
   app.holdPops(); app.back(); app.forward(); app.releasePops(); await app.settle(); await app.tick(40);
   release(); await app.tick(300); await app.settle();
   atRest(app, 'Publish landed', want);
@@ -1831,8 +1839,8 @@ rule('R10 A: locked Publish, Back and Forward together: Edit at rest through eac
 });
 rule('R10 A: Help open in Edit, Back closes it in place, then Settings and Runs: each URL right away, and no traversal', async () => {
   const app = await edit(); await app.settle();
+  app.key('?'); await app.settle(); assert.ok(app.overlay(), 'set-up: Help open');
   const n = app.entries().length;
-  app.key('?'); await app.tick(); assert.ok(app.overlay(), 'set-up: Help open');
   await onePop(app, a => a.back());
   assert.ok(!app.overlay(), 'Help closed');
   atRest(app, 'Back closed Help', { hash: '#/process/release/edit', drawn: inEditor, n, b: '#/process/release' });
@@ -1856,14 +1864,107 @@ rule('R10 B: the assistant template\'s Cancel goes to Checklists, like the ordin
   assert.strictEqual(app.hash(), '#/processes', 'Checklists');
   assert.strictEqual(app.entries().length, n, 'history didn\'t grow');
 });
-rule('R10 C: the phone More menu open, widened past 480 px: closed, and browser Back leaves the workspace at once', async () => {
+rule('R10 C: the phone More menu open, widened past 480 px: closed, its entry the editor\'s, and Back leaves the workspace', async () => {
   const app = await edit({ narrow: true }); await app.settle();
   app.click('ws-more'); await app.tick();
   assert.match(head(app), /aria-expanded="true"/, 'set-up: More open');
   app.setNarrow(false); await app.tick();
   assert.doesNotMatch(head(app), /id="ws-more-list"[^>]*aria-hidden="false"|aria-expanded="true"/, 'More closed on a wide window');
+  /* Closed by the resize, not by Back: its entry is the editor's now, so one Back stays (silently), the next leaves. */
+  await onePop(app, a => a.back()); assert.ok(inEditor(app), 'the closed More\'s entry: the same screen');
   await onePop(app, a => a.back());
-  assert.ok(!inEditor(app), 'one Back leaves the workspace: ' + app.hash());
+  assert.ok(!inEditor(app), 'then Back leaves the workspace: ' + app.hash());
+});
+
+/* ---------- Build round 10b: a layer has its own history entry ---------- */
+const sheetUp = app => !!app.node('.rw-ins[data-open="true"]');
+const layerMark = e => !!(e && e.state && e.state.b && e.state.b.l === 1);
+async function runFromRuns(o) {
+  const app = await start(o); app.click('nav', 'runs'); await app.settle();
+  app.click('open-run', runKey(app)); await app.settle();
+  assert.ok(onRun(app) && app.hash() === '#/run/' + runKey(app), 'set-up: the run, from Runs');
+  return app;
+}
+const runAt = app => ({ hash: '#/run/' + runKey(app), drawn: a => onRun(a) && !a.overlay(), b: '#/runs' });
+rule('R10b: Help on the run, Back closes it on the run\'s own entry, the next Back is Runs', async () => {
+  const app = await runFromRuns(); const n = app.entries().length;
+  app.key('?'); await app.settle();
+  assert.ok(app.overlay(), 'set-up: Help'); assert.strictEqual(app.entries().length, n + 1, 'Help pushed its entry');
+  assert.ok(layerMark(app.entries()[app.index()]), 'marked as a layer'); assert.strictEqual(app.hash(), '#/run/' + runKey(app), 'the same URL');
+  await onePop(app, a => a.back());
+  atRest(app, 'Back closed Help', Object.assign(runAt(app), { n: n + 1 }));
+  assert.strictEqual(app.index(), n - 1, 'on the run\'s own entry');
+  await onePop(app, a => a.back());
+  atRest(app, 'the opener', { hash: '#/runs', drawn: a => /class="eyebrow">Runs|<h1[^>]*>Runs<\/h1>|id="rf-h"/.test(a.html()), n: n + 1, b: '#/' });
+});
+rule('R10b: the phone step sheet: Back closes it, the next Back is Runs', async () => {
+  const app = await runFromRuns({ narrow: true, domFocus: true }); const n = app.entries().length;
+  app.click('pickup'); await app.settle(); app.click('select', app.nextStep()); await app.settle();
+  assert.ok(sheetUp(app), 'set-up: the sheet');
+  assert.strictEqual(app.entries().length, n + 1, 'the sheet pushed its entry');
+  await onePop(app, a => a.back());
+  assert.ok(!sheetUp(app), 'closed');
+  atRest(app, 'Back closed the sheet', Object.assign(runAt(app), { n: n + 1 }));
+  await onePop(app, a => a.back());
+  atRest(app, 'the opener', { hash: '#/runs', drawn: a => /class="eyebrow">Runs|<h1[^>]*>Runs<\/h1>|id="rf-h"/.test(a.html()), n: n + 1, b: '#/' });
+});
+rule('R10b: Help closed by its own control: the next Back is a silent no-op on the same screen, the one after is Runs', async () => {
+  const app = await runFromRuns({ domFocus: true }); const n = app.entries().length;
+  app.key('?'); await app.settle();
+  ovClick(app, 'close-overlay', undefined); await app.settle();
+  assert.ok(!app.overlay(), 'closed');
+  assert.strictEqual(app.entries().length, n + 1); assert.ok(!layerMark(app.entries()[app.index()]), 'the mark dropped in place');
+  assert.strictEqual(app.appTraversals(), 0, 'closing never traverses');
+  const html = app.html(), focus = app.activeId();
+  await onePop(app, a => a.back());
+  atRest(app, 'the same screen', Object.assign(runAt(app), { n: n + 1 }));
+  assert.strictEqual(app.html(), html, 'nothing redrawn'); assert.strictEqual(app.activeId(), focus, 'focus unchanged');
+  await onePop(app, a => a.back());
+  atRest(app, 'the opener', { hash: '#/runs', drawn: a => /class="eyebrow">Runs|<h1[^>]*>Runs<\/h1>|id="rf-h"/.test(a.html()), n: n + 1, b: '#/' });
+});
+rule('R10b: Forward onto a stale layer entry draws the screen without the layer and drops the mark', async () => {
+  const app = await runFromRuns(); const n = app.entries().length;
+  app.key('?'); await app.settle();
+  await onePop(app, a => a.back());
+  assert.ok(!app.overlay(), 'set-up: closed by Back');
+  await onePop(app, a => a.forward());
+  assert.ok(!app.overlay(), 'Help isn\'t reopened from history');
+  atRest(app, 'Forward', Object.assign(runAt(app), { n: n + 1 }));
+  assert.ok(!layerMark(app.entries()[app.index()]), 'the mark dropped');
+  app.click('nav', 'settings'); await app.settle(); await onePop(app, a => a.back());
+  assert.ok(onRun(app) && !app.overlay(), 'Back onto it from elsewhere: the run, no Help');
+});
+rule('R10b: a locked Publish dialog: Back is still refused in place', async () => {
+  const app = await changed(); await into(app, 'edit'); await app.settle();
+  const n = app.entries().length;
+  const b = primary(app); app.click(b[0].act, b[0].id); await app.settle();
+  assert.strictEqual(app.entries().length, n + 1, 'the dialog pushed its entry');
+  app.set('change-note', 'Tell on-call');
+  const release = holdWrites(app);
+  ovClick(app, 'publish', 'release'); await app.tick(20);
+  assert.match(app.overlay(), /aria-busy="true"/, 'set-up: locked');
+  await onePop(app, a => a.back());
+  assert.match(app.overlay(), /aria-busy="true"/, 'still open, still locked');
+  atRest(app, 'refused in place', { hash: '#/process/release/edit', drawn: inEditor, n: n + 1, b: '#/process/release/edit' });
+  assert.ok(layerMark(app.entries()[app.index()]), 'the entry it landed on is the dialog\'s now');
+  release(); await app.tick(300); await app.settle();
+  assert.ok(inEditor(app) && !app.overlay(), 'Publish landed'); assert.ok(!layerMark(app.entries()[app.index()]), 'its mark dropped');
+});
+rule('R10b: a layer in a layer has one entry: Help over the phone step sheet, Back, Back, Back', async () => {
+  const app = await runFromRuns({ narrow: true, domFocus: true }); const n = app.entries().length;
+  app.click('pickup'); await app.settle(); app.click('select', app.nextStep()); await app.settle();
+  app.key('?'); await app.settle();
+  assert.ok(app.overlay(), 'set-up: Help over the sheet');
+  assert.strictEqual(app.entries().length, n + 1, 'one layer entry');
+  await onePop(app, a => a.back());
+  assert.ok(!app.overlay() && sheetUp(app), 'Help closed, the sheet stays');
+  atRest(app, 'Help closed, the sheet has its entry again', { hash: '#/run/' + runKey(app), drawn: sheetUp, n: n + 1, b: '#/run/' + runKey(app) });
+  assert.ok(layerMark(app.entries()[app.index()]), 'the sheet\'s entry');
+  await onePop(app, a => a.back());
+  assert.ok(!sheetUp(app), 'the sheet closed');
+  atRest(app, 'the sheet closed', Object.assign(runAt(app), { n: n + 1 }));
+  await onePop(app, a => a.back());
+  atRest(app, 'the opener', { hash: '#/runs', drawn: a => /class="eyebrow">Runs|<h1[^>]*>Runs<\/h1>|id="rf-h"/.test(a.html()), n: n + 1, b: '#/' });
 });
 
 run();

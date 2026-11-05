@@ -145,8 +145,12 @@ PF.nav = (function () {
   function origin(b, depth) {
     depth = depth == null ? ORIGINS : depth;
     if (depth <= 0 || !b || typeof b !== 'object' || typeof b.h !== 'string' || !parse(b.h) || !(b.f === null || isHex(b.f))) return null;
+    /* l: 1 marks a layer's own entry (2.16: Help, a dialog, a sheet), only on the entry's own record; anything else there
+       isn't one. */
+    if (Object.prototype.hasOwnProperty.call(b, 'l') && b.l !== 1) return null;
     var o = { h: b.h, f: b.f }, up = Object.prototype.hasOwnProperty.call(b, 'b') ? origin(b.b, depth - 1) : null;
     if (up) o.b = up;
+    if (b.l === 1 && depth === ORIGINS) o.l = 1;
     return o;
   }
 
