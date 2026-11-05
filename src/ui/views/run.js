@@ -643,13 +643,8 @@
     if (dm && (dm.details.length || dm.rec) && r.state === 'running' && ctx.recording && ctx.recording(r)) h += '<div class="row"><button class="mini" data-act="refresh-search" data-id="' + esc(s.id) + '">Refresh search</button></div>';
     return '<div class="search-box">' + h + '</div>';
   }
-  /* What a reopened search says (section 5.9 R14-3, R14-7): its reason, then what to do next. */
-  function reopenNotice(r, a) {
-    var why = String(a.reason || 'Reopened when read').replace(/\.$/, '') + '.';
-    if (a.reopened === 'stuck') return why + ' Start a new run of this checklist; this run stays as recorded.';
-    if (r.state === 'completed') return why + ' The run stays Completed; answer this step again with Done. Every other step stays closed.';
-    return why + ' Refresh the search, search again, then choose Done.';
-  }
+  /* What a reopened search says: PF.run.reopenNotice, the same words Folder health uses. */
+  function reopenNotice(r, a) { return R.reopenNotice(r, a); }
   V.reopenNotice = reopenNotice;
   function fieldsBlock(ctx, r, map, s, t, sched) {
     if (R.isSearchStep(s)) return searchBlock(ctx, r, map, s);

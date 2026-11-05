@@ -203,4 +203,15 @@ rule('the CLI names a linked-run mark as child-mark: runs and followups read par
     assert.ok(j.data && typeof j.data === 'object', 'data still printed');
   });
 });
+rule('R5-3: Folder health tells a completed run\'s reopened search to be answered again with Done, never Refresh; a running one keeps Refresh', () => {
+  const people = [{ id: 'person-avery', name: 'Avery' }];
+  const issue = (r) => PF.health.check({ data: { runs: [r], people, processes: [] } }, Date.parse(LATER)).issues.filter(i => /^reopened:/.test(i.id))[0];
+  const done = issue(edited(completedKid()));
+  assert.ok(done, 'listed');
+  assert.ok(/answer this step again with Done/.test(done.detail) && !/Refresh/.test(done.detail), done.detail);
+  const k = completedKid(); delete k.ended; k.state = 'running';
+  const running = issue(edited(k));
+  assert.ok(running && /Refresh the search, search again, then choose Done\./.test(running.detail), running && running.detail);
+});
+
 run();

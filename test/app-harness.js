@@ -339,12 +339,13 @@ function boot(opts) {
   if (opts.picker) window.showDirectoryPicker = () => Promise.resolve(typeof opts.picker === 'function' ? opts.picker() : opts.picker);
   /* opts.timers: the app's delayed timers (any delay over 0) wait in a queue the test moves with advanceTimers(ms); none
      fires on its own. Zero-delay timers still run as usual, so promise chains and redraws on the next turn aren't held. */
+  /* opts.urlParser: the stand-in browser gets a real URL parser (Node's), as a browser has, so a Jira address can be checked. */
   const timerQ = [], clock = { now: 0, id: 1 };
   const appSetTimeout = !opts.timers ? setTimeout : (fn, ms) => { if (!(ms > 0)) return setTimeout(fn, 0); const t = { id: 'm' + clock.id++, at: clock.now + ms, fn }; timerQ.push(t); return t.id; };
   const appClearTimeout = !opts.timers ? clearTimeout : id => { const i = timerQ.findIndex(t => t.id === id); if (i >= 0) timerQ.splice(i, 1); else clearTimeout(id); };
   const ctx = vm.createContext({
     window, document, history, location, localStorage: storage(), sessionStorage, navigator: Object.assign(opts.locks ? { locks: opts.locks } : {}, opts.navigator || {}), BroadcastChannel: opts.Channel, console, Date: opts.Date || Date, Math, JSON, Promise, Blob, fetch, btoa, Uint8Array,
-    setTimeout: appSetTimeout, clearTimeout: appClearTimeout, setInterval: fn => { intervals.push(fn); return 0; }, requestAnimationFrame: fn => setTimeout(fn, 0), URL: { createObjectURL: b => { lastBlob = b; return 'blob:x'; }, revokeObjectURL() {} },
+    setTimeout: appSetTimeout, clearTimeout: appClearTimeout, setInterval: fn => { intervals.push(fn); return 0; }, requestAnimationFrame: fn => setTimeout(fn, 0), URL: opts.urlParser ? Object.assign(class extends URL {}, { createObjectURL: b => { lastBlob = b; return 'blob:x'; }, revokeObjectURL() {} }) : { createObjectURL: b => { lastBlob = b; return 'blob:x'; }, revokeObjectURL() {} },
     crypto: globalThis.crypto, TextEncoder, TextDecoder, indexedDB: opts.indexedDB, IntersectionObserver: opts.IntersectionObserver,
     // An elapsed-time clock the test moves (performance.now()); left out, the app falls back on Date.now().
     performance: opts.performance,

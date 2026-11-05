@@ -381,10 +381,11 @@ PF.practice = (function () {
   /* A sample run detail, checked as a run checks it (empty clears it). */
   function setSample(state, map, name, value, types) {
     if ((map.meta.context || []).indexOf(name) < 0) return { error: 'That run detail isn\'t in the draft.' };
-    var v = String(value == null ? '' : value).trim(), def = R.detailValueDef(map, name);
-    /* A pattern's value is checked as typed, untrimmed (Appendix A.5). */
-    if (def && def.kind === 'pattern') v = String(value == null ? '' : value);
-    if (v && def) { var p = PF.values.parse(def, v, { max: PF.values.DETAIL_MAX }); if (!p.ok) return { error: p.why }; v = p.canonical; }
+    /* A pattern's value is checked as typed, untrimmed (Appendix A.5), by PF.values.patternIn. */
+    var def = R.detailValueDef(map, name), pat = def && def.kind === 'pattern' ? PF.values.patternIn(def, value, { max: PF.values.DETAIL_MAX }) : null;
+    if (pat && !pat.ok) return { error: pat.why };
+    var v = pat ? pat.canonical : String(value == null ? '' : value).trim();
+    if (v && def && !pat) { var p = PF.values.parse(def, v, { max: PF.values.DETAIL_MAX }); if (!p.ok) return { error: p.why }; v = p.canonical; }
     var st = copy(state);
     if (v) { var c = PF.values.cut(def, v, PF.values.DETAIL_MAX, unitOf(map)); if (c.why) return { error: c.why }; st.sample[name] = c.value; } else delete st.sample[name];
     var moved = pin(st, map, types);
