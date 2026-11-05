@@ -3730,7 +3730,8 @@
       st = memo.st; if (!st) return null;
     }
     var text = prText(p);
-    if (memo.text !== text) { var ids = Object.create(null), steps = M.steps(M.parse(text)); steps.forEach(function (x) { if (x.step.id) ids[x.step.id] = true; }); memo.text = text; memo.ids = ids; memo.total = steps.length; }
+    /* Practice's own IDs: a step written without one has its temporary ID (PR.normalize), as its answer does. */
+    if (memo.text !== text) { var ids = Object.create(null), steps = M.steps(PR.normalize(M.parse(text))); steps.forEach(function (x) { if (x.step.id) ids[x.step.id] = true; }); memo.text = text; memo.ids = ids; memo.total = steps.length; }
     var done = 0; Object.keys(st.answers || {}).forEach(function (id) { if (memo.ids[id] === true) done++; });
     return { done: Math.min(done, memo.total), total: memo.total };
   }
@@ -5629,8 +5630,11 @@
      next Back lands on the same screen and does nothing. A layer opened over a layer adds nothing. */
   function layerUp() {
     return !!(state.overlay || state.wsMore || (state.tfPreview && state.view === 'types') || state.obPlace || state.obAsk || obSheetOpen ||
-      (sheetWasOpen && (state.view === 'run' || state.view === 'practice')) || (document.querySelector && document.querySelector('.rw-menu[open]')));
+      (sheetWasOpen && (state.view === 'run' || state.view === 'practice')) || (state.view === 'run' && state.disc && state.disc['rw-menu']) ||
+      (document.querySelector && document.querySelector('.rw-menu[open]')));
   }
+  /* Native menus (<details>) left open are transient: leaving a screen, or arriving on a layer's old entry, shuts them. */
+  function menusShut() { if (state.disc) { state.disc['rw-menu'] = false; state.disc['runs-more'] = false; } }
   function layerB(c) { return PF.nav.origin({ h: c.hash, f: c.f, b: c.b || undefined, l: 1 }); }
   function syncLayer() {
     if (!H.on || H.pending || H.hold) return;
@@ -5714,14 +5718,17 @@
       /* One layer under another stays open: it gets an entry of its own again (syncLayer). */
       H.layer = null; H.cur = { n: es.n, hash: c.hash, f: c.f, b: c.b || null }; scheduleSync(); return;
     }
-    /* The same screen, no layer open (the entry a closed layer left, a duplicate a ‹ left): nothing to do, nothing redrawn.
-       A layer's entry it lands on loses its mark; a layer is never reopened from history. */
-    if (es && !H.pending && here === c.hash && es.f === c.f && !layerUp() && !pendingBox()) {
+    /* A layer's entry is the screen's, with its origin one level down; a layer is never reopened from history, nor a menu
+       left open there. */
+    if (es && es.b && es.b.l) { es = { n: es.n, f: es.f, typed: es.typed, b: es.b.b || null }; menusShut(); }
+    /* The same screen with the same origin, no layer open (the entry a closed layer left, a duplicate a ‹ left): nothing to
+       do, nothing redrawn; a mark there is dropped. A different origin is an ordinary arrival, so the way back follows it. */
+    if (es && !H.pending && here === c.hash && es.f === c.f && JSON.stringify(es.b || null) === JSON.stringify(c.b || null) && !layerUp() && !pendingBox()) {
+      var marked = ev && ev.state && ev.state.b && ev.state.b.l;
       H.pos = es.n; H.cur = { n: es.n, hash: c.hash, f: c.f, b: c.b || null }; H.layer = null;
-      if (es.b && es.b.l) histWrite(false, c.hash, es.n, c.f, c.b);
+      if (marked) histWrite(false, c.hash, es.n, c.f, c.b);
       return;
     }
-    if (es && es.b && es.b.l) es = { n: es.n, f: es.f, typed: es.typed, b: es.b.b || null, layer: true };
     popAt(es);
   }
   function popAt(es) {
@@ -8894,7 +8901,7 @@
     });
   }
   /* Every change of screen goes through here: what's typed on the run's selected step is kept first. */
-  function setView(v) { childEpoch++; state.wsMore = false; if (v !== 'runs') state.justPlanned = null; if (v !== 'types') state.typeFrom = null; if (state.view === 'start' && v !== 'start') { state.startModeAt = Object.create(null); state.roleCarry = null; } if (state.view === 'practice' && v !== 'practice') prLeave(); leaveContext(); state.view = v; }
+  function setView(v) { childEpoch++; state.wsMore = false; menusShut(); if (v !== 'runs') state.justPlanned = null; if (v !== 'types') state.typeFrom = null; if (state.view === 'start' && v !== 'start') { state.startModeAt = Object.create(null); state.roleCarry = null; } if (state.view === 'practice' && v !== 'practice') prLeave(); leaveContext(); state.view = v; }
   /* Leaving the practice page (any way: Edit, Back, a link): what's typed is kept, and where it was, for coming back. */
   function prLeave() {
     prHarvest(); var p = currentProcess(), e = p && prs[edKey(p.id)];
