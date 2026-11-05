@@ -14,6 +14,14 @@
      requests use (GitHub when there are none, or a tie). */
   var PRS = ['github.pr', 'bitbucket.pr'], HOSTS = { 'github.pr': 'GitHub', 'bitbucket.pr': 'Bitbucket' };
   function isPr(id) { return PRS.indexOf(id) >= 0; }
+  /* 2.16 (section 7): the Jira part's first question, Search for issues among the actions; it switches {jira.issue} and {jira.search}. */
+  var JIRA_ACTS = ['create', 'update', 'transition', 'assign', 'link', 'search'], JIRA_NAMES = { search: 'Search for issues' };
+  var JRES = ['none', 'any', 'exactly', 'at least', 'at most'], JRES_NAMES = { none: 'None', any: 'Any number (including zero)', exactly: 'Exactly', 'at least': 'At least', 'at most': 'At most' };
+  function isJira(s, def) { return (s.type === 'jira.issue' || s.type === 'jira.search') && !!def && !def.custom; }
+  function resultsOf(text) {
+    var t = String(text == null ? 'any' : text).trim().toLowerCase().replace(/\s+/g, ' '), m = /^(exactly|at least|at most) (\d+)$/.exec(t);
+    return m ? { op: m[1], n: m[2] } : { op: t || 'any', n: '' };
+  }
   function prHost(text) {
     var o = O.parse(String(text || '')), n = function (id) { return (o.steps || []).filter(function (s) { return s.type === id; }).length; };
     return n('bitbucket.pr') > n('github.pr') ? 'bitbucket.pr' : 'github.pr';
@@ -596,6 +604,57 @@
     var st = ctx.state, u = st.obUnapplied, sel = st.obSel, ids = (st.obPendingField ? [st.obPendingField] : []).concat(u && sel && u.pid === sel.pid && u.key === sel.key ? Object.keys(u.ids) : []);
     return ids.length > 0 && inside.some(function (g) { return G4.groups[g[0]].ids.some(function (re) { return ids.some(function (id) { return re.test(id); }); }); });
   }
+  /* What do you do in Jira? (2.16): the five actions and Search for issues; the checked one is the step's action, or Search. */
+  function jiraSwitch(ctx, s, def) {
+    var cur = s.type === 'jira.search' ? 'search' : s.fields.action || '', d = def.fields.action, flag = '';
+    if (s.type === 'jira.issue' && cur && !T.hasOption(d, s.fields, cur)) flag = '{jira.issue} doesn\'t have ' + cur + '. Pick one of: ' + K.capJoin(JIRA_ACTS.slice(0, 5), null, ', ', 'ob-opts') + ', or Search for issues.';
+    return choices(ctx, 'ob-jira', G.form('jira-action'), JIRA_ACTS, cur, null, JIRA_NAMES, flag);
+  }
+  /* The query as written, each refused place underlined with its reason (the place an Insert was refused at, too). */
+  function jqlMarks(q, spans) {
+    if (!spans.length) return '';
+    var out = '', at = 0;
+    spans.slice().sort(function (a, b) { return a.s - b.s; }).forEach(function (sp) {
+      if (sp.s < at) return;
+      out += esc(q.slice(at, sp.s)) + '<u class="bad">' + esc(q.slice(sp.s, sp.e) || ' ') + '</u>'; at = sp.e;
+    });
+    out += esc(q.slice(at));
+    return '<div class="notice warn ob-jql-marks" id="ob-jql-marks" role="status"><code>' + out + '</code><ul>' +
+      spans.map(function (sp) { return '<li>' + esc(sp.why) + '</li>'; }).filter(function (x, i, a) { return a.indexOf(x) === i; }).join('') + '</ul></div>';
+  }
+  /* The search form (section 7): how it finds them, the query with ^detail chips, what it should find, in plain words, the
+     Jira address, and a preview with sample details. */
+  function searchForm(ctx, p, s, def, meta) {
+    var f = s.fields, st = ctx.state, J = PF.jsearch, hasQ = !!String(f.query || '').trim(), hasF = !!String(f.filter || '').trim();
+    var jf = st.obJFind && st.obJFind.key === p.id + '\n' + s.key ? st.obJFind.v : (hasF && !hasQ ? 'filter' : 'jql');
+    var both = hasQ && hasF ? 'A search uses JQL or a saved filter, not both: empty this box.' : '';
+    var h = choices(ctx, 'ob-jfind', G.form('jira-find'), ['jql', 'filter'], jf, null, { jql: 'JQL', filter: 'Saved filter' });
+    if (jf === 'jql' || hasQ) {
+      h += fieldRow(ctx, def, s, 'query', jf === 'filter' ? both : '');
+      var bad = st.obJqlBad && st.obJqlBad.key === p.id + '\n' + s.key ? st.obJqlBad : null;
+      h += jf === 'jql' ? '<div class="field"><span id="ob-jql-ins-l">Put a run detail in the query</span><span class="small">Goes at the end of the query, or where the cursor is. Only where a single value goes.</span>' +
+        (meta.context.length ? '<div class="row" role="group" aria-labelledby="ob-jql-ins-l">' + meta.context.map(function (n) { return '<button type="button" class="ob-chip" data-act="ob-jql-ins" data-id="' + esc(n) + '">^' + esc(n) + '</button>'; }).join('') + '</div>' : '<span class="small">The checklist lists no run details yet.</span>') + '</div>' : '';
+      h += bad ? jqlMarks(bad.text, [{ s: bad.s, e: bad.e, why: bad.why }]) : jqlMarks(String(f.query || ''), J.refusedSpans(String(f.query || ''), meta.context));
+    }
+    if (jf === 'filter' || hasF) h += fieldRow(ctx, def, s, 'filter', jf === 'jql' ? both : '');
+    var r = resultsOf(f.results), known = JRES.indexOf(r.op) >= 0;
+    h += choices(ctx, 'ob-jres', G.form('jira-results'), JRES, known ? r.op : f.results, null, JRES_NAMES, known ? '' : '"' + f.results + '" isn\'t a rule. Choose one.');
+    if (r.op === 'exactly' || r.op === 'at least' || r.op === 'at most') h += formBox(ctx, 'ob-jres-n', 'jira-results-n', 'input', ' type="number" min="0" max="999999" step="1" inputmode="numeric" data-enter="ob-commit" value="' + esc(r.n) + '"', '');
+    h += fieldRow(ctx, def, s, 'what');
+    var name = J.siteName(f), lk = name ? PF.teamValues.lookup(ctx.data.teamValues, name) : null;
+    h += '<div class="field"><span id="ob-jsite-l">Jira address</span>' + (f.site ? '' : '<span class="small">The team value team:' + esc(J.SITE_DEFAULT) + '.</span>') +
+      (lk && lk.value != null ? '<span class="small">Now <code>' + esc(lk.value) + '</code>.</span>' : '<span class="small" id="ob-jsite-why">' + esc(name ? 'The team value ' + name + ' isn\'t set, so there\'s no link yet.' : '"site" should be team:<name>.') + '</span> <button type="button" class="linkish" data-act="ob-jsite">Set in Settings</button>') +
+      '</div>' + (f.site ? fieldRow(ctx, def, s, 'site') : '');
+    var pv = J.preview(f, { context: meta.context, detailTypes: meta.detailTypes || {}, teamValues: ctx.data.teamValues });
+    var samples = Object.keys(pv.samples);
+    h += '<details class="ob-jpreview" id="ob-jpreview"' + (st.obJPreview ? ' open' : '') + '><summary data-act="ob-jpreview">Preview</summary>' +
+      (pv.why ? '<p class="small">' + esc(pv.why) + '</p>' :
+        (samples.length ? '<p class="small">With sample details: ' + K.capJoin(samples, function (n) { return '^' + esc(n) + ' = <code>' + esc(pv.samples[n]) + '</code>'; }, ', ', 'ob-jpv') + '</p>' : '') +
+        (pv.jql ? '<p>The filled-in query: <code class="ob-jpv-q">' + esc(pv.jql) + '</code></p>' : '') +
+        '<p class="small ob-jpv-check">' + esc(pv.check) + '</p>' +
+        (pv.link ? '<p class="small">The link: <code class="ob-jpv-link">' + esc(pv.link) + '</code></p>' : '<p class="small ob-jpv-nolink">No link: ' + esc(pv.linkWhy) + '</p>')) + '</details>';
+    return h;
+  }
   /* The parts of the step form: what sits at the top for a typed step, and each group's controls and box IDs. */
   function stepParts(ctx, p, text, o, s, def, meta) {
     var f = s.fields, shown = shownOf(ctx, p, s), names = def ? Object.keys(def.fields || {}) : [], typed = s.type && s.type !== 'confirm';
@@ -622,10 +681,14 @@
     var top = '', rows = [];
     if (typed) {
       rows = apply.filter(show); if (!rows.length) rows = apply.slice(0, 1);
-      top = typeSel + (linked ? linkSection(ctx, p, text, s, meta) : '') + (isPr(s.type) ? choices(ctx, 'ob-host', G.form('pr-host'), PRS, s.type, null, HOSTS) : '') + rows.map(function (n) { return fieldRow(ctx, def, s, n); }).join('');
+      var jira = isJira(s, def), search = jira && s.type === 'jira.search';
+      if (jira) rows = rows.filter(function (n) { return n !== 'action'; });
+      if (search) rows = [];
+      top = typeSel + (linked ? linkSection(ctx, p, text, s, meta) : '') + (isPr(s.type) ? choices(ctx, 'ob-host', G.form('pr-host'), PRS, s.type, null, HOSTS) : '') +
+        (jira ? jiraSwitch(ctx, s, def) : '') + (search ? searchForm(ctx, p, s, def, meta) : '') + rows.map(function (n) { return fieldRow(ctx, def, s, n); }).join('');
     }
     top += unused.map(function (n) { return fieldRow(ctx, def, s, n, flag(n)); }).join('');
-    var waiting = apply.filter(function (n) { return rows.indexOf(n) < 0; });
+    var waiting = apply.filter(function (n) { return rows.indexOf(n) < 0 && !(s.type === 'jira.search' && isJira(s, def) && ownKey(def.fields, n)) && !(s.type === 'jira.issue' && isJira(s, def) && n === 'action'); });
     var guideList = typed ? [] : apply;
     var binds = s.parts.binds, ctxs = meta.context.concat(binds.filter(function (b) { return meta.context.indexOf(b) < 0; }));
     /* The checklist's run details, 20 at a time with Find past 20, the step's own always drawn (2.11, code review round 8); Find
@@ -803,8 +866,26 @@
       personSelect(ctx, 'ob-backup', 'backup', meta.backup, 'No backup') +
       listField(ctx, 'roles', 'Roles', 'Who does what, like lead or reviewer. Steps, lanes and gates choose from these.', meta.roles, '@', 'ob-add-role') +
       listField(ctx, 'context', 'Run details', 'Filled in when a run starts, like ticket or commit. Steps can be tied to them.', meta.context, '^', 'ob-add-ctx', ren) +
+      patternField(ctx) +
       '<p class="small">A role or run detail still in use can\'t be removed: take it out of its steps first.</p>' +
       '<details class="ob-src"><summary>Source details</summary><p class="small">The front matter\'s <code>owner:</code>, <code>backup:</code>, <code>roles:</code> and <code>context:</code> lines. Other lines stay as written.</p></details></section>';
+  }
+  /* Text that matches a pattern (2.16, Appendix A.3): a name, the pattern and a value to try; Add writes name:pattern(...) only
+     when the pattern can be read, so an unescaped ( ) or , is refused before anything is written. */
+  function patternField(ctx) {
+    var st = ctx.state, pv = st.obPat || { name: '', src: '', test: '' }, msg = '';
+    if (pv.src) {
+      var pc = PF.values.compilePattern(pv.src);
+      if (!pc.ok) msg = 'The pattern can\'t be used: ' + pc.why;
+      else if (pv.test) msg = PF.values.matchPattern(pc, pv.test).ok ? '"' + pv.test + '" matches.' : '"' + pv.test + '" doesn\'t match.';
+      else msg = 'The pattern can be read.';
+    }
+    return '<div class="field ob-pat" role="group" aria-labelledby="ob-pat-l"><span id="ob-pat-l">Text that matches a pattern</span><span class="small">A run detail whose value must match, like a release tag. Needs Flightdeck 2.16.</span>' +
+      formBox(ctx, 'ob-pat-name', 'pat-name', 'input', ' maxlength="60" autocomplete="off" value="' + esc(pv.name) + '"', '') +
+      formBox(ctx, 'ob-pat-src', 'pat-src', 'input', ' maxlength="200" autocomplete="off" spellcheck="false" value="' + esc(pv.src) + '"', '') +
+      formBox(ctx, 'ob-pat-test', 'pat-test', 'input', ' maxlength="120" autocomplete="off" value="' + esc(pv.test) + '"', '') +
+      '<p class="small" id="ob-pat-check" role="status">' + esc(msg) + '</p>' +
+      '<div class="row"><button type="button" class="mini" data-act="ob-pat-check">Check</button><button type="button" class="mini" data-act="ob-pat-add">' + I('plus') + 'Add</button></div></div>';
   }
   function questionsForm(ctx, o) {
     if (o.questions < 0) return '';

@@ -215,4 +215,30 @@ rule('the example checklist (section 8): every search publishes, with its rule a
     assert.ok(S.buildLink('https://jira.example.com/jira', { jql: sub.jql }).ok, x.step.id);
   });
 });
+/* Section 7: the editor's help is the same lexer and rule, never a second reading of JQL. */
+rule('7: insertAt puts ^detail only where a value goes; refusedSpans marks each refused place; the preview fills samples, checks positions and builds the link', () => {
+  same(S.insertAt('fixVersion = ', 13, 'version', CTX), { ok: true, text: 'fixVersion = ^version', caret: 21 });
+  same(S.insertAt('key in (', 8, 'readiness', CTX), { ok: true, text: 'key in (^readiness', caret: 18 });
+  same(S.insertAt('key in (PAY-1)', 13, 'readiness', CTX).ok, false, 'joined to a value');
+  for (const [q, at] of [['fixVersion', 10], ['summary ~ ', 10], ['assignee is ', 12], ['issueFunction in linkedIssuesOf(', 32], ['', 0]]) {
+    const r = S.insertAt(q, at, 'version', CTX);
+    assert.strictEqual(r.ok, false, q);
+    assert.strictEqual(r.text.slice(r.s, r.e), '^version', q + ': the place is the inserted ^detail');
+    assert.ok(/can't go there/.test(r.why), q);
+  }
+  same(S.refusedSpans('summary ~ ^version AND fixVersion = ^version AND x = "^version"', CTX).map(x => [x.s, x.e]), [[10, 18], [53, 63]]);
+  same(S.refusedSpans('fixVersion = ^version', CTX), []);
+  const tv = PF.teamValues.parse(JSON.stringify({ format: 'flightdeck-team-values/1', values: { 'jira-base-url': { value: 'https://jira.acme.com' } } }));
+  const types = M.parse('---\nprocess: p\ntitle: P\ncontext: version:pattern(\\d{4}\\.\\d{1,2}), env:choice(dev|prod), n:number\n---\n\n## A {#a}\n- [ ] x {#x}\n').meta.detailTypes;
+  const pv = S.preview({ query: 'fixVersion = ^version AND env in (^env, ^n)' }, { context: ['version', 'env', 'n'], detailTypes: types, teamValues: tv });
+  same(pv.samples, { version: '0000.0', env: 'dev', n: '3' }, 'a pattern\'s sample is the shortest value it matches');
+  assert.strictEqual(pv.jql, 'fixVersion = "0000.0" AND env in ("dev", "3")');
+  assert.strictEqual(pv.check, 'Positional check passed: 3 values, each one quoted string in its own place.');
+  assert.strictEqual(pv.link, 'https://jira.acme.com/issues/?jql=fixVersion%20%3D%20%220000.0%22%20AND%20env%20in%20%28%22dev%22%2C%20%223%22%29');
+  assert.ok(PF.values.matchPattern(PF.values.compilePattern(types.version.pattern), pv.samples.version).ok, 'the sample matches');
+  same(S.preview({ filter: '12345' }, { context: [], teamValues: tv }).link, 'https://jira.acme.com/issues/?filter=12345');
+  assert.strictEqual(S.preview({ query: 'fixVersion = ^version' }, { context: ['version'] }).linkWhy, 'The Jira address team:jira-base-url isn\'t set.');
+  assert.ok(/inside quotes/.test(S.preview({ query: 'x = "^version"' }, { context: ['version'] }).why));
+});
+
 run();

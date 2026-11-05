@@ -114,7 +114,7 @@ rule('Editor: a chip while another box holds typing waits for that typing, which
 
 rule('Editor: a value the step doesn\'t use is kept and flagged: another action\'s field, and a field the type doesn\'t have', async () => {
   const app = await editorOn(md(step('jira.issue', 'j', 'action: create', 'project: PAY'), step('github.pr', 'g', 'action: open', 'repo: payments-api', 'pull: https://github.com/acme/payments-api/pull/88'), step('confirm', 'c', 'job: release/x')), 'j');
-  choose(app, 'ob-fld-action', 'transition'); await app.tick();
+  choose(app, 'ob-jira', 'transition'); await app.tick();
   let h = formOf(app);
   assert.ok(boxes(h).includes('project') && /value="PAY"/.test(tagOf(h, 'ob-fld-project')), 'kept');
   assert.strictEqual(flagOf(h, 'ob-fld-project'), 'Only used when the action is create.');
@@ -129,16 +129,16 @@ rule('Editor: a value the step doesn\'t use is kept and flagged: another action\
 });
 
 rule('Editor: 5 or fewer choices are buttons (Not set first, roving tabindex, case-insensitive, a hand-written value kept); 6 or more stay a select', async () => {
-  const app = await editorOn(md(step('jira.issue', 'j', 'action: Create', 'project: PAY'), step('jira.issue', 'k'), step('jira.issue', 'w', 'action: frobnicate'), step('pick.six', 'p')), 'j');
+  const app = await editorOn(md(step('bitbucket.pr', 'j', 'action: Open', 'repo: web'), step('bitbucket.pr', 'k', 'repo: web'), step('bitbucket.pr', 'w', 'action: frobnicate', 'repo: web'), step('pick.six', 'p')), 'j');
   let row = choiceRow(formOf(app), 'ob-fld-action');
-  assert.deepStrictEqual(row.map(r => r[0]), ['', 'create', 'update', 'transition', 'assign', 'link']);
-  assert.deepStrictEqual(row.map(r => r[3]), ['Not set', 'Create', 'Update', 'Transition', 'Assign', 'Link']);
-  assert.deepStrictEqual(row.filter(r => r[1]).map(r => r[0]), ['create'], 'Create matches create');
-  assert.deepStrictEqual(row.filter(r => r[2]).map(r => r[0]), ['create'], 'Tab enters at the checked button');
+  assert.deepStrictEqual(row.map(r => r[0]), ['', 'open', 'review', 'merge']);
+  assert.deepStrictEqual(row.map(r => r[3]), ['Not set', 'Open', 'Review', 'Merge']);
+  assert.deepStrictEqual(row.filter(r => r[1]).map(r => r[0]), ['open'], 'Open matches open');
+  assert.deepStrictEqual(row.filter(r => r[2]).map(r => r[0]), ['open'], 'Tab enters at the checked button');
   assert.ok(/<div class="seg ob-choices" role="radiogroup" aria-labelledby="q-ob-fld-action" aria-describedby="why-ob-fld-action">/.test(formOf(app)));
-  assert.ok(/<button[^>]*\sid="ob-fld-action" data-act="ob-choice" data-id="ob-fld-action" data-val="create"/.test(formOf(app)), 'the checked button carries the control ID, so focus and refusals land on it');
+  assert.ok(/<button[^>]*\sid="ob-fld-action" data-act="ob-choice" data-id="ob-fld-action" data-val="open"/.test(formOf(app)), 'the checked button carries the control ID, so focus and refusals land on it');
   const before = await textOf(app);
-  choose(app, 'ob-fld-action', 'create'); await app.tick();
+  choose(app, 'ob-fld-action', 'open'); await app.tick();
   assert.strictEqual(await textOf(app), before, 'the checked one does nothing');
   choose(app, 'ob-fld-action', ''); await app.tick();
   assert.ok(!/action:/.test((await textOf(app)).split('{#j}')[1].split('{#k}')[0]), 'Not set clears it');
@@ -151,27 +151,27 @@ rule('Editor: 5 or fewer choices are buttons (Not set first, roving tabindex, ca
 });
 
 rule('Editor: choice keys: arrows move and select (wrapping), focus follows the checked button; a choice waits while a box holds typing', async () => {
-  const app = await editorOn(md(step('jira.issue', 'j', 'action: create')), 'j', { replace: true, domFocus: true });
+  const app = await editorOn(md(step('bitbucket.pr', 'j', 'action: open', 'repo: web')), 'j', { replace: true, domFocus: true });
   /* A key on a drawn choice button, as the browser hands it over: its data-* as dataset. */
   const on = (key, val) => {
     const m = new RegExp('data-act="ob-choice" data-id="ob-fld-action" data-val="' + val + '"[^>]*data-prev="([^"]*)" data-next="([^"]*)"').exec(formOf(app)); assert.ok(m, 'prev/next on ' + val);
     app.keyOn(key, {}, { tagName: 'BUTTON', dataset: { act: 'ob-choice', id: 'ob-fld-action', val, prev: un(m[1]), next: un(m[2]) }, closest: () => null });
   };
-  on('ArrowRight', 'create'); await app.tick();
+  on('ArrowRight', 'open'); await app.tick();
   assert.strictEqual(app.activeId(), 'ob-fld-action', 'focus on the checked button');
-  assert.ok(/data-val="update"[^>]*aria-checked="true"/.test(formOf(app)));
-  assert.ok(/action: update/.test(await textOf(app)));
-  on('ArrowDown', 'update'); await app.tick();
-  assert.ok(/action: transition/.test(await textOf(app)));
-  on('ArrowUp', 'transition'); on('ArrowLeft', 'update'); await app.tick();
-  assert.ok(/action: create/.test(await textOf(app)));
-  on('ArrowLeft', 'create'); await app.tick();
+  assert.ok(/data-val="review"[^>]*aria-checked="true"/.test(formOf(app)));
+  assert.ok(/action: review/.test(await textOf(app)));
+  on('ArrowDown', 'review'); await app.tick();
+  assert.ok(/action: merge/.test(await textOf(app)));
+  on('ArrowUp', 'merge'); on('ArrowLeft', 'review'); await app.tick();
+  assert.ok(/action: open/.test(await textOf(app)));
+  on('ArrowLeft', 'open'); await app.tick();
   assert.ok(!/action:/.test(await textOf(app)), 'Left from the first option reaches Not set');
   on('ArrowLeft', ''); await app.tick();
-  assert.ok(/action: link/.test(await textOf(app)), 'and wraps to the last');
+  assert.ok(/action: merge/.test(await textOf(app)), 'and wraps to the last');
   app.set('ob-text', 'Typed, not applied'); app.input('ob-text', 'Typed, not applied');
-  choose(app, 'ob-fld-action', 'assign'); await app.tick();
-  assert.ok(/Apply or clear what you typed in the box first/.test(app.html()) && /action: link/.test(app.fs.files['maps/drafts/release.md'].t), 'waits');
+  choose(app, 'ob-fld-action', 'review'); await app.tick();
+  assert.ok(/Apply or clear what you typed in the box first/.test(app.html()) && /action: merge/.test(app.fs.files['maps/drafts/release.md'].t), 'waits');
   assert.strictEqual(app.draft('ob-text'), 'Typed, not applied');
 });
 
@@ -188,9 +188,9 @@ rule('Editor: phase mode is buttons with no Not set; choosing applies, Undo take
 });
 
 rule('Editor: a refused choice keeps the checked button, says why beside the group, and the group reads it out', () => {
-  const V = PF.views, text = md(step('jira.issue', 'j', 'action: create'));
+  const V = PF.views, text = md(step('bitbucket.pr', 'j', 'action: open', 'repo: web'));
   const h = V.builderForm({ state: { obSel: { pid: 'release', kind: 'step', key: 'j' }, fieldErr: { id: 'ob', field: 'ob-fld-action', msg: 'No.' } }, data: {}, fsKey: 'f' }, { id: 'release' }, text);
-  assert.ok(/<button[^>]*\sid="ob-fld-action" data-act="ob-choice" data-id="ob-fld-action" data-val="create"[^>]*aria-checked="true"/.test(h), 'still checked, and focus lands on it');
+  assert.ok(/<button[^>]*\sid="ob-fld-action" data-act="ob-choice" data-id="ob-fld-action" data-val="open"[^>]*aria-checked="true"/.test(h), 'still checked, and focus lands on it');
   const group = (/<div class="seg ob-choices" role="radiogroup" aria-labelledby="q-ob-fld-action"[^>]*>/.exec(h) || [''])[0];
   assert.ok(/aria-describedby="ferr-ob-fld-action why-ob-fld-action"/.test(group) && /aria-invalid="true"/.test(group), group);
   assert.ok(/id="ferr-ob-fld-action" role="alert">No\./.test(h), 'announced');

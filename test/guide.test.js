@@ -42,6 +42,7 @@ const BOX = {
   'ob-new-mode': ['form', 'ph-mode'], 'ob-ph-note': ['form', 'ph-note'], 'ob-g-title': ['form', 'g-title'], 'ob-g-owner': ['form', 'g-owner'], 'ob-g-approves': ['form', 'g-approves'],
   'ob-tr-title': ['form', 'tr-title'], 'ob-tr-role': ['form', 'tr-role'], 'ob-owner': ['form', 'owner'], 'ob-backup': ['form', 'backup'], 'ob-add-role': ['form', 'role'], 'ob-new-role': ['form', 'role'],
   'ob-add-ctx': ['form', 'context'], 'ob-q-text': ['form', 'questions'], 'ob-fld-': ['field', null], 'ob-host': ['form', 'pr-host'],
+  'ob-jira': ['form', 'jira-action'], 'ob-jfind': ['form', 'jira-find'], 'ob-jres': ['form', 'jira-results'], 'ob-jres-n': ['form', 'jira-results-n'], 'ob-pat-name': ['form', 'pat-name'], 'ob-pat-src': ['form', 'pat-src'], 'ob-pat-test': ['form', 'pat-test'],
   'ob-link-proc': ['form', 'link-proc'], 'ob-link-proc-other': ['form', 'link-proc-other'], 'ob-link-vn': ['form', 'link-vn'], 'ob-link-src-': ['form', 'link-src'], 'ob-link-val-': ['form', 'link-val']
 };
 /* Not entry boxes: finding a part, choosing a type, Must be done and Automation planned (checkboxes with their own
