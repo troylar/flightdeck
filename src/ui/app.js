@@ -3537,7 +3537,7 @@
     if (e) return e;
     var st = null, raw = null, lost = false;
     try { raw = sessionStorage.getItem(prStoreKey(pid)); } catch (err) { raw = null; }
-    if (raw) { try { st = PR.check(JSON.parse(raw), pid); } catch (err) { st = null; } lost = !st; }
+    if (raw) { try { st = PR.check(JSON.parse(raw), pid, prDraftMap(pid)); } catch (err) { st = null; } lost = !st; }
     prLoadTyped(pid);
     return (prs[k] = { pid: pid, st: st || PR.fresh(pid), undo: [], redo: [], renames: {}, moved: {}, cache: null, good: null, mem: false, sampleErr: {}, typed: {}, gateErr: null, refusal: null, saveErr: null, trip: null,
       note: lost ? 'The practice kept in this tab couldn\'t be read, so it starts fresh. The draft isn\'t affected.' : '' });
@@ -3620,9 +3620,9 @@
       goneIds.slice(0, 5).forEach(function (id) { gone.push({ id: id, text: kept[id] ? kept[id].text : '', kept: kept[id] || null }); });
     }
     var details = map ? (map.meta.context || []).map(function (n) {
-      var dd = PF.run.detailValueDef(map, n), hint = dd && dd.options && dd.options.length ? 'one of ' + dd.options.join(', ') : dd && dd.kind && dd.kind !== 'text' ? dd.kind : '';
+      var dd = PF.run.detailValueDef(map, n), hint = dd && dd.options && dd.options.length ? 'one of ' + dd.options.join(', ') : dd && dd.kind === 'pattern' ? 'matches ' + String(dd.pattern).slice(0, 80) : dd && dd.kind && dd.kind !== 'text' ? dd.kind : '';
       var by = model && model.setBy[n] ? M.findStep(map, model.setBy[n]) : null;
-      return { name: n, value: e.st.sample[n] || '', hint: hint, setBy: by ? M.shownText(by.step, function (n) { return e.st.sample[n] || ''; }) : '' };
+      return { name: n, kind: dd ? dd.kind : 'text', value: e.st.sample[n] || '', hint: hint, setBy: by ? M.shownText(by.step, function (n) { return e.st.sample[n] || ''; }) : '' };
     }) : [];
     var saving = (state.draftSaving || {})[edKey(p.id)];
     var P = { key: key, pid: p.id, title: p.title, model: model, steps: steps, gates: gates, kept: kept, gone: gone, from: model ? model.from : null, details: details,
@@ -3708,7 +3708,7 @@
     if (!e) {
       var raw = null; try { raw = sessionStorage.getItem(prStoreKey(pid)); } catch (err) { raw = null; }
       if (!raw) return null;
-      if (memo.raw !== raw) { var c = null; try { c = PR.check(JSON.parse(raw), pid); } catch (err) { c = null; } memo.raw = raw; memo.st = c; }
+      if (memo.raw !== raw) { var c = null; try { c = PR.check(JSON.parse(raw), pid, prDraftMap(pid)); } catch (err) { c = null; } memo.raw = raw; memo.st = c; }
       st = memo.st; if (!st) return null;
     }
     var text = prText(p);
@@ -3721,6 +3721,8 @@
   function prTouch(e) { e.act = (e.act || 0) + 1; }
   /* The team's step types and Jira workflows, as practice reads them (a run copies the same when it starts). */
   function prEnv() { return PR.env((data.stepTypes || {}).types || {}, data.jira && data.jira.workflows); }
+  /* The draft practice measures by (2.16, A.5): its own map's features decide code points or UTF-16. */
+  function prDraftMap(pid) { var p = procFind(pid); if (!p) return null; try { return M.parse(prText(p)); } catch (err) { return null; } }
   function prText(p) { var ed = editorOf(p.id); return ed ? (ed.text != null ? ed.text : ed.base) : p.draft ? p.draft.md : p.latest ? p.latest.md : ''; }
   function prNow() { var p = currentProcess(); return p && state.view === 'practice' ? p : null; }
   function prStepOf(id) { var m = prModel(); return m && m.P.steps[id] || null; }
@@ -8546,7 +8548,8 @@
     if (!p || !p.latest || !state.me || !planning || planning.process !== p.id) return;
     var pub = p.latest, details = {}, roles = {};
     if (e.target.dataset.folder !== pub.info.folder) { say('A new version was published while you were filling this in. Check the form, then save again.', 'warn'); render(); return; }
-    e.target.querySelectorAll('[data-detail]').forEach(function (el) { var v = String(inputValue(el) || '').trim(); if (v) details[el.dataset.detail] = v.slice(0, 120); });
+    var planMap = R.mapOf(pub.info && pub.md ? { folder: pub.info.folder, mapHash: pub.info.mapHash, snapshot: pub.md } : { snapshot: '' }), planUnit = PF.values.unitOf(M.features(planMap));
+    e.target.querySelectorAll('[data-detail]').forEach(function (el) { var v = String(inputValue(el) || '').trim(); if (v) details[el.dataset.detail] = PF.values.cut(null, v, PF.values.DETAIL_MAX, planUnit).value; });
     e.target.querySelectorAll('[data-role]').forEach(function (el) { if (el.value) roles[el.dataset.role] = el.value; });
     if (val('start-mode') === 'solo') pub.map.meta.roles.forEach(function (ro) { roles[ro] = state.me; });
     if (approverMissing(pub, roles)) return;

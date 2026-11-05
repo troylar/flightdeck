@@ -425,7 +425,7 @@
     /* Before 2.8 (no pass: line) nothing is asked: a name with no source starts empty ("Not passed"). Choosing Asked writes
        name=?, which gives the step a pass: line. */
     var asks = function (n) { return PF.links.has(st) || (!PF.links.carryList(st).length && meta.context.indexOf(n) >= 0); };
-    var kinds = meta.detailTypes || {}, kindOf = function (n) { return ownKey(kinds, n) && kinds[n] ? ' (' + (kinds[n].kind || 'text') + ')' : ''; };
+    var kinds = meta.detailTypes || {}, kindOf = function (n) { return ownKey(kinds, n) && kinds[n] ? ' (' + (kinds[n].kind || 'text') + (kinds[n].kind === 'pattern' ? ' ' + String(kinds[n].pattern).slice(0, 60) : '') + ')' : ''; };
     /* Where a detail comes from: this run's details, then the team values, 50 at a time with Find past 50 (K.select, 2.11);
        a fixed value, asked and not passed stay last. */
     var srcItems = meta.context.map(function (n) { return { v: '^' + n, t: 'This run\'s ^' + n + kindOf(n) }; }).concat(teamItems(ctx));

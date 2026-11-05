@@ -77,7 +77,7 @@ PF.appjson = (function () {
   var SCHEMA2 = {
     envelope: SCHEMA.envelope, error: SCHEMA.error, processes: SCHEMA.processes, next: SCHEMA.next, followups: { followUps: [FOLLOWUP2] }, request: SCHEMA.request,
     /* stage: the staged version shown (process --stage), else null. */
-    process: extend(SCHEMA.process, { format: 'string', features: ['string'], stage: opt({ folder: 'string', proposed: 'number', stagedBy: 'string', stagedAt: 'string' }), details: [{ name: 'string', type: 'string', options: ['string'] }],
+    process: extend(SCHEMA.process, { format: 'string', features: ['string'], stage: opt({ folder: 'string', proposed: 'number', stagedBy: 'string', stagedAt: 'string' }), details: [{ name: 'string', type: 'string', options: ['string'], pattern: opt('string') }],
       phases: [extend(SCHEMA.process.phases[0], { when: ['string'], steps: [extend(SCHEMA.process.phases[0].steps[0], { when: ['string'], evidence: [extend(EVIDENCE2, { min: opt('string'), max: opt('string'), unit: opt('string') })] })] })] }),
     /* testRunsLeftOut: test runs that match but aren't listed (D3: left out unless asked for with --tests). */
     runs: { runs: [SUMMARY2], planned: [extend(SCHEMA.runs.planned[0], { format: 'string', pin: opt({ folder: 'string', version: 'number' }) })], testRunsLeftOut: 'number' },
@@ -333,7 +333,7 @@ PF.appjson = (function () {
   }
 
   /* ---- contract 2 ---- */
-  var V = PF.values, KIND_TYPE = { url: 'link', link: 'link' };
+  var V = PF.values, KIND_TYPE = { url: 'link', link: 'link', pattern: 'text' };
   function typeOf(def) { var k = def ? V.kindOf(def) : 'text'; return KIND_TYPE[k] || k; }
   function migration(m, nameOf) {
     return { path: s(m.path), at: s(m.at), from: s(m.from), source: s(m.source), verdict: s(m.verdict), result: m.result == null ? null : s(m.result),
@@ -362,7 +362,7 @@ PF.appjson = (function () {
     out.details = [];
     if (!pub.ok) return out;
     var mp = pub.map, types = pub.types || {}, dt = mp.meta.detailTypes || {};
-    out.details = mp.meta.context.map(function (n) { var d = Object.prototype.hasOwnProperty.call(dt, n) ? dt[n] : null; return { name: s(n), type: d ? typeOf(d) : 'text', options: d && d.options ? d.options.map(s) : [] }; });
+    out.details = mp.meta.context.map(function (n) { var d = Object.prototype.hasOwnProperty.call(dt, n) ? dt[n] : null; return { name: s(n), type: d ? typeOf(d) : 'text', options: d && d.options ? d.options.map(s) : [], pattern: d && d.kind === 'pattern' ? s(d.pattern) : null }; });
     out.phases.forEach(function (ph, pi) {
       var when = function (o) { return (o.when || []).map(function (w) { return s(w.text); }); };
       ph.when = when(mp.phases[pi]);

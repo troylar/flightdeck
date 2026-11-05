@@ -477,7 +477,9 @@ PF.outline = (function () {
     if (o.front) for (var i = o.front.start + 1; i < o.front.end - 1; i++) if (/^context:/.test(bare(lines[i]))) ctx = i;
     if (ctx < 0) return { error: ERR.gone };
     var cm = /^(context:\s*)(.*?)(\s*)$/.exec(bare(lines[ctx]));
-    lines[ctx] = cm[1] + cm[2].split(',').map(function (e) { var lead = /^\s*/.exec(e)[0], body = e.slice(lead.length), at = body.search(/[:\s]|$/); return body.slice(0, at) === from ? lead + to + body.slice(at) : e; }).join(',') + cm[3] + crOf(o, ctx);
+    /* A line with a pattern is split by the one context splitter (its commas aren't separators); any other keeps its spacing. */
+    var swapE = function (e) { var lead = /^\s*/.exec(e)[0], body = e.slice(lead.length), at = body.search(/[:\s]|$/); return body.slice(0, at) === from ? lead + to + body.slice(at) : e; };
+    lines[ctx] = cm[1] + (cm[2].indexOf('pattern(') >= 0 ? M.contextEntries(cm[2]).map(swapE).join(', ') : cm[2].split(',').map(swapE).join(',')) + cm[3] + crOf(o, ctx);
     /* "only when" in any capitals; the name exactly (^tag and ^TAG are two details). */
     var whenLine = function (i) { var wm = /^(\s{2,}only when\s+\^)([\w-]+)/i.exec(lines[i]); if (wm && wm[2] === from) put(i, wm[1] + to + lines[i].slice(wm[0].length)); };
     o.phases.forEach(function (ph) {
@@ -1067,7 +1069,7 @@ PF.outline = (function () {
       var names = next;
       /* Run details keep each entry as written (rows:number keeps its kind); only the added or removed name changes. */
       if (key === 'context' && hits.length) {
-        var raw = /^[\w-]+:\s*(.*)$/.exec(bare(lines[hits[hits.length - 1]]))[1].split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+        var raw = M.contextEntries(/^[\w-]+:\s*(.*)$/.exec(bare(lines[hits[hits.length - 1]]))[1]);
         next = adding ? raw.concat([name]) : raw.filter(function (e) { var at = e.indexOf(':'); return (at < 0 ? e : e.slice(0, at).trim()) !== name; });
       }
       str = next.join(', ');
