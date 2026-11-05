@@ -3549,8 +3549,6 @@
   state.practicing = {};
   state.pubNotes = {};
   var prs = {};
-  /* Practices cleared in this tab (publishing or staging exactly their text): an old Practice entry never starts one again. */
-  var prGone = Object.create(null);
   function prStoreKey(pid) { return LS + ':practice:' + fsKey() + ':' + pid; }
   function prEntry(pid) {
     var k = edKey(pid), e = prs[k];
@@ -3713,7 +3711,7 @@
   function prEnded(pid, text, guard) {
     var k = edKey(pid), e = prs[k];
     if (!e || !e.good || e.good.text !== text || (guard && !guard())) return false;
-    delete prs[k]; delete state.practicing[k]; prGone[k] = true;
+    delete prs[k]; delete state.practicing[k];
     Object.keys(state.stepDrafts).forEach(function (dk) { if (dk.indexOf(draftKey(prKey(pid), '')) === 0) delete state.stepDrafts[dk]; });
     try { sessionStorage.removeItem(prStoreKey(pid)); sessionStorage.removeItem(prStoreKey(pid) + ':typed'); } catch (err) { /* this tab only */ }
     return true;
@@ -3760,6 +3758,11 @@
       out[id] = { record: d.record, fields: d.fields, open: !!d.open || !!openNow, text: typeof d.text === 'string' ? d.text : '' };
     });
     try { var t = JSON.stringify(out); if (t.length > 200000) return; sessionStorage.setItem(prStoreKey(pid) + ':typed', t); } catch (err) { /* this tab only */ }
+  }
+  /* Whether this tab keeps a practice of the checklist in this folder: its state or its typing (what a reload brings back). */
+  function prKept(pid) {
+    if (prCount(pid) != null) return true;
+    try { return !!sessionStorage.getItem(prStoreKey(pid) + ':typed'); } catch (err) { return false; }
   }
   function prLoadTyped(pid) {
     var raw = null; try { raw = sessionStorage.getItem(prStoreKey(pid) + ':typed'); } catch (err) { raw = null; }
@@ -3862,7 +3865,6 @@
   /* Into the practice page for the open draft, from the editor or a link: the editor's typing is applied first (refused with
      the usual hint); the run that was open is put away (its typing kept, as leaving it does), never restored from here. */
   function prEnter(p, how, notEd) {
-    delete prGone[edKey(p.id)];
     var pend = prPending(p.id) || (state.obPending === p.id ? 'Apply or clear what you typed in the box first, then practice it.' : '');
     if (pend && state.view === 'process') { say(pend, 'warn'); state.focus = '[data-act="pr-open"]'; render(); return false; }
     var e = prEntry(p.id), was = !notEd && state.view === 'process' && state.ptab === 'edit' && state.processId === p.id;
@@ -5983,7 +5985,7 @@
     if (navLayer()) { restoreUrl(); return; }
     var dirty = pendingBox();
     if (dirty) { refuseFor(dirty); restoreUrl(); return; }
-    var res = moveTo(loc);
+    var res = moveTo(loc, true);
     if (res === 'stay') { restoreUrl(); render(); return; }
     if (msg) say(msg, 'warn');
     if (res === 'async') {
@@ -6021,7 +6023,7 @@
   }
   /* The move: the smallest step a click would take, through the click's own functions. Returns 'moved', 'focus' (moved,
      focus already chosen), 'stay' (the screen is as it was; the URL is put back) or 'async' (a step type's read). */
-  function moveTo(loc) {
+  function moveTo(loc, fromHist) {
     var F = state.typeForm, onForm = !!F && state.view === 'types';
     if (onForm) flushAdds(F);
     if (loc.view === 'types') return moveToTypes(loc, F, onForm);
@@ -6030,13 +6032,13 @@
       var cp = currentProcess(); state.obPlace = null; state.obAsk = null;
       unsaved = !!cp && editorDirty(cp);
     }
-    var res = moveToScreen(loc);
+    var res = moveToScreen(loc, fromHist);
     if (unsaved && !state.msg) say('Your changes aren\'t saved yet. They stay in the editor until you save or discard them.', 'warn');
     /* As a top-bar click: a step-type form with changes stays for when you come back; an untouched one closes. */
     if (onForm && F && typeForms[F.fsKey] === F && !typeFormChanged(F) && state.view !== 'types') state.typeForm = null;
     return res;
   }
-  function moveToScreen(loc) {
+  function moveToScreen(loc, fromHist) {
     var v = loc.view;
     if (v === 'home') { home(); return 'moved'; }
     if (['runs', 'followups', 'processes', 'skills', 'settings'].indexOf(v) >= 0) { ACTIONS.nav(v); return 'moved'; }
@@ -6048,7 +6050,7 @@
       home(); navWarn('Getting started was closed. Continue it from Home.'); return 'moved';
     }
     if (v === 'process') return moveToProcess(loc);
-    if (v === 'practice') return moveToPractice(loc);
+    if (v === 'practice') return moveToPractice(loc, fromHist);
     if (v === 'plan') return moveToPlan(loc);
     if (v === 'run') return moveToRun(loc);
     if (v === 'skill') {
@@ -6100,13 +6102,14 @@
     }
     ACTIONS['view-version'](null); return 'moved';
   }
-  /* A practice link: the draft opens in the editor as Edit does (with its checks), then the practice kept in this tab. */
-  function moveToPractice(loc) {
+  /* A Practice control: the draft opens in the editor as Edit does (with its checks), then its practice. From history (Back,
+     Forward, a reload or a link opened) a practice is only resumed: with none kept in this tab for this checklist and folder,
+     Edit stays, and the entry is given Edit's URL (arrive). Only a control starts one. */
+  function moveToPractice(loc, fromHist) {
     if (state.view === 'practice' && state.processId === loc.process) return 'moved';
     var res = moveToProcess({ view: 'process', process: loc.process, tab: 'edit' });
     var p = currentProcess();
-    /* A practice cleared in this tab isn't revived from history: Edit is where clearing it left you. */
-    if (p && p.id === loc.process && prGone[edKey(p.id)] && prCount(p.id) == null) return res;
+    if (fromHist && p && p.id === loc.process && !prKept(p.id)) return res;
     /* Arriving from outside the editor (the checklist page, a link): the editor's last-touched part isn't the place to return to. */
     if (p && p.id === loc.process && state.view === 'process' && state.ptab === 'edit') { prEnter(p, null, true); return 'focus'; }
     return res;
