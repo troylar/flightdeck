@@ -266,7 +266,7 @@ PF.skills = (function () {
     var meta = map && map.meta || {}, dt = meta.detailTypes || {};
     return (meta.context || []).map(function (n) {
       var d = Object.prototype.hasOwnProperty.call(dt, n) ? dt[n] : null;
-      return !d ? n : n + ':' + (d.kind === 'choice' ? 'choice(' + (d.options || []).join('|') + ')' : d.kind);
+      return !d ? n : n + ':' + (d.kind === 'choice' ? 'choice(' + (d.options || []).join('|') + ')' : d.kind === 'pattern' ? 'pattern(' + d.pattern + ')' : d.kind);
     });
   }
   function changes(from, to, ids) {

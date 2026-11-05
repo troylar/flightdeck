@@ -98,7 +98,7 @@ PF.run = (function () {
   /* ---------- Typed values (2.0, typed-details and typed-evidence) ---------- */
   var V = PF.values;
   var MIG_SOURCES = { plan: 1, 'switch': 1, carry: 1, request: 1, report: 1 }, MIG_VERDICTS = { converted: 1, ambiguous: 1, invalid: 1 }, MIG_MAX = 200, MIG_TEXT = 300;
-  var KIND_WORD = { number: 'a number', 'yes-no': 'a yes or no', date: 'a date', choice: 'a choice', url: 'a link' };
+  var KIND_WORD = { number: 'a number', 'yes-no': 'a yes or no', date: 'a date', choice: 'a choice', url: 'a link', pattern: 'a value that matches its pattern' };
   var SOURCE_WORD = { plan: 'in the plan', 'switch': 'in the plan', carry: 'in the parent run', request: 'in the request', report: 'in the report' };
   function own(o, k) { return !!o && typeof o === 'object' && Object.prototype.hasOwnProperty.call(o, k); }
   function badValue(msg, field) { var e = new Error(msg); e.field = field; return e; }
@@ -106,7 +106,7 @@ PF.run = (function () {
      isn't one, so it waits for a person like any other that didn't convert. */
   function migrateDetail(def, src) {
     var m = V.migrate(def, src);
-    return (m.verdict === 'exact' || m.verdict === 'converted') && !V.parse(def, m.result, { max: 120 }).ok ? { verdict: 'invalid', result: null } : m;
+    return (m.verdict === 'exact' || m.verdict === 'converted') && !V.parse(def, m.result, { max: V.DETAIL_MAX }).ok ? { verdict: 'invalid', result: null } : m;
   }
   function startDetails(map, details, o) {
     var from = o.from && typeof o.from === 'object' && typeof o.from.source === 'string' && own(MIG_SOURCES, o.from.source) && o.from.source !== 'report' ? o.from : null, out = [];
@@ -122,7 +122,7 @@ PF.run = (function () {
       if (untouched) {
         details[f] = open ? '' : m.result;
       } else {
-        var p = V.parse(def, mine, { max: 120 });
+        var p = V.parse(def, mine, { max: V.DETAIL_MAX });
         if (!p.ok) throw badValue(p.why, f);
         details[f] = p.canonical;
       }
@@ -262,8 +262,8 @@ PF.run = (function () {
     }
     String(f.sets || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean).forEach(function (d) {
       /* A typed run detail (2.0) is asked for with its kind, so the step stores it canonical. */
-      var dt = detailDef(map || mapOf(r), d), e = { name: detailKey(d), label: d, kind: 'text', required: true, cap: 120, hint: 'A run detail: later steps use it as ^' + d + '.', source: 'detail:' + d, detail: d };
-      if (dt) { e.kind = dt.kind === 'link' ? 'url' : dt.kind; e.detailKind = dt.kind; if (dt.options) e.options = dt.options.slice(); }
+      var dt = detailDef(map || mapOf(r), d), e = { name: detailKey(d), label: d, kind: 'text', required: true, cap: V.DETAIL_MAX, hint: 'A run detail: later steps use it as ^' + d + '.', source: 'detail:' + d, detail: d };
+      if (dt) { e.kind = dt.kind === 'link' ? 'url' : dt.kind; e.detailKind = dt.kind; if (dt.options) e.options = dt.options.slice(); if (dt.kind === 'pattern') e.pattern = dt.pattern; }
       extra.push(e);
     });
     return { type: t, fields: f, extra: extra, list: PF.types.recordFields(t, f, extra) };
@@ -271,7 +271,14 @@ PF.run = (function () {
   /* A run detail's kind (2.0, typed-details): { kind, options? } from the run's own checklist, or null for text. */
   function detailDef(map, name) { var t = map && map.meta && map.meta.detailTypes; return t && Object.prototype.hasOwnProperty.call(t, name) ? t[name] : null; }
   /* The same as a value definition PF.values reads ({ kind, label, options }), or null. */
-  function detailValueDef(map, name) { var d = detailDef(map, name); return d ? { kind: d.kind, label: name, options: d.options } : null; }
+  function detailValueDef(map, name) { var d = detailDef(map, name); if (!d) return null; var v = { kind: d.kind, label: name, options: d.options }; if (d.kind === 'pattern') v.pattern = d.pattern; return v; }
+  /* How a run's details and gate approvals are measured (2.16, Appendix A.5): by the features of the published version it was
+     started from (its snapshot), never its own features list. 'cp' with detail-patterns, 'utf16' (exactly as before) otherwise. */
+  function detailUnit(o) {
+    if (!o || o.format !== FORMAT3 || typeof o.snapshot !== 'string' || o.snapshot.indexOf('pattern(') < 0) return 'utf16';
+    var map = mapOf({ folder: o.folder, mapHash: o.mapHash, snapshot: o.snapshot });
+    return V.unitOf(M.features(map));
+  }
   /* The evidence key a step stores a run detail it sets under: short and safe as a run-file key. */
   function detailKey(d) { return 'rd-' + U.slug(String(d), 20) + '-' + U.hash(String(d)); }
   /* After a step that sets run details is checked or corrected, its values become the run's details, re-checking later
@@ -781,8 +788,8 @@ PF.run = (function () {
   function setDetail(r, map, field, value, who, now, except) {
     notPaused(r);
     if (map.meta.context.indexOf(field) < 0) throw new Error('Unknown run detail.');
-    var old = String(r.details[field] || '').trim(), v = String(value || '').trim().slice(0, 120), def = r.format === FORMAT3 ? detailValueDef(map, field) : null;
-    if (def) { var p = V.parse(def, value == null ? '' : value, { max: 120 }); if (!p.ok) throw badValue(p.why, field); v = p.canonical; old = String(r.details[field] || ''); }
+    var old = String(r.details[field] || '').trim(), v = V.cut(null, String(value || '').trim(), V.DETAIL_MAX, detailUnit(r)).value, def = r.format === FORMAT3 ? detailValueDef(map, field) : null;
+    if (def) { var p = V.parse(def, value == null ? '' : value, { max: V.DETAIL_MAX }); if (!p.ok) throw badValue(p.why, field); v = p.canonical; old = String(r.details[field] || ''); }
     /* Conditions (2.1) that test this detail: what applies before the change (a held step included), for the log line. */
     var tested = M.steps(map).filter(function (x) { return condUses(x.phase, x.step, field); }), before = tested.map(function (x) { return applies(r, map, x.phaseIndex, x.step).applies; });
     /* Filling in a value that didn't migrate resolves its record, once; later changes change the value only. */
@@ -1470,15 +1477,15 @@ PF.run = (function () {
     function each(list, kind, where) { if (Array.isArray(list)) list.forEach(function (v) { look(v, kind, where); }); }
     /* run/3: null isn't text either (sanitize would save it as empty, rewriting what the file holds). */
     /* run/3: nor is text longer than this copy keeps (sanitize would cut it, and a typed value cut short can still look valid). */
-    function text(v, where, max) {
+    function text(v, where, max, unit) {
       if (why || !obj(v)) return;
       var k = Object.keys(v).filter(function (f) { return (three ? v[f] !== undefined : v[f] != null) && typeof v[f] !== 'string'; })[0];
       if (k != null) { why = where + ' "' + k.slice(0, 40) + '" isn\'t text.'; return; }
-      var l = three && max ? Object.keys(v).filter(function (f) { return typeof v[f] === 'string' && v[f].length > max; })[0] : null;
-      if (l != null) why = where + ' "' + l.slice(0, 40) + '" is longer than ' + max + ' characters.';
+      var l = three && max ? Object.keys(v).filter(function (f) { return typeof v[f] === 'string' && V.len(v[f], unit || 'utf16') > max; })[0] : null;
+      if (l != null) why = where + ' "' + l.slice(0, 40) + '" is longer than ' + max + (unit === 'cp' ? ' code points.' : ' characters.');
     }
     function state(ok, v, where) { if (!why && v != null && !Object.prototype.hasOwnProperty.call(ok, v)) why = where + ' is "' + String(v).slice(0, 40) + '".'; }
-    var three = o.format === FORMAT3;
+    var three = o.format === FORMAT3, unit = three ? detailUnit(o) : 'utf16';
     look(o, three ? 'run3' : 'run', 'The run');
     state(RUN_STATES, o.state, 'Its state');
     look(o.recorder, 'recorder', 'Its recorder'); look(o.recorder && o.recorder.handoff, 'handoff', 'Its hand-off');
@@ -1496,7 +1503,7 @@ PF.run = (function () {
     }
     if (three && obj(o.pins)) look(o.pins, 'pins', 'Its pins'); if (obj(o.parent)) text(o.parent.inputs, 'Its parent run\'s details', 300);
     /* Maps of text (details, roles, answers, approvals): anything else in them is dropped on load. */
-    text(o.details, 'A run detail', 120); text(o.roles, 'A role', 80);
+    text(o.details, 'A run detail', V.DETAIL_MAX, unit); text(o.roles, 'A role', 80);
     if (obj(o.fields)) Object.keys(o.fields).forEach(function (k) { text(o.fields[k], 'A filled-in value on step "' + k.slice(0, 60) + '"', 300); });
     if (Array.isArray(o.lineage) && o.lineage.some(function (t) { return typeof t !== 'string'; })) why = why || 'A save receipt in it isn\'t a name.';
     /* The run's copy of the Jira workflows, as PF.jira.check writes it (an issue type, its transitions, their required fields). */
@@ -1521,7 +1528,7 @@ PF.run = (function () {
     if (obj(o.gates)) Object.keys(o.gates).forEach(function (k) {
       var g = o.gates[k], w = 'Gate "' + k.slice(0, 60) + '"';
       if (!obj(g)) return;
-      look(g, 'gate', w); state(GATE_STATES, g.s, w + '\'s state'); state(GATE_STATES, g.was, w + '\'s earlier state'); text(g.approved, w + '\'s approval of', 120);
+      look(g, 'gate', w); state(GATE_STATES, g.s, w + '\'s state'); state(GATE_STATES, g.was, w + '\'s earlier state'); text(g.approved, w + '\'s approval of', V.DETAIL_MAX, unit);
     });
     return why ? NEWER + ' ' + why : '';
   }
@@ -1624,6 +1631,13 @@ PF.run = (function () {
   function repairs(o) {
     var out = [];
     if (!valid(o)) return out;
+    var unit = detailUnit(o);
+    /* Details and gate approvals: the reader's own cut decides, so the report and what's read can't disagree. */
+    function cutMap(v, at) {
+      if (v == null) return;
+      if (!obj(v)) { add(at, 'dropped: not a list of names and values'); return; }
+      Object.keys(v).forEach(function (k) { if (typeof v[k] !== 'string') add(at + '.' + k, 'dropped: not text'); else if (V.cut(null, v[k], V.DETAIL_MAX, unit).cut) add(at + '.' + k, 'cut to ' + V.DETAIL_MAX + (unit === 'cp' ? ' code points' : ' characters')); });
+    }
     function add(at, what) { out.push({ at: at, what: what }); }
     function obj(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
     function text(v, max, at) { if (v == null) return; if (typeof v !== 'string') add(at, 'dropped: not text'); else if (v.length > max) add(at, 'cut to ' + max + ' characters'); }
@@ -1645,7 +1659,7 @@ PF.run = (function () {
     [['process', 60], ['folder', 60], ['mapHash', 16], ['title', 100], ['category', 60], ['createdBy', 80], ['tz', 60], ['savedBy', 40]].forEach(function (f) { text(o[f[0]], f[1], f[0]); });
     count(o.version, 'version'); count(o.rev, 'rev'); time(o.savedAt, 'savedAt');
     if (o.types != null && (typeof o.types !== 'object' || Array.isArray(o.types))) add('types', 'dropped: not step types');
-    textMap(o.details, 120, 'details'); textMap(o.roles, 80, 'roles');
+    cutMap(o.details, 'details'); textMap(o.roles, 80, 'roles');
     var rec = o.recorder;
     if (!obj(rec)) add('recorder', 'replaced: not a recorder');
     else {
@@ -1726,7 +1740,7 @@ PF.run = (function () {
       if (!obj(g) || !GATE_STATES[g.s]) { add(at, 'dropped: no state this copy knows'); return; }
       text(g.by, 80, at + '.by'); time(g.at, at + '.at'); text(g.reason, 200, at + '.reason');
       if (g.was != null && !GATE_STATES[g.was]) add(at + '.was', 'dropped: not a state this copy knows');
-      textMap(g.approved, 120, at + '.approved');
+      cutMap(g.approved, at + '.approved');
     });
     var logs = list(o.log, 'log', LOG_MAX), from = Math.max(0, logs.length - LOG_MAX);
     logs.slice(from).forEach(function (l, i) {
@@ -1763,7 +1777,7 @@ PF.run = (function () {
     if (!valid(o)) return newerFormat(o);
     /* A run/2 with a must-understand feature this copy doesn't know is listed by name only, never read for meaning. */
     if (o.features != null || o.format === FORMAT3) { var env = PF.envelope.judge('preflight-run', o); if (!env.ok) return env.kind === 'newer' ? nameOnly(o, env.needs || '') : null; }
-    var three = o.format === FORMAT3;
+    var three = o.format === FORMAT3, unit = detailUnit(o);
     if (three && unknown3(o)) return nameOnly(o, needs3(o));
     var r = {
       format: FORMAT, id: o.id, process: str(o.process, 60), version: Math.max(0, parseInt(o.version, 10) || 0), folder: str(o.folder, 60), mapHash: str(o.mapHash, 16),
@@ -1789,7 +1803,7 @@ PF.run = (function () {
     });
     /* Step IDs are what a map accepts (letters, numbers and dashes, up to 60), so every correction survives a reload. */
     Object.keys(o.fields || {}).forEach(function (k) { if (/^[a-z0-9][a-z0-9-]{0,59}$/i.test(k)) { var v = values(o.fields[k]); if (Object.keys(v).length) r.fields[k] = v; } });
-    Object.keys(o.details || {}).forEach(function (k) { r.details[k] = str(o.details[k], 120); });
+    Object.keys(o.details || {}).forEach(function (k) { r.details[k] = typeof o.details[k] === 'string' ? V.cut(null, o.details[k], V.DETAIL_MAX, unit).value : ''; });
     Object.keys(o.roles || {}).forEach(function (k) { r.roles[k] = str(o.roles[k], 80); });
     Object.keys(o.steps).forEach(function (k) {
       var a = o.steps[k];
@@ -1808,7 +1822,7 @@ PF.run = (function () {
       var g = o.gates[k];
       if (!g || !GATE_STATES[g.s] || k === '__proto__') return;
       var c = { s: g.s, by: str(g.by, 80), at: isoOrNull(g.at), reason: str(g.reason, 200) || undefined, was: GATE_STATES[g.was] ? g.was : undefined, approved: {} };
-      Object.keys(g.approved || {}).forEach(function (f) { c.approved[f] = str(g.approved[f], 120); });
+      Object.keys(g.approved || {}).forEach(function (f) { c.approved[f] = typeof g.approved[f] === 'string' ? V.cut(null, g.approved[f], V.DETAIL_MAX, unit).value : ''; });
       r.gates[k] = c;
     });
     (Array.isArray(o.log) ? o.log.slice(-LOG_MAX) : []).forEach(function (l) { if (l && isoOrNull(l.at)) r.log.push({ at: l.at, by: str(l.by, 80), what: str(l.what, 300) }); });
@@ -1818,6 +1832,8 @@ PF.run = (function () {
        shown but never recorded or saved here: sanitizing just dropped what this copy doesn't know, so saving would erase it.
        Not saved itself ("_"). */
     var bad = PF.publish.unrunnable(r.snapshot, r.types) || newer(o) || longIds(o);
+    /* The one feature that decides how details are measured must be in the run's own list (A.5). */
+    if (!bad && three && unit === 'cp' && !(Array.isArray(o.features) && o.features.indexOf('detail-patterns') >= 0)) bad = 'This run\'s features leave out detail-patterns, which its version uses, so it\'s shown read-only.';
     if (bad) r._unrunnable = bad;
     if (three) {
       r.format = FORMAT3;
@@ -1844,7 +1860,7 @@ PF.run = (function () {
     return r;
   }
 
-  return { answerable: answerable, reopenIds: reopenIds, gateInputs: gateInputs, detailValueDef: detailValueDef,
+  return { answerable: answerable, reopenIds: reopenIds, gateInputs: gateInputs, detailValueDef: detailValueDef, detailUnit: detailUnit,
     RUN_ID: RUN_ID, isTest: isTest, pubDir: pubDir, testProblem: testProblem, testLast: testLast,
     FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, applies: applies, held: held, stepNeeded: stepNeeded, canStartChild: canStartChild, phaseSkipped: phaseSkipped, condFields: condFields, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, fillOffered: fillOffered, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence, checkFill: checkFill,

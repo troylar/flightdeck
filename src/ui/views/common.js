@@ -465,6 +465,8 @@ PF.vk = (function () {
     if (k === 'date') return lab + '<input type="date" id="' + esc(id) + '" min="0001-01-01" max="9999-12-31" value="' + esc(Vv.isDate(v) ? v : '') + '"' + a + '></label>';
     if (k === 'number') return lab + (def.unit ? ' <span class="small">(' + esc(def.unit) + ')</span>' : '') + '<input id="' + esc(id) + '" inputmode="decimal" maxlength="30" value="' + esc(v) + '"' + a + '></label>';
     if (k === 'url') return lab + ' <span class="small">Starts with https://</span><input type="url" id="' + esc(id) + '" maxlength="120" placeholder="https://" value="' + esc(v) + '"' + a + '></label>';
+    /* A pattern detail (2.16): 120 code points can take 240 UTF-16 units; the code-point check gives the message. */
+    if (k === 'pattern') return lab + ' <span class="small">Matches ' + esc(String(def.pattern || '').slice(0, 80)) + '</span><input id="' + esc(id) + '" maxlength="240" value="' + esc(v) + '"' + a + '></label>';
     return lab + '<input id="' + esc(id) + '" maxlength="120" value="' + esc(v) + '"' + a + '></label>';
   }
   /* A typed value as people read it, with the stored text in brackets where they differ; text as it is. */

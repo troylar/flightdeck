@@ -324,7 +324,7 @@ PF.practice = (function () {
         var chk = R.checkEvidence(r, x.step, null, (o && o.values) || {}, false, map);
         if (chk.error) return { error: chk.error, field: chk.field || '' };
         if (Object.keys(chk.values).length) rec.values = chk.values;
-        ev.list.forEach(function (e) { if (e.detail && chk.values[e.name]) { st.sample[e.detail] = String(chk.values[e.name]).slice(0, 120); st.setBy[e.detail] = id; } });
+        ev.list.forEach(function (e) { if (e.detail && chk.values[e.name]) { st.sample[e.detail] = PF.values.cut(null, String(chk.values[e.name]), PF.values.DETAIL_MAX, unitOf(map)).value; st.setBy[e.detail] = id; } });
       }
     }
     var p = prints(map, st.sample, types, st.fields)[id];
@@ -375,9 +375,9 @@ PF.practice = (function () {
   function setSample(state, map, name, value, types) {
     if ((map.meta.context || []).indexOf(name) < 0) return { error: 'That run detail isn\'t in the draft.' };
     var v = String(value == null ? '' : value).trim(), def = R.detailValueDef(map, name);
-    if (v && def) { var p = PF.values.parse(def, v, { max: 120 }); if (!p.ok) return { error: p.why }; v = p.canonical; }
+    if (v && def) { var p = PF.values.parse(def, v, { max: PF.values.DETAIL_MAX }); if (!p.ok) return { error: p.why }; v = p.canonical; }
     var st = copy(state);
-    if (v) st.sample[name] = v.slice(0, 120); else delete st.sample[name];
+    if (v) { var c = PF.values.cut(def, v, PF.values.DETAIL_MAX, unitOf(map)); if (c.why) return { error: c.why }; st.sample[name] = c.value; } else delete st.sample[name];
     var moved = pin(st, map, types);
     return moved ? { state: bump(st), moved: moved } : { state: bump(st) };
   }
@@ -444,7 +444,11 @@ PF.practice = (function () {
 
   /* ---------- keeping it: sessionStorage, checked when read back, within CAP ---------- */
   var REC = /^(done|na)$/, GREC = /^(passed|waived)$/, HEX = /^[0-9a-f]{1,8}$/;
-  function check(o, process) {
+  /* Practice measures as a run of its draft would (2.16, A.5). */
+  function unitOf(map) { return map ? PF.values.unitOf(PF.map.features(map)) : 'utf16'; }
+  function cutAll(o, unit) { var out = {}; Object.keys(o || {}).slice(0, 40).forEach(function (k) { if (typeof o[k] === 'string' && k.length <= 60 && !(k in Object.prototype)) out[k] = PF.values.cut(null, o[k], PF.values.DETAIL_MAX, unit).value; }); return out; }
+  function check(o, process, map) {
+    var unit = unitOf(map);
     if (!o || typeof o !== 'object' || o.v !== V || o.process !== process || typeof o.answers !== 'object' || typeof o.gates !== 'object' || typeof o.sample !== 'object' || !o.answers || !o.gates || !o.sample) return null;
     var st = fresh(process), cut = false;
     Object.keys(o.answers).slice(0, 2000).forEach(function (id) {
@@ -463,8 +467,8 @@ PF.practice = (function () {
       st.answers[id] = k;
     });
     if (cut) st.gates = {};
-    Object.keys(o.gates).slice(0, 500).forEach(function (id) { var g = o.gates[id]; if (!cut && g && typeof g === 'object' && is(GREC, g.s) && is(HEX, g.base) && id.length <= 80) st.gates[id] = { s: g.s, reason: str(g.reason, 200), at: str(g.at, 40), approved: g.approved && typeof g.approved === 'object' ? clean(g.approved) : {}, base: g.base }; });
-    st.sample = clean(o.sample);
+    Object.keys(o.gates).slice(0, 500).forEach(function (id) { var g = o.gates[id]; if (!cut && g && typeof g === 'object' && is(GREC, g.s) && is(HEX, g.base) && id.length <= 80) st.gates[id] = { s: g.s, reason: str(g.reason, 200), at: str(g.at, 40), approved: g.approved && typeof g.approved === 'object' ? cutAll(g.approved, unit) : {}, base: g.base }; });
+    st.sample = cutAll(o.sample, unit);
     /* Slice 1 kept none of these; each is optional and anything malformed is dropped. */
     if (o.fields && typeof o.fields === 'object') Object.keys(o.fields).slice(0, 2000).forEach(function (id) { var f = o.fields[id]; if (id.length <= 80 && f && typeof f === 'object' && !(id in Object.prototype)) { var c = clean(f, 300); if (Object.keys(c).length) st.fields[id] = c; } });
     if (o.setBy && typeof o.setBy === 'object') Object.keys(o.setBy).slice(0, 40).forEach(function (n) { var id = o.setBy[n]; if (typeof id === 'string' && own(st.sample, n) && own(st.answers, id)) st.setBy[n] = id; });
@@ -476,7 +480,7 @@ PF.practice = (function () {
   /* Only text is read from a kept record: anything else is dropped, never converted (it could throw). */
   function is(re, x) { return typeof x === 'string' && re.test(x); }
   function str(x, n) { return typeof x === 'string' ? x.slice(0, n) : ''; }
-  function clean(o, max, keys) { var out = {}; Object.keys(o || {}).slice(0, keys || 40).forEach(function (k) { if (typeof o[k] === 'string' && k.length <= 60 && !(k in Object.prototype)) out[k] = o[k].slice(0, max || 120); }); return out; }
+  function clean(o, max, keys) { var out = {}; Object.keys(o || {}).slice(0, keys || 40).forEach(function (k) { if (typeof o[k] === 'string' && k.length <= 60 && !(k in Object.prototype)) out[k] = o[k].slice(0, max); }); return out; }
   /* The text to keep, within CAP: answers for parts no longer in the draft go first, then the oldest; null when even
      an empty practice with its findings doesn't fit (it stays in memory only). present: IDs in the draft now; map: the
      admitted draft. An answer goes as a unit with its evidence and Fill in, so a kept answer always keeps what made it
