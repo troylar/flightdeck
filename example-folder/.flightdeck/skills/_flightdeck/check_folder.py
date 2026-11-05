@@ -174,6 +174,9 @@ BUILTIN = {
     "github.pr": {"fields": {"action": {"kind": "choice", "options": ["open", "review", "approve", "merge"]}, "repo": {"kind": "text"}, "pull": {"kind": "url"}, "from": {"kind": "text"}, "to": {"kind": "text"}},
                   "record": [{"name": "pr"}, {"name": "checks"}, {"name": "mergeCommit"}]},
     "measure": {"fields": {"metric": {"kind": "text"}, "unit": {"kind": "text"}, "where": {"kind": "text"}}, "record": [{"name": "value"}, {"name": "unit"}]},
+    # 2.16: the Jira search step, frozen as type version 4.
+    "jira.search": {"fields": {"query": {"kind": "jql"}, "filter": {"kind": "jira-filter"}, "results": {"kind": "results"}, "site": {"kind": "team-ref"}, "what": {"kind": "text"}},
+                    "record": [{"name": "searchId"}, {"name": "count"}, {"name": "keys"}, {"name": "resultsLink"}, {"name": "ranAt"}]},
 }
 
 # The checklist parser's rules (src/core/map.js), as far as the check needs them: its errors, and each step's text, type and fields.
@@ -253,9 +256,17 @@ def detail_types(entries):
         if spec in DETAIL_KINDS:
             typed[name] = {"kind": spec}
             continue
+        pm = re.fullmatch(r"pattern\(([\s\S]*)\)", spec)
+        if pm:
+            pc = compile_pattern(pm.group(1))
+            if not pc["ok"]:
+                errors.append("%s: its pattern can't be read: %s" % (what, pc["why"]))
+                continue
+            typed[name] = {"kind": "pattern", "pattern": pm.group(1)}
+            continue
         c = re.fullmatch(r"choice\((.*)\)", spec)
         if not c or "\n" in spec:
-            errors.append("%s: \"%s\" isn't a kind. Use number, yes-no, date, link or choice(a|b)." % (what, spec[:60]))
+            errors.append("%s: \"%s\" isn't a kind. Use number, yes-no, date, link, choice(a|b) or pattern(...)." % (what, spec[:60]))
             continue
         opts, bad = c.group(1).split("|"), ""
         for o in opts:
@@ -427,7 +438,7 @@ def parse_map(md):
                 roles = kv.group(2)
             i += 1
         i += 1
-    names, typed, ctx_errors = detail_types([js_trim(x) for x in context.split(",") if js_trim(x)])
+    names, typed, ctx_errors = detail_types(context_entries(context))
     for m in ctx_errors:
         err(ctx_line if ctx_line >= 0 else 0, m)
     while i < len(lines):
@@ -596,6 +607,8 @@ def features(parsed, types):
     has = set()
     if parsed["detailTypes"]:
         has.add("typed-details")
+    if any(d.get("kind") == "pattern" for d in parsed["detailTypes"].values()):
+        has.add("detail-patterns")
     for s in parsed["steps"]:
         if js_trim(js_str(s["fields"].get("evidence", ""))).lower() in NEW_KINDS:
             has.add("typed-evidence")
@@ -603,6 +616,8 @@ def features(parsed, types):
             has.add("pinned-children")
         if s["type"] == "run.skill" and "skillVersion" in s["fields"]:
             has.add("pinned-skills")
+        if s["type"] == "jira.search":
+            has.add("jira-search")
         if s["type"] == "run.process" and "pass" in s["fields"]:
             has.add("passed-details")
             if pass_teams(s["fields"]["pass"]):
@@ -621,7 +636,8 @@ def features(parsed, types):
     for t in {s["type"] for s in parsed["steps"] if s["type"]}:
         d = types.get(t) if isinstance(types, dict) else None
         v = d.get("version") if isinstance(d, dict) else None
-        if isinstance(d, dict) and ((isinstance(v, (int, float)) and not isinstance(v, bool) and v == 3) or uses2(d.get("record"))):
+        four = isinstance(v, (int, float)) and not isinstance(v, bool) and v == 4
+        if isinstance(d, dict) and not four and ((isinstance(v, (int, float)) and not isinstance(v, bool) and v == 3) or uses2(d.get("record"))):
             has.add("typed-evidence")
     return [f for f in FROZEN if f in has]
 
@@ -772,10 +788,280 @@ def field_errors(type_def, fields):
     return errors
 
 
+# 2.16: run details that must match a pattern (Appendix A), the same grammar and linear matcher as PF.values, in code points.
+PAT_MAX, ATOMS_MAX, REP_MAX, DETAIL_MAX = 200, 40, 100, 120
+PAT_ESC = "\\.-()[]{}+*?^$/|,:"
+PAT_HINT = "inside pattern(...), write ( ) and , as \\( \\) \\, everywhere, even inside [...]."
+_CONTROL = re.compile("[\u0000-\u001f\u007f-\u009f\u2028\u2029]")
+_BIDI = re.compile("[\u200e\u200f\u202a-\u202e\u2066-\u2069]")
+_LONE = re.compile("[\ud800-\udfff]")
+
+
+def bad_text(v):
+    """PF.values.badText: the one forbidden set (controls, U+2028/9, direction characters, lone surrogates)."""
+    v = str(v)
+    if _CONTROL.search(v):
+        return "a line break or control character"
+    if _BIDI.search(v):
+        return "a direction character"
+    if _LONE.search(v):
+        return "broken Unicode (a lone surrogate)"
+    return ""
+
+
+def context_entries(line):
+    """PF.map.contextEntries: commas split entries, except inside pattern(...), where escapes are skipped."""
+    s, out, buf, in_pat, i = str(line or ""), [], "", False, 0
+    while i < len(s):
+        c = s[i]
+        if not in_pat and re.search(r":\s*pattern\($", buf + c):
+            in_pat, buf = True, buf + c
+        elif in_pat and c == "\\":
+            buf += c + (s[i + 1] if i + 1 < len(s) else "")
+            i += 1
+        elif in_pat and c == ")":
+            in_pat, buf = False, buf + c
+        elif not in_pat and c == ",":
+            if js_trim(buf):
+                out.append(js_trim(buf))
+            buf = ""
+        else:
+            buf += c
+        i += 1
+    if js_trim(buf):
+        out.append(js_trim(buf))
+    return out
+
+
+def compile_pattern(src):
+    if not isinstance(src, str) or not src or len(src) > PAT_MAX:
+        return {"ok": False, "why": "a pattern is 1 to %d characters." % PAT_MAX}
+    if bad_text(src):
+        return {"ok": False, "why": "the pattern has %s." % bad_text(src)}
+    s = list(src)
+    if s and s[0] == "^":
+        s = s[1:]
+    if s and s[-1] == "$":
+        n, j = 0, len(s) - 2
+        while j >= 0 and s[j] == "\\":
+            n, j = n + 1, j - 1
+        if n % 2 == 0:
+            s = s[:-1]
+    atoms, i = [], 0
+
+    def endpoint(j):
+        c = s[j]
+        if c != "\\":
+            return {"v": c, "j": j + 1}
+        n = s[j + 1] if j + 1 < len(s) else None
+        if n == "d":
+            return {"v": "\\d", "j": j + 2}
+        if n is not None and n in PAT_ESC:
+            return {"v": n, "j": j + 2}
+        return {"why": "\"\\%s\" isn't an escape the pattern knows (\\d, or \\ before one of %s)." % (n or "", PAT_ESC)}
+    while i < len(s):
+        c = s[i]
+        if c == "\\":
+            e = endpoint(i)
+            if "why" in e:
+                return {"ok": False, "why": e["why"]}
+            st = {"ranges": [(48, 57)], "chars": []} if e["v"] == "\\d" else {"ranges": [], "chars": [ord(e["v"])]}
+            i = e["j"]
+        elif c == "[":
+            j, chars, ranges = i + 1, [], []
+            if j < len(s) and s[j] == "^":
+                return {"ok": False, "why": "a negated class [^...] isn't supported; list what is allowed."}
+            while j < len(s) and s[j] != "]":
+                if s[j] in "(),":
+                    return {"ok": False, "why": "\"%s\" inside [...] needs a \\ before it: %s" % (s[j], PAT_HINT)}
+                a = endpoint(j)
+                if "why" in a:
+                    return {"ok": False, "why": a["why"]}
+                j = a["j"]
+                if a["v"] == "\\d":
+                    ranges.append((48, 57))
+                    continue
+                if j < len(s) and s[j] == "-" and j + 1 < len(s) and s[j + 1] != "]":
+                    if s[j + 1] in "(),":
+                        return {"ok": False, "why": "\"%s\" inside [...] needs a \\ before it: %s" % (s[j + 1], PAT_HINT)}
+                    b = endpoint(j + 1)
+                    if "why" in b or b["v"] == "\\d":
+                        return {"ok": False, "why": "a range ends in \\d or a bad escape."}
+                    if ord(b["v"]) < ord(a["v"]):
+                        return {"ok": False, "why": "the range %s-%s is backwards." % (a["v"], b["v"])}
+                    ranges.append((ord(a["v"]), ord(b["v"])))
+                    j = b["j"]
+                else:
+                    chars.append(ord(a["v"]))
+            if j >= len(s):
+                return {"ok": False, "why": "a [ is never closed."}
+            st, i = {"ranges": ranges, "chars": chars}, j + 1
+        elif c in "()|":
+            return {"ok": False, "why": "\"%s\" (groups and alternatives) isn't supported; write one sequence. For the character itself, %s" % (c, PAT_HINT)}
+        elif c == ",":
+            return {"ok": False, "why": "\",\" needs a \\ before it: " + PAT_HINT}
+        elif c == ".":
+            return {"ok": False, "why": "\".\" (any character) isn't supported; say which characters are allowed, like [a-z0-9]."}
+        elif c in "?*+{":
+            return {"ok": False, "why": "\"%s\" has nothing before it to repeat." % c}
+        elif c in "]}^$":
+            return {"ok": False, "why": "\"%s\" needs a \\ before it." % c}
+        else:
+            st, i = {"ranges": [], "chars": [ord(c)]}, i + 1
+        lo, hi, q = 1, 1, s[i] if i < len(s) else None
+        if q == "?":
+            lo, i = 0, i + 1
+        elif q == "*":
+            lo, hi, i = 0, None, i + 1
+        elif q == "+":
+            hi, i = None, i + 1
+        elif q == "{":
+            m = re.match(r"\{(\d{1,3})(,(\d{0,3}))?\}", "".join(s[i:i + 9]))
+            if not m:
+                return {"ok": False, "why": "a repeat is {n}, {n,} or {n,m}."}
+            lo = int(m.group(1))
+            hi = (None if m.group(3) == "" else int(m.group(3))) if m.group(2) else lo
+            if lo > REP_MAX or (hi is not None and (hi > REP_MAX or hi < lo)):
+                return {"ok": False, "why": "a repeat goes up to %d, with n no more than m." % REP_MAX}
+            i += len(m.group(0))
+        if i < len(s) and s[i] in "?*+{":
+            return {"ok": False, "why": "two repeats in a row aren't supported."}
+        atoms.append({"set": st, "min": lo, "max": hi})
+        if len(atoms) > ATOMS_MAX:
+            return {"ok": False, "why": "a pattern has at most %d parts." % ATOMS_MAX}
+    return {"ok": True, "atoms": atoms}
+
+
+def match_pattern(p, value):
+    """PF.values.matchPattern: (ok, steps), a simulation linear in the value's length."""
+    if not p.get("ok") or bad_text(value) or len(value) > DETAIL_MAX:
+        return False, 0
+    A, steps = p["atoms"], 0
+
+    def inset(st, cp):
+        return cp in st["chars"] or any(a <= cp <= b for a, b in st["ranges"])
+
+    def close(lst):
+        seen, out, stack = set(), [], list(lst)
+        while stack:
+            x = stack.pop()
+            if x in seen:
+                continue
+            seen.add(x)
+            out.append(x)
+            if x[0] < len(A) and x[1] >= A[x[0]]["min"]:
+                stack.append((x[0] + 1, 0))
+        return out
+    cur = close([(0, 0)])
+    for ch in value:
+        cp, nxt, had = ord(ch), [], set()
+        for a, n in cur:
+            steps += 1
+            if a >= len(A):
+                continue
+            at = A[a]
+            if (at["max"] is None or n < at["max"]) and inset(at["set"], cp):
+                m2 = min(n + 1, at["min"]) if at["max"] is None else n + 1
+                if (a, m2) not in had:
+                    had.add((a, m2))
+                    nxt.append((a, m2))
+        cur = close(nxt)
+        if not cur:
+            return False, steps
+    return any(x[0] == len(A) for x in cur), steps
+
+
+# 2.16: run details in link fields (Appendix B). Python classifies the text as written: step 0 has already refused every
+# character the URL parser strips or trims. An xn-- host can't be verified here, so it's "unverified", never ok.
+LINK_FORBIDDEN = re.compile("[\u0000-\u0020\u007f-\u009f\u00a0\u00ad\u1680\u180e\u2000-\u200f\u2028-\u202f\u205f-\u206f\u3000\ufeff\ud800-\udfff]")
+_LABEL = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\Z")
+_QUERY_NAME = re.compile(r"^(jql|jqlquery|cql|query|q|filter|search)\Z", re.I)
+
+
+def authority_problem(auth):
+    """The one authority grammar (PF.urls.authorityProblem), plus ipaddress for a bracketed IPv6 literal."""
+    if not auth:
+        return "has no host."
+    if "@" in auth:
+        return "has a user name or password before the host. Remove it."
+    host, port = auth, None
+    if auth[0] == "[":
+        e = auth.find("]")
+        if e < 0:
+            return "has an IPv6 address with no closing \"]\"."
+        host, rest = auth[:e + 1], auth[e + 1:]
+        if rest:
+            if rest[0] != ":":
+                return "has something after the IPv6 address other than a port."
+            port = rest[1:]
+        if not re.match(r"^\[[0-9A-Fa-f:.]+\]\Z", host):
+            return "has an IPv6 address with characters it can't hold."
+        import ipaddress
+        try:
+            ipaddress.IPv6Address(host[1:-1])
+        except ValueError:
+            return "has an IPv6 address with characters it can't hold."
+    else:
+        c = auth.rfind(":")
+        if c >= 0:
+            host, port = auth[:c], auth[c + 1:]
+        h = host[:-1] if host.endswith(".") else host
+        labels = h.split(".")
+        if not h or len(h) > 253 or any(not _LABEL.match(l) for l in labels):
+            return "has a host that isn't letters, digits, dots and inner hyphens (write an international name in its xn-- form)."
+        last = labels[-1]
+        if re.match(r"^\d+\Z", last) or re.match(r"^0x", last, re.I):
+            if not (len(labels) == 4 and all(re.match(r"^(0|[1-9]\d{0,2})\Z", l) and int(l) <= 255 for l in labels)):
+                return "has a host that looks like an IPv4 address but isn't a plain one (like 10.0.0.1)."
+    if port is not None and not (re.match(r"^\d{1,5}\Z", port) and 1 <= int(port) <= 65535):
+        return "has a port that isn't a number from 1 to 65535."
+    return ""
+
+
+def classify_link(template, context):
+    """PF.urls.classify on the text as written: static, whole, ok, hint, unverified, or a refusal (forbidden, address,
+    malformed, name), with why or hint."""
+    t = str(template or "")
+    if LINK_FORBIDDEN.search(t):
+        return {"code": "forbidden"}
+    names = [n for n in re.findall(r"\^([A-Za-z0-9_-]+)", t) if n in context]
+    if not names:
+        return {"code": "static"}
+    if re.match(r"^\^([A-Za-z0-9_-]+)\Z", t):
+        return {"code": "whole"}
+    mm = re.match(r"^(mailto:[^?#]*)(\?[^#]*)?\Z", t, re.I)
+    hm = re.match(r"^(https?://[^/?#]*)([^?#]*)(\?[^#]*)?(#.*)?\Z", t, re.I | re.S)
+    if not mm and not hm:
+        return {"code": "malformed"}
+    head = mm.group(1) if mm else hm.group(1)
+    if any(n in context for n in re.findall(r"\^([A-Za-z0-9_-]+)", head)):
+        return {"code": "address"}
+    auth = re.sub(r"^https?://", "", hm.group(1), flags=re.I) if hm else ""
+    if hm:
+        ap = authority_problem(auth)
+        if ap:
+            return {"code": "malformed", "why": ap}
+    q = (mm.group(2) if mm else hm.group(3)) or ""
+    slot = lambda x: any(n in context for n in re.findall(r"\^([A-Za-z0-9_-]+)", x))
+    hint = ""
+    for part in [x for x in re.split(r"[&;]", q[1:] if q.startswith("?") else q) if x]:
+        if not slot(part):
+            continue
+        at = part.find("=")
+        if at < 0 or slot(part[:at]):
+            return {"code": "name"}
+        if not hint and _QUERY_NAME.match(part[:at]):
+            hint = part[:at]
+    if hm and any(l.lower().startswith("xn--") for l in auth.split(":")[0].split(".")):
+        return {"code": "unverified", "hint": hint}
+    return {"code": "hint" if hint else "ok", "hint": hint}
+
+
 TYPE_KEYS = {"id", "label", "icon", "hint", "fields", "record", "version", "custom", "group", "tags"}
 FIELD_KEYS = {"label", "kind", "required", "requiredWhen", "requiredUnless", "options"}
-RECORD_KEYS = {"name", "label", "kind", "long", "optionsFrom", "options", "when", "min", "max", "unit"}
-KNOWN_KINDS = {"text", "url", "code", "message", "list", "choice", "duration", "deadline", "require", "time", "sets"}
+RECORD_KEYS = {"name", "label", "kind", "long", "optionsFrom", "options", "when", "min", "max", "unit", "system", "notAt"}
+KNOWN_KINDS = {"text", "url", "code", "message", "list", "choice", "duration", "deadline", "require", "time", "sets", "jql", "jira-filter", "results", "team-ref"}
+SEARCH_KINDS = {"jql", "jira-filter", "results", "team-ref"}
 RECORD_KINDS = {"text", "url", "choice", "number", "yes-no", "date"}
 
 
@@ -793,9 +1079,10 @@ def understood(d):
     if not isinstance(d, dict) or not set(d) <= TYPE_KEYS:
         return False
     v = d.get("version")
-    # Version 3 (2.0): typed evidence, whose kinds and keys are read only there.
-    if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or (v > TYPES_VERSION and v != 3)):
+    # Version 3 (2.0): typed evidence, whose kinds and keys are read only there. Version 4 (2.16): the Jira search's kinds and keys.
+    if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or (v > TYPES_VERSION and v not in (3, 4))):
         return False
+    four = isinstance(v, (int, float)) and not isinstance(v, bool) and v == 4
     fields = d.get("fields")
     if fields is not None and (not isinstance(fields, dict) or not all(
             not inherited(n) and isinstance(f, dict) and set(f) <= FIELD_KEYS and isinstance(f.get("kind"), str) and f.get("kind") in KNOWN_KINDS
@@ -807,7 +1094,12 @@ def understood(d):
             and not inherited(r.get("name")) and not inherited(r.get("optionsFrom")) and cond_ok(r.get("when"))
             and (not any(k in r for k in NUMBER_KEYS) or (r.get("kind") == "number" and number_def_ok(r))) for r in record)):
         return False
-    if uses2(record) and not (isinstance(v, (int, float)) and not isinstance(v, bool) and v == 3):
+    if uses2(record) and not (isinstance(v, (int, float)) and not isinstance(v, bool) and v >= 3):
+        return False
+    if not four and ((isinstance(fields, dict) and any(isinstance(f, dict) and f.get("kind") in SEARCH_KINDS for f in fields.values()))
+                     or (isinstance(record, list) and any(isinstance(r, dict) and ("system" in r or "notAt" in r) for r in record))):
+        return False
+    if isinstance(record, list) and any(isinstance(r, dict) and "system" in r and r.get("system") is not True for r in record):
         return False
     return True
 
@@ -873,7 +1165,7 @@ def read_text(path):
 # newer major, or with a must-understand feature this copy doesn't know, is refused and named with the version it needs.
 # test/checker.test.js fails if this disagrees with src/core/envelope.js.
 FAMILIES = {
-    "preflight-publication": {"majors": {1: [], 2: ["phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "typed-details", "typed-evidence", "conditions", "passed-details", "team-values", "staged"]}, "future": {2: "2.0"}, "unmarked": False},
+    "preflight-publication": {"majors": {1: [], 2: ["phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "typed-details", "typed-evidence", "conditions", "passed-details", "team-values", "jira-search", "detail-patterns", "staged"]}, "future": {2: "2.0"}, "unmarked": False},
     "flightdeck-step-type": {"majors": {1: [], 2: ["typed-evidence"]}, "future": {2: "2.0"}, "unmarked": True},
     "flightdeck-plan": {"majors": {1: [], 2: []}, "future": {}, "unmarked": False, "kinds": ["plan"]},
     "flightdeck-plan-status": {"majors": {1: [], 2: []}, "future": {}, "unmarked": False, "kinds": ["status"]},
@@ -885,9 +1177,10 @@ FAMILY_NAMES = ["flightdeck-checklist", "preflight-publication", "preflight-run"
                 "flightdeck-plan-status", "flightdeck-validation", "flightdeck-followup-decision", "flightdeck-correction-decision", "flightdeck-fix-decision", "flightdeck-proposal",
                 "flightdeck-presence", "flightdeck-connection", "flightdeck-people", "flightdeck-team-values", "flightdeck-skill", "flightdeck-editor-history", "flightdeck-installed", "flightdeck-stage-decision",
                 "flightdeck-extension", "flightdeck-report", "flightdeck-report-decision"]
-FROZEN = ["typed-details", "typed-evidence", "phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "staged", "test-run", "extensions", "conditions", "passed-details", "team-values"]
+FROZEN = ["typed-details", "typed-evidence", "phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "staged", "test-run", "extensions", "conditions", "passed-details", "team-values",
+          "jira-search", "detail-patterns"]
 # The first release that reads a feature, where it isn't 2.0 (PF.envelope.SINCE).
-SINCE = {"conditions": "2.1", "staged": "2.1", "test-run": "2.1", "passed-details": "2.8", "team-values": "2.9"}
+SINCE = {"conditions": "2.1", "staged": "2.1", "test-run": "2.1", "passed-details": "2.8", "team-values": "2.9", "jira-search": "2.16", "detail-patterns": "2.16"}
 
 
 def _minimum(features):

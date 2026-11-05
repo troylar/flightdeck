@@ -779,6 +779,9 @@ PF.repo = (function () {
       Object.defineProperty(out, 'runs', { enumerable: true, configurable: true,
         get: function () { if (!runs) runs = keys.map(function (k) { var x = reads[k]; return !x ? null : x.kind === 'fresh' ? x.run : x.kind === 'cached' ? x.build() : null; }).filter(Boolean); return runs; },
         set: function (v) { runs = v; } });
+      /* 2.16 (section 5.7.4): the folder pass over the runs as read, built on first use. It never changes a run. */
+      var marks = null;
+      Object.defineProperty(out, 'childMarks', { enumerable: false, configurable: true, get: function () { if (!marks) marks = R.childMarks(out.runs); return marks; } });
       return stagesDone.then(function () { return out; });
     });
   }

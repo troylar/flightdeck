@@ -323,6 +323,13 @@ PF.practice = (function () {
       else if (ev.list.length) {
         var chk = R.checkEvidence(r, x.step, null, (o && o.values) || {}, false, map);
         if (chk.error) return { error: chk.error, field: chk.field || '' };
+        /* A search in practice: no identity; its results must meet the rule (section 5.2). */
+        if (R.isSearchStep(x.step)) {
+          var sc = R.searchCheck(r, map, x.step, (o && o.values) || {}, now || new Date().toISOString(), { practice: true });
+          if (sc.error) return { error: sc.error, field: sc.field ? sc.field : '' };
+          if (!sc.meets) return { error: 'These results can\'t check this search: its results don\'t meet the rule.', field: 'count' };
+          chk = { values: sc.values };
+        }
         if (Object.keys(chk.values).length) rec.values = chk.values;
         ev.list.forEach(function (e) { if (e.detail && chk.values[e.name]) { st.sample[e.detail] = PF.values.cut(null, String(chk.values[e.name]), PF.values.DETAIL_MAX, unitOf(map)).value; st.setBy[e.detail] = id; } });
       }
@@ -444,10 +451,13 @@ PF.practice = (function () {
 
   /* ---------- keeping it: sessionStorage, checked when read back, within CAP ---------- */
   var REC = /^(done|na)$/, GREC = /^(passed|waived)$/, HEX = /^[0-9a-f]{1,8}$/;
+  function JS_RULE(step) { return PF.jsearch.parseResults(step.fields.results); }
   /* Practice measures as a run of its draft would (2.16, A.5). */
   function unitOf(map) { return map ? PF.values.unitOf(PF.map.features(map)) : 'utf16'; }
   function cutAll(o, unit) { var out = {}; Object.keys(o || {}).slice(0, 40).forEach(function (k) { if (typeof o[k] === 'string' && k.length <= 60 && !(k in Object.prototype)) out[k] = PF.values.cut(null, o[k], PF.values.DETAIL_MAX, unit).value; }); return out; }
   function check(o, process, map) {
+    /* R14-1: the admitted draft decides the unit and which steps are searches, so it's required. */
+    if (!map || !map.meta || !map.phases) throw new Error('Reading a kept practice needs the draft it was kept for.');
     var unit = unitOf(map);
     if (!o || typeof o !== 'object' || o.v !== V || o.process !== process || typeof o.answers !== 'object' || typeof o.gates !== 'object' || typeof o.sample !== 'object' || !o.answers || !o.gates || !o.sample) return null;
     var st = fresh(process), cut = false;
@@ -464,6 +474,9 @@ PF.practice = (function () {
         if (vk.length > VALUES_MAX || vk.some(function (n) { return typeof a.values[n] !== 'string' || a.values[n].length > VALUE_MAX; })) { cut = true; return; }
         if (Object.keys(vs).length) k.values = vs;
       }
+      /* A checked search whose kept results don't meet its rule is dropped, as cut evidence is, and with it the gates. */
+      var sx = k.s === 'done' && !k.skipped ? M.findStep(map, id) : null;
+      if (sx && R.isSearchStep(sx.step)) { var rr = JS_RULE(sx.step), c0 = k.values && k.values.count; if (!rr.ok || c0 == null || !/^\d{1,7}$/.test(c0) || !PF.jsearch.meets(rr, +c0)) { cut = true; return; } }
       st.answers[id] = k;
     });
     if (cut) st.gates = {};

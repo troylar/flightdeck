@@ -144,7 +144,9 @@ rule('practice: a 61-emoji sample is kept whole and comes back whole on reload w
   assert.strictEqual(s1.state.sample.mood, '😀'.repeat(61));
   const back = PR.check(JSON.parse(JSON.stringify(s1.state)), 'rel', map);
   assert.strictEqual(back.sample.mood, '😀'.repeat(61));
-  assert.strictEqual(PR.check(JSON.parse(JSON.stringify(s1.state)), 'rel').sample.mood, '😀'.repeat(61).slice(0, 120), 'without the draft, today\'s cut');
+  assert.throws(() => PR.check(JSON.parse(JSON.stringify(s1.state)), 'rel'), /needs the draft/, 'R14-1: the admitted draft is required');
+  const src = ['src/ui/app.js', 'src/core/practice.js'].map(f => require('fs').readFileSync(require('path').join(__dirname, '..', f), 'utf8')).join('\n');
+  (src.match(/PR\.check\([^;]*/g) || []).forEach(c => assert.ok(/PR\.check\([^,]+,[^,]+,[^,]+\)/.test(c), 'every PR.check( passes three arguments: ' + c));
 });
 
 run();
