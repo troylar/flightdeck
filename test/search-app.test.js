@@ -606,4 +606,54 @@ rule('R5-2: the pattern form\'s boxes allow 400 and 240 UTF-16 units; the code-p
   assert.ok(/doesn&#39;t match\./.test(formOf(app)), 'a sample over 120 code points is refused by core');
 });
 
+/* Round 6, P2: a completed run whose search generations are damaged is repaired on every read; the repair is the same for
+   the same bytes, so a refresh (the six-second one or a focus) keeps results typed for it, and Done saves them. */
+function damagedDone(which) {
+  return (r, PF) => {
+    endedElsewhere('person-casey', 'person-casey')(r, PF);
+    r.steps.blockers.values.count = '0';
+    if (which === 'searchGen') delete r.searchGen; else if (which === 'searchRec') r.searchRec = { blockers: 'damaged' };
+  };
+}
+for (const which of ['searchGen', 'searchRec', null]) for (const how of ['automatic', 'focus']) {
+  rule('R6-1: ' + (which ? 'damaged ' + which : 'intact maps (control)') + ': a ' + how + ' refresh keeps results typed for a reopened search, and Done saves them', async () => {
+    let t = 1000;
+    const app = await searching({ edit: which ? damagedDone(which) : endedElsewhere('person-casey', 'person-casey'), noPickup: true, boot: { localStore: { 'preflight:builder': 'false' }, performance: { now: () => t } } });
+    assert.strictEqual(runJson(app).state, 'completed', 'set-up');
+    app.click('select', 'blockers'); await app.tick(40);
+    assert.ok(/data-act="record" data-id="blockers"/.test(app.html()), 'set-up: Done is offered on the reopened search');
+    app.input('rec-count', '0'); await app.tick(10);
+    for (let i = 0; i < 2; i++) {
+      if (how === 'automatic') { t += 6000; app.every(); } else app.focus();
+      await app.tick(120);
+    }
+    const before = app.fs.files['runs/rel/run-s1/run.json'].t;
+    app.click('record', 'blockers'); await app.tick(150);
+    assert.ok(!/Your unsaved results/.test(app.html()), 'no notice that the results were dropped');
+    assert.notStrictEqual(app.fs.files['runs/rel/run-s1/run.json'].t, before, 'Done wrote run.json');
+    const after = runJson(app);
+    assert.deepStrictEqual([after.state, after.steps.blockers.s, after.steps.blockers.values.count, after.steps.blockers.values.searchId], ['completed', 'done', '0', sidNow(app, 'blockers')], JSON.stringify(after.steps.blockers));
+    assert.ok(after.searchGen && after.searchGen.version && after.searchRec && after.searchRec.blockers, 'the repaired maps are saved with it: ' + JSON.stringify([after.searchGen, after.searchRec]));
+  });
+}
+rule('R6-1 (core): the repair is the same for the same bytes, different for different bytes, and never the original identity', () => {
+  const { load } = require('./harness'), PF = load(), R = PF.run, M = PF.map, P = PF.publish;
+  const b = P.build(MD, { people: [], customTypes: {}, by: 'person-casey', changes: 'First', existing: [], now: NOW, rand: 'abcd1234', app: '2.16.0' });
+  const v = P.verify(b.folder, b.files, require('./harness').exactOf(PF, b.files));
+  const r = R.create(v, { title: 'R', details: { version: '2026.11.0' }, roles: {}, by: 'person-casey', session: 'w-a', now: NOW, id: 'run-s1', app: '2.16.0' });
+  const map = R.mapOf(r), sid = id => R.searchId(r, map, M.findStep(map, id).step), orig = sid('blockers');
+  R.done(r, map, 'blockers', 'person-casey', NOW, { count: '0', searchId: orig }); R.done(r, map, 'scope', 'person-casey', NOW, { count: '1', keys: 'PAY-1', searchId: sid('scope') });
+  R.pass(r, map, 0, 'person-casey', NOW); r.state = 'completed'; r.ended = { outcome: 'Completed', by: 'person-casey', byName: 'C', at: NOW };
+  for (const which of ['searchGen', 'searchRec']) {
+    const o = JSON.parse(JSON.stringify(r)); if (which === 'searchGen') delete o.searchGen; else o.searchRec = { blockers: 'damaged' };
+    const text = JSON.stringify(o), a = R.sanitize(JSON.parse(text)), c = R.sanitize(JSON.parse(text));
+    const idOf = x => R.searchId(x, R.mapOf(x), M.findStep(R.mapOf(x), 'blockers').step);
+    assert.strictEqual(JSON.stringify([a.searchGen, a.searchRec]), JSON.stringify([c.searchGen, c.searchRec]), which + ': the same bytes repair the same way');
+    assert.ok(idOf(a) && idOf(a) !== orig, which + ': never the original identity, so earlier reports stay refused');
+    assert.strictEqual(a.steps.blockers.s, 'open', which + ': the old results are reopened');
+    const o2 = JSON.parse(text); o2.title = 'Changed'; const d = R.sanitize(o2);
+    assert.notStrictEqual(idOf(d), idOf(a), which + ': changed bytes repair differently');
+  }
+});
+
 run();

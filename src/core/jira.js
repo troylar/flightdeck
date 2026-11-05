@@ -370,6 +370,8 @@ PF.jsearch = (function () {
   }
   /* A new generation for a detail or a search: <n>-<8 hex>, n one more than the one it replaces (1 when none valid). */
   function token(prev) { var m = typeof prev === 'string' && GEN.test(prev) ? /^(\d+)-/.exec(prev) : null, n = m ? Math.min(+m[1] + 1, 999999999) : 1; return n + '-' + randomHex(8); }
+  /* A generation derived from seed instead of drawn at random: the same seed gives the same token (R6-1, a repair at read). */
+  function tokenFrom(prev, seed) { var m = typeof prev === 'string' && GEN.test(prev) ? /^(\d+)-/.exec(prev) : null, n = m ? Math.min(+m[1] + 1, 999999999) : 1; return n + '-' + PF.sha256.create().update(String(seed)).digest().slice(0, 8); }
   function genOk(v) { return typeof v === 'string' && GEN.test(v); }
   function identity(site, f, sub, gens, rec) {
     if (!genOk(rec)) return null;
@@ -493,7 +495,7 @@ PF.jsearch = (function () {
   return { QUERY_MAX: QUERY_MAX, LINK_MAX: LINK_MAX, VALUE_MAX: VALUE_MAX, FIELDS: FIELDS, SEARCH_FIELDS: SEARCH_FIELDS, FORMULA: FORMULA, SITE_DEFAULT: SITE_DEFAULT, GEN: GEN, ID: ID,
     badText: badText, cpLen: cpLen, lex: lex, placeholders: placeholders, parseResults: parseResults, ruleLabel: ruleLabel, ruleWords: ruleWords, meets: meets, zeroOnly: zeroOnly,
     checkBase: checkBase, siteName: siteName, checkFields: checkFields, uses: uses, setsWhy: setsWhy, quoteJql: quoteJql, substitute: substitute, contained: contained, strictEncode: strictEncode,
-    buildLink: buildLink, randomHex: randomHex, token: token, genOk: genOk, identity: identity, fingerprint: fingerprint, realTime: realTime, checkEvidence: checkEvidence, foundWords: foundWords,
+    buildLink: buildLink, randomHex: randomHex, token: token, tokenFrom: tokenFrom, genOk: genOk, identity: identity, fingerprint: fingerprint, realTime: realTime, checkEvidence: checkEvidence, foundWords: foundWords,
     refusedSpans: refusedSpans, insertAt: insertAt, sample: sample, preview: preview };
 })();
 
