@@ -74,7 +74,7 @@
       '<button type="button" id="ws-practice"' + (pr ? ' aria-current="page"' : ' data-act="pr-open"') + (got ? ' aria-label="Practice, ' + cnt.done + ' of ' + cnt.total + ' steps answered"' : '') + '>' + I('play') + 'Practice' + got + '</button></nav>';
     /* ‹ Overview always replaces (nav §1.4): wsLeave, through its guards. The title beside it is the visible h1. */
     var back = V.backc(pr ? 'pr-leave' : 'ed-done', null, 'Overview', null, '', 'Back to Overview of ' + p.title);
-    return V.workHead({ hid: o.hid, cls: o.cls, h1: esc(p.title) + '<span class="sr">, ' + (pr ? 'Practice' : 'Edit') + '</span>', back: back,
+    return V.workHead({ hid: o.hid, cls: o.cls, h1: esc(p.title), h1tail: '<span class="sr">, ' + (pr ? 'Practice' : 'Edit') + '</span>', back: back,
       status: o.status.concat(prim.sub ? [{ kind: 'act', cls: 'ws-test', html: prim.sub }] : []), views: nav, prog: o.prog,
       acts: prim.html, more: V.moreMenu(ctx, V.moreGroup('On this screen', o.phone || '') + V.appGroup(ctx, { pr: pr }), pr), why: prim.why });
   }
@@ -363,7 +363,7 @@
     /* ‹ Step types, or ‹ <checklist> · Edit when opened from the workspace (2.16); it asks before discarding changes. The
        status moves into LEFT, Save step type is the primary, its reason line sits inside the header. Row 1, the tool row and
        the form all go inert behind the phone's Preview. */
-    var h = '<div class="fpe fpe-type" id="tfe">' + V.workHead({ hid: 'tf-h', h1attrs: ' tabindex="-1"', attrs: behind, h1: esc(name) + ' <span class="cat">Step type</span>',
+    var h = '<div class="fpe fpe-type" id="tfe">' + V.workHead({ hid: 'tf-h', h1attrs: ' tabindex="-1"', attrs: behind, h1: esc(name), h1tail: ' <span class="cat">Step type</span>',
       back: o && o.ws ? V.backc('type-done', null, o.place, o.view) : V.backc('type-done', null, 'Step types'),
       status: [{ kind: 'd', html: '<span class="fpe-state' + (changed ? ' dirty' : '') + (just ? ' just' : '') + '" role="status">' + (f.existing && !changed && !f.saving ? I('check') : '') + status + '</span>' }],
       acts: '<button class="btn go" type="submit" form="type-form"' + (f.saving ? ' disabled' : '') + (why ? ' aria-describedby="tf-save-why"' : '') + '>' + (f.saving ? 'Saving…' : 'Save step type') + '</button>',

@@ -1479,7 +1479,7 @@ rule('Draft editor: a page of its own, with a header landmark, and an inspector 
   let html = V.process(ctx);
   assert.ok(/^<div class="fpe" id="fpe"><header class="hd" role="region" aria-labelledby="ed-h"><div class="hd-l"><button type="button" class="btn backc" data-act="ed-done" aria-label="Back to Overview of Production release">/.test(html), 'only the editor, its header first, the way back first in it');
   assert.ok(!/class="runhead"/.test(html), 'not the process page around it');
-  assert.ok(/<h1 id="ed-h">Production release<span class="sr">, Edit<\/span><\/h1>/.test(html) && /data-act="tl-undo" data-id="draft" aria-disabled="true"/.test(html) && /data-act="tl-redo" data-id="draft" aria-disabled="true"/.test(html) && /data-act="hist-open" data-id="draft"/.test(html) && /<div class="hd-r">/.test(html));
+  assert.ok(/<h1 id="ed-h"><span class="hd-t" title="Production release">Production release<\/span><span class="sr">, Edit<\/span><\/h1>/.test(html) && /data-act="tl-undo" data-id="draft" aria-disabled="true"/.test(html) && /data-act="tl-redo" data-id="draft" aria-disabled="true"/.test(html) && /data-act="hist-open" data-id="draft"/.test(html) && /<div class="hd-r">/.test(html));
   assert.ok(!/fpe-checks|fpe-practice/.test(html), 'no Checks or Practice chip: the inspector has Checks, the view control has Practice');
   assert.ok(/<div class="fpe-tabs" role="tablist" aria-label="Inspector">/.test(html) && /role="tab" id="ins-t-selected" aria-selected="false" aria-controls="ins-p-selected" tabindex="-1"/.test(html), 'a tablist');
   assert.ok(/id="ins-t-preview" aria-selected="true"[^>]*tabindex="0"/.test(html) && /role="tabpanel" id="ins-p-checks" aria-labelledby="ins-t-checks" tabindex="0" hidden/.test(html), 'nothing selected, nothing blocking: Preview');
@@ -1628,7 +1628,7 @@ rule('Run workspace: a slim header with progress in words, three named panes, an
   playPhase(r, 0);
   const html = V.run(ctx);
   assert.ok(/^<div class="fpe rw" id="rw"><header class="hd rw-head" role="region" aria-labelledby="run-h">/.test(html), 'the run is the page');
-  assert.ok(/class="btn backc" data-act="go-back" data-id="#\/runs" aria-label="Back to Runs">.*Runs<\/span><\/button>/.test(html) && /<h1 id="run-h" tabindex="-1">Release<\/h1><p class="hd-st"><span class="d">Production release<\/span><span class="d rw-sub">v1 · started/.test(html));
+  assert.ok(/class="btn backc" data-act="go-back" data-id="#\/runs" aria-label="Back to Runs">.*Runs<\/span><\/button>/.test(html) && /<h1 id="run-h" tabindex="-1"><span class="hd-t" title="Release">Release<\/span><\/h1><p class="hd-st"><span class="d">Production release<\/span><span class="d rw-sub">v1 · started/.test(html));
   assert.ok(/role="progressbar" aria-label="Steps answered" aria-valuemin="0" aria-valuemax="15" aria-valuenow="6" aria-valuetext="6 of 15 steps answered"><i style="width:40%"><\/i><\/span><b aria-hidden="true">6\/15<\/b><span class="small w" aria-hidden="true">answered<\/span>/.test(html), '6/14 answered, said in full for screen readers');
   assert.ok(/data-act="run-details" aria-expanded="false"/.test(html) && /data-act="receipt"/.test(html) && /<button type="button" class="mini more-btn ws-more-btn" id="ws-more-btn" data-act="ws-more"[^>]*>More<\/button>/.test(html) && !/End run…/.test(html) && /<div class="ro">You: <b>Casey Nguyen<\/b><\/div>/.test(html));
   assert.ok(/<nav class="fpe-pane rw-rail" aria-label="Phases">/.test(html) && /<section class="fpe-pane rw-list" id="rw-list" aria-label="Checklist">/.test(html) && /<aside class="fpe-pane rw-ins" id="rw-ins" data-open="false" aria-label="Selected step">/.test(html), 'named regions');
@@ -3050,7 +3050,7 @@ rule('One header: Edit and Practice share row 1 (‹ Overview, a visible title) 
   const h = V.process(ctx);
   const hd = hdOf(h), tr = trOf(h);
   assert.ok(/aria-label="Back to Overview of [^"]+"/.test(hd) && /<span class="backc-t">Overview<\/span>/.test(hd), 'the way back reads ‹ Overview');
-  assert.ok(/<h1 id="ed-h">[^<]+<span class="sr">, Edit<\/span><\/h1>/.test(hd), 'the title is visible');
+  assert.ok(/<h1 id="ed-h"><span class="hd-t" title="[^"]+">[^<]+<\/span><span class="sr">, Edit<\/span><\/h1>/.test(hd), 'the title is visible');
   assert.ok(/<nav class="pviews ws-views" aria-label="Checklist views">/.test((/<div class="hd-c">([\s\S]*?)<\/div>/.exec(hd) || [])[1] || ''), 'Edit | Practice is the CENTER');
   const acts = btnsOf(tr).map(b => b.act);
   assert.strictEqual(acts[0], 'tl-undo', 'Undo is first'); assert.ok(acts.indexOf('hist-open') > acts.indexOf('tl-redo'), 'then Redo, then History');
@@ -3087,4 +3087,16 @@ rule('Affordance: the details card says what it does, with one pencil, and chart
   assert.ok(/<circle class="ins-hit" cx="' \+ cx\.toFixed\(1\) \+ '" cy="' \+ \(38 - row \* 13\) \+ '" r="12"\/><circle class="ins-dot"/.test(src), 'a 24px hit circle under each dot');
 });
 
+rule('One header: a work screen\'s title ends in an ellipsis: its text is a shrinking span that keeps the full title, with any tag after it', () => {
+  const long = 'Production release for the payments platform & the <ledger> service, every region';
+  const h = V.workHead({ hid: 'x-h', h1: PF.util.esc(long), h1tail: '<span class="badge b-test">Test run</span>' });
+  const m = /<h1 id="x-h">(<span class="hd-t" title="([^"]*)">([^<]*)<\/span>)(.*?)<\/h1>/.exec(h);
+  assert.ok(m, 'the title in its span: ' + h.slice(0, 300));
+  assert.strictEqual(m[2], PF.util.esc(long), 'the full title, escaped, in title');
+  assert.strictEqual(m[3], PF.util.esc(long), 'and as the text');
+  assert.strictEqual(m[4], '<span class="badge b-test">Test run</span>', 'the tag stays whole after it');
+  const css = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'page.html'), 'utf8');
+  assert.match(css, /\.hd-id h1 \.hd-t \{[^}]*white-space: nowrap;[^}]*overflow: hidden;[^}]*text-overflow: ellipsis;[^}]*min-width: 0;/, 'it ellipsizes');
+  assert.match(css, /\.phd \.hd-id h1 \.hd-t \{[^}]*white-space: normal;/, 'the checklist page still wraps on a phone');
+});
 run();

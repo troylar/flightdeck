@@ -1092,7 +1092,7 @@
     var more = V.moreGroup('On this screen', '<button type="button" class="mini ph-only" data-act="run-details" aria-expanded="' + !!s.runDetails + '">Details</button>' + (alone ? '' : '<button type="button" class="mini ph-only" data-act="mission">' + I('screen') + 'Screen share</button>') +
       (r.ended || slot.primary.indexOf('data-act="receipt"') >= 0 ? '' : '<button type="button" class="mini" data-act="receipt">' + I('receipt') + 'Receipt</button>') + planAgain(ctx, r, 'mini') +
       '<button type="button" class="mini" data-act="copy-run-key" data-id="' + key + '">Copy run key</button><button type="button" class="mini" data-act="ev-open" data-id="' + key + '">Export evidence…</button><button type="button" class="mini" data-act="health">Folder health</button>') + V.appGroup(ctx, { readOnlyMe: true });
-    var h = '<div class="fpe rw" id="rw">' + V.workHead({ hid: 'run-h', h1attrs: ' tabindex="-1"', cls: 'rw-head', h1: esc(r.title) + K.testTag(r), back: V.backc('go-back', og.hash, og.place, og.view),
+    var h = '<div class="fpe rw" id="rw">' + V.workHead({ hid: 'run-h', h1attrs: ' tabindex="-1"', cls: 'rw-head', h1: esc(r.title), h1tail: K.testTag(r), back: V.backc('go-back', og.hash, og.place, og.view),
       status: sub, prog: V.progress(t.done, t.total), acts: slot.also + slot.primary, more: V.moreMenu(ctx, more) });
     h += strip(ctx, r);
     /* Messages, a failed save, folder trouble, conflicts and Details stay in view, right under the strip. */

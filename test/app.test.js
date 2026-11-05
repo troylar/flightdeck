@@ -3789,7 +3789,7 @@ rule('App: the editor opens as its own page with focus on the Edit button (its h
 
 rule('App: a refresh while editing comes back to the editor', async () => {
   const app = boot({ sessionStore: { 'preflight:editing': 'release' } }); await app.tick(80);
-  assert.ok(/id="fpe"/.test(app.html()) && /<h1 id="ed-h">Production release<span class="sr">, Edit<\/span><\/h1>/.test(app.html()));
+  assert.ok(/id="fpe"/.test(app.html()) && /<h1 id="ed-h"><span class="hd-t" title="Production release">Production release<\/span><span class="sr">, Edit<\/span><\/h1>/.test(app.html()));
   assert.strictEqual(app.focused(), 'ws-edit');
 });
 
@@ -6693,7 +6693,7 @@ rule('Search: opening a process moves focus to its heading', async () => {
   await sxType(app, 'production release');
   const proc = sxIds(app).find(id => /^pub:release\//.test(id));
   app.click('sx-open', proc); await app.tick(40);
-  assert.ok(/<h1 id="page-h" tabindex="-1">Production release<\/h1>/.test(app.html()), 'the heading can take focus');
+  assert.ok(/<h1 id="page-h" tabindex="-1"><span class="hd-t" title="Production release">Production release<\/span><\/h1>/.test(app.html()), 'the heading can take focus');
   assert.strictEqual(app.focused(), 'page-h');
 });
 
@@ -7375,7 +7375,7 @@ const numbered = app => app.entries().forEach((e, i) => assert.ok(e.state && e.s
 const onRun = app => /id="run-h"/.test(app.html());
 const onReceipt = app => /<span class="d">Receipt · Copy it into your ticket/.test(app.html());
 const onHome = app => /<div class="eyebrow">Home<\/div>/.test(app.html());
-const onProcess = (app, title) => /<h1 id="page-h" tabindex="-1">/.test(app.html()) && app.html().indexOf('data-act="ptab"') >= 0 && (!title || app.html().indexOf('>' + title + '</h1>') >= 0);
+const onProcess = (app, title) => /<h1 id="page-h" tabindex="-1">/.test(app.html()) && app.html().indexOf('data-act="ptab"') >= 0 && (!title || app.html().indexOf('>' + title + '</span></h1>') >= 0);
 const back = async app => { app.back(); await app.settle(); };
 const fwd = async app => { app.forward(); await app.settle(); };
 // Every hash ever written: route words and IDs only.
@@ -8757,7 +8757,7 @@ async function passStart(passLine, kidCtx) {
   app.click('refresh'); await app.tick(80);
   app.click('start', 'ship'); await app.settle();
   app.set('detail-env', 'prod'); app.set('detail-ticket', 'T-1'); app.chooseApprovers().submitForm('start-form'); await app.tick(120);
-  assert.ok(/<h1 id="run-h"[^>]*>Ship/.test(app.html()), 'set-up: the parent run is open');
+  assert.ok(/<h1 id="run-h"[^>]*><span class="hd-t"[^>]*>Ship/.test(app.html()), 'set-up: the parent run is open');
   return app;
 }
 const shipRun = (app) => JSON.parse(app.fs.files[app.files('runs/ship/').find(p => /run\.json$/.test(p))].t);
