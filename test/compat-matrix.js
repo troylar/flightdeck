@@ -51,6 +51,96 @@ function readOnlyOnUnknownField(PF) {
   return !!(plain && !plain._unrunnable && back && back._unrunnable && /fromANewerCopy/.test(back._unrunnable));
 }
 
+/* ---- 2.16: what it newly writes and reads, each probed on the release's own code ---- */
+const AT16 = '2026-11-04T15:00:00.000Z';
+/* Specimens made once by this version's own writers (the full harness: the Jira address check needs a URL parser). */
+let made16 = null;
+function specimens16() {
+  if (made16) return made16;
+  const BPF = require('./harness').load();
+  const tv = BPF.teamValues.parse(JSON.stringify({ format: 'flightdeck-team-values/1', values: { 'jira-base-url': { value: 'https://jira.example.com' } } }));
+  const build = (md) => {
+    const b = BPF.publish.build(md, { people: [], customTypes: {}, by: 'person-avery', changes: 'First', existing: [], now: AT16, rand: 'abcd1234', app: '2.16.0', teamValues: tv });
+    if (b.blockers) throw new Error('2.16 specimen: ' + b.blockers.join(' | '));
+    return b;
+  };
+  const jira = build(['---', 'process: rel', 'title: Release', 'context: version', '---', '', '## Stories · DO-CONFIRM {#stories}',
+    '- [ ] {jira.search} No open blockers in ^version {#blockers}', '  query: fixVersion = ^version AND priority = Blocker', '  results: none', ''].join('\n'));
+  const pattern = build(['---', 'process: rel', 'title: Release', 'context: version, tag:pattern(v\\d{1,3})', '---', '', '## Ship · READ-DO {#ship}', '- [ ] {confirm} Ship ^tag {#ship-it}', ''].join('\n'));
+  const R = BPF.run, v = BPF.publish.verify(jira.folder, jira.files, H.exact2(jira.files['map.md'], jira.files['types.json']));
+  const run = () => R.create(v, { title: 'R', details: { version: '2026.11.0' }, roles: {}, by: 'person-avery', session: 'w-a', now: AT16, id: 'run-s1', app: '2.16.0', teamValues: tv });
+  const started = run(), blocked = run(), map = R.mapOf(blocked);
+  R.block(blocked, map, 'blockers', '', 'person-avery', AT16, { searchId: R.searchId(blocked, map, BPF.map.findStep(map, 'blockers').step), count: '2', keys: 'PAY-1, PAY-2' });
+  const startedId = R.searchId(started, R.mapOf(started), BPF.map.findStep(R.mapOf(started), 'blockers').step);
+  if (!startedId || ['searchSites', 'searchGen', 'searchRec'].some(k => !started[k] || !Object.keys(started[k]).length)) throw new Error('2.16 specimen: the started run has no search state');
+  made16 = { jira, pattern, started: JSON.stringify(started), startedId, blocked: JSON.stringify(blocked) };
+  return made16;
+}
+const verify16 = (PF, b) => { try { return PF.publish.verify(b.folder, b.files, H.exact2(b.files['map.md'], b.files['types.json'])); } catch (e) { return { ok: false }; } };
+/* A publication with a {jira.search} step: usable, the step read as that type, frozen at version 4. */
+function readsJiraSearch(PF) {
+  const v = verify16(PF, specimens16().jira), t = PF.types && fn(PF.types, 'get') ? PF.types.get('jira.search') : null;
+  return v.ok === true && !!t && t.version === 4 && !!v.map && PF.map.findStep(v.map, 'blockers').step.type === 'jira.search';
+}
+/* A publication with a run detail that must match a pattern: usable, the pattern kept as written. */
+function readsPatternDetail(PF) {
+  const v = verify16(PF, specimens16().pattern), d = v.ok && v.map && v.map.meta && v.map.meta.detailTypes ? v.map.meta.detailTypes.tag : null;
+  return !!d && d.kind === 'pattern' && d.pattern === 'v\\d{1,3}';
+}
+/* Set aside as unusable, saying it needs 2.16 (the bridge and 2.0 to 2.14). */
+const refuses16 = (which) => (PF) => { const v = verify16(PF, specimens16()[which]); return !v.ok && !!v.unusable && /2\.16/.test(String(v.why || '') + ' ' + String(v.needs || '')); };
+/* A run of a search step, read in full: the containers it keeps (searchSites, searchGen, searchRec) come back with the
+   contents 2.16 wrote, and the step's search identity is the one the results were entered for. */
+function readsSearchRun(PF) {
+  if (!fn(PF.run, 'searchId')) return false;
+  try {
+    const m = specimens16(), was = JSON.parse(m.started), r = PF.run.sanitize(JSON.parse(m.started));
+    if (!r || r._unrunnable || !['searchSites', 'searchGen', 'searchRec'].every(k => JSON.stringify(r[k]) === JSON.stringify(was[k]))) return false;
+    const map = PF.run.mapOf(r);
+    return PF.run.searchId(r, map, PF.map.findStep(map, 'blockers').step) === m.startedId;
+  } catch (e) { return false; }
+}
+/* A search step blocked with its results (Block with these): read in full, the results kept on the blocked step. */
+function readsBlockedResults(PF) {
+  try { const r = PF.run.sanitize(JSON.parse(specimens16().blocked)), a = r && r.steps && r.steps.blockers; return !!r && !r._unrunnable && !!a && a.s === 'blocked' && !!a.values && a.values.keys === 'PAY-1, PAY-2' && a.values.count === '2'; } catch (e) { return false; }
+}
+/* Publish refuses a run detail in a link's host, in a parameter name and in a parameter with no "=" (Appendix B), by the
+   check every publish runs, and still allows one as a parameter's value. */
+function refusesLinkForms(PF) {
+  try {
+    const page = (p) => (PF.map.check(PF.map.parse(['---', 'process: rel', 'title: Release', 'context: tag, host', '---', '', '## Ship · READ-DO {#ship}', '- [ ] {ui.action} Open it {#open}', '  page: ' + p, ''].join('\n')), {}).blockers || []).filter(b => /field "page"/.test(b));
+    const refused = (p, why) => { const b = page(p); return b.length === 1 && why.test(b[0]); };
+    return refused('https://^host.example.com/x', /has a run detail in the address/) && refused('https://example.com/x?^tag=x', /has a run detail in a parameter name/) &&
+      refused('https://example.com/x?^tag', /has a run detail in a parameter with no "="/) && page('https://example.com/x?tag=^tag').length === 0;
+  } catch (e) { return false; }
+}
+/* A report on a step that sets a run detail (Appendix A.4) is accepted with the value it sets; the same report shape on a
+   step that sets nothing is accepted too, so a refusal can only come from sets:. */
+function acceptsReportSets(PF) {
+  if (!PF.reports || !fn(PF.reports, 'eligible') || !fn(PF.run, 'create')) return false;
+  const one = (sets) => {
+    const md = ['---', 'process: p', 'title: P', 'context: ticket', '---', '', '## One {#one}', '- [ ] {confirm} Note the ticket {#a}'].concat(sets ? ['  sets: ticket'] : []).concat(['']).join('\n');
+    const pub = { info: { format: PF.publish.FORMAT, version: 1, folder: 'v1-aaaa', mapHash: PF.util.hash(md), typesHash: PF.util.hash('{}') }, map: PF.map.parse(md), md, types: {} };
+    const r = PF.run.create(pub, { title: 'P', details: sets ? {} : { ticket: 'ABC-1' }, roles: {}, by: 'person-avery', session: 's1', now: AT16, id: 'r1' }), map = PF.run.mapOf(r), ev = {};
+    if (sets) PF.run.evidenceFor(r, PF.map.findStep(map, 'a').step).list.forEach(d => { if (d.detail === 'ticket') ev[d.name] = 'ABC-7'; });
+    const rep = { format: 'flightdeck-report/1', process: 'p', run: 'r1', publication: { folder: 'v1-aaaa' }, step: 'a', verdict: 'pass', blockers: [], evidence: ev, links: [], inputs: [], producer: { name: 'ci', version: '1.0.0' }, created: AT16, id: 'abcd1234' };
+    return PF.reports.eligible({ key: 'p/r1/a/ci/abcd1234', process: 'p', run: 'r1', step: 'a', producer: 'ci', id: 'abcd1234', copies: [{ ok: true, sha256: 'a'.repeat(64) }], report: rep, sha256: 'a'.repeat(64), differ: false, unreadable: [] }, r, map, { recording: true, now: AT16 });
+  };
+  try { const s = one(true); return !!one(false).ok && !!s.ok && JSON.stringify(s.sets || []).indexOf('ABC-7') >= 0; } catch (e) { return false; }
+}
+/* An update holds AGENTS.md (stages it, leaving the team's) while a file it points to lacks a section it cites, and writes it
+   when the file has the section. */
+function holdsAgents(PF) {
+  if (!PF.contract || !fn(PF.contract, 'hold')) return false;
+  try {
+    const G = '.flightdeck/skills/_flightdeck/command-guide.md', A = '<!-- flightdeck:begin -->\nCommands: see `' + G + '` (*the command guide*). Use *Commands* in the command guide.\n<!-- flightdeck:end -->\n';
+    const old = '<!-- flightdeck:begin -->\nOld.\n<!-- flightdeck:end -->\n', st = () => [{ key: 'AGENTS.md', status: 'update' }, { key: G, status: 'kept' }];
+    const lacking = PF.contract.hold(st(), [{ key: 'AGENTS.md', text: A, now: old }, { key: G, text: '## Commands\n\nx\n', now: '## Other\n\nx\n' }]);
+    const having = PF.contract.hold(st(), [{ key: 'AGENTS.md', text: A, now: old }, { key: G, text: '## Commands\n\nx\n', now: '## Commands\n\nours\n' }]);
+    return lacking[0].status === 'merge' && lacking[0].heldFrom === 'update' && having[0].status === 'update';
+  } catch (e) { return false; }
+}
+
 const ROWS = [
   // Writers
   { id: 'drafts', what: 'Drafts (repo.saveDraft)', from: '1.10.0', has: repoHas('saveDraft'), writes: ['maps/drafts/<process>.md'] },
@@ -89,10 +179,19 @@ const ROWS = [
   { id: 'passed-details', what: 'What a linked step passes (PF.links, pass:)', from: '2.8.0', has: (PF) => !!PF.links && fn(PF.links, 'parse') && fn(PF.links, 'write'), writes: ['publications/<process>/<folder>/ (preflight-publication/2 naming passed-details)', 'runs/<process>/<id>/run.json (preflight-run/3 naming passed-details)'] },
   { id: 'team-values', what: 'Team values in team-values.json, passed with pass: name=team:… (PF.teamValues, repo.saveTeamValues)', from: '2.9.0', has: (PF) => !!PF.teamValues && fn(PF.teamValues, 'parse') && fn(PF.repo, 'saveTeamValues'), writes: ['team-values.json (Settings › Team values)', 'publications/<process>/<folder>/ (preflight-publication/2 naming team-values)', 'runs/<process>/<id>/run.json (preflight-run/3 naming team-values, a link\'s teamPassed)'] },
   { id: 'type-save-cli', what: 'Step types from the command line (flightdeck type save, flightdeck-write/1)', from: '2.14.0', has: (PF, page, cli) => cli.indexOf('flightdeck-write/1') >= 0, writes: ['step-types/<id>.json', 'history/step-types/<id>/agent-<operation>.jsonl'] },
+  { id: 'jira-search', what: 'A Jira search step, its type frozen at version 4 ({jira.search}, PF.jira)', from: '2.16.0', has: readsJiraSearch, writes: ['publications/<process>/<folder>/ (preflight-publication/2 naming jira-search; types.json freezes jira.search at version 4)', 'staged/<process>/stage-<random8>/ (the same)'] },
+  { id: 'search-runs', what: 'A run of a Jira search keeps its addresses and generations (searchSites, searchGen, searchRec)', from: '2.16.0', has: readsSearchRun, writes: ['runs/<process>/<id>/run.json (preflight-run/3 naming jira-search, with searchSites, searchGen and searchRec)'] },
+  { id: 'blocked-results', what: 'Block with these: a search step blocked with its results', from: '2.16.0', has: readsBlockedResults, writes: ['runs/<process>/<id>/run.json (a blocked search step with values)', 'report-decisions/<process>/<run>.<hash>.<writer>.<rev>.json (the report it blocked with, declined)'] },
+  { id: 'detail-patterns', what: 'Run details that must match a pattern (context: name:pattern(...))', from: '2.16.0', has: readsPatternDetail, writes: ['publications/<process>/<folder>/ (preflight-publication/2 naming detail-patterns)', 'runs/<process>/<id>/run.json (preflight-run/3 naming detail-patterns)'] },
+  { id: 'link-forms', what: 'Publish refuses a run detail in a link\'s host, a parameter\'s name or a query part with no = (Appendix B)', from: '2.16.0', has: refusesLinkForms, writes: [] },
+  { id: 'report-sets', what: 'A report may set the run details its step sets (Appendix A.4)', from: '2.16.0', has: acceptsReportSets, writes: ['runs/<process>/<id>/run.json (details set by an accepted report)', 'report-decisions/<process>/<run>.<hash>.<writer>.<rev>.json'] },
+  { id: 'agents-hold', what: 'An update holds AGENTS.md while a file it points to lacks a section it cites (PF.contract.hold)', from: '2.16.0', has: holdsAgents, writes: ['.flightdeck/updates/<version>/AGENTS.md (held) and .flightdeck/updates/<version>/README.md, by flightdeck install and the app\'s update'] },
   // Readers that refuse what they don't know
   { id: 'publication-format', what: 'A publication in another format is unusable (P.verify)', from: '1.11.1', has: refusesNewerPublication, writes: [] },
   { id: 'run-format', what: 'A preflight-run/3 is kept by name only (R.newerFormat)', from: '1.11.1', has: namesNewerRun, writes: [] },
-  { id: 'run-known', what: 'A run/2 with an unknown field opens read-only (R.newer, KNOWN)', from: '1.11.1', has: readOnlyOnUnknownField, writes: [] }
+  { id: 'run-known', what: 'A run/2 with an unknown field opens read-only (R.newer, KNOWN)', from: '1.11.1', has: readOnlyOnUnknownField, writes: [] },
+  { id: 'jira-search-refused', what: 'A publication with a Jira search step is set aside as needing 2.16', from: '1.21.0', until: '2.14.0', plan: 'the 2.16 plan says 2.0 to 2.14; the 1.21 bridge refuses it the same way', has: refuses16('jira'), writes: [] },
+  { id: 'detail-patterns-refused', what: 'A publication with a pattern run detail is set aside as needing 2.16', from: '1.21.0', until: '2.14.0', has: refuses16('pattern'), writes: [] }
 ];
 
 /* Whether a release (by version, like "1.15.0") has a row, by the matrix. */

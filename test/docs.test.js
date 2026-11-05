@@ -397,4 +397,15 @@ rule('Round 22: the npm path is absolute against the caller\'s folder, and a lin
   /* Any other error still fails. */
   assert.throws(() => RT.packed({ 'README.other.md': RT.LINK }, { symlink: () => { const e = new Error('EIO'); e.code = 'EIO'; throw e; } }), /EIO/);
 });
+rule('Round 23: a docs note git ignores (docs/.*.md, kept locally, never committed or packed) is not inventoried, so a checkout with local notes still passes; a committed doc still is', () => {
+  const RT = require('./reviewed-text'), snap = RT.snapshot(), note = path.join(__dirname, '..', 'docs', '.reviewed-text-probe.md');
+  fs.writeFileSync(note, '# Local note\n\nWrite runs/ by hand.\n');
+  try {
+    assert.ok(!('docs/.reviewed-text-probe.md' in RT.inventory()), 'an ignored note on disk is not inventoried');
+    assert.ok(!('docs/.reviewed-text-probe.md' in RT.texts()), 'nor read as text');
+    assert.ok(!('docs/.other-probe.md' in RT.inventory({ 'docs/.other-probe.md': 'x' })), 'an ignored override is not inventoried');
+    assert.deepStrictEqual(RT.problems(RT.texts(), snap), [], 'the gate passes with the note present');
+    assert.ok('docs/new.md' in RT.inventory({ 'docs/new.md': 'x' }), 'a doc git would track still is');
+  } finally { fs.rmSync(note, { force: true }); }
+});
 run();

@@ -25,6 +25,10 @@ const FIX_DECISION = JSON.stringify({ kind: 'fix-decision', process: 'backup', s
 const ARCHIVE = JSON.stringify({ id: 'arch-1', kind: 'answer', step: 'read', s: 'done', by: 'person-avery', at: '2026-03-02T09:03:00.000Z' }) + '\n';
 const INSTALLED = JSON.stringify({ format: 'flightdeck-installed/1', version: '1.18.0', files: {} }, null, 2);
 const AGENTS = '# Team instructions\n\nSpecimen for the reader inventory.\n';
+/* 2.16: the two files AGENTS.md now points to, written by flightdeck install under .flightdeck/skills/_flightdeck/. */
+const HELD = '.flightdeck/updates/2.16.0/AGENTS.md';
+const GUIDE = '.flightdeck/skills/_flightdeck/command-guide.md', ESSENTIALS = '.flightdeck/skills/_flightdeck/checklist-essentials.md';
+const GUIDE_TEXT = '# Command guide\n\n## Commands\n\nSpecimen for the reader inventory.\n', ESSENTIALS_TEXT = '# Checklist essentials\n\n## Steps\n\nSpecimen for the reader inventory.\n';
 const PLAN = { kind: 'plan', id: 'plan-backup-april', process: 'backup', version: 1, title: 'Backup check April', details: { ticket: 'ABC-102' }, roles: { lead: 'person-avery', checker: 'person-casey' }, note: 'Casey checks this time.', by: 'AI assistant', created: '2026-03-02T09:13:00.000Z' };
 const TEAM = JSON.stringify({ format: 'flightdeck-team-values/1', values: { 'case-base': { value: 'https://cases.example.com', about: 'Case system base URL' } } }, null, 2) + '\n';
 const CONN_AT = Date.parse('2026-03-02T10:00:00.000Z');
@@ -47,8 +51,12 @@ async function prepare(PF, fs, version, files) {
   await put('team-values.json', TEAM);
   await put('.flightdeck/installed.json', INSTALLED);
   await put('AGENTS.md', AGENTS);
+  await put(GUIDE, GUIDE_TEXT);
+  await put(ESSENTIALS, ESSENTIALS_TEXT);
   await put('.flightdeck/write-test-w-avery.tmp', 'x');
   await put('.flightdeck/updates/AGENTS.md', AGENTS + 'An update to merge.\n');
+  // 2.16: an AGENTS.md held in its version's folder while a file it points to lacks a section (as 2.12 on stage a copy).
+  await put(HELD, AGENTS + 'Held until the command guide has its sections.\n');
   // From 2.0: an exact skill registration (skill-registrations/), written only by flightdeck skill register.
   if (PF.skills && PF.skills.checkV2) {
     const f = pubFolder(files), info = JSON.parse(files['publications/backup/' + f + '/publication.json']);
@@ -115,9 +123,14 @@ const FAMILIES = [
   { id: 'installed', re: /^\.flightdeck\/installed\.json$/, writer: 'none',
     readers: [{ via: 'repo.scan', from: '1.15.0', spec: '.flightdeck/installed.json', call: (PF, fs) => PF.repo.scan(fs), found: s => !!s.installed && s.installed.format === 'flightdeck-installed/1' }], note: 'written by flightdeck install (the command), not the app' },
   { id: 'contract', re: /^(AGENTS\.md|\.flightdeck\/skills\/.+)$/, writer: 'hand',
-    readers: [{ via: 'repo.scan', from: '1.15.0', spec: 'AGENTS.md', call: (PF, fs) => PF.repo.scan(fs), found: s => s.contractTexts && s.contractTexts['AGENTS.md'] === AGENTS }] },
+    readers: [{ via: 'repo.scan', from: '1.15.0', spec: 'AGENTS.md', call: (PF, fs) => PF.repo.scan(fs), found: s => s.contractTexts && s.contractTexts['AGENTS.md'] === AGENTS },
+      // 2.16: the command guide and the checklist essentials, which AGENTS.md cites; every scan since 1.15 reads .flightdeck/skills/ whole.
+      { via: 'repo.scan', from: '1.15.0', spec: GUIDE, call: (PF, fs) => PF.repo.scan(fs), found: s => !!s.contractTexts && s.contractTexts[GUIDE] === GUIDE_TEXT },
+      { via: 'repo.scan', from: '1.15.0', spec: ESSENTIALS, call: (PF, fs) => PF.repo.scan(fs), found: s => !!s.contractTexts && s.contractTexts[ESSENTIALS] === ESSENTIALS_TEXT }],
+    note: 'AGENTS.md and .flightdeck/skills/ are written by flightdeck install (2.16 adds _flightdeck/command-guide.md and _flightdeck/checklist-essentials.md) and edited by people' },
   { id: 'install-updates', re: /^\.flightdeck\/updates\/.+$/, writer: 'none', plan: 'not in the plan\'s reader table',
-    readers: [{ via: 'repo.scan', from: '1.15.0', spec: '.flightdeck/updates/AGENTS.md', listOnly: true, call: (PF, fs) => PF.repo.scan(fs), found: s => (s.updates || []).indexOf('.flightdeck/updates/AGENTS.md') >= 0 }], note: 'written by flightdeck install when a team changed a default file' },
+    readers: [{ via: 'repo.scan', from: '1.15.0', spec: '.flightdeck/updates/AGENTS.md', listOnly: true, call: (PF, fs) => PF.repo.scan(fs), found: s => (s.updates || []).indexOf('.flightdeck/updates/AGENTS.md') >= 0 },
+      { via: 'repo.scan', from: '1.15.0', spec: HELD, listOnly: true, call: (PF, fs) => PF.repo.scan(fs), found: s => (s.updates || []).indexOf(HELD) >= 0 || s.list.some(f => f.p === HELD) }], note: 'written by flightdeck install when a team changed a default file' },
   { id: 'write-test', re: /^\.flightdeck\/write-test-[^/]+\.tmp$/, writer: 'people', plan: 'not in the plan\'s reader table',
     readers: [{ via: 'repo.scan', from: '1.15.0', spec: '.flightdeck/write-test-w-avery.tmp', listOnly: true, call: (PF, fs) => PF.repo.scan(fs), found: s => s.list.some(f => f.p === '.flightdeck/write-test-w-avery.tmp') }], note: 'setup\'s write test, removed right away; Folder health lists a leftover' },
   { id: 'images', re: /^images\/.+$/, writer: 'hand', plan: 'not in the plan\'s reader table',
