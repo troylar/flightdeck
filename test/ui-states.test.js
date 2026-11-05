@@ -670,9 +670,10 @@ rule('Polish: at 801-899 the view switch shows Practice without its kept count i
   assert.ok(R('.ws-views .ws-cnt', /min-width: 801px\) and \(max-width: 899px/).some(r => decl(r.body, 'display') === 'none'));
 });
 
-rule('Polish: at 801-959 the checklist page\'s Plan a run and Start a run take a row of their own, so they never cover its tabs', () => {
-  assert.ok(R('.hd.phd', /min-width: 801px\) and \(max-width: 959px/).some(r => decl(r.body, 'grid-template-columns') === 'minmax(0, 1fr) auto'), 'title and tabs on row 1');
-  assert.ok(R('.phd > .hd-r', /min-width: 801px\) and \(max-width: 959px/).some(r => decl(r.body, 'grid-column') === '1 / -1'), 'the actions below, full width');
+rule('Polish: the checklist page\'s run buttons keep their own width, and wrap inside their column, so they never cover its tabs at any width', () => {
+  assert.ok(R('.hd.phd', /^@media \(min-width: 801px\)$/).some(r => decl(r.body, 'grid-template-columns') === 'minmax(0, 1fr) auto minmax(min-content, 1fr)'), 'the right column is never narrower than its widest button');
+  assert.ok(R('.phd .hd-acts', /^@media \(min-width: 801px\)$/).some(r => decl(r.body, 'flex-wrap') === 'wrap'), 'and the buttons wrap inside it');
+  assert.ok(!RULES.some(r => r.sel.join(', ') === '.phd > .hd-r' && decl(r.body, 'grid-column') === '1 / -1'), 'no breakpoint guess sends them to a row of their own');
 });
 
 rule('Styles: every comment in the page\'s CSS closes before the next one opens, so no rule is swallowed', () => {

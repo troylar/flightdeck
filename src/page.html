@@ -1955,8 +1955,9 @@ html.work-on .top { display: none; }
 @media (min-width: 801px) and (max-width: 859px) { .ws-views .ic { display: none; } }
 /* Practice's kept count gives way at 801-899, in both views alike; its name (aria-label) still says it. */
 @media (min-width: 801px) and (max-width: 899px) { .ws-views .ws-cnt { display: none; } }
-/* The checklist page's four tabs and its two run buttons don't share row 1 below 960: the buttons take a row of their own. */
-@media (min-width: 801px) and (max-width: 959px) { .hd.phd { grid-template-columns: minmax(0, 1fr) auto; } .phd > .hd-r { grid-column: 1 / -1; } }
+/* The checklist page's right column is never narrower than its widest run button, and the buttons wrap inside it when the
+   row is short, so they never cover the tabs; the tabs stay centered. */
+@media (min-width: 801px) { .hd.phd { grid-template-columns: minmax(0, 1fr) auto minmax(min-content, 1fr); } .phd .hd-acts { flex: 0 1 auto; min-width: 0; flex-wrap: wrap; justify-content: flex-end; } }
 .hd-st .linkish { white-space: normal; text-align: left; overflow-wrap: anywhere; }
 .hd-st .fpe-state.dirty { color: var(--ink); font-weight: 600; }
 /* The save state is never cut: it reads whole, and wraps when the line is short. */

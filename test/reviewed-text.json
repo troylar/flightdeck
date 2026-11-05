@@ -373,8 +373,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1: an embedded font file, binary; no text."
     },
     "src/page.html": {
-      "sha256": "e5505b484c68564c1cf193a091a767f8ac81b731f362710ac3575cfcf598352d",
-      "reviewed": "Practice count in its own span; one release sentence corrected; no writes, no deletes"
+      "sha256": "8f950f73a04f1a8171216cb1c4f76bcc6b11078107591581eb1f7b0b5f299808",
+      "reviewed": "checklist page header: right column never narrower than its widest run button, buttons wrap inside it; CSS only"
     },
     "src/releases.json": {
       "sha256": "00caf1dff6db3a46b4949ade8f5a4856a443891008f055528dae8fcb6f70e6a1",
