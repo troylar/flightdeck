@@ -1967,4 +1967,67 @@ rule('R10b: a layer in a layer has one entry: Help over the phone step sheet, Ba
   atRest(app, 'the opener', { hash: '#/runs', drawn: a => /class="eyebrow">Runs|<h1[^>]*>Runs<\/h1>|id="rf-h"/.test(a.html()), n: n + 1, b: '#/' });
 });
 
+/* ---------- Build round 11 ---------- */
+rule('R11 1: Home, run, Runs, the run again, jump back two: the run\'s way back is Home again, drawn and stored', async () => {
+  const app = await start(); const key = runKey(app);
+  app.click('open-run', key); await app.settle();
+  assert.strictEqual(back1(app).text, 'Home', 'set-up: from Home');
+  app.click('nav', 'runs'); await app.settle();
+  app.click('open-run', key); await app.settle();
+  assert.strictEqual(back1(app).text, 'Runs', 'set-up: from Runs');
+  app.go(-2); await app.settle(); await app.tick(20); await app.settle();
+  assert.strictEqual(app.hash(), '#/run/' + key);
+  const e = app.entries()[app.index()];
+  assert.strictEqual(e.state.b && e.state.b.h, '#/', 'the stored origin');
+  const b = back1(app);
+  assert.strictEqual(b.text, 'Home', 'the drawn way back names Home');
+  app.click(b.act, b.id); await app.settle();
+  assert.strictEqual(app.hash(), '#/', 'and opens Home');
+});
+rule('R11 1: the same screen and origin is still the silent no-op (a closed Help\'s entry)', async () => {
+  const app = await start({ domFocus: true }); app.click('nav', 'runs'); await app.settle(); app.click('open-run', runKey(app)); await app.settle();
+  app.key('?'); await app.settle(); ovClick(app, 'close-overlay', undefined); await app.settle();
+  const html = app.html();
+  await onePop(app, a => a.back());
+  assert.strictEqual(app.html(), html, 'nothing redrawn'); assert.strictEqual(back1(app).text, 'Runs');
+});
+const nativeToggle = (app, open) => app.fire('toggle', { target: { dataset: { disc: 'rw-menu' }, open, classList: { contains: c => c === 'rw-menu' } } });
+rule('R11 2: the run\'s More opened natively, the checklist link, Back: More stays closed and Forward is still there', async () => {
+  const app = await start(); app.click('nav', 'runs'); await app.settle();
+  const key = runKey(app); app.click('open-run', key); await app.settle();
+  nativeToggle(app, true); await app.settle();
+  const n = app.entries().length;
+  app.click('open-process', app.run().process || 'release'); await app.settle();
+  assert.ok(onOverview(app) || /#\/process\//.test(app.hash()), 'set-up: the checklist page: ' + app.hash());
+  const after = app.entries().length;
+  await onePop(app, a => a.back());
+  assert.strictEqual(app.hash(), '#/run/' + key, 'back on the run');
+  assert.doesNotMatch(app.html(), /<details class="rw-menu" data-disc="rw-menu" open/, 'More stays closed');
+  assert.strictEqual(app.entries().length, after, 'Forward kept: ' + JSON.stringify(app.entries().map(e => e.hash)));
+  await onePop(app, a => a.forward());
+  assert.match(app.hash(), /^#\/process\//, 'Forward still opens the checklist');
+  assert.ok(n <= after);
+});
+rule('R11 3: practice counts a step written without an ID, and after a reload', async () => {
+  const session = {};
+  const withPlain = async app => {
+    const f = app.fs.files['maps/drafts/release.md'];
+    f.t = f.t.replace(/\n(## [^\n]*\n)/, '\n$1- [ ] {confirm} A plain step with no ID\n'); f.m = Date.now();
+    app.click('refresh'); await app.tick(120);
+  };
+  const app = await start({ sessionStore: session }); await withPlain(app);
+  app.click('open-process', 'release'); await app.tick();
+  const pr = viewBtn(app, 'Practice'); app.click(pr.act, pr.id); await app.tick(60);
+  const map = app.PF.practice.normalize(app.PF.map.parse(app.fs.files['maps/drafts/release.md'].t));
+  const plain = app.PF.map.steps(map).filter(x => x.step.text === 'A plain step with no ID')[0];
+  assert.ok(plain && /^~/.test(plain.step.id), 'set-up: practice names it ' + (plain && plain.step.id));
+  await check(app, plain.step.id);
+  app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick();
+  const n = stepCount(app);
+  assert.strictEqual(viewBtn(app, 'Practice').text, 'Practice · 1 of ' + n, 'counted');
+  const again = await start({ sessionStore: session }); await withPlain(again);
+  again.click('open-process', 'release'); await again.tick();
+  assert.strictEqual(viewBtn(again, 'Practice').text, 'Practice · 1 of ' + n, 'counted after a reload');
+});
+
 run();
