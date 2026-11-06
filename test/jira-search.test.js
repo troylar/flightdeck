@@ -259,4 +259,18 @@ rule('R4-4: a link to a saved filter takes only a filter number; Preview shows t
   const ok = S.buildLink('https://jira.example.com', { filter: '12345' });
   assert.ok(ok.ok && ok.href === 'https://jira.example.com/issues/?filter=12345', JSON.stringify(ok));
 });
+rule('A missing Jira address is one blocker for the whole draft, with how many searches need it and which steps they are', () => {
+  const tv = v => PF.teamValues.parse(JSON.stringify({ format: 'flightdeck-team-values/1', values: v }));
+  const step = (id, q) => ['- [ ] {jira.search} Look ' + id + ' {#' + id + '}', '  query: ' + q, '  results: none'];
+  const md = ['---', 'process: x', 'title: X', 'context: project', '---', '', '## S · DO-CONFIRM {#s}'].concat(step('a', 'project = ^project'), step('b', 'project = PAY'), step('c', 'status = Done'),
+    ['- [ ] {jira.search} Elsewhere {#d}', '  query: a = 1', '  site: team:jira-two'], ['', '## Gate: G {#g}', '']).join('\n');
+  const map = M.parse(md);
+  let b = M.check(map, { teamValues: tv({ other: { value: 'x' } }) }).blockers.filter(x => /Jira/.test(x));
+  same(b, ['3 Jira searches need the team\'s Jira address, but the team value "jira-base-url" isn\'t in team-values.json; add the Jira address there (Settings > Team values). Steps: {#a}, {#b}, {#c}. Publishing needs it; a run without it still shows each query with Copy.',
+    '1 Jira search needs the team\'s Jira address, but the team value "jira-two" isn\'t in team-values.json; add the Jira address there (Settings > Team values). Step: {#d}. Publishing needs it; a run without it still shows each query with Copy.'], b.join('\n'));
+  b = M.check(map, { teamValues: tv({ 'jira-base-url': { value: 'not a Jira address' }, 'jira-two': { value: 'https://jira.example.com' } }) }).blockers.filter(x => /Jira/.test(x));
+  assert.strictEqual(b.length, 1, b.join('\n'));
+  assert.ok(/^3 Jira searches need the team's Jira address, but the team value "jira-base-url" .*isn't a Jira address Flightdeck can link to\./.test(b[0]) && /Steps: \{#a\}, \{#b\}, \{#c\}\./.test(b[0]), b[0]);
+  same(M.check(map, { teamValues: tv({ 'jira-base-url': { value: 'https://jira.example.com' }, 'jira-two': { value: 'https://jira.example.com' } }) }).blockers.filter(x => /Jira/.test(x)), []);
+});
 run();

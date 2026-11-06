@@ -261,7 +261,7 @@ PF.map = (function () {
     function checkRoles(roles, what) { roles.forEach(function (r) { if (meta.roles.indexOf(r) < 0) blockers.push(what + ' uses @' + r + ', which isn\'t listed in roles.'); }); }
     var meant = function (f) { var g = PF.refs ? PF.refs.suggest(f, meta.context) : ''; return g ? ' Did you mean ^' + g + '?' : ''; };
     function checkBinds(binds, what) { binds.forEach(function (f) { if (meta.context.indexOf(f) < 0) blockers.push(what + ' is tied to ^' + f + ', which isn\'t listed in context.' + meant(f)); }); }
-    var musts = 0;
+    var musts = 0, addressOf = {};
     /* With the team's Jira workflows (jira/workflows.json), a transition must name a status that exists and that some transition reaches. */
     function jiraCheck(s, label) {
       if (String(s.fields.action || '').toLowerCase() !== 'transition' || !s.fields.status) return;
@@ -343,7 +343,7 @@ PF.map = (function () {
           else {
             if (['at', 'due', 'after'].filter(function (f) { return s.fields[f]; }).length > 1) blockers.push(label + ': give one time, "at:", "due:" or "after:", not more than one.');
             var fc = T.checkFields(def, s.fields, { context: meta.context, teamValues: opts.teamValues });
-            fc.errors.forEach(function (m) { blockers.push(label + ' ' + m); });
+            fc.errors.forEach(function (m) { if (m === fc.siteError) (addressOf[m] = addressOf[m] || []).push(s.id || '?'); else blockers.push(label + ' ' + m); });
             fc.tips.forEach(function (m) { suggestions.push(label + ' ' + m); });
             /* Link fields (2.16, Appendix B): a run detail may sit only where it can't change the link's structure. */
             Object.keys(s.fields).forEach(function (f) {
@@ -395,6 +395,7 @@ PF.map = (function () {
         suggestions.push(label + ': ^' + u.name + inBox + ' may not be set yet here: “' + U.excerpt(s0.text) + '” sets it ' + (s0.phase === w.phaseIndex ? 'in this phase' : 'in a later phase') + cond + '.');
       });
     }
+    PF.jsearch.addressBlockers(addressOf).forEach(function (m) { blockers.push(m); });
     if (map.phases.length && !musts) suggestions.push('No must-do steps. Mark the steps whose omission causes real harm with [!].');
     if (opts.people && meta.owner && !opts.people.some(function (p) { return p.id === meta.owner; })) suggestions.push('Owner "' + meta.owner + '" isn\'t in people.json.');
     /* The backup owner signs off only while the owner is away, so it must be someone else on the team. */

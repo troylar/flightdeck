@@ -6,6 +6,10 @@
 
 Thoughtful checklists: a library view, design tips and clearer checks.
 
+### Improved
+
+- **A missing Jira address is said once** (Jira searches). It is said once per address, with how many searches need it and their step IDs, as in 7 Jira searches need the team's Jira address. The format guide now says publishing needs the address; Copy without a link is only for runs. *Where:* Edit, Publish, map-format.md
+
 ### Fixed
 
 - **Each gate is drawn once** (Flight plan). The step list holds only steps. The gate, named or not, is the checkpoint beneath the phase. *Where:* A checklist's page, Flight plan

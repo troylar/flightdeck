@@ -385,7 +385,7 @@ A `{jira.search}` step (Flightdeck 2.16) says what a Jira search must find, and 
 
 - **`query:`** one line of JQL, or **`filter:`** a saved filter's number. Exactly one of the two. Neither can be filled in during a run.
 - **`results:`** `none`, `any`, `exactly N`, `at least N` or `at most N` (N from 0 to 999999). Left out, it means `any`, with a tip.
-- **`site:`** `team:<name>`, a team value holding the Jira address (`https://host[/path]`, https only). Left out, it means `team:jira-base-url`. A run copies the address when it starts; without one, the step shows the query with Copy and can still be checked.
+- **`site:`** `team:<name>`, a team value holding the Jira address (`https://host[/path]`, https only). Left out, it means `team:jira-base-url`. **Publishing needs the address:** Draft check, Publish and staging block a checklist whose search names a team value that isn't in `team-values.json` or isn't a usable address, said once for every search on that site with the steps it affects. A run copies the address when it starts. The Copy fallback is for runs only: if the address is gone when a run starts (removed from Team values after publishing), the step shows the query with Copy and no Jira link, and can still be checked.
 - **`what:`** plain words for what the results are. Use it with `filter:`, since a saved filter can change in Jira without the checklist changing.
 - **Evidence:** `count` (always), `keys` (the issue keys, `PAY-1, PAY-2`, optionally ending `+N more`; needed when the count breaks the rule and isn't 0, never at zero), `resultsLink` and `ranAt` (optional), and `searchId`, which Flightdeck fills in.
 

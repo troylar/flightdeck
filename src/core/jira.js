@@ -292,13 +292,14 @@ PF.jsearch = (function () {
     }
     if (hasF && !/^[1-9]\d{0,9}$/.test(String(f.filter).trim())) errors.push('"filter" should be a saved filter\'s number, like 12345.');
     if (hasF && f.what == null) tips.push('a saved filter can change in Jira without the checklist changing; say what it finds with "what:".');
-    var site = siteName(f);
+    var site = siteName(f), siteError = null;
     if (!site) errors.push('"site" should be team:<name>, a team value holding the Jira address (Settings > Team values).');
     else if (ctx.teamValues) {
       var lk = PF.teamValues.lookup(ctx.teamValues, site);
-      if (lk.missing) errors.push('the team value "' + site + '" isn\'t in team-values.json; add the Jira address there (Settings > Team values).');
-      else if (!own(lk, 'value')) errors.push(String(lk.why || 'team-values.json can\'t be read.').replace(/\.?$/, '.') + ' So the Jira address "' + site + '" can\'t be checked.');
-      else { var b = checkBase(lk.value); if (!b.ok) errors.push('the team value "' + site + '" ' + b.why.replace(/\.$/, '') + ', so it isn\'t a Jira address Flightdeck can link to.'); }
+      if (lk.missing) siteError = 'the team value "' + site + '" isn\'t in team-values.json; add the Jira address there (Settings > Team values).';
+      else if (!own(lk, 'value')) siteError = String(lk.why || 'team-values.json can\'t be read.').replace(/\.?$/, '.') + ' So the Jira address "' + site + '" can\'t be checked.';
+      else { var b = checkBase(lk.value); if (!b.ok) siteError = 'the team value "' + site + '" ' + b.why.replace(/\.$/, '') + ', so it isn\'t a Jira address Flightdeck can link to.'; }
+      if (siteError) errors.push(siteError);
     }
     var loop = list(f.sets).filter(function (n) { return ph.uses.indexOf(n) >= 0; });
     if (loop.length) errors.push(setsWhy(loop));
@@ -307,7 +308,17 @@ PF.jsearch = (function () {
     if (r.ok && req.indexOf('keys') >= 0 && zeroOnly(r)) errors.push('requires keys, but results: ' + r.text + ' passes only with no results, and no results have no issue keys. Take keys out of require: (require: all already leaves them out when there are none).');
     if (f.results == null) tips.push('usually says "results:". Without it: Any number, including zero.');
     if (f.what != null && String(f.what).length > WHAT_MAX) errors.push('"what" can be at most ' + WHAT_MAX + ' characters.');
-    return { errors: errors, tips: tips, rule: r.ok ? r : null, site: site, uses: ph.uses, tokens: ph.tokens, form: hasF && !hasQ ? 'filter' : 'jql' };
+    return { errors: errors, tips: tips, rule: r.ok ? r : null, site: site, siteError: siteError, uses: ph.uses, tokens: ph.tokens, form: hasF && !hasQ ? 'filter' : 'jql' };
+  }
+  /* A missing or unusable address is the team's, not the step's: every search on that site says it once, with a count and
+     the steps, in place of one line per step (groups: { message: [step ids] }, in order). */
+  var GROUP_IDS = 20;
+  function addressBlockers(groups) {
+    return Object.keys(groups).map(function (m) {
+      var ids = groups[m], n = ids.length, shown = ids.slice(0, GROUP_IDS).map(function (id) { return '{#' + id + '}'; }).join(', ');
+      return n + ' Jira search' + (n === 1 ? ' needs' : 'es need') + ' the team\'s Jira address' + (/^the /.test(m) ? ', but ' : ': ') + m +
+        ' Step' + (n === 1 ? '' : 's') + ': ' + shown + (n > GROUP_IDS ? ', and ' + (n - GROUP_IDS) + ' more' : '') + '. Publishing needs it; a run without it still shows each query with Copy.';
+    });
   }
   function list(s) { return String(s || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean); }
   function setsWhy(names) { return 'sets ' + names.map(function (n) { return '^' + n; }).join(', ') + ', which its own query uses. A search can\'t change the detail it searches with; set it in an earlier step.'; }
@@ -494,7 +505,7 @@ PF.jsearch = (function () {
 
   return { QUERY_MAX: QUERY_MAX, LINK_MAX: LINK_MAX, VALUE_MAX: VALUE_MAX, FIELDS: FIELDS, SEARCH_FIELDS: SEARCH_FIELDS, FORMULA: FORMULA, SITE_DEFAULT: SITE_DEFAULT, GEN: GEN, ID: ID,
     badText: badText, cpLen: cpLen, lex: lex, placeholders: placeholders, parseResults: parseResults, ruleLabel: ruleLabel, ruleWords: ruleWords, meets: meets, zeroOnly: zeroOnly,
-    checkBase: checkBase, siteName: siteName, checkFields: checkFields, uses: uses, setsWhy: setsWhy, quoteJql: quoteJql, substitute: substitute, contained: contained, strictEncode: strictEncode,
+    checkBase: checkBase, siteName: siteName, checkFields: checkFields, addressBlockers: addressBlockers, uses: uses, setsWhy: setsWhy, quoteJql: quoteJql, substitute: substitute, contained: contained, strictEncode: strictEncode,
     buildLink: buildLink, randomHex: randomHex, token: token, tokenFrom: tokenFrom, genOk: genOk, identity: identity, fingerprint: fingerprint, realTime: realTime, checkEvidence: checkEvidence, foundWords: foundWords,
     refusedSpans: refusedSpans, insertAt: insertAt, sample: sample, preview: preview };
 })();

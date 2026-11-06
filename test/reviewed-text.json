@@ -1,8 +1,8 @@
 {
   "texts": {
     "CHANGELOG.md": {
-      "sha256": "3fd57a8d7640ba25b07fcb907131ee395120e7b6434fa5e874ca6319b836f1c7",
-      "reviewed": "Diagnostic step labels: PF.util.excerpt/stepLabel (ID plus word-boundary excerpt with an ellipsis, in code points) replace text.slice(0, 40) in publish, map, health and the process view; check_folder.py step_label() mirrors it; release note. Checked for direct writes and unconditional deletes: none."
+      "sha256": "00bd9cde834eed2097e94ef8296a6a03f43c306a6258d195c5e525cfe9e3eb8b",
+      "reviewed": "Missing or unusable Jira address grouped into one blocker per site with a count and step IDs (jira.checkFields returns siteError, types passes it, map.js groups through PF.jsearch.addressBlockers); map-format.md and its skills copy say publishing needs the address and Copy is the run fallback; release note. Checked for direct writes and unconditional deletes: none."
     },
     "LICENSE": {
       "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
@@ -33,8 +33,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 0 sentences here, each read by hand: none."
     },
     "docs/map-format.md": {
-      "sha256": "76c997818f7109f172927ed47c6b75871c5a39b227b6c3a7e8a053c3bbad35ce",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "67ff384f22b48c87e92568f173150ed8ed43a8d1a1635400252dbaf9b5db1e90",
+      "reviewed": "Missing or unusable Jira address grouped into one blocker per site with a count and step IDs (jira.checkFields returns siteError, types passes it, map.js groups through PF.jsearch.addressBlockers); map-format.md and its skills copy say publishing needs the address and Copy is the run fallback; release note. Checked for direct writes and unconditional deletes: none."
     },
     "docs/onedrive.md": {
       "sha256": "e11b0fc58b4abf3ba2057f922a35599951384be2c68674f55432c0bfaaf232c5",
@@ -73,8 +73,8 @@
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "example-folder/.flightdeck/skills/_flightdeck/map-format.md": {
-      "sha256": "76c997818f7109f172927ed47c6b75871c5a39b227b6c3a7e8a053c3bbad35ce",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "67ff384f22b48c87e92568f173150ed8ed43a8d1a1635400252dbaf9b5db1e90",
+      "reviewed": "Missing or unusable Jira address grouped into one blocker per site with a count and step IDs (jira.checkFields returns siteError, types passes it, map.js groups through PF.jsearch.addressBlockers); map-format.md and its skills copy say publishing needs the address and Copy is the run fallback; release note. Checked for direct writes and unconditional deletes: none."
     },
     "example-folder/.flightdeck/skills/flightdeck-edit-checklist/SKILL.md": {
       "sha256": "981ae1af10b4a519dff513c75539379658e422ba16b4221342cff1d1147a2a57",
@@ -193,8 +193,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "b6c51f2522f81aba6ebb54c63de5de21a633b1e492faf22ffae60c42b8d8fb08",
-      "reviewed": "Diagnostic step labels: PF.util.excerpt/stepLabel (ID plus word-boundary excerpt with an ellipsis, in code points) replace text.slice(0, 40) in publish, map, health and the process view; check_folder.py step_label() mirrors it; release note. Checked for direct writes and unconditional deletes: none."
+      "sha256": "cb5b32ecc436eba06f6b15227707d7755545a12b73dafb1a80515769c3b52905",
+      "reviewed": "Missing or unusable Jira address grouped into one blocker per site with a count and step IDs (jira.checkFields returns siteError, types passes it, map.js groups through PF.jsearch.addressBlockers); map-format.md and its skills copy say publishing needs the address and Copy is the run fallback; release note. Checked for direct writes and unconditional deletes: none."
     },
     "src/core/appjson.js": {
       "sha256": "86b915c32b324bbd05f1d35f96933a90cd79a10713ca84f4cf373dc78d63bc9f",
@@ -241,16 +241,16 @@
       "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
     },
     "src/core/jira.js": {
-      "sha256": "f274a5deb8bbdbf62070b2d6ad2f691ba5dcc2659a04b6793aa1f4e9519a2709",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "709112cde674a1a15657146594f8773bee8a0d0e8c2dff8a0309c3118f1de769",
+      "reviewed": "Missing or unusable Jira address grouped into one blocker per site with a count and step IDs (jira.checkFields returns siteError, types passes it, map.js groups through PF.jsearch.addressBlockers); map-format.md and its skills copy say publishing needs the address and Copy is the run fallback; release note. Checked for direct writes and unconditional deletes: none."
     },
     "src/core/links.js": {
       "sha256": "3ceec1cb191551546f909245fed5dbd74d3f89eceb5ba727e448230fb0f5f867",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/map.js": {
-      "sha256": "a4f028f7aa03dcec95588d450da13c51e1a2d81fe70e540d11053c1351baa59c",
-      "reviewed": "Diagnostic step labels: PF.util.excerpt/stepLabel (ID plus word-boundary excerpt with an ellipsis, in code points) replace text.slice(0, 40) in publish, map, health and the process view; check_folder.py step_label() mirrors it; release note. Checked for direct writes and unconditional deletes: none."
+      "sha256": "f28f07457adc23e6db56917f85a395283951b2560bea54946a611f11d067c147",
+      "reviewed": "Missing or unusable Jira address grouped into one blocker per site with a count and step IDs (jira.checkFields returns siteError, types passes it, map.js groups through PF.jsearch.addressBlockers); map-format.md and its skills copy say publishing needs the address and Copy is the run fallback; release note. Checked for direct writes and unconditional deletes: none."
     },
     "src/core/nav.js": {
       "sha256": "58a621b0d76244c77a9988c3f2ec79b751fdeb8874190cf0ccfa6ab36295d9b1",
@@ -337,8 +337,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/types.js": {
-      "sha256": "bb0588b31853e8c06d4b3f12430d61c98fba76f34f86e378676128178bf6e690",
-      "reviewed": "2.16.2: one held, evenly spaced separator everywhere; checklist wording on screens and messages; the inspector place line wraps beside Previous and Next"
+      "sha256": "14421d30b66e93e5f3d8b275092158cb492e287ac45c2ca6090598e7d3cbe76a",
+      "reviewed": "types.checkFields returns siteError only for a Jira search, so other types keep their shape. Checked for direct writes and unconditional deletes: none."
     },
     "src/core/util.js": {
       "sha256": "93777f382728f63012d7b14296874db19e30bdef2f122f42e9b6cb8930e425dc",
@@ -377,8 +377,8 @@
       "reviewed": "Flight plan draws each gate once: the steps disclosure no longer repeats the gate line (fp-sgate removed from flight.js and page.html); design.md says so; release 3.0.0 entry and its baselines. Checked for direct writes and unconditional deletes: none."
     },
     "src/releases.json": {
-      "sha256": "8abd2868ada5e9f18304f36b91331d3c67a4b98f7a59c851bab4e8ad8913b368",
-      "reviewed": "Diagnostic step labels: PF.util.excerpt/stepLabel (ID plus word-boundary excerpt with an ellipsis, in code points) replace text.slice(0, 40) in publish, map, health and the process view; check_folder.py step_label() mirrors it; release note. Checked for direct writes and unconditional deletes: none."
+      "sha256": "10e194251a9740a5ce4a18a85b67e0c151479a959e6b1ef39ede195fe24551a6",
+      "reviewed": "Missing or unusable Jira address grouped into one blocker per site with a count and step IDs (jira.checkFields returns siteError, types passes it, map.js groups through PF.jsearch.addressBlockers); map-format.md and its skills copy say publishing needs the address and Copy is the run fallback; release note. Checked for direct writes and unconditional deletes: none."
     },
     "src/storage/fs.js": {
       "sha256": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",

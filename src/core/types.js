@@ -249,8 +249,10 @@ PF.types = (function () {
         list(fields[f]).forEach(function (n) { if (n !== 'all' && names.indexOf(n) < 0) errors.push('"require" names "' + n + '", which {' + type.id + '} doesn\'t record. It records: ' + (names.join(', ') || 'nothing (use "evidence:" instead)') + '.'); });
       }
     });
-    if (isSearch(type)) { var sc = PF.jsearch.checkFields(fields, ctx); errors = errors.concat(sc.errors); tips = tips.concat(sc.tips); }
-    return { errors: errors, tips: tips };
+    if (!isSearch(type)) return { errors: errors, tips: tips };
+    /* siteError: the team's Jira address problem, which the checklist check says once for every search on that site. */
+    var sc = PF.jsearch.checkFields(fields, ctx);
+    return { errors: errors.concat(sc.errors), tips: tips.concat(sc.tips), siteError: sc.siteError };
   }
   /* Whether a step type frozen into a version uses only what this copy knows: a newer type version, or a property, field
      kind or evidence kind it doesn't know, could change how the step works, so such a version isn't run here. */

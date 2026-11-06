@@ -19,6 +19,14 @@
         "before": "A check that named a step cut its text at 40 characters, often mid-word, with no sign it was cut, and two steps that started alike looked the same.",
         "now": "It names the step's text cut at a word, with … when cut, and its ID, as in Step \"Confirm the production deploy job…\" {#green}. The folder checker for AI assistants says the same.",
         "where": "Edit, Publish, Folder health"
+      },
+      {
+        "kind": "improved",
+        "area": "Jira searches",
+        "title": "A missing Jira address is said once",
+        "before": "A draft whose Jira searches had no Jira address in Team values listed the same problem once for every search.",
+        "now": "It is said once per address, with how many searches need it and their step IDs, as in 7 Jira searches need the team's Jira address. The format guide now says publishing needs the address; Copy without a link is only for runs.",
+        "where": "Edit, Publish, map-format.md"
       }
     ]
   },
