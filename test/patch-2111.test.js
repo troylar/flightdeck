@@ -315,7 +315,7 @@ rule('Twin corrections with different decisions on Finish: each row says its own
   await decide(app, landedKey, g2.id, 'tw1', 'declined', 'Not how we work');
   app.click('finish'); await app.tick(20);
   h = app.html();
-  assert.ok(/Finish On the landed version/.test(h) && /<h2>Corrections · \d+<\/h2>/.test(h), 'on Finish, with its corrections');
+  assert.ok(/Finish On the landed version/.test(h) && /<h2>Corrections<span class="dot">&nbsp;·&nbsp;<\/span>\d+<\/h2>/.test(h), 'on Finish, with its corrections');
   assert.strictEqual(statusOf(h, 'First reason'), 'Open', 'the open one');
   assert.strictEqual(statusOf(h, 'Second reason'), 'Declined', 'the declined one');
 }));

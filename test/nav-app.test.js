@@ -16,7 +16,7 @@ async function page(o) { const app = await start(o); app.click('open-process', '
 /* The checklist views nav (the page's strip, or the workspace's view control) as drawn, or null. */
 const strip = html => { const m = /<nav\b[^>]*aria-label="Checklist views"[^>]*>([\s\S]*?)<\/nav>/.exec(html); return m ? m[1] : null; };
 const strips = html => (html.match(/<nav\b[^>]*aria-label="Checklist views"/g) || []).length;
-const plain = s => s.replace(/<[^>]+>/g, '').replace(/&#39;/g, '\'').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
+const plain = s => s.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&#39;/g, '\'').replace(/&amp;/g, '&').replace(/\s+/g, ' ').trim();
 const buttons = s => [...String(s || '').matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)].map(m => ({
   text: plain(m[2]), current: /aria-current="page"/.test(m[1]), act: (/data-act="([^"]+)"/.exec(m[1]) || [])[1], id: (/data-id="([^"]*)"/.exec(m[1]) || [])[1],
   label: (/aria-label="([^"]*)"/.exec(m[1]) || [])[1], attrs: m[1] }));
@@ -197,7 +197,7 @@ rule('Workspace: one header on both views: ‹ <title> top left, Edit | Practice
   }
   const app = await practiced();
   assert.deepStrictEqual(buttons(head(app).slice(head(app).indexOf('<div class="tr'))).filter(b => /^pr-(undo|redo|reset|samples|found-open)$/.test(b.act)).map(b => b.text), ['Undo', 'Redo', 'Start over', 'Sample details', 'Things to fix'].filter(t => t !== 'Sample details' || /pr-samples/.test(head(app))));
-  assert.match(head(app), /Practice<\/span> not recorded<span class="hd-dot">&nbsp;·&nbsp;<\/span>kept in this tab/);
+  assert.match(head(app), /Practice<\/span> not recorded<span class="dot">&nbsp;·&nbsp;<\/span>kept in this tab/);
 });
 
 rule('Workspace: ‹ <title> goes to the checklist page with focus on the strip\'s button for the view you left, and practice is kept', async () => {
@@ -546,8 +546,8 @@ rule('Run screen: an ended run has its Receipt once, as the header\'s primary', 
 
 rule('Run screen: the rail says This run\'s follow-ups · N, and the skip link says Back to the step list', async () => {
   const app = await start(); await fromRuns(app);
-  assert.match(app.html(), /This run&#39;s follow-ups · \d+|This run's follow-ups · \d+/);
-  assert.ok(!/>(<[^>]+>)*Follow-ups · /.test(app.html()), 'no bare Follow-ups · N');
+  assert.match(app.html(), /This run&#39;s follow-ups<span class="dot">&nbsp;·&nbsp;<\/span>\d+|This run's follow-ups<span class="dot">&nbsp;·&nbsp;<\/span>\d+/);
+  assert.ok(!/>(<[^>]+>)*Follow-ups<span class="dot">&nbsp;·&nbsp;<\/span>/.test(app.html()), 'no bare Follow-ups · N');
   app.click('select', 'approve'); await app.tick();
   assert.match(app.html(), /class="linkish rw-skip" data-act="to-row" data-id="approve">Back to the step list</);
 });
@@ -1490,7 +1490,7 @@ rule('R4 2: a typed Publish note, its caret too, survives the dialog being rebui
 rule('R4 2: every dialog is drawn in one place, which puts typed text back, and every box in a dialog writes what it holds as it\'s typed', () => {
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
   assert.strictEqual((src.match(/overlayEl\.innerHTML\s*=/g) || []).length, 1, 'one place draws a dialog');
-  assert.match(src, /overlayEl\.innerHTML = ov; lastOverlay = ov;\s*ovRestore\(/, 'and it puts typed text back');
+  assert.match(src, /overlayEl\.innerHTML = V\.dots\(ov\); lastOverlay = ov;\s*ovRestore\(/, 'and it puts typed text back');
   assert.match(src, /document\.addEventListener\('input', function \(e\) \{[\s\S]{0,300}ovKeep\(e\.target\)/, 'every input in a dialog is kept as typed');
 });
 
@@ -2269,4 +2269,23 @@ rule('R13: a fresh tab opening a Practice link draws Edit and gives the entry Ed
   assert.strictEqual(app.hash(), '#/process/release/edit', 'its URL');
 });
 
+/* ---------- 2.16.2 one separator everywhere ---------- */
+/* The text of a drawn region outside tags, leaving out what is shown or copied as typed (pre, code, textarea, select). */
+const looseText = html => html.replace(/<(pre|code|textarea|select|script|style)\b[\s\S]*?<\/\1>/g, '').replace(/<[^>]*>/g, '\u0000');
+const DOT = '<span class="dot">&nbsp;·&nbsp;</span>';
+rule('Separators: no screen, strip, header or dialog draws a bare " · "; every one is the same held, evenly spaced dot', async () => {
+  const app = await start();
+  const seen = [];
+  const look = (where, html) => {
+    const t = looseText(html), at = t.indexOf(' · ');
+    assert.ok(at < 0, where + ': a bare " · " in "' + t.slice(Math.max(0, at - 40), at + 40).replace(/\u0000/g, '|') + '"');
+    if (html.indexOf(DOT) >= 0) seen.push(where);
+  };
+  look('Home', app.html()); look('top bar', app.top());
+  app.click('nav', 'processes'); await app.tick(); look('Checklists', app.html());
+  app.click('open-process', 'release'); await app.tick(); look('checklist page', app.html());
+  app.click('ptab', 'insights'); await app.tick(); look('How runs go', app.html());
+  app.key('?'); await app.tick(); look('Keyboard', app.overlay());
+  assert.ok(seen.indexOf('checklist page') >= 0 && seen.indexOf('Keyboard') >= 0, 'dots were drawn, held: ' + seen.join(', '));
+});
 run();

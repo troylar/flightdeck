@@ -119,7 +119,7 @@ async function reach(app, list, what) {
 }
 rule('Round 15: a correction note with the id diff-s0 and 20 corrections before step s0\'s one-off answer: the inspector offers Show more, and the one-off is drawn with its own row id', async () => {
   const { app, key } = await collide(20);
-  assert.ok(/Corrections · 21</.test(app.html()), 'set-up: 21 corrections on s0, the 20 and the one-off');
+  assert.ok(/Corrections<span class="dot">&nbsp;·&nbsp;<\/span>21</.test(app.html()), 'set-up: 21 corrections on s0, the 20 and the one-off');
   await reach(app, 'rcorr:' + key + ':s0', 'the inspector');
 });
 rule('Round 15: a correction note with the id diff-s0 and 50 corrections before the one-off: Finish and Receipt offer Show more, and the one-off is drawn with its own row id', async () => {

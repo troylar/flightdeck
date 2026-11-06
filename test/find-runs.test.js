@@ -55,7 +55,7 @@ rule('Follow-ups: 5,000 draw 50 a chip, oldest open first, with Show more focusi
   const app = await bigApp(); await followUps(app);
   let h = app.html();
   assert.strictEqual(fuKeys(h).length, 50);
-  assert.ok(/Open · 5000</.test(h) || /Open · 5,000</.test(h) || /Open · \d+</.test(h), 'the heading counts every one');
+  assert.ok(/Open<span class="dot">&nbsp;·&nbsp;<\/span>5000</.test(h) || /Open<span class="dot">&nbsp;·&nbsp;<\/span>5,000</.test(h) || /Open<span class="dot">&nbsp;·&nbsp;<\/span>\d+</.test(h), 'the heading counts every one');
   const d = moreOf(h, 'fu');
   assert.ok(d && d.focus === '[id="fu-t-' + d.next + '"]', JSON.stringify(d));
   app.click('more', 'fu', d); await app.tick(5);
@@ -348,7 +348,7 @@ rule('The checklist\'s version picker and How runs go\'s version each list at mo
   assert.ok(o.filter(x => x[0] === MORE).length === 1 && o.length <= 52, 'and Show 50 more…, total ' + o.length);
   await typeFind(app, 'map-ver', 'v3 ·');
   o = options(app.html(), 'map-ver');
-  const three = o.filter(x => /^v3 · /.test(x[1]));
+  const three = o.filter(x => /^v3&ensp;·&ensp;/.test(x[1]));
   assert.strictEqual(three.length, 1, 'Find reaches v3');
   app.select('map-ver', three[0][0]); await app.tick(10);
   app.click('find-clear', 'map-ver'); await app.tick(5);
@@ -361,10 +361,10 @@ rule('The checklist\'s version picker and How runs go\'s version each list at mo
   assert.strictEqual(candidates(o, []).length, 50, 'ins-folder: 50');
   await typeFind(app, 'ins-folder', 'v3 ');
   o = options(app.html(), 'ins-folder');
-  assert.ok(o.some(x => /^v3 /.test(x[1])), 'Find reaches v3 on How runs go');
-  app.select('ins-folder', o.filter(x => /^v3 /.test(x[1]))[0][0]); await app.tick(10);
+  assert.ok(o.some(x => /^v3&ensp;·&ensp;/.test(x[1])), 'Find reaches v3 on How runs go');
+  app.select('ins-folder', o.filter(x => /^v3&ensp;·&ensp;/.test(x[1]))[0][0]); await app.tick(10);
   app.click('find-clear', 'ins-folder'); await app.tick(5);
-  assert.ok(options(app.html(), 'ins-folder').some(x => /^v3 /.test(x[1]) && x[2]), 'chosen and drawn');
+  assert.ok(options(app.html(), 'ins-folder').some(x => /^v3&ensp;·&ensp;/.test(x[1]) && x[2]), 'chosen and drawn');
   app.select('ins-folder', insWas); await app.tick(10);
   /* By URL: the checklist at version 3, from somewhere else. */
   app.click('nav', 'home'); await app.tick(5);
@@ -461,7 +461,7 @@ rule('Move it to on a 400-step checklist with 200 "Confirm the result" steps: 50
   assert.strictEqual(c.length, 50, '50 places');
   assert.ok(o[0][0] === '' && o[o.length - 1][0] === MORE && o.length === 52, 'Choose… first, Show 50 more… last, total ' + o.length);
   assert.ok(c.some(x => x[0] === 'after:s198') && c.some(x => x[0] === 'after:s200'), 'around the step being corrected');
-  const confirm = c.filter(x => /^After "Confirm the result \(v2\)" · Phase \d+, step \d+$/.test(x[1]));
+  const confirm = c.filter(x => /^After "Confirm the result \(v2\)"&ensp;·&ensp;Phase \d+, step \d+$/.test(x[1]));
   assert.ok(confirm.length >= 20, 'each repeated place names where it is: ' + confirm.length);
   app.set('corr-why', 'It belongs near the end'); app.input('corr-why', 'It belongs near the end'); await app.tick(5);
   await typeFind(app, 'corr-move', 'phase 8, step 40');
@@ -502,7 +502,7 @@ rule('Planned: 5,000 plans draw 50 soonest first, the heading counts them all, a
   let h = app.html();
   const ids = planCards(h);
   assert.strictEqual(ids.length, 50);
-  assert.ok(/id="planned-h">Planned · 5,0\d\d</.test(h), 'the heading counts every plan');
+  assert.ok(/id="planned-h">Planned<span class="dot">&nbsp;·&nbsp;<\/span>5,0\d\d</.test(h), 'the heading counts every plan');
   assert.deepStrictEqual(ids.slice(0, 3), ['plan-00000', 'plan-00001', 'plan-00002'], 'soonest first');
   const d = moreOf(h, 'runs-planned');
   assert.ok(d, 'Show more');
@@ -634,10 +634,10 @@ rule('Home: Your follow-ups shows 10 of 50, Show more adds 10 with focus on the 
   await into(app, fx);
   app.click('nav', 'home'); await app.tick(10);
   let h = app.html();
-  const mine = +(/id="fu-home-h">Your follow-ups · (\d+)</.exec(h) || [])[1];
+  const mine = +(/id="fu-home-h">Your follow-ups<span class="dot">&nbsp;·&nbsp;<\/span>(\d+)</.exec(h) || [])[1];
   assert.ok(mine >= 40, 'set-up: many are mine: ' + mine);
   assert.strictEqual(fuKeys(h).length, 10);
-  assert.ok(/data-act="nav" data-id="followups">All open follow-ups · \d+/.test(h), 'the link to all of them');
+  assert.ok(/data-act="nav" data-id="followups">All open follow-ups<span class="dot">&nbsp;·&nbsp;<\/span>\d+/.test(h), 'the link to all of them');
   const d = moreOf(h, 'home-fu');
   assert.ok(d, 'Show more');
   app.click('more', 'home-fu', d); await app.tick(5);
@@ -740,7 +740,7 @@ rule('Why is this here? with 300 members draws 20, each with its whole reason an
   app.click('nav', 'home'); await app.tick(5); app.click('open-run', facts.landed); await app.tick(10);
   app.click('select', 's0'); await app.tick(10);
   let h = app.html();
-  const runs = lis(h, /<button class="linkish" id="pm-s0-_[A-Za-z0-9_]+-run"/g), whys = lis(h, /<dt id="pm-s0-_[A-Za-z0-9_]+" tabindex="-1">Why · /g);
+  const runs = lis(h, /<button class="linkish" id="pm-s0-_[A-Za-z0-9_]+-run"/g), whys = lis(h, /<dt id="pm-s0-_[A-Za-z0-9_]+" tabindex="-1">Why<span class="dot">&nbsp;·&nbsp;<\/span>/g);
   assert.strictEqual(runs, 20, '20 source runs');
   assert.strictEqual(whys, 20, 'and their 20 reasons');
   assert.ok(/Suggested in 300 runs: /.test(h) && /, and 280 more<\/p>/.test(h), 'the count is all of them');

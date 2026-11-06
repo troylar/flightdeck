@@ -87,7 +87,7 @@
     var eff = R.fieldsOf(r, s), shown = 0;
     Object.keys(eff).forEach(function (f) {
       var def = T.fieldDef(t, f), v = def && eff[f] ? R.fill(eff[f], r.details, map.meta.context) : ''; if (!v || shown >= 2 || v.length > 32 || (def.kind !== 'text' && def.kind !== 'choice') || /^(expect|deadline|require|at|due|after|evidence|sets|carry)$/.test(f)) return;
-      shown++; meta += '<span class="s-field">' + esc(def.label) + ' ' + esc(v) + '</span>';
+      shown++; meta += '<span class="s-field">' + esc(T.fieldName(t, f)) + ' ' + esc(v) + '</span>';
     });
     var badges = (s.must ? K.mustMark() : '') + (s.planned ? '<span class="badge b-plan">Automation planned</span>' : '') +
       (aState === 'recheck' ? (P ? '<span class="badge b-warn">Try it again</span>' : '<span class="badge b-warn">Re-check: ' + esc(a.reason) + '</span>') : '') +
@@ -688,19 +688,19 @@
     var st = ctx.state, eff = R.fieldsOf(r, s), own = (r.fields || {})[s.id] || {}, chips = '', code = '';
     Object.keys(eff).forEach(function (f) {
       if (f === 'expect' || f === 'deadline' || f === 'require' || !eff[f] || (sched && (f === 'at' || f === 'due' || f === 'after'))) return;
-      var def = T.fieldDef(t, f) || { label: f, kind: 'text' }, val = R.fill(eff[f], r.details, map.meta.context), mark = own[f] != null ? ' filled" title="Filled in during this run' : '';
-      var copy = function () { var on = st.copied === val; return '<button class="mini" data-act="copy" data-text="' + esc(val) + '" aria-label="Copy ' + esc(def.label) + '">' + I(on ? 'check' : 'copy') + (on ? 'Copied' : 'Copy') + '</button>'; };
+      var def = T.fieldDef(t, f) || { label: f, kind: 'text' }, lab = T.fieldName(t, f), val = R.fill(eff[f], r.details, map.meta.context), mark = own[f] != null ? ' filled" title="Filled in during this run' : '';
+      var copy = function () { var on = st.copied === val; return '<button class="mini" data-act="copy" data-text="' + esc(val) + '" aria-label="Copy ' + esc(lab) + '">' + I(on ? 'check' : 'copy') + (on ? 'Copied' : 'Copy') + '</button>'; };
       if (f === 'evidence') { chips += '<span class="fchip"><b>Evidence:</b> ' + esc(PROOF[String(val).toLowerCase()] || 'a note') + '</span>'; return; }
       if (def.kind === 'message') { code += '<div class="cmd msg' + mark + '"><span>' + esc(val) + '</span>' + copy() + '</div>'; return; }
-      if (def.kind === 'list') { chips += '<span class="fchip' + mark + '"><b>' + esc(def.label) + ':</b> ' + esc(val.split(',').map(function (x) { return x.trim(); }).filter(Boolean).join(' / ')) + '</span>'; return; }
+      if (def.kind === 'list') { chips += '<span class="fchip' + mark + '"><b>' + esc(lab) + ':</b> ' + esc(val.split(',').map(function (x) { return x.trim(); }).filter(Boolean).join(' / ')) + '</span>'; return; }
       if (def.kind === 'code') code += '<div class="cmd' + mark + '"><code>' + esc(val) + '</code>' + copy() + '</div>';
       else if (def.kind === 'url') {
         /* A link field (2.16): each run detail encoded for its part of the address; otherwise no link, with the reason. */
         var lk = PF.urls.fillLink(eff[f], r.details, map.meta.context);
-        if (lk.ok && U.safeUrl(lk.href)) chips += '<a class="fchip' + mark + '" href="' + esc(U.safeUrl(lk.href)) + '" target="_blank" rel="noopener noreferrer"><b>' + esc(def.label) + '</b> open</a>';
-        else chips += '<span class="fchip' + mark + '"><b>' + esc(def.label) + ':</b> ' + esc(lk.plain || lk.code ? PF.urls.marked(eff[f]) : val) + (lk.code === 'static' ? '' : ' <span class="small">' + esc(lk.why) + '</span>') + '</span>';
+        if (lk.ok && U.safeUrl(lk.href)) chips += '<a class="fchip' + mark + '" href="' + esc(U.safeUrl(lk.href)) + '" target="_blank" rel="noopener noreferrer"><b>' + esc(lab) + '</b> open</a>';
+        else chips += '<span class="fchip' + mark + '"><b>' + esc(lab) + ':</b> ' + esc(lk.plain || lk.code ? PF.urls.marked(eff[f]) : val) + (lk.code === 'static' ? '' : ' <span class="small">' + esc(lk.why) + '</span>') + '</span>';
       }
-      else chips += '<span class="fchip' + mark + '"><b>' + esc(def.label) + ':</b> ' + esc(val) + '</span>';
+      else chips += '<span class="fchip' + mark + '"><b>' + esc(lab) + ':</b> ' + esc(val) + '</span>';
     });
     return (chips ? '<div class="fields">' + chips + '</div>' : '') + code;
   }
@@ -749,7 +749,7 @@
 
     /* What to do */
     /* The plain type's generic hint says nothing the step doesn't; What to do shows only when it has something (2.3.1). */
-    var how = (t.hint && t.id !== 'confirm' ? '<p class="small">' + esc(t.hint) + '</p>' : '') + (st.note ? '<div class="note">' + U.mdBlock(st.note) + '</div>' : '');
+    var how = (T.hintOf(t) && t.id !== 'confirm' ? '<p class="small">' + esc(T.hintOf(t)) + '</p>' : '') + (st.note ? '<div class="note">' + U.mdBlock(st.note) + '</div>' : '');
     var shots = st.shots.map(function (sh, k) { return '<figure class="shot"><button class="thumb" data-act="zoom" data-id="' + esc(st.id) + '" data-i="' + k + '" aria-label="Expand: ' + esc(sh.caption) + '" title="' + esc(sh.caption) + '">' + ctx.img(sh.src, sh.caption) + '</button><figcaption class="small">' + esc(sh.caption) + '</figcaption>' +
       (s.me && !corrOpen && !P ? '<button class="linkish" data-act="corr-open" data-mode="correct" data-op="screenshot" data-id="' + esc(st.id) + '" data-shot="' + esc(sh.src) + '">' + (st.shots.length === 1 ? 'Replace this screenshot' : 'Replace screenshot ' + (k + 1)) + '</button>' : '') + '</figure>'; }).join('');
     how += fieldsBlock(ctx, r, map, st, t, sched) + (shots ? '<div class="thumbs shots">' + shots + '</div>' : '');

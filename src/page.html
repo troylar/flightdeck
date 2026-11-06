@@ -16,7 +16,7 @@
   --hd-py: var(--sp-3); --hd-px: var(--sp-5); --tr-py: var(--sp-2);
   --pane-pt: var(--sp-4); --pane-px: var(--sp-5); --pane-pb: var(--sp-12); --rail-px: var(--sp-3);
   --row-py: var(--sp-3); --row-px: var(--sp-4); --row-gap: var(--sp-3); --stack: var(--sp-1);
-  --card-py: var(--sp-3); --card-px: var(--sp-5); --stripe-pad: var(--sp-8); --lh-meta: 18px; --sep-w: 14px; --sep-ws: 3.7px;
+  --card-py: var(--sp-3); --card-px: var(--sp-5); --stripe-pad: var(--sp-8); --lh-meta: 18px; --sep-w: 14px; --sep-ws: 0.285em; --crumb-w: 16px;
   --paper: #F3F5F1; --card: #FFFFFF; --ink: #16202A; --muted: #59646E; --line: #D6DCD4; --field: #7D877F; --chip: #E8ECE6;
   --amber: #E7A300; --on-amber: #241A00; --stripe: #16202A; --amber-soft: #FBF0D2;
   --go: #1D7650; --go-soft: #E1F0E8; --stop: #B0261E; --stop-soft: #F7E3E1; --plan: #5A55A8; --plan-soft: #ECEBF8;
@@ -531,7 +531,7 @@ input[type="checkbox"] { accent-color: var(--go); width: 16px; height: 16px; }
 .backrow { margin: 0 0 8px; }
 .backc { display: inline-flex; align-items: center; gap: 2px; max-width: 100%; min-width: 0; white-space: nowrap; }
 .backc .backc-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.backc .backc-v { flex: none; }
+.backc .backc-v { flex: none; margin-left: -2px; } /* the row's gap is taken back: the dot it starts with spaces itself */
 .pviews { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 14px; border-bottom: 1px solid var(--line); }
 .pviews button { border: 0; background: none; padding: 8px 12px; font-weight: 600; color: var(--muted); border-bottom: 3px solid transparent; margin-bottom: -1px; }
 .pviews button[aria-current="page"] { color: var(--ink); border-bottom-color: var(--ink); }
@@ -1270,10 +1270,13 @@ p.pv-when { margin: 0 0 4px; }
 .ob-needed { border-style: dashed; color: var(--muted); }
 .ob-records ul { list-style: none; padding: 0; margin: 6px 0 0; display: grid; gap: 10px; }
 .ob-records li .hint { margin: 2px 0 0; }
-.ob-crumbs { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 2px 0; font-size: 13px; color: var(--muted); }
-.ob-crumbs li { overflow-wrap: anywhere; }
-.ob-crumbs li + li::before { content: "/"; margin: 0 6px; color: var(--field); }
-.ob-crumbs li:last-child { color: var(--ink); font-weight: 600; }
+/* Where it is (2.16.2): like the status line, each crumb leads with its "/" centered in --crumb-w, and the list starts one
+   --crumb-w left of its column and is clipped there, so the "/" leading a line never shows and none ends one. A line breaks
+   only between crumbs or inside a long name; the last crumb (Step 2 of 6) stays whole. */
+.ob-crumbs { list-style: none; margin: 0; margin-left: calc(-1 * var(--crumb-w)); clip-path: inset(-4px -4px -4px var(--crumb-w)); padding: 0; display: flex; flex-wrap: wrap; gap: 2px 0; font-size: 13px; color: var(--muted); }
+.ob-crumbs li { position: relative; padding-left: var(--crumb-w); min-width: 0; overflow-wrap: anywhere; }
+.ob-crumbs li::before { content: "/" / ""; position: absolute; left: 0; top: 0; width: var(--crumb-w); text-align: center; color: var(--field); }
+.ob-crumbs li:last-child { color: var(--ink); font-weight: 600; white-space: nowrap; }
 .ob-src summary, .ob-help summary { cursor: pointer; font-size: 13px; color: var(--muted); }
 .ob-src > p { margin: 6px 0 0; }
 .ob-shots { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
@@ -1414,7 +1417,7 @@ html.rw-on #app { padding: 0; max-width: none; }
 .rw-next[data-k~="ready"], .rw-next[data-k="complete"], .rw-next[data-k="ended"] { background: var(--go-soft); border-color: var(--go); }
 .rw-next-t { min-width: 0; flex: 1 1 260px; }
 .rw-next-t b { display: block; font-family: var(--display); font-size: 19px; line-height: 1.2; overflow-wrap: anywhere; }
-.rw-next .small { color: var(--ink); opacity: .8; }
+.rw-next .small { color: var(--ink); opacity: .8; text-wrap: pretty; }
 .rw-here { font-weight: 600; }
 .rw-picker { display: none; gap: 6px 8px; align-items: center; flex-wrap: wrap; padding: var(--sp-2) var(--pane-px); border-bottom: 1px solid var(--line); background: var(--card); }
 .rw-picker select { min-height: 38px; border: 1px solid var(--field); border-radius: 7px; padding: 4px 8px; background: var(--card); color: var(--ink); max-width: 100%; flex: 1 1 220px; min-width: 0; }
@@ -1549,8 +1552,16 @@ h3.fixgroup { font-family: var(--body); font-size: 14px; letter-spacing: 0; }
 .rw-ins { display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--card); }
 .rw-ins-top { position: sticky; top: 0; z-index: 3; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: var(--sp-3) var(--pane-px); background: var(--card); border-bottom: 1px solid var(--line); }
 .rw-ins-top .close { display: none; }
-.rw-where { margin-right: auto; min-width: 0; }
-.rw-steps { margin-left: auto; gap: 4px; }
+/* Previous and Next stay on the top row at every inspector width (2.16.2): the row is laid out from the right, so Previous and
+   Next, then Edit step and Close, are placed first and keep their size, and where the step is takes the room left of them,
+   wrapping there in full. Only when that room is under 7em does it move, whole, to a line of its own under them. It holds no
+   control, so the buttons are still focused left to right in the markup's order. */
+.rw-ins-top { flex-direction: row-reverse; }
+.rw-steps { order: 1; flex: none; gap: 4px; }
+.rw-ins-edit { order: 2; flex: none; }
+.rw-ins-top .close { order: 3; }
+.rw-where { order: 4; flex: 1 1 7em; min-width: 0; }
+.rw-skip { order: 5; }
 .rw-steps .mini { min-height: 32px; }
 .rw-ins-body { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--pane-pt) var(--pane-px) var(--sp-6); }
 .rw-ins-h { margin: 0; font-family: var(--display); font-size: 24px; line-height: 1.15; overflow-wrap: anywhere; }
@@ -1936,16 +1947,22 @@ html.work-on .top { display: none; }
 /* The status line owns its type: 13/20, muted; nested state text (Edit's .fpe-state) inherits it. One 24 px line at least. */
 /* A piece wraps rather than being cut. Every piece leads with its separator, centered in --sep-w so both sides match; the line
    starts one --sep-w left of the column and is clipped there, so the separator leading each line never shows and none is
-   left at a line's end. The clip leaves 4 px for a focus ring. A "·" inside a piece (.hd-dot, workHead) is held to its words
-   by no-break spaces, widened by --sep-ws to the same --sep-w. */
+   left at a line's end. The clip leaves 4 px for a focus ring. A "·" inside a piece is a .dot (below), the same --sep-w wide. */
 .hd-st { grid-column: 1 / -1; margin: var(--sp-h) 0 0; margin-left: calc(-1 * var(--sep-w)); clip-path: inset(-12px -12px -12px calc(var(--sep-w) - 4px)); font-size: 13px; line-height: 20px; min-height: 24px; color: var(--muted); display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0; min-width: 0; }
 .hd-st .d { min-width: 0; flex: 0 1 auto; overflow-wrap: anywhere; }
 /* The inset is the piece's own, on every line it wraps to, so no line of it starts inside the clipped strip. */
 .hd-st > :is(.d, .act) { position: relative; padding-left: var(--sep-w); }
 .hd-st > :is(.d, .act)::before { content: "·" / ""; position: absolute; left: 0; top: 0; width: var(--sep-w); height: 20px; display: flex; align-items: center; justify-content: center; color: var(--muted); }
 .hd-st > .act::before { height: 100%; }
-.hd-st .hd-dot { word-spacing: var(--sep-ws); }
 .hd-st .act { flex: none; display: inline-flex; align-items: center; }
+/* One separator everywhere (V.dots): every "·" in text is held to its words by no-break spaces, which --sep-ws widens so both
+   sides match; in em, so it keeps its proportions in smaller or larger text (a 13 px one is exactly --sep-w wide). */
+.dot { word-spacing: var(--sep-ws); }
+/* A link drawn as a target (padding to reach 24 px) starts at its text after a dot, so the space after the dot is the dot's own. */
+.dot + button.linkish[data-act] { padding-inline-start: 0; }
+/* A dot and the button beside it never part at a line's end (V.dots wraps the two); the button's own text still wraps. */
+.dotk { white-space: nowrap; }
+.dotk > button { white-space: normal; }
 /* Discard my changes lives in row 1's right column, before Save draft (workHead's o.sa slot, drawn only while there are
    changes): the status line never holds or reserves it. The column is end-aligned, so its appearing moves neither the primary
    nor More. */
@@ -1953,8 +1970,9 @@ html.work-on .top { display: none; }
 /* 801-859: Discard, Save draft and More fit on row 1 beside the view switch only without its icons, so its labels stand alone
    there and Edit's row 1 stays one line, like Practice's. */
 @media (min-width: 801px) and (max-width: 859px) { .ws-views .ic { display: none; } }
-/* Practice's kept count gives way at 801-899, in both views alike; its name (aria-label) still says it. */
-@media (min-width: 801px) and (max-width: 899px) { .ws-views .ws-cnt { display: none; } }
+/* Practice's kept count gives way at 801-909, in both views alike; its name (aria-label) still says it. 2.16.2: its "·" is
+   spaced like every other, 7 px wider, so the count first fits at 905; 909 leaves a few px to spare. */
+@media (min-width: 801px) and (max-width: 909px) { .ws-views .ws-cnt { display: none; } }
 /* The checklist page's right column is never narrower than its widest run button, and the buttons wrap inside it when the
    row is short, so they never cover the tabs; the tabs stay centered. */
 @media (min-width: 801px) { .hd.phd { grid-template-columns: minmax(0, 1fr) auto minmax(min-content, 1fr); } .phd .hd-acts { flex: 0 1 auto; min-width: 0; flex-wrap: wrap; justify-content: flex-end; } }
@@ -2140,8 +2158,9 @@ html.work-on .top { display: none; }
   .ob-more-opts[open] > summary::before { content: "▾" / ""; }
   .corr-runs > summary { list-style: none; }
   .corr-runs > summary::-webkit-details-marker { display: none; }
-  .corr-runs > summary::before { content: "▸" / ""; color: var(--muted); font-size: .85em; margin-right: 4px; }
-  .corr-runs[open] > summary::before { content: "▾" / ""; }
+  /* The same triangles, at the same size, as a summary's own marker everywhere else (2.16.2: ▸ at .85em read as a stray dot). */
+  .corr-runs > summary::before { content: "▶" / ""; color: var(--muted); font-size: .75em; margin-right: 6px; }
+  .corr-runs[open] > summary::before { content: "▼" / ""; }
   summary.btn::after, .rw-menu > summary::after, .tf-menu > summary::after { content: "▾" / ""; margin-left: 6px; font-size: .8em; color: var(--muted); }
   details[open] > summary.btn::after, .rw-menu[open] > summary::after, .tf-menu[open] > summary::after { content: "▴" / ""; }
 

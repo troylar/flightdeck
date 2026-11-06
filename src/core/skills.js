@@ -6,7 +6,7 @@
      "version": "1.2.0",                       the skill's own version
      "location": "https://bitbucket.example.com/projects/WA/repos/skills/browse/release-deploy",   its source path or link
      "implements": "release@4",                the process version it was built from
-     "steps": ["merge", "jenkins"],            the steps it covers; leave out for the whole process
+     "steps": ["merge", "jenkins"],            the steps it covers; leave out for the whole checklist
      "group": "Engineering / Releases",        optional place in the hierarchy, and tags
      "tags": ["deploy"],
      "description": "Merges the release branch and starts the deploy job."
@@ -278,7 +278,7 @@ PF.skills = (function () {
       else if (!a[id] && b[id]) out.push({ id: id, change: 'added', from: null, to: b[id].step });
       else if (a[id] && b[id] && a[id].sig !== b[id].sig) out.push({ id: id, change: 'changed', from: a[id].step, to: b[id].step });
     });
-    /* The run details the process takes are a skill's inputs (and, without carry:, what a child run is started with). */
+    /* The run details the checklist takes are a skill's inputs (and, without carry:, what a child run is started with). */
     var ca = contextOf(fromMap), cb = contextOf(toMap);
     if (ca.join(',') !== cb.join(',')) out.push({ id: '(run details)', change: 'context', from: ca, to: cb });
     /* Every other declared input (roles, runs, and the payload's extensions and pins), bound by a step or not. */

@@ -350,7 +350,7 @@ rule('Folder health: 1,000 issues draw 50 a section, building only those, and Sh
   const d = await perfDelta(app, ['health.issue'], async () => { app.click('health'); await app.tick(20); });
   const h = app.html();
   assert.ok(count(h, /<li class="hz-issue /g) <= 100, 'at most 50 a section');
-  assert.ok(/Needs action · 1,0\d\d/.test(h), 'the heading counts every one');
+  assert.ok(/Needs action<span class="dot">&nbsp;·&nbsp;<\/span>1,0\d\d/.test(h), 'the heading counts every one');
   assert.ok(d['health.issue'] > 0 && d['health.issue'] <= 100 * 3, 'built only for drawn rows: ' + d['health.issue']);
   const m = await more(app, 'hz-stop', h);
   assert.strictEqual(app.activeId(), m.focus.replace(/^\[id="|"\]$/g, ''));

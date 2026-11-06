@@ -2476,7 +2476,7 @@ const HELP = `flightdeck: team process checklists, in one HTML file
                                       make one of the runs started on those days, both included, in --tz
                                       (this computer's time zone unless you say)
   flightdeck processes <team folder> --json
-                                      for other apps: every process and its versions, as JSON
+                                      for other apps: every checklist and its versions, as JSON
   flightdeck process <team folder> <process> [--version N | --folder v3-... | --stage stage-...] --json
                                       one version's phases, steps, gates and evidence (the latest usable one
                                       unless you say; --stage, with --contract 2: a staged version)

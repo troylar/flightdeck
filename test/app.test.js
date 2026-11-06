@@ -301,7 +301,7 @@ rule('App: the builder\'s Undo puts back the last change, and the Markdown view 
   app.set('ob-ph-title', 'Verify it'); app.keyOn('Enter', {}, { tagName: 'INPUT', id: 'ob-ph-title', value: 'Verify it', dataset: { enter: 'ob-commit' }, closest: () => null }); await app.tick();
   app.click('ed-mode', 'markdown'); await app.tick();
   assert.strictEqual(app.store['preflight:builder'], 'false', 'the choice is remembered in this browser');
-  assert.ok(/id="draft-editor"/.test(app.html()) && /Changed lines · 1 new or changed, 1 removed/.test(app.html()) && /<code>## Verify it · READ-DO \{#verify\}<\/code>/.test(app.html()));
+  assert.ok(/id="draft-editor"/.test(app.html()) && /Changed lines<span class="dot">&nbsp;·&nbsp;<\/span>1 new or changed, 1 removed/.test(app.html()) && /<code>## Verify it · READ-DO \{#verify\}<\/code>/.test(app.html()));
   app.click('ed-mode', 'builder'); await app.tick();
   assert.ok(/id="ob"/.test(app.html()));
 });
@@ -420,7 +420,7 @@ rule('App: Undo after Save makes the draft unsaved again, and saving it is check
   assert.strictEqual(app.fs.files[path].t, theirs, 'their change is kept');
   assert.ok(/Someone else changed this draft/.test(app.html()), 'shown as a conflict');
   app.click('hist-open', 'draft'); await app.tick();
-  assert.ok(/class="hist-entry"><div class="hist-what">The step deletion of &quot;Rollback commit written in the release ticket&quot;<\/div><div class="small">You · [^<]* · saved/.test(app.overlay()), 'History says the change was saved');
+  assert.ok(/class="hist-entry"><div class="hist-what">The step deletion of &quot;Rollback commit written in the release ticket&quot;<\/div><div class="small">You<span class="dot">&nbsp;·&nbsp;<\/span>[^<]*<span class="dot">&nbsp;·&nbsp;<\/span>saved/.test(app.overlay()), 'History says the change was saved');
 });
 
 rule('App: following a newer draft from the folder is one undoable change: Undo takes it back as unsaved, and the changes before it stay undoable', async () => {
@@ -1029,7 +1029,7 @@ rule('App: a step type keeps its Undo and History after it\'s saved and opened a
   app.click('tl-undo', 'type'); await app.tick();
   assert.ok(/<input id="tf-label"[^>]*value=""/.test(app.html()), 'and undoes the typing');
   app.click('hist-open', 'type'); await app.tick();
-  assert.ok(/· saved/.test(app.overlay()), 'History says it was saved');
+  assert.ok(/·&nbsp;<\/span>saved/.test(app.overlay()), 'History says it was saved');
   app.key('Escape'); await app.tick();
   // Changed in the folder meanwhile: the older changes stay listed, behind a baseline.
   app.click('type-cancel'); await app.tick();
@@ -2318,7 +2318,7 @@ rule('R14: without a shared lock, a save overwritten by Record here comes back a
 
 rule('Releases: someone new sees no dot; someone who used an older version sees a dot and a one-time notice', async () => {
   const fresh = boot(); await fresh.tick(60);
-  assert.ok(/<span class="wn-l">What's new<span class="ver">&nbsp;·&nbsp;v\d+\.\d+\.\d+<\/span><\/span>/.test(fresh.top()) && !/wn-dot/.test(fresh.top()), 'a first visit is not a changelog');
+  assert.ok(/<span class="wn-l">What's new<span class="ver"><span class="dot">&nbsp;·&nbsp;<\/span>v\d+\.\d+\.\d+<\/span><\/span>/.test(fresh.top()) && !/wn-dot/.test(fresh.top()), 'a first visit is not a changelog');
   const old = boot({ localStore: { 'preflight:seen-release': '"1.0.0"', 'preflight:me': '"person-casey"' } }); await old.tick(60);
   assert.ok(/wn-dot/.test(old.top()), 'the dot shows');
   assert.ok(/Flightdeck was updated to \d+\.\d+\.\d+/.test(old.html()) && /data-act="whats-new"/.test(old.html()), 'a one-time notice offers What\'s new');
@@ -2532,9 +2532,9 @@ rule('Plans: while proposals/ can\'t be read, a plan kept from before can\'t be 
   assert.deepStrictEqual(releaseRuns(app), before, 'nothing started');
   app.click('decline-plan', 'plan-release-2026-10-24'); await app.tick(120);
   app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
-  const eyebrow = () => (app.html().match(/<div class="eyebrow">[^<]*/) || [''])[0];
+  const eyebrow = () => (app.html().match(/<div class="eyebrow">[\s\S]*?<\/div>/) || [''])[0];
   const was = eyebrow();
-  assert.ok(/ · v1/.test(was), 'set-up: on v1: ' + was);
+  assert.ok(/<span class="dot">&nbsp;·&nbsp;<\/span>v1/.test(was), 'set-up: on v1: ' + was);
   app.click('plan-latest', 'plan-release-2026-10-24'); await app.tick(120);
   app.click('review-plan', 'plan-release-2026-10-24'); await app.tick();
   assert.strictEqual(eyebrow(), was, 'not switched');
@@ -3158,7 +3158,7 @@ function clockFrom(iso, extra) {
 rule('Plans: the example plan with a time shows on Home with one way to review and start it', async () => {
   const app = boot({ Date: clockFrom(MIDDAY) }); await app.tick(60);
   app.choose('person-casey'); await app.tick();
-  assert.ok(/Release 2026\.10\.23 is planned for [^<]* · in \d+ (hours|minutes)/.test(app.html()));
+  assert.ok(/Release 2026\.10\.23 is planned for [^<]*<span class="dot">&nbsp;·&nbsp;<\/span>in \d+ (hours|minutes)/.test(app.html()));
   assert.ok(/data-act="review-plan" data-id="plan-release-example-next">Review the plan</.test(app.html()));
 });
 
@@ -3213,8 +3213,8 @@ rule('Plans: as time passes, Home picks up a plan entering its last day and the 
   assert.ok(!/Release later is planned/.test(app.html()), 'more than a day away: not on Home yet');
   offset = 3 * 3600000;
   app.every(); await app.tick();
-  assert.ok(/Release later is planned for [^<]* · in 2\d hours|Release later is planned for [^<]* · tomorrow/.test(app.html()), 'inside its last day: on Home');
-  assert.ok(/Release 2026\.10\.23 is planned for [^<]* · (starts now|was due \d+ minutes ago|in \d+ minutes)/.test(app.html()), 'the other plan\'s time words moved on');
+  assert.ok(/Release later is planned for [^<]*<span class="dot">&nbsp;·&nbsp;<\/span>in 2\d hours|Release later is planned for [^<]*<span class="dot">&nbsp;·&nbsp;<\/span>tomorrow/.test(app.html()), 'inside its last day: on Home');
+  assert.ok(/Release 2026\.10\.23 is planned for [^<]*<span class="dot">&nbsp;·&nbsp;<\/span>(starts now|was due \d+ minutes ago|in \d+ minutes)/.test(app.html()), 'the other plan\'s time words moved on');
 });
 
 rule('Plans: a time the clocks skip is pointed out, not saved an hour off', async () => {
@@ -3266,7 +3266,7 @@ rule('App: Done differently needs what happened, takes the step\'s evidence like
   assert.deepStrictEqual([a.s, a.differently.note, a.values.build], ['done', 'Started it from the console; the button was gone', 'https://ci.example.com/job/web-app-deploy-prod/88/']);
   assert.strictEqual(newNotes(app, key).filter(x => x.kind === 'correction').length, 0, 'just this run: no correction');
   app.click('select', 'jenkins'); await app.tick();
-  assert.ok(/<span class="badge b-diff">Done differently<\/span> · Casey Nguyen/.test(app.html()) && /<span class="pill waived">One-off<\/span>/.test(app.html()));
+  assert.ok(/<span class="badge b-diff">Done differently<\/span><span class="dot">&nbsp;·&nbsp;<\/span>Casey Nguyen/.test(app.html()) && /<span class="pill waived">One-off<\/span>/.test(app.html()));
   app.click('select', 'flags'); await app.tick();
   assert.ok(!/data-mode="differently"/.test(app.html().slice(app.html().indexOf('<aside'))), 'not on a step in a passed phase');
 });
@@ -3298,14 +3298,14 @@ rule('App: on the process page anyone marks a correction applied, declines it wi
   const app = boot(); await app.tick(80);
   app.choose('person-morgan'); await app.tick();
   app.click('open-process', 'release'); await app.tick(20);
-  assert.ok(/Corrections · 2 open/.test(app.html()) && /Suggested in 2 runs/.test(app.html()), 'the example\'s open ones, one suggested in two runs');
+  assert.ok(/Corrections<span class="dot">&nbsp;·&nbsp;<\/span>2 open/.test(app.html()) && /Suggested in 2 runs/.test(app.html()), 'the example\'s open ones, one suggested in two runs');
   const id = /data-act="corr-applied" data-id="([\w-]+)"/.exec(app.html())[1];
   const theirs = app.files('corrections/release/').map(p => [p, app.fs.files[p].t]);
   const mine = () => app.files('corrections/release/' + id + '.').filter(p => !/example-session/.test(p)).sort();
   app.click('corr-applied', id); await app.tick(60);
   let d = JSON.parse(app.fs.files[mine()[0]].t);
   assert.deepStrictEqual([d.kind, d.group, d.status, d.by, d.rev, d.members.length], ['correction-decision', id, 'applied', 'person-morgan', 1, 2]);
-  assert.ok(/Corrections · 1 open/.test(app.html()) && /Marked as applied to the draft\./.test(app.html() + app.live()));
+  assert.ok(/Corrections<span class="dot">&nbsp;·&nbsp;<\/span>1 open/.test(app.html()) && /Marked as applied to the draft\./.test(app.html() + app.live()));
   app.click('corr-filter', 'all'); await app.tick();
   assert.ok(/<span class="pill ready">Applied to draft<\/span>/.test(app.html()), 'Applied to draft, never "Fixed in vN"');
   app.click('corr-reopen', id); await app.tick(60);
@@ -3344,7 +3344,7 @@ rule('App: Apply to draft compares three ways, saves the draft as one undoable c
   const [d] = decisions(app, id);
   assert.deepStrictEqual([d.status, d.by, d.rev, typeof d.result.sig], ['applied', 'person-morgan', 1, 'string']);
   assert.ok(!app.overlay() && /Applied correction to &quot;New pods stay up with no restarts&quot;\. Saved to the draft\./.test(app.html()), app.html().slice(0, 0));
-  assert.ok(/Corrections · 1 open/.test(app.html()));
+  assert.ok(/Corrections<span class="dot">&nbsp;·&nbsp;<\/span>1 open/.test(app.html()));
   // One entry on the draft editor's timeline, named for what it did; Undo takes it back as an unsaved change in the editor.
   app.click('tl-undo', 'draft'); await app.tick();
   assert.ok(/Undid the applied correction to &quot;New pods stay up with no restarts&quot;\./.test(app.html()) && /Draft: not saved\. Save it before you publish\./.test(app.html()), 'undone in the editor, not saved');
@@ -3360,7 +3360,7 @@ rule('App: applying is refused while this window has unsaved edits to the draft,
   app.click('ptab', 'edit'); await app.tick();
   const md = app.fs.files[path].t;
   app.input('draft-editor', md.replace('Rollback commit written', 'Rollback commit and steps written')); await app.tick(300);
-  assert.ok(/Open corrections · 2/.test(app.html()) && /data-act="corr-goto-line" data-id="\d+">Go to line \d+</.test(app.html()), 'the Markdown lists open corrections with their lines');
+  assert.ok(/Open corrections<span class="dot">&nbsp;·&nbsp;<\/span>2/.test(app.html()) && /data-act="corr-goto-line" data-id="\d+">Go to line \d+</.test(app.html()), 'the Markdown lists open corrections with their lines');
   app.click('ptab', 'overview'); await app.tick();
   app.click('corr-review', id); await app.tick();
   assert.ok(/You have unsaved changes to this draft/.test(app.overlay()) && /data-act="corr-apply"[^>]*disabled/.test(app.overlay()));
@@ -3482,7 +3482,7 @@ rule('App: publishing lists the corrections it includes; the author sees it on H
   assert.ok(/Your correction to &quot;New pods stay up with no restarts&quot; is published in v3\./.test(home), home.slice(home.indexOf('ack-h') - 40, home.indexOf('ack-h') + 600));
   const key = /data-act="ack-dismiss" data-id="(l\.release\.v3-[a-z0-9]+)"/.exec(home)[1];
   app.click('ack-view', key, { process: 'release' }); await app.tick(20);
-  assert.ok(/Corrections · \d+ open/.test(app.html()) && /Published in v3/.test(app.html()), 'View change opens its corrections, all of them');
+  assert.ok(/Corrections<span class="dot">&nbsp;·&nbsp;<\/span>\d+ open/.test(app.html()) && /Published in v3/.test(app.html()), 'View change opens its corrections, all of them');
   app.click('home'); await app.tick(20);
   app.click('ack-dismiss', key); await app.tick(20);
   assert.ok(!new RegExp(key.replace(/\./g, '\\.')).test(app.html()), 'dismissed');
@@ -3982,7 +3982,7 @@ rule('App: a version this copy doesn\'t understand says why, can\'t be picked or
   app.click('open-process', 'release'); await app.tick();
   let h = app.html();
   assert.ok(new RegExp('v3-newer123: ' + NEWER.source).test(h), 'the process page says why');
-  assert.ok(new RegExp('<option value="" disabled>v3 · can(?:\'|&#39;)t be used here: ' + NEWER.source.replace(/&#39;/g, '(?:\'|&#39;)')).test(h), 'the version picker says why and can\'t pick it');
+  assert.ok(new RegExp('<option value="" disabled>v3&ensp;·&ensp;can(?:\'|&#39;)t be used here: ' + NEWER.source.replace(/&#39;/g, '(?:\'|&#39;)')).test(h), 'the version picker says why and can\'t pick it');
   assert.ok(!/value="v3-newer123"/.test(h) && !/data-id="v3-newer123"/.test(h), 'never offered to view or compare');
   app.click('start', 'release'); await app.tick();
   assert.ok(/data-folder="v2-/.test(app.html()) && !/v3-newer123/.test(app.html()), 'a new run starts on v2');
@@ -4641,16 +4641,16 @@ rule('App: Start your team on an empty folder: a write test, people with IDs and
   const runPath = Object.keys(files).find(k => /^runs\/check-in\/[^/]+\/run\.json$/.test(k));
   assert.ok(runPath, 'the run started');
   app.click('nav', 'home'); await app.tick(40);
-  assert.ok(/Getting started · 3 of 5/.test(app.html()), 'three steps done');
+  assert.ok(/Getting started<span class="dot">&nbsp;·&nbsp;<\/span>3 of 5/.test(app.html()), 'three steps done');
   // The run finishes (as its recorder's window writes it), and Sam answers a connection check from another computer.
   const P = app.PF, R = P.run, r = JSON.parse(files[runPath]), map = R.mapOf(r), now = new Date().toISOString();
   map.phases.forEach((ph, pi) => { ph.steps.forEach(st => { const v = {}; R.evidenceFor(r, st).list.forEach(d => { if (d.required) v[d.name] = d.kind === 'url' ? 'https://example.com/1' : 'ok'; }); R.done(r, map, st.id, 'person-riley-park', now, v); }); R.pass(r, map, pi, 'person-riley-park', now); });
   R.end(r, map, 'Completed', 'person-riley-park', 'Riley Park', now); r.rev = (r.rev || 0) + 1;
   files[runPath] = JSON.stringify(r);
   app.click('refresh'); await app.tick(200);
-  assert.ok(/Getting started · 4 of 5/.test(app.html()) && /data-act="setup-continue" data-id="second"/.test(app.html()));
+  assert.ok(/Getting started<span class="dot">&nbsp;·&nbsp;<\/span>4 of 5/.test(app.html()) && /data-act="setup-continue" data-id="second"/.test(app.html()));
   const t0 = new Date(Date.now() - 3600000).toISOString();
-  files['connection/ack-abcd1234.wsam.json'] = JSON.stringify(P.connection.ack({ probe: 'abcd1234', probeFile: 'probe-x', by: 'person-sam-fox', writer: 'wsam', device: 'Windows · Edge', at: t0, firstSeenAt: t0, app: '1.15.0', run: null, folderReadAt: t0 }));
+  files['connection/ack-abcd1234.wsam.json'] = JSON.stringify(P.connection.ack({ probe: 'abcd1234', probeFile: 'probe-x', by: 'person-sam-fox', writer: 'wsam', device: 'Windows<span class="dot">&nbsp;·&nbsp;</span>Edge', at: t0, firstSeenAt: t0, app: '1.15.0', run: null, folderReadAt: t0 }));
   app.click('refresh'); await app.tick(200);
   assert.ok(/Your team is set up/.test(app.html()), 'an answer from Sam, even an hour old, completes it');
   app.click('setup-hide'); await app.tick();
@@ -4728,7 +4728,7 @@ rule('App: Folder health reads the folder, lists a conflict copy under Needs act
   assert.ok(/data-act="health">Check folder health/.test(app.html()));
   app.click('health'); await app.tick(200);
   let html = app.html();
-  assert.ok(/Folder health<\/h1>/.test(html) && /Needs action · 1/.test(html) && /All clear ·/.test(html), 'scanned and grouped');
+  assert.ok(/Folder health<\/h1>/.test(html) && /Needs action<span class="dot">&nbsp;·&nbsp;<\/span>1/.test(html) && /All clear<span class="dot">&nbsp;·&nbsp;<\/span>/.test(html), 'scanned and grouped');
   assert.ok(/files in /.test(html) && /What's in the folder/.test(html));
   assert.ok(new RegExp('data-act="open-run" data-id="' + run.key.replace('/', '\\/') + '">Compare copies').test(html));
   app.click('nav', 'home'); await app.tick();
@@ -5193,22 +5193,22 @@ rule('App: Getting started never counts an answer from another team folder', asy
   const a = { 'people.json': example('people.json') }, b = { 'people.json': example('people.json') };
   const opts = { picker: folderHandle('A', a), indexedDB: memoryIDB() }, app = boot(opts); await app.tick(60);
   const t0 = new Date().toISOString();
-  a['connection/ack-abcd1234.wb.json'] = JSON.stringify(app.PF.connection.ack({ probe: 'abcd1234', probeFile: 'probe-x', by: 'person-blake', writer: 'wb', device: 'Windows · Edge', at: t0, firstSeenAt: t0, app: '1.15.0', run: null, folderReadAt: t0 }));
+  a['connection/ack-abcd1234.wb.json'] = JSON.stringify(app.PF.connection.ack({ probe: 'abcd1234', probeFile: 'probe-x', by: 'person-blake', writer: 'wb', device: 'Windows<span class="dot">&nbsp;·&nbsp;</span>Edge', at: t0, firstSeenAt: t0, app: '1.15.0', run: null, folderReadAt: t0 }));
   app.choose('person-avery'); await app.tick();
   app.click('connect'); await app.tick(200);
   app.click('nav', 'home'); await app.tick(100);
-  assert.ok(/Getting started · 3 of 5/.test(app.html()), 'folder A: Blake answered');
+  assert.ok(/Getting started<span class="dot">&nbsp;·&nbsp;<\/span>3 of 5/.test(app.html()), 'folder A: Blake answered');
   opts.picker = folderHandle('B', b);
   app.click('connect'); await app.tick(200);
   app.click('nav', 'home'); await app.tick(100);
-  assert.ok(/Getting started · 2 of 5/.test(app.html()), 'folder B: nobody has answered here');
+  assert.ok(/Getting started<span class="dot">&nbsp;·&nbsp;<\/span>2 of 5/.test(app.html()), 'folder B: nobody has answered here');
 });
 
 
 rule('App: anyone says what became of a follow-up in a file of its own; Won\'t do needs a reason, Home drops it, Reopen brings it back, run.json never changes', async () => {
   const app = boot(); await app.tick(80);
   app.choose('person-morgan'); await app.tick();
-  assert.ok(/Your follow-ups · 1/.test(app.html()) && /Add a cache warm-up to the deploy job/.test(app.html()), 'Morgan\'s open follow-up is on Home');
+  assert.ok(/Your follow-ups<span class="dot">&nbsp;·&nbsp;<\/span>1/.test(app.html()) && /Add a cache warm-up to the deploy job/.test(app.html()), 'Morgan\'s open follow-up is on Home');
   const key = /data-act="fu-pick" data-id="([^"]+)" data-status="wont"/.exec(app.html())[1], runKey = key.split('/').slice(0, 2).join('/');
   const runFile = 'runs/' + runKey + '/run.json', runText = app.fs.files[runFile].t;
   const mine = () => app.files('followups/release/').filter(p => !/example-session/.test(p)).sort();
@@ -5226,13 +5226,13 @@ rule('App: anyone says what became of a follow-up in a file of its own; Won\'t d
   assert.ok(!/Your follow-ups/.test(app.html()) && /Marked won&#39;t do|Marked won't do/.test(app.html() + app.live()), 'it drops off Home');
   app.click('nav', 'followups'); await app.tick(20);
   app.click('fu-filter', 'all'); await app.tick();
-  assert.ok(/<span class="pill locked">Won&#39;t do<\/span>/.test(app.html()) && /Won't do: The new cache warms itself · Morgan/.test(app.html()), 'all of them, with what became of it');
+  assert.ok(/<span class="pill locked">Won&#39;t do<\/span>/.test(app.html()) && /Won't do: The new cache warms itself<span class="dot">&nbsp;·&nbsp;<\/span>Morgan/.test(app.html()), 'all of them, with what became of it');
   app.click('fu-reopen', key); await app.tick(60);
   assert.strictEqual(mine().length, 2, 'one new file per decision');
   const d2 = JSON.parse(app.fs.files[mine().filter(p => /\.2\.json$/.test(p))[0]].t);
   assert.deepStrictEqual([d2.status, d2.rev, d2.seen], ['open', 2, mine()[0].split('/').pop()]);
   app.click('nav', 'home'); await app.tick(20);
-  assert.ok(/Your follow-ups · 1/.test(app.html()), 'reopened, it\'s back on Home');
+  assert.ok(/Your follow-ups<span class="dot">&nbsp;·&nbsp;<\/span>1/.test(app.html()), 'reopened, it\'s back on Home');
   assert.strictEqual(app.fs.files[runFile].t, runText, 'run.json is unchanged');
 });
 
@@ -6478,10 +6478,10 @@ rule('Insights: picking another version redraws the numbers for that folder only
   app.select('rf-process', 'release'); await app.tick();
   app.select('rf-outcome', 'Completed'); await app.tick();
   let html = app.html();
-  const n = +/Matching runs · (\d+)/.exec(html)[1];
+  const n = +/Matching runs<span class="dot">&nbsp;·&nbsp;<\/span>(\d+)/.exec(html)[1];
   assert.ok(n > 0 && (html.match(/data-act="open-run"/g) || []).length === n, 'only matching runs');
   app.click('rf-clear', 'outcome'); await app.tick();
-  assert.ok(+/Matching runs · (\d+)/.exec(app.html())[1] > n, 'the chip removed one filter');
+  assert.ok(+/Matching runs<span class="dot">&nbsp;·&nbsp;<\/span>(\d+)/.exec(app.html())[1] > n, 'the chip removed one filter');
   app.click('rf-clear', 'all'); await app.tick();
   assert.ok(!/Matching runs/.test(app.html()) && /Finished/.test(app.html()));
 });
@@ -6862,7 +6862,7 @@ rule('App: Runs › Export evidence… asks for a process and two days, checks t
   assert.ok(/after the last day/.test(app.overlay()) && /aria-invalid="true"/.test(app.overlay()));
   app.set('ev-from', '2000-01-01').set('ev-through', '2099-12-31');
   app.click('ev-check'); await app.tick(120);
-  assert.ok(/\d+ runs? · /.test(app.overlay()) && /Change the days/.test(app.overlay()), app.overlay().slice(0, 800));
+  assert.ok(/\d+ runs?<span class="dot">&nbsp;·&nbsp;<\/span>/.test(app.overlay()) && /Change the days/.test(app.overlay()), app.overlay().slice(0, 800));
 });
 
 /* REQUEST (1.20): another app asks for a run with flightdeck plan request; a person starts it here. The folder the app has
@@ -7100,12 +7100,12 @@ rule('Pins: a routine refresh shows a switch made in another window, and two swi
   await exactPlan(app);
   const v1 = pubFolder(app, 1), v2 = pubFolder(app, 2);
   app.click('review-plan', 'plan-release-exact'); await app.tick();
-  const eyebrow = () => (app.html().match(/<div class="eyebrow">[^<]*/) || [''])[0];
-  assert.ok(/ · v1/.test(eyebrow()), 'set-up: on v1: ' + eyebrow());
+  const eyebrow = () => (app.html().match(/<div class="eyebrow">[\s\S]*?<\/div>/) || [''])[0];
+  assert.ok(/<span class="dot">&nbsp;·&nbsp;<\/span>v1/.test(eyebrow()), 'set-up: on v1: ' + eyebrow());
   const p0 = () => app.PF.repo.loadAll(app.fs).then(d => d.plans.find(p => p.id === 'plan-release-exact'));
   await app.PF.repo.recordPlanStatus(app.fs, await p0(), 'w-avery', 'retargeted', null, 'person-avery', { folder: v2, version: 2 }, '2.1.0');
   app.winFire('focus'); await app.tick(160);
-  assert.ok(/ · v2/.test(eyebrow()), 'the switch shows: ' + eyebrow());
+  assert.ok(/<span class="dot">&nbsp;·&nbsp;<\/span>v2/.test(eyebrow()), 'the switch shows: ' + eyebrow());
   await app.PF.repo.recordPlanStatus(app.fs, await p0(), 'w-blake', 'retargeted', null, 'person-blake', { folder: v1, version: 1 }, '2.1.0');
   app.winFire('focus'); await app.tick(160);
   assert.ok(/two people switched it to different versions/.test(app.html()) && !/id="start-form"/.test(app.html()), (app.html().match(/class="notice[^"]*"[^>]*>[\s\S]{0,300}/g) || []).join(' | '));
@@ -7374,7 +7374,7 @@ const inPlace = (app, list) => { const was = JSON.parse(list), now = app.entries
 /* Since 2.16 an entry may also keep the one before it (b), as nav.entry reads it back. */
 const numbered = app => app.entries().forEach((e, i) => assert.ok(e.state && e.state.fd === 1 && e.state.n === i && /^b?,?f,fd,n$/.test(Object.keys(e.state).sort().join()) && (!e.state.b || app.PF.nav.entry(e.state).b), 'entry ' + i + ' ' + JSON.stringify(e)));
 const onRun = app => /id="run-h"/.test(app.html());
-const onReceipt = app => /<span class="d">Receipt<span class="hd-dot">&nbsp;·&nbsp;<\/span>Copy it into your ticket/.test(app.html());
+const onReceipt = app => /<span class="d">Receipt<span class="dot">&nbsp;·&nbsp;<\/span>Copy it into your ticket/.test(app.html());
 const onHome = app => /<div class="eyebrow">Home<\/div>/.test(app.html());
 const onProcess = (app, title) => /<h1 id="page-h" tabindex="-1">/.test(app.html()) && app.html().indexOf('data-act="ptab"') >= 0 && (!title || app.html().indexOf('>' + title + '</span></h1>') >= 0);
 const back = async app => { app.back(); await app.settle(); };
@@ -8380,6 +8380,17 @@ rule('Checklist details: Rename a run detail follows it everywhere as one Undo s
   app.set('ob-ren-ctx', 'environment'); app.click('ob-ren-go', 'ticket'); await app.tick();
   assert.ok(/id="ferr-ob-ren-ctx" role="alert">\^environment is already a run detail\./.test(app.html()), 'a taken name');
 });
+rule('2.16.2: a detail box\'s mirror keeps the typed " · " byte for byte through a full page render, so it stays under the text it shadows', async () => {
+  const app = await builderOn();
+  app.click('ob-sel', 'flags'); await app.tick();
+  app.set('ob-text', 'Ship · done in ^environment'); enter(app, 'ob-text', 'Ship · done in ^environment'); await app.tick();
+  app.click('ob-sel', 'flags'); await app.tick(40);
+  const html = app.html(), mi = html.match(/<div class="dbx-mirror" aria-hidden="true">([\s\S]*?)<\/div>/);
+  assert.ok(mi, 'set-up: the box is drawn');
+  assert.ok(/^Ship · done in <mark class="dbx-t v-ok">\^environment<\/mark> $/.test(mi[1]), 'the mirror is the text as typed: ' + mi[1]);
+  assert.ok(html.indexOf('<span class="dot">') >= 0, 'set-up: the rest of the page still gets its dots');
+});
+
 rule('Detail boxes: a misspelled ^detail in step text is marked with Use ^environment and Add; Use fixes it, Add lists it; In a run shows the latest run\'s values (2.7)', async () => {
   const app = await builderOn();
   app.click('ob-sel', 'flags'); await app.tick();
@@ -8406,7 +8417,7 @@ const QDRAFT = ['---', 'process: release', 'title: Production release', 'owner: 
 
 rule('Builder: Checklist details adds and removes roles and run details, and sets the owner and backup; Save changes only those lines', async () => {
   const app = await builderOn(), original = releaseText(app);
-  assert.ok(/data-act="ob-sel-details" aria-pressed="false"/.test(app.html()) && /Owner Casey Nguyen · backup Avery Lee/.test(app.html()), 'the card, at a glance');
+  assert.ok(/data-act="ob-sel-details" aria-pressed="false"/.test(app.html()) && /Owner Casey Nguyen<span class="dot">&nbsp;·&nbsp;<\/span>backup Avery Lee/.test(app.html()), 'the card, at a glance');
   app.click('ob-sel-details'); await app.tick();
   const html = app.html();
   assert.ok(/<h2 id="ob-form-h">[\s\S]*?Checklist details<\/h2>/.test(html), 'its form');
@@ -8792,6 +8803,13 @@ rule('2.8: a pass: step with a detail to ask opens the child\'s start dialog; th
   await app.fs.write(path, JSON.stringify(kid));
   app.click('refresh'); await app.tick(100);
   assert.strictEqual(shipRun(app).steps.dep.s, 'done', 'the parent step is checked: the renamed value counts');
+});
+
+rule('2.16.2: the run screen\'s What to do shows a built-in type\'s hint in the screens\' words (T.hintOf), not the frozen definition\'s', async () => {
+  const app = await passStart('environment=^env, region=us-east-1, notify=?');
+  const h = app.html();
+  assert.ok(h.indexOf('<p class="small">Start a linked run of another checklist; this step is done when it completes.</p>') >= 0, 'the linked step\'s hint says checklist');
+  assert.ok(h.indexOf('Start a linked run of another process') < 0, 'and never the frozen wording');
 });
 
 rule('2.8: a value that doesn\'t fit keeps the child\'s start dialog open with what was typed, and says why; a good one starts it', async () => {
@@ -9236,7 +9254,7 @@ rule('Start: a version with an approval role opens With others and asks who appr
   assert.ok(/aria-checked="true" data-act="start-mode" data-id="team"/.test(app.html()), 'With others, even after On my own was chosen on an earlier form');
   assert.ok(/<select id="role-release-lead" data-role="release-lead"[^>]*><option value="">Choose a person<\/option>/.test(app.html()) && !/<select id="role-release-lead"[^]*?<option value="person-[^"]+" selected>[^]*?<\/select>/.test(app.html().slice(app.html().indexOf('id="role-release-lead"'), app.html().indexOf('</select>', app.html().indexOf('id="role-release-lead"')) + 9)), 'nobody preselected');
   assert.ok(/Just me \(every role, including who approves\)/.test(app.html()), 'Just me says it includes who approves');
-  const hint = /Suggested: [^<]+&nbsp;·&nbsp;(last had this role on [^<]+|hasn.t had this role yet)<\/p>/.exec(app.html());
+  const hint = /Suggested: [^<]+<span class="dot">&nbsp;·&nbsp;<\/span>(last had this role on [^<]+|hasn.t had this role yet)<\/p>/.exec(app.html());
   assert.ok(hint && !/approved/.test(hint[0]), 'a suggestion is a hint, in what it knows: ' + (hint && hint[0]));
   app.set('run-title', 'Kept title');
   app.submitForm('start-form'); await app.tick(80);

@@ -272,7 +272,7 @@
     };
     if (passed.length) h += '<h3>Passed from this run</h3><dl>' + passed.map(function (x) {
       var v = shown(x);
-      return '<dt>' + esc(x.name) + '</dt><dd>' + (v === '' ? '<span class="small">(empty)</span>' : esc(v)) + ' <span class="small">· ' + (x.source === 'value' ? 'fixed in the checklist' : x.source === 'team' ? 'team value ' + esc(x.team) : 'from ^' + esc(x.from) + ' of this run') + '</span></dd>';
+      return '<dt>' + esc(x.name) + '</dt><dd>' + (v === '' ? '<span class="small">(empty)</span>' : esc(v)) + '<span class="small"> · ' + (x.source === 'value' ? 'fixed in the checklist' : x.source === 'team' ? 'team value ' + esc(x.team) : 'from ^' + esc(x.from) + ' of this run') + '</span></dd>';
     }).join('') + '</dl>';
     Object.keys(prep.replaced || {}).forEach(function (k) { h += '<p class="notice warn" role="status">You typed ' + esc(prep.replaced[k]) + '; the team value ' + esc(teamOf[k] || k) + ' is now ' + esc(teamSrc[k]) + ', and that\'s what will be used.</p>'; });
     var boxes = prep.open.concat(prep.ask);
@@ -313,7 +313,7 @@
     var h = '<div class="overlay" data-act="close-overlay"><div class="help cs-box" role="dialog" aria-modal="true" aria-labelledby="lc-t"><h2 id="lc-t" tabindex="-1">Link "' + esc(snap.title) + '"</h2>' +
       (snap.changed ? '<p class="notice warn" role="alert">' + esc(snap.changed) + '</p>' : '') +
       '<p>This run was linked after it started, so Flightdeck didn\'t record what it was passed. Link it if these are the values it was meant to get.</p><dl>' +
-      names.map(function (n) { var v = snap.values[n]; return '<dt>' + esc(n) + '</dt><dd>' + (v === '' ? '<span class="small">(empty)</span>' : esc(v)) + ' <span class="small">· team value ' + esc(snap.teams[n]) + '</span></dd>'; }).join('') + '</dl>' +
+      names.map(function (n) { var v = snap.values[n]; return '<dt>' + esc(n) + '</dt><dd>' + (v === '' ? '<span class="small">(empty)</span>' : esc(v)) + '<span class="small"> · team value ' + esc(snap.teams[n]) + '</span></dd>'; }).join('') + '</dl>' +
       (snap.empty ? '<p class="notice warn" role="status">' + esc(K.capJoin(snap.empty)) + (snap.empty.length > 1 ? ' aren\'t values' : ' isn\'t a value') + ' a team value can be, so this run can\'t be linked this way. Start a new run instead.</p>' : '') +
       '<div class="row">' + (snap.empty ? '' : '<button class="btn go" type="button" data-act="link-child-confirm">Link it with these values</button>') + '<button class="mini" type="button" data-act="close-overlay">Cancel</button></div></div></div>';
     return h;

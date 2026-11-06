@@ -404,7 +404,7 @@ rule('Run from here: earlier steps are assumed, the walk starts there, Start fro
   await practice(app);
   app.click('select', 'pods'); await app.tick();
   app.click('pr-from', 'pods'); await app.tick();
-  assert.match(app.html(), /\d+ earlier steps assumed for practice · <button type="button" class="linkish" data-act="pr-from-clear">Start from the beginning<\/button>/);
+  assert.match(app.html(), /\d+ earlier steps assumed for practice<span class="dotk"><span class="dot">&nbsp;·&nbsp;<\/span><button type="button" class="linkish" data-act="pr-from-clear">Start from the beginning<\/button>/);
   assert.equal(row(app, 'pods'), 'open');
   app.click('pr-undo'); await app.tick();
   assert.ok(!/earlier steps assumed/.test(app.html()), 'Undo puts the whole checklist back');

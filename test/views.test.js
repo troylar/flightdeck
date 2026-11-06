@@ -678,7 +678,7 @@ rule('Runs: the runs behind a number are exactly the ones clicked, with Back to 
   assert.strictEqual((html.match(/data-act="open-run" data-id="([^"]+)"/g) || []).length, 2, 'still the cohort clicked');
   state.runFilter = { outcome: 'Completed', process: 'release' };
   html = V.runs(ctx);
-  assert.ok(/<label for="rf-process">Process<\/label>/.test(html) && /<label for="rf-outcome">Outcome<\/label>/.test(html) && /<label for="rf-from">Started from<\/label>/.test(html), 'every filter has a label');
+  assert.ok(/<label for="rf-process">Checklist<\/label>/.test(html) && /<label for="rf-outcome">Outcome<\/label>/.test(html) && /<label for="rf-from">Started from<\/label>/.test(html), 'every filter has a label');
   assert.ok(/Matching runs · 3/.test(html) && /data-act="rf-clear" data-id="outcome"/.test(html), 'chips to remove each filter');
 });
 
@@ -1633,7 +1633,7 @@ rule('Run workspace: a slim header with progress in words, three named panes, an
   playPhase(r, 0);
   const html = V.run(ctx);
   assert.ok(/^<div class="fpe rw" id="rw"><header class="hd rw-head" role="region" aria-labelledby="run-h">/.test(html), 'the run is the page');
-  assert.ok(/class="btn backc" data-act="go-back" data-id="#\/runs" aria-label="Back to Runs">.*Runs<\/span><\/button>/.test(html) && /<h1 id="run-h" tabindex="-1"><span class="hd-t" title="Release">Release<\/span><\/h1><p class="hd-st"><span class="d">Production release<\/span><span class="d rw-sub">v1<span class="hd-dot">&nbsp;·&nbsp;<\/span>started/.test(html));
+  assert.ok(/class="btn backc" data-act="go-back" data-id="#\/runs" aria-label="Back to Runs">.*Runs<\/span><\/button>/.test(html) && /<h1 id="run-h" tabindex="-1"><span class="hd-t" title="Release">Release<\/span><\/h1><p class="hd-st"><span class="d">Production release<\/span><span class="d rw-sub">v1<span class="dot">&nbsp;·&nbsp;<\/span>started/.test(html));
   assert.ok(/role="progressbar" aria-label="Steps answered" aria-valuemin="0" aria-valuemax="15" aria-valuenow="6" aria-valuetext="6 of 15 steps answered"><i style="width:40%"><\/i><\/span><b aria-hidden="true">6\/15<\/b><span class="small w" aria-hidden="true">answered<\/span>/.test(html), '6/14 answered, said in full for screen readers');
   assert.ok(/data-act="run-details" aria-expanded="false"/.test(html) && /data-act="receipt"/.test(html) && /<button type="button" class="mini more-btn ws-more-btn" id="ws-more-btn" data-act="ws-more"[^>]*>More<\/button>/.test(html) && !/End run…/.test(html) && /<div class="ro">You: <b>Casey Nguyen<\/b><\/div>/.test(html));
   assert.ok(/<nav class="fpe-pane rw-rail" aria-label="Phases">/.test(html) && /<section class="fpe-pane rw-list" id="rw-list" aria-label="Checklist">/.test(html) && /<aside class="fpe-pane rw-ins" id="rw-ins" data-open="false" aria-label="Selected step">/.test(html), 'named regions');
@@ -3100,7 +3100,7 @@ rule('Affordance: the details card says what it does, with one pencil, and chart
 });
 
 rule('One header: a "·" in a status piece\'s text is held to the words on both sides and spaced like the line\'s own separators; one in a tag is left alone', () => {
-  const dot = '<span class="hd-dot">&nbsp;·&nbsp;</span>';
+  const dot = '<span class="dot">&nbsp;·&nbsp;</span>';
   const h = V.workHead({ hid: 'x-h', h1: 'T', status: [{ kind: 'd', html: 'v2 · published by Casey' }, { kind: 'd', cls: 'rw-sub', html: 'Releases · owner Casey' },
     { kind: 'd', cls: 'sv', html: '<span class="fpe-state" title="maps/drafts/a.md · 2 KB">Draft: saved · 2 changes<svg><path d="M1"/></svg></span>' }] });
   const st = /<p class="hd-st">([\s\S]*?)<\/p>/.exec(h)[1];
@@ -3151,5 +3151,77 @@ rule('One header: a work screen\'s title ends in an ellipsis: its text is a shri
   const css = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'page.html'), 'utf8');
   assert.match(css, /\.hd-id h1 \.hd-t \{[^}]*white-space: nowrap;[^}]*overflow: hidden;[^}]*text-overflow: ellipsis;[^}]*min-width: 0;/, 'it ellipsizes');
   assert.match(css, /\.phd \.hd-id h1 \.hd-t \{[^}]*white-space: normal;/, 'the checklist page still wraps on a phone');
+});
+rule('Separators: every " · " in text on any screen is held to the words on both sides and spaced the same (.dot); tags, attributes and literal text are left alone', () => {
+  const dot = '<span class="dot">&nbsp;·&nbsp;</span>';
+  assert.strictEqual(V.dots('<p class="small" title="a · b">Saved here 2:18 PM · Folder checked 2:18 PM</p>'), '<p class="small" title="a · b">Saved here 2:18 PM' + dot + 'Folder checked 2:18 PM</p>');
+  assert.strictEqual(V.dots('6 steps · <b>4 must-do</b> · Ready'), '6 steps' + dot + '<b>4 must-do</b>' + dot + 'Ready', 'beside a tag on either side');
+  assert.strictEqual(V.dots('Suggested: Casey&nbsp;·&nbsp;last had it'), 'Suggested: Casey' + dot + 'last had it', 'a dot already held by no-break spaces gets the same spacing');
+  assert.strictEqual(V.dots(V.dots('a · b')), 'a' + dot + 'b', 'running it twice changes nothing');
+  const btn = '<button class="linkish" data-act="x">3 of 4 runs</button>';
+  assert.strictEqual(V.dots('<b>39 min</b> · ' + btn + '. Done'), '<b>39 min</b><span class="dotk">' + dot + btn + '</span>. Done', 'a button beside a dot is held to it');
+  assert.strictEqual(V.dots(btn + ' · after'), '<span class="dotk">' + btn + dot + '</span>after', 'on either side');
+  assert.strictEqual(V.dots(btn + ' and ' + btn + ' · x'), btn + ' and <span class="dotk">' + btn + dot + '</span>x', 'only the button next to it');
+  assert.strictEqual(V.dots(V.dots('<b>39 min</b> · ' + btn)), V.dots('<b>39 min</b> · ' + btn), 'still the same the second time');
+  const lit = '<textarea>a · b</textarea><pre id="p">x · y</pre><code>Ship · done</code>';
+  assert.strictEqual(V.dots(lit), lit, 'typed, copied and literal text keeps its plain " · "');
+  const mi = V.dbx.box({ id: 'ob-text', tag: 'textarea', kind: 'step', label: 'Step', value: 'Ship · done', at: 's:0', map: PF.map.parse(['---', 'process: x', 'title: X', '---', '', '## A {#a}', '- [ ] {confirm} Ship {#s1}'].join('\n')), vals: {} });
+  const drawn = V.dots(mi);
+  assert.ok(drawn.indexOf('<div class="dbx-mirror" aria-hidden="true">Ship · done </div>') >= 0, 'a detail box\'s mirror shadows its textarea, so it keeps the text as typed: ' + drawn);
+  assert.strictEqual(V.dots(drawn), drawn, 'once');
+  // The ^detail list is drawn straight into its own region (app.js dbxDraw), outside the global pass: it goes through V.dots too.
+  const ac = V.dots(V.dbx.optionsHtml('ob-text', [{ name: 'env', kind: 'text', from: 'the start form', late: true }], 0));
+  assert.ok(ac.indexOf('text' + dot + 'the start form' + dot + 'may not be set yet here') >= 0, 'its "kind · from" lines get the one dot: ' + ac);
+  assert.ok(/list\.innerHTML = V\.dots\(V\.dbx\.optionsHtml\(a\.id, a\.opts, a\.i\)\)/.test(require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8')), 'and the app draws it that way');
+  // An option can't hold a span: its dot gets the same spacing in text, an en space (0.5em, the 6.3 px of a 13 px .dot) a side.
+  assert.strictEqual(V.dots('<select id="v"><option value="2 · x" selected>v2 (current) · Deploy job</option><option value="1">v1 · First version</option></select>'),
+    '<select id="v"><option value="2 · x" selected>v2 (current)&ensp;·&ensp;Deploy job</option><option value="1">v1&ensp;·&ensp;First version</option></select>', 'options are spaced in text, values left alone');
+  assert.strictEqual(V.dots(V.dots('<select><option>v1 · a</option></select>')), '<select><option value="v1 · a">v1&ensp;·&ensp;a</option></select>', 'once');
+  // An option drawn without a value takes its text as its value, so spacing its text would change what's picked (a choice
+  // "Ship · now" would come back "Ship\u2002·\u2002now" and fail its check): its value is pinned to the text as drawn.
+  const ch = V.dots('<select><option value="">Choose…</option><option selected>Ship · now</option><option>Say &quot;hi&quot; · &amp; go</option><option>Hold</option></select>');
+  assert.strictEqual(ch, '<select><option value="">Choose…</option><option selected value="Ship · now">Ship&ensp;·&ensp;now</option><option value="Say &quot;hi&quot; · &amp; go">Say &quot;hi&quot;&ensp;·&ensp;&amp; go</option><option>Hold</option></select>', 'a choice keeps its value: ' + ch);
+  assert.strictEqual(V.dots('<select><option data-x="x value=1">Ship · now</option></select>'), '<select><option data-x="x value=1" value="Ship · now">Ship&ensp;·&ensp;now</option></select>', 'value= inside another attribute\'s quotes isn\'t a value');
+  assert.strictEqual(V.dots('<select><option VALUE="s">Ship · now</option></select>'), '<select><option VALUE="s">Ship&ensp;·&ensp;now</option></select>', 'an uppercase VALUE is one');
+  assert.ok(V.workHead({ hid: 'x', h1: 'T', status: [{ kind: 'd', html: 'v2 · published' }] }).indexOf('v2' + dot + 'published') >= 0, 'the header uses the same helper');
+});
+rule('Wording: what the screens and the CLI help call a checklist says checklist; the frozen type definition, data keys, IDs and every message that can reach JSON keep "process"', () => {
+  const T = PF.types, t = T.get('run.process');
+  assert.strictEqual(t.label, 'Run another process', 'the label frozen into versions stays');
+  assert.strictEqual(t.hint, 'Start a linked run of another process; this step is done when it completes.', 'and so does the hint');
+  assert.strictEqual(t.fields.process.label, 'Process', 'and the field label');
+  assert.strictEqual(T.hintOf(t), 'Start a linked run of another checklist; this step is done when it completes.', 'the screens show the checklist hint');
+  assert.strictEqual(T.fieldName(t, 'process'), 'Checklist', 'and call the field Checklist');
+  assert.strictEqual(T.fieldName(t, 'carry'), 'Details passed on');
+  assert.strictEqual(T.hintOf(T.get('run.command')), T.get('run.command').hint, 'other types as they are');
+  const fs = require('fs'), path = require('path'), root = path.join(__dirname, '..');
+  const read = f => fs.readFileSync(path.join(root, f), 'utf8');
+  const shown = ['src/ui/views/builder.js', 'src/ui/views/manage.js', 'src/ui/views/evidence.js', 'src/ui/views/insights.js', 'src/ui/guide.js'
+  ].map(f => [f, read(f)]);
+  const old = [/Which process/, /the process is now at/, /'Process'/, />Process</, /no process'/, /Its process "/, /'its process'/, /of its own process/, /Shorten process/,
+    /of this process couldn/, /left out for the whole process/,
+    /There\\'s no process/, /on the process page/, /every process and its versions/, /"run another process" step/, /\? \(its file name\)', 'database-migration', 'The process/];
+  shown.forEach(([f, src]) => old.forEach(re => assert.ok(!re.test(src), f + ' still says ' + re)));
+  assert.ok(/for other apps: every checklist and its versions, as JSON/.test(read('bin/flightdeck.js')), 'the CLI help is prose for people');
+  // Anything that can reach JSON, a --json result, an error.why or a script's match stays byte for byte as 2.16.1 wrote it.
+  const frozen = [
+    ['bin/flightdeck.js', "notFound('There\\'s no process ' + req.proc + ' in the team folder.')"],
+    ['bin/flightdeck.js', "'). Decline it on the process page.'"],
+    ['src/core/map.js', "' can\\'t start a run of its own process.'"],
+    ['src/core/run.js', "'Only a \"run another process\" step starts a child run.'"],
+    ['src/core/pins.js', "(name || 'no process')"],
+    ['src/core/outline.js', "(st.fields.process || 'its process')"],
+    ['src/core/health.js', "Shorten process or file names.'"],
+    ['src/core/insights.js', "'1 run of this process couldn\\'t be read"],
+    ['src/core/insights.js', "' of this process couldn\\'t be read"],
+    ['src/core/skills.js', "'Its process \"' + skill.process + '\" has no usable published version in this folder.'"]];
+  frozen.forEach(([f, s]) => assert.ok(read(f).indexOf(s) >= 0, f + ' keeps ' + s));
+  assert.strictEqual((read('src/core/skills.js').match(/Its process "/g) || []).length, 2, 'both skill checks');
+  assert.ok(!/checklist/.test(read('src/core/skills.js').split('\n').filter(l => /errors\.push|why:|text:/.test(l)).join('\n')), 'no skill check message says checklist');
+  assert.ok(/T\.hintOf\(t\)/.test(read('src/ui/views/manage.js')) && /T\.fieldName\(t, f\)/.test(read('src/ui/views/manage.js')) && /T\.fieldName\(t, f\)/.test(read('src/ui/views/run.js')), 'the step types screen and the run screen show them');
+  // The skill and correction briefs are text for an AI assistant, kept byte for byte as earlier releases wrote them.
+  assert.ok(/'## The process, in order'/.test(read('src/core/skills.js')) && /'Edit the process\\'s draft, `'/.test(read('src/core/corrections.js')), 'the briefs stay as they were');
+  assert.ok(/A checklist is your process written down/.test(read('src/ui/views/setup.js')), 'the team\'s real-world process stays a process');
+  assert.ok(/Checklists were called Processes before 2\.10/.test(read('src/ui/views/home.js')), 'and so does the note about the rename');
 });
 run();

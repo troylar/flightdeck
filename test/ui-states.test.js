@@ -645,7 +645,27 @@ rule('Polish: a status separator never begins or ends a line: each piece leads w
   assert.ok(/^inset\(-\d+px -\d+px -\d+px calc\(var\(--sep-w\) - [3-5]px\)\)$/.test(decl(st, 'clip-path') || ''), 'and clips it away, leaving room for a focus ring: ' + decl(st, 'clip-path'));
   assert.ok(/^\d+px 0$/.test(decl(st, 'gap') || ''), 'the separator is the only space between pieces: ' + decl(st, 'gap'));
   assert.ok(/--sep-w: 14px/.test(R(':root')[0].body), 'the separator width is a token');
-  assert.ok(R('.hd-st .hd-dot').some(r => decl(r.body, 'word-spacing') === 'var(--sep-ws)') && /--sep-ws: [\d.]+px/.test(R(':root')[0].body), 'a "·" inside a piece is widened to the same width');
+  // One separator everywhere: a "·" in any text (V.dots) gets the same spacing, in em so it scales with the text around it;
+  // 0.285em is the 3.7px that makes a 13px " · " exactly --sep-w wide.
+  assert.ok(R('.dot').some(r => r.sel.length === 1 && decl(r.body, 'word-spacing') === 'var(--sep-ws)') && /--sep-ws: 0\.285em/.test(R(':root')[0].body), 'every "·" is widened to the same width, in em');
+  assert.ok(!RULES.some(r => r.sel.some(x => /\.dot\b/.test(x) && x !== '.dot' && x !== '.dot + button.linkish[data-act]')), 'no screen spaces its own');
+  // Where it is: each crumb leads with its "/", centered in --crumb-w; the list is pulled left and clipped like the status line,
+  // so a "/" never starts or ends a line, and the last crumb (Step 2 of 6) stays whole.
+  assert.ok(/--crumb-w: \d+px/.test(R(':root')[0].body), 'the crumb separator width is a token');
+  const cr = R('.ob-crumbs')[0].body;
+  assert.ok(decl(cr, 'margin-left') === 'calc(-1 * var(--crumb-w))' && /^inset\(-\d+px -\d+px -\d+px var\(--crumb-w\)\)$/.test(decl(cr, 'clip-path') || ''), 'pulled left and clipped');
+  assert.ok(R('.ob-crumbs li').some(r => decl(r.body, 'padding-left') === 'var(--crumb-w)' && decl(r.body, 'position') === 'relative'), 'each crumb inset by it');
+  assert.ok(R('.ob-crumbs li::before').some(r => /^"\/"/.test(decl(r.body, 'content') || '') && decl(r.body, 'position') === 'absolute' && decl(r.body, 'width') === 'var(--crumb-w)'), 'every crumb leads with its "/"');
+  assert.ok(!RULES.some(r => r.sel.some(x => x === '.ob-crumbs li + li::before')), 'no "/" between two crumbs that a line can start with');
+  assert.ok(R('.ob-crumbs li:last-child').some(r => decl(r.body, 'white-space') === 'nowrap'), 'Step 2 of 6 stays whole');
+  // Next up's line never leaves one word alone on its last line.
+  assert.ok(R('.rw-next .small').some(r => decl(r.body, 'text-wrap') === 'pretty'), 'no orphan in Next up');
+  // The corrections' Suggested in N runs uses the app's own disclosure marker, at a size that reads as one.
+  assert.ok(R('.corr-runs > summary::before', /@media screen/).some(r => /^"▶"/.test(decl(r.body, 'content') || '')) && R('.corr-runs[open] > summary::before', /@media screen/).some(r => /^"▼"/.test(decl(r.body, 'content') || '')), 'the same triangles as every other summary');
+  assert.ok(R('.dotk').some(r => decl(r.body, 'white-space') === 'nowrap') && R('.dotk > button').some(r => decl(r.body, 'white-space') === 'normal'), 'a dot and the button beside it stay together');
+  // Nothing around a dot adds space to one side only: a padded link after it starts at its text, and the way back's gap is taken back.
+  assert.ok(R('.dot + button.linkish[data-act]').some(r => decl(r.body, 'padding-inline-start') === '0'), 'a link after a dot starts at its text');
+  assert.ok(R('.backc .backc-v').some(r => decl(r.body, 'margin-left') === '-2px') && R('.backc').some(r => decl(r.body, 'gap') === '2px'), 'the way back\'s view starts at its dot');
   RULES.filter(r => r.sel.some(x => /^\.hd-st \.d$/.test(x))).forEach(r => { assert.strictEqual(decl(r.body, 'text-overflow'), null); assert.notStrictEqual(decl(r.body, 'white-space'), 'nowrap'); });
 });
 rule('Polish: at 801-859 Edit\'s unsaved row 1 fits on one line like Practice\'s: the view switch drops its icons there, and Discard never takes a line of its own', () => {
@@ -663,11 +683,19 @@ rule('Polish: a run detail\'s Rename and Remove stay on its row; only the "used 
 
 rule('Polish: the inspector\'s top row wraps, and where the step is takes the room left of Previous and Next', () => {
   assert.ok(R('.rw-ins-top').some(r => decl(r.body, 'flex-wrap') === 'wrap'));
-  assert.ok(R('.rw-where').some(r => decl(r.body, 'margin-right') === 'auto' && decl(r.body, 'min-width') === '0'));
+  // 2.16.2: laid out from the right, so Previous and Next (then Edit step and Close) are placed first and keep their size, and
+  // where the step is takes what is left, wrapping there in full; under 7em it moves to a line of its own under them. Previous
+  // and Next never leave the top row, at any inspector width.
+  assert.ok(R('.rw-ins-top').some(r => decl(r.body, 'flex-direction') === 'row-reverse'), 'placed from the right');
+  const ord = sel => +(R(sel).map(r => decl(r.body, 'order')).filter(Boolean)[0]);
+  assert.ok(ord('.rw-steps') < ord('.rw-ins-edit') && ord('.rw-ins-edit') < ord('.rw-ins-top .close') && ord('.rw-ins-top .close') < ord('.rw-where') && ord('.rw-where') < ord('.rw-skip'), 'Previous and Next first, where the step is last');
+  assert.ok(R('.rw-steps').some(r => decl(r.body, 'flex') === 'none') && R('.rw-ins-edit').some(r => decl(r.body, 'flex') === 'none'), 'the buttons keep their size');
+  assert.ok(R('.rw-where').some(r => decl(r.body, 'flex') === '1 1 7em' && decl(r.body, 'min-width') === '0'), 'where the step is takes the rest, 7em at least beside them');
+  assert.ok(!RULES.some(r => r.sel.some(x => /\.rw-where/.test(x)) && (decl(r.body, 'white-space') === 'nowrap' || decl(r.body, 'overflow') === 'hidden')), 'nothing of it is cut');
 });
 
-rule('Polish: at 801-899 the view switch shows Practice without its kept count in Edit and Practice alike (its name still says it), so Edit\'s Discard, Save draft and More stay on row 1', () => {
-  assert.ok(R('.ws-views .ws-cnt', /min-width: 801px\) and \(max-width: 899px/).some(r => decl(r.body, 'display') === 'none'));
+rule('Polish: at 801-909 the view switch shows Practice without its kept count in Edit and Practice alike (its name still says it), so Edit\'s Discard, Save draft and More stay on row 1', () => {
+  assert.ok(R('.ws-views .ws-cnt', /min-width: 801px\) and \(max-width: 909px/).some(r => decl(r.body, 'display') === 'none'));
 });
 
 rule('Polish: the checklist page\'s run buttons keep their own width, and wrap inside their column, so they never cover its tabs at any width', () => {

@@ -252,7 +252,7 @@
     if (f.through) chips.push(['through', 'Started through ' + f.through]);
     var open = active(f) || (st.disc || {}).rf;
     return '<details class="panel rf" data-disc="rf"' + (open ? ' open' : '') + '><summary><h2>Filter runs</h2></summary><div class="rf-row">' +
-      rfSel('rf-process', 'Process', procs.map(function (pid) { return { v: pid, t: ctx.processTitle(pid), place: pid }; }), f.process, 'checklist') +
+      rfSel('rf-process', 'Checklist', procs.map(function (pid) { return { v: pid, t: ctx.processTitle(pid), place: pid }; }), f.process, 'checklist') +
       (f.process ? rfSel('rf-folder', 'Version', vers.map(function (x) { return { v: x.folder, t: verLabel(x), place: x.folder }; }), f.folder, 'version') : '') +
       '<span class="rf-f"><label for="rf-outcome">Outcome</label><select id="rf-outcome" data-bound data-nav-safe>' + OUTCOMES.map(function (o) { return opt(o[0], o[1], f.outcome); }).join('') + '</select></span>' +
       '<span class="rf-f"><label for="rf-from">Started from</label><input type="date" id="rf-from" value="' + esc(f.from || '') + '" data-bound data-nav-safe></span>' +

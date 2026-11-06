@@ -322,7 +322,7 @@ async function healthApp(conflict) {
 }
 rule('Folder health: the passing checks are one closed line with their count; Show opens the full list, and it stays open', async () => {
   const app = await healthApp(false), html = app.html();
-  const m = /<details class="panel hz-sec" data-disc="hz-ok"><summary><h2 id="hz-ok">All clear · (\d+) checks passed<\/h2><\/summary><ul class="hz-clear">([\s\S]*?)<\/ul>/.exec(html);
+  const m = /<details class="panel hz-sec" data-disc="hz-ok"><summary><h2 id="hz-ok">All clear<span class="dot">&nbsp;·&nbsp;<\/span>(\d+) checks passed<\/h2><\/summary><ul class="hz-clear">([\s\S]*?)<\/ul>/.exec(html);
   assert.ok(m, 'one closed line');
   const items = (m[2].match(/<li>/g) || []).length;
   assert.ok(items >= 10 && items === +m[1], 'the count is the list, and the list is all there: ' + items);
@@ -333,8 +333,8 @@ rule('Folder health: the passing checks are one closed line with their count; Sh
 
 rule('Folder health: problems and things worth a look are never folded', async () => {
   const app = await healthApp(true), html = app.html();
-  assert.ok(shown(html, /Needs action · 1/) && shown(html, /data-act="open-run"[^>]*>/) && shown(html, /Compare copies/), 'the problem and its button are on screen');
-  assert.ok(/data-disc="hz-ok"><summary><h2 id="hz-ok">All clear · \d+ checks passed/.test(html), 'only the passing checks fold');
+  assert.ok(shown(html, /Needs action<span class="dot">&nbsp;·&nbsp;1/) && shown(html, /data-act="open-run"[^>]*>/) && shown(html, /Compare copies/), 'the problem and its button are on screen');
+  assert.ok(/data-disc="hz-ok"><summary><h2 id="hz-ok">All clear<span class="dot">&nbsp;·&nbsp;<\/span>\d+ checks passed/.test(html), 'only the passing checks fold');
 });
 
 /* ---------- Builder: four parts, and the rest one click away ---------- */

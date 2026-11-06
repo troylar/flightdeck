@@ -282,7 +282,7 @@ rule('App: a reports folder that can\'t be read keeps the reports last read, and
   const app = await recording();
   const x = await plant(app);
   await openStep(app, 'jenkins');
-  assert.ok(/data-act="run-reports"[^>]*>[\s\S]{0,600}Reports · 1/.test(app.html()), 'set-up: the rail button');
+  assert.ok(/data-act="run-reports"[^>]*>[\s\S]{0,600}Reports<span class="dot">&nbsp;·&nbsp;<\/span>1/.test(app.html()), 'set-up: the rail button');
   const list = app.fs.list.bind(app.fs);
   app.fs.list = p => p === 'reports/release' ? Promise.reject(new Error('NotReadableError')) : list(p);
   app.click('refresh'); await app.tick(160);
@@ -290,7 +290,7 @@ rule('App: a reports folder that can\'t be read keeps the reports last read, and
   const h = app.html();
   assert.ok(/Report says pass/.test(h) && h.indexOf(x.sha) >= 0, 'the report last read is still on its step');
   assert.ok(/reports folder couldn(&#39;|')t be read on the last check/.test(h), 'the failure is named on the step');
-  assert.ok(/Reports · 1 · couldn(&#39;|')t be read/.test(h), 'and on the rail button');
+  assert.ok(/Reports<span class="dot">&nbsp;·&nbsp;<\/span>1<span class="dot">&nbsp;·&nbsp;<\/span>couldn(&#39;|')t be read/.test(h), 'and on the rail button');
   // Nothing is decided from it: Accept reads every copy again first.
   app.click('rep-accept', x.key); await app.tick(); app.click('rep-accept-go', x.key); await app.tick(120);
   assert.ok(!isDone(app) && decisions(app).length === 0, 'nothing accepted');
@@ -774,7 +774,7 @@ rule('App: the receipt names the accepted report and lists every report on the r
   app.click('receipt'); await app.tick(80);
   const h = app.html();
   assert.ok(/Accepted report ci-check\/abcd1234, sha256 /.test(h) && h.indexOf(x.sha.slice(0, 12)) >= 0, 'the step names the report and its hash');
-  assert.ok(/Reports · 2/.test(h), 'a Reports section');
+  assert.ok(/Reports<span class="dot">&nbsp;·&nbsp;<\/span>2/.test(h), 'a Reports section');
   assert.ok(/pod-check\/efgh5678 on [^:<]+: says blocked \(No access\)/.test(h), 'every report is listed with what it says');
   /* The text is made when copied; with no clipboard here the fallback's selection throws after the text is in place. */
   const pre = app.el('receipt-text'); try { app.click('copy-receipt'); } catch (e) { /* no createRange in the harness */ }

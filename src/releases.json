@@ -1,5 +1,36 @@
 [
   {
+    "version": "2.16.2",
+    "date": "2026-11-05",
+    "headline": "One dot style everywhere, and checklist wording on every screen",
+    "changes": [
+      {
+        "kind": "improved",
+        "area": "Screens",
+        "title": "Dots between words are even everywhere",
+        "before": "Dots between pieces of text were spaced in headers but tight elsewhere, as in 6 steps·4 must-do, and could start or end a line.",
+        "now": "Every dot between pieces of text has the same space on both sides and stays with the words around it, so no line starts or ends with one.",
+        "where": "Every screen and dialog"
+      },
+      {
+        "kind": "fixed",
+        "area": "Words",
+        "title": "Checklist, not process",
+        "before": "A few screens still said process for a checklist: Which process on a linked-run step, that step type's hint on Step types and the run screen, the skill page, and the command line's help.",
+        "now": "They say checklist. Messages that scripts read from the command line, and everything saved in the team folder, stay as they were.",
+        "where": "Edit, Step types, Skills, run screen, command line help"
+      },
+      {
+        "kind": "fixed",
+        "area": "Screens",
+        "title": "A step's place fits beside Previous and Next",
+        "before": "On a test run, a long place line, such as Before production changes / Step 2 of 6, took a row of its own above Previous and Next.",
+        "now": "It wraps in full in the space beside them, never starting a line with the slash, and moves under them only when that space is too narrow.",
+        "where": "Test run, run screen"
+      }
+    ]
+  },
+  {
     "version": "2.16.1",
     "date": "2026-11-05",
     "headline": "Edit and Practice share one header, and every work screen has room to breathe",

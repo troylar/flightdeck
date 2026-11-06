@@ -33,7 +33,7 @@ async function applied(app, p) { app.click('prop-apply', p.id); await app.tick(1
 rule('Apply: a fast-forward proposal is saved as its exact text, with an attempt first, then the decision applied and a history line', async () => {
   const app = await page(), text = retitle(app, 'Proposed'), p = plant(app, { text });
   await refresh(app);
-  assert.ok(/Proposed changes · 1/.test(app.html()) && /data-act="prop-apply" data-id="p-mh4k2a-x7w1k3m9p2"/.test(app.html()));
+  assert.ok(/Proposed changes<span class="dot">&nbsp;·&nbsp;<\/span>1/.test(app.html()) && /data-act="prop-apply" data-id="p-mh4k2a-x7w1k3m9p2"/.test(app.html()));
   await applied(app, p);
   assert.strictEqual(app.fs.files[DRAFT].t, text, 'the proposal\'s exact text');
   assert.strictEqual(attempts(app, p.id).length, 1);
@@ -275,14 +275,14 @@ rule('A record that can\'t be read blocks Apply until it reads, and Review names
 });
 
 rule('A process with only a proposal is listed on Processes and has a page with it; applying it creates the draft', async () => {
-  const app = await page(), md = '---\nprocess: onboard\ntitle: Onboarding\ncategory: People\nowner: person-casey\n---\n\n## First · READ-DO {#first}\n- [ ] {confirm} Say hello {#hello}\n';
+  const app = await page(), md = '---\nprocess: onboard\ntitle: Onboarding\ncategory: People\nowner: person-casey\n---\n\n## First<span class="dot">&nbsp;·&nbsp;</span>READ-DO {#first}\n- [ ] {confirm} Say hello {#hello}\n';
   const p = app.PF.proposals.make({ id: 'p-b1-aaaaaaaaaa', process: 'onboard', session: 's-k3m9p2q8x7w1', label: 'assistant', by: 'person-avery', at: new Date().toISOString(), app: '1.19.0', base: { kind: 'none', ref: null, text: '' }, text: md, replaces: null, after: null, note: '' });
   app.fs.files['proposed/onboard/' + p.id + '.json'] = { t: JSON.stringify(p), m: 1 };
   await refresh(app);
   app.click('nav', 'processes'); await app.tick();
   assert.ok(/Proposed, not drafted yet/.test(app.html()));
   app.click('open-process', 'onboard'); await app.tick();
-  assert.ok(/Proposed changes · 1/.test(app.html()));
+  assert.ok(/Proposed changes<span class="dot">&nbsp;·&nbsp;<\/span>1/.test(app.html()));
   app.click('prop-apply', p.id); await app.tick(200);
   assert.strictEqual(app.fs.files['maps/drafts/onboard.md'].t, md);
 });
