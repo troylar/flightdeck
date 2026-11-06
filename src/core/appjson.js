@@ -81,6 +81,14 @@ PF.appjson = (function () {
   var FOLLOWUP2 = extend(FOLLOWUP, { test: 'boolean' });
   /* A detail that must match a pattern (2.16, Appendix A) carries pattern; every other detail is exactly as before. */
   var DETAIL = { name: 'string', type: 'string', options: ['string'] };
+  var DESIGN_TIP = { id: 'string', at: 'string', ref: opt('string'), text: 'string' };
+  var LIB_CHECKLIST = { process: 'string', title: 'string', source: 'string', version: opt('number'), folder: opt('string'), owner: opt('string'), runs: 'string',
+    context: [{ name: 'string', type: 'string' }], roles: ['string'],
+    steps: [{ id: 'string', phase: 'string', type: 'string', text: 'string', must: 'boolean', roles: ['string'], fields: map('string') }],
+    searches: [{ step: 'string', query: opt('string'), filter: opt('string'), normalized: opt('string'), results: opt('string'), site: opt('string') }],
+    gates: [{ id: 'string', phase: 'string', title: 'string', implicit: 'boolean', owner: opt('string'), approves: 'string', pattern: opt('string') }],
+    sets: [{ step: 'string', names: ['string'] }], children: [{ step: 'string', process: 'string', version: opt('number'), pass: ['string'], carry: ['string'] }],
+    types: ['string'], teamTypes: ['string'], skills: [{ name: 'string', implements: opt('number'), steps: opt(['string']), status: 'string' }] };
   var SCHEMA2 = {
     envelope: SCHEMA.envelope, error: SCHEMA.error, processes: SCHEMA.processes, next: SCHEMA.next, followups: { followUps: [FOLLOWUP2] }, request: SCHEMA.request,
     /* stage: the staged version shown (process --stage), else null. */
@@ -93,7 +101,16 @@ PF.appjson = (function () {
       gates: [extend(SCHEMA.run.run.$or[0].gates[0], { applies: APPLIES })], followUps: [FOLLOWUP2] })) },
     /* flightdeck draft check (2.13): the verdict the Publish dialog gives the text, from the folder as it is now. from: the draft
        in maps/drafts/ (ref its path) or the file given with --from (ref null); rev: SHA-256 of the text checked. */
-    draftCheck: { process: 'string', from: { kind: 'string', ref: opt('string'), rev: 'string' }, checks: { blockers: ['string'], suggestions: ['string'] }, publish: { ok: 'boolean', blockers: ['string'] } },
+    draftCheck: { process: 'string', from: { kind: 'string', ref: opt('string'), rev: 'string' }, checks: { blockers: ['string'], suggestions: ['string'] }, publish: { ok: 'boolean', blockers: ['string'] },
+      /* design (3.0): PF.library.lints, advice that never stops publishing; library says whether every published checklist
+         was read for the tips that compare with them. */
+      design: { tips: [DESIGN_TIP], library: { complete: 'boolean', note: 'string' } } },
+    /* flightdeck library inspect (3.0): PF.library.inspect, every checklist normalized, what links to what, and candidates
+       that look alike across checklists, each with its reason. */
+    library: { checklists: [LIB_CHECKLIST], usedBy: [{ process: 'string', by: { process: 'string', source: 'string', step: 'string', version: opt('number') } }],
+      overlaps: [{ kind: 'string', reason: 'string', key: 'string', items: [{ process: 'string', source: 'string', id: 'string' }] }],
+      stepTypes: [{ id: 'string', team: 'boolean', usedBy: [{ process: 'string', source: 'string', steps: ['string'] }] }],
+      completeness: { complete: 'boolean', unread: [{ process: opt('string'), path: 'string', why: 'string' }], note: 'string' } },
     /* flightdeck type read and type list (2.14): one step-type file as the command reads it (state, the SHA-256 of its exact
        bytes, what the app makes of it), and every .json entry in step-types/ in the order the app's loader reads them. */
     stepType: { type: { id: 'string', path: 'string', state: 'string', rev: opt('string'), bytes: opt('number'), bom: opt('boolean'), lineEndings: opt('string'), utf8: opt('boolean'),

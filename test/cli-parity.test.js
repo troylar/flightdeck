@@ -937,4 +937,95 @@ rule('Type parity, Python team_files: agrees on every command-written file; a BO
   assert.strictEqual(JSON.parse((await FDB.main(['type', 'read', only, 'a.b', '--json'])).out).data.type.state, 'malformed', 'the command calls it malformed');
 });
 
+/* ---------- 3.0: the library and design tips, the same in the app and through the command ---------- */
+
+const RELEASE_PUB = ['---', 'process: release', 'title: Release', 'owner: person-avery', 'context: version, commit, ticket', 'roles: lead', '---', '', '## Scope · DO-CONFIRM {#scope}',
+  '- [ ] {jira.search} The release has stories @lead {#stories}', '  query: project = PAY AND fixVersion = ^version', '  results: at least 1',
+  '- [ ] {run.process} Check in the code @lead {#notes}', '  process: check-in', '  carry: commit', '',
+  '## Gate: Release approved · owner @lead {#approved}', '  approves: release of ^version', ''].join('\n');
+const DEPLOY_DRAFT = md({ process: 'deploy', context: 'fix_version', steps: ['- [!] {confirm} All stories are done @lead {#all}', '- [ ] {jira.search} Stories in the version @lead {#in}', '  query: PROJECT = PAY and FIXVERSION = ^fix_version', '  results: at least 1'] });
+const JIRA_TV = JSON.stringify({ format: 'flightdeck-team-values/1', values: { 'jira-base-url': { value: 'https://jira.example.com' } } });
+function libCli(dir, more) {
+  const r = cp.spawnSync(process.execPath, [BIN, 'library', 'inspect', dir].concat(more || []), { encoding: 'utf8', maxBuffer: 64 * 1048576 });
+  let json = null; try { json = JSON.parse(r.stdout); } catch (e) { /* asserted below */ }
+  assert.ok(json, 'JSON on stdout: ' + r.stdout + r.stderr);
+  if (!json.error) {
+    assert.deepStrictEqual(wrong(json, AJ.SCHEMA2.envelope), [], 'envelope');
+    assert.deepStrictEqual(wrong(json.data, AJ.SCHEMA2.library), [], 'SCHEMA2.library');
+    assert.strictEqual(json.contract, 'flightdeck-read/2');
+    assert.strictEqual(r.status === 4, !json.complete, 'exit 4 exactly when partial (exit ' + r.status + ')');
+  }
+  return { code: r.status, json };
+}
+function treeOf(dir) {
+  const out = {};
+  (function walk(d) { fs.readdirSync(d, { withFileTypes: true }).forEach(e => { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else out[path.relative(dir, p)] = fs.readFileSync(p, 'utf8'); }); })(dir);
+  return out;
+}
+
+rule('Library: flightdeck library inspect reads every checklist read-only: links, step types, skills and overlaps with their reasons', async () => {
+  const files = await folder({ base: { 'team-values.json': JIRA_TV }, publish: [example('maps/drafts/check-in.md'), RELEASE_PUB], drafts: { deploy: DEPLOY_DRAFT } });
+  const dir = RF.toDisk(files, tmp()), before = treeOf(dir);
+  const r = libCli(dir, ['--json']);
+  assert.strictEqual(r.code, 0, JSON.stringify(r.json.problems));
+  const d = r.json.data;
+  assert.deepStrictEqual(d.checklists.map(c => c.process + ':' + c.source).sort(), ['check-in:publication', 'deploy:draft', 'release:publication']);
+  assert.deepStrictEqual(d.usedBy, [{ process: 'check-in', by: { process: 'release', source: 'publication', step: 'notes', version: null } }]);
+  assert.deepStrictEqual(d.overlaps.filter(o => o.kind === 'search').map(o => o.reason + ': ' + o.items.map(x => x.process + '#' + x.id).join(' ')), ['same normalized JQL: release#stories deploy#in']);
+  assert.ok(d.stepTypes.some(t => t.id === 'change.request' ? false : t.id === 'run.process' && t.usedBy[0].process === 'release'));
+  assert.strictEqual(d.completeness.complete, true);
+  assert.deepStrictEqual(treeOf(dir), before, 'nothing in the folder changed');
+  const one = libCli(dir, ['--process', 'check-in', '--json']).json.data;
+  assert.deepStrictEqual(one.checklists.map(c => c.process), ['check-in']);
+  assert.strictEqual(one.usedBy.length, 1, 'the link to it stays');
+  assert.strictEqual(libCli(dir, ['--process', 'nope', '--json']).code, 5);
+  const noJson = libCli(dir, []);
+  assert.strictEqual(noJson.code, 1); assert.strictEqual(noJson.json.error.kind, 'usage');
+});
+
+rule('Library: a version that can\'t be read makes the answer partial and is named; it never reads as "nothing similar"', async () => {
+  const files = await folder({ base: { 'team-values.json': JIRA_TV }, publish: [example('maps/drafts/check-in.md'), RELEASE_PUB], drafts: { deploy: DEPLOY_DRAFT } });
+  const dir = RF.toDisk(files, tmp()), pubDir = path.join(dir, 'publications', 'release'), v = fs.readdirSync(pubDir)[0];
+  locked(path.join(pubDir, v, 'map.md'), () => {
+    const r = libCli(dir, ['--json']);
+    assert.strictEqual(r.code, 4, JSON.stringify(r.json.problems));
+    assert.strictEqual(r.json.data.completeness.complete, false);
+    assert.ok(r.json.data.completeness.unread.some(u => /^publications\/release\//.test(u.path)), JSON.stringify(r.json.data.completeness));
+    assert.ok(/can't be ruled out/.test(r.json.data.completeness.note));
+    const c = cli(dir, 'deploy');
+    assert.strictEqual(c.json.data.design.library.complete, false);
+    assert.ok(c.json.data.design.tips.some(t => t.id === 'library-unread'), JSON.stringify(c.json.data.design));
+  });
+});
+
+rule('Parity: design tips in draft check are the ones the checklist page shows; Used by and Similar match library inspect', async () => {
+  const files = await folder({ base: { 'team-values.json': JIRA_TV }, publish: [example('maps/drafts/check-in.md'), RELEASE_PUB], drafts: { deploy: DEPLOY_DRAFT } });
+  const dir = RF.toDisk(files, tmp()), c = cli(dir, 'deploy');
+  const tips = c.json.data.design.tips.map(t => t.text);
+  assert.ok(tips.some(t => /confirms a whole set at once/.test(t)) && tips.some(t => /runs the same search as Release \{#stories\}/.test(t)), JSON.stringify(tips));
+  assert.strictEqual(c.json.data.design.library.complete, true);
+  const app = boot({ picker: folderHandle('Team', Object.assign({}, files)), indexedDB: memoryIDB() }); await app.tick(60);
+  app.click('connect'); await app.tick(200);
+  app.choose('person-avery'); await app.tick();
+  app.click('open-process', 'deploy'); await app.tick();
+  let html = app.html();
+  const block = /<ul class="checks" aria-labelledby="tips-ov-h">([\s\S]*?)<\/ul>/.exec(html);
+  assert.ok(block, 'the page draws the design tips');
+  assert.deepStrictEqual([...block[1].matchAll(/<span class="lvl tip">Tip<\/span><span>([\s\S]*?)<\/span><\/li>/g)].map(m => unesc(m[1])), tips, 'the same tips, in the same order');
+  assert.ok(/Same Jira search<\/b>: \{#in\} here and <\/span><button type="button" class="link" data-act="go" data-view="process" data-process="release" data-step="stories">Release \{#stories\}/.test(html), 'Similar in other checklists');
+  app.click('open-process', 'check-in'); await app.tick();
+  html = app.html();
+  assert.ok(/data-process="release" data-step="notes">Release<\/button> <span>step \{#notes\}, follows the latest version/.test(html), 'Used by, as library inspect says it');
+  /* Step types name the checklists that use each type, as library inspect's stepTypes does for published ones. */
+  const lib = libCli(dir, ['--json']).json.data;
+  app.click('open-types'); await app.tick();
+  html = app.html();
+  ['jira.search', 'run.process', 'confirm'].forEach((id) => {
+    const want = (lib.stepTypes.find(t => t.id === id) || { usedBy: [] }).usedBy.filter(u => u.source === 'publication').map(u => u.process).sort();
+    const m = new RegExp('data-disc="type-in:' + id.replace('.', '\\.') + '"[^>]*><summary class="small">Which checklists</summary><ul class="small">([\\s\\S]*?)</ul>').exec(html);
+    assert.ok(m, id + ': the card lists its checklists');
+    assert.deepStrictEqual([...m[1].matchAll(/data-process="([^"]+)"/g)].map(x => x[1]).sort(), want, id);
+  });
+});
+
 run();

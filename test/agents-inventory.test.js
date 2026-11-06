@@ -304,7 +304,7 @@ rule('AGENTS.md fits under ROOM_CEILING', () => {
 rule('Every fixture unit is in exactly one entry, and the data lists are the size the review counted', () => {
   assert.strictEqual(I.unitsAt(I.FIXTURE).length, 298);
   assert.strictEqual(I.ENTRIES.length, 296, 'entries (21.0 and 21.1 share one; so do 70.1 and 70.0, the label dropped in round 8)');
-  assert.strictEqual(I.ADDED.length, 30);
+  assert.strictEqual(I.ADDED.length, 31, '3.0: the library inspect row');
   assert.strictEqual(Object.keys(I.MOVED_GUIDANCE).length, 29);
   assert.strictEqual(Object.keys(I.MOVED_RULE_WORDS).length, 13, 'round 9: every moved never, must or only, reviewed');
   assert.strictEqual(I.NOT_CITES.length, 11);

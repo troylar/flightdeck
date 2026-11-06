@@ -2,7 +2,7 @@
   "texts": {
     "CHANGELOG.md": {
       "sha256": "4c96c8a40e204c80fe6aa9d7a15227ce560abb7d5b6c71f274d8d345914f8946",
-      "reviewed": "A link field holding a plain name (spaces, no scheme, no other invisible character) gets 'takes a web link; put a name or file reference in a note' (PF.urls.nameLike, map.js); real links and invisible characters keep their messages; release note. Checked for direct writes and unconditional deletes: none."
+      "reviewed": "library inspect, design tips, Used by and similar; checked for direct writes and unconditional deletes"
     },
     "LICENSE": {
       "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
@@ -13,16 +13,16 @@
       "reviewed": "README manual download link points at 3.0.0, the release being built. Checked for direct writes and unconditional deletes: none."
     },
     "bin/flightdeck.js": {
-      "sha256": "28ef85cd3aa050accea114e65ef44d6b8ec3b51f9219fa333dfd0641e95f3ff0",
-      "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
+      "sha256": "b4ecd608a8e841db9a5e9a1f0563a6b4c3daae263382d512d13c549f354d71a2",
+      "reviewed": "library inspect, design tips, Used by and similar; checked for direct writes and unconditional deletes"
     },
     "build.py": {
-      "sha256": "78f801096b5da6b7a511f91daf153aff9a8befda8de66a839d4ea2fd5bccd077",
-      "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. The generator of dist/flightdeck.html, dist/FONT-LICENSE.txt and CHANGELOG.md. Read: the parts that put words in shipped files (the KINDS labels New/Improved/Fixed, the CHANGELOG header, the build checks); not read line by line otherwise. No direct write or delete instruction."
+      "sha256": "f0c4be06309dfeb44722e5c4b982947b5a1ae7aa5c361947714a92ee83002a59",
+      "reviewed": "library inspect, design tips, Used by and similar; checked for direct writes and unconditional deletes"
     },
     "docs/apps.md": {
-      "sha256": "d01a06cfd9e631d5417d7f9c9074063c0c949d764ba6a6062c4141dd2cfe3fdb",
-      "reviewed": "2.16.2: one held, evenly spaced separator everywhere; checklist wording on screens and messages; the inspector place line wraps beside Previous and Next"
+      "sha256": "91f550799b3227a6b8de934f5cecfa132643c94dc7bc90f074d3c3288e1e35fd",
+      "reviewed": "library inspect, design tips, Used by and similar; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
       "sha256": "00066e51741e57e02c184729bcc84db091ec489c78f0cdb09cb4b84635d94eae",
@@ -61,8 +61,8 @@
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "example-folder/.flightdeck/skills/_flightdeck/command-guide.md": {
-      "sha256": "0643b69e9714ee4e7d7f74b4bbfe660f52cf9cf552ed0882a5b47f744f6842f1",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "a481a6dc4b5007f7811e66bd25c22df51e748d45176c0fe82748875b31525697",
+      "reviewed": "library inspect, design tips, Used by and similar; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/file-formats.md": {
       "sha256": "3e696299bc5971a578831ad4c25330bcb87a4036c10666469e39b794a9a1bba3",
@@ -85,8 +85,8 @@
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "example-folder/.flightdeck/skills/flightdeck-new-checklist/SKILL.md": {
-      "sha256": "8a5e1b3601480954433458343d6278e08902c8291cedd64a4067dbfb03404f2c",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "60b37b81dc38d7d8c8059343469e184c054af355a664955ac25342ad26518842",
+      "reviewed": "library inspect, design tips, Used by and similar; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/flightdeck-new-step-type/SKILL.md": {
       "sha256": "ebc4c1ec9435236eea4e59744940ab403cb9446fdaa90fce67b15915099a9c25",
@@ -109,8 +109,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed check g (every write to a protected path listed in DIRECT_WRITES as a prohibition or allowed with why) and the delete guard (no unconditional delete of AGENTS.md or a staged copy) as of f2888f5."
     },
     "example-folder/AGENTS.md": {
-      "sha256": "b8af42ac89bd48417e5f224460e8e020fa6534aed8070ec047b608017cf747bf",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "752e95238db8cbe429cf44a599e26d9bdbb22ab6f4f0c1ab62e003bd05d1eb6d",
+      "reviewed": "library inspect, design tips, Used by and similar; checked for direct writes and unconditional deletes"
     },
     "example-folder/jira/workflows.json": {
       "sha256": "b5a29ccf5b1a5e5c9b0e464d1d3b380a4e4dac04eea81608e90d5ae142f9eb99",
@@ -193,12 +193,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "cb5b32ecc436eba06f6b15227707d7755545a12b73dafb1a80515769c3b52905",
-      "reviewed": "Missing or unusable Jira address grouped into one blocker per site with a count and step IDs (jira.checkFields returns siteError, types passes it, map.js groups through PF.jsearch.addressBlockers); map-format.md and its skills copy say publishing needs the address and Copy is the run fallback; release note. Checked for direct writes and unconditional deletes: none."
+      "sha256": "ee8dad48ea929f0c3e8deca110780cd1609862117648374ce656337d83db4cc4",
+      "reviewed": "library inspect, design tips, Used by and similar; checked for direct writes and unconditional deletes"
     },
     "src/core/appjson.js": {
-      "sha256": "86b915c32b324bbd05f1d35f96933a90cd79a10713ca84f4cf373dc78d63bc9f",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "af50d6d01ef317272473dece7e418517dc5f3d74fe0348b147764edcdeaefd73",
+      "reviewed": "library inspect, design tips, Used by and similar; checked for direct writes and unconditional deletes"
     },
     "src/core/attach.js": {
       "sha256": "0e75bc0c0d748fe10aaf5657662e4ce8679c27f9d10d85c1e34891b1c9d58df0",
@@ -243,6 +243,10 @@
     "src/core/jira.js": {
       "sha256": "48dc73ba1d25f03d8f6deefc0436658fc375491a65f4772ac83a0a79c73e1c03",
       "reviewed": "A link field holding a plain name (spaces, no scheme, no other invisible character) gets 'takes a web link; put a name or file reference in a note' (PF.urls.nameLike, map.js); real links and invisible characters keep their messages; release note. Checked for direct writes and unconditional deletes: none."
+    },
+    "src/core/library.js": {
+      "sha256": "5282275d010b9f9607b6aa7a9e8652ab93368d6e29facf1b32c230a4f78b16d6",
+      "reviewed": "library inspect, design tips, Used by and similar; checked for direct writes and unconditional deletes"
     },
     "src/core/links.js": {
       "sha256": "3ceec1cb191551546f909245fed5dbd74d3f89eceb5ba727e448230fb0f5f867",
@@ -378,7 +382,7 @@
     },
     "src/releases.json": {
       "sha256": "016535578c57f531d0d1e2f716a6f0cc98b61ac56c5ac04701ef7142134a6135",
-      "reviewed": "A link field holding a plain name (spaces, no scheme, no other invisible character) gets 'takes a web link; put a name or file reference in a note' (PF.urls.nameLike, map.js); real links and invisible characters keep their messages; release note. Checked for direct writes and unconditional deletes: none."
+      "reviewed": "library inspect, design tips, Used by and similar; checked for direct writes and unconditional deletes"
     },
     "src/storage/fs.js": {
       "sha256": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",
@@ -441,8 +445,8 @@
       "reviewed": "2.16.2: one held, evenly spaced separator everywhere; checklist wording on screens and messages; the inspector place line wraps beside Previous and Next"
     },
     "src/ui/views/manage.js": {
-      "sha256": "0cfb7f59c07c9c3aeea5091b9104816e40726277044e12ad6b2e18c7830ed6b4",
-      "reviewed": "2.16.2: one held, evenly spaced separator everywhere; checklist wording on screens and messages; the inspector place line wraps beside Previous and Next"
+      "sha256": "9200088a171d9024bf927bd5b3c89639c0b1c3b1fa9904d74b0909bfaf40882b",
+      "reviewed": "library inspect, design tips, Used by and similar; checked for direct writes and unconditional deletes"
     },
     "src/ui/views/overlays.js": {
       "sha256": "c848c2d150a9828f6aaec7809f986d77a6c3f2b9c35a19d3d5fddeaf8e5fd681",
@@ -457,8 +461,8 @@
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "src/ui/views/process.js": {
-      "sha256": "7b374bd2140786f607927a004c7f3985e8b151eb5bc7aebbfc29d98f53c67091",
-      "reviewed": "Diagnostic step labels: PF.util.excerpt/stepLabel (ID plus word-boundary excerpt with an ellipsis, in code points) replace text.slice(0, 40) in publish, map, health and the process view; check_folder.py step_label() mirrors it; release note. Checked for direct writes and unconditional deletes: none."
+      "sha256": "d64e4bd61dbeaf24e99aede0d65939ade212e95e8b108b862f24d3193004df61",
+      "reviewed": "library inspect, design tips, Used by and similar; checked for direct writes and unconditional deletes"
     },
     "src/ui/views/reports.js": {
       "sha256": "5b1f9581d45a53bcb915ce479f4bef70ecb0e3c9132ae498baba4835a955f875",

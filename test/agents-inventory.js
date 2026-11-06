@@ -20,7 +20,7 @@ const BASE = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'baselines.json')
 const FIXTURE = fs.readFileSync(path.join(__dirname, 'fixtures', 'agents-2.14.0.md'), 'utf8');
 const AGENTS = read('AGENTS.md');
 /* AGENTS.md's ceiling: 2.14.0's copy less the room the design keeps for team notes and the index rows (design section 4). */
-const ROOM_CEILING = 19688;
+const ROOM_CEILING = 19688 + 141; /* 3.0: the library inspect row in Commands (assistant-start.test.js) */
 const WHY_WORDS = /\b(never|must|only)\b/i;
 const GUIDANCE = /\b(never|must|don't|do not|check|checks|read|leave out|only|ignore|skip|should|unless|instead|avoid|make sure|was meant|reopens)\b|\bis only\b/i;
 const GRANT = /\byou (may|can)\b|\b(is|are) (fine|ok|okay|allowed)\b|\bfeel free\b|\ballowed to\b/i;
@@ -390,6 +390,7 @@ const ADDED = [
   { home: H.commands, text: '|---|---|---|', class: 'C1', why: 'the Commands table: every command an assistant runs, and where its how is' },
   { home: H.commands, text: '| `flightdeck runs`, `run`, `next`, `followups`, `processes`, `process` | Reading runs, versions and follow-ups; they never change the folder | *Reading runs* in the command guide |', class: 'C1', why: 'the Commands table: every command an assistant runs, and where its how is' },
   { home: H.commands, text: '| `flightdeck draft read`, `draft save`, `draft propose`, `draft check` | Reading, changing and checking a draft | *Editing drafts* in the command guide |', class: 'C1', why: 'the Commands table: every command an assistant runs, and where its how is' },
+  { home: H.commands, text: '| `flightdeck library inspect` | Reading every checklist at once, before designing or changing one | *Editing drafts* in the command guide |', class: 'C1', why: '3.0: library inspect, read before designing or changing a checklist' },
   { home: H.commands, text: '| `flightdeck type list`, `type read`, `type save` | Reading the team\'s step types, and saving one (only through `type save`) | `/flightdeck-new-step-type` |', class: 'C1', why: 'the Commands table: every command an assistant runs, and where its how is' },
   { home: H.commands, text: '| `flightdeck report targets`, `report check`, `report write` | Reporting work a tool did on a step | *Reporting work* in the command guide |', class: 'C1', why: 'the Commands table: every command an assistant runs, and where its how is' },
   { home: H.commands, text: '| `flightdeck skill register` | Registering a skill built from a 2.0 version | *Skills built from processes* in the command guide |', class: 'C1', why: 'the Commands table: every command an assistant runs, and where its how is' },
@@ -532,6 +533,13 @@ const REF_ADDED = [
   { home: G.checklist, text: '### Tracks and times', why: 'a ### subheading, to find a part of the section' },
   { home: G.checklist, text: '### Run details', why: 'a ### subheading, to find a part of the section' },
   { home: G.checklist, text: '### Linked processes and Jira', why: 'a ### subheading, to find a part of the section' },
+  { home: G.drafts, text: 'Its `design.tips` are the design tips the checklist\'s page shows: advice, never a reason it can\'t publish.', why: 'new in 3.0 (thoughtful authoring): the library read and the design tips' },
+  { home: G.drafts, text: '### The library', why: 'a ### subheading, to find a part of the section' },
+  { home: G.drafts, text: '`flightdeck library inspect <team folder> [--process <id>] --json` (Flightdeck 3.0) reads every checklist into one shape:', why: 'new in 3.0 (thoughtful authoring): the library read and the design tips' },
+  { home: G.drafts, text: '`checklists`, `usedBy` (which checklists link to which), `overlaps` (searches, steps and gates that look alike, with a `reason`) and `stepTypes` (which checklists use each type).', why: 'new in 3.0 (thoughtful authoring): the library read and the design tips' },
+  { home: G.drafts, text: 'Reading it changes nothing.', why: 'new in 3.0 (thoughtful authoring): the library read and the design tips' },
+  { home: G.drafts, text: 'An overlap is a reason to look, never proof two checklists do the same job.', why: 'new in 3.0 (thoughtful authoring): the library read and the design tips' },
+  { home: G.drafts, text: 'If `completeness.complete` is false, what `completeness.unread` names wasn\'t read: say so.', why: 'new in 3.0 (thoughtful authoring): the library read and the design tips' },
 ];
 
 const NOTHING = 'Nothing here allows you to write a file `AGENTS.md` tells you not to.';

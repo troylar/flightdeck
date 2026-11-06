@@ -71,6 +71,7 @@ These are plain `SKILL.md` files in `.flightdeck/skills/` (or wherever the team 
 |---|---|---|
 | `flightdeck runs`, `run`, `next`, `followups`, `processes`, `process` | Reading runs, versions and follow-ups; they never change the folder | *Reading runs* in the command guide |
 | `flightdeck draft read`, `draft save`, `draft propose`, `draft check` | Reading, changing and checking a draft | *Editing drafts* in the command guide |
+| `flightdeck library inspect` | Reading every checklist at once, before designing or changing one | *Editing drafts* in the command guide |
 | `flightdeck type list`, `type read`, `type save` | Reading the team's step types, and saving one (only through `type save`) | `/flightdeck-new-step-type` |
 | `flightdeck report targets`, `report check`, `report write` | Reporting work a tool did on a step | *Reporting work* in the command guide |
 | `flightdeck skill register` | Registering a skill built from a 2.0 version | *Skills built from processes* in the command guide |

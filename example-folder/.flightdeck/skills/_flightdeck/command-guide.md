@@ -54,7 +54,11 @@ If the person has the draft open in Flightdeck's main editor with nothing unsave
 
 `draft read` returns `checks` for the text you continue from, and `draft save` and `draft propose` return them for the text you saved: `blockers` (would stop publishing) and `suggestions`. They load what the Publish dialog loads: people, step types, Jira workflows, published versions and team values.
 
-`flightdeck draft check <team folder> <process> [--from <file>] --json` gives the Publish dialog's verdict (`flightdeck-read/2`), and its `publish.blockers` also cover screenshots and `version:` pins.
+`flightdeck draft check <team folder> <process> [--from <file>] --json` gives the Publish dialog's verdict (`flightdeck-read/2`), and its `publish.blockers` also cover screenshots and `version:` pins. Its `design.tips` are the design tips the checklist's page shows: advice, never a reason it can't publish.
+
+### The library
+
+`flightdeck library inspect <team folder> [--process <id>] --json` (Flightdeck 3.0) reads every checklist into one shape: `checklists`, `usedBy` (which checklists link to which), `overlaps` (searches, steps and gates that look alike, with a `reason`) and `stepTypes` (which checklists use each type). Reading it changes nothing. An overlap is a reason to look, never proof two checklists do the same job. If `completeness.complete` is false, what `completeness.unread` names wasn't read: say so.
 
 ### Exit codes
 

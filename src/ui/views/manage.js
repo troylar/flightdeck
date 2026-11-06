@@ -191,7 +191,7 @@
     var panes = {
       selected: form || '<div class="ob-nosel"><p><b>Nothing selected.</b> Choose a step, lane, phase or gate in the outline, or Checklist details, to change it here.</p>' +
         '<ul class="ob-sample" aria-hidden="true"><li class="s-ph">Phase</li><li class="s-st on">' + I('check') + 'A step, selected</li><li class="s-st">' + I('check') + 'Another step</li><li class="s-gt">Gate</li></ul></div>',
-      checks: (dirty && !builder ? V.changedLines(ed.base, text) : '') + '<h2 class="fpe-ph">' + (nb ? 'Won\'t publish yet' : 'Checks') + '</h2>' + V.checkList(c, ctx.state, 'checks-ed') +
+      checks: (dirty && !builder ? V.changedLines(ed.base, text) : '') + '<h2 class="fpe-ph">' + (nb ? 'Won\'t publish yet' : 'Checks') + '</h2>' + V.checkList(c, ctx.state, 'checks-ed') + V.designTips(ctx, text, p.id, 'tips-ed') +
         '<p class="small">Saving never publishes. When it\'s ready, choose Save draft, then Publish at the top right.</p><p class="small">The full format, every step type and its fields: <button class="link" data-act="open-types">Step types</button>. Or ask your AI assistant: <code>/flightdeck-edit-checklist</code>.</p>',
       preview: map.phases.length ? '<div class="mapview">' + V.mapPreview(map, (ctx.data.stepTypes || {}).types, p.skills, null, PF.corrections.openCounts(V.fixesOf(ctx, p)), hl) + '</div>' : '<p class="small">Add a phase to see it here.</p>'
     };
@@ -270,20 +270,22 @@
   /* ---------- step types ---------- */
   var KIND_HELP = { text: 'a line of text', url: 'a web link', code: 'a command or code', message: 'a message to post', list: 'choices, separated by commas', choice: 'one of fixed options' };
   /* One line per type: what it's for, where it's used, one action. What it asks for stays folded until someone wants it. */
-  function typeCard(st, t, team, uses) {
-    var fields = Object.keys(t.fields || {}), rec = t.record || [], key = 'type:' + t.id;
+  function typeCard(st, t, team, usedIn) {
+    var fields = Object.keys(t.fields || {}), rec = t.record || [], key = 'type:' + t.id, uses = usedIn.length, ukey = 'type-in:' + t.id;
     var open = st.disc && st.disc[key];
     var list = function (items) { return items.length ? '<ul class="small">' + items.join('') + '</ul>' : '<div class="small">Nothing.</div>'; };
     return '<li class="tcard"><div class="row between"><span>' + I(t.icon || 'check') + ' <b>' + esc(T.nameOf(t)) + '</b>' + (team ? ' <span class="pill open">team</span>' : '') + K.tagChips(T.tagsOf(t)) + '</span>' +
       '<span class="row"><span class="small">' + (uses ? 'in ' + uses + ' checklist' + (uses === 1 ? '' : 's') : 'not used yet') + '</span>' + (team ? '<button class="mini" data-act="edit-type" data-id="' + esc(t.id) + '">' + I('edit') + 'Edit</button>' : PF.types.isSearch(t) ? '' : '<button class="mini" data-act="copy-type" data-id="' + esc(t.id) + '">Copy to a team type</button>') + '</span></div>' +
       (T.hintOf(t) ? '<div class="small">' + esc(T.hintOf(t)) + '</div>' : '') +
+      (uses ? '<details data-disc="' + esc(ukey) + '"' + (st.disc && st.disc[ukey] ? ' open' : '') + '><summary class="small">Which checklists</summary><ul class="small">' + usedIn.slice(0, 50).map(function (p) { return '<li><button type="button" class="link" data-act="go" data-view="process" data-process="' + esc(p.id) + '">' + esc(p.title) + '</button></li>'; }).join('') + '</ul>' + (uses > 50 ? '<p class="small">And ' + (uses - 50) + ' more.</p>' : '') + '</details>' : '') +
       '<details data-disc="' + esc(key) + '"' + (open ? ' open' : '') + '><summary class="small">What it asks for</summary><p class="small">In a checklist: <code>{' + esc(t.id) + '}</code></p><div class="tcols">' +
       '<div><div class="small"><b>In the checklist</b></div>' + list(fields.map(function (f) { var d = t.fields[f]; return '<li><code>' + esc(f) + '</code> ' + esc(T.fieldName(t, f)) + ' · ' + esc(d.kind) + (d.required ? ', usually filled in' : '') + (d.requiredWhen ? ', when ' + esc(JSON.stringify(d.requiredWhen).replace(/[{}"]/g, '')) : '') + (d.options ? ': ' + esc(K.capJoin(d.options, null, ' / ', 'type-opts')) : '') + '</li>'; })) + '</div>' +
       '<div><div class="small"><b>When it\'s checked</b></div>' + list(rec.map(function (d) { return '<li><code>' + esc(d.name) + '</code> ' + esc(d.label) + ' · ' + esc(d.kind) + (d.options ? ': ' + esc(K.capJoin(d.options, null, ' / ', 'type-opts')) : '') + (d.when ? ', when ' + esc(JSON.stringify(d.when).replace(/[{}"]/g, '')) : '') + '</li>'; })) + '</div></div></details></li>';
   }
   function types(ctx) {
     var st = ctx.state, team = (ctx.data.stepTypes || {}).types || {}, errs = (ctx.data.stepTypes || {}).errors || [];
-    var uses = function (id) { return ctx.processes().filter(function (p) { return p.latest && M.usedTypes(p.latest.map).indexOf(id) >= 0; }).length; };
+    /* Which checklists use each type, from their latest versions (3.0: named, not only counted). */
+    var uses = function (id) { return ctx.processes().filter(function (p) { return p.latest && M.usedTypes(p.latest.map).indexOf(id) >= 0; }); };
     if (st.typeForm && st.typeForm.fsKey === ctx.fsKey) return typeForm(ctx);
     var tog = ctx.libOrigin ? ctx.libOrigin('types') : { hash: '#/processes', place: 'Checklists', view: '' };
     var h = notices(ctx) + V.backRow(tog.ws ? V.backc('type-ws-back', null, tog.place, tog.view) : V.backc('go-back', tog.hash, tog.place)) + '<div class="runhead"><div><div class="eyebrow">Library</div><h1 id="page-h" tabindex="-1">Step types</h1><div class="small">A step\'s type decides what it asks for. Add your own for tools the built-ins don\'t cover.</div></div><div class="row"><button class="btn go" data-act="new-type">' + I('edit') + 'New step type</button></div></div>';

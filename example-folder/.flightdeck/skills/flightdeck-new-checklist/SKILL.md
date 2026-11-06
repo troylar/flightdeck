@@ -15,15 +15,16 @@ If the folder has `step-types/` or `jira/workflows.json`, read them too: use the
 
 ## Steps
 
-1. **Find the sources.** If the request names files (a runbook, notes, a ticket export, a transcript), read them. Check `maps/drafts/` and `publications/` (list the files): if a checklist for this process already exists, stop and suggest `/flightdeck-edit-checklist` instead.
-2. **Ask only what you can't find,** in one message with at most 5 short questions. Typical gaps:
+1. **Read the library.** Run `flightdeck library inspect <team folder> --json`: every checklist, what links to what, and searches, steps and gates that look alike.
+2. **Find the sources.** If the request names files (a runbook, notes, a ticket export, a transcript), read them. Check `maps/drafts/` and `publications/` (list the files): if a checklist for this process already exists, stop and suggest `/flightdeck-edit-checklist` instead.
+3. **Ask only what you can't find,** in one message with at most 5 short questions. Typical gaps:
    - Who runs it: one person (`runs: solo`) or a team? Which roles?
    - Where are the natural pause points (the moments people stop and check)?
    - Which steps cause real harm if skipped (the must-dos)?
    - What changes each run (ticket, commit, environment, sprint)? These become `context`.
    - Is evidence needed anywhere (a build number, a PR link)?
    If the person says "just draft it", draft it and put the open points under `## Questions for the owner`.
-3. **Draft the checklist:**
+4. **Draft the checklist:**
    - Front matter: `process` (lowercase, dashes, permanent), `title`, `category`, `group` (its place in the team's hierarchy, like `Engineering / Releases`), `tags`, `owner` (a person ID from `people.json`), `backup` (optional: another person ID, who signs off only while the owner is away), `context`, `roles`, and `runs: solo` if it's a one-person routine. Never `format:` or `features:`.
    - A step or phase only some runs need gets `only when` (Flightdeck 2.1). Comparing a value (`only when ^risk is high`) needs a typed detail in `context` (`risk:choice(low|high)`, Flightdeck 2.0); a plain detail can only be tested with `is set` or `is not set`. Use typed details and `only when` only when the team uses those versions.
    - Phases at pause points, each marked READ-DO or DO-CONFIRM, with **up to 9 steps**. Fewer is fine; never pad a phase.
@@ -33,8 +34,8 @@ If the folder has `step-types/` or `jira/workflows.json`, read them too: use the
    - `^detail` on steps that depend on a run detail; `@role` on steps one role owns.
    - A gate with `owner @role` and `approves:` where approval matters.
    - Explanations, links and gotchas in `>` notes. Reference screenshots only if they already exist in `images/`.
-4. **Check it yourself** against the format and guide before saving: unique IDs, known types, choice values from the allowed list, roles and `^details` declared in the front matter, no step over about 12 words, no filler openings, no secrets.
-5. **Save** with `flightdeck draft save <team folder> <process> --expect none --from <your file> --json`. It writes `maps/drafts/<process>.md` only if no draft is there and nobody has one open; otherwise your checklist is a proposal: it appears in the person's open editor if they have it open with nothing unsaved, or waits for them on the checklist's page (say which in your report). Without the command, check again that the file doesn't exist yet; if it does, stop and report instead of overwriting. Then read `checks.blockers` in its output and fix every blocker before you report the work as done (to save the fix, run `flightdeck draft read` with the same `--session`, then save as `/flightdeck-edit-checklist` does). They're the Publish dialog's checks; run `flightdeck draft check <team folder> <process> --from <your file> --json` for its whole verdict on your text (a proposal included), screenshots and `version:` pins included. If `complete` is false, what `problems` names wasn't checked: say so. Never change a valid use of a team step type to make a blocker go away; check the type exists and say Flightdeck's checks on the checklist's page have the final word. Never write `maps/drafts/` yourself when the command is available, and never write to `publications/`, `staged/`, `runs/`, `proposed/` or `presence/`.
+5. **Check it yourself** against the format and guide before saving: unique IDs, known types, choice values from the allowed list, roles and `^details` declared in the front matter, no step over about 12 words, no filler openings, no secrets.
+6. **Save** with `flightdeck draft save <team folder> <process> --expect none --from <your file> --json`. It writes `maps/drafts/<process>.md` only if no draft is there and nobody has one open; otherwise your checklist is a proposal: it appears in the person's open editor if they have it open with nothing unsaved, or waits for them on the checklist's page (say which in your report). Without the command, check again that the file doesn't exist yet; if it does, stop and report instead of overwriting. Then read `checks.blockers` in its output and fix every blocker before you report the work as done (to save the fix, run `flightdeck draft read` with the same `--session`, then save as `/flightdeck-edit-checklist` does). They're the Publish dialog's checks; run `flightdeck draft check <team folder> <process> --from <your file> --json` for its whole verdict on your text (a proposal included), screenshots and `version:` pins included. If `complete` is false, what `problems` names wasn't checked: say so. Never change a valid use of a team step type to make a blocker go away; check the type exists and say Flightdeck's checks on the checklist's page have the final word. Never write `maps/drafts/` yourself when the command is available, and never write to `publications/`, `staged/`, `runs/`, `proposed/` or `presence/`.
 
 ## Report back
 

@@ -1673,7 +1673,13 @@ async function readInputs(eng, text, ra, L, everything) {
      leaves the answer complete. */
   const used = PF.publish.usesOf(map), problems = everything().filter((x) => PF.publish.uses(used, x, shots));
   const ctx = PF.publish.checkContext({ people, types, workflows: d.jira ? d.jira.workflows : null, processes, teamValues, missingShots, unknown: PF.publish.unknownOf(problems, shots) });
-  return { verdict: PF.publish.publishCheck(text, ctx), problems };
+  /* Design tips (3.0): advice from the text, and the searches and gates published checklists already have. What couldn't be
+     read under publications/ is said in the tips and in library.complete, never read as "no other checklist has it". */
+  const unread = 'publications' in failed ? [{ process: null, path: 'publications/', why: failed.publications }]
+    : problems.filter((x) => /^publications\//.test(x.path)).map((x) => ({ process: x.path.split('/')[1] || null, path: x.path, why: x.why }));
+  const lib = PF.library.inspect(PF.library.entriesOf({ processes: 'publications' in failed ? [] : d.processes }), unread);
+  const design = { tips: PF.library.lints(text, { library: lib, process: map.meta.process }), library: { complete: lib.completeness.complete, note: lib.completeness.note } };
+  return { verdict: PF.publish.publishCheck(text, ctx), problems, design };
 }
 /* flightdeck draft check <team folder> <process> [--from <file | ->] --json (2.13): the verdict the Publish dialog gives the
    draft in maps/drafts/ (or the text given with --from), from the folder as it is now (draftInputs). Read-only; prints
@@ -1712,11 +1718,59 @@ async function draftCheck(argv) {
   }
   try {
     const got = await draftInputs(eng, dir, text);
-    const data = { process: proc, from: { kind: said.kind, ref: said.ref, rev: PF.proposals.sha(text) }, checks: got.verdict.checks, publish: got.verdict.publish };
+    const data = { process: proc, from: { kind: said.kind, ref: said.ref, rev: PF.proposals.sha(text) }, checks: got.verdict.checks, publish: got.verdict.publish, design: got.design };
     const e = A.envelope(eng.version, new Date().toISOString(), got.problems, data, C2);
     return { out: JSON.stringify(e, null, 2), code: e.complete ? 0 : EXIT.partial };
   } catch (e) {
     return failOut('failed', e instanceof Refused ? e.message : 'The team folder couldn\'t be read: ' + (e && e.message || String(e)), e && e.problems);
+  }
+}
+/* flightdeck library inspect <team folder> [--process <id>] --json (3.0): every checklist, normalized (PF.library.inspect):
+   the latest usable version of each process and any draft that differs from it, what links to what, the team step types
+   each uses, skill coverage, and candidates that look alike across checklists, each with its reason. Read-only; prints
+   flightdeck-read/2 with SCHEMA2.library. What couldn't be read is a problem (exit 4) and in completeness.unread, never
+   "nothing similar". With --process, only what concerns that process: its checklists, the links to and from it, the
+   overlaps it's in and the step types it uses. */
+async function libraryMain(argv) {
+  const VAL = ['--process'], args = argv.filter((a, i) => !a.startsWith('--') && !(i > 0 && VAL.indexOf(argv[i - 1]) >= 0));
+  let eng = null;
+  const C2 = 2, appOf = () => (eng ? eng.version : versionOf(app()) || '');
+  const failOut = (kind, why, problems, code) => { const F = eng ? eng.PF.appjson : null, json = F ? F.failure(appOf(), kind, why, problems || [], C2) : { contract: 'flightdeck-read/2', app: appOf(), error: { kind, why }, problems: [] }; return { out: JSON.stringify(json, null, 2), code: code || EXIT.error }; };
+  const usage = (why) => failOut('usage', why);
+  const pi = argv.indexOf('--process'), proc = pi >= 0 ? argv[pi + 1] : null;
+  if (pi >= 0 && (!proc || proc.startsWith('--') || !PROC_ID.test(proc))) return usage('say which process after --process (lowercase letters, numbers and dashes).');
+  const unknown = argv.filter((a) => a.startsWith('--') && ['--json', '--process'].indexOf(a) < 0);
+  if (unknown.length) return usage('library inspect doesn\'t take ' + unknown.join(', ') + '.');
+  if (!argv.includes('--json')) return usage('flightdeck library prints JSON. Add --json.');
+  if (args[1] !== 'inspect' || !args[2] || args[3]) return usage('say the team folder, for example: flightdeck library inspect <team folder> --json');
+  let dir;
+  try { eng = loadEngine(); dir = folderArg(args[2], 'library inspect'); } catch (e) { return failOut('failed', e.message); }
+  const PF = eng.PF, A = PF.appjson, ra = readAdapter(dir, { maxBytes: READ_MAX }), L = PF.repo.ledger(PF.repo.readOnly(ra, 'Reading the library'));
+  const everything = () => { const out = L.problems(), seen = {}; out.forEach((x) => { seen[x.path + '\u0000' + x.kind] = true; }); adapterProblems(ra).forEach((x) => { if (!seen[x.path + '\u0000' + x.kind]) out.push(x); }); return out; };
+  try {
+    const d = await PF.repo.loadAll(dependsOn(L.fs, ['publications', 'maps/drafts', 'step-types', 'skills', 'skill-registrations']), { readOnly: true, explain: true, deep: true });
+    const failed = d.failed || {};
+    const PARTS = { drafts: 'maps/drafts', publications: 'publications', 'step types': 'step-types', skills: 'skills' };
+    Object.keys(PARTS).forEach((k) => { if (k in failed && !L.problems().some((x) => x.path === PARTS[k] || x.path.indexOf(PARTS[k] + '/') === 0)) L.note(PARTS[k], /newer/.test(failed[k]) ? 'newer' : 'unreadable', failed[k]); });
+    (d.processes || []).forEach((p) => p.pubs.filter((x) => !x.ok && !x._readFailed).forEach((x) => { const k = A.pubProblem(x); L.note('publications/' + p.process + '/' + x.folder + '/', k.kind, k.why); }));
+    /* A draft too big or that failed to read is named, never left out as if the process had no draft. */
+    (d.unreadable || []).forEach((x) => { if (x && x.draft && !L.problems().some((y) => y.path === x.path)) L.note(x.path, 'unreadable', x.path + ' ' + x.why + '.'); });
+    const problems = everything();
+    const unread = problems.filter((x) => /^(publications|maps\/drafts|step-types|skills|skill-registrations)(\/|$)/.test(x.path))
+      .map((x) => ({ process: /^publications\//.test(x.path) ? x.path.split('/')[1] || null : null, path: x.path, why: x.why }));
+    const entries = PF.library.entriesOf(d);
+    if (proc && !entries.some((e) => e.id === proc) && !unread.length) return failOut('not-found', 'There\'s no checklist "' + proc + '" in the team folder, published or drafted.', problems, EXIT.notFound);
+    let lib = PF.library.inspect(entries, unread, { types: (d.stepTypes || {}).types || {} });
+    if (proc) {
+      const linked = lib.checklists.filter((c) => c.process === proc);
+      lib = { checklists: linked, usedBy: lib.usedBy.filter((e) => e.process === proc || e.by.process === proc),
+        overlaps: lib.overlaps.filter((o) => o.items.some((x) => x.process === proc)),
+        stepTypes: lib.stepTypes.filter((t) => t.usedBy.some((u) => u.process === proc)), completeness: lib.completeness };
+    }
+    const e = A.envelope(eng.version, new Date().toISOString(), problems, lib, C2);
+    return { out: JSON.stringify(e, null, 2), code: e.complete ? 0 : EXIT.partial };
+  } catch (e) {
+    return failOut('failed', e instanceof Refused ? e.message : 'The team folder couldn\'t be read: ' + (e && e.message || String(e)), everything());
   }
 }
 async function draftMain(argv) {
@@ -2510,6 +2564,9 @@ const HELP = `flightdeck: team process checklists, in one HTML file
   flightdeck draft check <team folder> <process> [--from <file|->] --json
                                       the verdict the Publish dialog gives the draft (or the text in the file): what
                                       stops publishing and the tips, from the folder as it is now. Only reads
+  flightdeck library inspect <team folder> [--process <id>] --json
+                                      for AI assistants: every checklist, normalized, what links to what, the step
+                                      types each uses, and what looks alike across checklists, with why. Only reads
   flightdeck skill register <team folder> --from <file|-> [--json]
                                       for AI assistants: register a skill against the exact version it was built
                                       from (Flightdeck 2.0). The only writer of skill-registrations/
@@ -2565,6 +2622,7 @@ function main(argv) {
   if (first === 'skill' && !argv.includes('--help')) return skillMain(argv);
   if (first === 'report' && !argv.includes('--help')) return reportMain(argv);
   if (first === 'type' && !argv.includes('--help')) return typeMain(argv);
+  if (first === 'library' && !argv.includes('--help')) return libraryMain(argv);
   const ti = argv.indexOf('--to'), to = ti >= 0 ? argv[ti + 1] : null;
   if (ti >= 0 && (!to || to.startsWith('--'))) fail('say which folder after --to, for example: flightdeck skills --to ~/skills');
   /* Flags that take a value: the value is never read as a command or a folder. */

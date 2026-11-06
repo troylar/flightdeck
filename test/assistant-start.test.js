@@ -43,8 +43,8 @@ rule('AGENTS.md as shipped is at most 28 KiB, so Team notes have room before a t
 });
 
 /* 2.15.0: AGENTS.md keeps the rules and points to the how. Its ceiling is the measured text plus a 66-byte margin; a later slice
-   that adds a Commands or Skills row raises it by that row's bytes, with the reason stated. */
-const ROOM_CEILING = 19688, INDEX_ROW = 300;
+   that adds a Commands or Skills row raises it by that row's bytes, with the reason stated. 3.0: +141 for the `flightdeck library inspect` row. */
+const ROOM_CEILING = 19688 + 141, INDEX_ROW = 300;
 /* The rows of the Commands and Skills tables: each names a command or a skill and where its how is, in at most 300 bytes. */
 function indexRows(t) {
   const out = [];
