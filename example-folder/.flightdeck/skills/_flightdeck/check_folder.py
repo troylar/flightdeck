@@ -19,6 +19,13 @@ Prints JSON:
 
 It never reads staged/ (versions only test runs use) and never changes a file.
 
+    python3 <skills folder>/_flightdeck/check_folder.py [team-folder] --draft <file>   (3.0)
+
+checks one draft offline, for an assistant without the flightdeck command, and prints JSON: blockers (the Publish dialog's,
+in its words, for the checks that ran), tips (its design tips that need no other checklist), ran and notRun (which checks
+did and didn't run), complete (always false) and a note. A clean result is not "ready to publish": flightdeck draft check,
+or the draft's page in Flightdeck, has the whole verdict.
+
 It uses the same fingerprints as the app (FNV-1a over the text's UTF-16 code units, and over the raw bytes for
 screenshots), so "complete" here means the app will accept the version too.
 """
@@ -442,7 +449,7 @@ def parse_map(md):
     lines = md.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     errors, steps, phases = [], [], []
     i, phase, step, gate, track, questions = 0, None, None, None, None, False
-    context, ctx_line, roles = "", -1, ""
+    context, ctx_line, roles, runs = "", -1, "", ""
 
     def err(n, msg):
         errors.append({"line": n + 1, "msg": msg})
@@ -457,6 +464,8 @@ def parse_map(md):
                 context, ctx_line = js_trim(kv.group(2)), i
             elif kv and kv.group(1) == "roles":
                 roles = kv.group(2)
+            elif kv and kv.group(1) == "runs":
+                runs = kv.group(2).strip()
             i += 1
         i += 1
     names, typed, ctx_errors = detail_types(context_entries(context))
@@ -473,7 +482,9 @@ def parse_map(md):
             if not phase or gate:
                 err(i, "A track must be inside a phase, before its gate.")
             else:
-                track = {"id": take_id(m.group(1))[0]}
+                th_id, th_rest = take_id(m.group(1))
+                track = {"id": th_id, "roles": tokens(th_rest, "@")[0]}
+                phase.setdefault("tracks", []).append(track)
             i += 1
             continue
         m = re.match(r"^##\s+(.+?)\s*$", line)
@@ -490,10 +501,14 @@ def parse_map(md):
                     elif phase["gate"]:
                         err(i, "Phase \"%s\" already has a gate." % phase["title"])
                     else:
+                        owner = None
                         for part in re.split(r"\s+·\s+", g.group(1))[1:]:
-                            if not re.match(r"^owner\s+@(%s|-)+$" % W, part.strip(), re.I):
+                            om = re.match(r"^owner\s+@((?:%s|-)+)$" % W, part.strip(), re.I)
+                            if not om:
                                 err(i, "Gate option not understood: \"%s\"." % part)
-                        gate = {"id": head_id, "kind": "gate", "note": "", "shots": []}
+                            else:
+                                owner = om.group(1)
+                        gate = {"id": head_id, "kind": "gate", "note": "", "shots": [], "owner": owner}
                         phase["gate"] = gate
                 else:
                     pm = re.match(r"^(.*?)\s+·\s+(READ-DO|DO-CONFIRM)$", head)
@@ -514,8 +529,10 @@ def parse_map(md):
                 tm = re.match(r"^\{([a-zA-Z](?:%s|[.-])*)\}\s+(.*)$" % W, t2)
                 if tm:
                     typ, t2 = tm.group(1), tm.group(2)
-                rest = tokens(tokens(t2, "@")[1], "^")[1]
-                step = {"id": take_id(m.group(2))[0], "type": typ, "text": rest, "fields": {}, "shots": [], "phase": len(phases) - 1}
+                step_roles, rest = tokens(t2, "@")
+                rest = tokens(rest, "^")[1]
+                step = {"id": take_id(m.group(2))[0], "type": typ, "text": rest, "fields": {}, "shots": [], "phase": len(phases) - 1,
+                        "roles": step_roles or (list(track["roles"]) if track else [])}
                 steps.append(step)
             i += 1
             continue
@@ -577,7 +594,7 @@ def parse_map(md):
                 if w["name"] in later:
                     err(w["line"] - 1, "^%s is set in this phase or a later one (sets:), so it can't decide whether this applies. Only a step in an earlier phase can set it." % w["name"])
     errors.sort(key=lambda e: e["line"])
-    return {"errors": errors, "steps": steps, "questions": questions, "phases": phases, "context": names, "detailTypes": typed, "roles": js_list(roles)}
+    return {"errors": errors, "steps": steps, "questions": questions, "phases": phases, "context": names, "detailTypes": typed, "roles": js_list(roles), "runs": runs}
 
 
 NEW_KINDS = {"number", "yes-no", "date"}
@@ -2163,7 +2180,133 @@ def team_files(root):
     return {"stepTypes": types, "jiraIssueTypes": workflows, "problems": problems}
 
 
+# 3.0: design tips (PF.library.lints), the ones that need no other checklist, in the same order and words. Advice only.
+_NAME = r"[A-Za-z0-9_-]"
+_READINESS = re.compile(r"\b(ready|readiness|no (?:open )?\w+|none|blockers?|blocking|clear|all\b.*\b(?:done|closed|merged|resolved)|green|passes|safe)\b", re.I | re.A)
+_WHOLE_SET = re.compile(r"\b(?:each|every)\s+[a-z]|\ball\s+(?:of\s+)?(?:the\s+)?(?:[a-z-]+\s+){0,2}[a-z-]+s\b", re.I | re.A)
+_VERDICT = re.compile(r"\bNOT READY\b|\bREADY\b|\bgo\s*/\s*no[- ]go\b|\bgo or no[- ]go\b", re.A)
+_APPROVAL = re.compile(r"\b(?:approve|approves|approved|approval|verdict|sign[- ]?off|signs? off)\b", re.I | re.A)
+# Types where approving or signing off is the work itself, so the wording is no sign of a misplaced verdict.
+_APPROVES_BY_TYPE = ("review", "decide", "github.pr", "bitbucket.pr")
+
+
+def _quoted(rx, text):
+    m = rx.search(text)
+    return m.group(0) if m else ""
+
+
+def _words(v):
+    return [x for x in re.split(r"[,\s]+", js_str(v) if v is not None else "") if x]
+
+
+def design_tips(md):
+    """PF.library.lints(md) without a library: each tip's id, at, ref and text, as flightdeck draft check's design.tips."""
+    parsed, out = parse_map(md), []
+    text = md.replace("\r\n", "\n").replace("\r", "\n")
+    fm = re.match(r"^---\n[\s\S]*?\n---[ \t]*(?:\n|$)", text)
+    text = text[fm.end():] if fm else text
+
+    def add(i, at, ref, t):
+        out.append({"id": i, "at": at, "ref": ref, "text": t})
+    for s in parsed["steps"]:
+        f, label = s["fields"], step_label(s)
+        if s["type"] == "jira.search" and "results" in f:
+            rule = parse_results(f["results"])[0]
+            what = s["text"] + " " + (f.get("what") or "")
+            if rule is not None and rule["op"] == "any" and _READINESS.search(what):
+                add("results-any", "step", s["id"], label + ' has results: any, so it passes whatever the search finds, yet it reads like a readiness check ("' + _quoted(_READINESS, what) + '"). Say what must be true, like results: none or results: at least 1, or word it as collecting facts.')
+        if (s["type"] == "confirm" or not s["type"]) and _WHOLE_SET.search(s["text"]):
+            add("whole-set", "step", s["id"], label + ' confirms a whole set at once ("' + _quoted(_WHOLE_SET, s["text"]) + '…"). One check can\'t show which items were looked at. Give each item its own result: one step per item, or a list with one line per item in a note or report. Flightdeck can\'t repeat a step for each item yet.')
+        if s["type"] != "decide":
+            v = _quoted(_VERDICT, s["text"]) or (_quoted(_APPROVAL, s["text"]) if s["type"] not in _APPROVES_BY_TYPE else "")
+            if v:
+                add("verdict", "step", s["id"], label + ' reads like a verdict ("' + v + '"), but as a {' + (s["type"] or "step") + '} step a run records only that it was checked, not which way it went. Make it a {decide} step with the choices, or a named gate when a person approves it.')
+    used = []
+    for pi, p in enumerate(parsed["phases"]):
+        for r in [r for s in parsed["steps"] if s["phase"] == pi for r in s["roles"]] + [r for t in p.get("tracks", []) for r in t["roles"]] + [(p["gate"] or {}).get("owner")]:
+            if r and r not in used:
+                used.append(r)
+    if parsed["runs"] == "solo" and len(used) > 1:
+        add("solo-roles", "checklist", None, "This checklist says runs: solo, but its steps and gates use %d roles (%s). If more than one person does the work, take out runs: solo. A solo run that hands a report to someone is fine." % (len(used), ", ".join("@" + r for r in used)))
+    for r in parsed["roles"]:
+        if r not in used and not re.search("@" + re.escape(r) + "(?!" + _NAME + ")", text):
+            add("unused-role", "checklist", None, "The role @" + r + " is declared but no step or gate uses it. Use it or take it out of roles.")
+    carried, asks_all = set(), False
+    for s in parsed["steps"]:
+        carried.update(_words(s["fields"].get("sets")))
+        if s["type"] == "run.process":
+            c = _words(s["fields"].get("carry"))
+            asks_all = asks_all or not c
+            carried.update(c)
+    # A linked step without carry: passes every detail its child also has, so none of them can be called unused.
+    if not asks_all:
+        for n in parsed["context"]:
+            if n not in carried and not re.search(r"\^" + re.escape(n) + "(?!" + _NAME + ")", text):
+                add("unused-detail", "checklist", None, "The run detail ^" + n + " is asked for at the start but no step, gate or condition uses it. Use it or take it out of context.")
+    return out
+
+
+DRAFT_RAN = [
+    "the checklist format, line by line",
+    "each step has a type, built-in or in step-types/",
+    "built-in step types' fields, Jira searches included",
+    "design tips that need no other checklist",
+]
+DRAFT_NOT_RUN = [
+    "IDs, roles and run details declared",
+    "team step types' fields",
+    "people.json (owner and backup)",
+    "Jira workflows (transitions)",
+    "team values (the Jira address, team: values)",
+    "linked checklists and version: pins",
+    "screenshots",
+    "web links in link fields",
+    "design tips that compare with other checklists",
+]
+
+
+def draft_check(md, team_types):
+    """Some of the Publish dialog's checks, offline, for an assistant without the flightdeck command. Every blocker here is
+    one the app gives in the same words; what it doesn't check is listed, so a clean result is never "ready to publish"."""
+    parsed, blockers = parse_map(md), []
+    blockers += ["Line %d: %s" % (e["line"], e["msg"]) for e in parsed["errors"]]
+    for s in parsed["steps"]:
+        label = step_label(s)
+        if not s["type"]:
+            blockers.append(label + " has no type. Every step needs one, like {confirm} or {ui.action}.")
+        elif s["type"] in team_types:
+            continue
+        elif s["type"] not in BUILTIN:
+            blockers.append(label + " has an unknown type {%s}." % s["type"])
+        else:
+            blockers += [label + " " + m for m in field_errors(dict(BUILTIN[s["type"]], id=s["type"]), s["fields"], parsed["context"])]
+    return {"complete": False, "ran": DRAFT_RAN, "notRun": DRAFT_NOT_RUN, "blockers": blockers, "tips": design_tips(md),
+            "note": "Flightdeck checks partly run: only what ran is listed. Run flightdeck draft check, or open the draft in Flightdeck, for the Publish dialog's whole verdict."}
+
+
+def draft_main(args):
+    at = args.index("--draft")
+    if at + 1 >= len(args):
+        sys.stderr.write("usage: check_folder.py [team-folder] --draft <file>\n")
+        return 1
+    path, rest = args[at + 1], args[:at] + args[at + 2:]
+    root = os.path.abspath(rest[0] if rest else ".")
+    try:
+        with open(path, encoding="utf-8") as f:
+            md = f.read()
+    except (OSError, UnicodeDecodeError) as e:
+        json.dump({"draft": path, "error": "couldn't be read: %s" % e.__class__.__name__}, sys.stdout, indent=2)
+        sys.stdout.write("\n")
+        return 1
+    out = dict({"draft": path, "folder": root}, **draft_check(md, team_files(root)["stepTypes"]))
+    json.dump(out, sys.stdout, indent=2, ensure_ascii=False)
+    sys.stdout.write("\n")
+    return 0
+
+
 def main():
+    if "--draft" in sys.argv[1:]:
+        sys.exit(draft_main(sys.argv[1:]))
     root = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else ".")
     out = {"folder": root, "publications": {}, "plans": [], "conflicts": [], "refused": []}
     pubs_dir = os.path.join(root, "publications")

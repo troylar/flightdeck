@@ -997,4 +997,58 @@ rule('A step named in a message: its ID and its text cut at a word with …, the
   assert.ok(/Step "Confirm the production deploy job…" \{#green\} has no step type/.test(JSON.parse(why)), why);
 });
 
+/* 3.0: check_folder.py --draft, for an assistant without the flightdeck command: the design tips that need no other checklist
+   (PF.library.lints, same ids, order and words) and the Publish dialog's blockers it can check, each in the app's words, with
+   what it didn't check listed so a clean result never reads as ready to publish. */
+const DRAFT_CASES = [
+  ['---', 'process: rel', 'title: Rel', 'context: version, unused, tag', 'roles: lead, qa, idle', 'runs: solo', '---', '',
+    '## Prep · READ-DO {#prep}', '- [ ] {confirm} Each story has a merged PR @lead ^version {#each}', '- [ ] {confirm} Release is READY to ship {#ready}',
+    '- [ ] {jira.search} No open blockers in the release {#blk}', '  query: fixVersion = ^version AND status != Done', '  results: any',
+    '- [ ] {review} Approve the release notes @qa {#notes}', '- [ ] {jira.issue} Sign-off recorded {#signoff}', '  action: update', '- [ ] {deploy} Tag ^tag {#tg}', '  sets: tag', '',
+    '## Gate: Ship · owner @lead {#g1}', ''].join('\n'),
+  ['---', 'process: t', 'title: T', 'roles: a, b', 'runs: solo', 'context: env', '---', '', '## P · DO-CONFIRM {#p}', '### Track: Web @a {#web}', '- [ ] {confirm} Check the web tier {#w}',
+    '### Track: Db @b {#db}', '- [ ] {confirm} Check every replica ^env {#d}', '', '## Q · DO-CONFIRM {#q}', '- [ ] {run.process} Run the child {#c}', '  process: other', ''].join('\n'),
+  ['---', 'process: bad', 'title: Bad', 'context: version', '---', '', '## P · READ-DO {#p}', '- [ ] Untyped step {#u}', '- [ ] {nope.type} Unknown type {#n}',
+    '- [ ] {jira.search} Search with nothing {#s}', '  results: maybe', '- [ ] {jenkins.job} Run the job {#j}', '  colour: blue', 'stray line', ''].join('\n'),
+];
+rule('check_folder.py --draft: the design tips are the app\'s, word for word, and its blockers are the app\'s, with what it didn\'t check listed', () => {
+  const tipsOf = (md) => JSON.parse(JSON.stringify(PF.library.lints(md)));
+  assert.deepStrictEqual(tipsOf(DRAFT_CASES[0]).map(t => t.id), ['whole-set', 'verdict', 'results-any', 'verdict', 'solo-roles', 'unused-role', 'unused-detail'], 'set-up: the first case has one of each');
+  assert.deepStrictEqual(tipsOf(DRAFT_CASES[1]).map(t => t.id), ['whole-set', 'solo-roles'], 'set-up: track roles count, and a linked step without carry: keeps every detail');
+  const py = python(); if (!py) return;
+  const drafts = DRAFT_CASES.concat(fs.readdirSync(path.join(__dirname, '..', 'example-folder', 'maps', 'drafts')).filter(f => f.endsWith('.md')).map(f => fs.readFileSync(path.join(__dirname, '..', 'example-folder', 'maps', 'drafts', f), 'utf8')));
+  const src = "import json,sys,importlib.util\nspec=importlib.util.spec_from_file_location('cf',sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)\n" +
+    "d=json.load(sys.stdin)\nprint(json.dumps([m.draft_check(md,[]) for md in d]))";
+  const out = JSON.parse(cp.execFileSync(py, ['-I', '-c', src, CHECKER], { input: JSON.stringify(drafts), encoding: 'utf8' }));
+  drafts.forEach((md, i) => {
+    assert.deepStrictEqual(out[i].tips, tipsOf(md), 'tips, draft ' + i);
+    const app = PF.map.check(PF.map.parse(md), {}).blockers;
+    assert.deepStrictEqual(out[i].blockers.filter(b => app.indexOf(b) < 0), [], 'every blocker is the app\'s, draft ' + i);
+    assert.strictEqual(out[i].complete, false);
+  });
+  assert.deepStrictEqual(out[2].blockers, [
+    'Line 14: Not understood, so it was skipped: "stray line"',
+    'Step "Untyped step" {#u} has no type. Every step needs one, like {confirm} or {ui.action}.',
+    'Step "Unknown type" {#n} has an unknown type {nope.type}.',
+    'Step "Search with nothing" {#s} needs "query:" (JQL) or "filter:" (a saved filter\'s number). It can\'t be filled in during a run.',
+    'Step "Search with nothing" {#s} "results" should be none, any, exactly N, at least N or at most N (N a whole number up to 999999).',
+    'Step "Run the job" {#j} has a field "colour" that {jenkins.job} doesn\'t use.']);
+  assert.deepStrictEqual(out[0].blockers, [], 'tips never block');
+  /* From the command line: a team type in step-types/ is known by name, and the output says what ran and what didn't. */
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-draft-'));
+  try {
+    fs.mkdirSync(path.join(dir, 'step-types'));
+    fs.writeFileSync(path.join(dir, 'step-types', 'team.check.json'), JSON.stringify({ id: 'team.check', label: 'Team check' }));
+    const file = path.join(dir, 'd.md');
+    fs.writeFileSync(file, DRAFT_CASES[2].replace('{nope.type}', '{team.check}'));
+    const cli = JSON.parse(cp.execFileSync(py, ['-I', CHECKER, dir, '--draft', file], { encoding: 'utf8' }));
+    assert.ok(!cli.blockers.some(b => /unknown type/.test(b)), 'a team type is known: ' + cli.blockers);
+    assert.ok(cli.ran.length && cli.notRun.indexOf('people.json (owner and backup)') >= 0 && cli.notRun.indexOf('team step types\' fields') >= 0, JSON.stringify(cli));
+    assert.ok(/Flightdeck checks partly run/.test(cli.note));
+    const missing = cp.spawnSync(py, ['-I', CHECKER, dir, '--draft', path.join(dir, 'nope.md')], { encoding: 'utf8' });
+    assert.strictEqual(missing.status, 1);
+    assert.ok(/couldn't be read/.test(JSON.parse(missing.stdout).error));
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 run();
