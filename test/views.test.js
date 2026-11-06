@@ -954,7 +954,7 @@ rule('Flight plan: a step shows the skill built from the version shown that cove
   assert.ok(!/b-skill/.test(fpStep(html, 'merge')) && !/b-skill/.test(fpStep(html, 'pods')), 'a skill behind or broken claims nothing');
 });
 
-rule('Flight plan: parallel tracks list their steps as lanes side by side, and the gate is the last line', () => {
+rule('Flight plan: parallel tracks list their steps as lanes side by side, and each gate is drawn once, beneath its phase', () => {
   const { ctx, p } = flightSetup();
   const html = V.checklistPanel(ctx, p), three = fpSteps(html, 2);
   assert.ok(/<div class="fp-slanes">/.test(three) && !/fp-slanes/.test(fpSteps(html, 1)), 'lanes only where the phase has tracks');
@@ -962,8 +962,9 @@ rule('Flight plan: parallel tracks list their steps as lanes side by side, and t
   const lane = (s, title) => s.slice(s.indexOf('<b>' + title + '</b>'), s.indexOf('</ol>', s.indexOf('<b>' + title + '</b>')));
   assert.ok(/data-step="smoke"/.test(lane(three, 'Product checks')) && /data-step="logs"/.test(lane(three, 'Product checks')) && !/data-step="result"/.test(lane(three, 'Product checks')));
   assert.ok(/data-step="result"[\s\S]*data-step="deploy-record"[\s\S]*data-step="close"/.test(lane(three, 'Wrap-up')));
-  assert.ok(/<p class="fp-sgate">.*?Gate: Ready to deploy<\/span><\/p><\/div><\/details>$/.test(fpSteps(html, 0)), 'a named gate ends the list');
-  assert.ok(/<p class="fp-sgate">.*?Phase checked, no named gate<\/span><\/p><\/div><\/details>$/.test(three), 'an unnamed one says so');
+  assert.ok(!/fp-sgate|Gate: Ready to deploy|Phase checked/.test(fpSteps(html, 0)) && !/fp-sgate|Phase checked/.test(three), 'the step list holds steps only');
+  assert.strictEqual((html.match(/<div class="fp-gate[ "]/g) || []).length, 3, 'one gate per phase, named or not');
+  assert.strictEqual((html.match(/<span class="sr">Gate: <\/span>Ready to deploy/g) || []).length, 1, 'a named gate is shown once');
 });
 
 rule('Flight plan: steps from the checklist are escaped, and a draft\'s steps open the draft', () => {

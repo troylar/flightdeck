@@ -1,16 +1,16 @@
 {
   "texts": {
     "CHANGELOG.md": {
-      "sha256": "971f9544bbd2a42993597f45f875b4df46ba43437b6dbcb85102ae0da465d2f6",
-      "reviewed": "2.16.2 release note corrections; checked for direct writes and unconditional deletes"
+      "sha256": "4571e02f3db86d4fed77c3173bac99e2bb323343e445d1b9edf906cbbb1e1c4d",
+      "reviewed": "Flight plan draws each gate once: the steps disclosure no longer repeats the gate line (fp-sgate removed from flight.js and page.html); design.md says so; release 3.0.0 entry and its baselines. Checked for direct writes and unconditional deletes: none."
     },
     "LICENSE": {
       "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1: a license text, shipped unchanged; no instruction."
     },
     "README.md": {
-      "sha256": "37d4bb56931de370de35aaf57319c90a64686ec4d1d1079f91c7c4959a976aea",
-      "reviewed": "2.16.2 release prep: notes, waiver, pins; checked for direct writes and unconditional deletes"
+      "sha256": "8688bd9f224d72e92aed8f7e3d58baa649ff7326e4b234dab78b2a935438231e",
+      "reviewed": "README manual download link points at 3.0.0, the release being built. Checked for direct writes and unconditional deletes: none."
     },
     "bin/flightdeck.js": {
       "sha256": "28ef85cd3aa050accea114e65ef44d6b8ec3b51f9219fa333dfd0641e95f3ff0",
@@ -25,8 +25,8 @@
       "reviewed": "2.16.2: one held, evenly spaced separator everywhere; checklist wording on screens and messages; the inspector place line wraps beside Previous and Next"
     },
     "docs/design.md": {
-      "sha256": "e247c5b9cf673c96979f09dfe4f557626ba1c00ae6d6dff2e1daec8380b8b811",
-      "reviewed": "2.16.1 polish: Discard my changes moves to row 1's action slot; the header progress gives way visually so More stays on row 1"
+      "sha256": "00066e51741e57e02c184729bcc84db091ec489c78f0cdb09cb4b84635d94eae",
+      "reviewed": "Flight plan draws each gate once: the steps disclosure no longer repeats the gate line (fp-sgate removed from flight.js and page.html); design.md says so; release 3.0.0 entry and its baselines. Checked for direct writes and unconditional deletes: none."
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -173,8 +173,8 @@
       "reviewed": "Round 20, at 64e1c01: the file list npm packs (npm pack --dry-run on a mirror of the tree), read in full: CHANGELOG.md, LICENSE, README.md, bin/flightdeck.js, the two dist files, package.json. Each is pinned whole or checked by parity. No new text."
     },
     "package.json": {
-      "sha256": "85bba56be9fe812a89686679d7b23432064151d319f279e5d0f9f30da7d7c5e3",
-      "reviewed": "2.16.2 release prep: notes, waiver, pins; checked for direct writes and unconditional deletes"
+      "sha256": "b7078416ee1a6e3c542b8c6e28d5957eb920ec52edcc8e02d31cb7587d99d4f7",
+      "reviewed": "Flight plan draws each gate once: the steps disclosure no longer repeats the gate line (fp-sgate removed from flight.js and page.html); design.md says so; release 3.0.0 entry and its baselines. Checked for direct writes and unconditional deletes: none."
     },
     "rendered: the merge README, AGENTS.md held": {
       "sha256": "587c6fe0a4080614f1661c880aa058e9dd8180b5595d72bfaaf90b9f297f8d95",
@@ -193,8 +193,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "b26d761fdaae44b6c89539b16383aa9db3c03a1f5a48a205f451586686e566b4",
-      "reviewed": "2.16.2 release prep: notes, waiver, pins; checked for direct writes and unconditional deletes"
+      "sha256": "eb8f7bf961703168ef54937333487e5767db297952605310aa173a1839b39404",
+      "reviewed": "Flight plan draws each gate once: the steps disclosure no longer repeats the gate line (fp-sgate removed from flight.js and page.html); design.md says so; release 3.0.0 entry and its baselines. Checked for direct writes and unconditional deletes: none."
     },
     "src/core/appjson.js": {
       "sha256": "86b915c32b324bbd05f1d35f96933a90cd79a10713ca84f4cf373dc78d63bc9f",
@@ -373,12 +373,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1: an embedded font file, binary; no text."
     },
     "src/page.html": {
-      "sha256": "b56d146bcc4530e31a6e8e1c3cba998125680b02eecadd286889797b9a2ce1b0",
-      "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
+      "sha256": "76543740efd6ba80c12a1508d0fa4bddfffdea6ceab95aa5a1f3faf0c47f7fab",
+      "reviewed": "Flight plan draws each gate once: the steps disclosure no longer repeats the gate line (fp-sgate removed from flight.js and page.html); design.md says so; release 3.0.0 entry and its baselines. Checked for direct writes and unconditional deletes: none."
     },
     "src/releases.json": {
-      "sha256": "dfd8bc658a1bb07636ec9a0052e7482ec35af5d9231dcbdee8eef0179268b297",
-      "reviewed": "2.16.2 release note corrections; checked for direct writes and unconditional deletes"
+      "sha256": "4e4a0486e6288812c0a5c9c0f8a1117913c1eb148960b799343d877752fcf93e",
+      "reviewed": "Flight plan draws each gate once: the steps disclosure no longer repeats the gate line (fp-sgate removed from flight.js and page.html); design.md says so; release 3.0.0 entry and its baselines. Checked for direct writes and unconditional deletes: none."
     },
     "src/storage/fs.js": {
       "sha256": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",
@@ -425,8 +425,8 @@
       "reviewed": "2.16.2: one held, evenly spaced separator everywhere; checklist wording on screens and messages; the inspector place line wraps beside Previous and Next"
     },
     "src/ui/views/flight.js": {
-      "sha256": "6c2b515bd14d864b65527ee93415d5d00f5ad18d75a0ecb22fdd5db7c51e7a63",
-      "reviewed": "2.16.1 screenshot fixes: status separators end a line, the status spans the left column, run-detail rows keep their buttons, a space before Not counted"
+      "sha256": "cc1b5337f8f73638b6920a64465d344d5c95d990deba8e5ced107e6d3505e2e9",
+      "reviewed": "Flight plan draws each gate once: the steps disclosure no longer repeats the gate line (fp-sgate removed from flight.js and page.html); design.md says so; release 3.0.0 entry and its baselines. Checked for direct writes and unconditional deletes: none."
     },
     "src/ui/views/health.js": {
       "sha256": "7be55cb50a01aa48426eb4c8f587df1528412b45b65a044e2c0cb29ff3e33b34",

@@ -1,5 +1,20 @@
 [
   {
+    "version": "3.0.0",
+    "date": "2026-11-06",
+    "headline": "Thoughtful checklists: a library view, design tips and clearer checks",
+    "changes": [
+      {
+        "kind": "fixed",
+        "area": "Flight plan",
+        "title": "Each gate is drawn once",
+        "before": "A phase's gate showed twice: as the last line of its step list and again as the checkpoint beneath the phase.",
+        "now": "The step list holds only steps. The gate, named or not, is the checkpoint beneath the phase.",
+        "where": "A checklist's page, Flight plan"
+      }
+    ]
+  },
+  {
     "version": "2.16.2",
     "date": "2026-11-05",
     "headline": "One dot style everywhere, and checklist wording on every screen",
