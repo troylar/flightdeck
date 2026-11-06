@@ -1,16 +1,16 @@
 {
   "texts": {
     "CHANGELOG.md": {
-      "sha256": "5c8147eefacdfeb61daa887c7fe6eac6cef5a56e3faa23f833325a9e91fe9139",
-      "reviewed": "Practice count in its own span; one release sentence corrected; no writes, no deletes"
+      "sha256": "dff8a918defaa519a3c5b612d9d9e6198226dadf50dfb13be474a35908571dc2",
+      "reviewed": "2.16.2 release prep: notes, waiver, pins; checked for direct writes and unconditional deletes"
     },
     "LICENSE": {
       "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1: a license text, shipped unchanged; no instruction."
     },
     "README.md": {
-      "sha256": "c6efcc316c50182cd04df4d69da60d2d9fc740e8225e579a0c25d82337aebd6d",
-      "reviewed": "2.16.1 release entry, waiver, roles comparison pinned to 2.16.0, baselines for 2.16.1. Checked for direct writes and unconditional deletes."
+      "sha256": "37d4bb56931de370de35aaf57319c90a64686ec4d1d1079f91c7c4959a976aea",
+      "reviewed": "2.16.2 release prep: notes, waiver, pins; checked for direct writes and unconditional deletes"
     },
     "bin/flightdeck.js": {
       "sha256": "a218c840d7b6186fef4ec7899731c8cc85bc9ac2b0e38ac2b31b66ab04c9b562",
@@ -173,8 +173,8 @@
       "reviewed": "Round 20, at 64e1c01: the file list npm packs (npm pack --dry-run on a mirror of the tree), read in full: CHANGELOG.md, LICENSE, README.md, bin/flightdeck.js, the two dist files, package.json. Each is pinned whole or checked by parity. No new text."
     },
     "package.json": {
-      "sha256": "8aaa7974f01e7223d7ab8e95ab097bdc019dc4545db25e094de1bfa1a0c606e3",
-      "reviewed": "2.16.1 release entry, waiver, roles comparison pinned to 2.16.0, baselines for 2.16.1. Checked for direct writes and unconditional deletes."
+      "sha256": "85bba56be9fe812a89686679d7b23432064151d319f279e5d0f9f30da7d7c5e3",
+      "reviewed": "2.16.2 release prep: notes, waiver, pins; checked for direct writes and unconditional deletes"
     },
     "rendered: the merge README, AGENTS.md held": {
       "sha256": "587c6fe0a4080614f1661c880aa058e9dd8180b5595d72bfaaf90b9f297f8d95",
@@ -193,8 +193,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "1d96c563fa3e27e1af6060526e41d20c3fda033ee7f05c592339f28ea6865c3b",
-      "reviewed": "2.16.1 release entry, waiver, roles comparison pinned to 2.16.0, baselines for 2.16.1. Checked for direct writes and unconditional deletes."
+      "sha256": "b26d761fdaae44b6c89539b16383aa9db3c03a1f5a48a205f451586686e566b4",
+      "reviewed": "2.16.2 release prep: notes, waiver, pins; checked for direct writes and unconditional deletes"
     },
     "src/core/appjson.js": {
       "sha256": "86b915c32b324bbd05f1d35f96933a90cd79a10713ca84f4cf373dc78d63bc9f",
@@ -377,8 +377,8 @@
       "reviewed": "2.16.2: one held, evenly spaced separator everywhere; checklist wording on screens and messages; the inspector place line wraps beside Previous and Next"
     },
     "src/releases.json": {
-      "sha256": "00caf1dff6db3a46b4949ade8f5a4856a443891008f055528dae8fcb6f70e6a1",
-      "reviewed": "Practice count in its own span; one release sentence corrected; no writes, no deletes"
+      "sha256": "2c3a6a8b084bf3d9544d04e1e2d8220d4de9a8d2ecc02b025c2255c5418e240b",
+      "reviewed": "2.16.2 release prep: notes, waiver, pins; checked for direct writes and unconditional deletes"
     },
     "src/storage/fs.js": {
       "sha256": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",
