@@ -413,8 +413,8 @@
       "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
     },
     "src/ui/views/common.js": {
-      "sha256": "a0760e87f2f38b1a04a3966b4ebffe0bd526ecdff97c46f765c1ede6e83bbcdf",
-      "reviewed": "2.16.2: option values pinned before spacing; checked for direct writes and unconditional deletes"
+      "sha256": "b7430124ae590c5f236c5499fbaec05edb4dc016e8f563f93783035015a1b709",
+      "reviewed": "2.16.2: option value check skips quoted attribute text; checked for direct writes and unconditional deletes"
     },
     "src/ui/views/detailbox.js": {
       "sha256": "480c1b6d1fe5867742bc6ac7ceffdf08f6cf6d8c378942974e6a8c8665b19744",

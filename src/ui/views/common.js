@@ -662,7 +662,7 @@ PF.vk = (function () {
       /* An option with no value takes its text as its value: pin it to the text as drawn before spacing the text. */
       if (/^<select\b/i.test(m)) return m.replace(/<option\b([^>]*)>([^<]*)/gi, function (t, at, x) {
         if (x.indexOf(' · ') < 0) return t;
-        return '<option' + at + (/\svalue\s*=/i.test(at) ? '' : ' value="' + x.replace(/"/g, '&quot;') + '"') + '>' + x.replace(/ · /g, '&ensp;·&ensp;');
+        return '<option' + at + (/\svalue\s*=/i.test(at.replace(/"[^"]*"|'[^']*'/g, '""')) ? '' : ' value="' + x.replace(/"/g, '&quot;') + '"') + '>' + x.replace(/ · /g, '&ensp;·&ensp;');
       });
       return m.charAt(0) === '<' ? m : m.replace(/ · |&nbsp;·&nbsp;/g, DOT);
     }).replace(DOT_BTN, '<span class="dotk">$&</span>');

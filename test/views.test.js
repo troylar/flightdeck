@@ -3181,6 +3181,8 @@ rule('Separators: every " · " in text on any screen is held to the words on bot
   // "Ship · now" would come back "Ship\u2002·\u2002now" and fail its check): its value is pinned to the text as drawn.
   const ch = V.dots('<select><option value="">Choose…</option><option selected>Ship · now</option><option>Say &quot;hi&quot; · &amp; go</option><option>Hold</option></select>');
   assert.strictEqual(ch, '<select><option value="">Choose…</option><option selected value="Ship · now">Ship&ensp;·&ensp;now</option><option value="Say &quot;hi&quot; · &amp; go">Say &quot;hi&quot;&ensp;·&ensp;&amp; go</option><option>Hold</option></select>', 'a choice keeps its value: ' + ch);
+  assert.strictEqual(V.dots('<select><option data-x="x value=1">Ship · now</option></select>'), '<select><option data-x="x value=1" value="Ship · now">Ship&ensp;·&ensp;now</option></select>', 'value= inside another attribute\'s quotes isn\'t a value');
+  assert.strictEqual(V.dots('<select><option VALUE="s">Ship · now</option></select>'), '<select><option VALUE="s">Ship&ensp;·&ensp;now</option></select>', 'an uppercase VALUE is one');
   assert.ok(V.workHead({ hid: 'x', h1: 'T', status: [{ kind: 'd', html: 'v2 · published' }] }).indexOf('v2' + dot + 'published') >= 0, 'the header uses the same helper');
 });
 rule('Wording: what the screens and the CLI help call a checklist says checklist; the frozen type definition, data keys, IDs and every message that can reach JSON keep "process"', () => {
