@@ -3176,7 +3176,11 @@ rule('Separators: every " · " in text on any screen is held to the words on bot
   // An option can't hold a span: its dot gets the same spacing in text, an en space (0.5em, the 6.3 px of a 13 px .dot) a side.
   assert.strictEqual(V.dots('<select id="v"><option value="2 · x" selected>v2 (current) · Deploy job</option><option value="1">v1 · First version</option></select>'),
     '<select id="v"><option value="2 · x" selected>v2 (current)&ensp;·&ensp;Deploy job</option><option value="1">v1&ensp;·&ensp;First version</option></select>', 'options are spaced in text, values left alone');
-  assert.strictEqual(V.dots(V.dots('<select><option>v1 · a</option></select>')), '<select><option>v1&ensp;·&ensp;a</option></select>', 'once');
+  assert.strictEqual(V.dots(V.dots('<select><option>v1 · a</option></select>')), '<select><option value="v1 · a">v1&ensp;·&ensp;a</option></select>', 'once');
+  // An option drawn without a value takes its text as its value, so spacing its text would change what's picked (a choice
+  // "Ship · now" would come back "Ship\u2002·\u2002now" and fail its check): its value is pinned to the text as drawn.
+  const ch = V.dots('<select><option value="">Choose…</option><option selected>Ship · now</option><option>Say &quot;hi&quot; · &amp; go</option><option>Hold</option></select>');
+  assert.strictEqual(ch, '<select><option value="">Choose…</option><option selected value="Ship · now">Ship&ensp;·&ensp;now</option><option value="Say &quot;hi&quot; · &amp; go">Say &quot;hi&quot;&ensp;·&ensp;&amp; go</option><option>Hold</option></select>', 'a choice keeps its value: ' + ch);
   assert.ok(V.workHead({ hid: 'x', h1: 'T', status: [{ kind: 'd', html: 'v2 · published' }] }).indexOf('v2' + dot + 'published') >= 0, 'the header uses the same helper');
 });
 rule('Wording: what the screens and the CLI help call a checklist says checklist; the frozen type definition, data keys, IDs and every message that can reach JSON keep "process"', () => {
