@@ -540,6 +540,11 @@ const REF_ADDED = [
   { home: G.drafts, text: 'Reading it changes nothing.', why: 'new in 3.0 (thoughtful authoring): the library read and the design tips' },
   { home: G.drafts, text: 'An overlap is a reason to look, never proof two checklists do the same job.', why: 'new in 3.0 (thoughtful authoring): the library read and the design tips' },
   { home: G.drafts, text: 'If `completeness.complete` is false, what `completeness.unread` names wasn\'t read: say so.', why: 'new in 3.0 (thoughtful authoring): the library read and the design tips' },
+  { home: G.checklist, text: 'Design it before you write it:', why: 'new in 3.0 (thoughtful authoring): design first, JQL details unquoted, the Jira address' },
+  { home: G.checklist, text: '`good-checklists.md` beside this file says how (the design brief, the library, one checklist or several).', why: 'new in 3.0 (thoughtful authoring): design first, JQL details unquoted, the Jira address' },
+  { home: G.checklist, text: 'Write a `^detail` in JQL without quotes (`fixVersion = ^version`):', why: 'new in 3.0 (thoughtful authoring): design first, JQL details unquoted, the Jira address' },
+  { home: G.checklist, text: 'Flightdeck quotes the value.', why: 'new in 3.0 (thoughtful authoring): design first, JQL details unquoted, the Jira address' },
+  { home: G.checklist, text: 'Publishing needs the team\'s Jira address in Team values.', why: 'new in 3.0 (thoughtful authoring): design first, JQL details unquoted, the Jira address' },
 ];
 
 const NOTHING = 'Nothing here allows you to write a file `AGENTS.md` tells you not to.';
@@ -554,7 +559,7 @@ const YOU_MAY = {
     'Changing a step\'s type is allowed, but check its fields still fit the new type.': 'about a checklist\'s content, inside a draft AGENTS.md lets the assistant write' },
   [SKD + 'flightdeck-new-checklist/SKILL.md']: {
     'Read `AGENTS.md` in this folder first; it says what you may and may never write.': 'it sends permission back to AGENTS.md',
-    '**Ask only what you can\'t find,** in one message with at most 5 short questions.': '"you can\'t": not a grant',
+    '**Ask only what you can\'t find,** in one message with at most 5 short questions, together with the brief.': '"you can\'t": not a grant',
     'Fewer is fine; never pad a phase.': 'about step counts, not permission' },
   [SKD + 'flightdeck-review-checklist/SKILL.md']: {
     'The only commands you may run are `flightdeck draft check` and `flightdeck draft read`, below, which only read.': NARROW,
@@ -600,9 +605,6 @@ const DIRECT_WRITES = {
       why: "prohibition" }
   ],
   [SKD + "flightdeck-new-checklist/SKILL.md"]: [
-    { at: "Steps", lead: "Find the sources.", n: 1,
-      text: "Check `maps/drafts/` and `publications/` (list the files): if a checklist for this process already exists, stop and suggest `/flightdeck-edit-checklist` instead.",
-      why: "allowed: reads only (list the files); the write verb is the skill name `/flightdeck-edit-checklist`" },
     { at: "Steps", lead: "Save", n: 1,
       text: "It writes `maps/drafts/<process>.md` only if no draft is there and nobody has one open; otherwise your checklist is a proposal: it appears in the person's open editor if they have it open with nothing unsaved, or waits for them on the checklist's page (say which in your report).",
       why: "allowed: says what `flightdeck draft save` writes, not a write by the assistant" },

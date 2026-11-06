@@ -4,6 +4,8 @@ Nothing here allows you to write a file `AGENTS.md` tells you not to. This is th
 
 ## Writing a checklist
 
+Design it before you write it: `good-checklists.md` beside this file says how (the design brief, the library, one checklist or several).
+
 The essentials:
 
 ### Front matter
@@ -46,5 +48,5 @@ The essentials:
 ### Linked processes and Jira
 
 - **Another process inside this one** is a `{run.process}` step with `process:` and `carry:`. Don't copy another checklist's steps in. Add `version: 4` to run exactly that version of the other process (Flightdeck 2.0). Use `pass: environment=^env, region=us-east-1, notify=?` when a detail goes under another name, as a fixed value, or should be asked when the child starts (Flightdeck 2.8). Without it, a run made with Flightdeck 2.0 pins each linked process at its latest version when the run starts.
-- **What a Jira search must find** (Flightdeck 2.16) is a `{jira.search}` step: `query:` (JQL, with `^details` only where a single value goes) or `filter:`, and `results: none` (or `any`, `exactly N`, `at least N`, `at most N`). One rule per search. Start with a scope search (`results: at least 1`, the release's stories) so an empty or misspelled release can't pass. Never write "all stories ready" as one `{confirm}`. See map-format.md, Jira searches.
+- **What a Jira search must find** (Flightdeck 2.16) is a `{jira.search}` step: `query:` (JQL, with `^details` only where a single value goes) or `filter:`, and `results: none` (or `any`, `exactly N`, `at least N`, `at most N`). One rule per search. Start with a scope search (`results: at least 1`, the release's stories) so an empty or misspelled release can't pass. Never write "all stories ready" as one `{confirm}`. Write a `^detail` in JQL without quotes (`fixVersion = ^version`): Flightdeck quotes the value. Publishing needs the team's Jira address in Team values. See map-format.md, Jira searches.
 - **Jira transitions** name `issueType:` and a `status:` from `jira/workflows.json`. When you add a transition's required fields there, give each a `hint` saying what the value is or where it comes from, and a `source` (`detail:`, `role:` or `value:`) when Flightdeck can fill it in.

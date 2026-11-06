@@ -57,8 +57,8 @@
       "reviewed": "check_folder.py --draft: offline design tips and the blockers it can check; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
-      "sha256": "ab4dfea4d5e61c15525b881ca575e04dc7e16da674a12abc5ea895a388ef898a",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "3e6dd49b96076c7ac49fd42111fd71c0580732dd27294930091e98123a9a49aa",
+      "reviewed": "thoughtful authoring: design brief, library scan, realignment proposals, command discovery, offline checks; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/command-guide.md": {
       "sha256": "a481a6dc4b5007f7811e66bd25c22df51e748d45176c0fe82748875b31525697",
@@ -69,24 +69,24 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed check g (every write to a protected path listed in DIRECT_WRITES as a prohibition or allowed with why) and the delete guard (no unconditional delete of AGENTS.md or a staged copy) as of f2888f5."
     },
     "example-folder/.flightdeck/skills/_flightdeck/good-checklists.md": {
-      "sha256": "79b0f8053e8a315cd17d7d79b26861325265a3e165e3d3229a60577d4734876e",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "d4350fd3615af24d96f99edb753ad52ac057e6f5383a374b1f613b55ef7dd6b5",
+      "reviewed": "thoughtful authoring: design brief, library scan, realignment proposals, command discovery, offline checks; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/map-format.md": {
       "sha256": "67ff384f22b48c87e92568f173150ed8ed43a8d1a1635400252dbaf9b5db1e90",
       "reviewed": "Missing or unusable Jira address grouped into one blocker per site with a count and step IDs (jira.checkFields returns siteError, types passes it, map.js groups through PF.jsearch.addressBlockers); map-format.md and its skills copy say publishing needs the address and Copy is the run fallback; release note. Checked for direct writes and unconditional deletes: none."
     },
     "example-folder/.flightdeck/skills/flightdeck-edit-checklist/SKILL.md": {
-      "sha256": "981ae1af10b4a519dff513c75539379658e422ba16b4221342cff1d1147a2a57",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "56028f9830d9d3bc9031bb174e0ed8abc69a31102f3360c6edda8cb8a42f19f5",
+      "reviewed": "thoughtful authoring: design brief, library scan, realignment proposals, command discovery, offline checks; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/flightdeck-learn-from-runs/SKILL.md": {
       "sha256": "2a47e763da23c3bcc8d198fef351366f5e5383eecf4550e96eca0f32ecb946e2",
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "example-folder/.flightdeck/skills/flightdeck-new-checklist/SKILL.md": {
-      "sha256": "60b37b81dc38d7d8c8059343469e184c054af355a664955ac25342ad26518842",
-      "reviewed": "library inspect, design tips, Used by and similar; checked for direct writes and unconditional deletes"
+      "sha256": "c4f780239d68d314964f1f4179bd0cad37a1ec08a04a8c1d430d5add0293db0b",
+      "reviewed": "thoughtful authoring: design brief, library scan, realignment proposals, command discovery, offline checks; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/flightdeck-new-step-type/SKILL.md": {
       "sha256": "ebc4c1ec9435236eea4e59744940ab403cb9446fdaa90fce67b15915099a9c25",
@@ -193,8 +193,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "66ebb6b899939e9985d74fbf7ca3a6e78c11af77a278fa2db5c58b28ceb69479",
-      "reviewed": "check_folder.py --draft: offline design tips and the blockers it can check; checked for direct writes and unconditional deletes"
+      "sha256": "d3e18604828d70340882bda1b9384fa5e4f23398264352d19f3778650e70e9fb",
+      "reviewed": "thoughtful authoring: design brief, library scan, realignment proposals, command discovery, offline checks; checked for direct writes and unconditional deletes"
     },
     "src/core/appjson.js": {
       "sha256": "af50d6d01ef317272473dece7e418517dc5f3d74fe0348b147764edcdeaefd73",
