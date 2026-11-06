@@ -28,12 +28,12 @@ function finishedKid(PF, child) {
 rule('App: Settings › Team values: the owner adds one (trimmed), edits and removes it; the warning is always shown', async () => {
   const files = { 'people.json': example('people.json') }, app = await settingsAs('person-avery', files);
   let html = app.html();
-  assert.ok(/Team values · 0/.test(html) && /Don&#39;t store passwords or tokens here|Don't store passwords or tokens here/.test(html), 'the panel and its warning');
+  assert.ok(/Team values<span class="dot">&nbsp;·&nbsp;<\/span>0/.test(html) && /Don&#39;t store passwords or tokens here|Don't store passwords or tokens here/.test(html), 'the panel and its warning');
   assert.ok(/id="team-add-form"/.test(html));
   app.input('tv-name', 'bitbucket-base-url'); app.input('tv-value', '  ' + URL + '  '); app.input('tv-about', ' Bitbucket base URL '); await app.tick();
   app.submit('team-add-form'); await app.tick(200);
   assert.deepStrictEqual(JSON.parse(files['team-values.json']), { format: 'flightdeck-team-values/1', values: { 'bitbucket-base-url': { value: URL, about: 'Bitbucket base URL' } } });
-  assert.ok(/Team values · 1/.test(app.html()) && /Added the team value bitbucket-base-url/.test(app.html()));
+  assert.ok(/Team values<span class="dot">&nbsp;·&nbsp;<\/span>1/.test(app.html()) && /Added the team value bitbucket-base-url/.test(app.html()));
   app.click('team-edit', 'bitbucket-base-url'); await app.tick();
   app.input('tv-e-value', URL + '/repos'); await app.tick();
   app.submit('team-edit-form'); await app.tick(200);
@@ -101,7 +101,7 @@ rule('App: Settings › Team values is read-only for a member, for a damaged fil
   const files = { 'people.json': example('people.json'), 'team-values.json': doc({ base: { value: evil, about: evil } }) };
   const app = await settingsAs('person-casey', files);
   let html = app.html();
-  assert.ok(/Team values · 1/.test(html) && !/team-add-form|data-act="team-edit"/.test(html), 'a member only reads');
+  assert.ok(/Team values<span class="dot">&nbsp;·&nbsp;<\/span>1/.test(html) && !/team-add-form|data-act="team-edit"/.test(html), 'a member only reads');
   assert.ok(!html.includes(evil) && html.includes('&lt;img src=x onerror=alert(1)&gt;'), 'escaped');
   assert.ok(/Avery Lee \(folder owner\) and Blake Ortiz \(backup owner\) change these/.test(html), String(html.match(/[^>]*Ask them[^<]*/)));
   app.choose('person-avery'); await app.tick();
@@ -115,7 +115,7 @@ rule('App: Settings › Team values is read-only for a member, for a damaged fil
   files['team-values.json'] = doc({ base: { value: 'production', color: 'red' } });
   app.click('refresh'); await app.tick(200);
   html = app.html();
-  assert.ok(/Team values · 1/.test(html) && /production/.test(html), 'an unknown key in a value: its values still shown');
+  assert.ok(/Team values<span class="dot">&nbsp;·&nbsp;<\/span>1/.test(html) && /production/.test(html), 'an unknown key in a value: its values still shown');
   assert.ok(/has &quot;color&quot;|has "color"/.test(html) && !/team-add-form|data-act="team-edit"/.test(html), 'and read-only with the reason');
 });
 
@@ -129,8 +129,8 @@ async function teamStart(passLine, kidCtx, values, kidRoles) {
     assert.ok(!b.blockers, JSON.stringify(b.blockers));
     Object.keys(b.files).forEach(k => { app.fs.files['publications/' + id + '/' + b.folder + '/' + k] = { t: b.files[k], m: Date.now() }; });
   };
-  put(['---', 'process: deploy', 'title: Deploy', 'owner: person-avery', 'context: ' + (kidCtx || 'base, env'), ...(kidRoles ? ['roles: ' + kidRoles] : []), '---', '', '## Go · READ-DO {#go}', '- [ ] {confirm} Go {#go1}'].join('\n'), 'deploy', 'dp000001');
-  put(['---', 'process: ship', 'title: Ship', 'owner: person-avery', 'context: env', '---', '', '## Ship · READ-DO {#s}', '  > Ship it with care.', '- [ ] {run.process} Deploy it {#dep}', '  process: deploy', '  pass: ' + (passLine || 'base=team:bitbucket-base-url, env=^env'), '- [ ] {confirm} Tell the team {#tell}'].join('\n'), 'ship', 'sh000001');
+  put(['---', 'process: deploy', 'title: Deploy', 'owner: person-avery', 'context: ' + (kidCtx || 'base, env'), ...(kidRoles ? ['roles: ' + kidRoles] : []), '---', '', '## Go<span class="dot">&nbsp;·&nbsp;</span>READ-DO {#go}', '- [ ] {confirm} Go {#go1}'].join('\n'), 'deploy', 'dp000001');
+  put(['---', 'process: ship', 'title: Ship', 'owner: person-avery', 'context: env', '---', '', '## Ship<span class="dot">&nbsp;·&nbsp;</span>READ-DO {#s}', '  > Ship it with care.', '- [ ] {run.process} Deploy it {#dep}', '  process: deploy', '  pass: ' + (passLine || 'base=team:bitbucket-base-url, env=^env'), '- [ ] {confirm} Tell the team {#tell}'].join('\n'), 'ship', 'sh000001');
   if (values !== null) setTeam(app, values || { 'bitbucket-base-url': { value: URL } });
   app.click('refresh'); await app.tick(80);
   app.click('start', 'ship'); await app.settle();

@@ -6,7 +6,7 @@
      "version": "1.2.0",                       the skill's own version
      "location": "https://bitbucket.example.com/projects/WA/repos/skills/browse/release-deploy",   its source path or link
      "implements": "release@4",                the process version it was built from
-     "steps": ["merge", "jenkins"],            the steps it covers; leave out for the whole process
+     "steps": ["merge", "jenkins"],            the steps it covers; leave out for the whole checklist
      "group": "Engineering / Releases",        optional place in the hierarchy, and tags
      "tags": ["deploy"],
      "description": "Merges the release branch and starts the deploy job."
@@ -39,7 +39,7 @@ PF.skills = (function () {
     if (!name) errors.push('needs a "name"');
     if (!imp) errors.push('"implements" must be <process>@<version>, like release@4');
     var steps = o.steps == null ? null : list(o.steps).map(function (s) { return s.trim(); }).filter(Boolean);
-    if (o.steps != null && (!Array.isArray(o.steps) && typeof o.steps !== 'string' || list(o.steps).length !== (Array.isArray(o.steps) ? o.steps.length : list(o.steps).length) || !steps.length || steps.some(function (s) { return !/^[\w-]{1,60}$/.test(s); }))) errors.push('"steps" must be a list of step IDs, or left out for the whole process');
+    if (o.steps != null && (!Array.isArray(o.steps) && typeof o.steps !== 'string' || list(o.steps).length !== (Array.isArray(o.steps) ? o.steps.length : list(o.steps).length) || !steps.length || steps.some(function (s) { return !/^[\w-]{1,60}$/.test(s); }))) errors.push('"steps" must be a list of step IDs, or left out for the whole checklist');
     if (steps && steps.length > 200) errors.push('"steps" lists more than 200 steps');
     var skill = {
       name: name || (file || '').replace(/\.json$/i, ''), version: str(o.version, 40), location: str(o.location, 500), description: str(o.description, 300),
@@ -75,7 +75,7 @@ PF.skills = (function () {
     var exact = imp && typeof imp === 'object' && !Array.isArray(imp) ? { process: imp.process, version: PF.publish.versionOf(String(imp.folder)), folder: imp.folder, mapHash: imp.mapHash, typesHash: imp.typesHash } : null;
     if (!exact || !PF.pins.childOk(exact) || Object.keys(imp).some(function (k) { return ['process', 'folder', 'mapHash', 'typesHash'].indexOf(k) < 0; })) { errors.push('"implements" must name the exact version: { process, folder, mapHash, typesHash }'); exact = null; }
     var steps = o.steps == null ? null : list(o.steps).map(function (x) { return x.trim(); }).filter(Boolean);
-    if (o.steps != null && (!Array.isArray(o.steps) || !steps.length || steps.length !== o.steps.length || steps.length > 200 || steps.some(function (x) { return !/^[\w-]{1,60}$/.test(x); }))) errors.push('"steps" must be a list of step IDs, or left out for the whole process');
+    if (o.steps != null && (!Array.isArray(o.steps) || !steps.length || steps.length !== o.steps.length || steps.length > 200 || steps.some(function (x) { return !/^[\w-]{1,60}$/.test(x); }))) errors.push('"steps" must be a list of step IDs, or left out for the whole checklist');
     if (errors.length) { var refused = { skill: null, errors: errors.map(function (e) { return label + ': ' + e; }), file: path }; if (mismatch) { refused.mismatch = true; if (name) refused.named = name; } return refused; }
     var skill = {
       name: name, version: str(o.version, 40), location: str(o.location, 500), description: str(o.description, 300), process: exact.process, implements: exact.version, steps: steps,
@@ -217,7 +217,7 @@ PF.skills = (function () {
     }
     var pub = got.pub, steps = null;
     if (input.steps != null) {
-      if (!Array.isArray(input.steps) || !input.steps.length || input.steps.length > 200 || input.steps.some(function (x) { return typeof x !== 'string' || !/^[\w-]{1,60}$/.test(x); })) return { why: '"steps" is a list of step IDs, or left out for the whole process.' };
+      if (!Array.isArray(input.steps) || !input.steps.length || input.steps.length > 200 || input.steps.some(function (x) { return typeof x !== 'string' || !/^[\w-]{1,60}$/.test(x); })) return { why: '"steps" is a list of step IDs, or left out for the whole checklist.' };
       var have = stepsOf(pub.map), unknown = input.steps.filter(function (id) { return !have[id]; });
       if (unknown.length) return { why: imp.process + ' v' + pub.info.version + ' has no step ' + unknown.join(', ') + '. Nothing was written.' };
       steps = input.steps.slice();
@@ -278,7 +278,7 @@ PF.skills = (function () {
       else if (!a[id] && b[id]) out.push({ id: id, change: 'added', from: null, to: b[id].step });
       else if (a[id] && b[id] && a[id].sig !== b[id].sig) out.push({ id: id, change: 'changed', from: a[id].step, to: b[id].step });
     });
-    /* The run details the process takes are a skill's inputs (and, without carry:, what a child run is started with). */
+    /* The run details the checklist takes are a skill's inputs (and, without carry:, what a child run is started with). */
     var ca = contextOf(fromMap), cb = contextOf(toMap);
     if (ca.join(',') !== cb.join(',')) out.push({ id: '(run details)', change: 'context', from: ca, to: cb });
     /* Every other declared input (roles, runs, and the payload's extensions and pins), bound by a step or not. */
@@ -303,10 +303,10 @@ PF.skills = (function () {
       /* An exact registration matches its own folder and fingerprints, or nothing: never a number, never the latest. */
       var got = PF.pins.find(proc || { latest: latest, all: pubs || [], clashes: [], broken: [] }, skill.exact), at = skill.process + ' v' + skill.implements + ' (' + skill.exact.folder + ')';
       if (!got.pub) return { s: 'unmatched', text: 'Can\'t be matched: built from ' + at + (got.missing && /isn't in this folder$/.test(got.why) ? ', which isn\'t in this folder.' : ': ' + got.why + '.') };
-      if (!latest) return { s: 'missing', text: 'Its process "' + skill.process + '" has no usable published version in this folder.' };
+      if (!latest) return { s: 'missing', text: 'Its checklist "' + skill.process + '" has no usable published version in this folder.' };
       base = got.pub;
     } else {
-      if (!latest) return { s: 'missing', text: 'Its process "' + skill.process + '" has no usable published version in this folder.' };
+      if (!latest) return { s: 'missing', text: 'Its checklist "' + skill.process + '" has no usable published version in this folder.' };
       var bases = byV[skill.implements] || [];
       if (!bases.length) return { s: 'missing', text: 'It was built from v' + skill.implements + ', which isn\'t published here.' };
       if (bases.length > 1) return { s: 'missing', text: 'v' + skill.implements + ' was published twice at once, so which one it was built from is unclear.' };

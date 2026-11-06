@@ -46,7 +46,7 @@ rule('Start a test run from the stage\'s line: run/3 on the stage, test and stag
   assert.deepStrictEqual(Object.keys(r).slice(-2), ['test', 'stage']);
   assert.deepStrictEqual(r.stage, { folder });
   const html = app.html();
-  assert.ok(/class="badge b-test">Test run</.test(html) && /Test run<span class="hd-dot">&nbsp;·&nbsp;<\/span>staged v3/.test(html), 'the run says it\'s a test run, on staged v3');
+  assert.ok(/class="badge b-test">Test run</.test(html) && /Test run<span class="dot">&nbsp;·&nbsp;<\/span>staged v3/.test(html), 'the run says it\'s a test run, on staged v3');
 });
 
 rule('A test run is labeled in Runs, Home, the process page, the receipt and search, and never counted in Home\'s tally', async () => {
@@ -56,12 +56,12 @@ rule('A test run is labeled in Runs, Home, the process page, the receipt and sea
   assert.ok(/b-test">Test run</.test(html), 'Runs: labeled');
   app.click('nav', 'home'); await app.tick();
   html = app.html();
-  assert.ok(/Test run · [^<]*: you.re recording/.test(html), 'Home: labeled');
+  assert.ok(/Test run<span class="dot">&nbsp;·&nbsp;<\/span>(?:[^<]|<span class="dot">&nbsp;·&nbsp;<\/span>)*: you.re recording/.test(html), 'Home: labeled');
   const tally = +(/<span class="big">(\d+)<\/span><span>running<\/span>/.exec(html) || [])[1];
   const running = app.files('runs/').filter(f => /\/run\.json$/.test(f)).map(f => JSON.parse(app.fs.files[f].t)).filter(x => x.state === 'running' && x.test !== true).length;
   assert.strictEqual(tally, running, 'Home\'s running tally leaves the test run out');
   app.click('nav', 'processes'); await app.tick(); app.click('open-process', 'release'); await app.tick();
-  assert.ok(/Test run · staged v3/.test(app.html()), 'process page: labeled in Recent runs');
+  assert.ok(/Test run<span class="dot">&nbsp;·&nbsp;<\/span>staged v3/.test(app.html()), 'process page: labeled in Recent runs');
   const receipt = app.PF.run.receipt(app.PF.run.sanitize(r), app.PF.run.mapOf(app.PF.run.sanitize(r)), x => x, '2026-10-22T10:00:00.000Z');
   assert.ok(/^Flightdeck receipt \(TEST RUN\): /.test(receipt) && /test run on staged v3, not a published version/.test(receipt), 'the receipt says so');
 });
@@ -117,7 +117,7 @@ rule('A follow-up from a test run is real and labeled where follow-ups are liste
   app.click('refresh'); await app.tick(120);
   app.click('nav', 'followups'); await app.tick();
   const html = app.html();
-  assert.ok(/Fix the staging smoke test/.test(html) && /Test run · <button class="linkish" data-act="open-run"/.test(html), 'listed, labeled');
+  assert.ok(/Fix the staging smoke test/.test(html) && /Test run<span class="dotk"><span class="dot">&nbsp;·&nbsp;<\/span><button class="linkish" data-act="open-run"/.test(html), 'listed, labeled');
 });
 
 rule('Back and Forward bring the test-run form back as a test-run form, never as an ordinary start', async () => {

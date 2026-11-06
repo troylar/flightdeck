@@ -276,9 +276,9 @@
     var list = function (items) { return items.length ? '<ul class="small">' + items.join('') + '</ul>' : '<div class="small">Nothing.</div>'; };
     return '<li class="tcard"><div class="row between"><span>' + I(t.icon || 'check') + ' <b>' + esc(T.nameOf(t)) + '</b>' + (team ? ' <span class="pill open">team</span>' : '') + K.tagChips(T.tagsOf(t)) + '</span>' +
       '<span class="row"><span class="small">' + (uses ? 'in ' + uses + ' checklist' + (uses === 1 ? '' : 's') : 'not used yet') + '</span>' + (team ? '<button class="mini" data-act="edit-type" data-id="' + esc(t.id) + '">' + I('edit') + 'Edit</button>' : PF.types.isSearch(t) ? '' : '<button class="mini" data-act="copy-type" data-id="' + esc(t.id) + '">Copy to a team type</button>') + '</span></div>' +
-      (t.hint ? '<div class="small">' + esc(t.hint) + '</div>' : '') +
+      (T.hintOf(t) ? '<div class="small">' + esc(T.hintOf(t)) + '</div>' : '') +
       '<details data-disc="' + esc(key) + '"' + (open ? ' open' : '') + '><summary class="small">What it asks for</summary><p class="small">In a checklist: <code>{' + esc(t.id) + '}</code></p><div class="tcols">' +
-      '<div><div class="small"><b>In the checklist</b></div>' + list(fields.map(function (f) { var d = t.fields[f]; return '<li><code>' + esc(f) + '</code> ' + esc(d.label) + ' · ' + esc(d.kind) + (d.required ? ', usually filled in' : '') + (d.requiredWhen ? ', when ' + esc(JSON.stringify(d.requiredWhen).replace(/[{}"]/g, '')) : '') + (d.options ? ': ' + esc(K.capJoin(d.options, null, ' / ', 'type-opts')) : '') + '</li>'; })) + '</div>' +
+      '<div><div class="small"><b>In the checklist</b></div>' + list(fields.map(function (f) { var d = t.fields[f]; return '<li><code>' + esc(f) + '</code> ' + esc(T.fieldName(t, f)) + ' · ' + esc(d.kind) + (d.required ? ', usually filled in' : '') + (d.requiredWhen ? ', when ' + esc(JSON.stringify(d.requiredWhen).replace(/[{}"]/g, '')) : '') + (d.options ? ': ' + esc(K.capJoin(d.options, null, ' / ', 'type-opts')) : '') + '</li>'; })) + '</div>' +
       '<div><div class="small"><b>When it\'s checked</b></div>' + list(rec.map(function (d) { return '<li><code>' + esc(d.name) + '</code> ' + esc(d.label) + ' · ' + esc(d.kind) + (d.options ? ': ' + esc(K.capJoin(d.options, null, ' / ', 'type-opts')) : '') + (d.when ? ', when ' + esc(JSON.stringify(d.when).replace(/[{}"]/g, '')) : '') + '</li>'; })) + '</div></div></details></li>';
   }
   function types(ctx) {
@@ -551,7 +551,7 @@
     h += '</section>';
     h += '<section class="panel" aria-labelledby="sf-h"><h2 id="sf-h">About this skill</h2><dl class="facts">' +
       '<dt>Source</dt><dd>' + (s.location ? (href ? '<a href="' + esc(href) + '" target="_blank" rel="noopener noreferrer">' + esc(s.location) + '</a>' : '<code>' + esc(s.location) + '</code>') : 'Not recorded') + '</dd>' +
-      '<dt>Automates</dt><dd>' + (proc ? '<button class="link" data-act="open-process" data-id="' + esc(proc.id) + '">' + esc(proc.title) + '</button>, version ' + esc(s.implements) + (latest && latest.info.version !== s.implements ? ' (the process is now at v' + esc(latest.info.version) + ')' : '') : esc(s.process || '?') + '@' + esc(s.implements)) + '</dd>' +
+      '<dt>Automates</dt><dd>' + (proc ? '<button class="link" data-act="open-process" data-id="' + esc(proc.id) + '">' + esc(proc.title) + '</button>, version ' + esc(s.implements) + (latest && latest.info.version !== s.implements ? ' (the checklist is now at v' + esc(latest.info.version) + ')' : '') : esc(s.process || '?') + '@' + esc(s.implements)) + '</dd>' +
       '<dt>Covers</dt><dd>' + (s.steps ? '<ol class="small">' + s.steps.map(function (id) { return '<li>' + esc(stepText(id)) + ' <code>' + esc(id) + '</code></li>'; }).join('') + '</ol>' : 'The whole checklist') + '</dd>' +
       '<dt>Registered in</dt><dd><code>skills/' + esc(s.file || s.name + '.json') + '</code>' + (s.updated ? ' · updated ' + esc(s.updated) : '') + '</dd>' +
       (s.group.length ? '<dt>Group</dt><dd>' + esc(s.group.join(' / ')) + '</dd>' : '') + '</dl></section>';

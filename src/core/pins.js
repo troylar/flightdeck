@@ -95,7 +95,7 @@ PF.pins = (function () {
         if (!proc || !proc.latest) return { why: '"' + name + '" isn\'t published in this folder yet.' };
         return { pub: proc.latest, pin: of(proc.latest, name), first: true };
       }
-      if (pin.process !== name) return { why: unusable(titleOf(proc, pin), pin, 'this step now names ' + (name || 'no process') + ', not ' + pin.process) };
+      if (pin.process !== name) return { why: unusable(titleOf(proc, pin), pin, 'this step now names ' + (name || 'no checklist') + ', not ' + pin.process) };
       var got = find(proc, pin);
       if (!got.pub) return { why: unusable(titleOf(proc, pin), pin, got.why) };
       return { pub: got.pub, pin: pin };

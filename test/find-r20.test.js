@@ -188,7 +188,7 @@ rule('Round 20: Start with 25 roles, With others, Find "r2" with focus; a newer 
   await typeIn(app, 'start-roles', 'r2');
   await publishMd(app, roleMd([]), 2, 'r20st002');
   await reread(app);
-  assert.ok(/ · v2</.test(app.html()), 'set-up: Start is on v2');
+  assert.ok(/<span class="dot">&nbsp;·&nbsp;<\/span>v2</.test(app.html()), 'set-up: Start is on v2');
   kept(app, 'start-roles', 'r2', 'Start');
 });
 

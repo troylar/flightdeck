@@ -45,7 +45,7 @@ PF.guide = (function () {
     'jira.issue': { action: e('What do you do in Jira?', '', 'Decides which other questions apply.'), issue: e('Which issue?', 'PAY-1234', S), project: e('In which project?', 'PAY', S + ' Asked only to create.'),
       issueType: e('What kind of issue?', 'Task', S), status: e('Move it to?', 'In Review', S + ' Checked against the team\'s Jira workflow.'),
       assignee: e('Assign it to?', 'dana@acme.com', S), linkTo: e('Link it to which issue?', 'PAY-1200', S), set: e('Which fields do you set?', 'Fix Version=^tag', S + ' ^details are filled in.') },
-    'run.process': { process: e('Which process? (its file name)', 'database-migration', 'The process\'s file name, not its title: it\'s looked up by that exact ID. Whoever reaches this step starts its run from here (Start), and it links back.'),
+    'run.process': { process: e('Which checklist? (its file name)', 'database-migration', 'The checklist\'s file name, not its title: it\'s looked up by that exact ID. Whoever reaches this step starts its run from here (Start), and it links back.'),
       carry: e('Which run details does it pass on?', 'tag, environment', 'Left empty, it passes on every run detail the other checklist also has.', true),
       version: e('Which version of it?', '3', 'Left empty, the run uses its latest published version.', true),
       pass: e('What does each of its details get?', 'environment=^env, region=us-east-1, notify=?', 'name=^detail passes this run\'s detail under another name, name=? asks it when it starts, and anything else is a fixed value. Left empty, it passes what carry: says. Needs Flightdeck 2.8.', true) },

@@ -287,7 +287,7 @@ rule('Five hundred people: each draw names everyone once per list, and Settings,
   app.click('refresh'); await settle(app, loads(app));
   const c = await drawCost(app, async () => { app.click('nav', 'settings'); });
   const html = app.html();
-  assert.ok(/People · 500/.test(html), 'set-up: Settings, People lists all 500: ' + (html.match(/People · \d+/) || [''])[0]);
+  assert.ok(/People<span class="dot">&nbsp;·&nbsp;<\/span>500/.test(html), 'set-up: Settings, People lists all 500: ' + (html.match(/People<span class="dot">&nbsp;·&nbsp;<\/span>\d+/) || [''])[0]);
   assert.ok(/Sam Twin \(p50@example\.com\)/.test(app.top()), 'twins are still told apart by email in the You are picker');
   const names = count(app, 'people.names'), rows = count(app, 'people.rows');
   assert.ok(names <= 5 * 500 * c.renders, 'names compared ' + names + ' ≤ 5 × people per draw (' + 2500 + ' × ' + c.renders + '); comparing each with everyone is about 250,000');

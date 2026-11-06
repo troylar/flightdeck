@@ -55,7 +55,7 @@ rule('Follow-ups: 5,000 draw 50 a chip, oldest open first, with Show more focusi
   const app = await bigApp(); await followUps(app);
   let h = app.html();
   assert.strictEqual(fuKeys(h).length, 50);
-  assert.ok(/Open · 5000</.test(h) || /Open · 5,000</.test(h) || /Open · \d+</.test(h), 'the heading counts every one');
+  assert.ok(/Open<span class="dot">&nbsp;·&nbsp;<\/span>5000</.test(h) || /Open<span class="dot">&nbsp;·&nbsp;<\/span>5,000</.test(h) || /Open<span class="dot">&nbsp;·&nbsp;<\/span>\d+</.test(h), 'the heading counts every one');
   const d = moreOf(h, 'fu');
   assert.ok(d && d.focus === '[id="fu-t-' + d.next + '"]', JSON.stringify(d));
   app.click('more', 'fu', d); await app.tick(5);
@@ -502,7 +502,7 @@ rule('Planned: 5,000 plans draw 50 soonest first, the heading counts them all, a
   let h = app.html();
   const ids = planCards(h);
   assert.strictEqual(ids.length, 50);
-  assert.ok(/id="planned-h">Planned · 5,0\d\d</.test(h), 'the heading counts every plan');
+  assert.ok(/id="planned-h">Planned<span class="dot">&nbsp;·&nbsp;<\/span>5,0\d\d</.test(h), 'the heading counts every plan');
   assert.deepStrictEqual(ids.slice(0, 3), ['plan-00000', 'plan-00001', 'plan-00002'], 'soonest first');
   const d = moreOf(h, 'runs-planned');
   assert.ok(d, 'Show more');
@@ -634,10 +634,10 @@ rule('Home: Your follow-ups shows 10 of 50, Show more adds 10 with focus on the 
   await into(app, fx);
   app.click('nav', 'home'); await app.tick(10);
   let h = app.html();
-  const mine = +(/id="fu-home-h">Your follow-ups · (\d+)</.exec(h) || [])[1];
+  const mine = +(/id="fu-home-h">Your follow-ups<span class="dot">&nbsp;·&nbsp;<\/span>(\d+)</.exec(h) || [])[1];
   assert.ok(mine >= 40, 'set-up: many are mine: ' + mine);
   assert.strictEqual(fuKeys(h).length, 10);
-  assert.ok(/data-act="nav" data-id="followups">All open follow-ups · \d+/.test(h), 'the link to all of them');
+  assert.ok(/data-act="nav" data-id="followups">All open follow-ups<span class="dot">&nbsp;·&nbsp;<\/span>\d+/.test(h), 'the link to all of them');
   const d = moreOf(h, 'home-fu');
   assert.ok(d, 'Show more');
   app.click('more', 'home-fu', d); await app.tick(5);
@@ -740,7 +740,7 @@ rule('Why is this here? with 300 members draws 20, each with its whole reason an
   app.click('nav', 'home'); await app.tick(5); app.click('open-run', facts.landed); await app.tick(10);
   app.click('select', 's0'); await app.tick(10);
   let h = app.html();
-  const runs = lis(h, /<button class="linkish" id="pm-s0-_[A-Za-z0-9_]+-run"/g), whys = lis(h, /<dt id="pm-s0-_[A-Za-z0-9_]+" tabindex="-1">Why · /g);
+  const runs = lis(h, /<button class="linkish" id="pm-s0-_[A-Za-z0-9_]+-run"/g), whys = lis(h, /<dt id="pm-s0-_[A-Za-z0-9_]+" tabindex="-1">Why<span class="dot">&nbsp;·&nbsp;<\/span>/g);
   assert.strictEqual(runs, 20, '20 source runs');
   assert.strictEqual(whys, 20, 'and their 20 reasons');
   assert.ok(/Suggested in 300 runs: /.test(h) && /, and 280 more<\/p>/.test(h), 'the count is all of them');

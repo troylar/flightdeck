@@ -47,10 +47,10 @@ async function releaseAs(who) {
 rule('Process page, not its owner: Corrections and Skills are one closed line each, with what they hold in the line', async () => {
   const app = await releaseAs('person-morgan'), html = app.html();
   assert.ok(folded(html, 'fx:release'), 'corrections folded');
-  assert.ok(/<summary><h2 id="fx-h" tabindex="-1">[\s\S]{0,400}?Corrections · \d+ open<\/h2>[\s\S]{0,80}?Review[\s\S]{0,40}?<\/summary>/.test(html), 'one line: Corrections · N open, Review');
+  assert.ok(/<summary><h2 id="fx-h" tabindex="-1">[\s\S]{0,400}?Corrections<span class="dot">&nbsp;·&nbsp;<\/span>\d+ open<\/h2>[\s\S]{0,80}?Review[\s\S]{0,40}?<\/summary>/.test(html), 'one line: Corrections<span class="dot">&nbsp;·&nbsp;</span>N open, Review');
   assert.ok(!shown(html, /Copy correction brief/) && !shown(html, /data-act="corr-review"/) && inHtml(html, /data-act="corr-review"/), 'its body is on the page, closed');
   assert.ok(folded(html, 'sk:release'), 'skills folded');
-  assert.ok(/<summary><h2 id="sk-h" tabindex="-1">[\s\S]{0,300}?Skills · 2 · 2 need attention<\/h2><\/summary>/.test(html), 'one line with the count and what needs an update');
+  assert.ok(/<summary><h2 id="sk-h" tabindex="-1">[\s\S]{0,300}?Skills<span class="dot">&nbsp;·&nbsp;<\/span>2<span class="dot">&nbsp;·&nbsp;<\/span>2 need attention<\/h2><\/summary>/.test(html), 'one line with the count and what needs an update');
   assert.ok(!shown(html, /Ready for a skill\?/) && inHtml(html, /Ready for a skill\?/) && !shown(html, /needs update/), 'readiness and the list are inside it');
   assert.ok(html.indexOf('data-disc="sk:release"') > html.indexOf('id="pr-h"'), 'at the bottom of the side column');
 });
@@ -69,7 +69,7 @@ rule('Process page, its owner and its backup owner: Corrections, Ready for a ski
   for (const who of ['person-casey', 'person-avery']) {
     const app = await releaseAs(who), html = app.html();
     assert.ok(!/data-disc="(fx|sk):release"/.test(html), who + ': nothing folded');
-    assert.ok(/<section class="panel" aria-labelledby="fx-h"><h2 id="fx-h" tabindex="-1">[\s\S]*?Corrections · \d+ open/.test(html) && shown(html, /Copy correction brief/), who + ': corrections open');
+    assert.ok(/<section class="panel" aria-labelledby="fx-h"><h2 id="fx-h" tabindex="-1">[\s\S]*?Corrections<span class="dot">&nbsp;·&nbsp;<\/span>\d+ open/.test(html) && shown(html, /Copy correction brief/), who + ': corrections open');
     assert.ok(/<section class="panel" aria-labelledby="rd-h">/.test(html) && /<section class="panel" aria-labelledby="sk-h">/.test(html) && shown(html, /needs update/), who + ': readiness and skills open');
   }
 });
@@ -109,9 +109,9 @@ rule('Process page: one version line with the rest folded, three recent runs wit
   assert.ok(n <= 3, 'three runs at most: ' + n);
   const all = /data-act="runs-of" data-id="release">All (\d+) runs of this checklist<\/button>/.exec(runs);
   assert.ok(all && +all[1] > 3, 'a way to the rest');
-  assert.ok(/<span class="d">v2<span class="hd-dot">&nbsp;·&nbsp;<\/span>published [A-Z][a-z]{2}, [A-Z][a-z]{2} \d{1,2} by [A-Z][a-z]+ [A-Z][a-z]+<\/span>/.test(html) && !/Published by/.test(html), 'v2 · published <day> by <name>');
+  assert.ok(/<span class="d">v2<span class="dot">&nbsp;·&nbsp;<\/span>published [A-Z][a-z]{2}, [A-Z][a-z]{2} \d{1,2} by [A-Z][a-z]+ [A-Z][a-z]+<\/span>/.test(html) && !/Published by/.test(html), 'v2<span class="dot">&nbsp;·&nbsp;</span>published <day> by <name>');
   app.click('runs-of', 'release'); await app.tick();
-  assert.ok(/aria-current="page">Runs</.test(app.top()) && /Matching runs · \d+/.test(app.html()) && /<option value="release" selected>/.test(app.html()), 'Runs, filtered to this process');
+  assert.ok(/aria-current="page">Runs</.test(app.top()) && /Matching runs<span class="dot">&nbsp;·&nbsp;<\/span>\d+/.test(app.html()) && /<option value="release" selected>/.test(app.html()), 'Runs, filtered to this process');
   assert.strictEqual((app.html().match(/data-act="open-run"/g) || []).length, +all[1], 'every run of it');
 });
 
@@ -119,7 +119,7 @@ rule('Process page: with no skills and no clean runs yet, the fold says so for s
   const app = boot(); await app.tick(60);
   app.choose('person-casey'); await app.tick(); app.click('open-process', 'jira-cleanup'); await app.tick();
   const html = app.html();
-  assert.ok(/<summary><h2 id="sk-h" tabindex="-1">[\s\S]{0,300}?Skills · none yet \(\d of 3 clean runs\)<\/h2><\/summary>/.test(html), html.slice(html.indexOf('sk-h') - 200, html.indexOf('sk-h') + 300));
+  assert.ok(/<summary><h2 id="sk-h" tabindex="-1">[\s\S]{0,300}?Skills<span class="dot">&nbsp;·&nbsp;<\/span>none yet \(\d of 3 clean runs\)<\/h2><\/summary>/.test(html), html.slice(html.indexOf('sk-h') - 200, html.indexOf('sk-h') + 300));
 });
 
 /* A blank new process starts with no steps (2.2.1): one typed into its open Add a step box. */
@@ -351,7 +351,7 @@ rule('Processes: tags fold into Filter by tag (N), one-child groups are one head
   assert.ok(!/<span class="small">1<\/span><\/summary>/.test(html), 'no counts of 1');
   const rows = visible(between(html, 'class="plist tree"', '</section>'));
   assert.ok(!/class="tag"/.test(rows) && !/published by/.test(rows), 'no tags or publisher on rows');
-  assert.ok(/v\d+ · last run /.test(rows), 'version and last run');
+  assert.ok(/v\d+<span class="dot">&nbsp;·&nbsp;last run /.test(rows), 'version and last run');
   app.fire('toggle', { target: { dataset: { disc: 'tags' }, open: true } }); app.click('tag', 'jira'); await app.tick();
   html = app.html();
   assert.ok(/<details class="tagfold" data-disc="tags" open>/.test(html) && /data-id="jira" aria-pressed="true"/.test(html), 'opened, and the filter works');
@@ -553,10 +553,10 @@ rule('Runs: Export evidence is under More, finished runs show the newest 8 with 
   const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick(); app.click('nav', 'runs'); await app.tick();
   const html = app.html(), head = between(html, 'class="runhead"', 'class="panel rf"');
   assert.ok(!shown(head, /data-act="ev-range"/) && /<details class="rw-menu" data-disc="runs-more"><summary class="mini">More<\/summary>[\s\S]*?data-act="ev-range"/.test(head), 'Export evidence under More');
-  const fin = between(html, 'Finished · ', '</section>'), n = +/Finished · (\d+)/.exec(html)[1];
+  const fin = between(html, 'Finished<span class="dot">&nbsp;·&nbsp;</span>', '</section>'), n = +/Finished<span class="dot">&nbsp;·&nbsp;<\/span>(\d+)/.exec(html)[1];
   const shownCards = (visible(fin).match(/class="card"/g) || []).length, all = (fin.match(/class="card"/g) || []).length;
   assert.ok(n > 8 ? shownCards === 8 && all === n && /Earlier finished runs \(\d+\)/.test(fin) : shownCards === n, 'newest 8: ' + shownCards + ' of ' + n);
-  assert.ok(!/<span class="cat">[^<]* · v\d+<\/span>/.test(html), 'no version on cards');
+  assert.ok(!/<span class="cat">[^<]*<span class="dot">&nbsp;·&nbsp;<\/span>v\d+<\/span>/.test(html), 'no version on cards');
 });
 
 rule('Runs: a finished run with a conflict copy is never folded away, however old', async () => {
@@ -566,7 +566,7 @@ rule('Runs: a finished run with a conflict copy is never folded away, however ol
   const oldest = ended[0];
   await app.fs.write(oldest.f.replace('run.json', 'run.conflict-wx-1.json'), JSON.stringify(oldest.j));
   app.click('nav', 'runs'); app.click('refresh'); await app.tick(120);
-  const fin = between(app.html(), 'Finished · ', '</section>'), at = fin.indexOf('data-id="' + oldest.j.process + '/' + oldest.j.id + '"'), fold = fin.indexOf('<details data-disc="runs-older"');
+  const fin = between(app.html(), 'Finished<span class="dot">&nbsp;·&nbsp;</span>', '</section>'), at = fin.indexOf('data-id="' + oldest.j.process + '/' + oldest.j.id + '"'), fold = fin.indexOf('<details data-disc="runs-older"');
   assert.ok(at > 0 && (fold < 0 || at < fold), 'outside the fold');
   assert.ok(/conflict copy found/.test(fin.slice(at, fin.indexOf('</button>', at))), 'with its warning');
 });
@@ -574,7 +574,7 @@ rule('Runs: a finished run with a conflict copy is never folded away, however ol
 rule('Step types: the built-in types fold into one line, and a type\'s {id} is inside What it asks for', async () => {
   const app = boot(); await app.tick(60); app.choose('person-casey'); await app.tick(); app.click('nav', 'types'); await app.tick();
   const html = app.html();
-  assert.ok(/<details class="panel fold" data-disc="types-built"><summary><h2>Built-in types · \d+<\/h2><\/summary>/.test(html), 'folded');
+  assert.ok(/<details class="panel fold" data-disc="types-built"><summary><h2>Built-in types<span class="dot">&nbsp;·&nbsp;<\/span>\d+<\/h2><\/summary>/.test(html), 'folded');
   assert.ok(!shown(html, /\{confirm\}/) && /\{confirm\}/.test(html), 'the id is still there');
   app.fire('toggle', { target: { dataset: { disc: 'types-built' }, open: true } }); app.fire('toggle', { target: { dataset: { disc: 'type:confirm' }, open: true } }); app.click('nav', 'types'); await app.tick();
   assert.ok(shown(app.html(), /\{confirm\}/), 'opened, both stay open');

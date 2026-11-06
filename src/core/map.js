@@ -361,7 +361,7 @@ PF.map = (function () {
         if (s.type === 'run.process') list(s.fields.sets).forEach(function (f) { if (list(s.fields.carry).indexOf(f) >= 0) blockers.push(label + ' both passes on and sets ^' + f + '; a step can\'t start its child with a value it produces.'); });
         var sk = {}; list(s.fields.sets).forEach(function (f) { var k = U.slug(f, 20) + U.hash(f); if (sk[k]) blockers.push(label + ' sets ^' + sk[k] + ' and ^' + f + ', which are too alike to tell apart; rename one.'); sk[k] = f; });
         if (s.type === 'run.process' && s.fields.process) {
-          if (s.fields.process === meta.process) blockers.push(label + ' can\'t start a run of its own process.');
+          if (s.fields.process === meta.process) blockers.push(label + ' can\'t start a run of its own checklist.');
           else if (opts.processes && opts.processes.indexOf(s.fields.process) < 0) suggestions.push(label + ' starts "' + s.fields.process + '", which isn\'t published yet.');
           list(s.fields.carry).forEach(function (f) { if (meta.context.indexOf(f) < 0) blockers.push(label + ' passes on ^' + f + ', which isn\'t listed in context.'); });
           if (PF.links) linkChecks(s, label);

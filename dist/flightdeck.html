@@ -208,7 +208,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   --hd-py: var(--sp-3); --hd-px: var(--sp-5); --tr-py: var(--sp-2);
   --pane-pt: var(--sp-4); --pane-px: var(--sp-5); --pane-pb: var(--sp-12); --rail-px: var(--sp-3);
   --row-py: var(--sp-3); --row-px: var(--sp-4); --row-gap: var(--sp-3); --stack: var(--sp-1);
-  --card-py: var(--sp-3); --card-px: var(--sp-5); --stripe-pad: var(--sp-8); --lh-meta: 18px; --sep-w: 14px; --sep-ws: 3.7px;
+  --card-py: var(--sp-3); --card-px: var(--sp-5); --stripe-pad: var(--sp-8); --lh-meta: 18px; --sep-w: 14px; --sep-ws: 0.285em;
   --paper: #F3F5F1; --card: #FFFFFF; --ink: #16202A; --muted: #59646E; --line: #D6DCD4; --field: #7D877F; --chip: #E8ECE6;
   --amber: #E7A300; --on-amber: #241A00; --stripe: #16202A; --amber-soft: #FBF0D2;
   --go: #1D7650; --go-soft: #E1F0E8; --stop: #B0261E; --stop-soft: #F7E3E1; --plan: #5A55A8; --plan-soft: #ECEBF8;
@@ -723,7 +723,7 @@ input[type="checkbox"] { accent-color: var(--go); width: 16px; height: 16px; }
 .backrow { margin: 0 0 8px; }
 .backc { display: inline-flex; align-items: center; gap: 2px; max-width: 100%; min-width: 0; white-space: nowrap; }
 .backc .backc-t { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.backc .backc-v { flex: none; }
+.backc .backc-v { flex: none; margin-left: -2px; } /* the row's gap is taken back: the dot it starts with spaces itself */
 .pviews { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 14px; border-bottom: 1px solid var(--line); }
 .pviews button { border: 0; background: none; padding: 8px 12px; font-weight: 600; color: var(--muted); border-bottom: 3px solid transparent; margin-bottom: -1px; }
 .pviews button[aria-current="page"] { color: var(--ink); border-bottom-color: var(--ink); }
@@ -1741,8 +1741,16 @@ h3.fixgroup { font-family: var(--body); font-size: 14px; letter-spacing: 0; }
 .rw-ins { display: flex; flex-direction: column; border-left: 1px solid var(--line); background: var(--card); }
 .rw-ins-top { position: sticky; top: 0; z-index: 3; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: var(--sp-3) var(--pane-px); background: var(--card); border-bottom: 1px solid var(--line); }
 .rw-ins-top .close { display: none; }
-.rw-where { margin-right: auto; min-width: 0; }
-.rw-steps { margin-left: auto; gap: 4px; }
+/* Previous and Next stay on the top row at every inspector width (2.16.2): the row is laid out from the right, so Previous and
+   Next, then Edit step and Close, are placed first and keep their size, and where the step is takes the room left of them,
+   wrapping there in full. Only when that room is under 7em does it move, whole, to a line of its own under them. It holds no
+   control, so the buttons are still focused left to right in the markup's order. */
+.rw-ins-top { flex-direction: row-reverse; }
+.rw-steps { order: 1; flex: none; gap: 4px; }
+.rw-ins-edit { order: 2; flex: none; }
+.rw-ins-top .close { order: 3; }
+.rw-where { order: 4; flex: 1 1 7em; min-width: 0; }
+.rw-skip { order: 5; }
 .rw-steps .mini { min-height: 32px; }
 .rw-ins-body { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--pane-pt) var(--pane-px) var(--sp-6); }
 .rw-ins-h { margin: 0; font-family: var(--display); font-size: 24px; line-height: 1.15; overflow-wrap: anywhere; }
@@ -2128,16 +2136,22 @@ html.work-on .top { display: none; }
 /* The status line owns its type: 13/20, muted; nested state text (Edit's .fpe-state) inherits it. One 24 px line at least. */
 /* A piece wraps rather than being cut. Every piece leads with its separator, centered in --sep-w so both sides match; the line
    starts one --sep-w left of the column and is clipped there, so the separator leading each line never shows and none is
-   left at a line's end. The clip leaves 4 px for a focus ring. A "·" inside a piece (.hd-dot, workHead) is held to its words
-   by no-break spaces, widened by --sep-ws to the same --sep-w. */
+   left at a line's end. The clip leaves 4 px for a focus ring. A "·" inside a piece is a .dot (below), the same --sep-w wide. */
 .hd-st { grid-column: 1 / -1; margin: var(--sp-h) 0 0; margin-left: calc(-1 * var(--sep-w)); clip-path: inset(-12px -12px -12px calc(var(--sep-w) - 4px)); font-size: 13px; line-height: 20px; min-height: 24px; color: var(--muted); display: flex; flex-wrap: wrap; align-items: center; gap: 2px 0; min-width: 0; }
 .hd-st .d { min-width: 0; flex: 0 1 auto; overflow-wrap: anywhere; }
 /* The inset is the piece's own, on every line it wraps to, so no line of it starts inside the clipped strip. */
 .hd-st > :is(.d, .act) { position: relative; padding-left: var(--sep-w); }
 .hd-st > :is(.d, .act)::before { content: "·" / ""; position: absolute; left: 0; top: 0; width: var(--sep-w); height: 20px; display: flex; align-items: center; justify-content: center; color: var(--muted); }
 .hd-st > .act::before { height: 100%; }
-.hd-st .hd-dot { word-spacing: var(--sep-ws); }
 .hd-st .act { flex: none; display: inline-flex; align-items: center; }
+/* One separator everywhere (V.dots): every "·" in text is held to its words by no-break spaces, which --sep-ws widens so both
+   sides match; in em, so it keeps its proportions in smaller or larger text (a 13 px one is exactly --sep-w wide). */
+.dot { word-spacing: var(--sep-ws); }
+/* A link drawn as a target (padding to reach 24 px) starts at its text after a dot, so the space after the dot is the dot's own. */
+.dot + button.linkish[data-act] { padding-inline-start: 0; }
+/* A dot and the button beside it never part at a line's end (V.dots wraps the two); the button's own text still wraps. */
+.dotk { white-space: nowrap; }
+.dotk > button { white-space: normal; }
 /* Discard my changes lives in row 1's right column, before Save draft (workHead's o.sa slot, drawn only while there are
    changes): the status line never holds or reserves it. The column is end-aligned, so its appearing moves neither the primary
    nor More. */
@@ -2145,8 +2159,9 @@ html.work-on .top { display: none; }
 /* 801-859: Discard, Save draft and More fit on row 1 beside the view switch only without its icons, so its labels stand alone
    there and Edit's row 1 stays one line, like Practice's. */
 @media (min-width: 801px) and (max-width: 859px) { .ws-views .ic { display: none; } }
-/* Practice's kept count gives way at 801-899, in both views alike; its name (aria-label) still says it. */
-@media (min-width: 801px) and (max-width: 899px) { .ws-views .ws-cnt { display: none; } }
+/* Practice's kept count gives way at 801-909, in both views alike; its name (aria-label) still says it. 2.16.2: its "·" is
+   spaced like every other, 7 px wider, so the count first fits at 905; 909 leaves a few px to spare. */
+@media (min-width: 801px) and (max-width: 909px) { .ws-views .ws-cnt { display: none; } }
 /* The checklist page's right column is never narrower than its widest run button, and the buttons wrap inside it when the
    row is short, so they never cover the tabs; the tabs stay centered. */
 @media (min-width: 801px) { .hd.phd { grid-template-columns: minmax(0, 1fr) auto minmax(min-content, 1fr); } .phd .hd-acts { flex: 0 1 auto; min-width: 0; flex-wrap: wrap; justify-content: flex-end; } }
@@ -3828,8 +3843,18 @@ PF.types = (function () {
   /* What the screens call a built-in type, where that differs from its label (2.10). Only for showing: a label is part of the
      definition frozen into a version, so it stays as it was; the old name still finds the type in search. */
   var NAMES = { confirm: 'Basic step', 'run.process': 'Run another checklist' };
+  /* The same for a built-in type's hint and field labels (2.16.2): frozen as they were, shown in the screens' words. */
+  var HINTS = { 'run.process': 'Start a linked run of another checklist; this step is done when it completes.' };
+  var FIELD_NAMES = { 'run.process': { process: 'Checklist' } };
   function named(t) { return !!t && !t.custom && Object.prototype.hasOwnProperty.call(NAMES, t.id); }
   function nameOf(t) { return named(t) ? NAMES[t.id] : (t && t.label) || ''; }
+  function builtIn(map, t) { return !!t && !t.custom && Object.prototype.hasOwnProperty.call(map, t.id); }
+  function hintOf(t) { return builtIn(HINTS, t) ? HINTS[t.id] : (t && t.hint) || ''; }
+  function fieldName(t, f) {
+    if (builtIn(FIELD_NAMES, t) && Object.prototype.hasOwnProperty.call(FIELD_NAMES[t.id], f)) return FIELD_NAMES[t.id][f];
+    var d = fieldDef(t, f);
+    return d && d.label ? d.label : f;
+  }
   function aliasOf(t) { return named(t) ? t.label : ''; }
 
   /* ---- for flightdeck type save (2.14): pure checks the command makes beyond the reader's ---- */
@@ -3890,7 +3915,7 @@ PF.types = (function () {
     return out;
   }
 
-  return { ID: ID, ID_MAX: ID_MAX, VERSION: VERSION, SEARCH: SEARCH, SEARCH_VERSION: SEARCH_VERSION, isSearch: isSearch, uses2: uses2, LIST: LIST, COMMON: COMMON, applies: applies, EVIDENCE_KINDS: Object.freeze(Object.keys(EVIDENCE)), PINS: PINS, ICONS: ICONS_OK, get: get, fieldDef: fieldDef, options: options, hasOption: hasOption, canonical: canonical, checkFields: checkFields, understood: understood, editable: editable, relevant: relevant, checkCustom: checkCustom, customType: customType, recordFields: recordFields, needsRecord: needsRecord, checkRecord: checkRecord, missingRequired: missingRequired, freeze: freeze, groupOf: groupOf, tagsOf: tagsOf, nameOf: nameOf, aliasOf: aliasOf, groupText: groupText, tagText: tagText,
+  return { ID: ID, ID_MAX: ID_MAX, VERSION: VERSION, SEARCH: SEARCH, SEARCH_VERSION: SEARCH_VERSION, isSearch: isSearch, uses2: uses2, LIST: LIST, COMMON: COMMON, applies: applies, EVIDENCE_KINDS: Object.freeze(Object.keys(EVIDENCE)), PINS: PINS, ICONS: ICONS_OK, get: get, fieldDef: fieldDef, options: options, hasOption: hasOption, canonical: canonical, checkFields: checkFields, understood: understood, editable: editable, relevant: relevant, checkCustom: checkCustom, customType: customType, recordFields: recordFields, needsRecord: needsRecord, checkRecord: checkRecord, missingRequired: missingRequired, freeze: freeze, groupOf: groupOf, tagsOf: tagsOf, nameOf: nameOf, hintOf: hintOf, fieldName: fieldName, aliasOf: aliasOf, groupText: groupText, tagText: tagText,
     fileText: fileText, formatWhy: formatWhy, markerWhy: markerWhy, unusedKeys: unusedKeys, removed: removed, inUse: inUse };
 })();
 
@@ -4867,7 +4892,7 @@ PF.map = (function () {
         if (s.type === 'run.process') list(s.fields.sets).forEach(function (f) { if (list(s.fields.carry).indexOf(f) >= 0) blockers.push(label + ' both passes on and sets ^' + f + '; a step can\'t start its child with a value it produces.'); });
         var sk = {}; list(s.fields.sets).forEach(function (f) { var k = U.slug(f, 20) + U.hash(f); if (sk[k]) blockers.push(label + ' sets ^' + sk[k] + ' and ^' + f + ', which are too alike to tell apart; rename one.'); sk[k] = f; });
         if (s.type === 'run.process' && s.fields.process) {
-          if (s.fields.process === meta.process) blockers.push(label + ' can\'t start a run of its own process.');
+          if (s.fields.process === meta.process) blockers.push(label + ' can\'t start a run of its own checklist.');
           else if (opts.processes && opts.processes.indexOf(s.fields.process) < 0) suggestions.push(label + ' starts "' + s.fields.process + '", which isn\'t published yet.');
           list(s.fields.carry).forEach(function (f) { if (meta.context.indexOf(f) < 0) blockers.push(label + ' passes on ^' + f + ', which isn\'t listed in context.'); });
           if (PF.links) linkChecks(s, label);
@@ -5856,7 +5881,7 @@ PF.outline = (function () {
       if (childOf(st)) return;
       /* The folder already said this step passes it to that child: once is enough. */
       if (st.fields.process && stop.some(function (d) { return d.text.indexOf(' passes ^' + from + ' to ' + st.fields.process + ' ') >= 0; })) return;
-      stop.unshift({ refuse: true, text: 'The step “' + short(st.text) + '” passes ^' + from + ' to ' + (st.fields.process || 'its process') + ' under this name. Renaming it would stop that.' });
+      stop.unshift({ refuse: true, text: 'The step “' + short(st.text) + '” passes ^' + from + ' to ' + (st.fields.process || 'its checklist') + ' under this name. Renaming it would stop that.' });
     });
     if (stop.length) return { error: stop.map(function (d) { return d.text; }).join(' ') };
     var tok = new RegExp('\\^' + reEsc(from) + '(?![\\w-])', 'g'), swap = function (v) { return v.replace(tok, '^' + to); }, n = 0;
@@ -7740,7 +7765,7 @@ PF.pins = (function () {
         if (!proc || !proc.latest) return { why: '"' + name + '" isn\'t published in this folder yet.' };
         return { pub: proc.latest, pin: of(proc.latest, name), first: true };
       }
-      if (pin.process !== name) return { why: unusable(titleOf(proc, pin), pin, 'this step now names ' + (name || 'no process') + ', not ' + pin.process) };
+      if (pin.process !== name) return { why: unusable(titleOf(proc, pin), pin, 'this step now names ' + (name || 'no checklist') + ', not ' + pin.process) };
       var got = find(proc, pin);
       if (!got.pub) return { why: unusable(titleOf(proc, pin), pin, got.why) };
       return { pub: got.pub, pin: pin };
@@ -9301,7 +9326,7 @@ PF.run = (function () {
     var x = M.findStep(map, stepId);
     if (!x) throw new Error('Unknown step.');
     if (r.state !== 'running') throw new Error('This run has ended.');
-    if (x.step.type !== 'run.process') throw new Error('Only a "run another process" step starts a child run.');
+    if (x.step.type !== 'run.process') throw new Error('Only a "run another checklist" step starts a child run.');
     var nw = stepNeeded(r, map, stepId);
     if (nw) throw new Error(nw);
     var a = r.steps[stepId] = r.steps[stepId] || { s: 'open' };
@@ -11169,7 +11194,7 @@ PF.insights = (function () {
   var WHOLE = {
     unread: function (n) { return n === 1 ? '1 run couldn\'t be read; its last copy isn\'t counted.' : runs(n) + ' couldn\'t be read; their last copies aren\'t counted.'; },
     missing: function (n) { return n === 1 ? '1 run\'s file is gone from the team folder; its last copy isn\'t counted.' : runs(n) + '\' files are gone from the team folder; their last copies aren\'t counted.'; },
-    unknown: function (n) { return n === 1 ? '1 run of this process couldn\'t be read, so which version it belongs to isn\'t known; it isn\'t counted.' : runs(n) + ' of this process couldn\'t be read, so which version they belong to isn\'t known; they aren\'t counted.'; },
+    unknown: function (n) { return n === 1 ? '1 run of this checklist couldn\'t be read, so which version it belongs to isn\'t known; it isn\'t counted.' : runs(n) + ' of this checklist couldn\'t be read, so which version they belong to isn\'t known; they aren\'t counted.'; },
     test: function (n) { return n === 1 ? '1 test run not counted.' : num(n) + ' test runs not counted.'; },
     newer: function (n) { return n === 1 ? '1 run is from a newer Flightdeck (or uses a checklist this copy can\'t read); it isn\'t counted.' : runs(n) + ' are from a newer Flightdeck (or use a checklist this copy can\'t read); they aren\'t counted.'; }
   };
@@ -11803,7 +11828,7 @@ PF.signature = (function () {
      "version": "1.2.0",                       the skill's own version
      "location": "https://bitbucket.example.com/projects/WA/repos/skills/browse/release-deploy",   its source path or link
      "implements": "release@4",                the process version it was built from
-     "steps": ["merge", "jenkins"],            the steps it covers; leave out for the whole process
+     "steps": ["merge", "jenkins"],            the steps it covers; leave out for the whole checklist
      "group": "Engineering / Releases",        optional place in the hierarchy, and tags
      "tags": ["deploy"],
      "description": "Merges the release branch and starts the deploy job."
@@ -11836,7 +11861,7 @@ PF.skills = (function () {
     if (!name) errors.push('needs a "name"');
     if (!imp) errors.push('"implements" must be <process>@<version>, like release@4');
     var steps = o.steps == null ? null : list(o.steps).map(function (s) { return s.trim(); }).filter(Boolean);
-    if (o.steps != null && (!Array.isArray(o.steps) && typeof o.steps !== 'string' || list(o.steps).length !== (Array.isArray(o.steps) ? o.steps.length : list(o.steps).length) || !steps.length || steps.some(function (s) { return !/^[\w-]{1,60}$/.test(s); }))) errors.push('"steps" must be a list of step IDs, or left out for the whole process');
+    if (o.steps != null && (!Array.isArray(o.steps) && typeof o.steps !== 'string' || list(o.steps).length !== (Array.isArray(o.steps) ? o.steps.length : list(o.steps).length) || !steps.length || steps.some(function (s) { return !/^[\w-]{1,60}$/.test(s); }))) errors.push('"steps" must be a list of step IDs, or left out for the whole checklist');
     if (steps && steps.length > 200) errors.push('"steps" lists more than 200 steps');
     var skill = {
       name: name || (file || '').replace(/\.json$/i, ''), version: str(o.version, 40), location: str(o.location, 500), description: str(o.description, 300),
@@ -11872,7 +11897,7 @@ PF.skills = (function () {
     var exact = imp && typeof imp === 'object' && !Array.isArray(imp) ? { process: imp.process, version: PF.publish.versionOf(String(imp.folder)), folder: imp.folder, mapHash: imp.mapHash, typesHash: imp.typesHash } : null;
     if (!exact || !PF.pins.childOk(exact) || Object.keys(imp).some(function (k) { return ['process', 'folder', 'mapHash', 'typesHash'].indexOf(k) < 0; })) { errors.push('"implements" must name the exact version: { process, folder, mapHash, typesHash }'); exact = null; }
     var steps = o.steps == null ? null : list(o.steps).map(function (x) { return x.trim(); }).filter(Boolean);
-    if (o.steps != null && (!Array.isArray(o.steps) || !steps.length || steps.length !== o.steps.length || steps.length > 200 || steps.some(function (x) { return !/^[\w-]{1,60}$/.test(x); }))) errors.push('"steps" must be a list of step IDs, or left out for the whole process');
+    if (o.steps != null && (!Array.isArray(o.steps) || !steps.length || steps.length !== o.steps.length || steps.length > 200 || steps.some(function (x) { return !/^[\w-]{1,60}$/.test(x); }))) errors.push('"steps" must be a list of step IDs, or left out for the whole checklist');
     if (errors.length) { var refused = { skill: null, errors: errors.map(function (e) { return label + ': ' + e; }), file: path }; if (mismatch) { refused.mismatch = true; if (name) refused.named = name; } return refused; }
     var skill = {
       name: name, version: str(o.version, 40), location: str(o.location, 500), description: str(o.description, 300), process: exact.process, implements: exact.version, steps: steps,
@@ -12014,7 +12039,7 @@ PF.skills = (function () {
     }
     var pub = got.pub, steps = null;
     if (input.steps != null) {
-      if (!Array.isArray(input.steps) || !input.steps.length || input.steps.length > 200 || input.steps.some(function (x) { return typeof x !== 'string' || !/^[\w-]{1,60}$/.test(x); })) return { why: '"steps" is a list of step IDs, or left out for the whole process.' };
+      if (!Array.isArray(input.steps) || !input.steps.length || input.steps.length > 200 || input.steps.some(function (x) { return typeof x !== 'string' || !/^[\w-]{1,60}$/.test(x); })) return { why: '"steps" is a list of step IDs, or left out for the whole checklist.' };
       var have = stepsOf(pub.map), unknown = input.steps.filter(function (id) { return !have[id]; });
       if (unknown.length) return { why: imp.process + ' v' + pub.info.version + ' has no step ' + unknown.join(', ') + '. Nothing was written.' };
       steps = input.steps.slice();
@@ -12075,7 +12100,7 @@ PF.skills = (function () {
       else if (!a[id] && b[id]) out.push({ id: id, change: 'added', from: null, to: b[id].step });
       else if (a[id] && b[id] && a[id].sig !== b[id].sig) out.push({ id: id, change: 'changed', from: a[id].step, to: b[id].step });
     });
-    /* The run details the process takes are a skill's inputs (and, without carry:, what a child run is started with). */
+    /* The run details the checklist takes are a skill's inputs (and, without carry:, what a child run is started with). */
     var ca = contextOf(fromMap), cb = contextOf(toMap);
     if (ca.join(',') !== cb.join(',')) out.push({ id: '(run details)', change: 'context', from: ca, to: cb });
     /* Every other declared input (roles, runs, and the payload's extensions and pins), bound by a step or not. */
@@ -12100,10 +12125,10 @@ PF.skills = (function () {
       /* An exact registration matches its own folder and fingerprints, or nothing: never a number, never the latest. */
       var got = PF.pins.find(proc || { latest: latest, all: pubs || [], clashes: [], broken: [] }, skill.exact), at = skill.process + ' v' + skill.implements + ' (' + skill.exact.folder + ')';
       if (!got.pub) return { s: 'unmatched', text: 'Can\'t be matched: built from ' + at + (got.missing && /isn't in this folder$/.test(got.why) ? ', which isn\'t in this folder.' : ': ' + got.why + '.') };
-      if (!latest) return { s: 'missing', text: 'Its process "' + skill.process + '" has no usable published version in this folder.' };
+      if (!latest) return { s: 'missing', text: 'Its checklist "' + skill.process + '" has no usable published version in this folder.' };
       base = got.pub;
     } else {
-      if (!latest) return { s: 'missing', text: 'Its process "' + skill.process + '" has no usable published version in this folder.' };
+      if (!latest) return { s: 'missing', text: 'Its checklist "' + skill.process + '" has no usable published version in this folder.' };
       var bases = byV[skill.implements] || [];
       if (!bases.length) return { s: 'missing', text: 'It was built from v' + skill.implements + ', which isn\'t published here.' };
       if (bases.length > 1) return { s: 'missing', text: 'v' + skill.implements + ' was published twice at once, so which one it was built from is unclear.' };
@@ -13909,7 +13934,7 @@ PF.health = (function () {
       });
       Object.keys(per).forEach(function (k) { if (per[k] > LIMITS.runFiles) cap('cap-run-files:' + k, 'warn', 'A run folder holds ' + plural(per[k], 'file'), 'runs/' + k + ' is slow to read and to copy. Attach fewer, larger files (a .zip) next time.', ['runs/' + k]); });
       if (attach > LIMITS.attachBytes) cap('cap-attach', 'warn', 'Attachments take ' + bytes(attach), 'OneDrive keeps every file on every computer that has the folder. Keep big logs elsewhere and attach a link or a short excerpt.', ['runs']);
-      if (longPaths.length) cap('cap-paths', 'warn', plural(longPaths.length, 'file path') + ' longer than ' + LIMITS.pathChars + ' characters', 'Windows and OneDrive refuse paths that get too long once the team folder\'s own location is added. Shorten process or file names.', longPaths);
+      if (longPaths.length) cap('cap-paths', 'warn', plural(longPaths.length, 'file path') + ' longer than ' + LIMITS.pathChars + ' characters', 'Windows and OneDrive refuse paths that get too long once the team folder\'s own location is added. Shorten checklist or file names.', longPaths);
       if (scan.truncated) cap('cap-scan', 'warn', 'The folder has more files than one check reads', 'Folder health stopped after ' + plural(scan.files, 'file') + '. Its counts are lower limits.', []);
     }
     if (!big) ok('size', scan ? 'Comfortable size: ' + plural(nRuns, 'run') + ', ' + bytes(scan.bytes || 0) + ' in all, the longest path ' + (scan.longest || 0) + ' characters.' : 'Comfortable size: ' + plural(nRuns, 'run') + '.');
@@ -21514,7 +21539,7 @@ PF.guide = (function () {
     'jira.issue': { action: e('What do you do in Jira?', '', 'Decides which other questions apply.'), issue: e('Which issue?', 'PAY-1234', S), project: e('In which project?', 'PAY', S + ' Asked only to create.'),
       issueType: e('What kind of issue?', 'Task', S), status: e('Move it to?', 'In Review', S + ' Checked against the team\'s Jira workflow.'),
       assignee: e('Assign it to?', 'dana@acme.com', S), linkTo: e('Link it to which issue?', 'PAY-1200', S), set: e('Which fields do you set?', 'Fix Version=^tag', S + ' ^details are filled in.') },
-    'run.process': { process: e('Which process? (its file name)', 'database-migration', 'The process\'s file name, not its title: it\'s looked up by that exact ID. Whoever reaches this step starts its run from here (Start), and it links back.'),
+    'run.process': { process: e('Which checklist? (its file name)', 'database-migration', 'The checklist\'s file name, not its title: it\'s looked up by that exact ID. Whoever reaches this step starts its run from here (Start), and it links back.'),
       carry: e('Which run details does it pass on?', 'tag, environment', 'Left empty, it passes on every run detail the other checklist also has.', true),
       version: e('Which version of it?', '3', 'Left empty, the run uses its latest published version.', true),
       pass: e('What does each of its details get?', 'environment=^env, region=us-east-1, notify=?', 'name=^detail passes this run\'s detail under another name, name=? asks it when it starts, and anything else is a fixed value. Left empty, it passes what carry: says. Needs Flightdeck 2.8.', true) },
@@ -22313,19 +22338,21 @@ PF.vk = (function () {
      h1attrs, back, status: [{ kind: 'd' | 'act', html, cls, attrs }], views, sa, prog, acts, more, why, cls, attrs }. sa: markup
      for .hd-sa, before the primary, drawn only when given (Edit's Discard my changes). h1 is the title, escaped text
      only (it is also the span's title, so a cut title can be read in full); h1tail is markup after it (a tag, a hidden word). */
-  /* A " · " in a status piece's text (never in a tag or an attribute) is held to the words on both sides and spaced as the
-     line's own separators are (.hd-dot), so it never starts or ends a line and every "·" on the line looks the same. */
-  function bindDots(html) {
-    var out = '', i = 0;
-    while (i < html.length) {
-      if (html.charAt(i) === '<') { var j = html.indexOf('>', i); if (j < 0) j = html.length - 1; out += html.slice(i, j + 1); i = j + 1; continue; }
-      if (html.substr(i, 3) === ' · ') { out += '<span class="hd-dot">&nbsp;·&nbsp;</span>'; i += 3; continue; }
-      out += html.charAt(i); i++;
-    }
-    return out;
+  /* One separator everywhere (2.16.2): a " · " in drawn text, or one already held by no-break spaces, becomes .dot, held to
+     the words on both sides so it never starts or ends a line, and spaced (--sep-ws) so both sides match and every "·" on a
+     screen looks like the header's. Tags and attributes are left alone, and so is text shown or copied as typed (pre, code,
+     textarea, select) and a .dot already drawn, so running it twice changes nothing. app.js runs it on every region it draws. */
+  var DOT = '<span class="dot">&nbsp;·&nbsp;</span>';
+  /* A button is placed whole, so a line could still break between it and a dot beside it: the two are held together (.dotk). */
+  var DOT_BTN = /(?<!<span class="dotk">)(?:<span class="dot">&nbsp;·&nbsp;<\/span><button\b[^>]*>(?:(?!<\/?button\b)[^])*<\/button>|<button\b[^>]*>(?:(?!<\/?button\b)[^])*<\/button><span class="dot">&nbsp;·&nbsp;<\/span>)/g;
+  var DOT_PARTS = /<(pre|code|textarea|select|script|style)\b[\s\S]*?<\/\1\s*>|<span class="dot">[^<]*<\/span>|<[^>]*>|[^<]+/gi;
+  function dots(html) {
+    html = String(html == null ? '' : html);
+    if (html.indexOf('·') < 0) return html;
+    return html.replace(DOT_PARTS, function (m) { return m.charAt(0) === '<' ? m : m.replace(/ · |&nbsp;·&nbsp;/g, DOT); }).replace(DOT_BTN, '<span class="dotk">$&</span>');
   }
   function workHead(o) {
-    var st = (o.status || []).filter(function (x) { return x && x.html; }).map(function (x) { return '<span class="' + (x.kind === 'act' ? 'act' : 'd') + (x.cls ? ' ' + x.cls : '') + '"' + (x.attrs || '') + '>' + (x.kind === 'act' ? x.html : bindDots(x.html)) + '</span>'; }).join('');
+    var st = (o.status || []).filter(function (x) { return x && x.html; }).map(function (x) { return '<span class="' + (x.kind === 'act' ? 'act' : 'd') + (x.cls ? ' ' + x.cls : '') + '"' + (x.attrs || '') + '>' + (x.kind === 'act' ? x.html : dots(x.html)) + '</span>'; }).join('');
     return '<header class="hd' + (o.cls ? ' ' + o.cls : '') + '" role="region" aria-labelledby="' + o.hid + '"' + (o.attrs || '') + '>' +
       '<div class="hd-l">' + (o.back || '') + '<div class="hd-id"><h1 id="' + o.hid + '"' + (o.h1attrs || '') + '><span class="hd-t" title="' + o.h1 + '">' + o.h1 + '</span>' + (o.h1tail || '') + '</h1>' + (st ? '<p class="hd-st">' + st + '</p>' : '') + '</div></div>' +
       '<div class="hd-c">' + (o.views || '') + '</div>' +
@@ -22374,7 +22401,7 @@ PF.vk = (function () {
       '<p class="small">Everything you do is stamped with this name.</p><label class="field" for="me-pick">' + (people.length ? 'You are' : 'Your name') + field + '</label>' +
       '<div class="row"><button type="button" class="btn go" data-act="me-use">Use this name</button><button type="button" class="mini" data-act="close-overlay">Cancel</button></div></div></div>';
   }
-  V.workHead = workHead; V.toolRow = toolRow; V.progress = progress; V.moreMenu = moreMenu; V.moreGroup = moreGroup; V.appGroup = appGroup; V.meDialog = meDialog;
+  V.dots = dots; V.workHead = workHead; V.toolRow = toolRow; V.progress = progress; V.moreMenu = moreMenu; V.moreGroup = moreGroup; V.appGroup = appGroup; V.meDialog = meDialog;
   /* On a page under the top bar, the way back has its own row above the page's header. */
   function backRow(html) { return html ? '<div class="backrow">' + html + '</div>' : ''; }
   V.backc = backc; V.backRow = backRow;
@@ -23685,7 +23712,7 @@ PF.vk = (function () {
     var eff = R.fieldsOf(r, s), shown = 0;
     Object.keys(eff).forEach(function (f) {
       var def = T.fieldDef(t, f), v = def && eff[f] ? R.fill(eff[f], r.details, map.meta.context) : ''; if (!v || shown >= 2 || v.length > 32 || (def.kind !== 'text' && def.kind !== 'choice') || /^(expect|deadline|require|at|due|after|evidence|sets|carry)$/.test(f)) return;
-      shown++; meta += '<span class="s-field">' + esc(def.label) + ' ' + esc(v) + '</span>';
+      shown++; meta += '<span class="s-field">' + esc(T.fieldName(t, f)) + ' ' + esc(v) + '</span>';
     });
     var badges = (s.must ? K.mustMark() : '') + (s.planned ? '<span class="badge b-plan">Automation planned</span>' : '') +
       (aState === 'recheck' ? (P ? '<span class="badge b-warn">Try it again</span>' : '<span class="badge b-warn">Re-check: ' + esc(a.reason) + '</span>') : '') +
@@ -24286,19 +24313,19 @@ PF.vk = (function () {
     var st = ctx.state, eff = R.fieldsOf(r, s), own = (r.fields || {})[s.id] || {}, chips = '', code = '';
     Object.keys(eff).forEach(function (f) {
       if (f === 'expect' || f === 'deadline' || f === 'require' || !eff[f] || (sched && (f === 'at' || f === 'due' || f === 'after'))) return;
-      var def = T.fieldDef(t, f) || { label: f, kind: 'text' }, val = R.fill(eff[f], r.details, map.meta.context), mark = own[f] != null ? ' filled" title="Filled in during this run' : '';
-      var copy = function () { var on = st.copied === val; return '<button class="mini" data-act="copy" data-text="' + esc(val) + '" aria-label="Copy ' + esc(def.label) + '">' + I(on ? 'check' : 'copy') + (on ? 'Copied' : 'Copy') + '</button>'; };
+      var def = T.fieldDef(t, f) || { label: f, kind: 'text' }, lab = T.fieldName(t, f), val = R.fill(eff[f], r.details, map.meta.context), mark = own[f] != null ? ' filled" title="Filled in during this run' : '';
+      var copy = function () { var on = st.copied === val; return '<button class="mini" data-act="copy" data-text="' + esc(val) + '" aria-label="Copy ' + esc(lab) + '">' + I(on ? 'check' : 'copy') + (on ? 'Copied' : 'Copy') + '</button>'; };
       if (f === 'evidence') { chips += '<span class="fchip"><b>Evidence:</b> ' + esc(PROOF[String(val).toLowerCase()] || 'a note') + '</span>'; return; }
       if (def.kind === 'message') { code += '<div class="cmd msg' + mark + '"><span>' + esc(val) + '</span>' + copy() + '</div>'; return; }
-      if (def.kind === 'list') { chips += '<span class="fchip' + mark + '"><b>' + esc(def.label) + ':</b> ' + esc(val.split(',').map(function (x) { return x.trim(); }).filter(Boolean).join(' / ')) + '</span>'; return; }
+      if (def.kind === 'list') { chips += '<span class="fchip' + mark + '"><b>' + esc(lab) + ':</b> ' + esc(val.split(',').map(function (x) { return x.trim(); }).filter(Boolean).join(' / ')) + '</span>'; return; }
       if (def.kind === 'code') code += '<div class="cmd' + mark + '"><code>' + esc(val) + '</code>' + copy() + '</div>';
       else if (def.kind === 'url') {
         /* A link field (2.16): each run detail encoded for its part of the address; otherwise no link, with the reason. */
         var lk = PF.urls.fillLink(eff[f], r.details, map.meta.context);
-        if (lk.ok && U.safeUrl(lk.href)) chips += '<a class="fchip' + mark + '" href="' + esc(U.safeUrl(lk.href)) + '" target="_blank" rel="noopener noreferrer"><b>' + esc(def.label) + '</b> open</a>';
-        else chips += '<span class="fchip' + mark + '"><b>' + esc(def.label) + ':</b> ' + esc(lk.plain || lk.code ? PF.urls.marked(eff[f]) : val) + (lk.code === 'static' ? '' : ' <span class="small">' + esc(lk.why) + '</span>') + '</span>';
+        if (lk.ok && U.safeUrl(lk.href)) chips += '<a class="fchip' + mark + '" href="' + esc(U.safeUrl(lk.href)) + '" target="_blank" rel="noopener noreferrer"><b>' + esc(lab) + '</b> open</a>';
+        else chips += '<span class="fchip' + mark + '"><b>' + esc(lab) + ':</b> ' + esc(lk.plain || lk.code ? PF.urls.marked(eff[f]) : val) + (lk.code === 'static' ? '' : ' <span class="small">' + esc(lk.why) + '</span>') + '</span>';
       }
-      else chips += '<span class="fchip' + mark + '"><b>' + esc(def.label) + ':</b> ' + esc(val) + '</span>';
+      else chips += '<span class="fchip' + mark + '"><b>' + esc(lab) + ':</b> ' + esc(val) + '</span>';
     });
     return (chips ? '<div class="fields">' + chips + '</div>' : '') + code;
   }
@@ -25441,7 +25468,7 @@ PF.vk = (function () {
     };
     if (passed.length) h += '<h3>Passed from this run</h3><dl>' + passed.map(function (x) {
       var v = shown(x);
-      return '<dt>' + esc(x.name) + '</dt><dd>' + (v === '' ? '<span class="small">(empty)</span>' : esc(v)) + ' <span class="small">· ' + (x.source === 'value' ? 'fixed in the checklist' : x.source === 'team' ? 'team value ' + esc(x.team) : 'from ^' + esc(x.from) + ' of this run') + '</span></dd>';
+      return '<dt>' + esc(x.name) + '</dt><dd>' + (v === '' ? '<span class="small">(empty)</span>' : esc(v)) + '<span class="small"> · ' + (x.source === 'value' ? 'fixed in the checklist' : x.source === 'team' ? 'team value ' + esc(x.team) : 'from ^' + esc(x.from) + ' of this run') + '</span></dd>';
     }).join('') + '</dl>';
     Object.keys(prep.replaced || {}).forEach(function (k) { h += '<p class="notice warn" role="status">You typed ' + esc(prep.replaced[k]) + '; the team value ' + esc(teamOf[k] || k) + ' is now ' + esc(teamSrc[k]) + ', and that\'s what will be used.</p>'; });
     var boxes = prep.open.concat(prep.ask);
@@ -25482,7 +25509,7 @@ PF.vk = (function () {
     var h = '<div class="overlay" data-act="close-overlay"><div class="help cs-box" role="dialog" aria-modal="true" aria-labelledby="lc-t"><h2 id="lc-t" tabindex="-1">Link "' + esc(snap.title) + '"</h2>' +
       (snap.changed ? '<p class="notice warn" role="alert">' + esc(snap.changed) + '</p>' : '') +
       '<p>This run was linked after it started, so Flightdeck didn\'t record what it was passed. Link it if these are the values it was meant to get.</p><dl>' +
-      names.map(function (n) { var v = snap.values[n]; return '<dt>' + esc(n) + '</dt><dd>' + (v === '' ? '<span class="small">(empty)</span>' : esc(v)) + ' <span class="small">· team value ' + esc(snap.teams[n]) + '</span></dd>'; }).join('') + '</dl>' +
+      names.map(function (n) { var v = snap.values[n]; return '<dt>' + esc(n) + '</dt><dd>' + (v === '' ? '<span class="small">(empty)</span>' : esc(v)) + '<span class="small"> · team value ' + esc(snap.teams[n]) + '</span></dd>'; }).join('') + '</dl>' +
       (snap.empty ? '<p class="notice warn" role="status">' + esc(K.capJoin(snap.empty)) + (snap.empty.length > 1 ? ' aren\'t values' : ' isn\'t a value') + ' a team value can be, so this run can\'t be linked this way. Start a new run instead.</p>' : '') +
       '<div class="row">' + (snap.empty ? '' : '<button class="btn go" type="button" data-act="link-child-confirm">Link it with these values</button>') + '<button class="mini" type="button" data-act="close-overlay">Cancel</button></div></div></div>';
     return h;
@@ -26021,7 +26048,7 @@ PF.vk = (function () {
     /* Every other checklist by name, 50 at a time with Find past 50 (K.select); Choose one and Other ID… stay. */
     var ps = K.select(ctx.state, 'ob-link-proc', procs.map(function (e) { return { v: e.id, t: (e.title || e.id) + ' (' + e.id + ') · ' + (e.latest ? 'v' + e.latest.info.version : 'not published yet'), place: e.id }; }), other ? '__other' : f.process || '',
       { attrs: ' data-bound', lead: '<option value=""' + (!f.process ? ' selected' : '') + '>Choose one</option>', trail: '<option value="__other"' + (other ? ' selected' : '') + '>Other ID…</option>', keep: [f.process], noun: 'checklist' });
-    var h = '<h3 class="ob-sec">Which process</h3>' + ps.box + '<label class="field" for="ob-link-proc">' + esc(G.form('link-proc').q) + ps.select + '</label>' + ps.more;
+    var h = '<h3 class="ob-sec">Which checklist</h3>' + ps.box + '<label class="field" for="ob-link-proc">' + esc(G.form('link-proc').q) + ps.select + '</label>' + ps.more;
     if (other) h += '<label class="field" for="ob-link-proc-other">' + esc(G.form('link-proc-other').q) + '<input id="ob-link-proc-other" maxlength="60" value="' + esc(f.process || '') + '" data-enter="ob-commit"></label>';
     var e = f.process && ctx.procOf ? ctx.procOf(f.process) : null;
     if (f.process && e) {
@@ -26829,9 +26856,9 @@ PF.vk = (function () {
     var list = function (items) { return items.length ? '<ul class="small">' + items.join('') + '</ul>' : '<div class="small">Nothing.</div>'; };
     return '<li class="tcard"><div class="row between"><span>' + I(t.icon || 'check') + ' <b>' + esc(T.nameOf(t)) + '</b>' + (team ? ' <span class="pill open">team</span>' : '') + K.tagChips(T.tagsOf(t)) + '</span>' +
       '<span class="row"><span class="small">' + (uses ? 'in ' + uses + ' checklist' + (uses === 1 ? '' : 's') : 'not used yet') + '</span>' + (team ? '<button class="mini" data-act="edit-type" data-id="' + esc(t.id) + '">' + I('edit') + 'Edit</button>' : PF.types.isSearch(t) ? '' : '<button class="mini" data-act="copy-type" data-id="' + esc(t.id) + '">Copy to a team type</button>') + '</span></div>' +
-      (t.hint ? '<div class="small">' + esc(t.hint) + '</div>' : '') +
+      (T.hintOf(t) ? '<div class="small">' + esc(T.hintOf(t)) + '</div>' : '') +
       '<details data-disc="' + esc(key) + '"' + (open ? ' open' : '') + '><summary class="small">What it asks for</summary><p class="small">In a checklist: <code>{' + esc(t.id) + '}</code></p><div class="tcols">' +
-      '<div><div class="small"><b>In the checklist</b></div>' + list(fields.map(function (f) { var d = t.fields[f]; return '<li><code>' + esc(f) + '</code> ' + esc(d.label) + ' · ' + esc(d.kind) + (d.required ? ', usually filled in' : '') + (d.requiredWhen ? ', when ' + esc(JSON.stringify(d.requiredWhen).replace(/[{}"]/g, '')) : '') + (d.options ? ': ' + esc(K.capJoin(d.options, null, ' / ', 'type-opts')) : '') + '</li>'; })) + '</div>' +
+      '<div><div class="small"><b>In the checklist</b></div>' + list(fields.map(function (f) { var d = t.fields[f]; return '<li><code>' + esc(f) + '</code> ' + esc(T.fieldName(t, f)) + ' · ' + esc(d.kind) + (d.required ? ', usually filled in' : '') + (d.requiredWhen ? ', when ' + esc(JSON.stringify(d.requiredWhen).replace(/[{}"]/g, '')) : '') + (d.options ? ': ' + esc(K.capJoin(d.options, null, ' / ', 'type-opts')) : '') + '</li>'; })) + '</div>' +
       '<div><div class="small"><b>When it\'s checked</b></div>' + list(rec.map(function (d) { return '<li><code>' + esc(d.name) + '</code> ' + esc(d.label) + ' · ' + esc(d.kind) + (d.options ? ': ' + esc(K.capJoin(d.options, null, ' / ', 'type-opts')) : '') + (d.when ? ', when ' + esc(JSON.stringify(d.when).replace(/[{}"]/g, '')) : '') + '</li>'; })) + '</div></div></details></li>';
   }
   function types(ctx) {
@@ -27104,7 +27131,7 @@ PF.vk = (function () {
     h += '</section>';
     h += '<section class="panel" aria-labelledby="sf-h"><h2 id="sf-h">About this skill</h2><dl class="facts">' +
       '<dt>Source</dt><dd>' + (s.location ? (href ? '<a href="' + esc(href) + '" target="_blank" rel="noopener noreferrer">' + esc(s.location) + '</a>' : '<code>' + esc(s.location) + '</code>') : 'Not recorded') + '</dd>' +
-      '<dt>Automates</dt><dd>' + (proc ? '<button class="link" data-act="open-process" data-id="' + esc(proc.id) + '">' + esc(proc.title) + '</button>, version ' + esc(s.implements) + (latest && latest.info.version !== s.implements ? ' (the process is now at v' + esc(latest.info.version) + ')' : '') : esc(s.process || '?') + '@' + esc(s.implements)) + '</dd>' +
+      '<dt>Automates</dt><dd>' + (proc ? '<button class="link" data-act="open-process" data-id="' + esc(proc.id) + '">' + esc(proc.title) + '</button>, version ' + esc(s.implements) + (latest && latest.info.version !== s.implements ? ' (the checklist is now at v' + esc(latest.info.version) + ')' : '') : esc(s.process || '?') + '@' + esc(s.implements)) + '</dd>' +
       '<dt>Covers</dt><dd>' + (s.steps ? '<ol class="small">' + s.steps.map(function (id) { return '<li>' + esc(stepText(id)) + ' <code>' + esc(id) + '</code></li>'; }).join('') + '</ol>' : 'The whole checklist') + '</dd>' +
       '<dt>Registered in</dt><dd><code>skills/' + esc(s.file || s.name + '.json') + '</code>' + (s.updated ? ' · updated ' + esc(s.updated) : '') + '</dd>' +
       (s.group.length ? '<dt>Group</dt><dd>' + esc(s.group.join(' / ')) + '</dd>' : '') + '</dl></section>';
@@ -27729,7 +27756,7 @@ PF.vk = (function () {
     if (f.through) chips.push(['through', 'Started through ' + f.through]);
     var open = active(f) || (st.disc || {}).rf;
     return '<details class="panel rf" data-disc="rf"' + (open ? ' open' : '') + '><summary><h2>Filter runs</h2></summary><div class="rf-row">' +
-      rfSel('rf-process', 'Process', procs.map(function (pid) { return { v: pid, t: ctx.processTitle(pid), place: pid }; }), f.process, 'checklist') +
+      rfSel('rf-process', 'Checklist', procs.map(function (pid) { return { v: pid, t: ctx.processTitle(pid), place: pid }; }), f.process, 'checklist') +
       (f.process ? rfSel('rf-folder', 'Version', vers.map(function (x) { return { v: x.folder, t: verLabel(x), place: x.folder }; }), f.folder, 'version') : '') +
       '<span class="rf-f"><label for="rf-outcome">Outcome</label><select id="rf-outcome" data-bound data-nav-safe>' + OUTCOMES.map(function (o) { return opt(o[0], o[1], f.outcome); }).join('') + '</select></span>' +
       '<span class="rf-f"><label for="rf-from">Started from</label><input type="date" id="rf-from" value="' + esc(f.from || '') + '" data-bound data-nav-safe></span>' +
@@ -28247,7 +28274,7 @@ PF.vk = (function () {
     var procs = ctx.processes().filter(function (p) { return p.id; }), s = ov.form;
     /* Every checklist by name, 50 at a time with Find past 50 (K.select); the days typed are kept in the dialog's own state. */
     var ps = PF.vk.select(ctx.state, 'ev-proc', procs.map(function (p) { return { v: p.id, t: p.title, place: p.id }; }), s.process, { attrs: ' data-nav-safe', noun: 'checklist' });
-    return '<form class="ev-form" id="ev-form" data-nav-safe>' + ps.box + '<label for="ev-proc">Process</label>' + ps.select + ps.more +
+    return '<form class="ev-form" id="ev-form" data-nav-safe>' + ps.box + '<label for="ev-proc">Checklist</label>' + ps.select + ps.more +
       '<div class="ev-days"><span><label for="ev-from">First day</label><input id="ev-from" type="date" data-nav-safe value="' + esc(s.from) + '"' + (ov.fieldErr === 'ev-from' ? ' aria-invalid="true" aria-describedby="ev-err"' : '') + '></span>' +
       '<span><label for="ev-through">Last day</label><input id="ev-through" type="date" data-nav-safe value="' + esc(s.through) + '"' + (ov.fieldErr === 'ev-through' ? ' aria-invalid="true" aria-describedby="ev-err"' : '') + '></span></div>' +
       '<p class="small">Runs that started on these days, both included, in this computer\'s time zone (' + esc(ov.tz) + ').</p>' +
@@ -29735,7 +29762,7 @@ PF.examples = (function () {
     var mark = state.flash = { ids: ids };
     setTimeout(function () { if (state.flash === mark) { state.flash = null; scheduleRender(); } }, 1800);
   }
-  function updateFreshness() { var el = document.getElementById('fresh'); if (el) el.innerHTML = V.freshness(ctx, ctx.run(), el.dataset && el.dataset.k === 'strip'); }
+  function updateFreshness() { var el = document.getElementById('fresh'); if (el) el.innerHTML = V.dots(V.freshness(ctx, ctx.run(), el.dataset && el.dataset.k === 'strip')); }
   /* opts.setup: Getting started's own folder step, which keeps the wizard. */
   function useFs(fs, opts) {
     /* Unsaved changes stay with their own folder: kept in this browser under that folder's name, never carried into the new one. */
@@ -30505,7 +30532,7 @@ PF.examples = (function () {
   var badgeEl = document.getElementById('tab-badge'), badgeHtml = null;
   function renderBadge() {
     var h = V.tabOnly(ctx), root = document.documentElement;
-    if (badgeEl && h !== badgeHtml) { badgeEl.innerHTML = h; badgeHtml = h; }
+    if (badgeEl && h !== badgeHtml) { badgeEl.innerHTML = V.dots(h); badgeHtml = h; }
     if (root && root.classList) { if (h) root.classList.add('tab-only'); else root.classList.remove('tab-only'); }
   }
   function renderTop() {
@@ -30530,7 +30557,9 @@ PF.examples = (function () {
   window.addEventListener('resize', function () { var had = moreHas(); pinOffsets(); fitPanes(); hdOffset(); moreSync(had); var n = !!(window.matchMedia && window.matchMedia('(max-width: 800px)').matches); if (wasNarrow !== null && n !== wasNarrow) render(); wasNarrow = n; });
   /* Redraw only what changed: unchanged regions keep their nodes, so focus, the caret, typed text and scroll inside them stay.
      Nodes that differ are compared a few levels down (screen → run → deck → phase → steps → step) and replaced there. */
+  /* Every region is drawn through V.dots, so each "·" on screen is the same held, evenly spaced separator. */
   function patch(el, html) {
+    html = V.dots(html);
     var tpl = document.createElement('template');
     if (!tpl.content || !el.firstChild) { el.innerHTML = html; return; }
     tpl.innerHTML = html;
@@ -30803,7 +30832,7 @@ PF.examples = (function () {
       var oa = document.activeElement, osel = oa && overlayEl.contains(oa) ? selectorOf(oa) : null, os = oa && oa.selectionStart, oe = oa && oa.selectionEnd;
       var oid = oa && oa.id && overlayEl.contains(oa) ? oa.id : oa && oa.id && String(lastOverlay).indexOf('id="' + oa.id + '"') >= 0 ? oa.id : null;
       if (oid) ovKeep(oa);
-      overlayEl.innerHTML = ov; lastOverlay = ov;
+      overlayEl.innerHTML = V.dots(ov); lastOverlay = ov;
       ovRestore(oid);
       /* A text attachment is put in as text, never as markup. */
       var tp = state.overlay && state.overlay.text != null && document.getElementById('att-text'); if (tp) tp.textContent = state.overlay.text;
@@ -34571,8 +34600,8 @@ PF.examples = (function () {
     var caret = document.activeElement === el ? el.selectionStart : null, toks = V.dbx.judge(map, el.value, w.dataset.at, caret);
     w.querySelector('.dbx-mirror').innerHTML = V.dbx.mirror(el.value, toks);
     var iss = document.getElementById('dbx-iss-' + el.id), pv = document.getElementById('dbx-pv-' + el.id);
-    if (iss) iss.innerHTML = V.dbx.issues(el.id, w.dataset.kind, el.value, toks);
-    if (pv) pv.innerHTML = V.dbx.previewLine(w.dataset.kind, el.value, map, V.dbx.values(ctx, map, p.id));
+    if (iss) iss.innerHTML = V.dots(V.dbx.issues(el.id, w.dataset.kind, el.value, toks));
+    if (pv) pv.innerHTML = V.dots(V.dbx.previewLine(w.dataset.kind, el.value, map, V.dbx.values(ctx, map, p.id)));
     dbxFit(el);
   }
   function dbxAfter() {

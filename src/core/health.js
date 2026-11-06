@@ -392,7 +392,7 @@ PF.health = (function () {
       });
       Object.keys(per).forEach(function (k) { if (per[k] > LIMITS.runFiles) cap('cap-run-files:' + k, 'warn', 'A run folder holds ' + plural(per[k], 'file'), 'runs/' + k + ' is slow to read and to copy. Attach fewer, larger files (a .zip) next time.', ['runs/' + k]); });
       if (attach > LIMITS.attachBytes) cap('cap-attach', 'warn', 'Attachments take ' + bytes(attach), 'OneDrive keeps every file on every computer that has the folder. Keep big logs elsewhere and attach a link or a short excerpt.', ['runs']);
-      if (longPaths.length) cap('cap-paths', 'warn', plural(longPaths.length, 'file path') + ' longer than ' + LIMITS.pathChars + ' characters', 'Windows and OneDrive refuse paths that get too long once the team folder\'s own location is added. Shorten process or file names.', longPaths);
+      if (longPaths.length) cap('cap-paths', 'warn', plural(longPaths.length, 'file path') + ' longer than ' + LIMITS.pathChars + ' characters', 'Windows and OneDrive refuse paths that get too long once the team folder\'s own location is added. Shorten checklist or file names.', longPaths);
       if (scan.truncated) cap('cap-scan', 'warn', 'The folder has more files than one check reads', 'Folder health stopped after ' + plural(scan.files, 'file') + '. Its counts are lower limits.', []);
     }
     if (!big) ok('size', scan ? 'Comfortable size: ' + plural(nRuns, 'run') + ', ' + bytes(scan.bytes || 0) + ' in all, the longest path ' + (scan.longest || 0) + ' characters.' : 'Comfortable size: ' + plural(nRuns, 'run') + '.');

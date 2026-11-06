@@ -450,7 +450,7 @@ async function protoPlanned() {
   app.click('nav', 'runs'); await app.tick(10);
   let h = app.html();
   const cards = html => [...html.matchAll(/<button class="card plan"([^>]*)>/g)].map(m => { const d = {}; m[1].replace(/(id|data-id|data-key)="([^"]*)"/g, (x, k, v) => { d[k] = un(v); return x; }); return d; });
-  assert.ok(/id="planned-h">Planned · 59</.test(h), 'set-up: Planned counts 49 plans, 8 copies and the folder\'s own 2 plans, which come last');
+  assert.ok(/id="planned-h">Planned<span class="dot">&nbsp;·&nbsp;<\/span>59</.test(h), 'set-up: Planned counts 49 plans, 8 copies and the folder\'s own 2 plans, which come last');
   assert.strictEqual(cards(h).length, 50, 'a page of 50');
   const d = moreData(h, 'runs-planned');
   assert.ok(d, 'Show more is there for the 7 copies and 2 plans past the page');

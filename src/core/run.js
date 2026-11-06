@@ -1490,7 +1490,7 @@ PF.run = (function () {
     var x = M.findStep(map, stepId);
     if (!x) throw new Error('Unknown step.');
     if (r.state !== 'running') throw new Error('This run has ended.');
-    if (x.step.type !== 'run.process') throw new Error('Only a "run another process" step starts a child run.');
+    if (x.step.type !== 'run.process') throw new Error('Only a "run another checklist" step starts a child run.');
     var nw = stepNeeded(r, map, stepId);
     if (nw) throw new Error(nw);
     var a = r.steps[stepId] = r.steps[stepId] || { s: 'open' };

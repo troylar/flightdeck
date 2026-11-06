@@ -1107,7 +1107,7 @@
     var mark = state.flash = { ids: ids };
     setTimeout(function () { if (state.flash === mark) { state.flash = null; scheduleRender(); } }, 1800);
   }
-  function updateFreshness() { var el = document.getElementById('fresh'); if (el) el.innerHTML = V.freshness(ctx, ctx.run(), el.dataset && el.dataset.k === 'strip'); }
+  function updateFreshness() { var el = document.getElementById('fresh'); if (el) el.innerHTML = V.dots(V.freshness(ctx, ctx.run(), el.dataset && el.dataset.k === 'strip')); }
   /* opts.setup: Getting started's own folder step, which keeps the wizard. */
   function useFs(fs, opts) {
     /* Unsaved changes stay with their own folder: kept in this browser under that folder's name, never carried into the new one. */
@@ -1877,7 +1877,7 @@
   var badgeEl = document.getElementById('tab-badge'), badgeHtml = null;
   function renderBadge() {
     var h = V.tabOnly(ctx), root = document.documentElement;
-    if (badgeEl && h !== badgeHtml) { badgeEl.innerHTML = h; badgeHtml = h; }
+    if (badgeEl && h !== badgeHtml) { badgeEl.innerHTML = V.dots(h); badgeHtml = h; }
     if (root && root.classList) { if (h) root.classList.add('tab-only'); else root.classList.remove('tab-only'); }
   }
   function renderTop() {
@@ -1902,7 +1902,9 @@
   window.addEventListener('resize', function () { var had = moreHas(); pinOffsets(); fitPanes(); hdOffset(); moreSync(had); var n = !!(window.matchMedia && window.matchMedia('(max-width: 800px)').matches); if (wasNarrow !== null && n !== wasNarrow) render(); wasNarrow = n; });
   /* Redraw only what changed: unchanged regions keep their nodes, so focus, the caret, typed text and scroll inside them stay.
      Nodes that differ are compared a few levels down (screen → run → deck → phase → steps → step) and replaced there. */
+  /* Every region is drawn through V.dots, so each "·" on screen is the same held, evenly spaced separator. */
   function patch(el, html) {
+    html = V.dots(html);
     var tpl = document.createElement('template');
     if (!tpl.content || !el.firstChild) { el.innerHTML = html; return; }
     tpl.innerHTML = html;
@@ -2175,7 +2177,7 @@
       var oa = document.activeElement, osel = oa && overlayEl.contains(oa) ? selectorOf(oa) : null, os = oa && oa.selectionStart, oe = oa && oa.selectionEnd;
       var oid = oa && oa.id && overlayEl.contains(oa) ? oa.id : oa && oa.id && String(lastOverlay).indexOf('id="' + oa.id + '"') >= 0 ? oa.id : null;
       if (oid) ovKeep(oa);
-      overlayEl.innerHTML = ov; lastOverlay = ov;
+      overlayEl.innerHTML = V.dots(ov); lastOverlay = ov;
       ovRestore(oid);
       /* A text attachment is put in as text, never as markup. */
       var tp = state.overlay && state.overlay.text != null && document.getElementById('att-text'); if (tp) tp.textContent = state.overlay.text;
@@ -5943,8 +5945,8 @@
     var caret = document.activeElement === el ? el.selectionStart : null, toks = V.dbx.judge(map, el.value, w.dataset.at, caret);
     w.querySelector('.dbx-mirror').innerHTML = V.dbx.mirror(el.value, toks);
     var iss = document.getElementById('dbx-iss-' + el.id), pv = document.getElementById('dbx-pv-' + el.id);
-    if (iss) iss.innerHTML = V.dbx.issues(el.id, w.dataset.kind, el.value, toks);
-    if (pv) pv.innerHTML = V.dbx.previewLine(w.dataset.kind, el.value, map, V.dbx.values(ctx, map, p.id));
+    if (iss) iss.innerHTML = V.dots(V.dbx.issues(el.id, w.dataset.kind, el.value, toks));
+    if (pv) pv.innerHTML = V.dots(V.dbx.previewLine(w.dataset.kind, el.value, map, V.dbx.values(ctx, map, p.id)));
     dbxFit(el);
   }
   function dbxAfter() {

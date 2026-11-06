@@ -407,7 +407,7 @@
     /* Every other checklist by name, 50 at a time with Find past 50 (K.select); Choose one and Other ID… stay. */
     var ps = K.select(ctx.state, 'ob-link-proc', procs.map(function (e) { return { v: e.id, t: (e.title || e.id) + ' (' + e.id + ') · ' + (e.latest ? 'v' + e.latest.info.version : 'not published yet'), place: e.id }; }), other ? '__other' : f.process || '',
       { attrs: ' data-bound', lead: '<option value=""' + (!f.process ? ' selected' : '') + '>Choose one</option>', trail: '<option value="__other"' + (other ? ' selected' : '') + '>Other ID…</option>', keep: [f.process], noun: 'checklist' });
-    var h = '<h3 class="ob-sec">Which process</h3>' + ps.box + '<label class="field" for="ob-link-proc">' + esc(G.form('link-proc').q) + ps.select + '</label>' + ps.more;
+    var h = '<h3 class="ob-sec">Which checklist</h3>' + ps.box + '<label class="field" for="ob-link-proc">' + esc(G.form('link-proc').q) + ps.select + '</label>' + ps.more;
     if (other) h += '<label class="field" for="ob-link-proc-other">' + esc(G.form('link-proc-other').q) + '<input id="ob-link-proc-other" maxlength="60" value="' + esc(f.process || '') + '" data-enter="ob-commit"></label>';
     var e = f.process && ctx.procOf ? ctx.procOf(f.process) : null;
     if (f.process && e) {

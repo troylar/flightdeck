@@ -645,19 +645,21 @@ PF.vk = (function () {
      h1attrs, back, status: [{ kind: 'd' | 'act', html, cls, attrs }], views, sa, prog, acts, more, why, cls, attrs }. sa: markup
      for .hd-sa, before the primary, drawn only when given (Edit's Discard my changes). h1 is the title, escaped text
      only (it is also the span's title, so a cut title can be read in full); h1tail is markup after it (a tag, a hidden word). */
-  /* A " · " in a status piece's text (never in a tag or an attribute) is held to the words on both sides and spaced as the
-     line's own separators are (.hd-dot), so it never starts or ends a line and every "·" on the line looks the same. */
-  function bindDots(html) {
-    var out = '', i = 0;
-    while (i < html.length) {
-      if (html.charAt(i) === '<') { var j = html.indexOf('>', i); if (j < 0) j = html.length - 1; out += html.slice(i, j + 1); i = j + 1; continue; }
-      if (html.substr(i, 3) === ' · ') { out += '<span class="hd-dot">&nbsp;·&nbsp;</span>'; i += 3; continue; }
-      out += html.charAt(i); i++;
-    }
-    return out;
+  /* One separator everywhere (2.16.2): a " · " in drawn text, or one already held by no-break spaces, becomes .dot, held to
+     the words on both sides so it never starts or ends a line, and spaced (--sep-ws) so both sides match and every "·" on a
+     screen looks like the header's. Tags and attributes are left alone, and so is text shown or copied as typed (pre, code,
+     textarea, select) and a .dot already drawn, so running it twice changes nothing. app.js runs it on every region it draws. */
+  var DOT = '<span class="dot">&nbsp;·&nbsp;</span>';
+  /* A button is placed whole, so a line could still break between it and a dot beside it: the two are held together (.dotk). */
+  var DOT_BTN = /(?<!<span class="dotk">)(?:<span class="dot">&nbsp;·&nbsp;<\/span><button\b[^>]*>(?:(?!<\/?button\b)[^])*<\/button>|<button\b[^>]*>(?:(?!<\/?button\b)[^])*<\/button><span class="dot">&nbsp;·&nbsp;<\/span>)/g;
+  var DOT_PARTS = /<(pre|code|textarea|select|script|style)\b[\s\S]*?<\/\1\s*>|<span class="dot">[^<]*<\/span>|<[^>]*>|[^<]+/gi;
+  function dots(html) {
+    html = String(html == null ? '' : html);
+    if (html.indexOf('·') < 0) return html;
+    return html.replace(DOT_PARTS, function (m) { return m.charAt(0) === '<' ? m : m.replace(/ · |&nbsp;·&nbsp;/g, DOT); }).replace(DOT_BTN, '<span class="dotk">$&</span>');
   }
   function workHead(o) {
-    var st = (o.status || []).filter(function (x) { return x && x.html; }).map(function (x) { return '<span class="' + (x.kind === 'act' ? 'act' : 'd') + (x.cls ? ' ' + x.cls : '') + '"' + (x.attrs || '') + '>' + (x.kind === 'act' ? x.html : bindDots(x.html)) + '</span>'; }).join('');
+    var st = (o.status || []).filter(function (x) { return x && x.html; }).map(function (x) { return '<span class="' + (x.kind === 'act' ? 'act' : 'd') + (x.cls ? ' ' + x.cls : '') + '"' + (x.attrs || '') + '>' + (x.kind === 'act' ? x.html : dots(x.html)) + '</span>'; }).join('');
     return '<header class="hd' + (o.cls ? ' ' + o.cls : '') + '" role="region" aria-labelledby="' + o.hid + '"' + (o.attrs || '') + '>' +
       '<div class="hd-l">' + (o.back || '') + '<div class="hd-id"><h1 id="' + o.hid + '"' + (o.h1attrs || '') + '><span class="hd-t" title="' + o.h1 + '">' + o.h1 + '</span>' + (o.h1tail || '') + '</h1>' + (st ? '<p class="hd-st">' + st + '</p>' : '') + '</div></div>' +
       '<div class="hd-c">' + (o.views || '') + '</div>' +
@@ -706,7 +708,7 @@ PF.vk = (function () {
       '<p class="small">Everything you do is stamped with this name.</p><label class="field" for="me-pick">' + (people.length ? 'You are' : 'Your name') + field + '</label>' +
       '<div class="row"><button type="button" class="btn go" data-act="me-use">Use this name</button><button type="button" class="mini" data-act="close-overlay">Cancel</button></div></div></div>';
   }
-  V.workHead = workHead; V.toolRow = toolRow; V.progress = progress; V.moreMenu = moreMenu; V.moreGroup = moreGroup; V.appGroup = appGroup; V.meDialog = meDialog;
+  V.dots = dots; V.workHead = workHead; V.toolRow = toolRow; V.progress = progress; V.moreMenu = moreMenu; V.moreGroup = moreGroup; V.appGroup = appGroup; V.meDialog = meDialog;
   /* On a page under the top bar, the way back has its own row above the page's header. */
   function backRow(html) { return html ? '<div class="backrow">' + html + '</div>' : ''; }
   V.backc = backc; V.backRow = backRow;

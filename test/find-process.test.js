@@ -309,7 +309,7 @@ rule('Finish and Receipt: 51 corrections on a step, the last sharing the first\'
     const d = await more(app, list, h);
     assert.strictEqual(d.focus, '[id="corr-ctw0#2"]', page + ': Show more names the twin by its own id');
     h = app.html();
-    const r = rows(h), n = +/Corrections · (\d+)</.exec(h)[1];
+    const r = rows(h), n = +/Corrections<span class="dot">&nbsp;·&nbsp;<\/span>(\d+)</.exec(h)[1];
     assert.ok(n > 50 && r.length === n, page + ': all ' + n + ' (the example\'s own too): ' + r.length);
     assert.strictEqual(new Set(r).size, n, page + ': every row its own id');
     assert.strictEqual(app.activeId(), 'corr-ctw0#2', page + ': the twin is focused, not the first correction');

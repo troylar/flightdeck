@@ -349,8 +349,18 @@ PF.types = (function () {
   /* What the screens call a built-in type, where that differs from its label (2.10). Only for showing: a label is part of the
      definition frozen into a version, so it stays as it was; the old name still finds the type in search. */
   var NAMES = { confirm: 'Basic step', 'run.process': 'Run another checklist' };
+  /* The same for a built-in type's hint and field labels (2.16.2): frozen as they were, shown in the screens' words. */
+  var HINTS = { 'run.process': 'Start a linked run of another checklist; this step is done when it completes.' };
+  var FIELD_NAMES = { 'run.process': { process: 'Checklist' } };
   function named(t) { return !!t && !t.custom && Object.prototype.hasOwnProperty.call(NAMES, t.id); }
   function nameOf(t) { return named(t) ? NAMES[t.id] : (t && t.label) || ''; }
+  function builtIn(map, t) { return !!t && !t.custom && Object.prototype.hasOwnProperty.call(map, t.id); }
+  function hintOf(t) { return builtIn(HINTS, t) ? HINTS[t.id] : (t && t.hint) || ''; }
+  function fieldName(t, f) {
+    if (builtIn(FIELD_NAMES, t) && Object.prototype.hasOwnProperty.call(FIELD_NAMES[t.id], f)) return FIELD_NAMES[t.id][f];
+    var d = fieldDef(t, f);
+    return d && d.label ? d.label : f;
+  }
   function aliasOf(t) { return named(t) ? t.label : ''; }
 
   /* ---- for flightdeck type save (2.14): pure checks the command makes beyond the reader's ---- */
@@ -411,6 +421,6 @@ PF.types = (function () {
     return out;
   }
 
-  return { ID: ID, ID_MAX: ID_MAX, VERSION: VERSION, SEARCH: SEARCH, SEARCH_VERSION: SEARCH_VERSION, isSearch: isSearch, uses2: uses2, LIST: LIST, COMMON: COMMON, applies: applies, EVIDENCE_KINDS: Object.freeze(Object.keys(EVIDENCE)), PINS: PINS, ICONS: ICONS_OK, get: get, fieldDef: fieldDef, options: options, hasOption: hasOption, canonical: canonical, checkFields: checkFields, understood: understood, editable: editable, relevant: relevant, checkCustom: checkCustom, customType: customType, recordFields: recordFields, needsRecord: needsRecord, checkRecord: checkRecord, missingRequired: missingRequired, freeze: freeze, groupOf: groupOf, tagsOf: tagsOf, nameOf: nameOf, aliasOf: aliasOf, groupText: groupText, tagText: tagText,
+  return { ID: ID, ID_MAX: ID_MAX, VERSION: VERSION, SEARCH: SEARCH, SEARCH_VERSION: SEARCH_VERSION, isSearch: isSearch, uses2: uses2, LIST: LIST, COMMON: COMMON, applies: applies, EVIDENCE_KINDS: Object.freeze(Object.keys(EVIDENCE)), PINS: PINS, ICONS: ICONS_OK, get: get, fieldDef: fieldDef, options: options, hasOption: hasOption, canonical: canonical, checkFields: checkFields, understood: understood, editable: editable, relevant: relevant, checkCustom: checkCustom, customType: customType, recordFields: recordFields, needsRecord: needsRecord, checkRecord: checkRecord, missingRequired: missingRequired, freeze: freeze, groupOf: groupOf, tagsOf: tagsOf, nameOf: nameOf, hintOf: hintOf, fieldName: fieldName, aliasOf: aliasOf, groupText: groupText, tagText: tagText,
     fileText: fileText, formatWhy: formatWhy, markerWhy: markerWhy, unusedKeys: unusedKeys, removed: removed, inUse: inUse };
 })();
