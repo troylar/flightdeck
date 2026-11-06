@@ -9,6 +9,7 @@ Thoughtful checklists: a library view, design tips and clearer checks.
 ### Fixed
 
 - **Each gate is drawn once** (Flight plan). The step list holds only steps. The gate, named or not, is the checkpoint beneath the phase. *Where:* A checklist's page, Flight plan
+- **Messages name a step by its ID and whole words** (Checks). It names the step's text cut at a word, with … when cut, and its ID, as in Step "Confirm the production deploy job…" {#green}. The folder checker for AI assistants says the same. *Where:* Edit, Publish, Folder health
 
 ## 2.16.2 · Nov 5, 2026
 

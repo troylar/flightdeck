@@ -26,7 +26,7 @@ PF.publish = (function () {
   function pinCheck(map, childProcs, unknown) {
     var pins = { children: {}, skills: {} }, pinBlockers = [];
     M.steps(map).forEach(function (x) {
-      var s = x.step, label = 'Step "' + s.text.slice(0, 40) + '"';
+      var s = x.step, label = U.stepLabel(s);
       if (s.type === 'run.process' && Object.prototype.hasOwnProperty.call(s.fields, 'version') && !(unknown && unknown(s.fields.process, s.fields.version))) {
         var cp = childProcs && Object.prototype.hasOwnProperty.call(childProcs, s.fields.process) ? childProcs[s.fields.process] : null;
         var got = PF.pins.atVersion(cp, s.fields.process || '?', +s.fields.version);
@@ -242,7 +242,7 @@ PF.publish = (function () {
     taken = taken.filter(function (n) { return n === '__proto__' || n in Object.prototype; })[0];
     if (taken) return 'It uses the name "' + taken + '" for a step, phase, gate, role or run detail, and Flightdeck keeps that name for itself. Publish the checklist again with another one.';
     for (var i = 0; i < all.length; i++) {
-      var s = all[i].step, label = 'Step "' + s.text.slice(0, 40) + '"', def = s.type ? T.get(s.type, types) : null;
+      var s = all[i].step, label = U.stepLabel(s), def = s.type ? T.get(s.type, types) : null;
       if (!s.type) return label + ' has no step type, so it can\'t be run. Publish the checklist again.';
       if (!def) return label + ' uses the step type {' + s.type + '}, which this copy of Flightdeck doesn\'t have and this version doesn\'t include. Update Flightdeck, or publish the checklist again.';
       /* A hand-written or newer types.json can hold anything; a type this copy can't fully read is reported, never thrown. */

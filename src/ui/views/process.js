@@ -430,7 +430,7 @@
     /* One is one notice, as before; more are one notice, announced once, with each step 20 at a time in its fold (2.11, D10). */
     if (pub && ctx.procOf) {
       var lb = PF.links.broken(pub.map, PF.links.childrenFrom(ctx.procOf)), lbk = 'links-broken:' + p.id;
-      var lbText = function (b) { PF.perf.add('links.broken'); return 'Step "' + esc(b.step.text.slice(0, 40)) + '" passes ' + esc(b.names.slice(0, 50).join(', ') + (b.names.length > 50 ? ', and ' + (b.names.length - 50) + ' more' : '')) + ' to ' + esc(b.title) + ', whose latest version (v' + esc(b.version) + ') doesn\'t have ' + (b.names.length > 1 ? 'them' : 'it') + '.'; };
+      var lbText = function (b) { PF.perf.add('links.broken'); return esc(U.stepLabel(b.step)) + ' passes ' + esc(b.names.slice(0, 50).join(', ') + (b.names.length > 50 ? ', and ' + (b.names.length - 50) + ' more' : '')) + ' to ' + esc(b.title) + ', whose latest version (v' + esc(b.version) + ') doesn\'t have ' + (b.names.length > 1 ? 'them' : 'it') + '.'; };
       if (lb.length === 1) h += '<div class="notice warn" role="status"><span>' + lbText(lb[0]) + ' New runs can\'t start that child until this checklist changes.</span></div>';
       else if (lb.length) h += '<div class="notice warn links-broken" role="status"><div><b>' + lb.length.toLocaleString('en-US') + ' linked steps can\'t start their child as it is now.</b> New runs can\'t start those children until this checklist changes.' +
         '<details data-disc="' + esc(lbk) + '"' + ((st.disc || {})[lbk] ? ' open' : '') + '><summary class="small">Which steps, and why</summary>' + K.list(st, lbk, lb, { page: 20, keyOf: function (b) { return b.step.id; }, focusOf: function (k) { return K.byId('lb-' + p.id + '-' + k); },

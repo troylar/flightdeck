@@ -976,4 +976,25 @@ rule('Round 3: frozen search definitions and patterns: the checker refuses what 
   assert.deepStrictEqual(out.pats, jp, 'and by the checker: ' + JSON.stringify(out.pats));
 });
 
+rule('A step named in a message: its ID and its text cut at a word with …, the same in the checker as in the app', () => {
+  const U = PF.util;
+  assert.strictEqual(U.stepLabel({ id: 'tag', text: 'Tag the release' }), 'Step "Tag the release" {#tag}', 'short text stays whole');
+  assert.strictEqual(U.excerpt('Confirm the production deploy job finished green on every node'), 'Confirm the production deploy job…', 'never mid-word');
+  assert.strictEqual(U.excerpt('Wait for the deploy, the logs and those, then go on'), 'Wait for the deploy, the logs and those…', 'a cut right after a word keeps it and drops the comma');
+  assert.strictEqual(U.excerpt('x'.repeat(45)), 'x'.repeat(40) + '…', 'one long word is cut where the room ends');
+  assert.strictEqual(U.excerpt('🚀'.repeat(45)), '🚀'.repeat(40) + '…', 'counted in code points, never splitting one');
+  const py = python(); if (!py) return;
+  const texts = ['Tag the release', 'Confirm the production deploy job finished green on every node', 'Wait for the deploy, the logs and those, then go on', 'x'.repeat(45),
+    '🚀'.repeat(45), 'a'.repeat(19) + ' ' + 'b'.repeat(30), 'a'.repeat(20) + ' ' + 'b'.repeat(30), 'Exactly forty characters in this text...', 'Ends with a dash before the cut here - and more words'];
+  const steps = texts.map((t, i) => ({ id: i % 2 ? 's' + i : '', text: t }));
+  const src = "import json,sys,importlib.util\nspec=importlib.util.spec_from_file_location('cf',sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)\n" +
+    "d=json.load(sys.stdin)\nprint(json.dumps([m.step_label(s) for s in d]))";
+  const out = JSON.parse(cp.execFileSync(py, ['-I', '-c', src, CHECKER], { input: JSON.stringify(steps), encoding: 'utf8' }));
+  assert.deepStrictEqual(out, steps.map(s => U.stepLabel(s)));
+  const md = ['---', 'process: x', 'title: X', '---', '', '## S · DO-CONFIRM {#s}', '- [ ] Confirm the production deploy job finished green on every node {#green}', '', '## Gate: G {#g}', ''].join('\n');
+  const why = cp.execFileSync(py, ['-I', '-c', src.replace("[m.step_label(s) for s in d]", "m.unrunnable(d,{})"), CHECKER], { input: JSON.stringify(md), encoding: 'utf8' });
+  assert.strictEqual(JSON.parse(why), PF.publish.unrunnable(md, {}));
+  assert.ok(/Step "Confirm the production deploy job…" \{#green\} has no step type/.test(JSON.parse(why)), why);
+});
+
 run();

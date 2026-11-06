@@ -318,7 +318,7 @@ PF.map = (function () {
     /* C3: published checklists that start this one at its latest and pass it a detail this draft no longer has (opts.parents:
        [{ id, latest }], the processes as the app lists them). Advice: they keep working until this is published. */
     if (opts.parents && meta.process) PF.links.parentsBroken(map, opts.parents).forEach(function (b) {
-      suggestions.push(b.title + ' (published) step "' + b.step.text.slice(0, 40) + '" passes ^' + b.names.join(', ^') + ' to this checklist. After this version, new ' + b.title + ' runs can\'t start that child until ' + b.title + ' changes.');
+      suggestions.push(b.title + ' (published) ' + U.stepLabel(b.step, 'step') + ' passes ^' + b.names.join(', ^') + ' to this checklist. After this version, new ' + b.title + ' runs can\'t start that child until ' + b.title + ' changes.');
     });
     map.phases.forEach(function (p) {
       useId(p.id, 'Phase "' + p.title + '"');
@@ -332,7 +332,7 @@ PF.map = (function () {
       });
       if (p.steps.length > 9) suggestions.push('"' + p.title + '" has ' + p.steps.length + ' steps. Keep a phase under 10, or split it at a natural stopping point.');
       p.steps.forEach(function (s) {
-        var label = 'Step "' + s.text.slice(0, 40) + '"';
+        var label = U.stepLabel(s);
         useId(s.id, label);
         if (s.must) musts++;
         if (!s.type) blockers.push(label + ' has no type. Every step needs one, like {confirm} or {ui.action}.');
@@ -386,13 +386,13 @@ PF.map = (function () {
     if (PF.refs) {
       var said = Object.create(null);
       PF.refs.scan(map, { types: opts.types, unknownType: opts.unknownType }).forEach(function (u) {
-        var w = u.where, v = u.verdict, label = w.kind === 'gate' ? 'Gate "' + w.gate.title + '"' : 'Step "' + w.step.text.slice(0, 40) + '"';
+        var w = u.where, v = u.verdict, label = w.kind === 'gate' ? 'Gate "' + w.gate.title + '"' : U.stepLabel(w.step);
         var inBox = w.box.indexOf('field:') === 0 ? ' in "' + w.box.slice(6) + '"' : '', key = label + '|' + w.box + '|' + u.name;
         if (said[key] || (v.v === 'unknown' && !inBox) || v.v === 'ok') return;
         said[key] = true;
         if (v.v === 'unknown') { suggestions.push(label + ': ^' + u.name + inBox + ' isn\'t a run detail, so a run shows it as written.' + meant(u.name)); return; }
         var s0 = v.setters[0], cond = s0.when.length ? ' (only when ' + s0.when.join(' and ') + ')' : '';
-        suggestions.push(label + ': ^' + u.name + inBox + ' may not be set yet here: “' + s0.text.slice(0, 40) + '” sets it ' + (s0.phase === w.phaseIndex ? 'in this phase' : 'in a later phase') + cond + '.');
+        suggestions.push(label + ': ^' + u.name + inBox + ' may not be set yet here: “' + U.excerpt(s0.text) + '” sets it ' + (s0.phase === w.phaseIndex ? 'in this phase' : 'in a later phase') + cond + '.');
       });
     }
     if (map.phases.length && !musts) suggestions.push('No must-do steps. Mark the steps whose omission causes real harm with [!].');

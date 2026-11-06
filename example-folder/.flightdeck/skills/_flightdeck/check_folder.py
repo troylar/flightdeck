@@ -204,6 +204,27 @@ def take_id(s):
     return (m.group(1).lower(), s[:m.start()]) if m else ("", s)
 
 
+EXCERPT_MAX = 40
+
+
+def excerpt(text, n=EXCERPT_MAX):
+    """A step's text cut at a word, never mid-word, with … when cut; counted in code points, as PF.util.excerpt."""
+    t = text or ""
+    if len(t) <= n:
+        return t
+    head = t[:n]
+    sp = head.rfind(" ")
+    # A word longer than half the room is cut where the room ends.
+    if t[n] != " " and sp >= n // 2:
+        head = head[:sp]
+    return re.sub(r"[ .,;:!?-]+$", "", head) + "\u2026"
+
+
+def step_label(s, word="Step"):
+    """A step named in a message: its text excerpt and its ID, which tells apart two steps that start alike (PF.util.stepLabel)."""
+    return '%s "%s"%s' % (word, excerpt(s.get("text")), " {#%s}" % s["id"] if s.get("id") else "")
+
+
 def tokens(s, ch):
     out = []
     rest = re.sub(r"\s*\%s(%s+)" % (ch, r"[A-Za-z0-9_-]"), lambda m: out.append(m.group(1)) or "", s)
@@ -1308,7 +1329,7 @@ def unrunnable(md, types):
     if taken:
         return "It uses the name \"%s\" for a step, phase, gate, role or run detail, and Flightdeck keeps that name for itself. Publish the checklist again with another one." % taken[0]
     for s in parsed["steps"]:
-        label = "Step \"%s\"" % s["text"][:40]
+        label = step_label(s)
         if not s["type"]:
             return label + " has no step type, so it can't be run. Publish the checklist again."
         d = types.get(s["type"])
