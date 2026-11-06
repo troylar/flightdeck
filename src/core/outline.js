@@ -476,7 +476,7 @@ PF.outline = (function () {
       if (childOf(st)) return;
       /* The folder already said this step passes it to that child: once is enough. */
       if (st.fields.process && stop.some(function (d) { return d.text.indexOf(' passes ^' + from + ' to ' + st.fields.process + ' ') >= 0; })) return;
-      stop.unshift({ refuse: true, text: 'The step “' + short(st.text) + '” passes ^' + from + ' to ' + (st.fields.process || 'its checklist') + ' under this name. Renaming it would stop that.' });
+      stop.unshift({ refuse: true, text: 'The step “' + short(st.text) + '” passes ^' + from + ' to ' + (st.fields.process || 'its process') + ' under this name. Renaming it would stop that.' });
     });
     if (stop.length) return { error: stop.map(function (d) { return d.text; }).join(' ') };
     var tok = new RegExp('\\^' + reEsc(from) + '(?![\\w-])', 'g'), swap = function (v) { return v.replace(tok, '^' + to); }, n = 0;

@@ -648,15 +648,20 @@ PF.vk = (function () {
   /* One separator everywhere (2.16.2): a " · " in drawn text, or one already held by no-break spaces, becomes .dot, held to
      the words on both sides so it never starts or ends a line, and spaced (--sep-ws) so both sides match and every "·" on a
      screen looks like the header's. Tags and attributes are left alone, and so is text shown or copied as typed (pre, code,
-     textarea, select) and a .dot already drawn, so running it twice changes nothing. app.js runs it on every region it draws. */
+     textarea, and a detail box's .dbx-mirror, which must match the textarea under it character for character) and a .dot already
+     drawn, so running it twice changes nothing. An option can't hold a span, so a dot in a select's
+     text is spaced by en spaces (0.5em a side, the .dot's 6.3 px at 13 px) instead. app.js runs it on every region it draws. */
   var DOT = '<span class="dot">&nbsp;·&nbsp;</span>';
   /* A button is placed whole, so a line could still break between it and a dot beside it: the two are held together (.dotk). */
   var DOT_BTN = /(?<!<span class="dotk">)(?:<span class="dot">&nbsp;·&nbsp;<\/span><button\b[^>]*>(?:(?!<\/?button\b)[^])*<\/button>|<button\b[^>]*>(?:(?!<\/?button\b)[^])*<\/button><span class="dot">&nbsp;·&nbsp;<\/span>)/g;
-  var DOT_PARTS = /<(pre|code|textarea|select|script|style)\b[\s\S]*?<\/\1\s*>|<span class="dot">[^<]*<\/span>|<[^>]*>|[^<]+/gi;
+  var DOT_PARTS = /<div class="dbx-mirror"[^>]*>[^]*?<\/div>|<(pre|code|textarea|select|script|style)\b[\s\S]*?<\/\1\s*>|<span class="dot">[^<]*<\/span>|<[^>]*>|[^<]+/gi;
   function dots(html) {
     html = String(html == null ? '' : html);
     if (html.indexOf('·') < 0) return html;
-    return html.replace(DOT_PARTS, function (m) { return m.charAt(0) === '<' ? m : m.replace(/ · |&nbsp;·&nbsp;/g, DOT); }).replace(DOT_BTN, '<span class="dotk">$&</span>');
+    return html.replace(DOT_PARTS, function (m) {
+      if (/^<select\b/i.test(m)) return m.replace(/>([^<]+)</g, function (t, x) { return '>' + x.replace(/ · /g, '&ensp;·&ensp;') + '<'; });
+      return m.charAt(0) === '<' ? m : m.replace(/ · |&nbsp;·&nbsp;/g, DOT);
+    }).replace(DOT_BTN, '<span class="dotk">$&</span>');
   }
   function workHead(o) {
     var st = (o.status || []).filter(function (x) { return x && x.html; }).map(function (x) { return '<span class="' + (x.kind === 'act' ? 'act' : 'd') + (x.cls ? ' ' + x.cls : '') + '"' + (x.attrs || '') + '>' + (x.kind === 'act' ? x.html : dots(x.html)) + '</span>'; }).join('');

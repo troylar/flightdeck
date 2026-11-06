@@ -3163,11 +3163,23 @@ rule('Separators: every " · " in text on any screen is held to the words on bot
   assert.strictEqual(V.dots(btn + ' · after'), '<span class="dotk">' + btn + dot + '</span>after', 'on either side');
   assert.strictEqual(V.dots(btn + ' and ' + btn + ' · x'), btn + ' and <span class="dotk">' + btn + dot + '</span>x', 'only the button next to it');
   assert.strictEqual(V.dots(V.dots('<b>39 min</b> · ' + btn)), V.dots('<b>39 min</b> · ' + btn), 'still the same the second time');
-  const lit = '<textarea>a · b</textarea><pre id="p">x · y</pre><code>Ship · done</code><select><option>v2 · Casey</option></select>';
+  const lit = '<textarea>a · b</textarea><pre id="p">x · y</pre><code>Ship · done</code>';
   assert.strictEqual(V.dots(lit), lit, 'typed, copied and literal text keeps its plain " · "');
+  const mi = V.dbx.box({ id: 'ob-text', tag: 'textarea', kind: 'step', label: 'Step', value: 'Ship · done', at: 's:0', map: PF.map.parse(['---', 'process: x', 'title: X', '---', '', '## A {#a}', '- [ ] {confirm} Ship {#s1}'].join('\n')), vals: {} });
+  const drawn = V.dots(mi);
+  assert.ok(drawn.indexOf('<div class="dbx-mirror" aria-hidden="true">Ship · done </div>') >= 0, 'a detail box\'s mirror shadows its textarea, so it keeps the text as typed: ' + drawn);
+  assert.strictEqual(V.dots(drawn), drawn, 'once');
+  // The ^detail list is drawn straight into its own region (app.js dbxDraw), outside the global pass: it goes through V.dots too.
+  const ac = V.dots(V.dbx.optionsHtml('ob-text', [{ name: 'env', kind: 'text', from: 'the start form', late: true }], 0));
+  assert.ok(ac.indexOf('text' + dot + 'the start form' + dot + 'may not be set yet here') >= 0, 'its "kind · from" lines get the one dot: ' + ac);
+  assert.ok(/list\.innerHTML = V\.dots\(V\.dbx\.optionsHtml\(a\.id, a\.opts, a\.i\)\)/.test(require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8')), 'and the app draws it that way');
+  // An option can't hold a span: its dot gets the same spacing in text, an en space (0.5em, the 6.3 px of a 13 px .dot) a side.
+  assert.strictEqual(V.dots('<select id="v"><option value="2 · x" selected>v2 (current) · Deploy job</option><option value="1">v1 · First version</option></select>'),
+    '<select id="v"><option value="2 · x" selected>v2 (current)&ensp;·&ensp;Deploy job</option><option value="1">v1&ensp;·&ensp;First version</option></select>', 'options are spaced in text, values left alone');
+  assert.strictEqual(V.dots(V.dots('<select><option>v1 · a</option></select>')), '<select><option>v1&ensp;·&ensp;a</option></select>', 'once');
   assert.ok(V.workHead({ hid: 'x', h1: 'T', status: [{ kind: 'd', html: 'v2 · published' }] }).indexOf('v2' + dot + 'published') >= 0, 'the header uses the same helper');
 });
-rule('Wording: what the screens, messages and help call a checklist says checklist; the frozen type definition, data keys and IDs keep "process"', () => {
+rule('Wording: what the screens and the CLI help call a checklist says checklist; the frozen type definition, data keys, IDs and every message that can reach JSON keep "process"', () => {
   const T = PF.types, t = T.get('run.process');
   assert.strictEqual(t.label, 'Run another process', 'the label frozen into versions stays');
   assert.strictEqual(t.hint, 'Start a linked run of another process; this step is done when it completes.', 'and so does the hint');
@@ -3178,12 +3190,28 @@ rule('Wording: what the screens, messages and help call a checklist says checkli
   assert.strictEqual(T.hintOf(T.get('run.command')), T.get('run.command').hint, 'other types as they are');
   const fs = require('fs'), path = require('path'), root = path.join(__dirname, '..');
   const read = f => fs.readFileSync(path.join(root, f), 'utf8');
-  const shown = ['src/ui/views/builder.js', 'src/ui/views/manage.js', 'src/ui/views/evidence.js', 'src/ui/views/insights.js', 'src/ui/guide.js', 'src/core/run.js', 'src/core/pins.js',
-    'src/core/skills.js', 'src/core/outline.js', 'src/core/map.js', 'src/core/health.js', 'src/core/insights.js', 'src/core/corrections.js', 'bin/flightdeck.js'].map(f => [f, read(f)]);
+  const shown = ['src/ui/views/builder.js', 'src/ui/views/manage.js', 'src/ui/views/evidence.js', 'src/ui/views/insights.js', 'src/ui/guide.js'
+  ].map(f => [f, read(f)]);
   const old = [/Which process/, /the process is now at/, /'Process'/, />Process</, /no process'/, /Its process "/, /'its process'/, /of its own process/, /Shorten process/,
     /of this process couldn/, /left out for the whole process/,
     /There\\'s no process/, /on the process page/, /every process and its versions/, /"run another process" step/, /\? \(its file name\)', 'database-migration', 'The process/];
   shown.forEach(([f, src]) => old.forEach(re => assert.ok(!re.test(src), f + ' still says ' + re)));
+  assert.ok(/for other apps: every checklist and its versions, as JSON/.test(read('bin/flightdeck.js')), 'the CLI help is prose for people');
+  // Anything that can reach JSON, a --json result, an error.why or a script's match stays byte for byte as 2.16.1 wrote it.
+  const frozen = [
+    ['bin/flightdeck.js', "notFound('There\\'s no process ' + req.proc + ' in the team folder.')"],
+    ['bin/flightdeck.js', "'). Decline it on the process page.'"],
+    ['src/core/map.js', "' can\\'t start a run of its own process.'"],
+    ['src/core/run.js', "'Only a \"run another process\" step starts a child run.'"],
+    ['src/core/pins.js', "(name || 'no process')"],
+    ['src/core/outline.js', "(st.fields.process || 'its process')"],
+    ['src/core/health.js', "Shorten process or file names.'"],
+    ['src/core/insights.js', "'1 run of this process couldn\\'t be read"],
+    ['src/core/insights.js', "' of this process couldn\\'t be read"],
+    ['src/core/skills.js', "'Its process \"' + skill.process + '\" has no usable published version in this folder.'"]];
+  frozen.forEach(([f, s]) => assert.ok(read(f).indexOf(s) >= 0, f + ' keeps ' + s));
+  assert.strictEqual((read('src/core/skills.js').match(/Its process "/g) || []).length, 2, 'both skill checks');
+  assert.ok(!/checklist/.test(read('src/core/skills.js').split('\n').filter(l => /errors\.push|why:|text:/.test(l)).join('\n')), 'no skill check message says checklist');
   assert.ok(/T\.hintOf\(t\)/.test(read('src/ui/views/manage.js')) && /T\.fieldName\(t, f\)/.test(read('src/ui/views/manage.js')) && /T\.fieldName\(t, f\)/.test(read('src/ui/views/run.js')), 'the step types screen and the run screen show them');
   // The skill and correction briefs are text for an AI assistant, kept byte for byte as earlier releases wrote them.
   assert.ok(/'## The process, in order'/.test(read('src/core/skills.js')) && /'Edit the process\\'s draft, `'/.test(read('src/core/corrections.js')), 'the briefs stay as they were');

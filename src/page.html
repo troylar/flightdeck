@@ -16,7 +16,7 @@
   --hd-py: var(--sp-3); --hd-px: var(--sp-5); --tr-py: var(--sp-2);
   --pane-pt: var(--sp-4); --pane-px: var(--sp-5); --pane-pb: var(--sp-12); --rail-px: var(--sp-3);
   --row-py: var(--sp-3); --row-px: var(--sp-4); --row-gap: var(--sp-3); --stack: var(--sp-1);
-  --card-py: var(--sp-3); --card-px: var(--sp-5); --stripe-pad: var(--sp-8); --lh-meta: 18px; --sep-w: 14px; --sep-ws: 0.285em;
+  --card-py: var(--sp-3); --card-px: var(--sp-5); --stripe-pad: var(--sp-8); --lh-meta: 18px; --sep-w: 14px; --sep-ws: 0.285em; --crumb-w: 16px;
   --paper: #F3F5F1; --card: #FFFFFF; --ink: #16202A; --muted: #59646E; --line: #D6DCD4; --field: #7D877F; --chip: #E8ECE6;
   --amber: #E7A300; --on-amber: #241A00; --stripe: #16202A; --amber-soft: #FBF0D2;
   --go: #1D7650; --go-soft: #E1F0E8; --stop: #B0261E; --stop-soft: #F7E3E1; --plan: #5A55A8; --plan-soft: #ECEBF8;
@@ -1270,10 +1270,13 @@ p.pv-when { margin: 0 0 4px; }
 .ob-needed { border-style: dashed; color: var(--muted); }
 .ob-records ul { list-style: none; padding: 0; margin: 6px 0 0; display: grid; gap: 10px; }
 .ob-records li .hint { margin: 2px 0 0; }
-.ob-crumbs { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 2px 0; font-size: 13px; color: var(--muted); }
-.ob-crumbs li { overflow-wrap: anywhere; }
-.ob-crumbs li + li::before { content: "/"; margin: 0 6px; color: var(--field); }
-.ob-crumbs li:last-child { color: var(--ink); font-weight: 600; }
+/* Where it is (2.16.2): like the status line, each crumb leads with its "/" centered in --crumb-w, and the list starts one
+   --crumb-w left of its column and is clipped there, so the "/" leading a line never shows and none ends one. A line breaks
+   only between crumbs or inside a long name; the last crumb (Step 2 of 6) stays whole. */
+.ob-crumbs { list-style: none; margin: 0; margin-left: calc(-1 * var(--crumb-w)); clip-path: inset(-4px -4px -4px var(--crumb-w)); padding: 0; display: flex; flex-wrap: wrap; gap: 2px 0; font-size: 13px; color: var(--muted); }
+.ob-crumbs li { position: relative; padding-left: var(--crumb-w); min-width: 0; overflow-wrap: anywhere; }
+.ob-crumbs li::before { content: "/" / ""; position: absolute; left: 0; top: 0; width: var(--crumb-w); text-align: center; color: var(--field); }
+.ob-crumbs li:last-child { color: var(--ink); font-weight: 600; white-space: nowrap; }
 .ob-src summary, .ob-help summary { cursor: pointer; font-size: 13px; color: var(--muted); }
 .ob-src > p { margin: 6px 0 0; }
 .ob-shots { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
@@ -1414,7 +1417,7 @@ html.rw-on #app { padding: 0; max-width: none; }
 .rw-next[data-k~="ready"], .rw-next[data-k="complete"], .rw-next[data-k="ended"] { background: var(--go-soft); border-color: var(--go); }
 .rw-next-t { min-width: 0; flex: 1 1 260px; }
 .rw-next-t b { display: block; font-family: var(--display); font-size: 19px; line-height: 1.2; overflow-wrap: anywhere; }
-.rw-next .small { color: var(--ink); opacity: .8; }
+.rw-next .small { color: var(--ink); opacity: .8; text-wrap: pretty; }
 .rw-here { font-weight: 600; }
 .rw-picker { display: none; gap: 6px 8px; align-items: center; flex-wrap: wrap; padding: var(--sp-2) var(--pane-px); border-bottom: 1px solid var(--line); background: var(--card); }
 .rw-picker select { min-height: 38px; border: 1px solid var(--field); border-radius: 7px; padding: 4px 8px; background: var(--card); color: var(--ink); max-width: 100%; flex: 1 1 220px; min-width: 0; }
@@ -2155,8 +2158,9 @@ html.work-on .top { display: none; }
   .ob-more-opts[open] > summary::before { content: "▾" / ""; }
   .corr-runs > summary { list-style: none; }
   .corr-runs > summary::-webkit-details-marker { display: none; }
-  .corr-runs > summary::before { content: "▸" / ""; color: var(--muted); font-size: .85em; margin-right: 4px; }
-  .corr-runs[open] > summary::before { content: "▾" / ""; }
+  /* The same triangles, at the same size, as a summary's own marker everywhere else (2.16.2: ▸ at .85em read as a stray dot). */
+  .corr-runs > summary::before { content: "▶" / ""; color: var(--muted); font-size: .75em; margin-right: 6px; }
+  .corr-runs[open] > summary::before { content: "▼" / ""; }
   summary.btn::after, .rw-menu > summary::after, .tf-menu > summary::after { content: "▾" / ""; margin-left: 6px; font-size: .8em; color: var(--muted); }
   details[open] > summary.btn::after, .rw-menu[open] > summary::after, .tf-menu[open] > summary::after { content: "▴" / ""; }
 

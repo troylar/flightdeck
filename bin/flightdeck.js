@@ -974,7 +974,7 @@ async function readData(eng, adapter, req) {
     d.runs.forEach((r) => { if (req.cmd !== 'runs' || tested(r)) take(judgeRun(PF, r, req.cmd === 'runs' ? pubOf(r) : null)); });
     const nameOf = A.names(d.people), runs = d.runs.filter((r) => !newerRun(PF, r)), all = (list) => list;
     const known = (p) => d.processes.some((x) => x.process === p) || d.runs.some((r) => r.process === p) || d.plans.some((x) => x.process === p);
-    if (req.proc && !known(req.proc) && !req.stage) return notFound('There\'s no checklist ' + req.proc + ' in the team folder.');
+    if (req.proc && !known(req.proc) && !req.stage) return notFound('There\'s no process ' + req.proc + ' in the team folder.');
     if (req.cmd === 'processes') return done(all, A.processes(d.processes), d.readAt);
     if (req.cmd === 'process') {
       const proc = d.processes.filter((x) => x.process === req.proc)[0];
@@ -1807,7 +1807,7 @@ async function draftMain(argv) {
             const old = s.mine.filter((m) => m.id === base.replaces)[0];
             const d = PP.decision({ proposal: base.replaces, proposalRev: old ? old.rev : null, writer: operation, decisionRev: st.nextRev, seen: st.seen, status: 'replaced', settles: st.open, result: { rev: PP.sha(text) }, by: val['--by'] || '', at });
             writeNew(dir, [PP.DIR, proc, d.name], JSON.stringify(d.rec, null, 2) + '\n');
-          } catch (e) { result.warnings.push('Your earlier proposal ' + base.replaces + ' couldn\'t be marked as replaced (' + e.message + '). Decline it on the checklist page.'); }
+          } catch (e) { result.warnings.push('Your earlier proposal ' + base.replaces + ' couldn\'t be marked as replaced (' + e.message + '). Decline it on the process page.'); }
         }
         return { out: JSON.stringify(draftJson(eng, result), null, 2), code: 0 };
       }

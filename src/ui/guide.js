@@ -170,7 +170,7 @@ PF.guide = (function () {
     var d = T.fieldDef(type, name), tail = usual(own(type && type.fields, name), fields) ? USUAL : OPTIONAL;
     var x = (builtIn(type) && own(FIELDS[type.id], name)) || own(COMMON, name);
     if (x) return out(x, x.why, tail);
-    return out({ q: (d && d.label) || name, eg: '' }, type && type.custom && own(type.fields, name) ? type.hint || '' : '', tail);
+    return out({ q: T.fieldName(type, name), eg: '' }, type && type.custom && own(type.fields, name) ? type.hint || '' : '', tail);
   }
   /* A box filled in when the step is checked, from the effective record definition (R.evidenceFor's list): its own entry,
      an evidence kind's, a run detail it sets, or its label (a team type's, a Jira workflow field). */
@@ -187,7 +187,7 @@ PF.guide = (function () {
      and pins by their labels. */
   var CHIPS = { link: 'Link', expect: 'How long it takes', deadline: 'Deadline', evidence: 'Ask for proof', require: 'What must be recorded',
     at: 'At', due: 'Done by', after: 'Due after', sets: 'Sets a run detail' };
-  function chip(type, name) { var d = T.fieldDef(type, name); return own(CHIPS, name) || (d && d.label) || name; }
+  function chip(type, name) { return own(CHIPS, name) || T.fieldName(type, name); }
   function step(name) { var x = own(STEP, name); return x ? out(x, x.why) : null; }
   function form(name) { var x = own(FORMS, name); return x ? out(x, x.why) : null; }
 

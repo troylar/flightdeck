@@ -208,7 +208,7 @@ OTHER DEALINGS IN THE FONT SOFTWARE.
   --hd-py: var(--sp-3); --hd-px: var(--sp-5); --tr-py: var(--sp-2);
   --pane-pt: var(--sp-4); --pane-px: var(--sp-5); --pane-pb: var(--sp-12); --rail-px: var(--sp-3);
   --row-py: var(--sp-3); --row-px: var(--sp-4); --row-gap: var(--sp-3); --stack: var(--sp-1);
-  --card-py: var(--sp-3); --card-px: var(--sp-5); --stripe-pad: var(--sp-8); --lh-meta: 18px; --sep-w: 14px; --sep-ws: 0.285em;
+  --card-py: var(--sp-3); --card-px: var(--sp-5); --stripe-pad: var(--sp-8); --lh-meta: 18px; --sep-w: 14px; --sep-ws: 0.285em; --crumb-w: 16px;
   --paper: #F3F5F1; --card: #FFFFFF; --ink: #16202A; --muted: #59646E; --line: #D6DCD4; --field: #7D877F; --chip: #E8ECE6;
   --amber: #E7A300; --on-amber: #241A00; --stripe: #16202A; --amber-soft: #FBF0D2;
   --go: #1D7650; --go-soft: #E1F0E8; --stop: #B0261E; --stop-soft: #F7E3E1; --plan: #5A55A8; --plan-soft: #ECEBF8;
@@ -1462,10 +1462,13 @@ p.pv-when { margin: 0 0 4px; }
 .ob-needed { border-style: dashed; color: var(--muted); }
 .ob-records ul { list-style: none; padding: 0; margin: 6px 0 0; display: grid; gap: 10px; }
 .ob-records li .hint { margin: 2px 0 0; }
-.ob-crumbs { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 2px 0; font-size: 13px; color: var(--muted); }
-.ob-crumbs li { overflow-wrap: anywhere; }
-.ob-crumbs li + li::before { content: "/"; margin: 0 6px; color: var(--field); }
-.ob-crumbs li:last-child { color: var(--ink); font-weight: 600; }
+/* Where it is (2.16.2): like the status line, each crumb leads with its "/" centered in --crumb-w, and the list starts one
+   --crumb-w left of its column and is clipped there, so the "/" leading a line never shows and none ends one. A line breaks
+   only between crumbs or inside a long name; the last crumb (Step 2 of 6) stays whole. */
+.ob-crumbs { list-style: none; margin: 0; margin-left: calc(-1 * var(--crumb-w)); clip-path: inset(-4px -4px -4px var(--crumb-w)); padding: 0; display: flex; flex-wrap: wrap; gap: 2px 0; font-size: 13px; color: var(--muted); }
+.ob-crumbs li { position: relative; padding-left: var(--crumb-w); min-width: 0; overflow-wrap: anywhere; }
+.ob-crumbs li::before { content: "/" / ""; position: absolute; left: 0; top: 0; width: var(--crumb-w); text-align: center; color: var(--field); }
+.ob-crumbs li:last-child { color: var(--ink); font-weight: 600; white-space: nowrap; }
 .ob-src summary, .ob-help summary { cursor: pointer; font-size: 13px; color: var(--muted); }
 .ob-src > p { margin: 6px 0 0; }
 .ob-shots { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
@@ -1606,7 +1609,7 @@ html.rw-on #app { padding: 0; max-width: none; }
 .rw-next[data-k~="ready"], .rw-next[data-k="complete"], .rw-next[data-k="ended"] { background: var(--go-soft); border-color: var(--go); }
 .rw-next-t { min-width: 0; flex: 1 1 260px; }
 .rw-next-t b { display: block; font-family: var(--display); font-size: 19px; line-height: 1.2; overflow-wrap: anywhere; }
-.rw-next .small { color: var(--ink); opacity: .8; }
+.rw-next .small { color: var(--ink); opacity: .8; text-wrap: pretty; }
 .rw-here { font-weight: 600; }
 .rw-picker { display: none; gap: 6px 8px; align-items: center; flex-wrap: wrap; padding: var(--sp-2) var(--pane-px); border-bottom: 1px solid var(--line); background: var(--card); }
 .rw-picker select { min-height: 38px; border: 1px solid var(--field); border-radius: 7px; padding: 4px 8px; background: var(--card); color: var(--ink); max-width: 100%; flex: 1 1 220px; min-width: 0; }
@@ -2347,8 +2350,9 @@ html.work-on .top { display: none; }
   .ob-more-opts[open] > summary::before { content: "▾" / ""; }
   .corr-runs > summary { list-style: none; }
   .corr-runs > summary::-webkit-details-marker { display: none; }
-  .corr-runs > summary::before { content: "▸" / ""; color: var(--muted); font-size: .85em; margin-right: 4px; }
-  .corr-runs[open] > summary::before { content: "▾" / ""; }
+  /* The same triangles, at the same size, as a summary's own marker everywhere else (2.16.2: ▸ at .85em read as a stray dot). */
+  .corr-runs > summary::before { content: "▶" / ""; color: var(--muted); font-size: .75em; margin-right: 6px; }
+  .corr-runs[open] > summary::before { content: "▼" / ""; }
   summary.btn::after, .rw-menu > summary::after, .tf-menu > summary::after { content: "▾" / ""; margin-left: 6px; font-size: .8em; color: var(--muted); }
   details[open] > summary.btn::after, .rw-menu[open] > summary::after, .tf-menu[open] > summary::after { content: "▴" / ""; }
 
@@ -4892,7 +4896,7 @@ PF.map = (function () {
         if (s.type === 'run.process') list(s.fields.sets).forEach(function (f) { if (list(s.fields.carry).indexOf(f) >= 0) blockers.push(label + ' both passes on and sets ^' + f + '; a step can\'t start its child with a value it produces.'); });
         var sk = {}; list(s.fields.sets).forEach(function (f) { var k = U.slug(f, 20) + U.hash(f); if (sk[k]) blockers.push(label + ' sets ^' + sk[k] + ' and ^' + f + ', which are too alike to tell apart; rename one.'); sk[k] = f; });
         if (s.type === 'run.process' && s.fields.process) {
-          if (s.fields.process === meta.process) blockers.push(label + ' can\'t start a run of its own checklist.');
+          if (s.fields.process === meta.process) blockers.push(label + ' can\'t start a run of its own process.');
           else if (opts.processes && opts.processes.indexOf(s.fields.process) < 0) suggestions.push(label + ' starts "' + s.fields.process + '", which isn\'t published yet.');
           list(s.fields.carry).forEach(function (f) { if (meta.context.indexOf(f) < 0) blockers.push(label + ' passes on ^' + f + ', which isn\'t listed in context.'); });
           if (PF.links) linkChecks(s, label);
@@ -5881,7 +5885,7 @@ PF.outline = (function () {
       if (childOf(st)) return;
       /* The folder already said this step passes it to that child: once is enough. */
       if (st.fields.process && stop.some(function (d) { return d.text.indexOf(' passes ^' + from + ' to ' + st.fields.process + ' ') >= 0; })) return;
-      stop.unshift({ refuse: true, text: 'The step “' + short(st.text) + '” passes ^' + from + ' to ' + (st.fields.process || 'its checklist') + ' under this name. Renaming it would stop that.' });
+      stop.unshift({ refuse: true, text: 'The step “' + short(st.text) + '” passes ^' + from + ' to ' + (st.fields.process || 'its process') + ' under this name. Renaming it would stop that.' });
     });
     if (stop.length) return { error: stop.map(function (d) { return d.text; }).join(' ') };
     var tok = new RegExp('\\^' + reEsc(from) + '(?![\\w-])', 'g'), swap = function (v) { return v.replace(tok, '^' + to); }, n = 0;
@@ -7765,7 +7769,7 @@ PF.pins = (function () {
         if (!proc || !proc.latest) return { why: '"' + name + '" isn\'t published in this folder yet.' };
         return { pub: proc.latest, pin: of(proc.latest, name), first: true };
       }
-      if (pin.process !== name) return { why: unusable(titleOf(proc, pin), pin, 'this step now names ' + (name || 'no checklist') + ', not ' + pin.process) };
+      if (pin.process !== name) return { why: unusable(titleOf(proc, pin), pin, 'this step now names ' + (name || 'no process') + ', not ' + pin.process) };
       var got = find(proc, pin);
       if (!got.pub) return { why: unusable(titleOf(proc, pin), pin, got.why) };
       return { pub: got.pub, pin: pin };
@@ -9326,7 +9330,7 @@ PF.run = (function () {
     var x = M.findStep(map, stepId);
     if (!x) throw new Error('Unknown step.');
     if (r.state !== 'running') throw new Error('This run has ended.');
-    if (x.step.type !== 'run.process') throw new Error('Only a "run another checklist" step starts a child run.');
+    if (x.step.type !== 'run.process') throw new Error('Only a "run another process" step starts a child run.');
     var nw = stepNeeded(r, map, stepId);
     if (nw) throw new Error(nw);
     var a = r.steps[stepId] = r.steps[stepId] || { s: 'open' };
@@ -11194,7 +11198,7 @@ PF.insights = (function () {
   var WHOLE = {
     unread: function (n) { return n === 1 ? '1 run couldn\'t be read; its last copy isn\'t counted.' : runs(n) + ' couldn\'t be read; their last copies aren\'t counted.'; },
     missing: function (n) { return n === 1 ? '1 run\'s file is gone from the team folder; its last copy isn\'t counted.' : runs(n) + '\' files are gone from the team folder; their last copies aren\'t counted.'; },
-    unknown: function (n) { return n === 1 ? '1 run of this checklist couldn\'t be read, so which version it belongs to isn\'t known; it isn\'t counted.' : runs(n) + ' of this checklist couldn\'t be read, so which version they belong to isn\'t known; they aren\'t counted.'; },
+    unknown: function (n) { return n === 1 ? '1 run of this process couldn\'t be read, so which version it belongs to isn\'t known; it isn\'t counted.' : runs(n) + ' of this process couldn\'t be read, so which version they belong to isn\'t known; they aren\'t counted.'; },
     test: function (n) { return n === 1 ? '1 test run not counted.' : num(n) + ' test runs not counted.'; },
     newer: function (n) { return n === 1 ? '1 run is from a newer Flightdeck (or uses a checklist this copy can\'t read); it isn\'t counted.' : runs(n) + ' are from a newer Flightdeck (or use a checklist this copy can\'t read); they aren\'t counted.'; }
   };
@@ -11861,7 +11865,7 @@ PF.skills = (function () {
     if (!name) errors.push('needs a "name"');
     if (!imp) errors.push('"implements" must be <process>@<version>, like release@4');
     var steps = o.steps == null ? null : list(o.steps).map(function (s) { return s.trim(); }).filter(Boolean);
-    if (o.steps != null && (!Array.isArray(o.steps) && typeof o.steps !== 'string' || list(o.steps).length !== (Array.isArray(o.steps) ? o.steps.length : list(o.steps).length) || !steps.length || steps.some(function (s) { return !/^[\w-]{1,60}$/.test(s); }))) errors.push('"steps" must be a list of step IDs, or left out for the whole checklist');
+    if (o.steps != null && (!Array.isArray(o.steps) && typeof o.steps !== 'string' || list(o.steps).length !== (Array.isArray(o.steps) ? o.steps.length : list(o.steps).length) || !steps.length || steps.some(function (s) { return !/^[\w-]{1,60}$/.test(s); }))) errors.push('"steps" must be a list of step IDs, or left out for the whole process');
     if (steps && steps.length > 200) errors.push('"steps" lists more than 200 steps');
     var skill = {
       name: name || (file || '').replace(/\.json$/i, ''), version: str(o.version, 40), location: str(o.location, 500), description: str(o.description, 300),
@@ -11897,7 +11901,7 @@ PF.skills = (function () {
     var exact = imp && typeof imp === 'object' && !Array.isArray(imp) ? { process: imp.process, version: PF.publish.versionOf(String(imp.folder)), folder: imp.folder, mapHash: imp.mapHash, typesHash: imp.typesHash } : null;
     if (!exact || !PF.pins.childOk(exact) || Object.keys(imp).some(function (k) { return ['process', 'folder', 'mapHash', 'typesHash'].indexOf(k) < 0; })) { errors.push('"implements" must name the exact version: { process, folder, mapHash, typesHash }'); exact = null; }
     var steps = o.steps == null ? null : list(o.steps).map(function (x) { return x.trim(); }).filter(Boolean);
-    if (o.steps != null && (!Array.isArray(o.steps) || !steps.length || steps.length !== o.steps.length || steps.length > 200 || steps.some(function (x) { return !/^[\w-]{1,60}$/.test(x); }))) errors.push('"steps" must be a list of step IDs, or left out for the whole checklist');
+    if (o.steps != null && (!Array.isArray(o.steps) || !steps.length || steps.length !== o.steps.length || steps.length > 200 || steps.some(function (x) { return !/^[\w-]{1,60}$/.test(x); }))) errors.push('"steps" must be a list of step IDs, or left out for the whole process');
     if (errors.length) { var refused = { skill: null, errors: errors.map(function (e) { return label + ': ' + e; }), file: path }; if (mismatch) { refused.mismatch = true; if (name) refused.named = name; } return refused; }
     var skill = {
       name: name, version: str(o.version, 40), location: str(o.location, 500), description: str(o.description, 300), process: exact.process, implements: exact.version, steps: steps,
@@ -12039,7 +12043,7 @@ PF.skills = (function () {
     }
     var pub = got.pub, steps = null;
     if (input.steps != null) {
-      if (!Array.isArray(input.steps) || !input.steps.length || input.steps.length > 200 || input.steps.some(function (x) { return typeof x !== 'string' || !/^[\w-]{1,60}$/.test(x); })) return { why: '"steps" is a list of step IDs, or left out for the whole checklist.' };
+      if (!Array.isArray(input.steps) || !input.steps.length || input.steps.length > 200 || input.steps.some(function (x) { return typeof x !== 'string' || !/^[\w-]{1,60}$/.test(x); })) return { why: '"steps" is a list of step IDs, or left out for the whole process.' };
       var have = stepsOf(pub.map), unknown = input.steps.filter(function (id) { return !have[id]; });
       if (unknown.length) return { why: imp.process + ' v' + pub.info.version + ' has no step ' + unknown.join(', ') + '. Nothing was written.' };
       steps = input.steps.slice();
@@ -12125,10 +12129,10 @@ PF.skills = (function () {
       /* An exact registration matches its own folder and fingerprints, or nothing: never a number, never the latest. */
       var got = PF.pins.find(proc || { latest: latest, all: pubs || [], clashes: [], broken: [] }, skill.exact), at = skill.process + ' v' + skill.implements + ' (' + skill.exact.folder + ')';
       if (!got.pub) return { s: 'unmatched', text: 'Can\'t be matched: built from ' + at + (got.missing && /isn't in this folder$/.test(got.why) ? ', which isn\'t in this folder.' : ': ' + got.why + '.') };
-      if (!latest) return { s: 'missing', text: 'Its checklist "' + skill.process + '" has no usable published version in this folder.' };
+      if (!latest) return { s: 'missing', text: 'Its process "' + skill.process + '" has no usable published version in this folder.' };
       base = got.pub;
     } else {
-      if (!latest) return { s: 'missing', text: 'Its checklist "' + skill.process + '" has no usable published version in this folder.' };
+      if (!latest) return { s: 'missing', text: 'Its process "' + skill.process + '" has no usable published version in this folder.' };
       var bases = byV[skill.implements] || [];
       if (!bases.length) return { s: 'missing', text: 'It was built from v' + skill.implements + ', which isn\'t published here.' };
       if (bases.length > 1) return { s: 'missing', text: 'v' + skill.implements + ' was published twice at once, so which one it was built from is unclear.' };
@@ -13934,7 +13938,7 @@ PF.health = (function () {
       });
       Object.keys(per).forEach(function (k) { if (per[k] > LIMITS.runFiles) cap('cap-run-files:' + k, 'warn', 'A run folder holds ' + plural(per[k], 'file'), 'runs/' + k + ' is slow to read and to copy. Attach fewer, larger files (a .zip) next time.', ['runs/' + k]); });
       if (attach > LIMITS.attachBytes) cap('cap-attach', 'warn', 'Attachments take ' + bytes(attach), 'OneDrive keeps every file on every computer that has the folder. Keep big logs elsewhere and attach a link or a short excerpt.', ['runs']);
-      if (longPaths.length) cap('cap-paths', 'warn', plural(longPaths.length, 'file path') + ' longer than ' + LIMITS.pathChars + ' characters', 'Windows and OneDrive refuse paths that get too long once the team folder\'s own location is added. Shorten checklist or file names.', longPaths);
+      if (longPaths.length) cap('cap-paths', 'warn', plural(longPaths.length, 'file path') + ' longer than ' + LIMITS.pathChars + ' characters', 'Windows and OneDrive refuse paths that get too long once the team folder\'s own location is added. Shorten process or file names.', longPaths);
       if (scan.truncated) cap('cap-scan', 'warn', 'The folder has more files than one check reads', 'Folder health stopped after ' + plural(scan.files, 'file') + '. Its counts are lower limits.', []);
     }
     if (!big) ok('size', scan ? 'Comfortable size: ' + plural(nRuns, 'run') + ', ' + bytes(scan.bytes || 0) + ' in all, the longest path ' + (scan.longest || 0) + ' characters.' : 'Comfortable size: ' + plural(nRuns, 'run') + '.');
@@ -21664,7 +21668,7 @@ PF.guide = (function () {
     var d = T.fieldDef(type, name), tail = usual(own(type && type.fields, name), fields) ? USUAL : OPTIONAL;
     var x = (builtIn(type) && own(FIELDS[type.id], name)) || own(COMMON, name);
     if (x) return out(x, x.why, tail);
-    return out({ q: (d && d.label) || name, eg: '' }, type && type.custom && own(type.fields, name) ? type.hint || '' : '', tail);
+    return out({ q: T.fieldName(type, name), eg: '' }, type && type.custom && own(type.fields, name) ? type.hint || '' : '', tail);
   }
   /* A box filled in when the step is checked, from the effective record definition (R.evidenceFor's list): its own entry,
      an evidence kind's, a run detail it sets, or its label (a team type's, a Jira workflow field). */
@@ -21681,7 +21685,7 @@ PF.guide = (function () {
      and pins by their labels. */
   var CHIPS = { link: 'Link', expect: 'How long it takes', deadline: 'Deadline', evidence: 'Ask for proof', require: 'What must be recorded',
     at: 'At', due: 'Done by', after: 'Due after', sets: 'Sets a run detail' };
-  function chip(type, name) { var d = T.fieldDef(type, name); return own(CHIPS, name) || (d && d.label) || name; }
+  function chip(type, name) { return own(CHIPS, name) || T.fieldName(type, name); }
   function step(name) { var x = own(STEP, name); return x ? out(x, x.why) : null; }
   function form(name) { var x = own(FORMS, name); return x ? out(x, x.why) : null; }
 
@@ -22341,15 +22345,20 @@ PF.vk = (function () {
   /* One separator everywhere (2.16.2): a " · " in drawn text, or one already held by no-break spaces, becomes .dot, held to
      the words on both sides so it never starts or ends a line, and spaced (--sep-ws) so both sides match and every "·" on a
      screen looks like the header's. Tags and attributes are left alone, and so is text shown or copied as typed (pre, code,
-     textarea, select) and a .dot already drawn, so running it twice changes nothing. app.js runs it on every region it draws. */
+     textarea, and a detail box's .dbx-mirror, which must match the textarea under it character for character) and a .dot already
+     drawn, so running it twice changes nothing. An option can't hold a span, so a dot in a select's
+     text is spaced by en spaces (0.5em a side, the .dot's 6.3 px at 13 px) instead. app.js runs it on every region it draws. */
   var DOT = '<span class="dot">&nbsp;·&nbsp;</span>';
   /* A button is placed whole, so a line could still break between it and a dot beside it: the two are held together (.dotk). */
   var DOT_BTN = /(?<!<span class="dotk">)(?:<span class="dot">&nbsp;·&nbsp;<\/span><button\b[^>]*>(?:(?!<\/?button\b)[^])*<\/button>|<button\b[^>]*>(?:(?!<\/?button\b)[^])*<\/button><span class="dot">&nbsp;·&nbsp;<\/span>)/g;
-  var DOT_PARTS = /<(pre|code|textarea|select|script|style)\b[\s\S]*?<\/\1\s*>|<span class="dot">[^<]*<\/span>|<[^>]*>|[^<]+/gi;
+  var DOT_PARTS = /<div class="dbx-mirror"[^>]*>[^]*?<\/div>|<(pre|code|textarea|select|script|style)\b[\s\S]*?<\/\1\s*>|<span class="dot">[^<]*<\/span>|<[^>]*>|[^<]+/gi;
   function dots(html) {
     html = String(html == null ? '' : html);
     if (html.indexOf('·') < 0) return html;
-    return html.replace(DOT_PARTS, function (m) { return m.charAt(0) === '<' ? m : m.replace(/ · |&nbsp;·&nbsp;/g, DOT); }).replace(DOT_BTN, '<span class="dotk">$&</span>');
+    return html.replace(DOT_PARTS, function (m) {
+      if (/^<select\b/i.test(m)) return m.replace(/>([^<]+)</g, function (t, x) { return '>' + x.replace(/ · /g, '&ensp;·&ensp;') + '<'; });
+      return m.charAt(0) === '<' ? m : m.replace(/ · |&nbsp;·&nbsp;/g, DOT);
+    }).replace(DOT_BTN, '<span class="dotk">$&</span>');
   }
   function workHead(o) {
     var st = (o.status || []).filter(function (x) { return x && x.html; }).map(function (x) { return '<span class="' + (x.kind === 'act' ? 'act' : 'd') + (x.cls ? ' ' + x.cls : '') + '"' + (x.attrs || '') + '>' + (x.kind === 'act' ? x.html : dots(x.html)) + '</span>'; }).join('');
@@ -24374,7 +24383,7 @@ PF.vk = (function () {
 
     /* What to do */
     /* The plain type's generic hint says nothing the step doesn't; What to do shows only when it has something (2.3.1). */
-    var how = (t.hint && t.id !== 'confirm' ? '<p class="small">' + esc(t.hint) + '</p>' : '') + (st.note ? '<div class="note">' + U.mdBlock(st.note) + '</div>' : '');
+    var how = (T.hintOf(t) && t.id !== 'confirm' ? '<p class="small">' + esc(T.hintOf(t)) + '</p>' : '') + (st.note ? '<div class="note">' + U.mdBlock(st.note) + '</div>' : '');
     var shots = st.shots.map(function (sh, k) { return '<figure class="shot"><button class="thumb" data-act="zoom" data-id="' + esc(st.id) + '" data-i="' + k + '" aria-label="Expand: ' + esc(sh.caption) + '" title="' + esc(sh.caption) + '">' + ctx.img(sh.src, sh.caption) + '</button><figcaption class="small">' + esc(sh.caption) + '</figcaption>' +
       (s.me && !corrOpen && !P ? '<button class="linkish" data-act="corr-open" data-mode="correct" data-op="screenshot" data-id="' + esc(st.id) + '" data-shot="' + esc(sh.src) + '">' + (st.shots.length === 1 ? 'Replace this screenshot' : 'Replace screenshot ' + (k + 1)) + '</button>' : '') + '</figure>'; }).join('');
     how += fieldsBlock(ctx, r, map, st, t, sched) + (shots ? '<div class="thumbs shots">' + shots + '</div>' : '');
@@ -25739,7 +25748,7 @@ PF.vk = (function () {
       { id: 'process', kind: 'step', group: 'Steps', label: 'Run another checklist', hint: 'Starts a linked run; done when that run completes', icon: 'nest', type: 'run.process', mark: ' ', text: 'Run another checklist', noun: 'a step that runs another checklist', keys: 'run.process child nested linked' }
     ];
     var team = teamTypes(ctx), typePart = function (t, team) {
-      return { id: 'type:' + t.id, kind: 'step', group: T.groupOf(t).join(' / '), team: team, label: t.label, hint: t.id === 'ci.gate' ? 'Records a CI build or test result for a commit. Not a sign-off.' : t.hint || '', icon: t.icon, type: t.id, mark: ' ', text: t.label, noun: an(t.label + ' step'), keys: t.id + ' ' + T.tagsOf(t).join(' ') };
+      return { id: 'type:' + t.id, kind: 'step', group: T.groupOf(t).join(' / '), team: team, label: t.label, hint: t.id === 'ci.gate' ? 'Records a CI build or test result for a commit. Not a sign-off.' : T.hintOf(t), icon: t.icon, type: t.id, mark: ' ', text: t.label, noun: an(t.label + ' step'), keys: t.id + ' ' + T.tagsOf(t).join(' ') };
     };
     var mine = Object.keys(team).map(function (id) { return typePart(team[id], true); });
     mine.sort(function (a, b) { return a.group.localeCompare(b.group) || a.label.localeCompare(b.label); });
@@ -34631,7 +34640,7 @@ PF.examples = (function () {
   /* The list sits under the caret: where a marker at the caret lands in the mirror, less the box's scroll. */
   function dbxDraw() {
     var a = dbxAc, el = document.getElementById(a.id), list = document.getElementById('dbx-ac-' + a.id); if (!el || !list) return;
-    list.innerHTML = V.dbx.optionsHtml(a.id, a.opts, a.i); list.hidden = false;
+    list.innerHTML = V.dots(V.dbx.optionsHtml(a.id, a.opts, a.i)); list.hidden = false;
     el.setAttribute('aria-activedescendant', 'dbx-o-' + a.id + '-' + a.i);
     if (el.tagName === 'INPUT') el.setAttribute('aria-expanded', 'true');
     var mi = el.closest('.dbx').querySelector('.dbx-mirror'), keep = mi.innerHTML;

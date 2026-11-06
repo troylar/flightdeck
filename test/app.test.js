@@ -3982,7 +3982,7 @@ rule('App: a version this copy doesn\'t understand says why, can\'t be picked or
   app.click('open-process', 'release'); await app.tick();
   let h = app.html();
   assert.ok(new RegExp('v3-newer123: ' + NEWER.source).test(h), 'the process page says why');
-  assert.ok(new RegExp('<option value="" disabled>v3 · can(?:\'|&#39;)t be used here: ' + NEWER.source.replace(/&#39;/g, '(?:\'|&#39;)')).test(h), 'the version picker says why and can\'t pick it');
+  assert.ok(new RegExp('<option value="" disabled>v3&ensp;·&ensp;can(?:\'|&#39;)t be used here: ' + NEWER.source.replace(/&#39;/g, '(?:\'|&#39;)')).test(h), 'the version picker says why and can\'t pick it');
   assert.ok(!/value="v3-newer123"/.test(h) && !/data-id="v3-newer123"/.test(h), 'never offered to view or compare');
   app.click('start', 'release'); await app.tick();
   assert.ok(/data-folder="v2-/.test(app.html()) && !/v3-newer123/.test(app.html()), 'a new run starts on v2');
@@ -8380,6 +8380,17 @@ rule('Checklist details: Rename a run detail follows it everywhere as one Undo s
   app.set('ob-ren-ctx', 'environment'); app.click('ob-ren-go', 'ticket'); await app.tick();
   assert.ok(/id="ferr-ob-ren-ctx" role="alert">\^environment is already a run detail\./.test(app.html()), 'a taken name');
 });
+rule('2.16.2: a detail box\'s mirror keeps the typed " · " byte for byte through a full page render, so it stays under the text it shadows', async () => {
+  const app = await builderOn();
+  app.click('ob-sel', 'flags'); await app.tick();
+  app.set('ob-text', 'Ship · done in ^environment'); enter(app, 'ob-text', 'Ship · done in ^environment'); await app.tick();
+  app.click('ob-sel', 'flags'); await app.tick(40);
+  const html = app.html(), mi = html.match(/<div class="dbx-mirror" aria-hidden="true">([\s\S]*?)<\/div>/);
+  assert.ok(mi, 'set-up: the box is drawn');
+  assert.ok(/^Ship · done in <mark class="dbx-t v-ok">\^environment<\/mark> $/.test(mi[1]), 'the mirror is the text as typed: ' + mi[1]);
+  assert.ok(html.indexOf('<span class="dot">') >= 0, 'set-up: the rest of the page still gets its dots');
+});
+
 rule('Detail boxes: a misspelled ^detail in step text is marked with Use ^environment and Add; Use fixes it, Add lists it; In a run shows the latest run\'s values (2.7)', async () => {
   const app = await builderOn();
   app.click('ob-sel', 'flags'); await app.tick();
@@ -8792,6 +8803,13 @@ rule('2.8: a pass: step with a detail to ask opens the child\'s start dialog; th
   await app.fs.write(path, JSON.stringify(kid));
   app.click('refresh'); await app.tick(100);
   assert.strictEqual(shipRun(app).steps.dep.s, 'done', 'the parent step is checked: the renamed value counts');
+});
+
+rule('2.16.2: the run screen\'s What to do shows a built-in type\'s hint in the screens\' words (T.hintOf), not the frozen definition\'s', async () => {
+  const app = await passStart('environment=^env, region=us-east-1, notify=?');
+  const h = app.html();
+  assert.ok(h.indexOf('<p class="small">Start a linked run of another checklist; this step is done when it completes.</p>') >= 0, 'the linked step\'s hint says checklist');
+  assert.ok(h.indexOf('Start a linked run of another process') < 0, 'and never the frozen wording');
 });
 
 rule('2.8: a value that doesn\'t fit keeps the child\'s start dialog open with what was typed, and says why; a good one starts it', async () => {

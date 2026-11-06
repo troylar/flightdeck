@@ -98,7 +98,7 @@
       { id: 'process', kind: 'step', group: 'Steps', label: 'Run another checklist', hint: 'Starts a linked run; done when that run completes', icon: 'nest', type: 'run.process', mark: ' ', text: 'Run another checklist', noun: 'a step that runs another checklist', keys: 'run.process child nested linked' }
     ];
     var team = teamTypes(ctx), typePart = function (t, team) {
-      return { id: 'type:' + t.id, kind: 'step', group: T.groupOf(t).join(' / '), team: team, label: t.label, hint: t.id === 'ci.gate' ? 'Records a CI build or test result for a commit. Not a sign-off.' : t.hint || '', icon: t.icon, type: t.id, mark: ' ', text: t.label, noun: an(t.label + ' step'), keys: t.id + ' ' + T.tagsOf(t).join(' ') };
+      return { id: 'type:' + t.id, kind: 'step', group: T.groupOf(t).join(' / '), team: team, label: t.label, hint: t.id === 'ci.gate' ? 'Records a CI build or test result for a commit. Not a sign-off.' : T.hintOf(t), icon: t.icon, type: t.id, mark: ' ', text: t.label, noun: an(t.label + ' step'), keys: t.id + ' ' + T.tagsOf(t).join(' ') };
     };
     var mine = Object.keys(team).map(function (id) { return typePart(team[id], true); });
     mine.sort(function (a, b) { return a.group.localeCompare(b.group) || a.label.localeCompare(b.label); });

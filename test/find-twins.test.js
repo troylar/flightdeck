@@ -65,7 +65,7 @@ async function landedRun(app) {
   app.click('select', 's0'); await app.tick(10);
 }
 /* The id of the reason term (fxm-… on the process page, pm-… in Why is this here?) whose text holds what. */
-const reasonId = (h, prefix, what) => { const m = [...h.matchAll(new RegExp('<dt id="(' + prefix + '[^"]+)" tabindex="-1">[^<]*</dt><dd>' + what + '</dd>', 'g'))]; return m.length === 1 ? un(m[0][1]) : null; };
+const reasonId = (h, prefix, what) => { const m = [...h.matchAll(new RegExp('<dt id="(' + prefix + '[^"]+)" tabindex="-1">(?:[^<]|<span class="dot">&nbsp;·&nbsp;</span>)*</dt><dd>' + what + '</dd>', 'g'))]; return m.length === 1 ? un(m[0][1]) : null; };
 const reasonAt = (app, id) => { const h = app.html(), i = h.indexOf('id="' + id + '"'); return i < 0 ? null : /<dd>([^<]*)<\/dd>/.exec(h.slice(i))[1]; };
 /* Each twin in a notes file of its own, as notes from other computers arrive (notes files only grow). */
 const twinFile = (file, n) => file.replace('notes-landed', 'notes-' + n);

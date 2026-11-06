@@ -348,7 +348,7 @@ rule('The checklist\'s version picker and How runs go\'s version each list at mo
   assert.ok(o.filter(x => x[0] === MORE).length === 1 && o.length <= 52, 'and Show 50 more…, total ' + o.length);
   await typeFind(app, 'map-ver', 'v3 ·');
   o = options(app.html(), 'map-ver');
-  const three = o.filter(x => /^v3 · /.test(x[1]));
+  const three = o.filter(x => /^v3&ensp;·&ensp;/.test(x[1]));
   assert.strictEqual(three.length, 1, 'Find reaches v3');
   app.select('map-ver', three[0][0]); await app.tick(10);
   app.click('find-clear', 'map-ver'); await app.tick(5);
@@ -361,10 +361,10 @@ rule('The checklist\'s version picker and How runs go\'s version each list at mo
   assert.strictEqual(candidates(o, []).length, 50, 'ins-folder: 50');
   await typeFind(app, 'ins-folder', 'v3 ');
   o = options(app.html(), 'ins-folder');
-  assert.ok(o.some(x => /^v3 /.test(x[1])), 'Find reaches v3 on How runs go');
-  app.select('ins-folder', o.filter(x => /^v3 /.test(x[1]))[0][0]); await app.tick(10);
+  assert.ok(o.some(x => /^v3&ensp;·&ensp;/.test(x[1])), 'Find reaches v3 on How runs go');
+  app.select('ins-folder', o.filter(x => /^v3&ensp;·&ensp;/.test(x[1]))[0][0]); await app.tick(10);
   app.click('find-clear', 'ins-folder'); await app.tick(5);
-  assert.ok(options(app.html(), 'ins-folder').some(x => /^v3 /.test(x[1]) && x[2]), 'chosen and drawn');
+  assert.ok(options(app.html(), 'ins-folder').some(x => /^v3&ensp;·&ensp;/.test(x[1]) && x[2]), 'chosen and drawn');
   app.select('ins-folder', insWas); await app.tick(10);
   /* By URL: the checklist at version 3, from somewhere else. */
   app.click('nav', 'home'); await app.tick(5);
@@ -461,7 +461,7 @@ rule('Move it to on a 400-step checklist with 200 "Confirm the result" steps: 50
   assert.strictEqual(c.length, 50, '50 places');
   assert.ok(o[0][0] === '' && o[o.length - 1][0] === MORE && o.length === 52, 'Choose… first, Show 50 more… last, total ' + o.length);
   assert.ok(c.some(x => x[0] === 'after:s198') && c.some(x => x[0] === 'after:s200'), 'around the step being corrected');
-  const confirm = c.filter(x => /^After "Confirm the result \(v2\)" · Phase \d+, step \d+$/.test(x[1]));
+  const confirm = c.filter(x => /^After "Confirm the result \(v2\)"&ensp;·&ensp;Phase \d+, step \d+$/.test(x[1]));
   assert.ok(confirm.length >= 20, 'each repeated place names where it is: ' + confirm.length);
   app.set('corr-why', 'It belongs near the end'); app.input('corr-why', 'It belongs near the end'); await app.tick(5);
   await typeFind(app, 'corr-move', 'phase 8, step 40');

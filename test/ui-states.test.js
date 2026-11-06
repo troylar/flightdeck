@@ -649,6 +649,19 @@ rule('Polish: a status separator never begins or ends a line: each piece leads w
   // 0.285em is the 3.7px that makes a 13px " · " exactly --sep-w wide.
   assert.ok(R('.dot').some(r => r.sel.length === 1 && decl(r.body, 'word-spacing') === 'var(--sep-ws)') && /--sep-ws: 0\.285em/.test(R(':root')[0].body), 'every "·" is widened to the same width, in em');
   assert.ok(!RULES.some(r => r.sel.some(x => /\.dot\b/.test(x) && x !== '.dot' && x !== '.dot + button.linkish[data-act]')), 'no screen spaces its own');
+  // Where it is: each crumb leads with its "/", centered in --crumb-w; the list is pulled left and clipped like the status line,
+  // so a "/" never starts or ends a line, and the last crumb (Step 2 of 6) stays whole.
+  assert.ok(/--crumb-w: \d+px/.test(R(':root')[0].body), 'the crumb separator width is a token');
+  const cr = R('.ob-crumbs')[0].body;
+  assert.ok(decl(cr, 'margin-left') === 'calc(-1 * var(--crumb-w))' && /^inset\(-\d+px -\d+px -\d+px var\(--crumb-w\)\)$/.test(decl(cr, 'clip-path') || ''), 'pulled left and clipped');
+  assert.ok(R('.ob-crumbs li').some(r => decl(r.body, 'padding-left') === 'var(--crumb-w)' && decl(r.body, 'position') === 'relative'), 'each crumb inset by it');
+  assert.ok(R('.ob-crumbs li::before').some(r => /^"\/"/.test(decl(r.body, 'content') || '') && decl(r.body, 'position') === 'absolute' && decl(r.body, 'width') === 'var(--crumb-w)'), 'every crumb leads with its "/"');
+  assert.ok(!RULES.some(r => r.sel.some(x => x === '.ob-crumbs li + li::before')), 'no "/" between two crumbs that a line can start with');
+  assert.ok(R('.ob-crumbs li:last-child').some(r => decl(r.body, 'white-space') === 'nowrap'), 'Step 2 of 6 stays whole');
+  // Next up's line never leaves one word alone on its last line.
+  assert.ok(R('.rw-next .small').some(r => decl(r.body, 'text-wrap') === 'pretty'), 'no orphan in Next up');
+  // The corrections' Suggested in N runs uses the app's own disclosure marker, at a size that reads as one.
+  assert.ok(R('.corr-runs > summary::before', /@media screen/).some(r => /^"▶"/.test(decl(r.body, 'content') || '')) && R('.corr-runs[open] > summary::before', /@media screen/).some(r => /^"▼"/.test(decl(r.body, 'content') || '')), 'the same triangles as every other summary');
   assert.ok(R('.dotk').some(r => decl(r.body, 'white-space') === 'nowrap') && R('.dotk > button').some(r => decl(r.body, 'white-space') === 'normal'), 'a dot and the button beside it stay together');
   // Nothing around a dot adds space to one side only: a padded link after it starts at its text, and the way back's gap is taken back.
   assert.ok(R('.dot + button.linkish[data-act]').some(r => decl(r.body, 'padding-inline-start') === '0'), 'a link after a dot starts at its text');

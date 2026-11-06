@@ -5976,7 +5976,7 @@
   /* The list sits under the caret: where a marker at the caret lands in the mirror, less the box's scroll. */
   function dbxDraw() {
     var a = dbxAc, el = document.getElementById(a.id), list = document.getElementById('dbx-ac-' + a.id); if (!el || !list) return;
-    list.innerHTML = V.dbx.optionsHtml(a.id, a.opts, a.i); list.hidden = false;
+    list.innerHTML = V.dots(V.dbx.optionsHtml(a.id, a.opts, a.i)); list.hidden = false;
     el.setAttribute('aria-activedescendant', 'dbx-o-' + a.id + '-' + a.i);
     if (el.tagName === 'INPUT') el.setAttribute('aria-expanded', 'true');
     var mi = el.closest('.dbx').querySelector('.dbx-mirror'), keep = mi.innerHTML;

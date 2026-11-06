@@ -64,7 +64,7 @@ PF.insights = (function () {
   var WHOLE = {
     unread: function (n) { return n === 1 ? '1 run couldn\'t be read; its last copy isn\'t counted.' : runs(n) + ' couldn\'t be read; their last copies aren\'t counted.'; },
     missing: function (n) { return n === 1 ? '1 run\'s file is gone from the team folder; its last copy isn\'t counted.' : runs(n) + '\' files are gone from the team folder; their last copies aren\'t counted.'; },
-    unknown: function (n) { return n === 1 ? '1 run of this checklist couldn\'t be read, so which version it belongs to isn\'t known; it isn\'t counted.' : runs(n) + ' of this checklist couldn\'t be read, so which version they belong to isn\'t known; they aren\'t counted.'; },
+    unknown: function (n) { return n === 1 ? '1 run of this process couldn\'t be read, so which version it belongs to isn\'t known; it isn\'t counted.' : runs(n) + ' of this process couldn\'t be read, so which version they belong to isn\'t known; they aren\'t counted.'; },
     test: function (n) { return n === 1 ? '1 test run not counted.' : num(n) + ' test runs not counted.'; },
     newer: function (n) { return n === 1 ? '1 run is from a newer Flightdeck (or uses a checklist this copy can\'t read); it isn\'t counted.' : runs(n) + ' are from a newer Flightdeck (or use a checklist this copy can\'t read); they aren\'t counted.'; }
   };

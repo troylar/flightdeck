@@ -496,7 +496,7 @@ rule('Pause: a paused run can\'t change, paused time doesn\'t count, and resumin
 rule('Nested processes: a run.process step names another process, passes on declared details, and links one child run', () => {
   const md = '---\nprocess: release\ntitle: R\ncontext: commit\n---\n## P · READ-DO {#p}\n- [!] {run.process} Check in the release branch {#ci}\n  process: check-in\n  carry: commit';
   assert.strictEqual(M.check(M.parse(md), { processes: ['check-in'] }).blockers.length, 0);
-  assert.ok(M.check(M.parse(md.replace('process: check-in', 'process: release'))).blockers.some(b => /its own checklist/.test(b)));
+  assert.ok(M.check(M.parse(md.replace('process: check-in', 'process: release'))).blockers.some(b => /its own process/.test(b)));
   assert.ok(M.check(M.parse(md.replace('carry: commit', 'carry: branch'))).blockers.some(b => /\^branch/.test(b)));
   assert.ok(M.check(M.parse(md), { processes: ['other'] }).suggestions.some(b => /isn't published yet/.test(b)));
   const r = start(pubOf(md)), map = R.mapOf(r);

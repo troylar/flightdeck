@@ -749,7 +749,7 @@
 
     /* What to do */
     /* The plain type's generic hint says nothing the step doesn't; What to do shows only when it has something (2.3.1). */
-    var how = (t.hint && t.id !== 'confirm' ? '<p class="small">' + esc(t.hint) + '</p>' : '') + (st.note ? '<div class="note">' + U.mdBlock(st.note) + '</div>' : '');
+    var how = (T.hintOf(t) && t.id !== 'confirm' ? '<p class="small">' + esc(T.hintOf(t)) + '</p>' : '') + (st.note ? '<div class="note">' + U.mdBlock(st.note) + '</div>' : '');
     var shots = st.shots.map(function (sh, k) { return '<figure class="shot"><button class="thumb" data-act="zoom" data-id="' + esc(st.id) + '" data-i="' + k + '" aria-label="Expand: ' + esc(sh.caption) + '" title="' + esc(sh.caption) + '">' + ctx.img(sh.src, sh.caption) + '</button><figcaption class="small">' + esc(sh.caption) + '</figcaption>' +
       (s.me && !corrOpen && !P ? '<button class="linkish" data-act="corr-open" data-mode="correct" data-op="screenshot" data-id="' + esc(st.id) + '" data-shot="' + esc(sh.src) + '">' + (st.shots.length === 1 ? 'Replace this screenshot' : 'Replace screenshot ' + (k + 1)) + '</button>' : '') + '</figure>'; }).join('');
     how += fieldsBlock(ctx, r, map, st, t, sched) + (shots ? '<div class="thumbs shots">' + shots + '</div>' : '');
