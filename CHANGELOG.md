@@ -9,6 +9,7 @@ Thoughtful checklists: a library view, design tips and clearer checks.
 ### Improved
 
 - **A missing Jira address is said once** (Jira searches). It is said once per address, with how many searches need it and their step IDs, as in 7 Jira searches need the team's Jira address. The format guide now says publishing needs the address; Copy without a link is only for runs. *Where:* Edit, Publish, map-format.md
+- **A name in a link field says where it goes** (Checks). The check says the field takes a web link and to put a name or file reference in a note. A real link with a space still gets the %20 advice, and hidden characters are still named. *Where:* Edit, Publish
 
 ### Fixed
 

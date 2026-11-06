@@ -581,6 +581,12 @@ PF.urls = (function () {
     return { code: hint ? 'hint' : 'ok', hint: hint ? 'a run detail sits in "' + hint + '", which looks like a query. ' + QUERY_HINT + ' (A hint: Flightdeck doesn\'t check what the server does with the value.)' : '',
       names: partsOf(q).map(function (p) { return p.split('=')[0].split('fdslot' + n + 'x').join('\u0000'); }) };
   }
+  /* A link field holding a name, not a link: plain spaces, no other invisible character, no scheme (like "Release report Q4"
+     or "reports/release readiness.xlsx"). The check says where a name goes rather than how to encode a space. */
+  function nameLike(template) {
+    var t = String(template == null ? '' : template);
+    return t.indexOf(' ') >= 0 && !FORBIDDEN.test(t.replace(/ /g, '')) && !LONE.test(t) && !/^[a-z][a-z0-9+.-]*:/i.test(t.trim());
+  }
   /* Publish refuses these forms for new versions; a published one shows its text with the reason. */
   function refused(c) { return c.code === 'forbidden' || c.code === 'address' || c.code === 'malformed' || c.code === 'name'; }
   function sameNames(after, before) { return after.length === before.length && !after.some(function (x, i) { return before[i] !== '\u0000' && x !== before[i]; }); }
@@ -616,5 +622,5 @@ PF.urls = (function () {
   }
   /* The field as written, with invisible characters marked (\u0009), for a refused one shown as text. */
   function marked(t) { return String(t == null ? '' : t).replace(new RegExp(FORBIDDEN.source + '|' + LONE.source, 'g'), function (c) { return '\\u' + ('000' + c.charCodeAt(c.length - 1).toString(16)).slice(-4); }); }
-  return { classify: classify, refused: refused, fillLink: fillLink, authorityProblem: authorityProblem, strictEncode: strictEncode, marked: marked, QUERY_HINT: QUERY_HINT };
+  return { classify: classify, refused: refused, nameLike: nameLike, fillLink: fillLink, authorityProblem: authorityProblem, strictEncode: strictEncode, marked: marked, QUERY_HINT: QUERY_HINT };
 })();

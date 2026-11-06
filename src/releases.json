@@ -27,6 +27,14 @@
         "before": "A draft whose Jira searches had no Jira address in Team values listed the same problem once for every search.",
         "now": "It is said once per address, with how many searches need it and their step IDs, as in 7 Jira searches need the team's Jira address. The format guide now says publishing needs the address; Copy without a link is only for runs.",
         "where": "Edit, Publish, map-format.md"
+      },
+      {
+        "kind": "improved",
+        "area": "Checks",
+        "title": "A name in a link field says where it goes",
+        "before": "A document name in a field that takes a link, like a review's Document, was refused for having spaces, with advice to write each space as %20.",
+        "now": "The check says the field takes a web link and to put a name or file reference in a note. A real link with a space still gets the %20 advice, and hidden characters are still named.",
+        "where": "Edit, Publish"
       }
     ]
   },

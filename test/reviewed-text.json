@@ -1,8 +1,8 @@
 {
   "texts": {
     "CHANGELOG.md": {
-      "sha256": "00bd9cde834eed2097e94ef8296a6a03f43c306a6258d195c5e525cfe9e3eb8b",
-      "reviewed": "Missing or unusable Jira address grouped into one blocker per site with a count and step IDs (jira.checkFields returns siteError, types passes it, map.js groups through PF.jsearch.addressBlockers); map-format.md and its skills copy say publishing needs the address and Copy is the run fallback; release note. Checked for direct writes and unconditional deletes: none."
+      "sha256": "4c96c8a40e204c80fe6aa9d7a15227ce560abb7d5b6c71f274d8d345914f8946",
+      "reviewed": "A link field holding a plain name (spaces, no scheme, no other invisible character) gets 'takes a web link; put a name or file reference in a note' (PF.urls.nameLike, map.js); real links and invisible characters keep their messages; release note. Checked for direct writes and unconditional deletes: none."
     },
     "LICENSE": {
       "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
@@ -241,16 +241,16 @@
       "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
     },
     "src/core/jira.js": {
-      "sha256": "709112cde674a1a15657146594f8773bee8a0d0e8c2dff8a0309c3118f1de769",
-      "reviewed": "Missing or unusable Jira address grouped into one blocker per site with a count and step IDs (jira.checkFields returns siteError, types passes it, map.js groups through PF.jsearch.addressBlockers); map-format.md and its skills copy say publishing needs the address and Copy is the run fallback; release note. Checked for direct writes and unconditional deletes: none."
+      "sha256": "48dc73ba1d25f03d8f6deefc0436658fc375491a65f4772ac83a0a79c73e1c03",
+      "reviewed": "A link field holding a plain name (spaces, no scheme, no other invisible character) gets 'takes a web link; put a name or file reference in a note' (PF.urls.nameLike, map.js); real links and invisible characters keep their messages; release note. Checked for direct writes and unconditional deletes: none."
     },
     "src/core/links.js": {
       "sha256": "3ceec1cb191551546f909245fed5dbd74d3f89eceb5ba727e448230fb0f5f867",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/map.js": {
-      "sha256": "f28f07457adc23e6db56917f85a395283951b2560bea54946a611f11d067c147",
-      "reviewed": "Missing or unusable Jira address grouped into one blocker per site with a count and step IDs (jira.checkFields returns siteError, types passes it, map.js groups through PF.jsearch.addressBlockers); map-format.md and its skills copy say publishing needs the address and Copy is the run fallback; release note. Checked for direct writes and unconditional deletes: none."
+      "sha256": "f89f3aabe46298f5f3769f8565ab84effb717451c1e34785f076d25a93132f2e",
+      "reviewed": "A link field holding a plain name (spaces, no scheme, no other invisible character) gets 'takes a web link; put a name or file reference in a note' (PF.urls.nameLike, map.js); real links and invisible characters keep their messages; release note. Checked for direct writes and unconditional deletes: none."
     },
     "src/core/nav.js": {
       "sha256": "58a621b0d76244c77a9988c3f2ec79b751fdeb8874190cf0ccfa6ab36295d9b1",
@@ -377,8 +377,8 @@
       "reviewed": "Flight plan draws each gate once: the steps disclosure no longer repeats the gate line (fp-sgate removed from flight.js and page.html); design.md says so; release 3.0.0 entry and its baselines. Checked for direct writes and unconditional deletes: none."
     },
     "src/releases.json": {
-      "sha256": "10e194251a9740a5ce4a18a85b67e0c151479a959e6b1ef39ede195fe24551a6",
-      "reviewed": "Missing or unusable Jira address grouped into one blocker per site with a count and step IDs (jira.checkFields returns siteError, types passes it, map.js groups through PF.jsearch.addressBlockers); map-format.md and its skills copy say publishing needs the address and Copy is the run fallback; release note. Checked for direct writes and unconditional deletes: none."
+      "sha256": "016535578c57f531d0d1e2f716a6f0cc98b61ac56c5ac04701ef7142134a6135",
+      "reviewed": "A link field holding a plain name (spaces, no scheme, no other invisible character) gets 'takes a web link; put a name or file reference in a note' (PF.urls.nameLike, map.js); real links and invisible characters keep their messages; release note. Checked for direct writes and unconditional deletes: none."
     },
     "src/storage/fs.js": {
       "sha256": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",
