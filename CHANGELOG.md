@@ -12,8 +12,8 @@ One dot style everywhere, and checklist wording on every screen.
 
 ### Fixed
 
-- **Checklist, not process** (Words). They say checklist. Nothing saved in the team folder changes. *Where:* Edit, Step types, Skills, command line
-- **A long step title fits beside Previous and Next** (Screens). It wraps in full in the space beside them and moves under them only when that space is too narrow. *Where:* Test run, run screen
+- **Checklist, not process** (Words). They say checklist. Messages that scripts read from the command line, and everything saved in the team folder, stay as they were. *Where:* Edit, Step types, Skills, run screen, command line help
+- **A step's place fits beside Previous and Next** (Screens). It wraps in full in the space beside them, never starting a line with the slash, and moves under them only when that space is too narrow. *Where:* Test run, run screen
 
 ## 2.16.1 · Nov 5, 2026
 

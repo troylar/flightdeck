@@ -1,8 +1,8 @@
 {
   "texts": {
     "CHANGELOG.md": {
-      "sha256": "dff8a918defaa519a3c5b612d9d9e6198226dadf50dfb13be474a35908571dc2",
-      "reviewed": "2.16.2 release prep: notes, waiver, pins; checked for direct writes and unconditional deletes"
+      "sha256": "971f9544bbd2a42993597f45f875b4df46ba43437b6dbcb85102ae0da465d2f6",
+      "reviewed": "2.16.2 release note corrections; checked for direct writes and unconditional deletes"
     },
     "LICENSE": {
       "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
@@ -377,8 +377,8 @@
       "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
     },
     "src/releases.json": {
-      "sha256": "2c3a6a8b084bf3d9544d04e1e2d8220d4de9a8d2ecc02b025c2255c5418e240b",
-      "reviewed": "2.16.2 release prep: notes, waiver, pins; checked for direct writes and unconditional deletes"
+      "sha256": "dfd8bc658a1bb07636ec9a0052e7482ec35af5d9231dcbdee8eef0179268b297",
+      "reviewed": "2.16.2 release note corrections; checked for direct writes and unconditional deletes"
     },
     "src/storage/fs.js": {
       "sha256": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",

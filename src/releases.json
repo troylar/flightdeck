@@ -16,16 +16,16 @@
         "kind": "fixed",
         "area": "Words",
         "title": "Checklist, not process",
-        "before": "A few places still said process for a checklist: Which process on a linked-run step, that step type's hint, the skill page, some messages and the command line's help.",
-        "now": "They say checklist. Nothing saved in the team folder changes.",
-        "where": "Edit, Step types, Skills, command line"
+        "before": "A few screens still said process for a checklist: Which process on a linked-run step, that step type's hint on Step types and the run screen, the skill page, and the command line's help.",
+        "now": "They say checklist. Messages that scripts read from the command line, and everything saved in the team folder, stay as they were.",
+        "where": "Edit, Step types, Skills, run screen, command line help"
       },
       {
         "kind": "fixed",
         "area": "Screens",
-        "title": "A long step title fits beside Previous and Next",
-        "before": "On a test run, a long phase and step title took a row of its own above Previous and Next.",
-        "now": "It wraps in full in the space beside them and moves under them only when that space is too narrow.",
+        "title": "A step's place fits beside Previous and Next",
+        "before": "On a test run, a long place line, such as Before production changes / Step 2 of 6, took a row of its own above Previous and Next.",
+        "now": "It wraps in full in the space beside them, never starting a line with the slash, and moves under them only when that space is too narrow.",
         "where": "Test run, run screen"
       }
     ]
