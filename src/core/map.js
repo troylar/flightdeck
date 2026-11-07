@@ -374,7 +374,7 @@ PF.map = (function () {
     function resultChecks() {
       var name = meta.result;
       if (name == null || name === '') return;
-      if (meta.context.indexOf(name) < 0) { blockers.push('"result" names ^' + name.slice(0, 60) + ', which isn\'t listed in context.' + meant(name)); return; }
+      if (meta.context.indexOf(name) < 0) { blockers.push('"result" names ^' + name.slice(0, 60) + ', which isn\'t listed in context.'); return; }
       var d = (meta.detailTypes || {})[name];
       if (!d || d.kind !== 'choice') { blockers.push('The result ^' + name + ' must be a choice, like ' + name + ':choice(cleared|needs-work).'); return; }
       var all = steps(map), by = all.filter(function (x) { return boundFrom(x.step, name) === 'decision'; });

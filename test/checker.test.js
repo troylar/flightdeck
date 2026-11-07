@@ -1075,4 +1075,36 @@ rule('check_folder.py --draft: the design tips are the app\'s, word for word, an
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+/* 3.0: module results. The draft check gives the app's result blockers in its words, and a publication with module-results is
+   judged as the app judges it: known here, a later feature refused naming 3.0. */
+const RESULT_CHILD = (o) => ['---', 'process: validate-story', 'title: Validate a story', 'context: ' + (o.context || 'issue, disposition:choice(cleared|needs-work|deferred)')]
+  .concat(o.result === null ? [] : ['result: ' + (o.result || 'disposition')]).concat(['---', '', '## Assess · DO-CONFIRM {#assess}',
+    '- [!] {decide} Record the validation result {#verdict}', '  options: ' + (o.options || 'cleared, needs-work, deferred')]).concat(o.sets === null ? [] : ['  sets: ' + (o.sets || 'disposition=decision')])
+  .concat(o.extra || []).join('\n') + '\n';
+rule('check_folder.py --draft: a checklist\'s result and its bindings get the app\'s blockers, word for word; the features and the envelope agree', () => {
+  const py = python(); if (!py) return;
+  const cases = [RESULT_CHILD({}), RESULT_CHILD({ result: 'nope' }), RESULT_CHILD({ context: 'issue, disposition' }), RESULT_CHILD({ sets: null }),
+    RESULT_CHILD({ extra: ['- [ ] {decide} Again {#again}', '  options: cleared, needs-work, deferred', '  sets: disposition=decision'] }),
+    RESULT_CHILD({ extra: ['- [ ] {confirm} Note it {#note}', '  sets: disposition'] }), RESULT_CHILD({ extra: ['- [ ] {confirm} Note it {#note}', '  sets: disposition=decision'] }),
+    RESULT_CHILD({ options: 'cleared, deferred, needs-work' }), RESULT_CHILD({ result: null }), RESULT_CHILD({ sets: 'disposition=answer' }),
+    ['---', 'process: release', 'title: Release', 'context: issue, story_result:choice(cleared|needs-work|deferred)', '---', '', '## Stories · DO-CONFIRM {#stories}',
+      '- [!] {run.process} Validate the story {#story}', '  process: validate-story', '  sets: story_result=result', '  accepts: cleared, cleared', '- [ ] {run.process} Again {#again}',
+      '  process: validate-story', '  sets: story_result=result', '- [ ] {confirm} Ship {#ship}', '  sets: story_result=result', ''].join('\n')];
+  const src = "import json,sys,importlib.util\nspec=importlib.util.spec_from_file_location('cf',sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)\n" +
+    "d=json.load(sys.stdin)\nprint(json.dumps([[m.draft_check(md,[])['blockers'], m.features(m.parse_map(md), {})] for md in d]))";
+  const out = JSON.parse(cp.execFileSync(py, ['-I', '-c', src, CHECKER], { input: JSON.stringify(cases), encoding: 'utf8' }));
+  const RE = /result|decision|accepts|binding/;
+  cases.forEach((md, i) => {
+    const app = PF.map.check(PF.map.parse(md), {}).blockers;
+    assert.deepStrictEqual(out[i][0].slice().sort(), JSON.parse(JSON.stringify(app.filter(b => RE.test(b)))).sort(), 'the result blockers, case ' + i);
+    assert.deepStrictEqual(out[i][1], JSON.parse(JSON.stringify(PF.map.features(PF.map.parse(md)))), 'the features, case ' + i);
+  });
+  assert.deepStrictEqual(out[0][0], [], 'a sound result checks clean');
+  assert.ok(out[0][1].indexOf('module-results') >= 0);
+  const judge = (o) => JSON.parse(cp.execFileSync(py, ['-I', '-c', "import json,sys,importlib.util\nspec=importlib.util.spec_from_file_location('cf',sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)\nprint(json.dumps(m.judge('preflight-publication', json.load(sys.stdin))))", CHECKER], { input: JSON.stringify(o), encoding: 'utf8' }));
+  assert.strictEqual(judge({ format: 'preflight-publication/2', features: ['module-results'], app: '3.0.0' }).ok, true);
+  const later = judge({ format: 'preflight-publication/2', features: ['module-results', 'later-thing'], app: '3.1.0' });
+  assert.deepStrictEqual([later.ok, later.kind, later.needs], [false, 'newer', '3.1']);
+});
+
 run();

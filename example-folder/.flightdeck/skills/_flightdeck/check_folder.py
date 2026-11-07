@@ -150,7 +150,7 @@ def js_json(v):
 PUBLICATION_FORMAT = "preflight-publication/1"
 TYPES_VERSION = 2
 NEWER = "This version uses checklist features this copy of Flightdeck doesn't understand. Update Flightdeck to run it."
-PINS = {"run.process": {"version": {"kind": "pin"}, "pass": {"kind": "pass"}}, "run.skill": {"skillVersion": {"kind": "pin"}}}
+PINS = {"run.process": {"version": {"kind": "pin"}, "pass": {"kind": "pass"}, "accepts": {"kind": "accepts"}}, "run.skill": {"skillVersion": {"kind": "pin"}}}
 COMMON = {"link": {"kind": "url"}, "expect": {"kind": "duration"}, "deadline": {"kind": "deadline"}, "evidence": {"kind": "choice", "options": ["link", "note", "number", "yes-no", "date"]},
           "require": {"kind": "require"}, "at": {"kind": "time"}, "due": {"kind": "time"}, "after": {"kind": "duration"}, "sets": {"kind": "sets"}}
 BUILTIN = {
@@ -454,7 +454,7 @@ def parse_map(md):
     lines = md.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     errors, steps, phases = [], [], []
     i, phase, step, gate, track, questions = 0, None, None, None, None, False
-    context, ctx_line, roles, runs = "", -1, "", ""
+    context, ctx_line, roles, runs, result = "", -1, "", "", None
 
     def err(n, msg):
         errors.append({"line": n + 1, "msg": msg})
@@ -471,6 +471,8 @@ def parse_map(md):
                 roles = kv.group(2)
             elif kv and kv.group(1) == "runs":
                 runs = kv.group(2).strip()
+            elif kv and kv.group(1) == "result":
+                result = kv.group(2).strip()
             i += 1
         i += 1
     names, typed, ctx_errors = detail_types(context_entries(context))
@@ -593,13 +595,13 @@ def parse_map(md):
         i += 1
     # Forward only: a condition may test a detail a step sets only when that step is in an earlier phase.
     for pi, p in enumerate(phases):
-        later = {f for s in steps if s["phase"] >= pi for f in js_list(s["fields"].get("sets", ""))}
+        later = {f for s in steps if s["phase"] >= pi for f in set_names(s["fields"].get("sets", ""))}
         for t in [p] + [s for s in steps if s["phase"] == pi]:
             for w in t.get("when", []):
                 if w["name"] in later:
                     err(w["line"] - 1, "^%s is set in this phase or a later one (sets:), so it can't decide whether this applies. Only a step in an earlier phase can set it." % w["name"])
     errors.sort(key=lambda e: e["line"])
-    return {"errors": errors, "steps": steps, "questions": questions, "phases": phases, "context": names, "detailTypes": typed, "roles": js_list(roles), "runs": runs}
+    return {"errors": errors, "steps": steps, "questions": questions, "phases": phases, "context": names, "detailTypes": typed, "roles": js_list(roles), "runs": runs, "result": result}
 
 
 NEW_KINDS = {"number", "yes-no", "date"}
@@ -665,6 +667,10 @@ def features(parsed, types):
             has.add("passed-details")
             if pass_teams(s["fields"]["pass"]):
                 has.add("team-values")
+        if any(b["from"] for b in sets_of(s["fields"].get("sets", ""))) or (s["type"] == "run.process" and "accepts" in s["fields"]):
+            has.add("module-results")
+    if parsed.get("result"):
+        has.add("module-results")
     for p in parsed["phases"]:
         if p["note"] or p.get("noted"):
             has.add("phase-notes")
@@ -687,6 +693,73 @@ def features(parsed, types):
 
 def js_list(s):
     return [x.strip() for x in js_str(s).split(",") if x.strip()]
+
+
+def sets_of(v):
+    """A sets: line's entries (PF.map.setsOf): "tag" sets ^tag from its own box; "disposition=decision" binds the detail to the
+    step's decision and "story_result=result" to a linked run's result (module results, 3.0)."""
+    out = []
+    for e in js_list(v):
+        i = e.find("=")
+        out.append({"name": e, "from": ""} if i < 0 else {"name": e[:i].strip(), "from": e[i + 1:].strip()})
+    return out
+
+
+def set_names(v):
+    return [e["name"] for e in sets_of(v)]
+
+
+def bound_from(s, name):
+    e = [b for b in sets_of(s["fields"].get("sets", "")) if b["name"] == name]
+    return e[0]["from"] if e else ""
+
+
+def result_blockers(parsed):
+    """The checks of a checklist's own result and its bindings (PF.map.check's bindChecks and resultChecks), in its words."""
+    out, result, ctx, typed = [], parsed.get("result"), parsed["context"], parsed["detailTypes"]
+    for s in parsed["steps"]:
+        label = step_name(s)
+        for e in sets_of(s["fields"].get("sets", "")):
+            if not e["from"]:
+                continue
+            if e["from"] == "decision":
+                if s["type"] != "decide":
+                    out.append(label + " sets ^%s=decision, but only a {decide} step has a decision." % e["name"])
+                elif e["name"] != result:
+                    out.append(label + " binds ^%s to its decision, but only the checklist's result is set that way. " % e["name"] + ("Its result is ^%s." % result if result else "Add \"result: %s\" to the front matter." % e["name"]))
+            elif e["from"] == "result":
+                if s["type"] != "run.process":
+                    out.append(label + " sets ^%s=result, but only a {run.process} step has a linked run's result." % e["name"])
+                elif not js_list(s["fields"].get("accepts", "")):
+                    out.append(label + " imports a result into ^%s but says nothing it accepts. Add accepts: with the results that let this step count as done." % e["name"])
+            else:
+                out.append(label + ": \"sets: %s=%s\" isn't a binding Flightdeck knows. Use =decision on a {decide} step or =result on a {run.process} step." % (e["name"], e["from"][:40]))
+        if "accepts" in s["fields"] and s["type"] == "run.process":
+            acc = js_list(s["fields"]["accepts"])
+            if not acc:
+                out.append(label + ": accepts: names no result.")
+            for i, v in enumerate(acc):
+                if acc.index(v) < i:
+                    out.append(label + " accepts \"%s\" twice." % v[:40])
+    if result is None or result == "":
+        return out
+    if result not in ctx:
+        return out + ["\"result\" names ^%s, which isn't listed in context." % result[:60]]
+    d = typed.get(result)
+    if not d or d.get("kind") != "choice":
+        return out + ["The result ^%s must be a choice, like %s:choice(cleared|needs-work)." % (result, result)]
+    for s in parsed["steps"]:
+        if result in set_names(s["fields"].get("sets", "")) and bound_from(s, result) != "decision":
+            out.append(step_name(s) + " sets the result ^%s itself; only its decision sets it (sets: %s=decision on one {decide} step)." % (result, result))
+    by = [s for s in parsed["steps"] if bound_from(s, result) == "decision"]
+    if not by:
+        return out + ["Nothing sets the result ^%s. Add \"sets: %s=decision\" to the {decide} step that records it." % (result, result)]
+    if len(by) > 1:
+        return out + ["The result ^%s is set by %d steps (%s); exactly one decision sets it." % (result, len(by), ", ".join(s["id"] for s in by))]
+    st = by[0]
+    if st["type"] == "decide" and "|".join(js_list(st["fields"].get("options", ""))) != "|".join(d["options"]):
+        out.append(step_name(st) + ": its options must be the result's choices, in the same order: options: " + ", ".join(d["options"]))
+    return out
 
 
 def js_duration(s):
@@ -1397,7 +1470,7 @@ def read_text(path):
 # newer major, or with a must-understand feature this copy doesn't know, is refused and named with the version it needs.
 # test/checker.test.js fails if this disagrees with src/core/envelope.js.
 FAMILIES = {
-    "preflight-publication": {"majors": {1: [], 2: ["phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "typed-details", "typed-evidence", "conditions", "passed-details", "team-values", "jira-search", "detail-patterns", "staged"]}, "future": {2: "2.0"}, "unmarked": False},
+    "preflight-publication": {"majors": {1: [], 2: ["phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "typed-details", "typed-evidence", "conditions", "passed-details", "team-values", "jira-search", "detail-patterns", "module-results", "staged"]}, "future": {2: "2.0"}, "unmarked": False},
     "flightdeck-step-type": {"majors": {1: [], 2: ["typed-evidence"]}, "future": {2: "2.0"}, "unmarked": True},
     "flightdeck-plan": {"majors": {1: [], 2: []}, "future": {}, "unmarked": False, "kinds": ["plan"]},
     "flightdeck-plan-status": {"majors": {1: [], 2: []}, "future": {}, "unmarked": False, "kinds": ["status"]},
@@ -1410,9 +1483,9 @@ FAMILY_NAMES = ["flightdeck-checklist", "preflight-publication", "preflight-run"
                 "flightdeck-presence", "flightdeck-connection", "flightdeck-people", "flightdeck-team-values", "flightdeck-skill", "flightdeck-editor-history", "flightdeck-installed", "flightdeck-stage-decision",
                 "flightdeck-extension", "flightdeck-report", "flightdeck-report-decision"]
 FROZEN = ["typed-details", "typed-evidence", "phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "staged", "test-run", "extensions", "conditions", "passed-details", "team-values",
-          "jira-search", "detail-patterns"]
+          "jira-search", "detail-patterns", "module-results"]
 # The first release that reads a feature, where it isn't 2.0 (PF.envelope.SINCE).
-SINCE = {"conditions": "2.1", "staged": "2.1", "test-run": "2.1", "passed-details": "2.8", "team-values": "2.9", "jira-search": "2.16", "detail-patterns": "2.16"}
+SINCE = {"conditions": "2.1", "staged": "2.1", "test-run": "2.1", "passed-details": "2.8", "team-values": "2.9", "jira-search": "2.16", "detail-patterns": "2.16", "module-results": "3.0"}
 
 
 def _minimum(features):
@@ -2266,6 +2339,7 @@ DRAFT_RAN = [
     "each step has a type, built-in or in step-types/",
     "built-in step types' fields, Jira searches included",
     "design tips that need no other checklist",
+    "a checklist's result and the steps that set, accept and import results (module results)",
 ]
 DRAFT_NOT_RUN = [
     "IDs, roles and run details declared",
@@ -2273,7 +2347,7 @@ DRAFT_NOT_RUN = [
     "people.json (owner and backup)",
     "Jira workflows (transitions)",
     "team values (the Jira address, team: values)",
-    "linked checklists and version: pins",
+    "linked checklists and version: pins, and what a linked step accepts from its checklist's result",
     "screenshots",
     "web links in link fields",
     "design tips that compare with other checklists",
@@ -2295,6 +2369,7 @@ def draft_check(md, team_types):
             blockers.append(label + " has an unknown type {%s}." % s["type"])
         else:
             blockers += [label + " " + m for m in field_errors(dict(BUILTIN[s["type"]], id=s["type"]), s["fields"], parsed["context"])]
+    blockers += result_blockers(parsed)
     return {"complete": False, "ran": DRAFT_RAN, "notRun": DRAFT_NOT_RUN, "blockers": blockers, "tips": design_tips(md),
             "note": "Flightdeck checks partly run: only what ran is listed. Run flightdeck draft check, or open the draft in Flightdeck, for the Publish dialog's whole verdict."}
 
