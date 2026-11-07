@@ -13,8 +13,8 @@
       "reviewed": "fold design tips and the library panel; own-key reads; checked for direct writes and unconditional deletes"
     },
     "bin/flightdeck.js": {
-      "sha256": "50e872f5ba939be1868eaa849310b324a6b1a391c223902221ee8aea5c69ca04",
-      "reviewed": "loops: a stale approval holds the gate, read-only, in the app and the command line; checked for direct writes and unconditional deletes: none added"
+      "sha256": "a1aa60e7683603ab8a54f61ae478c7dd761f470aaf81c7836f464f430f601fbf",
+      "reviewed": "Loop action requests: the CLI files start/approve/send-back/start-all requests in proposals/; the recorder's window applies them and records applied or refused; start-all preview. Checked for direct writes and unconditional deletes: CLI writes only new request files via writeOnce; app writes via saveRun/mutateRun/saveScope."
     },
     "build.py": {
       "sha256": "21c5b257606a8aa3d24c956f518745372409b550008be4d06f5178081117708c",
@@ -253,8 +253,8 @@
       "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "src/core/loop.js": {
-      "sha256": "241b428b35c9f0407d2f3871062f808da166eaa04f448df2159e54ded1c0a2c7",
-      "reviewed": "loops: a stale approval holds the gate, read-only, in the app and the command line; checked for direct writes and unconditional deletes: none added"
+      "sha256": "4bfb3528b3c4d17ab260e458a3e820c4ab404723b9987b0056cf0af30f0d27a5",
+      "reviewed": "Loop action requests: the CLI files start/approve/send-back/start-all requests in proposals/; the recorder's window applies them and records applied or refused; start-all preview. Checked for direct writes and unconditional deletes: CLI writes only new request files via writeOnce; app writes via saveRun/mutateRun/saveScope."
     },
     "src/core/map.js": {
       "sha256": "671a810abb29087bed638e0fc39ecc5a52b70146abd303742d5d017c9083db7c",
@@ -397,8 +397,8 @@
       "reviewed": "loops review round 1: qualification, answer fingerprints, unreadable holds, auto send-back, start guard; checked for direct writes and unconditional deletes: none added"
     },
     "src/ui/app.js": {
-      "sha256": "09ac8a7d4b0dc4f15d91c226a77c2a418e6c1e3912dd60be7100685cd185fa4f",
-      "reviewed": "loops: a stale approval holds the gate, read-only, in the app and the command line; checked for direct writes and unconditional deletes: none added"
+      "sha256": "149719281f90dfe8c485ef9c86abd396968eefeaf8ce1484ea4716383fe9b193",
+      "reviewed": "Loop launcher keeps the missing-inputs check and next-attempt start for the row button; requests start fresh stories only."
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
@@ -473,8 +473,8 @@
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "src/ui/views/run.js": {
-      "sha256": "81b07ef83603d5ce629f207f6ff6b191ff1117b816f8e6c0cda3f35587175e15",
-      "reviewed": "loops UI: Start mine, owner from the list, paging and an open-only filter; checked for direct writes and unconditional deletes: none added"
+      "sha256": "562e36cb05a8e1a93c4bdcaf29447cd0a29dc86f354ad63cf4138ae434d9d6c2",
+      "reviewed": "Loop action requests: the CLI files start/approve/send-back/start-all requests in proposals/; the recorder's window applies them and records applied or refused; start-all preview. Checked for direct writes and unconditional deletes: CLI writes only new request files via writeOnce; app writes via saveRun/mutateRun/saveScope."
     },
     "src/ui/views/setup.js": {
       "sha256": "2393b54abde45fa1ba4ac110f394984d29b04ca728c3f1a46e8c22fb2c60dd80",

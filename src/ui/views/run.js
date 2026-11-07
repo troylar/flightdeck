@@ -220,6 +220,15 @@
       h += '</tbody></table>';
       if (!all && rows.length > PAGE) h += '<button class="mini" data-act="loop-more" data-id="' + sid + '">Show all ' + rows.length + ' stories</button>';
     } else h += '<p class="small">No stories in scope yet.</p>';
+    var pend = PF.loop.actionsOf(V).filter(function (q) { return q.status !== 'applied'; });
+    if (pend.length) h += '<ul class="small">' + pend.slice(0, 10).map(function (q) { return '<li>' + esc(who(q.as)) + ' asked to ' + esc(q.ops[0] === 'start' ? 'start ' + q.items.slice(0, 20).join(', ') : q.ops[0]) + ' · ' + (q.status === 'refused' ? 'refused: ' + esc(q.why) : 'waiting for the recorder') + '</li>'; }).join('') + '</ul>';
+    if (work) {
+      var S = PF.loop.startable(r, V);
+      if (ctx.state && ctx.state.loopPreview && ctx.state.loopPreview[s.id]) h += '<div class="notice"><span><b>Start ' + S.start.length + (S.start.length === 1 ? ' run' : ' runs') + ':</b> ' + (S.start.length ? S.start.slice(0, 50).map(function (k) { return esc(k.key); }).join(', ') : 'none') +
+        (S.skip.length ? '. Skipped: ' + S.skip.slice(0, 50).map(function (k) { return esc(k.key) + ' (' + esc(k.why) + ')'; }).join(', ') : '') + '</span>' +
+        (S.start.length ? '<button class="btn go" data-act="loop-start-all-confirm" data-id="' + sid + '">Start ' + S.start.length + '</button>' : '') + '<button class="btn" data-act="loop-start-all-cancel" data-id="' + sid + '">Cancel</button></div>';
+      else if (S.start.length) h += '<button class="btn" data-act="loop-start-all" data-id="' + sid + '">Start all under my recording…</button>';
+    }
     if (work) h += '<div class="row"><label class="small" for="loop-add-' + sid + '">Add stories</label> <input id="loop-add-' + sid + '" placeholder="ABC-101, ABC-102"> <button class="btn" data-act="loop-add" data-id="' + sid + '">Add</button></div>' +
       '<div class="row"><label class="small" for="loop-why-' + sid + '">Why (for removing or approving without a run)</label> <input id="loop-why-' + sid + '"></div>';
     if (work && a && a.s !== 'done' && RU.ok) h += '<button class="btn go" data-act="loop-approve" data-id="' + sid + '">Approve: ' + esc(RU.summary) + '</button>';

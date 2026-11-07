@@ -2930,33 +2930,92 @@
     var d = PF.loop.buildDecision({ proposal: p, loop: V.loop, op: op, items: [x.uid], seen: V.ledger.heads, reason: val('loop-why-' + id).trim(), by: state.me, writer: 'w' + loopHex(10), rev: loopHex(8), now: new Date().toISOString(), app: APP_VERSION });
     loopSaved(repo.saveScope(state.fs, d.name, d.file), op === 'accept' ? key + ' is removed from scope. Its run stays available.' : key + ' stays in scope.');
   }
-  function loopStart(id, key) {
-    var r = ctx.run(), V = r && loopView(r, id), x = V && V.ledger.items.filter(function (i) { return i.key === key; })[0];
-    if (!x) return;
+  /* Starts one story's run for loop step id of run r: a promise of the run started, or an Error saying why nothing was. */
+  function loopLaunch(r, id, key, fresh) {
+    var V = r && loopView(r, id), x = V && V.ledger.items.filter(function (i) { return i.key === key; })[0];
+    if (!x) return Promise.reject(new Error(key + ' isn\'t in this loop.'));
+    /* A request and Start all only start stories with no run yet (fresh); the row's own button also starts a story's next attempt. */
+    if (fresh) { var S = PF.loop.startable(r, V, [key]); if (!S.start.length) return Promise.reject(new Error(key + ': ' + (S.skip[0] ? S.skip[0].why : 'nothing to start') + '.')); }
     var procOf = ctx.procOf || function (pid) { var p = ctx.latestPub(pid); return p ? { latest: p, all: [p], clashes: [], broken: [] } : null; };
     var target = PF.pins.childTarget(r, V.step, procOf), pub = target.pub;
-    if (!pub || target.legacy) { say(target.why || 'The checklist this loop starts isn\'t in the folder.', 'warn'); render(); return; }
+    if (!pub || target.legacy) return Promise.reject(new Error(target.why || 'The checklist this loop starts isn\'t in the folder.'));
     var got = PF.loop.inputsFor(r, V.fields, x);
-    if (got.missing.length) { say(key + '\'s run needs ' + got.missing.join(', ') + ' first.', 'warn'); render(); return; }
+    if (got.missing.length) return Promise.reject(new Error(key + '\'s run needs ' + got.missing.join(', ') + ' first.'));
     var row = V.rollup.items.filter(function (i) { return i.uid === x.uid; })[0], attempt = row && row.runs.length ? row.attempt + 1 : Math.max(1, row ? row.attempt : 1);
     var roles = {}; pub.map.meta.roles.forEach(function (ro) { roles[ro] = r.roles[ro] || ''; });
     var flight = r.id + '/' + id + '/' + x.uid;
     if (!state.loopStarting) state.loopStarting = Object.create(null);
-    if (state.loopStarting[flight]) return;
+    if (state.loopStarting[flight]) return Promise.reject(Object.assign(new Error('already starting'), { quiet: true }));
     var tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (err) { tz = ''; }
     var child; try { child = R.create(pub, { title: key + (x.title ? ': ' + x.title : ''), details: got.inputs, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), app: APP_VERSION, teamValues: data.teamValues, tz: tz, workflows: data.jira.workflows, pins: pinsAtStart(pub),
       parent: { process: r.process, id: r.id, step: id, item: { uid: x.uid, key: x.key, attempt: attempt } } }); }
-    catch (err) { say(err.message, 'warn'); render(); return; }
-    var sfs = state.fs, endBusy = busyStart(), sg = gen, done = function () { endBusy(); delete state.loopStarting[flight]; };
+    catch (err) { return Promise.reject(err); }
+    var sfs = state.fs;
     state.loopStarting[flight] = true;
-    queued(function () {
+    return queued(function () {
       /* Checked again right before it writes: a run for this story and attempt that arrived meanwhile wins, and nothing is started. */
       var taken = (data.runs || []).some(function (c) { var it = c.parent && c.parent.item; return it && c.parent.process === r.process && c.parent.id === r.id && c.parent.step === id && it.uid === x.uid && +it.attempt === attempt; });
       if (taken) throw new Error(key + ' already has a run for this attempt. Nothing was started.');
       child.recorder.session = SESSION; return repo.saveRun(sfs, child, SESSION, { writer: WRITER, lock: LOCKS ? lock : null });
-    }).then(function () {
-      done(); if (sg !== gen) return; say('Started "' + child.title + '".', 'good'); return load(true);
-    }, function (err) { done(); if (sg !== gen) return; say('Couldn\'t start the run: ' + (err && err.message || err), 'bad'); render(); });
+    }).then(function () { delete state.loopStarting[flight]; return child; }, function (err) { delete state.loopStarting[flight]; throw err; });
+  }
+  function loopStart(id, key) {
+    var r = ctx.run(); if (!r) return;
+    var endBusy = busyStart(), sg = gen;
+    loopLaunch(r, id, key).then(function (child) { endBusy(); if (sg !== gen) return; say('Started "' + child.title + '".', 'good'); return load(true); },
+      function (err) { endBusy(); if (sg !== gen || (err && err.quiet)) return; say('Couldn\'t start the run: ' + (err && err.message || err), 'bad'); render(); });
+  }
+  /* Start all under my recording: the confirmed list from the preview, one at a time; what couldn't start is named. */
+  function loopStartAll(id) {
+    var r = ctx.run(), V = r && loopView(r, id); if (!V) return;
+    var S = PF.loop.startable(r, V), started = [], failed = [], endBusy = busyStart(), sg = gen;
+    if (state.loopPreview) delete state.loopPreview[id];
+    S.start.reduce(function (p, k) { return p.then(function () { return loopLaunch(r, id, k.key, true).then(function () { started.push(k.key); }, function (err) { failed.push(k.key + ' (' + (err && err.message || err) + ')'); }); }); }, Promise.resolve())
+      .then(function () { endBusy(); if (sg !== gen) return; say('Started ' + started.length + (started.length === 1 ? ' run.' : ' runs.') + (failed.length ? ' Not started: ' + failed.slice(0, 5).join(', ') + '.' : ''), failed.length ? 'warn' : 'good'); return load(true); });
+  }
+  /* The CLI asks; the recorder applies (3.0): the recorder's window carries out each pending start, approve and send-back
+     request on its loops with the same checks as the buttons, then records applied or refused beside the request. */
+  function loopApply() {
+    if (!state.me || !(data.scopes || []).length) return;
+    if (!state.loopApplying) state.loopApplying = Object.create(null);
+    data.runs.forEach(function (r) {
+      if (!ctx.recording(r) || r.paused || r.ended || state.unsaved[r.id]) return;
+      var map; try { map = R.mapOf(r); } catch (e) { return; }
+      M.steps(map).forEach(function (sx) {
+        if (sx.step.type !== 'for.each') return;
+        var V = loopView(r, sx.step.id); if (!V) return;
+        PF.loop.actionsOf(V).forEach(function (q) {
+          if (q.status !== 'pending' || state.loopApplying[q.id]) return;
+          state.loopApplying[q.id] = true;
+          loopCarry(r, sx.step.id, V, q).then(function (out) { return loopOutcome(V, q, out.ok ? 'applied' : 'refused', out.why); }, function (err) { return loopOutcome(V, q, 'refused', err && err.message || String(err)); })
+            .then(function () { return load(true); }, function () { delete state.loopApplying[q.id]; });
+        });
+      });
+    });
+  }
+  function loopCarry(r, id, V, q) {
+    var key = r.process + '/' + r.id, a = r.steps[id];
+    if (q.ops[0] === 'start') {
+      var done = [], why = [];
+      return q.items.reduce(function (p, k) { return p.then(function () { return loopLaunch(r, id, k, true).then(function () { done.push(k); }, function (err) { why.push(err.message); }); }); }, Promise.resolve())
+        .then(function () { return { ok: done.length > 0, why: 'Started ' + (done.slice(0, 20).join(', ') || 'none') + (done.length > 20 ? ' and ' + (done.length - 20) + ' more' : '') + '.' + (why.length ? ' ' + why.slice(0, 5).join(' ') : '') }; });
+    }
+    if (q.ops[0] === 'approve') {
+      if (!V.rollup.ok) return Promise.resolve({ ok: false, why: 'It can\'t be approved yet: ' + V.rollup.summary + '.' });
+      var no = 'The run couldn\'t be changed here; ask again.', tool = typeof q.by === 'string' ? q.by : (q.by && (q.by.tool || q.by.name)) || '';
+      return mutateRun(key, gen, function (rr, m, me, now) {
+        var V2 = loopView(rr, id); if (!V2 || !V2.rollup.ok) { no = 'It can\'t be approved yet: ' + (V2 ? V2.rollup.summary : 'the loop isn\'t readable') + '.'; throw new Error(no); }
+        R.done(rr, m, id, me, now, { _loop: { ok: true, snapshot: PF.loop.approval(V2.ledger, V2.rollup, { by: q.as, at: now, onBehalf: tool }) } });
+      }, { background: true }).then(function (ok) { return ok === false ? { ok: false, why: no } : { ok: true, why: 'Approved: ' + V.rollup.summary + '.' }; });
+    }
+    if (!(a && a.s === 'done' && a.loop)) return Promise.resolve({ ok: false, why: 'The loop isn\'t approved, so there was nothing to send back.' });
+    var reasons = V.changes.length ? V.changes : ['Sent back for review by ' + personName(q.as) + (q.reason ? ': ' + q.reason : '') + '.'];
+    return mutateRun(key, gen, function (rr, m, me, now) { R.unsettleLoop(rr, m, id, reasons, me, now); }, { background: true })
+      .then(function (ok) { return ok === false ? { ok: false, why: 'The run changed meanwhile; ask again.' } : { ok: true, why: 'Sent back for review.' }; });
+  }
+  function loopOutcome(V, q, op, why) {
+    var d = PF.loop.buildDecision({ proposal: q.id, loop: V.loop, op: op, items: [], seen: V.ledger.heads, reason: String(why || '').slice(0, 300), by: state.me, writer: 'w' + loopHex(10), rev: loopHex(8), now: new Date().toISOString(), app: APP_VERSION });
+    return repo.saveScope(state.fs, d.name, d.file);
   }
   /* Counts what the person did since a start was submitted: every click on a control but Refresh, every key, navigation and
      every form opened or closed. A refused start reopens its form only when nothing happened since (childRetry); otherwise
@@ -3068,6 +3127,7 @@
   }
   /* The recorder's window settles a parent step once its child run ends: done if it completed, blocked otherwise. */
   function syncChildren() {
+    loopApply();
     data.runs.forEach(function (r) {
       if (!ctx.recording(r) || r.paused || state.unsaved[r.id]) return;
       Object.keys(r.steps).forEach(function (sid) {
@@ -7472,6 +7532,9 @@
     'loop-accept': function (id, b) { loopDecide(id, 'accept', b.dataset.item); },
     'loop-keep': function (id, b) { loopDecide(id, 'keep', b.dataset.item); },
     'loop-start': function (id, b) { loopStart(id, b.dataset.item); },
+    'loop-start-all': function (id) { if (!state.loopPreview) state.loopPreview = Object.create(null); state.loopPreview[id] = true; render(); },
+    'loop-start-all-cancel': function (id) { if (state.loopPreview) delete state.loopPreview[id]; render(); },
+    'loop-start-all-confirm': function (id) { loopStartAll(id); },
     'loop-owner': function (id, b) { loopChange(id, 'owner', [b.dataset.item], { owner: state.me }); },
     'loop-more': function (id) { if (!state.loopAll) state.loopAll = Object.create(null); state.loopAll[id] = true; render(); },
     'loop-open': function (id) { if (!state.loopOpen) state.loopOpen = Object.create(null); state.loopOpen[id] = !state.loopOpen[id]; render(); },

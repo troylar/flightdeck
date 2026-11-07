@@ -134,4 +134,55 @@ rule('Review round 1: an owner\'s Start mine, ownership from the list, and sixty
   assert.ok(/Show every story/.test(txt(app)));
 });
 
+async function ask(app, changes, key) {
+  const PF = app.PF, LP = PF.loop, r = parentRun(app);
+  const c = LP.cleanIntent({ loop: { process: 'release-readiness', run: r.id, step: 'each' }, changes }, key, { name: 'release-helper', version: '1.0' });
+  assert.strictEqual(c.errors.length, 0, c.errors.join(' '));
+  const d = await PF.repo.loadAll(app.fs, {}), V = LP.view(r, 'each', { records: d.scopes, runs: d.runs });
+  const f = LP.buildRequest(c.intent, { seen: V.ledger.heads, children: [], now: new Date().toISOString(), app: '3.0.0' });
+  await app.fs.write('proposals/' + f.id + '.json', LP.text(f));
+  app.click('refresh'); await app.tick(250);
+  return f.id;
+}
+const outcome = (app, id) => { const p = app.files('proposals/').find(x => x.indexOf(id + '.status-') >= 0); return p ? JSON.parse(app.fs.files[p].t) : null; };
+
+rule('The CLI asks; the recorder applies: start, approve and send-back requests are carried out once by the recorder\'s window, a refusal says why', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101, ABC-102'); app.click('loop-add', 'each'); await app.tick(150);
+  const early = await ask(app, [{ op: 'approve', as: 'person-avery' }], 'ap-early');
+  assert.notStrictEqual((parentRun(app).steps.each || {}).s, 'done', 'an approval that fails the roll-up isn\'t applied');
+  assert.deepStrictEqual([outcome(app, early).op, /can't be approved yet/.test(outcome(app, early).reason)], ['refused', true]);
+  const st = await ask(app, [{ op: 'start', item: { key: 'ABC-101' }, as: 'person-avery' }, { op: 'start', item: { key: 'ABC-102' }, as: 'person-avery' }], 'st-1');
+  assert.strictEqual(kidPaths(app).length, 2, 'both story runs started by the recorder');
+  assert.strictEqual(outcome(app, st).op, 'applied');
+  app.click('refresh'); await app.tick(200);
+  assert.strictEqual(kidPaths(app).length, 2, 'applied once, not again on the next refresh');
+  for (const p of kidPaths(app)) await clear(app, p);
+  const ap = await ask(app, [{ op: 'approve', as: 'person-avery' }], 'ap-1');
+  let r = parentRun(app);
+  assert.deepStrictEqual([r.steps.each.s, r.steps.each.loop.onBehalf, outcome(app, ap).op], ['done', 'release-helper', 'applied']);
+  const sb = await ask(app, [{ op: 'send-back', as: 'person-avery', reason: 'Scope review' }], 'sb-1');
+  r = parentRun(app);
+  assert.deepStrictEqual([r.steps.each.s, outcome(app, sb).op], ['recheck', 'applied']);
+  assert.ok(/Scope review/.test(r.steps.each.values.changes), r.steps.each.values.changes);
+  assert.ok(/refused: It can't be approved yet/.test(txt(app)), 'a refused request is shown with why');
+});
+
+rule('Start all under my recording: a preview names what starts and what is skipped, cancel starts nothing, confirm starts each once', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101, ABC-102, ABC-103'); app.click('loop-add', 'each'); await app.tick(150);
+  app.click('loop-start', 'each', { item: 'ABC-101' }); await app.tick(150);
+  app.set('loop-why-each', 'Docs-only change'); app.click('loop-exception', 'each', { item: 'ABC-102' }); await app.tick(150);
+  assert.ok(/Start mine|Start its run/.test(txt(app)) && /Start all under my recording…/.test(txt(app)));
+  app.click('loop-start-all', 'each'); await app.tick(50);
+  const t = txt(app);
+  assert.ok(/Start 1 run: ABC-103/.test(t), t.slice(t.indexOf('Start 1'), t.indexOf('Start 1') + 200));
+  assert.ok(/ABC-101 \([^)]*\)/.test(t) && /ABC-102 \([^)]*\)/.test(t), 'skipped ones named with why');
+  app.click('loop-start-all-cancel', 'each'); await app.tick(50);
+  assert.strictEqual(kidPaths(app).length, 1, 'cancel starts nothing');
+  app.click('loop-start-all', 'each'); await app.tick(50);
+  app.click('loop-start-all-confirm', 'each'); app.click('loop-start-all-confirm', 'each'); await app.tick(250);
+  assert.strictEqual(kidPaths(app).length, 2, 'confirm starts ABC-103 once');
+});
+
 run();
