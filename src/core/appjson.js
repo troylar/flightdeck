@@ -89,7 +89,7 @@ PF.appjson = (function () {
     searches: [{ step: 'string', query: opt('string'), filter: opt('string'), normalized: opt('string'), results: opt('string'), site: opt('string') }],
     gates: [{ id: 'string', phase: 'string', title: 'string', implicit: 'boolean', owner: opt('string'), approves: 'string', pattern: opt('string') }],
     sets: [{ step: 'string', names: ['string'] }], children: [{ step: 'string', process: 'string', version: opt('number'), pass: ['string'], carry: ['string'] }],
-    types: ['string'], teamTypes: ['string'], skills: [{ name: 'string', implements: opt('number'), steps: opt(['string']), status: 'string' }] };
+    types: ['string'], teamTypes: ['string'], unknownTypes: ['string'], skills: [{ name: 'string', implements: opt('number'), steps: opt(['string']), status: 'string' }] };
   var SCHEMA2 = {
     envelope: SCHEMA.envelope, error: SCHEMA.error, processes: SCHEMA.processes, next: SCHEMA.next, followups: { followUps: [FOLLOWUP2] }, request: SCHEMA.request,
     /* stage: the staged version shown (process --stage), else null. */

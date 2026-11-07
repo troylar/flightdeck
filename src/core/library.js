@@ -39,7 +39,7 @@ PF.library = (function () {
   function describe(id, source, map, info, types, skills) {
     var meta = map.meta, out = { process: id, title: meta.title || id, source: source, version: info ? +info.version || null : null, folder: info ? info.folder || null : null,
       owner: meta.owner || null, runs: meta.runs === 'solo' ? 'solo' : 'team', context: meta.context.map(function (n) { var t = own(meta.detailTypes, n) ? meta.detailTypes[n] : null; return { name: n, type: t && t.kind ? t.kind : 'text' }; }),
-      roles: meta.roles.slice(), steps: [], searches: [], gates: [], sets: [], children: [], types: [], teamTypes: [], skills: [] };
+      roles: meta.roles.slice(), steps: [], searches: [], gates: [], sets: [], children: [], types: [], teamTypes: [], unknownTypes: [], skills: [] };
     var seen = Object.create(null);
     map.phases.forEach(function (p) {
       p.steps.forEach(function (s) {
@@ -48,7 +48,8 @@ PF.library = (function () {
         if (s.type && !seen[s.type]) {
           seen[s.type] = true;
           var def = T.get(s.type, types);
-          (def && def.custom ? out.teamTypes : out.types).push(s.type);
+          /* A type neither built in nor read from step-types/ (its file unreadable, or past the 100 read) is unknown. */
+          (!def ? out.unknownTypes : def.custom ? out.teamTypes : out.types).push(s.type);
         }
         if (s.type === 'jira.search') {
           var r = S.parseResults(s.fields.results);
@@ -89,6 +90,10 @@ PF.library = (function () {
     var lists = [], usedBy = [], typeUse = Object.create(null);
     var bad = (unread || []).map(function (u) { return { process: u.process || null, path: String(u.path || ''), why: String(u.why || '') }; });
     (procs || []).forEach(function (p) {
+      /* Versions numbered alike at or above the usable latest: which one new runs use can't be told, so it's left out. */
+      var top = p.latest && p.latest.info ? +p.latest.info.version || 0 : 0, clash = (p.clashes || []).filter(function (n) { return n >= top; });
+      if (clash.length && !bad.some(function (u) { return u.path === 'publications/' + p.id + '/'; }))
+        bad.push({ process: p.id, path: 'publications/' + p.id + '/', why: 'More than one version is numbered v' + clash[0] + ', so which one new runs use can\'t be told.' });
       if (p.latest && p.latest.map) lists.push(describe(p.id, 'publication', p.latest.map, p.latest.info, p.latest.types, p.skills));
       if (p.draft && p.draft.md != null && (p.draftChanged || !p.latest)) {
         var dm = M.parse(p.draft.md), at = 'maps/drafts/' + (p.draft.file || p.id + '.md');
@@ -139,8 +144,8 @@ PF.library = (function () {
      first by name, as the app shows it. */
   function entriesOf(d) {
     var by = Object.create(null), order = [];
-    var entry = function (id) { if (!by[id]) { by[id] = { id: id, latest: null, all: [], draft: null, draftChanged: false, skills: [] }; order.push(id); } return by[id]; };
-    (d.processes || []).forEach(function (p) { var e = entry(p.process); e.latest = p.index.latest; e.all = p.index.all; });
+    var entry = function (id) { if (!by[id]) { by[id] = { id: id, latest: null, all: [], clashes: [], draft: null, draftChanged: false, skills: [] }; order.push(id); } return by[id]; };
+    (d.processes || []).forEach(function (p) { var e = entry(p.process); e.latest = p.index.latest; e.all = p.index.all; e.clashes = p.index.clashes || []; });
     (d.drafts || []).slice().sort(function (a, b) { return a.file < b.file ? -1 : a.file > b.file ? 1 : 0; }).forEach(function (x) {
       var m = M.parse(x.md), id = m.meta.process || x.file.replace(/\.md$/i, ''), e = entry(id);
       if (e.draft && e.draft.file === id + '.md') return;

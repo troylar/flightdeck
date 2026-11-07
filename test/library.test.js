@@ -139,6 +139,19 @@ rule('Inspect: a draft with a line Flightdeck doesn\'t understand keeps what it 
   same(L.inspect(p, [{ process: 'cleanup', path: 'maps/drafts/cleanup.md', why: 'named already' }]).completeness.unread.length, 1, 'named once');
 });
 
+rule('Inspect: versions that clash leave a checklist out, so the library says it\'s partial; a type that isn\'t known is neither built-in nor the team\'s', () => {
+  const p = procs(); p[0] = { id: 'release', latest: null, all: [], clashes: [4], draft: null, draftChanged: false, skills: [] };
+  const lib = L.inspect(p, []);
+  assert.strictEqual(lib.completeness.complete, false);
+  same(lib.completeness.unread.map(u => u.process + ' ' + u.path), ['release publications/release/']);
+  assert.ok(/v4/.test(lib.completeness.unread[0].why), lib.completeness.unread[0].why);
+  const q = procs(); q[0].clashes = [2];
+  assert.strictEqual(L.inspect(q, []).completeness.complete, true, 'an older clash under a usable latest leaves nothing out');
+  const r = procs(); r[1].draft.md = CLEANUP.replace('{jenkins.job} Run the deploy job', '{t100} Run the deploy job');
+  const c = L.inspect(r, []).checklists.find(x => x.process === 'cleanup');
+  same([c.types.indexOf('t100'), c.teamTypes.indexOf('t100'), c.unknownTypes], [-1, -1, ['t100']]);
+});
+
 rule('Design tips are advice: a checklist with every tip still publishes', () => {
   const t = md(['process: x', 'title: X', 'runs: solo', 'roles: lead, qa'], ['## S · READ-DO {#s}', '- [!] {confirm} All stories are READY @lead {#a}', '- [ ] {jira.search} No blockers @qa {#b}', '  query: a = 1', '  results: any', '']);
   assert.ok(L.lints(t).length >= 4);

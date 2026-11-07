@@ -1756,6 +1756,17 @@ async function libraryMain(argv) {
     /* A draft too big or that failed to read is named, never left out as if the process had no draft. */
     (d.unreadable || []).forEach((x) => { if (x && x.draft && !L.problems().some((y) => y.path === x.path)) L.note(x.path, 'unreadable', x.path + ' ' + x.why + '.'); });
     const entries = PF.library.entriesOf(d);
+    /* Step types: a file that can't be used, one from a newer Flightdeck, and each past the 100 read, as draft check names them. */
+    if (!('step types' in failed)) {
+      ((d.stepTypes || {}).errors || []).forEach((x) => { const at = 'step-types/' + x.file; if (!L.problems().some((y) => y.path === at)) L.note(at, 'malformed', at + ': ' + x.errors.join('; ') + '.'); });
+      ((d.stepTypes || {}).refused || []).forEach((r) => L.note(r.path, 'newer', r.why));
+      PF.publish.excludedOf({ stepTypes: d.stepTypes }).forEach((x) => L.note(x.path, x.kind, x.why));
+    }
+    /* Versions that clash at the top leave a checklist out (PF.library.inspect says so too). */
+    entries.forEach((e) => {
+      const top = e.latest && e.latest.info ? +e.latest.info.version || 0 : 0, clash = (e.clashes || []).filter((n) => n >= top);
+      if (clash.length) L.note('publications/' + e.id + '/', 'conflict', 'More than one version is numbered v' + clash[0] + ', so which one new runs use can\'t be told.');
+    });
     /* A draft with a line it doesn't understand is read as far as it goes (PF.library.inspect) and named here. */
     entries.forEach((e) => {
       if (!e.draft || !(e.draftChanged || !e.latest)) return;

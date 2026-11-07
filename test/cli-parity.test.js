@@ -1022,6 +1022,31 @@ rule('Library: skill registrations in skill-registrations/ are read, and one tha
   assert.strictEqual(r.json.data.completeness.complete, false);
 });
 
+rule('Library: a step type that can\'t be read, or past the 100 read, and versions that clash make the answer partial and are named', async () => {
+  const base = await folder({ base: { 'team-values.json': JIRA_TV }, publish: [example('maps/drafts/check-in.md'), RELEASE_PUB], drafts: { deploy: DEPLOY_DRAFT } });
+  let r = libCli(RF.toDisk(Object.assign({}, base, { 'step-types/task.json': '{ not json' }), tmp()), ['--json']);
+  assert.strictEqual(r.code, 4, JSON.stringify(r.json.problems));
+  assert.ok(r.json.problems.some(p => p.path === 'step-types/task.json'), JSON.stringify(r.json.problems));
+  assert.strictEqual(r.json.data.completeness.complete, false);
+  const many = Object.assign({}, base); delete many['step-types/change.request.json'];
+  for (let i = 0; i <= 100; i++) many['step-types/t' + String(i).padStart(3, '0') + '.json'] = JSON.stringify({ id: 't' + String(i).padStart(3, '0'), label: 'T' + i });
+  many['maps/drafts/deploy.md'] = DEPLOY_DRAFT.replace('{confirm}', '{t100}');
+  r = libCli(RF.toDisk(many, tmp()), ['--json']);
+  assert.strictEqual(r.code, 4, JSON.stringify(r.json.problems));
+  assert.deepStrictEqual(r.json.problems.filter(p => p.kind === 'skipped').map(p => p.path), ['step-types/t100.json']);
+  const dep = r.json.data.checklists.find(c => c.process === 'deploy');
+  assert.deepStrictEqual([dep.teamTypes, dep.unknownTypes], [[], ['t100']], 'a type it didn\'t read is unknown, never built-in');
+  const clash = Object.assign({}, base), v1 = Object.keys(base).filter(k => /^publications\/release\/v1-[^/]+\//.test(k));
+  const old = v1[0].split('/')[2];
+  v1.forEach(k => { clash[k.replace(old, 'v1-zzzz9999')] = base[k].split(old).join('v1-zzzz9999'); });
+  r = libCli(RF.toDisk(clash, tmp()), ['--json']);
+  assert.strictEqual(r.code, 4, JSON.stringify(r.json.problems));
+  assert.ok(r.json.problems.some(p => p.path === 'publications/release/' && p.kind === 'conflict'), JSON.stringify(r.json.problems));
+  assert.ok(r.json.data.completeness.unread.some(u => u.process === 'release'), JSON.stringify(r.json.data.completeness));
+  const app = await appOn(clash, 'check-in'), part = libPart(app.html());
+  assert.ok(/<\/span>0\+<\/h2>/.test(part) && /can&#39;t be ruled out/.test(part), 'the page says partial: ' + part.slice(-600));
+});
+
 rule('Parity: design tips in draft check are the ones the checklist page shows; Used by and Similar match library inspect', async () => {
   const files = await folder({ base: { 'team-values.json': JIRA_TV }, publish: [example('maps/drafts/check-in.md'), RELEASE_PUB], drafts: { deploy: DEPLOY_DRAFT } });
   const dir = RF.toDisk(files, tmp()), c = cli(dir, 'deploy');
