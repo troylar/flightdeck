@@ -372,6 +372,24 @@ rule('Review round 1: a scope record that can\'t be read holds the loop, and rea
   same(got.scopesUnread.map(u => u.file), ['req-x-' + 'b'.repeat(24) + '.json']);
 });
 
+rule('Round 2: an approval the folder no longer matches holds the gate, read-only, before any save; nothing is written into the run', () => {
+  const { r, kid2 } = release(), map = R.mapOf(r);
+  const recs = [LP.cleanRequest(JSON.parse(LP.text(reqFile('c1', { loop: LOOPT, observation: obs([101]) }))), reqFile('c1').id + '.json').record];
+  const runs = [kid2(101, 'cleared')];
+  const V = LP.view(r, 'each', { records: recs, runs });
+  R.done(r, map, 'each', 'person-morgan', AT, { _loop: { ok: true, snapshot: LP.approval(V.ledger, V.rollup, { by: 'person-morgan', at: AT }) } });
+  R.pass(r, map, 0, 'person-morgan', AT);
+  LP.markStale([r].concat(runs), { records: recs });
+  same(R.gateStatus(r, map, 0), 'passed');
+  const before = JSON.stringify(r.steps);
+  LP.markStale([r, kid2(101, 'needs-work')], { records: recs });
+  same([R.gateStatus(r, map, 0), R.phaseOpen(r, map, 1)], ['review', false]);
+  same(JSON.stringify(r.steps), before, 'the run itself is unchanged');
+  same(r._loopStale.each, ['ABC-101 now returns needs-work (it was cleared).']);
+  LP.markStale([r].concat(runs), { records: recs });
+  same([R.gateStatus(r, map, 0), r._loopStale], ['passed', undefined]);
+});
+
 /* ---------- What a sync would do: the preview the assistant repeats ---------- */
 rule('A sync projects its changes: adds, proposed removals with their open assessments, planned children, approval impact', () => {
   const { r, kid2 } = release();

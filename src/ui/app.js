@@ -1992,6 +1992,7 @@
     /* Nor while someone is composing text (an input method): the redraw waits until the composition ends. */
     if (rendering || composing) { scheduleRender(); return; }
     rendering = true;
+    markLoops(data.runs);
     /* Any inline form opened or closed (Fill in, Blocked, Edit, a correction, a note's correction), however it was reached, counts as moving. */
     var fsig = [state.pick ? state.pick.kind + ':' + state.pick.id : '', state.edit || '', state.corrForm ? state.corrForm.step + ':' + state.corrForm.mode : '', Object.keys(state.noteCorrs || {}).sort().join(',')].join('|');
     if (fsig !== formSig) { formSig = fsig; childEpoch++; }
@@ -5710,7 +5711,10 @@
       return load(true);
     }, function (err) { f.saving = false; if (fsKey() !== f.fsKey) return; say('Couldn\'t save the step type {' + def.id + '}: ' + err.message, 'bad'); render(); });
   }
-  function mutate(fn, opts) { return mutateRun(state.runKey, gen, fn, opts); }
+  /* Loops (3.0): which approvals the folder no longer matches, read-only, on every draw and on the fresh copy every change
+     starts from, so a held gate can't be passed before the send-back is saved. */
+  function markLoops(runs) { if (data && (data.scopes || []).length) PF.loop.markStale(runs || [], { records: data.scopes, unread: data.scopesUnread || [], procOf: ctx.procOf }); }
+  function mutate(fn, opts) { return mutateRun(state.runKey, gen, function (r, m, me, now) { markLoops([r].concat((data.runs || []).filter(function (x) { return x.id !== r.id; }))); return fn(r, m, me, now); }, opts); }
   /* Change one run, named by its key, in the folder generation the action started in. An action that finishes after the
      person switched folders or runs does nothing, rather than landing on whatever is on screen now. */
   function mutateRun(key, g, fn, opts) {

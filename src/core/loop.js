@@ -259,6 +259,25 @@ PF.loop = (function () {
   /* One loop of a parent run, as everyone reads it (the app's table, flightdeck loop read, the gate): its records, ledger,
      roll-up, the approval recorded on its step and every change since. o: { records (every scope record read),
      runs (every run read), who }. Never writes. */
+  /* Which loop approvals the folder no longer matches, worked out read-only on every read (3.0, review round 2): r._loopStale
+     { stepId: [reasons] }, never saved (the run writer leaves _ fields out). PF.run.answered reads it, so the gate and what
+     comes next hold in every window and the command line before the recorder's send-back is saved. Ended runs are left as they ended. */
+  function markStale(runs, o) {
+    o = o || {};
+    (runs || []).forEach(function (r) {
+      if (!r || !isMap(r.steps) || r._unrunnable) return;
+      var out = null;
+      if (!r.ended) Object.keys(r.steps).forEach(function (id) {
+        var a = r.steps[id];
+        if (!a || a.s !== 'done' || !a.loop) return;
+        var V; try { V = view(r, id, { records: o.records, unread: o.unread, runs: runs, procOf: o.procOf }); } catch (e) { V = null; }
+        if (!V) return;
+        var why = V.changes.length ? V.changes.slice() : V.ledger.held.length ? ['A scope record of this loop can\'t be read yet.'] : null;
+        if (why) { out = out || Object.create(null); out[id] = why; }
+      });
+      if (out) r._loopStale = out; else delete r._loopStale;
+    });
+  }
   /* The loop a scope file names, when it says one plainly; null otherwise. */
   function loopOf(o) { var l = isMap(o) && isMap(o.loop) ? o.loop : null; return l && typeof l.process === 'string' && typeof l.run === 'string' && typeof l.step === 'string' ? { process: l.process, run: l.run, step: l.step } : null; }
   function view(r, stepId, o) {
@@ -608,5 +627,5 @@ PF.loop = (function () {
 
   return { KINDS: KINDS, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
     idFor: idFor, isScope: isScope, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
-    rollup: rollup, view: view, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
+    rollup: rollup, view: view, markStale: markStale, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();

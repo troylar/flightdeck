@@ -929,6 +929,15 @@ async function readData(eng, adapter, req) {
       if (pw) L.note('people.json', 'malformed', pw);
       if (r) { relevant = runCovers(m[1], m[2], r); take(judgeRun(PF, r, one.pub)); }
       const usable = !!r && !newerRun(PF, r);
+      /* Loops (3.0): an approval the folder no longer matches holds its gate here as in every window (PF.loop.markStale). */
+      if (usable && two && Object.keys(r.steps || {}).some((id) => r.steps[id] && r.steps[id].loop)) {
+        const mp = PF.run.mapOf(r), kids = [];
+        Object.keys(r.steps).forEach((id) => { const x = r.steps[id] && r.steps[id].loop && PF.map.findStep(mp, id); const pr = x && String(PF.run.fieldsOf(r, x.step).process || ''); if (pr && kids.indexOf('runs/' + pr) < 0) kids.push('runs/' + pr); });
+        const gp = await repo.readPlans(L.fs, null, null, true).catch(() => null);
+        const dk = gp && kids.length ? await repo.loadAll(dependsOn(L.fs, kids), { readOnly: true, deep: true }).catch(() => null) : { runs: [] };
+        if (gp && dk) PF.loop.markStale([r].concat(dk.runs || []), { records: gp.scopes, unread: gp.scopesUnread });
+        else { r._loopStale = Object.create(null); Object.keys(r.steps).forEach((id) => { if (r.steps[id] && r.steps[id].loop && r.steps[id].s === 'done') r._loopStale[id] = ['The loop\'s scope records couldn\'t be read.']; }); }
+      }
       /* run and next read only what they depend on (readRunOnly), so every problem met counts. */
       const keep = (list) => list, nameOf = A.names(one.people);
       /* Contract 2 lists a run/3's migration records, current and archived (history-*.jsonl): a failed read is a problem. */

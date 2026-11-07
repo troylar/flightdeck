@@ -519,6 +519,8 @@ PF.run = (function () {
     if (!a) return false;
     /* A step whose linked child run was for other details isn't answered, however it's marked. */
     if (a.s === 'done' && s.type === 'run.process' && a.child && !childCurrent(r, s, a)) return false;
+    /* A loop (3.0) whose approval the folder no longer matches (PF.loop.markStale, read-only) isn't answered either. */
+    if (a.s === 'done' && s.type === 'for.each' && r._loopStale && Object.prototype.hasOwnProperty.call(r._loopStale, s.id)) return false;
     return a.s === 'done' || (a.s === 'na' && !s.must);
   }
   /* r.memo (practice's stand-in only, docs/design.md section 34): a run that never changes while it's read keeps each phase's

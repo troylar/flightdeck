@@ -105,4 +105,24 @@ rule('A missing run, a step that isn\'t a loop, a missing tool or key: each name
   assert.deepStrictEqual(add.data.added.map(x => x.key), ['ABC-201', 'ABC-202']);
 });
 
+rule('Round 2: flightdeck run holds a loop\'s approved gate once the folder no longer matches the approval, writing nothing', async () => {
+  const { root, d, kid } = await folder(), f = path.join(root, '..', path.basename(root) + '-obs2.json');
+  await kid(101, 'cleared');
+  fs.writeFileSync(f, JSON.stringify(obs([101])));
+  json('loop', 'sync', root, 'release-readiness/r-41', 'each', '--from', f, '--json', '--tool', 'release-helper@1.0', '--key', 'g1');
+  const all = await PF.repo.loadAll(d, {}), r = all.runs.find(x => x.id === 'r-41'), map = R.mapOf(r);
+  const V = PF.loop.view(r, 'each', { records: all.scopes, runs: all.runs });
+  assert.strictEqual(V.rollup.ok, true, V.rollup.summary);
+  R.done(r, map, 'each', 'person-morgan', AT, { _loop: { ok: true, snapshot: PF.loop.approval(V.ledger, V.rollup, { by: 'person-morgan', at: AT }) } });
+  R.pass(r, map, 0, 'person-morgan', AT);
+  const clean = JSON.parse(JSON.stringify(r, (k, v) => (k[0] === '_' ? undefined : v)));
+  fs.writeFileSync(path.join(root, 'runs/release-readiness/r-41/run.json'), JSON.stringify(clean, null, 2));
+  const gate = () => json('run', root, 'release-readiness/r-41', '--contract', '2', '--json').data.run.gates[0].status;
+  assert.strictEqual(gate(), 'passed');
+  await kid(101, 'needs-work');
+  const before = fs.readFileSync(path.join(root, 'runs/release-readiness/r-41/run.json'), 'utf8');
+  assert.strictEqual(gate(), 'review', 'the CLI agrees with every window before any save');
+  assert.strictEqual(fs.readFileSync(path.join(root, 'runs/release-readiness/r-41/run.json'), 'utf8'), before, 'nothing written');
+});
+
 run();

@@ -8807,6 +8807,8 @@ PF.run = (function () {
     if (!a) return false;
     /* A step whose linked child run was for other details isn't answered, however it's marked. */
     if (a.s === 'done' && s.type === 'run.process' && a.child && !childCurrent(r, s, a)) return false;
+    /* A loop (3.0) whose approval the folder no longer matches (PF.loop.markStale, read-only) isn't answered either. */
+    if (a.s === 'done' && s.type === 'for.each' && r._loopStale && Object.prototype.hasOwnProperty.call(r._loopStale, s.id)) return false;
     return a.s === 'done' || (a.s === 'na' && !s.must);
   }
   /* r.memo (practice's stand-in only, docs/design.md section 34): a run that never changes while it's read keeps each phase's
@@ -16821,6 +16823,25 @@ PF.loop = (function () {
   /* One loop of a parent run, as everyone reads it (the app's table, flightdeck loop read, the gate): its records, ledger,
      roll-up, the approval recorded on its step and every change since. o: { records (every scope record read),
      runs (every run read), who }. Never writes. */
+  /* Which loop approvals the folder no longer matches, worked out read-only on every read (3.0, review round 2): r._loopStale
+     { stepId: [reasons] }, never saved (the run writer leaves _ fields out). PF.run.answered reads it, so the gate and what
+     comes next hold in every window and the command line before the recorder's send-back is saved. Ended runs are left as they ended. */
+  function markStale(runs, o) {
+    o = o || {};
+    (runs || []).forEach(function (r) {
+      if (!r || !isMap(r.steps) || r._unrunnable) return;
+      var out = null;
+      if (!r.ended) Object.keys(r.steps).forEach(function (id) {
+        var a = r.steps[id];
+        if (!a || a.s !== 'done' || !a.loop) return;
+        var V; try { V = view(r, id, { records: o.records, unread: o.unread, runs: runs, procOf: o.procOf }); } catch (e) { V = null; }
+        if (!V) return;
+        var why = V.changes.length ? V.changes.slice() : V.ledger.held.length ? ['A scope record of this loop can\'t be read yet.'] : null;
+        if (why) { out = out || Object.create(null); out[id] = why; }
+      });
+      if (out) r._loopStale = out; else delete r._loopStale;
+    });
+  }
   /* The loop a scope file names, when it says one plainly; null otherwise. */
   function loopOf(o) { var l = isMap(o) && isMap(o.loop) ? o.loop : null; return l && typeof l.process === 'string' && typeof l.run === 'string' && typeof l.step === 'string' ? { process: l.process, run: l.run, step: l.step } : null; }
   function view(r, stepId, o) {
@@ -17170,7 +17191,7 @@ PF.loop = (function () {
 
   return { KINDS: KINDS, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
     idFor: idFor, isScope: isScope, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
-    rollup: rollup, view: view, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
+    rollup: rollup, view: view, markStale: markStale, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();
 
 /* Reports from other apps (docs/apps.md, docs/design.md section 26): a tool that did a step's work says so in a report, a file
@@ -32155,6 +32176,7 @@ PF.examples = (function () {
     /* Nor while someone is composing text (an input method): the redraw waits until the composition ends. */
     if (rendering || composing) { scheduleRender(); return; }
     rendering = true;
+    markLoops(data.runs);
     /* Any inline form opened or closed (Fill in, Blocked, Edit, a correction, a note's correction), however it was reached, counts as moving. */
     var fsig = [state.pick ? state.pick.kind + ':' + state.pick.id : '', state.edit || '', state.corrForm ? state.corrForm.step + ':' + state.corrForm.mode : '', Object.keys(state.noteCorrs || {}).sort().join(',')].join('|');
     if (fsig !== formSig) { formSig = fsig; childEpoch++; }
@@ -35873,7 +35895,10 @@ PF.examples = (function () {
       return load(true);
     }, function (err) { f.saving = false; if (fsKey() !== f.fsKey) return; say('Couldn\'t save the step type {' + def.id + '}: ' + err.message, 'bad'); render(); });
   }
-  function mutate(fn, opts) { return mutateRun(state.runKey, gen, fn, opts); }
+  /* Loops (3.0): which approvals the folder no longer matches, read-only, on every draw and on the fresh copy every change
+     starts from, so a held gate can't be passed before the send-back is saved. */
+  function markLoops(runs) { if (data && (data.scopes || []).length) PF.loop.markStale(runs || [], { records: data.scopes, unread: data.scopesUnread || [], procOf: ctx.procOf }); }
+  function mutate(fn, opts) { return mutateRun(state.runKey, gen, function (r, m, me, now) { markLoops([r].concat((data.runs || []).filter(function (x) { return x.id !== r.id; }))); return fn(r, m, me, now); }, opts); }
   /* Change one run, named by its key, in the folder generation the action started in. An action that finishes after the
      person switched folders or runs does nothing, rather than landing on whatever is on screen now. */
   function mutateRun(key, g, fn, opts) {
