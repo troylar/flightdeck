@@ -1,8 +1,8 @@
 {
   "texts": {
     "CHANGELOG.md": {
-      "sha256": "37c2cb5c25754cffd84055d668b452fe462b467043bb978a08277d06a3c7eb5a",
-      "reviewed": "Checks keep their 1.x words; blockerSteps and suggestionSteps carry the step's ID and excerpt; checked for direct writes and unconditional deletes"
+      "sha256": "dc5758862287da8f6dc7cd7e5722628769b0849e3e19b58a2c0503512ce5a466",
+      "reviewed": "Link-field name keeps its 2.x blocker with a separate tip; library inspect names step-type problems and version clashes; unknownTypes; baselines refreshed; checked for direct writes and unconditional deletes"
     },
     "LICENSE": {
       "sha256": "332f3e79825f9e330b3177c74c7b226cf5e1b95d1bfd234d4cf26a16b0ee561d",
@@ -13,16 +13,16 @@
       "reviewed": "fold design tips and the library panel; own-key reads; checked for direct writes and unconditional deletes"
     },
     "bin/flightdeck.js": {
-      "sha256": "87b86b23e00c7d43dd4c413cfe897619efcf866f4e398f4d812cf3360d4198f9",
-      "reviewed": "library inspect reads skill-registrations/ and names unread drafts and registrations; checked for direct writes and unconditional deletes"
+      "sha256": "d2eeafb8d53f2118180432c109d0aa2c68d203e5e73ed6fd185d2c7fa1edc16f",
+      "reviewed": "Link-field name keeps its 2.x blocker with a separate tip; library inspect names step-type problems and version clashes; unknownTypes; baselines refreshed; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "f0c4be06309dfeb44722e5c4b982947b5a1ae7aa5c361947714a92ee83002a59",
       "reviewed": "library inspect, design tips, Used by and similar; checked for direct writes and unconditional deletes"
     },
     "docs/apps.md": {
-      "sha256": "025d81ef3bd463198382078564b9f1bd33c2a4bd94717fe4e119b378b71ca11d",
-      "reviewed": "library inspect reads skill-registrations/ and names unread drafts and registrations; checked for direct writes and unconditional deletes"
+      "sha256": "5d530a23a633307cbaed8f04488b26367a9c097e34c65cf0baeead24db334bdf",
+      "reviewed": "Link-field name keeps its 2.x blocker with a separate tip; library inspect names step-type problems and version clashes; unknownTypes; baselines refreshed; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
       "sha256": "00066e51741e57e02c184729bcc84db091ec489c78f0cdb09cb4b84635d94eae",
@@ -193,12 +193,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as rendered as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 2 sentences here, each read by hand: a description of the staged copies, or a delete that says only if nobody changed the copy, never a direct write for an assistant."
     },
     "src/baselines.json": {
-      "sha256": "d3e18604828d70340882bda1b9384fa5e4f23398264352d19f3778650e70e9fb",
-      "reviewed": "fold design tips and the library panel; own-key reads; checked for direct writes and unconditional deletes"
+      "sha256": "0506c38640d5d5e31e89403e79d953f8973c2ab180476ec535b71cf67e022acc",
+      "reviewed": "Link-field name keeps its 2.x blocker with a separate tip; library inspect names step-type problems and version clashes; unknownTypes; baselines refreshed; checked for direct writes and unconditional deletes"
     },
     "src/core/appjson.js": {
-      "sha256": "b02f20c8e7ea36ec90aaa8e4606ccfbe8b75de57dbc628448b47d6896997f686",
-      "reviewed": "Checks keep their 1.x words; blockerSteps and suggestionSteps carry the step's ID and excerpt; checked for direct writes and unconditional deletes"
+      "sha256": "d9884d985ee4018c9c8aa43cb74d275a068d4c995d59946e6d770321385ed276",
+      "reviewed": "Link-field name keeps its 2.x blocker with a separate tip; library inspect names step-type problems and version clashes; unknownTypes; baselines refreshed; checked for direct writes and unconditional deletes"
     },
     "src/core/attach.js": {
       "sha256": "0e75bc0c0d748fe10aaf5657662e4ce8679c27f9d10d85c1e34891b1c9d58df0",
@@ -245,16 +245,16 @@
       "reviewed": "A link field holding a plain name (spaces, no scheme, no other invisible character) gets 'takes a web link; put a name or file reference in a note' (PF.urls.nameLike, map.js); real links and invisible characters keep their messages; release note. Checked for direct writes and unconditional deletes: none."
     },
     "src/core/library.js": {
-      "sha256": "dba4737e38b3e653ba8a52ce057f492b65017a40a55d34b20297b5ea69335745",
-      "reviewed": "Design tips: names matched as written, a required verdict respected, JavaScript whitespace in the checker; a draft line not understood makes the library partial; checked for direct writes and unconditional deletes"
+      "sha256": "52b6a3bb2bfd5bb265f2d8ca6a3b649eebc5c0a48553b7a8b7a0b22a2828bd1e",
+      "reviewed": "Link-field name keeps its 2.x blocker with a separate tip; library inspect names step-type problems and version clashes; unknownTypes; baselines refreshed; checked for direct writes and unconditional deletes"
     },
     "src/core/links.js": {
       "sha256": "3ceec1cb191551546f909245fed5dbd74d3f89eceb5ba727e448230fb0f5f867",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/map.js": {
-      "sha256": "861dba33e8fb5b67110e4a6d0c320402b6bd6b0519f23aff7a1d682b5786dcb7",
-      "reviewed": "Checks keep their 1.x words; blockerSteps and suggestionSteps carry the step's ID and excerpt; checked for direct writes and unconditional deletes"
+      "sha256": "7caf48e2c17a750896101bd57661979db9c543c0f91414ea74622203b97bc4ee",
+      "reviewed": "Link-field name keeps its 2.x blocker with a separate tip; library inspect names step-type problems and version clashes; unknownTypes; baselines refreshed; checked for direct writes and unconditional deletes"
     },
     "src/core/nav.js": {
       "sha256": "58a621b0d76244c77a9988c3f2ec79b751fdeb8874190cf0ccfa6ab36295d9b1",
@@ -381,8 +381,8 @@
       "reviewed": "release notes left to release time; checked for direct writes and unconditional deletes"
     },
     "src/releases.json": {
-      "sha256": "9afa74adb079dd0a0855f0964e89d0e5479131031213d9d15a7c7df3554fbbd7",
-      "reviewed": "Checks keep their 1.x words; blockerSteps and suggestionSteps carry the step's ID and excerpt; checked for direct writes and unconditional deletes"
+      "sha256": "1daf5ecf64024a5f91dc64755185ab6bc431b3d03bf639582bca462a06dcafef",
+      "reviewed": "Link-field name keeps its 2.x blocker with a separate tip; library inspect names step-type problems and version clashes; unknownTypes; baselines refreshed; checked for direct writes and unconditional deletes"
     },
     "src/storage/fs.js": {
       "sha256": "08f43d5b142568d50a6c1a0375db5eba7f473db357edb41c62b65da28b008e64",
