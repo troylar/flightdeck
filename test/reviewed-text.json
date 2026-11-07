@@ -21,12 +21,12 @@
       "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "docs/apps.md": {
-      "sha256": "b9a091a9a0fb11b4256fab51b5f96b3d017c16baca93303b4857378a18790318",
-      "reviewed": "Start all and start requests share one batch bound to the folder and its generation; checked for direct writes and unconditional deletes"
+      "sha256": "844331882d9219e499fd1abba0e16e49b3f5ec9eb54cf8f307a587bac8bcba44",
+      "reviewed": "docs: round 5 choice, start and batch rules; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "693202be7dc12f1e654a66c91d214000eee326898c606185138ac112ef5ed0bf",
-      "reviewed": "Start all and start requests share one batch bound to the folder and its generation; checked for direct writes and unconditional deletes"
+      "sha256": "9aef7695f8336d2ffac379478bc123abcece1830e4bb1bd8c33dc6424b58f89c",
+      "reviewed": "docs: round 5 choice, start and batch rules; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
