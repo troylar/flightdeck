@@ -13,8 +13,8 @@
       "reviewed": "fold design tips and the library panel; own-key reads; checked for direct writes and unconditional deletes"
     },
     "bin/flightdeck.js": {
-      "sha256": "9819b06649daf9368a4133632c34f0efcb159378194111416808100ad42540b9",
-      "reviewed": "Loop choices share the causal settle rule and bind to attempt and candidates; one person per request; starts need the loop step open."
+      "sha256": "cc5a623a91654e941f371ef75e5d78d4e34960b6b17095cedd912cf75d6714c1",
+      "reviewed": "loop start refuses a story named twice before anything is filed; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "21c5b257606a8aa3d24c956f518745372409b550008be4d06f5178081117708c",

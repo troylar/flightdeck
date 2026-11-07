@@ -230,4 +230,18 @@ rule('Review round 4 (4): loop choose names the run that counts for a story with
   assert.ok(a === undefined || a);
 });
 
+rule('Review round 6 (5): loop start naming a story twice is refused before anything is filed, the first time and on a retry', async () => {
+  const { root } = await folder(), f = path.join(root, '..', path.basename(root) + '-obs6.json');
+  fs.writeFileSync(f, JSON.stringify(obs([101, 102])));
+  json('loop', 'sync', root, 'release-readiness/r-41', 'each', '--from', f, '--json', '--tool', 'release-helper@1.0', '--key', 'a');
+  const T = ['--tool', 'release-helper@1.0', '--as', 'person-morgan'];
+  const before = fs.readdirSync(path.join(root, 'proposals')).length;
+  for (let n = 0; n < 2; n++) {
+    const dup = json('loop', 'start', root, 'release-readiness/r-41', 'each', '--item', 'ABC-101,ABC-101', '--key', 'dup', '--json', ...T);
+    assert.deepStrictEqual([dup.code, dup.error && dup.error.kind], [1, 'usage'], JSON.stringify(dup.error || dup.data));
+    assert.ok(/ABC-101/.test(dup.error.why) && /twice|more than once/.test(dup.error.why), dup.error.why);
+  }
+  assert.strictEqual(fs.readdirSync(path.join(root, 'proposals')).length, before, 'nothing filed');
+});
+
 run();

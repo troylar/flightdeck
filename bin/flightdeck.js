@@ -2767,6 +2767,9 @@ async function loopMain(argv) {
        are requests the recorder's window carries out with the same checks as its buttons. Nothing here writes run.json. */
     if (['start', 'start-all', 'approve', 'send-back'].indexOf(sub) >= 0) {
       if (!val['--as'] || !/^[A-Za-z0-9_.-]{1,80}$/.test(val['--as'])) return usage('say who asks with --as <person id from people.json>. The recorder applies it on their behalf.');
+      /* A story named twice is refused before anything else, so a first try and its retry get the same answer. */
+      const named = String(val['--item'] || '').split(/[\s,]+/).filter(Boolean), twice = named.filter((k, i) => named.indexOf(k) !== i);
+      if (sub === 'start' && twice.length) return usage('--item names ' + twice.filter((k, i) => twice.indexOf(k) === i).slice(0, 5).join(', ') + ' more than once. Name each story once. Nothing was written.');
       const a = r.steps && r.steps[stepId], lines = [];
       /* A retry under the same key is judged on what was first asked, before the loop's state now: an identical one says
          already (even once carried out), anything else under the key is refused, naming what changed. */
