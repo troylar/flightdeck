@@ -466,4 +466,21 @@ rule('Review round 5 (3): Start all stops at a folder switch: nothing lands in t
   assert.ok(Object.keys(was.files).filter(p => /^runs\/validate-story\/.*run\.json$/.test(p)).length <= 1, 'the batch stopped');
 });
 
+rule('Review round 5 (6): every competing run can be chosen on the run screen, however many there are', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  app.click('loop-start', 'each', { item: 'ABC-101' }); await app.tick(150);
+  const twin = JSON.parse(app.fs.files[kidPaths(app)[0]].t);
+  for (let n = 1; n <= 5; n++) { const t = Object.assign({}, twin, { id: 'twin000' + n }); await app.fs.write('runs/validate-story/twin000' + n + '/run.json', JSON.stringify(t)); }
+  app.click('refresh'); await app.tick(250);
+  const opts = (app.html().match(/<select id="loop-pick-[^"]*"[^]*?<\/select>/) || [''])[0];
+  assert.strictEqual((opts.match(/<option/g) || []).length, 6, 'all six in the picker');
+  assert.ok(/value="twin0005"/.test(opts));
+  const pick = opts.match(/id="(loop-pick-[^"]*)"/)[1];
+  app.set(pick, 'twin0005'); app.click('loop-choose', 'each', { item: 'ABC-101', pick }); await app.tick(200);
+  const ch = scopes(app).map(p => JSON.parse(app.fs.files[p].t)).filter(f => (f.changes || []).some(c => c.op === 'choose'));
+  assert.deepStrictEqual(ch.map(f => f.changes[0].run), ['twin0005'], 'the picked run is the one counted');
+  assert.strictEqual(ch[0].changes[0].candidates.length, 6, 'bound to all six it saw');
+});
+
 run();
