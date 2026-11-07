@@ -564,6 +564,9 @@ const REF_ADDED = [
   { home: G.asking, text: "Exit code 0 is requested, already requested, or (with `--dry-run`) what it would write; 4 nothing written, because a scope record or part of the folder couldn't be read; 1 refused (a key already used for a different request, or a request that isn't valid); 5 no such run or loop step.", why: 'new in 3.0 (loops, design section 44): reading a loop and asking for a change to its list' },
   { home: G.asking, text: "If it can't confirm the save, retry with the same key, never a new one: a new key could ask twice.", why: 'new in 3.0 (loops, design section 44): reading a loop and asking for a change to its list' },
   { home: G.asking, text: "The formats are in docs/apps.md of the Flightdeck repository.", why: 'new in 3.0 (loops, design section 44): reading a loop and asking for a change to its list' },
+  { home: G.checklist, text: "**The same check for each story in a list** (Flightdeck 3.0): a `{for.each}` step over a checklist with a `result:`, with `items: jira.issue`, `pass: issue=item:key` and `accepts: cleared`.", why: 'new in 3.0 (loops, design section 44): repeated work as a {for.each} step, never one confirm for all' },
+  { home: G.checklist, text: "Each story gets its own run; never one `{confirm}` for all of them.", why: 'new in 3.0 (loops, design section 44): repeated work as a {for.each} step, never one confirm for all' },
+  { home: G.checklist, text: "See map-format.md, Loops.", why: 'new in 3.0 (loops, design section 44): repeated work as a {for.each} step, never one confirm for all' },
 ];
 
 const NOTHING = 'Nothing here allows you to write a file `AGENTS.md` tells you not to.';

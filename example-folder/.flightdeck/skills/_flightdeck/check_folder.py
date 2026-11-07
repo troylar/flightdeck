@@ -2383,7 +2383,7 @@ def design_tips(md):
             add("unused-role", "checklist", None, "The role @" + r + " is declared but no step or gate uses it. Use it or take it out of roles.")
     carried, asks_all = set(), False
     for s in parsed["steps"]:
-        carried.update(_words(s["fields"].get("sets")))
+        carried.update(e["name"] for e in sets_of(s["fields"].get("sets", "")))
         if s["type"] == "run.process":
             c = _words(s["fields"].get("carry"))
             asks_all = asks_all or not c

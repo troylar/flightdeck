@@ -331,6 +331,32 @@ A `{run.process}` step that links to a checklist with a result says which result
 
 Publishing reads the child (the pinned version, or the latest) and stops when `result:` isn't in `context:` or isn't a choice, nothing or more than one step sets it, `=decision` is on a step that isn't `{decide}`, the decision's options don't match, `accepts:` names a result the child doesn't return or the child declares no result, or `=result` imports into a detail that isn't a compatible choice. A step that links to a checklist with a result but has no `accepts:` gets a suggestion. A version that uses results is refused by name in Flightdeck before 3.0, which writes nothing to it or its runs.
 
+## Loops
+
+A `{for.each}` step starts one run of another checklist for each item in a list, such as every story in a release (Needs Flightdeck 3.0). The child returns a result, and the step says which results clear an item:
+
+```markdown
+- [!] {jira.search} Find the release's stories {#find}
+  query: fixVersion = ^fix_version
+  results: any
+
+- [!] {for.each} Validate every release story @release-lead {#each}
+  process: validate-story
+  from: #find
+  items: jira.issue
+  pass: issue=item:key, title=item:title, fix_version=^fix_version
+  accepts: cleared
+```
+
+- `process:` names the child checklist; it must give a `result:` (see Module results). `version:` pins it, as on `{run.process}`.
+- `items: jira.issue` is the kind of item. `from: #<step>` names the `{jira.search}` step whose results fill the list; leave it out for a list kept by hand.
+- `pass:` gives each item's run its details: `item:key` and `item:title` are the item's own, `^detail` and fixed values work as on `{run.process}`. `carry:` and `sets: <detail>=result` aren't allowed: results stay per item.
+- `accepts:` lists the child results that clear an item. `max:` (1 to 500, 200 when left out) is the most items the list may hold; more is refused, never cut.
+- The step is approved from its item list, never checked by hand: every item in scope needs an accepted result or an approval without a run, given by a person with a reason. The approval records the list and every result as they were. A change after it (an item added, removed or restored, a result changed) sends it back for review, listing each change; it never quietly returns.
+- The list is kept as scope records in `proposals/`, written by Flightdeck and by `flightdeck loop` (a tool's search results, items added by hand, removals, approvals without a run). A search that no longer finds an item only proposes its removal; a person decides. Each item's run is started by a person, from the list.
+
+Publishing stops when the child is the checklist itself, `from:` doesn't name a `{jira.search}` step, `accepts:` is missing or names a result the child doesn't return, or `pass:` names a detail the child doesn't have.
+
 ## Skill versions
 
 Add `skillVersion:` to a `{run.skill}` step to say which version of the skill it expects (Needs Flightdeck 2.0):

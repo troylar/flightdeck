@@ -40,10 +40,10 @@ A skill or script says how a tool does the work. A checklist says what people mu
 
 ## Work repeated per item
 
-Some work repeats for each item in a set: each story in a release, each server in a fleet. Flightdeck can't repeat a step for each item yet. Say so plainly, then choose:
+Some work repeats for each item in a set: each story in a release, each server in a fleet.
 
 - **A fixed, short set** (three environments): one step per item.
-- **A set that changes each run:** one step that keeps one result per item, in a note or a report, and a `{jira.search}` that proves the set is complete (for example `results: none` for stories not yet checked).
+- **A set that changes each run** (Flightdeck 3.0): a `{for.each}` step over a checklist that returns a result, with `from:` naming the `{jira.search}` that finds the set. Each item gets its own run, and the step is approved only when every item is cleared or approved without a run. See map-format.md, Loops.
 
 Never write "every story is ready" as one `{confirm}`: nobody can tell which items were looked at.
 
