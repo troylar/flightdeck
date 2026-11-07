@@ -232,6 +232,11 @@ def step_label(s, word="Step"):
     return '%s "%s"%s' % (word, excerpt(s.get("text")), " {#%s}" % s["id"] if s.get("id") else "")
 
 
+def step_name(s):
+    """A step as the checks' words name it, which other apps read: its first 40 characters, as every copy since 1.x (PF.util.stepName)."""
+    return 'Step "%s"' % (s.get("text") or "")[:40]
+
+
 def tokens(s, ch):
     out = []
     rest = re.sub(r"\s*\%s(%s+)" % (ch, r"[A-Za-z0-9_-]"), lambda m: out.append(m.group(1)) or "", s)
@@ -1346,7 +1351,7 @@ def unrunnable(md, types):
     if taken:
         return "It uses the name \"%s\" for a step, phase, gate, role or run detail, and Flightdeck keeps that name for itself. Publish the checklist again with another one." % taken[0]
     for s in parsed["steps"]:
-        label = step_label(s)
+        label = step_name(s)
         if not s["type"]:
             return label + " has no step type, so it can't be run. Publish the checklist again."
         d = types.get(s["type"])
@@ -2271,7 +2276,7 @@ def draft_check(md, team_types):
     parsed, blockers = parse_map(md), []
     blockers += ["Line %d: %s" % (e["line"], e["msg"]) for e in parsed["errors"]]
     for s in parsed["steps"]:
-        label = step_label(s)
+        label = step_name(s)
         if not s["type"]:
             blockers.append(label + " has no type. Every step needs one, like {confirm} or {ui.action}.")
         elif s["type"] in team_types:

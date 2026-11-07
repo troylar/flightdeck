@@ -90,7 +90,9 @@ async function same(files, proc, expect) {
   const dir = RF.toDisk(files, tmp()), r = cli(dir, proc), a = await appVerdict(files, proc);
   assert.strictEqual(r.code, 0, JSON.stringify(r.json));
   assert.strictEqual(r.json.complete, true);
-  assert.deepStrictEqual(r.json.data.checks, a.checks, 'the checks Review & publish shows');
+  const ck = r.json.data.checks;
+  assert.deepStrictEqual({ blockers: ck.blockers, suggestions: ck.suggestions }, a.checks, 'the checks Review & publish shows');
+  assert.ok(ck.blockerSteps.length === ck.blockers.length && ck.suggestionSteps.length === ck.suggestions.length, 'the step each finding names, one per finding');
   assert.deepStrictEqual(r.json.data.publish, a.publish, 'what Publish says: ' + JSON.stringify(a.publish));
   if (expect) expect(r.json.data);
   return r.json.data;
@@ -467,7 +469,7 @@ rule('Guard: PF.publish.unknownOf maps each ledger problem to the input it belon
    so a new read of an input is a test failure until it's listed (and the guard above covers it). */
 rule('Guard: every read of a check input in the checks is listed with its unknown state', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'src', 'core', 'map.js'), 'utf8');
-  const fnStart = src.indexOf('function check(map, opts)'), body = src.slice(fnStart, src.indexOf('\n  }\n', src.indexOf('return { blockers: blockers, suggestions: suggestions };', fnStart)));
+  const fnStart = src.indexOf('function check(map, opts)'), body = src.slice(fnStart, src.indexOf('\n  }\n', src.indexOf('return { blockers: blockers, suggestions: suggestions', fnStart)));
   const code = body.replace(/\/\*[\s\S]*?\*\//g, '');
   const reads = (code.match(/opts\.(people|types|workflows|processes|children|parents|teamValues|unknownType)\b/g) || []).reduce((o, k) => { o[k] = (o[k] || 0) + 1; return o; }, {});
   const LISTED = {

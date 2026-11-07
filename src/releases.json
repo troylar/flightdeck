@@ -13,12 +13,12 @@
         "where": "A checklist's page, Flight plan"
       },
       {
-        "kind": "fixed",
+        "kind": "improved",
         "area": "Checks",
-        "title": "Messages name a step by its ID and whole words",
-        "before": "A check that named a step cut its text at 40 characters, often mid-word, with no sign it was cut, and two steps that started alike looked the same.",
-        "now": "It names the step's text cut at a word, with … when cut, and its ID, as in Step \"Confirm the production deploy job…\" {#green}. The folder checker for AI assistants says the same.",
-        "where": "Edit, Publish, Folder health"
+        "title": "Each finding says which step it names, by ID",
+        "before": "A check named a step by the first 40 characters of its text, so two steps that started alike read the same to an AI assistant.",
+        "now": "flightdeck draft check, draft read and draft save also give, for each finding, the step it names: its ID and its text cut at a word, as in {#green}, Confirm the production deploy job…. The findings' words are unchanged, so tools that read them still match.",
+        "where": "flightdeck draft check, draft read, draft save"
       },
       {
         "kind": "improved",

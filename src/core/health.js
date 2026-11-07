@@ -114,7 +114,7 @@ PF.health = (function () {
       if (!p || !p.latest || !p.latest.map) return;
       PF.links.broken(p.latest.map, PF.links.childrenFrom(function (n) { return byId[n] || null; })).forEach(function (b) {
         add({ id: 'link-broken:' + p.id + ':' + b.step.id, severity: 'warn', area: 'Checklists', title: 'A linked step can\'t start its child',
-          detail: (p.latest.map.meta.title || p.id) + ' ' + U.stepLabel(b.step, 'step') + ' passes ' + b.names.join(', ') + ' to ' + b.title + ', whose latest version (v' + b.version + ') doesn\'t have ' + (b.names.length > 1 ? 'them' : 'it') + '. New runs can\'t start that child until ' + (p.latest.map.meta.title || p.id) + ' changes. Publish a version that passes what ' + b.title + ' has.',
+          detail: (p.latest.map.meta.title || p.id) + ' ' + U.stepName(b.step, 'step') + ' passes ' + b.names.join(', ') + ' to ' + b.title + ', whose latest version (v' + b.version + ') doesn\'t have ' + (b.names.length > 1 ? 'them' : 'it') + '. New runs can\'t start that child until ' + (p.latest.map.meta.title || p.id) + ' changes. Publish a version that passes what ' + b.title + ' has.',
           paths: ['maps/drafts/' + p.id + '.md'], action: { act: 'open-process', id: p.id, label: 'Open the checklist' } });
       });
     });
@@ -127,7 +127,7 @@ PF.health = (function () {
         if (x.step.type !== 'run.process') return;
         var gone = PF.links.teams(x.step).filter(function (n) { return PF.teamValues.lookup(tvs, n).missing; });
         if (gone.length) add({ id: 'team-missing:' + p.id + ':' + x.step.id, severity: 'warn', area: 'Checklists', title: 'A linked step passes a team value that isn\'t set',
-          detail: (p.latest.map.meta.title || p.id) + ' ' + U.stepLabel(x.step, 'step') + ' passes the team value ' + gone.map(function (n) { return '"' + n + '"'; }).join(', ') + ', which isn\'t in team-values.json. New runs ask for it when the child starts. Add it in Settings › Team values, or change the checklist.',
+          detail: (p.latest.map.meta.title || p.id) + ' ' + U.stepName(x.step, 'step') + ' passes the team value ' + gone.map(function (n) { return '"' + n + '"'; }).join(', ') + ', which isn\'t in team-values.json. New runs ask for it when the child starts. Add it in Settings › Team values, or change the checklist.',
           paths: [PF.teamValues.FILE, 'maps/drafts/' + p.id + '.md'], action: { act: 'open-process', id: p.id, label: 'Open the checklist' } });
       });
     });

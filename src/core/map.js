@@ -234,6 +234,10 @@ PF.map = (function () {
   function check(map, opts) {
     opts = opts || {};
     var blockers = map.errors.map(function (e) { return 'Line ' + e.line + ': ' + e.msg; }), suggestions = [], ids = Object.create(null);
+    /* blockerSteps and suggestionSteps (3.0): for each finding, in the same order, the step it names ({ id, excerpt }), or null.
+       tag(s) gives s to every finding since the last tag. */
+    var bAt = [], sAt = [];
+    function tag(s) { var r = U.stepRef(s); while (bAt.length < blockers.length) bAt.push(r); while (sAt.length < suggestions.length) sAt.push(r); }
     var meta = map.meta;
     if (!meta.process) blockers.push('Front matter needs "process" (the process ID, like release).');
     else if (!PROCESS_ID.test(meta.process)) blockers.push('"process" must be lowercase letters, numbers and dashes.');
@@ -318,7 +322,7 @@ PF.map = (function () {
     /* C3: published checklists that start this one at its latest and pass it a detail this draft no longer has (opts.parents:
        [{ id, latest }], the processes as the app lists them). Advice: they keep working until this is published. */
     if (opts.parents && meta.process) PF.links.parentsBroken(map, opts.parents).forEach(function (b) {
-      suggestions.push(b.title + ' (published) ' + U.stepLabel(b.step, 'step') + ' passes ^' + b.names.join(', ^') + ' to this checklist. After this version, new ' + b.title + ' runs can\'t start that child until ' + b.title + ' changes.');
+      suggestions.push(b.title + ' (published) ' + U.stepName(b.step, 'step') + ' passes ^' + b.names.join(', ^') + ' to this checklist. After this version, new ' + b.title + ' runs can\'t start that child until ' + b.title + ' changes.');
     });
     map.phases.forEach(function (p) {
       useId(p.id, 'Phase "' + p.title + '"');
@@ -332,7 +336,8 @@ PF.map = (function () {
       });
       if (p.steps.length > 9) suggestions.push('"' + p.title + '" has ' + p.steps.length + ' steps. Keep a phase under 10, or split it at a natural stopping point.');
       p.steps.forEach(function (s) {
-        var label = U.stepLabel(s);
+        tag(null);
+        var label = U.stepName(s);
         useId(s.id, label);
         if (s.must) musts++;
         if (!s.type) blockers.push(label + ' has no type. Every step needs one, like {confirm} or {ui.action}.');
@@ -371,6 +376,7 @@ PF.map = (function () {
         var words = s.text.split(/\s+/).length;
         if (words > 12) suggestions.push(label + ' is ' + words + ' words. Move the explanation into a note.');
         if (FLUFF.test(s.text)) suggestions.push(label + ' starts with filler. Name the action or the state to confirm.');
+        tag(s);
       });
       if (p.gate.fields && p.gate.fields.after && U.duration(p.gate.fields.after) == null) blockers.push('Gate "' + p.gate.title + '": "after" should be a duration like 2h or 30m.');
       if (p.gate.fields && ['at', 'due', 'after'].filter(function (f) { return p.gate.fields[f]; }).length > 1) blockers.push('Gate "' + p.gate.title + '": give one time, "at:", "due:" or "after:", not more than one.');
@@ -387,13 +393,17 @@ PF.map = (function () {
     if (PF.refs) {
       var said = Object.create(null);
       PF.refs.scan(map, { types: opts.types, unknownType: opts.unknownType }).forEach(function (u) {
-        var w = u.where, v = u.verdict, label = w.kind === 'gate' ? 'Gate "' + w.gate.title + '"' : U.stepLabel(w.step);
+        tag(null);
+        var w = u.where, v = u.verdict, label = w.kind === 'gate' ? 'Gate "' + w.gate.title + '"' : U.stepName(w.step);
         var inBox = w.box.indexOf('field:') === 0 ? ' in "' + w.box.slice(6) + '"' : '', key = label + '|' + w.box + '|' + u.name;
         if (said[key] || (v.v === 'unknown' && !inBox) || v.v === 'ok') return;
         said[key] = true;
-        if (v.v === 'unknown') { suggestions.push(label + ': ^' + u.name + inBox + ' isn\'t a run detail, so a run shows it as written.' + meant(u.name)); return; }
-        var s0 = v.setters[0], cond = s0.when.length ? ' (only when ' + s0.when.join(' and ') + ')' : '';
-        suggestions.push(label + ': ^' + u.name + inBox + ' may not be set yet here: “' + U.excerpt(s0.text) + '” sets it ' + (s0.phase === w.phaseIndex ? 'in this phase' : 'in a later phase') + cond + '.');
+        if (v.v === 'unknown') suggestions.push(label + ': ^' + u.name + inBox + ' isn\'t a run detail, so a run shows it as written.' + meant(u.name));
+        else {
+          var s0 = v.setters[0], cond = s0.when.length ? ' (only when ' + s0.when.join(' and ') + ')' : '';
+          suggestions.push(label + ': ^' + u.name + inBox + ' may not be set yet here: “' + s0.text.slice(0, 40) + '” sets it ' + (s0.phase === w.phaseIndex ? 'in this phase' : 'in a later phase') + cond + '.');
+        }
+        tag(w.kind === 'gate' ? null : w.step);
       });
     }
     PF.jsearch.addressBlockers(addressOf).forEach(function (m) { blockers.push(m); });
@@ -402,7 +412,8 @@ PF.map = (function () {
     /* The backup owner signs off only while the owner is away, so it must be someone else on the team. */
     if (meta.backup && meta.backup === meta.owner) suggestions.push('The backup owner is the owner. Name someone else as backup:, or leave it out.');
     else if (opts.people && meta.backup && !opts.people.some(function (p) { return p.id === meta.backup; })) suggestions.push('Backup owner "' + meta.backup + '" isn\'t in people.json.');
-    return { blockers: blockers, suggestions: suggestions };
+    tag(null);
+    return { blockers: blockers, suggestions: suggestions, blockerSteps: bAt, suggestionSteps: sAt };
   }
 
   /* Which steps set each run detail (sets:), so the start form can leave those for the run. */

@@ -111,7 +111,7 @@ roles: a, b
   const u = X.scan(map, {}).filter(x => x.where.step && x.where.step.id === 'u');
   u.forEach(x => assert.strictEqual(x.verdict.v, 'maybe-unset'));
   const sug = M.check(map, {}).suggestions.filter(s => /may not be set/.test(s));
-  assert.ok(sug.some(s => s === 'Step "Use it" {#u}: ^tag may not be set yet here: “Tag it” sets it in this phase (only when ^hotfix is yes).'), sug.join('\n'));
+  assert.ok(sug.some(s => s === 'Step "Use it": ^tag may not be set yet here: “Tag it” sets it in this phase (only when ^hotfix is yes).'), sug.join('\n'));
   assert.ok(sug.some(s => /\^tag in "command" may not be set yet/.test(s)), sug.join('\n'));
 });
 
@@ -133,10 +133,10 @@ rule('only fields a run fills in are read: sets, carry, process and the timing f
 
 rule('checks: unknown in step text blocks with a did-you-mean; in a field it is advice; maybe-unset is advice', () => {
   const c = check(MAP);
-  assert.ok(c.blockers.indexOf('Step "Build for" {#build}: is tied to ^enviroment, which isn\'t listed in context. Did you mean ^environment?'.replace('}: is', '} is')) >= 0, c.blockers.join('\n'));
-  assert.ok(c.suggestions.indexOf('Step "Build for" {#build}: ^ERROR in "command" isn\'t a run detail, so a run shows it as written.') >= 0, c.suggestions.join('\n'));
-  assert.ok(c.suggestions.indexOf('Step "Build for" {#build}: ^tagg in "command" isn\'t a run detail, so a run shows it as written. Did you mean ^tag?') >= 0, c.suggestions.join('\n'));
-  assert.ok(c.suggestions.indexOf('Step "Note the tag" {#early}: ^tag may not be set yet here: “Tag the build” sets it in this phase.') >= 0, c.suggestions.join('\n'));
+  assert.ok(c.blockers.indexOf('Step "Build for": is tied to ^enviroment, which isn\'t listed in context. Did you mean ^environment?'.replace('": is', '" is')) >= 0, c.blockers.join('\n'));
+  assert.ok(c.suggestions.indexOf('Step "Build for": ^ERROR in "command" isn\'t a run detail, so a run shows it as written.') >= 0, c.suggestions.join('\n'));
+  assert.ok(c.suggestions.indexOf('Step "Build for": ^tagg in "command" isn\'t a run detail, so a run shows it as written. Did you mean ^tag?') >= 0, c.suggestions.join('\n'));
+  assert.ok(c.suggestions.indexOf('Step "Note the tag": ^tag may not be set yet here: “Tag the build” sets it in this phase.') >= 0, c.suggestions.join('\n'));
   assert.ok(!c.blockers.some(b => /ERROR|tagg|may not be set/.test(b)), c.blockers.join('\n'));
   // Same-phase earlier setter, and the gate at the end of the setter's phase, say nothing.
   assert.ok(!c.suggestions.some(s => /Push|Gate "Ready"/.test(s) && /\^tag/.test(s)), c.suggestions.join('\n'));

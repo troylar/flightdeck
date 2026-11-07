@@ -1808,7 +1808,7 @@ async function draftMain(argv) {
           : latest ? { rev: latest.rev, kind: 'version', ref: latest.folder, text: latest.text } : { rev: PP.sha(''), kind: 'none', ref: null, text: '' };
       /* The draft is there but couldn't be read, and nothing else continues it: its text is unknown, so nothing is checked. */
       const unread = !pending && s.draft.exists && s.draft.text == null;
-      const ck = unread ? { checks: { blockers: [], suggestions: [] }, problems: [] } : await checksOf(cf.text), problems = merged(s.problems, ck.problems);
+      const ck = unread ? { checks: { blockers: [], suggestions: [], blockerSteps: [], suggestionSteps: [] }, problems: [] } : await checksOf(cf.text), problems = merged(s.problems, ck.problems);
       const out = draftJson(eng, { process: proc, session, draft: s.draft, openIn: s.presence.openIn, mine: s.mine.map((m) => ({ id: m.id, rev: m.rev, status: m.status, text: m.text })),
         continueFrom: cf, checks: ck.checks, copies: s.copies, readAt: new Date(now).toISOString(), complete: problems.length === 0, problems });
       return { out: JSON.stringify(out, null, 2), code: out.complete ? 0 : EXIT.partial };

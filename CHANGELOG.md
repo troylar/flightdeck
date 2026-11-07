@@ -8,13 +8,13 @@ Thoughtful checklists: a library view, design tips and clearer checks.
 
 ### Improved
 
+- **Each finding says which step it names, by ID** (Checks). flightdeck draft check, draft read and draft save also give, for each finding, the step it names: its ID and its text cut at a word, as in {#green}, Confirm the production deploy job…. The findings' words are unchanged, so tools that read them still match. *Where:* flightdeck draft check, draft read, draft save
 - **A missing Jira address is said once** (Jira searches). It is said once per address, with how many searches need it and their step IDs, as in 7 Jira searches need the team's Jira address. The format guide now says publishing needs the address; Copy without a link is only for runs. *Where:* Edit, Publish, map-format.md
 - **A name in a link field says where it goes** (Checks). The check says the field takes a web link and to put a name or file reference in a note. A real link with a space still gets the %20 advice, and hidden characters are still named. *Where:* Edit, Publish
 
 ### Fixed
 
 - **Each gate is drawn once** (Flight plan). The step list holds only steps. The gate, named or not, is the checkpoint beneath the phase. *Where:* A checklist's page, Flight plan
-- **Messages name a step by its ID and whole words** (Checks). It names the step's text cut at a word, with … when cut, and its ID, as in Step "Confirm the production deploy job…" {#green}. The folder checker for AI assistants says the same. *Where:* Edit, Publish, Folder health
 
 ## 2.16.2 · Nov 5, 2026
 

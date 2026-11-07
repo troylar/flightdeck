@@ -994,7 +994,22 @@ rule('A step named in a message: its ID and its text cut at a word with …, the
   const md = ['---', 'process: x', 'title: X', '---', '', '## S · DO-CONFIRM {#s}', '- [ ] Confirm the production deploy job finished green on every node {#green}', '', '## Gate: G {#g}', ''].join('\n');
   const why = cp.execFileSync(py, ['-I', '-c', src.replace("[m.step_label(s) for s in d]", "m.unrunnable(d,{})"), CHECKER], { input: JSON.stringify(md), encoding: 'utf8' });
   assert.strictEqual(JSON.parse(why), PF.publish.unrunnable(md, {}));
-  assert.ok(/Step "Confirm the production deploy job…" \{#green\} has no step type/.test(JSON.parse(why)), why);
+  assert.ok(/^Step "Confirm the production deploy job finish" has no step type/.test(JSON.parse(why)), 'the words other apps read stay as 1.x said them: ' + why);
+});
+
+rule('Checks keep their words as every copy since 1.x says them; the step each finding names rides alongside with its ID and excerpt', () => {
+  const md = ['---', 'process: x', 'title: X', 'context: tag', '---', '', '## S · DO-CONFIRM {#s}', '- [ ] Read this {#read}', '- [ ] {confirm} Confirm the production deploy job finished green on every node {#green}', '  expect: soon',
+    '- [ ] {confirm} Use ^tagg in the notes {#use}', '', '## Gate: G {#g}', '  after: soon', ''].join('\n');
+  const c = JSON.parse(JSON.stringify(PF.map.check(PF.map.parse(md), {})));
+  assert.deepStrictEqual(c.blockers, ['Step "Read this" has no type. Every step needs one, like {confirm} or {ui.action}.', 'Step "Confirm the production deploy job finish": "expect" should look like 20m or 1h30m.',
+    'Step "Use in the notes" is tied to ^tagg, which isn\'t listed in context. Did you mean ^tag?', 'Gate "G": "after" should be a duration like 2h or 30m.']);
+  assert.strictEqual(c.blockerSteps.length, c.blockers.length); assert.strictEqual(c.suggestionSteps.length, c.suggestions.length);
+  const at = (b) => c.blockerSteps[c.blockers.findIndex(x => x.indexOf(b) === 0)];
+  assert.deepStrictEqual(at('Step "Read this"'), { id: 'read', excerpt: 'Read this' });
+  assert.deepStrictEqual(at('Step "Confirm the production'), { id: 'green', excerpt: 'Confirm the production deploy job…' });
+  assert.deepStrictEqual(at('Step "Use in'), { id: 'use', excerpt: 'Use in the notes' });
+  assert.strictEqual(at('Gate "G"'), null, 'a gate names no step');
+  assert.ok(c.suggestionSteps.every((x, i) => x === null || c.suggestions[i].indexOf('Step "' + x.excerpt.replace(/…$/, '')) === 0), JSON.stringify([c.suggestions, c.suggestionSteps]));
 });
 
 /* 3.0: check_folder.py --draft, for an assistant without the flightdeck command: the design tips that need no other checklist
@@ -1028,11 +1043,11 @@ rule('check_folder.py --draft: the design tips are the app\'s, word for word, an
   });
   assert.deepStrictEqual(out[2].blockers, [
     'Line 14: Not understood, so it was skipped: "stray line"',
-    'Step "Untyped step" {#u} has no type. Every step needs one, like {confirm} or {ui.action}.',
-    'Step "Unknown type" {#n} has an unknown type {nope.type}.',
-    'Step "Search with nothing" {#s} needs "query:" (JQL) or "filter:" (a saved filter\'s number). It can\'t be filled in during a run.',
-    'Step "Search with nothing" {#s} "results" should be none, any, exactly N, at least N or at most N (N a whole number up to 999999).',
-    'Step "Run the job" {#j} has a field "colour" that {jenkins.job} doesn\'t use.']);
+    'Step "Untyped step" has no type. Every step needs one, like {confirm} or {ui.action}.',
+    'Step "Unknown type" has an unknown type {nope.type}.',
+    'Step "Search with nothing" needs "query:" (JQL) or "filter:" (a saved filter\'s number). It can\'t be filled in during a run.',
+    'Step "Search with nothing" "results" should be none, any, exactly N, at least N or at most N (N a whole number up to 999999).',
+    'Step "Run the job" has a field "colour" that {jenkins.job} doesn\'t use.']);
   assert.deepStrictEqual(out[0].blockers, [], 'tips never block');
   /* From the command line: a team type in step-types/ is known by name, and the output says what ran and what didn't. */
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-draft-'));

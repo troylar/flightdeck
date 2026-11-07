@@ -187,15 +187,15 @@ rule('checks: pass: problems that stop publishing, with or without the child', (
   c = chk(['  sets: tag', '  pass: environment=^tag'], null);
   assert.ok(has(c.blockers, /passes \^tag and sets it/), c.blockers.join('\n'));
   c = chk(['  pass: environment=^env,, x=1'], null);
-  assert.ok(has(c.blockers, /Step "Deploy the build" \{#dep\} pass: has an empty entry/), c.blockers.join('\n'));
+  assert.ok(has(c.blockers, /Step "Deploy the build" pass: has an empty entry/), c.blockers.join('\n'));
 });
 
 rule('checks against the child: a target or carry: name it lacks and a fixed value of the wrong kind block; Latest and pinned are named', () => {
   const latest = { map: KID, title: 'Deploy', version: 6, latest: true }, pinned = { map: KID, title: 'Deploy', version: 4 };
   let c = chk(['  pass: zone=^region'], latest);
-  assert.ok(has(c.blockers, /^Deploy's latest version \(v6\) has no run detail zone, so step "Deploy the build" \{#dep\} can't pass it\. Choose one it has, or remove it from pass:\.$/), c.blockers.join('\n'));
+  assert.ok(has(c.blockers, /^Deploy's latest version \(v6\) has no run detail zone, so step "Deploy the build" can't pass it\. Choose one it has, or remove it from pass:\.$/), c.blockers.join('\n'));
   c = chk(['  carry: env'], pinned);
-  assert.ok(has(c.blockers, /^Deploy v4 has no run detail env, so step "Deploy the build" \{#dep\} can't pass it\. Choose one it has, or remove it from carry:\.$/), c.blockers.join('\n'));
+  assert.ok(has(c.blockers, /^Deploy v4 has no run detail env, so step "Deploy the build" can't pass it\. Choose one it has, or remove it from carry:\.$/), c.blockers.join('\n'));
   c = chk(['  pass: replicas=three'], pinned);
   assert.ok(has(c.blockers, /Deploy v4's \^replicas is a number; "three" isn't one/), c.blockers.join('\n'));
   assert.ok(!chk(['  pass: replicas=3'], pinned).blockers.length, 'a number is fine');
@@ -374,7 +374,7 @@ rule('A child that drops a detail breaks only an explicit target: carry: or pass
   const parents = [{ id: 'rel', latest: { map: M.parse(RELEASE(['  pass: environment=^env'])) } }, { id: 'other', latest: { map: M.parse(RELEASE([]).replace('process: rel', 'process: other')) } }];
   same(L.parentsBroken(lacking, parents).map(b => [b.process, b.names]), [['rel', ['environment']]]);
   const c = M.check(lacking, { parents });
-  assert.ok(c.suggestions.some(x => /Release \(published\) step "Deploy it" \{#dep\} passes \^environment to this checklist/.test(x)), JSON.stringify(c.suggestions));
+  assert.ok(c.suggestions.some(x => /Release \(published\) step "Deploy it" passes \^environment to this checklist/.test(x)), JSON.stringify(c.suggestions));
 });
 
 rule('Folder health names a linked step that can\'t start its child, with a way to open the parent', () => {

@@ -53,6 +53,11 @@ PF.util = (function () {
     return head.join('').replace(/[ .,;:!?-]+$/, '') + '\u2026';
   }
   function stepLabel(s, word) { return (word || 'Step') + ' "' + excerpt(s && s.text) + '"' + (s && s.id ? ' {#' + s.id + '}' : ''); }
+  /* A step as checks name it in their words, which other apps read (flightdeck draft check): its first 40 characters, as every
+     copy since 1.x says it. The ID and excerpt go alongside (PF.map.check's blockerSteps and suggestionSteps), never into
+     the words. */
+  function stepName(s, word) { return (word || 'Step') + ' "' + String(s && s.text || '').slice(0, 40) + '"'; }
+  function stepRef(s) { return s ? { id: s.id || null, excerpt: excerpt(s.text) } : null; }
 
   function slug(s, max) {
     return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, max || 40) || 'x';
@@ -219,7 +224,7 @@ PF.util = (function () {
     return b >= 0.9 * DRAFT_BYTES ? String(Math.round(b / 1048576 * 100) / 100) + ' of 1 MB' : '';
   }
 
-  return { DRAFT_BYTES: DRAFT_BYTES, utf8Bytes: utf8Bytes, draftTooBig: draftTooBig, draftSize: draftSize, drift: drift, esc: esc, timeOnDayIn: timeOnDayIn, safeUrl: safeUrl, mdInline: mdInline, mdBlock: mdBlock, excerpt: excerpt, stepLabel: stepLabel, slug: slug, randomId: randomId, hash: hash, nthKey: nthKey, nthOf: nthOf,
+  return { DRAFT_BYTES: DRAFT_BYTES, utf8Bytes: utf8Bytes, draftTooBig: draftTooBig, draftSize: draftSize, drift: drift, esc: esc, timeOnDayIn: timeOnDayIn, safeUrl: safeUrl, mdInline: mdInline, mdBlock: mdBlock, excerpt: excerpt, stepLabel: stepLabel, stepName: stepName, stepRef: stepRef, slug: slug, randomId: randomId, hash: hash, nthKey: nthKey, nthOf: nthOf,
     hm: hm, when: when, full: full, day: day, dueWords: dueWords, localDateTime: localDateTime, clock: clock, duration: duration, timeToday: timeToday };
 })();
 /* Name order for the lists people scan by name (2.11): numbers in a name compare as numbers, so Process 2 comes before

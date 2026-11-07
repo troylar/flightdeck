@@ -26,7 +26,7 @@ PF.publish = (function () {
   function pinCheck(map, childProcs, unknown) {
     var pins = { children: {}, skills: {} }, pinBlockers = [];
     M.steps(map).forEach(function (x) {
-      var s = x.step, label = U.stepLabel(s);
+      var s = x.step, label = U.stepName(s);
       if (s.type === 'run.process' && Object.prototype.hasOwnProperty.call(s.fields, 'version') && !(unknown && unknown(s.fields.process, s.fields.version))) {
         var cp = childProcs && Object.prototype.hasOwnProperty.call(childProcs, s.fields.process) ? childProcs[s.fields.process] : null;
         var got = PF.pins.atVersion(cp, s.fields.process || '?', +s.fields.version);
@@ -221,7 +221,7 @@ PF.publish = (function () {
     var map = M.parse(draftMd), c = M.check(map, ctx.options);
     var pub = c.blockers.length ? c.blockers : pinCheck(map, ctx.childProcs, ctx.unknownProcess).blockers;
     if (!pub.length) pub = ctx.missingShots.map(function (src) { return 'The screenshot ' + src + ' isn\'t in the team folder. Add it, or remove it from the checklist.'; });
-    return { checks: { blockers: c.blockers, suggestions: c.suggestions }, publish: { ok: !pub.length, blockers: pub.slice() } };
+    return { checks: { blockers: c.blockers, suggestions: c.suggestions, blockerSteps: c.blockerSteps, suggestionSteps: c.suggestionSteps }, publish: { ok: !pub.length, blockers: pub.slice() } };
   }
 
   /* Why this copy can't run a checklist, or '' if it can. Only what the version itself holds is checked, never the folder's
@@ -242,7 +242,7 @@ PF.publish = (function () {
     taken = taken.filter(function (n) { return n === '__proto__' || n in Object.prototype; })[0];
     if (taken) return 'It uses the name "' + taken + '" for a step, phase, gate, role or run detail, and Flightdeck keeps that name for itself. Publish the checklist again with another one.';
     for (var i = 0; i < all.length; i++) {
-      var s = all[i].step, label = U.stepLabel(s), def = s.type ? T.get(s.type, types) : null;
+      var s = all[i].step, label = U.stepName(s), def = s.type ? T.get(s.type, types) : null;
       if (!s.type) return label + ' has no step type, so it can\'t be run. Publish the checklist again.';
       if (!def) return label + ' uses the step type {' + s.type + '}, which this copy of Flightdeck doesn\'t have and this version doesn\'t include. Update Flightdeck, or publish the checklist again.';
       /* A hand-written or newer types.json can hold anything; a type this copy can't fully read is reported, never thrown. */

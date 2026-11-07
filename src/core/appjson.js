@@ -82,6 +82,7 @@ PF.appjson = (function () {
   /* A detail that must match a pattern (2.16, Appendix A) carries pattern; every other detail is exactly as before. */
   var DETAIL = { name: 'string', type: 'string', options: ['string'] };
   var DESIGN_TIP = { id: 'string', at: 'string', ref: opt('string'), text: 'string' };
+  var STEP_REF = { id: opt('string'), excerpt: 'string' };
   var LIB_CHECKLIST = { process: 'string', title: 'string', source: 'string', version: opt('number'), folder: opt('string'), owner: opt('string'), runs: 'string',
     context: [{ name: 'string', type: 'string' }], roles: ['string'],
     steps: [{ id: 'string', phase: 'string', type: 'string', text: 'string', must: 'boolean', roles: ['string'], fields: map('string') }],
@@ -101,7 +102,9 @@ PF.appjson = (function () {
       gates: [extend(SCHEMA.run.run.$or[0].gates[0], { applies: APPLIES })], followUps: [FOLLOWUP2] })) },
     /* flightdeck draft check (2.13): the verdict the Publish dialog gives the text, from the folder as it is now. from: the draft
        in maps/drafts/ (ref its path) or the file given with --from (ref null); rev: SHA-256 of the text checked. */
-    draftCheck: { process: 'string', from: { kind: 'string', ref: opt('string'), rev: 'string' }, checks: { blockers: ['string'], suggestions: ['string'] }, publish: { ok: 'boolean', blockers: ['string'] },
+    draftCheck: { process: 'string', from: { kind: 'string', ref: opt('string'), rev: 'string' }, checks: { blockers: ['string'], suggestions: ['string'],
+      /* blockerSteps and suggestionSteps (3.0): the step each finding names, in the same order, or null. */
+      blockerSteps: [opt(STEP_REF)], suggestionSteps: [opt(STEP_REF)] }, publish: { ok: 'boolean', blockers: ['string'] },
       /* design (3.0): PF.library.lints, advice that never stops publishing; library says whether every published checklist
          was read for the tips that compare with them. */
       design: { tips: [DESIGN_TIP], library: { complete: 'boolean', note: 'string' } } },
