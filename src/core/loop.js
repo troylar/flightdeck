@@ -294,6 +294,9 @@ PF.loop = (function () {
   }
   /* The id of a story's row in a loop's table, so a return from its run lands on it. */
   function rowId(step, key) { var c = function (v) { return String(v || '').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80); }; return 'loop-row-' + c(step) + '-' + c(key); }
+  /* Whether a story that has a run may start a new attempt (the earlier attempts are kept): its run returned a result this
+     loop doesn't accept, ended early, or can't stand for it (another version or other inputs: "Start a new run"). */
+  function again(i) { return !!i && i.required && !i.exception && i.state !== 'proposed' && (i.status === 'result' || i.status === 'stopped' || (i.status === 'unread' && !!i.unqualified)); }
   function startable(r, V, keys) {
     var start = [], skip = [];
     V.rollup.items.forEach(function (i) {
@@ -302,9 +305,10 @@ PF.loop = (function () {
       if (!i.required) why = 'removed from scope';
       else if (i.exception) why = 'approved without a run';
       else if (i.state === 'proposed') why = 'waiting on a removal decision';
-      else if (i.runs.length) why = 'already started';
+      else if (i.runs.length && !again(i)) why = 'already started';
+      else if (i.runs.length && !keys) why = 'needs a new attempt; start it on its own';
       else { var g = inputsFor(r, V.fields, x); if (g.missing.length) why = 'needs ' + g.missing.join(', ') + ' first'; }
-      if (why) skip.push({ key: name, uid: i.uid, why: why }); else start.push({ key: name, uid: i.uid, title: i.title || '', attempt: Math.max(1, i.attempt || 1) });
+      if (why) skip.push({ key: name, uid: i.uid, why: why }); else start.push({ key: name, uid: i.uid, title: i.title || '', attempt: i.runs.length ? (i.attempt || 1) + 1 : Math.max(1, i.attempt || 1), again: !!i.runs.length });
     });
     return { start: start, skip: skip };
   }
@@ -713,5 +717,5 @@ PF.loop = (function () {
 
   return { KINDS: KINDS, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
     idFor: idFor, isScope: isScope, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
-    rollup: rollup, view: view, markStale: markStale, rowId: rowId, appliedIn: appliedIn, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
+    rollup: rollup, view: view, markStale: markStale, rowId: rowId, again: again, appliedIn: appliedIn, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();

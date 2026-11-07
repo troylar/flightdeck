@@ -184,4 +184,16 @@ rule('Review round 3 (3): a key already used for another loop\'s request is refu
   assert.ok(/loop/.test(again.error.why), again.error.why);
 });
 
+rule('Review round 3 (5): loop start asks for a new attempt of a story whose run returned needs-work; start-all leaves it out, saying why', async () => {
+  const { root, kid } = await folder(), f = path.join(root, '..', path.basename(root) + '-obs6.json');
+  await kid(101, 'needs-work');
+  fs.writeFileSync(f, JSON.stringify(obs([101])));
+  json('loop', 'sync', root, 'release-readiness/r-41', 'each', '--from', f, '--json', '--tool', 'release-helper@1.0', '--key', 'a');
+  const T = ['--tool', 'release-helper@1.0', '--as', 'person-morgan'];
+  const one = json('loop', 'start', root, 'release-readiness/r-41', 'each', '--item', 'ABC-101', '--dry-run', '--key', 'n1', '--json', ...T);
+  assert.deepStrictEqual([one.code, one.data && one.data.start.map(k => k.key + ':' + k.attempt)], [0, ['ABC-101:2']], JSON.stringify(one.error || {}));
+  const all = json('loop', 'start-all', root, 'release-readiness/r-41', 'each', '--dry-run', '--key', 'n2', '--json', ...T);
+  assert.ok(all.error && /new attempt/.test(all.error.why), JSON.stringify(all.error || all.data));
+});
+
 run();

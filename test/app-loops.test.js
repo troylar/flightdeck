@@ -32,10 +32,11 @@ const parentRun = (app) => JSON.parse(app.fs.files[app.files('runs/release-readi
 const kidPaths = (app) => app.files('runs/validate-story/').filter(p => /run\.json$/.test(p));
 const txt = (app) => app.html().replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/&#39;/g, "'");
 const scopes = (app) => app.files('proposals/').filter(p => /\/req-/.test(p));
-async function clear(app, path) {
+async function clear(app, path, decision) {
+  decision = decision || 'cleared';
   const kid = JSON.parse(app.fs.files[path].t), at = new Date(Date.now() + 1000).toISOString(), R = app.PF.run;
-  kid.steps.verdict = { s: 'done', by: 'person-avery', at, values: { decision: 'cleared' } };
-  kid.details.disposition = 'cleared';
+  kid.steps.verdict = { s: 'done', by: 'person-avery', at, values: { decision } };
+  kid.details.disposition = decision;
   const rr = R.sanitize(JSON.parse(JSON.stringify(kid))), mm = R.mapOf(rr);
   mm.phases.forEach(p => { if (p.gate) kid.gates[p.gate.id] = { s: 'passed', by: 'person-avery', at, approved: R.gateInputs(rr, mm, p.gate) }; });
   kid.ended = { outcome: 'Completed', by: 'person-avery', at }; kid.state = 'completed'; kid.rev = (kid.rev || 0) + 1;
@@ -353,6 +354,17 @@ rule('Review round 3 (4): a start request whose outcome couldn\'t be written is 
   app.click('refresh'); await app.tick(250);
   assert.strictEqual(kidPaths(app).length, 1, 'not started again');
   assert.deepStrictEqual([outcome(app, st).op, /ABC-101/.test(outcome(app, st).reason)], ['applied', true], outcome(app, st).reason);
+});
+
+rule('Review round 3 (5): a story whose run returned needs-work offers a new attempt; the earlier attempt is kept', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  app.click('loop-start', 'each', { item: 'ABC-101' }); await app.tick(150);
+  await clear(app, kidPaths(app)[0], 'needs-work');
+  assert.ok(/Start a new attempt/.test(txt(app)), 'a new attempt is offered');
+  app.click('loop-start', 'each', { item: 'ABC-101' }); await app.tick(200);
+  const ks = kidPaths(app).map(p => JSON.parse(app.fs.files[p].t).parent.item.attempt).sort();
+  assert.deepStrictEqual(ks, [1, 2], 'both attempts kept');
 });
 
 run();

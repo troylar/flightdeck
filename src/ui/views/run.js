@@ -211,6 +211,7 @@
         if (i.run) acts += '<button class="mini" data-act="open-run" data-id="' + esc(V.fields.process + '/' + i.run) + '" data-loop="' + sid + '" data-item="' + k + '">Open run</button>';
         var mine = !!me && x.owner === me && !V.ended && !r.paused;
         if ((work || mine) && i.required && !i.run && !i.exception && i.state !== 'proposed') acts += '<button class="mini' + (mine ? ' go' : '') + '" data-act="loop-start"' + data + '>' + (mine ? 'Start mine' : 'Start its run') + '</button>';
+        else if ((work || mine) && PF.loop.again(i)) acts += '<button class="mini' + (mine ? ' go' : '') + '" data-act="loop-start"' + data + '>Start a new attempt</button>';
         if (work && i.required && me && x.owner !== me) acts += '<button class="mini" data-act="loop-owner"' + data + '>Make me the owner</button>';
         if (work && i.state === 'proposed') acts += '<button class="mini" data-act="loop-accept"' + data + '>Remove</button><button class="mini" data-act="loop-keep"' + data + '>Keep</button>';
         else if (work && i.required) acts += '<button class="mini" data-act="loop-exclude"' + data + '>Remove</button>';
