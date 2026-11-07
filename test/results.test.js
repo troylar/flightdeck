@@ -182,4 +182,28 @@ rule('A step without accepts: settles as before, whatever the result', () => {
   assert.ok(!('result' in p.r.steps.story.child));
 });
 
+/* ---------- What the command line gives assistants (flightdeck-read/2) ---------- */
+rule('Contract 2: process carries the result and accepts, run and runs the result and outcome, run and next who holds a step', () => {
+  const A = PF.appjson, nameOf = (id) => id ? { id, name: id } : null;
+  const kp = publish(CHILD()), p = parentRun(kp), c = child('needs-work', 'kid1', { pub: kp });
+  link(p, c, kp); R.settleChild(p.r, p.map, 'story', c, 'person-avery', LATER, p.procOf);
+  const pr = A.process2({ process: 'validate-story', id: 'validate-story', title: 'Validate a story', pubs: [kp], index: P.index([kp]) }, kp);
+  same(pr.result, { name: 'disposition', options: ['cleared', 'needs-work', 'deferred'], step: 'verdict' });
+  same(A.conforms(pr, A.SCHEMA2.process), []);
+  const ppub = publish(PARENT(), { childProcs: { 'validate-story': proc([kp]) } }), pp = A.process2({ process: 'release', id: 'release', title: 'Release', pubs: [ppub], index: P.index([ppub]) }, ppub);
+  const st = pp.phases[0].steps[0];
+  same([pp.result, st.accepts, st.imports, st.sets], [null, ['cleared'], 'story_result', ['story_result']]);
+  same(A.conforms(pp, A.SCHEMA2.process), []);
+  const cr = A.summary2(c, nameOf);
+  same([cr.result, cr.outcome], [{ name: 'disposition', value: 'needs-work' }, 'Completed · needs-work']);
+  const rr = A.run2(p.r, [], nameOf).run, s0 = rr.steps.filter(x => x.id === 'story')[0];
+  same([s0.state, s0.accepts, s0.result, s0.heldBy], ['blocked', ['cleared'], 'needs-work', { process: 'validate-story', id: 'kid1', result: 'needs-work', reason: 'Validate a story returned needs-work; this step accepts cleared' }]);
+  same([rr.result, rr.outcome], [null, null]);
+  same(A.conforms({ run: rr }, A.SCHEMA2.run), []);
+  const nx = A.next2(p.r, nameOf, null);
+  same([nx.next.kind, nx.next.step.heldBy && nx.next.step.heldBy.result], ['blocked', 'needs-work']);
+  same(A.conforms(nx, A.SCHEMA2.next), []);
+  assert.ok(!('heldBy' in A.next(p.r, nameOf, null).next.step), 'contract 1 is unchanged');
+});
+
 run();
