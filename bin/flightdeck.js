@@ -1748,17 +1748,29 @@ async function libraryMain(argv) {
   const PF = eng.PF, A = PF.appjson, ra = readAdapter(dir, { maxBytes: READ_MAX }), L = PF.repo.ledger(PF.repo.readOnly(ra, 'Reading the library'));
   const everything = () => { const out = L.problems(), seen = {}; out.forEach((x) => { seen[x.path + '\u0000' + x.kind] = true; }); adapterProblems(ra).forEach((x) => { if (!seen[x.path + '\u0000' + x.kind]) out.push(x); }); return out; };
   try {
-    const d = await PF.repo.loadAll(dependsOn(L.fs, ['publications', 'maps/drafts', 'step-types', 'skills', 'skill-registrations']), { readOnly: true, explain: true, deep: true });
+    const d = await PF.repo.loadAll(dependsOn(L.fs, ['publications', 'maps/drafts', 'step-types', 'skills', 'skill-registrations']), { readOnly: true, explain: true, deep: true, registrations: true });
     const failed = d.failed || {};
     const PARTS = { drafts: 'maps/drafts', publications: 'publications', 'step types': 'step-types', skills: 'skills' };
     Object.keys(PARTS).forEach((k) => { if (k in failed && !L.problems().some((x) => x.path === PARTS[k] || x.path.indexOf(PARTS[k] + '/') === 0)) L.note(PARTS[k], /newer/.test(failed[k]) ? 'newer' : 'unreadable', failed[k]); });
     (d.processes || []).forEach((p) => p.pubs.filter((x) => !x.ok && !x._readFailed).forEach((x) => { const k = A.pubProblem(x); L.note('publications/' + p.process + '/' + x.folder + '/', k.kind, k.why); }));
     /* A draft too big or that failed to read is named, never left out as if the process had no draft. */
     (d.unreadable || []).forEach((x) => { if (x && x.draft && !L.problems().some((y) => y.path === x.path)) L.note(x.path, 'unreadable', x.path + ' ' + x.why + '.'); });
+    const entries = PF.library.entriesOf(d);
+    /* A draft with a line it doesn't understand is read as far as it goes (PF.library.inspect) and named here. */
+    entries.forEach((e) => {
+      if (!e.draft || !(e.draftChanged || !e.latest)) return;
+      const errs = PF.map.parse(e.draft.md).errors, at = 'maps/drafts/' + e.draft.file;
+      if (errs.length && !L.problems().some((x) => x.path === at)) L.note(at, 'malformed', at + ' line ' + errs[0].line + ': ' + errs[0].msg + (errs.length > 1 ? ' (and ' + (errs.length - 1) + ' more)' : ''));
+    });
+    /* Skill registrations that couldn't be read: a file, or a skill with a revision that can't be (no revision is current). */
+    (d.skills || []).forEach((x) => {
+      if (!(x.errors || []).length || !x.file || (x.skill && !x.refused)) return;
+      const at = x.refused && x.name ? 'skill-registrations/' + x.name + '/' : /^skill(s|-registrations)\//.test(x.file) ? x.file : 'skills/' + x.file;
+      if (!L.problems().some((y) => y.path === at)) L.note(at, x.newer ? 'newer' : 'unreadable', x.errors[0]);
+    });
     const problems = everything();
     const unread = problems.filter((x) => /^(publications|maps\/drafts|step-types|skills|skill-registrations)(\/|$)/.test(x.path))
-      .map((x) => ({ process: /^publications\//.test(x.path) ? x.path.split('/')[1] || null : null, path: x.path, why: x.why }));
-    const entries = PF.library.entriesOf(d);
+      .map((x) => ({ process: /^publications\//.test(x.path) ? x.path.split('/')[1] || null : /^maps\/drafts\//.test(x.path) ? (entries.filter((e) => e.draft && 'maps/drafts/' + e.draft.file === x.path)[0] || {}).id || null : null, path: x.path, why: x.why }));
     if (proc && !entries.some((e) => e.id === proc) && !unread.length) return failOut('not-found', 'There\'s no checklist "' + proc + '" in the team folder, published or drafted.', problems, EXIT.notFound);
     let lib = PF.library.inspect(entries, unread, { types: (d.stepTypes || {}).types || {} });
     if (proc) {

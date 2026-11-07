@@ -1000,6 +1000,28 @@ rule('Library: a version that can\'t be read makes the answer partial and is nam
   });
 });
 
+rule('Library: a draft with a line it doesn\'t understand is read as far as it goes, and named: partial, never "every checklist was read"', async () => {
+  const files = await folder({ base: { 'team-values.json': JIRA_TV }, publish: [example('maps/drafts/check-in.md'), RELEASE_PUB], drafts: { deploy: DEPLOY_DRAFT + 'stray line\n' } });
+  const r = libCli(RF.toDisk(files, tmp()), ['--json']);
+  assert.strictEqual(r.code, 4, JSON.stringify(r.json.problems));
+  assert.deepStrictEqual(r.json.problems.map(p => p.path + ' ' + p.kind), ['maps/drafts/deploy.md malformed']);
+  assert.deepStrictEqual(r.json.data.completeness.unread.map(u => u.process + ' ' + u.path), ['deploy maps/drafts/deploy.md']);
+  assert.ok(r.json.data.overlaps.some(o => o.items.some(x => x.process === 'deploy')), 'what it read still compares');
+});
+
+rule('Library: skill registrations in skill-registrations/ are read, and one that can\'t be read is named', async () => {
+  const src = path.join(__dirname, 'fixtures', 'v2', 'folder'), dir = tmp();
+  fs.cpSync(src, dir, { recursive: true });
+  let r = libCli(dir, ['--json']);
+  assert.strictEqual(r.code, 0, JSON.stringify(r.json.problems));
+  assert.deepStrictEqual(r.json.data.checklists.find(c => c.process === 'backup').skills.map(k => k.name), ['release-notes']);
+  fs.writeFileSync(path.join(dir, 'skill-registrations', 'release-notes', 'sk-bbbb2222.1.w-broken.json'), '{ not json');
+  r = libCli(dir, ['--json']);
+  assert.strictEqual(r.code, 4, JSON.stringify(r.json));
+  assert.ok(r.json.problems.some(p => /^skill-registrations\/release-notes\//.test(p.path)), JSON.stringify(r.json.problems));
+  assert.strictEqual(r.json.data.completeness.complete, false);
+});
+
 rule('Parity: design tips in draft check are the ones the checklist page shows; Used by and Similar match library inspect', async () => {
   const files = await folder({ base: { 'team-values.json': JIRA_TV }, publish: [example('maps/drafts/check-in.md'), RELEASE_PUB], drafts: { deploy: DEPLOY_DRAFT } });
   const dir = RF.toDisk(files, tmp()), c = cli(dir, 'deploy');

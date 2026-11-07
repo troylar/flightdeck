@@ -702,7 +702,8 @@ PF.repo = (function () {
     var top = Object.create(null);
     return fs.list('').then(function (items) { (items || []).forEach(function (i) { if (i && (i.kind === 'dir' || (i.kind === 'link' && i.name === 'skill-registrations') || (i.kind === 'file' && i.name === PF.teamValues.FILE))) top[i.name] = true; }); return Promise.all([loadPeople(fs), loadDrafts(fs), loadPublications(fs, cache, deep, !!opts.explain), loadRuns(fs, cache, deep, opts.fresh, sched, opts), loadLegacy(fs),
       /* skill-registrations/ is listed only where it is, so an ordinary folder costs nothing more. */
-      loadSkills(fs, !!opts.explain, !top['skill-registrations']),
+      /* registrations (flightdeck library inspect, 3.0): reading for other apps, and skill-registrations/ read as the app reads it. */
+      loadSkills(fs, !!opts.explain && !opts.registrations, !top['skill-registrations']),
       readPlans(fs, malformed, null, opts.contract2),
       loadStepTypes(fs), loadWorkflows(fs),
       loadJsonDir(fs, 'validations', PF.skills.signoffShaped, null, null, valTorn, true),
