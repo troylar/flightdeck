@@ -5881,6 +5881,8 @@
     if (back && back.runKey === key && r && M.steps(R.mapOf(r)).some(function (x) { return x.step.id === back.step; })) state.sel = back.step; else back = null;
     arriveAtStep(state.sel);
     state.refOpen = window.innerWidth > 800; state.revealSel = true;
+    /* The row stays in the table for this return even when the filter would now hide it (the story was completed there). */
+    state.loopKeepRow = back ? { run: key, step: back.step, key: back.item } : null;
     if (back) { state.focus = PF.loop.rowId(back.step, back.item); state.focusWins = true; return true; }
     window.scrollTo(0, 0);
     return false;
@@ -7559,7 +7561,7 @@
     'loop-start-all-confirm': function (id) { loopStartAll(id); },
     'loop-owner': function (id, b) { loopChange(id, 'owner', [b.dataset.item], { owner: state.me }); },
     'loop-more': function (id) { if (!state.loopAll) state.loopAll = Object.create(null); state.loopAll[id] = true; render(); },
-    'loop-open': function (id) { if (!state.loopOpen) state.loopOpen = Object.create(null); state.loopOpen[id] = !state.loopOpen[id]; render(); },
+    'loop-open': function (id) { state.loopKeepRow = null; if (!state.loopOpen) state.loopOpen = Object.create(null); state.loopOpen[id] = !state.loopOpen[id]; render(); },
     'loop-approve': function (id) {
       mutate(function (r, map, me, now) {
         var V = loopView(r, id);

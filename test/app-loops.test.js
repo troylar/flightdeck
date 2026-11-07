@@ -279,4 +279,19 @@ rule('Review round 2 (5): an approve or send-back whose outcome couldn\'t be wri
   assert.deepStrictEqual([parentRun(app).steps.each.s, outcome(app, sb).op], ['done', 'applied'], 'the earlier send-back isn\'t replayed');
 });
 
+rule('Review round 2 (7): a story completed while you were on its run stays in the open-only table for your return, with focus on it', async () => {
+  const app = await setup({ domFocus: true });
+  const keys = Array.from({ length: 12 }, (_, n) => 'ABC-' + (301 + n)).join(', ');
+  app.set('loop-add-each', keys); app.click('loop-add', 'each'); await app.tick(200);
+  app.click('loop-start', 'each', { item: 'ABC-305' }); await app.tick(200);
+  app.click('loop-open', 'each'); await app.tick(50);
+  const kp = kidPaths(app)[0], kid = JSON.parse(app.fs.files[kp].t);
+  app.click('open-run', 'validate-story/' + kid.id, { loop: 'each', item: 'ABC-305' }); await app.settle();
+  await clear(app, kp);
+  app.back(); await app.settle();
+  assert.ok(/Show every story/.test(txt(app)), 'the filter is kept');
+  assert.ok(/id="loop-row-each-ABC-305"/.test(app.html()), 'the row you return to is kept for this return');
+  assert.strictEqual(app.activeId(), 'loop-row-each-ABC-305');
+});
+
 run();

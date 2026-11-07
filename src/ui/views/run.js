@@ -199,7 +199,8 @@
       (last ? ' Last readable view, from ' + esc(String(last.at).slice(0, 16).replace('T', ' ')) + ': <b>' + esc(last.summary) + '</b>. ' + last.items.slice(0, 50).map(function (i) { return esc((i.key || i.uid) + ' ' + (LOOP_STATUS[i.status] || i.status)); }).join(' · ') + (last.items.length > 50 ? ' · and ' + (last.items.length - 50) + ' more' : '') : '') + '</span></div>';
     if (RU.blockers.length) h += '<ul class="small">' + RU.blockers.slice(0, 12).map(function (b) { return '<li>' + esc(b.text) + '</li>'; }).join('') + (RU.blockers.length > 12 ? '<li>and ' + (RU.blockers.length - 12) + ' more</li>' : '') + '</ul>';
     var me = ctx.state && ctx.state.me, all = !!(ctx.state && ctx.state.loopAll && ctx.state.loopAll[s.id]), open = !!(ctx.state && ctx.state.loopOpen && ctx.state.loopOpen[s.id]);
-    var rows = open ? RU.items.filter(function (i) { return i.required && i.status !== 'cleared' && i.status !== 'exception'; }) : RU.items, PAGE = 50;
+    var keepRow = ctx.state && ctx.state.loopKeepRow, kept = keepRow && keepRow.run === r.process + '/' + r.id && keepRow.step === s.id ? keepRow.key : null;
+    var rows = open ? RU.items.filter(function (i) { return (i.required && i.status !== 'cleared' && i.status !== 'exception') || (kept && i.key === kept); }) : RU.items, PAGE = 50;
     if (RU.items.length > 10) h += '<div class="row"><button class="mini" data-act="loop-open" data-id="' + sid + '" aria-pressed="' + open + '">' + (open ? 'Show every story' : 'Show only stories still open') + '</button></div>';
     if (RU.items.length) {
       h += '<table class="loop-items"><thead><tr><th>Story</th><th>Status</th><th>Result</th><th>Owner</th><th></th></tr></thead><tbody>';
