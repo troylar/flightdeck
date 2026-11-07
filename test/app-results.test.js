@@ -85,4 +85,31 @@ rule('App: a bound result is read-only on the run, with where it comes from', as
   assert.ok(/data-act="edit" data-id="detail:issue"/.test(html), 'other details stay editable');
 });
 
+rule('App: an ended run is never settled again; its step says the linked run\'s result changed after it ended', async () => {
+  const app = await setup();
+  app.click('start-child', 'story'); await app.tick(150);
+  await decideKid(app, 'cleared');
+  const path = app.files('runs/ship-stories/').find(p => /run\.json$/.test(p)), pr = JSON.parse(app.fs.files[path].t), R = app.PF.run, at = new Date().toISOString();
+  pr.steps.ship1 = { s: 'done', by: 'person-avery', at };
+  const rr = R.sanitize(JSON.parse(JSON.stringify(pr))), mm = R.mapOf(rr);
+  mm.phases.forEach(p => { if (p.gate) pr.gates[p.gate.id] = { s: 'passed', by: 'person-avery', at, approved: R.gateInputs(rr, mm, p.gate) }; });
+  pr.ended = { outcome: 'Completed', by: 'person-avery', at }; pr.state = 'completed'; pr.rev = (pr.rev || 0) + 1;
+  await app.fs.write(path, JSON.stringify(pr));
+  app.click('refresh'); await app.tick(150);
+  const before = app.fs.files[path].t;
+  await decideKid(app, 'needs-work');
+  await app.tick(150);
+  assert.strictEqual(app.fs.files[path].t, before, 'the ended run is never rewritten');
+  app.click('open-run', 'ship-stories/' + pr.id); await app.tick(80);
+  assert.ok(/A linked run&#39;s result changed after this run ended|A linked run's result changed after this run ended/.test(app.html()), 'said on the run');
+  assert.ok(/A linked run(&#39;|')s result changed after this run ended<\/b> \(&quot;story&quot;\)/.test(app.html()), 'naming the step');
+});
+
+rule('App: a long accepted list is cut with how many more', async () => {
+  const many = Array.from({ length: 80 }, (_, i) => 'v' + i).join(', ');
+  const app = await setup({ accept: many });
+  const html = app.html();
+  assert.ok(/v48 or v49 or 30 more\./.test(html), String(html.match(/checked when it completes[^<]*/)).slice(-200));
+});
+
 run();

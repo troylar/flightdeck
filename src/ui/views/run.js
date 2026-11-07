@@ -166,6 +166,9 @@
       var state = cr ? (cr.ended ? R.outcomeText(cr, K.outcomeWord) : K.headline(cr, R.mapOf(cr)).text) : 'not visible in this folder yet', fresh = R.childCurrent(r, s, a) && !child.failed && !off, tu = R.teamUnrecorded(r, s, a);
       /* Module results (3.0): a run that completed with a result this step doesn't accept holds it; a new run can replace it. */
       var heldBy = fresh ? R.resultHeld(r, s, a) : '';
+      /* An ended run is never settled again: the read-only verdict says when the run it counted changed since. */
+      var chg = cr && r.ended ? R.resultChanged(r, s, a, cr) : '';
+      if (chg) return '<div class="childbox">' + I('nest') + '<span>Child run: <b>' + esc(cr.title) + '</b> · ' + esc(state) + '. <b>' + esc(chg) + '</b></span><button class="mini" data-act="open-run" data-id="' + esc(key) + '">Open run</button></div>';
       if (!two && off) return offer(PF.pins.legacyWhy(target.pub || { map: { meta: { title: cr.title } }, info: { process: cr.process, version: cr.version } }, r));
       var again = (!fresh || heldBy) && canStart && target.pub && !target.legacy ? '<button class="btn" data-act="start-child" data-id="' + esc(s.id) + '">Start a new ' + esc(target.pub.map.meta.title) + ' run</button>' : !fresh && canStart && target.legacy ? '<span class="small">' + esc(target.why) + '</span><button class="btn" data-act="continue-two" data-id="' + esc(s.id) + '">Start it as a Flightdeck 2.0 run</button>' : '';
       return '<div class="childbox">' + I('nest') + '<span>Child run: <b>' + esc(cr ? cr.title : child.process) + '</b> · ' + esc(state) + (heldBy ? '. ' + esc(heldBy) + ', so this step is held until a run returns one it accepts.' : fresh ? (tu ? '. ' + esc(tu) : '') : off ? '. ' + esc(off) : child.failed ? '. It didn\'t complete as started, so it doesn\'t count for this step.' : '. The details it was started for have changed, so it no longer counts for this step.') + '</span>' + (cr ? '<button class="mini" data-act="open-run" data-id="' + esc(key) + '">Open run</button>' : '') + again + '</div>';
@@ -175,7 +178,7 @@
     if (target.legacy) return offer(target.why);
     if (!canStart) return '<div class="childbox">' + I('nest') + '<span>Starts a <b>' + esc(proc || '?') + '</b> run when this step is reached.</span>' + pinWords + '</div>';
     if (target.why) return '<div class="childbox">' + I('nest') + '<span class="small">' + esc(target.why) + '</span></div>';
-    return '<div class="childbox">' + I('nest') + '<button class="btn go" data-act="start-child" data-id="' + esc(s.id) + '">Start the ' + esc(pub.map.meta.title) + ' run</button><span class="small">' + esc(passesOn(ctx, r, s, pub)) + '. This step is checked when it completes' + (R.acceptsOf(r, s) ? ' with ' + esc(R.acceptsOf(r, s).join(' or ')) : '') + '.</span>' + pinWords + '</div>';
+    return '<div class="childbox">' + I('nest') + '<button class="btn go" data-act="start-child" data-id="' + esc(s.id) + '">Start the ' + esc(pub.map.meta.title) + ' run</button><span class="small">' + esc(passesOn(ctx, r, s, pub)) + '. This step is checked when it completes' + (R.acceptsOf(r, s) ? ' with ' + esc(K.capJoin(R.acceptsOf(r, s), null, ' or ', null, function (n) { return ' or ' + n.toLocaleString('en-US') + ' more'; })) : '') + '.</span>' + pinWords + '</div>';
   }
 
   /* A phase's note and screenshots (2.0) at the top of the phase, folded with its steps once it's done. Thumbnails load
@@ -267,7 +270,12 @@
   function strip(ctx, r) {
     var s = ctx.state, rec = ctx.recording(r), solo = R.solo(r), kind = 'follow', text = '', ctl = '';
     if (r._unrunnable) { kind = 'ro'; text = '<b>Read-only in this copy.</b> ' + esc(r._unrunnable) + ' This copy shows the parts it understands, and can\'t record it or save over it.' + (r.ended ? ' <b>Ended: ' + esc(K.outcomeWord(r.ended.outcome)) + '</b>' + (r.ended.byName || r.ended.by ? ' by ' + esc(r.ended.byName || nameOf(ctx, r.ended.by)) : '') + '.' : ''); }
-    else if (r.ended) { kind = 'ended'; text = '<b>Ended: ' + esc(R.outcomeText(r, K.outcomeWord)) + '</b>' + (r.ended.byName || r.ended.by ? ' by ' + esc(r.ended.byName || nameOf(ctx, r.ended.by)) : '') + (r.ended.at ? ' at ' + U.hm(r.ended.at) : '') + '.'; }
+    else if (r.ended) { kind = 'ended'; text = '<b>Ended: ' + esc(R.outcomeText(r, K.outcomeWord)) + '</b>' + (r.ended.byName || r.ended.by ? ' by ' + esc(r.ended.byName || nameOf(ctx, r.ended.by)) : '') + (r.ended.at ? ' at ' + U.hm(r.ended.at) : '') + '.';
+      /* Module results (3.0): an ended run is never settled again; it says when a run one of its steps counted changed since. */
+      var kids = Object.keys(r.steps || {}).map(function (k) { var c = r.steps[k] && r.steps[k].child; return c ? ctx.findRun(c.process + '/' + c.id) : null; }).filter(Boolean);
+      var moved = kids.length ? R.resultMarks([r].concat(kids)) : [];
+      if (moved.length) text += ' <b>' + esc(R.RESULT_CHANGED) + '</b> (' + esc(K.capJoin(moved, function (m) { return '"' + m.step + '"'; })) + '); this run stays as it ended.';
+    }
     else if (!s.me) {
       kind = 'who'; text = '<b>Choose who you are</b> to record or add notes. Everything you do here is stamped with your name.';
       var people = PF.people.sorted(ctx).filter(function (p) { return !p.inactive; });
