@@ -36,7 +36,7 @@ PF.library = (function () {
   /* One checklist, normalized: a publication ({ info, map, types }) or a draft's text. */
   function describe(id, source, map, info, types, skills) {
     var meta = map.meta, out = { process: id, title: meta.title || id, source: source, version: info ? +info.version || null : null, folder: info ? info.folder || null : null,
-      owner: meta.owner || null, runs: meta.runs === 'solo' ? 'solo' : 'team', context: meta.context.map(function (n) { var t = (meta.detailTypes || {})[n]; return { name: n, type: t && t.kind ? t.kind : 'text' }; }),
+      owner: meta.owner || null, runs: meta.runs === 'solo' ? 'solo' : 'team', context: meta.context.map(function (n) { var t = own(meta.detailTypes, n) ? meta.detailTypes[n] : null; return { name: n, type: t && t.kind ? t.kind : 'text' }; }),
       roles: meta.roles.slice(), steps: [], searches: [], gates: [], sets: [], children: [], types: [], teamTypes: [], skills: [] };
     var seen = Object.create(null);
     map.phases.forEach(function (p) {

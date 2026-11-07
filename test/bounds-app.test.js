@@ -69,6 +69,9 @@ const REGISTRY = [
   { name: 'a bounded dropdown (K.select), per select', rows: n => n.tag === 'option' && !!up(n, x => x.tag === 'select' && 'data-kselect' in x.attrs), bound: 50 + 1 + 2 + 1, per: n => up(n, x => x.tag === 'select') },
   /* Checks, 50 where each is drawn; the run inspector's Why is this here?, 20 members across a step's changes. */
   { name: 'Checks (checks-ed, checks-ov, checks-prop)', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'checks'), bound: 50 },
+  /* 3.0: design tips (tips-ed, tips-ov), 50 and an "And N more" line; Used by and similar, 50 in each of its two lists. */
+  { name: 'Design tips (tips-ed, tips-ov)', rows: n => n.tag === 'li' && n.parent && cls(n.parent, 'tips'), bound: 50 },
+  { name: 'Used by and similar (lib), per list', rows: n => n.tag === 'li' && n.parent && n.parent.tag === 'ul' && within(n, x => x.tag === 'details' && /^lib:/.test(x.attrs['data-disc'] || '')), bound: 50, per: n => n.parent },
   { name: 'Why is this here? (prov-<step>), its members', rows: n => n.tag === 'button' && /^pm-.*-run$/.test(n.attrs.id || '') && within(n, x => cls(x, 'prov-why')), bound: 20 },
   /* One notice for unreadable note lines (D10), with the lines in its fold, 50 at a time. */
   { name: 'unreadable note lines, in the notice\'s fold (badnotes)', rows: n => n.tag === 'li' && within(n, x => cls(x, 'rw-badnotes')), bound: 50 },

@@ -65,12 +65,17 @@
   }
   /* Design tips (3.0): advice on the draft's shape, the same list flightdeck draft check prints as design.tips. Never a
      blocker, so it sits under the checks with its own heading. */
+  /* Whether a fold the person opened stays open; its key names a process, so only its own entry counts. */
+  function opened(ctx, k) { var d = ctx.state.disc; return !!d && Object.prototype.hasOwnProperty.call(d, k) && !!d[k]; }
   function designTips(ctx, text, pid, id) {
     var tips = PF.library.lints(text, { library: libraryOf(ctx), process: pid });
     if (!tips.length) return '';
     id = id || 'tips';
-    return '<h3 class="small" id="' + esc(id) + '-h">Design tips · advice, never a reason it can\'t publish</h3><ul class="checks" aria-labelledby="' + esc(id) + '-h">' + tips.slice(0, 50).map(function (t) { return '<li><span class="lvl tip">Tip</span><span>' + esc(t.text) + '</span></li>'; }).join('') + '</ul>' +
-      (tips.length > 50 ? '<p class="small">And ' + (tips.length - 50) + ' more.</p>' : '');
+    /* Folded: advice, so it never crowds the checks that decide publishing (the screen's word budget, test/light.test.js). */
+    var k = 'tips:' + pid + ':' + id;
+    return '<details data-disc="' + esc(k) + '"' + (opened(ctx, k) ? ' open' : '') + '><summary class="small" id="' + esc(id) + '-h">Design tips · ' + tips.length + '</summary><p class="small">Advice, never a reason it can\'t publish.</p>' +
+      '<ul class="tips" aria-labelledby="' + esc(id) + '-h">' + tips.slice(0, 50).map(function (t) { return '<li><span class="lvl tip">Tip</span><span>' + esc(t.text) + '</span></li>'; }).join('') + '</ul>' +
+      (tips.length > 50 ? '<p class="small">And ' + (tips.length - 50) + ' more.</p>' : '') + '</details>';
   }
   var SIMILAR_WORDS = { 'same normalized JQL': 'Same Jira search', 'same saved filter': 'Same saved Jira filter', 'same type and fields': 'Same step type and fields', 'same gate approves pattern': 'Gate approves the same thing' };
   /* Used by and Similar in other checklists (3.0): who links to this checklist, and parts of other checklists that look like
@@ -79,7 +84,8 @@
     var lib = libraryOf(ctx), mine = PF.library.forProcess(lib, p.id);
     var titleOf = function (id) { var c = lib.checklists.filter(function (x) { return x.process === id; })[0]; return c ? c.title : id; };
     var open = function (id, step, words) { return '<button type="button" class="link" data-act="go" data-view="process" data-process="' + esc(id) + '"' + (step ? ' data-step="' + esc(step) + '"' : '') + '>' + esc(words) + '</button>'; };
-    var h = '<section class="panel" aria-labelledby="lib-h"><h2 id="lib-h">' + I('fork') + 'Used by and similar</h2><h3 class="small">Used by</h3>';
+    var k = 'lib:' + p.id;
+    var h = '<details class="panel" data-disc="' + esc(k) + '"' + (opened(ctx, k) ? ' open' : '') + '><summary><h2 id="lib-h">' + I('fork') + 'Used by and similar<span class="dot">&nbsp;·&nbsp;</span>' + (mine.usedBy.length + mine.similar.length) + (mine.complete ? '' : '+') + '</h2></summary>' + '<h3 class="small">Used by</h3>';
     h += mine.usedBy.length ? '<ul class="small vlist">' + mine.usedBy.slice(0, 50).map(function (e) {
       return '<li>' + open(e.by.process, e.by.step, titleOf(e.by.process) + (e.by.source === 'draft' ? ' (draft)' : '')) + ' <span>step {#' + esc(e.by.step) + '}, ' + (e.by.version ? 'pinned to v' + e.by.version : 'follows the latest version') + '</span></li>';
     }).join('') + '</ul>' : '<p class="small">No other checklist links to this one.</p>';
@@ -88,7 +94,7 @@
       return '<li><span><b>' + esc(SIMILAR_WORDS[x.reason] || x.reason) + '</b>: {#' + esc(x.mine) + '} here and </span>' + open(x.process, x.kind === 'gate' ? null : x.id, titleOf(x.process) + (x.source === 'draft' ? ' (draft)' : '') + ' {#' + x.id + '}') + '</li>';
     }).join('') + '</ul><p class="small">Look before you change either: similar isn\'t always the same work.</p>' : '<p class="small">Nothing in other checklists matches this one\'s searches, steps or gates.</p>';
     if (!mine.complete) h += '<p class="small" role="status">' + esc(mine.note) + '</p>';
-    return h + '</section>';
+    return h + '</details>';
   }
 
   /* How runs of this process have gone, one version at a time (docs/design.md section 23; views/insights.js draws it). */

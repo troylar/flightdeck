@@ -462,8 +462,8 @@ table.grid td.cold { color: var(--muted); }
 .vlist li { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 10px; align-items: baseline; font-size: 14px; }
 .diff { font-family: var(--mono); font-size: 12.5px; line-height: 1.5; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 8px; max-height: 420px; overflow: auto; white-space: pre-wrap; }
 .diff .add { background: var(--go-soft); display: block; } .diff .del { background: var(--stop-soft); display: block; text-decoration: line-through; }
-.checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
-.checks li { display: grid; grid-template-columns: 54px 1fr; gap: 8px; }
+.checks, .tips { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
+.checks li, .tips li { display: grid; grid-template-columns: 54px 1fr; gap: 8px; }
 .lvl { font-family: var(--label); font-weight: 600; font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; text-align: center; padding: 2px 0; border-radius: 4px; height: fit-content; }
 .lvl.bad { background: var(--stop-soft); color: var(--stop); } .lvl.tip { background: var(--plan-soft); color: var(--plan); } .lvl.ok { background: var(--go-soft); color: var(--go); }
 

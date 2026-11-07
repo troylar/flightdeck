@@ -122,8 +122,8 @@ const BUDGETS = {
   /* Raised by 2 in 2.11 on purpose: the Find a checklist box's label. */
   processes: { words: 97, buttons: 13, chips: 3, target: { chips: 8 } },
   /* The harness also counts the CSS-hidden phone picker and skip links, so its run and process numbers sit above the browser's. */
-  'process page as a non-owner': { words: 276, buttons: 15, chips: 3, target: { words: 260, buttons: 16, chips: 12 } },
-  'process page as its owner': { words: 423, buttons: 26, chips: 9, target: { words: 430 } },
+  'process page as a non-owner': { words: 280, buttons: 15, chips: 3, target: { words: 260, buttons: 16, chips: 12 } },
+  'process page as its owner': { words: 427, buttons: 26, chips: 9, target: { words: 430 } },
   'run, just started': { words: 370, buttons: 40, chips: 5, target: { words: 300, buttons: 36, chips: 6 } },
   /* Raised by 3 words and 1 button in 2.16 on purpose (one header): the Finish page gains More (1 button) and its tool row
      says who is recording (Recording as <name>). */
@@ -143,26 +143,28 @@ const BUDGETS = {
   /* Raised in 2.8.0 on purpose (linked steps): a selected step says which details it uses (Uses ^a, ^b), so the builder
      shows what a step reads before a linked step is chosen to pass it on. */
   'builder, release, a step selected': { words: 645, buttons: 76, inputs: 10 },
-  'process page with conditions, its owner': { words: 412, buttons: 26, chips: 9 },
-  'process page with conditions, a non-owner': { words: 265, buttons: 15, chips: 3 },
+  /* Raised in 3.0.0 on purpose (the library): a checklist's page has a folded Used by and similar, whose summary says how many
+     links and look-alikes it holds, and the draft's design tips fold under one summary line. */
+  'process page with conditions, its owner': { words: 416, buttons: 26, chips: 9 },
+  'process page with conditions, a non-owner': { words: 269, buttons: 15, chips: 3 },
   'run with conditions, just started': { words: 364, buttons: 38, chips: 5 },
   'builder with conditions, a step selected': { words: 692, buttons: 76, inputs: 11 },
   'builder, a step without conditions selected': { words: 632, buttons: 76, inputs: 10 },
   /* A process with a staged version (2.1): staging lives in the closed All versions disclosure, so the page fits the process
      page budgets above for the owner and for everyone else. */
-  'process page with a stage, its owner': { words: 423, buttons: 26, chips: 9 },
-  'process page with a stage, a non-owner': { words: 276, buttons: 15, chips: 3 },
+  'process page with a stage, its owner': { words: 427, buttons: 26, chips: 9 },
+  'process page with a stage, a non-owner': { words: 280, buttons: 15, chips: 3 },
   /* A process with a test run on its stage (2.1 slice 5): the test run is one more labeled line in Recent runs and one more
      "you're recording" on Home, as any run being recorded is; its run page is the stage's checklist with its label. The
      budgets above are unchanged. */
   'run, a test run just started': { words: 326, buttons: 42, chips: 5 },
   'home with a test run': { words: 160, buttons: 14, chips: 1 },
-  'process page with a test run, its owner': { words: 430, buttons: 26, chips: 9 },
-  'process page with a test run, a non-owner': { words: 283, buttons: 15, chips: 3 },
+  'process page with a test run, its owner': { words: 434, buttons: 26, chips: 9 },
+  'process page with a test run, a non-owner': { words: 287, buttons: 15, chips: 3 },
   /* A version made the default from a stage whose test runs and sign-off count for it (2.1 slice 6): Ready for a skill says
      they were from while it was staged, in one clause. The budgets above are unchanged. */
-  'process page made from a signed-off stage, its owner': { words: 467, buttons: 28, chips: 9 },
-  'process page made from a signed-off stage, a non-owner': { words: 307, buttons: 16, chips: 3 }
+  'process page made from a signed-off stage, its owner': { words: 469, buttons: 28, chips: 9 },
+  'process page made from a signed-off stage, a non-owner': { words: 309, buttons: 16, chips: 3 }
 };
 /* One balanced element from index i: the tag at i through its matching close. */
 const elAt = (h, i) => { const tag = /^<(\w+)/.exec(h.slice(i))[1], re = new RegExp('<(/?)' + tag + '\\b[^>]*>', 'g'); re.lastIndex = i; let d = 0, m; while ((m = re.exec(h))) { d += m[1] ? -1 : 1; if (!d) return h.slice(i, re.lastIndex); } return h.slice(i); };

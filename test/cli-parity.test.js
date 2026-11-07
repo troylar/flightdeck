@@ -1009,7 +1009,7 @@ rule('Parity: design tips in draft check are the ones the checklist page shows; 
   app.choose('person-avery'); await app.tick();
   app.click('open-process', 'deploy'); await app.tick();
   let html = app.html();
-  const block = /<ul class="checks" aria-labelledby="tips-ov-h">([\s\S]*?)<\/ul>/.exec(html);
+  const block = /<ul class="tips" aria-labelledby="tips-ov-h">([\s\S]*?)<\/ul>/.exec(html);
   assert.ok(block, 'the page draws the design tips');
   assert.deepStrictEqual([...block[1].matchAll(/<span class="lvl tip">Tip<\/span><span>([\s\S]*?)<\/span><\/li>/g)].map(m => unesc(m[1])), tips, 'the same tips, in the same order');
   assert.ok(/Same Jira search<\/b>: \{#in\} here and <\/span><button type="button" class="link" data-act="go" data-view="process" data-process="release" data-step="stories">Release \{#stories\}/.test(html), 'Similar in other checklists');

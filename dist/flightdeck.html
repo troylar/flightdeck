@@ -654,8 +654,8 @@ table.grid td.cold { color: var(--muted); }
 .vlist li { display: grid; grid-template-columns: auto 1fr auto; gap: 4px 10px; align-items: baseline; font-size: 14px; }
 .diff { font-family: var(--mono); font-size: 12.5px; line-height: 1.5; background: var(--paper); border: 1px solid var(--line); border-radius: 8px; padding: 8px; max-height: 420px; overflow: auto; white-space: pre-wrap; }
 .diff .add { background: var(--go-soft); display: block; } .diff .del { background: var(--stop-soft); display: block; text-decoration: line-through; }
-.checks { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
-.checks li { display: grid; grid-template-columns: 54px 1fr; gap: 8px; }
+.checks, .tips { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; font-size: 13.5px; }
+.checks li, .tips li { display: grid; grid-template-columns: 54px 1fr; gap: 8px; }
 .lvl { font-family: var(--label); font-weight: 600; font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; text-align: center; padding: 2px 0; border-radius: 4px; height: fit-content; }
 .lvl.bad { background: var(--stop-soft); color: var(--stop); } .lvl.tip { background: var(--plan-soft); color: var(--plan); } .lvl.ok { background: var(--go-soft); color: var(--go); }
 
@@ -4827,7 +4827,7 @@ PF.map = (function () {
     function checkRoles(roles, what) { roles.forEach(function (r) { if (meta.roles.indexOf(r) < 0) blockers.push(what + ' uses @' + r + ', which isn\'t listed in roles.'); }); }
     var meant = function (f) { var g = PF.refs ? PF.refs.suggest(f, meta.context) : ''; return g ? ' Did you mean ^' + g + '?' : ''; };
     function checkBinds(binds, what) { binds.forEach(function (f) { if (meta.context.indexOf(f) < 0) blockers.push(what + ' is tied to ^' + f + ', which isn\'t listed in context.' + meant(f)); }); }
-    var musts = 0, addressOf = {};
+    var musts = 0, addressOf = Object.create(null);
     /* With the team's Jira workflows (jira/workflows.json), a transition must name a status that exists and that some transition reaches. */
     function jiraCheck(s, label) {
       if (String(s.fields.action || '').toLowerCase() !== 'transition' || !s.fields.status) return;
@@ -7679,7 +7679,7 @@ PF.library = (function () {
   /* One checklist, normalized: a publication ({ info, map, types }) or a draft's text. */
   function describe(id, source, map, info, types, skills) {
     var meta = map.meta, out = { process: id, title: meta.title || id, source: source, version: info ? +info.version || null : null, folder: info ? info.folder || null : null,
-      owner: meta.owner || null, runs: meta.runs === 'solo' ? 'solo' : 'team', context: meta.context.map(function (n) { var t = (meta.detailTypes || {})[n]; return { name: n, type: t && t.kind ? t.kind : 'text' }; }),
+      owner: meta.owner || null, runs: meta.runs === 'solo' ? 'solo' : 'team', context: meta.context.map(function (n) { var t = own(meta.detailTypes, n) ? meta.detailTypes[n] : null; return { name: n, type: t && t.kind ? t.kind : 'text' }; }),
       roles: meta.roles.slice(), steps: [], searches: [], gates: [], sets: [], children: [], types: [], teamTypes: [], skills: [] };
     var seen = Object.create(null);
     map.phases.forEach(function (p) {
@@ -23101,12 +23101,17 @@ PF.vk = (function () {
   }
   /* Design tips (3.0): advice on the draft's shape, the same list flightdeck draft check prints as design.tips. Never a
      blocker, so it sits under the checks with its own heading. */
+  /* Whether a fold the person opened stays open; its key names a process, so only its own entry counts. */
+  function opened(ctx, k) { var d = ctx.state.disc; return !!d && Object.prototype.hasOwnProperty.call(d, k) && !!d[k]; }
   function designTips(ctx, text, pid, id) {
     var tips = PF.library.lints(text, { library: libraryOf(ctx), process: pid });
     if (!tips.length) return '';
     id = id || 'tips';
-    return '<h3 class="small" id="' + esc(id) + '-h">Design tips · advice, never a reason it can\'t publish</h3><ul class="checks" aria-labelledby="' + esc(id) + '-h">' + tips.slice(0, 50).map(function (t) { return '<li><span class="lvl tip">Tip</span><span>' + esc(t.text) + '</span></li>'; }).join('') + '</ul>' +
-      (tips.length > 50 ? '<p class="small">And ' + (tips.length - 50) + ' more.</p>' : '');
+    /* Folded: advice, so it never crowds the checks that decide publishing (the screen's word budget, test/light.test.js). */
+    var k = 'tips:' + pid + ':' + id;
+    return '<details data-disc="' + esc(k) + '"' + (opened(ctx, k) ? ' open' : '') + '><summary class="small" id="' + esc(id) + '-h">Design tips · ' + tips.length + '</summary><p class="small">Advice, never a reason it can\'t publish.</p>' +
+      '<ul class="tips" aria-labelledby="' + esc(id) + '-h">' + tips.slice(0, 50).map(function (t) { return '<li><span class="lvl tip">Tip</span><span>' + esc(t.text) + '</span></li>'; }).join('') + '</ul>' +
+      (tips.length > 50 ? '<p class="small">And ' + (tips.length - 50) + ' more.</p>' : '') + '</details>';
   }
   var SIMILAR_WORDS = { 'same normalized JQL': 'Same Jira search', 'same saved filter': 'Same saved Jira filter', 'same type and fields': 'Same step type and fields', 'same gate approves pattern': 'Gate approves the same thing' };
   /* Used by and Similar in other checklists (3.0): who links to this checklist, and parts of other checklists that look like
@@ -23115,7 +23120,8 @@ PF.vk = (function () {
     var lib = libraryOf(ctx), mine = PF.library.forProcess(lib, p.id);
     var titleOf = function (id) { var c = lib.checklists.filter(function (x) { return x.process === id; })[0]; return c ? c.title : id; };
     var open = function (id, step, words) { return '<button type="button" class="link" data-act="go" data-view="process" data-process="' + esc(id) + '"' + (step ? ' data-step="' + esc(step) + '"' : '') + '>' + esc(words) + '</button>'; };
-    var h = '<section class="panel" aria-labelledby="lib-h"><h2 id="lib-h">' + I('fork') + 'Used by and similar</h2><h3 class="small">Used by</h3>';
+    var k = 'lib:' + p.id;
+    var h = '<details class="panel" data-disc="' + esc(k) + '"' + (opened(ctx, k) ? ' open' : '') + '><summary><h2 id="lib-h">' + I('fork') + 'Used by and similar<span class="dot">&nbsp;·&nbsp;</span>' + (mine.usedBy.length + mine.similar.length) + (mine.complete ? '' : '+') + '</h2></summary>' + '<h3 class="small">Used by</h3>';
     h += mine.usedBy.length ? '<ul class="small vlist">' + mine.usedBy.slice(0, 50).map(function (e) {
       return '<li>' + open(e.by.process, e.by.step, titleOf(e.by.process) + (e.by.source === 'draft' ? ' (draft)' : '')) + ' <span>step {#' + esc(e.by.step) + '}, ' + (e.by.version ? 'pinned to v' + e.by.version : 'follows the latest version') + '</span></li>';
     }).join('') + '</ul>' : '<p class="small">No other checklist links to this one.</p>';
@@ -23124,7 +23130,7 @@ PF.vk = (function () {
       return '<li><span><b>' + esc(SIMILAR_WORDS[x.reason] || x.reason) + '</b>: {#' + esc(x.mine) + '} here and </span>' + open(x.process, x.kind === 'gate' ? null : x.id, titleOf(x.process) + (x.source === 'draft' ? ' (draft)' : '') + ' {#' + x.id + '}') + '</li>';
     }).join('') + '</ul><p class="small">Look before you change either: similar isn\'t always the same work.</p>' : '<p class="small">Nothing in other checklists matches this one\'s searches, steps or gates.</p>';
     if (!mine.complete) h += '<p class="small" role="status">' + esc(mine.note) + '</p>';
-    return h + '</section>';
+    return h + '</details>';
   }
 
   /* How runs of this process have gone, one version at a time (docs/design.md section 23; views/insights.js draws it). */

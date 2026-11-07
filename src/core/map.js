@@ -261,7 +261,7 @@ PF.map = (function () {
     function checkRoles(roles, what) { roles.forEach(function (r) { if (meta.roles.indexOf(r) < 0) blockers.push(what + ' uses @' + r + ', which isn\'t listed in roles.'); }); }
     var meant = function (f) { var g = PF.refs ? PF.refs.suggest(f, meta.context) : ''; return g ? ' Did you mean ^' + g + '?' : ''; };
     function checkBinds(binds, what) { binds.forEach(function (f) { if (meta.context.indexOf(f) < 0) blockers.push(what + ' is tied to ^' + f + ', which isn\'t listed in context.' + meant(f)); }); }
-    var musts = 0, addressOf = {};
+    var musts = 0, addressOf = Object.create(null);
     /* With the team's Jira workflows (jira/workflows.json), a transition must name a status that exists and that some transition reaches. */
     function jiraCheck(s, label) {
       if (String(s.fields.action || '').toLowerCase() !== 'transition' || !s.fields.status) return;
