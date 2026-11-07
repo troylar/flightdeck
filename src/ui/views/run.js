@@ -477,7 +477,7 @@
       '<p class="small">' + esc(map.meta.title) + ' · ' + esc(K.verWord(r)) + ' · started ' + esc(U.when(r.created)) + ' · recorded by ' + esc(nameOf(ctx, r.recorder.person)) + ' · revision ' + (r.rev || 0) + '</p>' +
       (det ? '<div class="chips" role="group" aria-label="Run details">' + det + '</div>' : '') + (roleRow ? (roleRow === roles ? rolePaged.box : '') + '<div class="chips" role="group" aria-label="Roles">' + roleRow + '</div>' : '') +
       (rec ? '<p class="small">Changing a detail sends steps that used it back for a re-check, and gates that approved it need review.</p>' : '') + migrationsList(ctx, r, map);
-    if (r.parent) { var pk = r.parent.process + '/' + r.parent.id, pr = ctx.findRun(pk); h += '<p class="small">' + I('nest') + ' Part of <b>' + esc(pr ? pr.title : r.parent.process) + '</b>. When this run ends, that run\'s step is checked (or blocked, if this one stops). ' + (pr ? '<button class="linkish" data-act="open-run" data-id="' + esc(pk) + '">Open it</button>' : '') + '</p>'; }
+    if (r.parent) { var pk = r.parent.process + '/' + r.parent.id, pr = ctx.findRun(pk); h += '<p class="small">' + I('nest') + ' Part of <b>' + esc(pr ? pr.title : r.parent.process) + '</b>. When this run ends, that run\'s step is checked (or blocked, if this one stops). ' + (pr ? '<button class="linkish" data-act="open-run" data-id="' + esc(pk) + '"' + (r.parent.item ? ' data-parent-loop="' + esc(r.parent.step) + '" data-item="' + esc(r.parent.item.key) + '"' : '') + '>Open it</button>' : '') + '</p>'; }
     return h + '</section>';
   }
 

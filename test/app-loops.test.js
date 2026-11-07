@@ -367,4 +367,21 @@ rule('Review round 3 (5): a story whose run returned needs-work offers a new att
   assert.deepStrictEqual(ks, [1, 2], 'both attempts kept');
 });
 
+rule('Review round 3 (6): the child\'s Part of … Open it link returns to the loop\'s row too, kept under the open-only filter', async () => {
+  const app = await setup({ domFocus: true });
+  const keys = Array.from({ length: 12 }, (_, n) => 'ABC-' + (401 + n)).join(', ');
+  app.set('loop-add-each', keys); app.click('loop-add', 'each'); await app.tick(200);
+  app.click('loop-start', 'each', { item: 'ABC-405' }); await app.tick(200);
+  app.click('loop-open', 'each'); await app.tick(50);
+  const kp = kidPaths(app)[0], kid = JSON.parse(app.fs.files[kp].t), parent = parentRun(app);
+  app.click('open-run', 'validate-story/' + kid.id); await app.settle();
+  await clear(app, kp);
+  app.click('run-details'); await app.tick(50);
+  const link = (app.html().match(/<button class="linkish" data-act="open-run" data-id="release-readiness\/[^"]*"[^>]*>/) || [''])[0];
+  assert.ok(/data-parent-loop="each"/.test(link) && /data-item="ABC-405"/.test(link), 'the link names the loop and the story: ' + link);
+  app.click('open-run', 'release-readiness/' + parent.id, { parentLoop: 'each', item: 'ABC-405' }); await app.settle();
+  assert.ok(/id="loop-row-each-ABC-405"/.test(app.html()), 'the completed row is kept for this return');
+  assert.strictEqual(app.activeId(), 'loop-row-each-ABC-405');
+});
+
 run();

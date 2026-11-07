@@ -5883,7 +5883,7 @@
     if (r) { var nx = R.nextUp(r, R.mapOf(r), state.me); state.sel = nx.step ? nx.step.id : null; }
     /* Back from a story's run opened from a loop's table: land on the loop with its page and filter as left, focus on that story's row. */
     var back = state.loopReturn;
-    if (!back || key !== back.child) state.loopReturn = null;
+    if (back && back.runKey === key) state.loopReturn = null; else { if (!back || key !== back.child) state.loopReturn = null; back = null; }
     if (back && back.runKey === key && r && M.steps(R.mapOf(r)).some(function (x) { return x.step.id === back.step; })) state.sel = back.step; else back = null;
     arriveAtStep(state.sel);
     state.refOpen = window.innerWidth > 800; state.revealSel = true;
@@ -7316,7 +7316,8 @@
       if (f.tl) TL.barrier(f.tl, 'You took their version here. Earlier changes can\'t be undone.');
       render();
     },
-    'open-run': function (id, b) { state.loopReturn = b && b.dataset && b.dataset.loop && state.runKey ? { runKey: state.runKey, step: b.dataset.loop, item: b.dataset.item || '', child: id } : null; openRun(id); render(); },
+    /* From a loop's table (data-loop): come back to that row. From a story's run to its loop (data-parent-loop): land on its row. */
+    'open-run': function (id, b) { var ds = b && b.dataset; state.loopReturn = ds && ds.loop && state.runKey ? { runKey: state.runKey, step: ds.loop, item: ds.item || '', child: id } : ds && ds.parentLoop ? { runKey: id, step: ds.parentLoop, item: ds.item || '', child: null } : null; openRun(id); render(); },
     'review-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0]; if (!p) return; setView('start'); state.processId = p.process; state.planId = id; state.planning = null; state.testStage = null; state.planDiff = false; if (!state.planPick || state.planPick.plan !== id) state.planPick = null; state.fieldErr = null; render(); window.scrollTo(0, 0); },
     start: function (id) { setView('start'); state.processId = id; state.planId = null; state.planning = null; state.fieldErr = null; state.testStage = null; render(); window.scrollTo(0, 0); },
     /* A test run (2.1), from a stage's line under All versions on the open process. */
