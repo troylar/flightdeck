@@ -329,7 +329,7 @@ PF.map = (function () {
       });
       resultLink(s, label, got, who, r.rows);
     }
-    /* Module results (3.0, docs/design.md 47): what a linked step accepts and imports, against the child it starts. */
+    /* Module results (3.0, docs/design.md 43): what a linked step accepts and imports, against the child it starts. */
     function resultLink(s, label, got, who, rows) {
       var cres = resultDef(got.map), acc = list(s.fields.accepts), imp = setsOf(s.fields.sets).filter(function (e) { return e.from === 'result'; });
       var name = got.title || s.fields.process;
@@ -341,7 +341,7 @@ PF.map = (function () {
       if (!acc.length) { suggestions.push(label + ': ' + name + ' returns a result (' + cres.options.join(', ') + '). Add accepts: to say which ones let this step count as done; without it, any Completed run counts.'); }
       acc.forEach(function (v) { if (cres.options.indexOf(v) < 0) blockers.push(label + ' accepts "' + v.slice(0, 40) + '", which isn\'t a result ' + who + ' returns (' + cres.options.join(', ') + ').'); });
       imp.forEach(function (e) {
-        var d = (meta.detailTypes || {})[e.name];
+        var dts = meta.detailTypes || {}, d = Object.prototype.hasOwnProperty.call(dts, e.name) ? dts[e.name] : null;
         if (meta.context.indexOf(e.name) < 0) return;
         if (!d || d.kind !== 'choice' || cres.options.some(function (o) { return d.options.indexOf(o) < 0; })) blockers.push(label + ' imports ' + name + '\'s result into ^' + e.name + ', which must be a choice holding every result it can return, like ' + e.name + ':choice(' + cres.options.join('|') + ').');
       });
@@ -375,7 +375,7 @@ PF.map = (function () {
       var name = meta.result;
       if (name == null || name === '') return;
       if (meta.context.indexOf(name) < 0) { blockers.push('"result" names ^' + name.slice(0, 60) + ', which isn\'t listed in context.'); return; }
-      var d = (meta.detailTypes || {})[name];
+      var dts = meta.detailTypes || {}, d = Object.prototype.hasOwnProperty.call(dts, name) ? dts[name] : null;
       if (!d || d.kind !== 'choice') { blockers.push('The result ^' + name + ' must be a choice, like ' + name + ':choice(cleared|needs-work).'); return; }
       var all = steps(map), by = all.filter(function (x) { return boundFrom(x.step, name) === 'decision'; });
       all.forEach(function (x) { if (setNames(x.step.fields.sets).indexOf(name) >= 0 && boundFrom(x.step, name) !== 'decision') { tag(null); blockers.push(U.stepName(x.step) + ' sets the result ^' + name + ' itself; only its decision sets it (sets: ' + name + '=decision on one {decide} step).'); tag(x.step); } });

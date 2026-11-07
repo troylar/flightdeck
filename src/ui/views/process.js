@@ -93,10 +93,10 @@
     };
     var titled = function (id, source) { var c = of(id, source) || of(id, 'publication') || of(id, 'draft'); return (c ? c.title : id) + (source === 'draft' ? ' (draft)' : ''); };
     /* 50 at a time (common.js list), each row keyed by what it names, so Show more reaches every one library inspect lists. */
-    var paged = function (lid, rows, keyOf, row) {
+    var paged = function (lid, rows, keyOf, drawRow) {
       var ks = K.uniqKeys(rows, keyOf), items = rows.map(function (r, i) { return { r: r, k: K.domKey(ks[i]) }; });
       return K.list(st, lid, items, { keyOf: function (x) { return x.k; }, focusOf: function (k) { return K.byId(lid + '-' + k); },
-        draw: function (shown) { return '<ul class="small vlist">' + shown.map(function (x) { return '<li id="' + esc(lid + '-' + x.k) + '" tabindex="-1">' + row(x.r) + '</li>'; }).join('') + '</ul>'; } });
+        draw: function (shown) { return '<ul class="small vlist">' + shown.map(function (x) { return '<li id="' + esc(lid + '-' + x.k) + '" tabindex="-1">' + drawRow(x.r) + '</li>'; }).join('') + '</ul>'; } });
     };
     var k = 'lib:' + p.id;
     var h = '<details class="panel" data-disc="' + esc(k) + '"' + (opened(ctx, k) ? ' open' : '') + '><summary><h2 id="lib-h">' + I('fork') + 'Used by and similar<span class="dot">&nbsp;·&nbsp;</span>' + (mine.usedBy.length + mine.similar.length) + (mine.complete ? '' : '+') + '</h2></summary>' + '<h3 class="small">Used by</h3>';

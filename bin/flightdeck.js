@@ -945,8 +945,22 @@ async function readData(eng, adapter, req) {
           else L.note(x._file || 'runs/' + key + '/', 'malformed', 'An archived migration record isn\'t one Flightdeck can read, so some of the run\'s history may be missing.');
         });
       }
-      if (req.cmd === 'run') return done(keep, usable ? (two ? A.run2 : A.run)(r, F.list([r], one.fuDecisions), nameOf) : { run: null });
-      return done(keep, usable ? (two ? A.next2 : A.next)(r, nameOf, req.person || null) : { run: key, person: req.person ? nameOf(req.person) : null, next: null, mine: null });
+      /* Module results (3.0): the linked runs of steps that accept results, read (never written) so contract 2 can say a step
+         awaits its recorder's settlement. One that can't be read is just not reported as awaited. */
+      const kids = {};
+      if (two && usable && r.format === PF.run.FORMAT3) {
+        const rmap = PF.run.mapOf(r);
+        for (const sid of Object.keys(r.steps || {})) {
+          const a = r.steps[sid], x = PF.map.findStep(rmap, sid);
+          if (!a || !a.child || !x || !PF.run.acceptsOf(r, x.step)) continue;
+          const kk = a.child.process + '/' + a.child.id;
+          if (Object.prototype.hasOwnProperty.call(kids, kk)) continue;
+          const c = await repo.readRunOnly(L.fs, a.child.process, a.child.id).catch(() => null);
+          if (c && c.found && c.run && !c.run._unrunnable) kids[kk] = c.run;
+        }
+      }
+      if (req.cmd === 'run') return done(keep, usable ? (two ? (rr, it, nm) => A.run2(rr, it, nm, { kids }) : A.run)(r, F.list([r], one.fuDecisions), nameOf) : { run: null });
+      return done(keep, usable ? (two ? (rr, nm, pp) => A.next2(rr, nm, pp, { kids }) : A.next)(r, nameOf, req.person || null) : { run: key, person: req.person ? nameOf(req.person) : null, next: null, mine: null });
     }
     /* Each command reads only what its output depends on (needs()), so every problem the ledger holds is one that output
        depends on, and all of them are reported: there's no scope to fall behind what's read. */

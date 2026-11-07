@@ -1,4 +1,4 @@
-// Module results (3.0, docs/design.md 47): a checklist's one typed result, set by its decision; a linked step that says which
+// Module results (3.0, docs/design.md 43): a checklist's one typed result, set by its decision; a linked step that says which
 // results it accepts and imports the result; settlement that holds the parent on a result it doesn't accept; the gate's
 // sticky review when a result changes; "Completed · <result>" wherever a run's outcome shows.
 'use strict';
@@ -118,7 +118,7 @@ function parentRun(kidPub, o) {
   const procs = { 'validate-story': proc([kidPub]) }, procOf = (id) => procs[id] || null;
   const pp = publish(PARENT(o), { childProcs: procs });
   const r = R.create(pp, { explicit: pp.info.format !== 'preflight-publication/2', id: 'rel1', by: 'person-avery', session: 'w', now: AT, app: '3.0.0', details: { issue: 'ABC-104' }, pins: PF.pins.atStart(pp.map, pp.info.payload ? pp.info.payload.pins : null, procOf) });
-  return { r, map: R.mapOf(r), procOf };
+  return { r, map: R.mapOf(r), procOf, pub: pp };
 }
 const link = (p, c, kidPub) => R.linkChild(p.r, p.map, 'story', { process: 'validate-story', id: c.id, inputs: { issue: c.details.issue }, folder: kidPub.info.folder, format: c.format, pin: p.r.pins.children.story }, 'person-avery', AT, { run: c, procOf: p.procOf });
 
@@ -205,6 +205,113 @@ rule('Contract 2: process carries the result and accepts, run and runs the resul
   same([nx.next.kind, nx.next.step.heldBy && nx.next.step.heldBy.result], ['blocked', 'needs-work']);
   same(A.conforms(nx, A.SCHEMA2.next), []);
   assert.ok(!('heldBy' in A.next(p.r, nameOf, null).next.step), 'contract 1 is unchanged');
+});
+
+/* ---------- Review 04 ---------- */
+const settled = (decision) => { const kp = publish(CHILD()), p = parentRun(kp), c = child(decision || 'cleared', 'kid1', { pub: kp }); link(p, c, kp); R.settleChild(p.r, p.map, 'story', c, 'person-avery', LATER, p.procOf); return { kp, p, c, st: M.findStep(p.map, 'story').step }; };
+const redecide = (c, value, at) => { c.steps.verdict.values.decision = value; c.steps.verdict.at = at; c.details.disposition = value; };
+rule('R04-1: a settled step notices its run changed after it counted it (a new answer, changed and back, a reopened gate) and goes back with its gate to review', () => {
+  const { p, c, st } = settled();
+  R.pass(p.r, p.map, 0, 'person-avery', LATER);
+  assert.strictEqual(R.resultMoved(p.r, st, p.r.steps.story, c, p.procOf), '', 'nothing changed: nothing to do');
+  redecide(c, 'needs-work', LAST);
+  const why = R.resultMoved(p.r, st, p.r.steps.story, c, p.procOf);
+  assert.ok(/Validate a story changed after this step counted it/.test(why), why);
+  R.unsettleResult(p.r, p.map, 'story', why, 'person-avery', LAST);
+  same([p.r.steps.story.s, R.gateStatus(p.r, p.map, 0), 'result' in p.r.steps.story.child, !!p.r.steps.story.child.failed], ['recheck', 'review', false, false]);
+  assert.strictEqual(R.settleChild(p.r, p.map, 'story', c, 'person-avery', LAST, p.procOf), 'held');
+  redecide(c, 'cleared', '2026-11-07T12:00:00.000Z');
+  const back = R.resultMoved(p.r, st, p.r.steps.story, c, p.procOf);
+  assert.ok(back, 'changed and back is still a change');
+  R.unsettleResult(p.r, p.map, 'story', back, 'person-avery', LAST);
+  assert.strictEqual(R.settleChild(p.r, p.map, 'story', c, 'person-avery', LAST, p.procOf), 'done');
+  assert.strictEqual(R.gateStatus(p.r, p.map, 0), 'review', 'the approval doesn\'t come back by itself');
+  const q = settled(), cm = R.mapOf(q.c);
+  R.reopen(q.c, cm, 0, 'person-avery', LAST);
+  assert.ok(/changed after this step counted it/.test(R.resultMoved(q.p.r, q.st, q.p.r.steps.story, q.c, q.p.procOf)), 'a reopened gate is a change');
+  const n = parentRun(publish(CHILD()), { sets: null, accepts: null, context: 'issue' });
+  assert.strictEqual(R.resultMoved(n.r, M.findStep(n.map, 'story').step, { s: 'done', child: { process: 'validate-story', id: 'x' } }, q.c, n.procOf), '', 'a step without accepts: keeps 2.x behavior');
+});
+
+rule('R04-2: a run whose result disagrees with its decision is refused before anything is settled', () => {
+  const kp = publish(CHILD()), p = parentRun(kp), c = child('needs-work', 'kid1', { pub: kp });
+  c.details.disposition = 'cleared';
+  const res = R.resultOf(c);
+  same([res.value, !!res.conflict], ['', true]);
+  assert.strictEqual(R.outcomeText(c), 'Completed');
+  link(p, c, kp);
+  const before = JSON.stringify(p.r);
+  assert.throws(() => R.settleChild(p.r, p.map, 'story', c, 'person-avery', LATER, p.procOf), /says \^disposition is cleared, but its decision says needs-work/);
+  assert.strictEqual(JSON.stringify(p.r), before, 'nothing settled');
+});
+
+rule('R04-4: what a step accepts and imports is checked against the version its run actually starts, before anything starts or links', () => {
+  const k1 = publish(CHILD()), procs = { 'validate-story': proc([k1]) }, pp = publish(PARENT(), { childProcs: procs });
+  const k2 = publish(CHILD({ context: 'issue, disposition:choice(cleared|needs-work|deferred|ready)', options: 'cleared, needs-work, deferred, ready' }), { existing: [k1.info] });
+  const later = { 'validate-story': proc([k1, k2]) }, procOf = (id) => later[id] || null;
+  const r = R.create(pp, { id: 'rel2', by: 'person-avery', session: 'w', now: AT, app: '3.0.0', details: { issue: 'ABC-104' }, pins: PF.pins.atStart(pp.map, pp.info.payload ? pp.info.payload.pins : null, procOf) }), map = R.mapOf(r);
+  const st = M.findStep(map, 'story').step;
+  assert.ok(/\^story_result can't hold every result Validate a story v2 returns \(ready\)/.test(R.resultFit(r, st, k2.map, 2)), R.resultFit(r, st, k2.map, 2));
+  assert.strictEqual(R.resultFit(r, st, k1.map), '');
+  const c = child('ready', 'kid9', { pub: k2 }), before = JSON.stringify(r);
+  assert.throws(() => R.linkChild(r, map, 'story', { process: 'validate-story', id: c.id, inputs: { issue: 'ABC-104' }, folder: k2.info.folder, format: c.format, pin: r.pins.children.story }, 'person-avery', AT, { run: c, procOf }), /can't hold every result/);
+  assert.strictEqual(JSON.stringify(r), before, 'nothing linked');
+});
+
+rule('R04-6: settling again with the same answer changes nothing, even after the gate passed', () => {
+  const { p, c } = settled();
+  R.pass(p.r, p.map, 0, 'person-avery', LATER);
+  const before = JSON.stringify(p.r);
+  assert.strictEqual(R.settleChild(p.r, p.map, 'story', c, 'person-avery', LAST, p.procOf), 'done');
+  assert.strictEqual(JSON.stringify(p.r), before);
+  const h = settled('needs-work'), hb = JSON.stringify(h.p.r);
+  assert.strictEqual(R.settleChild(h.p.r, h.p.map, 'story', h.c, 'person-avery', LAST, h.p.procOf), 'held');
+  assert.strictEqual(JSON.stringify(h.p.r), hb);
+});
+
+rule('R04-7/8: contract 2 says a step waits for its recorder to settle it, with the run and its result; accepts keeps values with =', () => {
+  const A = PF.appjson, nameOf = (id) => id ? { id, name: id } : null;
+  const kp = publish(CHILD()), p = parentRun(kp), c = child('needs-work', 'kid1', { pub: kp });
+  link(p, c, kp);
+  const kids = { 'validate-story/kid1': c };
+  const rr = A.run2(p.r, [], nameOf, { kids }).run, s0 = rr.steps.filter(x => x.id === 'story')[0];
+  same(s0.awaiting, { process: 'validate-story', id: 'kid1', result: 'needs-work', reason: 'Validate a story ended: Completed · needs-work; this run\'s recorder settles this step when they next open Flightdeck' });
+  same(A.conforms({ run: rr }, A.SCHEMA2.run), []);
+  const nx = A.next2(p.r, nameOf, null, { kids });
+  same(nx.next.step.awaiting && nx.next.step.awaiting.id, 'kid1', JSON.stringify(nx.next));
+  same(A.conforms(nx, A.SCHEMA2.next), []);
+  R.settleChild(p.r, p.map, 'story', c, 'person-avery', LATER, p.procOf);
+  same(A.run2(p.r, [], nameOf, { kids }).run.steps.filter(x => x.id === 'story')[0].awaiting, null, 'settled: nothing awaited');
+  const eq = CHILD({ context: 'issue, disposition:choice(ready=yes|no)', options: 'ready=yes, no' });
+  const ek = publish(eq), ep = publish(PARENT({ context: 'issue', sets: null, accepts: 'ready=yes' }), { childProcs: { 'validate-story': proc([ek]) } });
+  same(A.process2({ process: 'release', id: 'release', title: 'Release', pubs: [ep], index: P.index([ep]) }, ep).phases[0].steps[0].accepts, ['ready=yes']);
+});
+
+rule('R04-9/10: a bound result is never taken from a plan or start; a receipt says Completed · result', () => {
+  const kp = publish(CHILD());
+  const c = R.create(kp, { id: 'kid5', by: 'person-avery', session: 'w', now: AT, app: '3.0.0', details: { issue: 'ABC-104', disposition: 'cleared' } });
+  assert.strictEqual(c.details.disposition, '', 'the decision sets it, not the start');
+  const done = child('needs-work', 'kid6', { pub: kp });
+  assert.ok(/^Status: Ended: Completed · needs-work$/m.test(R.receipt(done, R.mapOf(done), (x) => x, AT)), R.receipt(done, R.mapOf(done), (x) => x, AT));
+});
+
+rule('R04-7: flightdeck run and next --contract 2 read the linked run and say the step awaits its recorder, writing nothing', () => {
+  const fs = require('fs'), os = require('os'), path = require('path'), { execFileSync } = require('child_process');
+  const kp = publish(CHILD()), p = parentRun(kp), c = child('needs-work', 'kid1', { pub: kp }); link(p, c, kp);
+  const pp = p.pub;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-results-')), put = (rel, text) => { fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true }); fs.writeFileSync(path.join(dir, rel), text); };
+  put('people.json', JSON.stringify({ people: [{ id: 'person-avery', name: 'Avery' }] }));
+  [[kp, 'validate-story'], [pp, 'release']].forEach(([v, id]) => Object.keys(v.files).forEach(k => put('publications/' + id + '/' + v.folder + '/' + k, v.files[k])));
+  assert.strictEqual(p.r.folder, pp.folder, 'set-up: the parent runs the version written');
+  put('runs/release/rel1/run.json', JSON.stringify(p.r)); put('runs/validate-story/kid1/run.json', JSON.stringify(c));
+  const before = fs.readFileSync(path.join(dir, 'runs/release/rel1/run.json'), 'utf8');
+  const BIN = path.join(__dirname, '..', 'bin', 'flightdeck.js'), cli = (...a) => { try { return execFileSync(process.execPath, [BIN, ...a], { encoding: 'utf8', stdio: 'pipe' }); } catch (e) { return String(e.stdout); } };
+  const rr = JSON.parse(cli('run', dir, 'release/rel1', '--contract', '2', '--json'));
+  const st = rr.data.run.steps.filter(x => x.id === 'story')[0];
+  same([st.awaiting && st.awaiting.id, st.awaiting && st.awaiting.result], ['kid1', 'needs-work'], JSON.stringify(rr).slice(0, 600));
+  const nx = JSON.parse(cli('next', dir, 'release/rel1', '--contract', '2', '--json'));
+  same(nx.data.next.step.awaiting && nx.data.next.step.awaiting.id, 'kid1', JSON.stringify(nx).slice(0, 600));
+  assert.strictEqual(fs.readFileSync(path.join(dir, 'runs/release/rel1/run.json'), 'utf8'), before, 'nothing written');
 });
 
 run();

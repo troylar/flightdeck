@@ -85,6 +85,8 @@ PF.appjson = (function () {
   var RESULT2 = { result: opt({ name: 'string', value: 'string' }), outcome: opt('string') };
   /* A linked step held by the result its run returned (3.0): that run, the result, and the reason the step gives. */
   var HELD_BY = { process: 'string', id: 'string', result: 'string', reason: 'string' };
+  /* awaiting (3.0): the linked run ended (or changed) and only the parent's recorder settles the step; reads never write. */
+  var AWAITING = { process: 'string', id: 'string', result: 'string', reason: 'string' };
   var FOLLOWUP2 = extend(FOLLOWUP, { test: 'boolean' });
   /* A detail that must match a pattern (2.16, Appendix A) carries pattern; every other detail is exactly as before. */
   var DETAIL = { name: 'string', type: 'string', options: ['string'] };
@@ -99,14 +101,14 @@ PF.appjson = (function () {
     types: ['string'], teamTypes: ['string'], unknownTypes: ['string'], skills: [{ name: 'string', implements: opt('number'), steps: opt(['string']), status: 'string' }] };
   var SCHEMA2 = {
     envelope: SCHEMA.envelope, error: SCHEMA.error, processes: SCHEMA.processes,
-    next: extend(SCHEMA.next, { next: opt(extend(SCHEMA.next.next.$or[0], { step: opt(orResult(orSearch({ id: 'string', text: 'string', roles: [ROLE] }, 'run'), { heldBy: opt(HELD_BY) })) })) }), followups: { followUps: [FOLLOWUP2] }, request: SCHEMA.request,
+    next: extend(SCHEMA.next, { next: opt(extend(SCHEMA.next.next.$or[0], { step: opt(orResult(orSearch({ id: 'string', text: 'string', roles: [ROLE] }, 'run'), { heldBy: opt(HELD_BY), awaiting: opt(AWAITING) })) })) }), followups: { followUps: [FOLLOWUP2] }, request: SCHEMA.request,
     /* stage: the staged version shown (process --stage), else null. */
     process: orResult(extend(SCHEMA.process, { format: 'string', features: ['string'], stage: opt({ folder: 'string', proposed: 'number', stagedBy: 'string', stagedAt: 'string' }), details: [{ $or: [DETAIL, extend(DETAIL, { pattern: 'string' })] }],
       phases: [extend(SCHEMA.process.phases[0], { when: ['string'], steps: [orResult(orSearch(extend(SCHEMA.process.phases[0].steps[0], { when: ['string'], evidence: [extend(EVIDENCE2, { min: opt('string'), max: opt('string'), unit: opt('string') })] }), 'template'), { accepts: opt(['string']), imports: opt('string') })] })] }), { result: { name: 'string', options: ['string'], step: opt('string') } }),
     /* testRunsLeftOut: test runs that match but aren't listed (D3: left out unless asked for with --tests). */
     runs: { runs: [orResult(SUMMARY2, RESULT2)], planned: [extend(SCHEMA.runs.planned[0], { format: 'string', pin: opt({ folder: 'string', version: 'number' }) })], testRunsLeftOut: 'number' },
     run: { run: opt(orResult(extend(SUMMARY2, { roles: [ROLE], pins: map(PIN), migrations: [MIGRATION],
-      steps: [orResult(orSearch(extend(SCHEMA.run.run.$or[0].steps[0], { values: map(VALUE), evidence: [EVIDENCE2], applies: APPLIES, held: opt('string') }), 'run'), { accepts: opt(['string']), result: opt('string'), heldBy: opt(HELD_BY) })],
+      steps: [orResult(orSearch(extend(SCHEMA.run.run.$or[0].steps[0], { values: map(VALUE), evidence: [EVIDENCE2], applies: APPLIES, held: opt('string') }), 'run'), { accepts: opt(['string']), result: opt('string'), heldBy: opt(HELD_BY), awaiting: opt(AWAITING) })],
       gates: [extend(SCHEMA.run.run.$or[0].gates[0], { applies: APPLIES })], followUps: [FOLLOWUP2] }), RESULT2)) },
     /* flightdeck draft check (2.13): the verdict the Publish dialog gives the text, from the folder as it is now. from: the draft
        in maps/drafts/ (ref its path) or the file given with --from (ref null); rev: SHA-256 of the text checked. */
@@ -391,11 +393,21 @@ PF.appjson = (function () {
   }
   /* A step that carries module results' fields: a linked step that accepts results, or whose link recorded one. */
   function resulted(r, step, a) { return step.type === 'run.process' && (!!R.acceptsOf(r, step) || !!(a && a.child && typeof a.child.result === 'string')); }
+  /* A step whose linked run (kids: 'process/id' -> run, read but never written) ended or changed since this run last settled it. */
+  function awaiting(r, step, a, kids) {
+    var c = a && a.child && !a.child.failed && kids && Object.prototype.hasOwnProperty.call(kids, a.child.process + '/' + a.child.id) ? kids[a.child.process + '/' + a.child.id] : null;
+    if (!c || !c.ended || !R.childCurrent(r, step, a) || a.s === 'na') return null;
+    /* Settled for exactly this answer, and the run still stands (no gate reopened since): nothing waits. */
+    if (typeof a.child.answer === 'string' && a.child.answer === R.answerOf(c) && !R.childCheck(c)) return null;
+    var res = R.resultOf(c), val = res ? res.value : '', who = String(c.title || c.process).slice(0, 50);
+    var what = typeof a.child.answer === 'string' ? who + ' changed after this step counted it (now ' + R.outcomeText(c) + ')' : who + ' ended: ' + R.outcomeText(c);
+    return { process: s(a.child.process), id: s(a.child.id), result: s(val), reason: s(what + '; this run\'s recorder settles this step when they next open Flightdeck') };
+  }
   function heldBy(r, step, a) { var why = a ? R.resultHeld(r, step, a) : ''; return why ? { process: s(a.child.process), id: s(a.child.id), result: s(a.child.result), reason: s(why) } : null; }
   /* next with contract 2: the blocked step says when the result its linked run returned holds it (heldBy). */
-  function next2(r, nameOf, personId) {
+  function next2(r, nameOf, personId, o) {
     var out = next(r, nameOf, personId), mp = R.mapOf(r), st = out.next && out.next.step, x = st ? M.findStep(mp, st.id) : null;
-    if (st && x && resulted(r, x.step, r.steps[st.id])) st.heldBy = heldBy(r, x.step, r.steps[st.id]);
+    if (st && x && resulted(r, x.step, r.steps[st.id])) { st.heldBy = heldBy(r, x.step, r.steps[st.id]); st.awaiting = awaiting(r, x.step, r.steps[st.id], o && o.kids); }
     return out;
   }
   function followUps2(items, nameOf) { return { followUps: (items || []).map(function (x) { var o = followUp(x, nameOf); o.test = !!x.test; return o; }) }; }
@@ -434,7 +446,7 @@ PF.appjson = (function () {
         var x = mp.phases[pi].steps[si], t = T.get(x.type, types), list = t ? T.recordFields(t, x.fields) : [];
         if (R.isSearchStep(x)) st.search = searchTpl(x, mp);
         if (x.type === 'run.process' && (x.fields.accepts != null || M.setsOf(x.fields.sets).some(function (b) { return b.from === 'result'; }))) {
-          st.accepts = x.fields.accepts != null ? M.setNames(x.fields.accepts).map(s) : null;
+          st.accepts = x.fields.accepts != null ? String(x.fields.accepts).split(',').map(function (v) { return v.trim(); }).filter(Boolean).map(s) : null;
           st.imports = M.setsOf(x.fields.sets).filter(function (b) { return b.from === 'result'; }).map(function (b) { return s(b.name); })[0] || null;
         }
         st.evidence = evidence2(list).map(function (e, i) { var d = list[i]; e.min = d.kind === 'number' && d.min != null ? s(d.min) : null; e.max = d.kind === 'number' && d.max != null ? s(d.max) : null; e.unit = d.kind === 'number' && d.unit != null ? s(d.unit) : null; return e; });
@@ -463,7 +475,7 @@ PF.appjson = (function () {
     });
     return out;
   }
-  function run2(r, items, nameOf) {
+  function run2(r, items, nameOf, o) {
     var mp = R.mapOf(r), out = run(r, items, nameOf).run, base = summary2(r, nameOf);
     out.details = base.details; head2(r, out); out.test = base.test; out.stage = base.stage; if ('result' in base) { out.result = base.result; out.outcome = base.outcome; }
     out.pins = {}; if (r.pins && r.pins.children) Object.keys(r.pins.children).forEach(function (k) { var c = r.pins.children[k]; out.pins[k] = { process: s(c.process), version: +c.version || 0, folder: s(c.folder), mapHash: s(c.mapHash), typesHash: s(c.typesHash) }; });
@@ -475,7 +487,7 @@ PF.appjson = (function () {
       st.values = vals; st.evidence = evidence2(x ? R.evidenceFor(r, x.step).list : []);
       var ap = x ? R.applies(r, mp, x.phaseIndex, x.step) : { applies: true };
       st.applies = ap.applies; st.held = ap.applies === null ? s(ap.why) : null;
-      if (x && resulted(r, x.step, a)) { st.accepts = R.acceptsOf(r, x.step) || null; st.result = a && a.child && typeof a.child.result === 'string' ? s(a.child.result) : null; st.heldBy = heldBy(r, x.step, a); }
+      if (x && resulted(r, x.step, a)) { st.accepts = R.acceptsOf(r, x.step) || null; st.result = a && a.child && typeof a.child.result === 'string' ? s(a.child.result) : null; st.heldBy = heldBy(r, x.step, a); st.awaiting = awaiting(r, x.step, a, o && o.kids); }
       if (x && R.isSearchStep(x.step)) st.search = searchRun(r, mp, x.step);
     });
     out.gates.forEach(function (g, pi) { g.applies = R.applies(r, mp, pi).applies; });
