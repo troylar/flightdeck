@@ -153,6 +153,7 @@ test/compat-typed.test.js -
 test/compat-conditions.test.js -
 test/compat-staging.test.js -
 test/compat-pass.test.js -
+test/compat-results.test.js -
 test/compat-teamvalues.test.js -
 test/compat-typesave.test.js -
 test/skills-parity.test.js -

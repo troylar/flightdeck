@@ -87,6 +87,18 @@ function readsPatternDetail(PF) {
   const v = verify16(PF, specimens16().pattern), d = v.ok && v.map && v.map.meta && v.map.meta.detailTypes ? v.map.meta.detailTypes.tag : null;
   return !!d && d.kind === 'pattern' && d.pattern === 'v\\d{1,3}';
 }
+/* Module results (3.0): a version whose checklist declares a result set by its decision is usable, and the copy reads the result. */
+let made30 = null;
+function readsModuleResults(PF) {
+  if (!made30) {
+    const BPF = require('./harness').load();
+    made30 = BPF.publish.build(['---', 'process: story', 'title: Story', 'context: verdict:choice(cleared|needs-work)', 'result: verdict', '---', '', '## Check · DO-CONFIRM {#check}',
+      '- [!] {decide} Record the verdict {#decide}', '  options: cleared, needs-work', '  sets: verdict=decision', ''].join('\n'), { people: [], customTypes: {}, by: 'person-avery', changes: 'First', existing: [], now: AT16, rand: 'abcd3000', app: '3.0.0' });
+    if (made30.blockers) throw new Error('3.0 specimen: ' + made30.blockers.join(' | '));
+  }
+  const v = PF.publish.verify(made30.folder, made30.files, H.exact2(made30.files['map.md'], made30.files['types.json']));
+  return !!v.ok && !!PF.map.resultDef && !!PF.map.resultDef(v.map);
+}
 /* Set aside as unusable, saying it needs 2.16 (the bridge and 2.0 to 2.14). */
 const refuses16 = (which) => (PF) => { const v = verify16(PF, specimens16()[which]); return !v.ok && !!v.unusable && /2\.16/.test(String(v.why || '') + ' ' + String(v.needs || '')); };
 /* A run of a search step, read in full: the containers it keeps (searchSites, searchGen, searchRec) come back with the
@@ -183,6 +195,7 @@ const ROWS = [
   { id: 'search-runs', what: 'A run of a Jira search keeps its addresses and generations (searchSites, searchGen, searchRec)', from: '2.16.0', has: readsSearchRun, writes: ['runs/<process>/<id>/run.json (preflight-run/3 naming jira-search, with searchSites, searchGen and searchRec)'] },
   { id: 'blocked-results', what: 'Block with these: a search step blocked with its results', from: '2.16.0', has: readsBlockedResults, writes: ['runs/<process>/<id>/run.json (a blocked search step with values)', 'report-decisions/<process>/<run>.<hash>.<writer>.<rev>.json (the report it blocked with, declined)'] },
   { id: 'detail-patterns', what: 'Run details that must match a pattern (context: name:pattern(...))', from: '2.16.0', has: readsPatternDetail, writes: ['publications/<process>/<folder>/ (preflight-publication/2 naming detail-patterns)', 'runs/<process>/<id>/run.json (preflight-run/3 naming detail-patterns)'] },
+  { id: 'module-results', what: 'A checklist\'s result, the decision that sets it and a linked step that accepts and imports it (result:, sets: =decision, accepts:, sets: =result)', from: '3.0.0', has: readsModuleResults, writes: ['publications/<process>/<folder>/ (preflight-publication/2 naming module-results)', 'runs/<process>/<id>/run.json (preflight-run/3 naming module-results; a linked step records its run\'s result)'] },
   { id: 'link-forms', what: 'Publish refuses a run detail in a link\'s host, a parameter\'s name or a query part with no = (Appendix B)', from: '2.16.0', has: refusesLinkForms, writes: [] },
   { id: 'report-sets', what: 'A report may set the run details its step sets (Appendix A.4)', from: '2.16.0', has: acceptsReportSets, writes: ['runs/<process>/<id>/run.json (details set by an accepted report)', 'report-decisions/<process>/<run>.<hash>.<writer>.<rev>.json'] },
   { id: 'agents-hold', what: 'An update holds AGENTS.md while a file it points to lacks a section it cites (PF.contract.hold)', from: '2.16.0', has: holdsAgents, writes: ['.flightdeck/updates/<version>/AGENTS.md (held) and .flightdeck/updates/<version>/README.md, by flightdeck install and the app\'s update'] },
