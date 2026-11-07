@@ -767,7 +767,7 @@ PF.repo = (function () {
         if (x.kind === 'cached') { var e = x.entry; x.sig = sigOf(e.fileHash, e.notesSig, e.conflicts, e.unrunnable || badFor(cache, e), e.recheckAt); delete x.entry; }
       });
       var out = { people: r[0], drafts: r[1], processes: r[2], reads: reads, runsComplete: complete, legacy: r[4], skills: r[5], validations: r[9], valUnread: valUnread, corrDecisions: r[10].filter(function (d) { return !d._unread; }), corrUnread: r[10].filter(function (d) { return d._unread; }),
-        fuDecisions: r[11].filter(function (d) { return !d._unread; }), fuUnread: r[11].filter(function (d) { return d._unread; }), plans: plans, scopes: r[6].scopes || [], stepTypes: r[7], jira: r[8],
+        fuDecisions: r[11].filter(function (d) { return !d._unread; }), fuUnread: r[11].filter(function (d) { return d._unread; }), plans: plans, scopes: r[6].scopes || [], scopesUnread: r[6].scopesUnread || [], stepTypes: r[7], jira: r[8],
         unreadable: unreadable, failed: failed, planUnread: planUnread, skillsSkipped: r[5].skipped || 0, readAt: new Date().toISOString(), proposed: r[12], presence: r[13],
         reports: r[14], repDecisions: r[15].filter(function (d) { return !d._unread; }), repUnread: r[15].filter(function (d) { return d._unread; }), stages: r[16], teamValues: r[17],
         /* Files from a newer Flightdeck this copy refused, by path, with the version each needs: shown by Folder health and
@@ -2571,12 +2571,12 @@ PF.repo = (function () {
   function readPlans(fs, bad, only, two) {
     var refused = [], torn = [];
     return loadJsonDir(fs, 'proposals', function (o) { return o.kind === 'plan' || o.kind === 'status' || typeof o.format === 'string'; }, bad, only, torn).then(function (props) {
-      var plans = [], statuses = [], scopes = [];
+      var plans = [], statuses = [], scopes = [], scopesUnread = [];
       props.forEach(function (p) {
         /* A scope request or decision (3.0, PF.loop) goes to its own reader first and never reaches the plan reader. */
         if (PF.loop.isScope(p)) {
           var sv = PF.loop.cleanFile(p, p._file), sp = 'proposals/' + p._file, sf = p.format === PF.loop.STATUS ? 'flightdeck-plan-status' : 'flightdeck-plan';
-          if (!sv.ok) { if (bad) bad.push({ path: sp, kind: sv.kind, why: sv.why }); refused.push(PF.envelope.refusal(sp, sf, sv)); return; }
+          if (!sv.ok) { if (bad) bad.push({ path: sp, kind: sv.kind, why: sv.why }); refused.push(PF.envelope.refusal(sp, sf, sv)); scopesUnread.push({ file: p._file, why: sv.why, loop: PF.loop.loopOf(p) }); return; }
           sv.record._file = p._file; scopes.push(sv.record); return;
         }
         var v = PF.plans.clean(p, p._file, !!bad && !two), path = 'proposals/' + p._file, fam = PF.plans.familyOf(p, p._file) === 'status' ? 'flightdeck-plan-status' : 'flightdeck-plan';
@@ -2591,7 +2591,9 @@ PF.repo = (function () {
         if (v.kind === 'status') statuses.push(p);
         else if (typeof p.id === 'string' && typeof p.process === 'string') plans.push(p);
       });
-      return { plans: plans, statuses: statuses, scopes: scopes, refused: refused, torn: torn || [] };
+      /* A scope record that can't be read (cut short, still syncing) holds every loop, since which loop it is for can't be known. */
+      (torn || []).forEach(function (t) { if (/^req-/.test(String(t._file || ''))) scopesUnread.push({ file: t._file, why: t.why, loop: null }); });
+      return { plans: plans, statuses: statuses, scopes: scopes, scopesUnread: scopesUnread, refused: refused, torn: torn || [] };
     });
   }
   /* Reading for other apps: a view of a folder that writes down, by path, every list, read, stat or blob that failed (as

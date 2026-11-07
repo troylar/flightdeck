@@ -2900,7 +2900,7 @@
   /* Loops (3.0): every change to a loop's list is a scope record in proposals/, written once (repo.saveScope), the same
      records flightdeck loop writes; a story's run is a run of the loop's checklist naming its item. */
   function loopKey(k) { var m = /([A-Z][A-Z0-9_]{0,29}-[1-9][0-9]{0,8})\/?$/.exec(String(k).trim()); return m ? m[1] : String(k).trim(); }
-  function loopView(r, id) { return PF.loop.view(r, id, { records: data.scopes || [], runs: data.runs || [], who: personName }); }
+  function loopView(r, id) { return PF.loop.view(r, id, { records: data.scopes || [], unread: data.scopesUnread || [], runs: data.runs || [], procOf: ctx.procOf, who: personName }); }
   function loopHex(n) { return PF.sha256.hex(WRITER + ':' + Date.now() + ':' + Math.random()).slice(0, n); }
   function loopSaved(p, words) {
     var endBusy = busyStart(), sg = gen;
@@ -2939,13 +2939,23 @@
     if (got.missing.length) { say(key + '\'s run needs ' + got.missing.join(', ') + ' first.', 'warn'); render(); return; }
     var row = V.rollup.items.filter(function (i) { return i.uid === x.uid; })[0], attempt = row && row.runs.length ? row.attempt + 1 : Math.max(1, row ? row.attempt : 1);
     var roles = {}; pub.map.meta.roles.forEach(function (ro) { roles[ro] = r.roles[ro] || ''; });
-    var child; try { child = R.create(pub, { title: key + (x.title ? ': ' + x.title : ''), details: got.inputs, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), app: APP_VERSION, teamValues: data.teamValues,
+    var flight = r.id + '/' + id + '/' + x.uid;
+    if (!state.loopStarting) state.loopStarting = Object.create(null);
+    if (state.loopStarting[flight]) return;
+    var tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (err) { tz = ''; }
+    var child; try { child = R.create(pub, { title: key + (x.title ? ': ' + x.title : ''), details: got.inputs, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), app: APP_VERSION, teamValues: data.teamValues, tz: tz, workflows: data.jira.workflows, pins: pinsAtStart(pub),
       parent: { process: r.process, id: r.id, step: id, item: { uid: x.uid, key: x.key, attempt: attempt } } }); }
     catch (err) { say(err.message, 'warn'); render(); return; }
-    var sfs = state.fs, endBusy = busyStart(), sg = gen;
-    queued(function () { child.recorder.session = SESSION; return repo.saveRun(sfs, child, SESSION, { writer: WRITER, lock: LOCKS ? lock : null }); }).then(function () {
-      endBusy(); if (sg !== gen) return; say('Started "' + child.title + '".', 'good'); return load(true);
-    }, function (err) { endBusy(); if (sg !== gen) return; say('Couldn\'t start the run: ' + (err && err.message || err), 'bad'); render(); });
+    var sfs = state.fs, endBusy = busyStart(), sg = gen, done = function () { endBusy(); delete state.loopStarting[flight]; };
+    state.loopStarting[flight] = true;
+    queued(function () {
+      /* Checked again right before it writes: a run for this story and attempt that arrived meanwhile wins, and nothing is started. */
+      var taken = (data.runs || []).some(function (c) { var it = c.parent && c.parent.item; return it && c.parent.process === r.process && c.parent.id === r.id && c.parent.step === id && it.uid === x.uid && +it.attempt === attempt; });
+      if (taken) throw new Error(key + ' already has a run for this attempt. Nothing was started.');
+      child.recorder.session = SESSION; return repo.saveRun(sfs, child, SESSION, { writer: WRITER, lock: LOCKS ? lock : null });
+    }).then(function () {
+      done(); if (sg !== gen) return; say('Started "' + child.title + '".', 'good'); return load(true);
+    }, function (err) { done(); if (sg !== gen) return; say('Couldn\'t start the run: ' + (err && err.message || err), 'bad'); render(); });
   }
   /* Counts what the person did since a start was submitted: every click on a control but Refresh, every key, navigation and
      every form opened or closed. A refused start reopens its form only when nothing happened since (childRetry); otherwise
@@ -3061,6 +3071,15 @@
       if (!ctx.recording(r) || r.paused || state.unsaved[r.id]) return;
       Object.keys(r.steps).forEach(function (sid) {
         var a = r.steps[sid], c = a && a.child && ctx.findRun(a.child.process + '/' + a.child.id), x = M.findStep(R.mapOf(r), sid), v = x && R.childVerdict(r, x.step, a, c, ctx.procOf);
+        /* A loop (3.0) whose approval no longer matches its list or results goes back for review at once, every change listed. */
+        if (x && x.step.type === 'for.each' && a && a.s === 'done' && a.loop && !r.ended) {
+          var lv = loopView(r, sid);
+          if (lv && lv.changes.length) mutateRun(r.process + '/' + r.id, gen, function (rr, m, me, now) {
+            var a2 = rr.steps[sid], v2 = a2 && a2.s === 'done' && a2.loop && loopView(rr, sid);
+            if (v2 && v2.changes.length) R.unsettleLoop(rr, m, sid, v2.changes, me, now);
+          }, { background: true });
+          return;
+        }
         /* Module results (3.0): a settled step whose run was reopened or corrected since goes back for a re-check, and is
            settled again at once when that run stands with an answer. */
         if (x && c && R.resultMoved(r, x.step, a, c, ctx.procOf)) {

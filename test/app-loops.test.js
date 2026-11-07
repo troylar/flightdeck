@@ -101,4 +101,21 @@ rule('App: a proposed removal is kept or removed by a person\'s decision, writte
   assert.ok(!/data-act="loop-keep"/.test(app.html()) && /2 in scope/.test(txt(app)), 'kept in scope, no longer waiting');
 });
 
+rule('Review round 1: a result changed after approval sends the loop back at once; a double click starts one run; a story still in Jira shows the mismatch', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  app.click('loop-start', 'each', { item: 'ABC-101' }); app.click('loop-start', 'each', { item: 'ABC-101' }); await app.tick(200);
+  assert.strictEqual(kidPaths(app).length, 1, 'two clicks, one run');
+  await clear(app, kidPaths(app)[0]);
+  app.click('loop-approve', 'each'); await app.tick(150);
+  assert.strictEqual(parentRun(app).steps.each.s, 'done');
+  const k = JSON.parse(app.fs.files[kidPaths(app)[0]].t);
+  k.steps.verdict.values.decision = 'needs-work'; k.details.disposition = 'needs-work'; k.steps.verdict.at = new Date(Date.now() + 5000).toISOString(); k.rev = (k.rev || 0) + 1;
+  await app.fs.write(kidPaths(app)[0], JSON.stringify(k));
+  app.click('refresh'); await app.tick(250);
+  const r = parentRun(app);
+  assert.strictEqual(r.steps.each.s, 'recheck', 'the recorder sends it back without being asked');
+  assert.ok(/ABC-101 now returns needs-work/.test(r.steps.each.values.changes), r.steps.each.values.changes);
+});
+
 run();

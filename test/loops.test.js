@@ -325,6 +325,53 @@ rule('The loop step is approved only with a roll-up that clears; a later change 
   same([back._unrunnable, back.steps.each.history.filter(h => h.loop).length], [undefined, 1]);
 });
 
+rule('Review round 1: a result recorded again since the approval is a change, even when it returns to the same value', () => {
+  const { r, kid2 } = release(), map = R.mapOf(r);
+  const recs = [LP.cleanRequest(JSON.parse(LP.text(reqFile('b1', { loop: LOOPT, observation: obs([101]) }))), reqFile('b1').id + '.json').record];
+  const runs = [kid2(101, 'cleared')];
+  let V = LP.view(r, 'each', { records: recs, runs });
+  R.done(r, map, 'each', 'person-morgan', AT, { _loop: { ok: true, snapshot: LP.approval(V.ledger, V.rollup, { by: 'person-morgan', at: AT }) } });
+  const again = kid2(101, 'cleared');
+  again.steps.verdict.at = '2026-11-07T10:00:00.000Z';
+  V = LP.view(r, 'each', { records: recs, runs: [again] });
+  same(V.changes, ['ABC-101\'s result was recorded again after this approval.']);
+});
+rule('Review round 1: a run on another version or for other inputs never clears its item', () => {
+  const { r, kid2 } = release();
+  const recs = [LP.cleanRequest(JSON.parse(LP.text(reqFile('b2', { loop: LOOPT, observation: obs([101]) }))), reqFile('b2').id + '.json').record];
+  const wrongIssue = kid2(101, 'cleared'); wrongIssue.details.issue = 'ABC-999';
+  let V = LP.view(r, 'each', { records: recs, runs: [wrongIssue] });
+  same([V.rollup.ok, V.rollup.items[0].status], [false, 'unread']);
+  has(V.rollup.blockers.map(b => b.text), /ABC-101's run was started with issue ABC-999, not ABC-101/);
+  const wrongVersion = kid2(101, 'cleared'); wrongVersion.folder = 'v9-zzzzzzzz';
+  V = LP.view(r, 'each', { records: recs, runs: [wrongVersion], procOf: () => null });
+  same(V.rollup.ok, false);
+});
+rule('Review round 1: a keep and an accept made at once need review in either file order', () => {
+  const base = [req('r1', [], { observation: obs([101]) }), req('r2', ['r1'], { observation: obs([]) })];
+  const k = dec('d-a', ['r2'], 'r2', 'keep', ['jira:10101']), a = dec('d-b', ['r2'], 'r2', 'accept', ['jira:10101']);
+  same(states(LP.reduce(base.concat([k, a]))), ['ABC-101:in!']);
+  same(states(LP.reduce(base.concat([a, k]))), ['ABC-101:in!']);
+});
+rule('Review round 1: result counts hold any result name, constructor and __proto__ included', () => {
+  const L = LP.reduce([req('r1', [], { observation: obs([101, 102]) })]);
+  const R1 = RO(L, [ended(101, 'constructor'), ended(102, '__proto__')]);
+  same([R1.counts.results.constructor, R1.counts.results.__proto__], [1, 1]);
+  assert.ok(/1 constructor/.test(R1.summary) && /1 __proto__/.test(R1.summary), R1.summary);
+});
+
+rule('Review round 1: a scope record that can\'t be read holds the loop, and readPlans names it', async () => {
+  const { r, kid2 } = release();
+  const recs = [LP.cleanRequest(JSON.parse(LP.text(reqFile('b3', { loop: LOOPT, observation: obs([101]) }))), reqFile('b3').id + '.json').record];
+  let V = LP.view(r, 'each', { records: recs, runs: [kid2(101, 'cleared')] });
+  same(V.rollup.ok, true);
+  V = LP.view(r, 'each', { records: recs, runs: [kid2(101, 'cleared')], unread: [{ file: 'req-x-' + 'a'.repeat(24) + '.json', why: 'isn\'t complete JSON', loop: null }] });
+  same([V.rollup.ok, V.rollup.blockers[0].kind], [false, 'held']);
+  const m = memFs({ ['proposals/req-x-' + 'b'.repeat(24) + '.json']: '{"format": "flightdeck-plan/3", "loop": ' });
+  const got = await PF.repo.readPlans(m, null, null, false);
+  same(got.scopesUnread.map(u => u.file), ['req-x-' + 'b'.repeat(24) + '.json']);
+});
+
 /* ---------- What a sync would do: the preview the assistant repeats ---------- */
 rule('A sync projects its changes: adds, proposed removals with their open assessments, planned children, approval impact', () => {
   const { r, kid2 } = release();

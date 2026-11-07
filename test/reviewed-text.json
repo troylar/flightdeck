@@ -13,8 +13,8 @@
       "reviewed": "fold design tips and the library panel; own-key reads; checked for direct writes and unconditional deletes"
     },
     "bin/flightdeck.js": {
-      "sha256": "afcc0be4f41839a44fceec597f23b735cadf5fa4dbb071582c508ddba74b8478",
-      "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
+      "sha256": "91bccf596e25c1a661a48a1bdba3e1353ae56409b436a5202179d59941bf76de",
+      "reviewed": "loops review round 1: qualification, answer fingerprints, unreadable holds, auto send-back, start guard; checked for direct writes and unconditional deletes: none added"
     },
     "build.py": {
       "sha256": "21c5b257606a8aa3d24c956f518745372409b550008be4d06f5178081117708c",
@@ -253,8 +253,8 @@
       "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "src/core/loop.js": {
-      "sha256": "05a3b25df483680e85bb9633c929b348da9b9be49b347575f55d6cf770694496",
-      "reviewed": "loops guard fixes: prototype-free objects in PF.loop, capped lists, people by id, teamValues on a loop item's start, example drafts removed; checked for direct writes and unconditional deletes: none added"
+      "sha256": "a954367479eeb7ac2d6a294cf5adbed21785b69f36eaba43d819fb2cfe88c748",
+      "reviewed": "loops review round 1: qualification, answer fingerprints, unreadable holds, auto send-back, start guard; checked for direct writes and unconditional deletes: none added"
     },
     "src/core/map.js": {
       "sha256": "671a810abb29087bed638e0fc39ecc5a52b70146abd303742d5d017c9083db7c",
@@ -393,12 +393,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/storage/repo.js": {
-      "sha256": "e23b409512b6927d85f6b829857bf9d73a648c08ff7465d34f990232509b6a22",
-      "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
+      "sha256": "3912ac3b00f26e62b62d1164e255c171607d73008be8cab4ee1556775698ad87",
+      "reviewed": "loops review round 1: qualification, answer fingerprints, unreadable holds, auto send-back, start guard; checked for direct writes and unconditional deletes: none added"
     },
     "src/ui/app.js": {
-      "sha256": "bfbd36f744615fe83e7b233645fdeb0fc60ed5b88ab6419e018827bf0120e5ac",
-      "reviewed": "loops guard fixes: prototype-free objects in PF.loop, capped lists, people by id, teamValues on a loop item's start, example drafts removed; checked for direct writes and unconditional deletes: none added"
+      "sha256": "a7c9a52534312c584e9b935a26cec9b89ab252fa31a70be1c88a5e9984223b16",
+      "reviewed": "start guard map without a prototype; checked for direct writes and unconditional deletes: none added"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
@@ -473,8 +473,8 @@
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "src/ui/views/run.js": {
-      "sha256": "74655a3a15ca2af56719a55993d40b907aaa717c92ec7f84fd322da28596a1db",
-      "reviewed": "loops guard fixes: prototype-free objects in PF.loop, capped lists, people by id, teamValues on a loop item's start, example drafts removed; checked for direct writes and unconditional deletes: none added"
+      "sha256": "43219b1bf4b3be2a9275c7b76a345c7e49c4a521461d5d2b2cf3aa6eedf36dbf",
+      "reviewed": "loops review round 1: qualification, answer fingerprints, unreadable holds, auto send-back, start guard; checked for direct writes and unconditional deletes: none added"
     },
     "src/ui/views/setup.js": {
       "sha256": "2393b54abde45fa1ba4ac110f394984d29b04ca728c3f1a46e8c22fb2c60dd80",

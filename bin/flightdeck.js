@@ -2732,7 +2732,8 @@ async function loopMain(argv) {
     bad.forEach((b) => L.note(b.path, b.kind || 'malformed', fileWhy(b.why)));
     const d = childProc ? await repo.loadAll(dependsOn(L.fs, ['runs/' + childProc]), { readOnly: true, explain: true, deep: true }) : { runs: [] };
     const nameOf = A.names(one.people), who = (p) => { const n = nameOf(p); return n ? n.name || n.id : ''; };
-    const V = LP.view(r, stepId, { records: got.scopes, runs: d.runs || [], who }), title = String(r.title || r.process);
+    const unread = (got.scopesUnread || []).concat(bad.filter((b) => /^proposals\/req-/.test(String(b.path || ''))).map((b) => ({ file: String(b.path).slice(10), why: b.why, loop: null })));
+    const V = LP.view(r, stepId, { records: got.scopes, unread, runs: d.runs || [], who }), title = String(r.title || r.process);
     if (sub === 'read') {
       const R0 = V.rollup;
       return done({ loop: V.loop, title, step: { id: stepId, text: x.step.text, state: (r.steps[stepId] || {}).s || 'open' }, process: childProc, pin: V.pin, accepts: V.accepts,
