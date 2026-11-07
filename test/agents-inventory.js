@@ -545,6 +545,10 @@ const REF_ADDED = [
   { home: G.checklist, text: 'Write a `^detail` in JQL without quotes (`fixVersion = ^version`):', why: 'new in 3.0 (thoughtful authoring): design first, JQL details unquoted, the Jira address' },
   { home: G.checklist, text: 'Flightdeck quotes the value.', why: 'new in 3.0 (thoughtful authoring): design first, JQL details unquoted, the Jira address' },
   { home: G.checklist, text: 'Publishing needs the team\'s Jira address in Team values.', why: 'new in 3.0 (thoughtful authoring): design first, JQL details unquoted, the Jira address' },
+  { home: G.checklist, text: '**A result the parent can trust** (Flightdeck 3.0): when a checklist ends in a verdict that another checklist waits on, give it `result: <detail>` (a choice in `context`, like `disposition:choice(cleared|needs-work)`) and bind its one `{decide}` step with `sets: disposition=decision`, its `options:` the same choices in the same order.', why: 'new in 3.0 (module results, design section 43): when to give a checklist a result and what the link accepts' },
+  { home: G.checklist, text: 'The linking `{run.process}` step adds `accepts: cleared` and, to keep the value, `sets: story_result=result`.', why: 'new in 3.0 (module results, design section 43): when to give a checklist a result and what the link accepts' },
+  { home: G.checklist, text: 'Any other result holds that step and keeps its gate closed.', why: 'new in 3.0 (module results, design section 43): when to give a checklist a result and what the link accepts' },
+  { home: G.checklist, text: 'Use it only for a verdict someone acts on; see map-format.md, Module results.', why: 'new in 3.0 (module results, design section 43): when to give a checklist a result and what the link accepts' },
 ];
 
 const NOTHING = 'Nothing here allows you to write a file `AGENTS.md` tells you not to.';
