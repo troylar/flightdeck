@@ -59,7 +59,8 @@
     var failed = ctx.data.failed || {}, unread = [];
     ['publications', 'drafts'].forEach(function (k) { if (k in failed) unread.push({ process: null, path: k === 'drafts' ? 'maps/drafts/' : 'publications/', why: String(failed[k]) }); });
     (ctx.data.drafts && ctx.data.drafts.unreadable || []).forEach(function (u) { unread.push({ process: null, path: u.path, why: u.why }); });
-    procs.forEach(function (p) { if (!p.latest && (p.broken || []).length) unread.push({ process: p.id, path: 'publications/' + p.id + '/', why: 'No version of it can be read here.' }); });
+    /* Every version that can't be read, even when an older one can: the newer one may link to something the older doesn't. */
+    procs.forEach(function (p) { (p.broken || []).forEach(function (v) { unread.push({ process: p.id, path: 'publications/' + p.id + '/' + v.folder + '/', why: String(v.why || 'It can\'t be read here.') }); }); });
     libCache = { procs: procs, lib: PF.library.inspect(procs, unread, { types: (ctx.data.stepTypes || {}).types || {} }) };
     return libCache.lib;
   }
@@ -81,18 +82,31 @@
   /* Used by and Similar in other checklists (3.0): who links to this checklist, and parts of other checklists that look like
      its own, each with why. Candidates only: two searches can match and still differ in who owns them or why. */
   function libraryPanel(ctx, p) {
-    var lib = libraryOf(ctx), mine = PF.library.forProcess(lib, p.id);
-    var titleOf = function (id) { var c = lib.checklists.filter(function (x) { return x.process === id; })[0]; return c ? c.title : id; };
-    var open = function (id, step, words) { return '<button type="button" class="link" data-act="go" data-view="process" data-process="' + esc(id) + '"' + (step ? ' data-step="' + esc(step) + '"' : '') + '>' + esc(words) + '</button>'; };
+    var lib = libraryOf(ctx), mine = PF.library.forProcess(lib, p.id), st = ctx.state;
+    var of = function (id, source) { return lib.checklists.filter(function (x) { return x.process === id && x.source === source; })[0] || null; };
+    var read = lib.checklists.map(function (x) { return x.process; }).filter(function (x, i, a) { return a.indexOf(x) === i; }).length;
+    var among = ', among the ' + read + ' checklist' + (read === 1 ? '' : 's') + ' read.';
+    /* Opens what matched: a publication at its own version, a draft as the draft, so the step named is the one shown. */
+    var open = function (id, source, step, words) {
+      var c = of(id, source), ver = source === 'publication' && c && c.folder ? ' data-map-ver="' + esc(c.folder) + '"' : '';
+      return '<button type="button" class="link" data-act="go" data-view="process" data-process="' + esc(id) + '"' + ver + (step ? ' data-step="' + esc(step) + '"' : '') + '>' + esc(words) + '</button>';
+    };
+    var titled = function (id, source) { var c = of(id, source) || of(id, 'publication') || of(id, 'draft'); return (c ? c.title : id) + (source === 'draft' ? ' (draft)' : ''); };
+    /* 50 at a time (common.js list), each row keyed by what it names, so Show more reaches every one library inspect lists. */
+    var paged = function (lid, rows, keyOf, row) {
+      var ks = K.uniqKeys(rows, keyOf), items = rows.map(function (r, i) { return { r: r, k: K.domKey(ks[i]) }; });
+      return K.list(st, lid, items, { keyOf: function (x) { return x.k; }, focusOf: function (k) { return K.byId(lid + '-' + k); },
+        draw: function (shown) { return '<ul class="small vlist">' + shown.map(function (x) { return '<li id="' + esc(lid + '-' + x.k) + '" tabindex="-1">' + row(x.r) + '</li>'; }).join('') + '</ul>'; } });
+    };
     var k = 'lib:' + p.id;
     var h = '<details class="panel" data-disc="' + esc(k) + '"' + (opened(ctx, k) ? ' open' : '') + '><summary><h2 id="lib-h">' + I('fork') + 'Used by and similar<span class="dot">&nbsp;·&nbsp;</span>' + (mine.usedBy.length + mine.similar.length) + (mine.complete ? '' : '+') + '</h2></summary>' + '<h3 class="small">Used by</h3>';
-    h += mine.usedBy.length ? '<ul class="small vlist">' + mine.usedBy.slice(0, 50).map(function (e) {
-      return '<li>' + open(e.by.process, e.by.step, titleOf(e.by.process) + (e.by.source === 'draft' ? ' (draft)' : '')) + ' <span>step {#' + esc(e.by.step) + '}, ' + (e.by.version ? 'pinned to v' + e.by.version : 'follows the latest version') + '</span></li>';
-    }).join('') + '</ul>' : '<p class="small">No other checklist links to this one.</p>';
+    h += mine.usedBy.length ? paged('lib-used:' + p.id, mine.usedBy, function (e) { return e.by.process + '\n' + e.by.source + '\n' + e.by.step; }, function (e) {
+      return open(e.by.process, e.by.source, e.by.step, titled(e.by.process, e.by.source)) + ' <span>step {#' + esc(e.by.step) + '}, ' + (e.by.version ? 'pinned to v' + e.by.version : 'follows the latest version') + '</span>';
+    }) : '<p class="small">No other checklist links to this one' + esc(among) + '</p>';
     h += '<h3 class="small">Similar in other checklists</h3>';
-    h += mine.similar.length ? '<ul class="small vlist">' + mine.similar.slice(0, 50).map(function (x) {
-      return '<li><span><b>' + esc(SIMILAR_WORDS[x.reason] || x.reason) + '</b>: {#' + esc(x.mine) + '} here and </span>' + open(x.process, x.kind === 'gate' ? null : x.id, titleOf(x.process) + (x.source === 'draft' ? ' (draft)' : '') + ' {#' + x.id + '}') + '</li>';
-    }).join('') + '</ul><p class="small">Look before you change either: similar isn\'t always the same work.</p>' : '<p class="small">Nothing in other checklists matches this one\'s searches, steps or gates.</p>';
+    h += mine.similar.length ? paged('lib-sim:' + p.id, mine.similar, function (x) { return x.kind + '\n' + x.mine + '\n' + x.process + '\n' + x.source + '\n' + x.id; }, function (x) {
+      return '<span><b>' + esc(SIMILAR_WORDS[x.reason] || x.reason) + '</b>: {#' + esc(x.mine) + '} here and </span>' + open(x.process, x.source, x.kind === 'gate' ? null : x.id, titled(x.process, x.source) + ' {#' + x.id + '}');
+    }) + '<p class="small">Look before you change either: similar isn\'t always the same work.</p>' : '<p class="small">Nothing in other checklists matches this one\'s searches, steps or gates' + esc(among) + '</p>';
     if (!mine.complete) h += '<p class="small" role="status">' + esc(mine.note) + '</p>';
     return h + '</details>';
   }

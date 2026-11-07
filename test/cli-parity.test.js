@@ -1036,10 +1036,10 @@ rule('Parity: design tips in draft check are the ones the checklist page shows; 
   const block = /<ul class="tips" aria-labelledby="tips-ov-h">([\s\S]*?)<\/ul>/.exec(html);
   assert.ok(block, 'the page draws the design tips');
   assert.deepStrictEqual([...block[1].matchAll(/<span class="lvl tip">Tip<\/span><span>([\s\S]*?)<\/span><\/li>/g)].map(m => unesc(m[1])), tips, 'the same tips, in the same order');
-  assert.ok(/Same Jira search<\/b>: \{#in\} here and <\/span><button type="button" class="link" data-act="go" data-view="process" data-process="release" data-step="stories">Release \{#stories\}/.test(html), 'Similar in other checklists');
+  assert.ok(/Same Jira search<\/b>: \{#in\} here and <\/span><button type="button" class="link" data-act="go" data-view="process" data-process="release" data-map-ver="v1-[^"]+" data-step="stories">Release \{#stories\}/.test(html), 'Similar in other checklists, opening the version that matched');
   app.click('open-process', 'check-in'); await app.tick();
   html = app.html();
-  assert.ok(/data-process="release" data-step="notes">Release<\/button> <span>step \{#notes\}, follows the latest version/.test(html), 'Used by, as library inspect says it');
+  assert.ok(/data-process="release" data-map-ver="v1-[^"]+" data-step="notes">Release<\/button> <span>step \{#notes\}, follows the latest version/.test(html), 'Used by, as library inspect says it');
   /* Step types name the checklists that use each type, as library inspect's stepTypes does for published ones. */
   const lib = libCli(dir, ['--json']).json.data;
   app.click('open-types'); await app.tick();
@@ -1050,6 +1050,68 @@ rule('Parity: design tips in draft check are the ones the checklist page shows; 
     assert.ok(m, id + ': the card lists its checklists');
     assert.deepStrictEqual([...m[1].matchAll(/data-process="([^"]+)"/g)].map(x => x[1]).sort(), want, id);
   });
+});
+
+/* ---------- 3.0: Used by and similar on a partial or large library, and where its links go ---------- */
+
+async function appOn(files, proc) {
+  const app = boot({ picker: folderHandle('Team', Object.assign({}, files)), indexedDB: memoryIDB() }); await app.tick(60);
+  app.click('connect'); await app.tick(200);
+  app.choose('person-avery'); await app.tick();
+  app.click('open-process', proc); await app.tick();
+  return app;
+}
+const libPart = (html) => (/<details class="panel" data-disc="lib:[\s\S]*?<\/details>/.exec(html) || [''])[0];
+const linking = (id, more) => md({ process: id, context: 'commit, ticket, version', steps: ['- [ ] {run.process} Check in the code @lead {#notes}', '  process: check-in'].concat(more || []) });
+
+rule('Used by and similar: a version that can\'t be read beside one that can still makes the panel partial; an empty list says among how many it read', async () => {
+  const files = await folder({ base: { 'team-values.json': JIRA_TV }, publish: [example('maps/drafts/check-in.md'), RELEASE_PUB, RELEASE_PUB.replace('title: Release', 'title: Release two')] });
+  let app = await appOn(files, 'check-in'), part = libPart(app.html());
+  assert.ok(/Used by and similar<span class="dot">&nbsp;·&nbsp;<\/span>1<\/h2>/.test(part), 'set-up: complete, one link: ' + part.slice(0, 300));
+  assert.ok(part.indexOf('Nothing in other checklists matches this one\'s searches, steps or gates, among the 2 checklists read.') >= 0, part);
+  const v2 = Object.keys(files).find(k => /^publications\/release\/v2-[^/]+\/publication\.json$/.test(k));
+  assert.ok(v2, 'set-up: release v2');
+  files[v2] = '{ not json';
+  app = await appOn(files, 'check-in'); part = libPart(app.html());
+  assert.ok(/Used by and similar<span class="dot">&nbsp;·&nbsp;<\/span>1\+<\/h2>/.test(part), 'partial though v1 reads: ' + part.slice(0, 300));
+  assert.ok(/can&#39;t be ruled out/.test(part), part);
+});
+
+rule('Used by, Similar and a step type\'s checklists show every one, 50 at a time with Show more, as library inspect lists them', async () => {
+  const drafts = {}, NAMES = [];
+  for (let i = 1; i <= 51; i++) { const id = 'p' + String(i).padStart(2, '0'); NAMES.push(id); drafts[id] = linking(id, ['- [ ] {jira.search} Stories @lead {#in}', '  query: PROJECT = PAY and FIXVERSION = ^version', '  results: at least 1']); }
+  const files = await folder({ base: { 'team-values.json': JIRA_TV }, publish: [example('maps/drafts/check-in.md'), RELEASE_PUB], drafts });
+  const rows = (html, lid) => [...html.matchAll(new RegExp('<li id="' + lid.replace(/[-:]/g, m => '\\' + m) + '-[^"]*" tabindex="-1">', 'g'))].length;
+  let app = await appOn(files, 'check-in');
+  assert.strictEqual(rows(app.html(), 'lib-used:check-in'), 50);
+  app.click('more', 'lib-used:check-in'); await app.tick();
+  assert.strictEqual(rows(app.html(), 'lib-used:check-in'), 52, 'the release and all 51 drafts');
+  app = await appOn(files, 'release');
+  assert.strictEqual(rows(app.html(), 'lib-sim:release'), 50);
+  app.click('more', 'lib-sim:release'); await app.tick();
+  assert.strictEqual(rows(app.html(), 'lib-sim:release'), 51);
+  /* A type 51 published checklists use: the card names each one. */
+  const pubs = [];
+  for (let i = 1; i <= 51; i++) pubs.push(md({ process: 'q' + String(i).padStart(2, '0'), steps: ['- [!] {wait} Wait for sign-off @lead {#w}', '  for: sign-off'] }));
+  const many = await folder({ publish: pubs });
+  app = await appOn(many, 'q01');
+  app.click('open-types'); await app.tick();
+  assert.strictEqual(rows(app.html(), 'type-in:wait'), 50);
+  app.click('more', 'type-in:wait'); await app.tick();
+  assert.strictEqual(rows(app.html(), 'type-in:wait'), 51);
+});
+
+rule('Used by and similar opens what matched: a publication at its version, with the step there, even when the draft dropped it', async () => {
+  const draft = RELEASE_PUB.replace(/- \[ \] \{run\.process\} Check in the code @lead \{#notes\}\n  process: check-in\n  carry: commit\n/, '');
+  assert.notStrictEqual(draft, RELEASE_PUB, 'set-up: the draft drops #notes');
+  const files = await folder({ base: { 'team-values.json': JIRA_TV }, publish: [example('maps/drafts/check-in.md'), RELEASE_PUB], drafts: { release: draft } });
+  const app = await appOn(files, 'check-in'), part = libPart(app.html());
+  const m = /<button type="button" class="link" data-act="go" data-view="process" data-process="release" data-map-ver="([^"]+)" data-step="notes">/.exec(part);
+  assert.ok(m, 'the publication\'s row names its version: ' + part);
+  app.click('go', undefined, { view: 'process', process: 'release', mapVer: m[1], step: 'notes' }); await app.tick();
+  const html = app.html();
+  assert.ok(/id="cl-st-notes"/.test(html), 'the step is on the page that opened');
+  assert.ok(new RegExp('<option value="' + m[1] + '"[^>]* selected').test(html), 'showing that version, not the draft');
 });
 
 run();
