@@ -43,6 +43,7 @@ roles: author, reviewer
 | `tags` | no | Labels to filter by (`production, deploy`). Read in lowercase; up to 20 tags of 40 characters are kept. |
 | `context` | no | Run details filled in when a run starts (`ticket, commit, environment`). At most 40, each a name of letters, numbers, dashes or underscores up to 60 characters. A detail can have a kind (Flightdeck 2.0): see [Typed run details](#typed-run-details). |
 | `roles` | no | Roles people are assigned to in each run. |
+| `result` | no | The run detail this checklist returns to a run that links to it: a choice in `context`, set by one decision. See [Module results](#module-results) (Flightdeck 3.0). |
 | `runs` | no | `solo` if one person usually runs it alone (every role goes to whoever starts it, except a role that approves a gate, which is chosen at start), or `team` (the default). |
 | `format`, `features` | no | Don't write them: Flightdeck works out what a version needs when it publishes. If they're there, `format:` must be `flightdeck-checklist/2`, `features:` may name only features Flightdeck knows, and the checklist must use something from [Needs Flightdeck 2.0](#needs-flightdeck-20) or `only when`. Anything else stops publishing, and so does `format: flightdeck-checklist/1`. |
 
@@ -288,6 +289,45 @@ Publishing resolves `version: 4` to the one published folder numbered 4 and reco
 
 Without `version:`, a run made with Flightdeck 2.0 pins each linked process when it starts, at its latest version then, so a version published during the run doesn't change what it runs. A run made with Flightdeck 1.x follows the latest, as it always has, but never starts or adopts a child on a version only Flightdeck 2.0 runs. It offers **Start it as a Flightdeck 2.0 run** instead: a new run of the same version with the same details and roles and no answers, and the old step is marked Blocked, "Continued in run …".
 
+## Module results
+
+A checklist can return one result, so the run that links to it knows more than "it completed" (Needs Flightdeck 3.0):
+
+```markdown
+---
+process: story-check
+title: Check a story
+context: story:jira.issue, disposition:choice(cleared|needs-work)
+result: disposition
+---
+
+## Verdict · READ-DO {#verdict}
+- [!] {decide} Is the story ready to ship? @validator {#ready}
+  options: cleared, needs-work
+  sets: disposition=decision
+```
+
+- `result:` in the front matter names one run detail in `context:`, and it must be a choice.
+- Exactly one `{decide}` step sets it, with `sets: <detail>=decision`. Its answer and the detail are one value: recording the decision sets the detail, and the detail can't be edited on its own ("^disposition is the result its decision sets: answer …").
+- The step's `options:` must be the choice's options, in the same order. They aren't filled in for you, so the checklist reads the same in every copy.
+- A run that ends shows its result everywhere its outcome shows: "Completed · needs-work".
+
+A `{run.process}` step that links to a checklist with a result says which results let it count as done, and can copy the result into one of its own details:
+
+```markdown
+- [ ] {run.process} Validate the story @validator {#validate}
+  process: story-check
+  accepts: cleared
+  sets: story_result=result
+```
+
+- `accepts:` lists the child's results that complete this step, with commas between them.
+- `sets: <detail>=result` copies the child's result into this run's detail when the step settles. That detail must be a choice holding every result the child can return. It isn't asked when the run starts and can't be edited; the run's log says which run it came from.
+- The step is done only when its child completed with a result it accepts. A child that completed with any other result, or with none, leaves the step held: "Check a story returned needs-work; this step accepts cleared". A held step keeps its phase's gate closed, it isn't a failure of the child, and **Start a new … run** on the step replaces the child.
+- When the child's result changes after the step settled (the child was reopened and decided again), an approved gate on that phase goes back to review, even if the result later returns to what it was.
+
+Publishing reads the child (the pinned version, or the latest) and stops when `result:` isn't in `context:` or isn't a choice, nothing or more than one step sets it, `=decision` is on a step that isn't `{decide}`, the decision's options don't match, `accepts:` names a result the child doesn't return or the child declares no result, or `=result` imports into a detail that isn't a compatible choice. A step that links to a checklist with a result but has no `accepts:` gets a suggestion. A version that uses results is refused by name in Flightdeck before 3.0, which writes nothing to it or its runs.
+
 ## Skill versions
 
 Add `skillVersion:` to a `{run.skill}` step to say which version of the skill it expects (Needs Flightdeck 2.0):
@@ -414,6 +454,7 @@ Publishing lists every problem with its line. These stop it:
 - **Steps and fields:** a step with no type, or an unknown one (a team type whose file is broken is unknown); a field the type doesn't have (for example `pull:` on `{bitbucket.pr}`); a value outside a field's choices (`action:`, `evidence:`); `options:` with fewer than two choices; `require:` naming evidence the type doesn't record; a bad `expect:`, `deadline:`, `at:`, `due:` or `after:`; more than one of `at:`, `due:` and `after:` on a step or gate; a `version:` that isn't a whole number, or a `skillVersion:` that isn't a version like `1.2.0`, or one on a step without `skill:`.
 - **Roles and details in use:** an `@role` (on a step, track or gate) not listed in `roles`; a `^detail` in a step's text or a gate's `approves:` not listed in `context`; `sets:` naming a detail not in `context`; two `sets:` names too alike to tell apart.
 - **Linked runs:** a `{run.process}` step that runs its own process, carries a detail that isn't in `context`, or both carries and sets the same detail; a `version:` with no such version of that process in the folder, two versions with that number, or one that can't be used; a `team:` source naming a team value that isn't in `team-values.json`, or a `team-values.json` that can't be read or needs a newer Flightdeck.
+- **Results:** a `result:` that isn't a choice in `context`; no step, or more than one, that sets it with `=decision`; `=decision` on a step that isn't `{decide}`, or `=result` on one that isn't `{run.process}`; another step setting the result itself; a decision whose options aren't the result's, in order; `accepts:` naming a result the child doesn't return, or on a child with no result; `=result` into a detail that isn't a choice holding every result the child returns, or into the detail passed to the child.
 - **Jira:** with `jira/workflows.json`, a transition to a status the issue type's workflow doesn't have or no transition reaches, or a workflow file that can't be read or has errors.
 - **Screenshots:** a path outside `images/`, with characters other than letters, numbers, `_`, `-`, `.` and `/`, or a file that isn't in the folder.
 - **Only when:** a line that can't be read; one that tests a detail not in `context`, or uses a test its kind doesn't allow; more than 4 on a step or phase; one on a gate or a track; one that tests a detail set (`sets:`) in the same phase or a later one.

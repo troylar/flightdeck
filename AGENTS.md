@@ -68,7 +68,7 @@ You need `python3`, Node 18 or later and a full clone with tags (`git fetch --ta
 - **Practice is never a run** (docs/design.md section 34). It lives in `sessionStorage` and memory, never in the folder, `data.runs` or the save queues, and is never evidence. Its rules are `PF.run`'s, read through `PF.practice.asRun`; when a run rule changes, keep it in `R.answerable`, `R.reopenIds` or another shared reader rather than copying it into practice.
 - **Drafts** (typed evidence, an open Fill in, an unsent note) are kept per team folder, run and step (`draftKey`), never shared across folders or steps.
 - **Pause** stops steps, gates and timers (`R.pause`, `R.resume`, `R.activeMs`); paused time never counts in durations or analytics.
-- **Tracks, times and child runs** come from the checklist: `### Track:` groups steps inside a phase; `at:`, `due:` and `after:` feed `R.schedule`; a `{run.process}` step starts a linked child run and settles when it ends.
+- **Tracks, times and child runs** come from the checklist: `### Track:` groups steps inside a phase; `at:`, `due:` and `after:` feed `R.schedule`; a `{run.process}` step starts a linked child run and settles when it ends; with `accepts:` (3.0) it settles done only on a result it accepts and is held otherwise (`R.resultVerdict`, `R.settleResult`; design.md section 43).
 - **Team files** are read, never trusted: `step-types/<id>.json` (checked by `T.checkCustom`, frozen into each publication) and `jira/workflows.json` (checked by `PF.jira.check`, copied into each run). Evidence always comes from `R.evidenceFor`, which adds a Jira transition's required fields.
 
 ## Rules you must not break
