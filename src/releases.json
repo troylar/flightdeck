@@ -33,7 +33,7 @@
         "area": "Checks",
         "title": "A name in a link field says where it goes",
         "before": "A document name in a field that takes a link, like a review's Document, was refused for having spaces, with advice to write each space as %20.",
-        "now": "The check says the field takes a web link and to put a name or file reference in a note. A real link with a space still gets the %20 advice, and hidden characters are still named.",
+        "now": "A tip beside the check says the field takes a web link and to put a name or file reference in a note. The check itself is worded as before, and a real link with a space gets no such tip.",
         "where": "Edit, Publish"
       }
     ]

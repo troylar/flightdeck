@@ -354,8 +354,11 @@ PF.map = (function () {
             Object.keys(s.fields).forEach(function (f) {
               var fd = T.fieldDef(def, f); if (!fd || fd.kind !== 'url' || !s.fields[f]) return;
               var lc = PF.urls.classify(s.fields[f], meta.context);
-              if (lc.code === 'forbidden' && PF.urls.nameLike(s.fields[f])) blockers.push(label + ': ' + (fd.label || f) + ' takes a web link. Put a name or file reference in a note.');
-              else if (PF.urls.refused(lc)) blockers.push(label + ', field "' + f + '", ' + lc.why);
+              if (PF.urls.refused(lc)) {
+                blockers.push(label + ', field "' + f + '", ' + lc.why);
+                /* A name, not a link (3.0): the blocker keeps its 2.x words; this says where the name goes. */
+                if (lc.code === 'forbidden' && PF.urls.nameLike(s.fields[f])) suggestions.push(label + ': ' + (fd.label || f) + ' takes a web link. Put a name or file reference in a note.');
+              }
               else if (lc.code === 'hint') suggestions.push(label + ', field "' + f + '": ' + lc.hint);
             });
           }
