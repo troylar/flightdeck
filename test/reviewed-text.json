@@ -13,8 +13,8 @@
       "reviewed": "fold design tips and the library panel; own-key reads; checked for direct writes and unconditional deletes"
     },
     "bin/flightdeck.js": {
-      "sha256": "e342ecd160de7dfb49c44ade221356d88a74d98ae436ddd3e6001c7c8faae232",
-      "reviewed": "CLI retries compare the original request; taken names reread. Checked for direct writes and unconditional deletes: writeOnce only."
+      "sha256": "8ca27b8c697b6cd460a3c0425e104227a5bb049ecd4ec827baf2e438f3caef4e",
+      "reviewed": "CLI action retry compares the loop target."
     },
     "build.py": {
       "sha256": "21c5b257606a8aa3d24c956f518745372409b550008be4d06f5178081117708c",

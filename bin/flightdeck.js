@@ -2773,6 +2773,8 @@ async function loopMain(argv) {
       const priorA = LP.actionsOf({ records: got.scopes.filter((x) => x.id === idA || x.proposal === idA) })[0] || (got.scopes.some((x) => x.id === idA) ? { ops: ['(not a ' + sub + ' request)'], items: [], as: '', reason: '' } : null);
       if (priorA) {
         const kindA = priorA.ops[0] === 'start' && priorA.all ? 'start-all' : priorA.ops[0], dA = [];
+        const recA = got.scopes.filter((x) => x.id === idA)[0], lpA = recA ? LP.loopOf(recA) : null;
+        if (!lpA || lpA.process !== V.loop.process || lpA.run !== V.loop.run || lpA.step !== V.loop.step) dA.push('loop');
         if (kindA !== sub) dA.push('action');
         if (priorA.as !== val['--as']) dA.push('as');
         if ((priorA.reason || '') !== (val['--reason'] || '')) dA.push('reason');

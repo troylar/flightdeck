@@ -171,4 +171,17 @@ rule('Review round 2 (4): a retry compares the whole original request first: an 
   assert.deepStrictEqual([why.code, why.error && why.error.kind], [1, 'key-taken']);
 });
 
+rule('Review round 3 (3): a key already used for another loop\'s request is refused, never already', async () => {
+  const { root } = await folder(), f = path.join(root, '..', path.basename(root) + '-obs5.json');
+  fs.writeFileSync(f, JSON.stringify(obs([101, 102])));
+  json('loop', 'sync', root, 'release-readiness/r-41', 'each', '--from', f, '--json', '--tool', 'release-helper@1.0', '--key', 'a');
+  const T = ['--tool', 'release-helper@1.0', '--as', 'person-morgan'];
+  const go = json('loop', 'start-all', root, 'release-readiness/r-41', 'each', '--key', 'k', '--json', ...T);
+  const file = path.join(root, go.data.request.file), q = JSON.parse(fs.readFileSync(file, 'utf8'));
+  q.loop.run = 'r-99'; fs.writeFileSync(file, JSON.stringify(q, null, 2) + '\n');
+  const again = json('loop', 'start-all', root, 'release-readiness/r-41', 'each', '--key', 'k', '--json', ...T);
+  assert.deepStrictEqual([again.code, again.error && again.error.kind], [1, 'key-taken'], JSON.stringify(again.data || again.error));
+  assert.ok(/loop/.test(again.error.why), again.error.why);
+});
+
 run();
