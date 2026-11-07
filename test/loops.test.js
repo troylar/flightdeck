@@ -325,6 +325,34 @@ rule('The loop step is approved only with a roll-up that clears; a later change 
   same([back._unrunnable, back.steps.each.history.filter(h => h.loop).length], [undefined, 1]);
 });
 
+/* ---------- What a sync would do: the preview the assistant repeats ---------- */
+rule('A sync projects its changes: adds, proposed removals with their open assessments, planned children, approval impact', () => {
+  const { r, kid2 } = release();
+  const first = LP.cleanRequest(JSON.parse(LP.text(reqFile('p1', { observation: obs([101, 102, 103, 104, 107]) }))), reqFile('p1').id + '.json').record;
+  const open107 = kid2(107);
+  const V = LP.view(r, 'each', { records: [first], runs: [open107] });
+  const c = LP.cleanIntent(intentOf({ observation: obs([101, 102, 103, 108, 109, 110]) }), 'p2', { name: 'release-helper', version: '1.0' });
+  const P2 = LP.project(r, V, c.intent, { who: (p) => ({ 'person-avery': 'Avery' })[p] || p });
+  same([P2.added.map(x => x.key), P2.proposed.map(x => x.key)], [['ABC-108', 'ABC-109', 'ABC-110'], ['ABC-104', 'ABC-107']]);
+  same(P2.children.map(k => [k.item.key, k.attempt, k.inputs.issue, k.inputs.fix_version]), [['ABC-108', 1, 'ABC-108', '4.1'], ['ABC-109', 1, 'ABC-109', '4.1'], ['ABC-110', 1, 'ABC-110', '4.1']]);
+  const text = LP.previewText(P2, { title: 'Release readiness', dryRun: true });
+  same(text.split('\n').slice(0, 7), ['Release readiness — preview only; no files written.', '', 'Would add 3 stories and request review of 2 removals.',
+    'One proposed removal has an assessment in progress.', '3 new assessments are ready to start.', 'No runs would start.', '']);
+  assert.ok(/Jira observation: 6 of 6 reported matches read; pagination complete\./.test(text), text);
+  assert.ok(/ABC-107 · proposed removal: not in the complete search observed 2026-11-07T09:00:00.000Z · Avery is recording · 1 of 2 steps answered/.test(text), text);
+});
+rule('An incomplete source adds what it found and says what it couldn\'t propose; a missing input is named per story', () => {
+  const { r } = release();
+  const V = LP.view(r, 'each', { records: [], runs: [] });
+  r.details.fix_version = '';
+  const c = LP.cleanIntent(intentOf({ observation: obs([101, 102, 103], { reported: 5, fetched: 3, complete: false, errors: ['Page 2 failed'] }) }), 'p3', { name: 'release-helper', version: '1.0' });
+  const P3 = LP.project(r, V, c.intent, {});
+  same(P3.children[0].missing, ['fix_version']);
+  const text = LP.previewText(P3, { title: 'Release readiness', dryRun: true });
+  assert.ok(/Would add 3 stories\./.test(text) && /3 new assessments need fix_version\./.test(text), text);
+  assert.ok(/Jira observation: 3 of 5 reported matches read; not complete \(the observation says it isn't complete\)\. Missing stories can't be proposed for removal\. Retry the search\./.test(text), text);
+});
+
 const CHECKER = path.join(__dirname, '..', 'example-folder', '.flightdeck', 'skills', '_flightdeck', 'check_folder.py');
 function python() { for (const c of ['python3', 'python']) { try { cp.execFileSync(c, ['--version'], { stdio: 'ignore' }); return c; } catch (e) { /* try next */ } } return null; }
 rule('check_folder.py --draft gives a loop the app\'s blockers word for word, and the same features', () => {

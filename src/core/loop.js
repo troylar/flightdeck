@@ -264,12 +264,88 @@ PF.loop = (function () {
     var L = reduce(recordsFor(o.records, loop), { max: limitOf({ fields: f }) });
     var kids = (o.runs || []).filter(function (c) { return c && c.parent && c.parent.item && c.parent.process === r.process && c.parent.id === r.id && c.parent.step === stepId; });
     var acc = String(f.accepts || '').split(',').map(function (v) { return v.trim(); }).filter(Boolean);
-    var R = rollup(L, kids, { accepts: acc, result: PF.run.resultOf, stands: PF.run.childCheck, who: o.who });
+    var ropts = { accepts: acc, result: PF.run.resultOf, stands: PF.run.childCheck, who: o.who }, R = rollup(L, kids, ropts);
     var a = r.steps && r.steps[stepId], pin = r.pins && r.pins.children && own(r.pins.children, stepId) ? r.pins.children[stepId] : null;
     var approved = a && a.s === 'done' && a.loop ? a.loop : null;
     var review = a && a.s === 'recheck' && a.values && typeof a.values.changes === 'string' ? a.values.changes.split('\n').filter(Boolean) : [];
-    return { loop: loop, step: x.step, fields: f, accepts: acc, pin: pin, ledger: L, rollup: R, runs: kids, approved: approved, changes: approved ? changes(approved, L, R) : [], review: review,
+    return { loop: loop, step: x.step, fields: f, accepts: acc, pin: pin, records: recordsFor(o.records, loop), ropts: ropts, ledger: L, rollup: R, runs: kids, approved: approved,
+      changes: approved ? changes(approved, L, R) : [], review: review, ended: !!r.ended,
       previous: a && a.history ? a.history.filter(function (h) { return h.loop; }).map(function (h) { return h.loop; }) : [] };
+  }
+  /* The inputs a new item's child starts with, from the loop's pass: line (item:key, item:title, ^detail, a fixed value), and
+     the ones it can't fill (a detail that's empty, ? to ask, a team value read only when the child starts). */
+  function inputsFor(r, f, it) {
+    var inputs = {}, missing = [];
+    PF.links.parse(f.pass, { items: true }).entries.forEach(function (e) {
+      var v = e.source === 'item' ? (e.item === 'key' ? it.key : it.title || '') : e.source === 'detail' ? String((r.details || {})[e.from] || '') : e.source === 'value' ? e.value : '';
+      if (String(v).trim()) inputs[e.name] = String(v).slice(0, LIMITS.input); else missing.push(e.name);
+    });
+    return { inputs: inputs, missing: missing };
+  }
+  /* What a request would do to a loop as read now (V: view()), without writing: the items it adds, the removals it proposes
+     (each with its assessment, if one is open), exclusions and restorations, the children it plans and whether an approval
+     would need review. The record is the one that would be written (seen: the records it saw). */
+  function project(r, V, intent, o) {
+    o = o || {};
+    var heads = V.ledger.heads.slice(), rec = { id: '~new', type: 'request', seen: heads, by: intent.producer ? { tool: intent.producer.name, version: intent.producer.version } : { person: o.by || '' },
+      observation: intent.observation, changes: intent.changes, children: [] };
+    var max = limitOf({ fields: V.fields }), A = reduce(V.records.concat([rec]), { max: max }), was = Object.create(null), who = o.who || function (p) { return p || ''; };
+    V.ledger.items.forEach(function (x) { was[x.uid] = x; });
+    var rows = Object.create(null); V.rollup.items.forEach(function (i) { rows[i.uid] = i; });
+    var runs = Object.create(null); V.runs.forEach(function (c) { runs[c.id] = c; });
+    var added = [], proposed = [], excluded = [], restored = [], children = [];
+    A.items.forEach(function (x) {
+      var before = was[x.uid];
+      if (!before && x.state !== 'removed') added.push({ uid: x.uid, key: x.key, title: x.title });
+      if (x.state === 'proposed' && x.proposal === '~new') {
+        var row = rows[x.uid], c = row && row.run ? runs[row.run] : null, p = { uid: x.uid, key: x.key, title: x.title, run: row ? row.run : '', recorder: row ? row.recorder : '', status: row ? row.status : '' };
+        if (c && !c.ended) { var m = PF.run.mapOf(c), all = PF.map.steps(m).length, got = Object.keys(c.steps || {}).filter(function (k) { return c.steps[k] && c.steps[k].s !== 'open'; }).length; p.open = true; p.answered = got; p.total = all; p.recorderName = who(p.recorder); }
+        proposed.push(p);
+      }
+      if (before && before.state !== 'removed' && x.state === 'removed') excluded.push({ uid: x.uid, key: x.key });
+      if (before && before.state === 'removed' && x.state !== 'removed') restored.push({ uid: x.uid, key: x.key });
+    });
+    added.forEach(function (it) {
+      var x = A.items.filter(function (y) { return y.uid === it.uid; })[0], io = inputsFor(r, V.fields, it);
+      children.push({ item: { id: x.id, key: x.key }, attempt: (x.attempt || 0) + 1, inputs: io.inputs, owner: '', missing: io.missing });
+    });
+    rec.children = children.map(function (k) { return { item: k.item, attempt: k.attempt, inputs: k.inputs, owner: k.owner }; });
+    var AR = rollup(A, V.runs, V.ropts), impact = V.approved ? changes(V.approved, A, AR) : [];
+    return { loop: V.loop, record: rec, seen: heads, added: added, proposed: proposed, excluded: excluded, restored: restored, children: children,
+      impact: { review: impact.length > 0, reasons: impact }, observation: intent.observation, held: V.ledger.held, overLimit: A.overLimit, summary: AR.summary };
+  }
+  function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
+  /* The plain-text preview (docs/design.md 44): the summary first, then the source and the folder read, then each story. */
+  function previewText(P, o) {
+    o = o || {};
+    var lines = [(o.title || P.loop.process) + ' — ' + (o.dryRun ? 'preview only; no files written.' : o.already ? 'already requested; nothing written.' : 'request written; no runs started.'), ''];
+    var verb = o.dryRun ? 'Would ' : 'Asked to ', parts = [];
+    if (P.added.length) parts.push('add ' + plural(P.added.length, 'story', 'stories'));
+    if (P.proposed.length) parts.push((parts.length ? 'request review of ' : 'request review of ') + plural(P.proposed.length, 'removal', 'removals'));
+    if (P.excluded.length) parts.push('remove ' + plural(P.excluded.length, 'story', 'stories'));
+    if (P.restored.length) parts.push('restore ' + plural(P.restored.length, 'story', 'stories'));
+    lines.push(parts.length ? verb + parts.join(' and ') + '.' : 'No change to scope.');
+    var open = P.proposed.filter(function (p) { return p.open; }).length;
+    if (open) lines.push(open === 1 ? 'One proposed removal has an assessment in progress.' : open + ' proposed removals have assessments in progress.');
+    var ready = P.children.filter(function (k) { return !k.missing.length; }).length, need = Object.create(null);
+    P.children.forEach(function (k) { if (k.missing.length) { var w = k.missing.join(' and '); need[w] = (need[w] || 0) + 1; } });
+    var needs = Object.keys(need).map(function (w) { return need[w] + (ready || Object.keys(need).length > 1 ? (need[w] === 1 ? ' needs ' : ' need ') : (need[w] === 1 ? ' new assessment needs ' : ' new assessments need ')) + w; });
+    if (ready) lines.push(plural(ready, 'new assessment is', 'new assessments are') + ' ready to start' + (needs.length ? '; ' + needs.join('; ') : '') + '.');
+    else if (needs.length) lines.push(needs.join('; ') + '.');
+    lines.push(o.dryRun ? 'No runs would start.' : 'No runs started.');
+    if (P.impact.review) lines.push(o.dryRun ? 'The scope change would require approval review.' : 'The scope change requires approval review.');
+    if (P.overLimit) lines.push(P.overLimit.count + ' stories would be in scope; this loop takes at most ' + P.overLimit.max + '. Nothing is cut.');
+    lines.push('');
+    var ob = P.observation;
+    if (ob) lines.push('Jira observation: ' + ob.fetched + ' of ' + ob.reported + ' reported matches read; ' + (ob.complete ? 'pagination complete.' : 'not complete (' + ob.why + '). Missing stories can\'t be proposed for removal. Retry the search.'));
+    lines.push('Team-folder read: ' + (o.problems && o.problems.length ? 'partial (' + plural(o.problems.length, 'problem', 'problems') + ').' : 'complete.'));
+    var seenAt = ob && ob.observedAt ? ob.observedAt : '';
+    if (P.added.length || P.proposed.length || P.excluded.length || P.restored.length) lines.push('');
+    P.added.forEach(function (x) { var k = P.children.filter(function (c) { return c.item.key === x.key; })[0]; lines.push(x.key + ' · add' + (x.title ? ' · ' + x.title : '') + (k && k.missing.length ? ' · needs ' + k.missing.join(', ') : '')); });
+    P.proposed.forEach(function (x) { lines.push(x.key + ' · proposed removal: not in the complete search observed ' + seenAt + (x.open ? ' · ' + (x.recorderName || x.recorder) + ' is recording · ' + x.answered + ' of ' + x.total + ' steps answered' : x.run ? ' · its assessment ' + x.status : '')); });
+    P.excluded.forEach(function (x) { lines.push(x.key + ' · remove from scope'); });
+    P.restored.forEach(function (x) { lines.push(x.key + ' · restore to scope'); });
+    return lines.join('\n');
   }
   /* A child's item (run.parent.item): { uid, key, attempt }, or null. */
   function itemRef(v) {
@@ -492,5 +568,5 @@ PF.loop = (function () {
 
   return { KINDS: KINDS, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
     idFor: idFor, isScope: isScope, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
-    rollup: rollup, view: view, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
+    rollup: rollup, view: view, project: project, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();
