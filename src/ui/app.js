@@ -2944,21 +2944,22 @@
   /* Starts one story's run for loop step id of run r: a promise of the run started, or an Error saying why nothing was. */
   /* request: the id of the request it carries out, kept in the run it starts, so a lost outcome is recovered from it. */
   /* cx (a batch's folder and generation): nothing is written once the folder has changed; the error says stopped. */
-  function loopLaunch(r, id, key, fresh, request, cx) {
+  /* Every start (the row's button, Start mine, Start all, a request, the batch) asks one question, PF.loop.launchable, here
+     and again inside the write queue right before the run is written, on the run as it is then: paused, a competing run,
+     another start or a folder switch since it was asked stops it, and nothing is written. */
+  function loopLaunch(r, id, key, request, cx) {
     var moved = function () { return cx && (cx.g !== gen || cx.fs !== state.fs); };
     if (moved()) return Promise.reject(Object.assign(new Error('The folder changed; nothing more was started.'), { stopped: true }));
     var V = r && loopView(r, id), x = V && V.ledger.items.filter(function (i) { return i.key === key; })[0];
     if (!x) return Promise.reject(new Error(key + ' isn\'t in this loop.'));
-    var shut = ''; try { shut = R.canStartChild(r, R.mapOf(r), id); } catch (e) { shut = 'The run\'s checklist can\'t be read.'; }
-    if (shut) return Promise.reject(new Error(key + ': ' + shut));
-    /* A request and Start all only start stories with no run yet (fresh); the row's own button also starts a story's next attempt. */
-    if (fresh) { var S = PF.loop.launchable(r, V, [key], ctx.procOf); if (!S.start.length) return Promise.reject(new Error(key + ': ' + (S.skip[0] ? S.skip[0].why : 'nothing to start') + '.')); }
+    var S = PF.loop.launchable(r, V, [key], ctx.procOf);
+    if (!S.start.length) return Promise.reject(new Error(key + ': ' + (S.skip[0] ? S.skip[0].why : 'nothing to start') + '.'));
     var procOf = ctx.procOf || function (pid) { var p = ctx.latestPub(pid); return p ? { latest: p, all: [p], clashes: [], broken: [] } : null; };
     var target = PF.pins.childTarget(r, V.step, procOf), pub = target.pub;
     if (!pub || target.legacy) return Promise.reject(new Error(target.why || 'The checklist this loop starts isn\'t in the folder.'));
     var got = PF.loop.inputsFor(r, V.fields, x);
     if (got.missing.length) return Promise.reject(new Error(key + '\'s run needs ' + got.missing.join(', ') + ' first.'));
-    var row = V.rollup.items.filter(function (i) { return i.uid === x.uid; })[0], attempt = row && row.runs.length ? row.attempt + 1 : Math.max(1, row ? row.attempt : 1);
+    var attempt = S.start[0].attempt, rkey = r.process + '/' + r.id;
     var roles = {}; pub.map.meta.roles.forEach(function (ro) { roles[ro] = r.roles[ro] || ''; });
     var flight = r.id + '/' + id + '/' + x.uid;
     if (!state.loopStarting) state.loopStarting = Object.create(null);
@@ -2971,6 +2972,9 @@
     state.loopStarting[flight] = true;
     return queued(function () {
       if (moved()) throw Object.assign(new Error('The folder changed; nothing more was started.'), { stopped: true });
+      var cur = findRun(rkey), V2 = cur && loopView(cur, id), S2 = V2 ? PF.loop.launchable(cur, V2, [key], ctx.procOf) : null;
+      if (!S2 || !S2.start.length) throw new Error(key + ': ' + (S2 && S2.skip[0] ? S2.skip[0].why : 'the run can\'t be read') + '. Nothing was started.');
+      if (S2.start[0].attempt !== attempt) throw new Error(key + ' changed while it waited to start. Nothing was started.');
       /* Checked again right before it writes: a run for this story and attempt that arrived meanwhile wins, and nothing is started. */
       var taken = (data.runs || []).some(function (c) { var it = c.parent && c.parent.item; return it && c.parent.process === r.process && c.parent.id === r.id && c.parent.step === id && it.uid === x.uid && +it.attempt === attempt; });
       if (taken) throw new Error(key + ' already has a run for this attempt. Nothing was started.');
@@ -3003,7 +3007,7 @@
       return p.then(function () {
         if (out.stopped) return;
         if (cx.g !== gen || cx.fs !== state.fs) { out.stopped = true; return; }
-        return loopLaunch(r, id, k, true, request, cx).then(function () { out.started.push(k); },
+        return loopLaunch(r, id, k, request, cx).then(function () { out.started.push(k); },
           function (err) { if (err && err.stopped) { out.stopped = true; return; } if (!(err && err.quiet)) out.failed.push({ key: k, why: err && err.message || String(err) }); });
       });
     }, Promise.resolve()).then(function () { return out; });

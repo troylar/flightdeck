@@ -205,13 +205,15 @@
     if (RU.items.length > 10) h += '<div class="row"><button class="mini" data-act="loop-open" data-id="' + sid + '" aria-pressed="' + open + '">' + (open ? 'Show every story' : 'Show only stories still open') + '</button></div>';
     if (RU.items.length) {
       h += '<table class="loop-items"><thead><tr><th>Story</th><th>Status</th><th>Result</th><th>Owner</th><th></th></tr></thead><tbody>';
+      /* Which stories may start, by the one rule every start uses (PF.loop.launchable): a competing story is chosen first. */
+      var startOk = Object.create(null); PF.loop.launchable(r, V, RU.items.map(function (i) { return i.key; }), ctx.procOf).start.forEach(function (k) { startOk[k.key] = k; });
       rows.slice(0, all ? rows.length : PAGE).forEach(function (i) {
         var x = V.ledger.items.filter(function (y) { return y.uid === i.uid; })[0] || {}, k = esc(i.key || i.uid), acts = '';
         var data = ' data-id="' + sid + '" data-item="' + k + '"';
         if (i.run) acts += '<button class="mini" data-act="open-run" data-id="' + esc(V.fields.process + '/' + i.run) + '" data-loop="' + sid + '" data-item="' + k + '">Open run</button>';
         var mine = !!me && x.owner === me && !V.ended && !r.paused;
-        if ((work || mine) && i.required && !i.run && !i.exception && i.state !== 'proposed') acts += '<button class="mini' + (mine ? ' go' : '') + '" data-act="loop-start"' + data + '>' + (mine ? 'Start mine' : 'Start its run') + '</button>';
-        else if ((work || mine) && PF.loop.again(i)) acts += '<button class="mini' + (mine ? ' go' : '') + '" data-act="loop-start"' + data + '>Start a new attempt</button>';
+        var go = startOk[i.key];
+        if ((work || mine) && go) acts += '<button class="mini' + (mine ? ' go' : '') + '" data-act="loop-start"' + data + '>' + (go.again ? 'Start a new attempt' : mine ? 'Start mine' : 'Start its run') + '</button>';
         if (work && i.required && me && x.owner !== me) acts += '<button class="mini" data-act="loop-owner"' + data + '>Make me the owner</button>';
         /* Every competing run is offered, up to the 50 a choice can record; past that it says so. */
         if (work && i.competing) { var pick = 'loop-pick-' + PF.loop.rowId(s.id, i.key || i.uid).slice(9); acts += '<label class="small">Run to count <select id="' + esc(pick) + '">' + i.candidates.slice(0, 50).map(function (cid) { return '<option value="' + esc(cid) + '">' + esc(cid) + '</option>'; }).join('') + '</select></label>' + (i.candidates.length > 50 ? '<span class="small">' + (i.candidates.length - 50) + ' more runs not listed (a choice compares at most 50).</span>' : '') + '<button class="mini" data-act="loop-choose"' + data + ' data-pick="' + esc(pick) + '">Count this run</button>'; }

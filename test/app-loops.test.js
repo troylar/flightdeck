@@ -496,4 +496,29 @@ rule('Review round 6 (2): a request that saw a scope record this computer can\'t
   assert.strictEqual(kidPaths(app).length, 0, 'nothing started');
   assert.strictEqual(outcome(app, f.id), null, 'no outcome written; it stays held');
 });
+rule('Review round 6 (3): two runs compete for one attempt: the row offers the choice, not another start, and a start is refused', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  app.click('loop-start', 'each', { item: 'ABC-101' }); await app.tick(150);
+  const twin = JSON.parse(app.fs.files[kidPaths(app)[0]].t); twin.id = 'twin0001';
+  await app.fs.write('runs/validate-story/twin0001/run.json', JSON.stringify(twin));
+  app.click('refresh'); await app.tick(250);
+  assert.ok(/data-act="loop-choose"/.test(app.html()), 'the choice is offered');
+  assert.ok(!/data-act="loop-start"[^>]*data-item="ABC-101"/.test(app.html()), 'no start button for a competing story');
+  app.click('loop-start', 'each', { item: 'ABC-101' }); await app.tick(200);
+  assert.strictEqual(kidPaths(app).length, 2, 'no attempt 2 started');
+});
+rule('Review round 6 (4): a start waiting its turn to write is dropped when the run is paused meanwhile', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101, ABC-102'); app.click('loop-add', 'each'); await app.tick(150);
+  const fs0 = app.fs, write = fs0.write.bind(fs0), hold = gate();
+  fs0.write = (p, t, o) => /^runs\/validate-story\//.test(p) ? hold.p.then(() => write(p, t, o)) : write(p, t, o);
+  app.click('loop-start', 'each', { item: 'ABC-101' }); await app.tick(30);
+  app.click('loop-start', 'each', { item: 'ABC-102' }); await app.tick(30);
+  app.set('pick-input', 'Waiting'); app.click('pause', 'run'); await app.tick(40);
+  hold.open(); await app.tick(400);
+  const kids = kidPaths(app).map(p => JSON.parse(app.fs.files[p].t).parent.item.key);
+  assert.ok(kids.indexOf('ABC-102') < 0, 'ABC-102 not started after the pause: ' + kids.join(','));
+});
+
 run();
