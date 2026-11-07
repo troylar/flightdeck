@@ -142,6 +142,7 @@ test/checker.test.js -
 test/app-reports.test.js -
 test/app-teamvalues.test.js -
 test/app-results.test.js -
+test/app-loops.test.js -
 test/staging-app.test.js -
 test/test-runs-app.test.js -
 test/readiness-stage-app.test.js -

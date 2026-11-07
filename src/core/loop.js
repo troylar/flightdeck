@@ -285,6 +285,19 @@ PF.loop = (function () {
   /* What a request would do to a loop as read now (V: view()), without writing: the items it adds, the removals it proposes
      (each with its assessment, if one is open), exclusions and restorations, the children it plans and whether an approval
      would need review. The record is the one that would be written (seen: the records it saw). */
+  /* The change a person or a tool asks for, as an intent's value (cleanIntent reads it): op on keys, each found in the loop
+     (V: view()) by key; o: { reason, approver, onBehalf, owner }. The app and flightdeck loop ask the same way. */
+  function changeOf(V, op, keys, o) {
+    o = o || {};
+    var find = function (k) { return V.ledger.items.filter(function (i) { return i.key === k; })[0]; };
+    return { loop: V.loop, changes: keys.map(function (k) {
+      var x = op === 'add' ? null : find(k), c = { op: op, item: x && x.id ? { id: x.id, key: k } : { key: k } };
+      if (o.reason != null && o.reason !== '') c.reason = o.reason;
+      if (op === 'exception') { c.approver = o.approver; if (o.onBehalf) c.onBehalf = true; }
+      if (op === 'owner') c.owner = o.owner || '';
+      return c;
+    }) };
+  }
   function project(r, V, intent, o) {
     o = o || {};
     var heads = V.ledger.heads.slice(), rec = { id: '~new', type: 'request', seen: heads, by: intent.producer ? { tool: intent.producer.name, version: intent.producer.version } : { person: o.by || '' },
@@ -570,5 +583,5 @@ PF.loop = (function () {
 
   return { KINDS: KINDS, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
     idFor: idFor, isScope: isScope, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
-    rollup: rollup, view: view, project: project, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
+    rollup: rollup, view: view, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();

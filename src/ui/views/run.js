@@ -111,7 +111,7 @@
     var stamp = P ? (pm.status === 'assumed' || !P.canEdit(s.id) ? '' : '<button class="mini s-edit" data-act="pr-edit" data-id="' + esc(s.id) + '" aria-label="Edit step: ' + esc(K.stepPlain(s, K.refValue(r, map))) + '">' + I('edit') + 'Edit step</button>')
       : a && (a.s === 'done' || a.s === 'na') ? '<span class="stamp">' + avatar(ctx, a.by) + ' ' + U.hm(a.at) + '</span>' : '';
     var flash = st.flash && st.flash.ids && st.flash.ids.indexOf(s.id) >= 0;
-    var canCheck = ((rec && open) || (!P && R.rereadable(r, s.id) && rereader(ctx, r))) && (t.id !== 'run.process' || !!P) && !heldWhy && !(P && (P.paused || pm.status === 'assumed'));
+    var canCheck = ((rec && open) || (!P && R.rereadable(r, s.id) && rereader(ctx, r))) && (t.id !== 'run.process' && t.id !== 'for.each' || !!P) && !heldWhy && !(P && (P.paused || pm.status === 'assumed'));
     return '<li class="step' + (sel ? ' sel' : '') + (isNext ? ' next' : '') + (flash ? ' flash' : '') + '" data-a="' + esc(aState) + '" id="step-' + esc(s.id) + '">' +
       '<button class="check" role="checkbox" aria-checked="' + (aState === 'done') + '" aria-label="' + esc(K.stepPlain(s, K.refValue(r, map))) + ', ' + esc(P && aState === 'recheck' ? 'try it again' : P && pm.status === 'assumed' ? 'assumed for practice' : STATE_WORD[aState] || aState) + (s.must ? ', must do' : '') + '" data-act="toggle" data-id="' + esc(s.id) + '"' + (canCheck ? '' : ' disabled') + (t.id === 'run.process' && !P ? ' title="Checked when its linked run completes"' : '') + '>' + I('check') + '</button>' +
       '<button class="s-pick" data-act="select" data-id="' + esc(s.id) + '" aria-pressed="' + sel + '" aria-controls="rw-ins">' + (isNext ? '<span class="s-next">Next</span>' : '') + '<span class="s-text">' + K.stepHtml(s, K.refValue(r, map), false) + '</span><span class="s-meta">' + meta + '</span>' + (badges ? '<span class="badges">' + badges + '</span>' : '') + '</button>' +
@@ -179,6 +179,43 @@
     if (!canStart) return '<div class="childbox">' + I('nest') + '<span>Starts a <b>' + esc(proc || '?') + '</b> run when this step is reached.</span>' + pinWords + '</div>';
     if (target.why) return '<div class="childbox">' + I('nest') + '<span class="small">' + esc(target.why) + '</span></div>';
     return '<div class="childbox">' + I('nest') + '<button class="btn go" data-act="start-child" data-id="' + esc(s.id) + '">Start the ' + esc(pub.map.meta.title) + ' run</button><span class="small">' + esc(passesOn(ctx, r, s, pub)) + '. This step is checked when it completes' + (R.acceptsOf(r, s) ? ' with ' + esc(K.capJoin(R.acceptsOf(r, s), null, ' or ', null, function (n) { return ' or ' + n.toLocaleString('en-US') + ' more'; })) : '') + '.</span>' + pinWords + '</div>';
+  }
+
+  /* A loop (3.0): its stories and their runs, the exact counts, what holds it, and its approval. Every change to the list is
+     a scope record in proposals/ (the same ones flightdeck loop writes); a story's run is started here, by a person. */
+  var LOOP_STATUS = { cleared: 'Cleared', exception: 'Approved without a run', competing: 'More than one run', 'not-started': 'Not started', running: 'In progress',
+    stopped: 'Run ended early', unread: 'Result can\'t be read', result: 'Not accepted', removed: 'Removed' };
+  function loopBox(ctx, r, s, a, can) {
+    var people = (ctx.data && ctx.data.people) || [], who = function (id) { var x = people.filter(function (q) { return q.id === id; })[0]; return x ? x.name : id || ''; };
+    var V = PF.loop.view(r, s.id, { records: (ctx.data && ctx.data.scopes) || [], runs: (ctx.data && ctx.data.runs) || [], who: who });
+    if (!V) return '';
+    var RU = V.rollup, sid = esc(s.id), work = can && !V.ended && !r.paused, h = '<div class="loopbox childbox" style="display:block">';
+    h += '<p>' + I('nest') + ' <b>' + esc(RU.summary) + '</b></p>';
+    if (V.approved && V.changes.length) h += '<div class="notice warn"><span><b>' + (V.ended ? 'Changed after this run ended' : 'Changed since this was approved') + ':</b> ' + V.changes.map(esc).join(' ') + '</span>' +
+      (work && a && a.s === 'done' ? '<button class="btn" data-act="loop-unsettle" data-id="' + sid + '">Send the approval back for review</button>' : '') + '</div>';
+    if (a && a.s === 'recheck' && V.review.length) h += '<div class="notice warn"><span><b>Approval needs review:</b> ' + V.review.map(esc).join(' ') + '</span></div>';
+    if (RU.blockers.length) h += '<ul class="small">' + RU.blockers.slice(0, 12).map(function (b) { return '<li>' + esc(b.text) + '</li>'; }).join('') + (RU.blockers.length > 12 ? '<li>and ' + (RU.blockers.length - 12) + ' more</li>' : '') + '</ul>';
+    if (RU.items.length) {
+      h += '<table class="loop-items"><thead><tr><th>Story</th><th>Status</th><th>Result</th><th>Owner</th><th></th></tr></thead><tbody>';
+      RU.items.forEach(function (i) {
+        var x = V.ledger.items.filter(function (y) { return y.uid === i.uid; })[0] || {}, k = esc(i.key || i.uid), acts = '';
+        var data = ' data-id="' + sid + '" data-item="' + k + '"';
+        if (i.run) acts += '<button class="mini" data-act="open-run" data-id="' + esc(V.fields.process + '/' + i.run) + '">Open run</button>';
+        if (work && i.required && !i.run && !i.exception && i.state !== 'proposed') acts += '<button class="mini" data-act="loop-start"' + data + '>Start its run</button>';
+        if (work && i.state === 'proposed') acts += '<button class="mini" data-act="loop-accept"' + data + '>Remove</button><button class="mini" data-act="loop-keep"' + data + '>Keep</button>';
+        else if (work && i.required) acts += '<button class="mini" data-act="loop-exclude"' + data + '>Remove</button>';
+        if (work && i.state === 'removed') acts += '<button class="mini" data-act="loop-restore"' + data + '>Restore</button>';
+        if (work && i.required && !i.exception && i.status !== 'cleared') acts += '<button class="mini" data-act="loop-exception"' + data + '>Approve without a run</button>';
+        if (work && i.exception) acts += '<button class="mini" data-act="loop-withdraw"' + data + '>Withdraw approval</button>';
+        h += '<tr><td><b>' + k + '</b> ' + esc(i.title || '') + (i.state === 'proposed' ? ' <span class="small">(removal proposed)</span>' : '') + '</td><td>' + esc(LOOP_STATUS[i.status] || i.status) +
+          (i.exception ? ' <span class="small">' + esc(i.exception.reason || '') + ' · ' + esc(who(i.exception.approver)) + '</span>' : '') + '</td><td>' + esc(i.result || '') + '</td><td>' + esc(i.owner ? who(i.owner) : i.recorder ? who(i.recorder) : '') + '</td><td>' + acts + '</td></tr>';
+      });
+      h += '</tbody></table>';
+    } else h += '<p class="small">No stories in scope yet.</p>';
+    if (work) h += '<div class="row"><label class="small" for="loop-add-' + sid + '">Add stories</label> <input id="loop-add-' + sid + '" placeholder="ABC-101, ABC-102"> <button class="btn" data-act="loop-add" data-id="' + sid + '">Add</button></div>' +
+      '<div class="row"><label class="small" for="loop-why-' + sid + '">Why (for removing or approving without a run)</label> <input id="loop-why-' + sid + '"></div>';
+    if (work && a && a.s !== 'done' && RU.ok) h += '<button class="btn go" data-act="loop-approve" data-id="' + sid + '">Approve: ' + esc(RU.summary) + '</button>';
+    return h + '</div>';
   }
 
   /* A phase's note and screenshots (2.0) at the top of the phase, folded with its steps once it's done. Thumbnails load
@@ -769,6 +806,7 @@
     if (P && (t.id === 'run.process' || t.id === 'run.skill')) how += '<p class="small">Simulated: practice doesn\'t ' + (t.id === 'run.process' ? 'start other runs' : 'run skills') + '. Mark it done for practice.</p>';
     else if (t.id === 'run.process') how += childBox(ctx, r, st, a, rec && work && !(a && (a.s === 'done' || a.s === 'na')));
     else if (t.id === 'run.skill') how += skillBox(ctx, r, st, a);
+    else if (t.id === 'for.each' && !P) how += loopBox(ctx, r, st, a, rec && work);
     /* Timing: elapsed, expected, a deadline copied from the tool, the schedule; Start and Set deadline while it's open. */
     var timing = P ? '' : timerOf(ctx, r, st, a, now) + (sched ? schedBadge(sched) : '') + (st.fields.expect ? '<span class="small">Usually ' + esc(st.fields.expect) + '</span>' : '') +
       (a && a.started && aState !== 'done' && aState !== 'na' ? '<span class="small">' + esc(nameOf(ctx, a.started.by)) + ' started ' + U.hm(a.started.at) + '</span>' : '') +
@@ -843,21 +881,21 @@
     if ((rec || reread) && work) {
       if (!a || a.s === 'open' || a.s === 'recheck') {
         var filling = s.pick && s.pick.id === st.id && s.pick.kind === 'fields';
-        if (t.id !== 'run.process' && filling) acts += '<button class="btn go" disabled aria-describedby="donewhy-' + esc(st.id) + '">' + I('check') + 'Done</button><span class="small rw-why-off" id="donewhy-' + esc(st.id) + '">Save or cancel Fill in first.</span>';
-        else if (t.id !== 'run.process') acts += showRec ? '<button class="btn go" data-act="record" data-id="' + esc(st.id) + '">' + I('check') + 'Done</button>' : '<button class="btn go" data-act="toggle" data-id="' + esc(st.id) + '">' + I('check') + 'Done</button>';
-        if (t.id !== 'run.process' && !filling && !reread) acts += '<button class="btn" data-act="corr-open" data-mode="differently" data-id="' + esc(st.id) + '"' + (cf && cf.mode === 'differently' ? ' aria-expanded="true"' : '') + '>Done differently</button>';
+        if (t.id !== 'run.process' && t.id !== 'for.each' && filling) acts += '<button class="btn go" disabled aria-describedby="donewhy-' + esc(st.id) + '">' + I('check') + 'Done</button><span class="small rw-why-off" id="donewhy-' + esc(st.id) + '">Save or cancel Fill in first.</span>';
+        else if (t.id !== 'run.process' && t.id !== 'for.each') acts += showRec ? '<button class="btn go" data-act="record" data-id="' + esc(st.id) + '">' + I('check') + 'Done</button>' : '<button class="btn go" data-act="toggle" data-id="' + esc(st.id) + '">' + I('check') + 'Done</button>';
+        if (t.id !== 'run.process' && t.id !== 'for.each' && !filling && !reread) acts += '<button class="btn" data-act="corr-open" data-mode="differently" data-id="' + esc(st.id) + '"' + (cf && cf.mode === 'differently' ? ' aria-expanded="true"' : '') + '>Done differently</button>';
         if (!reread) acts += '<button class="btn" data-act="pick" data-kind="block" data-id="' + esc(st.id) + '">Blocked</button>';
         if (!st.must && !reread) acts += '<button class="mini" data-act="na" data-id="' + esc(st.id) + '">N/A</button>';
       } else if (a.s === 'blocked') acts += '<button class="btn" data-act="clear" data-id="' + esc(st.id) + '">Unblock</button>';
       else if (a.s === 'na') acts += '<button class="btn" data-act="clear" data-id="' + esc(st.id) + '">Undo N/A</button>';
-      else if (a.s === 'done' && t.id !== 'run.process') acts += '<button class="mini" data-act="toggle" data-id="' + esc(st.id) + '">Uncheck</button>';
+      else if (a.s === 'done' && t.id !== 'run.process' && t.id !== 'for.each') acts += '<button class="mini" data-act="toggle" data-id="' + esc(st.id) + '">Uncheck</button>';
       if (s.pick && s.pick.id === st.id && s.pick.kind === 'block') pick = '<div class="pick" data-scope="block:' + esc(st.id) + '">What\'s wrong? ' + BLOCK_REASONS.map(function (y) { return '<button class="chipbtn" data-act="block" data-id="' + esc(st.id) + '" data-reason="' + esc(y) + '">' + esc(y) + '</button>'; }).join('') + '<label class="sr" for="pick-input">Why it\'s blocked</label><input id="pick-input" class="rw-in" placeholder="or type a reason, then Enter" maxlength="120" data-enter="block" data-id="' + esc(st.id) + '"><button class="mini" data-act="unpick">Cancel</button></div>';
     }
     if (acts || pick) h += '<div class="rw-act" role="group" aria-label="Answer this step">' + (acts ? '<div class="row">' + acts + '</div>' : '') + pick + '</div>';
 
     /* Done differently: what happened, said with the answer (or after it), and the correction that went with it if any. */
     if (cf && cf.mode === 'differently') h += composer(ctx, r, map, x, cf);
-    else if (rec && !r.paused && R.phaseOpen(r, map, x.phaseIndex) && a && a.s === 'done' && !a.differently && t.id !== 'run.process') h += '<button class="mini" style="align-self:flex-start" data-act="corr-open" data-mode="differently" data-id="' + esc(st.id) + '">Did it differently? Say how</button>';
+    else if (rec && !r.paused && R.phaseOpen(r, map, x.phaseIndex) && a && a.s === 'done' && !a.differently && t.id !== 'run.process' && t.id !== 'for.each') h += '<button class="mini" style="align-self:flex-start" data-act="corr-open" data-mode="differently" data-id="' + esc(st.id) + '">Did it differently? Say how</button>';
     var rows = C.forRun(r, map, { at: true }).filter(function (c) { return c.step === st.id; }), idx = rows.length ? corrByNote(ctx, r.process) : {};
     if (a && a.differently) {
       var linked = rows.filter(function (c) { return c.answer && !c.oneOff; })[0];

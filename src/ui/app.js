@@ -2897,6 +2897,56 @@
     launchChild(prep, {}, null);
   }
   var childToken = 0;
+  /* Loops (3.0): every change to a loop's list is a scope record in proposals/, written once (repo.saveScope), the same
+     records flightdeck loop writes; a story's run is a run of the loop's checklist naming its item. */
+  function loopKey(k) { var m = /([A-Z][A-Z0-9_]{0,29}-[1-9][0-9]{0,8})\/?$/.exec(String(k).trim()); return m ? m[1] : String(k).trim(); }
+  function loopView(r, id) { return PF.loop.view(r, id, { records: data.scopes || [], runs: data.runs || [], who: personName }); }
+  function loopHex(n) { return PF.sha256.hex(WRITER + ':' + Date.now() + ':' + Math.random()).slice(0, n); }
+  function loopSaved(p, words) {
+    var endBusy = busyStart(), sg = gen;
+    return p.then(function (res) {
+      endBusy(); if (sg !== gen) return;
+      if (res && res.conflict) say('That change was already saved. Nothing was written again.', 'warn'); else say(words, 'good');
+      return load(true);
+    }, function (err) { endBusy(); if (sg !== gen) return; say('Couldn\'t save the change: ' + (err && err.message || err) + ' It may or may not have been saved; read the list again before asking a second time.', 'bad'); render(); });
+  }
+  function loopChange(id, op, keys, o) {
+    var r = ctx.run(), V = r && loopView(r, id);
+    if (!V) return;
+    if (V.ledger.held.length) { say('This loop has a scope record this computer can\'t read yet, so nothing was changed. Check the folder, then try again.', 'warn'); render(); return; }
+    var c = PF.loop.cleanIntent(PF.loop.changeOf(V, op, keys, o), '', null);
+    if (c.errors.length) { say(c.errors.join(' ') + ' Nothing was changed.', 'warn'); render(); return; }
+    var P = PF.loop.project(r, V, c.intent, { who: personName, by: state.me });
+    if (P.overLimit) { say('This would put ' + P.overLimit.count + ' stories in scope; the loop takes at most ' + P.overLimit.max + '. Nothing was changed.', 'warn'); render(); return; }
+    var now = new Date().toISOString(), f = PF.loop.buildRequest(c.intent, { seen: P.seen, children: P.record.children, now: now, app: APP_VERSION, by: state.me, id: 'req-flightdeck-' + loopHex(24) });
+    loopSaved(repo.saveScope(state.fs, f.id + '.json', f), P.summary || 'Saved.');
+  }
+  function loopDecide(id, op, key) {
+    var r = ctx.run(), V = r && loopView(r, id), x = V && V.ledger.items.filter(function (i) { return i.key === key; })[0];
+    if (!x || !(x.state === 'proposed' || x.review.length)) { say(key + ' isn\'t waiting for a removal decision.', 'warn'); render(); return; }
+    var p = x.proposal || x.proposedBy;
+    if (!p) { say(key + ' was decided two ways at once. Remove or restore it instead.', 'warn'); render(); return; }
+    var d = PF.loop.buildDecision({ proposal: p, loop: V.loop, op: op, items: [x.uid], seen: V.ledger.heads, reason: val('loop-why-' + id).trim(), by: state.me, writer: 'w' + loopHex(10), rev: loopHex(8), now: new Date().toISOString(), app: APP_VERSION });
+    loopSaved(repo.saveScope(state.fs, d.name, d.file), op === 'accept' ? key + ' is removed from scope. Its run stays available.' : key + ' stays in scope.');
+  }
+  function loopStart(id, key) {
+    var r = ctx.run(), V = r && loopView(r, id), x = V && V.ledger.items.filter(function (i) { return i.key === key; })[0];
+    if (!x) return;
+    var procOf = ctx.procOf || function (pid) { var p = ctx.latestPub(pid); return p ? { latest: p, all: [p], clashes: [], broken: [] } : null; };
+    var target = PF.pins.childTarget(r, V.step, procOf), pub = target.pub;
+    if (!pub || target.legacy) { say(target.why || 'The checklist this loop starts isn\'t in the folder.', 'warn'); render(); return; }
+    var got = PF.loop.inputsFor(r, V.fields, x);
+    if (got.missing.length) { say(key + '\'s run needs ' + got.missing.join(', ') + ' first.', 'warn'); render(); return; }
+    var row = V.rollup.items.filter(function (i) { return i.uid === x.uid; })[0], attempt = row && row.runs.length ? row.attempt + 1 : Math.max(1, row ? row.attempt : 1);
+    var roles = {}; pub.map.meta.roles.forEach(function (ro) { roles[ro] = r.roles[ro] || ''; });
+    var child; try { child = R.create(pub, { title: key + (x.title ? ': ' + x.title : ''), details: got.inputs, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), app: APP_VERSION,
+      parent: { process: r.process, id: r.id, step: id, item: { uid: x.uid, key: x.key, attempt: attempt } } }); }
+    catch (err) { say(err.message, 'warn'); render(); return; }
+    var sfs = state.fs, endBusy = busyStart(), sg = gen;
+    queued(function () { child.recorder.session = SESSION; return repo.saveRun(sfs, child, SESSION, { writer: WRITER, lock: LOCKS ? lock : null }); }).then(function () {
+      endBusy(); if (sg !== gen) return; say('Started "' + child.title + '".', 'good'); return load(true);
+    }, function (err) { endBusy(); if (sg !== gen) return; say('Couldn\'t start the run: ' + (err && err.message || err), 'bad'); render(); });
+  }
   /* Counts what the person did since a start was submitted: every click on a control but Refresh, every key, navigation and
      every form opened or closed. A refused start reopens its form only when nothing happened since (childRetry); otherwise
      its answers wait for the next start. */
@@ -7391,6 +7441,24 @@
     resume: function () { mutate(function (r, map, me, now) { R.resume(r, me, now); }); },
     'start-child': function (id) { startChild(id); },
     'continue-two': function (id) { continueTwo(id); },
+    'loop-add': function (id) { var keys = val('loop-add-' + id).split(/[\s,]+/).filter(Boolean).map(loopKey); if (!keys.length) { say('Type the stories to add, like ABC-101, ABC-102.', 'warn'); render(); return; } loopChange(id, 'add', keys); },
+    'loop-exclude': function (id, b) { loopChange(id, 'exclude', [b.dataset.item], { reason: val('loop-why-' + id).trim() }); },
+    'loop-restore': function (id, b) { loopChange(id, 'restore', [b.dataset.item], { reason: val('loop-why-' + id).trim() }); },
+    'loop-exception': function (id, b) { var why = val('loop-why-' + id).trim(); if (!why) { say('Say why ' + b.dataset.item + ' is approved without a run, in the Why box.', 'warn'); render(); return; } loopChange(id, 'exception', [b.dataset.item], { reason: why, approver: state.me }); },
+    'loop-withdraw': function (id, b) { loopChange(id, 'withdraw', [b.dataset.item]); },
+    'loop-accept': function (id, b) { loopDecide(id, 'accept', b.dataset.item); },
+    'loop-keep': function (id, b) { loopDecide(id, 'keep', b.dataset.item); },
+    'loop-start': function (id, b) { loopStart(id, b.dataset.item); },
+    'loop-approve': function (id) {
+      mutate(function (r, map, me, now) {
+        var V = loopView(r, id);
+        if (!V || !V.rollup.ok) throw new Error('Every story in scope needs an accepted result or an approval without a run first.');
+        R.done(r, map, id, me, now, { _loop: { ok: true, snapshot: PF.loop.approval(V.ledger, V.rollup, { by: me, at: now }) } });
+      });
+    },
+    'loop-unsettle': function (id) {
+      mutate(function (r, map, me, now) { var V = loopView(r, id); if (!V || !V.changes.length) throw new Error('Nothing changed since the approval.'); R.unsettleLoop(r, map, id, V.changes, me, now); });
+    },
     /* A child run that was saved but whose link didn't land (the parent changed meanwhile): link it now, with the inputs it was started for. */
     'link-child': function (id, b) {
       var c = ctx.findRun(b.dataset.child);

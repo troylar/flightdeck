@@ -478,7 +478,7 @@ rule('Guard: every read of a check input in the checks is listed with its unknow
     'opts.unknownType': 3, /* a type whose file is unknown: no unknown-type blocker, and none of that step's fields scanned for references */
     'opts.workflows': 3, /* jiraCheck and the Jira step: null when jira/workflows.json is unknown */
     'opts.processes': 2, /* "isn't published yet": an unread process is listed as there; null when publications/ is unknown */
-    'opts.children': 2, /* child details and team value kinds: null for an unread process, so nothing is checked against an older version */
+    'opts.children': 4, /* child details and team value kinds (a {run.process} and, 3.0, a {for.each}): null for an unread process, so nothing is checked against an older version */
     'opts.parents': 2, /* parents passing a dropped detail: unread processes left out; null when publications/ is unknown */
     'opts.teamValues': 5 /* team value names and kinds, and a Jira search's address (site:): undefined when team-values.json is unknown, so none is checked (R4-3) */
   };

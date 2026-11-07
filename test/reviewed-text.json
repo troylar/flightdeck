@@ -253,8 +253,8 @@
       "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "src/core/loop.js": {
-      "sha256": "c0d2f503a121c727c62569ecf525d0d6a0f4c67e14aa84ae6848f838577a3ea8",
-      "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
+      "sha256": "28e657ae09b79c6fb42426fb52a0942fc9cc752229bd55a9b07ee551715c3316",
+      "reviewed": "3.0 loops in the app: the item list on the run screen; checked for direct writes and unconditional deletes: changes go through repo.saveScope (written once), a story's run through repo.saveRun in the queue; nothing deleted"
     },
     "src/core/map.js": {
       "sha256": "671a810abb29087bed638e0fc39ecc5a52b70146abd303742d5d017c9083db7c",
@@ -397,8 +397,8 @@
       "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "src/ui/app.js": {
-      "sha256": "84c9e0d10ed67bc304e061fc81e6af168ecefdff14731f50bee407f0a005e79e",
-      "reviewed": "Review 04 of module results: answer identity and re-check, contradictory results refused, version fit, idempotent settlement, awaiting in contract 2, read-only bound details, escaped accepts, receipts; checked for direct writes and unconditional deletes"
+      "sha256": "7200e8a69cdd058a1c22bc4279f38e3fb920ae1e911f2160f5605606968515d4",
+      "reviewed": "3.0 loops in the app: the item list on the run screen; checked for direct writes and unconditional deletes: changes go through repo.saveScope (written once), a story's run through repo.saveRun in the queue; nothing deleted"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
@@ -473,8 +473,8 @@
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "src/ui/views/run.js": {
-      "sha256": "d9d95b08ae97be5497c67fa93afdb77614617ee29b000b1fb1ac0d0de28efac6",
-      "reviewed": "Review 05 of module results: no result without a recorded decision, ended parents read-only with one result-changed verdict, next orders awaiting settlement first, linked run reads in the CLI ledger, capped accepted list; checked for direct writes and unconditional deletes"
+      "sha256": "0107f625e1b8319c03906b869090c1ba3b24c404dd80507eaaaa0b4be7171b99",
+      "reviewed": "3.0 loops in the app: the item list on the run screen; checked for direct writes and unconditional deletes: changes go through repo.saveScope (written once), a story's run through repo.saveRun in the queue; nothing deleted"
     },
     "src/ui/views/setup.js": {
       "sha256": "2393b54abde45fa1ba4ac110f394984d29b04ca728c3f1a46e8c22fb2c60dd80",
