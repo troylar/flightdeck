@@ -20,7 +20,7 @@ const BASE = JSON.parse(fs.readFileSync(path.join(ROOT, 'src', 'baselines.json')
 const FIXTURE = fs.readFileSync(path.join(__dirname, 'fixtures', 'agents-2.14.0.md'), 'utf8');
 const AGENTS = read('AGENTS.md');
 /* AGENTS.md's ceiling: 2.14.0's copy less the room the design keeps for team notes and the index rows (design section 4). */
-const ROOM_CEILING = 19688 + 141; /* 3.0: the library inspect row in Commands (assistant-start.test.js) */
+const ROOM_CEILING = 19688 + 141 + 358; /* 3.0: the library inspect row in Commands (assistant-start.test.js); the loop row and the scope-records rule (loops, design section 44) */
 const WHY_WORDS = /\b(never|must|only)\b/i;
 const GUIDANCE = /\b(never|must|don't|do not|check|checks|read|leave out|only|ignore|skip|should|unless|instead|avoid|make sure|was meant|reopens)\b|\bis only\b/i;
 const GRANT = /\byou (may|can)\b|\b(is|are) (fine|ok|okay|allowed)\b|\bfeel free\b|\ballowed to\b/i;
@@ -409,6 +409,9 @@ const ADDED = [
   { home: H.drafts, text: 'How:', class: 'C1', why: 'the section\'s How: line, to the part of a reference that says how' },
   { home: H.drafts, text: '*Editing drafts* in the command guide.', class: 'C1', why: 'the section\'s How: line, to the part of a reference that says how' },
   { home: H.drafts, text: 'Use `flightdeck draft read`, then `flightdeck draft save` with `--expect` and `--base`.', class: 'C1', why: 'the two commands, named, since the how moved to the guide' },
+  { home: H.never, text: "Scope records (`proposals/` files with `\"format\": \"flightdeck-plan/3\"`): a loop's list, written only by `flightdeck loop`.", class: 'C4', why: 'new in 3.0 (loops, design section 44): the loop commands, and that scope records are written only by them' },
+  { home: H.never, text: "Never write, edit or delete one.", class: 'C4', why: 'new in 3.0 (loops, design section 44): the loop commands, and that scope records are written only by them' },
+  { home: H.commands, text: "| `flightdeck loop read`, `loop sync` and the other `loop` commands | A loop's stories and results, and asking for a change to its list; never starts a run | *Asking for a run* in the command guide |", class: 'C1', why: 'new in 3.0 (loops, design section 44): the loop commands, and that scope records are written only by them' },
 ];
 /* Moved units with a rule word (WHY_WORDS: never, must, only) outside code, each reviewed apart from MOVED_GUIDANCE: why the word
    describes how a command or a file works, and is not a rule AGENTS.md must keep (rule 13). A kept rule reclassified as how fails
@@ -549,6 +552,18 @@ const REF_ADDED = [
   { home: G.checklist, text: 'The linking `{run.process}` step adds `accepts: cleared` and, to keep the value, `sets: story_result=result`.', why: 'new in 3.0 (module results, design section 43): when to give a checklist a result and what the link accepts' },
   { home: G.checklist, text: 'Any other result holds that step and keeps its gate closed.', why: 'new in 3.0 (module results, design section 43): when to give a checklist a result and what the link accepts' },
   { home: G.checklist, text: 'Use it only for a verdict someone acts on; see map-format.md, Module results.', why: 'new in 3.0 (module results, design section 43): when to give a checklist a result and what the link accepts' },
+  { home: G.asking, text: "### Loops", why: 'new in 3.0 (loops, design section 44): reading a loop and asking for a change to its list' },
+  { home: G.asking, text: "A `{for.each}` step starts one run of another checklist for each story in a list (a loop).", why: 'new in 3.0 (loops, design section 44): reading a loop and asking for a change to its list' },
+  { home: G.asking, text: "Its list is kept as scope records in `proposals/`, written only by `flightdeck loop`; never write, edit or delete one by hand.", why: 'new in 3.0 (loops, design section 44): reading a loop and asking for a change to its list' },
+  { home: G.asking, text: "Read a loop with `flightdeck loop read <team folder> <process>/<run> <loop step> --json`: its stories, the exact counts (\"11 in scope · 9 cleared by validation · 1 approved without a run · 1 needs work\"), what holds its gate, and the approval with every change since.", why: 'new in 3.0 (loops, design section 44): reading a loop and asking for a change to its list' },
+  { home: G.asking, text: "Say the summary as it is; never round it into \"all done\".", why: 'new in 3.0 (loops, design section 44): reading a loop and asking for a change to its list' },
+  { home: G.asking, text: "Ask for a change with `flightdeck loop sync` (`--from` what a search read, whole), `loop add --keys`, `loop exclude --item --reason`, `loop restore --item`, `loop exception --item --reason --approver`, `loop withdraw --item`, `loop owner --item --owner`, or `loop review --accept|--keep --as <person>` (a person's decision, recorded on their behalf).", why: 'new in 3.0 (loops, design section 44): reading a loop and asking for a change to its list' },
+  { home: G.asking, text: "Every one takes `--tool <name>@<version> --key <key>` and writes one file, once.", why: 'new in 3.0 (loops, design section 44): reading a loop and asking for a change to its list' },
+  { home: G.asking, text: "Run it with `--dry-run` first and show the person the preview.", why: 'new in 3.0 (loops, design section 44): reading a loop and asking for a change to its list' },
+  { home: G.asking, text: "A loop's list changes when Flightdeck next reads the folder; the command never starts a run, and people start each story's run in Flightdeck.", why: 'new in 3.0 (loops, design section 44): reading a loop and asking for a change to its list' },
+  { home: G.asking, text: "Exit code 0 is requested, already requested, or (with `--dry-run`) what it would write; 4 nothing written, because a scope record or part of the folder couldn't be read; 1 refused (a key already used for a different request, or a request that isn't valid); 5 no such run or loop step.", why: 'new in 3.0 (loops, design section 44): reading a loop and asking for a change to its list' },
+  { home: G.asking, text: "If it can't confirm the save, retry with the same key, never a new one: a new key could ask twice.", why: 'new in 3.0 (loops, design section 44): reading a loop and asking for a change to its list' },
+  { home: G.asking, text: "The formats are in docs/apps.md of the Flightdeck repository.", why: 'new in 3.0 (loops, design section 44): reading a loop and asking for a change to its list' },
 ];
 
 const NOTHING = 'Nothing here allows you to write a file `AGENTS.md` tells you not to.';

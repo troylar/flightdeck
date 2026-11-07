@@ -121,6 +121,16 @@ The app runs `flightdeck plan request <team folder> <request.json> --key <key> -
 
 Exit code 0 is requested, already requested, or (with `--dry-run`) what it would write; 4 nothing written, because something it depends on couldn't be read; 1 refused; 5 no such process or version. The request's format is in docs/apps.md of the Flightdeck repository.
 
+### Loops
+
+A `{for.each}` step starts one run of another checklist for each story in a list (a loop). Its list is kept as scope records in `proposals/`, written only by `flightdeck loop`; never write, edit or delete one by hand.
+
+Read a loop with `flightdeck loop read <team folder> <process>/<run> <loop step> --json`: its stories, the exact counts ("11 in scope · 9 cleared by validation · 1 approved without a run · 1 needs work"), what holds its gate, and the approval with every change since. Say the summary as it is; never round it into "all done".
+
+Ask for a change with `flightdeck loop sync` (`--from` what a search read, whole), `loop add --keys`, `loop exclude --item --reason`, `loop restore --item`, `loop exception --item --reason --approver`, `loop withdraw --item`, `loop owner --item --owner`, or `loop review --accept|--keep --as <person>` (a person's decision, recorded on their behalf). Every one takes `--tool <name>@<version> --key <key>` and writes one file, once. Run it with `--dry-run` first and show the person the preview. A loop's list changes when Flightdeck next reads the folder; the command never starts a run, and people start each story's run in Flightdeck.
+
+Exit code 0 is requested, already requested, or (with `--dry-run`) what it would write; 4 nothing written, because a scope record or part of the folder couldn't be read; 1 refused (a key already used for a different request, or a request that isn't valid); 5 no such run or loop step. If it can't confirm the save, retry with the same key, never a new one: a new key could ask twice. The formats are in docs/apps.md of the Flightdeck repository.
+
 ## Evidence packs
 
 **Evidence packs:** when a person asks for a run's evidence, run `flightdeck export <team folder> --run <process>/<id> --out <a folder outside the team folder>` (or `--process <id> --from YYYY-MM-DD --through YYYY-MM-DD --tz Area/City` for the runs started on those days). It only reads. Exit code 0 is a complete pack, 4 a partial one (its top lists what changed or was missing), 1 no pack.

@@ -14,6 +14,7 @@ Flightdeck is a checklist tool for people: a monthly backup check, a quarterly a
 | **Read and save drafts** of checklists (AI assistants; contract `flightdeck-draft/1`, [at the end of this page](#writing-drafts-for-ai-assistants)) | `flightdeck draft` | 1.19 | Writes the draft or a proposal |
 | **Check a draft** as the Publish dialog does ([draft check](#draft-check)), with design tips (3.0) | `flightdeck draft check` | 2.13 | Never |
 | **Look across the library**: every checklist normalized, what links to what, and what looks alike ([library inspect](#library-inspect)) | `flightdeck library inspect` | 3.0 | Never |
+| **Keep a loop's scope**: read a release's stories and their results, and ask for stories to be added, removed, restored, excused or reviewed ([Loops](#loops)) | `flightdeck loop` | 3.0 | Writes one file in `proposals/` (`read` never) |
 | **Register a skill** against the exact version it was built from (AI assistants, [Registering a skill](#registering-a-skill-for-ai-assistants)) | `flightdeck skill register` | 2.0 | Writes one file in `skill-registrations/`, and may turn `skills/<name>.json` into a pointer |
 | **Make an evidence pack** of one run, or of the runs started on some days ([Evidence packs](evidence.md)) | `flightdeck export` | 1.17 | Never: the pack goes outside the folder |
 
@@ -552,6 +553,72 @@ Exit codes: `0` written or proposed; `1` usage, `missing-base`, `too-big` or `fa
 **What it may write:** only `maps/drafts/<process>.md` (a direct save), `proposed/<process>/<operation>.json`, `history/drafts/<process>/agent-<operation>.jsonl`, and, when a direct save continued from your own pending proposal, one decision `proposed/<process>/<that proposal>.<operation>.<rev>.json` with `status` `replaced`, so it isn't offered again, never through a link and never outside the folder. It never writes or deletes anything in `presence/`, and never changes a proposal, attempt or decision once written.
 
 **Known limits.** Who has a draft open is what this computer's copy of the folder shows: another computer's editor may arrive late (seconds to minutes over OneDrive), and a tab in the background may stop saying it's there. A shared folder has no atomic compare-and-swap, so a hand edit, an older copy of Flightdeck or a direct file write that lands between the final compare and the write can still be replaced, exactly as in 1.18. A proposal is never lost. Flightdeck 1.19 doesn't merge: a proposal applies only when it starts from the draft exactly as it is. "Within a few seconds" holds on one computer (the editor looks every 2 seconds); across computers it adds OneDrive's sync time, which has no bound. Two computers with the same draft open can each apply the same proposal once before their files sync (it then shows **Applied twice**); to take back an assistant's change in that case, use **Decline** on the process page rather than Undo in the editor.
+
+## Loops
+
+A `{for.each}` step (3.0) starts one linked run of a child checklist for each item in a list, such as every story in a release. The list lives in the folder as scope records in `proposals/`: requests (from a tool or a person) and decisions on them. `flightdeck loop` reads a loop and asks for changes to its list. It never starts a run and never writes `run.json`: the parent run's recorder sees each change the next time Flightdeck reads the folder, and people start the assessments themselves.
+
+```
+flightdeck loop read    <team folder> <process>/<run> <loop step> --json
+flightdeck loop sync    <team folder> <process>/<run> <loop step> --from <observation.json | -> --tool <name>@<version> --key <key> [--dry-run] [--json]
+flightdeck loop add     <team folder> <process>/<run> <loop step> --keys ABC-101,ABC-102 --tool <name>@<version> --key <key> [--dry-run] [--json]
+flightdeck loop exclude <same> --item ABC-107 --reason <why> --tool ... --key ...
+flightdeck loop restore <same> --item ABC-107 [--reason <why>] --tool ... --key ...
+flightdeck loop exception <same> --item ABC-104 --reason <why> --approver <person id> [--as <person id>] --tool ... --key ...
+flightdeck loop withdraw <same> --item ABC-104 --tool ... --key ...
+flightdeck loop owner   <same> --item ABC-104 --owner <person id, or ""> --tool ... --key ...
+flightdeck loop review  <same> --accept ABC-103,ABC-107 | --keep ABC-103 --as <person id> [--reason <why>] --tool ... --key ...
+```
+
+Every command prints `flightdeck-read/2` (with `--json`) or plain words. `--dry-run` previews and writes nothing. The same `--tool` and `--key` always mean the same request: a retry writes nothing and says `already`; the same key with other content is refused (`key-taken`), naming the changed fields.
+
+### The observation
+
+`sync` takes what the tool read from the source, whole, never a summary:
+
+```json
+{ "source": { "system": "jira", "site": "https://jira.example.com" }, "generation": "2026-11-07-0942", "query": "fixVersion = 4.1",
+  "observedAt": "2026-11-07T09:42:00Z", "items": [{ "id": "10042", "key": "ABC-101", "title": "Checkout with saved cards" }],
+  "reported": 11, "fetched": 11, "complete": true, "errors": [] }
+```
+
+`id` is the issue's stable id and `key` its key. `complete` says every page was read; Flightdeck treats it as complete only when `fetched` equals `reported`, the items add up and `errors` is empty. "Complete" means the account's search read everything it reported, not that Jira holds nothing else. A complete observation that lacks an item in scope proposes its removal, for a person to review; an incomplete one only adds. Absence is never removal. An observation holds at most 500 items; more is refused, never cut.
+
+### What it writes
+
+`proposals/req-<tool>-<24 hex>.json`, `flightdeck-plan/3` with the `loops` feature: the loop it's for, the records it saw (`seen`), the observation, the changes, and one planned child per new story (the inputs the loop's `pass:` fills, and the attempt). `review` writes `proposals/<request>.status-<tool>-<8 hex>.json`, `flightdeck-plan-status/3`: a person's decision (`--as`, recorded on their behalf by the tool) to remove the stories (`accept`) or keep them. Each file is written once and read back. Every copy before 3.0 calls these files newer and never offers one as a plan.
+
+### The result
+
+`data.status` is `would-request` (a preview), `requested`, `already` or `held` (something it depends on couldn't be read; nothing was written). `data.preview` is the summary in plain words, the one an assistant can repeat:
+
+```text
+Release 4.1 — preview only; no files written.
+
+Would add 3 stories and request review of 2 removals.
+One proposed removal has an assessment in progress.
+2 new assessments are ready to start; 1 needs environment.
+No runs would start.
+The scope change would require approval review.
+
+Jira observation: 11 of 11 reported matches read; pagination complete.
+Team-folder read: complete.
+```
+
+With the stories below it. The JSON carries the same: `added`, `proposed` (with `open`, `recorder`, `answered` and `total` for an assessment in progress), `excluded`, `restored`, `children` (`inputs`, `missing`), `impact` (`review`, `reasons`), `observation`, `runsStarted` (always 0) and `membershipVisible` (always false: the table shows the change once Flightdeck reads the folder). Keep these apart: a preview, a request written, membership visible, a run started.
+
+`read` gives `summary` ("11 in scope · 9 cleared by validation · 1 approved without a run · 1 needs work"), `counts`, `ok`, `blockers` (each with `key`, `kind`, `run` and `text`), `items` (scope `state`, `status`, `result`, `run`, `recorder`, `owner`, `exception`, `review`, `mismatch`), `pending` removals, `held` records, the last `observation`, the `approval` and every change since it (`changes`, `review`), and, after the run ended, `late`.
+
+### Errors
+
+| Situation | What it says |
+|---|---|
+| The source is incomplete | The preview adds what it found and says missing stories can't be proposed for removal. Retry the search. |
+| A scope record this computer can't read yet | `held`: "This loop has a scope record this computer can't read yet. Nothing written. Check folder availability, then retry." |
+| The same key, the same request | `already`: "Already requested. Nothing written.", with the loop's state now. |
+| The same key, another request | `key-taken`: "This key already names a different request. Changed fields: …. Read that request before choosing a new key." |
+| A story's child is missing an input | The preview names it: "1 needs environment". Its scope change is valid; its assessment can't start yet. |
+| The write can't be confirmed | `failed`: "Could not confirm whether the request was saved. Retry with the same key." Never a new key: that could ask twice. |
 
 ## Writing step types (for AI assistants)
 

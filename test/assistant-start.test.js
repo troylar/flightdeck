@@ -44,7 +44,7 @@ rule('AGENTS.md as shipped is at most 28 KiB, so Team notes have room before a t
 
 /* 2.15.0: AGENTS.md keeps the rules and points to the how. Its ceiling is the measured text plus a 66-byte margin; a later slice
    that adds a Commands or Skills row raises it by that row's bytes, with the reason stated. 3.0: +141 for the `flightdeck library inspect` row. */
-const ROOM_CEILING = 19688 + 141, INDEX_ROW = 300;
+const ROOM_CEILING = 19688 + 141 + 358, INDEX_ROW = 300; /* 3.0: the loop row and the scope-records rule (loops, design section 44) */
 /* The rows of the Commands and Skills tables: each names a command or a skill and where its how is, in at most 300 bytes. */
 function indexRows(t) {
   const out = [];
@@ -1188,7 +1188,7 @@ kase15('5b', 'the same edit without a cited section: staged again, named under m
   put15(dir, GUIDE, TEAMG); del15(dir, cp(GUIDE)); assert.strictEqual(check15(dir).code, 0, 'merged and its copy deleted');
 });
 kase15('5c', 'a team-edited 2.15.0 AGENTS.md that no longer cites *Asking for a run*, and a guide without it: the live AGENTS.md is what counts', async () => {
-  const dir = f215(); put15(dir, AG, A215.replace('| *Asking for a run* in the command guide |', '| our own way |')); put15(dir, GUIDE, TEAMG.replace('## Asking for a run', '## Requests'));
+  const dir = f215(); put15(dir, AG, A215.split('| *Asking for a run* in the command guide |').join('| our own way |')); put15(dir, GUIDE, TEAMG.replace('## Asking for a run', '## Requests'));
   const r = install15(dir);
   expect15(r.st, { AGENTS: { status: 'kept' }, guide: { status: 'kept', lacks: undefined } });
   assert.strictEqual(check15(dir).code, 0); assert.deepStrictEqual(await health15(dir), []);
@@ -1716,7 +1716,7 @@ rule('The citation parser reads 14 forms as stated, escapes an alias, takes the 
   assert.deepStrictEqual(Object.keys(c.names).sort(), [ESS, GUIDE, FORMATS, MF].sort());
   assert.deepStrictEqual(pl(c.alias), { 'command guide': GUIDE, 'checklist essentials': ESS, 'file formats': FORMATS });
   const occ = (alias) => (K15.prose(t).join('\n').match(new RegExp('\\*[^*\\n]+\\* in the ' + alias + '(?![a-z])', 'g')) || []).length;
-  assert.deepStrictEqual([occ('command guide'), c.cites[GUIDE].length, occ('checklist essentials'), c.cites[ESS].length, occ('file formats'), c.cites[FORMATS].length], [12, 7, 1, 1, 6, 5], '3.0: the library inspect row cites *Editing drafts* again');
+  assert.deepStrictEqual([occ('command guide'), c.cites[GUIDE].length, occ('checklist essentials'), c.cites[ESS].length, occ('file formats'), c.cites[FORMATS].length], [13, 7, 1, 1, 6, 5], '3.0: the library inspect row cites *Editing drafts* again; the loop row, *Asking for a run*');
   c.cites[GUIDE].forEach(x => assert.ok(K15.sections(G215).indexOf(x) >= 0, 'the guide has ' + x));
   c.cites[ESS].forEach(x => assert.ok(K15.sections(E215).indexOf(x) >= 0, 'the essentials have ' + x));
   c.cites[FORMATS].forEach(x => assert.ok(K15.sections(FFT).indexOf(x) >= 0, 'the file formats have ' + x));

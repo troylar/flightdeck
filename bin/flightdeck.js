@@ -2612,6 +2612,13 @@ const HELP = `flightdeck: team process checklists, in one HTML file
   flightdeck library inspect <team folder> [--process <id>] --json
                                       for AI assistants: every checklist, normalized, what links to what, the step
                                       types each uses, and what looks alike across checklists, with why. Only reads
+  flightdeck loop read <team folder> <process>/<run> <loop step> --json
+                                      for AI assistants: one loop of a run: its stories, the exact counts, what
+                                      holds its gate and the approval. Only reads
+  flightdeck loop sync <team folder> <process>/<run> <loop step> --from <file|-> --tool <name>@<version> --key <key> [--dry-run] [--json]
+                                      for AI assistants: ask for a change to a loop's list (also loop add, exclude,
+                                      restore, exception, withdraw, owner, review). Writes one file in proposals/,
+                                      once; --dry-run previews; never starts a run
   flightdeck skill register <team folder> --from <file|-> [--json]
                                       for AI assistants: register a skill against the exact version it was built
                                       from (Flightdeck 2.0). The only writer of skill-registrations/
@@ -2657,6 +2664,167 @@ Every file install replaces is first copied to .flightdeck/updates/<version>/rep
 Files your team changed are never replaced without --force. When this version also changed them, the new
 default goes to .flightdeck/updates/<version>/, with a README.md to hand to your AI assistant.`;
 
+/* ---------- Loops: flightdeck loop read | sync | add | exclude | restore | exception | withdraw | owner | review (3.0,
+   docs/apps.md, docs/design.md 44) ----------
+   read prints one loop of a parent run: its items, the roll-up, blockers, reviews waiting and the approval and every change
+   since. The others ask for a scope change by writing one new file in proposals/, once: a scope request (sync from an
+   observation, or add, exclude, restore, exception, withdraw, owner), or for review, a decision on proposed removals made by
+   a person (--as) that a tool records on their behalf. They never start a run and never write run.json; the parent's
+   recorder sees the change when Flightdeck reads the folder. --dry-run previews and writes nothing. The same --tool and --key
+   always mean the same request: a retry writes nothing; the key with other content is refused. */
+const LOOP_SUBS = ['read', 'sync', 'add', 'exclude', 'restore', 'exception', 'withdraw', 'owner', 'review'];
+const LOOP_VAL = ['--from', '--key', '--tool', '--keys', '--item', '--reason', '--approver', '--owner', '--as', '--accept', '--keep'];
+const UNCERTAIN = 'Could not confirm whether the request was saved. Retry with the same key; a new key could ask twice.';
+function loopWords(json, sub) {
+  if (json.error) return 'flightdeck: ' + json.error.why + json.problems.map((x) => '\n  ' + x.path + ': ' + x.why).join('');
+  const d = json.data, lines = [];
+  if (sub === 'read') {
+    lines.push(d.title + ' · ' + d.summary);
+    if (d.observation) lines.push('Last observed ' + d.observation.observedAt + (d.observation.complete ? '' : ' (not complete: ' + d.observation.why + ')'));
+    if (d.approval) lines.push('Approved by ' + d.approval.by + ': ' + d.approval.summary);
+    if (d.review.length || d.changes.length) lines.push('Approval needs review:', ...d.review.concat(d.changes).map((x) => '  ' + x));
+    d.blockers.forEach((b) => lines.push('  ' + b.text));
+    d.pending.forEach((p) => lines.push('  ' + p.key + ' · proposed removal'));
+  } else lines.push(d.preview);
+  json.problems.forEach((x) => lines.push('  ' + x.path + ': ' + x.why));
+  return lines.join('\n');
+}
+async function loopMain(argv) {
+  const val = {}, args = argv.filter((a, i) => !a.startsWith('--') && !(i > 0 && LOOP_VAL.indexOf(argv[i - 1]) >= 0));
+  let eng = null;
+  const C2 = 2, asJson = argv.includes('--json'), dryRun = argv.includes('--dry-run'), sub = args[1], appOf = () => (eng ? eng.version : versionOf(app()) || '');
+  const out = (json, code) => ({ out: asJson ? JSON.stringify(json, null, 2) : loopWords(json, sub), code });
+  const failOut = (kind, why, problems, code) => { const F = eng ? eng.PF.appjson : null; return out(F ? F.failure(appOf(), kind, why, problems || [], C2) : { contract: 'flightdeck-read/2', app: appOf(), error: { kind, why }, problems: problems || [] }, code || (kind === 'not-found' ? EXIT.notFound : EXIT.error)); };
+  const usage = (why) => failOut('usage', why);
+  for (const f of LOOP_VAL) { const i = argv.indexOf(f); if (i >= 0) { if (argv[i + 1] == null || (argv[i + 1].startsWith('--') && f !== '--reason')) return usage('say what goes after ' + f + '.'); val[f] = argv[i + 1]; } }
+  const unknown = argv.filter((a, i) => a.startsWith('--') && ['--json', '--dry-run'].concat(LOOP_VAL).indexOf(a) < 0 && !(i > 0 && LOOP_VAL.indexOf(argv[i - 1]) >= 0));
+  if (unknown.length) return usage('loop doesn\'t take ' + unknown.join(', ') + '.');
+  if (LOOP_SUBS.indexOf(sub) < 0) return usage('say what to do: flightdeck loop ' + LOOP_SUBS.join(' | ') + ' <team folder> <process>/<run> <loop step> ...');
+  const m = RUN_KEY.exec(args[3] || ''), stepId = args[4];
+  if (!args[2] || !m || !stepId || args[5] || !/^[a-z0-9][a-z0-9-]{0,59}$/i.test(stepId)) return usage('say the team folder, the parent run and its loop step, for example: flightdeck loop ' + sub + ' <team folder> release-readiness/k3m9p2q8 stories --json');
+  const writes = sub !== 'read';
+  let tool = null;
+  if (writes) {
+    const tm = /^([a-z0-9][a-z0-9-]{0,29})@([A-Za-z0-9_.+-]{1,40})$/.exec(val['--tool'] || '');
+    if (!tm) return usage('say which tool asks, with its version, for example --tool release-helper@1.4.0.');
+    tool = { name: tm[1], version: tm[2] };
+    if (!val['--key'] || !/^[a-z0-9][a-z0-9._-]{0,63}$/.test(val['--key'])) return usage('say which key with --key: lowercase letters, numbers, dots, dashes or underscores, like import-42. The same key always means the same request.');
+  }
+  let dir;
+  try { eng = loadEngine(); dir = folderArg(args[2], 'loop ' + sub); } catch (e) { return failOut('failed', e.message); }
+  const PF = eng.PF, A = PF.appjson, LP = PF.loop, R = PF.run, repo = PF.repo, proc = m[1], runId = m[2];
+  const ra = readAdapter(dir, { maxBytes: READ_MAX }), L = repo.ledger(repo.readOnly(ra, 'Reading a loop'));
+  let childProc = '';
+  const relevant = (p) => p === '' || /^proposals(\/|$)/.test(p) || p === 'people.json' || p.indexOf('runs/' + proc + '/' + runId) === 0 || (!!childProc && p.indexOf('runs/' + childProc) === 0) || p === 'runs' || p === 'runs/' + proc;
+  const problems = () => { const all = L.problems(), seen = {}; all.forEach((x) => { seen[x.path + '\u0000' + x.kind] = true; }); adapterProblems(ra).forEach((x) => { if (!seen[x.path + '\u0000' + x.kind]) all.push(x); }); return all.filter((x) => relevant(x.path)); };
+  const done = (data) => { const e = A.envelope(eng.version, new Date().toISOString(), problems(), data, C2); return out(e, e.complete ? 0 : EXIT.partial); };
+  try {
+    const one = await repo.readRunOnly(L.fs, proc, runId);
+    if (!one.found) return failOut('not-found', 'There\'s no run ' + proc + '/' + runId + ' in the team folder.' + (writes ? ' Nothing was written.' : ''), problems());
+    const r = one.run;
+    if (!r) return failOut('failed', 'The run ' + proc + '/' + runId + ' couldn\'t be read, so its loop can\'t be.' + (writes ? ' Nothing was written.' : ''), problems());
+    if (newerRun(PF, r)) return failOut('failed', 'The run ' + proc + '/' + runId + ' was made with a newer Flightdeck: ' + r._unrunnable + (writes ? ' Nothing was written.' : ''), problems());
+    let map; try { map = R.mapOf(r); } catch (e) { return failOut('failed', 'The run\'s checklist can\'t be read here.', problems()); }
+    const x = PF.map.findStep(map, stepId);
+    if (!x || x.step.type !== 'for.each') return failOut('not-found', 'Step ' + stepId + ' of ' + proc + '/' + runId + ' isn\'t a loop ({for.each}).' + (writes ? ' Nothing was written.' : ''), problems());
+    childProc = String(R.fieldsOf(r, x.step).process || '');
+    const bad = [], got = await repo.readPlans(L.fs, bad, null, true);
+    bad.forEach((b) => L.note(b.path, b.kind || 'malformed', fileWhy(b.why)));
+    const d = childProc ? await repo.loadAll(dependsOn(L.fs, ['runs/' + childProc]), { readOnly: true, explain: true, deep: true }) : { runs: [] };
+    const nameOf = A.names(one.people), who = (p) => { const n = nameOf(p); return n ? n.name || n.id : ''; };
+    const V = LP.view(r, stepId, { records: got.scopes, runs: d.runs || [], who }), title = String(r.title || r.process);
+    if (sub === 'read') {
+      const R0 = V.rollup;
+      return done({ loop: V.loop, title, step: { id: stepId, text: x.step.text, state: (r.steps[stepId] || {}).s || 'open' }, process: childProc, pin: V.pin, accepts: V.accepts,
+        summary: R0.summary, counts: R0.counts, ok: R0.ok, blockers: R0.blockers,
+        items: R0.items.map((i) => ({ uid: i.uid, key: i.key, title: i.title, state: i.state, status: i.status, result: i.result || null, run: i.run || null, runs: i.runs, competing: i.competing,
+          recorder: i.recorder ? nameOf(i.recorder) : null, owner: i.owner ? nameOf(i.owner) : null, exception: i.exception ? { reason: i.exception.reason, approver: nameOf(i.exception.approver), onBehalf: i.exception.onBehalf } : null,
+          review: i.review, mismatch: i.mismatch, attempt: i.attempt, planned: i.planned ? { inputs: i.planned.inputs, attempt: i.planned.attempt } : null })),
+        pending: V.ledger.pending, held: V.ledger.held, duplicates: V.ledger.duplicates, overLimit: V.ledger.overLimit,
+        observation: V.ledger.observation ? Object.assign({ record: V.ledger.observation.record }, V.ledger.observation.observation, { items: undefined, count: V.ledger.observation.observation.items.length }) : null,
+        approval: V.approved ? { by: V.approved.by, at: V.approved.at, onBehalf: V.approved.onBehalf || null, summary: V.approved.summary } : null,
+        changes: V.changes, review: V.review, ended: V.ended, late: V.ended ? V.changes : [] });
+    }
+    /* Anything this depends on that couldn't be read, or a scope record this one would follow that can't be: nothing is written. */
+    const held = (why) => done({ loop: V.loop, status: 'held', request: null, preview: why, why });
+    if (sub === 'review') return loopReview(eng, { dir, val, V, tool, dryRun, held, done, usage, failOut, problems, title });
+    let value;
+    if (sub === 'sync') {
+      if (!val['--from']) return usage('say where the observation is: --from observation.json (or - for standard input).');
+      const input = await readRequestInput(val['--from'], LP.LIMITS.bytes).catch((e) => ({ err: e }));
+      if (input.err) return usage('couldn\'t read the observation: ' + input.err.message);
+      if (input.tooBig) return failOut('invalid', 'An observation is at most ' + (LP.LIMITS.bytes / 1024) + ' KB; this one is more. Nothing is cut: narrow the search. Nothing was written.');
+      let obs; try { obs = JSON.parse(input.buf.toString('utf8').replace(/^﻿/, '')); } catch (e) { return failOut('invalid', 'The observation isn\'t complete JSON: ' + e.message + ' Nothing was written.'); }
+      value = { loop: V.loop, observation: obs };
+    } else {
+      const items = (sub === 'add' ? String(val['--keys'] || '') : String(val['--item'] || '')).split(/[\s,]+/).filter(Boolean).map((k) => { const km = /([A-Z][A-Z0-9_]{0,29}-[1-9][0-9]{0,8})\/?$/.exec(k); return km ? km[1] : k; });
+      if (!items.length) return usage(sub === 'add' ? 'say which stories with --keys ABC-101,ABC-102 (keys or links).' : 'say which story with --item ABC-101.');
+      const find = (k) => V.ledger.items.filter((i) => i.key === k)[0];
+      value = { loop: V.loop, changes: items.map((k) => {
+        const it = sub === 'add' ? { key: k } : (find(k) ? { id: find(k).id || undefined, key: k } : { key: k }), c = { op: sub, item: it };
+        if (val['--reason'] != null) c.reason = val['--reason'];
+        if (sub === 'exception') { c.approver = val['--approver']; if (val['--as']) c.onBehalf = true; }
+        if (sub === 'owner') c.owner = val['--owner'] || '';
+        return c;
+      }) };
+      if (sub !== 'add') { const miss = items.filter((k) => !find(k)); if (miss.length) return failOut('invalid', miss.join(', ') + (miss.length === 1 ? ' isn\'t' : ' aren\'t') + ' in this loop. Nothing was written.', problems()); }
+    }
+    const c = LP.cleanIntent(value, val['--key'], tool);
+    if (c.errors.length) return failOut('invalid', c.errors.join(' ') + ' Nothing was written.', problems());
+    const id = LP.idFor(tool.name, val['--key']), file = 'proposals/' + id + '.json';
+    const mine = got.scopes.filter((s) => s.id === id);
+    if (mine.length) {
+      const diffs = LP.differsRecord(c.intent, mine[0]);
+      if (diffs.length) return failOut('key-taken', 'This key already names a different request (' + file + '). Changed fields: ' + diffs.join(', ') + '. Read that request (flightdeck loop read) before choosing a new key. Nothing was written.', problems());
+      const P0 = LP.project(r, V, c.intent, { who });
+      return done({ loop: V.loop, status: 'already', request: { id, file }, preview: 'Already requested. Nothing written. ' + V.rollup.summary + '.', summary: V.rollup.summary, added: [], proposed: [], excluded: [], restored: [], children: [], impact: P0.impact, runsStarted: 0 });
+    }
+    if (problems().length) return held('Part of the team folder this depends on couldn\'t be read, so nothing was written. Check folder availability, then retry with the same key.');
+    if (V.ledger.held.length) return held('This loop has a scope record this computer can\'t read yet (' + V.ledger.held.map((h) => h.record).join(', ') + '). Nothing written. Check folder availability, then retry.');
+    const P = LP.project(r, V, c.intent, { who });
+    if (P.overLimit) return failOut('invalid', 'This would put ' + P.overLimit.count + ' stories in scope; the loop takes at most ' + P.overLimit.max + '. Nothing is cut and nothing was written.', problems());
+    const f = LP.buildRequest(c.intent, { seen: P.seen, children: P.record.children, now: new Date().toISOString(), app: eng.version });
+    const data = (status) => ({ loop: V.loop, status, request: { id, file }, preview: LP.previewText(P, { title, dryRun: status === 'would-request', problems: problems() }),
+      added: P.added, proposed: P.proposed.map((p) => ({ uid: p.uid, key: p.key, title: p.title, run: p.run || null, recorder: p.recorder ? nameOf(p.recorder) : null, open: !!p.open, answered: p.answered || 0, total: p.total || 0 })),
+      excluded: P.excluded, restored: P.restored, children: P.children, impact: P.impact, observation: P.observation, runsStarted: 0, membershipVisible: false });
+    if (dryRun) return done(data('would-request'));
+    let res;
+    try { res = writeOnce(dir, ['proposals'], id + '.json', LP.text(f)); } catch (e) { return failOut('failed', UNCERTAIN + ' (' + (e && e.message || String(e)) + ')', problems()); }
+    if (res !== 'written') return failOut('failed', UNCERTAIN, problems());
+    return done(data('requested'));
+  } catch (e) {
+    return failOut('failed', e instanceof Refused ? e.message : 'The team folder couldn\'t be read: ' + (e && e.message || String(e)) + (writes ? ' Nothing was written.' : ''), problems());
+  }
+}
+/* loop review: a person's decision (--as) on proposed removals, --accept to remove them or --keep to keep them, one immutable
+   file per request that proposed them, named from the tool and key so a retry writes nothing. */
+async function loopReview(eng, o) {
+  const PF = eng.PF, LP = PF.loop, V = o.V, val = o.val;
+  const acc = val['--accept'], keep = val['--keep'];
+  if ((acc == null) === (keep == null)) return o.usage('say --accept ABC-103,ABC-107 to remove them, or --keep ... to keep them in scope.');
+  if (!val['--as'] || !/^[A-Za-z0-9_.-]{1,80}$/.test(val['--as'])) return o.usage('say whose decision this is with --as <person id from people.json>. It is recorded as theirs, on their behalf.');
+  const keys = String(acc != null ? acc : keep).split(/[\s,]+/).filter(Boolean), op = acc != null ? 'accept' : 'keep';
+  const items = keys.map((k) => V.ledger.items.filter((i) => i.key === k)[0]);
+  const notPending = keys.filter((k, i) => !items[i] || !(items[i].state === 'proposed' || items[i].review.length));
+  if (notPending.length) return o.failOut('invalid', notPending.join(', ') + (notPending.length === 1 ? ' isn\'t' : ' aren\'t') + ' waiting for a removal decision. Read the loop again. Nothing was written.', o.problems());
+  if (o.problems().length) return o.held('Part of the team folder this depends on couldn\'t be read, so nothing was written. Check folder availability, then retry with the same key.');
+  const by = Object.create(null);
+  items.forEach((x) => { const p = x.proposal || x.proposedBy || ''; (by[p] = by[p] || []).push(x.uid); });
+  if (by['']) return o.failOut('invalid', 'Some of these items were decided two ways at once by exclusions or restorations, not proposed removals. Use flightdeck loop exclude or restore to decide them. Nothing was written.', o.problems());
+  const files = Object.keys(by).sort().map((p) => LP.buildDecision({ proposal: p, loop: V.loop, op, items: by[p], seen: V.ledger.heads, reason: val['--reason'] || '', by: val['--as'], onBehalf: o.tool.name,
+    writer: o.tool.name, rev: PF.sha256.hex(JSON.stringify([val['--key'], p])).slice(0, 8), now: new Date().toISOString(), app: eng.version }));
+  const preview = (o.dryRun ? 'Would record' : 'Recorded') + ' ' + val['--as'] + '\'s decision to ' + (op === 'accept' ? 'remove ' : 'keep ') + keys.join(', ') + (op === 'accept' ? ' from scope. Their assessment runs remain available.' : ' in scope.') + (o.dryRun ? ' Nothing was written.' : '');
+  const data = (status) => ({ loop: V.loop, status, decisions: files.map((f) => ({ file: 'proposals/' + f.name, items: f.file.items })), preview, runsStarted: 0 });
+  if (o.dryRun) return o.done(data('would-request'));
+  let all = 'written';
+  for (const f of files) {
+    let res;
+    try { res = writeOnce(o.dir, ['proposals'], f.name, LP.text(f.file)); } catch (e) { return o.failOut('failed', UNCERTAIN, o.problems()); }
+    if (res !== 'written') all = 'already';
+  }
+  return o.done(data(all === 'written' ? 'requested' : 'already'));
+}
+
 function main(argv) {
   const out = [];
   /* Reading for other apps has flags of its own (--version takes a number there), so it's parsed apart. */
@@ -2668,6 +2836,7 @@ function main(argv) {
   if (first === 'report' && !argv.includes('--help')) return reportMain(argv);
   if (first === 'type' && !argv.includes('--help')) return typeMain(argv);
   if (first === 'library' && !argv.includes('--help')) return libraryMain(argv);
+  if (first === 'loop' && !argv.includes('--help')) return loopMain(argv);
   const ti = argv.indexOf('--to'), to = ti >= 0 ? argv[ti + 1] : null;
   if (ti >= 0 && (!to || to.startsWith('--'))) fail('say which folder after --to, for example: flightdeck skills --to ~/skills');
   /* Flags that take a value: the value is never read as a command or a folder. */

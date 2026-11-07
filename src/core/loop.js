@@ -126,7 +126,7 @@ PF.loop = (function () {
             x.inSource = false;
             if (x.state === 'removed') { x.mismatch = false; return; }
             if (x.state !== 'in' || x.kept || x.manual) return;
-            x.state = 'proposed'; x.proposal = rec.id; note(x, rec, 'propose-removal');
+            x.state = 'proposed'; x.proposal = rec.id; x.proposedBy = rec.id; note(x, rec, 'propose-removal');
           });
         }
         (rec.changes || []).forEach(function (ch) {
@@ -491,7 +491,7 @@ PF.loop = (function () {
   function canonical(intent) { return canon({ loop: intent.loop, producer: intent.producer ? intent.producer.name : null, observation: wire(intent.observation), changes: intent.changes }); }
   function differs(intent, file) {
     if (!isMap(file) || file.format !== FORMAT) return ['kind'];
-    var a = canonical(intent), b = canon({ loop: file.loop, producer: file.producer ? file.producer.name : null, observation: file.observation || null, changes: file.changes || [] }), out = [];
+    var a = canonical(intent), b = canon({ loop: file.loop, producer: file.producer ? file.producer.name : null, observation: wire(file.observation || null), changes: file.changes || [] }), out = [];
     ['producer', 'loop', 'observation', 'changes'].forEach(function (k) { if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) out.push(k === 'producer' ? 'tool' : k); });
     return out;
   }
@@ -510,6 +510,8 @@ PF.loop = (function () {
     f.children = (o.children || []).map(function (k) { return { item: { id: k.item.id || '', key: k.item.key }, attempt: k.attempt, inputs: sorted(k.inputs || {}), owner: k.owner || '' }; });
     return f;
   }
+  /* The same, against a request as the folder reader cleaned it. */
+  function differsRecord(intent, rec) { return differs(intent, { format: FORMAT, loop: rec.loop, producer: rec.by && rec.by.tool ? { name: rec.by.tool } : null, observation: rec.observation, changes: rec.changes }); }
   function text(f) { return JSON.stringify(f, null, 2) + '\n'; }
   function verdictOf(o, family) {
     var v = PF.envelope.judge(family, o);
@@ -567,6 +569,6 @@ PF.loop = (function () {
   function recordsFor(records, loop) { return (records || []).filter(function (r) { return r.loop && r.loop.process === loop.process && r.loop.run === loop.run && r.loop.step === loop.step; }); }
 
   return { KINDS: KINDS, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
-    idFor: idFor, isScope: isScope, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
+    idFor: idFor, isScope: isScope, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
     rollup: rollup, view: view, project: project, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();
