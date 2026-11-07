@@ -23,8 +23,11 @@ PF.envelope = (function () {
   var PART6 = PART5.concat(['team-values']);
   /* 2.16: a Jira search step ({jira.search}) and a run detail that must match a pattern (context: tag:pattern(...)). */
   var PART7 = PART6.concat(['jira-search', 'detail-patterns']);
+  /* 3.0: module results. A checklist's typed result (result:), the decision that sets it (sets: <detail>=decision), and a
+     linked step that imports it and says which results it accepts (sets: <detail>=result, accepts:). */
+  var PART8 = PART7.concat(['module-results']);
   /* 2.1 slice 4: staging. Only a publication record under staged/ names it (a stage); runs on a stage are slice 5. */
-  var STAGED = PART7.concat(['staged']);
+  var STAGED = PART8.concat(['staged']);
   /* 2.1 slice 5: test runs. A run on a stage names staged and test-run, with test: true and stage: { folder } (PF.run). */
   var TESTRUN = STAGED.concat(['test-run']);
   var FORMAT = /^([a-z][a-z0-9-]{1,59})\/([1-9]\d{0,3})$/, FEATURE = /^[a-z][a-z0-9-]{1,39}$/, MAX_FEATURES = 32;
@@ -34,7 +37,7 @@ PF.envelope = (function () {
        legacy.kind: the kind field that marks the family; legacy.field: the field that holds the major (missing = legacyMajor);
        unmarked: a file with no marker at all is major 1 (step types, people.json, skills, types.json entries). */
   var FAMILIES = {
-    'flightdeck-checklist': { files: 'maps/drafts/*.md, publications/<p>/<v>/map.md', majors: { 1: [], 2: PART7 }, rewrite: true, syntax: true, future: { 2: '2.0' } },
+    'flightdeck-checklist': { files: 'maps/drafts/*.md, publications/<p>/<v>/map.md', majors: { 1: [], 2: PART8 }, rewrite: true, syntax: true, future: { 2: '2.0' } },
     'preflight-publication': { files: 'publications/<p>/<v>/publication.json, staged/<p>/<stage>/publication.json', majors: { 1: [], 2: STAGED }, rewrite: false, future: { 2: '2.0' } },
     'preflight-run': { files: 'runs/<p>/<id>/run.json and its copies', majors: { 2: [], 3: TESTRUN }, rewrite: true, future: { 3: '2.0' }, legacyOnly: { 1: 'runs/*.json (v0.1)' } },
     'flightdeck-run-archive': { files: 'runs/<p>/<id>/history-*.jsonl lines', majors: { 1: [] }, rewrite: false, legacy: { kinds: ['log', 'answer', 'migration'], field: 'av' }, legacyMajor: 1 },
@@ -61,10 +64,10 @@ PF.envelope = (function () {
     'flightdeck-report-decision': { files: 'report-decisions/<p>/*.json', majors: { 1: [] }, rewrite: false }
   };
   /* The 2.0 must-understand features, frozen by name (the 2.0 plan). No copy before 2.0 knows any of them. */
-  var FROZEN = ['typed-details', 'typed-evidence', 'phase-notes', 'phase-shots', 'gate-shots', 'pinned-children', 'pinned-skills', 'staged', 'test-run', 'extensions', 'conditions', 'passed-details', 'team-values', 'jira-search', 'detail-patterns'];
+  var FROZEN = ['typed-details', 'typed-evidence', 'phase-notes', 'phase-shots', 'gate-shots', 'pinned-children', 'pinned-skills', 'staged', 'test-run', 'extensions', 'conditions', 'passed-details', 'team-values', 'jira-search', 'detail-patterns', 'module-results'];
   /* The first release that reads a feature, where it isn't 2.0 (every other frozen feature's). One table, so a feature that
      moves to another release changes here only. */
-  var SINCE = { conditions: '2.1', staged: '2.1', 'test-run': '2.1', 'passed-details': '2.8', 'team-values': '2.9', 'jira-search': '2.16', 'detail-patterns': '2.16' };
+  var SINCE = { conditions: '2.1', staged: '2.1', 'test-run': '2.1', 'passed-details': '2.8', 'team-values': '2.9', 'jira-search': '2.16', 'detail-patterns': '2.16', 'module-results': '3.0' };
   function sinceOf(f) { return own(SINCE, f) ? SINCE[f] : '2.0'; }
   /* The release that first reads every listed feature ('2.0', '2.1', ...), or '' for none. */
   function minimum(features) {
@@ -203,6 +206,6 @@ PF.envelope = (function () {
   /* A refusal as a reader keeps it, by path: { path, family, kind, why, needs }. */
   function refusal(path, family, v) { return { path: txt(path), family: typeof family === 'string' ? family : '', kind: v.kind === 'newer' ? 'newer' : 'malformed', why: typeof v.why === 'string' ? v.why : '', needs: typeof v.needs === 'string' ? v.needs : '' }; }
 
-  return { FAMILIES: FAMILIES, FROZEN: FROZEN, SINCE: SINCE, minimum: minimum, PART1: PART1, PART2: PART2, PART3: PART3, PART4: PART4, PART5: PART5, PART6: PART6, PART7: PART7, STAGED: STAGED, FEATURE: FEATURE, MAX_FEATURES: MAX_FEATURES, parseFormat: parseFormat, semver: semver, cmp: cmp,
+  return { FAMILIES: FAMILIES, FROZEN: FROZEN, SINCE: SINCE, minimum: minimum, PART1: PART1, PART2: PART2, PART3: PART3, PART4: PART4, PART5: PART5, PART6: PART6, PART7: PART7, PART8: PART8, STAGED: STAGED, FEATURE: FEATURE, MAX_FEATURES: MAX_FEATURES, parseFormat: parseFormat, semver: semver, cmp: cmp,
     txt: txt, judge: judge, stamp: stamp, markdown: markdown, needsText: needsText, familyOfPath: familyOfPath, refusal: refusal };
 })();

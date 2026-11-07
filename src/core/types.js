@@ -212,7 +212,8 @@ PF.types = (function () {
      step, which uses the passed-details feature. Map lines only, never a field of the
      built-in type (its frozen definition, and so every version that uses it, stays as 1.x copies know it), never changed
      during a run; a 1.x copy refuses them as fields its type doesn't have, so a checklist with them can't publish there. */
-  var PINS = { 'run.process': { version: { label: 'Version', kind: 'pin' }, pass: { label: 'Passes', kind: 'pass' } }, 'run.skill': { skillVersion: { label: 'Skill version', kind: 'pin' } } };
+  /* accepts: (3.0, module-results) is one more such line: the child's results that let the step count as done. */
+  var PINS = { 'run.process': { version: { label: 'Version', kind: 'pin' }, pass: { label: 'Passes', kind: 'pass' }, accepts: { label: 'Accepts', kind: 'accepts' } }, 'run.skill': { skillVersion: { label: 'Skill version', kind: 'pin' } } };
   function pinDef(type, name) { return type && typeof type.id === 'string' && !type.custom && Object.prototype.hasOwnProperty.call(PINS, type.id) ? own(PINS[type.id], name) : undefined; }
   function fieldDef(type, name) { return own(type && type.fields, name) || own(COMMON, name) || pinDef(type, name); }
   function matches(cond, fields) { return Object.keys(cond).every(function (k) { return String(fields[k] || '').toLowerCase() === cond[k]; }); }

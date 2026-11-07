@@ -149,7 +149,7 @@ PF.map = (function () {
     /* Forward only (2.1): a condition may test a detail a step sets (sets:) only when that step is in an earlier phase, so
        whether something applies is known before anyone reaches it. */
     phases.forEach(function (p, pi) {
-      var later = function (name) { return phases.slice(pi).some(function (q) { return q.steps.some(function (s) { return list(s.fields.sets).indexOf(name) >= 0; }); }); };
+      var later = function (name) { return phases.slice(pi).some(function (q) { return q.steps.some(function (s) { return setNames(s.fields.sets).indexOf(name) >= 0; }); }); };
       [p].concat(p.steps).forEach(function (t) { (t.when || []).forEach(function (w) { if (later(w.name)) err(w.line - 1, '^' + w.name + ' is set in this phase or a later one (sets:), so it can\'t decide whether this applies. Only a step in an earlier phase can set it.'); }); });
     });
     errors.sort(function (a, b) { return a.line - b.line; });
@@ -160,6 +160,13 @@ PF.map = (function () {
   }
 
   function list(s) { return String(s || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean); }
+  /* A sets: line's entries (3.0): { name, from }. "tag" sets ^tag from its own box (from ''); "disposition=decision" binds
+     the run detail to the step's decision, and "story_result=result" to a linked run's result (module results). */
+  function setsOf(v) { return list(v).map(function (e) { var i = e.indexOf('='); return i < 0 ? { name: e, from: '' } : { name: e.slice(0, i).trim(), from: e.slice(i + 1).trim() }; }); }
+  /* The run details a sets: line names, bound or not. */
+  function setNames(v) { return setsOf(v).map(function (e) { return e.name; }); }
+  /* The binding a step's sets: line gives a run detail ('decision', 'result') or ''. */
+  function boundFrom(step, name) { var e = setsOf(step && step.fields && step.fields.sets).filter(function (x) { return x.name === name; })[0]; return e ? e.from : ''; }
   /* The one context splitter (2.16, Appendix A.1): commas split entries, except inside pattern(...), where each escaped
      character is skipped and the first unescaped ) ends it. Entries come back as written (trimmed); writers rejoin them
      with ', ' between entries only. Every valid older line splits exactly as list() did. */
@@ -283,7 +290,7 @@ PF.map = (function () {
        publishing and staging pass the children just read from the folder. A step with neither pass: nor carry: names nothing,
        so it isn't checked; a carry-only step whose child can't be read publishes as in 2.7 (run time still refuses it). */
     function linkChecks(s, label) {
-      var L = PF.links, pe = L.parse(s.fields.pass).entries, carry = L.carryList(s), own = list(s.fields.sets);
+      var L = PF.links, pe = L.parse(s.fields.pass).entries, carry = L.carryList(s), own = setNames(s.fields.sets);
       pe.forEach(function (e) {
         if (carry.indexOf(e.name) >= 0) blockers.push(label + ' gives ^' + e.name + ' in both carry: and pass:. Keep one.');
         if (e.source !== 'detail') return;
@@ -298,10 +305,12 @@ PF.map = (function () {
         else if (!Object.prototype.hasOwnProperty.call(lk, 'value')) blockers.push(String(lk.why || 'team-values.json can\'t be read.').replace(/\.?$/, '.') + ' So the team value "' + n + '" can\'t be checked.');
       });
       var got = typeof opts.children === 'function' ? opts.children(s.fields.process, s.fields.version || '') : null;
-      if (!got || (!L.has(s) && !carry.length)) return;
-      if (got.unreadable) { if (L.has(s)) blockers.push(label + ': ' + got.unreadable + ' So what it passes to "' + s.fields.process + '" can\'t be checked.'); return; }
-      if (got.unpublished || !got.map) { if (L.has(s)) suggestions.push(label + ': "' + s.fields.process + '" isn\'t published yet, so what it needs can\'t be checked.'); return; }
+      var res = s.fields.accepts != null || setsOf(s.fields.sets).some(function (e) { return e.from === 'result'; });
+      if (!got || (!L.has(s) && !carry.length && !res && !(got.map && resultDef(got.map)))) return;
+      if (got.unreadable) { if (L.has(s) || res) blockers.push(label + ': ' + got.unreadable + ' So what it ' + (L.has(s) ? 'passes to' : 'accepts from') + ' "' + s.fields.process + '" can\'t be checked.'); return; }
+      if (got.unpublished || !got.map) { if (L.has(s) || res) suggestions.push(label + ': "' + s.fields.process + '" isn\'t published yet, so what it ' + (L.has(s) ? 'needs' : 'returns') + ' can\'t be checked.'); return; }
       var who = got.latest ? (got.title || s.fields.process) + '\'s latest version (v' + got.version + ')' : (got.title || s.fields.process) + ' v' + got.version;
+      if (!L.has(s) && !carry.length) { resultLink(s, label, got, who, L.rows(s, meta.context, got.map).rows); return; }
       var A = { text: 'text', number: 'a number', 'yes-no': 'yes or no', choice: 'a choice', date: 'a date', url: 'a link', pattern: 'a pattern' }, kw = function (d) { return A[PF.values.kindOf(d)] || 'text'; };
       var r = L.rows(s, meta.context, got.map), kinds = got.map.meta.detailTypes || {}, mine = meta.detailTypes || {};
       r.stale.forEach(function (x) { blockers.push(who + ' has no run detail ' + x.name + ', so ' + label.charAt(0).toLowerCase() + label.slice(1) + ' can\'t pass it. Choose one it has, or remove it from ' + x.where + ':.'); });
@@ -318,12 +327,63 @@ PF.map = (function () {
         }
         if (x.childSets && x.source !== 'ask' && L.has(s)) suggestions.push(label + ' passes ^' + x.name + ', which ' + (got.title || s.fields.process) + ' also sets itself later.');
       });
+      resultLink(s, label, got, who, r.rows);
+    }
+    /* Module results (3.0, docs/design.md 47): what a linked step accepts and imports, against the child it starts. */
+    function resultLink(s, label, got, who, rows) {
+      var cres = resultDef(got.map), acc = list(s.fields.accepts), imp = setsOf(s.fields.sets).filter(function (e) { return e.from === 'result'; });
+      var name = got.title || s.fields.process;
+      if (!cres) {
+        if (acc.length || imp.length) blockers.push(label + ': ' + who + ' declares no result (result: in its front matter), so ' + (acc.length ? 'accepts:' : 'sets: ' + imp[0].name + '=result') + ' has nothing to read. Remove it, or give ' + name + ' a result.');
+        return;
+      }
+      (rows || []).forEach(function (x) { if (x.name === cres.name && x.source !== 'ask') blockers.push(label + ' passes ^' + cres.name + ' to ' + name + ', which is the result that checklist returns; a run can\'t start with its own result. Rename the detail here, or list what this step passes with pass:.'); });
+      if (!acc.length) { suggestions.push(label + ': ' + name + ' returns a result (' + cres.options.join(', ') + '). Add accepts: to say which ones let this step count as done; without it, any Completed run counts.'); }
+      acc.forEach(function (v) { if (cres.options.indexOf(v) < 0) blockers.push(label + ' accepts "' + v.slice(0, 40) + '", which isn\'t a result ' + who + ' returns (' + cres.options.join(', ') + ').'); });
+      imp.forEach(function (e) {
+        var d = (meta.detailTypes || {})[e.name];
+        if (meta.context.indexOf(e.name) < 0) return;
+        if (!d || d.kind !== 'choice' || cres.options.some(function (o) { return d.options.indexOf(o) < 0; })) blockers.push(label + ' imports ' + name + '\'s result into ^' + e.name + ', which must be a choice holding every result it can return, like ' + e.name + ':choice(' + cres.options.join('|') + ').');
+      });
     }
     /* C3: published checklists that start this one at its latest and pass it a detail this draft no longer has (opts.parents:
        [{ id, latest }], the processes as the app lists them). Advice: they keep working until this is published. */
     if (opts.parents && meta.process) PF.links.parentsBroken(map, opts.parents).forEach(function (b) {
       suggestions.push(b.title + ' (published) ' + U.stepName(b.step, 'step') + ' passes ^' + b.names.join(', ^') + ' to this checklist. After this version, new ' + b.title + ' runs can\'t start that child until ' + b.title + ' changes.');
     });
+    /* A sets: binding (3.0): =decision on a {decide} step sets the checklist's result; =result on a linked step imports the
+       child's. Anything else after = isn't a binding. */
+    function bindChecks(s, label) {
+      setsOf(s.fields.sets).forEach(function (e) {
+        if (!e.from) return;
+        if (e.from === 'decision') {
+          if (s.type !== 'decide') blockers.push(label + ' sets ^' + e.name + '=decision, but only a {decide} step has a decision.');
+          else if (e.name !== meta.result) blockers.push(label + ' binds ^' + e.name + ' to its decision, but only the checklist\'s result is set that way. ' + (meta.result ? 'Its result is ^' + meta.result + '.' : 'Add "result: ' + e.name + '" to the front matter.'));
+        } else if (e.from === 'result') {
+          if (s.type !== 'run.process') blockers.push(label + ' sets ^' + e.name + '=result, but only a {run.process} step has a linked run\'s result.');
+          else if (!list(s.fields.accepts).length) blockers.push(label + ' imports a result into ^' + e.name + ' but says nothing it accepts. Add accepts: with the results that let this step count as done.');
+        } else blockers.push(label + ': "sets: ' + e.name + '=' + e.from.slice(0, 40) + '" isn\'t a binding Flightdeck knows. Use =decision on a {decide} step or =result on a {run.process} step.');
+      });
+      if (s.fields.accepts != null && s.type === 'run.process') {
+        var acc = list(s.fields.accepts);
+        if (!acc.length) blockers.push(label + ': accepts: names no result.');
+        acc.forEach(function (v, i) { if (acc.indexOf(v) < i) blockers.push(label + ' accepts "' + v.slice(0, 40) + '" twice.'); });
+      }
+    }
+    /* The checklist's own result (3.0): one typed choice detail, set by exactly one {decide} step whose answer it is. */
+    function resultChecks() {
+      var name = meta.result;
+      if (name == null || name === '') return;
+      if (meta.context.indexOf(name) < 0) { blockers.push('"result" names ^' + name.slice(0, 60) + ', which isn\'t listed in context.' + meant(name)); return; }
+      var d = (meta.detailTypes || {})[name];
+      if (!d || d.kind !== 'choice') { blockers.push('The result ^' + name + ' must be a choice, like ' + name + ':choice(cleared|needs-work).'); return; }
+      var all = steps(map), by = all.filter(function (x) { return boundFrom(x.step, name) === 'decision'; });
+      all.forEach(function (x) { if (setNames(x.step.fields.sets).indexOf(name) >= 0 && boundFrom(x.step, name) !== 'decision') { tag(null); blockers.push(U.stepName(x.step) + ' sets the result ^' + name + ' itself; only its decision sets it (sets: ' + name + '=decision on one {decide} step).'); tag(x.step); } });
+      if (!by.length) { blockers.push('Nothing sets the result ^' + name + '. Add "sets: ' + name + '=decision" to the {decide} step that records it.'); return; }
+      if (by.length > 1) { blockers.push('The result ^' + name + ' is set by ' + by.length + ' steps (' + by.map(function (x) { return x.step.id; }).join(', ') + '); exactly one decision sets it.'); return; }
+      var st = by[0].step;
+      if (st.type === 'decide' && list(st.fields.options).join('|') !== d.options.join('|')) { tag(null); blockers.push(U.stepName(st) + ': its options must be the result\'s choices, in the same order: options: ' + d.options.join(', ')); tag(st); }
+    }
     map.phases.forEach(function (p) {
       useId(p.id, 'Phase "' + p.title + '"');
       if (!p.mode) suggestions.push('Give "' + p.title + '" a type: READ-DO (read each step, then do it) or DO-CONFIRM (do the work, then confirm together).');
@@ -366,9 +426,10 @@ PF.map = (function () {
         if (s.fields.expect && PF.util.duration(s.fields.expect) == null) blockers.push(label + ': "expect" should look like 20m or 1h30m.');
         if (s.fields.deadline && s.fields.deadline !== 'external' && PF.util.duration(s.fields.deadline) == null) blockers.push(label + ': "deadline" should be "external" or a duration like 30m.');
         checkRoles(s.roles, label); checkBinds(s.binds, label);
-        list(s.fields.sets).forEach(function (f) { if (meta.context.indexOf(f) < 0) blockers.push(label + ' sets ^' + f + ', which isn\'t listed in context.'); });
-        if (s.type === 'run.process') list(s.fields.sets).forEach(function (f) { if (list(s.fields.carry).indexOf(f) >= 0) blockers.push(label + ' both passes on and sets ^' + f + '; a step can\'t start its child with a value it produces.'); });
-        var sk = {}; list(s.fields.sets).forEach(function (f) { var k = U.slug(f, 20) + U.hash(f); if (sk[k]) blockers.push(label + ' sets ^' + sk[k] + ' and ^' + f + ', which are too alike to tell apart; rename one.'); sk[k] = f; });
+        setNames(s.fields.sets).forEach(function (f) { if (meta.context.indexOf(f) < 0) blockers.push(label + ' sets ^' + f + ', which isn\'t listed in context.'); });
+        if (s.type === 'run.process') setNames(s.fields.sets).forEach(function (f) { if (list(s.fields.carry).indexOf(f) >= 0) blockers.push(label + ' both passes on and sets ^' + f + '; a step can\'t start its child with a value it produces.'); });
+        var sk = {}; setNames(s.fields.sets).forEach(function (f) { var k = U.slug(f, 20) + U.hash(f); if (sk[k]) blockers.push(label + ' sets ^' + sk[k] + ' and ^' + f + ', which are too alike to tell apart; rename one.'); sk[k] = f; });
+        bindChecks(s, label);
         if (s.type === 'run.process' && s.fields.process) {
           if (s.fields.process === meta.process) blockers.push(label + ' can\'t start a run of its own process.');
           else if (opts.processes && opts.processes.indexOf(s.fields.process) < 0) suggestions.push(label + ' starts "' + s.fields.process + '", which isn\'t published yet.');
@@ -409,6 +470,8 @@ PF.map = (function () {
         tag(w.kind === 'gate' ? null : w.step);
       });
     }
+    tag(null);
+    resultChecks();
     PF.jsearch.addressBlockers(addressOf).forEach(function (m) { blockers.push(m); });
     if (map.phases.length && !musts) suggestions.push('No must-do steps. Mark the steps whose omission causes real harm with [!].');
     if (opts.people && meta.owner && !opts.people.some(function (p) { return p.id === meta.owner; })) suggestions.push('Owner "' + meta.owner + '" isn\'t in people.json.');
@@ -422,18 +485,19 @@ PF.map = (function () {
   /* Which steps set each run detail (sets:), so the start form can leave those for the run. */
   function setBy(map) {
     var out = Object.create(null);
-    steps(map).forEach(function (x) { list(x.step.fields.sets).forEach(function (f) { (out[f] = out[f] || []).push(x.step); }); });
+    steps(map).forEach(function (x) { setNames(x.step.fields.sets).forEach(function (f) { (out[f] = out[f] || []).push(x.step); }); });
     return out;
   }
   /* The 2.0 features a checklist's own lines use, in the frozen order: what makes its version preflight-publication/2. A gate
      note isn't one (every copy since 1.10 publishes it). A version: or skillVersion: line on another step type is an error,
      not a feature. */
   function features(map) {
-    var has = { 'jira-search': false, 'detail-patterns': false, 'team-values': false, 'passed-details': false, conditions: false, 'typed-details': false, 'typed-evidence': false, 'phase-notes': false, 'phase-shots': false, 'gate-shots': false, 'pinned-children': false, 'pinned-skills': false };
+    var has = { 'module-results': false, 'jira-search': false, 'detail-patterns': false, 'team-values': false, 'passed-details': false, conditions: false, 'typed-details': false, 'typed-evidence': false, 'phase-notes': false, 'phase-shots': false, 'gate-shots': false, 'pinned-children': false, 'pinned-skills': false };
     /* Typed data (2.0): a run detail with a kind, or a plain step asking for a number, yes/no or date as its evidence. */
     if (map.meta && map.meta.detailTypes && Object.keys(map.meta.detailTypes).length) has['typed-details'] = true;
     /* A run detail with a pattern (2.16, Appendix A). Older copies refuse the kind. */
     if (map.meta && map.meta.detailTypes && Object.keys(map.meta.detailTypes).some(function (k) { return map.meta.detailTypes[k].kind === 'pattern'; })) has['detail-patterns'] = true;
+    if (map.meta && map.meta.result) has['module-results'] = true;
     (map.phases || []).forEach(function (p) {
       p.steps.forEach(function (s) { if (PF.values.isNew(String(s.fields.evidence || '').trim().toLowerCase())) has['typed-evidence'] = true; });
       /* Pins (2.0): version: on a linked step, skillVersion: on a skill step. Older copies refuse both lines. */
@@ -446,6 +510,9 @@ PF.map = (function () {
         if (s.type === 'run.skill' && Object.prototype.hasOwnProperty.call(s.fields, 'skillVersion')) has['pinned-skills'] = true;
         /* A Jira search step (2.16). Older copies refuse the type, frozen as version 4, and its new field kinds. */
         if (s.type === 'jira.search') has['jira-search'] = true;
+        /* Module results (3.0): a sets: binding or accepts: on a linked step. Older copies refuse both as fields they read
+           differently (a sets: name with =, a field run.process doesn't have). */
+        if (setsOf(s.fields.sets).some(function (e) { return !!e.from; }) || (s.type === 'run.process' && Object.prototype.hasOwnProperty.call(s.fields, 'accepts'))) has['module-results'] = true;
       });
       if (p.note || p.noted) has['phase-notes'] = true;
       /* Conditions (2.1): an "only when" line on the phase or a step. */
@@ -484,5 +551,14 @@ PF.map = (function () {
     return text.slice(0, at) + head + text.slice(at + m[2].length);
   }
 
-  return { PROCESS_ID: PROCESS_ID, MARK: MARK, contextEntries: contextEntries, sameDetail: sameDetail, marked: marked, shownText: shownText, valuesOf: valuesOf, parse: parse, check: check, features: features, shotSources: shotSources, steps: steps, setBy: setBy, findStep: findStep, usedTypes: usedTypes, withMeta: withMeta };
+  /* A checklist's result (3.0): { name, options, step } from its front matter, or null when it has none or it isn't a
+     choice. step: the one {decide} step bound to it (sets: <name>=decision), or null. */
+  function resultDef(map) {
+    var name = map && map.meta && map.meta.result, d = name && map.meta.detailTypes && Object.prototype.hasOwnProperty.call(map.meta.detailTypes, name) ? map.meta.detailTypes[name] : null;
+    if (!d || d.kind !== 'choice' || map.meta.context.indexOf(name) < 0) return null;
+    var by = steps(map).filter(function (x) { return boundFrom(x.step, name) === 'decision'; });
+    return { name: name, options: d.options.slice(), step: by.length === 1 ? by[0].step : null };
+  }
+
+  return { setsOf: setsOf, setNames: setNames, boundFrom: boundFrom, resultDef: resultDef, PROCESS_ID: PROCESS_ID, MARK: MARK, contextEntries: contextEntries, sameDetail: sameDetail, marked: marked, shownText: shownText, valuesOf: valuesOf, parse: parse, check: check, features: features, shotSources: shotSources, steps: steps, setBy: setBy, findStep: findStep, usedTypes: usedTypes, withMeta: withMeta };
 })();
