@@ -486,4 +486,53 @@ rule('Review round 4 (4): two runs for one attempt compete until a choose record
   assert.ok(/isn't competing/.test(LP.choiceWhy(V, 'ABC-101', 'k101b')));
 });
 
+const chooseRec = (V, key, run, seen, tag) => {
+  const c = LP.cleanIntent(LP.changeOf(V, 'choose', ['ABC-101'], { run }), key, { name: 'helper-' + tag, version: '1.0' });
+  same(c.errors, []);
+  const f = LP.buildRequest(c.intent, { seen, children: [], now: AT, app: '3.0.0' });
+  return LP.cleanRequest(JSON.parse(LP.text(f)), f.id + '.json').record;
+};
+rule('Review round 5 (1): two choices made at once that disagree hold the story, whatever their names, until a choice that saw both', () => {
+  const { r, kid2 } = release();
+  const a = kid2(101, 'cleared'), b = kid2(101, 'needs-work'); b.id = 'k101b';
+  const base = LP.cleanRequest(JSON.parse(LP.text(reqFile('g1', { loop: LOOPT, observation: obs([101]) }))), reqFile('g1').id + '.json').record;
+  const V0 = LP.view(r, 'each', { records: [base], runs: [a, b] });
+  for (const [ta, tb] of [['aa', 'zz'], ['zz', 'aa']]) {
+    const x = chooseRec(V0, 'c1', 'k101', [base.id], ta), y = chooseRec(V0, 'c2', 'k101b', [base.id], tb);
+    const V = LP.view(r, 'each', { records: [base, x, y], runs: [a, b] });
+    same([V.rollup.items[0].status, V.rollup.ok], ['competing', false], ta + tb);
+    assert.ok(/at once/.test(V.rollup.blockers.map(q => q.text).join(' ')), V.rollup.blockers.map(q => q.text).join(' '));
+    const z = chooseRec(V, 'c3', 'k101', [base.id, x.id, y.id], 'mm');
+    const W = LP.view(r, 'each', { records: [base, x, y, z], runs: [a, b] });
+    same([W.rollup.items[0].status, W.rollup.items[0].run], ['cleared', 'k101'], 'resolved by a choice that saw both');
+  }
+});
+rule('Review round 5 (2): a choice is for the runs it saw; another run for that attempt makes the story compete again and shows as a change', () => {
+  const { r, kid2 } = release(), map = R.mapOf(r);
+  const a = kid2(101, 'cleared'), b = kid2(101, 'needs-work'); b.id = 'k101b';
+  const base = LP.cleanRequest(JSON.parse(LP.text(reqFile('h1', { loop: LOOPT, observation: obs([101]) }))), reqFile('h1').id + '.json').record;
+  const V0 = LP.view(r, 'each', { records: [base], runs: [a, b] });
+  const x = chooseRec(V0, 'h2', 'k101', [base.id], 'aa');
+  const V = LP.view(r, 'each', { records: [base, x], runs: [a, b] });
+  same(V.rollup.ok, true);
+  R.done(r, map, 'each', 'person-morgan', AT, { _loop: { ok: true, snapshot: LP.approval(V.ledger, V.rollup, { by: 'person-morgan', at: AT }) } });
+  const c3 = kid2(101, 'cleared'); c3.id = 'k101c';
+  const W = LP.view(r, 'each', { records: [base, x], runs: [a, b, c3] });
+  same([W.rollup.items[0].status, W.rollup.ok], ['competing', false]);
+  assert.ok(W.changes.length > 0, 'shown as a change since the approval');
+});
+rule('Review round 5 (4, 5): a request naming more than one person is refused; starts are offered only where the loop\'s phase is open', () => {
+  const { r, kid2 } = release();
+  const base = LP.cleanRequest(JSON.parse(LP.text(reqFile('i1', { loop: LOOPT, observation: obs([101, 102]) }))), reqFile('i1').id + '.json').record;
+  const V = LP.view(r, 'each', { records: [base], runs: [] });
+  const q = { ops: ['start', 'start'], items: ['ABC-101', 'ABC-102'], actors: ['person-morgan', 'person-outsider'], as: 'person-morgan', reason: '' };
+  assert.ok(/more than one person/.test(LP.requestCheck(r, V, q, [{ id: 'person-morgan', name: 'Morgan' }])));
+  same(LP.startable(r, V).start.length, 2, 'the loop\'s phase is open here');
+  const shut = JSON.parse(JSON.stringify(r)); shut.paused = { by: 'person-morgan', at: AT };
+  const S = LP.startable(R.sanitize(shut), V);
+  same(S.start.length, 0);
+  assert.ok(/paused/.test(S.skip.map(k => k.why).join(' ')), S.skip.map(k => k.why).join(' '));
+  assert.ok(kid2);
+});
+
 run();

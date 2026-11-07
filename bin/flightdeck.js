@@ -2826,7 +2826,7 @@ async function loopMain(argv) {
         if (val['--reason'] != null) c.reason = val['--reason'];
         if (sub === 'exception') { c.approver = val['--approver']; if (val['--as']) c.onBehalf = true; }
         if (sub === 'owner') c.owner = val['--owner'] || '';
-        if (sub === 'choose') c.run = val['--run'] || '';
+        if (sub === 'choose') { const ch = LP.changeOf(V, 'choose', [k], { run: val['--run'] || '' }).changes[0]; c.run = ch.run; c.attempt = ch.attempt; c.candidates = ch.candidates; }
         return c;
       }) };
       if (sub !== 'add') { const miss = items.filter((k) => !find(k)); if (miss.length) return failOut('invalid', miss.join(', ') + (miss.length === 1 ? ' isn\'t' : ' aren\'t') + ' in this loop. Nothing was written.', problems()); }

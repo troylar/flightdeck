@@ -2946,6 +2946,8 @@
   function loopLaunch(r, id, key, fresh, request) {
     var V = r && loopView(r, id), x = V && V.ledger.items.filter(function (i) { return i.key === key; })[0];
     if (!x) return Promise.reject(new Error(key + ' isn\'t in this loop.'));
+    var shut = ''; try { shut = R.canStartChild(r, R.mapOf(r), id); } catch (e) { shut = 'The run\'s checklist can\'t be read.'; }
+    if (shut) return Promise.reject(new Error(key + ': ' + shut));
     /* A request and Start all only start stories with no run yet (fresh); the row's own button also starts a story's next attempt. */
     if (fresh) { var S = PF.loop.launchable(r, V, [key], ctx.procOf); if (!S.start.length) return Promise.reject(new Error(key + ': ' + (S.skip[0] ? S.skip[0].why : 'nothing to start') + '.')); }
     var procOf = ctx.procOf || function (pid) { var p = ctx.latestPub(pid); return p ? { latest: p, all: [p], clashes: [], broken: [] } : null; };

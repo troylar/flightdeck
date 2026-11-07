@@ -16647,27 +16647,38 @@ PF.loop = (function () {
         return x;
       }
       x = { uid: uidOf(source, it), id: it.id || '', key: it.key || '', title: String(it.title || ''), state: 'in', since: rec.id, provenance: [], verdict: null,
-        review: [], mismatch: false, kept: false, owner: '', exception: null, attempt: 0, planned: null, proposal: null, inSource: true };
+        review: [], mismatch: false, kept: false, owner: '', exception: null, attempt: 0, planned: null, proposal: null, inSource: true, choice: null, choiceReview: [] };
       items.push(x); byUid[x.uid] = x; if (x.key) byKey[x.key] = x;
       return x;
     }
     function note(x, rec, op, extra) { var p = { record: rec.id, op: op, by: rec.by || null }; if (extra) Object.keys(extra).forEach(function (k) { p[k] = extra[k]; }); x.provenance.push(p); }
     /* A verdict (in or removed) on an item: contrary to a concurrent one, the item needs review and stays required, until a
        record that saw both decides it. */
-    function verdict(x, rec, op, reason) {
-      var to = VERDICT[op], prev = x.verdict;
-      if (prev && prev.to !== to && !c.anc[rec.id][prev.record]) {
-        x.review.push({ records: [prev.record, rec.id], ops: [prev.op, op], why: 'Two people decided this item at once: ' + prev.op + ' and ' + op + '.' });
-        x.state = 'in'; x.verdict = { to: to, op: op, record: rec.id, contrary: prev.record };
-        return;
+    /* The one causal rule for a decision kept in slot (the scope verdict, a run choice): a record that didn't see the
+       decision before it and disagrees makes them contrary (held, in rv); a later one settles it only once it has seen
+       both. Returns 'contrary', 'held' or 'settled'. same(prev, val): whether they agree. why: { both(prev, val), again }. */
+    function settle(x, slot, rv, rec, val, same, why) {
+      var prev = x[slot];
+      if (prev && !same(prev, val) && !c.anc[rec.id][prev.record]) {
+        x[rv].push({ records: [prev.record, rec.id], ops: [prev.op, val.op], why: why.both(prev, val) });
+        x[slot] = Object.assign({}, val, { record: rec.id, contrary: prev.record });
+        return 'contrary';
       }
       if (prev && prev.contrary && !(c.anc[rec.id][prev.record] && c.anc[rec.id][prev.contrary])) {
         /* Still contrary: this record hasn't seen both. */
-        x.review.push({ records: [prev.contrary, prev.record, rec.id], ops: [op], why: 'Decided again without seeing the earlier contrary decisions.' });
-        return;
+        x[rv].push({ records: [prev.contrary, prev.record, rec.id], ops: [val.op], why: why.again });
+        return 'held';
       }
-      x.review = x.review.filter(function (r) { return !r.records.every(function (id) { return c.anc[rec.id][id]; }); });
-      x.verdict = { to: to, op: op, record: rec.id };
+      x[rv] = x[rv].filter(function (r) { return !r.records.every(function (id) { return c.anc[rec.id][id]; }); });
+      x[slot] = Object.assign({}, val, { record: rec.id });
+      return 'settled';
+    }
+    function verdict(x, rec, op, reason) {
+      var to = VERDICT[op];
+      var s = settle(x, 'verdict', 'review', rec, { to: to, op: op }, function (p, v) { return p.to === v.to; },
+        { both: function (p, v) { return 'Two people decided this item at once: ' + p.op + ' and ' + v.op + '.'; }, again: 'Decided again without seeing the earlier contrary decisions.' });
+      if (s === 'contrary') { x.state = 'in'; return; }
+      if (s === 'held') return;
       x.state = to; x.proposal = null;
       if (to === 'removed') x.removed = { record: rec.id, reason: String(reason || ''), by: rec.by || null };
       else { delete x.removed; if (op === 'keep') x.kept = true; }
@@ -16701,7 +16712,11 @@ PF.loop = (function () {
           if (!x) { duplicates.push({ record: rec.id, op: ch.op, item: it.key || it.id, why: 'names an item that isn\'t in this loop' }); return; }
           if (ch.op === 'exclude' || ch.op === 'restore') { verdict(x, rec, ch.op, ch.reason); note(x, rec, ch.op, { reason: String(ch.reason || '') }); if (ch.op === 'exclude' && x.inSource && x.state === 'removed') x.mismatch = true; if (ch.op === 'restore') x.mismatch = false; }
           else if (ch.op === 'owner') { note(x, rec, 'owner', { from: x.owner, to: String(ch.owner || '') }); x.owner = String(ch.owner || ''); }
-          else if (ch.op === 'choose') { note(x, rec, 'choose', { from: x.chosen || '', to: String(ch.run || '') }); x.chosen = String(ch.run || ''); }
+          else if (ch.op === 'choose') {
+            note(x, rec, 'choose', { from: x.choice ? x.choice.run : '', to: String(ch.run || '') });
+            settle(x, 'choice', 'choiceReview', rec, { op: 'choose', run: String(ch.run || ''), attempt: +ch.attempt || 1, candidates: (ch.candidates || []).slice().sort() }, function (p, v) { return p.run === v.run; },
+              { both: function (p, v) { return 'Two people chose different runs at once: ' + p.run + ' and ' + v.run + '.'; }, again: 'Chosen again without seeing both earlier choices.' });
+          }
           else if (ch.op === 'exception') { x.exception = { record: rec.id, reason: String(ch.reason || ''), approver: String(ch.approver || ''), by: rec.by || null, onBehalf: !!ch.onBehalf }; note(x, rec, 'exception', { reason: String(ch.reason || '') }); }
           else if (ch.op === 'withdraw') { if (x.exception) note(x, rec, 'withdraw', { was: x.exception.record }); x.exception = null; }
         });
@@ -16754,10 +16769,13 @@ PF.loop = (function () {
       var mine = (byItem[x.uid] || (x.key ? keyed[x.key] : null) || []).slice(), top = 0;
       mine.forEach(function (c) { var a = +c.parent.item.attempt || 1; if (a > top) top = a; });
       var latest = mine.filter(function (c) { return (+c.parent.item.attempt || 1) === top; }), candidates = latest.length > 1 ? latest.map(function (c) { return c.id; }) : [];
-      /* Runs that compete for one attempt: the one a choose record names counts (docs/design.md 44). */
-      if (latest.length > 1 && x.chosen) { var pick = latest.filter(function (c) { return c.id === x.chosen; }); if (pick.length === 1) latest = pick; }
+      /* Runs that compete for one attempt: the one a settled choose record names counts, only for that attempt and the very
+         runs it saw (docs/design.md 44); another run arriving, or two choices made at once, make them compete again. */
+      var cho = x.choice && !x.choice.contrary && !(x.choiceReview || []).length ? x.choice : null, seenAll = cho && cho.attempt === top && JSON.stringify(cho.candidates) === JSON.stringify(candidates.slice().sort());
+      if (latest.length > 1 && cho && seenAll) { var pick = latest.filter(function (c) { return c.id === cho.run; }); if (pick.length === 1) latest = pick; }
+      var choWhy = latest.length > 1 && (x.choiceReview || []).length ? 'two people chose different runs at once; choose again, having seen both' : latest.length > 1 && cho && cho.attempt === top && !seenAll ? 'has another run since ' + cho.run + ' was chosen; choose again' : '';
       var row = { uid: x.uid, key: x.key, title: x.title, state: x.state, required: x.state !== 'removed', owner: x.owner, exception: x.exception, review: x.review.length > 0, mismatch: x.mismatch,
-        runs: mine.map(function (c) { return c.id; }), run: latest.length === 1 ? latest[0].id : '', competing: latest.length > 1, candidates: latest.length > 1 ? candidates : [], chosen: x.chosen || '', recorder: latest.length === 1 && latest[0].recorder ? latest[0].recorder.person || '' : '',
+        runs: mine.map(function (c) { return c.id; }), run: latest.length === 1 ? latest[0].id : '', competing: latest.length > 1, candidates: candidates, chosen: cho && seenAll ? cho.run : '', recorder: latest.length === 1 && latest[0].recorder ? latest[0].recorder.person || '' : '',
         result: '', accepted: false, status: '', fp: '', planned: x.planned, attempt: Math.max(top, x.attempt) };
       if (!row.required) { row.status = 'removed'; counts.removed++; rows.push(row); return; }
       counts.inScope++;
@@ -16776,7 +16794,7 @@ PF.loop = (function () {
       var b = null, name = x.key || x.uid;
       if (row.accepted) { row.status = 'cleared'; counts.cleared++; }
       else if (x.exception) { row.status = 'exception'; counts.exception++; }
-      else if (row.competing) { row.status = 'competing'; b = { kind: 'competing', text: name + ' has ' + latest.length + ' runs started for it. Choose which one counts.' }; }
+      else if (row.competing) { row.status = 'competing'; b = { kind: 'competing', text: choWhy ? name + ': ' + choWhy + '.' : name + ' has ' + latest.length + ' runs started for it. Choose which one counts.' }; }
       else if (!c) { row.status = 'not-started'; counts.notStarted++; b = { kind: 'not-started', text: name + ' hasn\'t started' + (x.owner ? ' · ' + who(x.owner) : '') }; }
       else if (!c.ended) { row.status = 'running'; counts.running++; b = { kind: 'running', text: name + ' is in progress · ' + who(row.recorder) }; }
       else if (why === 'stopped') { row.status = 'stopped'; b = { kind: 'stopped', text: name + '\'s run ended ' + String(c.ended.outcome).toLowerCase() + ' · ' + who(row.recorder) }; }
@@ -16863,6 +16881,7 @@ PF.loop = (function () {
   function requestCheck(r, V, q, people) {
     var kinds = []; q.ops.forEach(function (op) { if (kinds.indexOf(op) < 0) kinds.push(op); });
     if (kinds.length !== 1) return 'This request mixes ' + kinds.slice(0, 4).join(' and ') + '; a request asks for one kind of action.';
+    if ((q.actors || []).length > 1) return 'This request names more than one person (' + q.actors.slice(0, 4).join(', ') + '); a request asks for one person.';
     var twice = q.items.filter(function (k, i) { return q.items.indexOf(k) !== i; });
     if (twice.length) return 'This request names ' + twice.slice(0, 5).join(', ') + ' twice; each story is started once per request.';
     var sb = sendBackWhy(V, q.reason, kinds[0]);
@@ -16884,6 +16903,9 @@ PF.loop = (function () {
   function again(i) { return !!i && i.required && !i.exception && i.state !== 'proposed' && (i.status === 'result' || i.status === 'stopped' || (i.status === 'unread' && !!i.unqualified)); }
   function startable(r, V, keys) {
     var start = [], skip = [];
+    /* The loop step itself must be open to start runs (its phase open, the run running, not paused): the preview, the
+       buttons, a request and each launch ask this same question. */
+    var shut = ''; try { shut = PF.run.canStartChild(r, PF.run.mapOf(r), V.step.id); } catch (e) { shut = 'The run\'s checklist can\'t be read.'; }
     V.rollup.items.forEach(function (i) {
       if (keys && keys.indexOf(i.key) < 0) return;
       var x = V.ledger.items.filter(function (y) { return y.uid === i.uid; })[0], name = i.key || i.uid, why = '';
@@ -16893,6 +16915,7 @@ PF.loop = (function () {
       else if (i.runs.length && !again(i)) why = 'already started';
       else if (i.runs.length && !keys) why = 'needs a new attempt; start it on its own';
       else { var g = inputsFor(r, V.fields, x); if (g.missing.length) why = 'needs ' + g.missing.join(', ') + ' first'; }
+      if (!why && shut) why = shut.replace(/\.$/, '');
       if (why) skip.push({ key: name, uid: i.uid, why: why }); else start.push({ key: name, uid: i.uid, title: i.title || '', attempt: i.runs.length ? (i.attempt || 1) + 1 : Math.max(1, i.attempt || 1), again: !!i.runs.length });
     });
     return { start: start, skip: skip };
@@ -16903,7 +16926,8 @@ PF.loop = (function () {
     return recs.filter(function (q) { return q.type === 'request' && (q.changes || []).some(function (c) { return ACTIONS.indexOf(c.op) >= 0; }); }).map(function (q) {
       var d = recs.filter(function (x) { return x.type === 'decision' && x.proposal === q.id && (x.op === 'applied' || x.op === 'refused'); })[0];
       var ch = q.changes.filter(function (c) { return ACTIONS.indexOf(c.op) >= 0; });
-      return { id: q.id, all: ch.some(function (c) { return c.all === true; }), ops: ch.map(function (c) { return c.op; }), items: ch.filter(function (c) { return c.item; }).map(function (c) { return c.item.key || c.item.id; }), as: ch[0].as || '', reason: ch[0].reason || '',
+      var actors = []; ch.forEach(function (c) { var a = c.as || ''; if (actors.indexOf(a) < 0) actors.push(a); });
+      return { id: q.id, actors: actors, all: ch.some(function (c) { return c.all === true; }), ops: ch.map(function (c) { return c.op; }), items: ch.filter(function (c) { return c.item; }).map(function (c) { return c.item.key || c.item.id; }), as: ch[0].as || '', reason: ch[0].reason || '',
         by: q.by, status: d ? d.op : 'pending', why: d ? d.reason || '' : '', decision: d ? d.id : '' };
     });
   }
@@ -16987,7 +17011,7 @@ PF.loop = (function () {
       if (o.reason != null && o.reason !== '') c.reason = o.reason;
       if (op === 'exception') { c.approver = o.approver; if (o.onBehalf) c.onBehalf = true; }
       if (op === 'owner') c.owner = o.owner || '';
-      if (op === 'choose') c.run = o.run || '';
+      if (op === 'choose') { var row = V.rollup.items.filter(function (i) { return i.key === k; })[0]; c.run = o.run || ''; c.attempt = row ? Math.max(1, row.attempt || 1) : 1; c.candidates = row ? row.candidates.slice(0, LIMITS.candidates).sort() : []; }
       return c;
     }) };
   }
@@ -17100,7 +17124,7 @@ PF.loop = (function () {
   var OPS = ['add', 'exclude', 'restore', 'owner', 'exception', 'withdraw', 'choose', 'start', 'approve', 'send-back'], DOPS = ['accept', 'keep', 'applied', 'refused'];
   /* What a tool asks the recorder to do (the CLI asks; the recorder applies): never a change to the list. */
   var ACTIONS = ['start', 'approve', 'send-back'];
-  var LIMITS = { bytes: 262144, title: 200, reason: 300, query: 500, generation: 80, errors: 20, error: 200, changes: 500, inputs: 40, input: 240, seen: 50 };
+  var LIMITS = { bytes: 262144, title: 200, reason: 300, query: 500, generation: 80, errors: 20, error: 200, changes: 500, inputs: 40, input: 240, seen: 50, candidates: 50 };
   var CONTROL = /[\u0000-\u001f\u007f\u2028\u2029]/;
   function isMap(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
   function reserved(k) { return k === '__proto__' || k === 'constructor' || k === 'prototype' || k in Object.prototype; }
@@ -17186,7 +17210,7 @@ PF.loop = (function () {
     list.forEach(function (ch, i) {
       var where = 'Change ' + (i + 1);
       if (!isMap(ch) || OPS.indexOf(ch.op) < 0) { errors.push(where + ' is {"op": ' + OPS.map(q).join(' | ') + ', "item": {...}}.'); return; }
-      Object.keys(ch).forEach(function (k) { if (['op', 'item', 'reason', 'owner', 'approver', 'onBehalf', 'as', 'all', 'run'].indexOf(k) < 0 || (k === 'all' && !(ch.op === 'start' && ch.all === true)) || (k === 'run' && ch.op !== 'choose')) errors.push(where + ' has ' + q(k) + '.'); });
+      Object.keys(ch).forEach(function (k) { if (['op', 'item', 'reason', 'owner', 'approver', 'onBehalf', 'as', 'all', 'run', 'attempt', 'candidates'].indexOf(k) < 0 || (k === 'all' && !(ch.op === 'start' && ch.all === true)) || ((k === 'run' || k === 'attempt' || k === 'candidates') && ch.op !== 'choose')) errors.push(where + ' has ' + q(k) + '.'); });
       if (ACTIONS.indexOf(ch.op) >= 0) {
         var ca = { op: ch.op };
         if (ch.op === 'start') { ca.item = cleanItem(ch.item, errors, where + ' item'); if (!ca.item) return; if (ch.all === true) ca.all = true; }
@@ -17199,7 +17223,11 @@ PF.loop = (function () {
       if (!it) return;
       if (ch.op === 'exclude' || ch.op === 'exception') { var r = line(ch.reason, LIMITS.reason, where + ' "reason"', errors); if (r) c.reason = r; }
       else if (ch.reason != null) { var r2 = line(ch.reason, LIMITS.reason, where + ' "reason"', errors, true); if (r2) c.reason = r2; }
-      if (ch.op === 'choose') { if (typeof ch.run !== 'string' || !/^[a-z0-9-]{1,40}$/i.test(ch.run)) errors.push(where + ': "run" is the id of the story\'s run that counts.'); else c.run = ch.run; }
+      if (ch.op === 'choose') {
+        if (typeof ch.run !== 'string' || !/^[a-z0-9-]{1,40}$/i.test(ch.run)) errors.push(where + ': "run" is the id of the story\'s run that counts.'); else c.run = ch.run;
+        if (!whole(ch.attempt) || ch.attempt < 1 || ch.attempt > 999) errors.push(where + ': "attempt" is the attempt the runs were started for.'); else c.attempt = ch.attempt;
+        if (!Array.isArray(ch.candidates) || ch.candidates.length < 2 || ch.candidates.length > LIMITS.candidates || !ch.candidates.every(function (v) { return typeof v === 'string' && /^[a-z0-9-]{1,40}$/i.test(v); })) errors.push(where + ': "candidates" are the ids of the competing runs it chose among (2 to ' + LIMITS.candidates + ').'); else c.candidates = ch.candidates.slice().sort();
+      }
       if (ch.op === 'owner') { if (ch.owner !== '' && (typeof ch.owner !== 'string' || !PERSON.test(ch.owner))) errors.push(where + ': "owner" is a person\'s ID from people.json, or "" for none.'); else c.owner = ch.owner; }
       if (ch.op === 'exception') {
         if (typeof ch.approver !== 'string' || !PERSON.test(ch.approver)) errors.push(where + ': "approver" is the person\'s ID from people.json who approved it.'); else c.approver = ch.approver;
@@ -33263,6 +33291,8 @@ PF.examples = (function () {
   function loopLaunch(r, id, key, fresh, request) {
     var V = r && loopView(r, id), x = V && V.ledger.items.filter(function (i) { return i.key === key; })[0];
     if (!x) return Promise.reject(new Error(key + ' isn\'t in this loop.'));
+    var shut = ''; try { shut = R.canStartChild(r, R.mapOf(r), id); } catch (e) { shut = 'The run\'s checklist can\'t be read.'; }
+    if (shut) return Promise.reject(new Error(key + ': ' + shut));
     /* A request and Start all only start stories with no run yet (fresh); the row's own button also starts a story's next attempt. */
     if (fresh) { var S = PF.loop.launchable(r, V, [key], ctx.procOf); if (!S.start.length) return Promise.reject(new Error(key + ': ' + (S.skip[0] ? S.skip[0].why : 'nothing to start') + '.')); }
     var procOf = ctx.procOf || function (pid) { var p = ctx.latestPub(pid); return p ? { latest: p, all: [p], clashes: [], broken: [] } : null; };

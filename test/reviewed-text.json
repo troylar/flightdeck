@@ -13,8 +13,8 @@
       "reviewed": "fold design tips and the library panel; own-key reads; checked for direct writes and unconditional deletes"
     },
     "bin/flightdeck.js": {
-      "sha256": "af13ce8a9323141e46842b20d78df2087b6a064508762d85ad5381114e6d17f0",
-      "reviewed": "loop choose: core op, run screen buttons, CLI subcommand, docs and guide."
+      "sha256": "9819b06649daf9368a4133632c34f0efcb159378194111416808100ad42540b9",
+      "reviewed": "Loop choices share the causal settle rule and bind to attempt and candidates; one person per request; starts need the loop step open."
     },
     "build.py": {
       "sha256": "21c5b257606a8aa3d24c956f518745372409b550008be4d06f5178081117708c",
@@ -253,8 +253,8 @@
       "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "src/core/loop.js": {
-      "sha256": "39e34447cb4c17d638d54a8c2694f4c387323c2a212a0aac6f072d7f3b895115",
-      "reviewed": "loop choose: core op, run screen buttons, CLI subcommand, docs and guide."
+      "sha256": "07a549b0bf9d209bab6a15521ce2ed7b5eca0aa8eec757b3b5da3f7d5c750fc8",
+      "reviewed": "Loop choices share the causal settle rule and bind to attempt and candidates; one person per request; starts need the loop step open."
     },
     "src/core/map.js": {
       "sha256": "671a810abb29087bed638e0fc39ecc5a52b70146abd303742d5d017c9083db7c",
@@ -397,8 +397,8 @@
       "reviewed": "loops review round 1: qualification, answer fingerprints, unreadable holds, auto send-back, start guard; checked for direct writes and unconditional deletes: none added"
     },
     "src/ui/app.js": {
-      "sha256": "2f152ccae8ffd1520bcf2ef8af98ff6f7782bcb6d29d7f43d2a8c588a5ba4fae",
-      "reviewed": "loop choose: core op, run screen buttons, CLI subcommand, docs and guide."
+      "sha256": "ea98cc10fe168d16e95b2f7aae2c7eb37517b745fb69f5613a2423ba85f22f03",
+      "reviewed": "Loop choices share the causal settle rule and bind to attempt and candidates; one person per request; starts need the loop step open."
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
