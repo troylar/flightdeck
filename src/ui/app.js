@@ -3012,7 +3012,7 @@
       Object.keys(r.steps).forEach(function (sid) {
         var a = r.steps[sid], c = a && a.child && ctx.findRun(a.child.process + '/' + a.child.id), x = M.findStep(R.mapOf(r), sid), v = x && R.childVerdict(r, x.step, a, c, ctx.procOf);
         /* Settled once: a failed child stays failed (unblocking the step won't re-block it); a new child replaces it. */
-        if (!v || a.child.failed || !R.childCurrent(r, x.step, a) || a.s === 'done' || a.s === 'na') return;
+        if (!v || a.child.failed || !R.childCurrent(r, x.step, a) || a.s === 'done' || a.s === 'na' || R.resultHeld(r, x.step, a)) return;
         mutateRun(r.process + '/' + r.id, gen, function (rr, m, me, now) { R.settleChild(rr, m, sid, c, me, now, ctx.procOf); }, { background: true });
       });
     });
@@ -5242,11 +5242,22 @@
   function chipToggle(name, act, id, b) {
     var p = currentProcess(), s = state.obSel; if (!p || !s || s.kind !== 'step' || !id) return;
     var box = 'ob-fld-' + name, cur = String(fieldApplied(box) || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean), at = cur.indexOf(id);
+    /* sets: (3.0) a chip is a plain entry; a binding (name=decision, name=result) stays as written. */
+    if (name === 'sets') at = cur.map(function (x) { return x.indexOf('=') < 0 ? x : null; }).indexOf(id);
     var gone = at >= 0 && !!(b && b.dataset && b.dataset.bad);
     if (at >= 0) cur.splice(at, 1); else cur.push(id);
     /* require: always keeps All; sets: keeps the run details, and whatever names are left. */
     var left = name === 'require' || cur.length || ((PF.map.parse(edText(p)).meta || {}).context || []).length;
     builderField(box, cur.join(', '), gone ? '#' + box + (left ? ' [data-act]' : '') : '[data-act="' + act + '"][data-id="' + cssEsc(id) + '"]');
+  }
+  /* One entry of a step's comma list, in or out (3.0): a sets: binding or an accepted result. A plain sets: entry of the
+     same name gives way to its binding. */
+  function bindToggle(field, entry, focus) {
+    var p = currentProcess(), s = state.obSel; if (!p || !s || s.kind !== 'step') return;
+    var st = PF.outline.parse(edText(p)).steps.filter(function (x) { return x.key === s.key; })[0]; if (!st) return;
+    var name = entry.split('=')[0], cur = String(st.fields[field] || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean), at = cur.indexOf(entry);
+    if (at >= 0) cur.splice(at, 1); else cur = cur.filter(function (x) { return field !== 'sets' || x !== name; }).concat([entry]);
+    builderField('ob-fld-' + field, cur.join(', '), focus);
   }
   /* focus: where focus goes after the change, when it isn't the box itself (a requirement chip). */
   /* What a change in a linked step's section (2.8) sets with O.editLink, or null (redraw only). Sources keep what still
@@ -5306,7 +5317,7 @@
     /* A part added in this window and not saved yet takes its ID from the name it's given (it's in no run or skill). */
     var reid = function (oldId, r) { if (r && r.id && r.id !== oldId && fresh(oldId)) markFresh(ed, r.id); if (r && r.id && oldId && r.id !== oldId) prRename(cp.id, oldId, r.id); return r; };
     if (s.kind === 'details') {
-      var mk2 = { 'ob-owner': 'owner', 'ob-backup': 'backup', 'ob-add-role': 'roles', 'ob-add-ctx': 'context' }, key = Object.prototype.hasOwnProperty.call(mk2, id) ? mk2[id] : null;
+      var mk2 = { 'ob-owner': 'owner', 'ob-backup': 'backup', 'ob-add-role': 'roles', 'ob-add-ctx': 'context', 'ob-result': 'result' }, key = Object.prototype.hasOwnProperty.call(mk2, id) ? mk2[id] : null;
       if (!key) return;
       var adding = key === 'roles' || key === 'context', name = adding ? String(value == null ? '' : value).trim() : String(value == null ? '' : value);
       if (adding && !name) return;
@@ -5315,12 +5326,18 @@
       res = builderEdit({ op: 'meta', key: key, set: adding ? { add: name } : { value: name } }, id);
       /* Emptied before the redraw, so the box that redraw replaces holds nothing to add again. */
       if (res && adding) { state.obJustAdded = { id: id, name: name }; var bx = document.getElementById(id); if (bx) bx.value = ''; if (state.obPendingField === id) dropPending(); }
-      if (res && !res.same) say(adding ? 'Added ' + (key === 'roles' ? '@' : '^') + name + '. Undo available.' : key === 'owner' ? (name ? 'The owner is now ' + personName(name) + '.' : 'The checklist has no owner now.') + ' Undo available.' : (name ? 'The backup owner is now ' + personName(name) + '.' : 'The checklist has no backup owner now.') + ' Undo available.', 'good', { act: 'tl-undo', id: 'draft', label: 'Undo' });
+      if (res && !res.same) say(adding ? 'Added ' + (key === 'roles' ? '@' : '^') + name + '. Undo available.' : key === 'result' ? (name ? 'A run of this checklist now returns ^' + name + '. Bind it to one Decide step\'s decision.' : 'The checklist returns no result now.') + ' Undo available.' : key === 'owner' ? (name ? 'The owner is now ' + personName(name) + '.' : 'The checklist has no owner now.') + ' Undo available.' : (name ? 'The backup owner is now ' + personName(name) + '.' : 'The checklist has no backup owner now.') + ' Undo available.', 'good', { act: 'tl-undo', id: 'draft', label: 'Undo' });
       return obApplied(res, id, adding ? '' : undefined);
     }
     if (s.kind === 'questions') {
       if (id !== 'ob-q-text') return;
       return obApplied(builderEdit({ op: 'questions', text: value }, id), id, null);
+    }
+    /* Which choice detail keeps a linked run's result (3.0): sets: <detail>=result, the other entries as written. */
+    if (s.kind === 'step' && id === 'ob-res-import') {
+      var ri = o.steps.filter(function (x) { return x.key === s.key; })[0]; if (!ri) return;
+      var keep = String(ri.fields.sets || '').split(',').map(function (x) { return x.trim(); }).filter(function (x) { return x && !/=\s*result$/.test(x); });
+      return obApplied(builderEdit({ op: 'edit', step: s.key, set: { field: 'sets', value: keep.concat(value ? [value + '=result'] : []).join(', ') } }, id), id);
     }
     if (s.kind === 'step' && /^ob-link-/.test(id)) {
       var lset = linkSet(o, s.key, id, value);
@@ -6927,6 +6944,9 @@
     /* A requirement chip: adds or removes its name in require:, in the order written. */
     'ob-req': function (id, b) { chipToggle('require', 'ob-req', id, b); },
     'ob-sets': function (id, b) { chipToggle('sets', 'ob-sets', id, b); },
+    /* Module results (3.0): the decision bound to the checklist's result, and the results a linked step accepts. */
+    'ob-sets-result': function (id) { bindToggle('sets', id + '=decision', '[data-act="ob-sets-result"]'); },
+    'ob-accepts': function (id) { bindToggle('accepts', id, '[data-act="ob-accepts"][data-id="' + cssEsc(id) + '"]'); },
     'ob-bind': function (id) { builderToggle('bind', id); },
     'ob-shot-move': function (id, b) {
       var s = state.obSel, up = !!(b && b.dataset.dir === 'up'); if (!s || (s.kind !== 'step' && s.kind !== 'phase')) return;

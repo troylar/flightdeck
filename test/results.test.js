@@ -192,13 +192,14 @@ rule('Contract 2: process carries the result and accepts, run and runs the resul
   same(A.conforms(pr, A.SCHEMA2.process), []);
   const ppub = publish(PARENT(), { childProcs: { 'validate-story': proc([kp]) } }), pp = A.process2({ process: 'release', id: 'release', title: 'Release', pubs: [ppub], index: P.index([ppub]) }, ppub);
   const st = pp.phases[0].steps[0];
-  same([pp.result, st.accepts, st.imports, st.sets], [null, ['cleared'], 'story_result', ['story_result']]);
+  assert.ok(!('result' in pp), 'no result of its own'); same([st.accepts, st.imports, st.sets], [['cleared'], 'story_result', ['story_result']]);
   same(A.conforms(pp, A.SCHEMA2.process), []);
   const cr = A.summary2(c, nameOf);
   same([cr.result, cr.outcome], [{ name: 'disposition', value: 'needs-work' }, 'Completed · needs-work']);
   const rr = A.run2(p.r, [], nameOf).run, s0 = rr.steps.filter(x => x.id === 'story')[0];
   same([s0.state, s0.accepts, s0.result, s0.heldBy], ['blocked', ['cleared'], 'needs-work', { process: 'validate-story', id: 'kid1', result: 'needs-work', reason: 'Validate a story returned needs-work; this step accepts cleared' }]);
-  same([rr.result, rr.outcome], [null, null]);
+  assert.ok(!('result' in rr) && !('outcome' in rr), 'a run without a result is as before');
+  assert.ok(!('accepts' in rr.steps.filter(x => x.id === 'ship1')[0]), 'a step without module results is as before');
   same(A.conforms({ run: rr }, A.SCHEMA2.run), []);
   const nx = A.next2(p.r, nameOf, null);
   same([nx.next.kind, nx.next.step.heldBy && nx.next.step.heldBy.result], ['blocked', 'needs-work']);

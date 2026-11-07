@@ -1013,7 +1013,7 @@ PF.outline = (function () {
   }
 
   /* ---------- the checklist's details: front matter context:, roles:, owner: and backup: ---------- */
-  var META = { context: 'list', roles: 'list', owner: 'person', backup: 'person' };
+  var META = { context: 'list', roles: 'list', owner: 'person', backup: 'person', result: 'detail' };
   var NAME_RE = /^[\w-]{1,60}$/, PERSON_RE = /^[\w.@-]{1,80}$/;
   function reserved(n) { return n === '__proto__' || n in Object.prototype; }
   /* What's wrong with a run detail's (key 'context') or role's ('roles') name, or ''. */
@@ -1091,8 +1091,10 @@ PF.outline = (function () {
       str = next.join(', ');
     } else {
       var v = set.value;
-      if (typeof v !== 'string') return { error: 'Choose a person.' };
-      if (v && (!PERSON_RE.test(v) || reserved(v))) return { error: 'That person\'s ID can\'t be written in a checklist. Choose someone else.' };
+      if (typeof v !== 'string') return { error: kind === 'detail' ? 'Choose a run detail.' : 'Choose a person.' };
+      /* The result (3.0) names one of the checklist's run details, or nothing. */
+      if (kind === 'detail' && v && meta.context.indexOf(v) < 0) return { error: '^' + v + ' isn\'t one of this checklist\'s run details.' };
+      if (kind === 'person' && v && (!PERSON_RE.test(v) || reserved(v))) return { error: 'That person\'s ID can\'t be written in a checklist. Choose someone else.' };
       if (v === String(meta[key] == null ? '' : meta[key]) && (v || !hits.length)) return { text: text, at: hits.length ? hits[hits.length - 1] : 0, same: true };
       str = v;
     }

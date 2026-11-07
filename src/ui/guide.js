@@ -48,6 +48,7 @@ PF.guide = (function () {
     'run.process': { process: e('Which checklist? (its file name)', 'database-migration', 'The checklist\'s file name, not its title: it\'s looked up by that exact ID. Whoever reaches this step starts its run from here (Start), and it links back.'),
       carry: e('Which run details does it pass on?', 'tag, environment', 'Left empty, it passes on every run detail the other checklist also has.', true),
       version: e('Which version of it?', '3', 'Left empty, the run uses its latest published version.', true),
+      accepts: e('Which results count as done?', 'cleared', 'The results of its checklist (result:) that let this step count as done. Any other result holds the step, with the reason, until a new run returns one of these.'),
       pass: e('What does each of its details get?', 'environment=^env, region=us-east-1, notify=?', 'name=^detail passes this run\'s detail under another name, name=? asks it when it starts, and anything else is a fixed value. Left empty, it passes what carry: says. Needs Flightdeck 2.8.', true) },
     'run.command': { command: e('What do you run?', 'git fetch origin && git rebase origin/main', COPY), where: e('Where do you run it?', 'a terminal in the payments-api repo', S),
       expected: e('What should you see?', 'Successfully rebased', S + ' It\'s what they compare against.') },
@@ -138,6 +139,9 @@ PF.guide = (function () {
     context: e('Add a run detail each run needs', 'tag', 'Asked when a run starts; steps can use it as ^name. One at a time; an empty name adds nothing.', true),
     'link-proc': e('Which checklist does it run?', '', 'Its run starts from this step and links back; this step is checked when it completes.', true),
     'link-proc-other': e('Which checklist ID?', 'database-migration', 'For a checklist that isn\'t in this folder yet: its file name, not its title.', true),
+    /* Module results (3.0). */
+    result: e('What does a run of it return?', '', 'A choice run detail its one Decide step sets, like disposition. A checklist that runs this one can say which results it accepts. Left empty, a run just completes.', true),
+    'res-import': e('Keep the result in which run detail?', '', 'The result it returns is copied into this choice detail of this run, with where it came from. Nobody fills it in by hand.', true),
     'link-vn': e('Which version, always?', '', 'Every run of this checklist starts that exact version, even after a newer one is published.', true),
     'link-src': e('Where does this detail come from?', '', 'This run\'s detail (even under another name), a fixed value, or asked when the other checklist starts.', true),
     'link-val': e('Which fixed value?', 'us-east-1', 'Every run passes exactly this. At most 120 characters, no commas.', true),

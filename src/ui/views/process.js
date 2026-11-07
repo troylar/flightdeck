@@ -537,7 +537,7 @@
     var runs = ctx.data.runs.filter(function (r) { return r.process === p.id; }).sort(function (a, b) { return a.created < b.created ? 1 : -1; });
     h += '<section class="panel" aria-labelledby="pr-h"><h2 id="pr-h">Recent runs</h2>' + (runs.length ? '<ul class="plist">' + runs.slice(0, 3).map(function (r) {
       var hl = K.headline(r, R.mapOf(r));
-      return '<li><button data-act="open-run" data-id="' + esc(runKey(r)) + '"><span class="t">' + esc(r.title) + '</span><span class="pill ' + hl.s + '">' + esc(r.ended ? K.outcomeWord(r.ended.outcome) : 'running') + '</span><span class="small">' + esc(U.day(r.created)) + ' · ' + esc(K.verWord(r)) + '</span></button></li>';
+      return '<li><button data-act="open-run" data-id="' + esc(runKey(r)) + '"><span class="t">' + esc(r.title) + '</span><span class="pill ' + hl.s + '">' + esc(r.ended ? R.outcomeText(r, K.outcomeWord) : 'running') + '</span><span class="small">' + esc(U.day(r.created)) + ' · ' + esc(K.verWord(r)) + '</span></button></li>';
     }).join('') + '</ul>' + (runs.length > 3 ? '<button class="link" data-act="runs-of" data-id="' + esc(p.id) + '">All ' + runs.length + ' runs of this checklist</button>' : '') : '<p class="small">No runs yet. Start one with <b>Start a run</b>.</p>') + '</section>';
     return h + (mine ? '' : skillsFold(ctx, p, pub)) + '</aside></div>';
   }

@@ -43,7 +43,7 @@ const BOX = {
   'ob-tr-title': ['form', 'tr-title'], 'ob-tr-role': ['form', 'tr-role'], 'ob-owner': ['form', 'owner'], 'ob-backup': ['form', 'backup'], 'ob-add-role': ['form', 'role'], 'ob-new-role': ['form', 'role'],
   'ob-add-ctx': ['form', 'context'], 'ob-q-text': ['form', 'questions'], 'ob-fld-': ['field', null], 'ob-host': ['form', 'pr-host'],
   'ob-jira': ['form', 'jira-action'], 'ob-jfind': ['form', 'jira-find'], 'ob-jres': ['form', 'jira-results'], 'ob-jres-n': ['form', 'jira-results-n'], 'ob-pat-name': ['form', 'pat-name'], 'ob-pat-src': ['form', 'pat-src'], 'ob-pat-test': ['form', 'pat-test'],
-  'ob-link-proc': ['form', 'link-proc'], 'ob-link-proc-other': ['form', 'link-proc-other'], 'ob-link-vn': ['form', 'link-vn'], 'ob-link-src-': ['form', 'link-src'], 'ob-link-val-': ['form', 'link-val']
+  'ob-result': ['form', 'result'], 'ob-res-import': ['form', 'res-import'], 'ob-link-proc': ['form', 'link-proc'], 'ob-link-proc-other': ['form', 'link-proc-other'], 'ob-link-vn': ['form', 'link-vn'], 'ob-link-src-': ['form', 'link-src'], 'ob-link-val-': ['form', 'link-val']
 };
 /* Not entry boxes: finding a part, choosing a type, Must be done and Automation planned (checkboxes with their own
    descriptions, 2.10), choosing files. */
@@ -249,7 +249,7 @@ rule('Guide: the type definitions, the fields every type accepts and the pins ar
   /* 2.16 adds one type, {jira.search}; every other type is 2.4.0's. */
   same(T.LIST.filter(t => t.id !== 'jira.search'), was.LIST, 'T.LIST'); same(T.COMMON, was.COMMON, 'T.COMMON');
   /* 2.8 adds one pin, pass: on {run.process}; every other pin is 2.4.0's. */
-  const pins = JSON.parse(JSON.stringify(T.PINS)); same(pins['run.process'].pass, { label: 'Passes', kind: 'pass' }, 'the 2.8 pin'); delete pins['run.process'].pass;
+  const pins = JSON.parse(JSON.stringify(T.PINS)); same(pins['run.process'].pass, { label: 'Passes', kind: 'pass' }, 'the 2.8 pin'); delete pins['run.process'].pass; same(pins['run.process'].accepts, { label: 'Accepts', kind: 'accepts' }, 'the 3.0 pin'); delete pins['run.process'].accepts;
   same(pins, was.PINS, 'pins');
 });
 rule('Guide: the example folder\'s publication files, signatures, brief, read contract, receipt and run log are byte for byte 2.4.0\'s', () => {

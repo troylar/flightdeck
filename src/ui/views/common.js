@@ -439,7 +439,8 @@ PF.vk = (function () {
   var GATE_WORD = { passed: 'Passed', waived: 'Waived', failed: 'Failed', review: 'Needs review', ready: 'Ready', open: 'Waiting on steps', locked: 'Locked', skipped: 'Not needed' };
   function gateWord(st) { return GATE_WORD[st] || st; }
   function outcomeWord(o) { return o === 'Cancelled' ? 'Canceled' : o; }
-  function hlText(r, hl) { return r && r.ended ? 'Ended: ' + outcomeWord(r.ended.outcome) : hl.text; }
+  /* How a run ended (3.0): "Completed · needs-work" when its checklist has a result. */
+  function hlText(r, hl) { return r && r.ended ? 'Ended: ' + PF.run.outcomeText(r, outcomeWord) : hl.text; }
   /* A test run (2.1) says so wherever it's listed or opened, and its version is the stage's proposed number, never a version's. */
   function testTag(r) { return PF.run.isTest(r) ? '<span class="badge b-test">Test run</span>' : ''; }
   function verWord(r) { return PF.run.isTest(r) ? 'Test run · staged v' + r.version : 'v' + r.version; }
