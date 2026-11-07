@@ -25,8 +25,8 @@
       "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "docs/design.md": {
-      "sha256": "ccad50a37371ec2f5106f37cf67dbcccf871f286be9624eaec1e5bb009caca4e",
-      "reviewed": "Review 06 of module results: a missing linked run is a nofile problem; awaiting settlement displaces only later work in next and mine, keeping a pause; checked for direct writes and unconditional deletes"
+      "sha256": "2a248e85462268c204feb161764ad5067e6d1b0a14099d4ae37ac34daa7a9fb9",
+      "reviewed": "design.md section 44 (loops); a doc, no instructions changed"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
