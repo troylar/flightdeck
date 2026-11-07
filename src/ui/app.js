@@ -170,6 +170,7 @@
     /* Folder health opened from a run goes back to it, The run; else Settings. */
     healthOrigin: function () { var loc = navOrigin(); return loc && loc.view === 'run' && !loc.sub && findRun(loc.process + '/' + loc.run) ? { hash: PF.nav.format(loc), place: 'The run' } : null; },
     procOf: function (id) { return procFind(id); },
+    loopLast: function (r, id, V) { return loopLast(r, id, V); },
     /* What other files say about renaming a run detail of this checklist (PF.refs.dependents): the folder's other checklists
        (latest published version and saved draft), the children this one runs, and the Jira workflows. */
     renameDeps: function (map, name) { return renameDeps(map, name); },
@@ -2901,6 +2902,13 @@
   /* Loops (3.0): every change to a loop's list is a scope record in proposals/, written once (repo.saveScope), the same
      records flightdeck loop writes; a story's run is a run of the loop's checklist naming its item. */
   function loopKey(k) { var m = /([A-Z][A-Z0-9_]{0,29}-[1-9][0-9]{0,8})\/?$/.exec(String(k).trim()); return m ? m[1] : String(k).trim(); }
+  /* The last view of each loop read with no scope record held, kept for this window only (never saved), drawn beside a hold. */
+  function loopLast(r, id, V) {
+    if (!state.loopLast) state.loopLast = Object.create(null);
+    var k = r.process + '/' + r.id + '/' + id;
+    if (!V.ledger.held.length) { state.loopLast[k] = { summary: V.rollup.summary, items: V.rollup.items.slice(0, 500), at: new Date().toISOString() }; return null; }
+    return state.loopLast[k] || null;
+  }
   function loopView(r, id) { return PF.loop.view(r, id, { records: data.scopes || [], unread: data.scopesUnread || [], runs: data.runs || [], procOf: ctx.procOf, who: personName }); }
   function loopHex(n) { return PF.sha256.hex(WRITER + ':' + Date.now() + ':' + Math.random()).slice(0, n); }
   function loopSaved(p, words) {
@@ -5860,9 +5868,15 @@
     setView('run'); state.runKey = key; resetRunUi();
     var r = ctx.run();
     if (r) { var nx = R.nextUp(r, R.mapOf(r), state.me); state.sel = nx.step ? nx.step.id : null; }
+    /* Back from a story's run opened from a loop's table: land on the loop with its page and filter as left, focus on that story's row. */
+    var back = state.loopReturn;
+    if (!back || key !== back.child) state.loopReturn = null;
+    if (back && back.runKey === key && r && M.steps(R.mapOf(r)).some(function (x) { return x.step.id === back.step; })) state.sel = back.step; else back = null;
     arriveAtStep(state.sel);
     state.refOpen = window.innerWidth > 800; state.revealSel = true;
+    if (back) { state.focus = PF.loop.rowId(back.step, back.item); state.focusWins = true; return true; }
     window.scrollTo(0, 0);
+    return false;
   }
 
   /* ---------- Back and Forward (docs/design.md section 29) ---------- */
@@ -6310,8 +6324,8 @@
     H.seen = navSeq; H.mode = null; H.backIn = false;
     if (histWrite(false, hash, H.pos, fp, t.b)) H.cur = { n: H.pos, hash: hash, f: fp, b: t.b || null };
     if (H.retryLoc) { H.retry = { loc: H.retryLoc, seq: navSeq, f: fp }; H.retryLoc = null; }
-    if (res !== 'focus') state.focus = headingOf();
-    render(); window.scrollTo(0, 0);
+    if (res !== 'focus' && res !== 'row') state.focus = headingOf();
+    render(); if (res !== 'row') window.scrollTo(0, 0);
   }
   function navWarn(m) { say(m, 'warn'); }
   /* A link's target not found while part of the folder couldn't be read may only be unread: it isn't called gone, and the
@@ -6448,7 +6462,8 @@
     if (sub === 'finish' && r.ended) sub = 'receipt';
     else if (sub === 'finish' && !ctx.recording(r)) sub = '';
     var same = state.runKey === key && inRun();
-    if (!sub) { if (!same) openRun(key); else if (state.view !== 'run') reenterRun(); return 'moved'; }
+    /* 'row': back on a loop's table at the story left from (openRun), so the move keeps that focus and scroll. */
+    if (!sub) { if (!same) { if (openRun(key)) return 'row'; } else if (state.view !== 'run') reenterRun(); return 'moved'; }
     if (!same) openRun(key); else if (state.view === 'run') savePanes();
     setView(sub === 'share' ? 'mission' : sub);
     if (sub === 'finish') state.pick = null;
@@ -6771,8 +6786,8 @@
       if (wsDirect(loc)) return;
       var res = moveTo(loc);
       if (res === 'stay') { render(); return; }
-      if (res !== 'focus' && res !== 'async') state.focus = headingOf();
-      render(); window.scrollTo(0, 0);
+      if (res !== 'focus' && res !== 'async' && res !== 'row') state.focus = headingOf();
+      render(); if (res !== 'row') window.scrollTo(0, 0);
     },
     'pv-practice': function (id) {
       var p = currentProcess(); if (!p) return;
@@ -7286,7 +7301,7 @@
       if (f.tl) TL.barrier(f.tl, 'You took their version here. Earlier changes can\'t be undone.');
       render();
     },
-    'open-run': function (id) { openRun(id); render(); },
+    'open-run': function (id, b) { state.loopReturn = b && b.dataset && b.dataset.loop && state.runKey ? { runKey: state.runKey, step: b.dataset.loop, item: b.dataset.item || '', child: id } : null; openRun(id); render(); },
     'review-plan': function (id) { var p = data.plans.filter(function (x) { return x.id === id; })[0]; if (!p) return; setView('start'); state.processId = p.process; state.planId = id; state.planning = null; state.testStage = null; state.planDiff = false; if (!state.planPick || state.planPick.plan !== id) state.planPick = null; state.fieldErr = null; render(); window.scrollTo(0, 0); },
     start: function (id) { setView('start'); state.processId = id; state.planId = null; state.planning = null; state.fieldErr = null; state.testStage = null; render(); window.scrollTo(0, 0); },
     /* A test run (2.1), from a stage's line under All versions on the open process. */

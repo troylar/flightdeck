@@ -855,6 +855,7 @@ const FILE = 'text written to a file (front matter, a step\'s lines), never draw
 const FIXED = 'a fixed set of parts, at most a handful';
 const GROUP = 'one group path (Group / Subgroup), as deep as its author wrote it';
 const D10_JOIN_OK = [
+  { file: 'run.js', has: 'last.items.slice(0, 50).map(', why: 'a held loop\'s last readable view, at most 50 stories named, with how many more' },
   { file: 'run.js', has: 'S.skip.slice(0, 50).map(', why: 'the Start all preview\'s skipped stories, at most 50 named' },
   { file: 'app.js', has: 'failed.slice(0, 5).join', why: 'the stories Start all couldn\'t start, at most 5 named' },
   { file: 'app.js', has: 'done.slice(0, 20).join', why: 'the stories a start request started, at most 20 named, with how many more' },

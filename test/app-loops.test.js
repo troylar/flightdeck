@@ -12,8 +12,8 @@ const PARENT = ['---', 'process: release-readiness', 'title: Release 4.1', 'owne
   '## Stories · DO-CONFIRM {#stories}', '- [!] {for.each} Validate every release story {#each}', '  process: validate-story', '  items: jira.issue', '  pass: issue=item:key', '  accepts: cleared', '',
   '## Ship · READ-DO {#ship}', '- [!] {confirm} Ship it {#ship1}', ''].join('\n');
 
-async function setup() {
-  const app = boot({ localStore: { 'preflight:builder': 'false' } }); await app.tick(80); app.choose('person-avery'); await app.tick();
+async function setup(o) {
+  const app = boot(Object.assign({ localStore: { 'preflight:builder': 'false' } }, o || {})); await app.tick(80); app.choose('person-avery'); await app.tick();
   const PF = app.PF, people = JSON.parse(app.fs.files['people.json'].t), now = new Date().toISOString();
   const put = (md, id, rand) => {
     const b = PF.publish.build(md, { people, ...require('./harness').exampleSetup(PF), by: 'person-avery', changes: 'First', existing: [], now, rand, app: '3.0.0' });
@@ -183,6 +183,36 @@ rule('Start all under my recording: a preview names what starts and what is skip
   app.click('loop-start-all', 'each'); await app.tick(50);
   app.click('loop-start-all-confirm', 'each'); app.click('loop-start-all-confirm', 'each'); await app.tick(250);
   assert.strictEqual(kidPaths(app).length, 2, 'confirm starts ABC-103 once');
+});
+
+rule('Review round 1 (P2-10): back from a story\'s run, the release table keeps its page, its filter and the row you left from', async () => {
+  const app = await setup({ domFocus: true });
+  const keys = Array.from({ length: 60 }, (_, n) => 'ABC-' + (201 + n)).join(', ');
+  app.set('loop-add-each', keys); app.click('loop-add', 'each'); await app.tick(200);
+  app.click('loop-start', 'each', { item: 'ABC-255' }); await app.tick(200);
+  app.click('loop-more', 'each'); await app.tick(50);
+  app.click('loop-open', 'each'); await app.tick(50);
+  const kid = JSON.parse(app.fs.files[kidPaths(app)[0]].t);
+  app.click('open-run', 'validate-story/' + kid.id, { loop: 'each', item: 'ABC-255' }); await app.settle();
+  assert.ok(!/loop-items/.test(app.html()), 'set-up: on the story\'s run');
+  app.back(); await app.settle();
+  assert.ok(/Show every story/.test(txt(app)), 'the open-only filter is kept');
+  assert.strictEqual((app.html().match(/data-act="loop-start"/g) || []).length, 59, 'all pages are still shown');
+  assert.strictEqual(app.activeId(), 'loop-row-each-ABC-255', 'focus returns to the row you left from');
+});
+
+rule('Review round 1 (P1-4): when a scope record can\'t be read, the last readable view stays on screen beside the hold', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101, ABC-102'); app.click('loop-add', 'each'); await app.tick(150);
+  assert.ok(/2 in scope/.test(txt(app)));
+  const p = scopes(app)[0];
+  app.fs.files[p] = { t: app.fs.files[p].t.slice(0, 40), m: Date.now() };
+  app.click('refresh'); await app.tick(200);
+  const t = txt(app);
+  assert.ok(/can't be read yet/.test(t), 'the hold is shown');
+  assert.ok(/Last readable view[^]*2 in scope/.test(t), 'beside the last readable view: ' + t.slice(t.indexOf('Last'), t.indexOf('Last') + 200));
+  assert.ok(/ABC-101/.test(t) && /ABC-102/.test(t), 'its stories are still listed');
+  assert.ok(!/data-act="loop-approve"/.test(app.html()), 'no approval while held');
 });
 
 run();

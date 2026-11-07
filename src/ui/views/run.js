@@ -194,6 +194,9 @@
     if (V.approved && V.changes.length) h += '<div class="notice warn"><span><b>' + (V.ended ? 'Changed after this run ended' : 'Changed since this was approved') + ':</b> ' + V.changes.slice(0, 50).map(esc).join(' ') + (V.changes.length > 50 ? ' And ' + (V.changes.length - 50) + ' more.' : '') + '</span>' +
       (work && a && a.s === 'done' ? '<button class="btn" data-act="loop-unsettle" data-id="' + sid + '">Send the approval back for review</button>' : '') + '</div>';
     if (a && a.s === 'recheck' && V.review.length) h += '<div class="notice warn"><span><b>Approval needs review:</b> ' + V.review.slice(0, 50).map(esc).join(' ') + (V.review.length > 50 ? ' And ' + (V.review.length - 50) + ' more.' : '') + '</span></div>';
+    var last = ctx.loopLast ? ctx.loopLast(r, s.id, V) : null;
+    if (V.ledger.held.length) h += '<div class="notice warn"><span><b>Held:</b> a scope record of this loop can\'t be read yet, so nothing here can be approved until it can.' +
+      (last ? ' Last readable view, from ' + esc(String(last.at).slice(0, 16).replace('T', ' ')) + ': <b>' + esc(last.summary) + '</b>. ' + last.items.slice(0, 50).map(function (i) { return esc((i.key || i.uid) + ' ' + (LOOP_STATUS[i.status] || i.status)); }).join(' · ') + (last.items.length > 50 ? ' · and ' + (last.items.length - 50) + ' more' : '') : '') + '</span></div>';
     if (RU.blockers.length) h += '<ul class="small">' + RU.blockers.slice(0, 12).map(function (b) { return '<li>' + esc(b.text) + '</li>'; }).join('') + (RU.blockers.length > 12 ? '<li>and ' + (RU.blockers.length - 12) + ' more</li>' : '') + '</ul>';
     var me = ctx.state && ctx.state.me, all = !!(ctx.state && ctx.state.loopAll && ctx.state.loopAll[s.id]), open = !!(ctx.state && ctx.state.loopOpen && ctx.state.loopOpen[s.id]);
     var rows = open ? RU.items.filter(function (i) { return i.required && i.status !== 'cleared' && i.status !== 'exception'; }) : RU.items, PAGE = 50;
@@ -203,7 +206,7 @@
       rows.slice(0, all ? rows.length : PAGE).forEach(function (i) {
         var x = V.ledger.items.filter(function (y) { return y.uid === i.uid; })[0] || {}, k = esc(i.key || i.uid), acts = '';
         var data = ' data-id="' + sid + '" data-item="' + k + '"';
-        if (i.run) acts += '<button class="mini" data-act="open-run" data-id="' + esc(V.fields.process + '/' + i.run) + '">Open run</button>';
+        if (i.run) acts += '<button class="mini" data-act="open-run" data-id="' + esc(V.fields.process + '/' + i.run) + '" data-loop="' + sid + '" data-item="' + k + '">Open run</button>';
         var mine = !!me && x.owner === me && !V.ended && !r.paused;
         if ((work || mine) && i.required && !i.run && !i.exception && i.state !== 'proposed') acts += '<button class="mini' + (mine ? ' go' : '') + '" data-act="loop-start"' + data + '>' + (mine ? 'Start mine' : 'Start its run') + '</button>';
         if (work && i.required && me && x.owner !== me) acts += '<button class="mini" data-act="loop-owner"' + data + '>Make me the owner</button>';
@@ -212,7 +215,7 @@
         if (work && i.state === 'removed') acts += '<button class="mini" data-act="loop-restore"' + data + '>Restore</button>';
         if (work && i.required && !i.exception && i.status !== 'cleared') acts += '<button class="mini" data-act="loop-exception"' + data + '>Approve without a run</button>';
         if (work && i.exception) acts += '<button class="mini" data-act="loop-withdraw"' + data + '>Withdraw approval</button>';
-        h += '<tr><td><b>' + k + '</b> ' + esc(i.title || '') + (i.state === 'proposed' ? ' <span class="small">(removal proposed)</span>' : '') + '</td><td>' + esc(LOOP_STATUS[i.status] || i.status) +
+        h += '<tr id="' + esc(PF.loop.rowId(s.id, i.key || i.uid)) + '" tabindex="-1"><td><b>' + k + '</b> ' + esc(i.title || '') + (i.state === 'proposed' ? ' <span class="small">(removal proposed)</span>' : '') + '</td><td>' + esc(LOOP_STATUS[i.status] || i.status) +
           (i.exception ? ' <span class="small">' + esc(i.exception.reason || '') + ' · ' + esc(who(i.exception.approver)) + (i.exception.onBehalf ? ', recorded on their behalf' : '') + '</span>' : '') +
           (i.mismatch ? ' <span class="small">' + (i.state === 'removed' ? 'Removed here, but the Jira search still finds it' : 'Kept here, but the Jira search no longer finds it') + '</span>' : '') +
           (x.removed && x.removed.by && x.removed.by.tool ? ' <span class="small">Removed by ' + esc(x.removed.by.tool) + '</span>' : '') + '</td><td>' + esc(i.result || '') + '</td><td>' + esc(i.owner ? who(i.owner) : i.recorder ? who(i.recorder) : '') + '</td><td>' + acts + '</td></tr>';

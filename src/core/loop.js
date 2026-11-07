@@ -266,6 +266,8 @@ PF.loop = (function () {
      comes next hold in every window and the command line before the recorder's send-back is saved. Ended runs are left as they ended. */
   /* The stories a start-all would start now, and the ones it skips with why: in scope, not started, not approved without a
      run, not waiting on a removal decision, every input filled. The UI's preview and loop start-all show the same list. */
+  /* The id of a story's row in a loop's table, so a return from its run lands on it. */
+  function rowId(step, key) { var c = function (v) { return String(v || '').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80); }; return 'loop-row-' + c(step) + '-' + c(key); }
   function startable(r, V, keys) {
     var start = [], skip = [];
     V.rollup.items.forEach(function (i) {
@@ -665,5 +667,5 @@ PF.loop = (function () {
 
   return { KINDS: KINDS, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
     idFor: idFor, isScope: isScope, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
-    rollup: rollup, view: view, markStale: markStale, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
+    rollup: rollup, view: view, markStale: markStale, rowId: rowId, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();
