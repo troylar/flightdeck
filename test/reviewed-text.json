@@ -13,28 +13,28 @@
       "reviewed": "fold design tips and the library panel; own-key reads; checked for direct writes and unconditional deletes"
     },
     "bin/flightdeck.js": {
-      "sha256": "d2eeafb8d53f2118180432c109d0aa2c68d203e5e73ed6fd185d2c7fa1edc16f",
-      "reviewed": "Link-field name keeps its 2.x blocker with a separate tip; library inspect names step-type problems and version clashes; unknownTypes; baselines refreshed; checked for direct writes and unconditional deletes"
+      "sha256": "c3bac9794510495df5c1573a5fcae3db28ff07a3700f108be981e4fa6e883668",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "f0c4be06309dfeb44722e5c4b982947b5a1ae7aa5c361947714a92ee83002a59",
       "reviewed": "library inspect, design tips, Used by and similar; checked for direct writes and unconditional deletes"
     },
     "docs/apps.md": {
-      "sha256": "5d530a23a633307cbaed8f04488b26367a9c097e34c65cf0baeead24db334bdf",
-      "reviewed": "Link-field name keeps its 2.x blocker with a separate tip; library inspect names step-type problems and version clashes; unknownTypes; baselines refreshed; checked for direct writes and unconditional deletes"
+      "sha256": "907a1ea6931a79c15deafa4755b306d3d0eb172b5489c10d128bc5a2eac47e2f",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "00066e51741e57e02c184729bcc84db091ec489c78f0cdb09cb4b84635d94eae",
-      "reviewed": "Flight plan draws each gate once: the steps disclosure no longer repeats the gate line (fp-sgate removed from flight.js and page.html); design.md says so; release 3.0.0 entry and its baselines. Checked for direct writes and unconditional deletes: none."
+      "sha256": "fcafb8df89f7c79065921a0fc198581b94650ed4d0bbccb7bc0121b8dfbe9d8e",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 0 sentences here, each read by hand: none."
     },
     "docs/map-format.md": {
-      "sha256": "67ff384f22b48c87e92568f173150ed8ed43a8d1a1635400252dbaf9b5db1e90",
-      "reviewed": "Missing or unusable Jira address grouped into one blocker per site with a count and step IDs (jira.checkFields returns siteError, types passes it, map.js groups through PF.jsearch.addressBlockers); map-format.md and its skills copy say publishing needs the address and Copy is the run fallback; release note. Checked for direct writes and unconditional deletes: none."
+      "sha256": "bef40f52b766de5351f4417995b769183afc88022910b5973a0cd709717b40e2",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "docs/onedrive.md": {
       "sha256": "e11b0fc58b4abf3ba2057f922a35599951384be2c68674f55432c0bfaaf232c5",
@@ -53,12 +53,12 @@
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
-      "sha256": "74209f5f29be53f3fe5b7e580765751968d79b7c979e3148a29eba620726e8ee",
-      "reviewed": "Design tips: names matched as written, a required verdict respected, JavaScript whitespace in the checker; a draft line not understood makes the library partial; checked for direct writes and unconditional deletes"
+      "sha256": "505dbfb6fb3e53cdf2d99ec3578d0c67c5839fd828f2d2a0cfbdef9e2a9786f2",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
-      "sha256": "3e6dd49b96076c7ac49fd42111fd71c0580732dd27294930091e98123a9a49aa",
-      "reviewed": "thoughtful authoring: design brief, library scan, realignment proposals, command discovery, offline checks; checked for direct writes and unconditional deletes"
+      "sha256": "f10a44438421dba96414db501e4fca063d3192d7e6b4c781cc38b7bcd41b97b8",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/command-guide.md": {
       "sha256": "a481a6dc4b5007f7811e66bd25c22df51e748d45176c0fe82748875b31525697",
@@ -73,20 +73,20 @@
       "reviewed": "thoughtful authoring: design brief, library scan, realignment proposals, command discovery, offline checks; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/map-format.md": {
-      "sha256": "67ff384f22b48c87e92568f173150ed8ed43a8d1a1635400252dbaf9b5db1e90",
-      "reviewed": "Missing or unusable Jira address grouped into one blocker per site with a count and step IDs (jira.checkFields returns siteError, types passes it, map.js groups through PF.jsearch.addressBlockers); map-format.md and its skills copy say publishing needs the address and Copy is the run fallback; release note. Checked for direct writes and unconditional deletes: none."
+      "sha256": "bef40f52b766de5351f4417995b769183afc88022910b5973a0cd709717b40e2",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/flightdeck-edit-checklist/SKILL.md": {
-      "sha256": "56028f9830d9d3bc9031bb174e0ed8abc69a31102f3360c6edda8cb8a42f19f5",
-      "reviewed": "thoughtful authoring: design brief, library scan, realignment proposals, command discovery, offline checks; checked for direct writes and unconditional deletes"
+      "sha256": "88ab213599f07d6fb4643b9a1e8bc59efbf98069ecc6f4805cc227b90c0a8f91",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/flightdeck-learn-from-runs/SKILL.md": {
       "sha256": "2a47e763da23c3bcc8d198fef351366f5e5383eecf4550e96eca0f32ecb946e2",
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "example-folder/.flightdeck/skills/flightdeck-new-checklist/SKILL.md": {
-      "sha256": "c4f780239d68d314964f1f4179bd0cad37a1ec08a04a8c1d430d5add0293db0b",
-      "reviewed": "thoughtful authoring: design brief, library scan, realignment proposals, command discovery, offline checks; checked for direct writes and unconditional deletes"
+      "sha256": "97fa643dc12cb6fe72df6d1d86119b1782545d48c8dbf0adf9290715b3a8b64d",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/flightdeck-new-step-type/SKILL.md": {
       "sha256": "ebc4c1ec9435236eea4e59744940ab403cb9446fdaa90fce67b15915099a9c25",
@@ -197,8 +197,8 @@
       "reviewed": "Link-field name keeps its 2.x blocker with a separate tip; library inspect names step-type problems and version clashes; unknownTypes; baselines refreshed; checked for direct writes and unconditional deletes"
     },
     "src/core/appjson.js": {
-      "sha256": "d9884d985ee4018c9c8aa43cb74d275a068d4c995d59946e6d770321385ed276",
-      "reviewed": "Link-field name keeps its 2.x blocker with a separate tip; library inspect names step-type problems and version clashes; unknownTypes; baselines refreshed; checked for direct writes and unconditional deletes"
+      "sha256": "ea00012e4f30be1cb5c4bb1dfb95f8c7bc0b6505a97a5b11b50da12af3ecfb01",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/attach.js": {
       "sha256": "0e75bc0c0d748fe10aaf5657662e4ce8679c27f9d10d85c1e34891b1c9d58df0",
@@ -221,12 +221,12 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/envelope.js": {
-      "sha256": "18bd1881537b90f72b7fbddbfaef847ed1761ad229fe4ab64d161d3befd1859c",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "76ef3d21ad16c1a39c8aacec970362f5f59d5ff82ed8c1a2dfa02ff1358a2873",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/evidence.js": {
-      "sha256": "6c5e29ec868f0636c668d0842a85226314fa0e43c3d89f97370f74f94a3fb616",
-      "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
+      "sha256": "f3b2d1b62d72274f6169f873bae26689fb931b2dab4e2fae9a2335e5ec9b67e2",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/followups.js": {
       "sha256": "ee399703ee43c4408af48a9bbd816483f6c28039a4587815063ff0a175c8fea0",
@@ -241,28 +241,28 @@
       "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
     },
     "src/core/jira.js": {
-      "sha256": "48dc73ba1d25f03d8f6deefc0436658fc375491a65f4772ac83a0a79c73e1c03",
-      "reviewed": "A link field holding a plain name (spaces, no scheme, no other invisible character) gets 'takes a web link; put a name or file reference in a note' (PF.urls.nameLike, map.js); real links and invisible characters keep their messages; release note. Checked for direct writes and unconditional deletes: none."
+      "sha256": "4622510629eeafc4b8a393ddb6efbaf2b373d0b7e3a022329dd5e89eb51e04ae",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/library.js": {
-      "sha256": "52b6a3bb2bfd5bb265f2d8ca6a3b649eebc5c0a48553b7a8b7a0b22a2828bd1e",
-      "reviewed": "Link-field name keeps its 2.x blocker with a separate tip; library inspect names step-type problems and version clashes; unknownTypes; baselines refreshed; checked for direct writes and unconditional deletes"
+      "sha256": "d2bdd1b17a9866550097cf687ba5886a1f9a8abf3b6940581d3bafddd21895c1",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/links.js": {
-      "sha256": "3ceec1cb191551546f909245fed5dbd74d3f89eceb5ba727e448230fb0f5f867",
-      "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
+      "sha256": "7527347e7520f810f827a7dcec4de3a7f37723152b9018082af30d83928934b7",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/map.js": {
-      "sha256": "7caf48e2c17a750896101bd57661979db9c543c0f91414ea74622203b97bc4ee",
-      "reviewed": "Link-field name keeps its 2.x blocker with a separate tip; library inspect names step-type problems and version clashes; unknownTypes; baselines refreshed; checked for direct writes and unconditional deletes"
+      "sha256": "64dbce67307fa17ba3854627c1167e2523a1ff960b6b506cd217f2a0688ab703",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/nav.js": {
       "sha256": "58a621b0d76244c77a9988c3f2ec79b751fdeb8874190cf0ccfa6ab36295d9b1",
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "src/core/outline.js": {
-      "sha256": "f61716650821614f6ca89471892102f065f9779340718bb6f3d289ccabe1c5ea",
-      "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
+      "sha256": "4694f8cc17336cca98e79d3dee71b80a1c6612638d43beaff5a5c3a3dff093bb",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/people.js": {
       "sha256": "4fc89eb6e613f6deaf7d08cec22ce5a7ef7d75178bdebeced860ad09495e3ca3",
@@ -285,32 +285,32 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/publish.js": {
-      "sha256": "9b8ffd54389cf7b022e9f9d69d417bc084e75653a6f6fe2b100c4b1175ba1eda",
-      "reviewed": "Checks keep their 1.x words; blockerSteps and suggestionSteps carry the step's ID and excerpt; checked for direct writes and unconditional deletes"
+      "sha256": "6e2650cdea12189e7dbd1b48cc5f4ee1b60da43bb93ce2ec8f99302f5707ef20",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/refs.js": {
-      "sha256": "8ee15bbd8ef3bdeb6fc6c028e0c7ec0edfc444a3ff81679a46d385abc7395553",
-      "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
+      "sha256": "24b7d2b52fcd99673fcc427db286a7224af83342da19efcd561ac850d6baa441",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/reports.js": {
-      "sha256": "f80b52bda7596f9b2c7fa24757e9b199a048478258e62c2b58e19c83f4f93a31",
-      "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
+      "sha256": "2b73dd5843df8d85c8b6b5bfd4fade584423ee0c7986ae193f177a2a63b6d133",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/requests.js": {
       "sha256": "0ccd8fb703a3a16344d0357d00c6f9186bacc71ebcd8dcdb63d94247fb218468",
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "src/core/run.js": {
-      "sha256": "b527e96fc6ee123cb6be80519adb6b12a2ae7411d7308c6ffabd6c0e6cbff35d",
-      "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
+      "sha256": "3f36374d63f0cc181448469aa35d454d9539126c39baa7264c5f42ce0adef69a",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/save.js": {
       "sha256": "096b8282d8dd62623b608ad2a9ae6a8f78e5a8260615eaf74aa9c9fb9c3a3f26",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/search.js": {
-      "sha256": "14722c87877c2dfa9e741de970fb44a21b0a8a361b277d87dc1af4a859cc5618",
-      "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
+      "sha256": "f3a6d3546c2c09dfa171abcdb5cfa24130f42d284fceb18866a33981ec7ab106",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/setup.js": {
       "sha256": "e18f26a0e94bb8e9dcdaecee71e90278e149d7b3565d855eae87b4decec6d93a",
@@ -341,8 +341,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/types.js": {
-      "sha256": "14421d30b66e93e5f3d8b275092158cb492e287ac45c2ca6090598e7d3cbe76a",
-      "reviewed": "types.checkFields returns siteError only for a Jira search, so other types keep their shape. Checked for direct writes and unconditional deletes: none."
+      "sha256": "ded66e99b4d09a5c21a2c88f85e6e2e6ebb569ed63d094c21aea5eb4cbc91036",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/core/util.js": {
       "sha256": "975353b47ca87ce0923e77b95f25cc6b1955feb1b31abba556239f603c8797e2",
@@ -393,8 +393,8 @@
       "reviewed": "library inspect reads skill-registrations/ and names unread drafts and registrations; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "c3a380b52e8096231a5fce84ed0c9c19f550e2e3c50b120cee2403d60c88d625",
-      "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
+      "sha256": "91fef8b0208b36f9140d6bae073f69e7aa20b0d18b2cffe8181180ab261966c3",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
@@ -405,20 +405,20 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/ui/guide.js": {
-      "sha256": "f2d04fcf31b6984e9e5ad11cd67beb77e05ca64e24ed7ebdec429fb9afa81015",
-      "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
+      "sha256": "52782cd1c8ce093e62253b10dcc66cfafda02a6c599e19e2073a2554546b7fe3",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/ui/icons.js": {
       "sha256": "17e33779f844401bb36b1418df1939062f48fac3a48197bb216aa486e74a0ba1",
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/ui/views/builder.js": {
-      "sha256": "b9a7cef9b37b2cf99bf806f1cfc149a59c3d4be7a53be6911aadacf67736c38c",
-      "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
+      "sha256": "39bea9cd88c43808ff10675be81e1fb707a5b2cd24c8afcade7f2ec20af9fb09",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/ui/views/common.js": {
-      "sha256": "b7430124ae590c5f236c5499fbaec05edb4dc016e8f563f93783035015a1b709",
-      "reviewed": "2.16.2: option value check skips quoted attribute text; checked for direct writes and unconditional deletes"
+      "sha256": "e019b101c5cd2de3d50ba2553b5ca1d20fa56bfb18f20d0563b06efea7afa2a5",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/ui/views/detailbox.js": {
       "sha256": "480c1b6d1fe5867742bc6ac7ceffdf08f6cf6d8c378942974e6a8c8665b19744",
@@ -461,16 +461,16 @@
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "src/ui/views/process.js": {
-      "sha256": "24322dd6561e92148ecea67b6523828e18b61d1914354f4e173b520f04ec459a",
-      "reviewed": "Used by and similar: paged lists, partial when any version can't be read, empty states say among how many were read, links open the version that matched; step types' checklists paged; checked for direct writes and unconditional deletes"
+      "sha256": "6f74e1e8dae55b67748fac5dce91a51b38e763f7d1f517faeab4659a58726e6f",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/ui/views/reports.js": {
       "sha256": "5b1f9581d45a53bcb915ce479f4bef70ecb0e3c9132ae498baba4835a955f875",
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "src/ui/views/run.js": {
-      "sha256": "72cd9acdbc20a26742fabf45fe423045a069e9e86152be48e0ec723d5db1abba",
-      "reviewed": "2.16.2: JSON-reachable messages back to 2.16.1, run hint via hintOf, autocomplete dots, mirror exempt"
+      "sha256": "5925baf4a5482f43ca30e876187f95b4cd8d494d957e5074d3a1c509e82151e8",
+      "reviewed": "Module results (3.0 slice 2): result, =decision/=result bindings, accepts, held reason and Completed · result in core, UI, CLI contract 2, check_folder.py, docs and assistant skills; checked for direct writes and unconditional deletes"
     },
     "src/ui/views/setup.js": {
       "sha256": "2393b54abde45fa1ba4ac110f394984d29b04ca728c3f1a46e8c22fb2c60dd80",
