@@ -119,6 +119,8 @@ This is for another app, such as a scheduler or a deploy tool, that needs a run.
 
 The app runs `flightdeck plan request <team folder> <request.json> --key <key> --json`. It writes one planned run to `proposals/`, once, for a person to start in Flightdeck; the same key and request again writes nothing. It never starts a run. Add `--dry-run` to see what it would write.
 
+The CLI asks; the recorder applies. `loop start --item`, `loop start-all`, `loop approve` and `loop send-back [--reason]`, each with `--as <person id>` and `--dry-run` to preview, file a request; the recorder's window starts the runs or records the approval, and `loop read` shows each request as pending, applied or refused. Never write `run.json` yourself.
+
 Exit code 0 is requested, already requested, or (with `--dry-run`) what it would write; 4 nothing written, because something it depends on couldn't be read; 1 refused; 5 no such process or version. The request's format is in docs/apps.md of the Flightdeck repository.
 
 ### Loops

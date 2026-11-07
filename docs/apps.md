@@ -572,6 +572,23 @@ flightdeck loop review  <same> --accept ABC-103,ABC-107 | --keep ABC-103 --as <p
 
 Every command prints `flightdeck-read/2` (with `--json`) or plain words. `--dry-run` previews and writes nothing. The same `--tool` and `--key` always mean the same request: a retry writes nothing and says `already`; the same key with other content is refused (`key-taken`), naming the changed fields.
 
+### The CLI asks; the recorder applies
+
+`flightdeck` never writes `run.json`. Starting a story's run, approving the loop and sending the approval back change the run, so the CLI files them as requests in `proposals/`, and the recorder's window carries them out with the same checks as its buttons:
+
+```
+flightdeck loop start      <same> --item ABC-101 --as <person id> --tool ... --key ... [--dry-run]
+flightdeck loop start-all  <same> --as <person id> --tool ... --key ... [--dry-run]
+flightdeck loop approve    <same> --as <person id> --tool ... --key ... [--dry-run]
+flightdeck loop send-back  <same> --as <person id> [--reason <why>] --tool ... --key ... [--dry-run]
+```
+
+`--dry-run` prints the plain-text preview: which story runs would start and which are skipped and why (already started, approved without a run, removed, waiting on a removal decision, a missing input), or the roll-up an approval would record. `start-all` lists exactly the runs the app's **Start all under my recording…** would start. Without `--dry-run` the request is filed (`requested`); no run starts and nothing is approved until the recorder's window applies it.
+
+The recorder's window applies each request once and writes `<request>.status-<writer>-<rev>.json` with `op` `applied` or `refused` and the reason in plain words (for example "It can't be approved yet: 2 in scope · 1 not started."). `loop read` lists them under `requests`, each `pending`, `applied` or `refused`, and the run screen shows the ones still waiting and the refused ones with why.
+
+An approval whose snapshot no longer matches the loop's roll-up doesn't count, in every window and in `flightdeck run` and `next`, before any save lands; the recorder's window then sends it back for review and saves that.
+
 ### The observation
 
 `sync` takes what the tool read from the source, whole, never a summary:

@@ -1289,7 +1289,22 @@ A `{for.each}` step starts one run of a child checklist for each item in a list,
 - **Runs.** A person starts each item's run from the list. The child names `parent.item { uid, key, attempt }` and the `loops` feature; the parent's `run.json` is not written when a child starts. The roll-up (`PF.loop.rollup`) keeps scope, outcome and exception apart and counts exactly: "11 in scope · 9 cleared by validation · 1 approved without a run · 1 needs work". Two current runs for one item hold it until a person chooses.
 - **Approval is sticky.** Approving stores the records seen, every item with its state, result and run, and the counts in the step's answer (`steps.<id>.loop`). Any later change (an item added, removed or restored, an exception given or withdrawn, a result changed) is listed in words, all of them; the recorder sends the approval back for review (`R.unsettleLoop`), which keeps the earlier approval in the step's history and sends an approved gate to review. Nothing returns to approved by itself. After the run ended, changes show as read-only late arrivals.
 - **The command line.** `flightdeck loop read | sync | add | exclude | restore | exception | withdraw | owner | review` reads a loop and asks for changes by writing one file in `proposals/`, once (an exclusive write). The same `--tool` and `--key` always mean the same request: a retry writes nothing (`already`), other content is refused (`key-taken`), and an uncertain write advises a retry with the same key, never a new one. `--dry-run` previews in plain words (docs/apps.md, Loops). It never starts a run.
-- **Parity.** The run screen offers the same changes (add, remove, restore, approve without a run, withdraw, keep or remove a proposed removal) through `repo.saveScope`, plus Start its run, Approve and Send the approval back for review. Owner changes are command-line only for now.
+- **Parity.** Every action is in both the run screen and `flightdeck loop`:
+
+  | Action | Run screen | CLI |
+  |---|---|---|
+  | Read the list, counts, blockers, approval and changes | the loop's table and notices | `loop read` |
+  | Add, remove, restore, approve without a run, withdraw | row buttons, Add stories | `loop add`, `exclude`, `restore`, `exception`, `withdraw` |
+  | Keep or remove a proposed removal | Keep, Remove | `loop review --keep / --accept` |
+  | Owner | Make me the owner (Start mine for the owner) | `loop owner` |
+  | Sync from a search | (a tool's job) | `loop sync` |
+  | Start a story's run | Start its run / Start mine | `loop start` (a request) |
+  | Start every startable story | Start all under my recording… (preview, confirm, cancel) | `loop start-all [--dry-run]` (a request) |
+  | Approve the loop | Approve | `loop approve` (a request) |
+  | Send the approval back | Send the approval back for review | `loop send-back` (a request) |
+
+  The CLI asks; the recorder applies: the CLI never writes `run.json`. Its start, approve and send-back requests are scope records the recorder's window applies once, with the same checks as the buttons, recording `applied` or `refused` with why; `loop read` and the run screen show each as pending, applied or refused.
+- **Holds.** An approval whose snapshot no longer matches the roll-up doesn't count anywhere (`PF.loop.markStale`, read-only, in every window and in `run`/`next`); the recorder's automatic send-back is the saved record. A scope record that can't be read holds the loop, and the window keeps the last readable view (memory only) beside the hold. Back from a story's run, the table keeps its page, its filter and focus on that story's row.
 - **Compatibility.** `test/compat-loops.test.js`: every recorded copy refuses the loop version and both runs by name, can't publish the draft, never offers the scope request as a plan, and writes nothing; the baseline folder stays recordable.
 - **Rehearsal.** The two-computer OneDrive rehearsal (`docs/onedrive.md`) gains three cases: two people changing one loop's list at once (a review, never a lost change); a scope record arriving late after an approval (the approval needs review, listing it); and a story's run completing after the parent ended (shown as a late arrival, never changing the ended run). Not rehearsed yet.
 - **Tests.** `test/loops.test.js` (syntax, ledger, storage, roll-up, approval, preview, Python parity), `test/loop-cli.test.js`, `test/app-loops.test.js` and `test/compat-loops.test.js`.
