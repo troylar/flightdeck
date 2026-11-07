@@ -80,6 +80,84 @@ rule('A loop imports no result into a detail and can\'t start its own checklist'
   has(check(PARENT(['  process: release-readiness', '  items: jira.issue', '  accepts: cleared'])).blockers, /can't start a run of its own process/);
 });
 
+/* ---------- The scope ledger (pure) ---------- */
+const LP = PF.loop;
+const story = (n, t) => ({ id: String(10000 + n), key: 'ABC-' + n, title: t || 'Story ' + n });
+const obs = (ns, o) => Object.assign({ source: { system: 'jira' }, generation: 'g1', query: 'fixVersion = 4.1', observedAt: '2026-11-07T09:00:00Z',
+  items: ns.map(n => story(n)), reported: ns.length, fetched: ns.length, complete: true, errors: [] }, o || {});
+const req = (id, seen, o) => Object.assign({ id, type: 'request', seen: seen || [], by: { tool: 'release-helper', version: '1.0' }, observation: null, changes: [], children: [] }, o || {});
+const dec = (id, seen, proposal, op, items, who) => ({ id, type: 'decision', seen, proposal, op, items, by: { person: who || 'person-morgan' } });
+const states = (L) => L.items.map(x => x.key + ':' + x.state + (x.review.length ? '!' : '') + (x.mismatch ? '~' : ''));
+
+rule('An observation adds its items; a complete later one that lacks an item proposes its removal and keeps it required', () => {
+  const L = LP.reduce([req('r1', [], { observation: obs([101, 102, 103]) }), req('r2', ['r1'], { observation: obs([101, 102, 104]) })]);
+  same(states(L), ['ABC-101:in', 'ABC-102:in', 'ABC-103:proposed', 'ABC-104:in']);
+  same(L.pending, [{ uid: 'jira:10103', key: 'ABC-103', proposal: 'r2' }]);
+  same(L.heads, ['r2']);
+});
+rule('An incomplete observation adds what it found and proposes nothing: absence is never removal', () => {
+  const L = LP.reduce([req('r1', [], { observation: obs([101, 102]) }), req('r2', ['r1'], { observation: obs([103], { complete: false, reported: 3, fetched: 1, errors: ['Page 2 failed'] }) })]);
+  same(states(L), ['ABC-101:in', 'ABC-102:in', 'ABC-103:in']);
+  same(L.pending, []);
+});
+rule('Accepting a removal removes the item; restoring brings it back with its earlier attempts', () => {
+  const recs = [req('r1', [], { observation: obs([101, 102]), children: [{ item: story(102), attempt: 1, inputs: { issue: 'ABC-102' } }] }),
+    req('r2', ['r1'], { observation: obs([101]) }), dec('d1', ['r2'], 'r2', 'accept', ['jira:10102'])];
+  let L = LP.reduce(recs);
+  same(states(L), ['ABC-101:in', 'ABC-102:removed']);
+  L = LP.reduce(recs.concat([req('r3', ['d1'], { by: { person: 'person-morgan' }, changes: [{ op: 'restore', item: { key: 'ABC-102' }, reason: 'Back in' }] })]));
+  same(states(L), ['ABC-101:in', 'ABC-102:in']);
+  same(L.items[1].attempt, 1, 'the earlier attempt is kept');
+  same(L.items[1].provenance.map(p => p.op), ['add', 'propose-removal', 'accept-removal', 'restore']);
+});
+rule('Contrary decisions made at once leave the item needing review and required, until a decision that saw both', () => {
+  const base = [req('r1', [], { observation: obs([101]) }), req('r2', ['r1'], { observation: obs([]) })];
+  let L = LP.reduce(base.concat([dec('d1', ['r2'], 'r2', 'accept', ['jira:10101'], 'person-morgan'), dec('d2', ['r2'], 'r2', 'keep', ['jira:10101'], 'person-avery')]));
+  same(states(L), ['ABC-101:in!']);
+  same(L.items[0].review[0].ops, ['accept', 'keep']);
+  L = LP.reduce(base.concat([dec('d1', ['r2'], 'r2', 'accept', ['jira:10101']), dec('d2', ['r2'], 'r2', 'keep', ['jira:10101']), dec('d3', ['d1', 'd2'], 'r2', 'accept', ['jira:10101'])]));
+  same(states(L), ['ABC-101:removed']);
+});
+rule('A person may exclude an item the source still has: it stays flagged as a mismatch', () => {
+  const L = LP.reduce([req('r1', [], { observation: obs([101, 102]) }), req('r2', ['r1'], { by: { person: 'person-morgan' }, changes: [{ op: 'exclude', item: { key: 'ABC-102' }, reason: 'Ships in 4.2' }] }),
+    req('r3', ['r2'], { observation: obs([101, 102]) })]);
+  same(states(L), ['ABC-101:in', 'ABC-102:removed~']);
+  same(L.items[1].removed.reason, 'Ships in 4.2');
+});
+rule('Records are reduced in causal order, never by clock; the same record twice counts once', () => {
+  const a = req('r1', [], { observation: obs([101]) }), b = req('r2', ['r1'], { observation: obs([102], { complete: false }) });
+  same(states(LP.reduce([b, a, a])), states(LP.reduce([a, b])));
+  same(LP.causal([b, a]).order.map(r => r.id), ['r1', 'r2']);
+});
+rule('A record that names one this copy can\'t read is held with what follows it; nothing of theirs applies', () => {
+  const L = LP.reduce([req('r1', [], { observation: obs([101]) }), req('r2', ['r1', 'gone'], { observation: obs([]) }), req('r3', ['r2'], { changes: [{ op: 'exclude', item: { key: 'ABC-101' } }] })]);
+  same(states(L), ['ABC-101:in']);
+  same(L.held.map(h => h.record).sort(), ['r2', 'r3']);
+  same(L.held.filter(h => h.record === 'r2')[0].missing, ['gone']);
+});
+rule('Planned children: one per item and attempt, whoever asked first; a second plan is noted, not applied', () => {
+  const k = (who) => ({ item: story(101), attempt: 1, inputs: { issue: 'ABC-101' }, owner: who });
+  const L = LP.reduce([req('r1', [], { observation: obs([101]), children: [k('person-avery')] }), req('r2', ['r1'], { children: [k('person-morgan')] })]);
+  same([L.items[0].attempt, L.items[0].owner, L.items[0].planned.record], [1, 'person-avery', 'r1']);
+  same(L.duplicates.map(d => d.record), ['r2']);
+});
+rule('Exceptions and owners are decisions on an item; withdrawing restores the plain state', () => {
+  const L = LP.reduce([req('r1', [], { observation: obs([101]) }), req('r2', ['r1'], { by: { person: 'person-casey' }, changes: [{ op: 'exception', item: { key: 'ABC-101' }, reason: 'Docs only', approver: 'person-morgan', onBehalf: true }, { op: 'owner', item: { key: 'ABC-101' }, owner: 'person-avery' }] })]);
+  same([L.items[0].exception.approver, L.items[0].exception.onBehalf, L.items[0].owner], ['person-morgan', true, 'person-avery']);
+  const W = LP.reduce([req('r1', [], { observation: obs([101]) }), req('r2', ['r1'], { changes: [{ op: 'exception', item: { key: 'ABC-101' }, reason: 'x', approver: 'p' }] }), req('r3', ['r2'], { changes: [{ op: 'withdraw', item: { key: 'ABC-101' } }] })]);
+  same(W.items[0].exception, null);
+});
+rule('A key added by hand meets its id when an observation reports it: one item', () => {
+  const L = LP.reduce([req('r1', [], { by: { person: 'person-morgan' }, changes: [{ op: 'add', item: { key: 'ABC-101' } }] }), req('r2', ['r1'], { observation: obs([101, 102]) })]);
+  same(L.items.map(x => x.uid), ['jira:10101', 'jira:10102']);
+});
+rule('Sixty items, and more than max: every one stays, the overflow is named, nothing is cut', () => {
+  const ns = Array.from({ length: 60 }, (_, i) => 101 + i);
+  const L = LP.reduce([req('r1', [], { observation: obs(ns) })], { max: 50 });
+  same([L.items.length, L.overLimit], [60, { count: 60, max: 50 }]);
+  same(LP.reduce([req('r1', [], { observation: obs(ns) })]).overLimit, null);
+});
+
 const CHECKER = path.join(__dirname, '..', 'example-folder', '.flightdeck', 'skills', '_flightdeck', 'check_folder.py');
 function python() { for (const c of ['python3', 'python']) { try { cp.execFileSync(c, ['--version'], { stdio: 'ignore' }); return c; } catch (e) { /* try next */ } } return null; }
 rule('check_folder.py --draft gives a loop the app\'s blockers word for word, and the same features', () => {
