@@ -158,6 +158,74 @@ rule('Sixty items, and more than max: every one stays, the overflow is named, no
   same(LP.reduce([req('r1', [], { observation: obs(ns) })]).overLimit, null);
 });
 
+/* ---------- Scope requests and decisions in proposals/ ---------- */
+const LOOPT = { process: 'release-readiness', run: 'r-41', step: 'each' };
+const intentOf = (o) => Object.assign({ loop: LOOPT, observation: obs([101, 102]), changes: [] }, o || {});
+rule('A scope request is flightdeck-plan/3 with loops: an older copy calls it newer, this one never reads it as a plan', () => {
+  const c = LP.cleanIntent(intentOf(), 'import-42', { name: 'release-helper', version: '1.0' });
+  same(c.errors, []);
+  const f = LP.buildRequest(c.intent, { seen: [], children: [], now: '2026-11-07T09:01:00Z', app: '3.0.0' });
+  same([f.format, f.features, f.id.slice(0, 19)], ['flightdeck-plan/3', ['loops'], 'req-release-helper-']);
+  assert.notStrictEqual(f.id, PF.requests.idFor('release-helper', 'import-42'), 'never the name a plan request with that key gets');
+  const pv = PF.plans.clean(JSON.parse(LP.text(f)), f.id + '.json', false);
+  same([pv.ok, pv.kind], [false, 'malformed'], 'the plan reader never takes it');
+  const back = LP.cleanRequest(JSON.parse(LP.text(f)), f.id + '.json');
+  same([back.ok, back.record.type, back.record.loop, back.record.observation.items.length], [true, 'request', LOOPT, 2]);
+});
+rule('The observation is checked: ids, keys, totals, pagination; complete only when it says so and adds up', () => {
+  const bad = LP.cleanIntent(intentOf({ observation: Object.assign(obs([101]), { items: [{ id: 'x', key: 'abc-1' }] }) }), 'k', { name: 't', version: '1' });
+  has(bad.errors, /"id" is the issue's id/); has(bad.errors, /"key" is an issue key/);
+  const short = LP.cleanIntent(intentOf({ observation: obs([101], { reported: 3, fetched: 1, complete: true }) }), 'k', { name: 't', version: '1' });
+  same([short.errors, short.intent.observation.complete, short.intent.observation.why], [[], false, 'it read 1 of 3 reported matches']);
+  has(LP.cleanIntent(intentOf({ observation: obs([101], { complete: 'yes' }) }), 'k', { name: 't', version: '1' }).errors, /"complete" is true or false/);
+  const big = LP.cleanIntent(intentOf({ observation: obs(Array.from({ length: 501 }, (_, i) => 101 + i)) }), 'k', { name: 't', version: '1' });
+  has(big.errors, /at most 500 items; this one has 501. Nothing is cut/);
+});
+rule('The canonical intent ignores order and the tool\'s version; a different one names what changed', () => {
+  const a = LP.cleanIntent(intentOf(), 'k', { name: 'release-helper', version: '1.0' }).intent;
+  const b = LP.cleanIntent(intentOf({ observation: Object.assign(obs([101, 102]), { items: [story(102), story(101)] }) }), 'k', { name: 'release-helper', version: '2.0' }).intent;
+  const f = LP.buildRequest(a, { seen: [], children: [], now: 'x', app: '3.0.0' });
+  same(LP.differs(b, f), []);
+  const c = LP.cleanIntent(intentOf({ changes: [{ op: 'exclude', item: { key: 'ABC-101' }, reason: 'Ships later' }] }), 'k', { name: 'release-helper', version: '1.0' }).intent;
+  same(LP.differs(c, f), ['changes']);
+});
+rule('A decision is flightdeck-plan-status/3 with loops, immutable and named after its request', () => {
+  const d = LP.buildDecision({ proposal: 'req-release-helper-0123456789abcdef01234567', loop: LOOPT, op: 'accept', items: ['jira:10101'], seen: ['req-release-helper-0123456789abcdef01234567'], reason: 'Moved out', by: 'person-morgan', writer: 'w1', rev: 'a1b2c3d4', now: 'x', app: '3.0.0' });
+  same([d.name, d.file.format, d.file.features], ['req-release-helper-0123456789abcdef01234567.status-w1-a1b2c3d4.json', 'flightdeck-plan-status/3', ['loops']]);
+  same(PF.plans.clean(d.file, d.name, false).ok, false);
+  const back = LP.cleanDecision(JSON.parse(JSON.stringify(d.file)), d.name);
+  same([back.ok, back.record.type, back.record.op, back.record.items], [true, 'decision', 'accept', ['jira:10101']]);
+  same(LP.cleanDecision(Object.assign({}, d.file, { op: 'shrug' }), d.name).ok, false);
+});
+
+/* ---------- Storage: the folder reader dispatches scope records before plans ---------- */
+const memFs = (files) => { const m = new PF.fs.MemoryFS('loops-' + Math.random(), null); Object.keys(files || {}).forEach(p => { m.files[p] = { t: files[p], m: 1 }; }); return m; };
+const reqFile = (key, o) => { const c = LP.cleanIntent(intentOf(o), key, { name: 'release-helper', version: '1.0' }); same(c.errors, []); return LP.buildRequest(c.intent, { seen: (o && o.seen) || [], children: [], now: '2026-11-07T09:01:00Z', app: '3.0.0' }); };
+rule('readPlans reads scope requests and decisions as scope records, never as plans, and a plan beside them as before', async () => {
+  const f = reqFile('import-1'), d = LP.buildDecision({ proposal: f.id, loop: LOOPT, op: 'keep', items: ['jira:10101'], seen: [f.id], by: 'person-morgan', writer: 'w1', rev: '0a0b0c0d', now: 'x', app: '3.0.0' });
+  const plan = { kind: 'plan', id: 'plan-abc', process: 'release-readiness', version: 1, title: 'Release', details: {}, roles: {} };
+  const m = memFs({ ['proposals/' + f.id + '.json']: LP.text(f), ['proposals/' + d.name]: LP.text(d.file), 'proposals/plan-abc.json': JSON.stringify(plan) });
+  const bad = [], got = await PF.repo.readPlans(m, bad, null, true);
+  same([got.plans.map(p => p.id), got.statuses.length, got.scopes.map(r => r.type).sort(), bad], [['plan-abc'], 0, ['decision', 'request'], []]);
+  const all = await PF.repo.loadAll(m, {});
+  same([all.plans.map(p => p.id), all.scopes.length], [['plan-abc'], 2]);
+});
+rule('saveScope writes a scope record once and never replaces one', async () => {
+  const f = reqFile('import-2'), m = memFs({});
+  await PF.repo.saveScope(m, f.id + '.json', f);
+  same(JSON.parse(m.files['proposals/' + f.id + '.json'].t).id, f.id);
+  same((await PF.repo.saveScope(m, f.id + '.json', Object.assign({}, f, { created: 'later' }))).conflict, true);
+  same(JSON.parse(m.files['proposals/' + f.id + '.json'].t).created, '2026-11-07T09:01:00Z');
+  await assert.rejects(PF.repo.saveScope(m, 'plan-x.json', f), /isn't the name of a scope record/);
+});
+rule('A OneDrive copy that says the same counts once; copies that differ hold the request and everything after it', () => {
+  const a = LP.cleanRequest(JSON.parse(LP.text(reqFile('k'))), reqFile('k').id + '.json').record;
+  const same2 = Object.assign({}, a, { _file: a.id + '-LAPTOP.json' }), other = Object.assign({}, a, { _file: a.id + ' (1).json', changes: [{ op: 'exclude', item: { id: '', key: 'ABC-101', title: '' }, reason: 'x' }] });
+  same(LP.reduce([a, same2]).held, []);
+  const L = LP.reduce([a, other]);
+  same([L.held.map(h => h.record), L.held[0].why, L.items.length], [[a.id], 'copies', 0]);
+});
+
 const CHECKER = path.join(__dirname, '..', 'example-folder', '.flightdeck', 'skills', '_flightdeck', 'check_folder.py');
 function python() { for (const c of ['python3', 'python']) { try { cp.execFileSync(c, ['--version'], { stdio: 'ignore' }); return c; } catch (e) { /* try next */ } } return null; }
 rule('check_folder.py --draft gives a loop the app\'s blockers word for word, and the same features', () => {

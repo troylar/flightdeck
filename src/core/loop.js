@@ -28,21 +28,28 @@ PF.loop = (function () {
   /* Each record's ancestors (every record it saw, transitively), and the causal order. A record that names one this copy
      can't read is held, with everything after it that saw it: nothing of theirs is applied. */
   function causal(records) {
-    var by = Object.create(null), order = [], held = [], anc = Object.create(null);
-    records.forEach(function (r) { if (r && typeof r.id === 'string' && !by[r.id]) by[r.id] = r; });
+    var by = Object.create(null), order = [], held = [], anc = Object.create(null), split = Object.create(null);
+    /* OneDrive copies of one record (the same id): counted once when they say the same thing; when they differ, which is
+       meant isn't known, so the record is held, with everything after it. */
+    function body(r) { var o = {}; Object.keys(r).forEach(function (k) { if (k[0] !== '_' && k !== 'created') o[k] = r[k]; }); return JSON.stringify(canon(o)); }
+    records.forEach(function (r) {
+      if (!r || typeof r.id !== 'string') return;
+      if (!by[r.id]) by[r.id] = r; else if (body(by[r.id]) !== body(r)) split[r.id] = true;
+    });
     var ids = Object.keys(by).sort(cmpStr), state = Object.create(null);
     function visit(id) {
       if (state[id] === 2) return anc[id] !== null;
       if (state[id] === 1) return false;
       state[id] = 1;
       var r = by[id], a = Object.create(null), ok = true, missing = [];
+      if (split[id]) { state[id] = 2; anc[id] = null; held.push({ record: id, missing: [], why: 'copies' }); return false; }
       (r.seen || []).forEach(function (s) {
         if (!by[s]) { ok = false; missing.push(s); return; }
         if (!visit(s)) { ok = false; return; }
         a[s] = true; Object.keys(anc[s]).forEach(function (x) { a[x] = true; });
       });
       state[id] = 2;
-      if (!ok) { anc[id] = null; held.push({ record: id, missing: missing }); return false; }
+      if (!ok) { anc[id] = null; held.push({ record: id, missing: missing, why: missing.length ? 'missing' : 'after' }); return false; }
       anc[id] = a; return true;
     }
     ids.forEach(visit);
@@ -157,5 +164,204 @@ PF.loop = (function () {
       overLimit: inScope > max ? { count: inScope, max: max } : null };
   }
 
-  return { KINDS: KINDS, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce };
+  /* ---- Scope requests and decisions: files in proposals/, beside plans (docs/design.md 44). ----
+     A scope request is flightdeck-plan/3 with the loops feature, so every copy before 3.0 calls it a plan made with a newer
+     Flightdeck and never offers it; this copy dispatches it here before the plan reader. A decision is
+     flightdeck-plan-status/3, named <request>.status-<writer>-<rev>.json, written once and never changed. */
+  var FORMAT = 'flightdeck-plan/3', STATUS = 'flightdeck-plan-status/3', FEATURES = ['loops'];
+  var ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
+  var PROC = /^[a-z0-9][a-z0-9-]{0,59}$/, RUN = /^[a-z0-9-]{1,40}$/i, STEP = /^[a-z0-9][a-z0-9-]{0,59}$/i, PERSON = /^[A-Za-z0-9_.-]{1,80}$/;
+  var REQ = /^req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24}$/, WRITER = /^[a-z0-9][a-z0-9-]{0,39}$/, REV = /^[0-9a-f]{8}$/, DNAME = /^(req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})\.status-([a-z0-9][a-z0-9-]{0,39})-([0-9a-f]{8})\.json$/;
+  var OPS = ['add', 'exclude', 'restore', 'owner', 'exception', 'withdraw'], DOPS = ['accept', 'keep'];
+  var LIMITS = { bytes: 262144, title: 200, reason: 300, query: 500, generation: 80, errors: 20, error: 200, changes: 500, inputs: 40, input: 240, seen: 50 };
+  var CONTROL = /[\u0000-\u001f\u007f\u2028\u2029]/;
+  function isMap(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
+  function reserved(k) { return k === '__proto__' || k === 'constructor' || k === 'prototype' || k in Object.prototype; }
+  function q(k) { return '"' + String(k).slice(0, 70) + '"'; }
+  function sorted(m) { var o = {}; Object.keys(m).sort().forEach(function (k) { o[k] = m[k]; }); return o; }
+  function canon(v) {
+    if (Array.isArray(v)) return v.map(canon);
+    if (isMap(v)) { var o = {}; Object.keys(v).sort().forEach(function (k) { o[k] = canon(v[k]); }); return o; }
+    return v;
+  }
+  /* The request's id and file stem: like a plan request's (PF.requests.idFor), from the tool's name and the key, but over
+     ['scope', tool, key], so a scope request and a plan request with the same key never share a name. */
+  function idFor(tool, key) { return 'req-' + tool + '-' + PF.sha256.hex(JSON.stringify(['scope', tool, key])).slice(0, 24); }
+  function isScope(o) { return isMap(o) && typeof o.format === 'string' && (o.format === FORMAT || o.format === STATUS); }
+  function line(v, max, what, errors, opt) {
+    if (v == null && opt) return '';
+    if (typeof v !== 'string' || (!opt && !v.trim())) { errors.push(what + ' is text.'); return null; }
+    if (v.length > max) { errors.push(what + ' is ' + v.length + ' characters; the most is ' + max + '.'); return null; }
+    if (CONTROL.test(v)) { errors.push(what + ' has a line break or another control character.'); return null; }
+    return v;
+  }
+  function whole(v) { return typeof v === 'number' && isFinite(v) && Math.floor(v) === v && v >= 0 && v <= 1e6; }
+  /* One item as a source reports it: { id, key, title }, for a kind (jira.issue). id may be left out where it isn't known
+     (a key pasted by hand); key never. */
+  function cleanItem(it, errors, where, kind) {
+    var K = KINDS[kind || 'jira.issue'], out = { id: '', key: '', title: '' };
+    if (!isMap(it)) { errors.push(where + ' is {"id": "10042", "key": "ABC-101", "title": "..."}.'); return null; }
+    Object.keys(it).forEach(function (k) { if (['id', 'key', 'title', 'status', 'assignee'].indexOf(k) < 0) errors.push(where + ' has ' + q(k) + '; an item has id, key, title, status and assignee.'); });
+    if (it.id != null && it.id !== '') { if (typeof it.id !== 'string' || !K.id.test(it.id)) errors.push(where + ': "id" is the issue\'s id, digits only, like "10042".'); else out.id = it.id; }
+    if (typeof it.key !== 'string' || !K.key.test(it.key)) errors.push(where + ': "key" is an issue key, like ABC-101.'); else out.key = it.key;
+    var t = line(it.title, LIMITS.title, where + ' "title"', errors, true); if (t) out.title = t;
+    ['status', 'assignee'].forEach(function (k) { var v = line(it[k], 80, where + ' ' + q(k), errors, true); if (v) out[k] = v; });
+    return out;
+  }
+  /* An observation (docs/apps.md, flightdeck loop sync): what a tool read from the source, whole. complete is true only when
+     it says so and its numbers add up; why says what's missing otherwise. */
+  function cleanObservation(o, errors) {
+    if (!isMap(o)) { errors.push('The observation is a JSON object with source, generation, query, observedAt, items, reported, fetched, complete and errors.'); return null; }
+    var KEYS = ['source', 'generation', 'query', 'observedAt', 'items', 'reported', 'fetched', 'complete', 'errors'];
+    Object.keys(o).forEach(function (k) { if (KEYS.indexOf(k) < 0) errors.push('The observation has ' + q(k) + ', which an observation doesn\'t have. It has: ' + KEYS.join(', ') + '.'); });
+    var out = { source: { system: 'jira' }, generation: '', query: '', observedAt: '', items: [], reported: 0, fetched: 0, complete: false, errors: [] };
+    if (!isMap(o.source) || o.source.system !== 'jira' || Object.keys(o.source).some(function (k) { return k !== 'system' && k !== 'site'; })) errors.push('"source" is {"system": "jira", "site": "<its address>"}.');
+    else { out.source = { system: 'jira' }; if (o.source.site != null) { var st = line(o.source.site, 200, '"source" site', errors); if (st) out.source.site = st; } }
+    var g = line(o.generation, LIMITS.generation, '"generation"', errors); if (g) out.generation = g;
+    var qy = line(o.query, LIMITS.query, '"query"', errors); if (qy) out.query = qy;
+    if (typeof o.observedAt !== 'string' || !ISO.test(o.observedAt) || isNaN(Date.parse(o.observedAt))) errors.push('"observedAt" is a date and time with its zone, like 2026-11-07T09:42:00Z.');
+    else out.observedAt = new Date(Date.parse(o.observedAt)).toISOString();
+    ['reported', 'fetched'].forEach(function (k) { if (!whole(o[k])) errors.push(q(k) + ' is a whole number.'); else out[k] = o[k]; });
+    if (typeof o.complete !== 'boolean') errors.push('"complete" is true or false: whether every page of the search was read.');
+    if (!Array.isArray(o.errors) || o.errors.length > LIMITS.errors) errors.push('"errors" is a list of at most ' + LIMITS.errors + ' messages ([] when none).');
+    else o.errors.forEach(function (e, i) { var t = line(e, LIMITS.error, '"errors" ' + (i + 1), errors); if (t) out.errors.push(t); });
+    if (!Array.isArray(o.items)) errors.push('"items" is a list of the items found.');
+    else if (o.items.length > MAX_ITEMS) errors.push('An observation holds at most ' + MAX_ITEMS + ' items; this one has ' + o.items.length + '. Nothing is cut: narrow the search or raise max: within the limit.');
+    else {
+      var keys = Object.create(null), ids = Object.create(null);
+      o.items.forEach(function (it, i) {
+        var c = cleanItem(it, errors, 'Item ' + (i + 1));
+        if (!c) return;
+        if (!c.id) errors.push('Item ' + (i + 1) + ': an observation gives each issue\'s "id".');
+        if (keys[c.key] || (c.id && ids[c.id])) { errors.push('Item ' + (i + 1) + ' (' + c.key + ') is listed twice.'); return; }
+        keys[c.key] = true; if (c.id) ids[c.id] = true;
+        out.items.push(c);
+      });
+    }
+    out.complete = o.complete === true;
+    if (out.complete) {
+      var why = out.errors.length ? 'the search reported errors' : out.fetched < out.reported ? 'it read ' + out.fetched + ' of ' + out.reported + ' reported matches' :
+        out.items.length !== out.fetched ? 'it lists ' + out.items.length + ' items but says it read ' + out.fetched : '';
+      if (why) { out.complete = false; out.why = why; }
+    } else out.why = 'the observation says it isn\'t complete';
+    out.items.sort(function (a, b) { return cmpStr(a.id || a.key, b.id || b.key); });
+    return out;
+  }
+  function cleanLoop(l, errors) {
+    if (!isMap(l) || !PROC.test(String(l.process)) || !RUN.test(String(l.run)) || !STEP.test(String(l.step)) || Object.keys(l).length !== 3) { errors.push('"loop" is {"process": "<checklist>", "run": "<run id>", "step": "<the loop step\'s id>"}.'); return null; }
+    return { process: l.process, run: l.run, step: l.step };
+  }
+  function cleanChanges(list, errors) {
+    var out = [];
+    if (list == null) return out;
+    if (!Array.isArray(list) || list.length > LIMITS.changes) { errors.push('"changes" is a list of at most ' + LIMITS.changes + ' changes.'); return out; }
+    list.forEach(function (ch, i) {
+      var where = 'Change ' + (i + 1);
+      if (!isMap(ch) || OPS.indexOf(ch.op) < 0) { errors.push(where + ' is {"op": ' + OPS.map(q).join(' | ') + ', "item": {...}}.'); return; }
+      Object.keys(ch).forEach(function (k) { if (['op', 'item', 'reason', 'owner', 'approver', 'onBehalf'].indexOf(k) < 0) errors.push(where + ' has ' + q(k) + '.'); });
+      var it = cleanItem(ch.item, errors, where + ' item'), c = { op: ch.op, item: it };
+      if (!it) return;
+      if (ch.op === 'exclude' || ch.op === 'exception') { var r = line(ch.reason, LIMITS.reason, where + ' "reason"', errors); if (r) c.reason = r; }
+      else if (ch.reason != null) { var r2 = line(ch.reason, LIMITS.reason, where + ' "reason"', errors, true); if (r2) c.reason = r2; }
+      if (ch.op === 'owner') { if (ch.owner !== '' && (typeof ch.owner !== 'string' || !PERSON.test(ch.owner))) errors.push(where + ': "owner" is a person\'s ID from people.json, or "" for none.'); else c.owner = ch.owner; }
+      if (ch.op === 'exception') {
+        if (typeof ch.approver !== 'string' || !PERSON.test(ch.approver)) errors.push(where + ': "approver" is the person\'s ID from people.json who approved it.'); else c.approver = ch.approver;
+        if (ch.onBehalf != null && typeof ch.onBehalf !== 'boolean') errors.push(where + ': "onBehalf" is true or false.'); else c.onBehalf = ch.onBehalf === true;
+      }
+      out.push(c);
+    });
+    return out;
+  }
+  /* What a call asks for: { loop, observation, changes } from a tool (producer { name, version }) or a person. */
+  function cleanIntent(v, key, producer) {
+    var errors = [];
+    if (!isMap(v)) return { intent: null, errors: ['A scope request is {"loop": {...}, "observation": {...}, "changes": [...]}.'] };
+    Object.keys(v).forEach(function (k) { if (['loop', 'observation', 'changes'].indexOf(k) < 0) errors.push('The request has ' + q(k) + '. It can have: loop, observation, changes.'); });
+    var intent = { key: key, producer: producer || null, loop: cleanLoop(v.loop, errors), observation: v.observation == null ? null : cleanObservation(v.observation, errors), changes: cleanChanges(v.changes, errors) };
+    if (!intent.observation && !intent.changes.length) errors.push('The request has no observation and no changes, so it asks for nothing.');
+    return { intent: intent, errors: errors };
+  }
+  /* The canonical intent: what's compared on a retry. The tool's version and Flightdeck's own additions (seen, children,
+     the time it was written) are never part of it, so the original stands. */
+  function canonical(intent) { return canon({ loop: intent.loop, producer: intent.producer ? intent.producer.name : null, observation: intent.observation, changes: intent.changes }); }
+  function differs(intent, file) {
+    if (!isMap(file) || file.format !== FORMAT) return ['kind'];
+    var a = canonical(intent), b = canon({ loop: file.loop, producer: file.producer ? file.producer.name : null, observation: file.observation || null, changes: file.changes || [] }), out = [];
+    ['producer', 'loop', 'observation', 'changes'].forEach(function (k) { if (JSON.stringify(a[k]) !== JSON.stringify(b[k])) out.push(k === 'producer' ? 'tool' : k); });
+    return out;
+  }
+  /* The file written. o: { seen (the records it saw), children (planned child intents), now, app, by (a person, when no tool), id }. */
+  function buildRequest(intent, o) {
+    var tool = intent.producer, f = { format: FORMAT, features: FEATURES.slice() };
+    if (PF.envelope.semver(o.app)) f.app = o.app;
+    f.id = o.id || idFor(tool.name, intent.key);
+    f.loop = intent.loop;
+    if (tool) { f.producer = { name: tool.name, version: tool.version }; f.key = intent.key; f.by = tool.name + ' ' + tool.version + ' (a tool)'; }
+    else f.by = o.by;
+    f.created = o.now;
+    f.seen = (o.seen || []).slice().sort();
+    f.observation = intent.observation;
+    f.changes = intent.changes;
+    f.children = (o.children || []).map(function (k) { return { item: { id: k.item.id || '', key: k.item.key }, attempt: k.attempt, inputs: sorted(k.inputs || {}), owner: k.owner || '' }; });
+    return f;
+  }
+  function text(f) { return JSON.stringify(f, null, 2) + '\n'; }
+  function verdictOf(o, family) {
+    var v = PF.envelope.judge(family, o);
+    if (!v.ok) return { ok: false, kind: v.kind, why: v.kind === 'newer' ? 'is a scope ' + (family === 'flightdeck-plan' ? 'request' : 'decision') + ' made with a newer Flightdeck. ' + PF.envelope.needsText(v.needs) : v.why, needs: v.needs || '' };
+    if (v.major !== 3 || v.features.indexOf('loops') < 0) return { ok: false, kind: 'malformed', why: 'isn\'t a scope ' + (family === 'flightdeck-plan' ? 'request' : 'decision') + ' (it doesn\'t name the loops feature)', needs: '' };
+    return null;
+  }
+  function byOf(f) {
+    if (f.producer && isMap(f.producer)) return { tool: String(f.producer.name), version: String(f.producer.version) };
+    return { person: String(f.by || '') };
+  }
+  /* A scope request in proposals/, read back: { ok, record } (for the ledger, with the file's own fields) or a refusal. */
+  function cleanRequest(o, name) {
+    var bad = verdictOf(o, 'flightdeck-plan');
+    if (bad) return bad;
+    var errors = [], mal = function (why) { return { ok: false, kind: 'malformed', why: why, needs: '' }; };
+    if (typeof o.id !== 'string' || !REQ.test(o.id)) return mal('is a scope request without a request id');
+    if (typeof name === 'string' && name.indexOf(o.id) !== 0) return mal('is a scope request whose name isn\'t its id');
+    var loop = cleanLoop(o.loop, errors), obs = o.observation == null ? null : cleanObservation(o.observation, errors), changes = cleanChanges(o.changes, errors);
+    if (!Array.isArray(o.seen) || o.seen.length > LIMITS.seen || !o.seen.every(function (x) { return typeof x === 'string' && (REQ.test(x) || DNAME.test(x + '.json')); })) errors.push('its seen isn\'t a list of scope records');
+    var children = [];
+    if (!Array.isArray(o.children)) errors.push('its children isn\'t a list');
+    else o.children.forEach(function (k, i) {
+      var it = isMap(k) ? cleanItem(k.item, errors, 'child ' + (i + 1)) : null;
+      if (!it || !whole(k.attempt) || k.attempt < 1 || !isMap(k.inputs) || Object.keys(k.inputs).length > LIMITS.inputs || Object.keys(k.inputs).some(function (n) { return reserved(n) || typeof k.inputs[n] !== 'string' || k.inputs[n].length > LIMITS.input; }) || (k.owner !== '' && !PERSON.test(String(k.owner)))) { errors.push('child ' + (i + 1) + ' isn\'t a planned child'); return; }
+      children.push({ item: it, attempt: k.attempt, inputs: k.inputs, owner: k.owner });
+    });
+    if (errors.length) return mal('is a scope request that isn\'t in its format: ' + errors[0]);
+    return { ok: true, record: { id: o.id, type: 'request', loop: loop, seen: o.seen.slice(), by: byOf(o), observation: obs, changes: changes, children: children, created: typeof o.created === 'string' ? o.created : '', key: typeof o.key === 'string' ? o.key : '' } };
+  }
+  /* A decision on a scope request's proposed removals: accept (remove them) or keep. Its id is its file stem. */
+  function buildDecision(d) {
+    var name = d.proposal + '.status-' + d.writer + '-' + d.rev + '.json', f = { format: STATUS, features: FEATURES.slice() };
+    if (PF.envelope.semver(d.app)) f.app = d.app;
+    f.proposal = d.proposal; f.loop = d.loop; f.op = d.op; f.items = d.items.slice(); f.seen = d.seen.slice().sort(); if (d.reason) f.reason = d.reason;
+    f.by = d.by; if (d.onBehalf) f.onBehalf = d.onBehalf; f.at = d.now;
+    return { name: name, file: f };
+  }
+  function cleanDecision(o, name) {
+    var bad = verdictOf(o, 'flightdeck-plan-status');
+    if (bad) return bad;
+    var m = DNAME.exec(String(name || '')), errors = [], mal = function (why) { return { ok: false, kind: 'malformed', why: why, needs: '' }; };
+    if (!m || m[1] !== o.proposal) return mal('is a scope decision whose name doesn\'t say its request');
+    var loop = cleanLoop(o.loop, errors);
+    if (DOPS.indexOf(o.op) < 0) return mal('is a scope decision that isn\'t accept or keep');
+    if (!Array.isArray(o.items) || !o.items.length || o.items.length > MAX_ITEMS || !o.items.every(function (x) { return typeof x === 'string' && x.length <= 80; })) return mal('is a scope decision without its items');
+    if (!Array.isArray(o.seen) || !o.seen.every(function (x) { return typeof x === 'string'; })) return mal('is a scope decision without what it saw');
+    if (typeof o.by !== 'string' || !PERSON.test(o.by)) return mal('is a scope decision without who made it');
+    if (errors.length) return mal('is a scope decision that isn\'t in its format: ' + errors[0]);
+    return { ok: true, record: { id: name.slice(0, -5), type: 'decision', loop: loop, proposal: o.proposal, op: o.op, items: o.items.slice(), seen: o.seen.slice(), reason: typeof o.reason === 'string' ? o.reason.slice(0, LIMITS.reason) : '', by: { person: o.by }, onBehalf: typeof o.onBehalf === 'string' ? o.onBehalf : '' } };
+  }
+  /* A file of either kind, as the folder reader dispatches it before the plan reader. */
+  function cleanFile(o, name) { return o.format === STATUS ? cleanDecision(o, name) : cleanRequest(o, name); }
+  /* The records about one loop instance. */
+  function recordsFor(records, loop) { return (records || []).filter(function (r) { return r.loop && r.loop.process === loop.process && r.loop.run === loop.run && r.loop.step === loop.step; }); }
+
+  return { KINDS: KINDS, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
+    idFor: idFor, isScope: isScope, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
+    cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();

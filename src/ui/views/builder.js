@@ -40,7 +40,7 @@
       '<optgroup label="Everyday work">' + first(every).map(opt).join('') + '</optgroup><optgroup label="Software tools and commands">' + first(tools).map(opt).join('') + '</optgroup>' +
       (ids.length ? '<optgroup label="Your team\'s">' + first(ids.map(function (id) { return team[id]; })).map(opt).join('') + '</optgroup>' : '');
   }
-  var EVERYDAY = ['confirm', 'communicate', 'meeting', 'decide', 'review', 'wait', 'measure', 'ui.action', 'run.process'];
+  var EVERYDAY = ['confirm', 'communicate', 'meeting', 'decide', 'review', 'wait', 'measure', 'ui.action', 'run.process', 'for.each'];
   function typesUsed(ctx) {
     var ed = ctx.state.editor, text = ed ? (ed.text != null ? ed.text : ed.base) : '', u = {};
     (O.parse(String(text || '')).steps || []).forEach(function (s) { if (s.type) u[s.type] = true; });

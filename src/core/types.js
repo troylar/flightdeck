@@ -113,7 +113,7 @@ PF.types = (function () {
     /* 3.0 (loops): one linked run of a child checklist per item of a living scope (docs/design.md 44). items: is a kind of
        item (PF.loop.KINDS, the same list); from: a {jira.search} step of this checklist, or none for a list kept by hand.
        Its pass: and accepts: are map lines, as on {run.process}. It records nothing itself: its items do. */
-    { id: 'for.each', label: 'For each item', icon: 'nest', hint: 'Start a linked run of another checklist for every item in a list; done when every item has an accepted result or an approved exception.',
+    { id: 'for.each', label: 'For each item', icon: 'nest', hint: 'Start a linked run of another checklist for each item in a list; done when every item is cleared or excused.',
       fields: { process: { label: 'Checklist', kind: 'text', required: true }, from: { label: 'Items from', kind: 'text' }, items: { label: 'Kind of item', kind: 'choice', options: ['jira.issue'], required: true },
         max: { label: 'Most items', kind: 'text' } },
       record: [] }

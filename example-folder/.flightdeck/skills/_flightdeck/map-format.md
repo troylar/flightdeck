@@ -224,7 +224,7 @@ During a run, the recorder can **Fill in** any step's checklist fields and evide
 | `github.pr` | Open, review, approve or merge a GitHub pull request. | **`action`** (`open`, `review`, `approve`, `merge`), **`repo`**, `pull` (unless open), `from`, `to` | `pr`, `checks`, `mergeCommit` (for merge) |
 | `measure` | Record a number with its unit, like velocity or points carried over. | **`metric`**, `unit`, `where` | `value`, `unit` |
 | `jira.search` | Search Jira with a query or a saved filter, and record what it found. | `query`, `filter`, `results`, `site`, `what` | `searchId`, `count`, `keys`, `resultsLink`, `ranAt` |
-| `for.each` | Start a linked run of another checklist for every item in a list; done when every item has an accepted result or an approved exception. | **`process`**, `from`, **`items`** (`jira.issue`), `max` | nothing (use `evidence:`) |
+| `for.each` | Start a linked run of another checklist for each item in a list; done when every item is cleared or excused. | **`process`**, `from`, **`items`** (`jira.issue`), `max` | nothing (use `evidence:`) |
 <!-- types:end -->
 
 `version` on `{run.process}` and `skillVersion` on `{run.skill}` aren't in the table: they're pins (Needs Flightdeck 2.0), described under [Nested processes](#nested-processes) and [Skill versions](#skill-versions). No other type takes them.
