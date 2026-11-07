@@ -150,7 +150,8 @@ def js_json(v):
 PUBLICATION_FORMAT = "preflight-publication/1"
 TYPES_VERSION = 2
 NEWER = "This version uses checklist features this copy of Flightdeck doesn't understand. Update Flightdeck to run it."
-PINS = {"run.process": {"version": {"kind": "pin"}, "pass": {"kind": "pass"}, "accepts": {"kind": "accepts"}}, "run.skill": {"skillVersion": {"kind": "pin"}}}
+PINS = {"run.process": {"version": {"kind": "pin"}, "pass": {"kind": "pass"}, "accepts": {"kind": "accepts"}},
+        "for.each": {"version": {"kind": "pin"}, "pass": {"kind": "pass"}, "accepts": {"kind": "accepts"}}, "run.skill": {"skillVersion": {"kind": "pin"}}}
 COMMON = {"link": {"kind": "url"}, "expect": {"kind": "duration"}, "deadline": {"kind": "deadline"}, "evidence": {"kind": "choice", "options": ["link", "note", "number", "yes-no", "date"]},
           "require": {"kind": "require"}, "at": {"kind": "time"}, "due": {"kind": "time"}, "after": {"kind": "duration"}, "sets": {"kind": "sets"}}
 BUILTIN = {
@@ -184,7 +185,10 @@ BUILTIN = {
     # 2.16: the Jira search step, frozen as type version 4.
     "jira.search": {"fields": {"query": {"kind": "jql"}, "filter": {"kind": "jira-filter"}, "results": {"kind": "results"}, "site": {"kind": "team-ref"}, "what": {"kind": "text"}},
                     "record": [{"name": "searchId"}, {"name": "count"}, {"name": "keys"}, {"name": "resultsLink"}, {"name": "ranAt"}]},
+    # 3.0: a loop, frozen as type version 5 (PF.types; items: is PF.loop.KINDS).
+    "for.each": {"fields": {"process": {"kind": "text"}, "from": {"kind": "text"}, "items": {"kind": "choice", "options": ["jira.issue"]}, "max": {"kind": "text"}}, "record": []},
 }
+LOOP_MAX_ITEMS = 500
 
 # The checklist parser's rules (src/core/map.js), as far as the check needs them: its errors, and each step's text, type and fields.
 # JavaScript's \w is ASCII, so W spells it out.
@@ -454,7 +458,7 @@ def parse_map(md):
     lines = md.replace("\r\n", "\n").replace("\r", "\n").split("\n")
     errors, steps, phases = [], [], []
     i, phase, step, gate, track, questions = 0, None, None, None, None, False
-    context, ctx_line, roles, runs, result = "", -1, "", "", None
+    context, ctx_line, roles, runs, result, proc = "", -1, "", "", None, ""
 
     def err(n, msg):
         errors.append({"line": n + 1, "msg": msg})
@@ -473,6 +477,8 @@ def parse_map(md):
                 runs = kv.group(2).strip()
             elif kv and kv.group(1) == "result":
                 result = kv.group(2).strip()
+            elif kv and kv.group(1) == "process":
+                proc = kv.group(2).strip()
             i += 1
         i += 1
     names, typed, ctx_errors = detail_types(context_entries(context))
@@ -601,7 +607,7 @@ def parse_map(md):
                 if w["name"] in later:
                     err(w["line"] - 1, "^%s is set in this phase or a later one (sets:), so it can't decide whether this applies. Only a step in an earlier phase can set it." % w["name"])
     errors.sort(key=lambda e: e["line"])
-    return {"errors": errors, "steps": steps, "questions": questions, "phases": phases, "context": names, "detailTypes": typed, "roles": js_list(roles), "runs": runs, "result": result}
+    return {"errors": errors, "steps": steps, "questions": questions, "phases": phases, "context": names, "detailTypes": typed, "roles": js_list(roles), "runs": runs, "result": result, "process": proc}
 
 
 NEW_KINDS = {"number", "yes-no", "date"}
@@ -657,8 +663,10 @@ def features(parsed, types):
     for s in parsed["steps"]:
         if js_trim(js_str(s["fields"].get("evidence", ""))).lower() in NEW_KINDS:
             has.add("typed-evidence")
-        if s["type"] == "run.process" and "version" in s["fields"]:
+        if s["type"] in ("run.process", "for.each") and "version" in s["fields"]:
             has.add("pinned-children")
+        if s["type"] == "for.each":
+            has.add("loops")
         if s["type"] == "run.skill" and "skillVersion" in s["fields"]:
             has.add("pinned-skills")
         if s["type"] == "jira.search":
@@ -762,6 +770,55 @@ def result_blockers(parsed):
     return out
 
 
+def loop_blockers(parsed):
+    """The checks of a {for.each} step that need no other checklist (PF.map.check's loopChecks), in its words."""
+    out, ctx, ids = [], parsed["context"], {s["id"]: s for s in parsed["steps"] if s.get("id")}
+    for s in parsed["steps"]:
+        if s["type"] != "for.each":
+            continue
+        label, f = step_name(s), s["fields"]
+        acc = js_list(f.get("accepts", ""))
+        if f.get("process") and f["process"] == parsed.get("process"):
+            out.append(label + " can't start a run of its own process.")
+        if f.get("from"):
+            fid = re.sub(r"^#", "", js_trim(f["from"]))
+            fx = ids.get(fid)
+            if fx is None:
+                out.append(label + ": from: names #%s, which isn't a step of this checklist. Name its {jira.search} step, or leave from: out for a list kept by hand." % fid[:60])
+            elif fx["type"] != "jira.search":
+                out.append(label + ": from: names #%s, which isn't a {jira.search} step. Name a search step, or leave from: out for a list kept by hand." % fid)
+        if "max" in f:
+            t = js_trim(f["max"])
+            if not re.match(r"^[1-9]\d{0,2}\Z", t) or int(t) > LOOP_MAX_ITEMS:
+                out.append(label + ": \"max\" should be a whole number from 1 to %d." % LOOP_MAX_ITEMS)
+        if f.get("carry"):
+            out.append(label + ": a loop passes details with pass:, not carry:.")
+        if any(e["from"] == "result" for e in sets_of(f.get("sets", ""))):
+            out.append(label + " imports a result into a run detail, but a loop's results stay per item. Remove the =result binding.")
+        if not acc:
+            out.append(label + " says nothing it accepts. Add accepts: with the results that clear an item, like accepts: cleared.")
+        for i, v in enumerate(acc):
+            if acc.index(v) < i:
+                out.append(label + " accepts \"%s\" twice." % v[:40])
+        for e in pass_entries(f.get("pass", "")):
+            if e.startswith("^") and e[1:] not in ctx:
+                out.append(label + " passes ^%s, which isn't listed in context." % e[1:])
+    return out
+
+
+def pass_entries(text):
+    """The sources of a pass: line's well-formed entries, in order (^name for a run detail)."""
+    out = []
+    for seg in js_str(text).split(","):
+        t = js_trim(seg)
+        eq = t.find("=")
+        if eq > 0:
+            m = PASS_DETAIL.match(js_trim(t[eq + 1:]))
+            if m and m.group(1) not in JS_PROTO:
+                out.append("^" + m.group(1))
+    return out
+
+
 def js_duration(s):
     m = re.match(r"^\s*(?:([0-9]+)h)?\s*(?:([0-9]+)m)?\s*(?:([0-9]+)s)?\s*$", js_str(s), re.I)
     return bool(m and (m.group(1) or m.group(2) or m.group(3)))
@@ -781,9 +838,9 @@ JS_PROTO = {"__proto__", "constructor", "hasOwnProperty", "isPrototypeOf", "prop
             "__defineGetter__", "__defineSetter__", "__lookupGetter__", "__lookupSetter__"}
 
 
-def pass_errors(text):
+def pass_errors(text, items=False):
     """The errors of the app's PF.links.parse: a pass: line on a linked step (2.8)."""
-    return parse_pass(text)[0]
+    return parse_pass(text, items)[0]
 
 
 def pass_teams(text):
@@ -791,8 +848,8 @@ def pass_teams(text):
     return parse_pass(text)[1]
 
 
-def parse_pass(text):
-    """PF.links.parse as (errors, team value names)."""
+def parse_pass(text, items=False):
+    """PF.links.parse as (errors, team value names). items: a {for.each} step's item:key and item:title (3.0)."""
     raw = js_str(text)
     teams = []
     if not js_trim(raw):
@@ -846,6 +903,11 @@ def parse_pass(text):
             elif tv not in teams:
                 teams.append(tv)
             continue
+        if items and right[:5].lower() == "item:":
+            iw = js_trim(right[5:])
+            if right[:5] != "item:" or iw not in ("key", "title"):
+                errors.append("\"%s=%s\": an item gives item:key or item:title." % (name, right))
+            continue
         if "^" in right:
             errors.append("\"%s=%s\": a fixed value can't hold ^. Use ^name alone to pass a run detail." % (name, right))
             continue
@@ -890,7 +952,7 @@ def field_errors(type_def, fields, context=None):
         if kind == "pin" and f == "skillVersion" and not re.match(r"^[\w.+-]{1,40}$", v.strip()):
             errors.append("\"skillVersion\" should be the skill's version, like 1.2.0.")
         if kind == "pass":
-            errors.extend(pass_errors(v))
+            errors.extend(pass_errors(v, tid == "for.each" and not (isinstance(type_def, dict) and type_def.get("custom"))))
         if kind == "list" and len(js_list(v)) < 2:
             errors.append("\"%s\" needs at least two choices, separated by commas." % f)
         if kind == "require":
@@ -1385,7 +1447,7 @@ def understood(d):
         return False
     v = d.get("version")
     # Version 3 (2.0): typed evidence, whose kinds and keys are read only there. Version 4 (2.16): the Jira search's kinds and keys.
-    if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or (v > TYPES_VERSION and v not in (3, 4))):
+    if v is not None and (isinstance(v, bool) or not isinstance(v, (int, float)) or (v > TYPES_VERSION and v not in (3, 4, 5))):
         return False
     four = isinstance(v, (int, float)) and not isinstance(v, bool) and v == 4
     fields = d.get("fields")
@@ -1470,10 +1532,10 @@ def read_text(path):
 # newer major, or with a must-understand feature this copy doesn't know, is refused and named with the version it needs.
 # test/checker.test.js fails if this disagrees with src/core/envelope.js.
 FAMILIES = {
-    "preflight-publication": {"majors": {1: [], 2: ["phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "typed-details", "typed-evidence", "conditions", "passed-details", "team-values", "jira-search", "detail-patterns", "module-results", "staged"]}, "future": {2: "2.0"}, "unmarked": False},
+    "preflight-publication": {"majors": {1: [], 2: ["phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "typed-details", "typed-evidence", "conditions", "passed-details", "team-values", "jira-search", "detail-patterns", "module-results", "loops", "staged"]}, "future": {2: "2.0"}, "unmarked": False},
     "flightdeck-step-type": {"majors": {1: [], 2: ["typed-evidence"]}, "future": {2: "2.0"}, "unmarked": True},
-    "flightdeck-plan": {"majors": {1: [], 2: []}, "future": {}, "unmarked": False, "kinds": ["plan"]},
-    "flightdeck-plan-status": {"majors": {1: [], 2: []}, "future": {}, "unmarked": False, "kinds": ["status"]},
+    "flightdeck-plan": {"majors": {1: [], 2: [], 3: ["loops"]}, "future": {}, "unmarked": False, "kinds": ["plan"]},
+    "flightdeck-plan-status": {"majors": {1: [], 2: [], 3: ["loops"]}, "future": {}, "unmarked": False, "kinds": ["status"]},
     "flightdeck-skill": {"majors": {1: [], 2: []}, "future": {2: "2.0"}, "unmarked": True},
     "flightdeck-team-values": {"majors": {1: []}, "future": {1: "2.9"}, "unmarked": False},
 }
@@ -1483,9 +1545,9 @@ FAMILY_NAMES = ["flightdeck-checklist", "preflight-publication", "preflight-run"
                 "flightdeck-presence", "flightdeck-connection", "flightdeck-people", "flightdeck-team-values", "flightdeck-skill", "flightdeck-editor-history", "flightdeck-installed", "flightdeck-stage-decision",
                 "flightdeck-extension", "flightdeck-report", "flightdeck-report-decision"]
 FROZEN = ["typed-details", "typed-evidence", "phase-notes", "phase-shots", "gate-shots", "pinned-children", "pinned-skills", "staged", "test-run", "extensions", "conditions", "passed-details", "team-values",
-          "jira-search", "detail-patterns", "module-results"]
+          "jira-search", "detail-patterns", "module-results", "loops"]
 # The first release that reads a feature, where it isn't 2.0 (PF.envelope.SINCE).
-SINCE = {"conditions": "2.1", "staged": "2.1", "test-run": "2.1", "passed-details": "2.8", "team-values": "2.9", "jira-search": "2.16", "detail-patterns": "2.16", "module-results": "3.0"}
+SINCE = {"conditions": "2.1", "staged": "2.1", "test-run": "2.1", "passed-details": "2.8", "team-values": "2.9", "jira-search": "2.16", "detail-patterns": "2.16", "module-results": "3.0", "loops": "3.0"}
 
 
 def _minimum(features):
@@ -2369,7 +2431,7 @@ def draft_check(md, team_types):
             blockers.append(label + " has an unknown type {%s}." % s["type"])
         else:
             blockers += [label + " " + m for m in field_errors(dict(BUILTIN[s["type"]], id=s["type"]), s["fields"], parsed["context"])]
-    blockers += result_blockers(parsed)
+    blockers += result_blockers(parsed) + loop_blockers(parsed)
     return {"complete": False, "ran": DRAFT_RAN, "notRun": DRAFT_NOT_RUN, "blockers": blockers, "tips": design_tips(md),
             "note": "Flightdeck checks partly run: only what ran is listed. Run flightdeck draft check, or open the draft in Flightdeck, for the Publish dialog's whole verdict."}
 

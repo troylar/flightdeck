@@ -15,8 +15,9 @@ PF.links = (function () {
   function has(step) { return !!step && step.type === 'run.process' && own(step.fields, 'pass'); }
 
   /* The pass: line's entries, in order: { name, source: detail | value | ask | team, from, value, team }, and what's wrong
-     with it. team: <name> is a team value (2.9, PF.teamValues), read when the child starts. */
-  function parse(text) {
+     with it. team: <name> is a team value (2.9, PF.teamValues), read when the child starts. o.items (3.0, a {for.each}
+     step): item:key and item:title are the item's own (source item); anywhere else they stay the fixed text 2.x read. */
+  function parse(text, o) {
     var entries = [], errors = [], seen = Object.create(null), raw = String(text == null ? '' : text);
     if (!raw.trim()) return { entries: entries, errors: errors };
     var parts = raw.split(',');
@@ -41,6 +42,12 @@ PF.links = (function () {
         else if (!tv) errors.push('"' + name + '=team:" names no team value.');
         else if (!TEAM.test(tv)) errors.push('"' + tv + '" isn\'t a team value name (lowercase letters, digits and -, at most 40).');
         else entries.push({ name: name, source: 'team', team: tv });
+        return;
+      }
+      if (o && o.items && /^item:/i.test(right)) {
+        var iw = right.slice(5).trim();
+        if (right.slice(0, 5) !== 'item:' || (iw !== 'key' && iw !== 'title')) errors.push('"' + name + '=' + right + '": an item gives item:key or item:title.');
+        else entries.push({ name: name, source: 'item', item: iw });
         return;
       }
       if (right.indexOf('^') >= 0) { errors.push('"' + name + '=' + right + '": a fixed value can\'t hold ^. Use ^name alone to pass a run detail.'); return; }

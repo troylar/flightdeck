@@ -1776,7 +1776,7 @@ rule('A frozen step type this copy doesn\'t fully understand (a newer type versi
   const withConfirm = def => forged(CHECK_IN, (info, files) => { const t = JSON.parse(files['types.json']); t.confirm = Object.assign({}, t.confirm, def(t.confirm)); files['types.json'] = JSON.stringify(t); });
   const cases = {
     /* Version 3 is 2.0's typed evidence (test/typed.test.js); 4 is newer than any this copy reads. */
-    'a newer type version': c => ({ version: 5 }),
+    'a newer type version': c => ({ version: 6 }),
     'an unknown property': c => ({ futureBehavior: 'conditional' }),
     'an unknown field setting': c => ({ fields: Object.assign({}, c.fields, { where: Object.assign({}, c.fields.where, { when: 'x' }) }) }),
     'an unknown field kind': c => ({ fields: Object.assign({}, c.fields, { where: { label: 'Where', kind: 'condition' } }) }),

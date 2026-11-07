@@ -109,14 +109,23 @@ PF.types = (function () {
         site: { label: 'Jira address', kind: 'team-ref' }, what: { label: 'In plain words', kind: 'text' } },
       record: [{ name: 'searchId', label: 'Search', kind: 'text', system: true }, { name: 'count', label: 'Results found', kind: 'number', min: '0' },
         { name: 'keys', label: 'Issue keys', kind: 'text', long: true, notAt: { count: '0' } }, { name: 'resultsLink', label: 'Results link', kind: 'url' },
-        { name: 'ranAt', label: 'When it ran', kind: 'text' }] }
+        { name: 'ranAt', label: 'When it ran', kind: 'text' }] },
+    /* 3.0 (loops): one linked run of a child checklist per item of a living scope (docs/design.md 44). items: is a kind of
+       item (PF.loop.KINDS, the same list); from: a {jira.search} step of this checklist, or none for a list kept by hand.
+       Its pass: and accepts: are map lines, as on {run.process}. It records nothing itself: its items do. */
+    { id: 'for.each', label: 'For each item', icon: 'nest', hint: 'Start a linked run of another checklist for every item in a list; done when every item has an accepted result or an approved exception.',
+      fields: { process: { label: 'Checklist', kind: 'text', required: true }, from: { label: 'Items from', kind: 'text' }, items: { label: 'Kind of item', kind: 'choice', options: ['jira.issue'], required: true },
+        max: { label: 'Most items', kind: 'text' } },
+      record: [] }
   ];
   /* The search type freezes as version 4, which 2.0 to 2.14 refuse; every other built-in stays at VERSION. */
+  /* The loop type freezes as version 5, which every copy before 3.0 refuses. */
+  var LOOP = 'for.each', LOOP_VERSION = 5;
   var SEARCH = 'jira.search', SEARCH_VERSION = 4, SEARCH_FIXED = { query: 1, filter: 1, results: 1, site: 1, what: 1 };
   function isSearch(type) { return !!type && type.id === SEARCH && !type.custom; }
 
   var BY = Object.create(null);
-  LIST.forEach(function (t) { t.version = t.id === SEARCH ? SEARCH_VERSION : VERSION; BY[t.id] = t; });
+  LIST.forEach(function (t) { t.version = t.id === SEARCH ? SEARCH_VERSION : t.id === LOOP ? LOOP_VERSION : VERSION; BY[t.id] = t; });
 
   /* Own entries only: a step typed {constructor} or {toString} must not find something every object inherits. */
   function own(o, k) { return !!o && typeof o === 'object' && Object.prototype.hasOwnProperty.call(o, k) && o[k] && typeof o[k] === 'object' ? o[k] : null; }
@@ -213,7 +222,8 @@ PF.types = (function () {
      built-in type (its frozen definition, and so every version that uses it, stays as 1.x copies know it), never changed
      during a run; a 1.x copy refuses them as fields its type doesn't have, so a checklist with them can't publish there. */
   /* accepts: (3.0, module-results) is one more such line: the child's results that let the step count as done. */
-  var PINS = { 'run.process': { version: { label: 'Version', kind: 'pin' }, pass: { label: 'Passes', kind: 'pass' }, accepts: { label: 'Accepts', kind: 'accepts' } }, 'run.skill': { skillVersion: { label: 'Skill version', kind: 'pin' } } };
+  var PINS = { 'run.process': { version: { label: 'Version', kind: 'pin' }, pass: { label: 'Passes', kind: 'pass' }, accepts: { label: 'Accepts', kind: 'accepts' } },
+    'for.each': { version: { label: 'Version', kind: 'pin' }, pass: { label: 'Passes', kind: 'pass' }, accepts: { label: 'Accepts', kind: 'accepts' } }, 'run.skill': { skillVersion: { label: 'Skill version', kind: 'pin' } } };
   function pinDef(type, name) { return type && typeof type.id === 'string' && !type.custom && Object.prototype.hasOwnProperty.call(PINS, type.id) ? own(PINS[type.id], name) : undefined; }
   function fieldDef(type, name) { return own(type && type.fields, name) || own(COMMON, name) || pinDef(type, name); }
   function matches(cond, fields) { return Object.keys(cond).every(function (k) { return String(fields[k] || '').toLowerCase() === cond[k]; }); }
@@ -243,7 +253,7 @@ PF.types = (function () {
       if (d.kind === 'pin' && f === 'version' && !/^[1-9]\d{0,5}$/.test(String(fields[f]).trim())) errors.push('"version" should be a version number, like 4.');
       if (d.kind === 'pin' && f === 'skillVersion' && !/^[\w.+-]{1,40}$/.test(String(fields[f]).trim())) errors.push('"skillVersion" should be the skill\'s version, like 1.2.0.');
       /* pass: (2.8), a map line like the pins: what the step passes to its child (PF.links). */
-      if (d.kind === 'pass') PF.links.parse(fields[f]).errors.forEach(function (m) { errors.push(m); });
+      if (d.kind === 'pass') PF.links.parse(fields[f], { items: type.id === LOOP && !type.custom }).errors.forEach(function (m) { errors.push(m); });
       if (d.kind === 'list' && list(fields[f]).length < 2) errors.push('"' + f + '" needs at least two choices, separated by commas.');
       if (d.kind === 'require') {
         var names = ((type.record) || []).map(function (r) { return r.name; });
@@ -273,7 +283,7 @@ PF.types = (function () {
     if (!plainObj(def) || !only(def, TYPE_KEYS)) return false;
     /* Version 3 (2.0): a definition with typed evidence. The 2.0 kinds and keys are read only there, and only with values
        this copy can check (a min that isn't an exact decimal could never be compared). */
-    if (def.version != null && !(typeof def.version === 'number' && (def.version <= VERSION || def.version === 3 || def.version === SEARCH_VERSION))) return false;
+    if (def.version != null && !(typeof def.version === 'number' && (def.version <= VERSION || def.version === 3 || def.version === SEARCH_VERSION || def.version === LOOP_VERSION))) return false;
     if (def.fields != null && (!plainObj(def.fields) || !Object.keys(def.fields).every(function (f) { var d = def.fields[f]; return !inherited(f) && plainObj(d) && only(d, FIELD_KEYS) && has(KNOWN_KINDS, d.kind) && condOk(d.requiredWhen) && condOk(d.requiredUnless); }))) return false;
     if (def.record != null && (!Array.isArray(def.record) || !def.record.every(function (d) { return plainObj(d) && only(d, RECORD_KEYS) && has(RECORD_KINDS2, d.kind) && !inherited(d.name) && !inherited(d.optionsFrom) && condOk(d.when) && (d.system === undefined || d.system === true) && notAtOk(d.notAt) && (!numberKeys(d).length || (d.kind === 'number' && !PF.values.numberDefProblems(d, '').length)); }))) return false;
     if (uses2(def.record) && !(def.version >= 3)) return false;
@@ -346,15 +356,15 @@ PF.types = (function () {
   var GROUPS = { confirm: 'General', communicate: 'General', meeting: 'General', decide: 'General', review: 'General', wait: 'General',
     'ui.action': 'Tools', 'jenkins.job': 'Tools', 'bitbucket.pr': 'Tools', 'jira.issue': 'Tools', 'ci.gate': 'Tools',
     'jira.sprint': 'Tools', 'jira.search': 'Tools', deploy: 'Tools', 'verify.health': 'Tools', 'github.pr': 'Tools', measure: 'General',
-    'run.process': 'Automation', 'run.command': 'Automation', 'run.script': 'Automation', 'run.skill': 'Automation' };
+    'run.process': 'Automation', 'for.each': 'Automation', 'run.command': 'Automation', 'run.script': 'Automation', 'run.skill': 'Automation' };
   function groupOf(t) { return t && t.custom ? (t.group && t.group.length ? t.group : ['Team']) : [GROUPS[t && t.id] || 'General']; }
   function tagsOf(t) { return (t && t.tags) || []; }
   /* What the screens call a built-in type, where that differs from its label (2.10). Only for showing: a label is part of the
      definition frozen into a version, so it stays as it was; the old name still finds the type in search. */
-  var NAMES = { confirm: 'Basic step', 'run.process': 'Run another checklist' };
+  var NAMES = { confirm: 'Basic step', 'run.process': 'Run another checklist', 'for.each': 'Run a checklist for each item' };
   /* The same for a built-in type's hint and field labels (2.16.2): frozen as they were, shown in the screens' words. */
   var HINTS = { 'run.process': 'Start a linked run of another checklist; this step is done when it completes.' };
-  var FIELD_NAMES = { 'run.process': { process: 'Checklist' } };
+  var FIELD_NAMES = { 'run.process': { process: 'Checklist' }, 'for.each': { process: 'Checklist' } };
   function named(t) { return !!t && !t.custom && Object.prototype.hasOwnProperty.call(NAMES, t.id); }
   function nameOf(t) { return named(t) ? NAMES[t.id] : (t && t.label) || ''; }
   function builtIn(map, t) { return !!t && !t.custom && Object.prototype.hasOwnProperty.call(map, t.id); }
@@ -424,6 +434,6 @@ PF.types = (function () {
     return out;
   }
 
-  return { ID: ID, ID_MAX: ID_MAX, VERSION: VERSION, SEARCH: SEARCH, SEARCH_VERSION: SEARCH_VERSION, isSearch: isSearch, uses2: uses2, LIST: LIST, COMMON: COMMON, applies: applies, EVIDENCE_KINDS: Object.freeze(Object.keys(EVIDENCE)), PINS: PINS, ICONS: ICONS_OK, get: get, fieldDef: fieldDef, options: options, hasOption: hasOption, canonical: canonical, checkFields: checkFields, understood: understood, editable: editable, relevant: relevant, checkCustom: checkCustom, customType: customType, recordFields: recordFields, needsRecord: needsRecord, checkRecord: checkRecord, missingRequired: missingRequired, freeze: freeze, groupOf: groupOf, tagsOf: tagsOf, nameOf: nameOf, hintOf: hintOf, fieldName: fieldName, aliasOf: aliasOf, groupText: groupText, tagText: tagText,
+  return { ID: ID, ID_MAX: ID_MAX, VERSION: VERSION, SEARCH: SEARCH, SEARCH_VERSION: SEARCH_VERSION, LOOP: LOOP, LOOP_VERSION: LOOP_VERSION, isSearch: isSearch, uses2: uses2, LIST: LIST, COMMON: COMMON, applies: applies, EVIDENCE_KINDS: Object.freeze(Object.keys(EVIDENCE)), PINS: PINS, ICONS: ICONS_OK, get: get, fieldDef: fieldDef, options: options, hasOption: hasOption, canonical: canonical, checkFields: checkFields, understood: understood, editable: editable, relevant: relevant, checkCustom: checkCustom, customType: customType, recordFields: recordFields, needsRecord: needsRecord, checkRecord: checkRecord, missingRequired: missingRequired, freeze: freeze, groupOf: groupOf, tagsOf: tagsOf, nameOf: nameOf, hintOf: hintOf, fieldName: fieldName, aliasOf: aliasOf, groupText: groupText, tagText: tagText,
     fileText: fileText, formatWhy: formatWhy, markerWhy: markerWhy, unusedKeys: unusedKeys, removed: removed, inUse: inUse };
 })();

@@ -117,6 +117,7 @@ test/refs.test.js -
 test/links.test.js -
 test/jira-search.test.js -
 test/results.test.js -
+test/loops.test.js -
 test/patterns.test.js -
 test/link-fields.test.js -
 test/library.test.js -

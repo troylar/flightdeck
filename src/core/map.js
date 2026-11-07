@@ -346,6 +346,35 @@ PF.map = (function () {
         if (!d || d.kind !== 'choice' || cres.options.some(function (o) { return d.options.indexOf(o) < 0; })) blockers.push(label + ' imports ' + name + '\'s result into ^' + e.name + ', which must be a choice holding every result it can return, like ' + e.name + ':choice(' + cres.options.join('|') + ').');
       });
     }
+    /* A loop (3.0, docs/design.md 44): its scope source, its limit, what it passes per item, and the results it accepts. Its
+       results stay per item, so it imports none into a run detail. */
+    function loopChecks(s, label) {
+      var L = PF.links, pe = L.parse(s.fields.pass, { items: true }).entries, acc = list(s.fields.accepts);
+      if (s.fields.process && s.fields.process === meta.process) blockers.push(label + ' can\'t start a run of its own process.');
+      if (s.fields.from) {
+        var fid = String(s.fields.from).trim().replace(/^#/, ''), fx = findStep(map, fid);
+        if (!fx) blockers.push(label + ': from: names #' + fid.slice(0, 60) + ', which isn\'t a step of this checklist. Name its {jira.search} step, or leave from: out for a list kept by hand.');
+        else if (fx.step.type !== 'jira.search') blockers.push(label + ': from: names #' + fid + ', which isn\'t a {jira.search} step. Name a search step, or leave from: out for a list kept by hand.');
+      }
+      if (s.fields.max != null && PF.loop.maxOf(s.fields.max) == null) blockers.push(label + ': "max" should be a whole number from 1 to ' + PF.loop.MAX_ITEMS + '.');
+      if (s.fields.carry) blockers.push(label + ': a loop passes details with pass:, not carry:.');
+      if (setsOf(s.fields.sets).some(function (e) { return e.from === 'result'; })) blockers.push(label + ' imports a result into a run detail, but a loop\'s results stay per item. Remove the =result binding.');
+      if (!acc.length) blockers.push(label + ' says nothing it accepts. Add accepts: with the results that clear an item, like accepts: cleared.');
+      acc.forEach(function (v, i) { if (acc.indexOf(v) < i) blockers.push(label + ' accepts "' + v.slice(0, 40) + '" twice.'); });
+      pe.forEach(function (e) {
+        if (e.source === 'detail' && meta.context.indexOf(e.from) < 0) blockers.push(label + ' passes ^' + e.from + ', which isn\'t listed in context.' + meant(e.from));
+      });
+      var got = s.fields.process && typeof opts.children === 'function' ? opts.children(s.fields.process, s.fields.version || '') : null;
+      if (!got) return;
+      if (got.unreadable) { blockers.push(label + ': ' + got.unreadable + ' So what it passes to and accepts from "' + s.fields.process + '" can\'t be checked.'); return; }
+      if (got.unpublished || !got.map) { suggestions.push(label + ': "' + s.fields.process + '" isn\'t published yet, so what it needs and returns can\'t be checked.'); return; }
+      var who = got.latest ? (got.title || s.fields.process) + '\'s latest version (v' + got.version + ')' : (got.title || s.fields.process) + ' v' + got.version, name = got.title || s.fields.process;
+      var cnames = got.map.meta.context || [], cres = resultDef(got.map);
+      pe.forEach(function (e) { if (cnames.indexOf(e.name) < 0) blockers.push(who + ' has no run detail ' + e.name + ', so ' + label.charAt(0).toLowerCase() + label.slice(1) + ' can\'t pass it. Choose one it has, or remove it from pass:.'); });
+      if (!cres) { blockers.push(label + ': ' + who + ' declares no result (result: in its front matter), so accepts: has nothing to read. Give ' + name + ' a result.'); return; }
+      pe.forEach(function (e) { if (e.name === cres.name) blockers.push(label + ' passes ^' + cres.name + ' to ' + name + ', which is the result that checklist returns; a run can\'t start with its own result.'); });
+      acc.forEach(function (v) { if (cres.options.indexOf(v) < 0) blockers.push(label + ' accepts "' + v.slice(0, 40) + '", which isn\'t a result ' + who + ' returns (' + cres.options.join(', ') + ').'); });
+    }
     /* C3: published checklists that start this one at its latest and pass it a detail this draft no longer has (opts.parents:
        [{ id, latest }], the processes as the app lists them). Advice: they keep working until this is published. */
     if (opts.parents && meta.process) PF.links.parentsBroken(map, opts.parents).forEach(function (b) {
@@ -436,6 +465,7 @@ PF.map = (function () {
           list(s.fields.carry).forEach(function (f) { if (meta.context.indexOf(f) < 0) blockers.push(label + ' passes on ^' + f + ', which isn\'t listed in context.'); });
           if (PF.links) linkChecks(s, label);
         }
+        if (s.type === 'for.each') loopChecks(s, label);
         if (s.type === 'jira.issue' && opts.workflows) jiraCheck(s, label);
         var words = s.text.split(/\s+/).length;
         if (words > 12) suggestions.push(label + ' is ' + words + ' words. Move the explanation into a note.');
@@ -492,7 +522,7 @@ PF.map = (function () {
      note isn't one (every copy since 1.10 publishes it). A version: or skillVersion: line on another step type is an error,
      not a feature. */
   function features(map) {
-    var has = { 'module-results': false, 'jira-search': false, 'detail-patterns': false, 'team-values': false, 'passed-details': false, conditions: false, 'typed-details': false, 'typed-evidence': false, 'phase-notes': false, 'phase-shots': false, 'gate-shots': false, 'pinned-children': false, 'pinned-skills': false };
+    var has = { loops: false, 'module-results': false, 'jira-search': false, 'detail-patterns': false, 'team-values': false, 'passed-details': false, conditions: false, 'typed-details': false, 'typed-evidence': false, 'phase-notes': false, 'phase-shots': false, 'gate-shots': false, 'pinned-children': false, 'pinned-skills': false };
     /* Typed data (2.0): a run detail with a kind, or a plain step asking for a number, yes/no or date as its evidence. */
     if (map.meta && map.meta.detailTypes && Object.keys(map.meta.detailTypes).length) has['typed-details'] = true;
     /* A run detail with a pattern (2.16, Appendix A). Older copies refuse the kind. */
@@ -502,7 +532,7 @@ PF.map = (function () {
       p.steps.forEach(function (s) { if (PF.values.isNew(String(s.fields.evidence || '').trim().toLowerCase())) has['typed-evidence'] = true; });
       /* Pins (2.0): version: on a linked step, skillVersion: on a skill step. Older copies refuse both lines. */
       p.steps.forEach(function (s) {
-        if (s.type === 'run.process' && Object.prototype.hasOwnProperty.call(s.fields, 'version')) has['pinned-children'] = true;
+        if ((s.type === 'run.process' || s.type === 'for.each') && Object.prototype.hasOwnProperty.call(s.fields, 'version')) has['pinned-children'] = true;
         /* What a linked step passes (2.8): a pass: line. Older copies refuse it as a field their type doesn't have. */
         if (s.type === 'run.process' && Object.prototype.hasOwnProperty.call(s.fields, 'pass')) has['passed-details'] = true;
         /* A team value passed to the child (2.9): pass: name=team:<value>. Older copies would read team: as an error. */
@@ -513,6 +543,8 @@ PF.map = (function () {
         /* Module results (3.0): a sets: binding or accepts: on a linked step. Older copies refuse both as fields they read
            differently (a sets: name with =, a field run.process doesn't have). */
         if (setsOf(s.fields.sets).some(function (e) { return !!e.from; }) || (s.type === 'run.process' && Object.prototype.hasOwnProperty.call(s.fields, 'accepts'))) has['module-results'] = true;
+        /* A loop (3.0). Older copies refuse the type, frozen as version 5. */
+        if (s.type === 'for.each') has.loops = true;
       });
       if (p.note || p.noted) has['phase-notes'] = true;
       /* Conditions (2.1): an "only when" line on the phase or a step. */

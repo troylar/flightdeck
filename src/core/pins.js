@@ -70,12 +70,12 @@ PF.pins = (function () {
   function unusable(title, pin, why) { return 'This step runs ' + (title || pin.process) + ' v' + pin.version + ', which can\'t be used here: ' + why + '.'; }
 
   /* The children a run/3 follows, pinned when it starts: the version's own pins (version: on the step), and for every other
-     {run.process} step, the latest usable version of its process now. procOf(id): the listed process, or null. */
+     {run.process} or {for.each} step (3.0: a loop's every item starts on this one pin), the latest usable version of its process now. procOf(id): the listed process, or null. */
   function atStart(map, payloadPins, procOf) {
     var out = {}, fixed = payloadPins && isObj(payloadPins.children) ? payloadPins.children : {};
     PF.map.steps(map).forEach(function (x) {
       var s = x.step;
-      if (s.type !== 'run.process' || !s.fields.process) return;
+      if ((s.type !== 'run.process' && s.type !== 'for.each') || !s.fields.process) return;
       if (own(fixed, s.id)) { out[s.id] = JSON.parse(JSON.stringify(fixed[s.id])); return; }
       var proc = procOf(s.fields.process);
       if (proc && proc.latest) out[s.id] = of(proc.latest, s.fields.process);

@@ -269,7 +269,7 @@ rule('A frozen definition may use the 2.0 kinds and keys only at version 3, with
   const base = { id: 'team.count', label: 'Count', fields: {}, version: 3, record: [{ name: 'rows', label: 'Rows', kind: 'number', min: '0', max: '9', unit: 'rows' }] };
   assert.ok(T.understood(base));
   assert.ok(!T.understood(Object.assign(plain(base), { version: 2 })), '2.0 kinds at version 2');
-  assert.ok(!T.understood(Object.assign(plain(base), { version: 5 })));
+  assert.ok(!T.understood(Object.assign(plain(base), { version: 6 })));
   assert.ok(T.understood(Object.assign(plain(base), { record: [{ name: 'x', label: 'X', kind: 'text' }] })), 'version 3 with nothing new is still read');
   [{ min: 0 }, { min: '1e3' }, { min: 'NaN' }, { max: '-0' }, { min: '5', max: '1' }, { unit: 7 }, { unit: '' }].forEach(bad => {
     const d = plain(base); Object.assign(d.record[0], bad);
