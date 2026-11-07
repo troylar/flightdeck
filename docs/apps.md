@@ -585,7 +585,9 @@ flightdeck loop send-back  <same> --as <person id> [--reason <why>] --tool ... -
 
 `--dry-run` prints the plain-text preview: which story runs would start and which are skipped and why (already started, approved without a run, removed, waiting on a removal decision, a missing input), or the roll-up an approval would record. `start-all` lists exactly the runs the app's **Start all under my recording…** would start. Without `--dry-run` the request is filed (`requested`); no run starts and nothing is approved until the recorder's window applies it.
 
-The recorder's window applies each request once and writes `<request>.status-<writer>-<rev>.json` with `op` `applied` or `refused` and the reason in plain words (for example "It can't be approved yet: 2 in scope · 1 not started."). `loop read` lists them under `requests`, each `pending`, `applied` or `refused`, and the run screen shows the ones still waiting and the refused ones with why.
+The recorder's window applies each request once and writes `<request>.status-<writer>-<rev>.json` with `op` `applied` or `refused` and the reason in plain words (for example "It can't be approved yet: 2 in scope · 1 not started."). `loop read` lists them under `requests`, each `pending`, `applied` or `refused`, and the run screen shows the latest 10, waiting, applied or refused with why.
+
+A request asks for one kind of action. `--as` must be a person in `people.json`, not inactive, who is the run's recorder, holds one of the loop step's roles, or (to start a story) owns it; otherwise it is refused with why, here and in the recorder's window. A retry with the same `--tool` and `--key` is judged on what was first asked: the same request says `already`, even after it was carried out; another action, person, reason or story list under the key is `key-taken`.
 
 An approval whose snapshot no longer matches the loop's roll-up doesn't count, in every window and in `flightdeck run` and `next`, before any save lands; the recorder's window then sends it back for review and saves that.
 

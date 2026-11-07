@@ -7570,7 +7570,9 @@
       });
     },
     'loop-unsettle': function (id) {
-      mutate(function (r, map, me, now) { var V = loopView(r, id); if (!V || !V.changes.length) throw new Error('Nothing changed since the approval.'); R.unsettleLoop(r, map, id, V.changes, me, now); });
+      /* With nothing changed, a person may still send it back, saying why (the Why box). */
+      var why = val('loop-why-' + id).trim();
+      mutate(function (r, map, me, now) { var V = loopView(r, id); if (!V) throw new Error('That isn\'t an approved loop.'); if (!V.changes.length && !why) throw new Error('Say why in the Why box: nothing changed since the approval.'); R.unsettleLoop(r, map, id, V.changes.length ? V.changes : ['Sent back for review by ' + personName(me) + ': ' + why.slice(0, 300)], me, now); });
     },
     /* A child run that was saved but whose link didn't land (the parent changed meanwhile): link it now, with the inputs it was started for. */
     'link-child': function (id, b) {

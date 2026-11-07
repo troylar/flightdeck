@@ -859,7 +859,7 @@ const D10_JOIN_OK = [
   { file: 'run.js', has: 'S.skip.slice(0, 50).map(', why: 'the Start all preview\'s skipped stories, at most 50 named' },
   { file: 'app.js', has: 'failed.slice(0, 5).join', why: 'the stories Start all couldn\'t start, at most 5 named' },
   { file: 'app.js', has: 'done.slice(0, 20).join', why: 'the stories a start request started, at most 20 named, with how many more' },
-  { file: 'run.js', has: 'pend.slice(0, 10).map(', why: 'a loop\'s open and refused requests, at most 10, each naming at most 20 stories' },
+  { file: 'run.js', has: 'shown.map(function (q)', why: 'a loop\'s latest 10 requests to the recorder, each naming at most 20 stories, with how many earlier' },
   { file: 'run.js', has: 'S.start.slice(0, 50).map(', why: 'the Start all preview, at most 50 started and 50 skipped named' },
   { file: 'run.js', has: 'V.changes.slice(0, 50).map(esc).join', why: 'a loop\'s changes since its approval, at most 50 drawn, with how many more' },
   { file: 'run.js', has: 'V.review.slice(0, 50).map(esc).join', why: 'why a loop\'s approval needs review, at most 50 drawn, with how many more' },

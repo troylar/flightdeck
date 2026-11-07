@@ -294,4 +294,19 @@ rule('Review round 2 (7): a story completed while you were on its run stays in t
   assert.strictEqual(app.activeId(), 'loop-row-each-ABC-305');
 });
 
+rule('Review round 2 (8): an unchanged approval can be sent back from the run screen with a reason; applied requests stay listed, bounded', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  app.set('loop-why-each', 'Docs-only change'); app.click('loop-exception', 'each', { item: 'ABC-101' }); await app.tick(150);
+  const ap = await ask(app, [{ op: 'approve', as: 'person-avery' }], 'h-1');
+  assert.strictEqual(parentRun(app).steps.each.s, 'done');
+  assert.ok(/Avery Lee asked to approve · applied/.test(txt(app)), 'an applied request is still listed');
+  assert.ok(/data-act="loop-unsettle"/.test(app.html()), 'Send the approval back is offered with nothing changed');
+  app.set('loop-why-each', 'Scope check with the release owner'); app.click('loop-unsettle', 'each'); await app.tick(150);
+  const r = parentRun(app);
+  assert.strictEqual(r.steps.each.s, 'recheck');
+  assert.ok(/Scope check with the release owner/.test(r.steps.each.values.changes), r.steps.each.values.changes);
+  assert.ok(ap);
+});
+
 run();

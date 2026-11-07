@@ -193,6 +193,7 @@
     h += '<p>' + I('nest') + ' <b>' + esc(RU.summary) + '</b></p>';
     if (V.approved && V.changes.length) h += '<div class="notice warn"><span><b>' + (V.ended ? 'Changed after this run ended' : 'Changed since this was approved') + ':</b> ' + V.changes.slice(0, 50).map(esc).join(' ') + (V.changes.length > 50 ? ' And ' + (V.changes.length - 50) + ' more.' : '') + '</span>' +
       (work && a && a.s === 'done' ? '<button class="btn" data-act="loop-unsettle" data-id="' + sid + '">Send the approval back for review</button>' : '') + '</div>';
+    if (work && a && a.s === 'done' && a.loop && !V.changes.length) h += '<div class="row"><button class="btn" data-act="loop-unsettle" data-id="' + sid + '">Send the approval back for review</button> <span class="small">Say why in the Why box below.</span></div>';
     if (a && a.s === 'recheck' && V.review.length) h += '<div class="notice warn"><span><b>Approval needs review:</b> ' + V.review.slice(0, 50).map(esc).join(' ') + (V.review.length > 50 ? ' And ' + (V.review.length - 50) + ' more.' : '') + '</span></div>';
     var last = ctx.loopLast ? ctx.loopLast(r, s.id, V) : null;
     if (V.ledger.held.length) h += '<div class="notice warn"><span><b>Held:</b> a scope record of this loop can\'t be read yet, so nothing here can be approved until it can.' +
@@ -224,8 +225,9 @@
       h += '</tbody></table>';
       if (!all && rows.length > PAGE) h += '<button class="mini" data-act="loop-more" data-id="' + sid + '">Show all ' + rows.length + ' stories</button>';
     } else h += '<p class="small">No stories in scope yet.</p>';
-    var pend = PF.loop.actionsOf(V).filter(function (q) { return q.status !== 'applied'; });
-    if (pend.length) h += '<ul class="small">' + pend.slice(0, 10).map(function (q) { return '<li>' + esc(who(q.as)) + ' asked to ' + esc(q.ops[0] === 'start' ? 'start ' + q.items.slice(0, 20).join(', ') : q.ops[0]) + ' · ' + (q.status === 'refused' ? 'refused: ' + esc(q.why) : 'waiting for the recorder') + '</li>'; }).join('') + '</ul>';
+    /* Requests to the recorder, the latest 10: waiting, applied or refused, with why. */
+    var pend = PF.loop.actionsOf(V), shown = pend.slice(-10);
+    if (pend.length) h += '<ul class="small">' + (pend.length > 10 ? '<li>' + (pend.length - 10) + ' earlier requests (flightdeck loop read lists them)</li>' : '') + shown.map(function (q) { return '<li>' + esc(who(q.as)) + ' asked to ' + esc(q.ops[0] === 'start' ? (q.all ? 'start all: ' : 'start ') + q.items.slice(0, 20).join(', ') : q.ops[0]) + ' · ' + (q.status === 'pending' ? 'waiting for the recorder' : esc(q.status) + (q.why ? ': ' + esc(q.why) : '')) + '</li>'; }).join('') + '</ul>';
     if (work) {
       var S = PF.loop.launchable(r, V, null, ctx.procOf);
       if (ctx.state && ctx.state.loopPreview && ctx.state.loopPreview[s.id]) h += '<div class="notice"><span><b>Start ' + S.start.length + (S.start.length === 1 ? ' run' : ' runs') + ':</b> ' + (S.start.length ? S.start.slice(0, 50).map(function (k) { return esc(k.key); }).join(', ') : 'none') +
