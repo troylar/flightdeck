@@ -301,7 +301,7 @@ PF.jsearch = (function () {
       else { var b = checkBase(lk.value); if (!b.ok) siteError = 'the team value "' + site + '" ' + b.why.replace(/\.$/, '') + ', so it isn\'t a Jira address Flightdeck can link to.'; }
       if (siteError) errors.push(siteError);
     }
-    var loop = list(f.sets).filter(function (n) { return ph.uses.indexOf(n) >= 0; });
+    var loop = PF.map.setNames(f.sets).filter(function (n) { return ph.uses.indexOf(n) >= 0; });
     if (loop.length) errors.push(setsWhy(loop));
     var r = parseResults(f.results); if (!r.ok) errors.push(r.why);
     var req = String(f.require || '').toLowerCase().split(/[,\s]+/).filter(Boolean);

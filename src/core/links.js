@@ -164,7 +164,7 @@ PF.links = (function () {
   }
   /* The snapshot a child counts for, by the parent's names: its sources and the step's ties, less what the step sets. */
   function inputs(r, step, parentNames, childMap) {
-    var d = (r && r.details) || {}, sets = String((step.fields || {}).sets || '').split(',').map(function (k) { return k.trim(); }), out = {};
+    var d = (r && r.details) || {}, sets = PF.map.setNames((step.fields || {}).sets), out = {};
     sources(step, parentNames, childMap).concat(step.binds || []).forEach(function (k) { if (sets.indexOf(k) < 0 && own(d, k)) out[k] = d[k] || ''; });
     return out;
   }
@@ -242,7 +242,7 @@ PF.links = (function () {
         shared = !carryList(step).length;
       }
     }
-    var sets = String((step.fields || {}).sets || '').split(',').map(function (k) { return k.trim(); }).filter(Boolean);
+    var sets = PF.map.setNames((step.fields || {}).sets);
     return { uses: uses, sets: sets, passes: passes, shared: shared };
   }
 

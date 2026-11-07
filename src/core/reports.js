@@ -473,7 +473,7 @@ PF.reports = (function () {
     });
     return { ok: true, why: '', values: chk.values, unused: vu.unused, applies: ap, replaces: replaces, sets: setting, step: x.step, schema: schemaOf(r, x.step) };
   }
-  function setsOf(r, step) { return String(R.fieldsOf(r, step).sets || '').split(',').map(function (d) { return d.trim(); }).filter(Boolean); }
+  function setsOf(r, step) { return PF.map.setNames(R.fieldsOf(r, step).sets); }
   /* The run's log line for an acceptance: names the report and the SHA-256 of the bytes accepted, so the run alone says what
      was accepted, in every copy. */
   function logLine(g, sha, stepText) {

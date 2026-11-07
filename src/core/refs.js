@@ -50,7 +50,7 @@ PF.refs = (function () {
     var out = Object.create(null), all = M.steps(map);
     map.meta.context.forEach(function (n) { out[n] = { setters: [] }; });
     all.forEach(function (x, order) {
-      String(x.step.fields.sets || '').split(',').map(function (f) { return f.trim(); }).filter(Boolean).forEach(function (f) {
+      PF.map.setNames(x.step.fields.sets).forEach(function (f) {
         if (out[f]) out[f].setters.push({ id: x.step.id, text: x.step.text, phase: x.phaseIndex, order: order, track: x.step.track || '', when: (x.step.when || []).map(function (w) { return w.text; }) });
       });
     });

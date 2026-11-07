@@ -56,7 +56,7 @@ PF.library = (function () {
           out.searches.push({ step: s.id, query: own(s.fields, 'query') ? String(s.fields.query) : null, filter: own(s.fields, 'filter') ? String(s.fields.filter).trim() : null,
             normalized: normQuery(s.fields.query), results: r.ok ? r.text : null, site: S.siteName(s.fields) || null });
         }
-        var sets = list(s.fields.sets);
+        var sets = PF.map.setNames(s.fields.sets);
         if (sets.length) out.sets.push({ step: s.id, names: sets });
         if (s.type === 'run.process' && s.fields.process) {
           var pass = own(s.fields, 'pass') ? PF.links.parse(s.fields.pass).entries || [] : [];
@@ -228,7 +228,7 @@ PF.library = (function () {
     var carried = Object.create(null), asksAll = false;
     M.steps(map).forEach(function (x) {
       var s = x.step;
-      list(s.fields.sets).forEach(function (n) { carried[n] = true; });
+      PF.map.setNames(s.fields.sets).forEach(function (n) { carried[n] = true; });
       if (s.type === 'run.process') { var c = PF.links.carryList(s); if (!c.length) asksAll = true; c.forEach(function (n) { carried[n] = true; }); }
     });
     /* A linked step without carry: passes every detail its child also has, so none of them can be called unused. */

@@ -2781,7 +2781,7 @@
     if (link2) inputs = PF.links.inputs(parent, R.effStep(parent, x.step), Object.keys(parent.details), pub.map);
     else {
       /* The child counts for exactly the details it was started with: snapshot them now, before any save can let them change. */
-      var own = String(f.sets || '').split(',').map(function (k) { return k.trim(); });
+      var own = PF.map.setNames(f.sets);
       Object.keys(details).forEach(function (k) { inputs[k] = details[k]; }); (x.step.binds || []).forEach(function (k) { inputs[k] = parent.details[k] || ''; });
       own.forEach(function (k) { delete inputs[k]; });
     }

@@ -261,13 +261,20 @@ PF.run = (function () {
         extra.push(d);
       });
     }
-    String(f.sets || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean).forEach(function (d) {
+    var bound = [];
+    M.setsOf(f.sets).forEach(function (b) {
+      /* Module results (3.0): sets: <detail>=decision makes the decision itself the result, one value and one box; a linked
+         step's =result is filled in by settlement, never asked. */
+      if (b.from) { if (b.from === 'decision') bound.push(b.name); return; }
+      var d = b.name;
       /* A typed run detail (2.0) is asked for with its kind, so the step stores it canonical. */
       var dt = detailDef(map || mapOf(r), d), e = { name: detailKey(d), label: d, kind: 'text', required: true, cap: V.DETAIL_MAX, hint: 'A run detail: later steps use it as ^' + d + '.', source: 'detail:' + d, detail: d };
       if (dt) { e.kind = dt.kind === 'link' ? 'url' : dt.kind; e.detailKind = dt.kind; if (dt.options) e.options = dt.options.slice(); if (dt.kind === 'pattern') e.pattern = dt.pattern; }
       extra.push(e);
     });
-    return { type: t, fields: f, extra: extra, list: PF.types.recordFields(t, f, extra) };
+    var rec = PF.types.recordFields(t, f, extra);
+    if (bound.length) rec.forEach(function (d) { if (d.name === 'decision' && !d.detail) { d.detail = bound[0]; d.required = true; d.source = 'detail:' + bound[0]; d.hint = 'The checklist\'s result: later steps use it as ^' + bound[0] + '.'; } });
+    return { type: t, fields: f, extra: extra, list: rec };
   }
   /* A run detail's kind (2.0, typed-details): { kind, options? } from the run's own checklist, or null for text. */
   function detailDef(map, name) { var t = map && map.meta && map.meta.detailTypes; return t && Object.prototype.hasOwnProperty.call(t, name) ? t[name] : null; }
@@ -282,6 +289,37 @@ PF.run = (function () {
   }
   /* The evidence key a step stores a run detail it sets under: short and safe as a run-file key. */
   function detailKey(d) { return 'rd-' + U.slug(String(d), 20) + '-' + U.hash(String(d)); }
+  /* ---------- Module results (3.0, docs/design.md 47) ---------- */
+  /* The step a bound run detail comes from: { step, from: 'decision' | 'result' }, or null for a detail people set. */
+  function boundSource(map, field) {
+    var all = M.steps(map);
+    for (var i = 0; i < all.length; i++) { var b = M.boundFrom(all[i].step, field); if (b === 'decision' || (b === 'result' && all[i].step.type === 'run.process')) return { step: all[i].step, from: b }; }
+    return null;
+  }
+  /* A run's result, as its checklist declares it: { name, value, step, at } ('' until its decision is Done), or null when
+     the checklist has none. */
+  function resultOf(r) {
+    var map; try { map = mapOf(r); } catch (e) { return null; }
+    var d = M.resultDef(map);
+    if (!d || !d.step) return null;
+    var a = r.steps && r.steps[d.step.id], ok = !!a && a.s === 'done';
+    return { name: d.name, value: ok ? String((r.details || {})[d.name] || '') : '', step: d.step.id, at: ok ? a.at || null : null };
+  }
+  /* How a run ended, in words: "Completed · needs-work" for a checklist with a result, else the outcome; '' while it runs. */
+  function outcomeText(r, word) {
+    if (!r || !r.ended) return '';
+    var o = word ? word(r.ended.outcome) : r.ended.outcome, res = r.ended.outcome === 'Completed' && !r._unrunnable ? resultOf(r) : null;
+    return res && res.value ? o + ' \u00b7 ' + res.value : o;
+  }
+  /* The results a linked step accepts (accepts:), or null when it names none (any Completed run counts, as before 3.0). */
+  function acceptsOf(r, step) { var v = fieldsOf(r, step).accepts; return v == null ? null : list(v); }
+  /* Why a linked step is held by the result its run returned, or '': its run completed, but with a result it doesn't accept. */
+  function resultHeld(r, step, a) {
+    var acc = step && step.type === 'run.process' ? acceptsOf(r, step) : null;
+    if (!acc || !a || a.s !== 'blocked' || !a.child || a.child.failed || typeof a.child.result !== 'string') return '';
+    return acc.indexOf(a.child.result) < 0 ? a.reason || '' : '';
+  }
+  function heldWords(child, value, acc) { return String(child.title || child.process).slice(0, 50) + ' returned ' + (value || 'no result') + '; this step accepts ' + acc.join(' or '); }
   /* After a step that sets run details is checked or corrected, its values become the run's details, re-checking later
      steps tied to them, but never the step that set them. */
   function applySets(r, map, step, who, now, only) {
@@ -566,7 +604,7 @@ PF.run = (function () {
       var c = JS.contained(sub.template, sub);
       if (!c.ok) return Object.assign(out, { ok: false, why: 'This search can\'t be built safely (' + c.why + ').' });
     }
-    var sets = list(f.sets).filter(function (d) { return searchUses(map, step).indexOf(d) >= 0; });
+    var sets = M.setNames(f.sets).filter(function (d) { return searchUses(map, step).indexOf(d) >= 0; });
     if (sets.length) return Object.assign(out, { ok: false, why: 'This step ' + JS.setsWhy(sets) });
     var idn = JS.identity(base, f, sub || {}, r.searchGen || {}, r.searchRec ? r.searchRec[step.id] : null);
     if (!idn) return Object.assign(out, { ok: false, damaged: true, why: 'This search\'s record of a run detail or of its recovery is damaged, so it has no current search. Refresh the search, then search again.' });
@@ -928,6 +966,8 @@ PF.run = (function () {
     return out;
   }
   function usesTeam(r) { return r.format === FORMAT3 && Array.isArray(r.features) && r.features.indexOf('team-values') >= 0; }
+  /* A run of a version with module results (3.0), the only one whose links record a result. */
+  function usesResults(r) { return r.format === FORMAT3 && Array.isArray(r.features) && r.features.indexOf('module-results') >= 0; }
   /* A registration's snapshot exactly as PF.skills.observed writes it: name and version text, and only text where it has more
      (the exact pin, step IDs, location, description). Anything else isn't one this copy wrote, so the run is read-only. */
   function snapOk(n) {
@@ -1129,6 +1169,9 @@ PF.run = (function () {
   function setDetail(r, map, field, value, who, now, except) {
     notPaused(r);
     if (map.meta.context.indexOf(field) < 0) throw new Error('Unknown run detail.');
+    /* A bound detail (3.0) has one source: its decision, or its linked run's result. */
+    var src = boundSource(map, field);
+    if (src && src.step.id !== except) throw badValue('^' + field + ' is the result ' + (src.from === 'decision' ? 'its decision sets: answer "' + src.step.text + '" to change it.' : 'its linked run returns: it changes only when "' + src.step.text + '" settles again.'), field);
     var old = String(r.details[field] || '').trim(), v = V.cut(null, String(value || '').trim(), V.DETAIL_MAX, detailUnit(r)).value, def = r.format === FORMAT3 ? detailValueDef(map, field) : null;
     if (def) { var p = V.parse(def, value == null ? '' : value, { max: V.DETAIL_MAX }); if (!p.ok) throw badValue(p.why, field); v = p.canonical; old = String(r.details[field] || ''); }
     /* Conditions (2.1) that test this detail: what applies before the change (a held step included), for the log line. */
@@ -1498,7 +1541,7 @@ PF.run = (function () {
     /* A link whose run is here and fails the pin doesn't hold the step: a new run on the pin replaces it. One not visible yet
        (still syncing) still holds it. */
     var had = pinNow && a.child && typeof o.findRun === 'function' ? o.findRun(a.child.process + '/' + a.child.id) : null, offPin = !!had && !!PF.pins.childMatch(pinNow, had, o.procOf);
-    if (a.child && childCurrent(r, x.step, a) && !a.child.failed && !offPin) throw new Error('This step already started a run.');
+    if (a.child && childCurrent(r, x.step, a) && !a.child.failed && !offPin && !resultHeld(r, x.step, a)) throw new Error('This step already started a run.');
     if (a.child && a.child.retired && a.child.process === child.process && a.child.id === child.id) throw new Error(RETIRED);
     /* A run/2 parent never adopts a child made with Flightdeck 2.0 (review #1): offer a 2.0 run instead. */
     if (r.format !== FORMAT3 && isTwo(child)) throw new Error(LEGACY_CHILD);
@@ -1515,7 +1558,7 @@ PF.run = (function () {
       var pm = PF.pins.childMatch(use, o.run, o.procOf); if (pm) throw new Error(pm);
     }
     if (a.child) {
-      addLog(r, who, now, 'Replaced the ' + a.child.process + ' run for "' + x.step.text + '": ' + (a.child.retired ? 'its link was retired when a detail its condition tests changed' : a.child.failed ? 'it didn\'t complete' : 'its details changed'));
+      addLog(r, who, now, 'Replaced the ' + a.child.process + ' run for "' + x.step.text + '": ' + (a.child.retired ? 'its link was retired when a detail its condition tests changed' : a.child.failed ? 'it didn\'t complete' : resultHeld(r, x.step, a) ? 'it returned ' + (a.child.result || 'no result') : 'its details changed'));
       /* The old child's answer goes to history; the new child settles the step from scratch. */
       if (a.s !== 'open') { answer(r, stepId, { s: 'open' }); a = r.steps[stepId]; }
     }
@@ -1579,13 +1622,13 @@ PF.run = (function () {
     var f = fieldsOf(r, step), want = snapshot ? Object.keys(snapshot) : String(f.carry || '').split(/[,\s]+/).filter(Boolean), out = {};
     if (!snapshot && !want.length) want = Object.keys(r.details);
     /* What the step itself produces (sets:) is its output, not something its child was started for. */
-    var own = String(f.sets || '').split(',').map(function (x) { return x.trim(); });
+    var own = M.setNames(f.sets);
     (step.binds || []).concat(want).filter(function (k) { return own.indexOf(k) < 0; }).forEach(function (k) { if (Object.prototype.hasOwnProperty.call(r.details, k)) out[k] = r.details[k] || ''; });
     return out;
   }
   function childCurrent(r, step, a) {
     if (!a || !a.child) return false;
-    var f = fieldsOf(r, step), own = String(f.sets || '').split(',').map(function (k) { return k.trim(); }), was = Object.create(null), now = childInputs(r, step, a.child.inputs);
+    var f = fieldsOf(r, step), own = M.setNames(f.sets), was = Object.create(null), now = childInputs(r, step, a.child.inputs);
     Object.keys(a.child.inputs || {}).forEach(function (k) { if (own.indexOf(k) < 0) was[k] = a.child.inputs[k]; });
     /* A different process, or carry: naming a detail the child wasn't started with, means it's not the run this step asks for. */
     if ((f.process || '') !== a.child.process) return false;
@@ -1625,7 +1668,7 @@ PF.run = (function () {
     if (changed.length) return { s: 'blocked', reason: 'The ' + child.process + ' run ended with ' + changed.map(function (k) { return k + ' "' + child.details[k] + '"'; }).join(', ') + ', not the ' + changed.join(', ') + ' it was started for' };
     if (child.ended.outcome !== 'Completed') return { s: 'blocked', reason: 'The ' + child.process + ' run ended: ' + child.ended.outcome };
     var cc = childCheck(child); if (cc) return { s: 'review', reason: 'The ' + (child.title || child.process) + ' run completed, but ' + cc + '. Open that run to check it. This step wasn\'t settled.' };
-    return { s: 'done' };
+    return resultVerdict(r, step, child);
   }
   /* childVerdict for a step with a pass: line (2.8): each child detail is compared with what it was started from, through the
      step's rows (the child's own map says which names it has): a detail source with the parent's snapshot under the source's
@@ -1654,7 +1697,15 @@ PF.run = (function () {
     if (changed.length) return { s: 'blocked', reason: 'The ' + child.process + ' run ended with ' + changed.map(function (k) { return k + ' "' + ((child.details || {})[k] || '') + '"'; }).join(', ') + ', not the ' + changed.join(', ') + ' it was started for' };
     if (child.ended.outcome !== 'Completed') return { s: 'blocked', reason: 'The ' + child.process + ' run ended: ' + child.ended.outcome };
     var cc = childCheck(child); if (cc) return { s: 'review', reason: 'The ' + (child.title || child.process) + ' run completed, but ' + cc + '. Open that run to check it. This step wasn\'t settled.' };
-    return { s: 'done' };
+    return resultVerdict(r, step, child);
+  }
+  /* A Completed child, through what its step accepts (3.0): done with the result it returned, or held when the step doesn't
+     accept it (the run completed its assessment; this step just can't count it). A step without accepts: is done. */
+  function resultVerdict(r, step, child) {
+    var acc = acceptsOf(r, step);
+    if (!acc) return { s: 'done' };
+    var res = resultOf(child), v = res ? res.value : '';
+    return acc.indexOf(v) >= 0 && v ? { s: 'done', result: v } : { s: 'held', result: v, reason: heldWords(child, v, acc) };
   }
   /* The only way a step with a linked child is checked or blocked: by that exact child, current, once it has ended. */
   function settleChild(r, map, id, child, who, now, procOf) {
@@ -1668,9 +1719,26 @@ PF.run = (function () {
     var v = childVerdict(r, x.step, a, child, procOf);
     if (!v) throw new Error('The linked run hasn\'t ended yet.');
     if (v.s === 'review') throw new Error(v.reason);
+    if (v.result != null) return settleResult(r, map, x, child, v, who, now);
     if (v.s === 'done') done(r, map, id, who, now, { _child: child.id });
     else if (a.s === 'blocked') { a.child.failed = true; addLog(r, who, now, v.reason + '; a new run can replace it'); }
     else { block(r, map, id, v.reason, who, now); r.steps[id].child.failed = true; }
+    return v.s;
+  }
+  /* Settling a step that accepts results (3.0): the result is recorded on the link and imported (sets: <detail>=result) with
+     where it came from; a result it doesn't accept holds the step, the link kept, so a new run can replace it. A gate that
+     approved this phase goes to review: a new result is a change, even when it reads the same. */
+  function settleResult(r, map, x, child, v, who, now) {
+    var id = x.step.id, g = r.gates[map.phases[x.phaseIndex].gate.id];
+    if (v.s === 'done') done(r, map, id, who, now, { _child: child.id });
+    else if (r.steps[id].s !== 'blocked' || r.steps[id].reason !== v.reason) block(r, map, id, v.reason, who, now);
+    r.steps[id].child.result = v.result;
+    M.setsOf(fieldsOf(r, x.step).sets).forEach(function (b) {
+      if (b.from !== 'result' || map.meta.context.indexOf(b.name) < 0 || String(r.details[b.name] || '') === v.result) return;
+      setDetail(r, map, b.name, v.result, who, now, id);
+      addLog(r, who, now, 'Set ' + b.name + ': ' + (v.result || '(no result)') + ', from the ' + (child.title || child.process) + ' run (' + child.id + ')');
+    });
+    if (g && (g.s === 'passed' || g.s === 'waived')) r.gates[map.phases[x.phaseIndex].gate.id] = { s: 'review', was: g.s, by: g.by, at: g.at, reason: 'A linked run returned a new result', approved: g.approved };
     return v.s;
   }
   /* Why a linked step is held for want of its team record, or '': a link written without one (Link it on a lost link). */
@@ -1897,7 +1965,7 @@ PF.run = (function () {
     workflow: 'statuses transitions invalid', transition: 'from to fields', jiraField: 'name hint source options'
   };
   KNOWN.run3 = KNOWN.run + ' features app typesHash payload pins migrations test stage searchSites searchGen searchRec';
-  KNOWN.step3 = KNOWN.step + ' skill'; KNOWN.history3 = KNOWN.history + ' skill'; KNOWN.child3 = KNOWN.child + ' folder retired teamPassed'; KNOWN.parent3 = KNOWN.parent + ' folder';
+  KNOWN.step3 = KNOWN.step + ' skill'; KNOWN.history3 = KNOWN.history + ' skill'; KNOWN.child3 = KNOWN.child + ' folder retired teamPassed result'; KNOWN.parent3 = KNOWN.parent + ' folder';
   KNOWN.pins = 'children'; KNOWN.skillSeen = 'id rev sha snapshot';
   Object.keys(KNOWN).forEach(function (k) { var o = {}; KNOWN[k].split(' ').forEach(function (f) { o[f] = 1; }); KNOWN[k] = o; });
   var HEX64 = /^[0-9a-f]{64}$/;
@@ -1981,6 +2049,7 @@ PF.run = (function () {
       look(a.started, 'started', w); look(a.deadline, 'deadline', w); look(a.differently, 'differently', w); look(a.child, three ? 'child3' : 'child', w);
       if (three && !why && obj(a.child) && a.child.folder !== undefined && !folderOk(a.child.folder)) why = w + '\'s linked run\'s version isn\'t a version folder.';
       if (three && !why && obj(a.child) && a.child.teamPassed !== undefined && !(usesTeam(o) && teamRecord(a.child.teamPassed))) why = w + '\'s record of the team values its run was passed isn\'t one this copy reads.';
+      if (three && !why && obj(a.child) && a.child.result !== undefined && !(usesResults(o) && typeof a.child.result === 'string' && a.child.result.length <= 40)) why = w + '\'s record of the result its run returned isn\'t one this copy reads.';
       if (three) { look(a.skill, 'skillSeen', w + '\'s skill'); if (!why && a.skill !== undefined && !cleanSkill(a.skill)) why = w + '\'s skill registration isn\'t one this copy reads.'; }
       text(a.values, w + '\'s evidence', 300); if (obj(a.child)) text(a.child.inputs, w + '\'s child run detail', 300);
       if (Array.isArray(a.history)) a.history.forEach(function (h) { look(h, three ? 'history3' : 'history', w + '\'s history'); if (three && obj(h)) { look(h.skill, 'skillSeen', w + '\'s earlier skill'); if (!why && h.skill !== undefined && !cleanSkill(h.skill)) why = w + '\'s earlier skill registration isn\'t one this copy reads.'; } if (obj(h) && h.s !== 'corrected') state(STEP_STATES, h.s, w + '\'s history'); if (obj(h)) { look(h.differently, 'differently', w + '\'s history'); text(h.values, w + '\'s earlier evidence'); text(h.fields, w + '\'s earlier value'); } });
@@ -2288,7 +2357,7 @@ PF.run = (function () {
       if (a.deadline && isoOrNull(a.deadline.at)) c.deadline = { at: a.deadline.at, by: str(a.deadline.by, 80), set: isoOrNull(a.deadline.set) };
       if (a.differently && typeof a.differently === 'object') c.differently = { note: str(a.differently.note, 500), by: str(a.differently.by, 80), at: isoOrNull(a.differently.at) };
       if (a.values) c.values = values(a.values);
-      if (a.child && /^[a-z0-9][a-z0-9-]*$/.test(String(a.child.process)) && /^[a-z0-9-]{1,40}$/i.test(String(a.child.id))) { c.child = { process: a.child.process, id: a.child.id }; if (a.child.inputs && typeof a.child.inputs === 'object') c.child.inputs = inputsOf(a.child.inputs); if (a.child.failed === true) c.child.failed = true; if (three && a.child.retired === true) c.child.retired = true; if (three && folderOk(a.child.folder)) c.child.folder = a.child.folder; if (three && usesTeam(o) && teamRecord(a.child.teamPassed)) c.child.teamPassed = teamRecord(a.child.teamPassed); }
+      if (a.child && /^[a-z0-9][a-z0-9-]*$/.test(String(a.child.process)) && /^[a-z0-9-]{1,40}$/i.test(String(a.child.id))) { c.child = { process: a.child.process, id: a.child.id }; if (a.child.inputs && typeof a.child.inputs === 'object') c.child.inputs = inputsOf(a.child.inputs); if (a.child.failed === true) c.child.failed = true; if (three && a.child.retired === true) c.child.retired = true; if (three && folderOk(a.child.folder)) c.child.folder = a.child.folder; if (three && usesTeam(o) && teamRecord(a.child.teamPassed)) c.child.teamPassed = teamRecord(a.child.teamPassed); if (three && usesResults(o) && typeof a.child.result === 'string') c.child.result = a.child.result.slice(0, 40); }
       if (three && a.skill) { var sk = cleanSkill(a.skill); if (sk) c.skill = sk; }
       if (Array.isArray(a.history)) c.history = a.history.slice(-HISTORY_MAX).filter(function (h) { return h && (STEP_STATES[h.s] || h.s === 'corrected'); }).map(function (h) { return { s: h.s, by: str(h.by, 80), at: isoOrNull(h.at), reason: str(h.reason, 120) || undefined, differently: h.differently ? { note: str(h.differently.note, 500) } : undefined, values: h.values ? values(h.values) : undefined, fields: h.fields ? values(h.fields) : undefined, skill: three && h.skill ? cleanSkill(h.skill) || undefined : undefined }; });
       r.steps[k] = c;
@@ -2349,7 +2418,7 @@ PF.run = (function () {
     RUN_ID: RUN_ID, isTest: isTest, pubDir: pubDir, testProblem: testProblem, testLast: testLast,
     FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, applies: applies, held: held, stepNeeded: stepNeeded, canStartChild: canStartChild, phaseSkipped: phaseSkipped, condFields: condFields, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, fillOffered: fillOffered, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence, checkFill: checkFill,
-    pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, teamUnrecorded: teamUnrecorded, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, jiraFor: jiraFor, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, effStep: effStep, setFields: setFields,
+    pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, resultOf: resultOf, outcomeText: outcomeText, resultHeld: resultHeld, acceptsOf: acceptsOf, boundSource: boundSource, teamUnrecorded: teamUnrecorded, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, jiraFor: jiraFor, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, effStep: effStep, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,
     pass: pass, waive: waive, fail: fail, reopen: reopen, setDetail: setDetail, setRole: setRole,
     handOff: handOff, pickUp: pickUp, takeOver: takeOver, legacyLinks: legacyLinks, continuation: continuation, continued: continued, skillWarning: skillWarning, cleanSkill: cleanSkill, LEGACY_CHILD: LEGACY_CHILD, waitingForHandoff: waitingForHandoff, compare: compare, adopt: adopt, addFollowUp: addFollowUp, removeFollowUp: removeFollowUp, corrections: corrections, end: end, myNext: myNext, nextUp: nextUp, nextInPhase: nextInPhase, totals: totals, receipt: receipt, blockedSteps: blockedSteps
