@@ -855,6 +855,10 @@ const FILE = 'text written to a file (front matter, a step\'s lines), never draw
 const FIXED = 'a fixed set of parts, at most a handful';
 const GROUP = 'one group path (Group / Subgroup), as deep as its author wrote it';
 const D10_JOIN_OK = [
+  { file: 'builder.js', has: 'dt[n].options.join(\', \')', why: 'a choice detail\'s options, at most 20 (core/map.js OPTIONS_MAX), in a select of the checklist\'s choice details, at most 40' },
+  { file: 'run.js', has: 'esc(R.acceptsOf(r, s).join(\' or \'))', why: 'the results a step accepts: the child\'s choices, at most 20 (core/map.js OPTIONS_MAX)' },
+  { file: 'app.js', has: 'builderField(\'ob-fld-\' + field, cur.join(\', \'), focus)', why: 'a step field\'s value written to the checklist, never drawn' },
+  { file: 'app.js', has: 'keep.concat(value ? [value + \'=result\'] : []).join(\', \')', why: 'a step field\'s value written to the checklist, never drawn' },
   { file: 'manage.js', has: 'list.join(\', \')', why: 'at most 3: afWaiting counts the rest' }, { file: 'manage.js', has: 'list.slice(0, 3).join(', why: 'at most 3: afWaiting counts the rest' },
   { file: 'manage.js', has: 'paths.slice(0, 3).join(', why: 'at most 3 old copies\' paths: afOld counts the rest' },
   { file: 'app.js', has: 'tg.updates.join(', why: 'a folder\'s parts, a fixed list in the code' }, { file: 'app.js', has: 'tg.updates.concat(v).join', why: 'one prompt per version folder holding this file, copied to the clipboard, never drawn' },

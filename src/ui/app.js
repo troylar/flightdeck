@@ -2769,13 +2769,13 @@
     if (!x || !ctx.recording(parent)) return null;
     var f = R.fieldsOf(parent, x.step), target = PF.pins.childTarget(parent, x.step, ctx.procOf), pub = target.pub, a0 = Object.prototype.hasOwnProperty.call(parent.steps, stepId) ? parent.steps[stepId] : null, rkey = state.runKey + ':' + stepId;
     /* One start at a time per step: a second click while the first is saving, or a step that already has a current child, does nothing. */
-    if ((state.startingChild = state.startingChild || {})[rkey] || (a0 && a0.child && R.childCurrent(parent, x.step, a0) && !a0.child.failed && !(ctx.findRun(a0.child.process + '/' + a0.child.id) && R.childHeld(parent, stepId, ctx.findRun(a0.child.process + '/' + a0.child.id), ctx.procOf))) || parent.paused) return null;
+    if ((state.startingChild = state.startingChild || {})[rkey] || (a0 && a0.child && R.childCurrent(parent, x.step, a0) && !a0.child.failed && !(ctx.findRun(a0.child.process + '/' + a0.child.id) && R.childHeld(parent, stepId, ctx.findRun(a0.child.process + '/' + a0.child.id), ctx.procOf)) && !R.resultHeld(parent, x.step, a0)) || parent.paused) return null;
     /* A run/3 starts the child on its pin and only its pin; a run/2 never starts one on a 2.0 version (it offers a 2.0 run). */
     if (target.legacy || !pub) { say(target.why || '"' + f.process + '" isn\'t published in this folder yet.', 'warn'); render(); return null; }
     /* Conditions (2.1): the step must be needed and its phase open, now and again when the queued write runs. */
     var cw = R.canStartChild(parent, map, stepId);
     if (cw) { say(cw, 'warn'); render(); return null; }
-    var cp = R.childProblem(parent, x.step, pub.map.meta.context);
+    var cp = R.childProblem(parent, x.step, pub.map.meta.context) || R.resultFit(parent, x.step, pub.map, pub.info.version);
     if (cp) { say(cp, 'warn'); render(); return null; }
     var link2 = PF.links.has(x.step), details = R.childDetails(parent, x.step, link2 ? pub.map : pub.map.meta.context), inputs = {};
     if (link2) inputs = PF.links.inputs(parent, R.effStep(parent, x.step), Object.keys(parent.details), pub.map);
@@ -3011,6 +3011,18 @@
       if (!ctx.recording(r) || r.paused || state.unsaved[r.id]) return;
       Object.keys(r.steps).forEach(function (sid) {
         var a = r.steps[sid], c = a && a.child && ctx.findRun(a.child.process + '/' + a.child.id), x = M.findStep(R.mapOf(r), sid), v = x && R.childVerdict(r, x.step, a, c, ctx.procOf);
+        /* Module results (3.0): a settled step whose run was reopened or corrected since goes back for a re-check, and is
+           settled again at once when that run stands with an answer. */
+        if (x && c && R.resultMoved(r, x.step, a, c, ctx.procOf)) {
+          mutateRun(r.process + '/' + r.id, gen, function (rr, m, me, now) {
+            var xx = M.findStep(m, sid), why = xx && R.resultMoved(rr, xx.step, rr.steps[sid], c, ctx.procOf);
+            if (!why) return;
+            R.unsettleResult(rr, m, sid, why, me, now);
+            var v2 = R.childVerdict(rr, xx.step, rr.steps[sid], c, ctx.procOf);
+            if (v2 && v2.s !== 'review') R.settleChild(rr, m, sid, c, me, now, ctx.procOf);
+          }, { background: true });
+          return;
+        }
         /* Settled once: a failed child stays failed (unblocking the step won't re-block it); a new child replaces it. */
         if (!v || a.child.failed || !R.childCurrent(r, x.step, a) || a.s === 'done' || a.s === 'na' || R.resultHeld(r, x.step, a)) return;
         mutateRun(r.process + '/' + r.id, gen, function (rr, m, me, now) { R.settleChild(rr, m, sid, c, me, now, ctx.procOf); }, { background: true });

@@ -175,7 +175,7 @@
     if (target.legacy) return offer(target.why);
     if (!canStart) return '<div class="childbox">' + I('nest') + '<span>Starts a <b>' + esc(proc || '?') + '</b> run when this step is reached.</span>' + pinWords + '</div>';
     if (target.why) return '<div class="childbox">' + I('nest') + '<span class="small">' + esc(target.why) + '</span></div>';
-    return '<div class="childbox">' + I('nest') + '<button class="btn go" data-act="start-child" data-id="' + esc(s.id) + '">Start the ' + esc(pub.map.meta.title) + ' run</button><span class="small">' + esc(passesOn(ctx, r, s, pub)) + '. This step is checked when it completes' + (R.acceptsOf(r, s) ? ' with ' + R.acceptsOf(r, s).join(' or ') : '') + '.</span>' + pinWords + '</div>';
+    return '<div class="childbox">' + I('nest') + '<button class="btn go" data-act="start-child" data-id="' + esc(s.id) + '">Start the ' + esc(pub.map.meta.title) + ' run</button><span class="small">' + esc(passesOn(ctx, r, s, pub)) + '. This step is checked when it completes' + (R.acceptsOf(r, s) ? ' with ' + esc(R.acceptsOf(r, s).join(' or ')) : '') + '.</span>' + pinWords + '</div>';
   }
 
   /* A phase's note and screenshots (2.0) at the top of the phase, folded with its steps once it's done. Thumbnails load
@@ -385,6 +385,9 @@
     var det = map.meta.context.map(function (f) {
       var def = detailDef(r, map, f), bad = r._invalid && Object.prototype.hasOwnProperty.call(r._invalid, 'details.' + f) ? r._invalid['details.' + f].why : '';
       var wait = waiting.filter(function (m) { return m.path === 'details.' + f; })[0], note = bad || (wait ? PF.values.ask(def, wait.from) : '');
+      /* A bound result (3.0) has one source, its decision or its linked run: read-only here, with where it comes from. */
+      var src = R.boundSource(map, f);
+      if (src) return '<span class="chip' + (r.details[f] ? '' : ' empty') + '"><span class="k">' + esc(f) + '</span>' + (r.details[f] ? '<span class="v">' + esc(def ? K.valueText(def, r.details[f]) : r.details[f]) + '</span>' : '') + '<span class="small">' + esc(src.from === 'decision' ? 'Set by "' + src.step.text + '"' : 'From the run "' + src.step.text + '"') + '</span></span>';
       if (s.edit === 'detail:' + f && rec && def) return '<span class="inline-edit" data-scope="edit:detail:' + esc(f) + '">' + K.typedField('edit-input', f, def, r.details[f], def.kind === 'yes-no' || V0(def) ? '' : 'data-enter="save-edit"', 'small') + '<button class="mini" data-act="save-edit">Save</button><button class="mini" data-act="unedit">Cancel</button>' + (note ? '<span class="small">' + esc(note) + '</span>' : '') + '</span>';
       if (def) return '<button class="chip' + (r.details[f] ? '' : ' empty') + (note ? ' warn' : '') + '" data-act="edit" data-id="detail:' + esc(f) + '"' + (rec ? '' : ' disabled') + '><span class="k">' + (r.details[f] ? '' : 'Set ') + esc(f) + '</span>' + (r.details[f] ? '<span class="v">' + esc(K.valueText(def, r.details[f])) + '</span>' : '') + (note ? '<span class="small">' + esc(note) + '</span>' : '') + '</button>';
       if (s.edit === 'detail:' + f && rec) return '<span class="inline-edit" data-scope="edit:detail:' + esc(f) + '"><label class="small" for="edit-input">' + esc(f) + '</label><input id="edit-input" maxlength="120" value="' + esc(r.details[f]) + '" data-enter="save-edit"><button class="mini" data-act="save-edit">Save</button><button class="mini" data-act="unedit">Cancel</button></span>';

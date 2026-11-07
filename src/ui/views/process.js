@@ -838,7 +838,7 @@
     h += '<form class="panel stack" id="' + formId + '" data-scope="' + esc(scope) + '" data-process="' + esc(p.id) + '" data-folder="' + esc(pub.info.folder) + '"' + (plan ? ' data-plan-hash="' + esc(plan._sha) + '" data-plan-conflict="' + (plan._conflicting ? '1' : '') + '"' : '') + '><div class="grid2"><label class="field" for="run-title">Run name<input id="run-title" maxlength="100" value="' + esc(defTitle) + '"></label>';
     /* A detail a step produces during the run (sets:) isn't asked for here; the form says which step fills it in. */
     var setBy = M.setBy(pub.map), given = pre.details && typeof pre.details === 'object' ? pre.details : {};
-    var later = meta.context.filter(function (f) { return Object.prototype.hasOwnProperty.call(setBy, f) && !(plan && given[f]); });
+    var later = meta.context.filter(function (f) { return Object.prototype.hasOwnProperty.call(setBy, f) && (!(plan && given[f]) || !!PF.run.boundSource(pub.map, f)); });
     meta.context.filter(function (f) { return later.indexOf(f) < 0; }).forEach(function (f) {
       var g = typeof given[f] === 'string' ? given[f] : '', def = PF.run.typedDef({ snapshot: '' }, pub.map, 'details.' + f);
       if (!def) { h += '<label class="field" for="detail-' + esc(f) + '">' + esc(f) + '<input id="detail-' + esc(f) + '" data-detail="' + esc(f) + '" maxlength="120" value="' + esc(g) + '"></label>'; return; }
