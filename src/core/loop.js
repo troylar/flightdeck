@@ -465,9 +465,12 @@ PF.loop = (function () {
   }
   /* A child's item (run.parent.item): { uid, key, attempt }, or null. */
   function itemRef(v) {
-    if (!isMap(v) || Object.keys(v).some(function (k) { return k !== 'uid' && k !== 'key' && k !== 'attempt'; })) return null;
+    if (!isMap(v) || Object.keys(v).some(function (k) { return k !== 'uid' && k !== 'key' && k !== 'attempt' && k !== 'request'; })) return null;
+    if (v.request !== undefined && !(typeof v.request === 'string' && REQ_ID.test(v.request))) return null;
     if (typeof v.uid !== 'string' || !/^[a-z][a-z0-9.-]{0,19}:(key:)?[A-Za-z0-9_-]{1,40}$/.test(v.uid) || typeof v.key !== 'string' || v.key.length > 40 || !whole(v.attempt) || v.attempt < 1 || v.attempt > 999) return null;
-    return { uid: v.uid, key: v.key, attempt: v.attempt };
+    var out = { uid: v.uid, key: v.key, attempt: v.attempt };
+    if (v.request) out.request = v.request;
+    return out;
   }
   /* An approval as a run file keeps it (a loop step's answer), checked and bounded, or null. */
   function cleanSnapshot(v) {

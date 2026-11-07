@@ -2942,7 +2942,8 @@
     loopSaved(repo.saveScope(state.fs, d.name, d.file), op === 'accept' ? key + ' is removed from scope. Its run stays available.' : key + ' stays in scope.');
   }
   /* Starts one story's run for loop step id of run r: a promise of the run started, or an Error saying why nothing was. */
-  function loopLaunch(r, id, key, fresh) {
+  /* request: the id of the request it carries out, kept in the run it starts, so a lost outcome is recovered from it. */
+  function loopLaunch(r, id, key, fresh, request) {
     var V = r && loopView(r, id), x = V && V.ledger.items.filter(function (i) { return i.key === key; })[0];
     if (!x) return Promise.reject(new Error(key + ' isn\'t in this loop.'));
     /* A request and Start all only start stories with no run yet (fresh); the row's own button also starts a story's next attempt. */
@@ -2959,7 +2960,7 @@
     if (state.loopStarting[flight]) return Promise.reject(Object.assign(new Error('already starting'), { quiet: true }));
     var tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (err) { tz = ''; }
     var child; try { child = R.create(pub, { title: key + (x.title ? ': ' + x.title : ''), details: got.inputs, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), app: APP_VERSION, teamValues: data.teamValues, tz: tz, workflows: data.jira.workflows, pins: pinsAtStart(pub),
-      parent: { process: r.process, id: r.id, step: id, item: { uid: x.uid, key: x.key, attempt: attempt } } }); }
+      parent: { process: r.process, id: r.id, step: id, item: Object.assign({ uid: x.uid, key: x.key, attempt: attempt }, request ? { request: request } : {}) } }); }
     catch (err) { return Promise.reject(err); }
     var sfs = state.fs;
     state.loopStarting[flight] = true;
@@ -3014,8 +3015,9 @@
     var may = PF.loop.requestCheck(r, V, q, data.people);
     if (may) return Promise.resolve({ ok: false, why: may });
     if (q.ops[0] === 'start') {
-      var done = [], why = [];
-      return q.items.reduce(function (p, k) { return p.then(function () { if (cx.g !== gen) throw new Error('The folder changed while this request was carried out.'); return loopLaunch(r, id, k, true).then(function () { done.push(k); }, function (err) { why.push(err.message); }); }); }, Promise.resolve())
+      /* Runs this request already started (their outcome wasn't written) count as started, and aren't started again. */
+      var done = (data.runs || []).filter(function (c) { var it = c.parent && c.parent.item; return it && it.request === q.id && c.parent.process === r.process && c.parent.id === r.id && c.parent.step === id; }).map(function (c) { return c.parent.item.key; }), why = [];
+      return q.items.filter(function (k) { return done.indexOf(k) < 0; }).reduce(function (p, k) { return p.then(function () { if (cx.g !== gen) throw new Error('The folder changed while this request was carried out.'); return loopLaunch(r, id, k, true, q.id).then(function () { done.push(k); }, function (err) { why.push(err.message); }); }); }, Promise.resolve())
         .then(function () { return { ok: done.length > 0, why: 'Started ' + (done.slice(0, 20).join(', ') || 'none') + (done.length > 20 ? ' and ' + (done.length - 20) + ' more' : '') + '.' + (why.length ? ' ' + why.slice(0, 5).join(' ') : '') }; });
     }
     if (q.ops[0] === 'approve') {

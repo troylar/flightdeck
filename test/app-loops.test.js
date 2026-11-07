@@ -341,4 +341,18 @@ rule('Review round 3 (2): a request carried out while the folder is switched wri
   assert.ok(Object.keys(was.files).filter(p => /^runs\/validate-story\/.*run\.json$/.test(p)).length <= 1, 'the batch stopped after the switch');
 });
 
+rule('Review round 3 (4): a start request whose outcome couldn\'t be written is recovered from the run it started, and recorded applied', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  const fs = app.fs, write = fs.write.bind(fs);
+  fs.write = (p, t, o) => /\.status-/.test(p) && /"applied"|"refused"/.test(String(t)) ? Promise.reject(new Error('EIO')) : write(p, t, o);
+  const st = await ask(app, [{ op: 'start', item: { key: 'ABC-101' }, as: 'person-avery' }], 'r4-st');
+  assert.strictEqual(kidPaths(app).length, 1, 'set-up: started, its outcome not written');
+  assert.strictEqual(JSON.parse(app.fs.files[kidPaths(app)[0]].t).parent.item.request, st, 'the run names the request that started it');
+  fs.write = write;
+  app.click('refresh'); await app.tick(250);
+  assert.strictEqual(kidPaths(app).length, 1, 'not started again');
+  assert.deepStrictEqual([outcome(app, st).op, /ABC-101/.test(outcome(app, st).reason)], ['applied', true], outcome(app, st).reason);
+});
+
 run();
