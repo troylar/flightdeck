@@ -125,4 +125,27 @@ rule('Round 2: flightdeck run holds a loop\'s approved gate once the folder no l
   assert.strictEqual(fs.readFileSync(path.join(root, 'runs/release-readiness/r-41/run.json'), 'utf8'), before, 'nothing written');
 });
 
+rule('Round 2: the CLI asks, the recorder applies: start, start-all, approve and send-back are requests, previewed and shown by read', async () => {
+  const { root, kid } = await folder(), f = path.join(root, '..', path.basename(root) + '-obs3.json');
+  await kid(101, 'cleared');
+  fs.writeFileSync(f, JSON.stringify(obs([101, 102, 103])));
+  json('loop', 'sync', root, 'release-readiness/r-41', 'each', '--from', f, '--json', '--tool', 'release-helper@1.0', '--key', 's1');
+  const T = ['--tool', 'release-helper@1.0', '--as', 'person-morgan'];
+  const pre = json('loop', 'start-all', root, 'release-readiness/r-41', 'each', '--dry-run', '--key', 's2', '--json', ...T);
+  assert.deepStrictEqual([pre.code, pre.data.status, pre.data.start.map(k => k.key), pre.data.skip.map(k => k.key + ':' + k.why)], [0, 'would-request', ['ABC-102', 'ABC-103'], ['ABC-101:already started']]);
+  assert.ok(/Would ask the recorder to start 2 runs: ABC-102, ABC-103\.\nSkipped: ABC-101 \(already started\)\./.test(pre.data.preview), pre.data.preview);
+  assert.strictEqual(ls(root).length, 1, 'a preview writes nothing');
+  const go = json('loop', 'start-all', root, 'release-readiness/r-41', 'each', '--key', 's2', '--json', ...T);
+  assert.strictEqual(go.data.status, 'requested');
+  const again = json('loop', 'start-all', root, 'release-readiness/r-41', 'each', '--key', 's2', '--json', ...T);
+  assert.strictEqual(again.data.status, 'already', 'a retry writes nothing');
+  const no = json('loop', 'approve', root, 'release-readiness/r-41', 'each', '--key', 's3', '--json', ...T);
+  assert.deepStrictEqual([no.code, no.error.kind], [1, 'invalid']);
+  const back = json('loop', 'send-back', root, 'release-readiness/r-41', 'each', '--key', 's4', '--json', ...T);
+  assert.deepStrictEqual([back.code, back.error.kind], [1, 'invalid']);
+  const rd = json('loop', 'read', root, 'release-readiness/r-41', 'each', '--json');
+  assert.deepStrictEqual(rd.data.requests.map(q => [q.ops.join(','), q.items.join(','), q.status, q.as]), [['start,start', 'ABC-102,ABC-103', 'pending', 'person-morgan']]);
+  assert.strictEqual(fs.readdirSync(path.join(root, 'runs', 'validate-story')).length, 1, 'no run started by the command');
+});
+
 run();

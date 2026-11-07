@@ -130,6 +130,7 @@ PF.loop = (function () {
           });
         }
         (rec.changes || []).forEach(function (ch) {
+          if (ACTIONS.indexOf(ch.op) >= 0) return;
           var it = ch.item || {}, x = find(it);
           if (ch.op === 'add') { var nw = !x; x = ensure(it, rec, 'add'); if (nw) { x.manual = !obs; note(x, rec, 'add'); } else if (x.state === 'removed') note(x, rec, 'add-ignored'); return; }
           if (!x) { duplicates.push({ record: rec.id, op: ch.op, item: it.key || it.id, why: 'names an item that isn\'t in this loop' }); return; }
@@ -148,6 +149,7 @@ PF.loop = (function () {
           if (k.attempt > x.attempt) { x.attempt = k.attempt; x.planned = { record: rec.id, attempt: k.attempt, inputs: k.inputs || {}, owner: k.owner || '' }; if (k.owner && !x.owner) x.owner = String(k.owner); }
         });
       } else if (rec.type === 'decision') {
+        if (rec.op !== 'accept' && rec.op !== 'keep') return;
         (rec.items || []).forEach(function (uid) {
           var x = byUid[uid] || byKey[uid];
           if (!x) return;
@@ -262,6 +264,32 @@ PF.loop = (function () {
   /* Which loop approvals the folder no longer matches, worked out read-only on every read (3.0, review round 2): r._loopStale
      { stepId: [reasons] }, never saved (the run writer leaves _ fields out). PF.run.answered reads it, so the gate and what
      comes next hold in every window and the command line before the recorder's send-back is saved. Ended runs are left as they ended. */
+  /* The stories a start-all would start now, and the ones it skips with why: in scope, not started, not approved without a
+     run, not waiting on a removal decision, every input filled. The UI's preview and loop start-all show the same list. */
+  function startable(r, V, keys) {
+    var start = [], skip = [];
+    V.rollup.items.forEach(function (i) {
+      if (keys && keys.indexOf(i.key) < 0) return;
+      var x = V.ledger.items.filter(function (y) { return y.uid === i.uid; })[0], name = i.key || i.uid, why = '';
+      if (!i.required) why = 'removed from scope';
+      else if (i.exception) why = 'approved without a run';
+      else if (i.state === 'proposed') why = 'waiting on a removal decision';
+      else if (i.runs.length) why = 'already started';
+      else { var g = inputsFor(r, V.fields, x); if (g.missing.length) why = 'needs ' + g.missing.join(', ') + ' first'; }
+      if (why) skip.push({ key: name, uid: i.uid, why: why }); else start.push({ key: name, uid: i.uid, title: i.title || '', attempt: Math.max(1, i.attempt || 1) });
+    });
+    return { start: start, skip: skip };
+  }
+  /* Requests for the recorder (start, approve, send-back) on this loop, each pending, applied or refused, by the decisions on them. */
+  function actionsOf(V) {
+    var recs = V.records || [];
+    return recs.filter(function (q) { return q.type === 'request' && (q.changes || []).some(function (c) { return ACTIONS.indexOf(c.op) >= 0; }); }).map(function (q) {
+      var d = recs.filter(function (x) { return x.type === 'decision' && x.proposal === q.id && (x.op === 'applied' || x.op === 'refused'); })[0];
+      var ch = q.changes.filter(function (c) { return ACTIONS.indexOf(c.op) >= 0; });
+      return { id: q.id, ops: ch.map(function (c) { return c.op; }), items: ch.filter(function (c) { return c.item; }).map(function (c) { return c.item.key || c.item.id; }), as: ch[0].as || '', reason: ch[0].reason || '',
+        by: q.by, status: d ? d.op : 'pending', why: d ? d.reason || '' : '', decision: d ? d.id : '' };
+    });
+  }
   function markStale(runs, o) {
     o = o || {};
     (runs || []).forEach(function (r) {
@@ -431,7 +459,9 @@ PF.loop = (function () {
   var ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
   var PROC = /^[a-z0-9][a-z0-9-]{0,59}$/, RUN = /^[a-z0-9-]{1,40}$/i, STEP = /^[a-z0-9][a-z0-9-]{0,59}$/i, PERSON = /^[A-Za-z0-9_.-]{1,80}$/;
   var REQ = /^req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24}$/, WRITER = /^[a-z0-9][a-z0-9-]{0,39}$/, REV = /^[0-9a-f]{8}$/, DNAME = /^(req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})\.status-([a-z0-9][a-z0-9-]{0,39})-([0-9a-f]{8})\.json$/;
-  var OPS = ['add', 'exclude', 'restore', 'owner', 'exception', 'withdraw'], DOPS = ['accept', 'keep'];
+  var OPS = ['add', 'exclude', 'restore', 'owner', 'exception', 'withdraw', 'start', 'approve', 'send-back'], DOPS = ['accept', 'keep', 'applied', 'refused'];
+  /* What a tool asks the recorder to do (the CLI asks; the recorder applies): never a change to the list. */
+  var ACTIONS = ['start', 'approve', 'send-back'];
   var LIMITS = { bytes: 262144, title: 200, reason: 300, query: 500, generation: 80, errors: 20, error: 200, changes: 500, inputs: 40, input: 240, seen: 50 };
   var CONTROL = /[\u0000-\u001f\u007f\u2028\u2029]/;
   function isMap(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
@@ -518,7 +548,15 @@ PF.loop = (function () {
     list.forEach(function (ch, i) {
       var where = 'Change ' + (i + 1);
       if (!isMap(ch) || OPS.indexOf(ch.op) < 0) { errors.push(where + ' is {"op": ' + OPS.map(q).join(' | ') + ', "item": {...}}.'); return; }
-      Object.keys(ch).forEach(function (k) { if (['op', 'item', 'reason', 'owner', 'approver', 'onBehalf'].indexOf(k) < 0) errors.push(where + ' has ' + q(k) + '.'); });
+      Object.keys(ch).forEach(function (k) { if (['op', 'item', 'reason', 'owner', 'approver', 'onBehalf', 'as'].indexOf(k) < 0) errors.push(where + ' has ' + q(k) + '.'); });
+      if (ACTIONS.indexOf(ch.op) >= 0) {
+        var ca = { op: ch.op };
+        if (ch.op === 'start') { ca.item = cleanItem(ch.item, errors, where + ' item'); if (!ca.item) return; }
+        else if (ch.item != null) errors.push(where + ': ' + q(ch.op) + ' names no item.');
+        if (typeof ch.as !== 'string' || !PERSON.test(ch.as)) errors.push(where + ': "as" is the ID from people.json of the person who asks.'); else ca.as = ch.as;
+        if (ch.reason != null) { var ra = line(ch.reason, LIMITS.reason, where + ' "reason"', errors, true); if (ra) ca.reason = ra; }
+        out.push(ca); return;
+      }
       var it = cleanItem(ch.item, errors, where + ' item'), c = { op: ch.op, item: it };
       if (!it) return;
       if (ch.op === 'exclude' || ch.op === 'exception') { var r = line(ch.reason, LIMITS.reason, where + ' "reason"', errors); if (r) c.reason = r; }
@@ -613,8 +651,8 @@ PF.loop = (function () {
     var m = DNAME.exec(String(name || '')), errors = [], mal = function (why) { return { ok: false, kind: 'malformed', why: why, needs: '' }; };
     if (!m || m[1] !== o.proposal) return mal('is a scope decision whose name doesn\'t say its request');
     var loop = cleanLoop(o.loop, errors);
-    if (DOPS.indexOf(o.op) < 0) return mal('is a scope decision that isn\'t accept or keep');
-    if (!Array.isArray(o.items) || !o.items.length || o.items.length > MAX_ITEMS || !o.items.every(function (x) { return typeof x === 'string' && x.length <= 80; })) return mal('is a scope decision without its items');
+    if (DOPS.indexOf(o.op) < 0) return mal('is a scope decision that isn\'t accept, keep, applied or refused');
+    if (!Array.isArray(o.items) || (!o.items.length && (o.op === 'accept' || o.op === 'keep')) || o.items.length > MAX_ITEMS || !o.items.every(function (x) { return typeof x === 'string' && x.length <= 80; })) return mal('is a scope decision without its items');
     if (!Array.isArray(o.seen) || !o.seen.every(function (x) { return typeof x === 'string'; })) return mal('is a scope decision without what it saw');
     if (typeof o.by !== 'string' || !PERSON.test(o.by)) return mal('is a scope decision without who made it');
     if (errors.length) return mal('is a scope decision that isn\'t in its format: ' + errors[0]);
@@ -627,5 +665,5 @@ PF.loop = (function () {
 
   return { KINDS: KINDS, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
     idFor: idFor, isScope: isScope, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
-    rollup: rollup, view: view, markStale: markStale, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
+    rollup: rollup, view: view, markStale: markStale, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();

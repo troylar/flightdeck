@@ -2626,8 +2626,9 @@ const HELP = `flightdeck: team process checklists, in one HTML file
                                       holds its gate and the approval. Only reads
   flightdeck loop sync <team folder> <process>/<run> <loop step> --from <file|-> --tool <name>@<version> --key <key> [--dry-run] [--json]
                                       for AI assistants: ask for a change to a loop's list (also loop add, exclude,
-                                      restore, exception, withdraw, owner, review). Writes one file in proposals/,
-                                      once; --dry-run previews; never starts a run
+                                      restore, exception, withdraw, owner, review), or ask the recorder to start,
+                                      start-all, approve or send-back. Writes one file in proposals/, once;
+                                      --dry-run previews; the recorder's window applies; never writes a run
   flightdeck skill register <team folder> --from <file|-> [--json]
                                       for AI assistants: register a skill against the exact version it was built
                                       from (Flightdeck 2.0). The only writer of skill-registrations/
@@ -2681,7 +2682,7 @@ default goes to .flightdeck/updates/<version>/, with a README.md to hand to your
    a person (--as) that a tool records on their behalf. They never start a run and never write run.json; the parent's
    recorder sees the change when Flightdeck reads the folder. --dry-run previews and writes nothing. The same --tool and --key
    always mean the same request: a retry writes nothing; the key with other content is refused. */
-const LOOP_SUBS = ['read', 'sync', 'add', 'exclude', 'restore', 'exception', 'withdraw', 'owner', 'review'];
+const LOOP_SUBS = ['read', 'sync', 'add', 'exclude', 'restore', 'exception', 'withdraw', 'owner', 'review', 'start', 'start-all', 'approve', 'send-back'];
 const LOOP_VAL = ['--from', '--key', '--tool', '--keys', '--item', '--reason', '--approver', '--owner', '--as', '--accept', '--keep'];
 const UNCERTAIN = 'Could not confirm whether the request was saved. Retry with the same key; a new key could ask twice.';
 function loopWords(json, sub) {
@@ -2753,13 +2754,42 @@ async function loopMain(argv) {
         pending: V.ledger.pending, held: V.ledger.held, duplicates: V.ledger.duplicates, overLimit: V.ledger.overLimit,
         observation: V.ledger.observation ? Object.assign({ record: V.ledger.observation.record }, V.ledger.observation.observation, { items: undefined, count: V.ledger.observation.observation.items.length }) : null,
         approval: V.approved ? { by: V.approved.by, at: V.approved.at, onBehalf: V.approved.onBehalf || null, summary: V.approved.summary } : null,
-        changes: V.changes, review: V.review, ended: V.ended, late: V.ended ? V.changes : [] });
+        changes: V.changes, review: V.review, ended: V.ended, late: V.ended ? V.changes : [], approvalStands: !(V.approved && V.changes.length), requests: LP.actionsOf(V) });
     }
     /* Anything this depends on that couldn't be read, or a scope record this one would follow that can't be: nothing is written. */
     const held = (why) => done({ loop: V.loop, status: 'held', request: null, preview: why, why });
     if (sub === 'review') return loopReview(eng, { dir, val, V, tool, dryRun, held, done, usage, failOut, problems, title });
-    let value;
-    if (sub === 'sync') {
+    let value, act = null;
+    /* The CLI asks; the recorder applies (docs/apps.md, Loops): a story's run, every startable one, the approval and a send-back
+       are requests the recorder's window carries out with the same checks as its buttons. Nothing here writes run.json. */
+    if (['start', 'start-all', 'approve', 'send-back'].indexOf(sub) >= 0) {
+      if (!val['--as'] || !/^[A-Za-z0-9_.-]{1,80}$/.test(val['--as'])) return usage('say who asks with --as <person id from people.json>. The recorder applies it on their behalf.');
+      const a = r.steps && r.steps[stepId], lines = [];
+      if (V.ended) return failOut('invalid', 'This run has ended, so its loop takes no more requests. Nothing was written.', problems());
+      if (sub === 'start' || sub === 'start-all') {
+        const keys = sub === 'start' ? String(val['--item'] || '').split(/[\s,]+/).filter(Boolean) : null;
+        if (sub === 'start' && !keys.length) return usage('say which story with --item ABC-101.');
+        const S = LP.startable(r, V, keys);
+        if (!S.start.length) return failOut('invalid', 'Nothing to start' + (S.skip.length ? ': ' + S.skip.map((k) => k.key + ' (' + k.why + ')').join(', ') : '') + '. Nothing was written.', problems());
+        act = { start: S.start, skip: S.skip };
+        value = { loop: V.loop, changes: S.start.map((k) => ({ op: 'start', item: { key: k.key }, as: val['--as'] })) };
+        lines.push('Would ask the recorder to start ' + S.start.length + (S.start.length === 1 ? ' run: ' : ' runs: ') + S.start.map((k) => k.key).join(', ') + '.');
+        if (S.skip.length) lines.push('Skipped: ' + S.skip.map((k) => k.key + ' (' + k.why + ')').join(', ') + '.');
+      } else if (sub === 'approve') {
+        if (a && a.s === 'done' && a.loop && !V.changes.length) return failOut('invalid', 'This loop is already approved. Nothing was written.', problems());
+        if (!V.rollup.ok) return failOut('invalid', 'It can\'t be approved yet: ' + V.rollup.summary + '. ' + V.rollup.blockers.slice(0, 5).map((b) => b.text).join(' ') + ' Nothing was written.', problems());
+        act = { approve: V.rollup.summary };
+        value = { loop: V.loop, changes: [{ op: 'approve', as: val['--as'] }] };
+        lines.push('Would ask the recorder to approve: ' + V.rollup.summary + '.');
+      } else {
+        if (!(a && a.s === 'done' && a.loop)) return failOut('invalid', 'This loop isn\'t approved, so there is nothing to send back. Nothing was written.', problems());
+        act = { sendBack: V.changes };
+        value = { loop: V.loop, changes: [Object.assign({ op: 'send-back', as: val['--as'] }, val['--reason'] ? { reason: val['--reason'] } : {})] };
+        lines.push('Would ask the recorder to send the approval back for review' + (V.changes.length ? ': ' + V.changes.join(' ') : '.'));
+      }
+      lines.push('The recorder\'s window applies it with the same checks as its buttons; no run starts until then.');
+      act.lines = lines;
+    } else if (sub === 'sync') {
       if (!val['--from']) return usage('say where the observation is: --from observation.json (or - for standard input).');
       const input = await readRequestInput(val['--from'], LP.LIMITS.bytes).catch((e) => ({ err: e }));
       if (input.err) return usage('couldn\'t read the observation: ' + input.err.message);
@@ -2790,6 +2820,16 @@ async function loopMain(argv) {
       return done({ loop: V.loop, status: 'already', request: { id, file }, preview: 'Already requested. Nothing written. ' + V.rollup.summary + '.', summary: V.rollup.summary, added: [], proposed: [], excluded: [], restored: [], children: [], impact: P0.impact, runsStarted: 0 });
     }
     if (problems().length) return held('Part of the team folder this depends on couldn\'t be read, so nothing was written. Check folder availability, then retry with the same key.');
+    if (act) {
+      const fa = LP.buildRequest(c.intent, { seen: V.ledger.heads, children: [], now: new Date().toISOString(), app: eng.version });
+      const dataA = (status) => ({ loop: V.loop, status, request: { id, file }, preview: title + (status === 'would-request' ? ' — preview only; no files written.' : ' — requested.') + '\n\n' + act.lines.join('\n'),
+        start: act.start || [], skip: act.skip || [], approve: act.approve || null, sendBack: act.sendBack || null, runsStarted: 0, appliedBy: 'the recorder' });
+      if (dryRun) return done(dataA('would-request'));
+      let resA;
+      try { resA = writeOnce(dir, ['proposals'], id + '.json', LP.text(fa)); } catch (e) { return failOut('failed', UNCERTAIN + ' (' + (e && e.message || String(e)) + ')', problems()); }
+      if (resA !== 'written') return failOut('failed', UNCERTAIN, problems());
+      return done(dataA('requested'));
+    }
     if (V.ledger.held.length) return held('This loop has a scope record this computer can\'t read yet (' + V.ledger.held.map((h) => h.record).join(', ') + '). Nothing written. Check folder availability, then retry.');
     const P = LP.project(r, V, c.intent, { who });
     if (P.overLimit) return failOut('invalid', 'This would put ' + P.overLimit.count + ' stories in scope; the loop takes at most ' + P.overLimit.max + '. Nothing is cut and nothing was written.', problems());
