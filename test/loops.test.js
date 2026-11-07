@@ -438,4 +438,19 @@ rule('check_folder.py --draft gives a loop the app\'s blockers word for word, an
   same(out[0][0], []);
 });
 
+rule('Review round 2 (2): clearing a run detail the loop passes on disqualifies its children; the approval and the gate are held', () => {
+  const { r, kid2 } = release(), map = R.mapOf(r);
+  const recs = [LP.cleanRequest(JSON.parse(LP.text(reqFile('d1', { loop: LOOPT, observation: obs([101]) }))), reqFile('d1').id + '.json').record];
+  const runs = [kid2(101, 'cleared')];
+  const V = LP.view(r, 'each', { records: recs, runs });
+  R.done(r, map, 'each', 'person-morgan', AT, { _loop: { ok: true, snapshot: LP.approval(V.ledger, V.rollup, { by: 'person-morgan', at: AT }) } });
+  R.pass(r, map, 0, 'person-morgan', AT);
+  r.details.fix_version = '';
+  const V2 = LP.view(r, 'each', { records: recs, runs });
+  same(V2.rollup.ok, false, 'a child started with fix_version 4.1 no longer counts once the run has none');
+  assert.ok(/fix_version/.test(V2.rollup.blockers.map(b => b.text).join(' ')), V2.rollup.blockers.map(b => b.text).join(' '));
+  LP.markStale([r].concat(runs), { records: recs });
+  same(R.gateStatus(r, map, 0), 'review');
+});
+
 run();

@@ -326,7 +326,9 @@ PF.loop = (function () {
     /* A run counts for its item only on the version the loop pinned and with the inputs the loop gives that item now. */
     var qualify = function (c, it) {
       if (pin0) { var pw = o.procOf ? PF.pins.childMatch(pin0, c, o.procOf) : c.folder !== pin0.folder ? 'is on ' + c.folder + ', but this loop is pinned to ' + pin0.folder : ''; if (pw) return pw.replace(/^That \S+ run /, '').replace(/\.$/, ''); }
-      var want = inputsFor(r, f, it).inputs, d = c.details || {}, bad = '';
+      var g = inputsFor(r, f, it), want = g.inputs, d = c.details || {}, bad = '';
+      /* A detail the loop passes on that this run no longer has: no child can show it was started for the value it needs. */
+      if (g.missing.length) return 'was started with ' + g.missing.map(function (m) { return m + ' ' + (own(d, m) && String(d[m]) ? String(d[m]).slice(0, 80) : '(empty)'); }).slice(0, 5).join(', ') + ', but this run\'s ' + g.missing.slice(0, 5).join(', ') + ' is now empty';
       Object.keys(want).some(function (n) { var got = own(d, n) ? String(d[n]) : ''; if (got !== want[n]) { bad = 'was started with ' + n + ' ' + (got || '(empty)') + ', not ' + want[n]; return true; } return false; });
       return bad;
     };

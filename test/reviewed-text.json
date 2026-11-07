@@ -253,8 +253,8 @@
       "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "src/core/loop.js": {
-      "sha256": "be59c61f9c089a59614faa86702f2697e18e4f05f923595785dbacd05c5fa52f",
-      "reviewed": "Loop table: row ids and return focus after a story's run; held loops show the last readable view (memory only). Checked for direct writes and unconditional deletes: none added."
+      "sha256": "02ff6e0cdc4fec66bb05b535d5a5755b41ead7a98b9bcc72ea916e1dd79398ed",
+      "reviewed": "Loop qualification: a missing passed detail disqualifies a child."
     },
     "src/core/map.js": {
       "sha256": "671a810abb29087bed638e0fc39ecc5a52b70146abd303742d5d017c9083db7c",
