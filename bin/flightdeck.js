@@ -955,8 +955,15 @@ async function readData(eng, adapter, req) {
           if (!a || !a.child || !x || !PF.run.acceptsOf(r, x.step)) continue;
           const kk = a.child.process + '/' + a.child.id;
           if (Object.prototype.hasOwnProperty.call(kids, kk)) continue;
-          const c = await repo.readRunOnly(L.fs, a.child.process, a.child.id).catch(() => null);
-          if (c && c.found && c.run && !c.run._unrunnable) kids[kk] = c.run;
+          /* The linked run is read like the run itself: its folder and its version are what this output depends on. */
+          const was = relevant, mine = covers(['runs/' + kk]);
+          relevant = (p) => was(p) || mine(p);
+          const c = await repo.readRunOnly(L.fs, a.child.process, a.child.id).catch((e) => { L.note('runs/' + kk + '/run.json', 'unreadable', fileWhy(e && e.message || String(e))); return null; });
+          if (!c || !c.found) continue;
+          take(c.bad.map((b) => ({ path: b.path, kind: b.kind || 'unreadable', why: fileWhy(b.why) })));
+          if (c.nofile) L.note('runs/' + kk + '/run.json', 'nofile', 'The run folder has no run.json.');
+          if (c.run && typeof c.run.folder === 'string') { const pub = covers([(c.run.test === true ? 'staged/' : 'publications/') + c.run.process + '/' + c.run.folder]), w2 = relevant; relevant = (p) => w2(p) || pub(p); take(judgeRun(PF, c.run, c.pub)); }
+          if (c.run && !c.run._unrunnable) kids[kk] = c.run;
         }
       }
       if (req.cmd === 'run') return done(keep, usable ? (two ? (rr, it, nm) => A.run2(rr, it, nm, { kids }) : A.run)(r, F.list([r], one.fuDecisions), nameOf) : { run: null });

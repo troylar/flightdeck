@@ -314,4 +314,63 @@ rule('R04-7: flightdeck run and next --contract 2 read the linked run and say th
   assert.strictEqual(fs.readFileSync(path.join(dir, 'runs/release/rel1/run.json'), 'utf8'), before, 'nothing written');
 });
 
+/* ---------- Review 05 ---------- */
+rule('R05-1: a completed run with no recorded decision has no result, so it never clears a parent', () => {
+  const kp = publish(CHILD()), p = parentRun(kp), c = child('cleared', 'kid1', { pub: kp });
+  delete c.steps.verdict.values;
+  const back = R.sanitize(plain(c));
+  same([R.resultOf(back).value, !!R.resultOf(back).conflict], ['', true]);
+  link(p, back, kp);
+  assert.throws(() => R.settleChild(p.r, p.map, 'story', back, 'person-avery', LATER, p.procOf), /its decision says nothing/);
+  assert.ok(!R.canPass(p.r, p.map, 0));
+});
+
+rule('R05-2: an ended parent is never rewritten; one read-only verdict says its linked run\'s result changed, on the run, in Folder health and in contract 2', () => {
+  const A = PF.appjson, nameOf = (id) => id ? { id, name: id } : null;
+  const { p, c, st } = settled();
+  R.pass(p.r, p.map, 0, 'person-avery', LATER); R.done(p.r, p.map, 'ship1', 'person-avery', LATER); R.pass(p.r, p.map, 1, 'person-avery', LATER);
+  R.end(p.r, p.map, 'Completed', 'person-avery', 'Avery', LATER);
+  const kids = { 'validate-story/kid1': c };
+  assert.strictEqual(R.resultChanged(p.r, st, p.r.steps.story, c), '', 'unchanged: nothing to say');
+  same(A.run2(p.r, [], nameOf, { kids }).run.resultsChanged, []);
+  redecide(c, 'needs-work', LAST);
+  const before = JSON.stringify(p.r);
+  assert.strictEqual(R.resultMoved(p.r, st, p.r.steps.story, c, p.procOf), '', 'ended parents are outside settlement');
+  assert.ok(/^A linked run's result changed after this run ended/.test(R.resultChanged(p.r, st, p.r.steps.story, c)));
+  const marks = R.resultMarks([p.r, c]);
+  same(marks.map(m => [m.run, m.step, m.child]), [['rel1', 'story', 'validate-story/kid1']]);
+  const hc = PF.health.check({ data: { people: [], runs: [p.r, c], processes: [] }, scan: null, me: 'person-avery', app: '3.0.0' }, Date.parse(LAST));
+  assert.ok(hc.issues.some(i => /A linked run's result changed after this run ended/.test(i.title + ' ' + i.detail)), JSON.stringify(hc.issues.map(i => i.title)));
+  const rr = A.run2(p.r, [], nameOf, { kids }).run;
+  same(rr.resultsChanged.map(x => [x.step, x.id, x.result]), [['story', 'kid1', 'needs-work']]);
+  assert.ok(/^A linked run's result changed after this run ended/.test(rr.resultsChanged[0].reason));
+  same(rr.steps.filter(x => x.id === 'story')[0].awaiting, null, 'no promise to settle an ended run');
+  same(A.conforms({ run: rr }, A.SCHEMA2.run), []);
+  assert.strictEqual(JSON.stringify(p.r), before, 'byte for byte as it ended');
+});
+
+rule('R05-3: next puts a step awaiting settlement before work further on', () => {
+  const A = PF.appjson, nameOf = (id) => id ? { id, name: id } : null;
+  const { p, c } = settled();
+  R.pass(p.r, p.map, 0, 'person-avery', LATER);
+  redecide(c, 'needs-work', LAST);
+  const nx = A.next2(p.r, nameOf, null, { kids: { 'validate-story/kid1': c } });
+  same([nx.next.kind, nx.next.step.id, nx.next.step.awaiting && nx.next.step.awaiting.id], ['step', 'story', 'kid1']);
+  same(A.conforms(nx, A.SCHEMA2.next), []);
+});
+
+rule('R05-4: a linked run that can\'t be read makes run and next partial, naming it', () => {
+  const fs = require('fs'), os = require('os'), path = require('path'), { execFileSync } = require('child_process');
+  const kp = publish(CHILD()), p = parentRun(kp), c = child('needs-work', 'kid1', { pub: kp }); link(p, c, kp);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-results-')), put = (rel, text) => { fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true }); fs.writeFileSync(path.join(dir, rel), text); };
+  put('people.json', JSON.stringify({ people: [{ id: 'person-avery', name: 'Avery' }] }));
+  [[kp, 'validate-story'], [p.pub, 'release']].forEach(([v, id]) => Object.keys(v.files).forEach(k => put('publications/' + id + '/' + v.folder + '/' + k, v.files[k])));
+  put('runs/release/rel1/run.json', JSON.stringify(p.r)); put('runs/validate-story/kid1/run.json', '{');
+  const BIN = path.join(__dirname, '..', 'bin', 'flightdeck.js'), cli = (...a) => { try { return { code: 0, out: execFileSync(process.execPath, [BIN, ...a], { encoding: 'utf8', stdio: 'pipe' }) }; } catch (e) { return { code: e.status, out: String(e.stdout) }; } };
+  ['run', 'next'].forEach(cmd => {
+    const r = cli(cmd, dir, 'release/rel1', '--contract', '2', '--json'), j = JSON.parse(r.out);
+    assert.ok(r.code !== 0 && j.complete === false && j.problems.some(x => /runs\/validate-story\/kid1/.test(x.path)), cmd + ': ' + r.out.slice(0, 400));
+  });
+});
+
 run();

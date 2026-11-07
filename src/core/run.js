@@ -305,7 +305,8 @@ PF.run = (function () {
     var d = M.resultDef(map);
     if (!d || !d.step) return null;
     var a = r.steps && r.steps[d.step.id], ok = !!a && a.s === 'done';
-    var det = String((r.details || {})[d.name] || ''), dec = ok && a.values && a.values.decision != null ? String(a.values.decision) : det;
+    /* No recorded decision is no result too: a detail alone never stands for the decision that sets it. */
+    var det = String((r.details || {})[d.name] || ''), dec = ok && a.values && a.values.decision != null ? String(a.values.decision) : '';
     if (ok && dec.trim().toLowerCase() !== det.trim().toLowerCase()) return { name: d.name, value: '', step: d.step.id, at: a.at || null, conflict: { detail: det.slice(0, 40), decision: dec.slice(0, 40) } };
     return { name: d.name, value: ok ? det : '', step: d.step.id, at: ok ? a.at || null : null };
   }
@@ -321,6 +322,30 @@ PF.run = (function () {
     if (!v || v.s === 'review' || v.s === 'blocked') return title + ' changed after this step counted it: it was reopened or corrected';
     if (answerOf(child) !== a.child.answer || String(v.result) !== String(a.child.result)) return title + ' changed after this step counted it: it returned ' + (v.result || 'no result') + ' again';
     return '';
+  }
+  /* An ended parent is never rewritten or settled (3.0): one read-only verdict, shared by the run screen, Folder health and
+     contract 2, says when the run a step counted no longer reads as it did. */
+  var RESULT_CHANGED = 'A linked run\'s result changed after this run ended';
+  function resultChanged(r, step, a, child) {
+    if (!r || !r.ended || !step || step.type !== 'run.process' || !a || !a.child || a.child.failed || typeof a.child.answer !== 'string' || !child) return '';
+    var res = resultOf(child), now = res && !res.conflict ? res.value : '';
+    if (child.ended && answerOf(child) === a.child.answer && !childCheck(child) && now === String(a.child.result || '')) return '';
+    return RESULT_CHANGED + ': this step counted ' + String(child.title || child.process).slice(0, 50) + ' as ' + (a.child.result || 'no result') + ', and it now reads ' + (child.ended ? outcomeText(child) + (childCheck(child) ? ', reopened' : '') : 'in progress') + '. This run stays as it ended.';
+  }
+  /* The folder pass for Folder health: [{ process, run, step, child, text }]. */
+  function resultMarks(runs) {
+    var by = Object.create(null), out = [];
+    (runs || []).forEach(function (r) { if (r && r.process && r.id) by[r.process + '/' + r.id] = r; });
+    (runs || []).forEach(function (r) {
+      if (!r || r._unrunnable || !r.ended || !usesResults(r)) return;
+      var map; try { map = mapOf(r); } catch (e) { return; }
+      Object.keys(r.steps || {}).forEach(function (id) {
+        var a = r.steps[id], x = M.findStep(map, id), c = a && a.child ? by[a.child.process + '/' + a.child.id] : null;
+        var why = x && c ? resultChanged(r, x.step, a, c) : '';
+        if (why) out.push({ process: r.process, run: r.id, step: id, child: c.process + '/' + c.id, text: why });
+      });
+    });
+    return out;
   }
   /* The step goes back for a re-check, its link kept (the same run settles it again), and an approved gate goes to review. */
   function unsettleResult(r, map, id, why, who, now) {
@@ -1752,7 +1777,7 @@ PF.run = (function () {
     var acc = acceptsOf(r, step);
     if (!acc) return { s: 'done' };
     var res = resultOf(child), v = res ? res.value : '';
-    if (res && res.conflict) return { s: 'review', reason: String(child.title || child.process).slice(0, 50) + ' says ^' + res.name + ' is ' + res.conflict.detail + ', but its decision says ' + res.conflict.decision + '. Correct that run first. This step wasn\'t settled.' };
+    if (res && res.conflict) return { s: 'review', reason: String(child.title || child.process).slice(0, 50) + ' says ^' + res.name + ' is ' + res.conflict.detail + ', but its decision ' + (res.conflict.decision ? 'says ' + res.conflict.decision : 'says nothing') + '. Correct that run first. This step wasn\'t settled.' };
     return acc.indexOf(v) >= 0 && v ? { s: 'done', result: v } : { s: 'held', result: v, reason: heldWords(child, v, acc) };
   }
   /* The only way a step with a linked child is checked or blocked: by that exact child, current, once it has ended. */
@@ -2469,7 +2494,7 @@ PF.run = (function () {
     RUN_ID: RUN_ID, isTest: isTest, pubDir: pubDir, testProblem: testProblem, testLast: testLast,
     FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, applies: applies, held: held, stepNeeded: stepNeeded, canStartChild: canStartChild, phaseSkipped: phaseSkipped, condFields: condFields, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, fillOffered: fillOffered, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence, checkFill: checkFill,
-    pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, resultMoved: resultMoved, unsettleResult: unsettleResult, resultFit: resultFit, answerOf: answerOf, resultOf: resultOf, outcomeText: outcomeText, resultHeld: resultHeld, acceptsOf: acceptsOf, boundSource: boundSource, teamUnrecorded: teamUnrecorded, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, jiraFor: jiraFor, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, effStep: effStep, setFields: setFields,
+    pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, resultMoved: resultMoved, resultChanged: resultChanged, resultMarks: resultMarks, RESULT_CHANGED: RESULT_CHANGED, unsettleResult: unsettleResult, resultFit: resultFit, answerOf: answerOf, resultOf: resultOf, outcomeText: outcomeText, resultHeld: resultHeld, acceptsOf: acceptsOf, boundSource: boundSource, teamUnrecorded: teamUnrecorded, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, jiraFor: jiraFor, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, effStep: effStep, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,
     pass: pass, waive: waive, fail: fail, reopen: reopen, setDetail: setDetail, setRole: setRole,
     handOff: handOff, pickUp: pickUp, takeOver: takeOver, legacyLinks: legacyLinks, continuation: continuation, continued: continued, skillWarning: skillWarning, cleanSkill: cleanSkill, LEGACY_CHILD: LEGACY_CHILD, waitingForHandoff: waitingForHandoff, compare: compare, adopt: adopt, addFollowUp: addFollowUp, removeFollowUp: removeFollowUp, corrections: corrections, end: end, myNext: myNext, nextUp: nextUp, nextInPhase: nextInPhase, totals: totals, receipt: receipt, blockedSteps: blockedSteps

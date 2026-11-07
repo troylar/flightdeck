@@ -86,6 +86,7 @@ PF.appjson = (function () {
   /* A linked step held by the result its run returned (3.0): that run, the result, and the reason the step gives. */
   var HELD_BY = { process: 'string', id: 'string', result: 'string', reason: 'string' };
   /* awaiting (3.0): the linked run ended (or changed) and only the parent's recorder settles the step; reads never write. */
+  var CHANGED = { step: 'string', process: 'string', id: 'string', result: 'string', reason: 'string' };
   var AWAITING = { process: 'string', id: 'string', result: 'string', reason: 'string' };
   var FOLLOWUP2 = extend(FOLLOWUP, { test: 'boolean' });
   /* A detail that must match a pattern (2.16, Appendix A) carries pattern; every other detail is exactly as before. */
@@ -107,9 +108,9 @@ PF.appjson = (function () {
       phases: [extend(SCHEMA.process.phases[0], { when: ['string'], steps: [orResult(orSearch(extend(SCHEMA.process.phases[0].steps[0], { when: ['string'], evidence: [extend(EVIDENCE2, { min: opt('string'), max: opt('string'), unit: opt('string') })] }), 'template'), { accepts: opt(['string']), imports: opt('string') })] })] }), { result: { name: 'string', options: ['string'], step: opt('string') } }),
     /* testRunsLeftOut: test runs that match but aren't listed (D3: left out unless asked for with --tests). */
     runs: { runs: [orResult(SUMMARY2, RESULT2)], planned: [extend(SCHEMA.runs.planned[0], { format: 'string', pin: opt({ folder: 'string', version: 'number' }) })], testRunsLeftOut: 'number' },
-    run: { run: opt(orResult(extend(SUMMARY2, { roles: [ROLE], pins: map(PIN), migrations: [MIGRATION],
+    run: { run: opt(orResult(orResult(extend(SUMMARY2, { roles: [ROLE], pins: map(PIN), migrations: [MIGRATION],
       steps: [orResult(orSearch(extend(SCHEMA.run.run.$or[0].steps[0], { values: map(VALUE), evidence: [EVIDENCE2], applies: APPLIES, held: opt('string') }), 'run'), { accepts: opt(['string']), result: opt('string'), heldBy: opt(HELD_BY), awaiting: opt(AWAITING) })],
-      gates: [extend(SCHEMA.run.run.$or[0].gates[0], { applies: APPLIES })], followUps: [FOLLOWUP2] }), RESULT2)) },
+      gates: [extend(SCHEMA.run.run.$or[0].gates[0], { applies: APPLIES })], followUps: [FOLLOWUP2] }), RESULT2), { resultsChanged: [CHANGED] })) },
     /* flightdeck draft check (2.13): the verdict the Publish dialog gives the text, from the folder as it is now. from: the draft
        in maps/drafts/ (ref its path) or the file given with --from (ref null); rev: SHA-256 of the text checked. */
     draftCheck: { process: 'string', from: { kind: 'string', ref: opt('string'), rev: 'string' }, checks: { blockers: ['string'], suggestions: ['string'],
@@ -396,7 +397,7 @@ PF.appjson = (function () {
   /* A step whose linked run (kids: 'process/id' -> run, read but never written) ended or changed since this run last settled it. */
   function awaiting(r, step, a, kids) {
     var c = a && a.child && !a.child.failed && kids && Object.prototype.hasOwnProperty.call(kids, a.child.process + '/' + a.child.id) ? kids[a.child.process + '/' + a.child.id] : null;
-    if (!c || !c.ended || !R.childCurrent(r, step, a) || a.s === 'na') return null;
+    if (!c || !c.ended || r.state !== 'running' || !R.childCurrent(r, step, a) || a.s === 'na') return null;
     /* Settled for exactly this answer, and the run still stands (no gate reopened since): nothing waits. */
     if (typeof a.child.answer === 'string' && a.child.answer === R.answerOf(c) && !R.childCheck(c)) return null;
     var res = R.resultOf(c), val = res ? res.value : '', who = String(c.title || c.process).slice(0, 50);
@@ -406,7 +407,16 @@ PF.appjson = (function () {
   function heldBy(r, step, a) { var why = a ? R.resultHeld(r, step, a) : ''; return why ? { process: s(a.child.process), id: s(a.child.id), result: s(a.child.result), reason: s(why) } : null; }
   /* next with contract 2: the blocked step says when the result its linked run returned holds it (heldBy). */
   function next2(r, nameOf, personId, o) {
-    var out = next(r, nameOf, personId), mp = R.mapOf(r), st = out.next && out.next.step, x = st ? M.findStep(mp, st.id) : null;
+    var out = next(r, nameOf, personId), mp = R.mapOf(r);
+    /* A step awaiting its recorder's settlement comes before any work further on (3.0): what it settles to can reopen a gate. */
+    var wait = null;
+    mp.phases.forEach(function (ph, pi) { ph.steps.forEach(function (x) { var a = r.steps[x.id]; if (!wait && x.type === 'run.process' && R.acceptsOf(r, x) && awaiting(r, x, a, o && o.kids)) wait = { step: x, pi: pi }; }); });
+    if (wait && out.next && !(out.next.step && out.next.step.id === wait.step.id)) {
+      var ph = mp.phases[wait.pi];
+      out.next.kind = 'step'; out.next.phase = { index: wait.pi, id: s(ph.id), title: s(ph.title) }; out.next.gate = null; out.next.tracks = [];
+      out.next.step = { id: s(wait.step.id), text: s(wait.step.text), roles: rolePeople(r, wait.step.roles, nameOf) };
+    }
+    var st = out.next && out.next.step, x = st ? M.findStep(mp, st.id) : null;
     if (st && x && resulted(r, x.step, r.steps[st.id])) { st.heldBy = heldBy(r, x.step, r.steps[st.id]); st.awaiting = awaiting(r, x.step, r.steps[st.id], o && o.kids); }
     return out;
   }
@@ -477,6 +487,15 @@ PF.appjson = (function () {
   }
   function run2(r, items, nameOf, o) {
     var mp = R.mapOf(r), out = run(r, items, nameOf).run, base = summary2(r, nameOf);
+    /* An ended run that uses results (3.0): each step whose linked run (o.kids) changed since, read-only. */
+    if (Array.isArray(r.features) && r.features.indexOf('module-results') >= 0) {
+      out.resultsChanged = [];
+      Object.keys(r.steps || {}).forEach(function (id) {
+        var a = r.steps[id], x = M.findStep(mp, id), k = a && a.child ? a.child.process + '/' + a.child.id : '', c = k && o && o.kids && Object.prototype.hasOwnProperty.call(o.kids, k) ? o.kids[k] : null;
+        var why = x && c ? R.resultChanged(r, x.step, a, c) : '';
+        if (why) { var res = R.resultOf(c); out.resultsChanged.push({ step: s(id), process: s(a.child.process), id: s(a.child.id), result: s(res && !res.conflict ? res.value : ''), reason: s(why) }); }
+      });
+    }
     out.details = base.details; head2(r, out); out.test = base.test; out.stage = base.stage; if ('result' in base) { out.result = base.result; out.outcome = base.outcome; }
     out.pins = {}; if (r.pins && r.pins.children) Object.keys(r.pins.children).forEach(function (k) { var c = r.pins.children[k]; out.pins[k] = { process: s(c.process), version: +c.version || 0, folder: s(c.folder), mapHash: s(c.mapHash), typesHash: s(c.typesHash) }; });
     out.followUps.forEach(function (f) { f.test = R.isTest(r); });
