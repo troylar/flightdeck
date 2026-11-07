@@ -883,6 +883,8 @@ function runCovers(proc, id, r) {
   const base = covers(['runs/' + proc + '/' + id, 'people.json'].concat(r && typeof r.folder === 'string' ? [(r.test === true ? 'staged/' : 'publications/') + r.process + '/' + r.folder] : []));
   return (p) => base(p) || p === 'followups' || p === 'followups/' + proc || p === 'followups/' + proc + '/' || String(p).startsWith('followups/' + proc + '/' + id + '.');
 }
+/* The checked publication reader the screen gives a loop (procOf): a process's versions as loadAll indexed them. */
+function procOfFrom(d) { return (id) => { const e = ((d && d.processes) || []).filter((p) => p.process === id)[0], i = e && e.index; return i ? { latest: i.latest, all: i.all || [], clashes: i.clashes || [], broken: i.broken || [] } : null; }; }
 function dependsOn(fs, prefixes) {
   const ok = covers(prefixes);
   const v = {};
@@ -932,10 +934,10 @@ async function readData(eng, adapter, req) {
       /* Loops (3.0): an approval the folder no longer matches holds its gate here as in every window (PF.loop.markStale). */
       if (usable && two && Object.keys(r.steps || {}).some((id) => r.steps[id] && r.steps[id].loop)) {
         const mp = PF.run.mapOf(r), kids = [];
-        Object.keys(r.steps).forEach((id) => { const x = r.steps[id] && r.steps[id].loop && PF.map.findStep(mp, id); const pr = x && String(PF.run.fieldsOf(r, x.step).process || ''); if (pr && kids.indexOf('runs/' + pr) < 0) kids.push('runs/' + pr); });
+        Object.keys(r.steps).forEach((id) => { const x = r.steps[id] && r.steps[id].loop && PF.map.findStep(mp, id); const pr = x && String(PF.run.fieldsOf(r, x.step).process || ''); if (pr && kids.indexOf('runs/' + pr) < 0) kids.push('runs/' + pr, 'publications/' + pr); });
         const gp = await repo.readPlans(L.fs, null, null, true).catch(() => null);
         const dk = gp && kids.length ? await repo.loadAll(dependsOn(L.fs, kids), { readOnly: true, deep: true }).catch(() => null) : { runs: [] };
-        if (gp && dk) PF.loop.markStale([r].concat(dk.runs || []), { records: gp.scopes, unread: gp.scopesUnread });
+        if (gp && dk) PF.loop.markStale([r].concat(dk.runs || []), { records: gp.scopes, unread: gp.scopesUnread, procOf: procOfFrom(dk) });
         else { r._loopStale = Object.create(null); Object.keys(r.steps).forEach((id) => { if (r.steps[id] && r.steps[id].loop && r.steps[id].s === 'done') r._loopStale[id] = ['The loop\'s scope records couldn\'t be read.']; }); }
       }
       /* run and next read only what they depend on (readRunOnly), so every problem met counts. */
@@ -2741,7 +2743,7 @@ async function loopMain(argv) {
     const bad = [], got = await repo.readPlans(L.fs, bad, null, true);
     bad.forEach((b) => L.note(b.path, b.kind || 'malformed', fileWhy(b.why)));
     const d = childProc ? await repo.loadAll(dependsOn(L.fs, ['runs/' + childProc, 'publications/' + childProc]), { readOnly: true, explain: true, deep: true }) : { runs: [] };
-    const procOf = (id) => { const e = (d.processes || []).filter((p) => p.process === id)[0], i = e && e.index; return i ? { latest: i.latest, all: i.all || [], clashes: i.clashes || [], broken: i.broken || [] } : null; };
+    const procOf = procOfFrom(d);
     const nameOf = A.names(one.people), who = (p) => { const n = nameOf(p); return n ? n.name || n.id : ''; };
     const unread = (got.scopesUnread || []).concat(bad.filter((b) => /^proposals\/req-/.test(String(b.path || ''))).map((b) => ({ file: String(b.path).slice(10), why: b.why, loop: null })));
     const V = LP.view(r, stepId, { records: got.scopes, unread, runs: d.runs || [], procOf, who }), title = String(r.title || r.process);

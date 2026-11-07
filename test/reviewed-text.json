@@ -13,8 +13,8 @@
       "reviewed": "fold design tips and the library panel; own-key reads; checked for direct writes and unconditional deletes"
     },
     "bin/flightdeck.js": {
-      "sha256": "a7ed7df0cbef63bd4b64e9827b6b99fdebbb02ee2915da9d2e431d08b74428fe",
-      "reviewed": "Shared send-back reason rule; duplicate items refused; request guard per generation."
+      "sha256": "689eae6f61e99d5efbe9f5a16027cccee6159d0bb78215f3743c3d87ded74eb1",
+      "reviewed": "CLI run/next read loop child publications and pass procOf."
     },
     "build.py": {
       "sha256": "21c5b257606a8aa3d24c956f518745372409b550008be4d06f5178081117708c",

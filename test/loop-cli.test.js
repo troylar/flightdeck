@@ -196,4 +196,20 @@ rule('Review round 3 (5): loop start asks for a new attempt of a story whose run
   assert.ok(all.error && /new attempt/.test(all.error.why), JSON.stringify(all.error || all.data));
 });
 
+rule('Review round 4 (1): run and next check a loop child against its pinned version as the screen does: with that version gone, the gate is held', async () => {
+  const { root, d, kid } = await folder(), f = path.join(root, '..', path.basename(root) + '-obs7.json');
+  await kid(101, 'cleared');
+  fs.writeFileSync(f, JSON.stringify(obs([101])));
+  json('loop', 'sync', root, 'release-readiness/r-41', 'each', '--from', f, '--json', '--tool', 'release-helper@1.0', '--key', 'p1');
+  const all = await PF.repo.loadAll(d, {}), r = all.runs.find(x => x.id === 'r-41'), map = R.mapOf(r);
+  const V = PF.loop.view(r, 'each', { records: all.scopes, runs: all.runs });
+  R.done(r, map, 'each', 'person-morgan', AT, { _loop: { ok: true, snapshot: PF.loop.approval(V.ledger, V.rollup, { by: 'person-morgan', at: AT }) } });
+  R.pass(r, map, 0, 'person-morgan', AT);
+  fs.writeFileSync(path.join(root, 'runs/release-readiness/r-41/run.json'), JSON.stringify(JSON.parse(JSON.stringify(r, (k, v) => (k[0] === '_' ? undefined : v))), null, 2));
+  const gate = () => json('run', root, 'release-readiness/r-41', '--contract', '2', '--json').data.run.gates[0].status;
+  assert.strictEqual(gate(), 'passed', 'set-up');
+  fs.rmSync(path.join(root, 'publications', 'validate-story'), { recursive: true, force: true });
+  assert.strictEqual(gate(), 'review', 'held once the pinned version is gone');
+});
+
 run();
