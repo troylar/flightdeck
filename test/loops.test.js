@@ -535,4 +535,43 @@ rule('Review round 5 (4, 5): a request naming more than one person is refused; s
   assert.ok(kid2);
 });
 
+/* Round 6 sweep: every decision folded from proposals/ settles causally; two made at once that disagree hold, whatever their names. */
+const base6 = () => req('b0', [], { observation: obs([101]) });
+const ch6 = (op, extra) => Object.assign({ op, item: { id: '10101', key: 'ABC-101' } }, extra || {});
+rule('Review round 6 (1): an exception renewed and withdrawn at once holds the story for review, whatever the record names', () => {
+  for (const [ra, rb] of [['e-aa', 'e-zz'], ['e-zz', 'e-aa']]) {
+    const recs = [base6(), req('e-1', ['b0'], { changes: [ch6('exception', { reason: 'Covered by Release 4.0', approver: 'person-morgan' })] }),
+      req(ra, ['e-1'], { changes: [ch6('withdraw')] }), req(rb, ['e-1'], { changes: [ch6('exception', { reason: 'Still covered', approver: 'person-morgan' })] })];
+    const L = LP.reduce(recs), R0 = RO(L, []);
+    same([L.items[0].exception, R0.items[0].status === 'exception'], [null, false], ra + ' first');
+    assert.ok(/without a run/.test(R0.blockers.map(b => b.text).join(' ')) && /at once/.test(R0.blockers.map(b => b.text).join(' ')), R0.blockers.map(b => b.text).join(' '));
+    const L2 = LP.reduce(recs.concat([req('e-3', [ra, rb], { changes: [ch6('exception', { reason: 'Decided', approver: 'person-morgan' })] })]));
+    same([L2.items[0].exception && L2.items[0].exception.record, RO(L2, []).items[0].status], ['e-3', 'exception'], 'settled by one that saw both');
+  }
+});
+rule('Review round 6 sweep: two owners assigned at once leave the story unowned until one that saw both; two plans at once with different inputs plan nothing', () => {
+  for (const [ra, rb] of [['o-aa', 'o-zz'], ['o-zz', 'o-aa']]) {
+    const recs = [base6(), req(ra, ['b0'], { changes: [ch6('owner', { owner: 'person-avery' })] }), req(rb, ['b0'], { changes: [ch6('owner', { owner: 'person-morgan' })] })];
+    const L = LP.reduce(recs);
+    same(L.items[0].owner, '', ra + ' first');
+    assert.ok(/at once/.test(RO(L, []).items[0].ownerWhy || ''), 'the row says why');
+    same(LP.reduce(recs.concat([req('o-3', [ra, rb], { changes: [ch6('owner', { owner: 'person-morgan' })] })])).items[0].owner, 'person-morgan');
+  }
+  for (const [ra, rb] of [['p-aa', 'p-zz'], ['p-zz', 'p-aa']]) {
+    const plan = (v) => [{ item: { id: '10101', key: 'ABC-101' }, attempt: 1, inputs: { story: v }, owner: '' }];
+    const L = LP.reduce([base6(), req(ra, ['b0'], { children: plan('ABC-101') }), req(rb, ['b0'], { children: plan('ABC-101 again') })]);
+    same(L.items[0].planned, null, ra + ' first');
+  }
+});
+rule('Review round 6 (2): a request held for a record this computer can\'t read is held, not pending; outcomes recorded two ways at once are not pending either', () => {
+  const ask = (id, seen) => req(id, seen, { changes: [{ op: 'start', item: { key: 'ABC-101' }, as: 'person-avery' }] });
+  const recs = [base6(), ask('q-held', ['b0', 'gone-1'])];
+  same(LP.actionsOf({ records: recs, ledger: LP.reduce(recs) }).map(q => q.status), ['held']);
+  for (const [da, db] of [['d-aa', 'd-zz'], ['d-zz', 'd-aa']]) {
+    const r2 = [base6(), ask('q-1', ['b0']), dec(da, ['q-1'], 'q-1', 'applied', []), dec(db, ['q-1'], 'q-1', 'refused', [])];
+    const Q = LP.actionsOf({ records: r2, ledger: LP.reduce(r2) });
+    same(Q.map(q => q.status), ['review'], da + ' first');
+  }
+});
+
 run();

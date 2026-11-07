@@ -225,7 +225,7 @@
         h += '<tr id="' + esc(PF.loop.rowId(s.id, i.key || i.uid)) + '" tabindex="-1"><td><b>' + k + '</b> ' + esc(i.title || '') + (i.state === 'proposed' ? ' <span class="small">(removal proposed)</span>' : '') + '</td><td>' + esc(LOOP_STATUS[i.status] || i.status) +
           (i.exception ? ' <span class="small">' + esc(i.exception.reason || '') + ' · ' + esc(who(i.exception.approver)) + (i.exception.onBehalf ? ', recorded on their behalf' : '') + '</span>' : '') +
           (i.mismatch ? ' <span class="small">' + (i.state === 'removed' ? 'Removed here, but the Jira search still finds it' : 'Kept here, but the Jira search no longer finds it') + '</span>' : '') +
-          (x.removed && x.removed.by && x.removed.by.tool ? ' <span class="small">Removed by ' + esc(x.removed.by.tool) + '</span>' : '') + '</td><td>' + esc(i.result || '') + '</td><td>' + esc(i.owner ? who(i.owner) : i.recorder ? who(i.recorder) : '') + '</td><td>' + acts + '</td></tr>';
+          (x.removed && x.removed.by && x.removed.by.tool ? ' <span class="small">Removed by ' + esc(x.removed.by.tool) + '</span>' : '') + '</td><td>' + esc(i.result || '') + '</td><td>' + esc(i.owner ? who(i.owner) : i.ownerWhy ? 'Unassigned: ' + i.ownerWhy : i.recorder ? who(i.recorder) : '') + '</td><td>' + acts + '</td></tr>';
       });
       h += '</tbody></table>';
       if (!all && rows.length > PAGE) h += '<button class="mini" data-act="loop-more" data-id="' + sid + '">Show all ' + rows.length + ' stories</button>';

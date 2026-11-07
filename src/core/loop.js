@@ -66,7 +66,7 @@ PF.loop = (function () {
   function reduce(records, o) {
     o = o || {};
     var source = o.source || 'jira', max = o.max || DEFAULT_MAX, c = causal(records || []), items = [], byUid = Object.create(null), byKey = Object.create(null);
-    var duplicates = [], lastObs = null, intents = Object.create(null);
+    var duplicates = [], lastObs = null, intents = Object.create(null), asks = Object.create(null);
     function find(it) {
       var x = it.id ? byUid[uidOf(source, it)] : null;
       if (!x && it.key && byKey[it.key]) x = byKey[it.key];
@@ -82,7 +82,7 @@ PF.loop = (function () {
         return x;
       }
       x = { uid: uidOf(source, it), id: it.id || '', key: it.key || '', title: String(it.title || ''), state: 'in', since: rec.id, provenance: [], verdict: null,
-        review: [], mismatch: false, kept: false, owner: '', exception: null, attempt: 0, planned: null, proposal: null, inSource: true, choice: null, choiceReview: [] };
+        review: [], mismatch: false, kept: false, owner: '', exception: null, attempt: 0, planned: null, proposal: null, inSource: true, choice: null, choiceReview: [], exc: null, excReview: [], own: null, ownReview: [], plan: null, planReview: [] };
       items.push(x); byUid[x.uid] = x; if (x.key) byKey[x.key] = x;
       return x;
     }
@@ -146,25 +146,52 @@ PF.loop = (function () {
           if (ch.op === 'add') { var nw = !x; x = ensure(it, rec, 'add'); if (nw) { x.manual = !obs; note(x, rec, 'add'); } else if (x.state === 'removed') note(x, rec, 'add-ignored'); return; }
           if (!x) { duplicates.push({ record: rec.id, op: ch.op, item: it.key || it.id, why: 'names an item that isn\'t in this loop' }); return; }
           if (ch.op === 'exclude' || ch.op === 'restore') { verdict(x, rec, ch.op, ch.reason); note(x, rec, ch.op, { reason: String(ch.reason || '') }); if (ch.op === 'exclude' && x.inSource && x.state === 'removed') x.mismatch = true; if (ch.op === 'restore') x.mismatch = false; }
-          else if (ch.op === 'owner') { note(x, rec, 'owner', { from: x.owner, to: String(ch.owner || '') }); x.owner = String(ch.owner || ''); }
+          else if (ch.op === 'owner') {
+            var to = String(ch.owner || '');
+            note(x, rec, 'owner', { from: x.owner, to: to });
+            var so = settle(x, 'own', 'ownReview', rec, { op: 'owner', owner: to }, function (p, v) { return p.owner === v.owner; },
+              { both: function (p, v) { return 'Two people assigned it at once: ' + (p.owner || 'no one') + ' and ' + (v.owner || 'no one') + '.'; }, again: 'Assigned again without seeing both earlier assignments.' });
+            x.owner = so === 'settled' ? to : '';
+          }
           else if (ch.op === 'choose') {
             note(x, rec, 'choose', { from: x.choice ? x.choice.run : '', to: String(ch.run || '') });
             settle(x, 'choice', 'choiceReview', rec, { op: 'choose', run: String(ch.run || ''), attempt: +ch.attempt || 1, candidates: (ch.candidates || []).slice().sort() }, function (p, v) { return p.run === v.run; },
               { both: function (p, v) { return 'Two people chose different runs at once: ' + p.run + ' and ' + v.run + '.'; }, again: 'Chosen again without seeing both earlier choices.' });
           }
-          else if (ch.op === 'exception') { x.exception = { record: rec.id, reason: String(ch.reason || ''), approver: String(ch.approver || ''), by: rec.by || null, onBehalf: !!ch.onBehalf }; note(x, rec, 'exception', { reason: String(ch.reason || '') }); }
-          else if (ch.op === 'withdraw') { if (x.exception) note(x, rec, 'withdraw', { was: x.exception.record }); x.exception = null; }
+          else if (ch.op === 'exception' || ch.op === 'withdraw') {
+            if (ch.op === 'exception') note(x, rec, 'exception', { reason: String(ch.reason || '') }); else if (x.exception) note(x, rec, 'withdraw', { was: x.exception.record });
+            /* Approving without a run and withdrawing it are decisions like any other: made at once, they hold the story. */
+            var se = settle(x, 'exc', 'excReview', rec, { op: ch.op }, function (p, v) { return p.op === v.op; },
+              { both: function (p, v) { return 'Two people decided its approval without a run at once: ' + p.op + ' and ' + v.op + '.'; }, again: 'Decided again without seeing both earlier decisions.' });
+            x.exception = se === 'settled' && ch.op === 'exception' ? { record: rec.id, reason: String(ch.reason || ''), approver: String(ch.approver || ''), by: rec.by || null, onBehalf: !!ch.onBehalf } : null;
+          }
         });
-        /* Planned children: one per loop item and attempt, whoever asked first (in causal order) plans it. */
+        /* Planned children: one per loop item and attempt. A plan that saw the first one for its attempt is a duplicate; two made
+           at once settle like any decision: if they differ, nothing is planned for that attempt until one that saw both. */
         (rec.children || []).forEach(function (k) {
           var x = find(k.item || {});
           if (!x) return;
           var key = x.uid + '#' + k.attempt;
-          if (intents[key]) { if (intents[key] !== rec.id) duplicates.push({ record: rec.id, op: 'plan', item: x.key, why: 'attempt ' + k.attempt + ' is already planned by ' + intents[key] }); return; }
-          intents[key] = rec.id;
-          if (k.attempt > x.attempt) { x.attempt = k.attempt; x.planned = { record: rec.id, attempt: k.attempt, inputs: k.inputs || {}, owner: k.owner || '' }; if (k.owner && !x.owner) x.owner = String(k.owner); }
+          if (intents[key] && intents[key] !== rec.id) { duplicates.push({ record: rec.id, op: 'plan', item: x.key, why: 'attempt ' + k.attempt + ' is already planned by ' + intents[key] }); if (c.anc[rec.id][intents[key]]) return; }
+          else if (intents[key]) return;
+          else intents[key] = rec.id;
+          if (k.attempt < x.attempt) return;
+          var sp = settle(x, 'plan', 'planReview', rec, { op: 'plan', attempt: k.attempt, inputs: JSON.stringify(k.inputs || {}), owner: k.owner || '' }, function (p, v) { return p.attempt === v.attempt && p.inputs === v.inputs && p.owner === v.owner; },
+            { both: function () { return 'Two plans for attempt ' + k.attempt + ' were made at once.'; }, again: 'Planned again without seeing both earlier plans.' });
+          x.attempt = k.attempt;
+          x.planned = sp === 'settled' ? { record: rec.id, attempt: k.attempt, inputs: k.inputs || {}, owner: k.owner || '' } : null;
+          if (sp === 'settled' && k.owner && !x.owner) x.owner = String(k.owner);
         });
+        /* A request for the recorder (start, approve, send-back) admitted in causal order; its outcome settles below. */
+        if ((rec.changes || []).some(function (ch) { return ACTIONS.indexOf(ch.op) >= 0; })) asks[rec.id] = { status: null, statusReview: [] };
       } else if (rec.type === 'decision') {
+        if (rec.op === 'applied' || rec.op === 'refused') {
+          /* A request's outcome: recorded two ways at once, it is neither, and it is never carried out again. */
+          var q = asks[rec.proposal];
+          if (q) settle(q, 'status', 'statusReview', rec, { op: rec.op, why: String(rec.reason || '') }, function (p, v) { return p.op === v.op; },
+            { both: function (p, v) { return 'Recorded as ' + p.op + ' and as ' + v.op + ' at once.'; }, again: 'Recorded again without seeing both earlier outcomes.' });
+          return;
+        }
         if (rec.op !== 'accept' && rec.op !== 'keep') return;
         (rec.items || []).forEach(function (uid) {
           var x = byUid[uid] || byKey[uid];
@@ -177,7 +204,7 @@ PF.loop = (function () {
     });
     var inScope = items.filter(function (x) { return x.state !== 'removed'; }).length;
     var heads = c.order.filter(function (r) { return !c.order.some(function (q) { return c.anc[q.id] && c.anc[q.id][r.id]; }); }).map(function (r) { return r.id; });
-    return { items: items, held: c.held, duplicates: duplicates, heads: heads, observation: lastObs, applied: c.order.map(function (r) { return r.id; }),
+    return { items: items, held: c.held, duplicates: duplicates, heads: heads, requests: asks, observation: lastObs, applied: c.order.map(function (r) { return r.id; }),
       pending: items.filter(function (x) { return x.state === 'proposed'; }).map(function (x) { return { uid: x.uid, key: x.key, proposal: x.proposal }; }),
       overLimit: inScope > max ? { count: inScope, max: max } : null };
   }
@@ -210,6 +237,7 @@ PF.loop = (function () {
       if (latest.length > 1 && cho && seenAll) { var pick = latest.filter(function (c) { return c.id === cho.run; }); if (pick.length === 1) latest = pick; }
       var choWhy = latest.length > 1 && (x.choiceReview || []).length ? 'two people chose different runs at once; choose again, having seen both' : latest.length > 1 && cho && cho.attempt === top && !seenAll ? 'has another run since ' + cho.run + ' was chosen; choose again' : '';
       var row = { uid: x.uid, key: x.key, title: x.title, state: x.state, required: x.state !== 'removed', owner: x.owner, exception: x.exception, review: x.review.length > 0, mismatch: x.mismatch,
+        ownerWhy: (x.ownReview || []).length ? 'two people assigned it at once; assign it again' : '', excReview: (x.excReview || []).length > 0,
         runs: mine.map(function (c) { return c.id; }), run: latest.length === 1 ? latest[0].id : '', competing: latest.length > 1, candidates: candidates, chosen: cho && seenAll ? cho.run : '', recorder: latest.length === 1 && latest[0].recorder ? latest[0].recorder.person || '' : '',
         result: '', accepted: false, status: '', fp: '', planned: x.planned, attempt: Math.max(top, x.attempt) };
       if (!row.required) { row.status = 'removed'; counts.removed++; rows.push(row); return; }
@@ -236,6 +264,7 @@ PF.loop = (function () {
       else if (why === 'unread') { row.status = 'unread'; b = { kind: 'unread', text: row.unqualified ? name + '\'s run ' + row.unqualified + '. Start a new run for it.' : name + '\'s result can\'t be counted as read. Open its run.' }; }
       else { row.status = 'result'; counts.results[row.result || 'none'] = (counts.results[row.result || 'none'] || 0) + 1; b = { kind: 'result', text: name + ' ' + (row.result ? (row.result === 'needs-work' ? 'needs work' : 'returned ' + words(row.result)) : 'returned no result') + ' · ' + who(row.recorder) }; }
       if (row.review) { counts.review++; blockers.push({ key: x.key, uid: x.uid, kind: 'review', run: row.run, text: name + ' needs a scope decision: two were made at once.' }); }
+      if (row.excReview) { counts.review++; blockers.push({ key: x.key, uid: x.uid, kind: 'review', run: row.run, text: name + '\'s approval without a run was decided two ways at once; approve it without a run or withdraw it again, having seen both.' }); }
       if (b) { b.key = x.key; b.uid = x.uid; b.run = row.run || (row.runs[0] || ''); blockers.push(b); }
       rows.push(row);
     });
@@ -359,11 +388,14 @@ PF.loop = (function () {
   function actionsOf(V) {
     var recs = V.records || [];
     return recs.filter(function (q) { return q.type === 'request' && (q.changes || []).some(function (c) { return ACTIONS.indexOf(c.op) >= 0; }); }).map(function (q) {
-      var d = recs.filter(function (x) { return x.type === 'decision' && x.proposal === q.id && (x.op === 'applied' || x.op === 'refused'); })[0];
+      /* Only what the causal reducer admitted: a request it holds (it saw a record not readable here) stays held, never carried out;
+         its outcome is the settled one, and two recorded at once are neither (review). */
+      var A = V.ledger && V.ledger.requests ? V.ledger.requests[q.id] : null, st = !A ? 'held' : A.statusReview.length ? 'review' : A.status ? A.status.op : 'pending';
+      var d = A && A.status && st !== 'review' ? recs.filter(function (x) { return x.id === A.status.record; })[0] : null;
       var ch = q.changes.filter(function (c) { return ACTIONS.indexOf(c.op) >= 0; });
       var actors = []; ch.forEach(function (c) { var a = c.as || ''; if (actors.indexOf(a) < 0) actors.push(a); });
       return { id: q.id, actors: actors, all: ch.some(function (c) { return c.all === true; }), ops: ch.map(function (c) { return c.op; }), items: ch.filter(function (c) { return c.item; }).map(function (c) { return c.item.key || c.item.id; }), as: ch[0].as || '', reason: ch[0].reason || '',
-        by: q.by, status: d ? d.op : 'pending', why: d ? d.reason || '' : '', decision: d ? d.id : '' };
+        by: q.by, status: st, why: d ? d.reason || '' : st === 'held' ? 'It refers to a scope record this computer can\'t read yet.' : st === 'review' ? A.statusReview[0].why : '', decision: d ? d.id : '' };
     });
   }
   function markStale(runs, o) {

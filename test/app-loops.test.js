@@ -483,4 +483,17 @@ rule('Review round 5 (6): every competing run can be chosen on the run screen, h
   assert.strictEqual(ch[0].changes[0].candidates.length, 6, 'bound to all six it saw');
 });
 
+rule('Review round 6 (2): a request that saw a scope record this computer can\'t read stays held: nothing is started and no outcome is written', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  const PF = app.PF, LP = PF.loop, r = parentRun(app);
+  const c = LP.cleanIntent({ loop: { process: 'release-readiness', run: r.id, step: 'each' }, changes: [{ op: 'start', item: { key: 'ABC-101' }, as: 'person-avery' }] }, 'held-1', { name: 'release-helper', version: '1.0' });
+  assert.strictEqual(c.errors.length, 0, c.errors.join(' '));
+  const d = await PF.repo.loadAll(app.fs, {}), V = LP.view(r, 'each', { records: d.scopes, runs: d.runs });
+  const f = LP.buildRequest(c.intent, { seen: V.ledger.heads.concat(['req-gone-0123456789abcdef01234567']), children: [], now: new Date().toISOString(), app: '3.0.0' });
+  await app.fs.write('proposals/' + f.id + '.json', LP.text(f));
+  app.click('refresh'); await app.tick(300);
+  assert.strictEqual(kidPaths(app).length, 0, 'nothing started');
+  assert.strictEqual(outcome(app, f.id), null, 'no outcome written; it stays held');
+});
 run();
