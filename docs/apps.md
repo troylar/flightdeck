@@ -219,7 +219,8 @@ A plan made with Flightdeck 2.0 for one exact version (`flightdeck-plan/2`: `for
   - `process` adds `result` (`name`, `options` and `step`, the decision that sets it); each linked step that accepts or imports a result adds `accepts` (the results it accepts) and `imports` (the detail it copies the result into, or `null`).
   - `runs` and `run` add `result` (`name` and `value`, `""` until the decision is recorded) and `outcome` (how it ended in words, `"Completed · needs-work"`, or `null` while it runs) to a run of a checklist with a result.
   - In `run`, each linked step that accepts or returned a result adds `accepts`, `result` (what its child returned, or `null`) and `heldBy` (`{ "process", "id", "result", "reason" }` while it's held because its child returned a result it doesn't accept, else `null`). `next` adds the same `heldBy` to its step.
-  A held step is `blocked` with that reason; it isn't a failed child, and a new run replaces it.
+  - In `run` and `next`, those steps also add `awaiting` (`{ "process", "id", "result", "reason" }`, else `null`): the linked run ended, or was reopened or corrected after the step counted it, and only the parent run's recorder settles the step, in Flightdeck. The command reads the linked run and never writes, so the step still shows its last settled state; `awaiting` says what will change.
+  A held step is `blocked` with that reason; it isn't a failed child, and a new run replaces it. `accepts` lists each value as written, split only at commas.
 
 Contract 1's output doesn't change: it names a test run `newer`, as Flightdeck 1.x did.
 
