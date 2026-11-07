@@ -397,8 +397,8 @@
       "reviewed": "loops review round 1: qualification, answer fingerprints, unreadable holds, auto send-back, start guard; checked for direct writes and unconditional deletes: none added"
     },
     "src/ui/app.js": {
-      "sha256": "6b669faf3fcdc345e94c6b3a8cb077127b51e8c85203e2049424ed93b2717e6b",
-      "reviewed": "markStale: approvals hold when counted records are gone; app always checks."
+      "sha256": "625c2e2e30c9201c8bb6e87b334c0b4afe3f88d7eed1e110e791c7a44b345aac",
+      "reviewed": "Loop requests bound to folder, generation and person."
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

@@ -2998,13 +2998,16 @@
         PF.loop.actionsOf(V).forEach(function (q) {
           if (q.status !== 'pending' || state.loopApplying[q.id]) return;
           state.loopApplying[q.id] = true;
-          loopCarry(r, sx.step.id, V, q).then(function (out) { return loopOutcome(V, q, out.ok ? 'applied' : 'refused', out.why); }, function (err) { return loopOutcome(V, q, 'refused', err && err.message || String(err)); })
-            .then(function () { return load(true); }, function () { delete state.loopApplying[q.id]; });
+          /* Bound to the folder, its generation and the person it started in: after a switch nothing more is done or
+             written, and the request stays pending for the recorder's window in its own folder. */
+          var cx = { fs: state.fs, g: gen, me: state.me };
+          loopCarry(r, sx.step.id, V, q, cx).then(function (out) { return loopOutcome(V, q, out.ok ? 'applied' : 'refused', out.why, cx); }, function (err) { return loopOutcome(V, q, 'refused', err && err.message || String(err), cx); })
+            .then(function (wrote) { if (wrote !== false && cx.g === gen) return load(true); }, function () { delete state.loopApplying[q.id]; });
         });
       });
     });
   }
-  function loopCarry(r, id, V, q) {
+  function loopCarry(r, id, V, q, cx) {
     var key = r.process + '/' + r.id, a = r.steps[id];
     /* The same rules for everyone who asks (PF.loop.requestCheck): refused with why, nothing changed. */
     if (PF.loop.appliedIn(r, id, q.id)) return Promise.resolve({ ok: true, why: 'Carried out before; its outcome is recorded now.' });
@@ -3012,25 +3015,26 @@
     if (may) return Promise.resolve({ ok: false, why: may });
     if (q.ops[0] === 'start') {
       var done = [], why = [];
-      return q.items.reduce(function (p, k) { return p.then(function () { return loopLaunch(r, id, k, true).then(function () { done.push(k); }, function (err) { why.push(err.message); }); }); }, Promise.resolve())
+      return q.items.reduce(function (p, k) { return p.then(function () { if (cx.g !== gen) throw new Error('The folder changed while this request was carried out.'); return loopLaunch(r, id, k, true).then(function () { done.push(k); }, function (err) { why.push(err.message); }); }); }, Promise.resolve())
         .then(function () { return { ok: done.length > 0, why: 'Started ' + (done.slice(0, 20).join(', ') || 'none') + (done.length > 20 ? ' and ' + (done.length - 20) + ' more' : '') + '.' + (why.length ? ' ' + why.slice(0, 5).join(' ') : '') }; });
     }
     if (q.ops[0] === 'approve') {
       if (!V.rollup.ok) return Promise.resolve({ ok: false, why: 'It can\'t be approved yet: ' + V.rollup.summary + '.' });
       var no = 'The run couldn\'t be changed here; ask again.', tool = typeof q.by === 'string' ? q.by : (q.by && (q.by.tool || q.by.name)) || '';
-      return mutateRun(key, gen, function (rr, m, me, now) {
+      return mutateRun(key, cx.g, function (rr, m, me, now) {
         var V2 = loopView(rr, id); if (!V2 || !V2.rollup.ok) { no = 'It can\'t be approved yet: ' + (V2 ? V2.rollup.summary : 'the loop isn\'t readable') + '.'; throw new Error(no); }
         R.done(rr, m, id, me, now, { _loop: { ok: true, snapshot: PF.loop.approval(V2.ledger, V2.rollup, { by: q.as, at: now, onBehalf: tool, request: q.id }) } });
       }, { background: true }).then(function (ok) { return ok === false ? { ok: false, why: no } : { ok: true, why: 'Approved: ' + V.rollup.summary + '.' }; });
     }
     if (!(a && a.s === 'done' && a.loop)) return Promise.resolve({ ok: false, why: 'The loop isn\'t approved, so there was nothing to send back.' });
     var reasons = V.changes.length ? V.changes : ['Sent back for review by ' + personName(q.as) + (q.reason ? ': ' + q.reason : '') + '.'];
-    return mutateRun(key, gen, function (rr, m, me, now) { R.unsettleLoop(rr, m, id, reasons, me, now, q.id); }, { background: true })
+    return mutateRun(key, cx.g, function (rr, m, me, now) { R.unsettleLoop(rr, m, id, reasons, me, now, q.id); }, { background: true })
       .then(function (ok) { return ok === false ? { ok: false, why: 'The run changed meanwhile; ask again.' } : { ok: true, why: 'Sent back for review.' }; });
   }
-  function loopOutcome(V, q, op, why) {
-    var d = PF.loop.buildDecision({ proposal: q.id, loop: V.loop, op: op, items: [], seen: V.ledger.heads, reason: String(why || '').slice(0, 300), by: state.me, writer: 'w' + loopHex(10), rev: loopHex(8), now: new Date().toISOString(), app: APP_VERSION });
-    return repo.saveScope(state.fs, d.name, d.file);
+  function loopOutcome(V, q, op, why, cx) {
+    if (cx.g !== gen || cx.fs !== state.fs) return Promise.resolve(false);
+    var d = PF.loop.buildDecision({ proposal: q.id, loop: V.loop, op: op, items: [], seen: V.ledger.heads, reason: String(why || '').slice(0, 300), by: cx.me, writer: 'w' + loopHex(10), rev: loopHex(8), now: new Date().toISOString(), app: APP_VERSION });
+    return repo.saveScope(cx.fs, d.name, d.file);
   }
   /* Counts what the person did since a start was submitted: every click on a control but Refresh, every key, navigation and
      every form opened or closed. A refused start reopens its form only when nothing happened since (childRetry); otherwise

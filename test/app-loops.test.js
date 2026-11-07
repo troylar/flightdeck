@@ -4,7 +4,7 @@
 'use strict';
 const assert = require('assert');
 const { rule, run } = require('./harness');
-const { boot } = require('./app-harness');
+const { boot, gate } = require('./app-harness');
 
 const KID = ['---', 'process: validate-story', 'title: Validate a story', 'owner: person-avery', 'context: issue, disposition:choice(cleared|needs-work)', 'result: disposition', '---', '',
   '## Assess · DO-CONFIRM {#assess}', '- [!] {decide} Record the validation result {#verdict}', '  options: cleared, needs-work', '  sets: disposition=decision', ''].join('\n');
@@ -320,6 +320,25 @@ rule('Review round 3 (1): with its only scope request cut short, a passed loop p
   app.click('refresh'); await app.tick(250);
   app.click('toggle', 'ship1'); await app.tick(150);
   assert.ok(!(parentRun(app).steps.ship1 && parentRun(app).steps.ship1.s === 'done'), 'Ship isn\'t recorded while the loop is held');
+});
+
+rule('Review round 3 (2): a request carried out while the folder is switched writes nothing into the folder opened next, and stops', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101, ABC-102'); app.click('loop-add', 'each'); await app.tick(150);
+  const was = app.fs, write = was.write.bind(was), hold = gate();
+  was.write = (p, t, o) => /^runs\/validate-story\//.test(p) ? hold.p.then(() => write(p, t, o)) : write(p, t, o);
+  const PF = app.PF, LP = PF.loop, r = parentRun(app);
+  const c = LP.cleanIntent({ loop: { process: 'release-readiness', run: r.id, step: 'each' }, changes: [{ op: 'start', item: { key: 'ABC-101' }, as: 'person-avery' }, { op: 'start', item: { key: 'ABC-102' }, as: 'person-avery' }] }, 'sw-1', { name: 'release-helper', version: '1.0' });
+  const d = await PF.repo.loadAll(was, {}), V = LP.view(r, 'each', { records: d.scopes, runs: d.runs });
+  const f = LP.buildRequest(c.intent, { seen: V.ledger.heads, children: [], now: new Date().toISOString(), app: '3.0.0' });
+  await write('proposals/' + f.id + '.json', LP.text(f));
+  app.click('refresh'); await app.tick(150);
+  app.click('reset-examples'); await app.tick(60); app.choose('person-casey'); await app.tick();
+  const now = app.fs;
+  assert.ok(now !== was, 'set-up: another folder');
+  hold.open(); await app.tick(300);
+  assert.deepStrictEqual(Object.keys(now.files).filter(p => p.indexOf(f.id) >= 0), [], 'no outcome in the folder opened next: ' + JSON.stringify(Object.keys(now.files).filter(p => /proposals|validate-story/.test(p))));
+  assert.ok(Object.keys(was.files).filter(p => /^runs\/validate-story\/.*run\.json$/.test(p)).length <= 1, 'the batch stopped after the switch');
 });
 
 run();
