@@ -959,6 +959,7 @@ async function readData(eng, adapter, req) {
           const was = relevant, mine = covers(['runs/' + kk]);
           relevant = (p) => was(p) || mine(p);
           const c = await repo.readRunOnly(L.fs, a.child.process, a.child.id).catch((e) => { L.note('runs/' + kk + '/run.json', 'unreadable', fileWhy(e && e.message || String(e))); return null; });
+          if (c && !c.found) L.note('runs/' + kk + '/run.json', 'nofile', 'The run linked to step "' + sid + '" isn\'t in the team folder (it may still be arriving, or it was deleted), so what it returned can\'t be read.');
           if (!c || !c.found) continue;
           take(c.bad.map((b) => ({ path: b.path, kind: b.kind || 'unreadable', why: fileWhy(b.why) })));
           if (c.nofile) L.note('runs/' + kk + '/run.json', 'nofile', 'The run folder has no run.json.');

@@ -373,4 +373,40 @@ rule('R05-4: a linked run that can\'t be read makes run and next partial, naming
   });
 });
 
+/* ---------- Review 06 ---------- */
+rule('R06-1: a linked run that isn\'t in the folder makes run and next partial, naming it (exit 4)', () => {
+  const fs = require('fs'), os = require('os'), path = require('path'), { execFileSync } = require('child_process');
+  const kp = publish(CHILD()), p = parentRun(kp), c = child('needs-work', 'kid1', { pub: kp }); link(p, c, kp);
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'flightdeck-results-')), put = (rel, text) => { fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true }); fs.writeFileSync(path.join(dir, rel), text); };
+  put('people.json', JSON.stringify({ people: [{ id: 'person-avery', name: 'Avery' }] }));
+  [[kp, 'validate-story'], [p.pub, 'release']].forEach(([v, id]) => Object.keys(v.files).forEach(k => put('publications/' + id + '/' + v.folder + '/' + k, v.files[k])));
+  put('runs/release/rel1/run.json', JSON.stringify(p.r));
+  const BIN = path.join(__dirname, '..', 'bin', 'flightdeck.js'), cli = (...a) => { try { return { code: 0, out: execFileSync(process.execPath, [BIN, ...a], { encoding: 'utf8', stdio: 'pipe' }) }; } catch (e) { return { code: e.status, out: String(e.stdout) }; } };
+  ['run', 'next'].forEach(cmd => {
+    const r = cli(cmd, dir, 'release/rel1', '--contract', '2', '--json'), j = JSON.parse(r.out);
+    assert.ok(r.code === 4 && j.complete === false && j.problems.some(x => x.path === 'runs/validate-story/kid1/run.json' && x.kind === 'nofile'), cmd + ': ' + r.code + ' ' + r.out.slice(0, 400));
+  });
+});
+
+rule('R06-2/3: the awaiting step displaces only later work, in next and mine; a pause and earlier work keep their place', () => {
+  const A = PF.appjson, nameOf = (id) => id ? { id, name: id } : null;
+  const { p, c } = settled();
+  R.pass(p.r, p.map, 0, 'person-avery', LATER);
+  redecide(c, 'needs-work', LAST);
+  const kids = { 'validate-story/kid1': c };
+  let nx = A.next2(p.r, nameOf, 'person-avery', { kids });
+  same([nx.next.step.id, nx.mine && nx.mine.step.id], ['story', 'story'], JSON.stringify(nx.mine));
+  R.pause(p.r, 'Waiting on the vendor', 'person-avery', LAST);
+  nx = A.next2(p.r, nameOf, 'person-avery', { kids });
+  same(nx.next.kind, 'paused');
+  /* Earlier unfinished work in the same phase stays first. */
+  const md = PARENT().replace('## Stories · DO-CONFIRM {#stories}\n', '## Stories · DO-CONFIRM {#stories}\n- [!] {confirm} Read the release notes {#notes}\n');
+  const kp = publish(CHILD()), procs = { 'validate-story': proc([kp]) }, procOf = (id) => procs[id] || null, pp = publish(md, { childProcs: procs });
+  const r = R.create(pp, { id: 'rel3', by: 'person-avery', session: 'w', now: AT, app: '3.0.0', details: { issue: 'ABC-104' }, pins: PF.pins.atStart(pp.map, pp.info.payload ? pp.info.payload.pins : null, procOf) }), map = R.mapOf(r);
+  const k = child('cleared', 'kid7', { pub: kp });
+  R.linkChild(r, map, 'story', { process: 'validate-story', id: k.id, inputs: { issue: 'ABC-104' }, folder: kp.info.folder, format: k.format, pin: r.pins.children.story }, 'person-avery', AT, { run: k, procOf });
+  nx = A.next2(r, nameOf, 'person-avery', { kids: { 'validate-story/kid7': k } });
+  same([nx.next.step.id, nx.mine && nx.mine.step.id], ['notes', 'notes']);
+});
+
 run();

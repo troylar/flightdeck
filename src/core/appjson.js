@@ -410,12 +410,16 @@ PF.appjson = (function () {
     var out = next(r, nameOf, personId), mp = R.mapOf(r);
     /* A step awaiting its recorder's settlement comes before any work further on (3.0): what it settles to can reopen a gate. */
     var wait = null;
-    mp.phases.forEach(function (ph, pi) { ph.steps.forEach(function (x) { var a = r.steps[x.id]; if (!wait && x.type === 'run.process' && R.acceptsOf(r, x) && awaiting(r, x, a, o && o.kids)) wait = { step: x, pi: pi }; }); });
-    if (wait && out.next && !(out.next.step && out.next.step.id === wait.step.id)) {
-      var ph = mp.phases[wait.pi];
-      out.next.kind = 'step'; out.next.phase = { index: wait.pi, id: s(ph.id), title: s(ph.title) }; out.next.gate = null; out.next.tracks = [];
-      out.next.step = { id: s(wait.step.id), text: s(wait.step.text), roles: rolePeople(r, wait.step.roles, nameOf) };
+    /* Only work further on than the awaiting step gives way to it; a pause and earlier unfinished work keep their place. */
+    var at = function (id) { var f = M.findStep(mp, id); return f ? f.phaseIndex * 10000 + mp.phases[f.phaseIndex].steps.indexOf(f.step) : -1; };
+    mp.phases.forEach(function (ph) { ph.steps.forEach(function (x) { var a = r.steps[x.id]; if (!wait && x.type === 'run.process' && R.acceptsOf(r, x) && awaiting(r, x, a, o && o.kids)) wait = { step: x, pi: mp.phases.indexOf(ph), pos: at(x.id) }; }); });
+    var n = out.next, ph = wait ? mp.phases[wait.pi] : null;
+    var later = function (kind, stepId, pi) { return kind === 'complete' || ((kind === 'step' || kind === 'blocked') && stepId != null && at(stepId) > wait.pos) || (kind === 'gate' && pi != null && pi * 10000 + 9999 > wait.pos); };
+    if (wait && n && later(n.kind, n.step && n.step.id, n.phase && n.phase.index)) {
+      n.kind = 'step'; n.phase = { index: wait.pi, id: s(ph.id), title: s(ph.title) }; n.gate = null; n.tracks = [];
+      n.step = { id: s(wait.step.id), text: s(wait.step.text), roles: rolePeople(r, wait.step.roles, nameOf) };
     }
+    if (wait && out.mine && later('step', out.mine.step.id)) out.mine = { phase: { index: wait.pi, id: s(ph.id), title: s(ph.title) }, step: { id: s(wait.step.id), text: s(wait.step.text) } };
     var st = out.next && out.next.step, x = st ? M.findStep(mp, st.id) : null;
     if (st && x && resulted(r, x.step, r.steps[st.id])) { st.heldBy = heldBy(r, x.step, r.steps[st.id]); st.awaiting = awaiting(r, x.step, r.steps[st.id], o && o.kids); }
     return out;
