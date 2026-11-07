@@ -16844,9 +16844,18 @@ PF.loop = (function () {
   /* Who may have the recorder carry out a request (q: actionsOf()): one kind of action per request; a person in people.json,
      not inactive; and the run's recorder, someone holding one of the loop step's roles, or, to start a story, its owner.
      '' when it may, else why, in words. people: people.json as read. */
+  /* A send-back with nothing changed since the approval needs a reason; the button, a request and the CLI ask the same. */
+  function sendBackWhy(V, reason, op) {
+    if (op !== undefined && op !== 'send-back') return '';
+    return V.changes.length || String(reason || '').trim() ? '' : 'Say why it goes back for review: nothing changed since the approval.';
+  }
   function requestCheck(r, V, q, people) {
     var kinds = []; q.ops.forEach(function (op) { if (kinds.indexOf(op) < 0) kinds.push(op); });
     if (kinds.length !== 1) return 'This request mixes ' + kinds.slice(0, 4).join(' and ') + '; a request asks for one kind of action.';
+    var twice = q.items.filter(function (k, i) { return q.items.indexOf(k) !== i; });
+    if (twice.length) return 'This request names ' + twice.slice(0, 5).join(', ') + ' twice; each story is started once per request.';
+    var sb = sendBackWhy(V, q.reason, kinds[0]);
+    if (sb) return sb;
     var list = PF.people.listOf(people), p = null;
     for (var i = 0; i < list.length; i++) if (list[i] && list[i].id === q.as) { p = list[i]; break; }
     if (!q.as || !p) return (q.as || 'The person asking') + ' isn\'t in people.json, so the request can\'t be carried out.';
@@ -17282,7 +17291,7 @@ PF.loop = (function () {
 
   return { KINDS: KINDS, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
     idFor: idFor, isScope: isScope, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
-    rollup: rollup, view: view, markStale: markStale, rowId: rowId, again: again, appliedIn: appliedIn, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
+    rollup: rollup, view: view, markStale: markStale, rowId: rowId, sendBackWhy: sendBackWhy, again: again, appliedIn: appliedIn, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();
 
 /* Reports from other apps (docs/apps.md, docs/design.md section 26): a tool that did a step's work says so in a report, a file
@@ -33291,13 +33300,16 @@ PF.examples = (function () {
         if (sx.step.type !== 'for.each') return;
         var V = loopView(r, sx.step.id); if (!V) return;
         PF.loop.actionsOf(V).forEach(function (q) {
-          if (q.status !== 'pending' || state.loopApplying[q.id]) return;
-          state.loopApplying[q.id] = true;
+          /* One at a time per folder generation; released however it ends, so a request cut short by a folder switch is
+             carried out when its folder is read again. */
+          var gk = gen + ':' + q.id;
+          if (q.status !== 'pending' || state.loopApplying[gk]) return;
+          state.loopApplying[gk] = true;
           /* Bound to the folder, its generation and the person it started in: after a switch nothing more is done or
              written, and the request stays pending for the recorder's window in its own folder. */
           var cx = { fs: state.fs, g: gen, me: state.me };
           loopCarry(r, sx.step.id, V, q, cx).then(function (out) { return loopOutcome(V, q, out.ok ? 'applied' : 'refused', out.why, cx); }, function (err) { return loopOutcome(V, q, 'refused', err && err.message || String(err), cx); })
-            .then(function (wrote) { if (wrote !== false && cx.g === gen) return load(true); }, function () { delete state.loopApplying[q.id]; });
+            .then(function (wrote) { delete state.loopApplying[gk]; if (wrote !== false && cx.g === gen) return load(true); }, function () { delete state.loopApplying[gk]; });
         });
       });
     });
@@ -33311,7 +33323,7 @@ PF.examples = (function () {
     if (q.ops[0] === 'start') {
       /* Runs this request already started (their outcome wasn't written) count as started, and aren't started again. */
       var done = (data.runs || []).filter(function (c) { var it = c.parent && c.parent.item; return it && it.request === q.id && c.parent.process === r.process && c.parent.id === r.id && c.parent.step === id; }).map(function (c) { return c.parent.item.key; }), why = [];
-      return q.items.filter(function (k) { return done.indexOf(k) < 0; }).reduce(function (p, k) { return p.then(function () { if (cx.g !== gen) throw new Error('The folder changed while this request was carried out.'); return loopLaunch(r, id, k, true, q.id).then(function () { done.push(k); }, function (err) { why.push(err.message); }); }); }, Promise.resolve())
+      return q.items.filter(function (k, i) { return done.indexOf(k) < 0 && q.items.indexOf(k) === i; }).reduce(function (p, k) { return p.then(function () { if (cx.g !== gen) throw new Error('The folder changed while this request was carried out.'); if (done.indexOf(k) >= 0) return; return loopLaunch(r, id, k, true, q.id).then(function () { done.push(k); }, function (err) { why.push(err.message); }); }); }, Promise.resolve())
         .then(function () { return { ok: done.length > 0, why: 'Started ' + (done.slice(0, 20).join(', ') || 'none') + (done.length > 20 ? ' and ' + (done.length - 20) + ' more' : '') + '.' + (why.length ? ' ' + why.slice(0, 5).join(' ') : '') }; });
     }
     if (q.ops[0] === 'approve') {
@@ -37875,7 +37887,7 @@ PF.examples = (function () {
     'loop-unsettle': function (id) {
       /* With nothing changed, a person may still send it back, saying why (the Why box). */
       var why = val('loop-why-' + id).trim();
-      mutate(function (r, map, me, now) { var V = loopView(r, id); if (!V) throw new Error('That isn\'t an approved loop.'); if (!V.changes.length && !why) throw new Error('Say why in the Why box: nothing changed since the approval.'); R.unsettleLoop(r, map, id, V.changes.length ? V.changes : ['Sent back for review by ' + personName(me) + ': ' + why.slice(0, 300)], me, now); });
+      mutate(function (r, map, me, now) { var V = loopView(r, id); if (!V) throw new Error('That isn\'t an approved loop.'); var sb = PF.loop.sendBackWhy(V, why); if (sb) throw new Error(sb + ' Use the Why box.'); R.unsettleLoop(r, map, id, V.changes.length ? V.changes : ['Sent back for review by ' + personName(me) + ': ' + why.slice(0, 300)], me, now); });
     },
     /* A child run that was saved but whose link didn't land (the parent changed meanwhile): link it now, with the inputs it was started for. */
     'link-child': function (id, b) {

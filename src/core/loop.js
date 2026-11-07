@@ -279,9 +279,18 @@ PF.loop = (function () {
   /* Who may have the recorder carry out a request (q: actionsOf()): one kind of action per request; a person in people.json,
      not inactive; and the run's recorder, someone holding one of the loop step's roles, or, to start a story, its owner.
      '' when it may, else why, in words. people: people.json as read. */
+  /* A send-back with nothing changed since the approval needs a reason; the button, a request and the CLI ask the same. */
+  function sendBackWhy(V, reason, op) {
+    if (op !== undefined && op !== 'send-back') return '';
+    return V.changes.length || String(reason || '').trim() ? '' : 'Say why it goes back for review: nothing changed since the approval.';
+  }
   function requestCheck(r, V, q, people) {
     var kinds = []; q.ops.forEach(function (op) { if (kinds.indexOf(op) < 0) kinds.push(op); });
     if (kinds.length !== 1) return 'This request mixes ' + kinds.slice(0, 4).join(' and ') + '; a request asks for one kind of action.';
+    var twice = q.items.filter(function (k, i) { return q.items.indexOf(k) !== i; });
+    if (twice.length) return 'This request names ' + twice.slice(0, 5).join(', ') + ' twice; each story is started once per request.';
+    var sb = sendBackWhy(V, q.reason, kinds[0]);
+    if (sb) return sb;
     var list = PF.people.listOf(people), p = null;
     for (var i = 0; i < list.length; i++) if (list[i] && list[i].id === q.as) { p = list[i]; break; }
     if (!q.as || !p) return (q.as || 'The person asking') + ' isn\'t in people.json, so the request can\'t be carried out.';
@@ -717,5 +726,5 @@ PF.loop = (function () {
 
   return { KINDS: KINDS, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
     idFor: idFor, isScope: isScope, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
-    rollup: rollup, view: view, markStale: markStale, rowId: rowId, again: again, appliedIn: appliedIn, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
+    rollup: rollup, view: view, markStale: markStale, rowId: rowId, sendBackWhy: sendBackWhy, again: again, appliedIn: appliedIn, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();

@@ -2997,13 +2997,16 @@
         if (sx.step.type !== 'for.each') return;
         var V = loopView(r, sx.step.id); if (!V) return;
         PF.loop.actionsOf(V).forEach(function (q) {
-          if (q.status !== 'pending' || state.loopApplying[q.id]) return;
-          state.loopApplying[q.id] = true;
+          /* One at a time per folder generation; released however it ends, so a request cut short by a folder switch is
+             carried out when its folder is read again. */
+          var gk = gen + ':' + q.id;
+          if (q.status !== 'pending' || state.loopApplying[gk]) return;
+          state.loopApplying[gk] = true;
           /* Bound to the folder, its generation and the person it started in: after a switch nothing more is done or
              written, and the request stays pending for the recorder's window in its own folder. */
           var cx = { fs: state.fs, g: gen, me: state.me };
           loopCarry(r, sx.step.id, V, q, cx).then(function (out) { return loopOutcome(V, q, out.ok ? 'applied' : 'refused', out.why, cx); }, function (err) { return loopOutcome(V, q, 'refused', err && err.message || String(err), cx); })
-            .then(function (wrote) { if (wrote !== false && cx.g === gen) return load(true); }, function () { delete state.loopApplying[q.id]; });
+            .then(function (wrote) { delete state.loopApplying[gk]; if (wrote !== false && cx.g === gen) return load(true); }, function () { delete state.loopApplying[gk]; });
         });
       });
     });
@@ -3017,7 +3020,7 @@
     if (q.ops[0] === 'start') {
       /* Runs this request already started (their outcome wasn't written) count as started, and aren't started again. */
       var done = (data.runs || []).filter(function (c) { var it = c.parent && c.parent.item; return it && it.request === q.id && c.parent.process === r.process && c.parent.id === r.id && c.parent.step === id; }).map(function (c) { return c.parent.item.key; }), why = [];
-      return q.items.filter(function (k) { return done.indexOf(k) < 0; }).reduce(function (p, k) { return p.then(function () { if (cx.g !== gen) throw new Error('The folder changed while this request was carried out.'); return loopLaunch(r, id, k, true, q.id).then(function () { done.push(k); }, function (err) { why.push(err.message); }); }); }, Promise.resolve())
+      return q.items.filter(function (k, i) { return done.indexOf(k) < 0 && q.items.indexOf(k) === i; }).reduce(function (p, k) { return p.then(function () { if (cx.g !== gen) throw new Error('The folder changed while this request was carried out.'); if (done.indexOf(k) >= 0) return; return loopLaunch(r, id, k, true, q.id).then(function () { done.push(k); }, function (err) { why.push(err.message); }); }); }, Promise.resolve())
         .then(function () { return { ok: done.length > 0, why: 'Started ' + (done.slice(0, 20).join(', ') || 'none') + (done.length > 20 ? ' and ' + (done.length - 20) + ' more' : '') + '.' + (why.length ? ' ' + why.slice(0, 5).join(' ') : '') }; });
     }
     if (q.ops[0] === 'approve') {
@@ -7581,7 +7584,7 @@
     'loop-unsettle': function (id) {
       /* With nothing changed, a person may still send it back, saying why (the Why box). */
       var why = val('loop-why-' + id).trim();
-      mutate(function (r, map, me, now) { var V = loopView(r, id); if (!V) throw new Error('That isn\'t an approved loop.'); if (!V.changes.length && !why) throw new Error('Say why in the Why box: nothing changed since the approval.'); R.unsettleLoop(r, map, id, V.changes.length ? V.changes : ['Sent back for review by ' + personName(me) + ': ' + why.slice(0, 300)], me, now); });
+      mutate(function (r, map, me, now) { var V = loopView(r, id); if (!V) throw new Error('That isn\'t an approved loop.'); var sb = PF.loop.sendBackWhy(V, why); if (sb) throw new Error(sb + ' Use the Why box.'); R.unsettleLoop(r, map, id, V.changes.length ? V.changes : ['Sent back for review by ' + personName(me) + ': ' + why.slice(0, 300)], me, now); });
     },
     /* A child run that was saved but whose link didn't land (the parent changed meanwhile): link it now, with the inputs it was started for. */
     'link-child': function (id, b) {

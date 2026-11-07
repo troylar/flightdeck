@@ -397,4 +397,41 @@ rule('Review round 3 (7): the run screen assigns a story to anyone in people.jso
   assert.ok(!/data-act="loop-unassign"/.test(app.html()), 'no owner now');
 });
 
+rule('Review round 4 (2, 5): a request naming a story twice is refused; a send-back with nothing changed needs a reason, as the button does', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  const twice = await ask(app, [{ op: 'start', item: { key: 'ABC-101' }, as: 'person-avery' }, { op: 'start', item: { key: 'ABC-101' }, as: 'person-avery' }], 'd-1');
+  assert.deepStrictEqual([outcome(app, twice).op, kidPaths(app).length], ['refused', 0]);
+  assert.ok(/twice/.test(outcome(app, twice).reason), outcome(app, twice).reason);
+  app.set('loop-why-each', 'Docs-only change'); app.click('loop-exception', 'each', { item: 'ABC-101' }); await app.tick(150);
+  app.click('loop-approve', 'each'); await app.tick(150);
+  const bare = await ask(app, [{ op: 'send-back', as: 'person-avery' }], 'd-2');
+  assert.deepStrictEqual([outcome(app, bare).op, parentRun(app).steps.each.s], ['refused', 'done']);
+  assert.ok(/why/i.test(outcome(app, bare).reason), outcome(app, bare).reason);
+});
+
+rule('Review round 4 (3): a request interrupted by a folder switch is carried out when its folder is read again', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101, ABC-102'); app.click('loop-add', 'each'); await app.tick(150);
+  const was = app.fs, write = was.write.bind(was), hold = gate();
+  was.write = (p, t, o) => /^runs\/validate-story\//.test(p) ? hold.p.then(() => write(p, t, o)) : write(p, t, o);
+  const PF = app.PF, LP = PF.loop, r = parentRun(app);
+  const c = LP.cleanIntent({ loop: { process: 'release-readiness', run: r.id, step: 'each' }, changes: [{ op: 'start', item: { key: 'ABC-101' }, as: 'person-avery' }, { op: 'start', item: { key: 'ABC-102' }, as: 'person-avery' }] }, 'sw-2', { name: 'release-helper', version: '1.0' });
+  const d = await PF.repo.loadAll(was, {}), V = LP.view(r, 'each', { records: d.scopes, runs: d.runs });
+  const f = LP.buildRequest(c.intent, { seen: V.ledger.heads, children: [], now: new Date().toISOString(), app: '3.0.0' });
+  await write('proposals/' + f.id + '.json', LP.text(f));
+  app.click('refresh'); await app.tick(150);
+  app.click('reset-examples'); await app.tick(60);
+  const now = app.fs;
+  hold.open(); await app.tick(300);
+  was.write = write;
+  Object.keys(was.files).forEach(p => { if (!(p in now.files)) now.files[p] = was.files[p]; });
+  app.choose('person-avery'); await app.tick();
+  app.click('refresh'); await app.tick(400);
+  app.click('refresh'); await app.tick(400);
+  const kids = Object.keys(now.files).filter(p => /^runs\/validate-story\/.*run\.json$/.test(p)).map(p => JSON.parse(now.files[p].t).parent.item.key).sort();
+  assert.deepStrictEqual(kids, ['ABC-101', 'ABC-102'], 'both started once, in the folder read again');
+  assert.ok(Object.keys(now.files).some(p => p.indexOf(f.id + '.status-') >= 0), 'its outcome is recorded');
+});
+
 run();

@@ -2804,7 +2804,7 @@ async function loopMain(argv) {
         value = { loop: V.loop, changes: [Object.assign({ op: 'send-back', as: val['--as'] }, val['--reason'] ? { reason: val['--reason'] } : {})] };
         lines.push('Would ask the recorder to send the approval back for review' + (V.changes.length ? ': ' + V.changes.join(' ') : '.'));
       }
-      const may = LP.requestCheck(r, V, { ops: value.changes.map((c) => c.op), items: value.changes.filter((c) => c.item).map((c) => c.item.key), as: val['--as'] }, one.people);
+      const may = LP.requestCheck(r, V, { ops: value.changes.map((c) => c.op), items: value.changes.filter((c) => c.item).map((c) => c.item.key), as: val['--as'], reason: val['--reason'] || '' }, one.people);
       if (may) return failOut('invalid', may + ' Nothing was written.', problems());
       lines.push('The recorder\'s window applies it with the same checks as its buttons; no run starts until then.');
       act.lines = lines;

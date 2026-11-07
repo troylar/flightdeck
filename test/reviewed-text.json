@@ -13,8 +13,8 @@
       "reviewed": "fold design tips and the library panel; own-key reads; checked for direct writes and unconditional deletes"
     },
     "bin/flightdeck.js": {
-      "sha256": "8ca27b8c697b6cd460a3c0425e104227a5bb049ecd4ec827baf2e438f3caef4e",
-      "reviewed": "CLI action retry compares the loop target."
+      "sha256": "a7ed7df0cbef63bd4b64e9827b6b99fdebbb02ee2915da9d2e431d08b74428fe",
+      "reviewed": "Shared send-back reason rule; duplicate items refused; request guard per generation."
     },
     "build.py": {
       "sha256": "21c5b257606a8aa3d24c956f518745372409b550008be4d06f5178081117708c",
@@ -253,8 +253,8 @@
       "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "src/core/loop.js": {
-      "sha256": "9ea0dab4c73abc0a82a7fd0279cf9219b0041f77207cf341761120b1b9dc879a",
-      "reviewed": "Next-attempt eligibility shared by row button and CLI start."
+      "sha256": "a4194cd7a5c50e488c8f344759c7a4e330107bf4f93ae07810f57e0827469a26",
+      "reviewed": "Shared send-back reason rule; duplicate items refused; request guard per generation."
     },
     "src/core/map.js": {
       "sha256": "671a810abb29087bed638e0fc39ecc5a52b70146abd303742d5d017c9083db7c",
@@ -397,8 +397,8 @@
       "reviewed": "loops review round 1: qualification, answer fingerprints, unreadable holds, auto send-back, start guard; checked for direct writes and unconditional deletes: none added"
     },
     "src/ui/app.js": {
-      "sha256": "94284195c80f752645b3d08bb616f90f9c69cdb81ff2a6ca6859f581c5cae062",
-      "reviewed": "Owner picker, Assign, Unassign; design 44 rows."
+      "sha256": "3424c3e30ee691bdecf5133c25a4212a2f1c88dece9a85ef1bc2230e88309354",
+      "reviewed": "Shared send-back reason rule; duplicate items refused; request guard per generation."
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
