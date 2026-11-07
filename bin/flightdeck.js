@@ -2806,6 +2806,19 @@ async function loopReview(eng, o) {
   if (!val['--as'] || !/^[A-Za-z0-9_.-]{1,80}$/.test(val['--as'])) return o.usage('say whose decision this is with --as <person id from people.json>. It is recorded as theirs, on their behalf.');
   const keys = String(acc != null ? acc : keep).split(/[\s,]+/).filter(Boolean), op = acc != null ? 'accept' : 'keep';
   const items = keys.map((k) => V.ledger.items.filter((i) => i.key === k)[0]);
+  /* A retry with the same key: the decisions it already wrote answer it. The same decision again writes nothing; another one
+     under this key is refused, naming what changed. */
+  const revOf = (p) => PF.sha256.hex(JSON.stringify([val['--key'], p])).slice(0, 8);
+  const prior = (V.records || []).filter((d) => d.type === 'decision' && d.id === d.proposal + '.status-' + o.tool.name + '-' + revOf(d.proposal));
+  if (prior.length) {
+    const uidOf = (k) => { const x = V.ledger.items.filter((i) => i.key === k)[0]; return x ? x.uid : k; };
+    const want = keys.map(uidOf).sort(), had = [].concat(...prior.map((d) => d.items)).sort();
+    const diffs = [];
+    if (prior.some((d) => d.op !== op)) diffs.push('op');
+    if (JSON.stringify(want) !== JSON.stringify(had)) diffs.push('items');
+    if (diffs.length) return o.failOut('key-taken', 'This key already names a different decision (' + prior.map((d) => 'proposals/' + d.id + '.json').join(', ') + '). Changed fields: ' + diffs.join(', ') + '. Read the loop (flightdeck loop read) before choosing a new key. Nothing was written.', o.problems());
+    return o.done({ loop: V.loop, status: 'already', decisions: prior.map((d) => ({ file: 'proposals/' + d.id + '.json', items: d.items })), preview: 'Already recorded. Nothing written.', runsStarted: 0 });
+  }
   const notPending = keys.filter((k, i) => !items[i] || !(items[i].state === 'proposed' || items[i].review.length));
   if (notPending.length) return o.failOut('invalid', notPending.join(', ') + (notPending.length === 1 ? ' isn\'t' : ' aren\'t') + ' waiting for a removal decision. Read the loop again. Nothing was written.', o.problems());
   if (o.problems().length) return o.held('Part of the team folder this depends on couldn\'t be read, so nothing was written. Check folder availability, then retry with the same key.');
@@ -2813,7 +2826,7 @@ async function loopReview(eng, o) {
   items.forEach((x) => { const p = x.proposal || x.proposedBy || ''; (by[p] = by[p] || []).push(x.uid); });
   if (by['']) return o.failOut('invalid', 'Some of these items were decided two ways at once by exclusions or restorations, not proposed removals. Use flightdeck loop exclude or restore to decide them. Nothing was written.', o.problems());
   const files = Object.keys(by).sort().map((p) => LP.buildDecision({ proposal: p, loop: V.loop, op, items: by[p], seen: V.ledger.heads, reason: val['--reason'] || '', by: val['--as'], onBehalf: o.tool.name,
-    writer: o.tool.name, rev: PF.sha256.hex(JSON.stringify([val['--key'], p])).slice(0, 8), now: new Date().toISOString(), app: eng.version }));
+    writer: o.tool.name, rev: revOf(p), now: new Date().toISOString(), app: eng.version }));
   const preview = (o.dryRun ? 'Would record' : 'Recorded') + ' ' + val['--as'] + '\'s decision to ' + (op === 'accept' ? 'remove ' : 'keep ') + keys.join(', ') + (op === 'accept' ? ' from scope. Their assessment runs remain available.' : ' in scope.') + (o.dryRun ? ' Nothing was written.' : '');
   const data = (status) => ({ loop: V.loop, status, decisions: files.map((f) => ({ file: 'proposals/' + f.name, items: f.file.items })), preview, runsStarted: 0 });
   if (o.dryRun) return o.done(data('would-request'));

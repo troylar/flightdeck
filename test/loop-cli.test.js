@@ -85,6 +85,10 @@ rule('read shows the items, exact counts and blockers; review records a person\'
   assert.deepStrictEqual([no.code, no.error.kind], [1, 'invalid']);
   const rv = json('loop', 'review', root, 'release-readiness/r-41', 'each', '--accept', 'ABC-103', '--as', 'person-morgan', '--tool', 'release-helper@1.0', '--key', 'c', '--json');
   assert.deepStrictEqual([rv.code, rv.data.status], [0, 'requested'], JSON.stringify(rv));
+  const again = json('loop', 'review', root, 'release-readiness/r-41', 'each', '--accept', 'ABC-103', '--as', 'person-morgan', '--tool', 'release-helper@1.0', '--key', 'c', '--json');
+  assert.deepStrictEqual([again.code, again.data && again.data.status], [0, 'already'], 'an identical retry writes nothing: ' + JSON.stringify(again.error || ''));
+  const other = json('loop', 'review', root, 'release-readiness/r-41', 'each', '--keep', 'ABC-103', '--as', 'person-morgan', '--tool', 'release-helper@1.0', '--key', 'c', '--json');
+  assert.deepStrictEqual([other.code, other.error && other.error.kind], [1, 'key-taken'], 'the same key for another decision is refused');
   const r2 = json('loop', 'read', root, 'release-readiness/r-41', 'each', '--json');
   assert.deepStrictEqual([r2.data.summary, r2.data.items.filter(i => i.key === 'ABC-103')[0].state], ['2 in scope · 1 cleared by validation · 1 needs work', 'removed']);
   const ex = json('loop', 'exception', root, 'release-readiness/r-41', 'each', '--item', 'ABC-102', '--reason', 'Docs only', '--approver', 'person-morgan', '--as', 'person-morgan', '--tool', 'release-helper@1.0', '--key', 'd', '--json');
