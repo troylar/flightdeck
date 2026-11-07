@@ -2187,12 +2187,22 @@ def team_files(root):
 
 # 3.0: design tips (PF.library.lints), the ones that need no other checklist, in the same order and words. Advice only.
 _NAME = r"[A-Za-z0-9_-]"
-_READINESS = re.compile(r"\b(ready|readiness|no (?:open )?\w+|none|blockers?|blocking|clear|all\b.*\b(?:done|closed|merged|resolved)|green|passes|safe)\b", re.I | re.A)
-_WHOLE_SET = re.compile(r"\b(?:each|every)\s+[a-z]|\ball\s+(?:of\s+)?(?:the\s+)?(?:[a-z-]+\s+){0,2}[a-z-]+s\b", re.I | re.A)
-_VERDICT = re.compile(r"\bNOT READY\b|\bREADY\b|\bgo\s*/\s*no[- ]go\b|\bgo or no[- ]go\b", re.A)
+# JavaScript's \s and . (JS_S, JS_DOT), never Python's: re.A alone would leave out a no-break space.
+_READINESS = re.compile(r"\b(ready|readiness|no (?:open )?\w+|none|blockers?|blocking|clear|all\b.*\b(?:done|closed|merged|resolved)|green|passes|safe)\b".replace(".", JS_DOT, 1), re.I | re.A)
+_WHOLE_SET = re.compile(r"\b(?:each|every)\s+[a-z]|\ball\s+(?:of\s+)?(?:the\s+)?(?:[a-z-]+\s+){0,2}[a-z-]+s\b".replace(r"\s", JS_S), re.I | re.A)
+_VERDICT = re.compile(r"\bNOT READY\b|\bREADY\b|\bgo\s*/\s*no[- ]go\b|\bgo or no[- ]go\b".replace(r"\s", JS_S), re.A)
 _APPROVAL = re.compile(r"\b(?:approve|approves|approved|approval|verdict|sign[- ]?off|signs? off)\b", re.I | re.A)
 # Types where approving or signing off is the work itself, so the wording is no sign of a misplaced verdict.
 _APPROVES_BY_TYPE = ("review", "decide", "github.pr", "bitbucket.pr")
+# The built-in types' choice and yes/no record fields: required (require: names it, or all), a run records which way it went.
+_VERDICT_RECORDS = {"decide": ("decision",), "review": ("verdict",), "verify.health": ("result",), "github.pr": ("checks",)}
+
+
+def _records_verdict(s):
+    req = [x.strip() for x in (s["fields"].get("require") or "").split(",") if x.strip()]
+    if (s["fields"].get("evidence") or "").lower() == "yes-no":
+        return True
+    return any("all" in req or n in req for n in _VERDICT_RECORDS.get(s["type"], ()))
 
 
 def _quoted(rx, text):
@@ -2222,7 +2232,7 @@ def design_tips(md):
                 add("results-any", "step", s["id"], label + ' has results: any, so it passes whatever the search finds, yet it reads like a readiness check ("' + _quoted(_READINESS, what) + '"). Say what must be true, like results: none or results: at least 1, or word it as collecting facts.')
         if (s["type"] == "confirm" or not s["type"]) and _WHOLE_SET.search(s["text"]):
             add("whole-set", "step", s["id"], label + ' confirms a whole set at once ("' + _quoted(_WHOLE_SET, s["text"]) + '…"). One check can\'t show which items were looked at. Give each item its own result: one step per item, or a list with one line per item in a note or report. Flightdeck can\'t repeat a step for each item yet.')
-        if s["type"] != "decide":
+        if s["type"] != "decide" and not _records_verdict(s):
             v = _quoted(_VERDICT, s["text"]) or (_quoted(_APPROVAL, s["text"]) if s["type"] not in _APPROVES_BY_TYPE else "")
             if v:
                 add("verdict", "step", s["id"], label + ' reads like a verdict ("' + v + '"), but as a {' + (s["type"] or "step") + '} step a run records only that it was checked, not which way it went. Make it a {decide} step with the choices, or a named gate when a person approves it.')

@@ -1025,16 +1025,25 @@ const DRAFT_CASES = [
     '### Track: Db @b {#db}', '- [ ] {confirm} Check every replica ^env {#d}', '', '## Q · DO-CONFIRM {#q}', '- [ ] {run.process} Run the child {#c}', '  process: other', ''].join('\n'),
   ['---', 'process: bad', 'title: Bad', 'context: version', '---', '', '## P · READ-DO {#p}', '- [ ] Untyped step {#u}', '- [ ] {nope.type} Unknown type {#n}',
     '- [ ] {jira.search} Search with nothing {#s}', '  results: maybe', '- [ ] {jenkins.job} Run the job {#j}', '  colour: blue', 'stray line', ''].join('\n'),
+  /* Whitespace as JavaScript reads it (a no-break space is one), and a verdict a run must record (a required choice or yes/no). */
+  ['---', 'process: ws', 'title: Ws', 'roles: lead(', 'context: env(', '---', '', '## P · READ-DO {#p}', '- [ ] {confirm} Check each\u00a0item {#e}', '- [ ] {confirm} All\u2003of the stories {#a}',
+    '- [ ] {jira.search} No\u00a0blockers {#n}', '  query: a = 1', '  results: any', '- [ ] {review} Review the READY or NOT READY verdict {#r}', '  document: https://example.com/d', '  require: verdict',
+    '- [ ] {review} Review the READY call {#o}', '  document: https://example.com/d', '- [ ] {confirm} Say READY or NOT READY {#y}', '  evidence: Yes-No',
+    '- [ ] {verify.health} Health is READY {#h}', '  require: result', '- [ ] {github.pr} Approve the READY PR {#g}', '  require: all', ''].join('\n'),
 ];
 rule('check_folder.py --draft: the design tips are the app\'s, word for word, and its blockers are the app\'s, with what it didn\'t check listed', () => {
   const tipsOf = (md) => JSON.parse(JSON.stringify(PF.library.lints(md)));
   assert.deepStrictEqual(tipsOf(DRAFT_CASES[0]).map(t => t.id), ['whole-set', 'verdict', 'results-any', 'verdict', 'solo-roles', 'unused-role', 'unused-detail'], 'set-up: the first case has one of each');
   assert.deepStrictEqual(tipsOf(DRAFT_CASES[1]).map(t => t.id), ['whole-set', 'solo-roles'], 'set-up: track roles count, and a linked step without carry: keeps every detail');
+  assert.deepStrictEqual(tipsOf(DRAFT_CASES[3]).map(t => t.id + '#' + t.ref), ['whole-set#e', 'whole-set#a', 'results-any#n', 'verdict#o', 'unused-role#null', 'unused-detail#null'], 'set-up: the whitespace and verdict case');
   const py = python(); if (!py) return;
   const drafts = DRAFT_CASES.concat(fs.readdirSync(path.join(__dirname, '..', 'example-folder', 'maps', 'drafts')).filter(f => f.endsWith('.md')).map(f => fs.readFileSync(path.join(__dirname, '..', 'example-folder', 'maps', 'drafts', f), 'utf8')));
   const src = "import json,sys,importlib.util\nspec=importlib.util.spec_from_file_location('cf',sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)\n" +
     "d=json.load(sys.stdin)\nprint(json.dumps([m.draft_check(md,[]) for md in d]))";
   const out = JSON.parse(cp.execFileSync(py, ['-I', '-c', src, CHECKER], { input: JSON.stringify(drafts), encoding: 'utf8' }));
+  const verdicts = JSON.parse(cp.execFileSync(py, ['-I', '-c', src.replace('[m.draft_check(md,[]) for md in d]', '{k: list(v) for k, v in m._VERDICT_RECORDS.items()}'), CHECKER], { input: '[]', encoding: 'utf8' }));
+  const want = {}; PF.types.LIST.forEach(t => { const r = (t.record || []).filter(d => d.kind === 'choice' || d.kind === 'yes-no').map(d => d.name); if (r.length) want[t.id] = r; });
+  assert.deepStrictEqual(verdicts, JSON.parse(JSON.stringify(want)), 'the checker knows which built-in types record a choice or yes/no');
   drafts.forEach((md, i) => {
     assert.deepStrictEqual(out[i].tips, tipsOf(md), 'tips, draft ' + i);
     const app = PF.map.check(PF.map.parse(md), {}).blockers;

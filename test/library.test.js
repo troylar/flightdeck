@@ -117,6 +117,28 @@ rule('Tip: a search or gate another checklist already has, named with where', ()
   assert.ok(!L.lints(t, {}).some(x => x.id === 'duplicate' || x.id === 'library-unread'), 'without the library, no duplicate tip and no claim');
 });
 
+rule('A role or run detail named with pattern characters never stops the tips: each name is matched as written', () => {
+  const t = md(['process: x', 'title: X', 'roles: lead(, qa', 'context: env(, tag'], ['## S {#s}', '- [ ] {confirm} Check ^tag @qa {#a}', '']);
+  let got; assert.doesNotThrow(() => { got = ids(t); });
+  assert.ok(got.every(x => /^(unused-role|unused-detail)$/.test(x)), JSON.stringify(got));
+});
+
+rule('Tip: a verdict on a step that records which way it went (a required choice or yes/no) is no misplaced verdict', () => {
+  const t = md(['process: x', 'title: X'], ['## S {#s}', '- [ ] {review} Review the READY or NOT READY verdict {#r}', '  document: https://example.com/d', '  require: verdict',
+    '- [ ] {review} Review the READY call {#o}', '  document: https://example.com/d', '- [ ] {confirm} Say READY or NOT READY {#y}', '  evidence: yes-no', '- [ ] {review} Approve: READY {#all}', '  require: all', '']);
+  same(ids(t).filter(x => /^verdict/.test(x)), ['verdict#o'], 'a review whose verdict isn\'t required can still be checked without one');
+});
+
+rule('Inspect: a draft with a line Flightdeck doesn\'t understand keeps what it read, and the library says it\'s partial', () => {
+  const p = procs(); p[1].draft.md = CLEANUP.replace('## Gate: Done {#done}', 'stray line\n## Gate: Done {#done}');
+  const lib = L.inspect(p, []);
+  assert.ok(lib.checklists.some(c => c.process === 'cleanup' && c.source === 'draft' && c.searches.length === 1), 'what it read is kept');
+  assert.strictEqual(lib.completeness.complete, false);
+  same(lib.completeness.unread.map(u => u.process + ' ' + u.path), ['cleanup maps/drafts/cleanup.md']);
+  assert.ok(/Line \d+/.test(lib.completeness.unread[0].why), lib.completeness.unread[0].why);
+  same(L.inspect(p, [{ process: 'cleanup', path: 'maps/drafts/cleanup.md', why: 'named already' }]).completeness.unread.length, 1, 'named once');
+});
+
 rule('Design tips are advice: a checklist with every tip still publishes', () => {
   const t = md(['process: x', 'title: X', 'runs: solo', 'roles: lead, qa'], ['## S · READ-DO {#s}', '- [!] {confirm} All stories are READY @lead {#a}', '- [ ] {jira.search} No blockers @qa {#b}', '  query: a = 1', '  results: any', '']);
   assert.ok(L.lints(t).length >= 4);

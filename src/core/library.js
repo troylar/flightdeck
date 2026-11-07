@@ -32,6 +32,8 @@ PF.library = (function () {
   }
   function list(s) { return String(s || '').split(/[,\s]+/).filter(Boolean); }
   function own(o, k) { return !!o && Object.prototype.hasOwnProperty.call(o, k); }
+  /* A name from the draft, matched as written: a draft that can't publish (roles: lead() still gets its tips. */
+  function reEsc(s) { return String(s).replace(/[.*+?^${}()|[\]\\\/-]/g, '\\$&'); }
 
   /* One checklist, normalized: a publication ({ info, map, types }) or a draft's text. */
   function describe(id, source, map, info, types, skills) {
@@ -85,11 +87,15 @@ PF.library = (function () {
     opts = opts || {};
     /* Keyed by names from files, so no inherited key (constructor, __proto__) can be one. */
     var lists = [], usedBy = [], typeUse = Object.create(null);
+    var bad = (unread || []).map(function (u) { return { process: u.process || null, path: String(u.path || ''), why: String(u.why || '') }; });
     (procs || []).forEach(function (p) {
       if (p.latest && p.latest.map) lists.push(describe(p.id, 'publication', p.latest.map, p.latest.info, p.latest.types, p.skills));
       if (p.draft && p.draft.md != null && (p.draftChanged || !p.latest)) {
-        var dm = M.parse(p.draft.md);
-        if (!dm.errors.length) lists.push(describe(p.id, 'draft', dm, null, opts.types || {}, null));
+        var dm = M.parse(p.draft.md), at = 'maps/drafts/' + (p.draft.file || p.id + '.md');
+        lists.push(describe(p.id, 'draft', dm, null, opts.types || {}, null));
+        /* What it read is kept; a line it couldn't makes the library partial, since that line may be a link or a search. */
+        if (dm.errors.length && !bad.some(function (u) { return u.path === at; }))
+          bad.push({ process: p.id, path: at, why: 'Line ' + dm.errors[0].line + ': ' + dm.errors[0].msg + (dm.errors.length > 1 ? ' (and ' + (dm.errors.length - 1) + ' more)' : '') });
       }
     });
     lists.forEach(function (c) {
@@ -120,7 +126,6 @@ PF.library = (function () {
     group('gate', function () { return 'same gate approves pattern'; }, function (c) {
       return c.gates.map(function (g) { return { id: g.id, key: g.pattern }; });
     });
-    var bad = (unread || []).map(function (u) { return { process: u.process || null, path: String(u.path || ''), why: String(u.why || '') }; });
     return {
       checklists: lists, usedBy: usedBy, overlaps: overlaps,
       stepTypes: Object.keys(typeUse).sort().map(function (k) { return typeUse[k]; }),
@@ -173,6 +178,12 @@ PF.library = (function () {
   /* Types where approving or signing off is the work itself, so the wording is no sign of a misplaced verdict. */
   var APPROVES_BY_TYPE = { review: 1, decide: 1, 'github.pr': 1, 'bitbucket.pr': 1 };
   function quoted(re, text) { var m = re.exec(text); return m ? m[0] : ''; }
+  /* Whether a run must record which way the step went: a required choice (a review's verdict with require: verdict) or a
+     yes/no answer. Built-in types only, as check_folder.py --draft knows them. */
+  function recordsVerdict(s) {
+    var def = T.get(s.type);
+    return T.recordFields(def, s.fields).some(function (d) { return d.required && (d.kind === 'choice' || d.kind === 'yes-no'); });
+  }
   /* The text after the front matter, where ^details and @roles are used. */
   function body(md) {
     var t = String(md || '').replace(/\r\n?/g, '\n'), m = /^---\n[\s\S]*?\n---[ \t]*(?:\n|$)/.exec(t);
@@ -192,7 +203,7 @@ PF.library = (function () {
         if (r.ok && r.op === 'any' && READINESS.test(what)) add('results-any', 'step', s.id, label(s) + ' has results: any, so it passes whatever the search finds, yet it reads like a readiness check ("' + quoted(READINESS, what) + '"). Say what must be true, like results: none or results: at least 1, or word it as collecting facts.');
       }
       if ((s.type === 'confirm' || !s.type) && WHOLE_SET.test(s.text)) add('whole-set', 'step', s.id, label(s) + ' confirms a whole set at once ("' + quoted(WHOLE_SET, s.text) + '…"). One check can\'t show which items were looked at. Give each item its own result: one step per item, or a list with one line per item in a note or report. Flightdeck can\'t repeat a step for each item yet.');
-      if (s.type !== 'decide') {
+      if (s.type !== 'decide' && !recordsVerdict(s)) {
         var v = quoted(VERDICT, s.text) || (!APPROVES_BY_TYPE[s.type] ? quoted(APPROVAL, s.text) : '');
         if (v) add('verdict', 'step', s.id, label(s) + ' reads like a verdict ("' + v + '"), but as a {' + (s.type || 'step') + '} step a run records only that it was checked, not which way it went. Make it a {decide} step with the choices, or a named gate when a person approves it.');
       }
@@ -207,7 +218,7 @@ PF.library = (function () {
     var roles = Object.keys(used);
     if (meta.runs === 'solo' && roles.length > 1) add('solo-roles', 'checklist', null, 'This checklist says runs: solo, but its steps and gates use ' + roles.length + ' roles (' + roles.map(function (r) { return '@' + r; }).join(', ') + '). If more than one person does the work, take out runs: solo. A solo run that hands a report to someone is fine.');
     meta.roles.forEach(function (r) {
-      if (!used[r] && !new RegExp('@' + r.replace(/[-]/g, '\\-') + '(?!' + NAME + ')').test(text)) add('unused-role', 'checklist', null, 'The role @' + r + ' is declared but no step or gate uses it. Use it or take it out of roles.');
+      if (!used[r] && !new RegExp('@' + reEsc(r) + '(?!' + NAME + ')').test(text)) add('unused-role', 'checklist', null, 'The role @' + r + ' is declared but no step or gate uses it. Use it or take it out of roles.');
     });
     var carried = Object.create(null), asksAll = false;
     M.steps(map).forEach(function (x) {
@@ -217,7 +228,7 @@ PF.library = (function () {
     });
     /* A linked step without carry: passes every detail its child also has, so none of them can be called unused. */
     if (!asksAll) meta.context.forEach(function (n) {
-      if (!carried[n] && !new RegExp('\\^' + n.replace(/[-]/g, '\\-') + '(?!' + NAME + ')').test(text)) add('unused-detail', 'checklist', null, 'The run detail ^' + n + ' is asked for at the start but no step, gate or condition uses it. Use it or take it out of context.');
+      if (!carried[n] && !new RegExp('\\^' + reEsc(n) + '(?!' + NAME + ')').test(text)) add('unused-detail', 'checklist', null, 'The run detail ^' + n + ' is asked for at the start but no step, gate or condition uses it. Use it or take it out of context.');
     });
     var lib = opts.library;
     if (lib) {
