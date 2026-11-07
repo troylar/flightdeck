@@ -361,11 +361,12 @@ PF.run = (function () {
   }
   /* A loop's approval no longer stands (3.0): the step goes back for review, every reason listed, the earlier approval kept
      in its history; its gate goes to review. Sticky: only a new approval clears it. */
-  function unsettleLoop(r, map, id, reasons, who, now) {
+  function unsettleLoop(r, map, id, reasons, who, now, request) {
     var x = M.findStep(map, id), a = r.steps[id];
     if (!x || x.step.type !== 'for.each' || !a || a.s !== 'done' || !a.loop) throw new Error('That isn\'t an approved loop.');
     var why = 'Approval needs review: ' + reasons.join(' ');
-    answer(r, id, { s: 'recheck', reason: why.slice(0, 120), by: who, at: now, values: { changes: reasons.join('\n').slice(0, 2000) } });
+    var vals = { changes: reasons.join('\n').slice(0, 2000) }; if (request) vals.request = String(request).slice(0, 130);
+    answer(r, id, { s: 'recheck', reason: why.slice(0, 120), by: who, at: now, values: vals });
     var gid = map.phases[x.phaseIndex].gate.id, g = r.gates[gid];
     if (g && (g.s === 'passed' || g.s === 'waived')) r.gates[gid] = { s: 'review', was: g.s, by: g.by, at: g.at, reason: 'A loop\'s approval needs review', approved: g.approved };
     addLog(r, who, now, 'Approval needs review "' + x.step.text + '": ' + reasons.join(' ').slice(0, 200));

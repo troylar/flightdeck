@@ -256,4 +256,27 @@ rule('Review round 2 (6): Start all isn\'t offered for a story whose run can\'t 
   assert.ok(!/Start all under my recording…/.test(txt(app)), 'not offered when nothing can start');
 });
 
+rule('Review round 2 (5): an approve or send-back whose outcome couldn\'t be written is recognized from the run on the next read, never applied twice', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  app.set('loop-why-each', 'Docs-only change'); app.click('loop-exception', 'each', { item: 'ABC-101' }); await app.tick(150);
+  const fs = app.fs, write = fs.write.bind(fs);
+  fs.write = (p, t, o) => /\.status-/.test(p) && /"applied"|"refused"/.test(String(t)) ? Promise.reject(new Error('EIO')) : write(p, t, o);
+  const ap = await ask(app, [{ op: 'approve', as: 'person-avery' }], 'r5-ap');
+  assert.strictEqual(parentRun(app).steps.each.s, 'done', 'set-up: approved, its outcome not written');
+  const hist = (parentRun(app).steps.each.history || []).length;
+  fs.write = write;
+  app.click('refresh'); await app.tick(250);
+  assert.strictEqual((parentRun(app).steps.each.history || []).length, hist, 'not approved again');
+  assert.strictEqual(outcome(app, ap).op, 'applied', 'recorded as applied once it can be');
+  fs.write = (p, t, o) => /\.status-/.test(p) && /"applied"|"refused"/.test(String(t)) ? Promise.reject(new Error('EIO')) : write(p, t, o);
+  const sb = await ask(app, [{ op: 'send-back', as: 'person-avery', reason: 'Recheck' }], 'r5-sb');
+  assert.strictEqual(parentRun(app).steps.each.s, 'recheck');
+  fs.write = write;
+  app.click('loop-approve', 'each'); await app.tick(200);
+  assert.strictEqual(parentRun(app).steps.each.s, 'done', 'approved again by the person');
+  app.click('refresh'); await app.tick(250);
+  assert.deepStrictEqual([parentRun(app).steps.each.s, outcome(app, sb).op], ['done', 'applied'], 'the earlier send-back isn\'t replayed');
+});
+
 run();

@@ -3007,6 +3007,7 @@
   function loopCarry(r, id, V, q) {
     var key = r.process + '/' + r.id, a = r.steps[id];
     /* The same rules for everyone who asks (PF.loop.requestCheck): refused with why, nothing changed. */
+    if (PF.loop.appliedIn(r, id, q.id)) return Promise.resolve({ ok: true, why: 'Carried out before; its outcome is recorded now.' });
     var may = PF.loop.requestCheck(r, V, q, data.people);
     if (may) return Promise.resolve({ ok: false, why: may });
     if (q.ops[0] === 'start') {
@@ -3019,12 +3020,12 @@
       var no = 'The run couldn\'t be changed here; ask again.', tool = typeof q.by === 'string' ? q.by : (q.by && (q.by.tool || q.by.name)) || '';
       return mutateRun(key, gen, function (rr, m, me, now) {
         var V2 = loopView(rr, id); if (!V2 || !V2.rollup.ok) { no = 'It can\'t be approved yet: ' + (V2 ? V2.rollup.summary : 'the loop isn\'t readable') + '.'; throw new Error(no); }
-        R.done(rr, m, id, me, now, { _loop: { ok: true, snapshot: PF.loop.approval(V2.ledger, V2.rollup, { by: q.as, at: now, onBehalf: tool }) } });
+        R.done(rr, m, id, me, now, { _loop: { ok: true, snapshot: PF.loop.approval(V2.ledger, V2.rollup, { by: q.as, at: now, onBehalf: tool, request: q.id }) } });
       }, { background: true }).then(function (ok) { return ok === false ? { ok: false, why: no } : { ok: true, why: 'Approved: ' + V.rollup.summary + '.' }; });
     }
     if (!(a && a.s === 'done' && a.loop)) return Promise.resolve({ ok: false, why: 'The loop isn\'t approved, so there was nothing to send back.' });
     var reasons = V.changes.length ? V.changes : ['Sent back for review by ' + personName(q.as) + (q.reason ? ': ' + q.reason : '') + '.'];
-    return mutateRun(key, gen, function (rr, m, me, now) { R.unsettleLoop(rr, m, id, reasons, me, now); }, { background: true })
+    return mutateRun(key, gen, function (rr, m, me, now) { R.unsettleLoop(rr, m, id, reasons, me, now, q.id); }, { background: true })
       .then(function (ok) { return ok === false ? { ok: false, why: 'The run changed meanwhile; ask again.' } : { ok: true, why: 'Sent back for review.' }; });
   }
   function loopOutcome(V, q, op, why) {

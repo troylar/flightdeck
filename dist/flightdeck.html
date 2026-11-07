@@ -8649,11 +8649,12 @@ PF.run = (function () {
   }
   /* A loop's approval no longer stands (3.0): the step goes back for review, every reason listed, the earlier approval kept
      in its history; its gate goes to review. Sticky: only a new approval clears it. */
-  function unsettleLoop(r, map, id, reasons, who, now) {
+  function unsettleLoop(r, map, id, reasons, who, now, request) {
     var x = M.findStep(map, id), a = r.steps[id];
     if (!x || x.step.type !== 'for.each' || !a || a.s !== 'done' || !a.loop) throw new Error('That isn\'t an approved loop.');
     var why = 'Approval needs review: ' + reasons.join(' ');
-    answer(r, id, { s: 'recheck', reason: why.slice(0, 120), by: who, at: now, values: { changes: reasons.join('\n').slice(0, 2000) } });
+    var vals = { changes: reasons.join('\n').slice(0, 2000) }; if (request) vals.request = String(request).slice(0, 130);
+    answer(r, id, { s: 'recheck', reason: why.slice(0, 120), by: who, at: now, values: vals });
     var gid = map.phases[x.phaseIndex].gate.id, g = r.gates[gid];
     if (g && (g.s === 'passed' || g.s === 'waived')) r.gates[gid] = { s: 'review', was: g.s, by: g.by, at: g.at, reason: 'A loop\'s approval needs review', approved: g.approved };
     addLog(r, who, now, 'Approval needs review "' + x.step.text + '": ' + reasons.join(' ').slice(0, 200));
@@ -16792,7 +16793,7 @@ PF.loop = (function () {
   /* What an approval of the loop step records (the step's answer): the records it saw, every item with its scope state,
      outcome, result and run, and the counts. o: { by, at, onBehalf }. */
   function approval(L, R, o) {
-    return { by: o.by, at: o.at, onBehalf: o.onBehalf || '', records: (L.applied || []).slice(), summary: R.summary, counts: JSON.parse(JSON.stringify(R.counts)),
+    return { by: o.by, at: o.at, onBehalf: o.onBehalf || '', request: o.request || undefined, records: (L.applied || []).slice(), summary: R.summary, counts: JSON.parse(JSON.stringify(R.counts)),
       items: R.items.map(function (i) { return { uid: i.uid, key: i.key, state: i.state, status: i.status, result: i.result, run: i.run, fp: i.fp || '', exception: i.exception ? i.exception.record : '' }; }) };
   }
   /* Every relevant change since an approval, in words, all of them (never only the latest): items added, removed or restored
@@ -17042,7 +17043,18 @@ PF.loop = (function () {
       items.push(item);
     }
     var counts = JSON.parse(JSON.stringify(v.counts));
-    return { by: v.by.slice(0, 80), at: v.at.slice(0, 40), onBehalf: typeof v.onBehalf === 'string' ? v.onBehalf.slice(0, 80) : '', records: v.records.slice(), summary: v.summary.slice(0, 300), counts: counts, items: items };
+    var out = { by: v.by.slice(0, 80), at: v.at.slice(0, 40), onBehalf: typeof v.onBehalf === 'string' ? v.onBehalf.slice(0, 80) : '', records: v.records.slice(), summary: v.summary.slice(0, 300), counts: counts, items: items };
+    if (typeof v.request === 'string' && REQ_ID.test(v.request)) out.request = v.request;
+    return out;
+  }
+  var REQ_ID = /^req-[A-Za-z0-9_.-]{1,120}$/;
+  /* Whether the recorder already carried out request id on loop step stepId of run r: the approval or the send-back it made
+     names it, now or in the step's history. An outcome that couldn't be written is recognized here, never carried out twice. */
+  function appliedIn(r, stepId, id) {
+    var a = r && isMap(r.steps) && own(r.steps, stepId) ? r.steps[stepId] : null;
+    if (!a || !id) return false;
+    var names = function (e) { return !!e && ((e.loop && e.loop.request === id) || (e.values && e.values.request === id)); };
+    return names(a) || (Array.isArray(a.history) && a.history.some(names));
   }
 
   /* ---- Scope requests and decisions: files in proposals/, beside plans (docs/design.md 44). ----
@@ -17259,7 +17271,7 @@ PF.loop = (function () {
 
   return { KINDS: KINDS, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
     idFor: idFor, isScope: isScope, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
-    rollup: rollup, view: view, markStale: markStale, rowId: rowId, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
+    rollup: rollup, view: view, markStale: markStale, rowId: rowId, appliedIn: appliedIn, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();
 
 /* Reports from other apps (docs/apps.md, docs/design.md section 26): a tool that did a step's work says so in a report, a file
@@ -33271,6 +33283,7 @@ PF.examples = (function () {
   function loopCarry(r, id, V, q) {
     var key = r.process + '/' + r.id, a = r.steps[id];
     /* The same rules for everyone who asks (PF.loop.requestCheck): refused with why, nothing changed. */
+    if (PF.loop.appliedIn(r, id, q.id)) return Promise.resolve({ ok: true, why: 'Carried out before; its outcome is recorded now.' });
     var may = PF.loop.requestCheck(r, V, q, data.people);
     if (may) return Promise.resolve({ ok: false, why: may });
     if (q.ops[0] === 'start') {
@@ -33283,12 +33296,12 @@ PF.examples = (function () {
       var no = 'The run couldn\'t be changed here; ask again.', tool = typeof q.by === 'string' ? q.by : (q.by && (q.by.tool || q.by.name)) || '';
       return mutateRun(key, gen, function (rr, m, me, now) {
         var V2 = loopView(rr, id); if (!V2 || !V2.rollup.ok) { no = 'It can\'t be approved yet: ' + (V2 ? V2.rollup.summary : 'the loop isn\'t readable') + '.'; throw new Error(no); }
-        R.done(rr, m, id, me, now, { _loop: { ok: true, snapshot: PF.loop.approval(V2.ledger, V2.rollup, { by: q.as, at: now, onBehalf: tool }) } });
+        R.done(rr, m, id, me, now, { _loop: { ok: true, snapshot: PF.loop.approval(V2.ledger, V2.rollup, { by: q.as, at: now, onBehalf: tool, request: q.id }) } });
       }, { background: true }).then(function (ok) { return ok === false ? { ok: false, why: no } : { ok: true, why: 'Approved: ' + V.rollup.summary + '.' }; });
     }
     if (!(a && a.s === 'done' && a.loop)) return Promise.resolve({ ok: false, why: 'The loop isn\'t approved, so there was nothing to send back.' });
     var reasons = V.changes.length ? V.changes : ['Sent back for review by ' + personName(q.as) + (q.reason ? ': ' + q.reason : '') + '.'];
-    return mutateRun(key, gen, function (rr, m, me, now) { R.unsettleLoop(rr, m, id, reasons, me, now); }, { background: true })
+    return mutateRun(key, gen, function (rr, m, me, now) { R.unsettleLoop(rr, m, id, reasons, me, now, q.id); }, { background: true })
       .then(function (ok) { return ok === false ? { ok: false, why: 'The run changed meanwhile; ask again.' } : { ok: true, why: 'Sent back for review.' }; });
   }
   function loopOutcome(V, q, op, why) {

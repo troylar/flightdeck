@@ -228,7 +228,7 @@ PF.loop = (function () {
   /* What an approval of the loop step records (the step's answer): the records it saw, every item with its scope state,
      outcome, result and run, and the counts. o: { by, at, onBehalf }. */
   function approval(L, R, o) {
-    return { by: o.by, at: o.at, onBehalf: o.onBehalf || '', records: (L.applied || []).slice(), summary: R.summary, counts: JSON.parse(JSON.stringify(R.counts)),
+    return { by: o.by, at: o.at, onBehalf: o.onBehalf || '', request: o.request || undefined, records: (L.applied || []).slice(), summary: R.summary, counts: JSON.parse(JSON.stringify(R.counts)),
       items: R.items.map(function (i) { return { uid: i.uid, key: i.key, state: i.state, status: i.status, result: i.result, run: i.run, fp: i.fp || '', exception: i.exception ? i.exception.record : '' }; }) };
   }
   /* Every relevant change since an approval, in words, all of them (never only the latest): items added, removed or restored
@@ -478,7 +478,18 @@ PF.loop = (function () {
       items.push(item);
     }
     var counts = JSON.parse(JSON.stringify(v.counts));
-    return { by: v.by.slice(0, 80), at: v.at.slice(0, 40), onBehalf: typeof v.onBehalf === 'string' ? v.onBehalf.slice(0, 80) : '', records: v.records.slice(), summary: v.summary.slice(0, 300), counts: counts, items: items };
+    var out = { by: v.by.slice(0, 80), at: v.at.slice(0, 40), onBehalf: typeof v.onBehalf === 'string' ? v.onBehalf.slice(0, 80) : '', records: v.records.slice(), summary: v.summary.slice(0, 300), counts: counts, items: items };
+    if (typeof v.request === 'string' && REQ_ID.test(v.request)) out.request = v.request;
+    return out;
+  }
+  var REQ_ID = /^req-[A-Za-z0-9_.-]{1,120}$/;
+  /* Whether the recorder already carried out request id on loop step stepId of run r: the approval or the send-back it made
+     names it, now or in the step's history. An outcome that couldn't be written is recognized here, never carried out twice. */
+  function appliedIn(r, stepId, id) {
+    var a = r && isMap(r.steps) && own(r.steps, stepId) ? r.steps[stepId] : null;
+    if (!a || !id) return false;
+    var names = function (e) { return !!e && ((e.loop && e.loop.request === id) || (e.values && e.values.request === id)); };
+    return names(a) || (Array.isArray(a.history) && a.history.some(names));
   }
 
   /* ---- Scope requests and decisions: files in proposals/, beside plans (docs/design.md 44). ----
@@ -695,5 +706,5 @@ PF.loop = (function () {
 
   return { KINDS: KINDS, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
     idFor: idFor, isScope: isScope, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
-    rollup: rollup, view: view, markStale: markStale, rowId: rowId, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
+    rollup: rollup, view: view, markStale: markStale, rowId: rowId, appliedIn: appliedIn, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();
