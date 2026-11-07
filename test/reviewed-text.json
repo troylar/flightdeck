@@ -497,8 +497,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. A maintainer tool, not shipped. Not read line by line."
     },
     "tools/readers.js": {
-      "sha256": "d287e2a2791c8f7610709984195dcad13a3caae99be445a7115cc6e52dd65d19",
-      "reviewed": "loops guard fixes: prototype-free objects in PF.loop, capped lists, people by id, teamValues on a loop item's start, example drafts removed; checked for direct writes and unconditional deletes: none added"
+      "sha256": "e82b1bea104b61428d0a969627df8b2da452f41c709ebdeb71f49eaa76c93ab0",
+      "reviewed": "readers RAW entries for loop retry rereads."
     },
     "tools/scale-limits.js": {
       "sha256": "23e06ee46d6b4ff44216f92c530578f714aa05bcecd7a2b0458515287d554ec1",
