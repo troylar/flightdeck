@@ -159,9 +159,136 @@ PF.loop = (function () {
     });
     var inScope = items.filter(function (x) { return x.state !== 'removed'; }).length;
     var heads = c.order.filter(function (r) { return !c.order.some(function (q) { return c.anc[q.id] && c.anc[q.id][r.id]; }); }).map(function (r) { return r.id; });
-    return { items: items, held: c.held, duplicates: duplicates, heads: heads, observation: lastObs,
+    return { items: items, held: c.held, duplicates: duplicates, heads: heads, observation: lastObs, applied: c.order.map(function (r) { return r.id; }),
       pending: items.filter(function (x) { return x.state === 'proposed'; }).map(function (x) { return { uid: x.uid, key: x.key, proposal: x.proposal }; }),
       overLimit: inScope > max ? { count: inScope, max: max } : null };
+  }
+
+  /* ---- The gate's roll-up: every item in scope has an accepted result or an approved exception. Pure. ----
+     L: reduce()'s ledger. runs: the loop's child runs (each names parent.item { uid, key, attempt }). o: { accepts, result(run)
+     -> { value, conflict } (PF.run.resultOf), stands(run) -> '' or why its completion doesn't stand (PF.run.childCheck),
+     who(person id) -> a name }. Scope, outcome and exception stay apart: an exception never makes a result "cleared". */
+  function words(v) { return String(v || '').replace(/-/g, ' '); }
+  function rollup(L, runs, o) {
+    o = o || {};
+    var acc = o.accepts || [], who = o.who || function (p) { return p || ''; }, byItem = Object.create(null), keyed = Object.create(null);
+    (runs || []).forEach(function (c) {
+      var it = c && c.parent && c.parent.item;
+      if (!it) return;
+      var k = typeof it.uid === 'string' ? it.uid : '';
+      (byItem[k] = byItem[k] || []).push(c);
+      if (it.key) (keyed[it.key] = keyed[it.key] || []).push(c);
+    });
+    var rows = [], counts = { inScope: 0, cleared: 0, exception: 0, results: {}, running: 0, notStarted: 0, removed: 0, review: 0, proposed: 0 }, blockers = [];
+    (L.held || []).forEach(function (h) { blockers.push({ key: '', kind: 'held', record: h.record, text: h.why === 'copies' ? 'Two different copies of scope record ' + h.record + ' are in the folder.' : 'A scope record (' + h.record + ') refers to one this computer can\'t read yet.' }); });
+    if (L.overLimit) blockers.push({ key: '', kind: 'limit', text: L.overLimit.count + ' items are in scope; this loop takes at most ' + L.overLimit.max + '. Nothing was cut: remove items or raise max:.' });
+    L.items.forEach(function (x) {
+      var mine = (byItem[x.uid] || (x.key ? keyed[x.key] : null) || []).slice(), top = 0;
+      mine.forEach(function (c) { var a = +c.parent.item.attempt || 1; if (a > top) top = a; });
+      var latest = mine.filter(function (c) { return (+c.parent.item.attempt || 1) === top; });
+      var row = { uid: x.uid, key: x.key, title: x.title, state: x.state, required: x.state !== 'removed', owner: x.owner, exception: x.exception, review: x.review.length > 0, mismatch: x.mismatch,
+        runs: mine.map(function (c) { return c.id; }), run: latest.length === 1 ? latest[0].id : '', competing: latest.length > 1, recorder: latest.length === 1 && latest[0].recorder ? latest[0].recorder.person || '' : '',
+        result: '', accepted: false, status: '', planned: x.planned, attempt: Math.max(top, x.attempt) };
+      if (!row.required) { row.status = 'removed'; counts.removed++; rows.push(row); return; }
+      counts.inScope++;
+      if (x.state === 'proposed') counts.proposed++;
+      var c = latest.length === 1 ? latest[0] : null, why = '';
+      if (c && c.ended) {
+        if (c.ended.outcome !== 'Completed') why = 'stopped';
+        else {
+          var st = o.stands ? o.stands(c) : '', res = o.result ? o.result(c) : null;
+          if (st || !res || res.conflict) why = 'unread';
+          else { row.result = res.value || ''; row.accepted = acc.indexOf(row.result) >= 0; }
+        }
+      }
+      var b = null, name = x.key || x.uid;
+      if (row.accepted) { row.status = 'cleared'; counts.cleared++; }
+      else if (x.exception) { row.status = 'exception'; counts.exception++; }
+      else if (row.competing) { row.status = 'competing'; b = { kind: 'competing', text: name + ' has ' + latest.length + ' runs started for it. Choose which one counts.' }; }
+      else if (!c) { row.status = 'not-started'; counts.notStarted++; b = { kind: 'not-started', text: name + ' hasn\'t started' + (x.owner ? ' · ' + who(x.owner) : '') }; }
+      else if (!c.ended) { row.status = 'running'; counts.running++; b = { kind: 'running', text: name + ' is in progress · ' + who(row.recorder) }; }
+      else if (why === 'stopped') { row.status = 'stopped'; b = { kind: 'stopped', text: name + '\'s run ended ' + String(c.ended.outcome).toLowerCase() + ' · ' + who(row.recorder) }; }
+      else if (why === 'unread') { row.status = 'unread'; b = { kind: 'unread', text: name + '\'s result can\'t be counted as read. Open its run.' }; }
+      else { row.status = 'result'; counts.results[row.result || 'none'] = (counts.results[row.result || 'none'] || 0) + 1; b = { kind: 'result', text: name + ' ' + (row.result ? (row.result === 'needs-work' ? 'needs work' : 'returned ' + words(row.result)) : 'returned no result') + ' · ' + who(row.recorder) }; }
+      if (row.review) { counts.review++; blockers.push({ key: x.key, uid: x.uid, kind: 'review', run: row.run, text: name + ' needs a scope decision: two were made at once.' }); }
+      if (b) { b.key = x.key; b.uid = x.uid; b.run = row.run || (row.runs[0] || ''); blockers.push(b); }
+      rows.push(row);
+    });
+    var parts = [counts.inScope + ' in scope', counts.cleared + ' cleared by validation'];
+    if (counts.exception) parts.push(counts.exception + ' approved without a run');
+    Object.keys(counts.results).sort().forEach(function (v) { parts.push(counts.results[v] + ' ' + (v === 'none' ? 'returned no result' : words(v))); });
+    if (counts.running) parts.push(counts.running + ' in progress');
+    if (counts.notStarted) parts.push(counts.notStarted + ' not started');
+    return { items: rows, counts: counts, blockers: blockers, ok: !blockers.length && counts.inScope > 0, empty: counts.inScope === 0 && !blockers.length, summary: parts.join(' · ') };
+  }
+  /* What an approval of the loop step records (the step's answer): the records it saw, every item with its scope state,
+     outcome, result and run, and the counts. o: { by, at, onBehalf }. */
+  function approval(L, R, o) {
+    return { by: o.by, at: o.at, onBehalf: o.onBehalf || '', records: (L.applied || []).slice(), summary: R.summary, counts: JSON.parse(JSON.stringify(R.counts)),
+      items: R.items.map(function (i) { return { uid: i.uid, key: i.key, state: i.state, status: i.status, result: i.result, run: i.run, exception: i.exception ? i.exception.record : '' }; }) };
+  }
+  /* Every relevant change since an approval, in words, all of them (never only the latest): items added, removed or restored
+     by records it didn't see, exceptions given or withdrawn, and results that differ. A repeat observation that changes
+     nothing stays quiet; an item added and then removed is two changes, so approval never quietly returns. */
+  var SAID = { add: ' was added after this approval.', 'accept-removal': ' was removed from scope after this approval.', exclude: ' was removed from scope after this approval.',
+    restore: ' was restored to scope after this approval.', exception: ' was approved without a run after this approval.', withdraw: '\'s exception was withdrawn after this approval.' };
+  function changes(snap, L, R) {
+    var known = Object.create(null), was = Object.create(null), now = Object.create(null), out = [];
+    (snap.records || []).forEach(function (id) { known[id] = true; });
+    (snap.items || []).forEach(function (i) { was[i.uid] = i; });
+    (R.items || []).forEach(function (i) { now[i.uid] = i; });
+    L.items.forEach(function (x) {
+      var name = x.key || x.uid, a = was[x.uid], b = now[x.uid], said = Object.create(null);
+      if (a && b && a.state !== 'removed' && b.required) {
+        if (a.result !== b.result) out.push(name + ' now returns ' + (b.result || 'no result') + ' (it was ' + (a.result || 'no result') + ').');
+        else if (a.run && b.run !== a.run) out.push(name + '\'s result now comes from ' + (b.run ? 'another run (' + b.run + ')' : 'no single run') + '.');
+        else if ((a.status === 'cleared' || a.status === 'exception') && b.status !== 'cleared' && b.status !== 'exception' && !a.exception) out.push(name + ' no longer counts as cleared.');
+      }
+      x.provenance.forEach(function (p) {
+        if (known[p.record] || !own(SAID, p.op)) return;
+        var t = name + SAID[p.op];
+        if (!said[t + p.record]) { said[t + p.record] = true; out.push(t); }
+      });
+    });
+    return out;
+  }
+
+  /* One loop of a parent run, as everyone reads it (the app's table, flightdeck loop read, the gate): its records, ledger,
+     roll-up, the approval recorded on its step and every change since. o: { records (every scope record read),
+     runs (every run read), who }. Never writes. */
+  function view(r, stepId, o) {
+    o = o || {};
+    var map = PF.run.mapOf(r), x = PF.map.findStep(map, stepId);
+    if (!x || x.step.type !== 'for.each') return null;
+    var f = PF.run.fieldsOf(r, x.step), loop = { process: r.process, run: r.id, step: stepId };
+    var L = reduce(recordsFor(o.records, loop), { max: limitOf({ fields: f }) });
+    var kids = (o.runs || []).filter(function (c) { return c && c.parent && c.parent.item && c.parent.process === r.process && c.parent.id === r.id && c.parent.step === stepId; });
+    var acc = String(f.accepts || '').split(',').map(function (v) { return v.trim(); }).filter(Boolean);
+    var R = rollup(L, kids, { accepts: acc, result: PF.run.resultOf, stands: PF.run.childCheck, who: o.who });
+    var a = r.steps && r.steps[stepId], pin = r.pins && r.pins.children && own(r.pins.children, stepId) ? r.pins.children[stepId] : null;
+    var approved = a && a.s === 'done' && a.loop ? a.loop : null;
+    var review = a && a.s === 'recheck' && a.values && typeof a.values.changes === 'string' ? a.values.changes.split('\n').filter(Boolean) : [];
+    return { loop: loop, step: x.step, fields: f, accepts: acc, pin: pin, ledger: L, rollup: R, runs: kids, approved: approved, changes: approved ? changes(approved, L, R) : [], review: review,
+      previous: a && a.history ? a.history.filter(function (h) { return h.loop; }).map(function (h) { return h.loop; }) : [] };
+  }
+  /* A child's item (run.parent.item): { uid, key, attempt }, or null. */
+  function itemRef(v) {
+    if (!isMap(v) || Object.keys(v).some(function (k) { return k !== 'uid' && k !== 'key' && k !== 'attempt'; })) return null;
+    if (typeof v.uid !== 'string' || !/^[a-z][a-z0-9.-]{0,19}:(key:)?[A-Za-z0-9_-]{1,40}$/.test(v.uid) || typeof v.key !== 'string' || v.key.length > 40 || !whole(v.attempt) || v.attempt < 1 || v.attempt > 999) return null;
+    return { uid: v.uid, key: v.key, attempt: v.attempt };
+  }
+  /* An approval as a run file keeps it (a loop step's answer), checked and bounded, or null. */
+  function cleanSnapshot(v) {
+    if (!isMap(v) || typeof v.by !== 'string' || typeof v.at !== 'string' || typeof v.summary !== 'string' || !Array.isArray(v.records) || !Array.isArray(v.items) || !isMap(v.counts)) return null;
+    if (v.records.length > 5000 || !v.records.every(function (x) { return typeof x === 'string' && x.length <= 120; }) || v.items.length > MAX_ITEMS) return null;
+    var items = [];
+    for (var i = 0; i < v.items.length; i++) {
+      var it = v.items[i];
+      if (!isMap(it) || ['uid', 'key', 'state', 'status', 'result', 'run', 'exception'].some(function (k) { return typeof it[k] !== 'string' || it[k].length > 120; })) return null;
+      items.push({ uid: it.uid, key: it.key, state: it.state, status: it.status, result: it.result, run: it.run, exception: it.exception });
+    }
+    var counts = JSON.parse(JSON.stringify(v.counts));
+    return { by: v.by.slice(0, 80), at: v.at.slice(0, 40), onBehalf: typeof v.onBehalf === 'string' ? v.onBehalf.slice(0, 80) : '', records: v.records.slice(), summary: v.summary.slice(0, 300), counts: counts, items: items };
   }
 
   /* ---- Scope requests and decisions: files in proposals/, beside plans (docs/design.md 44). ----
@@ -283,7 +410,9 @@ PF.loop = (function () {
   }
   /* The canonical intent: what's compared on a retry. The tool's version and Flightdeck's own additions (seen, children,
      the time it was written) are never part of it, so the original stands. */
-  function canonical(intent) { return canon({ loop: intent.loop, producer: intent.producer ? intent.producer.name : null, observation: intent.observation, changes: intent.changes }); }
+  /* An observation as written: why is derived again when it's read. */
+  function wire(obs) { if (!obs) return null; var o = {}; Object.keys(obs).forEach(function (k) { if (k !== 'why') o[k] = obs[k]; }); return o; }
+  function canonical(intent) { return canon({ loop: intent.loop, producer: intent.producer ? intent.producer.name : null, observation: wire(intent.observation), changes: intent.changes }); }
   function differs(intent, file) {
     if (!isMap(file) || file.format !== FORMAT) return ['kind'];
     var a = canonical(intent), b = canon({ loop: file.loop, producer: file.producer ? file.producer.name : null, observation: file.observation || null, changes: file.changes || [] }), out = [];
@@ -300,7 +429,7 @@ PF.loop = (function () {
     else f.by = o.by;
     f.created = o.now;
     f.seen = (o.seen || []).slice().sort();
-    f.observation = intent.observation;
+    f.observation = wire(intent.observation);
     f.changes = intent.changes;
     f.children = (o.children || []).map(function (k) { return { item: { id: k.item.id || '', key: k.item.key }, attempt: k.attempt, inputs: sorted(k.inputs || {}), owner: k.owner || '' }; });
     return f;
@@ -363,5 +492,5 @@ PF.loop = (function () {
 
   return { KINDS: KINDS, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
     idFor: idFor, isScope: isScope, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
-    cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
+    rollup: rollup, view: view, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();

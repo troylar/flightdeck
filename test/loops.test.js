@@ -160,7 +160,7 @@ rule('Sixty items, and more than max: every one stays, the overflow is named, no
 
 /* ---------- Scope requests and decisions in proposals/ ---------- */
 const LOOPT = { process: 'release-readiness', run: 'r-41', step: 'each' };
-const intentOf = (o) => Object.assign({ loop: LOOPT, observation: obs([101, 102]), changes: [] }, o || {});
+const intentOf = (o) => { const v = Object.assign({ loop: LOOPT, observation: obs([101, 102]), changes: [] }, o || {}); if (v.seen === undefined) delete v.seen; return v; };
 rule('A scope request is flightdeck-plan/3 with loops: an older copy calls it newer, this one never reads it as a plan', () => {
   const c = LP.cleanIntent(intentOf(), 'import-42', { name: 'release-helper', version: '1.0' });
   same(c.errors, []);
@@ -200,7 +200,7 @@ rule('A decision is flightdeck-plan-status/3 with loops, immutable and named aft
 
 /* ---------- Storage: the folder reader dispatches scope records before plans ---------- */
 const memFs = (files) => { const m = new PF.fs.MemoryFS('loops-' + Math.random(), null); Object.keys(files || {}).forEach(p => { m.files[p] = { t: files[p], m: 1 }; }); return m; };
-const reqFile = (key, o) => { const c = LP.cleanIntent(intentOf(o), key, { name: 'release-helper', version: '1.0' }); same(c.errors, []); return LP.buildRequest(c.intent, { seen: (o && o.seen) || [], children: [], now: '2026-11-07T09:01:00Z', app: '3.0.0' }); };
+const reqFile = (key, o) => { const c = LP.cleanIntent(intentOf(Object.assign({}, o || {}, { seen: undefined })), key, { name: 'release-helper', version: '1.0' }); same(c.errors, []); return LP.buildRequest(c.intent, { seen: (o && o.seen) || [], children: [], now: '2026-11-07T09:01:00Z', app: '3.0.0' }); };
 rule('readPlans reads scope requests and decisions as scope records, never as plans, and a plan beside them as before', async () => {
   const f = reqFile('import-1'), d = LP.buildDecision({ proposal: f.id, loop: LOOPT, op: 'keep', items: ['jira:10101'], seen: [f.id], by: 'person-morgan', writer: 'w1', rev: '0a0b0c0d', now: 'x', app: '3.0.0' });
   const plan = { kind: 'plan', id: 'plan-abc', process: 'release-readiness', version: 1, title: 'Release', details: {}, roles: {} };
@@ -224,6 +224,105 @@ rule('A OneDrive copy that says the same counts once; copies that differ hold th
   same(LP.reduce([a, same2]).held, []);
   const L = LP.reduce([a, other]);
   same([L.held.map(h => h.record), L.held[0].why, L.items.length], [[a.id], 'copies', 0]);
+});
+
+/* ---------- The gate's roll-up, approval and sticky review (pure) ---------- */
+const kid = (n, o) => Object.assign({ id: 'c' + n, process: 'validate-story', title: 'Validate ABC-' + n, recorder: { person: 'person-avery' }, state: 'running', ended: null,
+  parent: { process: 'release-readiness', id: 'r-41', step: 'each', item: { uid: 'jira:' + (10000 + n), key: 'ABC-' + n, attempt: 1 } } }, o || {});
+const ended = (n, value, o) => kid(n, Object.assign({ state: 'completed', ended: { outcome: 'Completed', at: 'x' }, _result: value }, o || {}));
+const RO = (L, runs, o) => LP.rollup(L, runs, Object.assign({ accepts: ['cleared'], result: (c) => ({ value: c._result || '' }), stands: () => '' }, o || {}));
+rule('The roll-up counts exactly, keeps scope, outcome and exception apart, and links every blocker to its remedy', () => {
+  const ns = [101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111];
+  const L = LP.reduce([req('r1', [], { observation: obs(ns) }), req('r2', ['r1'], { by: { person: 'person-morgan' }, changes: [{ op: 'exception', item: { key: 'ABC-110' }, reason: 'Docs only', approver: 'person-morgan' }] })]);
+  const runs = ns.slice(0, 9).map(n => ended(n, 'cleared')).concat([ended(111, 'needs-work', { recorder: { person: 'person-morgan' } })]);
+  const R = RO(L, runs);
+  same(R.summary, '11 in scope · 9 cleared by validation · 1 approved without a run · 1 needs work');
+  same(R.ok, false);
+  same(R.blockers.map(b => [b.key, b.kind, b.run]), [['ABC-111', 'result', 'c111']]);
+  same(R.blockers[0].text, 'ABC-111 needs work · person-morgan');
+  same(RO(L, runs.concat([ended(110, 'needs-work')])).counts.exception, 1, 'an exception never rewrites a needs-work result as cleared');
+  same(RO(L, runs.slice(0, 9).concat([ended(111, 'cleared')])).ok, true);
+});
+rule('Not started, in progress, removed, needs review, competing starts and held records each hold the gate, by name', () => {
+  const L = LP.reduce([req('r1', [], { observation: obs([101, 102, 103, 104]) }), req('r2', ['r1'], { by: { person: 'person-morgan' }, changes: [{ op: 'exclude', item: { key: 'ABC-104' }, reason: 'Later' }] })]);
+  const R = RO(L, [kid(101), kid(102), kid(102, { id: 'c102b' })]);
+  same(R.blockers.map(b => b.key + ':' + b.kind), ['ABC-101:running', 'ABC-102:competing', 'ABC-103:not-started']);
+  same([R.counts.inScope, R.counts.removed], [3, 1]);
+  same(R.items.filter(i => i.key === 'ABC-102')[0].runs.sort(), ['c102', 'c102b']);
+  const H = RO(LP.reduce([req('r1', [], { observation: obs([101]) }), req('r2', ['gone'], { observation: obs([]) })]), [ended(101, 'cleared')]);
+  same(H.blockers.map(b => b.kind), ['held']);
+});
+rule('Approval records scope, decisions and results; any relevant change after it is listed, all of it, add then drop too', () => {
+  const r1 = req('r1', [], { observation: obs([101, 102]) });
+  const L = LP.reduce([r1]), R = RO(L, [ended(101, 'cleared'), ended(102, 'cleared')]);
+  const snap = LP.approval(L, R, { by: 'person-morgan', at: 'x' });
+  same([snap.counts.cleared, snap.items.map(i => i.uid + '=' + i.result + '@' + i.run)], [2, ['jira:10101=cleared@c101', 'jira:10102=cleared@c102']]);
+  same(LP.changes(snap, L, R), [], 'nothing changed');
+  const quiet = LP.reduce([r1, req('r2', ['r1'], { observation: obs([101, 102], { generation: 'g2' }) })]);
+  same(LP.changes(snap, quiet, RO(quiet, [ended(101, 'cleared'), ended(102, 'cleared')])), [], 'a repeat observation with nothing new stays quiet');
+  const added = LP.reduce([r1, req('r2', ['r1'], { observation: obs([101, 102, 112], { complete: false }) })]);
+  same(LP.changes(snap, added, RO(added, [ended(101, 'cleared'), ended(102, 'needs-work')])), ['ABC-102 now returns needs-work (it was cleared).', 'ABC-112 was added after this approval.']);
+  const dropped = LP.reduce([r1, req('r2', ['r1'], { by: { person: 'person-casey' }, changes: [{ op: 'add', item: { key: 'ABC-112' } }] }), req('r3', ['r2'], { by: { person: 'person-casey' }, changes: [{ op: 'exclude', item: { key: 'ABC-112' }, reason: 'Wrong one' }] })]);
+  same(LP.changes(snap, dropped, RO(dropped, [ended(101, 'cleared'), ended(102, 'cleared')])), ['ABC-112 was added after this approval.', 'ABC-112 was removed from scope after this approval.']);
+});
+
+/* ---------- Runs: the pin, children that name their item, approval and its sticky review ---------- */
+const P = PF.publish, R = PF.run, AT = '2026-11-07T09:00:00.000Z';
+const exactOf = (files) => P.exactOf({ 'map.md': new Uint8Array(Buffer.from(files['map.md'], 'utf8')), 'types.json': new Uint8Array(Buffer.from(files['types.json'], 'utf8')) });
+let seq = 0;
+function publishMd(md, extra) {
+  const b = P.build(md, Object.assign({ by: 'person-avery', changes: 'x', now: AT, existing: [], rand: 'r' + String(++seq).padStart(7, '0'), app: '3.0.0' }, extra || {}));
+  assert.ok(!b.blockers, JSON.stringify(b.blockers));
+  const v = P.verify(b.folder, b.files, exactOf(b.files)); assert.ok(v.ok, v.why); v.folder = b.folder; v.process = M.parse(md).meta.process; v.files = b.files;
+  return v;
+}
+const procOf3 = (pubs) => { const i = P.index(pubs); return { latest: i.latest, all: i.all, clashes: i.clashes, broken: [] }; };
+function release() {
+  const kp = publishMd(CHILD), procs = { 'validate-story': procOf3([kp]) }, procOf = (id) => procs[id] || null;
+  const md = ['---', 'process: release-readiness', 'title: Release readiness', 'context: fix_version', '---', '', '## Stories · DO-CONFIRM {#stories}',
+    '- [!] {for.each} Validate every release story {#each}', '  process: validate-story', '  items: jira.issue', '  pass: issue=item:key, fix_version=^fix_version', '  accepts: cleared', '',
+    '## Ship · READ-DO {#ship}', '- [!] {confirm} Ship it {#ship1}', ''].join('\n');
+  const pp = publishMd(md, { childProcs: procs });
+  const r = R.create(pp, { id: 'r-41', by: 'person-morgan', session: 'w', now: AT, app: '3.0.0', details: { fix_version: '4.1' }, pins: PF.pins.atStart(pp.map, pp.info.payload ? pp.info.payload.pins : null, procOf) });
+  const kid2 = (n, decision) => {
+    const c = R.create(kp, { id: 'k' + n, by: 'person-avery', session: 'w2', now: AT, app: '3.0.0', details: { issue: 'ABC-' + n, fix_version: '4.1' }, parent: { process: 'release-readiness', id: 'r-41', step: 'each', item: { uid: 'jira:' + (10000 + n), key: 'ABC-' + n, attempt: 1 } } });
+    const m = R.mapOf(c);
+    R.done(c, m, 'read', 'person-avery', AT);
+    if (decision) { R.done(c, m, 'verdict', 'person-avery', AT, { decision }); R.pass(c, m, 0, 'person-avery', AT); R.end(c, m, 'Completed', 'person-avery', 'Avery', AT); }
+    return c;
+  };
+  return { r, kp, pp, kid2 };
+}
+rule('A parent run pins its loop\'s child once; a child names its item and the loops feature, and both read back', () => {
+  const { r, kid2 } = release();
+  assert.ok(r.features.indexOf('loops') >= 0, 'the parent is a loops run');
+  same([r.pins.children.each.process, r.pins.children.each.version], ['validate-story', 1]);
+  const c = kid2(101, 'cleared');
+  same([c.parent.item, c.features.indexOf('loops') >= 0], [{ uid: 'jira:10101', key: 'ABC-101', attempt: 1 }, true]);
+  const back = R.sanitize(plain(c));
+  same([back._unrunnable, back.parent.item], [undefined, { uid: 'jira:10101', key: 'ABC-101', attempt: 1 }]);
+});
+rule('The loop step is approved only with a roll-up that clears; a later change sends it to review with every reason, sticky', () => {
+  const { r, kid2 } = release(), map = R.mapOf(r);
+  const recs = [LP.cleanRequest(JSON.parse(LP.text(reqFile('a1', { loop: LOOPT }))), reqFile('a1').id + '.json').record];
+  const runs = [kid2(101, 'cleared'), kid2(102, 'needs-work')];
+  let V = LP.view(r, 'each', { records: recs, runs });
+  same([V.rollup.summary, V.rollup.ok], ['2 in scope · 1 cleared by validation · 1 needs work', false]);
+  assert.throws(() => R.done(r, map, 'each', 'person-morgan', AT, {}), /approved when every item in scope has an accepted result/);
+  runs[1] = kid2(102, 'cleared');
+  V = LP.view(r, 'each', { records: recs, runs });
+  same(V.rollup.ok, true);
+  R.done(r, map, 'each', 'person-morgan', AT, { _loop: { ok: true, snapshot: LP.approval(V.ledger, V.rollup, { by: 'person-morgan', at: AT }) } });
+  same([r.steps.each.s, r.steps.each.loop.summary], ['done', '2 in scope · 2 cleared by validation']);
+  const more = recs.concat([LP.cleanRequest(JSON.parse(LP.text(reqFile('a2', { observation: obs([101, 102, 112], { complete: false }), seen: [recs[0].id] }))), reqFile('a2').id + '.json').record]);
+  V = LP.view(r, 'each', { records: more, runs });
+  same(V.changes, ['ABC-112 was added after this approval.']);
+  R.unsettleLoop(r, map, 'each', V.changes, 'person-morgan', AT);
+  same(r.steps.each.s, 'recheck');
+  V = LP.view(r, 'each', { records: recs, runs });
+  same([V.approved, V.review, V.previous.length], [null, ['ABC-112 was added after this approval.'], 1], 'review stays, even if the item goes again; the earlier approval is kept');
+  const back = R.sanitize(plain(r));
+  same([back._unrunnable, back.steps.each.history.filter(h => h.loop).length], [undefined, 1]);
 });
 
 const CHECKER = path.join(__dirname, '..', 'example-folder', '.flightdeck', 'skills', '_flightdeck', 'check_folder.py');

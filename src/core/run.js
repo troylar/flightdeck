@@ -62,7 +62,9 @@ PF.run = (function () {
     if (two) r = startSearch(r, map, o);
     /* A linked run started from a test run (2.1) names no parent folder: a stage's isn't a version, and 2.0.0 would read the
        child read-only for it. */
-    if (o.parent && o.parent.process && o.parent.id && o.parent.step) { r.parent = { process: String(o.parent.process), id: String(o.parent.id), step: String(o.parent.step) }; if (o.parent.inputs) r.parent.inputs = Object.assign({}, o.parent.inputs); if ((two || explicit) && folderOk(o.parent.folder)) r.parent.folder = o.parent.folder; }
+    if (o.parent && o.parent.process && o.parent.id && o.parent.step) { r.parent = { process: String(o.parent.process), id: String(o.parent.id), step: String(o.parent.step) }; if (o.parent.inputs) r.parent.inputs = Object.assign({}, o.parent.inputs); if ((two || explicit) && folderOk(o.parent.folder)) r.parent.folder = o.parent.folder;
+      /* A loop's child (3.0) names its item and attempt, so the parent counts it for that item only. */
+      if (two && o.parent.item && PF.loop.itemRef(o.parent.item)) { r.parent.item = PF.loop.itemRef(o.parent.item); addFeature(r, 'loops'); } }
     addLog(r, o.by, o.now, staged ? 'Started the test run' : 'Started the run');
     /* A test run: test-run named, and the frozen test and stage fields last (test/fixtures/v2 run-t). */
     if (staged) { addFeature(r, 'test-run'); r.test = true; r.stage = { folder: pub.info.folder }; }
@@ -356,6 +358,17 @@ PF.run = (function () {
     var gid = map.phases[x.phaseIndex].gate.id, g = r.gates[gid];
     if (g && (g.s === 'passed' || g.s === 'waived')) r.gates[gid] = { s: 'review', was: g.s, by: g.by, at: g.at, reason: 'A linked run returned a new result', approved: g.approved };
     addLog(r, who, now, 'Re-check "' + x.step.text + '": ' + String(why).slice(0, 120));
+  }
+  /* A loop's approval no longer stands (3.0): the step goes back for review, every reason listed, the earlier approval kept
+     in its history; its gate goes to review. Sticky: only a new approval clears it. */
+  function unsettleLoop(r, map, id, reasons, who, now) {
+    var x = M.findStep(map, id), a = r.steps[id];
+    if (!x || x.step.type !== 'for.each' || !a || a.s !== 'done' || !a.loop) throw new Error('That isn\'t an approved loop.');
+    var why = 'Approval needs review: ' + reasons.join(' ');
+    answer(r, id, { s: 'recheck', reason: why.slice(0, 120), by: who, at: now, values: { changes: reasons.join('\n').slice(0, 2000) } });
+    var gid = map.phases[x.phaseIndex].gate.id, g = r.gates[gid];
+    if (g && (g.s === 'passed' || g.s === 'waived')) r.gates[gid] = { s: 'review', was: g.s, by: g.by, at: g.at, reason: 'A loop\'s approval needs review', approved: g.approved };
+    addLog(r, who, now, 'Approval needs review "' + x.step.text + '": ' + reasons.join(' ').slice(0, 200));
   }
   /* Whether a linked step can count the version its run starts on (3.0): what it accepts must be results that version
      returns, and the detail it imports into must hold every one of them. '' when it can, or why not. */
@@ -932,7 +945,8 @@ PF.run = (function () {
     if (rec.s === 'blocked' || rec.s === 'recheck' || rec.s === 'na') mark(r, id, rec.s);
     var prev = r.steps[id] || {}, history = (prev.history || []).slice();
     /* A run/3 skill step's earlier answer keeps the registration it observed (skill), so a re-check never loses it. */
-    if (prev.s && prev.s !== 'open') history.push(prev.skill ? { s: prev.s, by: prev.by, at: prev.at, reason: prev.reason, differently: prev.differently, values: prev.values, skill: prev.skill } : { s: prev.s, by: prev.by, at: prev.at, reason: prev.reason, differently: prev.differently, values: prev.values });
+    if (prev.s && prev.s !== 'open' && prev.loop) history.push({ s: prev.s, by: prev.by, at: prev.at, reason: prev.reason, differently: prev.differently, values: prev.values, loop: prev.loop });
+    else if (prev.s && prev.s !== 'open') history.push(prev.skill ? { s: prev.s, by: prev.by, at: prev.at, reason: prev.reason, differently: prev.differently, values: prev.values, skill: prev.skill } : { s: prev.s, by: prev.by, at: prev.at, reason: prev.reason, differently: prev.differently, values: prev.values });
     /* Anything leaving run.json for the archive leaves its mark behind, so readiness never depends on how much history is kept. */
     if (prev.s === 'blocked' || prev.s === 'recheck' || prev.s === 'na') mark(r, id, prev.s);
     if (prev.differently) mark(r, id, 'differently');
@@ -969,6 +983,16 @@ PF.run = (function () {
     var jp = jiraProblem(r, x.step);
     if (jp) throw new Error(jp);
     var cur = r.steps[id];
+    /* A loop (3.0) is approved with its roll-up: the caller passes _loop, the approval PF.loop.approval made from a roll-up
+       whose every item in scope has an accepted result or an approved exception (or an empty scope acknowledged). */
+    if (x.step.type === 'for.each') {
+      var lv = values && values._loop;
+      if (!lv || !lv.ok || !PF.loop.cleanSnapshot(lv.snapshot)) throw new Error('This step is approved when every item in scope has an accepted result or an approved exception. Approve it from its item list.');
+      rec.loop = PF.loop.cleanSnapshot(lv.snapshot);
+      answer(r, id, rec, exact);
+      addLog(r, who, now, 'Approved "' + x.step.text + '": ' + rec.loop.summary);
+      return x;
+    }
     if (x.step.type === 'run.process' && !(cur && cur.child)) throw new Error('Start the ' + (fieldsOf(r, x.step).process || 'linked') + ' run for this step; the step is checked when it completes.');
     if (x.step.type === 'run.process' && cur && cur.child && cur.child.retired && values && values._child) throw new Error(RETIRED);
     if (x.step.type === 'run.process' && cur && cur.child && !(values && values._child === cur.child.id)) {
@@ -2040,7 +2064,7 @@ PF.run = (function () {
     workflow: 'statuses transitions invalid', transition: 'from to fields', jiraField: 'name hint source options'
   };
   KNOWN.run3 = KNOWN.run + ' features app typesHash payload pins migrations test stage searchSites searchGen searchRec';
-  KNOWN.step3 = KNOWN.step + ' skill'; KNOWN.history3 = KNOWN.history + ' skill'; KNOWN.child3 = KNOWN.child + ' folder retired teamPassed result answer'; KNOWN.parent3 = KNOWN.parent + ' folder';
+  KNOWN.step3 = KNOWN.step + ' skill loop'; KNOWN.history3 = KNOWN.history + ' skill loop'; KNOWN.child3 = KNOWN.child + ' folder retired teamPassed result answer'; KNOWN.parent3 = KNOWN.parent + ' folder item';
   KNOWN.pins = 'children'; KNOWN.skillSeen = 'id rev sha snapshot';
   Object.keys(KNOWN).forEach(function (k) { var o = {}; KNOWN[k].split(' ').forEach(function (f) { o[f] = 1; }); KNOWN[k] = o; });
   var HEX64 = /^[0-9a-f]{64}$/;
@@ -2095,6 +2119,7 @@ PF.run = (function () {
     look(o.ended, 'ended', 'How it ended'); if (obj(o.ended)) state(OUTCOMES, o.ended.outcome, 'How it ended');
     look(o.paused, 'paused', 'Its pause'); each(o.pauses, 'pause', 'A pause'); each(o.followUps, 'followUp', 'A follow-up'); each(o.log, 'log', 'A log entry');
     look(o.parent, three ? 'parent3' : 'parent', 'Its parent run');
+    if (!why && three && obj(o.parent) && o.parent.item !== undefined && !PF.loop.itemRef(o.parent.item)) why = 'Its parent run\'s item isn\'t one this copy reads.';
     /* run/3's own fields are kept exactly as written or the run is read-only: sanitize never drops or rewrites one (a version
        folder that isn't one, an app that isn't a version, features out of their frozen order). */
     if (three) {
@@ -2127,6 +2152,7 @@ PF.run = (function () {
       if (three && !why && obj(a.child) && a.child.result !== undefined && !(usesResults(o) && typeof a.child.result === 'string' && a.child.result.length <= 40)) why = w + '\'s record of the result its run returned isn\'t one this copy reads.';
       if (three && !why && obj(a.child) && a.child.answer !== undefined && !(usesResults(o) && typeof a.child.answer === 'string' && /^[0-9TZ:.+-]{0,40} [0-9TZ:.+-]{0,40}$/.test(a.child.answer))) why = w + '\'s record of which answer its run gave isn\'t one this copy reads.';
       if (three) { look(a.skill, 'skillSeen', w + '\'s skill'); if (!why && a.skill !== undefined && !cleanSkill(a.skill)) why = w + '\'s skill registration isn\'t one this copy reads.'; }
+      if (three && !why && a.loop !== undefined && !PF.loop.cleanSnapshot(a.loop)) why = w + '\'s loop approval isn\'t one this copy reads.';
       text(a.values, w + '\'s evidence', 300); if (obj(a.child)) text(a.child.inputs, w + '\'s child run detail', 300);
       if (Array.isArray(a.history)) a.history.forEach(function (h) { look(h, three ? 'history3' : 'history', w + '\'s history'); if (three && obj(h)) { look(h.skill, 'skillSeen', w + '\'s earlier skill'); if (!why && h.skill !== undefined && !cleanSkill(h.skill)) why = w + '\'s earlier skill registration isn\'t one this copy reads.'; } if (obj(h) && h.s !== 'corrected') state(STEP_STATES, h.s, w + '\'s history'); if (obj(h)) { look(h.differently, 'differently', w + '\'s history'); text(h.values, w + '\'s earlier evidence'); text(h.fields, w + '\'s earlier value'); } });
     });
@@ -2415,7 +2441,7 @@ PF.run = (function () {
     if (o.marksFrom === 'start' && markKeys.length <= 5000) r.marksFrom = 'start';
     if (o.marks && typeof o.marks === 'object') markKeys.slice(0, 5000).forEach(function (k) { if (k !== '__proto__' && /^[\w-]{1,120}$/.test(k) && Array.isArray(o.marks[k])) { var v = o.marks[k].filter(function (x) { return x === 'blocked' || x === 'recheck' || x === 'na' || x === 'differently'; }); if (v.length) (r.marks = r.marks || {})[k] = v; } });
     if (o.paused && isoOrNull(o.paused.at) && r.state === 'running') r.paused = { by: str(o.paused.by, 80), at: o.paused.at, reason: str(o.paused.reason, 120) || 'Paused' };
-    if (o.parent && typeof o.parent === 'object' && /^[a-z0-9][a-z0-9-]*$/.test(String(o.parent.process)) && /^[a-z0-9-]{1,40}$/i.test(String(o.parent.id))) { r.parent = { process: o.parent.process, id: o.parent.id, step: str(o.parent.step, 60) }; if (o.parent.inputs && typeof o.parent.inputs === 'object') r.parent.inputs = inputsOf(o.parent.inputs); if (three && folderOk(o.parent.folder)) r.parent.folder = o.parent.folder; }
+    if (o.parent && typeof o.parent === 'object' && /^[a-z0-9][a-z0-9-]*$/.test(String(o.parent.process)) && /^[a-z0-9-]{1,40}$/i.test(String(o.parent.id))) { r.parent = { process: o.parent.process, id: o.parent.id, step: str(o.parent.step, 60) }; if (o.parent.inputs && typeof o.parent.inputs === 'object') r.parent.inputs = inputsOf(o.parent.inputs); if (three && folderOk(o.parent.folder)) r.parent.folder = o.parent.folder; if (three && PF.loop.itemRef(o.parent.item)) r.parent.item = PF.loop.itemRef(o.parent.item); }
     var ho = o.recorder.handoff;
     if (ho && typeof ho === 'object' && !r.recorder.session) r.recorder.handoff = { from: str(ho.from, 80), rev: Math.max(0, parseInt(ho.rev, 10) || 0), at: isoOrNull(ho.at) };
     (Array.isArray(o.followUps) ? o.followUps.slice(0, 100) : []).forEach(function (f) {
@@ -2435,7 +2461,8 @@ PF.run = (function () {
       if (a.values) c.values = values(a.values);
       if (a.child && /^[a-z0-9][a-z0-9-]*$/.test(String(a.child.process)) && /^[a-z0-9-]{1,40}$/i.test(String(a.child.id))) { c.child = { process: a.child.process, id: a.child.id }; if (a.child.inputs && typeof a.child.inputs === 'object') c.child.inputs = inputsOf(a.child.inputs); if (a.child.failed === true) c.child.failed = true; if (three && a.child.retired === true) c.child.retired = true; if (three && folderOk(a.child.folder)) c.child.folder = a.child.folder; if (three && usesTeam(o) && teamRecord(a.child.teamPassed)) c.child.teamPassed = teamRecord(a.child.teamPassed); if (three && usesResults(o) && typeof a.child.result === 'string') c.child.result = a.child.result.slice(0, 40); if (three && usesResults(o) && typeof a.child.answer === 'string') c.child.answer = a.child.answer.slice(0, 81); }
       if (three && a.skill) { var sk = cleanSkill(a.skill); if (sk) c.skill = sk; }
-      if (Array.isArray(a.history)) c.history = a.history.slice(-HISTORY_MAX).filter(function (h) { return h && (STEP_STATES[h.s] || h.s === 'corrected'); }).map(function (h) { return { s: h.s, by: str(h.by, 80), at: isoOrNull(h.at), reason: str(h.reason, 120) || undefined, differently: h.differently ? { note: str(h.differently.note, 500) } : undefined, values: h.values ? values(h.values) : undefined, fields: h.fields ? values(h.fields) : undefined, skill: three && h.skill ? cleanSkill(h.skill) || undefined : undefined }; });
+      if (three && a.loop) { var lp = PF.loop.cleanSnapshot(a.loop); if (lp) c.loop = lp; }
+      if (Array.isArray(a.history)) c.history = a.history.slice(-HISTORY_MAX).filter(function (h) { return h && (STEP_STATES[h.s] || h.s === 'corrected'); }).map(function (h) { return { s: h.s, by: str(h.by, 80), at: isoOrNull(h.at), reason: str(h.reason, 120) || undefined, differently: h.differently ? { note: str(h.differently.note, 500) } : undefined, values: h.values ? values(h.values) : undefined, fields: h.fields ? values(h.fields) : undefined, skill: three && h.skill ? cleanSkill(h.skill) || undefined : undefined, loop: three && h.loop ? PF.loop.cleanSnapshot(h.loop) || undefined : undefined }; });
       r.steps[k] = c;
     });
     Object.keys(o.gates).forEach(function (k) {
@@ -2494,7 +2521,7 @@ PF.run = (function () {
     RUN_ID: RUN_ID, isTest: isTest, pubDir: pubDir, testProblem: testProblem, testLast: testLast,
     FORMAT: FORMAT, FORMAT3: FORMAT3, LOG_MAX: LOG_MAX, openMigrations: openMigrations, shown: shown, consumption: consumption, trimMigrations: trimMigrations, typedDef: typedDef, migrateDetail: migrateDetail, migrationOk: migrationOk, isOpenMigration: isOpen, NEWER: NEWER, PLACEHOLDER: PLACEHOLDER, cleanCopy: cleanCopy, isPlaceholder: isPlaceholder, cleanArchive: cleanArchive, nameOnly: nameOnly, create: create, mapOf: mapOf, mapMemo: mapMemo, valid: valid, sanitize: sanitize, repairs: repairs, unexplained: unexplained, DRIFT_ALLOW: DRIFT_ALLOW, answered: answered, phaseInfo: phaseInfo, gateStatus: gateStatus, gateOk: gateOk,
     phaseOpen: phaseOpen, applies: applies, held: held, stepNeeded: stepNeeded, canStartChild: canStartChild, phaseSkipped: phaseSkipped, condFields: condFields, canPass: canPass, canWaive: canWaive, allGatesOk: allGatesOk, headline: headline, fill: fill, fillOffered: fillOffered, solo: solo, log: addLog, evidenceFor: evidenceFor, checkEvidence: checkEvidence, checkFill: checkFill,
-    pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, resultMoved: resultMoved, resultChanged: resultChanged, resultMarks: resultMarks, RESULT_CHANGED: RESULT_CHANGED, unsettleResult: unsettleResult, resultFit: resultFit, answerOf: answerOf, resultOf: resultOf, outcomeText: outcomeText, resultHeld: resultHeld, acceptsOf: acceptsOf, boundSource: boundSource, teamUnrecorded: teamUnrecorded, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, jiraFor: jiraFor, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, effStep: effStep, setFields: setFields,
+    pause: pause, resume: resume, activeMs: activeMs, schedule: schedule, linkChild: linkChild, settleChild: settleChild, childPinProblem: childPinProblem, childVerdict: childVerdict, resultMoved: resultMoved, resultChanged: resultChanged, resultMarks: resultMarks, RESULT_CHANGED: RESULT_CHANGED, unsettleResult: unsettleResult, unsettleLoop: unsettleLoop, resultFit: resultFit, answerOf: answerOf, resultOf: resultOf, outcomeText: outcomeText, resultHeld: resultHeld, acceptsOf: acceptsOf, boundSource: boundSource, teamUnrecorded: teamUnrecorded, childHeld: childHeld, childCurrent: childCurrent, childDetails: childDetails, detailKey: detailKey, childProblem: childProblem, jiraProblem: jiraProblem, jiraFor: jiraFor, childOutcome: childOutcome, rotation: rotation, analytics: analytics, fieldsOf: fieldsOf, effStep: effStep, setFields: setFields,
     done: done, na: na, block: block, clear: clear, differently: differently, doneDifferently: doneDifferently, start: start, setDeadline: setDeadline,
     pass: pass, waive: waive, fail: fail, reopen: reopen, setDetail: setDetail, setRole: setRole,
     handOff: handOff, pickUp: pickUp, takeOver: takeOver, legacyLinks: legacyLinks, continuation: continuation, continued: continued, skillWarning: skillWarning, cleanSkill: cleanSkill, LEGACY_CHILD: LEGACY_CHILD, waitingForHandoff: waitingForHandoff, compare: compare, adopt: adopt, addFollowUp: addFollowUp, removeFollowUp: removeFollowUp, corrections: corrections, end: end, myNext: myNext, nextUp: nextUp, nextInPhase: nextInPhase, totals: totals, receipt: receipt, blockedSteps: blockedSteps
