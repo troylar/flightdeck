@@ -13,8 +13,8 @@
       "reviewed": "fold design tips and the library panel; own-key reads; checked for direct writes and unconditional deletes"
     },
     "bin/flightdeck.js": {
-      "sha256": "89d03f01819540913f013f588394239920f549d4cf9ec2bce00b977b82a0c6cc",
-      "reviewed": "Loop requests: shared requestCheck (people, authority, one action kind) and launchable (pins) in app, view and CLI."
+      "sha256": "e342ecd160de7dfb49c44ade221356d88a74d98ae436ddd3e6001c7c8faae232",
+      "reviewed": "CLI retries compare the original request; taken names reread. Checked for direct writes and unconditional deletes: writeOnce only."
     },
     "build.py": {
       "sha256": "21c5b257606a8aa3d24c956f518745372409b550008be4d06f5178081117708c",
@@ -253,8 +253,8 @@
       "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "src/core/loop.js": {
-      "sha256": "441a75f1a5d77c4645fc791467a427ecbb915999261f5c4acfd2a2c8c2800372",
-      "reviewed": "Approve and send-back carry the request id; recognized before replay."
+      "sha256": "754e97c388862ab5a36e043096aaf32f96b3231ac81ef24b1a8bdc946a4a157d",
+      "reviewed": "CLI retries compare the original request; taken names reread. Checked for direct writes and unconditional deletes: writeOnce only."
     },
     "src/core/map.js": {
       "sha256": "671a810abb29087bed638e0fc39ecc5a52b70146abd303742d5d017c9083db7c",

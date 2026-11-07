@@ -2766,6 +2766,20 @@ async function loopMain(argv) {
     if (['start', 'start-all', 'approve', 'send-back'].indexOf(sub) >= 0) {
       if (!val['--as'] || !/^[A-Za-z0-9_.-]{1,80}$/.test(val['--as'])) return usage('say who asks with --as <person id from people.json>. The recorder applies it on their behalf.');
       const a = r.steps && r.steps[stepId], lines = [];
+      /* A retry under the same key is judged on what was first asked, before the loop's state now: an identical one says
+         already (even once carried out), anything else under the key is refused, naming what changed. */
+      const idA = LP.idFor(tool.name, val['--key']), fileA = 'proposals/' + idA + '.json';
+      if (unread.some((u) => u.file === idA + '.json')) return held('A request under this key is in the folder but can\'t be read yet. Nothing written. Check folder availability, then retry with the same key.');
+      const priorA = LP.actionsOf({ records: got.scopes.filter((x) => x.id === idA || x.proposal === idA) })[0] || (got.scopes.some((x) => x.id === idA) ? { ops: ['(not a ' + sub + ' request)'], items: [], as: '', reason: '' } : null);
+      if (priorA) {
+        const kindA = priorA.ops[0] === 'start' && priorA.all ? 'start-all' : priorA.ops[0], dA = [];
+        if (kindA !== sub) dA.push('action');
+        if (priorA.as !== val['--as']) dA.push('as');
+        if ((priorA.reason || '') !== (val['--reason'] || '')) dA.push('reason');
+        if (sub === 'start' && JSON.stringify(priorA.items.slice().sort()) !== JSON.stringify(String(val['--item'] || '').split(/[\s,]+/).filter(Boolean).sort())) dA.push('items');
+        if (dA.length) return failOut('key-taken', 'This key already names a different request (' + fileA + '). Changed fields: ' + dA.join(', ') + '. Read that request (flightdeck loop read) before choosing a new key. Nothing was written.', problems());
+        return done({ loop: V.loop, status: 'already', request: { id: idA, file: fileA }, preview: 'Already requested (' + (priorA.status || 'pending') + (priorA.why ? ': ' + priorA.why : '') + '). Nothing written.', start: [], skip: [], approve: null, sendBack: null, runsStarted: 0, appliedBy: 'the recorder' });
+      }
       if (V.ended) return failOut('invalid', 'This run has ended, so its loop takes no more requests. Nothing was written.', problems());
       if (sub === 'start' || sub === 'start-all') {
         const keys = sub === 'start' ? String(val['--item'] || '').split(/[\s,]+/).filter(Boolean) : null;
@@ -2773,7 +2787,7 @@ async function loopMain(argv) {
         const S = LP.launchable(r, V, keys, procOf);
         if (!S.start.length) return failOut('invalid', 'Nothing to start' + (S.skip.length ? ': ' + S.skip.map((k) => k.key + ' (' + k.why + ')').join(', ') : '') + '. Nothing was written.', problems());
         act = { start: S.start, skip: S.skip };
-        value = { loop: V.loop, changes: S.start.map((k) => ({ op: 'start', item: { key: k.key }, as: val['--as'] })) };
+        value = { loop: V.loop, changes: S.start.map((k) => Object.assign({ op: 'start', item: { key: k.key }, as: val['--as'] }, sub === 'start-all' ? { all: true } : {})) };
         lines.push('Would ask the recorder to start ' + S.start.length + (S.start.length === 1 ? ' run: ' : ' runs: ') + S.start.map((k) => k.key).join(', ') + '.');
         if (S.skip.length) lines.push('Skipped: ' + S.skip.map((k) => k.key + ' (' + k.why + ')').join(', ') + '.');
       } else if (sub === 'approve') {
@@ -2830,7 +2844,13 @@ async function loopMain(argv) {
       if (dryRun) return done(dataA('would-request'));
       let resA;
       try { resA = writeOnce(dir, ['proposals'], id + '.json', LP.text(fa)); } catch (e) { return failOut('failed', UNCERTAIN + ' (' + (e && e.message || String(e)) + ')', problems()); }
-      if (resA !== 'written') return failOut('failed', UNCERTAIN, problems());
+      if (resA !== 'written') {
+        /* Taken meanwhile: read what is there; the same request is already, another one under this key is refused. */
+        let there = null; try { there = JSON.parse(fs.readFileSync(path.join(dir, 'proposals', id + '.json'), 'utf8')); } catch (e) { there = null; }
+        if (!there) return failOut('failed', UNCERTAIN, problems());
+        if (JSON.stringify(there.changes) !== JSON.stringify(fa.changes) || JSON.stringify(there.loop) !== JSON.stringify(fa.loop)) return failOut('key-taken', 'This key already names a different request (' + file + '). Read that request (flightdeck loop read) before choosing a new key. Nothing was written.', problems());
+        return done(Object.assign(dataA('requested'), { status: 'already', preview: 'Already requested. Nothing written.' }));
+      }
       return done(dataA('requested'));
     }
     if (V.ledger.held.length) return held('This loop has a scope record this computer can\'t read yet (' + V.ledger.held.map((h) => h.record).join(', ') + '). Nothing written. Check folder availability, then retry.');
@@ -2868,6 +2888,8 @@ async function loopReview(eng, o) {
     const diffs = [];
     if (prior.some((d) => d.op !== op)) diffs.push('op');
     if (JSON.stringify(want) !== JSON.stringify(had)) diffs.push('items');
+    if (prior.some((d) => !d.by || d.by.person !== val['--as'])) diffs.push('as');
+    if (prior.some((d) => (d.reason || '') !== (val['--reason'] || ''))) diffs.push('reason');
     if (diffs.length) return o.failOut('key-taken', 'This key already names a different decision (' + prior.map((d) => 'proposals/' + d.id + '.json').join(', ') + '). Changed fields: ' + diffs.join(', ') + '. Read the loop (flightdeck loop read) before choosing a new key. Nothing was written.', o.problems());
     return o.done({ loop: V.loop, status: 'already', decisions: prior.map((d) => ({ file: 'proposals/' + d.id + '.json', items: d.items })), preview: 'Already recorded. Nothing written.', runsStarted: 0 });
   }
@@ -2886,7 +2908,13 @@ async function loopReview(eng, o) {
   for (const f of files) {
     let res;
     try { res = writeOnce(o.dir, ['proposals'], f.name, LP.text(f.file)); } catch (e) { return o.failOut('failed', UNCERTAIN, o.problems()); }
-    if (res !== 'written') all = 'already';
+    if (res !== 'written') {
+      /* The name was taken meanwhile: read what is there, and call it the same decision only if it is. */
+      let there = null; try { there = JSON.parse(fs.readFileSync(path.join(o.dir, 'proposals', f.name), 'utf8')); } catch (e) { there = null; }
+      const same = there && there.op === f.file.op && there.by === f.file.by && (there.reason || '') === (f.file.reason || '') && JSON.stringify((there.items || []).slice().sort()) === JSON.stringify(f.file.items.slice().sort());
+      if (!same) return o.failOut('key-taken', 'This key already names a different decision (proposals/' + f.name + '). Read the loop (flightdeck loop read) before choosing a new key.' + (all === 'written' && files.indexOf(f) > 0 ? ' Some of this decision was written before it.' : ' Nothing was written.'), o.problems());
+      all = 'already';
+    }
   }
   return o.done(data(all === 'written' ? 'requested' : 'already'));
 }

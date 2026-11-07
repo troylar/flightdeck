@@ -314,7 +314,7 @@ PF.loop = (function () {
     return recs.filter(function (q) { return q.type === 'request' && (q.changes || []).some(function (c) { return ACTIONS.indexOf(c.op) >= 0; }); }).map(function (q) {
       var d = recs.filter(function (x) { return x.type === 'decision' && x.proposal === q.id && (x.op === 'applied' || x.op === 'refused'); })[0];
       var ch = q.changes.filter(function (c) { return ACTIONS.indexOf(c.op) >= 0; });
-      return { id: q.id, ops: ch.map(function (c) { return c.op; }), items: ch.filter(function (c) { return c.item; }).map(function (c) { return c.item.key || c.item.id; }), as: ch[0].as || '', reason: ch[0].reason || '',
+      return { id: q.id, all: ch.some(function (c) { return c.all === true; }), ops: ch.map(function (c) { return c.op; }), items: ch.filter(function (c) { return c.item; }).map(function (c) { return c.item.key || c.item.id; }), as: ch[0].as || '', reason: ch[0].reason || '',
         by: q.by, status: d ? d.op : 'pending', why: d ? d.reason || '' : '', decision: d ? d.id : '' };
     });
   }
@@ -589,10 +589,10 @@ PF.loop = (function () {
     list.forEach(function (ch, i) {
       var where = 'Change ' + (i + 1);
       if (!isMap(ch) || OPS.indexOf(ch.op) < 0) { errors.push(where + ' is {"op": ' + OPS.map(q).join(' | ') + ', "item": {...}}.'); return; }
-      Object.keys(ch).forEach(function (k) { if (['op', 'item', 'reason', 'owner', 'approver', 'onBehalf', 'as'].indexOf(k) < 0) errors.push(where + ' has ' + q(k) + '.'); });
+      Object.keys(ch).forEach(function (k) { if (['op', 'item', 'reason', 'owner', 'approver', 'onBehalf', 'as', 'all'].indexOf(k) < 0 || (k === 'all' && !(ch.op === 'start' && ch.all === true))) errors.push(where + ' has ' + q(k) + '.'); });
       if (ACTIONS.indexOf(ch.op) >= 0) {
         var ca = { op: ch.op };
-        if (ch.op === 'start') { ca.item = cleanItem(ch.item, errors, where + ' item'); if (!ca.item) return; }
+        if (ch.op === 'start') { ca.item = cleanItem(ch.item, errors, where + ' item'); if (!ca.item) return; if (ch.all === true) ca.all = true; }
         else if (ch.item != null) errors.push(where + ': ' + q(ch.op) + ' names no item.');
         if (typeof ch.as !== 'string' || !PERSON.test(ch.as)) errors.push(where + ': "as" is the ID from people.json of the person who asks.'); else ca.as = ch.as;
         if (ch.reason != null) { var ra = line(ch.reason, LIMITS.reason, where + ' "reason"', errors, true); if (ra) ca.reason = ra; }

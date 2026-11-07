@@ -148,4 +148,27 @@ rule('Round 2: the CLI asks, the recorder applies: start, start-all, approve and
   assert.strictEqual(fs.readdirSync(path.join(root, 'runs', 'validate-story')).length, 1, 'no run started by the command');
 });
 
+rule('Review round 2 (4): a retry compares the whole original request first: an identical retry after it was carried out says already; another actor or reason under the key is refused', async () => {
+  const { root, kid } = await folder(), f = path.join(root, '..', path.basename(root) + '-obs4.json');
+  fs.writeFileSync(f, JSON.stringify(obs([101, 102, 103])));
+  json('loop', 'sync', root, 'release-readiness/r-41', 'each', '--from', f, '--json', '--tool', 'release-helper@1.0', '--key', 'a');
+  const T = ['--tool', 'release-helper@1.0', '--as', 'person-morgan'];
+  assert.strictEqual(json('loop', 'start-all', root, 'release-readiness/r-41', 'each', '--key', 'go', '--json', ...T).data.status, 'requested');
+  await kid(101); await kid(102); await kid(103);
+  const again = json('loop', 'start-all', root, 'release-readiness/r-41', 'each', '--key', 'go', '--json', ...T);
+  assert.deepStrictEqual([again.code, again.data && again.data.status], [0, 'already'], JSON.stringify(again.error || {}));
+  const other = json('loop', 'start', root, 'release-readiness/r-41', 'each', '--item', 'ABC-101', '--key', 'go', '--json', ...T);
+  assert.deepStrictEqual([other.code, other.error && other.error.kind], [1, 'key-taken']);
+  fs.writeFileSync(f, JSON.stringify(obs([101, 102])));
+  json('loop', 'sync', root, 'release-readiness/r-41', 'each', '--from', f, '--json', '--tool', 'release-helper@1.0', '--key', 'b');
+  const R0 = ['loop', 'review', root, 'release-readiness/r-41', 'each', '--accept', 'ABC-103', '--tool', 'release-helper@1.0', '--key', 'c', '--json'];
+  assert.strictEqual(json(...R0, '--as', 'person-morgan').data.status, 'requested');
+  assert.strictEqual(json(...R0, '--as', 'person-morgan').data.status, 'already');
+  const who = json(...R0, '--as', 'person-avery');
+  assert.deepStrictEqual([who.code, who.error && who.error.kind], [1, 'key-taken']);
+  assert.ok(/as/.test(who.error.why), who.error.why);
+  const why = json(...R0, '--as', 'person-morgan', '--reason', 'Moved to 4.2');
+  assert.deepStrictEqual([why.code, why.error && why.error.kind], [1, 'key-taken']);
+});
+
 run();
