@@ -798,7 +798,7 @@ const D10_OK = [
   { file: 'overlays.js', has: 'esc(nm(x))', why: PERSON }, { file: 'pages.js', has: 'nmFu(p)', why: PERSON },
   { file: 'process.js', has: 'nmStage(x)', why: PERSON }, { file: 'process.js', has: 'nmRun(x)', why: PERSON },
   { file: 'run.js', has: 'String(value || \'\').trim().toLowerCase()', why: 'a step\'s choices, set by its type' },
-  { file: 'run.js', has: 'nmMe(p)', why: PERSON }, { file: 'run.js', has: 'nmTo(p)', why: PERSON }, { file: 'run.js', has: 'nmRole(p)', why: PERSON },
+  { file: 'run.js', has: 'nmMe(p)', why: PERSON }, { file: 'run.js', has: '\'<option value="\' + esc(p.id) + \'">\' + esc(p.name || p.id)', why: PERSON }, { file: 'run.js', has: 'nmTo(p)', why: PERSON }, { file: 'run.js', has: 'nmRole(p)', why: PERSON },
   { file: 'setup.js', has: 'esc(k[1]) + \'</p>\' + list([p])', why: 'a fixed pair: the person being changed and the one just added, each drawn once' },
   { file: 'setup.js', has: 'nmBk(', why: PERSON }, { file: 'setup.js', has: 'nmTo(p)', why: PERSON }
 ];

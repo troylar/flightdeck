@@ -7567,6 +7567,8 @@
     'loop-start-all-cancel': function (id) { if (state.loopPreview) delete state.loopPreview[id]; render(); },
     'loop-start-all-confirm': function (id) { loopStartAll(id); },
     'loop-owner': function (id, b) { loopChange(id, 'owner', [b.dataset.item], { owner: state.me }); },
+    'loop-assign': function (id, b) { var who = val('loop-who-' + id); if (!who) { say('Choose who owns it first.', 'warn'); render(); return; } loopChange(id, 'owner', [b.dataset.item], { owner: who }); },
+    'loop-unassign': function (id, b) { loopChange(id, 'owner', [b.dataset.item], { owner: '' }); },
     'loop-more': function (id) { if (!state.loopAll) state.loopAll = Object.create(null); state.loopAll[id] = true; render(); },
     'loop-open': function (id) { state.loopKeepRow = null; if (!state.loopOpen) state.loopOpen = Object.create(null); state.loopOpen[id] = !state.loopOpen[id]; render(); },
     'loop-approve': function (id) {

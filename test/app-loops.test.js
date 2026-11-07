@@ -384,4 +384,17 @@ rule('Review round 3 (6): the child\'s Part of … Open it link returns to the l
   assert.strictEqual(app.activeId(), 'loop-row-each-ABC-405');
 });
 
+rule('Review round 3 (7): the run screen assigns a story to anyone in people.json and unassigns it, as loop owner does', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  assert.ok(/<select id="loop-who-each"/.test(app.html()), 'an owner picker');
+  app.set('loop-who-each', 'person-casey'); app.click('loop-assign', 'each', { item: 'ABC-101' }); await app.tick(150);
+  const owners = () => scopes(app).map(p => JSON.parse(app.fs.files[p].t)).filter(f => (f.changes || []).some(c => c.op === 'owner')).map(f => f.changes[0].owner);
+  assert.deepStrictEqual(owners(), ['person-casey']);
+  assert.ok(/Casey Nguyen/.test(txt(app)) && /data-act="loop-unassign"/.test(app.html()), 'shown, with Unassign');
+  app.click('loop-unassign', 'each', { item: 'ABC-101' }); await app.tick(150);
+  assert.deepStrictEqual(owners().sort(), ['', 'person-casey']);
+  assert.ok(!/data-act="loop-unassign"/.test(app.html()), 'no owner now');
+});
+
 run();

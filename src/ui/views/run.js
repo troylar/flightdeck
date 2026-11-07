@@ -213,6 +213,8 @@
         if ((work || mine) && i.required && !i.run && !i.exception && i.state !== 'proposed') acts += '<button class="mini' + (mine ? ' go' : '') + '" data-act="loop-start"' + data + '>' + (mine ? 'Start mine' : 'Start its run') + '</button>';
         else if ((work || mine) && PF.loop.again(i)) acts += '<button class="mini' + (mine ? ' go' : '') + '" data-act="loop-start"' + data + '>Start a new attempt</button>';
         if (work && i.required && me && x.owner !== me) acts += '<button class="mini" data-act="loop-owner"' + data + '>Make me the owner</button>';
+        if (work && i.required) acts += '<button class="mini" data-act="loop-assign"' + data + '>Assign</button>';
+        if (work && x.owner) acts += '<button class="mini" data-act="loop-unassign"' + data + '>Unassign</button>';
         if (work && i.state === 'proposed') acts += '<button class="mini" data-act="loop-accept"' + data + '>Remove</button><button class="mini" data-act="loop-keep"' + data + '>Keep</button>';
         else if (work && i.required) acts += '<button class="mini" data-act="loop-exclude"' + data + '>Remove</button>';
         if (work && i.state === 'removed') acts += '<button class="mini" data-act="loop-restore"' + data + '>Restore</button>';
@@ -237,7 +239,8 @@
       else if (S.start.length) h += '<button class="btn" data-act="loop-start-all" data-id="' + sid + '">Start all under my recording…</button>';
     }
     if (work) h += '<div class="row"><label class="small" for="loop-add-' + sid + '">Add stories</label> <input id="loop-add-' + sid + '" placeholder="ABC-101, ABC-102"> <button class="btn" data-act="loop-add" data-id="' + sid + '">Add</button></div>' +
-      '<div class="row"><label class="small" for="loop-why-' + sid + '">Why (for removing or approving without a run)</label> <input id="loop-why-' + sid + '"></div>';
+      '<div class="row"><label class="small" for="loop-why-' + sid + '">Why (for removing or approving without a run)</label> <input id="loop-why-' + sid + '"></div>' +
+      '<div class="row"><label class="small" for="loop-who-' + sid + '">Owner to assign (Assign on a story)</label> <select id="loop-who-' + sid + '">' + (ctx.peopleSorted ? ctx.peopleSorted() : []).filter(function (p) { return p && p.id && !p.inactive; }).map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(p.name || p.id) + '</option>'; }).join('') + '</select></div>';
     if (work && a && a.s !== 'done' && RU.ok) h += '<button class="btn go" data-act="loop-approve" data-id="' + sid + '">Approve: ' + esc(RU.summary) + '</button>';
     return h + '</div>';
   }

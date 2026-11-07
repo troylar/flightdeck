@@ -1296,9 +1296,10 @@ A `{for.each}` step starts one run of a child checklist for each item in a list,
   | Read the list, counts, blockers, approval and changes | the loop's table and notices | `loop read` |
   | Add, remove, restore, approve without a run, withdraw | row buttons, Add stories | `loop add`, `exclude`, `restore`, `exception`, `withdraw` |
   | Keep or remove a proposed removal | Keep, Remove | `loop review --keep / --accept` |
-  | Owner | Make me the owner (Start mine for the owner) | `loop owner` |
+  | Owner | Make me the owner, Assign (to the person chosen in the owner picker), Unassign; Start mine for the owner | `loop owner --owner <person id, or "">` |
   | Sync from a search | (a tool's job) | `loop sync` |
   | Start a story's run | Start its run / Start mine | `loop start` (a request) |
+  | Start a new attempt (its run wasn't accepted, ended early, or can't stand) | Start a new attempt; earlier attempts are kept | `loop start --item` (a request; `start-all` leaves it out, saying why) |
   | Start every startable story | Start all under my recording… (preview, confirm, cancel) | `loop start-all [--dry-run]` (a request) |
   | Approve the loop | Approve | `loop approve` (a request) |
   | Send the approval back | Send the approval back for review (with changes, or with a reason in the Why box when nothing changed) | `loop send-back` (a request) |

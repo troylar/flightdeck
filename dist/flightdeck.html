@@ -25374,6 +25374,8 @@ PF.vk = (function () {
         if ((work || mine) && i.required && !i.run && !i.exception && i.state !== 'proposed') acts += '<button class="mini' + (mine ? ' go' : '') + '" data-act="loop-start"' + data + '>' + (mine ? 'Start mine' : 'Start its run') + '</button>';
         else if ((work || mine) && PF.loop.again(i)) acts += '<button class="mini' + (mine ? ' go' : '') + '" data-act="loop-start"' + data + '>Start a new attempt</button>';
         if (work && i.required && me && x.owner !== me) acts += '<button class="mini" data-act="loop-owner"' + data + '>Make me the owner</button>';
+        if (work && i.required) acts += '<button class="mini" data-act="loop-assign"' + data + '>Assign</button>';
+        if (work && x.owner) acts += '<button class="mini" data-act="loop-unassign"' + data + '>Unassign</button>';
         if (work && i.state === 'proposed') acts += '<button class="mini" data-act="loop-accept"' + data + '>Remove</button><button class="mini" data-act="loop-keep"' + data + '>Keep</button>';
         else if (work && i.required) acts += '<button class="mini" data-act="loop-exclude"' + data + '>Remove</button>';
         if (work && i.state === 'removed') acts += '<button class="mini" data-act="loop-restore"' + data + '>Restore</button>';
@@ -25398,7 +25400,8 @@ PF.vk = (function () {
       else if (S.start.length) h += '<button class="btn" data-act="loop-start-all" data-id="' + sid + '">Start all under my recording…</button>';
     }
     if (work) h += '<div class="row"><label class="small" for="loop-add-' + sid + '">Add stories</label> <input id="loop-add-' + sid + '" placeholder="ABC-101, ABC-102"> <button class="btn" data-act="loop-add" data-id="' + sid + '">Add</button></div>' +
-      '<div class="row"><label class="small" for="loop-why-' + sid + '">Why (for removing or approving without a run)</label> <input id="loop-why-' + sid + '"></div>';
+      '<div class="row"><label class="small" for="loop-why-' + sid + '">Why (for removing or approving without a run)</label> <input id="loop-why-' + sid + '"></div>' +
+      '<div class="row"><label class="small" for="loop-who-' + sid + '">Owner to assign (Assign on a story)</label> <select id="loop-who-' + sid + '">' + (ctx.peopleSorted ? ctx.peopleSorted() : []).filter(function (p) { return p && p.id && !p.inactive; }).map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(p.name || p.id) + '</option>'; }).join('') + '</select></div>';
     if (work && a && a.s !== 'done' && RU.ok) h += '<button class="btn go" data-act="loop-approve" data-id="' + sid + '">Approve: ' + esc(RU.summary) + '</button>';
     return h + '</div>';
   }
@@ -37858,6 +37861,8 @@ PF.examples = (function () {
     'loop-start-all-cancel': function (id) { if (state.loopPreview) delete state.loopPreview[id]; render(); },
     'loop-start-all-confirm': function (id) { loopStartAll(id); },
     'loop-owner': function (id, b) { loopChange(id, 'owner', [b.dataset.item], { owner: state.me }); },
+    'loop-assign': function (id, b) { var who = val('loop-who-' + id); if (!who) { say('Choose who owns it first.', 'warn'); render(); return; } loopChange(id, 'owner', [b.dataset.item], { owner: who }); },
+    'loop-unassign': function (id, b) { loopChange(id, 'owner', [b.dataset.item], { owner: '' }); },
     'loop-more': function (id) { if (!state.loopAll) state.loopAll = Object.create(null); state.loopAll[id] = true; render(); },
     'loop-open': function (id) { state.loopKeepRow = null; if (!state.loopOpen) state.loopOpen = Object.create(null); state.loopOpen[id] = !state.loopOpen[id]; render(); },
     'loop-approve': function (id) {
