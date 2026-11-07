@@ -13,20 +13,20 @@
       "reviewed": "fold design tips and the library panel; own-key reads; checked for direct writes and unconditional deletes"
     },
     "bin/flightdeck.js": {
-      "sha256": "1ca4229b9523b78dcf0c6c509cd7f19894b0ab4a3b8ae0cc29c82f6bbcb58523",
-      "reviewed": "Review 05 of module results: no result without a recorded decision, ended parents read-only with one result-changed verdict, next orders awaiting settlement first, linked run reads in the CLI ledger, capped accepted list; checked for direct writes and unconditional deletes"
+      "sha256": "4d8bc3906b907f0721a5b77406a1afb30bdf48a8ee12d98de101a89d47420251",
+      "reviewed": "Review 06 of module results: a missing linked run is a nofile problem; awaiting settlement displaces only later work in next and mine, keeping a pause; checked for direct writes and unconditional deletes"
     },
     "build.py": {
       "sha256": "f0c4be06309dfeb44722e5c4b982947b5a1ae7aa5c361947714a92ee83002a59",
       "reviewed": "library inspect, design tips, Used by and similar; checked for direct writes and unconditional deletes"
     },
     "docs/apps.md": {
-      "sha256": "2ba0d778ce59f3c4586b247cd9a36b41f9fd43f30de19a741b96948ab3119d97",
-      "reviewed": "Review 05 of module results: no result without a recorded decision, ended parents read-only with one result-changed verdict, next orders awaiting settlement first, linked run reads in the CLI ledger, capped accepted list; checked for direct writes and unconditional deletes"
+      "sha256": "78a5f7cae060d4518faf422c69d7270b288bb5f8b8125203f55f8ed06169063b",
+      "reviewed": "Review 06 of module results: a missing linked run is a nofile problem; awaiting settlement displaces only later work in next and mine, keeping a pause; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "ed3304d2eb6e061c8400b7aa96e4b0b79bbae9f767e130cac42b4d501f22f3cb",
-      "reviewed": "Review 05 of module results: no result without a recorded decision, ended parents read-only with one result-changed verdict, next orders awaiting settlement first, linked run reads in the CLI ledger, capped accepted list; checked for direct writes and unconditional deletes"
+      "sha256": "ccad50a37371ec2f5106f37cf67dbcccf871f286be9624eaec1e5bb009caca4e",
+      "reviewed": "Review 06 of module results: a missing linked run is a nofile problem; awaiting settlement displaces only later work in next and mine, keeping a pause; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -197,8 +197,8 @@
       "reviewed": "Review 05 of module results: no result without a recorded decision, ended parents read-only with one result-changed verdict, next orders awaiting settlement first, linked run reads in the CLI ledger, capped accepted list; checked for direct writes and unconditional deletes"
     },
     "src/core/appjson.js": {
-      "sha256": "0dd22a5c58a73529f96a735a5f9d6b53016322e71e1fa0aabe418c7b8e6e5ab5",
-      "reviewed": "Review 05 of module results: no result without a recorded decision, ended parents read-only with one result-changed verdict, next orders awaiting settlement first, linked run reads in the CLI ledger, capped accepted list; checked for direct writes and unconditional deletes"
+      "sha256": "4baa465110a534478bbeaf2d9d1cc6a8ce846ab9a911da62298ce1dce9fc4729",
+      "reviewed": "Review 06 of module results: a missing linked run is a nofile problem; awaiting settlement displaces only later work in next and mine, keeping a pause; checked for direct writes and unconditional deletes"
     },
     "src/core/attach.js": {
       "sha256": "0e75bc0c0d748fe10aaf5657662e4ce8679c27f9d10d85c1e34891b1c9d58df0",
