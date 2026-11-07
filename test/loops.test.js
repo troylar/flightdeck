@@ -469,4 +469,21 @@ rule('Review round 3 (1): an approval whose only scope record is unreadable, or 
   same(R.gateStatus(r, map, 0), 'passed');
 });
 
+rule('Review round 4 (4): two runs for one attempt compete until a choose record names the one that counts; only a competing run can be chosen', () => {
+  const { r, kid2 } = release();
+  const a = kid2(101, 'cleared'), b = kid2(101, 'needs-work'); b.id = 'k101b';
+  const recs = [LP.cleanRequest(JSON.parse(LP.text(reqFile('f1', { loop: LOOPT, observation: obs([101]) }))), reqFile('f1').id + '.json').record];
+  let V = LP.view(r, 'each', { records: recs, runs: [a, b] });
+  same([V.rollup.items[0].status, V.rollup.items[0].candidates.slice().sort()], ['competing', ['k101', 'k101b']]);
+  same(LP.choiceWhy(V, 'ABC-101', 'k101'), '');
+  assert.ok(/isn't one of/.test(LP.choiceWhy(V, 'ABC-101', 'k999')));
+  const c = LP.cleanIntent(LP.changeOf(V, 'choose', ['ABC-101'], { run: 'k101' }), 'f2', { name: 'release-helper', version: '1.0' });
+  same(c.errors, []);
+  const f2 = LP.buildRequest(c.intent, { seen: V.ledger.heads, children: [], now: AT, app: '3.0.0' });
+  const recs2 = recs.concat([LP.cleanRequest(JSON.parse(LP.text(f2)), f2.id + '.json').record]);
+  V = LP.view(r, 'each', { records: recs2, runs: [a, b] });
+  same([V.rollup.items[0].status, V.rollup.items[0].run, V.rollup.ok], ['cleared', 'k101', true]);
+  assert.ok(/isn't competing/.test(LP.choiceWhy(V, 'ABC-101', 'k101b')));
+});
+
 run();

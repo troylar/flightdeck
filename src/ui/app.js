@@ -7571,6 +7571,7 @@
     'loop-start-all-confirm': function (id) { loopStartAll(id); },
     'loop-owner': function (id, b) { loopChange(id, 'owner', [b.dataset.item], { owner: state.me }); },
     'loop-assign': function (id, b) { var who = val('loop-who-' + id); if (!who) { say('Choose who owns it first.', 'warn'); render(); return; } loopChange(id, 'owner', [b.dataset.item], { owner: who }); },
+    'loop-choose': function (id, b) { var r = ctx.run(), V = r && loopView(r, id), w = V ? PF.loop.choiceWhy(V, b.dataset.item, b.dataset.run) : 'The loop can\'t be read.'; if (w) { say(w, 'warn'); render(); return; } loopChange(id, 'choose', [b.dataset.item], { run: b.dataset.run }); },
     'loop-unassign': function (id, b) { loopChange(id, 'owner', [b.dataset.item], { owner: '' }); },
     'loop-more': function (id) { if (!state.loopAll) state.loopAll = Object.create(null); state.loopAll[id] = true; render(); },
     'loop-open': function (id) { state.loopKeepRow = null; if (!state.loopOpen) state.loopOpen = Object.create(null); state.loopOpen[id] = !state.loopOpen[id]; render(); },

@@ -434,4 +434,19 @@ rule('Review round 4 (3): a request interrupted by a folder switch is carried ou
   assert.ok(Object.keys(now.files).some(p => p.indexOf(f.id + '.status-') >= 0), 'its outcome is recorded');
 });
 
+rule('Review round 4 (4): two runs for one story\'s attempt: the run screen offers which one counts, and the choice is a scope record', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  app.click('loop-start', 'each', { item: 'ABC-101' }); await app.tick(150);
+  const kp = kidPaths(app)[0], twin = JSON.parse(app.fs.files[kp].t);
+  twin.id = 'twin0001'; await app.fs.write('runs/validate-story/twin0001/run.json', JSON.stringify(twin));
+  app.click('refresh'); await app.tick(200);
+  for (const p of kidPaths(app)) await clear(app, p);
+  assert.ok(/More than one run/.test(txt(app)) && /data-act="loop-choose"/.test(app.html()), 'competing, with a choice offered');
+  app.click('loop-choose', 'each', { item: 'ABC-101', run: 'twin0001' }); await app.tick(200);
+  const ch = scopes(app).map(p => JSON.parse(app.fs.files[p].t)).filter(f => (f.changes || []).some(c => c.op === 'choose'));
+  assert.deepStrictEqual(ch.map(f => f.changes[0].run), ['twin0001']);
+  assert.ok(/1 cleared by validation/.test(txt(app)) && !/data-act="loop-choose"/.test(app.html()), 'counted, no longer competing');
+});
+
 run();

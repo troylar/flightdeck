@@ -212,4 +212,22 @@ rule('Review round 4 (1): run and next check a loop child against its pinned ver
   assert.strictEqual(gate(), 'review', 'held once the pinned version is gone');
 });
 
+rule('Review round 4 (4): loop choose names the run that counts for a story with competing runs; any other run is refused', async () => {
+  const { root, kid } = await folder(), f = path.join(root, '..', path.basename(root) + '-obs8.json');
+  const a = await kid(101, 'cleared');
+  const src = path.join(root, 'runs', 'validate-story'), first = fs.readdirSync(src)[0], twin = JSON.parse(fs.readFileSync(path.join(src, first, 'run.json'), 'utf8'));
+  twin.id = 'twin0002'; fs.mkdirSync(path.join(src, 'twin0002')); fs.writeFileSync(path.join(src, 'twin0002', 'run.json'), JSON.stringify(twin));
+  fs.writeFileSync(f, JSON.stringify(obs([101])));
+  json('loop', 'sync', root, 'release-readiness/r-41', 'each', '--from', f, '--json', '--tool', 'release-helper@1.0', '--key', 'a');
+  const T = ['--tool', 'release-helper@1.0'];
+  assert.strictEqual(json('loop', 'read', root, 'release-readiness/r-41', 'each', '--json').data.items[0].status, 'competing');
+  const bad = json('loop', 'choose', root, 'release-readiness/r-41', 'each', '--item', 'ABC-101', '--run', 'nope0000', '--key', 'c0', '--json', ...T);
+  assert.deepStrictEqual([bad.code, bad.error && bad.error.kind], [1, 'invalid']);
+  const ok = json('loop', 'choose', root, 'release-readiness/r-41', 'each', '--item', 'ABC-101', '--run', 'twin0002', '--key', 'c1', '--json', ...T);
+  assert.deepStrictEqual([ok.code, ok.data && ok.data.status], [0, 'requested'], JSON.stringify(ok.error || {}));
+  const rd = json('loop', 'read', root, 'release-readiness/r-41', 'each', '--json').data.items[0];
+  assert.deepStrictEqual([rd.status, rd.run], ['cleared', 'twin0002']);
+  assert.ok(a === undefined || a);
+});
+
 run();

@@ -136,6 +136,7 @@ PF.loop = (function () {
           if (!x) { duplicates.push({ record: rec.id, op: ch.op, item: it.key || it.id, why: 'names an item that isn\'t in this loop' }); return; }
           if (ch.op === 'exclude' || ch.op === 'restore') { verdict(x, rec, ch.op, ch.reason); note(x, rec, ch.op, { reason: String(ch.reason || '') }); if (ch.op === 'exclude' && x.inSource && x.state === 'removed') x.mismatch = true; if (ch.op === 'restore') x.mismatch = false; }
           else if (ch.op === 'owner') { note(x, rec, 'owner', { from: x.owner, to: String(ch.owner || '') }); x.owner = String(ch.owner || ''); }
+          else if (ch.op === 'choose') { note(x, rec, 'choose', { from: x.chosen || '', to: String(ch.run || '') }); x.chosen = String(ch.run || ''); }
           else if (ch.op === 'exception') { x.exception = { record: rec.id, reason: String(ch.reason || ''), approver: String(ch.approver || ''), by: rec.by || null, onBehalf: !!ch.onBehalf }; note(x, rec, 'exception', { reason: String(ch.reason || '') }); }
           else if (ch.op === 'withdraw') { if (x.exception) note(x, rec, 'withdraw', { was: x.exception.record }); x.exception = null; }
         });
@@ -187,9 +188,11 @@ PF.loop = (function () {
     L.items.forEach(function (x) {
       var mine = (byItem[x.uid] || (x.key ? keyed[x.key] : null) || []).slice(), top = 0;
       mine.forEach(function (c) { var a = +c.parent.item.attempt || 1; if (a > top) top = a; });
-      var latest = mine.filter(function (c) { return (+c.parent.item.attempt || 1) === top; });
+      var latest = mine.filter(function (c) { return (+c.parent.item.attempt || 1) === top; }), candidates = latest.length > 1 ? latest.map(function (c) { return c.id; }) : [];
+      /* Runs that compete for one attempt: the one a choose record names counts (docs/design.md 44). */
+      if (latest.length > 1 && x.chosen) { var pick = latest.filter(function (c) { return c.id === x.chosen; }); if (pick.length === 1) latest = pick; }
       var row = { uid: x.uid, key: x.key, title: x.title, state: x.state, required: x.state !== 'removed', owner: x.owner, exception: x.exception, review: x.review.length > 0, mismatch: x.mismatch,
-        runs: mine.map(function (c) { return c.id; }), run: latest.length === 1 ? latest[0].id : '', competing: latest.length > 1, recorder: latest.length === 1 && latest[0].recorder ? latest[0].recorder.person || '' : '',
+        runs: mine.map(function (c) { return c.id; }), run: latest.length === 1 ? latest[0].id : '', competing: latest.length > 1, candidates: latest.length > 1 ? candidates : [], chosen: x.chosen || '', recorder: latest.length === 1 && latest[0].recorder ? latest[0].recorder.person || '' : '',
         result: '', accepted: false, status: '', fp: '', planned: x.planned, attempt: Math.max(top, x.attempt) };
       if (!row.required) { row.status = 'removed'; counts.removed++; rows.push(row); return; }
       counts.inScope++;
@@ -280,6 +283,14 @@ PF.loop = (function () {
      not inactive; and the run's recorder, someone holding one of the loop step's roles, or, to start a story, its owner.
      '' when it may, else why, in words. people: people.json as read. */
   /* A send-back with nothing changed since the approval needs a reason; the button, a request and the CLI ask the same. */
+  /* Whether run may be chosen as the one that counts for story key: '' or why. The button and loop choose ask the same. */
+  function choiceWhy(V, key, run) {
+    var i = V.rollup.items.filter(function (y) { return y.key === key; })[0];
+    if (!i) return key + ' isn\'t in this loop.';
+    if (!i.competing) return key + ' isn\'t competing: it has ' + (i.run ? 'one run that counts' : 'no run to choose') + '.';
+    if (i.candidates.indexOf(run) < 0) return run + ' isn\'t one of ' + key + '\'s competing runs (' + i.candidates.slice(0, 5).join(', ') + ').';
+    return '';
+  }
   function sendBackWhy(V, reason, op) {
     if (op !== undefined && op !== 'send-back') return '';
     return V.changes.length || String(reason || '').trim() ? '' : 'Say why it goes back for review: nothing changed since the approval.';
@@ -411,6 +422,7 @@ PF.loop = (function () {
       if (o.reason != null && o.reason !== '') c.reason = o.reason;
       if (op === 'exception') { c.approver = o.approver; if (o.onBehalf) c.onBehalf = true; }
       if (op === 'owner') c.owner = o.owner || '';
+      if (op === 'choose') c.run = o.run || '';
       return c;
     }) };
   }
@@ -520,7 +532,7 @@ PF.loop = (function () {
   var ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})$/;
   var PROC = /^[a-z0-9][a-z0-9-]{0,59}$/, RUN = /^[a-z0-9-]{1,40}$/i, STEP = /^[a-z0-9][a-z0-9-]{0,59}$/i, PERSON = /^[A-Za-z0-9_.-]{1,80}$/;
   var REQ = /^req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24}$/, WRITER = /^[a-z0-9][a-z0-9-]{0,39}$/, REV = /^[0-9a-f]{8}$/, DNAME = /^(req-[a-z0-9][a-z0-9-]{0,29}-[0-9a-f]{24})\.status-([a-z0-9][a-z0-9-]{0,39})-([0-9a-f]{8})\.json$/;
-  var OPS = ['add', 'exclude', 'restore', 'owner', 'exception', 'withdraw', 'start', 'approve', 'send-back'], DOPS = ['accept', 'keep', 'applied', 'refused'];
+  var OPS = ['add', 'exclude', 'restore', 'owner', 'exception', 'withdraw', 'choose', 'start', 'approve', 'send-back'], DOPS = ['accept', 'keep', 'applied', 'refused'];
   /* What a tool asks the recorder to do (the CLI asks; the recorder applies): never a change to the list. */
   var ACTIONS = ['start', 'approve', 'send-back'];
   var LIMITS = { bytes: 262144, title: 200, reason: 300, query: 500, generation: 80, errors: 20, error: 200, changes: 500, inputs: 40, input: 240, seen: 50 };
@@ -609,7 +621,7 @@ PF.loop = (function () {
     list.forEach(function (ch, i) {
       var where = 'Change ' + (i + 1);
       if (!isMap(ch) || OPS.indexOf(ch.op) < 0) { errors.push(where + ' is {"op": ' + OPS.map(q).join(' | ') + ', "item": {...}}.'); return; }
-      Object.keys(ch).forEach(function (k) { if (['op', 'item', 'reason', 'owner', 'approver', 'onBehalf', 'as', 'all'].indexOf(k) < 0 || (k === 'all' && !(ch.op === 'start' && ch.all === true))) errors.push(where + ' has ' + q(k) + '.'); });
+      Object.keys(ch).forEach(function (k) { if (['op', 'item', 'reason', 'owner', 'approver', 'onBehalf', 'as', 'all', 'run'].indexOf(k) < 0 || (k === 'all' && !(ch.op === 'start' && ch.all === true)) || (k === 'run' && ch.op !== 'choose')) errors.push(where + ' has ' + q(k) + '.'); });
       if (ACTIONS.indexOf(ch.op) >= 0) {
         var ca = { op: ch.op };
         if (ch.op === 'start') { ca.item = cleanItem(ch.item, errors, where + ' item'); if (!ca.item) return; if (ch.all === true) ca.all = true; }
@@ -622,6 +634,7 @@ PF.loop = (function () {
       if (!it) return;
       if (ch.op === 'exclude' || ch.op === 'exception') { var r = line(ch.reason, LIMITS.reason, where + ' "reason"', errors); if (r) c.reason = r; }
       else if (ch.reason != null) { var r2 = line(ch.reason, LIMITS.reason, where + ' "reason"', errors, true); if (r2) c.reason = r2; }
+      if (ch.op === 'choose') { if (typeof ch.run !== 'string' || !/^[a-z0-9-]{1,40}$/i.test(ch.run)) errors.push(where + ': "run" is the id of the story\'s run that counts.'); else c.run = ch.run; }
       if (ch.op === 'owner') { if (ch.owner !== '' && (typeof ch.owner !== 'string' || !PERSON.test(ch.owner))) errors.push(where + ': "owner" is a person\'s ID from people.json, or "" for none.'); else c.owner = ch.owner; }
       if (ch.op === 'exception') {
         if (typeof ch.approver !== 'string' || !PERSON.test(ch.approver)) errors.push(where + ': "approver" is the person\'s ID from people.json who approved it.'); else c.approver = ch.approver;
@@ -726,5 +739,5 @@ PF.loop = (function () {
 
   return { KINDS: KINDS, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
     idFor: idFor, isScope: isScope, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
-    rollup: rollup, view: view, markStale: markStale, rowId: rowId, sendBackWhy: sendBackWhy, again: again, appliedIn: appliedIn, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
+    rollup: rollup, view: view, markStale: markStale, rowId: rowId, choiceWhy: choiceWhy, sendBackWhy: sendBackWhy, again: again, appliedIn: appliedIn, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();

@@ -2628,7 +2628,7 @@ const HELP = `flightdeck: team process checklists, in one HTML file
                                       holds its gate and the approval. Only reads
   flightdeck loop sync <team folder> <process>/<run> <loop step> --from <file|-> --tool <name>@<version> --key <key> [--dry-run] [--json]
                                       for AI assistants: ask for a change to a loop's list (also loop add, exclude,
-                                      restore, exception, withdraw, owner, review), or ask the recorder to start,
+                                      restore, exception, withdraw, owner, choose, review), or ask the recorder to start,
                                       start-all, approve or send-back. Writes one file in proposals/, once;
                                       --dry-run previews; the recorder's window applies; never writes a run
   flightdeck skill register <team folder> --from <file|-> [--json]
@@ -2684,8 +2684,8 @@ default goes to .flightdeck/updates/<version>/, with a README.md to hand to your
    a person (--as) that a tool records on their behalf. They never start a run and never write run.json; the parent's
    recorder sees the change when Flightdeck reads the folder. --dry-run previews and writes nothing. The same --tool and --key
    always mean the same request: a retry writes nothing; the key with other content is refused. */
-const LOOP_SUBS = ['read', 'sync', 'add', 'exclude', 'restore', 'exception', 'withdraw', 'owner', 'review', 'start', 'start-all', 'approve', 'send-back'];
-const LOOP_VAL = ['--from', '--key', '--tool', '--keys', '--item', '--reason', '--approver', '--owner', '--as', '--accept', '--keep'];
+const LOOP_SUBS = ['read', 'sync', 'add', 'exclude', 'restore', 'exception', 'withdraw', 'owner', 'choose', 'review', 'start', 'start-all', 'approve', 'send-back'];
+const LOOP_VAL = ['--from', '--key', '--tool', '--keys', '--item', '--reason', '--approver', '--owner', '--as', '--accept', '--keep', '--run'];
 const UNCERTAIN = 'Could not confirm whether the request was saved. Retry with the same key; a new key could ask twice.';
 function loopWords(json, sub) {
   if (json.error) return 'flightdeck: ' + json.error.why + json.problems.map((x) => '\n  ' + x.path + ': ' + x.why).join('');
@@ -2826,9 +2826,11 @@ async function loopMain(argv) {
         if (val['--reason'] != null) c.reason = val['--reason'];
         if (sub === 'exception') { c.approver = val['--approver']; if (val['--as']) c.onBehalf = true; }
         if (sub === 'owner') c.owner = val['--owner'] || '';
+        if (sub === 'choose') c.run = val['--run'] || '';
         return c;
       }) };
       if (sub !== 'add') { const miss = items.filter((k) => !find(k)); if (miss.length) return failOut('invalid', miss.join(', ') + (miss.length === 1 ? ' isn\'t' : ' aren\'t') + ' in this loop. Nothing was written.', problems()); }
+      if (sub === 'choose') { if (items.length !== 1 || !val['--run']) return usage('say which story with --item ABC-101 and which of its runs counts with --run <run id>.'); const cw = LP.choiceWhy(V, items[0], val['--run']); if (cw) return failOut('invalid', cw + ' Nothing was written.', problems()); }
     }
     const c = LP.cleanIntent(value, val['--key'], tool);
     if (c.errors.length) return failOut('invalid', c.errors.join(' ') + ' Nothing was written.', problems());
