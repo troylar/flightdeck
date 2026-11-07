@@ -22,11 +22,11 @@
     },
     "docs/apps.md": {
       "sha256": "b9a091a9a0fb11b4256fab51b5f96b3d017c16baca93303b4857378a18790318",
-      "reviewed": "loop choose: core op, run screen buttons, CLI subcommand, docs and guide."
+      "reviewed": "Start all and start requests share one batch bound to the folder and its generation; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
       "sha256": "693202be7dc12f1e654a66c91d214000eee326898c606185138ac112ef5ed0bf",
-      "reviewed": "loop choose: core op, run screen buttons, CLI subcommand, docs and guide."
+      "reviewed": "Start all and start requests share one batch bound to the folder and its generation; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
@@ -397,8 +397,8 @@
       "reviewed": "loops review round 1: qualification, answer fingerprints, unreadable holds, auto send-back, start guard; checked for direct writes and unconditional deletes: none added"
     },
     "src/ui/app.js": {
-      "sha256": "ea98cc10fe168d16e95b2f7aae2c7eb37517b745fb69f5613a2423ba85f22f03",
-      "reviewed": "Loop choices share the causal settle rule and bind to attempt and candidates; one person per request; starts need the loop step open."
+      "sha256": "8b58cae7d832231ee43347d8e947b1017c942067c6adf9cd9e9be7ae4cd7be0c",
+      "reviewed": "Start all and start requests share one batch bound to the folder and its generation; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
@@ -474,7 +474,7 @@
     },
     "src/ui/views/run.js": {
       "sha256": "545951d40e3b9f15d90cac935a71ce54a0a117a87bc9cb642632cd901a24434d",
-      "reviewed": "loop choose: core op, run screen buttons, CLI subcommand, docs and guide."
+      "reviewed": "Start all and start requests share one batch bound to the folder and its generation; checked for direct writes and unconditional deletes"
     },
     "src/ui/views/setup.js": {
       "sha256": "2393b54abde45fa1ba4ac110f394984d29b04ca728c3f1a46e8c22fb2c60dd80",

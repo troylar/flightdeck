@@ -449,4 +449,21 @@ rule('Review round 4 (4): two runs for one story\'s attempt: the run screen offe
   assert.ok(/1 cleared by validation/.test(txt(app)) && !/data-act="loop-choose"/.test(app.html()), 'counted, no longer competing');
 });
 
+rule('Review round 5 (3): Start all stops at a folder switch: nothing lands in the folder opened next', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101, ABC-102'); app.click('loop-add', 'each'); await app.tick(150);
+  const was = app.fs, write = was.write.bind(was), hold = gate();
+  was.write = (p, t, o) => /^runs\/validate-story\//.test(p) ? hold.p.then(() => write(p, t, o)) : write(p, t, o);
+  app.click('loop-start-all', 'each'); await app.tick(50);
+  app.click('loop-start-all-confirm', 'each'); await app.tick(50);
+  app.click('reset-examples'); await app.tick(60);
+  const now = app.fs;
+  Object.keys(was.files).forEach(p => { if (!(p in now.files)) now.files[p] = was.files[p]; });
+  app.choose('person-avery'); await app.tick(); app.click('refresh'); await app.tick(150);
+  const before = Object.keys(now.files).filter(p => /^runs\/validate-story\//.test(p)).length;
+  hold.open(); await app.tick(400);
+  assert.strictEqual(Object.keys(now.files).filter(p => /^runs\/validate-story\//.test(p)).length, before, 'nothing written into the folder opened next');
+  assert.ok(Object.keys(was.files).filter(p => /^runs\/validate-story\/.*run\.json$/.test(p)).length <= 1, 'the batch stopped');
+});
+
 run();

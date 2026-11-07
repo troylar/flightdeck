@@ -2943,7 +2943,10 @@
   }
   /* Starts one story's run for loop step id of run r: a promise of the run started, or an Error saying why nothing was. */
   /* request: the id of the request it carries out, kept in the run it starts, so a lost outcome is recovered from it. */
-  function loopLaunch(r, id, key, fresh, request) {
+  /* cx (a batch's folder and generation): nothing is written once the folder has changed; the error says stopped. */
+  function loopLaunch(r, id, key, fresh, request, cx) {
+    var moved = function () { return cx && (cx.g !== gen || cx.fs !== state.fs); };
+    if (moved()) return Promise.reject(Object.assign(new Error('The folder changed; nothing more was started.'), { stopped: true }));
     var V = r && loopView(r, id), x = V && V.ledger.items.filter(function (i) { return i.key === key; })[0];
     if (!x) return Promise.reject(new Error(key + ' isn\'t in this loop.'));
     var shut = ''; try { shut = R.canStartChild(r, R.mapOf(r), id); } catch (e) { shut = 'The run\'s checklist can\'t be read.'; }
@@ -2964,9 +2967,10 @@
     var child; try { child = R.create(pub, { title: key + (x.title ? ': ' + x.title : ''), details: got.inputs, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), app: APP_VERSION, teamValues: data.teamValues, tz: tz, workflows: data.jira.workflows, pins: pinsAtStart(pub),
       parent: { process: r.process, id: r.id, step: id, item: Object.assign({ uid: x.uid, key: x.key, attempt: attempt }, request ? { request: request } : {}) } }); }
     catch (err) { return Promise.reject(err); }
-    var sfs = state.fs;
+    var sfs = cx ? cx.fs : state.fs;
     state.loopStarting[flight] = true;
     return queued(function () {
+      if (moved()) throw Object.assign(new Error('The folder changed; nothing more was started.'), { stopped: true });
       /* Checked again right before it writes: a run for this story and attempt that arrived meanwhile wins, and nothing is started. */
       var taken = (data.runs || []).some(function (c) { var it = c.parent && c.parent.item; return it && c.parent.process === r.process && c.parent.id === r.id && c.parent.step === id && it.uid === x.uid && +it.attempt === attempt; });
       if (taken) throw new Error(key + ' already has a run for this attempt. Nothing was started.');
@@ -2982,10 +2986,27 @@
   /* Start all under my recording: the confirmed list from the preview, one at a time; what couldn't start is named. */
   function loopStartAll(id) {
     var r = ctx.run(), V = r && loopView(r, id); if (!V) return;
-    var S = PF.loop.launchable(r, V, null, ctx.procOf), started = [], failed = [], endBusy = busyStart(), sg = gen;
+    var S = PF.loop.launchable(r, V, null, ctx.procOf), endBusy = busyStart(), cx = { fs: state.fs, g: gen };
     if (state.loopPreview) delete state.loopPreview[id];
-    S.start.reduce(function (p, k) { return p.then(function () { return loopLaunch(r, id, k.key, true).then(function () { started.push(k.key); }, function (err) { failed.push(k.key + ' (' + (err && err.message || err) + ')'); }); }); }, Promise.resolve())
-      .then(function () { endBusy(); if (sg !== gen) return; say('Started ' + started.length + (started.length === 1 ? ' run.' : ' runs.') + (failed.length ? ' Not started: ' + failed.slice(0, 5).join(', ') + '.' : ''), failed.length ? 'warn' : 'good'); return load(true); });
+    loopBatch(r, id, S.start.map(function (k) { return k.key; }), cx, null).then(function (b) {
+      endBusy(); if (b.stopped || cx.g !== gen) return;
+      var failed = b.failed.map(function (f) { return f.key + ' (' + f.why + ')'; });
+      say('Started ' + b.started.length + (b.started.length === 1 ? ' run.' : ' runs.') + (failed.length ? ' Not started: ' + failed.slice(0, 5).join(', ') + '.' : ''), failed.length ? 'warn' : 'good'); return load(true);
+    });
+  }
+  /* Starts keys one at a time for Start all and a start request alike. Bound to cx (the folder and its generation when the
+     batch began): checked before every launch and before every write, and the batch stops at a switch, so nothing lands in
+     the folder opened next. Resolves {started, failed: [{key, why}], stopped}. */
+  function loopBatch(r, id, keys, cx, request) {
+    var out = { started: [], failed: [], stopped: false };
+    return keys.reduce(function (p, k) {
+      return p.then(function () {
+        if (out.stopped) return;
+        if (cx.g !== gen || cx.fs !== state.fs) { out.stopped = true; return; }
+        return loopLaunch(r, id, k, true, request, cx).then(function () { out.started.push(k); },
+          function (err) { if (err && err.stopped) { out.stopped = true; return; } if (!(err && err.quiet)) out.failed.push({ key: k, why: err && err.message || String(err) }); });
+      });
+    }, Promise.resolve()).then(function () { return out; });
   }
   /* The CLI asks; the recorder applies (3.0): the recorder's window carries out each pending start, approve and send-back
      request on its loops with the same checks as the buttons, then records applied or refused beside the request. */
@@ -3022,8 +3043,8 @@
     if (q.ops[0] === 'start') {
       /* Runs this request already started (their outcome wasn't written) count as started, and aren't started again. */
       var done = (data.runs || []).filter(function (c) { var it = c.parent && c.parent.item; return it && it.request === q.id && c.parent.process === r.process && c.parent.id === r.id && c.parent.step === id; }).map(function (c) { return c.parent.item.key; }), why = [];
-      return q.items.filter(function (k, i) { return done.indexOf(k) < 0 && q.items.indexOf(k) === i; }).reduce(function (p, k) { return p.then(function () { if (cx.g !== gen) throw new Error('The folder changed while this request was carried out.'); if (done.indexOf(k) >= 0) return; return loopLaunch(r, id, k, true, q.id).then(function () { done.push(k); }, function (err) { why.push(err.message); }); }); }, Promise.resolve())
-        .then(function () { return { ok: done.length > 0, why: 'Started ' + (done.slice(0, 20).join(', ') || 'none') + (done.length > 20 ? ' and ' + (done.length - 20) + ' more' : '') + '.' + (why.length ? ' ' + why.slice(0, 5).join(' ') : '') }; });
+      return loopBatch(r, id, q.items.filter(function (k, i) { return done.indexOf(k) < 0 && q.items.indexOf(k) === i; }), cx, q.id)
+        .then(function (b) { if (b.stopped) throw new Error('The folder changed while this request was carried out.'); done = done.concat(b.started); why = b.failed.map(function (f) { return f.why; }); return { ok: done.length > 0, why: 'Started ' + (done.slice(0, 20).join(', ') || 'none') + (done.length > 20 ? ' and ' + (done.length - 20) + ' more' : '') + '.' + (why.length ? ' ' + why.slice(0, 5).join(' ') : '') }; });
     }
     if (q.ops[0] === 'approve') {
       if (!V.rollup.ok) return Promise.resolve({ ok: false, why: 'It can\'t be approved yet: ' + V.rollup.summary + '.' });
