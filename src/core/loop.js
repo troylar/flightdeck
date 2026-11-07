@@ -328,7 +328,11 @@ PF.loop = (function () {
         if (!a || a.s !== 'done' || !a.loop) return;
         var V; try { V = view(r, id, { records: o.records, unread: o.unread, runs: runs, procOf: o.procOf }); } catch (e) { V = null; }
         if (!V) return;
-        var why = V.changes.length ? V.changes.slice() : V.ledger.held.length ? ['A scope record of this loop can\'t be read yet.'] : null;
+        /* Every scope record the approval counted must still be here: one gone (deleted, or not read) holds it too. */
+        var have = Object.create(null); (V.records || []).forEach(function (x) { have[x.id] = true; });
+        var gone = (a.loop.records || []).filter(function (id) { return !have[id]; });
+        var why = V.changes.length ? V.changes.slice() : V.ledger.held.length ? ['A scope record of this loop can\'t be read yet.'] :
+          gone.length ? ['A scope record this approval counted is gone from the folder: ' + gone.slice(0, 5).join(', ') + (gone.length > 5 ? ' and ' + (gone.length - 5) + ' more' : '') + '.'] : null;
         if (why) { out = out || Object.create(null); out[id] = why; }
       });
       if (out) r._loopStale = out; else delete r._loopStale;

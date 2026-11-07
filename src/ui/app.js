@@ -5788,7 +5788,7 @@
   }
   /* Loops (3.0): which approvals the folder no longer matches, read-only, on every draw and on the fresh copy every change
      starts from, so a held gate can't be passed before the send-back is saved. */
-  function markLoops(runs) { if (data && (data.scopes || []).length) PF.loop.markStale(runs || [], { records: data.scopes, unread: data.scopesUnread || [], procOf: ctx.procOf }); }
+  function markLoops(runs) { if (data) PF.loop.markStale(runs || [], { records: data.scopes, unread: data.scopesUnread || [], procOf: ctx.procOf }); }
   function mutate(fn, opts) { return mutateRun(state.runKey, gen, function (r, m, me, now) { markLoops([r].concat((data.runs || []).filter(function (x) { return x.id !== r.id; }))); return fn(r, m, me, now); }, opts); }
   /* Change one run, named by its key, in the folder generation the action started in. An action that finishes after the
      person switched folders or runs does nothing, rather than landing on whatever is on screen now. */

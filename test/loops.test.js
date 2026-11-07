@@ -453,4 +453,20 @@ rule('Review round 2 (2): clearing a run detail the loop passes on disqualifies 
   same(R.gateStatus(r, map, 0), 'review');
 });
 
+rule('Review round 3 (1): an approval whose only scope record is unreadable, or gone, is held even with nothing readable left', () => {
+  const { r, kid2 } = release(), map = R.mapOf(r);
+  const recs = [LP.cleanRequest(JSON.parse(LP.text(reqFile('e1', { loop: LOOPT, observation: obs([101]) }))), reqFile('e1').id + '.json').record];
+  const runs = [kid2(101, 'cleared')];
+  const V = LP.view(r, 'each', { records: recs, runs });
+  R.done(r, map, 'each', 'person-morgan', AT, { _loop: { ok: true, snapshot: LP.approval(V.ledger, V.rollup, { by: 'person-morgan', at: AT }) } });
+  R.pass(r, map, 0, 'person-morgan', AT);
+  LP.markStale([r].concat(runs), { records: [], unread: [{ file: reqFile('e1').id + '.json', why: 'cut short', loop: null }] });
+  same(R.gateStatus(r, map, 0), 'review', 'unreadable');
+  LP.markStale([r].concat(runs), { records: [] });
+  same(R.gateStatus(r, map, 0), 'review', 'gone');
+  assert.ok(/is gone/.test(r._loopStale.each.join(' ')), r._loopStale.each.join(' '));
+  LP.markStale([r].concat(runs), { records: recs });
+  same(R.gateStatus(r, map, 0), 'passed');
+});
+
 run();

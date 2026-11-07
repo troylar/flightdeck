@@ -309,4 +309,17 @@ rule('Review round 2 (8): an unchanged approval can be sent back from the run sc
   assert.ok(ap);
 });
 
+rule('Review round 3 (1): with its only scope request cut short, a passed loop phase closes again and Ship can\'t be recorded', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  app.set('loop-why-each', 'Docs-only change'); app.click('loop-exception', 'each', { item: 'ABC-101' }); await app.tick(150);
+  app.click('loop-approve', 'each'); await app.tick(150);
+  app.click('pass', '0'); await app.tick(150);
+  assert.strictEqual(parentRun(app).gates[Object.keys(parentRun(app).gates)[0]].s, 'passed', 'set-up: gate passed');
+  scopes(app).forEach(p => { app.fs.files[p] = { t: app.fs.files[p].t.slice(0, 30), m: Date.now() }; });
+  app.click('refresh'); await app.tick(250);
+  app.click('toggle', 'ship1'); await app.tick(150);
+  assert.ok(!(parentRun(app).steps.ship1 && parentRun(app).steps.ship1.s === 'done'), 'Ship isn\'t recorded while the loop is held');
+});
+
 run();

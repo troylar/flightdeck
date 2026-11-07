@@ -253,8 +253,8 @@
       "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "src/core/loop.js": {
-      "sha256": "754e97c388862ab5a36e043096aaf32f96b3231ac81ef24b1a8bdc946a4a157d",
-      "reviewed": "CLI retries compare the original request; taken names reread. Checked for direct writes and unconditional deletes: writeOnce only."
+      "sha256": "36f17c6dd700862f842e1cadfafbf0033e9265903b962b745af19f665e9e72d2",
+      "reviewed": "markStale: approvals hold when counted records are gone; app always checks."
     },
     "src/core/map.js": {
       "sha256": "671a810abb29087bed638e0fc39ecc5a52b70146abd303742d5d017c9083db7c",
@@ -397,8 +397,8 @@
       "reviewed": "loops review round 1: qualification, answer fingerprints, unreadable holds, auto send-back, start guard; checked for direct writes and unconditional deletes: none added"
     },
     "src/ui/app.js": {
-      "sha256": "414d7e638c86ee568865a1b1887d511fa2a8e7627f91f7e64e9f206c60be47ef",
-      "reviewed": "Voluntary send-back with a reason; bounded request history; design 44."
+      "sha256": "6b669faf3fcdc345e94c6b3a8cb077127b51e8c85203e2049424ed93b2717e6b",
+      "reviewed": "markStale: approvals hold when counted records are gone; app always checks."
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
