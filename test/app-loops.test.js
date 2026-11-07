@@ -118,4 +118,20 @@ rule('Review round 1: a result changed after approval sends the loop back at onc
   assert.ok(/ABC-101 now returns needs-work/.test(r.steps.each.values.changes), r.steps.each.values.changes);
 });
 
+rule('Review round 1: an owner\'s Start mine, ownership from the list, and sixty stories paged with an open-only filter', async () => {
+  const app = await setup();
+  const keys = Array.from({ length: 60 }, (_, n) => 'ABC-' + (201 + n)).join(', ');
+  app.set('loop-add-each', keys); app.click('loop-add', 'each'); await app.tick(200);
+  assert.ok(/Show all 60 stories/.test(txt(app)), 'paged at 50');
+  assert.strictEqual((app.html().match(/data-act="loop-start"/g) || []).length, 50);
+  app.click('loop-more', 'each'); await app.tick(50);
+  assert.strictEqual((app.html().match(/data-act="loop-start"/g) || []).length, 60);
+  app.click('loop-owner', 'each', { item: 'ABC-201' }); await app.tick(150);
+  const own = scopes(app).map(p => JSON.parse(app.fs.files[p].t)).find(f => (f.changes || []).some(c => c.op === 'owner'));
+  assert.deepStrictEqual(own.changes.map(c => [c.op, c.item.key, c.owner]), [['owner', 'ABC-201', 'person-avery']]);
+  assert.ok(/Start mine/.test(txt(app)), 'the owner\'s own story offers Start mine');
+  app.click('loop-open', 'each'); await app.tick(50);
+  assert.ok(/Show every story/.test(txt(app)));
+});
+
 run();

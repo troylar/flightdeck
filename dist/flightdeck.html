@@ -25244,13 +25244,18 @@ PF.vk = (function () {
       (work && a && a.s === 'done' ? '<button class="btn" data-act="loop-unsettle" data-id="' + sid + '">Send the approval back for review</button>' : '') + '</div>';
     if (a && a.s === 'recheck' && V.review.length) h += '<div class="notice warn"><span><b>Approval needs review:</b> ' + V.review.slice(0, 50).map(esc).join(' ') + (V.review.length > 50 ? ' And ' + (V.review.length - 50) + ' more.' : '') + '</span></div>';
     if (RU.blockers.length) h += '<ul class="small">' + RU.blockers.slice(0, 12).map(function (b) { return '<li>' + esc(b.text) + '</li>'; }).join('') + (RU.blockers.length > 12 ? '<li>and ' + (RU.blockers.length - 12) + ' more</li>' : '') + '</ul>';
+    var me = ctx.state && ctx.state.me, all = !!(ctx.state && ctx.state.loopAll && ctx.state.loopAll[s.id]), open = !!(ctx.state && ctx.state.loopOpen && ctx.state.loopOpen[s.id]);
+    var rows = open ? RU.items.filter(function (i) { return i.required && i.status !== 'cleared' && i.status !== 'exception'; }) : RU.items, PAGE = 50;
+    if (RU.items.length > 10) h += '<div class="row"><button class="mini" data-act="loop-open" data-id="' + sid + '" aria-pressed="' + open + '">' + (open ? 'Show every story' : 'Show only stories still open') + '</button></div>';
     if (RU.items.length) {
       h += '<table class="loop-items"><thead><tr><th>Story</th><th>Status</th><th>Result</th><th>Owner</th><th></th></tr></thead><tbody>';
-      RU.items.forEach(function (i) {
+      rows.slice(0, all ? rows.length : PAGE).forEach(function (i) {
         var x = V.ledger.items.filter(function (y) { return y.uid === i.uid; })[0] || {}, k = esc(i.key || i.uid), acts = '';
         var data = ' data-id="' + sid + '" data-item="' + k + '"';
         if (i.run) acts += '<button class="mini" data-act="open-run" data-id="' + esc(V.fields.process + '/' + i.run) + '">Open run</button>';
-        if (work && i.required && !i.run && !i.exception && i.state !== 'proposed') acts += '<button class="mini" data-act="loop-start"' + data + '>Start its run</button>';
+        var mine = !!me && x.owner === me && !V.ended && !r.paused;
+        if ((work || mine) && i.required && !i.run && !i.exception && i.state !== 'proposed') acts += '<button class="mini' + (mine ? ' go' : '') + '" data-act="loop-start"' + data + '>' + (mine ? 'Start mine' : 'Start its run') + '</button>';
+        if (work && i.required && me && x.owner !== me) acts += '<button class="mini" data-act="loop-owner"' + data + '>Make me the owner</button>';
         if (work && i.state === 'proposed') acts += '<button class="mini" data-act="loop-accept"' + data + '>Remove</button><button class="mini" data-act="loop-keep"' + data + '>Keep</button>';
         else if (work && i.required) acts += '<button class="mini" data-act="loop-exclude"' + data + '>Remove</button>';
         if (work && i.state === 'removed') acts += '<button class="mini" data-act="loop-restore"' + data + '>Restore</button>';
@@ -25262,6 +25267,7 @@ PF.vk = (function () {
           (x.removed && x.removed.by && x.removed.by.tool ? ' <span class="small">Removed by ' + esc(x.removed.by.tool) + '</span>' : '') + '</td><td>' + esc(i.result || '') + '</td><td>' + esc(i.owner ? who(i.owner) : i.recorder ? who(i.recorder) : '') + '</td><td>' + acts + '</td></tr>';
       });
       h += '</tbody></table>';
+      if (!all && rows.length > PAGE) h += '<button class="mini" data-act="loop-more" data-id="' + sid + '">Show all ' + rows.length + ' stories</button>';
     } else h += '<p class="small">No stories in scope yet.</p>';
     if (work) h += '<div class="row"><label class="small" for="loop-add-' + sid + '">Add stories</label> <input id="loop-add-' + sid + '" placeholder="ABC-101, ABC-102"> <button class="btn" data-act="loop-add" data-id="' + sid + '">Add</button></div>' +
       '<div class="row"><label class="small" for="loop-why-' + sid + '">Why (for removing or approving without a run)</label> <input id="loop-why-' + sid + '"></div>';
@@ -37625,6 +37631,9 @@ PF.examples = (function () {
     'loop-accept': function (id, b) { loopDecide(id, 'accept', b.dataset.item); },
     'loop-keep': function (id, b) { loopDecide(id, 'keep', b.dataset.item); },
     'loop-start': function (id, b) { loopStart(id, b.dataset.item); },
+    'loop-owner': function (id, b) { loopChange(id, 'owner', [b.dataset.item], { owner: state.me }); },
+    'loop-more': function (id) { if (!state.loopAll) state.loopAll = Object.create(null); state.loopAll[id] = true; render(); },
+    'loop-open': function (id) { if (!state.loopOpen) state.loopOpen = Object.create(null); state.loopOpen[id] = !state.loopOpen[id]; render(); },
     'loop-approve': function (id) {
       mutate(function (r, map, me, now) {
         var V = loopView(r, id);

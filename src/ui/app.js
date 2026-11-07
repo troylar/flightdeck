@@ -7468,6 +7468,9 @@
     'loop-accept': function (id, b) { loopDecide(id, 'accept', b.dataset.item); },
     'loop-keep': function (id, b) { loopDecide(id, 'keep', b.dataset.item); },
     'loop-start': function (id, b) { loopStart(id, b.dataset.item); },
+    'loop-owner': function (id, b) { loopChange(id, 'owner', [b.dataset.item], { owner: state.me }); },
+    'loop-more': function (id) { if (!state.loopAll) state.loopAll = Object.create(null); state.loopAll[id] = true; render(); },
+    'loop-open': function (id) { if (!state.loopOpen) state.loopOpen = Object.create(null); state.loopOpen[id] = !state.loopOpen[id]; render(); },
     'loop-approve': function (id) {
       mutate(function (r, map, me, now) {
         var V = loopView(r, id);
