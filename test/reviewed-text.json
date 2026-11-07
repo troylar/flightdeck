@@ -397,8 +397,8 @@
       "reviewed": "loops review round 1: qualification, answer fingerprints, unreadable holds, auto send-back, start guard; checked for direct writes and unconditional deletes: none added"
     },
     "src/ui/app.js": {
-      "sha256": "b730f4ffeb75d117b54559c18b0178ac243d3bb7c0065baf456f7b37d0684d85",
-      "reviewed": "Loop table: row ids and return focus after a story's run; held loops show the last readable view (memory only). Checked for direct writes and unconditional deletes: none added."
+      "sha256": "de2169e96eaf9aee5eba481986fbca794656145783ef5b9997b3b0b18722ad2a",
+      "reviewed": "Proposals read failure keeps scope records and holds every loop."
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

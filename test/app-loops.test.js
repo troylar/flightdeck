@@ -215,4 +215,22 @@ rule('Review round 1 (P1-4): when a scope record can\'t be read, the last readab
   assert.ok(!/data-act="loop-approve"/.test(app.html()), 'no approval while held');
 });
 
+rule('Review round 2 (3): proposals that can\'t be read, one file or the whole folder, hold an approved loop in this window too', async () => {
+  for (const how of ['file', 'list']) {
+    const app = await setup();
+    app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+    app.set('loop-why-each', 'Docs-only change'); app.click('loop-exception', 'each', { item: 'ABC-101' }); await app.tick(150);
+    app.click('loop-approve', 'each'); await app.tick(150);
+    assert.strictEqual(parentRun(app).steps.each.s, 'done', 'set-up: approved');
+    const fs = app.fs, read = fs.read.bind(fs), list = fs.list.bind(fs);
+    if (how === 'file') fs.read = (p) => /^proposals\//.test(p) ? Promise.reject(new Error('EIO')) : read(p);
+    else fs.list = (p) => /^proposals/.test(p) ? Promise.reject(new Error('EIO')) : list(p);
+    app.click('refresh'); await app.tick(250);
+    const t = txt(app);
+    assert.ok(/Held:/.test(t), how + ': the hold is shown');
+    assert.ok(/Last readable view[^]*1 in scope/.test(t), how + ': the records read before are kept beside it');
+    assert.ok(/Approval needs review|can't be read yet/.test(t), how + ': the approval is held');
+  }
+});
+
 run();
