@@ -121,7 +121,7 @@ Each command reads only what its output depends on, and every problem it meets t
 |---|---|
 | `processes`, `process` | `publications/` (for `process`, that process's versions) |
 | `runs` | `runs/`, `proposals/`, `publications/` (whether a run's version can be used, and which version a plan starts on) and `people.json`; with `--process`, that process's runs and versions |
-| `run`, `next` | That run's folder, its version (checked on its own, so a version that can't be read or used is named), its follow-up decisions and `people.json` |
+| `run`, `next` | That run's folder, its version (checked on its own, so a version that can't be read or used is named), its follow-up decisions and `people.json`; with contract 2, also the run folder and version of each linked run a step that accepts results links to (3.0) |
 | `followups` | `followups/`, `runs/` and `people.json` (every follow-up lives in its run's `run.json`, so a run that can't be read may hide some); with `--process`, that process's part, plus its versions and the plans, to tell whether the process exists |
 
 ## The data
@@ -219,7 +219,7 @@ A plan made with Flightdeck 2.0 for one exact version (`flightdeck-plan/2`: `for
   - `process` adds `result` (`name`, `options` and `step`, the decision that sets it); each linked step that accepts or imports a result adds `accepts` (the results it accepts) and `imports` (the detail it copies the result into, or `null`).
   - `runs` and `run` add `result` (`name` and `value`, `""` until the decision is recorded) and `outcome` (how it ended in words, `"Completed · needs-work"`, or `null` while it runs) to a run of a checklist with a result.
   - In `run`, each linked step that accepts or returned a result adds `accepts`, `result` (what its child returned, or `null`) and `heldBy` (`{ "process", "id", "result", "reason" }` while it's held because its child returned a result it doesn't accept, else `null`). `next` adds the same `heldBy` to its step.
-  - In `run` and `next`, those steps also add `awaiting` (`{ "process", "id", "result", "reason" }`, else `null`): the linked run ended, or was reopened or corrected after the step counted it, and only the parent run's recorder settles the step, in Flightdeck. The command reads the linked run and never writes, so the step still shows its last settled state; `awaiting` says what will change.
+  - In `run` and `next`, those steps also add `awaiting` (`{ "process", "id", "result", "reason" }`, else `null`): the linked run ended, or was reopened or corrected after the step counted it, and only the parent run's recorder settles the step, in Flightdeck. The command reads the linked run and never writes, so the step still shows its last settled state; `awaiting` says what will change, and `next` names that step before any work further on. An ended run is never settled again, so it has no `awaiting`: `run` adds `resultsChanged` instead to a run that uses results, one entry per step whose linked run changed after this run ended (`step`, `process`, `id`, `result`, `reason`, starting "A linked run's result changed after this run ended"), `[]` when none did.
   A held step is `blocked` with that reason; it isn't a failed child, and a new run replaces it. `accepts` lists each value as written, split only at commas.
 
 Contract 1's output doesn't change: it names a test run `newer`, as Flightdeck 1.x did.
