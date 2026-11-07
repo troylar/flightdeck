@@ -266,6 +266,32 @@ PF.loop = (function () {
      comes next hold in every window and the command line before the recorder's send-back is saved. Ended runs are left as they ended. */
   /* The stories a start-all would start now, and the ones it skips with why: in scope, not started, not approved without a
      run, not waiting on a removal decision, every input filled. The UI's preview and loop start-all show the same list. */
+  /* startable() with everything a start needs before it can write: the checklist the loop starts, on its pinned version,
+     available here (procOf, as PF.pins.childTarget reads it). The preview, Start all, a start request and the CLI share it. */
+  function launchable(r, V, keys, procOf) {
+    var S = startable(r, V, keys);
+    if (!procOf || !S.start.length) return S;
+    var t = PF.pins.childTarget(r, V.step, procOf);
+    if (t.pub && !t.legacy) return S;
+    var why = String(t.why || 'the checklist this loop starts isn\'t in the folder').replace(/\.$/, '');
+    return { start: [], skip: S.skip.concat(S.start.map(function (k) { return { key: k.key, uid: k.uid, why: why }; })) };
+  }
+  /* Who may have the recorder carry out a request (q: actionsOf()): one kind of action per request; a person in people.json,
+     not inactive; and the run's recorder, someone holding one of the loop step's roles, or, to start a story, its owner.
+     '' when it may, else why, in words. people: people.json as read. */
+  function requestCheck(r, V, q, people) {
+    var kinds = []; q.ops.forEach(function (op) { if (kinds.indexOf(op) < 0) kinds.push(op); });
+    if (kinds.length !== 1) return 'This request mixes ' + kinds.slice(0, 4).join(' and ') + '; a request asks for one kind of action.';
+    var list = PF.people.listOf(people), p = null;
+    for (var i = 0; i < list.length; i++) if (list[i] && list[i].id === q.as) { p = list[i]; break; }
+    if (!q.as || !p) return (q.as || 'The person asking') + ' isn\'t in people.json, so the request can\'t be carried out.';
+    if (p.inactive) return (p.name || q.as) + ' is marked inactive in people.json, so the request can\'t be carried out.';
+    if (r.recorder && r.recorder.person === q.as) return '';
+    var roles = (V.step && V.step.roles) || [];
+    if (roles.some(function (ro) { return r.roles && own(r.roles, ro) && r.roles[ro] === q.as; })) return '';
+    if (kinds[0] === 'start' && q.items.length && q.items.every(function (k) { var x = V.ledger.items.filter(function (y) { return y.key === k; })[0]; return x && x.owner === q.as; })) return '';
+    return (p.name || q.as) + ' can\'t ask for this: only the run\'s recorder' + (roles.length ? ', someone in the step\'s role (' + roles.slice(0, 5).join(', ') + ')' : '') + (kinds[0] === 'start' ? ' or the story\'s owner' : '') + ' can.';
+  }
   /* The id of a story's row in a loop's table, so a return from its run lands on it. */
   function rowId(step, key) { var c = function (v) { return String(v || '').replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 80); }; return 'loop-row-' + c(step) + '-' + c(key); }
   function startable(r, V, keys) {
@@ -669,5 +695,5 @@ PF.loop = (function () {
 
   return { KINDS: KINDS, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
     idFor: idFor, isScope: isScope, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
-    rollup: rollup, view: view, markStale: markStale, rowId: rowId, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
+    rollup: rollup, view: view, markStale: markStale, rowId: rowId, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();

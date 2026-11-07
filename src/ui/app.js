@@ -2946,7 +2946,7 @@
     var V = r && loopView(r, id), x = V && V.ledger.items.filter(function (i) { return i.key === key; })[0];
     if (!x) return Promise.reject(new Error(key + ' isn\'t in this loop.'));
     /* A request and Start all only start stories with no run yet (fresh); the row's own button also starts a story's next attempt. */
-    if (fresh) { var S = PF.loop.startable(r, V, [key]); if (!S.start.length) return Promise.reject(new Error(key + ': ' + (S.skip[0] ? S.skip[0].why : 'nothing to start') + '.')); }
+    if (fresh) { var S = PF.loop.launchable(r, V, [key], ctx.procOf); if (!S.start.length) return Promise.reject(new Error(key + ': ' + (S.skip[0] ? S.skip[0].why : 'nothing to start') + '.')); }
     var procOf = ctx.procOf || function (pid) { var p = ctx.latestPub(pid); return p ? { latest: p, all: [p], clashes: [], broken: [] } : null; };
     var target = PF.pins.childTarget(r, V.step, procOf), pub = target.pub;
     if (!pub || target.legacy) return Promise.reject(new Error(target.why || 'The checklist this loop starts isn\'t in the folder.'));
@@ -2979,7 +2979,7 @@
   /* Start all under my recording: the confirmed list from the preview, one at a time; what couldn't start is named. */
   function loopStartAll(id) {
     var r = ctx.run(), V = r && loopView(r, id); if (!V) return;
-    var S = PF.loop.startable(r, V), started = [], failed = [], endBusy = busyStart(), sg = gen;
+    var S = PF.loop.launchable(r, V, null, ctx.procOf), started = [], failed = [], endBusy = busyStart(), sg = gen;
     if (state.loopPreview) delete state.loopPreview[id];
     S.start.reduce(function (p, k) { return p.then(function () { return loopLaunch(r, id, k.key, true).then(function () { started.push(k.key); }, function (err) { failed.push(k.key + ' (' + (err && err.message || err) + ')'); }); }); }, Promise.resolve())
       .then(function () { endBusy(); if (sg !== gen) return; say('Started ' + started.length + (started.length === 1 ? ' run.' : ' runs.') + (failed.length ? ' Not started: ' + failed.slice(0, 5).join(', ') + '.' : ''), failed.length ? 'warn' : 'good'); return load(true); });
@@ -3006,6 +3006,9 @@
   }
   function loopCarry(r, id, V, q) {
     var key = r.process + '/' + r.id, a = r.steps[id];
+    /* The same rules for everyone who asks (PF.loop.requestCheck): refused with why, nothing changed. */
+    var may = PF.loop.requestCheck(r, V, q, data.people);
+    if (may) return Promise.resolve({ ok: false, why: may });
     if (q.ops[0] === 'start') {
       var done = [], why = [];
       return q.items.reduce(function (p, k) { return p.then(function () { return loopLaunch(r, id, k, true).then(function () { done.push(k); }, function (err) { why.push(err.message); }); }); }, Promise.resolve())

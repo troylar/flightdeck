@@ -233,4 +233,27 @@ rule('Review round 2 (3): proposals that can\'t be read, one file or the whole f
   }
 });
 
+rule('Review round 2 (1, 9): a request from someone not in people.json, without authority, or mixing actions is refused with why and changes nothing', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101, ABC-102'); app.click('loop-add', 'each'); await app.tick(150);
+  const out = await ask(app, [{ op: 'start', item: { key: 'ABC-101' }, as: 'person-outsider' }], 'x-1');
+  assert.deepStrictEqual([outcome(app, out).op, kidPaths(app).length], ['refused', 0]);
+  assert.ok(/isn't in people\.json/.test(outcome(app, out).reason), outcome(app, out).reason);
+  const nope = await ask(app, [{ op: 'start', item: { key: 'ABC-101' }, as: 'person-casey' }], 'x-2');
+  assert.deepStrictEqual([outcome(app, nope).op, kidPaths(app).length], ['refused', 0]);
+  assert.ok(/recorder/.test(outcome(app, nope).reason), outcome(app, nope).reason);
+  const mixed = await ask(app, [{ op: 'send-back', as: 'person-avery' }, { op: 'approve', as: 'person-avery' }], 'x-3');
+  assert.strictEqual(outcome(app, mixed).op, 'refused');
+  assert.ok(/one kind of action/.test(outcome(app, mixed).reason), outcome(app, mixed).reason);
+});
+
+rule('Review round 2 (6): Start all isn\'t offered for a story whose run can\'t start (the pinned checklist is gone)', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  assert.ok(/Start all under my recording…/.test(txt(app)), 'set-up: offered');
+  app.files('publications/validate-story/').forEach(p => { delete app.fs.files[p]; });
+  app.click('refresh'); await app.tick(200);
+  assert.ok(!/Start all under my recording…/.test(txt(app)), 'not offered when nothing can start');
+});
+
 run();

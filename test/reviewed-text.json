@@ -13,8 +13,8 @@
       "reviewed": "fold design tips and the library panel; own-key reads; checked for direct writes and unconditional deletes"
     },
     "bin/flightdeck.js": {
-      "sha256": "a1aa60e7683603ab8a54f61ae478c7dd761f470aaf81c7836f464f430f601fbf",
-      "reviewed": "Loop action requests: the CLI files start/approve/send-back/start-all requests in proposals/; the recorder's window applies them and records applied or refused; start-all preview. Checked for direct writes and unconditional deletes: CLI writes only new request files via writeOnce; app writes via saveRun/mutateRun/saveScope."
+      "sha256": "89d03f01819540913f013f588394239920f549d4cf9ec2bce00b977b82a0c6cc",
+      "reviewed": "Loop requests: shared requestCheck (people, authority, one action kind) and launchable (pins) in app, view and CLI."
     },
     "build.py": {
       "sha256": "21c5b257606a8aa3d24c956f518745372409b550008be4d06f5178081117708c",
@@ -253,8 +253,8 @@
       "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "src/core/loop.js": {
-      "sha256": "02ff6e0cdc4fec66bb05b535d5a5755b41ead7a98b9bcc72ea916e1dd79398ed",
-      "reviewed": "Loop qualification: a missing passed detail disqualifies a child."
+      "sha256": "7eec9d70b3fc9b6db499ad8f7f5ebdb3b70bc632a367419709ac6b044a2f912c",
+      "reviewed": "Loop requests: shared requestCheck (people, authority, one action kind) and launchable (pins) in app, view and CLI."
     },
     "src/core/map.js": {
       "sha256": "671a810abb29087bed638e0fc39ecc5a52b70146abd303742d5d017c9083db7c",
@@ -397,8 +397,8 @@
       "reviewed": "loops review round 1: qualification, answer fingerprints, unreadable holds, auto send-back, start guard; checked for direct writes and unconditional deletes: none added"
     },
     "src/ui/app.js": {
-      "sha256": "de2169e96eaf9aee5eba481986fbca794656145783ef5b9997b3b0b18722ad2a",
-      "reviewed": "Proposals read failure keeps scope records and holds every loop."
+      "sha256": "ee973f12c9ba2e9f3cad0a341f0ebe9748534b239fa69e09db69091a8f274c25",
+      "reviewed": "Loop requests: shared requestCheck (people, authority, one action kind) and launchable (pins) in app, view and CLI."
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
@@ -473,8 +473,8 @@
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "src/ui/views/run.js": {
-      "sha256": "3b849fc10b32d621d59ba18033fba3b8b8d97af70b09b407beb2b610926f2121",
-      "reviewed": "Loop table: row ids and return focus after a story's run; held loops show the last readable view (memory only). Checked for direct writes and unconditional deletes: none added."
+      "sha256": "6dd8f4aff56b768113c2f84795150312e759ec641c9c0c56058b3577720f639d",
+      "reviewed": "Loop requests: shared requestCheck (people, authority, one action kind) and launchable (pins) in app, view and CLI."
     },
     "src/ui/views/setup.js": {
       "sha256": "2393b54abde45fa1ba4ac110f394984d29b04ca728c3f1a46e8c22fb2c60dd80",

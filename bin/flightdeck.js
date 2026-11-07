@@ -2740,10 +2740,11 @@ async function loopMain(argv) {
     childProc = String(R.fieldsOf(r, x.step).process || '');
     const bad = [], got = await repo.readPlans(L.fs, bad, null, true);
     bad.forEach((b) => L.note(b.path, b.kind || 'malformed', fileWhy(b.why)));
-    const d = childProc ? await repo.loadAll(dependsOn(L.fs, ['runs/' + childProc]), { readOnly: true, explain: true, deep: true }) : { runs: [] };
+    const d = childProc ? await repo.loadAll(dependsOn(L.fs, ['runs/' + childProc, 'publications/' + childProc]), { readOnly: true, explain: true, deep: true }) : { runs: [] };
+    const procOf = (id) => { const e = (d.processes || []).filter((p) => p.process === id)[0], i = e && e.index; return i ? { latest: i.latest, all: i.all || [], clashes: i.clashes || [], broken: i.broken || [] } : null; };
     const nameOf = A.names(one.people), who = (p) => { const n = nameOf(p); return n ? n.name || n.id : ''; };
     const unread = (got.scopesUnread || []).concat(bad.filter((b) => /^proposals\/req-/.test(String(b.path || ''))).map((b) => ({ file: String(b.path).slice(10), why: b.why, loop: null })));
-    const V = LP.view(r, stepId, { records: got.scopes, unread, runs: d.runs || [], who }), title = String(r.title || r.process);
+    const V = LP.view(r, stepId, { records: got.scopes, unread, runs: d.runs || [], procOf, who }), title = String(r.title || r.process);
     if (sub === 'read') {
       const R0 = V.rollup;
       return done({ loop: V.loop, title, step: { id: stepId, text: x.step.text, state: (r.steps[stepId] || {}).s || 'open' }, process: childProc, pin: V.pin, accepts: V.accepts,
@@ -2769,7 +2770,7 @@ async function loopMain(argv) {
       if (sub === 'start' || sub === 'start-all') {
         const keys = sub === 'start' ? String(val['--item'] || '').split(/[\s,]+/).filter(Boolean) : null;
         if (sub === 'start' && !keys.length) return usage('say which story with --item ABC-101.');
-        const S = LP.startable(r, V, keys);
+        const S = LP.launchable(r, V, keys, procOf);
         if (!S.start.length) return failOut('invalid', 'Nothing to start' + (S.skip.length ? ': ' + S.skip.map((k) => k.key + ' (' + k.why + ')').join(', ') : '') + '. Nothing was written.', problems());
         act = { start: S.start, skip: S.skip };
         value = { loop: V.loop, changes: S.start.map((k) => ({ op: 'start', item: { key: k.key }, as: val['--as'] })) };
@@ -2787,6 +2788,8 @@ async function loopMain(argv) {
         value = { loop: V.loop, changes: [Object.assign({ op: 'send-back', as: val['--as'] }, val['--reason'] ? { reason: val['--reason'] } : {})] };
         lines.push('Would ask the recorder to send the approval back for review' + (V.changes.length ? ': ' + V.changes.join(' ') : '.'));
       }
+      const may = LP.requestCheck(r, V, { ops: value.changes.map((c) => c.op), items: value.changes.filter((c) => c.item).map((c) => c.item.key), as: val['--as'] }, one.people);
+      if (may) return failOut('invalid', may + ' Nothing was written.', problems());
       lines.push('The recorder\'s window applies it with the same checks as its buttons; no run starts until then.');
       act.lines = lines;
     } else if (sub === 'sync') {
