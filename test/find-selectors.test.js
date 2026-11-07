@@ -261,7 +261,7 @@ const LOOKUPS_OK = {
   'app.js|inputs|k': [3, 'a run detail or role of a published checklist: M.check refuses a name Object.prototype has (a run with one by hand is read-only), and this only writes it, as its own'],
   'app.js|teamSrc|r.name': [2, 'a pass name: PF.links refuses one Object.prototype has (links.js reserved)'],
   'app.js|was|e.name': [1, 'a pass name: PF.links refuses one Object.prototype has (links.js reserved)'],
-  'app.js|roles|ro': [4, 'a run detail or role of a published checklist: M.check refuses a name Object.prototype has (a run with one by hand is read-only), and this only writes it, as its own'],
+  'app.js|roles|ro': [5, 'a run detail or role of a published checklist: M.check refuses a name Object.prototype has (a run with one by hand is read-only), and this only writes it, as its own'],
   'app.js|edEpochs|edKey(pid, fk)': [1, 'a key this code builds holding a newline (the folder, a newline and the rest)'],
   'app.js|edEpochs|k': [2, 'a key this code builds holding a newline (the folder, a newline and the rest)'],
   'app.js|fileSeq|f': [2, 'a file name in the folder as a reader lists it: it ends in .json or .md, so it holds a dot'],

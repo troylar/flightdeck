@@ -12,6 +12,7 @@ const CLEANERS = ['R.sanitize', 'R.cleanCopy', 'R.cleanArchive', 'R.isPlaceholde
   'TL.cleanEntry', 'PF.types.checkCustom', 'PF.skills.check', 'PF.skills.checkV2', 'PF.skills.registration', 'PF.jira.check', 'PF.contract.cleanInstalled', 'PF.plans.clean', 'PF.skills.cleanValidation', 'cleanNote', 'E.notesFile', 'P.newerOf', 'U.drift', 'fuDrift', 'ok', 'noteOf', 'cleanValue', 'X.clean'];
 /* Raw consumers, by a piece of the line, with why they may read what they parse. */
 const RAW = [
+  { file: 'bin/flightdeck.js', has: "let obs; try { obs = JSON.parse(input.buf.toString('utf8')", why: 'loop sync: an observation from another app, not a team-folder file; PF.loop.cleanIntent checks it whole before anything is read or written' },
   { file: 'bin/flightdeck.js', has: "o = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(input.buf));", why: 'skill register reads the name and process only to choose which files to load; PF.skills.registration checks the whole input before anything is written' },
   { file: 'bin/flightdeck.js', has: 'try { o = JSON.parse(snap.text); }', why: 'report check and write read the input only to fill a missing id or created; PF.reports.clean then checks the whole report before anything is written' },
   { file: 'src/core/run.js', has: 'snapshot: JSON.parse(text)', why: 'a copy of a skill snapshot this function just checked and wrote out itself (at most 2 KB), not a file' },

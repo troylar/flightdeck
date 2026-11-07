@@ -584,7 +584,7 @@ rule('R5-1: a test run on a stage passes the loaded team values', async () => {
 rule('R5-1 (source): every R.create in the app passes teamValues: data.teamValues', () => {
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8');
   const calls = src.split('\n').filter(l => /\bR\.create\(/.test(l));
-  assert.strictEqual(calls.length, 3, 'three starts: ordinary and planned, test, linked child');
+  assert.strictEqual(calls.length, 4, 'four starts: ordinary and planned, test, linked child, a loop item (3.0)');
   calls.forEach(l => assert.ok(/teamValues: data\.teamValues\b/.test(l), l.trim().slice(0, 120)));
 });
 

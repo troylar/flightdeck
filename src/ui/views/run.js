@@ -186,14 +186,14 @@
   var LOOP_STATUS = { cleared: 'Cleared', exception: 'Approved without a run', competing: 'More than one run', 'not-started': 'Not started', running: 'In progress',
     stopped: 'Run ended early', unread: 'Result can\'t be read', result: 'Not accepted', removed: 'Removed' };
   function loopBox(ctx, r, s, a, can) {
-    var people = (ctx.data && ctx.data.people) || [], who = function (id) { var x = people.filter(function (q) { return q.id === id; })[0]; return x ? x.name : id || ''; };
+    var byId = ctx.peopleById || Object.create(null), who = function (id) { var x = id && Object.prototype.hasOwnProperty.call(byId, id) ? byId[id] : null; return x ? x.name : id || ''; };
     var V = PF.loop.view(r, s.id, { records: (ctx.data && ctx.data.scopes) || [], runs: (ctx.data && ctx.data.runs) || [], who: who });
     if (!V) return '';
     var RU = V.rollup, sid = esc(s.id), work = can && !V.ended && !r.paused, h = '<div class="loopbox childbox" style="display:block">';
     h += '<p>' + I('nest') + ' <b>' + esc(RU.summary) + '</b></p>';
-    if (V.approved && V.changes.length) h += '<div class="notice warn"><span><b>' + (V.ended ? 'Changed after this run ended' : 'Changed since this was approved') + ':</b> ' + V.changes.map(esc).join(' ') + '</span>' +
+    if (V.approved && V.changes.length) h += '<div class="notice warn"><span><b>' + (V.ended ? 'Changed after this run ended' : 'Changed since this was approved') + ':</b> ' + V.changes.slice(0, 50).map(esc).join(' ') + (V.changes.length > 50 ? ' And ' + (V.changes.length - 50) + ' more.' : '') + '</span>' +
       (work && a && a.s === 'done' ? '<button class="btn" data-act="loop-unsettle" data-id="' + sid + '">Send the approval back for review</button>' : '') + '</div>';
-    if (a && a.s === 'recheck' && V.review.length) h += '<div class="notice warn"><span><b>Approval needs review:</b> ' + V.review.map(esc).join(' ') + '</span></div>';
+    if (a && a.s === 'recheck' && V.review.length) h += '<div class="notice warn"><span><b>Approval needs review:</b> ' + V.review.slice(0, 50).map(esc).join(' ') + (V.review.length > 50 ? ' And ' + (V.review.length - 50) + ' more.' : '') + '</span></div>';
     if (RU.blockers.length) h += '<ul class="small">' + RU.blockers.slice(0, 12).map(function (b) { return '<li>' + esc(b.text) + '</li>'; }).join('') + (RU.blockers.length > 12 ? '<li>and ' + (RU.blockers.length - 12) + ' more</li>' : '') + '</ul>';
     if (RU.items.length) {
       h += '<table class="loop-items"><thead><tr><th>Story</th><th>Status</th><th>Result</th><th>Owner</th><th></th></tr></thead><tbody>';

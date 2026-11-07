@@ -31,7 +31,7 @@ PF.loop = (function () {
     var by = Object.create(null), order = [], held = [], anc = Object.create(null), split = Object.create(null);
     /* OneDrive copies of one record (the same id): counted once when they say the same thing; when they differ, which is
        meant isn't known, so the record is held, with everything after it. */
-    function body(r) { var o = {}; Object.keys(r).forEach(function (k) { if (k[0] !== '_' && k !== 'created') o[k] = r[k]; }); return JSON.stringify(canon(o)); }
+    function body(r) { var o = Object.create(null); Object.keys(r).forEach(function (k) { if (k[0] !== '_' && k !== 'created') o[k] = r[k]; }); return JSON.stringify(canon(o)); }
     records.forEach(function (r) {
       if (!r || typeof r.id !== 'string') return;
       if (!by[r.id]) by[r.id] = r; else if (body(by[r.id]) !== body(r)) split[r.id] = true;
@@ -275,9 +275,9 @@ PF.loop = (function () {
   /* The inputs a new item's child starts with, from the loop's pass: line (item:key, item:title, ^detail, a fixed value), and
      the ones it can't fill (a detail that's empty, ? to ask, a team value read only when the child starts). */
   function inputsFor(r, f, it) {
-    var inputs = {}, missing = [];
+    var inputs = Object.create(null), missing = [];
     PF.links.parse(f.pass, { items: true }).entries.forEach(function (e) {
-      var v = e.source === 'item' ? (e.item === 'key' ? it.key : it.title || '') : e.source === 'detail' ? String((r.details || {})[e.from] || '') : e.source === 'value' ? e.value : '';
+      var v = e.source === 'item' ? (e.item === 'key' ? it.key : it.title || '') : e.source === 'detail' ? String(r.details && own(r.details, e.from) ? r.details[e.from] || '' : '') : e.source === 'value' ? e.value : '';
       if (String(v).trim()) inputs[e.name] = String(v).slice(0, LIMITS.input); else missing.push(e.name);
     });
     return { inputs: inputs, missing: missing };
@@ -394,10 +394,10 @@ PF.loop = (function () {
   function isMap(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
   function reserved(k) { return k === '__proto__' || k === 'constructor' || k === 'prototype' || k in Object.prototype; }
   function q(k) { return '"' + String(k).slice(0, 70) + '"'; }
-  function sorted(m) { var o = {}; Object.keys(m).sort().forEach(function (k) { o[k] = m[k]; }); return o; }
+  function sorted(m) { var o = Object.create(null); Object.keys(m).sort().forEach(function (k) { o[k] = m[k]; }); return o; }
   function canon(v) {
     if (Array.isArray(v)) return v.map(canon);
-    if (isMap(v)) { var o = {}; Object.keys(v).sort().forEach(function (k) { o[k] = canon(v[k]); }); return o; }
+    if (isMap(v)) { var o = Object.create(null); Object.keys(v).sort().forEach(function (k) { o[k] = canon(v[k]); }); return o; }
     return v;
   }
   /* The request's id and file stem: like a plan request's (PF.requests.idFor), from the tool's name and the key, but over
@@ -437,7 +437,8 @@ PF.loop = (function () {
     var qy = line(o.query, LIMITS.query, '"query"', errors); if (qy) out.query = qy;
     if (typeof o.observedAt !== 'string' || !ISO.test(o.observedAt) || isNaN(Date.parse(o.observedAt))) errors.push('"observedAt" is a date and time with its zone, like 2026-11-07T09:42:00Z.');
     else out.observedAt = new Date(Date.parse(o.observedAt)).toISOString();
-    ['reported', 'fetched'].forEach(function (k) { if (!whole(o[k])) errors.push(q(k) + ' is a whole number.'); else out[k] = o[k]; });
+    if (!whole(o.reported)) errors.push(q('reported') + ' is a whole number.'); else out.reported = o.reported;
+    if (!whole(o.fetched)) errors.push(q('fetched') + ' is a whole number.'); else out.fetched = o.fetched;
     if (typeof o.complete !== 'boolean') errors.push('"complete" is true or false: whether every page of the search was read.');
     if (!Array.isArray(o.errors) || o.errors.length > LIMITS.errors) errors.push('"errors" is a list of at most ' + LIMITS.errors + ' messages ([] when none).');
     else o.errors.forEach(function (e, i) { var t = line(e, LIMITS.error, '"errors" ' + (i + 1), errors); if (t) out.errors.push(t); });
@@ -500,7 +501,7 @@ PF.loop = (function () {
   /* The canonical intent: what's compared on a retry. The tool's version and Flightdeck's own additions (seen, children,
      the time it was written) are never part of it, so the original stands. */
   /* An observation as written: why is derived again when it's read. */
-  function wire(obs) { if (!obs) return null; var o = {}; Object.keys(obs).forEach(function (k) { if (k !== 'why') o[k] = obs[k]; }); return o; }
+  function wire(obs) { if (!obs) return null; var o = Object.create(null); Object.keys(obs).forEach(function (k) { if (k !== 'why') o[k] = obs[k]; }); return o; }
   function canonical(intent) { return canon({ loop: intent.loop, producer: intent.producer ? intent.producer.name : null, observation: wire(intent.observation), changes: intent.changes }); }
   function differs(intent, file) {
     if (!isMap(file) || file.format !== FORMAT) return ['kind'];

@@ -2915,7 +2915,7 @@
     if (!V) return;
     if (V.ledger.held.length) { say('This loop has a scope record this computer can\'t read yet, so nothing was changed. Check the folder, then try again.', 'warn'); render(); return; }
     var c = PF.loop.cleanIntent(PF.loop.changeOf(V, op, keys, o), '', null);
-    if (c.errors.length) { say(c.errors.join(' ') + ' Nothing was changed.', 'warn'); render(); return; }
+    if (c.errors.length) { say(c.errors.slice(0, 5).join(' ') + ' Nothing was changed.', 'warn'); render(); return; }
     var P = PF.loop.project(r, V, c.intent, { who: personName, by: state.me });
     if (P.overLimit) { say('This would put ' + P.overLimit.count + ' stories in scope; the loop takes at most ' + P.overLimit.max + '. Nothing was changed.', 'warn'); render(); return; }
     var now = new Date().toISOString(), f = PF.loop.buildRequest(c.intent, { seen: P.seen, children: P.record.children, now: now, app: APP_VERSION, by: state.me, id: 'req-flightdeck-' + loopHex(24) });
@@ -2939,7 +2939,7 @@
     if (got.missing.length) { say(key + '\'s run needs ' + got.missing.join(', ') + ' first.', 'warn'); render(); return; }
     var row = V.rollup.items.filter(function (i) { return i.uid === x.uid; })[0], attempt = row && row.runs.length ? row.attempt + 1 : Math.max(1, row ? row.attempt : 1);
     var roles = {}; pub.map.meta.roles.forEach(function (ro) { roles[ro] = r.roles[ro] || ''; });
-    var child; try { child = R.create(pub, { title: key + (x.title ? ': ' + x.title : ''), details: got.inputs, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), app: APP_VERSION,
+    var child; try { child = R.create(pub, { title: key + (x.title ? ': ' + x.title : ''), details: got.inputs, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), app: APP_VERSION, teamValues: data.teamValues,
       parent: { process: r.process, id: r.id, step: id, item: { uid: x.uid, key: x.key, attempt: attempt } } }); }
     catch (err) { say(err.message, 'warn'); render(); return; }
     var sfs = state.fs, endBusy = busyStart(), sg = gen;
