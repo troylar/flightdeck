@@ -244,4 +244,46 @@ rule('Review round 6 (5): loop start naming a story twice is refused before anyt
   assert.strictEqual(fs.readdirSync(path.join(root, 'proposals')).length, before, 'nothing filed');
 });
 
+const LP7 = PF.loop, LOOP7 = { process: 'release-readiness', run: 'r-41', step: 'each' };
+const rec7 = (key, changes, seen, children) => { const c = LP7.cleanIntent({ loop: LOOP7, changes }, key, { name: 'release-helper', version: '1.0' }); assert.strictEqual(c.errors.length, 0, c.errors.join(' ')); return LP7.buildRequest(c.intent, { seen: seen || [], children: children || [], now: AT, app: '3.0.0' }); };
+rule('Review round 7 (4): loop read shows two plans in conflict, and loop plan keeps one of them', async () => {
+  const { root } = await folder();
+  const ch = (v) => [{ item: { id: '', key: 'ABC-101' }, attempt: 1, inputs: { issue: 'ABC-101', fix_version: v }, owner: '' }];
+  const a = rec7('pa', [{ op: 'add', item: { key: 'ABC-101' } }], [], ch('4.1')), b = rec7('pb', [{ op: 'add', item: { key: 'ABC-101' } }], [], ch('4.2'));
+  fs.mkdirSync(path.join(root, 'proposals'), { recursive: true });
+  [a, b].forEach(f => fs.writeFileSync(path.join(root, 'proposals', f.id + '.json'), LP7.text(f)));
+  const rd = json('loop', 'read', root, 'release-readiness/r-41', 'each', '--json').data.items[0];
+  assert.deepStrictEqual(rd.planConflict && rd.planConflict.options.map(o => o.record).sort(), [a.id, b.id].sort());
+  const T = ['--tool', 'release-helper@1.0'];
+  const bad = json('loop', 'plan', root, 'release-readiness/r-41', 'each', '--item', 'ABC-101', '--record', 'req-nope-0123456789abcdef01234567', '--key', 'k0', '--json', ...T);
+  assert.deepStrictEqual([bad.code, bad.error && bad.error.kind], [1, 'invalid']);
+  const ok = json('loop', 'plan', root, 'release-readiness/r-41', 'each', '--item', 'ABC-101', '--record', b.id, '--key', 'k1', '--json', ...T);
+  assert.deepStrictEqual([ok.code, ok.data && ok.data.status], [0, 'requested'], JSON.stringify(ok.error || {}));
+  const after = json('loop', 'read', root, 'release-readiness/r-41', 'each', '--json').data.items[0];
+  assert.deepStrictEqual([after.planConflict, after.planned && after.planned.inputs.fix_version], [null, '4.2']);
+});
+rule('Review round 7 (5): loop resolve files a request to record an outcome recorded both ways; only such a request can be resolved', async () => {
+  const { root } = await folder(), f = path.join(root, '..', path.basename(root) + '-obs7.json');
+  fs.writeFileSync(f, JSON.stringify(obs([101])));
+  json('loop', 'sync', root, 'release-readiness/r-41', 'each', '--from', f, '--json', '--tool', 'release-helper@1.0', '--key', 'a');
+  const T = ['--tool', 'release-helper@1.0', '--as', 'person-morgan'];
+  const st = json('loop', 'start', root, 'release-readiness/r-41', 'each', '--item', 'ABC-101', '--key', 's', '--json', ...T), id = st.data.request.id;
+  const R7 = ['loop', 'resolve', root, 'release-readiness/r-41', 'each', '--record', id, '--outcome', 'refused', '--json', ...T];
+  const early = json(...R7, '--key', 'r0');
+  assert.deepStrictEqual([early.code, early.error && early.error.kind], [1, 'invalid'], 'a pending request isn\'t resolved');
+  for (const [op, w] of [['applied', 'wa'], ['refused', 'wb']]) {
+    const dd = LP7.buildDecision({ proposal: id, loop: LOOP7, op, items: [], seen: [id], reason: op, by: 'person-morgan', writer: w, rev: op === 'applied' ? '0000000a' : '0000000b', now: AT, app: '3.0.0' });
+    fs.writeFileSync(path.join(root, 'proposals', dd.name), JSON.stringify(dd.file));
+  }
+  const rq = json('loop', 'read', root, 'release-readiness/r-41', 'each', '--json').data.requests.filter(q => q.id === id)[0];
+  assert.strictEqual(rq.status, 'review');
+  const bad = json('loop', 'resolve', root, 'release-readiness/r-41', 'each', '--record', id, '--outcome', 'maybe', '--key', 'r1', '--json', ...T);
+  assert.deepStrictEqual([bad.code, bad.error && bad.error.kind], [1, 'usage']);
+  const ok = json(...R7, '--key', 'r2');
+  assert.deepStrictEqual([ok.code, ok.data && ok.data.status], [0, 'requested'], JSON.stringify(ok.error || {}));
+  assert.strictEqual(json(...R7, '--key', 'r2').data.status, 'already');
+  const other = json('loop', 'resolve', root, 'release-readiness/r-41', 'each', '--record', id, '--outcome', 'applied', '--key', 'r2', '--json', ...T);
+  assert.deepStrictEqual([other.code, other.error && other.error.kind], [1, 'key-taken']);
+});
+
 run();

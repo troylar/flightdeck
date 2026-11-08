@@ -2628,8 +2628,8 @@ const HELP = `flightdeck: team process checklists, in one HTML file
                                       holds its gate and the approval. Only reads
   flightdeck loop sync <team folder> <process>/<run> <loop step> --from <file|-> --tool <name>@<version> --key <key> [--dry-run] [--json]
                                       for AI assistants: ask for a change to a loop's list (also loop add, exclude,
-                                      restore, exception, withdraw, owner, choose, review), or ask the recorder to start,
-                                      start-all, approve or send-back. Writes one file in proposals/, once;
+                                      restore, exception, withdraw, owner, choose, plan, review), or ask the recorder
+                                      to start, start-all, approve, send-back or resolve. Writes one file in proposals/, once;
                                       --dry-run previews; the recorder's window applies; never writes a run
   flightdeck skill register <team folder> --from <file|-> [--json]
                                       for AI assistants: register a skill against the exact version it was built
@@ -2684,8 +2684,8 @@ default goes to .flightdeck/updates/<version>/, with a README.md to hand to your
    a person (--as) that a tool records on their behalf. They never start a run and never write run.json; the parent's
    recorder sees the change when Flightdeck reads the folder. --dry-run previews and writes nothing. The same --tool and --key
    always mean the same request: a retry writes nothing; the key with other content is refused. */
-const LOOP_SUBS = ['read', 'sync', 'add', 'exclude', 'restore', 'exception', 'withdraw', 'owner', 'choose', 'review', 'start', 'start-all', 'approve', 'send-back'];
-const LOOP_VAL = ['--from', '--key', '--tool', '--keys', '--item', '--reason', '--approver', '--owner', '--as', '--accept', '--keep', '--run'];
+const LOOP_SUBS = ['read', 'sync', 'add', 'exclude', 'restore', 'exception', 'withdraw', 'owner', 'choose', 'plan', 'review', 'start', 'start-all', 'approve', 'send-back', 'resolve'];
+const LOOP_VAL = ['--from', '--key', '--tool', '--keys', '--item', '--reason', '--approver', '--owner', '--as', '--accept', '--keep', '--run', '--record', '--outcome'];
 const UNCERTAIN = 'Could not confirm whether the request was saved. Retry with the same key; a new key could ask twice.';
 function loopWords(json, sub) {
   if (json.error) return 'flightdeck: ' + json.error.why + json.problems.map((x) => '\n  ' + x.path + ': ' + x.why).join('');
@@ -2753,7 +2753,8 @@ async function loopMain(argv) {
         summary: R0.summary, counts: R0.counts, ok: R0.ok, blockers: R0.blockers,
         items: R0.items.map((i) => ({ uid: i.uid, key: i.key, title: i.title, state: i.state, status: i.status, result: i.result || null, run: i.run || null, runs: i.runs, competing: i.competing,
           recorder: i.recorder ? nameOf(i.recorder) : null, owner: i.owner ? nameOf(i.owner) : null, exception: i.exception ? { reason: i.exception.reason, approver: nameOf(i.exception.approver), onBehalf: i.exception.onBehalf } : null,
-          review: i.review, mismatch: i.mismatch, attempt: i.attempt, planned: i.planned ? { inputs: i.planned.inputs, attempt: i.planned.attempt } : null })),
+          review: i.review, mismatch: i.mismatch, attempt: i.attempt, planned: i.planned ? { inputs: i.planned.inputs, attempt: i.planned.attempt } : null,
+          planConflict: i.planConflict, ownerConflict: i.ownerWhy || null, exceptionConflict: !!i.excReview })),
         pending: V.ledger.pending, held: V.ledger.held, duplicates: V.ledger.duplicates, overLimit: V.ledger.overLimit,
         observation: V.ledger.observation ? Object.assign({ record: V.ledger.observation.record }, V.ledger.observation.observation, { items: undefined, count: V.ledger.observation.observation.items.length }) : null,
         approval: V.approved ? { by: V.approved.by, at: V.approved.at, onBehalf: V.approved.onBehalf || null, summary: V.approved.summary } : null,
@@ -2765,10 +2766,11 @@ async function loopMain(argv) {
     let value, act = null;
     /* The CLI asks; the recorder applies (docs/apps.md, Loops): a story's run, every startable one, the approval and a send-back
        are requests the recorder's window carries out with the same checks as its buttons. Nothing here writes run.json. */
-    if (['start', 'start-all', 'approve', 'send-back'].indexOf(sub) >= 0) {
+    if (['start', 'start-all', 'approve', 'send-back', 'resolve'].indexOf(sub) >= 0) {
       if (!val['--as'] || !/^[A-Za-z0-9_.-]{1,80}$/.test(val['--as'])) return usage('say who asks with --as <person id from people.json>. The recorder applies it on their behalf.');
       /* A story named twice is refused before anything else, so a first try and its retry get the same answer. */
       const named = String(val['--item'] || '').split(/[\s,]+/).filter(Boolean), twice = named.filter((k, i) => named.indexOf(k) !== i);
+      if (sub === 'resolve' && (!val['--record'] || ['applied', 'refused'].indexOf(val['--outcome']) < 0)) return usage('say which request with --record <request id> and what happened with --outcome applied or --outcome refused.');
       if (sub === 'start' && twice.length) return usage('--item names ' + twice.filter((k, i) => twice.indexOf(k) === i).slice(0, 5).join(', ') + ' more than once. Name each story once. Nothing was written.');
       const a = r.steps && r.steps[stepId], lines = [];
       /* A retry under the same key is judged on what was first asked, before the loop's state now: an identical one says
@@ -2783,6 +2785,7 @@ async function loopMain(argv) {
         if (kindA !== sub) dA.push('action');
         if (priorA.as !== val['--as']) dA.push('as');
         if ((priorA.reason || '') !== (val['--reason'] || '')) dA.push('reason');
+        if (sub === 'resolve' && ((priorA.record || '') !== val['--record'] || (priorA.outcome || '') !== val['--outcome'])) dA.push((priorA.record || '') !== val['--record'] ? 'record' : 'outcome');
         if (sub === 'start' && JSON.stringify(priorA.items.slice().sort()) !== JSON.stringify(String(val['--item'] || '').split(/[\s,]+/).filter(Boolean).sort())) dA.push('items');
         if (dA.length) return failOut('key-taken', 'This key already names a different request (' + fileA + '). Changed fields: ' + dA.join(', ') + '. Read that request (flightdeck loop read) before choosing a new key. Nothing was written.', problems());
         return done({ loop: V.loop, status: 'already', request: { id: idA, file: fileA }, preview: 'Already requested (' + (priorA.status || 'pending') + (priorA.why ? ': ' + priorA.why : '') + '). Nothing written.', start: [], skip: [], approve: null, sendBack: null, runsStarted: 0, appliedBy: 'the recorder' });
@@ -2797,6 +2800,15 @@ async function loopMain(argv) {
         value = { loop: V.loop, changes: S.start.map((k) => Object.assign({ op: 'start', item: { key: k.key }, as: val['--as'] }, sub === 'start-all' ? { all: true } : {})) };
         lines.push('Would ask the recorder to start ' + S.start.length + (S.start.length === 1 ? ' run: ' : ' runs: ') + S.start.map((k) => k.key).join(', ') + '.');
         if (S.skip.length) lines.push('Skipped: ' + S.skip.map((k) => k.key + ' (' + k.why + ')').join(', ') + '.');
+      } else if (sub === 'resolve') {
+        /* Resolved by what the request left behind (LP.resolveWhy), never by doing it again: the recorder's window checks again. */
+        const tq = LP.actionsOf(V).filter((y) => y.id === val['--record'])[0];
+        if (!tq || tq.status !== 'review') return failOut('invalid', (tq ? val['--record'] + ' is ' + tq.status + ', not recorded both ways' : val['--record'] + ' isn\'t a request on this loop') + '; only an outcome recorded both ways is resolved. Nothing was written.', problems());
+        const rw = LP.resolveWhy(r, stepId, tq, val['--outcome'], d.runs || []);
+        if (rw) return failOut('invalid', rw + ' Nothing was written.', problems());
+        act = { resolve: { request: tq.id, outcome: val['--outcome'] } };
+        value = { loop: V.loop, changes: [{ op: 'resolve', record: tq.id, outcome: val['--outcome'], as: val['--as'] }] };
+        lines.push('Would ask the recorder to record ' + tq.id + ' as ' + val['--outcome'] + ' (it was recorded both ways).');
       } else if (sub === 'approve') {
         if (a && a.s === 'done' && a.loop && !V.changes.length) return failOut('invalid', 'This loop is already approved. Nothing was written.', problems());
         if (!V.rollup.ok) return failOut('invalid', 'It can\'t be approved yet: ' + V.rollup.summary + '. ' + V.rollup.blockers.slice(0, 5).map((b) => b.text).join(' ') + ' Nothing was written.', problems());
@@ -2830,9 +2842,11 @@ async function loopMain(argv) {
         if (sub === 'exception') { c.approver = val['--approver']; if (val['--as']) c.onBehalf = true; }
         if (sub === 'owner') c.owner = val['--owner'] || '';
         if (sub === 'choose') { const ch = LP.changeOf(V, 'choose', [k], { run: val['--run'] || '' }).changes[0]; c.run = ch.run; c.attempt = ch.attempt; c.candidates = ch.candidates; }
+        if (sub === 'plan') { const ch = LP.changeOf(V, 'plan', [k], { record: val['--record'] || '' }).changes[0]; c.record = ch.record; c.attempt = ch.attempt; }
         return c;
       }) };
       if (sub !== 'add') { const miss = items.filter((k) => !find(k)); if (miss.length) return failOut('invalid', miss.join(', ') + (miss.length === 1 ? ' isn\'t' : ' aren\'t') + ' in this loop. Nothing was written.', problems()); }
+      if (sub === 'plan') { if (items.length !== 1 || !val['--record']) return usage('say which story with --item ABC-101 and which of its plans to keep with --record <request id>.'); const pw = LP.planWhy(V, items[0], val['--record']); if (pw) return failOut('invalid', pw + ' Nothing was written.', problems()); }
       if (sub === 'choose') { if (items.length !== 1 || !val['--run']) return usage('say which story with --item ABC-101 and which of its runs counts with --run <run id>.'); const cw = LP.choiceWhy(V, items[0], val['--run']); if (cw) return failOut('invalid', cw + ' Nothing was written.', problems()); }
     }
     const c = LP.cleanIntent(value, val['--key'], tool);
@@ -2849,7 +2863,7 @@ async function loopMain(argv) {
     if (act) {
       const fa = LP.buildRequest(c.intent, { seen: V.ledger.heads, children: [], now: new Date().toISOString(), app: eng.version });
       const dataA = (status) => ({ loop: V.loop, status, request: { id, file }, preview: title + (status === 'would-request' ? ' — preview only; no files written.' : ' — requested.') + '\n\n' + act.lines.join('\n'),
-        start: act.start || [], skip: act.skip || [], approve: act.approve || null, sendBack: act.sendBack || null, runsStarted: 0, appliedBy: 'the recorder' });
+        start: act.start || [], skip: act.skip || [], approve: act.approve || null, sendBack: act.sendBack || null, resolve: act.resolve || null, runsStarted: 0, appliedBy: 'the recorder' });
       if (dryRun) return done(dataA('would-request'));
       let resA;
       try { resA = writeOnce(dir, ['proposals'], id + '.json', LP.text(fa)); } catch (e) { return failOut('failed', UNCERTAIN + ' (' + (e && e.message || String(e)) + ')', problems()); }
