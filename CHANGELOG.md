@@ -4,7 +4,7 @@
 
 ## 3.0.0 · Nov 8, 2026
 
-Thoughtful checklists: a library view, design tips and clearer checks.
+Thoughtful checklists, results that mean ready, and loops for any list.
 
 ### New
 

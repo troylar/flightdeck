@@ -233,7 +233,7 @@ It keeps its record in `.flightdeck-installed.json` and puts new defaults to mer
 
 ### Moving a team to Flightdeck 3.0
 
-1. Put Flightdeck 3.0 in the team folder and have everyone reopen it from there. A team still on 1.x moves to 1.21 first, as for 2.0 (above). Check Folder health: "Teammates are using an older Flightdeck" should be gone once every computer has answered a connection check or opened a draft with 3.0.
+1. Put Flightdeck 3.0 in the team folder and have everyone reopen it from there. A team still on 1.x moves to 1.21 first, as for 2.0 (above). Then confirm each computer's version directly: Settings → About in the app it opens, or `flightdeck version` for the command on that computer. Don't wait for Folder health's "Teammates are using an older Flightdeck" to clear: it keeps each older copy it saw for 7 days, so it can stay up to 7 days after the last older copy was used.
 2. Only then publish a version that uses results or loops: a checklist's `result:` (with `sets: <detail>=decision`), `accepts:` or `sets: <detail>=result` on a linked step, or a `{for.each}` step. The Publish panel names them under **Needs Flightdeck 3.0**. A checklist that uses none of them publishes as it does on 2.16, and every teammate runs it.
 
 What an older copy does with them:
