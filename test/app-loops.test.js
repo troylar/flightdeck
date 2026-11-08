@@ -837,4 +837,28 @@ rule('Round 9 (1): two owners assigned at once after the approval send it back a
   assert.ok(/two people assigned it at once/.test(r2.steps.each.values.changes), r2.steps.each.values.changes);
 });
 
+rule('Round 9 (4): what a request already did is recognized before who may ask: a start whose asker lost the item, and a resolution that landed, are applied', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101, ABC-102'); app.click('loop-add', 'each'); await app.tick(150);
+  app.set('loop-who-each', 'person-casey'); app.click('loop-assign', 'each', { item: 'ABC-101' }); await app.tick(150);
+  const fs = app.fs, write = fs.write.bind(fs);
+  fs.write = (p, t, o) => /\.status-/.test(p) && /"applied"|"refused"/.test(String(t)) ? Promise.reject(new Error('EIO')) : write(p, t, o);
+  const st = await ask(app, [{ op: 'start', item: { key: 'ABC-101' }, as: 'person-casey' }], 'r9-st');
+  assert.strictEqual(kidPaths(app).length, 1, 'set-up: Casey, the owner, started it; its outcome not written');
+  fs.write = write;
+  app.click('loop-unassign', 'each', { item: 'ABC-101' }); await app.tick(250);
+  assert.deepStrictEqual([outcome(app, st) && outcome(app, st).op, kidPaths(app).length], ['applied', 1], outcome(app, st) ? outcome(app, st).reason : 'no outcome');
+  /* A resolution that already landed (it names its resolve request) is applied, though its asker may not ask. */
+  const PF = app.PF, LP = PF.loop, x = await ask(app, [{ op: 'start', item: { key: 'ABC-102' }, as: 'person-avery' }], 'r9-x');
+  for (const p of app.files('proposals/').filter(p => p.indexOf(x + '.status-') >= 0)) delete app.fs.files[p];
+  await twoWays(app, x);
+  const rid = LP.idFor('release-helper', 'r9-res'), d = await PF.repo.loadAll(app.fs, {}), V = LP.view(parentRun(app), 'each', { records: d.scopes, runs: d.runs });
+  const dd = LP.buildDecision({ proposal: x, loop: V.loop, op: 'applied', items: [], seen: V.ledger.heads, reason: 'resolved', by: 'person-avery', resolver: rid, writer: 'wr', rev: '0000000c', now: new Date().toISOString(), app: '3.0.0' });
+  await app.fs.write('proposals/' + dd.name, JSON.stringify(dd.file));
+  const res = await ask(app, [{ op: 'resolve', record: x, outcome: 'applied', as: 'person-casey' }], 'r9-res');
+  assert.strictEqual(res, rid);
+  const o = app.files('proposals/').filter(p => p.indexOf(rid + '.status-') >= 0).map(p => JSON.parse(app.fs.files[p].t));
+  assert.deepStrictEqual(o.map(f => f.op), ['applied'], JSON.stringify(o.map(f => f.reason)));
+});
+
 run();

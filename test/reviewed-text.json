@@ -397,8 +397,8 @@
       "reviewed": "S2: one write-time guard (folder, generation, person, run and inputs) checked in the save's still hook for every loop write; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "6e715f53f9b80ef20b5cf11221742c0a8363c3594b70b3c8f63efa26c150e826",
-      "reviewed": "one frontier limit (seen, 2000) for requests and decisions; fileWhy rechecks every built scope record with the reader before any write; refusals write nothing, checked for direct writes and unconditional deletes"
+      "sha256": "35e3e8b6b7c76e7fa2f3e970936225e92fc42a17844c658b07ebe39d4ebad0b6",
+      "reviewed": "loopCarry recognizes landed effects (approval, resolution, started children) before authority; writes go through loopOutcome with the guard, checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

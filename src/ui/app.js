@@ -3082,12 +3082,16 @@
   function loopCarry(r, id, V, q, cx) {
     var key = r.process + '/' + r.id, a = r.steps[id];
     /* The same rules for everyone who asks (PF.loop.requestCheck): refused with why, nothing changed. */
+    /* What the request already did comes first, before who may ask: an effect that landed is recorded applied even if the
+       asker has since lost the item or the role. Authority is checked only for work still to do. */
     if (PF.loop.appliedIn(r, id, q.id)) return Promise.resolve({ ok: true, why: 'Carried out before; its outcome is recorded now.' });
+    if (q.ops[0] === 'resolve' && PF.loop.resolvedBy(V, q.id)) return Promise.resolve({ ok: true, why: 'Resolved before; its outcome is recorded now.' });
+    var started = q.ops[0] !== 'start' ? [] : (data.runs || []).filter(function (c) { var it = c.parent && c.parent.item; return it && it.request === q.id && c.parent.process === r.process && c.parent.id === r.id && c.parent.step === id; }).map(function (c) { return c.parent.item.key; });
+    var rest = q.ops[0] !== 'start' ? null : q.items.filter(function (k, i) { return started.indexOf(k) < 0 && q.items.indexOf(k) === i; });
+    if (rest && !rest.length) return Promise.resolve({ ok: true, why: 'Started ' + started.slice(0, 20).join(', ') + ' before; its outcome is recorded now.' });
     var may = PF.loop.requestCheck(r, V, q, data.people);
-    if (may) return Promise.resolve({ ok: false, why: may });
+    if (may) return Promise.resolve(started.length ? { ok: true, why: 'Started ' + started.slice(0, 20).join(', ') + ' before; the rest weren\'t started: ' + may } : { ok: false, why: may });
     if (q.ops[0] === 'resolve') {
-      /* Its own effect first: an outcome it wrote names it, so a retry after its receipt was lost is recorded applied. */
-      if (PF.loop.resolvedBy(V, q.id)) return Promise.resolve({ ok: true, why: 'Resolved before; its outcome is recorded now.' });
       var t = PF.loop.actionsOf(V).filter(function (y) { return y.id === q.record; })[0], rw = PF.loop.resolveWhy(r, id, t, q.outcome, data.runs, V.records);
       if (rw) return Promise.resolve({ ok: false, why: rw });
       return loopOutcome(V, t, q.outcome, 'Resolved at ' + personName(q.as) + '\'s request: it was ' + q.outcome + '.', cx, q.id).then(function (wrote) {
