@@ -2943,48 +2943,56 @@
   }
   /* Starts one story's run for loop step id of run r: a promise of the run started, or an Error saying why nothing was. */
   /* request: the id of the request it carries out, kept in the run it starts, so a lost outcome is recovered from it. */
-  /* cx (a batch's folder and generation): nothing is written once the folder has changed; the error says stopped. */
   /* Every start (the row's button, Start mine, Start all, a request, the batch) asks one question, PF.loop.launchable, here
-     and again inside the write queue right before the run is written, on the run as it is then: paused, a competing run,
-     another start or a folder switch since it was asked stops it, and nothing is written. */
+     and again inside the write queue right before the run is written. cx (required): the folder and its generation when the
+     start was asked; after a switch nothing is written and the error says stopped. Inside the queue the child is built again
+     from the run as it is then (paused, a competing run, another start, a changed detail or role), so it never carries
+     values the run no longer has. */
   function loopLaunch(r, id, key, request, cx) {
-    var moved = function () { return cx && (cx.g !== gen || cx.fs !== state.fs); };
-    if (moved()) return Promise.reject(Object.assign(new Error('The folder changed; nothing more was started.'), { stopped: true }));
-    var V = r && loopView(r, id), x = V && V.ledger.items.filter(function (i) { return i.key === key; })[0];
-    if (!x) return Promise.reject(new Error(key + ' isn\'t in this loop.'));
-    var S = PF.loop.launchable(r, V, [key], ctx.procOf);
-    if (!S.start.length) return Promise.reject(new Error(key + ': ' + (S.skip[0] ? S.skip[0].why : 'nothing to start') + '.'));
-    var procOf = ctx.procOf || function (pid) { var p = ctx.latestPub(pid); return p ? { latest: p, all: [p], clashes: [], broken: [] } : null; };
-    var target = PF.pins.childTarget(r, V.step, procOf), pub = target.pub;
-    if (!pub || target.legacy) return Promise.reject(new Error(target.why || 'The checklist this loop starts isn\'t in the folder.'));
-    var got = PF.loop.inputsFor(r, V.fields, x);
-    if (got.missing.length) return Promise.reject(new Error(key + '\'s run needs ' + got.missing.join(', ') + ' first.'));
-    var attempt = S.start[0].attempt, rkey = r.process + '/' + r.id;
-    var roles = {}; pub.map.meta.roles.forEach(function (ro) { roles[ro] = r.roles[ro] || ''; });
-    var flight = r.id + '/' + id + '/' + x.uid;
+    if (!cx || !cx.fs) return Promise.reject(new Error('A start needs the folder it was asked in. Nothing was started.'));
+    var moved = function () { return cx.g !== gen || cx.fs !== state.fs; };
+    var stopped = function () { return Object.assign(new Error('The folder changed; nothing more was started.'), { stopped: true }); };
+    if (moved()) return Promise.reject(stopped());
+    var first = loopChild(r, id, key, request);
+    if (first.err) return Promise.reject(first.err);
+    var attempt = first.attempt, rkey = r.process + '/' + r.id, flight = r.id + '/' + id + '/' + first.uid, child = null;
     if (!state.loopStarting) state.loopStarting = Object.create(null);
     if (state.loopStarting[flight]) return Promise.reject(Object.assign(new Error('already starting'), { quiet: true }));
-    var tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (err) { tz = ''; }
-    var child; try { child = R.create(pub, { title: key + (x.title ? ': ' + x.title : ''), details: got.inputs, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), app: APP_VERSION, teamValues: data.teamValues, tz: tz, workflows: data.jira.workflows, pins: pinsAtStart(pub),
-      parent: { process: r.process, id: r.id, step: id, item: Object.assign({ uid: x.uid, key: x.key, attempt: attempt }, request ? { request: request } : {}) } }); }
-    catch (err) { return Promise.reject(err); }
-    var sfs = cx ? cx.fs : state.fs;
     state.loopStarting[flight] = true;
     return queued(function () {
-      if (moved()) throw Object.assign(new Error('The folder changed; nothing more was started.'), { stopped: true });
-      var cur = findRun(rkey), V2 = cur && loopView(cur, id), S2 = V2 ? PF.loop.launchable(cur, V2, [key], ctx.procOf) : null;
-      if (!S2 || !S2.start.length) throw new Error(key + ': ' + (S2 && S2.skip[0] ? S2.skip[0].why : 'the run can\'t be read') + '. Nothing was started.');
-      if (S2.start[0].attempt !== attempt) throw new Error(key + ' changed while it waited to start. Nothing was started.');
-      /* Checked again right before it writes: a run for this story and attempt that arrived meanwhile wins, and nothing is started. */
-      var taken = (data.runs || []).some(function (c) { var it = c.parent && c.parent.item; return it && c.parent.process === r.process && c.parent.id === r.id && c.parent.step === id && it.uid === x.uid && +it.attempt === attempt; });
+      if (moved()) throw stopped();
+      var cur = findRun(rkey), now = cur ? loopChild(cur, id, key, request) : { err: new Error(key + ': the run can\'t be read. Nothing was started.') };
+      if (now.err) throw new Error(now.err.message.replace(/\.?$/, '') + '. Nothing was started.');
+      if (now.attempt !== attempt) throw new Error(key + ' changed while it waited to start. Nothing was started.');
+      /* A run for this story and attempt that arrived meanwhile wins, and nothing is started. */
+      var taken = (data.runs || []).some(function (c) { var it = c.parent && c.parent.item; return it && c.parent.process === cur.process && c.parent.id === cur.id && c.parent.step === id && it.uid === now.uid && +it.attempt === attempt; });
       if (taken) throw new Error(key + ' already has a run for this attempt. Nothing was started.');
-      child.recorder.session = SESSION; return repo.saveRun(sfs, child, SESSION, { writer: WRITER, lock: LOCKS ? lock : null });
+      child = now.child; child.recorder.session = SESSION;
+      return repo.saveRun(cx.fs, child, SESSION, { writer: WRITER, lock: LOCKS ? lock : null });
     }).then(function () { delete state.loopStarting[flight]; return child; }, function (err) { delete state.loopStarting[flight]; throw err; });
+  }
+  /* The child run a start of key would write, from run r as it is: { child, attempt, uid } or { err } saying why it can't. */
+  function loopChild(r, id, key, request) {
+    var V = r && loopView(r, id), x = V && V.ledger.items.filter(function (i) { return i.key === key; })[0];
+    if (!x) return { err: new Error(key + ' isn\'t in this loop.') };
+    var S = PF.loop.launchable(r, V, [key], ctx.procOf);
+    if (!S.start.length) return { err: new Error(key + ': ' + (S.skip[0] ? S.skip[0].why : 'nothing to start') + '.') };
+    var procOf = ctx.procOf || function (pid) { var p = ctx.latestPub(pid); return p ? { latest: p, all: [p], clashes: [], broken: [] } : null; };
+    var target = PF.pins.childTarget(r, V.step, procOf), pub = target.pub;
+    if (!pub || target.legacy) return { err: new Error(target.why || 'The checklist this loop starts isn\'t in the folder.') };
+    var got = PF.loop.inputsFor(r, V.fields, x);
+    if (got.missing.length) return { err: new Error(key + '\'s run needs ' + got.missing.join(', ') + ' first.') };
+    var attempt = S.start[0].attempt, roles = {}; pub.map.meta.roles.forEach(function (ro) { roles[ro] = r.roles[ro] || ''; });
+    var tz = ''; try { tz = Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (err) { tz = ''; }
+    try {
+      return { attempt: attempt, uid: x.uid, child: R.create(pub, { title: key + (x.title ? ': ' + x.title : ''), details: got.inputs, roles: roles, by: state.me, session: SESSION, now: new Date().toISOString(), app: APP_VERSION, teamValues: data.teamValues, tz: tz, workflows: data.jira.workflows, pins: pinsAtStart(pub),
+        parent: { process: r.process, id: r.id, step: id, item: Object.assign({ uid: x.uid, key: x.key, attempt: attempt }, request ? { request: request } : {}) } }) };
+    } catch (err) { return { err: err }; }
   }
   function loopStart(id, key) {
     var r = ctx.run(); if (!r) return;
     var endBusy = busyStart(), sg = gen;
-    loopLaunch(r, id, key).then(function (child) { endBusy(); if (sg !== gen) return; say('Started "' + child.title + '".', 'good'); return load(true); },
+    loopLaunch(r, id, key, null, { fs: state.fs, g: gen }).then(function (child) { endBusy(); if (sg !== gen) return; say('Started "' + child.title + '".', 'good'); return load(true); },
       function (err) { endBusy(); if (sg !== gen || (err && err.quiet)) return; say('Couldn\'t start the run: ' + (err && err.message || err), 'bad'); render(); });
   }
   /* Start all under my recording: the confirmed list from the preview, one at a time; what couldn't start is named. */
@@ -3044,6 +3052,14 @@
     if (PF.loop.appliedIn(r, id, q.id)) return Promise.resolve({ ok: true, why: 'Carried out before; its outcome is recorded now.' });
     var may = PF.loop.requestCheck(r, V, q, data.people);
     if (may) return Promise.resolve({ ok: false, why: may });
+    if (q.ops[0] === 'resolve') {
+      var t = PF.loop.actionsOf(V).filter(function (y) { return y.id === q.record; })[0], rw = PF.loop.resolveWhy(r, id, t, q.outcome, data.runs);
+      if (rw) return Promise.resolve({ ok: false, why: rw });
+      return loopOutcome(V, t, q.outcome, 'Resolved at ' + personName(q.as) + '\'s request: it was ' + q.outcome + '.', cx).then(function (wrote) {
+        if (wrote === false) throw new Error('The folder changed while this request was carried out.');
+        return { ok: true, why: q.record + ' is recorded as ' + q.outcome + '.' };
+      });
+    }
     if (q.ops[0] === 'start') {
       /* Runs this request already started (their outcome wasn't written) count as started, and aren't started again. */
       var done = (data.runs || []).filter(function (c) { var it = c.parent && c.parent.item; return it && it.request === q.id && c.parent.process === r.process && c.parent.id === r.id && c.parent.step === id; }).map(function (c) { return c.parent.item.key; }), why = [];
@@ -3062,6 +3078,17 @@
     var reasons = V.changes.length ? V.changes : ['Sent back for review by ' + personName(q.as) + (q.reason ? ': ' + q.reason : '') + '.'];
     return mutateRun(key, cx.g, function (rr, m, me, now) { R.unsettleLoop(rr, m, id, reasons, me, now, q.id); }, { background: true })
       .then(function (ok) { return ok === false ? { ok: false, why: 'The run changed meanwhile; ask again.' } : { ok: true, why: 'Sent back for review.' }; });
+  }
+  /* The recorder resolves an outcome recorded both ways by what the request left behind; the action is never done again.
+     The outcome written has seen both, so it settles them. */
+  function loopResolve(id, qid, outcome) {
+    var r = ctx.run(), V = r && loopView(r, id); if (!V) return;
+    if (!ctx.recording(r)) { say('Only the recorder\'s window resolves a request\'s outcome.', 'warn'); render(); return; }
+    var q = PF.loop.actionsOf(V).filter(function (y) { return y.id === qid; })[0], w = PF.loop.resolveWhy(r, id, q, outcome, data.runs);
+    if (w) { say(w, 'warn'); render(); return; }
+    var cx = { fs: state.fs, g: gen, me: state.me };
+    loopOutcome(V, q, outcome, 'Resolved by ' + personName(state.me) + ': it was ' + outcome + '.', cx).then(function (wrote) { if (wrote === false) return; say('Recorded: it was ' + outcome + '.', 'good'); return load(true); },
+      function (err) { say('Couldn\'t record it: ' + (err && err.message || err), 'bad'); render(); });
   }
   function loopOutcome(V, q, op, why, cx) {
     if (cx.g !== gen || cx.fs !== state.fs) return Promise.resolve(false);
@@ -7598,6 +7625,8 @@
     'loop-start-all-confirm': function (id) { loopStartAll(id); },
     'loop-owner': function (id, b) { loopChange(id, 'owner', [b.dataset.item], { owner: state.me }); },
     'loop-assign': function (id, b) { var who = val('loop-who-' + id); if (!who) { say('Choose who owns it first.', 'warn'); render(); return; } loopChange(id, 'owner', [b.dataset.item], { owner: who }); },
+    'loop-plan': function (id, b) { var rec = b.dataset.pick ? val(b.dataset.pick) : '', r = ctx.run(), V = r && loopView(r, id), w = V ? PF.loop.planWhy(V, b.dataset.item, rec) : 'The loop can\'t be read.'; if (w) { say(w, 'warn'); render(); return; } loopChange(id, 'plan', [b.dataset.item], { record: rec }); },
+    'loop-resolve': function (id, b) { loopResolve(id, b.dataset.request, b.dataset.outcome); },
     'loop-choose': function (id, b) { var run = b.dataset.run || (b.dataset.pick ? val(b.dataset.pick) : ''), r = ctx.run(), V = r && loopView(r, id), w = V ? PF.loop.choiceWhy(V, b.dataset.item, run) : 'The loop can\'t be read.'; if (w) { say(w, 'warn'); render(); return; } loopChange(id, 'choose', [b.dataset.item], { run: run }); },
     'loop-unassign': function (id, b) { loopChange(id, 'owner', [b.dataset.item], { owner: '' }); },
     'loop-more': function (id) { if (!state.loopAll) state.loopAll = Object.create(null); state.loopAll[id] = true; render(); },

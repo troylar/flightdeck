@@ -13,17 +13,19 @@ const PARENT = ['---', 'process: release-readiness', 'title: Release 4.1', 'owne
   '## Ship · READ-DO {#ship}', '- [!] {confirm} Ship it {#ship1}', ''].join('\n');
 
 async function setup(o) {
-  const app = boot(Object.assign({ localStore: { 'preflight:builder': 'false' } }, o || {})); await app.tick(80); app.choose('person-avery'); await app.tick();
+  o = Object.assign({}, o || {}); const maps = o.maps || {}; delete o.maps;
+  const app = boot(Object.assign({ localStore: { 'preflight:builder': 'false' } }, o)); await app.tick(80); app.choose('person-avery'); await app.tick();
   const PF = app.PF, people = JSON.parse(app.fs.files['people.json'].t), now = new Date().toISOString();
   const put = (md, id, rand) => {
     const b = PF.publish.build(md, { people, ...require('./harness').exampleSetup(PF), by: 'person-avery', changes: 'First', existing: [], now, rand, app: '3.0.0' });
     assert.ok(!b.blockers, JSON.stringify(b.blockers));
     Object.keys(b.files).forEach(k => { app.fs.files['publications/' + id + '/' + b.folder + '/' + k] = { t: b.files[k], m: Date.now() }; });
   };
-  put(KID, 'validate-story', 'vs000001');
-  put(PARENT, 'release-readiness', 'rr000001');
+  put(maps.kid || KID, 'validate-story', 'vs000001');
+  put(maps.parent || PARENT, 'release-readiness', 'rr000001');
   app.click('refresh'); await app.tick(80);
   app.click('start', 'release-readiness'); await app.settle();
+  Object.keys(maps.details || {}).forEach(k => app.set('detail-' + k, maps.details[k]));
   app.chooseApprovers().submitForm('start-form'); await app.tick(120);
   assert.ok(/data-act="loop-add"/.test(app.html()), 'set-up: the loop step is shown with its list');
   return app;
@@ -519,6 +521,97 @@ rule('Review round 6 (4): a start waiting its turn to write is dropped when the 
   hold.open(); await app.tick(400);
   const kids = kidPaths(app).map(p => JSON.parse(app.fs.files[p].t).parent.item.key);
   assert.ok(kids.indexOf('ABC-102') < 0, 'ABC-102 not started after the pause: ' + kids.join(','));
+});
+
+rule('Review round 7 (1): a single start waiting its turn is dropped at a folder switch: nothing lands in either folder', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101, ABC-102'); app.click('loop-add', 'each'); await app.tick(150);
+  const was = app.fs, write = was.write.bind(was), hold = gate();
+  was.write = (p, t, o) => /^runs\/validate-story\//.test(p) ? hold.p.then(() => write(p, t, o)) : write(p, t, o);
+  app.click('loop-start', 'each', { item: 'ABC-101' }); await app.tick(30);
+  app.click('loop-start', 'each', { item: 'ABC-102' }); await app.tick(30);
+  app.click('reset-examples'); await app.tick(60);
+  const now = app.fs;
+  Object.keys(was.files).forEach(p => { if (!(p in now.files)) now.files[p] = was.files[p]; });
+  app.choose('person-avery'); await app.tick(); app.click('refresh'); await app.tick(150);
+  hold.open(); await app.tick(400);
+  const keys = Object.keys(was.files).filter(p => /^runs\/validate-story\/.*run\.json$/.test(p)).map(p => JSON.parse(was.files[p].t).parent.item.key);
+  assert.ok(keys.indexOf('ABC-102') < 0, 'ABC-102 not written into the folder that was left: ' + keys.join(','));
+});
+rule('Review round 7 (2): a start waiting its turn is built from the run as it is when it writes: a changed detail is passed as changed', async () => {
+  const kid = KID.replace('context: issue, disposition', 'context: issue, fix_version, disposition');
+  const parent = PARENT.replace("title: Release 4.1", "title: Release 4.1\ncontext: fix_version").replace('  pass: issue=item:key', '  pass: issue=item:key, fix_version=^fix_version');
+  const app = await setup({ maps: { kid, parent, details: { fix_version: '4.1' } } });
+  app.set('loop-add-each', 'ABC-101, ABC-102'); app.click('loop-add', 'each'); await app.tick(150);
+  const fs0 = app.fs, write = fs0.write.bind(fs0), hold = gate();
+  fs0.write = (p, t, o) => /^runs\/validate-story\//.test(p) ? hold.p.then(() => write(p, t, o)) : write(p, t, o);
+  app.click('loop-start', 'each', { item: 'ABC-101' }); await app.tick(30);
+  app.click('loop-start', 'each', { item: 'ABC-102' }); await app.tick(30);
+  app.click('edit', 'detail:fix_version'); app.set('edit-input', '4.2'); app.click('save-edit'); await app.tick(40);
+  hold.open(); await app.tick(400);
+  const k2 = kidPaths(app).map(p => JSON.parse(app.fs.files[p].t)).filter(k => k.parent.item.key === 'ABC-102')[0];
+  assert.ok(k2, 'ABC-102 started');
+  assert.strictEqual(k2.details.fix_version, '4.2', 'the value as it is now');
+});
+async function planConflict(app) {
+  const PF = app.PF, LP = PF.loop, r = parentRun(app), d = await PF.repo.loadAll(app.fs, {}), V = LP.view(r, 'each', { records: d.scopes, runs: d.runs });
+  const ids = [];
+  for (const v of ['4.1', '4.1a']) {
+    const c = LP.cleanIntent({ loop: { process: 'release-readiness', run: r.id, step: 'each' }, changes: [{ op: 'add', item: { key: 'ABC-102' } }] }, 'pl-' + v.replace('.', ''), { name: 'release-helper', version: '1.0' });
+    const f = LP.buildRequest(c.intent, { seen: V.ledger.heads, children: [{ item: { id: '', key: 'ABC-102' }, attempt: 1, inputs: { issue: 'ABC-102', note: v }, owner: '' }], now: new Date().toISOString(), app: '3.0.0' });
+    await app.fs.write('proposals/' + f.id + '.json', LP.text(f)); ids.push(f.id);
+  }
+  app.click('refresh'); await app.tick(250);
+  return ids;
+}
+rule('Review round 7 (4): two plans in conflict are listed on the story with a choice of either; choosing one settles them', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  const ids = await planConflict(app);
+  const sel = (app.html().match(/<select id="(loop-plan-[^"]*)"[^]*?<\/select>/) || []);
+  assert.ok(sel[0] && ids.every(id => sel[0].indexOf(id) >= 0), 'both plans offered');
+  app.set(sel[1], ids[1]); app.click('loop-plan', 'each', { item: 'ABC-102', pick: sel[1] }); await app.tick(200);
+  const ch = scopes(app).map(p => JSON.parse(app.fs.files[p].t)).filter(f => (f.changes || []).some(c => c.op === 'plan'));
+  assert.deepStrictEqual(ch.map(f => f.changes[0].record), [ids[1]]);
+  assert.ok(!/<select id="loop-plan-/.test(app.html()), 'settled: no more choice');
+});
+async function twoWays(app, id) {
+  const PF = app.PF, LP = PF.loop, r = parentRun(app), d = await PF.repo.loadAll(app.fs, {}), V = LP.view(r, 'each', { records: d.scopes, runs: d.runs });
+  for (const [op, w] of [['applied', 'wa'], ['refused', 'wb']]) {
+    const dd = LP.buildDecision({ proposal: id, loop: V.loop, op, items: [], seen: V.ledger.heads, reason: op, by: 'person-avery', writer: w, rev: op === 'applied' ? '0000000a' : '0000000b', now: new Date().toISOString(), app: '3.0.0' });
+    await app.fs.write('proposals/' + dd.name, JSON.stringify(dd.file));
+  }
+  app.click('refresh'); await app.tick(250);
+}
+rule('Review round 7 (5): an outcome recorded both ways is resolved on the run screen by what happened, never by doing it again', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  const hold = gate(), fs0 = app.fs, list = fs0.list.bind(fs0);
+  const id = await ask(app, [{ op: 'start', item: { key: 'ABC-101' }, as: 'person-avery' }], 'rv-1');
+  await app.tick(300);
+  const outs = app.files('proposals/').filter(p => p.indexOf(id + '.status-') >= 0);
+  outs.forEach(p => { delete app.fs.files[p]; });
+  await twoWays(app, id);
+  assert.ok(/data-act="loop-resolve"/.test(app.html()), 'resolve offered');
+  const before = kidPaths(app).length;
+  app.click('loop-resolve', 'each', { request: id, outcome: 'refused' }); await app.tick(200);
+  assert.ok(/It was carried out/.test(txt(app)), 'refused is refused: a run it started is here');
+  app.click('loop-resolve', 'each', { request: id, outcome: 'applied' }); await app.tick(250);
+  assert.strictEqual(kidPaths(app).length, before, 'nothing started again');
+  assert.ok(!/data-act="loop-resolve"/.test(app.html()), 'resolved');
+  assert.ok(hold && list);
+});
+rule('Review round 7 (5): a resolve request from the CLI is carried out by the recorder\'s window by the same check', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  const id = await ask(app, [{ op: 'approve', as: 'person-avery' }], 'rv-2');
+  await app.tick(300);
+  app.files('proposals/').filter(p => p.indexOf(id + '.status-') >= 0).forEach(p => { delete app.fs.files[p]; });
+  await twoWays(app, id);
+  const rs = await ask(app, [{ op: 'resolve', record: id, outcome: 'refused', as: 'person-avery' }], 'rv-3');
+  await app.tick(300);
+  assert.strictEqual((outcome(app, rs) || {}).op, 'applied', 'the resolve request is applied');
+  assert.ok(!/data-act="loop-resolve"/.test(app.html()), 'no longer recorded both ways');
 });
 
 run();

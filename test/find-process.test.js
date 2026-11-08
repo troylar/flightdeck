@@ -798,6 +798,7 @@ const D10_OK = [
   { file: 'overlays.js', has: 'esc(nm(x))', why: PERSON }, { file: 'pages.js', has: 'nmFu(p)', why: PERSON },
   { file: 'process.js', has: 'nmStage(x)', why: PERSON }, { file: 'process.js', has: 'nmRun(x)', why: PERSON },
   { file: 'run.js', has: 'String(value || \'\').trim().toLowerCase()', why: 'a step\'s choices, set by its type' },
+  { file: 'run.js', has: '\'<option value="\' + esc(o.record) + \'">\'', why: 'a story\'s plans in conflict for one attempt, at most 20, each naming at most 5 inputs' },
   { file: 'run.js', has: '\'<option value="\' + esc(cid) + \'">\' + esc(cid)', why: 'a story\'s competing runs to choose among, at most the 50 a choice records, with how many more' },
   { file: 'run.js', has: 'nmMe(p)', why: PERSON }, { file: 'run.js', has: '\'<option value="\' + esc(p.id) + \'">\' + esc(p.name || p.id)', why: PERSON }, { file: 'run.js', has: 'nmTo(p)', why: PERSON }, { file: 'run.js', has: 'nmRole(p)', why: PERSON },
   { file: 'setup.js', has: 'esc(k[1]) + \'</p>\' + list([p])', why: 'a fixed pair: the person being changed and the one just added, each drawn once' },
@@ -856,6 +857,7 @@ const FILE = 'text written to a file (front matter, a step\'s lines), never draw
 const FIXED = 'a fixed set of parts, at most a handful';
 const GROUP = 'one group path (Group / Subgroup), as deep as its author wrote it';
 const D10_JOIN_OK = [
+  { file: 'run.js', has: 'i.planConflict.options.slice(0, 20).map(', why: 'a story\'s plans in conflict, at most 20, each naming at most 5 inputs' },
   { file: 'run.js', has: 'last.items.slice(0, 50).map(', why: 'a held loop\'s last readable view, at most 50 stories named, with how many more' },
   { file: 'run.js', has: 'S.skip.slice(0, 50).map(', why: 'the Start all preview\'s skipped stories, at most 50 named' },
   { file: 'app.js', has: 'failed.slice(0, 5).join', why: 'the stories Start all couldn\'t start, at most 5 named' },
