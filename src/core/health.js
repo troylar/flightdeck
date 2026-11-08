@@ -349,8 +349,11 @@ PF.health = (function () {
     var olds = Object.keys(seen).map(function (k) { return seen[k]; }).sort(cmpV).map(function (v) { return v.join('.'); });
     if (olds.length) {
       var floor = olds.filter(function (v) { return cmpV(semverOf(v), [1, 11, 1]) < 0; });
+      /* From 3.0 the warning also names its must-understand features (results, loops) for copies before 3.0. */
+      var pre2 = olds.filter(function (v) { return cmpV(semverOf(v), [2, 0, 0]) < 0; }), pre3 = (!mine || cmpV(mine, [3, 0, 0]) >= 0) ? olds.filter(function (v) { return cmpV(semverOf(v), [3, 0, 0]) < 0; }) : [];
+      var when = !pre3.length ? ' before anyone uses Flightdeck 2.0 features, and re-enter' : (pre2.length ? ' before anyone uses Flightdeck 2.0 features or' : ' before anyone') + ' publishes a version that uses results or loops (Flightdeck 3.0 features); Flightdeck ' + listOf(pre3) + (pre3.length === 1 ? ' shows' : ' show') + ' those versions and their runs by name only and can\'t run them. Re-enter';
       add({ id: 'older-copies', severity: floor.length ? 'warn' : 'info', area: 'Flightdeck', title: 'Teammates are using an older Flightdeck',
-        detail: 'In the last 7 days, windows running Flightdeck ' + listOf(olds) + ' answered connection checks or edited drafts here.' + (floor.length ? ' Flightdeck ' + listOf(floor) + ' can\'t tell what a newer Flightdeck wrote: it may hide runs made with Flightdeck 2.0 and offer a version it can\'t read.' : '') + ' Move every computer to ' + (snap.app && snap.app !== 'dev' ? 'Flightdeck ' + snap.app : 'this Flightdeck') + ' before anyone uses Flightdeck 2.0 features, and re-enter any change an older window said it couldn\'t save.',
+        detail: 'In the last 7 days, windows running Flightdeck ' + listOf(olds) + ' answered connection checks or edited drafts here.' + (floor.length ? ' Flightdeck ' + listOf(floor) + ' can\'t tell what a newer Flightdeck wrote: it may hide runs made with Flightdeck 2.0 and offer a version it can\'t read.' : '') + ' Move every computer to ' + (snap.app && snap.app !== 'dev' ? 'Flightdeck ' + snap.app : 'this Flightdeck') + when + ' any change an older window said it couldn\'t save.',
         paths: [], action: help(HELP.older), help: HELP.older });
     } else if (snap.connection || d.presence) ok('older-copies', 'No older Flightdeck answered a connection check or edited a draft here in the last 7 days.');
 

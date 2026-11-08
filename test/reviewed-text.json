@@ -41,8 +41,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 8 sentences here, each read by hand: a rule, a prohibition or a description of what a command writes, never a direct write for an assistant."
     },
     "docs/recovery.md": {
-      "sha256": "83c18f2a62000876f25d5cbe69a8d05c1ff3c1b34ee5271a6f3e59f3b4939283",
-      "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded at f2888f5 and reviewed: passed the delete guard as of f2888f5. Check g does not run here (it reads the skills pack); its reader flags 1 sentence here, each read by hand: a rule, a prohibition or a description of what a command writes, never a direct write for an assistant."
+      "sha256": "2e0675de341740557ab0b86abb4d0c643375da1754bf94bbe476a2bc3ba922fa",
+      "reviewed": "health.js: the older-copies warning names results and loops (Flightdeck 3.0 features) for copies before 3.0; recovery.md says the same; checked for direct writes and unconditional deletes"
     },
     "docs/skills.md": {
       "sha256": "4a8f9e35440856b81563ecfe0a6941970f3d6c3b070121066729da165f1fa0a0",
@@ -233,8 +233,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/health.js": {
-      "sha256": "2b79fb00ea8a6deddec5b1e64a67a990deb16bc772feee50a17820b025dc7db6",
-      "reviewed": "Review 05 of module results: no result without a recorded decision, ended parents read-only with one result-changed verdict, next orders awaiting settlement first, linked run reads in the CLI ledger, capped accepted list; checked for direct writes and unconditional deletes"
+      "sha256": "2bb1adc137ae1bbc7d8f713162176794ba555c1d77eb05fffbbcaebc2ccf1ac5",
+      "reviewed": "health.js: the older-copies warning names results and loops (Flightdeck 3.0 features) for copies before 3.0; recovery.md says the same; checked for direct writes and unconditional deletes"
     },
     "src/core/insights.js": {
       "sha256": "8e5277d31c579dcb0a47fdf4a9dd15281d31bae4b75fe0d3cdcbd7c1fe3fe844",

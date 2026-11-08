@@ -88,4 +88,19 @@ TAGS.forEach((t) => rule(t.tag + (t.supported ? '' : ' (below the floor)') + ': 
   assert.ok(!back._unrunnable && back.steps.where && back.steps.where.s === 'done', 'this version reads what ' + t.tag + ' recorded');
 }));
 
+rule('Folder health\'s older-copies warning names the 3.0 features, versions and runs that use results or loops, beside 2.0\'s', async () => {
+  const w = await folder(), NEW = H.loadMain({ at: AT, seed: 31 }), m = H.memFolder(NEW, w.files);
+  const d = await NEW.repo.loadAll(m), now = Date.parse(AT);
+  const check = (apps) => NEW.health.check({ data: d, scan: null, me: 'person-avery', app: '3.0.0', connection: { probes: apps.map((a, i) => ({ app: a, at: AT, writer: 'w-' + i, device: 'd' + i, _file: i + '.json' })), acks: [] } }, now).issues.find(i => i.id === 'older-copies');
+  const two = check(['2.16.1']);
+  assert.ok(two && /Flightdeck 2\.16\.1 answered/.test(two.detail), two && two.detail);
+  assert.ok(/before anyone publishes a version that uses results or loops \(Flightdeck 3\.0 features\)/.test(two.detail), 'names 3.0: ' + two.detail);
+  assert.ok(/Flightdeck 2\.16\.1 shows those versions and their runs by name only and can't run them/.test(two.detail), 'says what the older copy does: ' + two.detail);
+  assert.ok(!/2\.0 features/.test(two.detail), 'a 2.x copy already reads 2.0: ' + two.detail);
+  const one = check(['1.21.0', '2.16.1']);
+  assert.ok(/before anyone uses Flightdeck 2\.0 features or publishes a version that uses results or loops \(Flightdeck 3\.0 features\)/.test(one.detail), 'both: ' + one.detail);
+  assert.ok(/Flightdeck 1\.21\.0 and 2\.16\.1 show those versions and their runs by name only/.test(one.detail), one.detail);
+  assert.ok(/\(Flightdeck 3\.0 features\); Flightdeck 1\.21\.0 and 2\.16\.1 show[^.]*\. Re-enter any change an older window said it couldn't save\.$/.test(one.detail), one.detail);
+});
+
 run();
