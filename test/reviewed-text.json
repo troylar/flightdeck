@@ -25,8 +25,8 @@
       "reviewed": "loop guard builder for every loop parent and child write, undo on drop; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "fa29fcb90fe834ca8185ce1000e7c3d54f2ea4f44d581c5fba87bb52f05aa7b1",
-      "reviewed": "loop guard builder for every loop parent and child write, undo on drop; checked for direct writes and unconditional deletes"
+      "sha256": "d281dc6ffb08323942309d35830c13b48242d7026909dcd2bc49fd281f0cef42",
+      "reviewed": "§44: planStill on start paths, undo binding, slot-first pages; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
