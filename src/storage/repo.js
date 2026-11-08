@@ -1260,7 +1260,7 @@ PF.repo = (function () {
           e = new Error('changed'); e.disk = disk;
           var keep = 'runs/' + run.process + '/' + run.id + '/run.conflict-' + writer + '-' + Date.now() + '.json';
           /* Archived history is a record of what happened whichever version wins, so it's written first. */
-          return archiveOverflow(fs, run, writer).then(function () { return fs.write(keep, JSON.stringify(stripMeta(run), null, 2)); })
+          return archiveOverflow(fs, run, writer).then(function () { if (typeof opts.still === 'function' && !opts.still()) { var d = new Error('dropped'); d.dropped = true; throw d; } return fs.write(keep, JSON.stringify(stripMeta(run), null, 2)); })
             .then(function () { forgetRun(fs, run); e.keptAs = keep; throw e; }, function () { throw e; });
         }
       }
@@ -1269,15 +1269,18 @@ PF.repo = (function () {
       if (!f && run._fileHash && !opts.restoreMissing) { e = new Error('This run\'s file is gone from the team folder, so it wasn\'t written back. Someone may have deleted or moved it.'); e.missing = true; throw e; }
       var m = made || make(), copy = m.copy, dir = m.dir, text = m.text, cand = m.cand;
       wrote = true;
+      /* opts.still again before each further write: a switch after the candidate landed writes nothing more, and the
+         candidate stays where recovery finds it (a save not listed in run.json), never removed as a failed write. */
+      var again = function () { if (typeof opts.still === 'function' && !opts.still()) { var d = new Error('dropped'); d.dropped = true; d.kept = cand; throw d; } };
       return fs.write(cand, text)
-        .then(function () { return archiveOverflow(fs, run, writer); })
-        .then(function () { return fs.write(path, text); })
+        .then(function () { again(); return archiveOverflow(fs, run, writer); })
+        .then(function () { again(); return fs.write(path, text); })
         .then(function () {
           forgetRun(fs, run);
           run.rev = copy.rev; run.savedAt = copy.savedAt; run._fileHash = fileHash(text); run.lineage = copy.lineage;
           /* What was written, exactly: the run may change in memory while this save is under way. */
           return cleanCandidates(fs, dir, copy.lineage).then(function () { return { savedAt: copy.savedAt, text: text }; });
-        }, function (e) { return fs.remove(cand).then(function () { throw e; }, function () { throw e; }); });
+        }, function (e) { if (e && e.dropped) throw e; return fs.remove(cand).then(function () { throw e; }, function () { throw e; }); });
     });
     }
   }

@@ -2928,6 +2928,9 @@
   }
   function loopGuard(extra) { return Object.assign({ fs: state.fs, g: gen, me: state.me }, extra || {}); }
   function guardOk(cx) { return !!cx && cx.g === gen && cx.fs === state.fs && cx.me === state.me; }
+  /* The save options every write of a loop's parent carries: the guard captured at the click, asked by the save right before
+     each write (repo.saveRun's still). */
+  function loopStill(cx, opts) { return Object.assign({}, opts || {}, { still: function () { return guardOk(cx); } }); }
   function loopSaved(p, words) {
     var endBusy = busyStart(), sg = gen;
     return p.then(function (res) {
@@ -3111,11 +3114,11 @@
       return mutateRun(key, cx.g, function (rr, m, me, now) {
         var V2 = loopView(rr, id); if (!V2 || !V2.rollup.ok) { no = 'It can\'t be approved yet: ' + (V2 ? V2.rollup.summary : 'the loop isn\'t readable') + '.'; throw new Error(no); }
         R.done(rr, m, id, me, now, { _loop: { ok: true, snapshot: PF.loop.approval(V2.ledger, V2.rollup, { by: q.as, at: now, onBehalf: tool, request: q.id }) } });
-      }, { background: true }).then(function (ok) { return ok === false ? { ok: false, why: no } : { ok: true, why: 'Approved: ' + V.rollup.summary + '.' }; });
+      }, loopStill(cx, { background: true })).then(function (ok) { return ok === false ? { ok: false, why: no } : { ok: true, why: 'Approved: ' + V.rollup.summary + '.' }; });
     }
     if (!(a && a.s === 'done' && a.loop)) return Promise.resolve({ ok: false, why: 'The loop isn\'t approved, so there was nothing to send back.' });
     var reasons = V.changes.length ? V.changes : ['Sent back for review by ' + personName(q.as) + (q.reason ? ': ' + q.reason : '') + '.'];
-    return mutateRun(key, cx.g, function (rr, m, me, now) { R.unsettleLoop(rr, m, id, reasons, me, now, q.id); }, { background: true })
+    return mutateRun(key, cx.g, function (rr, m, me, now) { R.unsettleLoop(rr, m, id, reasons, me, now, q.id); }, loopStill(cx, { background: true }))
       .then(function (ok) { return ok === false ? { ok: false, why: 'The run changed meanwhile; ask again.' } : { ok: true, why: 'Sent back for review.' }; });
   }
   /* The recorder resolves an outcome recorded both ways by what the request left behind; the action is never done again.
@@ -3253,10 +3256,11 @@
         /* A loop (3.0) whose approval no longer matches its list or results goes back for review at once, every change listed. */
         if (x && x.step.type === 'for.each' && a && a.s === 'done' && a.loop && !r.ended) {
           var lv = loopView(r, sid);
-          if (lv && lv.changes.length) mutateRun(r.process + '/' + r.id, gen, function (rr, m, me, now) {
+          var cxs = loopGuard();
+          if (lv && lv.changes.length) mutateRun(r.process + '/' + r.id, cxs.g, function (rr, m, me, now) {
             var a2 = rr.steps[sid], v2 = a2 && a2.s === 'done' && a2.loop && loopView(rr, sid);
             if (v2 && v2.changes.length) R.unsettleLoop(rr, m, sid, v2.changes, me, now);
-          }, { background: true });
+          }, loopStill(cxs, { background: true }));
           return;
         }
         /* Module results (3.0): a settled step whose run was reopened or corrected since goes back for a re-check, and is
@@ -7681,16 +7685,17 @@
     'loop-requests-more': function (id) { loopMem().reqs[id] = true; render(); },
     'loop-open': function (id) { var m = loopMem(); m.keepRow = null; m.open[id] = !m.open[id]; render(); },
     'loop-approve': function (id) {
+      var cxa = loopGuard();
       mutate(function (r, map, me, now) {
         var V = loopView(r, id);
         if (!V || !V.rollup.ok) throw new Error('Every ' + (V ? V.noun.one : 'item') + ' in scope needs an accepted result or an approval without a run first.');
         R.done(r, map, id, me, now, { _loop: { ok: true, snapshot: PF.loop.approval(V.ledger, V.rollup, { by: me, at: now }) } });
-      });
+      }, loopStill(cxa));
     },
     'loop-unsettle': function (id) {
       /* With nothing changed, a person may still send it back, saying why (the Why box). */
-      var why = val('loop-why-' + id).trim();
-      mutate(function (r, map, me, now) { var V = loopView(r, id); if (!V) throw new Error('That isn\'t an approved loop.'); var sb = PF.loop.sendBackWhy(V, why); if (sb) throw new Error(sb + ' Use the Why box.'); R.unsettleLoop(r, map, id, V.changes.length ? V.changes : ['Sent back for review by ' + personName(me) + ': ' + why.slice(0, 300)], me, now); });
+      var why = val('loop-why-' + id).trim(), cxu = loopGuard();
+      mutate(function (r, map, me, now) { var V = loopView(r, id); if (!V) throw new Error('That isn\'t an approved loop.'); var sb = PF.loop.sendBackWhy(V, why); if (sb) throw new Error(sb + ' Use the Why box.'); R.unsettleLoop(r, map, id, V.changes.length ? V.changes : ['Sent back for review by ' + personName(me) + ': ' + why.slice(0, 300)], me, now); }, loopStill(cxu));
     },
     /* A child run that was saved but whose link didn't land (the parent changed meanwhile): link it now, with the inputs it was started for. */
     'link-child': function (id, b) {

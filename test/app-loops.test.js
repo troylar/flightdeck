@@ -703,10 +703,12 @@ rule('S3 (starts in flight): a start held in one folder never blocks the same st
   was.write = (p, t, o) => /^runs\/validate-story\//.test(p) ? hold.p.then(() => write(p, t, o)) : write(p, t, o);
   app.click('loop-start', 'each', { item: 'ABC-101' }); await app.tick(40);
   await switchAway(app);
+  /* The examples reset reuses the same folder object: what counts is that the held start writes no run.json of its own. */
+  app.click('open-run', 'release-readiness/' + parentRun(app).id); await app.settle();
   app.click('loop-start', 'each', { item: 'ABC-101' }); await app.tick(60);
   hold.open(); await app.tick(400);
   assert.strictEqual(kidPaths(app).length, 1, 'started in the folder opened next, once the held write is dropped');
-  assert.ok(was, 'the held start in the folder that was left was dropped: one run in all');
+  assert.strictEqual(Object.keys(was.files).filter(p => /^runs\/validate-story\/.*candidate-/.test(p)).length >= 1, true, 'the held start kept only its candidate, for recovery: one run in all');
 });
 
 rule('Review round 8 (5): a resolution whose own outcome couldn\'t be written is recorded applied when retried, from what it left', async () => {
@@ -859,6 +861,61 @@ rule('Round 9 (4): what a request already did is recognized before who may ask: 
   assert.strictEqual(res, rid);
   const o = app.files('proposals/').filter(p => p.indexOf(rid + '.status-') >= 0).map(p => JSON.parse(app.fs.files[p].t));
   assert.deepStrictEqual(o.map(f => f.op), ['applied'], JSON.stringify(o.map(f => f.reason)));
+});
+
+rule('Round 9 (2, 3): every save of a loop\'s parent or child carries the guard captured at the click (still), found in the source', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8'), bad = [];
+  const re = /\b(mutateRun|mutate|repo\.saveRun)\(/g; let m;
+  while ((m = re.exec(src))) {
+    let i = m.index + m[0].length, d = 1; while (i < src.length && d) { const ch = src[i++]; if (ch === '(') d++; else if (ch === ')') d--; }
+    const call = src.slice(m.index, i), line = src.slice(0, m.index).split('\n').length;
+    if (/function (mutateRun|mutate)\(/.test(src.slice(Math.max(0, m.index - 9), m.index + 12))) continue;
+    if (/unsettleLoop|_loop:|loopView\(|loopChild|PF\.loop\./.test(call) && !/still/i.test(call)) bad.push('app.js:' + line);
+  }
+  assert.deepStrictEqual(bad, [], 'loop saves without the guard');
+});
+rule('Round 9 (2): a direct approval held at its last read writes nothing once someone else says who they are', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  app.click('loop-start', 'each', { item: 'ABC-101' }); await app.tick(150);
+  await clear(app, kidPaths(app)[0]);
+  const fs0 = app.fs, p = app.files('runs/release-readiness/').find(x => /run\.json$/.test(x)), before = fs0.files[p].t, h = holdReads(fs0, /^runs\/release-readiness\/.*run\.json$/);
+  app.click('loop-approve', 'each'); await app.tick(60);
+  assert.ok(h.seen() > 0, 'the save reached its read');
+  app.choose('person-casey'); await app.tick(); h.hold.open(); await app.tick(300);
+  assert.strictEqual(fs0.files[p].t, before, 'the parent run is unchanged');
+});
+rule('Round 9 (2): an approve request held at the parent\'s last read writes nothing into the folder that was left', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  app.click('loop-start', 'each', { item: 'ABC-101' }); await app.tick(150);
+  await clear(app, kidPaths(app)[0]);
+  const PF = app.PF, LP = PF.loop, r = parentRun(app), d = await PF.repo.loadAll(app.fs, {}), V = LP.view(r, 'each', { records: d.scopes, runs: d.runs });
+  const c = LP.cleanIntent({ loop: V.loop, changes: [{ op: 'approve', as: 'person-avery' }] }, 'r9-ap', { name: 'release-helper', version: '1.0' });
+  const f = LP.buildRequest(c.intent, { seen: V.ledger.heads, children: [], now: new Date().toISOString(), app: '3.0.0' });
+  const fs0 = app.fs, p = app.files('runs/release-readiness/').find(x => /run\.json$/.test(x)), before = fs0.files[p].t;
+  /* Count the parent's reads in a plain refresh, then let that many through: the next one is the approval's own last read. */
+  const read = fs0.read.bind(fs0); let n = 0; fs0.read = (q, o) => { if (/^runs\/release-readiness\/.*run\.json$/.test(q)) n++; return read(q, o); };
+  app.click('refresh'); await app.tick(200); const plain = n; n = 0;
+  await fs0.write('proposals/' + f.id + '.json', LP.text(f));
+  const hold = gate(); let held = 0;
+  fs0.read = (q, o) => { if (/^runs\/release-readiness\/.*run\.json$/.test(q) && ++n > plain) { held++; return hold.p.then(() => read(q, o)); } return read(q, o); };
+  app.click('refresh'); await app.tick(200);
+  assert.ok(held > 0, 'the approval reached its read');
+  const h = { hold };
+  await switchAway(app); h.hold.open(); await app.tick(300);
+  assert.strictEqual(fs0.files[p].t, before, 'the old folder\'s parent is unchanged');
+});
+rule('Round 9 (3): a child whose candidate was written before a folder switch writes no run.json after it; the candidate stays for recovery', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  const fs0 = app.fs, write = fs0.write.bind(fs0), hold = gate(); let cand = 0;
+  fs0.write = (p, t, o) => /^runs\/validate-story\/.*candidate-/.test(p) ? write(p, t, o).then((x) => { cand++; return hold.p.then(() => x); }) : write(p, t, o);
+  app.click('loop-start', 'each', { item: 'ABC-101' }); await app.tick(120);
+  assert.strictEqual(cand, 1, 'the candidate is written');
+  await switchAway(app); hold.open(); await app.tick(300);
+  assert.deepStrictEqual(Object.keys(fs0.files).filter(p => /^runs\/validate-story\/.*\/run\.json$/.test(p)), [], 'no run.json after the switch');
+  assert.strictEqual(Object.keys(fs0.files).filter(p => /^runs\/validate-story\/.*candidate-/.test(p)).length, 1, 'the candidate is kept');
 });
 
 run();
