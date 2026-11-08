@@ -21,12 +21,12 @@
       "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "docs/apps.md": {
-      "sha256": "f15d4158214ca0fa406c244370ff5d09499a08ad52e1804c750aaf5c3d787948",
-      "reviewed": "loop core: plan choice and resolving plans, plan owner only a default, resolve rule; checked for direct writes and unconditional deletes"
+      "sha256": "ac4cfcbf6bc7b9e1b6acfb57aeee890e7ac68d356fa9e2d43012713f976a0558",
+      "reviewed": "docs: section 44 recovery per conflict kind; loop plan and resolve; checked for direct writes and unconditional deletes"
     },
     "docs/design.md": {
-      "sha256": "f7f7db41e8d9bc68c6bf17d7102ac6568c76323204ddab2aa8333e632ba6891c",
-      "reviewed": "loop core: plan choice and resolving plans, plan owner only a default, resolve rule; checked for direct writes and unconditional deletes"
+      "sha256": "4f59695781978ea38a4b0fc970cff2b84df5e3fe662dbf906783509555aea138",
+      "reviewed": "docs: section 44 recovery per conflict kind; loop plan and resolve; checked for direct writes and unconditional deletes"
     },
     "docs/evidence.md": {
       "sha256": "ca27dc42dd9db1b716a4c4b6e426e7d4c77027c8a4a085514012145da5466db0",
