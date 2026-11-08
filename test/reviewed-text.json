@@ -397,8 +397,8 @@
       "reviewed": "loop saves carry the click's guard, rechecked before each further write; kept candidate on drop; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "8420f1f14d7a274b1c18c96d64b1f58d255085160176eeab189c6da7cec5d2b8",
-      "reviewed": "loop guard builder for every loop parent and child write, undo on drop; checked for direct writes and unconditional deletes"
+      "sha256": "0dde10295b22806a78c3c0ba9fb4b43ca62b06182ab932bb3cb7ac883944406f",
+      "reviewed": "a start its guard drops stops the batch; receipt says why; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

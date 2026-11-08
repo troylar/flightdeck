@@ -987,6 +987,22 @@ rule('Round 10 (1): starting a run of a checklist with a loop, held at its last 
   await switchAway(app); h.hold.open(); await app.tick(300);
   assert.strictEqual(Object.keys(fs0.files).filter(x => PARENT_RE.test(x)).length, n0, 'no second run in the folder that was left');
 });
+rule('Round 10 (3): Start all stops at the first start its guard drops; the rest aren\'t started, and the receipt says so', async () => {
+  const kid = KID.replace('context: issue, disposition', 'context: issue, fix_version, disposition');
+  const parent = PARENT.replace("title: Release 4.1", "title: Release 4.1\ncontext: fix_version").replace('  pass: issue=item:key', '  pass: issue=item:key, fix_version=^fix_version');
+  const app = await setup({ maps: { kid, parent, details: { fix_version: '4.1' } } });
+  app.set('loop-add-each', 'ABC-101, ABC-102'); app.click('loop-add', 'each'); await app.tick(150);
+  const fs0 = app.fs, read = fs0.read.bind(fs0), hold = gate(); let n = 0;
+  fs0.read = (q, o) => /^runs\/validate-story\/.*run\.json$/.test(q) && ++n === 1 ? hold.p.then(() => read(q, o)) : read(q, o);
+  app.click('loop-start-all', 'each'); await app.tick(50);
+  app.click('loop-start-all-confirm', 'each'); await app.tick(60);
+  assert.strictEqual(n, 1, 'the first start reached its read');
+  app.click('edit', 'detail:fix_version'); app.set('edit-input', '4.2'); app.click('save-edit'); await app.tick(60);
+  hold.open(); await app.tick(500);
+  const keys = kidPaths(app).map(x => JSON.parse(app.fs.files[x].t).parent.item.key);
+  assert.deepStrictEqual(keys, [], 'nothing started after the guard dropped the first: ' + keys.join(','));
+  assert.ok(/Stopped/.test(txt(app)), 'the receipt says the batch stopped');
+});
 rule('Round 10 (1, 2): every save, backup or archive of a run.json in the app goes through the loop guard: the save funnel, the recovery backup, a start\'s first save', () => {
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8'), bad = [];
   const body = (name) => { const i = src.indexOf('function ' + name + '('); let j = src.indexOf('{', i), d = 1; j++; while (d) { const ch = src[j++]; if (ch === '{') d++; else if (ch === '}') d--; } return src.slice(i, j); };

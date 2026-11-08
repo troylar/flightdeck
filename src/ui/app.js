@@ -3071,7 +3071,8 @@
       return repo.saveRun(cx.fs, child, SESSION, { writer: WRITER, lock: LOCKS ? lock : null, still: still });
     }).then(function () { delete mem.starting[flight]; return child; }, function (err) {
       delete mem.starting[flight];
-      if (err && err.dropped) throw moved() ? stopped() : new Error(key + ' changed while it waited to start. Nothing was started.');
+      /* Round 10: any start its guard dropped stops what asked for it (Start all, a request), saying why. */
+      if (err && err.dropped) throw moved() ? stopped() : Object.assign(new Error(key + ' changed while it waited to start, so it and the rest weren\'t started.'), { stopped: true });
       throw err;
     });
   }
@@ -3105,9 +3106,9 @@
     var S = PF.loop.launchable(r, V, null, ctx.procOf), endBusy = busyStart(), cx = loopGuard();
     delete loopMem().preview[id];
     loopBatch(r, id, S.start.map(function (k) { return k.key; }), cx, null).then(function (b) {
-      endBusy(); if (b.stopped || cx.g !== gen) return;
+      endBusy(); if (cx.g !== gen) return;
       var failed = b.failed.map(function (f) { return f.key + ' (' + f.why + ')'; });
-      say('Started ' + b.started.length + (b.started.length === 1 ? ' run.' : ' runs.') + (failed.length ? ' Not started: ' + failed.slice(0, 5).join(', ') + '.' : ''), failed.length ? 'warn' : 'good'); return load(true);
+      say('Started ' + b.started.length + (b.started.length === 1 ? ' run.' : ' runs.') + (b.stopped ? ' Stopped before the rest: ' + b.why : '') + (failed.length ? ' Not started: ' + failed.slice(0, 5).join(', ') + '.' : ''), failed.length || b.stopped ? 'warn' : 'good'); return load(true);
     });
   }
   /* Starts keys one at a time for Start all and a start request alike. Bound to cx (the folder and its generation when the
@@ -3118,9 +3119,9 @@
     return keys.reduce(function (p, k) {
       return p.then(function () {
         if (out.stopped) return;
-        if (!guardOk(cx)) { out.stopped = true; return; }
+        if (!guardOk(cx)) { out.stopped = true; out.why = 'The folder, the person or the run changed; nothing more was started.'; return; }
         return loopLaunch(r, id, k, request, cx).then(function () { out.started.push(k); },
-          function (err) { if (err && err.stopped) { out.stopped = true; return; } if (!(err && err.quiet)) out.failed.push({ key: k, why: err && err.message || String(err) }); });
+          function (err) { if (err && err.stopped) { out.stopped = true; out.why = err.message; return; } if (!(err && err.quiet)) out.failed.push({ key: k, why: err && err.message || String(err) }); });
       });
     }, Promise.resolve()).then(function () { return out; });
   }
@@ -3175,7 +3176,7 @@
       var done = (data.runs || []).filter(function (c) { var it = c.parent && c.parent.item; return it && it.request === q.id && c.parent.process === r.process && c.parent.id === r.id && c.parent.step === id; }).map(function (c) { return c.parent.item.key; }), why = [];
       /* The starts ask the run's state and the asker's authority too; the outcome (cx) is recorded whatever they answer. */
       return loopBatch(r, id, q.items.filter(function (k, i) { return done.indexOf(k) < 0 && q.items.indexOf(k) === i; }), loopGuard({ q: q, run: key, step: id }), q.id)
-        .then(function (b) { if (b.stopped) throw new Error('The folder changed while this request was carried out.'); done = done.concat(b.started); why = b.failed.map(function (f) { return f.why; }); return { ok: done.length > 0, why: 'Started ' + (done.slice(0, 20).join(', ') || 'none') + (done.length > 20 ? ' and ' + (done.length - 20) + ' more' : '') + '.' + (why.length ? ' ' + why.slice(0, 5).join(' ') : '') }; });
+        .then(function (b) { if (b.stopped && !guardOk(cx)) throw new Error('The folder changed while this request was carried out.'); done = done.concat(b.started); why = b.failed.map(function (f) { return f.why; }); if (b.stopped) why.unshift('Stopped before the rest: ' + b.why); return { ok: done.length > 0, why: 'Started ' + (done.slice(0, 20).join(', ') || 'none') + (done.length > 20 ? ' and ' + (done.length - 20) + ' more' : '') + '.' + (why.length ? ' ' + why.slice(0, 5).join(' ') : '') }; });
     }
     if (q.ops[0] === 'approve') {
       if (!V.rollup.ok) return Promise.resolve({ ok: false, why: 'It can\'t be approved yet: ' + V.rollup.summary + '.' });
