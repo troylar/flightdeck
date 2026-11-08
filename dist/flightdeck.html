@@ -33627,9 +33627,9 @@ PF.examples = (function () {
      drops the save, what only this change touched is put back in this window, so a change made meanwhile (a pause) saves
      alone and never carries it. Returns { fn, opts } for mutateRun. */
   function loopEdit(cx, key, fn, opts) {
-    var before = null, after = null, undone = false;
+    var before = null, after = null, undone = false, target = null, g0 = gen, fs0 = state.fs;
     var copy = function (r) { var c = Object.create(null); Object.keys(r).forEach(function (k) { if (k[0] !== '_') c[k] = r[k]; }); return JSON.parse(JSON.stringify(c)); };
-    var wrapped = function (r, m, me, now) { before = copy(r); var out = fn(r, m, me, now); after = copy(r); return out; };
+    var wrapped = function (r, m, me, now) { target = r; before = copy(r); var out = fn(r, m, me, now); after = copy(r); return out; };
     var back = function (cur, b, a, deep) {
       var keys = Object.create(null); Object.keys(b).concat(Object.keys(a)).forEach(function (k) { keys[k] = true; });
       Object.keys(keys).forEach(function (k) {
@@ -33644,7 +33644,9 @@ PF.examples = (function () {
         if (!deep && b[k] && a[k] && cur[k] && typeof b[k] === 'object' && typeof a[k] === 'object' && typeof cur[k] === 'object') back(cur[k], b[k], a[k], true);
       });
     };
-    var undo = function () { if (undone || !after) return; undone = true; var r = findRun(key); if (r) { back(r, before, after, false); bump(r.id); } };
+    /* Bound to the very run object it changed, in the folder and generation it changed it in (round 11): never a run found by
+       key, which in another folder can be another run of the same name. */
+    var undo = function () { if (undone || !after || !target) return; undone = true; if (gen !== g0 || state.fs !== fs0 || findRun(key) !== target) return; back(target, before, after, false); bump(target.id); };
     return { fn: wrapped, opts: Object.assign({}, opts || {}, { still: function () { if (guardOk(cx)) return true; undo(); return false; }, dropUndone: function () { return undone; } }) };
   }
   /* Keeping a copy of a loop's parent or child (recover, unchanged) is guarded from its click: the backup and the run's save

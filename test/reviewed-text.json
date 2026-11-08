@@ -397,8 +397,8 @@
       "reviewed": "loop saves carry the click's guard, rechecked before each further write; kept candidate on drop; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "9c61fe695d065839b98c0817b80bf1ce1873164c38f916b5229482c15184fc42",
-      "reviewed": "seenFor puts the edited slot first; checked for direct writes and unconditional deletes"
+      "sha256": "f16c16de44df8146c3650685056bd35fe379d5b5c1f0c83886809e7f0bfda411",
+      "reviewed": "undo bound to the captured run and generation; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",

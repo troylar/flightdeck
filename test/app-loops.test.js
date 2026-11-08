@@ -1003,6 +1003,29 @@ rule('Round 10 (3): Start all stops at the first start its guard drops; the rest
   assert.deepStrictEqual(keys, [], 'nothing started after the guard dropped the first: ' + keys.join(','));
   assert.ok(/Stopped/.test(txt(app)), 'the receipt says the batch stopped');
 });
+rule('Round 11 (1): a send-back dropped after a folder switch puts nothing back in the other folder\'s run of the same key', async () => {
+  const app = await setup(); await cleared(app);
+  app.click('loop-approve', 'each'); await app.tick(250);
+  /* Its gate passed, as a person would pass it. */
+  const R = app.PF.run, p0 = parentPath(app), rr = R.sanitize(JSON.parse(app.fs.files[p0].t)), mm = R.mapOf(rr);
+  R.pass(rr, mm, 0, 'person-avery', new Date(Date.now() + 1000).toISOString());
+  const plain = {}; Object.keys(rr).forEach(k => { if (k[0] !== '_') plain[k] = rr[k]; }); plain.rev = (plain.rev || 0) + 1;
+  await app.fs.write(p0, JSON.stringify(plain)); app.click('refresh'); await app.tick(200);
+  const gid = Object.keys(parentRun(app).gates)[0];
+  assert.strictEqual(parentRun(app).gates[gid].s, 'passed', 'set-up: approved and its gate passed');
+  const fs0 = app.fs, h = holdReads(fs0, PARENT_RE);
+  app.set('loop-why-each', 'Check it again'); app.click('loop-unsettle', 'each'); await app.tick(60);
+  assert.ok(h.seen() > 0, 'the send-back reached its read');
+  await switchAway(app);
+  app.click('open-run', 'release-readiness/' + parentRun(app).id); await app.tick(80);
+  app.set('loop-why-each', 'And here too'); app.click('loop-unsettle', 'each'); await app.tick(60);
+  h.hold.open(); await app.tick(400);
+  assert.strictEqual(parentRun(app).gates[gid].s, 'review', 'set-up: sent back in the copied folder, its gate under review');
+  app.set('pick-input', 'Waiting'); app.click('pause', 'run'); await app.tick(250);
+  const r = parentRun(app);
+  assert.ok(r.paused, 'the copied folder\'s run saved again');
+  assert.deepStrictEqual([r.steps.each.s, r.gates[gid].s], ['recheck', 'review'], 'nothing from the old folder was put back into it');
+});
 rule('Round 10 (1, 2): every save, backup or archive of a run.json in the app goes through the loop guard: the save funnel, the recovery backup, a start\'s first save', () => {
   const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'app.js'), 'utf8'), bad = [];
   const body = (name) => { const i = src.indexOf('function ' + name + '('); let j = src.indexOf('{', i), d = 1; j++; while (d) { const ch = src[j++]; if (ch === '{') d++; else if (ch === '}') d--; } return src.slice(i, j); };
