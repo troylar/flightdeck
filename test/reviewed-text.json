@@ -253,8 +253,8 @@
       "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "src/core/loop.js": {
-      "sha256": "40a212bea3e51af11b4ac7b680c4231d790d610380e09998f9d6f3281d833794",
-      "reviewed": "httpLink parses after its character checks: ports 1-65535, whole IPv4 only; pure, checked for direct writes and unconditional deletes"
+      "sha256": "2ea8b51ce64e3210d0ec804f835b4d3d8eea24ddb1c9006104fe096fb0e5b3f4",
+      "reviewed": "feedWhy binds the Jira query like a feed's; pure, checked for direct writes and unconditional deletes"
     },
     "src/core/map.js": {
       "sha256": "f9eae33f6635cd1b3983fc1c71eb7a3b3c8dc1c70ca3ef8ce8807d5228165d2f",

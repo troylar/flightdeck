@@ -718,7 +718,8 @@ PF.loop = (function () {
     return true;
   }
   /* Why an observation can't be read into this loop ('' when it can). fields: the step's (items:, source:); last: the loop's
-     last observation read ({ record, observation }), whose scope binds the feed's. */
+     last observation read ({ record, observation }), whose scope binds the feed's: its site, account and query, for Jira as
+     for any feed, so a search of something else never proposes this list's removals. */
   function feedWhy(obs, fields, last) {
     var kind = kindOf(fields && fields.items) ? fields.items : 'jira.issue', src = (obs && obs.source) || {};
     if (kind === 'jira.issue') {
@@ -730,7 +731,7 @@ PF.loop = (function () {
     var prev = last && last.observation ? last.observation : null, ps = prev && prev.source ? prev.source : null;
     if (!ps) return '';
     var diff = ['site', 'account'].filter(function (k) { return (src[k] || '') !== (ps[k] || ''); });
-    if (kind !== 'jira.issue' && (obs.query || '') !== (prev.query || '')) diff.push('query');
+    if ((obs.query || '') !== (prev.query || '')) diff.push('query');
     return diff.length ? 'is an observation from another scope of ' + (kind === 'jira.issue' ? 'Jira' : 'the feed ' + fields.source) + ' (its ' + diff.join(' and ') + ' differ from ' + last.record + '\'s)' : '';
   }
   /* One item as a source reports it: { id, key, title }, for a kind (jira.issue), or { key, title, link } (item). A Jira id

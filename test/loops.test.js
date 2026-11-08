@@ -722,6 +722,12 @@ rule('3b: nouns: noun: one / many, one formatter, no guessed plurals; item / ite
   same([LP.nounOf({ items: 'item' }).many, LP.nounOf({ items: 'jira.issue' }).many], ['items', 'stories']);
   for (const v of ['environments', 'a / ', ' / b', 'a/b/c', 'x'.repeat(41) + ' / y', '<b> / <b>s']) assert.strictEqual(LP.nounOf({ noun: v, items: 'item' }), null, v);
 });
+rule('Round 9 (5): a Jira observation of another query is refused like another scope of a feed: it proposes nothing', () => {
+  const L = LP.reduce([req('q1', [], { observation: obs([101, 102]) }), req('q2', ['q1'], { observation: obs([], { query: 'project = OTHER' }) })]);
+  same(L.items.map(x => x.key + ':' + x.state), ['ABC-101:in', 'ABC-102:in'], 'nothing proposed');
+  assert.ok(L.duplicates.some(d => d.record === 'q2' && /query/.test(d.why)), JSON.stringify(L.duplicates));
+  same(LP.feedWhy(obs([], { query: 'project = OTHER' }), { items: 'jira.issue' }, L.observation), L.duplicates.filter(d => d.record === 'q2')[0].why);
+});
 rule('Round 9 (8): a link is parsed after its characters are checked: no invalid IPv4 address, no port above 65535', () => {
   for (const u of ['http://999.1.1.1/', 'http://1.2.3.256/', 'http://1.2.3/', 'http://01.2.3.4/', 'https://example.com:65536/', 'https://example.com:99999/', 'https://example.com:0x50/', 'http://1.2.3.4.5/'])
     assert.ok(!LP.httpLink(u), 'refused: ' + u);
