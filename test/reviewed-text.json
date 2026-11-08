@@ -397,8 +397,8 @@
       "reviewed": "loop saves carry the click's guard, rechecked before each further write; kept candidate on drop; checked for direct writes and unconditional deletes"
     },
     "src/ui/app.js": {
-      "sha256": "ce9f548f4ace59d67e526a5505dd370ae1ce612ca36b3cb16fde944b9dbd65ec",
-      "reviewed": "loop saves carry the click's guard, rechecked before each further write; kept candidate on drop; checked for direct writes and unconditional deletes"
+      "sha256": "4f4d6d6eb3e8e30d0fdc8c982df1b082ca1b488bda615f5324f1abc5c6f4cc72",
+      "reviewed": "started list capped with capJoin; fileWhy listed as a raw consumer; checked for direct writes and unconditional deletes"
     },
     "src/ui/examples.js": {
       "sha256": "cc09650535f34b25569bfbdd76b3f1347eedac028ecb6fd765f8b9fa31564cc3",
@@ -497,8 +497,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. A maintainer tool, not shipped. Not read line by line."
     },
     "tools/readers.js": {
-      "sha256": "e82b1bea104b61428d0a969627df8b2da452f41c709ebdeb71f49eaa76c93ab0",
-      "reviewed": "readers RAW entries for loop retry rereads."
+      "sha256": "27b65a9efe3889a8ef30418849f8dac2b58aecc8951dbe4fd2e4bc9c1d3a4b20",
+      "reviewed": "started list capped with capJoin; fileWhy listed as a raw consumer; checked for direct writes and unconditional deletes"
     },
     "tools/scale-limits.js": {
       "sha256": "23e06ee46d6b4ff44216f92c530578f714aa05bcecd7a2b0458515287d554ec1",

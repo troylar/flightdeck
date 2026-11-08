@@ -190,7 +190,8 @@ rule('saveRun opts.prewrite: awaited after the reads and before still; false or 
   same(runsIn(), []);
   order.length = 0;
   await repo.saveRun(m, mk('r3'), 's1', { prewrite: (fs) => { order.push(fs === m ? 'pre(fs)' : 'pre(?)'); return new Promise(r => setTimeout(() => r(true), 5)); }, still: () => { order.push('still'); return true; } });
-  same(order, ['pre(fs)', 'still']); same(runsIn().length, 1);
+  /* still runs before each write the save makes (the candidate, the archive, run.json; round 9), always after prewrite. */
+  same(order, ['pre(fs)', 'still', 'still', 'still']); same(runsIn().length, 1);
   await repo.saveRun(m, mk('r4'), 's1', {});
   same(runsIn().length, 2);
 });

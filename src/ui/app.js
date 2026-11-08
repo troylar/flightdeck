@@ -3091,9 +3091,9 @@
     if (q.ops[0] === 'resolve' && PF.loop.resolvedBy(V, q.id)) return Promise.resolve({ ok: true, why: 'Resolved before; its outcome is recorded now.' });
     var started = q.ops[0] !== 'start' ? [] : (data.runs || []).filter(function (c) { var it = c.parent && c.parent.item; return it && it.request === q.id && c.parent.process === r.process && c.parent.id === r.id && c.parent.step === id; }).map(function (c) { return c.parent.item.key; });
     var rest = q.ops[0] !== 'start' ? null : q.items.filter(function (k, i) { return started.indexOf(k) < 0 && q.items.indexOf(k) === i; });
-    if (rest && !rest.length) return Promise.resolve({ ok: true, why: 'Started ' + started.slice(0, 20).join(', ') + ' before; its outcome is recorded now.' });
+    if (rest && !rest.length) return Promise.resolve({ ok: true, why: 'Started ' + PF.vk.capJoin(started) + ' before; its outcome is recorded now.' });
     var may = PF.loop.requestCheck(r, V, q, data.people);
-    if (may) return Promise.resolve(started.length ? { ok: true, why: 'Started ' + started.slice(0, 20).join(', ') + ' before; the rest weren\'t started: ' + may } : { ok: false, why: may });
+    if (may) return Promise.resolve(started.length ? { ok: true, why: 'Started ' + PF.vk.capJoin(started) + ' before; the rest weren\'t started: ' + may } : { ok: false, why: may });
     if (q.ops[0] === 'resolve') {
       var t = PF.loop.actionsOf(V).filter(function (y) { return y.id === q.record; })[0], rw = PF.loop.resolveWhy(r, id, t, q.outcome, data.runs, V.records);
       if (rw) return Promise.resolve({ ok: false, why: rw });
