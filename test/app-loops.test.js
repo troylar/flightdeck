@@ -614,4 +614,19 @@ rule('Review round 7 (5): a resolve request from the CLI is carried out by the r
   assert.ok(!/data-act="loop-resolve"/.test(app.html()), 'no longer recorded both ways');
 });
 
+rule('Review round 7 (44): an exception approved and withdrawn at once is resolved on the story by either choice', async () => {
+  const app = await setup();
+  app.set('loop-add-each', 'ABC-101'); app.click('loop-add', 'each'); await app.tick(150);
+  const PF = app.PF, LP = PF.loop, r = parentRun(app), L = { process: 'release-readiness', run: r.id, step: 'each' };
+  const put = async (key, ch, seen) => { const c = LP.cleanIntent({ loop: L, changes: [Object.assign({ item: { key: 'ABC-101' } }, ch)] }, key, { name: 'release-helper', version: '1.0' }); const f = LP.buildRequest(c.intent, { seen, children: [], now: new Date().toISOString(), app: '3.0.0' }); await app.fs.write('proposals/' + f.id + '.json', LP.text(f)); return f.id; };
+  const d = await PF.repo.loadAll(app.fs, {}), heads = LP.view(r, 'each', { records: d.scopes, runs: d.runs }).ledger.heads;
+  const e1 = await put('ex1', { op: 'exception', reason: 'Docs only', approver: 'person-avery' }, heads);
+  await put('ex2', { op: 'withdraw' }, heads.concat([e1])); await put('ex3', { op: 'exception', reason: 'Still docs', approver: 'person-avery' }, heads.concat([e1]));
+  app.click('refresh'); await app.tick(250);
+  assert.ok(/decided two ways at once/.test(txt(app)), 'the conflict is shown');
+  assert.ok(/data-act="loop-withdraw"/.test(app.html()) && /data-act="loop-exception"/.test(app.html()), 'both ways out offered');
+  app.click('loop-withdraw', 'each', { item: 'ABC-101' }); await app.tick(250);
+  assert.ok(!/decided two ways at once/.test(txt(app)), 'resolved');
+});
+
 run();

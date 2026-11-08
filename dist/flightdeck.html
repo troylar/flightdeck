@@ -25518,7 +25518,7 @@ PF.vk = (function () {
         else if (work && i.required) acts += '<button class="mini" data-act="loop-exclude"' + data + '>Remove</button>';
         if (work && i.state === 'removed') acts += '<button class="mini" data-act="loop-restore"' + data + '>Restore</button>';
         if (work && i.required && !i.exception && i.status !== 'cleared') acts += '<button class="mini" data-act="loop-exception"' + data + '>Approve without a run</button>';
-        if (work && i.exception) acts += '<button class="mini" data-act="loop-withdraw"' + data + '>Withdraw approval</button>';
+        if (work && (i.exception || i.excReview)) acts += '<button class="mini" data-act="loop-withdraw"' + data + '>Withdraw approval</button>';
         h += '<tr id="' + esc(PF.loop.rowId(s.id, i.key || i.uid)) + '" tabindex="-1"><td><b>' + k + '</b> ' + esc(i.title || '') + (i.state === 'proposed' ? ' <span class="small">(removal proposed)</span>' : '') + '</td><td>' + esc(LOOP_STATUS[i.status] || i.status) +
           (i.exception ? ' <span class="small">' + esc(i.exception.reason || '') + ' · ' + esc(who(i.exception.approver)) + (i.exception.onBehalf ? ', recorded on their behalf' : '') + '</span>' : '') +
           (i.mismatch ? ' <span class="small">' + (i.state === 'removed' ? 'Removed here, but the Jira search still finds it' : 'Kept here, but the Jira search no longer finds it') + '</span>' : '') +

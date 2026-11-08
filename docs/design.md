@@ -1312,8 +1312,8 @@ A `{for.each}` step starts one run of a child checklist for each item in a list,
 
   | Made at once | Holds | The run screen shows | Resolved in the app | Resolved from the CLI |
   |---|---|---|---|---|
-  | Two scope verdicts (remove, restore, keep) | the story stays required; approval waits | "needs a scope decision: two were made at once" | Remove, Restore, Keep or Approve without a run on the story | `loop exclude`, `restore`, `review --accept / --keep` |
-  | Approving without a run and withdrawing it | no exception counts; approval waits | "approval without a run was decided two ways at once" | Approve without a run (or Withdraw, once it stands) | `loop exception`, `loop withdraw` |
+  | Two scope verdicts (remove, restore, keep) | the story stays required; approval waits | "needs a scope decision: two were made at once" | Remove, Restore or Keep on the story, whichever it offers | `loop exclude`, `restore`, `review --accept / --keep` |
+  | Approving without a run and withdrawing it | no exception counts; approval waits | "approval without a run was decided two ways at once" | Approve without a run, or Withdraw approval (both offered while it's in conflict) | `loop exception`, `loop withdraw` |
   | Two run choices | the story competes; approval waits | "two people chose different runs at once; choose again" | Run to count and Count this run | `loop choose` |
   | Two owners | the story is unassigned (a plan's suggested owner never fills it); approval doesn't wait | "Unassigned: two people assigned it at once" | Make me the owner, Assign, Unassign | `loop owner` |
   | Two plans for one attempt | nothing is planned for it; approval doesn't wait (the counted run stands on its own inputs and pin) | Plan to keep, listing each plan's inputs | Keep this plan | `loop plan` (or a plan that saw both) |
