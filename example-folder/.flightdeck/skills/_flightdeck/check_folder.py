@@ -186,9 +186,22 @@ BUILTIN = {
     "jira.search": {"fields": {"query": {"kind": "jql"}, "filter": {"kind": "jira-filter"}, "results": {"kind": "results"}, "site": {"kind": "team-ref"}, "what": {"kind": "text"}},
                     "record": [{"name": "searchId"}, {"name": "count"}, {"name": "keys"}, {"name": "resultsLink"}, {"name": "ranAt"}]},
     # 3.0: a loop, frozen as type version 5 (PF.types; items: is PF.loop.KINDS).
-    "for.each": {"fields": {"process": {"kind": "text"}, "from": {"kind": "text"}, "items": {"kind": "choice", "options": ["jira.issue"]}, "max": {"kind": "text"}}, "record": []},
+    "for.each": {"fields": {"process": {"kind": "text"}, "from": {"kind": "text"}, "items": {"kind": "choice", "options": ["jira.issue", "item"]}, "max": {"kind": "text"},
+                            "source": {"kind": "text"}, "noun": {"kind": "text"}}, "record": []},
 }
 LOOP_MAX_ITEMS = 500
+# 3.0 (slice 3b): the kinds of item a loop takes (PF.loop.KINDS), a feed's stable id (source:) and a noun's two parts.
+LOOP_KINDS = ["jira.issue", "item"]
+LOOP_FEED = re.compile(r"^[a-z0-9][a-z0-9_.-]{0,59}\Z")
+LOOP_NOUN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9 '-]{0,38}[A-Za-z0-9'])?\Z")
+
+
+def loop_noun_ok(v):
+    """Whether noun: is one / many in full (PF.loop.nounOf): empty is the kind's default."""
+    if js_trim(str(v)) == "":
+        return True
+    parts = [js_trim(x) for x in str(v).split("/")]
+    return len(parts) == 2 and all(LOOP_NOUN.match(x) for x in parts)
 
 # The checklist parser's rules (src/core/map.js), as far as the check needs them: its errors, and each step's text, type and fields.
 # JavaScript's \w is ASCII, so W spells it out.
@@ -780,7 +793,19 @@ def loop_blockers(parsed):
         acc = js_list(f.get("accepts", ""))
         if f.get("process") and f["process"] == parsed.get("process"):
             out.append(label + " can't start a run of its own process.")
-        if f.get("from"):
+        kind = js_trim(str(f.get("items", "")))
+        known = kind in LOOP_KINDS
+        if kind and not known:
+            out.append(label + " takes items of kind \"%s\", which this copy of Flightdeck doesn't know. Use %s." % (kind[:40], " or ".join(LOOP_KINDS)))
+        if known and kind != "jira.issue" and f.get("from"):
+            out.append(label + ": from: is for Jira stories (items: jira.issue). A list of items is kept by hand, or fed by one tool named with source:.")
+        if known and kind == "jira.issue" and "source" in f:
+            out.append(label + ": source: is for items: item. A Jira loop takes its stories from a {jira.search} step with from:.")
+        if "source" in f and not LOOP_FEED.match(js_trim(str(f["source"]))):
+            out.append(label + ": \"source\" is the feed's stable id: lowercase letters, digits, dots, hyphens or underscores, like deploy-targets.")
+        if "noun" in f and not loop_noun_ok(f["noun"]):
+            out.append(label + ": \"noun\" is what one and many are called, like noun: environment / environments (letters, digits, spaces, hyphens, at most 40 each).")
+        if f.get("from") and (not known or kind == "jira.issue"):
             fid = re.sub(r"^#", "", js_trim(f["from"]))
             fx = ids.get(fid)
             if fx is None:

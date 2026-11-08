@@ -45,7 +45,7 @@ rule('loops is a frozen 3.0 feature every family that holds it knows', () => {
 rule('The built-in {for.each} type freezes as version 5', () => {
   const t = T.get('for.each');
   same([t.id, t.version], ['for.each', 5]);
-  same(Object.keys(t.fields).sort(), ['from', 'items', 'max', 'process']);
+  same(Object.keys(t.fields).sort(), ['from', 'items', 'max', 'noun', 'process', 'source']);
   same(E.FAMILIES['flightdeck-types'].future[5], '3.0');
 });
 rule('item:key and item:title are item sources on a {for.each} step only', () => {
@@ -426,7 +426,11 @@ rule('check_folder.py --draft gives a loop the app\'s blockers word for word, an
   const cases = [PARENT(), PARENT(L(['  pass: issue=item:key'])), PARENT(L(['  pass: issue=item:id', '  accepts: cleared, cleared'])),
     PARENT(['  process: validate-story', '  from: #nowhere', '  items: jira.issue', '  accepts: cleared', '  max: 0']),
     PARENT(['  process: validate-story', '  from: #ship1', '  items: github.pr', '  accepts: cleared', '  carry: fix_version', '  sets: fix_version=result']),
-    PARENT(L(['  pass: x=^zzz_unknown_detail_name', '  accepts: cleared', '  version: 2'])), PARENT(['  process: release-readiness', '  items: jira.issue', '  accepts: cleared'])];
+    PARENT(L(['  pass: x=^zzz_unknown_detail_name', '  accepts: cleared', '  version: 2'])), PARENT(['  process: release-readiness', '  items: jira.issue', '  accepts: cleared']),
+    PARENT(['  process: validate-story', '  items: item', '  source: deploy-targets', '  noun: environment / environments', '  pass: issue=item:key', '  accepts: cleared']),
+    PARENT(['  process: validate-story', '  items: item', '  from: #release-scope', '  source: Deploy Targets!', '  noun: environments', '  pass: issue=item:key', '  accepts: cleared']),
+    PARENT(['  process: validate-story', '  items: jira.issue', '  from: #release-scope', '  source: x', '  noun: a/b/c', '  pass: issue=item:key', '  accepts: cleared']),
+    PARENT(['  process: validate-story', '  items: item', '  noun: \' / ok', '  pass: issue=item:key', '  accepts: cleared'])];
   const src = "import json,sys,importlib.util\nspec=importlib.util.spec_from_file_location('cf',sys.argv[1]);m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)\n" +
     "d=json.load(sys.stdin)\nprint(json.dumps([[m.draft_check(md,[])['blockers'], m.features(m.parse_map(md), {})] for md in d]))";
   const out = JSON.parse(cp.execFileSync(py, ['-I', '-c', src, CHECKER], { input: JSON.stringify(cases), encoding: 'utf8' }));
@@ -663,6 +667,92 @@ rule('Review round 8 (5): the outcome a resolution writes names the resolution, 
   const { r } = release(), rs = { id: 'req-release-helper-fedcba9876543210fedcba98', ops: ['resolve'], items: [], status: 'review' };
   same(LP.resolveWhy(r, 'each', rs, 'applied', [], [rec]), '', 'a resolution recorded both ways: applied, since its effect is here');
   assert.ok(LP.resolveWhy(r, 'each', rs, 'refused', [], [rec]).length > 0);
+});
+
+/* Slice 3b: loops for any list (items: item). */
+const IOPT = { source: 'item', kind: 'item', feed: 'deploy-targets' };
+const env = (k, t, link) => Object.assign({ key: k }, t ? { title: t } : {}, link ? { link } : {});
+const iobs = (keys, o) => Object.assign({ source: { feed: 'deploy-targets' }, generation: 'g1', query: '', observedAt: '2026-11-08T09:00:00Z', items: keys.map(k => env(k)), reported: keys.length, fetched: keys.length, complete: true, errors: [] }, o || {});
+const ireq = (id, seen, o) => req(id, seen, Object.assign({ kind: 'item' }, o || {}));
+const iclean = (o, kind) => { const e = []; const out = LP.cleanObservation(o, e, kind || 'item'); return { out, e }; };
+rule('3b: a generic list kept by hand: keys as written, case-sensitive, titles optional, links http(s) only', () => {
+  const L = LP.reduce([ireq('i1', [], { changes: [{ op: 'add', item: env('staging', 'Staging', 'https://staging.example.com/') }, { op: 'add', item: env('Prod') }, { op: 'add', item: env('prod') }] })], IOPT);
+  same(L.items.map(x => [x.uid, x.key, x.title]), [['item:key:staging', 'staging', 'Staging'], ['item:key:Prod', 'Prod', ''], ['item:key:prod', 'prod', '']]);
+  same(L.items[0].link, 'https://staging.example.com/');
+  const bad = (it) => { const e = []; LP.cleanItem(it, e, 'Item 1', 'item'); return e.length > 0; };
+  for (const k of ['__proto__', 'constructor', 'prototype', 'toString', 'hasOwnProperty', '-lead', 'a'.repeat(41), 'with space', 'ABC/1', '']) assert.ok(bad(env(k)), 'key refused: ' + k);
+  assert.ok(!bad(env('a'.repeat(40))), '40 characters are fine, never cut');
+  for (const u of ['javascript:alert(1)', 'data:text/html,x', 'mailto:a@b.c', 'ftp://x.example.com', '/relative', 'https://exa mple.com', 'https://example.com/\u0007', 'http://', 'https://' + 'a'.repeat(2050)]) assert.ok(bad(env('k', '', u)), 'link refused: ' + u);
+  assert.ok(!bad(env('k', '', 'http://example.com/a?b=c#d')));
+  assert.ok(bad({ key: 'k', id: '10042' }), 'a generic item has no id');
+  const e = []; LP.cleanChanges([{ op: 'add', item: env('dup') }, { op: 'add', item: env('dup') }], e, 'item'); has(e, /dup again/);
+  const L2 = LP.reduce([ireq('i1', [], { changes: [{ op: 'add', item: env('qa') }] }), ireq('i2', ['i1'], { observation: iclean(iobs(['qa'])).out }), ireq('i3', ['i2'], { observation: iclean(iobs([])).out })], IOPT);
+  same(L2.items.map(x => x.key + ':' + x.state), ['qa:in'], 'added by hand, then listed by the feed: still never proposed');
+});
+rule('3b: a tool feeds a generic list: complete observations propose removing only what that feed enrolled; incomplete ones only add', () => {
+  const one = iclean(iobs(['staging', 'prod'])); same(one.e, []); same(one.out.complete, true);
+  const L = LP.reduce([ireq('f1', [], { observation: one.out }), ireq('f2', ['f1'], { changes: [{ op: 'add', item: env('qa') }] }),
+    ireq('f3', ['f2'], { observation: iclean(iobs(['staging'])).out })], IOPT);
+  same(L.items.map(x => x.key + ':' + x.state), ['prod:proposed', 'staging:in', 'qa:in'], 'qa was added by hand: never proposed');
+  const inc = LP.reduce([ireq('f1', [], { observation: one.out }), ireq('f3', ['f1'], { observation: iclean(iobs(['staging', 'dev'], { complete: false })).out })], IOPT);
+  same(inc.items.map(x => x.key + ':' + x.state), ['prod:in', 'staging:in', 'dev:in'], 'incomplete: adds, proposes nothing');
+});
+rule('3b: an observation from another feed, or another scope of this feed, is refused before it is reduced', () => {
+  const other = iclean(iobs(['staging'], { source: { feed: 'other-feed' } })).out;
+  const L = LP.reduce([ireq('f1', [], { observation: iclean(iobs(['staging', 'prod'])).out }), ireq('f2', ['f1'], { observation: other })], IOPT);
+  same(L.items.map(x => x.key + ':' + x.state), ['prod:in', 'staging:in'], 'another feed proposes nothing');
+  assert.ok(L.duplicates.some(d => d.record === 'f2' && /feed/.test(d.why)), JSON.stringify(L.duplicates));
+  const s1 = iclean(iobs(['staging', 'prod'], { source: { feed: 'deploy-targets', account: 'team-a' } })).out, s2 = iclean(iobs(['staging'], { source: { feed: 'deploy-targets', account: 'team-b' } })).out;
+  const M2 = LP.reduce([ireq('f1', [], { observation: s1 }), ireq('f2', ['f1'], { observation: s2 })], IOPT);
+  same(M2.items.map(x => x.key + ':' + x.state), ['prod:in', 'staging:in'], 'another scope proposes nothing');
+  assert.ok(M2.duplicates.some(d => d.record === 'f2' && /scope/.test(d.why)), JSON.stringify(M2.duplicates));
+  same(LP.feedWhy(s2, { items: 'item', source: 'deploy-targets' }, M2.observation), M2.duplicates.filter(d => d.record === 'f2')[0].why);
+  assert.ok(LP.feedWhy(iobs(['x']), { items: 'item' }, null).length > 0, 'a loop with no source: takes no feed');
+});
+rule('3b: complete means every reported item was read and listed: items, fetched and reported agree, with no errors', () => {
+  for (const [o, ok] of [[{}, true], [{ fetched: 3 }, false], [{ reported: 1 }, false], [{ reported: 3, fetched: 3 }, false], [{ errors: ['page 2 failed'] }, false], [{ complete: false }, false]]) {
+    same(iclean(iobs(['staging', 'prod'], o)).out.complete, ok, JSON.stringify(o));
+  }
+  const j = []; same(LP.cleanObservation(Object.assign(obs([101, 102]), { fetched: 3 }), j).complete, false, 'Jira too: fetched more than reported is not complete');
+  const dup = iclean(iobs(['staging', 'staging'])); assert.ok(dup.e.some(x => /twice/.test(x)), dup.e.join(' '));
+});
+rule('3b: nouns: noun: one / many, one formatter, no guessed plurals; item / items by default, story / stories for Jira', () => {
+  const N = LP.nounOf({ noun: 'environment / environments', items: 'item' });
+  same([LP.count(1, N), LP.count(3, N), LP.count(0, N)], ['1 environment', '3 environments', '0 environments']);
+  same([LP.nounOf({ items: 'item' }).many, LP.nounOf({ items: 'jira.issue' }).many], ['items', 'stories']);
+  for (const v of ['environments', 'a / ', ' / b', 'a/b/c', 'x'.repeat(41) + ' / y', '<b> / <b>s']) assert.strictEqual(LP.nounOf({ noun: v, items: 'item' }), null, v);
+});
+rule('3b: the preview counts in the loop\'s noun and names its feed, never Jira, for a generic list', () => {
+  const P = { loop: LOOPT, kind: 'item', noun: { one: 'environment', many: 'environments' }, feed: 'deploy-targets', added: [{ key: 'qa', title: 'QA' }, { key: 'dev', title: '' }], proposed: [], excluded: [{ key: 'old' }], restored: [], children: [], impact: { review: false }, overLimit: null,
+    observation: iclean(iobs(['qa', 'dev'], { complete: false })).out };
+  const t = LP.previewText(P, { title: 'Deploy everywhere', dryRun: true });
+  assert.ok(/Would add 2 environments and remove 1 environment\./.test(t), t);
+  assert.ok(/Observation from deploy-targets: 2 of 2 reported matches read; not complete .*Missing environments can't be proposed for removal\. Retry the sync\./.test(t), t);
+  assert.ok(!/Jira|stor(y|ies)/.test(t), t);
+});
+rule('3b: the map: items: item takes source: and noun:, not from:; a kind this copy doesn\'t know is refused, and its runs are read-only', () => {
+  const G = (x) => ['---', 'process: deploy-everywhere', 'title: Deploy everywhere', 'owner: person-morgan', '---', '', '## Envs · DO-CONFIRM {#envs}', '- [!] {jira.search} Find {#find}', '  query: x', '- [!] {for.each} Deploy to every environment {#each}', '  process: validate-story'].concat(x, ['  accepts: cleared', '']).join('\n');
+  none(check(G(['  items: item', '  source: deploy-targets', '  noun: environment / environments', '  pass: issue=item:key'])).blockers, /Deploy to every environment/);
+  has(check(G(['  items: item', '  from: #find', '  pass: issue=item:key'])).blockers, /from: is for Jira/);
+  has(check(G(['  items: item', '  source: Deploy Targets!', '  pass: issue=item:key'])).blockers, /"source" is the feed/);
+  has(check(G(['  items: item', '  noun: environments', '  pass: issue=item:key'])).blockers, /noun:/);
+  has(check(G(['  items: widget', '  pass: issue=item:key'])).blockers, /widget/);
+  const md = G(['  items: widget', '  pass: issue=item:key']);
+  assert.ok(/widget/.test(PF.publish.unrunnable(md, null)) && /doesn't know/.test(PF.publish.unrunnable(md, null)), PF.publish.unrunnable(md, null));
+  const f = { format: 'flightdeck-plan/3', features: ['loops'], id: 'req-release-helper-0123456789abcdef01234567', kind: 'widget', loop: LOOPT, created: AT, seen: [], observation: null, changes: [], children: [] };
+  const rq = LP.cleanRequest(f, f.id + '.json'); assert.ok(!rq.ok && /widget/.test(rq.why), JSON.stringify(rq));
+});
+rule('3b: the slice 3 races on generic items: three decisions at once and a choice in conflict hold approval until one saw every participant', () => {
+  const b = ireq('g0', [], { changes: [{ op: 'add', item: env('staging') }, { op: 'add', item: env('prod') }] });
+  const kidI = (k, v, id) => ended(0, v, { id: id || 'k-' + k, parent: { process: 'release-readiness', id: 'r-41', step: 'each', item: { uid: 'item:key:' + k, key: k, attempt: 1 } } });
+  const runs = [kidI('staging', 'cleared'), kidI('prod', 'cleared')], on = (op, x) => Object.assign({ op, item: env('prod') }, x || {});
+  same(RO(LP.reduce([b], IOPT), runs).ok, true);
+  const recs = [b, ireq('g-a', ['g0'], { changes: [on('exclude', { reason: 'x' })] }), ireq('g-m', ['g0'], { changes: [on('restore')] }), ireq('g-z', ['g0'], { changes: [on('exclude', { reason: 'x' })] }), ireq('g-d', ['g-m', 'g-z'], { changes: [on('exclude', { reason: 'x' })] })];
+  same(RO(LP.reduce(recs, IOPT), runs).ok, false, 'held');
+  same(RO(LP.reduce(recs.concat([ireq('g-e', ['g-d', 'g-a'], { changes: [on('exclude', { reason: 'x' })] })]), IOPT), runs).ok, true, 'settled');
+  const two = runs.concat([kidI('prod', 'needs-work', 'k-prod-b')]);
+  const ch = (id, run) => ireq(id, ['g0'], { changes: [on('choose', { run, attempt: 1, candidates: ['k-prod', 'k-prod-b'] })] });
+  same(RO(LP.reduce([b, ch('c-1', 'k-prod'), ch('c-2', 'k-prod-b')], IOPT), two).ok, false, 'two choices at once hold');
 });
 
 run();

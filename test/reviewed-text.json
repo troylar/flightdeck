@@ -53,8 +53,8 @@
       "reviewed": "2.16.0: the Jira search step, run-detail patterns and link fields, one workspace per checklist with Back, one header, and the AGENTS.md room merged in; 2.15.0 was never published, so its version mentions read 2.16.0. Each part reviewed before merging; checked for direct writes and unconditional deletes."
     },
     "example-folder/.flightdeck/skills/_flightdeck/check_folder.py": {
-      "sha256": "26d4544599d1777b695ca9a41a02e9765bc7aacc34a96f7d538fad08fdb1e5db",
-      "reviewed": "3.0 loops: the guide's questions for a loop, the docs, essentials, skills, example drafts and the Python checker's sets: names; checked for direct writes and unconditional deletes: none added"
+      "sha256": "8eabf94eb4339ee7dfd0643f56276f08f3bb0b7eba6386ca452f6e035ace096a",
+      "reviewed": "loops: items: item kind, feed binding, completeness fix, nouns, unknown-kind refusal in loop.js/map.js/publish.js/types.js and check_folder.py parity; pure checks only, checked for direct writes and unconditional deletes"
     },
     "example-folder/.flightdeck/skills/_flightdeck/checklist-essentials.md": {
       "sha256": "cb781a2e5daebbb0d7abda9656903bae889bf0dd919ccfd32e5101c42b4c2d96",
@@ -253,12 +253,12 @@
       "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
     },
     "src/core/loop.js": {
-      "sha256": "782eb57694aaf8cb8cbedb5a285ddf1760384475969c50cc4475ed9ca95d53f6",
-      "reviewed": "a resolution's outcome names the resolver, recognized before the target's status; checked for direct writes and unconditional deletes"
+      "sha256": "b294ec163227814832921e64f9e8aadc6dbe467b232b90131943e9d579f0560e",
+      "reviewed": "loops: items: item kind, feed binding, completeness fix, nouns, unknown-kind refusal in loop.js/map.js/publish.js/types.js and check_folder.py parity; pure checks only, checked for direct writes and unconditional deletes"
     },
     "src/core/map.js": {
-      "sha256": "671a810abb29087bed638e0fc39ecc5a52b70146abd303742d5d017c9083db7c",
-      "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
+      "sha256": "f9eae33f6635cd1b3983fc1c71eb7a3b3c8dc1c70ca3ef8ce8807d5228165d2f",
+      "reviewed": "loops: items: item kind, feed binding, completeness fix, nouns, unknown-kind refusal in loop.js/map.js/publish.js/types.js and check_folder.py parity; pure checks only, checked for direct writes and unconditional deletes"
     },
     "src/core/nav.js": {
       "sha256": "58a621b0d76244c77a9988c3f2ec79b751fdeb8874190cf0ccfa6ab36295d9b1",
@@ -289,8 +289,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/publish.js": {
-      "sha256": "455bcedee839df5f6b77da10ef1494e1217653b11d457d3cb951032169ca8db2",
-      "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
+      "sha256": "90bc167a3289a6394c3eb2b0ae8f6d8ee26114e822597f33bc49e6a60e02ca17",
+      "reviewed": "loops: items: item kind, feed binding, completeness fix, nouns, unknown-kind refusal in loop.js/map.js/publish.js/types.js and check_folder.py parity; pure checks only, checked for direct writes and unconditional deletes"
     },
     "src/core/refs.js": {
       "sha256": "24b7d2b52fcd99673fcc427db286a7224af83342da19efcd561ac850d6baa441",
@@ -345,8 +345,8 @@
       "reviewed": "Round 19, at 9aecf97: now pinned whole by the bytes of the file. Seeded in round 18 at 6da3ad1 as the reviewed baseline of this file's shipped strings: they passed the delete guard (read as source lines) as of 6da3ad1; check g's reader flags none. The file was not read line by line; only those strings were read. Every later change is reviewed as it lands."
     },
     "src/core/types.js": {
-      "sha256": "e3223c055a48c1335d9b732940fcd9403fa5cea37a7351bef48e0d56ffc574f9",
-      "reviewed": "3.0 loops: the {for.each} step, scope records, flightdeck loop and its docs; checked for direct writes and unconditional deletes: the loop commands write one file in proposals/ once, through saveScope, and delete nothing"
+      "sha256": "edeae2d69f8b34e8a0bccaa6376fb53cc767fdfb9e5821907289a27055020c36",
+      "reviewed": "loops: items: item kind, feed binding, completeness fix, nouns, unknown-kind refusal in loop.js/map.js/publish.js/types.js and check_folder.py parity; pure checks only, checked for direct writes and unconditional deletes"
     },
     "src/core/util.js": {
       "sha256": "975353b47ca87ce0923e77b95f25cc6b1955feb1b31abba556239f603c8797e2",

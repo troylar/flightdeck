@@ -111,11 +111,12 @@ PF.types = (function () {
         { name: 'keys', label: 'Issue keys', kind: 'text', long: true, notAt: { count: '0' } }, { name: 'resultsLink', label: 'Results link', kind: 'url' },
         { name: 'ranAt', label: 'When it ran', kind: 'text' }] },
     /* 3.0 (loops): one linked run of a child checklist per item of a living scope (docs/design.md 44). items: is a kind of
-       item (PF.loop.KINDS, the same list); from: a {jira.search} step of this checklist, or none for a list kept by hand.
+       item (PF.loop.KINDS, the same list); from: a {jira.search} step of this checklist (jira.issue), or none for a list kept by
+       hand; source: the one tool feed an items: item list syncs from; noun: what its rows are called (one / many).
        Its pass: and accepts: are map lines, as on {run.process}. It records nothing itself: its items do. */
     { id: 'for.each', label: 'For each item', icon: 'nest', hint: 'Start a linked run of another checklist for each item in a list; done when every item is cleared or excused.',
-      fields: { process: { label: 'Checklist', kind: 'text', required: true }, from: { label: 'Items from', kind: 'text' }, items: { label: 'Kind of item', kind: 'choice', options: ['jira.issue'], required: true },
-        max: { label: 'Most items', kind: 'text' } },
+      fields: { process: { label: 'Checklist', kind: 'text', required: true }, from: { label: 'Items from', kind: 'text' }, items: { label: 'Kind of item', kind: 'choice', options: ['jira.issue', 'item'], required: true },
+        max: { label: 'Most items', kind: 'text' }, source: { label: 'Fed by', kind: 'text' }, noun: { label: 'Called', kind: 'text' } },
       record: [] }
   ];
   /* The search type freezes as version 4, which 2.0 to 2.14 refuse; every other built-in stays at VERSION. */

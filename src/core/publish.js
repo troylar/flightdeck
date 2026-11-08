@@ -247,6 +247,8 @@ PF.publish = (function () {
       if (!def) return label + ' uses the step type {' + s.type + '}, which this copy of Flightdeck doesn\'t have and this version doesn\'t include. Update Flightdeck, or publish the checklist again.';
       /* A hand-written or newer types.json can hold anything; a type this copy can't fully read is reported, never thrown. */
       if (!T.understood(def)) return NEWER + ' ' + label + ' has a step type this copy can\'t read.';
+      /* A loop's kind of item this copy doesn't know: its runs are read-only, named by the kind; no other kind stands in. */
+      if (s.type === 'for.each' && !PF.loop.kindOf(String(s.fields.items || '').trim())) return label + ' takes items of kind "' + String(s.fields.items || '').trim().slice(0, 40) + '", which this copy of Flightdeck doesn\'t know. Update Flightdeck, or publish the checklist again with a kind it knows.';
       var bad; try { bad = T.checkFields(def, s.fields, { context: map.meta.context }).errors[0]; } catch (err) { return NEWER + ' ' + label + ' has a step type this copy can\'t read.'; }
       if (bad) return NEWER + ' ' + label + ' ' + bad;
     }

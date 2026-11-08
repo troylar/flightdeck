@@ -351,7 +351,14 @@ PF.map = (function () {
     function loopChecks(s, label) {
       var L = PF.links, pe = L.parse(s.fields.pass, { items: true }).entries, acc = list(s.fields.accepts);
       if (s.fields.process && s.fields.process === meta.process) blockers.push(label + ' can\'t start a run of its own process.');
-      if (s.fields.from) {
+      /* The kind of item, its feed and its noun (3.0, slice 3b): from: is Jira's, source: any other list's. */
+      var kind = String(s.fields.items || '').trim(), K = PF.loop.kindOf(kind);
+      if (kind && !K) blockers.push(label + ' takes items of kind "' + kind.slice(0, 40) + '", which this copy of Flightdeck doesn\'t know. Use ' + Object.keys(PF.loop.KINDS).join(' or ') + '.');
+      if (K && kind !== 'jira.issue' && s.fields.from) blockers.push(label + ': from: is for Jira stories (items: jira.issue). A list of items is kept by hand, or fed by one tool named with source:.');
+      if (K && kind === 'jira.issue' && s.fields.source != null) blockers.push(label + ': source: is for items: item. A Jira loop takes its stories from a {jira.search} step with from:.');
+      if (s.fields.source != null && !PF.loop.FEED.test(String(s.fields.source).trim())) blockers.push(label + ': "source" is the feed\'s stable id: lowercase letters, digits, dots, hyphens or underscores, like deploy-targets.');
+      if (s.fields.noun != null && !PF.loop.nounOf({ items: kind, noun: s.fields.noun })) blockers.push(label + ': "noun" is what one and many are called, like noun: environment / environments (letters, digits, spaces, hyphens, at most 40 each).');
+      if (s.fields.from && (!K || kind === 'jira.issue')) {
         var fid = String(s.fields.from).trim().replace(/^#/, ''), fx = findStep(map, fid);
         if (!fx) blockers.push(label + ': from: names #' + fid.slice(0, 60) + ', which isn\'t a step of this checklist. Name its {jira.search} step, or leave from: out for a list kept by hand.');
         else if (fx.step.type !== 'jira.search') blockers.push(label + ': from: names #' + fid + ', which isn\'t a {jira.search} step. Name a search step, or leave from: out for a list kept by hand.');

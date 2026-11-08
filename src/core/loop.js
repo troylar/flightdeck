@@ -2,11 +2,28 @@
    Pure: no files. The kinds of item a loop takes, its limit, the scope ledger, scope requests and the gate's roll-up. */
 PF.loop = (function () {
   'use strict';
-  /* The kinds of item (items:), each with how its stable id and key look. jira.issue first; environments, services and pull
-     requests can follow with their own entry (and the type's items: options, PF.types, the same list). */
+  /* The kinds of item (items:), each with how its stable id and key look, and the noun its rows are counted in (noun: on the
+     step overrides it). jira.issue comes from a {jira.search} step (from:); item is any list, kept by hand or fed by one
+     declared tool (source:). The type's items: options (PF.types) are the same list; a kind not here is refused, never
+     read as another. */
   var KINDS = {
-    'jira.issue': { label: 'Jira issue', plural: 'Jira issues', source: 'jira', id: /^[0-9]{1,18}$/, key: /^[A-Z][A-Z0-9_]{0,29}-[1-9][0-9]{0,8}$/ }
+    'jira.issue': { label: 'Jira issue', plural: 'Jira issues', source: 'jira', id: /^[0-9]{1,18}$/, key: /^[A-Z][A-Z0-9_]{0,29}-[1-9][0-9]{0,8}$/, noun: { one: 'story', many: 'stories' } },
+    item: { label: 'Item', plural: 'Items', source: 'item', id: null, key: /^[A-Za-z0-9][A-Za-z0-9_-]{0,39}$/, link: true, noun: { one: 'item', many: 'items' } }
   };
+  function kindOf(k) { return typeof k === 'string' && Object.prototype.hasOwnProperty.call(KINDS, k) ? KINDS[k] : null; }
+  /* noun: one / many, said in full (no plural is guessed): letters, digits, spaces, hyphens and apostrophes, at most 40 each. */
+  var NOUN = /^[A-Za-z0-9](?:[A-Za-z0-9 '-]{0,38}[A-Za-z0-9'])?$/;
+  function nounOf(f) {
+    var K = kindOf(f && f.items), d = K ? K.noun : KINDS.item.noun;
+    if (!f || f.noun == null || String(f.noun).trim() === '') return { one: d.one, many: d.many };
+    var parts = String(f.noun).split('/').map(function (v) { return v.trim(); });
+    if (parts.length !== 2 || !NOUN.test(parts[0]) || !NOUN.test(parts[1])) return null;
+    return { one: parts[0], many: parts[1] };
+  }
+  /* The one formatter every surface counts rows with: 1 environment, 3 environments. */
+  function count(n, N) { N = N || KINDS['jira.issue'].noun; return n + ' ' + (n === 1 ? N.one : N.many); }
+  /* A stable id for the feed (source:), like deploy-targets. */
+  var FEED = /^[a-z0-9][a-z0-9_.-]{0,59}$/;
   /* max: (default 200, at most 500): more items than that are refused as a whole, never cut. */
   var MAX_ITEMS = 500, DEFAULT_MAX = 200;
   function maxOf(v) { var t = String(v == null ? '' : v).trim(); if (!/^[1-9]\d{0,2}$/.test(t) || +t > MAX_ITEMS) return null; return +t; }
@@ -65,7 +82,7 @@ PF.loop = (function () {
      heads, observation }. items keep every one ever in scope, in the order they first arrived. */
   function reduce(records, o) {
     o = o || {};
-    var source = o.source || 'jira', max = o.max || DEFAULT_MAX, c = causal(records || []), items = [], byUid = Object.create(null), byKey = Object.create(null);
+    var kind = kindOf(o.kind) ? o.kind : 'jira.issue', source = KINDS[kind].source, max = o.max || DEFAULT_MAX, c = causal(records || []), items = [], byUid = Object.create(null), byKey = Object.create(null);
     var duplicates = [], lastObs = null, intents = Object.create(null), asks = Object.create(null), plans = Object.create(null);
     function find(it) {
       var x = it.id ? byUid[uidOf(source, it)] : null;
@@ -78,10 +95,11 @@ PF.loop = (function () {
         /* A key first, then its id: the same item. */
         if (!x.id && it.id) { delete byUid[x.uid]; x.id = it.id; x.uid = uidOf(source, x); byUid[x.uid] = x; }
         if (it.title && it.title !== x.title) x.title = String(it.title);
+        if (it.link && it.link !== x.link) x.link = String(it.link);
         if (it.key && it.key !== x.key) { if (byKey[x.key] === x) delete byKey[x.key]; x.key = it.key; byKey[x.key] = x; }
         return x;
       }
-      x = { uid: uidOf(source, it), id: it.id || '', key: it.key || '', title: String(it.title || ''), state: 'in', since: rec.id, provenance: [], verdict: null,
+      x = { uid: uidOf(source, it), id: it.id || '', key: it.key || '', title: String(it.title || ''), link: String(it.link || ''), state: 'in', since: rec.id, provenance: [], verdict: null,
         review: [], mismatch: false, kept: false, owner: '', exception: null, attempt: 0, planned: null, proposal: null, inSource: true, choice: null, choiceReview: [], exc: null, excReview: [], own: null, ownReview: [], plan: null, planReview: [], planOpts: Object.create(null) };
       items.push(x); byUid[x.uid] = x; if (x.key) byKey[x.key] = x;
       return x;
@@ -132,23 +150,29 @@ PF.loop = (function () {
     }
     c.order.forEach(function (rec) {
       if (rec.type === 'request') {
+        /* A record for another kind of item is never read as this loop's (no fallback). */
+        if ((rec.kind || 'jira.issue') !== kind) { duplicates.push({ record: rec.id, op: 'kind', item: '', why: 'is for items of kind ' + rec.kind + ', but this loop takes ' + kind }); return; }
         var obs = rec.observation, seenUids = Object.create(null);
+        /* An observation from another feed, or another scope of this one, is refused before it is reduced. */
+        var fw = obs ? feedWhy(obs, { items: kind, source: o.feed }, lastObs) : '';
+        if (fw) { duplicates.push({ record: rec.id, op: 'observe', item: '', why: fw }); obs = null; }
         if (obs) {
           lastObs = { record: rec.id, observation: obs };
           (obs.items || []).forEach(function (it) {
             var x = find(it), was = !!x;
             x = ensure(it, rec, 'observed');
-            seenUids[x.uid] = true; x.inSource = true; x.kept = false; x.manual = false;
-            if (!was) note(x, rec, 'add', { observed: true });
+            seenUids[x.uid] = true; x.inSource = true; x.kept = false;
+            if (!was) { x.fed = true; note(x, rec, 'add', { observed: true }); }
             else if (x.state === 'removed') x.mismatch = true;
             else if (x.state === 'proposed') { x.state = 'in'; x.proposal = null; note(x, rec, 'seen-again'); }
           });
-          /* Absence proposes a removal only from a complete observation, and only for items this source holds. */
+          /* Absence proposes a removal only from a complete observation, and only for items the feed enrolled: one added by
+             hand is never proposed, even after the feed listed it too. */
           if (obs.complete) items.forEach(function (x) {
             if (seenUids[x.uid]) return;
             x.inSource = false;
             if (x.state === 'removed') { x.mismatch = false; return; }
-            if (x.state !== 'in' || x.kept || x.manual) return;
+            if (x.state !== 'in' || x.kept || x.manual || !x.fed) return;
             x.state = 'proposed'; x.proposal = rec.id; x.proposedBy = rec.id; note(x, rec, 'propose-removal');
           });
         }
@@ -469,7 +493,7 @@ PF.loop = (function () {
     var map = PF.run.mapOf(r), x = PF.map.findStep(map, stepId);
     if (!x || x.step.type !== 'for.each') return null;
     var f = PF.run.fieldsOf(r, x.step), loop = { process: r.process, run: r.id, step: stepId };
-    var L = reduce(recordsFor(o.records, loop), { max: limitOf({ fields: f }) });
+    var L = reduce(recordsFor(o.records, loop), { max: limitOf({ fields: f }), kind: f.items, feed: f.source });
     (o.unread || []).forEach(function (u) {
       if (u.loop && !(u.loop.process === loop.process && u.loop.run === loop.run && u.loop.step === loop.step)) return;
       L.held.push({ record: String(u.file || ''), why: 'unreadable' });
@@ -495,7 +519,7 @@ PF.loop = (function () {
     var a = r.steps && r.steps[stepId], pin = r.pins && r.pins.children && own(r.pins.children, stepId) ? r.pins.children[stepId] : null;
     var approved = a && a.s === 'done' && a.loop ? a.loop : null;
     var review = a && a.s === 'recheck' && a.values && typeof a.values.changes === 'string' ? a.values.changes.split('\n').filter(Boolean) : [];
-    return { loop: loop, step: x.step, fields: f, accepts: acc, pin: pin, records: recordsFor(o.records, loop), ropts: ropts, ledger: L, rollup: R, runs: kids, approved: approved,
+    return { loop: loop, kind: kindOf(f.items) ? f.items : 'jira.issue', noun: nounOf(f) || nounOf({ items: f.items }), step: x.step, fields: f, accepts: acc, pin: pin, records: recordsFor(o.records, loop), ropts: ropts, ledger: L, rollup: R, runs: kids, approved: approved,
       changes: approved ? changes(approved, L, R) : [], review: review, ended: !!r.ended,
       previous: a && a.history ? a.history.filter(function (h) { return h.loop; }).map(function (h) { return h.loop; }) : [] };
   }
@@ -519,6 +543,8 @@ PF.loop = (function () {
     var find = function (k) { return V.ledger.items.filter(function (i) { return i.key === k; })[0]; };
     return { loop: V.loop, changes: keys.map(function (k) {
       var x = op === 'add' ? null : find(k), c = { op: op, item: x && x.id ? { id: x.id, key: k } : { key: k } };
+      /* One item added by hand may bring its title and link (items: item). */
+      if (op === 'add' && keys.length === 1) { if (o.title) c.item.title = o.title; if (o.link) c.item.link = o.link; }
       if (o.reason != null && o.reason !== '') c.reason = o.reason;
       if (op === 'exception') { c.approver = o.approver; if (o.onBehalf) c.onBehalf = true; }
       if (op === 'owner') c.owner = o.owner || '';
@@ -530,8 +556,8 @@ PF.loop = (function () {
   function project(r, V, intent, o) {
     o = o || {};
     var heads = V.ledger.heads.slice(), rec = { id: '~new', type: 'request', seen: heads, by: intent.producer ? { tool: intent.producer.name, version: intent.producer.version } : { person: o.by || '' },
-      observation: intent.observation, changes: intent.changes, children: [] };
-    var max = limitOf({ fields: V.fields }), A = reduce(V.records.concat([rec]), { max: max }), was = Object.create(null), who = o.who || function (p) { return p || ''; };
+      observation: intent.observation, changes: intent.changes, children: [], kind: V.kind };
+    var max = limitOf({ fields: V.fields }), A = reduce(V.records.concat([rec]), { max: max, kind: V.kind, feed: V.fields.source }), was = Object.create(null), who = o.who || function (p) { return p || ''; };
     V.ledger.items.forEach(function (x) { was[x.uid] = x; });
     var rows = Object.create(null); V.rollup.items.forEach(function (i) { rows[i.uid] = i; });
     var runs = Object.create(null); V.runs.forEach(function (c) { runs[c.id] = c; });
@@ -549,23 +575,23 @@ PF.loop = (function () {
     });
     added.forEach(function (it) {
       var x = A.items.filter(function (y) { return y.uid === it.uid; })[0], io = inputsFor(r, V.fields, it);
-      children.push({ item: { id: x.id, key: x.key }, attempt: (x.attempt || 0) + 1, inputs: io.inputs, owner: '', missing: io.missing });
+      children.push({ item: KINDS[V.kind].id ? { id: x.id, key: x.key } : { key: x.key }, attempt: (x.attempt || 0) + 1, inputs: io.inputs, owner: '', missing: io.missing });
     });
     rec.children = children.map(function (k) { return { item: k.item, attempt: k.attempt, inputs: k.inputs, owner: k.owner }; });
     var AR = rollup(A, V.runs, V.ropts), impact = V.approved ? changes(V.approved, A, AR) : [];
     return { loop: V.loop, record: rec, seen: heads, added: added, proposed: proposed, excluded: excluded, restored: restored, children: children,
-      impact: { review: impact.length > 0, reasons: impact }, observation: intent.observation, held: V.ledger.held, overLimit: A.overLimit, summary: AR.summary };
+      impact: { review: impact.length > 0, reasons: impact }, observation: intent.observation, held: V.ledger.held, overLimit: A.overLimit, summary: AR.summary, kind: V.kind, noun: V.noun, feed: V.fields.source || '' };
   }
   function plural(n, one, many) { return n + ' ' + (n === 1 ? one : many); }
   /* The plain-text preview (docs/design.md 44): the summary first, then the source and the folder read, then each story. */
   function previewText(P, o) {
     o = o || {};
     var lines = [(o.title || P.loop.process) + ' — ' + (o.dryRun ? 'preview only; no files written.' : o.already ? 'already requested; nothing written.' : 'request written; no runs started.'), ''];
-    var verb = o.dryRun ? 'Would ' : 'Asked to ', parts = [];
-    if (P.added.length) parts.push('add ' + plural(P.added.length, 'story', 'stories'));
+    var verb = o.dryRun ? 'Would ' : 'Asked to ', parts = [], N = P.noun || KINDS['jira.issue'].noun, jira = !P.kind || P.kind === 'jira.issue';
+    if (P.added.length) parts.push('add ' + count(P.added.length, N));
     if (P.proposed.length) parts.push((parts.length ? 'request review of ' : 'request review of ') + plural(P.proposed.length, 'removal', 'removals'));
-    if (P.excluded.length) parts.push('remove ' + plural(P.excluded.length, 'story', 'stories'));
-    if (P.restored.length) parts.push('restore ' + plural(P.restored.length, 'story', 'stories'));
+    if (P.excluded.length) parts.push('remove ' + count(P.excluded.length, N));
+    if (P.restored.length) parts.push('restore ' + count(P.restored.length, N));
     lines.push(parts.length ? verb + parts.join(' and ') + '.' : 'No change to scope.');
     var open = P.proposed.filter(function (p) { return p.open; }).length;
     if (open) lines.push(open === 1 ? 'One proposed removal has an assessment in progress.' : open + ' proposed removals have assessments in progress.');
@@ -576,15 +602,15 @@ PF.loop = (function () {
     else if (needs.length) lines.push(needs.join('; ') + '.');
     lines.push(o.dryRun ? 'No runs would start.' : 'No runs started.');
     if (P.impact.review) lines.push(o.dryRun ? 'The scope change would require approval review.' : 'The scope change requires approval review.');
-    if (P.overLimit) lines.push(P.overLimit.count + ' stories would be in scope; this loop takes at most ' + P.overLimit.max + '. Nothing is cut.');
+    if (P.overLimit) lines.push(count(P.overLimit.count, N) + ' would be in scope; this loop takes at most ' + P.overLimit.max + '. Nothing is cut.');
     lines.push('');
     var ob = P.observation;
-    if (ob) lines.push('Jira observation: ' + ob.fetched + ' of ' + ob.reported + ' reported matches read; ' + (ob.complete ? 'pagination complete.' : 'not complete (' + ob.why + '). Missing stories can\'t be proposed for removal. Retry the search.'));
+    if (ob) lines.push((jira ? 'Jira observation: ' : 'Observation from ' + P.feed + ': ') + ob.fetched + ' of ' + ob.reported + ' reported matches read; ' + (ob.complete ? 'pagination complete.' : 'not complete (' + ob.why + '). Missing ' + N.many + ' can\'t be proposed for removal. Retry the ' + (jira ? 'search' : 'sync') + '.'));
     lines.push('Team-folder read: ' + (o.problems && o.problems.length ? 'partial (' + plural(o.problems.length, 'problem', 'problems') + ').' : 'complete.'));
     var seenAt = ob && ob.observedAt ? ob.observedAt : '';
     if (P.added.length || P.proposed.length || P.excluded.length || P.restored.length) lines.push('');
     P.added.forEach(function (x) { var k = P.children.filter(function (c) { return c.item.key === x.key; })[0]; lines.push(x.key + ' · add' + (x.title ? ' · ' + x.title : '') + (k && k.missing.length ? ' · needs ' + k.missing.join(', ') : '')); });
-    P.proposed.forEach(function (x) { lines.push(x.key + ' · proposed removal: not in the complete search observed ' + seenAt + (x.open ? ' · ' + (x.recorderName || x.recorder) + ' is recording · ' + x.answered + ' of ' + x.total + ' steps answered' : x.run ? ' · its assessment ' + x.status : '')); });
+    P.proposed.forEach(function (x) { lines.push(x.key + ' · proposed removal: not in the complete ' + (jira ? 'search' : 'list from ' + P.feed) + ' observed ' + seenAt + (x.open ? ' · ' + (x.recorderName || x.recorder) + ' is recording · ' + x.answered + ' of ' + x.total + ' steps answered' : x.run ? ' · its assessment ' + x.status : '')); });
     P.excluded.forEach(function (x) { lines.push(x.key + ' · remove from scope'); });
     P.restored.forEach(function (x) { lines.push(x.key + ' · restore to scope'); });
     return lines.join('\n');
@@ -676,10 +702,43 @@ PF.loop = (function () {
     return v;
   }
   function whole(v) { return typeof v === 'number' && isFinite(v) && Math.floor(v) === v && v >= 0 && v <= 1e6; }
-  /* One item as a source reports it: { id, key, title }, for a kind (jira.issue). id may be left out where it isn't known
-     (a key pasted by hand); key never. */
+  /* A link on an item: absolute http or https, at most 2,048 characters, with a host and no spaces, control characters or
+     user name. Its own check: mailto:, javascript: and data: are never links here. */
+  function httpLink(v) {
+    if (typeof v !== 'string' || v.length > 2048 || CONTROL.test(v) || /\s/.test(v)) return false;
+    return /^https?:\/\/[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?(?::[0-9]{1,5})?(?:[/?#][\x21-\x7e]*)?$/.test(v) && !/[<>"'`\\]/.test(v);
+  }
+  /* Why an observation can't be read into this loop ('' when it can). fields: the step's (items:, source:); last: the loop's
+     last observation read ({ record, observation }), whose scope binds the feed's. */
+  function feedWhy(obs, fields, last) {
+    var kind = kindOf(fields && fields.items) ? fields.items : 'jira.issue', src = (obs && obs.source) || {};
+    if (kind === 'jira.issue') {
+      if (src.system !== 'jira') return 'is an observation from ' + (src.feed ? 'the feed ' + src.feed : 'another source') + ', not from Jira';
+    } else {
+      if (!fields.source) return 'is an observation, but this loop declares no feed (source:), so its list is kept by hand';
+      if (src.feed !== fields.source) return 'is an observation from the feed ' + (src.feed || src.system || 'with no name') + ', but this loop is fed by ' + fields.source;
+    }
+    var prev = last && last.observation ? last.observation : null, ps = prev && prev.source ? prev.source : null;
+    if (!ps) return '';
+    var diff = ['site', 'account'].filter(function (k) { return (src[k] || '') !== (ps[k] || ''); });
+    if (kind !== 'jira.issue' && (obs.query || '') !== (prev.query || '')) diff.push('query');
+    return diff.length ? 'is an observation from another scope of ' + (kind === 'jira.issue' ? 'Jira' : 'the feed ' + fields.source) + ' (its ' + diff.join(' and ') + ' differ from ' + last.record + '\'s)' : '';
+  }
+  /* One item as a source reports it: { id, key, title }, for a kind (jira.issue), or { key, title, link } (item). A Jira id
+     may be left out where it isn't known (a key pasted by hand); key never. An item's key is kept exactly as written. */
   function cleanItem(it, errors, where, kind) {
-    var K = KINDS[kind || 'jira.issue'], out = { id: '', key: '', title: '' };
+    var K = kindOf(kind || 'jira.issue'), out = { id: '', key: '', title: '' };
+    if (!K) { errors.push(where + ' is an item of kind ' + String(kind).slice(0, 40) + ', which this copy of Flightdeck doesn\'t know.'); return null; }
+    if (!K.id) {
+      if (!isMap(it)) { errors.push(where + ' is {"key": "staging", "title": "...", "link": "https://..."}.'); return null; }
+      Object.keys(it).forEach(function (k) { if (['key', 'title', 'link'].indexOf(k) < 0) errors.push(where + ' has ' + q(k) + '; an item has key, title and link.'); });
+      if (typeof it.key !== 'string' || !K.key.test(it.key)) errors.push(where + ': "key" is 1 to 40 letters, digits, hyphens or underscores, starting with a letter or digit, like staging.');
+      else if (reserved(it.key)) errors.push(where + ': "key" ' + q(it.key) + ' is a name Flightdeck keeps for itself; use another.');
+      else out.key = it.key;
+      var ti = line(it.title, LIMITS.title, where + ' "title"', errors, true); if (ti) out.title = ti;
+      if (it.link != null && it.link !== '') { if (!httpLink(it.link)) errors.push(where + ': "link" is an http or https address of at most 2,048 characters, like https://example.com/.'); else out.link = it.link; }
+      return out;
+    }
     if (!isMap(it)) { errors.push(where + ' is {"id": "10042", "key": "ABC-101", "title": "..."}.'); return null; }
     Object.keys(it).forEach(function (k) { if (['id', 'key', 'title', 'status', 'assignee'].indexOf(k) < 0) errors.push(where + ' has ' + q(k) + '; an item has id, key, title, status and assignee.'); });
     if (it.id != null && it.id !== '') { if (typeof it.id !== 'string' || !K.id.test(it.id)) errors.push(where + ': "id" is the issue\'s id, digits only, like "10042".'); else out.id = it.id; }
@@ -690,15 +749,20 @@ PF.loop = (function () {
   }
   /* An observation (docs/apps.md, flightdeck loop sync): what a tool read from the source, whole. complete is true only when
      it says so and its numbers add up; why says what's missing otherwise. */
-  function cleanObservation(o, errors) {
+  function cleanObservation(o, errors, kind) {
+    var K = kindOf(kind || 'jira.issue');
+    if (!K) { errors.push('The observation is for items of kind ' + String(kind).slice(0, 40) + ', which this copy of Flightdeck doesn\'t know.'); return null; }
     if (!isMap(o)) { errors.push('The observation is a JSON object with source, generation, query, observedAt, items, reported, fetched, complete and errors.'); return null; }
     var KEYS = ['source', 'generation', 'query', 'observedAt', 'items', 'reported', 'fetched', 'complete', 'errors'];
     Object.keys(o).forEach(function (k) { if (KEYS.indexOf(k) < 0) errors.push('The observation has ' + q(k) + ', which an observation doesn\'t have. It has: ' + KEYS.join(', ') + '.'); });
     var out = { source: { system: 'jira' }, generation: '', query: '', observedAt: '', items: [], reported: 0, fetched: 0, complete: false, errors: [] };
-    if (!isMap(o.source) || o.source.system !== 'jira' || Object.keys(o.source).some(function (k) { return k !== 'system' && k !== 'site'; })) errors.push('"source" is {"system": "jira", "site": "<its address>"}.');
+    if (!K.id) {
+      if (!isMap(o.source) || typeof o.source.feed !== 'string' || !FEED.test(o.source.feed) || Object.keys(o.source).some(function (k) { return k !== 'feed' && k !== 'site' && k !== 'account'; })) errors.push('"source" is {"feed": "<the loop\'s source: id>", "site": "...", "account": "..."} (site and account when the feed has them).');
+      else { out.source = { feed: o.source.feed }; ['site', 'account'].forEach(function (k) { if (o.source[k] != null) { var sv = line(o.source[k], 200, '"source" ' + k, errors); if (sv) out.source[k] = sv; } }); }
+    } else if (!isMap(o.source) || o.source.system !== 'jira' || Object.keys(o.source).some(function (k) { return k !== 'system' && k !== 'site'; })) errors.push('"source" is {"system": "jira", "site": "<its address>"}.');
     else { out.source = { system: 'jira' }; if (o.source.site != null) { var st = line(o.source.site, 200, '"source" site', errors); if (st) out.source.site = st; } }
     var g = line(o.generation, LIMITS.generation, '"generation"', errors); if (g) out.generation = g;
-    var qy = line(o.query, LIMITS.query, '"query"', errors); if (qy) out.query = qy;
+    var qy = line(o.query, LIMITS.query, '"query"', errors, !K.id); if (qy) out.query = qy;
     if (typeof o.observedAt !== 'string' || !ISO.test(o.observedAt) || isNaN(Date.parse(o.observedAt))) errors.push('"observedAt" is a date and time with its zone, like 2026-11-07T09:42:00Z.');
     else out.observedAt = new Date(Date.parse(o.observedAt)).toISOString();
     if (!whole(o.reported)) errors.push(q('reported') + ' is a whole number.'); else out.reported = o.reported;
@@ -711,9 +775,9 @@ PF.loop = (function () {
     else {
       var keys = Object.create(null), ids = Object.create(null);
       o.items.forEach(function (it, i) {
-        var c = cleanItem(it, errors, 'Item ' + (i + 1));
+        var c = cleanItem(it, errors, 'Item ' + (i + 1), kind);
         if (!c) return;
-        if (!c.id) errors.push('Item ' + (i + 1) + ': an observation gives each issue\'s "id".');
+        if (K.id && !c.id) errors.push('Item ' + (i + 1) + ': an observation gives each issue\'s "id".');
         if (keys[c.key] || (c.id && ids[c.id])) { errors.push('Item ' + (i + 1) + ' (' + c.key + ') is listed twice.'); return; }
         keys[c.key] = true; if (c.id) ids[c.id] = true;
         out.items.push(c);
@@ -721,7 +785,9 @@ PF.loop = (function () {
     }
     out.complete = o.complete === true;
     if (out.complete) {
+      /* Complete means every reported item was read and listed: items, fetched and reported all agree, with no errors. */
       var why = out.errors.length ? 'the search reported errors' : out.fetched < out.reported ? 'it read ' + out.fetched + ' of ' + out.reported + ' reported matches' :
+        out.fetched > out.reported ? 'it says it read ' + out.fetched + ' but only ' + out.reported + ' were reported' :
         out.items.length !== out.fetched ? 'it lists ' + out.items.length + ' items but says it read ' + out.fetched : '';
       if (why) { out.complete = false; out.why = why; }
     } else out.why = 'the observation says it isn\'t complete';
@@ -732,8 +798,8 @@ PF.loop = (function () {
     if (!isMap(l) || !PROC.test(String(l.process)) || !RUN.test(String(l.run)) || !STEP.test(String(l.step)) || Object.keys(l).length !== 3) { errors.push('"loop" is {"process": "<checklist>", "run": "<run id>", "step": "<the loop step\'s id>"}.'); return null; }
     return { process: l.process, run: l.run, step: l.step };
   }
-  function cleanChanges(list, errors) {
-    var out = [];
+  function cleanChanges(list, errors, kind) {
+    var out = [], added = Object.create(null);
     if (list == null) return out;
     if (!Array.isArray(list) || list.length > LIMITS.changes) { errors.push('"changes" is a list of at most ' + LIMITS.changes + ' changes.'); return out; }
     list.forEach(function (ch, i) {
@@ -742,7 +808,7 @@ PF.loop = (function () {
       Object.keys(ch).forEach(function (k) { if (['op', 'item', 'reason', 'owner', 'approver', 'onBehalf', 'as', 'all', 'run', 'attempt', 'candidates', 'record', 'outcome'].indexOf(k) < 0 || (k === 'all' && !(ch.op === 'start' && ch.all === true)) || ((k === 'run' || k === 'candidates') && ch.op !== 'choose') || (k === 'attempt' && ch.op !== 'choose' && ch.op !== 'plan') || (k === 'record' && ch.op !== 'plan' && ch.op !== 'resolve') || (k === 'outcome' && ch.op !== 'resolve')) errors.push(where + ' has ' + q(k) + '.'); });
       if (ACTIONS.indexOf(ch.op) >= 0) {
         var ca = { op: ch.op };
-        if (ch.op === 'start') { ca.item = cleanItem(ch.item, errors, where + ' item'); if (!ca.item) return; if (ch.all === true) ca.all = true; }
+        if (ch.op === 'start') { ca.item = cleanItem(ch.item, errors, where + ' item', kind); if (!ca.item) return; if (ch.all === true) ca.all = true; }
         else if (ch.item != null) errors.push(where + ': ' + q(ch.op) + ' names no item.');
         if (ch.op === 'resolve') {
           if (typeof ch.record !== 'string' || !REQ.test(ch.record)) errors.push(where + ': "record" is the id of the request whose outcome was recorded two ways.'); else ca.record = ch.record;
@@ -752,8 +818,9 @@ PF.loop = (function () {
         if (ch.reason != null) { var ra = line(ch.reason, LIMITS.reason, where + ' "reason"', errors, true); if (ra) ca.reason = ra; }
         out.push(ca); return;
       }
-      var it = cleanItem(ch.item, errors, where + ' item'), c = { op: ch.op, item: it };
+      var it = cleanItem(ch.item, errors, where + ' item', kind), c = { op: ch.op, item: it };
       if (!it) return;
+      if (ch.op === 'add' && it.key) { if (added[it.key]) { errors.push(where + ' adds ' + it.key + ' again; each item is added once.'); return; } added[it.key] = true; }
       if (ch.op === 'exclude' || ch.op === 'exception') { var r = line(ch.reason, LIMITS.reason, where + ' "reason"', errors); if (r) c.reason = r; }
       else if (ch.reason != null) { var r2 = line(ch.reason, LIMITS.reason, where + ' "reason"', errors, true); if (r2) c.reason = r2; }
       if (ch.op === 'plan') {
@@ -775,11 +842,12 @@ PF.loop = (function () {
     return out;
   }
   /* What a call asks for: { loop, observation, changes } from a tool (producer { name, version }) or a person. */
-  function cleanIntent(v, key, producer) {
+  function cleanIntent(v, key, producer, kind) {
     var errors = [];
     if (!isMap(v)) return { intent: null, errors: ['A scope request is {"loop": {...}, "observation": {...}, "changes": [...]}.'] };
     Object.keys(v).forEach(function (k) { if (['loop', 'observation', 'changes'].indexOf(k) < 0) errors.push('The request has ' + q(k) + '. It can have: loop, observation, changes.'); });
-    var intent = { key: key, producer: producer || null, loop: cleanLoop(v.loop, errors), observation: v.observation == null ? null : cleanObservation(v.observation, errors), changes: cleanChanges(v.changes, errors) };
+    var intent = { key: key, producer: producer || null, loop: cleanLoop(v.loop, errors), observation: v.observation == null ? null : cleanObservation(v.observation, errors, kind), changes: cleanChanges(v.changes, errors, kind) };
+    if (kind && kind !== 'jira.issue') intent.kind = kind;
     if (!intent.observation && !intent.changes.length) errors.push('The request has no observation and no changes, so it asks for nothing.');
     return { intent: intent, errors: errors };
   }
@@ -800,13 +868,14 @@ PF.loop = (function () {
     if (PF.envelope.semver(o.app)) f.app = o.app;
     f.id = o.id || idFor(tool.name, intent.key);
     f.loop = intent.loop;
+    if (intent.kind && intent.kind !== 'jira.issue') f.kind = intent.kind;
     if (tool) { f.producer = { name: tool.name, version: tool.version }; f.key = intent.key; f.by = tool.name + ' ' + tool.version + ' (a tool)'; }
     else f.by = o.by;
     f.created = o.now;
     f.seen = (o.seen || []).slice().sort();
     f.observation = wire(intent.observation);
     f.changes = intent.changes;
-    f.children = (o.children || []).map(function (k) { return { item: { id: k.item.id || '', key: k.item.key }, attempt: k.attempt, inputs: sorted(k.inputs || {}), owner: k.owner || '' }; });
+    f.children = (o.children || []).map(function (k) { return { item: intent.kind && intent.kind !== 'jira.issue' ? { key: k.item.key } : { id: k.item.id || '', key: k.item.key }, attempt: k.attempt, inputs: sorted(k.inputs || {}), owner: k.owner || '' }; });
     return f;
   }
   /* The same, against a request as the folder reader cleaned it. */
@@ -829,17 +898,20 @@ PF.loop = (function () {
     var errors = [], mal = function (why) { return { ok: false, kind: 'malformed', why: why, needs: '' }; };
     if (typeof o.id !== 'string' || !REQ.test(o.id)) return mal('is a scope request without a request id');
     if (typeof name === 'string' && name.indexOf(o.id) !== 0) return mal('is a scope request whose name isn\'t its id');
-    var loop = cleanLoop(o.loop, errors), obs = o.observation == null ? null : cleanObservation(o.observation, errors), changes = cleanChanges(o.changes, errors);
+    /* The kind of item it's about (jira.issue when it doesn't say): one this copy doesn't know is refused, never read as another. */
+    if (o.kind != null && !kindOf(o.kind)) return mal('is a scope request for items of kind ' + JSON.stringify(String(o.kind).slice(0, 40)) + ', which this copy of Flightdeck doesn\'t know');
+    var kind = o.kind == null ? 'jira.issue' : o.kind;
+    var loop = cleanLoop(o.loop, errors), obs = o.observation == null ? null : cleanObservation(o.observation, errors, kind), changes = cleanChanges(o.changes, errors, kind);
     if (!Array.isArray(o.seen) || o.seen.length > LIMITS.seen || !o.seen.every(function (x) { return typeof x === 'string' && (REQ.test(x) || DNAME.test(x + '.json')); })) errors.push('its seen isn\'t a list of scope records');
     var children = [];
     if (!Array.isArray(o.children)) errors.push('its children isn\'t a list');
     else o.children.forEach(function (k, i) {
-      var it = isMap(k) ? cleanItem(k.item, errors, 'child ' + (i + 1)) : null;
+      var it = isMap(k) ? cleanItem(k.item, errors, 'child ' + (i + 1), kind) : null;
       if (!it || !whole(k.attempt) || k.attempt < 1 || !isMap(k.inputs) || Object.keys(k.inputs).length > LIMITS.inputs || Object.keys(k.inputs).some(function (n) { return reserved(n) || typeof k.inputs[n] !== 'string' || k.inputs[n].length > LIMITS.input; }) || (k.owner !== '' && !PERSON.test(String(k.owner)))) { errors.push('child ' + (i + 1) + ' isn\'t a planned child'); return; }
       children.push({ item: it, attempt: k.attempt, inputs: k.inputs, owner: k.owner });
     });
     if (errors.length) return mal('is a scope request that isn\'t in its format: ' + errors[0]);
-    return { ok: true, record: { id: o.id, type: 'request', loop: loop, seen: o.seen.slice(), by: byOf(o), observation: obs, changes: changes, children: children, created: typeof o.created === 'string' ? o.created : '', key: typeof o.key === 'string' ? o.key : '' } };
+    return { ok: true, record: { id: o.id, type: 'request', kind: kind, loop: loop, seen: o.seen.slice(), by: byOf(o), observation: obs, changes: changes, children: children, created: typeof o.created === 'string' ? o.created : '', key: typeof o.key === 'string' ? o.key : '' } };
   }
   /* A decision on a scope request's proposed removals: accept (remove them) or keep. Its id is its file stem. */
   function buildDecision(d) {
@@ -868,7 +940,7 @@ PF.loop = (function () {
   /* The records about one loop instance. */
   function recordsFor(records, loop) { return (records || []).filter(function (r) { return r.loop && r.loop.process === loop.process && r.loop.run === loop.run && r.loop.step === loop.step; }); }
 
-  return { KINDS: KINDS, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
+  return { KINDS: KINDS, kindOf: kindOf, nounOf: nounOf, count: count, feedWhy: feedWhy, httpLink: httpLink, cleanItem: cleanItem, cleanChanges: cleanChanges, FEED: FEED, NOUN: NOUN, MAX_ITEMS: MAX_ITEMS, DEFAULT_MAX: DEFAULT_MAX, LIMITS: LIMITS, FORMAT: FORMAT, STATUS: STATUS, OPS: OPS, maxOf: maxOf, limitOf: limitOf, uidOf: uidOf, causal: causal, reduce: reduce,
     idFor: idFor, isScope: isScope, differsRecord: differsRecord, cleanObservation: cleanObservation, cleanIntent: cleanIntent, canonical: canonical, differs: differs, buildRequest: buildRequest, text: text,
     rollup: rollup, view: view, markStale: markStale, rowId: rowId, choiceWhy: choiceWhy, resolveWhy: resolveWhy, resolvedBy: resolvedBy, planWhy: planWhy, sendBackWhy: sendBackWhy, again: again, appliedIn: appliedIn, requestCheck: requestCheck, launchable: launchable, startable: startable, actionsOf: actionsOf, ACTIONS: ACTIONS, loopOf: loopOf, project: project, changeOf: changeOf, previewText: previewText, inputsFor: inputsFor, approval: approval, changes: changes, itemRef: itemRef, cleanSnapshot: cleanSnapshot, cleanRequest: cleanRequest, buildDecision: buildDecision, cleanDecision: cleanDecision, cleanFile: cleanFile, recordsFor: recordsFor };
 })();
