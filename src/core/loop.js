@@ -264,7 +264,9 @@ PF.loop = (function () {
   /* The plans for an attempt that are in conflict, to choose one: each record with the inputs it planned. */
   function planConflict(x) {
     var ids = []; x.planReview.forEach(function (rv) { rv.records.forEach(function (id) { if (ids.indexOf(id) < 0 && x.planOpts[x.plan.attempt + '#' + id]) ids.push(id); }); });
-    return { attempt: x.plan.attempt, options: ids.slice(0, 20).map(function (id) { return { record: id, inputs: x.planOpts[x.plan.attempt + '#' + id].inputs }; }) };
+    /* Every plan in conflict, in record order: none is left out, so each can be chosen, whatever the files are named. */
+    ids.sort(cmpStr);
+    return { attempt: x.plan.attempt, options: ids.map(function (id) { return { record: id, inputs: x.planOpts[x.plan.attempt + '#' + id].inputs }; }) };
   }
   function rollup(L, runs, o) {
     o = o || {};
@@ -396,7 +398,7 @@ PF.loop = (function () {
     var i = V.rollup.items.filter(function (y) { return y.key === key; })[0];
     if (!i) return key + ' isn\'t in this loop.';
     if (!i.planConflict) return key + '\'s plans aren\'t in conflict, so there is nothing to choose.';
-    if (!i.planConflict.options.some(function (o) { return o.record === record; })) return record + ' isn\'t one of ' + key + '\'s plans in conflict: ' + i.planConflict.options.map(function (o) { return o.record; }).join(', ') + '.';
+    if (!i.planConflict.options.some(function (o) { return o.record === record; })) return record + ' isn\'t one of ' + key + '\'s ' + i.planConflict.options.length + ' plans in conflict: ' + i.planConflict.options.slice(0, 10).map(function (o) { return o.record; }).join(', ') + (i.planConflict.options.length > 10 ? ' and ' + (i.planConflict.options.length - 10) + ' more (flightdeck loop read lists them all)' : '') + '.';
     return '';
   }
   function choiceWhy(V, key, run) {

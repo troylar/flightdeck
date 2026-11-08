@@ -16839,7 +16839,9 @@ PF.loop = (function () {
   /* The plans for an attempt that are in conflict, to choose one: each record with the inputs it planned. */
   function planConflict(x) {
     var ids = []; x.planReview.forEach(function (rv) { rv.records.forEach(function (id) { if (ids.indexOf(id) < 0 && x.planOpts[x.plan.attempt + '#' + id]) ids.push(id); }); });
-    return { attempt: x.plan.attempt, options: ids.slice(0, 20).map(function (id) { return { record: id, inputs: x.planOpts[x.plan.attempt + '#' + id].inputs }; }) };
+    /* Every plan in conflict, in record order: none is left out, so each can be chosen, whatever the files are named. */
+    ids.sort(cmpStr);
+    return { attempt: x.plan.attempt, options: ids.map(function (id) { return { record: id, inputs: x.planOpts[x.plan.attempt + '#' + id].inputs }; }) };
   }
   function rollup(L, runs, o) {
     o = o || {};
@@ -16971,7 +16973,7 @@ PF.loop = (function () {
     var i = V.rollup.items.filter(function (y) { return y.key === key; })[0];
     if (!i) return key + ' isn\'t in this loop.';
     if (!i.planConflict) return key + '\'s plans aren\'t in conflict, so there is nothing to choose.';
-    if (!i.planConflict.options.some(function (o) { return o.record === record; })) return record + ' isn\'t one of ' + key + '\'s plans in conflict: ' + i.planConflict.options.map(function (o) { return o.record; }).join(', ') + '.';
+    if (!i.planConflict.options.some(function (o) { return o.record === record; })) return record + ' isn\'t one of ' + key + '\'s ' + i.planConflict.options.length + ' plans in conflict: ' + i.planConflict.options.slice(0, 10).map(function (o) { return o.record; }).join(', ') + (i.planConflict.options.length > 10 ? ' and ' + (i.planConflict.options.length - 10) + ' more (flightdeck loop read lists them all)' : '') + '.';
     return '';
   }
   function choiceWhy(V, key, run) {
@@ -25632,7 +25634,7 @@ PF.vk = (function () {
         if (work && i.required && me && x.owner !== me) acts += '<button class="mini" data-act="loop-owner"' + data + '>Make me the owner</button>';
         /* Every competing run is offered, up to the 50 a choice can record; past that it says so. */
         /* Two plans for one attempt made at once: choose which one stands (loop plan in the CLI). */
-        if (work && i.planConflict) { var pp = 'loop-plan-' + PF.loop.rowId(s.id, i.key || i.uid).slice(9); acts += '<label class="small">Plan to keep <select id="' + esc(pp) + '">' + i.planConflict.options.slice(0, 20).map(function (o) { return '<option value="' + esc(o.record) + '">' + esc(o.record + ': ' + Object.keys(o.inputs).slice(0, 5).map(function (n) { return n + '=' + o.inputs[n]; }).join(', ')) + '</option>'; }).join('') + '</select></label><button class="mini" data-act="loop-plan"' + data + ' data-pick="' + esc(pp) + '">Keep this plan</button>'; }
+        if (work && i.planConflict) { var pp = 'loop-plan-' + PF.loop.rowId(s.id, i.key || i.uid).slice(9); acts += '<label class="small">Plan to keep <select id="' + esc(pp) + '">' + i.planConflict.options.map(function (o) { return '<option value="' + esc(o.record) + '">' + esc(o.record + ': ' + Object.keys(o.inputs).slice(0, 5).map(function (n) { return n + '=' + o.inputs[n]; }).join(', ')) + '</option>'; }).join('') + '</select></label><button class="mini" data-act="loop-plan"' + data + ' data-pick="' + esc(pp) + '">Keep this plan</button>'; }
         if (work && i.competing) { var pick = 'loop-pick-' + PF.loop.rowId(s.id, i.key || i.uid).slice(9); acts += '<label class="small">Run to count <select id="' + esc(pick) + '">' + i.candidates.slice(0, 50).map(function (cid) { return '<option value="' + esc(cid) + '">' + esc(cid) + '</option>'; }).join('') + '</select></label>' + (i.candidates.length > 50 ? '<span class="small">' + (i.candidates.length - 50) + ' more runs not listed (a choice compares at most 50).</span>' : '') + '<button class="mini" data-act="loop-choose"' + data + ' data-pick="' + esc(pick) + '">Count this run</button>'; }
         if (work && i.required) acts += '<button class="mini" data-act="loop-assign"' + data + '>Assign</button>';
         if (work && x.owner) acts += '<button class="mini" data-act="loop-unassign"' + data + '>Unassign</button>';

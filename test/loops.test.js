@@ -722,6 +722,18 @@ rule('3b: nouns: noun: one / many, one formatter, no guessed plurals; item / ite
   same([LP.nounOf({ items: 'item' }).many, LP.nounOf({ items: 'jira.issue' }).many], ['items', 'stories']);
   for (const v of ['environments', 'a / ', ' / b', 'a/b/c', 'x'.repeat(41) + ' / y', '<b> / <b>s']) assert.strictEqual(LP.nounOf({ noun: v, items: 'item' }), null, v);
 });
+rule('Round 9 (7): every conflicting plan is an option, however many and whatever their names; the picker and loop plan accept each', () => {
+  const plans = (names) => [b8()].concat(names.map((n, i) => req(n, ['s0'], { children: [{ item: { id: '10102', key: 'ABC-102' }, attempt: 1, inputs: { issue: 'v' + i }, owner: '' }] })));
+  const names = Array.from({ length: 21 }, (_, i) => 'p' + String(i).padStart(2, '0'));
+  const opts = (recs) => { const R0 = RO(LP.reduce(recs), runs8()), row = R0.items.filter(i => i.key === 'ABC-102')[0]; return { R0, row }; };
+  const { R0, row } = opts(plans(names));
+  same(row.planConflict.options.length, 21, 'all 21 plans');
+  names.forEach(n => same(LP.planWhy({ rollup: R0 }, 'ABC-102', n), '', n));
+  const renamed = names.map(n => 'z' + n).reverse(), o2 = opts(plans(renamed)).row.planConflict.options.map(o => o.record).sort();
+  same(o2, renamed.slice().sort(), 'names change nothing about which are offered');
+  const run = require('fs').readFileSync(require('path').join(__dirname, '..', 'src', 'ui', 'views', 'run.js'), 'utf8');
+  assert.ok(!/planConflict\.options\.slice\(/.test(run), 'the picker lists every option');
+});
 rule('Round 9 (5): a Jira observation of another query is refused like another scope of a feed: it proposes nothing', () => {
   const L = LP.reduce([req('q1', [], { observation: obs([101, 102]) }), req('q2', ['q1'], { observation: obs([], { query: 'project = OTHER' }) })]);
   same(L.items.map(x => x.key + ':' + x.state), ['ABC-101:in', 'ABC-102:in'], 'nothing proposed');
