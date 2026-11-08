@@ -2905,7 +2905,8 @@
   var childToken = 0;
   /* Loops (3.0): every change to a loop's list is a scope record in proposals/, written once (repo.saveScope), the same
      records flightdeck loop writes; a story's run is a run of the loop's checklist naming its item. */
-  function loopKey(k) { var m = /([A-Z][A-Z0-9_]{0,29}-[1-9][0-9]{0,8})\/?$/.exec(String(k).trim()); return m ? m[1] : String(k).trim(); }
+  /* A Jira key may be pasted as its link; any other kind's key is taken exactly as typed (case and all). */
+  function loopKey(k, kind) { var m = !kind || kind === 'jira.issue' ? /([A-Z][A-Z0-9_]{0,29}-[1-9][0-9]{0,8})\/?$/.exec(String(k).trim()) : null; return m ? m[1] : String(k).trim(); }
   /* The last view of each loop read with no scope record held, kept for this window only (never saved), drawn beside a hold. */
   function loopLast(r, id, V) {
     var k = r.process + '/' + r.id + '/' + id;
@@ -2940,10 +2941,10 @@
     var r = ctx.run(), V = r && loopView(r, id);
     if (!V) return;
     if (V.ledger.held.length) { say('This loop has a scope record this computer can\'t read yet, so nothing was changed. Check the folder, then try again.', 'warn'); render(); return; }
-    var c = PF.loop.cleanIntent(PF.loop.changeOf(V, op, keys, o), '', null);
+    var c = PF.loop.cleanIntent(PF.loop.changeOf(V, op, keys, o), '', null, V.kind);
     if (c.errors.length) { say(c.errors.slice(0, 5).join(' ') + ' Nothing was changed.', 'warn'); render(); return; }
     var P = PF.loop.project(r, V, c.intent, { who: personName, by: state.me });
-    if (P.overLimit) { say('This would put ' + P.overLimit.count + ' stories in scope; the loop takes at most ' + P.overLimit.max + '. Nothing was changed.', 'warn'); render(); return; }
+    if (P.overLimit) { say('This would put ' + PF.loop.count(P.overLimit.count, V.noun) + ' in scope; the loop takes at most ' + P.overLimit.max + '. Nothing was changed.', 'warn'); render(); return; }
     var now = new Date().toISOString(), f = PF.loop.buildRequest(c.intent, { seen: P.seen, children: P.record.children, now: now, app: APP_VERSION, by: state.me, id: 'req-flightdeck-' + loopHex(24) });
     var cx = loopGuard();
     loopSaved(repo.saveScope(cx.fs, f.id + '.json', f, { still: function () { return guardOk(cx); } }), P.summary || 'Saved.');
@@ -7644,7 +7645,15 @@
     resume: function () { mutate(function (r, map, me, now) { R.resume(r, me, now); }); },
     'start-child': function (id) { startChild(id); },
     'continue-two': function (id) { continueTwo(id); },
-    'loop-add': function (id) { var keys = val('loop-add-' + id).split(/[\s,]+/).filter(Boolean).map(loopKey); if (!keys.length) { say('Type the stories to add, like ABC-101, ABC-102.', 'warn'); render(); return; } loopChange(id, 'add', keys); },
+    'loop-add': function (id) {
+      var r = ctx.run(), V = r && loopView(r, id);
+      if (!V) return;
+      var jira = V.kind === 'jira.issue', keys = val('loop-add-' + id).split(/[\s,]+/).filter(Boolean).map(function (k) { return loopKey(k, V.kind); });
+      if (!keys.length) { say('Type the ' + V.noun.many + ' to add, like ' + (jira ? 'ABC-101, ABC-102' : 'staging, prod') + '.', 'warn'); render(); return; }
+      var title = jira ? '' : val('loop-add-title-' + id).trim(), link = jira ? '' : val('loop-add-link-' + id).trim();
+      if ((title || link) && keys.length !== 1) { say('A title and a link go with adding one ' + V.noun.one + ' at a time.', 'warn'); render(); return; }
+      loopChange(id, 'add', keys, { title: title, link: link });
+    },
     'loop-exclude': function (id, b) { loopChange(id, 'exclude', [b.dataset.item], { reason: val('loop-why-' + id).trim() }); },
     'loop-restore': function (id, b) { loopChange(id, 'restore', [b.dataset.item], { reason: val('loop-why-' + id).trim() }); },
     'loop-exception': function (id, b) { var why = val('loop-why-' + id).trim(); if (!why) { say('Say why ' + b.dataset.item + ' is approved without a run, in the Why box.', 'warn'); render(); return; } loopChange(id, 'exception', [b.dataset.item], { reason: why, approver: state.me }); },
@@ -7667,7 +7676,7 @@
     'loop-approve': function (id) {
       mutate(function (r, map, me, now) {
         var V = loopView(r, id);
-        if (!V || !V.rollup.ok) throw new Error('Every story in scope needs an accepted result or an approval without a run first.');
+        if (!V || !V.rollup.ok) throw new Error('Every ' + (V ? V.noun.one : 'item') + ' in scope needs an accepted result or an approval without a run first.');
         R.done(r, map, id, me, now, { _loop: { ok: true, snapshot: PF.loop.approval(V.ledger, V.rollup, { by: me, at: now }) } });
       });
     },

@@ -190,6 +190,9 @@
     var V = PF.loop.view(r, s.id, { records: (ctx.data && ctx.data.scopes) || [], unread: (ctx.data && ctx.data.scopesUnread) || [], runs: (ctx.data && ctx.data.runs) || [], procOf: ctx.procOf, who: who });
     if (!V) return '';
     var RU = V.rollup, sid = esc(s.id), work = can && !V.ended && !r.paused, h = '<div class="loopbox childbox" style="display:block">';
+    /* What its rows are called (noun:, or the kind's own), said the same way on every part of the box (PF.loop.count). */
+    var N = V.noun, jira = V.kind === 'jira.issue', One = N.one.charAt(0).toUpperCase() + N.one.slice(1), an = /^[aeiou]/i.test(N.one) ? 'an ' : 'a ';
+    var src = jira ? 'the Jira search' : 'the feed ' + (V.fields.source || '');
     h += '<p>' + I('nest') + ' <b>' + esc(RU.summary) + '</b></p>';
     if (V.approved && V.changes.length) h += '<div class="notice warn"><span><b>' + (V.ended ? 'Changed after this run ended' : 'Changed since this was approved') + ':</b> ' + V.changes.slice(0, 50).map(esc).join(' ') + (V.changes.length > 50 ? ' And ' + (V.changes.length - 50) + ' more.' : '') + '</span>' +
       (work && a && a.s === 'done' ? '<button class="btn" data-act="loop-unsettle" data-id="' + sid + '">Send the approval back for review</button>' : '') + '</div>';
@@ -203,10 +206,10 @@
     var me = ctx.state && ctx.state.me, all = !!mem.all[s.id], open = !!mem.open[s.id];
     var keepRow = mem.keepRow, kept = keepRow && keepRow.run === r.process + '/' + r.id && keepRow.step === s.id ? keepRow.key : null;
     var rows = open ? RU.items.filter(function (i) { return (i.required && i.status !== 'cleared' && i.status !== 'exception') || (kept && i.key === kept); }) : RU.items, PAGE = 50;
-    if (RU.items.length > 10) h += '<div class="row"><button class="mini" data-act="loop-open" data-id="' + sid + '" aria-pressed="' + open + '">' + (open ? 'Show every story' : 'Show only stories still open') + '</button></div>';
+    if (RU.items.length > 10) h += '<div class="row"><button class="mini" data-act="loop-open" data-id="' + sid + '" aria-pressed="' + open + '">' + (open ? 'Show every ' + esc(N.one) : 'Show only ' + esc(N.many) + ' still open') + '</button></div>';
     if (RU.items.length) {
-      h += '<table class="loop-items"><thead><tr><th>Story</th><th>Status</th><th>Result</th><th>Owner</th><th></th></tr></thead><tbody>';
-      /* Which stories may start, by the one rule every start uses (PF.loop.launchable): a competing story is chosen first. */
+      h += '<table class="loop-items"><thead><tr><th>' + esc(One) + '</th><th>Status</th><th>Result</th><th>Owner</th><th></th></tr></thead><tbody>';
+      /* Which rows may start, by the one rule every start uses (PF.loop.launchable): a competing story is chosen first. */
       var startOk = Object.create(null); PF.loop.launchable(r, V, RU.items.map(function (i) { return i.key; }), ctx.procOf).start.forEach(function (k) { startOk[k.key] = k; });
       rows.slice(0, all ? rows.length : PAGE).forEach(function (i) {
         var x = V.ledger.items.filter(function (y) { return y.uid === i.uid; })[0] || {}, k = esc(i.key || i.uid), acts = '';
@@ -227,14 +230,14 @@
         if (work && i.state === 'removed') acts += '<button class="mini" data-act="loop-restore"' + data + '>Restore</button>';
         if (work && i.required && !i.exception && i.status !== 'cleared') acts += '<button class="mini" data-act="loop-exception"' + data + '>Approve without a run</button>';
         if (work && (i.exception || i.excReview)) acts += '<button class="mini" data-act="loop-withdraw"' + data + '>Withdraw approval</button>';
-        h += '<tr id="' + esc(PF.loop.rowId(s.id, i.key || i.uid)) + '" tabindex="-1"><td><b>' + k + '</b> ' + esc(i.title || '') + (i.state === 'proposed' ? ' <span class="small">(removal proposed)</span>' : '') + '</td><td>' + esc(LOOP_STATUS[i.status] || i.status) +
+        h += '<tr id="' + esc(PF.loop.rowId(s.id, i.key || i.uid)) + '" tabindex="-1"><td><b>' + k + '</b> ' + (x.link && PF.loop.httpLink(x.link) ? '<a href="' + esc(x.link) + '" target="_blank" rel="noopener noreferrer">' + esc(i.title || x.link) + '</a>' : esc(i.title || '')) + (i.state === 'proposed' ? ' <span class="small">(removal proposed)</span>' : '') + '</td><td>' + esc(LOOP_STATUS[i.status] || i.status) +
           (i.exception ? ' <span class="small">' + esc(i.exception.reason || '') + ' · ' + esc(who(i.exception.approver)) + (i.exception.onBehalf ? ', recorded on their behalf' : '') + '</span>' : '') +
-          (i.mismatch ? ' <span class="small">' + (i.state === 'removed' ? 'Removed here, but the Jira search still finds it' : 'Kept here, but the Jira search no longer finds it') + '</span>' : '') +
+          (i.mismatch ? ' <span class="small">' + (i.state === 'removed' ? 'Removed here, but ' + esc(src) + (jira ? ' still finds it' : ' still lists it') : 'Kept here, but ' + esc(src) + (jira ? ' no longer finds it' : ' no longer lists it')) + '</span>' : '') +
           (x.removed && x.removed.by && x.removed.by.tool ? ' <span class="small">Removed by ' + esc(x.removed.by.tool) + '</span>' : '') + '</td><td>' + esc(i.result || '') + '</td><td>' + esc(i.owner ? who(i.owner) : i.ownerWhy ? 'Unassigned: ' + i.ownerWhy : i.recorder ? who(i.recorder) : '') + '</td><td>' + acts + '</td></tr>';
       });
       h += '</tbody></table>';
-      if (!all && rows.length > PAGE) h += '<button class="mini" data-act="loop-more" data-id="' + sid + '">Show all ' + rows.length + ' stories</button>';
-    } else h += '<p class="small">No stories in scope yet.</p>';
+      if (!all && rows.length > PAGE) h += '<button class="mini" data-act="loop-more" data-id="' + sid + '">Show all ' + esc(PF.loop.count(rows.length, N)) + '</button>';
+    } else h += '<p class="small">No ' + esc(N.many) + ' in scope yet.</p>';
     /* Requests to the recorder, the latest 10: waiting, applied or refused, with why. */
     /* Every request still to settle (waiting, held, recorded both ways) is always listed, whatever came after it; of those
        applied or refused, the latest 10, and Show them for the rest. */
@@ -251,9 +254,11 @@
         (S.start.length ? '<button class="btn go" data-act="loop-start-all-confirm" data-id="' + sid + '">Start ' + S.start.length + '</button>' : '') + '<button class="btn" data-act="loop-start-all-cancel" data-id="' + sid + '">Cancel</button></div>';
       else if (S.start.length) h += '<button class="btn" data-act="loop-start-all" data-id="' + sid + '">Start all under my recording…</button>';
     }
-    if (work) h += '<div class="row"><label class="small" for="loop-add-' + sid + '">Add stories</label> <input id="loop-add-' + sid + '" placeholder="ABC-101, ABC-102"> <button class="btn" data-act="loop-add" data-id="' + sid + '">Add</button></div>' +
+    if (work) h += '<div class="row"><label class="small" for="loop-add-' + sid + '">Add ' + esc(N.many) + '</label> <input id="loop-add-' + sid + '" placeholder="' + (jira ? 'ABC-101, ABC-102' : 'staging, prod') + '"> <button class="btn" data-act="loop-add" data-id="' + sid + '">Add</button></div>' +
+      /* One item added by hand may bring a title and a link (items: item); a Jira story brings its own. */
+      (jira ? '' : '<div class="row"><label class="small" for="loop-add-title-' + sid + '">Title (adding one)</label> <input id="loop-add-title-' + sid + '" maxlength="200"> <label class="small" for="loop-add-link-' + sid + '">Link (http or https)</label> <input id="loop-add-link-' + sid + '" maxlength="2048"></div>') +
       '<div class="row"><label class="small" for="loop-why-' + sid + '">Why (for removing or approving without a run)</label> <input id="loop-why-' + sid + '"></div>' +
-      '<div class="row"><label class="small" for="loop-who-' + sid + '">Owner to assign (Assign on a story)</label> <select id="loop-who-' + sid + '">' + (ctx.peopleSorted ? ctx.peopleSorted() : []).filter(function (p) { return p && p.id && !p.inactive; }).map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(p.name || p.id) + '</option>'; }).join('') + '</select></div>';
+      '<div class="row"><label class="small" for="loop-who-' + sid + '">Owner to assign (Assign on ' + an + esc(N.one) + ')</label> <select id="loop-who-' + sid + '">' + (ctx.peopleSorted ? ctx.peopleSorted() : []).filter(function (p) { return p && p.id && !p.inactive; }).map(function (p) { return '<option value="' + esc(p.id) + '">' + esc(p.name || p.id) + '</option>'; }).join('') + '</select></div>';
     if (work && a && a.s !== 'done' && RU.ok) h += '<button class="btn go" data-act="loop-approve" data-id="' + sid + '">Approve: ' + esc(RU.summary) + '</button>';
     return h + '</div>';
   }

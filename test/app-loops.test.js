@@ -137,9 +137,9 @@ rule('Review round 1: an owner\'s Start mine, ownership from the list, and sixty
   assert.ok(/Show every story/.test(txt(app)));
 });
 
-async function ask(app, changes, key) {
+async function ask(app, changes, key, kind) {
   const PF = app.PF, LP = PF.loop, r = parentRun(app);
-  const c = LP.cleanIntent({ loop: { process: 'release-readiness', run: r.id, step: 'each' }, changes }, key, { name: 'release-helper', version: '1.0' });
+  const c = LP.cleanIntent({ loop: { process: 'release-readiness', run: r.id, step: 'each' }, changes }, key, { name: 'release-helper', version: '1.0' }, kind);
   assert.strictEqual(c.errors.length, 0, c.errors.join(' '));
   const d = await PF.repo.loadAll(app.fs, {}), V = LP.view(r, 'each', { records: d.scopes, runs: d.runs });
   const f = LP.buildRequest(c.intent, { seen: V.ledger.heads, children: [], now: new Date().toISOString(), app: '3.0.0' });
@@ -737,6 +737,84 @@ rule('Review round 8 (7): a request still to resolve is always on the run screen
   assert.ok(/data-act="loop-requests-more"/.test(app.html()), 'earlier applied and refused requests page');
   app.click('loop-requests-more', 'each'); await app.tick(60);
   assert.ok(!/data-act="loop-requests-more"/.test(app.html()), 'all shown');
+});
+
+/* Slice 3b: a loop over any list (items: item). */
+const GPARENT = PARENT.replace('title: Release 4.1', 'title: Deploy everywhere').replace('Validate every release story', 'Deploy to every environment').replace('## Stories ·', '## Environments ·')
+  .replace('  items: jira.issue', '  items: item\n  source: deploy-targets\n  noun: environment / environments');
+rule('3b App: a list of environments kept by hand: its noun on the table, buttons and notices; keys as typed; a title and a safe link', async () => {
+  const app = await setup({ maps: { parent: GPARENT } });
+  let t = txt(app);
+  const box = t.slice(t.indexOf('0 in scope'));
+  assert.ok(/No environments in scope yet\./.test(box) && /Add environments/.test(box) && !/stor(y|ies)|Jira/i.test(box), box.slice(0, 900));
+  assert.ok(/placeholder="staging, prod"/.test(app.html()), 'a generic example key');
+  app.set('loop-add-each', 'qa'); app.set('loop-add-title-each', 'QA'); app.set('loop-add-link-each', 'javascript:alert(1)'); app.click('loop-add', 'each'); await app.tick(150);
+  assert.strictEqual(scopes(app).length, 0, 'an unsafe link writes nothing');
+  assert.ok(/(&quot;|")link(&quot;|") is an http or https address/.test(txt(app)), 'and says why');
+  app.set('loop-add-link-each', 'https://qa.example.com/"><img src=x onerror=alert(1)>'); app.click('loop-add', 'each'); await app.tick(150);
+  assert.strictEqual(scopes(app).length, 0, 'a link with markup in it writes nothing');
+  app.set('loop-add-link-each', 'https://qa.example.com/'); app.click('loop-add', 'each'); await app.tick(150);
+  app.set('loop-add-each', 'staging, Prod'); app.set('loop-add-title-each', ''); app.set('loop-add-link-each', ''); app.click('loop-add', 'each'); await app.tick(150);
+  assert.strictEqual(scopes(app).length, 2);
+  const req = JSON.parse(app.fs.files[scopes(app).map(p => [p, JSON.parse(app.fs.files[p].t)]).filter(x => x[1].changes.length === 1)[0][0]].t);
+  assert.deepStrictEqual([req.kind, req.changes[0].item], ['item', { key: 'qa', title: 'QA', link: 'https://qa.example.com/' }]);
+  t = txt(app);
+  assert.ok(/<th>Environment<\/th>/.test(app.html()), 'the table heads its column with the noun');
+  assert.ok(/<a href="https:\/\/qa\.example\.com\/" target="_blank" rel="noopener noreferrer">QA<\/a>/.test(app.html()), 'the link, escaped, opens apart');
+  assert.ok(/Prod/.test(t) && /staging/.test(t) && !/PROD/.test(t), 'keys exactly as typed: ' + (t.match(/(Prod|PROD|prod|staging)[^·]{0,80}/g) || []).join(' | '));
+  app.click('loop-start-all', 'each'); await app.tick(50);
+  assert.ok(/Start 3 runs: qa, staging, Prod|Start 3 runs: [a-zA-Z, ]+/.test(txt(app)), 'Start all previews the environments');
+  app.click('loop-start-all-confirm', 'each'); app.click('loop-start-all-confirm', 'each'); await app.tick(300);
+  assert.strictEqual(kidPaths(app).length, 3, 'the batch starts each environment once');
+  const kids = kidPaths(app).map(p => JSON.parse(app.fs.files[p].t)).map(k => [k.details.issue, k.parent.item.uid]).sort();
+  assert.deepStrictEqual(kids, [['Prod', 'item:key:Prod'], ['qa', 'item:key:qa'], ['staging', 'item:key:staging']]);
+  for (const p of kidPaths(app)) await clear(app, p);
+  t = txt(app);
+  assert.ok(/3 in scope · 3 cleared by validation/.test(t), t.slice(0, 400));
+  app.click('loop-approve', 'each'); await app.tick(200);
+  assert.strictEqual(parentRun(app).steps.each.s, 'done', 'approved');
+});
+rule('3b App: a tool feeds the list; its proposals and the mismatch name the feed; a choice and two decisions at once hold approval', async () => {
+  const app = await setup({ maps: { parent: GPARENT } });
+  const PF = app.PF, LP = PF.loop, r = parentRun(app), loop = { process: 'release-readiness', run: r.id, step: 'each' };
+  const ob = (keys) => ({ source: { feed: 'deploy-targets' }, generation: 'g1', query: '', observedAt: new Date().toISOString(), items: keys.map(k => ({ key: k })), reported: keys.length, fetched: keys.length, complete: true, errors: [] });
+  const sync = async (keys, key) => { const c = LP.cleanIntent({ loop, observation: ob(keys) }, key, { name: 'deploy-helper', version: '1.0' }, 'item'); assert.strictEqual(c.errors.length, 0, c.errors.join(' '));
+    const d = await PF.repo.loadAll(app.fs, {}), V = LP.view(parentRun(app), 'each', { records: d.scopes, runs: d.runs });
+    const f = LP.buildRequest(c.intent, { seen: V.ledger.heads, children: [], now: new Date().toISOString(), app: '3.0.0' }); await app.fs.write('proposals/' + f.id + '.json', LP.text(f)); app.click('refresh'); await app.tick(250); };
+  await sync(['staging', 'prod'], 'k1');
+  app.set('loop-add-each', 'qa'); app.click('loop-add', 'each'); await app.tick(150);
+  await sync(['staging'], 'k2');
+  const V = LP.view(parentRun(app), 'each', { records: (await PF.repo.loadAll(app.fs, {})).scopes, runs: [] });
+  assert.strictEqual(JSON.stringify(V.ledger.items.map(x => x.key + ':' + x.state)), JSON.stringify(['prod:proposed', 'staging:in', 'qa:in']), 'qa, added by hand, is never proposed');
+  app.click('loop-keep', 'each', { item: 'prod' }); await app.tick(200);
+  app.set('loop-why-each', 'Not this release'); app.click('loop-exclude', 'each', { item: 'staging' }); await app.tick(200);
+  assert.ok(/Removed here, but the feed deploy-targets still lists it/.test(txt(app)), txt(app).slice(txt(app).indexOf('staging'), txt(app).indexOf('staging') + 300));
+  app.click('loop-start', 'each', { item: 'prod' }); await app.tick(150);
+  app.click('loop-start', 'each', { item: 'qa' }); await app.tick(150);
+  const ps = kidPaths(app); for (const p of ps) await clear(app, p);
+  /* A second run for prod at the same attempt: two runs compete, and two choices at once hold approval. */
+  const k0 = JSON.parse(app.fs.files[ps.find(p => JSON.parse(app.fs.files[p].t).details.issue === 'prod')].t), k1 = JSON.parse(JSON.stringify(k0)); k1.id = k0.id + 'b';
+  await app.fs.write('runs/validate-story/' + k1.id + '/run.json', JSON.stringify(k1)); app.click('refresh'); await app.tick(200);
+  const d = await PF.repo.loadAll(app.fs, {}), heads = LP.view(parentRun(app), 'each', { records: d.scopes, runs: d.runs }).ledger.heads;
+  const choose = async (run, key) => { const c = LP.cleanIntent({ loop, changes: [{ op: 'choose', item: { key: 'prod' }, run, attempt: 1, candidates: [k0.id, k1.id] }] }, key, { name: 'deploy-helper', version: '1.0' }, 'item');
+    assert.strictEqual(c.errors.length, 0, c.errors.join(' ')); const f = LP.buildRequest(c.intent, { seen: heads, children: [], now: new Date().toISOString(), app: '3.0.0' }); await app.fs.write('proposals/' + f.id + '.json', LP.text(f)); };
+  await choose(k0.id, 'c1'); await choose(k1.id, 'c2'); app.click('refresh'); await app.tick(250);
+  assert.ok(!/data-act="loop-approve"/.test(app.html()), 'two choices at once hold approval');
+  assert.ok(/two people chose different runs at once/.test(txt(app)));
+});
+rule('3b App: a run whose loop takes a kind this copy doesn\'t know is read-only, naming the kind, and writes nothing; another run is unaffected', async () => {
+  const app = await setup({ maps: { parent: GPARENT } });
+  const p = app.files('runs/release-readiness/').find(x => /run\.json$/.test(x)), r = JSON.parse(app.fs.files[p].t);
+  r.snapshot = r.snapshot.split('items: item').join('items: widget');
+  await app.fs.write(p, JSON.stringify(r)); app.click('refresh'); await app.tick(250);
+  const t = txt(app);
+  assert.ok(/takes items of kind (&quot;|")widget(&quot;|"), which this copy of Flightdeck doesn't know/.test(t), t.slice(0, 800));
+  assert.ok(!/data-act="loop-add"/.test(app.html()), 'no list to change');
+  const before = JSON.stringify(app.fs.files);
+  app.click('loop-add', 'each'); app.click('loop-start-all', 'each'); await app.tick(150);
+  assert.strictEqual(JSON.stringify(app.fs.files), before, 'nothing written');
+  app.click('start', 'release-readiness'); await app.settle();
+  assert.ok(/data-act="loop-add"/.test(app.html()) || /start-form/.test(app.html()), 'a new run of the published version starts as usual');
 });
 
 run();
